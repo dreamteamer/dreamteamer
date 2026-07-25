@@ -35,7 +35,8 @@ same door a module uses — read `studio/src/registry/register-defaults.ts`.
 
 ## the module contract — `studio/src/modules.ts`
 
-a module ships a prebuilt browser entry (`app.js`, listed by the server at `/server/info`) whose
+a module ships a browser entry (`studio/app.js`, or a built `studio/dist/app.js`) that compile
+stages to `.dreamteamer/ui/<module>/app.js` and `/api/info` lists under `ui:`; its
 **default export** is a register function taking the registry API:
 
 ```js
@@ -65,8 +66,9 @@ export default ({ registerEdit, registerView, registerList, registerApp, registe
    module ships its own tree.
 2. register it in that module's `app.js` (or `register-defaults.ts` for a core built-in) with a
    stable `id`.
-3. build: `npm run build:studio` for the reference app; a separate module runs its own build to
-   produce the `app.js` the server lists.
+3. plain-JS `studio/app.js` needs NO build (host provides Vue via `window.Vue`); a module that
+   wants a toolchain builds to `studio/dist/app.js` itself. declare any Lists it registers in its
+   package.json `dreamteamer.studio.layouts`, then `npm run compile` to stage it.
 4. serve and look at it: `npm run --silent dt -- start [--port <n>]` → studio at
    `http://localhost:8080/admin` (it 503s with a build hint if step 3 was skipped).
 5. bind it — a field's `edit`/`view` meta, or a `ui-view.layout` naming the `id`

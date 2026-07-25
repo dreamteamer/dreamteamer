@@ -13,6 +13,8 @@ const GITIGNORE = `node_modules/
 git_modules/
 .dreamteamer/
 .claude/
+.agents/
+.cursor/
 .env
 media/
 .screenshots/

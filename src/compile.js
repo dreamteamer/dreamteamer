@@ -207,7 +207,7 @@ export function compile({ root, pkg }) {
 	// naming the registered set (design guardrail: "unknown layout = compile error").
 	// core set = the studio's built-ins; modules declare theirs in package.json
 	// dreamteamer.studio.layouts (the same file their app.js registration lives beside).
-	const registeredLayouts = new Set(['table', 'cards', 'form', 'doc']);
+	const registeredLayouts = new Set(['table', 'cards']);
 	for (const source of sources) {
 		try {
 			const mpkg = JSON.parse(fs.readFileSync(path.join(source.root, 'package.json'), 'utf8'));
@@ -217,7 +217,7 @@ export function compile({ root, pkg }) {
 	for (const [rt, e] of entries) {
 		if (!rt.startsWith('system/ui-views/')) continue;
 		const view = load(e.bytes.toString('utf8'));
-		if (view?.layout && !registeredLayouts.has(view.layout)) {
+		if (view?.target === 'list' && view?.layout && !registeredLayouts.has(view.layout)) {
 			fail(`${rt}: layout "${view.layout}" is not registered (registered: ${[...registeredLayouts].sort().join(', ')}).\n  a module registers layouts in its studio app.js AND declares them in package.json under dreamteamer.studio.layouts.`);
 		}
 	}
