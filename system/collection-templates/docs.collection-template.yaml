@@ -1,0 +1,14 @@
+name: docs
+template:
+  storage: { codec: md, shape: file }
+  id:
+    generate: "{{ created | date }}--{{ title | slug }}"
+    pattern: "^\\d{4}-\\d{2}-\\d{2}--[a-z0-9-]+$"
+  schema:
+    type: object
+    required: [title]
+    properties:
+      title:   { type: string }
+      content: { type: string, format: markdown, x-body: true }
+      tags:    { type: array, items: { type: string } }
+  list_fields: [title, tags]

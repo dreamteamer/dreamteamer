@@ -1,0 +1,17 @@
+name: workflow-triggers
+storage: { path: state/workflow-triggers, codec: yaml, shape: file, suffix: workflow-trigger }
+id: { generate: "{{ name | slug }}" }
+schema:
+  type: object
+  required: [name, trigger-type, workflow]
+  properties:
+    name:         { type: string }
+    trigger-type: { type: string, enum: [item-added, item-updated, item-removed, cron] }
+    collection:   { type: string, x-reference: collections }
+    workflow:     { type: string, x-reference: workflows }
+    cron:         { type: string }
+    enabled:      { type: boolean, default: true }
+order: 82
+list_fields: [name, trigger-type, collection, workflow, enabled]
+icon: bolt
+group: system

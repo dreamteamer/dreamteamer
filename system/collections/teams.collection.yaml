@@ -1,0 +1,13 @@
+name: teams
+storage: { path: data/teams, codec: yaml, shape: file, suffix: team }
+id: { generate: "{{ name | slug }}" }
+schema:
+  type: object
+  required: [name]
+  properties:
+    name:    { type: string }
+    members: { type: array, items: { type: string, x-reference: users, x-display: "{{ name }}" } }
+order: 91
+list_fields: [name, members]
+icon: group
+group: system

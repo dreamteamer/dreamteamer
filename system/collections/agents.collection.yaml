@@ -1,0 +1,17 @@
+name: agents
+storage: { path: system/agents, codec: md, shape: file, suffix: agent }
+id: { generate: "{{ name | slug }}" }
+schema:
+  type: object
+  required: [name, description]
+  properties:
+    name:         { type: string }
+    description:  { type: string }
+    tools:        { type: array, items: { type: string } }
+    model:        { type: string }
+    skills:       { type: array, items: { type: string, x-reference: skills } }
+    instructions: { type: string, format: markdown, x-body: true }
+order: 86
+list_fields: [name, description]
+icon: smart_toy
+group: system

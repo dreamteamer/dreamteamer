@@ -1,0 +1,13 @@
+name: users
+storage: { path: data/users, codec: yaml, shape: file, suffix: user }
+id: { generate: "{{ name | slug }}" }
+schema:
+  type: object
+  required: [name]
+  properties:
+    name:  { type: string }
+    email: { type: string, format: email }
+order: 90
+list_fields: [name, email]
+icon: badge
+group: system

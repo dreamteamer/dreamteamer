@@ -1,0 +1,13 @@
+name: module-registries
+storage: { path: state/module-registries, codec: yaml, shape: file, suffix: module-registry }
+id: { generate: "{{ name | slug }}" }
+schema:
+  type: object
+  required: [name, url]
+  properties:
+    name: { type: string }
+    url:  { type: string, format: uri }
+order: 92
+list_fields: [name, url]
+icon: extension
+group: system

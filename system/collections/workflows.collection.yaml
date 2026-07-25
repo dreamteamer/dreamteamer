@@ -1,0 +1,29 @@
+name: workflows
+storage: { path: system/workflows, codec: yaml, shape: file, suffix: workflow }
+id: { generate: "{{ name | slug }}" }
+schema:
+  type: object
+  required: [name, steps]
+  properties:
+    name:       { type: string }
+    collection: { type: string, x-reference: collections }
+    inputs:     { type: array, items: { type: string } }
+    steps:
+      type: array
+      items:
+        type: object
+        required: [id, operator, prompt]
+        properties:
+          id: { type: string }
+          operator:
+            type: object
+            properties:
+              agent:  { type: string, x-reference: agents }
+              skills: { type: array, items: { type: string, x-reference: skills } }
+              human:  { type: string, x-reference: users }   # or a runtime token: @initiator
+          prompt:    { type: string, format: markdown }
+          done-when: { type: string }
+order: 80
+list_fields: [name, collection]
+icon: account_tree
+group: system
