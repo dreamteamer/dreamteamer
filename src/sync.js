@@ -88,7 +88,7 @@ export function sync(ws, { evaluator = 'cli', dryRun = false, from: fromOverride
 		}
 	}
 
-	return { evaluator, from, to: head, events, matches: toCreate.concat(deduped), created, deduped, cronSkipped, dryRun, initialized };
+	return { evaluator, from, to: head, events, matches: toCreate.concat(deduped), pending: toCreate, created, deduped, cronSkipped, dryRun, initialized };
 }
 
 export function printSyncReport(r) {
@@ -106,8 +106,8 @@ export function printSyncReport(r) {
 	if (!r.events.length) console.log('  no item events in range');
 	for (const m of r.deduped) console.log(`  ↺ ${m.trigger} already ran for ${m.item} @ ${m.commit.slice(0, 7)}`);
 	if (r.dryRun) {
-		for (const m of r.matches) console.log(`  ▶ would create: ${m.workflow} for ${m.item} (trigger ${m.trigger})`);
-		if (r.matches.length) console.log('  dry run — nothing created, cursor NOT advanced');
+		for (const m of r.pending) console.log(`  ▶ would create: ${m.workflow} for ${m.item} (trigger ${m.trigger})`);
+		if (r.pending.length) console.log('  dry run — nothing created, cursor NOT advanced');
 	} else {
 		for (const c of r.created) console.log(`✔ run created: ${c.run} (${c.trigger} ← ${c.item})`);
 		if (r.created.length) console.log('… execution is attended: follow the `executing-workflows` skill to advance runs');
