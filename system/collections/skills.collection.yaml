@@ -1,0 +1,14 @@
+name: skills
+storage: { path: system/skills, codec: md, shape: folder, entry: SKILL.md }
+id: { generate: "{{ name | slug }}" }
+schema:
+  type: object
+  required: [name, description]
+  properties:
+    name:         { type: string }
+    description:  { type: string }
+    instructions: { type: string, format: markdown, x-body: true }
+order: 85
+list_fields: [name, description]
+icon: psychology
+group: system

@@ -1,0 +1,7 @@
+path: /inbox
+nav: { label: Inbox, icon: inbox, order: 1 }
+target: list
+collection: collections/tasks
+layout: table
+filter: { assignee: { _eq: "@me" } }     # @me resolves to the current user
+options: { columns: [title, status, due, run] }

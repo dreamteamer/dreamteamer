@@ -1,0 +1,20 @@
+name: ui-views
+storage: { path: system/ui-views, codec: yaml, shape: file, suffix: ui-view }
+id: { generate: "{{ path | slug }}" }
+schema:
+  type: object
+  required: [path, target, layout]
+  properties:
+    path: { type: string }
+    nav:
+      type: object
+      properties: { label: { type: string }, icon: { type: string }, order: { type: number } }
+    target:     { type: string, enum: [list, item, page] }
+    collection: { type: string, x-reference: collections }
+    layout:     { type: string }       # a REGISTERED layout/component id
+    options:    { type: object }       # layout-specific — deliberately open
+    filter:     { type: object }
+order: 88
+list_fields: [path, target, collection, layout]
+icon: dashboard_customize
+group: system

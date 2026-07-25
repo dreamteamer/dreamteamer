@@ -1,0 +1,13 @@
+name: collection-templates
+storage: { path: system/collection-templates, codec: yaml, shape: file, suffix: collection-template }
+id: { generate: "{{ name | slug }}" }
+schema:
+  type: object
+  required: [name, template]
+  properties:
+    name:     { type: string }
+    template: { type: object }         # a descriptor stub instantiated by `collections add`
+order: 89
+list_fields: [name]
+icon: content_copy
+group: system

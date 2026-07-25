@@ -1,0 +1,19 @@
+name: workflow-runs
+storage: { path: state/workflow-runs, codec: yaml, shape: file, suffix: workflow-run }
+id:
+  generate: "{{ created | date }}--{{ workflow | basename }}--{{ seq | pad:4 }}"
+  pattern: "^\\d{4}-\\d{2}-\\d{2}--[a-z0-9-]+--\\d{4}$"
+schema:
+  type: object
+  required: [workflow]
+  properties:
+    workflow:     { type: string, x-reference: workflows }
+    items:        { type: array, items: { type: string, x-reference: "*" } }
+    status:       { type: string, enum: [running, waiting, done, failed], default: running }
+    current-step: { type: [string, "null"] }
+    waiting-on:   { type: string, x-reference: tasks }
+    steps:        { type: object }     # map keyed by step id — deliberately open
+order: 81
+list_fields: [workflow, status, current-step]
+icon: play_circle
+group: system

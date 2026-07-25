@@ -1,0 +1,31 @@
+name: collections
+storage: { path: system/collections, codec: yaml, shape: file, suffix: collection }
+id: { generate: "{{ name | slug }}" }
+schema:
+  type: object
+  required: [name, schema]
+  properties:
+    name:    { type: string }
+    extends: { type: string }
+    storage:
+      type: object
+      properties:
+        path:   { type: string }
+        codec:  { type: string, enum: [md, yaml, json], default: md }
+        shape:  { type: string, enum: [file, folder], default: file }
+        suffix: { type: string }
+        entry:  { type: string }       # folder shapes only
+    id:
+      type: object
+      properties:
+        generate: { type: string }
+        pattern:  { type: string }
+    schema:  { type: object }          # a JSON Schema — validated against the meta-schema, not typed here
+    order:       { type: number }
+    list_fields: { type: array, items: { type: string } }
+    icon:        { type: string }      # material-symbols-outlined icon name (studio nav/header)
+    group:       { type: string }      # studio nav folder; ungrouped collections list at the top
+order: 100
+list_fields: [name]
+icon: schema
+group: system

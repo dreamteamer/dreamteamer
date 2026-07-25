@@ -1,0 +1,5 @@
+path: /settings/collections
+nav: { label: Data model, icon: schema, order: 99 }
+target: list
+collection: collections/collections
+layout: table

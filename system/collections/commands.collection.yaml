@@ -1,0 +1,14 @@
+name: commands
+storage: { path: system/commands, codec: md, shape: file, suffix: command }
+id: { generate: "{{ name | slug }}" }
+schema:
+  type: object
+  required: [name]
+  properties:
+    name:        { type: string }
+    description: { type: string }
+    prompt:      { type: string, format: markdown, x-body: true }
+order: 87
+list_fields: [name, description]
+icon: terminal
+group: system
