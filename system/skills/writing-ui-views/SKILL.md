@@ -50,7 +50,7 @@ options: { columns: [title, status, due, run] }
 | `options` | no | layout-specific settings (e.g. `columns` for `table`) |
 | `filter` | no | query object narrowing the collection; operator form `{ field: { _eq: value } }` |
 
-references: `modules/dreamteamer/system/ui-views/inbox.ui-view.yaml` (a filtered `@me` list) and
+references: the core module's `system/ui-views/inbox.ui-view.yaml` (a filtered `@me` list) and
 `.../data-model.ui-view.yaml` (a plain unfiltered table).
 
 ## after writing

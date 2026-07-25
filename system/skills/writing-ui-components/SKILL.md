@@ -30,7 +30,7 @@ registered can do the job.
 | `apps` | ModuleBar entries — an icon + a routed subtree, mounted at `/a/<id>` | registration alone |
 | `panels`, `operations` | dashboard panels, flow operations | registration alone |
 
-`modules/dreamteamer/studio` is the reference app: its own built-ins register through the exact
+the studio repo (`@dreamteamer/studio`, a `git_modules/dreamteamer-studio` clone when developing) is the reference app: its own built-ins register through the exact
 same door a module uses — read `studio/src/registry/register-defaults.ts`.
 
 ## the module contract — `studio/src/modules.ts`
@@ -61,7 +61,7 @@ export default ({ registerEdit, registerView, registerList, registerApp, registe
 ## workflow
 
 1. write the component in the module's studio source — Vue SFCs alongside the existing `edits/`,
-   `views/`, `lists/`, `components/` when working inside `modules/dreamteamer/studio`; a separate
+   `views/`, `lists/`, `components/` when working inside the studio source; a separate
    module ships its own tree.
 2. register it in that module's `app.js` (or `register-defaults.ts` for a core built-in) with a
    stable `id`.
