@@ -21,7 +21,7 @@ commands:
   status      workspace status: compiled runtime freshness, per-module channel/ref, staleness
   start       serve the clean REST api + the studio at /admin [--port <n>]
   sync        evaluate triggers over the git cursor: derive item events, create runs,
-              advance this evaluator's cursor [--dry-run] [--evaluator <name>]
+              advance this evaluator's cursor [--dry-run] [--evaluator <name>] [--from <sha|root>]
 
 collection verbs (hard validation — invalid writes are rejected before disk):
   <collection> list [--filter k=v] [--json]
@@ -79,7 +79,8 @@ export function run(argv) {
 			case 'sync': {
 				warnIfStale(ws.root);
 				const ei = rest.indexOf('--evaluator');
-				const report = sync(ws, { evaluator: ei > -1 ? rest[ei + 1] : 'cli', dryRun: rest.includes('--dry-run') });
+				const fi = rest.indexOf('--from');
+				const report = sync(ws, { evaluator: ei > -1 ? rest[ei + 1] : 'cli', dryRun: rest.includes('--dry-run'), from: fi > -1 ? rest[fi + 1] : null });
 				printSyncReport(report);
 				process.exit(0);
 			}

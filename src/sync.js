@@ -10,16 +10,24 @@ import { deriveEvents, eventCommit } from './events.js';
 import { matchesFilter } from './filter.js';
 import { createRun } from './runs.js';
 
-export function sync(ws, { evaluator = 'cli', dryRun = false } = {}) {
+export function sync(ws, { evaluator = 'cli', dryRun = false, from: fromOverride = null } = {}) {
 	const store = new Store(ws);
 	const head = git(ws.root, ['rev-parse', 'HEAD']);
 
 	// per-evaluator cursor (decision 37): a laptop and an always-on server never fight
-	// over one file. first run starts from the root commit — full history replay is the
-	// contract, and dedupe makes it safe.
+	// over one file. a FIRST sync initializes the cursor at HEAD — no history replay
+	// (a mature vault would otherwise fire a run for every record ever added); explicit
+	// `--from <sha|root>` opts into replay, and dedupe makes replay safe.
 	let cursor = null;
 	try { cursor = store.read('cursors', evaluator).fields['last-evaluated']; } catch { /* first run */ }
-	const from = cursor ?? git(ws.root, ['rev-list', '--max-parents=0', 'HEAD']);
+	let initialized = false;
+	if (fromOverride) {
+		cursor = fromOverride === 'root' ? git(ws.root, ['rev-list', '--max-parents=0', 'HEAD']) : fromOverride;
+	} else if (!cursor) {
+		cursor = head;
+		initialized = true;
+	}
+	const from = cursor;
 
 	const events = from === head ? [] : deriveEvents(ws.root, store.descriptors, from, head);
 
@@ -70,20 +78,23 @@ export function sync(ws, { evaluator = 'cli', dryRun = false } = {}) {
 			});
 			created.push({ run: `workflow-runs/${id}`, trigger: m.trigger, item: m.item });
 		}
-		// advance LAST — if anything above threw, the range replays next time
-		if (head !== cursor) {
+		// advance LAST — if anything above threw, the range replays next time. an
+		// INITIALIZING sync must persist its HEAD cursor even though from === head,
+		// or the next sync would silently re-initialize past any events in between.
+		if (initialized || head !== from) {
 			try { store.set('cursors', evaluator, { evaluator, 'last-evaluated': head }); } catch {
 				store.add('cursors', { evaluator, 'last-evaluated': head }, { id: evaluator });
 			}
 		}
 	}
 
-	return { evaluator, from, to: head, events, matches: toCreate.concat(deduped), created, deduped, cronSkipped, dryRun };
+	return { evaluator, from, to: head, events, matches: toCreate.concat(deduped), created, deduped, cronSkipped, dryRun, initialized };
 }
 
 export function printSyncReport(r) {
 	const range = r.from === r.to ? '(cursor already at HEAD)' : `${r.from.slice(0, 7)}..${r.to.slice(0, 7)}`;
 	console.log(`sync [${r.evaluator}] ${range}${r.dryRun ? ' — DRY RUN' : ''}`);
+	if (r.initialized) console.log('  first sync: cursor initialized at HEAD (no history replay — pass --from root to replay)');
 	const byColl = {};
 	for (const e of r.events) {
 		byColl[e.collection] ??= { 'item-added': 0, 'item-updated': 0, 'item-removed': 0 };
