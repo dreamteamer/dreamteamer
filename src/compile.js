@@ -8,6 +8,7 @@ import Ajv from 'ajv';
 import addFormats from 'ajv-formats';
 import { load, dump } from './yaml.js';
 import { walk } from './records.js';
+import { unknownOperators } from './filter.js';
 import { runHarnessAdapters } from './harnesses.js';
 
 export const KINDS = ['collections', 'skills', 'agents', 'commands', 'workflows', 'ui-views', 'collection-templates'];
@@ -231,6 +232,10 @@ export function compile({ root, pkg }) {
 		if (view?.target === 'list' && view?.layout && !registeredLayouts.has(view.layout)) {
 			fail(`${rt}: layout "${view.layout}" is not registered (registered: ${[...registeredLayouts].sort().join(', ')}).\n  a module registers layouts in its studio app.js AND declares them in package.json under dreamteamer.studio.layouts.`);
 		}
+		// filters are load-bearing (they narrow what the operator SEES) — typo'd operators
+		// fail at compile, not silently at render (review finding 5)
+		const badOps = view?.filter ? [...unknownOperators(view.filter)] : [];
+		if (badOps.length) fail(`${rt}: unknown filter operator(s) ${badOps.join(', ')}`);
 	}
 
 	// ---- materialize .dreamteamer ------------------------------------------------
