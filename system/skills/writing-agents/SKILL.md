@@ -51,7 +51,7 @@ skills, not duplicated here** — duplication is how the two drift.
 
 ## reference
 
-`modules/dreamteamer/system/agents/dreamteamer.agent.md` (the router: classify the request, load
+the core module's `system/agents/dreamteamer.agent.md` (the router: classify the request, load
 the matching skill, execute or delegate) and `.../workflow-orchestrator.agent.md` (advances
 workflow runs) show the pattern — short trigger description, tight tool list, 1-2 skill refs,
 one-paragraph body.

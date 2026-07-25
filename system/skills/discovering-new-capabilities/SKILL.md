@@ -40,7 +40,7 @@ cloning (or `npm install <git-url>`) lit a module up. npm/git_modules as real in
 is slice 6/8 work (see `STATUS.md` — "what you CAN'T do yet").
 
 the working path is an **inline module**: `modules/<name>/` with its own `package.json`
-(`dreamteamer: {}` section) and a `system/` tree — the exact shape of `modules/dreamteamer` and
+(`dreamteamer: {}` section) and a `system/` tree — the exact shape of the core engine module and
 `modules/contact-management` here. clone it (or copy it out of `git_modules/`) into `modules/`,
 then:
 
