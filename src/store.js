@@ -297,10 +297,14 @@ export class Store {
 			const text = fs.readFileSync(f, 'utf8');
 			let next;
 			let count = 0;
-			const fm = f.endsWith('.md') ? /^(---\r?\n[\s\S]*?\r?\n---\r?\n?)([\s\S]*)$/.exec(text) : null;
-			if (fm) {
-				const head = fm[1].replace(this.refRegex(oldRef), () => (count++, newRef));
-				const body = fm[2].replace(wikiRe, (_, label) => (count++, `[[${newRef}${label ?? ''}]]`));
+			if (f.endsWith('.md')) {
+				// prose scoping applies to EVERY .md — a frontmatter-less file is all body
+				// (docs-audit catch: it used to fall through to raw replacement)
+				const fm = /^(---\r?\n[\s\S]*?\r?\n---\r?\n?)([\s\S]*)$/.exec(text);
+				const headText = fm ? fm[1] : '';
+				const bodyText = fm ? fm[2] : text;
+				const head = headText.replace(this.refRegex(oldRef), () => (count++, newRef));
+				const body = bodyText.replace(wikiRe, (_, label) => (count++, `[[${newRef}${label ?? ''}]]`));
 				next = head + body;
 				const raw = (body.match(this.refRegex(oldRef)) ?? []).length;
 				if (raw) skipped.push({ file: f, count: raw });
