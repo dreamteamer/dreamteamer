@@ -12,22 +12,37 @@ import { compile } from './compile.js';
 
 // ---- the gate -------------------------------------------------------------------
 
-function writeGated(ws, files, subject, mutate) {
-	const snapshots = files.map((f) => ({ f, prev: fs.existsSync(f) ? fs.readFileSync(f) : null }));
-	mutate();
-	try {
-		compile(ws); // dry-run that doubles as the materialization — throws CompileError on bad sources
-	} catch (e) {
-		for (const { f, prev } of snapshots) {
-			if (prev === null) fs.rmSync(f, { force: true });
-			else fs.writeFileSync(f, prev);
+function writeGated(ws, store, files, subject, mutate) {
+	// same guarantees as record writes (docs-audit catch): the STORE's cross-process lock
+	// serializes schema ops too, and a failed git commit rolls the source back — a schema
+	// op fails closed exactly like a record mutation.
+	return store.withWriteLock(() => {
+		const snapshots = files.map((f) => ({ f, prev: fs.existsSync(f) ? fs.readFileSync(f) : null }));
+		const restore = () => {
+			for (const { f, prev } of snapshots) {
+				if (prev === null) fs.rmSync(f, { force: true });
+				else fs.writeFileSync(f, prev);
+			}
+		};
+		mutate();
+		try {
+			compile(ws); // dry-run that doubles as the materialization — throws CompileError on bad sources
+		} catch (e) {
+			restore();
+			try { compile(ws); } catch { /* runtime was already broken before this op */ }
+			throw e;
 		}
-		try { compile(ws); } catch { /* runtime was already broken before this op */ }
-		throw e;
-	}
-	const rels = files.map((f) => path.relative(ws.root, f));
-	execFileSync('git', ['add', '--', ...rels], { cwd: ws.root });
-	execFileSync('git', ['commit', '--quiet', '-m', subject, '--', ...rels], { cwd: ws.root });
+		const rels = files.map((f) => path.relative(ws.root, f));
+		try {
+			execFileSync('git', ['add', '--', ...rels], { cwd: ws.root });
+			execFileSync('git', ['commit', '--quiet', '-m', subject, '--', ...rels], { cwd: ws.root });
+		} catch (e) {
+			try { execFileSync('git', ['reset', '--quiet', '--', ...rels], { cwd: ws.root }); } catch { /* nothing staged */ }
+			restore();
+			try { compile(ws); } catch { /* pre-op sources were compilable */ }
+			throw new Error(`git commit failed — the schema change was rolled back, nothing was changed. (${e.message.split('\n')[0]})`);
+		}
+	});
 }
 
 // the workspace's writable system dir (workspace-module aware)
@@ -60,7 +75,7 @@ export function createCollection(ws, store, { name, template }) {
 		...descriptor.storage,
 		suffix: descriptor.storage?.suffix ?? singular(name),
 	};
-	writeGated(ws, [dest], `dreamteamer: collections add ${name}`, () => {
+	writeGated(ws, store, [dest], `dreamteamer: collections add ${name}`, () => {
 		fs.mkdirSync(path.dirname(dest), { recursive: true });
 		fs.writeFileSync(dest, dump(descriptor));
 	});
@@ -74,7 +89,7 @@ export function removeCollection(ws, store, name, { force = false } = {}) {
 	const dataDir = path.join(ws.root, d.storage.path);
 	const hasRecords = fs.existsSync(dataDir) && fs.readdirSync(dataDir).some((e) => !e.startsWith('.'));
 	if (hasRecords && !force) throw new Error(`collection "${name}" still has records under ${d.storage.path} — remove them first or pass force`);
-	writeGated(ws, [dest], `dreamteamer: collections rm ${name}`, () => fs.rmSync(dest));
+	writeGated(ws, store, [dest], `dreamteamer: collections rm ${name}`, () => fs.rmSync(dest));
 	return { removed: name };
 }
 
@@ -98,7 +113,7 @@ export function removeField(ws, store, collection, fieldName) {
 	if (!fs.existsSync(dest)) throw new Error(`"${collection}" is module-shipped; the workspace can only OVERRIDE fields (extends), not remove them`);
 	const doc = load(fs.readFileSync(dest, 'utf8'));
 	if (!doc.schema?.properties?.[fieldName]) throw new Error(`field "${fieldName}" is inherited from the base module — the workspace descriptor doesn't declare it`);
-	writeGated(ws, [dest], `dreamteamer: ${collection} remove-field ${fieldName}`, () => {
+	writeGated(ws, store, [dest], `dreamteamer: ${collection} remove-field ${fieldName}`, () => {
 		delete doc.schema.properties[fieldName];
 		if (Array.isArray(doc.schema.required)) doc.schema.required = doc.schema.required.filter((r) => r !== fieldName);
 		fs.writeFileSync(dest, dump(doc));
@@ -117,7 +132,7 @@ function upsertField(ws, store, collection, fieldName, prop, required, verb) {
 	} else {
 		doc = { name: collection, extends: baseModuleRef(ws.root, collection), schema: { properties: {} } };
 	}
-	writeGated(ws, [dest], `dreamteamer: ${collection} ${verb}`, () => {
+	writeGated(ws, store, [dest], `dreamteamer: ${collection} ${verb}`, () => {
 		doc.schema ??= { properties: {} };
 		doc.schema.properties ??= {};
 		doc.schema.properties[fieldName] = prop;
@@ -136,7 +151,7 @@ export function saveUiView(ws, store, { id, view }) {
 	if (!id || !/^[a-z0-9][a-z0-9-/]*$/.test(id)) throw new Error(`invalid ui-view id "${id}" — lowercase slug required`);
 	const dest = path.join(workspaceSystemDir(ws, 'ui-views'), `${id}.ui-view.yaml`);
 	const existed = fs.existsSync(dest);
-	writeGated(ws, [dest], `dreamteamer: ui-views ${existed ? 'update' : 'add'} ${id}`, () => {
+	writeGated(ws, store, [dest], `dreamteamer: ui-views ${existed ? 'update' : 'add'} ${id}`, () => {
 		fs.mkdirSync(path.dirname(dest), { recursive: true });
 		fs.writeFileSync(dest, dump(view));
 	});
@@ -146,7 +161,7 @@ export function saveUiView(ws, store, { id, view }) {
 export function removeUiView(ws, store, id) {
 	const dest = path.join(workspaceSystemDir(ws, 'ui-views'), `${id}.ui-view.yaml`);
 	if (!fs.existsSync(dest)) throw new Error(`ui-view "${id}" is not workspace-owned (module-shipped views are removed via dreamteamer.disable)`);
-	writeGated(ws, [dest], `dreamteamer: ui-views rm ${id}`, () => fs.rmSync(dest));
+	writeGated(ws, store, [dest], `dreamteamer: ui-views rm ${id}`, () => fs.rmSync(dest));
 	return { removed: id };
 }
 
