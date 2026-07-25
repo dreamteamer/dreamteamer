@@ -7,7 +7,7 @@ import { findWorkspace } from './workspace.js';
 import { compile, staleness, warnIfStale, discoverModules, CHANNEL_LABEL } from './compile.js';
 import { check } from './check.js';
 import { collectionCommand } from './collections-cli.js';
-import { init, install, installClone } from './init.js';
+import { init, install, installClone, update } from './init.js';
 import { sync, printSyncReport } from './sync.js';
 
 const USAGE = `usage: dreamteamer <command> | dreamteamer <collection> <verb> …
@@ -16,6 +16,8 @@ commands:
   init        write the workspace skeleton into the current directory (never compiles)
   --version   print the engine version (works anywhere)
   install     restore git_modules/ from the lockfile map; --clone <url> [name] adds one
+  update      pull git_modules clones forward (ff-only on the lockfile ref), rebuild,
+              then compile; [<name>] updates just one. dirty clones are skipped
   compile     materialize modules + workspace sources into .dreamteamer (+ harness adapters)
   check       validate every record against the compiled descriptors (report-only)
   status      workspace status: compiled runtime freshness, per-module channel/ref, staleness
@@ -32,7 +34,7 @@ collection verbs (hard validation — invalid writes are rejected before disk):
   <collection> rename <old-id> <new-id>       (rewrites all inbound refs, ONE commit)
 
 meta verbs (schema + workflow operations — write SOURCES, never the runtime):
-  collections add --name <name> [--template <template>]
+  collections add --name <name> [--template docs|entity]
   <collection> add-field --name <field> --type <type> [--options a,b] [--default-value v] [--required true]
   workflows run <workflow-id> --items <ref>[,<ref>…]   (creates a validated run record)
 `;
@@ -58,6 +60,11 @@ export function run(argv) {
 				const ci = rest.indexOf('--clone');
 				if (ci > -1) process.exit(installClone(ws, rest[ci + 1], rest[ci + 2]));
 				process.exit(install(ws));
+			}
+			case 'update': {
+				const code = update(ws, rest.find((a) => !a.startsWith('--')));
+				compile(ws); // pulled modules may carry new sources — prints its own summary
+				process.exit(code);
 			}
 			case 'start': {
 				warnIfStale(ws.root);

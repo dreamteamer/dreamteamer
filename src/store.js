@@ -20,6 +20,7 @@ export class Store {
 		addFormats(this.ajv);
 		this.ajv.addFormat('markdown', true);
 		this.descriptors = new Map();
+		this._idsCache = new Map(); // collection -> { key, ids } (see ids())
 		const descDir = path.join(this.runtime, 'system', 'collections');
 		if (!fs.existsSync(descDir)) throw new Error('no compiled runtime — run `dreamteamer compile` first');
 		for (const f of fs.readdirSync(descDir).sort()) {
@@ -66,10 +67,29 @@ export class Store {
 		return d.storage.shape === 'folder' ? path.join(this.dir(d), id) : this.filePath(d, id);
 	}
 
+	// current HEAD — one cheap rev-parse per cache check vs a multi-thousand-file walk
+	gitHead() {
+		try { return execFileSync('git', ['rev-parse', 'HEAD'], { cwd: this.root }).toString().trim(); } catch { return 'no-git'; }
+	}
+
 	ids(collection) {
 		const d = this.descriptor(collection);
 		const dir = this.dir(d);
 		if (!fs.existsSync(dir)) return new Map();
+		// memoized per collection, keyed by (HEAD sha, collection dir mtime): every tool
+		// write commits (HEAD moves) and every store mutation clears its entry below;
+		// direct top-level edits move the dir mtime. honest gap: a DEEP direct edit that
+		// adds/removes a record without touching HEAD or the top dir mtime can serve one
+		// stale read — acceptable, tool writes always commit and `check` covers hand edits.
+		const key = `${this.gitHead()}:${fs.statSync(dir).mtimeMs}`;
+		const hit = this._idsCache.get(collection);
+		if (hit?.key === key) return hit.ids;
+		const ids = this._walkIds(d, dir);
+		this._idsCache.set(collection, { key, ids });
+		return ids;
+	}
+
+	_walkIds(d, dir) {
 		const ids = new Map();
 		if (d.storage.shape === 'folder') {
 			for (const e of fs.readdirSync(dir).sort()) {
@@ -121,6 +141,7 @@ export class Store {
 		const tmpFields = parseRecordText(previousContent, d, bodyField(d));
 		this.validate(d, tmpFields);
 		return this.withWriteLock(() => {
+			this._idsCache.delete(collection); // every mutation drops the memo — cleared even if the commit rolls back
 			atomicWrite(file, previousContent);
 			this.commit([file], `dreamteamer: ${collection} revert ${id} to ${String(hash).slice(0, 7)}`, () => atomicWrite(file, current));
 			return { id, reverted: true, hash };
@@ -173,6 +194,7 @@ export class Store {
 		const file = this.filePath(d, id);
 		if (fs.existsSync(file)) throw new Error(`${collection}/${id} already exists — nothing was written.`);
 		return this.withWriteLock(() => {
+			this._idsCache.delete(collection);
 			fs.mkdirSync(path.dirname(file), { recursive: true });
 			atomicWrite(file, serialize(d, fields));
 			this.commit([file], `dreamteamer: ${collection} add ${id}`, () => {
@@ -191,6 +213,7 @@ export class Store {
 		for (const [k, v] of Object.entries(changes)) if (v === null || v === '') delete next[k];
 		this.validate(d, next);
 		return this.withWriteLock(() => {
+			this._idsCache.delete(collection);
 			atomicWrite(file, serialize(d, next));
 			this.commit([file], `dreamteamer: ${collection} set ${id}`, () => atomicWrite(file, previous));
 			return { id, file };
@@ -206,6 +229,7 @@ export class Store {
 		}
 		const unit = this.recordRoot(d, id); // folder-shape: the whole folder goes, not just the entry file
 		return this.withWriteLock(() => {
+			this._idsCache.delete(collection);
 			fs.rmSync(unit, { recursive: true });
 			this.commit([unit], `dreamteamer: ${collection} rm ${id}`, () => {
 				execFileSync('git', ['checkout', '--quiet', 'HEAD', '--', path.relative(this.root, unit)], { cwd: this.root });
@@ -225,6 +249,7 @@ export class Store {
 		const newUnit = this.recordRoot(d, newId);
 		if (fs.existsSync(newUnit)) throw new Error(`${collection}/${newId} already exists — nothing was renamed.`);
 		return this.withWriteLock(() => {
+			this._idsCache.delete(collection);
 			fs.mkdirSync(path.dirname(newUnit), { recursive: true });
 			fs.renameSync(oldUnit, newUnit);
 			pruneEmptyDirs(path.dirname(oldUnit), this.dir(d)); // cross-partition renames leave empty date dirs
