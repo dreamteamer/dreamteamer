@@ -1,0 +1,16 @@
+name: migration-runs
+storage: { path: state/migration-runs, codec: yaml, shape: file, suffix: migration-run }
+id: { pattern: "^[a-z0-9-]+--\\d+$" }
+schema:
+  type: object
+  required: [module, seq, migration]
+  properties:
+    module:     { type: string }
+    seq:        { type: integer }
+    migration:  { type: string }
+    collection: { type: string, x-reference: collections }
+    changed:    { type: integer }
+order: 85
+list_fields: [module, migration, collection, changed]
+icon: fact_check
+group: system
