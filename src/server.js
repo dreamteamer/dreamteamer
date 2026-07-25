@@ -6,7 +6,9 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import express from 'express';
 import { Store, bodyField } from './store.js';
-import { readManifest, staleness, discoverModules } from './compile.js';
+import { readManifest, staleness, discoverModules, CompileError } from './compile.js';
+import { presentation } from './presentation.js';
+import { createCollection, removeCollection, addField, updateField, removeField, fieldDef } from './schema-ops.js';
 import { matchesFilter } from './filter.js';
 import { slugOrHash } from './template.js';
 
@@ -19,7 +21,18 @@ export function startServer(ws, { port = 8080, host = '127.0.0.1' } = {}) {
 	let store = new Store(ws);
 	const reload = () => { store = new Store(ws); };
 
+	// review finding 9: descriptors loaded once per process made `compile` invisible to a
+	// running server. cheap fix: stat the manifest per request, rebuild the Store when it moved.
+	const manifestPath = path.join(ws.root, '.dreamteamer', 'manifest.yaml');
+	let manifestMtime = fs.existsSync(manifestPath) ? fs.statSync(manifestPath).mtimeMs : 0;
+	const freshStore = () => {
+		const m = fs.existsSync(manifestPath) ? fs.statSync(manifestPath).mtimeMs : 0;
+		if (m !== manifestMtime) { manifestMtime = m; reload(); }
+		return store;
+	};
+
 	const api = express.Router();
+	api.use((req, res, next) => { freshStore(); next(); });
 
 	// current operator id — same rule init seeds users with (slugOrHash of git user.name),
 	// so `@me` filters in ui-views resolve to the seeded user record.
@@ -52,8 +65,7 @@ export function startServer(ws, { port = 8080, host = '127.0.0.1' } = {}) {
 		const bf = bodyField(d);
 		const { limit = 200, offset = 0, sort, q, filter, ...rest } = req.query;
 		let rows = [];
-		for (const [id] of store.ids(req.params.name)) {
-			const { fields } = store.read(req.params.name, id);
+		for (const { id, fields } of store.readAll(req.params.name)) {
 			rows.push({ ...fields, id }); // record id WINS over any schema field named "id"
 		}
 		// rich filter: ?filter=<json> — Directus-style operators (_eq/_contains/_and/...)
@@ -118,6 +130,50 @@ export function startServer(ws, { port = 8080, host = '127.0.0.1' } = {}) {
 		res.json(log);
 	});
 
+	// presentation projection (adapter inversion, M3): how to RENDER each field/collection.
+	api.get('/presentation', (req, res) => {
+		res.json(presentation(store.descriptors));
+	});
+
+	// ---- schema writes (M3): source-writing ops behind the compile dry-run gate ------
+	// every op writes the workspace descriptor source, proves it with a real compile
+	// (CompileError → 400, source restored), commits, and reloads the Store.
+	const schemaOp = (fn) => (req, res, next) => {
+		try {
+			const out = fn(req);
+			reload();
+			res.json(out);
+		} catch (e) { next(e); }
+	};
+	api.post('/schema/collections', schemaOp((req) =>
+		createCollection(ws, store, { name: req.body?.name, template: req.body?.template })));
+	api.delete('/schema/collections/:name', schemaOp((req) =>
+		removeCollection(ws, store, req.params.name, { force: req.query.force === 'true' })));
+	api.post('/schema/collections/:name/fields', schemaOp((req) => {
+		const b = req.body ?? {};
+		const prop = b.prop ?? fieldDef(store, b);
+		return addField(ws, store, req.params.name, { name: b.name, prop, required: b.required === true });
+	}));
+	api.patch('/schema/collections/:name/fields/:field', schemaOp((req) => {
+		const b = req.body ?? {};
+		const prop = b.prop ?? fieldDef(store, b);
+		return updateField(ws, store, req.params.name, req.params.field, { prop, required: b.required });
+	}));
+	api.delete('/schema/collections/:name/fields/:field', schemaOp((req) =>
+		removeField(ws, store, req.params.name, req.params.field)));
+
+	// per-record revision diff + revert (M3: git already has the data; this exposes it)
+	api.get('/history-diff/:name/*id', (req, res) => {
+		const { file } = store.read(req.params.name, idParam(req));
+		const relPath = path.relative(ws.root, file);
+		const hash = String(req.query.hash ?? 'HEAD');
+		const diff = execFileSync('git', ['diff', `${hash}~1`, hash, '--', relPath], { cwd: ws.root }).toString();
+		res.json({ hash, path: relPath, diff });
+	});
+	api.post('/collections/:name/records-revert/*id', (req, res) => {
+		res.json(store.revert(req.params.name, idParam(req), String(req.body?.hash ?? '')));
+	});
+
 	api.post('/reload', (req, res) => { reload(); res.json({ ok: true }); });
 
 	app.use('/api', api);
@@ -128,7 +184,9 @@ export function startServer(ws, { port = 8080, host = '127.0.0.1' } = {}) {
 	// error contract: store errors are 400 (validation) / 404 (missing) / 409 (referenced)
 	app.use((err, req, res, next) => {
 		const msg = err.message ?? String(err);
-		const code = /no such record/.test(msg) ? 404 : /referenced by|already exists/.test(msg) ? 409 : 400;
+		const code = err instanceof CompileError ? 400
+			: /no such record/.test(msg) ? 404
+			: /referenced by|already exists/.test(msg) ? 409 : 400;
 		res.status(code).json({ error: msg });
 	});
 

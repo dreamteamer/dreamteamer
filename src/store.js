@@ -9,7 +9,7 @@ import Ajv from 'ajv';
 import addFormats from 'ajv-formats';
 import { load, dump } from './yaml.js';
 import { generateId } from './template.js';
-import { parseRecord, patternRe, fmtAjvError, unknownFields, walk, EXT, assertSafeId } from './records.js';
+import { parseRecord, parseRecordText, patternRe, fmtAjvError, unknownFields, walk, EXT, assertSafeId } from './records.js';
 import { discoverModules } from './compile.js';
 
 export class Store {
@@ -92,6 +92,39 @@ export class Store {
 		const file = this.ids(collection).get(id);
 		if (!file) throw new Error(`${collection}/${id}: no such record`);
 		return { fields: parseRecord(file, d, bodyField(d)), file, descriptor: d };
+	}
+
+	// list-path reader: ONE directory walk for the whole collection (review finding 2:
+	// per-id read() re-walked the dir — O(N²) lists, 46s at 3k records).
+	*readAll(collection) {
+		const d = this.descriptor(collection);
+		const bf = bodyField(d);
+		for (const [id, file] of this.ids(collection)) {
+			yield { id, file, fields: parseRecord(file, d, bf) };
+		}
+	}
+
+	// restore a record to its content at `hash` — validated like any other write, one commit.
+	revert(collection, id, hash) {
+		const d = this.writableDescriptor(collection);
+		const { file } = this.read(collection, id);
+		const relPath = path.relative(this.root, file);
+		let previousContent;
+		try {
+			previousContent = execFileSync('git', ['show', `${hash}:${relPath}`], { cwd: this.root }).toString();
+		} catch {
+			throw new Error(`${collection}/${id}: no content at ${hash} for ${relPath} — nothing was reverted.`);
+		}
+		const current = fs.readFileSync(file, 'utf8');
+		if (current === previousContent) return { id, reverted: false };
+		// parse + validate the historical content before it touches disk
+		const tmpFields = parseRecordText(previousContent, d, bodyField(d));
+		this.validate(d, tmpFields);
+		return this.withWriteLock(() => {
+			atomicWrite(file, previousContent);
+			this.commit([file], `dreamteamer: ${collection} revert ${id} to ${String(hash).slice(0, 7)}`, () => atomicWrite(file, current));
+			return { id, reverted: true, hash };
+		});
 	}
 
 	// ---- validation (hard) ---------------------------------------------------

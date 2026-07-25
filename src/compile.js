@@ -4,6 +4,8 @@
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import Ajv from 'ajv';
+import addFormats from 'ajv-formats';
 import { load, dump } from './yaml.js';
 import { walk } from './records.js';
 import { runHarnessAdapters } from './harnesses.js';
@@ -172,6 +174,14 @@ export function compile({ root, pkg }) {
 			merged = mergeDescriptor(merged, ext.doc);
 		}
 		delete merged.extends;
+		// the merged schema must itself be a compilable JSON Schema — a malformed property
+		// (e.g. a string where an object belongs) used to pass compile and detonate at the
+		// first record validation. caught HERE so the schema-ops dry-run gate is airtight.
+		try {
+			descriptorAjv().compile(structuredClone(merged.schema));
+		} catch (e) {
+			fail(`collection "${name}": schema is not a valid JSON Schema — ${e.message} (${group.map((g) => g.src.path).join(', ')})`);
+		}
 		const rt = path.join('system', 'collections', `${name}.collection.yaml`);
 		entries.set(rt, { sources: group.map((g) => g.src), bytes: Buffer.from(dump(merged)) });
 		counts.collections++;
@@ -334,6 +344,16 @@ function mergeDescriptor(base, ext) {
 // a bad source THROWS (review finding 8: process.exit killed --watch on the first typo
 // and made server-triggered recompiles impossible). the CLI boundary prints and exits.
 export class CompileError extends Error {}
+
+let _descriptorAjv = null;
+function descriptorAjv() {
+	if (!_descriptorAjv) {
+		_descriptorAjv = new Ajv({ allErrors: true, strict: false });
+		addFormats(_descriptorAjv);
+		_descriptorAjv.addFormat('markdown', true);
+	}
+	return _descriptorAjv;
+}
 
 function fail(msg) {
 	throw new CompileError(`compile error: ${msg}`);
