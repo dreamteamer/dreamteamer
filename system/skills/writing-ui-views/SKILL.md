@@ -20,13 +20,14 @@ you want a named route, a nav entry, a default filter, or a non-default layout f
 restates the fallback is noise. writing the component itself is `writing-ui-components`; adding
 fields is `writing-collections`.
 
-## read this first — the studio doesn't consume these yet
+## read this first — the studio consumes these at boot
 
-ui-view records compile and validate today, but the studio still routes from its own
-`studio/src/router.ts` + `registry/` and only wires up to the ui-views collection at the M3 gate
-(slice 7 in `data/product-design-docs/2026-07-25--dt-v06-slice-plan.product-design-doc.md`).
-author them as the intended contract — `check` already validates them — but don't promise the
-operator a visible change until that slice lands.
+the studio reads compiled ui-view records on boot: a `nav` key becomes a sidebar entry (above the
+collections), `path` becomes a live route, `target: list` renders the named `layout` over the
+collection with `filter`/`options` applied (`@me` in a filter resolves to the current operator).
+after authoring: `npm run compile`, hard-reload the studio. compile FAILS a `target: list` view
+whose `layout` isn't registered (core `table`/`cards` + every module's declared
+`dreamteamer.studio.layouts`), naming the registered set.
 
 ## shape
 
@@ -56,9 +57,10 @@ references: the core module's `system/ui-views/inbox.ui-view.yaml` (a filtered `
 ## after writing
 
 `npm run compile`, then `npm run check` — it validates required fields and that the
-`collection` ref resolves. **it does not validate `layout`**: that's a plain string, so an
-unregistered id passes check and then renders nothing useful. confirm the id against the module's
-studio registry (see `writing-ui-components`) before naming it.
+`collection` ref resolves. compile validates `layout` for `target: list` views against the
+registered set (core + module-declared `dreamteamer.studio.layouts`) and fails loudly on a miss;
+`target: item`/`page` layouts are not compile-checked — confirm those ids against the module's
+studio registry (see `writing-ui-components`) before naming them.
 
 ## common mistakes
 

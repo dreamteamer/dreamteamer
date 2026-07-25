@@ -16,7 +16,8 @@ commands:
   install     restore git_modules/ from the lockfile map; --clone <url> [name] adds one
   compile     materialize modules + workspace sources into .dreamteamer (+ harness adapters)
   check       validate every record against the compiled descriptors (report-only)
-  status      workspace status: compiled runtime freshness, per-source staleness
+  status      workspace status: compiled runtime freshness, per-module channel/ref, staleness
+  start       serve the clean REST api + the studio at /admin [--port <n>]
 
 collection verbs (hard validation — invalid writes are rejected before disk):
   <collection> list [--filter k=v] [--json]

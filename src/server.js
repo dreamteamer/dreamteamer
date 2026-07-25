@@ -136,7 +136,7 @@ export function startServer(ws, { port = 8080, host = '127.0.0.1' } = {}) {
 	// else the first discovered module (channel precedence order) shipping a built
 	// studio — studio/dist for the inline engine, dist/ for a dedicated studio package.
 	let studioDist = null;
-	if (ws.pkg.dreamteamer?.studio) {
+	if (typeof ws.pkg.dreamteamer?.studio === 'string') {
 		studioDist = path.join(ws.root, ws.pkg.dreamteamer.studio);
 	} else {
 		outer: for (const m of discoverModules(ws.root, ws.pkg).modules) {

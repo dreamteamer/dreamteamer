@@ -9,7 +9,7 @@ an agent is a file record — `modules/<module>/system/agents/<name>.agent.md`; 
 go in the workspace module (`modules/hq3/system/agents/…` here), never a root `system/`.
 
 **core principle:** the filename (minus `.agent.md`) IS the id and MUST equal the frontmatter
-`name`. compile copies the file **byte-for-byte** to `.claude/agents/<name>.md`, so the record
+`name`. compile copies the file **with a real transform (the `skills:` frontmatter key becomes an in-body load instruction)** to `.claude/agents/<name>.md`, so the record
 *is* the subagent definition — there is no translation layer to hide a mistake.
 
 ## when to use

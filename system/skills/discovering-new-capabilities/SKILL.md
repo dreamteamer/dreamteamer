@@ -31,13 +31,12 @@ don't quietly build a bespoke one-off and present it as the only option.
 
 ## what "installing" actually means today
 
-**only inline modules are compiled.** `compile` discovers sources by scanning `modules/*` for a
-`package.json` with a `dreamteamer` section — the workspace's own sources are one of those
-modules (`modules/hq3`). fetching is solved: `npm run --silent dt -- install --clone <url> [name]`
-clones a candidate and records it in the committed `git-modules` lockfile. **wiring is not** —
-the clone lands in `git_modules/`, which compile never reads, so do not tell the operator that
-cloning (or `npm install <git-url>`) lit a module up. npm/git_modules as real install *channels*
-is slice 6/8 work (see `STATUS.md` — "what you CAN'T do yet").
+**three channels are compiled**, in precedence order: inline `modules/*` > `git_modules/*` >
+npm deps whose package.json has a `dreamteamer` section (decision 24). so installing IS wiring:
+`dreamteamer install --clone <url> [name]` clones into `git_modules/`, records the committed
+`git-modules` lockfile entry, npm-installs/builds the clone — then `dreamteamer compile` lights it
+up. `npm i <git-url>` works too (npm channel). the same module in two channels = the more-local
+copy wins with a shadow warning; `dreamteamer status` shows per-module channel/ref provenance.
 
 the working path is an **inline module**: `modules/<name>/` with its own `package.json`
 (`dreamteamer: {}` section) and a `system/` tree — the exact shape of the core engine module and
