@@ -1,0 +1,14 @@
+name: cursors
+storage: { path: state/cursors, codec: yaml, shape: file, suffix: cursor }
+id:
+  generate: "{{ evaluator | slug }}"
+schema:
+  type: object
+  required: [last-evaluated]
+  properties:
+    evaluator: { type: string }
+    last-evaluated: { type: string }
+order: 83
+list_fields: [evaluator, last-evaluated]
+icon: my_location
+group: system

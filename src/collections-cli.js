@@ -7,6 +7,7 @@ import { Store, bodyField } from './store.js';
 import { load, dump } from './yaml.js';
 import { slug } from './template.js';
 import { createCollection, addField, fieldDef } from './schema-ops.js';
+import { createRun } from './runs.js';
 
 export function collectionCommand(ws, collection, verb, args) {
 	const store = new Store(ws);
@@ -92,20 +93,8 @@ function workspaceSystemDir(ws, kind) {
 function metaWorkflowsRun(ws, store, flags, pos) {
 	const wfId = pos[0];
 	if (!wfId) throw new Error('usage: dreamteamer workflows run <workflow-id> --items <collection>/<id>[,…]');
-	const wf = store.read('workflows', wfId).fields;
 	const items = typeof flags.items === 'string' ? flags.items.split(',').map((s) => s.trim()).filter(Boolean) : [];
-	const steps = {};
-	for (const [i, step] of (wf.steps ?? []).entries()) {
-		steps[step.id] = i === 0 ? { status: 'running', started: new Date().toISOString().slice(0, 19) + 'Z' } : { status: 'pending' };
-	}
-	const fields = {
-		workflow: `workflows/${wfId}`,
-		items,
-		status: 'running',
-		'current-step': wf.steps?.[0]?.id ?? null,
-		steps,
-	};
-	const { id } = store.add('workflow-runs', fields);
+	const { id } = createRun(store, wfId, items);
 	console.log(flags.json ? JSON.stringify({ id: `workflow-runs/${id}` }) : `✔ run created: workflow-runs/${id}`);
 	console.log('… execution is attended: follow the `executing-workflows` skill to advance it');
 	return 0;

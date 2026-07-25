@@ -15,9 +15,10 @@ the attended session.
 starting a workflow on some items; picking up a run that's `running` or `waiting`; a gate task
 just got completed and its run is `waiting-on` it; a run failed and needs closing out.
 
-**not for:** authoring the workflow itself (`writing-workflows`), or the gate task's own
-conventions (`working-with-tasks`). automation is deferred (decision #11) — nothing auto-starts
-or auto-resumes a run; a session does.
+**not for:** authoring the workflow itself (`writing-workflows`), the gate task's own
+conventions (`working-with-tasks`), or trigger evaluation (`dreamteamer sync` creates runs
+from data changes — decision 38; see `detecting-data-changes-via-git`). sync CREATES runs;
+advancing their steps is this skill's job, in a session.
 
 ## the run record — `state/workflow-runs/<id>.workflow-run.yaml`
 

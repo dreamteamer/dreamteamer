@@ -13,6 +13,8 @@ schema:
     current-step: { type: [string, "null"] }
     waiting-on:   { type: string, x-reference: tasks }
     steps:        { type: object }     # map keyed by step id — deliberately open
+    trigger:      { type: string, x-reference: workflow-triggers }   # sync provenance
+    commit:       { type: string }     # the event commit — one leg of the dedupe key
 order: 81
 list_fields: [workflow, status, current-step]
 icon: play_circle
