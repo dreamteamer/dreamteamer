@@ -10,6 +10,7 @@ schema:
     collection:   { type: string, x-reference: collections }
     workflow:     { type: string, x-reference: workflows }
     cron:         { type: string }
+    filter:       { type: object }     # optional narrowing over the record's CURRENT fields
     enabled:      { type: boolean, default: true }
 order: 82
 list_fields: [name, trigger-type, collection, workflow, enabled]

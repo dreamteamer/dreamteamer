@@ -8,20 +8,23 @@ description: derive item-added/updated/removed events from git history (the git-
 **core principle:** item events are never observed live — they are **derived from git history**.
 a closed laptop loses nothing, and every evaluation is auditable and replayable forever.
 
-## ⚠ automation is DEFERRED (decision #11)
+## automation is LIVE (deferral lifted — decision 38; was decision 11)
 
-**no process may auto-create or auto-resume a workflow run from these events.** the operator's
-call: nothing auto-executes while the engine is young. use this skill to **report**, never to
-act:
+`dreamteamer sync` is the evaluator: it derives events since this evaluator's cursor, matches
+enabled `workflow-triggers` records, **creates run records**, and advances the cursor — one
+command, auditable, replayable. use the CLI, don't re-implement the mechanism by hand:
 
-| allowed today | forbidden today |
+| do | how |
 |---|---|
-| manual catch-up: "what changed while I was away" | creating a `workflow-runs` record from a matched trigger |
-| listing which enabled triggers *would* have matched | resuming a `waiting` run because its gate task went `done` |
-| advancing the cursor after reporting | scheduling, polling, watching, or cron |
+| evaluate + act | `dreamteamer sync` (or `POST /api/sync`) |
+| preview without acting | `dreamteamer sync --dry-run` (cursor NOT advanced) |
+| separate machine/process | `--evaluator <name>` — per-evaluator cursors in `state/cursors/` |
+| see what a past range did | run records carry `trigger` + `commit` provenance |
 
-if the operator asks for automation, say it's deferred and offer the manual catch-up instead.
-lifting the deferral is a decision-log entry, not a judgement call in the moment.
+run EXECUTION stays attended: sync creates the run; advancing its steps is
+`executing-workflows`. resuming a `waiting` run whose gate task completed is still the
+executor's job — sync surfaces it in the report, it does not advance steps. cron triggers
+are declared but not yet evaluated (sync warns).
 
 ## when to use
 
@@ -34,8 +37,8 @@ log`/`git diff` is fine for those.
 
 ## the mechanism (the full contract, for when slice 5 lands)
 
-1. **cursor** — `state/trigger-cursor.yaml` holds `last-evaluated: <sha>` (plus per-cron
-   `last-run` stamps later). committed like any record; it doesn't exist yet in this workspace.
+1. **cursor** — per-evaluator records in `state/cursors/<evaluator>.cursor.yaml` (decision 37;
+   catch-up across evaluators = the min of their `last-evaluated` shas). committed like any record.
 2. **diff** — `git diff --name-status <cursor>..HEAD` lists the changed files.
 3. **map** — each path maps to a collection via the compiled descriptors' `storage.path`
    (longest-prefix match; the suffix + codec must match a record file). the id is the path
@@ -44,8 +47,9 @@ log`/`git diff` is fine for those.
    item-updated, `D` → item-removed, `R` → rename (emit removed+added, or a single
    item-renamed when both sides map).
 5. **match** — events match enabled `workflow-triggers` records on `trigger-type` +
-   `collection`; each match *would* create a `workflow-runs` record. **deferred — report, don't
-   create.**
+   `collection` (+ optional `filter` over the record's current fields); each NEW match creates a
+   `workflow-runs` record. idempotency: the run's `trigger`+item+`commit` provenance is the
+   dedupe key — re-evaluating a range creates nothing twice.
 6. **advance** — write the new HEAD sha to the cursor, one commit.
 
 ## manual catch-up (the part you can run today)
@@ -71,8 +75,8 @@ notable items — new meetings, and completed gate tasks whose runs are still `w
 
 | mistake | reality |
 |---|---|
-| creating a run because a trigger matched | automation is deferred. report the match; let the operator ask. |
-| resuming a `waiting` run you noticed on your own | same rule — surface it, don't act on it. |
+| re-implementing sync by hand (diff+match+add) | `dreamteamer sync` IS the mechanism — use it; hand-rolls skip dedupe and cursor discipline. |
+| resuming a `waiting` run because you noticed its gate task done | sync creates runs; STEP advancement is `executing-workflows` — surface it there. |
 | `git diff …$(grep last-evaluated …)..HEAD` inline | the pipeline exits 0 even when the file is missing, so `\|\|` never fires and you silently diff `HEAD..HEAD` (empty). use the two-line form above. |
 | writing an events file / queue to "remember" | history IS the queue. a queue can drift; history can't. |
 | advancing the cursor before reporting | if the report is wrong you've lost the range. report, then advance. |
