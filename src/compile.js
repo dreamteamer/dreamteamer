@@ -9,10 +9,13 @@ import addFormats from 'ajv-formats';
 import { load, dump } from './yaml.js';
 import { walk } from './records.js';
 import { unknownOperators } from './filter.js';
+// circular on paper (migrate.js imports readManifest from here) — safe: both sides only
+// call at run time, same pattern as store.js ↔ compile.js.
+import { pendingMigrations } from './migrate.js';
 import { runHarnessAdapters } from './harnesses.js';
 import { satisfies } from './semver.js';
 
-export const KINDS = ['collections', 'skills', 'agents', 'commands', 'workflows', 'ui-views', 'collection-templates'];
+export const KINDS = ['collections', 'skills', 'agents', 'commands', 'workflows', 'ui-views', 'collection-templates', 'migrations'];
 const FOLDER_KINDS = new Set(['skills']); // folder-shape entities: copy the whole record folder
 
 const sha256 = (buf) => 'sha256:' + createHash('sha256').update(buf).digest('hex');
@@ -313,6 +316,12 @@ export function compile({ root, pkg }) {
 	const sourceLabel = config['workspace-module']
 		? `${sources.length} module(s) (workspace-module: ${config['workspace-module']})`
 		: `${sources.length - 1} module(s) + workspace`;
+	// visibility, not lockout (decision 39 §3): data never compiles, but unapplied
+	// migrations get named so the operator learns BEFORE records go invalid.
+	try {
+		const pend = pendingMigrations(root);
+		if (pend.length) console.warn(`⚠ ${pend.length} unapplied migration(s): ${pend.map((m) => `${m.module}/${m.id}`).join(', ')} — run \`dreamteamer migrate\``);
+	} catch { /* first compile of a workspace mid-bootstrap */ }
 	console.log(`✔ compiled ${summary || 'nothing'} from ${sourceLabel} → .dreamteamer`);
 	for (const line of harnessSummary) console.log(`✔ harness ${line}`);
 	return 0;

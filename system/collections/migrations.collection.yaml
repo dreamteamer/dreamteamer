@@ -1,0 +1,23 @@
+name: migrations
+storage: { path: system/migrations, codec: yaml, shape: file, suffix: migration }
+id: { pattern: "^\\d+--[a-z0-9-]+$" }
+schema:
+  type: object
+  required: [collection, operations]
+  properties:
+    collection:  { type: string, x-reference: collections }
+    description: { type: string }
+    operations:
+      type: array
+      items:
+        type: object
+        properties:
+          op:    { type: string, enum: [rename-field, fill-default, remove-field] }
+          from:  { type: string }
+          to:    { type: string }
+          field: { type: string }
+          value: {}
+order: 84
+list_fields: [collection, description]
+icon: move_up
+group: system

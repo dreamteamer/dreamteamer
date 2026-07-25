@@ -9,6 +9,7 @@ import { check } from './check.js';
 import { collectionCommand } from './collections-cli.js';
 import { init, install, installClone, update } from './init.js';
 import { sync, printSyncReport } from './sync.js';
+import { migrate, printMigrateReport } from './migrate.js';
 
 const USAGE = `usage: dreamteamer <command> | dreamteamer <collection> <verb> …
 
@@ -22,6 +23,7 @@ commands:
   check       validate every record against the compiled descriptors (report-only)
   status      workspace status: compiled runtime freshness, per-module channel/ref, staleness
   start       serve the clean REST api + the studio at /admin [--port <n>]
+  migrate     apply pending module-shipped schema migrations [--dry-run] (one commit each)
   sync        evaluate triggers over the git cursor: derive item events, create runs,
               advance this evaluator's cursor [--dry-run] [--evaluator <name>] [--from <sha|root>]
 
@@ -83,6 +85,11 @@ export function run(argv) {
 			case 'check':
 				warnIfStale(ws.root);
 				process.exit(check(ws));
+			case 'migrate': {
+				warnIfStale(ws.root);
+				printMigrateReport(migrate(ws, { dryRun: rest.includes('--dry-run') }));
+				process.exit(0);
+			}
 			case 'sync': {
 				warnIfStale(ws.root);
 				const ei = rest.indexOf('--evaluator');
