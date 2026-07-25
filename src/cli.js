@@ -13,6 +13,7 @@ const USAGE = `usage: dreamteamer <command> | dreamteamer <collection> <verb> �
 
 commands:
   init        write the workspace skeleton into the current directory (never compiles)
+  --version   print the engine version (works anywhere)
   install     restore git_modules/ from the lockfile map; --clone <url> [name] adds one
   compile     materialize modules + workspace sources into .dreamteamer (+ harness adapters)
   check       validate every record against the compiled descriptors (report-only)
@@ -36,6 +37,12 @@ meta verbs (schema + workflow operations — write SOURCES, never the runtime):
 export function run(argv) {
 	const [cmd, ...rest] = argv;
 	try {
+		if (cmd === '--version' || cmd === '-v' || cmd === 'version') {
+			// works OUTSIDE a workspace — the post-install "did it land?" affordance
+			const p = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+			console.log(`${p.name}@${p.version}`);
+			process.exit(0);
+		}
 		if (cmd === 'init') {
 			// init runs BEFORE a workspace exists — no findWorkspace
 			const flags = {};
