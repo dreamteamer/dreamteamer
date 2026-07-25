@@ -124,6 +124,12 @@ function metaCollectionsAdd(ws, store, flags) {
 		const tplFile = path.join(ws.root, '.dreamteamer', 'system', 'collection-templates', `${flags.template}.collection-template.yaml`);
 		if (!fs.existsSync(tplFile)) throw new Error(`unknown collection-template "${flags.template}"`);
 		descriptor = { name, ...structuredClone(load(fs.readFileSync(tplFile, 'utf8')).template) };
+	} else {
+		// templateless: a MINIMAL but compilable descriptor (clean-room finding: an empty one
+		// bricked compile with no recovery — the CLI must never commit an uncompilable source).
+		// grow it with `<name> add-field …`.
+		descriptor.id = { generate: '{{ name | slug }}' };
+		descriptor.schema = { type: 'object', required: ['name'], properties: { name: { type: 'string' } } };
 	}
 	descriptor.storage = {
 		path: `${ws.pkg.dreamteamer?.['data-path'] ?? 'data'}/${name}`,
