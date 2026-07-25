@@ -28,8 +28,8 @@ are declared but not yet evaluated (sync warns).
 
 ## when to use
 
-the operator asks what changed / what they missed; you're reconciling after a batch of edits or a
-migration; you're preparing slice 5 (trigger evaluation) and need the mechanism.
+the operator asks what changed / what they missed; you're reconciling after a batch of edits or
+a migration; you need to understand what `dreamteamer sync` will do before running it.
 
 **not for:** advancing a run (`executing-workflows`), reading or writing individual records
 (`working-with-structured-data-files`), or ordinary "show me the diff" questions — plain `git
@@ -44,8 +44,8 @@ log`/`git diff` is fine for those.
    (longest-prefix match; the suffix + codec must match a record file). the id is the path
    inside the collection folder minus `.<suffix>.<ext>`.
 4. **classify** — the git status letter becomes the event: `A` → item-added, `M` →
-   item-updated, `D` → item-removed, `R` → rename (emit removed+added, or a single
-   item-renamed when both sides map).
+   item-updated, `D` → item-removed, `R` → rename (always emitted as removed + added —
+   there is no item-renamed event).
 5. **match** — events match enabled `workflow-triggers` records on `trigger-type` +
    `collection` (+ optional `filter` over the record's current fields); each NEW match creates a
    `workflow-runs` record. idempotency: the run's `trigger`+item+`commit` provenance is the
@@ -55,7 +55,7 @@ log`/`git diff` is fine for those.
 ## manual catch-up (the part you can run today)
 
 ```bash
-cursor=$(awk '/^last-evaluated:/{print $2}' state/trigger-cursor.yaml 2>/dev/null)
+cursor=$(awk '/^last-evaluated:/{print $2}' state/cursors/cli.cursor.yaml 2>/dev/null)
 cursor=${cursor:-$(git rev-list --max-parents=0 HEAD)}
 git diff --name-status "$cursor"..HEAD -- data/ state/
 ```
