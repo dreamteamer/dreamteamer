@@ -1,9 +1,10 @@
 {
 	"name": "@dreamteamer/dreamteamer",
-	"version": "0.0.1",
+	"version": "0.1.0",
 	"private": true,
 	"description": "dreamteamer core — workspace compiler, CLI, and the self-referential minimum of collections, skills and agents",
 	"type": "module",
+	"engines": { "node": ">=20" },
 	"bin": { "dreamteamer": "./bin/dreamteamer.js" },
 	"files": ["bin", "src", "system"],
 	"dependencies": {

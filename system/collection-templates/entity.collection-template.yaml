@@ -1,0 +1,16 @@
+# entity: named things (contacts, suppliers, tools…) — id is the bare name slug,
+# no date prefix (docs-style dated ids read wrong for things that ARE, not happen).
+# storage is left to the template mechanism's standard defaults (data/<name>, md, file).
+name: entity
+template:
+  id:
+    generate: "{{ name | slug }}"
+    pattern: "^[a-z0-9][a-z0-9-]*$"
+  schema:
+    type: object
+    required: [name]
+    properties:
+      name:  { type: string }
+      notes: { type: string, format: markdown, x-body: true }
+      tags:  { type: array, items: { type: string } }
+  list_fields: [name, tags]

@@ -10,6 +10,7 @@ import { load, dump } from './yaml.js';
 import { walk } from './records.js';
 import { unknownOperators } from './filter.js';
 import { runHarnessAdapters } from './harnesses.js';
+import { satisfies } from './semver.js';
 
 export const KINDS = ['collections', 'skills', 'agents', 'commands', 'workflows', 'ui-views', 'collection-templates'];
 const FOLDER_KINDS = new Set(['skills']); // folder-shape entities: copy the whole record folder
@@ -80,6 +81,43 @@ export function compile({ root, pkg }) {
 		fail(`root system/ contains sources but workspace-module="${config['workspace-module']}" is set — they would be silently ignored.\n  move them into modules/${config['workspace-module']}/system/ (decision 22).`);
 	}
 
+	// ---- module package pass: engine ranges + env declarations (M4) ---------------
+	// both are WARNINGS, never errors — a version skew or missing secret must not
+	// brick a solo operator's workspace at compile time.
+	const engineVer = engineVersion();
+	const declaredEnv = new Map(); // env key -> [module names]
+	for (const source of sources) {
+		let mpkg;
+		try { mpkg = JSON.parse(fs.readFileSync(path.join(source.root, 'package.json'), 'utf8')); } catch { continue; }
+		const range = mpkg.dreamteamer?.engine;
+		if (range) {
+			const ok = satisfies(engineVer, range);
+			if (ok === false) console.warn(`⚠ module ${source.name} declares engine "${range}" — running engine is ${engineVer} (out of range; compile continues)`);
+			else if (ok === null) console.warn(`⚠ module ${source.name}: engine range "${range}" not understood by the built-in checker (see src/semver.js) — not verified`);
+		}
+		for (const k of mpkg.dreamteamer?.env ?? []) {
+			if (!declaredEnv.has(k)) declaredEnv.set(k, []);
+			declaredEnv.get(k).push(source.name);
+		}
+	}
+	if (declaredEnv.size) {
+		// .env is parsed for KEY names ONLY — values never reach any output or the manifest
+		const envPath = path.join(root, '.env');
+		if (!fs.existsSync(envPath)) {
+			console.warn(`⚠ no .env — modules declare env keys: ${[...declaredEnv.keys()].join(', ')} (see .env.example)`);
+		} else {
+			const present = new Set();
+			for (const line of fs.readFileSync(envPath, 'utf8').split('\n')) {
+				const m = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=/.exec(line);
+				if (m) present.add(m[1]);
+			}
+			for (const [k, mods] of declaredEnv) {
+				if (present.has(k)) continue;
+				for (const mod of mods) console.warn(`⚠ module ${mod} declares env key ${k} — missing from .env (see .env.example)`);
+			}
+		}
+	}
+
 	const disabled = new Set(config.disable ?? []);
 	const disabledHits = new Set();
 
@@ -147,12 +185,19 @@ export function compile({ root, pkg }) {
 	// .dreamteamer/ui/<module>/app.js; the server serves /ui, the studio imports and calls it.
 	// studio/dist/app.js (a built bundle) wins over studio/app.js (plain-JS, host-provided Vue).
 	const uiModules = [];
+	const uiOwners = new Map(); // shortName -> module name, for a readable collision error
 	for (const source of sources) {
 		const cand = ['studio/dist/app.js', 'studio/app.js']
 			.map((p) => path.join(source.root, p))
 			.find((p) => fs.existsSync(p));
 		if (!cand) continue;
-		const shortName = source.name.split('/').pop();
+		// short name = full package name, url-safe: "@" stripped, "/" → "--"
+		// (@a/crm and @b/crm used to both stage ui/crm — audit finding 4). unscoped
+		// names are unchanged, so existing /ui/<name>/app.js paths survive.
+		const shortName = source.name.replace(/^@/, '').replace(/\//g, '--');
+		const prevOwner = uiOwners.get(shortName);
+		if (prevOwner) fail(`ui bundle collision: modules "${prevOwner}" and "${source.name}" both stage ui/${shortName}/app.js — rename one package.`);
+		uiOwners.set(shortName, source.name);
 		addEntry(path.join('ui', shortName, 'app.js'), cand);
 		uiModules.push(shortName);
 	}
@@ -278,6 +323,11 @@ function engineId() {
 		const p = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
 		return `${p.name}@${p.version}`;
 	} catch { return 'dreamteamer@unknown'; }
+}
+
+// bare version of the RUNNING engine (dev clone or installed copy — whichever loaded)
+export function engineVersion() {
+	return engineId().split('@').pop();
 }
 
 export function readManifest(root) {
