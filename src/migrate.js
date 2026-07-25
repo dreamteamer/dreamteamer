@@ -127,7 +127,8 @@ export function migrate(ws, { dryRun = false } = {}) {
 				const ledgerFields = { module: mg.module, seq: mg.seq, migration: mg.id, collection: `collections/${d.name}`, changed: changed.length };
 				const ld = store.descriptor('migration-runs');
 				store.validate(ld, structuredClone(ledgerFields));
-				const ledgerFile = store.filePath(ld, `${mg.module.split('/').pop()}--${String(mg.seq).padStart(3, '0')}`);
+				// full-name shortening, same transform as UI bundles: @a/crm and @b/crm must not share a ledger id
+				const ledgerFile = store.filePath(ld, `${mg.module.replace(/^@/, '').replace(/\//g, '--')}--${String(mg.seq).padStart(3, '0')}`);
 				fs.mkdirSync(path.dirname(ledgerFile), { recursive: true });
 				atomicWrite(ledgerFile, serialize(ld, ledgerFields));
 				files.push(ledgerFile);
