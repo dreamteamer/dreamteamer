@@ -51,8 +51,40 @@ function compare(op, v, o) {
 		case '_between': { const [a, b] = toArray(o); return v != null && cmp(v, a) >= 0 && cmp(v, b) <= 0; }
 		case '_nbetween': { const [a, b] = toArray(o); return v != null && (cmp(v, a) < 0 || cmp(v, b) > 0); }
 		case '_regex': try { return new RegExp(String(o)).test(s(v)); } catch { return false; }
-		default: return true; // unknown operator: permissive (report-never-reject spirit)
+		default:
+			// unknown operator NARROWS, never widens (review finding 5): filters are load-bearing
+			// in compiled ui-views — a typo'd _nq matching everything showed every user's tasks
+			// with no signal. warn once per operator per process.
+			warnUnknownOp(op);
+			return false;
 	}
+}
+
+export const KNOWN_OPERATORS = new Set(['_eq', '_neq', '_ieq', '_nieq', '_lt', '_lte', '_gt', '_gte', '_in', '_nin', '_null', '_nnull', '_empty', '_nempty', '_contains', '_ncontains', '_icontains', '_starts_with', '_istarts_with', '_ends_with', '_iends_with', '_between', '_nbetween', '_regex', '_and', '_or']);
+
+const warned = new Set();
+function warnUnknownOp(op) {
+	if (warned.has(op)) return;
+	warned.add(op);
+	console.warn(`⚠ unknown filter operator "${op}" — treated as matching NOTHING (known: ${[...KNOWN_OPERATORS].join(', ')})`);
+}
+
+// walk a filter tree and return every operator key not in the known set — compile
+// validates ui-view filters with this so a typo'd operator fails loudly at compile time.
+export function unknownOperators(filter, found = new Set()) {
+	if (filter == null || typeof filter !== 'object') return found;
+	for (const [key, cond] of Object.entries(filter)) {
+		if (key === '_and' || key === '_or') {
+			for (const c of Array.isArray(cond) ? cond : []) unknownOperators(c, found);
+		} else if (key.startsWith('_')) {
+			if (!KNOWN_OPERATORS.has(key)) found.add(key);
+		} else if (cond !== null && typeof cond === 'object' && !Array.isArray(cond)) {
+			for (const op of Object.keys(cond)) {
+				if (op.startsWith('_') && !KNOWN_OPERATORS.has(op)) found.add(op);
+			}
+		}
+	}
+	return found;
 }
 
 const looseEq = (v, o) => v === o || String(v) === String(o) || (typeof v === 'number' && Number(o) === v);
