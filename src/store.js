@@ -9,9 +9,8 @@ import Ajv from 'ajv';
 import addFormats from 'ajv-formats';
 import { load, dump } from './yaml.js';
 import { generateId } from './template.js';
-import { parseRecord, patternRe, fmtAjvError, unknownFields } from './records.js';
-
-const EXT = { md: '.md', yaml: '.yaml', json: '.json' };
+import { parseRecord, patternRe, fmtAjvError, unknownFields, walk, EXT, assertSafeId } from './records.js';
+import { discoverModules } from './compile.js';
 
 export class Store {
 	constructor({ root }) {
@@ -53,6 +52,7 @@ export class Store {
 	}
 
 	filePath(d, id) {
+		assertSafeId(id); // never fs-join an id that can climb out of the collection
 		if (d.storage.shape === 'folder') {
 			if (!d.storage.entry) throw new Error(`collection "${d.name}" is folder-shape but declares no storage.entry`);
 			return path.join(this.dir(d), id, d.storage.entry);
@@ -62,6 +62,7 @@ export class Store {
 
 	// the on-disk unit of a record: its folder for folder shapes, its file otherwise
 	recordRoot(d, id) {
+		assertSafeId(id);
 		return d.storage.shape === 'folder' ? path.join(this.dir(d), id) : this.filePath(d, id);
 	}
 
@@ -138,21 +139,29 @@ export class Store {
 		}
 		const file = this.filePath(d, id);
 		if (fs.existsSync(file)) throw new Error(`${collection}/${id} already exists — nothing was written.`);
-		fs.mkdirSync(path.dirname(file), { recursive: true });
-		atomicWrite(file, serialize(d, fields));
-		this.commit([file], `dreamteamer: ${collection} add ${id}`);
-		return { id, file };
+		return this.withWriteLock(() => {
+			fs.mkdirSync(path.dirname(file), { recursive: true });
+			atomicWrite(file, serialize(d, fields));
+			this.commit([file], `dreamteamer: ${collection} add ${id}`, () => {
+				fs.rmSync(file, { force: true });
+				pruneEmptyDirs(path.dirname(file), this.dir(d));
+			});
+			return { id, file };
+		});
 	}
 
 	set(collection, id, changes) {
 		const d = this.writableDescriptor(collection);
 		const { fields, file } = this.read(collection, id);
+		const previous = fs.readFileSync(file, 'utf8');
 		const next = { ...fields, ...changes };
 		for (const [k, v] of Object.entries(changes)) if (v === null || v === '') delete next[k];
 		this.validate(d, next);
-		atomicWrite(file, serialize(d, next));
-		this.commit([file], `dreamteamer: ${collection} set ${id}`);
-		return { id, file };
+		return this.withWriteLock(() => {
+			atomicWrite(file, serialize(d, next));
+			this.commit([file], `dreamteamer: ${collection} set ${id}`, () => atomicWrite(file, previous));
+			return { id, file };
+		});
 	}
 
 	rm(collection, id, { force = false } = {}) {
@@ -163,9 +172,13 @@ export class Store {
 			throw new Error(`${collection}/${id} is referenced by:\n${inbound.map((f) => `  ${f}`).join('\n')}\nfix the references or pass --force. nothing was removed.`);
 		}
 		const unit = this.recordRoot(d, id); // folder-shape: the whole folder goes, not just the entry file
-		fs.rmSync(unit, { recursive: true });
-		this.commit([unit], `dreamteamer: ${collection} rm ${id}`);
-		return { id, inboundIgnored: force ? inbound.length : 0 };
+		return this.withWriteLock(() => {
+			fs.rmSync(unit, { recursive: true });
+			this.commit([unit], `dreamteamer: ${collection} rm ${id}`, () => {
+				execFileSync('git', ['checkout', '--quiet', 'HEAD', '--', path.relative(this.root, unit)], { cwd: this.root });
+			});
+			return { id, inboundIgnored: force ? inbound.length : 0 };
+		});
 	}
 
 	rename(collection, oldId, newId) {
@@ -178,13 +191,23 @@ export class Store {
 		const oldUnit = this.recordRoot(d, oldId); // folder-shape: move the WHOLE folder
 		const newUnit = this.recordRoot(d, newId);
 		if (fs.existsSync(newUnit)) throw new Error(`${collection}/${newId} already exists — nothing was renamed.`);
-		fs.mkdirSync(path.dirname(newUnit), { recursive: true });
-		fs.renameSync(oldUnit, newUnit);
-		pruneEmptyDirs(path.dirname(oldUnit), this.dir(d)); // cross-partition renames leave empty date dirs
-		// rewrite ALL inbound references (data + state + system SOURCES) in the same commit
-		const { touched, rewrites } = this.rewriteRefs(`${collection}/${oldId}`, `${collection}/${newId}`);
-		this.commit([oldUnit, newUnit, ...touched], `dreamteamer: ${collection} rename ${oldId} → ${newId}`);
-		return { id: newId, rewrites, touched: touched.length };
+		return this.withWriteLock(() => {
+			fs.mkdirSync(path.dirname(newUnit), { recursive: true });
+			fs.renameSync(oldUnit, newUnit);
+			pruneEmptyDirs(path.dirname(oldUnit), this.dir(d)); // cross-partition renames leave empty date dirs
+			// rewrite inbound references (frontmatter/structured always; prose only via wikilinks)
+			const { touched, rewrites, skipped } = this.rewriteRefs(`${collection}/${oldId}`, `${collection}/${newId}`);
+			this.commit([oldUnit, newUnit, ...touched], `dreamteamer: ${collection} rename ${oldId} → ${newId}`, () => {
+				fs.mkdirSync(path.dirname(oldUnit), { recursive: true });
+				fs.renameSync(newUnit, oldUnit);
+				pruneEmptyDirs(path.dirname(newUnit), this.dir(d));
+				if (touched.length) execFileSync('git', ['checkout', '--quiet', 'HEAD', '--', ...touched.map((f) => path.relative(this.root, f))], { cwd: this.root });
+			});
+			for (const s of skipped) {
+				console.warn(`⚠ ${path.relative(this.root, s.file)}: ${s.count} raw-prose occurrence(s) of ${collection}/${oldId} left untouched — only [[wikilinks]] are maintained in bodies (decision 7)`);
+			}
+			return { id: newId, rewrites, touched: touched.length, skipped: skipped.length };
+		});
 	}
 
 	// exact-ref matching with a boundary so contacts/jane never matches contacts/jane-doe
@@ -207,16 +230,13 @@ export class Store {
 		}
 	}
 
+	// all three channels via THE discovery (review finding 10: this layer never learned
+	// decision 24 — rename silently skipped git_modules sources). npm copies are foreign
+	// installed artifacts, never rewrite targets; inline + git clones are ours.
 	sourceRoots() {
-		const roots = [this.root];
-		const modulesDir = path.join(this.root, 'modules');
-		if (fs.existsSync(modulesDir)) {
-			for (const name of fs.readdirSync(modulesDir).sort()) {
-				const p = path.join(modulesDir, name, 'package.json');
-				try { if ('dreamteamer' in JSON.parse(fs.readFileSync(p, 'utf8'))) roots.push(path.join(modulesDir, name)); } catch { /* skip */ }
-			}
-		}
-		return roots;
+		let pkg = {};
+		try { pkg = JSON.parse(fs.readFileSync(path.join(this.root, 'package.json'), 'utf8')); } catch { /* no pkg */ }
+		return [this.root, ...discoverModules(this.root, pkg).modules.filter((m) => m.channel !== 'npm').map((m) => m.root)];
 	}
 
 	findInboundRefs(ref) {
@@ -230,26 +250,72 @@ export class Store {
 		return hits;
 	}
 
+	// decision 7 (un-parked): structured surfaces (frontmatter, yaml/json records) rewrite
+	// unconditionally; PROSE bodies rewrite only inside [[collection/id]] / [[collection/id|label]]
+	// wikilinks — raw-text matching corrupted look-alike URLs (review finding 4). raw body
+	// occurrences are counted and reported, never touched.
 	rewriteRefs(oldRef, newRef) {
-		const re = this.refRegex(oldRef);
 		const touched = [];
+		const skipped = [];
 		let rewrites = 0;
+		const escaped = oldRef.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+		const wikiRe = new RegExp(`\\[\\[${escaped}(\\|[^\\]]*)?\\]\\]`, 'g');
 		for (const f of this.recordFiles()) {
 			const text = fs.readFileSync(f, 'utf8');
-			re.lastIndex = 0;
-			if (!re.test(text)) continue;
-			const next = text.replace(this.refRegex(oldRef), newRef);
-			rewrites += (text.match(this.refRegex(oldRef)) ?? []).length;
+			let next;
+			let count = 0;
+			const fm = f.endsWith('.md') ? /^(---\r?\n[\s\S]*?\r?\n---\r?\n?)([\s\S]*)$/.exec(text) : null;
+			if (fm) {
+				const head = fm[1].replace(this.refRegex(oldRef), () => (count++, newRef));
+				const body = fm[2].replace(wikiRe, (_, label) => (count++, `[[${newRef}${label ?? ''}]]`));
+				next = head + body;
+				const raw = (body.match(this.refRegex(oldRef)) ?? []).length;
+				if (raw) skipped.push({ file: f, count: raw });
+			} else {
+				next = text.replace(this.refRegex(oldRef), () => (count++, newRef));
+			}
+			if (count === 0) continue;
+			rewrites += count;
 			atomicWrite(f, next);
 			touched.push(f);
 		}
-		return { touched, rewrites };
+		return { touched, rewrites, skipped };
 	}
 
-	commit(files, subject) {
+	// ---- write serialization + rollback (review finding 3; reinstates the v2 commit
+	// queue idea in sync form). within ONE process Node's sync fs/exec already serializes;
+	// the lock guards CLI-beside-server cross-process races on .git/index.lock. a commit
+	// failure UNDOES the write, so "one mutation = one commit" fails CLOSED and
+	// "nothing was written" stays true.
+	withWriteLock(fn) {
+		const lock = path.join(this.runtime, '.write-lock');
+		fs.mkdirSync(path.dirname(lock), { recursive: true });
+		const deadline = Date.now() + 5000;
+		for (;;) {
+			try { fs.mkdirSync(lock); break; } catch (e) {
+				if (e.code !== 'EEXIST') throw e;
+				try { if (Date.now() - fs.statSync(lock).mtimeMs > 30_000) { fs.rmdirSync(lock); continue; } } catch { /* raced the holder */ }
+				if (Date.now() > deadline) throw new Error('another dreamteamer process holds the write lock (.dreamteamer/.write-lock) — retry, or remove it if nothing is running.');
+				Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50); // sync sleep, no busy spin
+			}
+		}
+		try { return fn(); } finally { try { fs.rmdirSync(lock); } catch { /* already gone */ } }
+	}
+
+	commit(files, subject, undo) {
 		const rel = files.map((f) => path.relative(this.root, f));
-		execFileSync('git', ['add', '--all', '--', ...rel], { cwd: this.root });
-		execFileSync('git', ['commit', '--quiet', '-m', subject, '--', ...rel], { cwd: this.root });
+		try {
+			execFileSync('git', ['add', '--all', '--', ...rel], { cwd: this.root });
+			execFileSync('git', ['commit', '--quiet', '-m', subject, '--', ...rel], { cwd: this.root });
+		} catch (e) {
+			try { execFileSync('git', ['reset', '--quiet', '--', ...rel], { cwd: this.root }); } catch { /* nothing staged */ }
+			if (undo) {
+				try { undo(); } catch (u) {
+					throw new Error(`git commit failed AND rollback failed (${u.message}) — inspect the working tree. original: ${e.message.split('\n')[0]}`);
+				}
+			}
+			throw new Error(`git commit failed — the write was rolled back, nothing was changed. (${e.message.split('\n')[0]})`);
+		}
 	}
 }
 
@@ -286,13 +352,4 @@ export function atomicWrite(file, content) {
 	fs.writeFileSync(tmp, content);
 	fs.renameSync(tmp, file);
 	return true;
-}
-
-function* walk(dir) {
-	for (const name of fs.readdirSync(dir).sort()) {
-		if (name.startsWith('.')) continue;
-		const p = path.join(dir, name);
-		if (fs.statSync(p).isDirectory()) yield* walk(p);
-		else yield p;
-	}
 }
