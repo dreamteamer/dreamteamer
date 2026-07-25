@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { load, dump } from './yaml.js';
+import { walk } from './records.js';
 import { runHarnessAdapters } from './harnesses.js';
 
 export const KINDS = ['collections', 'skills', 'agents', 'commands', 'workflows', 'ui-views', 'collection-templates'];
@@ -311,18 +312,6 @@ export function warnIfStale(root) {
 	return s;
 }
 
-const JUNK_DIRS = new Set(['__pycache__', 'node_modules']);
-const JUNK_FILE = /\.(pyc|pyo)$|^\.DS_Store$/;
-
-function* walk(dir) {
-	for (const name of fs.readdirSync(dir).sort()) {
-		if (name.startsWith('.') || JUNK_DIRS.has(name)) continue;
-		if (JUNK_FILE.test(name)) continue;
-		const p = path.join(dir, name);
-		if (fs.statSync(p).isDirectory()) yield* walk(p);
-		else yield p;
-	}
-}
 
 // extends merge: schema.properties merge per-property, required unions, other
 // keys extender-wins; storage/id come from the base unless explicitly overridden.
@@ -342,7 +331,10 @@ function mergeDescriptor(base, ext) {
 	return out;
 }
 
+// a bad source THROWS (review finding 8: process.exit killed --watch on the first typo
+// and made server-triggered recompiles impossible). the CLI boundary prints and exits.
+export class CompileError extends Error {}
+
 function fail(msg) {
-	console.error(`✖ compile error: ${msg}`);
-	process.exit(1);
+	throw new CompileError(`compile error: ${msg}`);
 }

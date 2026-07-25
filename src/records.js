@@ -1,6 +1,7 @@
 // shared record primitives — parsing, id patterns, error formatting — used by
 // both the validating store (hard, write-time) and check (soft, report-only).
 import fs from 'node:fs';
+import path from 'node:path';
 import { load } from './yaml.js';
 
 export function parseRecord(file, d, bodyField) {
@@ -37,4 +38,33 @@ export function unknownFields(schema, fields) {
 	const props = schema?.properties ?? {};
 	if (!Object.keys(props).length) return [];
 	return Object.keys(fields).filter((k) => !(k in props));
+}
+
+// ---- shared reader primitives (review finding 11: walk/EXT existed 2-4×, diverging) ----
+
+export const EXT = { md: '.md', yaml: '.yaml', json: '.json' };
+
+const JUNK_DIRS = new Set(['__pycache__', 'node_modules']);
+const JUNK_FILE = /\.(pyc|pyo)$|^\.DS_Store$/;
+
+// THE collection walk — junk-excluding everywhere (store/check used to see .pyc files
+// compile deliberately skipped; one walk, one verdict).
+export function* walk(dir) {
+	for (const name of fs.readdirSync(dir).sort()) {
+		if (name.startsWith('.') || JUNK_DIRS.has(name)) continue;
+		if (JUNK_FILE.test(name)) continue;
+		const p = path.join(dir, name);
+		if (fs.statSync(p).isDirectory()) yield* walk(p);
+		else yield p;
+	}
+}
+
+// ids are PATHS — but only downward ones. traversal segments, absolute paths and
+// backslashes are rejected before any fs join (review finding 1: an escaping --id
+// wrote a record outside the repo and orphaned others inside it).
+export function assertSafeId(id) {
+	if (typeof id !== 'string' || id === '') throw new Error(`invalid id "${id}" — nothing was written.`);
+	if (id.startsWith('/') || id.includes('\\') || id.split('/').some((s) => s === '' || s === '.' || s === '..')) {
+		throw new Error(`invalid id "${id}" — ids are relative paths, no "."/".." segments, no leading slash. nothing was written.`);
+	}
 }

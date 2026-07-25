@@ -6,15 +6,16 @@ import path from 'node:path';
 import Ajv from 'ajv';
 import addFormats from 'ajv-formats';
 import { load } from './yaml.js';
-import { parseRecord, patternRe, fmtAjvError, unknownFields } from './records.js';
-
-const EXT = { md: '.md', yaml: '.yaml', json: '.json' };
+import { parseRecord, patternRe, fmtAjvError, unknownFields, walk, EXT } from './records.js';
 
 export function check({ root }) {
 	const RUNTIME = path.join(root, '.dreamteamer');
 	const rel = (p) => path.relative(root, p);
 
-	const ajv = new Ajv({ allErrors: true, strict: false });
+	// useDefaults matches the STORE's validator (review finding 11: the two paths could
+	// reach different verdicts on identical bytes). check never writes — the defaults
+	// materialize into the in-memory copy only.
+	const ajv = new Ajv({ allErrors: true, strict: false, useDefaults: true, coerceTypes: 'array' });
 	addFormats(ajv);
 	ajv.addFormat('markdown', true); // rich-text marker, not a syntax to validate
 
@@ -155,11 +156,3 @@ function* valuesAt(obj, fieldPath) {
 	for (const v of vals.flat(Infinity)) if (v != null) yield v;
 }
 
-function* walk(dir) {
-	for (const name of fs.readdirSync(dir).sort()) {
-		if (name.startsWith('.')) continue;
-		const p = path.join(dir, name);
-		if (fs.statSync(p).isDirectory()) yield* walk(p);
-		else yield p;
-	}
-}
