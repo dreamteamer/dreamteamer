@@ -129,6 +129,27 @@ function upsertField(ws, store, collection, fieldName, prop, required, verb) {
 	return { collection, field: fieldName, file: dest, extends: doc.extends };
 }
 
+// saved views (M3): a studio-saved view IS a ui-view record — but ui-views are
+// system-stored (sources + compile), so the write goes through the same gate as any
+// other schema op. the studio "save view" button lands here.
+export function saveUiView(ws, store, { id, view }) {
+	if (!id || !/^[a-z0-9][a-z0-9-/]*$/.test(id)) throw new Error(`invalid ui-view id "${id}" — lowercase slug required`);
+	const dest = path.join(workspaceSystemDir(ws, 'ui-views'), `${id}.ui-view.yaml`);
+	const existed = fs.existsSync(dest);
+	writeGated(ws, [dest], `dreamteamer: ui-views ${existed ? 'update' : 'add'} ${id}`, () => {
+		fs.mkdirSync(path.dirname(dest), { recursive: true });
+		fs.writeFileSync(dest, dump(view));
+	});
+	return { id, file: dest, updated: existed };
+}
+
+export function removeUiView(ws, store, id) {
+	const dest = path.join(workspaceSystemDir(ws, 'ui-views'), `${id}.ui-view.yaml`);
+	if (!fs.existsSync(dest)) throw new Error(`ui-view "${id}" is not workspace-owned (module-shipped views are removed via dreamteamer.disable)`);
+	writeGated(ws, [dest], `dreamteamer: ui-views rm ${id}`, () => fs.rmSync(dest));
+	return { removed: id };
+}
+
 // base module for an extends pointer — resolved via manifest.modules across ALL channels
 // (audit open finding 1: the old regex only understood inline modules/… paths)
 function baseModuleRef(root, collection) {

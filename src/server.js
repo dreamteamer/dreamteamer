@@ -8,7 +8,7 @@ import express from 'express';
 import { Store, bodyField } from './store.js';
 import { readManifest, staleness, discoverModules, CompileError } from './compile.js';
 import { presentation } from './presentation.js';
-import { createCollection, removeCollection, addField, updateField, removeField, fieldDef } from './schema-ops.js';
+import { createCollection, removeCollection, addField, updateField, removeField, fieldDef, saveUiView, removeUiView } from './schema-ops.js';
 import { matchesFilter } from './filter.js';
 import { slugOrHash } from './template.js';
 
@@ -161,6 +161,10 @@ export function startServer(ws, { port = 8080, host = '127.0.0.1' } = {}) {
 	}));
 	api.delete('/schema/collections/:name/fields/:field', schemaOp((req) =>
 		removeField(ws, store, req.params.name, req.params.field)));
+
+	// saved views: a studio view IS a ui-view record (source-written, compile-gated)
+	api.post('/schema/ui-views', schemaOp((req) => saveUiView(ws, store, { id: req.body?.id, view: req.body?.view })));
+	api.delete('/schema/ui-views/:id', schemaOp((req) => removeUiView(ws, store, req.params.id)));
 
 	// per-record revision diff + revert (M3: git already has the data; this exposes it)
 	api.get('/history-diff/:name/*id', (req, res) => {
