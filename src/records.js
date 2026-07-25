@@ -5,7 +5,10 @@ import path from 'node:path';
 import { load } from './yaml.js';
 
 export function parseRecord(file, d, bodyField) {
-	const text = fs.readFileSync(file, 'utf8');
+	return parseRecordText(fs.readFileSync(file, 'utf8'), d, bodyField);
+}
+
+export function parseRecordText(text, d, bodyField) {
 	const codec = d.storage.codec ?? 'md';
 	if (codec === 'yaml') return load(text) ?? {};
 	if (codec === 'json') return JSON.parse(text);

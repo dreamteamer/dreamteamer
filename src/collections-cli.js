@@ -6,6 +6,7 @@ import path from 'node:path';
 import { Store, bodyField } from './store.js';
 import { load, dump } from './yaml.js';
 import { slug } from './template.js';
+import { createCollection, addField, fieldDef } from './schema-ops.js';
 
 export function collectionCommand(ws, collection, verb, args) {
 	const store = new Store(ws);
@@ -27,8 +28,7 @@ export function collectionCommand(ws, collection, verb, args) {
 			}
 			const bf = bodyField(d);
 			const rows = [];
-			for (const [id] of store.ids(collection)) {
-				const { fields } = store.read(collection, id);
+			for (const { id, fields } of store.readAll(collection)) { // ONE walk, not one per record
 				if (!filters.every(([k, v]) => String(fields[k] ?? '') === String(v))) continue;
 				if (bf) delete fields[bf]; // bodies don't belong in listings
 				rows.push({ ...fields, id }); // record id WINS over any schema field named "id"
@@ -113,113 +113,19 @@ function metaWorkflowsRun(ws, store, flags, pos) {
 
 // `dreamteamer collections add --name research-docs --template docs`
 function metaCollectionsAdd(ws, store, flags) {
-	const name = flags.name;
-	if (!name) throw new Error('missing --name');
-	if (store.descriptors.has(name)) throw new Error(`collection "${name}" already exists`);
-	const dest = path.join(workspaceSystemDir(ws, 'collections'), `${name}.collection.yaml`);
-	if (fs.existsSync(dest)) throw new Error(`${rel(ws.root, dest)} already exists`);
-
-	let descriptor = { name };
-	if (flags.template) {
-		const tplFile = path.join(ws.root, '.dreamteamer', 'system', 'collection-templates', `${flags.template}.collection-template.yaml`);
-		if (!fs.existsSync(tplFile)) throw new Error(`unknown collection-template "${flags.template}"`);
-		descriptor = { name, ...structuredClone(load(fs.readFileSync(tplFile, 'utf8')).template) };
-	} else {
-		// templateless: a MINIMAL but compilable descriptor (clean-room finding: an empty one
-		// bricked compile with no recovery — the CLI must never commit an uncompilable source).
-		// grow it with `<name> add-field …`.
-		descriptor.id = { generate: '{{ name | slug }}' };
-		descriptor.schema = { type: 'object', required: ['name'], properties: { name: { type: 'string' } } };
-	}
-	descriptor.storage = {
-		path: `${ws.pkg.dreamteamer?.['data-path'] ?? 'data'}/${name}`,
-		codec: 'md', shape: 'file',
-		...descriptor.storage,
-		suffix: descriptor.storage?.suffix ?? singular(name),
-	};
-	fs.mkdirSync(path.dirname(dest), { recursive: true });
-	fs.writeFileSync(dest, dump(descriptor));
-	commitPaths(ws.root, [dest], `dreamteamer: collections add ${name}`);
-	console.log(`✔ ${rel(ws.root, dest)}`);
-	console.log('⚠ .dreamteamer is stale — run `dreamteamer compile`');
+	const { file } = createCollection(ws, store, { name: flags.name, template: flags.template });
+	console.log(`✔ ${rel(ws.root, file)}`);
+	console.log('✔ compiled — the collection is live (schema ops prove sources with a real compile)');
 	return 0;
 }
 
 // `dreamteamer tasks add-field --name urgent --type boolean --default-value false`
 function metaAddField(ws, store, collection, flags) {
-	const d = store.descriptor(collection); // must exist in the compiled runtime
-	const fieldName = flags.name;
-	if (!fieldName) throw new Error('missing --name');
-	if (d.schema?.properties?.[fieldName]) throw new Error(`field "${fieldName}" already exists on ${collection}`);
 	const prop = fieldDef(store, flags);
-
-	const dest = path.join(workspaceSystemDir(ws, 'collections'), `${collection}.collection.yaml`);
-	let doc;
-	if (fs.existsSync(dest)) {
-		doc = load(fs.readFileSync(dest, 'utf8')); // workspace-owned (or existing extends) descriptor
-	} else {
-		// find the base module so the extends pointer is explicit
-		const baseSrc = readManifestSource(ws.root, collection);
-		doc = { name: collection, extends: baseSrc, schema: { properties: {} } };
-	}
-	doc.schema ??= { properties: {} };
-	doc.schema.properties ??= {};
-	doc.schema.properties[fieldName] = prop;
-	if (flags.required === 'true') doc.schema.required = [...new Set([...(doc.schema.required ?? []), fieldName])];
-	fs.writeFileSync(dest, dump(doc));
-	commitPaths(ws.root, [dest], `dreamteamer: ${collection} add-field ${fieldName}`);
-	console.log(`✔ ${rel(ws.root, dest)}${doc.extends ? ` (extends ${doc.extends})` : ''}`);
-	console.log('⚠ .dreamteamer is stale — run `dreamteamer compile`');
+	const out = addField(ws, store, collection, { name: flags.name, prop, required: flags.required === 'true' });
+	console.log(`✔ ${rel(ws.root, out.file)}${out.extends ? ` (extends ${out.extends})` : ''}`);
+	console.log('✔ compiled — the field is live');
 	return 0;
-}
-
-// CLI type sugar → JSON Schema property
-function fieldDef(store, flags) {
-	const t = flags.type ?? 'string';
-	const def = flags['default-value'];
-	const p = (() => {
-		switch (t) {
-			case 'string': case 'text': return { type: 'string' };
-			case 'markdown': return { type: 'string', format: 'markdown' };
-			case 'boolean': return { type: 'boolean' };
-			case 'number': return { type: 'number' };
-			case 'integer': return { type: 'integer' };
-			case 'date': return { type: 'string', format: 'date' };
-			case 'datetime': return { type: 'string', format: 'date-time' };
-			case 'enum': {
-				if (!flags.options) throw new Error('enum needs --options "a,b,c"');
-				return { type: 'string', enum: flags.options.split(',').map((s) => s.trim()) };
-			}
-			case 'tags': return { type: 'array', items: { type: 'string' } };
-			default:
-				// a collection name is sugar for a reference into it
-				if (store.descriptors.has(t)) return { type: 'string', 'x-reference': t };
-				if (t === 'reference') return { type: 'string', 'x-reference': flags.target ?? '*' };
-				throw new Error(`unknown field type "${t}"`);
-		}
-	})();
-	if (def !== undefined) p.default = p.type === 'boolean' ? def === 'true' : p.type === 'number' || p.type === 'integer' ? Number(def) : def;
-	return p;
-}
-
-function readManifestSource(root, collection) {
-	const manifest = load(fs.readFileSync(path.join(root, '.dreamteamer', 'manifest.yaml'), 'utf8'));
-	const entry = manifest.entries?.[`system/collections/${collection}.collection.yaml`];
-	const src = entry?.sources?.[0] ?? '';
-	const m = /^modules\/([^/]+)\//.exec(src);
-	if (!m) throw new Error(`cannot determine the base module for "${collection}" — edit its descriptor directly at ${src}`);
-	const pkgName = JSON.parse(fs.readFileSync(path.join(root, 'modules', m[1], 'package.json'), 'utf8')).name;
-	return `${pkgName}/${collection}`;
-}
-
-function singular(name) {
-	return name.endsWith('ies') ? name.slice(0, -3) + 'y' : name.endsWith('s') ? name.slice(0, -1) : name;
-}
-
-function commitPaths(root, files, subject) {
-	const rels = files.map((f) => path.relative(root, f));
-	execFileSync('git', ['add', '--', ...rels], { cwd: root });
-	execFileSync('git', ['commit', '--quiet', '-m', subject, '--', ...rels], { cwd: root });
 }
 
 function parseArgs(args) {
