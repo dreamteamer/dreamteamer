@@ -5,9 +5,10 @@ schema:
   type: object
   required: [name]
   properties:
-    name:    { type: string }
-    members: { type: array, items: { type: string, x-reference: users, x-display: "{{ name }}" } }
-order: 91
-list_fields: [name, members]
+    name:        { type: string }
+    description: { type: string }
+    members:     { type: array, items: { type: string, x-reference: users, x-display: "{{ name }}" } }
+order: 150
+list_fields: [name, last-modified, members]
 icon: group
 group: system

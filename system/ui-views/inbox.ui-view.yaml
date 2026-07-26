@@ -1,5 +1,4 @@
 path: /inbox
-nav: { label: Inbox, icon: inbox, order: 1 }
 target: list
 collection: collections/tasks
 layout: table

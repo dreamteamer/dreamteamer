@@ -17,7 +17,7 @@ schema:
           to:    { type: string }
           field: { type: string }
           value: {}
-order: 84
-list_fields: [collection, description]
+order: 100
+list_fields: [collection, last-modified, description]
 icon: move_up
 group: system

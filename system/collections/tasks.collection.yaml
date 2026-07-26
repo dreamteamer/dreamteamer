@@ -1,13 +1,13 @@
 name: tasks
 storage: { path: data/tasks, codec: md, shape: file, suffix: task }
 id:
-  generate: "{{ created | date }}--{{ title | slug }}"
+  generate: "{{ created | date }}--{{ name | slug }}"
   pattern: "^\\d{4}-\\d{2}-\\d{2}--[a-z0-9-]+$"
 schema:
   type: object
-  required: [title]
+  required: [name]
   properties:
-    title:       { type: string }
+    name:        { type: string }
     description: { type: string, format: markdown, x-body: true }
     status:      { type: string, enum: [todo, doing, done], default: todo }
     assignee:    { type: string, x-reference: users, x-display: "{{ name }}" }
@@ -15,5 +15,5 @@ schema:
     run:         { type: string, x-reference: workflow-runs }
     item:        { type: string, x-reference: "*" }    # may point into any collection
 order: 3
-list_fields: [title, status, assignee, due]
+list_fields: [name, last-modified, status, assignee, due]
 icon: task_alt

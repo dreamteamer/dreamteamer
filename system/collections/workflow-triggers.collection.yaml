@@ -12,7 +12,7 @@ schema:
     cron:         { type: string }
     filter:       { type: object }     # optional narrowing over the record's CURRENT fields
     enabled:      { type: boolean, default: true }
-order: 82
-list_fields: [name, trigger-type, collection, workflow, enabled]
+order: 80
+list_fields: [name, last-modified, trigger-type, collection, workflow, enabled]
 icon: bolt
 group: system

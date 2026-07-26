@@ -8,7 +8,7 @@ schema:
     name:         { type: string }
     description:  { type: string }
     instructions: { type: string, format: markdown, x-body: true }
-order: 85
-list_fields: [name, description]
+order: 20
+list_fields: [name, last-modified, description]
 icon: psychology
 group: system

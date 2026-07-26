@@ -15,7 +15,7 @@ schema:
     steps:        { type: object }     # map keyed by step id — deliberately open
     trigger:      { type: string, x-reference: workflow-triggers }   # sync provenance
     commit:       { type: string }     # the event commit — one leg of the dedupe key
-order: 81
-list_fields: [workflow, status, current-step]
+order: 70
+list_fields: [workflow, last-modified, status, current-step]
 icon: play_circle
 group: system

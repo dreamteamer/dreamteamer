@@ -65,9 +65,10 @@ export function startServer(ws, { port = 8080, host = '127.0.0.1' } = {}) {
 		const d = store.descriptor(req.params.name);
 		const bf = bodyField(d);
 		const { limit = 200, offset = 0, sort, q, filter, ...rest } = req.query;
+		const modified = gitModifiedMap(ws.root, store.dir(d));
 		let rows = [];
-		for (const { id, fields } of store.readAll(req.params.name)) {
-			rows.push({ ...fields, id }); // record id WINS over any schema field named "id"
+		for (const { id, file, fields } of store.readAll(req.params.name)) {
+			rows.push({ ...fields, id, 'last-modified': modified.get(path.relative(ws.root, file)) ?? null }); // record id WINS over any schema field named "id"
 		}
 		// rich filter: ?filter=<json> — Directus-style operators (_eq/_contains/_and/...)
 		if (filter) {
@@ -97,7 +98,17 @@ export function startServer(ws, { port = 8080, host = '127.0.0.1' } = {}) {
 
 	api.get('/collections/:name/records/*id', (req, res) => {
 		const { fields, file } = store.read(req.params.name, idParam(req));
-		res.json({ id: idParam(req), fields, path: path.relative(ws.root, file) });
+		const commit = gitLastCommit(ws.root, file);
+		res.json({
+			id: idParam(req),
+			fields: {
+				...fields,
+				'last-modified': commit?.date ?? null,
+				'$last-modified-by': commit?.author ?? null,
+				'$last-commit-message': commit?.message ?? null,
+			},
+			path: path.relative(ws.root, file),
+		});
 	});
 
 	api.post('/collections/:name/records', (req, res) => {
@@ -107,7 +118,9 @@ export function startServer(ws, { port = 8080, host = '127.0.0.1' } = {}) {
 	});
 
 	api.patch('/collections/:name/records/*id', (req, res) => {
-		const { id: _id, path: _path, ...changes } = req.body ?? {}; // clients may echo the row's id/path — never persist them
+		// clients may echo synthetic response keys back on save (id/path/last-modified/the two
+		// $-prefixed commit-info fields) — never persist any of them.
+		const { id: _id, path: _path, 'last-modified': _lm, '$last-modified-by': _lmb, '$last-commit-message': _lcm, ...changes } = req.body ?? {};
 		store.set(req.params.name, idParam(req), changes);
 		res.json({ id: idParam(req) });
 	});
@@ -232,4 +245,40 @@ export function startServer(ws, { port = 8080, host = '127.0.0.1' } = {}) {
 function idParam(req) {
 	const id = req.params.id;
 	return Array.isArray(id) ? id.join('/') : id;
+}
+
+// list-level "last modified" (operator ask 2026-07-27): ONE `git log` per collection listing —
+// newest-first, so the first sighting of a path is its most recent touching commit — rather than
+// one process spawn per record. `dir` outside the repo (or the repo having no history for it,
+// e.g. a brand-new untracked file, or a `system/`-storage collection whose records live in the
+// gitignored `.dreamteamer/` runtime) degrades to an empty map, i.e. every row gets `null`.
+function gitModifiedMap(root, dir) {
+	const map = new Map();
+	const rel = path.relative(root, dir);
+	if (rel.startsWith('..')) return map;
+	let out;
+	try {
+		out = execFileSync('git', ['log', '--format=%x01%aI', '--name-only', '--', rel], { cwd: root }).toString();
+	} catch { return map; }
+	let date = null;
+	for (const line of out.split('\n')) {
+		if (line.startsWith('\x01')) { date = line.slice(1); continue; }
+		if (!line) continue;
+		if (!map.has(line)) map.set(line, date);
+	}
+	return map;
+}
+
+// single-record commit info (detail page header, operator ask 2026-07-27: author + message
+// alongside the date, GitHub-file-header style) — one cheap `git log -1` on just that file.
+// Author name only (%an) — no Co-Authored-By trailer parsing, by design (scope call, not a gap).
+function gitLastCommit(root, file) {
+	const rel = path.relative(root, file);
+	if (rel.startsWith('..')) return null;
+	try {
+		const out = execFileSync('git', ['log', '-1', '--format=%aI%x00%an%x00%s', '--', rel], { cwd: root }).toString().trim();
+		if (!out) return null;
+		const [date, author, message] = out.split('\0');
+		return { date, author, message };
+	} catch { return null; }
 }
