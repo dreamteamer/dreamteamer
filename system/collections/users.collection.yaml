@@ -5,9 +5,10 @@ schema:
   type: object
   required: [name]
   properties:
-    name:  { type: string }
-    email: { type: string, format: email }
-order: 90
-list_fields: [name, email]
+    name:        { type: string }
+    description: { type: string }
+    email:       { type: string, format: email }
+order: 140
+list_fields: [name, last-modified, email]
 icon: badge
 group: system

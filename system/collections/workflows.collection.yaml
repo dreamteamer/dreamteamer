@@ -5,7 +5,8 @@ schema:
   type: object
   required: [name, steps]
   properties:
-    name:       { type: string }
+    name:        { type: string }
+    description: { type: string }
     collection: { type: string, x-reference: collections }
     inputs:     { type: array, items: { type: string } }
     steps:
@@ -23,7 +24,7 @@ schema:
               human:  { type: string, x-reference: users }   # or a runtime token: @initiator
           prompt:    { type: string, format: markdown }
           done-when: { type: string }
-order: 80
-list_fields: [name, collection]
+order: 60
+list_fields: [name, last-modified, collection]
 icon: account_tree
 group: system

@@ -8,7 +8,7 @@ schema:
   properties:
     evaluator: { type: string }
     last-evaluated: { type: string }
-order: 83
-list_fields: [evaluator, last-evaluated]
+order: 90
+list_fields: [evaluator, last-modified, last-evaluated]
 icon: my_location
 group: system

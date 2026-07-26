@@ -8,7 +8,7 @@ schema:
     name:        { type: string }
     description: { type: string }
     prompt:      { type: string, format: markdown, x-body: true }
-order: 87
-list_fields: [name, description]
+order: 40
+list_fields: [name, last-modified, description]
 icon: terminal
 group: system

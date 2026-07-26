@@ -19,6 +19,21 @@ export function presentation(descriptors) {
 			meta: { collection: d.name, field: 'id', hidden: true, readonly: true, edit: 'input' },
 			schema: { name: 'id', is_primary_key: true, is_nullable: false },
 		});
+		// Synthesized like `id` above — never a schema property, so it's never written to disk
+		// (unknownFields would reject it) and never touches a collection's real frontmatter
+		// contract. `readonly: true` (not `hidden`) so it's a browse column and sortable; `formHidden`
+		// (studio-only convention, not a Directus concept — ContentDetail filters on it before handing
+		// fields to ItemForm) keeps it OUT of the record form now that PageHeader shows the richer
+		// author/message/date line instead (operator ask 2026-07-27). Computed server-side per
+		// request (server.js) from `git log` on the record's file — null for anything the compiled
+		// `.dreamteamer/` runtime backs (skills/agents/commands/…, gitignored) since there's no
+		// meaningful history to read there.
+		rows.push({
+			field: 'last-modified',
+			type: 'timestamp',
+			meta: { collection: d.name, field: 'last-modified', readonly: true, formHidden: true, view: 'date', view_options: { relative: true } },
+			schema: { name: 'last-modified', is_primary_key: false, is_nullable: true, default_value: null },
+		});
 		for (const [name, prop] of Object.entries(d.schema?.properties ?? {})) {
 			if (name === 'id') continue;
 			rows.push(fieldRow(d, name, prop, new Set(d.schema?.required ?? []).has(name)));

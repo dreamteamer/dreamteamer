@@ -5,9 +5,10 @@ schema:
   type: object
   required: [name, template]
   properties:
-    name:     { type: string }
-    template: { type: object }         # a descriptor stub instantiated by `collections add`
-order: 89
-list_fields: [name]
+    name:        { type: string }
+    description: { type: string }
+    template:    { type: object }      # a descriptor stub instantiated by `collections add`
+order: 120
+list_fields: [name, last-modified]
 icon: content_copy
 group: system

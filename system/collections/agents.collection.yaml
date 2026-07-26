@@ -11,7 +11,7 @@ schema:
     model:        { type: string }
     skills:       { type: array, items: { type: string, x-reference: skills } }
     instructions: { type: string, format: markdown, x-body: true }
-order: 86
-list_fields: [name, description]
+order: 30
+list_fields: [name, last-modified, description]
 icon: smart_toy
 group: system

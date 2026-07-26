@@ -10,7 +10,7 @@ schema:
     migration:  { type: string }
     collection: { type: string, x-reference: collections }
     changed:    { type: integer }
-order: 85
-list_fields: [module, migration, collection, changed]
+order: 110
+list_fields: [module, last-modified, migration, collection, changed]
 icon: fact_check
 group: system

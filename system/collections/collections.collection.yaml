@@ -5,8 +5,9 @@ schema:
   type: object
   required: [name, schema]
   properties:
-    name:    { type: string }
-    extends: { type: string }
+    name:        { type: string }
+    description: { type: string }
+    extends:     { type: string }
     storage:
       type: object
       properties:
@@ -25,7 +26,7 @@ schema:
     list_fields: { type: array, items: { type: string } }
     icon:        { type: string }      # material-symbols-outlined icon name (studio nav/header)
     group:       { type: string }      # studio nav folder; ungrouped collections list at the top
-order: 100
-list_fields: [name]
+order: 10
+list_fields: [name, last-modified]
 icon: schema
 group: system
