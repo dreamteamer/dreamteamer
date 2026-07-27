@@ -11,6 +11,11 @@ schema:
       properties: { label: { type: string }, icon: { type: string }, order: { type: number } }
     target:     { type: string, enum: [list, item, page] }
     collection: { type: string, x-reference: collections }
+    # DEFAULT view: the one a bare /content/<collection> renders. Directus-parity — a
+    # collection's default presentation is an ordinary view record, not a second mechanism, so
+    # its columns/order/sort/layout live in git exactly as a named view's do. At most one per
+    # collection; never registered as its own route (it IS the collection page).
+    default:    { type: boolean }
     layout:     { type: string }       # a REGISTERED layout/component id
     options:    { type: object }       # layout-specific — deliberately open
     filter:     { type: object }
