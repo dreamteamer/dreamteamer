@@ -8,12 +8,27 @@ import { pathToFileURL, fileURLToPath } from 'node:url';
 
 const self = fileURLToPath(import.meta.url);
 const devBin = findDevClone(process.cwd());
-if (devBin && path.resolve(devBin) !== path.resolve(self)) {
+// `realpath`, NOT `path.resolve`: resolve is pure string math and does not follow symlinks, so a
+// workspace whose git_modules/dreamteamer is a SYMLINK to the engine it is already running (the
+// normal shape for a dev clone, and what hq3 does elsewhere under projects/) compared two spellings
+// of one file, decided they differed, and re-imported itself — a circular import that never
+// settles, so the process exited silently having done nothing at all. Worse than a crash: every
+// command "succeeded" with no output and no effect.
+if (devBin && realpath(devBin) !== realpath(self)) {
 	console.error(`… running the git_modules/dreamteamer dev clone (shadows the installed engine)`);
 	await import(pathToFileURL(devBin).href);
 } else {
 	const { run } = await import('../src/cli.js');
 	run(process.argv.slice(2));
+}
+
+/** Canonical on-disk identity of a path — symlinks followed, falling back to the literal path. */
+function realpath(p) {
+	try {
+		return fs.realpathSync(p);
+	} catch {
+		return path.resolve(p);
+	}
 }
 
 // same workspace rule as src/workspace.js (topmost package.json with a `dreamteamer` key),
