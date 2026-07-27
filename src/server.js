@@ -12,6 +12,7 @@ import { createCollection, removeCollection, addField, updateField, removeField,
 import { sync } from './sync.js';
 import { history, historyDiff } from './history.js';
 import { matchesFilter } from './filter.js';
+import { commandsFor, recordResolver } from './record-commands.js';
 import { slugOrHash } from './template.js';
 
 export function startServer(ws, { port = 8080, host = '127.0.0.1' } = {}) {
@@ -72,9 +73,11 @@ export function startServer(ws, { port = 8080, host = '127.0.0.1' } = {}) {
 			rows.push({ ...fields, id, 'last-modified': modified.get(path.relative(ws.root, file)) ?? null }); // record id WINS over any schema field named "id"
 		}
 		// rich filter: ?filter=<json> — Directus-style operators (_eq/_contains/_and/...)
+		// + one-hop relational conditions (tier 1) via the memoized resolver
 		if (filter) {
 			const f = typeof filter === 'string' ? JSON.parse(filter) : filter;
-			rows = rows.filter((r) => matchesFilter(r, f));
+			const resolve = recordResolver(store);
+			rows = rows.filter((r) => matchesFilter(r, f, resolve));
 		}
 		// simple equality: filter[field]=value or bare field=value
 		for (const [k, v] of Object.entries(rest)) {
@@ -144,6 +147,13 @@ export function startServer(ws, { port = 8080, host = '127.0.0.1' } = {}) {
 	// presentation projection (adapter inversion, M3): how to RENDER each field/collection.
 	api.get('/presentation', (req, res) => {
 		res.json(presentation(store.descriptors));
+	});
+
+	// bound commands + per-record state for the Commands tab — ?ids=<id>[,<id>…]
+	// (same op as `dreamteamer commands for`; the UI only renders what this returns)
+	api.get('/commands/:name', (req, res) => {
+		const ids = typeof req.query.ids === 'string' ? req.query.ids.split(',').map((s) => s.trim()).filter(Boolean) : [];
+		res.json(commandsFor(store, req.params.name, ids));
 	});
 
 	// ---- schema writes (M3): source-writing ops behind the compile dry-run gate ------

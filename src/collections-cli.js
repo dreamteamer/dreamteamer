@@ -12,6 +12,7 @@ import {
 } from './schema-ops.js';
 import { history, historyDiff } from './history.js';
 import { createRun } from './runs.js';
+import { commandsFor } from './record-commands.js';
 
 export function collectionCommand(ws, collection, verb, args) {
 	const store = new Store(ws);
@@ -23,6 +24,7 @@ export function collectionCommand(ws, collection, verb, args) {
 	if (collection === 'collections' && verb === 'add') return metaCollectionsAdd(ws, store, flags);
 	if (collection === 'collections' && verb === 'rm') return metaCollectionsRm(ws, store, flags, pos);
 	if (collection === 'workflows' && verb === 'run') return metaWorkflowsRun(ws, store, flags, pos);
+	if (collection === 'commands' && verb === 'for') return metaCommandsFor(ws, store, flags, pos);
 	if (collection === 'ui-views' && ['add', 'set', 'rm'].includes(verb)) return metaUiView(ws, store, verb, flags, pos);
 	if (verb === 'add-field') return metaAddField(ws, store, collection, flags);
 	if (verb === 'update-field') return metaUpdateField(ws, store, collection, flags);
@@ -132,6 +134,27 @@ function metaWorkflowsRun(ws, store, flags, pos) {
 	const { id } = createRun(store, wfId, items);
 	console.log(flags.json ? JSON.stringify({ id: `workflow-runs/${id}` }) : `✔ run created: workflow-runs/${id}`);
 	console.log('… execution is attended: follow the `executing-workflows` skill to advance it');
+	return 0;
+}
+
+// `dreamteamer commands for <collection>[/<id>] [--ids <id>[,…]] [--json]` — which bound
+// commands apply, in which state (available / done / not-applicable). THE engine surface
+// behind the studio's Commands tab (engine/UI parity: the verb lands first, the button second).
+function metaCommandsFor(ws, store, flags, pos) {
+	const target = need(pos, 0, 'collection[/id]');
+	const slash = target.indexOf('/');
+	const collection = slash > 0 ? target.slice(0, slash) : target;
+	const ids = slash > 0
+		? [target.slice(slash + 1)]
+		: typeof flags.ids === 'string' ? flags.ids.split(',').map((s) => s.trim()).filter(Boolean) : [];
+	const out = commandsFor(store, collection, ids);
+	if (flags.json) { console.log(JSON.stringify(out, null, 2)); return 0; }
+	if (!out.commands.length) { console.log(`(no commands bound to ${collection})`); return 0; }
+	for (const c of out.commands) {
+		if (c.target === 'collection') { console.log(`${c.name}  [collection]  ${c.invocation}`); continue; }
+		const counts = ids.length ? `  ${c.eligible.length}/${ids.length} eligible${c.done.length ? `, ${c.done.length} done` : ''}` : '  (no ids given)';
+		console.log(`${c.name}  [record]${counts}${c.invocation ? `\n  ${c.invocation}` : ''}`);
+	}
 	return 0;
 }
 

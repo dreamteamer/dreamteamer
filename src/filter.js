@@ -3,19 +3,30 @@
 // and saved views actually emit. evaluated server-side over parsed records.
 // negative operators deliberately reject null (SQL semantics, as in hq2).
 
-export function matchesFilter(record, filter) {
+export function matchesFilter(record, filter, resolve) {
 	if (filter == null || typeof filter !== 'object') return true;
 	for (const [key, cond] of Object.entries(filter)) {
-		if (key === '_and') { if (!cond.every((c) => matchesFilter(record, c))) return false; continue; }
-		if (key === '_or') { if (!cond.some((c) => matchesFilter(record, c))) return false; continue; }
-		if (!matchesField(record[key], cond)) return false;
+		if (key === '_and') { if (!cond.every((c) => matchesFilter(record, c, resolve))) return false; continue; }
+		if (key === '_or') { if (!cond.some((c) => matchesFilter(record, c, resolve))) return false; continue; }
+		if (!matchesField(record[key], cond, resolve)) return false;
 	}
 	return true;
 }
 
-function matchesField(value, cond) {
+function matchesField(value, cond, resolve) {
 	if (cond === null || typeof cond !== 'object' || Array.isArray(cond)) return compare('_eq', value, cond);
 	for (const [op, operand] of Object.entries(cond)) {
+		if (!op.startsWith('_')) {
+			// one-hop relational condition (tier 1): a non-operator key means the field holds a
+			// `<collection>/<id>` ref (or an array of them) — resolve and evaluate the sub-condition
+			// against the target record. array refs use _some semantics (any target matches).
+			// no resolver wired, a dangling ref, or a non-ref value NARROWS, never widens — same
+			// fail-closed posture as unknown operators. inbound refs are tier 2 (not supported).
+			if (!resolve) return false;
+			const refs = (Array.isArray(value) ? value : [value]).filter((r) => typeof r === 'string');
+			if (!refs.some((r) => { const target = resolve(r); return target && matchesField(target[op], operand, resolve); })) return false;
+			continue;
+		}
 		if (!compare(op, value, operand)) return false;
 	}
 	return true;
@@ -79,9 +90,9 @@ export function unknownOperators(filter, found = new Set()) {
 		} else if (key.startsWith('_')) {
 			if (!KNOWN_OPERATORS.has(key)) found.add(key);
 		} else if (cond !== null && typeof cond === 'object' && !Array.isArray(cond)) {
-			for (const op of Object.keys(cond)) {
-				if (op.startsWith('_') && !KNOWN_OPERATORS.has(op)) found.add(op);
-			}
+			// field conditions recurse like filters: operator maps at any depth are checked,
+			// and non-operator keys (one-hop relational conditions) descend into their sub-filter
+			unknownOperators(cond, found);
 		}
 	}
 	return found;

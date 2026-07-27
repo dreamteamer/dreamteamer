@@ -1,0 +1,40 @@
+name: command-bindings
+storage:
+  path: system/command-bindings
+  codec: yaml
+  shape: file
+  suffix: command-binding
+id:
+  generate: '{{ command | basename }}--{{ collection | basename }}'
+schema:
+  type: object
+  required:
+    - command
+    - collection
+  properties:
+    command:
+      type: string
+      x-reference: commands
+    collection:
+      type: string
+      x-reference: collections
+    target:
+      type: string
+      enum:
+        - record
+        - collection
+      default: record
+    can-enter:
+      type: object
+    can-exit:
+      type: object
+    description:
+      type: string
+order: 45
+list_fields:
+  - command
+  - collection
+  - target
+  - last-modified
+icon: bolt
+group: system
