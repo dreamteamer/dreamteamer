@@ -26,22 +26,36 @@ Corollaries:
 - `src/server.js` and the extension's `src/api.ts` are thin skins over these functions. If a route
   exists with no CLI equivalent, that's a gap, not a design.
 
-## known gaps (verified 2026-07-27, engine @ git_modules clone)
+## parity status (closed 2026-07-27)
 
-Tested in a throwaway `dreamteamer init` workspace. These extension operations have **no CLI verb**
-— an agent has to hand-edit the source file and `compile`, i.e. leave the validated path:
+The six known gaps are closed. Every extension operation now has a CLI verb, verified in a
+throwaway `dreamteamer init` workspace (9/9 assertions, `check` clean):
 
 | extension op | engine function | CLI |
 | --- | --- | --- |
-| edit a field (`PATCH /schema/collections/:c/fields/:f`) | `schema-ops.updateField` | ✖ `update-field` unknown |
-| remove a field (`DELETE …/fields/:f`) | `schema-ops.removeField` | ✖ `remove-field` unknown |
-| delete a collection (`DELETE /schema/collections/:c`) | `schema-ops.removeCollection` | ✖ `collections rm` → "system sources" refusal |
-| revert a record (`POST …/records-revert`) | `Store.revert` | ✖ `revert` unknown |
-| record history / diff (`GET /history`, `/history-diff`) | git-backed | ✖ (git log by hand) |
-| create/update/delete a ui-view (`POST/DELETE /schema/ui-views`) | `schema-ops.saveUiView` / `removeUiView` | ✖ `ui-views add` → "system sources" refusal |
+| edit a field (`PATCH /schema/collections/:c/fields/:f`) | `schema-ops.updateField` | `<c> update-field --name <f> --type <t>` |
+| remove a field (`DELETE …/fields/:f`) | `schema-ops.removeField` | `<c> remove-field --name <f>` |
+| delete a collection (`DELETE /schema/collections/:c`) | `schema-ops.removeCollection` | `collections rm <name> [--force]` |
+| revert a record (`POST …/records-revert`) | `Store.revert` | `<c> revert <id> --hash <sha>` |
+| record history / diff (`GET /history`, `/history-diff`) | `history.js` | `<c> history <id>` / `<c> diff <id> [--hash]` |
+| create/update/delete a ui-view (`POST/DELETE /schema/ui-views`) | `saveUiView` / `removeUiView` | `ui-views add|set|rm` |
 
-Passing today: `collections add`, `<c> add-field`, `<c> list|get|add|set|rm|rename`, `workflows
-run`, `init`, `compile`, `check`, `status`, `install`, `update`, `migrate`, `sync`, `start`.
+Notes worth keeping:
 
-Closing these means routing the existing schema-ops/store exports through `src/collections-cli.js`
-meta verbs — the functions already exist and already commit correctly.
+- `src/history.js` exists because that logic was inlined in `server.js` AND copy-pasted into the
+  extension's `api.ts` with no CLI anywhere. Three callers, one implementation. It resolves a
+  SYSTEM-stored record (collection, ui-view, skill…) back to its manifest sources — reading
+  `.dreamteamer/` directly is useless, that path is gitignored.
+- `ui-views set` takes dotted keys (`options.sort=-date`, `nav.label=Recent`) and derives the
+  record id from `path` with the descriptor's own `{{ path | slug }}` rule, so a view saved from
+  the CLI and one saved from the Layout options panel land on the SAME record.
+- `revert` requires `--hash` on purpose. A revert with an implied target destroys the wrong record.
+- Testing the CLI from a cwd inside a workspace runs THAT workspace's `git_modules/dreamteamer`,
+  not the checkout you are editing (self-shadowing, decision 24). Test from outside, or import
+  `src/cli.js` directly.
+
+## how to keep it closed
+
+When you add an engine capability, the CLI verb is part of the change, not a follow-up. When you
+add an extension gesture, the verb must already exist. A route in `server.js` or the extension's
+`api.ts` with no CLI equivalent is a gap — re-derive this table rather than trusting it.
