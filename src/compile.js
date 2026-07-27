@@ -15,7 +15,7 @@ import { pendingMigrations } from './migrate.js';
 import { runHarnessAdapters } from './harnesses.js';
 import { satisfies } from './semver.js';
 
-export const KINDS = ['collections', 'skills', 'agents', 'commands', 'workflows', 'ui-views', 'collection-templates', 'migrations'];
+export const KINDS = ['collections', 'skills', 'agents', 'commands', 'command-bindings', 'workflows', 'ui-views', 'collection-templates', 'migrations'];
 const FOLDER_KINDS = new Set(['skills']); // folder-shape entities: copy the whole record folder
 
 const sha256 = (buf) => 'sha256:' + createHash('sha256').update(buf).digest('hex');
@@ -284,6 +284,25 @@ export function compile({ root, pkg }) {
 		// fail at compile, not silently at render (review finding 5)
 		const badOps = view?.filter ? [...unknownOperators(view.filter)] : [];
 		if (badOps.length) fail(`${rt}: unknown filter operator(s) ${badOps.join(', ')}`);
+	}
+
+	// ---- command-binding validation --------------------------------------------------
+	// a binding joins a command to a collection under can-enter/can-exit predicates;
+	// dangling refs and typo'd operators fail HERE, not silently at evaluation (the same
+	// guarantee ui-view filters get — validators are load-bearing, they gate what runs).
+	const commandIds = new Set([...entries.keys()].filter((k) => k.startsWith('system/commands/')).map((k) => path.basename(k).replace(/\.command\.md$/, '')));
+	for (const [rt, e] of entries) {
+		if (!rt.startsWith('system/command-bindings/')) continue;
+		const b = load(e.bytes.toString('utf8'));
+		const cmd = String(b?.command ?? '').replace(/^commands\//, '');
+		if (!cmd || !commandIds.has(cmd)) fail(`${rt}: references unknown command "${b?.command ?? ''}"`);
+		const coll = String(b?.collection ?? '').replace(/^collections\//, '');
+		if (!coll || !descriptorGroups.has(coll)) fail(`${rt}: references unknown collection "${b?.collection ?? ''}"`);
+		for (const key of ['can-enter', 'can-exit']) {
+			const badBindOps = b?.[key] ? [...unknownOperators(b[key])] : [];
+			if (badBindOps.length) fail(`${rt}: ${key} has unknown filter operator(s) ${badBindOps.join(', ')}`);
+			if (b?.[key] && b?.target === 'collection') console.warn(`⚠ ${rt}: ${key} is ignored — target=collection bindings evaluate no record`);
+		}
 	}
 
 	// ---- materialize .dreamteamer ------------------------------------------------

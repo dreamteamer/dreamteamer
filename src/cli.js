@@ -48,6 +48,8 @@ meta verbs (schema + workflow operations — write SOURCES, never the runtime):
   ui-views set <id> <key>=<value> …           (dotted keys: options.sort=-date, nav.label=Recent)
   ui-views rm <id>
   workflows run <workflow-id> --items <ref>[,<ref>…]   (creates a validated run record)
+  commands for <collection>[/<id>] [--ids <id>,…]      (bound commands + per-record state:
+                                                        available / done / not-applicable)
 `;
 
 export function run(argv) {

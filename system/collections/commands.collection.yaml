@@ -7,6 +7,12 @@ schema:
   properties:
     name:        { type: string }
     description: { type: string }
+    # native claude-code slash-command frontmatter — compile copies commands verbatim,
+    # so these flow straight into .claude/commands/<name>.md and the / picker
+    argument-hint:            { type: string }
+    allowed-tools:            { type: string }
+    model:                    { type: string }
+    disable-model-invocation: { type: boolean }
     prompt:      { type: string, format: markdown, x-body: true }
 order: 40
 list_fields: [name, last-modified, description]
