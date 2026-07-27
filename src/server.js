@@ -10,6 +10,7 @@ import { readManifest, staleness, discoverModules, CompileError } from './compil
 import { presentation } from './presentation.js';
 import { createCollection, removeCollection, addField, updateField, removeField, fieldDef, saveUiView, removeUiView } from './schema-ops.js';
 import { sync } from './sync.js';
+import { history, historyDiff } from './history.js';
 import { matchesFilter } from './filter.js';
 import { slugOrHash } from './template.js';
 
@@ -137,11 +138,7 @@ export function startServer(ws, { port = 8080, host = '127.0.0.1' } = {}) {
 	});
 
 	api.get('/history/:name/*id', (req, res) => {
-		const { file } = store.read(req.params.name, idParam(req));
-		const log = execFileSync('git', ['log', '--follow', '--format=%H%x00%an%x00%aI%x00%s', '--', path.relative(ws.root, file)], { cwd: ws.root })
-			.toString().trim().split('\n').filter(Boolean)
-			.map((l) => { const [hash, author, date, subject] = l.split('\0'); return { hash, author, date, subject }; });
-		res.json(log);
+		res.json(history(store, req.params.name, idParam(req)));
 	});
 
 	// presentation projection (adapter inversion, M3): how to RENDER each field/collection.
@@ -182,11 +179,7 @@ export function startServer(ws, { port = 8080, host = '127.0.0.1' } = {}) {
 
 	// per-record revision diff + revert (M3: git already has the data; this exposes it)
 	api.get('/history-diff/:name/*id', (req, res) => {
-		const { file } = store.read(req.params.name, idParam(req));
-		const relPath = path.relative(ws.root, file);
-		const hash = String(req.query.hash ?? 'HEAD');
-		const diff = execFileSync('git', ['diff', `${hash}~1`, hash, '--', relPath], { cwd: ws.root }).toString();
-		res.json({ hash, path: relPath, diff });
+		res.json(historyDiff(store, req.params.name, idParam(req), String(req.query.hash ?? 'HEAD')));
 	});
 	api.post('/collections/:name/records-revert/*id', (req, res) => {
 		res.json(store.revert(req.params.name, idParam(req), String(req.body?.hash ?? '')));

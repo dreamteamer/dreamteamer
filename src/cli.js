@@ -34,10 +34,19 @@ collection verbs (hard validation — invalid writes are rejected before disk):
   <collection> set <id> <field>=<value> …
   <collection> rm <id> [--force]
   <collection> rename <old-id> <new-id>       (rewrites all inbound refs, ONE commit)
+  <collection> history <id> [--json]          (git revisions of this record, newest first)
+  <collection> diff <id> [--hash <sha>]       (the patch one revision applied; defaults to HEAD)
+  <collection> revert <id> --hash <sha>       (restore the content at <sha>, as a NEW commit)
 
 meta verbs (schema + workflow operations — write SOURCES, never the runtime):
   collections add --name <name> [--template docs|entity]
-  <collection> add-field --name <field> --type <type> [--options a,b] [--default-value v] [--required true]
+  collections rm <name> [--force]             (--force required if it still has records)
+  <collection> add-field    --name <field> --type <type> [--options a,b] [--default-value v] [--required true]
+  <collection> update-field --name <field> --type <type> [--options a,b] [--default-value v] [--required true|false]
+  <collection> remove-field --name <field>
+  ui-views add --path </route> --target list --collection collections/<c> --layout <id> [--id <id>] [k.v=…]
+  ui-views set <id> <key>=<value> …           (dotted keys: options.sort=-date, nav.label=Recent)
+  ui-views rm <id>
   workflows run <workflow-id> --items <ref>[,<ref>…]   (creates a validated run record)
 `;
 
