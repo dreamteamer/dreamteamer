@@ -94,12 +94,20 @@ export function migrate(ws, { dryRun = false } = {}) {
 		}
 
 		// rename cascade scan (decision-34 pattern: count + warn, never touch): the old field
-		// name may survive in ui-view/trigger configs and the descriptor's own list_fields
+		// name may survive in ui-view/trigger configs and the descriptor's own list_fields —
+		// AND in command-binding can-enter/can-exit predicates or workflow step prompts. those two
+		// were the blind spot: filter.js NARROWS on an unknown key, so a stale binding predicate
+		// silently reports not-applicable for every record instead of failing loudly.
 		for (const op of (doc.operations ?? []).filter((o) => o.op === 'rename-field')) {
 			const needle = new RegExp(`\\b${op.from.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`);
 			const suspects = [];
 			if ((d.list_fields ?? []).includes(op.from)) suspects.push(`descriptor list_fields (module-owned — update the source)`);
-			for (const scanDir of [path.join(ws.root, '.dreamteamer', 'system', 'ui-views'), path.join(ws.root, 'state', 'workflow-triggers')]) {
+			for (const scanDir of [
+				path.join(ws.root, '.dreamteamer', 'system', 'ui-views'),
+				path.join(ws.root, '.dreamteamer', 'system', 'command-bindings'),
+				path.join(ws.root, '.dreamteamer', 'system', 'workflows'),
+				path.join(ws.root, 'state', 'workflow-triggers'),
+			]) {
 				if (!fs.existsSync(scanDir)) continue;
 				for (const f of fs.readdirSync(scanDir)) {
 					const p = path.join(scanDir, f);
