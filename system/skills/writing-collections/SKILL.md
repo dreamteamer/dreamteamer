@@ -30,9 +30,32 @@ record verbs only. run them anyway.
 |---|---|
 | new collection from a template | `npm run --silent dt -- collections add --name research-docs --template docs` |
 | add a field | `npm run --silent dt -- <collection> add-field --name urgent --type boolean --default-value false` |
-| templates available | `.dreamteamer/system/collection-templates/` (`docs` today) |
+| share a field set across collections | `templates: [collection-templates/<id>]` on the descriptor — see below |
+| templates available | `.dreamteamer/system/collection-templates/` (`docs`, `entity`, `provenance`) |
 | make it live | `npm run compile` — **required**; both meta verbs print `⚠ .dreamteamer is stale` |
 | see what breaks | `npm run check` |
+
+## `templates:` — a live shared field set
+
+A field set that belongs on many collections is declared **once** in a `collection-templates` record
+and pulled in by reference:
+
+```yaml
+name: meetings
+templates: [collection-templates/provenance]   # merged at compile, every time
+```
+
+- **`templates:` is not `extends:`.** `extends: <module>/<collection>` means "this descriptor
+  *overlays* another module's collection of the same name". `templates:` pulls in a field set and has
+  nothing to do with module layering. A descriptor can use both.
+- **precedence is template < base < overlay** — the descriptor always wins on a key it declares, so a
+  collection can tighten a templated field (add an enum, change a default) without editing the template.
+- **the template is a declared SOURCE of every consumer**, so editing it makes those descriptors stale
+  and `dt status` says so by name. Without that the edit would silently apply to nothing.
+- **template-added properties insert before the `x-body` field**, because property order is form order
+  and a record's body belongs last.
+- `--template X` at creation time still copies the fields in once. `templates:` is the live version;
+  prefer it for anything you will want to change later in one place.
 
 both meta verbs write the **workspace module's** source and commit it themselves. `--type` is
 sugar over JSON Schema (`string`/`text`, `markdown`, `boolean`, `number`, `integer`, `date`,

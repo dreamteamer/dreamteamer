@@ -205,10 +205,44 @@ export function compile({ root, pkg }) {
 		uiModules.push(shortName);
 	}
 
-	// ---- resolve descriptor groups (extends merge) --------------------------------
+	// ---- collection-templates, for `templates:` merging ----------------------------
+	// A template is a live, shared field set — not the copy-once scaffold `collections add
+	// --template` used to stamp out. A descriptor declaring `templates: [collection-templates/x]`
+	// gets x's `template:` merged in BEFORE base/extender discrimination, with precedence
+	// template < base < overlay. (The key is `templates:`, not `extends:` — `extends:` already
+	// means "this descriptor overlays another module's collection of the same name".)
+	const templateDocs = new Map();     // id -> { template, src }
+	for (const [rt, entry] of entries) {
+		const m = /^system\/collection-templates\/(.+)\.collection-template\.yaml$/.exec(rt);
+		if (!m) continue;
+		const doc = load(entry.bytes.toString('utf8'));
+		templateDocs.set(m[1], { template: doc.template ?? {}, src: entry.sources[0] });
+	}
+
+	// ---- resolve descriptor groups (templates + extends merge) ---------------------
 	counts.collections = 0;
 	let mergedCount = 0;
+	let templatedCount = 0;
 	for (const [name, group] of descriptorGroups) {
+		// a template's bytes feed the compiled descriptor, so it MUST be one of that descriptor's
+		// declared sources — otherwise editing the template leaves every consumer silently stale
+		// and `warnIfStale` has nothing to compare against.
+		const templateSources = [];
+		for (const g of group) {
+			const decl = g.doc.templates;
+			if (decl === undefined) continue;
+			if (!Array.isArray(decl)) fail(`${g.src.path}: 'templates' must be a list of collection-templates/<id> refs`);
+			for (const ref of decl) {
+				const id = String(ref).replace(/^collection-templates\//, '');
+				const t = templateDocs.get(id);
+				if (!t) fail(`${g.src.path}: templates references "${ref}" — no such collection-template (have: ${[...templateDocs.keys()].join(', ') || 'none'})`);
+				g.doc = applyTemplate(g.doc, t.template);
+				templateSources.push(t.src);
+				templatedCount++;
+			}
+			delete g.doc.templates;
+		}
+
 		const bases = group.filter((g) => !g.doc.extends);
 		const extenders = group.filter((g) => g.doc.extends);
 		if (bases.length === 0) fail(`collection "${name}": every descriptor declares 'extends' — no base found (${group.map((g) => g.src.path).join(', ')})`);
@@ -232,7 +266,7 @@ export function compile({ root, pkg }) {
 			fail(`collection "${name}": schema is not a valid JSON Schema — ${e.message} (${group.map((g) => g.src.path).join(', ')})`);
 		}
 		const rt = path.join('system', 'collections', `${name}.collection.yaml`);
-		entries.set(rt, { sources: group.map((g) => g.src), bytes: Buffer.from(dump(merged)) });
+		entries.set(rt, { sources: [...group.map((g) => g.src), ...templateSources], bytes: Buffer.from(dump(merged)) });
 		counts.collections++;
 		if (extenders.length) mergedCount++;
 	}
@@ -405,6 +439,41 @@ export function warnIfStale(root) {
 	return s;
 }
 
+
+// `templates:` merge — the DESCRIPTOR always wins, and its own key order is preserved (unlike
+// mergeDescriptor, whose extender wins). Two properties of this that matter:
+//
+//   - the descriptor keeps `extends` and `name`: losing `extends` would silently demote an overlay
+//     to a second base and collide with the real one.
+//   - template-added properties are inserted BEFORE the x-body property, not appended after it.
+//     Property order is form order in the studio, and the record's body belongs last — metadata
+//     about a record should not render below the record's content.
+function applyTemplate(doc, tpl) {
+	const out = structuredClone(doc);
+	for (const [k, v] of Object.entries(tpl)) {
+		if (k === 'schema') continue;
+		if (out[k] === undefined) out[k] = structuredClone(v);
+	}
+	if (!tpl.schema) return out;
+	out.schema ??= { type: 'object' };
+	for (const [sk, sv] of Object.entries(tpl.schema)) {
+		if (sk === 'properties') {
+			const own = out.schema.properties ?? {};
+			const add = Object.entries(sv).filter(([pk]) => own[pk] === undefined);
+			const bodyKey = Object.entries(own).find(([, s]) => s?.['x-body'])?.[0];
+			const merged = {};
+			for (const [pk, pv] of Object.entries(own)) {
+				if (pk === bodyKey) for (const [ak, av] of add) merged[ak] = structuredClone(av);
+				merged[pk] = pv;
+			}
+			if (!bodyKey) for (const [ak, av] of add) merged[ak] = structuredClone(av);
+			out.schema.properties = merged;
+		} else if (sk === 'required') {
+			out.schema.required = [...new Set([...(out.schema.required ?? []), ...sv])];
+		} else if (out.schema[sk] === undefined) out.schema[sk] = sv;
+	}
+	return out;
+}
 
 // extends merge: schema.properties merge per-property, required unions, other
 // keys extender-wins; storage/id come from the base unless explicitly overridden.
