@@ -68,10 +68,18 @@ export function check({ root }) {
 	const violations = [];
 	const flag = (file, msg) => violations.push({ file: rel(file), msg });
 
+	// parsed fields, kept for the symmetric-ref pass below (parse each record exactly once)
+	const parsed = new Map();
+	const inverseRules = [];   // [collection, fieldPath, targetCollection, inverseField]
+
 	for (const [name, d] of descriptors) {
 		const validate = ajv.compile(d.schema);
 		const refFields = collectRefFields(d.schema);
 		const bodyField = Object.entries(d.schema.properties ?? {}).find(([, s]) => s?.['x-body'])?.[0];
+		parsed.set(name, new Map());
+		for (const [fieldPath, target, inverse] of refFields) {
+			if (inverse) inverseRules.push([name, fieldPath, target, inverse]);
+		}
 
 		for (const [id, file] of index.get(name)) {
 			if (d.id?.pattern && !patternRe(d.id.pattern).test(id)) {
@@ -93,6 +101,29 @@ export function check({ root }) {
 			for (const [fieldPath, target] of refFields) {
 				for (const value of valuesAt(fields, fieldPath)) {
 					checkRef(file, fieldPath, value, target);
+				}
+			}
+			parsed.get(name).set(id, fields);
+		}
+	}
+
+	// ---- symmetric references (x-inverse) --------------------------------------------
+	// A two-way link is redundant state, and redundant state drifts. Filters resolve OUTBOUND refs
+	// only, so some predicates are only expressible from one side and both directions have to exist
+	// — which makes an invariant mandatory, not optional. `x-inverse` on a ref field names the field
+	// on the target that must point back; a one-sided link is a violation on the side that is missing.
+	for (const [name, fieldPath, target, inverse] of inverseRules) {
+		for (const [id, fields] of parsed.get(name)) {
+			const self = `${name}/${id}`;
+			for (const value of valuesAt(fields, fieldPath)) {
+				if (typeof value !== 'string' || value.startsWith('@')) continue;
+				const targetId = value.slice(value.indexOf('/') + 1);
+				const targetFields = parsed.get(target)?.get(targetId);
+				if (!targetFields) continue;                       // already flagged as dangling
+				const back = [...valuesAt(targetFields, [inverse])];
+				if (!back.includes(self)) {
+					flag(index.get(target).get(targetId),
+						`${inverse}: must point back to "${self}" (${self} declares ${fieldPath.join('.')}: ${value})`);
 				}
 			}
 		}
@@ -131,14 +162,15 @@ export function check({ root }) {
 }
 
 
-// collect [fieldPath, targetCollection] for every x-reference in the schema
+// collect [fieldPath, targetCollection, inverseField] for every x-reference in the schema.
+// `x-inverse` names the field on the TARGET collection that must point back — see checkSymmetry.
 function collectRefFields(schema, prefix = []) {
 	const out = [];
 	for (const [key, s] of Object.entries(schema.properties ?? {})) {
 		if (!s || typeof s !== 'object') continue;
 		const p = [...prefix, key];
-		if (s['x-reference']) out.push([p, s['x-reference']]);
-		if (s.items?.['x-reference']) out.push([p, s.items['x-reference']]);
+		if (s['x-reference']) out.push([p, s['x-reference'], s['x-inverse']]);
+		if (s.items?.['x-reference']) out.push([p, s.items['x-reference'], s['x-inverse'] ?? s.items['x-inverse']]);
 		if (s.properties) out.push(...collectRefFields(s, p));
 		if (s.items?.properties) out.push(...collectRefFields(s.items, p));
 	}
