@@ -39,6 +39,8 @@ throwaway `dreamteamer init` workspace (9/9 assertions, `check` clean):
 | revert a record (`POST …/records-revert`) | `Store.revert` | `<c> revert <id> --hash <sha>` |
 | record history / diff (`GET /history`, `/history-diff`) | `history.js` | `<c> history <id>` / `<c> diff <id> [--hash]` |
 | create/update/delete a ui-view (`POST/DELETE /schema/ui-views`) | `saveUiView` / `removeUiView` | `ui-views add|set|rm` |
+| order a listing (`GET /items/:c?sort=`) | `temporal.sortRows` | `<c> list --sort [-]<field>` |
+| filter a listing (`?filter=<json>`, saved views) | `filter.matchesFilter` | `<c> list --where <json>` |
 
 Notes worth keeping:
 
@@ -50,6 +52,13 @@ Notes worth keeping:
   record id from `path` with the descriptor's own `{{ path | slug }}` rule, so a view saved from
   the CLI and one saved from the Layout options panel land on the SAME record.
 - `revert` requires `--hash` on purpose. A revert with an implied target destroys the wrong record.
+- `src/temporal.js` is the same story as `history.js`: `?sort=` was inlined in `server.js`, hand-
+  copied into `api.ts`, and reachable from no CLI verb at all. It now also owns the write-side
+  normalizer. **A `date-time` keeps its local offset** (`2026-07-28T12:00:00+03:00`) rather than
+  being folded to Z, because these are markdown files a human reads in a git diff — so ordering
+  MUST parse instants, and every range/sort path goes through `compareValues`. Never reintroduce a
+  `localeCompare` on a temporal field: `…T12:00+03:00` sorts after `…T11:00+01:00`, which is the
+  earlier moment.
 - Testing the CLI from a cwd inside a workspace runs THAT workspace's `git_modules/dreamteamer`,
   not the checkout you are editing (self-shadowing, decision 24). Test from outside, or import
   `src/cli.js` directly.
