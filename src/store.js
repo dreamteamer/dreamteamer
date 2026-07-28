@@ -10,6 +10,7 @@ import addFormats from 'ajv-formats';
 import { load, dump } from './yaml.js';
 import { generateId } from './template.js';
 import { parseRecord, parseRecordText, patternRe, fmtAjvError, unknownFields, walk, EXT, assertSafeId } from './records.js';
+import { normalizeRecord } from './temporal.js';
 import { discoverModules } from './compile.js';
 
 export class Store {
@@ -154,6 +155,12 @@ export class Store {
 		// hard at the tools includes UNKNOWN fields: a typo'd key must never land on disk
 		const unknown = unknownFields(d.schema, fields);
 		if (unknown.length) throw new Error(`unknown field(s) for this collection: ${unknown.join(', ')} — nothing was written.`);
+		// BEFORE ajv, and deliberately inside validate() rather than in each verb: this is the one
+		// choke point add/set/revert all pass through, so `--starts "2026-07-28 12:00"` from a CLI
+		// session and a `datetime-local` widget's `2026-07-28T12:00` reach disk as the same
+		// canonical, offset-carrying value. ajv's `date-time` accepts exactly one spelling; without
+		// this every human-shaped input is a validation error (see src/temporal.js).
+		normalizeRecord(d.schema, fields);
 		const validate = this.ajv.compile(d.schema); // useDefaults mutates: defaults materialize
 		if (!validate(fields)) {
 			const msgs = validate.errors.map((e) => '  ' + fmtAjvError(e, fields));

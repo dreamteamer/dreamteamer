@@ -28,7 +28,10 @@ commands:
               advance this evaluator's cursor [--dry-run] [--evaluator <name>] [--from <sha|root>]
 
 collection verbs (hard validation — invalid writes are rejected before disk):
-  <collection> list [--filter k=v] [--json]
+  <collection> list [--filter k=v] [--where <json>] [--sort [-]<field>] [--json]
+                                              (--where takes the studio's operator set, e.g.
+                                               '{"starts":{"_gte":"2026-07-01"}}'; date-times
+                                               sort and compare as instants, across offsets)
   <collection> get <id> [--json]
   <collection> add --<field> <value> … [--id <explicit-id>]
   <collection> set <id> <field>=<value> …
@@ -42,6 +45,10 @@ meta verbs (schema + workflow operations — write SOURCES, never the runtime):
   collections add --name <name> [--template docs|entity]
   collections rm <name> [--force]             (--force required if it still has records)
   <collection> add-field    --name <field> --type <type> [--options a,b] [--default-value v] [--required true]
+                            types: string text markdown boolean number integer date datetime
+                                   enum tags <collection> — a date-time may be written as
+                                   "2026-07-28 12:00" or "2026-07-28T12:00"; the local offset is
+                                   stamped on for you (2026-07-28T12:00:00+03:00)
   <collection> update-field --name <field> --type <type> [--options a,b] [--default-value v] [--required true|false]
   <collection> remove-field --name <field>
   ui-views add --path </route> --target list --collection collections/<c> --layout <id> [--id <id>] [k.v=…]
@@ -50,6 +57,8 @@ meta verbs (schema + workflow operations — write SOURCES, never the runtime):
   workflows run <workflow-id> --items <ref>[,<ref>…]   (creates a validated run record)
   commands for <collection>[/<id>] [--ids <id>,…]      (bound commands + per-record state:
                                                         available / done / not-applicable)
+  <collection> values <field> [--limit n]              (the vocabulary a field actually uses —
+                                                        what a filter/validator offers as choices)
 `;
 
 export function run(argv) {

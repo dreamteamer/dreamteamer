@@ -59,12 +59,23 @@ function applyFilter(name, arg, value) {
 
 const asDate = (v) => (v instanceof Date ? v : new Date(v));
 
+// `date:HH-mm` on a date-time field is how an id embeds a start time (data/meetings ids sort by
+// start within a day). Tokens are replaced longest-first so `MM` (month) can't eat the `M` of a
+// minute pattern. Everything is read in the MACHINE's zone — an offset-carrying value like
+// `2026-07-28T12:00:00+03:00` therefore renders as 12:00 only on a +03:00 machine. That is the
+// same exposure the old `date` field had and is why ids are generated at sync time, in the zone
+// the meetings actually happen in, rather than re-derived later somewhere else.
 function fmtDate(d, fmt) {
 	const pad = (n, w = 2) => String(n).padStart(w, '0');
-	return fmt
-		.replace('YYYY', String(d.getFullYear()))
-		.replace('MM', pad(d.getMonth() + 1))
-		.replace('DD', pad(d.getDate()));
+	const tokens = {
+		YYYY: String(d.getFullYear()),
+		MM: pad(d.getMonth() + 1),
+		DD: pad(d.getDate()),
+		HH: pad(d.getHours()),
+		mm: pad(d.getMinutes()),
+		ss: pad(d.getSeconds()),
+	};
+	return fmt.replace(/YYYY|MM|DD|HH|mm|ss/g, (t) => tokens[t]);
 }
 
 export function slug(s) {
