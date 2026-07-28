@@ -30,24 +30,34 @@ name: do-research                       # matches the filename; this is the id
 collection: collections/research-docs   # what it operates on — QUALIFIED ref
 inputs: [items]                         # the selected / triggering items
 steps:
-  - id: research
-    operator: { agent: agents/researcher, skills: [skills/deep-research] }
-    prompt: |
-      natural-language instructions for the operator. be concrete about which
-      records to read and which to write.
-  - id: review
+  - id: research                        # A COMMAND STEP — the default shape
+    command: commands/deep-research     # prompt, operator and done-when all come from it
+  - id: publish
+    command: commands/publish-doc
+    via: project                        # acts on item.project, not the item itself
+  - id: review                          # AN INLINE STEP — for what isn't a command
     operator: { human: users/ada }      # exactly ONE user, never a team
     prompt: review the findings; set status.  # module-shipped workflows use "@initiator"
     done-when: "status != draft"              # machine-checkable where possible
 ```
 
-required: `name`, `steps`; per step `id`, `operator`, `prompt`. `agents/…`, `skills/…`,
-`users/…` and `collections/…` are all `x-reference` fields — `check` fails if any doesn't
-resolve.
+required: `name`, `steps`; per step `id`, plus **either `command` or `operator`+`prompt`** — exactly
+one of the two (the schema's `oneOf`). `commands/…`, `agents/…`, `skills/…`, `users/…` and
+`collections/…` are all `x-reference` fields — `check` fails if any doesn't resolve.
 
 ## rules
 
-- **one operator per step** — either `agent` (+ the `skills` it should load) or a single
+- **a workflow is a sequence of commands.** Prefer `command:` for anything a command already does;
+  an inline prompt that restates a command's prompt is two copies that drift. The step inherits the
+  command's prompt, its binding's operator, and **its binding's `can-exit` as the effective
+  done-when** — so a step already satisfied is a no-op and a re-run is idempotent.
+- **`via: <ref-field>` when the command acts on a neighbour.** A workflow over captures whose
+  summarize command is bound to `meetings` uses `via: meeting`. `check` verifies the binding's
+  collection matches the workflow's collection — or the `via` field's ref target — so a step can
+  never point at records its command was never bound to.
+- **write the command first.** A command step needs a `command-binding` joining that command to the
+  right collection; without one `check` fails, because there would be nothing to inherit.
+- **one operator per inline step** — either `agent` (+ the `skills` it should load) or a single
   `human`. never both, never a list of humans, never a team.
 - **prompts are prose.** authoring a workflow should be as easy as writing a skill; concrete
   about records in and records out.
@@ -82,4 +92,8 @@ session, never auto-triggered. write them anyway; the trigger machinery reads th
 | `operator: { human: teams/everyone }` | one named user, or `@initiator`. |
 | a module workflow hard-coding `users/ada` | it won't resolve in anyone else's workspace. use `@initiator`. |
 | inventing branch/loop keys (`if:`, `foreach:`) | not in the schema — express it in the prompt prose. |
+| a step with both `command:` and `prompt:` | `oneOf` rejects it. the command owns its prompt; if you need to say more, say it in the command. |
+| an inline step restating what a command already does | write the command step. two copies of a prompt is the thing E2 exists to remove. |
+| a command step whose command has no binding on this collection | `check` fails — there is no operator, no target and no done-when to inherit. add the binding, or `via:` the hop. |
+| a workflow that fans out over many items to "do everything" | one run per item. `dt sync` derives one event per record and fires one run each — that IS the fan-out. |
 | authoring the run record by hand alongside the workflow | runs are created at execution time by `dt workflows run <id> --items …` (`executing-workflows`). |
