@@ -13,9 +13,27 @@ schema:
       type: array
       items:
         type: object
-        required: [id, operator, prompt]
+        # A step is EITHER a command reference or an inline operator+prompt — never both, never
+        # neither. `command` is the preferred shape: a workflow is a sequence of commands, and an
+        # inline prompt that duplicates a command's own prompt is two things that drift apart.
+        # Inline stays first-class for human gates, which are not commands.
+        required: [id]
+        oneOf:
+          - required: [command]
+          - required: [operator, prompt]
         properties:
           id: { type: string }
+          # the step IS this command: its prompt is the step's prompt, its binding supplies the
+          # target collection and the operator, and its binding's `can-exit` filter is the step's
+          # effective done-when (see the executing-workflows skill — `done-when` is a prose string
+          # while `can-exit` is a filter object, so the executor evaluates the filter with
+          # `dt <collection> list --where`, it does not copy one field into the other).
+          command:   { type: string, x-reference: commands }
+          # a ref FIELD on the item, when the command acts on a neighbour rather than the item
+          # itself: `via: meeting` runs the command against the record at item.meeting. Without it
+          # the command must be bound to the workflow's own collection. This is what lets one
+          # workflow over captures also drive commands that belong to meetings.
+          via:       { type: string }
           operator:
             type: object
             properties:

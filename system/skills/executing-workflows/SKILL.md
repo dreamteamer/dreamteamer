@@ -48,12 +48,40 @@ patching `steps` in by hand.
 ⚠ **`dt help` does not list `workflows run`** — its usage text covers the generic record verbs
 only. that is a gap in the help text, not evidence the verb is missing. run it.
 
+## two kinds of step
+
+**a command step** — `command: commands/<id>`, optionally `via: <ref-field>` — is the normal shape,
+because a workflow is a sequence of commands. It carries no prompt of its own; everything comes from
+the command and its binding:
+
+| the step needs | comes from |
+|---|---|
+| the prompt | the command record's body |
+| the operator / skills | the command's own `allowed-tools` + whatever its prompt loads |
+| the target record | the run's item — or `item.<via>` when `via` is set (`via: meeting` on a capture step runs the command against the linked meeting) |
+| `done-when` | **the binding's `can-exit` filter** |
+
+`done-when` on an inline step is a prose string; `can-exit` is a filter object. They are not the same
+type and one is not copied into the other. For a command step you **evaluate the binding's `can-exit`
+directly**:
+
+```bash
+npm run --silent dt -- <collection> list --where '<the can-exit json>' --json | grep '<the item id>'
+```
+or just `npm run --silent dt -- commands for <item-ref>` and read whether that command says `done`.
+**A command step whose `can-exit` already holds is a no-op** — mark it `done` with an `outputs` note
+saying it was already satisfied, and move on. That is what makes a re-run idempotent. A command whose
+binding has no `can-exit` (the inbound-ref cases) can never self-verify; rely on the human gate.
+
+**an inline step** — `operator` + `prompt` — is for the things that are not commands: human gates
+above all. The schema enforces exactly one of the two shapes per step.
+
 ## the loop
 
 | phase | do | commit subject |
 |---|---|---|
 | create | `workflows run …` (above) | committed by the CLI |
-| agent step | mark it `running` + `started` (the first step already is); **act as the step's operator** — load its declared skills, follow its prompt exactly; the work itself commits as ordinary data mutations | one commit per transition |
+| agent step | mark it `running` + `started` (the first step already is); **act as the step's operator** — for a command step, resolve the command (and `via`) and follow its prompt; for an inline step, load its declared skills and follow the step prompt exactly. the work itself commits as ordinary data mutations | one commit per transition |
 | agent step end | write `outputs` + `status: done` on the step, advance `current-step` | `workflow-runs set <id>` |
 | human step | create the gate task, set the step `waiting` + `task:`, run `waiting` + `waiting-on:`, then **STOP** | `workflow-runs set <id>` |
 | resume | verify the step's `done-when` against the records, mark it `done`, clear `waiting-on`, continue | `workflow-runs set <id>` |
@@ -88,6 +116,8 @@ prompt; set both backlinks — `run: workflow-runs/<id>` and `item: <collection>
 | polling / sleeping until the human replies | the run is a file. stop your turn; resume later. |
 | one commit covering several step transitions | `git log` on the run file is the history. one transition, one commit. |
 | resuming without checking `done-when` | you'd advance a gate the records don't actually satisfy. |
+| re-doing a command step whose `can-exit` already holds | it's a no-op — mark it done, say so in `outputs`. duplicate work is the bug idempotency prevents. |
+| copying a binding's `can-exit` into the step's `done-when` | one is a filter object, the other a prose string. evaluate the filter; don't stringify it. |
 | deleting a gate task to unblock | completion resumes the run; deletion orphans `waiting-on`. |
 | leaving `status: running` while gated | `waiting` + `waiting-on` is how a later session knows what to pick up. |
 | deleting partial work on failure | mark it `failed` and keep the evidence. |

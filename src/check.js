@@ -143,6 +143,42 @@ export function check({ root }) {
 		if (!index.get(coll).has(id)) return flag(file, `${fieldPath.join('.')}: dangling reference "${value}" — no such record`);
 	}
 
+	// ---- command steps must be bound to the workflow's own collection ------------------
+	// A step that references a command inherits that command's binding: its target collection, its
+	// operator, and its `can-exit` as the step's effective done-when. If no binding joins the command
+	// to the workflow's collection, there is nothing to inherit — the step would run against records
+	// the command was never meant to touch, and `commands for` would never surface it.
+	for (const [wfId, wf] of parsed.get('workflows') ?? []) {
+		const wfColl = String(wf.collection ?? '').replace(/^collections\//, '');
+		for (const step of wf.steps ?? []) {
+			if (!step?.command) continue;
+			const file = index.get('workflows').get(wfId);
+			const cmd = String(step.command).replace(/^commands\//, '');
+
+			// `via: <field>` moves the target one hop: the command acts on item.<field>
+			let want = wfColl, hop = '';
+			if (step.via) {
+				const prop = descriptors.get(wfColl)?.schema?.properties?.[step.via];
+				const ref = prop?.['x-reference'] ?? prop?.items?.['x-reference'];
+				if (!ref) {
+					flag(file, `steps.${step.id}: via "${step.via}" is not a reference field on ${wfColl}`);
+					continue;
+				}
+				want = ref;
+				hop = ` (via ${wfColl}.${step.via})`;
+			}
+
+			const bindings = [...(parsed.get('command-bindings') ?? []).values()]
+				.filter((b) => String(b.command).replace(/^commands\//, '') === cmd);
+			if (!bindings.length) {
+				flag(file, `steps.${step.id}: command "${cmd}" has no command-binding`);
+			} else if (want && !bindings.some((b) => String(b.collection).replace(/^collections\//, '') === want)) {
+				const have = bindings.map((b) => String(b.collection).replace(/^collections\//, '')).join(', ');
+				flag(file, `steps.${step.id}: command "${cmd}" is bound to ${have}, not to "${want}"${hop}`);
+			}
+		}
+	}
+
 	// ---- report ----------------------------------------------------------------------
 	for (const s of strays) {
 		console.log(`⚠ ${s.file} — unrecognized file in ${s.collection} folder${s.note ? ` (${s.note})` : ''}`);
