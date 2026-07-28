@@ -14,6 +14,7 @@ import { history, historyDiff } from './history.js';
 import { matchesFilter } from './filter.js';
 import { sortRows } from './temporal.js';
 import { commandsFor, recordResolver } from './record-commands.js';
+import { distinctValues } from './field-values.js';
 import { slugOrHash } from './template.js';
 
 export function startServer(ws, { port = 8080, host = '127.0.0.1' } = {}) {
@@ -151,6 +152,13 @@ export function startServer(ws, { port = 8080, host = '127.0.0.1' } = {}) {
 	api.get('/commands/:name', (req, res) => {
 		const ids = typeof req.query.ids === 'string' ? req.query.ids.split(',').map((s) => s.trim()).filter(Boolean) : [];
 		res.json(commandsFor(store, req.params.name, ids));
+	});
+
+	// the vocabulary a field actually uses — what the filter panel offers as choices for a plain
+	// `type: string` field no enum describes (same op as `dreamteamer <c> values <field>`).
+	api.get('/collections/:name/values/:field', (req, res) => {
+		const limit = req.query.limit === undefined ? undefined : Number(req.query.limit);
+		res.json(distinctValues(store, req.params.name, req.params.field, { limit }));
 	});
 
 	// ---- schema writes (M3): source-writing ops behind the compile dry-run gate ------
