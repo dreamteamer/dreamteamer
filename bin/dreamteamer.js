@@ -6,6 +6,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 
+// path segments that mean "the thing below me is a module of the thing above me", never a
+// workspace. Declared up here, not beside findDevClone: that call sits at module top level, so a
+// `const` below it is still in its temporal dead zone when the walk needs it.
+const MODULE_SEGMENTS = new Set(['node_modules', 'git_modules', 'modules']);
+
 const self = fileURLToPath(import.meta.url);
 const devBin = findDevClone(process.cwd());
 // `realpath`, NOT `path.resolve`: resolve is pure string math and does not follow symlinks, so a
@@ -31,23 +36,30 @@ function realpath(p) {
 	}
 }
 
-// same workspace rule as src/workspace.js (topmost package.json with a `dreamteamer` key),
-// duplicated here because the dev clone must be found BEFORE choosing which src/ to load.
+// same workspace rule as src/workspace.js (nearest package.json with a `dreamteamer` key, climbing
+// out only of module nesting), duplicated here because the dev clone must be found BEFORE choosing
+// which src/ to load. Keep the two in step — they must never disagree about which workspace this is.
 function findDevClone(start) {
-	let dir = start;
-	let workspace = null;
+	let dir = path.resolve(start);
+	const candidates = []; // nearest → topmost
 	while (true) {
 		const p = path.join(dir, 'package.json');
 		if (fs.existsSync(p)) {
 			try {
-				if ('dreamteamer' in JSON.parse(fs.readFileSync(p, 'utf8'))) workspace = dir;
+				if ('dreamteamer' in JSON.parse(fs.readFileSync(p, 'utf8'))) candidates.push(dir);
 			} catch { /* unparseable — keep walking */ }
 		}
 		const parent = path.dirname(dir);
 		if (parent === dir) break;
 		dir = parent;
 	}
-	if (!workspace) return null;
+	if (!candidates.length) return null;
+	let workspace = candidates[0];
+	for (const higher of candidates.slice(1)) {
+		const viaModule = path.relative(higher, workspace).split(path.sep).some((seg) => MODULE_SEGMENTS.has(seg));
+		if (!viaModule) break;
+		workspace = higher;
+	}
 	const bin = path.join(workspace, 'git_modules', 'dreamteamer', 'bin', 'dreamteamer.js');
 	return fs.existsSync(bin) ? bin : null;
 }
