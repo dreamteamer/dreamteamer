@@ -2,6 +2,7 @@
 // query/compare.ts (Directus-style), trimmed to what the studio FilterBuilder
 // and saved views actually emit. evaluated server-side over parsed records.
 // negative operators deliberately reject null (SQL semantics, as in hq2).
+import { compareValues } from './temporal.js';
 
 export function matchesFilter(record, filter, resolve) {
 	if (filter == null || typeof filter !== 'object') return true;
@@ -100,9 +101,7 @@ export function unknownOperators(filter, found = new Set()) {
 
 const looseEq = (v, o) => v === o || String(v) === String(o) || (typeof v === 'number' && Number(o) === v);
 const toArray = (o) => (Array.isArray(o) ? o : String(o).split(',').map((x) => x.trim()));
-function cmp(a, b) {
-	const na = Number(a);
-	const nb = Number(b);
-	if (!Number.isNaN(na) && !Number.isNaN(nb)) return na - nb;
-	return String(a).localeCompare(String(b));
-}
+// ordering lives in temporal.js: a date-time carries its own local offset, so `_gt`/`_lt` have to
+// compare INSTANTS. String order would put `…T12:00+03:00` after `…T11:00+01:00`, which is the
+// earlier moment. Numbers and plain strings behave exactly as before.
+const cmp = compareValues;

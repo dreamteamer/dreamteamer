@@ -192,7 +192,10 @@ export function fieldDef(store, flags) {
 			case 'number': return { type: 'number' };
 			case 'integer': return { type: 'integer' };
 			case 'date': return { type: 'string', format: 'date' };
-			case 'datetime': return { type: 'string', format: 'date-time' };
+			// `timestamp` is the WIRE type presentation.js projects `date-time` to, and therefore what
+			// the studio's field drawer round-trips. Accepting it here means the vocabulary you read
+			// out of `presentation` is the vocabulary you can type back into the CLI.
+			case 'datetime': case 'timestamp': return { type: 'string', format: 'date-time' };
 			case 'enum': {
 				if (!flags.options) throw new Error('enum needs options "a,b,c"');
 				const opts = Array.isArray(flags.options) ? flags.options : flags.options.split(',').map((s) => s.trim());

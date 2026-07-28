@@ -12,7 +12,13 @@ import {
 } from './schema-ops.js';
 import { history, historyDiff } from './history.js';
 import { createRun } from './runs.js';
-import { commandsFor } from './record-commands.js';
+import { commandsFor, recordResolver } from './record-commands.js';
+import { distinctValues } from './field-values.js';
+import { matchesFilter } from './filter.js';
+import { sortRows } from './temporal.js';
+
+/** `list` flags that are options, not `field=value` shorthand filters. */
+const LIST_META_FLAGS = new Set(['json', 'filter', 'where', 'sort']);
 
 export function collectionCommand(ws, collection, verb, args) {
 	const store = new Store(ws);
@@ -34,22 +40,32 @@ export function collectionCommand(ws, collection, verb, args) {
 
 	switch (verb) {
 		case 'list': {
-			const filters = Object.entries(flags).filter(([k]) => !['json', 'filter'].includes(k));
+			const filters = Object.entries(flags).filter(([k]) => !LIST_META_FLAGS.has(k));
 			if (typeof flags.filter === 'string') {
 				const eq = flags.filter.indexOf('=');
 				filters.push([flags.filter.slice(0, eq), flags.filter.slice(eq + 1)]);
 			}
+			// `--where` is the SAME operator set the studio's filter panel emits and saved views
+			// store — one `matchesFilter`, so `--where '{"starts":{"_gte":"2026-07-01"}}'` and the
+			// panel that produced that JSON cannot disagree about which records match.
+			const where = typeof flags.where === 'string' ? load(flags.where) : null;
+			const resolve = where ? recordResolver(store) : null;
 			const bf = bodyField(d);
 			const rows = [];
 			for (const { id, fields } of store.readAll(collection)) { // ONE walk, not one per record
 				if (!filters.every(([k, v]) => String(fields[k] ?? '') === String(v))) continue;
+				if (where && !matchesFilter({ ...fields, id }, where, resolve)) continue;
 				if (bf) delete fields[bf]; // bodies don't belong in listings
 				rows.push({ ...fields, id }); // record id WINS over any schema field named "id"
 			}
+			// sorting was studio-only until now: the browse table ordered records and no CLI
+			// invocation could. Same `sortRows` the server and api.ts call, so `--sort -starts`
+			// orders date-times by INSTANT across mixed offsets rather than by string.
+			if (typeof flags.sort === 'string') sortRows(rows, flags.sort);
 			if (flags.json) { console.log(JSON.stringify(rows, null, 2)); return 0; }
 			const cols = ['id', ...(d.list_fields ?? []).filter((c) => c !== 'id')];
 			for (const r of rows) console.log(cols.map((c) => fmtCell(r[c])).join('  '));
-			if (!rows.length) console.log(`(no ${collection}${filters.length ? ' matching' : ''})`);
+			if (!rows.length) console.log(`(no ${collection}${filters.length || where ? ' matching' : ''})`);
 			return 0;
 		}
 		case 'get': {
@@ -88,6 +104,21 @@ export function collectionCommand(ws, collection, verb, args) {
 			if (out.touched) console.log(`✔ rewrote ${out.rewrites} inbound reference(s) across ${out.touched} file(s)`);
 			return 0;
 		}
+		// `dreamteamer meetings values status` — the vocabulary a field ACTUALLY uses, so a filter
+		// or a command-binding validator can offer a dropdown for a plain `type: string` field that
+		// no enum describes (operator: "still no dropdown for many things, visibility, status").
+		case 'values': {
+			const field = need(pos, 0, 'field');
+			const out = distinctValues(store, collection, field, {
+				limit: flags.limit === undefined ? undefined : Number(flags.limit),
+			});
+			if (flags.json) { console.log(JSON.stringify(out, null, 2)); return 0; }
+			if (out.skipped) { console.log(`(${collection}.${field} is a ${out.skipped} field — no value vocabulary)`); return 0; }
+			if (!out.values.length) { console.log(`(no values set on ${collection}.${field})`); return 0; }
+			for (const { value, count } of out.values) console.log(count == null ? String(value) : `${String(count).padStart(5)}  ${value}`);
+			console.log(`— ${out.total} distinct${out.truncated ? ` (showing ${out.values.length})` : ''}, from ${out.source}`);
+			return 0;
+		}
 		case 'history': {
 			const id = need(pos, 0, 'id');
 			const log = history(store, collection, id);
@@ -114,7 +145,7 @@ export function collectionCommand(ws, collection, verb, args) {
 			return 0;
 		}
 		default:
-			throw new Error(`unknown verb "${verb}" — use list | get | add | set | rm | rename | history | diff | revert`);
+			throw new Error(`unknown verb "${verb}" — use list | get | add | set | rm | rename | values | history | diff | revert`);
 	}
 }
 

@@ -12,6 +12,7 @@ import { createCollection, removeCollection, addField, updateField, removeField,
 import { sync } from './sync.js';
 import { history, historyDiff } from './history.js';
 import { matchesFilter } from './filter.js';
+import { sortRows } from './temporal.js';
 import { commandsFor, recordResolver } from './record-commands.js';
 import { slugOrHash } from './template.js';
 
@@ -88,11 +89,7 @@ export function startServer(ws, { port = 8080, host = '127.0.0.1' } = {}) {
 			const needle = String(q).toLowerCase();
 			rows = rows.filter((r) => JSON.stringify(r).toLowerCase().includes(needle));
 		}
-		if (sort) {
-			const desc = String(sort).startsWith('-');
-			const key = desc ? String(sort).slice(1) : String(sort);
-			rows.sort((a, b) => String(a[key] ?? '').localeCompare(String(b[key] ?? '')) * (desc ? -1 : 1));
-		}
+		sortRows(rows, sort);
 		const total = rows.length;
 		rows = rows.slice(Number(offset), Number(offset) + Number(limit));
 		const wantBody = req.query['with-body'] === 'true';
