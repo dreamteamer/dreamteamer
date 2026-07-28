@@ -301,7 +301,13 @@ export function compile({ root, pkg }) {
 	// naming the registered set (design guardrail: "unknown layout = compile error").
 	// core set = the studio's built-ins; modules declare theirs in package.json
 	// dreamteamer.studio.layouts (the same file their app.js registration lives beside).
-	const registeredLayouts = new Set(['table', 'cards']);
+	// KEEP IN SYNC with the UI's `lists.register(...)` calls (dreamteamer-vscode
+	// webview/src/registry/register-defaults.ts). kanban/calendar/map landed there as core Lists in
+	// the 2026-07-27 layouts wave but this set was never widened, so the only way to get a
+	// `layout: kanban` view past compile was for a module to CLAIM the layout it didn't own — which
+	// is what the hq3 workspace module was doing, shadowing the core board in the registry (a
+	// module's app.js loads after the built-ins and Map.set wins). Fixed both ends 2026-07-29.
+	const registeredLayouts = new Set(['table', 'cards', 'kanban', 'calendar', 'map']);
 	for (const source of sources) {
 		try {
 			const mpkg = JSON.parse(fs.readFileSync(path.join(source.root, 'package.json'), 'utf8'));
