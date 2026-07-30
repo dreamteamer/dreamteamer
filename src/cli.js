@@ -7,7 +7,7 @@ import { findWorkspace } from './workspace.js';
 import { compile, staleness, warnIfStale, discoverModules, CHANNEL_LABEL } from './compile.js';
 import { check } from './check.js';
 import { collectionCommand } from './collections-cli.js';
-import { init, install, installClone, update } from './init.js';
+import { init, install, installClone, update, listRepos } from './init.js';
 import { sync, printSyncReport } from './sync.js';
 import { migrate, printMigrateReport } from './migrate.js';
 
@@ -145,6 +145,17 @@ export function run(argv) {
 					console.log(line);
 				}
 				console.log(`entries:  ${Object.keys(s.manifest.entries).length}`);
+				// repos materialize LAZILY, so presence is REPORTED here rather than stored on the
+				// record. Wrapped: an older workspace may predate the repos descriptor, and status
+				// must never crash — it is the command you run when things are already wrong.
+				try {
+					const repos = listRepos(ws);
+					if (repos.length) {
+						const here = repos.filter((r) => r.present).length;
+						console.log(`repos:    ${here}/${repos.length} materialized`);
+						for (const r of repos) if (!r.present) console.log(`  absent: ${r.id} → ${r.path} (dreamteamer repos ensure ${r.id})`);
+					}
+				} catch { /* no repos descriptor compiled — nothing to report */ }
 				if (s.stale.length) {
 					for (const line of s.stale) console.log(`  stale: ${line}`);
 					console.log(`✖ .dreamteamer is stale (${s.stale.length}) — run \`dreamteamer compile\``);
