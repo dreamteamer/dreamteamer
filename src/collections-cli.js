@@ -27,12 +27,33 @@ import { ensureRepo, ensureAllRepos } from './init.js';
  * the way a script or a coding agent actually calls this is execFileSync/spawnSync, and there the
  * child exits with the pipe still full. Measured before this fix: the same command captured with
  * execFileSync returned exactly **8190 bytes** (one pipe buffer) of that 32381-byte document, i.e.
- * silently invalid JSON, with a zero exit status. `fs.writeSync` cannot be truncated that way.
+ * silently invalid JSON, with a zero exit status.
  *
  * Found while writing a setup script for a second operator — the first consumer to read `--json`
  * from a real program rather than a terminal.
+ *
+ * ⚠ 2026-07-30: a SINGLE `fs.writeSync` was NOT enough, and the previous version of this comment
+ * claimed it was. Writing to a pipe performs one `write(2)`, which returns a SHORT COUNT once the
+ * 64KB pipe buffer is full — it does not throw, it reports fewer bytes written and the caller
+ * ignores the number. So the same truncation reappeared at a larger size: measured at exactly
+ * **65126 bytes** of a ~100KB payload, again invalid JSON with a zero exit status. `meetings list
+ * --json` (141767 bytes) was affected. Found in a sibling script that reproduced it twice, once
+ * per fix (hq3 decision 104).
+ *
+ * So: write in a LOOP until every byte lands, and retry EAGAIN — stdout can be a non-blocking pipe.
  */
-const emit = (s) => fs.writeSync(1, s + '\n');
+const emit = (s) => {
+  const buf = Buffer.from(s + '\n');
+  let off = 0;
+  while (off < buf.length) {
+    try {
+      off += fs.writeSync(1, buf, off, buf.length - off);
+    } catch (e) {
+      if (e.code === 'EAGAIN') continue;
+      throw e;
+    }
+  }
+};
 
 /** `list` flags that are options, not `field=value` shorthand filters. */
 const LIST_META_FLAGS = new Set(['json', 'filter', 'where', 'sort']);
