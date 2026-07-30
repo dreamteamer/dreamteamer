@@ -7,6 +7,7 @@ import path from 'node:path';
 import { dump } from './yaml.js';
 import { slugOrHash } from './template.js';
 import { discoverModules } from './compile.js';
+import { Store } from './store.js';
 
 const SKELETON_KINDS = ['collections', 'skills', 'agents', 'commands', 'workflows', 'ui-views'];
 
@@ -183,4 +184,79 @@ export function installClone(ws, url, name) {
 	console.log(`✔ git_modules/${name} (ref ${ref})`);
 	console.log('✔ package.json dreamteamer.git-modules updated');
 	return 0;
+}
+
+// ---- attached repos: `repos` records, materialized ON DEMAND ------------------------------
+// A `repos` record declares a related git repo and NOTHING about the schema — the other half of
+// what git_modules fuses together. Modules stay in package.json because compile can't read records
+// until they're restored (no .dreamteamer → no schemas → no readable records); attached repos have
+// no such constraint, so they get to be data.
+
+const relPath = (root, p) => path.relative(root, p) || '.';
+
+/**
+ * Where a declared repo's working tree lives. Pure — never touches disk, so callers can resolve a
+ * path without materializing (that is how `status` reports presence).
+ *
+ * The engine deliberately does NOT know what `identity` means: hq3 uses it to select a
+ * `~/.gitconfig` includeIf folder so the clone commits as the right git user, but that resolution
+ * happens entirely outside the engine. Here it is just a path segment.
+ */
+export function repoPath(ws, fields) {
+	if (fields.path) return path.join(ws.root, fields.path);
+	const base = ws.pkg.dreamteamer?.['repos-path'] ?? 'projects';
+	return fields.identity
+		? path.join(ws.root, base, fields.identity, fields.name)
+		: path.join(ws.root, base, fields.name);
+}
+
+/**
+ * dreamteamer repos ensure <id> — materialize ONE declared repo, idempotently.
+ * Cheap as a stat when already present, so callers never branch on presence themselves.
+ */
+export function ensureRepo(ws, id) {
+	const { fields } = new Store(ws).read('repos', id);
+	return materializeRepo(ws, id, fields);
+}
+
+/** dreamteamer repos ensure --all — explicit opt-in (going offline, grepping across all of them). */
+export function ensureAllRepos(ws) {
+	const out = [];
+	for (const { id, fields } of new Store(ws).readAll('repos')) out.push(materializeRepo(ws, id, fields));
+	return out;
+}
+
+/**
+ * Declared repos and whether each is on disk. Presence is OBSERVED, never stored on the record —
+ * with lazy materialization "is it here?" is the first question anyone asks, and a stored answer
+ * would be wrong the moment someone deletes a folder.
+ */
+export function listRepos(ws) {
+	const out = [];
+	for (const { id, fields } of new Store(ws).readAll('repos')) {
+		const dest = repoPath(ws, fields);
+		out.push({ id, path: relPath(ws.root, dest), present: fs.existsSync(dest) });
+	}
+	return out;
+}
+
+function materializeRepo(ws, id, fields) {
+	const dest = repoPath(ws, fields);
+	const ref = fields.ref ?? 'main';
+	const rp = relPath(ws.root, dest);
+	if (fs.existsSync(dest)) {
+		// same contract as install(): warn on drift, never force-sync, never touch a dirty tree
+		const head = tryGit(dest, ['rev-parse', '--abbrev-ref', 'HEAD']);
+		const dirty = tryGit(dest, ['status', '--porcelain']);
+		if (head && head !== ref) {
+			console.warn(`⚠ ${rp}: HEAD is ${head}, record says ${ref} — not touching it${dirty ? ' (dirty)' : ''}`);
+		}
+		return { id, path: rp, present: true, cloned: false, ref: head ?? ref };
+	}
+	fs.mkdirSync(path.dirname(dest), { recursive: true });
+	console.log(`… cloning ${fields.url} → ${rp} (${ref})`);
+	execFileSync('git', ['clone', '--branch', ref, fields.url, dest], { stdio: 'inherit' });
+	// NO buildClone() here, unlike install(): a prototype or app repo is not an npm module and
+	// must never have `npm install` run in it as a side effect of being materialized.
+	return { id, path: rp, present: true, cloned: true, ref };
 }
