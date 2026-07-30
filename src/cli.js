@@ -41,6 +41,10 @@ collection verbs (hard validation — invalid writes are rejected before disk):
   <collection> diff <id> [--hash <sha>]       (the patch one revision applied; defaults to HEAD)
   <collection> revert <id> --hash <sha>       (restore the content at <sha>, as a NEW commit)
 
+repo attachment (working trees are materialized ON DEMAND, never at install):
+  repos ensure <id> [--json]                  (clone if missing, then print the path; idempotent)
+  repos ensure --all [--json]                 (explicit opt-in: everything, e.g. before going offline)
+
 meta verbs (schema + workflow operations — write SOURCES, never the runtime):
   collections add --name <name> [--template docs|entity]
   collections rm <name> [--force]             (--force required if it still has records)

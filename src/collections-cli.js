@@ -16,6 +16,7 @@ import { commandsFor, recordResolver } from './record-commands.js';
 import { distinctValues } from './field-values.js';
 import { matchesFilter } from './filter.js';
 import { sortRows } from './temporal.js';
+import { ensureRepo, ensureAllRepos } from './init.js';
 
 /**
  * Emit MACHINE-READABLE output synchronously. Use this for every `--json` payload.
@@ -48,6 +49,7 @@ export function collectionCommand(ws, collection, verb, args) {
 	if (collection === 'workflows' && verb === 'run') return metaWorkflowsRun(ws, store, flags, pos);
 	if (collection === 'commands' && verb === 'for') return metaCommandsFor(ws, store, flags, pos);
 	if (collection === 'ui-views' && ['add', 'set', 'rm'].includes(verb)) return metaUiView(ws, store, verb, flags, pos);
+	if (collection === 'repos' && verb === 'ensure') return metaReposEnsure(ws, flags, pos);
 	if (verb === 'add-field') return metaAddField(ws, store, collection, flags);
 	if (verb === 'update-field') return metaUpdateField(ws, store, collection, flags);
 	if (verb === 'remove-field') return metaRemoveField(ws, store, collection, flags);
@@ -202,6 +204,20 @@ function metaCommandsFor(ws, store, flags, pos) {
 		const counts = ids.length ? `  ${c.eligible.length}/${ids.length} eligible${c.done.length ? `, ${c.done.length} done` : ''}` : '  (no ids given)';
 		console.log(`${c.name}  [record]${counts}${c.invocation ? `\n  ${c.invocation}` : ''}`);
 	}
+	return 0;
+}
+
+/**
+ * `repos ensure <id>` / `repos ensure --all` — materialize declared repos on demand.
+ * Lazy by design: `install` deliberately does NOT do this, so a fresh workspace clone is
+ * immediately workable without pulling every attached repo (and one unreachable remote can only
+ * fail the action you asked for, not the whole install).
+ */
+function metaReposEnsure(ws, flags, pos) {
+	const results = flags.all ? ensureAllRepos(ws) : [ensureRepo(ws, need(pos, 0, 'id'))];
+	if (flags.json) { emit(JSON.stringify(results, null, 2)); return 0; }
+	for (const r of results) console.log(r.cloned ? `✔ cloned ${r.path}` : `✔ ${r.path} (present)`);
+	if (!results.length) console.log('(no repos declared)');
 	return 0;
 }
 
