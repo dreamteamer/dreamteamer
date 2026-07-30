@@ -17,6 +17,22 @@ import { distinctValues } from './field-values.js';
 import { matchesFilter } from './filter.js';
 import { sortRows } from './temporal.js';
 
+/**
+ * Emit MACHINE-READABLE output synchronously. Use this for every `--json` payload.
+ *
+ * `console.log` to a pipe is asynchronous, and every CLI path ends in `process.exit()`, which
+ * discards whatever is still buffered. A shell pipeline hides the bug completely — the reader
+ * drains concurrently, so `dreamteamer contacts list --json | wc -c` reports all 32381 bytes — but
+ * the way a script or a coding agent actually calls this is execFileSync/spawnSync, and there the
+ * child exits with the pipe still full. Measured before this fix: the same command captured with
+ * execFileSync returned exactly **8190 bytes** (one pipe buffer) of that 32381-byte document, i.e.
+ * silently invalid JSON, with a zero exit status. `fs.writeSync` cannot be truncated that way.
+ *
+ * Found while writing a setup script for a second operator — the first consumer to read `--json`
+ * from a real program rather than a terminal.
+ */
+const emit = (s) => fs.writeSync(1, s + '\n');
+
 /** `list` flags that are options, not `field=value` shorthand filters. */
 const LIST_META_FLAGS = new Set(['json', 'filter', 'where', 'sort']);
 
@@ -62,7 +78,7 @@ export function collectionCommand(ws, collection, verb, args) {
 			// invocation could. Same `sortRows` the server and api.ts call, so `--sort -starts`
 			// orders date-times by INSTANT across mixed offsets rather than by string.
 			if (typeof flags.sort === 'string') sortRows(rows, flags.sort);
-			if (flags.json) { console.log(JSON.stringify(rows, null, 2)); return 0; }
+			if (flags.json) { emit(JSON.stringify(rows, null, 2)); return 0; }
 			const cols = ['id', ...(d.list_fields ?? []).filter((c) => c !== 'id')];
 			for (const r of rows) console.log(cols.map((c) => fmtCell(r[c])).join('  '));
 			if (!rows.length) console.log(`(no ${collection}${filters.length || where ? ' matching' : ''})`);
@@ -71,13 +87,13 @@ export function collectionCommand(ws, collection, verb, args) {
 		case 'get': {
 			const id = need(pos, 0, 'id');
 			const { fields } = store.read(collection, id);
-			console.log(flags.json ? JSON.stringify({ ...fields, id }, null, 2) : dump(fields).trimEnd());
+			flags.json ? emit(JSON.stringify({ ...fields, id }, null, 2)) : console.log(dump(fields).trimEnd());
 			return 0;
 		}
 		case 'add': {
 			const fields = coerceArrays(d, stripMeta(flags));
 			const { id, file } = store.add(collection, fields, { id: flags.id });
-			console.log(flags.json ? JSON.stringify({ id, path: rel(ws.root, file) }) : `✔ ${rel(ws.root, file)}`);
+			flags.json ? emit(JSON.stringify({ id, path: rel(ws.root, file) })) : console.log(`✔ ${rel(ws.root, file)}`);
 			return 0;
 		}
 		case 'set': {
@@ -88,18 +104,18 @@ export function collectionCommand(ws, collection, verb, args) {
 			Object.assign(changes, coerceArrays(d, stripMeta(flags)));
 			if (!Object.keys(changes).length) throw new Error('nothing to set — pass key=value pairs or --key value flags');
 			store.set(collection, id, changes);
-			console.log(flags.json ? JSON.stringify({ id }) : '✔ updated');
+			flags.json ? emit(JSON.stringify({ id })) : console.log('✔ updated');
 			return 0;
 		}
 		case 'rm': {
 			const id = need(pos, 0, 'id');
 			const { inboundIgnored } = store.rm(collection, id, { force: !!flags.force });
-			console.log(flags.json ? JSON.stringify({ id, removed: true, inboundIgnored }) : `✔ removed${inboundIgnored ? ` (${inboundIgnored} inbound reference(s) left dangling — run \`dreamteamer check\`)` : ''}`);
+			flags.json ? emit(JSON.stringify({ id, removed: true, inboundIgnored })) : console.log(`✔ removed${inboundIgnored ? ` (${inboundIgnored} inbound reference(s) left dangling — run \`dreamteamer check\`)` : ''}`);
 			return 0;
 		}
 		case 'rename': {
 			const out = store.rename(collection, need(pos, 0, 'old id'), need(pos, 1, 'new id'));
-			if (flags.json) { console.log(JSON.stringify(out)); return 0; }
+			if (flags.json) { emit(JSON.stringify(out)); return 0; }
 			console.log(`✔ renamed ${collection}/${need(pos, 0, 'old id')} → ${collection}/${out.id}`);
 			if (out.touched) console.log(`✔ rewrote ${out.rewrites} inbound reference(s) across ${out.touched} file(s)`);
 			return 0;
@@ -112,7 +128,7 @@ export function collectionCommand(ws, collection, verb, args) {
 			const out = distinctValues(store, collection, field, {
 				limit: flags.limit === undefined ? undefined : Number(flags.limit),
 			});
-			if (flags.json) { console.log(JSON.stringify(out, null, 2)); return 0; }
+			if (flags.json) { emit(JSON.stringify(out, null, 2)); return 0; }
 			if (out.skipped) { console.log(`(${collection}.${field} is a ${out.skipped} field — no value vocabulary)`); return 0; }
 			if (!out.values.length) { console.log(`(no values set on ${collection}.${field})`); return 0; }
 			for (const { value, count } of out.values) console.log(count == null ? String(value) : `${String(count).padStart(5)}  ${value}`);
@@ -122,7 +138,7 @@ export function collectionCommand(ws, collection, verb, args) {
 		case 'history': {
 			const id = need(pos, 0, 'id');
 			const log = history(store, collection, id);
-			if (flags.json) { console.log(JSON.stringify(log, null, 2)); return 0; }
+			if (flags.json) { emit(JSON.stringify(log, null, 2)); return 0; }
 			if (!log.length) { console.log(`(no history for ${collection}/${id} — not committed yet)`); return 0; }
 			for (const c of log) console.log(`${c.hash.slice(0, 7)}  ${c.date.slice(0, 10)}  ${c.author}  ${c.subject}`);
 			return 0;
@@ -130,7 +146,7 @@ export function collectionCommand(ws, collection, verb, args) {
 		case 'diff': {
 			const id = need(pos, 0, 'id');
 			const out = historyDiff(store, collection, id, typeof flags.hash === 'string' ? flags.hash : 'HEAD');
-			if (flags.json) { console.log(JSON.stringify(out, null, 2)); return 0; }
+			if (flags.json) { emit(JSON.stringify(out, null, 2)); return 0; }
 			console.log(out.diff.trimEnd() || `(no change to ${out.path} in ${out.hash})`);
 			return 0;
 		}
@@ -141,7 +157,7 @@ export function collectionCommand(ws, collection, verb, args) {
 			const hash = typeof flags.hash === 'string' ? flags.hash : pos[1];
 			if (!hash) throw new Error(`missing --hash <commit> — run \`dreamteamer ${collection} history ${id}\` to pick one`);
 			const out = store.revert(collection, id, hash);
-			console.log(flags.json ? JSON.stringify(out) : out.reverted ? `✔ reverted ${collection}/${id} to ${String(hash).slice(0, 7)}` : `= already identical to ${String(hash).slice(0, 7)} — nothing changed`);
+			flags.json ? emit(JSON.stringify(out)) : console.log(out.reverted ? `✔ reverted ${collection}/${id} to ${String(hash).slice(0, 7)}` : `= already identical to ${String(hash).slice(0, 7)} — nothing changed`);
 			return 0;
 		}
 		default:
@@ -163,7 +179,7 @@ function metaWorkflowsRun(ws, store, flags, pos) {
 	if (!wfId) throw new Error('usage: dreamteamer workflows run <workflow-id> --items <collection>/<id>[,…]');
 	const items = typeof flags.items === 'string' ? flags.items.split(',').map((s) => s.trim()).filter(Boolean) : [];
 	const { id } = createRun(store, wfId, items);
-	console.log(flags.json ? JSON.stringify({ id: `workflow-runs/${id}` }) : `✔ run created: workflow-runs/${id}`);
+	flags.json ? emit(JSON.stringify({ id: `workflow-runs/${id}` })) : console.log(`✔ run created: workflow-runs/${id}`);
 	console.log('… execution is attended: follow the `executing-workflows` skill to advance it');
 	return 0;
 }
@@ -179,7 +195,7 @@ function metaCommandsFor(ws, store, flags, pos) {
 		? [target.slice(slash + 1)]
 		: typeof flags.ids === 'string' ? flags.ids.split(',').map((s) => s.trim()).filter(Boolean) : [];
 	const out = commandsFor(store, collection, ids);
-	if (flags.json) { console.log(JSON.stringify(out, null, 2)); return 0; }
+	if (flags.json) { emit(JSON.stringify(out, null, 2)); return 0; }
 	if (!out.commands.length) { console.log(`(no commands bound to ${collection})`); return 0; }
 	for (const c of out.commands) {
 		if (c.target === 'collection') { console.log(`${c.name}  [collection]  ${c.invocation}`); continue; }
@@ -202,7 +218,7 @@ function metaCollectionsAdd(ws, store, flags) {
 function metaCollectionsRm(ws, store, flags, pos) {
 	const name = need(pos, 0, 'collection name');
 	const out = removeCollection(ws, store, name, { force: !!flags.force });
-	console.log(flags.json ? JSON.stringify(out) : `✔ removed collection ${out.removed}`);
+	flags.json ? emit(JSON.stringify(out)) : console.log(`✔ removed collection ${out.removed}`);
 	console.log('✔ compiled — the collection is gone');
 	return 0;
 }
@@ -235,7 +251,7 @@ function metaRemoveField(ws, store, collection, flags) {
 	const name = flags.name ?? flags.field;
 	if (!name) throw new Error('missing --name <field>');
 	const out = removeField(ws, store, collection, name);
-	console.log(flags.json ? JSON.stringify(out) : `✔ removed field ${collection}.${out.removed}`);
+	flags.json ? emit(JSON.stringify(out)) : console.log(`✔ removed field ${collection}.${out.removed}`);
 	console.log('✔ compiled — the field is gone');
 	return 0;
 }
@@ -274,7 +290,7 @@ const VIEW_META_FLAGS = new Set(['id', 'json', 'force']);
 function metaUiView(ws, store, verb, flags, pos) {
 	if (verb === 'rm') {
 		const out = removeUiView(ws, store, need(pos, 0, 'ui-view id'));
-		console.log(flags.json ? JSON.stringify(out) : `✔ removed ui-view ${out.removed}`);
+		flags.json ? emit(JSON.stringify(out)) : console.log(`✔ removed ui-view ${out.removed}`);
 		console.log('✔ compiled — the route is gone');
 		return 0;
 	}
@@ -306,7 +322,7 @@ function metaUiView(ws, store, verb, flags, pos) {
 	id ??= slug(view.path);
 
 	const out = saveUiView(ws, store, { id, view });
-	console.log(flags.json ? JSON.stringify(out) : `✔ ${rel(ws.root, out.file)}`);
+	flags.json ? emit(JSON.stringify(out)) : console.log(`✔ ${rel(ws.root, out.file)}`);
 	console.log(`✔ compiled — ${view.path} is live`);
 	return 0;
 }
