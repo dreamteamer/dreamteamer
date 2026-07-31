@@ -17,8 +17,8 @@
 		"workflows": 0
 	},
 	"prose": {
-		"skill-lines": 1122,
-		"system-lines": 1574
+		"skill-lines": 1165,
+		"system-lines": 1617
 	},
 	"budgets": {
 		"code.total": 3456,
@@ -26,6 +26,6 @@
 		"surface.collections": 16,
 		"surface.skills": 4,
 		"surface.agents": 2,
-		"prose.skill-lines": 1235
+		"prose.skill-lines": 1282
 	}
 }
