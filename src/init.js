@@ -59,18 +59,23 @@ export function init({ flags = {} } = {}) {
 	fs.mkdirSync(path.join(root, dataPath), { recursive: true });
 	fs.mkdirSync(path.join(root, 'state'), { recursive: true });
 
-	// seed user (git identity) + everyone team
+	// seed the operator's user record from the git identity.
+	//
+	// The id MUST be slugOrHash(git user.name) — that is exactly how `@me` resolves in filters and
+	// ui-views (server.js / fsdata.ts), so seeding it from the same source is what makes the core
+	// /inbox view work by construction. A workspace where a user record is authored by hand under a
+	// different id gets an EMPTY inbox with no error (decision 99b) — hence the setup-script step in
+	// any workspace with a second person.
+	//
+	// No `everyone` team is seeded: `teams` was removed from core 2026-07-31. It was a one-record
+	// abstraction with no reader — nothing in the engine, in `check`, or in any view resolved a team.
 	const gitName = tryGit(root, ['config', 'user.name']) ?? 'operator';
 	const gitEmail = tryGit(root, ['config', 'user.email']);
-	const userId = slugOrHash(gitName); // must satisfy the users collection's own id rule ({{ name | slug }})
+	const userId = slugOrHash(gitName);
 	const usersDir = path.join(root, dataPath, 'users');
-	const teamsDir = path.join(root, dataPath, 'teams');
 	fs.mkdirSync(usersDir, { recursive: true });
-	fs.mkdirSync(teamsDir, { recursive: true });
 	const userFile = path.join(usersDir, `${userId}.user.yaml`);
 	if (!fs.existsSync(userFile)) fs.writeFileSync(userFile, dump({ name: gitName, ...(gitEmail ? { email: gitEmail } : {}) }));
-	const teamFile = path.join(teamsDir, 'everyone.team.yaml');
-	if (!fs.existsSync(teamFile)) fs.writeFileSync(teamFile, `name: everyone\nmembers: [users/${userId}]\n`);
 
 	// .gitignore + .env.example (append-if-missing, never clobber)
 	appendMissing(path.join(root, '.gitignore'), GITIGNORE);

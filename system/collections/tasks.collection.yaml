@@ -1,3 +1,17 @@
+# tasks — CORE, and the one domain-looking collection that earns its place there.
+#
+# It was reviewed for ejection on 2026-07-31 alongside `teams` (which was removed) and KEPT, because
+# it is not a CRM nicety — it is half of the workflow gate mechanism. `workflow-runs.waiting-on` is
+# `x-reference: tasks` and `tasks.run` points back; a run parks `waiting` on a task and resumes when
+# the human completes it (see the `executing-workflows` skill). Eject `tasks` and a workflow loses
+# its only way to ask a person for something, which makes the engine's own automation model
+# incomplete — a workspace compiler that cannot represent "waiting on a human" is missing a
+# primitive, not carrying a domain.
+#
+# So the line for core is: **does the ENGINE read it?** `users` yes (`@me` resolves to a users
+# record), `tasks` yes (gates), `teams` was no — nothing in the engine, in `check`, or in any view
+# ever resolved a team, so it went. Everything a domain needs beyond this belongs in a module; hq3
+# adds `urgent` as an overlay rather than asking for it here.
 name: tasks
 storage: { path: data/tasks, codec: md, shape: file, suffix: task }
 id:
