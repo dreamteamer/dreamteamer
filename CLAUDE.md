@@ -127,3 +127,24 @@ Notes worth keeping:
 When you add an engine capability, the CLI verb is part of the change, not a follow-up. When you
 add an extension gesture, the verb must already exist. A route in `server.js` or the extension's
 `api.ts` with no CLI equivalent is a gap — re-derive this table rather than trusting it.
+
+## ⚠ DELETING a `src/` module is a CROSS-REPO change
+
+The extension loads the engine in-process, and `dreamteamer-vscode/src/engine.ts` imports a fixed
+list of modules in a **non-tolerant `Promise.all`**. One missing file rejects it, which throws out of
+`activate()` **before the tree view is created**, which leaves the view empty, which makes VS Code
+print its `viewsWelcome` text. On 2026-07-31 that text still claimed *"this folder is not a
+dreamteamer workspace (no .dreamteamer/manifest.yaml found)"* — for a workspace whose manifest was
+freshly compiled and 52KB. The symptom named the one thing that was definitely fine, and the real
+cause was `sync.js` having been deleted an hour earlier.
+
+**So: when you remove or rename a file under `src/`, grep the extension for it in the same wave.**
+
+```bash
+grep -rn "<module>.js\|eng\.<export>\|engine()\.<export>" ../dreamteamer-vscode/src/
+```
+
+The extension's welcome text is now `when`-gated so the two failures name themselves, but that makes
+the mistake *legible*, not impossible. The import list is still a hand-maintained mirror of this
+repo's file names, and nothing checks it automatically — a real check would have to know which engine
+a given workspace pins, which only that workspace knows.
