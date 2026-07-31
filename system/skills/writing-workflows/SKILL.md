@@ -89,7 +89,7 @@ session, never auto-triggered. write them anyway; the trigger machinery reads th
 | `operator: { agent: researcher }` | refs are `agents/<id>`, `skills/<id>`, `users/<id>`. |
 | an agent step listing every skill in the workspace | list only what that step's job needs; skills cost context. |
 | a human step with no `done-when` | nothing can verify the gate; the run stalls on judgement alone. |
-| `operator: { human: teams/everyone }` | one named user, or `@initiator`. |
+|  `operator: { human: users/everyone }` | one named user, or `@initiator`. |
 | a module workflow hard-coding `users/ada` | it won't resolve in anyone else's workspace. use `@initiator`. |
 | inventing branch/loop keys (`if:`, `foreach:`) | not in the schema — express it in the prompt prose. |
 | a step with both `command:` and `prompt:` | `oneOf` rejects it. the command owns its prompt; if you need to say more, say it in the command. |

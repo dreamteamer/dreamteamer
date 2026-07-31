@@ -69,7 +69,7 @@ then fail or amend the run per `executing-workflows`.
 
 | mistake | reality |
 |---|---|
-| `assignee: teams/everyone` or `assignee: contacts/jane` | assignee is a `users/<id>` only. check fails otherwise. |
+| `assignee: contacts/jane` or `assignee: jane` | assignee is a `users/<id>` only. check fails otherwise. |
 | `assignee: Gilad` / `assignee: users/gilad` | refs are exact record ids. run `users list` first. |
 | hand-writing `data/tasks/<something>.task.md` | skips validation, defaults, the id pattern and the commit. use `tasks add`. |
 | an id built from the **due** date | ids come from the creation date and never change; `due` is mutable. |
