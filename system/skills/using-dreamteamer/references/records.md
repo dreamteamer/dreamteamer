@@ -1,8 +1,3 @@
----
-name: working-with-structured-data-files
-description: use when reading, creating, updating, deleting or renaming any collection record — tasks, contacts, meetings, docs, anything under data/ or state/
----
-
 # working with structured data files
 
 **core principle:** the CLI is the default path — it validates before disk, generates the id,
@@ -16,7 +11,7 @@ a doc, anything under `data/` or `state/`. load it especially when you catch you
 `mv` a record file, hand-write frontmatter from memory, or set a field you haven't read in the
 descriptor.
 
-**not for:** schema changes (`writing-collections`), or system-stored records — skills, agents,
+**not for:** schema changes (`building-dreamteamer` → `references/collections.md`), or system-stored records — skills, agents,
 commands, workflows, ui-views, collections. those are *sources*: edit the file under the owning
 module (`modules/<module>/system/<kind>/`) and run `npm run compile`; the CLI refuses them on
 purpose.
