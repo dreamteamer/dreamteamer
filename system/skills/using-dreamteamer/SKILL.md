@@ -33,7 +33,7 @@ demand:
 | provenance | `.dreamteamer/manifest.yaml` | which module shipped which entry |
 | sources (write) | `modules/<module>/system/` — **including the workspace's own**, the `dreamteamer.workspace-module` named in `package.json` | a root `system/` is a compile ERROR. same-name collisions across modules are compile errors too. after ANY source change: `npm run compile` |
 | content records | `data/<collection>/` | per each descriptor's `storage.path` |
-| operational records | `state/<collection>/` | workflow-runs, workflow-triggers, module-registries, cursors |
+| operational records | `state/<collection>/` | workflow-runs, workflow-triggers, cursors |
 
 - a record is a `<id>.<suffix>.<ext>` file (or a folder, for folder-shape collections). **the id is
   the path** inside the collection folder minus suffix and extension — nested folders join in:
@@ -62,7 +62,7 @@ when you're not sure the runtime is fresh.
 | authoring anything under a module's `system/` — a collection, field, skill, command, agent, workflow, ui-view, or component code | `building-dreamteamer` |
 | starting / advancing / resuming a workflow run | `executing-workflows` — runs are created with `dt workflows run`, never `workflow-runs add` |
 | "what changed while I was away" | `references/git-events.md` |
-| the workspace lacks the capability entirely | `discovering-new-capabilities` |
+| the workspace lacks the capability entirely | `building-dreamteamer` → `references/before-you-build.md` |
 
 Domain work — meetings, contacts, content, design — is owned by the **module** that ships those
 collections, not by core. Read that module's own skills.
