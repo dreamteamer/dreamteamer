@@ -9,7 +9,7 @@ import { slugOrHash } from './template.js';
 import { discoverModules } from './compile.js';
 import { Store } from './store.js';
 
-const SKELETON_KINDS = ['collections', 'skills', 'agents', 'commands', 'workflows', 'ui-views'];
+const SKELETON_KINDS = ['collections', 'skills', 'agents', 'commands', 'ui-views'];
 
 const GITIGNORE = `node_modules/
 git_modules/

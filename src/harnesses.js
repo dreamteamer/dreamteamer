@@ -143,8 +143,8 @@ function orientationBlock(flavor, skillsIndex) {
 			'the relevant skill BEFORE the task:',
 			...skillsIndex.map((s) => `- \`${s.id}\` — ${s.desc}`),
 			'',
-			'agent personas live at `.dreamteamer/system/agents/*.agent.md`; workflows at',
-			'`.dreamteamer/system/workflows/` (run: `dreamteamer workflows run <id> --items <ref>`).',
+			'agent personas live at `.dreamteamer/system/agents/*.agent.md`; commands at',
+			'`.dreamteamer/system/commands/` (invoked as `/<name>` by the harness).',
 		);
 	}
 	return lines.join('\n');

@@ -9,13 +9,12 @@ import addFormats from 'ajv-formats';
 import { load, dump } from './yaml.js';
 import { walk } from './records.js';
 import { unknownOperators } from './filter.js';
-// circular on paper (migrate.js imports readManifest from here) — safe: both sides only
+// circular on paper in earlier versions — safe: both sides only
 // call at run time, same pattern as store.js ↔ compile.js.
-import { pendingMigrations } from './migrate.js';
 import { runHarnessAdapters } from './harnesses.js';
 import { satisfies } from './semver.js';
 
-export const KINDS = ['collections', 'skills', 'agents', 'commands', 'command-bindings', 'workflows', 'ui-views', 'collection-templates', 'migrations'];
+export const KINDS = ['collections', 'skills', 'agents', 'commands', 'command-bindings', 'ui-views', 'collection-templates'];
 const FOLDER_KINDS = new Set(['skills']); // folder-shape entities: copy the whole record folder
 
 const sha256 = (buf) => 'sha256:' + createHash('sha256').update(buf).digest('hex');
@@ -271,20 +270,10 @@ export function compile({ root, pkg }) {
 		if (extenders.length) mergedCount++;
 	}
 
-	// ---- unresolved references are compile errors (workflow operators, agent skills)
+	// ---- unresolved references are compile errors (an agent's declared skills)
 	const skillIds = new Set([...entries.keys()].filter((k) => k.startsWith('system/skills/')).map((k) => k.split('/')[2]));
-	const agentIds = new Set([...entries.keys()].filter((k) => k.startsWith('system/agents/')).map((k) => path.basename(k).replace(/\.agent\.md$/, '')));
 	for (const [rt, e] of entries) {
-		if (rt.startsWith('system/workflows/')) {
-			const wf = load(e.bytes.toString('utf8'));
-			for (const step of wf.steps ?? []) {
-				const a = step.operator?.agent;
-				if (a && !agentIds.has(a.replace(/^agents\//, ''))) fail(`${rt}: step "${step.id}" references unknown agent "${a}"`);
-				for (const sk of step.operator?.skills ?? []) {
-					if (!skillIds.has(sk.replace(/^skills\//, ''))) fail(`${rt}: step "${step.id}" references unknown skill "${sk}"`);
-				}
-			}
-		} else if (rt.startsWith('system/agents/')) {
+		if (rt.startsWith('system/agents/')) {
 			const fm = /^---\r?\n([\s\S]*?)\r?\n---/.exec(e.bytes.toString('utf8'));
 			const doc = fm ? load(fm[1]) : {};
 			for (const sk of doc.skills ?? []) {
@@ -375,12 +364,6 @@ export function compile({ root, pkg }) {
 	const sourceLabel = config['workspace-module']
 		? `${sources.length} module(s) (workspace-module: ${config['workspace-module']})`
 		: `${sources.length - 1} module(s) + workspace`;
-	// visibility, not lockout (decision 39 §3): data never compiles, but unapplied
-	// migrations get named so the operator learns BEFORE records go invalid.
-	try {
-		const pend = pendingMigrations(root);
-		if (pend.length) console.warn(`⚠ ${pend.length} unapplied migration(s): ${pend.map((m) => `${m.module}/${m.id}`).join(', ')} — run \`dreamteamer migrate\``);
-	} catch { /* first compile of a workspace mid-bootstrap */ }
 	console.log(`✔ compiled ${summary || 'nothing'} from ${sourceLabel} → .dreamteamer`);
 	for (const line of harnessSummary) console.log(`✔ harness ${line}`);
 	return 0;

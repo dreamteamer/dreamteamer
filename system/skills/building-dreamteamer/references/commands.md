@@ -12,7 +12,7 @@ name: process-inbox
 description: triage every open task assigned to me, one at a time
 argument-hint: "[assignee]"
 ---
-load the working-with-tasks skill. list my open tasks
+load this workspace's tasks skill. list my open tasks
 (`npm run --silent dt -- tasks list --assignee users/<me> --status todo`), then walk them one at a
 time: restate it, ask me to keep / reassign / drop, apply the decision with `tasks set`.
 done when the list is empty or I say stop.

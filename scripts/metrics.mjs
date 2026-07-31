@@ -83,7 +83,6 @@ const now = {
 		agents: countIn('agents', '.agent.md'),
 		'ui-views': countIn('ui-views', '.ui-view.yaml'),
 		commands: existsSync(join(sysDir, 'commands')) ? countIn('commands', '.command.md') : 0,
-		workflows: existsSync(join(sysDir, 'workflows')) ? countIn('workflows', '.workflow.yaml') : 0,
 	},
 	prose: { 'skill-lines': skillProse, 'system-lines': entryProse },
 };
@@ -127,7 +126,7 @@ if (base?.budgets) {
 	if (failed) {
 		console.log(`\n  ${failed} budget(s) exceeded. This is the conversation, not the error:`);
 		console.log(`    · Is this engine-level, or is it a recipe creeping into core?`);
-		console.log(`      Test: does the ENGINE read it? (see system/collections/tasks.collection.yaml)`);
+		console.log(`      Test: does the ENGINE read it? (the three questions are in CLAUDE.md)`);
 		console.log(`    · Could it live in a module instead, and be copied by whoever wants it?`);
 		console.log(`    · If it genuinely belongs here, raise the budget IN THE SAME COMMIT`);
 		console.log(`      (\`node scripts/metrics.mjs --update\`) so the growth is a recorded decision.`);

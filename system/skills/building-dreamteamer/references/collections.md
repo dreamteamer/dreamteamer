@@ -98,8 +98,12 @@ module rather than just for this workspace, fix the base.
    then decide which violations are worth fixing in the data.
 
 **Evolving a schema:** widening (a new optional field, a new enum value) is always safe; narrowing
-(a new required field, a removed enum value) needs the data cleaned first. A shape change across
-many existing records is a **migration** record + `dt migrate`, not a hand-sweep.
+(a new required field, a removed enum value) needs the data cleaned first. A shape change across many existing
+records is a **one-shot script you write, run once and commit with the records it rewrote** — there is
+no `dt migrate`. A record-based migration mechanism shipped in July 2026 and was removed on 2026-07-31
+having never once been used: every real schema change in this project's history went around it as a
+script. If you write one, say in the commit message what it did, because that message is the only
+ledger.
 
 ## common mistakes
 
@@ -107,7 +111,7 @@ many existing records is a **migration** record + `dt migrate`, not a hand-sweep
 |---|---|
 | a mutable field in `id.generate` (`due`, `status`) | ids must never change |
 | `id.generate` from `created` for imported records | `created` is when the record was written, not when the thing happened |
-| tightening `required` before cleaning the data | check floods; widen, migrate, then narrow |
+| tightening `required` before cleaning the data | check floods; widen, rewrite the data, then narrow |
 | a second same-name descriptor without `extends` | compile error by design |
 | a plain string where a ref belongs | use `x-reference` so `check` and `rename` can follow it |
 | a `templates:` ref pointing at another module | that module can no longer be copied or installed alone |
