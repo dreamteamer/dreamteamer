@@ -1,6 +1,6 @@
 // noun-verb collection commands: dreamteamer <collection> list|get|add|set|rm|rename|history|diff|revert
 // + meta verbs: `collections add|rm`, `<collection> add-field|update-field|remove-field`,
-//   `ui-views add|set|rm`, `workflows run`
+//   `ui-views add|set|rm`
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -11,7 +11,6 @@ import {
 	createCollection, removeCollection, addField, updateField, removeField, fieldDef, saveUiView, removeUiView,
 } from './schema-ops.js';
 import { history, historyDiff } from './history.js';
-import { createRun } from './runs.js';
 import { commandsFor, recordResolver } from './record-commands.js';
 import { distinctValues } from './field-values.js';
 import { matchesFilter } from './filter.js';
@@ -42,7 +41,7 @@ import { ensureRepo, ensureAllRepos } from './init.js';
  *
  * So: write in a LOOP until every byte lands, and retry EAGAIN — stdout can be a non-blocking pipe.
  */
-const emit = (s) => {
+export const emit = (s) => {
   const buf = Buffer.from(s + '\n');
   let off = 0;
   while (off < buf.length) {
@@ -67,7 +66,6 @@ export function collectionCommand(ws, collection, verb, args) {
 	// ordinary record path refuses them ("… are system sources") and always would.
 	if (collection === 'collections' && verb === 'add') return metaCollectionsAdd(ws, store, flags);
 	if (collection === 'collections' && verb === 'rm') return metaCollectionsRm(ws, store, flags, pos);
-	if (collection === 'workflows' && verb === 'run') return metaWorkflowsRun(ws, store, flags, pos);
 	if (collection === 'commands' && verb === 'for') return metaCommandsFor(ws, store, flags, pos);
 	if (collection === 'ui-views' && ['add', 'set', 'rm'].includes(verb)) return metaUiView(ws, store, verb, flags, pos);
 	if (collection === 'repos' && verb === 'ensure') return metaReposEnsure(ws, flags, pos);
@@ -195,17 +193,6 @@ function workspaceSystemDir(ws, kind) {
 	return wm ? path.join(ws.root, 'modules', wm, 'system', kind) : path.join(ws.root, 'system', kind);
 }
 
-// `dreamteamer workflows run <id> --items <ref>[,<ref>…]` — create a VALIDATED run
-// record per the run-state contract; execution stays with the attended executor.
-function metaWorkflowsRun(ws, store, flags, pos) {
-	const wfId = pos[0];
-	if (!wfId) throw new Error('usage: dreamteamer workflows run <workflow-id> --items <collection>/<id>[,…]');
-	const items = typeof flags.items === 'string' ? flags.items.split(',').map((s) => s.trim()).filter(Boolean) : [];
-	const { id } = createRun(store, wfId, items);
-	flags.json ? emit(JSON.stringify({ id: `workflow-runs/${id}` })) : console.log(`✔ run created: workflow-runs/${id}`);
-	console.log('… execution is attended: follow the `executing-workflows` skill to advance it');
-	return 0;
-}
 
 // `dreamteamer commands for <collection>[/<id>] [--ids <id>[,…]] [--json]` — which bound
 // commands apply, in which state (available / done / not-applicable). THE engine surface

@@ -9,7 +9,6 @@ import { Store, bodyField } from './store.js';
 import { readManifest, staleness, discoverModules, CompileError } from './compile.js';
 import { presentation } from './presentation.js';
 import { createCollection, removeCollection, addField, updateField, removeField, fieldDef, saveUiView, removeUiView } from './schema-ops.js';
-import { sync } from './sync.js';
 import { history, historyDiff } from './history.js';
 import { matchesFilter } from './filter.js';
 import { sortRows } from './temporal.js';
@@ -200,10 +199,6 @@ export function startServer(ws, { port = 8080, host = '127.0.0.1' } = {}) {
 		res.json(store.revert(req.params.name, idParam(req), String(req.body?.hash ?? '')));
 	});
 
-	// trigger evaluation (slice 5) — same op as `dreamteamer sync`
-	api.post('/sync', (req, res) => {
-		res.json(sync(ws, { evaluator: req.body?.evaluator ?? 'server', dryRun: req.body?.['dry-run'] === true }));
-	});
 
 	api.post('/reload', (req, res) => { reload(); res.json({ ok: true }); });
 

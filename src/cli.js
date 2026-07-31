@@ -6,10 +6,10 @@ import { execFileSync } from 'node:child_process';
 import { findWorkspace } from './workspace.js';
 import { compile, staleness, warnIfStale, discoverModules, CHANNEL_LABEL } from './compile.js';
 import { check } from './check.js';
-import { collectionCommand } from './collections-cli.js';
+import { collectionCommand, emit } from './collections-cli.js';
 import { init, install, installClone, update, listRepos } from './init.js';
-import { sync, printSyncReport } from './sync.js';
-import { migrate, printMigrateReport } from './migrate.js';
+import { deriveEvents } from './events.js';
+import { Store } from './store.js';
 
 const USAGE = `usage: dreamteamer <command> | dreamteamer <collection> <verb> …
 
@@ -23,9 +23,8 @@ commands:
   check       validate every record against the compiled descriptors (report-only)
   status      workspace status: compiled runtime freshness, per-module channel/ref, staleness
   start       serve the clean REST api + the studio at /admin [--port <n>]
-  migrate     apply pending module-shipped schema migrations [--dry-run] (one commit each)
-  sync        evaluate triggers over the git cursor: derive item events, create runs,
-              advance this evaluator's cursor [--dry-run] [--evaluator <name>] [--from <sha|root>]
+  changes     what changed in data/ + state/ since a commit, as record events
+              [--since <sha>] (default: the last commit) [--json]
 
 collection verbs (hard validation — invalid writes are rejected before disk):
   <collection> list [--filter k=v] [--where <json>] [--sort [-]<field>] [--json]
@@ -45,7 +44,7 @@ repo attachment (working trees are materialized ON DEMAND, never at install):
   repos ensure <id> [--json]                  (clone if missing, then print the path; idempotent)
   repos ensure --all [--json]                 (explicit opt-in: everything, e.g. before going offline)
 
-meta verbs (schema + workflow operations — write SOURCES, never the runtime):
+meta verbs (schema operations — write SOURCES through a compile gate, never the runtime):
   collections add --name <name> [--template docs|entity]
   collections rm <name> [--force]             (--force required if it still has records)
   <collection> add-field    --name <field> --type <type> [--options a,b] [--default-value v] [--required true]
@@ -58,7 +57,6 @@ meta verbs (schema + workflow operations — write SOURCES, never the runtime):
   ui-views add --path </route> --target list --collection collections/<c> --layout <id> [--id <id>] [k.v=…]
   ui-views set <id> <key>=<value> …           (dotted keys: options.sort=-date, nav.label=Recent)
   ui-views rm <id>
-  workflows run <workflow-id> --items <ref>[,<ref>…]   (creates a validated run record)
   commands for <collection>[/<id>] [--ids <id>,…]      (bound commands + per-record state:
                                                         available / done / not-applicable)
   <collection> values <field> [--limit n]              (the vocabulary a field actually uses —
@@ -109,17 +107,29 @@ export function run(argv) {
 			case 'check':
 				warnIfStale(ws.root);
 				process.exit(check(ws));
-			case 'migrate': {
+			// `changes` is what survives of the trigger/run subsystem removed 2026-07-31: deriving
+			// record events from git history was the genuinely used half (catch-up — "what happened
+			// while I was away"), while creating run records from triggers was not. Read-only by
+			// construction: no cursor to advance, nothing to store, so it is safe to run twice.
+			case 'changes': {
 				warnIfStale(ws.root);
-				printMigrateReport(migrate(ws, { dryRun: rest.includes('--dry-run') }));
-				process.exit(0);
-			}
-			case 'sync': {
-				warnIfStale(ws.root);
-				const ei = rest.indexOf('--evaluator');
-				const fi = rest.indexOf('--from');
-				const report = sync(ws, { evaluator: ei > -1 ? rest[ei + 1] : 'cli', dryRun: rest.includes('--dry-run'), from: fi > -1 ? rest[fi + 1] : null });
-				printSyncReport(report);
+				const si = rest.indexOf('--since');
+				const since = si > -1 ? rest[si + 1] : 'HEAD~1';
+				const store = new Store(ws);
+				const events = deriveEvents(ws.root, store.descriptors, since, 'HEAD');
+				if (rest.includes('--json')) { emit(JSON.stringify({ since, head: 'HEAD', events }, null, 2)); process.exit(0); }
+				if (!events.length) { console.log(`✔ no record changes since ${since}`); process.exit(0); }
+				const byCollection = new Map();
+				for (const e of events) {
+					if (!byCollection.has(e.collection)) byCollection.set(e.collection, []);
+					byCollection.get(e.collection).push(e);
+				}
+				console.log(`${events.length} record change(s) since ${since}:`);
+				for (const [c, list] of [...byCollection].sort()) {
+					const n = (t) => list.filter((e) => e.type === t).length;
+					console.log(`  ${c}: ${n('item-added')} added, ${n('item-updated')} updated, ${n('item-removed')} removed`);
+					for (const e of list) console.log(`    ${e.type.replace('item-', '').padEnd(7)} ${c}/${e.id}`);
+				}
 				process.exit(0);
 			}
 			case 'status': {

@@ -6,15 +6,14 @@ frontmatter key becomes an in-body load instruction — so the record *is* the s
 
 **Before writing one, check it should not be a skill.** An agent costs a whole context. It earns
 that only when the job needs a dispatchable persona with its own tool allowlist and skill set — a
-router, a reviewer, an executor — or when a workflow step names an `operator.agent` that does not
-exist yet.
+router, a reviewer, a critic that must not share the caller's context.
 
 ```yaml
 ---
-name: workflow-orchestrator
-description: executes workflow steps and branching logic per the run-state contract; advances run records, creates gate tasks, resumes on gating-condition satisfaction
+name: dreamteamer
+description: master agent — routes a request to the right collection, skill or agent; the default operator for data-facing work
 tools: [Read, Write, Edit, Grep, Glob, Bash]
-skills: [skills/executing-workflows, skills/working-with-tasks]
+skills: [skills/using-dreamteamer]
 ---
 ```
 
@@ -31,16 +30,15 @@ Direct instructions: what to read, what to decide, in what order, what it hands 
 — a few sentences to a short paragraph. **The procedure lives in the referenced skills**, never
 duplicated here.
 
-Reference: the core module's `system/agents/dreamteamer.agent.md` (the router) and
-`workflow-orchestrator.agent.md` — short trigger description, tight tool list, 1–2 skill refs, a
-one-paragraph body.
+Reference: the core module's `system/agents/dreamteamer.agent.md` — the only agent core ships, and the
+shape to copy: short trigger description, tight tool list, 1–2 skill refs, a one-paragraph body.
 
 ## common mistakes
 
 | mistake | reality |
 |---|---|
 | a `description` that is a role title ("the research agent") | dispatchers match on triggers; say when to pick it |
-| `skills: [executing-workflows]` | refs are qualified: `skills/executing-workflows` |
+| `skills: [using-dreamteamer]` | refs are qualified: `skills/using-dreamteamer` |
 | pasting the skill's procedure into the body | two copies, one drifts |
 | a broad `tools` list | a Write tool on a read-only reviewer is a footgun |
 | creating an agent for a one-off instruction | a skill is usually the right answer |

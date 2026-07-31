@@ -1,6 +1,6 @@
 # dreamteamer — the engine
 
-`@dreamteamer/dreamteamer`: workspace compiler, CLI, store, schema-ops, sync. See `README.md` for
+`@dreamteamer/dreamteamer`: workspace compiler, CLI, store, schema-ops. See `README.md` for
 the contract (sources → `.dreamteamer/` → harness adapters; records are files; one git commit per
 mutation; hard validation before disk).
 
@@ -18,20 +18,31 @@ npm run metrics -- --update   # rewrite metrics.json — a DELIBERATE act, same 
 `metrics.json` is committed. A blown budget is not an error; it is the prompt to answer three
 questions **before** writing the code, out loud, in the commit message:
 
-1. **Does the ENGINE read it?** That is the whole test for a core collection or field. `users` yes
-   (`@me` resolves against it). `tasks` yes (a workflow run parks on one). `teams` was no — nothing
-   in the engine, in `check` or in any view ever resolved a team, so it was deleted on 2026-07-31.
-   The reasoning is written into `system/collections/tasks.collection.yaml`; read it before adding a
-   collection here.
+1. **Does the ENGINE read it?** That is the whole test for a core collection or field. What survives
+   it: the entity kinds the compiler materializes, `users` (because `@me` resolves against it), and
+   `repos` (because `repos ensure` clones them). **Nine collections, and that is the intended ceiling.**
+
+   What failed the test, all on 2026-07-31: `teams` (nothing in the engine, `check` or any view ever
+   resolved a team) · `mounts` (a one-implementation `adapter` enum over what is really an `.env` key)
+   · `module-registries` (zero records, zero readers) · `workflows` + `workflow-runs` +
+   `workflow-triggers` + `cursors` and `migrations` + `migration-runs` (both **measured** unused — see
+   below) · and `tasks`, whose only claim to core had been the workflow gate that no longer exists.
+
+   ⚠ **The two measured removals are the ones to learn from,** because both subsystems were correct,
+   gate-tested and plausible. The workflow layer produced 1 workflow record, 9 runs from a single
+   burst with **7 abandoned mid-flight**, and a cursor that stopped advancing — while the work it
+   automated was being done by a chain of commands a person runs. `dt migrate` was never invoked once:
+   every real schema change in this project's history was a hand-written script that went around it.
+   **Correctness is not usage.** Measure before you keep.
 2. **Is this a recipe creeping into core?** Anything domain-shaped — people, meetings, products,
    content, funnels — belongs in a module, and a *generic* version of it belongs in
    [dreamteamer/recipes](https://github.com/dreamteamer/recipes) where a workspace copies and adapts
    it. Domain modules are deliberately **not** installable packages: four workspaces have wanted a
    CRM and all four wanted a different `contacts`, so an import would force one answer and make
    every divergence a fork. Core must not absorb that variance on their behalf.
-3. **Could a module do it instead?** A module can ship collections, skills, commands, agents,
-   workflows, ui-views and component code. If the capability is expressible as a module, core
-   growing to hold it is a decision to make everyone carry it.
+3. **Could a module do it instead?** A module can ship collections, skills, commands,
+   command-bindings, agents, ui-views and component code. If the capability is expressible as a
+   module, core growing to hold it is a decision to make everyone carry it.
 
 Two shapes to reject on sight, both learned here:
 
@@ -42,10 +53,10 @@ Two shapes to reject on sight, both learned here:
   than kept.
 
 The prose budget matters as much as the code one: a skill nobody can afford to load is not a
-capability. Core ships **5** skills, and `using-dreamteamer` / `building-dreamteamer` are both
-**digests with `references/`** — the always-loaded file is the map, the detail is fetched on demand.
-Adding an eighth top-level skill to core is almost certainly the wrong move; add a reference to an
-existing digest instead.
+capability. Core ships **2** skills — `using-dreamteamer` (the map) and `building-dreamteamer` (how to author) —
+and both are **digests with `references/`**, so the always-loaded file stays small and detail is
+fetched on demand. Adding a third top-level skill to core is almost certainly wrong; add a reference
+to an existing digest instead.
 
 ## IMPORTANT — engine/UI split
 
@@ -84,6 +95,7 @@ throwaway `dreamteamer init` workspace (9/9 assertions, `check` clean):
 | create/update/delete a ui-view (`POST/DELETE /schema/ui-views`) | `saveUiView` / `removeUiView` | `ui-views add|set|rm` |
 | order a listing (`GET /items/:c?sort=`) | `temporal.sortRows` | `<c> list --sort [-]<field>` |
 | filter a listing (`?filter=<json>`, saved views) | `filter.matchesFilter` | `<c> list --where <json>` |
+| what changed in the data since a commit | `events.deriveEvents` | `changes [--since <sha>] [--json]` |
 
 Notes worth keeping:
 
@@ -102,6 +114,10 @@ Notes worth keeping:
   MUST parse instants, and every range/sort path goes through `compareValues`. Never reintroduce a
   `localeCompare` on a temporal field: `…T12:00+03:00` sorts after `…T11:00+01:00`, which is the
   earlier moment.
+- `src/events.js` is what survives of the trigger/run subsystem, exposed as `dt changes`. Keep it
+  read-only: it has no cursor and stores nothing, which is why it can be run twice with no
+  consequence. If automation is ever rebuilt on it, reuse the old dedupe key shape
+  (`trigger + item + commit`) rather than inventing one.
 - Testing the CLI from a cwd inside a workspace runs THAT workspace's `git_modules/dreamteamer`,
   not the checkout you are editing (self-shadowing, decision 24). Test from outside, or import
   `src/cli.js` directly.

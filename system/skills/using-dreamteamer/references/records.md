@@ -12,15 +12,15 @@ a doc, anything under `data/` or `state/`. load it especially when you catch you
 descriptor.
 
 **not for:** schema changes (`building-dreamteamer` → `references/collections.md`), or system-stored records — skills, agents,
-commands, workflows, ui-views, collections. those are *sources*: edit the file under the owning
+commands, ui-views, collections. those are *sources*: edit the file under the owning
 module (`modules/<module>/system/<kind>/`) and run `npm run compile`; the CLI refuses them on
 purpose.
 
 ## the verbs
 
 `npm run --silent dt -- help` lists the generic record verbs and their flags. read them there.
-but **`help` is not the whole surface** — collections with a purpose-built verb (`workflows run`,
-`collections add`, `<collection> add-field`) don't appear in it, and a verb missing from `help`
+but **`help` is not the whole surface** — collections with a purpose-built verb (`collections add`,
+`<collection> add-field`, `repos ensure`) don't appear in it, and a verb missing from `help`
 is not a verb that doesn't exist. when a skill names a verb, use the verb.
 
 what the help text can't tell you either way:
@@ -91,7 +91,6 @@ never changes the id.** **one mutation, one commit.**
 | omitting schema defaults from a hand-written file | the file stops being legible without the schema. |
 | unquoted `due: 2026-07-28` | dreamteamer parses with CORE_SCHEMA so it stays a string *here*, but any default-schema YAML reader turns it into a timestamp. quote dates when hand-writing. |
 | CLI-editing a skill / agent / command / collection | system sources — edit the module file, then `npm run compile`. |
-| `workflow-runs add …` to start a workflow run | some collections have a purpose-built verb; the generic `add` writes a half-record. runs start with `dt workflows run <workflow-id> --items …` (`executing-workflows`). |
 | committing again after a CLI verb | the verb already committed; you'd sweep unrelated work into it. |
 
 ## red flags — stop

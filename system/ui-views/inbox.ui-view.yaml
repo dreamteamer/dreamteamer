@@ -1,8 +1,0 @@
-path: /inbox
-target: list
-collection: collections/tasks
-layout: table
-filter: { assignee: { _eq: "@me" } }     # @me resolves to the current user
-options: { columns: [name, status, due, run] }   # `name` — tasks have no `title`, and a column the
-                                                # schema lacks is DROPPED, not fallen back from, so
-                                                # `title` rendered an inbox with nameless rows
