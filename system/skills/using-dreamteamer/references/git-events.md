@@ -1,8 +1,3 @@
----
-name: detecting-data-changes-via-git
-description: derive item-added/updated/removed events from git history (the git-ops mechanism behind triggers and catch-up)
----
-
 # detecting data changes via git
 
 **core principle:** item events are never observed live — they are **derived from git history**.
@@ -32,7 +27,7 @@ the operator asks what changed / what they missed; you're reconciling after a ba
 a migration; you need to understand what `dreamteamer sync` will do before running it.
 
 **not for:** advancing a run (`executing-workflows`), reading or writing individual records
-(`working-with-structured-data-files`), or ordinary "show me the diff" questions — plain `git
+(`references/records.md` beside this file), or ordinary "show me the diff" questions — plain `git
 log`/`git diff` is fine for those.
 
 ## the mechanism (the full contract, for when slice 5 lands)

@@ -38,7 +38,7 @@ import { ensureRepo, ensureAllRepos } from './init.js';
  * ignores the number. So the same truncation reappeared at a larger size: measured at exactly
  * **65126 bytes** of a ~100KB payload, again invalid JSON with a zero exit status. `meetings list
  * --json` (141767 bytes) was affected. Found in a sibling script that reproduced it twice, once
- * per fix (hq3 decision 104).
+ * per fix.
  *
  * So: write in a LOOP until every byte lands, and retry EAGAIN — stdout can be a non-blocking pipe.
  */

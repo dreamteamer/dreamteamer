@@ -10,8 +10,8 @@
 #
 # So the line for core is: **does the ENGINE read it?** `users` yes (`@me` resolves to a users
 # record), `tasks` yes (gates), `teams` was no — nothing in the engine, in `check`, or in any view
-# ever resolved a team, so it went. Everything a domain needs beyond this belongs in a module; hq3
-# adds `urgent` as an overlay rather than asking for it here.
+# ever resolved a team, so it went. Everything a domain needs beyond this belongs in a module — a
+# workspace that wants `urgent` on a task adds it as an overlay rather than asking for it here.
 name: tasks
 storage: { path: data/tasks, codec: md, shape: file, suffix: task }
 id:

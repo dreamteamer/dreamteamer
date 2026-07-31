@@ -14,8 +14,7 @@ a request needs a collection, skill, workflow or agent this workspace doesn't ha
 asks "can this thing handle X"; you're about to author a bespoke one-off that smells like
 something a module would ship (crm, calendar, transcription, scraping).
 
-**not for:** the actual authoring once the decision is made — that's `writing-collections`,
-`writing-skills`, `writing-workflows`, `writing-agents`.
+**not for:** the actual authoring once the decision is made — that's `building-dreamteamer`.
 
 ## search order
 
@@ -40,7 +39,7 @@ copy wins with a shadow warning; `dreamteamer status` shows per-module channel/r
 
 the working path is an **inline module**: `modules/<name>/` with its own `package.json`
 (`dreamteamer: {}` section) and a `system/` tree — the exact shape of the core engine module and
-`modules/contact-management` here. clone it (or copy it out of `git_modules/`) into `modules/`,
+a module in `git_modules/` here. clone it (or copy it out) into `modules/`,
 then:
 
 ```bash

@@ -15,7 +15,7 @@ const self = fileURLToPath(import.meta.url);
 const devBin = findDevClone(process.cwd());
 // `realpath`, NOT `path.resolve`: resolve is pure string math and does not follow symlinks, so a
 // workspace whose git_modules/dreamteamer is a SYMLINK to the engine it is already running (the
-// normal shape for a dev clone, and what hq3 does elsewhere under projects/) compared two spellings
+// normal shape for a dev clone, and a common shape under a repos folder) compared two spellings
 // of one file, decided they differed, and re-imported itself — a circular import that never
 // settles, so the process exited silently having done nothing at all. Worse than a crash: every
 // command "succeeded" with no output and no effect.

@@ -203,7 +203,7 @@ const relPath = (root, p) => path.relative(root, p) || '.';
  * Where a declared repo's working tree lives. Pure — never touches disk, so callers can resolve a
  * path without materializing (that is how `status` reports presence).
  *
- * The engine deliberately does NOT know what `identity` means: hq3 uses it to select a
+ * The engine deliberately does NOT know what `identity` means: a workspace may use it to select a
  * `~/.gitconfig` includeIf folder so the clone commits as the right git user, but that resolution
  * happens entirely outside the engine. Here it is just a path segment.
  */

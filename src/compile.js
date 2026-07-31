@@ -305,7 +305,7 @@ export function compile({ root, pkg }) {
 	// webview/src/registry/register-defaults.ts). kanban/calendar/map landed there as core Lists in
 	// the 2026-07-27 layouts wave but this set was never widened, so the only way to get a
 	// `layout: kanban` view past compile was for a module to CLAIM the layout it didn't own — which
-	// is what the hq3 workspace module was doing, shadowing the core board in the registry (a
+	// is what a workspace module was once caught doing, shadowing the core board in the registry (a
 	// module's app.js loads after the built-ins and Map.set wins). Fixed both ends 2026-07-29.
 	const registeredLayouts = new Set(['table', 'cards', 'kanban', 'calendar', 'map']);
 	for (const source of sources) {

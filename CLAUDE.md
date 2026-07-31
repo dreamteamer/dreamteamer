@@ -4,6 +4,49 @@
 the contract (sources → `.dreamteamer/` → harness adapters; records are files; one git commit per
 mutation; hard validation before disk).
 
+## IMPORTANT — core stays EXTREMELY lean, and that is measured
+
+Every addition to core arrives with a good local reason. Nothing ever argues for removal. So growth
+is budgeted rather than trusted:
+
+```bash
+npm run metrics          # size, complexity, surface, and the drift since the baseline
+npm run metrics:check    # exits 1 if any budget is exceeded
+npm run metrics -- --update   # rewrite metrics.json — a DELIBERATE act, same commit as the growth
+```
+
+`metrics.json` is committed. A blown budget is not an error; it is the prompt to answer three
+questions **before** writing the code, out loud, in the commit message:
+
+1. **Does the ENGINE read it?** That is the whole test for a core collection or field. `users` yes
+   (`@me` resolves against it). `tasks` yes (a workflow run parks on one). `teams` was no — nothing
+   in the engine, in `check` or in any view ever resolved a team, so it was deleted on 2026-07-31.
+   The reasoning is written into `system/collections/tasks.collection.yaml`; read it before adding a
+   collection here.
+2. **Is this a recipe creeping into core?** Anything domain-shaped — people, meetings, products,
+   content, funnels — belongs in a module, and a *generic* version of it belongs in
+   [dreamteamer/recipes](https://github.com/dreamteamer/recipes) where a workspace copies and adapts
+   it. Domain modules are deliberately **not** installable packages: four workspaces have wanted a
+   CRM and all four wanted a different `contacts`, so an import would force one answer and make
+   every divergence a fork. Core must not absorb that variance on their behalf.
+3. **Could a module do it instead?** A module can ship collections, skills, commands, agents,
+   workflows, ui-views and component code. If the capability is expressible as a module, core
+   growing to hold it is a decision to make everyone carry it.
+
+Two shapes to reject on sight, both learned here:
+
+- **An enum that is a roadmap.** `adapter: gdrive|s3|git` with one implementation was a schema
+  advertising work nobody had done. If only one value works, there is no field.
+- **A capability that needs a record seeded before it exists.** A collection whose entire job is to
+  name a folder is a level of indirection over an `.env` key. That is why `mounts` was deleted rather
+  than kept.
+
+The prose budget matters as much as the code one: a skill nobody can afford to load is not a
+capability. Core ships **5** skills, and `using-dreamteamer` / `building-dreamteamer` are both
+**digests with `references/`** — the always-loaded file is the map, the detail is fetched on demand.
+Adding an eighth top-level skill to core is almost certainly the wrong move; add a reference to an
+existing digest instead.
+
 ## IMPORTANT — engine/UI split
 
 **dreamteamer is the ENGINE. [dreamteamer-vscode](https://github.com/dreamteamer/dreamteamer-vscode)

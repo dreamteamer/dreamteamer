@@ -15,14 +15,14 @@ the operator asks to create / assign / triage / complete a task or an action ite
 extracting action items from a conversation; a workflow needs a human gate; you're surfacing
 someone's inbox.
 
-**not for:** authoring the workflow that creates gate tasks (`writing-workflows`), advancing a
+**not for:** authoring the workflow that creates gate tasks (`building-dreamteamer`), advancing a
 run once a gate is done (`executing-workflows`), or the generic record rules
-(`working-with-structured-data-files` — this skill only adds the task-specific conventions).
+(`using-dreamteamer` → `references/records.md`; this skill only adds the task-specific conventions).
 
 ## the commands
 
 the verbs and their flags are `npm run --silent dt -- help`; the record rules are
-`working-with-structured-data-files`. task-specific:
+`using-dreamteamer` → `references/records.md`. task-specific:
 
 - **`--title`, `--assignee`, `--due`, `--status`** on `add` — pass all four; `add` generates the
   id (`<creation-date>--<title-slug>`), materializes defaults and commits.
