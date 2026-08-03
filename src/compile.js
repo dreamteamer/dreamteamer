@@ -188,6 +188,9 @@ export function compile({ root, pkg }) {
 		entries.set(runtimePath, { sources: [{ path: rel(srcPath), hash: sha256(bytes) }], bytes });
 	}
 
+	/** module names that actually put something into the compiled runtime — see the warning below */
+	const contributed = new Set();
+
 	for (const source of sources) {
 		for (const kind of KINDS) {
 			const srcDir = path.join(source.root, 'system', kind);
@@ -206,23 +209,35 @@ export function compile({ root, pkg }) {
 					if (!doc.name || (!doc.schema && !doc.extends)) fail(`${rel(srcPath)}: descriptor needs 'name' and 'schema' (or 'extends')`);
 					if (!descriptorGroups.has(doc.name)) descriptorGroups.set(doc.name, []);
 					descriptorGroups.get(doc.name).push({ src: { path: rel(srcPath), hash: sha256(bytes) }, doc, moduleName: source.name });
+					contributed.add(source.name);
 				} else if (FOLDER_KINDS.has(kind) && isDir) {
 					for (const file of walk(srcPath)) {
 						addEntry(path.join('system', kind, name, path.relative(srcPath, file)), file);
+						contributed.add(source.name);
 					}
 					counts[kind]++;
 				} else if (!isDir) {
 					addEntry(path.join('system', kind, name), srcPath);
+					contributed.add(source.name);
 					counts[kind]++;
 				} else {
 					// nested dirs for file-shape kinds (e.g. date-partitioned) — recurse
 					for (const file of walk(srcPath)) {
 						addEntry(path.join('system', kind, path.relative(srcDir, file)), file);
+						contributed.add(source.name);
 						counts[kind]++;
 					}
 				}
 			}
 		}
+	}
+
+	// A module that ships only folders the engine does not recognise compiles ✔ and contributes
+	// NOTHING. Warn; do not fail, since a module that is temporarily source-free is the
+	// operator's business, not the compiler's.
+	for (const source of sources) {
+		if (contributed.has(source.name)) continue;
+		console.warn(`⚠ module "${source.name}" (${rel(source.root)}) contributed no recognised sources — check its system/ subfolder names against the known kinds`);
 	}
 
 	// ---- stage module UI bundles ---------------------------------------------------
