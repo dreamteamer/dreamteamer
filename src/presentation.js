@@ -56,6 +56,7 @@ function collectionRow(d) {
 	if (Array.isArray(d.list_fields)) meta.list_fields = d.list_fields;
 	if (typeof d.icon === 'string') meta.icon = d.icon;
 	if (typeof d.group === 'string') meta.group = d.group;
+	if (typeof d.description === 'string' && d.description.length > 0) meta.description = d.description;
 	return { collection: d.name, meta, system: (d.storage?.path ?? '').startsWith('system/') };
 }
 
@@ -68,6 +69,10 @@ function referenceTargetOf(prop) {
 function fieldRow(d, name, prop, isRequired) {
 	const meta = { collection: d.name, field: name };
 	if (isRequired) meta.required = true;
+	// JSON Schema's own `description` on the property — what the field MEANS, authored in the
+	// module source beside the field. Carried through verbatim so a surface can explain a field
+	// without a second vocabulary (the UI shows it as the property row's tooltip).
+	if (typeof prop.description === 'string' && prop.description.length > 0) meta.description = prop.description;
 
 	let type = 'string';
 	const target = referenceTargetOf(prop);
