@@ -7,7 +7,8 @@ the contract: module sources (`system/` folders, discovered over three channels 
 `modules/*` > `git_modules/*` > npm deps) compile **explicitly** into `.dreamteamer/`, the single
 runtime read surface, and from there into per-harness adapters (claude-code, codex, pi, gemini-cli,
 cursor). data is plain files: records are `<id>.<suffix>.<ext>`, ids are paths, references are
-`<collection>/<id>`, every mutation is one git commit. hard validation before disk; nothing hidden.
+`<collection>/<id>`. a write lands on disk; `dreamteamer commit` publishes it, one commit per repo
+(a module can own its records). hard validation before disk; nothing hidden.
 
 ```bash
 npm i git+ssh://git@github.com/dreamteamer/dreamteamer.git   # engine + `dreamteamer` bin
