@@ -193,6 +193,16 @@ export function run(argv) {
 						for (const r of repos) if (!r.present) console.log(`  absent: ${r.id} → ${r.path} (dreamteamer repos ensure ${r.id})`);
 					}
 				} catch { /* no repos descriptor compiled — nothing to report */ }
+				// Uncommitted records are invisible to `dt changes` (it diffs commits), so the
+				// count belongs here — otherwise deferred work accumulates silently.
+				try {
+					const pending = commitPending(new Store(ws), { dryRun: true });
+					const total = pending.reduce((n, r) => n + r.rows.length, 0);
+					if (total) {
+						console.log(`\npending: ${total} record(s) written but not committed — run \`dreamteamer commit\``);
+						for (const r of pending) console.log(`  ${r.repo === '.' ? 'workspace' : r.repo}: ${r.rows.length}`);
+					}
+				} catch { /* no runtime yet, or not a git repo — status must still print */ }
 				if (s.stale.length) {
 					for (const line of s.stale) console.log(`  stale: ${line}`);
 					console.log(`✖ .dreamteamer is stale (${s.stale.length}) — run \`dreamteamer compile\``);
