@@ -300,6 +300,20 @@ export function compile({ root, pkg }) {
 			merged = mergeDescriptor(merged, ext.doc);
 		}
 		delete merged.extends;
+		// ---- module-owned data: rewrite the path, derive the repo ----------------------
+		// The compiled runtime keeps today's shape — a workspace-root-relative path — so
+		// store.js, check.js, schema-ops.js, history.js and field-values.js are untouched.
+		// `storage.repo` is read by the git layer alone.
+		merged.storage ??= {};
+		const owned = dataOwners.get(storageOwnerOf(group, base));
+		const isSystem = String(merged.storage.path ?? '').startsWith('system/');
+		if (owned && !isSystem) {
+			const modRel = rel(owned.root);
+			merged.storage.path = modRel ? `${modRel}/${merged.storage.path}` : merged.storage.path;
+			merged.storage.repo = repoRootOf(owned.root, root);
+		} else {
+			merged.storage.repo = '.';
+		}
 		// the merged schema must itself be a compilable JSON Schema — a malformed property
 		// (e.g. a string where an object belongs) used to pass compile and detonate at the
 		// first record validation. caught HERE so the schema-ops dry-run gate is airtight.
@@ -506,6 +520,16 @@ function applyTemplate(doc, tpl) {
 		} else if (out.schema[sk] === undefined) out.schema[sk] = sv;
 	}
 	return out;
+}
+
+/** Which module supplied the descriptor's WINNING storage block. mergeDescriptor lets an
+ *  extender win on any non-schema key (`else out[k] = v`), so "storage comes from the base" is
+ *  the default, not a guarantee — an overlay that declares its own storage overrides it, and
+ *  ownership must follow the block that actually survived. */
+function storageOwnerOf(group, base) {
+	let owner = base.moduleName;
+	for (const g of group) if (g.doc.extends && g.doc.storage) owner = g.moduleName;
+	return owner;
 }
 
 // extends merge: schema.properties merge per-property, required unions, other

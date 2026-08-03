@@ -37,6 +37,9 @@ schema:
         entry:
           type: string
           description: Folder shapes only — the file inside the folder that IS the record (e.g. SKILL.md).
+        repo:
+          type: string
+          description: DERIVED by compile, never authored — the workspace-relative root of the git repo holding these records ('.' is the workspace). Set from the owning module's `owns-data`.
     id:
       type: object
       description: How a record's id is derived and what shape it is allowed to take.
