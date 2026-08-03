@@ -59,6 +59,48 @@ export function discoverModules(root, pkg) {
 	return { modules: [...byName.values()], shadows };
 }
 
+// ---- module-owned data ----------------------------------------------------------
+// A module with `owns-data: true` keeps its records BESIDE ITSELF rather than in the
+// workspace's data/. The descriptor still says `data/<collection>`; compile is what turns
+// that into a path, so the module never names its host.
+
+/** modules that own their data, by module name → {root, channel}. Validates the flag and the
+ *  channel: records that could never be committed are a compile ERROR, not a silent zero. */
+function dataOwningModules(sources, fail, rel) {
+	const owners = new Map();
+	for (const s of sources) {
+		let mpkg;
+		try { mpkg = JSON.parse(fs.readFileSync(path.join(s.root, 'package.json'), 'utf8')); } catch { continue; }
+		const flag = mpkg.dreamteamer?.['owns-data'];
+		if (flag === undefined || flag === false) continue;
+		if (flag !== true) fail(`module "${s.name}": "owns-data" must be true or false (got ${JSON.stringify(flag)})`);
+		// Decided from the CHANNEL, never by asking git — compile shells out to git nowhere and
+		// must keep working in a freshly-`init`ed directory that is not a repo yet.
+		if (s.channel === 'npm') {
+			fail(`module "${s.name}" sets owns-data, but it is installed under node_modules/ — that path is never committed, so its records could not be saved. Vendor it into modules/ or install it as a git module.`);
+		}
+		if (s.channel === 'git' && !fs.existsSync(path.join(s.root, '.git'))) {
+			fail(`module "${s.name}" sets owns-data, but ${rel(s.root)} is not a git clone — git_modules/ is gitignored by the workspace, so its records could never be committed.`);
+		}
+		owners.set(s.name, { root: s.root, channel: s.channel });
+	}
+	return owners;
+}
+
+/** The git repo that will hold a module's records: nearest `.git` at or above the module root,
+ *  as a workspace-relative path (`.` = the workspace itself). `.git` may be a FILE — worktrees
+ *  and submodules write a pointer file rather than a directory — so existsSync, not isDirectory. */
+function repoRootOf(moduleRoot, wsRoot) {
+	const stop = path.resolve(wsRoot);
+	let dir = path.resolve(moduleRoot);
+	while (dir.startsWith(stop)) {
+		if (fs.existsSync(path.join(dir, '.git'))) return path.relative(stop, dir) || '.';
+		if (dir === stop) break;
+		dir = path.dirname(dir);
+	}
+	return '.';
+}
+
 export function shadowWarning({ name, winner, loser }) {
 	return `⚠ module ${name}: ${CHANNEL_LABEL[winner]} copy shadows ${CHANNEL_LABEL[loser]} copy`;
 }
@@ -119,6 +161,8 @@ export function compile({ root, pkg }) {
 			}
 		}
 	}
+
+	const dataOwners = dataOwningModules(sources, fail, rel);
 
 	const disabled = new Set(config.disable ?? []);
 	const disabledHits = new Set();
