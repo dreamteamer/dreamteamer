@@ -5,9 +5,15 @@ schema:
   type: object
   required: [name, template]
   properties:
-    name:        { type: string }
-    description: { type: string }
-    template:    { type: object }      # a descriptor stub instantiated by `collections add`
+    name:
+      type: string
+      description: The template id. Scope it to its module (crm-provenance, not provenance) — a template id is an IDENTITY entity, so two modules shipping the same name is a compile-time collision, not a merge.
+    description:
+      type: string
+      description: What field set this template contributes, in one line.
+    template:
+      type: object
+      description: A descriptor stub merged into every collection that names it. Precedence is template < base < overlay, so a descriptor always wins on a key it declares.
 order: 120
 list_fields: [name, last-modified]
 icon: content_copy

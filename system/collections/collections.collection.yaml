@@ -5,27 +5,64 @@ schema:
   type: object
   required: [name, schema]
   properties:
-    name:        { type: string }
-    description: { type: string }
-    extends:     { type: string }
+    name:
+      type: string
+      description: The collection id — must equal the filename, and must be unique across every installed module.
+    description:
+      type: string
+      description: What kind of thing this collection holds, in one line.
+    extends:
+      type: string
+      description: 'The module collection this one overlays, as `<module>/<collection>`. An overlay adds or narrows fields; it never redefines storage.'
     storage:
       type: object
+      description: Where the records live on disk and how they are encoded.
       properties:
-        path:   { type: string }
-        codec:  { type: string, enum: [md, yaml, json], default: md }
-        shape:  { type: string, enum: [file, folder], default: file }
-        suffix: { type: string }
-        entry:  { type: string }       # folder shapes only
+        path:
+          type: string
+          description: Folder holding the records, workspace-relative. `data/` for content, `state/` for operational records, `system/` for sources.
+        codec:
+          type: string
+          enum: [md, yaml, json]
+          default: md
+          description: File format. Use `md` whenever the record has a body a human will read.
+        shape:
+          type: string
+          enum: [file, folder]
+          default: file
+          description: One file per record, or one folder per record.
+        suffix:
+          type: string
+          description: 'The middle segment of a record filename: `<id>.<suffix>.<ext>`.'
+        entry:
+          type: string
+          description: Folder shapes only — the file inside the folder that IS the record (e.g. SKILL.md).
     id:
       type: object
+      description: How a record's id is derived and what shape it is allowed to take.
       properties:
-        generate: { type: string }
-        pattern:  { type: string }
-    schema:  { type: object }          # a JSON Schema — validated against the meta-schema, not typed here
-    order:       { type: number }
-    list_fields: { type: array, items: { type: string } }
-    icon:        { type: string }      # material-symbols-outlined icon name (studio nav/header)
-    group:       { type: string }      # studio nav folder; ungrouped collections list at the top
+        generate:
+          type: string
+          description: 'Template the id is built from, e.g. `{{ created | date }}--{{ name | slug }}`. Derive it from a field the record OWNS, never from write time.'
+        pattern:
+          type: string
+          description: Regex every id must match. `check` enforces it.
+    schema:
+      type: object
+      description: A JSON Schema for the record's fields — validated against the meta-schema, not typed here. A field's own `description:` is what every surface shows as its explanation.
+    order:
+      type: number
+      description: Sort position in the nav. Lower comes first.
+    list_fields:
+      type: array
+      items: { type: string }
+      description: The columns a list view shows by default.
+    icon:
+      type: string
+      description: material-symbols-outlined icon name, drawn in the nav and page header. The VS Code tree maps it to the nearest codicon — an unmapped name falls back to a generic cylinder, so pick one that is already mapped or add the row.
+    group:
+      type: string
+      description: Which nav folder this collection sits in. Ungrouped collections list at the top level; `system` is the plumbing group behind the gear.
 order: 10
 list_fields: [name, last-modified]
 icon: schema

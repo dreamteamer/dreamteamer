@@ -12,13 +12,30 @@ schema:
   type: object
   required: [name, url]
   properties:
-    name:        { type: string }   # the CLONE FOLDER name, not a display title
-    description: { type: string }
-    url:         { type: string }   # git remote
-    ref:         { type: string, default: main }
-    identity:    { type: string }   # opaque path segment: <repos-path>/<identity>/<name>
-    path:        { type: string }   # workspace-relative override; wins over the derived path
-    visibility:  { type: string, enum: [private, public], default: private }
+    name:
+      type: string
+      description: The CLONE FOLDER name, not a display title — this is what appears on disk.
+    description:
+      type: string
+      description: What this repo is, in one line.
+    url:
+      type: string
+      description: The git remote to clone from.
+    ref:
+      type: string
+      default: main
+      description: Branch or tag to check out.
+    identity:
+      type: string
+      description: 'Opaque path segment grouping clones by the account that owns them: <repos-path>/<identity>/<name>.'
+    path:
+      type: string
+      description: Workspace-relative path override. Wins over the derived <repos-path>/<identity>/<name>.
+    visibility:
+      type: string
+      enum: [private, public]
+      default: private
+      description: Whether the repo is public. Defaults to private, because assuming otherwise is the expensive mistake.
 order: 145
 list_fields: [name, identity, ref, url]
 icon: source

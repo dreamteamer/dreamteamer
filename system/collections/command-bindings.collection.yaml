@@ -15,21 +15,27 @@ schema:
     command:
       type: string
       x-reference: commands
+      description: The command this binding applies.
     collection:
       type: string
       x-reference: collections
+      description: The collection the command applies TO — which is what makes `dt commands for <ref>` able to answer "what can I do with this record".
     target:
       type: string
       enum:
         - record
         - collection
       default: record
+      description: Whether the command runs against one record or the whole collection.
     can-enter:
       type: object
+      description: The record state that makes this command AVAILABLE — a filter over the record's own fields. This is what turns a collection into a queue without any run records.
     can-exit:
       type: object
+      description: The record state that means the command has already been DONE. Together with can-enter, the record's own fields are the progress marker.
     description:
       type: string
+      description: What applying this command to this collection does, in one line.
 order: 45
 list_fields:
   - command

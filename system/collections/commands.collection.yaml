@@ -5,15 +5,31 @@ schema:
   type: object
   required: [name]
   properties:
-    name:        { type: string }
-    description: { type: string }
+    name:
+      type: string
+      description: The command id — must equal the filename, and is what the operator types after the slash.
+    description:
+      type: string
+      description: What this command does, in one line. It is the whole entry in the / picker, so write it for someone scanning.
     # native claude-code slash-command frontmatter — compile copies commands verbatim,
     # so these flow straight into .claude/commands/<name>.md and the / picker
-    argument-hint:            { type: string }
-    allowed-tools:            { type: string }
-    model:                    { type: string }
-    disable-model-invocation: { type: boolean }
-    prompt:      { type: string, format: markdown, x-body: true }
+    argument-hint:
+      type: string
+      description: What arguments the command takes, shown inline in the / picker.
+    allowed-tools:
+      type: string
+      description: Tools this command may use, when it should be narrower than the session's.
+    model:
+      type: string
+      description: Which model to run it on. Omit to inherit the session's.
+    disable-model-invocation:
+      type: boolean
+      description: Set when only a person may run this — it stops the model invoking it on its own.
+    prompt:
+      type: string
+      format: markdown
+      x-body: true
+      description: The command body. Reference the skill that owns the procedure rather than restating its steps — two copies drift.
 order: 40
 list_fields: [name, last-modified, description]
 icon: terminal

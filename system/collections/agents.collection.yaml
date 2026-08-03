@@ -5,12 +5,28 @@ schema:
   type: object
   required: [name, description]
   properties:
-    name:         { type: string }
-    description:  { type: string }
-    tools:        { type: array, items: { type: string } }
-    model:        { type: string }
-    skills:       { type: array, items: { type: string, x-reference: skills } }
-    instructions: { type: string, format: markdown, x-body: true }
+    name:
+      type: string
+      description: The agent id — must equal the filename, or dispatch misses.
+    description:
+      type: string
+      description: WHEN to dispatch this agent, in one line. The harness matches a request against this, so it is the agent's entire discoverability.
+    tools:
+      type: array
+      items: { type: string }
+      description: The tools this agent may use. Empty means the harness default set.
+    model:
+      type: string
+      description: Which model to run it on. Omit to inherit the session's.
+    skills:
+      type: array
+      items: { type: string, x-reference: skills }
+      description: Skills this agent should load. Reference them rather than restating their steps in the body.
+    instructions:
+      type: string
+      format: markdown
+      x-body: true
+      description: The agent's system prompt — what it is for and how it should work.
 order: 30
 list_fields: [name, last-modified, description]
 icon: smart_toy
