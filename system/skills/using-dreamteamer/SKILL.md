@@ -8,7 +8,7 @@ description: always load first — describes this dreamteamer workspace, its col
 this is a **dreamteamer** workspace: collections, skills, agents and commands are records compiled
 from sources into a runtime the harness reads.
 
-**core principle:** read the compiled runtime, write the sources, compile, one commit per mutation.
+**core principle:** read the compiled runtime, write the sources, compile — then `dt commit` to publish.
 
 ## when to use
 
@@ -68,9 +68,14 @@ collections, not by core. Read that module's own skills. Core knows about entity
 
 ## conventions
 
-- **every mutation is one git commit**, subject `dreamteamer: <verb> <detail>` — e.g. `dreamteamer:
-  tasks add 2026-07-25--fix-login`. one logical change per commit; a rename and its reference
-  rewrites are ONE commit.
+- **a write puts a record on disk; `dreamteamer commit` publishes it.** committing is POLICY —
+  `"auto-commit"` in the workspace's `package.json`, default off — not a property of the write. so
+  commit when a logical change is complete, and run `dt status` if you are unsure what is pending.
+  subjects still read `dreamteamer: <verb> <detail>` for a single record (`dt commit` composes them
+  from git's own status letters), and a multi-record commit says what it swept.
+- **one commit per REPO.** a module can own its records (`owns-data` in its package.json), and git
+  has no cross-repo commit — so a rename whose inbound refs live in another repo is TWO commits.
+  `dt commit` prints both. `dt commit <collection> …` scopes it; `--dry-run` shows the set first.
 - **never `git add -A`, `git add .`, or `git commit -a`.** stage explicit paths. more than one agent
   can be working in a tree, and a blanket add silently commits whatever another session has
   uncommitted right now — under your subject, leaving `git status` clean and the damage invisible.
@@ -89,7 +94,7 @@ collections, not by core. Read that module's own skills. Core knows about entity
 |---|---|
 | editing something under `.dreamteamer/` | generated + gitignored; the change vanishes on the next compile |
 | changing a source and not compiling | the harness and `check` still read the stale runtime |
-| hand-writing a record the CLI could add | skips validation, id generation, defaults, and the commit |
+| hand-writing a record the CLI could add | skips validation, id generation and defaults |
 | bare refs (`ada`, `data/users/x.user.md`) | refs are `<collection>/<id>`; anything else fails check |
-| batching several mutations into one commit | the per-record history is the audit trail |
+| assuming a write was committed | it was not, unless `auto-commit` is on — `dt status` says what is pending |
 | `git add -A` in a shared tree | steals another session's uncommitted work, invisibly |
