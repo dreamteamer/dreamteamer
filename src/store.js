@@ -14,9 +14,13 @@ import { normalizeRecord } from './temporal.js';
 import { discoverModules } from './compile.js';
 
 export class Store {
-	constructor({ root }) {
+	constructor({ root, pkg }) {
 		this.root = root;
 		this.runtime = path.join(root, '.dreamteamer');
+		// Committing is POLICY, not durability — a write is on disk either way. Default OFF:
+		// `dt commit` is what publishes. `"auto-commit": true` restores the old behaviour of one
+		// commit per mutation.
+		this.autoCommit = (pkg ?? readPkg(root)).dreamteamer?.['auto-commit'] === true;
 		this.ajv = new Ajv({ allErrors: true, strict: false, useDefaults: true, coerceTypes: 'array' });
 		addFormats(this.ajv);
 		this.ajv.addFormat('markdown', true);
@@ -144,7 +148,7 @@ export class Store {
 		return this.withWriteLock(() => {
 			this._idsCache.delete(collection); // every mutation drops the memo — cleared even if the commit rolls back
 			atomicWrite(file, previousContent);
-			this.commit([file], `dreamteamer: ${collection} revert ${id} to ${String(hash).slice(0, 7)}`, () => atomicWrite(file, current));
+			this.commit([file], `dreamteamer: ${collection} revert ${id} to ${String(hash).slice(0, 7)}`, () => atomicWrite(file, current), d.storage.repo ?? '.');
 			return { id, reverted: true, hash };
 		});
 	}
@@ -207,7 +211,7 @@ export class Store {
 			this.commit([file], `dreamteamer: ${collection} add ${id}`, () => {
 				fs.rmSync(file, { force: true });
 				pruneEmptyDirs(path.dirname(file), this.dir(d));
-			});
+			}, d.storage.repo ?? '.');
 			return { id, file };
 		});
 	}
@@ -222,7 +226,7 @@ export class Store {
 		return this.withWriteLock(() => {
 			this._idsCache.delete(collection);
 			atomicWrite(file, serialize(d, next));
-			this.commit([file], `dreamteamer: ${collection} set ${id}`, () => atomicWrite(file, previous));
+			this.commit([file], `dreamteamer: ${collection} set ${id}`, () => atomicWrite(file, previous), d.storage.repo ?? '.');
 			return { id, file };
 		});
 	}
@@ -240,7 +244,7 @@ export class Store {
 			fs.rmSync(unit, { recursive: true });
 			this.commit([unit], `dreamteamer: ${collection} rm ${id}`, () => {
 				execFileSync('git', ['checkout', '--quiet', 'HEAD', '--', path.relative(this.root, unit)], { cwd: this.root });
-			});
+			}, d.storage.repo ?? '.');
 			return { id, inboundIgnored: force ? inbound.length : 0 };
 		});
 	}
@@ -267,7 +271,7 @@ export class Store {
 				fs.renameSync(newUnit, oldUnit);
 				pruneEmptyDirs(path.dirname(newUnit), this.dir(d));
 				if (touched.length) execFileSync('git', ['checkout', '--quiet', 'HEAD', '--', ...touched.map((f) => path.relative(this.root, f))], { cwd: this.root });
-			});
+			}, d.storage.repo ?? '.');
 			for (const s of skipped) {
 				console.warn(`⚠ ${path.relative(this.root, s.file)}: ${s.count} raw-prose occurrence(s) of ${collection}/${oldId} left untouched — only [[wikilinks]] are maintained in bodies (decision 7)`);
 			}
@@ -371,13 +375,18 @@ export class Store {
 		try { return fn(); } finally { try { fs.rmdirSync(lock); } catch { /* already gone */ } }
 	}
 
-	commit(files, subject, undo) {
-		const rel = files.map((f) => path.relative(this.root, f));
+	/** Persist, or don't — `auto-commit` decides. The files are already on disk in both cases;
+	 *  this only chooses whether they are published now or by a later `dt commit`.
+	 *  `repo` is the workspace-relative root of the git repo that owns them ('.' = workspace). */
+	commit(files, subject, undo, repo = '.') {
+		if (!this.autoCommit) return;
+		const cwd = path.resolve(this.root, repo);
+		const rel = files.map((f) => path.relative(cwd, f));
 		try {
-			execFileSync('git', ['add', '--all', '--', ...rel], { cwd: this.root });
-			execFileSync('git', ['commit', '--quiet', '-m', subject, '--', ...rel], { cwd: this.root });
+			execFileSync('git', ['add', '--all', '--', ...rel], { cwd });
+			execFileSync('git', ['commit', '--quiet', '-m', subject, '--', ...rel], { cwd });
 		} catch (e) {
-			try { execFileSync('git', ['reset', '--quiet', '--', ...rel], { cwd: this.root }); } catch { /* nothing staged */ }
+			try { execFileSync('git', ['reset', '--quiet', '--', ...rel], { cwd }); } catch { /* nothing staged */ }
 			if (undo) {
 				try { undo(); } catch (u) {
 					throw new Error(`git commit failed AND rollback failed (${u.message}) — inspect the working tree. original: ${e.message.split('\n')[0]}`);
@@ -421,4 +430,8 @@ export function atomicWrite(file, content) {
 	fs.writeFileSync(tmp, content);
 	fs.renameSync(tmp, file);
 	return true;
+}
+
+function readPkg(root) {
+	try { return JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')); } catch { return {}; }
 }
