@@ -9,6 +9,7 @@ import { check } from './check.js';
 import { collectionCommand, emit } from './collections-cli.js';
 import { init, install, installClone, update, listRepos } from './init.js';
 import { deriveEvents } from './events.js';
+import { commitPending } from './commit.js';
 import { Store } from './store.js';
 
 const USAGE = `usage: dreamteamer <command> | dreamteamer <collection> <verb> …
@@ -25,6 +26,9 @@ commands:
   start       serve the clean REST api + the studio at /admin [--port <n>]
   changes     what changed in data/ + state/ since a commit, as record events
               [--since <sha>] (default: the last commit) [--json]
+  commit      publish records already written to disk: samples git status over every
+              collection's record dirs, one commit PER REPO, subject composed from the
+              status letters. [<collection> …] to scope, [-m <subject>], [--dry-run]
 
 collection verbs (hard validation — invalid writes are rejected before disk):
   <collection> list [--filter k=v] [--where <json>] [--sort [-]<field>] [--json]
@@ -133,6 +137,27 @@ export function run(argv) {
 					for (const e of list) console.log(`    ${e.type.replace('item-', '').padEnd(7)} ${c}/${e.id}`);
 				}
 				process.exit(0);
+			}
+			// the other half of `auto-commit: false` — record writes land on disk uncommitted, and
+			// this publishes them. No pending file: the set is sampled from `git status`, so a
+			// hand-edited record is indistinguishable from one the store wrote, which is the point.
+			case 'commit': {
+				const store = new Store(ws);
+				const mi = rest.indexOf('-m');
+				const message = mi > -1 ? rest[mi + 1] : undefined;
+				// bare args are collection names — minus the token `-m` consumed as its subject
+				const only = rest.filter((a, i) => !a.startsWith('-') && (mi === -1 || i !== mi + 1));
+				const results = commitPending(store, { only, message, dryRun: rest.includes('--dry-run') });
+				if (rest.includes('--json')) { emit(JSON.stringify(results, null, 2)); process.exit(0); }
+				if (!results.length) { console.log('nothing pending'); process.exit(0); }
+				for (const r of results) {
+					if (r.blocked) { console.error(`✖ ${r.repo}: ${r.blocked} — ${r.rows.length} record(s) left uncommitted`); continue; }
+					if (r.warning) console.warn(`⚠ ${r.repo}: ${r.warning}`);
+					console.log(`✔ ${r.repo === '.' ? 'workspace' : r.repo}${r.sha ? ` ${r.sha}` : ' (dry run)'} — ${r.subject}`);
+					for (const row of r.rows.slice(0, 20)) console.log(`    ${row.verb} ${row.collection}/${row.id}`);
+					if (r.rows.length > 20) console.log(`    + ${r.rows.length - 20} more`);
+				}
+				process.exit(results.some((r) => r.blocked) ? 1 : 0);
 			}
 			case 'status': {
 				const s = staleness(ws.root);
