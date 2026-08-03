@@ -239,12 +239,15 @@ export class Store {
 			throw new Error(`${collection}/${id} is referenced by:\n${inbound.map((f) => `  ${f}`).join('\n')}\nfix the references or pass --force. nothing was removed.`);
 		}
 		const unit = this.recordRoot(d, id); // folder-shape: the whole folder goes, not just the entry file
+		// Folder-shape records would need a recursive snapshot; the only folder-shape collection
+		// is `skills`, which is system-stored and so never reaches rm (writableDescriptor refuses
+		// first). Not built for a case that cannot occur.
+		// snapshot BEFORE the delete, or there is nothing left to read
+		const restore = snapshot([unit]);
 		return this.withWriteLock(() => {
 			this._idsCache.delete(collection);
 			fs.rmSync(unit, { recursive: true });
-			this.commit([unit], `dreamteamer: ${collection} rm ${id}`, () => {
-				execFileSync('git', ['checkout', '--quiet', 'HEAD', '--', path.relative(this.root, unit)], { cwd: this.root });
-			}, d.storage.repo ?? '.');
+			this.commit([unit], `dreamteamer: ${collection} rm ${id}`, restore, d.storage.repo ?? '.');
 			return { id, inboundIgnored: force ? inbound.length : 0 };
 		});
 	}
@@ -264,13 +267,18 @@ export class Store {
 			fs.mkdirSync(path.dirname(newUnit), { recursive: true });
 			fs.renameSync(oldUnit, newUnit);
 			pruneEmptyDirs(path.dirname(oldUnit), this.dir(d)); // cross-partition renames leave empty date dirs
+			// Snapshot the referencing files BEFORE rewriteRefs edits them — its `touched` list
+			// only exists after the damage is done. findInboundRefs returns paths relative to
+			// this.root; snapshot() needs absolute paths.
+			const refFiles = this.findInboundRefs(`${collection}/${oldId}`).map((f) => path.join(this.root, f));
+			const restoreTouched = snapshot(refFiles);
 			// rewrite inbound references (frontmatter/structured always; prose only via wikilinks)
 			const { touched, rewrites, skipped } = this.rewriteRefs(`${collection}/${oldId}`, `${collection}/${newId}`);
 			this.commit([oldUnit, newUnit, ...touched], `dreamteamer: ${collection} rename ${oldId} → ${newId}`, () => {
 				fs.mkdirSync(path.dirname(oldUnit), { recursive: true });
 				fs.renameSync(newUnit, oldUnit);
 				pruneEmptyDirs(path.dirname(newUnit), this.dir(d));
-				if (touched.length) execFileSync('git', ['checkout', '--quiet', 'HEAD', '--', ...touched.map((f) => path.relative(this.root, f))], { cwd: this.root });
+				restoreTouched();
 			}, d.storage.repo ?? '.');
 			for (const s of skipped) {
 				console.warn(`⚠ ${path.relative(this.root, s.file)}: ${s.count} raw-prose occurrence(s) of ${collection}/${oldId} left untouched — only [[wikilinks]] are maintained in bodies (decision 7)`);
@@ -434,4 +442,23 @@ export function atomicWrite(file, content) {
 
 function readPkg(root) {
 	try { return JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')); } catch { return {}; }
+}
+
+/** Byte snapshot of a set of files, and a restore closure. The undo mechanism schema-ops has
+ *  used for source writes since it was written (schema-ops.js:20). Record writes used
+ *  `git checkout HEAD -- <paths>` instead, which is only correct while HEAD is guaranteed to be
+ *  the last good state — it is not, once writes stop committing, and it silently discarded
+ *  uncommitted hand-edits even before that. */
+function snapshot(units) {
+	const snaps = units.map((u) => ({
+		u,
+		prev: fs.existsSync(u) && fs.statSync(u).isFile() ? fs.readFileSync(u) : null,
+		existed: fs.existsSync(u),
+	}));
+	return () => {
+		for (const { u, prev, existed } of snaps) {
+			if (!existed) { fs.rmSync(u, { force: true, recursive: true }); continue; }
+			if (prev !== null) { fs.mkdirSync(path.dirname(u), { recursive: true }); fs.writeFileSync(u, prev); }
+		}
+	};
 }
