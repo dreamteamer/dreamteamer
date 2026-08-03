@@ -35,6 +35,9 @@ export function check({ root }) {
 	// ---- index all records: collection -> Map<id, filePath> ------------------------
 	const index = new Map();
 	const strays = [];
+	// declared here rather than beside the validation pass: indexing can itself produce a
+	// finding (an unreachable data root, below) before a single record is read.
+	const violations = [];
 	for (const [name, d] of descriptors) {
 		const ids = new Map();
 		index.set(name, ids);
@@ -43,6 +46,15 @@ export function check({ root }) {
 		const dir = d.storage.path.startsWith('system/')
 			? path.join(RUNTIME, d.storage.path)
 			: path.join(root, d.storage.path);
+		// An unreachable data ROOT is a finding, not a skip: a collection whose module clone is
+		// missing otherwise reports zero records and a clean check — a silent success. An EMPTY
+		// directory stays fine (a module with no records yet is normal); only a missing owning
+		// repo counts.
+		const repoRoot = path.resolve(root, d.storage.repo ?? '.');
+		if (!fs.existsSync(dir) && (d.storage.repo ?? '.') !== '.' && !fs.existsSync(repoRoot)) {
+			violations.push({ file: d.storage.path, msg: `collection "${name}" is owned by ${d.storage.repo}, which is not present — every record in it is unreadable` });
+			continue;
+		}
 		if (!fs.existsSync(dir)) continue;
 		const shape = d.storage.shape ?? 'file';
 		if (shape === 'folder') {
@@ -65,7 +77,6 @@ export function check({ root }) {
 	}
 
 	// ---- validate each record -------------------------------------------------------
-	const violations = [];
 	const flag = (file, msg) => violations.push({ file: rel(file), msg });
 
 	// parsed fields, kept for the symmetric-ref pass below (parse each record exactly once)
