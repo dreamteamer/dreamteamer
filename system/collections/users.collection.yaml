@@ -5,9 +5,16 @@ schema:
   type: object
   required: [name]
   properties:
-    name:        { type: string }
-    description: { type: string }
-    email:       { type: string, format: email }
+    name:
+      type: string
+      description: The person's name. Its slug is the id, and `@me` resolves against it — so it must agree with `git config user.name`, or an assignee query comes back empty with no error.
+    description:
+      type: string
+      description: Who this person is, in one line.
+    email:
+      type: string
+      format: email
+      description: Their email address.
 order: 140
 list_fields: [name, last-modified, email]
 icon: badge
