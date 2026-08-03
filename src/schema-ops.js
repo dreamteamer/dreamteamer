@@ -33,6 +33,10 @@ function writeGated(ws, store, files, subject, mutate) {
 			throw e;
 		}
 		const rels = files.map((f) => path.relative(ws.root, f));
+		// Schema ops commit UNCONDITIONALLY — `auto-commit` governs RECORD writes only. A source
+		// change is inseparable from the compile that validated it, and `dt commit` scopes itself
+		// to record directories, so a deferred source edit would be publishable by nothing.
+		// Extending `dt commit` to module sources is the natural follow-on; it is not this wave.
 		try {
 			execFileSync('git', ['add', '--', ...rels], { cwd: ws.root });
 			execFileSync('git', ['commit', '--quiet', '-m', subject, '--', ...rels], { cwd: ws.root });
