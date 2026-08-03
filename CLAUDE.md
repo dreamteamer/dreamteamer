@@ -1,8 +1,8 @@
 # dreamteamer — the engine
 
 `@dreamteamer/dreamteamer`: workspace compiler, CLI, store, schema-ops. See `README.md` for
-the contract (sources → `.dreamteamer/` → harness adapters; records are files; one git commit per
-mutation; hard validation before disk).
+the contract (sources → `.dreamteamer/` → harness adapters; records are files; a write lands on
+disk and `dreamteamer commit` publishes it, one commit per repo; hard validation before disk).
 
 ## IMPORTANT — core stays EXTREMELY lean, and that is measured
 
@@ -95,7 +95,8 @@ throwaway `dreamteamer init` workspace (9/9 assertions, `check` clean):
 | create/update/delete a ui-view (`POST/DELETE /schema/ui-views`) | `saveUiView` / `removeUiView` | `ui-views add|set|rm` |
 | order a listing (`GET /items/:c?sort=`) | `temporal.sortRows` | `<c> list --sort [-]<field>` |
 | filter a listing (`?filter=<json>`, saved views) | `filter.matchesFilter` | `<c> list --where <json>` |
-| what changed in the data since a commit | `events.deriveEvents` | `changes [--since <sha>] [--json]` |
+| what changed in the data since a commit | `events.deriveEvents` | `changes [--since <sha\|date>] [--json]` |
+| publish records written to disk | `commit.commitPending` | `commit [<collection> …] [-m <subject>] [--dry-run]` |
 
 Notes worth keeping:
 
