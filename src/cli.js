@@ -24,8 +24,8 @@ commands:
   check       validate every record against the compiled descriptors (report-only)
   status      workspace status: compiled runtime freshness, per-module channel/ref, staleness
   start       serve the clean REST api + the studio at /admin [--port <n>]
-  changes     what changed in data/ + state/ since a commit, as record events
-              [--since <sha>] (default: the last commit) [--json]
+  changes     what changed in every repo that holds records, as record events
+              [--since <sha|YYYY-MM-DD>] (default: the last commit) [--json]
   commit      publish records already written to disk: samples git status over every
               collection's record dirs, one commit PER REPO, subject composed from the
               status letters. [<collection> …] to scope, [-m <subject>], [--dry-run]
