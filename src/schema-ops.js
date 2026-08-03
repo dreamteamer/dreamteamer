@@ -103,6 +103,10 @@ export function addField(ws, store, collection, { name: fieldName, prop, require
 export function updateField(ws, store, collection, fieldName, { prop, required }) {
 	const d = store.descriptor(collection);
 	if (!d.schema?.properties?.[fieldName]) throw new Error(`no field "${fieldName}" on ${collection}`);
+	// upsertField REPLACES the prop, so retyping a field would silently drop its hand-authored
+	// `description`. Changing a field's type is not a decision to undocument it.
+	const kept = d.schema.properties[fieldName].description;
+	if (prop.description === undefined && typeof kept === 'string') prop = { ...prop, description: kept };
 	return upsertField(ws, store, collection, fieldName, prop, required, `update-field ${fieldName}`);
 }
 
@@ -209,6 +213,9 @@ export function fieldDef(store, flags) {
 		}
 	})();
 	if (def !== undefined) p.default = p.type === 'boolean' ? def === 'true' || def === true : p.type === 'number' || p.type === 'integer' ? Number(def) : def;
+	// what the field MEANS, in one line — JSON Schema's own keyword, projected to every surface by
+	// presentation.js. A field whose name doesn't say enough is documented here, not in a comment.
+	if (typeof flags.description === 'string' && flags.description.length > 0) p.description = flags.description;
 	return p;
 }
 

@@ -48,11 +48,13 @@ meta verbs (schema operations — write SOURCES through a compile gate, never th
   collections add --name <name> [--template docs|entity]
   collections rm <name> [--force]             (--force required if it still has records)
   <collection> add-field    --name <field> --type <type> [--options a,b] [--default-value v] [--required true]
+                            [--description "what this field means"]
                             types: string text markdown boolean number integer date datetime
                                    enum tags <collection> — a date-time may be written as
                                    "2026-07-28 12:00" or "2026-07-28T12:00"; the local offset is
                                    stamped on for you (2026-07-28T12:00:00+03:00)
   <collection> update-field --name <field> --type <type> [--options a,b] [--default-value v] [--required true|false]
+                            [--description "…"]   (an existing description survives a retype)
   <collection> remove-field --name <field>
   ui-views add --path </route> --target list --collection collections/<c> --layout <id> [--id <id>] [k.v=…]
   ui-views set <id> <key>=<value> …           (dotted keys: options.sort=-date, nav.label=Recent)
