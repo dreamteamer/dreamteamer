@@ -9,6 +9,9 @@ import { load, dump } from './yaml.js';
 import { slug } from './template.js';
 import {
 	createCollection, removeCollection, addField, updateField, removeField, fieldDef, saveUiView, removeUiView,
+	// was copy-pasted here, and the copy went stale the moment the source layout gained a second
+	// spelling — one implementation, two callers
+	workspaceSystemDir,
 } from './schema-ops.js';
 import { history, historyDiff } from './history.js';
 import { commandsFor, recordResolver } from './record-commands.js';
@@ -186,12 +189,6 @@ export function collectionCommand(ws, collection, verb, args) {
 	}
 }
 
-// workspace-owned system sources live in the workspace module when configured
-// (package.json dreamteamer.workspace-module), else in the root system/
-function workspaceSystemDir(ws, kind) {
-	const wm = ws.pkg.dreamteamer?.['workspace-module'];
-	return wm ? path.join(ws.root, 'modules', wm, 'system', kind) : path.join(ws.root, 'system', kind);
-}
 
 
 // `dreamteamer commands for <collection>[/<id>] [--ids <id>[,…]] [--json]` — which bound

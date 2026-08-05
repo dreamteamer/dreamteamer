@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { findWorkspace } from './workspace.js';
-import { compile, staleness, warnIfStale, discoverModules, CHANNEL_LABEL } from './compile.js';
+import { compile, staleness, warnIfStale, discoverModules, CHANNEL_LABEL, KINDS } from './compile.js';
 import { check } from './check.js';
 import { collectionCommand, emit } from './collections-cli.js';
 import { init, install, installClone, update, listRepos } from './init.js';
@@ -242,7 +242,9 @@ function watchAndRecompile(ws) {
 			try { compile(ws); } catch (e) { console.error(`✖ ${e.message}`); }
 		}, 200);
 	};
-	for (const dir of ['system', 'modules', 'git_modules'].map((d) => path.join(ws.root, d))) {
+	// 'system' plus the flat kinds: the classic layout can put sources at the workspace root under
+	// either spelling, and a watcher that misses one makes --watch quietly stop recompiling.
+	for (const dir of ['system', ...KINDS, 'modules', 'git_modules'].map((d) => path.join(ws.root, d))) {
 		if (fs.existsSync(dir)) fs.watch(dir, { recursive: true }, trigger);
 	}
 }

@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { load, dump } from './yaml.js';
-import { compile } from './compile.js';
+import { compile, kindDir } from './compile.js';
 
 // ---- the gate -------------------------------------------------------------------
 
@@ -49,10 +49,12 @@ function writeGated(ws, store, files, subject, mutate) {
 	});
 }
 
-// the workspace's writable system dir (workspace-module aware)
+/** The workspace's writable source dir for a kind (workspace-module aware). `kindDir` picks the
+ *  layout that module already uses and falls back to flat, so a `collections add` never splits a
+ *  half-moved module across both. */
 export function workspaceSystemDir(ws, kind) {
 	const wm = ws.pkg.dreamteamer?.['workspace-module'];
-	return wm ? path.join(ws.root, 'modules', wm, 'system', kind) : path.join(ws.root, 'system', kind);
+	return kindDir(wm ? path.join(ws.root, 'modules', wm) : ws.root, kind);
 }
 
 // ---- ops ------------------------------------------------------------------------

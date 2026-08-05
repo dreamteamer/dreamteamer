@@ -23,6 +23,27 @@ export { readManifest };
 export const KINDS = ['collections', 'skills', 'agents', 'commands', 'command-bindings', 'ui-views', 'collection-templates'];
 const FOLDER_KINDS = new Set(['skills']); // folder-shape entities: copy the whole record folder
 
+/**
+ * A module's source folder for one kind. The layout is FLAT — `<module>/skills`, beside `data/` —
+ * because KINDS is already the allowlist and the extra `system/` level named nothing the engine
+ * reads. `<module>/system/<kind>` is still accepted so a module can be moved independently of the
+ * engine that reads it (they are separate repos on separate pins).
+ *
+ * Returns the FLAT path when neither exists, so a caller that creates the folder creates it in the
+ * layout we want. `bothLayouts` reports the split case, which compile warns about — a module with
+ * half its sources in each place compiles the flat half and silently drops the rest otherwise.
+ */
+export function kindDir(root, kind) {
+	const flat = path.join(root, kind);
+	if (fs.existsSync(flat)) return flat;
+	const nested = path.join(root, 'system', kind);
+	return fs.existsSync(nested) ? nested : flat;
+}
+
+function bothLayouts(root, kind) {
+	return fs.existsSync(path.join(root, kind)) && fs.existsSync(path.join(root, 'system', kind));
+}
+
 const sha256 = (buf) => 'sha256:' + createHash('sha256').update(buf).digest('hex');
 
 // channel -> the directory the operator knows it by (used in shadow warnings)
@@ -117,18 +138,26 @@ export function compile({ root, pkg }) {
 	const harnesses = config.harnesses ?? ['claude-code'];
 	const rel = (p) => path.relative(root, p);
 
-	// ---- discover sources: channel modules then workspace system/ ------------------
+	// ---- discover sources: channel modules then the workspace's own -----------------
 	const { modules: discovered, shadows } = discoverModules(root, pkg);
 	for (const s of shadows) console.warn(shadowWarning(s));
 	const sources = [...discovered];
-	// workspace-owned sources: either the root system/ (classic layout) or the
-	// designated workspace module under modules/ (config `workspace-module` —
-	// "the workspace is itself a module", made literal). when the key is set the
-	// root system/ is NOT read, so the two layouts can never fork.
+	// workspace-owned sources: either at the root (classic layout) or in the designated
+	// workspace module under modules/ (config `workspace-module` — "the workspace is itself a
+	// module", made literal). when the key is set the root is NOT read, so the two layouts can
+	// never fork — and a stray source folder up there is a loud error rather than a silent drop.
 	if (!config['workspace-module']) {
 		sources.push({ name: pkg.name, root, channel: 'inline' });
-	} else if (fs.existsSync(path.join(root, 'system')) && [...walk(path.join(root, 'system'))].length) {
-		fail(`root system/ contains sources but workspace-module="${config['workspace-module']}" is set — they would be silently ignored.\n  move them into modules/${config['workspace-module']}/system/ (decision 22).`);
+	} else {
+		const strays = [];
+		if (fs.existsSync(path.join(root, 'system')) && [...walk(path.join(root, 'system'))].length) strays.push('system/');
+		for (const kind of KINDS) {
+			const dir = path.join(root, kind);
+			if (fs.existsSync(dir) && [...walk(dir)].length) strays.push(`${kind}/`);
+		}
+		if (strays.length) {
+			fail(`the workspace root contains sources (${strays.join(', ')}) but workspace-module="${config['workspace-module']}" is set — they would be silently ignored.\n  move them into modules/${config['workspace-module']}/ (decision 22).`);
+		}
 	}
 
 	// ---- module package pass: engine ranges + env declarations (M4) ---------------
@@ -199,7 +228,12 @@ export function compile({ root, pkg }) {
 
 	for (const source of sources) {
 		for (const kind of KINDS) {
-			const srcDir = path.join(source.root, 'system', kind);
+			// a half-moved module compiles its flat half and drops the rest — say so rather than
+			// reporting ✔ over a silent partial read (the decision-156 failure shape)
+			if (bothLayouts(source.root, kind)) {
+				console.warn(`⚠ module ${source.name}: both ${kind}/ and system/${kind}/ exist — the flat copy wins and system/${kind}/ is NOT compiled. finish the move.`);
+			}
+			const srcDir = kindDir(source.root, kind);
 			if (!fs.existsSync(srcDir)) continue;
 			counts[kind] ??= 0;
 			for (const name of fs.readdirSync(srcDir).sort()) {
@@ -243,7 +277,7 @@ export function compile({ root, pkg }) {
 	// operator's business, not the compiler's.
 	for (const source of sources) {
 		if (contributed.has(source.name)) continue;
-		console.warn(`⚠ module "${source.name}" (${rel(source.root)}) contributed no recognised sources — check its system/ subfolder names against the known kinds`);
+		console.warn(`⚠ module "${source.name}" (${rel(source.root)}) contributed no recognised sources — its folder names must match a known kind (${KINDS.join(', ')})`);
 	}
 
 	// ---- stage module UI bundles ---------------------------------------------------
@@ -416,6 +450,10 @@ export function compile({ root, pkg }) {
 	}
 
 	// ---- materialize .dreamteamer ------------------------------------------------
+	// mkdir the runtime ROOT unconditionally: with zero entries nothing below created it, so the
+	// manifest write at the end failed ENOENT — `init` followed by `compile` in a fresh workspace
+	// crashed on the one path a new user takes first.
+	fs.mkdirSync(RUNTIME, { recursive: true });
 	fs.rmSync(path.join(RUNTIME, 'system'), { recursive: true, force: true });
 	fs.rmSync(path.join(RUNTIME, 'ui'), { recursive: true, force: true });
 	for (const [rt, e] of entries) {
@@ -487,7 +525,7 @@ export function staleness(root) {
 	const roots = [...(wm ? [] : [root]), ...discoverModules(root, pkg).modules.map((m) => m.root)];
 	for (const r of roots) {
 		for (const kind of KINDS) {
-			const dir = path.join(r, 'system', kind);
+			const dir = kindDir(r, kind);
 			if (!fs.existsSync(dir)) continue;
 			for (const f of walk(dir)) {
 				const relPath = path.relative(root, f);
