@@ -64,14 +64,20 @@ const codeTotal = perFile.reduce((n, f) => n + f.code, 0);
 const commentTotal = perFile.reduce((n, f) => n + f.comment, 0);
 const decisionsTotal = perFile.reduce((n, f) => n + f.decisions, 0);
 
-// The system/ surface is the OTHER half of core's size — and the half that grows by accident,
+// The SOURCE surface is the OTHER half of core's size — and the half that grows by accident,
 // because adding a skill feels free. Prose lines are counted because a skill nobody can afford to
 // load is not a capability.
-const sysDir = join(ROOT, 'system');
-const countIn = (kind, ext) => walk(join(sysDir, kind), (p) => p.endsWith(ext)).length;
-const skillFiles = walk(join(sysDir, 'skills'), (p) => p.endsWith('.md'));
+//
+// Kinds live FLAT at the module root (`skills/`), with `system/<kind>` accepted while modules are
+// still being moved. Resolved per kind rather than as one root, because a partly-moved module has
+// some of each — and a measurement instrument that reads the wrong folder is worse than none:
+// `walk` returns empty for a missing dir, so the prose budget would go silently GREEN at zero.
+const KIND_NAMES = ['collections', 'skills', 'agents', 'commands', 'command-bindings', 'ui-views', 'collection-templates'];
+const kindDir = (kind) => (existsSync(join(ROOT, kind)) ? join(ROOT, kind) : join(ROOT, 'system', kind));
+const countIn = (kind, ext) => walk(kindDir(kind), (p) => p.endsWith(ext)).length;
+const skillFiles = walk(kindDir('skills'), (p) => p.endsWith('.md'));
 const skillProse = skillFiles.reduce((n, f) => n + readFileSync(f, 'utf8').split('\n').length, 0);
-const entryProse = walk(sysDir, (p) => p.endsWith('.md') || p.endsWith('.yaml'))
+const entryProse = KIND_NAMES.flatMap((k) => walk(kindDir(k), (p) => p.endsWith('.md') || p.endsWith('.yaml')))
 	.reduce((n, f) => n + readFileSync(f, 'utf8').split('\n').length, 0);
 
 const now = {
@@ -79,10 +85,12 @@ const now = {
 	surface: {
 		collections: countIn('collections', '.collection.yaml'),
 		'collection-templates': countIn('collection-templates', '.collection-template.yaml'),
-		skills: readdirSync(join(sysDir, 'skills')).filter((n) => !n.startsWith('.')).length,
+		// guarded like the rest: this one used to be a bare readdirSync, so a missing folder threw
+		// instead of reporting, which is a crash in the tool that exists to report
+		skills: existsSync(kindDir('skills')) ? readdirSync(kindDir('skills')).filter((n) => !n.startsWith('.')).length : 0,
 		agents: countIn('agents', '.agent.md'),
 		'ui-views': countIn('ui-views', '.ui-view.yaml'),
-		commands: existsSync(join(sysDir, 'commands')) ? countIn('commands', '.command.md') : 0,
+		commands: countIn('commands', '.command.md'),
 	},
 	prose: { 'skill-lines': skillProse, 'system-lines': entryProse },
 };

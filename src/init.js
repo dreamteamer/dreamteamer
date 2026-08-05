@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { dump } from './yaml.js';
 import { slugOrHash } from './template.js';
-import { discoverModules } from './compile.js';
+import { discoverModules, KINDS } from './compile.js';
 import { Store } from './store.js';
 
 const SKELETON_KINDS = ['collections', 'skills', 'agents', 'commands', 'ui-views'];
@@ -46,14 +46,16 @@ export function init({ flags = {} } = {}) {
 	};
 	fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, '\t') + '\n');
 
-	// folder skeleton — the workspace's own system sources are an inline module
+	// folder skeleton — the workspace's own sources are an inline module, kinds FLAT at its root
 	const wm = pkg.dreamteamer['workspace-module'];
 	const systemRoot = wm ? path.join(root, 'modules', wm) : root;
-	for (const kind of SKELETON_KINDS) fs.mkdirSync(path.join(systemRoot, 'system', kind), { recursive: true });
+	for (const kind of SKELETON_KINDS) fs.mkdirSync(path.join(systemRoot, kind), { recursive: true });
 	if (wm) {
 		const modulePkg = path.join(systemRoot, 'package.json');
 		if (!fs.existsSync(modulePkg)) {
-			fs.writeFileSync(modulePkg, JSON.stringify({ name: wm, private: true, version: '0.0.1', files: ['system'], dreamteamer: {} }, null, '\t') + '\n');
+			// `files` is the npm publish surface: every kind a module can ship, since a new one here
+			// is an engine change that would otherwise silently stop being packaged.
+			fs.writeFileSync(modulePkg, JSON.stringify({ name: wm, private: true, version: '0.0.1', files: [...KINDS], dreamteamer: {} }, null, '\t') + '\n');
 		}
 	}
 	fs.mkdirSync(path.join(root, dataPath), { recursive: true });
