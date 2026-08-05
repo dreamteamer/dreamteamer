@@ -24,6 +24,7 @@
 	"dreamteamer": {},
 	"scripts": {
 		"metrics": "node scripts/metrics.mjs",
-		"metrics:check": "node scripts/metrics.mjs --check"
+		"metrics:check": "node scripts/metrics.mjs --check",
+		"layers": "node scripts/layers.mjs"
 	}
 }

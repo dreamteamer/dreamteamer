@@ -5,11 +5,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import Ajv from 'ajv';
 import addFormats from 'ajv-formats';
-import { load } from './yaml.js';
 import { parseRecord, patternRe, fmtAjvError, unknownFields, walk, EXT } from './records.js';
+import { NO_RUNTIME, loadDescriptors, runtimeDir } from './runtime.js';
 
 export function check({ root }) {
-	const RUNTIME = path.join(root, '.dreamteamer');
+	const RUNTIME = runtimeDir(root);
 	const rel = (p) => path.relative(root, p);
 
 	// useDefaults matches the STORE's validator (review finding 11: the two paths could
@@ -20,16 +20,10 @@ export function check({ root }) {
 	ajv.addFormat('markdown', true); // rich-text marker, not a syntax to validate
 
 	// ---- load compiled descriptors ------------------------------------------------
-	const descDir = path.join(RUNTIME, 'system', 'collections');
-	if (!fs.existsSync(descDir)) {
-		console.error('✖ no compiled runtime — run `dreamteamer compile` first');
+	const descriptors = loadDescriptors(root);
+	if (!descriptors) {
+		console.error(`✖ ${NO_RUNTIME}`);
 		return 2;
-	}
-	const descriptors = new Map();
-	for (const f of fs.readdirSync(descDir).sort()) {
-		if (!f.endsWith('.collection.yaml')) continue;
-		const d = load(fs.readFileSync(path.join(descDir, f), 'utf8'));
-		descriptors.set(d.name, d);
 	}
 
 	// ---- index all records: collection -> Map<id, filePath> ------------------------
@@ -41,11 +35,9 @@ export function check({ root }) {
 	for (const [name, d] of descriptors) {
 		const ids = new Map();
 		index.set(name, ids);
-		// system-stored (knowhow/meta) collections are read from the COMPILED runtime —
+		// runtime-based (knowhow/meta) collections are read from the COMPILED runtime —
 		// their sources may live in any module; .dreamteamer is the merged read surface
-		const dir = d.storage.path.startsWith('system/')
-			? path.join(RUNTIME, d.storage.path)
-			: path.join(root, d.storage.path);
+		const dir = path.join(d.storage.base === 'runtime' ? RUNTIME : root, d.storage.path);
 		// An unreachable data ROOT is a finding, not a skip: a collection whose module clone is
 		// missing otherwise reports zero records and a clean check — a silent success. An EMPTY
 		// directory stays fine (a module with no records yet is normal); only a missing owning
