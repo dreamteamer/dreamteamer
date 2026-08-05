@@ -515,7 +515,13 @@ export function compile({ root, pkg }) {
 
 	// ---- harness adapters (dispatch table lives in harnesses.js) -------------------
 	const prevManifest = readManifest(root);
-	const { outputs: adapterOutputs, summary: harnessSummary } = runHarnessAdapters({ root, entries, harnesses, prevManifest });
+	// What the harness blocks should TELL an agent about where sources live — measured, not assumed.
+	// A workspace still on the nested layout was being handed prose naming the flat one, and that
+	// block is the first thing a session reads.
+	const anyFlat = sources.some((s) => KINDS.some((k) => fs.existsSync(path.join(s.root, k))));
+	const anyNested = sources.some((s) => KINDS.some((k) => fs.existsSync(path.join(s.root, 'system', k))));
+	const sourceLayout = anyFlat && anyNested ? 'mixed' : anyNested ? 'nested' : 'flat';
+	const { outputs: adapterOutputs, summary: harnessSummary } = runHarnessAdapters({ root, entries, harnesses, prevManifest, sourceLayout });
 
 	// ---- provenance manifest ------------------------------------------------------
 	const manifest = {
