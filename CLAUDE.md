@@ -75,10 +75,12 @@ Three things hold this up, and all three exist because removing the wrapper remo
    `"dreamteamer": { "ignore": ["dashboard"] }`. That is genuine per-module variance (`services` has
    `dashboard/`, `agentlog` has `data/`), not a layout knob every module would set identically.
 2. **`kindDir(root, kind)` still reads `system/<kind>` as a fallback**, and a module holding BOTH
-   spellings of one kind gets a warning naming the half that is not compiled. ⚠ **Do not remove the
-   fallback yet** — `recipes` and `dt-hq` are still nested and both pin a pre-flatten engine, so the
-   fallback is what keeps them readable. Dropping it is gated on those two moving, which is gated on
-   their engine pins moving (decision 103: a pin is one party's to move).
+   spellings of one kind gets a warning naming the half that is not compiled. ⚠ **Keep the fallback.**
+   Every workspace here is flat as of 2026-08-05 (hq3, recipes, dt-hq, agentlog), so it looks dead —
+   but recipes modules are **copied, not installed**, with no version discipline, so a module copied
+   out of an older recipes commit arrives nested and must still compile. `dreamteamer-public` also
+   still carries nested sources on a diverged public-release commit. Ten lines that make a
+   pre-flatten copy work are worth more than the ten lines are worth saving.
 3. **`storage.base`, not a path prefix, answers "is this the runtime?"** Flattening inverted every
    `startsWith('system/')` test silently, because a runtime collection's path became a bare kind name.
    `compile` decides `base` once (an exact KINDS match) and everything else reads the field.
