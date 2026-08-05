@@ -28,6 +28,19 @@ export function readManifest(root) {
 }
 
 /**
+ * A kind's folder inside the compiled runtime. Flat (`.dreamteamer/<kind>`) is what compile writes;
+ * `.dreamteamer/system/<kind>` is probed because the runtime on disk may have been compiled by an
+ * engine from before the flatten — a stale runtime is the normal state between a `git pull` and the
+ * next `dt compile`, and answering "no compiled runtime" for one would be a lie.
+ */
+export function runtimeKindDir(root, kind) {
+	const flat = path.join(runtimeDir(root), kind);
+	if (fs.existsSync(flat)) return flat;
+	const nested = path.join(runtimeDir(root), 'system', kind);
+	return fs.existsSync(nested) ? nested : flat;
+}
+
+/**
  * The merged collection descriptors, keyed by name — or `null` when nothing has been compiled.
  *
  * The ONE place descriptors are read, so the one place `storage.base` is guaranteed present. Both
@@ -35,7 +48,7 @@ export function readManifest(root) {
  * printed-and-returned-2, so the difference is kept at the call site rather than in the loader.
  */
 export function loadDescriptors(root) {
-	const dir = path.join(runtimeDir(root), 'system', 'collections');
+	const dir = runtimeKindDir(root, 'collections');
 	if (!fs.existsSync(dir)) return null;
 	const out = new Map();
 	for (const f of fs.readdirSync(dir).sort()) {
@@ -58,6 +71,10 @@ export function loadDescriptors(root) {
  * and is not optional: without it those collections resolve under the workspace root, where — in the
  * `workspace-module` layout — they do not exist. That reads as zero records (a silent success) and
  * lets `writableDescriptor` treat a compiled artifact as writable. Wrong in the expensive direction.
+ *
+ * ⚠ It tests for `system/`, which the flatten removed — that is correct and not a leftover. The only
+ * descriptors reaching it are ones compiled BEFORE `base` existed, and those necessarily still spell
+ * their runtime paths `system/<kind>`. Every descriptor this engine writes carries `base` explicitly.
  */
 function derivedBase(d) {
 	return String(d.storage?.path ?? '').startsWith('system/') ? 'runtime' : 'workspace';

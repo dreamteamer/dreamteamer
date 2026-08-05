@@ -13,7 +13,7 @@ export function deriveEvents(root, descriptors, from, to = 'HEAD') {
 	const byRepo = new Map();
 	for (const d of descriptors.values()) {
 		const p = d.storage?.path;
-		if (!p || p.startsWith('system/')) continue; // system entities aren't item events
+		if (!p || d.storage.base === 'runtime') continue; // runtime entities aren't item events
 		const repo = d.storage.repo ?? '.';
 		if (!byRepo.has(repo)) byRepo.set(repo, []);
 		byRepo.get(repo).push(p);
@@ -98,7 +98,7 @@ export function pathToRecord(descriptors, relPath) {
 	let best = null;
 	for (const d of descriptors.values()) {
 		const base = d.storage?.path;
-		if (!base || base.startsWith('system/')) continue; // system entities aren't item events
+		if (!base || d.storage.base === 'runtime') continue; // runtime entities aren't item events
 		if (!relPath.startsWith(base + '/')) continue;
 		if (best && base.length <= best.storage.path.length) continue;
 		best = d;

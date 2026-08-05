@@ -9,6 +9,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { load, dump } from './yaml.js';
 import { compile, kindDir } from './compile.js';
+import { readManifest, runtimeKindDir } from './runtime.js';
 
 // ---- the gate -------------------------------------------------------------------
 
@@ -67,7 +68,7 @@ export function createCollection(ws, store, { name, template }) {
 
 	let descriptor = { name };
 	if (template) {
-		const tplFile = path.join(ws.root, '.dreamteamer', 'system', 'collection-templates', `${template}.collection-template.yaml`);
+		const tplFile = path.join(runtimeKindDir(ws.root, 'collection-templates'), `${template}.collection-template.yaml`);
 		if (!fs.existsSync(tplFile)) throw new Error(`unknown collection-template "${template}"`);
 		descriptor = { name, ...structuredClone(load(fs.readFileSync(tplFile, 'utf8')).template) };
 	} else {
@@ -178,8 +179,11 @@ export function removeUiView(ws, store, id) {
 // base module for an extends pointer — resolved via manifest.modules across ALL channels
 // (audit open finding 1: the old regex only understood inline modules/… paths)
 function baseModuleRef(root, collection) {
-	const manifest = load(fs.readFileSync(path.join(root, '.dreamteamer', 'manifest.yaml'), 'utf8'));
-	const entry = manifest.entries?.[`system/collections/${collection}.collection.yaml`];
+	const manifest = readManifest(root) ?? {};
+	// entry keys are runtime-relative and lost their `system/` prefix in the flatten; a manifest
+	// written by an older engine still carries it, and this reads whatever is on disk
+	const entry = manifest.entries?.[`collections/${collection}.collection.yaml`]
+		?? manifest.entries?.[`system/collections/${collection}.collection.yaml`];
 	const src = entry?.sources?.[0];
 	const srcPath = typeof src === 'string' ? src : src?.path;
 	if (!srcPath) throw new Error(`cannot determine the base module for "${collection}"`);

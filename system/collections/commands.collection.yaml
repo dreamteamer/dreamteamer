@@ -1,5 +1,5 @@
 name: commands
-storage: { path: system/commands, codec: md, shape: file, suffix: command }
+storage: { path: commands, codec: md, shape: file, suffix: command }
 id: { generate: "{{ name | slug }}" }
 schema:
   type: object

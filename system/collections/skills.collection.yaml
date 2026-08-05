@@ -1,5 +1,5 @@
 name: skills
-storage: { path: system/skills, codec: md, shape: folder, entry: SKILL.md }
+storage: { path: skills, codec: md, shape: folder, entry: SKILL.md }
 id: { generate: "{{ name | slug }}" }
 schema:
   type: object

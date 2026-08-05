@@ -106,7 +106,7 @@ export function run(argv) {
 			case 'compile': {
 				const code = compile(ws);
 				if (!rest.includes('--watch')) process.exit(code);
-				console.log('… watching sources (modules/*/system, git_modules/*/system, system/) — ctrl-c to stop');
+				console.log('… watching sources (modules/*, git_modules/*, and the workspace root) — ctrl-c to stop');
 				watchAndRecompile(ws);
 				return;
 			}
