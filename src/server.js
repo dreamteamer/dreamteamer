@@ -253,7 +253,7 @@ function idParam(req) {
 // list-level "last modified" (operator ask 2026-07-27): ONE `git log` per collection listing —
 // newest-first, so the first sighting of a path is its most recent touching commit — rather than
 // one process spawn per record. `dir` outside the repo (or the repo having no history for it,
-// e.g. a brand-new untracked file, or a `system/`-storage collection whose records live in the
+// e.g. a brand-new untracked file, or a runtime-based collection whose records live in the
 // gitignored `.dreamteamer/` runtime) degrades to an empty map, i.e. every row gets `null`.
 function gitModifiedMap(root, dir) {
 	const map = new Map();

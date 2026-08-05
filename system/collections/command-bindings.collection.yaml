@@ -1,6 +1,6 @@
 name: command-bindings
 storage:
-  path: system/command-bindings
+  path: command-bindings
   codec: yaml
   shape: file
   suffix: command-binding

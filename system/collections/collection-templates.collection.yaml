@@ -1,5 +1,5 @@
 name: collection-templates
-storage: { path: system/collection-templates, codec: yaml, shape: file, suffix: collection-template }
+storage: { path: collection-templates, codec: yaml, shape: file, suffix: collection-template }
 id: { generate: "{{ name | slug }}" }
 schema:
   type: object

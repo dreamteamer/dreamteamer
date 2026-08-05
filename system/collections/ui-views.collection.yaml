@@ -1,5 +1,5 @@
 name: ui-views
-storage: { path: system/ui-views, codec: yaml, shape: file, suffix: ui-view }
+storage: { path: ui-views, codec: yaml, shape: file, suffix: ui-view }
 id: { generate: "{{ path | slug }}" }
 schema:
   type: object

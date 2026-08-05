@@ -40,7 +40,7 @@ export class Store {
 	writableDescriptor(collection) {
 		const d = this.descriptor(collection);
 		if (d.storage.base === 'runtime') {
-			throw new Error(`"${collection}" records are system sources — edit the file under the owning module (or system/) and run \`dreamteamer compile\``);
+			throw new Error(`"${collection}" records are compiled sources — edit the file under the owning module (modules/<module>/${d.storage.path}/) and run \`dreamteamer compile\``);
 		}
 		return d;
 	}

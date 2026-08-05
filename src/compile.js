@@ -210,7 +210,7 @@ export function compile({ root, pkg }) {
 
 	function addEntry(runtimePath, srcPath) {
 		if (entries.has(runtimePath)) {
-			const [, kind, entity] = /^system\/([^/]+)\/([^/]+)/.exec(runtimePath) ?? [];
+			const [, kind, entity] = /^([^/]+)\/([^/]+)/.exec(runtimePath) ?? [];
 			const entityId = (entity ?? '').replace(/\.[^.]+\.(yaml|md|json)$/, '');
 			const prev = entries.get(runtimePath).sources[0].path;
 			fail(`name collision on ${kind?.replace(/s$/, '') ?? 'entity'} "${entityId}"
@@ -252,18 +252,18 @@ export function compile({ root, pkg }) {
 					contributed.add(source.name);
 				} else if (FOLDER_KINDS.has(kind) && isDir) {
 					for (const file of walk(srcPath)) {
-						addEntry(path.join('system', kind, name, path.relative(srcPath, file)), file);
+						addEntry(path.join(kind, name, path.relative(srcPath, file)), file);
 						contributed.add(source.name);
 					}
 					counts[kind]++;
 				} else if (!isDir) {
-					addEntry(path.join('system', kind, name), srcPath);
+					addEntry(path.join(kind, name), srcPath);
 					contributed.add(source.name);
 					counts[kind]++;
 				} else {
 					// nested dirs for file-shape kinds (e.g. date-partitioned) — recurse
 					for (const file of walk(srcPath)) {
-						addEntry(path.join('system', kind, path.relative(srcDir, file)), file);
+						addEntry(path.join(kind, path.relative(srcDir, file)), file);
 						contributed.add(source.name);
 						counts[kind]++;
 					}
@@ -311,7 +311,7 @@ export function compile({ root, pkg }) {
 	// means "this descriptor overlays another module's collection of the same name".)
 	const templateDocs = new Map();     // id -> { template, src }
 	for (const [rt, entry] of entries) {
-		const m = /^system\/collection-templates\/(.+)\.collection-template\.yaml$/.exec(rt);
+		const m = /^collection-templates\/(.+)\.collection-template\.yaml$/.exec(rt);
 		if (!m) continue;
 		const doc = load(entry.bytes.toString('utf8'));
 		templateDocs.set(m[1], { template: doc.template ?? {}, src: entry.sources[0] });
@@ -357,12 +357,18 @@ export function compile({ root, pkg }) {
 		delete merged.extends;
 		// ---- resolved storage: the path, the owning repo, and which root it hangs off ---
 		// The three facts the record layer needs stated as DATA, so it never has to re-derive
-		// them from the shape of a path (see runtime.js). `storage.path` stays workspace-root
-		// relative; `storage.repo` is read by the git layer alone; `storage.base` says which
-		// root — this is the only place that knows `system/` means "compiled, not writable".
+		// them from the shape of a path (see runtime.js). `storage.path` stays root-relative;
+		// `storage.repo` is read by the git layer alone; `storage.base` says WHICH root — and
+		// this is the only place that decides it.
+		//
+		// A runtime-based collection's storage path IS a kind folder (`skills`), so an exact KINDS
+		// match is the test. It used to be a `system/` prefix check, which the flatten silently
+		// inverted: every one of the seven would have compiled as `base: workspace`, resolved under
+		// the workspace root, read as zero records, and become writable through the store.
 		merged.storage ??= {};
 		const owned = dataOwners.get(storageOwnerOf(group, base));
-		const isSystem = String(merged.storage.path ?? '').startsWith('system/');
+		const storagePath = String(merged.storage.path ?? '');
+		const isSystem = KINDS.includes(storagePath) || KINDS.includes(storagePath.replace(/^system\//, ''));
 		merged.storage.base = isSystem ? 'runtime' : 'workspace';
 		if (owned && !isSystem) {
 			const modRel = rel(owned.root);
@@ -379,16 +385,16 @@ export function compile({ root, pkg }) {
 		} catch (e) {
 			fail(`collection "${name}": schema is not a valid JSON Schema — ${e.message} (${group.map((g) => g.src.path).join(', ')})`);
 		}
-		const rt = path.join('system', 'collections', `${name}.collection.yaml`);
+		const rt = path.join('collections', `${name}.collection.yaml`);
 		entries.set(rt, { sources: [...group.map((g) => g.src), ...templateSources], bytes: Buffer.from(dump(merged)) });
 		counts.collections++;
 		if (extenders.length) mergedCount++;
 	}
 
 	// ---- unresolved references are compile errors (an agent's declared skills)
-	const skillIds = new Set([...entries.keys()].filter((k) => k.startsWith('system/skills/')).map((k) => k.split('/')[2]));
+	const skillIds = new Set([...entries.keys()].filter((k) => k.startsWith('skills/')).map((k) => k.split('/')[1]));
 	for (const [rt, e] of entries) {
-		if (rt.startsWith('system/agents/')) {
+		if (rt.startsWith('agents/')) {
 			const fm = /^---\r?\n([\s\S]*?)\r?\n---/.exec(e.bytes.toString('utf8'));
 			const doc = fm ? load(fm[1]) : {};
 			for (const sk of doc.skills ?? []) {
@@ -419,7 +425,7 @@ export function compile({ root, pkg }) {
 		} catch { /* root-workspace source without package.json */ }
 	}
 	for (const [rt, e] of entries) {
-		if (!rt.startsWith('system/ui-views/')) continue;
+		if (!rt.startsWith('ui-views/')) continue;
 		const view = load(e.bytes.toString('utf8'));
 		if (view?.target === 'list' && view?.layout && !registeredLayouts.has(view.layout)) {
 			fail(`${rt}: layout "${view.layout}" is not registered (registered: ${[...registeredLayouts].sort().join(', ')}).\n  a module registers layouts in its studio app.js AND declares them in package.json under dreamteamer.studio.layouts.`);
@@ -434,9 +440,9 @@ export function compile({ root, pkg }) {
 	// a binding joins a command to a collection under can-enter/can-exit predicates;
 	// dangling refs and typo'd operators fail HERE, not silently at evaluation (the same
 	// guarantee ui-view filters get — validators are load-bearing, they gate what runs).
-	const commandIds = new Set([...entries.keys()].filter((k) => k.startsWith('system/commands/')).map((k) => path.basename(k).replace(/\.command\.md$/, '')));
+	const commandIds = new Set([...entries.keys()].filter((k) => k.startsWith('commands/')).map((k) => path.basename(k).replace(/\.command\.md$/, '')));
 	for (const [rt, e] of entries) {
-		if (!rt.startsWith('system/command-bindings/')) continue;
+		if (!rt.startsWith('command-bindings/')) continue;
 		const b = load(e.bytes.toString('utf8'));
 		const cmd = String(b?.command ?? '').replace(/^commands\//, '');
 		if (!cmd || !commandIds.has(cmd)) fail(`${rt}: references unknown command "${b?.command ?? ''}"`);
@@ -454,6 +460,10 @@ export function compile({ root, pkg }) {
 	// manifest write at the end failed ENOENT — `init` followed by `compile` in a fresh workspace
 	// crashed on the one path a new user takes first.
 	fs.mkdirSync(RUNTIME, { recursive: true });
+	// clear each kind's folder, plus `system/` — a runtime compiled by a pre-flatten engine has the
+	// whole tree under there, and leaving it would keep stale descriptors on disk beside the fresh
+	// ones. Never `rm -rf` the runtime root itself: it also holds the write lock.
+	for (const kind of KINDS) fs.rmSync(path.join(RUNTIME, kind), { recursive: true, force: true });
 	fs.rmSync(path.join(RUNTIME, 'system'), { recursive: true, force: true });
 	fs.rmSync(path.join(RUNTIME, 'ui'), { recursive: true, force: true });
 	for (const [rt, e] of entries) {

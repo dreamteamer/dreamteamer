@@ -15,7 +15,10 @@ function scopeByRepo(descriptors, only) {
 	const byRepo = new Map();
 	for (const d of descriptors.values()) {
 		const p = d.storage?.path;
-		if (!p || p.startsWith('system/')) continue;
+		// `storage.base`, not a `system/` prefix: after the flatten a runtime collection's path is a
+		// bare kind name (`skills`), so the old test admitted all seven — and this list becomes a
+		// `git add` pathspec, which fails outright on a path the workspace root does not have.
+		if (!p || d.storage.base === 'runtime') continue;
 		if (only.length && !only.includes(d.name)) continue;
 		const repo = d.storage.repo ?? '.';
 		if (!byRepo.has(repo)) byRepo.set(repo, []);
