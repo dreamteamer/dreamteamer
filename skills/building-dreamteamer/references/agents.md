@@ -1,6 +1,6 @@
 # agents
 
-`modules/<module>/system/agents/<name>.agent.md`. The filename MUST equal the frontmatter `name`.
+`modules/<module>/agents/<name>.agent.md`. The filename MUST equal the frontmatter `name`.
 Compile copies the file to `.claude/agents/<name>.md` with one real transform — the `skills:`
 frontmatter key becomes an in-body load instruction — so the record *is* the subagent definition.
 
@@ -30,7 +30,7 @@ Direct instructions: what to read, what to decide, in what order, what it hands 
 — a few sentences to a short paragraph. **The procedure lives in the referenced skills**, never
 duplicated here.
 
-Reference: the core module's `system/agents/dreamteamer.agent.md` — the only agent core ships, and the
+Reference: the core module's `agents/dreamteamer.agent.md` — the only agent core ships, and the
 shape to copy: short trigger description, tight tool list, 1–2 skill refs, a one-paragraph body.
 
 ## common mistakes

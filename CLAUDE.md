@@ -58,6 +58,36 @@ and both are **digests with `references/`**, so the always-loaded file stays sma
 fetched on demand. Adding a third top-level skill to core is almost certainly wrong; add a reference
 to an existing digest instead.
 
+## IMPORTANT — sources are FLAT at a module root, and unknown folders are a compile ERROR
+
+A module's sources live at its root — `modules/crm/skills/`, beside `data/` and `package.json` — and
+the compiled runtime matches: `.dreamteamer/<kind>/`. There is no `system/` level. **KINDS was always
+the allowlist**; the extra directory named nothing the engine read, and it is also the shape
+coding-agent plugin repos use.
+
+Three things hold this up, and all three exist because removing the wrapper removed a free guarantee:
+
+1. **`compile` enumerates each module root and FAILS on a folder that is not a known kind.** Inside
+   `system/` there was no legitimate non-kind folder, so "not a kind" could mean "ignore it". At a
+   module root it cannot. This is the fix for decision 156 — a kind the engine stopped knowing
+   (`workflows`) sat in a module for two days while compile said ✔. Generic package folders are
+   allowed by `NON_SOURCE_DIRS`; anything else the module declares as
+   `"dreamteamer": { "ignore": ["dashboard"] }`. That is genuine per-module variance (`services` has
+   `dashboard/`, `agentlog` has `data/`), not a layout knob every module would set identically.
+2. **`kindDir(root, kind)` still reads `system/<kind>` as a fallback**, and a module holding BOTH
+   spellings of one kind gets a warning naming the half that is not compiled. ⚠ **Do not remove the
+   fallback yet** — `recipes` and `dt-hq` are still nested and both pin a pre-flatten engine, so the
+   fallback is what keeps them readable. Dropping it is gated on those two moving, which is gated on
+   their engine pins moving (decision 103: a pin is one party's to move).
+3. **`storage.base`, not a path prefix, answers "is this the runtime?"** Flattening inverted every
+   `startsWith('system/')` test silently, because a runtime collection's path became a bare kind name.
+   `compile` decides `base` once (an exact KINDS match) and everything else reads the field.
+
+⚠ **A pre-flatten engine cannot read a runtime compiled by this one** — it looks for
+`.dreamteamer/system/collections` and reports "no compiled runtime", which is accurate and fixed by
+`dt compile`. Only reachable when two engines share a workspace (the self-shadowing dev-clone case).
+The VS Code extension is immune from 0.6.33 on: it probes both layouts and reads `storage.base`.
+
 ## IMPORTANT — the record/workspace split is enforced, and it is NOT two packages
 
 The engine has two halves and the edge between them goes ONE way. `npm run layers` prints the graph

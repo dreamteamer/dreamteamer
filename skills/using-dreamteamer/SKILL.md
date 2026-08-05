@@ -14,7 +14,7 @@ from sources into a runtime the harness reads.
 
 load this **first, every session** in this repo. reload mid-session on any of these symptoms: you're
 about to guess a collection's fields; you can't tell whether the file to edit lives under
-`modules/*/system/` or `.dreamteamer/`; you wrote something and the harness didn't notice; you're
+`modules/*/<kind>/` or `.dreamteamer/`; you wrote something and the harness didn't notice; you're
 unsure which skill owns the job in front of you.
 
 **this file is the MAP, not the procedure.** Detail lives in two references beside it, loaded on
@@ -29,9 +29,9 @@ demand:
 
 | concern | where | rule |
 |---|---|---|
-| schemas (read) | `.dreamteamer/system/collections/*.collection.yaml` | the single source of truth for what exists and its shape. **never edit under `.dreamteamer/`** — generated and gitignored |
+| schemas (read) | `.dreamteamer/collections/*.collection.yaml` | the single source of truth for what exists and its shape. **never edit under `.dreamteamer/`** — generated and gitignored |
 | provenance | `.dreamteamer/manifest.yaml` | which module shipped which entry |
-| sources (write) | `modules/<module>/system/` — **including the workspace's own**, the `dreamteamer.workspace-module` named in `package.json` | a root `system/` is a compile ERROR. same-name collisions across modules are compile errors too. after ANY source change: `npm run compile` |
+| sources (write) | `modules/<module>/` — **including the workspace's own**, the `dreamteamer.workspace-module` named in `package.json` | a source folder at the workspace ROOT is a compile ERROR. same-name collisions across modules are compile errors too. after ANY source change: `npm run compile` |
 | content records | `data/<collection>/` | per each descriptor's `storage.path` |
 | operational records | `state/<collection>/` | whatever a module declares there; core ships none |
 
@@ -58,7 +58,7 @@ when you're not sure the runtime is fresh.
 | the request is about | load |
 |---|---|
 | a record — read, create, update, rename, delete | `references/records.md` |
-| authoring anything under a module's `system/` — a collection, field, skill, command, agent, ui-view, or component code | `building-dreamteamer` |
+| authoring anything under a module's source folders — a collection, field, skill, command, agent, ui-view, or component code | `building-dreamteamer` |
 | "what changed while I was away" | `references/git-events.md` |
 | the workspace lacks the capability entirely | `building-dreamteamer` → `references/before-you-build.md` |
 

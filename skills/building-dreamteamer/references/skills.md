@@ -1,6 +1,6 @@
 # skills
 
-A folder-shape record: `modules/<module>/system/skills/<name>/SKILL.md`. The folder name IS the id,
+A folder-shape record: `modules/<module>/skills/<name>/SKILL.md`. The folder name IS the id,
 and extra files (references, scripts, assets) travel with the folder.
 
 ## create — and don't

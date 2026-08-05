@@ -1,6 +1,6 @@
 # ui-views
 
-`modules/<module>/system/ui-views/<name>.ui-view.yaml`. **A ui-view is a binding, not code** — a
+`modules/<module>/ui-views/<name>.ui-view.yaml`. **A ui-view is a binding, not code** — a
 route plus the id of an already-registered layout, plus how to shape the data. Nothing to build.
 
 The surface reads compiled ui-view records at boot: `nav` becomes a sidebar entry, `path` becomes a
