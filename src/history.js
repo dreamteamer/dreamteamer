@@ -7,10 +7,9 @@
 // implementation here, three callers (CLI, server, extension).
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
-import { readManifest } from './compile.js';
+import { RUNTIME_DIR, readManifest } from './runtime.js';
 
 const FORMAT = '%H%x00%an%x00%aI%x00%s';
-const RUNTIME_DIR = '.dreamteamer';
 
 /**
  * The TRACKED file(s) behind a record — what git actually has commits for.

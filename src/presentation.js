@@ -57,7 +57,7 @@ function collectionRow(d) {
 	if (typeof d.icon === 'string') meta.icon = d.icon;
 	if (typeof d.group === 'string') meta.group = d.group;
 	if (typeof d.description === 'string' && d.description.length > 0) meta.description = d.description;
-	return { collection: d.name, meta, system: (d.storage?.path ?? '').startsWith('system/') };
+	return { collection: d.name, meta, system: d.storage?.base === 'runtime' };
 }
 
 function referenceTargetOf(prop) {

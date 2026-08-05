@@ -58,6 +58,42 @@ and both are **digests with `references/`**, so the always-loaded file stays sma
 fetched on demand. Adding a third top-level skill to core is almost certainly wrong; add a reference
 to an existing digest instead.
 
+## IMPORTANT — the record/workspace split is enforced, and it is NOT two packages
+
+The engine has two halves and the edge between them goes ONE way. `npm run layers` prints the graph
+and exits 1 on a violation — including on a file under `src/` that is not assigned to a layer, so
+adding one costs the same sentence of thought as adding a core collection.
+
+| layer | modules | rule |
+|---|---|---|
+| **record** | store · records · check · temporal · filter · field-values · commit · events · history · template · workspace · yaml | schema-validated records over git. **Must not know that modules, channels, `extends` or skills exist.** |
+| **boundary** | runtime | the compiled `.dreamteamer/` artifact — descriptors + manifest. The whole interface. |
+| **workspace** | compile · harnesses · schema-ops · init · record-commands · semver | the compiler and the agent-harness surface. May import record. |
+| **surface** | cli · collections-cli · server · presentation | entry points; span both halves by definition. |
+
+The seam was always real — the store has only ever read compiled descriptors, never a source. What
+it lacked was a direction: `store.js` and `history.js` imported `compile.js` to reach a manifest,
+which is a *file-format* dependency wearing a *module-system* import. Both now go through
+`runtime.js`. Two consequences to keep:
+
+- **`storage.base` (`workspace` | `runtime`) is written by compile and read by everything else.**
+  It replaced `d.storage.path.startsWith('system/')`, which was re-derived in five places. compile
+  is now the only module that knows `system/` means "compiled, therefore not writable". `runtime.js`
+  keeps the derivation as compat for a runtime compiled by an older engine — do not delete it: in the
+  `workspace-module` layout those collections otherwise resolve under the workspace root, read as
+  **zero records**, and let the store treat a compiled artifact as writable.
+- **`sourceRoots()` comes off the manifest, not from re-running discovery.** The manifest records what
+  was actually *compiled*, so a shadowed copy is already excluded — same set, and no import.
+
+⚠ **This is deliberately not a package split, and proposing one needs a consumer, not an argument.**
+Nothing wants records-over-git *without* modules and harnesses; recipes is copy-not-install
+(decision 129). Two packages would double the pinning surface, break `engine.ts`'s `engineRoot()`
+probe (it tests `store.js` and `presentation.js` in one directory — different halves), and split a
+hand-maintained non-tolerant import list across two versions. Decision 139 is what that costs. The
+budget argument is the stronger one: one engine gives one ceiling and a hard "no"; two gives every
+borderline addition a home — *"that's the DB's job"* — and the pressure to make a **database**
+general is unbounded in a way the pressure on a workspace compiler is not.
+
 ## IMPORTANT — engine/UI split
 
 **dreamteamer is the ENGINE. [dreamteamer-vscode](https://github.com/dreamteamer/dreamteamer-vscode)

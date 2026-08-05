@@ -13,6 +13,12 @@ import { unknownOperators } from './filter.js';
 // call at run time, same pattern as store.js ↔ compile.js.
 import { runHarnessAdapters } from './harnesses.js';
 import { satisfies } from './semver.js';
+import { readManifest, runtimeDir } from './runtime.js';
+
+// re-exported, not moved: `readManifest` is in the VS Code extension's hand-maintained engine
+// contract as `compileMod.readManifest` (engine.ts), and a removed export is the same cross-repo
+// break as a removed file — decision 139.
+export { readManifest };
 
 export const KINDS = ['collections', 'skills', 'agents', 'commands', 'command-bindings', 'ui-views', 'collection-templates'];
 const FOLDER_KINDS = new Set(['skills']); // folder-shape entities: copy the whole record folder
@@ -106,7 +112,7 @@ export function shadowWarning({ name, winner, loser }) {
 }
 
 export function compile({ root, pkg }) {
-	const RUNTIME = path.join(root, '.dreamteamer');
+	const RUNTIME = runtimeDir(root);
 	const config = pkg.dreamteamer ?? {};
 	const harnesses = config.harnesses ?? ['claude-code'];
 	const rel = (p) => path.relative(root, p);
@@ -315,13 +321,15 @@ export function compile({ root, pkg }) {
 			merged = mergeDescriptor(merged, ext.doc);
 		}
 		delete merged.extends;
-		// ---- module-owned data: rewrite the path, derive the repo ----------------------
-		// The compiled runtime keeps today's shape — a workspace-root-relative path — so
-		// store.js, check.js, schema-ops.js, history.js and field-values.js are untouched.
-		// `storage.repo` is read by the git layer alone.
+		// ---- resolved storage: the path, the owning repo, and which root it hangs off ---
+		// The three facts the record layer needs stated as DATA, so it never has to re-derive
+		// them from the shape of a path (see runtime.js). `storage.path` stays workspace-root
+		// relative; `storage.repo` is read by the git layer alone; `storage.base` says which
+		// root — this is the only place that knows `system/` means "compiled, not writable".
 		merged.storage ??= {};
 		const owned = dataOwners.get(storageOwnerOf(group, base));
 		const isSystem = String(merged.storage.path ?? '').startsWith('system/');
+		merged.storage.base = isSystem ? 'runtime' : 'workspace';
 		if (owned && !isSystem) {
 			const modRel = rel(owned.root);
 			merged.storage.path = modRel ? `${modRel}/${merged.storage.path}` : merged.storage.path;
@@ -452,10 +460,6 @@ function engineId() {
 // bare version of the RUNNING engine (dev clone or installed copy — whichever loaded)
 export function engineVersion() {
 	return engineId().split('@').pop();
-}
-
-export function readManifest(root) {
-	try { return load(fs.readFileSync(path.join(root, '.dreamteamer', 'manifest.yaml'), 'utf8')); } catch { return null; }
 }
 
 // staleness: does any manifest entry's SOURCE differ from what was compiled, or is a

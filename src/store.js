@@ -7,16 +7,15 @@ import fs from 'node:fs';
 import path from 'node:path';
 import Ajv from 'ajv';
 import addFormats from 'ajv-formats';
-import { load, dump } from './yaml.js';
+import { dump } from './yaml.js';
 import { generateId } from './template.js';
 import { parseRecord, parseRecordText, patternRe, fmtAjvError, unknownFields, walk, EXT, assertSafeId } from './records.js';
 import { normalizeRecord } from './temporal.js';
-import { discoverModules } from './compile.js';
-
+import { NO_RUNTIME, loadDescriptors, runtimeDir, sourceRoots as compiledSourceRoots } from './runtime.js';
 export class Store {
 	constructor({ root, pkg }) {
 		this.root = root;
-		this.runtime = path.join(root, '.dreamteamer');
+		this.runtime = runtimeDir(root);
 		// Committing is POLICY, not durability — a write is on disk either way. Default OFF:
 		// `dt commit` is what publishes. `"auto-commit": true` restores the old behaviour of one
 		// commit per mutation.
@@ -24,15 +23,10 @@ export class Store {
 		this.ajv = new Ajv({ allErrors: true, strict: false, useDefaults: true, coerceTypes: 'array' });
 		addFormats(this.ajv);
 		this.ajv.addFormat('markdown', true);
-		this.descriptors = new Map();
 		this._idsCache = new Map(); // collection -> { key, ids } (see ids())
-		const descDir = path.join(this.runtime, 'system', 'collections');
-		if (!fs.existsSync(descDir)) throw new Error('no compiled runtime — run `dreamteamer compile` first');
-		for (const f of fs.readdirSync(descDir).sort()) {
-			if (!f.endsWith('.collection.yaml')) continue;
-			const d = load(fs.readFileSync(path.join(descDir, f), 'utf8'));
-			this.descriptors.set(d.name, d);
-		}
+		const descriptors = loadDescriptors(root);
+		if (!descriptors) throw new Error(NO_RUNTIME);
+		this.descriptors = descriptors;
 	}
 
 	descriptor(collection) {
@@ -41,20 +35,18 @@ export class Store {
 		return d;
 	}
 
-	// data/state collections are writable through the store; system-stored
-	// (knowhow/meta) entities are edited as SOURCES + compile — refuse politely.
+	// data/state collections are writable through the store; runtime-based (knowhow/meta)
+	// entities are edited as SOURCES + compile — refuse politely.
 	writableDescriptor(collection) {
 		const d = this.descriptor(collection);
-		if (d.storage.path.startsWith('system/')) {
+		if (d.storage.base === 'runtime') {
 			throw new Error(`"${collection}" records are system sources — edit the file under the owning module (or system/) and run \`dreamteamer compile\``);
 		}
 		return d;
 	}
 
 	dir(d) {
-		return d.storage.path.startsWith('system/')
-			? path.join(this.runtime, d.storage.path)
-			: path.join(this.root, d.storage.path);
+		return path.join(d.storage.base === 'runtime' ? this.runtime : this.root, d.storage.path);
 	}
 
 	filePath(d, id) {
@@ -293,27 +285,21 @@ export class Store {
 	}
 
 	*recordFiles() {
-		for (const [name, d] of this.descriptors) {
-			// for system-stored collections, inbound-ref surgery targets SOURCES, not the runtime
-			if (d.storage.path.startsWith('system/')) {
-				for (const srcRoot of this.sourceRoots()) {
-					const dir = path.join(srcRoot, d.storage.path);
-					if (fs.existsSync(dir)) yield* walk(dir);
-				}
-			} else {
-				const dir = path.join(this.root, d.storage.path);
+		for (const d of this.descriptors.values()) {
+			// for runtime-based collections, inbound-ref surgery targets SOURCES, not the runtime
+			const roots = d.storage.base === 'runtime' ? this.sourceRoots() : [this.root];
+			for (const srcRoot of roots) {
+				const dir = path.join(srcRoot, d.storage.path);
 				if (fs.existsSync(dir)) yield* walk(dir);
 			}
 		}
 	}
 
-	// all three channels via THE discovery (review finding 10: this layer never learned
-	// decision 24 — rename silently skipped git_modules sources). npm copies are foreign
-	// installed artifacts, never rewrite targets; inline + git clones are ours.
+	// every compiled module (review finding 10: this layer never learned decision 24 — rename
+	// silently skipped git_modules sources), read off the manifest rather than by re-discovering
+	// modules, which is what used to make the store import the compiler. See runtime.js.
 	sourceRoots() {
-		let pkg = {};
-		try { pkg = JSON.parse(fs.readFileSync(path.join(this.root, 'package.json'), 'utf8')); } catch { /* no pkg */ }
-		return [this.root, ...discoverModules(this.root, pkg).modules.filter((m) => m.channel !== 'npm').map((m) => m.root)];
+		return compiledSourceRoots(this.root);
 	}
 
 	findInboundRefs(ref) {
