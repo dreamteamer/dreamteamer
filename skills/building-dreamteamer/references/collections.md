@@ -1,6 +1,6 @@
 # collections
 
-One descriptor file: `modules/<module>/system/collections/<name>.collection.yaml`. The descriptor
+One descriptor file: `modules/<module>/collections/<name>.collection.yaml`. The descriptor
 **describes reality** — you do not edit records to fit an inferred schema.
 
 ## the meta verbs (real, absent from `dt help`)
@@ -12,7 +12,7 @@ One descriptor file: `modules/<module>/system/collections/<name>.collection.yaml
 | add a field | `dt <collection> add-field --name urgent --type boolean --default-value false` |
 | change / drop a field | `dt <collection> update-field …` · `remove-field --name <f>` |
 | delete a collection | `dt collections rm <name>` |
-| what templates exist | `.dreamteamer/system/collection-templates/` |
+| what templates exist | `.dreamteamer/collection-templates/` |
 
 `--type` is sugar over JSON Schema: `string`/`text`, `markdown`, `boolean`, `number`, `integer`,
 `date`, `datetime`, `enum` (+`--options "a,b,c"`), `tags`, `reference` (+`--target <collection>`),

@@ -44,6 +44,33 @@ function bothLayouts(root, kind) {
 	return fs.existsSync(path.join(root, kind)) && fs.existsSync(path.join(root, 'system', kind));
 }
 
+/**
+ * Folders a module may hold that are not sources. With kinds at the module root, "not a kind" can no
+ * longer mean "ignore it" — that is precisely how a kind the engine stopped knowing (`workflows`,
+ * removed 2026-07-31) sat in a module for two days while compile reported ✔ and a README described a
+ * pipeline nothing read (decision 156).
+ *
+ * So the root is ENUMERATED and an unrecognised folder is an ERROR. This list covers what a package
+ * generically contains; anything else the module declares in its own package.json
+ * (`dreamteamer.ignore`). That is real per-module variance — `services` has `dashboard/`, `agentlog`
+ * has `data/` — not a layout knob every module would set identically.
+ */
+const NON_SOURCE_DIRS = new Set([
+	'node_modules', 'data', 'state', 'media', 'bin', 'src', 'lib', 'scripts', 'studio',
+	'docs', 'dist', 'build', 'test', 'tests', 'coverage', 'system', // 'system': the pre-flatten layout
+]);
+
+/** Unrecognised source-root folders in a module, or [] for the workspace root (a vault legitimately
+ *  holds arbitrary directories — this gate is about PACKAGES, whose folders all mean something). */
+function strayKindDirs(source, wsRoot, declaredIgnore) {
+	if (path.resolve(source.root) === path.resolve(wsRoot)) return [];
+	const allow = new Set([...KINDS, ...NON_SOURCE_DIRS, ...declaredIgnore]);
+	return fs.readdirSync(source.root, { withFileTypes: true })
+		.filter((e) => e.isDirectory() && !e.name.startsWith('.') && !allow.has(e.name))
+		.map((e) => e.name)
+		.sort();
+}
+
 const sha256 = (buf) => 'sha256:' + createHash('sha256').update(buf).digest('hex');
 
 // channel -> the directory the operator knows it by (used in shadow warnings)
@@ -165,9 +192,15 @@ export function compile({ root, pkg }) {
 	// brick a solo operator's workspace at compile time.
 	const engineVer = engineVersion();
 	const declaredEnv = new Map(); // env key -> [module names]
+	const moduleIgnores = new Map(); // module name -> non-source folders it declares (strayKindDirs)
 	for (const source of sources) {
 		let mpkg;
 		try { mpkg = JSON.parse(fs.readFileSync(path.join(source.root, 'package.json'), 'utf8')); } catch { continue; }
+		const ignore = mpkg.dreamteamer?.ignore;
+		if (ignore !== undefined) {
+			if (!Array.isArray(ignore)) fail(`module "${source.name}": "ignore" must be a list of folder names (got ${JSON.stringify(ignore)})`);
+			moduleIgnores.set(source.name, ignore.map(String));
+		}
 		const range = mpkg.dreamteamer?.engine;
 		if (range) {
 			const ok = satisfies(engineVer, range);
@@ -227,6 +260,14 @@ export function compile({ root, pkg }) {
 	const contributed = new Set();
 
 	for (const source of sources) {
+		// an unrecognised folder at a module root is a typo'd kind or a kind the engine dropped —
+		// both of which used to compile ✔ and contribute nothing (see NON_SOURCE_DIRS)
+		const strays = strayKindDirs(source, root, moduleIgnores.get(source.name) ?? []);
+		if (strays.length) {
+			fail(`module "${source.name}" (${rel(source.root)}) has folder(s) that are not a known kind: ${strays.join(', ')}
+  known kinds: ${KINDS.join(', ')}
+  if these are not sources, declare them: "dreamteamer": { "ignore": [${strays.map((s) => `"${s}"`).join(', ')}] } in ${rel(path.join(source.root, 'package.json'))}`);
+		}
 		for (const kind of KINDS) {
 			// a half-moved module compiles its flat half and drops the rest — say so rather than
 			// reporting ✔ over a silent partial read (the decision-156 failure shape)

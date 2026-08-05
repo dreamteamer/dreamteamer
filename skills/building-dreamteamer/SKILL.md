@@ -1,11 +1,11 @@
 ---
 name: building-dreamteamer
-description: use when authoring or changing anything in a module's system/ folder — a collection or a field, a skill, a command, an agent, a ui-view, or studio component code. Also when deciding WHICH of those a request should become, or when a compile/check error names a source file.
+description: use when authoring or changing anything in a module's source folders (collections/, skills/, agents/, commands/, command-bindings/, ui-views/, collection-templates/) — a collection or a field, a skill, a command, an agent, a ui-view, or studio component code. Also when deciding WHICH of those a request should become, or when a compile/check error names a source file.
 ---
 
 # building dreamteamer
 
-**core principle:** you write a **source** under `modules/<module>/system/<kind>/`, `compile` makes
+**core principle:** you write a **source** under `modules/<module>/<kind>/`, `compile` makes
 it real, `check` reports what disagrees. Nothing you author is live until compile runs, and nothing
 under `.dreamteamer/` or `.claude/` is ever the thing to edit.
 
@@ -45,15 +45,15 @@ Three tie-breakers worth internalising, because they are the ones that go wrong:
 
 These were duplicated across seven skills; they are true for all of them.
 
-1. **Sources live in a module.** `modules/<module>/system/<kind>/`. The workspace's own go in its
+1. **Sources live in a module.** `modules/<module>/<kind>/`. The workspace's own go in its
    **workspace module** — the `dreamteamer.workspace-module` name in `package.json`. A root
-   `system/` folder is a **compile error**, not a fallback.
+   source folder at the WORKSPACE root is a **compile error**, not a fallback.
 2. **The filename is the id.** `<name>.<kind>.<ext>`, or a folder named `<id>` for folder-shape
    kinds (skills). Where a record also carries a `name` in frontmatter (agents, commands),
    the two **must agree** — the harness names the file from the filename, so a mismatch
    makes the id lie.
 3. **The meta-descriptor IS the spec.** Every kind is itself a collection:
-   `.dreamteamer/system/collections/<kind>.collection.yaml` lists every key it may carry with its
+   `.dreamteamer/collections/<kind>.collection.yaml` lists every key it may carry with its
    allowed values. Read that, plus a real one (`dt <kind> get <id>`), instead of learning the shape
    from prose. Prose drifts; the descriptor cannot.
 4. **`npm run compile`, then `npm run check`.** Compile materializes the runtime and the harness
@@ -80,7 +80,7 @@ These were duplicated across seven skills; they are true for all of them.
 ## the loop
 
 ```bash
-# 1. author the source under modules/<module>/system/<kind>/
+# 1. author the source under modules/<module>/<kind>/
 npm run compile     # required — nothing is live before this
 npm run check       # refs, shapes, id patterns
 npm run --silent dt -- status    # when unsure whether the runtime is fresh
@@ -91,7 +91,7 @@ stands. Read the error — it names the file and, for a collision or an unresolv
 
 ## is this core, or is it a recipe?
 
-If you are adding to the **engine's own** `system/`, the bar is higher than "useful". Core carries
+If you are adding to the **engine's own** sources, the bar is higher than "useful". Core carries
 only what the engine itself reads or the compile/check/run loop needs. Anything domain-shaped —
 a collection about people, meetings, tasks, products, content — belongs in a module, and a *generic*
 version of it belongs in the `recipes` repo rather than here.
@@ -109,7 +109,7 @@ longer exists. `npm run metrics` in the engine holds the budgets that keep this 
 | mistake | reality |
 |---|---|
 | authoring under `.dreamteamer/` or `.claude/` | generated; the change vanishes on the next compile |
-| a root `system/` folder | compile error by design — it goes in the workspace module |
+| a source folder at the workspace root | compile error by design — it goes in the workspace module |
 | forgetting compile | the CLI, `check` and every harness still see the old shape |
 | filename ≠ frontmatter `name` | the id lies; dispatch and invocation miss |
 | telling the operator it works now | it works in their **next** session |

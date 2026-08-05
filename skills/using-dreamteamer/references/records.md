@@ -13,7 +13,7 @@ descriptor.
 
 **not for:** schema changes (`building-dreamteamer` → `references/collections.md`), or system-stored records — skills, agents,
 commands, ui-views, collections. those are *sources*: edit the file under the owning
-module (`modules/<module>/system/<kind>/`) and run `npm run compile`; the CLI refuses them on
+module (`modules/<module>/<kind>/`) and run `npm run compile`; the CLI refuses them on
 purpose.
 
 ## the verbs
@@ -37,7 +37,7 @@ what the help text can't tell you either way:
 
 ## before writing anything
 
-read the compiled descriptor: `.dreamteamer/system/collections/<collection>.collection.yaml`.
+read the compiled descriptor: `.dreamteamer/collections/<collection>.collection.yaml`.
 it defines `storage` (path/codec/shape/suffix), `id` (`generate` template + `pattern`), and
 `schema` (JSON Schema; the `x-` keywords carry the domain semantics — `x-reference`, `x-body`,
 `x-display`).

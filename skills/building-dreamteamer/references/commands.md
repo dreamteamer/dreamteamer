@@ -2,7 +2,7 @@
 
 ## commands
 
-`modules/<module>/system/commands/<name>.command.md`. A command is a **canned prompt a human
+`modules/<module>/commands/<name>.command.md`. A command is a **canned prompt a human
 deliberately types**. Compile copies the file verbatim to `.claude/commands/<name>.md` — that file
 is what makes `/<name>` work.
 
@@ -31,7 +31,7 @@ done when the list is empty or I say stop.
 
 ## command-bindings — which commands apply to which records
 
-`modules/<module>/system/command-bindings/<command>--<collection>.command-binding.yaml`. An m2m
+`modules/<module>/command-bindings/<command>--<collection>.command-binding.yaml`. An m2m
 record joining a command to a collection, so **every (command, record) pair has a state**.
 
 ```yaml
