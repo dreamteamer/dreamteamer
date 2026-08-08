@@ -1,4 +1,5 @@
 name: ui-views
+title: UI Views
 storage: { path: ui-views, codec: yaml, shape: file, suffix: ui-view }
 id: { generate: "{{ path | slug }}" }
 schema:
