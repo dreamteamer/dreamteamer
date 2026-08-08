@@ -36,7 +36,7 @@ export function presentation(descriptors) {
 		});
 		for (const [name, prop] of Object.entries(d.schema?.properties ?? {})) {
 			if (name === 'id') continue;
-			rows.push(fieldRow(d, name, prop, new Set(d.schema?.required ?? []).has(name)));
+			rows.push(fieldRow(d, name, prop, new Set(d.schema?.required ?? []).has(name), descriptors));
 			const target = referenceTargetOf(prop);
 			if (target) {
 				relations.push({ collection: d.name, field: name, related_collection: target, list: prop.type === 'array' });
@@ -51,6 +51,9 @@ function collectionRow(d) {
 	const props = d.schema?.properties ?? {};
 	const titleField = ['title', 'name', 'subject'].find((f) => f in props);
 	const meta = { collection: d.name, record_type: d.storage?.suffix ?? d.name };
+	// resolved by compile — a surface renders this and never title-cases an id itself
+	if (typeof d.title === 'string' && d.title.length > 0) meta.title = d.title;
+	if (typeof d.title_template === 'string' && d.title_template.length > 0) meta.title_template = d.title_template;
 	if (titleField) meta.title_field = titleField;
 	if (typeof d.order === 'number') meta.order = d.order;
 	if (Array.isArray(d.list_fields)) meta.list_fields = d.list_fields;
@@ -66,13 +69,33 @@ function referenceTargetOf(prop) {
 	return ref;
 }
 
-function fieldRow(d, name, prop, isRequired) {
+/**
+ * The template that renders a VALUE of this field as a human label.
+ *
+ * Authored per-field with `x-title-template`, else INHERITED from the target collection's
+ * `title_template` — because "a company is labelled by its name" is a fact about companies, not
+ * about each of the eleven fields that point at one. Before this, that fact was hand-copied onto
+ * every referencing field as `x-display: '{{ name }}'`; 51 of the 54 sites in this workspace were
+ * exactly what the target already implies.
+ */
+function titleTemplateOf(prop, descriptors) {
+	const own = prop.type === 'array' ? prop.items?.['x-title-template'] : prop['x-title-template'];
+	if (typeof own === 'string' && own.length > 0) return own;
+	const target = referenceTargetOf(prop);
+	const inherited = target ? descriptors.get(target)?.title_template : undefined;
+	return typeof inherited === 'string' && inherited.length > 0 ? inherited : undefined;
+}
+
+function fieldRow(d, name, prop, isRequired, descriptors) {
 	const meta = { collection: d.name, field: name };
 	if (isRequired) meta.required = true;
 	// JSON Schema's own `description` on the property — what the field MEANS, authored in the
 	// module source beside the field. Carried through verbatim so a surface can explain a field
 	// without a second vocabulary (the UI shows it as the property row's tooltip).
 	if (typeof prop.description === 'string' && prop.description.length > 0) meta.description = prop.description;
+	// resolved by compile (titleCase of the field name unless authored) — the label every surface
+	// shows, so no component title-cases a field name on its own.
+	if (typeof prop.title === 'string' && prop.title.length > 0) meta.title = prop.title;
 
 	let type = 'string';
 	const target = referenceTargetOf(prop);
@@ -91,7 +114,7 @@ function fieldRow(d, name, prop, isRequired) {
 		meta.edit = 'list';
 		meta.view = 'list';
 		const listOptions = { fields: optionFieldsOf(prop.items) };
-		if (typeof prop.items['x-display'] === 'string') listOptions.template = prop.items['x-display'];
+		if (typeof prop.items['x-title-template'] === 'string') listOptions.template = prop.items['x-title-template'];
 		meta.edit_options = listOptions;
 		meta.view_options = listOptions;
 	} else if (prop.type === 'array') {
@@ -124,7 +147,7 @@ function fieldRow(d, name, prop, isRequired) {
 	if (Array.isArray(prop.enum) && prop.enum.length > 0) {
 		meta.edit_options = { choices: prop.enum.map((v) => ({ text: String(v), value: v })) };
 	}
-	const tpl = prop.type === 'array' ? prop.items?.['x-display'] : prop['x-display'];
+	const tpl = titleTemplateOf(prop, descriptors);
 	if (typeof tpl === 'string' && tpl.length > 0) meta.view_options = { ...meta.view_options, template: tpl };
 
 	return {
