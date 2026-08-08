@@ -40,7 +40,8 @@ what the help text can't tell you either way:
 read the compiled descriptor: `.dreamteamer/collections/<collection>.collection.yaml`.
 it defines `storage` (path/codec/shape/suffix), `id` (`generate` template + `pattern`), and
 `schema` (JSON Schema; the `x-` keywords carry the domain semantics — `x-reference`, `x-body`,
-`x-display`).
+`x-title-template`). It also carries `title` (what to CALL the collection) and `title_template` (how
+to label one of its records) — both resolved by compile from the id unless authored.
 
 ## writing a record by hand
 

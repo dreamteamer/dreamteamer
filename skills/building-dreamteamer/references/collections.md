@@ -57,9 +57,11 @@ templates: [collection-templates/provenance]   # merged at compile, every time
   field instead). `id.pattern` must accept everything the template can produce — non-latin titles
   slug to a deterministic short hash, so `[a-z0-9-]` still holds.
 - **The `x-` keywords carry the domain semantics.** `x-reference` (a target collection, or `"*"` for
-  any) is what lets `check` and `rename` follow a field. `x-display` is the relation display
-  template. `x-body` marks the single field that becomes the md body. `x-inverse` declares a two-way
-  link and makes `check` enforce both directions.
+  any) is what lets `check` and `rename` follow a field. `x-body` marks the single field that becomes
+  the md body. `x-inverse` declares a two-way link and makes `check` enforce both directions.
+  `x-title-template` overrides how a VALUE of that field is labelled — rarely needed, because a
+  reference already inherits its TARGET collection's `title_template`; author it there instead, once,
+  rather than on every field pointing at it.
 - **Do not enum a field after the fact.** Enumerating a vocabulary the records already violate makes
   `check` fail on every pre-existing value. `dt <collection> values <field>` derives the real
   vocabulary from the data — a filter dropdown gets it for free without locking the set.
