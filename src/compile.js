@@ -40,6 +40,30 @@ export function titleCase(id) {
 		.join(' ');
 }
 
+/**
+ * Every `x-display` left in a schema, as `[fieldPath, template, referenceTarget|null]`.
+ *
+ * The keyword was renamed to `x-title-template` and mostly DELETED — its value is inherited from
+ * the target collection's `title_template`. There is deliberately no alias: recipes and dt-hq pin
+ * this engine by SHA, so nothing breaks until someone bumps a pin, and that person needs a message
+ * rather than silence. JSON Schema IGNORES unknown keywords, so the alternative to failing here is
+ * a label that quietly stops working and regresses to a raw id.
+ */
+function staleDisplayKeywords(schema, prefix = '') {
+	const out = [];
+	for (const [key, prop] of Object.entries(schema?.properties ?? {})) {
+		if (!prop || typeof prop !== 'object') continue;
+		const at = `${prefix}${key}`;
+		if ('x-display' in prop) out.push([at, prop['x-display'], prop['x-reference'] ?? null]);
+		if (prop.items && typeof prop.items === 'object' && 'x-display' in prop.items) {
+			out.push([at, prop.items['x-display'], prop.items['x-reference'] ?? null]);
+		}
+		if (prop.properties) out.push(...staleDisplayKeywords(prop, `${at}.`));
+		if (prop.items?.properties) out.push(...staleDisplayKeywords(prop.items, `${at}[].`));
+	}
+	return out;
+}
+
 export const KINDS = ['collections', 'skills', 'agents', 'commands', 'command-bindings', 'ui-views', 'collection-templates'];
 const FOLDER_KINDS = new Set(['skills']); // folder-shape entities: copy the whole record folder
 
@@ -437,6 +461,12 @@ export function compile({ root, pkg }) {
 			merged.storage.repo = repoRootOf(owned.root, root);
 		} else {
 			merged.storage.repo = '.';
+		}
+		for (const [at, tpl, target] of staleDisplayKeywords(merged.schema)) {
+			const fix = target
+				? `either DELETE it (a reference to "${target}" now inherits that collection's \`title_template\`) or rename it to \`x-title-template\` if this field really needs its own`
+				: 'rename it to `x-title-template`';
+			fail(`collection "${name}": field "${at}" uses \`x-display: ${tpl}\` — that keyword was renamed; ${fix}. (${group.map((g) => g.src.path).join(', ')})`);
 		}
 		// the merged schema must itself be a compilable JSON Schema — a malformed property
 		// (e.g. a string where an object belongs) used to pass compile and detonate at the
