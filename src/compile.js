@@ -20,6 +20,26 @@ import { readManifest, runtimeDir } from './runtime.js';
 // break as a removed file — decision 139.
 export { readManifest };
 
+/**
+ * Identifier → display label: `finance-accounts` → "Finance Accounts".
+ *
+ * The ONE derivation of a label from an id. compile resolves it INTO the descriptor so that no
+ * surface re-implements it — the same lesson as `storage.base`, which lived as a re-derived path
+ * test in five places before it became a field. An authored `title` always wins over this.
+ *
+ * `/` is a separator because a collection id may contain one (`titles.ts` splits routes on that
+ * assumption). Field names cannot, which is why the extension's browser-side copy of this rule
+ * (`webview/src/lib/format-title.ts`, which cannot import node code) stays byte-compatible for the
+ * only comparison that matters — the round-trip guard in schema-ops.js.
+ */
+export function titleCase(id) {
+	return String(id)
+		.split(/[_\-\s/]+/)
+		.filter(Boolean)
+		.map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+		.join(' ');
+}
+
 export const KINDS = ['collections', 'skills', 'agents', 'commands', 'command-bindings', 'ui-views', 'collection-templates'];
 const FOLDER_KINDS = new Set(['skills']); // folder-shape entities: copy the whole record folder
 
@@ -425,6 +445,20 @@ export function compile({ root, pkg }) {
 			descriptorAjv().compile(structuredClone(merged.schema));
 		} catch (e) {
 			fail(`collection "${name}": schema is not a valid JSON Schema — ${e.message} (${group.map((g) => g.src.path).join(', ')})`);
+		}
+		// ---- resolved labels: what to CALL this collection, its records and its fields --------
+		// Written into the artifact next to `storage.base` and for the same reason: the nav, the
+		// browse page, the CLI and the extension then read ONE field instead of each carrying its
+		// own title-caser. Authored values always win — `??=` never overwrites. After the ajv gate
+		// on purpose: a malformed property must fail as a bad schema, not as a TypeError here.
+		merged.title ??= titleCase(name);
+		const labelProps = merged.schema?.properties ?? {};
+		// how a RECORD of this collection is labelled — the probe presentation.js has always used
+		// for `meta.title_field`, promoted to an authorable field. Reference fields pointing here
+		// inherit it (presentation.js), which is what replaces 51 hand-written `x-display` lines.
+		merged.title_template ??= `{{ ${['title', 'name', 'subject'].find((f) => f in labelProps) ?? 'id'} }}`;
+		for (const [fieldName, prop] of Object.entries(labelProps)) {
+			if (prop && typeof prop === 'object' && !Array.isArray(prop)) prop.title ??= titleCase(fieldName);
 		}
 		const rt = path.join('collections', `${name}.collection.yaml`);
 		entries.set(rt, { sources: [...group.map((g) => g.src), ...templateSources], bytes: Buffer.from(dump(merged)) });

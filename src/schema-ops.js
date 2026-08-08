@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { load, dump } from './yaml.js';
-import { compile, kindDir } from './compile.js';
+import { compile, kindDir, titleCase } from './compile.js';
 import { readManifest, runtimeKindDir } from './runtime.js';
 
 // ---- the gate -------------------------------------------------------------------
@@ -111,9 +111,12 @@ export function updateField(ws, store, collection, fieldName, { prop, required }
 	const d = store.descriptor(collection);
 	if (!d.schema?.properties?.[fieldName]) throw new Error(`no field "${fieldName}" on ${collection}`);
 	// upsertField REPLACES the prop, so retyping a field would silently drop its hand-authored
-	// `description`. Changing a field's type is not a decision to undocument it.
-	const kept = d.schema.properties[fieldName].description;
-	if (prop.description === undefined && typeof kept === 'string') prop = { ...prop, description: kept };
+	// `description`. Changing a field's type is not a decision to undocument it. Same for an
+	// authored `title` — but ONLY an authored one: a derived title is compile's output, not a
+	// human's choice, and `titleCase` is how the two are told apart.
+	const previous = d.schema.properties[fieldName];
+	if (prop.description === undefined && typeof previous.description === 'string') prop = { ...prop, description: previous.description };
+	if (prop.title === undefined && typeof previous.title === 'string' && previous.title !== titleCase(fieldName)) prop = { ...prop, title: previous.title };
 	return upsertField(ws, store, collection, fieldName, prop, required, `update-field ${fieldName}`);
 }
 
@@ -135,6 +138,15 @@ export function removeField(ws, store, collection, fieldName) {
 function upsertField(ws, store, collection, fieldName, prop, required, verb) {
 	if (prop == null || typeof prop !== 'object' || Array.isArray(prop)) {
 		throw new Error(`field "${fieldName}": prop must be a JSON-Schema object (got ${Array.isArray(prop) ? 'array' : typeof prop}) — nothing was written.`);
+	}
+	// compile resolves `prop.title` into the COMPILED descriptor, and both writers rebuild a prop
+	// from that projection — this one and the studio's field drawer. Without this, retyping any
+	// field through the UI writes the DERIVED label back into the source as though a human chose
+	// it, and 51 collections fill with `title: Due Date` noise no longer distinguishable from a
+	// real override. The webview applies the identical rule in `lib/field-prop.ts`.
+	if (prop.title === titleCase(fieldName)) {
+		prop = { ...prop };
+		delete prop.title;
 	}
 	const dest = path.join(workspaceSystemDir(ws, 'collections'), `${collection}.collection.yaml`);
 	let doc;

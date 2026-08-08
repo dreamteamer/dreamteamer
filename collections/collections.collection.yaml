@@ -11,6 +11,12 @@ schema:
     description:
       type: string
       description: What kind of thing this collection holds, in one line.
+    title:
+      type: string
+      description: What to call this collection in the nav and page headers. DERIVED from `name` by title-casing when absent — author it only when that is wrong (`ui-views` → `UI Views`).
+    title_template:
+      type: string
+      description: 'How to label a RECORD of this collection, e.g. `{{ name }}`. DERIVED from the first of title/name/subject the schema declares (else `{{ id }}`). Every reference field pointing at this collection renders its value through this, so it is authored HERE once, not on each referencing field.'
     extends:
       type: string
       description: 'The module collection this one overlays, as `<module>/<collection>`. An overlay adds or narrows fields; it never redefines storage.'
