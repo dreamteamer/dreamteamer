@@ -148,6 +148,23 @@ function upsertField(ws, store, collection, fieldName, prop, required, verb) {
 		prop = { ...prop };
 		delete prop.title;
 	}
+	// Same rule for the value template. presentation INHERITS a reference's template from its
+	// target collection's `title_template`, so a field drawer that round-trips that projection
+	// writes the inherited value back onto the field — hand-recreating exactly the 49 duplicated
+	// `x-display` lines the inheritance replaced. Only a template that DIFFERS from the target's
+	// is a real authored override.
+	const ref = prop['x-reference'] ?? prop.items?.['x-reference'];
+	const inherited = ref && ref !== '*' ? store.descriptors.get(ref)?.title_template : undefined;
+	if (inherited) {
+		if (prop['x-title-template'] === inherited) {
+			prop = { ...prop };
+			delete prop['x-title-template'];
+		}
+		if (prop.items?.['x-title-template'] === inherited) {
+			prop = { ...prop, items: { ...prop.items } };
+			delete prop.items['x-title-template'];
+		}
+	}
 	const dest = path.join(workspaceSystemDir(ws, 'collections'), `${collection}.collection.yaml`);
 	let doc;
 	if (fs.existsSync(dest)) {
