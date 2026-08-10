@@ -10,3 +10,5 @@ node_modules/
 .screenshots/
 .playwright-mcp/
 .probe-*
+# npm pack output (CI and CONTRIBUTING both run it in the repo root)
+*.tgz
