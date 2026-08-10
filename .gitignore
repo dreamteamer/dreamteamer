@@ -1,2 +1,12 @@
 node_modules/
 .claude/worktrees/
+.env
+.env.*
+.DS_Store
+# compiled runtime — rebuilt by `dreamteamer compile`
+.dreamteamer/
+# local reference checkouts
+.ref-code/
+.screenshots/
+.playwright-mcp/
+.probe-*
