@@ -12,6 +12,12 @@ import { deriveEvents } from './events.js';
 import { commitPending } from './commit.js';
 import { Store } from './store.js';
 
+// git calls whose failure we CATCH must not print git's own error: execFileSync forwards the
+// child's stderr to ours unless told otherwise, so a handled "not a git repository" still
+// reached the user's terminal. stdout stays piped because we read it.
+const QUIET = ['ignore', 'pipe', 'ignore'];
+
+
 const USAGE = `usage: dreamteamer <command> | dreamteamer <collection> <verb> …
 
 commands:
@@ -230,7 +236,7 @@ export function run(argv) {
 }
 
 function tryGit(cwd, args) {
-	try { return execFileSync('git', args, { cwd }).toString().trim() || null; } catch { return null; }
+	try { return execFileSync('git', args, { cwd, stdio: QUIET }).toString().trim() || null; } catch { return null; }
 }
 
 function watchAndRecompile(ws) {

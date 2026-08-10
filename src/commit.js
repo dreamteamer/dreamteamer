@@ -6,6 +6,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { pathToRecord } from './events.js';
 
+// git calls whose failure we CATCH must not print git's own error: execFileSync forwards the
+// child's stderr to ours unless told otherwise, so a handled "not a git repository" still
+// reached the user's terminal. stdout stays piped because we read it.
+const QUIET = ['ignore', 'pipe', 'ignore'];
+
+
 const VERB = { A: 'add', M: 'set', D: 'rm', R: 'rename', '?': 'add' };
 
 /** Record directories to watch, grouped by owning repo. System-stored collections are excluded:
@@ -31,7 +37,7 @@ function scopeByRepo(descriptors, only) {
  *  is NOT a refusal condition — committing dirty records is this verb's entire job. */
 function inProgress(cwd) {
 	let gitDir;
-	try { gitDir = execFileSync('git', ['rev-parse', '--absolute-git-dir'], { cwd }).toString().trim(); }
+	try { gitDir = execFileSync('git', ['rev-parse', '--absolute-git-dir'], { cwd, stdio: QUIET }).toString().trim(); }
 	catch { return 'not a git repository'; }
 	for (const [marker, label] of [['MERGE_HEAD', 'merge'], ['rebase-merge', 'rebase'], ['rebase-apply', 'rebase'], ['CHERRY_PICK_HEAD', 'cherry-pick'], ['REVERT_HEAD', 'revert']]) {
 		if (fs.existsSync(path.join(gitDir, marker))) return `a ${label} is in progress`;
@@ -42,7 +48,7 @@ function inProgress(cwd) {
 /** A commit on a detached HEAD is reachable only by sha. Worth saying out loud before making one;
  *  not worth refusing over, since it is sometimes exactly what someone means to do. */
 function detached(cwd) {
-	try { return execFileSync('git', ['symbolic-ref', '--quiet', 'HEAD'], { cwd }).toString().trim() === ''; }
+	try { return execFileSync('git', ['symbolic-ref', '--quiet', 'HEAD'], { cwd, stdio: QUIET }).toString().trim() === ''; }
 	catch { return true; }
 }
 
@@ -57,7 +63,10 @@ function sample(root, repo, dirs, descriptors) {
 	// `-uall` is load-bearing: by default porcelain COLLAPSES an untracked directory to a single
 	// `?? data/notes/` entry, which maps to no record — so the first records of a brand-new
 	// collection would be invisible and dt commit would report success having committed nothing.
-	const out = execFileSync('git', ['status', '--porcelain', '-z', '-uall', '--', ...relDirs], { cwd }).toString();
+	// QUIET: the caller (cli `status`) catches a failure here so it can still print the rest of the
+	// report in a non-git folder — but git's own "fatal: not a git repository" was reaching the
+	// terminal anyway, which made a handled case look like a crash.
+	const out = execFileSync('git', ['status', '--porcelain', '-z', '-uall', '--', ...relDirs], { cwd, stdio: QUIET }).toString();
 	const chunks = out.split('\0').filter((c) => c.length > 0);
 	const rows = [];
 	for (let i = 0; i < chunks.length; i++) {
