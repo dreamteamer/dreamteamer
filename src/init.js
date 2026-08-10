@@ -143,6 +143,7 @@ export function install({ root, pkg }) {
 	const names = Object.keys(map);
 	if (!names.length) { console.log('✔ no git-modules declared — nothing to restore'); return 0; }
 	fs.mkdirSync(path.join(root, 'git_modules'), { recursive: true });
+	const unreachable = [];
 	for (const name of names) {
 		const { url, ref = 'main' } = map[name];
 		const dest = path.join(root, 'git_modules', name);
@@ -154,10 +155,24 @@ export function install({ root, pkg }) {
 			continue;
 		}
 		console.log(`… cloning ${url} → git_modules/${name} (${ref})`);
-		execFileSync('git', ['clone', '--branch', ref, url, dest], { stdio: 'inherit' });
+		try {
+			execFileSync('git', ['clone', '--branch', ref, url, dest], { stdio: 'inherit' });
+		} catch {
+			// one unreachable clone must not abandon the rest. the lockfile is a map of PRIVATE
+			// repos as often as public ones, so "the current credentials cannot see this one" is
+			// ordinary — a fresh machine, a collaborator, a cloud sandbox. aborting there left a
+			// half-restored workspace and named only the first failure.
+			fs.rmSync(dest, { recursive: true, force: true }); // git leaves the partial dir behind
+			unreachable.push(name);
+			console.warn(`⚠ git_modules/${name}: clone failed — skipped (${url})`);
+			continue;
+		}
 		buildClone(dest, name);
 	}
-	return 0;
+	// non-zero, because the workspace is NOT what the lockfile describes: modules are missing and
+	// `check` will report references into them as unknown collections.
+	if (unreachable.length) console.error(`✖ ${unreachable.length} module(s) could not be cloned: ${unreachable.join(', ')}`);
+	return unreachable.length ? 1 : 0;
 }
 
 // dreamteamer update [<name>] — pull each lockfile-declared git_modules clone forward
