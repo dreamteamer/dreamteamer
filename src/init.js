@@ -85,8 +85,11 @@ export function init({ flags = {} } = {}) {
 
 	// one init commit (if we're in a git repo)
 	try {
-		execFileSync('git', ['add', '--all'], { cwd: root });
-		execFileSync('git', ['commit', '--quiet', '-m', `dreamteamer: init workspace ${name}`], { cwd: root });
+		// stdio ignored on purpose: this whole block is best-effort, and execFileSync forwards the
+		// child's stderr to ours by default — so a plain `dreamteamer init` in a non-git folder
+		// printed git's raw "fatal: not a git repository" above our own handled warning.
+		execFileSync('git', ['add', '--all'], { cwd: root, stdio: 'ignore' });
+		execFileSync('git', ['commit', '--quiet', '-m', `dreamteamer: init workspace ${name}`], { cwd: root, stdio: 'ignore' });
 	} catch { console.warn('⚠ not a git repo (or nothing to commit) — init files written, no commit'); }
 
 	console.log(`✔ workspace ${name} initialized — run \`dreamteamer compile\` to materialize the runtime`);
