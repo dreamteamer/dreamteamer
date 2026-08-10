@@ -1,0 +1,59 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20, 22]
+    name: node ${{ matrix.node }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - run: npm ci
+
+      - name: size budgets
+        run: npm run metrics:check
+
+      - name: cli loads
+        run: node bin/dreamteamer.js --version
+
+      # The first sixty seconds of a new user's life. There is no test framework here by
+      # design, so this smoke IS the suite: it scaffolds a real workspace and drives it
+      # end to end.
+      #
+      # It installs the PACKED TARBALL rather than the source tree on purpose — that is
+      # exactly what a user gets from npm, so a missing entry in files[] fails CI instead
+      # of failing a stranger.
+      - name: first-run smoke
+        run: |
+          set -euo pipefail
+          PKG=$(npm pack --silent | tail -1)
+          PKG_PATH="$PWD/$PKG"
+          D=$(mktemp -d)
+          cd "$D"
+          git init -q
+          git config user.email ci@example.com
+          git config user.name CI
+          npm init -y >/dev/null
+          npm install --silent "$PKG_PATH"
+          npx dreamteamer init
+          npx dreamteamer compile
+          npx dreamteamer check
+          npx dreamteamer notes add --title "smoke"
+          npx dreamteamer notes list
+          npx dreamteamer check
