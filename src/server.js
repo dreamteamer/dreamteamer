@@ -235,11 +235,15 @@ export function startServer(ws, { port = 8080, host = '127.0.0.1' } = {}) {
 	} else {
 		app.get('/admin', (req, res) => res.status(503).send('studio not built — run: npm run build:studio, or install @dreamteamer/studio'));
 	}
-	app.get('/', (req, res) => res.redirect('/admin'));
+	const hasStudio = !!(studioDist && fs.existsSync(path.join(studioDist, 'index.html')));
+	app.get('/', (req, res) => res.redirect(hasStudio ? '/admin' : '/api'));
 
 	return new Promise((resolve) => {
 		const server = app.listen(port, host, () => {
-			console.log(`✔ dreamteamer server at http://${host}:${port}/admin (api: /api)`);
+			// Only advertise /admin when a studio is actually installed. No studio ships with the
+			// engine, so naming it unconditionally sent every new user to a 503.
+			const where = hasStudio ? `/admin (api: /api)` : `/api`;
+			console.log(`✔ dreamteamer server at http://${host}:${port}${where}`);
 			resolve(server);
 		});
 	});

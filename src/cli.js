@@ -23,7 +23,7 @@ commands:
   compile     materialize modules + workspace sources into .dreamteamer (+ harness adapters)
   check       validate every record against the compiled descriptors (report-only)
   status      workspace status: compiled runtime freshness, per-module channel/ref, staleness
-  start       serve the clean REST api + the studio at /admin [--port <n>]
+  start       serve the clean REST api at /api [--port <n>]
   changes     what changed in every repo that holds records, as record events
               [--since <sha|YYYY-MM-DD>] (default: the last commit) [--json]
   commit      publish records already written to disk: samples git status over every
