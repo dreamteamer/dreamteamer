@@ -16,6 +16,12 @@ import { commandsFor, recordResolver } from './record-commands.js';
 import { distinctValues } from './field-values.js';
 import { slugOrHash } from './template.js';
 
+// git calls whose failure we CATCH must not print git's own error: execFileSync forwards the
+// child's stderr to ours unless told otherwise, so a handled "not a git repository" still
+// reached the user's terminal. stdout stays piped because we read it.
+const QUIET = ['ignore', 'pipe', 'ignore'];
+
+
 export function startServer(ws, { port = 8080, host = '127.0.0.1' } = {}) {
 	const app = express();
 	app.use(express.json({ limit: '10mb' }));
@@ -42,7 +48,7 @@ export function startServer(ws, { port = 8080, host = '127.0.0.1' } = {}) {
 	// so `@me` filters in ui-views resolve to the seeded user record.
 	let operatorId = null;
 	try {
-		operatorId = slugOrHash(execFileSync('git', ['config', 'user.name'], { cwd: ws.root }).toString().trim());
+		operatorId = slugOrHash(execFileSync('git', ['config', 'user.name'], { cwd: ws.root, stdio: QUIET }).toString().trim());
 	} catch { /* no git identity — @me filters simply won't narrow */ }
 
 	api.get('/info', (req, res) => {

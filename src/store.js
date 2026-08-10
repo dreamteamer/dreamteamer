@@ -12,6 +12,12 @@ import { generateId } from './template.js';
 import { parseRecord, parseRecordText, patternRe, fmtAjvError, unknownFields, walk, EXT, assertSafeId } from './records.js';
 import { normalizeRecord } from './temporal.js';
 import { NO_RUNTIME, loadDescriptors, runtimeDir, sourceRoots as compiledSourceRoots } from './runtime.js';
+
+// git calls whose failure we CATCH must not print git's own error: execFileSync forwards the
+// child's stderr to ours unless told otherwise, so a handled "not a git repository" still
+// reached the user's terminal. stdout stays piped because we read it.
+const QUIET = ['ignore', 'pipe', 'ignore'];
+
 export class Store {
 	constructor({ root, pkg }) {
 		this.root = root;
@@ -66,7 +72,7 @@ export class Store {
 
 	// current HEAD — one cheap rev-parse per cache check vs a multi-thousand-file walk
 	gitHead() {
-		try { return execFileSync('git', ['rev-parse', 'HEAD'], { cwd: this.root }).toString().trim(); } catch { return 'no-git'; }
+		try { return execFileSync('git', ['rev-parse', 'HEAD'], { cwd: this.root, stdio: QUIET }).toString().trim(); } catch { return 'no-git'; }
 	}
 
 	ids(collection) {
@@ -128,7 +134,7 @@ export class Store {
 		const relPath = path.relative(this.root, file);
 		let previousContent;
 		try {
-			previousContent = execFileSync('git', ['show', `${hash}:${relPath}`], { cwd: this.root }).toString();
+			previousContent = execFileSync('git', ['show', `${hash}:${relPath}`], { cwd: this.root, stdio: QUIET }).toString();
 		} catch {
 			throw new Error(`${collection}/${id}: no content at ${hash} for ${relPath} — nothing was reverted.`);
 		}

@@ -9,6 +9,12 @@ import { slugOrHash } from './template.js';
 import { discoverModules, KINDS } from './compile.js';
 import { Store } from './store.js';
 
+// git calls whose failure we CATCH must not print git's own error: execFileSync forwards the
+// child's stderr to ours unless told otherwise, so a handled "not a git repository" still
+// reached the user's terminal. stdout stays piped because we read it.
+const QUIET = ['ignore', 'pipe', 'ignore'];
+
+
 const SKELETON_KINDS = ['collections', 'skills', 'agents', 'commands', 'ui-views'];
 
 const GITIGNORE = `node_modules/
@@ -200,7 +206,7 @@ function buildClone(dest, name) {
 }
 
 function tryGit(cwd, args) {
-	try { return execFileSync('git', args, { cwd }).toString().trim() || null; } catch { return null; }
+	try { return execFileSync('git', args, { cwd, stdio: QUIET }).toString().trim() || null; } catch { return null; }
 }
 
 function appendMissing(file, block) {
