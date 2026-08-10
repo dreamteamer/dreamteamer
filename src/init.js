@@ -22,6 +22,37 @@ media/
 .screenshots/
 `;
 
+// A brand-new workspace with no collections gives a user nothing to run, and makes `compile` warn
+// that the module `init` just created "contributed no recognised sources" — a warning about its own
+// output, which reads as a broken install. One starter collection answers both. `notes` is
+// deliberately the most generic thing a workspace can hold.
+const STARTER_COLLECTION = `name: notes
+storage:
+  path: data/notes
+  codec: md
+  shape: file
+  suffix: note
+id:
+  generate: '{{ created | date }}--{{ title | slug }}'
+  pattern: ^\\d{4}-\\d{2}-\\d{2}--[a-z0-9-]+$
+schema:
+  type: object
+  required:
+    - title
+  properties:
+    title:
+      type: string
+      description: What this note is called.
+    body:
+      type: string
+      format: markdown
+      x-body: true
+      description: The note itself.
+icon: sticky_note_2
+title: Notes
+title_template: '{{ title }}'
+`;
+
 const ENV_EXAMPLE = `# secrets for skills and modules go here (copy to .env; .env is never committed).
 # modules declare the env keys they require in their package.json dreamteamer.env list.
 `;
@@ -58,6 +89,10 @@ export function init({ flags = {} } = {}) {
 			fs.writeFileSync(modulePkg, JSON.stringify({ name: wm, private: true, version: '0.0.1', files: [...KINDS], dreamteamer: {} }, null, '\t') + '\n');
 		}
 	}
+	// one starter collection, so `compile` has something to report instead of warning about the
+	// empty module it just made, and so a fresh workspace has something to run.
+	const starter = path.join(systemRoot, 'collections', 'notes.collection.yaml');
+	if (!fs.existsSync(starter)) fs.writeFileSync(starter, STARTER_COLLECTION);
 	fs.mkdirSync(path.join(root, dataPath), { recursive: true });
 	fs.mkdirSync(path.join(root, 'state'), { recursive: true });
 
