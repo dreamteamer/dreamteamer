@@ -1,7 +1,7 @@
-// record filtering — the operator set harvested from the hq2 engine's
+// record filtering — the operator set harvested from an earlier engine's
 // query/compare.ts (Directus-style), trimmed to what the studio FilterBuilder
 // and saved views actually emit. evaluated server-side over parsed records.
-// negative operators deliberately reject null (SQL semantics, as in hq2).
+// negative operators deliberately reject null (SQL semantics).
 import { compareValues } from './temporal.js';
 
 export function matchesFilter(record, filter, resolve) {
