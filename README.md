@@ -1,82 +1,146 @@
 # dreamteamer
 
-A workspace compiler for coding agents. Module sources compile **explicitly** into `.dreamteamer/`,
-the single runtime read surface, and from there into per-harness adapters — Claude Code, Codex, Pi,
-Gemini CLI, Cursor. Data is plain files: records are `<id>.<suffix>.<ext>`, ids are paths,
-references are `<collection>/<id>`. A write lands on disk; `dreamteamer commit` publishes it, one
-commit per repo. Hard validation before disk; nothing hidden.
+**Structured, modular memory for coding agents.**
+
+Your agent already has a memory. You just can't see it — it's prose, in a black box somewhere,
+untracked and unshared. And memory *is* context, which is the single biggest lever on what your agent
+decides and how well it does it. So the most consequential thing in your setup is the one you have the
+least access to.
+
+dreamteamer makes it **files with a schema**: plain markdown in your git repo that your agent reads
+natively, and that you can browse as tables, boards and forms.
 
 ```bash
-npm i dreamteamer         # engine + the `dreamteamer` bin
+npm i dreamteamer
 npx dreamteamer init      # scaffold a workspace
 npx dreamteamer compile   # sources → .dreamteamer (+ harness adapters)
-npx dreamteamer check     # validate every record
+npx dreamteamer check     # prove every record and every link is intact
 npx dreamteamer help      # the full command surface
 ```
 
-There is a VS Code extension — [dreamteamer-vscode](https://github.com/dreamteamer/dreamteamer-vscode) —
-which loads the engine **your workspace pins**, so the editor, the CLI and any agent session are
-provably running the same code.
+Apache-2.0. No server, no account, no telemetry.
 
-## Sources, and where they come from
+## Structured
 
-A module contributes collections, skills, agents, commands, command-bindings, UI views and
-collection templates. Modules are discovered over three channels, in precedence order: inline
-`modules/*`, then `git_modules/*`, then npm dependencies. Sources live **flat at a module root** —
-`modules/crm/skills/`, beside `package.json` — and an unknown folder at a module root is a compile
-error rather than a silent skip.
+A record is a file. That's the whole trick.
 
-## Attached repos (`repos`) vs modules (`git-modules`)
-
-Two different lifecycles, deliberately two different homes.
-
-**Modules** are declared in the workspace's `package.json` under `dreamteamer.git-modules` and
-restored by `dreamteamer install`. They MUST live in config rather than in records because of a
-genuine bootstrap ordering: a fresh clone has no `.dreamteamer`, therefore no compiled schemas,
-therefore no readable records — so module clones have to be restorable before anything can be read.
-
-**Attached repos** are `repos` records under `data/repos/`. They contribute NOTHING to the
-workspace — no schema, no skills, no UI. A repo record says only where a related git repo lives and
-how to get it, and exists so that domain collections can reference `repos/<id>` instead of each
-inventing its own url/ref/identity fields. Because they are not needed at compile time, they get to
-be data — which buys hard validation, the record CLI verbs, and history for free.
-
-Working trees are materialized **on demand**:
-
-```bash
-dreamteamer repos ensure <id>     # clone if missing, print the path; idempotent
-dreamteamer repos ensure --all    # explicit opt-in, e.g. before going offline
+```
+data/meetings/2026/07/kickoff.meeting.md
 ```
 
-`install` deliberately does not do this. The record count only grows while the fraction any given
-session needs only shrinks, so eager restore would make every fresh clone slow, would require every
-identity's credentials to be present at install time, and would let one unreachable remote fail the
-whole install. Lazy materialization fails only the action you asked for, at the moment you asked.
+```yaml
+---
+title: Kickoff
+date: 2026-07-14
+attendees: [contacts/ada, contacts/lin]
+project: projects/apollo
+---
+Ada walked through the constraints. Lin owns the spec by Friday.
+```
 
-Path resolution is `<repos-path>/<identity>/<name>`, where `repos-path` is a `package.json`
-`dreamteamer` key defaulting to `projects`, and `identity` is optional (omit it for
-`<repos-path>/<name>`). A record's `path` field overrides the derivation entirely.
+Your agent opens that file the way it opens any file. Nothing is intercepted, nothing is proxied,
+there is no API to learn.
 
-**`identity` is an opaque path segment to the engine.** A workspace may use it to select a git
-identity — via `~/.gitconfig` `includeIf` rules keyed on the path, for example — but that resolution
-happens outside the engine, which only joins it into a path.
+But `attendees` isn't a string — it's a link. `dreamteamer check` proves every one of them resolves,
+and renaming `contacts/ada` updates everything pointing at it. A write with an unknown field, a wrong
+type, or a reference to a record that doesn't exist is **rejected before it touches disk**.
 
-**A missing working tree is not a violation.** `dreamteamer check` does not and must not flag it: a
-reference to `repos/<id>` resolves because the RECORD exists, and whether the clone is on disk is
-irrelevant to referential integrity. Presence is reported by `dreamteamer status`.
+**A schema is an agreement about what things are called.** Shared terminology with guardrails — not a
+cage, because it stays negotiable. You change it by saying so:
 
-## Domain modules are recipes, not packages
+> *"From here on a client has a renewal date, and it's a date."*
 
-Anything domain-shaped — people, meetings, products, content — belongs in a module, and a generic
-version belongs in a recipe a workspace **copies and adapts**. They are deliberately not installable
-packages: four workspaces wanted a CRM and all four wanted a different `contacts`, so an import
-would force one answer and make every divergence a fork.
+That's a schema update and a data migration, and it's an **explicit, reviewable event** rather than
+silent drift. Once it exists you get the column in a table, the field in a form, validation, sorting
+and aggregation — all of it falling out of having said what the thing is.
+
+The shape of a record is deliberately dull, because dull is what survives:
+
+- records are `<id>.<suffix>.<ext>` files; **the id is the path** inside the collection folder
+- references are `<collection>/<id>` — always qualified, greppable, never a bare name
+- a write lands on disk; `dreamteamer commit` publishes it, one commit per repo
+- schemas are JSON Schema in a YAML file, one per collection
+
+## Modular
+
+**Data and skills are the new app structure.** A coding agent with the right skills over the right
+data is arbitrary functionality — but composing that with no module system is where most setups stall.
+
+So dreamteamer doesn't invent one. **It uses npm.**
+
+`node_modules` is battle-tested, universally adopted, and already sitting in nearly every
+coding-agent setup. A module contributes collections, skills, agents, commands, command-bindings and
+UI views — and skills and agents are treated as exactly what they are: **memory that loads into
+context**, living in the same module structure as everything else, in a standard your tooling already
+understands.
+
+Three channels, one shape:
+
+```
+modules/<name>/        # lives in this repo
+git_modules/<name>/    # lives in its own repo
+node_modules/<name>/   # published package
+```
+
+Precedence runs top to bottom, so a local copy shadows a published one — which is how you develop a
+module and use it in the same workspace at the same time.
+
+Sources live **flat at a module root** — `modules/crm/skills/`, beside `package.json` — and a folder
+at a module root that isn't a known kind is a compile error rather than a silent skip.
+
+### Modules are not rigid
+
+This is the part that differs from npm on purpose.
+
+Installing a module into a workspace that already has opinions — its own idea of what a `contact` is —
+is a **negotiation, not an overwrite**. Four workspaces wanted a CRM and all four wanted a different
+`contacts`. A hard import would force one answer and make every divergence a fork.
+
+Two same-name collections is a compile error that names both descriptors and tells you the move:
+declare `extends: <module>/<collection>` and overlay only what differs. Because every schema is one
+small YAML file, adapting is cheap — read it, change what doesn't fit, and the diff shows exactly what
+you agreed to.
+
+So domain modules are **recipes you copy and adapt, not packages you install**, and divergence is the
+normal case rather than a failure.
+
+## Every harness, one source
+
+`compile` writes `.dreamteamer/` — the single runtime read surface — and from there into per-harness
+adapters: Claude Code, Codex, Pi, Gemini CLI, Cursor. Author a skill once; every agent you run sees it.
+
+## The editor
+
+[dreamteamer-vscode](https://github.com/dreamteamer/dreamteamer-vscode) gives you tables, boards,
+calendars, maps, forms and a data-model designer over the same files — and it loads **the engine your
+workspace pins**, so the editor, the CLI and any agent session are provably running the same code.
+
+## Docs
+
+This is an agent-native tool, so its documentation is shipped as skills the agent loads on demand —
+and you can read them like any other file:
+
+- [`skills/using-dreamteamer`](skills/using-dreamteamer) — the map: collections, conventions, the CLI,
+  how records work
+- [`skills/building-dreamteamer`](skills/building-dreamteamer) — authoring: collections, skills,
+  agents, commands, UI views, and which of those a given request should become
+- [`docs/repos-and-modules.md`](docs/repos-and-modules.md) — attached repos vs modules, and why they
+  have different homes
+
+## What it isn't
+
+Not a database — records are files and git is the history. Not a cloud service — there is no server
+and no account. Not a note-taking app — it's the layer underneath one.
+
+And it is **not** for data that needs row-level access control, field-level encryption, or provable
+erasure. Git cannot do those, and pretending otherwise is how people get hurt. This is for
+human-scale structured knowledge: thousands of records, not millions.
 
 ## Contributing
 
 Issues are welcome. For anything larger than a typo, please open a discussion before a pull request —
-this is a small, deliberately lean codebase (`npm run metrics` enforces size budgets), and it's
-better to agree on the shape first.
+this is a small, deliberately lean codebase (`npm run metrics` enforces size budgets), and it's better
+to agree on the shape first.
 
 ## License
 
