@@ -14,7 +14,7 @@ import { unknownOperators } from './filter.js';
 // call at run time, same pattern as store.js ↔ compile.js.
 import { runHarnessAdapters } from './harnesses.js';
 import { satisfies } from './semver.js';
-import { readManifest, runtimeDir } from './runtime.js';
+import { DERIVED_KINDS, readManifest, runtimeDir } from './runtime.js';
 
 // re-exported, not moved: `readManifest` is in the VS Code extension's hand-maintained engine
 // contract as `compileMod.readManifest` (engine.ts), and a removed export is the same cross-repo
@@ -85,13 +85,10 @@ function refTargets(schema, prefix = '') {
 
 export const KINDS = ['collections', 'skills', 'agents', 'commands', 'command-bindings', 'ui-views', 'collection-templates'];
 const FOLDER_KINDS = new Set(['skills']); // folder-shape entities: copy the whole record folder
-/**
- * Runtime kinds compile PROJECTS rather than stages. Not in KINDS on purpose: a module folder named
- * `modules/` would be nonsense, and `isSystem` below keys off KINDS to decide `storage.base` — a
- * `modules` collection landing on `base: workspace` would point the store at the SOURCE directory
- * and read every module folder as a record. Separate list, separate meaning.
- */
-export const DERIVED_KINDS = ['modules'];
+// DERIVED_KINDS (projected, not staged) lives in runtime.js — the boundary both halves read. Not in
+// KINDS on purpose: a module folder named `modules/` would be nonsense, and `isSystem` below keys
+// off KINDS to decide `storage.base`, so a `modules` collection landing on `base: workspace` would
+// point the store at the SOURCE directory and read every module folder as a record.
 
 /**
  * A module's source folder for one kind. The layout is FLAT — `<module>/skills`, beside `data/` —
