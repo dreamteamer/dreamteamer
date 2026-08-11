@@ -11,7 +11,7 @@ import { dump } from './yaml.js';
 import { generateId } from './template.js';
 import { parseRecord, parseRecordText, patternRe, fmtAjvError, unknownFields, walk, EXT, assertSafeId } from './records.js';
 import { normalizeRecord } from './temporal.js';
-import { DERIVED_KINDS, NO_RUNTIME, loadDescriptors, runtimeDir, sourceRoots as compiledSourceRoots } from './runtime.js';
+import { NO_RUNTIME, sourceHint, loadDescriptors, runtimeDir, sourceRoots as compiledSourceRoots } from './runtime.js';
 
 // git calls whose failure we CATCH must not print git's own error: execFileSync forwards the
 // child's stderr to ours unless told otherwise, so a handled "not a git repository" still
@@ -51,9 +51,7 @@ export class Store {
 			// under `modules/<module>/<kind>/`, while a PROJECTED one (modules) has no such folder
 			// and never should — its source is the module's package.json. `x-source` says which,
 			// stated as data on the descriptor so the store never has to know what a module is.
-			const from = DERIVED_KINDS.includes(d.storage.path)
-				? "the source it was projected from (for `modules`, the module's package.json)"
-				: `the file under the owning module (modules/<module>/${d.storage.path}/)`;
+			const from = sourceHint(d);
 			throw new Error(`"${collection}" records are compiled sources — edit ${from} and run \`dreamteamer compile\``);
 		}
 		return d;

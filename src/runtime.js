@@ -24,6 +24,19 @@ export const RUNTIME_DIR = '.dreamteamer';
  */
 export const DERIVED_KINDS = ['modules'];
 
+/**
+ * Where a human edits a compiled collection, as one sentence. ONE definition, because there are two
+ * consumers who must never drift: the store's refusal (`dt modules set …`) and the presentation
+ * projection the UI reads to explain a disabled button. This repo's own history is the argument —
+ * `git log`/`git diff` and the `?sort=` comparator were each hand-copied into the extension and
+ * went wrong in both places.
+ */
+export function sourceHint(d) {
+	return DERIVED_KINDS.includes(d?.storage?.path)
+		? "the source it was projected from (for `modules`, the module's package.json)"
+		: `the file under the owning module (modules/<module>/${d?.storage?.path}/)`;
+}
+
 /** One message, two callers with different manners: the store throws it, `check` prints it. */
 export const NO_RUNTIME = 'no compiled runtime — run `dreamteamer compile` first';
 

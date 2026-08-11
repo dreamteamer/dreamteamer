@@ -5,6 +5,8 @@
 // the client adapter shrinks to a thin path translator. shapes deliberately match what
 // the studio components already speak (field {field,type,meta,schema}).
 
+import { sourceHint } from './runtime.js';
+
 /** the projection for every collection: rows keyed by collection name + collection meta. */
 export function presentation(descriptors) {
 	const collections = [];
@@ -60,7 +62,16 @@ function collectionRow(d) {
 	if (typeof d.icon === 'string') meta.icon = d.icon;
 	if (typeof d.group === 'string') meta.group = d.group;
 	if (typeof d.description === 'string' && d.description.length > 0) meta.description = d.description;
-	return { collection: d.name, meta, system: d.storage?.base === 'runtime' };
+	// A compiled collection is READ-ONLY through the record layer, and the UI needs to say so
+	// BEFORE offering a button — an error after the click is a worse answer than a disabled
+	// control with a reason. The sentence comes from runtime.js so the store's refusal and this
+	// hint can never disagree.
+	const system = d.storage?.base === 'runtime';
+	if (system) {
+		meta.readonly = true;
+		meta.readonly_hint = sourceHint(d);
+	}
+	return { collection: d.name, meta, system };
 }
 
 function referenceTargetOf(prop) {
