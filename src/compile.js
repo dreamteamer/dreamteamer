@@ -100,7 +100,8 @@ function bothLayouts(root, kind) {
  * has `data/` — not a layout knob every module would set identically.
  */
 const NON_SOURCE_DIRS = new Set([
-	'node_modules', 'data', 'state', 'media', 'bin', 'src', 'lib', 'scripts', 'studio',
+	'node_modules', 'data', 'state', 'media', 'bin', 'src', 'lib', 'scripts',
+	'ui', 'studio', // the module's UI bundle — 'studio' is the pre-archive name, kept as a fallback
 	'docs', 'dist', 'build', 'test', 'tests', 'coverage', 'system', // 'system': the pre-flatten layout
 ]);
 
@@ -357,23 +358,21 @@ export function compile({ root, pkg }) {
 		}
 	}
 
-	// A module that ships only folders the engine does not recognise compiles ✔ and contributes
-	// NOTHING. Warn; do not fail, since a module that is temporarily source-free is the
-	// operator's business, not the compiler's.
-	for (const source of sources) {
-		if (contributed.has(source.name)) continue;
-		console.warn(`⚠ module "${source.name}" (${rel(source.root)}) contributed no recognised sources — its folder names must match a known kind (${KINDS.join(', ')})`);
-	}
-
 	// ---- stage module UI bundles ---------------------------------------------------
-	// modules ship a PRE-BUILT app.js that registers components/layouts against the studio
+	// modules ship a PRE-BUILT app.js that registers components/layouts against the surface's
 	// registry (design "the UI": components are module code, never records). staged under
-	// .dreamteamer/ui/<module>/app.js; the server serves /ui, the studio imports and calls it.
-	// studio/dist/app.js (a built bundle) wins over studio/app.js (plain-JS, host-provided Vue).
+	// .dreamteamer/ui/<module>/app.js; the VS Code extension reads it off disk (decision 48) and
+	// the legacy server served it at /ui. `dist/app.js` (a built bundle) wins over `app.js`
+	// (plain-JS, host-provided Vue).
+	//
+	// `ui/` is the name — it matches where the bundle STAGES and what it is. `studio/` is the
+	// original name and stays a fallback: the studio it referred to is archived (decisions 51, 93),
+	// so the folder was named after a surface that no longer exists. Both are in NON_SOURCE_DIRS,
+	// so neither trips the unknown-folder gate (decision 179).
 	const uiModules = [];
 	const uiOwners = new Map(); // shortName -> module name, for a readable collision error
 	for (const source of sources) {
-		const cand = ['studio/dist/app.js', 'studio/app.js']
+		const cand = ['ui/dist/app.js', 'ui/app.js', 'studio/dist/app.js', 'studio/app.js']
 			.map((p) => path.join(source.root, p))
 			.find((p) => fs.existsSync(p));
 		if (!cand) continue;
@@ -386,6 +385,18 @@ export function compile({ root, pkg }) {
 		uiOwners.set(shortName, source.name);
 		addEntry(path.join('ui', shortName, 'app.js'), cand);
 		uiModules.push(shortName);
+		// A UI bundle IS a contribution. Counting it here is what keeps the warning below honest —
+		// a module whose whole purpose is a layout used to be told it "contributed no recognised
+		// sources" while its layout was rendering in the app.
+		contributed.add(source.name);
+	}
+
+	// A module that ships only folders the engine does not recognise compiles ✔ and contributes
+	// NOTHING. Warn; do not fail, since a module that is temporarily source-free is the
+	// operator's business, not the compiler's. Runs AFTER UI staging so a UI-only module counts.
+	for (const source of sources) {
+		if (contributed.has(source.name)) continue;
+		console.warn(`⚠ module "${source.name}" (${rel(source.root)}) contributed no recognised sources — its folder names must match a known kind (${KINDS.join(', ')}) or it must ship a UI bundle at ui/app.js`);
 	}
 
 	// ---- collection-templates, for `templates:` merging ----------------------------
@@ -512,29 +523,27 @@ export function compile({ root, pkg }) {
 	}
 
 	// ---- ui-view layout validation --------------------------------------------------
-	// layouts are registered module code; a view naming an unregistered layout fails loudly
-	// naming the registered set (design guardrail: "unknown layout = compile error").
-	// core set = the studio's built-ins; modules declare theirs in package.json
-	// dreamteamer.studio.layouts (the same file their app.js registration lives beside).
-	// KEEP IN SYNC with the UI's `lists.register(...)` calls (dreamteamer-vscode
-	// webview/src/registry/register-defaults.ts). kanban/calendar/map landed there as core Lists in
-	// the 2026-07-27 layouts wave but this set was never widened, so the only way to get a
-	// `layout: kanban` view past compile was for a module to CLAIM the layout it didn't own — which
-	// is what a workspace module was once caught doing, shadowing the core board in the registry (a
-	// module's app.js loads after the built-ins and Map.set wins). Fixed both ends 2026-07-29.
-	const registeredLayouts = new Set(['table', 'cards', 'kanban', 'calendar', 'map']);
-	for (const source of sources) {
-		try {
-			const mpkg = JSON.parse(fs.readFileSync(path.join(source.root, 'package.json'), 'utf8'));
-			for (const l of mpkg.dreamteamer?.studio?.layouts ?? []) registeredLayouts.add(l);
-		} catch { /* root-workspace source without package.json */ }
-	}
+	// ⚠ `layout` is NOT validated here, deliberately. The rule: the engine validates a value if and
+	// only if the ENGINE INTERPRETS it. It interprets filter operators (`matchesFilter`, and the
+	// CLI's `--where`), so a typo'd operator is a real bug it can catch — hence the check below.
+	// It interprets `layout` nowhere: the value is opaque payload forwarded to whichever surface
+	// renders, and only that surface's registry knows which ids exist.
+	//
+	// There used to be an allowlist here, hardcoded to mirror dreamteamer-vscode's
+	// `lists.register(...)` calls in a DIFFERENT REPO. It was wrong both times it was tested:
+	// kanban/calendar/map (2026-07-29) and erd/graph (2026-08-10), each costing an engine edit to
+	// add a UI feature. Worse, it BLOCKED the sanctioned extension path — a module's `app.js` gets
+	// a `registerList({ id, ... })` API, so it can contribute a layout with no engine involvement,
+	// and this check then rejected the very view naming it unless the module also duplicated the id
+	// into a `dreamteamer.studio.layouts` key (zero users, in any repo, ever). Proven 2026-08-11 by
+	// modules/ui-smoke: the layout rendered in the app while compile refused the view.
+	//
+	// The descriptor already documented the correct behaviour — ui-views.collection.yaml: "An
+	// unregistered id degrades visibly rather than erroring" — and the surface already implements
+	// it (presets.ts#resolveRendererEntry falls back to table). Decision 195.
 	for (const [rt, e] of entries) {
 		if (!rt.startsWith('ui-views/')) continue;
 		const view = load(e.bytes.toString('utf8'));
-		if (view?.target === 'list' && view?.layout && !registeredLayouts.has(view.layout)) {
-			fail(`${rt}: layout "${view.layout}" is not registered (registered: ${[...registeredLayouts].sort().join(', ')}).\n  a module registers layouts in its studio app.js AND declares them in package.json under dreamteamer.studio.layouts.`);
-		}
 		// filters are load-bearing (they narrow what the operator SEES) — typo'd operators
 		// fail at compile, not silently at render (review finding 5)
 		const badOps = view?.filter ? [...unknownOperators(view.filter)] : [];
