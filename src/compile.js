@@ -64,6 +64,24 @@ function staleDisplayKeywords(schema, prefix = '') {
 	return out;
 }
 
+/**
+ * Every `x-reference` in a schema, as `[fieldPath, target]` — the same traversal check.js uses to
+ * resolve refs in records, here to verify the SHAPE against the module dependency graph. Nested
+ * objects and array items both carry the keyword, so both are walked.
+ */
+function refTargets(schema, prefix = '') {
+	const out = [];
+	for (const [key, prop] of Object.entries(schema?.properties ?? {})) {
+		if (!prop || typeof prop !== 'object') continue;
+		const at = `${prefix}${key}`;
+		if (prop['x-reference']) out.push([at, prop['x-reference']]);
+		if (prop.items && typeof prop.items === 'object' && prop.items['x-reference']) out.push([`${at}[]`, prop.items['x-reference']]);
+		if (prop.properties) out.push(...refTargets(prop, `${at}.`));
+		if (prop.items?.properties) out.push(...refTargets(prop.items, `${at}[].`));
+	}
+	return out;
+}
+
 export const KINDS = ['collections', 'skills', 'agents', 'commands', 'command-bindings', 'ui-views', 'collection-templates'];
 const FOLDER_KINDS = new Set(['skills']); // folder-shape entities: copy the whole record folder
 
@@ -238,6 +256,8 @@ export function compile({ root, pkg }) {
 	const engineVer = engineVersion();
 	const declaredEnv = new Map(); // env key -> [module names]
 	const moduleIgnores = new Map(); // module name -> non-source folders it declares (strayKindDirs)
+	const moduleDeps = new Map();  // module name -> [module names]      — HARD, must be acyclic
+	const modulePeers = new Map(); // module name -> [collection names]  — SOFT, cannot cycle
 	for (const source of sources) {
 		let mpkg;
 		try { mpkg = JSON.parse(fs.readFileSync(path.join(source.root, 'package.json'), 'utf8')); } catch { continue; }
@@ -245,6 +265,16 @@ export function compile({ root, pkg }) {
 		if (ignore !== undefined) {
 			if (!Array.isArray(ignore)) fail(`module "${source.name}": "ignore" must be a list of folder names (got ${JSON.stringify(ignore)})`);
 			moduleIgnores.set(source.name, ignore.map(String));
+		}
+		// npm's TERMINOLOGY, deliberately not npm's namespace: these live under `dreamteamer` so
+		// npm's own resolver never tries to fetch an inline or git-channel module.
+		for (const [key, sink] of [['dependencies', moduleDeps], ['peerDependencies', modulePeers]]) {
+			const decl = mpkg.dreamteamer?.[key];
+			if (decl === undefined) continue;
+			if (!Array.isArray(decl) || decl.some((v) => typeof v !== 'string')) {
+				fail(`module "${source.name}": dreamteamer.${key} must be a list of ${key === 'dependencies' ? 'module names' : 'collection names'} (got ${JSON.stringify(decl)})`);
+			}
+			sink.set(source.name, decl);
 		}
 		const range = mpkg.dreamteamer?.engine;
 		if (range) {
@@ -273,6 +303,36 @@ export function compile({ root, pkg }) {
 				for (const mod of mods) console.warn(`⚠ module ${mod} declares env key ${k} — missing from .env (see .env.example)`);
 			}
 		}
+	}
+
+	// ---- the module dependency graph -------------------------------------------------
+	// `dependencies` names MODULES and must be acyclic. `peerDependencies` names COLLECTIONS and
+	// therefore cannot cycle at all — which is the whole reason it exists: two modules that each
+	// reference a concept the other owns (crm needs `products`, rnd needs `contacts`) would be an
+	// unbreakable ring under module-named deps, and are two independent peer declarations here.
+	const moduleNames = new Set(sources.map((s) => s.name));
+	for (const [mod, deps] of moduleDeps) {
+		for (const dep of deps) {
+			if (dep === mod) fail(`module "${mod}" declares itself as a dependency`);
+			if (!moduleNames.has(dep)) {
+				fail(`module "${mod}" depends on "${dep}", which is not installed — modules present: ${[...moduleNames].sort().join(', ')}`);
+			}
+		}
+	}
+	// DFS with an explicit path so the error can print the ring rather than just naming one module
+	{
+		const state = new Map(); // name -> 'open' | 'done'
+		const visit = (mod, trail) => {
+			if (state.get(mod) === 'done') return;
+			if (state.get(mod) === 'open') {
+				const ring = [...trail.slice(trail.indexOf(mod)), mod];
+				fail(`cyclic module dependencies: ${ring.join(' → ')}\n  a reference to a CONCEPT another module owns belongs in dreamteamer.peerDependencies (a collection name), which cannot cycle.`);
+			}
+			state.set(mod, 'open');
+			for (const dep of moduleDeps.get(mod) ?? []) visit(dep, [...trail, mod]);
+			state.set(mod, 'done');
+		};
+		for (const mod of moduleDeps.keys()) visit(mod, []);
 	}
 
 	const dataOwners = dataOwningModules(sources, fail, rel);
@@ -413,6 +473,24 @@ export function compile({ root, pkg }) {
 		templateDocs.set(m[1], { template: doc.template ?? {}, src: entry.sources[0] });
 	}
 
+	// ---- who owns which collection, and which module IS the workspace ----------------
+	// Needed before the resolution loop so each descriptor can be validated against the graph as it
+	// is merged. The owner is the group member that does NOT declare `extends`; a group with two of
+	// those is a name collision, and the loop below raises it properly — this pass only maps.
+	const collOwner = new Map(); // collection name -> owning module name
+	for (const [name, group] of descriptorGroups) {
+		const base = group.find((g) => !g.doc.extends);
+		if (base) collOwner.set(name, base.moduleName);
+	}
+	// The engine's own nine collections are an implicit dependency of every module: seven entity
+	// kinds plus the two the compiler materializes. Requiring every module to declare a dependency
+	// on the host it cannot run without would be ceremony, not verification.
+	const CORE_COLLECTIONS = new Set([...KINDS, 'users', 'repos']);
+	const wsDir = config['workspace-module'];
+	const wsModuleName = wsDir
+		? sources.find((s) => rel(s.root) === path.join('modules', wsDir))?.name
+		: pkg.name;
+
 	// ---- resolve descriptor groups (templates + extends merge) ---------------------
 	counts.collections = 0;
 	let mergedCount = 0;
@@ -447,6 +525,11 @@ export function compile({ root, pkg }) {
 			const expected = `${base.moduleName}/${name}`;
 			if (ext.doc.extends !== expected) {
 				fail(`${ext.src.path}: extends "${ext.doc.extends}" does not name the base "${expected}"`);
+			}
+			// `extends` is the hardest dependency there is — the extender does not compile at all
+			// without the base (see the "no base found" failure above), so it must say so.
+			if (ext.moduleName !== base.moduleName && !(moduleDeps.get(ext.moduleName) ?? []).includes(base.moduleName)) {
+				fail(`${ext.src.path}: extends "${expected}" but module "${ext.moduleName}" does not declare "${base.moduleName}" in dreamteamer.dependencies — an overlay cannot compile without its base.`);
 			}
 			merged = mergeDescriptor(merged, ext.doc);
 		}
@@ -487,6 +570,39 @@ export function compile({ root, pkg }) {
 		} catch (e) {
 			fail(`collection "${name}": schema is not a valid JSON Schema — ${e.message} (${group.map((g) => g.src.path).join(', ')})`);
 		}
+		// ---- the reference contract: every target is owned, depended on, or declared a peer ----
+		// Attribution is unioned across the whole group rather than taken from the base, because the
+		// merge keeps no per-field provenance — an overlay that adds a ref field would otherwise be
+		// judged against the BASE module's declarations, which it never wrote.
+		const groupModules = [...new Set(group.map((g) => g.moduleName))];
+		const declaredDeps = new Set(groupModules.flatMap((m) => moduleDeps.get(m) ?? []));
+		const declaredPeers = new Set(groupModules.flatMap((m) => modulePeers.get(m) ?? []));
+		const owns = (t) => groupModules.includes(collOwner.get(t));
+		for (const [at, target] of refTargets(merged.schema)) {
+			if (target === '*') {
+				// The workspace module is the orchestrating parent and may reference anything —
+				// including modules that do not exist yet, which is what `tasks.item` means.
+				// Anywhere else a wildcard is a cross-module surface no declaration can cover.
+				if (!groupModules.includes(wsModuleName)) {
+					console.warn(`⚠ collection ${name}: field "${at}" uses x-reference: '*' outside the workspace module — an unverifiable cross-module surface; name the collections it may target`);
+				}
+				continue;
+			}
+			if (CORE_COLLECTIONS.has(target) || owns(target)) continue;
+			const owner = collOwner.get(target);
+			if (owner && declaredDeps.has(owner)) continue;
+			if (declaredPeers.has(target)) continue;
+			const fix = owner
+				? `add "${owner}" to dreamteamer.dependencies, or "${target}" to dreamteamer.peerDependencies if the module should work without it`
+				: `add "${target}" to dreamteamer.peerDependencies — no installed module provides it`;
+			fail(`collection "${name}": field "${at}" references "${target}", which ${groupModules.join('/')} neither owns nor declares.\n  ${fix}.`);
+		}
+		// Declared peers that nothing provides, stated as DATA on the descriptor so `check` can
+		// excuse their references without learning what a module is (the `storage.base` precedent —
+		// check.js is in the record layer and must not know modules exist).
+		const unresolved = [...declaredPeers].filter((p) => !collOwner.has(p)).sort();
+		if (unresolved.length) merged.unresolved_peers = unresolved;
+
 		// ---- resolved labels: what to CALL this collection, its records and its fields --------
 		// Written into the artifact next to `storage.base` and for the same reason: the nav, the
 		// browse page, the CLI and the extension then read ONE field instead of each carrying its
