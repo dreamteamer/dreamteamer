@@ -74,10 +74,12 @@ export function check({ root }) {
 	// parsed fields, kept for the symmetric-ref pass below (parse each record exactly once)
 	const parsed = new Map();
 	const inverseRules = [];   // [collection, fieldPath, targetCollection, inverseField]
+	const softRefs = new Map(); // absent-but-declared peer collection -> how many refs point at it
 
 	for (const [name, d] of descriptors) {
 		const validate = ajv.compile(d.schema);
 		const refFields = collectRefFields(d.schema);
+		const softTargets = d.unresolved_peers ? new Set(d.unresolved_peers) : null;
 		const bodyField = Object.entries(d.schema.properties ?? {}).find(([, s]) => s?.['x-body'])?.[0];
 		parsed.set(name, new Map());
 		for (const [fieldPath, target, inverse] of refFields) {
@@ -103,7 +105,7 @@ export function check({ root }) {
 			}
 			for (const [fieldPath, target] of refFields) {
 				for (const value of valuesAt(fields, fieldPath)) {
-					checkRef(file, fieldPath, value, target);
+					checkRef(file, fieldPath, value, target, softTargets);
 				}
 			}
 			parsed.get(name).set(id, fields);
@@ -132,7 +134,7 @@ export function check({ root }) {
 		}
 	}
 
-	function checkRef(file, fieldPath, value, target) {
+	function checkRef(file, fieldPath, value, target, softTargets) {
 		if (typeof value !== 'string') return;
 		if (value.startsWith('@')) return; // runtime tokens (@me, @initiator) are legal
 		const slash = value.indexOf('/');
@@ -142,13 +144,28 @@ export function check({ root }) {
 		if (target !== '*' && coll !== target) {
 			return flag(file, `${fieldPath.join('.')}: reference "${value}" should target collection "${target}"`);
 		}
-		if (!descriptors.has(coll)) return flag(file, `${fieldPath.join('.')}: reference "${value}" targets unknown collection "${coll}"`);
+		if (!descriptors.has(coll)) {
+			// A collection the owning module DECLARED as a peer and nothing installed provides is the
+			// normal state of a module opened on its own — the reference is unresolvable, not wrong.
+			// `unresolved_peers` is stamped by compile so this layer never has to know what a module
+			// is (see the record/workspace split in CLAUDE.md).
+			if (softTargets?.has(coll)) {
+				softRefs.set(coll, (softRefs.get(coll) ?? 0) + 1);
+				return;
+			}
+			return flag(file, `${fieldPath.join('.')}: reference "${value}" targets unknown collection "${coll}"`);
+		}
 		if (!index.get(coll).has(id)) return flag(file, `${fieldPath.join('.')}: dangling reference "${value}" — no such record`);
 	}
 
 	// ---- report ----------------------------------------------------------------------
 	for (const s of strays) {
 		console.log(`⚠ ${s.file} — unrecognized file in ${s.collection} folder${s.note ? ` (${s.note})` : ''}`);
+	}
+	// Warned, never silent: the references are real and currently resolve to nothing. This is the
+	// expected reading when a module is opened without the workspace that provides the concept.
+	for (const [coll, n] of [...softRefs].sort()) {
+		console.log(`⚠ peer collection "${coll}" is declared but not installed — ${n} reference${n === 1 ? '' : 's'} unresolvable`);
 	}
 	if (violations.length === 0) {
 		console.log(`✔ 0 violations (${[...index.values()].reduce((n, m) => n + m.size, 0)} records across ${descriptors.size} collections)`);
