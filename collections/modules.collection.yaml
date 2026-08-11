@@ -1,0 +1,75 @@
+name: modules
+# The modules this workspace compiled, PROJECTED by compile from what it discovered — the first
+# derived collection in core, and the shape is deliberate enough to name.
+#
+# Every other runtime-stored collection (skills, commands, ui-views…) is STAGED from a module's
+# source folder and read back by the engine. This one is neither: `package.json` stays the source of
+# truth and compile keeps reading it, so a record here is a projection, never an input. Editing one
+# would be editing a photograph.
+#
+# Why it earns a place anyway, against the three questions:
+#   1. Does the ENGINE read it? It reads the DATA, which is the test that matters. `dependencies`
+#      names modules and is checked for cycles; `peerDependencies` names collections and is what
+#      lets a cross-module reference compile at all (compile.js — "cyclic module dependencies",
+#      "an overlay cannot compile without its base"). This is enforced structure, not annotation.
+#   2. Recipe creeping into core? No. A module is the engine's own concept.
+#   3. Could a module do it instead? No — nothing inside a module can enumerate the module set.
+#
+# What it buys is the thing a `group:` label cannot express: EDGES. A group is a partition; a
+# dependency is a relation, and it has two kinds that mean different things. Once it is a
+# collection, the browse, the diagram, `dt modules list` and the nav all work with no code written
+# for any of them.
+storage: { path: modules, codec: yaml, shape: file, suffix: module }
+id:
+  generate: "{{ name | slug }}"
+  pattern: "^[a-z0-9-]+$"
+title_template: "{{ name }}"
+schema:
+  type: object
+  required: [name, channel]
+  properties:
+    name:
+      type: string
+      description: The module's package name, verbatim — `@dreamteamer/crm`, `hq3-workspace`.
+    channel:
+      type: string
+      enum: [path, git, npm, inline]
+      description: How this module reached the workspace. `inline` is the workspace's own sources.
+    path:
+      type: string
+      description: Workspace-relative root of the module's sources.
+    owns_data:
+      type: boolean
+      description: >-
+        The module keeps its records in its OWN clone rather than this workspace's data/ — so a
+        write there commits in that repo, and a rename spanning both is unavoidably two commits.
+    dependencies:
+      type: array
+      description: >-
+        Modules this one cannot compile without — an overlay needs its base. HARD and acyclic;
+        compile fails on a ring and names the peer escape hatch.
+      items:
+        type: string
+        x-reference: modules
+    peer_dependencies:
+      type: array
+      description: >-
+        Collections this module REFERENCES but does not own. Soft on purpose: naming a concept
+        rather than a module is what keeps two modules from forming a ring, and what lets a module
+        ship an unused reference without dragging in a whole CRM.
+      items:
+        type: string
+        x-reference: collections
+    collections:
+      type: array
+      description: >-
+        Collections this module contributed a source for. A collection merged from several modules
+        appears under EVERY one of them — which is the honest answer the flat "which module owns
+        this" provenance could not give (it took the first source and dropped the overlay).
+      items:
+        type: string
+        x-reference: collections
+order: 140
+list_fields: [name, channel, path, collections]
+icon: deployed_code
+group: system

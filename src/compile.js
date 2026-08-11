@@ -7,6 +7,7 @@ import path from 'node:path';
 import Ajv from 'ajv';
 import addFormats from 'ajv-formats';
 import { load, dump } from './yaml.js';
+import { slug } from './template.js';
 import { walk } from './records.js';
 import { unknownOperators } from './filter.js';
 // circular on paper in earlier versions — safe: both sides only
@@ -84,6 +85,13 @@ function refTargets(schema, prefix = '') {
 
 export const KINDS = ['collections', 'skills', 'agents', 'commands', 'command-bindings', 'ui-views', 'collection-templates'];
 const FOLDER_KINDS = new Set(['skills']); // folder-shape entities: copy the whole record folder
+/**
+ * Runtime kinds compile PROJECTS rather than stages. Not in KINDS on purpose: a module folder named
+ * `modules/` would be nonsense, and `isSystem` below keys off KINDS to decide `storage.base` — a
+ * `modules` collection landing on `base: workspace` would point the store at the SOURCE directory
+ * and read every module folder as a record. Separate list, separate meaning.
+ */
+export const DERIVED_KINDS = ['modules'];
 
 /**
  * A module's source folder for one kind. The layout is FLAT — `<module>/skills`, beside `data/` —
@@ -478,6 +486,7 @@ export function compile({ root, pkg }) {
 	// is merged. The owner is the group member that does NOT declare `extends`; a group with two of
 	// those is a name collision, and the loop below raises it properly — this pass only maps.
 	const collOwner = new Map(); // collection name -> owning module name
+	const moduleColls = new Map(); // module name -> Set(collection names it contributed to)
 	for (const [name, group] of descriptorGroups) {
 		const base = group.find((g) => !g.doc.extends);
 		if (base) collOwner.set(name, base.moduleName);
@@ -485,7 +494,7 @@ export function compile({ root, pkg }) {
 	// The engine's own nine collections are an implicit dependency of every module: seven entity
 	// kinds plus the two the compiler materializes. Requiring every module to declare a dependency
 	// on the host it cannot run without would be ceremony, not verification.
-	const CORE_COLLECTIONS = new Set([...KINDS, 'users', 'repos']);
+	const CORE_COLLECTIONS = new Set([...KINDS, ...DERIVED_KINDS, 'users', 'repos']);
 	const wsDir = config['workspace-module'];
 	const wsModuleName = wsDir
 		? sources.find((s) => rel(s.root) === path.join('modules', wsDir))?.name
@@ -547,7 +556,8 @@ export function compile({ root, pkg }) {
 		merged.storage ??= {};
 		const owned = dataOwners.get(storageOwnerOf(group, base));
 		const storagePath = String(merged.storage.path ?? '');
-		const isSystem = KINDS.includes(storagePath) || KINDS.includes(storagePath.replace(/^system\//, ''));
+		const systemKinds = [...KINDS, ...DERIVED_KINDS];
+		const isSystem = systemKinds.includes(storagePath) || systemKinds.includes(storagePath.replace(/^system\//, ''));
 		merged.storage.base = isSystem ? 'runtime' : 'workspace';
 		if (owned && !isSystem) {
 			const modRel = rel(owned.root);
@@ -575,6 +585,12 @@ export function compile({ root, pkg }) {
 		// merge keeps no per-field provenance — an overlay that adds a ref field would otherwise be
 		// judged against the BASE module's declarations, which it never wrote.
 		const groupModules = [...new Set(group.map((g) => g.moduleName))];
+		// EVERY contributing module, not just the base — a collection merged from crm + hq3 belongs
+		// to both, and saying otherwise is what made a flat "which module owns this" field wrong.
+		for (const m of groupModules) {
+			if (!moduleColls.has(m)) moduleColls.set(m, new Set());
+			moduleColls.get(m).add(name);
+		}
 		const declaredDeps = new Set(groupModules.flatMap((m) => moduleDeps.get(m) ?? []));
 		const declaredPeers = new Set(groupModules.flatMap((m) => modulePeers.get(m) ?? []));
 		const owns = (t) => groupModules.includes(collOwner.get(t));
@@ -621,6 +637,61 @@ export function compile({ root, pkg }) {
 		entries.set(rt, { sources: [...group.map((g) => g.src), ...templateSources], bytes: Buffer.from(dump(merged)) });
 		counts.collections++;
 		if (extenders.length) mergedCount++;
+	}
+
+	// ---- modules, projected ---------------------------------------------------------
+	// One record per discovered module, written from what discovery and the package pass already
+	// established. `package.json` remains the source of truth and compile keeps reading it — this
+	// is a photograph, never an input (see collections/modules.collection.yaml for why it earns a
+	// place in core at all).
+	//
+	// The id strips an npm scope so `@dreamteamer/crm` reads as `crm`, which is what every message
+	// in this engine already calls it. A collision is a hard failure rather than a silent overwrite:
+	// two modules answering to one id would make `dependencies` ambiguous, and an ambiguous edge is
+	// worse than no diagram.
+	const moduleId = (n) => slug(String(n).replace(/^@[^/]+\//, ''));
+	const idByModule = new Map();
+	for (const source of sources) {
+		const id = moduleId(source.name);
+		const clash = idByModule.get(id);
+		if (clash && clash !== source.name) fail(`modules "${clash}" and "${source.name}" both resolve to the id "${id}" — rename one.`);
+		idByModule.set(id, source.name);
+	}
+	for (const source of sources) {
+		const id = moduleId(source.name);
+		let mpkg = {};
+		try { mpkg = JSON.parse(fs.readFileSync(path.join(source.root, 'package.json'), 'utf8')).dreamteamer ?? {}; } catch { /* inline workspace source */ }
+		const record = {
+			name: source.name,
+			channel: source.channel,
+			path: rel(source.root) || '.',
+			...(mpkg['owns-data'] === true ? { owns_data: true } : {}),
+			// Declared module names become record IDS here, because that is what an x-reference
+			// resolves against. An undeclared/unknown name would dangle, and `check` would say so —
+			// but compile has already failed on that case (the acyclicity pass resolves every one).
+			// ⚠ A reference VALUE is `<collection>/<id>`, never a bare id — `check` rejects the bare
+			// form, which is exactly what it did to the first pass of this projection (63 violations).
+			...(moduleDeps.get(source.name)?.length
+				? { dependencies: moduleDeps.get(source.name).map((n) => `modules/${moduleId(n)}`) }
+				: {}),
+			...(modulePeers.get(source.name)?.length
+				? { peer_dependencies: modulePeers.get(source.name).map((c) => `collections/${c}`) }
+				: {}),
+			...(moduleColls.get(source.name)?.size
+				? { collections: [...moduleColls.get(source.name)].sort().map((c) => `collections/${c}`) }
+				: {}),
+		};
+		const bytes = Buffer.from(dump(record));
+		// ⚠ The source hash is the hash of the SOURCE FILE, not of the projected record. Hashing the
+		// output made every source "differ" on the next run, so `staleness` reported the workspace
+		// stale immediately after a clean compile — the one signal that has to stay trustworthy.
+		const pkgPath = path.join(source.root, 'package.json');
+		const pkgBytes = fs.existsSync(pkgPath) ? fs.readFileSync(pkgPath) : bytes;
+		entries.set(path.join('modules', `${id}.module.yaml`), {
+			sources: [{ path: rel(pkgPath), hash: sha256(pkgBytes) }],
+			bytes,
+		});
+		counts.modules = (counts.modules ?? 0) + 1;
 	}
 
 	// ---- unresolved references are compile errors (an agent's declared skills)
