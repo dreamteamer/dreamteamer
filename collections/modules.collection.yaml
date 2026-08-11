@@ -31,6 +31,12 @@ schema:
     name:
       type: string
       description: The module's package name, verbatim — `@dreamteamer/crm`, `hq3-workspace`.
+    title:
+      type: string
+      description: >-
+        What to CALL this module — authored as `dreamteamer.title` in its package.json, else derived
+        from the id. Authored because deriving cannot know an acronym: titleCase("crm") is "Crm".
+        A module names itself, which is what replaces a display-name map maintained in a surface.
     channel:
       type: string
       enum: [path, git, npm, inline]
@@ -70,6 +76,6 @@ schema:
         type: string
         x-reference: collections
 order: 140
-list_fields: [name, channel, path, collections]
+list_fields: [title, name, channel, collections]
 icon: deployed_code
 group: system

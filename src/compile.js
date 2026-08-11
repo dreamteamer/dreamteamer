@@ -482,6 +482,9 @@ export function compile({ root, pkg }) {
 	// Needed before the resolution loop so each descriptor can be validated against the graph as it
 	// is merged. The owner is the group member that does NOT declare `extends`; a group with two of
 	// those is a name collision, and the loop below raises it properly — this pass only maps.
+	// A module's record id: the npm scope stripped, so `@dreamteamer/crm` reads as `crm` — which is
+	// what every message in this engine already calls it.
+	const moduleId = (n) => slug(String(n).replace(/^@[^/]+\//, ''));
 	const collOwner = new Map(); // collection name -> owning module name
 	const moduleColls = new Map(); // module name -> Set(collection names it contributed to)
 	for (const [name, group] of descriptorGroups) {
@@ -582,6 +585,17 @@ export function compile({ root, pkg }) {
 		// merge keeps no per-field provenance — an overlay that adds a ref field would otherwise be
 		// judged against the BASE module's declarations, which it never wrote.
 		const groupModules = [...new Set(group.map((g) => g.moduleName))];
+		// WHO OWNS the concept — the module whose source is the base, not the ones overlaying it.
+		// An overlay adds fields to somebody else's collection (hq3 adds `tags` to crm's contacts);
+		// it does not take the concept over. Measured 2026-08-11: letting the overlay win moves
+		// `contacts` and `meetings` out of CRM, and a CRM without contacts reads as broken.
+		//
+		// ⚠ This is NOT the `module` provenance field an outside review rejected this morning. That
+		// one duplicated `group:` while claiming to name every contributor, and got the merged case
+		// wrong by taking the first source. This names ONE thing — the owner — for which the base
+		// IS the answer, and it exists to REPLACE `group:` as the workspace's partition rather than
+		// to sit beside it.
+		merged.owner = `modules/${moduleId(base?.moduleName ?? groupModules[0])}`;
 		// EVERY contributing module, not just the base — a collection merged from crm + hq3 belongs
 		// to both, and saying otherwise is what made a flat "which module owns this" field wrong.
 		for (const m of groupModules) {
@@ -646,7 +660,6 @@ export function compile({ root, pkg }) {
 	// in this engine already calls it. A collision is a hard failure rather than a silent overwrite:
 	// two modules answering to one id would make `dependencies` ambiguous, and an ambiguous edge is
 	// worse than no diagram.
-	const moduleId = (n) => slug(String(n).replace(/^@[^/]+\//, ''));
 	const idByModule = new Map();
 	for (const source of sources) {
 		const id = moduleId(source.name);
@@ -660,6 +673,10 @@ export function compile({ root, pkg }) {
 		try { mpkg = JSON.parse(fs.readFileSync(path.join(source.root, 'package.json'), 'utf8')).dreamteamer ?? {}; } catch { /* inline workspace source */ }
 		const record = {
 			name: source.name,
+			// Authored wins; the derived fallback title-cases the id the same way a collection's
+			// `title` is derived. `@dreamteamer/crm` -> "Crm" until crm declares "CRM" — which is
+			// the point: the module is the only place that knows.
+			title: typeof mpkg.title === 'string' && mpkg.title ? mpkg.title : titleCase(id),
 			channel: source.channel,
 			path: rel(source.root) || '.',
 			...(mpkg['owns-data'] === true ? { owns_data: true } : {}),

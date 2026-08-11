@@ -69,9 +69,21 @@ schema:
     icon:
       type: string
       description: material-symbols-outlined icon name, drawn in the nav and page header. The VS Code tree maps it to the nearest codicon — an unmapped name falls back to a generic cylinder, so pick one that is already mapped or add the row.
+    owner:
+      type: string
+      x-reference: modules
+      description: >-
+        The module that OWNS this concept — DERIVED by compile from the base source, never authored.
+        An overlay adds fields to somebody else's collection and does not take it over, so `meetings`
+        stays owned by crm even though hq3 overlays it. This is the workspace's real partition, and
+        what the nav groups by.
     group:
       type: string
-      description: Which nav folder this collection sits in. Ungrouped collections list at the top level; `system` is the plumbing group behind the gear.
+      description: >-
+        DEPRECATED as a nav axis since 2026-08-11 — the nav groups by `owner` (a module, which has a
+        title of its own) instead of by this string with a display-name map maintained in a surface.
+        Still read by nothing; kept so the change is a code revert rather than a data migration, and
+        because a workspace may yet want a partition that deliberately DIFFERS from its modules.
 order: 10
 list_fields: [name, last-modified]
 icon: schema
