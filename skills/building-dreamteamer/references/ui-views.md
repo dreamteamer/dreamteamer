@@ -5,7 +5,7 @@ route plus the id of an already-registered layout, plus how to shape the data. N
 
 The surface reads compiled ui-view records at boot: `nav` becomes a sidebar entry, `path` becomes a
 live route, `target: list` renders the named `layout` over the collection with `filter`/`options`
-applied (`@me` resolves to the current operator). After authoring: compile, then reload the surface.
+applied. After authoring: compile, then reload the surface.
 
 ```yaml
 path: /inbox
@@ -13,9 +13,13 @@ nav: { label: Inbox, icon: inbox, order: 1 }
 target: list
 collection: collections/tasks
 layout: table
-filter: { assignee: { _eq: "@me" } }        # operator objects, never a bare value
-options: { columns: [name, status, due, run], sort: -due }
+filter: { status: { _eq: todo } }           # operator objects, never a bare value
+options: { columns: [name, status, due], sort: -due }
 ```
+
+⚠ **`@me` no longer exists** — it was removed with the `users` collection in 0.8.0, and a filter using
+it is a compile error rather than a view that quietly shows nothing. Filter on a field this workspace
+owns; where a person is genuinely the axis, the workspace ships its own collection of people.
 
 | field | required | notes |
 |---|---|---|
@@ -53,7 +57,8 @@ through the same compile gate.
 |---|---|
 | a `layout` id you assumed exists | compile validates it only for `target: list`; otherwise the view renders nothing |
 | bare `collection: tasks` | qualified refs only |
-| `filter: { assignee: "@me" }` | filters are operator objects: `{ assignee: { _eq: "@me" } }` |
+| `filter: { status: "todo" }` | filters are operator objects: `{ status: { _eq: todo } }` |
+| a filter using `@me` | gone in 0.8.0 with `users` — compile refuses it by name |
 | a column the schema does not have | dropped silently — the row loses that value with no error |
 | a ui-view that restates the built-in fallback | a record to maintain for zero gain |
-| a module ui-view filtered to a named user | use `@me`; a hard-coded id breaks elsewhere |
+| a module ui-view naming one person | a hard-coded id resolves in no other workspace |

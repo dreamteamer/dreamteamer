@@ -62,7 +62,7 @@ These were duplicated across seven skills; they are true for all of them.
    conversation already in progress. A new command, agent or skill is available in the **next**
    session. Say so rather than letting the operator wonder.
 6. **References are qualified** — `skills/<id>`, `agents/<id>`, `commands/<id>`, `collections/<id>`,
-   `users/<id>`. A bare name fails `check`.
+   and `<collection>/<id>` for any record. A bare name fails `check`.
 7. **Never edit generated output.** `.dreamteamer/`, `.claude/`, `.agents/`, `.cursor/` are all
    overwritten and pruned on the next compile. If you found the thing you want to change in one of
    those, you are in the wrong file.
@@ -73,9 +73,11 @@ These were duplicated across seven skills; they are true for all of them.
 9. **Never duplicate a procedure across records.** A command body that restates a skill, an agent
    body that inlines its skill's steps, a command that re-types another command's prompt — each is two
    copies that drift. Reference the one that owns it.
-10. **Module-shipped entities must not name a workspace's own users, accounts or paths.** Use
-    `@initiator` / `@me`, and read per-install values from `.env` naming the variable. A hard-coded
-    `users/<someone>` does not resolve in anyone else's workspace.
+10. **Module-shipped entities must not name a workspace's own people, accounts or paths.** Read
+    per-install values from `.env` naming the variable, and leave who-did-what to a collection the
+    workspace owns. A hard-coded `contacts/<someone>` does not resolve in anyone else's workspace.
+    ⚠ **There is no `@me` since 0.8.0** — it expanded to `users/<slug>`, and `users` is gone. A
+    ui-view filter still using it is a compile error, not a view that quietly shows nothing.
 
 ## the loop
 
@@ -97,11 +99,12 @@ a collection about people, meetings, tasks, products, content — belongs in a m
 version of it belongs in the `recipes` repo rather than here.
 
 **The test is: does the ENGINE read it?** Core's collections are the entity kinds the compiler itself
-materializes, plus `users` (because `@me` resolves against it) and `repos` (because `repos ensure`
-clones them). Everything else has been ejected on exactly that test — `teams` (nothing resolved a
+materializes, plus `repos` (because `repos ensure` clones them). Everything else has been ejected on
+exactly that test — `teams` (nothing resolved a
 team), `mounts` (a one-implementation adapter enum over an `.env` key), `module-registries` (zero
 readers), `workflows`/`workflow-runs`/`workflow-triggers`/`cursors` and `migrations`/`migration-runs`
-(measured unused), and finally `tasks`, whose only claim to core had been the workflow gate that no
+(measured unused), `users` (0.8.0 — its justification was circular: core because `@me` resolved
+against it, and `@me` existed because it was core), and finally `tasks`, whose only claim to core had been the workflow gate that no
 longer exists. `npm run metrics` in the engine holds the budgets that keep this honest.
 
 ## common mistakes

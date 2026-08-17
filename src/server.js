@@ -14,12 +14,6 @@ import { matchesFilter } from './filter.js';
 import { sortRows } from './temporal.js';
 import { commandsFor, recordResolver } from './record-commands.js';
 import { distinctValues } from './field-values.js';
-import { slugOrHash } from './template.js';
-
-// git calls whose failure we CATCH must not print git's own error: execFileSync forwards the
-// child's stderr to ours unless told otherwise, so a handled "not a git repository" still
-// reached the user's terminal. stdout stays piped because we read it.
-const QUIET = ['ignore', 'pipe', 'ignore'];
 
 
 export function startServer(ws, { port = 8080, host = '127.0.0.1' } = {}) {
@@ -44,13 +38,10 @@ export function startServer(ws, { port = 8080, host = '127.0.0.1' } = {}) {
 	const api = express.Router();
 	api.use((req, res, next) => { freshStore(); next(); });
 
-	// current operator id — same rule init seeds users with (slugOrHash of git user.name),
-	// so `@me` filters in ui-views resolve to the seeded user record.
-	let operatorId = null;
-	try {
-		operatorId = slugOrHash(execFileSync('git', ['config', 'user.name'], { cwd: ws.root, stdio: QUIET }).toString().trim());
-	} catch { /* no git identity — @me filters simply won't narrow */ }
-
+	// ⚠ NO `user` on /info since 0.8.0, and no `@me` — both went with the `users` collection. The
+	// token expanded to the literal string `users/<slug of git user.name>`, so with no such
+	// collection it could only ever produce a dangling reference. A workspace that wants
+	// operator-scoped views filters on a field it owns.
 	api.get('/info', (req, res) => {
 		const manifest = readManifest(ws.root);
 		const stale = staleness(ws.root);
@@ -60,7 +51,6 @@ export function startServer(ws, { port = 8080, host = '127.0.0.1' } = {}) {
 			compiled: manifest?.compiled,
 			modules: manifest?.modules ?? [],
 			ui: manifest?.ui ?? [], // module UI bundles staged at /ui/<name>/app.js
-			user: operatorId,
 			stale: stale.stale?.length ?? 0,
 			collections: [...store.descriptors.keys()],
 		});

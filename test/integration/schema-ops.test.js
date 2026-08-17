@@ -15,7 +15,7 @@ describe('collections add', () => {
 		const res = ws.dt('collections', 'add', '--name', 'widgets');
 		assert.equal(res.code, 0, res.stderr);
 
-		const d = descriptorOf(ws, 'modules/ws/collections/widgets.collection.yaml');
+		const d = descriptorOf(ws, 'modules/default/collections/widgets.collection.yaml');
 		assert.equal(d.name, 'widgets');
 		assert.equal(d.storage.path, 'data/widgets');
 		assert.equal(d.storage.suffix, 'widget');
@@ -28,7 +28,7 @@ describe('collections add', () => {
 		const res = ws.dt('collections', 'add', '--namespace', 'health', '--name', 'doctors');
 		assert.equal(res.code, 0, res.stderr);
 
-		const d = descriptorOf(ws, 'modules/ws/collections/health/doctors.collection.yaml');
+		const d = descriptorOf(ws, 'modules/default/collections/health/doctors.collection.yaml');
 		assert.equal(d.name, 'health/doctors');
 		assert.equal(d.storage.path, 'data/health/doctors');
 		// the suffix comes off the BARE name — `<id>.doctor.md`, never `<id>.health/doctor.md`
@@ -38,7 +38,7 @@ describe('collections add', () => {
 	test('a qualified --name is the same thing as --namespace', () => {
 		const ws = workspace({ namespaces: ['health'] });
 		assert.equal(ws.dt('collections', 'add', '--name', 'health/doctors').code, 0);
-		const d = descriptorOf(ws, 'modules/ws/collections/health/doctors.collection.yaml');
+		const d = descriptorOf(ws, 'modules/default/collections/health/doctors.collection.yaml');
 		assert.equal(d.name, 'health/doctors');
 		assert.equal(d.storage.path, 'data/health/doctors');
 	});
@@ -48,7 +48,7 @@ describe('collections add', () => {
 		const res = ws.dt('collections', 'add', '--name', 'health/doctors');
 		assert.equal(res.code, 1);
 		assert.match(res.stderr, /"health" is not declared/);
-		assert.equal(readFile(ws.root, 'modules/ws/collections/health/doctors.collection.yaml'), null);
+		assert.equal(readFile(ws.root, 'modules/default/collections/health/doctors.collection.yaml'), null);
 	});
 
 	test('a duplicate name is refused', () => {
@@ -66,7 +66,7 @@ describe('collections rm', () => {
 		ws.dt('collections', 'add', '--name', 'health/doctors');
 		const res = ws.dt('collections', 'rm', 'health/doctors');
 		assert.equal(res.code, 0, res.stderr);
-		assert.equal(readFile(ws.root, 'modules/ws/collections/health/doctors.collection.yaml'), null);
+		assert.equal(readFile(ws.root, 'modules/default/collections/health/doctors.collection.yaml'), null);
 	});
 
 	test('refuses while records exist, and --force overrides', () => {
@@ -86,18 +86,18 @@ describe('field verbs on a namespaced collection', () => {
 		ws.dt('collections', 'add', '--name', 'health/doctors');
 
 		assert.equal(ws.dt('health/doctors', 'add-field', '--name', 'speciality', '--type', 'string').code, 0);
-		let d = descriptorOf(ws, 'modules/ws/collections/health/doctors.collection.yaml');
+		let d = descriptorOf(ws, 'modules/default/collections/health/doctors.collection.yaml');
 		assert.equal(d.schema.properties.speciality.type, 'string');
 
 		assert.equal(
 			ws.dt('health/doctors', 'update-field', '--name', 'speciality', '--type', 'enum', '--options', 'gp,ent').code,
 			0,
 		);
-		d = descriptorOf(ws, 'modules/ws/collections/health/doctors.collection.yaml');
+		d = descriptorOf(ws, 'modules/default/collections/health/doctors.collection.yaml');
 		assert.deepEqual(d.schema.properties.speciality.enum, ['gp', 'ent']);
 
 		assert.equal(ws.dt('health/doctors', 'remove-field', '--name', 'speciality').code, 0);
-		d = descriptorOf(ws, 'modules/ws/collections/health/doctors.collection.yaml');
+		d = descriptorOf(ws, 'modules/default/collections/health/doctors.collection.yaml');
 		assert.equal(d.schema.properties.speciality, undefined);
 	});
 

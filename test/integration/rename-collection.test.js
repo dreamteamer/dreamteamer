@@ -8,7 +8,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { workspace, simpleCollection, tree, readFile } from '../helpers/ws.js';
+import { workspace, simpleCollection, tree, readFile, WS_MODULE } from '../helpers/ws.js';
 import { load } from '../../src/yaml.js';
 
 const DOCTORS = simpleCollection({ storage: { suffix: 'doctor' } });
@@ -40,8 +40,8 @@ describe('moving an existing collection into a namespace', () => {
 		assert.equal(res.code, 0, res.stdout + res.stderr);
 
 		// descriptor: nested source, new name, new path
-		assert.equal(descriptorAt(ws, 'modules/ws/collections/doctors.collection.yaml'), null);
-		const d = descriptorAt(ws, 'modules/ws/collections/health/doctors.collection.yaml');
+		assert.equal(descriptorAt(ws, 'modules/default/collections/doctors.collection.yaml'), null);
+		const d = descriptorAt(ws, 'modules/default/collections/health/doctors.collection.yaml');
 		assert.equal(d.name, 'health/doctors');
 		assert.equal(d.storage.path, 'data/health/doctors');
 		assert.equal(d.storage.suffix, 'doctor', 'the base name did not change, so neither does the suffix');
@@ -72,7 +72,7 @@ describe('moving an existing collection into a namespace', () => {
 		const ws = seeded();
 		const res = ws.dt('collections', 'rename', 'doctors', '--namespace', 'health');
 		assert.equal(res.code, 0, res.stderr);
-		assert.equal(descriptorAt(ws, 'modules/ws/collections/health/doctors.collection.yaml').name, 'health/doctors');
+		assert.equal(descriptorAt(ws, 'modules/default/collections/health/doctors.collection.yaml').name, 'health/doctors');
 	});
 
 	test('a nested id survives the move', () => {
@@ -103,7 +103,7 @@ describe('renaming the base name too', () => {
 		assert.equal(res.code, 0, res.stderr);
 		assert.ok(readFile(ws.root, 'data/clinicians/dana-levi.clinician.md'), 'file re-suffixed');
 		assert.equal(readFile(ws.root, 'data/clinicians/dana-levi.doctor.md'), null);
-		assert.equal(descriptorAt(ws, 'modules/ws/collections/clinicians.collection.yaml').storage.suffix, 'clinician');
+		assert.equal(descriptorAt(ws, 'modules/default/collections/clinicians.collection.yaml').storage.suffix, 'clinician');
 		assert.equal(ws.dt('check').code, 0);
 	});
 
@@ -114,7 +114,7 @@ describe('renaming the base name too', () => {
 		ws.store.add('doctors', { name: 'Dana Levi' });
 		assert.equal(ws.dt('collections', 'rename', 'doctors', 'clinicians').code, 0);
 		assert.ok(readFile(ws.root, 'data/clinicians/dana-levi.medic.md'));
-		assert.equal(descriptorAt(ws, 'modules/ws/collections/clinicians.collection.yaml').storage.suffix, 'medic');
+		assert.equal(descriptorAt(ws, 'modules/default/collections/clinicians.collection.yaml').storage.suffix, 'medic');
 	});
 });
 
@@ -129,7 +129,7 @@ describe('authored storage.path is not overruled', () => {
 		assert.equal(res.code, 0, res.stderr);
 		assert.match(res.stdout, /storage\.path kept as "vault\/clinicians"/);
 		assert.ok(readFile(ws.root, 'vault/clinicians/dana-levi.doctor.md'), 'records did NOT move');
-		assert.equal(descriptorAt(ws, 'modules/ws/collections/health/doctors.collection.yaml').storage.path, 'vault/clinicians');
+		assert.equal(descriptorAt(ws, 'modules/default/collections/health/doctors.collection.yaml').storage.path, 'vault/clinicians');
 	});
 });
 
@@ -139,7 +139,7 @@ describe('references that are not record refs', () => {
 	test('x-reference targets in other descriptors are retargeted', () => {
 		const ws = seeded();
 		assert.equal(ws.dt('collections', 'rename', 'doctors', 'health/doctors').code, 0);
-		const visits = descriptorAt(ws, 'modules/ws/collections/visits.collection.yaml');
+		const visits = descriptorAt(ws, 'modules/default/collections/visits.collection.yaml');
 		assert.equal(visits.schema.properties.doctor['x-reference'], 'health/doctors');
 	});
 
@@ -147,21 +147,21 @@ describe('references that are not record refs', () => {
 	// so it rides along on the same rewrite with no special case.
 	test('a ui-view targeting the collection follows it', () => {
 		const ws = seeded();
-		const dir = path.join(ws.root, 'modules', 'ws', 'ui-views');
+		const dir = path.join(ws.root, 'modules', WS_MODULE, 'ui-views');
 		fs.mkdirSync(dir, { recursive: true });
 		fs.writeFileSync(path.join(dir, 'docs.ui-view.yaml'),
 			'path: /doctors\ntarget: list\ncollection: collections/doctors\nlayout: table\n');
 		assert.equal(ws.dt('compile').code, 0);
 
 		assert.equal(ws.dt('collections', 'rename', 'doctors', 'health/doctors').code, 0);
-		assert.match(readFile(ws.root, 'modules/ws/ui-views/docs.ui-view.yaml'), /collections\/health\/doctors/);
+		assert.match(readFile(ws.root, 'modules/default/ui-views/docs.ui-view.yaml'), /collections\/health\/doctors/);
 		assert.equal(ws.dt('check').code, 0);
 	});
 });
 
 describe('refusals — nothing is half-renamed', () => {
 	const unchanged = (ws) => {
-		assert.ok(readFile(ws.root, 'modules/ws/collections/doctors.collection.yaml'), 'descriptor still there');
+		assert.ok(readFile(ws.root, 'modules/default/collections/doctors.collection.yaml'), 'descriptor still there');
 		assert.ok(readFile(ws.root, 'data/doctors/dana-levi.doctor.md'), 'records still there');
 		assert.equal(ws.store.read('visits', 'checkup').fields.doctor, 'doctors/dana-levi');
 	};
@@ -197,9 +197,9 @@ describe('refusals — nothing is half-renamed', () => {
 	});
 
 	test('a collection a MODULE ships, not the workspace', () => {
-		// the engine's own `users` collection: present in the runtime, no workspace-owned source
+		// the engine's own `repos` collection: present in the runtime, no workspace-owned source
 		const ws = seeded();
-		const res = ws.dt('collections', 'rename', 'users', 'health/users');
+		const res = ws.dt('collections', 'rename', 'repos', 'health/repos');
 		assert.equal(res.code, 1);
 		assert.match(res.stderr, /not workspace-owned/);
 	});

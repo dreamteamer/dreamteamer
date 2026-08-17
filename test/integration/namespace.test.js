@@ -48,7 +48,7 @@ describe('a namespaced collection on disk', () => {
 		ws.store.add('finance/invoices', { name: 'March' });
 		ws.store.add('tasks', { name: 'Ship it' });
 
-		assert.deepEqual(tree(ws.root, 'data').filter((f) => !f.includes('users')), [
+		assert.deepEqual(tree(ws.root, 'data'), [
 			'data/finance/invoices/march.invoice.md',
 			'data/health/doctors/dana-levi.doctor.md',
 			'data/tasks/ship-it.task.md',
