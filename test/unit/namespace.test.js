@@ -176,7 +176,7 @@ describe('storageOverlaps — the measured data-loss guard', () => {
 	test('the engine\'s own core collections do not overlap', () => {
 		const core = ['collections', 'skills', 'agents', 'commands', 'command-bindings', 'ui-views', 'collection-templates', 'modules']
 			.map((k) => at(k, k, 'runtime'))
-			.concat([at('users', 'data/users'), at('repos', 'data/repos')]);
+			.concat([at('repos', 'data/repos')]);
 		assert.deepEqual(storageOverlaps(core), []);
 	});
 });

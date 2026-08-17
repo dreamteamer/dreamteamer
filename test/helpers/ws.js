@@ -53,10 +53,12 @@ function baseKey() {
 	return h.digest('hex').slice(0, 12);
 }
 
-// `dreamteamer init` names the workspace module after the DIRECTORY it runs in, so the fixture is
-// built inside a directory literally called `ws` — that keeps `modules/ws/` true for every fixture
-// regardless of the cache key in the path above it, and it is why `writeCollection` can hardcode it.
-export const WS_MODULE = 'ws';
+// `dreamteamer init` names the workspace module for its ROLE, not for the directory it runs in, so
+// `modules/default/` is true for every fixture no matter what the cache key above it spells — which
+// is why `writeCollection` can hardcode it. It used to be named after the directory, and the fixture
+// had to be built inside a folder literally called `ws` to keep that hardcoding honest; that
+// coupling is gone.
+export const WS_MODULE = 'default';
 
 let cachedBase;
 function baseWorkspace() {
@@ -108,7 +110,7 @@ function buildBase(dir) {
 	const res = spawnSync(process.execPath, [BIN, 'init'], { cwd: dir, env: GIT_ENV, encoding: 'utf8' });
 	if (res.status !== 0) throw new Error(`fixture init failed:\n${res.stdout}\n${res.stderr}`);
 	// THE ENGINE AS AN INSTALLED MODULE — without this the fixture has no `collections`, `ui-views`,
-	// `users` or `modules` collection, because those are sources the engine CONTRIBUTES rather than
+	// `repos` or `modules` collection, because those are sources the engine CONTRIBUTES rather than
 	// things init writes. A tier-2 workspace that lacks them is not the workspace anybody runs: the
 	// first thing it fails to reproduce is `store.writableDescriptor` refusing a compiled source.
 	//

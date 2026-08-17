@@ -4,8 +4,6 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { dump } from './yaml.js';
-import { slugOrHash } from './template.js';
 import { discoverModules, KINDS } from './compile.js';
 import { Store } from './store.js';
 
@@ -76,7 +74,17 @@ export function init({ flags = {} } = {}) {
 		'data-path': dataPath,
 		harnesses,
 		'gitignore-runtime-folder': true,
-		'workspace-module': name, // workspace-owned system sources live in modules/<name>/ — data and logic stay separated
+		// The workspace's own sources live in `modules/default/`, and the folder is named for its ROLE,
+		// not for the vault. It used to be named after the workspace, and that name went stale twice in
+		// one repo (`hq3` → `gk`, decision 213 reversed by 224) — each rename rewriting every path that
+		// RESOLVES while the historical documents deliberately kept the old spelling, so a stale-looking
+		// `modules/hq3` was correct in prose and a bug in a path. A role name cannot go stale.
+		//
+		// `default` is deliberately the same word `RESERVED_NAMESPACES` holds (namespace.js): this module
+		// owns the DEFAULT-namespace collections, and the default namespace is the empty prefix. The one
+		// misreading it invites — `default/tasks` — is a compile error whose message states the rule.
+		// Override with `--workspace-module <name>` if a workspace wants its own spelling.
+		'workspace-module': flags['workspace-module'] ?? 'default',
 		'git-modules': {},
 		disable: [],
 		...pkg.dreamteamer,
@@ -102,23 +110,16 @@ export function init({ flags = {} } = {}) {
 	fs.mkdirSync(path.join(root, dataPath), { recursive: true });
 	fs.mkdirSync(path.join(root, 'state'), { recursive: true });
 
-	// seed the operator's user record from the git identity.
+	// NO user record is seeded, and there is no `users` collection — both removed from core in 0.8.0.
+	// It failed the "does the ENGINE read it?" test on a circular justification: `users` was core
+	// because `@me` resolved against it, and `@me` existed because `users` was core. Nothing else in
+	// the compiler, the store or `check` ever read a user record. One record per workspace, whose only
+	// job was to restate `git config user.name` in a file that then had to AGREE with it — and when it
+	// disagreed the symptom was an empty inbox with no error (decision 99b), a trap that now cannot
+	// happen because there is nothing to disagree with.
 	//
-	// The id MUST be slugOrHash(git user.name) — that is exactly how `@me` resolves in filters and
-	// ui-views (server.js / fsdata.ts), so seeding it from the same source is what makes the core
-	// /inbox view work by construction. A workspace where a user record is authored by hand under a
-	// different id gets an EMPTY inbox with no error (decision 99b) — hence the setup-script step in
-	// any workspace with a second person.
-	//
-	// No `everyone` team is seeded: `teams` was removed from core 2026-07-31. It was a one-record
-	// abstraction with no reader — nothing in the engine, in `check`, or in any view resolved a team.
-	const gitName = tryGit(root, ['config', 'user.name']) ?? 'operator';
-	const gitEmail = tryGit(root, ['config', 'user.email']);
-	const userId = slugOrHash(gitName);
-	const usersDir = path.join(root, dataPath, 'users');
-	fs.mkdirSync(usersDir, { recursive: true });
-	const userFile = path.join(usersDir, `${userId}.user.yaml`);
-	if (!fs.existsSync(userFile)) fs.writeFileSync(userFile, dump({ name: gitName, ...(gitEmail ? { email: gitEmail } : {}) }));
+	// A workspace that needs people as records ships its own collection (a module's `contacts` already
+	// does), and reads the operator from git where it needs one. `teams` went the same way 2026-07-31.
 
 	// .gitignore + .env.example (append-if-missing, never clobber)
 	appendMissing(path.join(root, '.gitignore'), GITIGNORE);

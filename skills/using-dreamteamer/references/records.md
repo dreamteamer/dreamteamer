@@ -68,7 +68,7 @@ fields, the body is the single `x-body: true` field):
 ---
 title: Fix login flow
 status: todo
-assignee: users/ada
+assignee: contacts/ada
 due: '2026-07-28'
 ---
 Users report the login button does nothing on mobile.

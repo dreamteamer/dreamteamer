@@ -19,8 +19,15 @@ npm run metrics -- --update   # rewrite metrics.json — a DELIBERATE act, same 
 questions **before** writing the code, out loud, in the commit message:
 
 1. **Does the ENGINE read it?** That is the whole test for a core collection or field. What survives
-   it: the entity kinds the compiler materializes, `users` (because `@me` resolves against it), and
-   `repos` (because `repos ensure` clones them). **Nine collections, and that is the intended ceiling.**
+   it: the entity kinds the compiler materializes, and `repos` (because `repos ensure` clones them).
+   **Nine collections, and that is the intended ceiling.**
+
+   ⚠ **`users` failed it on 2026-08-17 (0.8.0), and the lesson is a CIRCULAR justification.** It was
+   core "because `@me` resolves against it" — and `@me` existed because `users` was core. Nothing in
+   the compiler, the store or `check` ever read a user record. One record per workspace whose only job
+   was to restate `git config user.name` in a file that then had to *agree* with it; when it disagreed
+   the symptom was an empty inbox and no error (decision 99b). **A justification that only points at
+   another core feature is not a justification.** Read the operator from git at the point of need.
 
    What failed the test, all on 2026-07-31: `teams` (nothing in the engine, `check` or any view ever
    resolved a team) · `mounts` (a one-implementation `adapter` enum over what is really an `.env` key)
@@ -64,6 +71,16 @@ A module's sources live at its root — `modules/crm/skills/`, beside `data/` an
 the compiled runtime matches: `.dreamteamer/<kind>/`. There is no `system/` level. **KINDS was always
 the allowlist**; the extra directory named nothing the engine read, and it is also the shape
 coding-agent plugin repos use.
+
+⚠ **The workspace's OWN module is `modules/default`, named for its ROLE** (0.8.0; `init` seeds it, and
+`--workspace-module <name>` overrides). It used to be named after the workspace, and that name went
+stale twice in one repo — `hq3` → `gk`, decision 213 reversed by 224 — each rename rewriting every
+path that RESOLVES while the historical documents deliberately kept the old spelling, so a
+stale-looking `modules/hq3` was correct in prose and a bug in a path. A role name cannot go stale.
+It is deliberately the same word `RESERVED_NAMESPACES` holds: this module owns the DEFAULT-namespace
+collections, and the default namespace is the empty prefix. The one misreading it invites,
+`default/tasks`, is a compile error whose message states the rule. **An existing workspace is
+unaffected** — its `workspace-module` key already exists and wins over the seed.
 
 Three things hold this up, and all three exist because removing the wrapper removed a free guarantee:
 

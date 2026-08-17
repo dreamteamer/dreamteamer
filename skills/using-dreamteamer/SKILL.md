@@ -63,8 +63,8 @@ when you're not sure the runtime is fresh.
 | the workspace lacks the capability entirely | `building-dreamteamer` → `references/before-you-build.md` |
 
 Domain work — meetings, contacts, tasks, content, design — is owned by the **module** that ships those
-collections, not by core. Read that module's own skills. Core knows about entity kinds, `users` and
-`repos`, and deliberately nothing else.
+collections, not by core. Read that module's own skills. Core knows about entity kinds and `repos`,
+and deliberately nothing else — including nothing about people. There is no `users` collection.
 
 ## conventions
 
@@ -84,9 +84,10 @@ collections, not by core. Read that module's own skills. Core knows about entity
 - **validate after bulk edits**: `npm run check` reports violations and never modifies files.
 - workspace-level rules live in `CLAUDE.md`, and a workspace's decision log (where one exists) wins
   over older documents.
-- **session greeting** — surface the operator's inbox: `npm run --silent dt -- tasks list --assignee
-  users/<user> --status todo`. ⚠ the current user is a record in `data/users/` whose id is
-  `slug(git config user.name)`; when those disagree the inbox comes back **empty with no error**.
+- **session greeting** — surface the operator's inbox from whatever collection this workspace uses for
+  work, e.g. `npm run --silent dt -- tasks list --status todo`. ⚠ **there is no `users` collection and
+  no `@me`** (both removed in 0.8.0); read the operator from `git config user.name` at the point you
+  need one, and never filter on a person unless this workspace owns a collection of them.
 
 ## common mistakes
 
@@ -95,6 +96,6 @@ collections, not by core. Read that module's own skills. Core knows about entity
 | editing something under `.dreamteamer/` | generated + gitignored; the change vanishes on the next compile |
 | changing a source and not compiling | the harness and `check` still read the stale runtime |
 | hand-writing a record the CLI could add | skips validation, id generation and defaults |
-| bare refs (`ada`, `data/users/x.user.md`) | refs are `<collection>/<id>`; anything else fails check |
+| bare refs (`ada`, `data/contacts/x.contact.md`) | refs are `<collection>/<id>`; anything else fails check |
 | assuming a write was committed | it was not, unless `auto-commit` is on — `dt status` says what is pending |
 | `git add -A` in a shared tree | steals another session's uncommitted work, invisibly |

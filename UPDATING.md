@@ -20,6 +20,64 @@ npx dreamteamer check
 
 ---
 
+## 0.7.0 → 0.8.0
+
+⚠ **BREAKING: the `users` collection and the `@me` filter token are gone.** If your workspace has
+neither an `x-reference: users` nor an `@me` anywhere, there is nothing to do beyond `dt compile`.
+
+**Also: `dt init` now names the workspace module `default`, not after the directory.** This affects
+**new workspaces only** — an existing `package.json` already carries a `workspace-module` key and it
+still wins, so nothing moves and there is nothing to do. `--workspace-module <name>` overrides it.
+
+Why: named after the workspace, that folder went stale twice in one repo (`hq3` → `gk`), and each
+rename had to rewrite every path that *resolves* while the historical documents kept the old spelling
+— so a stale-looking `modules/hq3` was correct in prose and a bug in a path. A role name cannot go
+stale. `default` is deliberately the word `RESERVED_NAMESPACES` holds: this module owns the
+default-namespace collections, and the default namespace is the empty prefix. `default/tasks` is still
+a compile error, and its message says why.
+
+**Why:** `users` was core on a circular justification — it existed because `@me` resolved against it,
+and `@me` existed because `users` was core. Nothing in the compiler, the store or `check` ever read a
+user record. It was one record per workspace whose only job was to restate `git config user.name` in a
+file that then had to agree with it — and when it did not, the symptom was an empty inbox with no
+error. Read the operator from git where you need one.
+
+### Required, if you used either
+
+Both failures are LOUD by design — you will not discover this from a view that quietly shows nothing.
+
+1. **A ui-view filtering `@me` now fails compile**, naming the view and the fix. Rewrite it to filter
+   on a field you own:
+
+   ```diff
+   - filter: { assignee: { _eq: "@me" } }
+   + filter: { status: { _eq: todo } }
+   ```
+
+2. **A descriptor declaring `x-reference: users` now fails compile** — `users` left
+   `CORE_COLLECTIONS`, so it is a target no module provides. Either drop the field, or point it at a
+   collection you ship:
+
+   ```diff
+   - assignee: { type: string, x-reference: users }
+   + assignee: { type: string, x-reference: contacts }
+   ```
+
+3. **Records still holding `users/<id>` will report as dangling refs in `dt check`** once the field's
+   `x-reference` is gone or retargeted. Rewrite or remove those values. If the field is a constant on a
+   single-operator workspace, deleting it is the honest fix — `dt <collection> remove-field --name
+   assignee` after you have removed the `x-reference`.
+
+4. **`GET /api/info` no longer returns `user`.** Only a consumer that read that field is affected — a
+   custom surface or a script, which should read `git config user.name` itself. The VS Code extension
+   is **unaffected**: it has always computed the operator from git directly (`src/api.ts`), never from
+   `/info`. Its `@me` expansion is now unreachable, because compile refuses a view that uses it.
+
+`data/users/` is left on disk untouched — nothing deletes your files. Once nothing references it,
+remove it yourself.
+
+---
+
 ## 0.6.4 → 0.7.0
 
 Adds namespaces, `collections rename`, and a test suite. **Nothing to migrate.**

@@ -520,10 +520,13 @@ export function compile({ root, pkg }) {
 		const base = group.find((g) => !g.doc.extends);
 		if (base) collOwner.set(name, base.moduleName);
 	}
-	// The engine's own nine collections are an implicit dependency of every module: seven entity
-	// kinds plus the two the compiler materializes. Requiring every module to declare a dependency
-	// on the host it cannot run without would be ceremony, not verification.
-	const CORE_COLLECTIONS = new Set([...KINDS, ...DERIVED_KINDS, 'users', 'repos']);
+	// The engine's own nine collections are an implicit dependency of every module: the entity kinds
+	// the compiler materializes, plus `repos` (because `repos ensure` clones them). Requiring every
+	// module to declare a dependency on the host it cannot run without would be ceremony, not
+	// verification. ⚠ `users` was in this set until 0.8.0 — a module still declaring
+	// `x-reference: users` now FAILS here, which is the intended loud outcome rather than a ref
+	// pointing at a collection nothing provides.
+	const CORE_COLLECTIONS = new Set([...KINDS, ...DERIVED_KINDS, 'repos']);
 	const wsDir = config['workspace-module'];
 	const wsModuleName = wsDir
 		? sources.find((s) => rel(s.root) === path.join('modules', wsDir))?.name
@@ -802,6 +805,12 @@ export function compile({ root, pkg }) {
 		// fail at compile, not silently at render (review finding 5)
 		const badOps = view?.filter ? [...unknownOperators(view.filter)] : [];
 		if (badOps.length) fail(`${rt}: unknown filter operator(s) ${badOps.join(', ')}`);
+		// `@me` died with the `users` collection in 0.8.0. It expanded to `users/<slug>`, so on this
+		// engine it can only ever match nothing — and a filter that narrows to zero rows is the exact
+		// silent failure this block exists to prevent. Refuse it by name, with the fix.
+		if (view?.filter && JSON.stringify(view.filter).includes('"@me"')) {
+			fail(`${rt}: filter uses "@me", which was removed with the \`users\` collection in 0.8.0 — it would now match nothing.\n  filter on a field this workspace owns instead (e.g. { status: { _eq: "todo" } }).`);
+		}
 	}
 
 	// ---- command-binding validation --------------------------------------------------
