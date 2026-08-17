@@ -18,6 +18,20 @@ npx dreamteamer compile
 npx dreamteamer check
 ```
 
+### Pinning the engine from git instead of npm
+
+A workspace does not have to wait for a release to land on npm. The engine has no build step — the
+published tarball is the repo — so a git ref installs identically:
+
+```bash
+npm install "github:dreamteamer/dreamteamer#v0.7.0"     # a tag
+npm install "github:dreamteamer/dreamteamer#35d68da"    # or an exact commit
+```
+
+Useful in three situations: taking a fix before it is tagged, pinning every workspace in a fleet to one
+audited commit, and reproducing a bug against a specific engine. `dt status` prints which engine a
+workspace actually resolved, which is the thing to check when two of them disagree.
+
 ---
 
 ## 0.6.4 → 0.7.0
