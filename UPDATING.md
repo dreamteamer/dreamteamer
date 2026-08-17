@@ -20,6 +20,53 @@ npx dreamteamer check
 
 ---
 
+## 0.10.0 → 0.11.0
+
+**Do nothing but `dt compile`.** One optional descriptor key and one new verb. Nothing existing
+changes shape, no record is touched, and a collection that does not opt in behaves exactly as before.
+
+**Collections can declare a field that holds MANUAL order.** Drag a record above another and it stays
+there, at a cost of one changed file per move.
+
+```yaml
+sort_field: rank          # names a field this collection's own schema declares
+schema:
+  properties:
+    rank:
+      type: string
+      pattern: '^[a-z]+$'
+```
+
+Then:
+
+```bash
+dt tasks move --init                     # place records that have no value yet (idempotent)
+dt tasks move <id> --after <id>          # …or --before <id>, --top, --bottom
+dt ui-views set tasks-board options.sort=rank
+```
+
+Three things worth knowing before you use it:
+
+- **The field name is yours.** `sort_field` names it, exactly as Directus does; nothing in the engine
+  spells it. Call it `position`, `rank`, `sort` — whatever reads right in your workspace.
+- **The value is a fractional index, not an integer**, so inserting between two records changes only
+  the record that moved. An integer would renumber everything below it, which against git is a
+  commit that buries what actually happened.
+- ⚠ **Use the pattern `^[a-z]+$`.** `compareValues` sorts with `localeCompare`, which is locale-aware,
+  so the usual base-62 alphabet mis-sorts here — three prepends produce `Zy Zz a0` and the list comes
+  back `a0 Zy Zz`. This is the same trap that breaks fractional indexing on PostgreSQL under
+  `en_US.utf8` instead of `C`. Lowercase a-z is the range where locale order agrees with codepoint
+  order and no value can be read as a number. `dt <collection> move` always writes keys in that range.
+
+Records with no value sort FIRST, so a newly added record surfaces at the top rather than hiding at
+the bottom. `move` refuses to place a record next to one that has no value yet, and says to run
+`move --init` — it will not guess.
+
+New in the HTTP API: `PATCH /api/collections/:name/position/*id` with `{ after | before | top |
+bottom }`.
+
+---
+
 ## 0.9.1 → 0.10.0
 
 **Do nothing but `dt compile`.** The orientation block in `CLAUDE.md` / `AGENTS.md` / `GEMINI.md` /
