@@ -249,9 +249,6 @@ export class Store {
 			throw new Error(`${collection}/${id} is referenced by:\n${inbound.map((f) => `  ${f}`).join('\n')}\nfix the references or pass --force. nothing was removed.`);
 		}
 		const unit = this.recordRoot(d, id); // folder-shape: the whole folder goes, not just the entry file
-		// Folder-shape records would need a recursive snapshot; the only folder-shape collection
-		// is `skills`, which is system-stored and so never reaches rm (writableDescriptor refuses
-		// first). Not built for a case that cannot occur.
 		// snapshot BEFORE the delete, or there is nothing left to read
 		const restore = snapshot([unit]);
 		return this.withWriteLock(() => {
@@ -395,10 +392,14 @@ export class Store {
 		const cwd = path.resolve(this.root, repo);
 		const rel = files.map((f) => path.relative(cwd, f));
 		try {
-			execFileSync('git', ['add', '--all', '--', ...rel], { cwd });
-			execFileSync('git', ['commit', '--quiet', '-m', subject, '--', ...rel], { cwd });
+			// QUIET, per the rule at the top of this file: a failure we CATCH must not also print git's
+			// own error. These three were the exception — a caught `git add` failure dumped git's raw
+			// multi-line advice ("Another git process seems to be running…") on top of the clean message
+			// this function throws, so the user read the scary one and not the accurate one.
+			execFileSync('git', ['add', '--all', '--', ...rel], { cwd, stdio: QUIET });
+			execFileSync('git', ['commit', '--quiet', '-m', subject, '--', ...rel], { cwd, stdio: QUIET });
 		} catch (e) {
-			try { execFileSync('git', ['reset', '--quiet', '--', ...rel], { cwd }); } catch { /* nothing staged */ }
+			try { execFileSync('git', ['reset', '--quiet', '--', ...rel], { cwd, stdio: QUIET }); } catch { /* nothing staged */ }
 			if (undo) {
 				try { undo(); } catch (u) {
 					throw new Error(`git commit failed AND rollback failed (${u.message}) — inspect the working tree. original: ${e.message.split('\n')[0]}`);
@@ -448,21 +449,50 @@ function readPkg(root) {
 	try { return JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')); } catch { return {}; }
 }
 
-/** Byte snapshot of a set of files, and a restore closure. The undo mechanism schema-ops has
- *  used for source writes since it was written (schema-ops.js:20). Record writes used
+/** Byte snapshot of a set of files OR DIRECTORIES, and a restore closure. The undo mechanism
+ *  schema-ops has used for source writes since it was written (schema-ops.js:20). Record writes used
  *  `git checkout HEAD -- <paths>` instead, which is only correct while HEAD is guaranteed to be
  *  the last good state — it is not, once writes stop committing, and it silently discarded
- *  uncommitted hand-edits even before that. */
+ *  uncommitted hand-edits even before that.
+ *
+ *  A DIRECTORY unit is snapshotted recursively. It used to be skipped with a comment arguing the case
+ *  could not occur — the only folder-shape collection was `skills`, which is system-stored, so
+ *  `writableDescriptor` refused before `rm` was reached. That reasoning was true and is the wrong kind
+ *  of true: it depended on a fact about the CURRENT set of collections rather than on anything the code
+ *  enforces, and `shape: folder` is an ordinary descriptor option any workspace can choose. The failure
+ *  it left behind was silent and total — `rm` would delete the folder and the "restore" closure would
+ *  do nothing, so a failed commit meant the record was simply gone. Twelve lines, no such hole. */
 function snapshot(units) {
-	const snaps = units.map((u) => ({
-		u,
-		prev: fs.existsSync(u) && fs.statSync(u).isFile() ? fs.readFileSync(u) : null,
-		existed: fs.existsSync(u),
-	}));
+	const snaps = units.map((u) => {
+		const existed = fs.existsSync(u);
+		const isDir = existed && fs.statSync(u).isDirectory();
+		return {
+			u, existed, isDir,
+			prev: existed && !isDir ? fs.readFileSync(u) : null,
+			tree: isDir ? snapshotTree(u) : null,
+		};
+	});
 	return () => {
-		for (const { u, prev, existed } of snaps) {
+		for (const { u, prev, tree, existed, isDir } of snaps) {
 			if (!existed) { fs.rmSync(u, { force: true, recursive: true }); continue; }
+			if (isDir) {
+				fs.rmSync(u, { force: true, recursive: true }); // partial state from a failed op
+				fs.mkdirSync(u, { recursive: true });
+				for (const [rel, bytes] of tree) {
+					const dest = path.join(u, rel);
+					fs.mkdirSync(path.dirname(dest), { recursive: true });
+					fs.writeFileSync(dest, bytes);
+				}
+				continue;
+			}
 			if (prev !== null) { fs.mkdirSync(path.dirname(u), { recursive: true }); fs.writeFileSync(u, prev); }
 		}
 	};
+}
+
+/** Every file under `dir` as [relative path, bytes] — the whole of a folder-shape record. */
+function snapshotTree(dir) {
+	const out = [];
+	for (const file of walk(dir)) out.push([path.relative(dir, file), fs.readFileSync(file)]);
+	return out;
 }
