@@ -630,6 +630,15 @@ export function compile({ root, pkg }) {
 				fail(`collection "${name}": id.pattern is not a valid regular expression — ${e.message} (${group.map((g) => g.src.path).join(', ')})`);
 			}
 		}
+		// `sort_field` names a field of this collection's OWN schema. Without this gate a typo
+		// surfaces as "dragging does nothing" while the drag handle is still offered — a silent lie,
+		// and the ordering it writes would land in a field no reader sorts by.
+		if (merged.sort_field !== undefined) {
+			if (typeof merged.sort_field !== 'string') fail(`collection "${name}": sort_field must be a string (got ${JSON.stringify(merged.sort_field)})`);
+			if (!(merged.schema?.properties ?? {})[merged.sort_field]) {
+				fail(`collection "${name}": sort_field "${merged.sort_field}" is not a field of its schema — declare it, or point sort_field at one that exists (${group.map((g) => g.src.path).join(', ')}).`);
+			}
+		}
 		// ---- the reference contract: every target is owned, depended on, or declared a peer ----
 		// Attribution is unioned across the whole group rather than taken from the base, because the
 		// merge keeps no per-field provenance — an overlay that adds a ref field would otherwise be

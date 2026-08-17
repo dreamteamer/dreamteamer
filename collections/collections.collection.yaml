@@ -77,6 +77,13 @@ schema:
       type: array
       items: { type: string }
       description: The columns a list view shows by default.
+    sort_field:
+      type: string
+      description: >-
+        Which field carries MANUAL order — the one a drag writes. The field must be declared by this
+        collection's own schema, and holds a fractional index (`dt <collection> move`), never an
+        integer: renumbering is a multi-file commit against git. A surface offers dragging only while
+        it is sorted by this field, because a handle that reorders nothing is a lie.
     icon:
       type: string
       description: material-symbols-outlined icon name, drawn in the nav and page header. The VS Code tree maps it to the nearest codicon — an unmapped name falls back to a generic cylinder, so pick one that is already mapped or add the row.

@@ -42,6 +42,8 @@ collection verbs (hard validation — invalid writes are rejected before disk):
                                                '{"starts":{"_gte":"2026-07-01"}}'; date-times
                                                sort and compare as instants, across offsets)
   <collection> get <id> [--json]
+  <collection> move <id> --after|--before <id> | --top | --bottom
+  <collection> move --init                     (place every record that has no sort value yet)
   <collection> add --<field> <value> … [--id <explicit-id>]
   <collection> set <id> <field>=<value> …
   <collection> rm <id> [--force]
