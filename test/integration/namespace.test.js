@@ -305,6 +305,23 @@ describe('nested namespaces', () => {
 	});
 });
 
+describe('dt changes sees namespaced records', () => {
+	// `events.pathToRecord` maps a changed FILE back to (collection, id) by longest storage-path prefix.
+	// Namespaces make deep paths and near-miss prefixes ordinary, so the mapping is worth asserting
+	// rather than assuming — a miss here reports "nothing changed" for work that did.
+	test('a namespaced record shows up as an item event with the right collection and id', () => {
+		const ws = nsWorkspace();
+		ws.store.add('health/doctors', { name: 'Dana Levi' });
+		assert.equal(ws.dt('commit', '-m', 'add').code, 0);
+
+		const out = JSON.parse(ws.dt('changes', '--json').stdout);
+		const hit = out.events.find((e) => e.collection === 'health/doctors');
+		assert.ok(hit, `expected a health/doctors event, got ${JSON.stringify(out.events)}`);
+		assert.equal(hit.id, 'dana-levi');
+		assert.equal(hit.type, 'item-added');
+	});
+});
+
 describe('commit publishes namespaced records', () => {
 	test('dt commit picks up a record written under a namespace folder', () => {
 		const ws = nsWorkspace();
