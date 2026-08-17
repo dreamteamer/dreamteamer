@@ -8,7 +8,7 @@ import { Store, bodyField } from './store.js';
 import { load, dump } from './yaml.js';
 import { slug } from './template.js';
 import {
-	createCollection, removeCollection, addField, updateField, removeField, fieldDef, saveUiView, removeUiView,
+	createCollection, removeCollection, renameCollection, addField, updateField, removeField, fieldDef, saveUiView, removeUiView,
 	// was copy-pasted here, and the copy went stale the moment the source layout gained a second
 	// spelling — one implementation, two callers
 	workspaceSystemDir,
@@ -17,6 +17,7 @@ import { history, historyDiff } from './history.js';
 import { commandsFor, recordResolver } from './record-commands.js';
 import { distinctValues } from './field-values.js';
 import { matchesFilter } from './filter.js';
+import { baseNameOf, normalizeNamespaces } from './namespace.js';
 import { sortRows } from './temporal.js';
 import { ensureRepo, ensureAllRepos } from './init.js';
 
@@ -69,6 +70,7 @@ export function collectionCommand(ws, collection, verb, args) {
 	// ordinary record path refuses them ("… are system sources") and always would.
 	if (collection === 'collections' && verb === 'add') return metaCollectionsAdd(ws, store, flags);
 	if (collection === 'collections' && verb === 'rm') return metaCollectionsRm(ws, store, flags, pos);
+	if (collection === 'collections' && verb === 'rename') return metaCollectionsRename(ws, store, flags, pos);
 	if (collection === 'commands' && verb === 'for') return metaCommandsFor(ws, store, flags, pos);
 	if (collection === 'ui-views' && ['add', 'set', 'rm'].includes(verb)) return metaUiView(ws, store, verb, flags, pos);
 	if (collection === 'repos' && verb === 'ensure') return metaReposEnsure(ws, flags, pos);
@@ -228,9 +230,33 @@ function metaReposEnsure(ws, flags, pos) {
 
 // `dreamteamer collections add --name research-docs --template docs`
 function metaCollectionsAdd(ws, store, flags) {
-	const { file } = createCollection(ws, store, { name: flags.name, template: flags.template });
+	const { file } = createCollection(ws, store, { name: flags.name, template: flags.template, namespace: flags.namespace });
 	console.log(`✔ ${rel(ws.root, file)}`);
 	console.log('✔ compiled — the collection is live (schema ops prove sources with a real compile)');
+	return 0;
+}
+
+// `dreamteamer collections rename doctors health/doctors`, or `… doctors --namespace health`.
+// The whole point is that namespacing EXISTING data is one command instead of a six-step hand
+// migration whose last step (rewriting references) dangles everything when forgotten.
+function metaCollectionsRename(ws, store, flags, pos) {
+	const [oldName, explicitNew] = pos;
+	if (!oldName) throw new Error('usage: collections rename <old-name> <new-name> | <old-name> --namespace <ns>');
+	// `--namespace health` on its own moves the collection INTO that namespace keeping its bare name,
+	// which is the common case and saves retyping it.
+	const newName = explicitNew
+		?? (flags.namespace ? `${String(flags.namespace).replace(/^\/+|\/+$/g, '')}/${baseNameOf(oldName, normalizeNamespaces(ws.pkg.dreamteamer?.namespaces))}` : null);
+	if (!newName) throw new Error('missing new name — give it positionally or with --namespace <ns>');
+
+	const out = renameCollection(ws, store, oldName, newName);
+	if (flags.json) { emit(JSON.stringify(out)); return 0; }
+	if (!out.renamed) { console.log(`✔ ${oldName} — already named that, nothing to do`); return 0; }
+	console.log(`✔ ${oldName} → ${out.name}`);
+	if (out.from !== out.to) console.log(`  records  ${out.from} → ${out.to} (${out.records})`);
+	if (out.suffix) console.log(`  suffix   .${out.suffix.from}.md → .${out.suffix.to}.md`);
+	if (out.pathKept) console.log(`  ⚠ storage.path kept as "${out.pathKept}" — it was authored, so the rename did not overrule it`);
+	console.log(`  refs     ${out.rewrites} rewritten`);
+	console.log('✔ compiled — the rename is live, in ONE commit');
 	return 0;
 }
 

@@ -8,8 +8,11 @@ import Ajv from 'ajv';
 import addFormats from 'ajv-formats';
 import { load, dump } from './yaml.js';
 import { slug } from './template.js';
-import { walk } from './records.js';
+import { walk, patternRe } from './records.js';
 import { unknownOperators } from './filter.js';
+import {
+	normalizeNamespaces, namespaceProblems, unqualifiedProblems, defaultStoragePath, storageOverlaps,
+} from './namespace.js';
 // circular on paper in earlier versions — safe: both sides only
 // call at run time, same pattern as store.js ↔ compile.js.
 import { runHarnessAdapters } from './harnesses.js';
@@ -387,7 +390,18 @@ export function compile({ root, pkg }) {
 			const srcDir = kindDir(source.root, kind);
 			if (!fs.existsSync(srcDir)) continue;
 			counts[kind] ??= 0;
-			for (const name of fs.readdirSync(srcDir).sort()) {
+			// `collections/` is enumerated RECURSIVELY, so a namespaced descriptor can be authored at
+			// `collections/health/doctors.collection.yaml` — mirroring where it lands in the runtime and
+			// letting a workspace group its descriptors the same way its data is grouped.
+			//
+			// ⚠ This is load-bearing, not cosmetic. `schema-ops` derives a descriptor's source path from
+			// its name, so `add-field` on `health/doctors` writes the nested path; with a flat readdir
+			// that file was written, silently skipped, and the verb reported ✔ while changing nothing —
+			// the decision-156 shape again. Every other kind stays flat: their ids are single segments.
+			const names = kind === 'collections'
+				? [...walk(srcDir)].map((f) => path.relative(srcDir, f).split(path.sep).join('/'))
+				: fs.readdirSync(srcDir).sort();
+			for (const name of names) {
 				if (name.startsWith('.')) continue;
 				const entityId = name.replace(/\.[^.]+\.(yaml|md|json)$/, '');
 				if (disabled.has(`${source.name}/${entityId}`)) { disabledHits.add(`${source.name}/${entityId}`); continue; }
@@ -478,6 +492,21 @@ export function compile({ root, pkg }) {
 		templateDocs.set(m[1], { template: doc.template ?? {}, src: entry.sources[0] });
 	}
 
+	// ---- namespaces: the declared list, validated against what actually compiled ----------
+	// Declared in the WORKSPACE package.json only, never per-module. A module that could declare a
+	// namespace could rename where another module's records live, and the whole point of a namespace
+	// is that the workspace decides how its own data is partitioned. `namespaces` is also config
+	// rather than records for the same bootstrap reason `git-modules` is (docs/repos-and-modules.md):
+	// a reference has to be parseable before anything has been compiled.
+	const namespaces = normalizeNamespaces(config.namespaces);
+	const collectionNames = [...descriptorGroups.keys()];
+	for (const p of namespaceProblems(namespaces, collectionNames)) fail(p);
+	// The silent failure this whole feature had to fix: a slash in a collection name used to compile
+	// clean, land at `.dreamteamer/collections/<ns>/<name>.collection.yaml`, and then vanish — the
+	// descriptor loader read one directory level, so the collection was simply absent from the
+	// runtime while compile reported ✔ (the same shape as decision 156).
+	for (const p of unqualifiedProblems(collectionNames, namespaces)) fail(p);
+
 	// ---- who owns which collection, and which module IS the workspace ----------------
 	// Needed before the resolution loop so each descriptor can be validated against the graph as it
 	// is merged. The owner is the group member that does NOT declare `extends`; a group with two of
@@ -504,6 +533,7 @@ export function compile({ root, pkg }) {
 	counts.collections = 0;
 	let mergedCount = 0;
 	let templatedCount = 0;
+	const storageEntries = []; // {name, path, base} per collection — checked for overlap after the loop
 	for (const [name, group] of descriptorGroups) {
 		// a template's bytes feed the compiled descriptor, so it MUST be one of that descriptor's
 		// declared sources — otherwise editing the template leaves every consumer silently stale
@@ -555,6 +585,12 @@ export function compile({ root, pkg }) {
 		// the workspace root, read as zero records, and become writable through the store.
 		merged.storage ??= {};
 		const owned = dataOwners.get(storageOwnerOf(group, base));
+		// A namespaced collection's folder IS its namespace, nested: `health/doctors` →
+		// `data/health/doctors`. Derived rather than required so a descriptor never has to repeat its
+		// own name in a path, and so moving a collection between namespaces is a one-line edit.
+		// An authored `storage.path` still wins — registering an existing folder is a first-class case
+		// (skills/building-dreamteamer/references/collections.md).
+		merged.storage.path ??= defaultStoragePath(name, namespaces, config['data-path'] ?? 'data');
 		const storagePath = String(merged.storage.path ?? '');
 		const systemKinds = [...KINDS, ...DERIVED_KINDS];
 		const isSystem = systemKinds.includes(storagePath) || systemKinds.includes(storagePath.replace(/^system\//, ''));
@@ -566,6 +602,7 @@ export function compile({ root, pkg }) {
 		} else {
 			merged.storage.repo = '.';
 		}
+		storageEntries.push({ name, path: merged.storage.path, base: merged.storage.base });
 		for (const [at, tpl, target] of staleDisplayKeywords(merged.schema)) {
 			const fix = target
 				? `either DELETE it (a reference to "${target}" now inherits that collection's \`title_template\`) or rename it to \`x-title-template\` if this field really needs its own`
@@ -579,6 +616,16 @@ export function compile({ root, pkg }) {
 			descriptorAjv().compile(structuredClone(merged.schema));
 		} catch (e) {
 			fail(`collection "${name}": schema is not a valid JSON Schema — ${e.message} (${group.map((g) => g.src.path).join(', ')})`);
+		}
+		// Same reasoning one line up, for the OTHER regex a descriptor carries. `patternRe` throws on a
+		// malformed pattern, and it is called from `store.add` and from `check` — so without this gate a
+		// typo'd `id.pattern` surfaces as a raw "Invalid regular expression" from inside a write instead
+		// of as a compile error naming the descriptor.
+		if (merged.id?.pattern !== undefined) {
+			if (typeof merged.id.pattern !== 'string') fail(`collection "${name}": id.pattern must be a string (got ${JSON.stringify(merged.id.pattern)})`);
+			try { patternRe(merged.id.pattern); } catch (e) {
+				fail(`collection "${name}": id.pattern is not a valid regular expression — ${e.message} (${group.map((g) => g.src.path).join(', ')})`);
+			}
 		}
 		// ---- the reference contract: every target is owned, depended on, or declared a peer ----
 		// Attribution is unioned across the whole group rather than taken from the base, because the
@@ -649,6 +696,12 @@ export function compile({ root, pkg }) {
 		counts.collections++;
 		if (extenders.length) mergedCount++;
 	}
+
+	// ---- no collection may sit inside another's folder -------------------------------
+	// Checked HERE because it is the first moment every path is resolved (namespace nesting, the
+	// `owns-data` module prefix and any authored override all already applied). See
+	// namespace.storageOverlaps for what this silently did before it was checked.
+	for (const p of storageOverlaps(storageEntries)) fail(p);
 
 	// ---- modules, projected ---------------------------------------------------------
 	// One record per discovered module, written from what discovery and the package pass already
@@ -795,12 +848,17 @@ export function compile({ root, pkg }) {
 	const anyFlat = sources.some((s) => KINDS.some((k) => fs.existsSync(path.join(s.root, k))));
 	const anyNested = sources.some((s) => KINDS.some((k) => fs.existsSync(path.join(s.root, 'system', k))));
 	const sourceLayout = anyFlat && anyNested ? 'mixed' : anyNested ? 'nested' : 'flat';
-	const { outputs: adapterOutputs, summary: harnessSummary } = runHarnessAdapters({ root, entries, harnesses, prevManifest, sourceLayout });
+	const { outputs: adapterOutputs, summary: harnessSummary } = runHarnessAdapters({ root, entries, harnesses, prevManifest, sourceLayout, namespaces, version: engineVer });
 
 	// ---- provenance manifest ------------------------------------------------------
 	const manifest = {
 		compiled: new Date().toISOString(),
 		host: engineId(),
+		// The declared namespace list, carried across the boundary so the RECORD layer can split a
+		// reference without importing the compiler or re-reading package.json — the same reason
+		// `storage.base` is a field instead of a path test. An older runtime has no key here, which
+		// reads as "no namespaces", which is exactly right for a workspace that never declared any.
+		namespaces,
 		modules: sources.map((s) => ({ name: s.name, channel: s.channel, root: rel(s.root) || '.' })),
 		ui: uiModules.sort(),
 		'adapter-outputs': adapterOutputs.sort(),

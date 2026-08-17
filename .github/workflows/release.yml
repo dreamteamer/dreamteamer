@@ -34,8 +34,15 @@ jobs:
           echo "tag=$TAG package.json=$PKG"
           [ "$TAG" = "$PKG" ] || { echo "::error::tag $TAG does not match package.json $PKG"; exit 1; }
 
+      - name: layer direction
+        run: npm run layers
+
       - name: size budgets
         run: npm run metrics:check
+
+      # A release must not be able to ship what CI would have rejected.
+      - name: tests
+        run: npm test
 
       - name: first-run smoke
         run: |

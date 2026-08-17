@@ -6,7 +6,8 @@ import path from 'node:path';
 import Ajv from 'ajv';
 import addFormats from 'ajv-formats';
 import { parseRecord, patternRe, fmtAjvError, unknownFields, walk, EXT } from './records.js';
-import { NO_RUNTIME, loadDescriptors, runtimeDir } from './runtime.js';
+import { NO_RUNTIME, loadDescriptors, runtimeDir, namespaces as compiledNamespaces } from './runtime.js';
+import { parseRef } from './namespace.js';
 
 export function check({ root }) {
 	const RUNTIME = runtimeDir(root);
@@ -25,6 +26,9 @@ export function check({ root }) {
 		console.error(`✖ ${NO_RUNTIME}`);
 		return 2;
 	}
+	// Off the manifest, like the descriptors themselves — `check` is in the record layer and must not
+	// learn what a workspace package.json is (see the split in CLAUDE.md).
+	const namespaces = compiledNamespaces(root);
 
 	// ---- index all records: collection -> Map<id, filePath> ------------------------
 	const index = new Map();
@@ -122,7 +126,8 @@ export function check({ root }) {
 			const self = `${name}/${id}`;
 			for (const value of valuesAt(fields, fieldPath)) {
 				if (typeof value !== 'string' || value.startsWith('@')) continue;
-				const targetId = value.slice(value.indexOf('/') + 1);
+				const targetId = parseRef(value, namespaces)?.id;
+				if (targetId === undefined) continue;                  // already flagged as malformed
 				const targetFields = parsed.get(target)?.get(targetId);
 				if (!targetFields) continue;                       // already flagged as dangling
 				const back = [...valuesAt(targetFields, [inverse])];
@@ -137,10 +142,11 @@ export function check({ root }) {
 	function checkRef(file, fieldPath, value, target, softTargets) {
 		if (typeof value !== 'string') return;
 		if (value.startsWith('@')) return; // runtime tokens (@me, @initiator) are legal
-		const slash = value.indexOf('/');
-		if (slash < 1) return flag(file, `${fieldPath.join('.')}: reference "${value}" is not <collection>/<id>`);
-		const coll = value.slice(0, slash);
-		const id = value.slice(slash + 1);
+		// The SAME parser the store writes through (src/namespace.js) — `check` disagreeing with the
+		// write path about where a namespace ends would flag valid records and pass invalid ones.
+		const ref = parseRef(value, namespaces);
+		if (!ref) return flag(file, `${fieldPath.join('.')}: reference "${value}" is not <collection>/<id>`);
+		const { collection: coll, id } = ref;
 		if (target !== '*' && coll !== target) {
 			return flag(file, `${fieldPath.join('.')}: reference "${value}" should target collection "${target}"`);
 		}

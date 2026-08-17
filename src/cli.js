@@ -55,8 +55,14 @@ repo attachment (working trees are materialized ON DEMAND, never at install):
   repos ensure --all [--json]                 (explicit opt-in: everything, e.g. before going offline)
 
 meta verbs (schema operations — write SOURCES through a compile gate, never the runtime):
-  collections add --name <name> [--template docs|entity]
+  collections add --name <name> [--namespace <ns>] [--template docs|entity]
+                            (--namespace health --name doctors === --name health/doctors; the
+                             namespace must already be declared in dreamteamer.namespaces, and
+                             records land in data/<ns>/<name>/)
   collections rm <name> [--force]             (--force required if it still has records)
+  collections rename <old> <new>              (or <old> --namespace <ns> to move it into one)
+                            moves the descriptor AND the records, re-suffixes files when the
+                            suffix was derived, rewrites every inbound reference, ONE commit
   <collection> add-field    --name <field> --type <type> [--options a,b] [--default-value v] [--required true]
                             [--description "what this field means"]
                             types: string text markdown boolean number integer date datetime

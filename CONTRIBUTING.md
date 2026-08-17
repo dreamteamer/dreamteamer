@@ -25,11 +25,26 @@ implementation), and a capability that needs a record seeded before it exists.
 
 ```bash
 npm install
-npm run metrics:check        # size budgets
-node bin/dreamteamer.js help
+npm run verify               # layers + size budgets + tests — run this before a commit
 ```
 
-There is no test framework, by choice. Verify changes by running the thing:
+`verify` is the gate CI runs. Its parts, when you want one of them alone:
+
+```bash
+npm run layers               # the record/workspace import direction
+npm run metrics:check        # size budgets
+npm test                     # tiers 1+2, ~7s, zero dependencies
+npm test -- --unit           # tier 1 only: pure functions, no fs, no git
+npm test -- --only=namespace # one file
+npm test -- --clean          # discard the cached tier-2 fixture and rebuild it
+```
+
+**Tier 1** (`test/unit/`) is pure functions. **Tier 2** (`test/integration/`) drives the real
+compiler, store and CLI binary against a workspace built by `dreamteamer init` — cached once and
+copied per test, so the whole suite stays in the seconds range. A test is expected to arrive with the
+change it covers.
+
+Beyond the suite, it is still worth watching a change work end to end the way a stranger meets it:
 
 ```bash
 cd "$(mktemp -d)" && git init -q && npm init -y
@@ -39,6 +54,16 @@ npx dreamteamer notes add --title "does it work"
 ```
 
 If a change can't be demonstrated that way, that's usually a sign the change is in the wrong place.
+
+## A release that changes behaviour gets an UPDATING.md section
+
+[`UPDATING.md`](UPDATING.md) is one section per version, newest first, and it answers one question:
+what does an operator have to DO. Most of the time that is `dt compile` and nothing else — say so
+explicitly rather than leaving the section out, because an absent section reads as "nobody checked".
+
+A section is required when a release changes an observable behaviour, adds a refusal that an existing
+workspace can hit, or needs a module to declare something new. Write it in the same commit as the
+change, while you still know which of your edits an operator can actually notice.
 
 ## Engine and UI are separate
 
