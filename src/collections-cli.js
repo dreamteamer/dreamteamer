@@ -228,7 +228,7 @@ function metaReposEnsure(ws, flags, pos) {
 
 // `dreamteamer collections add --name research-docs --template docs`
 function metaCollectionsAdd(ws, store, flags) {
-	const { file } = createCollection(ws, store, { name: flags.name, template: flags.template });
+	const { file } = createCollection(ws, store, { name: flags.name, template: flags.template, namespace: flags.namespace });
 	console.log(`✔ ${rel(ws.root, file)}`);
 	console.log('✔ compiled — the collection is live (schema ops prove sources with a real compile)');
 	return 0;

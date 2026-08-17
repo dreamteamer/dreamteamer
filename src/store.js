@@ -11,7 +11,8 @@ import { dump } from './yaml.js';
 import { generateId } from './template.js';
 import { parseRecord, parseRecordText, patternRe, fmtAjvError, unknownFields, walk, EXT, assertSafeId } from './records.js';
 import { normalizeRecord } from './temporal.js';
-import { NO_RUNTIME, sourceHint, loadDescriptors, runtimeDir, sourceRoots as compiledSourceRoots } from './runtime.js';
+import { NO_RUNTIME, sourceHint, loadDescriptors, runtimeDir, namespaces as compiledNamespaces, sourceRoots as compiledSourceRoots } from './runtime.js';
+import { parseRef } from './namespace.js';
 
 // git calls whose failure we CATCH must not print git's own error: execFileSync forwards the
 // child's stderr to ours unless told otherwise, so a handled "not a git repository" still
@@ -33,6 +34,9 @@ export class Store {
 		const descriptors = loadDescriptors(root);
 		if (!descriptors) throw new Error(NO_RUNTIME);
 		this.descriptors = descriptors;
+		// The closed set every reference is split against (see src/namespace.js). Read once per Store:
+		// it is compile output, and a Store is already rebuilt whenever the runtime changes.
+		this.namespaces = compiledNamespaces(root);
 	}
 
 	descriptor(collection) {
@@ -186,10 +190,12 @@ export class Store {
 			if (raw == null) continue;
 			for (const value of Array.isArray(raw) ? raw : [raw]) {
 				if (typeof value !== 'string' || value.startsWith('@')) continue;
-				const slash = value.indexOf('/');
-				if (slash < 1) throw new Error(`${key}: reference "${value}" is not <collection>/<id> — nothing was written.`);
-				const coll = value.slice(0, slash);
-				const id = value.slice(slash + 1);
+				// ONE parser for the collection/id boundary, shared with `check` and the extension —
+				// a namespace that meant one thing on write and another on read would be worse than
+				// no namespaces at all.
+				const parsed = parseRef(value, this.namespaces);
+				if (!parsed) throw new Error(`${key}: reference "${value}" is not <collection>/<id> — nothing was written.`);
+				const { collection: coll, id } = parsed;
 				if (target !== '*' && coll !== target) throw new Error(`${key}: reference "${value}" must target collection "${target}" — nothing was written.`);
 				if (!this.descriptors.has(coll)) throw new Error(`${key}: reference "${value}" targets unknown collection "${coll}" — nothing was written.`);
 				if (!this.ids(coll).has(id)) throw new Error(`${key}: dangling reference "${value}" — no such record. nothing was written.`);

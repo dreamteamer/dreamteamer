@@ -23,6 +23,30 @@ module owns, either edit that module's descriptor by hand or add an `extends:` o
 ⚠ **There is no `collections rename`** — it refuses system sources. A rename is `git mv` of the
 descriptor + edit `name`/`storage.path`/`suffix` + re-suffix every record, all in one commit.
 
+## namespaces — scoping a collection under a folder
+
+A collection name may carry a slash-delimited namespace, and it becomes real directory nesting:
+
+| declare in the workspace `package.json` | create it | lands in | referenced as |
+|---|---|---|---|
+| `"namespaces": ["health"]` | `dt collections add --namespace health --name doctors` | `data/health/doctors/` | `health/doctors/dana-levi` |
+
+- **The default namespace is the empty prefix.** `tasks` stays `data/tasks/` and `tasks/kickoff`, so
+  common entities need no prefix and adopting namespaces migrates nothing. `default` is RESERVED —
+  there is never a second spelling for one collection.
+- ⚠ **The namespace MUST be declared before the collection compiles.** An id is also a slash path
+  (`meetings/2026/07/kickoff`), so `a/b/c` is ambiguous without the declared set; an undeclared prefix
+  is a compile error rather than a reference that silently names a different collection.
+- `--namespace health --name doctors` and `--name health/doctors` are the same thing. The descriptor
+  lands at `collections/health/doctors.collection.yaml`, mirroring the runtime; the `suffix` comes off
+  the bare name (`<id>.doctor.md`).
+- `x-reference: health/doctors`, `disable: "<module>/health/doctors"` and every record verb all take the
+  QUALIFIED name — it is the collection's identity everywhere.
+- Nested namespaces work (`work/clients`), longest declared prefix wins.
+- ⚠ **No collection may store records inside another's folder** — a namespace folder cannot itself be a
+  collection root. compile refuses it, because the outer collection would index the inner one's records
+  as its own.
+
 ## `templates:` — a live shared field set
 
 ```yaml
