@@ -146,6 +146,9 @@ Issues are welcome. For anything larger than a typo, please open a discussion be
 this is a small, deliberately lean codebase (`npm run metrics` enforces size budgets), and it's better
 to agree on the shape first.
 
+`npm run verify` is the gate: import-layer direction, size budgets, and the test suite (tiers 1+2,
+zero dependencies, a few seconds). See [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## License
 
 Apache-2.0 © 2026 Gilad Khen. See [LICENSE](LICENSE).

@@ -26,15 +26,21 @@ jobs:
 
       - run: npm ci
 
+      - name: layer direction
+        run: npm run layers
+
       - name: size budgets
         run: npm run metrics:check
+
+      - name: tests
+        run: npm test
 
       - name: cli loads
         run: node bin/dreamteamer.js --version
 
-      # The first sixty seconds of a new user's life. There is no test framework here by
-      # design, so this smoke IS the suite: it scaffolds a real workspace and drives it
-      # end to end.
+      # The first sixty seconds of a new user's life. The suite above covers behaviour; this
+      # covers DISTRIBUTION, which no test can: it installs the packed tarball exactly as a
+      # stranger would and drives it end to end.
       #
       # It installs the PACKED TARBALL rather than the source tree on purpose — that is
       # exactly what a user gets from npm, so a missing entry in files[] fails CI instead
