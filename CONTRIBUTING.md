@@ -25,11 +25,26 @@ implementation), and a capability that needs a record seeded before it exists.
 
 ```bash
 npm install
-npm run metrics:check        # size budgets
-node bin/dreamteamer.js help
+npm run verify               # layers + size budgets + tests — run this before a commit
 ```
 
-There is no test framework, by choice. Verify changes by running the thing:
+`verify` is the gate CI runs. Its parts, when you want one of them alone:
+
+```bash
+npm run layers               # the record/workspace import direction
+npm run metrics:check        # size budgets
+npm test                     # tiers 1+2, ~7s, zero dependencies
+npm test -- --unit           # tier 1 only: pure functions, no fs, no git
+npm test -- --only=namespace # one file
+npm test -- --clean          # discard the cached tier-2 fixture and rebuild it
+```
+
+**Tier 1** (`test/unit/`) is pure functions. **Tier 2** (`test/integration/`) drives the real
+compiler, store and CLI binary against a workspace built by `dreamteamer init` — cached once and
+copied per test, so the whole suite stays in the seconds range. A test is expected to arrive with the
+change it covers.
+
+Beyond the suite, it is still worth watching a change work end to end the way a stranger meets it:
 
 ```bash
 cd "$(mktemp -d)" && git init -q && npm init -y
