@@ -95,6 +95,50 @@ function descriptorSourceDir(ws, name) {
 	return { dir: kindDir(moduleRoot, 'collections'), sources };
 }
 
+/**
+ * Set one scalar in a YAML document TEXTUALLY, so comments and key order survive.
+ *
+ * This exists because `load` → mutate → `dump` is lossy in the one way that matters here: it drops
+ * every comment. That is fine for a generated artifact and wrong for a module SOURCE, which is where
+ * this project writes down why a collection exists. Only `renameCollection` uses it, and only for the
+ * three scalars a rename changes; anything more ambitious belongs in a real round-trip YAML library,
+ * not in a regex.
+ *
+ * Handles both spellings the descriptors actually use — a top-level key, a nested block mapping, and
+ * the inline `storage: { path: x, suffix: y }` flow form. Callers MUST re-parse and assert, because a
+ * shape not covered here fails by changing nothing rather than by throwing.
+ */
+function setScalar(text, keyPath, value) {
+	const [head, child] = keyPath;
+	if (!child) return text.replace(new RegExp(`^${head}:.*$`, 'm'), `${head}: ${value}`);
+
+	// inline flow mapping: `storage: { path: data/x, suffix: y }`
+	const flow = new RegExp(`^${head}:\\s*\\{([^}]*)\\}\\s*$`, 'm').exec(text);
+	if (flow) {
+		let body = flow[1];
+		body = new RegExp(`\\b${child}:\\s*[^,}]+`).test(body)
+			? body.replace(new RegExp(`(\\b${child}:\\s*)[^,}]+`), `$1${value}`)
+			: `${body.trimEnd()}, ${child}: ${value}`;
+		return text.slice(0, flow.index) + `${head}: {${body}}` + text.slice(flow.index + flow[0].length);
+	}
+
+	// block mapping: `storage:\n  path: data/x`
+	const block = new RegExp(`^${head}:\\n(?:[ \\t]+.*\\n)*?[ \\t]+${child}:.*$`, 'm').exec(text);
+	if (block) {
+		return text.slice(0, block.index)
+			+ block[0].replace(new RegExp(`([ \\t]+${child}:).*$`, 'm'), `$1 ${value}`)
+			+ text.slice(block.index + block[0].length);
+	}
+
+	// the key is absent under an existing block — insert it directly after the parent
+	const parent = new RegExp(`^${head}:\\s*$`, 'm').exec(text);
+	if (parent) {
+		const at = parent.index + parent[0].length + 1;
+		return text.slice(0, at) + `  ${child}: ${value}\n` + text.slice(at);
+	}
+	return text;
+}
+
 // ---- ops ------------------------------------------------------------------------
 
 export function createCollection(ws, store, { name, template, namespace }) {
@@ -263,21 +307,66 @@ export function renameCollection(ws, store, oldName, newName) {
 		};
 		for (const id of ids) captureRefs(`${oldName}/${id}`);
 		captureRefs(`collections/${oldName}`);
-		const restoreRefs = () => { for (const [f, bytes] of refFiles) fs.writeFileSync(f, bytes); };
+		const restoreRefs = () => {
+			for (const [f, bytes] of refFiles) {
+				fs.mkdirSync(path.dirname(f), { recursive: true }); // pruneEmpty may have taken the parent
+				fs.writeFileSync(f, bytes);
+			}
+		};
 
 		const touched = new Set();
 		let rewrites = 0;
 		try {
-			// 1. the descriptor source, at its new path
+			// 1. the descriptor source, at its new path — EDITED TEXTUALLY, never re-dumped.
+			//
+			// ⚠ `fs.writeFileSync(dest, dump(doc))` destroyed every comment in the descriptor, and a
+			// descriptor's comments are where this project keeps its reasoning: 194 lines across 24
+			// files in one real migration, including 22-line headers stating what belongs in a
+			// collection and which failure mode it guards against. The record survived; the thinking
+			// did not, and nothing said so.
+			//
+			// A rename changes exactly three scalars. Rewriting those three in place keeps the
+			// comments, the key order and the author's formatting — and the parse afterwards proves
+			// the edit landed rather than trusting the regex.
+			const edited = setScalar(setScalar(setScalar(srcBytes.toString('utf8'),
+				['name'], newName),
+				['storage', 'path'], newPath),
+				['storage', 'suffix'], newSuffix);
+			const parsed = load(edited);
+			if (parsed?.name !== newName || parsed?.storage?.path !== newPath || parsed?.storage?.suffix !== newSuffix) {
+				throw new Error(`could not rewrite ${path.relative(ws.root, src)} in place — name/storage.path/storage.suffix did not take. nothing was changed.`);
+			}
 			doc.name = newName;
 			doc.storage = { ...doc.storage, path: newPath, suffix: newSuffix };
 			fs.mkdirSync(path.dirname(dest), { recursive: true });
-			fs.writeFileSync(dest, dump(doc));
+			fs.writeFileSync(dest, edited);
 			if (dest !== src) fs.rmSync(src);
 			touched.add(src);
 			touched.add(dest);
 
-			// 2. the record folder, then the per-file suffix if it was derived
+			// 2. INBOUND REFERENCES FIRST, while the records are still where the store thinks they are.
+			//
+			// ⚠ This used to run AFTER the folder move and it silently missed every SELF-reference.
+			// `store.rewriteRefs` walks `recordFiles()`, which resolves each collection's directory
+			// from the descriptor loaded when the Store was built — i.e. the OLD `storage.path`. Move
+			// the records first and that walk finds an empty directory, so a record pointing at its
+			// own collection is never rewritten and dangles the moment compile catches up.
+			//
+			// It is not a corner case: it hit `finance/accounts`, where every card and loan carries
+			// `settled_by: <the account that settles it>` — 5 dangling refs out of 11 records, found
+			// only because `check` ran afterwards. Doing the rewrite first needs no descriptor reload
+			// and no second code path: the files are still at the old path, which is exactly what the
+			// old refs say.
+			for (const id of ids) {
+				const out = store.rewriteRefs(`${oldName}/${id}`, `${newName}/${id}`);
+				rewrites += out.rewrites;
+				for (const f of out.touched) touched.add(f);
+			}
+			const collOut = store.rewriteRefs(`collections/${oldName}`, `collections/${newName}`);
+			rewrites += collOut.rewrites;
+			for (const f of collOut.touched) touched.add(f);
+
+			// 3. the record folder, then the per-file suffix if it was derived
 			if (newDir !== oldDir && fs.existsSync(oldDir)) {
 				fs.mkdirSync(path.dirname(newDir), { recursive: true });
 				fs.renameSync(oldDir, newDir);
@@ -295,33 +384,48 @@ export function renameCollection(ws, store, oldName, newName) {
 			}
 			if (movedData) { touched.add(oldDir); touched.add(newDir); }
 
-			// 3. inbound references: per record id, plus the collection's own id in `collections`
-			//    (which is what ui-views and command-bindings point at).
-			for (const id of ids) {
-				const out = store.rewriteRefs(`${oldName}/${id}`, `${newName}/${id}`);
-				rewrites += out.rewrites;
-				for (const f of out.touched) touched.add(f);
-			}
-			const collOut = store.rewriteRefs(`collections/${oldName}`, `collections/${newName}`);
-			rewrites += collOut.rewrites;
-			for (const f of collOut.touched) touched.add(f);
-
 			// 4. bare `x-reference: <oldName>` in every descriptor SOURCE. Not a `<collection>/<id>`
-			//    ref, so step 3 cannot see it — and leaving it makes compile fail on an unknown target.
+			//    ref, so step 2 cannot see it — and leaving it makes compile fail on an unknown target.
+			//
+			// ⚠ TEXTUAL, for the same reason step 1 is. This used to `load` → mutate → `dump`, which
+			// meant that ANY descriptor needing a retarget lost every comment in it — including the
+			// renamed one itself when it self-references, which is how step 1's careful preservation
+			// was undone one step later. 17 of the 24 descriptors stripped in the migration that
+			// found this were stripped HERE, not there.
+			//
+			// `retargetRefs` still decides WHETHER a file is affected — it walks the parsed schema and
+			// knows about nested properties and `items` — but the write is a line edit, and the parse
+			// afterwards proves it landed.
 			for (const f of descriptorSources(ws, store)) {
 				const before = fs.readFileSync(f, 'utf8');
-				const doc2 = load(before);
-				if (!doc2 || !retargetRefs(doc2.schema, oldName, newName)) continue;
+				const probe = load(before);
+				if (!probe || !retargetRefs(probe.schema, oldName, newName)) continue;
+				// ⚠ the boundary must cover BOTH spellings. A descriptor may write the block form
+				// (`x-reference: accounts` to end of line) or the inline flow form
+				// (`{ type: string, x-reference: accounts }`), where the value ends at `,` or `}`.
+				// Anchoring on `$` alone silently matched nothing in the flow form — and the assert
+				// below turned that silence into a refusal, which is how it was found.
+				const after = before.replace(
+					new RegExp(`(x-reference:\\s*)(['"]?)${oldName.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')}\\2(?=\\s*(?:[,}]|#|$))`, 'gm'),
+					(_m, lead) => `${lead}${newName.includes('/') ? `'${newName}'` : newName}`);
+				const reparsed = load(after);
+				if (!reparsed || retargetRefs(reparsed.schema, oldName, newName)) {
+					throw new Error(`could not retarget x-reference "${oldName}" in ${path.relative(ws.root, f)} without reformatting it — nothing was changed.`);
+				}
 				if (!refFiles.has(f)) refFiles.set(f, Buffer.from(before));
-				fs.writeFileSync(f, dump(doc2));
+				fs.writeFileSync(f, after);
 				touched.add(f);
 				rewrites++;
 			}
 
 			compile(ws); // the gate: an uncompilable rename never reaches history
 		} catch (e) {
-			restoreRefs();
+			// ⚠ undo() FIRST. A captured file can be a SELF-reference — a record of the collection being
+			// renamed — so its path only exists again once undo() has moved the folder back. Restoring
+			// before that wrote into a directory that was no longer there, and the ENOENT masked the
+			// error actually being rolled back from.
 			undo();
+			restoreRefs();
 			try { compile(ws); } catch { /* pre-rename sources were compilable */ }
 			throw e;
 		}
@@ -338,8 +442,8 @@ export function renameCollection(ws, store, oldName, newName) {
 			execFileSync('git', ['commit', '--quiet', '-m', `dreamteamer: collections rename ${oldName} → ${newName}`, '--', ...rels], { cwd: ws.root, stdio: GIT_QUIET });
 		} catch (e) {
 			try { execFileSync('git', ['reset', '--quiet', '--', ...rels], { cwd: ws.root, stdio: GIT_QUIET }); } catch { /* nothing staged */ }
-			restoreRefs();
 			undo();
+			restoreRefs();
 			try { compile(ws); } catch { /* pre-rename sources were compilable */ }
 			throw new Error(`git commit failed — the rename was rolled back, nothing was changed. (${e.message.split('\n')[0]})`);
 		}

@@ -309,3 +309,109 @@ describe('a collection shipped by an INLINE module', () => {
 		assert.equal(ws.dt('check').code, 0);
 	});
 });
+
+// ⚠ THE THREE BUGS A REAL MIGRATION FOUND (0.9.1). Each of these passed the whole suite before it
+// was written, because each fails only in a shape the suite did not have: a record pointing at its
+// OWN collection, a ref written into a module source, and a module that stops existing.
+describe('regressions from the gk-brain namespace migration', () => {
+	test('a SELF-reference inside the renamed collection is rewritten', () => {
+		// `finance/accounts`: every card and loan carries `settled_by: <the account that settles it>`.
+		// The rewrite used to run AFTER the record folder moved, so `recordFiles()` walked the old
+		// (now empty) path and never saw these — 5 of 11 records dangled, silently.
+		const ws = workspace({
+			namespaces: ['finance'],
+			collections: {
+				accounts: simpleCollection({
+					storage: { suffix: 'account' },
+					schema: {
+						type: 'object', required: ['name'],
+						properties: { name: { type: 'string' }, settled_by: { type: 'string', 'x-reference': 'accounts' } },
+					},
+				}),
+			},
+		});
+		ws.store.add('accounts', { name: 'Current' });
+		ws.store.add('accounts', { name: 'Card', settled_by: 'accounts/current' });
+
+		assert.equal(ws.dt('collections', 'rename', 'accounts', 'finance/accounts').code, 0);
+
+		assert.match(ws.dt('finance/accounts', 'get', 'card').stdout, /finance\/accounts\/current/,
+			'the self-reference followed the collection');
+		const check = ws.dt('check');
+		assert.equal(check.code, 0, check.stdout);
+	});
+
+	test('a ref in a MODULE SOURCE is rewritten once, not twice', () => {
+		// `recordFiles()` yielded every module source TWICE (the `modules` collection's storage.path is
+		// `modules`, and sourceRoots() includes the workspace root). Harmless while rewrites were
+		// idempotent — and namespacing is not: `rnd/docs/x` still contains `docs/x`, so the second
+		// pass produced `rnd/rnd/docs/x`.
+		const ws = workspace({ namespaces: ['rnd'], collections: { docs: simpleCollection({ storage: { suffix: 'doc' } }) } });
+		ws.store.add('docs', { name: 'Spec' });
+		const descriptor = path.join(ws.root, 'modules', WS_MODULE, 'collections', 'docs.collection.yaml');
+		fs.writeFileSync(descriptor, '# design: data/docs/spec.doc.md\n' + fs.readFileSync(descriptor, 'utf8'));
+		assert.equal(ws.dt('compile').code, 0);
+
+		assert.equal(ws.dt('collections', 'rename', 'docs', 'rnd/docs').code, 0);
+
+		const moved = readFile(ws.root, `modules/${WS_MODULE}/collections/rnd/docs.collection.yaml`);
+		assert.match(moved, /^# design:/m, 'the comment SURVIVED the rename — dump() used to eat it');
+		assert.match(moved, /data\/rnd\/docs\/spec\.doc\.md/, 'and its path was rewritten');
+		assert.doesNotMatch(moved, /rnd\/rnd/, 'exactly once');
+	});
+
+	test('recordFiles yields each file exactly once', () => {
+		const ws = workspace({ collections: { docs: simpleCollection({ storage: { suffix: 'doc' } }) } });
+		ws.store.add('docs', { name: 'Spec' });
+		const seen = new Map();
+		for (const f of ws.store.recordFiles()) seen.set(path.resolve(f), (seen.get(path.resolve(f)) ?? 0) + 1);
+		const dupes = [...seen].filter(([, n]) => n > 1).map(([f]) => f);
+		assert.deepEqual(dupes, [], 'no file may be walked twice — rewrites are not all idempotent');
+	});
+});
+
+// ⚠ COMMENTS ARE THE POINT OF A MODULE SOURCE. `load` → mutate → `dump` dropped every one of them,
+// in TWO places (the descriptor write, and the x-reference retarget), and took 194 lines across 24
+// descriptors in one real migration — including 22-line headers stating what belongs in a collection.
+// The record survived; the reasoning did not, and nothing said so.
+describe('a rename preserves the descriptor verbatim apart from what it changes', () => {
+	const RICH = [
+		'# doctors — the header this test exists to protect.',
+		'#',
+		'# A doctor refers on to another doctor: a SELF-reference in the inline flow form, which is',
+		'# where the retarget regex used to match nothing at all.',
+		'name: doctors',
+		'storage: { path: data/doctors, codec: md, shape: file, suffix: doctor }',
+		'id: { generate: "{{ name | slug }}" }',
+		'schema:',
+		'  type: object',
+		'  required: [name]',
+		'  properties:',
+		'    name: { type: string }',
+		'    # who they refer on to',
+		'    refers_to: { type: string, x-reference: doctors }',
+		'',
+	].join('\n');
+
+	test('comments survive, and the self-referencing x-reference is retargeted', () => {
+		const ws = workspace({ namespaces: ['health'] });
+		fs.writeFileSync(path.join(ws.root, 'modules', WS_MODULE, 'collections', 'doctors.collection.yaml'), RICH);
+		assert.equal(ws.dt('compile').code, 0);
+		assert.equal(ws.dt('doctors', 'add', '--name', 'Dana').code, 0);
+		assert.equal(ws.dt('doctors', 'add', '--name', 'Eli', '--refers_to', 'doctors/dana').code, 0);
+
+		const res = ws.dt('collections', 'rename', 'doctors', 'health/doctors');
+		assert.equal(res.code, 0, res.stdout + res.stderr);
+
+		const moved = readFile(ws.root, `modules/${WS_MODULE}/collections/health/doctors.collection.yaml`);
+		assert.match(moved, /^# doctors — the header this test exists to protect\.$/m, 'the header block survived');
+		assert.match(moved, /^    # who they refer on to$/m, 'an inline property comment survived too');
+		assert.match(moved, /x-reference: 'health\/doctors'/, 'the self-referencing target was retargeted');
+		assert.equal(load(moved).storage.path, 'data/health/doctors');
+
+		// and the self-reference in the DATA followed
+		assert.match(ws.dt('health/doctors', 'get', 'eli').stdout, /health\/doctors\/dana/);
+		const check = ws.dt('check');
+		assert.equal(check.code, 0, check.stdout);
+	});
+});

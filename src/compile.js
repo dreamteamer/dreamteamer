@@ -840,7 +840,13 @@ export function compile({ root, pkg }) {
 	// clear each kind's folder, plus `system/` — a runtime compiled by a pre-flatten engine has the
 	// whole tree under there, and leaving it would keep stale descriptors on disk beside the fresh
 	// ones. Never `rm -rf` the runtime root itself: it also holds the write lock.
-	for (const kind of KINDS) fs.rmSync(path.join(RUNTIME, kind), { recursive: true, force: true });
+	// ⚠ DERIVED_KINDS too, not just KINDS. `modules/` is projected rather than staged, so it was not
+	// in this loop and never got cleared — a module that was RENAMED or REMOVED left its old record
+	// behind forever, listing collections that no longer exist. `check` reads those records like any
+	// other, so it surfaced as a dangling reference in a file nobody had touched, twice in one day
+	// (`hq3-workspace` after the workspace-module rename, and again after `crm` was folded in). The
+	// runtime is build output; stale build output is the compiler's problem, not the reader's.
+	for (const kind of [...KINDS, ...DERIVED_KINDS]) fs.rmSync(path.join(RUNTIME, kind), { recursive: true, force: true });
 	fs.rmSync(path.join(RUNTIME, 'system'), { recursive: true, force: true });
 	fs.rmSync(path.join(RUNTIME, 'ui'), { recursive: true, force: true });
 	for (const [rt, e] of entries) {

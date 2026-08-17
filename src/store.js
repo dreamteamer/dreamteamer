@@ -299,13 +299,31 @@ export class Store {
 		return new RegExp(`${ref.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w/-])`, 'g');
 	}
 
+	// ⚠ EACH FILE EXACTLY ONCE. The `modules` collection's storage.path is `modules` and
+	// `sourceRoots()` includes the workspace root, so walking it RE-YIELDS every module source that
+	// its own kind's walk already produced — 173 files in one real vault, every module source
+	// among them.
+	//
+	// That was harmless while every rewrite was idempotent, and stopped being harmless the day
+	// namespaces arrived: replacing `draft-docs/x` with `rnd/draft-docs/x` is NOT idempotent,
+	// because the result still contains the pattern. A second pass wrote
+	// `data/rnd/rnd/draft-docs/x` into module-source comments during a real migration. Dedupe HERE
+	// rather than making each caller idempotent — `findInboundRefs` is a caller too, and its counts
+	// were quietly doubled by the same walk.
 	*recordFiles() {
+		const seen = new Set();
 		for (const d of this.descriptors.values()) {
 			// for runtime-based collections, inbound-ref surgery targets SOURCES, not the runtime
 			const roots = d.storage.base === 'runtime' ? this.sourceRoots() : [this.root];
 			for (const srcRoot of roots) {
 				const dir = path.join(srcRoot, d.storage.path);
-				if (fs.existsSync(dir)) yield* walk(dir);
+				if (!fs.existsSync(dir)) continue;
+				for (const f of walk(dir)) {
+					const key = path.resolve(f);
+					if (seen.has(key)) continue;
+					seen.add(key);
+					yield f;
+				}
 			}
 		}
 	}
