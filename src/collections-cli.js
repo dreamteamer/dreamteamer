@@ -19,7 +19,7 @@ import { distinctValues } from './field-values.js';
 import { matchesFilter } from './filter.js';
 import { baseNameOf, normalizeNamespaces } from './namespace.js';
 import { sortRows } from './temporal.js';
-import { keyBetween } from './fractional-index.js';
+import { keyBetween, placementKey } from './fractional-index.js';
 import { ensureRepo, ensureAllRepos } from './init.js';
 
 /**
@@ -164,20 +164,7 @@ export function collectionCommand(ws, collection, verb, args) {
 			}
 
 			const id = need(pos, 0, 'id');
-			const placed = rows.filter((r) => r.key && r.id !== id);
-			const at = (t) => {
-				const i = placed.findIndex((r) => r.id === t);
-				if (i < 0) throw new Error(`"${t}" has no ${field} yet — run \`dreamteamer ${collection} move --init\` first. nothing was written.`);
-				return i;
-			};
-			let before, after;
-			if (flags.top) { before = null; after = placed[0]?.key ?? null; }
-			else if (flags.bottom) { before = placed[placed.length - 1]?.key ?? null; after = null; }
-			else if (typeof flags.after === 'string') { const i = at(flags.after); before = placed[i].key; after = placed[i + 1]?.key ?? null; }
-			else if (typeof flags.before === 'string') { const i = at(flags.before); before = placed[i - 1]?.key ?? null; after = placed[i].key; }
-			else throw new Error('say where to put it — --after <id>, --before <id>, --top or --bottom. nothing was written.');
-
-			store.set(collection, id, { [field]: keyBetween(before, after) });
+			store.set(collection, id, { [field]: placementKey(rows, id, flags, collection) });
 			flags.json ? emit(JSON.stringify({ id })) : console.log('✔ moved');
 			return 0;
 		}
