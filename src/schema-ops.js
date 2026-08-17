@@ -11,6 +11,7 @@ import { load, dump } from './yaml.js';
 import { compile, kindDir, titleCase } from './compile.js';
 import { readManifest, runtimeKindDir } from './runtime.js';
 import { normalizeNamespaces, namespaceOf, baseNameOf, qualify, defaultStoragePath } from './namespace.js';
+import { walk, EXT } from './records.js';
 
 // ---- the gate -------------------------------------------------------------------
 
@@ -116,6 +117,229 @@ export function removeCollection(ws, store, name, { force = false } = {}) {
 	if (hasRecords && !force) throw new Error(`collection "${name}" still has records under ${d.storage.path} — remove them first or pass force`);
 	writeGated(ws, store, [dest], `dreamteamer: collections rm ${name}`, () => fs.rmSync(dest));
 	return { removed: name };
+}
+
+/**
+ * Rename a collection — descriptor, records, and every inbound reference, in ONE commit.
+ *
+ * This exists because namespacing EXISTING data was otherwise a hand migration: `git mv` the
+ * descriptor, edit `name` and `storage.path`, `git mv` the record folder, re-suffix every file, then
+ * find and rewrite every reference — six steps with no gate, where forgetting the last one dangles
+ * every link silently. `dt collections rename doctors health/doctors` is the whole thing.
+ *
+ * DERIVED-VS-AUTHORED is the rule for both moving parts, the same rule `createCollection` uses:
+ *  - `storage.path` moves only if it was DERIVED (equal to the default for the old name). An authored
+ *    path is a deliberate choice about where records live and a rename must not overrule it.
+ *  - `storage.suffix` is re-derived only if it was DERIVED (the singular of the old base name), because
+ *    otherwise the filenames would start lying about what they hold. `doctors` → `health/doctors` keeps
+ *    the base name, so nothing is re-suffixed — which is the common case and the cheap one.
+ *
+ * References are rewritten by asking the STORE to do it, once per record id, rather than by matching
+ * the collection prefix with a new regex. `store.rewriteRefs` already knows the boundary rules and
+ * already scopes prose to `[[wikilinks]]` (decision 7) — a fresh `oldName/` pattern would have to
+ * relearn both, and would corrupt `data/tasks/` in a path or a URL on its first outing. N passes over
+ * the record files is the price, and at human scale it is worth paying for reusing the correct code.
+ */
+export function renameCollection(ws, store, oldName, newName) {
+	const d = store.descriptor(oldName); // throws with the known-collection list if absent
+	if (!newName) throw new Error('missing new collection name');
+	if (oldName === newName) return { renamed: false, name: newName };
+
+	const declared = normalizeNamespaces(ws.pkg.dreamteamer?.namespaces);
+	if (newName.includes('/') && !namespaceOf(newName, declared)) {
+		throw new Error(`namespace "${newName.slice(0, newName.lastIndexOf('/'))}" is not declared — add it to dreamteamer.namespaces in package.json first.`);
+	}
+	if (store.descriptors.has(newName)) throw new Error(`collection "${newName}" already exists`);
+	if (d.storage.base === 'runtime') throw new Error(`"${oldName}" is a compiled source, not a data collection — it cannot be renamed`);
+
+	const src = path.join(workspaceSystemDir(ws, 'collections'), `${oldName}.collection.yaml`);
+	const dest = path.join(workspaceSystemDir(ws, 'collections'), `${newName}.collection.yaml`);
+	if (!fs.existsSync(src)) {
+		throw new Error(`"${oldName}" is not workspace-owned — it ships with a module, so rename it there (or overlay it with \`extends\`)`);
+	}
+
+	const doc = load(fs.readFileSync(src, 'utf8'));
+	const dataPath = ws.pkg.dreamteamer?.['data-path'] ?? 'data';
+	// `d` is the COMPILED descriptor, so its storage.path already carries any module prefix; the
+	// authored source is what we compare against, and what we rewrite.
+	const authoredPath = String(doc.storage?.path ?? '');
+	const pathWasDerived = authoredPath === '' || authoredPath === defaultStoragePath(oldName, declared, dataPath);
+	const newPath = pathWasDerived ? defaultStoragePath(newName, declared, dataPath) : authoredPath;
+
+	const oldBase = baseNameOf(oldName, declared);
+	const newBase = baseNameOf(newName, declared);
+	const oldSuffix = d.storage.suffix;
+	const suffixWasDerived = oldSuffix === singular(oldBase);
+	const newSuffix = suffixWasDerived ? singular(newBase) : oldSuffix;
+
+	// Every id BEFORE anything moves — the store's index is keyed on the old collection.
+	const ids = [...store.ids(oldName).keys()];
+	const oldDir = store.dir(d);
+	const newDir = path.join(ws.root, newPath);
+	if (newDir !== oldDir && fs.existsSync(newDir)) {
+		throw new Error(`${newPath} already exists on disk — move or remove it first; nothing was renamed`);
+	}
+
+	// ---- rollback state, captured before the first mutation --------------------------------------
+	const srcBytes = fs.readFileSync(src);
+	let movedData = false;
+	let resuffixed = [];
+	const undo = () => {
+		for (const [from, to] of resuffixed) { if (fs.existsSync(to)) fs.renameSync(to, from); }
+		if (movedData && fs.existsSync(newDir)) {
+			fs.mkdirSync(path.dirname(oldDir), { recursive: true });
+			fs.renameSync(newDir, oldDir);
+			pruneEmpty(path.dirname(newDir), path.join(ws.root, dataPath));
+		}
+		fs.mkdirSync(path.dirname(src), { recursive: true });
+		fs.writeFileSync(src, srcBytes);
+		if (dest !== src) fs.rmSync(dest, { force: true });
+	};
+
+	return store.withWriteLock(() => {
+		// referencing files are snapshotted by the store's own helper via rewriteRefs' touched list, so
+		// they are captured here the same way `store.rename` does it: read before, restore on failure.
+		const refFiles = new Map();
+		const captureRefs = (ref) => {
+			for (const f of store.findInboundRefs(ref)) {
+				const abs = path.join(ws.root, f);
+				if (!refFiles.has(abs)) refFiles.set(abs, fs.readFileSync(abs));
+			}
+		};
+		for (const id of ids) captureRefs(`${oldName}/${id}`);
+		captureRefs(`collections/${oldName}`);
+		const restoreRefs = () => { for (const [f, bytes] of refFiles) fs.writeFileSync(f, bytes); };
+
+		const touched = new Set();
+		let rewrites = 0;
+		try {
+			// 1. the descriptor source, at its new path
+			doc.name = newName;
+			doc.storage = { ...doc.storage, path: newPath, suffix: newSuffix };
+			fs.mkdirSync(path.dirname(dest), { recursive: true });
+			fs.writeFileSync(dest, dump(doc));
+			if (dest !== src) fs.rmSync(src);
+			touched.add(src);
+			touched.add(dest);
+
+			// 2. the record folder, then the per-file suffix if it was derived
+			if (newDir !== oldDir && fs.existsSync(oldDir)) {
+				fs.mkdirSync(path.dirname(newDir), { recursive: true });
+				fs.renameSync(oldDir, newDir);
+				movedData = true;
+				pruneEmpty(path.dirname(oldDir), path.join(ws.root, dataPath));
+			}
+			if (newSuffix !== oldSuffix && fs.existsSync(newDir)) {
+				const ext = EXT[d.storage.codec ?? 'md'];
+				for (const file of walk(newDir)) {
+					if (!file.endsWith(`.${oldSuffix}${ext}`)) continue;
+					const to = file.slice(0, -(oldSuffix.length + ext.length + 1)) + `.${newSuffix}${ext}`;
+					fs.renameSync(file, to);
+					resuffixed.push([file, to]);
+				}
+			}
+			if (movedData) { touched.add(oldDir); touched.add(newDir); }
+
+			// 3. inbound references: per record id, plus the collection's own id in `collections`
+			//    (which is what ui-views and command-bindings point at).
+			for (const id of ids) {
+				const out = store.rewriteRefs(`${oldName}/${id}`, `${newName}/${id}`);
+				rewrites += out.rewrites;
+				for (const f of out.touched) touched.add(f);
+			}
+			const collOut = store.rewriteRefs(`collections/${oldName}`, `collections/${newName}`);
+			rewrites += collOut.rewrites;
+			for (const f of collOut.touched) touched.add(f);
+
+			// 4. bare `x-reference: <oldName>` in every descriptor SOURCE. Not a `<collection>/<id>`
+			//    ref, so step 3 cannot see it — and leaving it makes compile fail on an unknown target.
+			for (const f of descriptorSources(ws, store)) {
+				const before = fs.readFileSync(f, 'utf8');
+				const doc2 = load(before);
+				if (!doc2 || !retargetRefs(doc2.schema, oldName, newName)) continue;
+				if (!refFiles.has(f)) refFiles.set(f, Buffer.from(before));
+				fs.writeFileSync(f, dump(doc2));
+				touched.add(f);
+				rewrites++;
+			}
+
+			compile(ws); // the gate: an uncompilable rename never reaches history
+		} catch (e) {
+			restoreRefs();
+			undo();
+			try { compile(ws); } catch { /* pre-rename sources were compilable */ }
+			throw e;
+		}
+
+		// `git add -- <path>` FAILS OUTRIGHT on a pathspec that is neither on disk nor in the index —
+		// which is exactly what the old descriptor becomes when it was never committed in the first
+		// place (a collection added but not yet published). One bad entry aborts the whole `add`, so
+		// the rename rolled back over a file git simply did not care about. Filter, don't assume.
+		const rels = [...touched]
+			.map((f) => path.relative(ws.root, f))
+			.filter((rel) => fs.existsSync(path.join(ws.root, rel)) || isTracked(ws.root, rel));
+		try {
+			execFileSync('git', ['add', '--all', '--', ...rels], { cwd: ws.root });
+			execFileSync('git', ['commit', '--quiet', '-m', `dreamteamer: collections rename ${oldName} → ${newName}`, '--', ...rels], { cwd: ws.root });
+		} catch (e) {
+			try { execFileSync('git', ['reset', '--quiet', '--', ...rels], { cwd: ws.root }); } catch { /* nothing staged */ }
+			restoreRefs();
+			undo();
+			try { compile(ws); } catch { /* pre-rename sources were compilable */ }
+			throw new Error(`git commit failed — the rename was rolled back, nothing was changed. (${e.message.split('\n')[0]})`);
+		}
+
+		return {
+			renamed: true, name: newName, records: ids.length, rewrites,
+			from: path.relative(ws.root, oldDir), to: path.relative(ws.root, newDir),
+			suffix: newSuffix !== oldSuffix ? { from: oldSuffix, to: newSuffix } : null,
+			pathKept: pathWasDerived ? null : authoredPath,
+		};
+	});
+}
+
+/** Does git know this path? A deleted-and-never-committed file must be dropped from a pathspec. */
+function isTracked(root, rel) {
+	try {
+		execFileSync('git', ['ls-files', '--error-unmatch', '--', rel], { cwd: root, stdio: ['ignore', 'ignore', 'ignore'] });
+		return true;
+	} catch { return false; }
+}
+
+/** Every workspace-owned descriptor source, recursively (namespaced descriptors are nested). */
+function descriptorSources(ws, store) {
+	const out = [];
+	for (const root of store.sourceRoots()) {
+		const dir = kindDir(root, 'collections');
+		if (fs.existsSync(dir)) out.push(...walk(dir).filter((f) => f.endsWith('.collection.yaml')));
+	}
+	return out;
+}
+
+/** Rewrite `x-reference: old` → new anywhere in a schema. Returns true if anything changed. */
+function retargetRefs(schema, oldName, newName) {
+	let changed = false;
+	for (const prop of Object.values(schema?.properties ?? {})) {
+		if (!prop || typeof prop !== 'object') continue;
+		for (const holder of [prop, prop.items]) {
+			if (holder && typeof holder === 'object' && holder['x-reference'] === oldName) {
+				holder['x-reference'] = newName;
+				changed = true;
+			}
+		}
+		if (prop.properties && retargetRefs(prop, oldName, newName)) changed = true;
+		if (prop.items?.properties && retargetRefs(prop.items, oldName, newName)) changed = true;
+	}
+	return changed;
+}
+
+/** Remove now-empty parents up to (not including) the data root — a moved collection leaves its
+ *  namespace folder behind otherwise. */
+function pruneEmpty(dir, stopAt) {
+	while (dir !== stopAt && dir.startsWith(stopAt) && fs.existsSync(dir) && fs.readdirSync(dir).length === 0) {
+		fs.rmdirSync(dir);
+		dir = path.dirname(dir);
+	}
 }
 
 export function addField(ws, store, collection, { name: fieldName, prop, required }) {
