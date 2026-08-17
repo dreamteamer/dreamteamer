@@ -287,3 +287,53 @@ describe('the harness orientation block', () => {
 		assert.match(md, /DECLARED prefix, not at the first slash/);
 	});
 });
+
+// ⚠ THE LEXICON IS THE HALF OF THE DSL THAT WAS MISSING AT t=0. A workspace could state the shape of
+// a reference and not name one collection it could point at — and the dogfood vault's hand-written
+// substitute in CLAUDE.md named three collections for 48 hours after they were deleted. These guard
+// the properties that made it safe to derive: every non-system collection present, schema-ops ones
+// collapsed, `use_when` rendered only when authored, and BYTE-STABILITY across compiles — that last
+// one because this block lands in three COMMITTED root files, where churn is somebody else's merge.
+describe('the orientation block names the workspace', () => {
+	test('every non-system collection appears; schema-ops ones group into one line', () => {
+		const ws = workspace({ collections: { widgets: simpleCollection({ description: 'a widget', storage: { suffix: 'widget' } }) } });
+		const block = readFile(ws.root, 'CLAUDE.md');
+		assert.match(block, /^- widgets — a widget$/m);
+		assert.match(block, /^- schema-ops only \(write with the meta verbs, never by hand\): .*collections/m);
+		assert.doesNotMatch(block, /^- collections —/m, 'a schema-ops collection must not get its own line');
+	});
+
+	test('use_when renders as an indented clause, and its absence renders nothing', () => {
+		const ws = workspace({ collections: {
+			gadgets: simpleCollection({ description: 'a gadget', use_when: 'you need a gadget', storage: { suffix: 'gadget' } }),
+			widgets: simpleCollection({ description: 'a widget', storage: { suffix: 'widget' } }),
+		} });
+		const block = readFile(ws.root, 'CLAUDE.md');
+		assert.match(block, /^ {4}use when: you need a gadget$/m);
+		assert.doesNotMatch(block, /^- widgets — a widget\n {4}use when:/m, 'no empty clause where none was authored');
+	});
+
+	test('the block is byte-stable across two compiles — it lives in a COMMITTED file', () => {
+		const ws = workspace({ collections: { widgets: simpleCollection({ description: 'a widget', storage: { suffix: 'widget' } }) } });
+		const first = readFile(ws.root, 'CLAUDE.md');
+		compileQuietly(ws.ws);
+		assert.equal(readFile(ws.root, 'CLAUDE.md'), first, 'a second compile must not re-dirty CLAUDE.md');
+	});
+
+	test('compile names every collection missing a description, and still succeeds', () => {
+		const ws = uncompiled({ collections: { widgets: simpleCollection({ storage: { suffix: 'widget' } }) } });
+		const { code, warnings } = compileQuietly(ws.ws);
+		assert.equal(code, 0, 'a missing description is a warning, never a failure');
+		assert.ok(warnings.some((w) => w.includes('collection widgets has no description')), warnings.join('\n'));
+	});
+
+	// The budget scripts/metrics.mjs cannot hold: it measures the ENGINE repo, and this block is
+	// generated per WORKSPACE. Raising this is a deliberate act — do it in the same commit as the
+	// growth and say why, exactly like metrics.json.
+	test('a workspace that has added nothing gets a SMALL block', () => {
+		const ws = workspace();
+		const block = /<!-- dreamteamer:begin[\s\S]*?dreamteamer:end -->/.exec(readFile(ws.root, 'CLAUDE.md'))[0];
+		const n = block.split('\n').length;
+		assert.ok(n <= 32, `virgin orientation block is ${n} lines, budget 32`);
+	});
+});

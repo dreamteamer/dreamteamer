@@ -56,7 +56,7 @@ export function runHarnessAdapters({ root, entries, harnesses, prevManifest, sou
 		}
 		summary.push(`claude-code → .claude (${n} files)`);
 	}
-	writeBlock(root, 'CLAUDE.md', on('claude-code') ? orientationBlock('claude-code', skillsIndex, sourceLayout, namespaces, version) : null);
+	writeBlock(root, 'CLAUDE.md', on('claude-code') ? orientationBlock('claude-code', skillsIndex, sourceLayout, namespaces, version, entries) : null);
 
 	// ---- shared cross-agent skills mirror (.agents/skills) — codex/pi discover it,
 	// cursor/gemini blocks point at it. written once no matter how many harnesses use it.
@@ -73,17 +73,17 @@ export function runHarnessAdapters({ root, entries, harnesses, prevManifest, sou
 	}
 
 	// ---- codex + pi: both read root AGENTS.md; one block serves both ----------------
-	writeBlock(root, 'AGENTS.md', on('codex') || on('pi') ? orientationBlock('agents-md', skillsIndex, sourceLayout, namespaces, version) : null);
+	writeBlock(root, 'AGENTS.md', on('codex') || on('pi') ? orientationBlock('agents-md', skillsIndex, sourceLayout, namespaces, version, entries) : null);
 	if (on('codex')) summary.push('codex → AGENTS.md block');
 	if (on('pi')) summary.push('pi → AGENTS.md block + .agents/skills');
 
 	// ---- gemini-cli: GEMINI.md is its context file -----------------------------------
-	writeBlock(root, 'GEMINI.md', on('gemini-cli') ? orientationBlock('gemini', skillsIndex, sourceLayout, namespaces, version) : null);
+	writeBlock(root, 'GEMINI.md', on('gemini-cli') ? orientationBlock('gemini', skillsIndex, sourceLayout, namespaces, version, entries) : null);
 	if (on('gemini-cli')) summary.push('gemini-cli → GEMINI.md block');
 
 	// ---- cursor: native .mdc rule (alwaysApply) ---------------------------------------
 	if (on('cursor')) {
-		const mdc = `---\ndescription: dreamteamer workspace orientation (generated)\nalwaysApply: true\n---\n\n${orientationBlock('cursor', skillsIndex, sourceLayout, namespaces, version)}\n\n${STAMP}\n`;
+		const mdc = `---\ndescription: dreamteamer workspace orientation (generated)\nalwaysApply: true\n---\n\n${orientationBlock('cursor', skillsIndex, sourceLayout, namespaces, version, entries)}\n\n${STAMP}\n`;
 		write('.cursor/rules/dreamteamer.mdc', Buffer.from(mdc));
 		summary.push('cursor → .cursor/rules/dreamteamer.mdc');
 	}
@@ -123,6 +123,161 @@ function buildSkillsIndex(entries) {
 	return index.sort((a, b) => a.id.localeCompare(b.id));
 }
 
+/** One flattened line of prose from a possibly-folded YAML scalar. */
+const flat = (s) => String(s ?? '').replace(/\s+/g, ' ').trim();
+
+/** collection name -> description / use_when / whether it is a schema-ops collection, read from the
+ *  compiled descriptor BYTES compile already holds. Same pattern as buildSkillsIndex: no filesystem
+ *  read, and deliberately nothing that touches `data/` — see collectionsSection for why. */
+function buildCollectionsIndex(entries) {
+	const index = [];
+	for (const [rt, e] of entries) {
+		const m = /^collections\/(.+)\.collection\.yaml$/.exec(rt);
+		if (!m) continue;
+		let d = {};
+		try { d = load(e.bytes.toString('utf8')) ?? {}; } catch { /* unparseable descriptor */ }
+		index.push({
+			name: d.name ?? m[1],
+			// DERIVED, never a hardcoded name list: `runtime` is exactly the schema-ops set
+			// (collections, commands, skills, agents, ui-views, command-bindings,
+			// collection-templates, modules) and stays right in a workspace shipping others.
+			system: d.storage?.base === 'runtime',
+			description: flat(d.description),
+			useWhen: flat(d.use_when),
+		});
+	}
+	return index.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** Commands, for the harnesses that do NOT discover them natively. claude-code writes every command
+ *  into `.claude/commands` and its harness injects name+description at session start, so an index in
+ *  CLAUDE.md would be a second copy of what is already there. codex/pi/gemini-cli/cursor got one
+ *  pointer line and nothing else — which is why this is conditional, like the skills index. */
+function buildCommandsIndex(entries) {
+	const index = [];
+	for (const [rt, e] of entries) {
+		const m = /^commands\/(.+)\.command\.md$/.exec(rt);
+		if (!m) continue;
+		const fm = /^---\r?\n([\s\S]*?)\r?\n---/.exec(e.bytes.toString('utf8'));
+		let desc = '';
+		try { desc = (fm ? load(fm[1]) : {})?.description ?? ''; } catch { /* unparseable frontmatter */ }
+		index.push({ id: m[1], desc: flat(desc) });
+	}
+	return index.sort((a, b) => a.id.localeCompare(b.id));
+}
+
+/** THE LEXICON — the half of the DSL that was never at t=0. The grammar (record shape, reference
+ *  shape, namespaces) has been in this block since 0.6; an agent could form a well-shaped reference
+ *  and not name one thing it could be about. The dogfood vault's hand-written list in CLAUDE.md is
+ *  the argument for deriving it: that list named three collections for 48 hours after they were
+ *  deleted, because a human had to remember to edit it.
+ *
+ *  ⚠ NO RECORD COUNTS, and that is not an omission. This block lands in CLAUDE.md / AGENTS.md /
+ *  GEMINI.md, which are COMMITTED files. A count changes on every write, so every compile after
+ *  ordinary data work would re-dirty three tracked files — in trees where more than one agent has
+ *  uncommitted work — and the number would be stale the moment it was printed. Ordering is
+ *  namespace-grouped then alphabetical precisely so the block diffs ONLY when the schema changed. */
+function collectionsSection(index, namespaces) {
+	if (!index.length) return [];
+	const nsOf = (name) => {
+		const i = name.indexOf('/');
+		const p = i < 0 ? '' : name.slice(0, i);
+		return namespaces.includes(p) ? p : '';
+	};
+	const lines = [
+		'',
+		'COLLECTIONS — the nouns of this workspace. The descriptor at',
+		'`.dreamteamer/collections/<name>.collection.yaml` is the authority on fields, id shape and',
+		'defaults — read it before writing a kind you have not written this session. Create records',
+		'with `dt <collection> add`: it generates the id and rejects invalid writes before disk.',
+	];
+	const data = index.filter((c) => !c.system);
+	for (const group of ['', ...namespaces]) {
+		for (const c of data.filter((c) => nsOf(c.name) === group)) {
+			lines.push(`- ${c.name}${c.description ? ` — ${c.description}` : ''}`);
+			if (c.useWhen) lines.push(`    use when: ${c.useWhen}`);
+		}
+	}
+	const system = index.filter((c) => c.system).map((c) => c.name);
+	if (system.length) lines.push(`- schema-ops only (write with the meta verbs, never by hand): ${system.join(' · ')}`);
+	return lines;
+}
+
+/** Collection-templates are field sets modules stamp onto their collections — the provenance quad
+ *  reaches ~40 collections in the dogfood vault and was stated nowhere an agent reads.
+ *
+ *  ⚠ RENDERED, NEVER HARDCODED. An earlier draft wrote the four provenance field names straight
+ *  into this file. That is recipe knowledge in core: `provenance` is shipped by a MODULE, and
+ *  deliberately triplicated (`provenance`, `crm-provenance`, `rnd-provenance`) so each module stays
+ *  copyable on its own. A workspace without them would have been handed a block that lies. Core
+ *  renders the line; the module owns the sentence. */
+function templatesSection(entries) {
+	const rows = [];
+	for (const [rt, e] of entries) {
+		const m = /^collection-templates\/(.+)\.collection-template\.yaml$/.exec(rt);
+		if (!m) continue;
+		let d = {};
+		try { d = load(e.bytes.toString('utf8')) ?? {}; } catch { /* unparseable template */ }
+		rows.push({ name: d.name ?? m[1], description: flat(d.description) });
+	}
+	if (!rows.length) return [];
+	rows.sort((a, b) => a.name.localeCompare(b.name));
+	return ['', 'CROSS-CUTTING TEMPLATES — field sets modules stamp onto their collections:',
+		...rows.map((r) => `- ${r.name}${r.description ? ` — ${r.description}` : ''}`)];
+}
+
+/** `can-enter` / `can-exit` rendered LITERALLY. Translating a filter into English would be a
+ *  generator that has to grow with every operator the filter grammar gains, for prose the binding's
+ *  own `description:` already carries. Real shapes are a nested map terminating in one `_op`:
+ *    {status: {_eq: draft}}          -> status=draft
+ *    {status: {_in: [enriched, x]}}  -> status in enriched|x
+ *    {file: {_nempty: true}}         -> file set
+ *    {meeting: {_empty: true}}       -> meeting empty */
+const GATE_OPS = {
+	_eq: (p, v) => `${p}=${v}`,
+	_in: (p, v) => `${p} in ${[].concat(v).join('|')}`,
+	_nempty: (p) => `${p} set`,
+	_empty: (p) => `${p} empty`,
+};
+
+function renderGate(label, filter) {
+	const parts = [];
+	const walkFilter = (obj, at) => {
+		for (const [k, v] of Object.entries(obj ?? {})) {
+			if (k.startsWith('_')) parts.push((GATE_OPS[k] ?? ((p, x) => `${p} ${k.slice(1)} ${x}`))(at, v));
+			else if (v && typeof v === 'object') walkFilter(v, at ? `${at}.${k}` : k);
+			else parts.push(`${at ? `${at}.` : ''}${k}=${v}`);
+		}
+	};
+	if (filter && typeof filter === 'object') walkFilter(filter, '');
+	return parts.length ? `${label}: ${parts.join(', ')}` : '';
+}
+
+/** The METHODS on a type. A binding says which collection a command applies to and the record state
+ *  that makes it available — invisible on EVERY harness, claude-code included, whose native command
+ *  discovery gives the command's description and nothing about what it acts on. The cost of the
+ *  absence is on disk: a contact record in the dogfood vault carries the hand-written sentence
+ *  "`status: draft` keeps this in the /scrape-contact queue" — an agent re-deriving a can-enter
+ *  filter into prose because nothing surfaced it. */
+function bindingsSection(entries) {
+	const byCollection = new Map();
+	for (const [rt, e] of entries) {
+		if (!/^command-bindings\/.+\.command-binding\.yaml$/.test(rt)) continue;
+		let d = {};
+		try { d = load(e.bytes.toString('utf8')) ?? {}; } catch { continue; }
+		const coll = String(d.collection ?? '').replace(/^collections\//, '');
+		const cmd = String(d.command ?? '').replace(/^commands\//, '');
+		if (!coll || !cmd) continue;
+		const gate = [renderGate('enter', d['can-enter']), renderGate('exit', d['can-exit'])].filter(Boolean).join(' · ');
+		if (!byCollection.has(coll)) byCollection.set(coll, []);
+		byCollection.get(coll).push(`/${cmd}${gate ? ` (${gate})` : ''}`);
+	}
+	if (!byCollection.size) return [];
+	const lines = ['', 'VERBS BOUND TO COLLECTIONS (`dt commands for <collection>[/<id>]` answers per record):'];
+	for (const coll of [...byCollection.keys()].sort()) lines.push(`- ${coll} — ${byCollection.get(coll).sort().join(' · ')}`);
+	return lines;
+}
+
 /** `sourceLayout` describes what THIS workspace actually looks like — 'flat' (`<module>/skills/`),
  *  'nested' (the pre-2026-08-05 `<module>/system/skills/`), or 'mixed'. It is passed in rather than
  *  assumed because generated prose that contradicts the workspace is worse than no prose: this block
@@ -134,7 +289,7 @@ function buildSkillsIndex(entries) {
  *  agent that splits `health/doctors/dana-levi` at the first slash reads a collection that does not
  *  exist. Naming the declared list is what makes the grammar decidable from this block alone, without
  *  the agent having to go read the manifest. A workspace with no namespaces gets no extra sentence. */
-function orientationBlock(flavor, skillsIndex, sourceLayout = 'flat', namespaces = [], version = 'unknown') {
+function orientationBlock(flavor, skillsIndex, sourceLayout = 'flat', namespaces = [], version = 'unknown', entries = new Map()) {
 	const sourcesLine = {
 		flat: '`modules/<module>/<kind>/` — `collections/`, `skills/`, `agents/`, `commands/`,',
 		nested: '`modules/<module>/system/<kind>/` — `collections/`, `skills/`, `agents/`, `commands/`,',
@@ -145,7 +300,8 @@ function orientationBlock(flavor, skillsIndex, sourceLayout = 'flat', namespaces
 		// exactly one minor release and then quietly wrong in every workspace it had been written into.
 		// Passed rather than imported because compile.js already computes it and imports THIS module —
 		// reaching back for `engineVersion` would close a cycle for the sake of one string.
-		`this workspace is operated by dreamteamer v${version}. **read the \`using-dreamteamer\` skill before`,
+		`this workspace is a typed record DSL operated by dreamteamer v${version} — collections are the`,
+		'nouns. **read the `using-dreamteamer` skill before',
 		'working with data.** schemas (read): `.dreamteamer/collections/` (provenance:',
 		'`.dreamteamer/manifest.yaml`). sources (write): ' + sourcesLine,
 		'`command-bindings/`, `ui-views/`, `collection-templates/`',
@@ -166,6 +322,9 @@ function orientationBlock(flavor, skillsIndex, sourceLayout = 'flat', namespaces
 			'DECLARED prefix, not at the first slash. collections with no prefix are unaffected.',
 		);
 	}
+	lines.push(...collectionsSection(buildCollectionsIndex(entries), namespaces));
+	lines.push(...templatesSection(entries));
+	lines.push(...bindingsSection(entries));
 	// claude-code discovers skills natively (Skill tool) — an index in CLAUDE.md is pure
 	// context bloat there. every other harness gets the trigger index + discovery pointers.
 	if (flavor !== 'claude-code') {
@@ -177,7 +336,8 @@ function orientationBlock(flavor, skillsIndex, sourceLayout = 'flat', namespaces
 			...skillsIndex.map((s) => `- \`${s.id}\` — ${s.desc}`),
 			'',
 			'agent personas live at `.dreamteamer/agents/*.agent.md`; commands at',
-			'`.dreamteamer/commands/` (invoked as `/<name>` by the harness).',
+			'`.dreamteamer/commands/`, invoked as `/<name>` by the harness:',
+			...buildCommandsIndex(entries).map((c) => `- \`/${c.id}\` — ${c.desc}`),
 		);
 	}
 	return lines.join('\n');
