@@ -130,6 +130,7 @@ and you can read them like any other file:
   have different homes
 - [`docs/namespaces-blast-radius.md`](docs/namespaces-blast-radius.md) — scoping collections under a
   namespace (`health/doctors`), what it costs consumers, and why the default namespace is transparent
+- [`UPDATING.md`](UPDATING.md) — what to do when upgrading, one section per release
 
 ## What it isn't
 
