@@ -11,6 +11,10 @@ import { load, dump } from './yaml.js';
 import { compile, kindDir, titleCase } from './compile.js';
 import { readManifest, runtimeKindDir } from './runtime.js';
 import { normalizeNamespaces, namespaceOf, baseNameOf, qualify, defaultStoragePath } from './namespace.js';
+
+// Same rule as store.js: a git failure we CATCH must not also print git's own error on top of the
+// clean message we throw. stdout stays piped because some callers read it.
+const GIT_QUIET = ['ignore', 'pipe', 'ignore'];
 import { walk, EXT } from './records.js';
 
 // ---- the gate -------------------------------------------------------------------
@@ -41,10 +45,10 @@ function writeGated(ws, store, files, subject, mutate) {
 		// to record directories, so a deferred source edit would be publishable by nothing.
 		// Extending `dt commit` to module sources is the natural follow-on; it is not this wave.
 		try {
-			execFileSync('git', ['add', '--', ...rels], { cwd: ws.root });
-			execFileSync('git', ['commit', '--quiet', '-m', subject, '--', ...rels], { cwd: ws.root });
+			execFileSync('git', ['add', '--', ...rels], { cwd: ws.root, stdio: GIT_QUIET });
+			execFileSync('git', ['commit', '--quiet', '-m', subject, '--', ...rels], { cwd: ws.root, stdio: GIT_QUIET });
 		} catch (e) {
-			try { execFileSync('git', ['reset', '--quiet', '--', ...rels], { cwd: ws.root }); } catch { /* nothing staged */ }
+			try { execFileSync('git', ['reset', '--quiet', '--', ...rels], { cwd: ws.root, stdio: GIT_QUIET }); } catch { /* nothing staged */ }
 			restore();
 			try { compile(ws); } catch { /* pre-op sources were compilable */ }
 			throw new Error(`git commit failed — the schema change was rolled back, nothing was changed. (${e.message.split('\n')[0]})`);
@@ -279,10 +283,10 @@ export function renameCollection(ws, store, oldName, newName) {
 			.map((f) => path.relative(ws.root, f))
 			.filter((rel) => fs.existsSync(path.join(ws.root, rel)) || isTracked(ws.root, rel));
 		try {
-			execFileSync('git', ['add', '--all', '--', ...rels], { cwd: ws.root });
-			execFileSync('git', ['commit', '--quiet', '-m', `dreamteamer: collections rename ${oldName} → ${newName}`, '--', ...rels], { cwd: ws.root });
+			execFileSync('git', ['add', '--all', '--', ...rels], { cwd: ws.root, stdio: GIT_QUIET });
+			execFileSync('git', ['commit', '--quiet', '-m', `dreamteamer: collections rename ${oldName} → ${newName}`, '--', ...rels], { cwd: ws.root, stdio: GIT_QUIET });
 		} catch (e) {
-			try { execFileSync('git', ['reset', '--quiet', '--', ...rels], { cwd: ws.root }); } catch { /* nothing staged */ }
+			try { execFileSync('git', ['reset', '--quiet', '--', ...rels], { cwd: ws.root, stdio: GIT_QUIET }); } catch { /* nothing staged */ }
 			restoreRefs();
 			undo();
 			try { compile(ws); } catch { /* pre-rename sources were compilable */ }

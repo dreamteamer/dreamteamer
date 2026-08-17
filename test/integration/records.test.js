@@ -251,10 +251,27 @@ describe('history, diff and revert', () => {
 		assert.equal(ws.store.read('tasks', 't').fields.status, 'todo');
 	});
 
-	test('revert against a sha with no content for the record refuses', () => {
+	// Tightened from a two-alternative regex that would have passed on either message: assert the exact
+	// sentence AND that the file is byte-identical afterwards, which is the claim that matters.
+	test('revert against a sha with no content for the record refuses, and changes nothing', () => {
 		const ws = base();
 		ws.store.add('tasks', { title: 'T' });
-		assert.throws(() => ws.store.revert('tasks', 't', 'HEAD'), /nothing was reverted|no content/);
+		const before = readFile(ws.root, 'data/tasks/t.task.md');
+		assert.throws(
+			() => ws.store.revert('tasks', 't', 'HEAD'),
+			/no content at HEAD for data\/tasks\/t\.task\.md — nothing was reverted\./,
+		);
+		assert.equal(readFile(ws.root, 'data/tasks/t.task.md'), before);
+	});
+
+	test('revert to the CURRENT content is a reported no-op, not a write', () => {
+		const ws = base();
+		ws.store.add('tasks', { title: 'T' });
+		ws.git(['add', '-A']);
+		ws.git(['commit', '-qm', 'add t']);
+		const sha = ws.git(['rev-parse', 'HEAD']);
+		const out = ws.store.revert('tasks', 't', sha);
+		assert.deepEqual(out, { id: 't', reverted: false });
 	});
 
 	test('diff prints the patch one revision applied', () => {
