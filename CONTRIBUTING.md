@@ -55,6 +55,16 @@ npx dreamteamer notes add --title "does it work"
 
 If a change can't be demonstrated that way, that's usually a sign the change is in the wrong place.
 
+## A release that changes behaviour gets an UPDATING.md section
+
+[`UPDATING.md`](UPDATING.md) is one section per version, newest first, and it answers one question:
+what does an operator have to DO. Most of the time that is `dt compile` and nothing else — say so
+explicitly rather than leaving the section out, because an absent section reads as "nobody checked".
+
+A section is required when a release changes an observable behaviour, adds a refusal that an existing
+workspace can hit, or needs a module to declare something new. Write it in the same commit as the
+change, while you still know which of your edits an operator can actually notice.
+
 ## Engine and UI are separate
 
 `dreamteamer` is the engine; [dreamteamer-vscode](https://github.com/dreamteamer/dreamteamer-vscode)
