@@ -315,7 +315,10 @@ function descriptorSources(ws, store) {
 	const out = [];
 	for (const root of store.sourceRoots()) {
 		const dir = kindDir(root, 'collections');
-		if (fs.existsSync(dir)) out.push(...walk(dir).filter((f) => f.endsWith('.collection.yaml')));
+		// ⚠ SPREAD FIRST. `walk` is a GENERATOR, and `Iterator.prototype.filter` is a Node 22 iterator
+		// helper — so `walk(dir).filter(...)` works on 22 and throws "filter is not a function" on 20,
+		// which package.json still supports (`"node": ">=20"`). Caught by the CI matrix, not by local runs.
+		if (fs.existsSync(dir)) out.push(...[...walk(dir)].filter((f) => f.endsWith('.collection.yaml')));
 	}
 	return out;
 }
