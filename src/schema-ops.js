@@ -10,6 +10,7 @@ import { execFileSync } from 'node:child_process';
 import { load, dump } from './yaml.js';
 import { compile, kindDir, titleCase } from './compile.js';
 import { readManifest, runtimeKindDir } from './runtime.js';
+import { normalizeNamespaces, namespaceOf, baseNameOf, qualify, defaultStoragePath } from './namespace.js';
 
 // ---- the gate -------------------------------------------------------------------
 
@@ -60,29 +61,46 @@ export function workspaceSystemDir(ws, kind) {
 
 // ---- ops ------------------------------------------------------------------------
 
-export function createCollection(ws, store, { name, template }) {
+export function createCollection(ws, store, { name, template, namespace }) {
 	if (!name) throw new Error('missing collection name');
-	if (store.descriptors.has(name)) throw new Error(`collection "${name}" already exists`);
-	const dest = path.join(workspaceSystemDir(ws, 'collections'), `${name}.collection.yaml`);
+	// `--namespace health --name doctors` and `--name health/doctors` are the SAME collection, because
+	// the qualified name IS the identity everywhere else in the engine. Accepting both keeps the CLI
+	// honest about that rather than making the operator learn which spelling a verb wants.
+	const declared = normalizeNamespaces(ws.pkg.dreamteamer?.namespaces);
+	const qualified = namespace ? qualify(namespace, name) : name;
+	const ns = namespaceOf(qualified, declared);
+	if (qualified.includes('/') && !ns) {
+		throw new Error(`namespace "${qualified.slice(0, qualified.lastIndexOf('/'))}" is not declared — add it to dreamteamer.namespaces in package.json first, or the collection will not compile.`);
+	}
+	if (store.descriptors.has(qualified)) throw new Error(`collection "${qualified}" already exists`);
+	// NESTED, mirroring where compile puts it in the runtime: `collections/health/doctors.collection.yaml`.
+	// compile enumerates this kind recursively for exactly this reason — and `upsertField` derives the
+	// same path from the same name, which is what keeps a later `add-field` editing the base descriptor
+	// instead of quietly creating an overlay beside it.
+	const dest = path.join(workspaceSystemDir(ws, 'collections'), `${qualified}.collection.yaml`);
 	if (fs.existsSync(dest)) throw new Error(`${path.relative(ws.root, dest)} already exists`);
 
-	let descriptor = { name };
+	let descriptor = { name: qualified };
 	if (template) {
 		const tplFile = path.join(runtimeKindDir(ws.root, 'collection-templates'), `${template}.collection-template.yaml`);
 		if (!fs.existsSync(tplFile)) throw new Error(`unknown collection-template "${template}"`);
-		descriptor = { name, ...structuredClone(load(fs.readFileSync(tplFile, 'utf8')).template) };
+		descriptor = { name: qualified, ...structuredClone(load(fs.readFileSync(tplFile, 'utf8')).template) };
 	} else {
 		// templateless: MINIMAL but compilable — grow it with add-field
 		descriptor.id = { generate: '{{ name | slug }}' };
 		descriptor.schema = { type: 'object', required: ['name'], properties: { name: { type: 'string' } } };
 	}
 	descriptor.storage = {
-		path: `${ws.pkg.dreamteamer?.['data-path'] ?? 'data'}/${name}`,
+		// AUTHORED even though compile would derive the same value, because a descriptor a human opens
+		// should say where its records live without them having to know the derivation rule.
+		path: defaultStoragePath(qualified, declared, ws.pkg.dreamteamer?.['data-path'] ?? 'data'),
 		codec: 'md', shape: 'file',
 		...descriptor.storage,
-		suffix: descriptor.storage?.suffix ?? singular(name),
+		// the SUFFIX comes off the bare name — `health/doctors` records are `<id>.doctor.md`, not
+		// `<id>.health/doctor.md`
+		suffix: descriptor.storage?.suffix ?? singular(baseNameOf(qualified, declared)),
 	};
-	writeGated(ws, store, [dest], `dreamteamer: collections add ${name}`, () => {
+	writeGated(ws, store, [dest], `dreamteamer: collections add ${qualified}`, () => {
 		fs.mkdirSync(path.dirname(dest), { recursive: true });
 		fs.writeFileSync(dest, dump(descriptor));
 	});

@@ -90,6 +90,72 @@ Three things hold this up, and all three exist because removing the wrapper remo
 `dt compile`. Only reachable when two engines share a workspace (the self-shadowing dev-clone case).
 The VS Code extension is immune from 0.6.33 on: it probes both layouts and reads `storage.base`.
 
+## IMPORTANT — namespaces are DECLARED, and the delimiter is a slash
+
+A collection name may carry a slash-delimited namespace: `health/doctors` lives in `data/health/doctors/`
+and a record of it is referenced as `health/doctors/dana-levi`. The **default namespace is the empty
+prefix** — `tasks/kickoff` in `data/tasks/`, exactly as before — so adopting namespaces migrates
+nothing, and `default` is a RESERVED name so there is never a second spelling for one collection.
+
+⚠ **The whole problem in one line: an id is also a slash-delimited path.** `meetings/2026/07/kickoff`
+is one collection and a three-segment id, so `a/b/c` is either collection `a` + id `b/c` or collection
+`a/b` + id `c`, and nothing about the string says which. That is why namespaces are **declared** in the
+workspace package.json:
+
+```json
+"dreamteamer": { "namespaces": ["health", "finance", "work/clients"] }
+```
+
+`src/namespace.js` (record layer, pure) owns the split, and every parser goes through its `parseRef` —
+the store's write-time check, `check`'s report, and the extension. Longest declared prefix wins, which
+is why `normalizeNamespaces` sorts longest-first: parent-first would read `work/clients/acme/2026` as
+the namespace `work`, a different record. Four things compile REFUSES, each because the alternative was
+silent:
+
+1. **A slashed collection name whose prefix is not declared.** Before this existed it compiled clean,
+   landed at `.dreamteamer/collections/<ns>/<name>.collection.yaml`, and then vanished — `loadDescriptors`
+   read one directory level, so the collection was absent from the runtime while compile said ✔ and
+   `dt <c> list` answered "unknown collection". The loader now walks; the declaration is enforced.
+2. **A namespace colliding with a collection name.** With both a namespace `health` and a collection
+   `health`, `health/doctors/dana-levi` is a record of two different collections and longest-match would
+   silently pick one.
+3. **`default` in any namespace segment**, per the transparency rule above.
+4. **One collection's `storage.path` inside another's.** MEASURED data loss, not hypothetical: give A
+   `data/health` and B `data/health/doctors` and A's recursive walk indexes B's records as its own —
+   `dt A list` prints B's records, `check` reports B's fields as unknown fields of A, and a write through
+   A can overwrite a record of B. compile reported ✔ through all of it because nothing compared two
+   paths. `namespace.storageOverlaps` is now a hard gate, and namespaces make near-misses ordinary.
+
+Two consequences worth keeping:
+
+- **`collections/` is enumerated RECURSIVELY at a module root** (every other kind stays flat — their ids
+  are single segments). `schema-ops` derives a descriptor's source path from its name, so `add-field` on
+  `health/doctors` writes `collections/health/doctors.collection.yaml`; with a flat readdir that file was
+  written, skipped, and the verb reported ✔ while changing nothing.
+- **The manifest carries `namespaces`**, and the record layer reads it from there — the `storage.base`
+  precedent. It must never re-read package.json, and an older runtime with no key reads as `[]`, which is
+  correct for a workspace that never declared any.
+- **HTTP callers percent-encode the collection name** (`/api/collections/health%2Fdoctors/records`).
+  `:name` stays one path segment and all 15 routes work unchanged; `*name` was rejected because a greedy
+  wildcard, a literal and a second wildcard in one pattern has several readings.
+
+## IMPORTANT — there are TESTS now, and they are meant to be fast
+
+```bash
+npm test                      # tiers 1+2, zero dependencies, ~7s
+npm test -- --only=namespace  # one file
+npm test -- --unit            # tier 1 only: pure functions, no fs, no git
+npm run verify                # layers + metrics:check + tests — what to run before a commit
+```
+
+Tier 1 (`test/unit/`) is pure functions. Tier 2 (`test/integration/`) drives the real compiler, store
+and CLI binary against a workspace built by `dreamteamer init` — cached once into `test/.tmp/` and
+`cpSync`ed per test, keyed on a hash of `src/init.js` + `collections/`, so changing either rebuilds it
+with nobody having to remember. **The fixture symlinks this checkout in as `node_modules/dreamteamer`**,
+because without the engine as an installed module a fixture has no `collections`/`skills`/`users` at all
+and cannot reproduce the store refusing a compiled source. Tier 3 is the extension's `npm run test:ui`
+(boots VS Code, opt-in, never on the default path).
+
 ## IMPORTANT — the record/workspace split is enforced, and it is NOT two packages
 
 The engine has two halves and the edge between them goes ONE way. `npm run layers` prints the graph
@@ -98,7 +164,7 @@ adding one costs the same sentence of thought as adding a core collection.
 
 | layer | modules | rule |
 |---|---|---|
-| **record** | store · records · check · temporal · filter · field-values · commit · events · history · template · workspace · yaml | schema-validated records over git. **Must not know that modules, channels, `extends` or skills exist.** |
+| **record** | store · records · check · temporal · filter · field-values · commit · events · history · template · workspace · yaml · namespace | schema-validated records over git. **Must not know that modules, channels, `extends` or skills exist.** |
 | **boundary** | runtime | the compiled `.dreamteamer/` artifact — descriptors + manifest. The whole interface. |
 | **workspace** | compile · harnesses · schema-ops · init · record-commands · semver | the compiler and the agent-harness surface. May import record. |
 | **surface** | cli · collections-cli · server · presentation | entry points; span both halves by definition. |

@@ -74,6 +74,23 @@ due: '2026-07-28'
 Users report the login button does nothing on mobile.
 ```
 
+## namespaced collections
+
+A collection may be scoped under a namespace declared in the workspace `package.json`
+(`dreamteamer.namespaces`). Everything about working with its records is unchanged except that the
+QUALIFIED name is the collection's name everywhere:
+
+```bash
+dt health/doctors add --name "Dana Levi"     # → data/health/doctors/dana-levi.doctor.md
+dt health/visits add --name Checkup --date 2026-03-04 --doctor health/doctors/dana-levi
+```
+
+- a reference is still `<collection>/<id>` — `health/doctors/dana-levi` is the collection
+  `health/doctors` and the id `dana-levi`.
+- the **default namespace has no prefix**: `tasks/kickoff` in `data/tasks/`, exactly as always.
+- ⚠ a namespace only exists if it is DECLARED. Without the declaration the same string reads as the
+  collection `health` with a nested id, so it dangles — `dt check` says so.
+
 ## the hard rules
 
 **never hand-rename or `mv` a record file** — the id IS the path, so a rename silently dangles

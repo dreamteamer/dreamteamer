@@ -12,3 +12,6 @@ node_modules/
 .probe-*
 # npm pack output (CI and CONTRIBUTING both run it in the repo root)
 *.tgz
+
+# tier-2 test fixtures: throwaway workspaces, rebuilt on demand (npm test -- --clean)
+test/.tmp/

@@ -26,7 +26,7 @@ const SRC = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'src');
 
 const LAYERS = {
 	// records over git — must not know that modules, channels or `extends` exist
-	record: ['store', 'records', 'temporal', 'filter', 'field-values', 'commit', 'events', 'history', 'template', 'yaml', 'workspace', 'check'],
+	record: ['store', 'records', 'temporal', 'filter', 'field-values', 'commit', 'events', 'history', 'template', 'yaml', 'workspace', 'check', 'namespace'],
 	// the compiled artifact both halves share
 	boundary: ['runtime'],
 	// the workspace compiler and the harness surface

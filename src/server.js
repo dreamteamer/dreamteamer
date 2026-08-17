@@ -70,6 +70,15 @@ export function startServer(ws, { port = 8080, host = '127.0.0.1' } = {}) {
 		res.json([...store.descriptors.values()].sort((a, b) => (a.order ?? 999) - (b.order ?? 999)));
 	});
 
+	// ⚠ A NAMESPACED COLLECTION NAME CONTAINS A SLASH (`health/doctors`), and `:name` is one path
+	// segment — so a client MUST percent-encode it: `/collections/health%2Fdoctors/records`. Express
+	// matches on the still-encoded path and decodes params afterwards, so `req.params.name` arrives as
+	// `health/doctors` and every route below works unchanged.
+	//
+	// The alternative was `*name`, and it is wrong: `/collections/*name/records/*id` puts a greedy
+	// wildcard, a literal and a second wildcard in one pattern, so `/collections/a/b/records/c` has
+	// several readings and the router picks one. Encoding keeps the boundary explicit at the caller,
+	// which is the same reason references declare their namespace instead of having it inferred.
 	api.get('/collections/:name/records', (req, res) => {
 		const d = store.descriptor(req.params.name);
 		const bf = bodyField(d);
