@@ -64,6 +64,37 @@ export function workspaceSystemDir(ws, kind) {
 	return kindDir(wm ? path.join(ws.root, 'modules', wm) : ws.root, kind);
 }
 
+/**
+ * WHERE A COLLECTION'S DESCRIPTOR ACTUALLY LIVES — asked of the manifest, not assumed.
+ *
+ * `renameCollection` used to derive this from `workspaceSystemDir`, which silently meant "only the
+ * workspace module's own collections can be renamed". That is the wrong line. The guard exists to
+ * stop a write that will be ERASED, and the thing that erases writes is `npm install` — so the test
+ * is `node_modules/`, not "which module". A module whose sources are inline in the workspace repo is
+ * under the same git history as everything else and is perfectly safe to rewrite; refusing it made
+ * `collections rename` unusable for exactly the migration it was built for, because a workspace's
+ * domain collections almost always live in a module.
+ *
+ * Returns `{ dir, sources }` — the kind dir to write into (the SAME module the descriptor came from,
+ * so a rename never teleports a collection into the workspace module), and every descriptor source
+ * that contributed, so the caller can refuse the cases this cannot honestly do.
+ */
+function descriptorSourceDir(ws, name) {
+	const entry = readManifest(ws.root)?.entries?.[`collections/${name}.collection.yaml`];
+	// `sources` mixes the descriptor with any collection-templates it merged, so match on the shape
+	// of a descriptor path for THIS collection. A namespaced name is nested, hence the full suffix.
+	const suffix = `collections/${name}.collection.yaml`;
+	const sources = (entry?.sources ?? [])
+		.map((s) => s.path)
+		.filter((p) => p.endsWith(suffix));
+	if (!sources.length) return { dir: null, sources };
+	// The BASE descriptor is the one to move. With an overlay present there are two, and the overlay's
+	// `extends` names the base by its old qualified id — rewriting that is a second, different
+	// migration, so the caller refuses rather than half-doing it.
+	const moduleRoot = path.join(ws.root, sources[0].slice(0, sources[0].length - suffix.length));
+	return { dir: kindDir(moduleRoot, 'collections'), sources };
+}
+
 // ---- ops ------------------------------------------------------------------------
 
 export function createCollection(ws, store, { name, template, namespace }) {
@@ -143,6 +174,15 @@ export function removeCollection(ws, store, name, { force = false } = {}) {
  * already scopes prose to `[[wikilinks]]` (decision 7) — a fresh `oldName/` pattern would have to
  * relearn both, and would corrupt `data/tasks/` in a path or a URL on its first outing. N passes over
  * the record files is the price, and at human scale it is worth paying for reusing the correct code.
+ *
+ * ⚠ MEASURED 2026-08-17, so the cost is a number rather than a hope: a 2,291-record collection in a
+ * 3,391-file workspace — gk-brain's `finance-transactions` — takes **3 minutes**, of which 142s is
+ * system time. That is 7.7M file reads to rewrite ZERO references, because the pass runs per id
+ * whether or not anything points at the collection. Tolerable for a one-time migration and left
+ * alone on that basis; it is O(records x files), so a workspace 3x larger pays 27 minutes. The fix
+ * when it is needed is a batch entry point on the store that reads each file ONCE and loops the ref
+ * set in memory, with `text.includes(oldName + '/')` as a cheap NEGATIVE filter only — never as the
+ * matcher, for the reason above.
  */
 export function renameCollection(ws, store, oldName, newName) {
 	const d = store.descriptor(oldName); // throws with the known-collection list if absent
@@ -156,10 +196,21 @@ export function renameCollection(ws, store, oldName, newName) {
 	if (store.descriptors.has(newName)) throw new Error(`collection "${newName}" already exists`);
 	if (d.storage.base === 'runtime') throw new Error(`"${oldName}" is a compiled source, not a data collection — it cannot be renamed`);
 
-	const src = path.join(workspaceSystemDir(ws, 'collections'), `${oldName}.collection.yaml`);
-	const dest = path.join(workspaceSystemDir(ws, 'collections'), `${newName}.collection.yaml`);
+	// The descriptor is renamed IN THE MODULE THAT SHIPS IT — see `descriptorSourceDir`. Two cases
+	// this refuses, both because doing them halfway is worse than not doing them:
+	const { dir: sourceDir, sources } = descriptorSourceDir(ws, oldName);
+	if (sources.length > 1) {
+		throw new Error(`"${oldName}" is overlaid — ${sources.length} modules contribute a descriptor (${sources.join(', ')}).\n  the overlay's \`extends\` names the base by its current id, so renaming the base alone would break it. merge or remove the overlay first.`);
+	}
+	if (sources.some((p) => p.split(path.sep).includes('node_modules'))) {
+		throw new Error(`"${oldName}" ships from node_modules (${sources[0]}) — a write there is erased by the next \`npm install\`. rename it in its own repo and release, or overlay it with \`extends\`.`);
+	}
+	const src = sourceDir
+		? path.join(sourceDir, `${oldName}.collection.yaml`)
+		: path.join(workspaceSystemDir(ws, 'collections'), `${oldName}.collection.yaml`);
+	const dest = path.join(sourceDir ?? workspaceSystemDir(ws, 'collections'), `${newName}.collection.yaml`);
 	if (!fs.existsSync(src)) {
-		throw new Error(`"${oldName}" is not workspace-owned — it ships with a module, so rename it there (or overlay it with \`extends\`)`);
+		throw new Error(`"${oldName}" has no writable descriptor source — the manifest names none under a module in this workspace. it may be contributed by the engine itself; overlay it with \`extends\` instead.`);
 	}
 
 	const doc = load(fs.readFileSync(src, 'utf8'));

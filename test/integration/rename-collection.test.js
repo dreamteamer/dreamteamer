@@ -8,7 +8,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { workspace, simpleCollection, tree, readFile, WS_MODULE } from '../helpers/ws.js';
+import { workspace, simpleCollection, tree, readFile, writeCollection, WS_MODULE } from '../helpers/ws.js';
 import { load } from '../../src/yaml.js';
 
 const DOCTORS = simpleCollection({ storage: { suffix: 'doctor' } });
@@ -196,12 +196,34 @@ describe('refusals — nothing is half-renamed', () => {
 		assert.match(res.stderr, /compiled source|not workspace-owned/);
 	});
 
-	test('a collection a MODULE ships, not the workspace', () => {
-		// the engine's own `repos` collection: present in the runtime, no workspace-owned source
+	// ⚠ A collection a MODULE ships is NOT refused any more — see `descriptorSourceDir`. The guard's
+	// job is to stop a write that gets ERASED, and only `node_modules` does that. `repos` is the
+	// engine's own, installed, and so still refused — but now for the accurate reason.
+	test('a collection installed from node_modules, with the reason it cannot be written', () => {
 		const ws = seeded();
 		const res = ws.dt('collections', 'rename', 'repos', 'health/repos');
 		assert.equal(res.code, 1);
-		assert.match(res.stderr, /not workspace-owned/);
+		assert.match(res.stderr, /ships from node_modules/);
+		assert.match(res.stderr, /erased by the next `npm install`/, 'says WHY, not just no');
+	});
+
+	test('an OVERLAID collection is refused, naming both contributors', () => {
+		// two modules contributing a descriptor for one name: the overlay's `extends` points at the
+		// base's current id, so moving the base alone would leave a broken reference behind.
+		const ws = seeded();
+		const overlay = path.join(ws.root, 'modules', 'extra');
+		fs.mkdirSync(path.join(overlay, 'collections'), { recursive: true });
+		fs.writeFileSync(path.join(overlay, 'package.json'),
+			JSON.stringify({ name: 'extra', private: true, version: '0.0.1', dreamteamer: { dependencies: ['default'] } }));
+		fs.writeFileSync(path.join(overlay, 'collections', 'doctors.collection.yaml'),
+			'name: doctors\nextends: default/doctors\nschema:\n  properties:\n    extra: { type: string }\n');
+		const c = ws.dt('compile');
+		assert.equal(c.code, 0, c.stderr);
+
+		const res = ws.dt('collections', 'rename', 'doctors', 'health/doctors');
+		assert.equal(res.code, 1, res.stdout);
+		assert.match(res.stderr, /is overlaid/);
+		assert.match(res.stderr, /modules\/extra/, 'names the overlay so it can be found');
 	});
 
 	test('renaming to the same name is a no-op, not an error', () => {
@@ -209,5 +231,81 @@ describe('refusals — nothing is half-renamed', () => {
 		const res = ws.dt('collections', 'rename', 'doctors', 'doctors');
 		assert.equal(res.code, 0);
 		assert.match(res.stdout, /already named that/);
+	});
+});
+
+// ⚠ THE CASE THIS CHANGE EXISTS FOR. A workspace's domain collections live in MODULES — that is what
+// modules are for — so a guard that refused every module-shipped collection refused the migration
+// `collections rename` was built to perform. gk-brain hit it on 26 of 26 collections it wanted to
+// namespace. The descriptor is rewritten in the module that ships it, not moved to the workspace one.
+describe('a collection shipped by an INLINE module', () => {
+	/** A fixture with a second module under `modules/billing`, the shape every real workspace has. */
+	const withModule = () => {
+		const ws = workspace({ namespaces: ['finance'] });
+		const mod = path.join(ws.root, 'modules', 'billing');
+		fs.mkdirSync(path.join(mod, 'collections'), { recursive: true });
+		fs.writeFileSync(path.join(mod, 'package.json'),
+			JSON.stringify({ name: 'billing', private: true, version: '0.0.1', dreamteamer: {} }));
+		fs.writeFileSync(path.join(mod, 'collections', 'billing-invoices.collection.yaml'),
+			'name: billing-invoices\n'
+			+ 'storage: { path: data/billing-invoices, codec: md, shape: file, suffix: invoice }\n'
+			+ 'id: { generate: "{{ name | slug }}" }\n'
+			+ 'schema:\n  type: object\n  required: [name]\n  properties:\n    name: { type: string }\n');
+		assert.equal(ws.dt('compile').code, 0);
+		ws.store.reload?.();
+		return ws;
+	};
+
+	test('moves into a namespace, and the descriptor stays in ITS module', () => {
+		const ws = withModule();
+		assert.equal(ws.dt('billing-invoices', 'add', '--name', 'March').code, 0);
+
+		const res = ws.dt('collections', 'rename', 'billing-invoices', 'finance/invoices');
+		assert.equal(res.code, 0, res.stdout + res.stderr);
+
+		// the descriptor moved WITHIN modules/billing — not into modules/default
+		const moved = readFile(ws.root, 'modules/billing/collections/finance/invoices.collection.yaml');
+		assert.ok(moved, 'descriptor is in the module that shipped it');
+		assert.equal(load(moved).name, 'finance/invoices');
+		assert.equal(readFile(ws.root, 'modules/billing/collections/billing-invoices.collection.yaml'), null);
+		assert.equal(readFile(ws.root, 'modules/default/collections/finance/invoices.collection.yaml'), null,
+			'a rename must not teleport a collection into the workspace module');
+
+		// records moved, suffix re-derived, and the CLI can address it
+		assert.ok(readFile(ws.root, 'data/finance/invoices/march.invoice.md'));
+		assert.match(ws.dt('finance/invoices', 'list').stdout, /march/);
+		const check = ws.dt('check');
+		assert.equal(check.code, 0, check.stdout);
+	});
+
+	test('and inbound references from ANOTHER module are rewritten', () => {
+		const ws = withModule();
+		// the workspace module points at the billing module's collection — which the engine requires it
+		// to DECLARE, so the fixture does what a real workspace does.
+		const wsPkgPath = path.join(ws.root, 'modules', WS_MODULE, 'package.json');
+		const wsPkg = JSON.parse(fs.readFileSync(wsPkgPath, 'utf8'));
+		wsPkg.dreamteamer = { ...wsPkg.dreamteamer, dependencies: ['billing'] };
+		fs.writeFileSync(wsPkgPath, JSON.stringify(wsPkg, null, '\t'));
+		writeCollection(ws.root, 'payments', simpleCollection({
+			storage: { suffix: 'payment' },
+			schema: {
+				type: 'object', required: ['name'],
+				properties: { name: { type: 'string' }, invoice: { type: 'string', 'x-reference': 'billing-invoices' } },
+			},
+		}));
+		const c2 = ws.dt('compile');
+		assert.equal(c2.code, 0, c2.stderr);
+		assert.equal(ws.dt('billing-invoices', 'add', '--name', 'March').code, 0);
+		assert.equal(ws.dt('payments', 'add', '--name', 'P1', '--invoice', 'billing-invoices/march').code, 0);
+
+		assert.equal(ws.dt('collections', 'rename', 'billing-invoices', 'finance/invoices').code, 0);
+
+		// the record ref AND the cross-module x-reference target both follow.
+		// ⚠ Read through the CLI, not `ws.store` — that Store was built when the fixture was, before
+		// this test added a module and a collection to it, so its descriptor map does not know them.
+		assert.match(ws.dt('payments', 'get', 'p1').stdout, /finance\/invoices\/march/);
+		const payments = load(readFile(ws.root, 'modules/default/collections/payments.collection.yaml'));
+		assert.equal(payments.schema.properties.invoice['x-reference'], 'finance/invoices');
+		assert.equal(ws.dt('check').code, 0);
 	});
 });
