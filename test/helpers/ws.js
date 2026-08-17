@@ -36,10 +36,16 @@ export function git(root, args) {
 	return execFileSync('git', args, { cwd: root, env: GIT_ENV, stdio: ['ignore', 'pipe', 'pipe'] }).toString().trim();
 }
 
-/** What the cached base depends on. A miss rebuilds; a hit is a directory copy. */
+/** What the cached base depends on. A miss rebuilds; a hit is a directory copy.
+ *
+ *  THIS FILE is in the hash too, and has to be: the base carries `.git/config`, `node_modules/` and a
+ *  patched package.json that only this builder knows how to produce. Without it, changing how the base
+ *  is built left every developer with a stale one that no key invalidated — which is how a fixture
+ *  lacking a local git identity survived a fix to add one. */
 function baseKey() {
 	const h = createHash('sha256');
 	h.update(fs.readFileSync(path.join(ENGINE_ROOT, 'src', 'init.js')));
+	h.update(fs.readFileSync(fileURLToPath(import.meta.url)));
 	for (const f of fs.readdirSync(path.join(ENGINE_ROOT, 'collections')).sort()) {
 		h.update(f);
 		h.update(fs.readFileSync(path.join(ENGINE_ROOT, 'collections', f)));
@@ -87,6 +93,16 @@ function buildBase(dir) {
 	// failed to ignore an already-tracked path). Making the fixture a repo of its own first is what
 	// contains it.
 	git(dir, ['init', '-q']);
+	// ⚠ A LOCAL IDENTITY, in the fixture's own .git/config, not just in GIT_ENV.
+	//
+	// `store.commit` runs git with no `env` option, so it inherits the TEST PROCESS's environment — which
+	// does not carry the GIT_AUTHOR_*/GIT_COMMITTER_* vars `git()` passes to its own subprocesses. That
+	// made every commit through the store depend on an ambient global identity: present on a developer
+	// machine, absent on a CI runner. The whole suite passed locally and `auto-commit` tests failed in CI
+	// with git's "please tell me who you are". Writing it into the repo config makes the fixture
+	// self-contained, and it survives the per-test `cpSync` because .git comes along with it.
+	git(dir, ['config', 'user.email', 'test@example.invalid']);
+	git(dir, ['config', 'user.name', 'dreamteamer test']);
 	// through the real binary, because "what a user gets from `dreamteamer init`" is the thing
 	// every tier-2 test is implicitly asserting against
 	const res = spawnSync(process.execPath, [BIN, 'init'], { cwd: dir, env: GIT_ENV, encoding: 'utf8' });
