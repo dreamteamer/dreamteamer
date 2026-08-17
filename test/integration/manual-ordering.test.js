@@ -5,7 +5,9 @@
 // here rather than in a workspace that happened to pick a different name.
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { workspace, writeCollection, compileError, tree } from '../helpers/ws.js';
+import { workspace, writeCollection, compileError } from '../helpers/ws.js';
+import { presentation } from '../../src/presentation.js';
+import { Store } from '../../src/store.js';
 
 const ORDERED = {
 	sort_field: 'position',
@@ -137,5 +139,19 @@ describe('the properties a sidecar file would not have', () => {
 		ws.dt('ordered', 'move', '--init');
 		ws.dt('ordered', 'add', '--name', 'Charlie');
 		assert.deepEqual(ids(ws), ['charlie', 'alpha', 'bravo']);
+	});
+});
+
+describe('the UI read model', () => {
+	test('sort_field reaches the presentation contract — a surface cannot offer a handle it cannot see', () => {
+		const ws = workspace({ collections: { ordered: ORDERED } });
+		const { collections } = presentation(new Store(ws.ws).descriptors);
+		assert.equal(collections.find((c) => c.collection === 'ordered').meta.sort_field, 'position');
+	});
+
+	test('a collection without one carries no sort_field key at all', () => {
+		const ws = workspace({ collections: { ordered: PLAIN } });
+		const { collections } = presentation(new Store(ws.ws).descriptors);
+		assert.ok(!('sort_field' in collections.find((c) => c.collection === 'ordered').meta));
 	});
 });
