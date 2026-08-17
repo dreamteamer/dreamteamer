@@ -1,0 +1,16 @@
+# leak-scan exemptions — <path>	<rule>	<why>       (TAB separated)
+#
+# Read by hq3's leak-scan.sh in `worktree` mode. Per FILE and per RULE, never a glob over a
+# directory: real vault content pasted into a neighbouring test still trips the scan. Safe to keep
+# public — it names paths and rule ids, never the patterns being matched.
+#
+# The Hebrew rule is a proxy for "vault content escaped into the code repo", and it is a good one.
+# These two files are its only legitimate exception in this repo: `slugOrHash` EXISTS because a
+# vault's meeting titles and contact names are Hebrew and `{{ name | slug }}` must still yield a
+# legal id. The literals are two dictionary words — the hello/world placeholder pair, no vault
+# content — and deleting them deletes the test, not just its fixture.
+#
+# ⚠ Do NOT quote the exempted literals here. This file is scanned like any other, and reproducing
+# them makes it fail its own rule — which is exactly what happened on the first attempt.
+test/unit/template.test.js	hebrew	slugOrHash exists FOR non-latin names; these tests pin the hash fallback and its determinism
+test/unit/records.test.js	hebrew	proves patternRe passes the `u` flag so \p{Letter} works on non-latin input

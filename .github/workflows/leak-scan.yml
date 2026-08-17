@@ -1,0 +1,96 @@
+name: leak-scan
+
+# THE GATE THAT ACTUALLY COVERS EVERY COMMIT.
+#
+# There is also a local pre-commit hook, but `.git/hooks/` is untracked and per-clone, so it only
+# runs where it was installed. A web session, a fresh clone, or another machine bypasses it
+# entirely — which is exactly how content this scan is meant to stop reached main and shipped to
+# npm once already. A gate that is not in CI is not a gate.
+#
+# ⚠ WHY THE PATTERNS ARE SPLIT. The private-names list is itself sensitive — it is the client and
+# employer names being grepped for, so hard-coding it in this public file would publish the very
+# strings it exists to catch. It comes from a secret. The other two rules are NOT sensitive (a
+# unicode range, and public credential prefixes) and live here in the open where they can be
+# reviewed.
+#
+# ⚠ AND WHY HITS ARE COUNTED, NOT PRINTED. This log is public. Echoing a matched line would leak
+# the thing that was caught. The job prints the FILE and a count; read the content locally.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # a PR needs the merge base to diff against
+
+      # Added lines only, and only the ones this change introduces. A commit that DELETES a leak
+      # must not be blocked by the leak it is removing.
+      - name: collect added lines
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE="${{ github.event.pull_request.base.sha }}"
+          else
+            BASE="${{ github.event.before }}"
+          fi
+          # a first push to a new branch has no usable `before`; fall back to the empty tree
+          git cat-file -e "$BASE" 2>/dev/null || BASE=$(git hash-object -t tree /dev/null)
+          git diff "$BASE" HEAD -U0 | grep '^+' > /tmp/added.txt || true
+          wc -l < /tmp/added.txt | sed 's/^/added lines to scan: /'
+
+      - name: Hebrew codepoints
+        run: |
+          # perl, not `grep -P`: -CSD makes perl match CODEPOINTS. Without it the pattern silently
+          # never fires, which is the worst possible failure for a leak gate.
+          n=$(perl -CSD -ne 'print if /[\x{0590}-\x{05FF}]/' /tmp/added.txt | wc -l | tr -d ' ')
+          if [ "$n" -gt 0 ]; then
+            echo "::error::$n added line(s) contain Hebrew codepoints — vault content may be escaping into this repo."
+            echo "Files touched (content deliberately NOT printed — this log is public):"
+            perl -CSD -ne 'print if /^\+\+\+ /' /tmp/added.txt || true
+            echo "Run locally: leak-scan.sh staged <repo>   ·   exempt a reviewed file in .leak-scan-allow"
+            exit 1
+          fi
+          echo "✔ no Hebrew codepoints added"
+
+      - name: credential shapes
+        run: |
+          PAT='sk-ant-[A-Za-z0-9_-]{20}|sk-[A-Za-z0-9]{32}|ghp_[A-Za-z0-9]{36}|gho_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{50}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{35}|xox[baprs]-[0-9A-Za-z-]{10,}|glpat-[0-9A-Za-z_-]{20}|npm_[A-Za-z0-9]{36}|-----BEGIN [A-Z ]*PRIVATE KEY-----'
+          n=$(grep -cEo "$PAT" /tmp/added.txt || true)
+          if [ "${n:-0}" -gt 0 ]; then
+            echo "::error::$n added line(s) match a credential shape. Rotate the credential FIRST, then rewrite history."
+            exit 1
+          fi
+          echo "✔ no credential shapes added"
+
+      - name: private names
+        env:
+          LEAK_NAMES: ${{ secrets.LEAK_NAMES }}
+        run: |
+          # Absent secret is a SKIP, loudly. Failing closed would break every fork PR; failing
+          # silently would be a gate that reports green while checking nothing.
+          if [ -z "${LEAK_NAMES:-}" ]; then
+            echo "::warning::secrets.LEAK_NAMES is not set — private-name check SKIPPED, not passed."
+            exit 0
+          fi
+          n=$(grep -icE "$LEAK_NAMES" /tmp/added.txt || true)
+          if [ "${n:-0}" -gt 0 ]; then
+            echo "::error::$n added line(s) match a private name. Not printing them — this log is public."
+            exit 1
+          fi
+          echo "✔ no private names added"
+
+      - name: oversized files
+        run: |
+          big=$(git ls-files -z | xargs -0 -I{} sh -c 'test -f "{}" && s=$(wc -c <"{}") && [ "$s" -gt 153600 ] && echo "$s {}"' || true)
+          if [ -n "$big" ]; then
+            echo "::error::tracked files over 150 KB:"; echo "$big"; exit 1
+          fi
+          echo "✔ no tracked file over 150 KB"
