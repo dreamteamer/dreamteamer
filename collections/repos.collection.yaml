@@ -1,4 +1,7 @@
 name: repos
+description: >-
+  A git repository this workspace knows about — where it lives and how a working tree is
+  materialized on demand.
 # An external git repo attached to this workspace. Owns CLONE LIFECYCLE ONLY — a repo record
 # never contributes schema, skills or UI (that is what a module is, declared in package.json
 # `dreamteamer.git-modules`, because modules must be restorable BEFORE compile can run).
