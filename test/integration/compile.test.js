@@ -255,3 +255,35 @@ describe('staleness', () => {
 		assert.match(res.stdout, /stale/);
 	});
 });
+
+describe('the harness orientation block', () => {
+	// This prose is written into `.claude/CLAUDE.md` (and AGENTS.md / GEMINI.md / .cursor) for EVERY
+	// workspace, so it is the highest-leverage text in the project — and the first thing an agent reads.
+	// Prose that contradicts the workspace is worse than no prose, which is why both the layout and the
+	// namespace list are passed in rather than assumed.
+	const claudeMd = (ws) => readFile(ws.root, 'CLAUDE.md') ?? '';
+
+	test('the engine version is DERIVED, not a hardcoded string', () => {
+		const ws = workspace();
+		const version = JSON.parse(readFile(ws.root, 'node_modules/dreamteamer/package.json')).version;
+		assert.match(claudeMd(ws), new RegExp(`operated by dreamteamer v${version.replace(/\./g, '\\.')}`));
+	});
+
+	test('a workspace WITHOUT namespaces gets no namespace sentence', () => {
+		assert.doesNotMatch(claudeMd(workspace()), /declares NAMESPACES/);
+	});
+
+	// The rule an agent cannot derive on its own: a reference splits at the end of the DECLARED prefix,
+	// not at the first slash. Without this line, `health/doctors/dana-levi` reads as collection `health`.
+	test('a namespaced workspace is told the declared list and the splitting rule', () => {
+		const ws = workspace({
+			namespaces: ['health', 'work/clients'],
+			collections: { 'health/doctors': simpleCollection({ storage: { suffix: 'doctor' } }) },
+		});
+		const md = claudeMd(ws);
+		assert.match(md, /declares NAMESPACES/);
+		assert.match(md, /`health`/);
+		assert.match(md, /`work\/clients`/);
+		assert.match(md, /DECLARED prefix, not at the first slash/);
+	});
+});
