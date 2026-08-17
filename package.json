@@ -1,60 +1,64 @@
 {
-  "name": "dreamteamer",
-  "version": "0.6.4",
-  "description": "A workspace compiler for coding agents — schema-validated records as plain files over git, compiled into every harness",
-  "license": "Apache-2.0",
-  "author": "Gilad Khen <giladkhen@gmail.com>",
-  "homepage": "https://github.com/dreamteamer/dreamteamer#readme",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/dreamteamer/dreamteamer.git"
-  },
-  "bugs": {
-    "url": "https://github.com/dreamteamer/dreamteamer/issues"
-  },
-  "keywords": [
-    "agent",
-    "coding-agent",
-    "claude-code",
-    "workspace",
-    "compiler",
-    "cli",
-    "yaml",
-    "markdown",
-    "json-schema",
-    "git"
-  ],
-  "type": "module",
-  "engines": {
-    "node": ">=20"
-  },
-  "bin": {
-    "dreamteamer": "./bin/dreamteamer.js"
-  },
-  "files": [
-    "NOTICE",
-    "bin",
-    "src",
-    "collections",
-    "skills",
-    "agents",
-    "commands",
-    "command-bindings",
-    "ui-views",
-    "collection-templates"
-  ],
-  "dependencies": {
-    "ajv": "^8.17.1",
-    "ajv-formats": "^3.0.1",
-    "express": "^5.2.1",
-    "js-yaml": "^4.1.0"
-  },
-  "dreamteamer": {
-    "title": "System"
-  },
-  "scripts": {
-    "metrics": "node scripts/metrics.mjs",
-    "metrics:check": "node scripts/metrics.mjs --check",
-    "layers": "node scripts/layers.mjs"
-  }
+	"name": "dreamteamer",
+	"version": "0.7.0",
+	"description": "A workspace compiler for coding agents \u2014 schema-validated records as plain files over git, compiled into every harness",
+	"license": "Apache-2.0",
+	"author": "Gilad Khen <giladkhen@gmail.com>",
+	"homepage": "https://github.com/dreamteamer/dreamteamer#readme",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/dreamteamer/dreamteamer.git"
+	},
+	"bugs": {
+		"url": "https://github.com/dreamteamer/dreamteamer/issues"
+	},
+	"keywords": [
+		"agent",
+		"coding-agent",
+		"claude-code",
+		"workspace",
+		"compiler",
+		"cli",
+		"yaml",
+		"markdown",
+		"json-schema",
+		"git"
+	],
+	"type": "module",
+	"engines": {
+		"node": ">=20"
+	},
+	"bin": {
+		"dreamteamer": "./bin/dreamteamer.js"
+	},
+	"files": [
+		"NOTICE",
+		"bin",
+		"src",
+		"collections",
+		"skills",
+		"agents",
+		"commands",
+		"command-bindings",
+		"ui-views",
+		"collection-templates"
+	],
+	"dependencies": {
+		"ajv": "^8.17.1",
+		"ajv-formats": "^3.0.1",
+		"express": "^5.2.1",
+		"js-yaml": "^4.1.0"
+	},
+	"dreamteamer": {
+		"title": "System"
+	},
+	"scripts": {
+		"test": "node scripts/test.mjs",
+		"test:unit": "node scripts/test.mjs --unit",
+		"test:watch": "node --watch scripts/test.mjs --unit",
+		"metrics": "node scripts/metrics.mjs",
+		"metrics:check": "node scripts/metrics.mjs --check",
+		"layers": "node scripts/layers.mjs",
+		"verify": "node scripts/layers.mjs && node scripts/metrics.mjs --check && node scripts/test.mjs"
+	}
 }

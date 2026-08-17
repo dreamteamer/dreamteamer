@@ -13,6 +13,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { load } from './yaml.js';
+import { normalizeNamespaces } from './namespace.js';
 
 export const RUNTIME_DIR = '.dreamteamer';
 
@@ -72,14 +73,39 @@ export function loadDescriptors(root) {
 	const dir = runtimeKindDir(root, 'collections');
 	if (!fs.existsSync(dir)) return null;
 	const out = new Map();
-	for (const f of fs.readdirSync(dir).sort()) {
-		if (!f.endsWith('.collection.yaml')) continue;
-		const d = load(fs.readFileSync(path.join(dir, f), 'utf8'));
+	// RECURSIVE, because a namespaced collection compiles to `collections/<ns>/<name>.collection.yaml`
+	// and this loop used to read exactly one directory level. ⚠ That was a SILENT failure, not an
+	// error: compile wrote the nested file and reported ✔, this returned a Map without it, and the
+	// collection was simply absent — `dt <c> list` said "unknown collection" for something that had
+	// just compiled successfully. Keep the walk.
+	for (const f of walkDescriptors(dir)) {
+		const d = load(fs.readFileSync(f, 'utf8'));
 		d.storage ??= {};
 		d.storage.base ??= derivedBase(d);
 		out.set(d.name, d);
 	}
 	return out;
+}
+
+/** Every `*.collection.yaml` under a directory, at any depth, in a stable order. */
+function walkDescriptors(dir, out = []) {
+	for (const e of fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+		if (e.name.startsWith('.')) continue;
+		const p = path.join(dir, e.name);
+		if (e.isDirectory()) walkDescriptors(p, out);
+		else if (e.name.endsWith('.collection.yaml')) out.push(p);
+	}
+	return out;
+}
+
+/**
+ * The workspace's declared namespaces, longest-first — the closed set every reference is split
+ * against. Read off the MANIFEST rather than package.json so the record layer keeps its single
+ * dependency on the compiled artifact (the `sourceRoots()` precedent), and so a runtime compiled
+ * before namespaces existed answers `[]` instead of throwing.
+ */
+export function namespaces(root) {
+	return normalizeNamespaces(readManifest(root)?.namespaces);
 }
 
 /**
