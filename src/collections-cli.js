@@ -19,6 +19,7 @@ import { distinctValues } from './field-values.js';
 import { matchesFilter } from './filter.js';
 import { baseNameOf, normalizeNamespaces } from './namespace.js';
 import { sortRows } from './temporal.js';
+import { keyBetween } from './fractional-index.js';
 import { ensureRepo, ensureAllRepos } from './init.js';
 
 /**
@@ -131,6 +132,53 @@ export function collectionCommand(ws, collection, verb, args) {
 			if (!Object.keys(changes).length) throw new Error('nothing to set — pass key=value pairs or --key value flags');
 			store.set(collection, id, changes);
 			flags.json ? emit(JSON.stringify({ id })) : console.log('✔ updated');
+			return 0;
+		}
+		// Manual ordering. ONE record is written per move — that is the entire feature; a dense
+		// integer would renumber everything below the insertion point and bury the change. The field is
+		// named by the descriptor (`sort_field`), never here, so a workspace may call it anything.
+		case 'move': {
+			const field = d.sort_field;
+			if (!field) throw new Error(`collection "${collection}" declares no sort_field — add one to its descriptor before ordering it by hand.`);
+
+			// Blanks sort FIRST (compareValues, via `?? ''`), so unplaced records surface at the top
+			// rather than hiding at the bottom, and ties fall back to id order: `walk` reads name-sorted
+			// and Array.sort is stable. That is the tiebreak two agents landing on the same key rely on.
+			const rows = [];
+			for (const { id: rid, fields } of store.readAll(collection)) rows.push({ id: rid, key: fields[field] ?? '' });
+			sortRows(rows, 'key');
+
+			if (flags.init) {
+				// Idempotent: a record that already carries a key keeps it, so --init can be re-run after
+				// adding records without disturbing an order the operator set by hand.
+				let prev = rows.filter((r) => r.key).pop()?.key ?? null;
+				let written = 0;
+				for (const r of rows) {
+					if (r.key) continue;
+					prev = keyBetween(prev, null);
+					store.set(collection, r.id, { [field]: prev });
+					written++;
+				}
+				flags.json ? emit(JSON.stringify({ placed: written })) : console.log(written ? `✔ placed ${written} record(s) in ${field}` : '✔ nothing to place');
+				return 0;
+			}
+
+			const id = need(pos, 0, 'id');
+			const placed = rows.filter((r) => r.key && r.id !== id);
+			const at = (t) => {
+				const i = placed.findIndex((r) => r.id === t);
+				if (i < 0) throw new Error(`"${t}" has no ${field} yet — run \`dreamteamer ${collection} move --init\` first. nothing was written.`);
+				return i;
+			};
+			let before, after;
+			if (flags.top) { before = null; after = placed[0]?.key ?? null; }
+			else if (flags.bottom) { before = placed[placed.length - 1]?.key ?? null; after = null; }
+			else if (typeof flags.after === 'string') { const i = at(flags.after); before = placed[i].key; after = placed[i + 1]?.key ?? null; }
+			else if (typeof flags.before === 'string') { const i = at(flags.before); before = placed[i - 1]?.key ?? null; after = placed[i].key; }
+			else throw new Error('say where to put it — --after <id>, --before <id>, --top or --bottom. nothing was written.');
+
+			store.set(collection, id, { [field]: keyBetween(before, after) });
+			flags.json ? emit(JSON.stringify({ id })) : console.log('✔ moved');
 			return 0;
 		}
 		case 'rm': {
