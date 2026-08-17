@@ -60,6 +60,11 @@ function collectionRow(d) {
 	if (typeof d.order === 'number') meta.order = d.order;
 	if (Array.isArray(d.list_fields)) meta.list_fields = d.list_fields;
 	if (typeof d.icon === 'string') meta.icon = d.icon;
+	// Manual ordering: a surface can only offer a drag handle if it knows WHICH field a drop writes,
+	// and the field name is per-collection. Without this the descriptor key exists and no UI can see
+	// it — the extension reads the presentation contract, not raw descriptors.
+	if (typeof d.sort_field === 'string') meta.sort_field = d.sort_field;
+
 	if (typeof d.group === 'string') meta.group = d.group;
 	if (typeof d.description === 'string' && d.description.length > 0) meta.description = d.description;
 	// A compiled collection is READ-ONLY through the record layer, and the UI needs to say so
