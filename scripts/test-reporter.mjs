@@ -56,8 +56,11 @@ export default async function* reporter(source) {
 		yield `${DIM}  ${f.file ?? ''}${f.line ? `:${f.line}` : ''}${OFF}\n`;
 		const message = cause?.message ?? String(cause ?? 'unknown failure');
 		yield `${message.split('\n').map((l) => `  ${l}`).join('\n')}\n`;
-		// An assertion failure carries the two values; a thrown Error carries a stack instead.
-		if (cause && 'expected' in cause && !message.includes('expected')) {
+		// An assertion failure carries the two values; a thrown Error carries a stack instead. The
+		// typeof guard is load-bearing: node:test sometimes reports a bare STRING cause ("test failed",
+		// e.g. when a file fails to load at all), and `'expected' in aString` throws — which crashed the
+		// reporter and hid the real failure behind a TypeError from the reporter itself.
+		if (cause && typeof cause === 'object' && 'expected' in cause && !message.includes('expected')) {
 			yield `${DIM}  expected: ${JSON.stringify(cause.expected)}\n  actual:   ${JSON.stringify(cause.actual)}${OFF}\n`;
 		}
 		yield '\n';

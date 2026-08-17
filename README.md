@@ -58,6 +58,8 @@ The shape of a record is deliberately dull, because dull is what survives:
 
 - records are `<id>.<suffix>.<ext>` files; **the id is the path** inside the collection folder
 - references are `<collection>/<id>` — always qualified, greppable, never a bare name
+- a collection may be scoped under a **declared namespace** — `health/doctors/dana-levi`, stored in
+  `data/health/doctors/`. The default namespace is the empty prefix, so `tasks/kickoff` is unchanged
 - a write lands on disk; `dreamteamer commit` publishes it, one commit per repo
 - schemas are JSON Schema in a YAML file, one per collection
 
@@ -126,6 +128,8 @@ and you can read them like any other file:
   agents, commands, UI views, and which of those a given request should become
 - [`docs/repos-and-modules.md`](docs/repos-and-modules.md) — attached repos vs modules, and why they
   have different homes
+- [`docs/namespaces-blast-radius.md`](docs/namespaces-blast-radius.md) — scoping collections under a
+  namespace (`health/doctors`), what it costs consumers, and why the default namespace is transparent
 
 ## What it isn't
 
