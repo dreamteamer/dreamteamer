@@ -20,6 +20,31 @@ npx dreamteamer check
 
 ---
 
+## 0.9.0 → 0.9.1
+
+**Five bug fixes in `collections rename` and the store. Nothing to migrate**, but if you ran
+`dt collections rename` on 0.9.0, read the last item — it may have cost you something silently.
+
+1. **A SELF-reference inside the renamed collection was not rewritten.** The ref pass ran AFTER the
+   record folder moved, so it walked the old (now empty) path. A record pointing at its own
+   collection dangled. Found on a `finance/accounts` where every card carries `settled_by`.
+2. **`recordFiles()` yielded every module source TWICE** — the `modules` collection's storage.path is
+   `modules`, and `sourceRoots()` includes the workspace root. Harmless while rewrites were
+   idempotent; namespacing is not (`rnd/docs/x` still contains `docs/x`), so the second pass wrote
+   `rnd/rnd/docs/x`. `findInboundRefs` was double-counting for the same reason.
+3. ⚠ **A rename DESTROYED every comment in the descriptors it touched** — `load` → mutate → `dump`,
+   in two places: the descriptor write and the `x-reference` retarget. 194 comment lines across 24
+   descriptors in one real migration, including headers stating what a collection is for. Both are
+   textual edits now, each proved by re-parsing.
+   **If you renamed a collection on 0.9.0, check `git show <rename-commit>~1:<old-path>` for comments
+   that are no longer there.**
+4. **Rollback restored reference files before undoing the folder move**, so a self-referencing file's
+   path no longer existed and the ENOENT masked the real error.
+5. **`compile` never pruned `.dreamteamer/modules/`.** A renamed or removed module left a stale
+   record behind listing collections that no longer exist, which `check` then read as dangling.
+
+---
+
 ## 0.8.0 → 0.9.0
 
 **`dt collections rename` now works on a collection a MODULE ships.** Nothing to migrate; this only
