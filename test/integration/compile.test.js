@@ -8,10 +8,11 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { workspace, writeCollection, simpleCollection, compileError, compileQuietly, readFile, WS_MODULE } from '../helpers/ws.js';
+import { workspace, writeCollection, simpleCollection, compileError, compileQuietly, readFile, dt, WS_MODULE } from '../helpers/ws.js';
 import { load } from '../../src/yaml.js';
 
 const uncompiled = (opts) => workspace({ ...opts, compile: false });
+const dtCheck = (root) => dt(root, 'check');
 
 describe('the runtime artifact', () => {
 	test('storage.base is written, not left to a path test', () => {
@@ -112,16 +113,64 @@ describe('descriptor validation', () => {
 		assert.match(compileError(ws.ws), /id\.pattern is not a valid regular expression/);
 	});
 
-	test('a ui-view filter with an unknown operator is refused', () => {
+	// A ui-view's filter narrows what the operator SEES, so a typo'd operator is worse than an error:
+	// review finding 5 was a `_nq` matching EVERYTHING, which showed every user's tasks with no signal.
+	// `filter` is a TOP-LEVEL key on a ui-view, a sibling of `options` — which is where the schema puts
+	// it and where the studio writes it. Asserting the location matters as much as the refusal: the first
+	// version of this test put the filter under `options.filter`, where nothing reads it, so it passed
+	// while proving nothing.
+	const uiView = (body) => {
 		const ws = uncompiled({ collections: { widgets: simpleCollection({ storage: { suffix: 'widget' } }) } });
 		const dir = path.join(ws.root, 'modules', WS_MODULE, 'ui-views');
 		fs.mkdirSync(dir, { recursive: true });
-		fs.writeFileSync(
-			path.join(dir, 'bad.ui-view.yaml'),
-			'path: /bad\ntarget: list\ncollection: collections/widgets\nlayout: table\noptions:\n  filter: { name: { _nq: x } }\n',
-		);
-		const err = compileError(ws.ws);
-		assert.ok(err === null || /_nq/.test(err), 'either refused, or the operator is known');
+		fs.writeFileSync(path.join(dir, 'v.ui-view.yaml'),
+			`path: /v\ntarget: list\ncollection: collections/widgets\nlayout: table\n${body}`);
+		return ws;
+	};
+
+	test('a ui-view filter with an unknown operator is refused', () => {
+		const err = compileError(uiView('filter: { name: { _nq: x } }\n').ws);
+		assert.match(err, /unknown filter operator\(s\) _nq/);
+	});
+
+	test('a ui-view filter with a KNOWN operator compiles', () => {
+		assert.equal(compileError(uiView('filter: { name: { _eq: x } }\n').ws), null);
+	});
+
+	test('a nested _and branch is validated too', () => {
+		const err = compileError(uiView('filter: { _and: [{ name: { _bogus: 1 } }] }\n').ws);
+		assert.match(err, /_bogus/);
+	});
+
+	// The DIVISION OF LABOUR, worth pinning because it looks like a gap and is not: compile validates a
+	// value if and only if the engine INTERPRETS it (filter operators — see the comment above the
+	// ui-view loop in compile.js), while a dangling REFERENCE is `check`'s job via `x-reference`. So a
+	// ui-view naming a collection that does not exist compiles clean and `check` reports it precisely.
+	// Not silence — a later, more specific error.
+	test('a ui-view naming an unknown collection compiles, and CHECK reports it', () => {
+		const ws = uncompiled();
+		const dir = path.join(ws.root, 'modules', WS_MODULE, 'ui-views');
+		fs.mkdirSync(dir, { recursive: true });
+		fs.writeFileSync(path.join(dir, 'v.ui-view.yaml'),
+			'path: /v\ntarget: list\ncollection: collections/nope\nlayout: table\n');
+		assert.equal(compileError(ws.ws), null);
+
+		const res = ws.dt ? ws.dt('check') : null;
+		const out = res ?? dtCheck(ws.root);
+		assert.equal(out.code, 1);
+		assert.match(out.stdout, /dangling reference "collections\/nope"/);
+	});
+
+	test('a ui-view can target a NAMESPACED collection', () => {
+		const ws = uncompiled({
+			namespaces: ['health'],
+			collections: { 'health/doctors': simpleCollection({ storage: { suffix: 'doctor' } }) },
+		});
+		const dir = path.join(ws.root, 'modules', WS_MODULE, 'ui-views');
+		fs.mkdirSync(dir, { recursive: true });
+		fs.writeFileSync(path.join(dir, 'v.ui-view.yaml'),
+			'path: /doctors\ntarget: list\ncollection: collections/health/doctors\nlayout: table\n');
+		assert.equal(compileError(ws.ws), null, 'a qualified name is just a record id of `collections`');
 	});
 });
 
