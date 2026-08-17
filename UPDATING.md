@@ -20,6 +20,53 @@ npx dreamteamer check
 
 ---
 
+## 0.9.1 → 0.10.0
+
+**Do nothing but `dt compile`.** The orientation block in `CLAUDE.md` / `AGENTS.md` / `GEMINI.md` /
+`.cursor/rules/dreamteamer.mdc` grows three derived sections, and one optional descriptor key
+appears. Nothing existing changes shape, and no record is touched.
+
+**The block now names your collections.** Until now it stated the *grammar* — what a record file is,
+what a reference looks like, which namespaces are declared — and not one noun any of it could be
+about. It now carries:
+
+- **COLLECTIONS** — every non-schema-ops collection with its `description:`, grouped by namespace,
+  alphabetical within; schema-ops collections collapse to one line. Preceded by the two sentences
+  that make the rest safe to omit: the descriptor is the authority on fields and id shape, and
+  `dt <collection> add` generates the id and rejects invalid writes before disk.
+- **CROSS-CUTTING TEMPLATES** — each `collection-template` rendered from its own `description:`.
+- **VERBS BOUND TO COLLECTIONS** — every command-binding grouped by collection, with `can-enter` /
+  `can-exit` rendered literally (`enter: status=draft`). This one is on every harness: native
+  command discovery tells an agent what a command does and never what it acts on.
+- **A command index** for codex / pi / gemini-cli / cursor only. claude-code discovers commands
+  natively, so an index there would be a second copy.
+
+⚠ **No record counts, deliberately.** These files are committed, so a number that changes on every
+write would re-dirty three tracked files on every compile — and be stale when printed. Ordering is
+stable so the block diffs only when your schema actually changed.
+
+### New: an optional `use_when` on a collection descriptor
+
+```yaml
+name: issues
+description: A defect found while using one of your own repos, with the evidence that proves it.
+use_when: you are about to diagnose a defect in one of your repos — search here first
+```
+
+A `description` says what a record **is**; for most collections that is also when to reach for it,
+and this key should be **absent**. Author one only when an agent that fully understands the
+description would still not know to reach for the collection — a prior-art index whose trigger is
+"before you derive" is the case it exists for. It is a **when**, never a how: procedure belongs in a
+module's skill.
+
+### New: compile warns on a collection with no description
+
+Non-blocking and named per offender, the same shape as the per-missing-env-key warning. A descriptor
+with no `description:` renders as a bare name in the block every session loads. There is deliberately
+**no** equivalent warning for `use_when`.
+
+---
+
 ## 0.9.0 → 0.9.1
 
 **Five bug fixes in `collections rename` and the store. Nothing to migrate**, but if you ran

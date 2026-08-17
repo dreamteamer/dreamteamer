@@ -11,6 +11,17 @@ schema:
     description:
       type: string
       description: What kind of thing this collection holds, in one line.
+    use_when:
+      type: string
+      description: >-
+        WHEN to reach for this collection, in one clause — rendered into the orientation block every
+        agent session loads. OPTIONAL and usually absent: for most collections the trigger IS the
+        description (`contacts` = a person; you use it when you have a person), and a restatement
+        there costs every session tokens while diluting the few that carry real information. The
+        test: author this only when an agent that FULLY UNDERSTANDS the description would still not
+        know to reach for the collection. It spans both acts — read ("you are about to diagnose a
+        defect — search here first") and write ("a day needs planning"). NOT a place for procedure:
+        a `how` belongs in the module's skill, this field holds a `when`.
     title:
       type: string
       description: What to call this collection in the nav and page headers. DERIVED from `name` by title-casing when absent — author it only when that is wrong (`ui-views` → `UI Views`).

@@ -696,6 +696,17 @@ export function compile({ root, pkg }) {
 		}
 		const rt = path.join('collections', `${name}.collection.yaml`);
 		entries.set(rt, { sources: [...group.map((g) => g.src), ...templateSources], bytes: Buffer.from(dump(merged)) });
+		// A descriptor with no `description:` renders in the orientation block as a bare NAME — an
+		// agent learns the noun exists and nothing about when it is the right one. Derived pressure
+		// rather than a heroic backfill pass, and the same shape as the per-missing-env-key warning:
+		// non-blocking, named per offender, so the gap converges instead of being rediscovered.
+		//
+		// ⚠ Deliberately NO equivalent warning for `use_when`. That field is optional and correct to
+		// omit on most collections — warning on it would invert its authoring test and manufacture a
+		// restatement of the description on every collection that does not need one.
+		if (merged.storage.base !== 'runtime' && !String(merged.description ?? '').trim()) {
+			console.warn(`⚠ collection ${name} has no description — it renders as a bare name in the orientation block every session loads`);
+		}
 		counts.collections++;
 		if (extenders.length) mergedCount++;
 	}
