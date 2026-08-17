@@ -1,7 +1,7 @@
 {
 	"name": "dreamteamer",
 	"version": "0.10.0",
-	"description": "A workspace compiler for coding agents \u2014 schema-validated records as plain files over git, compiled into every harness",
+	"description": "A workspace compiler for coding agents — schema-validated records as plain files over git, compiled into every harness",
 	"license": "Apache-2.0",
 	"author": "Gilad Khen <giladkhen@gmail.com>",
 	"homepage": "https://github.com/dreamteamer/dreamteamer#readme",
@@ -47,6 +47,7 @@
 		"ajv": "^8.17.1",
 		"ajv-formats": "^3.0.1",
 		"express": "^5.2.1",
+		"fractional-indexing": "^4.0.0",
 		"js-yaml": "^4.1.0"
 	},
 	"dreamteamer": {
