@@ -12,6 +12,7 @@ import { createCollection, removeCollection, addField, updateField, removeField,
 import { history, historyDiff } from './history.js';
 import { matchesFilter } from './filter.js';
 import { sortRows } from './temporal.js';
+import { placementKey } from './fractional-index.js';
 import { commandsFor, recordResolver } from './record-commands.js';
 import { distinctValues } from './field-values.js';
 
@@ -129,6 +130,33 @@ export function startServer(ws, { port = 8080, host = '127.0.0.1' } = {}) {
 		const { id: _id, path: _path, 'last-modified': _lm, '$last-modified-by': _lmb, '$last-commit-message': _lcm, ...changes } = req.body ?? {};
 		store.set(req.params.name, idParam(req), changes);
 		res.json({ id: idParam(req) });
+	});
+
+	// Manual ordering. NOT Directus's `PATCH /utils/sort/:collection` (decision #16: nothing
+	// Directus-flavored lives here).
+	//
+	// ⚠ THE VERB COMES BEFORE THE WILDCARD, and it must. `…/records/*id` is greedy because ids are
+	// PATHS, so `…/records/charlie/position` reads as the record `charlie/position` and the ordinary
+	// record PATCH answers first — measured, as a 404 from a route that looked correct. Same reasoning
+	// as the `*name` note above: one greedy wildcard, and it goes last.
+	//
+	// Key generation stays in the ENGINE, next to the comparator it has to agree with. A client that
+	// computed keys itself would carry the a-z alphabet rule in a second repo, and the failure when
+	// those drift is silent mis-ordering, not an error.
+	api.patch('/collections/:name/position/*id', (req, res) => {
+		const d = store.descriptor(req.params.name);
+		const field = d.sort_field;
+		if (!field) return res.status(400).json({ error: `collection "${d.name}" declares no sort_field` });
+		const rows = [];
+		for (const { id, fields } of store.readAll(d.name)) rows.push({ id, key: fields[field] ?? '' });
+		sortRows(rows, 'key');
+		const id = idParam(req);
+		try {
+			store.set(d.name, id, { [field]: placementKey(rows, id, req.body ?? {}, d.name) });
+			res.json({ id });
+		} catch (e) {
+			res.status(400).json({ error: e.message });
+		}
 	});
 
 	api.delete('/collections/:name/records/*id', (req, res) => {
