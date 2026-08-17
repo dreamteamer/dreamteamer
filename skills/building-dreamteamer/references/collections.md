@@ -8,6 +8,7 @@ One descriptor file: `modules/<module>/collections/<name>.collection.yaml`. The 
 | goal | how |
 |---|---|
 | new collection from a template | `dt collections add --name research-docs --template docs` |
+| move one into a namespace | `dt collections rename doctors health/doctors` (or `doctors --namespace health`) |
 | templateless | `dt collections add --name <n>` — emits a minimal compilable schema |
 | add a field | `dt <collection> add-field --name urgent --type boolean --default-value false` |
 | change / drop a field | `dt <collection> update-field …` · `remove-field --name <f>` |
@@ -20,8 +21,13 @@ or a bare collection name for a reference into it. `--required true` widens `req
 
 ⚠ **The meta verbs write the WORKSPACE module only.** To change a field on a collection another
 module owns, either edit that module's descriptor by hand or add an `extends:` overlay.
-⚠ **There is no `collections rename`** — it refuses system sources. A rename is `git mv` of the
-descriptor + edit `name`/`storage.path`/`suffix` + re-suffix every record, all in one commit.
+**`dt collections rename <old> <new>`** moves the descriptor, the records, the record filenames and
+every inbound reference in ONE commit — including `x-reference` targets in other descriptors and any
+ui-view pointing at it. `<old> --namespace <ns>` is sugar for moving it into a namespace under the same
+bare name. It refuses a compiled source, a module-owned collection, a taken name, and an undeclared
+target namespace; a refusal leaves nothing half-moved. Two things it deliberately does NOT overrule,
+because both are authored choices: a `storage.path` you set by hand (the records stay put, and it says
+so) and a `storage.suffix` that is not the singular of the old name.
 
 ## namespaces — scoping a collection under a folder
 

@@ -128,6 +128,12 @@ silent:
 
 Two consequences worth keeping:
 
+- **`dt collections rename` is how EXISTING data gets namespaced** — descriptor, records, filenames and
+  every inbound reference in one commit. It rewrites refs by asking the store once per record id rather
+  than matching the collection prefix with a new regex: `store.rewriteRefs` already knows the boundary
+  rules and already scopes prose to `[[wikilinks]]`, and a fresh `oldName/` pattern would corrupt
+  `data/tasks/` in a path on its first outing. Bare `x-reference: <old>` needs its own pass — it is not
+  a `<collection>/<id>` ref, so the per-record rewrite cannot see it.
 - **`collections/` is enumerated RECURSIVELY at a module root** (every other kind stays flat — their ids
   are single segments). `schema-ops` derives a descriptor's source path from its name, so `add-field` on
   `health/doctors` writes `collections/health/doctors.collection.yaml`; with a flat readdir that file was
@@ -231,6 +237,7 @@ throwaway `dreamteamer init` workspace (9/9 assertions, `check` clean):
 | filter a listing (`?filter=<json>`, saved views) | `filter.matchesFilter` | `<c> list --where <json>` |
 | what changed in the data since a commit | `events.deriveEvents` | `changes [--since <sha\|date>] [--json]` |
 | publish records written to disk | `commit.commitPending` | `commit [<collection> …] [-m <subject>] [--dry-run]` |
+| move a collection (incl. into a namespace) | `schema-ops.renameCollection` | `collections rename <old> <new>` |
 
 Notes worth keeping:
 
