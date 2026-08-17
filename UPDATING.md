@@ -20,6 +20,35 @@ npx dreamteamer check
 
 ---
 
+## 0.8.0 → 0.9.0
+
+**`dt collections rename` now works on a collection a MODULE ships.** Nothing to migrate; this only
+removes a refusal. `dt compile` after upgrading, as always.
+
+### What changed
+
+The guard derived the descriptor's location from the workspace module, which silently meant "only the
+workspace module's own collections can be renamed". A workspace's domain collections almost always
+live in a module — that is what modules are for — so the verb refused the migration it was built to
+perform. One vault hit it on 26 of 26 collections it wanted to namespace.
+
+The guard's real job is to stop a write that gets **erased**, and only `npm install` does that. So the
+test is now `node_modules/`, and the descriptor is rewritten **in the module that ships it** rather
+than moved into the workspace module.
+
+Two cases are still refused, each naming why:
+
+- **installed from `node_modules`** — "a write there is erased by the next `npm install`"
+- **overlaid** (two modules contribute a descriptor) — the overlay's `extends` names the base by its
+  current id, so moving the base alone would break it. Merge or remove the overlay first.
+
+⚠ **Cost, measured rather than guessed:** the rename runs one full pass over every record file per
+record id. A 2,291-record collection in a 3,391-file workspace takes **3 minutes** (142s of it system
+time) even when nothing references it. Fine once; it is O(records x files), so budget accordingly on a
+much larger tree.
+
+---
+
 ## 0.7.0 → 0.8.0
 
 ⚠ **BREAKING: the `users` collection and the `@me` filter token are gone.** If your workspace has
