@@ -20,6 +20,27 @@ npx dreamteamer check
 
 ---
 
+## 0.12.0 → 0.12.1
+
+**One silent-failure correctness fix in `${env:…}` resolution. Nothing to migrate**, but if a
+declared var's value in `.env` is empty or whitespace-only, re-check anything that consumed the path
+it used to render.
+
+A key that is declared in `dreamteamer.vars` and present in `.env` with an **empty value**
+(`FILES_FOLDER=`) used to pass `renderTemplate`'s gate and render to an empty string, exiting 0 —
+`dt resolve '${env:FILES_FOLDER}/invoices/x.pdf'` printed `/invoices/x.pdf`, a plausible-looking
+absolute path pointing nowhere near the intended file, and every consumer walked it happily. An
+unset key already failed loudly; an empty one did not, which is exactly the failure class `${…}`
+templates exist to eliminate. An empty or whitespace-only value now fails with the same message as
+an unset key — the two are indistinguishable from outside and an operator does not need to tell them
+apart. `compile`'s declared-var warning had the identical blind spot (a present-but-empty value was
+never named) and is fixed the same way, so `compile` and `resolve` still agree on every `.env` line.
+
+This is also the first published tarball carrying the dogfood-vault identifiers anonymised out of a
+`renameCollection` comment (no behavior change).
+
+---
+
 ## 0.11.0 → 0.12.0
 
 ⚠ **BREAKING: the CLI is verb-first.** `dt <collection> <verb> …` is gone. Every command is now `dt
