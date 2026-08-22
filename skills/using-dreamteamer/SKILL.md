@@ -75,7 +75,11 @@ and deliberately nothing else — including nothing about people. There is no `u
   from git's own status letters), and a multi-record commit says what it swept.
 - **one commit per REPO.** a module can own its records (`owns-data` in its package.json), and git
   has no cross-repo commit — so a rename whose inbound refs live in another repo is TWO commits.
-  `dt commit` prints both. `dt commit <collection> …` scopes it; `--dry-run` shows the set first.
+  `dt commit` prints both. `--dry-run` shows the set first.
+- **scope the commit to what YOU wrote: `dt commit <collection>/<id>`.** any number of targets, each
+  either a whole `<collection>` or one record — bare `dt commit` publishes everything pending, and
+  `dt commit <collection>` publishes every dirty record under it *whoever wrote it*, which is the
+  same sweep as the blanket add below when a second session shares the tree.
 - **never `git add -A`, `git add .`, or `git commit -a`.** stage explicit paths. more than one agent
   can be working in a tree, and a blanket add silently commits whatever another session has
   uncommitted right now — under your subject, leaving `git status` clean and the damage invisible.

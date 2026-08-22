@@ -100,7 +100,10 @@ workspace verbs:
               [--since <sha|YYYY-MM-DD>] (default: the last commit) [--json]
   commit      publish records already written to disk: samples git status over every
               collection's record dirs, one commit PER REPO, subject composed from the
-              status letters. [<collection> …] to scope, [-m <subject>], [--dry-run]
+              status letters. Scope it with any number of targets, each either a whole
+              <collection> or one <collection>/<id> — the record form is what keeps a
+              concurrent session's pending records out of your commit.
+              [<collection>|<collection>/<id> …] [-m <subject>] [--dry-run] [--json]
   help        this text
 `;
 
@@ -206,7 +209,9 @@ export function run(argv) {
 				const store = new Store(ws);
 				const mi = rest.indexOf('-m');
 				const message = mi > -1 ? rest[mi + 1] : undefined;
-				// bare args are collection names — minus the token `-m` consumed as its subject
+				// bare args are TARGETS — a whole collection or a `<collection>/<id>` reference,
+				// told apart in commit.js against the declared collections — minus the token `-m`
+				// consumed as its subject
 				const only = rest.filter((a, i) => !a.startsWith('-') && (mi === -1 || i !== mi + 1));
 				const results = commitPending(store, { only, message, dryRun: rest.includes('--dry-run') });
 				if (rest.includes('--json')) { emit(JSON.stringify(results, null, 2)); process.exit(0); }
