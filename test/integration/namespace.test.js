@@ -97,9 +97,9 @@ describe('the nested descriptor actually loads', () => {
 
 	test('the CLI can address it', () => {
 		const ws = nsWorkspace();
-		const add = ws.dt('health/doctors', 'add', '--name', 'Dana Levi');
+		const add = ws.dt('add', 'health/doctors', '--name', 'Dana Levi');
 		assert.equal(add.code, 0, add.stderr);
-		const list = ws.dt('health/doctors', 'list');
+		const list = ws.dt('list', 'health/doctors');
 		assert.equal(list.code, 0, list.stderr);
 		assert.match(list.stdout, /dana-levi/);
 	});

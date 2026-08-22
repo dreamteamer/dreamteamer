@@ -36,7 +36,7 @@ describe('moving an existing collection into a namespace', () => {
 		const ws = seeded();
 		const before = ws.git(['rev-parse', 'HEAD']);
 
-		const res = ws.dt('collections', 'rename', 'doctors', 'health/doctors');
+		const res = ws.dt('schema', 'rename-collection', 'doctors', 'health/doctors');
 		assert.equal(res.code, 0, res.stdout + res.stderr);
 
 		// descriptor: nested source, new name, new path
@@ -61,16 +61,16 @@ describe('moving an existing collection into a namespace', () => {
 
 	test('the workspace is clean afterwards — check passes and the CLI can address it', () => {
 		const ws = seeded();
-		assert.equal(ws.dt('collections', 'rename', 'doctors', 'health/doctors').code, 0);
+		assert.equal(ws.dt('schema', 'rename-collection', 'doctors', 'health/doctors').code, 0);
 		const check = ws.dt('check');
 		assert.equal(check.code, 0, check.stdout);
 		assert.match(check.stdout, /0 violations/);
-		assert.match(ws.dt('health/doctors', 'list').stdout, /dana-levi/);
+		assert.match(ws.dt('list', 'health/doctors').stdout, /dana-levi/);
 	});
 
 	test('--namespace is sugar for the same thing', () => {
 		const ws = seeded();
-		const res = ws.dt('collections', 'rename', 'doctors', '--namespace', 'health');
+		const res = ws.dt('schema', 'rename-collection', 'doctors', '--namespace', 'health');
 		assert.equal(res.code, 0, res.stderr);
 		assert.equal(descriptorAt(ws, 'modules/default/collections/health/doctors.collection.yaml').name, 'health/doctors');
 	});
@@ -90,7 +90,7 @@ describe('moving an existing collection into a namespace', () => {
 			},
 		});
 		ws.store.add('visits', { name: 'Checkup', date: '2026/03' });
-		assert.equal(ws.dt('collections', 'rename', 'visits', 'health/visits').code, 0);
+		assert.equal(ws.dt('schema', 'rename-collection', 'visits', 'health/visits').code, 0);
 		assert.ok(readFile(ws.root, 'data/health/visits/2026/03/checkup.visit.md'));
 	});
 });
@@ -99,7 +99,7 @@ describe('renaming the base name too', () => {
 	test('re-suffixes the files when the suffix was DERIVED', () => {
 		const ws = workspace({ collections: { doctors: DOCTORS } });
 		ws.store.add('doctors', { name: 'Dana Levi' });
-		const res = ws.dt('collections', 'rename', 'doctors', 'clinicians');
+		const res = ws.dt('schema', 'rename-collection', 'doctors', 'clinicians');
 		assert.equal(res.code, 0, res.stderr);
 		assert.ok(readFile(ws.root, 'data/clinicians/dana-levi.clinician.md'), 'file re-suffixed');
 		assert.equal(readFile(ws.root, 'data/clinicians/dana-levi.doctor.md'), null);
@@ -112,7 +112,7 @@ describe('renaming the base name too', () => {
 	test('leaves an AUTHORED suffix alone', () => {
 		const ws = workspace({ collections: { doctors: simpleCollection({ storage: { suffix: 'medic' } }) } });
 		ws.store.add('doctors', { name: 'Dana Levi' });
-		assert.equal(ws.dt('collections', 'rename', 'doctors', 'clinicians').code, 0);
+		assert.equal(ws.dt('schema', 'rename-collection', 'doctors', 'clinicians').code, 0);
 		assert.ok(readFile(ws.root, 'data/clinicians/dana-levi.medic.md'));
 		assert.equal(descriptorAt(ws, 'modules/default/collections/clinicians.collection.yaml').storage.suffix, 'medic');
 	});
@@ -125,7 +125,7 @@ describe('authored storage.path is not overruled', () => {
 			collections: { doctors: simpleCollection({ storage: { suffix: 'doctor', path: 'vault/clinicians' } }) },
 		});
 		ws.store.add('doctors', { name: 'Dana Levi' });
-		const res = ws.dt('collections', 'rename', 'doctors', 'health/doctors');
+		const res = ws.dt('schema', 'rename-collection', 'doctors', 'health/doctors');
 		assert.equal(res.code, 0, res.stderr);
 		assert.match(res.stdout, /storage\.path kept as "vault\/clinicians"/);
 		assert.ok(readFile(ws.root, 'vault/clinicians/dana-levi.doctor.md'), 'records did NOT move');
@@ -138,7 +138,7 @@ describe('references that are not record refs', () => {
 	// rewrite cannot see it — and leaving it stale makes the next compile fail on an unknown target.
 	test('x-reference targets in other descriptors are retargeted', () => {
 		const ws = seeded();
-		assert.equal(ws.dt('collections', 'rename', 'doctors', 'health/doctors').code, 0);
+		assert.equal(ws.dt('schema', 'rename-collection', 'doctors', 'health/doctors').code, 0);
 		const visits = descriptorAt(ws, 'modules/default/collections/visits.collection.yaml');
 		assert.equal(visits.schema.properties.doctor['x-reference'], 'health/doctors');
 	});
@@ -153,7 +153,7 @@ describe('references that are not record refs', () => {
 			'path: /doctors\ntarget: list\ncollection: collections/doctors\nlayout: table\n');
 		assert.equal(ws.dt('compile').code, 0);
 
-		assert.equal(ws.dt('collections', 'rename', 'doctors', 'health/doctors').code, 0);
+		assert.equal(ws.dt('schema', 'rename-collection', 'doctors', 'health/doctors').code, 0);
 		assert.match(readFile(ws.root, 'modules/default/ui-views/docs.ui-view.yaml'), /collections\/health\/doctors/);
 		assert.equal(ws.dt('check').code, 0);
 	});
@@ -168,7 +168,7 @@ describe('refusals — nothing is half-renamed', () => {
 
 	test('an undeclared target namespace', () => {
 		const ws = seeded([]);
-		const res = ws.dt('collections', 'rename', 'doctors', 'health/doctors');
+		const res = ws.dt('schema', 'rename-collection', 'doctors', 'health/doctors');
 		assert.equal(res.code, 1);
 		assert.match(res.stderr, /"health" is not declared/);
 		unchanged(ws);
@@ -176,7 +176,7 @@ describe('refusals — nothing is half-renamed', () => {
 
 	test('a name that already exists', () => {
 		const ws = seeded();
-		const res = ws.dt('collections', 'rename', 'doctors', 'visits');
+		const res = ws.dt('schema', 'rename-collection', 'doctors', 'visits');
 		assert.equal(res.code, 1);
 		assert.match(res.stderr, /already exists/);
 		unchanged(ws);
@@ -184,14 +184,14 @@ describe('refusals — nothing is half-renamed', () => {
 
 	test('an unknown collection', () => {
 		const ws = seeded();
-		const res = ws.dt('collections', 'rename', 'nope', 'health/nope');
+		const res = ws.dt('schema', 'rename-collection', 'nope', 'health/nope');
 		assert.equal(res.code, 1);
 		assert.match(res.stderr, /unknown collection "nope"/);
 	});
 
 	test('a compiled-source collection', () => {
 		const ws = seeded();
-		const res = ws.dt('collections', 'rename', 'skills', 'health/skills');
+		const res = ws.dt('schema', 'rename-collection', 'skills', 'health/skills');
 		assert.equal(res.code, 1);
 		assert.match(res.stderr, /compiled source|not workspace-owned/);
 	});
@@ -201,7 +201,7 @@ describe('refusals — nothing is half-renamed', () => {
 	// engine's own, installed, and so still refused — but now for the accurate reason.
 	test('a collection installed from node_modules, with the reason it cannot be written', () => {
 		const ws = seeded();
-		const res = ws.dt('collections', 'rename', 'repos', 'health/repos');
+		const res = ws.dt('schema', 'rename-collection', 'repos', 'health/repos');
 		assert.equal(res.code, 1);
 		assert.match(res.stderr, /ships from node_modules/);
 		assert.match(res.stderr, /erased by the next `npm install`/, 'says WHY, not just no');
@@ -220,7 +220,7 @@ describe('refusals — nothing is half-renamed', () => {
 		const c = ws.dt('compile');
 		assert.equal(c.code, 0, c.stderr);
 
-		const res = ws.dt('collections', 'rename', 'doctors', 'health/doctors');
+		const res = ws.dt('schema', 'rename-collection', 'doctors', 'health/doctors');
 		assert.equal(res.code, 1, res.stdout);
 		assert.match(res.stderr, /is overlaid/);
 		assert.match(res.stderr, /modules\/extra/, 'names the overlay so it can be found');
@@ -228,7 +228,7 @@ describe('refusals — nothing is half-renamed', () => {
 
 	test('renaming to the same name is a no-op, not an error', () => {
 		const ws = seeded();
-		const res = ws.dt('collections', 'rename', 'doctors', 'doctors');
+		const res = ws.dt('schema', 'rename-collection', 'doctors', 'doctors');
 		assert.equal(res.code, 0);
 		assert.match(res.stdout, /already named that/);
 	});
@@ -258,9 +258,9 @@ describe('a collection shipped by an INLINE module', () => {
 
 	test('moves into a namespace, and the descriptor stays in ITS module', () => {
 		const ws = withModule();
-		assert.equal(ws.dt('billing-invoices', 'add', '--name', 'March').code, 0);
+		assert.equal(ws.dt('add', 'billing-invoices', '--name', 'March').code, 0);
 
-		const res = ws.dt('collections', 'rename', 'billing-invoices', 'finance/invoices');
+		const res = ws.dt('schema', 'rename-collection', 'billing-invoices', 'finance/invoices');
 		assert.equal(res.code, 0, res.stdout + res.stderr);
 
 		// the descriptor moved WITHIN modules/billing — not into modules/default
@@ -273,7 +273,7 @@ describe('a collection shipped by an INLINE module', () => {
 
 		// records moved, suffix re-derived, and the CLI can address it
 		assert.ok(readFile(ws.root, 'data/finance/invoices/march.invoice.md'));
-		assert.match(ws.dt('finance/invoices', 'list').stdout, /march/);
+		assert.match(ws.dt('list', 'finance/invoices').stdout, /march/);
 		const check = ws.dt('check');
 		assert.equal(check.code, 0, check.stdout);
 	});
@@ -295,15 +295,15 @@ describe('a collection shipped by an INLINE module', () => {
 		}));
 		const c2 = ws.dt('compile');
 		assert.equal(c2.code, 0, c2.stderr);
-		assert.equal(ws.dt('billing-invoices', 'add', '--name', 'March').code, 0);
-		assert.equal(ws.dt('payments', 'add', '--name', 'P1', '--invoice', 'billing-invoices/march').code, 0);
+		assert.equal(ws.dt('add', 'billing-invoices', '--name', 'March').code, 0);
+		assert.equal(ws.dt('add', 'payments', '--name', 'P1', '--invoice', 'billing-invoices/march').code, 0);
 
-		assert.equal(ws.dt('collections', 'rename', 'billing-invoices', 'finance/invoices').code, 0);
+		assert.equal(ws.dt('schema', 'rename-collection', 'billing-invoices', 'finance/invoices').code, 0);
 
 		// the record ref AND the cross-module x-reference target both follow.
 		// ⚠ Read through the CLI, not `ws.store` — that Store was built when the fixture was, before
 		// this test added a module and a collection to it, so its descriptor map does not know them.
-		assert.match(ws.dt('payments', 'get', 'p1').stdout, /finance\/invoices\/march/);
+		assert.match(ws.dt('get', 'payments/p1').stdout, /finance\/invoices\/march/);
 		const payments = load(readFile(ws.root, 'modules/default/collections/payments.collection.yaml'));
 		assert.equal(payments.schema.properties.invoice['x-reference'], 'finance/invoices');
 		assert.equal(ws.dt('check').code, 0);
@@ -333,9 +333,9 @@ describe('regressions from the gk-brain namespace migration', () => {
 		ws.store.add('accounts', { name: 'Current' });
 		ws.store.add('accounts', { name: 'Card', settled_by: 'accounts/current' });
 
-		assert.equal(ws.dt('collections', 'rename', 'accounts', 'finance/accounts').code, 0);
+		assert.equal(ws.dt('schema', 'rename-collection', 'accounts', 'finance/accounts').code, 0);
 
-		assert.match(ws.dt('finance/accounts', 'get', 'card').stdout, /finance\/accounts\/current/,
+		assert.match(ws.dt('get', 'finance/accounts/card').stdout, /finance\/accounts\/current/,
 			'the self-reference followed the collection');
 		const check = ws.dt('check');
 		assert.equal(check.code, 0, check.stdout);
@@ -352,7 +352,7 @@ describe('regressions from the gk-brain namespace migration', () => {
 		fs.writeFileSync(descriptor, '# design: data/docs/spec.doc.md\n' + fs.readFileSync(descriptor, 'utf8'));
 		assert.equal(ws.dt('compile').code, 0);
 
-		assert.equal(ws.dt('collections', 'rename', 'docs', 'rnd/docs').code, 0);
+		assert.equal(ws.dt('schema', 'rename-collection', 'docs', 'rnd/docs').code, 0);
 
 		const moved = readFile(ws.root, `modules/${WS_MODULE}/collections/rnd/docs.collection.yaml`);
 		assert.match(moved, /^# design:/m, 'the comment SURVIVED the rename — dump() used to eat it');
@@ -397,10 +397,10 @@ describe('a rename preserves the descriptor verbatim apart from what it changes'
 		const ws = workspace({ namespaces: ['health'] });
 		fs.writeFileSync(path.join(ws.root, 'modules', WS_MODULE, 'collections', 'doctors.collection.yaml'), RICH);
 		assert.equal(ws.dt('compile').code, 0);
-		assert.equal(ws.dt('doctors', 'add', '--name', 'Dana').code, 0);
-		assert.equal(ws.dt('doctors', 'add', '--name', 'Eli', '--refers_to', 'doctors/dana').code, 0);
+		assert.equal(ws.dt('add', 'doctors', '--name', 'Dana').code, 0);
+		assert.equal(ws.dt('add', 'doctors', '--name', 'Eli', '--refers_to', 'doctors/dana').code, 0);
 
-		const res = ws.dt('collections', 'rename', 'doctors', 'health/doctors');
+		const res = ws.dt('schema', 'rename-collection', 'doctors', 'health/doctors');
 		assert.equal(res.code, 0, res.stdout + res.stderr);
 
 		const moved = readFile(ws.root, `modules/${WS_MODULE}/collections/health/doctors.collection.yaml`);
@@ -410,7 +410,7 @@ describe('a rename preserves the descriptor verbatim apart from what it changes'
 		assert.equal(load(moved).storage.path, 'data/health/doctors');
 
 		// and the self-reference in the DATA followed
-		assert.match(ws.dt('health/doctors', 'get', 'eli').stdout, /health\/doctors\/dana/);
+		assert.match(ws.dt('get', 'health/doctors/eli').stdout, /health\/doctors\/dana/);
 		const check = ws.dt('check');
 		assert.equal(check.code, 0, check.stdout);
 	});

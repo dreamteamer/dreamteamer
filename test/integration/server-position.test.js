@@ -35,7 +35,7 @@ before(async () => {
 			collections: { ordered: ORDERED },
 			records: { ordered: [{ name: 'Alpha' }, { name: 'Bravo' }, { name: 'Charlie' }] },
 		});
-		ws.dt('ordered', 'move', '--init');
+		ws.dt('move', 'ordered', '--init');
 		server = await startServer(ws.ws, { port: PORT });
 	} finally {
 		console.log = log;
@@ -83,7 +83,7 @@ describe('PATCH /collections/:name/position/*id', () => {
 		const was = await ids();
 		const r = await move('charlie', { after: 'nosuch' });
 		assert.equal(r.status, 400);
-		assert.match(r.body.error, /move --init/);
+		assert.match(r.body.error, /dreamteamer move ordered --init/);
 		assert.deepEqual(await ids(), was);
 	});
 });
