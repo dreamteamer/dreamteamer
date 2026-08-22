@@ -45,7 +45,7 @@ demand:
 
 `npm run --silent dt -- help` is the command surface — don't learn the generic verbs and flags from
 prose; prose drifts. it does **not** list the purpose-built verbs some collections have
-(`collections add`, `<collection> add-field`, `repos ensure`) — those live in the skill that owns
+(`schema add-collection`, `schema add-field <collection>`, `ensure`) — those live in the skill that owns
 them, and a verb absent from `help` still works.
 
 what you need to know *about* the CLI: collection verbs validate hard (invalid writes, **including
@@ -85,7 +85,7 @@ and deliberately nothing else — including nothing about people. There is no `u
 - workspace-level rules live in `CLAUDE.md`, and a workspace's decision log (where one exists) wins
   over older documents.
 - **session greeting** — surface the operator's inbox from whatever collection this workspace uses for
-  work, e.g. `npm run --silent dt -- tasks list --status todo`. ⚠ **there is no `users` collection and
+  work, e.g. `npm run --silent dt -- list tasks --status todo`. ⚠ **there is no `users` collection and
   no `@me`** (both removed in 0.8.0); read the operator from `git config user.name` at the point you
   need one, and never filter on a person unless this workspace owns a collection of them.
 

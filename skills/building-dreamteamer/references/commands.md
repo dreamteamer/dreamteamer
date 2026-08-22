@@ -13,7 +13,7 @@ description: triage every open task assigned to me, one at a time
 argument-hint: "[assignee]"
 ---
 load this workspace's tasks skill. list my open tasks
-(`npm run --silent dt -- tasks list --status todo`), then walk them one at a
+(`npm run --silent dt -- list tasks --status todo`), then walk them one at a
 time: restate it, ask me to keep / reassign / drop, apply the decision with `tasks set`.
 done when the list is empty or I say stop.
 ```
@@ -55,7 +55,7 @@ description: audio present, no transcript yet
 - **Pick the signal carefully.** "Is it transcribed?" is `transcription._nempty` (the provenance
   object), NOT `transcript._nempty` — a body can be filled by hand with no provenance, which is
   exactly the case worth flagging as not-yet-done.
-- Read the queue with `dt commands for <collection>[/<id>] [--ids a,b] [--json]`.
+- Read the queue with `dt commands <collection>[/<id>] [--ids a,b] [--json]`.
 
 ## common mistakes
 

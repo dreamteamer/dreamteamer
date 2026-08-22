@@ -37,7 +37,7 @@ Three tie-breakers worth internalising, because they are the ones that go wrong:
 - **a multi-step process is a CHAIN OF COMMANDS, not an entity.** There is no workflow kind: a
   `workflows` collection with run records, triggers and an executor existed until 2026-07-31 and was
   removed after three days of measurement showed the work being done by a command chain instead. Write
-  one command per step, bind each to its collection so `dt commands for <ref>` shows what applies, and
+  one command per step, bind each to its collection so `dt commands <ref>` shows what applies, and
   a command whose body invokes the others in order if the sequence needs a name. The record's own state
   is the progress marker — which is what made the run records redundant.
 
@@ -54,7 +54,7 @@ These were duplicated across seven skills; they are true for all of them.
    makes the id lie.
 3. **The meta-descriptor IS the spec.** Every kind is itself a collection:
    `.dreamteamer/collections/<kind>.collection.yaml` lists every key it may carry with its
-   allowed values. Read that, plus a real one (`dt <kind> get <id>`), instead of learning the shape
+   allowed values. Read that, plus a real one (`dt get <kind>/<id>`), instead of learning the shape
    from prose. Prose drifts; the descriptor cannot.
 4. **`npm run compile`, then `npm run check`.** Compile materializes the runtime and the harness
    adapters; check validates refs and shapes and never modifies files. Neither is optional.
@@ -66,10 +66,10 @@ These were duplicated across seven skills; they are true for all of them.
 7. **Never edit generated output.** `.dreamteamer/`, `.claude/`, `.agents/`, `.cursor/` are all
    overwritten and pruned on the next compile. If you found the thing you want to change in one of
    those, you are in the wrong file.
-8. **The CLI refuses system-stored records on purpose.** `dt skills set …` will not work; edit the
+8. **The CLI refuses system-stored records on purpose.** `dt set skills/<id> …` will not work; edit the
    module source and compile. The exceptions are the meta verbs that write sources *through* a
-   compile gate — `collections add`, `<collection> add-field`, `ui-views add|set` — which exist so
-   an uncompilable source can never land in history.
+   compile gate — `schema add-collection`, `schema add-field <collection>`, `schema add-view|set-view` —
+   which exist so an uncompilable source can never land in history.
 9. **Never duplicate a procedure across records.** A command body that restates a skill, an agent
    body that inlines its skill's steps, a command that re-types another command's prompt — each is two
    copies that drift. Reference the one that owns it.
@@ -99,7 +99,7 @@ a collection about people, meetings, tasks, products, content — belongs in a m
 version of it belongs in the `recipes` repo rather than here.
 
 **The test is: does the ENGINE read it?** Core's collections are the entity kinds the compiler itself
-materializes, plus `repos` (because `repos ensure` clones them). Everything else has been ejected on
+materializes, plus `repos` (because `ensure` clones them). Everything else has been ejected on
 exactly that test — `teams` (nothing resolved a
 team), `mounts` (a one-implementation adapter enum over an `.env` key), `module-registries` (zero
 readers), `workflows`/`workflow-runs`/`workflow-triggers`/`cursors` and `migrations`/`migration-runs`

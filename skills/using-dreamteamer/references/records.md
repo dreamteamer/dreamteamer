@@ -19,8 +19,8 @@ purpose.
 ## the verbs
 
 `npm run --silent dt -- help` lists the generic record verbs and their flags. read them there.
-but **`help` is not the whole surface** — collections with a purpose-built verb (`collections add`,
-`<collection> add-field`, `repos ensure`) don't appear in it, and a verb missing from `help`
+but **`help` is not the whole surface** — collections with a purpose-built verb (`schema add-collection`,
+`schema add-field <collection>`, `ensure`) don't appear in it, and a verb missing from `help`
 is not a verb that doesn't exist. when a skill names a verb, use the verb.
 
 what the help text can't tell you either way:
@@ -30,7 +30,7 @@ what the help text can't tell you either way:
   got) or an id that misses `id.pattern`. a rejected write leaves no partial state.
 - **every write verb commits by itself**, with the right subject — never stack another commit
   on top.
-- `set <id> <field>=` with an empty value **removes** the field; array fields take a
+- `set <collection>/<id> <field>=` with an empty value **removes** the field; array fields take a
   comma-separated value (`--attendees contacts/a,contacts/b`).
 - `--json` works on every verb — use it whenever you're going to parse the output.
 - `npm run check` validates the whole workspace after the fact: report-only, never rewrites.
@@ -45,10 +45,10 @@ to label one of its records) — both resolved by compile from the id unless aut
 
 ## writing a record by hand
 
-**default to `dt <collection> add`** — id, defaults, validation and commit in one line. hand-write
+**default to `dt add <collection>`** — id, defaults, validation and commit in one line. hand-write
 only when the CLI can't express the value: a nested map, or a long structured body.
 
-when you do, don't reconstruct the shape from the schema — **`dt <collection> get <existing-id>
+when you do, don't reconstruct the shape from the schema — **`dt get <collection>/<existing-id>
 --json` prints the exact shape a valid record has**: which fields, which ref forms, dates as
 strings. copy a sibling, change what differs, and:
 
@@ -81,8 +81,8 @@ A collection may be scoped under a namespace declared in the workspace `package.
 QUALIFIED name is the collection's name everywhere:
 
 ```bash
-dt health/doctors add --name "Dana Levi"     # → data/health/doctors/dana-levi.doctor.md
-dt health/visits add --name Checkup --date 2026-03-04 --doctor health/doctors/dana-levi
+dt add health/doctors --name "Dana Levi"     # → data/health/doctors/dana-levi.doctor.md
+dt add health/visits --name Checkup --date 2026-03-04 --doctor health/doctors/dana-levi
 ```
 
 - a reference is still `<collection>/<id>` — `health/doctors/dana-levi` is the collection

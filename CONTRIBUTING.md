@@ -50,7 +50,7 @@ Beyond the suite, it is still worth watching a change work end to end the way a 
 cd "$(mktemp -d)" && git init -q && npm init -y
 npm install /path/to/your/dreamteamer
 npx dreamteamer init && npx dreamteamer compile && npx dreamteamer check
-npx dreamteamer notes add --title "does it work"
+npx dreamteamer add notes --title "does it work"
 ```
 
 If a change can't be demonstrated that way, that's usually a sign the change is in the wrong place.

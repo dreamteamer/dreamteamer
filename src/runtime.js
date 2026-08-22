@@ -27,7 +27,7 @@ export const DERIVED_KINDS = ['modules'];
 
 /**
  * Where a human edits a compiled collection, as one sentence. ONE definition, because there are two
- * consumers who must never drift: the store's refusal (`dt modules set …`) and the presentation
+ * consumers who must never drift: the store's refusal (`dt set modules/<id> …`) and the presentation
  * projection the UI reads to explain a disabled button. This repo's own history is the argument —
  * `git log`/`git diff` and the `?sort=` comparator were each hand-copied into the extension and
  * went wrong in both places.

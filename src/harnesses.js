@@ -189,7 +189,7 @@ function collectionsSection(index, namespaces) {
 		'COLLECTIONS — the nouns of this workspace. The descriptor at',
 		'`.dreamteamer/collections/<name>.collection.yaml` is the authority on fields, id shape and',
 		'defaults — read it before writing a kind you have not written this session. Create records',
-		'with `dt <collection> add`: it generates the id and rejects invalid writes before disk.',
+		'with `dt add <collection>`: it generates the id and rejects invalid writes before disk.',
 	];
 	const data = index.filter((c) => !c.system);
 	for (const group of ['', ...namespaces]) {
@@ -273,7 +273,7 @@ function bindingsSection(entries) {
 		byCollection.get(coll).push(`/${cmd}${gate ? ` (${gate})` : ''}`);
 	}
 	if (!byCollection.size) return [];
-	const lines = ['', 'VERBS BOUND TO COLLECTIONS (`dt commands for <collection>[/<id>]` answers per record):'];
+	const lines = ['', 'VERBS BOUND TO COLLECTIONS (`dt commands <collection>[/<id>]` answers per record):'];
 	for (const coll of [...byCollection.keys()].sort()) lines.push(`- ${coll} — ${byCollection.get(coll).sort().join(' · ')}`);
 	return lines;
 }
