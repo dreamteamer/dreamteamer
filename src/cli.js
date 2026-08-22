@@ -54,6 +54,9 @@ the longest DECLARED collection prefix, so finance/transactions/2026/03/coffee i
   ensure  <repos-id> | --all [--json]         (materialize an attached repo's working tree ON
                                                DEMAND — never at install; --all is the explicit
                                                opt-in, e.g. before going offline)
+  resolve '<string>' | <collection>/<id> <field>
+                                              (render \${env:…} templates against .env —
+                                               ⚠ LANDS IN 0.12.0, not wired yet)
 
 schema verbs (write SOURCES through a compile gate, never the runtime — a different act, so a
 different word in front of it):
@@ -283,7 +286,7 @@ export function run(argv) {
 				warnIfStale(ws.root);
 				process.exit(dispatchSchemaVerb(ws, rest));
 			case 'resolve':
-				throw new Error('resolve lands with the env-vars feature — next commit');
+				throw new Error('resolve lands in 0.12.0');
 			default:
 				console.error(`✖ unknown verb "${cmd}" — dreamteamer is verb-first since 0.12.0: dt <verb> [<target>]`);
 				console.error(USAGE);
@@ -299,13 +302,16 @@ export function run(argv) {
 function dispatchRecordVerb(ws, verb, args) {
 	const [target, ...rest] = args;
 	if (!target) throw new Error(`dt ${verb} needs a target — see \`dreamteamer help\``);
+	// A flag in the target slot is a word-order mistake, not a collection: without this,
+	// `dt list --json contacts` reported `unknown collection "--json"` and dumped every name.
+	if (target.startsWith('--')) throw new Error(`dt ${verb} takes its target BEFORE the flags: dreamteamer ${verb} <target> ${target} …`);
 	if (COLLECTION_VERBS.has(verb)) return collectionCommand(ws, target, verb, rest);
 	if (REF_VERBS.has(verb)) {
 		const { collection, id } = splitRef(new Store(ws).descriptors, target);
 		return collectionCommand(ws, collection, verb, [id, ...rest]);
 	}
-	if (!EITHER_VERBS.has(verb)) throw new Error(`dt ${verb} is not a record verb`); // unreachable: the switch above is the gate
-	// A bare collection is legal for both: `move <collection> --init`, `commands <collection>`.
+	// EITHER_VERBS from here: a bare collection is legal for both — `move <collection> --init`,
+	// `commands <collection>`.
 	const { descriptors } = new Store(ws);
 	if (descriptors.has(target)) {
 		return verb === 'move'

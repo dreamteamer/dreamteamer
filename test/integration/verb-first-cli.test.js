@@ -28,10 +28,11 @@ const CONTACTS = {
 const TRANSACTIONS = {
 	id: { generate: '{{ month }}/{{ label | slug }}' },
 	storage: { suffix: 'txn' },
+	sort_field: 'position',
 	schema: {
 		type: 'object',
 		required: ['label', 'month'],
-		properties: { label: { type: 'string' }, month: { type: 'string' } },
+		properties: { label: { type: 'string' }, month: { type: 'string' }, position: { type: 'string' } },
 	},
 };
 
@@ -142,11 +143,71 @@ describe('record verbs — dt <verb> <target>', () => {
 		assert.match(res.stderr, /unknown collection in reference "nope\/x"/);
 	});
 
+	test('a flag in the target slot is a word-order error, not a collection', () => {
+		const ws = base();
+		const res = ws.dt('list', '--json', 'contacts');
+		assert.equal(res.code, 1);
+		assert.match(res.stderr, /takes its target BEFORE the flags/);
+	});
+
 	test('a record verb with no target says so', () => {
 		const ws = base();
 		const res = ws.dt('get');
 		assert.equal(res.code, 1);
 		assert.match(res.stderr, /needs a target/);
+	});
+});
+
+// The fixture above exists so that a NAMESPACED collection is exercised by every target shape, not
+// just by `get`. It is not decoration: `commands` was broken for every namespaced target in both
+// shapes while `get` passed, because the two resolve the reference in different places.
+describe('a namespaced collection, through every target shape', () => {
+	const seeded = () => {
+		const ws = nsBase();
+		assert.equal(ws.dt('add', 'finance/transactions', '--label', 'Coffee', '--month', '2026/03').code, 0);
+		assert.equal(ws.dt('add', 'finance/transactions', '--label', 'Rent', '--month', '2026/03').code, 0);
+		return ws;
+	};
+
+	test('commands takes the namespaced collection', () => {
+		const ws = seeded();
+		const res = ws.dt('commands', 'finance/transactions', '--json');
+		assert.equal(res.code, 0, res.stderr);
+		assert.equal(JSON.parse(res.stdout).collection, 'finance/transactions');
+	});
+
+	test('commands takes a namespaced reference with a path-shaped id', () => {
+		const ws = seeded();
+		const res = ws.dt('commands', 'finance/transactions/2026/03/coffee', '--json');
+		assert.equal(res.code, 0, res.stderr);
+		assert.equal(JSON.parse(res.stdout).collection, 'finance/transactions');
+	});
+
+	test('values takes the namespaced collection', () => {
+		const ws = seeded();
+		const res = ws.dt('values', 'finance/transactions', 'month', '--json');
+		assert.equal(res.code, 0, res.stderr);
+		assert.deepEqual(JSON.parse(res.stdout).values.map((v) => v.value), ['2026/03']);
+	});
+
+	test('move --init takes the namespaced collection, and a reference places one record', () => {
+		const ws = seeded();
+		const init = ws.dt('move', 'finance/transactions', '--init');
+		assert.equal(init.code, 0, init.stderr);
+		const top = ws.dt('move', 'finance/transactions/2026/03/rent', '--top');
+		assert.equal(top.code, 0, top.stderr);
+		const ids = JSON.parse(ws.dt('list', 'finance/transactions', '--sort', 'position', '--json').stdout)
+			.map((r) => r.id);
+		assert.deepEqual(ids, ['2026/03/rent', '2026/03/coffee']);
+	});
+
+	test('rename takes a namespaced reference and a path-shaped new id', () => {
+		const ws = seeded();
+		const res = ws.dt('rename', 'finance/transactions/2026/03/coffee', '2026/04/coffee');
+		assert.equal(res.code, 0, res.stderr);
+		assert.ok(readFile(ws.root, 'data/finance/transactions/2026/04/coffee.txn.md'));
+		assert.equal(readFile(ws.root, 'data/finance/transactions/2026/03/coffee.txn.md'), null);
+		assert.equal(ws.dt('check').code, 0);
 	});
 });
 
@@ -263,7 +324,7 @@ describe('the verb set is closed', () => {
 		const ws = base();
 		const res = ws.dt('resolve', '${env:HOME}');
 		assert.equal(res.code, 1);
-		assert.match(res.stderr, /resolve lands with the env-vars feature/);
+		assert.match(res.stderr, /resolve lands in 0\.12\.0/);
 	});
 });
 
