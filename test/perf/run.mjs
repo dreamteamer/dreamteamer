@@ -1,0 +1,188 @@
+#!/usr/bin/env node
+// TIER 4 — the perf harness. Zero dependencies, `node:` builtins only, and OPT-IN:
+//
+//   npm run perf                        renameCollection, 200 records, seconds
+//   npm run perf -- --records=2291      the original measurement (minutes — see below)
+//   npm run perf -- --filler=1100       records in the OTHER collection, i.e. the M in O(N x M)
+//   npm run perf -- --keep              leave the generated workspace under test/.perf/ to poke at
+//
+// ⚠ NOT ON `npm test` OR `npm run verify`, ever, and it PRINTS rather than ASSERTS. A timing is a
+// property of the machine that took it, so a perf run that gates a build fails on a loaded laptop
+// and teaches everyone to ignore red. Tiers 1-3 are in `scripts/test.mjs`; this is the fourth of the
+// same kind, and the same promise runs through all four: the default path stays fast enough to run
+// before every commit.
+//
+// WHY IT GENERATES ITS FIXTURE INSTEAD OF SHIPPING ONE. The finding this harness exists to reproduce
+// was measured on a real, private workspace, and the comment describing it named that workspace — so
+// nobody else could re-run it, and the only durable record of a real number was prose. A generated
+// fixture inverts that: `--records=N` builds N records here, now, on your disk. Nothing is committed
+// (`test/.perf/` is gitignored) and nothing ships (`test/` is outside package.json's `files`).
+//
+// GENERATION IS MEASURED TOO, and not as a courtesy. Building the fixture is N writes through the
+// real Store — schema validation, id generation, frontmatter serialisation, one file each — so its
+// records/sec is the engine's write path under a load no hand-made test reaches.
+import { execFileSync, spawnSync } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { compile } from '../../src/compile.js';
+import { Store } from '../../src/store.js';
+import { renameCollection } from '../../src/schema-ops.js';
+import { dump } from '../../src/yaml.js';
+
+const ENGINE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+const PERF_DIR = path.join(ENGINE_ROOT, 'test', '.perf');
+const BIN = path.join(ENGINE_ROOT, 'bin', 'dreamteamer.js');
+
+const args = process.argv.slice(2);
+const flag = (n) => args.some((a) => a === `--${n}`);
+const num = (n, d) => Number(args.find((a) => a.startsWith(`--${n}=`))?.split('=')[1] ?? d);
+
+const RECORDS = num('records', 200);
+// The original shape was 2,291 records inside 3,391 record files, i.e. ~48% of the walk is OTHER
+// collections' records that can never match. Default to the same ratio so a small run and a big one
+// describe the same curve.
+const FILLER = num('filler', Math.round(RECORDS * 0.48));
+// A handful of real inbound references, so the run proves the rewrite WORKS as well as timing it.
+// The point of the original finding is that the cost is identical when this is zero.
+const REFS = Math.min(3, FILLER);
+
+const GIT_ENV = {
+	...process.env,
+	GIT_AUTHOR_NAME: 'dreamteamer perf', GIT_AUTHOR_EMAIL: 'perf@example.invalid',
+	GIT_COMMITTER_NAME: 'dreamteamer perf', GIT_COMMITTER_EMAIL: 'perf@example.invalid',
+};
+const git = (root, a) => execFileSync('git', a, { cwd: root, env: GIT_ENV, stdio: ['ignore', 'pipe', 'pipe'] }).toString().trim();
+
+const LEDGER = {
+	id: { generate: '{{ name | slug }}' },
+	storage: { suffix: 'entry' },
+	schema: {
+		type: 'object', required: ['name'],
+		properties: { name: { type: 'string' }, amount: { type: 'number' }, note: { type: 'string' } },
+	},
+};
+const FILLER_COLL = {
+	id: { generate: '{{ name | slug }}' },
+	storage: { suffix: 'memo' },
+	schema: {
+		type: 'object', required: ['name'],
+		properties: { name: { type: 'string' }, entry: { type: 'string', 'x-reference': 'ledger' } },
+	},
+};
+
+const secs = (ms) => `${(ms / 1000).toFixed(2)}s`;
+const rate = (n, ms) => `${Math.round(n / (ms / 1000)).toLocaleString()}/sec`;
+
+/** A real workspace with N ledger records and FILLER memos, built through init + compile + Store. */
+function generate() {
+	fs.rmSync(PERF_DIR, { recursive: true, force: true });
+	const root = path.join(PERF_DIR, `ws-${RECORDS}x${FILLER}`);
+	fs.mkdirSync(root, { recursive: true });
+
+	const t0 = performance.now();
+	// `git init` BEFORE `dreamteamer init`, for the reason test/helpers/ws.js states at length: init
+	// commits what it writes and git walks UPWARD, so with no repo here the fixture lands in the
+	// engine's own history.
+	git(root, ['init', '-q']);
+	git(root, ['config', 'user.email', 'perf@example.invalid']);
+	git(root, ['config', 'user.name', 'dreamteamer perf']);
+	const res = spawnSync(process.execPath, [BIN, 'init'], { cwd: root, env: GIT_ENV, encoding: 'utf8' });
+	if (res.status !== 0) throw new Error(`perf fixture init failed:\n${res.stdout}\n${res.stderr}`);
+
+	// the engine as an INSTALLED module — a symlink, on the npm channel, same as the tier-2 fixture
+	fs.mkdirSync(path.join(root, 'node_modules'), { recursive: true });
+	fs.symlinkSync(ENGINE_ROOT, path.join(root, 'node_modules', 'dreamteamer'), 'dir');
+	const pkgFile = path.join(root, 'package.json');
+	const pkg = JSON.parse(fs.readFileSync(pkgFile, 'utf8'));
+	pkg.dependencies = { ...pkg.dependencies, dreamteamer: '*' };
+	pkg.dreamteamer.namespaces = ['finance'];
+	fs.writeFileSync(pkgFile, JSON.stringify(pkg, null, '\t') + '\n');
+
+	const collDir = path.join(root, 'modules', 'default', 'collections');
+	fs.mkdirSync(collDir, { recursive: true });
+	fs.writeFileSync(path.join(collDir, 'ledger.collection.yaml'), dump({ name: 'ledger', ...LEDGER }));
+	fs.writeFileSync(path.join(collDir, 'memos.collection.yaml'), dump({ name: 'memos', ...FILLER_COLL }));
+
+	const ws = { root, pkg };
+	const tCompile = performance.now();
+	const log = console.log, warn = console.warn;
+	console.log = console.warn = () => {};
+	try { compile(ws); } finally { console.log = log; console.warn = warn; }
+	const compileMs = performance.now() - tCompile;
+
+	const store = new Store(ws);
+	const tWrite = performance.now();
+	const ids = [];
+	for (let i = 0; i < RECORDS; i++) {
+		ids.push(store.add('ledger', { name: `Entry ${i}`, amount: i * 1.5, note: `row ${i}` }).id);
+	}
+	for (let i = 0; i < FILLER; i++) {
+		// only the first REFS memos point at the ledger; the rest are the dead weight the walk still reads
+		store.add('memos', { name: `Memo ${i}`, ...(i < REFS ? { entry: `ledger/${ids[i]}` } : {}) });
+	}
+	const writeMs = performance.now() - tWrite;
+
+	git(root, ['add', '-A']);
+	git(root, ['commit', '-qm', 'perf: fixture']);
+	const totalMs = performance.now() - t0;
+
+	// M is not "files in the workspace" but what the ref walk actually reads: every record file of
+	// every collection, the compiled-source ones included. Ask the store rather than guessing.
+	const files = [...new Store({ root, pkg }).recordFiles()].length;
+	return { root, ws, files, compileMs, writeMs, totalMs };
+}
+
+/** Time `renameCollection`, counting the file reads it does. */
+function timeRename(ws) {
+	const store = new Store(ws);
+	const real = fs.readFileSync;
+	let reads = 0;
+	// `import fs from 'node:fs'` is the same mutable default export in every src/ module, so a counter
+	// here sees store.js's and schema-ops.js's reads both. This is why the O(N x M) claim can be a
+	// measurement instead of an argument.
+	fs.readFileSync = (...a) => { reads++; return real(...a); };
+	// a rename recompiles, and compile is chatty — the recompile is PART of the cost being measured,
+	// so it still runs; only its output is swallowed, so the report stays one block.
+	const log = console.log, warn = console.warn;
+	console.log = console.warn = () => {};
+	const cpu0 = process.cpuUsage();
+	const t0 = performance.now();
+	let out;
+	try {
+		out = renameCollection(ws, store, 'ledger', 'finance/ledger');
+	} finally {
+		fs.readFileSync = real;
+		console.log = log;
+		console.warn = warn;
+	}
+	const wallMs = performance.now() - t0;
+	const cpu = process.cpuUsage(cpu0);
+	return { out, reads, wallMs, userMs: cpu.user / 1000, sysMs: cpu.system / 1000 };
+}
+
+console.log(`\n  dreamteamer perf — tier 4, opt-in, timings only (nothing here can fail a build)\n`);
+console.log(`  GENERATING  ledger ${RECORDS.toLocaleString()} records · memos ${FILLER.toLocaleString()} records · ${REFS} inbound refs`);
+const fixture = generate();
+console.log(`    fixture           ${secs(fixture.totalMs)}  (init + compile + ${(RECORDS + FILLER).toLocaleString()} writes + one commit)`);
+console.log(`    compile           ${secs(fixture.compileMs)}`);
+console.log(`    ${(RECORDS + FILLER).toLocaleString()} record writes  ${secs(fixture.writeMs)}   ${rate(RECORDS + FILLER, fixture.writeMs)} through the real Store`);
+console.log(`    record files (M)  ${fixture.files.toLocaleString()}   — what one ref pass reads\n`);
+
+console.log(`  RENAME  ledger → finance/ledger`);
+const r = timeRename(fixture.ws);
+console.log(`    wall              ${secs(r.wallMs)}`);
+console.log(`    user / system     ${secs(r.userMs)} / ${secs(r.sysMs)}`);
+console.log(`    per record        ${(r.wallMs / RECORDS).toFixed(1)}ms   (N=${RECORDS})`);
+console.log(`    file reads        ${r.reads.toLocaleString()}   ≈ ${RECORDS.toLocaleString()} x ${fixture.files.toLocaleString()} x 2 passes`);
+console.log(`    refs rewritten    ${r.out.rewrites ?? '?'}   — the reads above are paid whether this is ${r.out.rewrites} or 0`);
+console.log(`\n  O(records x files): ${RECORDS} records over ${fixture.files} files cost ${secs(r.wallMs)}.`);
+console.log(`  The pass runs per id whether or not anything points at the collection, TWICE — once to`);
+console.log(`  snapshot inbound refs for rollback, once to rewrite them. Scale both terms and the cost`);
+console.log(`  squares. Measured on an M-series Mac, 2026-08-22:`);
+console.log(`    --records=200                 300 files    2.4s   124k reads    (the default)`);
+console.log(`    --records=2291 --filler=1100  3,395 files  271s   15.6M reads   (~64s to generate)`);
+
+if (flag('keep')) console.log(`\n  kept: ${path.relative(ENGINE_ROOT, fixture.root)}`);
+else fs.rmSync(PERF_DIR, { recursive: true, force: true });
+console.log('');

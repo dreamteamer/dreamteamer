@@ -57,6 +57,7 @@
 		"test": "node scripts/test.mjs",
 		"test:unit": "node scripts/test.mjs --unit",
 		"test:watch": "node --watch scripts/test.mjs --unit",
+		"perf": "node test/perf/run.mjs",
 		"metrics": "node scripts/metrics.mjs",
 		"metrics:check": "node scripts/metrics.mjs --check",
 		"layers": "node scripts/layers.mjs",
