@@ -93,7 +93,7 @@ schema:
       description: >-
         The module that OWNS this concept — DERIVED by compile from the base source, never authored.
         An overlay adds fields to somebody else's collection and does not take it over, so `meetings`
-        stays owned by crm even though hq3 overlays it. This is the workspace's real partition, and
+        stays owned by crm even though the workspace module overlays it. This is the workspace's real partition, and
         what the nav groups by.
     group:
       type: string

@@ -59,6 +59,13 @@ Two shapes to reject on sight, both learned here:
   name a folder is a level of indirection over an `.env` key. That is why `mounts` was deleted rather
   than kept.
 
+⚠ **A measurement keeps its NUMBERS and never its source's NAME.** This engine is published; the
+vault it is dogfooded on is private, so naming that vault in a comment leaks provenance and hands the
+reader a figure nobody else can re-run. So: a finding discovered on a dogfood vault gets a **generated
+fixture under `test/perf/`** before it gets a comment, and the comment cites **the reproduction, not
+the vault** — `renameCollection`'s header is the worked example. Anonymise the identifier, keep every
+digit, and never soften the explanation to achieve it.
+
 The prose budget matters as much as the code one: a skill nobody can afford to load is not a
 capability. Core ships **2** skills — `using-dreamteamer` (the map) and `building-dreamteamer` (how to author) —
 and both are **digests with `references/`**, so the always-loaded file stays small and detail is
@@ -74,9 +81,9 @@ coding-agent plugin repos use.
 
 ⚠ **The workspace's OWN module is `modules/default`, named for its ROLE** (0.8.0; `init` seeds it, and
 `--workspace-module <name>` overrides). It used to be named after the workspace, and that name went
-stale twice in one repo — `hq3` → `gk`, decision 213 reversed by 224 — each rename rewriting every
-path that RESOLVES while the historical documents deliberately kept the old spelling, so a
-stale-looking `modules/hq3` was correct in prose and a bug in a path. A role name cannot go stale.
+stale twice in one repo — decision 213, reversed by 224 — each rename rewriting every
+path that RESOLVES while the historical documents deliberately kept the old spelling, so the old
+`modules/<vault>` was correct in prose and a bug in a path. A role name cannot go stale.
 It is deliberately the same word `RESERVED_NAMESPACES` holds: this module owns the DEFAULT-namespace
 collections, and the default namespace is the empty prefix. The one misreading it invites,
 `default/tasks`, is a compile error whose message states the rule. **An existing workspace is
@@ -169,6 +176,7 @@ npm test                      # tiers 1+2, zero dependencies, ~7s
 npm test -- --only=namespace  # one file
 npm test -- --unit            # tier 1 only: pure functions, no fs, no git
 npm run verify                # layers + metrics:check + tests — what to run before a commit
+npm run perf                  # tier 4: generates a workspace, times renameCollection, PRINTS
 ```
 
 Tier 1 (`test/unit/`) is pure functions. Tier 2 (`test/integration/`) drives the real compiler, store
@@ -177,7 +185,10 @@ and CLI binary against a workspace built by `dreamteamer init` — cached once i
 with nobody having to remember. **The fixture symlinks this checkout in as `node_modules/dreamteamer`**,
 because without the engine as an installed module a fixture has no `collections`/`skills`/`users` at all
 and cannot reproduce the store refusing a compiled source. Tier 3 is the extension's `npm run test:ui`
-(boots VS Code, opt-in, never on the default path).
+(boots VS Code, opt-in, never on the default path). **Tier 4 is `npm run perf`** — it GENERATES its
+workspace into gitignored `test/.perf/`, times the operation and prints; a timing belongs to the
+machine that took it, so it asserts nothing and never gates a build. `--records=N` sets the scale,
+and generation is timed too because N writes through the real Store is the write path's own number.
 
 ## IMPORTANT — the record/workspace split is enforced, and it is NOT two packages
 

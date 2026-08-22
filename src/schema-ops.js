@@ -219,14 +219,23 @@ export function removeCollection(ws, store, name, { force = false } = {}) {
  * relearn both, and would corrupt `data/tasks/` in a path or a URL on its first outing. N passes over
  * the record files is the price, and at human scale it is worth paying for reusing the correct code.
  *
- * ⚠ MEASURED 2026-08-17, so the cost is a number rather than a hope: a 2,291-record collection in a
- * 3,391-file workspace — gk-brain's `finance-transactions` — takes **3 minutes**, of which 142s is
- * system time. That is 7.7M file reads to rewrite ZERO references, because the pass runs per id
- * whether or not anything points at the collection. Tolerable for a one-time migration and left
- * alone on that basis; it is O(records x files), so a workspace 3x larger pays 27 minutes. The fix
- * when it is needed is a batch entry point on the store that reads each file ONCE and loops the ref
- * set in memory, with `text.includes(oldName + '/')` as a cheap NEGATIVE filter only — never as the
- * matcher, for the reason above.
+ * ⚠ MEASURED 2026-08-17, so the cost is a number rather than a hope: a real 2,291-record collection
+ * in a 3,391-file workspace takes **3 minutes**, of which 142s is system time — 7.7M file reads to
+ * rewrite ZERO references, because the pass runs per id whether or not anything points at the
+ * collection. Tolerable for a one-time migration and left alone on that basis; it is
+ * O(records x files), so a workspace 3x larger pays 27 minutes.
+ *
+ * ⚠ REPRODUCED 2026-08-22 by `npm run perf -- --records=2291 --filler=1100`, which generates a
+ * workspace that shape — 271s wall, 203s of it system, and **15.6M reads, not 7.7M**. The original
+ * figure counted ONE pass per id; there are TWO, because `captureRefs` walks every record file for
+ * the rollback snapshot before `rewriteRefs` walks them all again. `7.7M` is the per-pass number.
+ * That is what a generated fixture is for: the finding was right about the shape and off by 2x on
+ * the count, and no comment could have told you.
+ *
+ * The fix when it is needed is a batch entry point on the store that reads each file ONCE and loops
+ * the ref set in memory, with `text.includes(oldName + '/')` as a cheap NEGATIVE filter only — never
+ * as the matcher, for the reason above. Halving it is cheaper still: the snapshot pass and the
+ * rewrite pass read the same bytes.
  */
 export function renameCollection(ws, store, oldName, newName) {
 	const d = store.descriptor(oldName); // throws with the known-collection list if absent

@@ -75,10 +75,10 @@ export function init({ flags = {} } = {}) {
 		harnesses,
 		'gitignore-runtime-folder': true,
 		// The workspace's own sources live in `modules/default/`, and the folder is named for its ROLE,
-		// not for the vault. It used to be named after the workspace, and that name went stale twice in
-		// one repo (`hq3` → `gk`, decision 213 reversed by 224) — each rename rewriting every path that
-		// RESOLVES while the historical documents deliberately kept the old spelling, so a stale-looking
-		// `modules/hq3` was correct in prose and a bug in a path. A role name cannot go stale.
+		// not for the vault. It used to be named after the workspace, and that name went stale TWICE in
+		// one repo (decision 213, reversed by 224) — each rename rewriting every path that RESOLVES
+		// while the historical documents deliberately kept the old spelling, so the old `modules/<vault>`
+		// was correct in prose and a bug in a path. A role name cannot go stale.
 		//
 		// `default` is deliberately the same word `RESERVED_NAMESPACES` holds (namespace.js): this module
 		// owns the DEFAULT-namespace collections, and the default namespace is the empty prefix. The one

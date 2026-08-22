@@ -236,7 +236,7 @@ describe('refusals — nothing is half-renamed', () => {
 
 // ⚠ THE CASE THIS CHANGE EXISTS FOR. A workspace's domain collections live in MODULES — that is what
 // modules are for — so a guard that refused every module-shipped collection refused the migration
-// `collections rename` was built to perform. gk-brain hit it on 26 of 26 collections it wanted to
+// `collections rename` was built to perform. A real vault hit it on 26 of 26 collections it wanted to
 // namespace. The descriptor is rewritten in the module that ships it, not moved to the workspace one.
 describe('a collection shipped by an INLINE module', () => {
 	/** A fixture with a second module under `modules/billing`, the shape every real workspace has. */
@@ -313,7 +313,7 @@ describe('a collection shipped by an INLINE module', () => {
 // ⚠ THE THREE BUGS A REAL MIGRATION FOUND (0.9.1). Each of these passed the whole suite before it
 // was written, because each fails only in a shape the suite did not have: a record pointing at its
 // OWN collection, a ref written into a module source, and a module that stops existing.
-describe('regressions from the gk-brain namespace migration', () => {
+describe('regressions from a real namespace migration', () => {
 	test('a SELF-reference inside the renamed collection is rewritten', () => {
 		// `finance/accounts`: every card and loan carries `settled_by: <the account that settles it>`.
 		// The rewrite used to run AFTER the record folder moved, so `recordFiles()` walked the old

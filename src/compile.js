@@ -49,7 +49,7 @@ export function titleCase(id) {
  * Every `x-display` left in a schema, as `[fieldPath, template, referenceTarget|null]`.
  *
  * The keyword was renamed to `x-title-template` and mostly DELETED — its value is inherited from
- * the target collection's `title_template`. There is deliberately no alias: recipes and dt-hq pin
+ * the target collection's `title_template`. There is deliberately no alias: real workspaces pin
  * this engine by SHA, so nothing breaks until someone bumps a pin, and that person needs a message
  * rather than silence. JSON Schema IGNORES unknown keywords, so the alternative to failing here is
  * a label that quietly stops working and regresses to a raw id.
@@ -662,7 +662,8 @@ export function compile({ root, pkg }) {
 		// judged against the BASE module's declarations, which it never wrote.
 		const groupModules = [...new Set(group.map((g) => g.moduleName))];
 		// WHO OWNS the concept — the module whose source is the base, not the ones overlaying it.
-		// An overlay adds fields to somebody else's collection (hq3 adds `tags` to crm's contacts);
+		// An overlay adds fields to somebody else's collection (a workspace module adding its own
+		// `tags` to the `crm` module's `contacts`);
 		// it does not take the concept over. Measured 2026-08-11: letting the overlay win moves
 		// `contacts` and `meetings` out of CRM, and a CRM without contacts reads as broken.
 		//
@@ -672,7 +673,8 @@ export function compile({ root, pkg }) {
 		// IS the answer, and it exists to REPLACE `group:` as the workspace's partition rather than
 		// to sit beside it.
 		merged.owner = `modules/${moduleId(base?.moduleName ?? groupModules[0])}`;
-		// EVERY contributing module, not just the base — a collection merged from crm + hq3 belongs
+		// EVERY contributing module, not just the base — a collection merged from `crm` and the
+		// workspace module that overlays it belongs
 		// to both, and saying otherwise is what made a flat "which module owns this" field wrong.
 		for (const m of groupModules) {
 			if (!moduleColls.has(m)) moduleColls.set(m, new Set());
@@ -881,7 +883,8 @@ export function compile({ root, pkg }) {
 	// in this loop and never got cleared — a module that was RENAMED or REMOVED left its old record
 	// behind forever, listing collections that no longer exist. `check` reads those records like any
 	// other, so it surfaced as a dangling reference in a file nobody had touched, twice in one day
-	// (`hq3-workspace` after the workspace-module rename, and again after `crm` was folded in). The
+	// (the workspace module's own record after it was renamed, and a domain module's after it was
+	// folded into another). The
 	// runtime is build output; stale build output is the compiler's problem, not the reader's.
 	for (const kind of [...KINDS, ...DERIVED_KINDS]) fs.rmSync(path.join(RUNTIME, kind), { recursive: true, force: true });
 	fs.rmSync(path.join(RUNTIME, 'system'), { recursive: true, force: true });

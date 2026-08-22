@@ -276,9 +276,9 @@ neither an `x-reference: users` nor an `@me` anywhere, there is nothing to do be
 **new workspaces only** — an existing `package.json` already carries a `workspace-module` key and it
 still wins, so nothing moves and there is nothing to do. `--workspace-module <name>` overrides it.
 
-Why: named after the workspace, that folder went stale twice in one repo (`hq3` → `gk`), and each
+Why: named after the workspace, that folder went stale twice in one repo, and each
 rename had to rewrite every path that *resolves* while the historical documents kept the old spelling
-— so a stale-looking `modules/hq3` was correct in prose and a bug in a path. A role name cannot go
+— so the old `modules/<vault>` was correct in prose and a bug in a path. A role name cannot go
 stale. `default` is deliberately the word `RESERVED_NAMESPACES` holds: this module owns the
 default-namespace collections, and the default namespace is the empty prefix. `default/tasks` is still
 a compile error, and its message says why.

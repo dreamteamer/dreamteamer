@@ -1,6 +1,6 @@
 # leak-scan exemptions — <path>	<rule>	<why>       (TAB separated)
 #
-# Read by hq3's leak-scan.sh in `worktree` mode. Per FILE and per RULE, never a glob over a
+# Read by the vault's leak-scan.sh in `worktree` mode. Per FILE and per RULE, never a glob over a
 # directory: real vault content pasted into a neighbouring test still trips the scan. Safe to keep
 # public — it names paths and rule ids, never the patterns being matched.
 #
