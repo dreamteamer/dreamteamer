@@ -20,6 +20,105 @@ npx dreamteamer check
 
 ---
 
+## 0.11.0 → 0.12.0
+
+⚠ **BREAKING: the CLI is verb-first.** `dt <collection> <verb> …` is gone. Every command is now `dt
+<verb> [<target>] [flags]`, over a closed set of verbs — an unrecognised one fails loudly:
+
+```
+✖ unknown verb "<x>" — dreamteamer is verb-first since 0.12.0: dt <verb> [<target>]
+```
+
+**There is no alias layer, and none is coming.** A stale noun-first script must fail loudly, not
+half-work — the predecessor grammar made the fallback a collection lookup, so a typo answered
+"unknown collection", a true sentence about the wrong thing. Grepping your own scripts, aliases and
+CI jobs for the old shape is the whole migration; there is no compatibility window to lean on
+instead.
+
+### The complete mapping
+
+Record verbs keep their name; only the word order changes — the collection (or `<collection>/<id>`
+reference) moves from being the first argument to being the argument AFTER the verb:
+
+| 0.11.0 | 0.12.0 |
+| --- | --- |
+| `dt <collection> list …` | `dt list <collection> …` |
+| `dt <collection> get <id> …` | `dt get <collection>/<id> …` |
+| `dt <collection> add --<field> <value> …` | `dt add <collection> --<field> <value> …` |
+| `dt <collection> set <id> <field>=<value> …` | `dt set <collection>/<id> <field>=<value> …` |
+| `dt <collection> rm <id> …` | `dt rm <collection>/<id> …` |
+| `dt <collection> rename <old-id> <new-id>` | `dt rename <collection>/<old-id> <new-id>` |
+| `dt <collection> move <id> --after\|--before <id> \| --top \| --bottom` | `dt move <collection>/<id> --after\|--before <id> \| --top \| --bottom` |
+| `dt <collection> move --init` | `dt move <collection> --init` |
+| `dt <collection> values <field> …` | `dt values <collection> <field> …` |
+| `dt <collection> history <id> …` | `dt history <collection>/<id> …` |
+| `dt <collection> diff <id> …` | `dt diff <collection>/<id> …` |
+| `dt <collection> revert <id> --hash <sha>` | `dt revert <collection>/<id> --hash <sha>` |
+| `dt commands for <collection>[/<id>] …` | `dt commands <collection>[/<id>] …` |
+| `dt repos ensure <id> \| --all …` | `dt ensure <id> \| --all …` |
+
+The schema group (write SOURCES through a compile gate, never the runtime) got its own verb prefix
+rather than sharing the record verbs' spellings:
+
+| 0.11.0 | 0.12.0 |
+| --- | --- |
+| `dt collections add --name <name> …` | `dt schema add-collection --name <name> …` |
+| `dt collections rm <name> …` | `dt schema rm-collection <name> …` |
+| `dt collections rename <old> <new>` | `dt schema rename-collection <old> <new>` |
+| `dt <collection> add-field --name <field> …` | `dt schema add-field <collection> --name <field> …` |
+| `dt <collection> update-field --name <field> …` | `dt schema update-field <collection> --name <field> …` |
+| `dt <collection> remove-field --name <field>` | `dt schema remove-field <collection> --name <field>` |
+| `dt ui-views add --path </route> …` | `dt schema add-view --path </route> …` |
+| `dt ui-views set <id> <key>=<value> …` | `dt schema set-view <id> <key>=<value> …` |
+| `dt ui-views rm <id>` | `dt schema rm-view <id>` |
+
+Workspace verbs are **unchanged**: `init`, `install`, `update`, `compile`, `check`, `status`, `start`,
+`changes`, `commit`, `help`, `--version`. None of these ever took a collection as its first argument,
+so there was no noun to move.
+
+A `<collection>/<id>` argument in the new grammar splits at the **longest declared namespace prefix**
+(unchanged from 0.7.0's rule), so `finance/transactions/2026/03/coffee` is still one argument, not
+three.
+
+### New: `${…}` templates + `dt resolve`
+
+A record field may now hold a **VS Code-grammar template** — `${env:NAME}`, `${workspaceFolder}`,
+`${userHome}` — for a value that differs by machine. Nothing on the read side substitutes it:
+`get`, `list`, `check`, the REST server and the file on disk all show the raw template verbatim.
+**`dt resolve` is the only place a template becomes a value.**
+
+`${env:NAME}` renders only when `NAME` is BOTH declared in the workspace's own `package.json` and
+present in `.env` on the machine running `resolve` — a template can reference a secret without ever
+holding one. A worked example (values invented for illustration, not real):
+
+```json
+// package.json
+"dreamteamer": { "vars": ["FILES_FOLDER"] }
+```
+
+```bash
+# .env
+FILES_FOLDER=/Volumes/annex
+```
+
+```yaml
+# a record field
+source_file: ${env:FILES_FOLDER}/scans/invoice-2026-03.pdf
+```
+
+```bash
+dt resolve records/some-id source_file
+# /Volumes/annex/scans/invoice-2026-03.pdf
+```
+
+`dt resolve '<string>'` also renders a bare string directly — useful for testing a template before
+it lands in a record. An un-namespaced `${VAR}` (no `env:`, `workspaceFolder` or `userHome`) is
+inert and passes through unchanged, so record prose can mention `${…}` freely without it being
+mistaken for a template. `dt compile` warns, per declared var, when `dreamteamer.vars` names a key
+missing from `.env` — names only, values never reach any output.
+
+---
+
 ## 0.10.0 → 0.11.0
 
 **Do nothing but `dt compile`.** One optional descriptor key and one new verb. Nothing existing
