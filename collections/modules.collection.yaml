@@ -30,7 +30,7 @@ schema:
   properties:
     name:
       type: string
-      description: The module's package name, verbatim — `@dreamteamer/crm`, `the-workspace-workspace`.
+      description: The module's package name, verbatim — `@dreamteamer/crm`, `acme-workspace`.
     title:
       type: string
       description: >-
