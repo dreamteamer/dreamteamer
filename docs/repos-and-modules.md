@@ -31,8 +31,8 @@ record CLI verbs, and history for free.
 Working trees are materialized **on demand**:
 
 ```bash
-dreamteamer repos ensure <id>     # clone if missing, print the path; idempotent
-dreamteamer repos ensure --all    # explicit opt-in, e.g. before going offline
+dreamteamer ensure <id>     # clone if missing, print the path; idempotent
+dreamteamer ensure --all    # explicit opt-in, e.g. before going offline
 ```
 
 `install` deliberately does not do this. The record count only grows while the fraction any given

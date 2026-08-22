@@ -7,12 +7,12 @@ One descriptor file: `modules/<module>/collections/<name>.collection.yaml`. The 
 
 | goal | how |
 |---|---|
-| new collection from a template | `dt collections add --name research-docs --template docs` |
-| move one into a namespace | `dt collections rename doctors health/doctors` (or `doctors --namespace health`) |
-| templateless | `dt collections add --name <n>` — emits a minimal compilable schema |
-| add a field | `dt <collection> add-field --name urgent --type boolean --default-value false` |
-| change / drop a field | `dt <collection> update-field …` · `remove-field --name <f>` |
-| delete a collection | `dt collections rm <name>` |
+| new collection from a template | `dt schema add-collection --name research-docs --template docs` |
+| move one into a namespace | `dt schema rename-collection doctors health/doctors` (or `doctors --namespace health`) |
+| templateless | `dt schema add-collection --name <n>` — emits a minimal compilable schema |
+| add a field | `dt schema add-field <collection> --name urgent --type boolean --default-value false` |
+| change / drop a field | `dt schema update-field <collection> …` · `schema remove-field <collection> --name <f>` |
+| delete a collection | `dt schema rm-collection <name>` |
 | what templates exist | `.dreamteamer/collection-templates/` |
 
 `--type` is sugar over JSON Schema: `string`/`text`, `markdown`, `boolean`, `number`, `integer`,
@@ -21,7 +21,7 @@ or a bare collection name for a reference into it. `--required true` widens `req
 
 ⚠ **The meta verbs write the WORKSPACE module only.** To change a field on a collection another
 module owns, either edit that module's descriptor by hand or add an `extends:` overlay.
-**`dt collections rename <old> <new>`** moves the descriptor, the records, the record filenames and
+**`dt schema rename-collection <old> <new>`** moves the descriptor, the records, the record filenames and
 every inbound reference in ONE commit — including `x-reference` targets in other descriptors and any
 ui-view pointing at it. `<old> --namespace <ns>` is sugar for moving it into a namespace under the same
 bare name. It refuses a compiled source, a module-owned collection, a taken name, and an undeclared
@@ -35,7 +35,7 @@ A collection name may carry a slash-delimited namespace, and it becomes real dir
 
 | declare in the workspace `package.json` | create it | lands in | referenced as |
 |---|---|---|---|
-| `"namespaces": ["health"]` | `dt collections add --namespace health --name doctors` | `data/health/doctors/` | `health/doctors/dana-levi` |
+| `"namespaces": ["health"]` | `dt schema add-collection --namespace health --name doctors` | `data/health/doctors/` | `health/doctors/dana-levi` |
 
 - **The default namespace is the empty prefix.** `tasks` stays `data/tasks/` and `tasks/kickoff`, so
   common entities need no prefix and adopting namespaces migrates nothing. `default` is RESERVED —
@@ -93,7 +93,7 @@ templates: [collection-templates/provenance]   # merged at compile, every time
   reference already inherits its TARGET collection's `title_template`; author it there instead, once,
   rather than on every field pointing at it.
 - **Do not enum a field after the fact.** Enumerating a vocabulary the records already violate makes
-  `check` fail on every pre-existing value. `dt <collection> values <field>` derives the real
+  `check` fail on every pre-existing value. `dt values <collection> <field>` derives the real
   vocabulary from the data — a filter dropdown gets it for free without locking the set.
 - **`icon` / `group`** are the studio nav's material-symbol icon and folder; ungrouped collections
   list at the top. `list_fields` is the SEED a module ships, not a competing source of truth — a

@@ -46,7 +46,7 @@ and silently reverts to a fallback ordering on the next load.
 
 ## the CLI can write these
 
-`dt ui-views add|set|rm` — `set` takes dotted keys (`options.sort=-date`) and derives the record id
+`dt schema add-view|set-view|rm-view` — `set-view` takes dotted keys (`options.sort=-date`) and derives the record id
 with the descriptor's own template, so a view saved from the CLI and one saved from the UI land on
 the **same record**. This is the one system-stored kind with full CLI write support, because it goes
 through the same compile gate.

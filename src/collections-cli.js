@@ -28,7 +28,7 @@ import { ensureRepo, ensureAllRepos } from './init.js';
  *
  * `console.log` to a pipe is asynchronous, and every CLI path ends in `process.exit()`, which
  * discards whatever is still buffered. A shell pipeline hides the bug completely — the reader
- * drains concurrently, so `dreamteamer contacts list --json | wc -c` reports all 32381 bytes — but
+ * drains concurrently, so `dreamteamer list contacts --json | wc -c` reports all 32381 bytes — but
  * the way a script or a coding agent actually calls this is execFileSync/spawnSync, and there the
  * child exits with the pipe still full. Measured before this fix: the same command captured with
  * execFileSync returned exactly **8190 bytes** (one pipe buffer) of that 32381-byte document, i.e.
@@ -182,7 +182,7 @@ export function collectionCommand(ws, collection, verb, args) {
 			if (out.touched) console.log(`✔ rewrote ${out.rewrites} inbound reference(s) across ${out.touched} file(s)`);
 			return 0;
 		}
-		// `dreamteamer meetings values status` — the vocabulary a field ACTUALLY uses, so a filter
+		// `dreamteamer values meetings status` — the vocabulary a field ACTUALLY uses, so a filter
 		// or a command-binding validator can offer a dropdown for a plain `type: string` field that
 		// no enum describes (operator: "still no dropdown for many things, visibility, status").
 		case 'values': {
