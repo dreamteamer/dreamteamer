@@ -5,6 +5,7 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToRecord } from './events.js';
+import { splitRef } from './ref.js';
 
 // git calls whose failure we CATCH must not print git's own error: execFileSync forwards the
 // child's stderr to ours unless told otherwise, so a handled "not a git repository" still
@@ -13,6 +14,28 @@ const QUIET = ['ignore', 'pipe', 'ignore'];
 
 
 const VERB = { A: 'add', M: 'set', D: 'rm', R: 'rename', '?': 'add' };
+
+/** What the caller asked to publish. A target is EITHER a collection name or a `<collection>/<id>`
+ *  reference — the same either-shape `move` and `commands` accept, and after 0.12.0 the shape every
+ *  other verb's target has. Which one it is cannot be guessed from the string (an id may contain
+ *  slashes and so may a namespaced collection name), so it is decided against the DECLARED
+ *  collections: a key of `descriptors` is a collection, anything else goes to splitRef — which
+ *  throws, naming the known collections, rather than letting a typo mean "no scope".
+ *
+ *  Returns `scope` (collections to sample, so the git pathspec stays as narrow as it was), `whole`
+ *  (collections asked for entire) and `records` (ref → {collection, id}). */
+function parseTargets(descriptors, only) {
+	const scope = new Set();
+	const whole = new Set();
+	const records = new Map();
+	for (const target of only) {
+		if (descriptors.has(target)) { whole.add(target); scope.add(target); continue; }
+		const { collection, id } = splitRef(descriptors, target);
+		records.set(`${collection}/${id}`, { collection, id });
+		scope.add(collection);
+	}
+	return { scoped: only.length > 0, scope: [...scope], whole, records };
+}
 
 /** Record directories to watch, grouped by owning repo. System-stored collections are excluded:
  *  they live in the gitignored runtime and their sources are module files — the same exclusion
@@ -97,11 +120,44 @@ export function composeSubject(rows) {
 	return `dreamteamer: ${rows.length} changes across ${collections.join(', ')}`;
 }
 
+/** A requested reference that matched no pending row is one of two very different things: a record
+ *  that is already published (nothing to do, and fine) or a MISTYPED id — which must not pass as
+ *  "nothing pending", the one report that looks like success. Only the store can tell them apart,
+ *  and it is only asked in this branch: a pending DELETION matched a row above, so a record whose
+ *  file is legitimately gone never reaches here. */
+function assertResolvable(store, records, matched) {
+	for (const [ref, { collection, id }] of records) {
+		if (matched.has(ref) || store.ids(collection).has(id)) continue;
+		throw new Error(`${ref}: no such record — nothing pending under that reference`);
+	}
+}
+
 export function commitPending(store, { only = [], message, dryRun = false } = {}) {
-	const byRepo = scopeByRepo(store.descriptors, only);
-	const results = [];
+	// Targets are resolved BEFORE anything is committed, so one bad target in a list of good ones
+	// leaves the whole tree untouched rather than committing a prefix of what was asked for.
+	const targets = parseTargets(store.descriptors, only);
+	const byRepo = scopeByRepo(store.descriptors, targets.scope);
+	// ⚠ Sample every repo FIRST, then check the references, then commit. The unknown-reference test
+	// below can only be answered once every repo has been sampled — a record lives in exactly one
+	// repo, and which one is not known in advance.
+	const sampled = [];
+	const matched = new Set();
 	for (const [repo, dirs] of byRepo) {
 		const { cwd, rows } = sample(store.root, repo, dirs, store.descriptors);
+		// The SAMPLER is deliberately left alone — it is what makes a hand-edited record
+		// indistinguishable from one the store wrote. Narrowing happens here, on the sampled rows,
+		// so `dt commit <collection>/<id>` publishes that record and leaves a sibling written by
+		// another session exactly as pending as it found it.
+		const wanted = !targets.scoped ? rows : rows.filter((r) => {
+			const ref = `${r.collection}/${r.id}`;
+			if (targets.records.has(ref)) { matched.add(ref); return true; }
+			return targets.whole.has(r.collection);
+		});
+		sampled.push({ repo, cwd, rows: wanted });
+	}
+	assertResolvable(store, targets.records, matched);
+	const results = [];
+	for (const { repo, cwd, rows } of sampled) {
 		if (!rows.length) continue;
 		const blocked = inProgress(cwd);
 		if (blocked) { results.push({ repo, rows, blocked }); continue; }
