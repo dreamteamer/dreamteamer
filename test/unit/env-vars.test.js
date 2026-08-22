@@ -52,3 +52,9 @@ test('parses a multi-key single-line .env shape with invented values', () => {
 	assert.equal(parsed.get('EMPTY_VALUE'), '');
 	assert.equal(parsed.get('SINGLE_QUOTED'), 'hello world');
 });
+
+test('a quoted value spans multiple lines intact; the next key still parses', () => {
+	const parsed = parseEnvValues('MULTI="line one\nline two"\nNEXT=after\n');
+	assert.equal(parsed.get('MULTI'), 'line one\nline two');
+	assert.equal(parsed.get('NEXT'), 'after');
+});
