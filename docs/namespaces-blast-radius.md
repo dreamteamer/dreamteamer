@@ -79,10 +79,12 @@ files on disk. Verified: declaring `namespaces: ["health"]` in a workspace whose
 **To adopt a namespace** (three steps, and the order matters):
 
 1. Declare it: `"dreamteamer": { "namespaces": ["health"] }`.
-2. `dt collections add --namespace health --name doctors` — or, for an existing collection, `git mv` the
-   descriptor to `collections/health/doctors.collection.yaml`, set `name: health/doctors` and
-   `storage.path: data/health/doctors`, `git mv` the record folder, and rewrite inbound references.
-   There is no `collections rename`; this is the same hand-migration a rename has always been.
+2. For a **new** collection: `dt schema add-collection --namespace health --name doctors`. For an
+   **existing** one: `dt schema rename-collection doctors health/doctors` (or `doctors --namespace
+   health`) — shipped in 0.9.0, it moves the descriptor, the records, the record filenames and every
+   inbound reference in ONE commit. Before 0.9.0 there was no rename verb and this step was a six-step
+   hand migration (`git mv` the descriptor, edit `name`/`storage.path`, `git mv` the record folder,
+   rewrite every reference); that fallback is obsolete now.
 3. `dt compile && dt check`.
 
 Declaring the namespace **before** the collection compiles is not optional — an undeclared prefix is a
@@ -112,8 +114,9 @@ itself is safe either way because it loads `namespace.js` tolerantly; what is *n
   real compiled namespaced workspace — which is how both extension bugs were found — plus 20 tier-1
   assertions. **A human should still run `npm run test:ui` on a workstation** before shipping, because
   nothing cheaper proves the tree actually draws.
-- **No `collections rename` verb.** Moving an existing collection into a namespace is still a hand
-  migration (step 2 above). Worth building only if it turns out to be done often.
+- **No `collections rename` verb — true when this was written, closed in 0.9.0.** Moving an existing
+  collection into a namespace was a hand migration (step 2 above, before it was rewritten). `dt schema
+  rename-collection` replaces that migration now; step 2 above reflects the current verb.
 - **`ui-views` were not re-pointed.** A view targeting `collections/<name>` keeps working because the
   qualified name is just a record id in the `collections` collection — verified in a unit test — but no
   view was migrated, since none exist that reference a namespaced collection yet.
