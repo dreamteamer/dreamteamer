@@ -17,6 +17,7 @@ import {
 // call at run time, same pattern as store.js ↔ compile.js.
 import { runHarnessAdapters } from './harnesses.js';
 import { satisfies } from './semver.js';
+import { parseEnvValues } from './env-vars.js';
 import { DERIVED_KINDS, readManifest, runtimeDir } from './runtime.js';
 
 // re-exported, not moved: `readManifest` is in the VS Code extension's hand-maintained engine
@@ -310,11 +311,14 @@ export function compile({ root, pkg }) {
 			if (declaredEnv.size) console.warn(`⚠ no .env — modules declare env keys: ${[...declaredEnv.keys()].join(', ')} (see .env.example)`);
 			if (declaredVars.length) console.warn(`⚠ no .env — dreamteamer.vars declares ${declaredVars.join(', ')}, so no \${env:…} template can render here (see .env.example)`);
 		} else {
-			const present = new Set();
-			for (const line of fs.readFileSync(envPath, 'utf8').split('\n')) {
-				const m = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=/.exec(line);
-				if (m) present.add(m[1]);
-			}
+			// ⚠ THE ONE PARSER, not a key regex of our own. This used to hand-roll
+			// `/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=/`, which accepted two lines
+			// `parseEnvValues` deliberately drops (`KEY =value`, and an indented key) and scanned a
+			// quoted value's continuation lines for keys. Either disagreement produces the worst
+			// pairing there is: compile says nothing and then `dt resolve` answers "no value in
+			// .env" about a line the operator is looking straight at. Values are read here and
+			// never printed — the warnings below name keys only.
+			const present = new Set(parseEnvValues(fs.readFileSync(envPath, 'utf8')).keys());
 			for (const [k, mods] of declaredEnv) {
 				if (present.has(k)) continue;
 				for (const mod of mods) console.warn(`⚠ module ${mod} declares env key ${k} — missing from .env (see .env.example)`);
