@@ -15,3 +15,5 @@ node_modules/
 
 # tier-2 test fixtures: throwaway workspaces, rebuilt on demand (npm test -- --clean)
 test/.tmp/
+# tier-4 perf fixtures: generated per run by `npm run perf`, never committed
+test/.perf/
