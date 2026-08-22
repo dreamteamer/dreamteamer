@@ -20,6 +20,43 @@ npx dreamteamer check
 
 ---
 
+## 0.12.1 → 0.13.0
+
+**`dt commit` now takes a record REFERENCE as well as a collection. Nothing to migrate** — every
+existing spelling means exactly what it did — but if two agents or two sessions ever share one
+workspace, the new form is the one to use.
+
+```bash
+dt commit finance/transactions/2026/03/rent   # NEW: exactly that record
+dt commit finance/transactions                # unchanged: the whole collection
+dt commit contacts/jane companies             # targets mix freely, in any order
+dt commit                                     # unchanged: everything pending
+```
+
+`-m <subject>`, `--dry-run` and `--json` are unchanged and work with every target shape.
+
+**Why.** `dt commit <collection>` publishes everything dirty under that collection's record
+directories *regardless of who wrote it*. With one session on a workspace that is the whole point;
+with two, one session's commit silently swallows the other's pending records — and because
+`git status` is clean afterwards, the sweep leaves no trace to notice. A reference makes the
+narrow ask sayable.
+
+**What deliberately did NOT change: the sampler.** The set of things to commit is still sampled
+from `git status` over the record directories, which is what makes a record you hand-edited in a
+markdown body indistinguishable from one the store wrote — publishable by the same verb, with no
+pending file and no cursor to disagree with reality. Only the *targeting* narrowed: the sampled rows
+are filtered against what you asked for. Two consequences worth knowing:
+
+- A target naming an unknown collection, or an unknown id under a known one, **fails before
+  anything is committed** (exit 1) rather than reporting "nothing pending" — a typo'd id used to be
+  indistinguishable from success. A record that exists and is simply already published still reports
+  `nothing pending`, as before.
+- A reference is resolved against the declared collections, so a namespaced collection with a
+  path-shaped id reads correctly: `finance/transactions/2026/03/rent` is one collection and a
+  three-segment id, not collection `finance`.
+
+---
+
 ## 0.12.0 → 0.12.1
 
 **One silent-failure correctness fix in `${env:…}` resolution. Nothing to migrate**, but if a
