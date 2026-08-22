@@ -21,6 +21,7 @@ import { deriveEvents } from './events.js';
 import { commitPending } from './commit.js';
 import { Store } from './store.js';
 import { splitRef } from './ref.js';
+import { parseEnvValues, renderTemplate } from './env-vars.js';
 
 // git calls whose failure we CATCH must not print git's own error: execFileSync forwards the
 // child's stderr to ours unless told otherwise, so a handled "not a git repository" still
@@ -55,8 +56,10 @@ the longest DECLARED collection prefix, so finance/transactions/2026/03/coffee i
                                                DEMAND — never at install; --all is the explicit
                                                opt-in, e.g. before going offline)
   resolve '<string>' | <collection>/<id> <field>
-                                              (render \${env:…} templates against .env —
-                                               ⚠ LANDS IN 0.12.0, not wired yet)
+                                              (render \${env:NAME} · \${workspaceFolder} ·
+                                               \${userHome} — the ONLY substitution point; a
+                                               record keeps the template verbatim. An array
+                                               field prints one item per line)
 
 schema verbs (write SOURCES through a compile gate, never the runtime — a different act, so a
 different word in front of it):
@@ -286,7 +289,7 @@ export function run(argv) {
 				warnIfStale(ws.root);
 				process.exit(dispatchSchemaVerb(ws, rest));
 			case 'resolve':
-				throw new Error('resolve lands in 0.12.0');
+				process.exit(resolveVariables(ws, rest));
 			default:
 				console.error(`✖ unknown verb "${cmd}" — dreamteamer is verb-first since 0.12.0: dt <verb> [<target>]`);
 				console.error(USAGE);
@@ -325,6 +328,54 @@ function dispatchRecordVerb(ws, verb, args) {
 	// `commandsFor(store, collection, ids)` call, reached without re-encoding the reference.
 	// Ours goes FIRST so an explicit `--ids` from the caller still wins (last flag parsed wins).
 	return collectionCommand(ws, 'commands', 'for', [collection, '--ids', id, ...rest]);
+}
+
+/**
+ * `dt resolve '<string>'` | `dt resolve <collection>/<id> <field>` — the ONLY place a `${env:…}`
+ * template becomes a value. Records hold the template verbatim; no read path substitutes anything,
+ * so a reference means the same thing on every machine and the file says which is which.
+ *
+ * THE HEURISTIC: the first argument is a REFERENCE iff it contains no `${` AND splits against a
+ * declared collection. Both halves are needed. `${` first, because `docs/${env:X}` is ref-SHAPED
+ * and must not be split as one — a reference can never contain a template, so the marker decides it
+ * outright. Then the split, because a plain path (`/tmp/x`, `nope/q3`) must render to itself rather
+ * than report an unknown collection it was never naming. Two accepted consequences: a bare
+ * collection name resolves to itself (splitRef refuses it, so it is "just a string"), and in an
+ * UNCOMPILED workspace every argument is a string, because there are no descriptors to split
+ * against — which keeps `dt resolve '${env:K}'` working before the first compile.
+ */
+function resolveVariables(ws, args) {
+	const [target, field] = args;
+	if (!target) throw new Error("dt resolve takes a string template or a <collection>/<id> and a field: dreamteamer resolve '${env:FILES_FOLDER}/x'");
+	const declared = ws.pkg.dreamteamer?.vars ?? [];
+	const envFile = path.join(ws.root, '.env');
+	const env = parseEnvValues(fs.existsSync(envFile) ? fs.readFileSync(envFile, 'utf8') : '');
+	const ctx = { env, workspaceFolder: ws.root, declared };
+
+	let ref = null;
+	let store = null;
+	if (!target.includes('${')) {
+		try {
+			store = new Store(ws);
+			ref = splitRef(store.descriptors, target);
+		} catch { ref = null; }
+	}
+	if (!ref) {
+		console.log(renderTemplate(target, ctx));
+		return 0;
+	}
+	if (!field) throw new Error(`dt resolve ${target} needs a field name: dreamteamer resolve ${target} <field>`);
+	const { fields } = store.read(ref.collection, ref.id);
+	const value = fields[field];
+	if (value === undefined) throw new Error(`${target} has no field "${field}"`);
+	// One line per item for an array, so the output pipes into a loop unchanged. Anything that is
+	// not text is refused rather than stringified: a number cannot hold a template, so asking to
+	// render one is a mistake worth naming.
+	for (const v of Array.isArray(value) ? value : [value]) {
+		if (typeof v !== 'string') throw new Error(`${target} field "${field}" is not a string (or a list of them) — resolve renders text`);
+		console.log(renderTemplate(v, ctx));
+	}
+	return 0;
 }
 
 /** Translate `dt schema <op> …` onto the same meta verbs `collectionCommand` already routes. */
