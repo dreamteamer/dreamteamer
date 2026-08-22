@@ -21,6 +21,7 @@ const DOCS = {
 			name: { type: 'string' },
 			source_file: { type: 'string' },
 			attachments: { type: 'array', items: { type: 'string' } },
+			mixed: { type: 'array' },
 			pages: { type: 'integer' },
 		},
 	},
@@ -132,6 +133,30 @@ describe('dt resolve <collection>/<id> <field> — a stored template', () => {
 		assert.equal(ws.dt('check').code, 0, 'a template is ordinary data — check must not object');
 	});
 
+	// A shell loop reading this output has no way to notice a partial list, so a field that cannot
+	// render must print NOTHING — the failure has to be the exit code, not a shorter list.
+	test('a mixed array prints nothing at all before failing', () => {
+		const ws = fixture();
+		ws.store.add('docs', { name: 'Mixed', mixed: ['${env:FILES_FOLDER}/ok.pdf', 42] });
+		const res = ws.dt('resolve', 'docs/mixed', 'mixed');
+		assert.equal(res.code, 1);
+		assert.equal(res.stdout, '', 'no item may reach stdout when one of them cannot render');
+	});
+
+	test('an extra argument is an error, not silently ignored', () => {
+		const ws = seeded();
+		const res = ws.dt('resolve', 'docs/q3', 'source_file', 'garbage');
+		assert.equal(res.code, 1);
+		assert.match(res.stderr, /takes/);
+	});
+
+	test('a flag-shaped target is refused rather than rendered as itself', () => {
+		const ws = fixture();
+		const res = ws.dt('resolve', '--help');
+		assert.equal(res.code, 1);
+		assert.doesNotMatch(res.stdout, /--help/);
+	});
+
 	test('a reference with no field says which field it needs', () => {
 		const ws = seeded();
 		const res = ws.dt('resolve', 'docs/q3');
@@ -177,6 +202,30 @@ describe('compile warns per declared var with no value', () => {
 		const res = ws.dt('compile');
 		assert.equal(res.code, 0, res.stderr);
 		assert.match(res.stdout + res.stderr, /MISSING_KEY/);
+	});
+
+	// THE invariant: compile warns about a var if and only if resolve cannot render it. Two lines
+	// that the one parser drops but a hand-rolled key regex would accept — `KEY =value` (space
+	// before `=`) and an indented key — used to pass compile silently and then fail at resolve with
+	// "no value in .env" while the operator was looking straight at the line.
+	test('compile and resolve agree on a .env line the parser does not accept', () => {
+		const ws = fixture({
+			vars: ['FILES_FOLDER', 'SPACED', 'INDENTED'],
+			env: 'FILES_FOLDER=/tmp/annex\nSPACED = /tmp/one\n  INDENTED=/tmp/two\n',
+		});
+		const out = (() => { const r = ws.dt('compile'); assert.equal(r.code, 0, r.stderr); return r.stdout + r.stderr; })();
+		assert.match(out, /SPACED/, 'compile must warn about the key resolve cannot render');
+		assert.match(out, /INDENTED/);
+		assert.doesNotMatch(out, /tmp\/one|tmp\/two|tmp\/annex/, 'names only — never values');
+
+		for (const key of ['SPACED', 'INDENTED']) {
+			const res = ws.dt('resolve', `\${env:${key}}`);
+			assert.equal(res.code, 1, `${key} rendered, but compile said it was missing`);
+			assert.match(res.stderr, /no value in \.env/);
+		}
+		// and the key the parser DOES accept is not warned about, in the same .env
+		assert.doesNotMatch(out, /FILES_FOLDER/);
+		assert.equal(ws.dt('resolve', '${env:FILES_FOLDER}').stdout.trim(), '/tmp/annex');
 	});
 
 	test('a var that has a value warns about nothing', () => {

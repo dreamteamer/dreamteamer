@@ -347,6 +347,9 @@ function dispatchRecordVerb(ws, verb, args) {
 function resolveVariables(ws, args) {
 	const [target, field] = args;
 	if (!target) throw new Error("dt resolve takes a string template or a <collection>/<id> and a field: dreamteamer resolve '${env:FILES_FOLDER}/x'");
+	// resolve has no flags, so a flag-shaped target is a mistake — and the one that costs is
+	// `dt resolve --help`, which would otherwise print `--help` back and exit 0.
+	if (target.startsWith('--')) throw new Error(`dt resolve takes a string or a <collection>/<id>, not a flag ("${target}") — see \`dreamteamer help\``);
 	const declared = ws.pkg.dreamteamer?.vars ?? [];
 	const envFile = path.join(ws.root, '.env');
 	const env = parseEnvValues(fs.existsSync(envFile) ? fs.readFileSync(envFile, 'utf8') : '');
@@ -360,6 +363,12 @@ function resolveVariables(ws, args) {
 			ref = splitRef(store.descriptors, target);
 		} catch { ref = null; }
 	}
+	// An argument nobody reads is a silent wrong answer: `dt resolve docs/q3 source_file garbage`
+	// exited 0 on the field it happened to recognise.
+	const takes = ref ? 2 : 1;
+	if (args.length > takes) {
+		throw new Error(`dt resolve takes ${takes === 1 ? 'one string template' : 'a reference and ONE field'} — ${args.length - takes} extra argument(s): ${args.slice(takes).join(' ')}`);
+	}
 	if (!ref) {
 		console.log(renderTemplate(target, ctx));
 		return 0;
@@ -368,13 +377,15 @@ function resolveVariables(ws, args) {
 	const { fields } = store.read(ref.collection, ref.id);
 	const value = fields[field];
 	if (value === undefined) throw new Error(`${target} has no field "${field}"`);
-	// One line per item for an array, so the output pipes into a loop unchanged. Anything that is
-	// not text is refused rather than stringified: a number cannot hold a template, so asking to
-	// render one is a mistake worth naming.
-	for (const v of Array.isArray(value) ? value : [value]) {
-		if (typeof v !== 'string') throw new Error(`${target} field "${field}" is not a string (or a list of them) — resolve renders text`);
-		console.log(renderTemplate(v, ctx));
-	}
+	// RENDER EVERY ITEM BEFORE PRINTING ANY. An array prints one item per line so the output pipes
+	// into a shell loop unchanged — and a loop that does not check $? cannot tell a truncated list
+	// from a short one, so a failure on item n must not leave items 1..n-1 on stdout. Anything that
+	// is not text is refused rather than stringified: a number cannot hold a template.
+	const items = Array.isArray(value) ? value : [value];
+	const bad = items.findIndex((v) => typeof v !== 'string'); // index, not the value: an item may be null
+	if (bad > -1) throw new Error(`${target} field "${field}" holds a ${typeof items[bad]} — resolve renders text (a string, or a list of them)`);
+	const rendered = items.map((v) => renderTemplate(v, ctx));
+	if (rendered.length) console.log(rendered.join('\n'));
 	return 0;
 }
 
