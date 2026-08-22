@@ -7,6 +7,7 @@
 // broken one, because it teaches the wrong shape without ever saying so.
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import { workspace, simpleCollection, readFile } from '../helpers/ws.js';
 
 const CONTACTS = {
@@ -320,11 +321,13 @@ describe('the verb set is closed', () => {
 		assert.match(res.stdout, /usage: dreamteamer <verb>/);
 	});
 
-	test('resolve is declared but not yet wired', () => {
+	// resolve is the verb that could not exist under the noun-first grammar — it takes a bare
+	// string. What it RENDERS is `resolve.test.js`; this asserts only that the word dispatches.
+	test('resolve is a real verb and takes a bare string', () => {
 		const ws = base();
-		const res = ws.dt('resolve', '${env:HOME}');
-		assert.equal(res.code, 1);
-		assert.match(res.stderr, /resolve lands in 0\.12\.0/);
+		const res = ws.dt('resolve', '${workspaceFolder}/media');
+		assert.equal(res.code, 0, res.stderr);
+		assert.equal(res.stdout.trim(), `${fs.realpathSync(ws.root)}/media`);
 	});
 });
 

@@ -89,6 +89,33 @@ and deliberately nothing else — including nothing about people. There is no `u
   no `@me`** (both removed in 0.8.0); read the operator from `git config user.name` at the point you
   need one, and never filter on a person unless this workspace owns a collection of them.
 
+## machine-specific references
+
+a path that exists on only one machine — a synced folder, an external disk — is written as a
+**template**, never as an absolute path:
+
+```yaml
+source_file: ${env:FILES_FOLDER}/2026/q3.pdf
+```
+
+| variable | renders to |
+|---|---|
+| `${env:NAME}` | `NAME`'s value in the workspace's `.env` — and only if `NAME` is listed in `dreamteamer.vars` in `package.json` |
+| `${workspaceFolder}` | the workspace root, absolute |
+| `${userHome}` | the current user's home directory |
+
+- **declare the key before using it**: `"dreamteamer": { "vars": ["FILES_FOLDER"] }`. an undeclared
+  key and a declared-but-absent one are deliberately different errors — the first is a typo, the
+  second is a machine nobody has set up. `npm run compile` warns per declared var with no value in
+  `.env`, naming keys only.
+- **render with `dt resolve`, the only substitution point**: `dt resolve '${env:FILES_FOLDER}/x'`, or
+  `dt resolve <collection>/<id> <field>` to render what a record already holds (an array field prints
+  one item per line). an argument containing `${` is always a template, so a ref-shaped one is never
+  split as a reference.
+- ⚠ **templates are ordinary data — write them literally; nothing substitutes until resolve is
+  called.** `dt get`, `list`, `check` and every harness read the template verbatim. an un-namespaced
+  `${VAR}` is inert, so prose may mention `${…}` freely.
+
 ## common mistakes
 
 | mistake | why it bites |
@@ -99,3 +126,4 @@ and deliberately nothing else — including nothing about people. There is no `u
 | bare refs (`ada`, `data/contacts/x.contact.md`) | refs are `<collection>/<id>`; anything else fails check |
 | assuming a write was committed | it was not, unless `auto-commit` is on — `dt status` says what is pending |
 | `git add -A` in a shared tree | steals another session's uncommitted work, invisibly |
+| an absolute machine path in a record | it is wrong on every other machine — write `${env:NAME}` and declare the key |

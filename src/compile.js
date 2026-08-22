@@ -295,11 +295,20 @@ export function compile({ root, pkg }) {
 			declaredEnv.get(k).push(source.name);
 		}
 	}
-	if (declaredEnv.size) {
+	// `dreamteamer.vars` is the WORKSPACE's own declaration (root package.json, not a module's): the
+	// keys a `${env:NAME}` template is allowed to name. Same missing-key question as
+	// `dreamteamer.env`, one .env parse, two warnings — a module needs its key to RUN, a var is
+	// needed the moment someone calls `dt resolve`, and only the workspace can declare one.
+	if (config.vars !== undefined && (!Array.isArray(config.vars) || config.vars.some((v) => typeof v !== 'string'))) {
+		fail(`dreamteamer.vars must be a list of env key names (got ${JSON.stringify(config.vars)})`);
+	}
+	const declaredVars = config.vars ?? [];
+	if (declaredEnv.size || declaredVars.length) {
 		// .env is parsed for KEY names ONLY — values never reach any output or the manifest
 		const envPath = path.join(root, '.env');
 		if (!fs.existsSync(envPath)) {
-			console.warn(`⚠ no .env — modules declare env keys: ${[...declaredEnv.keys()].join(', ')} (see .env.example)`);
+			if (declaredEnv.size) console.warn(`⚠ no .env — modules declare env keys: ${[...declaredEnv.keys()].join(', ')} (see .env.example)`);
+			if (declaredVars.length) console.warn(`⚠ no .env — dreamteamer.vars declares ${declaredVars.join(', ')}, so no \${env:…} template can render here (see .env.example)`);
 		} else {
 			const present = new Set();
 			for (const line of fs.readFileSync(envPath, 'utf8').split('\n')) {
@@ -309,6 +318,10 @@ export function compile({ root, pkg }) {
 			for (const [k, mods] of declaredEnv) {
 				if (present.has(k)) continue;
 				for (const mod of mods) console.warn(`⚠ module ${mod} declares env key ${k} — missing from .env (see .env.example)`);
+			}
+			for (const k of declaredVars) {
+				if (present.has(k)) continue;
+				console.warn(`⚠ dreamteamer.vars declares ${k} — missing from .env, so \${env:${k}} cannot render on this machine`);
 			}
 		}
 	}

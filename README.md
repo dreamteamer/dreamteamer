@@ -63,6 +63,30 @@ The shape of a record is deliberately dull, because dull is what survives:
 - a write lands on disk; `dreamteamer commit` publishes it, one commit per repo
 - schemas are JSON Schema in a YAML file, one per collection
 
+### Machine-specific references
+
+Some things a record points at only exist on one machine — a synced Drive folder, an external disk,
+a checkout somewhere else. Those are written as **templates**, never as absolute paths:
+
+```yaml
+source_file: ${env:FILES_FOLDER}/2026/q3.pdf
+```
+
+Three variables, borrowing VS Code's grammar: `${env:NAME}` — declared in `dreamteamer.vars` in
+`package.json`, valued in the gitignored `.env` — plus `${workspaceFolder}` and `${userHome}`.
+One verb renders them:
+
+```bash
+npx dreamteamer resolve '${env:FILES_FOLDER}/x'            # → /Volumes/annex/x
+npx dreamteamer resolve <collection>/<id> <field>          # render what a record already holds
+```
+
+**Templates are ordinary data — write them literally; nothing substitutes until `resolve` is
+called.** `get`, `list`, `check` and every harness see the template verbatim, which is exactly what
+makes the record mean the same thing on every machine instead of quietly meaning two things. An
+undeclared key and a declared-but-absent one are different errors, and `compile` warns — by name,
+never by value — when a declared var has nothing behind it here.
+
 ## Modular
 
 **Data and skills are the new app structure.** A coding agent with the right skills over the right
