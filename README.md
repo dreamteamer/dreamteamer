@@ -73,8 +73,8 @@ source_file: ${env:FILES_FOLDER}/2026/q3.pdf
 ```
 
 Three variables, borrowing VS Code's grammar: `${env:NAME}` — declared in `dreamteamer.vars` in
-`package.json`, valued in the gitignored `.env` — plus `${workspaceFolder}` and `${userHome}`.
-One verb renders them:
+`package.json`, valued in the gitignored `.env` (an empty or whitespace-only value counts as no
+value at all) — plus `${workspaceFolder}` and `${userHome}`. One verb renders them:
 
 ```bash
 npx dreamteamer resolve '${env:FILES_FOLDER}/x'            # → /Volumes/annex/x

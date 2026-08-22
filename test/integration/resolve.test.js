@@ -234,4 +234,23 @@ describe('compile warns per declared var with no value', () => {
 		assert.equal(res.code, 0, res.stderr);
 		assert.doesNotMatch(res.stdout + res.stderr, /FILES_FOLDER/);
 	});
+
+	// Same invariant, the empty-value case: `EMPTY_KEY=` is PRESENT in .env but has nothing behind
+	// it, which is exactly what resolve now refuses (same message as an unset key). compile must
+	// warn about it too — silence here is the same trap as the unaccepted-line case above, just one
+	// key away: an operator staring at `EMPTY_KEY=` in .env, told nothing is wrong, hits "no value
+	// in .env" at resolve.
+	test('compile and resolve agree on a PRESENT but EMPTY value', () => {
+		const ws = fixture({
+			vars: ['FILES_FOLDER', 'EMPTY_KEY'],
+			env: 'FILES_FOLDER=/tmp/annex\nEMPTY_KEY=\n',
+		});
+		const out = (() => { const r = ws.dt('compile'); assert.equal(r.code, 0, r.stderr); return r.stdout + r.stderr; })();
+		assert.match(out, /EMPTY_KEY/, 'compile must warn about a declared-but-empty value');
+		assert.doesNotMatch(out, /FILES_FOLDER/);
+
+		const res = ws.dt('resolve', '${env:EMPTY_KEY}');
+		assert.equal(res.code, 1, 'EMPTY_KEY rendered, but compile said it was missing');
+		assert.match(res.stderr, /no value in \.env/);
+	});
 });

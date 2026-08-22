@@ -318,7 +318,11 @@ export function compile({ root, pkg }) {
 			// pairing there is: compile says nothing and then `dt resolve` answers "no value in
 			// .env" about a line the operator is looking straight at. Values are read here and
 			// never printed — the warnings below name keys only.
-			const present = new Set(parseEnvValues(fs.readFileSync(envPath, 'utf8')).keys());
+			// A key present with an EMPTY (or whitespace-only) value is treated as absent, same as
+			// resolve's renderTemplate — `FILES_FOLDER=` must warn here exactly as `FILES_FOLDER`
+			// missing entirely would, or compile says nothing and resolve fails on the same line.
+			const parsedEnv = parseEnvValues(fs.readFileSync(envPath, 'utf8'));
+			const present = new Set([...parsedEnv].filter(([, v]) => v.trim() !== '').map(([k]) => k));
 			for (const [k, mods] of declaredEnv) {
 				if (present.has(k)) continue;
 				for (const mod of mods) console.warn(`⚠ module ${mod} declares env key ${k} — missing from .env (see .env.example)`);
