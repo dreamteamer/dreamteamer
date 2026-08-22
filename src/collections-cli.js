@@ -229,16 +229,18 @@ export function collectionCommand(ws, collection, verb, args) {
 
 
 
-// `dreamteamer commands for <collection>[/<id>] [--ids <id>[,…]] [--json]` — which bound
-// commands apply, in which state (available / done / not-applicable). THE engine surface
-// behind the studio's Commands tab (engine/UI parity: the verb lands first, the button second).
+// Which bound commands apply, in which state (available / done / not-applicable). THE engine
+// surface behind the studio's Commands tab (engine/UI parity: the verb lands first, the button
+// second).
+//
+// ⚠ The COLLECTION arrives already resolved, and the ids only ever through `--ids`. This used to
+// split its own target at the first slash — which cannot name a namespaced collection, so
+// `commands finance/transactions` asked for a collection called "finance" and every namespaced
+// target failed. `cli.js` owns reference resolution now (splitRef, longest declared prefix) and is
+// the only caller, so a second, weaker splitter here could only ever disagree with it.
 function metaCommandsFor(ws, store, flags, pos) {
-	const target = need(pos, 0, 'collection[/id]');
-	const slash = target.indexOf('/');
-	const collection = slash > 0 ? target.slice(0, slash) : target;
-	const ids = slash > 0
-		? [target.slice(slash + 1)]
-		: typeof flags.ids === 'string' ? flags.ids.split(',').map((s) => s.trim()).filter(Boolean) : [];
+	const collection = need(pos, 0, 'collection');
+	const ids = typeof flags.ids === 'string' ? flags.ids.split(',').map((s) => s.trim()).filter(Boolean) : [];
 	const out = commandsFor(store, collection, ids);
 	if (flags.json) { emit(JSON.stringify(out, null, 2)); return 0; }
 	if (!out.commands.length) { console.log(`(no commands bound to ${collection})`); return 0; }
