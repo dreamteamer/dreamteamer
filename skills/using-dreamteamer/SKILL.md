@@ -100,7 +100,7 @@ source_file: ${env:FILES_FOLDER}/2026/q3.pdf
 
 | variable | renders to |
 |---|---|
-| `${env:NAME}` | `NAME`'s value in the workspace's `.env` — and only if `NAME` is listed in `dreamteamer.vars` in `package.json` |
+| `${env:NAME}` | `NAME`'s value in the workspace's `.env` — and only if `NAME` is listed in `dreamteamer.vars` in `package.json` AND has a non-empty value there (an empty or whitespace-only value fails exactly like an unset key) |
 | `${workspaceFolder}` | the workspace root, absolute |
 | `${userHome}` | the current user's home directory |
 

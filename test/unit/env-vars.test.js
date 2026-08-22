@@ -24,6 +24,16 @@ test('declared but unset key fails loudly', () => {
 	const c2 = { ...ctx, declared: ['FILES_FOLDER', 'MISSING'] };
 	assert.throws(() => renderTemplate('${env:MISSING}', c2), /declared but has no value/);
 });
+test('declared but EMPTY value fails exactly like an unset key — same message, not a second one', () => {
+	const envWithEmpty = parseEnvValues('EMPTY_KEY=\n');
+	const c3 = { env: envWithEmpty, workspaceFolder: '/ws', declared: ['EMPTY_KEY'] };
+	assert.throws(() => renderTemplate('${env:EMPTY_KEY}', c3), /\$\{env:EMPTY_KEY\} is declared but has no value in \.env on this machine/);
+});
+test('declared but WHITESPACE-ONLY value fails exactly like an unset key', () => {
+	const envWithBlank = parseEnvValues('BLANK_KEY="   "\n');
+	const c4 = { env: envWithBlank, workspaceFolder: '/ws', declared: ['BLANK_KEY'] };
+	assert.throws(() => renderTemplate('${env:BLANK_KEY}', c4), /\$\{env:BLANK_KEY\} is declared but has no value in \.env on this machine/);
+});
 test('un-namespaced ${VAR} is inert — prose survives', () => {
 	assert.equal(renderTemplate('mentions ${VAR} and ${filesFolder}', ctx), 'mentions ${VAR} and ${filesFolder}');
 });
