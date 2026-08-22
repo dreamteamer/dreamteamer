@@ -189,22 +189,22 @@ describe('list — sort and filter', () => {
 
 	test('--sort orders by a field, and a leading minus reverses', () => {
 		const ws = seeded();
-		const asc = JSON.parse(ws.dt('tasks', 'list', '--sort', 'due', '--json').stdout);
+		const asc = JSON.parse(ws.dt('list', 'tasks', '--sort', 'due', '--json').stdout);
 		assert.deepEqual(asc.map((r) => r.id), ['b', 'c', 'a']);
-		const desc = JSON.parse(ws.dt('tasks', 'list', '--sort', '-due', '--json').stdout);
+		const desc = JSON.parse(ws.dt('list', 'tasks', '--sort', '-due', '--json').stdout);
 		assert.deepEqual(desc.map((r) => r.id), ['a', 'c', 'b']);
 	});
 
 	test('--where takes the studio operator set', () => {
 		const ws = seeded();
-		const res = ws.dt('tasks', 'list', '--where', '{"status":{"_eq":"todo"}}', '--json');
+		const res = ws.dt('list', 'tasks', '--where', '{"status":{"_eq":"todo"}}', '--json');
 		assert.equal(res.code, 0, res.stderr);
 		assert.deepEqual(JSON.parse(res.stdout).map((r) => r.id).sort(), ['a', 'c']);
 	});
 
 	test('--where with a date range compares as instants', () => {
 		const ws = seeded();
-		const res = ws.dt('tasks', 'list', '--where', '{"due":{"_gte":"2026-07-02"}}', '--json');
+		const res = ws.dt('list', 'tasks', '--where', '{"due":{"_gte":"2026-07-02"}}', '--json');
 		assert.deepEqual(JSON.parse(res.stdout).map((r) => r.id).sort(), ['a', 'c']);
 	});
 
@@ -212,7 +212,7 @@ describe('list — sort and filter', () => {
 	// only the values currently present would hide a legal choice nobody has used yet.
 	test('values on an enum field reports the declared vocabulary', () => {
 		const ws = seeded();
-		const res = ws.dt('tasks', 'values', 'status', '--json');
+		const res = ws.dt('values', 'tasks', 'status', '--json');
 		assert.equal(res.code, 0, res.stderr);
 		const out = JSON.parse(res.stdout);
 		assert.equal(out.collection, 'tasks');
@@ -224,7 +224,7 @@ describe('list — sort and filter', () => {
 	test('values on a free field reports what the DATA uses, with counts', () => {
 		const ws = seeded();
 		ws.store.add('tasks', { title: 'D', due: '2026-07-03' }); // a duplicate of A's due date
-		const out = JSON.parse(ws.dt('tasks', 'values', 'due', '--json').stdout);
+		const out = JSON.parse(ws.dt('values', 'tasks', 'due', '--json').stdout);
 		assert.equal(out.source, 'data');
 		assert.deepEqual(out.values.map((v) => v.value).sort(), ['2026-07-01', '2026-07-02', '2026-07-03']);
 		assert.equal(out.values.find((v) => v.value === '2026-07-03').count, 2);
@@ -243,7 +243,7 @@ describe('history, diff and revert', () => {
 		ws.git(['add', '-A']);
 		ws.git(['commit', '-qm', 'set t']);
 
-		const hist = JSON.parse(ws.dt('tasks', 'history', 't', '--json').stdout);
+		const hist = JSON.parse(ws.dt('history', 'tasks/t', '--json').stdout);
 		assert.ok(hist.length >= 2, 'both commits should appear');
 
 		assert.equal(ws.store.read('tasks', 't').fields.status, 'done');
@@ -279,7 +279,7 @@ describe('history, diff and revert', () => {
 		ws.store.add('tasks', { title: 'T' });
 		ws.git(['add', '-A']);
 		ws.git(['commit', '-qm', 'add t']);
-		const res = ws.dt('tasks', 'diff', 't');
+		const res = ws.dt('diff', 'tasks/t');
 		assert.equal(res.code, 0, res.stderr);
 		assert.match(res.stdout, /title: T|\+\+\+/);
 	});
@@ -318,7 +318,7 @@ describe('system-stored collections are read-only through the store', () => {
 
 	test('the CLI refuses too', () => {
 		const ws = base();
-		const res = ws.dt('collections', 'set', 'tasks', 'icon=star');
+		const res = ws.dt('set', 'collections/tasks', 'icon=star');
 		assert.equal(res.code, 1);
 		assert.match(res.stderr, /compiled sources/);
 	});

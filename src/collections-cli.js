@@ -1,6 +1,7 @@
-// noun-verb collection commands: dreamteamer <collection> list|get|add|set|rm|rename|history|diff|revert
-// + meta verbs: `collections add|rm`, `<collection> add-field|update-field|remove-field`,
-//   `ui-views add|set|rm`
+// The IMPLEMENTATION layer behind the verb-first CLI: `collectionCommand(ws, collection, verb, args)`
+// is (collection, verb) shaped and stays that way — `cli.js` translates `dt <verb> <target>` onto it.
+// So a spelling here (`collections add`, `<collection> add-field`, `commands for`, `repos ensure`) is
+// an INTERNAL pair, not what the operator types; `dt schema add-collection` is what they type.
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -216,7 +217,7 @@ export function collectionCommand(ws, collection, verb, args) {
 			// the hash is REQUIRED and has no default: "revert" with an implied target is how you
 			// destroy the wrong record. `<c> history <id>` is where you get one.
 			const hash = typeof flags.hash === 'string' ? flags.hash : pos[1];
-			if (!hash) throw new Error(`missing --hash <commit> — run \`dreamteamer ${collection} history ${id}\` to pick one`);
+			if (!hash) throw new Error(`missing --hash <commit> — run \`dreamteamer history ${collection}/${id}\` to pick one`);
 			const out = store.revert(collection, id, hash);
 			flags.json ? emit(JSON.stringify(out)) : console.log(out.reverted ? `✔ reverted ${collection}/${id} to ${String(hash).slice(0, 7)}` : `= already identical to ${String(hash).slice(0, 7)} — nothing changed`);
 			return 0;
@@ -276,7 +277,7 @@ function metaCollectionsAdd(ws, store, flags) {
 // migration whose last step (rewriting references) dangles everything when forgotten.
 function metaCollectionsRename(ws, store, flags, pos) {
 	const [oldName, explicitNew] = pos;
-	if (!oldName) throw new Error('usage: collections rename <old-name> <new-name> | <old-name> --namespace <ns>');
+	if (!oldName) throw new Error('usage: dreamteamer schema rename-collection <old> <new> | <old> --namespace <ns>');
 	// `--namespace health` on its own moves the collection INTO that namespace keeping its bare name,
 	// which is the common case and saves retyping it.
 	const newName = explicitNew

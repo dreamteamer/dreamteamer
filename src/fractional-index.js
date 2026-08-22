@@ -33,7 +33,7 @@ export function placementKey(rows, id, dest, collection = '<collection>') {
 	const placed = rows.filter((r) => r.key && r.id !== id);
 	const at = (t) => {
 		const i = placed.findIndex((r) => r.id === t);
-		if (i < 0) throw new Error(`"${t}" has no sort value yet — run \`dreamteamer ${collection} move --init\` first. nothing was written.`);
+		if (i < 0) throw new Error(`"${t}" has no sort value yet — run \`dreamteamer move ${collection} --init\` first. nothing was written.`);
 		return i;
 	};
 	if (dest.top) return keyBetween(null, placed[0]?.key ?? null);

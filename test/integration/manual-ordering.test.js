@@ -26,8 +26,8 @@ const ORDERED = {
 const PLAIN = { ...ORDERED, sort_field: undefined };
 
 /** ids in the order the collection's own sort field puts them. */
-const ids = (ws) => JSON.parse(ws.dt('ordered', 'list', '--sort', 'position', '--json').stdout).map((r) => r.id);
-const rows = (ws) => JSON.parse(ws.dt('ordered', 'list', '--sort', 'position', '--json').stdout);
+const ids = (ws) => JSON.parse(ws.dt('list', 'ordered', '--sort', 'position', '--json').stdout).map((r) => r.id);
+const rows = (ws) => JSON.parse(ws.dt('list', 'ordered', '--sort', 'position', '--json').stdout);
 const seed = (names) => ({ collections: { ordered: ORDERED }, records: { ordered: names.map((name) => ({ name })) } });
 
 describe('the declaration', () => {
@@ -52,28 +52,28 @@ describe('the declaration', () => {
 describe('move', () => {
 	test('a collection with no sort_field refuses, and names what is missing', () => {
 		const ws = workspace({ collections: { ordered: PLAIN }, records: { ordered: [{ name: 'Alpha' }] } });
-		const r = ws.dt('ordered', 'move', 'alpha', '--top');
+		const r = ws.dt('move', 'ordered/alpha', '--top');
 		assert.notEqual(r.code, 0);
 		assert.match(r.stderr, /sort_field/);
 	});
 
 	test('--init places every record in display order, and is idempotent', () => {
 		const ws = workspace(seed(['Alpha', 'Bravo', 'Charlie']));
-		assert.equal(ws.dt('ordered', 'move', '--init').code, 0);
+		assert.equal(ws.dt('move', 'ordered', '--init').code, 0);
 		const first = rows(ws);
 		assert.deepEqual(first.map((r) => r.id), ['alpha', 'bravo', 'charlie']);
 		for (const r of first) assert.match(r.position, /^[a-z]+$/);
 
-		ws.dt('ordered', 'move', '--init');
+		ws.dt('move', 'ordered', '--init');
 		assert.deepEqual(rows(ws).map((r) => r.position), first.map((r) => r.position));
 	});
 
 	test('a move writes EXACTLY ONE file — the whole point of the feature', () => {
 		const ws = workspace(seed(['Alpha', 'Bravo', 'Charlie']));
-		ws.dt('ordered', 'move', '--init');
+		ws.dt('move', 'ordered', '--init');
 		ws.git(['add', '-A']);
 		ws.git(['commit', '-m', 'seed']);
-		ws.dt('ordered', 'move', 'charlie', '--top');
+		ws.dt('move', 'ordered/charlie', '--top');
 		const dirty = ws.git(['status', '--porcelain']).trim().split('\n').filter(Boolean);
 		assert.equal(dirty.length, 1, `expected one changed file, got:\n${dirty.join('\n')}`);
 		assert.match(dirty[0], /charlie\.task\.md$/);
@@ -81,14 +81,14 @@ describe('move', () => {
 
 	test('--top --bottom --before --after produce the intended order', () => {
 		const ws = workspace(seed(['Alpha', 'Bravo', 'Charlie']));
-		ws.dt('ordered', 'move', '--init');
-		ws.dt('ordered', 'move', 'charlie', '--top');
+		ws.dt('move', 'ordered', '--init');
+		ws.dt('move', 'ordered/charlie', '--top');
 		assert.deepEqual(ids(ws), ['charlie', 'alpha', 'bravo']);
-		ws.dt('ordered', 'move', 'charlie', '--after', 'alpha');
+		ws.dt('move', 'ordered/charlie', '--after', 'alpha');
 		assert.deepEqual(ids(ws), ['alpha', 'charlie', 'bravo']);
-		ws.dt('ordered', 'move', 'alpha', '--bottom');
+		ws.dt('move', 'ordered/alpha', '--bottom');
 		assert.deepEqual(ids(ws), ['charlie', 'bravo', 'alpha']);
-		ws.dt('ordered', 'move', 'alpha', '--before', 'bravo');
+		ws.dt('move', 'ordered/alpha', '--before', 'bravo');
 		assert.deepEqual(ids(ws), ['charlie', 'alpha', 'bravo']);
 	});
 
@@ -96,16 +96,16 @@ describe('move', () => {
 		const ws = workspace(seed(['Alpha', 'Bravo']));
 		ws.git(['add', '-A']);
 		ws.git(['commit', '-m', 'seed']);
-		const r = ws.dt('ordered', 'move', 'bravo', '--after', 'alpha');
+		const r = ws.dt('move', 'ordered/bravo', '--after', 'alpha');
 		assert.notEqual(r.code, 0);
-		assert.match(r.stderr, /move --init/);
+		assert.match(r.stderr, /dreamteamer move ordered --init/);
 		assert.equal(ws.git(['status', '--porcelain']).trim(), '');
 	});
 
 	test('move with no destination says so instead of guessing', () => {
 		const ws = workspace(seed(['Alpha', 'Bravo']));
-		ws.dt('ordered', 'move', '--init');
-		const r = ws.dt('ordered', 'move', 'bravo');
+		ws.dt('move', 'ordered', '--init');
+		const r = ws.dt('move', 'ordered/bravo');
 		assert.notEqual(r.code, 0);
 		assert.match(r.stderr, /--after|--before|--top|--bottom/);
 	});
@@ -114,15 +114,15 @@ describe('move', () => {
 describe('the properties a sidecar file would not have', () => {
 	test('a rename keeps the sort value — the failure mode this design exists to avoid', () => {
 		const ws = workspace(seed(['Alpha', 'Bravo']));
-		ws.dt('ordered', 'move', '--init');
+		ws.dt('move', 'ordered', '--init');
 		const before = rows(ws).find((r) => r.id === 'bravo').position;
-		assert.equal(ws.dt('ordered', 'rename', 'bravo', 'bravo-two').code, 0);
+		assert.equal(ws.dt('rename', 'ordered/bravo', 'bravo-two').code, 0);
 		assert.equal(rows(ws).find((r) => r.id === 'bravo-two').position, before);
 	});
 
 	test('the sort value is an ordinary field — check stays clean', () => {
 		const ws = workspace(seed(['Alpha', 'Bravo']));
-		ws.dt('ordered', 'move', '--init');
+		ws.dt('move', 'ordered', '--init');
 		assert.equal(ws.dt('check').code, 0);
 	});
 
@@ -136,8 +136,8 @@ describe('the properties a sidecar file would not have', () => {
 
 	test('a record with no sort value sorts first, so nothing is hidden before --init', () => {
 		const ws = workspace(seed(['Alpha', 'Bravo']));
-		ws.dt('ordered', 'move', '--init');
-		ws.dt('ordered', 'add', '--name', 'Charlie');
+		ws.dt('move', 'ordered', '--init');
+		ws.dt('add', 'ordered', '--name', 'Charlie');
 		assert.deepEqual(ids(ws), ['charlie', 'alpha', 'bravo']);
 	});
 });
