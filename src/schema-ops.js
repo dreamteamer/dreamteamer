@@ -7,7 +7,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { load, dump } from './yaml.js';
+import { load, dump, parseDoc, stringifyDoc } from './yaml.js';
 import { compile, kindDir, titleCase } from './compile.js';
 import { readManifest, runtimeKindDir } from './runtime.js';
 import { normalizeNamespaces, namespaceOf, baseNameOf, qualify, defaultStoragePath } from './namespace.js';
@@ -101,8 +101,14 @@ function descriptorSourceDir(ws, name) {
  * This exists because `load` → mutate → `dump` is lossy in the one way that matters here: it drops
  * every comment. That is fine for a generated artifact and wrong for a module SOURCE, which is where
  * this project writes down why a collection exists. Only `renameCollection` uses it, and only for the
- * three scalars a rename changes; anything more ambitious belongs in a real round-trip YAML library,
- * not in a regex.
+ * three scalars a rename changes.
+ *
+ * ⚠ The round-trip YAML library this header used to defer to IS in the tree now (yaml.js exports
+ * parseDoc, and upsertField/removeField edit through it). setScalar survives anyway, deliberately:
+ * a Document re-render normalizes formatting the author chose — flow padding, fold points of long
+ * scalars — while this touches ONLY the edited line. Measured on this repo's own descriptors:
+ * 0/11 survive parseDoc→toString byte-identical. For a rename, whose diff a reviewer reads as
+ * "three scalars changed", byte-precision on every untouched line is worth two regexes.
  *
  * Handles both spellings the descriptors actually use — a top-level key, a nested block mapping, and
  * the inline `storage: { path: x, suffix: y }` flow form. Callers MUST re-parse and assert, because a
@@ -538,12 +544,17 @@ export function removeField(ws, store, collection, fieldName) {
 	if (!d.schema?.properties?.[fieldName]) throw new Error(`no field "${fieldName}" on ${collection}`);
 	const dest = path.join(workspaceSystemDir(ws, 'collections'), `${collection}.collection.yaml`);
 	if (!fs.existsSync(dest)) throw new Error(`"${collection}" is module-shipped; the workspace can only OVERRIDE fields (extends), not remove them`);
-	const doc = load(fs.readFileSync(dest, 'utf8'));
-	if (!doc.schema?.properties?.[fieldName]) throw new Error(`field "${fieldName}" is inherited from the base module — the workspace descriptor doesn't declare it`);
+	const text = fs.readFileSync(dest, 'utf8');
+	const probe = load(text);
+	if (!probe.schema?.properties?.[fieldName]) throw new Error(`field "${fieldName}" is inherited from the base module — the workspace descriptor doesn't declare it`);
 	writeGated(ws, store, [dest], `dreamteamer: ${collection} remove-field ${fieldName}`, () => {
-		delete doc.schema.properties[fieldName];
-		if (Array.isArray(doc.schema.required)) doc.schema.required = doc.schema.required.filter((r) => r !== fieldName);
-		fs.writeFileSync(dest, dump(doc));
+		// edited as a DOCUMENT, not load→dump: a descriptor source is where this project writes down
+		// why a field exists, and re-dumping the file destroyed every comment in it (same loss the
+		// rename scar records — this site just went unnoticed longer).
+		const doc = parseDoc(text);
+		doc.deleteIn(['schema', 'properties', fieldName]);
+		dropRequired(doc, fieldName);
+		fs.writeFileSync(dest, stringifyDoc(doc));
 	});
 	return { collection, removed: fieldName };
 }
@@ -579,22 +590,38 @@ function upsertField(ws, store, collection, fieldName, prop, required, verb) {
 		}
 	}
 	const dest = path.join(workspaceSystemDir(ws, 'collections'), `${collection}.collection.yaml`);
-	let doc;
-	if (fs.existsSync(dest)) {
-		doc = load(fs.readFileSync(dest, 'utf8'));
-	} else {
-		doc = { name: collection, extends: baseModuleRef(ws.root, collection), schema: { properties: {} } };
-	}
+	const text = fs.existsSync(dest) ? fs.readFileSync(dest, 'utf8') : null;
+	const extendsRef = text ? load(text)?.extends : baseModuleRef(ws.root, collection);
 	writeGated(ws, store, [dest], `dreamteamer: ${collection} ${verb}`, () => {
-		doc.schema ??= { properties: {} };
-		doc.schema.properties ??= {};
-		doc.schema.properties[fieldName] = prop;
-		if (required === true) doc.schema.required = [...new Set([...(doc.schema.required ?? []), fieldName])];
-		if (required === false && Array.isArray(doc.schema.required)) doc.schema.required = doc.schema.required.filter((r) => r !== fieldName);
 		fs.mkdirSync(path.dirname(dest), { recursive: true });
-		fs.writeFileSync(dest, dump(doc));
+		if (text === null) {
+			// a fresh overlay has no comments to preserve — a plain dump is the simple, correct write
+			const fresh = { name: collection, extends: extendsRef, schema: { properties: { [fieldName]: prop } } };
+			if (required === true) fresh.schema.required = [fieldName];
+			fs.writeFileSync(dest, dump(fresh));
+			return;
+		}
+		// edited as a DOCUMENT (see removeField): only the field being (re)defined is replaced, so a
+		// comment above a NEIGHBOURING field survives an add-field it had nothing to do with. The
+		// edited field's own comment goes with the definition it described — that is the edit.
+		const doc = parseDoc(text);
+		doc.setIn(['schema', 'properties', fieldName], prop);
+		if (required === true) {
+			const req = doc.getIn(['schema', 'required'], true);
+			if (!req?.items) doc.setIn(['schema', 'required'], [fieldName]);
+			else if (!req.items.some((n) => n.value === fieldName)) req.add(fieldName); // in place — the seq keeps its authored flow/block style
+		}
+		if (required === false) dropRequired(doc, fieldName);
+		fs.writeFileSync(dest, stringifyDoc(doc));
 	});
-	return { collection, field: fieldName, file: dest, extends: doc.extends };
+	return { collection, field: fieldName, file: dest, extends: extendsRef };
+}
+
+/** Remove `fieldName` from a document's schema.required IN PLACE — filtering the seq's items keeps
+ *  its authored style (flow `[a, b]` stays flow), where a setIn with a fresh array would not. */
+function dropRequired(doc, fieldName) {
+	const req = doc.getIn(['schema', 'required'], true);
+	if (req?.items) req.items = req.items.filter((n) => n.value !== fieldName);
 }
 
 // saved views (M3): a studio-saved view IS a ui-view record — but ui-views are
