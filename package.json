@@ -48,7 +48,7 @@
 		"ajv-formats": "^3.0.1",
 		"express": "^5.2.1",
 		"fractional-indexing": "^4.0.0",
-		"js-yaml": "^4.1.0"
+		"yaml": "^2.9.0"
 	},
 	"dreamteamer": {
 		"title": "System"
@@ -62,5 +62,8 @@
 		"metrics:check": "node scripts/metrics.mjs --check",
 		"layers": "node scripts/layers.mjs",
 		"verify": "node scripts/layers.mjs && node scripts/metrics.mjs --check && node scripts/test.mjs"
+	},
+	"devDependencies": {
+		"js-yaml": "^4.3.1"
 	}
 }
