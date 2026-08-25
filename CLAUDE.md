@@ -266,6 +266,7 @@ throwaway `dreamteamer init` workspace (9/9 assertions, `check` clean):
 | what changed in the data since a commit | `events.deriveEvents` | `changes [--since <sha\|date>] [--json]` |
 | publish records written to disk | `commit.commitPending` | `commit [<collection> …] [-m <subject>] [--dry-run]` |
 | move a collection (incl. into a namespace) | `schema-ops.renameCollection` | `collections rename <old> <new>` |
+| resolve an open file to its record (`fileToRecord`) | `events.pathToRecord` | `locate <path> … [--json]` |
 
 Notes worth keeping:
 

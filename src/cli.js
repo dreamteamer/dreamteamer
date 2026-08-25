@@ -17,7 +17,8 @@ import { compile, staleness, warnIfStale, discoverModules, CHANNEL_LABEL, KINDS 
 import { check } from './check.js';
 import { collectionCommand, emit } from './collections-cli.js';
 import { init, install, installClone, update, listRepos } from './init.js';
-import { deriveEvents } from './events.js';
+import { deriveEvents, pathToRecord } from './events.js';
+import { loadDescriptors, NO_RUNTIME } from './runtime.js';
 import { commitPending } from './commit.js';
 import { Store } from './store.js';
 import { splitRef } from './ref.js';
@@ -60,6 +61,9 @@ the longest DECLARED collection prefix, so finance/transactions/2026/03/coffee i
                                                \${userHome} — the ONLY substitution point; a
                                                record keeps the template verbatim. An array
                                                field prints one item per line)
+  locate <path> … [--json]                    (which record owns this FILE — paths in,
+                                               <collection>/<id> refs out; a path that is no
+                                               record of any collection exits 1)
 
 schema verbs (write SOURCES through a compile gate, never the runtime — a different act, so a
 different word in front of it):
@@ -285,6 +289,28 @@ export function run(argv) {
 			case 'move': case 'commands':
 				warnIfStale(ws.root);
 				process.exit(dispatchRecordVerb(ws, cmd, rest));
+			case 'locate': {
+				// which record owns this FILE — paths in, `<collection>/<id>` refs out. pathToRecord
+				// was reachable from commit/changes internals and the extension's fileToRecord, but
+				// from no verb an agent could run; a search result or a git path had no way back to
+				// the record it names. Records only, deliberately: a runtime-stored entity's file is
+				// compiled OUTPUT, and the ref an agent should hold is to the source, not the artifact.
+				warnIfStale(ws.root);
+				const json = rest.includes('--json');
+				const paths = rest.filter((a) => a !== '--json');
+				if (!paths.length) { console.error('usage: dreamteamer locate <path> … [--json]'); process.exit(1); }
+				const descriptors = loadDescriptors(ws.root);
+				if (!descriptors) { console.error(`✖ ${NO_RUNTIME}`); process.exit(1); }
+				const rows = paths.map((p) => {
+					const rel = path.relative(ws.root, path.resolve(p));
+					const outside = rel.startsWith('..') || path.isAbsolute(rel);
+					const rec = outside ? null : pathToRecord(descriptors, rel.split(path.sep).join('/'));
+					return { path: p, collection: rec?.collection ?? null, id: rec?.id ?? null };
+				});
+				if (json) emit(JSON.stringify(rows, null, 2));
+				else for (const r of rows) console.log(r.collection ? `${r.collection}/${r.id}` : `✖ ${r.path}: not a record of any collection`);
+				process.exit(rows.every((r) => r.collection) ? 0 : 1);
+			}
 			// `repos ensure` lost its noun: the repos collection is still where the declaration lives,
 			// but materializing one is a verb the operator types, not a record write.
 			case 'ensure':
