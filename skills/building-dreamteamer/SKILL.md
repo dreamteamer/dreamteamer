@@ -26,6 +26,7 @@ actually wants to happen:
 | "put it at this route / in the nav / show it as a board" | a **ui-view** | `references/ui-views.md` |
 | a rendering or editing behaviour no registered component has | **component code** | `references/ui-components.md` |
 | "which command applies to this record?" | a **command-binding** | `references/commands.md` |
+| runnable code a session invokes — engine access, no core verb | a **module script** | `references/module-scripts.md` |
 
 Three tie-breakers worth internalising, because they are the ones that go wrong:
 
