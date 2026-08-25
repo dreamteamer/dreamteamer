@@ -51,7 +51,8 @@
 		"yaml": "^2.9.0"
 	},
 	"dreamteamer": {
-		"title": "System"
+		"title": "System",
+		"ignore": ["examples"]
 	},
 	"scripts": {
 		"test": "node scripts/test.mjs",
