@@ -20,6 +20,33 @@ npx dreamteamer check
 
 ---
 
+## 0.13.1 → 0.13.2
+
+**compile now WARNS when a ui-view hides a real field inside `options`. Nothing to migrate** — run
+`dt compile` and read what it says.
+
+`options` is a deliberately open object: every key it does not own rides through untouched to
+whichever surface renders the layout. That openness has one sharp edge — a field belonging one level
+up, written inside it, was accepted, saved, round-tripped and read by nobody:
+
+```yaml
+# silently inert — the view drew every record
+options: { filter: { flag: { _in: [high, low] } } }
+
+# what it has to be
+filter: { flag: { _in: [high, low] } }
+options: { sort: -date }
+```
+
+- It is a **warning, not a failure**: `options` is open by contract and a surface may legitimately
+  want a colliding key. But the symptom of getting it wrong is a view that *looks* like it works, so
+  the operator has to be told.
+- It covers **every field `ui-views` owns**, read from the merged descriptor rather than a hardcoded
+  list — `filter`, `sort`, `columns`, `path`, `layout` and anything the collection grows later.
+- A genuine layout option (`group-by`, or whatever a module's own list registers) is untouched.
+
+---
+
 ## 0.13.0 → 0.13.1
 
 **A namespaced collection's DERIVED title no longer repeats its namespace. Run `dt compile`** — that

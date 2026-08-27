@@ -849,6 +849,9 @@ export function compile({ root, pkg }) {
 	// The descriptor already documented the correct behaviour — ui-views.collection.yaml: "An
 	// unregistered id degrades visibly rather than erroring" — and the surface already implements
 	// it (presets.ts#resolveRendererEntry falls back to table). Decision 195.
+	// ui-views' own field names, read from the descriptor that was just merged rather than hardcoded —
+	// a list in here would silently stop covering a field the moment ui-views grew one.
+	const ownFields = load(entries.get(path.join('collections', 'ui-views.collection.yaml'))?.bytes?.toString('utf8') ?? '')?.schema?.properties ?? {};
 	for (const [rt, e] of entries) {
 		if (!rt.startsWith('ui-views/')) continue;
 		const view = load(e.bytes.toString('utf8'));
@@ -861,6 +864,23 @@ export function compile({ root, pkg }) {
 		// silent failure this block exists to prevent. Refuse it by name, with the fix.
 		if (view?.filter && JSON.stringify(view.filter).includes('"@me"')) {
 			fail(`${rt}: filter uses "@me", which was removed with the \`users\` collection in 0.8.0 — it would now match nothing.\n  filter on a field this workspace owns instead (e.g. { status: { _eq: "todo" } }).`);
+		}
+		// ⚠ `options` is a deliberately OPEN object — every key it does not own rides through untouched
+		// to whichever surface renders the layout. That openness is right, and it has one sharp edge: a
+		// field that belongs ONE LEVEL UP, written inside it, is accepted, saved, round-tripped and read
+		// by nobody. `options.filter` cost a real afternoon — the view drew all 429 rows of a collection
+		// it was supposed to narrow to 90, and neither compile nor check nor the surface said a word.
+		//
+		// This is the same rule the block above states, not an exception to it: the engine DOES interpret
+		// `filter`, so a `filter` it will never be handed is a value it can catch. A warning rather than a
+		// failure because `options` is open by contract and a surface may legitimately want a key that
+		// collides — but the operator has to be told, because the symptom is a view that looks like it
+		// works.
+		const shadowed = view?.options && typeof view.options === 'object' && !Array.isArray(view.options)
+			? Object.keys(view.options).filter((k) => k in ownFields)
+			: [];
+		for (const k of shadowed) {
+			console.warn(`⚠ ${rt}: options.${k} is read by nothing — \`${k}\` is a field of ui-views itself, one level up. move it out of \`options\`.`);
 		}
 	}
 

@@ -142,6 +142,44 @@ describe('descriptor validation', () => {
 		assert.match(err, /_bogus/);
 	});
 
+	// ⚠ THE SILENT FAILURE THE COMMENT ABOVE PREDICTED, found in the wild. `options` is open by
+	// contract, so a `filter` written inside it is accepted, saved, round-tripped — and read by
+	// nothing. The view drew every record of a collection it was supposed to narrow, and compile,
+	// check and the surface all said ✔. A warning rather than a failure, because `options` really is
+	// open and a surface may legitimately want a colliding key; but the operator has to be told,
+	// since the symptom is a view that looks like it works.
+	const warningsFor = (body) => compileQuietly(uiView(body).ws).warnings.join('\n');
+
+	test('a filter hidden inside options is warned about, naming the key', () => {
+		const warn = warningsFor('options: { filter: { name: { _eq: x } } }\n');
+		assert.match(warn, /options\.filter is read by nothing/);
+		assert.match(warn, /one level up/);
+	});
+
+	test('the warning does not fail the compile — options is open by contract', () => {
+		assert.equal(compileError(uiView('options: { filter: { name: { _eq: x } } }\n').ws), null);
+	});
+
+	// Every field ui-views owns, not a hardcoded list of one: `sort` and `columns` are the other two
+	// anyone will actually type, and the check reads the merged descriptor so it keeps covering a
+	// field the collection grows later.
+	test('any sibling field shadowed inside options is warned about', () => {
+		const warn = warningsFor('options: { path: /elsewhere, layout: kanban }\n');
+		assert.match(warn, /options\.path is read by nothing/);
+		assert.match(warn, /options\.layout is read by nothing/);
+	});
+
+	test('a genuine layout option is left alone', () => {
+		// `columns` and `sort` ARE ui-view fields... but `group-by` is not, and neither is anything a
+		// module's own list registers. Those must ride through silently or the warning is noise.
+		const warn = warningsFor('options: { group-by: status, swimlanes: true }\n');
+		assert.doesNotMatch(warn, /read by nothing/);
+	});
+
+	test('a view with no options at all warns nothing', () => {
+		assert.doesNotMatch(warningsFor('filter: { name: { _eq: x } }\n'), /read by nothing/);
+	});
+
 	// The DIVISION OF LABOUR, worth pinning because it looks like a gap and is not: compile validates a
 	// value if and only if the engine INTERPRETS it (filter operators — see the comment above the
 	// ui-view loop in compile.js), while a dangling REFERENCE is `check`'s job via `x-reference`. So a
