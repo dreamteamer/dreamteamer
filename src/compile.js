@@ -12,6 +12,7 @@ import { walk, patternRe } from './records.js';
 import { unknownOperators } from './filter.js';
 import {
 	normalizeNamespaces, namespaceProblems, unqualifiedProblems, defaultStoragePath, storageOverlaps,
+	baseNameOf,
 } from './namespace.js';
 // circular on paper in earlier versions — safe: both sides only
 // call at run time, same pattern as store.js ↔ compile.js.
@@ -717,7 +718,14 @@ export function compile({ root, pkg }) {
 		// browse page, the CLI and the extension then read ONE field instead of each carrying its
 		// own title-caser. Authored values always win — `??=` never overwrites. After the ajv gate
 		// on purpose: a malformed property must fail as a bad schema, not as a TypeError here.
-		merged.title ??= titleCase(name);
+		// ⚠ From the BARE name, not the qualified one. A namespace is the FOLDER a collection sits in,
+		// not part of what it is called — every surface that draws the namespace as a folder was
+		// otherwise saying it twice on one screen ("R&D > Rnd Prototypes", "Family > Health >
+		// Health Documents"). Workspaces had already worked around it by hand-authoring a title on
+		// every namespaced collection, which is the tell: a derivation nobody can use is not a
+		// default. `baseNameOf` resolves against the DECLARED list, so an undeclared prefix — which
+		// is not a namespace — keeps its whole name in the label.
+		merged.title ??= titleCase(baseNameOf(name, namespaces));
 		const labelProps = merged.schema?.properties ?? {};
 		// how a RECORD of this collection is labelled — the probe presentation.js has always used
 		// for `meta.title_field`, promoted to an authorable field. Reference fields pointing here

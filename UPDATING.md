@@ -20,6 +20,33 @@ npx dreamteamer check
 
 ---
 
+## 0.13.0 → 0.13.1
+
+**A namespaced collection's DERIVED title no longer repeats its namespace. Run `dt compile`** — that
+is the whole migration, and only the label changes.
+
+An unauthored `title` was title-cased from the QUALIFIED name, so `health/doctors` resolved to
+"Health Doctors" and `rnd/prototypes` to "Rnd Prototypes". Every surface that draws a namespace as a
+folder then said it twice on one screen — "Health > Health Doctors". It derives from the BARE name
+now: **Doctors**, **Prototypes**.
+
+```bash
+npm install dreamteamer@0.13.1
+npx dreamteamer compile      # the labels change here, nothing else
+```
+
+- **An authored `title` still wins**, unchanged. If you worked around this by writing a title on every
+  namespaced collection, nothing breaks — those titles are simply no longer load-bearing, and you can
+  delete the ones that only restate the bare name.
+- **A collection in the default namespace is unaffected**, and so is one whose slash-prefix was never
+  declared: an undeclared prefix is not a namespace, so there is nothing to strip and the whole name
+  stays in the label.
+- ⚠ **If you were relying on the prefixed label to tell two collections apart** — `services/accounts`
+  and `finance/accounts` both derive "Accounts" now — author a `title` on one of them. The nav folds
+  them under different folders, but a flat list will show the same word twice.
+
+---
+
 ## 0.12.1 → 0.13.0
 
 **`dt commit` now takes a record REFERENCE as well as a collection. Nothing to migrate** — every
