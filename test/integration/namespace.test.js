@@ -332,3 +332,50 @@ describe('commit publishes namespaced records', () => {
 		assert.equal(ws.git(['status', '--porcelain', 'data']), '');
 	});
 });
+
+describe('the derived title drops the namespace', () => {
+	// ⚠ THE BUG. An unauthored title was title-cased from the QUALIFIED name, so `health/doctors`
+	// resolved to "Health Doctors" — and every surface that draws the namespace as a folder then said
+	// it twice on one screen ("Health > Health Doctors"). Workspaces had worked around it by authoring
+	// a title on every namespaced collection, which is the tell: a derivation nobody can use is not a
+	// default. A namespace is the FOLDER a collection sits in, not part of what it is called.
+	const titleOf = (ws, name) => {
+		const yaml = readFile(ws.root, `.dreamteamer/collections/${name}.collection.yaml`);
+		return /^title: (.*)$/m.exec(yaml)?.[1];
+	};
+
+	test('a namespaced collection derives its BARE name', () => {
+		const ws = nsWorkspace();
+		assert.equal(titleOf(ws, 'health/doctors'), 'Doctors');
+		assert.equal(titleOf(ws, 'finance/invoices'), 'Invoices');
+	});
+
+	test('a nested namespace drops the whole declared prefix, not one segment', () => {
+		const ws = workspace({
+			namespaces: ['work', 'work/clients'],
+			collections: { 'work/clients/acme-docs': DOCTORS },
+		});
+		assert.equal(titleOf(ws, 'work/clients/acme-docs'), 'Acme Docs');
+	});
+
+	test('an authored title still wins', () => {
+		const ws = nsWorkspace({
+			collections: { 'health/doctors': { ...DOCTORS, title: 'Practitioners' } },
+		});
+		assert.equal(titleOf(ws, 'health/doctors'), 'Practitioners');
+	});
+
+	test('a default-namespace collection is unchanged', () => {
+		const ws = workspace({ collections: { doctors: DOCTORS } });
+		assert.equal(titleOf(ws, 'doctors'), 'Doctors');
+	});
+
+	// An UNDECLARED prefix is not a namespace, so there is nothing to strip — and a collection whose
+	// name genuinely carries a slash keeps all of it rather than losing half its label.
+	test('an undeclared prefix keeps the whole name in the label', () => {
+		const ws = workspace({ namespaces: ['health'], collections: { 'health/doctors': DOCTORS } });
+		assert.equal(titleOf(ws, 'health/doctors'), 'Doctors');
+		const none = workspace({ collections: { doctors: DOCTORS } });
+		assert.equal(titleOf(none, 'doctors'), 'Doctors');
+	});
+});
