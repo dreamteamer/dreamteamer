@@ -29,7 +29,7 @@
 		"node": ">=20"
 	},
 	"bin": {
-		"dreamteamer": "./bin/dreamteamer.js"
+		"dreamteamer": "bin/dreamteamer.js"
 	},
 	"files": [
 		"NOTICE",
