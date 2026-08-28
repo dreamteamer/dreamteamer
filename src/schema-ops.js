@@ -597,23 +597,95 @@ function upsertField(ws, store, collection, fieldName, prop, required, verb) {
 	return { collection, field: fieldName, file: dest, extends: doc.extends };
 }
 
+/**
+ * WHERE A UI-VIEW'S SOURCE ACTUALLY LIVES — asked of the manifest, exactly as `descriptorSourceDir`
+ * asks it for a collection, and for the same reason: the guard that matters is "will `npm install`
+ * erase this write", not "which module owns it".
+ *
+ * ⚠ This used to be `workspaceSystemDir` unconditionally, which silently meant a view could only be
+ * saved if the WORKSPACE MODULE happened to ship it. Saving one shipped by any other inline module
+ * wrote a SECOND file carrying the same id, and compile refuses that by name — so the whole write
+ * rolled back and the surface reported `name collision on ui-view "…"` instead of saving. Measured
+ * on gk-brain 2026-08-28: every one of its module-shipped views (`modules/family`, `modules/rnd`,
+ * `modules/services`) was unsaveable, and the failure said nothing about why.
+ *
+ * Returns `{ file, shipped }` — where to write, and the workspace-relative source that already
+ * exists (null for a new view, which lands in the workspace module as before).
+ */
+function uiViewSourceFile(ws, id) {
+	const src = readManifest(ws.root)?.entries?.[`ui-views/${id}.ui-view.yaml`]?.sources?.[0];
+	// sources are `{path, hash}`; tolerate the pre-0.10 string form, same as compile's staleness check
+	const shipped = typeof src === 'string' ? src : src?.path;
+	if (!shipped) return { file: path.join(workspaceSystemDir(ws, 'ui-views'), `${id}.ui-view.yaml`), shipped: null };
+	return { file: path.join(ws.root, shipped), shipped };
+}
+
+/**
+ * Re-attach a rewritten YAML source's COMMENTS — the part `dump` cannot round-trip.
+ *
+ * js-yaml drops every comment on `load` → `dump`. That is fine for a generated artifact and wrong
+ * for a module SOURCE, which is where this project writes down why something exists (`setScalar`
+ * above exists for the same reason). A real round-trip needs a different YAML library and core is
+ * not taking one on for this, so this does the narrow thing that is actually safe: a comment block
+ * sitting directly above a TOP-LEVEL key is carried back above that same key, if the key survived.
+ * The file header comes along for free — it is the block above the first key.
+ *
+ * ⚠ Deliberately top-level only. A comment above a NESTED key cannot be re-placed without knowing
+ * where that key ended up, and a misplaced comment is worse than an absent one: it would attach an
+ * explanation to something it does not explain. Those are still lost. Measured against
+ * `modules/family/ui-views/health-labs-abnormal.ui-view.yaml`, whose two blocks — the file header
+ * and the ⚠ above `filter:` — are both top-level and both survive.
+ */
+function reattachComments(oldText, newText) {
+	const TOP_KEY = /^([A-Za-z_][\w-]*):/;
+	const blocks = new Map(); // surviving key -> the comment lines that sat above it
+	let pending = [];
+	for (const line of oldText.split('\n')) {
+		if (line.startsWith('#') || line.trim() === '') { pending.push(line); continue; }
+		const key = TOP_KEY.exec(line)?.[1];
+		if (key && pending.some((l) => l.startsWith('#'))) {
+			while (pending.length && pending[pending.length - 1].trim() === '') pending.pop();
+			blocks.set(key, pending);
+		}
+		pending = [];
+	}
+	if (!blocks.size) return newText;
+
+	const out = [];
+	for (const line of newText.split('\n')) {
+		const block = blocks.get(TOP_KEY.exec(line)?.[1]);
+		if (block) out.push(...block);
+		out.push(line);
+	}
+	return out.join('\n');
+}
+
 // saved views (M3): a studio-saved view IS a ui-view record — but ui-views are
 // system-stored (sources + compile), so the write goes through the same gate as any
 // other schema op. the studio "save view" button lands here.
 export function saveUiView(ws, store, { id, view }) {
 	if (!id || !/^[a-z0-9][a-z0-9-/]*$/.test(id)) throw new Error(`invalid ui-view id "${id}" — lowercase slug required`);
-	const dest = path.join(workspaceSystemDir(ws, 'ui-views'), `${id}.ui-view.yaml`);
+	const { file: dest, shipped } = uiViewSourceFile(ws, id);
+	if (shipped && /(^|\/)node_modules\//.test(shipped))
+		throw new Error(`ui-view "${id}" is shipped by an installed package (${shipped}) — a write there is erased by the next npm install.\n  save it under a different name, or disable it (dreamteamer.disable) and re-create it.`);
 	const existed = fs.existsSync(dest);
+	// A module source is where this project writes down WHY a view exists; `dump` cannot keep that.
+	const previous = existed ? fs.readFileSync(dest, 'utf8') : null;
 	writeGated(ws, store, [dest], `dreamteamer: ui-views ${existed ? 'update' : 'add'} ${id}`, () => {
 		fs.mkdirSync(path.dirname(dest), { recursive: true });
-		fs.writeFileSync(dest, dump(view));
+		fs.writeFileSync(dest, previous === null ? dump(view) : reattachComments(previous, dump(view)));
 	});
 	return { id, file: dest, updated: existed };
 }
 
 export function removeUiView(ws, store, id) {
-	const dest = path.join(workspaceSystemDir(ws, 'ui-views'), `${id}.ui-view.yaml`);
-	if (!fs.existsSync(dest)) throw new Error(`ui-view "${id}" is not workspace-owned (module-shipped views are removed via dreamteamer.disable)`);
+	// Same source resolution as the save above — an inline module's view is under this repo's git
+	// history like everything else, so deleting it is one revertable commit. Refusing it while
+	// ALLOWING a save to the same file would be an asymmetry with nothing behind it.
+	const { file: dest, shipped } = uiViewSourceFile(ws, id);
+	if (shipped && /(^|\/)node_modules\//.test(shipped))
+		throw new Error(`ui-view "${id}" is shipped by an installed package (${shipped}) — removing the file would be undone by the next npm install.\n  disable it instead: add "<module>/${id}" to dreamteamer.disable in package.json.`);
+	if (!fs.existsSync(dest)) throw new Error(`ui-view "${id}" does not exist`);
 	writeGated(ws, store, [dest], `dreamteamer: ui-views rm ${id}`, () => fs.rmSync(dest));
 	return { removed: id };
 }

@@ -20,6 +20,33 @@ npx dreamteamer check
 
 ---
 
+## 0.13.3 → 0.13.4
+
+**Saving a ui-view that a MODULE ships used to fail. Fixed — nothing to do but `dt compile`.**
+
+`saveUiView` wrote every view into the workspace module's `ui-views/`, whoever shipped it. For a view
+another inline module ships that produced a SECOND file carrying the same id, compile refuses that by
+name, and the gate rolled the whole write back — so the surface reported
+
+```
+name collision on ui-view "health-labs-abnormal"
+  - modules/default/ui-views/health-labs-abnormal.ui-view.yaml
+  - modules/family/ui-views/health-labs-abnormal.ui-view.yaml
+```
+
+instead of saving. Every module-shipped view in a multi-module workspace was unsaveable, and the
+error named the symptom rather than the cause. A view is now written back to the source it already
+has, exactly as `collections rename` writes a descriptor back to the module that ships it. The test
+that decides is `node_modules/`, not "which module": a write there is erased by the next
+`npm install`, so it is refused with a message that says so. `removeUiView` follows the same rule.
+
+**Comments survive a save now.** A ui-view source is where a workspace writes down why the view
+exists, and `dump` cannot round-trip comments. A comment block above a TOP-LEVEL key is carried back
+above that same key; the file header comes with it. ⚠ A comment above a NESTED key is still lost —
+re-placing it would risk attaching an explanation to something it does not explain.
+
+---
+
 ## 0.13.2 → 0.13.3
 
 **A one-hop relational filter over a NAMESPACED collection matched zero records. Fixed — run
