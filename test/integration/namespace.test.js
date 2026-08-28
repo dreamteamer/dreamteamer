@@ -379,3 +379,62 @@ describe('the derived title drops the namespace', () => {
 		assert.equal(titleOf(none, 'doctors'), 'Doctors');
 	});
 });
+
+describe('one-hop relational filters across a namespace', () => {
+	// ⚠ THE BUG, and the reason it went unseen for so long: `recordResolver` split a ref at the FIRST
+	// slash, so `health/doctors/dana-levi` asked the store for the collection `health` — a NAMESPACE,
+	// not a collection. The read threw, the resolver returned null, and filter.js is documented to
+	// treat an unresolvable ref as NARROWING. Result: a nested filter over any namespaced collection
+	// matched zero records, silently, while the identical filter over a default-namespace ref worked
+	// perfectly. Both are asserted here so the difference can never re-appear as "just how it is".
+	const withVisits = () => {
+		const ws = nsWorkspace();
+		ws.store.add('health/doctors', { name: 'Dana Levi' });
+		ws.store.add('health/doctors', { name: 'Ron Cohen' });
+		ws.store.add('health/visits', { name: 'Checkup', date: '2026-03-04', doctor: 'health/doctors/dana-levi' });
+		ws.store.add('health/visits', { name: 'Followup', date: '2026-03-11', doctor: 'health/doctors/ron-cohen' });
+		return ws;
+	};
+	const ids = (ws, where) =>
+		JSON.parse(ws.dt('list', 'health/visits', '--where', JSON.stringify(where), '--json').stdout)
+			.map((r) => r.id).sort();
+
+	test('a nested condition resolves through a NAMESPACED ref', () => {
+		const ws = withVisits();
+		assert.deepEqual(ids(ws, { doctor: { name: { _eq: 'Dana Levi' } } }), ['2026-03-04--checkup']);
+	});
+
+	test('it narrows, rather than matching everything, when the sub-condition fails', () => {
+		const ws = withVisits();
+		assert.deepEqual(ids(ws, { doctor: { name: { _eq: 'Nobody' } } }), []);
+	});
+
+	test('a deeper hop still works — the recursion is not capped at one', () => {
+		const ws = nsWorkspace();
+		ws.store.add('health/doctors', { name: 'Dana Levi' });
+		ws.store.add('health/visits', { name: 'Checkup', date: '2026-03-04', doctor: 'health/doctors/dana-levi' });
+		// visits → doctor → name, asked as two hops from a filter that names the intermediate too
+		assert.deepEqual(ids(ws, { doctor: { name: { _contains: 'Levi' } } }), ['2026-03-04--checkup']);
+	});
+
+	// Hand-written, because `store.add` REFUSES a dangling ref — which is the engine working. A
+	// hand-edited record is a first-class path in this project, and it is the only way to reach the
+	// state this asserts: the resolver must still fail CLOSED when the target genuinely is not there.
+	test('a DANGLING ref still narrows — the fix must not widen anything', () => {
+		const ws = withVisits();
+		fs.writeFileSync(
+			path.join(ws.root, 'data/health/visits/2026-03-20--orphan.visit.md'),
+			'---\nname: Orphan\ndate: \'2026-03-20\'\ndoctor: health/doctors/ghost\n---\n',
+		);
+		const out = ids(ws, { doctor: { name: { _nnull: true } } });
+		assert.ok(!out.includes('2026-03-20--orphan'), `a dangling ref must not match, got ${out.join(',')}`);
+		// and it is genuinely present when nothing is asked of the target
+		const all = JSON.parse(ws.dt('list', 'health/visits', '--json').stdout).map((r) => r.id);
+		assert.ok(all.includes('2026-03-20--orphan'), 'the fixture record must exist to prove the point');
+	});
+
+	test('the flat ref comparison is unaffected', () => {
+		const ws = withVisits();
+		assert.deepEqual(ids(ws, { doctor: { _eq: 'health/doctors/dana-levi' } }), ['2026-03-04--checkup']);
+	});
+});
