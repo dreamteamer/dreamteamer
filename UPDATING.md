@@ -20,6 +20,32 @@ npx dreamteamer check
 
 ---
 
+## 0.13.2 → 0.13.3
+
+**A one-hop relational filter over a NAMESPACED collection matched zero records. Fixed — run
+`dt compile` and re-run any filter you had written off as "no results".**
+
+`recordResolver` split a reference at the first slash, so `family/people/gilad` asked the store for
+the collection `family` — a namespace, not a collection. The read threw, the resolver returned null,
+and `filter.js` treats an unresolvable ref as NARROWING. So this matched nothing, in silence:
+
+```bash
+dt list family/health/lab-results --where '{"person":{"name":{"_eq":"Gilad Khen"}}}'   # 0 rows
+dt list meetings --where '{"company":{"name":{"_nnull":true}}}'                        # worked
+```
+
+The difference was never the filter — it was whether the target collection lived in a namespace.
+
+⚠ **Not only filtering.** The same resolver evaluates command-bindings' `can-enter` / `can-exit`,
+so a binding predicate that hopped a namespaced ref reported the command as *not available*. If you
+have bindings over namespaced collections, re-check `dt commands <ref>` after upgrading — commands
+may now correctly appear that were silently missing.
+
+Nothing to migrate: no record, descriptor or view changes shape. Filters that returned nothing start
+returning rows.
+
+---
+
 ## 0.13.1 → 0.13.2
 
 **compile now WARNS when a ui-view hides a real field inside `options`. Nothing to migrate** — run
