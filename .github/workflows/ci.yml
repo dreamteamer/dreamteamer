@@ -60,6 +60,9 @@ jobs:
           npx dreamteamer init
           npx dreamteamer compile
           npx dreamteamer check
-          npx dreamteamer notes add --title "smoke"
-          npx dreamteamer notes list
+          # ⚠ VERB-FIRST since 0.12.0. This step kept the collection-first spelling and CI has been
+          # red on every push since 0.12.1 (2026-08-22) — six releases — because `release` is a
+          # separate workflow and it was green. Verified against the packed tarball, not assumed.
+          npx dreamteamer add notes --title "smoke"
+          npx dreamteamer list notes
           npx dreamteamer check
