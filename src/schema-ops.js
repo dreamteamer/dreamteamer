@@ -409,14 +409,13 @@ export function renameCollection(ws, store, oldName, newName) {
 				const before = fs.readFileSync(f, 'utf8');
 				const probe = load(before);
 				if (!probe || !retargetRefs(probe.schema, oldName, newName)) continue;
-				// ⚠ the boundary must cover BOTH spellings. A descriptor may write the block form
-				// (`x-reference: accounts` to end of line) or the inline flow form
-				// (`{ type: string, x-reference: accounts }`), where the value ends at `,` or `}`.
-				// Anchoring on `$` alone silently matched nothing in the flow form — and the assert
-				// below turned that silence into a refusal, which is how it was found.
-				const after = before.replace(
-					new RegExp(`(x-reference:\\s*)(['"]?)${oldName.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')}\\2(?=\\s*(?:[,}]|#|$))`, 'gm'),
-					(_m, lead) => `${lead}${newName.includes('/') ? `'${newName}'` : newName}`);
+				// ⚠ the boundary must cover THREE spellings: the block form (`x-reference: accounts` to
+				// end of line), the inline flow form (`{ type: string, x-reference: accounts }`, where
+				// the value ends at `,` or `}`), and a LIST — flow (`x-reference: [a, accounts, b]`) or
+				// block (`x-reference:` + `- accounts` items). Anchoring on `$` alone silently matched
+				// nothing in the flow form — and the assert below turned that silence into a refusal,
+				// which is how it was found.
+				const after = retargetRefText(before, oldName, newName);
 				const reparsed = load(after);
 				if (!reparsed || retargetRefs(reparsed.schema, oldName, newName)) {
 					throw new Error(`could not retarget x-reference "${oldName}" in ${path.relative(ws.root, f)} without reformatting it — nothing was changed.`);
@@ -487,21 +486,69 @@ function descriptorSources(ws, store) {
 	return out;
 }
 
-/** Rewrite `x-reference: old` → new anywhere in a schema. Returns true if anything changed. */
+/** Rewrite `x-reference: old` → new anywhere in a schema — scalar or list entry. Returns true if anything changed. */
 function retargetRefs(schema, oldName, newName) {
 	let changed = false;
 	for (const prop of Object.values(schema?.properties ?? {})) {
 		if (!prop || typeof prop !== 'object') continue;
 		for (const holder of [prop, prop.items]) {
-			if (holder && typeof holder === 'object' && holder['x-reference'] === oldName) {
+			if (!holder || typeof holder !== 'object') continue;
+			if (holder['x-reference'] === oldName) {
 				holder['x-reference'] = newName;
 				changed = true;
+			} else if (Array.isArray(holder['x-reference'])) {
+				const i = holder['x-reference'].indexOf(oldName);
+				if (i !== -1) {
+					holder['x-reference'][i] = newName;
+					changed = true;
+				}
 			}
 		}
 		if (prop.properties && retargetRefs(prop, oldName, newName)) changed = true;
 		if (prop.items?.properties && retargetRefs(prop.items, oldName, newName)) changed = true;
 	}
 	return changed;
+}
+
+/**
+ * The TEXTUAL x-reference retarget — a line edit, never load→dump, so comments survive (see the
+ * step-4 comment in renameCollection for the 17-descriptor lesson). Three spellings:
+ *   scalar   `x-reference: old`            (block to end-of-line, or inline flow ending at , } #)
+ *   flow     `x-reference: [a, old, b]`    (elements rewritten inside the brackets)
+ *   block    `x-reference:` + `- old` items (tracked by indent under the bare key)
+ * Anything trickier falls through unchanged — the caller reparses and REFUSES rather than guessing.
+ */
+function retargetRefText(text, oldName, newName) {
+	const esc = oldName.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
+	const quoted = newName.includes('/') ? `'${newName}'` : newName;
+	const retag = (part) => {
+		const m = part.match(/^(\s*)(['"]?)(.*?)\2(\s*)$/);
+		return m && m[3] === oldName ? `${m[1]}${quoted}${m[4]}` : part;
+	};
+	const lines = text.split('\n');
+	let listIndent = -1; // >= 0 while inside a block-sequence x-reference list
+	for (let i = 0; i < lines.length; i++) {
+		const line = lines[i];
+		if (listIndent >= 0) {
+			const item = line.match(/^(\s*)-\s*(['"]?)(.*?)\2\s*(#.*)?$/);
+			if (item && item[1].length > listIndent) {
+				if (item[3] === oldName) {
+					lines[i] = line.replace(new RegExp(`(-\\s*)(['"]?)${esc}\\2`), (_m, lead) => `${lead}${quoted}`);
+				}
+				continue;
+			}
+			listIndent = -1;
+		}
+		const key = line.match(/^(\s*)x-reference:\s*(.*)$/);
+		if (key && (key[2] === '' || key[2].startsWith('#'))) {
+			listIndent = key[1].length;
+			continue;
+		}
+		lines[i] = line
+			.replace(new RegExp(`(x-reference:\\s*)(['"]?)${esc}\\2(?=\\s*(?:[,}]|#|$))`, 'gm'), (_m, lead) => `${lead}${quoted}`)
+			.replace(/(x-reference:\s*\[)([^\]]*)(\])/g, (_m, open, body, close) => open + body.split(',').map(retag).join(',') + close);
+	}
+	return lines.join('\n');
 }
 
 /** Remove now-empty parents up to (not including) the data root — a moved collection leaves its

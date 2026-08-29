@@ -415,3 +415,47 @@ describe('a rename preserves the descriptor verbatim apart from what it changes'
 		assert.equal(check.code, 0, check.stdout);
 	});
 });
+
+// ⚠ A union `x-reference` may target SEVERAL collections, spelled as a flow list (`[a, old, b]`) or a
+// block sequence (`- old` under a bare `x-reference:` key). Step 4 used to be a scalar-only regex, so
+// a descriptor carrying either list spelling made every rename of a listed collection REFUSE via the
+// reparse-assert below — the very safety net meant to catch a botched rewrite instead caught a rewrite
+// that never even tried.
+describe('list-spelled x-reference targets survive a rename', () => {
+	test('rename retargets x-reference LIST entries — flow and block forms, comments kept', () => {
+		const ws = workspace({
+			collections: {
+				meetings: simpleCollection({ storage: { suffix: 'meeting' } }),
+				clients: simpleCollection({ storage: { suffix: 'client' } }),
+			},
+		});
+		// hand-author a descriptor carrying both list spellings and a comment, past the dump() round-trip
+		const src = `name: notes
+# the comment that must survive
+storage: { suffix: note }
+id: { generate: '{{ name | slug }}' }
+schema:
+  type: object
+  required: [name]
+  properties:
+    name: { type: string }
+    about: { type: string, x-reference: [meetings, clients] }
+    sources:
+      type: array
+      items:
+        type: string
+        x-reference:
+          - meetings
+          - clients
+`;
+		fs.writeFileSync(path.join(ws.root, 'modules', WS_MODULE, 'collections', 'notes.collection.yaml'), src);
+		assert.equal(ws.dt('compile').code, 0);
+		assert.equal(ws.dt('schema', 'rename-collection', 'meetings', 'sessions').code, 0);
+		const after = readFile(ws.root, `modules/${WS_MODULE}/collections/notes.collection.yaml`);
+		assert.match(after, /x-reference: \[sessions, clients\]/);
+		assert.match(after, /- sessions/);
+		assert.doesNotMatch(after, /meetings/);
+		assert.match(after, /the comment that must survive/);
+		assert.equal(ws.dt('compile').code, 0);
+	});
+});
