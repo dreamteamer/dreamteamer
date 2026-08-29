@@ -460,7 +460,13 @@ export function compile({ root, pkg }) {
 					// descriptors merge via 'extends' — collect per collection name
 					const bytes = fs.readFileSync(srcPath);
 					const doc = load(bytes.toString('utf8'));
-					if (!doc.name || (!doc.schema && !doc.extends)) fail(`${rel(srcPath)}: descriptor needs 'name' and 'schema' (or 'extends')`);
+					// `codec: file` records are opaque bytes: there are no fields, so there is no schema to
+					// require and none to honour. Every other codec parses text into fields and must declare
+					// what they are.
+					const opaque = doc.storage?.codec === 'file';
+					if (!doc.name || (!doc.schema && !doc.extends && !opaque)) fail(`${rel(srcPath)}: descriptor needs 'name' and 'schema' (or 'extends')`);
+					if (opaque && (doc.storage.shape ?? 'file') === 'folder') fail(`${rel(srcPath)}: collection "${doc.name}" is \`codec: file\` — that is one file per record, not a folder; drop \`shape: folder\``);
+					if (opaque && Object.keys(doc.schema?.properties ?? {}).length) console.warn(`⚠ collection ${doc.name}: \`schema\` is ignored under \`codec: file\` — an opaque record's fields are derived (ext, bytes)`);
 					if (!descriptorGroups.has(doc.name)) descriptorGroups.set(doc.name, []);
 					descriptorGroups.get(doc.name).push({ src: { path: rel(srcPath), hash: sha256(bytes) }, doc, moduleName: source.name });
 					contributed.add(source.name);
@@ -655,6 +661,19 @@ export function compile({ root, pkg }) {
 			merged.storage.repo = '.';
 		}
 		storageEntries.push({ name, path: merged.storage.path, base: merged.storage.base });
+		// An opaque record has no AUTHORED schema, but it does have fields — derived ones. Stating them
+		// here rather than special-casing every reader is what keeps `codec: file` a codec instead of a
+		// feature: ajv, the field list, `dt values`, the form and the diagram all carry on unchanged,
+		// and what they read is true. Any authored schema was warned about and is replaced.
+		if ((merged.storage.codec ?? 'md') === 'file') {
+			merged.schema = {
+				type: 'object',
+				properties: {
+					ext: { type: 'string', description: "The file's extension, lowercase and without the dot. Derived from the file — never written." },
+					bytes: { type: 'integer', description: "The file's size in bytes. Derived from the file — never written." },
+				},
+			};
+		}
 		for (const [at, tpl, target] of staleDisplayKeywords(merged.schema)) {
 			const fix = target
 				? `either DELETE it (a reference to "${target}" now inherits that collection's \`title_template\`) or rename it to \`x-title-template\` if this field really needs its own`
