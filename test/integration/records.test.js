@@ -65,7 +65,11 @@ describe('hard validation — nothing was written', () => {
 		['a bad enum value', { title: 'T', status: 'nope' }, /not in enum/],
 		['a missing required field', { status: 'todo' }, /required/],
 		['a dangling reference', { title: 'T', owner: 'people/ghost' }, /dangling reference/],
-		['a malformed reference', { title: 'T', owner: 'ghost' }, /is not <collection>\/<id>/],
+		// `owner` is single-target (x-reference: 'people'), so a bare id like 'ghost' is now
+		// qualified to 'people/ghost' on input (task 8) and fails as a dangling reference, not as
+		// malformed syntax — that path is covered in ref-unions.test.js. An empty string is the one
+		// value qualifyBareRefs leaves untouched, so it still reaches checkRefs raw and unparseable.
+		['a malformed reference', { title: 'T', owner: '' }, /is not <collection>\/<id>/],
 		['a reference to the wrong collection', { title: 'T', owner: 'tasks/x' }, /must target collection "people"/],
 	];
 

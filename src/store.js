@@ -174,6 +174,7 @@ export class Store {
 		// canonical, offset-carrying value. ajv's `date-time` accepts exactly one spelling; without
 		// this every human-shaped input is a validation error (see src/temporal.js).
 		normalizeRecord(d.schema, fields);
+		this.qualifyBareRefs(d, fields);
 		const validate = this.ajv.compile(d.schema); // useDefaults mutates: defaults materialize
 		if (!validate(fields)) {
 			const msgs = validate.errors.map((e) => '  ' + fmtAjvError(e, fields));
@@ -181,6 +182,28 @@ export class Store {
 		}
 		if (!skipRefs) this.checkRefs(d, fields);
 		return fields;
+	}
+
+	// Bare ids are accepted on INPUT for a field whose target set has exactly one member, and
+	// qualified HERE — the same choke point that canonicalizes datetimes (normalizeRecord), for the
+	// same reason: every write path (CLI, form, agent) reaches disk through validate(), so the file
+	// always carries the one canonical spelling. Union and '*' fields never qualify: the prefix is
+	// the only type information those values carry. A value that already parses as a ref is never
+	// rewritten — so a qualified-but-wrong id fails downstream as a precise dangling reference, not
+	// as malformed syntax. Known limit: a slash-carrying bare id (path-shaped ids) parses as a ref
+	// and is not qualified; the checkRefs error then names the misread collection.
+	qualifyBareRefs(d, fields) {
+		for (const [key, s] of Object.entries(d.schema.properties ?? {})) {
+			const targets = refTargetsOf(s);
+			if (!targets || targets === '*' || targets.length !== 1) continue;
+			const raw = fields[key];
+			if (raw == null) continue;
+			const qualify = (v) =>
+				typeof v === 'string' && v !== '' && !v.startsWith('@') && !parseRef(v, this.namespaces)
+					? `${targets[0]}/${v}`
+					: v;
+			fields[key] = Array.isArray(raw) ? raw.map(qualify) : qualify(raw);
+		}
 	}
 
 	checkRefs(d, fields, prefix = []) {
