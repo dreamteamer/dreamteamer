@@ -688,8 +688,8 @@ export function compile({ root, pkg }) {
 		const declaredDeps = new Set(groupModules.flatMap((m) => moduleDeps.get(m) ?? []));
 		const declaredPeers = new Set(groupModules.flatMap((m) => modulePeers.get(m) ?? []));
 		const owns = (t) => groupModules.includes(collOwner.get(t));
-		for (const [at, target] of refTargets(merged.schema)) {
-			if (target === '*') {
+		for (const [at, raw] of refTargets(merged.schema)) {
+			if (raw === '*') {
 				// The workspace module is the orchestrating parent and may reference anything —
 				// including modules that do not exist yet, which is what `tasks.item` means.
 				// Anywhere else a wildcard is a cross-module surface no declaration can cover.
@@ -698,14 +698,20 @@ export function compile({ root, pkg }) {
 				}
 				continue;
 			}
-			if (CORE_COLLECTIONS.has(target) || owns(target)) continue;
-			const owner = collOwner.get(target);
-			if (owner && declaredDeps.has(owner)) continue;
-			if (declaredPeers.has(target)) continue;
-			const fix = owner
-				? `add "${owner}" to dreamteamer.dependencies, or "${target}" to dreamteamer.peerDependencies if the module should work without it`
-				: `add "${target}" to dreamteamer.peerDependencies — no installed module provides it`;
-			fail(`collection "${name}": field "${at}" references "${target}", which ${groupModules.join('/')} neither owns nor declares.\n  ${fix}.`);
+			// `x-reference` accepts a scalar or a LIST of targets (the union) — run the identical
+			// per-target contract check over every member. Shape validation (must be a non-empty
+			// array of strings) is a separate concern, added where the union is first accepted.
+			const targets = Array.isArray(raw) ? raw : [raw];
+			for (const target of targets) {
+				if (CORE_COLLECTIONS.has(target) || owns(target)) continue;
+				const owner = collOwner.get(target);
+				if (owner && declaredDeps.has(owner)) continue;
+				if (declaredPeers.has(target)) continue;
+				const fix = owner
+					? `add "${owner}" to dreamteamer.dependencies, or "${target}" to dreamteamer.peerDependencies if the module should work without it`
+					: `add "${target}" to dreamteamer.peerDependencies — no installed module provides it`;
+				fail(`collection "${name}": field "${at}" references "${target}", which ${groupModules.join('/')} neither owns nor declares.\n  ${fix}.`);
+			}
 		}
 		// Declared peers that nothing provides, stated as DATA on the descriptor so `check` can
 		// excuse their references without learning what a module is (the `storage.base` precedent —
