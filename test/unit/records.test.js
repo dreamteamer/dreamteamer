@@ -5,7 +5,7 @@
 // inside it. Every shape that could climb out is enumerated here.
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { assertSafeId, parseRecordText, patternRe, unknownFields, EXT } from '../../src/records.js';
+import { assertSafeId, parseRecordText, patternRe, unknownFields, EXT, idFromRecordPath } from '../../src/records.js';
 
 const md = { storage: { codec: 'md' } };
 
@@ -98,7 +98,42 @@ describe('patternRe', () => {
 });
 
 describe('EXT', () => {
-	test('maps every codec the descriptor schema allows', () => {
+	// `file` is deliberately absent: an opaque record's extension is whatever was imported, so it has
+	// no fixed tail. idFromRecordPath is where that codec's filenames are understood.
+	test('maps every codec that HAS one extension', () => {
 		assert.deepEqual(EXT, { md: '.md', yaml: '.yaml', json: '.json' });
+	});
+});
+
+describe('idFromRecordPath', () => {
+	const fileCodec = { storage: { suffix: 'asset', codec: 'file' } };
+	const mdCodec = { storage: { suffix: 'contact', codec: 'md' } };
+
+	test('fixed-extension codecs match their one extension, at any depth', () => {
+		assert.equal(idFromRecordPath(mdCodec, 'adi-moshe.contact.md'), 'adi-moshe');
+		assert.equal(idFromRecordPath(mdCodec, '2026/07/adi.contact.md'), '2026/07/adi');
+		assert.equal(idFromRecordPath(mdCodec, 'adi-moshe.contact.yaml'), null);
+		assert.equal(idFromRecordPath(mdCodec, 'adi-moshe.md'), null);
+	});
+
+	test('the file codec takes ONE extension segment, whatever it is', () => {
+		assert.equal(idFromRecordPath(fileCodec, 'icons/lucide/hotel.asset.svg'), 'icons/lucide/hotel');
+		assert.equal(idFromRecordPath(fileCodec, 'logos/monday.asset.png'), 'logos/monday');
+		assert.equal(idFromRecordPath(fileCodec, 'a.asset.JPEG'), 'a');
+	});
+
+	// An archive or a dotfile dropped into the folder must stay a stray rather than becoming a
+	// record with a two-part extension — `check` is the only thing that will ever mention it.
+	test('two extension segments, no extension, or the wrong suffix are not records', () => {
+		assert.equal(idFromRecordPath(fileCodec, 'x.asset.tar.gz'), null);
+		assert.equal(idFromRecordPath(fileCodec, 'x.asset'), null);
+		assert.equal(idFromRecordPath(fileCodec, 'x.other.svg'), null);
+		assert.equal(idFromRecordPath(fileCodec, '.asset.svg'), null);
+	});
+
+	test('a suffix carrying regex metacharacters is matched literally', () => {
+		const dotty = { storage: { suffix: 'a.b', codec: 'file' } };
+		assert.equal(idFromRecordPath(dotty, 'x.a.b.svg'), 'x');
+		assert.equal(idFromRecordPath(dotty, 'x.axb.svg'), null);
 	});
 });
