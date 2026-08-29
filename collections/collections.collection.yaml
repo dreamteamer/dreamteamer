@@ -40,9 +40,17 @@ schema:
           description: Folder holding the records, workspace-relative. `data/` for content, `state/` for operational records, `system/` for sources.
         codec:
           type: string
-          enum: [md, yaml, json]
+          enum: [md, yaml, json, file]
           default: md
-          description: File format. Use `md` whenever the record has a body a human will read.
+          description: 'File format. Use `md` whenever the record has a body a human will read. `file` makes the record an OPAQUE file — any extension, no frontmatter, fields DERIVED (`ext`, `bytes`), written with `add --from <path>` and never with `set`. For icons, logos and images.'
+        max_bytes:
+          type: integer
+          default: 204800
+          description: '`codec: file` only — the largest a record may be, in bytes. `check` reports anything over it. A record is a small file; a big one belongs outside the vault.'
+        extensions:
+          type: array
+          items: { type: string }
+          description: '`codec: file` only — the extensions this collection accepts, lowercase and without the dot. Omitted means any.'
         shape:
           type: string
           enum: [file, folder]

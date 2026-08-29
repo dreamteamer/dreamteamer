@@ -119,6 +119,16 @@ export function collectionCommand(ws, collection, verb, args) {
 			return 0;
 		}
 		case 'add': {
+			// An opaque collection is written by IMPORTING a file: the id is positional (nothing can
+			// generate it from fields that do not exist) and the bytes come from --from.
+			if ((d.storage.codec ?? 'md') === 'file') {
+				const id = need(pos, 0, 'id');
+				if (!flags.from) throw new Error(`"${collection}" is a \`codec: file\` collection — pass --from <path> with the file to import`);
+				const { id: written, file } = store.addFile(collection, id, flags.from, { force: !!flags.force });
+				flags.json ? emit(JSON.stringify({ id: written, path: rel(ws.root, file) })) : console.log(`✔ ${rel(ws.root, file)}`);
+				return 0;
+			}
+			if (flags.from) throw new Error(`--from imports a file as a record, and "${collection}" is not a \`codec: file\` collection`);
 			const fields = coerceArrays(d, stripMeta(flags));
 			const { id, file } = store.add(collection, fields, { id: flags.id });
 			flags.json ? emit(JSON.stringify({ id, path: rel(ws.root, file) })) : console.log(`✔ ${rel(ws.root, file)}`);
