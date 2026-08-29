@@ -239,4 +239,53 @@ describe('relation keywords normalize onto the x-reference node', () => {
 		});
 		assert.match(compileError(ws), /conflicting x-inverse/);
 	});
+
+	test('x-title-template authored on the array property lands on items in the compiled descriptor', () => {
+		const { root } = workspace({
+			collections: {
+				reviews: simpleCollection({ storage: { suffix: 'review' } }),
+				meetings: {
+					id: { generate: '{{ name | slug }}' },
+					storage: { suffix: 'meeting' },
+					schema: {
+						type: 'object', required: ['name'],
+						properties: {
+							name: { type: 'string' },
+							// authored in the historically-tolerated place: on the property
+							analyses: { type: 'array', 'x-title-template': '{{ name }}', items: { type: 'string', 'x-reference': 'reviews' } },
+						},
+					},
+				},
+			},
+		});
+		const compiled = readFile(root, '.dreamteamer/collections/meetings.collection.yaml');
+		const doc = load(compiled); // use the engine's yaml loader, imported in the test file
+		const prop = doc.schema.properties.analyses;
+		assert.equal(prop['x-title-template'], undefined);
+		assert.equal(prop.items['x-title-template'], '{{ name }}');
+	});
+
+	test('conflicting x-title-template duplicates fail compile', () => {
+		const { ws } = workspace({
+			compile: false,
+			collections: {
+				reviews: simpleCollection({ storage: { suffix: 'review' } }),
+				meetings: {
+					id: { generate: '{{ name | slug }}' },
+					storage: { suffix: 'meeting' },
+					schema: {
+						type: 'object', required: ['name'],
+						properties: {
+							name: { type: 'string' },
+							analyses: {
+								type: 'array', 'x-title-template': '{{ name }}',
+								items: { type: 'string', 'x-reference': 'reviews', 'x-title-template': '{{ title }}' },
+							},
+						},
+					},
+				},
+			},
+		});
+		assert.match(compileError(ws), /conflicting x-title-template/);
+	});
 });
