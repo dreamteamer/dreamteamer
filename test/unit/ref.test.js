@@ -1,6 +1,6 @@
-import test from 'node:test';
+import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { splitRef } from '../../src/ref.js';
+import { splitRef, refTargetsOf } from '../../src/ref.js';
 
 const descriptors = new Map([
 	['contacts', {}], ['finance/transactions', {}], ['finance/transaction-tags', {}], ['repos', {}],
@@ -22,4 +22,29 @@ test('unknown collection throws and names the knowns', () => {
 });
 test('bare collection name throws when an id is required', () => {
 	assert.throws(() => splitRef(descriptors, 'contacts'), /no record id/);
+});
+
+describe('refTargetsOf', () => {
+	test('null for a non-reference property', () => {
+		assert.equal(refTargetsOf({ type: 'string' }), null);
+		assert.equal(refTargetsOf(undefined), null);
+	});
+	test('scalar target becomes a one-element array', () => {
+		assert.deepEqual(refTargetsOf({ type: 'string', 'x-reference': 'companies' }), ['companies']);
+	});
+	test('list target passes through', () => {
+		assert.deepEqual(
+			refTargetsOf({ type: 'string', 'x-reference': ['meetings', 'clients'] }),
+			['meetings', 'clients'],
+		);
+	});
+	test('reads items for array properties', () => {
+		assert.deepEqual(
+			refTargetsOf({ type: 'array', items: { type: 'string', 'x-reference': ['a', 'finance/accounts'] } }),
+			['a', 'finance/accounts'],
+		);
+	});
+	test("'*' passes through as the sentinel", () => {
+		assert.equal(refTargetsOf({ type: 'string', 'x-reference': '*' }), '*');
+	});
 });
