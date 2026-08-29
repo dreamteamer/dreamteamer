@@ -535,11 +535,15 @@ function retargetRefs(schema, oldName, newName) {
  *   - **Multi-line flow list**: a flow list split across lines — `[` on one line, `]` on
  *     another. The flow regex requires both brackets and the body on the same line, so this
  *     spelling is not matched and goes reparse-asserted instead.
+ *   - **A blank or comment line BETWEEN block-sequence items**: the item regex requires a
+ *     leading `-`, so a blank line or a `#`-comment line inside the list resets `listIndent`
+ *     early. Every item after the gap is then read as ordinary text rather than a list member,
+ *     and (having no `x-reference:` key on its own line) is left untouched.
  *
- *   Both fail closed on purpose: the engine's own `dump()` always emits deeper-indented
- *   sequences and single-line flow lists, so only a hand-authored descriptor can reach these
- *   styles. Anything trickier than the three handled spellings falls through unchanged — the
- *   caller reparses and REFUSES rather than guessing.
+ *   All three fail closed on purpose: the engine's own `dump()` always emits deeper-indented,
+ *   gap-free sequences and single-line flow lists, so only a hand-authored descriptor can reach
+ *   these styles. Anything trickier than the three handled spellings falls through unchanged —
+ *   the caller reparses and REFUSES rather than guessing.
  */
 function retargetRefText(text, oldName, newName) {
 	const esc = oldName.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');

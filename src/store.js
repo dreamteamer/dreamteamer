@@ -174,6 +174,12 @@ export class Store {
 		// canonical, offset-carrying value. ajv's `date-time` accepts exactly one spelling; without
 		// this every human-shaped input is a validation error (see src/temporal.js).
 		normalizeRecord(d.schema, fields);
+		// qualifyBareRefs must ALSO run before ajv.compile(d.schema) below, for the same "one choke
+		// point" reason but a different consequence: `validate(fields)` is what triggers useDefaults,
+		// materializing any schema `default:` onto `fields` for the first time — a bare value sitting
+		// in a single-target ref field's `default:` is never seen by qualifyBareRefs and would reach
+		// checkRefs unqualified, failing as malformed rather than as the dangling reference it should
+		// read as. In practice no shipped descriptor defaults a ref field, so this is latent, not hit.
 		this.qualifyBareRefs(d, fields);
 		const validate = this.ajv.compile(d.schema); // useDefaults mutates: defaults materialize
 		if (!validate(fields)) {
@@ -186,12 +192,17 @@ export class Store {
 
 	// Bare ids are accepted on INPUT for a field whose target set has exactly one member, and
 	// qualified HERE — the same choke point that canonicalizes datetimes (normalizeRecord), for the
-	// same reason: every write path (CLI, form, agent) reaches disk through validate(), so the file
-	// always carries the one canonical spelling. Union and '*' fields never qualify: the prefix is
-	// the only type information those values carry. A value that already parses as a ref is never
-	// rewritten — so a qualified-but-wrong id fails downstream as a precise dangling reference, not
-	// as malformed syntax. Known limit: a slash-carrying bare id (path-shaped ids) parses as a ref
-	// and is not qualified; the checkRefs error then names the misread collection.
+	// same reason: add/set reach disk through validate(), so the file always carries the one
+	// canonical spelling. The deliberate exception is `revert`: it restores committed historical
+	// BYTES verbatim (that is the whole point of a revert), calling validate() only to prove the
+	// historical content still parses — never on the text that actually reaches atomicWrite. So a
+	// bare ref that was committed past this choke point (hand-edited, or written by an older engine)
+	// stays bare when reverted TO; `check` is what flags it, not this method. Union and '*' fields
+	// never qualify: the prefix is the only type information those values carry. A value that
+	// already parses as a ref is never rewritten — so a qualified-but-wrong id fails downstream as a
+	// precise dangling reference, not as malformed syntax. Known limit: a slash-carrying bare id
+	// (path-shaped ids) parses as a ref and is not qualified; the checkRefs error then names the
+	// misread collection.
 	qualifyBareRefs(d, fields) {
 		for (const [key, s] of Object.entries(d.schema.properties ?? {})) {
 			const targets = refTargetsOf(s);

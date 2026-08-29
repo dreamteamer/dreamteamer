@@ -96,7 +96,7 @@ function refTargets(schema, prefix = '') {
  * reads exactly one place. Conflicting duplicates fail loudly: silently preferring one is how a
  * hand-authored value gets shadowed with no error anywhere.
  */
-function normalizeRelationKeywords(schema, fail, name, prefix = '') {
+function normalizeRelationKeywords(schema, name, prefix = '') {
 	for (const [key, prop] of Object.entries(schema?.properties ?? {})) {
 		if (!prop || typeof prop !== 'object') continue;
 		const at = `${prefix}${key}`;
@@ -110,8 +110,8 @@ function normalizeRelationKeywords(schema, fail, name, prefix = '') {
 				delete prop[kw];
 			}
 		}
-		if (prop.properties) normalizeRelationKeywords(prop, fail, name, `${at}.`);
-		if (prop.items?.properties) normalizeRelationKeywords(prop.items, fail, name, `${at}[].`);
+		if (prop.properties) normalizeRelationKeywords(prop, name, `${at}.`);
+		if (prop.items?.properties) normalizeRelationKeywords(prop.items, name, `${at}[].`);
 	}
 }
 
@@ -715,7 +715,7 @@ export function compile({ root, pkg }) {
 		const declaredDeps = new Set(groupModules.flatMap((m) => moduleDeps.get(m) ?? []));
 		const declaredPeers = new Set(groupModules.flatMap((m) => modulePeers.get(m) ?? []));
 		const owns = (t) => groupModules.includes(collOwner.get(t));
-		normalizeRelationKeywords(merged.schema, fail, name);
+		normalizeRelationKeywords(merged.schema, name);
 		for (const [at, raw] of refTargets(merged.schema)) {
 			if (raw === '*') {
 				// The workspace module is the orchestrating parent and may reference anything —
