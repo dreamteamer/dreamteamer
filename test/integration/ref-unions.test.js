@@ -6,7 +6,8 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { workspace, simpleCollection, compileError } from '../helpers/ws.js';
+import { workspace, simpleCollection, compileError, readFile } from '../helpers/ws.js';
+import { load } from '../../src/yaml.js';
 
 function unionWorkspace() {
 	return workspace({
@@ -186,5 +187,56 @@ describe('x-reference unions: compile contract', () => {
 			},
 		});
 		assert.equal(out.code, 0);
+	});
+});
+
+describe('relation keywords normalize onto the x-reference node', () => {
+	test('x-inverse authored on the array property lands on items in the compiled descriptor', () => {
+		const { root } = workspace({
+			collections: {
+				reviews: simpleCollection({ storage: { suffix: 'review' } }),
+				meetings: {
+					id: { generate: '{{ name | slug }}' },
+					storage: { suffix: 'meeting' },
+					schema: {
+						type: 'object', required: ['name'],
+						properties: {
+							name: { type: 'string' },
+							// authored in the historically-tolerated place: on the property
+							analyses: { type: 'array', 'x-inverse': 'of', items: { type: 'string', 'x-reference': 'reviews' } },
+						},
+					},
+				},
+			},
+		});
+		const compiled = readFile(root, '.dreamteamer/collections/meetings.collection.yaml');
+		const doc = load(compiled); // use the engine's yaml loader, imported in the test file
+		const prop = doc.schema.properties.analyses;
+		assert.equal(prop['x-inverse'], undefined);
+		assert.equal(prop.items['x-inverse'], 'of');
+	});
+
+	test('conflicting duplicates fail compile', () => {
+		const { ws } = workspace({
+			compile: false,
+			collections: {
+				reviews: simpleCollection({ storage: { suffix: 'review' } }),
+				meetings: {
+					id: { generate: '{{ name | slug }}' },
+					storage: { suffix: 'meeting' },
+					schema: {
+						type: 'object', required: ['name'],
+						properties: {
+							name: { type: 'string' },
+							analyses: {
+								type: 'array', 'x-inverse': 'of',
+								items: { type: 'string', 'x-reference': 'reviews', 'x-inverse': 'about' },
+							},
+						},
+					},
+				},
+			},
+		});
+		assert.match(compileError(ws), /conflicting x-inverse/);
 	});
 });
