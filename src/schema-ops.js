@@ -518,6 +518,34 @@ function retargetRefs(schema, oldName, newName) {
  *   block    `x-reference:` + `- old` items (tracked by indent under the bare key)
  * Anything trickier falls through unchanged — the caller reparses and REFUSES rather than guessing.
  */
+/**
+ * Retarget x-reference entries when a collection name changes — rewrite DESCRIPTOR text only,
+ * leaving comments and structure intact. Handles a scalar `x-reference: doctors`, a flow list
+ * `x-reference: [doctors, nurses]`, and a block sequence list under a bare `x-reference:` key:
+ *
+ *   ```
+ *   x-reference:
+ *     - doctors
+ *     - nurses
+ *   ```
+ *
+ * Two YAML styles are deliberately NOT rewritten and fall through unchanged to the caller's
+ * reparse-assert (which throws if the return does not compile), failing closed rather than
+ * half-written:
+ *
+ *   - **Same-indent block sequence**: YAML allows `- items` at the PARENT's own indent
+ *     (`x-reference:` and `- doctors` at the same indent level). The indent state machine
+ *     requires strictly deeper dashes (`item[1].length > listIndent`), so this spelling is
+ *     never entered and goes reparse-asserted instead.
+ *   - **Multi-line flow list**: a flow list split across lines — `[` on one line, `]` on
+ *     another. The flow regex requires both brackets and the body on the same line, so this
+ *     spelling is not matched and goes reparse-asserted instead.
+ *
+ *   Both fail closed on purpose: the engine's own `dump()` always emits deeper-indented
+ *   sequences and single-line flow lists, so only a hand-authored descriptor can reach these
+ *   styles. Anything trickier than the three handled spellings stays unchanged and lets the
+ *   caller's assert catch the half-rewrite if the descriptor was in fact retouched.
+ */
 function retargetRefText(text, oldName, newName) {
 	const esc = oldName.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
 	const quoted = newName.includes('/') ? `'${newName}'` : newName;
