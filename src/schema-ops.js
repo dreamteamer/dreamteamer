@@ -512,16 +512,10 @@ function retargetRefs(schema, oldName, newName) {
 
 /**
  * The TEXTUAL x-reference retarget — a line edit, never load→dump, so comments survive (see the
- * step-4 comment in renameCollection for the 17-descriptor lesson). Three spellings:
- *   scalar   `x-reference: old`            (block to end-of-line, or inline flow ending at , } #)
- *   flow     `x-reference: [a, old, b]`    (elements rewritten inside the brackets)
- *   block    `x-reference:` + `- old` items (tracked by indent under the bare key)
- * Anything trickier falls through unchanged — the caller reparses and REFUSES rather than guessing.
- */
-/**
- * Retarget x-reference entries when a collection name changes — rewrite DESCRIPTOR text only,
- * leaving comments and structure intact. Handles a scalar `x-reference: doctors`, a flow list
- * `x-reference: [doctors, nurses]`, and a block sequence list under a bare `x-reference:` key:
+ * step-4 comment in renameCollection for the 17-descriptor lesson).
+ *
+ * Handles three spellings: scalar (`x-reference: old`), flow list (`x-reference: [a, old, b]`),
+ * and block sequence (`x-reference:` + `- old` items tracked by indent under the key):
  *
  *   ```
  *   x-reference:
@@ -543,8 +537,8 @@ function retargetRefs(schema, oldName, newName) {
  *
  *   Both fail closed on purpose: the engine's own `dump()` always emits deeper-indented
  *   sequences and single-line flow lists, so only a hand-authored descriptor can reach these
- *   styles. Anything trickier than the three handled spellings stays unchanged and lets the
- *   caller's assert catch the half-rewrite if the descriptor was in fact retouched.
+ *   styles. Anything trickier than the three handled spellings falls through unchanged — the
+ *   caller reparses and REFUSES rather than guessing.
  */
 function retargetRefText(text, oldName, newName) {
 	const esc = oldName.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
