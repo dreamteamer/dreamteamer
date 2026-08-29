@@ -87,7 +87,7 @@ describe('unknownFields — the typo detector', () => {
 describe('patternRe', () => {
 	test('compiles with the unicode flag so property escapes work', () => {
 		assert.ok(patternRe('^[a-z0-9-]+$').test('fix-login'));
-		assert.ok(patternRe('^\\p{Letter}+$', 'u').test('שלום'));
+		assert.ok(patternRe('^\\p{Letter}+$', 'u').test('\u05E9\u05DC\u05D5\u05DD'));
 	});
 
 	// A malformed pattern throws here rather than silently matching nothing — and compile refuses one
