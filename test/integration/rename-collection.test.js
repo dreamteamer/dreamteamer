@@ -458,4 +458,45 @@ schema:
 		assert.match(after, /the comment that must survive/);
 		assert.equal(ws.dt('compile').code, 0);
 	});
+
+	test('a rename into a NAMESPACED name is quoted in both list forms', () => {
+		const ws = workspace({
+			namespaces: ['health'],
+			collections: {
+				doctors: simpleCollection({ storage: { suffix: 'doctor' } }),
+				clients: simpleCollection({ storage: { suffix: 'client' } }),
+			},
+		});
+		// hand-author a descriptor carrying both list spellings, to be retargeted into a namespaced name
+		const src = `name: notes
+storage: { suffix: note }
+id: { generate: '{{ name | slug }}' }
+schema:
+  type: object
+  required: [name]
+  properties:
+    name: { type: string }
+    about: { type: string, x-reference: [doctors, clients] }
+    sources:
+      type: array
+      items:
+        type: string
+        x-reference:
+          - doctors
+          - clients
+`;
+		fs.writeFileSync(path.join(ws.root, 'modules', WS_MODULE, 'collections', 'notes.collection.yaml'), src);
+		assert.equal(ws.dt('compile').code, 0);
+		assert.equal(ws.dt('schema', 'rename-collection', 'doctors', 'health/doctors').code, 0);
+		const after = readFile(ws.root, `modules/${WS_MODULE}/collections/notes.collection.yaml`);
+		// the namespaced name should be quoted in the flow list
+		assert.match(after, /x-reference: \['health\/doctors', clients\]/);
+		// and should be quoted in the block list
+		assert.match(after, /- 'health\/doctors'/);
+		// the unqualified old name should not appear as a bare reference
+		assert.doesNotMatch(after, /- doctors\b/);
+		assert.doesNotMatch(after, /x-reference:\s+doctors\b/);
+		// and the workspace still compiles
+		assert.equal(ws.dt('compile').code, 0);
+	});
 });
