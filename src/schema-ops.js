@@ -11,6 +11,7 @@ import { load, dump } from './yaml.js';
 import { compile, kindDir, titleCase } from './compile.js';
 import { readManifest, runtimeKindDir } from './runtime.js';
 import { normalizeNamespaces, namespaceOf, baseNameOf, qualify, defaultStoragePath } from './namespace.js';
+import { refTargetsOf } from './ref.js';
 
 // Same rule as store.js: a git failure we CATCH must not also print git's own error on top of the
 // clean message we throw. stdout stays piped because some callers read it.
@@ -634,9 +635,13 @@ function upsertField(ws, store, collection, fieldName, prop, required, verb) {
 	// target collection's `title_template`, so a field drawer that round-trips that projection
 	// writes the inherited value back onto the field — hand-recreating exactly the 49 duplicated
 	// `x-display` lines the inheritance replaced. Only a template that DIFFERS from the target's
-	// is a real authored override.
-	const ref = prop['x-reference'] ?? prop.items?.['x-reference'];
-	const inherited = ref && ref !== '*' ? store.descriptors.get(ref)?.title_template : undefined;
+	// is a real authored override. For a UNION (`x-reference` a list), presentation inherits only
+	// when every member's `title_template` agrees — so the cleanup here computes the same
+	// unanimous value, not just the first member's.
+	const targets = refTargetsOf(prop) ?? [];
+	const tpls = targets === '*' ? [] : targets.map((t) => store.descriptors.get(t)?.title_template);
+	const first = tpls[0];
+	const inherited = typeof first === 'string' && first.length > 0 && tpls.every((v) => v === first) ? first : undefined;
 	if (inherited) {
 		if (prop['x-title-template'] === inherited) {
 			prop = { ...prop };

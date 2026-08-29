@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { workspace, simpleCollection, compileError, readFile } from '../helpers/ws.js';
 import { load } from '../../src/yaml.js';
+import { presentation } from '../../src/presentation.js';
 
 function unionWorkspace() {
 	return workspace({
@@ -287,5 +288,43 @@ describe('relation keywords normalize onto the x-reference node', () => {
 			},
 		});
 		assert.match(compileError(ws), /conflicting x-title-template/);
+	});
+});
+
+describe('x-reference unions: presentation', () => {
+	test('a union field emits one relations row per member; title inherits only on agreement', () => {
+		const { store } = workspace({
+			collections: {
+				meetings: simpleCollection({ storage: { suffix: 'meeting' }, title_template: '{{ name }}' }),
+				clients: simpleCollection({ storage: { suffix: 'client' }, title_template: '{{ name }}' }),
+				invoices: simpleCollection({ storage: { suffix: 'invoice' }, title_template: '{{ number }}' }),
+				notes: {
+					id: { generate: '{{ name | slug }}' },
+					storage: { suffix: 'note' },
+					schema: {
+						type: 'object', required: ['name'],
+						properties: {
+							name: { type: 'string' },
+							agree: { type: 'string', 'x-reference': ['meetings', 'clients'] },
+							disagree: { type: 'string', 'x-reference': ['meetings', 'invoices'] },
+						},
+					},
+				},
+			},
+		});
+		// presentation() takes the compiled descriptor map — `store.descriptors`, the same shape
+		// manual-ordering.test.js passes it (there via `new Store(ws.ws).descriptors`).
+		const p = presentation(store.descriptors);
+		const rel = p.relations.filter((r) => r.collection === 'notes');
+		assert.deepEqual(
+			rel.map((r) => [r.field, r.related_collection]).sort(),
+			[['agree', 'clients'], ['agree', 'meetings'], ['disagree', 'invoices'], ['disagree', 'meetings']],
+		);
+		// p.fields is keyed BY COLLECTION (an object, not a flat array) — `fields[d.name] = rows` in
+		// presentation.js — so the field rows for `notes` are `p.fields.notes`, not a filter over p.fields.
+		const fields = p.fields.notes;
+		const tpl = (name) => fields.find((f) => f.field === name)?.meta?.view_options?.template;
+		assert.equal(tpl('agree'), '{{ name }}');   // all members agree → inherited
+		assert.equal(tpl('disagree'), undefined);   // members disagree → no inheritance
 	});
 });

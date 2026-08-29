@@ -6,6 +6,7 @@
 // the studio components already speak (field {field,type,meta,schema}).
 
 import { sourceHint } from './runtime.js';
+import { refTargetsOf } from './ref.js';
 
 /** the projection for every collection: rows keyed by collection name + collection meta. */
 export function presentation(descriptors) {
@@ -39,9 +40,11 @@ export function presentation(descriptors) {
 		for (const [name, prop] of Object.entries(d.schema?.properties ?? {})) {
 			if (name === 'id') continue;
 			rows.push(fieldRow(d, name, prop, new Set(d.schema?.required ?? []).has(name), descriptors));
-			const target = referenceTargetOf(prop);
-			if (target) {
-				relations.push({ collection: d.name, field: name, related_collection: target, list: prop.type === 'array' });
+			const targets = referenceTargetsOf(prop);
+			if (targets) {
+				for (const target of targets) {
+					relations.push({ collection: d.name, field: name, related_collection: target, list: prop.type === 'array' });
+				}
 			}
 		}
 		fields[d.name] = rows;
@@ -79,10 +82,10 @@ function collectionRow(d) {
 	return { collection: d.name, meta, system };
 }
 
-function referenceTargetOf(prop) {
-	const ref = prop.type === 'array' ? prop.items?.['x-reference'] : prop['x-reference'];
-	if (typeof ref !== 'string' || ref === '' || ref === '*') return null;
-	return ref;
+/** The named target collections of a reference field — null for a non-ref and for '*'. */
+function referenceTargetsOf(prop) {
+	const targets = refTargetsOf(prop);
+	return targets && targets !== '*' ? targets : null;
 }
 
 /**
@@ -92,14 +95,18 @@ function referenceTargetOf(prop) {
  * `title_template` — because "a company is labelled by its name" is a fact about companies, not
  * about each of the eleven fields that point at one. Before this, that fact was hand-copied onto
  * every referencing field as `x-display: '{{ name }}'`; 51 of the 54 sites in this workspace were
- * exactly what the target already implies.
+ * exactly what the target already implies. A UNION field inherits only when every member agrees —
+ * a template that renders half the values wrong is worse than the raw qualified ref, which is at
+ * least always correct.
  */
 function titleTemplateOf(prop, descriptors) {
 	const own = prop.type === 'array' ? prop.items?.['x-title-template'] : prop['x-title-template'];
 	if (typeof own === 'string' && own.length > 0) return own;
-	const target = referenceTargetOf(prop);
-	const inherited = target ? descriptors.get(target)?.title_template : undefined;
-	return typeof inherited === 'string' && inherited.length > 0 ? inherited : undefined;
+	const targets = referenceTargetsOf(prop);
+	if (!targets) return undefined;
+	const inherited = targets.map((t) => descriptors.get(t)?.title_template);
+	const first = inherited[0];
+	return typeof first === 'string' && first.length > 0 && inherited.every((v) => v === first) ? first : undefined;
 }
 
 function fieldRow(d, name, prop, isRequired, descriptors) {
@@ -114,7 +121,7 @@ function fieldRow(d, name, prop, isRequired, descriptors) {
 	if (typeof prop.title === 'string' && prop.title.length > 0) meta.title = prop.title;
 
 	let type = 'string';
-	const target = referenceTargetOf(prop);
+	const target = referenceTargetsOf(prop);
 
 	if (prop['x-body'] === true) {
 		type = 'text';
