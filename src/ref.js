@@ -11,3 +11,17 @@ export function splitRef(descriptors, ref) {
 	if (ref === best) throw new Error(`reference "${ref}" names a collection but no record id`);
 	return { collection: best, id: ref.slice(best.length + 1) };
 }
+
+/**
+ * The declared target set of a reference property: '*', a non-empty array of collection names, or
+ * null when the property is not a reference. `x-reference` accepts a scalar or a LIST of targets;
+ * this is the ONE place that widening is decoded — every consumer reads targets through here (or
+ * applies the identical one-liner where importing would cross a layer), so the two spellings can
+ * never mean different things in different subsystems.
+ */
+export function refTargetsOf(prop) {
+	const raw = prop?.['x-reference'] ?? prop?.items?.['x-reference'];
+	if (raw == null) return null;
+	if (raw === '*') return '*';
+	return Array.isArray(raw) ? raw : [raw];
+}
