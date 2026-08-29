@@ -5,6 +5,7 @@
 // are the REFUSALS — a ref into an unlisted collection must fail naming the allowed set.
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import { workspace, simpleCollection } from '../helpers/ws.js';
 
 function unionWorkspace() {
@@ -80,5 +81,69 @@ describe('x-reference unions: store write path', () => {
 			() => store.add('contacts', { name: 'Jane', company: 'widgets/gizmo' }),
 			/must target collection "companies"/,
 		);
+	});
+});
+
+describe('x-reference unions: check', () => {
+	test('flags a hand-edited ref into an unlisted collection; passes listed ones', () => {
+		const { store, root, dt } = unionWorkspace();
+		store.add('notes', { name: 'ok', about: 'meetings/standup' });
+		// hand-edit past the store, the way a human with an editor does
+		const file = `${root}/data/notes/ok.note.md`;
+		fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace('meetings/standup', 'clients/acme'));
+		const res = dt('check');
+		assert.equal(res.code, 1);
+		assert.match(res.stdout + res.stderr, /should target one of: meetings, finance\/accounts/);
+	});
+
+	test('x-inverse symmetry works across a union field', () => {
+		const { store, dt } = workspace({
+			collections: {
+				meetings: {
+					id: { generate: '{{ name | slug }}' },
+					storage: { suffix: 'meeting' },
+					schema: {
+						type: 'object', required: ['name'],
+						properties: {
+							name: { type: 'string' },
+							analyses: { type: 'array', items: { type: 'string', 'x-reference': 'reviews' } },
+						},
+					},
+				},
+				briefs: {
+					id: { generate: '{{ name | slug }}' },
+					storage: { suffix: 'brief' },
+					schema: {
+						type: 'object', required: ['name'],
+						properties: {
+							name: { type: 'string' },
+							analyses: { type: 'array', items: { type: 'string', 'x-reference': 'reviews' } },
+						},
+					},
+				},
+				reviews: {
+					id: { generate: '{{ name | slug }}' },
+					storage: { suffix: 'review' },
+					schema: {
+						type: 'object', required: ['name'],
+						properties: {
+							name: { type: 'string' },
+							of: { type: 'string', 'x-reference': ['meetings', 'briefs'], 'x-inverse': 'analyses' },
+						},
+					},
+				},
+			},
+			records: { meetings: [{ name: 'Standup' }], briefs: [{ name: 'Pitch' }] },
+		});
+		// symmetric pair: review → brief, brief → review. The union value names WHICH collection
+		// the symmetry pass must look in — no per-target syntax needed.
+		store.add('reviews', { name: 'r1', of: 'briefs/pitch' });
+		store.set('briefs', 'pitch', { analyses: ['reviews/r1'] });
+		assert.equal(dt('check').code, 0);
+		// break it: the brief stops pointing back
+		store.set('briefs', 'pitch', { analyses: [] });
+		const res = dt('check');
+		assert.equal(res.code, 1);
+		assert.match(res.stdout + res.stderr, /analyses: must point back to "reviews\/r1"/);
 	});
 });
