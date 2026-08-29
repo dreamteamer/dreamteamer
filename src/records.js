@@ -47,6 +47,26 @@ export function unknownFields(schema, fields) {
 
 export const EXT = { md: '.md', yaml: '.yaml', json: '.json' };
 
+/** The id a record file carries, or null when this path is not a record of `d`.
+ *  `relPath` is relative to the collection's data directory.
+ *
+ *  THE ONLY PLACE a filename becomes an id. store, check and events each carried their own copy of
+ *  `endsWith('.' + suffix + EXT[codec])`, which is three places to update and two to forget.
+ *
+ *  `codec: file` records are opaque bytes whose extension is whatever was imported, so their tail is
+ *  `.<suffix>.<ONE extension segment>` — one, because `x.asset.tar.gz` in the folder is an archive
+ *  someone dropped there, and calling it a record would hide it from `check`'s stray report. */
+export function idFromRecordPath(d, relPath) {
+	const suffix = d.storage.suffix;
+	if ((d.storage.codec ?? 'md') === 'file') {
+		const lit = suffix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+		const m = new RegExp(`^(.+)\\.${lit}\\.[A-Za-z0-9]+$`).exec(relPath);
+		return m ? m[1] : null;
+	}
+	const tail = `.${suffix}${EXT[d.storage.codec ?? 'md']}`;
+	return relPath.endsWith(tail) ? relPath.slice(0, -tail.length) : null;
+}
+
 const JUNK_DIRS = new Set(['__pycache__', 'node_modules']);
 const JUNK_FILE = /\.(pyc|pyo)$|^\.DS_Store$/;
 
