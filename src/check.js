@@ -199,7 +199,10 @@ function collectRefFields(schema, prefix = []) {
 		if (!s || typeof s !== 'object') continue;
 		const p = [...prefix, key];
 		const targets = refTargetsOf(s);
-		if (targets) out.push([p, targets, s['x-inverse'] ?? s.items?.['x-inverse']]);
+		if (targets) {
+			const holder = s['x-reference'] ? s : s.items;
+			out.push([p, targets, holder['x-inverse']]);
+		}
 		if (s.properties) out.push(...collectRefFields(s, p));
 		if (s.items?.properties) out.push(...collectRefFields(s.items, p));
 	}

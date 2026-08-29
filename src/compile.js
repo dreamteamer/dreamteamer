@@ -89,6 +89,32 @@ function refTargets(schema, prefix = '') {
 	return out;
 }
 
+/**
+ * Hoist per-relation keywords onto the node that CARRIES `x-reference` — `items` for array fields.
+ * Both places were historically tolerated and check.js read `s['x-inverse'] ?? s.items['x-inverse']`,
+ * a two-place read every future consumer would have had to copy. After this, every runtime consumer
+ * reads exactly one place. Conflicting duplicates fail loudly: silently preferring one is how a
+ * hand-authored value gets shadowed with no error anywhere.
+ */
+function normalizeRelationKeywords(schema, fail, name, prefix = '') {
+	for (const [key, prop] of Object.entries(schema?.properties ?? {})) {
+		if (!prop || typeof prop !== 'object') continue;
+		const at = `${prefix}${key}`;
+		if (prop.items && typeof prop.items === 'object' && prop.items['x-reference']) {
+			for (const kw of ['x-inverse', 'x-title-template']) {
+				if (!(kw in prop)) continue;
+				if (kw in prop.items && prop.items[kw] !== prop[kw]) {
+					fail(`collection "${name}": field "${at}" declares conflicting ${kw} on the property and its items — keep one.`);
+				}
+				prop.items[kw] = prop[kw];
+				delete prop[kw];
+			}
+		}
+		if (prop.properties) normalizeRelationKeywords(prop, fail, name, `${at}.`);
+		if (prop.items?.properties) normalizeRelationKeywords(prop.items, fail, name, `${at}[].`);
+	}
+}
+
 export const KINDS = ['collections', 'skills', 'agents', 'commands', 'command-bindings', 'ui-views', 'collection-templates'];
 const FOLDER_KINDS = new Set(['skills']); // folder-shape entities: copy the whole record folder
 // DERIVED_KINDS (projected, not staged) lives in runtime.js — the boundary both halves read. Not in
@@ -689,6 +715,7 @@ export function compile({ root, pkg }) {
 		const declaredDeps = new Set(groupModules.flatMap((m) => moduleDeps.get(m) ?? []));
 		const declaredPeers = new Set(groupModules.flatMap((m) => modulePeers.get(m) ?? []));
 		const owns = (t) => groupModules.includes(collOwner.get(t));
+		normalizeRelationKeywords(merged.schema, fail, name);
 		for (const [at, raw] of refTargets(merged.schema)) {
 			if (raw === '*') {
 				// The workspace module is the orchestrating parent and may reference anything —
