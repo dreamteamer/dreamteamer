@@ -100,7 +100,11 @@ function referenceTargetsOf(prop) {
  * least always correct.
  */
 function titleTemplateOf(prop, descriptors) {
-	const own = prop.type === 'array' ? prop.items?.['x-title-template'] : prop['x-title-template'];
+	// Keyed off prop.items itself, not prop.type === 'array': the compile hoist moves an authored
+	// x-title-template onto whichever node CARRIES x-reference, which for an items-bearing property
+	// is `items` regardless of whether `type: array` was also spelled out explicitly. Reading by
+	// `type` diverged from that and silently dropped the authored template for such a field.
+	const own = prop.items?.['x-title-template'] ?? prop['x-title-template'];
 	if (typeof own === 'string' && own.length > 0) return own;
 	const targets = referenceTargetsOf(prop);
 	if (!targets) return undefined;
@@ -121,15 +125,15 @@ function fieldRow(d, name, prop, isRequired, descriptors) {
 	if (typeof prop.title === 'string' && prop.title.length > 0) meta.title = prop.title;
 
 	let type = 'string';
-	const target = referenceTargetsOf(prop);
+	const targets = referenceTargetsOf(prop); // plural: x-reference may name several collections; only truthiness is used below
 
 	if (prop['x-body'] === true) {
 		type = 'text';
 		meta.special = ['dt-body'];
 		meta.edit = 'input-rich-text-md';
-	} else if (target && prop.type !== 'array') {
+	} else if (targets && prop.type !== 'array') {
 		meta.special = ['dt-relation-path'];
-	} else if (target && prop.type === 'array') {
+	} else if (targets && prop.type === 'array') {
 		type = 'json';
 		meta.special = ['dt-relation-path', 'dt-relation-list'];
 	} else if (prop.type === 'array' && prop.items?.type === 'object') {

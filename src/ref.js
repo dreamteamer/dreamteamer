@@ -13,11 +13,18 @@ export function splitRef(descriptors, ref) {
 }
 
 /**
- * The declared target set of a reference property: '*', a non-empty array of collection names, or
- * null when the property is not a reference. `x-reference` accepts a scalar or a LIST of targets;
- * this is the ONE place that widening is decoded — every consumer reads targets through here (or
- * applies the identical one-liner where importing would cross a layer), so the two spellings can
- * never mean different things in different subsystems.
+ * The declared target set of a reference property: '*', an array of collection names, or null when
+ * the property is not a reference. `x-reference` accepts a scalar or a LIST of targets; this is the
+ * ONE place that widening is decoded — every consumer reads targets through here (or applies the
+ * identical one-liner where importing would cross a layer), so the two spellings can never mean
+ * different things in different subsystems.
+ *
+ * This function normalizes SPELLING only, not shape: `[]` decodes to `[]` and `''` decodes to
+ * `['']`, neither of which is a valid target set. Whether the array is non-empty, every member is a
+ * non-empty string, and `'*'` never hides inside a list is compile's job (see compile.js's
+ * validation of each union member) — a consumer calling this at runtime is reading an
+ * already-compiled, already-validated descriptor and can rely on the shape holding, but should not
+ * re-derive that guarantee from this decoder.
  */
 export function refTargetsOf(prop) {
 	const raw = prop?.['x-reference'] ?? prop?.items?.['x-reference'];

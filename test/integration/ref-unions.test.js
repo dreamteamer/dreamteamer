@@ -70,10 +70,17 @@ describe('bare ids on input (single-target fields only)', () => {
 	});
 
 	test('an already-qualified value is byte-identical after the write', () => {
-		// same fixture; write the qualified spelling and assert the file carries it exactly once
+		// same fixture; write the qualified spelling and assert it is exactly that value on both the
+		// parsed record and the file text — a non-anchored substring match (the previous form of this
+		// assertion) also passes for a double-qualified
+		// "content/audiences/content/audiences/executives", which is exactly the bug this guards.
 		const { store, root } = conceptWorkspace();
 		store.add('content/concepts', { name: 'Y', audiences: ['content/audiences/executives'] });
-		assert.match(readFile(root, 'data/content/concepts/y.concept.md'), /content\/audiences\/executives/);
+		assert.deepEqual(store.read('content/concepts', 'y').fields.audiences, ['content/audiences/executives']);
+		assert.match(
+			readFile(root, 'data/content/concepts/y.concept.md'),
+			/^\s*-\s*content\/audiences\/executives\s*$/m,
+		);
 	});
 
 	test('a bare id on a UNION field is rejected as malformed — the prefix is its type info', () => {

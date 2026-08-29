@@ -200,7 +200,13 @@ function collectRefFields(schema, prefix = []) {
 		const p = [...prefix, key];
 		const targets = refTargetsOf(s);
 		if (targets) {
-			const holder = s['x-reference'] ? s : s.items;
+			// s.items ?? s, not the reverse: `s['x-reference']` treats a falsy-but-present keyword
+			// ('', false) as absent, which refTargetsOf does not — that mismatch left `holder`
+			// undefined and the next line threw. Nonsense-but-authored case this still does NOT
+			// cover: `x-inverse` on `items` beside a SCALAR `x-reference` on the property is not
+			// hoisted by compile (there is no array to hoist onto), so its symmetry rule is never
+			// evaluated here either — bad authoring, not a bug in this guard.
+			const holder = s.items ?? s;
 			out.push([p, targets, holder['x-inverse']]);
 		}
 		if (s.properties) out.push(...collectRefFields(s, p));
