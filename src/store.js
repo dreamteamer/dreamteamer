@@ -13,6 +13,7 @@ import { parseRecord, parseRecordText, patternRe, fmtAjvError, unknownFields, wa
 import { normalizeRecord } from './temporal.js';
 import { NO_RUNTIME, sourceHint, loadDescriptors, runtimeDir, namespaces as compiledNamespaces, sourceRoots as compiledSourceRoots } from './runtime.js';
 import { parseRef } from './namespace.js';
+import { refTargetsOf } from './ref.js';
 
 // git calls whose failure we CATCH must not print git's own error: execFileSync forwards the
 // child's stderr to ours unless told otherwise, so a handled "not a git repository" still
@@ -184,8 +185,8 @@ export class Store {
 
 	checkRefs(d, fields, prefix = []) {
 		for (const [key, s] of Object.entries(d.schema.properties ?? {})) {
-			const target = s?.['x-reference'] ?? s?.items?.['x-reference'];
-			if (!target) continue;
+			const targets = refTargetsOf(s);
+			if (!targets) continue;
 			const raw = fields[key];
 			if (raw == null) continue;
 			for (const value of Array.isArray(raw) ? raw : [raw]) {
@@ -196,7 +197,10 @@ export class Store {
 				const parsed = parseRef(value, this.namespaces);
 				if (!parsed) throw new Error(`${key}: reference "${value}" is not <collection>/<id> — nothing was written.`);
 				const { collection: coll, id } = parsed;
-				if (target !== '*' && coll !== target) throw new Error(`${key}: reference "${value}" must target collection "${target}" — nothing was written.`);
+				if (targets !== '*' && !targets.includes(coll)) {
+					const want = targets.length === 1 ? `collection "${targets[0]}"` : `one of: ${targets.join(', ')}`;
+					throw new Error(`${key}: reference "${value}" must target ${want} — nothing was written.`);
+				}
 				if (!this.descriptors.has(coll)) throw new Error(`${key}: reference "${value}" targets unknown collection "${coll}" — nothing was written.`);
 				if (!this.ids(coll).has(id)) throw new Error(`${key}: dangling reference "${value}" — no such record. nothing was written.`);
 			}
