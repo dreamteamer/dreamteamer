@@ -39,6 +39,60 @@ function unionWorkspace() {
 	});
 }
 
+function conceptWorkspace() {
+	return workspace({
+		namespaces: ['content'],
+		collections: {
+			'content/audiences': simpleCollection({ storage: { suffix: 'audience' } }),
+			'content/concepts': {
+				id: { generate: '{{ name | slug }}' },
+				storage: { suffix: 'concept' },
+				schema: {
+					type: 'object', required: ['name'],
+					properties: {
+						name: { type: 'string' },
+						audiences: { type: 'array', items: { type: 'string', 'x-reference': 'content/audiences' } },
+					},
+				},
+			},
+		},
+		records: { 'content/audiences': [{ name: 'Executives' }] },
+	});
+}
+
+describe('bare ids on input (single-target fields only)', () => {
+	test('a bare id lands on disk qualified', () => {
+		const { store, root } = conceptWorkspace();
+		store.add('content/concepts', { name: 'X', audiences: ['executives'] });
+		const file = readFile(root, 'data/content/concepts/x.concept.md');
+		assert.match(file, /content\/audiences\/executives/);
+		assert.doesNotMatch(file, /^\s*- executives\s*$/m);
+	});
+
+	test('an already-qualified value is byte-identical after the write', () => {
+		// same fixture; write the qualified spelling and assert the file carries it exactly once
+		const { store, root } = conceptWorkspace();
+		store.add('content/concepts', { name: 'Y', audiences: ['content/audiences/executives'] });
+		assert.match(readFile(root, 'data/content/concepts/y.concept.md'), /content\/audiences\/executives/);
+	});
+
+	test('a bare id on a UNION field is rejected as malformed — the prefix is its type info', () => {
+		const { store } = unionWorkspace();
+		assert.throws(
+			() => store.add('notes', { name: 'f', about: 'standup' }),
+			/is not <collection>\/<id>/,
+		);
+	});
+
+	test('a bare TYPO on a single-target field fails as a dangling reference, not as syntax', () => {
+		const { store } = conceptWorkspace();
+		assert.throws(
+			() => store.add('content/concepts', { name: 'Z', audiences: ['exceutives'] }),
+			/dangling reference "content\/audiences\/exceutives"/,
+		);
+	});
+});
+
 describe('x-reference unions: store write path', () => {
 	test('accepts a ref into each listed target, scalar and list fields', () => {
 		const { store } = unionWorkspace();
