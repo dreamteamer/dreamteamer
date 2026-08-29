@@ -22,6 +22,43 @@ npx dreamteamer check
 
 ## 0.13.4 → 0.14.0
 
+**A record can now BE a file: `storage.codec: file`. Nothing to migrate** — it is a new codec, and
+no existing collection declares it.
+
+```yaml
+storage:
+  path: data/assets
+  codec: file          # the FILE is the record: no frontmatter, any extension
+  shape: file
+  suffix: asset
+  max_bytes: 204800    # optional, this is the default — `check` reports anything over it
+  extensions: [svg, png, jpg, jpeg, webp, gif]   # optional; omitted means any
+id: { pattern: '^(icons|logos|images)/[a-z0-9][a-z0-9/._-]*$' }
+```
+
+`data/assets/logos/monday.asset.svg` is then the record `assets/logos/monday`, and any field can
+point at it with an ordinary `x-reference: assets`. Use it for icons, logos, illustrations and
+images — the things a UI shows and a text record cannot hold.
+
+**What is different about an opaque record**, all of it a consequence of having no frontmatter:
+
+- **Its fields are DERIVED, not authored**: `ext` and `bytes`, materialized as the collection's
+  schema at compile so `dt values`, the form and every other reader work unchanged. A `schema` in
+  such a descriptor is ignored, and compile warns; a `schema` is no longer required on one.
+- **It is written by importing a file**: `dt add <collection> <id> --from <path>` — the id is
+  positional (nothing can generate it from fields that do not exist), and the file's extension
+  becomes the record's. `--force` replaces an existing one, removing its predecessor if the
+  extension changed.
+- **`dt set` REFUSES it**, naming the `add --from … --force` that replaces it instead.
+- **One id is one file.** Two extensions under the same id is a `check` violation rather than a
+  silent pick.
+- `rm`, `rename`, `history`, `diff`, references and `check`'s dangling-reference rule are unchanged
+  — a file record is a record. `diff` on a binary is git's `Binary files … differ`.
+- **`shape: folder` with `codec: file` is refused at compile**: a file codec is one file.
+
+⚠ **`check` grew two findings for these collections** — a file over `max_bytes` and an extension
+outside `extensions`. Neither can fire on a workspace that declares no file-codec collection.
+
 **`x-reference` now accepts a LIST of target collections — a union. Nothing to migrate** — values
 on disk stay fully qualified `<collection>/<id>` in every case, whichever member of the union they
 took, so a union is purely a widening of what a descriptor may DECLARE, not a change to what a
