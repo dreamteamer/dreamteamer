@@ -3,7 +3,7 @@
 // auditable and replayable forever. history IS the queue; there is no events file.
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { EXT } from './records.js';
+import { idFromRecordPath } from './records.js';
 
 /** Record events between two points, across EVERY repo that holds records. `from` is a sha or a
  *  date — a sha is meaningless in another repo, so it is resolved to its commit DATE and each
@@ -110,9 +110,8 @@ export function pathToRecord(descriptors, relPath) {
 		if (!rest.endsWith('/' + entry)) return null;
 		return { collection: best.name, id: rest.slice(0, -(entry.length + 1)) };
 	}
-	const tail = `.${best.storage.suffix}${EXT[best.storage.codec ?? 'md']}`;
-	if (!rest.endsWith(tail)) return null;
-	return { collection: best.name, id: rest.slice(0, -tail.length) };
+	const id = idFromRecordPath(best, rest);
+	return id === null ? null : { collection: best.name, id };
 }
 
 /** the commit that last touched `path` inside the range — the event's provenance sha,

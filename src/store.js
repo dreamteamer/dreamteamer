@@ -9,7 +9,7 @@ import Ajv from 'ajv';
 import addFormats from 'ajv-formats';
 import { dump } from './yaml.js';
 import { generateId } from './template.js';
-import { parseRecord, parseRecordText, patternRe, fmtAjvError, unknownFields, walk, EXT, assertSafeId } from './records.js';
+import { parseRecord, parseRecordText, patternRe, fmtAjvError, unknownFields, walk, EXT, assertSafeId, idFromRecordPath, MAX_RECORD_BYTES } from './records.js';
 import { normalizeRecord } from './temporal.js';
 import { NO_RUNTIME, sourceHint, loadDescriptors, runtimeDir, namespaces as compiledNamespaces, sourceRoots as compiledSourceRoots } from './runtime.js';
 import { parseRef } from './namespace.js';
@@ -66,11 +66,17 @@ export class Store {
 		return path.join(d.storage.base === 'runtime' ? this.runtime : this.root, d.storage.path);
 	}
 
-	filePath(d, id) {
+	filePath(d, id, ext) {
 		assertSafeId(id); // never fs-join an id that can climb out of the collection
 		if (d.storage.shape === 'folder') {
 			if (!d.storage.entry) throw new Error(`collection "${d.name}" is folder-shape but declares no storage.entry`);
 			return path.join(this.dir(d), id, d.storage.entry);
+		}
+		if ((d.storage.codec ?? 'md') === 'file') {
+			// An opaque record's extension is not derivable from its id. A caller that WRITES says what
+			// it is; a caller that reads goes through the id index instead (recordRoot, below).
+			if (!ext) throw new Error(`collection "${d.name}" is \`codec: file\` — its path needs the file's extension`);
+			return path.join(this.dir(d), `${id}.${d.storage.suffix}.${ext}`);
 		}
 		return path.join(this.dir(d), `${id}.${d.storage.suffix}${EXT[d.storage.codec ?? 'md']}`);
 	}
@@ -78,7 +84,15 @@ export class Store {
 	// the on-disk unit of a record: its folder for folder shapes, its file otherwise
 	recordRoot(d, id) {
 		assertSafeId(id);
-		return d.storage.shape === 'folder' ? path.join(this.dir(d), id) : this.filePath(d, id);
+		if (d.storage.shape === 'folder') return path.join(this.dir(d), id);
+		// Only the index knows an opaque record's extension, so the on-disk unit is looked up rather
+		// than derived. An unknown id is the caller's error either way — `read` says so first.
+		if ((d.storage.codec ?? 'md') === 'file') {
+			const file = this.ids(d.name).get(id);
+			if (!file) throw new Error(`${d.name}/${id}: no such record`);
+			return file;
+		}
+		return this.filePath(d, id);
 	}
 
 	// current HEAD — one cheap rev-parse per cache check vs a multi-thousand-file walk
@@ -113,10 +127,9 @@ export class Store {
 			}
 			return ids;
 		}
-		const tail = `.${d.storage.suffix}${EXT[d.storage.codec ?? 'md']}`;
 		for (const f of walk(dir)) {
-			const r = path.relative(dir, f);
-			if (r.endsWith(tail)) ids.set(r.slice(0, -tail.length), f);
+			const id = idFromRecordPath(d, path.relative(dir, f));
+			if (id !== null) ids.set(id, f);
 		}
 		return ids;
 	}
@@ -264,8 +277,45 @@ export class Store {
 		});
 	}
 
+	/** Import a file AS a record. There are no fields to validate and nothing to serialize, which is
+	 *  why this is a sibling of add() rather than a branch inside it — the two share their last three
+	 *  lines and nothing else. */
+	addFile(collection, id, srcPath, { force = false } = {}) {
+		const d = this.writableDescriptor(collection);
+		if ((d.storage.codec ?? 'md') !== 'file') throw new Error(`"${collection}" is not a \`codec: file\` collection — add its records with --<field> values, not --from`);
+		assertSafeId(id);
+		if (d.id?.pattern && !patternRe(d.id.pattern).test(id)) {
+			throw new Error(`id "${id}" does not match pattern ${d.id.pattern} — nothing was written.`);
+		}
+		const ext = path.extname(srcPath).slice(1).toLowerCase();
+		if (!ext) throw new Error(`${srcPath} has no extension — a file record is named by one. Nothing was written.`);
+		const allowed = d.storage.extensions;
+		if (allowed && !allowed.includes(ext)) throw new Error(`"${collection}" does not accept .${ext} — its declared extensions are ${allowed.join(', ')}. Nothing was written.`);
+		const size = fs.statSync(srcPath).size;
+		const max = d.storage.max_bytes ?? MAX_RECORD_BYTES;
+		if (size > max) throw new Error(`${srcPath} is ${size} bytes, over "${collection}"'s max_bytes of ${max} — a record is a small file. Nothing was written.`);
+		const existing = this.ids(collection).get(id);
+		if (existing && !force) throw new Error(`${collection}/${id} already exists — pass --force to replace it. Nothing was written.`);
+		const file = this.filePath(d, id, ext);
+		return this.withWriteLock(() => {
+			this._idsCache.delete(collection);
+			fs.mkdirSync(path.dirname(file), { recursive: true });
+			// A replacement whose extension changed would otherwise leave its predecessor behind, and
+			// two files under one id is the ambiguity `check` reports. One id is one file.
+			const stale = existing && existing !== file ? existing : null;
+			const restore = snapshot([file, ...(stale ? [stale] : [])]);
+			if (stale) fs.rmSync(stale, { force: true });
+			fs.copyFileSync(srcPath, file);
+			this.commit([file, ...(stale ? [stale] : [])], `dreamteamer: ${collection} add ${id}`, restore, d.storage.repo ?? '.');
+			return { id, file };
+		});
+	}
+
 	set(collection, id, changes) {
 		const d = this.writableDescriptor(collection);
+		if ((d.storage.codec ?? 'md') === 'file') {
+			throw new Error(`${collection}/${id} is a file record — its fields are derived from the file, so there is nothing to set. Replace it with \`dreamteamer add ${collection} ${id} --from <path> --force\`.`);
+		}
 		const { fields, file } = this.read(collection, id);
 		const previous = fs.readFileSync(file, 'utf8');
 		const next = { ...fields, ...changes };
