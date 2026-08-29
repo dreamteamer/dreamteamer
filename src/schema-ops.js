@@ -16,7 +16,7 @@ import { refTargetsOf } from './ref.js';
 // Same rule as store.js: a git failure we CATCH must not also print git's own error on top of the
 // clean message we throw. stdout stays piped because some callers read it.
 const GIT_QUIET = ['ignore', 'pipe', 'ignore'];
-import { walk, EXT } from './records.js';
+import { walk, idFromRecordPath } from './records.js';
 
 // ---- the gate -------------------------------------------------------------------
 
@@ -384,10 +384,13 @@ export function renameCollection(ws, store, oldName, newName) {
 				pruneEmpty(path.dirname(oldDir), path.join(ws.root, dataPath));
 			}
 			if (newSuffix !== oldSuffix && fs.existsSync(newDir)) {
-				const ext = EXT[d.storage.codec ?? 'md'];
+				// Match on the OLD suffix, keep whatever extension the file already had — an opaque
+				// record's extension is its own, and a re-suffix must not rename it into another format.
+				const old = { storage: { ...d.storage, suffix: oldSuffix } };
 				for (const file of walk(newDir)) {
-					if (!file.endsWith(`.${oldSuffix}${ext}`)) continue;
-					const to = file.slice(0, -(oldSuffix.length + ext.length + 1)) + `.${newSuffix}${ext}`;
+					const id = idFromRecordPath(old, path.relative(newDir, file));
+					if (id === null) continue;
+					const to = path.join(newDir, `${id}.${newSuffix}${path.basename(file).slice(path.basename(id).length + oldSuffix.length + 1)}`);
 					fs.renameSync(file, to);
 					resuffixed.push([file, to]);
 				}

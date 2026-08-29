@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import Ajv from 'ajv';
 import addFormats from 'ajv-formats';
-import { parseRecord, patternRe, fmtAjvError, unknownFields, walk, EXT } from './records.js';
+import { parseRecord, patternRe, fmtAjvError, unknownFields, walk, idFromRecordPath, MAX_RECORD_BYTES } from './records.js';
 import { NO_RUNTIME, loadDescriptors, runtimeDir, namespaces as compiledNamespaces } from './runtime.js';
 import { parseRef } from './namespace.js';
 import { refTargetsOf } from './ref.js';
@@ -64,11 +64,28 @@ export function check({ root }) {
 				else strays.push({ collection: name, file: rel(p), note: `missing entry file ${d.storage.entry}` });
 			}
 		} else {
-			const tail = `.${d.storage.suffix}${EXT[d.storage.codec ?? 'md']}`;
+			const opaque = (d.storage.codec ?? 'md') === 'file';
+			const allowed = d.storage.extensions;                  // undefined = any
+			const max = d.storage.max_bytes ?? MAX_RECORD_BYTES;
 			for (const f of walk(dir)) {
-				const r = path.relative(dir, f);
-				if (r.endsWith(tail)) ids.set(r.slice(0, -tail.length), f);
-				else strays.push({ collection: name, file: rel(f) });
+				const id = idFromRecordPath(d, path.relative(dir, f));
+				if (id === null) { strays.push({ collection: name, file: rel(f) }); continue; }
+				// One id is one file. Under a fixed-extension codec this cannot happen; under `file` it
+				// can, and picking one silently is how a replaced logo keeps rendering as its predecessor.
+				if (ids.has(id)) {
+					violations.push({ file: rel(f), msg: `collection "${name}" holds the id "${id}" twice — ${rel(ids.get(id))} and ${rel(f)}. Remove one.` });
+					continue;
+				}
+				ids.set(id, f);
+				if (!opaque) continue;
+				const ext = path.extname(f).slice(1).toLowerCase();
+				if (allowed && !allowed.includes(ext)) {
+					violations.push({ file: rel(f), msg: `collection "${name}" does not accept .${ext} — its declared extensions are ${allowed.join(', ')}` });
+				}
+				const size = fs.statSync(f).size;
+				if (size > max) {
+					violations.push({ file: rel(f), msg: `is ${size} bytes, over collection "${name}"'s max_bytes of ${max} — a record is a small file; a big one belongs outside the vault` });
+				}
 			}
 		}
 	}
