@@ -20,6 +20,44 @@ npx dreamteamer check
 
 ---
 
+## 0.13.4 → 0.14.0
+
+**`x-reference` now accepts a LIST of target collections — a union. Nothing to migrate** — values
+on disk stay fully qualified `<collection>/<id>` in every case, whichever member of the union they
+took, so a union is purely a widening of what a descriptor may DECLARE, not a change to what a
+record HOLDS.
+
+```yaml
+about: { type: string, 'x-reference': [meetings, 'finance/accounts'] }
+```
+
+`'*'` (any collection) is unchanged — it was never a special case of the list form and still isn't.
+
+⚠ **The one thing that can break an existing descriptor on upgrade.** `x-inverse` and
+`x-title-template` are now normalized at compile onto the node that CARRIES `x-reference` — `items`
+for an array field, the property itself for a scalar one; every runtime consumer used to read both
+places. A descriptor that hand-authored either keyword on BOTH the property and its `items`, with
+different values, used to silently prefer one; **compile now FAILS, naming the field.** Run
+`dt compile` after upgrading — a fresh failure here means resolve the duplicate and keep one
+spelling. Authoring the keyword on only one of the two, as every descriptor in this vault already
+does, is unaffected.
+
+**`presentation.relations` now emits one row per union member**, so `(collection, field)` is **no
+longer a unique key** in that array — a union field with three targets produces three rows sharing
+the same pair. A consumer written as `relations.find(r => r.field === f)` now silently sees only the
+first member; switch it to `.filter(...)` if you have one. A title template is still inherited onto
+those rows only when every member's target collection agrees on one — a template that renders half
+the values wrong is worse than the raw qualified ref.
+
+**Bare ids are now accepted on input for single-target reference fields.** `dt add notes --about
+standup` qualifies to `meetings/standup` before it reaches disk, at the same choke point
+(`validate()`) that already canonicalizes datetimes — so a CLI flag, a form widget and an agent can
+all write the short spelling and the file still carries the one canonical qualified form. Union and
+`'*'` fields still require the fully qualified spelling on input: the prefix is the only type
+information those values carry, so there is nothing to infer it from.
+
+---
+
 ## 0.13.3 → 0.13.4
 
 **Saving a ui-view that a MODULE ships used to fail. Fixed — nothing to do but `dt compile`.**
