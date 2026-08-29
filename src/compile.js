@@ -73,7 +73,8 @@ function staleDisplayKeywords(schema, prefix = '') {
 /**
  * Every `x-reference` in a schema, as `[fieldPath, target]` — the same traversal check.js uses to
  * resolve refs in records, here to verify the SHAPE against the module dependency graph. Nested
- * objects and array items both carry the keyword, so both are walked.
+ * objects and array items both carry the keyword, so both are walked. `target` is the RAW keyword
+ * value — a string, or a list of strings for the union form — unvalidated; the caller checks shape.
  */
 function refTargets(schema, prefix = '') {
 	const out = [];
@@ -699,9 +700,13 @@ export function compile({ root, pkg }) {
 				continue;
 			}
 			// `x-reference` accepts a scalar or a LIST of targets (the union) — run the identical
-			// per-target contract check over every member. Shape validation (must be a non-empty
-			// array of strings) is a separate concern, added where the union is first accepted.
+			// per-target contract check over every member.
 			const targets = Array.isArray(raw) ? raw : [raw];
+			// scalar-or-list: the list is the union form. '*' may not appear INSIDE a list — the
+			// wildcard is a scalar-only sentinel, and a union that includes "anything" is not a union.
+			if (targets.length === 0 || targets.some((t) => typeof t !== 'string' || t === '' || t === '*')) {
+				fail(`collection "${name}": field "${at}" has an invalid x-reference ${JSON.stringify(raw)} — expected a collection name, a non-empty list of collection names, or '*'.`);
+			}
 			for (const target of targets) {
 				if (CORE_COLLECTIONS.has(target) || owns(target)) continue;
 				const owner = collOwner.get(target);

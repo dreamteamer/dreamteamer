@@ -6,7 +6,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { workspace, simpleCollection } from '../helpers/ws.js';
+import { workspace, simpleCollection, compileError } from '../helpers/ws.js';
 
 function unionWorkspace() {
 	return workspace({
@@ -145,5 +145,46 @@ describe('x-reference unions: check', () => {
 		const res = dt('check');
 		assert.equal(res.code, 1);
 		assert.match(res.stdout + res.stderr, /analyses: must point back to "reviews\/r1"/);
+	});
+});
+
+describe('x-reference unions: compile contract', () => {
+	const noteWith = (xref) => ({
+		id: { generate: '{{ name | slug }}' },
+		storage: { suffix: 'note' },
+		schema: {
+			type: 'object', required: ['name'],
+			properties: { name: { type: 'string' }, about: { type: 'string', 'x-reference': xref } },
+		},
+	});
+
+	test('a union member nothing provides fails compile naming the member', () => {
+		const { ws } = workspace({
+			compile: false,
+			collections: { meetings: simpleCollection({ storage: { suffix: 'meeting' } }), notes: noteWith(['meetings', 'ghosts']) },
+		});
+		const err = compileError(ws);
+		assert.match(err, /"about" references "ghosts"/);
+	});
+
+	test('an empty list fails compile as an invalid shape', () => {
+		const { ws } = workspace({ compile: false, collections: { notes: noteWith([]) } });
+		assert.match(compileError(ws), /invalid x-reference/);
+	});
+
+	test("'*' inside a list fails compile — the wildcard is a scalar-only sentinel", () => {
+		const { ws } = workspace({ compile: false, collections: { notes: noteWith(['meetings', '*']) } });
+		assert.match(compileError(ws), /invalid x-reference/);
+	});
+
+	test('a valid union over owned collections compiles clean', () => {
+		const { out } = workspace({
+			collections: {
+				meetings: simpleCollection({ storage: { suffix: 'meeting' } }),
+				clients: simpleCollection({ storage: { suffix: 'client' } }),
+				notes: noteWith(['meetings', 'clients']),
+			},
+		});
+		assert.equal(out.code, 0);
 	});
 });
