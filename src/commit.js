@@ -39,31 +39,122 @@ function parseTargets(descriptors, only) {
 	return { scoped: only.length > 0, scope: [...scope], whole, records };
 }
 
-/** Every relation FIELD on `collection`, paired with the collection on the other end — the owning
- *  foreign key looking out, the generated mirror looking back. One relational write dirties BOTH
- *  records, so these are the edges a record-scoped commit has to follow to avoid publishing half a
- *  pair (auto-commit is off, so the other half would sit pending and HEAD would fail `dt check`). */
+const SIDES = ['targets', 'owners'];
+const NO_EDGES = { targets: new Set(), owners: new Set() };
+
+/** Relation FIELDS on `collection`, each tagged with which SIDE the record at the other end stands
+ *  on and which collection it lives in. That side is the whole safety argument for the sweep below:
+ *  a TARGET's mirror is bookkeeping the engine wrote BECAUSE OF this record's own write, so dragging
+ *  any number of them into the commit is honest. An OWNER is somebody's record, whose existence this
+ *  write does not imply — so dragging one in is rationed, and two is a refusal. */
 function relationEdges(rels, collection) {
 	const edges = [];
 	for (const r of rels) {
-		if (r.owner === collection) edges.push([r.field, r.target]);
-		if (r.target === collection) edges.push([r.mirror, r.owner]);
+		if (r.owner === collection) edges.push([r.field, 'targets', r.target]);
+		if (r.target === collection) edges.push([r.mirror, 'owners', r.owner]);
 	}
 	return edges;
 }
 
-/** Did this dirty row name one of the targets AT HEAD? The second pass, and the one the store
- *  cannot answer: when a relation is BROKEN — the owner deleted, or its foreign key cleared — the
- *  store detaches the mirror in the same write, so afterwards NEITHER record names the other. The
- *  worktree has forgotten the edge; only git still holds it, which is why this reads the pre-image. */
-function namedAtHead(store, rels, targets, cwd, row) {
-	const edges = relationEdges(rels, row.collection);
-	if (!edges.length) return false; // no relations on this collection — no git call, no parse
-	let text;
-	try { text = execFileSync('git', ['show', `HEAD:${row.repoRel}`], { cwd, stdio: QUIET }).toString(); }
-	catch { return false; } // untracked, or an empty repo: nothing can have been detached from it
-	const fields = parseRecordText(text, store.descriptors.get(row.collection));
-	return edges.some(([field]) => [].concat(fields[field] ?? []).some((v) => targets.records.has(v)));
+/** The refs a record names through its relation fields, split by side. */
+function edgesOf(fields, edges) {
+	const out = { targets: new Set(), owners: new Set() };
+	for (const [field, side] of edges) for (const v of [].concat(fields?.[field] ?? [])) out[side].add(v);
+	return out;
+}
+
+/** One dirty record's relation edges as git holds them AT HEAD and as they stand in the worktree,
+ *  plus the HEAD bytes (which is how a rename is recognised below).
+ *
+ *  Neither version may throw. An unreadable or UNPARSEABLE one contributes no edges instead: a
+ *  record hand-edited into broken frontmatter and published weeks ago must not take `dt commit`
+ *  down — and it must not take it down only in the record-scoped form, which is the shape of bug
+ *  nobody attributes correctly ("commit works, commit <record> dies with a bare YAML error"). */
+function readState(store, rels, row) {
+	const edges = row ? relationEdges(rels, row.collection) : [];
+	if (!edges.length) return { row, was: NO_EDGES, now: NO_EDGES, headText: null };
+	let headText = null;
+	try { headText = execFileSync('git', ['show', `HEAD:${row.repoRel}`], { cwd: row.cwd, stdio: QUIET }).toString(); }
+	catch { headText = null; } // untracked, or an empty repo: no pre-image, so no edges at HEAD
+	let was = NO_EDGES;
+	try { if (headText !== null) was = edgesOf(parseRecordText(headText, store.descriptors.get(row.collection)), edges); }
+	catch { was = NO_EDGES; }
+	let now = NO_EDGES;
+	try { now = edgesOf(store.read(row.collection, row.id).fields, edges); }
+	catch { now = NO_EDGES; } // a pending deletion, or unparseable on disk
+	return { row, was, now, headText };
+}
+
+/** The refusal, and the reason it is a refusal rather than a choice: publishing the file anyway
+ *  either steals the other session's record or leaves a HEAD that fails `dt check`. Name all three
+ *  parties — without the FILE the reader cannot see why two unrelated records are in one sentence,
+ *  and without the other records they cannot type the command that fixes it. */
+function entangled(file, parties, command) {
+	return new Error(`${file} holds relation changes from ${parties.join(' and ')}, and there is no commit that publishes one without the other. Name them together (dreamteamer commit ${command}) or wait for the other session to publish.`);
+}
+
+/** Which dirty partners the named records DRAG INTO the same commit.
+ *
+ *  The rule is EDGE-CHANGE, not field membership: a partner joins only if the edge between it and a
+ *  named record appeared, disappeared or moved since HEAD. A partner dirty for any other reason —
+ *  another session's prose, another field, another session's edge — is left exactly as pending as it
+ *  was found. The first cut swept every ref in the named record's relation fields and reintroduced
+ *  precisely the theft this file exists to prevent (CLAUDE.md rule 6). */
+function planSweep(store, rels, targets, sampled) {
+	const rows = new Map();
+	for (const { cwd, rows: rs } of sampled) for (const r of rs) rows.set(`${r.collection}/${r.id}`, { ...r, cwd });
+	// Lazy and memoised, and that is a PERFORMANCE CONTRACT rather than a micro-optimisation: reading
+	// one git pre-image per SAMPLED row cost 3.19s against 0.10s on a 300-dirty-row collection. Only
+	// the named records and the partners they actually touch are ever read.
+	const cache = new Map();
+	const stateOf = (ref) => {
+		if (!cache.has(ref)) cache.set(ref, readState(store, rels, rows.get(ref)));
+		return cache.get(ref);
+	};
+	const moved = (ref, side) => {
+		const { was, now } = stateOf(ref);
+		return [...was[side]].filter((v) => !now[side].has(v)).concat([...now[side]].filter((v) => !was[side].has(v)));
+	};
+	// `dt rename` leaves the old path DELETED and the new path UNTRACKED — neither staged, so git
+	// reports no `R` (that only exists for a staged rename, which is why `fromRel` is null here) and
+	// the two halves read as two unrelated records. They are ONE record: the id lives in the
+	// FILENAME, so the new file's bytes ARE the old file's bytes at HEAD. That is git's own exact
+	// rename heuristic, applied where git cannot see the pair. Getting it wrong means either leaving
+	// half a rename at HEAD or refusing an ordinary rename as a concurrent-write conflict.
+	const sameRecord = (oldRef, newRef) => {
+		const o = stateOf(oldRef), n = stateOf(newRef);
+		if (o.row?.verb !== 'rm' || n.row?.verb !== 'add' || o.row.collection !== n.row.collection) return false;
+		try { return o.headText === fs.readFileSync(path.resolve(n.row.cwd, n.row.repoRel), 'utf8'); }
+		catch { return false; }
+	};
+	const named = new Set([...targets.records.keys()].filter((ref) => rows.has(ref)));
+	const isNamed = (ref) => named.has(ref) || [...named].some((n) => sameRecord(ref, n));
+	const sweep = new Set();
+	for (const ref of named) {
+		for (const t of moved(ref, 'targets')) if (rows.has(t)) sweep.add(t);
+		// Exactly one unnamed owner may ride along: by naming this target the caller means the one
+		// write that attached to it. Two means two independent writes are entangled in one mirror
+		// file, and no commit publishes one without the other.
+		const owners = moved(ref, 'owners').filter((v) => rows.has(v));
+		const strangers = owners.filter((v) => !isNamed(v));
+		if (strangers.length > 1 || (strangers.length && strangers.length < owners.length)) {
+			throw entangled(stateOf(ref).row.repoRel, owners, [ref, ...owners].join(' '));
+		}
+		for (const o of owners) sweep.add(o);
+	}
+	// Every partner file the sweep forces in is published WHOLE, edge changes and all. Anything in it
+	// that belongs to neither a named record nor another swept partner is a concurrent write.
+	const queue = [...sweep];
+	for (let i = 0; i < queue.length; i++) {
+		const strangers = [];
+		for (const side of SIDES) for (const v of moved(queue[i], side)) {
+			if (!rows.has(v) || named.has(v) || sweep.has(v)) continue;
+			if (isNamed(v)) { sweep.add(v); queue.push(v); continue; } // the same record, pre-rename id
+			strangers.push(v);
+		}
+		if (strangers.length) throw entangled(stateOf(queue[i]).row.repoRel, [...named, ...strangers], [...named, ...strangers].join(' '));
+	}
+	return sweep;
 }
 
 /** Record directories to watch, grouped by owning repo. System-stored collections are excluded:
@@ -165,44 +256,43 @@ export function commitPending(store, { only = [], message, dryRun = false } = {}
 	// Targets are resolved BEFORE anything is committed, so one bad target in a list of good ones
 	// leaves the whole tree untouched rather than committing a prefix of what was asked for.
 	const targets = parseTargets(store.descriptors, only);
-	// A named record sweeps its dirty relation PARTNERS into the same commit. Two passes, because the
-	// two halves of a relational write are legible in different places. ⚠ Both must widen
-	// `targets.scope` BEFORE scopeByRepo: scope is the git pathspec, and a partner collection missing
-	// from it is never sampled, so no later matching can reach it.
+	// A relational write dirties TWO records — the owner's foreign key and the target's generated
+	// mirror. Auto-commit is off, so publishing one without the other leaves a HEAD that fails
+	// `dt check`. ⚠ The partner collections must join `targets.scope` BEFORE scopeByRepo: scope IS the
+	// git pathspec, so a collection missing from it is never sampled and nothing later can reach it.
 	const rels = targets.records.size ? relationsOf(store.descriptors) : [];
-	// Partner refs, kept OUT of `targets.records`: these were joined by a relation, not asked for by
-	// name, so a dangling foreign key must not turn into assertResolvable's mistyped-id error.
-	const sweep = new Set();
-	for (const [, { collection, id }] of targets.records) {
-		for (const [, partner] of relationEdges(rels, collection)) targets.scope.push(partner);
-		let fields;
-		// A pending DELETION is unreadable here — the record and its foreign keys are gone. Its partners
-		// are found from the other end instead, by namedAtHead below.
-		try { fields = store.read(collection, id).fields; } catch { continue; }
-		for (const [field] of relationEdges(rels, collection)) for (const v of [].concat(fields[field] ?? [])) sweep.add(v);
+	for (const [, { collection }] of targets.records) {
+		for (const [, , partner] of relationEdges(rels, collection)) targets.scope.push(partner);
 	}
 	const byRepo = scopeByRepo(store.descriptors, targets.scope);
-	// ⚠ Sample every repo FIRST, then check the references, then commit. The unknown-reference test
-	// below can only be answered once every repo has been sampled — a record lives in exactly one
-	// repo, and which one is not known in advance.
+	// ⚠ Sample every repo FIRST, then check the references, then plan, then commit. The
+	// unknown-reference test below can only be answered once every repo has been sampled — a record
+	// lives in exactly one repo, and which one is not known in advance — and the sweep needs every
+	// repo's rows before it can tell a renamed record from a concurrent deletion.
 	const sampled = [];
-	const matched = new Set();
 	for (const [repo, dirs] of byRepo) {
 		const { cwd, rows } = sample(store.root, repo, dirs, store.descriptors);
-		// The SAMPLER is deliberately left alone — it is what makes a hand-edited record
-		// indistinguishable from one the store wrote. Narrowing happens here, on the sampled rows,
-		// so `dt commit <collection>/<id>` publishes that record and leaves a sibling written by
-		// another session exactly as pending as it found it.
-		const wanted = !targets.scoped ? rows : rows.filter((r) => {
-			const ref = `${r.collection}/${r.id}`;
-			if (targets.records.has(ref)) { matched.add(ref); return true; }
-			return targets.whole.has(r.collection) || sweep.has(ref) || namedAtHead(store, rels, targets, cwd, r);
-		});
-		sampled.push({ repo, cwd, rows: wanted });
+		sampled.push({ repo, cwd, rows });
 	}
+	const matched = new Set();
+	for (const { rows } of sampled) for (const r of rows) {
+		const ref = `${r.collection}/${r.id}`;
+		if (targets.records.has(ref)) matched.add(ref);
+	}
+	// Before the sweep, so a mistyped id is still answered as a mistyped id rather than as an empty
+	// plan that looks like "nothing pending" — the one report that looks like success.
 	assertResolvable(store, targets.records, matched);
+	const sweep = targets.scoped ? planSweep(store, rels, targets, sampled) : new Set();
 	const results = [];
-	for (const { repo, cwd, rows } of sampled) {
+	for (const { repo, cwd, rows: all } of sampled) {
+		// The SAMPLER is deliberately left alone — it is what makes a hand-edited record
+		// indistinguishable from one the store wrote. Narrowing happens HERE, on the sampled rows, so
+		// `dt commit <collection>/<id>` publishes that record and leaves a sibling written by another
+		// session exactly as pending as it found it.
+		const rows = !targets.scoped ? all : all.filter((r) => {
+			const ref = `${r.collection}/${r.id}`;
+			return targets.records.has(ref) || targets.whole.has(r.collection) || sweep.has(ref);
+		});
 		if (!rows.length) continue;
 		const blocked = inProgress(cwd);
 		if (blocked) { results.push({ repo, rows, blocked }); continue; }
