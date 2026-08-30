@@ -5,7 +5,7 @@
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { Store, bodyField } from './store.js';
+import { Store, bodyField, serialize, atomicWrite } from './store.js';
 import { load, dump } from './yaml.js';
 import { slug } from './template.js';
 import {
@@ -22,6 +22,7 @@ import { baseNameOf, normalizeNamespaces } from './namespace.js';
 import { sortRows } from './temporal.js';
 import { keyBetween, placementKey } from './fractional-index.js';
 import { ensureRepo, ensureAllRepos } from './init.js';
+import { expectedMirrors } from './relations.js';
 
 /**
  * Emit MACHINE-READABLE output synchronously. Use this for every `--json` payload.
@@ -436,6 +437,86 @@ function metaUiView(ws, store, verb, flags, pos) {
 	const out = saveUiView(ws, store, { id, view });
 	flags.json ? emit(JSON.stringify(out)) : console.log(`✔ ${rel(ws.root, out.file)}`);
 	console.log(`✔ compiled — ${view.path} is live`);
+	return 0;
+}
+
+/**
+ * `dt relations [<collection>] [--json]` — every two-way pair the compiled runtime declares — and
+ * `dt relations rebuild <collection> [--drop <field>]`.
+ *
+ * Rebuild is not a convenience verb: `check` prints "<mirror>: stale — run: dreamteamer relations
+ * rebuild <target>", so this IS the other half of that sentence and has to repair exactly the state
+ * check flags. That is why the staleness comparison below is character-for-character the one in
+ * check.js — two spellings of "stale" would send the operator round a loop that never converges.
+ */
+export function relationsCommand(ws, args) {
+	const store = new Store(ws);
+	const { flags, pos } = parseArgs(args);
+	if (pos[0] === 'rebuild') return relationsRebuild(store, flags, pos);
+
+	// `store.relations()` is `relationsOf(this.descriptors)` memoized per Store — going through it
+	// rather than calling relationsOf here keeps one decoder for the whole process.
+	const rows = store.relations().filter((r) => !pos[0] || r.owner === pos[0] || r.target === pos[0]);
+	if (flags.json) { emit(JSON.stringify(rows, null, 2)); return 0; }
+	if (!rows.length) {
+		console.log(pos[0] ? `no two-way relations touch ${pos[0]}` : 'no two-way relations declared');
+		return 0;
+	}
+	// `[]` on the mirror is cardinality, not decoration: it is the difference between a field the
+	// operator can read as one reference and one they have to iterate.
+	const cells = rows.map((r) => [`${r.owner}.${r.field}`, `${r.target}.${r.mirror}${r.unique ? '' : '[]'}`, r.kind, r.onDelete]);
+	const width = (i) => Math.max(...cells.map((c) => c[i].length));
+	const [w0, w1, w2] = [width(0), width(1), width(2)];
+	for (const c of cells) console.log(`${c[0].padEnd(w0)}  →  ${c[1].padEnd(w1)}  ${c[2].padEnd(w2)}  ${c[3]}`);
+	return 0;
+}
+
+function relationsRebuild(store, flags, pos) {
+	const collection = pos[1];
+	if (!collection) throw new Error('usage: dreamteamer relations rebuild <collection> [--drop <field>]');
+	const d = store.descriptor(collection);
+	// The two shapes compile refuses to stamp a mirror onto, refused again here — because --drop
+	// writes even when NO relation targets this collection, and `serialize` has no branch for
+	// `codec: file`: it would replace the record's own bytes (an SVG, a PDF) with frontmatter.
+	if (!store.canRewrite(collection)) {
+		const why = d.storage.base === 'runtime' ? 'a compiled source' : 'stored as `codec: file`';
+		throw new Error(`"${collection}" is ${why} — it carries no generated mirrors and this verb will not rewrite it.`);
+	}
+	const drop = typeof flags.drop === 'string' ? flags.drop : null;
+	if (drop && d.schema?.properties?.[drop]) throw new Error(`"${drop}" is a live field of ${collection} — --drop only removes keys the schema no longer declares.`);
+
+	// Expectations computed ONCE per relation, over a single pass of each owning collection. The
+	// store's own `applyMirrorEdits` re-walks the owners per write, which is right for one edit and
+	// quadratic for a whole collection — so rebuild does not build on it.
+	const expected = store.relations()
+		.filter((r) => r.target === collection)
+		.map((r) => ({ r, exp: expectedMirrors(r, store.readAll(r.owner)) }));
+
+	let rebuilt = 0;
+	for (const { id, file, fields } of store.readAll(collection)) {
+		let changed = false;
+		for (const { r, exp } of expected) {
+			const want = exp.get(id);
+			const have = fields[r.mirror];
+			// the comparison check.js makes: a unique relation mirrors to a scalar, everything else
+			// to a sorted array, and absent reads the same as empty
+			const same = r.unique
+				? (have ?? null) === (want ?? null)
+				: JSON.stringify([...(have ?? [])].sort()) === JSON.stringify(want ?? []);
+			if (same) continue;
+			if (want == null) delete fields[r.mirror];
+			else fields[r.mirror] = want;
+			changed = true;
+		}
+		if (drop && drop in fields) { delete fields[drop]; changed = true; }
+		// each record is written AT MOST ONCE, whatever number of relations point at it
+		if (changed && atomicWrite(file, serialize(d, fields))) rebuilt++;
+	}
+	if (flags.json) { emit(JSON.stringify({ collection, rebuilt })); return 0; }
+	// auto-commit is off by default, so these writes are sitting dirty — but only say so when
+	// something actually landed; a commit hint after "rebuilt 0" is an instruction to do nothing.
+	const hint = rebuilt ? ` — run: dreamteamer commit ${collection}` : '';
+	console.log(`✔ rebuilt ${rebuilt} record${rebuilt === 1 ? '' : 's'}${hint}`);
 	return 0;
 }
 

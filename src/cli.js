@@ -15,7 +15,7 @@ import { execFileSync } from 'node:child_process';
 import { findWorkspace } from './workspace.js';
 import { compile, staleness, warnIfStale, discoverModules, CHANNEL_LABEL, KINDS } from './compile.js';
 import { check } from './check.js';
-import { collectionCommand, emit } from './collections-cli.js';
+import { collectionCommand, emit, relationsCommand } from './collections-cli.js';
 import { init, install, installClone, update, listRepos } from './init.js';
 import { deriveEvents } from './events.js';
 import { commitPending } from './commit.js';
@@ -52,6 +52,9 @@ the longest DECLARED collection prefix, so finance/transactions/2026/03/coffee i
   revert  <collection>/<id> --hash <sha>      (restore the content at <sha>, as a NEW commit)
   commands <collection>[/<id>] [--ids <id>,…] (bound commands + per-record state:
                                                available / done / not-applicable)
+  relations [<collection>]                    (every two-way pair: owner.field → target.mirror)
+  relations rebuild <collection> [--drop <f>] (regenerate mirror VALUES from the owning side;
+                                               --drop removes a stale ex-mirror key from records)
   ensure  <repos-id> | --all [--json]         (materialize an attached repo's working tree ON
                                                DEMAND — never at install; --all is the explicit
                                                opt-in, e.g. before going offline)
@@ -285,6 +288,11 @@ export function run(argv) {
 			case 'move': case 'commands':
 				warnIfStale(ws.root);
 				process.exit(dispatchRecordVerb(ws, cmd, rest));
+			// The verb `check`'s stale-mirror message names. It reads the compiled relations, and
+			// rebuild WRITES records, so both want the same staleness warning every record verb gets.
+			case 'relations':
+				warnIfStale(ws.root);
+				process.exit(relationsCommand(ws, rest));
 			// `repos ensure` lost its noun: the repos collection is still where the declaration lives,
 			// but materializing one is a verb the operator types, not a record write.
 			case 'ensure':
