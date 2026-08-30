@@ -376,16 +376,50 @@ describe('two sessions writing edges into ONE partner file', () => {
 		assert.deepEqual(pending(ws), []);
 	});
 
-	test('an owner whose edge is already at HEAD is not a conflict', () => {
-		// The other half of the ruling: only edges that MOVED since HEAD count. A owns its edge from a
-		// previous commit, so naming the target sweeps B and nothing else.
+	test('an owner whose edge is already at HEAD is not one of the parties', () => {
+		// Only edges that MOVED since HEAD count, and this pins the negative half of that: A owns its
+		// edge from a previous commit, so however the refusal comes out, A is not in it. (Before the
+		// entanglement check reached the named record this asserted a green sweep of B — see the test
+		// below for why that was C1's theft with the sides swapped.)
 		const ws = standup();
 		assert.equal(ws.dt('add', 'recordings', '--name', 'A', '--meeting', 'meetings/standup').code, 0);
 		assert.equal(ws.dt('commit').code, 0);
 		assert.equal(ws.dt('add', 'recordings', '--name', 'B', '--meeting', 'meetings/standup').code, 0);
 		const res = ws.dt('commit', 'meetings/standup');
+		assert.equal(res.code, 1, res.stdout);
+		assert.match(res.stderr, /recordings\/b/);
+		assert.doesNotMatch(res.stderr, /recordings\/a/, 'A\'s edge did not move — A is not a party');
+	});
+
+	test('naming the TARGET refuses when the ONLY edge change is another session\'s', () => {
+		// The residual, and it is C1's theft with the sides swapped. Session B attaches a recording —
+		// the store writes B's edge into the MEETING's mirror. Session A never touches an edge at all;
+		// it edits a plain field on the meeting and publishes it. A mirror is engine-owned state that
+		// another session can write into, so publishing A's own file uninspected hands B's record over
+		// under A's subject. The entanglement check therefore covers the NAMED record too, not just
+		// the partners it drags in.
+		const ws = standup();
+		assert.equal(ws.dt('add', 'recordings', '--name', 'Bnew', '--meeting', 'meetings/standup').code, 0);
+		assert.equal(ws.dt('set', 'meetings/standup', 'name=Standup, renamed').code, 0);
+		const res = ws.dt('commit', 'meetings/standup');
+		assert.equal(res.code, 1, res.stdout);
+		assert.match(res.stderr, /data\/meetings\/standup\.meeting\.md/);
+		assert.match(res.stderr, /recordings\/bnew/);
+		assert.match(res.stderr, /dreamteamer commit meetings\/standup recordings\/bnew/);
+		assert.equal(pending(ws).length, 2, 'a refusal must commit nothing');
+	});
+
+	test('a WHOLE-COLLECTION target counts as named — its rows are not strangers', () => {
+		// The caller asked for every recording AND the meeting. The two owners are inside a collection
+		// this commit publishes anyway, so there is no other session to protect and nothing to refuse
+		// — refusing here would refuse a commit whose every row was explicitly requested.
+		const ws = standup();
+		assert.equal(ws.dt('add', 'recordings', '--name', 'A', '--meeting', 'meetings/standup').code, 0);
+		assert.equal(ws.dt('add', 'recordings', '--name', 'B', '--meeting', 'meetings/standup').code, 0);
+		const before = ws.git(['rev-list', '--count', 'HEAD']);
+		const res = ws.dt('commit', 'recordings', 'meetings/standup');
 		assert.equal(res.code, 0, res.stderr);
-		assert.match(res.stdout, /recordings\/b/);
 		assert.deepEqual(pending(ws), []);
+		assert.equal(Number(ws.git(['rev-list', '--count', 'HEAD'])), Number(before) + 1, 'one commit, not two');
 	});
 });

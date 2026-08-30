@@ -128,31 +128,33 @@ function planSweep(store, rels, targets, sampled) {
 		catch { return false; }
 	};
 	const named = new Set([...targets.records.keys()].filter((ref) => rows.has(ref)));
-	const isNamed = (ref) => named.has(ref) || [...named].some((n) => sameRecord(ref, n));
+	// A record's TARGETS are the partners its own write moved, so naming it asks for them. Its OWNERS
+	// are not: a mirror is engine-owned state that ANOTHER session writes into, so an owner's edge
+	// arriving in this file is that session's write, and it is inspected below rather than swept.
 	const sweep = new Set();
-	for (const ref of named) {
-		for (const t of moved(ref, 'targets')) if (rows.has(t)) sweep.add(t);
-		// Exactly one unnamed owner may ride along: by naming this target the caller means the one
-		// write that attached to it. Two means two independent writes are entangled in one mirror
-		// file, and no commit publishes one without the other.
-		const owners = moved(ref, 'owners').filter((v) => rows.has(v));
-		const strangers = owners.filter((v) => !isNamed(v));
-		if (strangers.length > 1 || (strangers.length && strangers.length < owners.length)) {
-			throw entangled(stateOf(ref).row.repoRel, owners, [ref, ...owners].join(' '));
-		}
-		for (const o of owners) sweep.add(o);
-	}
-	// Every partner file the sweep forces in is published WHOLE, edge changes and all. Anything in it
-	// that belongs to neither a named record nor another swept partner is a concurrent write.
-	const queue = [...sweep];
+	for (const ref of named) for (const t of moved(ref, 'targets')) if (rows.has(t)) sweep.add(t);
+	// Every file this commit will carry — the named records AND the partners they drag in — is
+	// published WHOLE, edge changes and all. So the same test applies to both: an edge change to a
+	// record this commit does not account for belongs to somebody else, and there is no honest way to
+	// publish around it. Restricting this to the swept partners left the theft alive on the owning
+	// side — `dt commit <target>` published a concurrent session's new owner when the caller's own
+	// change had not touched an edge at all.
+	const queue = [...named, ...sweep];
 	for (let i = 0; i < queue.length; i++) {
 		const strangers = [];
 		for (const side of SIDES) for (const v of moved(queue[i], side)) {
 			if (!rows.has(v) || named.has(v) || sweep.has(v)) continue;
-			if (isNamed(v)) { sweep.add(v); queue.push(v); continue; } // the same record, pre-rename id
+			// A row inside a collection asked for WHOLE is already in this commit — refusing over it
+			// would refuse a commit that publishes it anyway.
+			if (targets.whole.has(rows.get(v).collection)) continue;
+			// …and the same record under its pre-rename id is not a second record at all.
+			if ([...named].some((n) => sameRecord(v, n))) { sweep.add(v); queue.push(v); continue; }
 			strangers.push(v);
 		}
-		if (strangers.length) throw entangled(stateOf(queue[i]).row.repoRel, [...named, ...strangers], [...named, ...strangers].join(' '));
+		if (!strangers.length) continue;
+		const own = queue[i];
+		const parties = [...named].filter((n) => n !== own).concat(strangers);
+		throw entangled(stateOf(own).row.repoRel, parties, [...named, ...strangers].join(' '));
 	}
 	return sweep;
 }
