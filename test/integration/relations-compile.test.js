@@ -9,7 +9,7 @@
 // thing being compared is the artifact.
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { workspace, simpleCollection, readFile } from '../helpers/ws.js';
+import { workspace, simpleCollection, compileError, readFile } from '../helpers/ws.js';
 import { load } from '../../src/yaml.js';
 
 // The four-collection cast every case here is cut from: one anchor plus the three cardinalities —
@@ -102,5 +102,57 @@ describe('compile materializes relations', () => {
 		const ws = workspace({ collections: { meetings: M, summaries: S } });
 		const compiled = load(readFile(ws.root, '.dreamteamer/collections/summaries.collection.yaml'));
 		assert.equal(compiled.schema.properties.meeting['x-unique'], true);
+	});
+});
+
+describe('compile refuses a mirror it would generate in a shape nobody can write', () => {
+	test('a required field that a relation generates as a readOnly mirror fails compile — both spellings', () => {
+		// spelling A: the target never authored the field at all, but names it in `required` — the
+		// mirror lands readOnly and every record is then invalid the moment it is written by hand.
+		const M = simpleCollection({ storage: { suffix: 'meeting' } });
+		M.schema.required = ['name', 'recordings'];
+		const a = workspace({ compile: false, collections: { meetings: M, recordings: RECORDINGS } });
+		assert.match(compileError(a.ws), /"recordings" is required, but recordings\.meeting generates it/);
+
+		// spelling B reaches the SAME guard: pass 1 deletes the authored field and pass 2 puts the
+		// generated one back under the same key, so `required` still names it.
+		const B_M = simpleCollection({ storage: { suffix: 'meeting' } });
+		B_M.schema.required = ['name', 'recordings'];
+		B_M.schema.properties.recordings = {
+			type: 'array',
+			items: { type: 'string', 'x-reference': 'recordings' },
+			'x-inverse-of': 'recordings.meeting',
+		};
+		const B_R = structuredClone(RECORDINGS);
+		delete B_R.schema.properties.meeting['x-inverse'];
+		const b = workspace({ compile: false, collections: { meetings: B_M, recordings: B_R } });
+		assert.match(compileError(b.ws), /"recordings" is required, but recordings\.meeting generates it/);
+	});
+
+	test('a hand-authored mirror keeps description and x-title-template; a shape mismatch is a collision', () => {
+		const M = simpleCollection({ storage: { suffix: 'meeting' } });
+		M.schema.properties.recordings = {
+			type: 'array',
+			description: 'The captures of this call.',
+			items: { type: 'string', 'x-reference': 'recordings', 'x-title-template': '{{ name }} ({{ id }})' },
+			'x-nonsense': 'dropped', // everything except the two carried keywords is discarded
+		};
+		const ws = workspace({ collections: { meetings: M, recordings: RECORDINGS } });
+		const meetings = load(readFile(ws.root, '.dreamteamer/collections/meetings.collection.yaml'));
+		const rec = meetings.schema.properties.recordings;
+		assert.equal(rec.readOnly, true);
+		assert.equal(rec.description, 'The captures of this call.');
+		assert.equal(rec.items['x-title-template'], '{{ name }} ({{ id }})');
+		assert.equal(rec['x-nonsense'], undefined);
+
+		// an array mirror whose ITEMS are a different type is a real collision, not the tolerated
+		// both-sides spelling — the old shape test only compared the outer type and let it through
+		const BAD = simpleCollection({ storage: { suffix: 'meeting' } });
+		BAD.schema.properties.recordings = {
+			type: 'array',
+			items: { type: 'object', 'x-reference': 'recordings' },
+		};
+		const bad = workspace({ compile: false, collections: { meetings: BAD, recordings: RECORDINGS } });
+		assert.match(compileError(bad.ws), /collides with the mirror generated from recordings\.meeting/);
 	});
 });

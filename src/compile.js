@@ -193,6 +193,14 @@ function stampMirror(byName, ctx, ownerName, field, prop, holder, mirrorName, ta
 	}
 	const unique = holder['x-unique'] === true;
 	const inverseOf = `${ownerName}.${field}`;
+	// A mirror is readOnly, so `required` naming one describes a record nobody can write — the
+	// engine forbids setting the field and validation forbids omitting it. Same shape as the
+	// `x-on-delete: set-null` + required guard on the owning side, and it covers BOTH spellings:
+	// spelling B's authored field is deleted in pass 1 and regenerated here under the same key, so
+	// `required` still names it either way.
+	if ((t.schema.required ?? []).includes(mirrorName)) {
+		fail(`collection "${target}": field "${mirrorName}" is required, but ${inverseOf} generates it as a readOnly mirror — drop it from required, or drop the x-inverse on ${inverseOf}.`);
+	}
 	const generated = unique
 		? { type: 'string', 'x-reference': ownerName, readOnly: true, 'x-inverse-of': inverseOf }
 		: { type: 'array', items: { type: 'string', 'x-reference': ownerName, 'x-inverse-of': inverseOf }, readOnly: true };
@@ -202,10 +210,21 @@ function stampMirror(byName, ctx, ownerName, field, prop, holder, mirrorName, ta
 		// the legacy both-sides shape: an authored field that matches what we'd generate is a
 		// warning for one minor; a real mismatch is an error.
 		const e = (existing.items && typeof existing.items === 'object') ? existing.items : existing;
-		const sameShape = (existing.type === generated.type) && ((e['x-reference'] ?? null) === ownerName);
+		// ITEMS TYPE IS PART OF THE SHAPE. Comparing only the outer `type` let an authored
+		// `array of object` pass as "the same shape" as an array of reference strings, and the
+		// generated mirror then silently replaced a field of a genuinely different kind.
+		const sameShape = (existing.type === generated.type)
+			&& ((e['x-reference'] ?? null) === ownerName)
+			&& (generated.type !== 'array' || (existing.items?.type ?? null) === generated.items.type);
 		if (!sameShape) fail(`collection "${target}": field "${mirrorName}" collides with the mirror generated from ${inverseOf} — rename one.`);
-		console.warn(`⚠ collection ${target}: field "${mirrorName}" is hand-authored but ${inverseOf} declares it — delete the authored field, or move its extras into x-inverse. Treating it as the mirror.`);
+		// EXACTLY TWO authored keywords survive, and the warning says so rather than offering a fix
+		// that cannot be performed: `x-inverse`'s object form carries `field` and `description` only,
+		// so "move its extras into x-inverse" was advice with nowhere to move them to.
+		console.warn(`⚠ collection ${target}: field "${mirrorName}" is hand-authored but ${inverseOf} generates it — delete the authored field. Its description and x-title-template are kept; every other keyword on it is DROPPED.`);
 		generated.description = existing.description ?? generated.description;
+		// on the node it was authored on — post-hoist that is the holder, `items` for an array
+		const gHolder = (generated.items && typeof generated.items === 'object') ? generated.items : generated;
+		if (e['x-title-template'] !== undefined) gHolder['x-title-template'] = e['x-title-template'];
 	}
 	t.schema.properties = { ...t.schema.properties, [mirrorName]: generated };
 }
