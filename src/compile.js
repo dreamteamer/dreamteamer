@@ -220,7 +220,12 @@ function stampMirror(byName, ctx, ownerName, field, prop, holder, mirrorName, ta
 		// EXACTLY TWO authored keywords survive, and the warning says so rather than offering a fix
 		// that cannot be performed: `x-inverse`'s object form carries `field` and `description` only,
 		// so "move its extras into x-inverse" was advice with nowhere to move them to.
-		console.warn(`⚠ collection ${target}: field "${mirrorName}" is hand-authored but ${inverseOf} generates it — delete the authored field. Its description and x-title-template are kept; every other keyword on it is DROPPED.`);
+		//
+		// It says DECLARES, not "generates": what the author has to act on is that the same relation
+		// is stated twice — by hand here, and by x-inverse there — and the generation is only the
+		// consequence. "generates it" described the engine's behaviour and left the duplicate
+		// declaration — the actual defect, and the only thing they can delete — unnamed.
+		console.warn(`⚠ collection ${target}: field "${mirrorName}" is hand-authored but ${inverseOf} declares it — delete the authored field. Its description and x-title-template are kept; every other keyword on it is DROPPED.`);
 		generated.description = existing.description ?? generated.description;
 		// on the node it was authored on — post-hoist that is the holder, `items` for an array
 		const gHolder = (generated.items && typeof generated.items === 'object') ? generated.items : generated;

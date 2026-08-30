@@ -156,3 +156,53 @@ describe('compile refuses a mirror it would generate in a shape nobody can write
 		assert.match(compileError(bad.ws), /collides with the mirror generated from recordings\.meeting/);
 	});
 });
+
+describe('compile refuses malformed relations', () => {
+	test("x-inverse on '*' is an error", () => {
+		const BAD = simpleCollection({ storage: { suffix: 'note' } });
+		BAD.schema.properties.about = { type: 'string', 'x-reference': '*', 'x-inverse': 'notes' };
+		const err = compileError(workspace({ collections: { notes: BAD }, compile: false }).ws);
+		assert.match(err, /x-inverse on x-reference '\*'/);
+	});
+	test('both sides disagreeing is an error', () => {
+		const M = simpleCollection({ storage: { suffix: 'meeting' } });
+		M.schema.properties.captures = { type: 'array', items: { type: 'string', 'x-reference': 'recordings' }, 'x-inverse-of': 'recordings.meeting' };
+		const err = compileError(workspace({ collections: { meetings: M, recordings: RECORDINGS }, compile: false }).ws);
+		assert.match(err, /declared on both sides and they disagree/);
+	});
+	test('set-null on a required FK is an error', () => {
+		const R = structuredClone(RECORDINGS);
+		R.schema.required = ['name', 'meeting'];
+		R.schema.properties.meeting['x-on-delete'] = 'set-null';
+		const err = compileError(workspace({ collections: { meetings: MEETINGS, recordings: R }, compile: false }).ws);
+		assert.match(err, /set-null would produce an invalid record/);
+	});
+	test('array mirror of a unique FK is a cardinality error', () => {
+		const M = simpleCollection({ storage: { suffix: 'meeting' } });
+		M.schema.properties.summaries = { type: 'array', items: { type: 'string', 'x-reference': 'summaries' }, 'x-inverse-of': 'summaries.meeting' };
+		const S = structuredClone(SUMMARIES); delete S.schema.properties.meeting['x-inverse'];
+		const err = compileError(workspace({ collections: { meetings: M, summaries: S }, compile: false }).ws);
+		assert.match(err, /array mirror of the unique FK/);
+	});
+	test('the legacy both-sides shape compiles with a warning', () => {
+		const M = structuredClone(MEETINGS);
+		M.schema.properties.recordings = { type: 'array', items: { type: 'string', 'x-reference': 'recordings' } };
+		const ws = workspace({ collections: { meetings: M, recordings: RECORDINGS } });
+		assert.ok(ws.out.warnings.some((w) => w.includes('hand-authored but recordings.meeting declares it')));
+	});
+	test('self-reference works with a distinct mirror name', () => {
+		const C = simpleCollection({ storage: { suffix: 'company' } });
+		C.schema.properties.parent = { type: 'string', 'x-reference': 'companies', 'x-inverse': 'subsidiaries' };
+		const ws = workspace({ collections: { companies: C } });
+		const compiled = load(readFile(ws.root, '.dreamteamer/collections/companies.collection.yaml'));
+		assert.equal(compiled.schema.properties.subsidiaries.items['x-inverse-of'], 'companies.parent');
+	});
+	test('double reference into one target works with distinct mirror names', () => {
+		const T = simpleCollection({ storage: { suffix: 'txn' } });
+		T.schema.properties.claim = { type: 'string', 'x-reference': 'claims', 'x-inverse': 'expense_transactions' };
+		T.schema.properties.reimburses_claim = { type: 'string', 'x-reference': 'claims', 'x-inverse': 'reimbursement_transactions' };
+		const ws = workspace({ collections: { claims: simpleCollection({ storage: { suffix: 'claim' } }), transactions: T } });
+		const claims = load(readFile(ws.root, '.dreamteamer/collections/claims.collection.yaml'));
+		assert.ok(claims.schema.properties.expense_transactions && claims.schema.properties.reimbursement_transactions);
+	});
+});
