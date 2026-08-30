@@ -524,3 +524,56 @@ describe('rm holds at the edges', () => {
 		assert.equal(check.code, 0, check.stdout);
 	});
 });
+
+// A single-target FK is accepted BARE on input and qualified before disk — but only through the
+// store's own write path. A hand-authored record, or one written before namespaces, legitimately
+// holds `meetings: [one]` where the engine would have written `meetings: [meetings/one]`. The
+// exclusion arithmetic has to survive that, because the two numbers it compares are counted from
+// different places: one from parsed FIELDS, one from the file's raw BYTES.
+describe('the exclusion arithmetic survives a bare foreign key', () => {
+	const bareWorkspace = () => {
+		const SN = structuredClone(ANALYSES);
+		SN.schema.properties.meetings.items['x-on-delete'] = 'set-null';
+		SN.schema.properties.notes = { type: 'string', 'x-body': true };
+		const ws = workspace({ collections: { meetings: MEETINGS, analyses: SN } });
+		ws.dt('add', 'meetings', '--name', 'One');
+		ws.dt('add', 'analyses', '--name', 'Arc', '--meetings', 'meetings/one');
+		return ws;
+	};
+	// hand-edit the FK down to the bare id, optionally adding a body that names the record in full
+	const unqualify = (ws, body = '') => {
+		const f = `${ws.root}/data/analyses/arc.analysis.md`;
+		const text = fs.readFileSync(f, 'utf8').replace('- meetings/one', '- one').trimEnd();
+		fs.writeFileSync(f, `${text}\n${body}`);
+	};
+
+	test('a BARE set-null FK cannot absorb a prose reference in the same record', () => {
+		// The two counts were measured in different units. `plan` matched SEMANTICALLY — `isSelf` is
+		// deliberately blind to whether a value is qualified — while `occurrences` greps the raw text
+		// for the FULLY-QUALIFIED ref, which a bare FK does not contain. So the bare FK claimed a
+		// removal that removes no text, and the slack swallowed a real, separate wikilink: rm green,
+		// link dangling, `check` silent (it reads frontmatter, never prose).
+		const ws = bareWorkspace();
+		unqualify(ws, '\nsee [[meetings/one]]\n');
+		const res = ws.dt('rm', 'meetings/one');
+		assert.equal(res.code, 1);
+		assert.match(res.stderr, /referenced by/);
+		assert.match(res.stderr, /data\/analyses\/arc\.analysis\.md/);
+		const a = readFile(ws.root, 'data/analyses/arc.analysis.md');
+		assert.match(a, /- one/); // the bare FK is untouched…
+		assert.match(a, /\[\[meetings\/one\]\]/); // …and so is the link that earned the refusal
+	});
+
+	test('a BARE set-null FK on its own still clears, without refusing', () => {
+		// The other half, and the reason the fix cannot simply be "count bare values as text": a record
+		// whose ONLY reference is the bare FK contains no literal `meetings/one` at all, so the scan
+		// never names it — and clearing it is exactly what `x-on-delete: set-null` asks for.
+		const ws = bareWorkspace();
+		unqualify(ws);
+		const res = ws.dt('rm', 'meetings/one');
+		assert.equal(res.code, 0, res.stderr);
+		assert.doesNotMatch(readFile(ws.root, 'data/analyses/arc.analysis.md'), /meetings:/);
+		const check = ws.dt('check');
+		assert.equal(check.code, 0, check.stdout);
+	});
+});
