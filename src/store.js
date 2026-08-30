@@ -63,6 +63,17 @@ export class Store {
 		return d;
 	}
 
+	// Can the store rewrite this collection's records AT ALL? The two shapes it cannot are the same
+	// pair `applyMirrorEdits` bails on: a runtime-based record is a build artifact under
+	// `.dreamteamer/` whose source lives elsewhere, and a `codec: file` record's bytes ARE the record
+	// — `serialize` has no branch for it, so a write would replace an SVG with frontmatter. A
+	// predicate rather than a throw, because the callers that need this are CHOOSING a path (rm's
+	// set-null falls back to restrict) rather than refusing a request.
+	canRewrite(collection) {
+		const d = this.descriptors.get(collection);
+		return !!d && d.storage.base !== 'runtime' && (d.storage.codec ?? 'md') !== 'file';
+	}
+
 	// Relations, decoded ONCE per Store — the same reasoning as `namespaces` in the constructor: this
 	// is compile output, and a Store is already rebuilt whenever the runtime changes.
 	relations() { return (this._relations ??= relationsOf(this.descriptors)); }
@@ -508,21 +519,148 @@ export class Store {
 		});
 	}
 
+	/** Removal, against relations. `rm`'s guard is a TEXT SCAN over every record file — any file whose
+	 *  bytes contain `<collection>/<id>` refuses the removal — and that was exactly right while every
+	 *  inbound reference was somebody's hand-written data. It stopped being right the day the engine
+	 *  started writing references of its own: the scan cannot tell a mirror it wrote from a value a
+	 *  human typed, so it refused on the strength of its own bookkeeping and left `--force` — which
+	 *  removes the record AND leaves the mirror pointing at nothing — as the only way through.
+	 *
+	 *  So inbound references split three ways, and only the third refuses:
+	 *
+	 *  MINE — the mirror entries this record's own FKs put on their targets. Detached here, through the
+	 *  SAME pass add/set/revert use: `applyMirrorEdits(d, id, fields, null)` is precisely "this owner
+	 *  now claims nothing", so there is one implementation of what a detach means, not two.
+	 *
+	 *  THEIRS, UNDER A RULE — an owner's FK pointing AT this record where the relation declares
+	 *  `x-on-delete: set-null`. The schema author has already said what should happen; do it, in this
+	 *  same commit.
+	 *
+	 *  THEIRS — everything else: `x-on-delete: restrict` (the default), and every prose or unmodelled
+	 *  reference the scan finds. Still refused, still escapable with `--force`, which still reports how
+	 *  many references it left dangling.
+	 */
 	rm(collection, id, { force = false } = {}) {
 		const d = this.writableDescriptor(collection);
-		this.read(collection, id); // existence check
-		const inbound = this.findInboundRefs(`${collection}/${id}`);
-		if (inbound.length && !force) {
-			throw new Error(`${collection}/${id} is referenced by:\n${inbound.map((f) => `  ${f}`).join('\n')}\nfix the references or pass --force. nothing was removed.`);
+		const self = `${collection}/${id}`;
+		// the existence check, and the FKs whose mirrors are detached below. Qualified on a COPY for the
+		// same reason applyMirrorEdits qualifies `before`: a hand-edited or pre-namespace record can
+		// hold `standup` where the engine writes `meetings/standup`, and a raw string compare misses it.
+		const own = { ...this.read(collection, id).fields };
+		this.qualifyBareRefs(d, own);
+		const toArr = (v) => (v == null ? [] : Array.isArray(v) ? v : [v]);
+		// `bare` is whether this field's target set has exactly one member — the only case where
+		// qualifyBareRefs would have expanded an unqualified value, so the only case where an
+		// unqualified value on disk can be assumed to mean this collection.
+		const isSelf = (v, bare) => {
+			if (typeof v !== 'string') return false;
+			const p = parseRef(v, this.namespaces);
+			return p ? `${p.collection}/${p.id}` === self : bare && `${collection}/${v}` === self;
+		};
+
+		// ---- who points AT this record, and under what rule -------------------------------
+		const setNullEdits = [];
+		const restrictHits = [];
+		for (const rel of this.relations()) {
+			if (rel.target !== collection) continue;
+			const targets = refTargetsOf(this.descriptor(rel.owner).schema?.properties?.[rel.field]);
+			const bare = Array.isArray(targets) && targets.length === 1;
+			// An owner the store cannot REWRITE cannot be set to null — and the honest fallback is
+			// `restrict`, not silence: refusing is a sentence someone can act on, a skipped set-null is a
+			// dangling reference from a verb that reported success.
+			const clearable = rel.onDelete === 'set-null' && this.canRewrite(rel.owner);
+			for (const { id: oid, file, fields: of } of this.readAll(rel.owner)) {
+				if (!toArr(of[rel.field]).some((v) => isSelf(v, bare))) continue;
+				if (clearable) setNullEdits.push({ rel, oid, file, bare });
+				else restrictHits.push({ ref: `${rel.owner}/${oid}`, field: rel.field, file: path.relative(this.root, file) });
+			}
 		}
+
+		// ---- what the text scan finds that is NOT the engine's own bookkeeping -------------
+		// Read through `ids()` so a managed path is the exact file the mirror pass rewrites — a
+		// folder-shape record's ENTRY file, not its folder — which is also the shape findInboundRefs
+		// reports. A target the mirror pass would bail on (`codec: file`, runtime-based) never received
+		// a mirror, so it is not managed and a hit in it is real.
+		const managedFiles = new Set();
+		const memoized = new Set([collection]); // every collection whose id index this write invalidates
+		for (const rel of this.relations()) {
+			if (rel.owner !== collection || !this.canRewrite(rel.target)) continue;
+			memoized.add(rel.target);
+			for (const v of toArr(own[rel.field])) {
+				const p = parseRef(v, this.namespaces);
+				if (!p || p.collection !== rel.target) continue; // malformed, or another union member
+				const f = this.ids(rel.target).get(p.id);
+				if (f) managedFiles.add(path.relative(this.root, f));
+			}
+		}
+		for (const { rel } of setNullEdits) memoized.add(rel.owner);
+		const setNullFiles = new Set(setNullEdits.map(({ file }) => path.relative(this.root, file)));
+		const inbound = this.findInboundRefs(self).filter((f) => !managedFiles.has(f) && !setNullFiles.has(f));
+		// A restrict hit the scan already named is ONE reference described twice — keep the scan's
+		// shape, which is what this sentence has always said. What the scan misses (a bare FK, or an
+		// owner file excluded because it also holds a mirror of ours) is named as record + field.
+		const extraRestrict = restrictHits.filter((h) => !inbound.includes(h.file));
+		if ((inbound.length || extraRestrict.length) && !force) {
+			const all = [...inbound, ...extraRestrict.map((h) => `${h.file} (${h.ref}.${h.field})`)];
+			throw new Error(`${self} is referenced by:\n${all.map((f) => `  ${f}`).join('\n')}\nfix the references or pass --force. nothing was removed.`);
+		}
+
 		const unit = this.recordRoot(d, id); // folder-shape: the whole folder goes, not just the entry file
 		// snapshot BEFORE the delete, or there is nothing left to read
 		const restore = snapshot([unit]);
+		// ⚠ THE MEMO, on the way in AND on every way back out. `ids()` keys its cache on HEAD plus the
+		// collection's TOP directory mtime, neither of which moves for a record inside an existing
+		// sub-directory — so an entry populated mid-write survives a rollback, and this Store then lists
+		// an id that is not on disk (or omits one that is) for the rest of the process.
+		const dropMemos = () => { for (const c of memoized) this._idsCache.delete(c); };
 		return this.withWriteLock(() => {
-			this._idsCache.delete(collection);
+			dropMemos();
+			// MIRRORS FIRST, then the owners, then the delete. The mirror pass reads its targets through
+			// `ids()`, and a self-referencing relation has to still see the record it is detaching from.
+			const mirrors = this.applyMirrorEdits(d, id, own, null);
+			const nullFiles = [];
+			const nullUndos = [];
+			// a COPY before reversing, exactly as applyMirrorEdits does: `undo` is handed to `commit` and
+			// an in-place reverse would make a second call replay the writes forwards.
+			const unwindNulls = () => { for (const u of [...nullUndos].reverse()) u(); };
+			try {
+				for (const { rel, oid, file, bare } of setNullEdits) {
+					// re-read INSIDE the lock: the mirror pass above may have just rewritten this very file
+					// (two collections can point at each other), and `previous` has to be what is on disk
+					// NOW or the undo below would resurrect a mirror that was correctly detached.
+					const { fields: of, descriptor: od } = this.read(rel.owner, oid);
+					const previous = fs.readFileSync(file, 'utf8');
+					if (Array.isArray(of[rel.field])) {
+						of[rel.field] = of[rel.field].filter((v) => !isSelf(v, bare));
+						// the last element takes the KEY with it — `[]` is derived state leaking into a source
+						if (!of[rel.field].length) delete of[rel.field];
+					} else {
+						delete of[rel.field]; // `field: null` is not a cleared reference, it is a type error
+					}
+					atomicWrite(file, serialize(od, of));
+					this._idsCache.delete(rel.owner);
+					nullFiles.push(file);
+					nullUndos.push(() => atomicWrite(file, previous));
+				}
+			} catch (e) {
+				// REVERSE CHRONOLOGICAL, because one file can be written twice (a mirror detach and then an
+				// FK clear): undoing the earlier write first would leave the later one standing.
+				unwindNulls();
+				mirrors.undo();
+				dropMemos();
+				throw e; // nothing has been deleted yet — "nothing was removed" is still true
+			}
 			fs.rmSync(unit, { recursive: true });
-			this.commit([unit], `dreamteamer: ${collection} rm ${id}`, restore, d.storage.repo ?? '.');
-			return { id, inboundIgnored: force ? inbound.length : 0 };
+			// ONE commit, the record and every reference the engine moved with it: a commit where the
+			// target is gone but its owners still name it is a history that never held a consistent
+			// workspace.
+			this.commit([unit, ...mirrors.files, ...nullFiles], `dreamteamer: ${collection} rm ${id}`, () => {
+				unwindNulls();
+				mirrors.undo();
+				restore();
+				dropMemos();
+			}, d.storage.repo ?? '.');
+			return { id, inboundIgnored: force ? inbound.length + extraRestrict.length : 0 };
 		});
 	}
 
