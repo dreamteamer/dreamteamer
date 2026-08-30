@@ -421,3 +421,106 @@ describe('rm and relations', () => {
 		assert.deepEqual(files, ['data/analyses/arc.analysis.md', 'data/meetings/one.meeting.md']);
 	});
 });
+
+// Two ways the rewritten `rm` was found to be wrong. Both were reproduced through the real CLI
+// before they were tests; neither is hypothetical.
+describe('rm holds at the edges', () => {
+	// `recordings` is BOTH sides of a relation at once here — it OWNS an FK to meetings (so removing
+	// one detaches a mirror) and is the TARGET of a set-null FK on analyses (so removing one clears
+	// an owner's field). One `rm`, three mutations, which is what makes the failure case below worth
+	// writing at all: two of the three land before the one that throws.
+	const CAP_ANALYSES = simpleCollection({
+		storage: { suffix: 'analysis' },
+		schema: {
+			type: 'object',
+			required: ['name'],
+			properties: {
+				name: { type: 'string' },
+				recordings: { type: 'array', 'x-inverse': 'analyses', 'x-on-delete': 'set-null', items: { type: 'string', 'x-reference': 'recordings' } },
+			},
+		},
+	});
+
+	test('a delete that FAILS puts the mirror and the set-null owner back', () => {
+		// The delete used to be rm's FIRST mutation, so a failing unlink left the tree untouched. It is
+		// now the LAST of three, and outside the rollback it left two other records silently rewritten —
+		// a detached mirror and a cleared FK — behind a verb that threw. `check` then reports two stale
+		// violations nobody asked for. 0500 on the collection dir is the cheap, portable stand-in for
+		// the real cases: a read-only mount, `chflags uchg`, a folder-shape record raced by another
+		// writer.
+		//
+		// In-process through the Store, because half of what has to be restored is IN MEMORY: the id
+		// memo is dropped on the way in and repopulated mid-write, and a rollback that leaves it saying
+		// the wrong thing is a dangling reference from the NEXT write, not this one.
+		const ws = workspace({ collections: { meetings: MEETINGS, recordings: RECORDINGS, analyses: CAP_ANALYSES } });
+		ws.store.add('meetings', { name: 'Standup' });
+		ws.store.add('recordings', { name: 'Cap', meeting: 'meetings/standup' });
+		ws.store.add('recordings', { name: 'Other' });
+		ws.store.add('analyses', { name: 'Arc', recordings: ['recordings/cap', 'recordings/other'] });
+		const before = {
+			meeting: readFile(ws.root, 'data/meetings/standup.meeting.md'),
+			analysis: readFile(ws.root, 'data/analyses/arc.analysis.md'),
+			recording: readFile(ws.root, 'data/recordings/cap.recording.md'),
+		};
+		const dir = `${ws.root}/data/recordings`;
+		fs.chmodSync(dir, 0o500); // r-x: the file is readable, the directory entry cannot be unlinked
+		try {
+			assert.throws(() => ws.store.rm('recordings', 'cap'), /EACCES|EPERM/);
+		} finally {
+			fs.chmodSync(dir, 0o700); // …or the fixture cannot be cleaned up
+		}
+		assert.equal(readFile(ws.root, 'data/recordings/cap.recording.md'), before.recording);
+		assert.equal(readFile(ws.root, 'data/meetings/standup.meeting.md'), before.meeting);
+		assert.equal(readFile(ws.root, 'data/analyses/arc.analysis.md'), before.analysis);
+		// …and the memo agrees with the disk for every collection the write touched
+		assert.equal(ws.store.ids('recordings').has('cap'), true);
+		assert.equal(ws.store.ids('meetings').has('standup'), true);
+		assert.equal(ws.store.ids('analyses').has('arc'), true);
+		assert.deepEqual(ws.store.read('meetings', 'standup').fields.recordings, ['recordings/cap']);
+		assert.deepEqual(ws.store.read('analyses', 'arc').fields.recordings, ['recordings/cap', 'recordings/other']);
+		const check = ws.dt('check');
+		assert.equal(check.code, 0, check.stdout);
+	});
+
+	test('a set-null owner that ALSO names this record in prose still refuses', () => {
+		// The exclusion is what makes the detach possible, and it was applied to the whole FILE — so a
+		// record whose FK is about to be cleared could carry a second, unmanaged reference in its body
+		// and have it excluded along with the first. Nothing would ever report it: `check` reads
+		// frontmatter, never prose.
+		const SN = structuredClone(ANALYSES);
+		SN.schema.properties.meetings.items['x-on-delete'] = 'set-null';
+		SN.schema.properties.notes = { type: 'string', 'x-body': true };
+		const ws = workspace({ collections: { meetings: MEETINGS, analyses: SN } });
+		ws.dt('add', 'meetings', '--name', 'One');
+		ws.dt('add', 'analyses', '--name', 'Arc', '--meetings', 'meetings/one');
+		const f = `${ws.root}/data/analyses/arc.analysis.md`;
+		fs.writeFileSync(f, `${fs.readFileSync(f, 'utf8').trimEnd()}\n\nas discussed in [[meetings/one]]\n`);
+		const res = ws.dt('rm', 'meetings/one');
+		assert.equal(res.code, 1);
+		assert.match(res.stderr, /referenced by/);
+		assert.match(res.stderr, /data\/analyses\/arc\.analysis\.md/);
+		assert.match(readFile(ws.root, 'data/analyses/arc.analysis.md'), /meetings:\n {2}- meetings\/one/);
+		const check = ws.dt('check');
+		assert.equal(check.code, 0, check.stdout);
+	});
+
+	test('a mirror target that ALSO names the owner in prose still refuses', () => {
+		// The same narrowing on the other exclusion. One occurrence in that file is the engine's own
+		// bookkeeping and is not a reason to refuse; two means one of them is somebody's writing.
+		const M = simpleCollection({
+			storage: { suffix: 'meeting' },
+			schema: { type: 'object', required: ['name'], properties: { name: { type: 'string' }, notes: { type: 'string', 'x-body': true } } },
+		});
+		const ws = workspace({ collections: { meetings: M, recordings: RECORDINGS } });
+		ws.dt('add', 'meetings', '--name', 'Standup');
+		ws.dt('add', 'recordings', '--name', 'Cap', '--meeting', 'meetings/standup');
+		const f = `${ws.root}/data/meetings/standup.meeting.md`;
+		fs.writeFileSync(f, `${fs.readFileSync(f, 'utf8').trimEnd()}\n\nthe good bit is in [[recordings/cap]]\n`);
+		const res = ws.dt('rm', 'recordings/cap');
+		assert.equal(res.code, 1);
+		assert.match(res.stderr, /data\/meetings\/standup\.meeting\.md/);
+		assert.match(readFile(ws.root, 'data/meetings/standup.meeting.md'), /recordings:\n {2}- recordings\/cap/);
+		const check = ws.dt('check');
+		assert.equal(check.code, 0, check.stdout);
+	});
+});
