@@ -191,6 +191,18 @@ function stampMirror(byName, ctx, ownerName, field, prop, holder, mirrorName, ta
 	if ((byName.get(ownerName).storage?.repo ?? '.') !== (t.storage?.repo ?? '.')) {
 		fail(`collection "${ownerName}": x-inverse on "${field}" crosses storage.repo — one commit cannot span two repos. Leave the link one-way.`);
 	}
+	// ---- can the target HOLD a mirror at all? -----------------------------------------
+	// A mirror is a field the store writes onto the target record, so a target with nowhere to put a
+	// field is not a link to degrade — it is a descriptor asking for something that cannot exist.
+	// Both of these were found by pointing a relation at one and watching the store do damage, and
+	// both are refused here rather than patched there: a guard in the store leaves the workspace
+	// permanently `stale` with no way to fix it, because the mirror can never be written.
+	if ((t.storage?.codec ?? 'md') === 'file') {
+		fail(`collection "${ownerName}": x-inverse on "${field}" stamps a mirror onto ${target}, whose records ARE files (codec: file) — the bytes are the whole record, there is no frontmatter to hold a generated field. Leave the link one-way.`);
+	}
+	if (t.storage?.base === 'runtime') {
+		fail(`collection "${ownerName}": x-inverse on "${field}" stamps a mirror onto ${target}, whose records are compiled sources — the store would write into .dreamteamer/, which the next compile overwrites. Leave the link one-way.`);
+	}
 	const unique = holder['x-unique'] === true;
 	const inverseOf = `${ownerName}.${field}`;
 	// A mirror is readOnly, so `required` naming one describes a record nobody can write — the

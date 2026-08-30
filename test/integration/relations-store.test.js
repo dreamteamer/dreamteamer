@@ -12,6 +12,7 @@
 // a non-zero exit rather than being swallowed.
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import { workspace, simpleCollection, readFile } from '../helpers/ws.js';
 
 // The same four-collection cast as relations-compile.test.js — one anchor plus the three
@@ -209,5 +210,95 @@ describe('the store maintains mirrors', () => {
 		assert.match(readFile(ws.root, 'data/summaries/second.summary.md'), /meeting: meetings\/two/);
 		assert.match(readFile(ws.root, 'data/meetings/two.meeting.md'), /summary: summaries\/second/);
 		assert.equal(ws.dt('check').code, 0);
+	});
+});
+
+// The four ways a maintained mirror was found to be maintainable WRONGLY. Each of these was
+// reproduced through the real CLI before it was a test; none of them is hypothetical.
+describe('mirror maintenance holds at the edges', () => {
+	test('revert moves the mirrors with the FK it restores', () => {
+		// `revert` is SET-shaped — it changes an owner's foreign key — so it owes the same mirror
+		// maintenance. It reached disk through its own atomicWrite and skipped the pass entirely,
+		// which left BOTH targets stale: the old one never got the link back, the new one kept a link
+		// the owner no longer claims.
+		const ws = relWorkspace({ pkg: { 'auto-commit': true } });
+		ws.dt('add', 'meetings', '--name', 'One');
+		ws.dt('add', 'meetings', '--name', 'Two');
+		ws.dt('add', 'recordings', '--name', 'Cap', '--meeting', 'meetings/one');
+		const at = ws.git(['rev-parse', 'HEAD']);
+		assert.equal(ws.dt('set', 'recordings/cap', 'meeting=meetings/two').code, 0);
+		const res = ws.dt('revert', 'recordings/cap', '--hash', at);
+		assert.equal(res.code, 0, res.stderr);
+		assert.match(readFile(ws.root, 'data/meetings/one.meeting.md'), /recordings\/cap/);
+		assert.doesNotMatch(readFile(ws.root, 'data/meetings/two.meeting.md'), /recordings\/cap/);
+		const check = ws.dt('check');
+		assert.equal(check.code, 0, check.stdout);
+	});
+
+	test('a BARE foreign key on disk still detaches', () => {
+		// `before` comes straight off disk and `after` has been through qualifyBareRefs, so a record
+		// carrying `meeting: standup` (hand-edited, or written before namespaces) diffed as a detach of
+		// "standup" — which parses as nothing and is skipped — plus an attach of "meetings/standup".
+		// The old target kept the link forever, and a green `dt set` was what created the staleness.
+		const ws = relWorkspace();
+		ws.dt('add', 'meetings', '--name', 'Standup');
+		ws.dt('add', 'meetings', '--name', 'Retro');
+		ws.dt('add', 'recordings', '--name', 'Cap', '--meeting', 'meetings/standup');
+		const f = `${ws.root}/data/recordings/cap.recording.md`;
+		fs.writeFileSync(f, fs.readFileSync(f, 'utf8').replace('meeting: meetings/standup', 'meeting: standup'));
+		assert.equal(ws.dt('set', 'recordings/cap', 'meeting=meetings/retro').code, 0);
+		assert.doesNotMatch(readFile(ws.root, 'data/meetings/standup.meeting.md'), /recordings\/cap/);
+		assert.match(readFile(ws.root, 'data/meetings/retro.meeting.md'), /recordings\/cap/);
+		const check = ws.dt('check');
+		assert.equal(check.code, 0, check.stdout);
+	});
+
+	test('attaching to a target that already names this owner does not double the entry', () => {
+		// The dedupe on attach, which the reviewer had to prove reachable: hand-write the mirror while
+		// the owner's FK is empty (a half-finished edit, or one side of a merge), then set the FK. The
+		// attach finds itself already listed, and a plain append would leave two copies — which check
+		// reads as stale, so the write that was meant to REPAIR the record breaks it instead.
+		const ws = relWorkspace();
+		ws.dt('add', 'meetings', '--name', 'Standup');
+		ws.dt('add', 'recordings', '--name', 'Cap');
+		const f = `${ws.root}/data/meetings/standup.meeting.md`;
+		fs.writeFileSync(f, fs.readFileSync(f, 'utf8').replace(/^---\n/, '---\nrecordings:\n  - recordings/cap\n'));
+		assert.equal(ws.dt('set', 'recordings/cap', 'meeting=meetings/standup').code, 0);
+		assert.match(readFile(ws.root, 'data/meetings/standup.meeting.md'), /recordings:\n  - recordings\/cap\n(?!  - )/);
+		const check = ws.dt('check');
+		assert.equal(check.code, 0, check.stdout);
+	});
+});
+
+// Partitioned ids on a SELF-referencing collection, which is what makes the next case reproducible
+// rather than a matter of filesystem timing: `ids()` keys its memo on the mtime of the collection's
+// TOP directory, and a record written into an existing `data/people/core/` moves neither that mtime
+// nor HEAD. So the entry cached during a refused write survives the rollback — deterministically.
+const PEOPLE = {
+	id: { generate: '{{ team }}/{{ name | slug }}' },
+	storage: { suffix: 'person' },
+	schema: {
+		type: 'object',
+		required: ['name', 'team'],
+		properties: {
+			name: { type: 'string' },
+			team: { type: 'string' },
+			mentor: { type: 'string', 'x-reference': 'people', 'x-unique': true, 'x-inverse': 'mentee' },
+		},
+	},
+};
+
+describe('a refused write leaves no trace in memory either', () => {
+	test('the id cache does not keep the record the rollback removed', () => {
+		// In-process, through the Store, because that is where the damage lives: the file is gone from
+		// disk and a fresh Store agrees, but THIS Store still lists the id — so the next write's
+		// checkRefs sees a record that does not exist and lands a dangling reference from a verb that
+		// reported success.
+		const ws = workspace({ collections: { people: PEOPLE } });
+		ws.store.add('people', { name: 'Ada', team: 'core' });
+		ws.store.add('people', { name: 'Bo', team: 'core', mentor: 'people/core/ada' });
+		assert.throws(() => ws.store.add('people', { name: 'Cy', team: 'core', mentor: 'people/core/ada' }), /already has a mentee/);
+		assert.equal(readFile(ws.root, 'data/people/core/cy.person.md'), null); // the disk is right
+		assert.equal(ws.store.ids('people').has('core/cy'), false); // …and so must the memo be
 	});
 });
