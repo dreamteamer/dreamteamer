@@ -101,7 +101,10 @@ function normalizeRelationKeywords(schema, name, prefix = '') {
 		if (!prop || typeof prop !== 'object') continue;
 		const at = `${prefix}${key}`;
 		if (prop.items && typeof prop.items === 'object' && prop.items['x-reference']) {
-			for (const kw of ['x-inverse', 'x-title-template']) {
+			// every per-relation keyword, not just `x-inverse` — `x-unique` decides the mirror's
+			// cardinality, `x-on-delete` its removal rule and `x-inverse-of` names the owner from the
+			// other spelling, so all four have to reach the same node the relation is read from.
+			for (const kw of ['x-inverse', 'x-title-template', 'x-unique', 'x-on-delete', 'x-inverse-of']) {
 				if (!(kw in prop)) continue;
 				if (kw in prop.items && prop.items[kw] !== prop[kw]) {
 					fail(`collection "${name}": field "${at}" declares conflicting ${kw} on the property and its items — keep one.`);
@@ -115,7 +118,99 @@ function normalizeRelationKeywords(schema, name, prefix = '') {
 	}
 }
 
-export const KINDS = ['collections', 'skills', 'agents', 'commands', 'command-bindings', 'ui-views', 'collection-templates'];
+/** Two source spellings, one compiled pair. Spelling B (`x-inverse-of` on the non-owning side)
+ *  is rewritten onto the owner as `x-inverse`; then every owner `x-inverse` stamps a generated
+ *  readOnly mirror on its target. Runs over ALL merged descriptors because a relation spans two. */
+function materializeRelations(mergedGroups, ctx) {
+	const byName = new Map([...mergedGroups].map(([n, g]) => [n, g.merged]));
+	// ---- pass 1: spelling B → canonical A on the owner --------------------------------
+	for (const [name, d] of byName) {
+		for (const [field, prop] of Object.entries(d.schema?.properties ?? {})) {
+			if (!prop || typeof prop !== 'object') continue;
+			const holder = (prop.items && typeof prop.items === 'object') ? prop.items : prop;
+			const of = holder['x-inverse-of'];
+			if (!of) continue;
+			const dot = of.lastIndexOf('.'); // collection names contain '/', so split at the LAST dot
+			if (dot < 1) fail(`collection "${name}": field "${field}" has x-inverse-of "${of}" — expected <collection>.<field>.`);
+			const ownerName = of.slice(0, dot), ownerField = of.slice(dot + 1);
+			const owner = byName.get(ownerName);
+			const oProp = owner?.schema?.properties?.[ownerField];
+			if (!oProp) fail(`collection "${name}": field "${field}" declares x-inverse-of "${of}", but no such field exists.`);
+			const oHolder = (oProp.items && typeof oProp.items === 'object') ? oProp.items : oProp;
+			const oTargets = refTargets(owner.schema).find(([at]) => at === ownerField || at === `${ownerField}[]`);
+			const targetList = oTargets ? (Array.isArray(oTargets[1]) ? oTargets[1] : [oTargets[1]]) : [];
+			if (!targetList.includes(name)) fail(`collection "${name}": x-inverse-of "${of}" — that field does not reference ${name}.`);
+			// cardinality closes backwards: a scalar mirror means the FK is unique
+			if (prop.type !== 'array') oHolder['x-unique'] = true;
+			else if (oHolder['x-unique'] === true) fail(`collection "${name}": field "${field}" is an array mirror of the unique FK "${of}" — one of the two is wrong.`);
+			const existing = oHolder['x-inverse'];
+			const existingName = existing && (typeof existing === 'string' ? existing : existing.field);
+			if (existingName && existingName !== field) fail(`relation ${of}: declared on both sides and they disagree ("${existingName}" vs "${field}") — keep one.`);
+			if (existingName) console.warn(`⚠ relation ${of}: declared on both sides — keep one (x-inverse on the owner, or x-inverse-of on ${name}.${field}).`);
+			oHolder['x-inverse'] = typeof prop.description === 'string' ? { field, description: prop.description } : field;
+			// the authored spelling-B field is replaced by the generated mirror in pass 2
+			delete d.schema.properties[field];
+		}
+	}
+	// ---- pass 2: every owner x-inverse stamps the mirror ------------------------------
+	for (const [name, d] of byName) {
+		for (const [field, prop] of Object.entries(d.schema?.properties ?? {})) {
+			if (!prop || typeof prop !== 'object') continue;
+			const holder = (prop.items && typeof prop.items === 'object') ? prop.items : prop;
+			const inv = holder['x-inverse'];
+			if (!inv) continue;
+			const mirrorName = typeof inv === 'string' ? inv : inv.field;
+			const raw = holder['x-reference'];
+			if (raw === '*' || raw == null) fail(`collection "${name}": field "${field}" declares x-inverse on x-reference '*' — a wildcard has no target to stamp.`);
+			if (holder['x-on-delete'] !== undefined && !['restrict', 'set-null'].includes(holder['x-on-delete'])) {
+				fail(`collection "${name}": field "${field}" x-on-delete must be restrict or set-null.`);
+			}
+			if (holder['x-on-delete'] === 'set-null' && (d.schema.required ?? []).includes(field)) {
+				fail(`collection "${name}": field "${field}" is required — x-on-delete: set-null would produce an invalid record. Use restrict, or drop required.`);
+			}
+			holder['x-inverse'] = mirrorName; // canonical string form in the compiled output
+			for (const target of Array.isArray(raw) ? raw : [raw]) {
+				stampMirror(byName, ctx, name, field, prop, holder, mirrorName, target, typeof inv === 'object' ? inv.description : undefined);
+			}
+		}
+	}
+}
+
+function stampMirror(byName, ctx, ownerName, field, prop, holder, mirrorName, target, description) {
+	const t = byName.get(target);
+	if (!t) return; // an unresolved peer — the ref contract already warned
+	// cross-module gate, mirrored per spelling: the OWNING module stamps a field onto the target,
+	// so it must hard-depend on the target's module (extends: uses the same gate). Same repo only.
+	const ownerModule = ctx.moduleOf(ownerName), targetModule = ctx.moduleOf(target);
+	if (ownerModule !== targetModule) {
+		const deps = ctx.moduleDeps.get(ownerModule) ?? [];
+		if (![...deps].includes(targetModule) && ownerModule !== ctx.wsModuleName) {
+			fail(`collection "${ownerName}": x-inverse on "${field}" stamps a field onto ${target} (module ${targetModule}) — declare "${targetModule}" in dreamteamer.dependencies, or leave the link one-way.`);
+		}
+	}
+	if ((byName.get(ownerName).storage?.repo ?? '.') !== (t.storage?.repo ?? '.')) {
+		fail(`collection "${ownerName}": x-inverse on "${field}" crosses storage.repo — one commit cannot span two repos. Leave the link one-way.`);
+	}
+	const unique = holder['x-unique'] === true;
+	const inverseOf = `${ownerName}.${field}`;
+	const generated = unique
+		? { type: 'string', 'x-reference': ownerName, readOnly: true, 'x-inverse-of': inverseOf }
+		: { type: 'array', items: { type: 'string', 'x-reference': ownerName, 'x-inverse-of': inverseOf }, readOnly: true };
+	generated.description = description ?? `Generated from ${inverseOf} — set that field.`;
+	const existing = t.schema.properties?.[mirrorName];
+	if (existing) {
+		// the legacy both-sides shape: an authored field that matches what we'd generate is a
+		// warning for one minor; a real mismatch is an error.
+		const e = (existing.items && typeof existing.items === 'object') ? existing.items : existing;
+		const sameShape = (existing.type === generated.type) && ((e['x-reference'] ?? null) === ownerName);
+		if (!sameShape) fail(`collection "${target}": field "${mirrorName}" collides with the mirror generated from ${inverseOf} — rename one.`);
+		console.warn(`⚠ collection ${target}: field "${mirrorName}" is hand-authored but ${inverseOf} declares it — delete the authored field, or move its extras into x-inverse. Treating it as the mirror.`);
+		generated.description = existing.description ?? generated.description;
+	}
+	t.schema.properties = { ...t.schema.properties, [mirrorName]: generated };
+}
+
+export const KINDS =['collections', 'skills', 'agents', 'commands', 'command-bindings', 'ui-views', 'collection-templates'];
 const FOLDER_KINDS = new Set(['skills']); // folder-shape entities: copy the whole record folder
 // DERIVED_KINDS (projected, not staged) lives in runtime.js — the boundary both halves read. Not in
 // KINDS on purpose: a module folder named `modules/` would be nonsense, and `isSystem` below keys
@@ -592,6 +687,11 @@ export function compile({ root, pkg }) {
 	let mergedCount = 0;
 	let templatedCount = 0;
 	const storageEntries = []; // {name, path, base} per collection — checked for overlap after the loop
+	// Merged descriptors are held, NOT dumped, until every one of them exists: a relation spans two
+	// collections, and the second is not merged yet when the first is reached. So this loop resolves
+	// and validates each descriptor on its own, `materializeRelations` runs over the whole set, and
+	// only the loop after that derives labels and writes bytes.
+	const mergedGroups = new Map(); // collection name -> {merged, sources}
 	for (const [name, group] of descriptorGroups) {
 		// a template's bytes feed the compiled descriptor, so it MUST be one of that descriptor's
 		// declared sources — otherwise editing the template leaves every consumer silently stale
@@ -770,6 +870,24 @@ export function compile({ root, pkg }) {
 		const unresolved = [...declaredPeers].filter((p) => !collOwner.has(p)).sort();
 		if (unresolved.length) merged.unresolved_peers = unresolved;
 
+		mergedGroups.set(name, { merged, sources: [...group.map((g) => g.src), ...templateSources] });
+		if (extenders.length) mergedCount++;
+	}
+
+	// ---- relations: one compiled shape from either source spelling -------------------
+	// Between the per-collection loop and the dump, because it is the first moment every descriptor
+	// exists and the last moment before bytes are fixed — a relation writes to a collection OTHER
+	// than the one that declares it, so no per-collection pass can express it.
+	materializeRelations(mergedGroups, {
+		collOwner, moduleDeps, wsModuleName,
+		moduleOf: (n) => collOwner.get(n),
+	});
+
+	// ---- resolved labels, then bytes -------------------------------------------------
+	// A second loop rather than a tail of the first: generated mirror fields do not exist until the
+	// pass above has run, and a field with no `title` renders as a raw key in every surface that
+	// draws one.
+	for (const [name, { merged, sources: descriptorSources }] of mergedGroups) {
 		// ---- resolved labels: what to CALL this collection, its records and its fields --------
 		// Written into the artifact next to `storage.base` and for the same reason: the nav, the
 		// browse page, the CLI and the extension then read ONE field instead of each carrying its
@@ -792,7 +910,7 @@ export function compile({ root, pkg }) {
 			if (prop && typeof prop === 'object' && !Array.isArray(prop)) prop.title ??= titleCase(fieldName);
 		}
 		const rt = path.join('collections', `${name}.collection.yaml`);
-		entries.set(rt, { sources: [...group.map((g) => g.src), ...templateSources], bytes: Buffer.from(dump(merged)) });
+		entries.set(rt, { sources: descriptorSources, bytes: Buffer.from(dump(merged)) });
 		// A descriptor with no `description:` renders in the orientation block as a bare NAME — an
 		// agent learns the noun exists and nothing about when it is the right one. Derived pressure
 		// rather than a heroic backfill pass, and the same shape as the per-missing-env-key warning:
@@ -805,7 +923,6 @@ export function compile({ root, pkg }) {
 			console.warn(`⚠ collection ${name} has no description — it renders as a bare name in the orientation block every session loads`);
 		}
 		counts.collections++;
-		if (extenders.length) mergedCount++;
 	}
 
 	// ---- no collection may sit inside another's folder -------------------------------
