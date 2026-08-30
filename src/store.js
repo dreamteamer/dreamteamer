@@ -571,17 +571,24 @@ export class Store {
 			const clearable = rel.onDelete === 'set-null' && this.canRewrite(rel.owner);
 			for (const { id: oid, file, fields: of } of this.readAll(rel.owner)) {
 				if (!toArr(of[rel.field]).some((v) => isSelf(v, bare))) continue;
-				if (clearable) setNullEdits.push({ rel, oid, file, bare });
+				if (clearable) setNullEdits.push({ rel, oid, file, of, bare });
 				else restrictHits.push({ ref: `${rel.owner}/${oid}`, field: rel.field, file: path.relative(this.root, file) });
 			}
 		}
 
 		// ---- what the text scan finds that is NOT the engine's own bookkeeping -------------
-		// Read through `ids()` so a managed path is the exact file the mirror pass rewrites — a
+		// The scan is per FILE, and one file can name this record TWICE — a mirror the engine wrote, and
+		// a wikilink somebody typed in the same record's body. So excluding a file WHOLESALE is wrong:
+		// it drops the prose reference along with the managed one, and `check` reads frontmatter and
+		// never prose, so the survivor dangles in silence. A file is excluded only when the edits below
+		// account for every occurrence in it.
+		//
+		// Paths come through `ids()` so a planned path is the exact file the mirror pass rewrites — a
 		// folder-shape record's ENTRY file, not its folder — which is also the shape findInboundRefs
 		// reports. A target the mirror pass would bail on (`codec: file`, runtime-based) never received
-		// a mirror, so it is not managed and a hit in it is real.
-		const managedFiles = new Set();
+		// a mirror, so nothing is planned there and a hit in it is real.
+		const planned = new Map(); // workspace-relative path -> occurrences of `self` this write removes
+		const plan = (file, n) => { const k = path.relative(this.root, file); planned.set(k, (planned.get(k) ?? 0) + n); };
 		const memoized = new Set([collection]); // every collection whose id index this write invalidates
 		for (const rel of this.relations()) {
 			if (rel.owner !== collection || !this.canRewrite(rel.target)) continue;
@@ -590,12 +597,15 @@ export class Store {
 				const p = parseRef(v, this.namespaces);
 				if (!p || p.collection !== rel.target) continue; // malformed, or another union member
 				const f = this.ids(rel.target).get(p.id);
-				if (f) managedFiles.add(path.relative(this.root, f));
+				if (f) plan(f, 1); // the one mirror entry naming this record, which the detach removes
 			}
 		}
-		for (const { rel } of setNullEdits) memoized.add(rel.owner);
-		const setNullFiles = new Set(setNullEdits.map(({ file }) => path.relative(this.root, file)));
-		const inbound = this.findInboundRefs(self).filter((f) => !managedFiles.has(f) && !setNullFiles.has(f));
+		for (const { rel, file, of, bare } of setNullEdits) {
+			memoized.add(rel.owner);
+			plan(file, toArr(of[rel.field]).filter((v) => isSelf(v, bare)).length);
+		}
+		const occurrences = (f) => (fs.readFileSync(path.join(this.root, f), 'utf8').match(this.refRegex(self)) ?? []).length;
+		const inbound = this.findInboundRefs(self).filter((f) => !planned.has(f) || occurrences(f) > planned.get(f));
 		// A restrict hit the scan already named is ONE reference described twice — keep the scan's
 		// shape, which is what this sentence has always said. What the scan misses (a bare FK, or an
 		// owner file excluded because it also holds a mirror of ours) is named as record + field.
@@ -620,46 +630,51 @@ export class Store {
 			const mirrors = this.applyMirrorEdits(d, id, own, null);
 			const nullFiles = [];
 			const nullUndos = [];
-			// a COPY before reversing, exactly as applyMirrorEdits does: `undo` is handed to `commit` and
-			// an in-place reverse would make a second call replay the writes forwards.
-			const unwindNulls = () => { for (const u of [...nullUndos].reverse()) u(); };
+			// ONE rollback for all three mutations, used by the catch below AND handed to `commit`.
+			// Order is reverse-chronological, because one file can be written twice (a mirror detach and
+			// then an FK clear) and undoing the earlier write first would leave the later one standing —
+			// except `restore`, which goes LAST because its snapshot of the removed record predates
+			// everything, and so wins over a self-referencing edit to that same file. A COPY before
+			// reversing, exactly as applyMirrorEdits does: `undo` may be called twice.
+			const rollback = () => {
+				for (const u of [...nullUndos].reverse()) u();
+				mirrors.undo();
+				restore();
+				dropMemos();
+			};
 			try {
 				for (const { rel, oid, file, bare } of setNullEdits) {
 					// re-read INSIDE the lock: the mirror pass above may have just rewritten this very file
 					// (two collections can point at each other), and `previous` has to be what is on disk
 					// NOW or the undo below would resurrect a mirror that was correctly detached.
-					const { fields: of, descriptor: od } = this.read(rel.owner, oid);
+					const { fields: cur, descriptor: od } = this.read(rel.owner, oid);
 					const previous = fs.readFileSync(file, 'utf8');
-					if (Array.isArray(of[rel.field])) {
-						of[rel.field] = of[rel.field].filter((v) => !isSelf(v, bare));
+					if (Array.isArray(cur[rel.field])) {
+						cur[rel.field] = cur[rel.field].filter((v) => !isSelf(v, bare));
 						// the last element takes the KEY with it — `[]` is derived state leaking into a source
-						if (!of[rel.field].length) delete of[rel.field];
+						if (!cur[rel.field].length) delete cur[rel.field];
 					} else {
-						delete of[rel.field]; // `field: null` is not a cleared reference, it is a type error
+						delete cur[rel.field]; // `field: null` is not a cleared reference, it is a type error
 					}
-					atomicWrite(file, serialize(od, of));
+					atomicWrite(file, serialize(od, cur));
 					this._idsCache.delete(rel.owner);
 					nullFiles.push(file);
 					nullUndos.push(() => atomicWrite(file, previous));
 				}
+				// ⚠ THE DELETE IS INSIDE THE TRY, and it has to be. It used to be rm's FIRST mutation, so a
+				// failing unlink left the tree untouched; it is now the LAST of three, and outside the
+				// rollback an EACCES here (a read-only mount, `chflags uchg`, a folder-shape record raced
+				// by another writer) left the record in place with a mirror already detached and an FK
+				// already cleared — two stale records behind a verb that threw.
+				fs.rmSync(unit, { recursive: true });
 			} catch (e) {
-				// REVERSE CHRONOLOGICAL, because one file can be written twice (a mirror detach and then an
-				// FK clear): undoing the earlier write first would leave the later one standing.
-				unwindNulls();
-				mirrors.undo();
-				dropMemos();
-				throw e; // nothing has been deleted yet — "nothing was removed" is still true
+				rollback();
+				throw e; // …and now "nothing was removed" is true of everything, not just the record
 			}
-			fs.rmSync(unit, { recursive: true });
 			// ONE commit, the record and every reference the engine moved with it: a commit where the
 			// target is gone but its owners still name it is a history that never held a consistent
 			// workspace.
-			this.commit([unit, ...mirrors.files, ...nullFiles], `dreamteamer: ${collection} rm ${id}`, () => {
-				unwindNulls();
-				mirrors.undo();
-				restore();
-				dropMemos();
-			}, d.storage.repo ?? '.');
+			this.commit([unit, ...mirrors.files, ...nullFiles], `dreamteamer: ${collection} rm ${id}`, rollback, d.storage.repo ?? '.');
 			return { id, inboundIgnored: force ? inbound.length + extraRestrict.length : 0 };
 		});
 	}
