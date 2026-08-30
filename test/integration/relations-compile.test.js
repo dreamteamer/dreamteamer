@@ -198,6 +198,17 @@ describe('compile refuses malformed relations', () => {
 		const compiled = load(readFile(ws.root, '.dreamteamer/collections/companies.collection.yaml'));
 		assert.equal(compiled.schema.properties.subsidiaries.items['x-inverse-of'], 'companies.parent');
 	});
+	test('two relations generating ONE mirror name on one target is an error', () => {
+		// The unfixable case: both mirrors are arrays of x-reference transactions, so the shape
+		// collision guard passes them, and check then computes two contradictory expectations for
+		// claims.transactions that no value can satisfy and no rebuild can repair.
+		const T = simpleCollection({ storage: { suffix: 'txn' } });
+		T.schema.properties.claim = { type: 'string', 'x-reference': 'claims', 'x-inverse': 'transactions' };
+		T.schema.properties.reimburses_claim = { type: 'string', 'x-reference': 'claims', 'x-inverse': 'transactions' };
+		const err = compileError(workspace({ compile: false, collections: { claims: simpleCollection({ storage: { suffix: 'claim' } }), transactions: T } }).ws);
+		assert.match(err, /both transactions\.claim and transactions\.reimburses_claim generate a mirror named "transactions"/);
+	});
+
 	test('double reference into one target works with distinct mirror names', () => {
 		const T = simpleCollection({ storage: { suffix: 'txn' } });
 		T.schema.properties.claim = { type: 'string', 'x-reference': 'claims', 'x-inverse': 'expense_transactions' };
