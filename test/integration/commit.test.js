@@ -255,3 +255,137 @@ describe('commit sweeps a record’s relation partners', () => {
 		assert.match(res.stdout, /meetings\/standup/);
 	});
 });
+
+// ── the sweep is NARROW: only an edge that actually CHANGED pulls a partner in ──────────────────
+//
+// The first cut swept every ref in the named record's relation fields, which reintroduced the exact
+// damage this file exists to prevent: a partner dirty for some unrelated reason — another session's
+// prose, another session's relational write to the same target — was published under this commit's
+// subject, `git status` clean afterwards so the theft was invisible (CLAUDE.md rule 6, three times).
+describe('the sweep follows the edge, not the field', () => {
+	/** Standup + Cap, related and published. HEAD is consistent; every test below diverges from it. */
+	function pair() {
+		const ws = workspace({ collections: { meetings: MEETINGS, recordings: RECORDINGS } });
+		assert.equal(ws.dt('add', 'meetings', '--name', 'Standup').code, 0);
+		assert.equal(ws.dt('add', 'recordings', '--name', 'Cap', '--meeting', 'meetings/standup').code, 0);
+		assert.equal(ws.dt('commit').code, 0);
+		return ws;
+	}
+
+	test('a partner dirty for PROSE ONLY is left alone', () => {
+		// C1. Session B is writing a paragraph into the meeting; session A renames the recording. The
+		// edge between them did not move, so A's commit has no business touching B's file.
+		const ws = pair();
+		fs.appendFileSync(`${ws.root}/data/meetings/standup.meeting.md`, '\nsession B was here.\n');
+		assert.equal(ws.dt('set', 'recordings/cap', 'name=Cap v2').code, 0);
+		const res = ws.dt('commit', 'recordings/cap');
+		assert.equal(res.code, 0, res.stderr);
+		assert.deepEqual(pending(ws), ['meetings/standup'], 'B\'s paragraph must STILL BE PENDING');
+	});
+
+	test('clearing the foreign key still sweeps — that edge did change', () => {
+		const ws = pair();
+		assert.equal(ws.dt('set', 'recordings/cap', 'meeting=').code, 0);
+		const res = ws.dt('commit', 'recordings/cap');
+		assert.equal(res.code, 0, res.stderr);
+		assert.deepEqual(pending(ws), []);
+	});
+
+	test('a rename publishes BOTH halves, old path and new', () => {
+		// `dt rename` leaves the old path deleted and the new path untracked — neither staged, so git
+		// reports no `R` and the two halves look like unrelated records. Publish one and HEAD holds
+		// both files, with the mirror naming only one of them: check goes red.
+		const ws = pair();
+		assert.equal(ws.dt('rename', 'recordings/cap', 'cap-2').code, 0);
+		const res = ws.dt('commit', 'recordings/cap-2');
+		assert.equal(res.code, 0, res.stderr);
+		assert.equal(ws.git(['status', '--porcelain', '-uall', '--', 'data']), '', 'no half-rename may be left behind');
+		assert.equal(ws.dt('check').code, 0);
+	});
+
+	test('an unparseable pre-image on the SWEPT PARTNER is survivable too', () => {
+		// The reviewer's repro, and the worse half: the broken pre-image is not the record you named,
+		// so the bare YAML error names no file at all — and `dt commit <collection>` and bare
+		// `dt commit` both keep working, which sends the reader looking at the reference parser.
+		const ws = pair();
+		const f = `${ws.root}/data/meetings/standup.meeting.md`;
+		const good = fs.readFileSync(f, 'utf8');
+		fs.writeFileSync(f, '---\nname: [unclosed\nrecordings:\n  - recordings/cap\n---\n');
+		assert.equal(ws.dt('commit', 'meetings/standup').code, 0); // HEAD now holds the broken one
+		fs.writeFileSync(f, good);
+		assert.equal(ws.dt('set', 'recordings/cap', 'meeting=').code, 0);
+		const res = ws.dt('commit', 'recordings/cap');
+		assert.equal(res.code, 0, res.stderr);
+	});
+
+	test('an unparseable pre-image is "no known edges", not a crash', () => {
+		// A record hand-edited into broken frontmatter and published weeks ago must not take the verb
+		// down — and if it does, it does so ONLY for the record-scoped form, which is the shape of bug
+		// nobody attributes correctly.
+		const ws = pair();
+		const f = `${ws.root}/data/recordings/cap.recording.md`;
+		fs.writeFileSync(f, '---\nname: [unclosed\nmeeting: meetings/standup\n---\n\nbody\n');
+		assert.equal(ws.dt('commit', 'recordings/cap').code, 0);
+		fs.appendFileSync(f, 'more prose\n');
+		const res = ws.dt('commit', 'recordings/cap');
+		assert.equal(res.code, 0, res.stderr);
+	});
+});
+
+describe('two sessions writing edges into ONE partner file', () => {
+	// A mirror file records the edges of EVERY owner pointing at it. Committing that file publishes
+	// all of its edge changes at once — so when two sessions have each attached an owner since HEAD,
+	// there is no commit that publishes one without the other. Refusing is the only honest answer:
+	// the alternatives are stealing a record or knowingly publishing a red HEAD.
+	function standup() {
+		const ws = workspace({ collections: { meetings: MEETINGS, recordings: RECORDINGS } });
+		assert.equal(ws.dt('add', 'meetings', '--name', 'Standup').code, 0);
+		assert.equal(ws.dt('commit').code, 0);
+		return ws;
+	}
+
+	test('naming the TARGET refuses when two owners attached since HEAD', () => {
+		const ws = standup();
+		assert.equal(ws.dt('add', 'recordings', '--name', 'A', '--meeting', 'meetings/standup').code, 0);
+		assert.equal(ws.dt('add', 'recordings', '--name', 'B', '--meeting', 'meetings/standup').code, 0);
+		const res = ws.dt('commit', 'meetings/standup');
+		assert.equal(res.code, 1, res.stdout);
+		assert.match(res.stderr, /data\/meetings\/standup\.meeting\.md/);
+		assert.match(res.stderr, /recordings\/a/);
+		assert.match(res.stderr, /recordings\/b/);
+		assert.match(res.stderr, /dreamteamer commit/);
+		assert.equal(pending(ws).length, 3, 'a refusal must commit nothing');
+	});
+
+	test('naming ONE owner refuses too, naming the other session\'s record', () => {
+		const ws = standup();
+		assert.equal(ws.dt('add', 'recordings', '--name', 'A', '--meeting', 'meetings/standup').code, 0);
+		assert.equal(ws.dt('add', 'recordings', '--name', 'B', '--meeting', 'meetings/standup').code, 0);
+		const res = ws.dt('commit', 'recordings/a');
+		assert.equal(res.code, 1, res.stdout);
+		assert.match(res.stderr, /recordings\/b/);
+		assert.equal(pending(ws).length, 3);
+	});
+
+	test('naming both together is what the refusal asks for, and it works', () => {
+		const ws = standup();
+		assert.equal(ws.dt('add', 'recordings', '--name', 'A', '--meeting', 'meetings/standup').code, 0);
+		assert.equal(ws.dt('add', 'recordings', '--name', 'B', '--meeting', 'meetings/standup').code, 0);
+		const res = ws.dt('commit', 'recordings/a', 'recordings/b');
+		assert.equal(res.code, 0, res.stderr);
+		assert.deepEqual(pending(ws), []);
+	});
+
+	test('an owner whose edge is already at HEAD is not a conflict', () => {
+		// The other half of the ruling: only edges that MOVED since HEAD count. A owns its edge from a
+		// previous commit, so naming the target sweeps B and nothing else.
+		const ws = standup();
+		assert.equal(ws.dt('add', 'recordings', '--name', 'A', '--meeting', 'meetings/standup').code, 0);
+		assert.equal(ws.dt('commit').code, 0);
+		assert.equal(ws.dt('add', 'recordings', '--name', 'B', '--meeting', 'meetings/standup').code, 0);
+		const res = ws.dt('commit', 'meetings/standup');
+		assert.equal(res.code, 0, res.stderr);
+		assert.match(res.stdout, /recordings\/b/);
+		assert.deepEqual(pending(ws), []);
+	});
+});
