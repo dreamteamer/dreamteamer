@@ -302,3 +302,122 @@ describe('a refused write leaves no trace in memory either', () => {
 		assert.equal(ws.store.ids('people').has('core/cy'), false); // …and so must the memo be
 	});
 });
+
+// `rm` predates relations, and its guard is a TEXT SCAN: any record file whose bytes contain
+// `<collection>/<id>` refuses the removal. That was right when every inbound reference was somebody's
+// hand-written data. It is wrong the moment the engine writes references of its own — a record's own
+// mirror entries are engine-managed, so the guard refused a removal on the strength of a value it had
+// written itself, and the only way out was `--force`, which leaves the mirror dangling.
+//
+// So `rm` splits inbound references in three: MINE (mirror entries my FKs put on their targets —
+// detached), THEIRS UNDER A RULE (an owner's FK pointing at me, resolved by `x-on-delete`) and
+// THEIRS (everything else — still refused). Each case below is one of the three, and every one of
+// them closes on `dt check`, because a removal that leaves a stale mirror behind is indistinguishable
+// from one that never maintained mirrors at all.
+describe('rm and relations', () => {
+	test('removing an owner detaches it from the mirror instead of refusing', () => {
+		// The regression in one line: meetings/standup names recordings/cap ONLY because the store put
+		// it there, so refusing on that entry is the engine refusing its own bookkeeping.
+		const ws = relWorkspace();
+		ws.dt('add', 'meetings', '--name', 'Standup');
+		ws.dt('add', 'recordings', '--name', 'Cap', '--meeting', 'meetings/standup');
+		const res = ws.dt('rm', 'recordings/cap');
+		assert.equal(res.code, 0, res.stderr); // the mirror hit must NOT refuse
+		assert.doesNotMatch(readFile(ws.root, 'data/meetings/standup.meeting.md'), /recordings\/cap/);
+		const check = ws.dt('check');
+		assert.equal(check.code, 0, check.stdout);
+	});
+
+	test('removing a target with restrict owners refuses, naming them', () => {
+		// The other direction, and the default: recordings.meeting has no `x-on-delete`, so it is
+		// `restrict` — the owner's foreign key is real data and only its author can decide what it
+		// should say instead.
+		const ws = relWorkspace();
+		ws.dt('add', 'meetings', '--name', 'Standup');
+		ws.dt('add', 'recordings', '--name', 'Cap', '--meeting', 'meetings/standup');
+		const res = ws.dt('rm', 'meetings/standup');
+		assert.equal(res.code, 1);
+		assert.match(res.stderr, /referenced by/);
+		assert.match(res.stderr, /recordings\/cap/);
+		assert.match(readFile(ws.root, 'data/recordings/cap.recording.md'), /meeting: meetings\/standup/);
+		const check = ws.dt('check');
+		assert.equal(check.code, 0, check.stdout);
+	});
+
+	test('set-null clears the FK on owners when the target goes', () => {
+		const SN = structuredClone(ANALYSES);
+		SN.schema.properties.meetings.items['x-on-delete'] = 'set-null';
+		const ws = workspace({ collections: { meetings: MEETINGS, analyses: SN } });
+		ws.dt('add', 'meetings', '--name', 'One');
+		ws.dt('add', 'meetings', '--name', 'Two');
+		ws.dt('add', 'analyses', '--name', 'Arc', '--meetings', 'meetings/one,meetings/two');
+		const res = ws.dt('rm', 'meetings/one');
+		assert.equal(res.code, 0, res.stderr);
+		const a = readFile(ws.root, 'data/analyses/arc.analysis.md');
+		assert.doesNotMatch(a, /meetings\/one/);
+		assert.match(a, /meetings\/two/);
+		const check = ws.dt('check');
+		assert.equal(check.code, 0, check.stdout);
+	});
+
+	test('a set-null ARRAY FK loses only the element that went', () => {
+		// Three elements rather than two, and the one removed is in the MIDDLE: a set-null that
+		// replaces the array wholesale, or clears the key because one member matched, passes the
+		// two-element case by accident.
+		const SN = structuredClone(ANALYSES);
+		SN.schema.properties.meetings.items['x-on-delete'] = 'set-null';
+		const ws = workspace({ collections: { meetings: MEETINGS, analyses: SN } });
+		for (const n of ['One', 'Two', 'Three']) ws.dt('add', 'meetings', '--name', n);
+		ws.dt('add', 'analyses', '--name', 'Arc', '--meetings', 'meetings/one,meetings/two,meetings/three');
+		assert.equal(ws.dt('rm', 'meetings/two').code, 0);
+		const a = readFile(ws.root, 'data/analyses/arc.analysis.md');
+		assert.match(a, /meetings\/one/);
+		assert.match(a, /meetings\/three/);
+		assert.doesNotMatch(a, /meetings\/two/);
+		const check = ws.dt('check');
+		assert.equal(check.code, 0, check.stdout);
+	});
+
+	test('a set-null SCALAR FK loses the key, not just the value', () => {
+		// `meeting:` with nothing after it is not a cleared reference, it is `null` — which ajv reads
+		// as a type error the next time anything writes the record. Absent is the only correct shape,
+		// and it is the same rule the mirror side already follows.
+		const SR = structuredClone(RECORDINGS);
+		SR.schema.properties.meeting['x-on-delete'] = 'set-null';
+		const ws = workspace({ collections: { meetings: MEETINGS, recordings: SR } });
+		ws.dt('add', 'meetings', '--name', 'Standup');
+		ws.dt('add', 'recordings', '--name', 'Cap', '--meeting', 'meetings/standup');
+		assert.equal(ws.dt('rm', 'meetings/standup').code, 0);
+		const r = readFile(ws.root, 'data/recordings/cap.recording.md');
+		assert.doesNotMatch(r, /meeting:/);
+		assert.equal(ws.dt('set', 'recordings/cap', 'name=Cap2').code, 0); // still a valid record
+		const check = ws.dt('check');
+		assert.equal(check.code, 0, check.stdout);
+	});
+
+	test('--force still removes a restricted target, and says what it left dangling', () => {
+		// The escape hatch is unchanged: `--force` is how you remove something whose referrers you
+		// intend to fix by hand, and it has to REPORT the damage rather than hide it.
+		const ws = relWorkspace();
+		ws.dt('add', 'meetings', '--name', 'Standup');
+		ws.dt('add', 'recordings', '--name', 'Cap', '--meeting', 'meetings/standup');
+		const res = ws.dt('rm', 'meetings/standup', '--force');
+		assert.equal(res.code, 0, res.stderr);
+		assert.match(res.stdout, /1 inbound reference\(s\) left dangling/);
+		assert.equal(readFile(ws.root, 'data/meetings/standup.meeting.md'), null);
+		assert.equal(ws.dt('check').code, 1); // …and it is a dangling reference, which check reports
+	});
+
+	test('the whole removal is ONE commit — the record and every reference the engine moved', () => {
+		// Same bargain as add/set: a history where the target is gone but its owners still name it is
+		// a commit that never held a consistent workspace.
+		const SN = structuredClone(ANALYSES);
+		SN.schema.properties.meetings.items['x-on-delete'] = 'set-null';
+		const ws = workspace({ collections: { meetings: MEETINGS, analyses: SN }, pkg: { 'auto-commit': true } });
+		ws.dt('add', 'meetings', '--name', 'One');
+		ws.dt('add', 'analyses', '--name', 'Arc', '--meetings', 'meetings/one');
+		assert.equal(ws.dt('rm', 'meetings/one').code, 0);
+		const files = ws.git(['show', '--name-only', '--pretty=format:', 'HEAD']).split('\n').filter(Boolean).sort();
+		assert.deepEqual(files, ['data/analyses/arc.analysis.md', 'data/meetings/one.meeting.md']);
+	});
+});
