@@ -72,6 +72,34 @@ is a surface over it. The rule: anything the extension can do must be doable fro
 an agent can run headlessly. A new capability lands here as an engine function **and** a CLI verb;
 only then does it get a button.
 
+## Releasing
+
+Publishing is **tag-triggered and CI-only** — no npm token exists on any laptop, and a merge to main
+can never publish by itself. That is the permission gate, expressed as a workflow.
+
+```bash
+git checkout main && git pull
+# bump "version" in package.json, then keep the lockfile in step:
+npm install --package-lock-only
+npm run verify                      # layers + budgets + tests
+git commit -am "0.7.0" && git push
+# the tag is what publishes, and it must MATCH package.json or release.yml fails first:
+git tag -a v0.7.0 -m "0.7.0 — one line on what changed"
+git push origin v0.7.0
+```
+
+Then watch the `release` workflow: it re-checks tag == version, runs the layer graph, the budgets, the
+tests and a first-run smoke against the **packed tarball** (which is what catches a missing entry in
+`files[]`), and only then `npm publish --provenance`.
+
+⚠ **npm's unconditional unpublish window is 72 hours** and the VS Code Marketplace has none at all —
+a version there can only be superseded. Add the [`UPDATING.md`](UPDATING.md) section before tagging,
+not after.
+
+The extension releases the same way from its own repo, and **the engine goes first**: the extension
+tolerates an older engine, but a workspace using a namespace needs the engine published before the
+extension is useful on it.
+
 ## Commits
 
 Conventional-ish prefixes (`feat:`, `fix:`, `docs:`, `refactor:`) and a body explaining *why*.
