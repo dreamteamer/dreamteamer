@@ -118,6 +118,24 @@ function normalizeRelationKeywords(schema, name, prefix = '') {
 	}
 }
 
+/** Fold the mirror-authoring side of a relation into its OWNER: cardinality closes backwards, the
+ *  authored description rides along on the owner's `x-inverse`, and the field itself goes — pass 2
+ *  puts a generated one back under the same key, which is also what keeps field ORDER identical
+ *  across spellings (a surviving key would keep its authored position; a deleted one is appended).
+ *  Both legacy spellings land here, and that is WHY they compile to identical bytes: one code path,
+ *  not two that have to be kept in step by hand. */
+function foldMirrorSide(d, name, field, prop, oHolder, of) {
+	// cardinality closes backwards: a scalar mirror means the FK is unique
+	if (prop.type !== 'array') oHolder['x-unique'] = true;
+	else if (oHolder['x-unique'] === true) fail(`collection "${name}": field "${field}" is an array mirror of the unique FK "${of}" — one of the two is wrong.`);
+	// the owner's own object-form description survives only where the folded side has none: prose
+	// describing the MIRROR was written on the mirror, so it is the more specific of the two.
+	const own = oHolder['x-inverse'];
+	const description = typeof prop.description === 'string' ? prop.description : (typeof own === 'object' ? own?.description : undefined);
+	oHolder['x-inverse'] = description === undefined ? field : { field, description };
+	delete d.schema.properties[field];
+}
+
 /** Two source spellings, one compiled pair. Spelling B (`x-inverse-of` on the non-owning side)
  *  is rewritten onto the owner as `x-inverse`; then every owner `x-inverse` stamps a generated
  *  readOnly mirror on its target. Runs over ALL merged descriptors because a relation spans two. */
@@ -140,16 +158,57 @@ function materializeRelations(mergedGroups, ctx) {
 			const oTargets = refTargets(owner.schema).find(([at]) => at === ownerField || at === `${ownerField}[]`);
 			const targetList = oTargets ? (Array.isArray(oTargets[1]) ? oTargets[1] : [oTargets[1]]) : [];
 			if (!targetList.includes(name)) fail(`collection "${name}": x-inverse-of "${of}" — that field does not reference ${name}.`);
-			// cardinality closes backwards: a scalar mirror means the FK is unique
-			if (prop.type !== 'array') oHolder['x-unique'] = true;
-			else if (oHolder['x-unique'] === true) fail(`collection "${name}": field "${field}" is an array mirror of the unique FK "${of}" — one of the two is wrong.`);
 			const existing = oHolder['x-inverse'];
 			const existingName = existing && (typeof existing === 'string' ? existing : existing.field);
 			if (existingName && existingName !== field) fail(`relation ${of}: declared on both sides and they disagree ("${existingName}" vs "${field}") — keep one.`);
 			if (existingName) console.warn(`⚠ relation ${of}: declared on both sides — keep one (x-inverse on the owner, or x-inverse-of on ${name}.${field}).`);
-			oHolder['x-inverse'] = typeof prop.description === 'string' ? { field, description: prop.description } : field;
 			// the authored spelling-B field is replaced by the generated mirror in pass 2
-			delete d.schema.properties[field];
+			foldMirrorSide(d, name, field, prop, oHolder, of);
+		}
+	}
+	// ---- pass 1b: the legacy MUTUAL spelling — both sides declaring x-inverse at each other ----
+	// ONE edge described twice, not two edges. It is the shape 0.14's docs taught, and real
+	// workspaces still carry it; read as two relations, each side's mirror lands on the other's
+	// authored field and compile dies on a collision the author cannot act on — while the design doc
+	// promises the legacy shape keeps compiling for one minor. So collapse it here, warn ONCE per
+	// pair, and hand pass 2 exactly what the single-sided spelling would have handed it.
+	const srcOf = (n) => mergedGroups.get(n)?.sources?.[0]?.path ?? n;
+	for (const [name, d] of byName) {
+		for (const [field, prop] of Object.entries(d.schema?.properties ?? {})) {
+			// `field in properties` re-checked because a MUTUAL SELF-REFERENCE (companies.parent ⟷
+			// companies.subsidiaries) folds one of the two fields away while this snapshot is still
+			// being walked — without it the pair would be collapsed a second time, from the other end,
+			// and the surviving owner would be folded into the field it just replaced.
+			if (!prop || typeof prop !== 'object' || !(field in d.schema.properties)) continue;
+			const holder = (prop.items && typeof prop.items === 'object') ? prop.items : prop;
+			const inv = holder['x-inverse'];
+			if (!inv) continue;
+			const mirror = typeof inv === 'string' ? inv : inv.field;
+			const target = holder['x-reference'];
+			// a wildcard or union target is left alone: "which of these collections is the pair with"
+			// has no answer here, and pass 2 already speaks for those shapes.
+			if (typeof target !== 'string' || target === '*') continue;
+			const other = byName.get(target)?.schema?.properties?.[mirror];
+			if (!other || typeof other !== 'object' || (target === name && mirror === field)) continue;
+			const oHolder = (other.items && typeof other.items === 'object') ? other.items : other;
+			const oInv = oHolder['x-inverse'];
+			// MUTUAL iff each side's x-inverse names the other's FIELD and its x-reference names the
+			// other's COLLECTION. Anything short of that is two relations that merely meet, and the
+			// collision error in pass 2 is the right answer for those.
+			if (!oInv || (typeof oInv === 'string' ? oInv : oInv.field) !== field || oHolder['x-reference'] !== name) continue;
+			// WHO OWNS: the SCALAR side, because that is where the foreign key physically lives — which
+			// resolves every pair a real workspace has been found to carry. The symmetric shapes have no
+			// such answer, so they fall to a rule that at least cannot move under re-ordered discovery:
+			// x-unique first (a 1:1 written twice), then the qualified field name.
+			const here = `${name}.${field}`, there = `${target}.${mirror}`;
+			let ownsHere, why;
+			if ((prop.type === 'array') !== (other.type === 'array')) { ownsHere = prop.type !== 'array'; why = 'the scalar side is where the foreign key lives'; }
+			else if ((holder['x-unique'] === true) !== (oHolder['x-unique'] === true)) { ownsHere = holder['x-unique'] === true; why = 'it declares x-unique'; }
+			else { ownsHere = here < there; why = 'both sides are the same shape, so the name decides'; }
+			const owns = ownsHere ? here : there, folded = ownsHere ? there : here;
+			console.warn(`⚠ relation ${owns} ⟷ ${folded}: declared on BOTH sides with x-inverse — that is ONE relation, not two. ${owns} owns it (${why}), so ${folded} is now GENERATED: delete that field from ${srcOf(ownsHere ? target : name)} and keep the x-inverse on ${owns} (${srcOf(ownsHere ? name : target)}). Its description is kept; every other keyword on it is DROPPED.`);
+			if (ownsHere) foldMirrorSide(byName.get(target), target, mirror, other, holder, here);
+			else foldMirrorSide(d, name, field, prop, oHolder, there);
 		}
 	}
 	// ---- pass 2: every owner x-inverse stamps the mirror ------------------------------
