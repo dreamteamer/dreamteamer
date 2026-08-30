@@ -160,7 +160,7 @@ describe('x-reference unions: check', () => {
 	});
 
 	test('a union FK mirrors into whichever collection the value names', () => {
-		const { store, dt } = workspace({
+		const { store, dt, root } = workspace({
 			collections: {
 				meetings: {
 					id: { generate: '{{ name | slug }}' },
@@ -201,10 +201,13 @@ describe('x-reference unions: check', () => {
 		// one relation, two targets: the union value names WHICH collection the mirror lands in, so
 		// `meetings.analyses` must stay empty while `briefs.analyses` fills — no per-target syntax.
 		store.add('reviews', { name: 'r1', of: 'briefs/pitch' });
-		store.set('briefs', 'pitch', { analyses: ['reviews/r1'] });
+		// the mirror is written past the store, which refuses direct writes to a generated field —
+		// which is fine here, because a hand-edited mirror is precisely what `check` exists to judge
+		const pitch = `${root}/data/briefs/pitch.brief.md`;
+		fs.writeFileSync(pitch, '---\nname: Pitch\nanalyses:\n  - reviews/r1\n---\n');
 		assert.equal(dt('check').code, 0);
 		// break it: the mirror falls behind the owning side
-		store.set('briefs', 'pitch', { analyses: [] });
+		fs.writeFileSync(pitch, '---\nname: Pitch\n---\n');
 		const res = dt('check');
 		assert.equal(res.code, 1);
 		assert.match(res.stdout + res.stderr, /analyses: stale — run: dreamteamer relations rebuild briefs/);

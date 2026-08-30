@@ -14,6 +14,7 @@ import { normalizeRecord } from './temporal.js';
 import { NO_RUNTIME, sourceHint, loadDescriptors, runtimeDir, namespaces as compiledNamespaces, sourceRoots as compiledSourceRoots } from './runtime.js';
 import { parseRef } from './namespace.js';
 import { refTargetsOf } from './ref.js';
+import { relationsOf } from './relations.js';
 
 // git calls whose failure we CATCH must not print git's own error: execFileSync forwards the
 // child's stderr to ours unless told otherwise, so a handled "not a git repository" still
@@ -60,6 +61,23 @@ export class Store {
 			throw new Error(`"${collection}" records are compiled sources — edit ${from} and run \`dreamteamer compile\``);
 		}
 		return d;
+	}
+
+	// Relations, decoded ONCE per Store — the same reasoning as `namespaces` in the constructor: this
+	// is compile output, and a Store is already rebuilt whenever the runtime changes.
+	relations() { return (this._relations ??= relationsOf(this.descriptors)); }
+
+	// A generated mirror sits on the TARGET's schema, so it looks like any other field to whoever
+	// holds the descriptor — and `readOnly` is documentation, not a gate: ajv does not enforce it.
+	// Left alone, a hand-set mirror is a value the engine recomputes from the owning side, and the
+	// two disagree silently. Refuse instead, and name the write that WOULD have worked: "this field
+	// is generated" without the owning side is a dead end.
+	refuseMirrorWrites(collection, id, changed) {
+		const relations = this.relations();
+		for (const key of changed) {
+			const r = relations.find((rel) => rel.target === collection && rel.mirror === key);
+			if (r) throw new Error(`${key} is generated from ${r.owner}.${r.field} — set that instead: dreamteamer set ${r.owner}/<id> ${r.field}=${collection}/${id ?? '<id>'} — nothing was written.`);
+		}
 	}
 
 	dir(d) {
@@ -258,6 +276,8 @@ export class Store {
 
 	add(collection, fields, { id: explicitId } = {}) {
 		const d = this.writableDescriptor(collection);
+		// before validate: a mirror value is refused on its own terms, not as a schema error
+		this.refuseMirrorWrites(collection, null, Object.keys(fields));
 		this.validate(d, fields);
 		const id = explicitId ?? generateId(d.id?.generate ?? '{{ name | slug }}', fields, [...this.ids(collection).keys()]);
 		if (d.id?.pattern && !patternRe(d.id.pattern).test(id)) {
@@ -313,6 +333,7 @@ export class Store {
 
 	set(collection, id, changes) {
 		const d = this.writableDescriptor(collection);
+		this.refuseMirrorWrites(collection, id, Object.keys(changes));
 		if ((d.storage.codec ?? 'md') === 'file') {
 			throw new Error(`${collection}/${id} is a file record — its fields are derived from the file, so there is nothing to set. Replace it with \`dreamteamer add ${collection} ${id} --from <path> --force\`.`);
 		}
