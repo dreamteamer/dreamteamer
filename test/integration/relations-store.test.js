@@ -577,3 +577,20 @@ describe('the exclusion arithmetic survives a bare foreign key', () => {
 		assert.equal(check.code, 0, check.stdout);
 	});
 });
+
+describe('rename and relations', () => {
+	test('rename rewrites the mirror like any inbound ref', () => {
+		// A mirror value is not a special case for `rename`: it is a fully-qualified ref sitting in a
+		// record file, so `rewriteRefs` — which walks every record and rewrites the text — already
+		// carries it. This test exists to PIN that, because the alternative implementation is tempting:
+		// recomputing mirrors from the relation graph on rename would be a second code path maintaining
+		// the same values, and it would drift. If this ever goes red the fix belongs in `rewriteRefs`,
+		// not in a rename-specific mirror pass.
+		const ws = relWorkspace();
+		ws.dt('add', 'meetings', '--name', 'Standup');
+		ws.dt('add', 'recordings', '--name', 'Cap', '--meeting', 'meetings/standup');
+		assert.equal(ws.dt('rename', 'recordings/cap', 'cap-2').code, 0);
+		assert.match(readFile(ws.root, 'data/meetings/standup.meeting.md'), /recordings\/cap-2/);
+		assert.equal(ws.dt('check').code, 0);
+	});
+});
