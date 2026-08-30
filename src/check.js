@@ -9,6 +9,7 @@ import { parseRecord, patternRe, fmtAjvError, unknownFields, walk, idFromRecordP
 import { NO_RUNTIME, loadDescriptors, runtimeDir, namespaces as compiledNamespaces } from './runtime.js';
 import { parseRef } from './namespace.js';
 import { refTargetsOf } from './ref.js';
+import { relationsOf, expectedMirrors } from './relations.js';
 
 export function check({ root }) {
 	const RUNTIME = runtimeDir(root);
@@ -93,9 +94,8 @@ export function check({ root }) {
 	// ---- validate each record -------------------------------------------------------
 	const flag = (file, msg) => violations.push({ file: rel(file), msg });
 
-	// parsed fields, kept for the symmetric-ref pass below (parse each record exactly once)
+	// parsed fields, kept for the relations pass below (parse each record exactly once)
 	const parsed = new Map();
-	const inverseRules = [];   // [collection, fieldPath, inverseField]
 	const softRefs = new Map(); // absent-but-declared peer collection -> how many refs point at it
 
 	for (const [name, d] of descriptors) {
@@ -104,9 +104,6 @@ export function check({ root }) {
 		const softTargets = d.unresolved_peers ? new Set(d.unresolved_peers) : null;
 		const bodyField = Object.entries(d.schema.properties ?? {}).find(([, s]) => s?.['x-body'])?.[0];
 		parsed.set(name, new Map());
-		for (const [fieldPath, target, inverse] of refFields) {
-			if (inverse) inverseRules.push([name, fieldPath, inverse]);
-		}
 
 		for (const [id, file] of index.get(name)) {
 			if (d.id?.pattern && !patternRe(d.id.pattern).test(id)) {
@@ -134,26 +131,40 @@ export function check({ root }) {
 		}
 	}
 
-	// ---- symmetric references (x-inverse) --------------------------------------------
-	// A two-way link is redundant state, and redundant state drifts. Filters resolve OUTBOUND refs
-	// only, so some predicates are only expressible from one side and both directions have to exist
-	// — which makes an invariant mandatory, not optional. `x-inverse` on a ref field names the field
-	// on the target that must point back; a one-sided link is a violation on the side that is missing.
-	for (const [name, fieldPath, inverse] of inverseRules) {
-		for (const [id, fields] of parsed.get(name)) {
-			const self = `${name}/${id}`;
-			for (const value of valuesAt(fields, fieldPath)) {
-				if (typeof value !== 'string' || value.startsWith('@')) continue;
-				const ref = parseRef(value, namespaces);
-				if (!ref) continue;                                    // already flagged as malformed
-				const targetFields = parsed.get(ref.collection)?.get(ref.id);
-				if (!targetFields) continue;                           // already flagged as dangling
-				const back = [...valuesAt(targetFields, [inverse])];
-				if (!back.includes(self)) {
-					flag(index.get(ref.collection).get(ref.id),
-						`${inverse}: must point back to "${self}" (${self} declares ${fieldPath.join('.')}: ${value})`);
-				}
+	// ---- relations: mirrors are DERIVED state ------------------------------------------
+	// The owning side's foreign key is the truth; the mirror on the target is a cache of it, kept by
+	// the store. So this is not a "do both sides agree" test between two equal authorities — check
+	// recomputes what the owners imply and reports any mirror that has fallen behind. The fix is
+	// therefore mechanical (`relations rebuild`), which is what the message says, rather than a
+	// judgement call about which side is right.
+	for (const rel of relationsOf(descriptors)) {
+		const owners = [...(parsed.get(rel.owner) ?? [])].map(([id, fields]) => ({ id, fields }));
+		const exp = expectedMirrors(rel, owners);
+
+		// x-unique: the FK is one-to-one, so two owners naming one target is a conflict the mirror
+		// physically cannot represent (it is a scalar) — reported on the SECOND claimant, where the
+		// edit that has to change is.
+		if (rel.unique) {
+			const seen = new Map();
+			for (const { id, fields } of owners) {
+				const v = fields?.[rel.field];
+				// a union FK yields one relation row per target collection; without this filter each
+				// row would re-flag the same duplicate once per member.
+				if (typeof v !== 'string' || !v.startsWith(`${rel.target}/`)) continue;
+				if (seen.has(v)) flag(index.get(rel.owner).get(id), `${rel.field}: "${v}" is already taken by ${rel.owner}/${seen.get(v)} (x-unique)`);
+				else seen.set(v, id);
 			}
+		}
+
+		for (const [id, fields] of parsed.get(rel.target) ?? []) {
+			const actual = fields?.[rel.mirror];
+			const expected = exp.get(id);
+			// a unique relation mirrors to a scalar, everything else to a sorted array — compare in
+			// the shape the mirror is actually written in (absent and empty are the same reading).
+			const same = rel.unique
+				? (actual ?? null) === (expected ?? null)
+				: JSON.stringify([...(actual ?? [])].sort()) === JSON.stringify(expected ?? []);
+			if (!same) flag(index.get(rel.target).get(id), `${rel.mirror}: stale — run: dreamteamer relations rebuild ${rel.target}`);
 		}
 	}
 
@@ -207,25 +218,16 @@ export function check({ root }) {
 }
 
 
-// collect [fieldPath, targets, inverseField] for every x-reference in the schema, where `targets`
-// is '*' or the normalized array of declared collections (see refTargetsOf).
-// `x-inverse` names the field on the TARGET collection that must point back — see checkSymmetry.
+// collect [fieldPath, targets] for every x-reference in the schema, where `targets` is '*' or the
+// normalized array of declared collections (see refTargetsOf). Relations are NOT read here — they
+// are decoded once, from the compiled descriptors, by src/relations.js.
 function collectRefFields(schema, prefix = []) {
 	const out = [];
 	for (const [key, s] of Object.entries(schema.properties ?? {})) {
 		if (!s || typeof s !== 'object') continue;
 		const p = [...prefix, key];
 		const targets = refTargetsOf(s);
-		if (targets) {
-			// s.items ?? s, not the reverse: `s['x-reference']` treats a falsy-but-present keyword
-			// ('', false) as absent, which refTargetsOf does not — that mismatch left `holder`
-			// undefined and the next line threw. Nonsense-but-authored case this still does NOT
-			// cover: `x-inverse` on `items` beside a SCALAR `x-reference` on the property is not
-			// hoisted by compile (there is no array to hoist onto), so its symmetry rule is never
-			// evaluated here either — bad authoring, not a bug in this guard.
-			const holder = s.items ?? s;
-			out.push([p, targets, holder['x-inverse']]);
-		}
+		if (targets) out.push([p, targets]);
 		if (s.properties) out.push(...collectRefFields(s, p));
 		if (s.items?.properties) out.push(...collectRefFields(s.items, p));
 	}
