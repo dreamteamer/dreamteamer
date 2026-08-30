@@ -80,6 +80,91 @@ export class Store {
 		}
 	}
 
+	/** Mirror maintenance for ONE owner-record write: rewrites every TARGET whose mirror has to change
+	 *  so it says what `after` implies, and hands back those files plus the undo that puts them back.
+	 *  The values written are exactly what `expectedMirrors` computes, which is what `check` compares
+	 *  against — the two read the same relation rows, so they cannot disagree about what a mirror holds.
+	 *
+	 *  Runs INSIDE withWriteLock, after the owner file is on disk. Nothing is validated here: an attach
+	 *  was proved to exist by `checkRefs` before the lock, and a detach is removal, which cannot dangle.
+	 *
+	 *  ⚠ ALL-OR-NOTHING, by its own hand. The one refusal it can raise (x-unique) is discoverable only
+	 *  ON a target, i.e. partway through a loop that may already have rewritten other targets — so a
+	 *  throw undoes its own work before it propagates, and the caller is left with exactly one thing to
+	 *  roll back: the owner write.
+	 *
+	 *  @returns {{files: string[], undo: () => void}} */
+	applyMirrorEdits(d, id, before, after) {
+		const self = `${d.name}/${id}`;
+		const files = [];
+		const undos = [];
+		// a COPY before reversing: `undo` is handed to `commit`, and an in-place reverse would make a
+		// second call replay the writes forwards rather than unwind them.
+		const rollback = () => { for (const u of [...undos].reverse()) u(); };
+		const toArr = (v) => (v == null ? [] : Array.isArray(v) ? v : [v]);
+		try {
+			// EVERY row whose owner is this collection, never the first match: a union FK
+			// (`x-reference: [a, b]`) decodes to one relation row PER TARGET, all sharing one owner
+			// field, and each row maintains only the refs naming its own target — which is what the
+			// `parsed.collection` guard in `touch` enforces. Finding one row would maintain one member
+			// of the union and silently leave the others stale.
+			for (const rel of this.relations()) {
+				if (rel.owner !== d.name) continue;
+				const was = new Set(toArr(before?.[rel.field]));
+				const now = new Set(toArr(after?.[rel.field]));
+				const touch = (ref, fn) => {
+					const parsed = parseRef(ref, this.namespaces);
+					if (!parsed || parsed.collection !== rel.target) return; // malformed, or another union member — not this row's business
+					// A DETACH can name a target that is already gone: the owner outlived it (a `--force`
+					// rm), and its FK is the dangling reference `check` reports. There is no mirror left
+					// to edit and `read` would throw, turning someone else's stale data into a refusal of
+					// this write. An attach never lands here missing — checkRefs proved it before the lock.
+					if (!this.ids(rel.target).has(parsed.id)) return;
+					const td = this.descriptor(rel.target);
+					const { fields, file } = this.read(rel.target, parsed.id);
+					const previous = fs.readFileSync(file, 'utf8');
+					fn(fields, parsed.id);
+					atomicWrite(file, serialize(td, fields));
+					this._idsCache.delete(rel.target); // every mutation drops the memo, exactly as the verbs do for their own collection
+					files.push(file);
+					undos.push(() => atomicWrite(file, previous));
+				};
+				for (const ref of [...was].filter((x) => !now.has(x))) touch(ref, (f) => {
+					// scoped to SELF: a unique mirror naming someone else belongs to that someone else,
+					// and a list mirror holds every other owner's claim alongside this one.
+					if (rel.unique) { if (f[rel.mirror] === self) delete f[rel.mirror]; }
+					else f[rel.mirror] = toArr(f[rel.mirror]).filter((x) => x !== self);
+					// the last element takes the KEY with it. `[]` and absent read the same to `check`,
+					// but only absent is what the record looks like before anything ever attached to it,
+					// and a file accumulating empty keys is derived state leaking into the source.
+					if (Array.isArray(f[rel.mirror]) && f[rel.mirror].length === 0) delete f[rel.mirror];
+				});
+				for (const ref of [...now].filter((x) => !was.has(x))) touch(ref, (f, tid) => {
+					if (rel.unique) {
+						// The FK is one-to-one, so the mirror is a SCALAR and physically cannot hold a
+						// second claimant. Refusing here rather than overwriting is what keeps the owning
+						// side the truth: the alternative silently unlinks whoever got there first.
+						if (f[rel.mirror] && f[rel.mirror] !== self) {
+							throw new Error(`${rel.field}: ${rel.target}/${tid} already has a ${rel.mirror} (${f[rel.mirror]}) — x-unique — nothing was written.`);
+						}
+						f[rel.mirror] = self;
+					} else {
+						// Sorted, because `expectedMirrors` sorts and `check` compares against it. Deduped,
+						// because `was`/`now` are compared as written STRINGS: a hand-edited bare FK is
+						// qualified on its way through validate(), so an untouched link reads as a detach of
+						// `standup` plus an attach of `meetings/standup` and the mirror would grow a second
+						// copy of self.
+						f[rel.mirror] = [...new Set([...toArr(f[rel.mirror]), self])].sort();
+					}
+				});
+			}
+		} catch (e) {
+			rollback();
+			throw e;
+		}
+		return { files, undo: rollback };
+	}
+
 	dir(d) {
 		return path.join(d.storage.base === 'runtime' ? this.runtime : this.root, d.storage.path);
 	}
@@ -289,7 +374,23 @@ export class Store {
 			this._idsCache.delete(collection);
 			fs.mkdirSync(path.dirname(file), { recursive: true });
 			atomicWrite(file, serialize(d, fields));
-			this.commit([file], `dreamteamer: ${collection} add ${id}`, () => {
+			// OWNER FIRST, then the mirrors, then undo the owner if they refuse. The order matters: the
+			// mirror pass reads targets through `ids()`, and a relation whose target IS this collection
+			// (a record linking to its own kind) has to be able to see the record it is attaching. The
+			// alternative — a dry pass that computes the edits without writing them — is the same loop
+			// twice to save one `rmSync`, and two copies of it is how the two would drift apart.
+			let mirrors;
+			try {
+				mirrors = this.applyMirrorEdits(d, id, null, fields);
+			} catch (e) {
+				fs.rmSync(file, { force: true });
+				pruneEmptyDirs(path.dirname(file), this.dir(d));
+				throw e; // applyMirrorEdits already undid its own partial work — "nothing was written" is true again
+			}
+			// ONE commit, owner and mirrors together: a commit where only half a relation moved is a
+			// history that never held a consistent workspace.
+			this.commit([file, ...mirrors.files], `dreamteamer: ${collection} add ${id}`, () => {
+				mirrors.undo();
 				fs.rmSync(file, { force: true });
 				pruneEmptyDirs(path.dirname(file), this.dir(d));
 			}, d.storage.repo ?? '.');
@@ -345,7 +446,20 @@ export class Store {
 		return this.withWriteLock(() => {
 			this._idsCache.delete(collection);
 			atomicWrite(file, serialize(d, next));
-			this.commit([file], `dreamteamer: ${collection} set ${id}`, () => atomicWrite(file, previous), d.storage.repo ?? '.');
+			// `fields` is the record as it was ON DISK and `next` as it will be, which is exactly the
+			// before/after pair a mirror edit is: an FK that moved detaches from the old target and
+			// attaches to the new one, in this same write. Same ordering as `add` — see the note there.
+			let mirrors;
+			try {
+				mirrors = this.applyMirrorEdits(d, id, fields, next);
+			} catch (e) {
+				atomicWrite(file, previous);
+				throw e;
+			}
+			this.commit([file, ...mirrors.files], `dreamteamer: ${collection} set ${id}`, () => {
+				mirrors.undo();
+				atomicWrite(file, previous);
+			}, d.storage.repo ?? '.');
 			return { id, file };
 		});
 	}

@@ -223,14 +223,20 @@ describe('compile refuses malformed relations', () => {
 // ---- check, against the same cast ------------------------------------------------------------
 // A mirror is DERIVED state: the owning side's FK is the truth, and the mirror is a cache of it.
 // So check never asks "do both sides agree" — it recomputes what the owners imply and compares.
-// (The store does not maintain mirrors yet, which is exactly why the first case below is a real
-// reading and not a contrivance: a one-sided write leaves the mirror behind, and check says so.)
+//
+// ⚠ Every staleness case below is HAND-MADE, and has to be: the store maintains mirrors on add/set,
+// so a workspace written through the tools is never stale. What check exists for is the state the
+// tools cannot produce — a record hand-edited on one side, one written by an engine that predates
+// relations, or a git merge that took one side of each file.
 describe('check verifies mirrors', () => {
 	test('a mirror the owning side has outgrown is flagged with the rebuild hint', () => {
 		const ws = relWorkspace();
 		ws.dt('add', 'meetings', '--name', 'Standup');
 		ws.dt('add', 'recordings', '--name', 'Cap1', '--meeting', 'meetings/standup');
-		// the recording claims the meeting; the meeting carries no `recordings` at all
+		// strip the mirror the store just wrote: the recording still claims the meeting, and the
+		// meeting now carries no `recordings` at all — the shape every pre-relations record is in
+		const f = `${ws.root}/data/meetings/standup.meeting.md`;
+		fs.writeFileSync(f, fs.readFileSync(f, 'utf8').replace(/recordings:\n  - recordings\/cap1\n/, ''));
 		const res = ws.dt('check');
 		assert.equal(res.code, 1);
 		assert.match(res.stdout, /recordings: stale — run: dreamteamer relations rebuild meetings/);
@@ -240,9 +246,10 @@ describe('check verifies mirrors', () => {
 		const ws = relWorkspace();
 		ws.dt('add', 'meetings', '--name', 'Standup');
 		ws.dt('add', 'recordings', '--name', 'Cap1', '--meeting', 'meetings/standup');
-		// vandalize the mirror by hand — a value that resolves to nothing AND disagrees with the owner
+		// vandalize the mirror the store wrote — a value that resolves to nothing AND disagrees with
+		// the owner
 		const f = `${ws.root}/data/meetings/standup.meeting.md`;
-		fs.writeFileSync(f, fs.readFileSync(f, 'utf8').replace(/^---\n/, '---\nrecordings:\n  - recordings/ghost\n'));
+		fs.writeFileSync(f, fs.readFileSync(f, 'utf8').replace('recordings/cap1', 'recordings/ghost'));
 		const res = ws.dt('check');
 		assert.equal(res.code, 1);
 		// `recordings/ghost` is also a dangling reference; the staleness finding is the one under test
@@ -250,11 +257,13 @@ describe('check verifies mirrors', () => {
 	});
 
 	test('a mirror that matches the owning side is silent', () => {
+		// No hand-editing left to do — the store writes exactly this mirror, so the assertion is now
+		// that check and the store agree about what a maintained mirror looks like. They read the same
+		// relation rows through src/relations.js; this is what proves it end to end.
 		const ws = relWorkspace();
 		ws.dt('add', 'meetings', '--name', 'Standup');
 		ws.dt('add', 'recordings', '--name', 'Cap1', '--meeting', 'meetings/standup');
-		const f = `${ws.root}/data/meetings/standup.meeting.md`;
-		fs.writeFileSync(f, fs.readFileSync(f, 'utf8').replace(/^---\n/, '---\nrecordings:\n  - recordings/cap1\n'));
+		assert.match(readFile(ws.root, 'data/meetings/standup.meeting.md'), /recordings:\n  - recordings\/cap1/);
 		const res = ws.dt('check');
 		assert.equal(res.code, 0, res.stdout + res.stderr);
 	});
