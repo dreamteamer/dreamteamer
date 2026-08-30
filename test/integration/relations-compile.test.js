@@ -191,6 +191,29 @@ describe('compile refuses malformed relations', () => {
 		const ws = workspace({ collections: { meetings: M, recordings: RECORDINGS } });
 		assert.ok(ws.out.warnings.some((w) => w.includes('hand-authored but recordings.meeting declares it')));
 	});
+	// A mirror is a FIELD the store writes onto a target record. Two kinds of collection have nowhere
+	// to put one, and both were found by pointing a relation at them and watching the store do damage:
+	// a `codec: file` target had its bytes replaced with frontmatter (an SVG asset came back as YAML),
+	// and a runtime target had the mirror written into `.dreamteamer/`, which is gitignored and
+	// overwritten by the next compile. Neither is a store bug to patch — the descriptor is asking for
+	// something that cannot exist, so compile is where it stops.
+	test('a mirror onto a `codec: file` target is refused — the bytes ARE the record', () => {
+		const ASSETS = { description: 'Opaque files.', storage: { path: 'data/assets', codec: 'file', shape: 'file', suffix: 'asset', extensions: ['svg'] }, id: { pattern: '^[a-z0-9][a-z0-9/._-]*$' } };
+		const CARDS = simpleCollection({ storage: { suffix: 'card' } });
+		CARDS.schema.properties.icon = { type: 'string', 'x-reference': 'assets', 'x-inverse': 'cards' };
+		const err = compileError(workspace({ compile: false, collections: { assets: ASSETS, cards: CARDS } }).ws);
+		assert.match(err, /stamps a mirror onto assets, whose records ARE files \(codec: file\)/);
+	});
+
+	test('a mirror onto a compiled-source target is refused — the next compile would erase it', () => {
+		// `skills` is runtime-based and contributed by the engine itself, so this is the shape a real
+		// workspace would reach for: "which of my records use this skill".
+		const USES = simpleCollection({ storage: { suffix: 'use' } });
+		USES.schema.properties.skill = { type: 'string', 'x-reference': 'skills', 'x-inverse': 'used_by' };
+		const err = compileError(workspace({ compile: false, collections: { uses: USES } }).ws);
+		assert.match(err, /stamps a mirror onto skills, whose records are compiled sources/);
+	});
+
 	test('self-reference works with a distinct mirror name', () => {
 		const C = simpleCollection({ storage: { suffix: 'company' } });
 		C.schema.properties.parent = { type: 'string', 'x-reference': 'companies', 'x-inverse': 'subsidiaries' };

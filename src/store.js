@@ -96,6 +96,14 @@ export class Store {
 	 *  @returns {{files: string[], undo: () => void}} */
 	applyMirrorEdits(d, id, before, after) {
 		const self = `${d.name}/${id}`;
+		// ⚠ `before` comes straight off DISK while `after` has been through validate(), which qualifies
+		// bare refs — so diffing them as written strings read `meeting: standup` (hand-edited, or
+		// written before namespaces) as a detach of "standup", which parses as nothing and is skipped,
+		// plus an attach of "meetings/standup". The old target kept its link forever and a GREEN
+		// `dt set` was what created the staleness. Qualify a COPY: qualifyBareRefs mutates, and
+		// `before` is the caller's live record.
+		const prior = before ? { ...before } : null;
+		if (prior) this.qualifyBareRefs(d, prior);
 		const files = [];
 		const undos = [];
 		// a COPY before reversing: `undo` is handed to `commit`, and an in-place reverse would make a
@@ -110,17 +118,27 @@ export class Store {
 			// of the union and silently leave the others stale.
 			for (const rel of this.relations()) {
 				if (rel.owner !== d.name) continue;
-				const was = new Set(toArr(before?.[rel.field]));
+				const was = new Set(toArr(prior?.[rel.field]));
 				const now = new Set(toArr(after?.[rel.field]));
 				const touch = (ref, fn) => {
 					const parsed = parseRef(ref, this.namespaces);
 					if (!parsed || parsed.collection !== rel.target) return; // malformed, or another union member — not this row's business
+					// TWO TARGETS THAT CANNOT HOLD A MIRROR, and compile refuses both (see stampMirror).
+					// This is the belt to that brace, because getting it wrong DESTROYS bytes rather than
+					// merely mis-linking. `writableDescriptor` first: a runtime-based target's records are
+					// compiled from sources, and writing one means editing a build artifact under
+					// `.dreamteamer/` that is gitignored and gone at the next compile — refuse, loudly.
+					const td = this.writableDescriptor(rel.target);
+					// A `codec: file` record's bytes ARE the record: `read` derives its fields and
+					// `serialize` has no branch for it, so this line would replace an SVG with frontmatter.
+					// BAIL rather than throw — an unwritten mirror is a `check` violation someone can act
+					// on; overwritten bytes are simply gone.
+					if ((td.storage.codec ?? 'md') === 'file') return;
 					// A DETACH can name a target that is already gone: the owner outlived it (a `--force`
 					// rm), and its FK is the dangling reference `check` reports. There is no mirror left
 					// to edit and `read` would throw, turning someone else's stale data into a refusal of
 					// this write. An attach never lands here missing — checkRefs proved it before the lock.
 					if (!this.ids(rel.target).has(parsed.id)) return;
-					const td = this.descriptor(rel.target);
 					const { fields, file } = this.read(rel.target, parsed.id);
 					const previous = fs.readFileSync(file, 'utf8');
 					fn(fields, parsed.id);
@@ -257,7 +275,7 @@ export class Store {
 	// restore a record to its content at `hash` — validated like any other write, one commit.
 	revert(collection, id, hash) {
 		const d = this.writableDescriptor(collection);
-		const { file } = this.read(collection, id);
+		const { fields: currentFields, file } = this.read(collection, id);
 		const relPath = path.relative(this.root, file);
 		let previousContent;
 		try {
@@ -269,11 +287,29 @@ export class Store {
 		if (current === previousContent) return { id, reverted: false };
 		// parse + validate the historical content before it touches disk
 		const tmpFields = parseRecordText(previousContent, d, bodyField(d));
+		// Snapshot BEFORE validate(), which qualifies bare refs in place. The mirror pass has to see
+		// the record as the restored BYTES spell it — revert writes historical content verbatim, which
+		// is the whole point of a revert — because `check` re-reads that file and expects a mirror only
+		// for a ref it can parse. Qualifying `after` here would attach a mirror check then calls stale.
+		const restored = { ...tmpFields };
 		this.validate(d, tmpFields);
 		return this.withWriteLock(() => {
 			this._idsCache.delete(collection); // every mutation drops the memo — cleared even if the commit rolls back
 			atomicWrite(file, previousContent);
-			this.commit([file], `dreamteamer: ${collection} revert ${id} to ${String(hash).slice(0, 7)}`, () => atomicWrite(file, current), d.storage.repo ?? '.');
+			// revert is SET-shaped — it changes the owner's foreign key — so the mirrors move with it.
+			// Skipping this left BOTH targets stale: the restored one never got its link back, and the
+			// abandoned one kept a link the owner no longer claims. Same ordering as `add`, see there.
+			let mirrors;
+			try {
+				mirrors = this.applyMirrorEdits(d, id, currentFields, restored);
+			} catch (e) {
+				atomicWrite(file, current);
+				throw e;
+			}
+			this.commit([file, ...mirrors.files], `dreamteamer: ${collection} revert ${id} to ${String(hash).slice(0, 7)}`, () => {
+				mirrors.undo();
+				atomicWrite(file, current);
+			}, d.storage.repo ?? '.');
 			return { id, reverted: true, hash };
 		});
 	}
@@ -385,6 +421,13 @@ export class Store {
 			} catch (e) {
 				fs.rmSync(file, { force: true });
 				pruneEmptyDirs(path.dirname(file), this.dir(d));
+				// ⚠ AND THE MEMO, or the removal is only half done. applyMirrorEdits reads targets through
+				// `ids()`, so a relation whose target is this same collection re-cached it WITH the record
+				// just written — and the memo key (HEAD + the collection's TOP directory mtime) does not
+				// move for a record created and removed inside an existing sub-directory. This Store then
+				// lists an id that is not on disk, and the next write's checkRefs accepts a reference to
+				// it: a verb reporting success and landing a dangling ref.
+				this._idsCache.delete(collection);
 				throw e; // applyMirrorEdits already undid its own partial work — "nothing was written" is true again
 			}
 			// ONE commit, owner and mirrors together: a commit where only half a relation moved is a
@@ -393,6 +436,7 @@ export class Store {
 				mirrors.undo();
 				fs.rmSync(file, { force: true });
 				pruneEmptyDirs(path.dirname(file), this.dir(d));
+				this._idsCache.delete(collection); // same phantom as the catch above — see the note there
 			}, d.storage.repo ?? '.');
 			return { id, file };
 		});
