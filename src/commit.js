@@ -5,6 +5,8 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToRecord } from './events.js';
+import { parseRecordText } from './records.js';
+import { relationsOf } from './relations.js';
 import { splitRef } from './ref.js';
 
 // git calls whose failure we CATCH must not print git's own error: execFileSync forwards the
@@ -35,6 +37,33 @@ function parseTargets(descriptors, only) {
 		scope.add(collection);
 	}
 	return { scoped: only.length > 0, scope: [...scope], whole, records };
+}
+
+/** Every relation FIELD on `collection`, paired with the collection on the other end — the owning
+ *  foreign key looking out, the generated mirror looking back. One relational write dirties BOTH
+ *  records, so these are the edges a record-scoped commit has to follow to avoid publishing half a
+ *  pair (auto-commit is off, so the other half would sit pending and HEAD would fail `dt check`). */
+function relationEdges(rels, collection) {
+	const edges = [];
+	for (const r of rels) {
+		if (r.owner === collection) edges.push([r.field, r.target]);
+		if (r.target === collection) edges.push([r.mirror, r.owner]);
+	}
+	return edges;
+}
+
+/** Did this dirty row name one of the targets AT HEAD? The second pass, and the one the store
+ *  cannot answer: when a relation is BROKEN — the owner deleted, or its foreign key cleared — the
+ *  store detaches the mirror in the same write, so afterwards NEITHER record names the other. The
+ *  worktree has forgotten the edge; only git still holds it, which is why this reads the pre-image. */
+function namedAtHead(store, rels, targets, cwd, row) {
+	const edges = relationEdges(rels, row.collection);
+	if (!edges.length) return false; // no relations on this collection — no git call, no parse
+	let text;
+	try { text = execFileSync('git', ['show', `HEAD:${row.repoRel}`], { cwd, stdio: QUIET }).toString(); }
+	catch { return false; } // untracked, or an empty repo: nothing can have been detached from it
+	const fields = parseRecordText(text, store.descriptors.get(row.collection));
+	return edges.some(([field]) => [].concat(fields[field] ?? []).some((v) => targets.records.has(v)));
 }
 
 /** Record directories to watch, grouped by owning repo. System-stored collections are excluded:
@@ -136,6 +165,22 @@ export function commitPending(store, { only = [], message, dryRun = false } = {}
 	// Targets are resolved BEFORE anything is committed, so one bad target in a list of good ones
 	// leaves the whole tree untouched rather than committing a prefix of what was asked for.
 	const targets = parseTargets(store.descriptors, only);
+	// A named record sweeps its dirty relation PARTNERS into the same commit. Two passes, because the
+	// two halves of a relational write are legible in different places. ⚠ Both must widen
+	// `targets.scope` BEFORE scopeByRepo: scope is the git pathspec, and a partner collection missing
+	// from it is never sampled, so no later matching can reach it.
+	const rels = targets.records.size ? relationsOf(store.descriptors) : [];
+	// Partner refs, kept OUT of `targets.records`: these were joined by a relation, not asked for by
+	// name, so a dangling foreign key must not turn into assertResolvable's mistyped-id error.
+	const sweep = new Set();
+	for (const [, { collection, id }] of targets.records) {
+		for (const [, partner] of relationEdges(rels, collection)) targets.scope.push(partner);
+		let fields;
+		// A pending DELETION is unreadable here — the record and its foreign keys are gone. Its partners
+		// are found from the other end instead, by namedAtHead below.
+		try { fields = store.read(collection, id).fields; } catch { continue; }
+		for (const [field] of relationEdges(rels, collection)) for (const v of [].concat(fields[field] ?? [])) sweep.add(v);
+	}
 	const byRepo = scopeByRepo(store.descriptors, targets.scope);
 	// ⚠ Sample every repo FIRST, then check the references, then commit. The unknown-reference test
 	// below can only be answered once every repo has been sampled — a record lives in exactly one
@@ -151,7 +196,7 @@ export function commitPending(store, { only = [], message, dryRun = false } = {}
 		const wanted = !targets.scoped ? rows : rows.filter((r) => {
 			const ref = `${r.collection}/${r.id}`;
 			if (targets.records.has(ref)) { matched.add(ref); return true; }
-			return targets.whole.has(r.collection);
+			return targets.whole.has(r.collection) || sweep.has(ref) || namedAtHead(store, rels, targets, cwd, r);
 		});
 		sampled.push({ repo, cwd, rows: wanted });
 	}

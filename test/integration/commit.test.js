@@ -197,3 +197,61 @@ describe('a hand-edited record is still publishable — the sampler is untouched
 		assert.equal(dirty(ws, rel), false);
 	});
 });
+
+// A relational write dirties TWO records — the owner's foreign key and the target's mirror. With
+// auto-commit off (the default since 2026-08-03) a record-scoped publish would commit the owner and
+// leave the mirror pending, so HEAD carries half a pair and `dt check` at HEAD is red. The pair is
+// the unit; the bystander is still not.
+const MEETINGS = simpleCollection({ storage: { suffix: 'meeting' } });
+const RECORDINGS = simpleCollection({
+	storage: { suffix: 'recording' },
+	schema: {
+		type: 'object',
+		required: ['name'],
+		properties: {
+			name: { type: 'string' },
+			meeting: { type: 'string', 'x-reference': 'meetings', 'x-inverse': 'recordings' },
+		},
+	},
+});
+
+describe('commit sweeps a record’s relation partners', () => {
+	test('committing the owner also publishes the dirty mirror, and nothing else', () => {
+		const ws = workspace({ collections: { meetings: MEETINGS, recordings: RECORDINGS, widgets: simpleCollection({ storage: { suffix: 'widget' } }) } });
+		ws.dt('add', 'meetings', '--name', 'Standup');
+		ws.dt('add', 'widgets', '--name', 'Alpha');
+		ws.dt('add', 'recordings', '--name', 'Cap', '--meeting', 'meetings/standup');
+		const res = ws.dt('commit', 'recordings/cap');
+		assert.equal(res.code, 0, res.stderr);
+		assert.match(res.stdout, /recordings\/cap/);
+		assert.match(res.stdout, /meetings\/standup/); // the mirror file came along
+		const still = ws.dt('commit', '--dry-run', '--json');
+		assert.match(still.stdout, /widgets\/alpha/); // the bystander is still pending
+	});
+
+	test('an unrelated record in the PARTNER collection stays pending', () => {
+		// The load-bearing negative one. Widening the scope to the partner collection is what lets the
+		// sampler see the mirror at all — so the partner collection is now full of rows this commit
+		// must NOT touch. A second meeting, written by another session, is exactly that.
+		const ws = workspace({ collections: { meetings: MEETINGS, recordings: RECORDINGS } });
+		ws.dt('add', 'meetings', '--name', 'Standup');
+		ws.dt('add', 'meetings', '--name', 'Retro');
+		ws.dt('add', 'recordings', '--name', 'Cap', '--meeting', 'meetings/standup');
+		assert.equal(ws.dt('commit', 'recordings/cap').code, 0);
+		assert.deepEqual(pending(ws), ['meetings/retro']);
+	});
+
+	test('committing a deletion sweeps the detached mirror', () => {
+		// The deletion case cannot be answered from the store: the named record is GONE, so there is
+		// nothing left to read its foreign key from. The partner is found from the other end instead —
+		// the mirror the store just detached is itself a dirty row.
+		const ws = workspace({ collections: { meetings: MEETINGS, recordings: RECORDINGS } });
+		ws.dt('add', 'meetings', '--name', 'Standup');
+		ws.dt('add', 'recordings', '--name', 'Cap', '--meeting', 'meetings/standup');
+		ws.dt('commit');
+		ws.dt('rm', 'recordings/cap');
+		const res = ws.dt('commit', 'recordings/cap');
+		assert.equal(res.code, 0, res.stderr);
+		assert.match(res.stdout, /meetings\/standup/);
+	});
+});
