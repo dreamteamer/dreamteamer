@@ -9,6 +9,7 @@
 // thing being compared is the artifact.
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import { workspace, simpleCollection, compileError, readFile } from '../helpers/ws.js';
 import { load } from '../../src/yaml.js';
 
@@ -204,5 +205,57 @@ describe('compile refuses malformed relations', () => {
 		const ws = workspace({ collections: { claims: simpleCollection({ storage: { suffix: 'claim' } }), transactions: T } });
 		const claims = load(readFile(ws.root, '.dreamteamer/collections/claims.collection.yaml'));
 		assert.ok(claims.schema.properties.expense_transactions && claims.schema.properties.reimbursement_transactions);
+	});
+});
+
+
+// ---- check, against the same cast ------------------------------------------------------------
+// A mirror is DERIVED state: the owning side's FK is the truth, and the mirror is a cache of it.
+// So check never asks "do both sides agree" — it recomputes what the owners imply and compares.
+// (The store does not maintain mirrors yet, which is exactly why the first case below is a real
+// reading and not a contrivance: a one-sided write leaves the mirror behind, and check says so.)
+describe('check verifies mirrors', () => {
+	test('a mirror the owning side has outgrown is flagged with the rebuild hint', () => {
+		const ws = relWorkspace();
+		ws.dt('add', 'meetings', '--name', 'Standup');
+		ws.dt('add', 'recordings', '--name', 'Cap1', '--meeting', 'meetings/standup');
+		// the recording claims the meeting; the meeting carries no `recordings` at all
+		const res = ws.dt('check');
+		assert.equal(res.code, 1);
+		assert.match(res.stdout, /recordings: stale — run: dreamteamer relations rebuild meetings/);
+	});
+
+	test('a hand-edited mirror pointing somewhere else is stale, not merely dangling', () => {
+		const ws = relWorkspace();
+		ws.dt('add', 'meetings', '--name', 'Standup');
+		ws.dt('add', 'recordings', '--name', 'Cap1', '--meeting', 'meetings/standup');
+		// vandalize the mirror by hand — a value that resolves to nothing AND disagrees with the owner
+		const f = `${ws.root}/data/meetings/standup.meeting.md`;
+		fs.writeFileSync(f, fs.readFileSync(f, 'utf8').replace(/^---\n/, '---\nrecordings:\n  - recordings/ghost\n'));
+		const res = ws.dt('check');
+		assert.equal(res.code, 1);
+		// `recordings/ghost` is also a dangling reference; the staleness finding is the one under test
+		assert.match(res.stdout, /recordings: stale — run: dreamteamer relations rebuild meetings/);
+	});
+
+	test('a mirror that matches the owning side is silent', () => {
+		const ws = relWorkspace();
+		ws.dt('add', 'meetings', '--name', 'Standup');
+		ws.dt('add', 'recordings', '--name', 'Cap1', '--meeting', 'meetings/standup');
+		const f = `${ws.root}/data/meetings/standup.meeting.md`;
+		fs.writeFileSync(f, fs.readFileSync(f, 'utf8').replace(/^---\n/, '---\nrecordings:\n  - recordings/cap1\n'));
+		const res = ws.dt('check');
+		assert.equal(res.code, 0, res.stdout + res.stderr);
+	});
+
+	test('x-unique refuses two summaries for one meeting', () => {
+		const ws = relWorkspace();
+		ws.dt('add', 'meetings', '--name', 'Standup');
+		assert.equal(ws.dt('add', 'summaries', '--name', 'One', '--meeting', 'meetings/standup').code, 0);
+		// bypass the store to plant the duplicate, then check must catch it
+		fs.writeFileSync(`${ws.root}/data/summaries/two.summary.md`, '---\nname: Two\nmeeting: meetings/standup\n---\n');
+		const res = ws.dt('check');
+		assert.equal(res.code, 1);
+		assert.match(res.stdout, /meeting: "meetings\/standup" is already taken by summaries\/one \(x-unique\)/);
 	});
 });

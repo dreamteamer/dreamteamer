@@ -159,7 +159,7 @@ describe('x-reference unions: check', () => {
 		assert.match(res.stdout + res.stderr, /should target one of: meetings, finance\/accounts/);
 	});
 
-	test('x-inverse symmetry works across a union field', () => {
+	test('a union FK mirrors into whichever collection the value names', () => {
 		const { store, dt } = workspace({
 			collections: {
 				meetings: {
@@ -198,16 +198,16 @@ describe('x-reference unions: check', () => {
 			},
 			records: { meetings: [{ name: 'Standup' }], briefs: [{ name: 'Pitch' }] },
 		});
-		// symmetric pair: review → brief, brief → review. The union value names WHICH collection
-		// the symmetry pass must look in — no per-target syntax needed.
+		// one relation, two targets: the union value names WHICH collection the mirror lands in, so
+		// `meetings.analyses` must stay empty while `briefs.analyses` fills — no per-target syntax.
 		store.add('reviews', { name: 'r1', of: 'briefs/pitch' });
 		store.set('briefs', 'pitch', { analyses: ['reviews/r1'] });
 		assert.equal(dt('check').code, 0);
-		// break it: the brief stops pointing back
+		// break it: the mirror falls behind the owning side
 		store.set('briefs', 'pitch', { analyses: [] });
 		const res = dt('check');
 		assert.equal(res.code, 1);
-		assert.match(res.stdout + res.stderr, /analyses: must point back to "reviews\/r1"/);
+		assert.match(res.stdout + res.stderr, /analyses: stale — run: dreamteamer relations rebuild briefs/);
 	});
 });
 
