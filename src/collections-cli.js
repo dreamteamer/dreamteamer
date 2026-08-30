@@ -23,6 +23,7 @@ import { sortRows } from './temporal.js';
 import { keyBetween, placementKey } from './fractional-index.js';
 import { ensureRepo, ensureAllRepos } from './init.js';
 import { expectedMirrors } from './relations.js';
+import { parseRecord } from './records.js';
 
 /**
  * Emit MACHINE-READABLE output synchronously. Use this for every `--json` payload.
@@ -482,42 +483,85 @@ function relationsRebuild(store, flags, pos) {
 		const why = d.storage.base === 'runtime' ? 'a compiled source' : 'stored as `codec: file`';
 		throw new Error(`"${collection}" is ${why} — it carries no generated mirrors and this verb will not rewrite it.`);
 	}
+	// `--drop` LAST on the line parses as the boolean `true`. Quietly treating that as "no --drop"
+	// printed a green "rebuilt 0 records", which the operator reads as "the residue key is gone" —
+	// the one sentence that must never be said falsely by a repair verb.
+	if ('drop' in flags && (typeof flags.drop !== 'string' || !flags.drop.trim())) {
+		throw new Error('--drop needs a field name: dreamteamer relations rebuild <collection> --drop <field>');
+	}
 	const drop = typeof flags.drop === 'string' ? flags.drop : null;
 	if (drop && d.schema?.properties?.[drop]) throw new Error(`"${drop}" is a live field of ${collection} — --drop only removes keys the schema no longer declares.`);
 
 	// Expectations computed ONCE per relation, over a single pass of each owning collection. The
 	// store's own `applyMirrorEdits` re-walks the owners per write, which is right for one edit and
 	// quadratic for a whole collection — so rebuild does not build on it.
+	const unreadableOwners = [];
 	const expected = store.relations()
 		.filter((r) => r.target === collection)
-		.map((r) => ({ r, exp: expectedMirrors(r, store.readAll(r.owner)) }));
+		.map((r) => ({ r, exp: expectedMirrors(r, parseEach(store, r.owner, (f) => unreadableOwners.push(rel(store.root, f)))) }));
+	// An owner that will not parse takes its edges with it — and rebuild would then DELETE the mirror
+	// values those edges justify. Refuse while nothing has been written yet; a skip here is data loss,
+	// unlike a skip on the target side below, which only leaves a record unrepaired.
+	if (unreadableOwners.length) {
+		throw new Error(`cannot rebuild ${collection}: ${unreadableOwners.join(', ')} will not parse — fix the owning record first (\`dreamteamer check\` names the syntax error).`);
+	}
 
 	let rebuilt = 0;
-	for (const { id, file, fields } of store.readAll(collection)) {
-		let changed = false;
-		for (const { r, exp } of expected) {
-			const want = exp.get(id);
-			const have = fields[r.mirror];
-			// the comparison check.js makes: a unique relation mirrors to a scalar, everything else
-			// to a sorted array, and absent reads the same as empty
-			const same = r.unique
-				? (have ?? null) === (want ?? null)
-				: JSON.stringify([...(have ?? [])].sort()) === JSON.stringify(want ?? []);
-			if (same) continue;
-			if (want == null) delete fields[r.mirror];
-			else fields[r.mirror] = want;
-			changed = true;
+	// The write lock, like every other write verb: several agents work in one tree, and a concurrent
+	// `dt set` landing mid-sweep would be clobbered back to the pre-set mirror value.
+	store.withWriteLock(() => {
+		for (const { id, file, fields } of parseEach(store, collection, (f) => console.warn(`⚠ ${rel(store.root, f)}: parse error, skipped — \`dreamteamer check\` reports it`))) {
+			let changed = false;
+			for (const { r, exp } of expected) {
+				const want = exp.get(id);
+				const have = fields[r.mirror];
+				// ⚠ COERCE THE WAY AJV DOES. `check` validates with `coerceTypes: 'array'`, which mutates
+				// the record in place BEFORE its relation pass — so it compares a coerced value while this
+				// reads the raw parse. Unmatched, the two disagree in both directions: `recordings: 5`
+				// crashed the spread here ("(have ?? []) is not iterable") on the very record check had
+				// just named, mid-loop and after earlier writes; and `recordings: recordings/cap` read as
+				// stale here while check called it fine.
+				const list = Array.isArray(have) ? have : have == null ? [] : [have];
+				// the comparison check.js makes: a unique relation mirrors to a scalar, everything else
+				// to a sorted array, and absent reads the same as empty
+				const same = r.unique
+					? (have ?? null) === (want ?? null)
+					: JSON.stringify([...list].sort()) === JSON.stringify(want ?? []);
+				if (same) continue;
+				if (want == null) delete fields[r.mirror];
+				else fields[r.mirror] = want;
+				changed = true;
+			}
+			if (drop && drop in fields) { delete fields[drop]; changed = true; }
+			// each record is written AT MOST ONCE, whatever number of relations point at it
+			if (changed && atomicWrite(file, serialize(d, fields))) rebuilt++;
 		}
-		if (drop && drop in fields) { delete fields[drop]; changed = true; }
-		// each record is written AT MOST ONCE, whatever number of relations point at it
-		if (changed && atomicWrite(file, serialize(d, fields))) rebuilt++;
-	}
+	});
 	if (flags.json) { emit(JSON.stringify({ collection, rebuilt })); return 0; }
 	// auto-commit is off by default, so these writes are sitting dirty — but only say so when
 	// something actually landed; a commit hint after "rebuilt 0" is an instruction to do nothing.
 	const hint = rebuilt ? ` — run: dreamteamer commit ${collection}` : '';
 	console.log(`✔ rebuilt ${rebuilt} record${rebuilt === 1 ? '' : 's'}${hint}`);
 	return 0;
+}
+
+/** `store.readAll` for a reader that must SURVIVE a bad record. It is a generator, so a parse error
+ *  mid-walk cannot be resumed past — and rebuild is the one reader that has already written by the
+ *  time a later record blows up, so an abort leaves a partial sweep behind an error naming no file
+ *  at all. Here the bad record is handed to `onError` and skipped, and the walk finishes. */
+function* parseEach(store, collection, onError) {
+	const d = store.descriptor(collection);
+	const bf = bodyField(d);
+	for (const [id, file] of store.ids(collection)) {
+		let fields;
+		try {
+			fields = parseRecord(file, d, bf);
+		} catch (e) {
+			onError(file, e);
+			continue;
+		}
+		yield { id, file, fields };
+	}
 }
 
 function parseArgs(args) {

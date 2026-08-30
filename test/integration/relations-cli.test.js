@@ -150,6 +150,84 @@ describe('dt relations', () => {
 		assert.equal(readFile(ws.root, 'data/meetings/standup.meeting.md'), before);
 	});
 
+	test('a non-array mirror coerces the way check does — a scalar the loop cannot spread', () => {
+		// `check` runs every record through ajv with `coerceTypes: 'array'` BEFORE the relation pass,
+		// so it compares a coerced value; rebuild reads the raw parse. Left unmatched, the verb check
+		// NAMES crashes on the very record it names ("(have ?? []) is not iterable"), mid-loop, after
+		// earlier records were already written — and check stays permanently red.
+		const ws = relWorkspace();
+		ws.dt('add', 'meetings', '--name', 'Standup');
+		ws.dt('add', 'recordings', '--name', 'Cap', '--meeting', 'meetings/standup');
+		fs.writeFileSync(`${ws.root}/data/meetings/standup.meeting.md`, '---\nname: Standup\nrecordings: 5\n---\n');
+
+		assert.equal(ws.dt('check').code, 1);
+		const res = ws.dt('relations', 'rebuild', 'meetings');
+		assert.equal(res.code, 0);
+		assert.match(res.stdout, /rebuilt 1 record/);
+		assert.equal(ws.dt('check').code, 0);
+	});
+
+	test('a scalar reference where a list belongs is NOT stale — check says so, and rebuild must agree', () => {
+		// the opposite direction of the same mismatch: ajv coerces `recordings: recordings/cap` to a
+		// one-element array, so check is green — and a rebuild that rewrote it would report work on a
+		// record check considers correct
+		const ws = relWorkspace();
+		ws.dt('add', 'meetings', '--name', 'Standup');
+		ws.dt('add', 'recordings', '--name', 'Cap', '--meeting', 'meetings/standup');
+		const f = `${ws.root}/data/meetings/standup.meeting.md`;
+		fs.writeFileSync(f, fs.readFileSync(f, 'utf8').replace('recordings:\n  - recordings/cap', 'recordings: recordings/cap'));
+
+		assert.equal(ws.dt('check').code, 0);
+		const before = fs.readFileSync(f, 'utf8');
+		const res = ws.dt('relations', 'rebuild', 'meetings');
+		assert.equal(res.code, 0);
+		assert.match(res.stdout, /rebuilt 0 records/);
+		assert.equal(fs.readFileSync(f, 'utf8'), before);
+	});
+
+	test('--drop with no value is refused, not silently ignored', () => {
+		// `--drop` last on the line parses as the boolean true; dropping it to null printed
+		// "✔ rebuilt 0 records" at exit 0, which the operator reads as "the residue key is gone"
+		const ws = relWorkspace();
+		const res = ws.dt('relations', 'rebuild', 'meetings', '--drop');
+		assert.equal(res.code, 1);
+		assert.match(res.stderr, /--drop needs a field name/);
+	});
+
+	test('an unparseable record is skipped and NAMED, and the loop still finishes', () => {
+		// rebuild is the one reader that has already WRITTEN by the time a later record fails to
+		// parse, so an abort here leaves a partial sweep behind an error naming no file at all
+		const ws = relWorkspace();
+		ws.dt('add', 'meetings', '--name', 'Aaa');
+		ws.dt('add', 'meetings', '--name', 'Zzz');
+		ws.dt('add', 'recordings', '--name', 'Cap', '--meeting', 'meetings/zzz');
+		const z = `${ws.root}/data/meetings/zzz.meeting.md`;
+		fs.writeFileSync(z, fs.readFileSync(z, 'utf8').replace('recordings/cap', 'recordings/ghost'));
+		fs.writeFileSync(`${ws.root}/data/meetings/aaa.meeting.md`, '---\nname: [unclosed\n---\n');
+
+		const res = ws.dt('relations', 'rebuild', 'meetings');
+		assert.equal(res.code, 0);
+		assert.match(res.stdout + res.stderr, /aaa\.meeting\.md: parse error, skipped/);
+		assert.match(res.stdout, /rebuilt 1 record/);
+		assert.match(readFile(ws.root, 'data/meetings/zzz.meeting.md'), /recordings\/cap/);
+	});
+
+	test('rebuild takes the write lock, like every other write verb', () => {
+		// several agents work in this tree at once: without the lock a concurrent `dt set` landing
+		// mid-sweep is clobbered back to the pre-set mirror. Proved by leaving a STALE lock behind —
+		// only a caller that actually acquires it reclaims and then releases the directory.
+		const ws = relWorkspace();
+		ws.dt('add', 'meetings', '--name', 'Standup');
+		const lock = `${ws.root}/.dreamteamer/.write-lock`;
+		fs.mkdirSync(lock, { recursive: true });
+		const stale = (Date.now() - 60_000) / 1000; // older than the 30s steal threshold
+		fs.utimesSync(lock, stale, stale);
+
+		const res = ws.dt('relations', 'rebuild', 'meetings');
+		assert.equal(res.code, 0);
+		assert.equal(fs.existsSync(lock), false, 'the lock was neither taken nor released');
+	});
+
 	test('rebuild --drop removes a stale ex-mirror key', () => {
 		const ws = relWorkspace();
 		ws.dt('add', 'meetings', '--name', 'Standup');
