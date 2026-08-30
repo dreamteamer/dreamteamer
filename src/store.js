@@ -600,9 +600,19 @@ export class Store {
 				if (f) plan(f, 1); // the one mirror entry naming this record, which the detach removes
 			}
 		}
-		for (const { rel, file, of, bare } of setNullEdits) {
+		// LITERALLY, not semantically. The two numbers compared below are counted in different places —
+		// this one off parsed FIELDS, `occurrences` off the file's raw BYTES — so they have to be
+		// counted in the same UNIT, and the unit `occurrences` can see is "the fully-qualified string
+		// `self`, present in the text". A single-target FK is legally stored BARE (`meetings: [one]` in
+		// a hand-authored record: the store qualifies on write, but only through its own write path),
+		// and `isSelf` matches that by design — crediting it here would claim a removal that deletes no
+		// text, and the slack would swallow a real, separate wikilink in the same record: rm green, link
+		// dangling, `check` silent about it because it reads frontmatter and never prose. A bare value
+		// is invisible to the scan on both sides, which is the consistent answer: it contributes 0 here
+		// and 0 there, and a record holding ONLY a bare FK is never named by the scan at all.
+		for (const { rel, file, of } of setNullEdits) {
 			memoized.add(rel.owner);
-			plan(file, toArr(of[rel.field]).filter((v) => isSelf(v, bare)).length);
+			plan(file, toArr(of[rel.field]).filter((v) => v === self).length);
 		}
 		const occurrences = (f) => (fs.readFileSync(path.join(this.root, f), 'utf8').match(this.refRegex(self)) ?? []).length;
 		const inbound = this.findInboundRefs(self).filter((f) => !planned.has(f) || occurrences(f) > planned.get(f));
