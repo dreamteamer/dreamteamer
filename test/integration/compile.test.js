@@ -424,14 +424,55 @@ describe('peerDependencies — an optional cross-module reference', () => {
 	test('a record that DOES point at the absent peer is warned about, never silent', () => {
 		const ws = withPeerModule();
 		assert.equal(ws.dt('compile').code, 0);
-		// hand-written: the STORE still refuses a reference into a collection it cannot see, so this
-		// is the state a module carries when its records were written where the peer WAS installed.
-		fs.mkdirSync(path.join(ws.root, 'data', 'comments'), { recursive: true });
-		fs.writeFileSync(path.join(ws.root, 'data', 'comments', 'first.comment.md'),
-			'---\ntitle: First\npost: posts/hello\n---\n');
+		assert.equal(ws.dt('add', 'comments', '--title', 'First', '--post', 'posts/hello').code, 0);
 		const res = dtCheck(ws.root);
 		assert.equal(res.code, 0, res.stdout + res.stderr);
 		assert.match(res.stdout, /peer collection "posts" is declared but not installed — 1 reference unresolvable/);
+	});
+
+	// ⚠ THE TWO GATES HAVE TO AGREE ON THE SAME BYTES. `check` excused the absent peer and the store
+	// refused it, so a module opened on its own could VALIDATE records it could not WRITE — the fix
+	// was a hand-edit into the record file, which is the workaround this collection exists to remove.
+	test('the store writes a reference into the absent peer — the same excuse check makes', () => {
+		const ws = withPeerModule();
+		assert.equal(ws.dt('compile').code, 0);
+		assert.equal(ws.dt('add', 'comments', '--title', 'First').code, 0);
+		const set = ws.dt('set', 'comments/first', 'post=posts/x');
+		assert.equal(set.code, 0, set.stdout + set.stderr);
+		assert.match(readFile(ws.root, 'data/comments/first.comment.md'), /^post: posts\/x$/m);
+		assert.equal(dtCheck(ws.root).code, 0);
+	});
+
+	test('a collection NOBODY declared as a peer is still refused at write time', () => {
+		const ws = withPeerModule();
+		// a WILDCARD field, so the target list cannot be what refuses `ghosts/x` — the excuse is
+		// scoped to the peers this collection declares, and must widen nothing else.
+		const src = path.join(ws.root, 'modules', 'blog', 'collections', 'comments.collection.yaml');
+		fs.appendFileSync(src, "    mentions: { type: string, x-reference: '*' }\n");
+		assert.equal(ws.dt('compile').code, 0);
+		assert.equal(ws.dt('add', 'comments', '--title', 'First', '--mentions', 'posts/x').code, 0,
+			'the declared peer is still excused through a wildcard field');
+		const res = ws.dt('add', 'comments', '--title', 'Second', '--mentions', 'ghosts/x');
+		assert.equal(res.code, 1);
+		assert.match(res.stdout + res.stderr, /targets unknown collection "ghosts"/);
+	});
+
+	test('with the peer INSTALLED the store refuses a dangling ref again', () => {
+		const ws = withPeerModule();
+		const base = path.join(ws.root, 'modules', 'blogbase');
+		fs.mkdirSync(path.join(base, 'collections'), { recursive: true });
+		fs.writeFileSync(path.join(base, 'package.json'),
+			JSON.stringify({ name: 'blogbase', private: true, version: '0.0.1', dreamteamer: {} }));
+		fs.writeFileSync(path.join(base, 'collections', 'posts.collection.yaml'),
+			'name: posts\ndescription: A post.\n'
+			+ 'storage: { path: data/posts, codec: md, shape: file, suffix: post }\n'
+			+ 'id: { generate: "{{ title | slug }}" }\n'
+			+ 'schema:\n  type: object\n  required: [title]\n  properties:\n'
+			+ '    title: { type: string }\n    body: { type: string, format: markdown, x-body: true }\n');
+		assert.equal(ws.dt('compile').code, 0);
+		const res = ws.dt('add', 'comments', '--title', 'First', '--post', 'posts/nope');
+		assert.equal(res.code, 1);
+		assert.match(res.stdout + res.stderr, /dangling reference "posts\/nope"/);
 	});
 
 	test('unresolved_peers lands only on the collections that actually reference the peer', () => {
