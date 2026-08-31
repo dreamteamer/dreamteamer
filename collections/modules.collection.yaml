@@ -66,6 +66,14 @@ schema:
       items:
         type: string
         x-reference: collections
+        # SOFT, because the normal state of a module opened on its own is that its peers are NOT
+        # installed — that is the whole reason a peer is declared rather than depended on. Validated
+        # hard, this field made the record it is projected onto fail `check` for saying exactly what
+        # it exists to say, and there was no state in which an optional cross-module reference
+        # passed: dropping the declaration made `compile` fail instead, naming peerDependencies as
+        # the remedy. Present peers still resolve, and a peer that names a collection nobody ever
+        # installs is reported by `check` as a warning off `unresolved_peers`, not silently.
+        x-reference-soft: true
     collections:
       type: array
       description: >-

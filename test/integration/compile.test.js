@@ -375,3 +375,104 @@ describe('the orientation block names the workspace', () => {
 		assert.ok(n <= 32, `virgin orientation block is ${n} lines, budget 32`);
 	});
 });
+
+// ---------------------------------------------------------------------------------------------
+// peerDependencies — a reference to a collection NOTHING installed provides.
+//
+// This is the state a recipes module is opened in on its own, and it has to pass BOTH gates. It
+// did not: compile stamped `unresolved_peers` onto every collection in the module and the
+// `collections` meta-descriptor did not declare it, so `check` flagged compile's own output as an
+// unknown field; and the generated module record's `peer_dependencies` was validated as a hard
+// reference, so the absent peer dangled. There was no state in which an optional cross-module
+// reference passed — dropping the declaration made compile fail instead, naming peerDependencies
+// as the remedy.
+describe('peerDependencies — an optional cross-module reference', () => {
+	/** A module `blog` declaring `posts` as a peer: `comments` references it, `authors` does not. */
+	const withPeerModule = (opts = {}) => {
+		const ws = workspace(opts);
+		const mod = path.join(ws.root, 'modules', 'blog');
+		fs.mkdirSync(path.join(mod, 'collections'), { recursive: true });
+		fs.writeFileSync(path.join(mod, 'package.json'), JSON.stringify({
+			name: 'blog', private: true, version: '0.0.1', dreamteamer: { peerDependencies: ['posts'] },
+		}));
+		fs.writeFileSync(path.join(mod, 'collections', 'comments.collection.yaml'),
+			'name: comments\ndescription: A comment on a post.\n'
+			+ 'storage: { path: data/comments, codec: md, shape: file, suffix: comment }\n'
+			+ 'id: { generate: "{{ title | slug }}" }\n'
+			+ 'schema:\n  type: object\n  required: [title]\n  properties:\n'
+			+ '    title: { type: string }\n    post: { type: string, x-reference: posts }\n'
+			+ '    body: { type: string, format: markdown, x-body: true }\n');
+		fs.writeFileSync(path.join(mod, 'collections', 'authors.collection.yaml'),
+			'name: authors\ndescription: Someone who writes.\n'
+			+ 'storage: { path: data/authors, codec: md, shape: file, suffix: author }\n'
+			+ 'id: { generate: "{{ name | slug }}" }\n'
+			+ 'schema:\n  type: object\n  required: [name]\n  properties:\n'
+			+ '    name: { type: string }\n    body: { type: string, format: markdown, x-body: true }\n');
+		return ws;
+	};
+
+	test('compiles clean AND checks clean — the whole point of declaring a peer', () => {
+		const ws = withPeerModule();
+		assert.equal(ws.dt('compile').code, 0);
+		assert.equal(ws.dt('add', 'authors', '--name', 'Ada').code, 0);
+		assert.equal(ws.dt('add', 'comments', '--title', 'First').code, 0);
+		const res = dtCheck(ws.root);
+		assert.equal(res.code, 0, res.stdout + res.stderr);
+		assert.match(res.stdout, /0 violations/);
+	});
+
+	test('a record that DOES point at the absent peer is warned about, never silent', () => {
+		const ws = withPeerModule();
+		assert.equal(ws.dt('compile').code, 0);
+		// hand-written: the STORE still refuses a reference into a collection it cannot see, so this
+		// is the state a module carries when its records were written where the peer WAS installed.
+		fs.mkdirSync(path.join(ws.root, 'data', 'comments'), { recursive: true });
+		fs.writeFileSync(path.join(ws.root, 'data', 'comments', 'first.comment.md'),
+			'---\ntitle: First\npost: posts/hello\n---\n');
+		const res = dtCheck(ws.root);
+		assert.equal(res.code, 0, res.stdout + res.stderr);
+		assert.match(res.stdout, /peer collection "posts" is declared but not installed — 1 reference unresolvable/);
+	});
+
+	test('unresolved_peers lands only on the collections that actually reference the peer', () => {
+		const ws = withPeerModule();
+		assert.equal(ws.dt('compile').code, 0);
+		const comments = load(readFile(ws.root, '.dreamteamer/collections/comments.collection.yaml'));
+		const authors = load(readFile(ws.root, '.dreamteamer/collections/authors.collection.yaml'));
+		assert.deepEqual(comments.unresolved_peers, ['posts']);
+		assert.equal(authors.unresolved_peers, undefined,
+			'a collection that references no peer must not carry the excuse for one');
+	});
+
+	test('the module record keeps peer_dependencies — it is the declaration, not a resolved link', () => {
+		const ws = withPeerModule();
+		assert.equal(ws.dt('compile').code, 0);
+		const mod = load(readFile(ws.root, '.dreamteamer/modules/blog.module.yaml'));
+		assert.deepEqual(mod.peer_dependencies, ['collections/posts']);
+	});
+
+	test('with the peer PRESENT the reference is hard again — a dangling target is flagged', () => {
+		const ws = withPeerModule();
+		const base = path.join(ws.root, 'modules', 'blogbase');
+		fs.mkdirSync(path.join(base, 'collections'), { recursive: true });
+		fs.writeFileSync(path.join(base, 'package.json'),
+			JSON.stringify({ name: 'blogbase', private: true, version: '0.0.1', dreamteamer: {} }));
+		fs.writeFileSync(path.join(base, 'collections', 'posts.collection.yaml'),
+			'name: posts\ndescription: A post.\n'
+			+ 'storage: { path: data/posts, codec: md, shape: file, suffix: post }\n'
+			+ 'id: { generate: "{{ title | slug }}" }\n'
+			+ 'schema:\n  type: object\n  required: [title]\n  properties:\n'
+			+ '    title: { type: string }\n    body: { type: string, format: markdown, x-body: true }\n');
+		assert.equal(ws.dt('compile').code, 0);
+		assert.equal(load(readFile(ws.root, '.dreamteamer/collections/comments.collection.yaml')).unresolved_peers,
+			undefined, 'nothing to excuse once the peer is installed');
+
+		// hand-written, because the STORE refuses a dangling ref at write time — this is check's half
+		fs.mkdirSync(path.join(ws.root, 'data', 'comments'), { recursive: true });
+		fs.writeFileSync(path.join(ws.root, 'data', 'comments', 'first.comment.md'),
+			'---\ntitle: First\npost: posts/nope\n---\n');
+		const res = dtCheck(ws.root);
+		assert.equal(res.code, 1);
+		assert.match(res.stdout, /dangling reference "posts\/nope"/);
+	});
+});

@@ -13,7 +13,7 @@ import { parseRecord, parseRecordText, patternRe, fmtAjvError, unknownFields, wa
 import { normalizeRecord } from './temporal.js';
 import { NO_RUNTIME, sourceHint, loadDescriptors, runtimeDir, namespaces as compiledNamespaces, sourceRoots as compiledSourceRoots } from './runtime.js';
 import { parseRef } from './namespace.js';
-import { refTargetsOf } from './ref.js';
+import { refTargetsOf, refIsSoft } from './ref.js';
 import { relationsOf } from './relations.js';
 
 // git calls whose failure we CATCH must not print git's own error: execFileSync forwards the
@@ -425,8 +425,16 @@ export class Store {
 					const want = targets.length === 1 ? `collection "${targets[0]}"` : `one of: ${targets.join(', ')}`;
 					throw new Error(`${key}: reference "${value}" must target ${want} — nothing was written.`);
 				}
-				if (!this.descriptors.has(coll)) throw new Error(`${key}: reference "${value}" targets unknown collection "${coll}" — nothing was written.`);
-				if (!this.ids(coll).has(id)) throw new Error(`${key}: dangling reference "${value}" — no such record. nothing was written.${mirrorRemedy(d, [key])}`);
+				// A SOFT reference resolves if the target is present and is ignored if it is absent
+				// (see ref.js). Honoured HERE as well as in `check` on purpose: the two paths reaching
+				// different verdicts on identical bytes is the divergence this validator was aligned
+				// with `check` to prevent in the first place.
+				const soft = refIsSoft(s);
+				if (!this.descriptors.has(coll)) {
+					if (soft) continue;
+					throw new Error(`${key}: reference "${value}" targets unknown collection "${coll}" — nothing was written.`);
+				}
+				if (!this.ids(coll).has(id) && !soft) throw new Error(`${key}: dangling reference "${value}" — no such record. nothing was written.${mirrorRemedy(d, [key])}`);
 			}
 		}
 	}
