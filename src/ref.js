@@ -32,3 +32,22 @@ export function refTargetsOf(prop) {
 	if (raw === '*') return '*';
 	return Array.isArray(raw) ? raw : [raw];
 }
+
+/**
+ * Is this reference SOFT — resolve it if the target is present, ignore it if it is absent?
+ *
+ * The default is hard, and stays hard: a reference that silently tolerates a missing target is how a
+ * typo becomes a permanent dangling link nothing reports. `x-reference-soft: true` is the deliberate
+ * opt-out, for a field whose value is a DECLARATION rather than a resolved link — `modules.peer_dependencies`
+ * is the case it exists for, and the reason it exists at all: a module names the collections it
+ * references but does not own, and the normal state of a module opened on its own is that those
+ * collections are not installed. Validated hard, that declaration made the module record it is
+ * projected onto uncheckable — there was no state in which an optional cross-module reference passed
+ * both gates, because removing the declaration made `compile` fail instead.
+ *
+ * Read through the same two-place lookup as the target, so the two can never disagree about which
+ * node carries the relation (`items` for an array field).
+ */
+export function refIsSoft(prop) {
+	return prop?.['x-reference-soft'] === true || prop?.items?.['x-reference-soft'] === true;
+}

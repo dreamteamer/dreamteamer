@@ -8,7 +8,7 @@ import addFormats from 'ajv-formats';
 import { parseRecord, patternRe, fmtAjvError, unknownFields, walk, idFromRecordPath, MAX_RECORD_BYTES } from './records.js';
 import { NO_RUNTIME, loadDescriptors, runtimeDir, namespaces as compiledNamespaces } from './runtime.js';
 import { parseRef } from './namespace.js';
-import { refTargetsOf } from './ref.js';
+import { refTargetsOf, refIsSoft } from './ref.js';
 import { relationsOf, expectedMirrors } from './relations.js';
 
 export function check({ root }) {
@@ -122,9 +122,9 @@ export function check({ root }) {
 			for (const k of unknownFields(d.schema, fields)) {
 				flag(file, `unknown field "${k}" (not in the ${name} schema)`);
 			}
-			for (const [fieldPath, target] of refFields) {
+			for (const [fieldPath, target, soft] of refFields) {
 				for (const value of valuesAt(fields, fieldPath)) {
-					checkRef(file, fieldPath, value, target, softTargets);
+					checkRef(file, fieldPath, value, target, softTargets, soft);
 				}
 			}
 			parsed.get(name).set(id, fields);
@@ -168,7 +168,7 @@ export function check({ root }) {
 		}
 	}
 
-	function checkRef(file, fieldPath, value, targets, softTargets) {
+	function checkRef(file, fieldPath, value, targets, softTargets, soft = false) {
 		if (typeof value !== 'string') return;
 		if (value.startsWith('@')) return; // runtime tokens (@me, @initiator) are legal
 		// The SAME parser the store writes through (src/namespace.js) — `check` disagreeing with the
@@ -189,9 +189,14 @@ export function check({ root }) {
 				softRefs.set(coll, (softRefs.get(coll) ?? 0) + 1);
 				return;
 			}
+			// A SOFT field (`x-reference-soft`) is a declaration, not a resolved link — see ref.js.
+			if (soft) return;
 			return flag(file, `${fieldPath.join('.')}: reference "${value}" targets unknown collection "${coll}"`);
 		}
-		if (!index.get(coll).has(id)) return flag(file, `${fieldPath.join('.')}: dangling reference "${value}" — no such record`);
+		if (!index.get(coll).has(id)) {
+			if (soft) return; // resolve if present, ignore if absent
+			return flag(file, `${fieldPath.join('.')}: dangling reference "${value}" — no such record`);
+		}
 	}
 
 	// ---- report ----------------------------------------------------------------------
@@ -218,16 +223,17 @@ export function check({ root }) {
 }
 
 
-// collect [fieldPath, targets] for every x-reference in the schema, where `targets` is '*' or the
-// normalized array of declared collections (see refTargetsOf). Relations are NOT read here — they
-// are decoded once, from the compiled descriptors, by src/relations.js.
+// collect [fieldPath, targets, soft] for every x-reference in the schema, where `targets` is '*' or
+// the normalized array of declared collections (see refTargetsOf) and `soft` says whether an absent
+// target is a finding (see refIsSoft). Relations are NOT read here — they are decoded once, from the
+// compiled descriptors, by src/relations.js.
 function collectRefFields(schema, prefix = []) {
 	const out = [];
 	for (const [key, s] of Object.entries(schema.properties ?? {})) {
 		if (!s || typeof s !== 'object') continue;
 		const p = [...prefix, key];
 		const targets = refTargetsOf(s);
-		if (targets) out.push([p, targets]);
+		if (targets) out.push([p, targets, refIsSoft(s)]);
 		if (s.properties) out.push(...collectRefFields(s, p));
 		if (s.items?.properties) out.push(...collectRefFields(s.items, p));
 	}

@@ -104,7 +104,7 @@ function normalizeRelationKeywords(schema, name, prefix = '') {
 			// every per-relation keyword, not just `x-inverse` — `x-unique` decides the mirror's
 			// cardinality, `x-on-delete` its removal rule and `x-inverse-of` names the owner from the
 			// other spelling, so all four have to reach the same node the relation is read from.
-			for (const kw of ['x-inverse', 'x-title-template', 'x-unique', 'x-on-delete', 'x-inverse-of']) {
+			for (const kw of ['x-inverse', 'x-title-template', 'x-unique', 'x-on-delete', 'x-inverse-of', 'x-reference-soft']) {
 				if (!(kw in prop)) continue;
 				if (kw in prop.items && prop.items[kw] !== prop[kw]) {
 					fail(`collection "${name}": field "${at}" declares conflicting ${kw} on the property and its items — keep one.`);
@@ -1001,6 +1001,8 @@ export function compile({ root, pkg }) {
 		const declaredDeps = new Set(groupModules.flatMap((m) => moduleDeps.get(m) ?? []));
 		const declaredPeers = new Set(groupModules.flatMap((m) => modulePeers.get(m) ?? []));
 		const owns = (t) => groupModules.includes(collOwner.get(t));
+		// what THIS collection actually points at — see `unresolved_peers` below
+		const referenced = new Set();
 		normalizeRelationKeywords(merged.schema, name);
 		for (const [at, raw] of refTargets(merged.schema)) {
 			if (raw === '*') {
@@ -1021,6 +1023,7 @@ export function compile({ root, pkg }) {
 				fail(`collection "${name}": field "${at}" has an invalid x-reference ${JSON.stringify(raw)} — expected a collection name, a non-empty list of collection names, or '*'.`);
 			}
 			for (const target of targets) {
+				referenced.add(target);
 				if (CORE_COLLECTIONS.has(target) || owns(target)) continue;
 				const owner = collOwner.get(target);
 				if (owner && declaredDeps.has(owner)) continue;
@@ -1034,7 +1037,13 @@ export function compile({ root, pkg }) {
 		// Declared peers that nothing provides, stated as DATA on the descriptor so `check` can
 		// excuse their references without learning what a module is (the `storage.base` precedent —
 		// check.js is in the record layer and must not know modules exist).
-		const unresolved = [...declaredPeers].filter((p) => !collOwner.has(p)).sort();
+		//
+		// ⚠ Only the peers THIS collection references. It used to be every peer the module declared,
+		// stamped onto every collection in it — which made the field a module-level fact wearing a
+		// collection-level key, and handed a collection that references nothing an excuse it can
+		// never legitimately use. A peer declared for one collection would then have silently excused
+		// a typo'd reference in a sibling.
+		const unresolved = [...declaredPeers].filter((p) => referenced.has(p) && !collOwner.has(p)).sort();
 		if (unresolved.length) merged.unresolved_peers = unresolved;
 
 		// ONE BODY PER COLLECTION. A record's prose is the text after the frontmatter — there is only

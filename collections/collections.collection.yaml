@@ -105,6 +105,16 @@ schema:
     icon:
       type: string
       description: material-symbols-outlined icon name, drawn in the nav and page header. The VS Code tree maps it to the nearest codicon — an unmapped name falls back to a generic cylinder, so pick one that is already mapped or add the row.
+    unresolved_peers:
+      type: array
+      items: { type: string }
+      description: >-
+        DERIVED by compile, never authored — the collections THIS one references that its module
+        declared as a `peerDependencies` peer and nothing installed provides. `check` reads it to
+        excuse those references as unresolvable rather than wrong, which is what lets a module be
+        opened on its own. It is stated here as DATA precisely so the record layer never has to
+        learn what a module is; a bare string list rather than `x-reference: collections`, because
+        the whole point is that the target is absent.
     owner:
       type: string
       x-reference: modules
