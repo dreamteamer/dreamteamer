@@ -580,6 +580,74 @@ describe('an empty collection source', () => {
 		assert.match(err, /blank\.collection\.yaml/);
 		assert.match(err, /is empty/);
 	});
+
+	// ⚠ THE COLLECTION CASE WAS THE LOUD ONE, and it was the only one covered. A 0-byte ui-view
+	// compiled ✔ at exit 0 and was caught one gate later by `check`, which names the COMPILED
+	// artifact under `.dreamteamer/` — a path nobody can edit and `compile` overwrites. Every kind
+	// compile reads as a FILE is an entity, and an empty one is never intentional.
+	const sourceAt = (ws, kind, name) => {
+		const dir = path.join(ws.root, 'modules', WS_MODULE, kind);
+		fs.mkdirSync(dir, { recursive: true });
+		return path.join(dir, name);
+	};
+
+	for (const [kind, name] of [
+		['ui-views', 'blank.ui-view.yaml'],
+		['commands', 'blank.command.md'],
+		['command-bindings', 'blank.command-binding.yaml'],
+		['collection-templates', 'blank.collection-template.yaml'],
+		['agents', 'blank.agent.md'],
+	]) {
+		test(`a 0-byte ${kind} source is refused by NAME, not by check one gate later`, () => {
+			const ws = uncompiled();
+			fs.writeFileSync(sourceAt(ws, kind, name), '');
+			const err = compileError(ws.ws);
+			assert.ok(err, `an empty ${kind} source must fail the compile`);
+			assert.match(err, new RegExp(name.replace('.', '\\.')), 'the error names the SOURCE file');
+			assert.match(err, /is empty/);
+		});
+	}
+
+	test("a skill's SKILL.md may not be empty, but its payload files may", () => {
+		const ws = uncompiled();
+		const skill = path.join(ws.root, 'modules', WS_MODULE, 'skills', 'blank');
+		fs.mkdirSync(path.join(skill, 'references'), { recursive: true });
+		fs.writeFileSync(path.join(skill, 'SKILL.md'), '');
+		const err = compileError(ws.ws);
+		assert.match(err, /SKILL\.md/);
+		assert.match(err, /is empty/);
+
+		// the same skill with a real SKILL.md and an empty payload file compiles — a `references/`
+		// placeholder is the author's business, not the compiler's
+		fs.writeFileSync(path.join(skill, 'SKILL.md'), '---\nname: blank\ndescription: A skill.\n---\n\nBody.\n');
+		fs.writeFileSync(path.join(skill, 'references', 'todo.md'), '');
+		assert.equal(compileError(ws.ws), null);
+	});
+});
+
+// ---------------------------------------------------------------------------------------------
+// A malformed source failed LOUDLY and namelessly: js-yaml reports `line:column` and a snippet and
+// never the file, so the operator bisected N sources by mtime to find one stray tab.
+describe('a malformed source names itself', () => {
+	test('a tab-indented collection descriptor puts the path in the message', () => {
+		const ws = uncompiled();
+		fs.writeFileSync(path.join(ws.root, 'modules', WS_MODULE, 'collections', 'tabbed.collection.yaml'),
+			'name: tabbed\nschema:\n\ttype: object\n');
+		const err = compileError(ws.ws);
+		assert.ok(err, 'a malformed descriptor must fail the compile');
+		assert.match(err, /tabbed\.collection\.yaml/, 'the error names the file');
+		assert.match(err, /tab characters/, "and keeps js-yaml's own diagnosis");
+	});
+
+	test('a malformed ui-view names itself too', () => {
+		const ws = uncompiled();
+		const dir = path.join(ws.root, 'modules', WS_MODULE, 'ui-views');
+		fs.mkdirSync(dir, { recursive: true });
+		fs.writeFileSync(path.join(dir, 'tabbed.ui-view.yaml'), 'path: tabbed\noptions:\n\tsort: -date\n');
+		const err = compileError(ws.ws);
+		assert.match(err, /tabbed\.ui-view\.yaml/);
+		assert.match(err, /tab characters/);
+	});
 });
 
 // ---------------------------------------------------------------------------------------------

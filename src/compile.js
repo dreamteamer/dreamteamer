@@ -542,6 +542,30 @@ export function compile({ root, pkg }) {
 	const harnesses = config.harnesses ?? ['claude-code'];
 	const rel = (p) => path.relative(root, p);
 
+	/** ⚠ YAML, WITH THE FILE IN THE MESSAGE. js-yaml reports `line:column` and a snippet and never a
+	 *  path, so one stray tab in a workspace of a hundred sources was an mtime bisect. Every parse of
+	 *  a MODULE SOURCE goes through here; the projected records compile dumps itself do not need it. */
+	const loadSource = (text, srcPath) => {
+		try {
+			return load(text);
+		} catch (e) {
+			return fail(`${srcPath}: ${e.message}`);
+		}
+	};
+
+	/** An EMPTY source is never intentional, and every reader indexes straight into what it parses.
+	 *  The collection case died with a bare "Cannot read properties of undefined" naming no file; a
+	 *  0-byte ui-view was worse — compile said ✔ and `check` caught it one gate later, naming the
+	 *  COMPILED artifact under `.dreamteamer/`, which nobody can edit and the next compile overwrites.
+	 *  Refuse here, the last layer that still knows which module file the bytes came from.
+	 *  ⚠ ENTITY FILES ONLY. A skill is a FOLDER: its `SKILL.md` is the entity and is covered, while a
+	 *  placeholder under `references/` is the author's business, not the compiler's. */
+	const refuseEmptySource = (srcPath) => {
+		if (fs.readFileSync(srcPath, 'utf8').trim() === '') {
+			fail(`${rel(srcPath)}: source is empty — there is nothing to compile. Delete the file, or write one.`);
+		}
+	};
+
 	// ---- discover sources: channel modules then the workspace's own -----------------
 	const { modules: discovered, shadows } = discoverModules(root, pkg);
 	for (const s of shadows) console.warn(shadowWarning(s));
@@ -740,14 +764,15 @@ export function compile({ root, pkg }) {
 				if (kind === 'collections' && !isDir) {
 					// descriptors merge via 'extends' — collect per collection name
 					const bytes = fs.readFileSync(srcPath);
-					const doc = load(bytes.toString('utf8'));
-					// An EMPTY source parses to undefined (0 bytes) or null (whitespace only), and every
-					// line below reads a key off it — so compile died with a bare "Cannot read properties
-					// of undefined (reading 'storage')" naming no file, in a workspace that may hold a
-					// hundred descriptors. Loud and useless is its own failure mode; refuse it BY NAME.
-					// A `touch`ed file on the way to writing one is the ordinary way to arrive here.
-					if (doc == null || typeof doc !== 'object') {
+					// A `touch`ed file on the way to writing one is the ordinary way to arrive here. The
+					// descriptor keeps its own wording — it is the one kind that can say what is missing.
+					if (bytes.toString('utf8').trim() === '') {
 						fail(`${rel(srcPath)}: collection source is empty — a descriptor needs at least 'name' and 'schema' (or 'extends'). Delete the file, or write one.`);
+					}
+					const doc = loadSource(bytes.toString('utf8'), rel(srcPath));
+					// a scalar or a list parses fine and then reads as undefined on every key below
+					if (doc == null || typeof doc !== 'object' || Array.isArray(doc)) {
+						fail(`${rel(srcPath)}: collection source is not a mapping — a descriptor needs at least 'name' and 'schema' (or 'extends').`);
 					}
 					// `codec: file` records are opaque bytes: there are no fields, so there is no schema to
 					// require and none to honour. Every other codec parses text into fields and must declare
@@ -760,18 +785,23 @@ export function compile({ root, pkg }) {
 					descriptorGroups.get(doc.name).push({ src: { path: rel(srcPath), hash: sha256(bytes) }, doc, moduleName: source.name });
 					contributed.add(source.name);
 				} else if (FOLDER_KINDS.has(kind) && isDir) {
+					// the folder's ENTITY file, not its payload — see refuseEmptySource
+					const entityFile = path.join(srcPath, 'SKILL.md');
+					if (fs.existsSync(entityFile)) refuseEmptySource(entityFile);
 					for (const file of walk(srcPath)) {
 						addEntry(path.join(kind, name, path.relative(srcPath, file)), file);
 						contributed.add(source.name);
 					}
 					counts[kind]++;
 				} else if (!isDir) {
+					refuseEmptySource(srcPath);
 					addEntry(path.join(kind, name), srcPath);
 					contributed.add(source.name);
 					counts[kind]++;
 				} else {
 					// nested dirs for file-shape kinds (e.g. date-partitioned) — recurse
 					for (const file of walk(srcPath)) {
+						refuseEmptySource(file);
 						addEntry(path.join(kind, path.relative(srcDir, file)), file);
 						contributed.add(source.name);
 						counts[kind]++;
@@ -832,8 +862,8 @@ export function compile({ root, pkg }) {
 	for (const [rt, entry] of entries) {
 		const m = /^collection-templates\/(.+)\.collection-template\.yaml$/.exec(rt);
 		if (!m) continue;
-		const doc = load(entry.bytes.toString('utf8'));
-		templateDocs.set(m[1], { template: doc.template ?? {}, src: entry.sources[0] });
+		const doc = loadSource(entry.bytes.toString('utf8'), entry.sources[0].path);
+		templateDocs.set(m[1], { template: doc?.template ?? {}, src: entry.sources[0] });
 	}
 
 	// ---- namespaces: the declared list, validated against what actually compiled ----------
@@ -1238,7 +1268,7 @@ export function compile({ root, pkg }) {
 	for (const [rt, e] of entries) {
 		if (rt.startsWith('agents/')) {
 			const fm = /^---\r?\n([\s\S]*?)\r?\n---/.exec(e.bytes.toString('utf8'));
-			const doc = fm ? load(fm[1]) : {};
+			const doc = fm ? loadSource(fm[1], e.sources[0].path) : {};
 			for (const sk of doc.skills ?? []) {
 				if (!skillIds.has(String(sk).replace(/^skills\//, ''))) fail(`${rt}: references unknown skill "${sk}"`);
 			}
@@ -1272,7 +1302,7 @@ export function compile({ root, pkg }) {
 	const ownFields = load(entries.get(path.join('collections', 'ui-views.collection.yaml'))?.bytes?.toString('utf8') ?? '')?.schema?.properties ?? {};
 	for (const [rt, e] of entries) {
 		if (!rt.startsWith('ui-views/')) continue;
-		const view = load(e.bytes.toString('utf8'));
+		const view = loadSource(e.bytes.toString('utf8'), e.sources[0].path);
 		// filters are load-bearing (they narrow what the operator SEES) — typo'd operators
 		// fail at compile, not silently at render (review finding 5)
 		const badOps = view?.filter ? [...unknownOperators(view.filter)] : [];
@@ -1309,7 +1339,7 @@ export function compile({ root, pkg }) {
 	const commandIds = new Set([...entries.keys()].filter((k) => k.startsWith('commands/')).map((k) => path.basename(k).replace(/\.command\.md$/, '')));
 	for (const [rt, e] of entries) {
 		if (!rt.startsWith('command-bindings/')) continue;
-		const b = load(e.bytes.toString('utf8'));
+		const b = loadSource(e.bytes.toString('utf8'), e.sources[0].path);
 		const cmd = String(b?.command ?? '').replace(/^commands\//, '');
 		if (!cmd || !commandIds.has(cmd)) fail(`${rt}: references unknown command "${b?.command ?? ''}"`);
 		const coll = String(b?.collection ?? '').replace(/^collections\//, '');
