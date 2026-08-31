@@ -12,7 +12,8 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { workspace, simpleCollection, readFile } from '../helpers/ws.js';
+import path from 'node:path';
+import { workspace, simpleCollection, readFile, writeCollection, compileQuietly, dt as runDt, WS_MODULE } from '../helpers/ws.js';
 
 // The same four-collection cast as relations-store.test.js — one anchor plus the three
 // cardinalities: many-to-one (recordings), one-to-one (summaries, via x-unique) and many-to-many
@@ -306,5 +307,59 @@ describe('dt relations', () => {
 		const res = ws.dt('relations', 'rebuild', 'meetings', '--drop', 'recordings');
 		assert.equal(res.code, 1);
 		assert.match(res.stderr, /is a live field/);
+	});
+});
+
+describe('remove-field on a generated mirror', () => {
+	/** A workspace whose relation TARGET is shipped by a module other than the workspace module —
+	 *  which is the ordinary case, not an exotic one: a workspace's domain collections almost always
+	 *  live in a module. `patients` comes from `modules/clinic`; `visits` (the owner) is the
+	 *  workspace module's, and the mirror `patients.visits` is compile's output. */
+	const withModule = () => {
+		const ws = workspace({ compile: false });
+		const mod = path.join(ws.root, 'modules', 'clinic');
+		fs.mkdirSync(path.join(mod, 'collections'), { recursive: true });
+		fs.writeFileSync(path.join(mod, 'package.json'), JSON.stringify({ name: 'clinic', version: '1.0.0', dreamteamer: {} }, null, '\t'));
+		fs.writeFileSync(path.join(mod, 'collections', 'patients.collection.yaml'),
+			'name: patients\nid: { generate: "{{ name | slug }}" }\nstorage: { suffix: patient }\n'
+			+ 'schema:\n  type: object\n  required: [name]\n  properties:\n    name: { type: string }\n'
+			+ '    notes: { type: string, format: markdown, x-body: true }\n');
+		writeCollection(ws.root, 'visits', simpleCollection({
+			storage: { suffix: 'visit' },
+			schema: {
+				type: 'object', required: ['name'],
+				properties: {
+					name: { type: 'string' },
+					notes: { type: 'string', format: 'markdown', 'x-body': true },
+					patient: { type: 'string', 'x-reference': 'patients', 'x-inverse': 'visits' },
+				},
+			},
+		}));
+		// the OWNING module has to declare the dependency it stamps a field across
+		const pkgFile = path.join(ws.root, 'modules', WS_MODULE, 'package.json');
+		const pkg = JSON.parse(fs.readFileSync(pkgFile, 'utf8'));
+		pkg.dreamteamer.dependencies = ['clinic'];
+		fs.writeFileSync(pkgFile, JSON.stringify(pkg, null, '\t'));
+		compileQuietly(ws.ws);
+		return ws;
+	};
+
+	test('the mirror answer fires whichever module ships the collection', () => {
+		const ws = withModule();
+		const res = runDt(ws.root, 'schema', 'remove-field', 'patients', '--name', 'visits');
+		assert.equal(res.code, 1);
+		// It used to answer `"patients" is module-shipped; the workspace can only OVERRIDE fields`,
+		// because the field was resolved out of the WORKSPACE module's own sources. True of a real
+		// inherited field, useless for a mirror: an `extends` overlay cannot remove one either, and
+		// the edit that can is on another collection.
+		assert.match(res.stderr, /GENERATED from visits\.patient/);
+		assert.match(res.stderr, /dreamteamer schema update-field visits --name patient --inverse=/);
+	});
+
+	test('a real inherited field on the same collection still says module-shipped', () => {
+		const ws = withModule();
+		const res = runDt(ws.root, 'schema', 'remove-field', 'patients', '--name', 'name');
+		assert.equal(res.code, 1);
+		assert.match(res.stderr, /is module-shipped/);
 	});
 });
