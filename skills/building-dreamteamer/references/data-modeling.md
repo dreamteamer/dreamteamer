@@ -273,15 +273,19 @@ roadmap, not a model; wait for the second consumer.
 - **`data/` is where records go.** `storage.path` is free-form, so a collection can be pointed
   anywhere in the workspace, but the answer is `data/<collection>` unless you have a reason you can
   state.
-- ⚠ **`state/` exists, works, and has no users — do not spend a decision on it.** `dt init` creates
-  the folder, and a collection declaring `storage.path: state/<name>` genuinely works end to end
-  (verified: `add` lands the file, `get`, `list` and `check` all see it). But **no collection shipped
-  by this engine or by any module measured uses it**, so the `data/` vs `state/` "split" is a fork
-  nobody has taken. Default to `data/`. The idea it was meant to protect is still worth keeping —
-  **do not let machinery sit next to content**: cursors, sync markers and cached readings make every
-  list of real records noisier, and the honest fixes are a field on an existing record, a file under
-  a gitignored cache folder, or `state/` if you genuinely want a second root. Choosing it is fine;
-  agonising over it is not.
+- ⚠ **`state/` is DEPRECATED as a convention — do not spend a decision on it.** It was created as
+  the home for "operational records": runs, triggers, registries, cursors. All seven of those
+  collections were later measured unused and deleted, so its entire reason went with them. The
+  mechanism still works end to end (a collection declaring `storage.path: state/<name>` writes,
+  lists and checks correctly) and is kept for anyone who wants a second root — but nothing ships
+  there, and `dt init` no longer creates the folder.
+- **The need it was aimed at is real; records were the wrong answer.** When genuine operational data
+  finally arrived — cached provider readings, thousands of append-only rows — it went to a
+  gitignored `.cache/<thing>.jsonl`, and that was right: one record per reading would have been
+  thousands of files nobody opens individually, churning git for nothing. So the rule is not "put
+  machinery in `state/`", it is **do not model machinery as records at all**. In descending order:
+  a field on a record that already exists · a line appended to a gitignored cache file · a real
+  collection, if and only if you will genuinely list, filter and read the things one at a time.
 - **`codec: md` whenever a human reads a body; `yaml` when nobody does.** A record that is all
   fields and no prose (a lab value, a transaction, a cursor) is `yaml` — the body would only ever
   be empty. `json` exists for tool-written records.

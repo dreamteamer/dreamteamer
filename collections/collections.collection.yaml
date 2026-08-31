@@ -38,11 +38,16 @@ schema:
         path:
           type: string
           description: >-
-            Folder holding the records, workspace-relative. `data/<collection>` for content, which is
-            the answer unless you can state a reason. `state/<collection>` also works and nothing
-            uses it. ⚠ NEVER author `system/` — sources have lived in `modules/<module>/<kind>/`
-            since the 2026-08-05 flatten, and a `system/` prefix is only how `runtime.js` still
-            recognises a RUNTIME collection in a descriptor compiled by a pre-flatten engine.
+            Folder holding the records, workspace-relative. `data/<collection>` — that is the answer
+            unless you can state a reason. `state/<collection>` is DEPRECATED as a convention since
+            2026-08-31: decision 4 created it for runs, triggers, registries and cursors, all seven
+            of those collections have been deleted, and the one real operational-data need that
+            arrived since went to a gitignored `.cache/*.jsonl` because append-only readings are the
+            wrong shape for records. The mechanism still works and is kept, exactly like `group`
+            below, so a workspace wanting a second root has one. ⚠ NEVER author `system/` — sources
+            have lived in `modules/<module>/<kind>/` since the 2026-08-05 flatten, and a `system/`
+            prefix is only how `runtime.js` recognises a RUNTIME collection in a descriptor compiled
+            by a pre-flatten engine.
         codec:
           type: string
           enum: [md, yaml, json, file]
