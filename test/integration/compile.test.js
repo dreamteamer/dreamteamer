@@ -540,3 +540,53 @@ describe('an empty collection source', () => {
 		assert.match(err, /is empty/);
 	});
 });
+
+// ---------------------------------------------------------------------------------------------
+// The decision-156 gate reached the module ROOT but not the legacy `system/` level below it, which
+// `NON_SOURCE_DIRS` waved through wholesale — so a kind the engine does not know sat under
+// `system/` and compile said ✔, the exact failure the flat-layout gate exists to prevent.
+describe('stray source folders under the legacy system/ level', () => {
+	const nestedModule = (root, kind, file, body) => {
+		const mod = path.join(root, 'modules', 'm');
+		fs.mkdirSync(path.join(mod, 'system', kind, path.dirname(file)), { recursive: true });
+		fs.writeFileSync(path.join(mod, 'package.json'),
+			JSON.stringify({ name: 'm', private: true, version: '0.0.1', dreamteamer: {} }));
+		fs.writeFileSync(path.join(mod, 'system', kind, file), body);
+		return mod;
+	};
+
+	test('an unrecognized folder under system/ is a compile ERROR naming it', () => {
+		const ws = uncompiled();
+		nestedModule(ws.root, 'gizmos', 'probe.gizmo.yaml', 'name: probe\n');
+		const err = compileError(ws.ws);
+		assert.ok(err, 'system/gizmos must fail the compile');
+		assert.match(err, /system\/gizmos/);
+	});
+
+	test('a KNOWN kind under system/ still compiles — the pre-flatten fallback is kept', () => {
+		const ws = uncompiled();
+		nestedModule(ws.root, 'skills', 'probing/SKILL.md',
+			'---\nname: probing\ndescription: A skill in the legacy nested layout.\n---\nProbe things.\n');
+		assert.equal(compileError(ws.ws), null);
+		assert.ok(readFile(ws.root, '.dreamteamer/skills/probing/SKILL.md'));
+	});
+
+	test('a module can ignore a folder under system/ too', () => {
+		const ws = uncompiled();
+		const mod = nestedModule(ws.root, 'gizmos', 'probe.gizmo.yaml', 'name: probe\n');
+		fs.writeFileSync(path.join(mod, 'package.json'),
+			JSON.stringify({ name: 'm', private: true, version: '0.0.1', dreamteamer: { ignore: ['gizmos'] } }));
+		assert.equal(compileError(ws.ws), null);
+	});
+
+	test('the both-spellings warning survives the new gate', () => {
+		const ws = uncompiled();
+		const mod = nestedModule(ws.root, 'skills', 'probing/SKILL.md',
+			'---\nname: probing\ndescription: A skill in the legacy nested layout.\n---\nProbe things.\n');
+		fs.mkdirSync(path.join(mod, 'skills', 'probing'), { recursive: true });
+		fs.copyFileSync(path.join(mod, 'system', 'skills', 'probing', 'SKILL.md'),
+			path.join(mod, 'skills', 'probing', 'SKILL.md'));
+		const { warnings } = compileQuietly(ws.ws);
+		assert.ok(warnings.some((w) => /both skills\/ and system\/skills\/ exist/.test(w)), warnings.join('\n'));
+	});
+});

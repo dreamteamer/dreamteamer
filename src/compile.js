@@ -423,14 +423,29 @@ const NON_SOURCE_DIRS = new Set([
 ]);
 
 /** Unrecognised source-root folders in a module, or [] for the workspace root (a vault legitimately
- *  holds arbitrary directories — this gate is about PACKAGES, whose folders all mean something). */
+ *  holds arbitrary directories — this gate is about PACKAGES, whose folders all mean something).
+ *
+ *  ⚠ `system/` is enumerated TOO, under the same rule. It is in NON_SOURCE_DIRS so the root pass
+ *  waves it through, and that waved through everything BELOW it — so `system/gizmos/probe.gizmo.yaml`
+ *  compiled ✔ in silence while the identical folder at the module root hard-errored. That is exactly
+ *  the decision-156 shape the root gate exists to prevent, surviving one level down: `kindDir` still
+ *  reads `system/<kind>` as the pre-flatten fallback, so a kind the engine stopped knowing is just as
+ *  invisible there as it ever was at the root, and the half-migrated module is the likeliest place
+ *  for one to be. Known kinds under `system/` keep compiling — the fallback is deliberate and stays
+ *  (CLAUDE.md); only UNKNOWN folders become errors, and `dreamteamer.ignore` excuses them in both
+ *  places with one entry. */
 function strayKindDirs(source, wsRoot, declaredIgnore) {
 	if (path.resolve(source.root) === path.resolve(wsRoot)) return [];
 	const allow = new Set([...KINDS, ...NON_SOURCE_DIRS, ...declaredIgnore]);
-	return fs.readdirSync(source.root, { withFileTypes: true })
+	const dirsIn = (dir, prefix = '') => (fs.existsSync(dir) ? fs.readdirSync(dir, { withFileTypes: true }) : [])
 		.filter((e) => e.isDirectory() && !e.name.startsWith('.') && !allow.has(e.name))
-		.map((e) => e.name)
-		.sort();
+		.map((e) => `${prefix}${e.name}`);
+	return [
+		...dirsIn(source.root),
+		// The SAME allow set one level down — a generic package folder reads the same wherever the
+		// module put it, and one `ignore` entry covers both spellings rather than two.
+		...dirsIn(path.join(source.root, 'system'), 'system/'),
+	].sort();
 }
 
 const sha256 = (buf) => 'sha256:' + createHash('sha256').update(buf).digest('hex');
@@ -688,9 +703,13 @@ export function compile({ root, pkg }) {
 		// both of which used to compile ✔ and contribute nothing (see NON_SOURCE_DIRS)
 		const strays = strayKindDirs(source, root, moduleIgnores.get(source.name) ?? []);
 		if (strays.length) {
+			// `ignore` matches a FOLDER NAME, at the root and under `system/` alike, so the remedy has
+			// to quote the bare name — suggesting "system/gizmos" would print an entry that matches
+			// nothing and send the reader back for a second compile to find that out.
+			const ignorable = [...new Set(strays.map((s) => s.replace(/^system\//, '')))];
 			fail(`module "${source.name}" (${rel(source.root)}) has folder(s) that are not a known kind: ${strays.join(', ')}
   known kinds: ${KINDS.join(', ')}
-  if these are not sources, declare them: "dreamteamer": { "ignore": [${strays.map((s) => `"${s}"`).join(', ')}] } in ${rel(path.join(source.root, 'package.json'))}`);
+  if these are not sources, declare them: "dreamteamer": { "ignore": [${ignorable.map((s) => `"${s}"`).join(', ')}] } in ${rel(path.join(source.root, 'package.json'))}`);
 		}
 		for (const kind of KINDS) {
 			// a half-moved module compiles its flat half and drops the rest — say so rather than
