@@ -33,7 +33,6 @@ demand:
 | provenance | `.dreamteamer/manifest.yaml` | which module shipped which entry |
 | sources (write) | `modules/<module>/` — **including the workspace's own**, the `dreamteamer.workspace-module` named in `package.json` | a source folder at the workspace ROOT is a compile ERROR. same-name collisions across modules are compile errors too. after ANY source change: `npm run compile` |
 | content records | `data/<collection>/` | per each descriptor's `storage.path` |
-| operational records | `state/<collection>/` | whatever a module declares there; core ships none |
 
 - a record is a `<id>.<suffix>.<ext>` file (or a folder, for folder-shape collections). **the id is
   the path** inside the collection folder minus suffix and extension — nested folders join in:

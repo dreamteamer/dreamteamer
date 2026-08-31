@@ -108,7 +108,14 @@ export function init({ flags = {} } = {}) {
 	const starter = path.join(systemRoot, 'collections', 'notes.collection.yaml');
 	if (!fs.existsSync(starter)) fs.writeFileSync(starter, STARTER_COLLECTION);
 	fs.mkdirSync(path.join(root, dataPath), { recursive: true });
-	fs.mkdirSync(path.join(root, 'state'), { recursive: true });
+	// NO `state/` is created. It was decision-4's home for operational records — runs, triggers,
+	// registries, cursors — and every one of those seven collections has since been deleted. When a
+	// real operational-data need finally arrived (cached provider readings) it went to a gitignored
+	// `.cache/*.jsonl` instead, because thousands of append-only readings are the wrong shape for
+	// records at all. So `state/` is a working facility with no users, and seeding an empty folder
+	// for it is the "capability that needs a record before it exists" smell. The MECHANISM is kept —
+	// `storage.path: state/<name>` still compiles, writes, lists and checks — so a workspace that
+	// wants a second root has one; the engine just stops advertising a fork nobody has taken.
 
 	// NO user record is seeded, and there is no `users` collection — both removed from core in 0.8.0.
 	// It failed the "does the ENGINE read it?" test on a circular justification: `users` was core
