@@ -42,8 +42,20 @@ export function presentation(descriptors) {
 			rows.push(fieldRow(d, name, prop, new Set(d.schema?.required ?? []).has(name), descriptors));
 			const targets = referenceTargetsOf(prop);
 			if (targets) {
+				const h = holderOf(prop);
+				// `kind` belongs to the OWNING side of an actual relation only, and uses the same three
+				// names src/relations.js decodes — no surface learns a second vocabulary. A mirror is
+				// the far end of a relation, not one with a cardinality of its own, so it is flagged
+				// rather than typed.
+				const mirror = h['x-inverse-of'] !== undefined;
+				const kind = mirror || h['x-inverse'] === undefined
+					? undefined
+					: prop.type === 'array' ? 'm2m' : h['x-unique'] === true ? 'o2o' : 'm2o';
 				for (const target of targets) {
-					relations.push({ collection: d.name, field: name, related_collection: target, list: prop.type === 'array' });
+					relations.push({
+						collection: d.name, field: name, related_collection: target, list: prop.type === 'array',
+						...(kind && { kind }), ...(mirror && { mirror: true }),
+					});
 				}
 			}
 		}
@@ -80,6 +92,12 @@ function collectionRow(d) {
 		meta.readonly_hint = sourceHint(d);
 	}
 	return { collection: d.name, meta, system };
+}
+
+/** The node a reference field's keywords live on: `items` for a list, the property itself for a
+ *  scalar. compile hoists them there, and every relation consumer reads them from there. */
+function holderOf(prop) {
+	return (prop.items && typeof prop.items === 'object') ? prop.items : prop;
 }
 
 /** The named target collections of a reference field — null for a non-ref and for '*'. */
@@ -169,6 +187,28 @@ function fieldRow(d, name, prop, isRequired, descriptors) {
 		type = 'timestamp';
 	} else if (prop.format === 'markdown') {
 		type = 'text';
+	}
+
+	// The two SIDES of a relation render differently, and only the descriptor knows which side a
+	// field is on. The owner is writable and carries the delete policy a surface should warn about
+	// before it offers the button; the generated mirror is READ-ONLY, and a UI that offers to edit
+	// one produces a write the store refuses — an error after the click, which is a worse answer
+	// than a disabled control with a reason (the same rule collectionRow follows for a compiled
+	// collection). `dt-relation-mirror` names the SHAPE, not a component: what the extension draws
+	// for it is the extension's business.
+	if (targets) {
+		const holder = holderOf(prop);
+		if (holder['x-inverse-of']) {
+			meta.readonly = true;
+			meta.inverse_of = holder['x-inverse-of'];
+			if (typeof prop.description === 'string' && prop.description.length > 0) meta.readonly_hint = prop.description;
+			meta.special = [...(meta.special ?? []), 'dt-relation-mirror'];
+		} else if (holder['x-inverse']) {
+			meta.inverse = holder['x-inverse'];
+			if (holder['x-unique'] === true) meta.unique = true;
+			// stated rather than implied: `restrict` is what the store enforces when nothing is authored
+			meta.on_delete = holder['x-on-delete'] ?? 'restrict';
+		}
 	}
 
 	if (Array.isArray(prop.enum) && prop.enum.length > 0) {
