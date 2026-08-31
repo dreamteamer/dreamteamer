@@ -57,6 +57,14 @@ function writeGated(ws, store, files, subject, mutate) {
 	});
 }
 
+/** The compile half of the gate, under the same lock, with no source write and no commit — for a
+ *  schema op that turns out to ask for what is already on disk. Materializing `.dreamteamer/` is the
+ *  point rather than a side effect: the caller is about to report success, and success has always
+ *  meant "the compiled runtime is valid and current". */
+function compileGated(ws, store) {
+	return store.withWriteLock(() => compile(ws));
+}
+
 /** The workspace's writable source dir for a kind (workspace-module aware). `kindDir` picks the
  *  layout that module already uses and falls back to flat, so a `collections add` never splits a
  *  half-moved module across both. */
@@ -736,6 +744,13 @@ function upsertField(ws, store, collection, fieldName, prop, required, verb) {
 	const wasRequired = Array.isArray(doc.schema?.required) && doc.schema.required.includes(fieldName);
 	const willBeRequired = required === undefined ? wasRequired : required === true;
 	if (already !== undefined && wasRequired === willBeRequired && canonical(already) === canonical(prop)) {
+		// ⚠ STILL A GATE. These verbs write sources THROUGH a compile, and before the shortcut above
+		// existed even a no-op went through `writeGated` and so hard-failed on a pre-existing compile
+		// error ANYWHERE in the tree. Returning early bypassed that: a no-op reported "already exactly
+		// that" against a workspace that did not compile, and the only remaining signal was the
+		// non-blocking "`.dreamteamer` is stale" warning. So the same compile runs here — nothing is
+		// written and nothing is committed, but a broken workspace fails exactly as the gate fails it.
+		compileGated(ws, store);
 		return { collection, field: fieldName, file: dest, extends: doc.extends, prop: already, unchanged: true };
 	}
 	writeGated(ws, store, [dest], `dreamteamer: ${collection} ${verb}`, () => {
