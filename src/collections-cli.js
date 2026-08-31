@@ -86,15 +86,26 @@ export function collectionCommand(ws, collection, verb, args) {
 
 	switch (verb) {
 		case 'list': {
-			const filters = Object.entries(flags).filter(([k]) => !LIST_META_FLAGS.has(k));
-			if (typeof flags.filter === 'string') {
-				const eq = flags.filter.indexOf('=');
-				filters.push([flags.filter.slice(0, eq), flags.filter.slice(eq + 1)]);
+			// EVERY condition, ANDed — a repeated flag composes rather than replacing. `--filter a=1
+			// --filter b=2` used to keep only `b=2` and return rows the caller had excluded, which is
+			// the one failure a narrowing verb must not have: a listing that answers a question nobody
+			// asked, at exit 0. Bare-field flags (`--status todo`) already composed this way; the
+			// meta flag now reads the same, and `[].concat` treats one and many alike.
+			const filters = Object.entries(flags)
+				.filter(([k]) => !LIST_META_FLAGS.has(k))
+				.flatMap(([k, v]) => [].concat(v).map((one) => [k, one]));
+			for (const cond of [].concat(flags.filter ?? [])) {
+				const eq = String(cond).indexOf('=');
+				// `--filter status` is not a condition. It used to slice into `statu = status`, which
+				// matches nothing and reads as a fact about the collection.
+				if (eq < 1) throw new Error(`--filter takes <field>=<value> — got "${cond}"`);
+				filters.push([String(cond).slice(0, eq), String(cond).slice(eq + 1)]);
 			}
 			// `--where` is the SAME operator set the studio's filter panel emits and saved views
 			// store — one `matchesFilter`, so `--where '{"starts":{"_gte":"2026-07-01"}}'` and the
 			// panel that produced that JSON cannot disagree about which records match.
-			const where = typeof flags.where === 'string' ? load(flags.where) : null;
+			const whereJson = oneValue(flags, 'where');
+			const where = whereJson ? load(whereJson) : null;
 			const resolve = where ? recordResolver(store) : null;
 			const bf = bodyField(d);
 			const rows = [];
@@ -107,7 +118,8 @@ export function collectionCommand(ws, collection, verb, args) {
 			// sorting was studio-only until now: the browse table ordered records and no CLI
 			// invocation could. Same `sortRows` the server and api.ts call, so `--sort -starts`
 			// orders date-times by INSTANT across mixed offsets rather than by string.
-			if (typeof flags.sort === 'string') sortRows(rows, flags.sort);
+			const sort = oneValue(flags, 'sort');
+			if (sort) sortRows(rows, sort);
 			if (flags.json) { emit(JSON.stringify(rows, null, 2)); return 0; }
 			const cols = ['id', ...(d.list_fields ?? []).filter((c) => c !== 'id')];
 			for (const r of rows) console.log(cols.map((c) => fmtCell(r[c])).join('  '));
@@ -138,9 +150,7 @@ export function collectionCommand(ws, collection, verb, args) {
 		}
 		case 'set': {
 			const id = need(pos, 0, 'id');
-			const changes = coerceArrays(d, Object.fromEntries(
-				pos.slice(1).filter((p) => p.includes('=')).map((p) => [p.slice(0, p.indexOf('=')), p.slice(p.indexOf('=') + 1)])
-			));
+			const changes = coerceArrays(d, pairs(pos.slice(1)));
 			Object.assign(changes, coerceArrays(d, stripMeta(flags)));
 			if (!Object.keys(changes).length) throw new Error('nothing to set — pass key=value pairs or --key value flags');
 			store.set(collection, id, changes);
@@ -219,7 +229,7 @@ export function collectionCommand(ws, collection, verb, args) {
 		}
 		case 'diff': {
 			const id = need(pos, 0, 'id');
-			const out = historyDiff(store, collection, id, typeof flags.hash === 'string' ? flags.hash : 'HEAD');
+			const out = historyDiff(store, collection, id, oneValue(flags, 'hash') ?? 'HEAD');
 			if (flags.json) { emit(JSON.stringify(out, null, 2)); return 0; }
 			console.log(out.diff.trimEnd() || `(no change to ${out.path} in ${out.hash})`);
 			return 0;
@@ -228,7 +238,7 @@ export function collectionCommand(ws, collection, verb, args) {
 			const id = need(pos, 0, 'id');
 			// the hash is REQUIRED and has no default: "revert" with an implied target is how you
 			// destroy the wrong record. `<c> history <id>` is where you get one.
-			const hash = typeof flags.hash === 'string' ? flags.hash : pos[1];
+			const hash = oneValue(flags, 'hash') ?? pos[1];
 			if (!hash) throw new Error(`missing --hash <commit> — run \`dreamteamer history ${collection}/${id}\` to pick one`);
 			const out = store.revert(collection, id, hash);
 			flags.json ? emit(JSON.stringify(out)) : console.log(out.reverted ? `✔ reverted ${collection}/${id} to ${String(hash).slice(0, 7)}` : `= already identical to ${String(hash).slice(0, 7)} — nothing changed`);
@@ -252,7 +262,7 @@ export function collectionCommand(ws, collection, verb, args) {
 // the only caller, so a second, weaker splitter here could only ever disagree with it.
 function metaCommandsFor(ws, store, flags, pos) {
 	const collection = need(pos, 0, 'collection');
-	const ids = typeof flags.ids === 'string' ? flags.ids.split(',').map((s) => s.trim()).filter(Boolean) : [];
+	const ids = (oneValue(flags, 'ids') ?? '').split(',').map((s) => s.trim()).filter(Boolean);
 	const out = commandsFor(store, collection, ids);
 	if (flags.json) { emit(JSON.stringify(out, null, 2)); return 0; }
 	if (!out.commands.length) { console.log(`(no commands bound to ${collection})`); return 0; }
@@ -470,7 +480,7 @@ function metaUiView(ws, store, verb, flags, pos) {
 	// store means `set` works on a MODULE-shipped view too — the edit lands as a workspace source
 	// that shadows it, which is the same thing saving one in the UI does.
 	let view = {};
-	let id = typeof flags.id === 'string' ? flags.id : undefined;
+	let id = oneValue(flags, 'id');
 	if (verb === 'set') {
 		id ??= need(pos, 0, 'ui-view id');
 		const { fields } = store.read('ui-views', id);
@@ -484,6 +494,11 @@ function metaUiView(ws, store, verb, flags, pos) {
 	}
 	for (const [k, v] of Object.entries(flags)) {
 		if (VIEW_META_FLAGS.has(k)) continue;
+		// A view key holds ONE value, and a list IS one value — so a repeated flag is a mistake with
+		// two spellings to correct it, rather than an array nobody asked for.
+		if (Array.isArray(v)) {
+			throw new Error(`--${k} was given ${v.length} times — a view key takes one value, and a list is written as one: --${k} ${v.join(',')} (or the JSON form '${JSON.stringify(v)}')`);
+		}
 		assignPath(view, k, parseViewValue(v));
 	}
 
@@ -625,19 +640,57 @@ function* parseEach(store, collection, onError) {
 	}
 }
 
-function parseArgs(args) {
+/**
+ * `--flag value`, `--flag=value`, a bare `--flag` (true), and positionals.
+ *
+ * ⚠ A REPEATED flag PROMOTES TO AN ARRAY; it does not overwrite. `dt add c --tags a --tags b`
+ * assigned twice and kept `b`, so the first value never reached disk and nothing said so — the
+ * shape of every silent-wrong-answer bug this CLI has had. The promotion is the only honest parse,
+ * because "the operator typed it twice" is a fact the parser cannot interpret on its own.
+ *
+ * Every consumer of a flag therefore owes an answer to "what does a repeat MEAN here", and there
+ * are exactly three: it is one ELEMENT of an array field (`coerceArrays`), it is one more
+ * conjunctive CONDITION (`--filter`, in list), or the flag holds one value and a repeat is a
+ * MISTAKE (`oneValue`, and the view writer). Silence is not one of them.
+ */
+export function parseArgs(args) {
 	const flags = {};
 	const pos = [];
+	const put = (k, v) => { flags[k] = k in flags ? [].concat(flags[k], v) : v; };
 	for (let i = 0; i < args.length; i++) {
 		const a = args[i];
 		if (a.startsWith('--')) {
 			const eq = a.indexOf('=');
-			if (eq > -1) flags[a.slice(2, eq)] = a.slice(eq + 1);
-			else if (i + 1 < args.length && !args[i + 1].startsWith('--')) flags[a.slice(2)] = args[++i];
-			else flags[a.slice(2)] = true;
+			if (eq > -1) put(a.slice(2, eq), a.slice(eq + 1));
+			else if (i + 1 < args.length && !args[i + 1].startsWith('--')) put(a.slice(2), args[++i]);
+			else put(a.slice(2), true);
 		} else pos.push(a);
 	}
 	return { flags, pos };
+}
+
+/** Read a flag that takes exactly ONE value. A repeat arrives as an array, and dropping it on the
+ *  floor (`typeof v === 'string'` reads an array as absent) would answer the wrong question at exit
+ *  0 — so it is named instead, with the line that was typed. */
+function oneValue(flags, key) {
+	const v = flags[key];
+	if (Array.isArray(v)) {
+		throw new Error(`--${key} was given ${v.length} times and takes ONE value: ${v.map((x) => `--${key} ${x}`).join(' ')}`);
+	}
+	return typeof v === 'string' ? v : undefined;
+}
+
+/** `field=value` positionals, with the same promote-on-repeat rule the flags have. It was
+ *  `Object.fromEntries`, which keeps the LAST pair — `dt set c/id tags=a tags=b` wrote `[b]`. */
+function pairs(list) {
+	const out = {};
+	for (const p of list) {
+		if (!p.includes('=')) continue;
+		const k = p.slice(0, p.indexOf('='));
+		const v = p.slice(p.indexOf('=') + 1);
+		out[k] = k in out ? [].concat(out[k], v) : v;
+	}
+	return out;
 }
 
 const META_FLAGS = new Set(['id', 'json', 'force', 'filter']);
@@ -647,9 +700,18 @@ const stripMeta = (flags) => Object.fromEntries(Object.entries(flags).filter(([k
 function coerceArrays(d, fields) {
 	const out = {};
 	for (const [k, v] of Object.entries(fields)) {
-		out[k] = d.schema.properties?.[k]?.type === 'array' && typeof v === 'string'
-			? v.split(',').map((s) => s.trim()).filter(Boolean)
-			: v;
+		const isList = d.schema.properties?.[k]?.type === 'array';
+		// An array here means the operator SPELLED the key twice (`--tags a --tags b`, or
+		// `tags=a tags=b`). On a list field each sighting is one element — deliberately NOT
+		// comma-split again, so a value that contains a comma can be written by repeating the flag.
+		if (Array.isArray(v)) {
+			if (!isList) {
+				throw new Error(`${k} was given ${v.length} times (--${k} <value> / ${k}=<value>) and ${k} is not an array field — pass it once`);
+			}
+			out[k] = v;
+			continue;
+		}
+		out[k] = isList && typeof v === 'string' ? v.split(',').map((s) => s.trim()).filter(Boolean) : v;
 	}
 	return out;
 }

@@ -37,7 +37,9 @@ drifted. Worth knowing because the OLD prose said otherwise:
   resolves `--since` shas to dates cross-repo; the old git-events.md described a literal
   `data/ state/` pathspec. `state/` itself is a deprecated convention.
 - **Two `--filter` flags do not combine — the last one wins**; compound conditions go in one
-  `--where`. Verified live.
+  `--where`. Verified live. ⚠ **No longer true**: a repeated flag now composes as a conjunction
+  (the last-wins parse was fixed after 0.16.1, because "returns rows the caller excluded, at exit
+  0" is a defect and not a grammar).
 - **`options.sort: ''` cannot be written through `schema set-view`** (an empty dotted value
   removes the key) — hand-write it in the source. Verified live.
 - **The kanban's grouping option is `group_by`** (snake_case, defaulting to the first enum
