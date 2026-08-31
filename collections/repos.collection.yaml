@@ -33,7 +33,11 @@ schema:
       description: 'Opaque path segment grouping clones by the account that owns them: <repos-path>/<identity>/<name>.'
     path:
       type: string
-      description: Workspace-relative path override. Wins over the derived <repos-path>/<identity>/<name>.
+      description: >-
+        Where the working tree goes, winning over the derived <repos-path>/<identity>/<name>. Takes
+        the ${env:NAME} / ${workspaceFolder} / ${userHome} templates, rendered when the path is
+        needed — which is how a repo that lives OUTSIDE this workspace is expressed, since an
+        absolute rendering escapes the root while a plain relative one still anchors to it.
     visibility:
       type: string
       enum: [private, public]

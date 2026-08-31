@@ -7,7 +7,9 @@
 // Two accepted non-goals, unchanged on purpose: `KEY =value` (space before `=`) doesn't match the
 // key pattern and is silently dropped, no diagnostic; an unquoted value keeps a trailing inline
 // `# comment` as part of its text (quote it to strip one).
+import fs from 'node:fs';
 import os from 'node:os';
+import path from 'node:path';
 
 export function parseEnvValues(text) {
 	const out = new Map();
@@ -20,6 +22,19 @@ export function parseEnvValues(text) {
 		out.set(m[1], v);
 	}
 	return out;
+}
+
+/** What `renderTemplate` renders AGAINST, for one workspace: the names `dreamteamer.vars` declares,
+ *  the values this machine's `.env` carries, and the root. One builder rather than three lines at
+ *  each call site — `dt resolve` and `repos ensure` disagreeing about which vars are declared would
+ *  be a path that renders in one verb and refuses in the other. */
+export function envContext(ws) {
+	const envFile = path.join(ws.root, '.env');
+	return {
+		env: parseEnvValues(fs.existsSync(envFile) ? fs.readFileSync(envFile, 'utf8') : ''),
+		workspaceFolder: ws.root,
+		declared: ws.pkg.dreamteamer?.vars ?? [],
+	};
 }
 
 const SUPPORTED = 'supported: ${env:NAME}, ${workspaceFolder}, ${userHome}';
