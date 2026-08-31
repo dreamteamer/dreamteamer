@@ -597,7 +597,22 @@ export function addField(ws, store, collection, { name: fieldName, prop, require
 	return upsertField(ws, store, collection, fieldName, prop, required, `add-field ${fieldName}`);
 }
 
-export function updateField(ws, store, collection, fieldName, { prop, required, flags = {} }) {
+/** The relation keywords a caller is RESTATING, from the flag vocabulary the CLI and the HTTP schema
+ *  API both speak. A stated keyword replaces the previous value — INCLUDING with nothing, so
+ *  `--unique false` clears rather than carries; an unstated one is carried forward from the previous
+ *  prop. ⚠ `--many` is deliberately absent: it restates a reference's CARDINALITY, not the reference,
+ *  so "make this a list" must not sever the relation. */
+export function statedKeywords(flags) {
+	const byFlag = { type: 'x-reference', inverse: 'x-inverse', unique: 'x-unique', 'on-delete': 'x-on-delete', 'mirror-of': 'x-inverse-of' };
+	return new Set(Object.entries(byFlag).filter(([f]) => flags[f] !== undefined).map(([, kw]) => kw));
+}
+
+/** Every keyword a caller could state — the default, because a caller that says nothing about what
+ *  it stated has supplied a WHOLE prop (server.js's `b.prop` path) and nothing may be carried into
+ *  it behind its back. */
+const ALL_RELATION_KEYWORDS = new Set(['x-reference', 'x-inverse', 'x-unique', 'x-on-delete', 'x-inverse-of']);
+
+export function updateField(ws, store, collection, fieldName, { prop, required, flags = {}, stated = ALL_RELATION_KEYWORDS }) {
 	const d = store.descriptor(collection);
 	if (!d.schema?.properties?.[fieldName]) throw new Error(`no field "${fieldName}" on ${collection}`);
 	// upsertField REPLACES the prop, so retyping a field would silently drop its hand-authored
@@ -615,31 +630,28 @@ export function updateField(ws, store, collection, fieldName, { prop, required, 
 	// forward from the previous prop unless a flag NAMES it.
 	const prevHolder = previous.items ?? previous;
 	const holder = () => prop.items ?? prop;
-	// Only `--type` restates the reference itself. `--many` restates its CARDINALITY, which still
-	// needs the carried target — otherwise "make this a list" would sever the relation.
-	if (flags.type === undefined && prevHolder['x-reference'] !== undefined) {
-		const wantsArray = flags.many === true || (flags.many === undefined && previous.type === 'array');
+	if (!stated.has('x-reference') && prevHolder['x-reference'] !== undefined) {
+		// `--many` restates the CARDINALITY of the carried reference, in either direction.
+		const wantsArray = isOn(flags.many) || (flags.many === undefined && previous.type === 'array');
 		if (wantsArray && prop.type !== 'array') prop = { ...prop, type: 'array', items: { type: previous.items?.type ?? 'string' } };
 		if (holder()['x-reference'] === undefined) holder()['x-reference'] = prevHolder['x-reference'];
 	}
 	// The dependent keywords only mean anything ON a reference, so a deliberate retype to a plain
 	// string takes them with it rather than leaving an uncompilable orphan behind.
 	if (holder()['x-reference'] !== undefined) {
-		const named = { 'x-inverse': ['inverse'], 'x-unique': ['unique'], 'x-on-delete': ['on-delete'], 'x-inverse-of': ['mirror-of'] };
-		for (const [kw, flagNames] of Object.entries(named)) {
-			if (flagNames.some((f) => flags[f] !== undefined)) continue;
+		for (const kw of ALL_RELATION_KEYWORDS) {
+			if (kw === 'x-reference' || stated.has(kw)) continue;
 			if (prevHolder[kw] !== undefined && holder()[kw] === undefined) holder()[kw] = prevHolder[kw];
 		}
+		// Then the STATED ones, on top: fieldDef deferred them because the prop it built from the
+		// flags alone carried no reference — this is the migration path, where `update-field --name
+		// meeting --inverse` turns a plain FK written before relations existed into a relation. It
+		// runs AFTER the carry so a carried `x-unique` still informs a bare `--inverse`, and it runs
+		// on the holder the reshape above produced rather than the one fieldDef saw.
+		applyRelationFlags(holder(), flags, collection, store.namespaces ?? []);
+	} else if (relationFlagsStated(flags)) {
+		throw new Error(`--${relationFlagsStated(flags)} needs a --type <collection> reference — ${collection}.${fieldName} points at nothing.`);
 	}
-	// The migration path: `update-field --name meeting --inverse` on a plain FK, with no --type to
-	// restate. fieldDef could not resolve it (no reference in the flags); by here the carry above
-	// has supplied one, so this is where a bare --inverse on an existing key becomes a relation.
-	if (flags.inverse !== undefined && flags.inverse !== '' && holder()['x-inverse'] === undefined) {
-		attachInverse(holder(), flags, collection, store.namespaces ?? []);
-	}
-	// `--inverse=` — the flag present with an EMPTY value — is the explicit "drop the mirror",
-	// which is a different act from omitting the flag (carry it forward).
-	if (flags.inverse === '') delete holder()['x-inverse'];
 
 	return upsertField(ws, store, collection, fieldName, prop, required, `update-field ${fieldName}`);
 }
@@ -709,7 +721,9 @@ function upsertField(ws, store, collection, fieldName, prop, required, verb) {
 		fs.mkdirSync(path.dirname(dest), { recursive: true });
 		fs.writeFileSync(dest, dump(doc));
 	});
-	return { collection, field: fieldName, file: dest, extends: doc.extends };
+	// the prop as WRITTEN — callers report the relation off this, never off the one they passed:
+	// both this function and updateField reassign it, so a caller's own copy can be a stale object.
+	return { collection, field: fieldName, file: dest, extends: doc.extends, prop };
 }
 
 /**
@@ -861,10 +875,16 @@ export function fieldDef(store, flags, collection) {
 	if (typeof flags.description === 'string' && flags.description.length > 0) p.description = flags.description;
 
 	// ---- relations ----------------------------------------------------------------------------
+	// ⚠ EVERY relation flag is skipped when the flags name no reference, because on `update-field`
+	// with no `--type` the target has not arrived yet — it is carried from the previous prop, after
+	// this. updateField applies them once it has one; metaAddField, which has nothing to carry,
+	// refuses instead. Applying them here would also put them on the WRONG node: updateField may
+	// rebuild the prop as an array, and the keywords belong on `items`.
+	//
 	// `--many` is a CARDINALITY flag, not a type: `--type meetings --many` is an array of references
 	// to meetings. The reference keyword moves onto `items`, which is the node every relation
 	// consumer (relations.js, check, the store, presentation) reads it from.
-	if (flags.many === true && p['x-reference'] !== undefined) {
+	if (isOn(flags.many) && p['x-reference'] !== undefined) {
 		const ref = p['x-reference'];
 		delete p['x-reference'];
 		delete p.format;
@@ -872,28 +892,50 @@ export function fieldDef(store, flags, collection) {
 		p.items = { type: 'string', 'x-reference': ref };
 	}
 	const holder = p.items ?? p;
-	// Spelling B: the mirror declared from the side that WANTS it. There is no wrong side, so both
-	// flags exist and compile normalizes them to the same compiled pair.
-	if (typeof flags['mirror-of'] === 'string' && flags['mirror-of'].length > 0) holder['x-inverse-of'] = flags['mirror-of'];
-	if (flags.unique === true) holder['x-unique'] = true;
-	if (typeof flags['on-delete'] === 'string') holder['x-on-delete'] = flags['on-delete'];
-	// `--inverse` with no value derives the name; `--inverse=` is the empty string, which means
-	// "no mirror" and is handled by updateField, not here.
-	//
-	// ⚠ Skipped when the flags name no reference AT ALL, because on `update-field --inverse` with no
-	// `--type` the target has not arrived yet — it is carried from the previous prop, after this.
-	// updateField finishes the job; metaAddField, which has nothing to carry, refuses instead.
-	if (flags.inverse !== undefined && flags.inverse !== '' && holder['x-reference'] !== undefined) {
-		attachInverse(holder, flags, collection, store.namespaces ?? []);
-	}
+	if (holder['x-reference'] !== undefined) applyRelationFlags(holder, flags, collection, store.namespaces ?? []);
 	return p;
 }
 
-/** Attach the mirror `--inverse` asks for, once the holder actually carries the reference it needs. */
-function attachInverse(holder, flags, collection, namespaces) {
-	const target = holder['x-reference'];
-	if (typeof target !== 'string' || target === '*') throw new Error('--inverse needs a single-collection --type <collection> reference.');
-	holder['x-inverse'] = typeof flags.inverse === 'string' ? flags.inverse : defaultInverseName(flags, target, collection, namespaces);
+/** Was a boolean-ish flag turned ON? `--unique`, `--unique true` and `--unique=true` are one act —
+ *  `--required true` is this CLI's documented spelling, so the long form is what a user types. ⚠ Not
+ *  the same question as whether the flag was STATED (`statedKeywords`): `--unique false` is stated
+ *  and off, which CLEARS the keyword rather than carrying the previous value forward. The two
+ *  questions disagreeing is what silently turned a one-to-one into a many-to-one. */
+const isOn = (v) => v === true || v === 'true';
+
+/**
+ * The relation flags, applied to the node that CARRIES the reference. Called from `fieldDef` for
+ * add-field and again from `updateField` once the carry-forward has supplied a target, so both
+ * entry points reach one implementation and cannot drift.
+ */
+function applyRelationFlags(holder, flags, collection, namespaces) {
+	if (isOn(flags.unique)) holder['x-unique'] = true;
+	if (flags['on-delete'] !== undefined) {
+		// A bare `--on-delete` (no value) parses as `true`, which would otherwise write nothing while
+		// counting as stated — i.e. silently clear an authored policy.
+		if (flags['on-delete'] !== 'restrict' && flags['on-delete'] !== 'set-null') throw new Error('--on-delete takes restrict or set-null.');
+		holder['x-on-delete'] = flags['on-delete'];
+	}
+	// Spelling B: the mirror declared from the side that WANTS it. There is no wrong side, so both
+	// flags exist and compile normalizes them to the same compiled pair.
+	if (typeof flags['mirror-of'] === 'string' && flags['mirror-of'].length > 0) holder['x-inverse-of'] = flags['mirror-of'];
+	// `--inverse` with no value derives the name; `--inverse=` is the empty string, which is the
+	// explicit "no mirror" — stated, so nothing is carried, and nothing is written.
+	if (flags.inverse !== undefined && flags.inverse !== '') {
+		const target = holder['x-reference'];
+		if (typeof target !== 'string' || target === '*') throw new Error('--inverse needs a single-collection --type <collection> reference.');
+		// the CARRIED x-unique counts, not just the flag: a bare --inverse on an existing unique FK
+		// still derives the singular mirror name
+		holder['x-inverse'] = typeof flags.inverse === 'string'
+			? flags.inverse
+			: defaultInverseName(holder['x-unique'] === true, target, collection, namespaces);
+	}
+}
+
+/** The first relation flag a caller stated, or undefined — for refusing them on a field that
+ *  references nothing, where every one of them would be written as a dead keyword. */
+export function relationFlagsStated(flags) {
+	return ['inverse', 'unique', 'on-delete', 'mirror-of', 'many'].find((f) => flags[f] !== undefined);
 }
 
 /**
@@ -905,7 +947,7 @@ function attachInverse(holder, flags, collection, namespaces) {
  * Namespace-safe: the derivation is about the BARE names, and a mirror field name can never carry a
  * namespace anyway.
  */
-function defaultInverseName({ unique }, target, owner, namespaces) {
+function defaultInverseName(unique, target, owner, namespaces) {
 	if (!owner) throw new Error('--inverse with no name needs the owning collection — pass one explicitly.');
 	const base = baseNameOf(owner, namespaces);
 	const targetBase = baseNameOf(target, namespaces);
@@ -913,7 +955,7 @@ function defaultInverseName({ unique }, target, owner, namespaces) {
 	if (base === targetBase) throw new Error('--inverse on a self-reference has no derivable name — pass one explicitly.');
 	const prefix = `${singular(targetBase)}-`;
 	const stripped = base.startsWith(prefix) ? base.slice(prefix.length) : base;
-	return unique === true ? singular(stripped) : stripped;
+	return unique ? singular(stripped) : stripped;
 }
 
 function singular(name) {
