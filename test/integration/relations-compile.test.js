@@ -188,6 +188,24 @@ describe('compile refuses malformed relations', () => {
 		const err = compileError(workspace({ collections: { meetings: M, summaries: S }, compile: false }).ws);
 		assert.match(err, /array mirror of the unique FK/);
 	});
+	test('x-unique on a LIST foreign key is an error — three components read it differently', () => {
+		// M5. Nothing could honour it: relationsOf calls the pair m2m, stampMirror generates the
+		// SCALAR mirror x-unique implies, `dt relations` prints "m2m" beside that scalar, check never
+		// tests uniqueness for a list, and the store enforces it at write time anyway. A keyword no
+		// component agrees about is a descriptor error, not a runtime surprise.
+		const A = structuredClone(ANALYSES);
+		A.schema.properties.meetings.items['x-unique'] = true;
+		const err = compileError(workspace({ collections: { meetings: MEETINGS, analyses: A }, compile: false }).ws);
+		assert.match(err, /field "meetings" is a list, and x-unique means the foreign key is one-to-one/);
+	});
+	test('a typo\'d COLLECTION in x-inverse-of names the collection, not the field', () => {
+		// M6. "no such field exists" sent the reader looking at a field that is spelled correctly, in
+		// a collection that does not exist.
+		const M = simpleCollection({ storage: { suffix: 'meeting' } });
+		M.schema.properties.captures = { type: 'array', items: { type: 'string', 'x-reference': 'recordings' }, 'x-inverse-of': 'recordinggs.meeting' };
+		const err = compileError(workspace({ collections: { meetings: M, recordings: RECORDINGS }, compile: false }).ws);
+		assert.match(err, /there is no collection "recordinggs"/);
+	});
 	test('the legacy both-sides shape compiles with a warning', () => {
 		const M = structuredClone(MEETINGS);
 		M.schema.properties.recordings = { type: 'array', items: { type: 'string', 'x-reference': 'recordings' } };
@@ -206,6 +224,22 @@ describe('compile refuses malformed relations', () => {
 		CARDS.schema.properties.icon = { type: 'string', 'x-reference': 'assets', 'x-inverse': 'cards' };
 		const err = compileError(workspace({ compile: false, collections: { assets: ASSETS, cards: CARDS } }).ws);
 		assert.match(err, /stamps a mirror onto assets, whose records ARE files \(codec: file\)/);
+	});
+
+	test('a mirror onto an md target with no x-body is refused — the body would be destroyed', () => {
+		// The THIRD shape that cannot hold a mirror, and the quietest: `serialize` keeps a body only
+		// where the descriptor declares an `x-body` field, and `dt schema add-collection` with no
+		// template produces a `codec: md` collection with none. Hand-written prose in such a record is
+		// invisible to the parser, so a mirror write on the far side of somebody else's `dt add`
+		// rewrites the file without it — and `check` is silent before and after.
+		// NOT simpleCollection: that fixture carries a body field precisely because a mirror target
+		// must. This is what `dt schema add-collection --name notes` writes with no template.
+		const NOTES = { id: { generate: '{{ name | slug }}' }, storage: { suffix: 'note' }, schema: { type: 'object', required: ['name'], properties: { name: { type: 'string' } } } };
+		const TICKETS = simpleCollection({ storage: { suffix: 'ticket' } });
+		TICKETS.schema.properties.note = { type: 'string', 'x-reference': 'notes', 'x-inverse': 'tickets' };
+		const err = compileError(workspace({ compile: false, collections: { notes: NOTES, tickets: TICKETS } }).ws);
+		assert.match(err, /stamps a mirror onto notes, whose descriptor declares no x-body/);
+		assert.match(err, /Declare an x-body field on notes/);
 	});
 
 	test('a mirror onto a compiled-source target is refused — the next compile would erase it', () => {

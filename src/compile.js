@@ -153,7 +153,10 @@ function materializeRelations(mergedGroups, ctx) {
 			const ownerName = of.slice(0, dot), ownerField = of.slice(dot + 1);
 			const owner = byName.get(ownerName);
 			const oProp = owner?.schema?.properties?.[ownerField];
-			if (!oProp) fail(`collection "${name}": field "${field}" declares x-inverse-of "${of}", but no such field exists.`);
+			// The two halves of "<collection>.<field>" fail differently, and saying "no such field"
+			// for a mistyped COLLECTION sends the reader to inspect a field that is spelled correctly.
+			if (!owner) fail(`collection "${name}": field "${field}" declares x-inverse-of "${of}" — there is no collection "${ownerName}" (have: ${[...byName.keys()].sort().join(', ')}).`);
+			if (!oProp) fail(`collection "${name}": field "${field}" declares x-inverse-of "${of}", but ${ownerName} has no field "${ownerField}".`);
 			const oHolder = (oProp.items && typeof oProp.items === 'object') ? oProp.items : oProp;
 			const oTargets = refTargets(owner.schema).find(([at]) => at === ownerField || at === `${ownerField}[]`);
 			const targetList = oTargets ? (Array.isArray(oTargets[1]) ? oTargets[1] : [oTargets[1]]) : [];
@@ -238,6 +241,14 @@ function materializeRelations(mergedGroups, ctx) {
 			if (holder['x-on-delete'] === 'set-null' && (d.schema.required ?? []).includes(field)) {
 				fail(`collection "${name}": field "${field}" is required — x-on-delete: set-null would produce an invalid record. Use restrict, or drop required.`);
 			}
+			// x-unique on a LIST is a keyword no component can honour, and all of them read it
+			// differently: relationsOf calls the pair `m2m` while stampMirror generates the SCALAR
+			// mirror x-unique implies, so `dt relations` prints m2m beside a scalar; check tests
+			// uniqueness only for a scalar FK, so it never fires; and the store enforces it at write
+			// time regardless. Three components disagreeing about one descriptor is a descriptor error.
+			if (prop.type === 'array' && holder['x-unique'] === true) {
+				fail(`collection "${name}": field "${field}" is a list, and x-unique means the foreign key is one-to-one — the two cannot both be true. Drop x-unique, or make the field a single reference.`);
+			}
 			holder['x-inverse'] = mirrorName; // canonical string form in the compiled output
 			for (const target of Array.isArray(raw) ? raw : [raw]) {
 				stampMirror(byName, ctx, name, field, prop, holder, mirrorName, target, typeof inv === 'object' ? inv.description : undefined);
@@ -272,6 +283,17 @@ function stampMirror(byName, ctx, ownerName, field, prop, holder, mirrorName, ta
 	}
 	if (t.storage?.base === 'runtime') {
 		fail(`collection "${ownerName}": x-inverse on "${field}" stamps a mirror onto ${target}, whose records are compiled sources — the store would write into .dreamteamer/, which the next compile overwrites. Leave the link one-way.`);
+	}
+	// The THIRD such shape, and the quietest: a `codec: md` record's BODY lives after the
+	// frontmatter, and `serialize` carries it only where the descriptor declares an `x-body` field.
+	// `dt schema add-collection` with no template declares none — so prose in such a record is
+	// invisible to the parser, and a mirror write rebuilds the file from its parsed fields alone,
+	// WITHOUT the body. That write lands on the far side of somebody else's `dt add`, in a collection
+	// they never named, and `check` is silent either side of it. Refused here for the same reason as
+	// the two above: a guard in the store would leave the workspace permanently `stale` instead,
+	// because the mirror could never be written.
+	if ((t.storage?.codec ?? 'md') === 'md' && !Object.values(t.schema?.properties ?? {}).some((p) => p?.['x-body'])) {
+		fail(`collection "${ownerName}": x-inverse on "${field}" stamps a mirror onto ${target}, whose descriptor declares no x-body — a record there cannot round-trip a body through a mirror write, so the store would silently erase any prose it holds. Declare an x-body field on ${target}, or leave the link one-way.`);
 	}
 	const unique = holder['x-unique'] === true;
 	const inverseOf = `${ownerName}.${field}`;
@@ -328,7 +350,7 @@ function stampMirror(byName, ctx, ownerName, field, prop, holder, mirrorName, ta
 	t.schema.properties = { ...t.schema.properties, [mirrorName]: generated };
 }
 
-export const KINDS =['collections', 'skills', 'agents', 'commands', 'command-bindings', 'ui-views', 'collection-templates'];
+export const KINDS = ['collections', 'skills', 'agents', 'commands', 'command-bindings', 'ui-views', 'collection-templates'];
 const FOLDER_KINDS = new Set(['skills']); // folder-shape entities: copy the whole record folder
 // DERIVED_KINDS (projected, not staged) lives in runtime.js — the boundary both halves read. Not in
 // KINDS on purpose: a module folder named `modules/` would be nonsense, and `isSystem` below keys
@@ -997,7 +1019,7 @@ export function compile({ root, pkg }) {
 	// exists and the last moment before bytes are fixed — a relation writes to a collection OTHER
 	// than the one that declares it, so no per-collection pass can express it.
 	materializeRelations(mergedGroups, {
-		collOwner, moduleDeps, wsModuleName,
+		moduleDeps, wsModuleName,
 		moduleOf: (n) => collOwner.get(n),
 	});
 
