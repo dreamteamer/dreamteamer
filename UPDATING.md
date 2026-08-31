@@ -20,6 +20,50 @@ npx dreamteamer check
 
 ---
 
+## 0.16.1 → 0.17.0
+
+**Fifteen fixes from one issue-triage wave — every open silent-failure filed against the engine,
+verified independently against a 4,193-record vault before landing.** Nothing to do beyond
+`dt compile` unless a bullet below names you:
+
+- **A repeated flag composes instead of vanishing.** `dt add c --tags a --tags b` writes both;
+  `dt list c --filter a=1 --filter b=2` ANDs (it used to keep only the LAST of each, at exit 0).
+  A repeated flag on a scalar field, or on a one-value flag (`--sort`, `--where`), is now refused
+  by name — if a script of yours leaned on last-wins to override an earlier flag, it breaks
+  loudly here.
+- **`schema set-view` speaks the CLI's own list spelling**: `options.columns=a,b` writes a YAML
+  list (JSON form still works), and `options.sort='""'` writes the literal `sort: ''` the surface
+  needs for "explicitly unsorted"; bare `options.sort=` still removes the key.
+- **A collection name outranks the type sugar.** In a workspace shipping a `tags` collection,
+  `add-field --type tags` now writes `x-reference: tags` (with `--many`, an array of them). Only
+  a STATED `--type` resolves, so description-only `update-field`s never retype.
+- **`add-field` inserts before the `x-body` field** — a record's body stays last on the form.
+- **`remove-field` takes the field's presentation with it**: `list_fields`/`sort_field` in the
+  same descriptor are pruned, and ui-views still naming the column are warned about by id.
+- **`peerDependencies` is usable.** A declared-but-absent peer compiles with a warning and
+  `check`s clean (`unresolved_peers` lands only on the collections that reference the peer, and
+  the module record's own list is soft via the new `x-reference-soft` keyword); an installed peer
+  validates hard again, exactly as before.
+- **A missing `storage.suffix` is DERIVED as singular(bare collection name)** and stamped into
+  the compiled descriptor — no more `<id>.undefined.md`. If a collection of yours relied on the
+  literal `undefined` tail (nobody's should), author an explicit suffix.
+- **compile refuses an empty `.collection.yaml` by name**, and unknown-kind folders under a
+  module's legacy `system/` level are now the same error the flat layout already got.
+- **`Store.add` is ~20× faster** (88 → ~1,600 records/sec measured): the id index is maintained
+  across adds instead of rebuilt from disk, and the HEAD memo is dropped only by the four sites
+  that actually run `git commit`. `renameCollection` reads each record file once, not twice per
+  renamed id (16.0 → 0.4 ms/record at 400 records).
+- **`rename` maintains bare `[[basename]]` wikilinks** — rewritten when the basename is
+  unambiguous across the store, left and WARNED about (naming the collider and the qualified
+  spelling) when it is not. Qualified wikilinks behave as before.
+- **A `repos` record's `path` renders `${env:…}` templates** (declared vars only, loud on unset),
+  so a repo can live outside the workspace as a machine-level fact; `dt status` survives a record
+  whose var this machine lacks and says why instead of offering `ensure`.
+- **A replaced `codec: file` record commits as `replace`**, not the `set` the engine itself
+  refuses on file records.
+
+---
+
 ## 0.16.0 → 0.16.1
 
 Docs and one test; nothing to do beyond `dt compile`. `using-dreamteamer` gains
