@@ -239,7 +239,8 @@ describe('compile refuses malformed relations', () => {
 		TICKETS.schema.properties.note = { type: 'string', 'x-reference': 'notes', 'x-inverse': 'tickets' };
 		const err = compileError(workspace({ compile: false, collections: { notes: NOTES, tickets: TICKETS } }).ws);
 		assert.match(err, /stamps a mirror onto notes, whose descriptor declares no x-body/);
-		assert.match(err, /Declare an x-body field on notes/);
+		// and the remedy is a RUNNABLE command, not an instruction with no verb behind it
+		assert.match(err, /dreamteamer schema add-field notes --name notes --type markdown --body/);
 	});
 
 	test('a mirror onto a compiled-source target is refused — the next compile would erase it', () => {
@@ -490,5 +491,92 @@ describe('presentation projects relations', () => {
 		const mirrorRow = kindOf('meetings', 'recordings');
 		assert.equal(mirrorRow.mirror, true);
 		assert.equal(mirrorRow.kind, undefined); // a mirror has no cardinality of its own
+	});
+});
+
+describe('x-body — the remedy the mirror refusal names', () => {
+	/** A `codec: md` collection with no `x-body`: nowhere for a record's prose to parse into, so
+	 *  nowhere for a mirror write to put it back. simpleCollection deliberately HAS one, which is
+	 *  why this case has to be spelled out by hand. */
+	const BODYLESS = {
+		id: { generate: '{{ name | slug }}' },
+		storage: { suffix: 'plain' },
+		schema: { type: 'object', required: ['name'], properties: { name: { type: 'string' } } },
+	};
+
+	test('the refusal quotes a command that actually declares one', () => {
+		const err = compileError(workspace({
+			compile: false,
+			collections: {
+				plain: BODYLESS,
+				recordings: simpleCollection({
+					storage: { suffix: 'recording' },
+					schema: {
+						type: 'object', required: ['name'],
+						properties: {
+							name: { type: 'string' },
+							plain: { type: 'string', 'x-reference': 'plain', 'x-inverse': 'recordings' },
+						},
+					},
+				}),
+			},
+		}).ws);
+		assert.match(err, /declares no x-body/);
+		// THE POINT: for one minor this said "declare an x-body field" and no verb could do it —
+		// `schema add-field` had no flag that marks one. A named remedy has to name its command.
+		assert.match(err, /dreamteamer schema add-field plain --name notes --type markdown --body/);
+	});
+
+	test('running that exact command makes the relation compile', () => {
+		const ws = workspace({ collections: { plain: BODYLESS } });
+		const add = ws.dt('schema', 'add-field', 'plain', '--name', 'notes', '--type', 'markdown', '--body');
+		assert.equal(add.code, 0, add.stderr);
+		const d = load(readFile(ws.root, 'modules/default/collections/plain.collection.yaml'));
+		assert.equal(d.schema.properties.notes['x-body'], true, '--body has to write the keyword, not swallow the flag');
+
+		const rel = ws.dt('schema', 'add-field', 'plain', '--name', 'twin', '--type', 'plain', '--inverse', 'twins');
+		assert.equal(rel.code, 0, rel.stdout + rel.stderr);
+	});
+
+	test('a SECOND body is refused — a record has one', () => {
+		const two = {
+			...BODYLESS,
+			schema: {
+				type: 'object', required: ['name'],
+				properties: {
+					name: { type: 'string' },
+					notes: { type: 'string', format: 'markdown', 'x-body': true },
+					summary: { type: 'string', format: 'markdown', 'x-body': true },
+				},
+			},
+		};
+		const err = compileError(workspace({ compile: false, collections: { plain: two } }).ws);
+		assert.match(err, /2 fields declare x-body \(notes, summary\)/);
+		assert.match(err, /Keep one/);
+	});
+
+	test('--body on a field that cannot hold prose is refused, naming the type that can', () => {
+		const ws = workspace({ collections: { plain: BODYLESS } });
+		const res = ws.dt('schema', 'add-field', 'plain', '--name', 'count', '--type', 'number', '--body');
+		assert.notEqual(res.code, 0);
+		assert.match(res.stderr + res.stdout, /--type markdown/);
+	});
+
+	test('a retype that says nothing about the body keeps it', () => {
+		// `update-field --description` rebuilds the prop from the flags alone, so an uncarried x-body
+		// would silently un-body the field: the record's text then parses into nothing and the next
+		// write serializes it away. Same carry rule as the relation keywords.
+		const ws = workspace({ collections: { plain: BODYLESS } });
+		assert.equal(ws.dt('schema', 'add-field', 'plain', '--name', 'notes', '--type', 'markdown', '--body').code, 0);
+		const res = ws.dt('schema', 'update-field', 'plain', '--name', 'notes', '--description', 'what happened');
+		assert.equal(res.code, 0, res.stderr);
+		const d = load(readFile(ws.root, 'modules/default/collections/plain.collection.yaml'));
+		assert.equal(d.schema.properties.notes['x-body'], true);
+		assert.equal(d.schema.properties.notes.description, 'what happened');
+
+		// …and --body false is how you deliberately clear it
+		assert.equal(ws.dt('schema', 'update-field', 'plain', '--name', 'notes', '--body', 'false').code, 0);
+		const after = load(readFile(ws.root, 'modules/default/collections/plain.collection.yaml'));
+		assert.equal(after.schema.properties.notes['x-body'], undefined);
 	});
 });

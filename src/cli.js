@@ -76,7 +76,7 @@ different word in front of it):
                             suffix was derived, rewrites every inbound reference, ONE commit
   schema add-field    <collection> --name <field> --type <type> [--options a,b] [--default-value v]
                             [--required true] [--description "what this field means"]
-                            [--many] [--inverse [name]] [--unique]
+                            [--many] [--inverse [name]] [--unique] [--body]
                             [--on-delete restrict|set-null] [--mirror-of <collection>.<field>]
                             types: string text markdown boolean number integer date datetime
                                    enum tags <collection> — a date-time may be written as
@@ -84,8 +84,11 @@ different word in front of it):
                                    stamped on for you (2026-07-28T12:00:00+03:00)
                             --inverse declares the two-way mirror on the target; --mirror-of
                             declares it from this side instead — there is no wrong side.
+                            --body marks the field a record's PROSE lands in (the text after the
+                            frontmatter). One per collection, and a relation mirror needs the
+                            target to have one.
   schema update-field <collection> --name <field> --type <type> [--options a,b] [--default-value v]
-                            [--required true|false] [--description "…"]
+                            [--required true|false] [--description "…"] [--body true|false]
                             [--many] [--inverse [name]] [--unique]
                             [--on-delete restrict|set-null] [--mirror-of <collection>.<field>]
                             (an existing description survives a retype, and so does every relation

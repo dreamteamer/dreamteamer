@@ -630,6 +630,11 @@ export function updateField(ws, store, collection, fieldName, { prop, required, 
 	const previous = d.schema.properties[fieldName];
 	if (prop.description === undefined && typeof previous.description === 'string') prop = { ...prop, description: previous.description };
 	if (prop.title === undefined && typeof previous.title === 'string' && previous.title !== titleCase(fieldName)) prop = { ...prop, title: previous.title };
+	// `x-body` is STRUCTURE, not prose, and carried on the same rule as the relation keywords below:
+	// `update-field --name notes --description "…"` rebuilds the prop from the flags alone, so without
+	// this a retype would silently un-body the field — the record's text then parses into nothing and
+	// the next write serializes it away. `--body false` is how you clear it.
+	if (flags.body === undefined && previous['x-body'] === true) prop = { ...prop, 'x-body': true };
 
 	// Relation keywords are STRUCTURE, not prose — and the same replacement is far more expensive
 	// for them. `dt <c> update-field --name meeting --description "…"` rebuilt the prop from
@@ -928,6 +933,15 @@ export function fieldDef(store, flags, collection) {
 	// what the field MEANS, in one line — JSON Schema's own keyword, projected to every surface by
 	// presentation.js. A field whose name doesn't say enough is documented here, not in a comment.
 	if (typeof flags.description === 'string' && flags.description.length > 0) p.description = flags.description;
+	// `--body` marks the ONE field a `codec: md` record's prose lands in — the text after the
+	// frontmatter. It exists because compile refuses to stamp a relation mirror onto a collection that
+	// declares no `x-body` and told the author to declare one, which no verb could do: the remedy the
+	// refusal named was reachable only by hand-editing a descriptor these verbs own. compile refuses a
+	// SECOND body, so the "only one" rule lives in one place rather than here as well.
+	if (isOn(flags.body)) {
+		if (p.type !== 'string') throw new Error(`--body marks the field a record's PROSE lands in, so it has to be text — try --type markdown (got ${flags.type ?? 'string'}).`);
+		p['x-body'] = true;
+	}
 
 	// ---- relations ----------------------------------------------------------------------------
 	// ⚠ EVERY relation flag is skipped when the flags name no reference, because on `update-field`

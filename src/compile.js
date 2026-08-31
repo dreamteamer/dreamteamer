@@ -118,6 +118,14 @@ function normalizeRelationKeywords(schema, name, prefix = '') {
 	}
 }
 
+/** The properties a `codec: md` record's PROSE lands in — `x-body`, of which there may be at most
+ *  one. `store.js`'s `bodyField(d)` is the record-layer spelling of the same question, and it takes
+ *  the FIRST such property; compile is what guarantees there is never a second, and it needs the
+ *  answer before a Store exists. Every place compile asks it reads through here. */
+function bodyKeys(schema) {
+	return Object.entries(schema?.properties ?? {}).filter(([, s]) => s?.['x-body'] === true).map(([k]) => k);
+}
+
 /** Fold the mirror-authoring side of a relation into its OWNER: cardinality closes backwards, the
  *  authored description rides along on the owner's `x-inverse`, and the field itself goes — pass 2
  *  puts a generated one back under the same key, which is also what keeps field ORDER identical
@@ -292,8 +300,12 @@ function stampMirror(byName, ctx, ownerName, field, prop, holder, mirrorName, ta
 	// they never named, and `check` is silent either side of it. Refused here for the same reason as
 	// the two above: a guard in the store would leave the workspace permanently `stale` instead,
 	// because the mirror could never be written.
-	if ((t.storage?.codec ?? 'md') === 'md' && !Object.values(t.schema?.properties ?? {}).some((p) => p?.['x-body'])) {
-		fail(`collection "${ownerName}": x-inverse on "${field}" stamps a mirror onto ${target}, whose descriptor declares no x-body — a record there cannot round-trip a body through a mirror write, so the store would silently erase any prose it holds. Declare an x-body field on ${target}, or leave the link one-way.`);
+	if ((t.storage?.codec ?? 'md') === 'md' && !bodyKeys(t.schema).length) {
+		// ⚠ THE REMEDY IS QUOTED, because for one minor it was UNREACHABLE. This said "declare an
+		// x-body field" while `schema add-field` had no flag that marks one — so the only way to
+		// follow the instruction was to hand-edit a descriptor the verb owns. `--body` exists now,
+		// and a message that names a fix has to name the command that performs it.
+		fail(`collection "${ownerName}": x-inverse on "${field}" stamps a mirror onto ${target}, whose descriptor declares no x-body — a record there cannot round-trip a body through a mirror write, so the store would silently erase any prose it holds. Declare one:\n  dreamteamer schema add-field ${target} --name notes --type markdown --body\n…or leave the link one-way.`);
 	}
 	const unique = holder['x-unique'] === true;
 	const inverseOf = `${ownerName}.${field}`;
@@ -1014,6 +1026,18 @@ export function compile({ root, pkg }) {
 		const unresolved = [...declaredPeers].filter((p) => !collOwner.has(p)).sort();
 		if (unresolved.length) merged.unresolved_peers = unresolved;
 
+		// ONE BODY PER COLLECTION. A record's prose is the text after the frontmatter — there is only
+		// one of it — so a second `x-body` is a descriptor asking for something the file format cannot
+		// hold. Nothing refused it before, and the consequence was silent rather than loud: every
+		// reader picks the FIRST such property (store.js `bodyField`, check.js, applyTemplate above),
+		// so the second field simply never receives the body, and `serialize` then writes the prose
+		// back under the first key — moving the record's content to a different field on its next
+		// write. Refused here, where both spellings (authored, or `--body` twice) arrive.
+		const bodies = bodyKeys(merged.schema);
+		if (bodies.length > 1) {
+			fail(`collection "${name}": ${bodies.length} fields declare x-body (${bodies.join(', ')}) — a record has ONE body, the text after its frontmatter. Keep one and drop x-body from the rest.`);
+		}
+
 		mergedGroups.set(name, { merged, sources: [...group.map((g) => g.src), ...templateSources] });
 		if (extenders.length) mergedCount++;
 	}
@@ -1358,7 +1382,7 @@ function applyTemplate(doc, tpl) {
 		if (sk === 'properties') {
 			const own = out.schema.properties ?? {};
 			const add = Object.entries(sv).filter(([pk]) => own[pk] === undefined);
-			const bodyKey = Object.entries(own).find(([, s]) => s?.['x-body'])?.[0];
+			const bodyKey = bodyKeys({ properties: own })[0];
 			const merged = {};
 			for (const [pk, pv] of Object.entries(own)) {
 				if (pk === bodyKey) for (const [ak, av] of add) merged[ak] = structuredClone(av);
