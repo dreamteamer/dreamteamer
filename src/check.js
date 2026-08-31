@@ -137,34 +137,34 @@ export function check({ root }) {
 	// recomputes what the owners imply and reports any mirror that has fallen behind. The fix is
 	// therefore mechanical (`relations rebuild`), which is what the message says, rather than a
 	// judgement call about which side is right.
-	for (const rel of relationsOf(descriptors)) {
-		const owners = [...(parsed.get(rel.owner) ?? [])].map(([id, fields]) => ({ id, fields }));
-		const exp = expectedMirrors(rel, owners);
+	for (const relation of relationsOf(descriptors)) {
+		const owners = [...(parsed.get(relation.owner) ?? [])].map(([id, fields]) => ({ id, fields }));
+		const exp = expectedMirrors(relation, owners);
 
 		// x-unique: the FK is one-to-one, so two owners naming one target is a conflict the mirror
 		// physically cannot represent (it is a scalar) — reported on the SECOND claimant, where the
 		// edit that has to change is.
-		if (rel.unique) {
+		if (relation.unique) {
 			const seen = new Map();
 			for (const { id, fields } of owners) {
-				const v = fields?.[rel.field];
+				const v = fields?.[relation.field];
 				// a union FK yields one relation row per target collection; without this filter each
 				// row would re-flag the same duplicate once per member.
-				if (typeof v !== 'string' || !v.startsWith(`${rel.target}/`)) continue;
-				if (seen.has(v)) flag(index.get(rel.owner).get(id), `${rel.field}: "${v}" is already taken by ${rel.owner}/${seen.get(v)} (x-unique)`);
+				if (typeof v !== 'string' || !v.startsWith(`${relation.target}/`)) continue;
+				if (seen.has(v)) flag(index.get(relation.owner).get(id), `${relation.field}: "${v}" is already taken by ${relation.owner}/${seen.get(v)} (x-unique)`);
 				else seen.set(v, id);
 			}
 		}
 
-		for (const [id, fields] of parsed.get(rel.target) ?? []) {
-			const actual = fields?.[rel.mirror];
+		for (const [id, fields] of parsed.get(relation.target) ?? []) {
+			const actual = fields?.[relation.mirror];
 			const expected = exp.get(id);
 			// a unique relation mirrors to a scalar, everything else to a sorted array — compare in
 			// the shape the mirror is actually written in (absent and empty are the same reading).
-			const same = rel.unique
+			const same = relation.unique
 				? (actual ?? null) === (expected ?? null)
 				: JSON.stringify([...(actual ?? [])].sort()) === JSON.stringify(expected ?? []);
-			if (!same) flag(index.get(rel.target).get(id), `${rel.mirror}: stale — run: dreamteamer relations rebuild ${rel.target}`);
+			if (!same) flag(index.get(relation.target).get(id), `${relation.mirror}: stale — run: dreamteamer relations rebuild ${relation.target}`);
 		}
 	}
 

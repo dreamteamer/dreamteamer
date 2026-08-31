@@ -244,6 +244,20 @@ describe('relation authoring flags', () => {
 		assert.equal(compiledOf(ws, 'meetings').schema.properties.recordings, undefined);
 	});
 
+	test('remove-field on a GENERATED mirror says it is generated, and names the verb that removes it', () => {
+		// I5. It said the field was "inherited from the base module — the workspace descriptor
+		// doesn't declare it", which is a true sentence about a different situation: the workspace
+		// descriptor does not declare it because COMPILE writes it, and the reader who follows that
+		// advice goes looking for a base module that has no such field either.
+		const ws = bare();
+		ws.dt('schema', 'add-field', 'meeting-recordings', '--name', 'meeting', '--type', 'meetings', '--inverse');
+		const res = ws.dt('schema', 'remove-field', 'meetings', '--name', 'recordings');
+		assert.equal(res.code, 1);
+		assert.match(res.stderr, /generated from meeting-recordings\.meeting/);
+		assert.match(res.stderr, /dreamteamer schema update-field meeting-recordings --name meeting --inverse=/);
+		assert.doesNotMatch(res.stderr, /inherited/);
+	});
+
 	test('update-field on a NON-relation field is unchanged — no relation keywords appear', () => {
 		const ws = bare();
 		ws.dt('schema', 'add-field', 'meeting-recordings', '--name', 'quality', '--type', 'string', '--description', 'how clean the audio is');
