@@ -181,6 +181,28 @@ describe('compile refuses malformed relations', () => {
 		const err = compileError(workspace({ collections: { meetings: MEETINGS, recordings: R }, compile: false }).ws);
 		assert.match(err, /set-null would produce an invalid record/);
 	});
+	test('set-null on a list with a FLOOR is refused too — rm would leave it short', () => {
+		// The same hole as `required`, one shape along, and it was open: `rm` clears set-null by
+		// removing the ONE entry that named the deleted record, so a floor above 1 can be broken
+		// without the key ever going away. Measured before the guard: `dt rm meetings/kickoff` printed
+		// `✔ removed` and `dt check` then reported `must NOT have fewer than 2 items` on a record
+		// nobody had touched — `rm` does not validate the owners it rewrites, on purpose.
+		const listFk = (minItems) => {
+			const R = simpleCollection({ storage: { suffix: 'recording' } });
+			R.schema.properties.meetings = {
+				type: 'array', ...(minItems === undefined ? {} : { minItems }),
+				items: { type: 'string', 'x-reference': 'meetings', 'x-inverse': 'recordings', 'x-on-delete': 'set-null' },
+			};
+			return workspace({ collections: { meetings: MEETINGS, recordings: R }, compile: false }).ws;
+		};
+		assert.match(compileError(listFk(2)), /declares minItems: 2 — x-on-delete: set-null removes ONE entry/);
+		// ⚠ minItems: 1 is SAFE and must keep compiling: the last entry takes the KEY with it, and an
+		// absent list reads exactly like an empty one to every reader. Refusing it would refuse a
+		// working configuration.
+		assert.equal(compileError(listFk(1)), null, 'minItems: 1 empties to an ABSENT key, which is valid');
+		assert.equal(compileError(listFk(undefined)), null);
+	});
+
 	test('array mirror of a unique FK is a cardinality error', () => {
 		const M = simpleCollection({ storage: { suffix: 'meeting' } });
 		M.schema.properties.summaries = { type: 'array', items: { type: 'string', 'x-reference': 'summaries' }, 'x-inverse-of': 'summaries.meeting' };
