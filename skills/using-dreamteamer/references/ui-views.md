@@ -121,6 +121,11 @@ same record. A misspelled key is read by nobody, silently. The two edges that bi
   naming a field the schema lacks is **dropped, not fallen back from** — which is how a core inbox
   view asking for `title` on a collection whose field is `name` rendered every row nameless with no
   error. Check the descriptor's real field names against every column you write.
+- **A list-valued option takes the comma spelling**: `set-view <id> options.columns=name,status`
+  writes a real list, as does the JSON form `'["name","status"]'`. The keys that split are
+  `columns`, `ref_fields` and `value_fields` — `options` has no schema, so a key not on that list
+  keeps its commas as characters (`options.template=a, b` is one string), and a list of OBJECTS
+  (`options.arrangement`) has only the JSON spelling.
 - ⚠ **`options.sort` must be written even when empty** (`sort: ''`), or "unsorted" cannot
   round-trip and silently reverts to a fallback ordering on the next load. The CLI cannot express
   it (an empty `set-view` value removes the key) — hand-write it in the source.
