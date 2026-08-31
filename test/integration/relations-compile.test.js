@@ -210,6 +210,33 @@ describe('compile refuses malformed relations', () => {
 		const err = compileError(workspace({ collections: { meetings: M, summaries: S }, compile: false }).ws);
 		assert.match(err, /array mirror of the unique FK/);
 	});
+	test('x-unique with no relation WARNS — it is inert, and silence was the bug', () => {
+		// It is not a JSON Schema keyword, so ajv ignores it; `relationsOf` decodes a relation from
+		// `x-inverse`, so with no mirror there is no relation row, and therefore no constraint in
+		// `check` (which tests uniqueness per relation) and none at write time (the store enforces it
+		// while maintaining a mirror). A descriptor asking for a one-to-one and getting nothing.
+		const fk = (extra) => {
+			const R = simpleCollection({ storage: { suffix: 'recording' } });
+			R.schema.properties.meeting = { type: 'string', 'x-reference': 'meetings', 'x-unique': true, ...extra };
+			return compileQuietly(workspace({ collections: { meetings: MEETINGS, recordings: R }, compile: false }).ws)
+				.warnings.filter((w) => w.includes('x-unique'));
+		};
+		const inert = fk({});
+		assert.equal(inert.length, 1, `expected one x-unique warning, got: ${JSON.stringify(inert)}`);
+		assert.match(inert[0], /x-unique on "meeting" is inert/);
+		assert.match(inert[0], /--name meeting --inverse/); // the remedy, as a command
+
+		// an ARRAY FK is the shape the report came in as — same answer, since nothing reads it either
+		const R = simpleCollection({ storage: { suffix: 'recording' } });
+		R.schema.properties.meetings = { type: 'array', items: { type: 'string', 'x-reference': 'meetings', 'x-unique': true } };
+		const list = compileQuietly(workspace({ collections: { meetings: MEETINGS, recordings: R }, compile: false }).ws)
+			.warnings.filter((w) => w.includes('x-unique'));
+		assert.equal(list.length, 1, JSON.stringify(list));
+
+		// ⚠ and NOT on a real relation — the warning must not fire on the shape it is telling you to write
+		assert.deepEqual(fk({ 'x-inverse': 'recording' }), []);
+	});
+
 	test('x-unique on a LIST foreign key is an error — three components read it differently', () => {
 		// M5. Nothing could honour it: relationsOf calls the pair m2m, stampMirror generates the
 		// SCALAR mirror x-unique implies, `dt relations` prints "m2m" beside that scalar, check never

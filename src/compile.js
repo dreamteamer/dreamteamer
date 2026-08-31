@@ -1086,7 +1086,21 @@ export function compile({ root, pkg }) {
 		// inherit it (presentation.js), which is what replaces 51 hand-written `x-display` lines.
 		merged.title_template ??= `{{ ${['title', 'name', 'subject'].find((f) => f in labelProps) ?? 'id'} }}`;
 		for (const [fieldName, prop] of Object.entries(labelProps)) {
-			if (prop && typeof prop === 'object' && !Array.isArray(prop)) prop.title ??= titleCase(fieldName);
+			if (!prop || typeof prop !== 'object' || Array.isArray(prop)) continue;
+			prop.title ??= titleCase(fieldName);
+			// `x-unique` MEANS SOMETHING ONLY ON A RELATION, and everywhere else it is silently inert.
+			// It is not a JSON Schema keyword, so ajv ignores it; `relationsOf` decodes a relation from
+			// `x-inverse`, so with no mirror there is no relation row — and therefore no constraint in
+			// `check` (which tests uniqueness per relation) and none at write time (the store enforces
+			// it while maintaining a mirror). A descriptor asking for a one-to-one and getting nothing
+			// at all, with nothing to read. ⚠ A WARNING, not a failure: it breaks nothing today, and a
+			// workspace already carrying one must not be stopped from compiling by a diagnosis of it.
+			// Read AFTER materializeRelations, so a folded spelling-B field is already gone and a
+			// generated mirror (which never carries x-unique) cannot trip it.
+			const h = (prop.items && typeof prop.items === 'object') ? prop.items : prop;
+			if (h['x-unique'] === true && h['x-inverse'] === undefined && h['x-inverse-of'] === undefined) {
+				console.warn(`⚠ collection ${name}: x-unique on "${fieldName}" is inert — it is a RELATION keyword, enforced only while the store maintains a mirror, and this field declares no x-inverse. Nothing constrains the value. Declare the relation (dreamteamer schema update-field ${name} --name ${fieldName} --inverse) or drop x-unique.`);
+			}
 		}
 		const rt = path.join('collections', `${name}.collection.yaml`);
 		entries.set(rt, { sources: descriptorSources, bytes: Buffer.from(dump(merged)) });
