@@ -33,6 +33,7 @@ export class Store {
 		addFormats(this.ajv);
 		this.ajv.addFormat('markdown', true);
 		this._idsCache = new Map(); // collection -> { key, ids } (see ids())
+		this._head = undefined;     // memoized `git rev-parse HEAD` (see gitHead())
 		const descriptors = loadDescriptors(root);
 		if (!descriptors) throw new Error(NO_RUNTIME);
 		this.descriptors = descriptors;
@@ -227,9 +228,33 @@ export class Store {
 		return this.filePath(d, id);
 	}
 
-	// current HEAD — one cheap rev-parse per cache check vs a multi-thousand-file walk
+	/**
+	 * Current HEAD, MEMOIZED PER STORE — one rev-parse per process rather than one per `ids()` call.
+	 *
+	 * ⚠ THE SUBPROCESS WAS THE COST OF THE CACHE, not of the walk it avoids. `ids()` asks this on
+	 * EVERY call, hit or miss, and a `git rev-parse` is ~10ms of process spawn. Profiled on a
+	 * 4,186-record workspace, a one-hop relational filter — which resolves one referenced record per
+	 * row, and `read()` goes through the id index — spent 1,525ms of a 1,677ms command in this one
+	 * method. Reproduced by `npm run perf` at 1/14 the scale: 300 rows, 301 spawns.
+	 *
+	 * ⚠ INVALIDATED IN withWriteLock, on the way OUT. Every mutation and every commit this store
+	 * performs runs inside that lock — schema-ops' source commits included, since `writeGated` takes
+	 * it — so a HEAD that moved under this process can never survive into a later read. Without that,
+	 * a commit made mid-process would leave this memo naming the PREVIOUS commit, the ids() key would
+	 * not change, and a read after the commit would be served the id map from before it.
+	 *
+	 * What the memo does give up, stated rather than discovered: ANOTHER process committing during
+	 * this one's lifetime no longer invalidates the id map. It costs nothing real — a commit does not
+	 * change which record files exist, and one that does (a checkout, a revert) moves the collection
+	 * directory's mtime, which is the other half of the key. A CLI process runs one verb, and the
+	 * server already rebuilds its Store when the manifest moves.
+	 */
 	gitHead() {
-		try { return execFileSync('git', ['rev-parse', 'HEAD'], { cwd: this.root, stdio: QUIET }).toString().trim(); } catch { return 'no-git'; }
+		if (this._head === undefined) {
+			try { this._head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: this.root, stdio: QUIET }).toString().trim(); }
+			catch { this._head = 'no-git'; }
+		}
+		return this._head;
 	}
 
 	ids(collection) {
@@ -831,7 +856,16 @@ export class Store {
 				Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50); // sync sleep, no busy spin
 			}
 		}
-		try { return fn(); } finally { try { fs.rmdirSync(lock); } catch { /* already gone */ } }
+		try {
+			return fn();
+		} finally {
+			// ⚠ THE HEAD MEMO GOES WITH THE LOCK. Everything that can move HEAD in this process happens
+			// inside here (see gitHead), and a memo surviving a commit would keep serving the id map
+			// from before it. Dropped on the way out whether `fn` succeeded or threw: a failed write
+			// may still have committed and rolled back, which is two moves of HEAD.
+			this._head = undefined;
+			try { fs.rmdirSync(lock); } catch { /* already gone */ }
+		}
 	}
 
 	/** Persist, or don't — `auto-commit` decides. The files are already on disk in both cases;

@@ -7,7 +7,8 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { workspace, simpleCollection, tree, readFile } from '../helpers/ws.js';
+import { workspace, simpleCollection, tree, readFile, git } from '../helpers/ws.js';
+import { Store } from '../../src/store.js';
 
 const TASKS = {
 	id: { generate: '{{ title | slug }}', pattern: '^[a-z0-9-]+$' },
@@ -356,5 +357,31 @@ describe('commit and changes', () => {
 		ws.git(['add', '-A']);
 		ws.git(['commit', '-qm', 'clean']);
 		assert.match(ws.dt('commit').stdout, /nothing pending/);
+	});
+});
+
+describe('the id index key', () => {
+	test('HEAD is read ONCE per store, and any write drops the memo', () => {
+		// ⚠ THE MEMO IS NOT A MICRO-OPTIMISATION. `ids()` asks `gitHead()` on every call, hit or miss,
+		// and a `git rev-parse` is ~10ms of process spawn — so a one-hop relational filter, which
+		// resolves one referenced record per row through the id index, paid one subprocess PER ROW.
+		// `npm run perf` reproduces it: 2.39s → 0.08s over 200 rows.
+		const ws = workspace({ collections: { widgets: simpleCollection({ storage: { suffix: 'widget' } }) } });
+		const store = new Store(ws.ws);
+		const memo = store.gitHead();
+		assert.equal(memo, git(ws.root, ['rev-parse', 'HEAD']));
+
+		// MEMOIZED: HEAD moves out of band (not through this store) and gitHead does NOT go and look.
+		// Without the memo this assertion is the one that fails — which is what makes it the test.
+		git(ws.root, ['commit', '--allow-empty', '-qm', 'another process published something']);
+		assert.notEqual(git(ws.root, ['rev-parse', 'HEAD']), memo);
+		assert.equal(store.gitHead(), memo, 'a per-call rev-parse would have seen the new sha');
+
+		// INVALIDATED: this store's own write goes through withWriteLock, which drops it — so a HEAD
+		// that moved under this process can never survive into a later read. A stale memo here would
+		// leave the ids() cache key unchanged across a commit and serve the index from before it.
+		store.add('widgets', { name: 'One' });
+		assert.equal(store.gitHead(), git(ws.root, ['rev-parse', 'HEAD']));
+		assert.ok(store.ids('widgets').has('one'));
 	});
 });
