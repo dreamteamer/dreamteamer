@@ -421,7 +421,7 @@ function metaRemoveField(ws, store, collection, flags) {
 		// This descriptor's own `list_fields`/`sort_field` were pruned with the field; a ui-view is a
 		// source this verb does not own, so it is NAMED rather than edited — and naming it is the whole
 		// point, since a column of a field that no longer exists renders as an empty one.
-		if (out.staleViews?.length) console.warn(`⚠ still listing ${collection}.${name} as a column: ${out.staleViews.join(', ')} — edit with \`dreamteamer ui-views set <id> options.columns=…\``);
+		if (out.staleViews?.length) console.warn(`⚠ still listing ${collection}.${name} as a column: ${out.staleViews.join(', ')} — edit with \`dreamteamer schema set-view <id> options.columns=…\``);
 	}
 	return 0;
 }
