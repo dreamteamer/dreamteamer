@@ -941,7 +941,7 @@ export class Store {
 		const plans = pairs.map(([oldRef, newRef]) => {
 			const oldBase = oldRef.split('/').pop();
 			const newBase = newRef.split('/').pop();
-			const bareRe = oldBase === newBase ? null : new RegExp(`\\[\\[${escapeRe(oldBase)}(\\|[^\\]]*)?\\]\\]`, 'g');
+			const bareRe = oldBase === newBase ? null : new RegExp(`\\[\\[${escapeRe(oldBase)}${ANCHOR_AND_LABEL}\\]\\]`, 'g');
 			return {
 				oldRef, newRef, newBase, base: oldBase, bareRe,
 				refRe: this.refRegex(oldRef),
@@ -951,7 +951,7 @@ export class Store {
 				// are already correct: a warning naming work nobody needs to do. The guard is the
 				// `endsWith`, and the second scan only runs for the pairs that fail it.
 				newRefRe: newRef !== oldRef && newRef.endsWith(`/${oldRef}`) ? this.refRegex(newRef) : null,
-				wikiRe: new RegExp(`\\[\\[${escapeRe(oldRef)}(\\|[^\\]]*)?\\]\\]`, 'g'),
+				wikiRe: new RegExp(`\\[\\[${escapeRe(oldRef)}${ANCHOR_AND_LABEL}\\]\\]`, 'g'),
 				// asked of the id index, not of a text scan — and only when a bare pass can happen at all
 				claimants: bareRe ? this.basenameOwners(oldBase) : [],
 			};
@@ -982,8 +982,8 @@ export class Store {
 					if (!prose) continue;
 					// the qualified pass FIRST: it turns `[[people/ada]]` into `[[people/ada-l]]`, which the
 					// bare pattern cannot match either before or after, so the two never see each other's work
-					body = body.replace(p.wikiRe, (_, label) => (count++, `[[${p.newRef}${label ?? ''}]]`));
-					if (p.bareRe && !p.claimants.length) body = body.replace(p.bareRe, (_, label) => (count++, `[[${p.newBase}${label ?? ''}]]`));
+					body = body.replace(p.wikiRe, (_, anchor, label) => (count++, `[[${p.newRef}${anchor ?? ''}${label ?? ''}]]`));
+					if (p.bareRe && !p.claimants.length) body = body.replace(p.bareRe, (_, anchor, label) => (count++, `[[${p.newBase}${anchor ?? ''}${label ?? ''}]]`));
 					else if (p.bareRe) { const n = (body.match(p.bareRe) ?? []).length; if (n) ambiguous.push({ file: f, count: n, base: p.base, claimants: p.claimants, oldRef: p.oldRef, newRef: p.newRef }); }
 					// counted on the body this pair leaves behind, so a later pair sees what an on-disk
 					// pass would have seen — raw prose is reported, never rewritten (decision 7)
@@ -1060,6 +1060,17 @@ export class Store {
 
 /** A literal, for a pattern built out of an id or a ref. */
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/** What may sit between a wikilink's TARGET and its closing `]]`: an optional `#anchor`, then an
+ *  optional `|label`. Two capture groups, in that order, both handed back verbatim by the rewrite.
+ *
+ *  ⚠ THE ANCHOR IS PART OF THE LINK, NOT OF THE TARGET. Both passes used to stop at the `]]` or the
+ *  `|`, so `[[id#heading]]` survived a rename of `id` untouched — the bare form silently, the
+ *  qualified form counted only as raw prose. Only the record moved; the heading inside it did not,
+ *  so the anchor rides through byte for byte, whatever is in it (a heading slug is not an id — it
+ *  holds spaces, case and punctuation). `[^\]|]` on the anchor is what keeps the two groups from
+ *  swallowing each other. */
+const ANCHOR_AND_LABEL = '(#[^\\]|]*)?(\\|[^\\]]*)?';
 
 /** Raw occurrences of a pair's OLD ref in a body — what `rewriteRefsBatch` reports as skipped prose.
  *  An occurrence lying INSIDE one of `newRef` is not prose that was skipped, it is the rewrite this
