@@ -4,7 +4,7 @@
 // whoever shipped it. For a view another inline module ships that produced a second file with the
 // same id, compile refuses a name collision, and `writeGated` rolled the whole thing back — so the
 // surface reported a collision error and the operator's edit vanished. Every module-shipped view in
-// gk-brain was unsaveable, and nothing said so.
+// a multi-module workspace was unsaveable, and nothing said so.
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

@@ -790,8 +790,8 @@ function upsertField(ws, store, collection, fieldName, prop, required, verb) {
  * saved if the WORKSPACE MODULE happened to ship it. Saving one shipped by any other inline module
  * wrote a SECOND file carrying the same id, and compile refuses that by name — so the whole write
  * rolled back and the surface reported `name collision on ui-view "…"` instead of saving. Measured
- * on gk-brain 2026-08-28: every one of its module-shipped views (`modules/family`, `modules/rnd`,
- * `modules/services`) was unsaveable, and the failure said nothing about why.
+ * on a three-module workspace: every one of the views shipped by a module OTHER than the workspace
+ * module was unsaveable, and the failure said nothing about why.
  *
  * Returns `{ file, shipped }` — where to write, and the workspace-relative source that already
  * exists (null for a new view, which lands in the workspace module as before).
