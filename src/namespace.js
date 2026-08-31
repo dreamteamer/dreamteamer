@@ -105,6 +105,21 @@ export function baseNameOf(qualified, namespaces) {
 }
 
 /**
+ * A collection name in the singular — what one RECORD of it is called. `doctors` → `doctor`,
+ * `stories` → `story`, `finance` → `financ`… which is why this is only ever applied to a name the
+ * author can override.
+ *
+ * It lives here beside `baseNameOf` because three subsystems have to agree on it and they sit in
+ * different layers: `compile` derives an absent `storage.suffix` from it, `collections add` writes
+ * the same value into a new descriptor, and `rename-collection` asks `oldSuffix === singular(oldBase)`
+ * to decide whether a suffix was DERIVED and may be re-derived. Two spellings of this rule would make
+ * that last question answer wrong on the exact records it is protecting.
+ */
+export function singular(name) {
+	return name.endsWith('ies') ? name.slice(0, -3) + 'y' : name.endsWith('s') ? name.slice(0, -1) : name;
+}
+
+/**
  * A collection name carrying a slash whose prefix is NOT declared, which is the silent-failure this
  * whole module exists to prevent: every reference to it would split at the first slash, name a
  * collection that does not exist, and dangle. Returns problems as sentences, or `[]`.

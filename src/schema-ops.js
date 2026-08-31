@@ -10,7 +10,7 @@ import { execFileSync } from 'node:child_process';
 import { load, dump } from './yaml.js';
 import { compile, kindDir, titleCase } from './compile.js';
 import { readManifest, runtimeKindDir } from './runtime.js';
-import { normalizeNamespaces, namespaceOf, baseNameOf, qualify, defaultStoragePath } from './namespace.js';
+import { normalizeNamespaces, namespaceOf, baseNameOf, qualify, defaultStoragePath, singular } from './namespace.js';
 import { refTargetsOf } from './ref.js';
 
 // Same rule as store.js: a git failure we CATCH must not also print git's own error on top of the
@@ -1471,6 +1471,3 @@ function defaultInverseName(unique, target, owner, namespaces) {
 	return unique ? singular(stripped) : stripped;
 }
 
-function singular(name) {
-	return name.endsWith('ies') ? name.slice(0, -3) + 'y' : name.endsWith('s') ? name.slice(0, -1) : name;
-}
