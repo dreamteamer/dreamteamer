@@ -37,7 +37,12 @@ schema:
       properties:
         path:
           type: string
-          description: Folder holding the records, workspace-relative. `data/` for content, `state/` for operational records, `system/` for sources.
+          description: >-
+            Folder holding the records, workspace-relative. `data/<collection>` for content, which is
+            the answer unless you can state a reason. `state/<collection>` also works and nothing
+            uses it. ⚠ NEVER author `system/` — sources have lived in `modules/<module>/<kind>/`
+            since the 2026-08-05 flatten, and a `system/` prefix is only how `runtime.js` still
+            recognises a RUNTIME collection in a descriptor compiled by a pre-flatten engine.
         codec:
           type: string
           enum: [md, yaml, json, file]

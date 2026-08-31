@@ -268,12 +268,20 @@ model wants a shared **template** plus two thin descriptors — or a reference b
 base collection that exists only to be extended. An abstraction with one concrete consumer is a
 roadmap, not a model; wait for the second consumer.
 
-### 11. Where records live: `data/` vs `state/`, codecs, shapes
+### 11. Where records live: `data/`, codecs, shapes
 
-- **`data/` holds content; `state/` holds operational records** — cursors, run markers, cached
-  readings; things a human never edits and would not mourn. The split is a `storage.path` choice
-  and it matters because `data/` is what gets read, searched and reasoned over; polluting it with
-  machinery makes every list noisier.
+- **`data/` is where records go.** `storage.path` is free-form, so a collection can be pointed
+  anywhere in the workspace, but the answer is `data/<collection>` unless you have a reason you can
+  state.
+- ⚠ **`state/` exists, works, and has no users — do not spend a decision on it.** `dt init` creates
+  the folder, and a collection declaring `storage.path: state/<name>` genuinely works end to end
+  (verified: `add` lands the file, `get`, `list` and `check` all see it). But **no collection shipped
+  by this engine or by any module measured uses it**, so the `data/` vs `state/` "split" is a fork
+  nobody has taken. Default to `data/`. The idea it was meant to protect is still worth keeping —
+  **do not let machinery sit next to content**: cursors, sync markers and cached readings make every
+  list of real records noisier, and the honest fixes are a field on an existing record, a file under
+  a gitignored cache folder, or `state/` if you genuinely want a second root. Choosing it is fine;
+  agonising over it is not.
 - **`codec: md` whenever a human reads a body; `yaml` when nobody does.** A record that is all
   fields and no prose (a lab value, a transaction, a cursor) is `yaml` — the body would only ever
   be empty. `json` exists for tool-written records.
