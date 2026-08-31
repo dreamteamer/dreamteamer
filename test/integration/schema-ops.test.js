@@ -4,6 +4,7 @@
 // that produced an uncompilable descriptor used to be discoverable only on the next command.
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import { workspace, simpleCollection, readFile } from '../helpers/ws.js';
 import { load } from '../../src/yaml.js';
 import { Store } from '../../src/store.js';
@@ -437,6 +438,39 @@ describe('an idempotent update-field says so and exits 0', () => {
 			assert.equal(ws.dt('check').code, 0);
 		});
 	}
+
+	// ⚠ AND IT IS STILL A GATE. Every schema op goes through `writeGated`, which compiles the WHOLE
+	// workspace and hard-fails on any pre-existing error anywhere in the tree — so before the no-op
+	// shortcut existed, even a command that changed nothing validated the runtime. Returning early
+	// bypassed that: "already exactly that" became a success claim about a workspace nobody had
+	// compiled, which is precisely what an idempotent "apply my schema" script must never get.
+	test('a no-op still fails on an UNRELATED compile error, the way the gate would', () => {
+		const ws = fk();
+		fs.writeFileSync(`${ws.root}/modules/default/collections/broken.collection.yaml`,
+			'name: broken\ndescription: A deliberately broken, unrelated collection.\nid:\n  generate: "{{ name | slug }}"\n'
+			+ 'storage:\n  suffix: broken\nschema:\n  type: object\n  required: [name]\n  properties:\n'
+			+ '    name: { type: string }\n    ghost: { type: string, x-reference: no-such-collection }\n');
+		assert.equal(ws.dt('compile').code, 1, 'the fixture must actually be broken');
+
+		const res = ws.dt('schema', 'update-field', 'meeting-recordings', '--name', 'meeting', '--inverse');
+		assert.equal(res.code, 1, `a no-op on a broken tree must not report success:\n${res.stdout}`);
+		assert.match(res.stdout + res.stderr, /compile error: collection "broken"/);
+		assert.doesNotMatch(res.stdout, /already exactly that/);
+		assert.doesNotMatch(res.stdout + res.stderr, /git commit failed|rolled back/);
+	});
+
+	test('a healthy no-op validates, says so, and commits nothing', () => {
+		const ws = fk();
+		// UNCHANGED, not empty: the fixture writes its collections after the base commit, so there is
+		// already untracked noise here that has nothing to do with this command.
+		const commits = ws.git(['rev-list', '--count', 'HEAD']);
+		const status = ws.git(['status', '--porcelain']);
+		const res = ws.dt('schema', 'update-field', 'meeting-recordings', '--name', 'meeting', '--inverse');
+		assert.equal(res.code, 0, res.stderr);
+		assert.match(res.stdout, /already exactly that, nothing to do/);
+		assert.equal(ws.git(['rev-list', '--count', 'HEAD']), commits, 'a no-op writes no commit');
+		assert.equal(ws.git(['status', '--porcelain']), status, 'and stages nothing');
+	});
 
 	test('the run that DOES change something still reports the change', () => {
 		const ws = fk();
