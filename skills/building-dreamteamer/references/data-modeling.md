@@ -73,8 +73,9 @@ answer its own questions without a join. But "denormalized" licenses exactly two
 nothing else:
 
 1. **A generated mirror** — the far side of a relation. The engine writes it, maintains it in the
-   same write as every change to the owning side, refuses hand-edits to it, and `check` reports one
-   that has fallen behind. Cost-free to keep; declare it freely (Part VI).
+   same write as every change to the owning side, refuses direct writes to it, and `check` reports
+   one that has fallen behind — a hand-edited mirror included, since a literal file edit cannot be
+   refused, only caught. Cost-free to keep; declare it freely (Part VI).
 2. **A denormalized key** — one scalar (almost always a date) copied from a related record so a
    list sorts or an id generates without a join. Manual, so it MUST carry its maintenance contract:
    the field's `description` names the **source** and the **writer** ("denormalized from
@@ -251,7 +252,10 @@ sane:
 - Declare the namespace before the first collection compiles — an id is also a slash path, so an
   undeclared prefix is ambiguous and compile refuses it rather than guessing.
 - Namespacing an existing collection later is `dt schema rename-collection <old> --namespace <ns>`
-  — one commit, every inbound reference rewritten. Cheap, so do not agonise up front.
+  — one commit, every inbound reference rewritten, safe at any point. Cheapest early, though: the
+  rewrite is O(records × files), measured at ~3 minutes for a 2,291-record collection — tolerable
+  for a one-time migration, not free. So do not agonise up front; just decide sooner rather than
+  at ten thousand records.
 
 ### 10. Templates vs extends vs copy
 
@@ -628,9 +632,11 @@ Design against the enforcement that exists, not the enforcement you wish existed
   enums, requireds, id patterns.
 - The store maintains mirrors on `add`/`set`/`rm`/`revert`; refuses writes to mirrors; `rm`
   honours `x-on-delete`, detaches its own mirrors, and refuses on unmanaged inbound references.
-- `dt commit <collection>/<id>` sweeps the relation partners whose edge to the named record
-  changed — one logical change, one commit — and refuses when a partner also carries *another*
-  session's edge changes, naming everything, rather than publishing someone else's work.
+- `dt commit <collection>/<id>` sweeps the TARGET-side partners the named record's own write
+  dirtied — the mirrors its foreign-key change touched — so one logical change is one commit. A
+  dirty **owner** on the far side is never swept, whoever wrote it: the commit refuses and names
+  both records, so you scope the commit to the pair rather than publishing half of someone else's
+  work — or half of your own.
 - Schema ops clean up after themselves: dropping an inverse clears the generated values it
   orphans; removing a populated field clears its values, reporting the count, with the previous
   version in git.
@@ -734,7 +740,9 @@ ordinary record — diffable, agent-writable, one per recurring question rather 
 
 ### 35. The cost model
 
-Reads walk files. To first order: **`get` by id is O(1)** (the id is the path); **`list`, `check`,
+Reads walk files. To first order: **`get` resolves through the collection's id map** — built once
+per process by walking the collection directory (readdir, no parsing), O(1) per hit after that —
+so a cold `get` costs a directory walk, never a parse of every record; **`list`, `check`,
 `values`, and any filter are O(records in the collection)** — every record parsed, one pass; a
 one-hop filter adds resolution of the referenced records it actually touches. Writes are O(1)
 files touched (the record, plus its relation partners), and a scoped commit is O(what changed).
@@ -760,8 +768,8 @@ consequences:
   has no hot files at all — which is why the stable/volatile split (§16) is also the concurrency
   design.
 - **Do not renumber.** Manual order uses a fractional index per moved record (`sort_field`, moved
-  by `dt <collection> move`) because renumbering a list is a multi-file commit against git for no
-  information.
+  by `dt move <collection>/<id> --after|--before <id> | --top | --bottom`) because renumbering a
+  list is a multi-file commit against git for no information.
 
 ### 37. Growth — sharding and splitting
 
@@ -806,7 +814,9 @@ useless until the flood is drained.
 ### 41. Renames
 
 - **Collections**: `dt schema rename-collection <old> <new>` — descriptor, records, filenames and
-  every inbound reference in one commit. Cheap; do it the day the name is wrong.
+  every inbound reference in one commit. Safe, and cheapest early — the rewrite is
+  O(records × files), measured ~3 minutes at ~2,300 records — so do it the day the name is wrong,
+  not the year after.
 - **Fields**: there is no rename verb, deliberately (a rename that rewrites every record is a
   migration, and pretending otherwise invites half-renames). The honest sequence: add the new
   field; a one-shot script moving the values (committed with the records it rewrote, the commit
@@ -977,7 +987,9 @@ icon: pill
 ```
 
 ```yaml
-# and on health/patients — the far sides, spelling B so each mirror documents itself:
+# and on health/patients — the far sides, spelling B so each mirror documents itself. One
+# prerequisite the snippet depends on: patients is `codec: md` and its descriptor declares an
+# x-body field (its `notes`) — a bodyless-md collection cannot hold a mirror (§25's refusal).
     visits:
       type: array
       x-inverse-of: health/visits.patient
