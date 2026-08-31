@@ -12,7 +12,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { workspace, simpleCollection, compileError, compileQuietly, readFile, WS_MODULE } from '../helpers/ws.js';
-import { load } from '../../src/yaml.js';
+import { load, dump } from '../../src/yaml.js';
 import { presentation } from '../../src/presentation.js';
 import { loadDescriptors } from '../../src/runtime.js';
 
@@ -429,6 +429,38 @@ describe('the mutual x-inverse spelling is one relation', () => {
 		assert.equal(meetings.schema.properties.summary.readOnly, true);
 	});
 
+	/**
+	 * The SAME pair of collections, compiled in OPPOSITE discovery orders.
+	 *
+	 * ⚠ THE ORDER COMES FROM THE FILENAMES, and that is the whole reason this helper exists. Both
+	 * tests below used to build `workspace({ collections: { alpha, zulu } })` and
+	 * `workspace({ collections: { zulu, alpha } })` and call the two "both discovery orders" — but
+	 * `workspace()` writes one file per collection at `collections/<name>.collection.yaml` and compile
+	 * enumerates that directory with `readdirSync().sort()`. The two workspaces were byte-identical:
+	 * the tests compiled the same thing twice, asserted the same answer twice, and could not fail for
+	 * the reason they named.
+	 *
+	 * A descriptor's collection name is its `name:` key, and its runtime path is derived from that —
+	 * so the FILE may be called anything, which is what actually lets the order be reversed. The
+	 * manifest assertion is not decoration: it proves the inversion happened, so that if `workspace()`
+	 * ever starts writing these files itself the vacuity cannot come back unnoticed.
+	 */
+	function bothDiscoveryOrders(first, second) {
+		return [[first, second], [second, first]].map(([a, b]) => {
+			const ws = workspace({ compile: false });
+			const dir = path.join(ws.root, 'modules', WS_MODULE, 'collections');
+			fs.writeFileSync(path.join(dir, '1-read-first.collection.yaml'), dump({ name: a.name, ...a.descriptor }));
+			fs.writeFileSync(path.join(dir, '2-read-second.collection.yaml'), dump({ name: b.name, ...b.descriptor }));
+			compileQuietly(ws.ws);
+			const entries = load(readFile(ws.root, '.dreamteamer/manifest.yaml')).entries;
+			assert.match(
+				entries[`collections/${a.name}.collection.yaml`].sources[0].path,
+				/1-read-first/,
+				`${a.name} was meant to be discovered FIRST in this run — without that these two runs are one run twice`);
+			return ws;
+		});
+	}
+
 	test('both sides scalar with no x-unique: the name decides, and both directions agree', () => {
 		// neither side is the obvious owner, so the pick must be reproducible rather than
 		// discovery-order dependent — alpha.link owns because "alpha.link" < "zulu.link"
@@ -437,11 +469,17 @@ describe('the mutual x-inverse spelling is one relation', () => {
 			c.schema.properties.link = { type: 'string', 'x-reference': target, 'x-inverse': 'link' };
 			return c;
 		};
-		const forward = workspace({ collections: { alpha: mk('zulu'), zulu: mk('alpha') } });
-		const backward = workspace({ collections: { zulu: mk('alpha'), alpha: mk('zulu') } });
-		for (const ws of [forward, backward]) {
+		for (const ws of bothDiscoveryOrders(
+			{ name: 'alpha', descriptor: mk('zulu') },
+			{ name: 'zulu', descriptor: mk('alpha') },
+		)) {
 			const zulu = load(readFile(ws.root, '.dreamteamer/collections/zulu.collection.yaml'));
 			assert.equal(zulu.schema.properties.link['x-inverse-of'], 'alpha.link');
+			// …and the far side is the writable owner in BOTH runs. Asserting only the mirror lets an
+			// order-dependent implementation pass by making both sides read-only.
+			const alpha = load(readFile(ws.root, '.dreamteamer/collections/alpha.collection.yaml'));
+			assert.equal(alpha.schema.properties.link['x-inverse'], 'link');
+			assert.equal(alpha.schema.properties.link.readOnly, undefined);
 		}
 	});
 
@@ -455,9 +493,10 @@ describe('the mutual x-inverse spelling is one relation', () => {
 		};
 		// compiled in BOTH discovery orders: the owner may not depend on which descriptor was read
 		// first, which is exactly what the pre-fix behaviour did — whichever side stamped first won
-		const forward = workspace({ collections: { papers: mk('topics', 'papers'), topics: mk('papers', 'topics') } });
-		const backward = workspace({ collections: { topics: mk('papers', 'topics'), papers: mk('topics', 'papers') } });
-		for (const ws of [forward, backward]) {
+		for (const ws of bothDiscoveryOrders(
+			{ name: 'papers', descriptor: mk('topics', 'papers') },
+			{ name: 'topics', descriptor: mk('papers', 'topics') },
+		)) {
 			const topics = load(readFile(ws.root, '.dreamteamer/collections/topics.collection.yaml'));
 			assert.equal(topics.schema.properties.papers.items['x-inverse-of'], 'papers.topics');
 			assert.equal(topics.schema.properties.papers.readOnly, true);
