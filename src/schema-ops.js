@@ -913,6 +913,7 @@ function baseModuleRef(root, collection) {
 // it (the derived mirror name is a function of both sides), so it defaults and every existing
 // two-argument caller keeps working.
 export function fieldDef(store, flags, collection) {
+	flags = impliedByMirrorOf(store, flags);
 	const t = flags.type ?? 'string';
 	const def = flags['default-value'] ?? flags.default;
 	const p = (() => {
@@ -973,6 +974,40 @@ export function fieldDef(store, flags, collection) {
 	const holder = p.items ?? p;
 	if (holder['x-reference'] !== undefined) applyRelationFlags(holder, flags, collection, store.namespaces ?? []);
 	return p;
+}
+
+/**
+ * `--mirror-of <owner>.<field>` IMPLIES the type, because it names the far side of a relation that
+ * already exists and that side says everything about this field's shape: it holds references to the
+ * OWNING collection, as an array unless the owner's foreign key is one-to-one — a unique FK can be
+ * claimed by one record, so its mirror is a single reference.
+ *
+ * Without this, the spec's own worked command was refused for not restating what it had just said:
+ *
+ *   dt schema add-field meetings --name recordings --mirror-of recordings.meeting
+ *   ✖ --mirror-of needs a --type <collection> reference.
+ *
+ * …and restating it was a chance to DISAGREE, which is worse than the refusal: compile derives the
+ * owner's cardinality FROM the authored mirror's shape (`foldMirrorSide`), so a hand-typed `--many`
+ * on the mirror of a unique FK is a contradiction compile has to reject on the far side of the write.
+ * So an explicit `--type` that names a different collection is an error here rather than a silent
+ * loser. `--many` stays available for the case this cannot see: a relation whose owning field does
+ * not declare x-unique yet.
+ */
+function impliedByMirrorOf(store, flags) {
+	const of = typeof flags['mirror-of'] === 'string' && flags['mirror-of'].length > 0 ? flags['mirror-of'] : null;
+	if (!of) return flags;
+	const dot = of.lastIndexOf('.'); // a collection name may contain '/', so split at the LAST dot
+	if (dot < 1) throw new Error(`--mirror-of takes <collection>.<field> — got "${of}".`);
+	const owner = of.slice(0, dot), ownerField = of.slice(dot + 1);
+	if (!store.descriptors.has(owner)) throw new Error(`--mirror-of ${of}: there is no collection "${owner}".`);
+	if (flags.type !== undefined && flags.type !== owner) {
+		throw new Error(`--mirror-of ${of} makes this field a mirror of ${owner}, so --type ${flags.type} contradicts it — drop --type, it is implied.`);
+	}
+	const prop = store.descriptor(owner).schema?.properties?.[ownerField];
+	const holder = (prop?.items && typeof prop.items === 'object') ? prop.items : prop;
+	const many = holder?.['x-unique'] === true ? flags.many : (flags.many ?? true);
+	return { ...flags, type: owner, many };
 }
 
 /** Deep value equality as a string, key ORDER ignored — a prop read back out of YAML comes in

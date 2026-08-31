@@ -188,6 +188,57 @@ describe('relation authoring flags', () => {
 		assert.equal(compiledOf(ws, 'meetings').schema.properties.recordings.items['x-inverse-of'], 'meeting-recordings.meeting');
 	});
 
+	test('--mirror-of implies the type — the spec\'s own worked command, with nothing restated', () => {
+		// It was refused: `✖ --mirror-of needs a --type <collection> reference.` — for not restating
+		// what `--mirror-of recordings.meeting` had just said. And restating it was a chance to
+		// disagree: compile derives the OWNER's cardinality from the authored mirror's shape.
+		const ws = bare();
+		ws.dt('schema', 'add-field', 'meeting-recordings', '--name', 'meeting', '--type', 'meetings');
+		const res = ws.dt('schema', 'add-field', 'meetings', '--name', 'recordings', '--mirror-of', 'meeting-recordings.meeting');
+		assert.equal(res.code, 0, res.stdout + res.stderr);
+		const mirror = compiledOf(ws, 'meetings').schema.properties.recordings;
+		// a plain (non-unique) FK mirrors as an ARRAY of references to the owner
+		assert.equal(mirror.type, 'array');
+		assert.equal(mirror.items['x-reference'], 'meeting-recordings');
+		assert.equal(mirror.items['x-inverse-of'], 'meeting-recordings.meeting');
+		assert.equal(mirror.readOnly, true);
+	});
+
+	test('--mirror-of a UNIQUE foreign key implies a scalar, not a list', () => {
+		// The cardinality is not a default, it is a derivation: a one-to-one FK can be claimed by one
+		// record, so its mirror holds one reference. Getting this wrong is a compile error on the far
+		// side of the write ("is an array mirror of the unique FK"), which is why the flag derives it.
+		const ws = bare();
+		ws.dt('schema', 'add-field', 'meeting-recordings', '--name', 'meeting', '--type', 'meetings', '--unique');
+		const res = ws.dt('schema', 'add-field', 'meetings', '--name', 'recording', '--mirror-of', 'meeting-recordings.meeting');
+		assert.equal(res.code, 0, res.stdout + res.stderr);
+		const mirror = compiledOf(ws, 'meetings').schema.properties.recording;
+		assert.equal(mirror.type, 'string');
+		assert.equal(mirror['x-inverse-of'], 'meeting-recordings.meeting');
+	});
+
+	test('a --type that contradicts --mirror-of is an error that says why', () => {
+		const ws = bare();
+		ws.dt('schema', 'add-field', 'meeting-recordings', '--name', 'meeting', '--type', 'meetings');
+		const res = ws.dt('schema', 'add-field', 'meetings', '--name', 'recordings', '--type', 'meetings', '--mirror-of', 'meeting-recordings.meeting');
+		assert.equal(res.code, 1);
+		assert.match(res.stderr, /makes this field a mirror of meeting-recordings, so --type meetings contradicts it/);
+
+		// a --type that AGREES is fine — nothing forces the caller to drop a spelling that is right
+		const ok = ws.dt('schema', 'add-field', 'meetings', '--name', 'recordings', '--type', 'meeting-recordings', '--mirror-of', 'meeting-recordings.meeting');
+		assert.equal(ok.code, 0, ok.stdout + ok.stderr);
+	});
+
+	test('--mirror-of names the two halves separately when either is wrong', () => {
+		const ws = bare();
+		const shape = ws.dt('schema', 'add-field', 'meetings', '--name', 'x', '--mirror-of', 'meeting-recordings');
+		assert.equal(shape.code, 1);
+		assert.match(shape.stderr, /--mirror-of takes <collection>\.<field>/);
+		const unknown = ws.dt('schema', 'add-field', 'meetings', '--name', 'y', '--mirror-of', 'nope.meeting');
+		assert.equal(unknown.code, 1);
+		assert.match(unknown.stderr, /there is no collection "nope"/);
+	});
+
 	test('update-field without relation flags PRESERVES the relation keywords', () => {
 		const ws = bare();
 		ws.dt('schema', 'add-field', 'meeting-recordings', '--name', 'meeting', '--type', 'meetings', '--inverse');
@@ -339,8 +390,11 @@ describe('a stated relation flag means the same thing everywhere', () => {
 	});
 
 	test('the relation flags are refused on a field that references nothing — all of them, alike', () => {
+		// ⚠ `--mirror-of` is deliberately NOT in this list: it names a `<collection>.<field>` and so
+		// SUPPLIES the reference rather than depending on one — see the `--mirror-of implies the type`
+		// case below. Every other relation flag is meaningless without a target and refused for it.
 		const ws = bare();
-		for (const flag of [['--inverse'], ['--unique'], ['--on-delete', 'set-null'], ['--many'], ['--mirror-of', 'meetings.x']]) {
+		for (const flag of [['--inverse'], ['--unique'], ['--on-delete', 'set-null'], ['--many']]) {
 			const res = ws.dt('schema', 'add-field', 'meeting-recordings', '--name', `q${flag[0].slice(2)}`, '--type', 'string', ...flag);
 			assert.equal(res.code, 1, `${flag[0]} on a non-reference should be refused, got:\n${res.stdout}`);
 			assert.match(res.stderr, /needs a --type <collection> reference|needs a single-collection/);
