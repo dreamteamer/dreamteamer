@@ -93,19 +93,15 @@ function entangled(file, parties, command) {
 	return new Error(`${file} holds relation changes from ${parties.join(' and ')}, and there is no commit that publishes one without the other. Name them together (dreamteamer commit ${command}) or wait for the other session to publish.`);
 }
 
-/** Which dirty partners the named records DRAG INTO the same commit.
+/** Every sampled row by reference, and its relation edges as they moved since HEAD.
  *
- *  The rule is EDGE-CHANGE, not field membership: a partner joins only if the edge between it and a
- *  named record appeared, disappeared or moved since HEAD. A partner dirty for any other reason —
- *  another session's prose, another field, another session's edge — is left exactly as pending as it
- *  was found. The first cut swept every ref in the named record's relation fields and reintroduced
- *  precisely the theft this file exists to prevent (CLAUDE.md rule 6). */
-function planSweep(store, rels, targets, sampled) {
+ *  Lazy and memoised, and that is a PERFORMANCE CONTRACT rather than a micro-optimisation: reading
+ *  one git pre-image per SAMPLED row cost 3.19s against 0.10s on a 300-dirty-row collection. Only
+ *  the records actually asked about are ever read — and a row in a collection with no relations at
+ *  all costs nothing, because readState answers it without touching git. */
+function edgeReader(store, rels, sampled) {
 	const rows = new Map();
 	for (const { cwd, rows: rs } of sampled) for (const r of rs) rows.set(`${r.collection}/${r.id}`, { ...r, cwd });
-	// Lazy and memoised, and that is a PERFORMANCE CONTRACT rather than a micro-optimisation: reading
-	// one git pre-image per SAMPLED row cost 3.19s against 0.10s on a 300-dirty-row collection. Only
-	// the named records and the partners they actually touch are ever read.
 	const cache = new Map();
 	const stateOf = (ref) => {
 		if (!cache.has(ref)) cache.set(ref, readState(store, rels, rows.get(ref)));
@@ -115,6 +111,17 @@ function planSweep(store, rels, targets, sampled) {
 		const { was, now } = stateOf(ref);
 		return [...was[side]].filter((v) => !now[side].has(v)).concat([...now[side]].filter((v) => !was[side].has(v)));
 	};
+	return { rows, stateOf, moved };
+}
+
+/** Which dirty partners the named records DRAG INTO the same commit.
+ *
+ *  The rule is EDGE-CHANGE, not field membership: a partner joins only if the edge between it and a
+ *  named record appeared, disappeared or moved since HEAD. A partner dirty for any other reason —
+ *  another session's prose, another field, another session's edge — is left exactly as pending as it
+ *  was found. The first cut swept every ref in the named record's relation fields and reintroduced
+ *  precisely the theft this file exists to prevent (CLAUDE.md rule 6). */
+function planSweep(targets, { rows, stateOf, moved }) {
 	// `dt rename` leaves the old path DELETED and the new path UNTRACKED — neither staged, so git
 	// reports no `R` (that only exists for a staged rename, which is why `fromRel` is null here) and
 	// the two halves read as two unrelated records. They are ONE record: the id lives in the
@@ -157,6 +164,26 @@ function planSweep(store, rels, targets, sampled) {
 		throw entangled(stateOf(own).row.repoRel, parties, [...named, ...strangers].join(' '));
 	}
 	return sweep;
+}
+
+/** Dirty records this commit does NOT publish whose edge to one it DOES publish moved since HEAD —
+ *  i.e. the other half of a pair, left behind.
+ *
+ *  `dt commit <collection>` publishes exactly that collection and nothing else, on purpose:
+ *  narrowing it to whole pairs would drop rows the caller explicitly asked for, and widening it to
+ *  the partner collection is the theft this file exists to prevent. So it goes on publishing half a
+ *  pair — and HEAD then fails `dt check` until the other half lands. Naming the leftovers is what
+ *  turns that from a silent red HEAD into one more command to run.
+ *
+ *  Same edge-change rule as the sweep, from the other end: a partner dirty for unrelated reasons is
+ *  not named, because publishing this commit did not put it out of step with anything. */
+function partnersLeftPending(reader, published) {
+	const left = new Set();
+	for (const ref of reader.rows.keys()) {
+		if (published.has(ref)) continue;
+		for (const side of SIDES) for (const v of reader.moved(ref, side)) if (published.has(v)) left.add(ref);
+	}
+	return [...left].sort();
 }
 
 /** Record directories to watch, grouped by owning repo. System-stored collections are excluded:
@@ -262,10 +289,23 @@ export function commitPending(store, { only = [], message, dryRun = false } = {}
 	// mirror. Auto-commit is off, so publishing one without the other leaves a HEAD that fails
 	// `dt check`. ⚠ The partner collections must join `targets.scope` BEFORE scopeByRepo: scope IS the
 	// git pathspec, so a collection missing from it is never sampled and nothing later can reach it.
-	const rels = targets.records.size ? relationsOf(store.descriptors) : [];
-	for (const [, { collection }] of targets.records) {
-		for (const [, , partner] of relationEdges(rels, collection)) targets.scope.push(partner);
-	}
+	const rels = targets.scoped ? relationsOf(store.descriptors) : [];
+	const partners = new Set();
+	const hop = (c) => { for (const [, , partner] of relationEdges(rels, c)) partners.add(partner); };
+	for (const [, { collection }] of targets.records) hop(collection);
+	// ⚠ TWO HOPS for a named record, and the second one is the entanglement guard's eyesight. The
+	// sweep drags a partner in WHOLE, edge changes and all — so a concurrent session's record on the
+	// far side of that partner's OTHER edge has to be refused over. planSweep tests a stranger with
+	// `rows.has(v)`, and rows exist only for a SAMPLED collection: at one hop that collection is
+	// never sampled, the stranger is invisible, and the commit publishes the partner carrying a
+	// reference to an unpublished record (dangling ref + stale mirror at HEAD). Two is sufficient
+	// and three would be waste — the sweep only ever reaches DIRECT partners of a named record, so
+	// nothing further out can end up inside the commit.
+	for (const p of [...partners]) hop(p);
+	// A whole-collection target drags nothing in, but its partners must still be SAMPLED or the
+	// leftover warning below has no rows to find them in. One hop is all that reaches.
+	for (const c of targets.whole) hop(c);
+	for (const p of partners) targets.scope.push(p);
 	const byRepo = scopeByRepo(store.descriptors, targets.scope);
 	// ⚠ Sample every repo FIRST, then check the references, then plan, then commit. The
 	// unknown-reference test below can only be answered once every repo has been sampled — a record
@@ -284,7 +324,8 @@ export function commitPending(store, { only = [], message, dryRun = false } = {}
 	// Before the sweep, so a mistyped id is still answered as a mistyped id rather than as an empty
 	// plan that looks like "nothing pending" — the one report that looks like success.
 	assertResolvable(store, targets.records, matched);
-	const sweep = targets.scoped ? planSweep(store, rels, targets, sampled) : new Set();
+	const reader = edgeReader(store, rels, sampled);
+	const sweep = targets.scoped ? planSweep(targets, reader) : new Set();
 	const results = [];
 	for (const { repo, cwd, rows: all } of sampled) {
 		// The SAMPLER is deliberately left alone — it is what makes a hand-edited record
@@ -298,6 +339,12 @@ export function commitPending(store, { only = [], message, dryRun = false } = {}
 		if (!rows.length) continue;
 		const blocked = inProgress(cwd);
 		if (blocked) { results.push({ repo, rows, blocked }); continue; }
+		// ⚠ BEFORE the commit below — `moved` compares against HEAD, and committing moves HEAD. Only
+		// for a whole-collection target: the record-scoped form either sweeps a moved partner in or
+		// refuses over it, so it can leave none behind, and asking would cost a git read per dirty
+		// row in the partner collections for an answer that is always empty.
+		const published = new Set(rows.map((r) => `${r.collection}/${r.id}`));
+		const leftPending = targets.whole.size ? partnersLeftPending(reader, published) : [];
 		const warning = detached(cwd) ? 'HEAD is detached — this commit will be reachable only by sha' : null;
 		const subject = message ?? composeSubject(rows);
 		if (!dryRun) {
@@ -313,7 +360,7 @@ export function commitPending(store, { only = [], message, dryRun = false } = {}
 			execFileSync('git', ['commit', '--quiet', '-m', subject, '--', ...paths, ...alreadyStaged], { cwd });
 		}
 		const sha = dryRun ? null : execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd }).toString().trim();
-		results.push({ repo, rows, subject, sha, warning });
+		results.push({ repo, rows, subject, sha, warning, leftPending });
 	}
 	return results;
 }
