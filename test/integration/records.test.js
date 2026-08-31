@@ -361,7 +361,7 @@ describe('commit and changes', () => {
 });
 
 describe('the id index key', () => {
-	test('HEAD is read ONCE per store, and any write drops the memo', () => {
+	test('HEAD is read ONCE per store, and a write that publishes nothing keeps it', () => {
 		// ⚠ THE MEMO IS NOT A MICRO-OPTIMISATION. `ids()` asks `gitHead()` on every call, hit or miss,
 		// and a `git rev-parse` is ~10ms of process spawn — so a one-hop relational filter, which
 		// resolves one referenced record per row through the id index, paid one subprocess PER ROW.
@@ -377,11 +377,13 @@ describe('the id index key', () => {
 		assert.notEqual(git(ws.root, ['rev-parse', 'HEAD']), memo);
 		assert.equal(store.gitHead(), memo, 'a per-call rev-parse would have seen the new sha');
 
-		// INVALIDATED: this store's own write goes through withWriteLock, which drops it — so a HEAD
-		// that moved under this process can never survive into a later read. A stale memo here would
-		// leave the ids() cache key unchanged across a commit and serve the index from before it.
+		// AND NOT DROPPED BY A WRITE THAT PUBLISHED NOTHING. `auto-commit` is off by default, so this
+		// add moves no sha — the memo used to be dropped by the write LOCK regardless, buying the next
+		// `ids()` a ~10ms subprocess to re-read a value that had not changed. It is dropped by whatever
+		// runs `git commit` instead (store.headMoved); test/integration/store-index.test.js holds both
+		// halves of that. The index is right either way, because a write now MAINTAINS it.
 		store.add('widgets', { name: 'One' });
-		assert.equal(store.gitHead(), git(ws.root, ['rev-parse', 'HEAD']));
+		assert.equal(store.gitHead(), memo, 'a write that committed nothing dropped the HEAD memo');
 		assert.ok(store.ids('widgets').has('one'));
 	});
 });

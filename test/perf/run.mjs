@@ -251,7 +251,17 @@ const fixture = generate();
 console.log(`    fixture           ${secs(fixture.totalMs)}  (init + compile + ${(RECORDS + FILLER).toLocaleString()} writes + one commit)`);
 console.log(`    compile           ${secs(fixture.compileMs)}`);
 console.log(`    ${(RECORDS + FILLER).toLocaleString()} record writes  ${secs(fixture.writeMs)}   ${rate(RECORDS + FILLER, fixture.writeMs)} through the real Store`);
-console.log(`    record files (M)  ${fixture.files.toLocaleString()}   — what one ref pass reads\n`);
+console.log(`    record files (M)  ${fixture.files.toLocaleString()}   — what one ref pass reads`);
+console.log(`\n  The write rate above is the whole point of measuring generation. \`add\` needs the ids that`);
+console.log(`  already exist to generate one that is unique, so it calls \`ids()\` — which asked`);
+console.log(`  \`git rev-parse HEAD\` for its cache key and then re-walked the collection from disk,`);
+console.log(`  because the PREVIOUS add had deleted the memo it was about to rebuild. A run of adds paid`);
+console.log(`  both, per record. Measured on an M-series Mac, 2026-09-01, --records=400 --filler=100:`);
+console.log(`    memo deleted per add, HEAD dropped per lock    86/sec   11.65ms per record`);
+console.log(`    index maintained, HEAD dropped by commits   1,587/sec    0.63ms per record`);
+console.log(`  The split, from the same run: 10.8ms of the 11.65 was the subprocess and 0.66ms the walk`);
+console.log(`  — and an add with an EXPLICIT id, which calls neither, cost 0.18ms throughout. The walk`);
+console.log(`  is the term that grows with the collection; the spawn was the flat floor under it.\n`);
 
 console.log(`  RENAME  ledger → finance/ledger`);
 const r = timeRename(fixture.ws);
