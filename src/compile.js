@@ -722,6 +722,14 @@ export function compile({ root, pkg }) {
 					// descriptors merge via 'extends' — collect per collection name
 					const bytes = fs.readFileSync(srcPath);
 					const doc = load(bytes.toString('utf8'));
+					// An EMPTY source parses to undefined (0 bytes) or null (whitespace only), and every
+					// line below reads a key off it — so compile died with a bare "Cannot read properties
+					// of undefined (reading 'storage')" naming no file, in a workspace that may hold a
+					// hundred descriptors. Loud and useless is its own failure mode; refuse it BY NAME.
+					// A `touch`ed file on the way to writing one is the ordinary way to arrive here.
+					if (doc == null || typeof doc !== 'object') {
+						fail(`${rel(srcPath)}: collection source is empty — a descriptor needs at least 'name' and 'schema' (or 'extends'). Delete the file, or write one.`);
+					}
 					// `codec: file` records are opaque bytes: there are no fields, so there is no schema to
 					// require and none to honour. Every other codec parses text into fields and must declare
 					// what they are.
