@@ -1,7 +1,7 @@
 // test/unit/relations.test.js — pure unit: plain descriptor objects, no workspace
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { relationsOf, mirrorFieldsOf, expectedMirrors } from '../../src/relations.js';
+import { relationsOf, expectedMirrors } from '../../src/relations.js';
 
 const D = new Map([
 	['meetings', { name: 'meetings', schema: { properties: { name: { type: 'string' } } } }],
@@ -25,12 +25,6 @@ test('relationsOf decodes kind, cardinality and on-delete from the holder', () =
 	]);
 });
 
-test('mirrorFieldsOf inverts to the target side', () => {
-	const m = mirrorFieldsOf(D, 'meetings');
-	assert.deepEqual([...m.keys()].sort(), ['analyses', 'recordings', 'summary']);
-	assert.equal(m.get('summary').unique, true);
-});
-
 test('expectedMirrors computes sorted arrays / scalars per target', () => {
 	const rel = relationsOf(D)[0]; // recordings.meeting
 	const owners = [
@@ -42,4 +36,14 @@ test('expectedMirrors computes sorted arrays / scalars per target', () => {
 	assert.deepEqual(exp.get('x'), ['recordings/a', 'recordings/b']); // sorted by ref string
 	const uni = relationsOf(D)[1]; // summaries.meeting (unique → scalar)
 	assert.deepEqual(expectedMirrors(uni, [{ id: 's1', fields: { meeting: 'meetings/x' } }]).get('x'), 'summaries/s1');
+});
+
+test('expectedMirrors dedupes — the store writes a set, so this must compute one', () => {
+	// I2. `dt add analyses --meetings meetings/x,meetings/x` is accepted (an authored array has no
+	// uniqueItems), the store writes ONE mirror entry, and check compares against this. Appending
+	// blind made check call a correct mirror stale and `relations rebuild` WRITE the duplicate — the
+	// documented repair producing the state it was run to fix.
+	const m2m = relationsOf(D)[2]; // analyses.meetings
+	const exp = expectedMirrors(m2m, [{ id: 'a1', fields: { meetings: ['meetings/x', 'meetings/x'] } }]);
+	assert.deepEqual(exp.get('x'), ['analyses/a1']);
 });

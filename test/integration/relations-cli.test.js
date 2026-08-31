@@ -132,6 +132,37 @@ describe('dt relations', () => {
 		assert.doesNotMatch(after.stdout + after.stderr, /stale/);
 	});
 
+	test('a duplicated FK: the store, check and rebuild all agree it is ONE entry', () => {
+		// I2, end to end. `--meetings meetings/standup,meetings/standup` is accepted (an AUTHORED
+		// array declares no uniqueItems, and narrowing that is not this fix's business), the store
+		// writes a set, and check compared against an expectation that appended blind — so check
+		// called a correct mirror stale and the repair it names WROTE the duplicate. Three components,
+		// one duplicated value, three answers.
+		const ws = relWorkspace();
+		ws.dt('add', 'meetings', '--name', 'Standup');
+		assert.equal(ws.dt('add', 'analyses', '--name', 'A1', '--meetings', 'meetings/standup,meetings/standup').code, 0);
+		const written = readFile(ws.root, 'data/meetings/standup.meeting.md');
+		assert.equal(written.match(/analyses\/a1/g).length, 1, 'the store writes one entry');
+		const before = ws.dt('check');
+		assert.equal(before.code, 0, before.stdout + before.stderr);
+		assert.equal(ws.dt('relations', 'rebuild', 'meetings').code, 0);
+		assert.equal(readFile(ws.root, 'data/meetings/standup.meeting.md'), written, 'rebuild must not write the duplicate');
+	});
+
+	test('a hand-edited DUPLICATE in a generated mirror is NAMED as a duplicate', () => {
+		// The generated array carries uniqueItems, so the engine can never write a duplicate there —
+		// and one that arrives by hand is named for what it is by the schema, rather than only
+		// reaching the operator as the vaguer "stale".
+		const ws = relWorkspace();
+		ws.dt('add', 'meetings', '--name', 'Standup');
+		ws.dt('add', 'analyses', '--name', 'A1', '--meetings', 'meetings/standup');
+		const f = `${ws.root}/data/meetings/standup.meeting.md`;
+		fs.writeFileSync(f, fs.readFileSync(f, 'utf8').replace('  - analyses/a1', '  - analyses/a1\n  - analyses/a1'));
+		const res = ws.dt('check');
+		assert.equal(res.code, 1);
+		assert.match(res.stdout + res.stderr, /field analyses: .* must NOT have duplicate items/);
+	});
+
 	test('rebuild is idempotent — a second run rewrites nothing', () => {
 		const ws = relWorkspace();
 		ws.dt('add', 'meetings', '--name', 'Standup');

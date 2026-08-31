@@ -30,13 +30,6 @@ export function relationsOf(descriptors) {
 	return out;
 }
 
-/** Mirror fields ON a collection: field name -> the relation whose values the store maintains there. */
-export function mirrorFieldsOf(descriptors, collection) {
-	const m = new Map();
-	for (const r of relationsOf(descriptors)) if (r.target === collection) m.set(r.mirror, r);
-	return m;
-}
-
 /** What each target record's mirror SHOULD hold, computed from the owning side.
  *  Sorted arrays (ids are usually date-prefixed, so that reads chronological); a scalar for unique. */
 export function expectedMirrors(rel, ownerRecords) {
@@ -49,7 +42,12 @@ export function expectedMirrors(rel, ownerRecords) {
 			const targetId = ref.slice(rel.target.length + 1);
 			const self = `${rel.owner}/${id}`;
 			if (rel.unique) exp.set(targetId, self);
-			else exp.set(targetId, [...(exp.get(targetId) ?? []), self].sort());
+			// DEDUPED, like the set the store writes (store.js applyMirrorEdits) — an owner may name
+			// one target twice (an authored reference array declares no uniqueItems, so `dt add x
+			// --meetings m1,m1` is accepted). Appending blind made this the ONE expectation nothing
+			// else agreed with: check called the store's correct mirror stale, and the repair its
+			// message names — `relations rebuild` — wrote the duplicate it was run to remove.
+			else exp.set(targetId, [...new Set([...(exp.get(targetId) ?? []), self])].sort());
 		}
 	}
 	return exp;
