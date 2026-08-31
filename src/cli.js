@@ -21,7 +21,7 @@ import { deriveEvents } from './events.js';
 import { commitPending } from './commit.js';
 import { Store } from './store.js';
 import { splitRef } from './ref.js';
-import { parseEnvValues, renderTemplate } from './env-vars.js';
+import { envContext, renderTemplate } from './env-vars.js';
 
 // git calls whose failure we CATCH must not print git's own error: execFileSync forwards the
 // child's stderr to ours unless told otherwise, so a handled "not a git repository" still
@@ -323,7 +323,9 @@ export function run(argv) {
 					if (repos.length) {
 						const here = repos.filter((r) => r.present).length;
 						console.log(`repos:    ${here}/${repos.length} materialized`);
-						for (const r of repos) if (!r.present) console.log(`  absent: ${r.id} → ${r.path} (dreamteamer ensure ${r.id})`);
+						// an UNRESOLVED path is not the same absence as a repo simply not cloned yet, and
+						// `dreamteamer ensure` is not the fix for it — say which one this is.
+						for (const r of repos) if (!r.present) console.log(`  absent: ${r.id} → ${r.path}${r.unresolved ? ` — ${r.unresolved}` : ` (dreamteamer ensure ${r.id})`}`);
 					}
 				} catch { /* no repos descriptor compiled — nothing to report */ }
 				// Uncommitted records are invisible to `dt changes` (it diffs commits), so the
@@ -430,10 +432,7 @@ function resolveVariables(ws, args) {
 	// resolve has no flags, so a flag-shaped target is a mistake — and the one that costs is
 	// `dt resolve --help`, which would otherwise print `--help` back and exit 0.
 	if (target.startsWith('--')) throw new Error(`dt resolve takes a string or a <collection>/<id>, not a flag ("${target}") — see \`dreamteamer help\``);
-	const declared = ws.pkg.dreamteamer?.vars ?? [];
-	const envFile = path.join(ws.root, '.env');
-	const env = parseEnvValues(fs.existsSync(envFile) ? fs.readFileSync(envFile, 'utf8') : '');
-	const ctx = { env, workspaceFolder: ws.root, declared };
+	const ctx = envContext(ws);
 
 	let ref = null;
 	let store = null;
