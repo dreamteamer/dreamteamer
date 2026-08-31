@@ -177,13 +177,12 @@ describe('the batch keeps the per-pair bookkeeping', () => {
 			'the bare pass belongs to the pair whose basename moved, and it names the other claimants');
 
 		const skipped = out.skipped.map((s) => ({ file: path.relative(ws.root, s.file), count: s.count, oldRef: s.oldRef }));
-		// ⚠ the `ledger/beta` row is 2 and not 0, and that is INHERITED, not new: the raw count is taken
-		// off the body a pair leaves behind, and `[[finance/ledger/beta]]` still ENDS in `ledger/beta`,
-		// which the boundary allows. The per-pair loop reported the same two, for the same reason — the
-		// parity test below is what holds it there rather than this number.
+		// ⚠ there is NO `ledger/beta` row, and there used to be one of 2. Both were the two wikilinks
+		// this same pass had just rewritten to `[[finance/ledger/beta]]`, which still ENDS in
+		// `ledger/beta` at a legal boundary — a warning naming bytes that are already correct. The
+		// `ledger/alpha` row is real raw prose and still counts.
 		assert.deepEqual(skipped, [
 			{ file: 'data/memos/m-one.memo.md', count: 1, oldRef: 'ledger/alpha' },
-			{ file: 'data/memos/m-one.memo.md', count: 2, oldRef: 'ledger/beta' },
 		], 'the raw-prose occurrences are attributed to the ref that found them');
 
 		// and the writes themselves are the union of both pairs, one write per file
@@ -234,6 +233,41 @@ describe('the batch keeps the per-pair bookkeeping', () => {
 			for (const s of [...sequential].reverse()) s.restore();
 			assert.deepEqual(bytes(many), bytes(one), 'restore left the two fixtures in different states');
 		}
+	});
+
+	// ⚠ THE COUNTER IS A WARNING, and a warning that names correct bytes is worse than none: the
+	// operator greps, finds the rewrite, and learns to ignore the line. `ledger/beta` →
+	// `finance/ledger/beta` is the ordinary shape of `collections rename`, so this was every
+	// namespacing move.
+	describe('an already-rewritten occurrence is not skipped prose', () => {
+		const suffixShared = (body) => {
+			const ws = seeded();
+			fs.writeFileSync(path.join(ws.root, 'data', 'memos', 'm-one.memo.md'),
+				`---\nname: M one\nentry: ledger/alpha\n---\n${body}\n`);
+			return ws;
+		};
+
+		test('a body holding only the correct refs reports nothing skipped', () => {
+			const ws = suffixShared('qualified: [[ledger/beta]]\nlabelled: [[ledger/beta|Beta]]');
+			const out = ws.store.rewriteRefsBatch([['ledger/beta', 'finance/ledger/beta']]);
+			assert.deepEqual(out.skipped, [], 'the two occurrences left are the rewrite, not prose');
+			assert.match(readFile(ws.root, 'data/memos/m-one.memo.md'), /^qualified: \[\[finance\/ledger\/beta\]\]$/m);
+		});
+
+		test('a genuine raw-prose occurrence beside a rewritten one still counts', () => {
+			const ws = suffixShared('qualified: [[ledger/beta]]\nprose: see ledger/beta for the detail');
+			const out = ws.store.rewriteRefsBatch([['ledger/beta', 'finance/ledger/beta']]);
+			assert.equal(out.skipped.length, 1);
+			assert.equal(out.skipped[0].count, 1, 'the wikilink is rewritten; only the prose line is skipped');
+			assert.match(readFile(ws.root, 'data/memos/m-one.memo.md'), /^prose: see ledger\/beta for the detail$/m);
+		});
+
+		test('a pair whose new spelling does NOT end in the old one is unchanged', () => {
+			const ws = suffixShared('qualified: [[ledger/beta]]\nprose: see ledger/beta for the detail');
+			const out = ws.store.rewriteRefsBatch([['ledger/beta', 'ledger/beta-1']]);
+			assert.equal(out.skipped.length, 1);
+			assert.equal(out.skipped[0].count, 1);
+		});
 	});
 
 	test('rewriteRefs is the batch of one, and still reports what `rename` prints', () => {

@@ -945,6 +945,12 @@ export class Store {
 			return {
 				oldRef, newRef, newBase, base: oldBase, bareRe,
 				refRe: this.refRegex(oldRef),
+				// ⚠ `newRef` MAY END IN `oldRef` — `ledger/beta` → `finance/ledger/beta` is the ordinary
+				// shape of `collections rename`. Every occurrence this pass has just rewritten then still
+				// matches the old needle at a legal boundary, so the raw-prose counter reported bytes that
+				// are already correct: a warning naming work nobody needs to do. The guard is the
+				// `endsWith`, and the second scan only runs for the pairs that fail it.
+				newRefRe: newRef !== oldRef && newRef.endsWith(`/${oldRef}`) ? this.refRegex(newRef) : null,
 				wikiRe: new RegExp(`\\[\\[${escapeRe(oldRef)}(\\|[^\\]]*)?\\]\\]`, 'g'),
 				// asked of the id index, not of a text scan — and only when a bare pass can happen at all
 				claimants: bareRe ? this.basenameOwners(oldBase) : [],
@@ -981,7 +987,7 @@ export class Store {
 					else if (p.bareRe) { const n = (body.match(p.bareRe) ?? []).length; if (n) ambiguous.push({ file: f, count: n, base: p.base, claimants: p.claimants, oldRef: p.oldRef, newRef: p.newRef }); }
 					// counted on the body this pair leaves behind, so a later pair sees what an on-disk
 					// pass would have seen — raw prose is reported, never rewritten (decision 7)
-					const raw = (body.match(p.refRe) ?? []).length;
+					const raw = countRawOccurrences(body, p);
 					if (raw) skipped.push({ file: f, count: raw, oldRef: p.oldRef, newRef: p.newRef });
 				}
 				if (count === 0) continue;
@@ -1054,6 +1060,24 @@ export class Store {
 
 /** A literal, for a pattern built out of an id or a ref. */
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/** Raw occurrences of a pair's OLD ref in a body — what `rewriteRefsBatch` reports as skipped prose.
+ *  An occurrence lying INSIDE one of `newRef` is not prose that was skipped, it is the rewrite this
+ *  pass just made: `finance/ledger/beta` ends in `ledger/beta` and the boundary allows it. Only the
+ *  pairs whose new spelling ends in the old one (`p.newRefRe`) pay for the second scan. */
+function countRawOccurrences(body, p) {
+	p.refRe.lastIndex = 0;
+	if (!p.newRefRe) return (body.match(p.refRe) ?? []).length;
+	const spans = [];
+	p.newRefRe.lastIndex = 0;
+	for (let m; (m = p.newRefRe.exec(body)) !== null;) spans.push([m.index, m.index + m[0].length]);
+	let n = 0;
+	for (let m; (m = p.refRe.exec(body)) !== null;) {
+		const [start, end] = [m.index, m.index + m[0].length];
+		if (!spans.some(([s, e]) => start >= s && end <= e)) n++;
+	}
+	return n;
+}
 
 /** The longest prefix every needle shares, or '' if they share none. Used ONLY as a negative filter
  *  (see rewriteRefsBatch): anything containing a needle contains this, so anything without it
