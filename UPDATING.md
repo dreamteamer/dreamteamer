@@ -78,8 +78,10 @@ at it: `restrict` (the default) refuses the `rm` and names them, `set-null` clea
 **New verb.** `dreamteamer relations [<collection>]` lists every pair the compiled runtime declares
 — `owner.field → target.mirror`, with the cardinality and the delete rule. `dreamteamer relations
 rebuild <collection> [--drop <field>]` regenerates mirror VALUES from the owning side, and is the
-one repair for a `stale` finding; `--drop <field>` also removes a residue key left by a mirror the
-schema no longer declares.
+repair for a `stale` finding; `--drop <field>` removes a residue key left by a mirror the schema no
+longer declares. You should rarely need `--drop` by hand — dropping an inverse through `schema
+update-field --inverse=` (or removing the owning field) now clears the mirror's values in the same
+write and commit, and reports the record count. It is there for a descriptor edited by hand.
 
 ⚠ **A record write now modifies files in OTHER collections.** Setting a foreign key rewrites the
 generated mirror on the target record in the same write, so a single `dt add` or `dt set` leaves a
@@ -101,11 +103,36 @@ take `--many`, `--inverse [name]`, `--unique`, `--on-delete restrict|set-null` a
 without restating `--type`, and the records written before the mirror existed are counted for you,
 with the `relations rebuild` that repairs them.
 
-⚠ **`update-field` now CARRIES relation keywords forward.** Restating a field to change its
-description used to rebuild the prop from the flags alone and write back a plain `{type: string}` —
-the foreign key silently gone. Every relation keyword now survives unless a flag names it
-(`--inverse=` drops the mirror, `--unique false` clears the one-to-one). And an `update-field` that
-would change nothing now exits 0 saying so, instead of rewriting an identical file.
+⚠ **`update-field` now CARRIES THE WHOLE PROP forward, not just the relation keywords.**
+Restating a field to change its description used to rebuild the prop from the flags alone and write
+back a plain `{type: string}`. That did not only lose foreign keys — measured on 0.14, one
+`update-field --description "…"` turned `{type: string, format: markdown, x-body: true}` into
+`{type: string}`, dropped an `enum` to a free string, collapsed `{type: array, items: …}` to a
+scalar, and turned a `number` with `default`, `minimum` and `maximum` into a bare string. The rule
+now: **a flag that was passed speaks for what it owns, and everything else comes from the previous
+prop.** `--type` still owns the whole shape, so a deliberate retype behaves exactly as it did and
+takes the old constraints with it. A flag that CLEARS still clears (`--inverse=` drops the mirror,
+`--unique false` clears the one-to-one). Two things worth knowing: the HTTP whole-prop path carries
+nothing behind its back (it signals itself by passing no flags), and a carried `items` arrives
+stripped of relation keywords, so `--inverse=` can still drop a mirror on a list. And an
+`update-field` that would change nothing now exits 0 saying so, instead of rewriting an identical
+file.
+
+**`--options a,b` and `--default-value` were fixed alongside it.** `--options` with no `--type enum`
+used to build no enum at all; it now restates an existing enum's values. `--default-value` was
+coerced against a `string` default rather than the field's real type, so `--default-value 7` wrote
+the string `"7"` into a number field.
+
+**`--body` marks the field that holds a record's markdown body**, on both `add-field` and
+`update-field` — the flag the `x-body` compile refusal below tells you to use. It is carried forward
+like everything else; `--body false` clears it.
+
+**Descriptor comments now partly survive a schema verb.** They used to be deleted wholesale. `add-field`
+and `remove-field` now reattach TOP-LEVEL comment blocks. Nested comments, and inline `{a: b}` mappings
+reflowing to block form, are still lost — and a record write still re-wraps the whole record's folded
+scalars. That is one cause (the engine parses to a plain object and re-emits) and the full fix needs a
+round-trip YAML library, so treat a hand-commented descriptor as something to check after a schema verb
+touches it.
 
 ⚠ **The COMPLETE list of what compile now REFUSES.** Each failure names the field; the fix is
 beside it. Several of these were perfectly legal in 0.14, where `x-inverse` only pointed at a field
@@ -141,6 +168,17 @@ you had already written by hand and nothing was ever generated onto anybody.
 - **Two relations generating the same mirror name on one target.** One field cannot hold two
   relations, and no rebuild could ever satisfy both. Give one of them a different `x-inverse` name.
 - **A both-sides declaration whose two sides disagree about the field name.** Keep one.
+- **`x-on-delete: set-null` on a LIST with a floor above one** (`minItems: 2` or more). Clearing the
+  foreign key would leave a record below its own floor — measured on 0.14 as a green `rm` followed by
+  a `check` failure on a record nobody touched. `minItems: 1` still compiles: the last entry takes the
+  key with it, and an absent key reads as empty.
+- **A second `x-body` field on one collection.** Every reader takes the FIRST, so the second could
+  never receive the body, and `serialize` would write the prose back under the first key — moving a
+  record's content between fields. One body per collection.
+
+Two things now WARN rather than refuse, both silent in 0.14: `x-unique` with no `x-inverse` (it is
+not a JSON Schema keyword and nothing enforces it on its own, so it did exactly nothing), and the
+legacy mutual spelling described above.
 
 ---
 
