@@ -154,3 +154,61 @@ describe('removeUiView', () => {
 		assert.throws(() => removeUiView(ws.ws, ws.store, 'nope'), /does not exist/);
 	});
 });
+
+// ---- the DOTTED value grammar `set-view` takes -------------------------------------------------
+// Not about where a view is saved (above) but about what a `key=value` on the command line MEANS.
+// Two of these used to have no spelling at all: a list option could only be written as JSON, and
+// the one setting whose meaningful value is the empty string could not be written by any spelling.
+
+describe('dt schema set-view — dotted values', () => {
+	const viewed = () => {
+		const ws = workspace({ collections: { doctors: simpleCollection() } });
+		const add = ws.dt('schema', 'add-view', '--path', '/recent', '--target', 'list',
+			'--collection', 'collections/doctors', '--layout', 'table');
+		assert.equal(add.code, 0, add.stderr);
+		return ws;
+	};
+	const saved = (ws) => load(readFile(ws.root, 'modules/default/ui-views/recent.ui-view.yaml'));
+
+	test('options.columns=a,b is a LIST — the comma spelling every other verb takes', () => {
+		const ws = viewed();
+		const res = ws.dt('schema', 'set-view', 'recent', 'options.columns=name,notes');
+		assert.equal(res.code, 0, res.stderr);
+		assert.deepEqual(saved(ws).options.columns, ['name', 'notes'], 'a literal "name,notes" is read by nobody');
+	});
+
+	test('one column is still a list of one, and spaces around the commas are trimmed', () => {
+		const ws = viewed();
+		assert.equal(ws.dt('schema', 'set-view', 'recent', 'options.columns=name').code, 0);
+		assert.deepEqual(saved(ws).options.columns, ['name']);
+		assert.equal(ws.dt('schema', 'set-view', 'recent', 'options.columns=name, notes').code, 0);
+		assert.deepEqual(saved(ws).options.columns, ['name', 'notes']);
+	});
+
+	test('the JSON form still works, and is the only spelling for a list of objects', () => {
+		const ws = viewed();
+		assert.equal(ws.dt('schema', 'set-view', 'recent', 'options.columns=["name","notes"]').code, 0);
+		assert.deepEqual(saved(ws).options.columns, ['name', 'notes']);
+		assert.equal(ws.dt('schema', 'set-view', 'recent', 'options.arrangement=[{"node":"a","x":1,"y":2}]').code, 0);
+		assert.deepEqual(saved(ws).options.arrangement, [{ node: 'a', x: 1, y: 2 }]);
+	});
+
+	test('a comma in a SCALAR option stays one string — the key decides, not the comma', () => {
+		const ws = viewed();
+		assert.equal(ws.dt('schema', 'set-view', 'recent', 'options.template=a, b').code, 0);
+		assert.equal(saved(ws).options.template, 'a, b');
+	});
+
+	test('the flag form takes the same value grammar as the positional one', () => {
+		const ws = viewed();
+		assert.equal(ws.dt('schema', 'set-view', 'recent', '--options.columns', 'name,notes').code, 0);
+		assert.deepEqual(saved(ws).options.columns, ['name', 'notes']);
+	});
+
+	test('an EMPTY list option still removes the key, rather than showing no columns', () => {
+		const ws = viewed();
+		assert.equal(ws.dt('schema', 'set-view', 'recent', 'options.columns=name,notes').code, 0);
+		assert.equal(ws.dt('schema', 'set-view', 'recent', 'options.columns=').code, 0);
+		assert.equal(saved(ws).options?.columns, undefined);
+	});
+});

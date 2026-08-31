@@ -425,8 +425,26 @@ function metaRemoveField(ws, store, collection, flags) {
 // through saveUiView's compile gate rather than the record store. Without these verbs everything
 // the Layout options panel does — columns, order, sort, layout, filter, nav — was click-only.
 
-/** `--options '{"sort":"-date"}'` style flags, plus dotted `options.sort=-date` positionals. */
-function parseViewValue(raw) {
+/**
+ * Layout options whose value is a LIST, so `options.columns=title,status` means what it says.
+ *
+ * ⚠ NAMED, not inferred, and that is the whole design: `options` is an open bag with no schema —
+ * each layout declares its own keys and unknown ones ride through untouched — so nothing in the
+ * runtime can tell a list key from a scalar one. Without this set the comma spelling every other
+ * verb accepts for an array (`--tags a,b`) stored the literal string `"title,status"`, which the
+ * surface reads with `Array.isArray` and therefore ignores: a view that looked configured, drew
+ * the descriptor's `list_fields` instead, and reported nothing anywhere.
+ *
+ * `columns` is honoured by every layout; `ref_fields` and `value_fields` are the diagram's
+ * link-by pickers. `arrangement` is deliberately ABSENT — its elements are objects, so the JSON
+ * form is its only honest spelling, and a comma split would quietly produce garbage.
+ */
+const VIEW_LIST_OPTIONS = new Set(['options.columns', 'options.ref_fields', 'options.value_fields']);
+
+/** `--options '{"sort":"-date"}'` style flags, plus dotted `options.sort=-date` positionals. The
+ *  KEY is passed because the value's shape depends on it: only the key says whether a comma is a
+ *  separator or a character. */
+function parseViewValue(raw, key) {
 	if (typeof raw !== 'string') return raw;
 	const t = raw.trim();
 	if (t === 'true') return true;
@@ -435,6 +453,9 @@ function parseViewValue(raw) {
 	if (t.startsWith('{') || t.startsWith('[')) {
 		try { return JSON.parse(t); } catch { throw new Error(`not valid JSON: ${t}`); }
 	}
+	// An empty value falls through to assignPath, which UNSETS the key — a `columns=` that wrote
+	// `columns: []` would be a configured-to-show-nothing view, not a removed setting.
+	if (t !== '' && VIEW_LIST_OPTIONS.has(key)) return t.split(',').map((s) => s.trim()).filter(Boolean);
 	return raw;
 }
 
@@ -490,7 +511,8 @@ function metaUiView(ws, store, verb, flags, pos) {
 
 	for (const p of pos.slice(verb === 'set' ? 1 : 0)) {
 		if (!p.includes('=')) continue;
-		assignPath(view, p.slice(0, p.indexOf('=')), parseViewValue(p.slice(p.indexOf('=') + 1)));
+		const key = p.slice(0, p.indexOf('='));
+		assignPath(view, key, parseViewValue(p.slice(p.indexOf('=') + 1), key));
 	}
 	for (const [k, v] of Object.entries(flags)) {
 		if (VIEW_META_FLAGS.has(k)) continue;
@@ -499,7 +521,7 @@ function metaUiView(ws, store, verb, flags, pos) {
 		if (Array.isArray(v)) {
 			throw new Error(`--${k} was given ${v.length} times — a view key takes one value, and a list is written as one: --${k} ${v.join(',')} (or the JSON form '${JSON.stringify(v)}')`);
 		}
-		assignPath(view, k, parseViewValue(v));
+		assignPath(view, k, parseViewValue(v, k));
 	}
 
 	if (!view.path) throw new Error('missing --path </route> — a view is addressed by its route');
