@@ -71,8 +71,19 @@ unpublished schema is not a state the workspace should sit in. The verbs and eve
   or **edit the owning module's descriptor by hand** and compile (the change ships with the
   module) — the only exit for a removal. Pick by who should own the field — `data-modeling.md`
   Part III.
+- **`--type <collection>` beats the type sugar, always.** A type that names a collection in the
+  runtime is a reference to it, whatever `string`/`enum`/`date`/`tags`/… would otherwise mean — so
+  in a workspace that ships a `tags` collection, `--type tags` points at it and the relation flags
+  work on it. Only a stated `--type` resolves this way; omitting it still means a plain string.
 - `remove-field` on a populated field **clears the values in the same write and reports the
-  count** — a leftover key would make every later write to those records fail as unknown.
+  count** — a leftover key would make every later write to those records fail as unknown. It also
+  prunes the field out of **the same descriptor's `list_fields` and `sort_field`** (that is the
+  field's own presentation, and a dangling `sort_field` is a compile error), and **warns, by id,**
+  about any ui-view whose `options.columns` still names it — a different source, so it is named
+  rather than edited.
+- **`add-field` inserts before the `x-body` field**, on the same rule as a `templates:` merge
+  below: property order is form order, and a record's body belongs last. `update-field` never
+  reorders — an existing field keeps the place its author gave it.
 - **`schema rename-collection <old> <new>`** moves the descriptor **in the module that ships it**
   (its guard is against writes an `npm install` would erase, not against modules), plus the
   records, the filenames and every inbound reference — `x-reference` targets in other descriptors
