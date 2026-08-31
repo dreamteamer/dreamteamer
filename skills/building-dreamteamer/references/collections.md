@@ -81,11 +81,11 @@ templates: [collection-templates/provenance]   # merged at compile, every time
 
 ## judgment the descriptor can't tell you
 
-- **`id.generate` takes creation-time values only** — `{{ created | date }}--{{ name | slug }}`,
-  never a mutable field (`due`, `status`, and note `created` itself is the moment the record is
-  WRITTEN, so a back-dated import files under the import month; derive from the domain's own date
-  field instead). `id.pattern` must accept everything the template can produce — non-latin titles
-  slug to a deterministic short hash, so `[a-z0-9-]` still holds.
+Modeling judgment — the grain, enums vs vocabularies, relations, forcing fields — lives in
+`references/data-modeling.md`. What is left here is mechanics.
+
+- **`id.pattern` must accept everything `id.generate` can produce** — non-latin titles slug to a
+  deterministic short hash, so `[a-z0-9-]` still holds; a `YYYY/MM/`-prefixed id needs `/` in it.
 - **The `x-` keywords carry the domain semantics.** `x-reference` (a target collection, a LIST of
   them for a union, or `"*"` for any) is what lets `check` and `rename` follow a field. On input, a
   single-target field also accepts a bare id (`standup`, not `meetings/standup`) — it is qualified
@@ -102,12 +102,9 @@ templates: [collection-templates/provenance]   # merged at compile, every time
   VALUE of that field is labelled — rarely needed, because a reference already inherits its TARGET
   collection's `title_template`; author it there instead, once, rather than on every field pointing
   at it (a union field inherits a template only when every member's target collection agrees on one).
-- **Do not enum a field after the fact.** Enumerating a vocabulary the records already violate makes
-  `check` fail on every pre-existing value. `dt values <collection> <field>` derives the real
-  vocabulary from the data — a filter dropdown gets it for free without locking the set.
-- **`icon` / `group`** are the studio nav's material-symbol icon and folder; ungrouped collections
-  list at the top. `list_fields` is the SEED a module ships, not a competing source of truth — a
-  ui-view's `columns` REPLACES it.
+- **`icon` and `order`** are the studio nav's material-symbol icon and its sort position; the nav
+  GROUPS by the owning module, not by the deprecated `group`. `list_fields` is the SEED a module
+  ships, not a competing source of truth — a ui-view's `columns` REPLACES it.
 
 ## extending another module's collection
 
@@ -132,10 +129,9 @@ module rather than just for this workspace, fix the base.
 
 1. Sample the files: derive `suffix`/`codec` from the filenames (`<id>.<suffix>.<ext>`) and the id
    `pattern` from the id shapes actually present.
-2. Collect frontmatter keys across files → `properties`; infer types from values. A string field
-   with ≤10 distinct values, repeats and ≥80% fill is probably an `enum` — but see the warning
-   above. Values shaped `<collection>/<id>` are `x-reference` fields. No frontmatter at all →
-   `required: []` with a comment saying why.
+2. Collect frontmatter keys across files → `properties`; infer types from values. Values shaped
+   `<collection>/<id>` are `x-reference` fields. No frontmatter at all → `required: []` with a
+   comment saying why.
 3. **Never edit the records to fit an inferred schema.** Describe reality, compile, run `check`,
    then decide which violations are worth fixing in the data.
 
@@ -151,10 +147,7 @@ ledger.
 
 | mistake | reality |
 |---|---|
-| a mutable field in `id.generate` (`due`, `status`) | ids must never change |
-| `id.generate` from `created` for imported records | `created` is when the record was written, not when the thing happened |
 | tightening `required` before cleaning the data | check floods; widen, rewrite the data, then narrow |
 | a second same-name descriptor without `extends` | compile error by design |
 | a plain string where a ref belongs | use `x-reference` so `check` and `rename` can follow it |
 | a `templates:` ref pointing at another module | that module can no longer be copied or installed alone |
-| inventing a collection for a one-off extraction | a collection is for things that recur; prefer the nearest real one |

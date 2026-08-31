@@ -1,6 +1,6 @@
 ---
 name: building-dreamteamer
-description: use when authoring or changing anything in a module's source folders (collections/, skills/, agents/, commands/, command-bindings/, ui-views/, collection-templates/) — a collection or a field, a skill, a command, an agent, a ui-view, or studio component code. Also when deciding WHICH of those a request should become, or when a compile/check error names a source file.
+description: use when authoring or changing anything in a module's source folders (collections/, skills/, agents/, commands/, command-bindings/, ui-views/, collection-templates/) — a collection or a field, a skill, a command, an agent, a ui-view, or studio component code. Also when deciding WHICH of those a request should become, or when a compile/check error names a source file. Also when a request names a new kind of thing to keep.
 ---
 
 # building dreamteamer
@@ -19,7 +19,7 @@ actually wants to happen:
 
 | the ask | write | reference |
 |---|---|---|
-| "the workspace has no home for this kind of thing" / a field is missing | a **collection** | `references/collections.md` |
+| "I want to track / manage / keep X" — a new kind of thing, or a model that no longer fits | a **model proposal first**, then the entities it names — `data-modeling.md` decides, `collections.md` writes | `references/data-modeling.md` |
 | "when you're already doing X, know this" — knowledge a session should find itself | a **skill** | `references/skills.md` |
 | "let me type one word and have you do this" | a **command** | `references/commands.md` |
 | "do this with a fresh context and its own tools" | an **agent** | `references/agents.md` |
