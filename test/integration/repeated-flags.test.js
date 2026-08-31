@@ -155,3 +155,35 @@ describe('a flag that holds ONE value says so when it is repeated', () => {
 		assert.match(res.stdout, /no commands bound to notes/);
 	});
 });
+
+describe('a schema verb takes ONE value per flag', () => {
+	const schema = () => workspace({ collections: { notes: NOTES } });
+
+	test('add-field refuses a repeated --name instead of writing a field called "x,y"', () => {
+		const ws = schema();
+		const res = ws.dt('schema', 'add-field', 'notes', '--name', 'x', '--name', 'y', '--type', 'string');
+		assert.equal(res.code, 1);
+		assert.match(res.stderr, /--name was given 2 times, and a schema verb takes ONE value per flag: --name x --name y/);
+		const descriptor = ws.dt('get', 'collections/notes', '--json');
+		assert.doesNotMatch(descriptor.stdout, /"x,y"|"y":/, 'no field was written under either spelling');
+	});
+
+	test('so does add-collection, before a source file exists', () => {
+		const ws = schema();
+		const res = ws.dt('schema', 'add-collection', '--name', 'a', '--name', 'b');
+		assert.equal(res.code, 1);
+		assert.match(res.stderr, /--name was given 2 times/);
+	});
+
+	test('and a repeated --options, whose list spelling is the comma', () => {
+		const ws = schema();
+		const res = ws.dt('schema', 'add-field', 'notes', '--name', 'kind', '--type', 'enum', '--options', 'a,b', '--options', 'c');
+		assert.equal(res.code, 1);
+		assert.match(res.stderr, /--options was given 2 times/);
+	});
+
+	test('one value per flag is of course still fine', () => {
+		const ws = schema();
+		assert.equal(ws.dt('schema', 'add-field', 'notes', '--name', 'kind', '--type', 'enum', '--options', 'a,b').code, 0);
+	});
+});
