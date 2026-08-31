@@ -5,7 +5,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { workspace, simpleCollection, readFile } from '../helpers/ws.js';
+import { workspace, simpleCollection, readFile, compileQuietly, dt as runDt } from '../helpers/ws.js';
 import { load } from '../../src/yaml.js';
 import { Store } from '../../src/store.js';
 import { fieldDef, updateField, statedKeywords } from '../../src/schema-ops.js';
@@ -584,5 +584,82 @@ describe('restating --type keeps the cardinality', () => {
 		const fk = load(readFile(ws.root, 'modules/default/collections/meeting-recordings.collection.yaml')).schema.properties.meetings;
 		assert.equal(fk.type, 'string');
 		assert.equal(fk['x-reference'], 'meetings');
+	});
+});
+
+// ── a descriptor is HAND-WRITTEN, and a schema op must not silently rewrite its prose ───────────
+//
+// PARTIAL, DELIBERATELY, AND THE BOUNDARY IS ASSERTED IN BOTH DIRECTIONS. `add-field` rewrote the
+// source through `load` → mutate → `dump`, and `dump` cannot round-trip a comment — so every comment
+// in the file went. Measured on a four-comment descriptor: one add-field took it to zero. The
+// consequence was not cosmetic: the schema verbs were unusable on any commented descriptor, so real
+// relations got authored by hand in an editor instead — the CLI losing to a text editor for a job it
+// owns. `reattachComments` recovers the TOP-LEVEL blocks; the second test below pins what it still
+// cannot do, so nobody reads the partial as a full fix.
+describe('descriptor comments survive a schema op', () => {
+	/** A commented descriptor of the shape a module actually ships: a file header, a block above a
+	 *  top-level key, and one explaining a single FIELD (i.e. nested). */
+	function commented() {
+		const ws = workspace({ compile: false });
+		fs.writeFileSync(`${ws.root}/modules/default/collections/things.collection.yaml`, [
+			'# THINGS — this header is why the collection exists, which is the whole reason a module',
+			'# source is hand-written rather than generated.',
+			'name: things',
+			'description: A thing.',
+			'',
+			'# the id rule is deliberate: a thing has no natural key',
+			'id:',
+			"  generate: '{{ name | slug }}'",
+			'storage: { suffix: thing }',
+			'schema:',
+			'  type: object',
+			'  required: [name]',
+			'  properties:',
+			'    name: { type: string }',
+			'    # ⚠ nested: the importer reads this and nothing validates the spelling',
+			'    vendor_code: { type: string }',
+			'',
+		].join('\n'));
+		compileQuietly(ws.ws);
+		return ws;
+	}
+	const commentsOf = (ws) => readFile(ws.root, 'modules/default/collections/things.collection.yaml')
+		.split('\n').filter((l) => l.trim().startsWith('#'));
+
+	test('a top-level comment block survives add-field AND remove-field', () => {
+		const ws = commented();
+		assert.equal(commentsOf(ws).length, 4);
+
+		const add = runDt(ws.root, 'schema', 'add-field', 'things', '--name', 'colour', '--type', 'string');
+		assert.equal(add.code, 0, add.stderr);
+		const after = commentsOf(ws);
+		assert.ok(after.some((l) => l.includes('THINGS — this header')), `the file header went:\n${after.join('\n')}`);
+		assert.ok(after.some((l) => l.includes('the id rule is deliberate')), 'the block above a top-level key went');
+
+		// …and the same on the way back out — both writers go through one `writeDescriptor`
+		assert.equal(runDt(ws.root, 'schema', 'remove-field', 'things', '--name', 'colour').code, 0);
+		assert.ok(commentsOf(ws).some((l) => l.includes('THINGS — this header')));
+	});
+
+	test('a NESTED comment does not survive — the limit, asserted so it cannot be mistaken for fixed', () => {
+		// Re-placing a comment from inside `schema.properties` needs to know where that key ended up,
+		// and a misplaced comment is worse than an absent one: it attaches an explanation to something
+		// it does not explain. Fixing this needs a YAML library that keeps a document's syntax tree.
+		const ws = commented();
+		assert.ok(commentsOf(ws).some((l) => l.includes('nested: the importer')));
+		assert.equal(runDt(ws.root, 'schema', 'add-field', 'things', '--name', 'colour', '--type', 'string').code, 0);
+		assert.ok(
+			!commentsOf(ws).some((l) => l.includes('nested: the importer')),
+			'a nested comment surviving would be good news — and would mean this test is now the wrong shape, not that it should be deleted');
+	});
+
+	test('STYLE is still lost, and that is the other half of the same limit', () => {
+		// `dump` emits its own defaults, so an inline mapping comes back as a block one. Named here
+		// because it is what makes the diff of a one-field edit the whole file — the record half of the
+		// same problem lives at a different call site (store.serialize) and is untouched.
+		const ws = commented();
+		assert.match(readFile(ws.root, 'modules/default/collections/things.collection.yaml'), /storage: \{ suffix: thing \}/);
+		assert.equal(runDt(ws.root, 'schema', 'add-field', 'things', '--name', 'colour', '--type', 'string').code, 0);
+		assert.match(readFile(ws.root, 'modules/default/collections/things.collection.yaml'), /storage:\n {2}suffix: thing/);
 	});
 });
