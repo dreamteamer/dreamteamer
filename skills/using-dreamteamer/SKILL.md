@@ -60,7 +60,7 @@ when you're not sure the runtime is fresh.
 | a record — read, create, update, rename, delete | `references/records.md` |
 | authoring anything under a module's source folders — a collection, field, skill, command, agent, ui-view, or component code | `building-dreamteamer` |
 | "what changed while I was away" | `references/git-events.md` |
-| the workspace lacks the capability entirely | `building-dreamteamer` → `references/before-you-build.md` |
+| the workspace lacks the capability entirely | `building-dreamteamer` → `references/before-you-build.md`, then `references/data-modeling.md` |
 
 Domain work — meetings, contacts, tasks, content, design — is owned by the **module** that ships those
 collections, not by core. Read that module's own skills. Core knows about entity kinds and `repos`,
