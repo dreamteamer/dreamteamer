@@ -281,7 +281,9 @@ describe('a stated relation flag means the same thing everywhere', () => {
 	for (const spelling of [['--unique'], ['--unique', 'true'], ['--unique=true']]) {
 		test(`update-field ${spelling.join(' ')} keeps the one-to-one`, () => {
 			const ws = withUniqueFk();
-			const res = ws.dt('schema', 'update-field', 'meeting-recordings', '--name', 'meeting', ...spelling);
+			// `--description` so this is a REAL write: restating --unique on an already-unique field is
+			// now correctly a no-op, and a no-op cannot show that the keyword survives the rebuild.
+			const res = ws.dt('schema', 'update-field', 'meeting-recordings', '--name', 'meeting', ...spelling, '--description', 'the call');
 			assert.equal(res.code, 0, res.stderr);
 			const meeting = sourceOf(ws, 'meeting-recordings').schema.properties.meeting;
 			assert.equal(meeting['x-unique'], true, 'x-unique must survive its own flag');
@@ -390,5 +392,95 @@ describe('a stated relation flag means the same thing everywhere', () => {
 		const meeting = sourceOf(ws, 'meeting-recordings').schema.properties.meeting;
 		assert.equal(meeting.type, 'boolean');
 		assert.equal(meeting['x-reference'], undefined);
+	});
+});
+
+
+// ---- an idempotent schema command is a SUCCESS -------------------------------------------------
+// A write that changes nothing produced a byte-identical source, and the write gate's `git commit`
+// then failed with "the schema change was rolled back, nothing was changed" — pointing at git for a
+// command that did exactly what was asked, on a workspace left correct. Ten distinct CORRECT
+// spellings hit it, so an "apply my schema" script failed on every already-satisfied field, as did
+// any retry after a partial failure. `rename-collection` set the precedent: say so, and exit 0.
+describe('an idempotent update-field says so and exits 0', () => {
+	function fk({ unique = false, many = false } = {}) {
+		const ws = workspace({ collections: {
+			meetings: simpleCollection({ storage: { suffix: 'meeting' } }),
+			'meeting-recordings': simpleCollection({ storage: { suffix: 'recording' } }),
+		} });
+		const add = ws.dt('schema', 'add-field', 'meeting-recordings', '--name', 'meeting', '--type', 'meetings',
+			...(many ? ['--many'] : []), '--inverse', ...(unique ? ['--unique'] : []));
+		assert.equal(add.code, 0, add.stderr);
+		return ws;
+	}
+	const sourceOf = (ws) => load(readFile(ws.root, 'modules/default/collections/meeting-recordings.collection.yaml'));
+
+	// five of the ten spellings the matrix found, one per shape of no-op
+	const cases = [
+		['a plain re-run of the same update', {}, ['--inverse']],
+		['--inverse= on a field that has no mirror', {}, ['--inverse=']],
+		['--unique false on a non-unique FK', {}, ['--unique', 'false']],
+		['--many false on a scalar FK', {}, ['--many', 'false']],
+		['--type restated, unchanged', {}, ['--type', 'meetings']],
+	];
+	for (const [what, opts, flags] of cases) {
+		test(what, () => {
+			const ws = fk(opts);
+			// the first --inverse= actually removes the mirror; run it twice so the SECOND is the no-op
+			if (flags[0] === '--inverse=') ws.dt('schema', 'update-field', 'meeting-recordings', '--name', 'meeting', ...flags);
+			const before = sourceOf(ws);
+			const res = ws.dt('schema', 'update-field', 'meeting-recordings', '--name', 'meeting', ...flags);
+			assert.equal(res.code, 0, res.stdout + res.stderr);
+			assert.doesNotMatch(res.stdout + res.stderr, /git commit failed|rolled back/);
+			assert.match(res.stdout, /meeting-recordings\.meeting — already exactly that, nothing to do/);
+			assert.deepEqual(sourceOf(ws), before, 'a no-op must leave the source untouched');
+			assert.equal(ws.dt('check').code, 0);
+		});
+	}
+
+	test('the run that DOES change something still reports the change', () => {
+		const ws = fk();
+		const res = ws.dt('schema', 'update-field', 'meeting-recordings', '--name', 'meeting', '--description', 'the call');
+		assert.equal(res.code, 0, res.stderr);
+		assert.match(res.stdout, /✔ compiled — the field is updated/);
+		assert.doesNotMatch(res.stdout, /nothing to do/);
+	});
+});
+
+// ---- cardinality belongs to --many, never to --type --------------------------------------------
+describe('restating --type keeps the cardinality', () => {
+	test('an array FK holding ONE value survives --type <the same collection>', () => {
+		// ⚠ the single-valued case specifically: check runs ajv with coerceTypes: 'array' and unwraps a
+		// one-element list, so a collapsed array FK passed `check` clean. Two elements is caught; one
+		// is not, which makes the source shape the only assertion that can see this.
+		const ws = workspace({ collections: {
+			meetings: simpleCollection({ storage: { suffix: 'meeting' } }),
+			'meeting-recordings': simpleCollection({ storage: { suffix: 'recording' } }),
+		} });
+		ws.dt('add', 'meetings', '--name', 'Standup');
+		ws.dt('schema', 'add-field', 'meeting-recordings', '--name', 'meetings', '--type', 'meetings', '--many', '--inverse');
+		ws.dt('add', 'meeting-recordings', '--name', 'Cap1', '--meetings', 'meetings/standup');
+		assert.equal(ws.dt('check').code, 0);
+
+		const res = ws.dt('schema', 'update-field', 'meeting-recordings', '--name', 'meetings', '--type', 'meetings', '--description', 'the calls');
+		assert.equal(res.code, 0, res.stderr);
+		const fk = load(readFile(ws.root, 'modules/default/collections/meeting-recordings.collection.yaml')).schema.properties.meetings;
+		assert.equal(fk.type, 'array', 'restating --type must not collapse an array FK to a scalar');
+		assert.equal(fk.items['x-reference'], 'meetings');
+		assert.equal(fk.items['x-inverse'], 'recordings', 'and the mirror stays on the items node');
+		assert.equal(readFile(ws.root, 'data/meeting-recordings/cap1.recording.md').includes('- meetings/standup'), true);
+		assert.equal(ws.dt('check').code, 0);
+	});
+
+	test('--many false alongside a restated --type still demotes, deliberately', () => {
+		const ws = workspace({ collections: {
+			meetings: simpleCollection({ storage: { suffix: 'meeting' } }),
+			'meeting-recordings': simpleCollection({ storage: { suffix: 'recording' } }),
+		} });
+		ws.dt('schema', 'add-field', 'meeting-recordings', '--name', 'meetings', '--type', 'meetings', '--many');
+		assert.equal(ws.dt('schema', 'update-field', 'meeting-recordings', '--name', 'meetings', '--type', 'meetings', '--many', 'false').code, 0);
+		const fk = load(readFile(ws.root, 'modules/default/collections/meeting-recordings.collection.yaml')).schema.properties.meetings;
+		assert.equal(fk.type, 'string');
+		assert.equal(fk['x-reference'], 'meetings');
 	});
 });

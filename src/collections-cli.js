@@ -329,9 +329,17 @@ function metaAddField(ws, store, collection, flags) {
 	const stray = (prop.items ?? prop)['x-reference'] === undefined && relationFlagsStated(flags);
 	if (stray) throw new Error(`--${stray} needs a --type <collection> reference.`);
 	const out = addField(ws, store, collection, { name: flags.name, prop, required: flags.required === 'true' });
+	if (out.unchanged) return alreadyThat(collection, flags.name);
 	console.log(`✔ ${rel(ws.root, out.file)}${out.extends ? ` (extends ${out.extends})` : ''}`);
 	console.log('✔ compiled — the field is live');
 	reportMirror(store, collection, flags.name, out.prop);
+	return 0;
+}
+
+/** The idempotent answer, in `rename-collection`'s words — a command that asks for what is already
+ *  there succeeded, and the operator needs to know which field it was talking about. */
+function alreadyThat(collection, field) {
+	console.log(`✔ ${collection}.${field} — already exactly that, nothing to do`);
 	return 0;
 }
 
@@ -360,6 +368,7 @@ function metaUpdateField(ws, store, collection, flags) {
 	// `flags` for the VALUES and `stated` for what the caller meant to restate: updateField carries
 	// every unstated relation keyword forward from the previous prop.
 	const out = updateField(ws, store, collection, flags.name, { prop, required, flags, stated: statedKeywords(flags) });
+	if (out.unchanged) return alreadyThat(collection, flags.name);
 	console.log(`✔ ${rel(ws.root, out.file)}${out.extends ? ` (extends ${out.extends})` : ''}`);
 	console.log('✔ compiled — the field is updated');
 	// off `out.prop`, never the one passed in: updateField reassigns it when it rebuilds a carried
