@@ -174,7 +174,7 @@ export class Store {
 						// second claimant. Refusing here rather than overwriting is what keeps the owning
 						// side the truth: the alternative silently unlinks whoever got there first.
 						if (f[rel.mirror] && f[rel.mirror] !== self) {
-							throw new Error(`${rel.field}: ${rel.target}/${tid} already has a ${rel.mirror} (${f[rel.mirror]}) — x-unique — nothing was written.`);
+							throw new Error(`${rel.field}: ${rel.target}/${tid} already has a ${rel.mirror} (${f[rel.mirror]}) — x-unique — nothing was written.\n  if that claim is STALE, dreamteamer relations rebuild ${rel.target} recomputes it from the owning side.`);
 						}
 						f[rel.mirror] = self;
 					} else {
@@ -347,7 +347,9 @@ export class Store {
 		const validate = this.ajv.compile(d.schema); // useDefaults mutates: defaults materialize
 		if (!validate(fields)) {
 			const msgs = validate.errors.map((e) => '  ' + fmtAjvError(e, fields));
-			throw new Error(`validation failed:\n${msgs.join('\n')}\nnothing was written.`);
+			// The remedy line, when the cause is a generated mirror — see mirrorRemedy below.
+			const remedy = mirrorRemedy(d, validate.errors.map((e) => e.instancePath.split('/')[1]));
+			throw new Error(`validation failed:\n${msgs.join('\n')}${remedy}\nnothing was written.`);
 		}
 		if (!skipRefs) this.checkRefs(d, fields);
 		return fields;
@@ -392,14 +394,14 @@ export class Store {
 				// a namespace that meant one thing on write and another on read would be worse than
 				// no namespaces at all.
 				const parsed = parseRef(value, this.namespaces);
-				if (!parsed) throw new Error(`${key}: reference "${value}" is not <collection>/<id> — nothing was written.`);
+				if (!parsed) throw new Error(`${key}: reference "${value}" is not <collection>/<id> — nothing was written.${mirrorRemedy(d, [key])}`);
 				const { collection: coll, id } = parsed;
 				if (targets !== '*' && !targets.includes(coll)) {
 					const want = targets.length === 1 ? `collection "${targets[0]}"` : `one of: ${targets.join(', ')}`;
 					throw new Error(`${key}: reference "${value}" must target ${want} — nothing was written.`);
 				}
 				if (!this.descriptors.has(coll)) throw new Error(`${key}: reference "${value}" targets unknown collection "${coll}" — nothing was written.`);
-				if (!this.ids(coll).has(id)) throw new Error(`${key}: dangling reference "${value}" — no such record. nothing was written.`);
+				if (!this.ids(coll).has(id)) throw new Error(`${key}: dangling reference "${value}" — no such record. nothing was written.${mirrorRemedy(d, [key])}`);
 			}
 		}
 	}
@@ -856,6 +858,33 @@ export class Store {
 			throw new Error(`git commit failed — the write was rolled back, nothing was changed. (${e.message.split('\n')[0]})`);
 		}
 	}
+}
+
+/**
+ * The remedy line for a refusal whose cause is a GENERATED MIRROR — `dreamteamer relations rebuild
+ * <collection>`, the same repair `check`'s staleness message names, and for the same reason: a
+ * mirror's value is derived state the engine wrote, not the caller's to edit.
+ *
+ * Without it, a legacy duplicate in a mirror array made an ORDINARY write to an unrelated field on
+ * the same record fail with somebody else's bookkeeping and no way out:
+ *
+ *   dt set meetings/kickoff name="Kickoff 2"
+ *   ✖ validation failed:
+ *       field recordings: [...,...] must NOT have duplicate items (items ## 1 and 0 are identical)
+ *     nothing was written.
+ *
+ * The generated mirror carries `uniqueItems`, so a duplicate in one is never a value this engine
+ * produced — it arrived by hand, or from a workspace written before the keyword existed. Naming the
+ * one command that repairs it is the difference between a wall and a step.
+ */
+export function mirrorRemedy(d, fieldNames) {
+	const mirrors = [...new Set(fieldNames)].filter((f) => {
+		const p = f && d.schema?.properties?.[f];
+		const h = (p?.items && typeof p.items === 'object') ? p.items : p;
+		return h?.['x-inverse-of'] !== undefined;
+	});
+	if (!mirrors.length) return '';
+	return `\n  ${mirrors.join(', ')}: a GENERATED mirror — its value is derived from the owning side, not yours to set. Repair it with: dreamteamer relations rebuild ${d.name}`;
 }
 
 export function bodyField(d) {

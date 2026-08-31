@@ -596,3 +596,54 @@ describe('rename and relations', () => {
 		assert.equal(ws.dt('check').code, 0);
 	});
 });
+
+describe('a refusal caused by a mirror names the command that repairs it', () => {
+	test('a legacy duplicate in a mirror array does not become a wall', () => {
+		// THE SHAPE THIS IS ABOUT: the generated mirror carries `uniqueItems`, so a duplicate in one is
+		// never a value this engine produced — it arrived by hand, or out of a workspace written before
+		// the keyword existed. What made it expensive was WHOSE write it broke: an ordinary edit to an
+		// unrelated field on the same record was refused with somebody else's bookkeeping, and the
+		// message said nothing about the one command that fixes it. `check`'s staleness line has always
+		// named `relations rebuild`; every refusal over a mirror now does.
+		const ws = relWorkspace();
+		ws.dt('add', 'meetings', '--name', 'Kickoff');
+		ws.dt('add', 'recordings', '--name', 'Cap One', '--meeting', 'meetings/kickoff');
+		const file = `${ws.root}/data/meetings/kickoff.meeting.md`;
+		fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace('  - recordings/cap-one\n', '  - recordings/cap-one\n  - recordings/cap-one\n'));
+
+		const blocked = ws.dt('set', 'meetings/kickoff', 'name=Kickoff 2');
+		assert.equal(blocked.code, 1);
+		assert.match(blocked.stderr, /must NOT have duplicate items/);
+		assert.match(blocked.stderr, /dreamteamer relations rebuild meetings/);
+
+		// …and the remedy converges: the whole loop, from the running verb the message names
+		assert.equal(ws.dt('relations', 'rebuild', 'meetings').code, 0);
+		const after = ws.dt('set', 'meetings/kickoff', 'name=Kickoff 2');
+		assert.equal(after.code, 0, after.stderr);
+	});
+
+	test('an x-unique collision says a stale claim is rebuildable', () => {
+		// Two owners for one one-to-one target. The refusal is correct either way — the mirror is a
+		// scalar and cannot hold two — but the CAUSE splits: a genuine second claimant is the caller's
+		// to resolve, while a claim left behind by a hand-edit or an older engine is mechanical.
+		const ws = relWorkspace();
+		ws.dt('add', 'meetings', '--name', 'Kickoff');
+		ws.dt('add', 'summaries', '--name', 'S1', '--meeting', 'meetings/kickoff');
+		const res = ws.dt('add', 'summaries', '--name', 'S2', '--meeting', 'meetings/kickoff');
+		assert.equal(res.code, 1);
+		assert.match(res.stderr, /x-unique/);
+		assert.match(res.stderr, /relations rebuild meetings/);
+	});
+
+	test('a dangling reference in a mirror is named as derived state, not as the caller\'s typo', () => {
+		const ws = relWorkspace();
+		ws.dt('add', 'meetings', '--name', 'Kickoff');
+		ws.dt('add', 'recordings', '--name', 'Cap One', '--meeting', 'meetings/kickoff');
+		const file = `${ws.root}/data/meetings/kickoff.meeting.md`;
+		fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace('recordings/cap-one', 'recordings/gone'));
+		const res = ws.dt('set', 'meetings/kickoff', 'name=Kickoff 2');
+		assert.equal(res.code, 1);
+		assert.match(res.stderr, /dangling reference/);
+		assert.match(res.stderr, /dreamteamer relations rebuild meetings/);
+	});
+});
