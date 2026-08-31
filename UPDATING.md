@@ -251,12 +251,12 @@ re-placing it would risk attaching an explanation to something it does not expla
 **A one-hop relational filter over a NAMESPACED collection matched zero records. Fixed — run
 `dt compile` and re-run any filter you had written off as "no results".**
 
-`recordResolver` split a reference at the first slash, so `family/people/gilad` asked the store for
+`recordResolver` split a reference at the first slash, so `family/people/dana-levi` asked the store for
 the collection `family` — a namespace, not a collection. The read threw, the resolver returned null,
 and `filter.js` treats an unresolvable ref as NARROWING. So this matched nothing, in silence:
 
 ```bash
-dt list family/health/lab-results --where '{"person":{"name":{"_eq":"Gilad Khen"}}}'   # 0 rows
+dt list family/health/lab-results --where '{"person":{"name":{"_eq":"Dana Levi"}}}'   # 0 rows
 dt list meetings --where '{"company":{"name":{"_nnull":true}}}'                        # worked
 ```
 

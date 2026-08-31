@@ -16,8 +16,8 @@ export function recordResolver(store) {
 		if (memo.has(ref)) return memo.get(ref);
 		let target = null;
 		// ⚠ `parseRef`, NEVER `ref.indexOf('/')`. This split at the first slash until 0.13.3, which
-		// made `family/people/gilad` the collection `family` (a NAMESPACE, not a collection) holding
-		// the id `people/gilad`. `store.read` threw, the catch below swallowed it, and the caller got
+		// made `family/people/dana-levi` the collection `family` (a NAMESPACE, not a collection) holding
+		// the id `people/dana-levi`. `store.read` threw, the catch below swallowed it, and the caller got
 		// null — which filter.js is documented to treat as NARROWING. So every one-hop relational
 		// filter over a namespaced collection matched ZERO records, with no error anywhere, while the
 		// identical filter over a default-namespace ref worked. Measured on a real vault: 151 rows via
