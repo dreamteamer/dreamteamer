@@ -46,6 +46,9 @@ const FILLER = num('filler', Math.round(RECORDS * 0.48));
 // A handful of real inbound references, so the run proves the rewrite WORKS as well as timing it.
 // The point of the original finding is that the cost is identical when this is zero.
 const REFS = Math.min(3, FILLER);
+// The second measurement's scale: N related pairs, all of them dirty, none of them published. This
+// is the term `dt commit <collection>` used to pay a git subprocess for, twice over, per row.
+const PAIRS = num('pairs', 200);
 
 const GIT_ENV = {
 	...process.env,
@@ -68,6 +71,31 @@ const FILLER_COLL = {
 	schema: {
 		type: 'object', required: ['name'],
 		properties: { name: { type: 'string' }, entry: { type: 'string', 'x-reference': 'ledger' } },
+	},
+};
+
+// A relation, declared the way a real one is: the scalar side owns it, the array side is generated.
+// `notes` is x-body on BOTH because compile refuses to stamp a mirror onto a codec: md collection
+// that declares no body — a mirror write rebuilds the file from its parsed fields and would drop any
+// prose the record holds.
+const CALLS = {
+	id: { generate: '{{ name | slug }}' },
+	storage: { suffix: 'call' },
+	schema: {
+		type: 'object', required: ['name'],
+		properties: { name: { type: 'string' }, notes: { type: 'string', format: 'markdown', 'x-body': true } },
+	},
+};
+const CAPTURES = {
+	id: { generate: '{{ name | slug }}' },
+	storage: { suffix: 'cap' },
+	schema: {
+		type: 'object', required: ['name'],
+		properties: {
+			name: { type: 'string' },
+			notes: { type: 'string', format: 'markdown', 'x-body': true },
+			call: { type: 'string', 'x-reference': 'calls', 'x-inverse': 'captures' },
+		},
 	},
 };
 
@@ -161,6 +189,62 @@ function timeRename(ws) {
 	return { out, reads, wallMs, userMs: cpu.user / 1000, sysMs: cpu.system / 1000 };
 }
 
+/** A workspace of PAIRS related records — one capture per call — published, then every record on
+ *  BOTH sides dirtied with prose. Prose is the point: no edge moves, so the leftover warning has
+ *  nothing to say and pays in full to find that out. That is the shape the regression lived in. */
+function commitFixture() {
+	const root = path.join(PERF_DIR, `commit-${PAIRS}`);
+	fs.mkdirSync(root, { recursive: true });
+	git(root, ['init', '-q']);
+	git(root, ['config', 'user.email', 'perf@example.invalid']);
+	git(root, ['config', 'user.name', 'dreamteamer perf']);
+	const res = spawnSync(process.execPath, [BIN, 'init'], { cwd: root, env: GIT_ENV, encoding: 'utf8' });
+	if (res.status !== 0) throw new Error(`perf fixture init failed:\n${res.stdout}\n${res.stderr}`);
+	fs.mkdirSync(path.join(root, 'node_modules'), { recursive: true });
+	fs.symlinkSync(ENGINE_ROOT, path.join(root, 'node_modules', 'dreamteamer'), 'dir');
+	const pkgFile = path.join(root, 'package.json');
+	const pkg = JSON.parse(fs.readFileSync(pkgFile, 'utf8'));
+	pkg.dependencies = { ...pkg.dependencies, dreamteamer: '*' };
+	fs.writeFileSync(pkgFile, JSON.stringify(pkg, null, '\t') + '\n');
+	const collDir = path.join(root, 'modules', 'default', 'collections');
+	fs.mkdirSync(collDir, { recursive: true });
+	fs.writeFileSync(path.join(collDir, 'calls.collection.yaml'), dump({ name: 'calls', ...CALLS }));
+	fs.writeFileSync(path.join(collDir, 'captures.collection.yaml'), dump({ name: 'captures', ...CAPTURES }));
+
+	const ws = { root, pkg };
+	const log = console.log, warn = console.warn;
+	console.log = console.warn = () => {};
+	try { compile(ws); } finally { console.log = log; console.warn = warn; }
+
+	const store = new Store(ws);
+	const t0 = performance.now();
+	let first;
+	for (let i = 0; i < PAIRS; i++) {
+		// bodies of differing length, so nothing downstream can be right by accident on fixed-size rows
+		const call = store.add('calls', { name: `Call ${i}`, notes: 'x'.repeat((i % 20) * 40 + 1) });
+		const cap = store.add('captures', { name: `Cap ${i}`, call: `calls/${call.id}` });
+		first ??= cap.id;
+	}
+	const writeMs = performance.now() - t0;
+	git(root, ['add', '-A']);
+	git(root, ['commit', '-qm', 'perf: fixture']);
+	for (const c of ['calls', 'captures']) {
+		const dir = path.join(root, 'data', c);
+		for (const f of fs.readdirSync(dir)) fs.appendFileSync(path.join(dir, f), '\nsession B was here.\n');
+	}
+	return { root, first, writeMs };
+}
+
+/** Wall time of one CLI invocation. The CLI, not the export, because the whole cost being measured is
+ *  SUBPROCESSES and the ~90ms of node startup in here is the floor every row is counted against. */
+function timeCli(root, args) {
+	const t0 = performance.now();
+	const res = spawnSync(process.execPath, [BIN, ...args], { cwd: root, env: GIT_ENV, encoding: 'utf8' });
+	const ms = performance.now() - t0;
+	if (res.status !== 0) throw new Error(`${args.join(' ')} failed:\n${res.stdout}\n${res.stderr}`);
+	return ms;
+}
+
 console.log(`\n  dreamteamer perf — tier 4, opt-in, timings only (nothing here can fail a build)\n`);
 console.log(`  GENERATING  ledger ${RECORDS.toLocaleString()} records · memos ${FILLER.toLocaleString()} records · ${REFS} inbound refs`);
 const fixture = generate();
@@ -183,6 +267,33 @@ console.log(`  squares. Measured on an M-series Mac, 2026-08-22:`);
 console.log(`    --records=200                 300 files    2.4s   124k reads    (the default)`);
 console.log(`    --records=2291 --filler=1100  3,395 files  271s   15.6M reads   (~64s to generate)`);
 
-if (flag('keep')) console.log(`\n  kept: ${path.relative(ENGINE_ROOT, fixture.root)}`);
+console.log(`\n  COMMIT  ${PAIRS} related pairs, all dirty on BOTH sides, none published`);
+const cf = commitFixture();
+console.log(`    ${(PAIRS * 2).toLocaleString()} record writes  ${secs(cf.writeMs)}   ${rate(PAIRS * 2, cf.writeMs)} through the real Store`);
+// One row per FORM, because the point of the measurement is that only one of the three asks the
+// question — and a reader who cannot see the other two flat has no way to tell a real regression
+// from a slow machine.
+for (const [args, what] of [
+	[['commit', 'captures', '--dry-run'], 'whole-collection: warns about the partners it leaves'],
+	[['commit', `captures/${cf.first}`, '--dry-run'], 'record-scoped: sweeps, so it can leave none behind'],
+	[['commit', '--dry-run'], 'unscoped: publishes everything, nothing is left'],
+]) {
+	console.log(`    ${args.join(' ').padEnd(34)}${secs(timeCli(cf.root, args))}   ${what}`);
+}
+console.log(`\n  The whole-collection form is the one that asks a question per DIRTY ROW: "did your edge`);
+console.log(`  move to something I am publishing". Each answer used to cost two git subprocesses — a`);
+console.log(`  \`git show\` for the pre-image and a \`rev-parse HEAD\` inside the store's id-cache key —`);
+console.log(`  so the form scaled at ~20ms per dirty partner row while the other two stayed flat.`);
+console.log(`  Measured on an M-series Mac, 2026-08-31, --pairs=200, best of three:`);
+console.log(`    per-row \`git show\` + per-row store.read   4.14s   what it cost`);
+console.log(`    batched pre-images only                   2.08s`);
+console.log(`    worktree read off the row only            2.20s`);
+console.log(`    both                                     0.15s   and flat in the row count`);
+console.log(`  The tempting rewrite — ask each PUBLISHED row instead — is in neither column: it costs`);
+console.log(`  4.16s here (publishing N rows is what dirtied N partners, so the two sides are the same`);
+console.log(`  size) and 4.20s with no dirty partners at all, where this measures 0.10s. It also names a`);
+console.log(`  different set; src/commit.js says why, and two tests hold it.`);
+
+if (flag('keep')) console.log(`\n  kept: ${path.relative(ENGINE_ROOT, fixture.root)} · ${path.relative(ENGINE_ROOT, cf.root)}`);
 else fs.rmSync(PERF_DIR, { recursive: true, force: true });
 console.log('');

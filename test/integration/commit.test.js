@@ -520,4 +520,73 @@ describe('the whole-collection form warns about the partner it leaves behind', (
 		assert.equal(res.code, 0, res.stderr);
 		assert.doesNotMatch(res.stderr, /meetings\/retro/);
 	});
+
+	test('naming the TARGET collection names the OWNER left pending', () => {
+		// The other direction, and it has to be read off the owner's own file: `dt commit meetings`
+		// publishes the mirror and leaves the foreign key behind, which is the same half-pair with the
+		// two collections swapped. A version of this that follows the edge from the published side gets
+		// one direction right and the other silently empty.
+		const ws = workspace({ collections: { meetings: MEETINGS, recordings: RECORDINGS } });
+		assert.equal(ws.dt('add', 'meetings', '--name', 'Standup').code, 0);
+		assert.equal(ws.dt('add', 'recordings', '--name', 'Cap', '--meeting', 'meetings/standup').code, 0);
+		const res = ws.dt('commit', 'meetings');
+		assert.equal(res.code, 0, res.stderr);
+		assert.match(res.stderr, /recordings\/cap/);
+		assert.match(res.stderr, /dreamteamer commit recordings\/cap/);
+		assert.deepEqual(pending(ws), ['recordings/cap']);
+	});
+
+	/** Standup + Cap, related and published, then Cap dirtied for a reason that is NOT its edge. */
+	function publishedPair() {
+		const ws = workspace({ collections: { meetings: MEETINGS, recordings: RECORDINGS } });
+		assert.equal(ws.dt('add', 'meetings', '--name', 'Standup').code, 0);
+		assert.equal(ws.dt('add', 'recordings', '--name', 'Cap', '--meeting', 'meetings/standup').code, 0);
+		assert.equal(ws.dt('commit').code, 0);
+		assert.equal(ws.dt('set', 'recordings/cap', 'name=Cap v2').code, 0);
+		return ws;
+	}
+
+	/** Hand-edit the whole `recordings:` mirror block out of a meeting file — an edge moving on ONE
+	 *  side, which the store itself would never produce and a person does every time they edit a
+	 *  record in an editor. */
+	function unmirror(ws, id) {
+		const f = `${ws.root}/data/meetings/${id}.meeting.md`;
+		fs.writeFileSync(f, fs.readFileSync(f, 'utf8').replace(/\nrecordings:\n(  - [^\n]*\n)+/, '\n'));
+	}
+
+	test('an edge that moved on ONE SIDE ONLY is still named', () => {
+		// ⚠ THE REGRESSION GUARD for the obvious O(published) rewrite of this warning. Session B edits
+		// the mirror out of the meeting by hand; the recording's own foreign key never moved. Ask the
+		// PUBLISHED recording "did any of your edges move" and the answer is no, so following the edge
+		// from that end names nothing at all — while the meeting is a genuine half-pair, and HEAD after
+		// this commit is exactly the red `dt check` the warning exists to pre-empt. `moved` compares a
+		// row's own file either side of HEAD, so the question can only be asked of the row it is about.
+		const ws = publishedPair();
+		unmirror(ws, 'standup');
+		const res = ws.dt('commit', 'recordings');
+		assert.equal(res.code, 0, res.stderr);
+		assert.match(res.stderr, /meetings\/standup/);
+		assert.deepEqual(pending(ws), ['meetings/standup']);
+	});
+
+	test('one leftover among many dirty partners — and only that one', () => {
+		// The pre-images arrive from ONE `git cat-file --batch` now, framed by the byte count git states
+		// and paired with the request list BY ORDER. An off-by-one there names the wrong record, and a
+		// fixture with one dirty partner could never show it — so this one has twelve, with bodies of
+		// deliberately different lengths and the real leftover in the middle. The other eleven are the
+		// negative half: dirty for prose, which is nobody's edge changing.
+		const ws = workspace({ collections: { meetings: MEETINGS, recordings: RECORDINGS } });
+		for (let i = 0; i < 12; i++) {
+			assert.equal(ws.dt('add', 'meetings', '--name', `M${i}`, '--notes', 'x'.repeat(i * 40 + 1)).code, 0);
+		}
+		assert.equal(ws.dt('add', 'recordings', '--name', 'Cap', '--meeting', 'meetings/m6').code, 0);
+		assert.equal(ws.dt('commit').code, 0);
+		assert.equal(ws.dt('set', 'recordings/cap', 'name=Cap v2').code, 0);
+		for (let i = 0; i < 12; i++) fs.appendFileSync(`${ws.root}/data/meetings/m${i}.meeting.md`, '\nsession B was here.\n');
+		unmirror(ws, 'm6');
+		const res = ws.dt('commit', 'recordings');
+		assert.equal(res.code, 0, res.stderr);
+		assert.match(res.stderr, /1 relation partner\(s\) left pending/);
+		assert.match(res.stderr, /dreamteamer commit meetings\/m6$/m);
+	});
 });
