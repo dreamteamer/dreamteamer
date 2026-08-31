@@ -10,7 +10,8 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { workspace, simpleCollection, compileError, readFile } from '../helpers/ws.js';
+import path from 'node:path';
+import { workspace, simpleCollection, compileError, compileQuietly, readFile, WS_MODULE } from '../helpers/ws.js';
 import { load } from '../../src/yaml.js';
 import { presentation } from '../../src/presentation.js';
 import { loadDescriptors } from '../../src/runtime.js';
@@ -381,6 +382,30 @@ describe('the mutual x-inverse spelling is one relation', () => {
 			const papers = load(readFile(ws.root, '.dreamteamer/collections/papers.collection.yaml'));
 			assert.equal(papers.schema.properties.topics.readOnly, undefined);
 			assert.equal(papers.schema.properties.topics.items['x-inverse'], 'papers');
+		}
+	});
+
+	test('the migration names EVERY descriptor the folded field could be in, not sources[0]', () => {
+		// A collection assembled from a base plus an `extends:` overlay has SEVERAL descriptor files,
+		// and the field this warning says to delete may be authored in any of them. The message used to
+		// name `sources[0]` — a guess. Following a wrong guess means opening a file that does not
+		// contain the field, changing nothing, and meeting the same warning on the next compile.
+		const ws = workspace({
+			compile: false,
+			collections: { meetings: simpleCollection({ storage: { suffix: 'meeting' } }), recordings: RECORDINGS },
+		});
+		// the mutual half is authored in the OVERLAY, so the base is exactly the wrong file to be sent to
+		fs.writeFileSync(
+			path.join(ws.root, 'modules', WS_MODULE, 'collections', 'meetings-overlay.collection.yaml'),
+			`name: meetings\nextends: ${WS_MODULE}/meetings\nschema:\n  properties:\n    recordings:\n      type: array\n      'x-inverse': meeting\n      items: { type: string, 'x-reference': recordings }\n`,
+		);
+		const out = compileQuietly(ws.ws);
+		const warn = out.warnings.find((w) => w.includes('declared on BOTH sides'));
+		assert.ok(warn, `no mutual-spelling warning: ${JSON.stringify(out.warnings)}`);
+		assert.match(warn, /recordings\.meeting owns it/);
+		for (const f of ['meetings.collection.yaml', 'meetings-overlay.collection.yaml']) {
+			const p = `modules/${WS_MODULE}/collections/${f}`;
+			assert.ok(warn.includes(p), `the warning must name ${p}, so the author can grep both:\n${warn}`);
 		}
 	});
 

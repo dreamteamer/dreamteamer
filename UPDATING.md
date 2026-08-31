@@ -20,6 +20,87 @@ npx dreamteamer check
 
 ---
 
+## 0.14.0 → 0.15.0
+
+**`x-inverse` now GENERATES the other side of a two-way link. Compile, then read the warnings** —
+every shape 0.14 taught still compiles, and each warning names the field to delete.
+
+`x-inverse` used to NAME a field you had authored on the target, and `check` verified that the two
+sides agreed. It now generates that field. Compile stamps a `readOnly` mirror onto the target's
+compiled descriptor — carrying `x-inverse-of: <owner>.<field>` and a description pointing back at
+the owner — the store maintains its VALUES in the same commit as every write to the owning side, and
+`check` reports a mirror that has fallen behind as `stale`, naming the `dreamteamer relations
+rebuild <collection>` that repairs it. The mirror is not writable: `dt set` on one refuses and names
+the owning field to set instead.
+
+**Three source spellings, one compiled pair.** A and B produce byte-identical output, so the choice
+is only about where the sentence reads best.
+
+```yaml
+# A — on the owning side, the field that holds the foreign key
+# collections/recordings.collection.yaml
+meeting: { type: string, 'x-reference': meetings, 'x-inverse': recordings }
+
+# B — from the target instead: author the field there, and say whose mirror it is
+# collections/meetings.collection.yaml
+recordings:
+  type: array
+  'x-inverse-of': recordings.meeting
+  items: { type: string, 'x-reference': recordings }
+```
+
+Spelling B's authored field is folded into the owner and then regenerated, so its `description`
+survives and every other keyword on it is dropped. Cardinality closes backwards: a SCALAR spelling-B
+mirror means the foreign key is one-to-one, and compile writes `x-unique: true` onto it for you.
+
+⚠ **Spelling C is the LEGACY MUTUAL one — `x-inverse` on both sides, each naming the other. It is
+what 0.14's own docs taught, and it still compiles: a warning, not an error, for this minor.** Read
+as two relations it is fatal (each side's mirror lands on the other's authored field), so compile
+collapses it to ONE relation, warns once per pair, and names the side it made the owner and why. The
+owner is the SCALAR side, because that is where the foreign key physically lives; where both sides
+are the same shape it is the one declaring `x-unique`, and failing that the qualified field name
+that sorts first. **The migration is to delete the field the warning says is now generated** and
+keep the `x-inverse` on the owner. Its `description` is kept; every other keyword on it is dropped.
+
+⚠ **A hand-authored field on the target that an owner's `x-inverse` names also warns**, for the same
+reason and with the same fix: delete it. `description` and `x-title-template` survive; nothing else
+does. A field of a genuinely DIFFERENT shape under that name is an error rather than a warning —
+rename one of the two.
+
+**Two new keywords, both on the owning side.** `x-unique: true` makes the link one-to-one, so the
+generated mirror is a scalar rather than an array, and `check` reports a second owner claiming a
+target that is already taken. `x-on-delete` says what removing a TARGET does to the records pointing
+at it: `restrict` (the default) refuses the `rm` and names them, `set-null` clears the foreign key.
+
+**New verb.** `dreamteamer relations [<collection>]` lists every pair the compiled runtime declares
+— `owner.field → target.mirror`, with the cardinality and the delete rule. `dreamteamer relations
+rebuild <collection> [--drop <field>]` regenerates mirror VALUES from the owning side, and is the
+one repair for a `stale` finding; `--drop <field>` also removes a residue key left by a mirror the
+schema no longer declares.
+
+**The schema verbs learned the relation flags.** `schema add-field` and `schema update-field` both
+take `--many`, `--inverse [name]`, `--unique`, `--on-delete restrict|set-null` and `--mirror-of
+<collection>.<field>`; a bare `--inverse` derives the mirror's name from the owning collection.
+`--inverse` on an EXISTING reference is the migration path — a plain foreign key gains its mirror
+without restating `--type`, and the records written before the mirror existed are counted for you,
+with the `relations rebuild` that repairs them.
+
+⚠ **`update-field` now CARRIES relation keywords forward.** Restating a field to change its
+description used to rebuild the prop from the flags alone and write back a plain `{type: string}` —
+the foreign key silently gone. Every relation keyword now survives unless a flag names it
+(`--inverse=` drops the mirror, `--unique false` clears the one-to-one). And an `update-field` that
+would change nothing now exits 0 saying so, instead of rewriting an identical file.
+
+⚠ **compile refuses a mirror it could only generate in a shape nobody can write**, each failure
+naming the field and the way out: `x-inverse` on `x-reference: '*'` (a wildcard has no target to
+stamp); a mirror onto a `codec: file` collection (the bytes are the whole record — there is no
+frontmatter to hold a generated field) or onto a runtime-based one (the store would write into
+`.dreamteamer/`, which the next compile overwrites); `x-on-delete: set-null` on a `required` field;
+a `required` list naming a generated mirror; two relations generating the same mirror name on one
+target; and a both-sides declaration whose two sides disagree about the field name.
+
+---
+
 ## 0.13.4 → 0.14.0
 
 **A record can now BE a file: `storage.codec: file`. Nothing to migrate** — it is a new codec, and
