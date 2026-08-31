@@ -663,3 +663,104 @@ describe('descriptor comments survive a schema op', () => {
 		assert.match(readFile(ws.root, 'modules/default/collections/things.collection.yaml'), /storage:\n {2}suffix: thing/);
 	});
 });
+
+// ── a description-only edit must not RETYPE the field ───────────────────────────────────────────
+//
+// The same silent-corruption class as the relation-keyword carry, and the reason that carry was not
+// enough: it named five keywords, and the problem is every keyword. `fieldDef` builds a prop from the
+// flags ALONE, so a call naming no `--type` came back `{type: string}` — the default of a function
+// that was told nothing — and `upsertField` writes what it is handed. Measured before the fix, one
+// `update-field --description "…"` each: a markdown body field, a date, an enum, an array and a
+// number ALL came back a plain string, losing format, enum, items, default and the numeric bounds.
+// The ones that WIDEN are invisible to `check` — a string accepts everything the number held.
+describe('update-field carries every keyword no flag restated', () => {
+	function shapes() {
+		const ws = workspace();
+		assert.equal(ws.dt('schema', 'add-collection', '--name', 'shapes').code, 0);
+		const add = (...a) => assert.equal(ws.dt('schema', 'add-field', 'shapes', ...a).code, 0);
+		add('--name', 'prose', '--type', 'markdown', '--body');
+		add('--name', 'due', '--type', 'date');
+		add('--name', 'status', '--type', 'enum', '--options', 'todo,doing,done');
+		add('--name', 'labels', '--type', 'tags');
+		add('--name', 'score', '--type', 'number', '--default-value', '3');
+		// a hand-authored constraint, which no flag can express and nothing else would preserve
+		const file = `${ws.root}/modules/default/collections/shapes.collection.yaml`;
+		fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace('      default: 3\n', '      default: 3\n      minimum: 0\n'));
+		assert.equal(ws.dt('compile').code, 0);
+		return ws;
+	}
+	const propOf = (ws, f) => load(readFile(ws.root, 'modules/default/collections/shapes.collection.yaml')).schema.properties[f];
+
+	test('--description alone keeps the type, the format, the enum, the items and the constraints', () => {
+		const ws = shapes();
+		for (const f of ['prose', 'due', 'status', 'labels', 'score']) {
+			const res = ws.dt('schema', 'update-field', 'shapes', '--name', f, '--description', 'a description');
+			assert.equal(res.code, 0, res.stderr);
+			assert.equal(propOf(ws, f).description, 'a description');
+		}
+		assert.equal(propOf(ws, 'prose').format, 'markdown');
+		assert.equal(propOf(ws, 'prose')['x-body'], true);
+		assert.equal(propOf(ws, 'due').format, 'date');
+		assert.deepEqual(propOf(ws, 'status').enum, ['todo', 'doing', 'done']);
+		assert.equal(propOf(ws, 'labels').type, 'array', 'a list must not come back a scalar');
+		assert.deepEqual(propOf(ws, 'labels').items, { type: 'string' });
+		assert.equal(propOf(ws, 'score').type, 'number', 'a number must not come back a string');
+		assert.equal(propOf(ws, 'score').default, 3);
+		assert.equal(propOf(ws, 'score').minimum, 0, 'a hand-authored constraint no flag can express');
+		assert.equal(ws.dt('check').code, 0);
+	});
+
+	test('a DELIBERATE --type still retypes, and takes the old shape with it', () => {
+		// `--type` owns the whole shape — "this field is a string now" cannot leave `minimum: 0`
+		// behind. This is the line between the two behaviours and the reason the carry is keyed on
+		// whether `--type` was passed rather than on a list of safe keywords.
+		const ws = shapes();
+		assert.equal(ws.dt('schema', 'update-field', 'shapes', '--name', 'score', '--type', 'string').code, 0);
+		const p = propOf(ws, 'score');
+		assert.equal(p.type, 'string');
+		assert.equal(p.default, undefined);
+		assert.equal(p.minimum, undefined);
+	});
+
+	test('a restating flag still REPLACES what it owns', () => {
+		const ws = shapes();
+		assert.equal(ws.dt('schema', 'update-field', 'shapes', '--name', 'status', '--options', 'open,shut').code, 0);
+		assert.deepEqual(propOf(ws, 'status').enum, ['open', 'shut']);
+		assert.equal(ws.dt('schema', 'update-field', 'shapes', '--name', 'score', '--default-value', '7').code, 0);
+		assert.equal(propOf(ws, 'score').default, 7);
+		assert.equal(propOf(ws, 'score').minimum, 0, 'and only what it owns');
+		assert.equal(ws.dt('schema', 'update-field', 'shapes', '--name', 'prose', '--body', 'false').code, 0);
+		assert.equal(propOf(ws, 'prose')['x-body'], undefined);
+	});
+
+	test('the carried items cannot make a mirror unclearable', () => {
+		// ⚠ THE REGRESSION THIS CARRY INVITES. Carrying `items` wholesale would bring `x-inverse` with
+		// it, and `--inverse=` fills only what is undefined — so the mirror could never be dropped
+		// again. The carried items arrives stripped of relation keywords; the relation carry below it
+		// is what puts them back, and it is the one that knows `--unique false` CLEARS.
+		const ws = workspace({ collections: {
+			meetings: simpleCollection({ storage: { suffix: 'meeting' } }),
+			'meeting-recordings': simpleCollection({ storage: { suffix: 'recording' } }),
+		} });
+		const upd = (...a) => assert.equal(ws.dt('schema', 'update-field', 'meeting-recordings', '--name', 'meeting', ...a).code, 0);
+		const src = () => load(readFile(ws.root, 'modules/default/collections/meeting-recordings.collection.yaml')).schema.properties.meeting;
+		assert.equal(ws.dt('schema', 'add-field', 'meeting-recordings', '--name', 'meeting', '--type', 'meetings', '--many', '--inverse').code, 0);
+
+		upd('--description', 'the calls');
+		assert.equal(src().type, 'array', 'the array FK survives a description-only edit');
+		assert.equal(src().items['x-inverse'], 'recordings', '…and so does its mirror');
+
+		upd('--inverse=');
+		assert.equal(src().items['x-inverse'], undefined, 'a carried items would have made this impossible');
+		assert.equal(src().items['x-reference'], 'meetings', 'the reference stays; only the mirror goes');
+
+		upd('--many', 'false');
+		assert.equal(src().type, 'string');
+		upd('--inverse', '--unique');
+		assert.equal(src()['x-unique'], true);
+		upd('--unique', 'false');
+		assert.equal(src()['x-unique'], undefined);
+		assert.equal(src()['x-inverse'], 'recording', 'clearing x-unique does not clear the mirror');
+		assert.equal(ws.dt('check').code, 0);
+	});
+});

@@ -709,7 +709,13 @@ export function statedKeywords(flags) {
  *  it behind its back. */
 const ALL_RELATION_KEYWORDS = new Set(['x-reference', 'x-inverse', 'x-unique', 'x-on-delete', 'x-inverse-of']);
 
-export function updateField(ws, store, collection, fieldName, { prop, required, flags = {}, stated = ALL_RELATION_KEYWORDS }) {
+export function updateField(ws, store, collection, fieldName, { prop, required, flags = {}, stated }) {
+	// Did the caller build this prop from the FLAG VOCABULARY, or hand over a whole field? `stated` is
+	// how it says so (see ALL_RELATION_KEYWORDS): a flag-built prop is only what the flags could
+	// express, so the rest is carried; a whole prop IS the field, and nothing may be carried into it
+	// behind its back.
+	const fromFlags = stated !== undefined;
+	stated ??= ALL_RELATION_KEYWORDS;
 	const d = store.descriptor(collection);
 	if (!d.schema?.properties?.[fieldName]) throw new Error(`no field "${fieldName}" on ${collection}`);
 	// upsertField REPLACES the prop, so retyping a field would silently drop its hand-authored
@@ -724,6 +730,61 @@ export function updateField(ws, store, collection, fieldName, { prop, required, 
 	// this a retype would silently un-body the field — the record's text then parses into nothing and
 	// the next write serializes it away. `--body false` is how you clear it.
 	if (flags.body === undefined && previous['x-body'] === true) prop = { ...prop, 'x-body': true };
+
+	// ⚠ WITHOUT `--type`, THE PREVIOUS SHAPE STANDS — and this is the same silent-corruption class the
+	// relation carry below closed, except that carry named five keywords and the problem is EVERY
+	// keyword. `fieldDef` builds a prop from the flags ALONE, so a call that named no type came back
+	// `{type: string}` — not a statement about the field, just the default of a function that was told
+	// nothing — and `upsertField` writes the prop it is handed. So
+	// `dt schema update-field <c> --name <f> --description "…"` RETYPED every field it touched.
+	// Measured, one description-only edit each:
+	//
+	//   prose  {type: string, format: markdown, x-body: true} → {type: string}  a body field, no longer one
+	//   due    {type: string, format: date}                   → {type: string}
+	//   status {type: string, enum: [todo, doing, done]}       → {type: string}  the constraint gone
+	//   labels {type: array,  items: {type: string}}           → {type: string}  a list became a scalar
+	//   score  {type: number, default: 3, minimum: 0, max: 10} → {type: string}  a number became a string
+	//
+	// Every one a data-shape change nothing announced, and the ones that WIDEN are invisible to
+	// `check` — a string field accepts everything the number field held. The rule: a flag that was
+	// passed speaks for the keywords it owns, and everything else comes from the previous prop.
+	// `--type` still owns the whole shape, so a deliberate retype behaves exactly as it did.
+	if (fromFlags && flags.type === undefined) {
+		// `title` and `description` have their own rules above (a DERIVED title is not an override);
+		// the relation keywords have theirs below, because `--unique false` clears rather than carries.
+		// A flag CLEARS what it names, so a stated one keeps the carry off even when its value was
+		// falsey — the `--unique false` precedent. Everything else is filled only where the rebuilt
+		// prop has nothing to say, which is what makes a restating flag still win.
+		const spokenFor = new Set(['title', 'description']);
+		if (flags.body !== undefined) spokenFor.add('x-body');
+		if (flags.many !== undefined) { spokenFor.add('type'); spokenFor.add('items'); } // cardinality, restated
+		// `--options` alone restates an EXISTING enum's values. `fieldDef` cannot: its enum case needs
+		// `--type enum`, so without this the carry below would put the OLD values back and
+		// `update-field --options open,shut` would be a silent no-op — trading one quiet wrong answer
+		// for another.
+		if (flags.options !== undefined && previous.enum !== undefined) {
+			prop = { ...prop, enum: optionList(flags.options) };
+			spokenFor.add('enum');
+		}
+		// `type` explicitly, because `fieldDef` always emits one: with no `--type` that value is the
+		// default of a function that was told nothing, not a statement, so it loses to the previous.
+		if (!spokenFor.has('type')) prop = { ...prop, type: previous.type ?? prop.type };
+		for (const [k, v] of Object.entries(previous)) {
+			if (spokenFor.has(k) || ALL_RELATION_KEYWORDS.has(k) || prop[k] !== undefined) continue;
+			prop[k] = structuredClone(v);
+		}
+		// …and now that the type is known, a STATED default can be coerced against it. fieldDef could
+		// not: it was told no type, so `--default-value 7` on a number field became the string "7".
+		if ((flags['default-value'] ?? flags.default) !== undefined && prop.default !== undefined) {
+			prop.default = coerceDefault(prop.type, prop.default);
+		}
+		// A carried `items` must arrive EMPTY of relation keywords, or `--inverse=` could not clear the
+		// mirror: the carry below is what re-applies them, and it only fills what is undefined.
+		if (prop.items && typeof prop.items === 'object') {
+			prop.items = { ...prop.items };
+			for (const kw of ALL_RELATION_KEYWORDS) delete prop.items[kw];
+		}
+	}
 
 	// Relation keywords are STRUCTURE, not prose — and the same replacement is far more expensive
 	// for them. `dt <c> update-field --name meeting --description "…"` rebuilt the prop from
@@ -1062,8 +1123,7 @@ export function fieldDef(store, flags, collection) {
 			case 'datetime': case 'timestamp': return { type: 'string', format: 'date-time' };
 			case 'enum': {
 				if (!flags.options) throw new Error('enum needs options "a,b,c"');
-				const opts = Array.isArray(flags.options) ? flags.options : flags.options.split(',').map((s) => s.trim());
-				return { type: 'string', enum: opts };
+				return { type: 'string', enum: optionList(flags.options) };
 			}
 			case 'tags': return { type: 'array', items: { type: 'string' } };
 			default:
@@ -1072,7 +1132,7 @@ export function fieldDef(store, flags, collection) {
 				throw new Error(`unknown field type "${t}"`);
 		}
 	})();
-	if (def !== undefined) p.default = p.type === 'boolean' ? def === 'true' || def === true : p.type === 'number' || p.type === 'integer' ? Number(def) : def;
+	if (def !== undefined) p.default = coerceDefault(p.type, def);
 	// what the field MEANS, in one line — JSON Schema's own keyword, projected to every surface by
 	// presentation.js. A field whose name doesn't say enough is documented here, not in a comment.
 	if (typeof flags.description === 'string' && flags.description.length > 0) p.description = flags.description;
@@ -1141,6 +1201,19 @@ function impliedByMirrorOf(store, flags) {
 	const many = holder?.['x-unique'] === true ? flags.many : (flags.many ?? true);
 	return { ...flags, type: owner, many };
 }
+
+/** A CLI default arrives as a string, and which JSON type it becomes depends on the field's. Shared
+ *  by `fieldDef` and by updateField's carry, because `--default-value 7` with no `--type` has to be
+ *  coerced against the type the field ALREADY has: keying it off `fieldDef`'s `{type: string}` default
+ *  wrote the string "7" into a number field, which then reads back as a string on every new record. */
+const coerceDefault = (type, def) => (type === 'boolean'
+	? def === 'true' || def === true
+	: type === 'number' || type === 'integer' ? Number(def) : def);
+
+/** `--options a,b,c` → the enum's values. Shared by `fieldDef` (which needs `--type enum` to build
+ *  one from nothing) and by updateField's carry (where `--options` alone restates the values of an
+ *  enum that already exists) — one splitter, so the two spellings cannot disagree about whitespace. */
+const optionList = (v) => (Array.isArray(v) ? v : String(v).split(',')).map((x) => String(x).trim()).filter(Boolean);
 
 /** Deep value equality as a string, key ORDER ignored — a prop read back out of YAML comes in
  *  authored order and a rebuilt one comes in flag order, and "is this already exactly that field"
