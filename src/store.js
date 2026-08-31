@@ -477,6 +477,13 @@ export class Store {
 				// with `check` to prevent in the first place.
 				const soft = refIsSoft(s);
 				if (!this.descriptors.has(coll)) {
+					// A collection the owning module DECLARED as a peer and nothing installed provides is
+					// the normal state of a module opened on its own. `check` excuses it via the same
+					// `unresolved_peers` compile stamps onto this descriptor, and this refused it — so the
+					// module could VALIDATE records it could not WRITE, and the workaround was to hand-edit
+					// the file the store exists to write. Same semantics as a soft ref ("resolve if present,
+					// ignore if absent"); the collection is absent, so the value passes through unresolved.
+					if (d.unresolved_peers?.includes(coll)) continue;
 					if (soft) continue;
 					throw new Error(`${key}: reference "${value}" targets unknown collection "${coll}" — nothing was written.`);
 				}
