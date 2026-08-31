@@ -277,19 +277,13 @@ roadmap, not a model; wait for the second consumer.
 - **`data/` is where records go.** `storage.path` is free-form, so a collection can be pointed
   anywhere in the workspace, but the answer is `data/<collection>` unless you have a reason you can
   state.
-- ⚠ **`state/` is DEPRECATED as a convention — do not spend a decision on it.** It was created as
-  the home for "operational records": runs, triggers, registries, cursors. All seven of those
-  collections were later measured unused and deleted, so its entire reason went with them. The
-  mechanism still works end to end (a collection declaring `storage.path: state/<name>` writes,
-  lists and checks correctly) and is kept for anyone who wants a second root — but nothing ships
-  there, and `dt init` no longer creates the folder.
-- **The need it was aimed at is real; records were the wrong answer.** When genuine operational data
-  finally arrived — cached provider readings, thousands of append-only rows — it went to a
-  gitignored `.cache/<thing>.jsonl`, and that was right: one record per reading would have been
-  thousands of files nobody opens individually, churning git for nothing. So the rule is not "put
-  machinery in `state/`", it is **do not model machinery as records at all**. In descending order:
-  a field on a record that already exists · a line appended to a gitignored cache file · a real
-  collection, if and only if you will genuinely list, filter and read the things one at a time.
+- ⚠ **`state/` is DEPRECATED as a convention — do not spend a decision on it.** The operational
+  records it was invented for were all measured unused and deleted; the mechanism still works for
+  a workspace wanting a second root, but nothing ships there. The rule that replaced it: **do not
+  model machinery as records at all.** In descending order: a field on a record that already
+  exists · a line appended to a gitignored `.cache/*` file (right for thousands of append-only
+  rows nobody opens individually) · a real collection, if and only if you will genuinely list,
+  filter and read the things one at a time.
 - **`codec: md` whenever a human reads a body; `yaml` when nobody does.** A record that is all
   fields and no prose (a lab value, a transaction, a cursor) is `yaml` — the body would only ever
   be empty. `json` exists for tool-written records.
@@ -632,11 +626,10 @@ Design against the enforcement that exists, not the enforcement you wish existed
   enums, requireds, id patterns.
 - The store maintains mirrors on `add`/`set`/`rm`/`revert`; refuses writes to mirrors; `rm`
   honours `x-on-delete`, detaches its own mirrors, and refuses on unmanaged inbound references.
-- `dt commit <collection>/<id>` sweeps the TARGET-side partners the named record's own write
-  dirtied — the mirrors its foreign-key change touched — so one logical change is one commit. A
-  dirty **owner** on the far side is never swept, whoever wrote it: the commit refuses and names
-  both records, so you scope the commit to the pair rather than publishing half of someone else's
-  work — or half of your own.
+- a RECORD-scoped commit pairs a relational write with the mirror partners it dirtied, so one
+  logical change is one commit — and refuses to publish half of a pair; the collection form
+  publishes what it names and prints the partners it left pending. The scoping rules live in
+  `records.md`.
 - Schema ops clean up after themselves: dropping an inverse clears the generated values it
   orphans; removing a populated field clears its values, reporting the count, with the previous
   version in git.
@@ -710,14 +703,12 @@ defaults (a field with a good default is a field nobody has to touch). Required-
 
 ### 33. Views — when a `ui-view` earns existence
 
-The default rendering — a table of `list_fields` over the whole collection — is itself an ordinary
-default view; a named ui-view exists to be *different* from it. One earns its keep when it encodes
-a recurring question (`/views/visits/unbilled`), a different layout genuinely fits the data
-(kanban by `status`, calendar by a date field, map by a location), or a filtered slice is
-someone's daily surface. A view that restates the fallback is a record to maintain for nothing.
-Layouts come from the registered set (`table`, `cards`, `kanban`, `calendar`, `map`, plus
-module-declared); filters are operator objects (`{status: {_eq: todo}}`), and a saved view is an
-ordinary record — diffable, agent-writable, one per recurring question rather than one per mood.
+A named ui-view exists to be *different* from the default rendering, and it earns its keep when
+it encodes a **recurring question**, when a different layout genuinely fits the data's axis, or
+when a filtered slice is someone's daily surface — one view per recurring question, never one per
+mood. The model side of the decision is that the question must already be a one-hop filter (§34);
+everything else about views — anatomy, targets, layouts, the filter and options traps — is
+`ui-views.md`.
 
 ### 34. Searchable and filterable — the model side of "find it"
 

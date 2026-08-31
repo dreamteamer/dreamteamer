@@ -1,29 +1,23 @@
 ---
 name: using-dreamteamer
-description: always load first — describes this dreamteamer workspace, its collections, conventions and your pending tasks
+description: always load first in a dreamteamer workspace — reading, writing and committing records, and changing what the workspace keeps or does (collections and fields, skills, commands, agents, ui-views, component code). Also when deciding which of those a request should become, when a compile or check error names a source file, or when a request names a new kind of thing to keep.
 ---
 
 # using dreamteamer
 
-this is a **dreamteamer** workspace: collections, skills, agents and commands are records compiled
-from sources into a runtime the harness reads.
+this is a **dreamteamer** workspace: collections of typed records, plus the skills, commands,
+agents and views that operate on them — all compiled from sources into a runtime the harness
+reads.
 
-**core principle:** read the compiled runtime, write the sources, compile — then `dt commit` to publish.
+**core principle:** read the compiled runtime, write records with the CLI and sources under
+`modules/`, compile after any source change — then `dt commit` publishes what you wrote.
 
-## when to use
+## when to load
 
-load this **first, every session** in this repo. reload mid-session on any of these symptoms: you're
+first thing, every session in this repo. reload mid-session on any of these symptoms: you're
 about to guess a collection's fields; you can't tell whether the file to edit lives under
 `modules/*/<kind>/` or `.dreamteamer/`; you wrote something and the harness didn't notice; you're
 unsure which skill owns the job in front of you.
-
-**this file is the MAP, not the procedure.** Detail lives in two references beside it, loaded on
-demand:
-
-| load | when |
-|---|---|
-| `references/records.md` | reading, creating, updating, renaming or deleting any record — the CLI verbs, hand-writing rules, the hard rules about ids and renames |
-| `references/git-events.md` | "what changed while I was away" — `dt changes`, and how record events are derived from git history |
 
 ## the contract
 
@@ -31,99 +25,114 @@ demand:
 |---|---|---|
 | schemas (read) | `.dreamteamer/collections/*.collection.yaml` | the single source of truth for what exists and its shape. **never edit under `.dreamteamer/`** — generated and gitignored |
 | provenance | `.dreamteamer/manifest.yaml` | which module shipped which entry |
-| sources (write) | `modules/<module>/` — **including the workspace's own**, the `dreamteamer.workspace-module` named in `package.json` | a source folder at the workspace ROOT is a compile ERROR. same-name collisions across modules are compile errors too. after ANY source change: `npm run compile` |
-| content records | `data/<collection>/` | per each descriptor's `storage.path` |
+| sources (write) | `modules/<module>/<kind>/` — **including the workspace's own**, the `dreamteamer.workspace-module` named in `package.json` | a source folder at the workspace ROOT is a compile error (whenever `workspace-module` is set — every `dt init` workspace); same-name collisions across modules too. after ANY source change: `dt compile` |
+| records (write) | `data/…`, per each descriptor's `storage.path` | the CLI writes them validated; hand-edits are legal and owe `dt check` |
 
-- a record is a `<id>.<suffix>.<ext>` file (or a folder, for folder-shape collections). **the id is
-  the path** inside the collection folder minus suffix and extension — nested folders join in:
+- a record is a `<id>.<suffix>.<ext>` file (or a folder, for folder-shape collections). **the id
+  is the path** inside the collection folder minus suffix and extension — nested folders join in:
   `data/meetings/2026/07/standup.meeting.md` ⇒ id `2026/07/standup`.
-- **references are `<collection>/<id>`** strings — always qualified, greppable, never a bare name and
-  never a file path.
+- **references are `<collection>/<id>`** strings — always qualified, greppable, never a bare name
+  and never a file path.
+
+**lifecycle:** `dt init` writes a new workspace's skeleton (it never compiles). a FRESH CLONE owes
+`dt install` (restores `git_modules/`) then `dt compile` before anything reads — `.dreamteamer/`
+and the harness folders are gitignored build output, so a clone has no runtime until compile
+writes one — and `.env` is per-machine (declared keys: `references/records.md`). `dt status` says
+whether the runtime is fresh. the workspace's own switches live in `package.json`'s `dreamteamer`
+block (`references/collections.md`, the workspace manifest).
 
 ## the CLI is the front door
 
-`npm run --silent dt -- help` is the command surface — the record verbs, the schema verbs and the
-workspace verbs alike. don't learn verbs and flags from prose; prose drifts, and `help` lives in
-the same file as the dispatch it describes.
+`dt` in this skill means the dreamteamer CLI: **`npx dreamteamer`** works in any workspace, and a
+workspace may alias it as an npm script — check `scripts` in `package.json` (the common spelling
+is `npm run --silent dt -- <verb> …`).
 
-what you need to know *about* the CLI: collection verbs validate hard — invalid writes, **including
-unknown fields**, are rejected before disk — and a write does NOT commit (see conventions below).
+**`dt help` is the complete command surface** — record verbs, schema verbs, workspace verbs, and
+their flags, on one page (there is no per-verb `--help`). don't learn syntax from prose, this skill included: prose drifts, and `help` ships in
+the same file as the dispatch it documents. run it once before your first write of a session.
+what prose adds is judgment — *when* a verb is the right move, and the guarantees you can lean
+on: **validation is hard** (unknown fields included; an invalid write is rejected before disk
+with no partial state), and **a write does not commit** — `dt commit` publishes, scoped
+(`references/records.md`).
 
-## routing
+## two acts, one map
 
-| the request is about | load |
+Act one is **working with data** — the records themselves. Act two is **modeling the workspace**
+— changing what it keeps (collections, fields) or what it does (skills, commands, agents, views).
+Load by the map; nothing here is loaded "just in case".
+
+| the job | load |
 |---|---|
-| a record — read, create, update, rename, delete | `references/records.md` |
-| authoring anything under a module's source folders — a collection, field, skill, command, agent, ui-view, or component code | `building-dreamteamer` |
-| "what changed while I was away" | `references/git-events.md` |
-| the workspace lacks the capability entirely | `building-dreamteamer` → `references/before-you-build.md`, then `references/data-modeling.md` |
+| read, create, update, rename, delete, commit — or UNDO — a record | `references/records.md` |
+| "what changed while I was away" | `references/changes.md` |
+| the workspace seems unable to do something — a new kind of thing, a missing capability, "don't we already have this?" | `references/before-you-build.md` (look first); a new model then continues `references/data-modeling.md` (decide) → `references/collections.md` (write it) |
+| a collection or field, mechanically — the descriptor, the `schema` verbs, `templates:`/`extends:`, a compile or check message | `references/collections.md` |
+| knowledge a session should find on its own | `references/skills.md` |
+| "let me type one word and have this done" | `references/commands.md` |
+| "which command applies to this record?" — a binding, a gate | `references/commands.md` |
+| a job needing a fresh context and its own tools | `references/agents.md` |
+| a route, a nav entry, a board / calendar / map over records | `references/ui-views.md` |
+| a rendering or editing behaviour nothing registered has | `references/ui-components.md` |
 
-Domain work — meetings, contacts, tasks, content, design — is owned by the **module** that ships those
-collections, not by core. Read that module's own skills. Core knows about entity kinds and `repos`,
-and deliberately nothing else — including nothing about people. There is no `users` collection.
+three act-two tie-breakers, because they are the ones that go wrong:
 
-## conventions
+- **skill vs command:** a skill triggers itself when the situation arises; a command needs the
+  operator to remember it exists. if the answer is "and they'd have to think of running it",
+  write the skill.
+- **agent vs skill:** an agent costs a whole context. if "just tell the current session how"
+  works, it is a skill.
+- **a multi-step process is a CHAIN OF COMMANDS** gated on record fields (`references/commands.md`),
+  never a workflow entity — there is no workflow kind, deliberately: the record's own state is
+  the progress marker.
 
-- **a write puts a record on disk; `dreamteamer commit` publishes it.** committing is POLICY —
-  `"auto-commit"` in the workspace's `package.json`, default off — not a property of the write. so
-  commit when a logical change is complete, and run `dt status` if you are unsure what is pending.
-  subjects still read `dreamteamer: <verb> <detail>` for a single record (`dt commit` composes them
-  from git's own status letters), and a multi-record commit says what it swept.
-- **one commit per REPO.** a module can own its records (`owns-data` in its package.json), and git
-  has no cross-repo commit — so a rename whose inbound refs live in another repo is TWO commits.
-  `dt commit` prints both. `--dry-run` shows the set first.
-- **scope the commit to what YOU wrote: `dt commit <collection>/<id>`.** any number of targets, each
-  either a whole `<collection>` or one record — bare `dt commit` publishes everything pending, and
-  `dt commit <collection>` publishes every dirty record under it *whoever wrote it*, which is the
-  same sweep as the blanket add below when a second session shares the tree.
-- **never `git add -A`, `git add .`, or `git commit -a`.** stage explicit paths. more than one agent
-  can be working in a tree, and a blanket add silently commits whatever another session has
-  uncommitted right now — under your subject, leaving `git status` clean and the damage invisible.
-  the CLI's own writes are pathspec-scoped for exactly this reason, which is why it is the preferred
-  path for record writes.
-- **validate after bulk edits**: `npm run check` reports violations and never modifies files.
-- workspace-level rules live in `CLAUDE.md`, and a workspace's decision log (where one exists) wins
-  over older documents.
-- **session greeting** — surface the operator's inbox from whatever collection this workspace uses for
-  work, e.g. `npm run --silent dt -- list tasks --status todo`. ⚠ **there is no `users` collection and
-  no `@me`** (both removed in 0.8.0); read the operator from `git config user.name` at the point you
-  need one, and never filter on a person unless this workspace owns a collection of them.
+domain work — meetings, patients, invoices, whatever this workspace is about — is owned by the
+**module** that ships those collections; read that module's own skills. core knows entity kinds
+and `repos`, and deliberately nothing else. workspace-level rules live in `CLAUDE.md`, and a
+workspace's decision log (where one exists) wins over older documents.
 
-## machine-specific references
+## the rules that hold in both acts
 
-a path that exists on only one machine — a synced folder, an external disk — is written as a
-**template**, never as an absolute path:
-
-```yaml
-source_file: ${env:FILES_FOLDER}/2026/q3.pdf
-```
-
-| variable | renders to |
-|---|---|
-| `${env:NAME}` | `NAME`'s value in the workspace's `.env` — and only if `NAME` is listed in `dreamteamer.vars` in `package.json` AND has a non-empty value there (an empty or whitespace-only value fails exactly like an unset key) |
-| `${workspaceFolder}` | the workspace root, absolute |
-| `${userHome}` | the current user's home directory |
-
-- **declare the key before using it**: `"dreamteamer": { "vars": ["FILES_FOLDER"] }`. an undeclared
-  key and a declared-but-absent one are deliberately different errors — the first is a typo, the
-  second is a machine nobody has set up. `npm run compile` warns per declared var with no value in
-  `.env`, naming keys only.
-- **render with `dt resolve`, the only substitution point**: `dt resolve '${env:FILES_FOLDER}/x'`, or
-  `dt resolve <collection>/<id> <field>` to render what a record already holds (an array field prints
-  one item per line). an argument containing `${` is always a template, so a ref-shaped one is never
-  split as a reference.
-- ⚠ **templates are ordinary data — write them literally; nothing substitutes until resolve is
-  called.** `dt get`, `list`, `check` and every harness read the template verbatim. an un-namespaced
-  `${VAR}` is inert, so prose may mention `${…}` freely.
+1. **sources live in a module** — `modules/<module>/<kind>/`; the workspace's own go in its
+   workspace module. **a module is discovered by its `package.json` carrying a `dreamteamer`
+   key** (`"dreamteamer": {}` is enough) — without it, the folder is silently ignored.
+2. **the filename is the id.** where a record also carries a frontmatter `name` (agents,
+   commands), the two must agree, or the id lies and dispatch misses.
+3. **the meta-descriptor is the spec.** every source kind is itself a collection — read
+   `.dreamteamer/collections/<kind>.collection.yaml` plus one real record (`dt get <kind>/<id>`)
+   instead of learning a shape from prose.
+4. **`dt compile`, then `dt check`**, after any source change. compile fails closed — a bad
+   source is rejected and the previous runtime stands; check reports and never modifies.
+5. **a running session does not see new sources.** a new skill, command or agent is live in the
+   operator's NEXT session — say so rather than letting them wonder.
+6. **never edit generated output.** `.dreamteamer/`, `.claude/`, `.agents/`, `.cursor/` are
+   overwritten and pruned on the next compile — if you found the thing to change there, you are
+   in the wrong file.
+7. **the CLI refuses system-stored records on purpose** (`dt set skills/<id>` — no): edit the
+   module source and compile. the `schema` verbs are the sanctioned exception — they write
+   sources *through* a compile gate, so an uncompilable source can never land.
+8. **never duplicate a procedure across records.** a command body restating a skill, an agent
+   inlining its skill's steps — two copies, and one drifts. reference the owner.
+9. **nothing module-shipped names a person, an account or a machine path.** per-install values
+   are `${env:VAR}` templates plus a declared var, rendered only by `dt resolve`
+   (`references/records.md`).
+10. **commit discipline: scope to what YOU wrote** — `dt commit <collection>/<id> …` — and never
+    `git add -A`, `git add .` or `git commit -a`: a blanket add silently sweeps another session's
+    pending work under your subject. commit when a logical change is complete — records via
+    `dt commit`, sources via `git add <specific paths>`; `dt status` says what is pending, and
+    `dt check` runs after bulk edits.
 
 ## common mistakes
 
-| mistake | why it bites |
+| mistake | reality |
 |---|---|
-| editing something under `.dreamteamer/` | generated + gitignored; the change vanishes on the next compile |
-| changing a source and not compiling | the harness and `check` still read the stale runtime |
+| editing under `.dreamteamer/` or `.claude/` | generated — the change vanishes next compile; find the module source |
+| changing a source and not compiling | the CLI, `check` and every harness still read the stale runtime |
 | hand-writing a record the CLI could add | skips validation, id generation and defaults |
 | bare refs (`ada`, `data/contacts/x.contact.md`) | refs are `<collection>/<id>`; anything else fails check |
-| assuming a write was committed | it was not, unless `auto-commit` is on — `dt status` says what is pending |
+| assuming a write was committed | it was not (unless `auto-commit` is on) — `dt status` shows pending |
+| learning flags from prose or memory | `dt help` is the surface; prose carries judgment only |
+| a new module folder compile ignores | its `package.json` needs a `dreamteamer` key |
 | `git add -A` in a shared tree | steals another session's uncommitted work, invisibly |
-| an absolute machine path in a record | it is wrong on every other machine — write `${env:NAME}` and declare the key |
+| an absolute machine path in a record | wrong on every other machine — `${env:NAME}` + a declared var |
+| picking an entity by what is easiest to write | pick by how it should be TRIGGERED — that is what the choice encodes |
+| telling the operator a new source works now | it works in their **next** session |

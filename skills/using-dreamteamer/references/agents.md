@@ -41,7 +41,7 @@ What does *not* justify one:
 - **Recurrence.** A situation that keeps arising wants a skill, which triggers itself.
 - **A shortcut.** Something the operator deliberately types is a command.
 - **A procedure.** Procedures live in skills; an agent *references* its skills, never restates
-  them (rule 9 of the digest — two copies drift).
+  them (the digest's never-duplicate rule — two copies drift).
 
 The tie-breakers, as tests: if "just tell the current session how" works, write the skill. If the
 operator must remember to run it, write the command. Write the agent only when the fresh context is

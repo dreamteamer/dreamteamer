@@ -301,8 +301,8 @@ function orientationBlock(flavor, skillsIndex, sourceLayout = 'flat', namespaces
 		// Passed rather than imported because compile.js already computes it and imports THIS module —
 		// reaching back for `engineVersion` would close a cycle for the sake of one string.
 		`this workspace is a typed record DSL operated by dreamteamer v${version} — collections are the`,
-		'nouns. **read the `using-dreamteamer` skill before',
-		'working with data.** schemas (read): `.dreamteamer/collections/` (provenance:',
+		'nouns. **read the `using-dreamteamer` skill before working with data or changing what the',
+		'workspace keeps or does.** schemas (read): `.dreamteamer/collections/` (provenance:',
 		'`.dreamteamer/manifest.yaml`). sources (write): ' + sourcesLine,
 		'`command-bindings/`, `ui-views/`, `collection-templates/`',
 		'(see manifest for channels). data: `data/`. records are `<id>.<suffix>.<ext>`',

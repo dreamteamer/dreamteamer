@@ -24,7 +24,9 @@ seems fussy, ask which reader it protects.
 
 **Create** when a technique wasn't intuitively obvious, will recur, and applies beyond one record.
 The test is concrete: would a fresh session, facing this situation cold, do it wrong or slowly?
-If yes, and the situation recurs, that gap is a skill.
+If yes, and the situation recurs, that gap is a skill. **And look first** (`before-you-build.md`):
+the capability may already exist in an installed module under a name you didn't guess — a
+duplicate beside it is worse than the gap.
 
 **Don't create** for:
 
@@ -73,8 +75,8 @@ module issues" finds nobody. Name the skill verb-first (`writing-x`, `detecting-
 The economics: every consumer pays the full line count of what it loads, every time. A skill's
 `SKILL.md` is the **map** — routing plus the rules that apply everywhere — and per-topic depth
 lives in `references/<topic>.md`, loaded only when that topic is live. A session then pays for the
-map, not the whole territory. `building-dreamteamer` and `using-dreamteamer` are both built this
-way, and this file is itself an example: you loaded it because the digest's routing table named it.
+map, not the whole territory. `using-dreamteamer` is built this way, and this
+file is itself an example: you loaded it because its routing table named it.
 
 - Keep `SKILL.md` under ~500 words where you can; a digest that grows past that is usually holding
   a topic that wants its own reference.
@@ -122,9 +124,9 @@ IS: its parts, in order. A recipe leaves nothing to negotiate.
 - **Say what done looks like.** A skill that never states its end condition leaves the follower to
   decide when to stop, which is how half-applied procedures happen.
 - **Point at authorities instead of copying them.** "Run `--help`", "read the descriptor" — prose
-  drifts, the descriptor cannot (rule 3 of the digest). Copy a fact into a skill only when the
+  drifts, the descriptor cannot (the digest's read-the-descriptor rule). Copy a fact into a skill only when the
   skill adds judgment to it.
-- **Cross-reference sibling skills by name**, never restate them (rule 9: two copies drift).
+- **Cross-reference sibling skills by name**, never restate them (the digest's never-duplicate rule: two copies drift).
 
 ## portability — a skill ships to strangers
 
