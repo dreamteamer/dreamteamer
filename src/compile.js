@@ -249,6 +249,17 @@ function materializeRelations(mergedGroups, ctx) {
 			if (holder['x-on-delete'] === 'set-null' && (d.schema.required ?? []).includes(field)) {
 				fail(`collection "${name}": field "${field}" is required — x-on-delete: set-null would produce an invalid record. Use restrict, or drop required.`);
 			}
+			// THE SAME HOLE, one shape along: a LIST with a floor. `rm` clears set-null by removing the
+			// one entry that named the deleted record, and takes the key with it when that was the last
+			// — so `minItems: 1` is safe (absent and empty read alike to every reader) and anything
+			// higher is not. Measured on `minItems: 2` with two values: `dt rm meetings/kickoff` printed
+			// ✔ removed, and `dt check` then reported `must NOT have fewer than 2 items` on a record
+			// nobody had touched. `rm` does not validate the owners it rewrites — deliberately, since
+			// its job is to honour a policy the descriptor already declared — so the contradiction has
+			// to be refused where the descriptor is read.
+			if (holder['x-on-delete'] === 'set-null' && prop.type === 'array' && (prop.minItems ?? 0) > 1) {
+				fail(`collection "${name}": field "${field}" declares minItems: ${prop.minItems} — x-on-delete: set-null removes ONE entry per deleted record, so it would leave a list shorter than its own minimum and no write would be validating it. Use restrict, or drop minItems.`);
+			}
 			// x-unique on a LIST is a keyword no component can honour, and all of them read it
 			// differently: relationsOf calls the pair `m2m` while stampMirror generates the SCALAR
 			// mirror x-unique implies, so `dt relations` prints m2m beside a scalar; check tests
