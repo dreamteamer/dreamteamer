@@ -20,6 +20,17 @@ npx dreamteamer check
 
 ---
 
+## 0.16.0 → 0.16.1
+
+Docs and one test; nothing to do beyond `dt compile`. `using-dreamteamer` gains
+`references/getting-started.md` (blank workspace · existing data · git in plain words), states
+the CLI-default explicitly, carries a verbs-only map that a unit test holds to the dispatch, and
+reverses the sample-record advice: the schema is the contract — field `description`s and
+`examples:` (passed through to the compiled descriptor) carry conventions; peeking at a sibling
+record is a last resort that signals a schema to fix.
+
+---
+
 ## 0.15.x → 0.16.0
 
 **`building-dreamteamer` folded into `using-dreamteamer` — core ships ONE skill.** The content

@@ -54,14 +54,23 @@ read the compiled descriptor: `.dreamteamer/collections/<collection>.collection.
 Schema; the `x-` keywords carry the domain semantics — `x-reference`, `x-body`, `x-inverse`). it
 also carries `title` (what to call the collection) and `title_template` (how to label one record).
 
+the schema is the CONTRACT, and it is required to be sufficient: each field's `description`
+carries its conventions, an `examples:` annotation (standard JSON Schema — compile passes it
+through to the compiled descriptor) carries a canonical value where the shape is non-obvious, and
+`dt values` shows a vocabulary's real spread. a schema that makes you peek at data to write
+correctly is a defect in the schema.
+
 ## writing a record by hand
 
 **default to `dt add <collection>`** — id, defaults and validation in one line. hand-write only
 when the CLI can't express the value: a nested map, or a long structured body.
 
-when you do, don't reconstruct the shape from the schema — **`dt get <collection>/<existing-id>
---json` prints the exact shape a valid record has**: which fields, which ref forms, dates as
-strings. copy a sibling, change what differs, and:
+when you do, the descriptor is still the contract — required, defaults, each field's
+`description` and `examples:`, `dt values` for vocabularies. peek at a sibling
+(`dt get <collection>/<id> --json`) only when the schema underdocuments a convention you need — a
+sibling is ONE arbitrary instance, possibly written before the schema last moved — and the miss
+itself is the finding: put the convention into the field's `description` (or an `examples:`) in
+the same breath, so the next writer needs no peek. then:
 
 - put the file where the id says: the id IS its path inside `storage.path`, minus suffix and
   extension (folder-shape records are a folder named `<id>` holding the descriptor's `entry`).

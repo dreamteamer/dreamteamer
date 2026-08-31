@@ -420,6 +420,9 @@ descriptions are what an agent reads before writing a value. So:
 - A field's `description` says what the value MEANS, names the source when the value is copied
   from elsewhere, and states the convention an agent must follow ("empty means unmatched — the
   matching command's queue").
+- A field whose valid value has a non-obvious SHAPE carries an `examples:` annotation — standard
+  JSON Schema, passed through to the compiled descriptor — so the canonical value lives in the
+  contract, not in whichever record a writer happens to open.
 - `use_when` is authored **only** when an agent that fully understood the description would still
   not reach for the collection — a search-here-first trigger, a write-here-when situation. It is
   prose; nothing fires on it; and a `use_when` restating the description costs every session

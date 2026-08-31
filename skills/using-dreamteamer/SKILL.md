@@ -1,6 +1,6 @@
 ---
 name: using-dreamteamer
-description: always load first in a dreamteamer workspace — reading, writing and committing records, and changing what the workspace keeps or does (collections and fields, skills, commands, agents, ui-views, component code). Also when deciding which of those a request should become, when a compile or check error names a source file, or when a request names a new kind of thing to keep.
+description: always load first in a dreamteamer workspace — reading, writing and committing records, and changing what the workspace keeps or does (collections and fields, skills, commands, agents, ui-views, component code). Also when deciding which of those a request should become, when a compile or check error names a source file, or when a request names a new kind of thing to keep. Also for a brand-new or just-installed workspace, or dreamteamer over existing data.
 ---
 
 # using dreamteamer
@@ -39,7 +39,8 @@ unsure which skill owns the job in front of you.
 and the harness folders are gitignored build output, so a clone has no runtime until compile
 writes one — and `.env` is per-machine (declared keys: `references/records.md`). `dt status` says
 whether the runtime is fresh. the workspace's own switches live in `package.json`'s `dreamteamer`
-block (`references/collections.md`, the workspace manifest).
+block (`references/collections.md`, the workspace manifest) — and the guided path from nothing,
+or from existing data, is `references/getting-started.md`.
 
 ## the CLI is the front door
 
@@ -47,8 +48,21 @@ block (`references/collections.md`, the workspace manifest).
 workspace may alias it as an npm script — check `scripts` in `package.json` (the common spelling
 is `npm run --silent dt -- <verb> …`).
 
+**default to the CLI for every record read and write.** it validates before disk, generates the
+id, materializes defaults, and its writes are pathspec-scoped; touch a record file by hand only
+when the CLI cannot express the change (a long body, a nested map) — and then you owe `dt check`
+(`references/records.md`).
+
 **`dt help` is the complete command surface** — record verbs, schema verbs, workspace verbs, and
-their flags, on one page (there is no per-verb `--help`). don't learn syntax from prose, this skill included: prose drifts, and `help` ships in
+their flags, on one page (there is no per-verb `--help`).
+
+the verb names, as a map (semantics and flags live in `help`; a test holds this list to the
+dispatch, so it cannot drift):
+
+- read & measure — `list` `get` `values` `history` `diff` `commands` `relations` `resolve`
+- write & publish — `add` `set` `rm` `rename` `move` `revert` `commit` `ensure`
+- schema (sources, through the compile gate) — `schema` `add-collection` `rm-collection` `rename-collection` `add-field` `update-field` `remove-field` `add-view` `set-view` `rm-view`
+- workspace — `init` `install` `update` `compile` `check` `status` `start` `changes` `help` don't learn syntax from prose, this skill included: prose drifts, and `help` ships in
 the same file as the dispatch it documents. run it once before your first write of a session.
 what prose adds is judgment — *when* a verb is the right move, and the guarantees you can lean
 on: **validation is hard** (unknown fields included; an invalid write is rejected before disk
@@ -63,6 +77,7 @@ Load by the map; nothing here is loaded "just in case".
 
 | the job | load |
 |---|---|
+| a brand-new or empty workspace, dreamteamer over an existing pile of files, "help me set this up" | `references/getting-started.md` |
 | read, create, update, rename, delete, commit — or UNDO — a record | `references/records.md` |
 | "what changed while I was away" | `references/changes.md` |
 | the workspace seems unable to do something — a new kind of thing, a missing capability, "don't we already have this?" | `references/before-you-build.md` (look first); a new model then continues `references/data-modeling.md` (decide) → `references/collections.md` (write it) |
@@ -98,8 +113,9 @@ workspace's decision log (where one exists) wins over older documents.
 2. **the filename is the id.** where a record also carries a frontmatter `name` (agents,
    commands), the two must agree, or the id lies and dispatch misses.
 3. **the meta-descriptor is the spec.** every source kind is itself a collection — read
-   `.dreamteamer/collections/<kind>.collection.yaml` plus one real record (`dt get <kind>/<id>`)
-   instead of learning a shape from prose.
+   `.dreamteamer/collections/<kind>.collection.yaml`; its field descriptions are the contract.
+   prose drifts, and a sample record is one arbitrary instance — when a schema underdocuments a
+   convention, fixing the schema IS the task (`references/records.md`).
 4. **`dt compile`, then `dt check`**, after any source change. compile fails closed — a bad
    source is rejected and the previous runtime stands; check reports and never modifies.
 5. **a running session does not see new sources.** a new skill, command or agent is live in the
