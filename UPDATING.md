@@ -81,6 +81,19 @@ rebuild <collection> [--drop <field>]` regenerates mirror VALUES from the owning
 one repair for a `stale` finding; `--drop <field>` also removes a residue key left by a mirror the
 schema no longer declares.
 
+⚠ **A record write now modifies files in OTHER collections.** Setting a foreign key rewrites the
+generated mirror on the target record in the same write, so a single `dt add` or `dt set` leaves a
+second collection dirty — rows the caller never touched. Anything that stages, diffs or counts what a
+write produced sees two files where 0.14 produced one.
+
+⚠ **`dreamteamer commit <collection>/<id>` now SWEEPS relation partners into the commit.**
+Publishing one half of a pair leaves a HEAD that fails `check`, so the record-scoped form also
+publishes the partner records whose edge to a named record moved since HEAD — and REFUSES, naming
+every party, when another session has moved an edge in one of the same files. **A script that assumed
+a record-scoped commit touches exactly one file is affected.** The whole-collection form
+`dreamteamer commit <collection>` is unchanged — it still publishes exactly that collection, and now
+warns which partner records it left pending, with the command that publishes them.
+
 **The schema verbs learned the relation flags.** `schema add-field` and `schema update-field` both
 take `--many`, `--inverse [name]`, `--unique`, `--on-delete restrict|set-null` and `--mirror-of
 <collection>.<field>`; a bare `--inverse` derives the mirror's name from the owning collection.
@@ -107,6 +120,14 @@ you had already written by hand and nothing was ever generated onto anybody.
   Drop the `x-inverse`, or name the collections the field may point at.
 - **A mirror onto a `codec: file` collection.** The bytes ARE the record, so there is no frontmatter
   to hold a generated field. Leave the link one-way.
+- **A mirror onto a `codec: md` collection that declares no `x-body` field.** `serialize` keeps a
+  record's body only where the descriptor declares that field, so a mirror write would rebuild the
+  file without any prose it holds — silently, in a collection nobody named. Declare an `x-body` field
+  on the target, or leave the link one-way. (`dt schema add-collection` with no template produces a
+  collection with none.)
+- **`x-unique` on an ARRAY foreign key.** x-unique states that the foreign key is one-to-one, which a
+  list cannot be — and the components read the contradiction differently. Drop `x-unique`, or make
+  the field a single reference.
 - **A mirror onto a runtime-based collection.** The store would write into `.dreamteamer/`, which
   the next compile overwrites. Leave the link one-way.
 - **An `x-inverse` whose owning module does not declare a dependency on the TARGET's module.** The

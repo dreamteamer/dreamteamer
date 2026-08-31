@@ -38,27 +38,19 @@ reading or writing individual records (`references/records.md`).
 
 ## what this used to be, and why the rest went
 
-Until 2026-07-31 this mechanism was the front half of `dt sync`, which also matched
-`workflow-triggers` records, **created `workflow-runs`**, and advanced a per-evaluator cursor. That
-whole layer was removed: measured over three days it had produced 1 workflow record and 9 runs all from
-a single burst, **7 of them abandoned mid-flight**, against a cursor that had not advanced — while the
-work it was meant to automate was being done by a chain of commands a person runs.
-
-The derivation survived because it is the half that was actually used, for catch-up. Worth keeping from
-that design if automation is ever rebuilt:
-
-- **Never store an event queue.** A queue drifts from reality; history cannot.
-- **Any evaluator must be idempotent over a range** — re-running must not act twice. The old design
-  keyed that on `trigger + item + commit`, which is the shape to reuse.
-- **A migration is not a data event.** A bulk rewrite looks like N added records to git, so anything
-  acting on events must be scoped past it rather than run over it.
+Until 2026-07-31 this was the front half of `dt sync`, which also created `workflow-runs` and advanced
+a per-evaluator cursor. That layer was removed — over three days it produced 1 workflow record and 9
+runs from one burst, 7 abandoned mid-flight, against a cursor that never advanced. Catch-up is the
+half that was actually used, so the derivation survived. If automation is ever rebuilt: **never store
+an event queue** (a queue drifts from reality; history cannot), **make every evaluator idempotent over
+a range** (the old design keyed that on `trigger + item + commit` — reuse that shape), and remember
+that **a migration is not a data event** — a bulk rewrite looks like N added records to git, so scope
+past it rather than run over it.
 
 ## common mistakes
 
 | mistake | reality |
 |---|---|
 | hand-rolling the diff + path mapping | `dt changes` is the mechanism; a hand-roll misses folder-shape records and the rename split |
-| treating any changed path as a record | only paths matching a descriptor's `storage.path` + suffix + codec are records |
-| diffing the whole tree | scope to `data/` + `state/`; source and runtime churn are not item events |
 | writing an events file to "remember" what changed | history is the record; anything you write can drift from it |
 | reading `dt changes` output as a to-do list | it says what changed, not what it means — the judgement is yours |

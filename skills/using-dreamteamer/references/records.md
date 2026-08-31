@@ -18,22 +18,20 @@ purpose.
 
 ## the verbs
 
-`npm run --silent dt -- help` lists the generic record verbs and their flags. read them there.
-but **`help` is not the whole surface** — collections with a purpose-built verb (`schema add-collection`,
-`schema add-field <collection>`, `ensure`) don't appear in it, and a verb missing from `help`
-is not a verb that doesn't exist. when a skill names a verb, use the verb.
+`npm run --silent dt -- help` lists the generic record verbs and their flags — read them there. but
+**`help` is not the whole surface**: a purpose-built verb (`schema add-collection`, `ensure`) is
+absent from it and still works, so when a skill names a verb, use the verb.
 
 what the help text can't tell you either way:
 
 - **validation is hard and it includes unknown fields.** a typo'd key (`--assinee`) is rejected
   with nothing written, same as a dangling ref, a bad enum value (the error echoes the value it
   got) or an id that misses `id.pattern`. a rejected write leaves no partial state.
-- **every write verb commits by itself**, with the right subject — never stack another commit
-  on top.
+- **a write puts the record on disk; `dreamteamer commit` publishes it** — committing is workspace
+  policy (`auto-commit`, default off), not part of the write.
 - `set <collection>/<id> <field>=` with an empty value **removes** the field; array fields take a
   comma-separated value (`--attendees contacts/a,contacts/b`).
 - `--json` works on every verb — use it whenever you're going to parse the output.
-- `npm run check` validates the whole workspace after the fact: report-only, never rewrites.
 
 ## before writing anything
 
@@ -91,12 +89,26 @@ dt add health/visits --name Checkup --date 2026-03-04 --doctor health/doctors/da
 - ⚠ a namespace only exists if it is DECLARED. Without the declaration the same string reads as the
   collection `health` with a nested id, so it dangles — `dt check` says so.
 
+## two-way relations — the mirror is generated, and read-only
+
+a reference field may declare `x-inverse`: compile GENERATES the field it names on the TARGET
+collection, and the store maintains that value in the same write as every change to the owning side.
+so **never set or hand-edit a mirror** — `dt set` refuses it, and a hand-edit is what `check` reports
+as `<field>: stale`; write the owning side's reference and the mirror follows. `dt relations
+[<collection>]` lists every pair (owner.field → target.mirror, cardinality, on-delete) and
+`dt relations rebuild <target>` recomputes mirror values from the owning side — the repair that
+message names, and the only thing that writes a mirror directly. one consequence to hold: a
+relational write dirties TWO records in TWO collections, so `dt commit <collection>/<id>` publishes
+the partner whose edge moved along with it, and REFUSES when another session has moved an edge in
+the same file — there is no commit that publishes one half of a pair honestly.
+
 ## the hard rules
 
 **never hand-rename or `mv` a record file** — the id IS the path, so a rename silently dangles
 every inbound reference; `rename` moves the file and rewrites all refs in one commit. **never
-delete a referenced record** (`rm` refuses for a reason — retarget first). **a changed title
-never changes the id.** **one mutation, one commit.**
+delete a referenced record** — `rm` refuses while anything points at it, unless that field declares
+`x-on-delete: set-null`, which clears it instead; retarget first. **a changed title never changes
+the id.** **one mutation, one commit.**
 
 ## common mistakes
 
@@ -105,11 +117,9 @@ never changes the id.** **one mutation, one commit.**
 | `mv data/tasks/old.task.md …/new.task.md` | every inbound ref now dangles. use `dt … rename`. |
 | renaming a file because the title changed | the id is not a display name — edit the field. |
 | reaching for `--force` to get past the refuse | it leaves the inbound refs dangling. retarget them first — unless `rm` named a *prose* mention (a skill's example, a doc), which isn't a real reference and `check` won't flag. |
-| hand-writing a record "because it's quicker" | no validation, no defaults, no id check, no commit. `dt … add` is one line. |
 | omitting schema defaults from a hand-written file | the file stops being legible without the schema. |
 | unquoted `due: 2026-07-28` | dreamteamer parses with CORE_SCHEMA so it stays a string *here*, but any default-schema YAML reader turns it into a timestamp. quote dates when hand-writing. |
 | CLI-editing a skill / agent / command / collection | system sources — edit the module file, then `npm run compile`. |
-| committing again after a CLI verb | the verb already committed; you'd sweep unrelated work into it. |
 
 ## red flags — stop
 

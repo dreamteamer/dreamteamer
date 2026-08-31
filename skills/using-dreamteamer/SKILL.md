@@ -48,10 +48,8 @@ prose; prose drifts. it does **not** list the purpose-built verbs some collectio
 (`schema add-collection`, `schema add-field <collection>`, `ensure`) — those live in the skill that owns
 them, and a verb absent from `help` still works.
 
-what you need to know *about* the CLI: collection verbs validate hard (invalid writes, **including
-unknown fields**, are rejected before disk) **and commit for you** with the right subject. `npm run
-compile` after every source change, `npm run check` after bulk edits, `npm run --silent dt -- status`
-when you're not sure the runtime is fresh.
+what you need to know *about* the CLI: collection verbs validate hard — invalid writes, **including
+unknown fields**, are rejected before disk — and a write does NOT commit (see conventions below).
 
 ## routing
 
