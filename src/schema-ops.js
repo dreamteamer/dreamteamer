@@ -16,11 +16,12 @@ import { refTargetsOf } from './ref.js';
 // Same rule as store.js: a git failure we CATCH must not also print git's own error on top of the
 // clean message we throw. stdout stays piped because some callers read it.
 const GIT_QUIET = ['ignore', 'pipe', 'ignore'];
-import { walk, idFromRecordPath } from './records.js';
+import { walk, idFromRecordPath, parseRecord } from './records.js';
+import { Store, bodyField, serialize, atomicWrite } from './store.js';
 
 // ---- the gate -------------------------------------------------------------------
 
-function writeGated(ws, store, files, subject, mutate) {
+function writeGated(ws, store, files, subject, mutate, after) {
 	// same guarantees as record writes (docs-audit catch): the STORE's cross-process lock
 	// serializes schema ops too, and a failed git commit rolls the source back — a schema
 	// op fails closed exactly like a record mutation.
@@ -40,7 +41,22 @@ function writeGated(ws, store, files, subject, mutate) {
 			try { compile(ws); } catch { /* runtime was already broken before this op */ }
 			throw e;
 		}
-		const rels = files.map((f) => path.relative(ws.root, f));
+		// ⚠ AFTER THE GATE COMPILE, BEFORE THE COMMIT, INSIDE THE LOCK. A schema op that INVALIDATES
+		// DATA cleans that data up in the same act — see dropOrphanedMirrors for the case this exists
+		// for. It has to run after the compile because it reads the NEW runtime to decide what is
+		// residue, and before the commit because a source change and the data repair it forces are one
+		// change. It fails the whole op like anything else here: nothing half-done.
+		let extra = { files: [], undo: () => {}, dropped: [] };
+		if (after) {
+			try {
+				extra = { ...extra, ...after() };
+			} catch (e) {
+				restore();
+				try { compile(ws); } catch { /* nothing else moved */ }
+				throw e;
+			}
+		}
+		const rels = [...files, ...extra.files].map((f) => path.relative(ws.root, f));
 		// Schema ops commit UNCONDITIONALLY — `auto-commit` governs RECORD writes only. A source
 		// change is inseparable from the compile that validated it, and `dt commit` scopes itself
 		// to record directories, so a deferred source edit would be publishable by nothing.
@@ -50,10 +66,12 @@ function writeGated(ws, store, files, subject, mutate) {
 			execFileSync('git', ['commit', '--quiet', '-m', subject, '--', ...rels], { cwd: ws.root, stdio: GIT_QUIET });
 		} catch (e) {
 			try { execFileSync('git', ['reset', '--quiet', '--', ...rels], { cwd: ws.root, stdio: GIT_QUIET }); } catch { /* nothing staged */ }
+			extra.undo();
 			restore();
 			try { compile(ws); } catch { /* pre-op sources were compilable */ }
 			throw new Error(`git commit failed — the schema change was rolled back, nothing was changed. (${e.message.split('\n')[0]})`);
 		}
+		return extra.dropped;
 	});
 }
 
@@ -598,6 +616,77 @@ function pruneEmpty(dir, stopAt) {
 	}
 }
 
+/**
+ * THE MIRROR VALUES A DROPPED RELATION LEAVES BEHIND.
+ *
+ * `update-field --name meeting --inverse=` removes the mirror from the compiled descriptor and does
+ * nothing else, so the values the relation generated stay in every target record — in a field the
+ * schema no longer declares. The next `check` then said:
+ *
+ *   ✖ data/meetings/kickoff.meeting.md
+ *       unknown field "recordings" (not in the meetings schema)
+ *
+ * …on N records. A sentence that reads like a typo, for a state the schema op itself created one
+ * command earlier, with the repair (`relations rebuild <target> --drop <mirror>`) named nowhere.
+ *
+ * So the op that creates the staleness cleans it up, in the same write and the same commit. That is
+ * the contract every RECORD write already honours — add/set/rm/revert maintain the far side of a
+ * relation rather than leaving it to a repair verb — and there is no reason a schema write should be
+ * the exception.
+ *
+ * ⚠ SCOPED TO THE FIELD BEING EDITED, deliberately, and not to "every relation that disappeared from
+ * the graph". A whole-graph diff would also fire when the runtime was stale before the op for
+ * unrelated reasons, which means a `dt schema add-field` on collection A rewriting records of C — a
+ * commit sweeping records nobody named, which is the one thing this repo's rule 6 exists to stop.
+ *
+ * Returns the `{files, undo}` shape `store.applyMirrorEdits` returns, so writeGated can put the
+ * writes in its commit and unwind them with the source if the commit fails, plus `dropped` for the
+ * report: an operator told a mirror was removed needs to know N records changed with it.
+ */
+function dropOrphanedMirrors(ws, was) {
+	// The runtime AFTER the gate compile. The caller's Store still declares the mirror, which is
+	// exactly the question being asked, so it cannot answer it.
+	const store = new Store(ws);
+	const now = store.relations();
+	const files = [], undos = [], dropped = [];
+	for (const r of was) {
+		if (now.some((n) => n.owner === r.owner && n.field === r.field && n.target === r.target && n.mirror === r.mirror)) continue;
+		// The target may have gone with the relation (`collections rm`), and a target that never held a
+		// mirror (`codec: file`, a compiled source) has nothing to clean — compile refuses those, so
+		// this is the belt to that brace.
+		if (!store.descriptors.has(r.target) || !store.canRewrite(r.target)) continue;
+		// ⚠ AND THE KEY MAY STILL BE LIVE. A RENAMED x-inverse reads as one relation gone and another
+		// arrived; if the new one stamps the same name, or the author declared a real field there, the
+		// values are data rather than residue.
+		if (store.descriptor(r.target).schema?.properties?.[r.mirror] !== undefined) continue;
+		const d = store.descriptor(r.target);
+		const bf = bodyField(d);
+		let records = 0;
+		for (const [, file] of store.ids(r.target)) {
+			let fields;
+			// A record that will not parse is SKIPPED, not fatal: `check` already reports the syntax
+			// error, and refusing an unrelated schema edit over it would make one bad record a wall.
+			try { fields = parseRecord(file, d, bf); } catch { continue; }
+			if (!(r.mirror in fields)) continue;
+			const previous = fs.readFileSync(file, 'utf8');
+			delete fields[r.mirror];
+			atomicWrite(file, serialize(d, fields));
+			files.push(file);
+			undos.push(() => atomicWrite(file, previous));
+			records++;
+		}
+		if (records) dropped.push({ target: r.target, mirror: r.mirror, records });
+	}
+	return { files, undo: () => { for (const u of [...undos].reverse()) u(); }, dropped };
+}
+
+/** The relations the field being edited owns RIGHT NOW — the "before" half of the question above,
+ *  read before the source is touched. Empty for a field that does not exist yet, which is what makes
+ *  `add-field` share this path without a branch. */
+function relationsOwnedBy(store, collection, fieldName) {
+	return store.relations().filter((r) => r.owner === collection && r.field === fieldName);
+}
+
 export function addField(ws, store, collection, { name: fieldName, prop, required }) {
 	store.descriptor(collection); // must exist in the compiled runtime
 	if (!fieldName) throw new Error('missing field name');
@@ -707,21 +796,27 @@ export function removeField(ws, store, collection, fieldName) {
 	// on a different collection entirely. Most real collections are module-shipped, so the useful
 	// message was reaching the minority case.
 	refuseGeneratedMirror(d, fieldName);
+	// Removing the OWNING foreign key drops the relation just as `--inverse=` does, and leaves the
+	// same residue on the target. Same sweep, same commit.
+	const was = relationsOwnedBy(store, collection, fieldName);
 	const dest = path.join(workspaceSystemDir(ws, 'collections'), `${collection}.collection.yaml`);
 	if (!fs.existsSync(dest)) throw new Error(`"${collection}" is module-shipped; the workspace can only OVERRIDE fields (extends), not remove them`);
 	const doc = load(fs.readFileSync(dest, 'utf8'));
 	if (!doc.schema?.properties?.[fieldName]) {
 		throw new Error(`field "${fieldName}" is inherited from the base module — the workspace descriptor doesn't declare it`);
 	}
-	writeGated(ws, store, [dest], `dreamteamer: ${collection} remove-field ${fieldName}`, () => {
+	const dropped = writeGated(ws, store, [dest], `dreamteamer: ${collection} remove-field ${fieldName}`, () => {
 		delete doc.schema.properties[fieldName];
 		if (Array.isArray(doc.schema.required)) doc.schema.required = doc.schema.required.filter((r) => r !== fieldName);
 		fs.writeFileSync(dest, dump(doc));
-	});
-	return { collection, removed: fieldName };
+	}, () => dropOrphanedMirrors(ws, was));
+	return { collection, removed: fieldName, dropped };
 }
 
 function upsertField(ws, store, collection, fieldName, prop, required, verb) {
+	// Read BEFORE the source is touched. Empty for a field that does not exist yet, so `add-field`
+	// shares this path with no branch — it cannot remove a relation it is creating.
+	const was = relationsOwnedBy(store, collection, fieldName);
 	if (prop == null || typeof prop !== 'object' || Array.isArray(prop)) {
 		throw new Error(`field "${fieldName}": prop must be a JSON-Schema object (got ${Array.isArray(prop) ? 'array' : typeof prop}) — nothing was written.`);
 	}
@@ -782,7 +877,7 @@ function upsertField(ws, store, collection, fieldName, prop, required, verb) {
 		compileGated(ws, store);
 		return { collection, field: fieldName, file: dest, extends: doc.extends, prop: already, unchanged: true };
 	}
-	writeGated(ws, store, [dest], `dreamteamer: ${collection} ${verb}`, () => {
+	const dropped = writeGated(ws, store, [dest], `dreamteamer: ${collection} ${verb}`, () => {
 		doc.schema ??= { properties: {} };
 		doc.schema.properties ??= {};
 		doc.schema.properties[fieldName] = prop;
@@ -790,10 +885,10 @@ function upsertField(ws, store, collection, fieldName, prop, required, verb) {
 		if (required === false && Array.isArray(doc.schema.required)) doc.schema.required = doc.schema.required.filter((r) => r !== fieldName);
 		fs.mkdirSync(path.dirname(dest), { recursive: true });
 		fs.writeFileSync(dest, dump(doc));
-	});
+	}, () => dropOrphanedMirrors(ws, was));
 	// the prop as WRITTEN — callers report the relation off this, never off the one they passed:
 	// both this function and updateField reassign it, so a caller's own copy can be a stale object.
-	return { collection, field: fieldName, file: dest, extends: doc.extends, prop };
+	return { collection, field: fieldName, file: dest, extends: doc.extends, prop, dropped };
 }
 
 /**

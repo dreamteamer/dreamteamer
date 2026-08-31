@@ -333,6 +333,7 @@ function metaAddField(ws, store, collection, flags) {
 	console.log(`✔ ${rel(ws.root, out.file)}${out.extends ? ` (extends ${out.extends})` : ''}`);
 	console.log('✔ compiled — the field is live');
 	reportMirror(store, collection, flags.name, out.prop);
+	reportDropped(out.dropped);
 	return 0;
 }
 
@@ -341,6 +342,16 @@ function metaAddField(ws, store, collection, flags) {
 function alreadyThat(collection, field) {
 	console.log(`✔ ${collection}.${field} — already exactly that, nothing to do`);
 	return 0;
+}
+
+/** The other consequence a schema op can have on DATA: removing a relation leaves the values its
+ *  mirror generated in every target record, in a field the schema no longer declares. The op cleans
+ *  them up in its own commit (schema-ops `dropOrphanedMirrors`) — this says how many, because an
+ *  operator told a mirror is gone needs to know records changed with it. */
+function reportDropped(dropped) {
+	for (const { target, mirror, records } of dropped ?? []) {
+		console.log(`  dropped the generated ${target}.${mirror} value from ${records} ${target} record${records === 1 ? '' : 's'}`);
+	}
 }
 
 /** A relation writes a field onto ANOTHER collection — the one consequence of add-field/update-field
@@ -371,6 +382,7 @@ function metaUpdateField(ws, store, collection, flags) {
 	if (out.unchanged) return alreadyThat(collection, flags.name);
 	console.log(`✔ ${rel(ws.root, out.file)}${out.extends ? ` (extends ${out.extends})` : ''}`);
 	console.log('✔ compiled — the field is updated');
+	reportDropped(out.dropped);
 	// off `out.prop`, never the one passed in: updateField reassigns it when it rebuilds a carried
 	// reference as an array, and reporting off the stale object printed nothing on exactly the
 	// migration path where check fails on the very next command.
@@ -385,6 +397,7 @@ function metaRemoveField(ws, store, collection, flags) {
 	const out = removeField(ws, store, collection, name);
 	flags.json ? emit(JSON.stringify(out)) : console.log(`✔ removed field ${collection}.${out.removed}`);
 	console.log('✔ compiled — the field is gone');
+	if (!flags.json) reportDropped(out.dropped);
 	return 0;
 }
 
