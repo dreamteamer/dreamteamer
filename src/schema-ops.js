@@ -952,9 +952,30 @@ function refuseUnremovableField(ws, d, collection, fieldName, hasWorkspaceDoc) {
 		: `"${collection}" is module-shipped; the workspace can only OVERRIDE fields (extends), not remove them`);
 }
 
+/**
+ * The ui-views whose columns still name a field that is going away — reported, never edited.
+ *
+ * The line is ownership. `list_fields` and `sort_field` live in the descriptor this verb already
+ * rewrites, and they are that FIELD's presentation, so they go with it (see removeField). A ui-view
+ * is a different source, shipped by whichever module ships it, and it may be carrying a deliberate
+ * layout somebody tuned — so the verb says which views it just invalidated and leaves them alone.
+ * Silently editing somebody else's source is the worse of the two failures.
+ *
+ * Columns are matched as plain names, the same vocabulary `list_fields` uses. `options` is
+ * deliberately open (each layout wants different things), so anything else in there is not a column.
+ */
+function viewsNamingField(store, collection, fieldName) {
+	if (!store.descriptors.has('ui-views')) return [];
+	return [...store.readAll('ui-views')]
+		.filter((v) => v.fields.collection === `collections/${collection}`
+			&& (v.fields.options?.columns ?? []).includes(fieldName))
+		.map((v) => v.id);
+}
+
 export function removeField(ws, store, collection, fieldName) {
 	const d = store.descriptor(collection);
 	if (!d.schema?.properties?.[fieldName]) throw new Error(`no field "${fieldName}" on ${collection}`);
+	const staleViews = viewsNamingField(store, collection, fieldName);
 	// Removing the OWNING foreign key drops the relation just as `--inverse=` does, and leaves the
 	// same residue on the target. Same sweep, same commit.
 	const was = relationsOwnedBy(store, collection, fieldName);
@@ -972,6 +993,19 @@ export function removeField(ws, store, collection, fieldName) {
 	const out = writeGated(ws, store, [dest], `dreamteamer: ${collection} remove-field ${fieldName}`, () => {
 		delete doc.schema.properties[fieldName];
 		if (Array.isArray(doc.schema.required)) doc.schema.required = doc.schema.required.filter((r) => r !== fieldName);
+		// THE FIELD'S OWN PRESENTATION, IN THIS SAME FILE, GOES WITH IT. `list_fields` and `sort_field`
+		// naming a field that no longer exists are not independent facts about the collection; removing
+		// the field is an explicit act and pruning them is what the operator meant. Left behind they
+		// failed in two different silent ways: a dangling `list_fields` entry compiled clean and put a
+		// dead column in every default listing, and a dangling `sort_field` made compile REFUSE the
+		// removal — the verb that owns this descriptor telling the operator to go hand-edit it.
+		// The key is DROPPED rather than left `[]`, because a listing of no columns is a statement
+		// nobody made; absent means "no opinion", which is what it said before the field existed.
+		if (Array.isArray(doc.list_fields)) {
+			doc.list_fields = doc.list_fields.filter((c) => c !== fieldName);
+			if (!doc.list_fields.length) delete doc.list_fields;
+		}
+		if (doc.sort_field === fieldName) delete doc.sort_field;
 		fs.writeFileSync(dest, writeDescriptor(previousText, doc));
 	}, () => {
 		// ONE Store for both sweeps — the runtime as the gate compile just left it.
@@ -987,7 +1021,7 @@ export function removeField(ws, store, collection, fieldName) {
 			cleared: own.records,
 		};
 	});
-	return { collection, removed: fieldName, dropped: out.dropped, cleared: out.cleared };
+	return { collection, removed: fieldName, dropped: out.dropped, cleared: out.cleared, staleViews };
 }
 
 /**
