@@ -126,6 +126,10 @@ workspace verbs:
 
 // Record verbs, split by what their <target> means. `move` and `commands` are in NEITHER set: both
 // accept either shape, and which one it is has to be decided against the declared collections.
+// How many rows a per-record listing prints before it summarises. ONE number, because a report that
+// caps one of its lists and not the next reads as a bug in whichever list ran long.
+const ROWS_SHOWN = 20;
+
 const REF_VERBS = new Set(['get', 'set', 'rm', 'rename', 'history', 'diff', 'revert']);
 const COLLECTION_VERBS = new Set(['list', 'add', 'values']);
 const EITHER_VERBS = new Set(['move', 'commands']);
@@ -237,14 +241,35 @@ export function run(argv) {
 					if (r.blocked) { console.error(`✖ ${r.repo}: ${r.blocked} — ${r.rows.length} record(s) left uncommitted`); continue; }
 					if (r.warning) console.warn(`⚠ ${r.repo}: ${r.warning}`);
 					console.log(`✔ ${r.repo === '.' ? 'workspace' : r.repo}${r.sha ? ` ${r.sha}` : ' (dry run)'} — ${r.subject}`);
-					for (const row of r.rows.slice(0, 20)) console.log(`    ${row.verb} ${row.collection}/${row.id}`);
-					if (r.rows.length > 20) console.log(`    + ${r.rows.length - 20} more`);
+					for (const row of r.rows.slice(0, ROWS_SHOWN)) console.log(`    ${row.verb} ${row.collection}/${row.id}`);
+					if (r.rows.length > ROWS_SHOWN) console.log(`    + ${r.rows.length - ROWS_SHOWN} more`);
 					// Half a pair was published — name the records that finish it. `dt commit
 					// <collection>` publishes exactly that collection by design, so this is an honest
 					// report of what it left behind, not a failure: HEAD fails `check` until they land.
 					if (r.leftPending?.length) {
-						console.warn(`⚠ ${r.leftPending.length} relation partner(s) left pending — HEAD fails \`dreamteamer check\` until they are published:`);
-						console.warn(`    dreamteamer commit ${r.leftPending.join(' ')}`);
+						const n = r.leftPending.length;
+						console.warn(`⚠ ${n} relation partner(s) left pending — HEAD fails \`dreamteamer check\` until they are published:`);
+						// CAPPED at the same ROWS_SHOWN as the rows above — this line was the one
+						// unbounded list in the report, and 25 leftovers printed 25 refs on one line.
+						// ⚠ But a truncated COMMAND is not a command, so the overflow is not "+ N more"
+						// and nothing else: it names the collection-scoped form that does converge, and
+						// what that costs (it sweeps whatever another session left pending there, which
+						// is exactly why the record form is the default).
+						console.warn(`    dreamteamer commit ${r.leftPending.slice(0, ROWS_SHOWN).join(' ')}`);
+						if (n > ROWS_SHOWN) {
+							const colls = [...new Set(r.leftPending.map((ref) => splitRef(store.descriptors, ref).collection))].sort();
+							console.warn(`    + ${n - ROWS_SHOWN} more — or ${colls.map((c) => `dreamteamer commit ${c}`).join(' && ')}, which also publishes anything another session left pending there`);
+						}
+						// ⚠ AND IT CAN TAKE TWO COMMANDS, so say so rather than promise one. The command
+						// above is planned by the same sweep every scoped commit runs, and a named
+						// partner whose OTHER edge moved against a record this list does not carry is
+						// refused as entangled — measured: `dt commit meetings` left one partner pending,
+						// the printed `dt commit recordings/cap-zero` was refused over a second recording
+						// sharing its topic, and the refusal named the pair that converges. Computing
+						// that closure here would mean asking planSweep for strangers instead of
+						// throwing on them, which is a redesign of the guard; naming the second step is
+						// the honest half-measure.
+						console.warn('    (if that refuses as entangled, the refusal names the other pending records — add them to the same command)');
 					}
 				}
 				process.exit(results.some((r) => r.blocked) ? 1 : 0);
