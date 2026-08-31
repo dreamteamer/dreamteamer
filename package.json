@@ -1,6 +1,6 @@
 {
 	"name": "dreamteamer",
-	"version": "0.16.1",
+	"version": "0.17.0",
 	"description": "A workspace compiler for coding agents — schema-validated records as plain files over git, compiled into every harness",
 	"license": "Apache-2.0",
 	"author": "Gilad Khen <giladkhen@gmail.com>",
