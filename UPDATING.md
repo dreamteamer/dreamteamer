@@ -22,13 +22,16 @@ npx dreamteamer check
 
 ## 0.14.0 → 0.15.0
 
-**`x-inverse` now GENERATES the other side of a two-way link. Compile, then read the warnings** —
-every shape 0.14 taught still compiles, and each warning names the field to delete.
+**`x-inverse` now GENERATES the other side of a two-way link. Compile FIRST, and read what it
+says** — MOST of what 0.14 taught still compiles, with a warning naming the field to delete. Some
+shapes are now REFUSED, and the complete list of those is at the end of this section. The one a
+0.14 workspace is most likely to hit is there: both sides hand-authored AND the target-side field
+listed in `required` warns about the duplicate declaration and then FAILS the compile.
 
 `x-inverse` used to NAME a field you had authored on the target, and `check` verified that the two
 sides agreed. It now generates that field. Compile stamps a `readOnly` mirror onto the target's
 compiled descriptor — carrying `x-inverse-of: <owner>.<field>` and a description pointing back at
-the owner — the store maintains its VALUES in the same commit as every write to the owning side, and
+the owner — the store maintains its VALUES in the same write as every change to the owning side, and
 `check` reports a mirror that has fallen behind as `stale`, naming the `dreamteamer relations
 rebuild <collection>` that repairs it. The mirror is not writable: `dt set` on one refuses and names
 the owning field to set instead.
@@ -91,13 +94,32 @@ the foreign key silently gone. Every relation keyword now survives unless a flag
 (`--inverse=` drops the mirror, `--unique false` clears the one-to-one). And an `update-field` that
 would change nothing now exits 0 saying so, instead of rewriting an identical file.
 
-⚠ **compile refuses a mirror it could only generate in a shape nobody can write**, each failure
-naming the field and the way out: `x-inverse` on `x-reference: '*'` (a wildcard has no target to
-stamp); a mirror onto a `codec: file` collection (the bytes are the whole record — there is no
-frontmatter to hold a generated field) or onto a runtime-based one (the store would write into
-`.dreamteamer/`, which the next compile overwrites); `x-on-delete: set-null` on a `required` field;
-a `required` list naming a generated mirror; two relations generating the same mirror name on one
-target; and a both-sides declaration whose two sides disagree about the field name.
+⚠ **The COMPLETE list of what compile now REFUSES.** Each failure names the field; the fix is
+beside it. Several of these were perfectly legal in 0.14, where `x-inverse` only pointed at a field
+you had already written by hand and nothing was ever generated onto anybody.
+
+- **A `required` list naming a generated mirror.** The mirror is `readOnly`, so the record could
+  never be written at all. Drop it from `required`, or drop the `x-inverse` that generates it. ⚠
+  **This is the 0.14 shape most likely to break on upgrade** — both sides authored, target-side
+  field required, which is what the old worked example looked like. It warns about the duplicate
+  declaration, then fails.
+- **`x-inverse` on `x-reference: '*'`.** A wildcard has no single target to stamp a mirror onto.
+  Drop the `x-inverse`, or name the collections the field may point at.
+- **A mirror onto a `codec: file` collection.** The bytes ARE the record, so there is no frontmatter
+  to hold a generated field. Leave the link one-way.
+- **A mirror onto a runtime-based collection.** The store would write into `.dreamteamer/`, which
+  the next compile overwrites. Leave the link one-way.
+- **An `x-inverse` whose owning module does not declare a dependency on the TARGET's module.** The
+  owner stamps a field onto another module's collection, so it may not do that silently — add that
+  module to `dreamteamer.dependencies`, or leave the link one-way. (Only the workspace module is
+  exempt.) 0.14 could not hit this, because nothing was stamped anywhere.
+- **An `x-inverse` crossing `storage.repo`.** The mirror is written in the same act as the foreign
+  key, and one commit cannot span two repos. Leave the link one-way.
+- **`x-on-delete: set-null` on a `required` field.** Clearing the FK would produce an invalid
+  record. Use `restrict`, or drop the `required`.
+- **Two relations generating the same mirror name on one target.** One field cannot hold two
+  relations, and no rebuild could ever satisfy both. Give one of them a different `x-inverse` name.
+- **A both-sides declaration whose two sides disagree about the field name.** Keep one.
 
 ---
 

@@ -39,7 +39,7 @@ not modelled" list; YAML in the proposal cannot drift from what gets written.
 | the value… | model as | measure |
 |---|---|---|
 | has fields, a lifecycle, or is opened alone | a collection + `x-reference` | — |
-| is a small closed set the domain defines | `enum` — never against records that already violate it, or `check` fails on every pre-existing value | `dt values <c> <f>` ≤ ~10 distinct AND `dt list <c>` ≥ 80 % filled — two commands, because `values` reports distinct counts and not fill, and echoes a declared enum back verbatim |
+| is a small closed set the domain defines | `enum` — never against records that already violate it, or `check` fails on every pre-existing value | `dt values <c> <f>` ≤ ~10 distinct, AND its counts summed ≥ 80 % of the rows `dt list <c> --json` returns — `values` reports distinct counts and never fill, plain `dt list` prints ids only, and a declared enum comes back echoed verbatim |
 | is a vocabulary the workspace grows | free string — `dt values` IS the dropdown | the set is still moving |
 | is a loose label with no attributes | `tags` — free strings, never a `tags` COLLECTION; a label reading like `key:value` is a field wanting to exist, so promote it | — |
 | repeats inside one record, never referenced from outside | nested `array` of `object`, `x-title-template` on `items` | cost: not filterable (a non-operator key means a reference hop, so a nested key narrows to nothing), no `dt values` (objects are skipped), no list column — the form only |
