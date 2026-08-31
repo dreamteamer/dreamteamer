@@ -46,7 +46,7 @@ function writeGated(ws, store, files, subject, mutate, after) {
 		// for. It has to run after the compile because it reads the NEW runtime to decide what is
 		// residue, and before the commit because a source change and the data repair it forces are one
 		// change. It fails the whole op like anything else here: nothing half-done.
-		let extra = { files: [], undo: () => {}, dropped: [] };
+		let extra = { files: [], undo: () => {}, dropped: [], cleared: 0 };
 		if (after) {
 			try {
 				extra = { ...extra, ...after() };
@@ -71,7 +71,9 @@ function writeGated(ws, store, files, subject, mutate, after) {
 			try { compile(ws); } catch { /* pre-op sources were compilable */ }
 			throw new Error(`git commit failed — the schema change was rolled back, nothing was changed. (${e.message.split('\n')[0]})`);
 		}
-		return extra.dropped;
+		// The hook's own report, for the caller to print: what a source change did to DATA is not
+		// visible in the file list, and a silent data change is a different act from a reported one.
+		return extra;
 	});
 }
 
@@ -643,10 +645,9 @@ function pruneEmpty(dir, stopAt) {
  * writes in its commit and unwind them with the source if the commit fails, plus `dropped` for the
  * report: an operator told a mirror was removed needs to know N records changed with it.
  */
-function dropOrphanedMirrors(ws, was) {
-	// The runtime AFTER the gate compile. The caller's Store still declares the mirror, which is
-	// exactly the question being asked, so it cannot answer it.
-	const store = new Store(ws);
+function dropOrphanedMirrors(store, was) {
+	// ⚠ The Store the caller passes must be built from the runtime AFTER the gate compile: the one the
+	// verb started with still declares the mirror, which is exactly the question being asked.
 	const now = store.relations();
 	const files = [], undos = [], dropped = [];
 	for (const r of was) {
@@ -678,6 +679,55 @@ function dropOrphanedMirrors(ws, was) {
 		if (records) dropped.push({ target: r.target, mirror: r.mirror, records });
 	}
 	return { files, undo: () => { for (const u of [...undos].reverse()) u(); }, dropped };
+}
+
+/**
+ * Clear one field's values from every record of a collection — the other half of removing it.
+ *
+ * `remove-field` deleted the field from the schema and left the values in the files, which left the
+ * whole collection READABLE AND UNWRITABLE: the key is now an unknown field, so `check` reports it
+ * and the store refuses the next write to that record. Nothing said so, and a record write could not
+ * fix it — `dt set <c>/<id> field=` writes `field: []`, which is still the key. The only repair was
+ * `relations rebuild <c> --drop <field>`, a verb whose name says "relations" for a field that may
+ * have nothing to do with them, and which nobody was told to run.
+ *
+ * So the op that creates the staleness cleans it up, in the same write and the same commit — the
+ * general case of what `dropOrphanedMirrors` does for a mirror, and the contract every RECORD write
+ * already honours.
+ *
+ * ⚠ THIS DELETES DATA, deliberately, and for a relation's OWNING key those values are real authored
+ * references rather than derived state — removing the field clears them too, and that is correct
+ * because the field is gone. Removing a field is an explicit destructive schema act; this runs inside
+ * writeGated's commit, so the previous values are one `git show HEAD~1` away. The alternative —
+ * refusing unless `--force` — is a dead end that puts a CLI flag in the middle of a UI gesture. The
+ * COUNT is returned and printed for exactly this reason: a silent deletion and a reported one are
+ * different acts.
+ *
+ * ⚠ THE BODY FIELD IS THE ONE EXCEPTION, and it needs none of this. With the field gone,
+ * `bodyField(d)` no longer names it, so the prose is not parsed into `fields` at all — nothing here
+ * matches it, nothing is rewritten, and the text stays in the file as an ordinary Markdown body that
+ * no schema field claims. `check` is silent on it, correctly.
+ */
+function clearFieldValues(store, collection, fieldName) {
+	const d = store.descriptors.get(collection);
+	// A `codec: file` record has no serialised fields, and a compiled-source collection is a build
+	// artifact — neither can be carrying a value of a field, and neither may be rewritten.
+	if (!d || !store.canRewrite(collection)) return { files: [], undo: () => {}, records: 0 };
+	const bf = bodyField(d);
+	const files = [], undos = [];
+	for (const [, file] of store.ids(collection)) {
+		let fields;
+		// A record that will not parse is SKIPPED rather than fatal: `check` already reports the syntax
+		// error, and refusing the schema edit over it would make one bad record a wall.
+		try { fields = parseRecord(file, d, bf); } catch { continue; }
+		if (!(fieldName in fields)) continue;
+		const previous = fs.readFileSync(file, 'utf8');
+		delete fields[fieldName];
+		atomicWrite(file, serialize(d, fields));
+		files.push(file);
+		undos.push(() => atomicWrite(file, previous));
+	}
+	return { files, undo: () => { for (const u of [...undos].reverse()) u(); }, records: files.length };
 }
 
 /** The relations the field being edited owns RIGHT NOW — the "before" half of the question above,
@@ -722,7 +772,11 @@ export function updateField(ws, store, collection, fieldName, { prop, required, 
 	// `description`. Changing a field's type is not a decision to undocument it. Same for an
 	// authored `title` — but ONLY an authored one: a derived title is compile's output, not a
 	// human's choice, and `titleCase` is how the two are told apart.
-	const previous = d.schema.properties[fieldName];
+	// ⚠ THE AUTHORED PROP, not the compiled one — see authoredField. Carrying compile's own derivation
+	// back into a source is how `update-field <owner> --name <fk> --description "…"` turned a
+	// spelling-B relation into one declared on BOTH sides. The compiled prop is the base only where no
+	// source declares the field, i.e. an inherited field being overridden here for the first time.
+	const previous = authoredField(ws, collection, fieldName).prop ?? d.schema.properties[fieldName];
 	if (prop.description === undefined && typeof previous.description === 'string') prop = { ...prop, description: previous.description };
 	if (prop.title === undefined && typeof previous.title === 'string' && previous.title !== titleCase(fieldName)) prop = { ...prop, title: previous.title };
 	// `x-body` is STRUCTURE, not prose, and carried on the same rule as the relation keywords below:
@@ -832,47 +886,108 @@ export function updateField(ws, store, collection, fieldName, { prop, required, 
 	return upsertField(ws, store, collection, fieldName, prop, required, `update-field ${fieldName}`);
 }
 
-/** A GENERATED mirror cannot be removed by editing ANY descriptor: compile writes it from the
- *  x-inverse on the owning side, so the only edit that removes it is over there. Read off the
- *  COMPILED prop, because that is the one place `x-inverse-of` exists whichever module ships the
- *  collection — a source lookup answers this only for the workspace module's own collections. */
-function refuseGeneratedMirror(d, fieldName) {
+/**
+ * A field as its own SOURCES declare it — the authored truth — plus which files declare it.
+ *
+ * ⚠ NOT the compiled prop, and the difference is load-bearing twice. THE COMPILED OUTPUT IS
+ * IDENTICAL FOR BOTH RELATION SPELLINGS — that is materializeRelations' whole point, one compiled
+ * pair from either source form — so a compiled prop cannot say which side DECLARED a relation, and
+ * it carries keywords no source ever authored: `foldMirrorSide` writes `x-inverse` and `x-unique`
+ * onto the OWNER when the far side used spelling B. Reading a prop out of the compiled descriptor
+ * and writing it back into a source therefore did two bad things, both measured on 0.15.0:
+ *
+ *   - `remove-field` on a spelling-B mirror answered "no descriptor declares it" while the file that
+ *     declared it sat in front of the operator, and named a remedy that exits 0 changing nothing.
+ *   - `update-field <owner> --name <fk> --description "…"` carried compile's DERIVED `x-inverse` and
+ *     `x-unique` into the owner's source, so the relation was then declared on both sides and every
+ *     compile afterwards printed `⚠ relation …: declared on both sides — keep one`. That is the same
+ *     defect the extension was writing from its own save path.
+ *
+ * Sources are merged in manifest order (base, then any `extends` overlay), which is the order compile
+ * merges them, so an overlay's keywords win exactly as they do there.
+ */
+function authoredField(ws, collection, fieldName) {
+	const files = [];
+	let prop;
+	for (const rel of descriptorSourceDir(ws, collection).sources) {
+		const file = path.join(ws.root, rel);
+		if (!fs.existsSync(file)) continue;
+		const own = load(fs.readFileSync(file, 'utf8'))?.schema?.properties?.[fieldName];
+		if (own === undefined || own === null || typeof own !== 'object') continue;
+		prop = prop === undefined ? structuredClone(own) : { ...prop, ...structuredClone(own) };
+		files.push(rel);
+	}
+	return { prop, files };
+}
+
+/**
+ * Why this field cannot be removed HERE — and the answer depends entirely on WHERE it is declared.
+ *
+ * Reached only when the descriptor this verb edits does not carry the field. Three different
+ * situations arrive here and they need three different sentences; answering all of them off the
+ * compiled prop's `x-inverse-of` produced one that was false twice over on the spelling every
+ * relation in the dogfood vault uses (see authoredField for why the compiled prop cannot tell them
+ * apart).
+ */
+function refuseUnremovableField(ws, d, collection, fieldName, hasWorkspaceDoc) {
 	const prop = d.schema.properties[fieldName];
 	const holder = (prop.items && typeof prop.items === 'object') ? prop.items : prop;
 	const of = holder['x-inverse-of'];
-	if (typeof of !== 'string') return;
-	const dot = of.lastIndexOf('.'); // a collection name may contain '/', so split at the LAST dot
-	throw new Error(`field "${fieldName}" on ${d.name} is GENERATED from ${of}, the two-way relation that owns it — no descriptor declares it, so no descriptor edit can remove it. Remove the relation instead: dreamteamer schema update-field ${of.slice(0, dot)} --name ${of.slice(dot + 1)} --inverse=`);
+	if (typeof of === 'string') {
+		// SPELLING B: the field is declared on THIS collection with `x-inverse-of`, compile folds that
+		// declaration into the owner and regenerates the field under the same key — so a source still
+		// carrying it IS the relation, and deleting it there is the removal. Name the file.
+		const declaring = authoredField(ws, collection, fieldName).files;
+		if (declaring.length) {
+			throw new Error(`field "${fieldName}" on ${collection} DECLARES a relation (x-inverse-of: ${of}) in ${declaring.join(', ')} — that declaration is the relation, so deleting the field there removes it. This verb only edits the workspace module's own descriptor, which does not carry it.`);
+		}
+		// SPELLING A: nothing here declares it; compile stamped it from the owner's `x-inverse`, and
+		// clearing that keyword is the removal. This remedy WORKS — the spelling-B one did not, because
+		// the owner never carried an `x-inverse` to clear.
+		const dot = of.lastIndexOf('.'); // a collection name may contain '/', so split at the LAST dot
+		throw new Error(`field "${fieldName}" on ${collection} is GENERATED from ${of}, the two-way relation that owns it — no source of ${collection} declares it, so no edit here can remove it. Remove the relation instead: dreamteamer schema update-field ${of.slice(0, dot)} --name ${of.slice(dot + 1)} --inverse=`);
+	}
+	throw new Error(hasWorkspaceDoc
+		? `field "${fieldName}" is inherited from the base module — the workspace descriptor doesn't declare it`
+		: `"${collection}" is module-shipped; the workspace can only OVERRIDE fields (extends), not remove them`);
 }
 
 export function removeField(ws, store, collection, fieldName) {
 	const d = store.descriptor(collection);
 	if (!d.schema?.properties?.[fieldName]) throw new Error(`no field "${fieldName}" on ${collection}`);
-	// ⚠ BEFORE the source lookup below, and that ORDER is the whole fix. This test used to live
-	// inside the `!doc.schema.properties[fieldName]` branch, which is only reached for a collection
-	// whose descriptor the WORKSPACE MODULE ships — so for a mirror on a collection shipped by any
-	// other module the answer was the generic "module-shipped; the workspace can only OVERRIDE
-	// fields (extends), not remove them". That sentence is true of a real inherited field and beside
-	// the point for a mirror: an `extends` overlay cannot remove it either, and the edit that can is
-	// on a different collection entirely. Most real collections are module-shipped, so the useful
-	// message was reaching the minority case.
-	refuseGeneratedMirror(d, fieldName);
 	// Removing the OWNING foreign key drops the relation just as `--inverse=` does, and leaves the
 	// same residue on the target. Same sweep, same commit.
 	const was = relationsOwnedBy(store, collection, fieldName);
 	const dest = path.join(workspaceSystemDir(ws, 'collections'), `${collection}.collection.yaml`);
-	if (!fs.existsSync(dest)) throw new Error(`"${collection}" is module-shipped; the workspace can only OVERRIDE fields (extends), not remove them`);
-	const previousText = fs.readFileSync(dest, 'utf8');
-	const doc = load(previousText);
-	if (!doc.schema?.properties?.[fieldName]) {
-		throw new Error(`field "${fieldName}" is inherited from the base module — the workspace descriptor doesn't declare it`);
+	const previousText = fs.existsSync(dest) ? fs.readFileSync(dest, 'utf8') : null;
+	const doc = previousText === null ? null : load(previousText);
+	// ⚠ ASK THE SOURCE THIS VERB EDITS, and ask it FIRST. A field the descriptor declares is removable
+	// from it, whatever the compiled prop says about it — including a relation authored here with
+	// `x-inverse-of`, where that declaration IS the relation and deleting it is the whole removal.
+	// Deciding this off the compiled prop instead refused the ordinary case with a sentence
+	// ("no descriptor declares it") that the file in front of the operator disproved.
+	if (doc?.schema?.properties?.[fieldName] === undefined) {
+		refuseUnremovableField(ws, d, collection, fieldName, doc !== null);
 	}
-	const dropped = writeGated(ws, store, [dest], `dreamteamer: ${collection} remove-field ${fieldName}`, () => {
+	const out = writeGated(ws, store, [dest], `dreamteamer: ${collection} remove-field ${fieldName}`, () => {
 		delete doc.schema.properties[fieldName];
 		if (Array.isArray(doc.schema.required)) doc.schema.required = doc.schema.required.filter((r) => r !== fieldName);
 		fs.writeFileSync(dest, writeDescriptor(previousText, doc));
-	}, () => dropOrphanedMirrors(ws, was));
-	return { collection, removed: fieldName, dropped };
+	}, () => {
+		// ONE Store for both sweeps — the runtime as the gate compile just left it.
+		const after = new Store(ws);
+		const mirrors = dropOrphanedMirrors(after, was);
+		const own = clearFieldValues(after, collection, fieldName);
+		return {
+			files: [...mirrors.files, ...own.files],
+			// reverse order: `own` snapshotted its files AFTER `mirrors` may have written them (a
+			// self-relation puts both on the same record), so unwinding forwards would restore stale bytes
+			undo: () => { own.undo(); mirrors.undo(); },
+			dropped: mirrors.dropped,
+			cleared: own.records,
+		};
+	});
+	return { collection, removed: fieldName, dropped: out.dropped, cleared: out.cleared };
 }
 
 function upsertField(ws, store, collection, fieldName, prop, required, verb) {
@@ -951,7 +1066,7 @@ function upsertField(ws, store, collection, fieldName, prop, required, verb) {
 		if (required === false && Array.isArray(doc.schema.required)) doc.schema.required = doc.schema.required.filter((r) => r !== fieldName);
 		fs.mkdirSync(path.dirname(dest), { recursive: true });
 		fs.writeFileSync(dest, writeDescriptor(previousText, doc));
-	}, () => dropOrphanedMirrors(ws, was));
+	}, () => dropOrphanedMirrors(new Store(ws), was)).dropped;
 	// the prop as WRITTEN — callers report the relation off this, never off the one they passed:
 	// both this function and updateField reassign it, so a caller's own copy can be a stale object.
 	return { collection, field: fieldName, file: dest, extends: doc.extends, prop, dropped };

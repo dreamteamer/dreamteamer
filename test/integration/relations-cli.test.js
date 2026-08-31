@@ -14,6 +14,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { workspace, simpleCollection, readFile, writeCollection, compileQuietly, dt as runDt, WS_MODULE } from '../helpers/ws.js';
+import { load } from '../../src/yaml.js';
 
 // The same four-collection cast as relations-store.test.js — one anchor plus the three
 // cardinalities: many-to-one (recordings), one-to-one (summaries, via x-unique) and many-to-many
@@ -413,11 +414,18 @@ describe('dropping a relation takes its generated values with it', () => {
 		assert.equal(res.code, 0, res.stderr);
 		assert.match(res.stdout, /dropped the generated meetings\.recordings value from 1 meetings record/);
 		assert.doesNotMatch(readFile(ws.root, 'data/meetings/kickoff.meeting.md'), /recordings:/);
-		// ⚠ THE OWNER'S OWN VALUE STAYS, and that is the boundary. `meeting: meetings/kickoff` is
-		// authored data, not derived state — a schema edit that deleted it would destroy content
-		// nobody asked it to. `check` reporting it as an unknown field is the correct answer, and it
-		// is what every remove-field on every field has always done.
-		assert.match(readFile(ws.root, 'data/recordings/cap-one.recording.md'), /meeting: meetings\/kickoff/);
+		// ⚠ THE OWNER'S OWN VALUE GOES TOO — and this REVERSES the boundary this test asserted when it
+		// was written. The old reading was that `meeting: meetings/kickoff` is authored data a schema
+		// edit must not touch. What that actually produced was a collection you could read and not
+		// WRITE: the key survived in a schema that no longer declared it, so `check` reported an
+		// unknown field and the store refused every later write to that record — with no repair a
+		// record write could reach (`field=` writes `field: []`, which is still the key). Removing a
+		// field is an explicit destructive schema act, the values are one `git show HEAD~1` away
+		// because this lands in the same commit, and the count is REPORTED rather than silent.
+		assert.doesNotMatch(readFile(ws.root, 'data/recordings/cap-one.recording.md'), /meeting:/);
+		assert.match(res.stdout, /cleared its values from 1 recordings record/);
+		assert.equal(ws.dt('check').code, 0, 'and the collection is writable again, which is the point');
+		assert.equal(ws.dt('set', 'recordings/cap-one', 'name=Cap Two').code, 0);
 	});
 
 	test('a RENAMED mirror is not residue — only the old key goes', () => {
@@ -440,5 +448,172 @@ describe('dropping a relation takes its generated values with it', () => {
 		assert.equal(res.code, 0, res.stderr);
 		assert.doesNotMatch(res.stdout, /dropped/);
 		assert.match(readFile(ws.root, 'data/meetings/kickoff.meeting.md'), /recordings\/cap-one/);
+	});
+});
+
+// ── the two source SPELLINGS need two different answers, and the compiled prop cannot tell ──────
+//
+// materializeRelations compiles both spellings to identical bytes on purpose, so `x-inverse-of` on a
+// compiled prop proves the field is a mirror and proves NOTHING about which side declared it. Every
+// message and every write that assumed spelling A was wrong on spelling B — which is how the
+// relations in the dogfood vault are actually written.
+describe('remove-field knows which side declared the relation', () => {
+	/** SPELLING B: the target's own descriptor declares the far side with `x-inverse-of`. compile
+	 *  folds that into the owner and regenerates the field, so the compiled output is byte-identical
+	 *  to spelling A's — and the declaration the operator can delete is right here. */
+	const spellingB = () => {
+		const ws = workspace({
+			collections: {
+				meetings: simpleCollection({
+					storage: { suffix: 'meeting' },
+					schema: {
+						type: 'object', required: ['name'],
+						properties: {
+							name: { type: 'string' },
+							notes: { type: 'string', format: 'markdown', 'x-body': true },
+							summary: { type: 'string', 'x-reference': 'summaries', 'x-inverse-of': 'summaries.meeting' },
+						},
+					},
+				}),
+				summaries: simpleCollection({
+					storage: { suffix: 'summary' },
+					schema: {
+						type: 'object', required: ['name'],
+						properties: {
+							name: { type: 'string' },
+							notes: { type: 'string', format: 'markdown', 'x-body': true },
+							meeting: { type: 'string', 'x-reference': 'meetings' },
+						},
+					},
+				}),
+			},
+		});
+		assert.equal(ws.dt('add', 'meetings', '--name', 'Kickoff').code, 0);
+		assert.equal(ws.dt('add', 'summaries', '--name', 'S1', '--meeting', 'meetings/kickoff').code, 0);
+		assert.match(readFile(ws.root, 'data/meetings/kickoff.meeting.md'), /summary: summaries\/s1/);
+		return ws;
+	};
+
+	test('a mirror declared HERE is removed here — not refused with a falsehood', () => {
+		// Measured on 0.15.0: `✖ … is GENERATED from summaries.meeting … no descriptor declares it`,
+		// while meetings.collection.yaml declared it in the file the operator was looking at. And the
+		// remedy it named — `update-field summaries --name meeting --inverse=` — exits 0 changing
+		// nothing, because `summaries.meeting` never carried an `x-inverse` to clear.
+		const ws = spellingB();
+		const res = ws.dt('schema', 'remove-field', 'meetings', '--name', 'summary');
+		assert.equal(res.code, 0, res.stdout + res.stderr);
+		assert.equal(
+			load(readFile(ws.root, 'modules/default/collections/meetings.collection.yaml')).schema.properties.summary,
+			undefined);
+		// the declaration WAS the relation, so removing it removes the relation
+		assert.equal(ws.dt('relations', '--json').stdout.trim(), '[]');
+		// …and item 16: the value went with the field, so the collection is writable again
+		assert.doesNotMatch(readFile(ws.root, 'data/meetings/kickoff.meeting.md'), /summary:/);
+		assert.match(res.stdout, /cleared its values from 1 meetings record/);
+		assert.equal(ws.dt('check').code, 0, ws.dt('check').stdout);
+		assert.equal(ws.dt('set', 'meetings/kickoff', 'name=Kickoff 2').code, 0);
+	});
+
+	test('spelling A keeps the message it should have, and its remedy WORKS', () => {
+		const ws = workspace({ collections: { meetings: MEETINGS, recordings: RECORDINGS } });
+		assert.equal(ws.dt('add', 'meetings', '--name', 'Kickoff').code, 0);
+		assert.equal(ws.dt('add', 'recordings', '--name', 'Cap', '--meeting', 'meetings/kickoff').code, 0);
+		const res = ws.dt('schema', 'remove-field', 'meetings', '--name', 'recordings');
+		assert.equal(res.code, 1);
+		assert.match(res.stderr, /is GENERATED from recordings\.meeting/);
+		assert.match(res.stderr, /no source of meetings declares it/);
+		// THE REMEDY, RUN VERBATIM. It was never exercised, which is how the spelling-B version got
+		// away with naming a command that does nothing.
+		assert.equal(ws.dt('schema', 'update-field', 'recordings', '--name', 'meeting', '--inverse=').code, 0);
+		assert.equal(ws.dt('relations', '--json').stdout.trim(), '[]');
+		assert.equal(ws.dt('check').code, 0);
+	});
+
+	test('an ordinary edit on a spelling-B OWNER does not declare the relation twice', () => {
+		// The same root cause seen from the write side, and the worse half: `previous` came off the
+		// COMPILED prop, which carries the `x-inverse` and `x-unique` that `foldMirrorSide` DERIVED
+		// from the mirror side. Carrying those "forward" wrote them into the owner's source, so the
+		// relation was then declared on both sides and every compile said so. This is the defect the
+		// extension was producing from its own save path.
+		const ws = spellingB();
+		const res = ws.dt('schema', 'update-field', 'summaries', '--name', 'meeting', '--description', 'the call');
+		assert.equal(res.code, 0, res.stderr);
+		const src = load(readFile(ws.root, 'modules/default/collections/summaries.collection.yaml')).schema.properties.meeting;
+		assert.equal(src.description, 'the call');
+		assert.equal(src['x-inverse'], undefined, 'compile DERIVED this; writing it back declares the relation twice');
+		assert.equal(src['x-unique'], undefined, 'and this — foldMirrorSide sets it when the mirror is scalar');
+		assert.equal(src['x-reference'], 'meetings', 'the authored reference still survives the edit');
+		const out = compileQuietly(ws.ws);
+		assert.deepEqual(out.warnings.filter((w) => w.includes('both sides')), []);
+	});
+});
+
+// ── remove-field must not leave a collection you can read and cannot write ──────────────────────
+describe('remove-field clears the values it orphans', () => {
+	const populated = () => {
+		const ws = workspace({ collections: { meetings: simpleCollection({ storage: { suffix: 'meeting' } }) } });
+		assert.equal(ws.dt('schema', 'add-field', 'meetings', '--name', 'venue', '--type', 'string').code, 0);
+		for (const n of ['Kickoff', 'Retro']) assert.equal(ws.dt('add', 'meetings', '--name', n, '--venue', 'Room 3').code, 0);
+		return ws;
+	};
+
+	test('a populated NON-relation field: values cleared, count reported, collection writable', () => {
+		// Measured before: the key stayed in every record, so `check` reported `unknown field` and the
+		// store refused the next write to each of them — with no repair a record write could reach
+		// (`venue=` writes `venue: []`, which is still the key). The only fix was
+		// `relations rebuild meetings --drop venue`, a verb whose name says "relations" for a field
+		// that has nothing to do with them, and which nothing told the operator to run.
+		const ws = populated();
+		const res = ws.dt('schema', 'remove-field', 'meetings', '--name', 'venue');
+		assert.equal(res.code, 0, res.stderr);
+		assert.match(res.stdout, /cleared its values from 2 meetings records/);
+		assert.match(res.stdout, /git show HEAD~1/, 'a destructive act names where the values went');
+		for (const id of ['kickoff', 'retro']) {
+			assert.doesNotMatch(readFile(ws.root, `data/meetings/${id}.meeting.md`), /venue:/);
+		}
+		assert.equal(ws.dt('check').code, 0, ws.dt('check').stdout);
+		assert.equal(ws.dt('set', 'meetings/kickoff', 'name=Kickoff 2').code, 0, 'the point: writable again');
+	});
+
+	test('the values and the schema land in ONE commit', () => {
+		const ws = populated();
+		assert.equal(ws.dt('commit').code, 0);
+		assert.equal(ws.dt('schema', 'remove-field', 'meetings', '--name', 'venue').code, 0);
+		const stat = ws.git(['show', '--stat', '--oneline', 'HEAD']);
+		assert.match(stat, /data\/meetings\/kickoff\.meeting\.md/);
+		assert.match(stat, /modules\/default\/collections\/meetings\.collection\.yaml/);
+		assert.equal(ws.git(['status', '--porcelain', 'data', 'modules']).trim(), '', 'nothing left pending');
+	});
+
+	test('an UNPOPULATED field reports no clearing, and says nothing about records', () => {
+		const ws = workspace({ collections: { meetings: simpleCollection({ storage: { suffix: 'meeting' } }) } });
+		assert.equal(ws.dt('schema', 'add-field', 'meetings', '--name', 'venue', '--type', 'string').code, 0);
+		assert.equal(ws.dt('add', 'meetings', '--name', 'Kickoff').code, 0);
+		const res = ws.dt('schema', 'remove-field', 'meetings', '--name', 'venue');
+		assert.equal(res.code, 0, res.stderr);
+		assert.doesNotMatch(res.stdout, /cleared/);
+	});
+
+	test('removing the BODY field leaves the prose alone', () => {
+		// ⚠ The one field this cannot and must not clear. With the field gone `bodyField(d)` no longer
+		// names it, so the prose is never parsed into `fields` — nothing matches, nothing is rewritten,
+		// and the text stays as an ordinary Markdown body no schema field claims. Asserted so the
+		// behaviour is pinned rather than accidental: a sweep that reached the body would delete a
+		// record's whole content on a schema edit.
+		const ws = workspace({ collections: { meetings: simpleCollection({ storage: { suffix: 'meeting' } }) } });
+		assert.equal(ws.dt('add', 'meetings', '--name', 'Kickoff', '--notes', 'the prose that must survive').code, 0);
+		const res = ws.dt('schema', 'remove-field', 'meetings', '--name', 'notes');
+		assert.equal(res.code, 0, res.stderr);
+		assert.match(readFile(ws.root, 'data/meetings/kickoff.meeting.md'), /the prose that must survive/);
+		assert.equal(ws.dt('check').code, 0, ws.dt('check').stdout);
+	});
+
+	test('a rename is not a removal — nothing is cleared', () => {
+		// `collections rename` moves a descriptor and its records; no field is removed, so no value may
+		// be. The sweep is scoped to the field actually named, never to a graph diff (rule 6).
+		const ws = populated();
+		assert.equal(ws.dt('schema', 'rename-collection', 'meetings', 'calls').code, 0);
+		assert.match(readFile(ws.root, 'data/calls/kickoff.call.md'), /venue: Room 3/);
+		assert.equal(ws.dt('check').code, 0);
 	});
 });

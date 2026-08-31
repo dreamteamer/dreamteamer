@@ -397,7 +397,12 @@ function metaRemoveField(ws, store, collection, flags) {
 	const out = removeField(ws, store, collection, name);
 	flags.json ? emit(JSON.stringify(out)) : console.log(`✔ removed field ${collection}.${out.removed}`);
 	console.log('✔ compiled — the field is gone');
-	if (!flags.json) reportDropped(out.dropped);
+	if (!flags.json) {
+		// The field's own VALUES went with it, and that has to be said out loud: it is the destructive
+		// half of a destructive verb, and a silent deletion is a different act from a reported one.
+		if (out.cleared) console.log(`  cleared its values from ${out.cleared} ${collection} record${out.cleared === 1 ? '' : 's'} (git holds them: git show HEAD~1)`);
+		reportDropped(out.dropped);
+	}
 	return 0;
 }
 
