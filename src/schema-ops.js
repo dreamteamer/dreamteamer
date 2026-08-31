@@ -630,11 +630,24 @@ export function updateField(ws, store, collection, fieldName, { prop, required, 
 	// forward from the previous prop unless a flag NAMES it.
 	const prevHolder = previous.items ?? previous;
 	const holder = () => prop.items ?? prop;
-	if (!stated.has('x-reference') && prevHolder['x-reference'] !== undefined) {
-		// `--many` restates the CARDINALITY of the carried reference, in either direction.
-		const wantsArray = isOn(flags.many) || (flags.many === undefined && previous.type === 'array');
-		if (wantsArray && prop.type !== 'array') prop = { ...prop, type: 'array', items: { type: previous.items?.type ?? 'string' } };
-		if (holder()['x-reference'] === undefined) holder()['x-reference'] = prevHolder['x-reference'];
+	// The reference this field ends up with: the one the caller stated, else the one carried forward.
+	const ref = holder()['x-reference'] ?? (stated.has('x-reference') ? undefined : prevHolder['x-reference']);
+	// ⚠ CARDINALITY IS `--many`'S TO CHANGE, NEVER `--type`'S — and it is decided outside the carry,
+	// because restating `--type meetings` on an array FK used to collapse it to a scalar and `check`
+	// could not see it: ajv runs with `coerceTypes: 'array'` and unwraps a one-element list, so every
+	// single-valued record passed. Two elements was caught; one was not.
+	const wantsArray = flags.many === undefined ? previous.type === 'array' : isOn(flags.many);
+	if (ref !== undefined) {
+		if (wantsArray && prop.type !== 'array') {
+			// hoist onto `items` — the node every relation consumer reads keywords from, and where the
+			// ones fieldDef put on the scalar prop have to move to
+			const items = { type: previous.items?.type ?? 'string' };
+			for (const kw of ALL_RELATION_KEYWORDS) if (prop[kw] !== undefined) items[kw] = prop[kw];
+			prop = { ...prop, type: 'array', items };
+			for (const kw of ALL_RELATION_KEYWORDS) delete prop[kw];
+			delete prop.format;
+		}
+		holder()['x-reference'] = ref;
 	}
 	// The dependent keywords only mean anything ON a reference, so a deliberate retype to a plain
 	// string takes them with it rather than leaving an uncompilable orphan behind.
@@ -711,6 +724,19 @@ function upsertField(ws, store, collection, fieldName, prop, required, verb) {
 		doc = load(fs.readFileSync(dest, 'utf8'));
 	} else {
 		doc = { name: collection, extends: baseModuleRef(ws.root, collection), schema: { properties: {} } };
+	}
+	// AN IDEMPOTENT WRITE IS A SUCCESS. A command that asks for what is already on disk produced a
+	// byte-identical source, and the write gate's `git commit` then failed with "the schema change
+	// was rolled back, nothing was changed" — pointing at git for a command that did exactly what
+	// was asked. Ten correct spellings reach here (a re-run, `--inverse=` on a mirror-less field,
+	// `--unique false` on a non-unique FK, `--type` restated…), so an "apply my schema" script broke
+	// on every already-satisfied field, as did any retry after a partial failure. `renameCollection`
+	// set the precedent: say so plainly and stop, without a commit.
+	const already = doc.schema?.properties?.[fieldName];
+	const wasRequired = Array.isArray(doc.schema?.required) && doc.schema.required.includes(fieldName);
+	const willBeRequired = required === undefined ? wasRequired : required === true;
+	if (already !== undefined && wasRequired === willBeRequired && canonical(already) === canonical(prop)) {
+		return { collection, field: fieldName, file: dest, extends: doc.extends, prop: already, unchanged: true };
 	}
 	writeGated(ws, store, [dest], `dreamteamer: ${collection} ${verb}`, () => {
 		doc.schema ??= { properties: {} };
@@ -894,6 +920,15 @@ export function fieldDef(store, flags, collection) {
 	const holder = p.items ?? p;
 	if (holder['x-reference'] !== undefined) applyRelationFlags(holder, flags, collection, store.namespaces ?? []);
 	return p;
+}
+
+/** Deep value equality as a string, key ORDER ignored — a prop read back out of YAML comes in
+ *  authored order and a rebuilt one comes in flag order, and "is this already exactly that field"
+ *  must not turn on the difference. */
+function canonical(v) {
+	if (v === null || typeof v !== 'object') return JSON.stringify(v ?? null);
+	if (Array.isArray(v)) return `[${v.map(canonical).join(',')}]`;
+	return `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${canonical(v[k])}`).join(',')}}`;
 }
 
 /** Was a boolean-ish flag turned ON? `--unique`, `--unique true` and `--unique=true` are one act —
