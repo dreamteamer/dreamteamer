@@ -764,3 +764,54 @@ describe('update-field carries every keyword no flag restated', () => {
 		assert.equal(ws.dt('check').code, 0);
 	});
 });
+
+// ── a collection name outranks the type sugar ───────────────────────────────────────────────────
+//
+// `fieldDef`'s switch answered `tags` before it ever asked whether the workspace HAS a `tags`
+// collection, so in a workspace that ships one — the ordinary case, since "tags" is a noun a vault
+// keeps records of — the collection was unreferenceable. `--type tags` produced a plain array of
+// strings with no `x-reference`, and every relation flag was then refused for naming no reference
+// (`✖ --many needs a --type <collection> reference.`) while the collection sat in the same runtime.
+// Neither half said why. Same shape for a collection called `enum`, `date` or `text`.
+describe('a type that names a collection is a reference, sugar or not', () => {
+	const withTags = () => workspace({ collections: {
+		tags: simpleCollection({ storage: { suffix: 'tag' } }),
+		articles: simpleCollection({ storage: { suffix: 'article' } }),
+	} });
+	const sourceOf = (ws, c) => load(readFile(ws.root, `modules/default/collections/${c}.collection.yaml`));
+
+	test('--type tags --many references the tags COLLECTION when the workspace ships one', () => {
+		const ws = withTags();
+		const res = ws.dt('schema', 'add-field', 'articles', '--name', 'labels', '--type', 'tags', '--many');
+		assert.equal(res.code, 0, res.stderr);
+		const p = sourceOf(ws, 'articles').schema.properties.labels;
+		assert.equal(p.type, 'array');
+		assert.equal(p.items['x-reference'], 'tags', 'the sugar shadowed a real collection');
+		assert.equal(ws.dt('check').code, 0);
+	});
+
+	test('…and the relation flags work on it, rather than being refused for naming nothing', () => {
+		const ws = withTags();
+		const res = ws.dt('schema', 'add-field', 'articles', '--name', 'labels', '--type', 'tags', '--many', '--inverse');
+		assert.equal(res.code, 0, res.stderr);
+		assert.match(res.stdout, /mirror: tags\.articles\[\]/);
+		assert.equal(sourceOf(ws, 'articles').schema.properties.labels.items['x-inverse'], 'articles');
+	});
+
+	test('with NO tags collection the sugar still answers — an array of plain strings', () => {
+		const ws = workspace({ collections: { articles: simpleCollection({ storage: { suffix: 'article' } }) } });
+		assert.equal(ws.dt('schema', 'add-field', 'articles', '--name', 'labels', '--type', 'tags').code, 0);
+		const p = sourceOf(ws, 'articles').schema.properties.labels;
+		assert.equal(p.type, 'array');
+		assert.deepEqual(p.items, { type: 'string' });
+	});
+
+	test('a collection named for any other sugar word wins too', () => {
+		const ws = workspace({ collections: {
+			date: simpleCollection({ storage: { suffix: 'date-record' } }),
+			articles: simpleCollection({ storage: { suffix: 'article' } }),
+		} });
+		assert.equal(ws.dt('schema', 'add-field', 'articles', '--name', 'when', '--type', 'date').code, 0);
+		assert.equal(sourceOf(ws, 'articles').schema.properties.when['x-reference'], 'date');
+	});
+});
