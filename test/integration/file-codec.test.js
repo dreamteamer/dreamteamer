@@ -150,6 +150,19 @@ describe('the other verbs', () => {
 		assert.match(r.stderr, /--from/);
 	});
 
+	// `dt commit` composes its subject from the git status letter, and `M` reads as `set` — the one
+	// verb the store REFUSES on a file record, whose own error says to use `add --force` instead.
+	// So a replacement was published under the name of the thing that cannot be done to it.
+	test('a forced replacement commits as "replace", not as the "set" a file record refuses', () => {
+		const ws = base();
+		ws.dt('add', 'files', 'logos/acme', '--from', source('x.svg', '<svg/>'));
+		assert.equal(ws.dt('commit', '-m', 'seed').code, 0);
+		ws.dt('add', 'files', 'logos/acme', '--from', source('y.svg', '<svg viewBox="0 0 2 2"/>'), '--force');
+		const out = ws.dt('commit', '--dry-run').stdout;
+		assert.match(out, /files replace logos\/acme/);
+		assert.doesNotMatch(out, /files set/);
+	});
+
 	test('rm removes the one file whatever its extension', () => {
 		const ws = base();
 		ws.dt('add', 'files', 'logos/acme', '--from', source('x.svg', '<svg/>'));

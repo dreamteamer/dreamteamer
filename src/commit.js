@@ -377,7 +377,14 @@ function sample(root, repo, dirs, descriptors) {
 		const fromRel = (status === 'R' || status === 'C') ? chunks[++i] : null;
 		const rec = pathToRecord(descriptors, prefix + repoRel);
 		if (!rec) continue;
-		rows.push({ repoRel, fromRel, ...rec, verb: VERB[status] ?? 'set' });
+		// ⚠ `M` MEANS `set` FOR EVERY CODEC BUT ONE. `set` is the single verb the store refuses on a
+		// `codec: file` record — its bytes ARE the record, and the refusal's own message says to use
+		// `add --from … --force` instead — so a forced replacement was published under the name of
+		// the one thing that cannot be done to it. The status letter still decides; the descriptor
+		// only says what the letter is called here.
+		let verb = VERB[status] ?? 'set';
+		if (verb === 'set' && (descriptors.get(rec.collection)?.storage?.codec ?? 'md') === 'file') verb = 'replace';
+		rows.push({ repoRel, fromRel, ...rec, verb });
 	}
 	return { cwd, rows };
 }
