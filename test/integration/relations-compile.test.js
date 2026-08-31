@@ -12,6 +12,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { workspace, simpleCollection, compileError, readFile } from '../helpers/ws.js';
 import { load } from '../../src/yaml.js';
+import { presentation } from '../../src/presentation.js';
+import { loadDescriptors } from '../../src/runtime.js';
 
 // The four-collection cast every case here is cut from: one anchor plus the three cardinalities —
 // many-to-one (recordings), one-to-one (summaries, via x-unique) and many-to-many (analyses).
@@ -390,5 +392,44 @@ describe('the mutual x-inverse spelling is one relation', () => {
 		const compiled = load(readFile(ws.root, '.dreamteamer/collections/companies.collection.yaml'));
 		assert.equal(compiled.schema.properties.subsidiaries.items['x-inverse-of'], 'companies.parent');
 		assert.equal(compiled.schema.properties.parent['x-inverse'], 'subsidiaries');
+	});
+});
+
+
+// ---- presentation ------------------------------------------------------------------------------
+// presentation is the ENGINE'S contract with every surface: the extension reads these rows and never
+// the raw descriptors. A relation the compiler materializes but presentation does not project is a
+// relation no UI can render as one — the mirror shows up as an ordinary editable reference list,
+// which is exactly the field the store refuses to write.
+describe('presentation projects relations', () => {
+	test('owner meta, mirror meta, and the kind on the relation rows', () => {
+		const ws = relWorkspace();
+		const p = presentation(loadDescriptors(ws.root));
+
+		const meetings = Object.fromEntries(p.fields.meetings.map((r) => [r.field, r]));
+		assert.equal(meetings.recordings.meta.readonly, true);
+		assert.equal(meetings.recordings.meta.inverse_of, 'recordings.meeting');
+		assert.ok(meetings.recordings.meta.special.includes('dt-relation-mirror'));
+		// the hint is the sentence compile generated, so a disabled control can say WHY
+		assert.match(meetings.recordings.meta.readonly_hint, /Generated from recordings\.meeting/);
+		// a unique FK's mirror is a SCALAR, and it is read-only just the same
+		assert.equal(meetings.summary.meta.readonly, true);
+		assert.equal(meetings.summary.meta.inverse_of, 'summaries.meeting');
+
+		const recs = Object.fromEntries(p.fields.recordings.map((r) => [r.field, r]));
+		assert.equal(recs.meeting.meta.inverse, 'recordings');
+		assert.equal(recs.meeting.meta.on_delete, 'restrict'); // the default, stated rather than implied
+		assert.equal(recs.meeting.meta.readonly, undefined);   // the OWNER is the writable side
+		const sums = Object.fromEntries(p.fields.summaries.map((r) => [r.field, r]));
+		assert.equal(sums.meeting.meta.unique, true);
+
+		// the same three names src/relations.js decodes — no surface learns a second vocabulary
+		const kindOf = (collection, field) => p.relations.find((r) => r.collection === collection && r.field === field);
+		assert.equal(kindOf('recordings', 'meeting').kind, 'm2o');
+		assert.equal(kindOf('summaries', 'meeting').kind, 'o2o');
+		assert.equal(kindOf('analyses', 'meetings').kind, 'm2m');
+		const mirrorRow = kindOf('meetings', 'recordings');
+		assert.equal(mirrorRow.mirror, true);
+		assert.equal(mirrorRow.kind, undefined); // a mirror has no cardinality of its own
 	});
 });
