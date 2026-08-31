@@ -363,3 +363,82 @@ describe('remove-field on a generated mirror', () => {
 		assert.match(res.stderr, /is module-shipped/);
 	});
 });
+
+describe('dropping a relation takes its generated values with it', () => {
+	/** meetings ⟷ recordings, one linked pair, so the mirror actually holds a value. */
+	const linked = () => {
+		const ws = workspace({
+			collections: {
+				meetings: simpleCollection({ storage: { suffix: 'meeting' } }),
+				recordings: simpleCollection({
+					storage: { suffix: 'recording' },
+					schema: {
+						type: 'object', required: ['name'],
+						properties: {
+							name: { type: 'string' },
+							notes: { type: 'string', format: 'markdown', 'x-body': true },
+							meeting: { type: 'string', 'x-reference': 'meetings', 'x-inverse': 'recordings' },
+						},
+					},
+				}),
+			},
+		});
+		assert.equal(ws.dt('add', 'meetings', '--name', 'Kickoff').code, 0);
+		assert.equal(ws.dt('add', 'recordings', '--name', 'Cap One', '--meeting', 'meetings/kickoff').code, 0);
+		assert.match(readFile(ws.root, 'data/meetings/kickoff.meeting.md'), /recordings\/cap-one/);
+		return ws;
+	};
+
+	test('--inverse= removes the values too, in its own commit', () => {
+		// It used to remove the mirror from the descriptor and NOTHING else, so the generated values
+		// sat in every target record in a field the schema no longer declared:
+		//   ✖ data/meetings/kickoff.meeting.md
+		//       unknown field "recordings" (not in the meetings schema)
+		// …which reads like a typo, for a state the schema op created one command earlier, with the
+		// repair (`relations rebuild <target> --drop <mirror>`) named nowhere.
+		const ws = linked();
+		const res = ws.dt('schema', 'update-field', 'recordings', '--name', 'meeting', '--inverse=');
+		assert.equal(res.code, 0, res.stderr);
+		assert.match(res.stdout, /dropped the generated meetings\.recordings value from 1 meetings record/);
+		assert.doesNotMatch(readFile(ws.root, 'data/meetings/kickoff.meeting.md'), /recordings:/);
+		const check = ws.dt('check');
+		assert.equal(check.code, 0, check.stdout);
+		// ONE commit: a source change and the data repair it forces are one change
+		assert.match(ws.git(['show', '--stat', '--oneline', 'HEAD']), /data\/meetings\/kickoff\.meeting\.md/);
+	});
+
+	test('remove-field on the owning foreign key does the same', () => {
+		const ws = linked();
+		const res = ws.dt('schema', 'remove-field', 'recordings', '--name', 'meeting');
+		assert.equal(res.code, 0, res.stderr);
+		assert.match(res.stdout, /dropped the generated meetings\.recordings value from 1 meetings record/);
+		assert.doesNotMatch(readFile(ws.root, 'data/meetings/kickoff.meeting.md'), /recordings:/);
+		// ⚠ THE OWNER'S OWN VALUE STAYS, and that is the boundary. `meeting: meetings/kickoff` is
+		// authored data, not derived state — a schema edit that deleted it would destroy content
+		// nobody asked it to. `check` reporting it as an unknown field is the correct answer, and it
+		// is what every remove-field on every field has always done.
+		assert.match(readFile(ws.root, 'data/recordings/cap-one.recording.md'), /meeting: meetings\/kickoff/);
+	});
+
+	test('a RENAMED mirror is not residue — only the old key goes', () => {
+		// One relation gone and another arrived. The old key is residue; the new one is stale until a
+		// rebuild, which `reportMirror` already names. A sweep that keyed off "a relation disappeared"
+		// without checking whether the target still declares the field would delete live data here.
+		const ws = linked();
+		const res = ws.dt('schema', 'update-field', 'recordings', '--name', 'meeting', '--inverse', 'captures');
+		assert.equal(res.code, 0, res.stderr);
+		assert.match(res.stdout, /dropped the generated meetings\.recordings value/);
+		assert.match(res.stdout, /relations rebuild meetings/);
+		assert.equal(ws.dt('relations', 'rebuild', 'meetings').code, 0);
+		assert.match(readFile(ws.root, 'data/meetings/kickoff.meeting.md'), /captures:/);
+		assert.equal(ws.dt('check').code, 0);
+	});
+
+	test('add-field sweeps nothing — it cannot remove a relation it is creating', () => {
+		const ws = linked();
+		const res = ws.dt('schema', 'add-field', 'recordings', '--name', 'duration', '--type', 'number');
+		assert.equal(res.code, 0, res.stderr);
+		assert.doesNotMatch(res.stdout, /dropped/);
+		assert.match(readFile(ws.root, 'data/meetings/kickoff.meeting.md'), /recordings\/cap-one/);
+	});
+});
