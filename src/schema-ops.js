@@ -1225,6 +1225,20 @@ export function fieldDef(store, flags, collection) {
 	const t = flags.type ?? 'string';
 	const def = flags['default-value'] ?? flags.default;
 	const p = (() => {
+		// ⚠ A COLLECTION NAME ALWAYS MEANS A REFERENCE, and that is asked FIRST — above the sugar,
+		// not below it in the `default:` arm where it used to sit. A workspace that ships a collection
+		// called `tags` is the ordinary case (it is a noun a vault keeps records of), and there
+		// `--type tags` hit the sugar and wrote a plain array of strings: the collection was
+		// unreferenceable, every relation flag on the field was then refused for naming no reference,
+		// and neither half mentioned the collision. Same shape for one named `enum`, `date` or `text`.
+		// The sugar is a convenience; the workspace's own nouns outrank it.
+		//
+		// ⚠ Only a STATED type, never the `'string'` default. With no `--type` that value is the
+		// default of a function that was told nothing (see updateField's carry) — resolving it would
+		// turn every description-only `update-field` in a workspace with a collection literally named
+		// `string` into a silent retype to a reference, which is the exact class of bug that carry exists
+		// to close.
+		if (flags.type !== undefined && store.descriptors.has(t)) return { type: 'string', 'x-reference': t };
 		switch (t) {
 			case 'string': case 'text': return { type: 'string' };
 			case 'markdown': return { type: 'string', format: 'markdown' };
@@ -1242,7 +1256,6 @@ export function fieldDef(store, flags, collection) {
 			}
 			case 'tags': return { type: 'array', items: { type: 'string' } };
 			default:
-				if (store.descriptors.has(t)) return { type: 'string', 'x-reference': t };
 				if (t === 'reference') return { type: 'string', 'x-reference': flags.target ?? '*' };
 				throw new Error(`unknown field type "${t}"`);
 		}
