@@ -492,6 +492,10 @@ export function relationsCommand(ws, args) {
 
 	// `store.relations()` is `relationsOf(this.descriptors)` memoized per Store — going through it
 	// rather than calling relationsOf here keeps one decoder for the whole process.
+	// The name is VALIDATED, exactly as `rebuild` validates it: without this a typo answered "no
+	// two-way relations touch nosuch" at exit 0 — the same sentence a correctly-spelled collection
+	// with no relations gets, so a misspelling reads as a fact about the workspace.
+	if (pos[0]) store.descriptor(pos[0]);
 	const rows = store.relations().filter((r) => !pos[0] || r.owner === pos[0] || r.target === pos[0]);
 	if (flags.json) { emit(JSON.stringify(rows, null, 2)); return 0; }
 	if (!rows.length) {

@@ -100,6 +100,23 @@ describe('dt relations', () => {
 		}]);
 	});
 
+	test('an unknown collection is refused, not reported as "no relations"', () => {
+		// M4. `dt relations nosuch` printed "no two-way relations touch nosuch" and exited 0 — the
+		// same answer a correctly-spelled collection with no relations gets, so a typo read as a
+		// fact about the workspace. `rebuild` already validates; the read verb now does too.
+		const ws = relWorkspace();
+		const res = ws.dt('relations', 'nosuch');
+		assert.equal(res.code, 1, res.stdout);
+		assert.match(res.stderr, /unknown collection "nosuch"/);
+	});
+
+	test('a real collection with no relations still answers, at exit 0', () => {
+		const ws = workspace({ collections: { widgets: simpleCollection({ storage: { suffix: 'widget' } }) } });
+		const res = ws.dt('relations', 'widgets');
+		assert.equal(res.code, 0, res.stderr);
+		assert.match(res.stdout, /no two-way relations touch widgets/);
+	});
+
 	test('rebuild repairs a vandalized mirror and reports the count', () => {
 		const ws = relWorkspace();
 		ws.dt('add', 'meetings', '--name', 'Standup');

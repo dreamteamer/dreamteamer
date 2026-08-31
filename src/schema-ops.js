@@ -683,7 +683,21 @@ export function removeField(ws, store, collection, fieldName) {
 	const dest = path.join(workspaceSystemDir(ws, 'collections'), `${collection}.collection.yaml`);
 	if (!fs.existsSync(dest)) throw new Error(`"${collection}" is module-shipped; the workspace can only OVERRIDE fields (extends), not remove them`);
 	const doc = load(fs.readFileSync(dest, 'utf8'));
-	if (!doc.schema?.properties?.[fieldName]) throw new Error(`field "${fieldName}" is inherited from the base module — the workspace descriptor doesn't declare it`);
+	if (!doc.schema?.properties?.[fieldName]) {
+		// A GENERATED mirror is absent from the source for a completely different reason than an
+		// inherited field: compile writes it, from the x-inverse on the OWNING side. Sending the
+		// reader to look for a base module that declares it wastes the search, and there is no edit
+		// to that descriptor which could remove it — deleting the relation is the only way, and it
+		// happens on the other collection.
+		const prop = d.schema.properties[fieldName];
+		const holder = (prop.items && typeof prop.items === 'object') ? prop.items : prop;
+		const of = holder['x-inverse-of'];
+		if (of) {
+			const dot = of.lastIndexOf('.'); // a collection name may contain '/', so split at the LAST dot
+			throw new Error(`field "${fieldName}" is not declared anywhere — it is generated from ${of}, the two-way relation that owns it. Remove the relation instead: dreamteamer schema update-field ${of.slice(0, dot)} --name ${of.slice(dot + 1)} --inverse=`);
+		}
+		throw new Error(`field "${fieldName}" is inherited from the base module — the workspace descriptor doesn't declare it`);
+	}
 	writeGated(ws, store, [dest], `dreamteamer: ${collection} remove-field ${fieldName}`, () => {
 		delete doc.schema.properties[fieldName];
 		if (Array.isArray(doc.schema.required)) doc.schema.required = doc.schema.required.filter((r) => r !== fieldName);
