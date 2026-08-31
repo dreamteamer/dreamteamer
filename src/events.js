@@ -1,5 +1,5 @@
 // item events — DERIVED from git history, never observed live (the slice-5 contract in
-// using-dreamteamer → references/git-events.md): a closed laptop loses nothing, every evaluation is
+// using-dreamteamer → references/changes.md): a closed laptop loses nothing, every evaluation is
 // auditable and replayable forever. history IS the queue; there is no events file.
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';

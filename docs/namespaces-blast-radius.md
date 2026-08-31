@@ -57,7 +57,7 @@ against an engine that has neither. Nothing was added to the non-tolerant `Promi
 
 **No change needed.** They copy skills and agents verbatim and write prose that says references are
 `<collection>/<id>`; nothing enumerates collection names. The namespace documentation added to
-`skills/using-dreamteamer/references/records.md` and `skills/building-dreamteamer/references/collections.md`
+`skills/using-dreamteamer/references/records.md` and `skills/using-dreamteamer/references/collections.md`
 propagates into every harness on the next `dt compile`, verified in a fixture.
 
 ### `recipes` modules (copied, not installed)

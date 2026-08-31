@@ -914,7 +914,7 @@ export function compile({ root, pkg }) {
 		// `data/health/doctors`. Derived rather than required so a descriptor never has to repeat its
 		// own name in a path, and so moving a collection between namespaces is a one-line edit.
 		// An authored `storage.path` still wins — registering an existing folder is a first-class case
-		// (skills/building-dreamteamer/references/collections.md).
+		// (skills/using-dreamteamer/references/collections.md).
 		merged.storage.path ??= defaultStoragePath(name, namespaces, config['data-path'] ?? 'data');
 		const storagePath = String(merged.storage.path ?? '');
 		const systemKinds = [...KINDS, ...DERIVED_KINDS];

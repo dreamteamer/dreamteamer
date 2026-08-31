@@ -146,10 +146,12 @@ workspace pins**, so the editor, the CLI and any agent session are provably runn
 This is an agent-native tool, so its documentation is shipped as skills the agent loads on demand —
 and you can read them like any other file:
 
-- [`skills/using-dreamteamer`](skills/using-dreamteamer) — the map: collections, conventions, the CLI,
-  how records work
-- [`skills/building-dreamteamer`](skills/building-dreamteamer) — authoring: collections, skills,
-  agents, commands, UI views, and which of those a given request should become
+- [`skills/using-dreamteamer`](skills/using-dreamteamer) — the one skill: working with records
+  (the CLI, conventions, commits) and modeling the workspace (collections, skills, agents,
+  commands, UI views — and which of those a given request should become), each topic a reference
+  loaded on demand
+- [`docs/one-skill-blast-radius.md`](docs/one-skill-blast-radius.md) — the 0.16.0 skill
+  consolidation: what breaks for a consumer, what to grep for, which claims were verified live
 - [`docs/repos-and-modules.md`](docs/repos-and-modules.md) — attached repos vs modules, and why they
   have different homes
 - [`docs/namespaces-blast-radius.md`](docs/namespaces-blast-radius.md) — scoping collections under a

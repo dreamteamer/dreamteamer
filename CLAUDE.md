@@ -67,10 +67,10 @@ the vault** — `renameCollection`'s header is the worked example. Anonymise the
 digit, and never soften the explanation to achieve it.
 
 The prose budget matters as much as the code one: a skill nobody can afford to load is not a
-capability. Core ships **2** skills — `using-dreamteamer` (the map) and `building-dreamteamer` (how to author) —
-and both are **digests with `references/`**, so the always-loaded file stays small and detail is
-fetched on demand. Adding a third top-level skill to core is almost certainly wrong; add a reference
-to an existing digest instead.
+capability. Core ships **ONE** skill — `using-dreamteamer`, a digest with `references/` split into
+two acts (working with data / modeling the workspace) — so the always-loaded file stays small and
+detail is fetched on demand. Adding a second top-level skill to core is almost certainly wrong;
+add a reference to the digest instead. (`building-dreamteamer` folded into it in 0.16.0.)
 
 ## IMPORTANT — sources are FLAT at a module root, and unknown folders are a compile ERROR
 

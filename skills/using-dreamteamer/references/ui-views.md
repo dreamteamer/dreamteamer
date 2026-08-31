@@ -112,14 +112,18 @@ it.
 ## options
 
 Open by contract — each layout wants different settings, and unknown keys ride through untouched to
-the surface. The two edges that bite:
+the surface. Keys are **snake_case**, declared by the layout that reads them — the built-in
+kanban's axis is `group_by` (defaulting to the first enum field) — and the surface's own Layout
+options panel writes exactly these keys, so a hand-written view and a panel-tuned one land on the
+same record. A misspelled key is read by nobody, silently. The two edges that bite:
 
 - ⚠ **`options.columns` REPLACES the descriptor's `list_fields`; it does not merge.** And a column
   naming a field the schema lacks is **dropped, not fallen back from** — which is how a core inbox
   view asking for `title` on a collection whose field is `name` rendered every row nameless with no
   error. Check the descriptor's real field names against every column you write.
 - ⚠ **`options.sort` must be written even when empty** (`sort: ''`), or "unsorted" cannot
-  round-trip and silently reverts to a fallback ordering on the next load.
+  round-trip and silently reverts to a fallback ordering on the next load. The CLI cannot express
+  it (an empty `set-view` value removes the key) — hand-write it in the source.
 
 Views are live records: a changed `filter` or `options` reaches an open tab on the next compile;
 an unchanged view re-renders nothing.
@@ -141,10 +145,14 @@ One shape, one home, both agent-writable, both diffable in git.
 
 ## the CLI can write these
 
-`dt schema add-view | set-view | rm-view` — `set-view` takes dotted keys (`options.sort=-date`,
-`nav.label=Recent`) and derives the record id with the descriptor's own template, so a view saved
-from the CLI and one saved from the UI land on the **same record**. This is the one system-stored
-kind with full CLI write support, because it goes through the same compile gate.
+`dt schema add-view | set-view | rm-view` — `add-view` derives the record id from `path` with the
+descriptor's own template, so a view saved from the CLI and one saved from the UI land on the
+**same record**; `set-view <id>` takes dotted keys (`options.sort=-date`, `nav.label=Recent`). This is the one system-stored
+kind with full CLI write support, because it goes through the same compile gate. Two edges:
+`add-view` writes the **workspace module** — right for an operator's own daily surface; a view
+that is part of a module's canonical shape belongs in that module's `ui-views/`, hand-written.
+And a dotted `key=` with an **empty value removes the key**, so the one setting whose meaningful
+value IS empty — `sort: ''` — must be hand-written in the source file (see options).
 
 ## common mistakes
 

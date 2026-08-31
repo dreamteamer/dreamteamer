@@ -35,21 +35,30 @@ record verbs (hard validation — invalid writes are rejected before disk).
 A <target> is either a collection name or a <collection>/<id> reference; the reference splits at
 the longest DECLARED collection prefix, so finance/transactions/2026/03/coffee is ONE argument:
   list   <collection> [--filter k=v] [--where <json>] [--sort [-]<field>] [--json]
-                                              (--where takes the studio's operator set, e.g.
-                                               '{"starts":{"_gte":"2026-07-01"}}'; date-times
-                                               sort and compare as instants, across offsets)
+                                              (--filter is ONE condition — a repeat replaces it;
+                                               anything compound goes in one --where, operator
+                                               objects e.g. '{"starts":{"_gte":"2026-07-01"}}' —
+                                               operators: _eq _neq _lt _lte _gt _gte _in _nin
+                                               _null _empty _contains _starts_with _ends_with
+                                               _between _regex _and _or, plus _n*/_i* negated and
+                                               case-insensitive variants; date-times sort and
+                                               compare as instants, across offsets)
   get    <collection>/<id> [--json]
   add    <collection> --<field> <value> … [--id <explicit-id>]
+                                              (a codec-file collection takes --from <path>
+                                               instead — the file IS the record, fields derive;
+                                               --force replaces an existing file record)
   set    <collection>/<id> <field>=<value> …
   rm     <collection>/<id> [--force]
-  rename <collection>/<id> <new-id>           (rewrites all inbound refs, ONE commit)
+  rename <collection>/<id> <new-id>           (rewrites all inbound refs in one WRITE —
+                                               commit publishes the set together)
   move   <collection>/<id> --after|--before <id> | --top | --bottom
   move   <collection> --init                  (place every record that has no sort value yet)
   values <collection> <field> [--limit n]     (the vocabulary a field actually uses —
                                                what a filter/validator offers as choices)
   history <collection>/<id> [--json]          (git revisions of this record, newest first)
   diff    <collection>/<id> [--hash <sha>]    (the patch one revision applied; defaults to HEAD)
-  revert  <collection>/<id> --hash <sha>      (restore the content at <sha>, as a NEW commit)
+  revert  <collection>/<id> --hash <sha>      (restore the content at <sha> as a pending write)
   commands <collection>[/<id>] [--ids <id>,…] (bound commands + per-record state:
                                                available / done / not-applicable)
   relations [<collection>]                    (every two-way pair: owner.field → target.mirror)
@@ -110,11 +119,12 @@ workspace verbs:
   update      pull git_modules clones forward (ff-only on the lockfile ref), rebuild,
               then compile; [<name>] updates just one. dirty clones are skipped
   compile     materialize modules + workspace sources into .dreamteamer (+ harness adapters)
+              [--watch] recompile on source changes
   check       validate every record against the compiled descriptors (report-only)
   status      workspace status: compiled runtime freshness, per-module channel/ref, staleness
   start       serve the clean REST api at /api [--port <n>]
   changes     what changed in every repo that holds records, as record events
-              [--since <sha|YYYY-MM-DD>] (default: the last commit) [--json]
+              [--since <sha|YYYY-MM-DD>] (default: HEAD~1 — the last commit's own changes) [--json]
   commit      publish records already written to disk: samples git status over every
               collection's record dirs, one commit PER REPO, subject composed from the
               status letters. Scope it with any number of targets, each either a whole

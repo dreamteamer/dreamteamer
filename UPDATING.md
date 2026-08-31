@@ -20,6 +20,27 @@ npx dreamteamer check
 
 ---
 
+## 0.15.x → 0.16.0
+
+**`building-dreamteamer` folded into `using-dreamteamer` — core ships ONE skill.** The content
+did not shrink; it reorganized into two acts inside `using-dreamteamer` (working with data /
+modeling the workspace), and `dt help` became the sole authority for command syntax — the prose
+now carries judgment only. Full consumer impact: `docs/one-skill-blast-radius.md`. What you have
+to do:
+
+- **Grep your modules for the old name before compiling**:
+  `grep -rn 'building-dreamteamer' modules/`. An **agent** whose frontmatter lists
+  `skills: [skills/building-dreamteamer]` FAILS COMPILE after the upgrade —
+  `references unknown skill` — point it at `skills/using-dreamteamer`. Prose mentions (a skill
+  body, a command, your CLAUDE.md) just go stale; reword them at leisure.
+- **Deep links to reference files moved.** `using-dreamteamer/references/git-events.md` is now
+  `references/changes.md`; every `building-dreamteamer/references/<topic>.md` is now
+  `using-dreamteamer/references/<topic>.md`.
+- Nothing else: compile prunes the old skill from your staged output and regenerates every
+  orientation-block index; one skill description replaces two in your harness's budget.
+
+---
+
 ## 0.14.0 → 0.15.0
 
 **`x-inverse` now GENERATES the other side of a two-way link. Compile FIRST, and read what it
@@ -333,7 +354,7 @@ options: { sort: -date }
   the operator has to be told.
 - It covers **every field `ui-views` owns**, read from the merged descriptor rather than a hardcoded
   list — `filter`, `sort`, `columns`, `path`, `layout` and anything the collection grows later.
-- A genuine layout option (`group-by`, or whatever a module's own list registers) is untouched.
+- A genuine layout option (`group_by`, or whatever a module's own list registers) is untouched.
 
 ---
 
