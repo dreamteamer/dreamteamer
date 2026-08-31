@@ -307,7 +307,11 @@ function stampMirror(byName, ctx, ownerName, field, prop, holder, mirrorName, ta
 	}
 	const generated = unique
 		? { type: 'string', 'x-reference': ownerName, readOnly: true, 'x-inverse-of': inverseOf }
-		: { type: 'array', items: { type: 'string', 'x-reference': ownerName, 'x-inverse-of': inverseOf }, readOnly: true };
+		// `uniqueItems` on the GENERATED array only — an authored reference array is the author's to
+		// shape. The store writes a set here and expectedMirrors computes one, so a duplicate in a
+		// mirror is never a value the engine produced: it arrived by hand, and saying "duplicate
+		// items" is a truer report than the "stale" the relation pass would otherwise print.
+		: { type: 'array', items: { type: 'string', 'x-reference': ownerName, 'x-inverse-of': inverseOf }, readOnly: true, uniqueItems: true };
 	generated.description = description ?? `Generated from ${inverseOf} — set that field.`;
 	const existing = t.schema.properties?.[mirrorName];
 	if (existing) {
