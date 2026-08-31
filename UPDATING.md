@@ -47,15 +47,25 @@ verified independently against a 4,193-record vault before landing.** Nothing to
 - **A missing `storage.suffix` is DERIVED as singular(bare collection name)** and stamped into
   the compiled descriptor — no more `<id>.undefined.md`. If a collection of yours relied on the
   literal `undefined` tail (nobody's should), author an explicit suffix.
-- **compile refuses an empty `.collection.yaml` by name**, and unknown-kind folders under a
-  module's legacy `system/` level are now the same error the flat layout already got.
+- **compile refuses an empty source by name — every file-shaped kind, not only collections**
+  (ui-views, commands, command-bindings, collection-templates, agents, a skill's `SKILL.md`), and
+  a YAML parse error now names the source path. ⚠ If a module of yours parks a placeholder
+  0-byte source, its next compile fails naming it — write the source or delete the file. Unknown-
+  kind folders under a module's legacy `system/` level are now the same error the flat layout
+  already got.
 - **`Store.add` is ~20× faster** (88 → ~1,600 records/sec measured): the id index is maintained
   across adds instead of rebuilt from disk, and the HEAD memo is dropped only by the four sites
   that actually run `git commit`. `renameCollection` reads each record file once, not twice per
   renamed id (16.0 → 0.4 ms/record at 400 records).
 - **`rename` maintains bare `[[basename]]` wikilinks** — rewritten when the basename is
   unambiguous across the store, left and WARNED about (naming the collider and the qualified
-  spelling) when it is not. Qualified wikilinks behave as before.
+  spelling) when it is not. Anchored forms (`[[id#heading]]`, with or without a `|label`) follow
+  the rename with the anchor kept verbatim, in both spellings. Qualified wikilinks behave as
+  before, and the raw-prose warning no longer counts an occurrence that is really the tail of an
+  already-rewritten reference.
+- **A write into a declared-but-absent peer collection is accepted**, exactly as `check` excuses
+  it — the store reads the same `unresolved_peers` the compile stamps, so a standalone module can
+  now write the records it could already validate.
 - **A `repos` record's `path` renders `${env:…}` templates** (declared vars only, loud on unset),
   so a repo can live outside the workspace as a machine-level fact; `dt status` survives a record
   whose var this machine lacks and says why instead of offering `ensure`.
