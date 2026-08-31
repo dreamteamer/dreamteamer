@@ -35,7 +35,8 @@ record verbs (hard validation — invalid writes are rejected before disk).
 A <target> is either a collection name or a <collection>/<id> reference; the reference splits at
 the longest DECLARED collection prefix, so finance/transactions/2026/03/coffee is ONE argument:
   list   <collection> [--filter k=v] [--where <json>] [--sort [-]<field>] [--json]
-                                              (--filter is ONE condition — a repeat replaces it;
+                                              (--filter is ONE condition — repeat it to AND more
+                                               (--filter a=1 --filter b=2 wants both);
                                                anything compound goes in one --where, operator
                                                objects e.g. '{"starts":{"_gte":"2026-07-01"}}' —
                                                operators: _eq _neq _lt _lte _gt _gte _in _nin
@@ -47,8 +48,12 @@ the longest DECLARED collection prefix, so finance/transactions/2026/03/coffee i
   add    <collection> --<field> <value> … [--id <explicit-id>]
                                               (a codec-file collection takes --from <path>
                                                instead — the file IS the record, fields derive;
-                                               --force replaces an existing file record)
-  set    <collection>/<id> <field>=<value> …
+                                               --force replaces an existing file record.
+                                               A repeated --<field> is one ELEMENT of an array
+                                               field — refused on a scalar one; a single value
+                                               still splits on commas)
+  set    <collection>/<id> <field>=<value> …  (repeating a pair adds an element, exactly as a
+                                               repeated --<field> does)
   rm     <collection>/<id> [--force]
   rename <collection>/<id> <new-id>           (rewrites all inbound refs in one WRITE —
                                                commit publishes the set together)
@@ -395,8 +400,11 @@ function dispatchRecordVerb(ws, verb, args) {
 	// `commands for <c>/<id>` split its own target at the FIRST slash, which cannot name a
 	// namespaced collection. splitRef can, so the id is handed over as `--ids` — the same
 	// `commandsFor(store, collection, ids)` call, reached without re-encoding the reference.
-	// Ours goes FIRST so an explicit `--ids` from the caller still wins (last flag parsed wins).
-	return collectionCommand(ws, 'commands', 'for', [collection, '--ids', id, ...rest]);
+	// An explicit `--ids` from the caller still wins — by NOT injecting ours, not by ordering. It
+	// used to rely on "last flag parsed wins", which stopped being true when a repeated flag started
+	// promoting to an array instead of overwriting: the pair would now be refused as a double.
+	const ours = rest.some((a) => a === '--ids' || a.startsWith('--ids=')) ? [] : ['--ids', id];
+	return collectionCommand(ws, 'commands', 'for', [collection, ...ours, ...rest]);
 }
 
 /**

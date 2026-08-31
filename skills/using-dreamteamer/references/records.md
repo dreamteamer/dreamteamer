@@ -18,13 +18,13 @@ commands, ui-views, collections) are *sources*: edit the file under the owning m
 
 the verbs and flags are `dt help`'s job; what to know *about* them:
 
-- narrowing a `list`: `--filter k=v` for one condition; **anything compound goes in one
-  `--where`** — its operator grammar is enumerated in `dt help`, and it is
+- narrowing a `list`: `--filter k=v` per condition, **repeated to AND more of them**
+  (`--filter status=todo --filter owner=ana` wants both); **anything an equality cannot say goes
+  in one `--where`** — its operator grammar is enumerated in `dt help`, and it is
   the same one views and gates use — e.g.
   `dt list health/prescriptions --where '{"_and":[{"patient":{"_eq":"health/patients/dana-levi"}},{"status":{"_eq":"active"}}]}'`.
-  ⚠ two `--filter` flags do NOT combine (the last one wins), and an unknown field or a dangling
-  ref **narrows to nothing** rather than erroring — filter field names deserve the same care as
-  code.
+  ⚠ an unknown field or a dangling ref **narrows to nothing** rather than erroring — filter field
+  names deserve the same care as code.
 - ⚠ **there is no `@me` and no `users` collection** (both removed in 0.8.0). when a person is
   needed, read `git config user.name`; filter on a person only when this workspace ships its own
   collection of people.
@@ -42,8 +42,12 @@ the verbs and flags are `dt help`'s job; what to know *about* them:
   nothing written. a rejected write leaves no partial state.
 - **a write puts the record on disk; `dt commit` publishes it** — committing is workspace policy
   (`auto-commit` in `package.json`, default off), never part of the write.
-- `set <collection>/<id> <field>=` with an empty value **removes** the field; array fields take a
-  comma-separated value; the `x-body` field is set like any other field.
+- `set <collection>/<id> <field>=` with an empty value **removes** the field; the `x-body` field is
+  set like any other field.
+- an **array field** takes a comma-separated value (`--tags a,b`, `tags=a,b`) — or the flag/pair
+  **repeated**, one element per sighting (`--tags a --tags b`), which is how a value that itself
+  contains a comma gets written. ⚠ repeating a **scalar** field is refused, naming it: it used to
+  keep the last value silently, so the first one never reached disk.
 - ids generate from the record's own creation-time values — pass `--id` only when the operator
   named one.
 
@@ -205,7 +209,8 @@ two hundred.
 |---|---|
 | `mv data/tasks/old.task.md …/new.task.md` | every inbound ref now dangles. `dt rename`. |
 | renaming a record because its title changed | the id is not a display name — edit the field |
-| two `--filter` flags to AND conditions | the last flag wins — compound conditions go in one `--where` |
+| a `--filter` per condition | right — they AND; only what equality cannot express needs `--where` |
+| `--tags a --tags b` on a scalar field | refused, naming the field — a repeat is an array ELEMENT, and a scalar has no room for two |
 | `--force` to get past an `rm` refusal | it leaves inbound refs dangling — retarget them first (unless the refusal named a *prose* mention, which isn't a real reference) |
 | omitting schema defaults from a hand-written file | the file stops being legible without the schema |
 | unquoted `due: 2026-07-28` in hand-written YAML | dreamteamer parses CORE_SCHEMA so it stays a string *here*, but a default-schema YAML reader turns it into a timestamp — quote dates |
