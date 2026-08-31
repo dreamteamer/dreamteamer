@@ -86,8 +86,14 @@ different word in front of it):
                             declares it from this side instead — there is no wrong side.
   schema update-field <collection> --name <field> --type <type> [--options a,b] [--default-value v]
                             [--required true|false] [--description "…"]
-                            (an existing description survives a retype, and so do the relation
-                             keywords — --inverse= drops the mirror)
+                            [--many] [--inverse [name]] [--unique]
+                            [--on-delete restrict|set-null] [--mirror-of <collection>.<field>]
+                            (an existing description survives a retype, and so does every relation
+                             keyword you do not restate. --inverse on an EXISTING reference is the
+                             migration: a plain foreign key gains its two-way mirror without
+                             restating --type. --inverse= drops the mirror; --unique false clears
+                             the one-to-one. Records written before the mirror existed are counted
+                             for you, with the "relations rebuild" that repairs them.)
   schema remove-field <collection> --name <field>
   schema add-view --path </route> --target list --collection collections/<c> --layout <id>
                             [--id <id>] [k.v=…]

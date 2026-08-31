@@ -8,7 +8,7 @@ import express from 'express';
 import { Store, bodyField } from './store.js';
 import { readManifest, staleness, discoverModules, CompileError } from './compile.js';
 import { presentation } from './presentation.js';
-import { createCollection, removeCollection, addField, updateField, removeField, fieldDef, saveUiView, removeUiView } from './schema-ops.js';
+import { createCollection, removeCollection, addField, updateField, removeField, fieldDef, statedKeywords, saveUiView, removeUiView } from './schema-ops.js';
 import { history, historyDiff } from './history.js';
 import { matchesFilter } from './filter.js';
 import { sortRows } from './temporal.js';
@@ -209,13 +209,20 @@ export function startServer(ws, { port = 8080, host = '127.0.0.1' } = {}) {
 		removeCollection(ws, store, req.params.name, { force: req.query.force === 'true' })));
 	api.post('/schema/collections/:name/fields', schemaOp((req) => {
 		const b = req.body ?? {};
-		const prop = b.prop ?? fieldDef(store, b);
+		const prop = b.prop ?? fieldDef(store, b, req.params.name);
 		return addField(ws, store, req.params.name, { name: b.name, prop, required: b.required === true });
 	}));
 	api.patch('/schema/collections/:name/fields/:field', schemaOp((req) => {
 		const b = req.body ?? {};
-		const prop = b.prop ?? fieldDef(store, b);
-		return updateField(ws, store, req.params.name, req.params.field, { prop, required: b.required });
+		const prop = b.prop ?? fieldDef(store, b, req.params.name);
+		// updateField carries every relation keyword the caller did NOT restate, so it has to be told
+		// what this one meant. A body carrying a whole `prop` (the studio's field drawer) has stated
+		// the entire field — the default `stated` is "everything", so nothing is carried into it
+		// behind its back. A body in the flag vocabulary states only the flags it named; without
+		// this, `type` was never stated, `x-reference` was always carried, and a retype away from a
+		// reference was a silent no-op that then failed the commit gate with a misleading rollback.
+		const stated = b.prop ? undefined : statedKeywords(b);
+		return updateField(ws, store, req.params.name, req.params.field, { prop, required: b.required, flags: b.prop ? {} : b, stated });
 	}));
 	api.delete('/schema/collections/:name/fields/:field', schemaOp((req) =>
 		removeField(ws, store, req.params.name, req.params.field)));

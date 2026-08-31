@@ -6,6 +6,8 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { workspace, simpleCollection, readFile } from '../helpers/ws.js';
 import { load } from '../../src/yaml.js';
+import { Store } from '../../src/store.js';
+import { fieldDef, updateField, statedKeywords } from '../../src/schema-ops.js';
 
 const descriptorOf = (ws, file) => load(readFile(ws.root, file));
 
@@ -227,7 +229,7 @@ describe('relation authoring flags', () => {
 		const ws = bare();
 		const res = ws.dt('schema', 'add-field', 'meeting-recordings', '--name', 'quality', '--type', 'string', '--inverse');
 		assert.equal(res.code, 1);
-		assert.match(res.stderr, /--inverse needs a single-collection/);
+		assert.match(res.stderr, /--inverse needs a --type <collection> reference/);
 	});
 
 	test('update-field --inverse "" drops the mirror', () => {
@@ -250,5 +252,143 @@ describe('relation authoring flags', () => {
 		assert.deepEqual(quality.enum, ['clear', 'noisy']);
 		assert.equal(quality.description, 'how clean the audio is'); // the pre-existing carry still works
 		assert.deepEqual(Object.keys(quality).filter((k) => k.startsWith('x-')), []);
+	});
+});
+
+
+// ---- one notion of "the flag was stated" -------------------------------------------------------
+// `--required true` is the documented spelling for a boolean flag in this CLI, so `--unique true` is
+// what a user types. When the carry map's "stated" (any value) and fieldDef's "on" (literal `true`)
+// disagree, a stated-but-not-written keyword is dropped by BOTH — the flag says one thing, the
+// source loses the keyword, and the command exits 0. Every spelling below destroyed a relation.
+describe('a stated relation flag means the same thing everywhere', () => {
+	function bare() {
+		return workspace({ collections: {
+			meetings: simpleCollection({ storage: { suffix: 'meeting' } }),
+			'meeting-recordings': simpleCollection({ storage: { suffix: 'recording' } }),
+		} });
+	}
+	const sourceOf = (ws, c) => load(readFile(ws.root, `modules/default/collections/${c}.collection.yaml`));
+	/** a one-to-one FK: meeting-recordings.meeting → meetings.recording (scalar, unique) */
+	function withUniqueFk() {
+		const ws = bare();
+		const add = ws.dt('schema', 'add-field', 'meeting-recordings', '--name', 'meeting', '--type', 'meetings', '--inverse', '--unique');
+		assert.equal(add.code, 0, add.stderr);
+		assert.equal(sourceOf(ws, 'meeting-recordings').schema.properties.meeting['x-unique'], true);
+		return ws;
+	}
+
+	for (const spelling of [['--unique'], ['--unique', 'true'], ['--unique=true']]) {
+		test(`update-field ${spelling.join(' ')} keeps the one-to-one`, () => {
+			const ws = withUniqueFk();
+			const res = ws.dt('schema', 'update-field', 'meeting-recordings', '--name', 'meeting', ...spelling);
+			assert.equal(res.code, 0, res.stderr);
+			const meeting = sourceOf(ws, 'meeting-recordings').schema.properties.meeting;
+			assert.equal(meeting['x-unique'], true, 'x-unique must survive its own flag');
+			assert.equal(meeting['x-inverse'], 'recording');
+			assert.match(res.stdout, /mirror: meetings\.recording\b/); // scalar: no []
+		});
+	}
+
+	test('update-field --unique false CLEARS it — a stated flag is not a carried one', () => {
+		const ws = withUniqueFk();
+		const res = ws.dt('schema', 'update-field', 'meeting-recordings', '--name', 'meeting', '--unique', 'false');
+		assert.equal(res.code, 0, res.stderr);
+		const meeting = sourceOf(ws, 'meeting-recordings').schema.properties.meeting;
+		assert.equal(meeting['x-unique'], undefined);
+		assert.equal(meeting['x-inverse'], 'recording'); // only the stated keyword moves
+	});
+
+	test('update-field --many true keeps the array FK an array', () => {
+		const ws = bare();
+		ws.dt('schema', 'add-field', 'meeting-recordings', '--name', 'meetings', '--type', 'meetings', '--many');
+		// `--description` so the write is a real one: `--many true` on an already-array FK changes
+		// nothing on its own, and a no-op update-field trips the write gate's empty-commit failure —
+		// a pre-existing wart of every restating update, not the behaviour under test here.
+		const res = ws.dt('schema', 'update-field', 'meeting-recordings', '--name', 'meetings', '--many', 'true', '--description', 'the calls this captures');
+		assert.equal(res.code, 0, res.stderr);
+		const fk = sourceOf(ws, 'meeting-recordings').schema.properties.meetings;
+		assert.equal(fk.type, 'array', 'an array FK must not be rewritten to a scalar under records that hold lists');
+		assert.equal(fk.items['x-reference'], 'meetings');
+	});
+
+	test('update-field --many false demotes it to a scalar, deliberately', () => {
+		const ws = bare();
+		ws.dt('schema', 'add-field', 'meeting-recordings', '--name', 'meetings', '--type', 'meetings', '--many');
+		assert.equal(ws.dt('schema', 'update-field', 'meeting-recordings', '--name', 'meetings', '--many', 'false').code, 0);
+		const fk = sourceOf(ws, 'meeting-recordings').schema.properties.meetings;
+		assert.equal(fk.type, 'string');
+		assert.equal(fk['x-reference'], 'meetings');
+	});
+
+	test('the relation flags are refused on a field that references nothing — all of them, alike', () => {
+		const ws = bare();
+		for (const flag of [['--inverse'], ['--unique'], ['--on-delete', 'set-null'], ['--many'], ['--mirror-of', 'meetings.x']]) {
+			const res = ws.dt('schema', 'add-field', 'meeting-recordings', '--name', `q${flag[0].slice(2)}`, '--type', 'string', ...flag);
+			assert.equal(res.code, 1, `${flag[0]} on a non-reference should be refused, got:\n${res.stdout}`);
+			assert.match(res.stderr, /needs a --type <collection> reference|needs a single-collection/);
+		}
+	});
+
+	test('--on-delete only takes restrict or set-null', () => {
+		const ws = bare();
+		const res = ws.dt('schema', 'add-field', 'meeting-recordings', '--name', 'meeting', '--type', 'meetings', '--inverse', '--on-delete', 'cascade');
+		assert.equal(res.code, 1);
+		assert.match(res.stderr, /--on-delete takes restrict or set-null/);
+	});
+
+	test('the migration hint survives the array reshape', () => {
+		// updateField REASSIGNS prop when it rebuilds the scalar fieldDef produced into an array, so
+		// a caller reporting off its own copy saw a stale object and printed nothing — on exactly the
+		// path where the hint matters, because check fails on the very next command.
+		const ws = bare();
+		ws.dt('add', 'meetings', '--name', 'Standup');
+		ws.dt('schema', 'add-field', 'meeting-recordings', '--name', 'meetings', '--type', 'meetings', '--many');
+		ws.dt('add', 'meeting-recordings', '--name', 'Cap1', '--meetings', 'meetings/standup');
+		ws.dt('add', 'meeting-recordings', '--name', 'Cap2', '--meetings', 'meetings/standup');
+		const res = ws.dt('schema', 'update-field', 'meeting-recordings', '--name', 'meetings', '--inverse');
+		assert.equal(res.code, 0, res.stderr);
+		assert.match(res.stdout, /mirror: meetings\.recordings\[\]/);
+		assert.match(res.stdout, /2 meeting-recordings records carry values — run: dreamteamer relations rebuild meetings/);
+		assert.equal(ws.dt('check').code, 1); // and the hint is not decoration
+		assert.equal(ws.dt('relations', 'rebuild', 'meetings').code, 0);
+		assert.equal(ws.dt('check').code, 0);
+	});
+
+	test('one record reads as one record', () => {
+		const ws = bare();
+		ws.dt('add', 'meetings', '--name', 'Standup');
+		ws.dt('schema', 'add-field', 'meeting-recordings', '--name', 'meeting', '--type', 'meetings');
+		ws.dt('add', 'meeting-recordings', '--name', 'Cap1', '--meeting', 'meetings/standup');
+		const res = ws.dt('schema', 'update-field', 'meeting-recordings', '--name', 'meeting', '--inverse');
+		assert.match(res.stdout, /1 meeting-recordings record carries values/);
+	});
+
+	test('updateField: a caller stating `type` retypes a reference field away', () => {
+		// The HTTP schema endpoint calls updateField directly. It passed no flags, so `type` was never
+		// "stated", x-reference was ALWAYS carried, the retype was a silent no-op — and the resulting
+		// zero-byte diff failed the commit gate with "the schema change was rolled back".
+		const ws = bare();
+		ws.dt('schema', 'add-field', 'meeting-recordings', '--name', 'meeting', '--type', 'meetings', '--inverse');
+		const store = new Store(ws.ws);
+		const body = { name: 'meeting', type: 'string' };
+		updateField(ws.ws, store, 'meeting-recordings', 'meeting', {
+			prop: fieldDef(store, body, 'meeting-recordings'), required: undefined, flags: body, stated: statedKeywords(body),
+		});
+		const meeting = sourceOf(ws, 'meeting-recordings').schema.properties.meeting;
+		assert.equal(meeting.type, 'string');
+		assert.equal(meeting['x-reference'], undefined);
+		assert.equal(meeting['x-inverse'], undefined); // the dependent keyword goes with the reference
+	});
+
+	test('updateField: a caller that supplies a whole prop and no `stated` carries nothing forward', () => {
+		// server.js's `b.prop` path — the studio's field drawer sends the complete field. Omitting
+		// `stated` must mean "I stated everything", never "keep whatever was there".
+		const ws = bare();
+		ws.dt('schema', 'add-field', 'meeting-recordings', '--name', 'meeting', '--type', 'meetings', '--inverse');
+		updateField(ws.ws, new Store(ws.ws), 'meeting-recordings', 'meeting', { prop: { type: 'boolean' } });
+		const meeting = sourceOf(ws, 'meeting-recordings').schema.properties.meeting;
+		assert.equal(meeting.type, 'boolean');
+		assert.equal(meeting['x-reference'], undefined);
 	});
 });

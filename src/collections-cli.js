@@ -9,7 +9,7 @@ import { Store, bodyField, serialize, atomicWrite } from './store.js';
 import { load, dump } from './yaml.js';
 import { slug } from './template.js';
 import {
-	createCollection, removeCollection, renameCollection, addField, updateField, removeField, fieldDef, saveUiView, removeUiView,
+	createCollection, removeCollection, renameCollection, addField, updateField, removeField, fieldDef, statedKeywords, relationFlagsStated, saveUiView, removeUiView,
 	// was copy-pasted here, and the copy went stale the moment the source layout gained a second
 	// spelling — one implementation, two callers
 	workspaceSystemDir,
@@ -323,15 +323,15 @@ function metaCollectionsRm(ws, store, flags, pos) {
 // `dreamteamer tasks add-field --name urgent --type boolean --default-value false`
 function metaAddField(ws, store, collection, flags) {
 	const prop = fieldDef(store, flags, collection);
-	// fieldDef defers an --inverse it cannot attach (update-field carries the reference in later).
-	// add-field has nothing to carry, so an --inverse that landed nowhere is a mistake, not a no-op.
-	if (flags.inverse !== undefined && flags.inverse !== '' && !(prop.items ?? prop)['x-inverse']) {
-		throw new Error('--inverse needs a single-collection --type <collection> reference.');
-	}
+	// fieldDef DEFERS every relation flag it has no reference to attach to, because on update-field
+	// the target is carried in afterwards. add-field has nothing to carry, so a relation flag that
+	// landed nowhere is a mistake — refused here rather than written as a dead keyword.
+	const stray = (prop.items ?? prop)['x-reference'] === undefined && relationFlagsStated(flags);
+	if (stray) throw new Error(`--${stray} needs a --type <collection> reference.`);
 	const out = addField(ws, store, collection, { name: flags.name, prop, required: flags.required === 'true' });
 	console.log(`✔ ${rel(ws.root, out.file)}${out.extends ? ` (extends ${out.extends})` : ''}`);
 	console.log('✔ compiled — the field is live');
-	reportMirror(store, collection, flags.name, prop);
+	reportMirror(store, collection, flags.name, out.prop);
 	return 0;
 }
 
@@ -346,7 +346,7 @@ function reportMirror(store, collection, fieldName, prop) {
 	const target = holder['x-reference'];
 	console.log(`  mirror: ${target}.${holder['x-inverse']}${holder['x-unique'] === true ? '' : '[]'}  (generated, read-only)`);
 	const n = [...store.readAll(collection)].filter((r) => r.fields[fieldName] != null).length;
-	if (n) console.log(`  ${n} ${collection} record${n === 1 ? '' : 's'} carry values — run: dreamteamer relations rebuild ${target}`);
+	if (n) console.log(`  ${n} ${collection} ${n === 1 ? 'record carries' : 'records carry'} values — run: dreamteamer relations rebuild ${target}`);
 }
 
 // `dreamteamer tasks update-field --name urgent --type enum --options a,b --required false`
@@ -357,12 +357,15 @@ function metaUpdateField(ws, store, collection, flags) {
 	const prop = fieldDef(store, flags, collection);
 	// tri-state: omitting --required leaves requiredness ALONE, rather than silently clearing it
 	const required = flags.required === undefined ? undefined : flags.required === 'true' || flags.required === true;
-	// `flags` as well as the prop: updateField carries the relation keywords forward from the
-	// previous prop, and only the flags can say which of them the caller meant to restate.
-	const out = updateField(ws, store, collection, flags.name, { prop, required, flags });
+	// `flags` for the VALUES and `stated` for what the caller meant to restate: updateField carries
+	// every unstated relation keyword forward from the previous prop.
+	const out = updateField(ws, store, collection, flags.name, { prop, required, flags, stated: statedKeywords(flags) });
 	console.log(`✔ ${rel(ws.root, out.file)}${out.extends ? ` (extends ${out.extends})` : ''}`);
 	console.log('✔ compiled — the field is updated');
-	reportMirror(store, collection, flags.name, prop);
+	// off `out.prop`, never the one passed in: updateField reassigns it when it rebuilds a carried
+	// reference as an array, and reporting off the stale object printed nothing on exactly the
+	// migration path where check fails on the very next command.
+	reportMirror(store, collection, flags.name, out.prop);
 	return 0;
 }
 
