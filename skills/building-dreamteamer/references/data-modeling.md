@@ -981,8 +981,8 @@ icon: pill
 **One sample record, seeded before declaring** — the step that catches the unit nobody mentioned:
 
 ```
-dt add health/lab-values patient=health/patients/dana-levi date=2026-07-02 \
-      analyte=ldl value=138 unit=mg/dL flag=high source="health/visits/2026/07/2026-07-02--intake--dana-levi"
+dt add health/lab-values --patient health/patients/dana-levi --date 2026-07-02 --analyte ldl \
+      --value 138 --unit mg/dL --flag high --source "health/visits/2026/07/2026-07-02--intake--dana-levi"
 → data/health/lab-values/dana-levi/2026-07-02--ldl.lab-value.yaml
 ```
 
@@ -993,9 +993,9 @@ is derivable through visits and would be a copy with no keeper) · invoices (a d
 concept — declared out of scope rather than half-modelled).
 
 Why this model holds up, checked against the parts: every recurring question is a one-hop filter
-(II §2) · the grains differ per collection and each was chosen by its question (IV §13) · the one
-risky inverse was measured and refused (VI §25) · every number carries its unit (V §21) · the
-statuses are observable (IV §15) · the module compiles alone and touches no commons (III §8).
+(I §2, VII §34) · the grains differ per collection and each was chosen by its question (IV §13) ·
+the one risky inverse was measured and refused (VI §25) · every number carries its unit (V §21) ·
+the statuses are observable (IV §15) · the module compiles alone and touches no commons (III §8).
 
 ---
 
