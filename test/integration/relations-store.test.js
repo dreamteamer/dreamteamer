@@ -29,6 +29,7 @@ const RECORDINGS = simpleCollection({
 		required: ['name'],
 		properties: {
 			name: { type: 'string' },
+			notes: { type: 'string', format: 'markdown', 'x-body': true }, // analyses mirror onto this
 			meeting: { type: 'string', 'x-reference': 'meetings', 'x-inverse': 'recordings' },
 		},
 	},
@@ -283,6 +284,7 @@ const PEOPLE = {
 		properties: {
 			name: { type: 'string' },
 			team: { type: 'string' },
+			notes: { type: 'string', format: 'markdown', 'x-body': true }, // a mirror target needs one
 			mentor: { type: 'string', 'x-reference': 'people', 'x-unique': true, 'x-inverse': 'mentee' },
 		},
 	},

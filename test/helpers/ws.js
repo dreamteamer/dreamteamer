@@ -184,14 +184,19 @@ export function writeCollection(root, name, descriptor) {
 	return file;
 }
 
-/** A minimal valid descriptor, so a test only states the part it is about. */
+/** A minimal valid descriptor, so a test only states the part it is about.
+ *
+ *  `notes` is here because it is what a real collection has and a relation TARGET must have: compile
+ *  refuses to stamp a mirror onto a `codec: md` collection that declares no `x-body`, since a mirror
+ *  write would rebuild the file from its parsed fields and drop any prose the record holds. A
+ *  fixture without one could not be linked at all. */
 export function simpleCollection(extra = {}) {
 	return {
 		id: { generate: '{{ name | slug }}' },
 		schema: {
 			type: 'object',
 			required: ['name'],
-			properties: { name: { type: 'string' } },
+			properties: { name: { type: 'string' }, notes: { type: 'string', format: 'markdown', 'x-body': true } },
 		},
 		...extra,
 	};

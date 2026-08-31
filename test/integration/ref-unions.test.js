@@ -169,6 +169,8 @@ describe('x-reference unions: check', () => {
 						type: 'object', required: ['name'],
 						properties: {
 							name: { type: 'string' },
+							// a mirror target needs an x-body field, or compile refuses to stamp onto it
+							notes: { type: 'string', format: 'markdown', 'x-body': true },
 							analyses: { type: 'array', items: { type: 'string', 'x-reference': 'reviews' } },
 						},
 					},
@@ -180,6 +182,8 @@ describe('x-reference unions: check', () => {
 						type: 'object', required: ['name'],
 						properties: {
 							name: { type: 'string' },
+							// a mirror target needs an x-body field, or compile refuses to stamp onto it
+							notes: { type: 'string', format: 'markdown', 'x-body': true },
 							analyses: { type: 'array', items: { type: 'string', 'x-reference': 'reviews' } },
 						},
 					},
