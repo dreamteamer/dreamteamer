@@ -41,7 +41,9 @@ drifted. Worth knowing because the OLD prose said otherwise:
   (the last-wins parse was fixed after 0.16.1, because "returns rows the caller excluded, at exit
   0" is a defect and not a grammar).
 - **`options.sort: ''` cannot be written through `schema set-view`** (an empty dotted value
-  removes the key) — hand-write it in the source. Verified live.
+  removes the key) — hand-write it in the source. Verified live. ⚠ **No longer true**: a QUOTED
+  value says "the empty string IS the value" (`'options.sort=""'`), added after 0.16.1; a bare
+  `options.sort=` still removes.
 - **The kanban's grouping option is `group_by`** (snake_case, defaulting to the first enum
   field); an engine doc example previously spelled it `group-by`, which nothing reads.
 - **A module is discovered only if its `package.json` carries a `dreamteamer` key** — previously

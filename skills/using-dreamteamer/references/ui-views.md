@@ -127,8 +127,10 @@ same record. A misspelled key is read by nobody, silently. The two edges that bi
   keeps its commas as characters (`options.template=a, b` is one string), and a list of OBJECTS
   (`options.arrangement`) has only the JSON spelling.
 - ⚠ **`options.sort` must be written even when empty** (`sort: ''`), or "unsorted" cannot
-  round-trip and silently reverts to a fallback ordering on the next load. The CLI cannot express
-  it (an empty `set-view` value removes the key) — hand-write it in the source.
+  round-trip and silently reverts to a fallback ordering on the next load. The spelling is a
+  QUOTED value — `dt schema set-view <id> 'options.sort=""'` — because a bare `options.sort=`
+  removes the key, as an empty value does everywhere else. Quoting any value makes it a literal
+  string (`options.sort='"-date"'` is the same as `options.sort=-date`).
 
 Views are live records: a changed `filter` or `options` reaches an open tab on the next compile;
 an unchanged view re-renders nothing.
@@ -157,7 +159,7 @@ kind with full CLI write support, because it goes through the same compile gate.
 `add-view` writes the **workspace module** — right for an operator's own daily surface; a view
 that is part of a module's canonical shape belongs in that module's `ui-views/`, hand-written.
 And a dotted `key=` with an **empty value removes the key**, so the one setting whose meaningful
-value IS empty — `sort: ''` — must be hand-written in the source file (see options).
+value IS empty — `sort: ''` — is written QUOTED: `'options.sort=""'` (see options).
 
 ## common mistakes
 
@@ -169,7 +171,7 @@ value IS empty — `sort: ''` — must be hand-written in the source file (see o
 | a filter using `@me` | gone in 0.8.0 with `users` — compile refuses it by name |
 | `filter` written inside `options` | accepted, saved, read by nobody — compile warns; move it up |
 | a column the schema does not have | dropped silently — the row loses that value with no error |
-| omitting `sort` to mean unsorted | write `sort: ''` or the ordering reverts on reload |
+| omitting `sort` to mean unsorted | write `sort: ''` (`'options.sort=""'`) or the ordering reverts on reload |
 | a ui-view that restates the built-in fallback | a record to maintain for zero gain |
 | a `default: true` view with its own `path`/`nav` | the default IS the collection page — it never routes itself |
 | a module ui-view naming one person | a hard-coded id resolves in no other workspace |
