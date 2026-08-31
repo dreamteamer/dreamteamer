@@ -817,8 +817,10 @@ useless until the flood is drained.
   message being the ledger); `schema remove-field` the old one — which clears any leftovers and
   reports the count.
 - **Values** (an id, a reference target): `dt rename <collection>/<old> <new>` rewrites inbound
-  references; qualified prose wikilinks are followed, bare-name prose is not — one more reason
-  references in bodies are written qualified.
+  references. Prose wikilinks are followed in both spellings — `[[collection/id]]` always, and a
+  bare `[[id]]` when that basename names exactly ONE record in the workspace; when something else
+  claims it, the link is left alone and the rename says so, naming the file. Raw prose that is not
+  a wikilink is counted and reported, never rewritten.
 
 ### 42. Migrations are scripts, run once, committed with their effects
 

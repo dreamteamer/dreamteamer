@@ -30,6 +30,14 @@ const PEOPLE = simpleCollection({ storage: { suffix: 'person' } });
 
 const base = (extra = {}) => workspace({ collections: { tasks: TASKS, people: PEOPLE, ...extra } });
 
+/** Run `fn` with console.warn captured — a warning IS the result when a verb declines to guess. */
+function quietly(fn) {
+	const warnings = [];
+	const warn = console.warn;
+	console.warn = (...a) => warnings.push(a.join(' '));
+	try { return { out: fn(), warnings }; } finally { console.warn = warn; }
+}
+
 describe('add', () => {
 	test('generates the id, materializes defaults and writes the file', () => {
 		const ws = base();
@@ -173,6 +181,45 @@ describe('rename', () => {
 		const body = readFile(ws.root, 'data/tasks/t.task.md');
 		assert.match(body, /\[\[people\/ada-l\]\]/);
 		assert.match(body, /people\/ada raw/, 'the raw prose mention must be left alone');
+	});
+
+	// A body says `[[ada]]`, not `[[people/ada]]`, more often than not — it is what every wikilink
+	// editor writes and what a person types. Rename used to move the record, rewrite the qualified
+	// links, and leave those dangling with NO warning: the skipped-prose counter matches the
+	// QUALIFIED form too, so a bare link was not even reported as skipped.
+	test('a bare [[basename]] wikilink follows the rename when the basename is unambiguous', () => {
+		const ws = base();
+		ws.store.add('people', { name: 'Ada' });
+		ws.store.add('tasks', { title: 'T', body: 'see [[ada]] and [[ada|Ada L]] and [[people/ada]]' });
+		ws.store.rename('people', 'ada', 'ada-l');
+		const body = readFile(ws.root, 'data/tasks/t.task.md');
+		assert.match(body, /\[\[ada-l\]\]/);
+		assert.match(body, /\[\[ada-l\|Ada L\]\]/, 'the |label form must keep its label');
+		assert.match(body, /\[\[people\/ada-l\]\]/, 'the qualified form is unaffected');
+		assert.doesNotMatch(body, /\[\[ada[\]|]/);
+	});
+
+	test('an ambiguous basename is left alone and REPORTED, never guessed', () => {
+		const ws = base();
+		ws.store.add('people', { name: 'Ada' });
+		ws.store.add('tasks', { title: 'Ada' }); // tasks/ada — now "ada" names two records
+		ws.store.add('tasks', { title: 'T', body: 'see [[ada]]' });
+		const { out, warnings } = quietly(() => ws.store.rename('people', 'ada', 'ada-l'));
+		assert.equal(out.ambiguous, 1, 'the untouched link must be counted, not silently dropped');
+		assert.match(readFile(ws.root, 'data/tasks/t.task.md'), /\[\[ada\]\]/);
+		assert.ok(warnings.some((w) => w.includes('data/tasks/t.task.md') && w.includes('tasks/ada')),
+			`no warning named the file and the other claimant: ${warnings.join(' | ')}`);
+	});
+
+	test('a rename that keeps the basename runs no bare pass at all', () => {
+		// the shape `collections rename` takes: the id is untouched, only its collection moves, so a
+		// bare `[[ada]]` still names exactly what it named before.
+		const ws = base();
+		ws.store.add('people', { name: 'Ada' });
+		ws.store.add('tasks', { title: 'T', body: 'see [[ada]]' });
+		const { ambiguous } = ws.store.rewriteRefs('people/ada', 'folk/ada');
+		assert.deepEqual(ambiguous, []);
+		assert.match(readFile(ws.root, 'data/tasks/t.task.md'), /\[\[ada\]\]/);
 	});
 
 	test('renaming to an existing id is refused', () => {
