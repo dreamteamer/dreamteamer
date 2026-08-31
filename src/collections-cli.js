@@ -290,6 +290,7 @@ function metaReposEnsure(ws, flags, pos) {
 
 // `dreamteamer collections add --name research-docs --template docs`
 function metaCollectionsAdd(ws, store, flags) {
+	refuseRepeats(flags);
 	const { file } = createCollection(ws, store, { name: flags.name, template: flags.template, namespace: flags.namespace });
 	console.log(`✔ ${rel(ws.root, file)}`);
 	console.log('✔ compiled — the collection is live (schema ops prove sources with a real compile)');
@@ -300,6 +301,7 @@ function metaCollectionsAdd(ws, store, flags) {
 // The whole point is that namespacing EXISTING data is one command instead of a six-step hand
 // migration whose last step (rewriting references) dangles everything when forgotten.
 function metaCollectionsRename(ws, store, flags, pos) {
+	refuseRepeats(flags);
 	const [oldName, explicitNew] = pos;
 	if (!oldName) throw new Error('usage: dreamteamer schema rename-collection <old> <new> | <old> --namespace <ns>');
 	// `--namespace health` on its own moves the collection INTO that namespace keeping its bare name,
@@ -323,6 +325,7 @@ function metaCollectionsRename(ws, store, flags, pos) {
 // `dreamteamer collections rm widgets [--force]` — --force is required to drop a collection
 // that still has records (removeCollection refuses otherwise, and says so).
 function metaCollectionsRm(ws, store, flags, pos) {
+	refuseRepeats(flags);
 	const name = need(pos, 0, 'collection name');
 	const out = removeCollection(ws, store, name, { force: !!flags.force });
 	flags.json ? emit(JSON.stringify(out)) : console.log(`✔ removed collection ${out.removed}`);
@@ -332,6 +335,7 @@ function metaCollectionsRm(ws, store, flags, pos) {
 
 // `dreamteamer tasks add-field --name urgent --type boolean --default-value false`
 function metaAddField(ws, store, collection, flags) {
+	refuseRepeats(flags);
 	const prop = fieldDef(store, flags, collection);
 	// fieldDef DEFERS every relation flag it has no reference to attach to, because on update-field
 	// the target is carried in afterwards. add-field has nothing to carry, so a relation flag that
@@ -382,6 +386,7 @@ function reportMirror(store, collection, fieldName, prop) {
 // Same flag vocabulary as add-field (one `fieldDef`), so the two read as one operation with two
 // preconditions rather than two dialects.
 function metaUpdateField(ws, store, collection, flags) {
+	refuseRepeats(flags);
 	if (!flags.name) throw new Error('missing --name <field>');
 	const prop = fieldDef(store, flags, collection);
 	// tri-state: omitting --required leaves requiredness ALONE, rather than silently clearing it
@@ -402,6 +407,7 @@ function metaUpdateField(ws, store, collection, flags) {
 
 // `dreamteamer tasks remove-field --name urgent`
 function metaRemoveField(ws, store, collection, flags) {
+	refuseRepeats(flags);
 	const name = flags.name ?? flags.field;
 	if (!name) throw new Error('missing --name <field>');
 	const out = removeField(ws, store, collection, name);
@@ -722,6 +728,22 @@ function oneValue(flags, key) {
 		throw new Error(`--${key} was given ${v.length} times and takes ONE value: ${v.map((x) => `--${key} ${x}`).join(' ')}`);
 	}
 	return typeof v === 'string' ? v : undefined;
+}
+
+/**
+ * A schema verb takes ONE value per flag, and a repeat is refused before anything is written.
+ *
+ * None of them means a list by repetition — `--options a,b` is one value, and `--name` names the
+ * single thing being written — so every repeat is a mistake. It has to be caught here because the
+ * ones that matter are IDENTITY: `--name x --name y` wrote a field called `y` before the promotion
+ * and one called `x,y` after it, and both of those are a source file the operator then has to find
+ * and edit by hand.
+ */
+function refuseRepeats(flags) {
+	const dup = Object.entries(flags).find(([, v]) => Array.isArray(v));
+	if (!dup) return;
+	const [k, v] = dup;
+	throw new Error(`--${k} was given ${v.length} times, and a schema verb takes ONE value per flag: ${v.map((x) => `--${k} ${x}`).join(' ')}`);
 }
 
 /** `field=value` positionals, with the same promote-on-repeat rule the flags have. It was
