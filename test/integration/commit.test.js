@@ -589,4 +589,64 @@ describe('the whole-collection form warns about the partner it leaves behind', (
 		assert.match(res.stderr, /1 relation partner\(s\) left pending/);
 		assert.match(res.stderr, /dreamteamer commit meetings\/m6$/m);
 	});
+
+	test('the command is CAPPED like every other list in this report, and the overflow converges', () => {
+		// This line was the one unbounded list in a report that caps its rows at 20 — 25 leftovers
+		// printed 25 refs on a single line. ⚠ But a truncated COMMAND is not a command, so the overflow
+		// cannot just be "+ N more": it names the collection-scoped form that does publish the rest,
+		// and what that costs.
+		const ws = workspace({ collections: { meetings: MEETINGS, recordings: RECORDINGS } });
+		assert.equal(ws.dt('add', 'meetings', '--name', 'Standup').code, 0);
+		for (let i = 0; i < 25; i++) {
+			assert.equal(ws.dt('add', 'recordings', '--name', `Cap ${i}`, '--meeting', 'meetings/standup').code, 0);
+		}
+		const res = ws.dt('commit', 'meetings');
+		assert.equal(res.code, 0, res.stderr);
+		assert.match(res.stderr, /25 relation partner\(s\) left pending/);
+		const command = res.stderr.split('\n').find((l) => l.trim().startsWith('dreamteamer commit recordings/'));
+		assert.equal((command.match(/recordings\//g) ?? []).length, 20, `the command line must carry 20 refs, not 25:\n${command}`);
+		assert.match(res.stderr, /\+ 5 more — or dreamteamer commit recordings, which also publishes anything another session left pending/);
+	});
+
+	test('the printed command can itself be refused, and the warning says so', () => {
+		// MEASURED, not hypothetical. `dt commit meetings` publishes the mirror and names ONE partner;
+		// running exactly what it printed is refused, because that partner's OTHER edge (to a topic it
+		// shares with a second, unnamed recording) drags the topic into the commit and the second
+		// recording is then a stranger to it. So the loop takes two commands, and the guidance used to
+		// promise one. Computing the closure here would mean asking planSweep for strangers instead of
+		// throwing on them — a redesign of the entanglement guard — so the honest fix is to state the
+		// second step, and the refusal already names exactly what to add.
+		const TOPICS = simpleCollection({ storage: { suffix: 'topic' } });
+		const R = simpleCollection({
+			storage: { suffix: 'recording' },
+			schema: {
+				type: 'object', required: ['name'],
+				properties: {
+					name: { type: 'string' },
+					notes: { type: 'string', format: 'markdown', 'x-body': true },
+					meeting: { type: 'string', 'x-reference': 'meetings', 'x-inverse': 'recordings' },
+					topic: { type: 'string', 'x-reference': 'topics', 'x-inverse': 'recordings' },
+				},
+			},
+		});
+		const ws = workspace({ collections: { meetings: MEETINGS, topics: TOPICS, recordings: R } });
+		assert.equal(ws.dt('add', 'meetings', '--name', 'Standup').code, 0);
+		assert.equal(ws.dt('add', 'topics', '--name', 'Onboarding').code, 0);
+		assert.equal(ws.dt('add', 'recordings', '--name', 'Cap A', '--meeting', 'meetings/standup', '--topic', 'topics/onboarding').code, 0);
+		assert.equal(ws.dt('add', 'recordings', '--name', 'Cap B', '--topic', 'topics/onboarding').code, 0);
+
+		const first = ws.dt('commit', 'meetings');
+		assert.equal(first.code, 0, first.stderr);
+		assert.match(first.stderr, /dreamteamer commit recordings\/cap-a$/m);
+		// the guidance states the two-step rather than promising one command
+		assert.match(first.stderr, /if that refuses as entangled, the refusal names the other pending records/);
+
+		// …and it really is refused, naming the pair that converges
+		const second = ws.dt('commit', 'recordings/cap-a');
+		assert.equal(second.code, 1, second.stdout);
+		assert.match(second.stderr, /holds relation changes from recordings\/cap-a and recordings\/cap-b/);
+		const third = ws.dt('commit', 'recordings/cap-a', 'recordings/cap-b');
+		assert.equal(third.code, 0, third.stderr);
+		assert.deepEqual(pending(ws), []);
+	});
 });
