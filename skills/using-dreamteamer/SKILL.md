@@ -42,10 +42,9 @@ demand:
 
 ## the CLI is the front door
 
-`npm run --silent dt -- help` is the command surface — don't learn the generic verbs and flags from
-prose; prose drifts. it does **not** list the purpose-built verbs some collections have
-(`schema add-collection`, `schema add-field <collection>`, `ensure`) — those live in the skill that owns
-them, and a verb absent from `help` still works.
+`npm run --silent dt -- help` is the command surface — the record verbs, the schema verbs and the
+workspace verbs alike. don't learn verbs and flags from prose; prose drifts, and `help` lives in
+the same file as the dispatch it describes.
 
 what you need to know *about* the CLI: collection verbs validate hard — invalid writes, **including
 unknown fields**, are rejected before disk — and a write does NOT commit (see conventions below).
