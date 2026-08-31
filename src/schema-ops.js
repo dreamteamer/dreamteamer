@@ -682,25 +682,35 @@ export function updateField(ws, store, collection, fieldName, { prop, required, 
 	return upsertField(ws, store, collection, fieldName, prop, required, `update-field ${fieldName}`);
 }
 
+/** A GENERATED mirror cannot be removed by editing ANY descriptor: compile writes it from the
+ *  x-inverse on the owning side, so the only edit that removes it is over there. Read off the
+ *  COMPILED prop, because that is the one place `x-inverse-of` exists whichever module ships the
+ *  collection — a source lookup answers this only for the workspace module's own collections. */
+function refuseGeneratedMirror(d, fieldName) {
+	const prop = d.schema.properties[fieldName];
+	const holder = (prop.items && typeof prop.items === 'object') ? prop.items : prop;
+	const of = holder['x-inverse-of'];
+	if (typeof of !== 'string') return;
+	const dot = of.lastIndexOf('.'); // a collection name may contain '/', so split at the LAST dot
+	throw new Error(`field "${fieldName}" on ${d.name} is GENERATED from ${of}, the two-way relation that owns it — no descriptor declares it, so no descriptor edit can remove it. Remove the relation instead: dreamteamer schema update-field ${of.slice(0, dot)} --name ${of.slice(dot + 1)} --inverse=`);
+}
+
 export function removeField(ws, store, collection, fieldName) {
 	const d = store.descriptor(collection);
 	if (!d.schema?.properties?.[fieldName]) throw new Error(`no field "${fieldName}" on ${collection}`);
+	// ⚠ BEFORE the source lookup below, and that ORDER is the whole fix. This test used to live
+	// inside the `!doc.schema.properties[fieldName]` branch, which is only reached for a collection
+	// whose descriptor the WORKSPACE MODULE ships — so for a mirror on a collection shipped by any
+	// other module the answer was the generic "module-shipped; the workspace can only OVERRIDE
+	// fields (extends), not remove them". That sentence is true of a real inherited field and beside
+	// the point for a mirror: an `extends` overlay cannot remove it either, and the edit that can is
+	// on a different collection entirely. Most real collections are module-shipped, so the useful
+	// message was reaching the minority case.
+	refuseGeneratedMirror(d, fieldName);
 	const dest = path.join(workspaceSystemDir(ws, 'collections'), `${collection}.collection.yaml`);
 	if (!fs.existsSync(dest)) throw new Error(`"${collection}" is module-shipped; the workspace can only OVERRIDE fields (extends), not remove them`);
 	const doc = load(fs.readFileSync(dest, 'utf8'));
 	if (!doc.schema?.properties?.[fieldName]) {
-		// A GENERATED mirror is absent from the source for a completely different reason than an
-		// inherited field: compile writes it, from the x-inverse on the OWNING side. Sending the
-		// reader to look for a base module that declares it wastes the search, and there is no edit
-		// to that descriptor which could remove it — deleting the relation is the only way, and it
-		// happens on the other collection.
-		const prop = d.schema.properties[fieldName];
-		const holder = (prop.items && typeof prop.items === 'object') ? prop.items : prop;
-		const of = holder['x-inverse-of'];
-		if (of) {
-			const dot = of.lastIndexOf('.'); // a collection name may contain '/', so split at the LAST dot
-			throw new Error(`field "${fieldName}" is not declared anywhere — it is generated from ${of}, the two-way relation that owns it. Remove the relation instead: dreamteamer schema update-field ${of.slice(0, dot)} --name ${of.slice(dot + 1)} --inverse=`);
-		}
 		throw new Error(`field "${fieldName}" is inherited from the base module — the workspace descriptor doesn't declare it`);
 	}
 	writeGated(ws, store, [dest], `dreamteamer: ${collection} remove-field ${fieldName}`, () => {

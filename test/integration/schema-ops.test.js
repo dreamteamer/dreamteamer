@@ -253,7 +253,7 @@ describe('relation authoring flags', () => {
 		ws.dt('schema', 'add-field', 'meeting-recordings', '--name', 'meeting', '--type', 'meetings', '--inverse');
 		const res = ws.dt('schema', 'remove-field', 'meetings', '--name', 'recordings');
 		assert.equal(res.code, 1);
-		assert.match(res.stderr, /generated from meeting-recordings\.meeting/);
+		assert.match(res.stderr, /GENERATED from meeting-recordings\.meeting/);
 		assert.match(res.stderr, /dreamteamer schema update-field meeting-recordings --name meeting --inverse=/);
 		assert.doesNotMatch(res.stderr, /inherited/);
 	});
