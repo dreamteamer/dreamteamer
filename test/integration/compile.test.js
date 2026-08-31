@@ -8,7 +8,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { workspace, writeCollection, simpleCollection, compileError, compileQuietly, readFile, dt, WS_MODULE } from '../helpers/ws.js';
+import { workspace, writeCollection, simpleCollection, compileError, compileQuietly, readFile, tree, dt, WS_MODULE } from '../helpers/ws.js';
 import { load } from '../../src/yaml.js';
 
 const uncompiled = (opts) => workspace({ ...opts, compile: false });
@@ -474,5 +474,47 @@ describe('peerDependencies — an optional cross-module reference', () => {
 		const res = dtCheck(ws.root);
 		assert.equal(res.code, 1);
 		assert.match(res.stdout, /dangling reference "posts\/nope"/);
+	});
+});
+
+// ---------------------------------------------------------------------------------------------
+// A descriptor with no `storage.suffix` used to write every record as `<id>.undefined.md` —
+// silent at compile, at `add` and at `check`, and on a `codec: file` collection every later verb
+// then died inside `idFromRecordPath` on `undefined.replace`. compile DERIVES it instead, which is
+// the rule `rename-collection` already assumes when it asks whether a suffix was derived.
+describe('storage.suffix is derived, never left undefined', () => {
+	test('a descriptor with a storage block but no suffix gets the singular of its name', () => {
+		const ws = workspace({ collections: {
+			widgets: simpleCollection({ storage: { path: 'data/widgets', codec: 'md', shape: 'file' } }),
+		} });
+		assert.equal(ws.store.descriptor('widgets').storage.suffix, 'widget');
+		assert.equal(ws.dt('add', 'widgets', '--name', 'Sprocket').code, 0);
+		assert.ok(readFile(ws.root, 'data/widgets/sprocket.widget.md'), 'the file carries the derived suffix');
+	});
+
+	test('a descriptor with NO storage block at all takes the same path', () => {
+		const ws = workspace({ collections: { gadgets: simpleCollection() } });
+		assert.equal(ws.store.descriptor('gadgets').storage.suffix, 'gadget');
+		assert.equal(ws.dt('add', 'gadgets', '--name', 'Doohickey').code, 0);
+		assert.ok(readFile(ws.root, 'data/gadgets/doohickey.gadget.md'));
+	});
+
+	test('a namespaced collection derives from the BARE name, not the qualified one', () => {
+		const ws = workspace({ namespaces: ['shop'], collections: { 'shop/trolleys': simpleCollection() } });
+		assert.equal(ws.store.descriptor('shop/trolleys').storage.suffix, 'trolley');
+		assert.equal(ws.dt('add', 'shop/trolleys', '--name', 'Big One').code, 0);
+		assert.ok(readFile(ws.root, 'data/shop/trolleys/big-one.trolley.md'));
+	});
+
+	test('an AUTHORED suffix always wins', () => {
+		const ws = workspace({ collections: { widgets: simpleCollection({ storage: { suffix: 'thing' } }) } });
+		assert.equal(ws.store.descriptor('widgets').storage.suffix, 'thing');
+	});
+
+	test('no record anywhere is written as <id>.undefined.<ext>', () => {
+		const ws = workspace({ collections: { widgets: simpleCollection(), gadgets: simpleCollection() } });
+		ws.dt('add', 'widgets', '--name', 'A');
+		ws.dt('add', 'gadgets', '--name', 'B');
+		assert.deepEqual(tree(ws.root, 'data').filter((f) => f.includes('.undefined.')), []);
 	});
 });

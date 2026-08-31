@@ -12,7 +12,7 @@ import { walk, patternRe } from './records.js';
 import { unknownOperators } from './filter.js';
 import {
 	normalizeNamespaces, namespaceProblems, unqualifiedProblems, defaultStoragePath, storageOverlaps,
-	baseNameOf,
+	baseNameOf, singular,
 } from './namespace.js';
 // circular on paper in earlier versions — safe: both sides only
 // call at run time, same pattern as store.js ↔ compile.js.
@@ -916,6 +916,21 @@ export function compile({ root, pkg }) {
 		// An authored `storage.path` still wins — registering an existing folder is a first-class case
 		// (skills/using-dreamteamer/references/collections.md).
 		merged.storage.path ??= defaultStoragePath(name, namespaces, config['data-path'] ?? 'data');
+		// The middle segment of every record filename, `<id>.<suffix>.<ext>`. DERIVED here, exactly as
+		// `path` is above, so the runtime always carries an explicit one.
+		//
+		// ⚠ Absent, it was interpolated raw and every record landed as `<id>.undefined.md` — silent at
+		// compile, at `add` and at `check`, because `idFromRecordPath` reads the same undefined back
+		// and the round trip agrees with itself. On a `codec: file` collection it is not even silent
+		// for long: the next verb dies inside that function on `undefined.replace`.
+		//
+		// The rule is the singular of the BARE name (`health/doctors` records are `<id>.doctor.md`,
+		// not `<id>.health/doctor.md`) — the same rule `collections add` writes into a new descriptor,
+		// and the one `rename-collection` already ASSUMES when it tests `oldSuffix === singular(oldBase)`
+		// to decide whether a suffix may be re-derived. Deriving here makes that assumption true rather
+		// than coincidental. Kinder than refusing, and no existing workspace changes: a descriptor that
+		// authors a suffix keeps it, and one that does not was writing `.undefined.` files.
+		merged.storage.suffix ??= singular(baseNameOf(name, namespaces));
 		const storagePath = String(merged.storage.path ?? '');
 		const systemKinds = [...KINDS, ...DERIVED_KINDS];
 		const isSystem = systemKinds.includes(storagePath) || systemKinds.includes(storagePath.replace(/^system\//, ''));
