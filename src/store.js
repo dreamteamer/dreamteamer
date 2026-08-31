@@ -243,7 +243,7 @@ export class Store {
 	 * the verb that exists to move HEAD) takes no lock at all — and it was far too WIDE: with
 	 * `auto-commit` off, which is the default, a record write moves nothing, and dropping the memo
 	 * anyway cost the next `ids()` call a ~10ms subprocess to re-read a sha that had not changed. A
-	 * run of 400 adds paid 400 of them: 10.8ms of the 11.65ms an add cost, measured on a generated
+	 * run of 400 adds paid 400 of them: 9.9ms of the 10.7ms an add cost, measured on a generated
 	 * collection. Naming the four commit sites is both narrower and more honest than naming the lock.
 	 *
 	 * What the memo does give up, stated rather than discovered: ANOTHER process committing during
@@ -292,9 +292,9 @@ export class Store {
 	 * that already exist in order to generate one that is unique, so every add called `ids()` — which
 	 * asked `git rev-parse HEAD` for its key and then re-walked the collection from disk, because the
 	 * previous add had deleted the very memo it was rebuilding. Measured on a generated 400-record
-	 * collection: 11.65 ms/rec, of which 10.8 ms was the subprocess (see gitHead) and 0.66 ms the
+	 * collection: 10.7 ms/rec, of which 9.9 ms was the subprocess (see gitHead) and 0.68 ms the
 	 * walk — and the walk is the term that GROWS. An add with an explicit id, which calls neither,
-	 * costs 0.18 ms.
+	 * costs 0.18 ms. After both: 0.57 ms, one subprocess for the whole run.
 	 *
 	 * The entry is INSERTED IN WALK ORDER, never appended. `ids()` iteration order is what `dt list`
 	 * prints when nobody passes `--sort`, so an index that ordered records differently from a cold
