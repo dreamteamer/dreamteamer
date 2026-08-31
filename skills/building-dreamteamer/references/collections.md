@@ -93,7 +93,7 @@ Modeling judgment — the grain, enums vs vocabularies, relations, forcing field
   single target to infer from, so it still requires the qualified spelling. `x-body` marks the
   single field that becomes the md body. `x-inverse` declares a two-way link FROM the owning side:
   compile GENERATES a `readOnly` mirror field on the target, the store maintains its values in the
-  same commit as every write, and `check` reports one that has fallen behind as stale
+  same write as every change to the owner, and `check` reports one fallen behind as stale
   (`dreamteamer relations rebuild <target>` repairs it, and `dt relations` lists every pair).
   Declare it from the other side instead with `x-inverse-of: <owner-collection>.<field>` on a field
   you author there — either spelling, identical compiled result. `x-unique: true` makes it
