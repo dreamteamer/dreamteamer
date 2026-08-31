@@ -402,6 +402,10 @@ function metaRemoveField(ws, store, collection, flags) {
 		// half of a destructive verb, and a silent deletion is a different act from a reported one.
 		if (out.cleared) console.log(`  cleared its values from ${out.cleared} ${collection} record${out.cleared === 1 ? '' : 's'} (git holds them: git show HEAD~1)`);
 		reportDropped(out.dropped);
+		// This descriptor's own `list_fields`/`sort_field` were pruned with the field; a ui-view is a
+		// source this verb does not own, so it is NAMED rather than edited — and naming it is the whole
+		// point, since a column of a field that no longer exists renders as an empty one.
+		if (out.staleViews?.length) console.warn(`⚠ still listing ${collection}.${name} as a column: ${out.staleViews.join(', ')} — edit with \`dreamteamer ui-views set <id> options.columns=…\``);
 	}
 	return 0;
 }

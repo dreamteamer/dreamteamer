@@ -6,7 +6,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { workspace, simpleCollection, readFile, compileQuietly, dt as runDt } from '../helpers/ws.js';
-import { load } from '../../src/yaml.js';
+import { load, dump } from '../../src/yaml.js';
 import { Store } from '../../src/store.js';
 import { fieldDef, updateField, statedKeywords } from '../../src/schema-ops.js';
 
@@ -848,5 +848,68 @@ describe('add-field inserts before the x-body field', () => {
 		const ws = workspace({ collections: { articles: simpleCollection({ storage: { suffix: 'article' } }) } });
 		assert.equal(ws.dt('schema', 'update-field', 'articles', '--name', 'name', '--description', 'the title').code, 0);
 		assert.deepEqual(keysOf(ws, 'articles'), ['name', 'notes']);
+	});
+});
+
+// ── remove-field takes the field's own PRESENTATION references with it ──────────────────────────
+//
+// Removing a field is an explicit act, and `list_fields` and `sort_field` in the SAME descriptor are
+// that field's presentation, not independent facts about the collection. Left behind they were two
+// different silent failures: a dangling `list_fields` entry compiled clean and put a dead column in
+// every default listing, and a dangling `sort_field` made compile REFUSE the removal — a verb that
+// owns the descriptor telling the operator to go hand-edit it. A ui-view's columns are a different
+// file the verb does not own, so those are a WARNING that names the views.
+describe('remove-field prunes the presentation it invalidates', () => {
+	function withPresentation() {
+		const ws = workspace({ compile: false, collections: { articles: simpleCollection({
+			storage: { suffix: 'article' },
+			list_fields: ['name', 'rank'],
+			sort_field: 'rank',
+		}) } });
+		const file = `${ws.root}/modules/default/collections/articles.collection.yaml`;
+		const d = load(fs.readFileSync(file, 'utf8'));
+		d.schema.properties.rank = { type: 'number' };
+		fs.writeFileSync(file, [
+			'# ARTICLES — the header is why the collection exists.',
+			dump(d),
+		].join('\n'));
+		fs.mkdirSync(`${ws.root}/modules/default/ui-views`, { recursive: true });
+		fs.writeFileSync(`${ws.root}/modules/default/ui-views/articles-table.ui-view.yaml`, dump({
+			path: '/content/articles', target: 'list', collection: 'collections/articles', layout: 'table',
+			options: { columns: ['name', 'rank'] },
+		}));
+		compileQuietly(ws.ws);
+		return ws;
+	}
+	const sourceOf = (ws) => load(readFile(ws.root, 'modules/default/collections/articles.collection.yaml'));
+
+	test('the same descriptor\'s list_fields and sort_field go with the field', () => {
+		const ws = withPresentation();
+		assert.deepEqual(sourceOf(ws).list_fields, ['name', 'rank']);
+
+		const res = runDt(ws.root, 'schema', 'remove-field', 'articles', '--name', 'rank');
+		assert.equal(res.code, 0, res.stderr);
+
+		const d = sourceOf(ws);
+		assert.equal(d.schema.properties.rank, undefined);
+		assert.deepEqual(d.list_fields, ['name'], 'a dangling list_fields entry is a dead default column');
+		assert.equal(d.sort_field, undefined, 'a dangling sort_field is what compile refuses the removal for');
+		assert.equal(compileQuietly(ws.ws).code, 0);
+	});
+
+	test('a ui-view still naming it is a WARNING that names the view, not a refusal', () => {
+		// A different file, shipped by a module this verb does not own — so it is said out loud and
+		// left alone. Silently editing somebody else's source is the worse of the two.
+		const ws = withPresentation();
+		const res = runDt(ws.root, 'schema', 'remove-field', 'articles', '--name', 'rank');
+		assert.equal(res.code, 0, res.stderr);
+		assert.match(res.stdout + res.stderr, /articles-table/, 'the warning has to name the view to be actionable');
+		assert.match(res.stdout + res.stderr, /rank/);
+	});
+
+	test('the descriptor\'s comments survive the prune', () => {
+		const ws = withPresentation();
+		assert.equal(runDt(ws.root, 'schema', 'remove-field', 'articles', '--name', 'rank').code, 0);
+		assert.match(readFile(ws.root, 'modules/default/collections/articles.collection.yaml'), /# ARTICLES — the header/);
 	});
 });
