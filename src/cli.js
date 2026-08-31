@@ -236,6 +236,13 @@ export function run(argv) {
 					console.log(`✔ ${r.repo === '.' ? 'workspace' : r.repo}${r.sha ? ` ${r.sha}` : ' (dry run)'} — ${r.subject}`);
 					for (const row of r.rows.slice(0, 20)) console.log(`    ${row.verb} ${row.collection}/${row.id}`);
 					if (r.rows.length > 20) console.log(`    + ${r.rows.length - 20} more`);
+					// Half a pair was published — name the records that finish it. `dt commit
+					// <collection>` publishes exactly that collection by design, so this is an honest
+					// report of what it left behind, not a failure: HEAD fails `check` until they land.
+					if (r.leftPending?.length) {
+						console.warn(`⚠ ${r.leftPending.length} relation partner(s) left pending — HEAD fails \`dreamteamer check\` until they are published:`);
+						console.warn(`    dreamteamer commit ${r.leftPending.join(' ')}`);
+					}
 				}
 				process.exit(results.some((r) => r.blocked) ? 1 : 0);
 			}

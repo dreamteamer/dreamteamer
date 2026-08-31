@@ -423,3 +423,101 @@ describe('two sessions writing edges into ONE partner file', () => {
 		assert.equal(Number(ws.git(['rev-list', '--count', 'HEAD'])), Number(before) + 1, 'one commit, not two');
 	});
 });
+
+// ── the scope has to reach TWO hops, or the refusal above cannot fire ───────────────────────────
+//
+// C1. The stranger test is `rows.has(v)` — a row exists only for a SAMPLED collection. Naming a
+// record put its own collection and its partners' in scope, and stopped there: the collection on
+// the far side of a partner's OTHER edge was never sampled, so a concurrent session's record there
+// was invisible and the commit published the partner carrying a reference to it. HEAD then holds a
+// dangling reference and a stale mirror — `dt check` red, on a verb whose whole job is to refuse
+// exactly this.
+const SUMMARIES = simpleCollection({
+	storage: { suffix: 'summary' },
+	schema: {
+		type: 'object',
+		required: ['name'],
+		properties: {
+			name: { type: 'string' },
+			meeting: { type: 'string', 'x-reference': 'meetings', 'x-inverse': 'summary', 'x-unique': true },
+		},
+	},
+});
+
+describe('a stranger on the far side of the swept partner', () => {
+	/** Standup + Cap published and UNLINKED — every test below forms the edge itself. */
+	function trio() {
+		const ws = workspace({ collections: { meetings: MEETINGS, recordings: RECORDINGS, summaries: SUMMARIES } });
+		assert.equal(ws.dt('add', 'meetings', '--name', 'Standup').code, 0);
+		assert.equal(ws.dt('add', 'recordings', '--name', 'Cap').code, 0);
+		assert.equal(ws.dt('commit').code, 0);
+		return ws;
+	}
+
+	test('refuses: A links the recording, B summarises the same meeting', () => {
+		const ws = trio();
+		assert.equal(ws.dt('set', 'recordings/cap', 'meeting=meetings/standup').code, 0); // session A
+		assert.equal(ws.dt('add', 'summaries', '--name', 'S2', '--meeting', 'meetings/standup').code, 0); // session B
+		const res = ws.dt('commit', 'recordings/cap');
+		assert.equal(res.code, 1, res.stdout);
+		assert.match(res.stderr, /data\/meetings\/standup\.meeting\.md/);
+		assert.match(res.stderr, /summaries\/s2/);
+		assert.equal(pending(ws).length, 3, 'a refusal must commit nothing');
+	});
+
+	test('and naming all three together is what the refusal asks for', () => {
+		const ws = trio();
+		assert.equal(ws.dt('set', 'recordings/cap', 'meeting=meetings/standup').code, 0);
+		assert.equal(ws.dt('add', 'summaries', '--name', 'S2', '--meeting', 'meetings/standup').code, 0);
+		const res = ws.dt('commit', 'recordings/cap', 'summaries/s2');
+		assert.equal(res.code, 0, res.stderr);
+		assert.deepEqual(pending(ws), []);
+		assert.equal(ws.dt('check').code, 0);
+	});
+
+	test('a two-hop collection with nothing dirty in it does not refuse', () => {
+		// The negative half: widening the sample must not turn an ordinary publish into a refusal.
+		const ws = trio();
+		assert.equal(ws.dt('set', 'recordings/cap', 'meeting=meetings/standup').code, 0);
+		const res = ws.dt('commit', 'recordings/cap');
+		assert.equal(res.code, 0, res.stderr);
+		assert.deepEqual(pending(ws), []);
+	});
+});
+
+// ── `dt commit <collection>` still publishes half a pair — say so ──────────────────────────────
+//
+// I3. The whole-collection form deliberately publishes exactly that collection: narrowing it to
+// pairs would silently drop rows the caller asked for. So it keeps publishing half a pair, and
+// tells the caller which records finish it.
+describe('the whole-collection form warns about the partner it leaves behind', () => {
+	test('naming the owner collection names the mirror left pending', () => {
+		const ws = workspace({ collections: { meetings: MEETINGS, recordings: RECORDINGS } });
+		assert.equal(ws.dt('add', 'meetings', '--name', 'Standup').code, 0);
+		assert.equal(ws.dt('add', 'recordings', '--name', 'Cap', '--meeting', 'meetings/standup').code, 0);
+		const res = ws.dt('commit', 'recordings');
+		assert.equal(res.code, 0, res.stderr);
+		assert.match(res.stderr, /meetings\/standup/);
+		assert.match(res.stderr, /dreamteamer commit meetings\/standup/);
+		assert.deepEqual(pending(ws), ['meetings/standup']);
+	});
+
+	test('nothing to say when the pair is published whole', () => {
+		const ws = workspace({ collections: { meetings: MEETINGS, recordings: RECORDINGS } });
+		assert.equal(ws.dt('add', 'meetings', '--name', 'Standup').code, 0);
+		assert.equal(ws.dt('add', 'recordings', '--name', 'Cap', '--meeting', 'meetings/standup').code, 0);
+		const res = ws.dt('commit', 'recordings', 'meetings');
+		assert.equal(res.code, 0, res.stderr);
+		assert.doesNotMatch(res.stderr, /left pending/);
+	});
+
+	test('a bystander dirty for its own reasons is not a partner', () => {
+		const ws = workspace({ collections: { meetings: MEETINGS, recordings: RECORDINGS } });
+		assert.equal(ws.dt('add', 'meetings', '--name', 'Standup').code, 0);
+		assert.equal(ws.dt('add', 'meetings', '--name', 'Retro').code, 0);
+		assert.equal(ws.dt('add', 'recordings', '--name', 'Cap', '--meeting', 'meetings/standup').code, 0);
+		const res = ws.dt('commit', 'recordings');
+		assert.equal(res.code, 0, res.stderr);
+		assert.doesNotMatch(res.stderr, /meetings\/retro/);
+	});
+});
