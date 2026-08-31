@@ -57,8 +57,12 @@ also carries `title` (what to call the collection) and `title_template` (how to 
 the schema is the CONTRACT, and it is required to be sufficient: each field's `description`
 carries its conventions, an `examples:` annotation (standard JSON Schema — compile passes it
 through to the compiled descriptor) carries a canonical value where the shape is non-obvious, and
-`dt values` shows a vocabulary's real spread. a schema that makes you peek at data to write
-correctly is a defect in the schema.
+`dt values` shows a vocabulary's real spread. so **with a sufficient schema, do not open sibling
+records for shape** — the descriptor answers faster than a peek, the validator rejects a wrong
+write before disk, and a sibling is a bet on whichever record you grabbed being representative
+(measured blind: the peek route bought nothing the descriptor already said, and it only works
+while consistent siblings happen to exist). a schema that makes you peek to write correctly is a
+defect in the schema — fix it.
 
 ## writing a record by hand
 
