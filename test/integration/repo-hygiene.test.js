@@ -41,9 +41,13 @@ describe('the published repo carries no personal data', () => {
 	test("the author's own name appears only where attribution belongs", () => {
 		const pkg = JSON.parse(fs.readFileSync(path.join(ENGINE_ROOT, 'package.json'), 'utf8'));
 		// `Name Surname <email>` → the name words plus the local part of the address. Each is matched
-		// on a word boundary and case-insensitively, so `giladkhen` in a path and `Gilad` in prose both
-		// count. Words of three characters or fewer are dropped: a short particle ("de", "van") would
-		// match ordinary English and make this test noise.
+		// on a word boundary and case-insensitively, so a run-together form in a path and a bare given
+		// name in prose both count. Words of three characters or fewer are dropped: a short particle
+		// ("de", "van") would match ordinary English and make this test noise.
+		//
+		// ⚠ NOTHING BELOW SPELLS THE NAME, and that is not tidiness — this file is scanned by every
+		// other guard the project might grow, and an example written out here would be the leak. It is
+		// excluded from its own scan for the same reason the pattern is derived rather than written.
 		const author = pkg.author ?? '';
 		const words = [
 			...author.replace(/<[^>]*>/g, '').split(/\s+/),
