@@ -801,14 +801,15 @@ export function removeField(ws, store, collection, fieldName) {
 	const was = relationsOwnedBy(store, collection, fieldName);
 	const dest = path.join(workspaceSystemDir(ws, 'collections'), `${collection}.collection.yaml`);
 	if (!fs.existsSync(dest)) throw new Error(`"${collection}" is module-shipped; the workspace can only OVERRIDE fields (extends), not remove them`);
-	const doc = load(fs.readFileSync(dest, 'utf8'));
+	const previousText = fs.readFileSync(dest, 'utf8');
+	const doc = load(previousText);
 	if (!doc.schema?.properties?.[fieldName]) {
 		throw new Error(`field "${fieldName}" is inherited from the base module — the workspace descriptor doesn't declare it`);
 	}
 	const dropped = writeGated(ws, store, [dest], `dreamteamer: ${collection} remove-field ${fieldName}`, () => {
 		delete doc.schema.properties[fieldName];
 		if (Array.isArray(doc.schema.required)) doc.schema.required = doc.schema.required.filter((r) => r !== fieldName);
-		fs.writeFileSync(dest, dump(doc));
+		fs.writeFileSync(dest, writeDescriptor(previousText, doc));
 	}, () => dropOrphanedMirrors(ws, was));
 	return { collection, removed: fieldName, dropped };
 }
@@ -852,8 +853,12 @@ function upsertField(ws, store, collection, fieldName, prop, required, verb) {
 	}
 	const dest = path.join(workspaceSystemDir(ws, 'collections'), `${collection}.collection.yaml`);
 	let doc;
+	// The BYTES, not just the parse: `dump` cannot round-trip a comment, and a collection descriptor is
+	// where a module writes down why the collection exists (see reattachComments).
+	let previousText = null;
 	if (fs.existsSync(dest)) {
-		doc = load(fs.readFileSync(dest, 'utf8'));
+		previousText = fs.readFileSync(dest, 'utf8');
+		doc = load(previousText);
 	} else {
 		doc = { name: collection, extends: baseModuleRef(ws.root, collection), schema: { properties: {} } };
 	}
@@ -884,7 +889,7 @@ function upsertField(ws, store, collection, fieldName, prop, required, verb) {
 		if (required === true) doc.schema.required = [...new Set([...(doc.schema.required ?? []), fieldName])];
 		if (required === false && Array.isArray(doc.schema.required)) doc.schema.required = doc.schema.required.filter((r) => r !== fieldName);
 		fs.mkdirSync(path.dirname(dest), { recursive: true });
-		fs.writeFileSync(dest, dump(doc));
+		fs.writeFileSync(dest, writeDescriptor(previousText, doc));
 	}, () => dropOrphanedMirrors(ws, was));
 	// the prop as WRITTEN — callers report the relation off this, never off the one they passed:
 	// both this function and updateField reassign it, so a caller's own copy can be a stale object.
@@ -952,6 +957,38 @@ function reattachComments(oldText, newText) {
 		out.push(line);
 	}
 	return out.join('\n');
+}
+
+/**
+ * Serialize a collection descriptor back to its source, keeping what `dump` cannot.
+ *
+ * ⚠ THIS IS A PARTIAL FIX, AND THE LIMITS ARE THE REASON IT IS WORTH HAVING ANYWAY. A descriptor is
+ * hand-written, and it is where a module records WHY a collection exists — so `add-field` rewriting
+ * it through `load` → mutate → `dump` deleted every comment in the file. Measured on a four-comment
+ * descriptor: one `dt schema add-field` took it to zero. The consequence was not cosmetic: the
+ * schema verbs were unusable on any commented descriptor, so real relations got authored by hand in
+ * a text editor instead, which is the CLI losing to an editor for a job it owns.
+ *
+ * `reattachComments` recovers a comment block sitting above a TOP-LEVEL key, the file header
+ * included — 25 of the 27 comment lines across this engine's own descriptors. What is still lost,
+ * stated here rather than discovered later:
+ *
+ *   - A comment above a NESTED key (inside `schema.properties.<field>`, the natural place to explain
+ *     one field). Re-placing it needs to know where that key ended up, and a misplaced comment is
+ *     worse than an absent one — it attaches an explanation to something it does not explain.
+ *   - STYLE. `dump` emits its own defaults, so an inline `storage: { suffix: thing }` comes back as a
+ *     block mapping and a hand-folded scalar comes back on one line. The diff is the whole file
+ *     however small the edit.
+ *   - The RECORD half of the same bug, which is a different call site entirely (`store.serialize`)
+ *     and untouched: `dt set` on one field rewraps every folded scalar and expands every flow
+ *     sequence in the frontmatter.
+ *
+ * All three need a YAML library that keeps a document's syntax tree; js-yaml has no such API, and
+ * the change fans out through every reader and writer in the record layer. `setScalar` above states
+ * the same conclusion from the other end.
+ */
+function writeDescriptor(previousText, doc) {
+	return previousText === null ? dump(doc) : reattachComments(previousText, dump(doc));
 }
 
 // saved views (M3): a studio-saved view IS a ui-view record — but ui-views are
