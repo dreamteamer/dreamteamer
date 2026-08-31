@@ -819,8 +819,9 @@ useless until the flood is drained.
 - **Values** (an id, a reference target): `dt rename <collection>/<old> <new>` rewrites inbound
   references. Prose wikilinks are followed in both spellings — `[[collection/id]]` always, and a
   bare `[[id]]` when that basename names exactly ONE record in the workspace; when something else
-  claims it, the link is left alone and the rename says so, naming the file. Raw prose that is not
-  a wikilink is counted and reported, never rewritten.
+  claims it, the link is left alone and the rename says so, naming the file. A `#anchor` and a
+  `|label` both ride through untouched (`[[id#heading|see here]]`) — only the record moved. Raw
+  prose that is not a wikilink is counted and reported, never rewritten.
 
 ### 42. Migrations are scripts, run once, committed with their effects
 

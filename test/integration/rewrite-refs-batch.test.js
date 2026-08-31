@@ -270,6 +270,68 @@ describe('the batch keeps the per-pair bookkeeping', () => {
 		});
 	});
 
+	// ⚠ AN ANCHOR IS PART OF THE LINK, NOT OF THE TARGET. Both passes used to match up to the closing
+	// `]]` or a `|label`, so `[[id#heading]]` survived a rename of `id` untouched — the bare form
+	// silently, the qualified form counted only as raw prose. A vault that starts writing heading
+	// anchors gets dangling links nothing names. The anchor rides through verbatim: only the record
+	// moved, and the heading inside it did not.
+	describe('a wikilink carrying a #anchor follows the rename', () => {
+		const withBody = (body) => {
+			const ws = seeded();
+			fs.writeFileSync(path.join(ws.root, 'data', 'memos', 'm-one.memo.md'),
+				`---\nname: M one\nentry: ledger/alpha\n---\n${body}\n`);
+			return ws;
+		};
+
+		test('the qualified form, plain and labelled', () => {
+			const ws = withBody('a: [[ledger/beta#part-one]]\nb: [[ledger/beta#part-one|See here]]');
+			const out = ws.store.rewriteRefsBatch([['ledger/beta', 'finance/ledger/beta']]);
+			const one = readFile(ws.root, 'data/memos/m-one.memo.md');
+			assert.match(one, /^a: \[\[finance\/ledger\/beta#part-one\]\]$/m);
+			assert.match(one, /^b: \[\[finance\/ledger\/beta#part-one\|See here\]\]$/m);
+			assert.deepEqual(out.skipped, [], 'a followed link is not skipped prose');
+		});
+
+		test('the bare form, when the basename names exactly one record', () => {
+			// through `rename`, which asks `basenameOwners` AFTER the move — so `beta` is claimed by
+			// nothing and the bare pass runs. (`alpha` is also a task, which is the ambiguous case below.)
+			const ws = withBody('a: [[beta#part-one]]\nb: [[beta#part-one|See here]]\nc: [[beta]]');
+			ws.store.rename('ledger', 'beta', 'beta-1');
+			const one = readFile(ws.root, 'data/memos/m-one.memo.md');
+			assert.match(one, /^a: \[\[beta-1#part-one\]\]$/m);
+			assert.match(one, /^b: \[\[beta-1#part-one\|See here\]\]$/m);
+			assert.match(one, /^c: \[\[beta-1\]\]$/m, 'the unanchored form is unaffected by the change');
+		});
+
+		test('an ambiguous bare anchored link is counted and warned about, exactly like an unanchored one', () => {
+			const ws = withBody('a: [[alpha#part-one]]\nb: [[alpha]]');
+			const out = ws.store.rewriteRefsBatch([['ledger/alpha', 'ledger/alpha-1']]);
+			assert.equal(out.ambiguous.length, 1);
+			assert.equal(out.ambiguous[0].count, 2, 'the anchored link is in the count, not silently dropped');
+			assert.deepEqual(out.ambiguous[0].claimants, ['ledger/alpha', 'tasks/alpha']);
+			assert.match(readFile(ws.root, 'data/memos/m-one.memo.md'), /^a: \[\[alpha#part-one\]\]$/m, 'left exactly as it was');
+		});
+
+		test('the anchor is carried through byte for byte, whatever is in it', () => {
+			// a heading slug is not an id: spaces, case and punctuation all survive a rename untouched
+			const ws = withBody('a: [[ledger/beta#Part One — the setup]]\nb: [[ledger/beta#]]');
+			ws.store.rewriteRefsBatch([['ledger/beta', 'finance/ledger/beta']]);
+			const one = readFile(ws.root, 'data/memos/m-one.memo.md');
+			assert.match(one, /^a: \[\[finance\/ledger\/beta#Part One — the setup\]\]$/m);
+			assert.match(one, /^b: \[\[finance\/ledger\/beta#\]\]$/m);
+		});
+
+		test('a rename leaves no anchored link pointing at the old id', () => {
+			const ws = withBody('a: [[ledger/beta#part-one]]\nb: [[beta#part-one]]');
+			renameQuietly(ws, 'ledger', 'finance/ledger');
+			const one = readFile(ws.root, 'data/memos/m-one.memo.md');
+			assert.doesNotMatch(one, /\[\[ledger\/beta#/, 'the qualified spelling followed the move');
+			// the basename did not change, so `[[beta#…]]` still names what it named — and still resolves
+			assert.match(one, /^b: \[\[beta#part-one\]\]$/m);
+			assert.equal(ws.dt('check').code, 0);
+		});
+	});
+
 	test('rewriteRefs is the batch of one, and still reports what `rename` prints', () => {
 		const ws = seeded();
 		const out = ws.store.rewriteRefs('ledger/alpha', 'ledger/alpha-1');
