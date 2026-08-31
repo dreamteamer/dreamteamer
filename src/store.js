@@ -793,29 +793,39 @@ export class Store {
 			fs.mkdirSync(path.dirname(newUnit), { recursive: true });
 			fs.renameSync(oldUnit, newUnit);
 			pruneEmptyDirs(path.dirname(oldUnit), this.dir(d)); // cross-partition renames leave empty date dirs
-			// Snapshot the referencing files BEFORE rewriteRefs edits them — its `touched` list
-			// only exists after the damage is done. findInboundRefs returns paths relative to
-			// this.root; snapshot() needs absolute paths.
-			const refFiles = this.findInboundRefs(`${collection}/${oldId}`).map((f) => path.join(this.root, f));
-			const restoreTouched = snapshot(refFiles);
-			// rewrite inbound references (frontmatter/structured always; prose only via wikilinks)
-			const { touched, rewrites, skipped } = this.rewriteRefs(`${collection}/${oldId}`, `${collection}/${newId}`);
+			// rewrite inbound references (frontmatter/structured always; prose only via wikilinks). It
+			// snapshots what it writes as it writes it — see rewriteRefs for why the caller cannot.
+			const { touched, rewrites, skipped, ambiguous, base, claimants, restore } = this.rewriteRefs(`${collection}/${oldId}`, `${collection}/${newId}`);
 			this.commit([oldUnit, newUnit, ...touched], `dreamteamer: ${collection} rename ${oldId} → ${newId}`, () => {
 				fs.mkdirSync(path.dirname(oldUnit), { recursive: true });
 				fs.renameSync(newUnit, oldUnit);
 				pruneEmptyDirs(path.dirname(newUnit), this.dir(d));
-				restoreTouched();
+				restore();
 			}, d.storage.repo ?? '.');
 			for (const s of skipped) {
 				console.warn(`⚠ ${path.relative(this.root, s.file)}: ${s.count} raw-prose occurrence(s) of ${collection}/${oldId} left untouched — only [[wikilinks]] are maintained in bodies (decision 7)`);
 			}
-			return { id: newId, rewrites, touched: touched.length, skipped: skipped.length };
+			for (const a of ambiguous) {
+				console.warn(`⚠ ${path.relative(this.root, a.file)}: ${a.count} bare [[${base}]] wikilink(s) left untouched — ${claimants.join(', ')} also ends in "${base}", so nothing here can tell which record the link means. Rewrite by hand, or spell it [[${collection}/${newId}]].`);
+			}
+			return { id: newId, rewrites, touched: touched.length, skipped: skipped.length, ambiguous: ambiguous.length };
 		});
 	}
 
 	// exact-ref matching with a boundary so contacts/jane never matches contacts/jane-doe
 	refRegex(ref) {
-		return new RegExp(`${ref.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w/-])`, 'g');
+		return new RegExp(`${escapeRe(ref)}(?![\\w/-])`, 'g');
+	}
+
+	/** Every record in the workspace whose id ENDS in `base`, as `<collection>/<id>`. What decides
+	 *  whether a bare `[[base]]` wikilink names one thing — see rewriteRefs. Asked of the id index of
+	 *  every collection rather than of a text scan, because the question is about records, not files. */
+	basenameOwners(base) {
+		const out = [];
+		for (const name of this.descriptors.keys()) {
+			for (const id of this.ids(name).keys()) if (id.split('/').pop() === base) out.push(`${name}/${id}`);
+		}
+		return out;
 	}
 
 	// ⚠ EACH FILE EXACTLY ONCE. The `modules` collection's storage.path is `modules` and
@@ -865,16 +875,43 @@ export class Store {
 		return hits;
 	}
 
-	// decision 7 (un-parked): structured surfaces (frontmatter, yaml/json records) rewrite
-	// unconditionally; PROSE bodies rewrite only inside [[collection/id]] / [[collection/id|label]]
-	// wikilinks — raw-text matching corrupted look-alike URLs (review finding 4). raw body
-	// occurrences are counted and reported, never touched.
+	/**
+	 * decision 7 (un-parked): structured surfaces (frontmatter, yaml/json records) rewrite
+	 * unconditionally; PROSE bodies rewrite only inside `[[…]]` wikilinks — raw-text matching
+	 * corrupted look-alike URLs (review finding 4). raw body occurrences are counted and reported,
+	 * never touched.
+	 *
+	 * ⚠ A WIKILINK IS BARE MORE OFTEN THAN IT IS QUALIFIED. `[[ada]]` is what a person types and what
+	 * every wikilink editor writes; `[[people/ada]]` is the disciplined spelling. Only the qualified
+	 * form was followed, and the failure was SILENT in both directions — the link dangled, and the
+	 * skipped-prose counter matched the qualified form too, so it was not even reported as skipped.
+	 * "Wikilinks are maintained" was true of the shape nobody writes.
+	 *
+	 * So a rename that changes the BASENAME runs a second pass over bodies, and it refuses to guess:
+	 * `[[ada]]` follows the rename only when `ada` is the basename of exactly one record in the whole
+	 * workspace (`basenameOwners`, asked AFTER the move, so the renamed record is no longer among
+	 * them). When something else claims it too the link is left exactly as it is and counted into
+	 * `ambiguous`, which `rename` reports by file — an unfollowed link somebody knows about is a
+	 * different thing from one nobody does. A rename that keeps the basename (`collections rename`,
+	 * where only the collection moves) runs no bare pass at all: those links still name what they
+	 * always named.
+	 */
 	rewriteRefs(oldRef, newRef) {
 		const touched = [];
 		const skipped = [];
+		const ambiguous = [];
+		// ⚠ THE SNAPSHOT IS TAKEN HERE, not by the caller. `rename` used to snapshot what
+		// `findInboundRefs` reported — the QUALIFIED occurrences — which is no longer the set this
+		// method writes: a body holding only `[[ada]]` is rewritten below and was in nobody's rollback.
+		// The bytes are already in hand at the point of the write, so this is the one place that
+		// cannot be out of step with it.
+		const undos = [];
 		let rewrites = 0;
-		const escaped = oldRef.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-		const wikiRe = new RegExp(`\\[\\[${escaped}(\\|[^\\]]*)?\\]\\]`, 'g');
+		const wikiRe = new RegExp(`\\[\\[${escapeRe(oldRef)}(\\|[^\\]]*)?\\]\\]`, 'g');
+		const oldBase = oldRef.split('/').pop();
+		const newBase = newRef.split('/').pop();
+		const bareRe = oldBase === newBase ? null : new RegExp(`\\[\\[${escapeRe(oldBase)}(\\|[^\\]]*)?\\]\\]`, 'g');
+		const claimants = bareRe ? this.basenameOwners(oldBase) : [];
 		for (const f of this.recordFiles()) {
 			const text = fs.readFileSync(f, 'utf8');
 			let next;
@@ -886,7 +923,11 @@ export class Store {
 				const headText = fm ? fm[1] : '';
 				const bodyText = fm ? fm[2] : text;
 				const head = headText.replace(this.refRegex(oldRef), () => (count++, newRef));
-				const body = bodyText.replace(wikiRe, (_, label) => (count++, `[[${newRef}${label ?? ''}]]`));
+				// the qualified pass FIRST: it turns `[[people/ada]]` into `[[people/ada-l]]`, which the
+				// bare pattern cannot match either before or after, so the two never see each other's work
+				let body = bodyText.replace(wikiRe, (_, label) => (count++, `[[${newRef}${label ?? ''}]]`));
+				if (bareRe && !claimants.length) body = body.replace(bareRe, (_, label) => (count++, `[[${newBase}${label ?? ''}]]`));
+				else if (bareRe) { const n = (body.match(bareRe) ?? []).length; if (n) ambiguous.push({ file: f, count: n }); }
 				next = head + body;
 				const raw = (body.match(this.refRegex(oldRef)) ?? []).length;
 				if (raw) skipped.push({ file: f, count: raw });
@@ -895,10 +936,12 @@ export class Store {
 			}
 			if (count === 0) continue;
 			rewrites += count;
+			undos.push(() => atomicWrite(f, text));
 			atomicWrite(f, next);
 			touched.push(f);
 		}
-		return { touched, rewrites, skipped };
+		// a COPY before reversing, as applyMirrorEdits does: `restore` may be called twice
+		return { touched, rewrites, skipped, ambiguous, base: oldBase, claimants, restore: () => { for (const u of [...undos].reverse()) u(); } };
 	}
 
 	// ---- write serialization + rollback (review finding 3; reinstates the v2 commit
@@ -955,6 +998,9 @@ export class Store {
 		}
 	}
 }
+
+/** A literal, for a pattern built out of an id or a ref. */
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /** Is `a` yielded before `b` by `walk()`? It sorts each directory level and DESCENDS before it
  *  yields, so the order is a segment-wise compare of the relative paths and never a plain string
