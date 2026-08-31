@@ -114,7 +114,10 @@ different word in front of it):
   schema remove-field <collection> --name <field>
   schema add-view --path </route> --target list --collection collections/<c> --layout <id>
                             [--id <id>] [k.v=…]
-  schema set-view <id> <key>=<value> …        (dotted keys: options.sort=-date, nav.label=Recent)
+  schema set-view <id> <key>=<value> …        (dotted keys: options.sort=-date, nav.label=Recent.
+                            A list option takes commas — options.columns=name,status — or JSON.
+                            An empty value REMOVES the key; quote it to write the empty string
+                            itself: 'options.sort=""' is the "unsorted" the surface needs.)
   schema rm-view <id>
 
 workspace verbs:

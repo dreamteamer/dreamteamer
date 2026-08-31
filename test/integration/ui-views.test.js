@@ -212,3 +212,56 @@ describe('dt schema set-view — dotted values', () => {
 		assert.equal(saved(ws).options?.columns, undefined);
 	});
 });
+
+describe('dt schema set-view — the empty string that MEANS something', () => {
+	const viewed = () => {
+		const ws = workspace({ collections: { doctors: simpleCollection() } });
+		const add = ws.dt('schema', 'add-view', '--path', '/recent', '--target', 'list',
+			'--collection', 'collections/doctors', '--layout', 'table', 'options.sort=-name');
+		assert.equal(add.code, 0, add.stderr);
+		return ws;
+	};
+	const saved = (ws) => load(readFile(ws.root, 'modules/default/ui-views/recent.ui-view.yaml'));
+
+	test("a QUOTED empty value writes sort: '' — what the surface needs to mean unsorted", () => {
+		const ws = viewed();
+		const res = ws.dt('schema', 'set-view', 'recent', 'options.sort=""');
+		assert.equal(res.code, 0, res.stderr);
+		assert.equal(saved(ws).options.sort, '', 'the key must be PRESENT and empty, not absent');
+		assert.ok('sort' in saved(ws).options);
+	});
+
+	test('and it survives a compile, so the record round-trips', () => {
+		const ws = viewed();
+		assert.equal(ws.dt('schema', 'set-view', 'recent', 'options.sort=""').code, 0);
+		assert.equal(compileQuietly(ws.ws).code, 0);
+		assert.equal(ws.store.read('ui-views', 'recent').fields.options.sort, '');
+	});
+
+	test('a BARE empty value still removes the key — the convention is untouched', () => {
+		const ws = viewed();
+		assert.equal(ws.dt('schema', 'set-view', 'recent', 'options.sort=').code, 0);
+		assert.equal(saved(ws).options?.sort, undefined);
+	});
+
+	test('a quoted NON-empty value is that literal string', () => {
+		const ws = viewed();
+		assert.equal(ws.dt('schema', 'set-view', 'recent', 'nav.label="Recent"', 'options.sort="-name"').code, 0);
+		assert.equal(saved(ws).nav.label, 'Recent');
+		assert.equal(saved(ws).options.sort, '-name');
+	});
+
+	test('the flag form takes it too', () => {
+		const ws = viewed();
+		assert.equal(ws.dt('schema', 'set-view', 'recent', '--options.sort', '""').code, 0);
+		assert.equal(saved(ws).options.sort, '');
+	});
+
+	test('an unbalanced quote is named, not written', () => {
+		const ws = viewed();
+		const res = ws.dt('schema', 'set-view', 'recent', 'options.sort="-name');
+		assert.equal(res.code, 1);
+		assert.match(res.stderr, /not a quoted string/);
+		assert.equal(saved(ws).options.sort, '-name', 'the view is untouched');
+	});
+});

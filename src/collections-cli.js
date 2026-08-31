@@ -453,6 +453,19 @@ function parseViewValue(raw, key) {
 	if (t.startsWith('{') || t.startsWith('[')) {
 		try { return JSON.parse(t); } catch { throw new Error(`not valid JSON: ${t}`); }
 	}
+	// ⚠ A QUOTED value is a LITERAL string, and `options.sort='""'` is the whole reason the branch
+	// exists: `sort: ''` is what the surface requires to round-trip "unsorted" (omit it and the
+	// ordering silently reverts to a fallback on the next load), and the dotted grammar could not
+	// express it — an empty value UNSETS, by the same convention `dt set` has for a record field.
+	// So the quoting is the operator saying "the empty string IS the value"; `assignViewValue`
+	// carries that through to `assignPath`.
+	if (t.startsWith('"')) {
+		try {
+			const s = JSON.parse(t);
+			if (typeof s === 'string') return s;
+		} catch { /* one message for every malformed quoting, below */ }
+		throw new Error(`not a quoted string: ${t} — a literal is written like '"-date"' (and '""' for the empty one)`);
+	}
 	// An empty value falls through to assignPath, which UNSETS the key — a `columns=` that wrote
 	// `columns: []` would be a configured-to-show-nothing view, not a removed setting.
 	if (t !== '' && VIEW_LIST_OPTIONS.has(key)) return t.split(',').map((s) => s.trim()).filter(Boolean);
@@ -470,11 +483,15 @@ function parseViewValue(raw, key) {
  *
  * Intermediate objects are not created on the way to a delete: unsetting `a.b` on a record with no
  * `a` should leave the record alone, not grow an empty `a: {}`.
+ *
+ * `explicit` is the escape hatch, and it has exactly one caller: a value the operator QUOTED
+ * (`options.sort='""'`) is a value, empty or not. Without it the convention above has no exception
+ * and `sort: ''` — which the surface needs to mean "unsorted" — is unwritable from the CLI.
  */
-function assignPath(target, dotted, value) {
+function assignPath(target, dotted, value, explicit = false) {
 	const keys = dotted.split('.');
 	const leaf = keys[keys.length - 1];
-	const unset = value === null || value === '';
+	const unset = !explicit && (value === null || value === '');
 	let node = target;
 	for (const k of keys.slice(0, -1)) {
 		if (node[k] == null || typeof node[k] !== 'object' || Array.isArray(node[k])) {
@@ -485,6 +502,12 @@ function assignPath(target, dotted, value) {
 	}
 	if (unset) delete node[leaf];
 	else node[leaf] = value;
+}
+
+/** One dotted `key=value` write into a view: the value grammar, plus the one signal `assignPath`
+ *  cannot recover from the parsed value — whether the operator quoted it. */
+function assignViewValue(view, key, raw) {
+	assignPath(view, key, parseViewValue(raw, key), typeof raw === 'string' && raw.trim().startsWith('"'));
 }
 
 const VIEW_META_FLAGS = new Set(['id', 'json', 'force']);
@@ -511,8 +534,7 @@ function metaUiView(ws, store, verb, flags, pos) {
 
 	for (const p of pos.slice(verb === 'set' ? 1 : 0)) {
 		if (!p.includes('=')) continue;
-		const key = p.slice(0, p.indexOf('='));
-		assignPath(view, key, parseViewValue(p.slice(p.indexOf('=') + 1), key));
+		assignViewValue(view, p.slice(0, p.indexOf('=')), p.slice(p.indexOf('=') + 1));
 	}
 	for (const [k, v] of Object.entries(flags)) {
 		if (VIEW_META_FLAGS.has(k)) continue;
@@ -521,7 +543,7 @@ function metaUiView(ws, store, verb, flags, pos) {
 		if (Array.isArray(v)) {
 			throw new Error(`--${k} was given ${v.length} times — a view key takes one value, and a list is written as one: --${k} ${v.join(',')} (or the JSON form '${JSON.stringify(v)}')`);
 		}
-		assignPath(view, k, parseViewValue(v, k));
+		assignViewValue(view, k, v);
 	}
 
 	if (!view.path) throw new Error('missing --path </route> — a view is addressed by its route');

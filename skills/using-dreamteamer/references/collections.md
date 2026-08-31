@@ -93,8 +93,8 @@ unpublished schema is not a state the workspace should sit in. The verbs and eve
   does NOT overrule two authored choices: a hand-set `storage.path` (records stay put, and it
   says so) and a `storage.suffix` that is not the singular of the old name.
 - An **empty value removes** in dotted `set-view` writes just as it does in `dt set` — so a
-  setting whose meaningful value IS empty (`options.sort: ''`, see `ui-views.md`) must be
-  hand-written in the source file; the CLI cannot express it.
+  setting whose meaningful value IS empty (`options.sort: ''`, see `ui-views.md`) is written
+  QUOTED, which is what says "the empty string is the value": `'options.sort=""'`.
 
 ## declaring a module
 
