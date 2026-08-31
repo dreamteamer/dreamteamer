@@ -1,11 +1,11 @@
 {
-	"measured": "2026-08-29",
+	"measured": "2026-08-31",
 	"note": "Budgets are ceilings with ~10% headroom. Raising one is a deliberate act — do it in the same commit as the growth, and say why in the message.",
 	"code": {
-		"total": 4382,
-		"comments": 1825,
-		"decisions": 1612,
-		"files": 28
+		"total": 5028,
+		"comments": 2317,
+		"decisions": 1933,
+		"files": 29
 	},
 	"surface": {
 		"collections": 9,
@@ -16,15 +16,15 @@
 		"commands": 0
 	},
 	"prose": {
-		"skill-lines": 971,
-		"system-lines": 1467
+		"skill-lines": 1069,
+		"system-lines": 1565
 	},
 	"budgets": {
-		"code.total": 4821,
-		"code.decisions": 1774,
+		"code.total": 5531,
+		"code.decisions": 2127,
 		"surface.collections": 9,
 		"surface.skills": 2,
 		"surface.agents": 1,
-		"prose.skill-lines": 1069
+		"prose.skill-lines": 1176
 	}
 }
