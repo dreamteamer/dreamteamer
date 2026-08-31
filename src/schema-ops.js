@@ -244,29 +244,26 @@ export function removeCollection(ws, store, name, { force = false } = {}) {
  *    otherwise the filenames would start lying about what they hold. `doctors` → `health/doctors` keeps
  *    the base name, so nothing is re-suffixed — which is the common case and the cheap one.
  *
- * References are rewritten by asking the STORE to do it, once per record id, rather than by matching
- * the collection prefix with a new regex. `store.rewriteRefs` already knows the boundary rules and
- * already scopes prose to `[[wikilinks]]` (decision 7) — a fresh `oldName/` pattern would have to
- * relearn both, and would corrupt `data/tasks/` in a path or a URL on its first outing. N passes over
- * the record files is the price, and at human scale it is worth paying for reusing the correct code.
+ * References are rewritten by asking the STORE to do it, in ONE batch of old→new pairs, rather than
+ * by matching the collection prefix with a new regex. `store.rewriteRefsBatch` already knows the
+ * boundary rules and already scopes prose to `[[wikilinks]]` (decision 7) — a fresh `oldName/`
+ * pattern would have to relearn both, and would corrupt `data/tasks/` in a path or a URL on its
+ * first outing.
  *
- * ⚠ MEASURED 2026-08-17, so the cost is a number rather than a hope: a real 2,291-record collection
- * in a 3,391-file workspace takes **3 minutes**, of which 142s is system time — 7.7M file reads to
- * rewrite ZERO references, because the pass runs per id whether or not anything points at the
- * collection. Tolerable for a one-time migration and left alone on that basis; it is
- * O(records x files), so a workspace 3x larger pays 27 minutes.
+ * ⚠ IT USED TO BE O(records x files), TWICE, and the history is worth keeping because each stage was
+ * measured and each was wrong about the one after it. Measured 2026-08-17 on a real 2,291-record
+ * collection in a 3,391-file workspace: 3 minutes, 142s of it system time, 7.7M file reads to
+ * rewrite ZERO references — the pass ran per id whether or not anything pointed at the collection.
+ * Reproduced 2026-08-22 by `npm run perf -- --records=2291 --filler=1100`, which generates a
+ * workspace that shape, and the real number was **15.6M reads, not 7.7M**: `captureRefs` walked
+ * every record file for the rollback snapshot before `rewriteRefs` walked them all again, so 7.7M
+ * was the PER-PASS number. That is what a generated fixture is for — the finding was right about the
+ * shape and off by 2x on the count, and no comment could have told you.
  *
- * ⚠ REPRODUCED 2026-08-22 by `npm run perf -- --records=2291 --filler=1100`, which generates a
- * workspace that shape — 271s wall, 203s of it system, and **15.6M reads, not 7.7M**. The original
- * figure counted ONE pass per id; there are TWO, because `captureRefs` walks every record file for
- * the rollback snapshot before `rewriteRefs` walks them all again. `7.7M` is the per-pass number.
- * That is what a generated fixture is for: the finding was right about the shape and off by 2x on
- * the count, and no comment could have told you.
- *
- * The fix when it is needed is a batch entry point on the store that reads each file ONCE and loops
- * the ref set in memory, with `text.includes(oldName + '/')` as a cheap NEGATIVE filter only — never
- * as the matcher, for the reason above. Halving it is cheaper still: the snapshot pass and the
- * rewrite pass read the same bytes.
+ * Both factors are gone as of 2026-09-01. The rewrite is one pass for every id, and the snapshot
+ * pass disappeared entirely because the rewrite snapshots what it writes as it writes it.
+ * `--records=400 --filler=100`, the same machine, best of three: 6.39s and 410,678 reads → 0.16s
+ * and 1,075 — which is 504 files twice over, the batch pass and the `collections/<name>` one.
  */
 export function renameCollection(ws, store, oldName, newName) {
 	const d = store.descriptor(oldName); // throws with the known-collection list if absent
@@ -336,18 +333,18 @@ export function renameCollection(ws, store, oldName, newName) {
 	};
 
 	return store.withWriteLock(() => {
-		// referencing files are snapshotted by the store's own helper via rewriteRefs' touched list, so
-		// they are captured here the same way `store.rename` does it: read before, restore on failure.
+		// ⚠ THERE IS NO CAPTURE PASS ANY MORE. This used to ask `findInboundRefs` per id — a full walk
+		// of every record file — purely to snapshot the referencing files for rollback, and then step 2
+		// walked them all again to rewrite them: the same bytes read twice, per id. The rewrite
+		// snapshots what it writes as it writes it (`store.rewriteRefsBatch`), so its own `restore` is
+		// the rollback and the pre-walk is pure cost. `refFiles` is now step 4's descriptor sources
+		// only, which no walk visits.
 		const refFiles = new Map();
-		const captureRefs = (ref) => {
-			for (const f of store.findInboundRefs(ref)) {
-				const abs = path.join(ws.root, f);
-				if (!refFiles.has(abs)) refFiles.set(abs, fs.readFileSync(abs));
-			}
-		};
-		for (const id of ids) captureRefs(`${oldName}/${id}`);
-		captureRefs(`collections/${oldName}`);
+		const undoRewrites = [];
 		const restoreRefs = () => {
+			// reverse-chronological: one file can be written by both ref passes, and undoing the earlier
+			// write first would leave the later one standing
+			for (const u of [...undoRewrites].reverse()) u();
 			for (const [f, bytes] of refFiles) {
 				fs.mkdirSync(path.dirname(f), { recursive: true }); // pruneEmpty may have taken the parent
 				fs.writeFileSync(f, bytes);
@@ -397,12 +394,16 @@ export function renameCollection(ws, store, oldName, newName) {
 			// only because `check` ran afterwards. Doing the rewrite first needs no descriptor reload
 			// and no second code path: the files are still at the old path, which is exactly what the
 			// old refs say.
-			for (const id of ids) {
-				const out = store.rewriteRefs(`${oldName}/${id}`, `${newName}/${id}`);
-				rewrites += out.rewrites;
-				for (const f of out.touched) touched.add(f);
-			}
+			// ONE pass for every id, not one pass per id — see `store.rewriteRefsBatch`. The
+			// `collections/<name>` retarget stays its own call: it is a different ref (into the
+			// `collections` collection), and folding it in would put a needle in the batch that shares
+			// no prefix with the rest and so switch the negative pre-filter off for all of them.
+			const out = store.rewriteRefsBatch(ids.map((id) => [`${oldName}/${id}`, `${newName}/${id}`]));
+			undoRewrites.push(out.restore);
+			rewrites += out.rewrites;
+			for (const f of out.touched) touched.add(f);
 			const collOut = store.rewriteRefs(`collections/${oldName}`, `collections/${newName}`);
+			undoRewrites.push(collOut.restore);
 			rewrites += collOut.rewrites;
 			for (const f of collOut.touched) touched.add(f);
 
