@@ -990,6 +990,29 @@ export function removeField(ws, store, collection, fieldName) {
 	return { collection, removed: fieldName, dropped: out.dropped, cleared: out.cleared };
 }
 
+/**
+ * The properties object with `fieldName` set, a NEW field landing before the `x-body` one.
+ *
+ * Property order is form order, and a record's body belongs last — metadata about a record must not
+ * render below the record's content. compile already holds that rule for the fields a `templates:`
+ * merge contributes (`applyTemplate`); `add-field` did a plain assignment, so the one writer whose
+ * output an operator reads back as the form they are about to fill in was also the one that appended
+ * after the body.
+ *
+ * An EXISTING field keeps its place: `update-field` must not silently reorder a descriptor its author
+ * ordered by hand. With no body field there is nothing to sit above, so this is a plain append.
+ */
+function insertBeforeBody(properties, fieldName, prop) {
+	const body = bodyField({ schema: { properties } });
+	if (body === undefined || properties[fieldName] !== undefined) return { ...properties, [fieldName]: prop };
+	const out = {};
+	for (const [k, v] of Object.entries(properties)) {
+		if (k === body) out[fieldName] = prop;
+		out[k] = v;
+	}
+	return out;
+}
+
 function upsertField(ws, store, collection, fieldName, prop, required, verb) {
 	// Read BEFORE the source is touched. Empty for a field that does not exist yet, so `add-field`
 	// shares this path with no branch — it cannot remove a relation it is creating.
@@ -1061,7 +1084,7 @@ function upsertField(ws, store, collection, fieldName, prop, required, verb) {
 	const dropped = writeGated(ws, store, [dest], `dreamteamer: ${collection} ${verb}`, () => {
 		doc.schema ??= { properties: {} };
 		doc.schema.properties ??= {};
-		doc.schema.properties[fieldName] = prop;
+		doc.schema.properties = insertBeforeBody(doc.schema.properties, fieldName, prop);
 		if (required === true) doc.schema.required = [...new Set([...(doc.schema.required ?? []), fieldName])];
 		if (required === false && Array.isArray(doc.schema.required)) doc.schema.required = doc.schema.required.filter((r) => r !== fieldName);
 		fs.mkdirSync(path.dirname(dest), { recursive: true });

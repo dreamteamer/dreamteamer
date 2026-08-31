@@ -815,3 +815,38 @@ describe('a type that names a collection is a reference, sugar or not', () => {
 		assert.equal(sourceOf(ws, 'articles').schema.properties.when['x-reference'], 'date');
 	});
 });
+
+// ── a new field lands BEFORE the body, because property order is form order ─────────────────────
+//
+// The rule is already the compiler's, for the fields a `templates:` merge contributes (applyTemplate):
+// a record's prose belongs last, so metadata about a record never renders below the record's content.
+// `add-field` did a plain assignment and so appended AFTER it — the one writer whose output an
+// operator reads back as the form they will fill in.
+describe('add-field inserts before the x-body field', () => {
+	const keysOf = (ws, c) => Object.keys(load(readFile(ws.root, `modules/default/collections/${c}.collection.yaml`)).schema.properties);
+
+	test('the new field sits above the body, and every other field keeps its place', () => {
+		// simpleCollection is `name` then `notes` (the x-body field)
+		const ws = workspace({ collections: { articles: simpleCollection({ storage: { suffix: 'article' } }) } });
+		assert.equal(ws.dt('schema', 'add-field', 'articles', '--name', 'status', '--type', 'string').code, 0);
+		assert.deepEqual(keysOf(ws, 'articles'), ['name', 'status', 'notes']);
+		assert.equal(ws.dt('schema', 'add-field', 'articles', '--name', 'rank', '--type', 'number').code, 0);
+		assert.deepEqual(keysOf(ws, 'articles'), ['name', 'status', 'rank', 'notes']);
+	});
+
+	test('with no body field it still appends — there is nothing to sit above', () => {
+		const ws = workspace({ collections: { articles: {
+			id: { generate: '{{ name | slug }}' },
+			storage: { suffix: 'article', codec: 'yaml' },
+			schema: { type: 'object', required: ['name'], properties: { name: { type: 'string' } } },
+		} } });
+		assert.equal(ws.dt('schema', 'add-field', 'articles', '--name', 'status', '--type', 'string').code, 0);
+		assert.deepEqual(keysOf(ws, 'articles'), ['name', 'status']);
+	});
+
+	test('update-field does NOT reorder — an existing field keeps the place its author gave it', () => {
+		const ws = workspace({ collections: { articles: simpleCollection({ storage: { suffix: 'article' } }) } });
+		assert.equal(ws.dt('schema', 'update-field', 'articles', '--name', 'name', '--description', 'the title').code, 0);
+		assert.deepEqual(keysOf(ws, 'articles'), ['name', 'notes']);
+	});
+});
