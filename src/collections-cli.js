@@ -322,11 +322,31 @@ function metaCollectionsRm(ws, store, flags, pos) {
 
 // `dreamteamer tasks add-field --name urgent --type boolean --default-value false`
 function metaAddField(ws, store, collection, flags) {
-	const prop = fieldDef(store, flags);
+	const prop = fieldDef(store, flags, collection);
+	// fieldDef defers an --inverse it cannot attach (update-field carries the reference in later).
+	// add-field has nothing to carry, so an --inverse that landed nowhere is a mistake, not a no-op.
+	if (flags.inverse !== undefined && flags.inverse !== '' && !(prop.items ?? prop)['x-inverse']) {
+		throw new Error('--inverse needs a single-collection --type <collection> reference.');
+	}
 	const out = addField(ws, store, collection, { name: flags.name, prop, required: flags.required === 'true' });
 	console.log(`✔ ${rel(ws.root, out.file)}${out.extends ? ` (extends ${out.extends})` : ''}`);
 	console.log('✔ compiled — the field is live');
+	reportMirror(store, collection, flags.name, prop);
 	return 0;
+}
+
+/** A relation writes a field onto ANOTHER collection — the one consequence of add-field/update-field
+ *  that the written path above does not show. And the mirror is only correct for records written
+ *  AFTER it existed, so records already carrying a value are counted here, with the repair: this is
+ *  the migration path (a plain FK gains its mirror) and check flags every one of them the moment
+ *  the field lands. */
+function reportMirror(store, collection, fieldName, prop) {
+	const holder = prop.items ?? prop;
+	if (!holder['x-inverse']) return;
+	const target = holder['x-reference'];
+	console.log(`  mirror: ${target}.${holder['x-inverse']}${holder['x-unique'] === true ? '' : '[]'}  (generated, read-only)`);
+	const n = [...store.readAll(collection)].filter((r) => r.fields[fieldName] != null).length;
+	if (n) console.log(`  ${n} ${collection} record${n === 1 ? '' : 's'} carry values — run: dreamteamer relations rebuild ${target}`);
 }
 
 // `dreamteamer tasks update-field --name urgent --type enum --options a,b --required false`
@@ -334,12 +354,15 @@ function metaAddField(ws, store, collection, flags) {
 // preconditions rather than two dialects.
 function metaUpdateField(ws, store, collection, flags) {
 	if (!flags.name) throw new Error('missing --name <field>');
-	const prop = fieldDef(store, flags);
+	const prop = fieldDef(store, flags, collection);
 	// tri-state: omitting --required leaves requiredness ALONE, rather than silently clearing it
 	const required = flags.required === undefined ? undefined : flags.required === 'true' || flags.required === true;
-	const out = updateField(ws, store, collection, flags.name, { prop, required });
+	// `flags` as well as the prop: updateField carries the relation keywords forward from the
+	// previous prop, and only the flags can say which of them the caller meant to restate.
+	const out = updateField(ws, store, collection, flags.name, { prop, required, flags });
 	console.log(`✔ ${rel(ws.root, out.file)}${out.extends ? ` (extends ${out.extends})` : ''}`);
 	console.log('✔ compiled — the field is updated');
+	reportMirror(store, collection, flags.name, prop);
 	return 0;
 }
 

@@ -76,13 +76,18 @@ different word in front of it):
                             suffix was derived, rewrites every inbound reference, ONE commit
   schema add-field    <collection> --name <field> --type <type> [--options a,b] [--default-value v]
                             [--required true] [--description "what this field means"]
+                            [--many] [--inverse [name]] [--unique]
+                            [--on-delete restrict|set-null] [--mirror-of <collection>.<field>]
                             types: string text markdown boolean number integer date datetime
                                    enum tags <collection> — a date-time may be written as
                                    "2026-07-28 12:00" or "2026-07-28T12:00"; the local offset is
                                    stamped on for you (2026-07-28T12:00:00+03:00)
+                            --inverse declares the two-way mirror on the target; --mirror-of
+                            declares it from this side instead — there is no wrong side.
   schema update-field <collection> --name <field> --type <type> [--options a,b] [--default-value v]
                             [--required true|false] [--description "…"]
-                            (an existing description survives a retype)
+                            (an existing description survives a retype, and so do the relation
+                             keywords — --inverse= drops the mirror)
   schema remove-field <collection> --name <field>
   schema add-view --path </route> --target list --collection collections/<c> --layout <id>
                             [--id <id>] [k.v=…]
