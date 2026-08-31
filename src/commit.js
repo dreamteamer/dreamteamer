@@ -485,6 +485,7 @@ export function commitPending(store, { only = [], message, dryRun = false } = {}
 			// store.js has always used.
 			execFileSync('git', ['add', '--all', '--', ...paths], { cwd });
 			execFileSync('git', ['commit', '--quiet', '-m', subject, '--', ...paths, ...alreadyStaged], { cwd });
+			store.headMoved(); // the verb that exists to move HEAD — see store.gitHead
 		}
 		const sha = dryRun ? null : execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd }).toString().trim();
 		results.push({ repo, rows, subject, sha, warning, leftPending });

@@ -70,6 +70,8 @@ function writeGated(ws, store, files, subject, mutate, after) {
 			restore();
 			try { compile(ws); } catch { /* pre-op sources were compilable */ }
 			throw new Error(`git commit failed — the schema change was rolled back, nothing was changed. (${e.message.split('\n')[0]})`);
+		} finally {
+			store.headMoved(); // this ran `git commit`, so the store's HEAD memo is stale — see store.gitHead
 		}
 		// The hook's own report, for the caller to print: what a source change did to DATA is not
 		// visible in the file list, and a silent data change is a different act from a reported one.
@@ -486,6 +488,8 @@ export function renameCollection(ws, store, oldName, newName) {
 			restoreRefs();
 			try { compile(ws); } catch { /* pre-rename sources were compilable */ }
 			throw new Error(`git commit failed — the rename was rolled back, nothing was changed. (${e.message.split('\n')[0]})`);
+		} finally {
+			store.headMoved(); // as writeGated — see store.gitHead
 		}
 
 		return {

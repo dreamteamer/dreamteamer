@@ -237,11 +237,14 @@ export class Store {
 	 * row, and `read()` goes through the id index — spent 1,525ms of a 1,677ms command in this one
 	 * method. Reproduced by `npm run perf` at 1/14 the scale: 300 rows, 301 spawns.
 	 *
-	 * ⚠ INVALIDATED IN withWriteLock, on the way OUT. Every mutation and every commit this store
-	 * performs runs inside that lock — schema-ops' source commits included, since `writeGated` takes
-	 * it — so a HEAD that moved under this process can never survive into a later read. Without that,
-	 * a commit made mid-process would leave this memo naming the PREVIOUS commit, the ids() key would
-	 * not change, and a read after the commit would be served the id map from before it.
+	 * ⚠ INVALIDATED BY WHATEVER RUNS `git commit` — `headMoved()`, below. It used to be dropped on
+	 * the way OUT of every write lock instead, on the reasoning that everything able to move HEAD
+	 * takes that lock. Two things were wrong with it. It was not TRUE — `commitPending` (`dt commit`,
+	 * the verb that exists to move HEAD) takes no lock at all — and it was far too WIDE: with
+	 * `auto-commit` off, which is the default, a record write moves nothing, and dropping the memo
+	 * anyway cost the next `ids()` call a ~10ms subprocess to re-read a sha that had not changed. A
+	 * run of 400 adds paid 400 of them: 10.8ms of the 11.65ms an add cost, measured on a generated
+	 * collection. Naming the four commit sites is both narrower and more honest than naming the lock.
 	 *
 	 * What the memo does give up, stated rather than discovered: ANOTHER process committing during
 	 * this one's lifetime no longer invalidates the id map. It costs nothing real — a commit does not
@@ -257,6 +260,10 @@ export class Store {
 		return this._head;
 	}
 
+	/** "This process just committed" — said by the four places that run `git commit` while a Store is
+	 *  alive: `commit()` below, `commitPending`, and schema-ops' two source commits. See gitHead. */
+	headMoved() { this._head = undefined; }
+
 	ids(collection) {
 		const d = this.descriptor(collection);
 		const dir = this.dir(d);
@@ -266,12 +273,51 @@ export class Store {
 		// direct top-level edits move the dir mtime. honest gap: a DEEP direct edit that
 		// adds/removes a record without touching HEAD or the top dir mtime can serve one
 		// stale read — acceptable, tool writes always commit and `check` covers hand edits.
-		const key = `${this.gitHead()}:${fs.statSync(dir).mtimeMs}`;
+		const key = this._idsKey(dir);
 		const hit = this._idsCache.get(collection);
 		if (hit?.key === key) return hit.ids;
 		const ids = this._walkIds(d, dir);
 		this._idsCache.set(collection, { key, ids });
 		return ids;
+	}
+
+	/** The validity key `ids()` compares against, as its own method because `add` restates it AFTER
+	 *  its write — the only way an index it just extended can still be accepted by the next call. */
+	_idsKey(dir) { return `${this.gitHead()}:${fs.statSync(dir).mtimeMs}`; }
+
+	/**
+	 * The id index this add invalidated, handed back with ONE MORE ENTRY rather than thrown away.
+	 *
+	 * ⚠ A RUN OF ADDS WAS QUADRATIC, and the walk was the smaller half of it. `add` needs the ids
+	 * that already exist in order to generate one that is unique, so every add called `ids()` — which
+	 * asked `git rev-parse HEAD` for its key and then re-walked the collection from disk, because the
+	 * previous add had deleted the very memo it was rebuilding. Measured on a generated 400-record
+	 * collection: 11.65 ms/rec, of which 10.8 ms was the subprocess (see gitHead) and 0.66 ms the
+	 * walk — and the walk is the term that GROWS. An add with an explicit id, which calls neither,
+	 * costs 0.18 ms.
+	 *
+	 * The entry is INSERTED IN WALK ORDER, never appended. `ids()` iteration order is what `dt list`
+	 * prints when nobody passes `--sort`, so an index that ordered records differently from a cold
+	 * rebuild would make that order depend on how many writes the process had done first.
+	 *
+	 * The honest gap it adds, beside the two `ids()` already states: the key is stated from a stat
+	 * taken just AFTER this write, so a record another process dropped into the same directory in
+	 * that window goes unnoticed until something else moves the mtime. Same shape and same size as
+	 * the cross-process gap the memo already accepts.
+	 */
+	_indexAdd(collection, memo, id, file) {
+		// nothing was memoized before this write, or the mirror pass has already rebuilt it cold from
+		// disk — either way a walk is the current answer and this has nothing to add to it.
+		if (!memo || this._idsCache.has(collection)) return;
+		const dir = this.dir(this.descriptor(collection));
+		const ids = new Map();
+		let placed = false;
+		for (const [k, v] of memo.ids) {
+			if (!placed && beforeInWalk(path.relative(dir, file), path.relative(dir, v))) { ids.set(id, file); placed = true; }
+			ids.set(k, v);
+		}
+		if (!placed) ids.set(id, file);
+		this._idsCache.set(collection, { key: this._idsKey(dir), ids });
 	}
 
 	_walkIds(d, dir) {
@@ -446,13 +492,19 @@ export class Store {
 		// before validate: a mirror value is refused on its own terms, not as a schema error
 		this.refuseMirrorWrites(collection, null, Object.keys(fields));
 		this.validate(d, fields);
-		const id = explicitId ?? generateId(d.id?.generate ?? '{{ name | slug }}', fields, [...this.ids(collection).keys()]);
+		// the KEYS, not a copy of them: `generateId` iterates this once and only for a `{{ seq }}`
+		// template, so materializing the whole id list was an O(N) allocation per add that almost
+		// every collection threw away unread.
+		const id = explicitId ?? generateId(d.id?.generate ?? '{{ name | slug }}', fields, this.ids(collection).keys());
 		if (d.id?.pattern && !patternRe(d.id.pattern).test(id)) {
 			throw new Error(`id "${id}" does not match pattern ${d.id.pattern} — nothing was written.`);
 		}
 		const file = this.filePath(d, id);
 		if (fs.existsSync(file)) throw new Error(`${collection}/${id} already exists — nothing was written.`);
 		return this.withWriteLock(() => {
+			// captured before the invalidation and handed back, one entry richer, on the success path
+			// below — see _indexAdd for why an add that throws it away is the expensive shape.
+			const memo = this._idsCache.get(collection);
 			this._idsCache.delete(collection);
 			fs.mkdirSync(path.dirname(file), { recursive: true });
 			atomicWrite(file, serialize(d, fields));
@@ -484,6 +536,8 @@ export class Store {
 				pruneEmptyDirs(path.dirname(file), this.dir(d));
 				this._idsCache.delete(collection); // same phantom as the catch above — see the note there
 			}, d.storage.repo ?? '.');
+			// LAST, after the commit: the key it is re-stated under carries the sha, and `commit` moves it
+			this._indexAdd(collection, memo, id, file);
 			return { id, file };
 		});
 	}
@@ -867,11 +921,6 @@ export class Store {
 		try {
 			return fn();
 		} finally {
-			// ⚠ THE HEAD MEMO GOES WITH THE LOCK. Everything that can move HEAD in this process happens
-			// inside here (see gitHead), and a memo surviving a commit would keep serving the id map
-			// from before it. Dropped on the way out whether `fn` succeeded or threw: a failed write
-			// may still have committed and rolled back, which is two moves of HEAD.
-			this._head = undefined;
 			try { fs.rmdirSync(lock); } catch { /* already gone */ }
 		}
 	}
@@ -898,8 +947,24 @@ export class Store {
 				}
 			}
 			throw new Error(`git commit failed — the write was rolled back, nothing was changed. (${e.message.split('\n')[0]})`);
+		} finally {
+			// ⚠ WHETHER IT LANDED OR NOT. The failure path resets the index and undoes the write, but a
+			// commit that threw may still have created one — and a HEAD memo naming the previous sha
+			// would keep serving id maps from before it. See gitHead.
+			this.headMoved();
 		}
 	}
+}
+
+/** Is `a` yielded before `b` by `walk()`? It sorts each directory level and DESCENDS before it
+ *  yields, so the order is a segment-wise compare of the relative paths and never a plain string
+ *  one: `2026-01.entry.md` sorts before `2026/x.entry.md` as a string ('-' < '/') and after it in
+ *  the walk, because readdir meets the directory `2026` first and empties it on the way past. */
+function beforeInWalk(a, b) {
+	const A = a.split(path.sep);
+	const B = b.split(path.sep);
+	for (let i = 0; i < Math.min(A.length, B.length); i++) if (A[i] !== B[i]) return A[i] < B[i];
+	return A.length < B.length;
 }
 
 /**
