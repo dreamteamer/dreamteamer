@@ -795,18 +795,19 @@ export class Store {
 			pruneEmptyDirs(path.dirname(oldUnit), this.dir(d)); // cross-partition renames leave empty date dirs
 			// rewrite inbound references (frontmatter/structured always; prose only via wikilinks). It
 			// snapshots what it writes as it writes it — see rewriteRefs for why the caller cannot.
-			const { touched, rewrites, skipped, ambiguous, base, claimants, restore } = this.rewriteRefs(`${collection}/${oldId}`, `${collection}/${newId}`);
+			const { touched, rewrites, skipped, ambiguous, restore } = this.rewriteRefs(`${collection}/${oldId}`, `${collection}/${newId}`);
 			this.commit([oldUnit, newUnit, ...touched], `dreamteamer: ${collection} rename ${oldId} → ${newId}`, () => {
 				fs.mkdirSync(path.dirname(oldUnit), { recursive: true });
 				fs.renameSync(newUnit, oldUnit);
 				pruneEmptyDirs(path.dirname(newUnit), this.dir(d));
 				restore();
 			}, d.storage.repo ?? '.');
+			// each entry names the PAIR it came from, because a batch has more than one — see rewriteRefsBatch
 			for (const s of skipped) {
-				console.warn(`⚠ ${path.relative(this.root, s.file)}: ${s.count} raw-prose occurrence(s) of ${collection}/${oldId} left untouched — only [[wikilinks]] are maintained in bodies (decision 7)`);
+				console.warn(`⚠ ${path.relative(this.root, s.file)}: ${s.count} raw-prose occurrence(s) of ${s.oldRef} left untouched — only [[wikilinks]] are maintained in bodies (decision 7)`);
 			}
 			for (const a of ambiguous) {
-				console.warn(`⚠ ${path.relative(this.root, a.file)}: ${a.count} bare [[${base}]] wikilink(s) left untouched — ${claimants.join(', ')} also ends in "${base}", so nothing here can tell which record the link means. Rewrite by hand, or spell it [[${collection}/${newId}]].`);
+				console.warn(`⚠ ${path.relative(this.root, a.file)}: ${a.count} bare [[${a.base}]] wikilink(s) left untouched — ${a.claimants.join(', ')} also ends in "${a.base}", so nothing here can tell which record the link means. Rewrite by hand, or spell it [[${a.newRef}]].`);
 			}
 			return { id: newId, rewrites, touched: touched.length, skipped: skipped.length, ambiguous: ambiguous.length };
 		});
@@ -897,51 +898,96 @@ export class Store {
 	 * always named.
 	 */
 	rewriteRefs(oldRef, newRef) {
+		return this.rewriteRefsBatch([[oldRef, newRef]]);
+	}
+
+	/**
+	 * The same rewrite, for MANY old→new pairs at once: each record file is opened ONCE and every
+	 * pair is applied to the bytes in hand, in the order given.
+	 *
+	 * ⚠ THIS IS THE WHOLE IMPLEMENTATION — `rewriteRefs` is the batch of one. A second single-pair
+	 * copy of the rules above (prose scoping, the bare-basename ambiguity test, the boundary) is
+	 * exactly the drift this method exists to avoid.
+	 *
+	 * ⚠ WHY A BATCH, MEASURED. `collections rename` called this once per record id, and walked every
+	 * record file a second time before that to snapshot them for rollback: `npm run perf --
+	 * --records=400 --filler=100` cost 410,678 reads and 6.39s for 400 ids over 504 files — ~800
+	 * passes over the same bytes to rewrite 4 references. One pass answers every pair: 1,075 and
+	 * 0.16s.
+	 *
+	 * The pre-filter is a NEGATIVE one and nothing else: a file whose text lacks the prefix every
+	 * needle starts with cannot contain any of them, so it is skipped unread-twice — but a file that
+	 * has it is still matched by the boundary-aware regexes below, never by the prefix. A prefix
+	 * match would follow `data/tasks/` in a path and `…/ledger/alpha-x` in a URL.
+	 *
+	 * ⚠ THE SNAPSHOT IS TAKEN HERE, not by the caller. `rename` used to snapshot what
+	 * `findInboundRefs` reported — the QUALIFIED occurrences — which is not the set this method
+	 * writes: a body holding only `[[ada]]` is rewritten below and was in nobody's rollback. The
+	 * bytes are already in hand at the point of the write, so this is the one place that cannot be
+	 * out of step with it — and a failure part-way through undoes what it already wrote before it
+	 * throws, so a caller's own rollback never has to guess how far it got.
+	 *
+	 * `skipped` and `ambiguous` entries carry the pair that produced them (`oldRef`/`newRef`, plus
+	 * the `base` and its `claimants`), because in a batch there is no single one to imply.
+	 */
+	rewriteRefsBatch(pairs) {
+		const plans = pairs.map(([oldRef, newRef]) => {
+			const oldBase = oldRef.split('/').pop();
+			const newBase = newRef.split('/').pop();
+			const bareRe = oldBase === newBase ? null : new RegExp(`\\[\\[${escapeRe(oldBase)}(\\|[^\\]]*)?\\]\\]`, 'g');
+			return {
+				oldRef, newRef, newBase, base: oldBase, bareRe,
+				refRe: this.refRegex(oldRef),
+				wikiRe: new RegExp(`\\[\\[${escapeRe(oldRef)}(\\|[^\\]]*)?\\]\\]`, 'g'),
+				// asked of the id index, not of a text scan — and only when a bare pass can happen at all
+				claimants: bareRe ? this.basenameOwners(oldBase) : [],
+			};
+		});
+		// a bare pass matches `[[base]]`, which does NOT contain the ref — so the basename is a needle too
+		const probe = commonPrefix(plans.flatMap((p) => (p.bareRe ? [p.oldRef, p.base] : [p.oldRef])));
+
 		const touched = [];
 		const skipped = [];
 		const ambiguous = [];
-		// ⚠ THE SNAPSHOT IS TAKEN HERE, not by the caller. `rename` used to snapshot what
-		// `findInboundRefs` reported — the QUALIFIED occurrences — which is no longer the set this
-		// method writes: a body holding only `[[ada]]` is rewritten below and was in nobody's rollback.
-		// The bytes are already in hand at the point of the write, so this is the one place that
-		// cannot be out of step with it.
 		const undos = [];
 		let rewrites = 0;
-		const wikiRe = new RegExp(`\\[\\[${escapeRe(oldRef)}(\\|[^\\]]*)?\\]\\]`, 'g');
-		const oldBase = oldRef.split('/').pop();
-		const newBase = newRef.split('/').pop();
-		const bareRe = oldBase === newBase ? null : new RegExp(`\\[\\[${escapeRe(oldBase)}(\\|[^\\]]*)?\\]\\]`, 'g');
-		const claimants = bareRe ? this.basenameOwners(oldBase) : [];
-		for (const f of this.recordFiles()) {
-			const text = fs.readFileSync(f, 'utf8');
-			let next;
-			let count = 0;
-			if (f.endsWith('.md')) {
+		// a COPY before reversing, as applyMirrorEdits does: `restore` may be called twice
+		const restore = () => { for (const u of [...undos].reverse()) u(); };
+		try {
+			for (const f of this.recordFiles()) {
+				const text = fs.readFileSync(f, 'utf8');
+				if (probe && !text.includes(probe)) continue;
 				// prose scoping applies to EVERY .md — a frontmatter-less file is all body
 				// (docs-audit catch: it used to fall through to raw replacement)
-				const fm = /^(---\r?\n[\s\S]*?\r?\n---\r?\n?)([\s\S]*)$/.exec(text);
-				const headText = fm ? fm[1] : '';
-				const bodyText = fm ? fm[2] : text;
-				const head = headText.replace(this.refRegex(oldRef), () => (count++, newRef));
-				// the qualified pass FIRST: it turns `[[people/ada]]` into `[[people/ada-l]]`, which the
-				// bare pattern cannot match either before or after, so the two never see each other's work
-				let body = bodyText.replace(wikiRe, (_, label) => (count++, `[[${newRef}${label ?? ''}]]`));
-				if (bareRe && !claimants.length) body = body.replace(bareRe, (_, label) => (count++, `[[${newBase}${label ?? ''}]]`));
-				else if (bareRe) { const n = (body.match(bareRe) ?? []).length; if (n) ambiguous.push({ file: f, count: n }); }
-				next = head + body;
-				const raw = (body.match(this.refRegex(oldRef)) ?? []).length;
-				if (raw) skipped.push({ file: f, count: raw });
-			} else {
-				next = text.replace(this.refRegex(oldRef), () => (count++, newRef));
+				const prose = f.endsWith('.md');
+				const fm = prose ? /^(---\r?\n[\s\S]*?\r?\n---\r?\n?)([\s\S]*)$/.exec(text) : null;
+				let head = prose ? (fm ? fm[1] : '') : text;
+				let body = prose ? (fm ? fm[2] : text) : '';
+				let count = 0;
+				for (const p of plans) {
+					head = head.replace(p.refRe, () => (count++, p.newRef));
+					if (!prose) continue;
+					// the qualified pass FIRST: it turns `[[people/ada]]` into `[[people/ada-l]]`, which the
+					// bare pattern cannot match either before or after, so the two never see each other's work
+					body = body.replace(p.wikiRe, (_, label) => (count++, `[[${p.newRef}${label ?? ''}]]`));
+					if (p.bareRe && !p.claimants.length) body = body.replace(p.bareRe, (_, label) => (count++, `[[${p.newBase}${label ?? ''}]]`));
+					else if (p.bareRe) { const n = (body.match(p.bareRe) ?? []).length; if (n) ambiguous.push({ file: f, count: n, base: p.base, claimants: p.claimants, oldRef: p.oldRef, newRef: p.newRef }); }
+					// counted on the body this pair leaves behind, so a later pair sees what an on-disk
+					// pass would have seen — raw prose is reported, never rewritten (decision 7)
+					const raw = (body.match(p.refRe) ?? []).length;
+					if (raw) skipped.push({ file: f, count: raw, oldRef: p.oldRef, newRef: p.newRef });
+				}
+				if (count === 0) continue;
+				rewrites += count;
+				undos.push(() => atomicWrite(f, text));
+				atomicWrite(f, head + body);
+				touched.push(f);
 			}
-			if (count === 0) continue;
-			rewrites += count;
-			undos.push(() => atomicWrite(f, text));
-			atomicWrite(f, next);
-			touched.push(f);
+		} catch (e) {
+			restore(); // "nothing was rewritten" stays true of a batch that died half way through it
+			throw e;
 		}
-		// a COPY before reversing, as applyMirrorEdits does: `restore` may be called twice
-		return { touched, rewrites, skipped, ambiguous, base: oldBase, claimants, restore: () => { for (const u of [...undos].reverse()) u(); } };
+		return { touched, rewrites, skipped, ambiguous, restore };
 	}
 
 	// ---- write serialization + rollback (review finding 3; reinstates the v2 commit
@@ -1001,6 +1047,20 @@ export class Store {
 
 /** A literal, for a pattern built out of an id or a ref. */
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/** The longest prefix every needle shares, or '' if they share none. Used ONLY as a negative filter
+ *  (see rewriteRefsBatch): anything containing a needle contains this, so anything without it
+ *  contains no needle — and a hit means nothing at all. */
+function commonPrefix(needles) {
+	let p = needles[0] ?? '';
+	for (const n of needles) {
+		let i = 0;
+		while (i < p.length && p[i] === n[i]) i++;
+		p = p.slice(0, i);
+		if (!p) break;
+	}
+	return p;
+}
 
 /** Is `a` yielded before `b` by `walk()`? It sorts each directory level and DESCENDS before it
  *  yields, so the order is a segment-wise compare of the relative paths and never a plain string
