@@ -172,7 +172,17 @@ function materializeRelations(mergedGroups, ctx) {
 	// authored field and compile dies on a collision the author cannot act on — while the design doc
 	// promises the legacy shape keeps compiling for one minor. So collapse it here, warn ONCE per
 	// pair, and hand pass 2 exactly what the single-sided spelling would have handed it.
-	const srcOf = (n) => mergedGroups.get(n)?.sources?.[0]?.path ?? n;
+	// EVERY source a collection is compiled from, not `sources[0]`. A collection assembled from a base
+	// plus an `extends:` overlay (or a `templates:` field set) has several descriptor files, and the
+	// field this warning tells you to delete may be authored in ANY of them — naming the first is a
+	// guess, and following a wrong guess means editing a file that does not contain the field,
+	// changing nothing, and finding the same warning still there next compile. So list them all and
+	// let the author look: two paths to check beats one that is confidently wrong.
+	const srcsOf = (n) => {
+		const paths = [...new Set((mergedGroups.get(n)?.sources ?? []).map((s) => s?.path).filter(Boolean))];
+		if (paths.length === 0) return n;
+		return paths.length === 1 ? paths[0] : `one of ${paths.join(', ')}`;
+	};
 	for (const [name, d] of byName) {
 		for (const [field, prop] of Object.entries(d.schema?.properties ?? {})) {
 			// `field in properties` re-checked because a MUTUAL SELF-REFERENCE (companies.parent ⟷
@@ -206,7 +216,8 @@ function materializeRelations(mergedGroups, ctx) {
 			else if ((holder['x-unique'] === true) !== (oHolder['x-unique'] === true)) { ownsHere = holder['x-unique'] === true; why = 'it declares x-unique'; }
 			else { ownsHere = here < there; why = 'both sides are the same shape, so the name decides'; }
 			const owns = ownsHere ? here : there, folded = ownsHere ? there : here;
-			console.warn(`⚠ relation ${owns} ⟷ ${folded}: declared on BOTH sides with x-inverse — that is ONE relation, not two. ${owns} owns it (${why}), so ${folded} is now GENERATED: delete that field from ${srcOf(ownsHere ? target : name)} and keep the x-inverse on ${owns} (${srcOf(ownsHere ? name : target)}). Its description is kept; every other keyword on it is DROPPED.`);
+			const ownsColl = ownsHere ? name : target, foldedColl = ownsHere ? target : name;
+			console.warn(`⚠ relation ${owns} ⟷ ${folded}: declared on BOTH sides with x-inverse — that is ONE relation, not two. ${owns} owns it (${why}), so ${folded} is now GENERATED: delete that field from whichever descriptor of ${foldedColl} declares it (${srcsOf(foldedColl)}) and keep the x-inverse on ${owns} (${srcsOf(ownsColl)}). Its description is kept; every other keyword on it is DROPPED.`);
 			if (ownsHere) foldMirrorSide(byName.get(target), target, mirror, other, holder, here);
 			else foldMirrorSide(d, name, field, prop, oHolder, there);
 		}

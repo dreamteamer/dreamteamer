@@ -91,11 +91,17 @@ templates: [collection-templates/provenance]   # merged at compile, every time
   single-target field also accepts a bare id (`standup`, not `meetings/standup`) — it is qualified
   before disk, so the file always carries the fully-qualified form; a union or `"*"` field has no
   single target to infer from, so it still requires the qualified spelling. `x-body` marks the
-  single field that becomes the md body. `x-inverse` declares a two-way link and makes `check`
-  enforce both directions. `x-title-template` overrides how a VALUE of that field is labelled —
-  rarely needed, because a reference already inherits its TARGET collection's `title_template`;
-  author it there instead, once, rather than on every field pointing at it (a union field inherits a
-  template only when every member's target collection agrees on one).
+  single field that becomes the md body. `x-inverse` declares a two-way link FROM the owning side:
+  compile GENERATES a `readOnly` mirror field on the target, the store maintains its values in the
+  same commit as every write, and `check` reports one that has fallen behind as stale
+  (`dreamteamer relations rebuild <target>` repairs it, and `dt relations` lists every pair).
+  Declare it from the other side instead with `x-inverse-of: <owner-collection>.<field>` on a field
+  you author there — either spelling, identical compiled result. `x-unique: true` makes it
+  one-to-one, so the mirror is a scalar; `x-on-delete: restrict` (the default) or `set-null` says
+  what deleting the target does to the records pointing at it. `x-title-template` overrides how a
+  VALUE of that field is labelled — rarely needed, because a reference already inherits its TARGET
+  collection's `title_template`; author it there instead, once, rather than on every field pointing
+  at it (a union field inherits a template only when every member's target collection agrees on one).
 - **Do not enum a field after the fact.** Enumerating a vocabulary the records already violate makes
   `check` fail on every pre-existing value. `dt values <collection> <field>` derives the real
   vocabulary from the data — a filter dropdown gets it for free without locking the set.
