@@ -294,6 +294,22 @@ console.log(`  4.16s here (publishing N rows is what dirtied N partners, so the 
 console.log(`  size) and 4.20s with no dirty partners at all, where this measures 0.10s. It also names a`);
 console.log(`  different set; src/commit.js says why, and two tests hold it.`);
 
+// ── the id index's own key ─────────────────────────────────────────────────────────────────────
+// Reuses the COMMIT fixture rather than generating a third: PAIRS captures each carrying one `call`
+// reference is exactly the shape a one-hop relational filter is paid for — one referenced record
+// resolved per row, and `store.read` goes through the id index.
+console.log(`\n  FILTER  one-hop relational --where over ${PAIRS.toLocaleString()} captures`);
+const filterMs = timeCli(cf.root, ['list', 'captures', '--where', '{"call":{"name":{"_nnull":true}}}']);
+console.log(`    list captures --where …           ${secs(filterMs)}   ${(filterMs / PAIRS).toFixed(1)}ms per row`);
+console.log(`\n  The id index is memoized per collection on (HEAD sha, dir mtime) — and \`ids()\` used to ask`);
+console.log(`  \`git rev-parse HEAD\` on EVERY call, hit or miss. So the subprocess was the cost of the`);
+console.log(`  CACHE rather than of the walk it avoids: one ~10ms spawn per resolved reference. HEAD is`);
+console.log(`  now read once per Store and dropped by withWriteLock, which is where anything that can`);
+console.log(`  move it happens. Measured on an M-series Mac, 2026-08-31, --pairs=200, best of three:`);
+console.log(`    rev-parse per ids() call   2.39s   11.9ms per row — one spawn each`);
+console.log(`    HEAD memoized per Store    0.08s    0.4ms per row — one spawn total`);
+console.log(`  The profile that found it: 1,525ms of a 1,677ms command, on a workspace of 4,186 records.`);
+
 if (flag('keep')) console.log(`\n  kept: ${path.relative(ENGINE_ROOT, fixture.root)} · ${path.relative(ENGINE_ROOT, cf.root)}`);
 else fs.rmSync(PERF_DIR, { recursive: true, force: true });
 console.log('');
