@@ -518,3 +518,25 @@ describe('storage.suffix is derived, never left undefined', () => {
 		assert.deepEqual(tree(ws.root, 'data').filter((f) => f.includes('.undefined.')), []);
 	});
 });
+
+// ---------------------------------------------------------------------------------------------
+// An EMPTY descriptor source used to kill compile with a bare "Cannot read properties of undefined
+// (reading 'storage')" naming no file — the decision-156 shape inverted: loud, and useless.
+describe('an empty collection source', () => {
+	test('a 0-byte descriptor is refused by NAME', () => {
+		const ws = uncompiled();
+		fs.writeFileSync(path.join(ws.root, 'modules', WS_MODULE, 'collections', 'empty.collection.yaml'), '');
+		const err = compileError(ws.ws);
+		assert.ok(err, 'an empty descriptor must fail the compile');
+		assert.match(err, /empty\.collection\.yaml/, 'the error names the file');
+		assert.match(err, /is empty/);
+	});
+
+	test('a whitespace-only descriptor is refused the same way', () => {
+		const ws = uncompiled();
+		fs.writeFileSync(path.join(ws.root, 'modules', WS_MODULE, 'collections', 'blank.collection.yaml'), '   \n\n\t\n');
+		const err = compileError(ws.ws);
+		assert.match(err, /blank\.collection\.yaml/);
+		assert.match(err, /is empty/);
+	});
+});
