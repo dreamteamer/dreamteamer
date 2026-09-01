@@ -7,7 +7,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { load, dump } from './yaml.js';
+import { load, dump, writeSource, commentCount } from './yaml.js';
 import { compile, kindDir, titleCase } from './compile.js';
 import { readManifest, runtimeKindDir } from './runtime.js';
 import { normalizeNamespaces, namespaceOf, baseNameOf, qualify, defaultStoragePath, singular } from './namespace.js';
@@ -21,7 +21,30 @@ import { Store, bodyField, serialize, atomicWrite } from './store.js';
 
 // ---- the gate -------------------------------------------------------------------
 
-function writeGated(ws, store, files, subject, mutate, after) {
+/**
+ * A SOURCE WRITE MAY NOT SILENTLY LOSE A COMMENT — the invariant that would have caught the
+ * re-serialization bug on the first rename instead of the twenty-seventh.
+ *
+ * A module source is where this project writes down WHY a collection exists, and every gate it had
+ * was blind to losing that: the schema is unchanged, so `compile` and `check` both stay green while
+ * the reasoning is deleted. Counting comment lines is crude on purpose — it is structural, it costs
+ * one pass over bytes already in hand, and it fails the op rather than reporting it afterwards.
+ *
+ * ⚠ THE OPT-OUT IS REAL AND NARROW. `remove-field` takes the comment ABOVE the field with the field,
+ * which is the correct outcome and a decrease; so does deleting a file. Those ops say so explicitly
+ * (`commentsMayDecrease`) rather than being exempted by a heuristic that would also excuse a bug.
+ */
+function assertCommentsKept(ws, snapshots) {
+	for (const { f, prev } of snapshots) {
+		if (prev === null || !fs.existsSync(f)) continue;
+		const before = commentCount(prev.toString('utf8'));
+		const after = commentCount(fs.readFileSync(f, 'utf8'));
+		if (after >= before) continue;
+		throw new Error(`${path.relative(ws.root, f)} would lose ${before - after} comment line(s) — a source write may not delete a module's own reasoning. Nothing was changed.`);
+	}
+}
+
+function writeGated(ws, store, files, subject, mutate, after, { commentsMayDecrease = false } = {}) {
 	// same guarantees as record writes (docs-audit catch): the STORE's cross-process lock
 	// serializes schema ops too, and a failed git commit rolls the source back — a schema
 	// op fails closed exactly like a record mutation.
@@ -34,6 +57,14 @@ function writeGated(ws, store, files, subject, mutate, after) {
 			}
 		};
 		mutate();
+		if (!commentsMayDecrease) {
+			try {
+				assertCommentsKept(ws, snapshots);
+			} catch (e) {
+				restore();
+				throw e;
+			}
+		}
 		try {
 			compile(ws); // dry-run that doubles as the materialization — throws CompileError on bad sources
 		} catch (e) {
@@ -124,50 +155,6 @@ function descriptorSourceDir(ws, name) {
 	// migration, so the caller refuses rather than half-doing it.
 	const moduleRoot = path.join(ws.root, sources[0].slice(0, sources[0].length - suffix.length));
 	return { dir: kindDir(moduleRoot, 'collections'), sources };
-}
-
-/**
- * Set one scalar in a YAML document TEXTUALLY, so comments and key order survive.
- *
- * This exists because `load` → mutate → `dump` is lossy in the one way that matters here: it drops
- * every comment. That is fine for a generated artifact and wrong for a module SOURCE, which is where
- * this project writes down why a collection exists. Only `renameCollection` uses it, and only for the
- * three scalars a rename changes; anything more ambitious belongs in a real round-trip YAML library,
- * not in a regex.
- *
- * Handles both spellings the descriptors actually use — a top-level key, a nested block mapping, and
- * the inline `storage: { path: x, suffix: y }` flow form. Callers MUST re-parse and assert, because a
- * shape not covered here fails by changing nothing rather than by throwing.
- */
-function setScalar(text, keyPath, value) {
-	const [head, child] = keyPath;
-	if (!child) return text.replace(new RegExp(`^${head}:.*$`, 'm'), `${head}: ${value}`);
-
-	// inline flow mapping: `storage: { path: data/x, suffix: y }`
-	const flow = new RegExp(`^${head}:\\s*\\{([^}]*)\\}\\s*$`, 'm').exec(text);
-	if (flow) {
-		let body = flow[1];
-		body = new RegExp(`\\b${child}:\\s*[^,}]+`).test(body)
-			? body.replace(new RegExp(`(\\b${child}:\\s*)[^,}]+`), `$1${value}`)
-			: `${body.trimEnd()}, ${child}: ${value}`;
-		return text.slice(0, flow.index) + `${head}: {${body}}` + text.slice(flow.index + flow[0].length);
-	}
-
-	// block mapping: `storage:\n  path: data/x`
-	const block = new RegExp(`^${head}:\\n(?:[ \\t]+.*\\n)*?[ \\t]+${child}:.*$`, 'm').exec(text);
-	if (block) {
-		return text.slice(0, block.index)
-			+ block[0].replace(new RegExp(`([ \\t]+${child}:).*$`, 'm'), `$1 ${value}`)
-			+ text.slice(block.index + block[0].length);
-	}
-
-	// the key is absent under an existing block — insert it directly after the parent
-	const parent = new RegExp(`^${head}:\\s*$`, 'm').exec(text);
-	if (parent) {
-		const at = parent.index + parent[0].length + 1;
-		return text.slice(0, at) + `  ${child}: ${value}\n` + text.slice(at);
-	}
-	return text;
 }
 
 // ---- ops ------------------------------------------------------------------------
@@ -354,7 +341,7 @@ export function renameCollection(ws, store, oldName, newName) {
 		const touched = new Set();
 		let rewrites = 0;
 		try {
-			// 1. the descriptor source, at its new path — EDITED TEXTUALLY, never re-dumped.
+			// 1. the descriptor source, at its new path — ROUND-TRIPPED, never re-dumped.
 			//
 			// ⚠ `fs.writeFileSync(dest, dump(doc))` destroyed every comment in the descriptor, and a
 			// descriptor's comments are where this project keeps its reasoning: 194 lines across 24
@@ -362,19 +349,21 @@ export function renameCollection(ws, store, oldName, newName) {
 			// collection and which failure mode it guards against. The record survived; the thinking
 			// did not, and nothing said so.
 			//
-			// A rename changes exactly three scalars. Rewriting those three in place keeps the
-			// comments, the key order and the author's formatting — and the parse afterwards proves
-			// the edit landed rather than trusting the regex.
-			const edited = setScalar(setScalar(setScalar(srcBytes.toString('utf8'),
-				['name'], newName),
-				['storage', 'path'], newPath),
-				['storage', 'suffix'], newSuffix);
+			// A rename changes exactly three scalars, and `writeSource` rewrites exactly those three —
+			// every other byte is restored from the source it was parsed out of. The parse afterwards
+			// still proves the edit landed rather than trusting the writer, and the comment count is
+			// asserted here because a rename does not go through `writeGated`'s invariant.
+			const beforeText = srcBytes.toString('utf8');
+			doc.name = newName;
+			doc.storage = { ...doc.storage, path: newPath, suffix: newSuffix };
+			const edited = writeSource(beforeText, doc);
 			const parsed = load(edited);
 			if (parsed?.name !== newName || parsed?.storage?.path !== newPath || parsed?.storage?.suffix !== newSuffix) {
 				throw new Error(`could not rewrite ${path.relative(ws.root, src)} in place — name/storage.path/storage.suffix did not take. nothing was changed.`);
 			}
-			doc.name = newName;
-			doc.storage = { ...doc.storage, path: newPath, suffix: newSuffix };
+			if (commentCount(edited) < commentCount(beforeText)) {
+				throw new Error(`renaming "${oldName}" would lose ${commentCount(beforeText) - commentCount(edited)} comment line(s) from ${path.relative(ws.root, src)} — nothing was changed.`);
+			}
 			fs.mkdirSync(path.dirname(dest), { recursive: true });
 			fs.writeFileSync(dest, edited);
 			if (dest !== src) fs.rmSync(src);
@@ -431,28 +420,25 @@ export function renameCollection(ws, store, oldName, newName) {
 			// 4. bare `x-reference: <oldName>` in every descriptor SOURCE. Not a `<collection>/<id>`
 			//    ref, so step 2 cannot see it — and leaving it makes compile fail on an unknown target.
 			//
-			// ⚠ TEXTUAL, for the same reason step 1 is. This used to `load` → mutate → `dump`, which
+			// ⚠ ROUND-TRIPPED, for the same reason step 1 is. This used to `load` → mutate → `dump`, which
 			// meant that ANY descriptor needing a retarget lost every comment in it — including the
 			// renamed one itself when it self-references, which is how step 1's careful preservation
 			// was undone one step later. 17 of the 24 descriptors stripped in the migration that
 			// found this were stripped HERE, not there.
 			//
-			// `retargetRefs` still decides WHETHER a file is affected — it walks the parsed schema and
-			// knows about nested properties and `items` — but the write is a line edit, and the parse
-			// afterwards proves it landed.
+			// `retargetRefs` decides whether a file is affected AND performs the edit on the parsed value
+			// — it walks nested properties and `items` — and `writeSource` puts that value back over the
+			// original bytes. The line editor this replaced had to know THREE spellings by hand (block
+			// scalar, inline flow, and a flow or block LIST) and fell through unchanged on three more it
+			// documented as out of scope; a value-level edit knows all of them because it never sees
+			// syntax. The parse afterwards still proves it landed.
 			for (const f of descriptorSources(ws, store)) {
 				const before = fs.readFileSync(f, 'utf8');
 				const probe = load(before);
 				if (!probe || !retargetRefs(probe.schema, oldName, newName)) continue;
-				// ⚠ the boundary must cover THREE spellings: the block form (`x-reference: accounts` to
-				// end of line), the inline flow form (`{ type: string, x-reference: accounts }`, where
-				// the value ends at `,` or `}`), and a LIST — flow (`x-reference: [a, accounts, b]`) or
-				// block (`x-reference:` + `- accounts` items). Anchoring on `$` alone silently matched
-				// nothing in the flow form — and the assert below turned that silence into a refusal,
-				// which is how it was found.
-				const after = retargetRefText(before, oldName, newName);
+				const after = writeSource(before, probe);
 				const reparsed = load(after);
-				if (!reparsed || retargetRefs(reparsed.schema, oldName, newName)) {
+				if (!reparsed || retargetRefs(reparsed.schema, oldName, newName) || commentCount(after) < commentCount(before)) {
 					throw new Error(`could not retarget x-reference "${oldName}" in ${path.relative(ws.root, f)} without reformatting it — nothing was changed.`);
 				}
 				if (!refFiles.has(f)) refFiles.set(f, Buffer.from(before));
@@ -545,73 +531,6 @@ function retargetRefs(schema, oldName, newName) {
 		if (prop.items?.properties && retargetRefs(prop.items, oldName, newName)) changed = true;
 	}
 	return changed;
-}
-
-/**
- * The TEXTUAL x-reference retarget — a line edit, never load→dump, so comments survive (see the
- * step-4 comment in renameCollection for the 17-descriptor lesson).
- *
- * Handles three spellings: scalar (`x-reference: old`), flow list (`x-reference: [a, old, b]`),
- * and block sequence (`x-reference:` + `- old` items tracked by indent under the key):
- *
- *   ```
- *   x-reference:
- *     - doctors
- *     - nurses
- *   ```
- *
- * Two YAML styles are deliberately NOT rewritten and fall through unchanged to the caller's
- * reparse-assert (which throws if the return does not compile), failing closed rather than
- * half-written:
- *
- *   - **Same-indent block sequence**: YAML allows `- items` at the PARENT's own indent
- *     (`x-reference:` and `- doctors` at the same indent level). The indent state machine
- *     requires strictly deeper dashes (`item[1].length > listIndent`), so this spelling is
- *     never entered and goes reparse-asserted instead.
- *   - **Multi-line flow list**: a flow list split across lines — `[` on one line, `]` on
- *     another. The flow regex requires both brackets and the body on the same line, so this
- *     spelling is not matched and goes reparse-asserted instead.
- *   - **A blank or comment line BETWEEN block-sequence items**: the item regex requires a
- *     leading `-`, so a blank line or a `#`-comment line inside the list resets `listIndent`
- *     early. Every item after the gap is then read as ordinary text rather than a list member,
- *     and (having no `x-reference:` key on its own line) is left untouched.
- *
- *   All three fail closed on purpose: the engine's own `dump()` always emits deeper-indented,
- *   gap-free sequences and single-line flow lists, so only a hand-authored descriptor can reach
- *   these styles. Anything trickier than the three handled spellings falls through unchanged —
- *   the caller reparses and REFUSES rather than guessing.
- */
-function retargetRefText(text, oldName, newName) {
-	const esc = oldName.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
-	const quoted = newName.includes('/') ? `'${newName}'` : newName;
-	const retag = (part) => {
-		const m = part.match(/^(\s*)(['"]?)(.*?)\2(\s*)$/);
-		return m && m[3] === oldName ? `${m[1]}${quoted}${m[4]}` : part;
-	};
-	const lines = text.split('\n');
-	let listIndent = -1; // >= 0 while inside a block-sequence x-reference list
-	for (let i = 0; i < lines.length; i++) {
-		const line = lines[i];
-		if (listIndent >= 0) {
-			const item = line.match(/^(\s*)-\s*(['"]?)(.*?)\2\s*(#.*)?$/);
-			if (item && item[1].length > listIndent) {
-				if (item[3] === oldName) {
-					lines[i] = line.replace(new RegExp(`(-\\s*)(['"]?)${esc}\\2`), (_m, lead) => `${lead}${quoted}`);
-				}
-				continue;
-			}
-			listIndent = -1;
-		}
-		const key = line.match(/^(\s*)x-reference:\s*(.*)$/);
-		if (key && (key[2] === '' || key[2].startsWith('#'))) {
-			listIndent = key[1].length;
-			continue;
-		}
-		lines[i] = line
-			.replace(new RegExp(`(x-reference:\\s*)(['"]?)${esc}\\2(?=\\s*(?:[,}]|#|$))`, 'gm'), (_m, lead) => `${lead}${quoted}`)
-			.replace(/(x-reference:\s*\[)([^\]]*)(\])/g, (_m, open, body, close) => open + body.split(',').map(retag).join(',') + close);
-	}
-	return lines.join('\n');
 }
 
 /** Remove now-empty parents up to (not including) the data root — a moved collection leaves its
@@ -1011,7 +930,7 @@ export function removeField(ws, store, collection, fieldName) {
 			if (!doc.list_fields.length) delete doc.list_fields;
 		}
 		if (doc.sort_field === fieldName) delete doc.sort_field;
-		fs.writeFileSync(dest, writeDescriptor(previousText, doc));
+		fs.writeFileSync(dest, writeSource(previousText, doc));
 	}, () => {
 		// ONE Store for both sweeps — the runtime as the gate compile just left it.
 		const after = new Store(ws);
@@ -1025,7 +944,11 @@ export function removeField(ws, store, collection, fieldName) {
 			dropped: mirrors.dropped,
 			cleared: own.records,
 		};
-	});
+		// ⚠ THE ONE OP THAT MAY LOSE A COMMENT, and the reason the invariant takes an opt-out rather
+		// than a heuristic: the comment above a field explains THAT field, so removing the field takes
+		// it, and that is the outcome the operator asked for. Every other source write is still held to
+		// the count.
+	}, { commentsMayDecrease: true });
 	return { collection, removed: fieldName, dropped: out.dropped, cleared: out.cleared, staleViews };
 }
 
@@ -1092,7 +1015,7 @@ function upsertField(ws, store, collection, fieldName, prop, required, verb) {
 	const dest = path.join(workspaceSystemDir(ws, 'collections'), `${collection}.collection.yaml`);
 	let doc;
 	// The BYTES, not just the parse: `dump` cannot round-trip a comment, and a collection descriptor is
-	// where a module writes down why the collection exists (see reattachComments).
+	// where a module writes down why the collection exists (see writeSource).
 	let previousText = null;
 	if (fs.existsSync(dest)) {
 		previousText = fs.readFileSync(dest, 'utf8');
@@ -1127,7 +1050,7 @@ function upsertField(ws, store, collection, fieldName, prop, required, verb) {
 		if (required === true) doc.schema.required = [...new Set([...(doc.schema.required ?? []), fieldName])];
 		if (required === false && Array.isArray(doc.schema.required)) doc.schema.required = doc.schema.required.filter((r) => r !== fieldName);
 		fs.mkdirSync(path.dirname(dest), { recursive: true });
-		fs.writeFileSync(dest, writeDescriptor(previousText, doc));
+		fs.writeFileSync(dest, writeSource(previousText, doc));
 	}, () => dropOrphanedMirrors(new Store(ws), was)).dropped;
 	// the prop as WRITTEN — callers report the relation off this, never off the one they passed:
 	// both this function and updateField reassign it, so a caller's own copy can be a stale object.
@@ -1157,78 +1080,6 @@ function uiViewSourceFile(ws, id) {
 	return { file: path.join(ws.root, shipped), shipped };
 }
 
-/**
- * Re-attach a rewritten YAML source's COMMENTS — the part `dump` cannot round-trip.
- *
- * js-yaml drops every comment on `load` → `dump`. That is fine for a generated artifact and wrong
- * for a module SOURCE, which is where this project writes down why something exists (`setScalar`
- * above exists for the same reason). A real round-trip needs a different YAML library and core is
- * not taking one on for this, so this does the narrow thing that is actually safe: a comment block
- * sitting directly above a TOP-LEVEL key is carried back above that same key, if the key survived.
- * The file header comes along for free — it is the block above the first key.
- *
- * ⚠ Deliberately top-level only. A comment above a NESTED key cannot be re-placed without knowing
- * where that key ended up, and a misplaced comment is worse than an absent one: it would attach an
- * explanation to something it does not explain. Those are still lost. Measured against
- * `modules/family/ui-views/health-labs-abnormal.ui-view.yaml`, whose two blocks — the file header
- * and the ⚠ above `filter:` — are both top-level and both survive.
- */
-function reattachComments(oldText, newText) {
-	const TOP_KEY = /^([A-Za-z_][\w-]*):/;
-	const blocks = new Map(); // surviving key -> the comment lines that sat above it
-	let pending = [];
-	for (const line of oldText.split('\n')) {
-		if (line.startsWith('#') || line.trim() === '') { pending.push(line); continue; }
-		const key = TOP_KEY.exec(line)?.[1];
-		if (key && pending.some((l) => l.startsWith('#'))) {
-			while (pending.length && pending[pending.length - 1].trim() === '') pending.pop();
-			blocks.set(key, pending);
-		}
-		pending = [];
-	}
-	if (!blocks.size) return newText;
-
-	const out = [];
-	for (const line of newText.split('\n')) {
-		const block = blocks.get(TOP_KEY.exec(line)?.[1]);
-		if (block) out.push(...block);
-		out.push(line);
-	}
-	return out.join('\n');
-}
-
-/**
- * Serialize a collection descriptor back to its source, keeping what `dump` cannot.
- *
- * ⚠ THIS IS A PARTIAL FIX, AND THE LIMITS ARE THE REASON IT IS WORTH HAVING ANYWAY. A descriptor is
- * hand-written, and it is where a module records WHY a collection exists — so `add-field` rewriting
- * it through `load` → mutate → `dump` deleted every comment in the file. Measured on a four-comment
- * descriptor: one `dt schema add-field` took it to zero. The consequence was not cosmetic: the
- * schema verbs were unusable on any commented descriptor, so real relations got authored by hand in
- * a text editor instead, which is the CLI losing to an editor for a job it owns.
- *
- * `reattachComments` recovers a comment block sitting above a TOP-LEVEL key, the file header
- * included — 25 of the 27 comment lines across this engine's own descriptors. What is still lost,
- * stated here rather than discovered later:
- *
- *   - A comment above a NESTED key (inside `schema.properties.<field>`, the natural place to explain
- *     one field). Re-placing it needs to know where that key ended up, and a misplaced comment is
- *     worse than an absent one — it attaches an explanation to something it does not explain.
- *   - STYLE. `dump` emits its own defaults, so an inline `storage: { suffix: thing }` comes back as a
- *     block mapping and a hand-folded scalar comes back on one line. The diff is the whole file
- *     however small the edit.
- *   - The RECORD half of the same bug, which is a different call site entirely (`store.serialize`)
- *     and untouched: `dt set` on one field rewraps every folded scalar and expands every flow
- *     sequence in the frontmatter.
- *
- * All three need a YAML library that keeps a document's syntax tree; js-yaml has no such API, and
- * the change fans out through every reader and writer in the record layer. `setScalar` above states
- * the same conclusion from the other end.
- */
-function writeDescriptor(previousText, doc) {
-	return previousText === null ? dump(doc) : reattachComments(previousText, dump(doc));
-}
-
 // saved views (M3): a studio-saved view IS a ui-view record — but ui-views are
 // system-stored (sources + compile), so the write goes through the same gate as any
 // other schema op. the studio "save view" button lands here.
@@ -1240,10 +1091,14 @@ export function saveUiView(ws, store, { id, view }) {
 	const existed = fs.existsSync(dest);
 	// A module source is where this project writes down WHY a view exists; `dump` cannot keep that.
 	const previous = existed ? fs.readFileSync(dest, 'utf8') : null;
+	// ⚠ opted OUT of the comment invariant, on the same rule `remove-field` is: this write REPLACES
+	// the view, so a key the caller omits is deliberately gone (see the `filter:` case) and the comment
+	// explaining that key goes with it. Every key that SURVIVES keeps its comments, which is what the
+	// round-trip buys and what the old `dump` could not do.
 	writeGated(ws, store, [dest], `dreamteamer: ui-views ${existed ? 'update' : 'add'} ${id}`, () => {
 		fs.mkdirSync(path.dirname(dest), { recursive: true });
-		fs.writeFileSync(dest, previous === null ? dump(view) : reattachComments(previous, dump(view)));
-	});
+		fs.writeFileSync(dest, writeSource(previous, view));
+	}, undefined, { commentsMayDecrease: true });
 	return { id, file: dest, updated: existed };
 }
 

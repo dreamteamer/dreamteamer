@@ -406,7 +406,10 @@ describe('a rename preserves the descriptor verbatim apart from what it changes'
 		const moved = readFile(ws.root, `modules/${WS_MODULE}/collections/health/doctors.collection.yaml`);
 		assert.match(moved, /^# doctors — the header this test exists to protect\.$/m, 'the header block survived');
 		assert.match(moved, /^    # who they refer on to$/m, 'an inline property comment survived too');
-		assert.match(moved, /x-reference: 'health\/doctors'/, 'the self-referencing target was retargeted');
+		// the VALUE, not its spelling: the round-trip writer quotes only what YAML needs quoted, and
+		// `health/doctors` is a plain scalar. Asserting the parse is what the retarget actually promises.
+		assert.equal(load(moved).schema.properties.refers_to['x-reference'], 'health/doctors', 'the self-referencing target was retargeted');
+		assert.match(moved, /^ {4}refers_to: \{type: string, x-reference: health\/doctors\}$/m, 'the inline flow form was kept inline');
 		assert.equal(load(moved).storage.path, 'data/health/doctors');
 
 		// and the self-reference in the DATA followed
@@ -459,7 +462,7 @@ schema:
 		assert.equal(ws.dt('compile').code, 0);
 	});
 
-	test('a rename into a NAMESPACED name is quoted in both list forms', () => {
+	test('a rename into a NAMESPACED name retargets both list forms, each keeping its spelling', () => {
 		const ws = workspace({
 			namespaces: ['health'],
 			collections: {
@@ -489,10 +492,14 @@ schema:
 		assert.equal(ws.dt('compile').code, 0);
 		assert.equal(ws.dt('schema', 'rename-collection', 'doctors', 'health/doctors').code, 0);
 		const after = readFile(ws.root, `modules/${WS_MODULE}/collections/notes.collection.yaml`);
-		// the namespaced name should be quoted in the flow list
-		assert.match(after, /x-reference: \['health\/doctors', clients\]/);
-		// and should be quoted in the block list
-		assert.match(after, /- 'health\/doctors'/);
+		// the VALUE in both list spellings — a namespaced name needs no quoting, so assert what it
+		// PARSES to rather than how the writer chose to spell it
+		const parsed = load(after);
+		assert.deepEqual(parsed.schema.properties.about['x-reference'], ['health/doctors', 'clients']);
+		assert.deepEqual(parsed.schema.properties.sources.items['x-reference'], ['health/doctors', 'clients']);
+		// and each list kept the form its author wrote it in
+		assert.match(after, /x-reference: \[health\/doctors, clients\]/, 'the flow list was expanded to a block sequence');
+		assert.match(after, /^ {10}- health\/doctors$/m, 'the block sequence was collapsed to a flow list');
 		// the unqualified old name should not appear as a bare reference
 		assert.doesNotMatch(after, /- doctors\b/);
 		assert.doesNotMatch(after, /x-reference:\s+doctors\b/);

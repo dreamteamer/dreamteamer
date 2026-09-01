@@ -589,78 +589,157 @@ describe('restating --type keeps the cardinality', () => {
 
 // ── a descriptor is HAND-WRITTEN, and a schema op must not silently rewrite its prose ───────────
 //
-// PARTIAL, DELIBERATELY, AND THE BOUNDARY IS ASSERTED IN BOTH DIRECTIONS. `add-field` rewrote the
-// source through `load` → mutate → `dump`, and `dump` cannot round-trip a comment — so every comment
-// in the file went. Measured on a four-comment descriptor: one add-field took it to zero. The
-// consequence was not cosmetic: the schema verbs were unusable on any commented descriptor, so real
-// relations got authored by hand in an editor instead — the CLI losing to a text editor for a job it
-// owns. `reattachComments` recovers the TOP-LEVEL blocks; the second test below pins what it still
-// cannot do, so nobody reads the partial as a full fix.
-describe('descriptor comments survive a schema op', () => {
-	/** A commented descriptor of the shape a module actually ships: a file header, a block above a
-	 *  top-level key, and one explaining a single FIELD (i.e. nested). */
+// `add-field` rewrote the source through `load` → mutate → `dump`, and `dump` cannot round-trip a
+// comment — so every comment in the file went. Measured on a four-comment descriptor: one add-field
+// took it to zero. The consequence was not cosmetic: the schema verbs were unusable on any commented
+// descriptor, so real relations got authored by hand in an editor instead — the CLI losing to a text
+// editor for a job it owns. One namespacing migration lost 194 comment lines across 24 descriptors.
+//
+// Two partial fixes came before the real one and both are retired: `setScalar` (a regex, for the
+// three scalars a rename changes) and `reattachComments` (which carried back TOP-LEVEL blocks only).
+// `writeSource` round-trips the document and restores the original bytes of everything a change did
+// not touch, so these tests assert the WHOLE FILE rather than counting comments.
+describe('a schema op rewrites only what it changes', () => {
+	/** A descriptor carrying every construct the old write path damaged: a file header, a block above
+	 *  a top-level key, a comment above a NESTED property, and two inline flow forms. */
+	const SOURCE = [
+		'# THINGS — this header is why the collection exists, which is the whole reason a module',
+		'# source is hand-written rather than generated.',
+		'name: things',
+		'description: A thing.',
+		'',
+		'# the id rule is deliberate: a thing has no natural key',
+		'id:',
+		"  generate: '{{ name | slug }}'",
+		'storage: { suffix: thing }',
+		'templates: [entity]',
+		'list_fields: [name, vendor_code]',
+		'schema:',
+		'  type: object',
+		'  required: [name]',
+		'  properties:',
+		'    name: { type: string }',
+		'    # ⚠ nested: the importer reads this and nothing validates the spelling',
+		'    vendor_code: { type: string }',
+		'    notes:',
+		'      type: string',
+		'      format: markdown',
+		'      x-body: true',
+		'',
+	].join('\n');
+
+	const FILE = 'modules/default/collections/things.collection.yaml';
 	function commented() {
 		const ws = workspace({ compile: false });
+		fs.writeFileSync(`${ws.root}/${FILE}`, SOURCE);
+		compileQuietly(ws.ws);
+		return ws;
+	}
+	const textOf = (ws, file = FILE) => readFile(ws.root, file);
+	/** The lines of `a` that `b` does not have — what a write LOST. */
+	const lost = (a, b) => { const s = new Set(b.split('\n')); return a.split('\n').filter((l) => !s.has(l)); };
+	const gained = (a, b) => lost(b, a);
+
+	test('add-field inserts before the body field and touches nothing else', () => {
+		const ws = commented();
+		const add = runDt(ws.root, 'schema', 'add-field', 'things', '--name', 'colour', '--type', 'string');
+		assert.equal(add.code, 0, add.stderr);
+		const after = textOf(ws);
+		// the STRONGEST form of "only the mutation": the whole file, character for character
+		assert.equal(after, SOURCE.replace('    notes:', '    colour:\n      type: string\n    notes:'));
+		// order semantics: the new field lands ABOVE the x-body one
+		assert.deepEqual(Object.keys(load(after).schema.properties), ['name', 'vendor_code', 'colour', 'notes']);
+	});
+
+	test('a NESTED comment survives — the limit the textual workaround could not pass', () => {
+		const ws = commented();
+		assert.equal(runDt(ws.root, 'schema', 'add-field', 'things', '--name', 'colour', '--type', 'string').code, 0);
+		assert.match(textOf(ws), /^ {4}# ⚠ nested: the importer reads this/m);
+	});
+
+	test('STYLE survives: an inline flow mapping and sequence stay inline, and hand spacing is kept', () => {
+		const ws = commented();
+		assert.equal(runDt(ws.root, 'schema', 'add-field', 'things', '--name', 'colour', '--type', 'string').code, 0);
+		const after = textOf(ws);
+		assert.match(after, /^storage: \{ suffix: thing \}$/m, 'an inline flow mapping was expanded');
+		assert.match(after, /^templates: \[entity\]$/m, 'an inline flow sequence was expanded');
+		assert.match(after, /^ {4}name: \{ type: string \}$/m, 'a nested inline mapping was expanded');
+		assert.match(after, /^ {4}vendor_code: \{ type: string \}$/m);
+	});
+
+	test('update-field rewrites one line and leaves the rest of the file alone', () => {
+		const ws = commented();
+		const res = runDt(ws.root, 'schema', 'update-field', 'things', '--name', 'vendor_code', '--type', 'integer');
+		assert.equal(res.code, 0, res.stderr);
+		const after = textOf(ws);
+		assert.deepEqual(lost(SOURCE, after), ['    vendor_code: { type: string }']);
+		assert.deepEqual(gained(SOURCE, after), ['    vendor_code: {type: integer}']);
+		assert.match(after, /^ {4}# ⚠ nested: the importer reads this/m, 'the comment explaining the edited field went with it');
+	});
+
+	test('add-field then remove-field is BYTE-IDENTICAL — the net-zero probe that found the bug', () => {
+		const ws = commented();
+		assert.equal(runDt(ws.root, 'schema', 'add-field', 'things', '--name', 'colour', '--type', 'string').code, 0);
+		assert.notEqual(textOf(ws), SOURCE);
+		assert.equal(runDt(ws.root, 'schema', 'remove-field', 'things', '--name', 'colour').code, 0);
+		assert.equal(textOf(ws), SOURCE, 'an add and its removal must leave the file exactly as it was');
+	});
+
+	test('remove-field still prunes list_fields, and prunes only that', () => {
+		const ws = commented();
+		const res = runDt(ws.root, 'schema', 'remove-field', 'things', '--name', 'vendor_code');
+		assert.equal(res.code, 0, res.stderr);
+		const after = textOf(ws);
+		assert.deepEqual(load(after).list_fields, ['name']);
+		assert.deepEqual(gained(SOURCE, after), ['list_fields: [name]']);
+		// the field and the comment that explained IT are gone; every other comment stays
+		assert.doesNotMatch(after, /vendor_code/);
+		assert.match(after, /^# THINGS — this header/m);
+		assert.match(after, /^# the id rule is deliberate/m);
+	});
+
+	test('rename-collection changes the three scalars a rename owns and nothing else', () => {
+		const ws = commented();
+		const res = runDt(ws.root, 'schema', 'rename-collection', 'things', 'gadgets');
+		assert.equal(res.code, 0, res.stderr);
+		const after = textOf(ws, 'modules/default/collections/gadgets.collection.yaml');
+		assert.deepEqual(lost(SOURCE, after), ['name: things', 'storage: { suffix: thing }']);
+		// `storage` CHANGED, so it is the one node re-emitted rather than restored — and a re-emitted
+		// flow mapping takes the writer's unpadded spelling. Every unchanged line is byte-for-byte.
+		assert.deepEqual(gained(SOURCE, after), ['name: gadgets', 'storage: {suffix: gadget, path: data/gadgets}']);
+		assert.match(after, /^# THINGS — this header/m);
+		assert.match(after, /^ {4}# ⚠ nested: the importer reads this/m);
+	});
+});
+
+// ── the gate: a source write may not silently DECREASE a file's comment count ───────────────────
+//
+// Every gate the engine had was blind to this. The schema is unchanged, so `compile` and `check` are
+// both green while the module's reasoning is deleted — which is why 194 lines went missing across 24
+// descriptors before anyone noticed. The invariant is structural, so a regression in the writer
+// fails an op instead of quietly shipping.
+describe('writeGated refuses a write that would lose a comment', () => {
+	test('a legitimate removal IS allowed — remove-field takes the comment with its field', () => {
+		const ws = workspace({ compile: false });
 		fs.writeFileSync(`${ws.root}/modules/default/collections/things.collection.yaml`, [
-			'# THINGS — this header is why the collection exists, which is the whole reason a module',
-			'# source is hand-written rather than generated.',
+			'# the header',
 			'name: things',
-			'description: A thing.',
-			'',
-			'# the id rule is deliberate: a thing has no natural key',
-			'id:',
-			"  generate: '{{ name | slug }}'",
 			'storage: { suffix: thing }',
 			'schema:',
 			'  type: object',
 			'  required: [name]',
 			'  properties:',
 			'    name: { type: string }',
-			'    # ⚠ nested: the importer reads this and nothing validates the spelling',
+			'    # why this field is spelled the way it is',
 			'    vendor_code: { type: string }',
 			'',
 		].join('\n'));
 		compileQuietly(ws.ws);
-		return ws;
-	}
-	const commentsOf = (ws) => readFile(ws.root, 'modules/default/collections/things.collection.yaml')
-		.split('\n').filter((l) => l.trim().startsWith('#'));
-
-	test('a top-level comment block survives add-field AND remove-field', () => {
-		const ws = commented();
-		assert.equal(commentsOf(ws).length, 4);
-
-		const add = runDt(ws.root, 'schema', 'add-field', 'things', '--name', 'colour', '--type', 'string');
-		assert.equal(add.code, 0, add.stderr);
-		const after = commentsOf(ws);
-		assert.ok(after.some((l) => l.includes('THINGS — this header')), `the file header went:\n${after.join('\n')}`);
-		assert.ok(after.some((l) => l.includes('the id rule is deliberate')), 'the block above a top-level key went');
-
-		// …and the same on the way back out — both writers go through one `writeDescriptor`
-		assert.equal(runDt(ws.root, 'schema', 'remove-field', 'things', '--name', 'colour').code, 0);
-		assert.ok(commentsOf(ws).some((l) => l.includes('THINGS — this header')));
-	});
-
-	test('a NESTED comment does not survive — the limit, asserted so it cannot be mistaken for fixed', () => {
-		// Re-placing a comment from inside `schema.properties` needs to know where that key ended up,
-		// and a misplaced comment is worse than an absent one: it attaches an explanation to something
-		// it does not explain. Fixing this needs a YAML library that keeps a document's syntax tree.
-		const ws = commented();
-		assert.ok(commentsOf(ws).some((l) => l.includes('nested: the importer')));
-		assert.equal(runDt(ws.root, 'schema', 'add-field', 'things', '--name', 'colour', '--type', 'string').code, 0);
-		assert.ok(
-			!commentsOf(ws).some((l) => l.includes('nested: the importer')),
-			'a nested comment surviving would be good news — and would mean this test is now the wrong shape, not that it should be deleted');
-	});
-
-	test('STYLE is still lost, and that is the other half of the same limit', () => {
-		// `dump` emits its own defaults, so an inline mapping comes back as a block one. Named here
-		// because it is what makes the diff of a one-field edit the whole file — the record half of the
-		// same problem lives at a different call site (store.serialize) and is untouched.
-		const ws = commented();
-		assert.match(readFile(ws.root, 'modules/default/collections/things.collection.yaml'), /storage: \{ suffix: thing \}/);
-		assert.equal(runDt(ws.root, 'schema', 'add-field', 'things', '--name', 'colour', '--type', 'string').code, 0);
-		assert.match(readFile(ws.root, 'modules/default/collections/things.collection.yaml'), /storage:\n {2}suffix: thing/);
+		const res = runDt(ws.root, 'schema', 'remove-field', 'things', '--name', 'vendor_code');
+		assert.equal(res.code, 0, res.stderr);
+		const after = readFile(ws.root, 'modules/default/collections/things.collection.yaml');
+		assert.match(after, /^# the header$/m, 'the header is not the field being removed');
+		assert.doesNotMatch(after, /why this field is spelled/);
 	});
 });
 
