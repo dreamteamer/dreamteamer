@@ -68,8 +68,27 @@ function merge(doc, node, value) {
 		});
 		return node;
 	}
+	// ⚠ A SEQUENCE IS MATCHED BY VALUE FIRST, NEVER BY INDEX ALONE. A comment in a list belongs to the
+	// ITEM it sits above, and index-matching hands it to whatever slides into that slot: dropping
+	// `name` from `required: [name, vendor_code]` moved "name is required because…" on top of
+	// `vendor_code` — an explanation attached to something it does not explain, which is worse than
+	// losing it. So an unchanged item keeps its own node wherever it moved to; only what is left over
+	// falls to the leftover nodes IN ORDER, which is what lets an in-place edit (an `x-reference`
+	// retarget rewriting one entry) keep the comment that was always about that position.
 	if (isSeq(node) && Array.isArray(value)) {
-		node.items = value.map((v, i) => (i < node.items.length ? merge(doc, node.items[i], v) : doc.createNode(v)));
+		const old = [...node.items];
+		const out = new Array(value.length);
+		value.forEach((v, i) => {
+			const j = old.findIndex((it) => it !== undefined && same(it?.toJSON?.() ?? null, v ?? null));
+			if (j !== -1) { out[i] = old[j]; old[j] = undefined; }
+		});
+		let k = 0;
+		value.forEach((v, i) => {
+			if (out[i] !== undefined) return;
+			while (k < old.length && old[k] === undefined) k++;
+			out[i] = k < old.length ? merge(doc, old[k++], v) : doc.createNode(v);
+		});
+		node.items = out;
 		return node;
 	}
 	if (isScalar(node) && !isObj(value) && !Array.isArray(value) && node.value === value) return node;

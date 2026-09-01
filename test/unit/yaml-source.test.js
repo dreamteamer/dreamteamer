@@ -188,6 +188,49 @@ schema:
 	});
 });
 
+describe('writeSource — a comment in a LIST stays on the item it explains', () => {
+	// ⚠ Index-matching a sequence hands a comment to whatever slides into that slot. Dropping the
+	// first entry of `required: [name, vendor_code]` moved "name is required because…" on top of
+	// `vendor_code` — an explanation attached to something it does not explain, which is worse than
+	// losing it. Items are matched by VALUE first for exactly this reason.
+	const LIST = `required:
+  # explains the list as a whole — the parser attaches a first-position comment to the SEQUENCE
+  - name
+  # explains vendor_code specifically
+  - vendor_code
+  - colour
+`;
+
+	test('removing a commented entry takes its comment with it', () => {
+		const v = load(LIST);
+		v.required = ['name', 'colour'];
+		const out = writeSource(LIST, v);
+		assert.doesNotMatch(out, /explains vendor_code specifically/);
+		assert.match(out, /# explains the list as a whole/, 'the sequence-level comment is not the item\'s');
+		assert.deepEqual(load(out).required, ['name', 'colour']);
+	});
+
+	test('inserting an entry does not shift any comment onto a different item', () => {
+		const v = load(LIST);
+		v.required = ['name', 'shape', 'vendor_code', 'colour'];
+		const out = writeSource(LIST, v);
+		assert.match(out, /# explains vendor_code specifically\n {2}- vendor_code/, 'the comment followed its item past the insertion');
+	});
+
+	test('an in-place edit KEEPS the comment on that position — the retarget case', () => {
+		const src = `about:
+  x-reference:
+    # the clinic side of the join
+    - doctors
+    - clients
+`;
+		const v = load(src);
+		v.about['x-reference'] = ['health/doctors', 'clients'];
+		const out = writeSource(src, v);
+		assert.match(out, /# the clinic side of the join\n {4}- health\/doctors/);
+	});
+});
+
 describe('writeSource — it fails closed rather than writing something wrong', () => {
 	test('the value written is always exactly the value asked for', () => {
 		const v = load(DESCRIPTOR);
