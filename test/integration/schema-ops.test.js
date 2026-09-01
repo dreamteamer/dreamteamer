@@ -698,6 +698,15 @@ describe('a schema op rewrites only what it changes', () => {
 		assert.match(after, /^# the id rule is deliberate/m);
 	});
 
+	test('a FAILED op leaves the source byte-identical — the rollback still restores bytes', () => {
+		const ws = commented();
+		// an x-reference at a collection that does not exist: the prop is well-formed, so the op gets
+		// as far as writing the source, and the GATE COMPILE is what rejects it
+		const res = runDt(ws.root, 'schema', 'add-field', 'things', '--name', 'ghost', '--type', 'reference', '--target', 'ghosts');
+		assert.notEqual(res.code, 0, 'the op should have failed');
+		assert.equal(textOf(ws), SOURCE, 'a rolled-back op must leave the file exactly as it was');
+	});
+
 	test('rename-collection changes the three scalars a rename owns and nothing else', () => {
 		const ws = commented();
 		const res = runDt(ws.root, 'schema', 'rename-collection', 'things', 'gadgets');
@@ -719,6 +728,35 @@ describe('a schema op rewrites only what it changes', () => {
 // descriptors before anyone noticed. The invariant is structural, so a regression in the writer
 // fails an op instead of quietly shipping.
 describe('writeGated refuses a write that would lose a comment', () => {
+	test('an op that would silently drop a commented sub-key is REFUSED, not half-done', () => {
+		// Retyping a field replaces its whole prop, so the `enum:` goes — and so does the comment
+		// explaining it. A loud refusal beats a silent deletion: the operator can delete the comment
+		// and retry, which is a decision they made rather than one made for them.
+		const ws = workspace({ compile: false });
+		const file = `${ws.root}/modules/default/collections/things.collection.yaml`;
+		const src = [
+			'name: things',
+			'storage: { suffix: thing }',
+			'schema:',
+			'  type: object',
+			'  required: [name]',
+			'  properties:',
+			'    name: { type: string }',
+			'    origin:',
+			'      type: string',
+			'      # only two capture routes exist, and adding a third is a pipeline change',
+			'      enum: [audio, pasted]',
+			'',
+		].join('\n');
+		fs.writeFileSync(file, src);
+		compileQuietly(ws.ws);
+
+		const res = runDt(ws.root, 'schema', 'update-field', 'things', '--name', 'origin', '--type', 'string');
+		assert.notEqual(res.code, 0, 'the op should have been refused');
+		assert.match(res.stdout + res.stderr, /would lose 1 comment line/);
+		assert.equal(fs.readFileSync(file, 'utf8'), src, 'nothing was changed');
+	});
+
 	test('a legitimate removal IS allowed — remove-field takes the comment with its field', () => {
 		const ws = workspace({ compile: false });
 		fs.writeFileSync(`${ws.root}/modules/default/collections/things.collection.yaml`, [
