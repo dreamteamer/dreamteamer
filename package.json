@@ -48,7 +48,8 @@
 		"ajv-formats": "^3.0.1",
 		"express": "^5.2.1",
 		"fractional-indexing": "^4.0.0",
-		"js-yaml": "^4.1.0"
+		"js-yaml": "^4.1.0",
+		"yaml": "2.8.1"
 	},
 	"dreamteamer": {
 		"title": "System"

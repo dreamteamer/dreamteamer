@@ -13,6 +13,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { workspace, simpleCollection, readFile, tree } from '../helpers/ws.js';
 import { renameCollection } from '../../src/schema-ops.js';
+import { load } from '../../src/yaml.js';
 
 const bodied = (props) => simpleCollection({
 	schema: {
@@ -91,7 +92,10 @@ describe('a collection rename rewrites every spelling of a reference', () => {
 		assert.doesNotMatch(two, /^ {2}- ledger\//m);
 
 		// 8. the x-reference targets in the descriptors — a different mechanism, unchanged by the batch
-		assert.match(readFile(ws.root, 'modules/default/collections/memos.collection.yaml'), /x-reference: 'finance\/ledger'/);
+		// the round-trip writer quotes only what YAML requires, and `finance/ledger` is a plain scalar —
+		// so assert what it PARSES to rather than the spelling the old line editor happened to emit
+		assert.equal(load(readFile(ws.root, 'modules/default/collections/memos.collection.yaml'))
+			.schema.properties.entry['x-reference'], 'finance/ledger');
 
 		// and the whole thing still validates
 		assert.equal(ws.dt('check').code, 0);
