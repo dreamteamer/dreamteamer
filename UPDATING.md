@@ -20,6 +20,27 @@ npx dreamteamer check
 
 ---
 
+## 0.17.0 → 0.18.0
+
+**Source writes round-trip.** Every schema verb (`add-field`, `update-field`, `remove-field`,
+`rename-collection`, `set-view`/`add-view`) now edits a module source through a byte-restoring
+Document pass (`writeSource`): comments — nested ones included — key order, quoting, flow forms and
+hand-folded scalars all survive, and a verb's diff is only the mutation. Measured on a 92-source
+workspace: 92/92 byte-identical round trips; a rename that once cost 194 comment lines now costs 0.
+Three textual workarounds retired. Nothing to do beyond `dt compile`; two things to know:
+
+- **A source write that would DELETE comment lines is refused** unless the op legitimately removes
+  a commented field (`remove-field` takes the comment with its field). If a verb of yours is
+  refused with "would lose N comment line(s)", the file carries reasoning on the node being
+  retyped — edit by hand, deliberately.
+- One cosmetic trade: a CHANGED flow mapping is re-emitted unpadded (`{ type: string }` →
+  `{type: string}`); unchanged nodes are restored byte-for-byte. Record front matter and the
+  compiled runtime are untouched — generated output keeps its writer.
+- New dependency: `yaml` (exact-pinned), used only for source writes; `js-yaml` still parses and
+  writes everything else.
+
+---
+
 ## 0.16.1 → 0.17.0
 
 **Fifteen fixes from one issue-triage wave — every open silent-failure filed against the engine,
