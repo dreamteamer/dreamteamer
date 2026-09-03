@@ -129,6 +129,17 @@ describe('dt rm modules/<id>', () => {
 		assert.match(res.stderr, /--force removes the sources; records stay and become unindexed/);
 	});
 
+	test('--dry-run prints the plan WITHOUT --force — the plan is how you decide to type it', () => {
+		const ws = twoModuleWorkspace();
+		ws.dt('add', 'people', '--name', 'Dana Levi');
+		const res = ws.dt('rm', 'modules/core', '--dry-run');
+		assert.equal(res.code, 0, res.stdout + res.stderr);
+		assert.match(res.stdout, /dry run/);
+		assert.match(res.stdout, /records 0 · refs 0 · descriptors 3 · values cleared 0/);
+		assert.match(res.stdout, /records left in place and UNINDEXED: people/);
+		assert.ok(readFile(ws.root, 'modules/core/package.json'), 'nothing removed');
+	});
+
 	test('--force removes the sources and leaves the records alone', () => {
 		const ws = twoModuleWorkspace();
 		ws.dt('add', 'people', '--name', 'Dana Levi');
