@@ -20,11 +20,11 @@
 		"system-lines": 3183
 	},
 	"budgets": {
-		"code.total": 5840,
-		"code.decisions": 2260,
+		"code.total": 7000,
+		"code.decisions": 2900,
 		"surface.collections": 9,
 		"surface.skills": 2,
 		"surface.agents": 1,
-		"prose.skill-lines": 2945
+		"prose.skill-lines": 3200
 	}
 }

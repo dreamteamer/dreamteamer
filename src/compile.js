@@ -847,8 +847,15 @@ export function compile({ root, pkg }) {
 	// A module that ships only folders the engine does not recognise compiles ✔ and contributes
 	// NOTHING. Warn; do not fail, since a module that is temporarily source-free is the
 	// operator's business, not the compiler's. Runs AFTER UI staging so a UI-only module counts.
+	// ⚠ A module with a scaffolded-but-EMPTY kind folder is a module being AUTHORED, not a mistake.
+	// `add modules` creates exactly that shape — seven empty kind folders — and a verb whose own
+	// output triggers a warning reads as a broken install. The warning's remaining job is the case it
+	// was written for: a module that ships nothing the engine recognises AT ALL, which is what
+	// decision 156 cost two days. `kindDir` returns the flat path when neither layout exists, so this
+	// is a genuine existence test on either spelling.
 	for (const source of sources) {
 		if (contributed.has(source.name)) continue;
+		if (KINDS.some((k) => fs.existsSync(kindDir(source.root, k)))) continue;
 		console.warn(`⚠ module "${source.name}" (${rel(source.root)}) contributed no recognised sources — its folder names must match a known kind (${KINDS.join(', ')}) or it must ship a UI bundle at ui/app.js`);
 	}
 
@@ -1232,6 +1239,10 @@ export function compile({ root, pkg }) {
 			// `title` is derived. `@dreamteamer/crm` -> "Crm" until crm declares "CRM" — which is
 			// the point: the module is the only place that knows.
 			title: typeof mpkg.title === 'string' && mpkg.title ? mpkg.title : titleCase(id),
+			// What this module is FOR, in one line — authored as `dreamteamer.description` in its
+			// package.json. There is no derivation for it and there should not be: a module is the only
+			// place that knows, and an absent one renders as a bare name in every listing.
+			...(typeof mpkg.description === 'string' && mpkg.description ? { description: mpkg.description } : {}),
 			channel: source.channel,
 			path: rel(source.root) || '.',
 			...(mpkg['owns-data'] === true ? { owns_data: true } : {}),
