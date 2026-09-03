@@ -60,9 +60,10 @@ real records. Not five collections, not a namespace plan, not a module layout.
 2. **Propose small, then stop.** The proposal contract (`data-modeling.md` §7): the descriptor
    YAML, one sample record as its `dt add` line, and what is deliberately NOT modelled. The
    operator says yes before anything lands.
-3. **Create it in the workspace module** — `dt schema add-collection` (it compiles and publishes
-   itself). The workspace module is the right first home for everything (`data-modeling.md` §8);
-   extraction is a decision for the second consumer, months away.
+3. **Create it** — `dt add collections --name <c> [--module <m>]` (it compiles and publishes
+   itself). It lands in the module you NAME, defaulting to the workspace module — which is the
+   right first home for everything (`data-modeling.md` §8); extraction is a decision for the
+   second consumer, months away.
 4. **Seed three to five REAL records immediately** with `dt add` — not test data. Seeding real
    records before declaring the model finished catches half the field mistakes: the missing unit,
    the enum the domain spells differently, the id that comes out wrong.
@@ -90,7 +91,7 @@ The pile is evidence; read it before modeling anything.
    folder), and a record points at each via a `${env:VAR}` template — the filing convention and
    the mechanics are in `records.md`.
 4. **Restructure later, with the tools that keep references true** — `dt rename`,
-   `dt schema rename-collection` — not during the first pass. Model reality first; `check` will
+   `dt rename collections/<old> <new>` — not during the first pass. Model reality first; `check` will
    tell you what reality violates, and that list, not taste, drives the cleanup.
 
 ## path C — into a repo that already holds code
@@ -108,6 +109,6 @@ prefers. Nothing about the code moves; `check` and `compile` read only what desc
 | test data in the seed records | real records are what catch the model's mistakes |
 | skipping git as "too technical" | one local command, no account — and it is the history, the undo and the publish step |
 | inventing ids by hand | `id.generate` owns identity — pass `--id` only when the operator named one |
-| hand-writing the first descriptor | `dt schema add-collection` is compile-gated and publishes itself; hand-written sources owe `dt compile` |
+| hand-writing the first descriptor | `dt add collections` is compile-gated and publishes itself; hand-written sources owe `dt compile` |
 | rewriting existing files to fit a guessed schema | describe reality, compile, `check` — then decide which violations are worth fixing in the data |
 | waiting for a UI before starting | the CLI and the records are the complete system; any surface renders them later, unchanged |

@@ -123,6 +123,36 @@ describe('a schema write into a git-shape module', () => {
 			'no stragglers in either repo');
 	});
 
+	test('a module that authors its namespaced descriptor FLAT is still the owner', () => {
+		// ⚠ THE DEFECT THIS PINS, found by driving a real `dt install --clone` workspace: a module
+		// owning its namespace (§8) has no reason to repeat it in every path, so `hr` authors
+		// `collections/positions.collection.yaml` with `name: hr/positions`. `baseDescriptorSource`
+		// matched a source by requiring `collections/<name>.collection.yaml` in the PATH, so that
+		// base was invisible — and `add-field hr/positions` created an overlay in the WORKSPACE
+		// module and then failed compile for a dependency nobody asked for. That is the exact defect
+		// this wave exists to remove, one layer down from where Task 1 removed it.
+		const ws = twoModuleWorkspace();
+		const clone = asGitModule(ws, 'hr');
+		// flatten the descriptor inside the clone: same `name`, a path that no longer mirrors it
+		fs.renameSync(path.join(clone, 'collections/hr/positions.collection.yaml'),
+			path.join(clone, 'collections/positions.collection.yaml'));
+		fs.rmSync(path.join(clone, 'collections/hr'), { recursive: true, force: true });
+		git(clone, ['add', '-A']);
+		git(clone, ['commit', '-qm', 'hr: author the descriptor flat']);
+		assert.equal(ws.dt('compile').code, 0);
+
+		const res = ws.dt('add-field', 'hr/positions', '--name', 'grade', '--type', 'integer');
+		assert.equal(res.code, 0, res.stdout + res.stderr);
+		assert.match(res.stdout, /git_modules\/hr\/collections\/positions\.collection\.yaml/,
+			'the OWNER\'s own descriptor, at the path it actually has');
+		assert.equal(readFile(ws.root, 'modules/default/collections/hr/positions.collection.yaml'), null,
+			'no overlay was invented in the workspace module');
+		assert.equal(
+			load(readFile(ws.root, 'git_modules/hr/collections/positions.collection.yaml')).schema.properties.grade.type,
+			'integer',
+		);
+	});
+
 	test('a FAILED commit in one repo rolls the whole op back, in both', () => {
 		const ws = twoModuleWorkspace();
 		const clone = asGitModule(ws, 'hr');

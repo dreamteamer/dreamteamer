@@ -4,7 +4,7 @@ The user states a requirement — "track the clinic's visits", "stop losing lab 
 a data architect. This reference is what stands between that sentence and a model: it turns the
 requirement into collections, fields and relations that are searchable, filterable, legible in any
 surface, cheap to keep, and still right a year in. Method and judgment live here; mechanics (the
-meta verbs, namespaces, `templates:`, registering an existing folder) live in `collections.md`.
+system and field verbs, namespaces, `templates:`, registering an existing folder) live in `collections.md`.
 
 It is long on purpose. It is the reference for the single highest-leverage act in a dreamteamer
 workspace — a model outlives every skill and command written against it — and the reader is usually
@@ -189,7 +189,7 @@ The interview's output is **not prose**. Show, before anything is written:
    verbatim. Seeding one real record before declaring the schema catches half the field mistakes —
    the missing unit, the enum value the domain actually spells differently, the id that comes out
    wrong.
-3. The **`dt schema` commands** (or the hand-written descriptor when the collection is
+3. The **system verbs** (`dt add collections`, `dt add-field`, …) (or the hand-written descriptor when the collection is
    module-owned or carries comments worth keeping).
 4. The **"deliberately not modelled"** list, each with its one-line reason.
 5. For each relation: which side owns, whether an inverse is declared, and the answer to "which X
@@ -222,9 +222,17 @@ alone in a bare workspace.** Everything else follows from that.
 - **A cross-module relation is a declared dependency.** An inverse stamps a generated field onto
   another module's collection, so compile refuses it unless the declaring module lists the
   target's module in its dependencies — a module may not grow fields on a stranger silently. (The
-  workspace module is exempt; it overlays everything by design.)
-- **Start in the workspace module; extract on the second consumer, not the first hunch.** The meta
-  verbs write the workspace module, and that is the right first home for everything. A module is
+  workspace module's exemption is rule 6 ONLY — see below.)
+- ⚠ **The workspace module's exemption is rule 6 ONLY, and rule 6 is `x-reference: '*'`.** It may
+  reference anything, including collections that do not exist yet — that is what `tasks.item`
+  means, and anywhere else a wildcard draws a warning (an unverifiable cross-module surface). It is
+  **NOT** exempt from the `extends` dependency gate: an overlay in the workspace module on another
+  module's collection still requires that module in `dreamteamer.dependencies`, exactly as any
+  other overlay does. Measured 2026-09-01 — and the reason the two read as one exemption is that
+  they are both "the workspace module is special", which it is, in exactly one of the two places.
+- **Start in the workspace module; extract on the second consumer, not the first hunch.** The
+  system verbs default to the workspace module (`--module <m>` names another), and that is the
+  right first home for everything. A module is
   worth extracting when its collections form a closed reference graph, when a second workspace
   wants it, or when its vocabulary has stabilised — not before. Premature extraction buys a
   boundary you will immediately need to breach.
@@ -251,7 +259,7 @@ sane:
   owned by a "meeting" namespace).
 - Declare the namespace before the first collection compiles — an id is also a slash path, so an
   undeclared prefix is ambiguous and compile refuses it rather than guessing.
-- Namespacing an existing collection later is `dt schema rename-collection <old> --namespace <ns>`
+- Namespacing an existing collection later is `dt rename collections/<old> --namespace <ns>`
   — one commit, every inbound reference rewritten, safe at any point. Cheapest early, though: the
   rewrite is O(records × files), measured at ~3 minutes for a 2,291-record collection — tolerable
   for a one-time migration, not free. So do not agonise up front; just decide sooner rather than
@@ -807,15 +815,19 @@ useless until the flood is drained.
 
 ### 41. Renames
 
-- **Collections**: `dt schema rename-collection <old> <new>` — descriptor, records, filenames and
+- **Collections**: `dt rename collections/<old> <new>` — descriptor, records, filenames and
   every inbound reference in one commit. Safe, and cheapest early — the rewrite is
   O(records × files), measured ~3 minutes at ~2,300 records — so do it the day the name is wrong,
   not the year after.
-- **Fields**: there is no rename verb, deliberately (a rename that rewrites every record is a
-  migration, and pretending otherwise invites half-renames). The honest sequence: add the new
-  field; a one-shot script moving the values (committed with the records it rewrote, the commit
-  message being the ledger); `schema remove-field` the old one — which clears any leftovers and
-  reports the count.
+- **Fields**: `dt rename-field <c> --name <f> --to <g>`, since 0.19.0 — one commit, and it
+  rewrites far more than the records: `list_fields`, `sort_field`, `x-inverse`, `x-inverse-of`,
+  `title_template`, `id.generate`, a ui-view's `options.columns` and `filter`, and a
+  command-binding's `can-enter`/`can-exit`. A field is referenced BY NAME rather than as a
+  `<collection>/<id>` reference, so `store.rewriteRefs` can see none of those — which is exactly
+  why this used to be "no rename verb, deliberately", with the honest sequence being add-new,
+  script the values, `remove-field` the old. That sequence still works and is what you want when
+  the values themselves have to CHANGE shape; when only the name changes, the verb is one command
+  and takes `--dry-run`.
 - **Values** (an id, a reference target): `dt rename <collection>/<old> <new>` rewrites inbound
   references. Prose wikilinks are followed in both spellings — `[[collection/id]]` always, and a
   bare `[[id]]` when that basename names exactly ONE record in the workspace; when something else

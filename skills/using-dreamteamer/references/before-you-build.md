@@ -1,7 +1,7 @@
 # before you build — look for it first
 
 The situation: the operator asked for something the workspace does not seem to do, and you are one
-`schema add-collection` or one new skill away from making it exist. This reference is the pause
+`dt add collections` or one new skill away from making it exist. This reference is the pause
 before that. **When the workspace can't do something, look before you build — and when you do find
 something, propose concretely, never install or copy silently.** The operator decides what enters
 their workspace.
@@ -43,7 +43,7 @@ install. The looking still matters; the taking changed shape.
 | 1 | **this workspace's own modules** | the orientation block's COLLECTIONS list is already in your context — reread it with the concept's *synonyms* in mind; `.dreamteamer/manifest.yaml` names every module and entry; `dt help` shows the verbs and `dt commands <collection>` the bound ones; the skills index shows the techniques | the thing may already exist under a name you didn't guess. This is where misses actually happen, because it is the place you assume you already know |
 | 2 | **a recipes repo — where this workspace's own CLAUDE.md names one** (reference modules maintained to be **copied and adapted**) | read that repo's own instructions first; they ARE the adoption procedure. no recipes repo declared → skip this row | a working module with its reasoning attached — descriptors, skills, and the trap notes that each cost someone a day |
 | 3 | **a sibling workspace — where the operator has named one** | read-only; grep its `modules/` for the concept. none named → skip | another vault may have solved it concretely. That is a *reference*, not a source — it holds real personal data, so read the shape, never lift the content |
-| 4 | **the engine's own surface** | `dt help` — the complete verb surface, schema verbs included; read it rather than recalling it | the capability may already be a verb (`relations rebuild`, `resolve`, `ensure`) rather than a missing module |
+| 4 | **the engine's own surface** | `dt help` — the complete verb surface, system and field verbs included; read it rather than recalling it | the capability may already be a verb (`relations rebuild`, `resolve`, `ensure`) rather than a missing module |
 
 Only after all four: build it, in the module that owns the concept.
 

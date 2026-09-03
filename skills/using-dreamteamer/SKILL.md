@@ -81,7 +81,7 @@ Load by the map; nothing here is loaded "just in case".
 | read, create, update, rename, delete, commit — or UNDO — a record | `references/records.md` |
 | "what changed while I was away" | `references/changes.md` |
 | the workspace seems unable to do something — a new kind of thing, a missing capability, "don't we already have this?" | `references/before-you-build.md` (look first); a new model then continues `references/data-modeling.md` (decide) → `references/collections.md` (write it) |
-| a collection or field, mechanically — the descriptor, the `schema` verbs, `templates:`/`extends:`, a compile or check message | `references/collections.md` |
+| a collection or field, mechanically — the descriptor, the system and field verbs, `templates:`/`extends:`, a compile or check message | `references/collections.md` |
 | knowledge a session should find on its own | `references/skills.md` |
 | "let me type one word and have this done" | `references/commands.md` |
 | "which command applies to this record?" — a binding, a gate | `references/commands.md` |
@@ -105,6 +105,36 @@ domain work — meetings, patients, invoices, whatever this workspace is about �
 and `repos`, and deliberately nothing else. workspace-level rules live in `CLAUDE.md`, and a
 workspace's decision log (where one exists) wins over older documents.
 
+## system entities take the RECORD verbs
+
+Modules, collections, skills, agents, commands, command-bindings, ui-views and collection-templates
+are collections in the runtime, and since 0.19.0 the ordinary verbs write them:
+
+```
+dt add modules --name core --description "The shared nouns."
+dt add collections --name people --module core --description "A person."
+dt add-field people --name email --type string --description "Where to write to them."
+dt rename-field people --name email --to work_email
+dt set collections/people module=hr          # MOVES it to another module
+dt set modules/hr namespaces=hr dependencies=modules/core
+dt rm modules/hr --force                     # --dry-run first; it prints its plan
+```
+
+`dt schema <op>` is **gone** since 0.19.0 and fails with the translation printed. `UPDATING.md` has
+the complete mapping table.
+
+⚠ **ONE difference, and it is POLICY rather than spelling: a SYSTEM write commits itself; a RECORD
+write does not.** An uncompilable or unpublished schema is not a state a workspace should sit in, so
+every system verb writes its source, proves it with a real compile, and commits — **in the repo that
+holds the source**, so a write into a `git_modules/` module commits there and says
+`ahead 1 — push when ready`. A record write lands on disk and `dt commit` publishes it.
+
+⚠ **Every verb that moves records or clears values takes `--dry-run` and prints its plan first:**
+`rename collections/…`, `rename-field`, `remove-field`, `set collections/… module=`,
+`rm modules/… --force`. The plan line is one shape — `records N · refs M · descriptors K · values
+cleared V` — so two dry runs are comparable, and a term that reads 0 means zero rather than
+unmeasured (where a number genuinely cannot be known before the run, the plan says so in words).
+
 ## the rules that hold in both acts
 
 1. **sources live in a module** — `modules/<module>/<kind>/`; the workspace's own go in its
@@ -124,7 +154,7 @@ workspace's decision log (where one exists) wins over older documents.
    overwritten and pruned on the next compile — if you found the thing to change there, you are
    in the wrong file.
 7. **the CLI refuses system-stored records on purpose** (`dt set skills/<id>` — no): edit the
-   module source and compile. the `schema` verbs are the sanctioned exception — they write
+   module source and compile. the SYSTEM verbs are the sanctioned exception — they write
    sources *through* a compile gate, so an uncompilable source can never land.
 8. **never duplicate a procedure across records.** a command body restating a skill, an agent
    inlining its skill's steps — two copies, and one drifts. reference the owner.
