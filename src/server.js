@@ -8,7 +8,14 @@ import express from 'express';
 import { Store, bodyField } from './store.js';
 import { readManifest, staleness, discoverModules, CompileError } from './compile.js';
 import { presentation } from './presentation.js';
-import { createCollection, removeCollection, addField, updateField, removeField, fieldDef, statedKeywords, saveUiView, removeUiView } from './schema-ops.js';
+import {
+	createCollection, removeCollection, addField, updateField, removeField, fieldDef, statedKeywords, saveUiView, removeUiView,
+	// ⚠ The names above are IMPORTED IN-PROCESS by the VS Code extension and must never change; the
+	// new capabilities are new exports beside them (CLAUDE.md — a rename is a cross-repo activation
+	// failure).
+	createModule, removeModule, setModule, moveCollection, setCollectionScalars, renameField,
+	createSkill, refuseHandAuthored, removeEntity, setEntityFrontmatter,
+} from './schema-ops.js';
 import { history, historyDiff } from './history.js';
 import { matchesFilter } from './filter.js';
 import { sortRows } from './temporal.js';
@@ -119,12 +126,25 @@ export function startServer(ws, { port = 8080, host = '127.0.0.1' } = {}) {
 	});
 
 	api.post('/collections/:name/records', (req, res) => {
+		// A SYSTEM collection is a collection, and this is the one route it comes through. The store
+		// still refuses the write (writableDescriptor — decision 14 is affirmed, not reversed), so the
+		// branch is here, at the surface, exactly as the CLI's interceptor is.
+		if (store.descriptors.get(req.params.name)?.storage?.base === 'runtime') {
+			const out = systemWrite(ws, store, req);
+			reload();
+			return res.json(out);
+		}
 		const { id: explicitId, ...fields } = req.body ?? {};
 		const { id, file } = store.add(req.params.name, fields, { id: explicitId });
 		res.status(201).json({ id, path: path.relative(ws.root, file) });
 	});
 
 	api.patch('/collections/:name/records/*id', (req, res) => {
+		if (store.descriptors.get(req.params.name)?.storage?.base === 'runtime') {
+			const out = systemWrite(ws, store, req);
+			reload();
+			return res.json(out);
+		}
 		// clients may echo synthetic response keys back on save (id/path/last-modified/the two
 		// $-prefixed commit-info fields) — never persist any of them.
 		const { id: _id, path: _path, 'last-modified': _lm, '$last-modified-by': _lmb, '$last-commit-message': _lcm, ...changes } = req.body ?? {};
@@ -160,6 +180,11 @@ export function startServer(ws, { port = 8080, host = '127.0.0.1' } = {}) {
 	});
 
 	api.delete('/collections/:name/records/*id', (req, res) => {
+		if (store.descriptors.get(req.params.name)?.storage?.base === 'runtime') {
+			const out = systemWrite(ws, store, req);
+			reload();
+			return res.json(out);
+		}
 		store.rm(req.params.name, idParam(req), { force: req.query.force === 'true' });
 		res.json({ id: idParam(req) });
 	});
@@ -203,16 +228,14 @@ export function startServer(ws, { port = 8080, host = '127.0.0.1' } = {}) {
 			res.json(out);
 		} catch (e) { next(e); }
 	};
-	api.post('/schema/collections', schemaOp((req) =>
-		createCollection(ws, store, { name: req.body?.name, template: req.body?.template })));
-	api.delete('/schema/collections/:name', schemaOp((req) =>
-		removeCollection(ws, store, req.params.name, { force: req.query.force === 'true' })));
-	api.post('/schema/collections/:name/fields', schemaOp((req) => {
+	// ---- fields: the ONE sub-entity (§3.2), so they keep dedicated routes rather than being
+	// records of a `fields` collection nobody ships. Selector in the query string, as everywhere.
+	api.post('/collections/:name/fields', schemaOp((req) => {
 		const b = req.body ?? {};
 		const prop = b.prop ?? fieldDef(store, b, req.params.name);
-		return addField(ws, store, req.params.name, { name: b.name, prop, required: b.required === true });
+		return addField(ws, store, req.params.name, { name: b.name, prop, required: b.required === true, moduleId: moduleParam(req) });
 	}));
-	api.patch('/schema/collections/:name/fields/:field', schemaOp((req) => {
+	api.patch('/collections/:name/fields/:field', schemaOp((req) => {
 		const b = req.body ?? {};
 		const prop = b.prop ?? fieldDef(store, b, req.params.name);
 		// updateField carries every relation keyword the caller did NOT restate, so it has to be told
@@ -222,14 +245,14 @@ export function startServer(ws, { port = 8080, host = '127.0.0.1' } = {}) {
 		// this, `type` was never stated, `x-reference` was always carried, and a retype away from a
 		// reference was a silent no-op that then failed the commit gate with a misleading rollback.
 		const stated = b.prop ? undefined : statedKeywords(b);
-		return updateField(ws, store, req.params.name, req.params.field, { prop, required: b.required, flags: b.prop ? {} : b, stated });
+		return updateField(ws, store, req.params.name, req.params.field, { prop, required: b.required, flags: b.prop ? {} : b, stated, moduleId: moduleParam(req) });
 	}));
-	api.delete('/schema/collections/:name/fields/:field', schemaOp((req) =>
-		removeField(ws, store, req.params.name, req.params.field)));
-
-	// saved views: a studio view IS a ui-view record (source-written, compile-gated)
-	api.post('/schema/ui-views', schemaOp((req) => saveUiView(ws, store, { id: req.body?.id, view: req.body?.view })));
-	api.delete('/schema/ui-views/:id', schemaOp((req) => removeUiView(ws, store, req.params.id)));
+	// `…/name` rather than a body key, because renaming a field is a DIFFERENT act from editing one:
+	// it rewrites the key in every record and in every descriptor, view and binding that names it.
+	api.patch('/collections/:name/fields/:field/name', schemaOp((req) =>
+		renameField(ws, store, req.params.name, req.params.field, String(req.body?.to ?? ''), { moduleId: moduleParam(req) })));
+	api.delete('/collections/:name/fields/:field', schemaOp((req) =>
+		removeField(ws, store, req.params.name, req.params.field, { moduleId: moduleParam(req) })));
 
 	// per-record revision diff + revert (M3: git already has the data; this exposes it)
 	api.get('/history-diff/:name/*id', (req, res) => {
@@ -287,6 +310,55 @@ export function startServer(ws, { port = 8080, host = '127.0.0.1' } = {}) {
 			resolve(server);
 		});
 	});
+}
+
+/** The `?module=` SELECTOR, as one reader. §12: selector in the query string, field in the body —
+ *  which is what keeps "edit the overlay" (`?module=default`) and "change the owner"
+ *  (`{module: "hr"}`) two different requests rather than one ambiguous one. */
+function moduleParam(req) {
+	return req.query.module ? String(req.query.module) : undefined;
+}
+
+/**
+ * The HTTP face of `collections-cli.js`'s system verbs — same functions, same validation, same
+ * commit shape, which is the engine/UI parity rule (CLAUDE.md: a route with no CLI equivalent is a
+ * gap).
+ *
+ *   POST   /collections/collections/records?module=hr   {name, description}          → create in hr
+ *   PATCH  /collections/collections/records/people?module=default {description}      → edit overlay
+ *   PATCH  /collections/collections/records/people      {module: "hr"}               → the MOVE
+ *
+ * ⚠ The in-process exports are UNTOUCHED. `ext:src/api.ts` and `ext:src/engine.ts` import
+ * `createCollection`, `addField`, `updateField`, `removeField`, `saveUiView` and `removeUiView` by
+ * name; renaming any of them is a cross-repo activation failure, so the new operations are new
+ * exports beside them.
+ */
+function systemWrite(ws, store, req) {
+	const kind = req.params.name;
+	const id = req.params.id ? idParam(req) : undefined;
+	const moduleId = moduleParam(req);
+	const b = req.body ?? {};
+	if (req.method === 'POST') {
+		if (kind === 'collections') return createCollection(ws, store, { ...b, moduleId });
+		if (kind === 'modules') return createModule(ws, store, b);
+		if (kind === 'skills') return createSkill(ws, store, { ...b, moduleId });
+		if (kind === 'ui-views') return saveUiView(ws, store, { id: b.id, view: b.view });
+		return refuseHandAuthored(ws, store, kind, b.name, moduleId);
+	}
+	if (req.method === 'DELETE') {
+		if (kind === 'collections') return removeCollection(ws, store, id, { force: req.query.force === 'true' });
+		if (kind === 'modules') return removeModule(ws, store, id, { force: req.query.force === 'true' });
+		if (kind === 'ui-views') return removeUiView(ws, store, id);
+		return removeEntity(ws, store, kind, id);
+	}
+	// PATCH
+	if (kind === 'collections') {
+		if (typeof b.module === 'string') return moveCollection(ws, store, id, b.module);
+		return setCollectionScalars(ws, store, id, b, { moduleId });
+	}
+	if (kind === 'modules') return setModule(ws, store, id, b);
+	if (kind === 'ui-views') return saveUiView(ws, store, { id, view: b.view ?? b });
+	return setEntityFrontmatter(ws, store, kind, id, b);
 }
 
 function idParam(req) {

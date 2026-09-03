@@ -89,7 +89,7 @@ describe('every surface that names a field by NAME', () => {
 
 	test('x-inverse on the OWNER, and the generated mirror with it', () => {
 		const ws = twoModuleWorkspace();
-		assert.equal(ws.dt('schema', 'update-field', 'tasks', '--name', 'owner', '--type', 'people',
+		assert.equal(ws.dt('update-field', 'tasks', '--name', 'owner', '--type', 'people',
 			'--inverse', 'tasks').code, 0);
 		ws.dt('add', 'people', '--name', 'Dana Levi');
 		ws.dt('add', 'tasks', '--name', 'Ship it', '--owner', 'people/dana-levi');
@@ -105,7 +105,7 @@ describe('every surface that names a field by NAME', () => {
 	test('x-inverse-of, which names <collection>.<field> on the far side', () => {
 		const ws = twoModuleWorkspace();
 		// spelling B: the mirror declares the relation from the side that wants it
-		assert.equal(ws.dt('schema', 'add-field', 'people', '--name', 'tasks',
+		assert.equal(ws.dt('add-field', 'people', '--name', 'tasks',
 			'--mirror-of', 'tasks.owner').code, 0);
 		assert.equal(ws.dt('rename-field', 'tasks', '--name', 'owner', '--to', 'assignee').code, 0);
 		const mirror = src(ws, 'core', 'people');
@@ -117,7 +117,7 @@ describe('every surface that names a field by NAME', () => {
 
 	test("a ui-view's options.columns and its filter", () => {
 		const ws = twoModuleWorkspace();
-		assert.equal(ws.dt('schema', 'add-view', '--path', '/staff', '--target', 'list',
+		assert.equal(ws.dt('add', 'ui-views', '--path', '/staff', '--target', 'list',
 			'--collection', 'collections/people', '--layout', 'table',
 			'options.columns=name,employer', '--filter', '{"employer":{"_eq":"Acme"}}').code, 0);
 		assert.equal(ws.dt('rename-field', 'people', '--name', 'employer', '--to', 'company').code, 0);
@@ -129,7 +129,7 @@ describe('every surface that names a field by NAME', () => {
 
 	test("a command-binding's can-enter and can-exit", () => {
 		const ws = twoModuleWorkspace();
-		assert.equal(ws.dt('schema', 'add-field', 'people', '--name', 'status', '--type', 'enum',
+		assert.equal(ws.dt('add-field', 'people', '--name', 'status', '--type', 'enum',
 			'--options', 'draft,done').code, 0);
 		fs.mkdirSync(path.join(ws.root, 'modules/default/commands'), { recursive: true });
 		fs.writeFileSync(path.join(ws.root, 'modules/default/commands/enrich.command.md'),
@@ -152,7 +152,7 @@ describe('every surface that names a field by NAME', () => {
 		const ws = twoModuleWorkspace();
 		patchModulePkg(ws.root, 'hr', { namespaces: ['hr'], dependencies: ['core'], peerDependencies: ['people'] });
 		assert.equal(ws.dt('compile').code, 0);
-		assert.equal(ws.dt('schema', 'add-field', 'people', '--name', 'badge', '--type', 'string',
+		assert.equal(ws.dt('add-field', 'people', '--name', 'badge', '--type', 'string',
 			'--module', 'hr').code, 0);
 		const res = ws.dt('rename-field', 'people', '--name', 'badge', '--to', 'pass_id', '--module', 'hr');
 		assert.equal(res.code, 0, res.stdout + res.stderr);
@@ -203,7 +203,7 @@ describe('the refusals and the plan', () => {
 
 	test('a GENERATED mirror renamed onto a TAKEN name is refused, like any other field', () => {
 		const ws = twoModuleWorkspace();
-		assert.equal(ws.dt('schema', 'update-field', 'tasks', '--name', 'owner', '--type', 'people',
+		assert.equal(ws.dt('update-field', 'tasks', '--name', 'owner', '--type', 'people',
 			'--inverse', 'tasks').code, 0);
 		// `people.tasks` IS generated — renaming it means renaming the owner's keyword, which the
 		// earlier test proves works. The name-taken guard applies to it exactly as to an authored one.

@@ -304,7 +304,7 @@ function stampMirror(byName, ctx, ownerName, field, prop, holder, mirrorName, ta
 	}
 	// The THIRD such shape, and the quietest: a `codec: md` record's BODY lives after the
 	// frontmatter, and `serialize` carries it only where the descriptor declares an `x-body` field.
-	// `dt schema add-collection` with no template declares none — so prose in such a record is
+	// `dt add collections` with no template declares none — so prose in such a record is
 	// invisible to the parser, and a mirror write rebuilds the file from its parsed fields alone,
 	// WITHOUT the body. That write lands on the far side of somebody else's `dt add`, in a collection
 	// they never named, and `check` is silent either side of it. Refused here for the same reason as
@@ -312,10 +312,10 @@ function stampMirror(byName, ctx, ownerName, field, prop, holder, mirrorName, ta
 	// because the mirror could never be written.
 	if ((t.storage?.codec ?? 'md') === 'md' && !bodyKeys(t.schema).length) {
 		// ⚠ THE REMEDY IS QUOTED, because for one minor it was UNREACHABLE. This said "declare an
-		// x-body field" while `schema add-field` had no flag that marks one — so the only way to
+		// x-body field" while `add-field` had no flag that marks one — so the only way to
 		// follow the instruction was to hand-edit a descriptor the verb owns. `--body` exists now,
 		// and a message that names a fix has to name the command that performs it.
-		fail(`collection "${ownerName}": x-inverse on "${field}" stamps a mirror onto ${target}, whose descriptor declares no x-body — a record there cannot round-trip a body through a mirror write, so the store would silently erase any prose it holds. Declare one:\n  dreamteamer schema add-field ${target} --name notes --type markdown --body\n…or leave the link one-way.`);
+		fail(`collection "${ownerName}": x-inverse on "${field}" stamps a mirror onto ${target}, whose descriptor declares no x-body — a record there cannot round-trip a body through a mirror write, so the store would silently erase any prose it holds. Declare one:\n  dreamteamer add-field ${target} --name notes --type markdown --body\n…or leave the link one-way.`);
 	}
 	const unique = holder['x-unique'] === true;
 	const inverseOf = `${ownerName}.${field}`;
@@ -1185,9 +1185,18 @@ export function compile({ root, pkg }) {
 				const owner = collOwner.get(target);
 				if (owner && declaredDeps.has(owner)) continue;
 				if (declaredPeers.has(target)) continue;
+				// ⚠ A LOCKFILE ENTRY WITH NO CLONE IS AN UNINSTALLED WORKSPACE, not a broken
+				// reference. A fresh `git clone` of a vault has `git-modules` declared and
+				// `git_modules/` empty (it is gitignored), so the FIRST compile anyone runs on a new
+				// machine fails here — and telling them to edit peerDependencies sends them to change
+				// a declaration that is already correct.
+				const uninstalled = Object.keys(config['git-modules'] ?? {})
+					.filter((n) => !fs.existsSync(path.join(root, 'git_modules', n)));
 				const fix = owner
 					? `add "${owner}" to dreamteamer.dependencies, or "${target}" to dreamteamer.peerDependencies if the module should work without it`
-					: `add "${target}" to dreamteamer.peerDependencies — no installed module provides it`;
+					: uninstalled.length
+						? `run \`dreamteamer install\` first — dreamteamer.git-modules declares ${uninstalled.join(', ')} and ${uninstalled.length === 1 ? 'that clone is' : 'those clones are'} not on disk yet (git_modules/ is gitignored, so a fresh clone of this workspace always starts here)`
+						: `add "${target}" to dreamteamer.peerDependencies — no installed module provides it`;
 				fail(`collection "${name}": field "${at}" references "${target}", which ${groupModules.join('/')} neither owns nor declares.\n  ${fix}.`);
 			}
 		}
@@ -1265,7 +1274,7 @@ export function compile({ root, pkg }) {
 			// generated mirror (which never carries x-unique) cannot trip it.
 			const h = (prop.items && typeof prop.items === 'object') ? prop.items : prop;
 			if (h['x-unique'] === true && h['x-inverse'] === undefined && h['x-inverse-of'] === undefined) {
-				console.warn(`⚠ collection ${name}: x-unique on "${fieldName}" is inert — it is a RELATION keyword, enforced only while the store maintains a mirror, and this field declares no x-inverse. Nothing constrains the value. Declare the relation (dreamteamer schema update-field ${name} --name ${fieldName} --inverse) or drop x-unique.`);
+				console.warn(`⚠ collection ${name}: x-unique on "${fieldName}" is inert — it is a RELATION keyword, enforced only while the store maintains a mirror, and this field declares no x-inverse. Nothing constrains the value. Declare the relation (dreamteamer update-field ${name} --name ${fieldName} --inverse) or drop x-unique.`);
 			}
 		}
 		const rt = path.join('collections', `${name}.collection.yaml`);
@@ -1481,6 +1490,19 @@ export function compile({ root, pkg }) {
 	const manifest = {
 		compiled: new Date().toISOString(),
 		host: engineId(),
+		// ⚠ THE VERSION AS A PLAIN SEMVER, beside `host`, for a consumer that has to COMPARE it.
+		//
+		// The VS Code extension pins a HARD MINIMUM engine version and refuses to load below it with
+		// a clear message — a version check rather than a capability handshake, because a handshake
+		// answers "can you do X" one capability at a time and the failure it has to prevent is
+		// structural: an extension built against this wave's exports calling into a 0.17 engine
+		// throws out of `activate()` before the tree view exists, which VS Code renders as its
+		// `viewsWelcome` text — the symptom naming the one thing that is definitely fine.
+		//
+		// `host` cannot serve: it is `name@version` and needs parsing, and a consumer that parses a
+		// display string is a consumer that breaks when the display changes. The other two pin
+		// surfaces are `engineVersion()` (in-process) and `dt --version` (a subprocess).
+		engine: engineVer,
 		// The declared namespace list, carried across the boundary so the RECORD layer can split a
 		// reference without importing the compiler or re-reading package.json — the same reason
 		// `storage.base` is a field instead of a path test. An older runtime has no key here, which

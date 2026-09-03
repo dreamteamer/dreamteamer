@@ -232,66 +232,84 @@ describe('commands and ensure absorb their old noun', () => {
 	});
 });
 
-describe('schema verbs — meta writes are visibly a different act', () => {
-	test('schema add-collection writes the descriptor', () => {
+describe('system verbs — the SAME verbs, on the entities the compiler materializes', () => {
+	test('add collections writes the descriptor', () => {
 		const ws = base();
-		const res = ws.dt('schema', 'add-collection', '--name', 'widgets');
+		const res = ws.dt('add', 'collections', '--name', 'widgets');
 		assert.equal(res.code, 0, res.stderr);
 		assert.ok(readFile(ws.root, '.dreamteamer/collections/widgets.collection.yaml'));
 	});
 
-	test('schema add-field / remove-field take the collection as a positional', () => {
+	test('the field verbs take the collection as a positional', () => {
 		const ws = base();
-		const add = ws.dt('schema', 'add-field', 'contacts', '--name', 'phone', '--type', 'string');
+		const add = ws.dt('add-field', 'contacts', '--name', 'phone', '--type', 'string');
 		assert.equal(add.code, 0, add.stderr);
 		assert.match(readFile(ws.root, '.dreamteamer/collections/contacts.collection.yaml'), /phone/);
 
-		const rm = ws.dt('schema', 'remove-field', 'contacts', '--name', 'phone');
+		const rm = ws.dt('remove-field', 'contacts', '--name', 'phone');
 		assert.equal(rm.code, 0, rm.stderr);
 		assert.doesNotMatch(readFile(ws.root, '.dreamteamer/collections/contacts.collection.yaml'), /phone/);
 	});
 
-	test('schema update-field retypes it', () => {
+	test('update-field retypes it', () => {
 		const ws = base();
-		assert.equal(ws.dt('schema', 'add-field', 'contacts', '--name', 'tier', '--type', 'string').code, 0);
-		const res = ws.dt('schema', 'update-field', 'contacts', '--name', 'tier', '--type', 'enum', '--options', 'a,b');
+		assert.equal(ws.dt('add-field', 'contacts', '--name', 'tier', '--type', 'string').code, 0);
+		const res = ws.dt('update-field', 'contacts', '--name', 'tier', '--type', 'enum', '--options', 'a,b');
 		assert.equal(res.code, 0, res.stderr);
 		assert.match(readFile(ws.root, '.dreamteamer/collections/contacts.collection.yaml'), /enum/);
 	});
 
-	test('schema rename-collection moves the descriptor and the records', () => {
+	test('rename collections/<old> <new> moves the descriptor and the records', () => {
 		const ws = base();
 		ws.dt('add', 'contacts', '--name', 'Jane');
-		const res = ws.dt('schema', 'rename-collection', 'contacts', 'people');
+		const res = ws.dt('rename', 'collections/contacts', 'people');
 		assert.equal(res.code, 0, res.stderr);
 		// `.contact.md` is exactly what `contacts` DERIVES, so the rename re-suffixes it too
 		assert.ok(readFile(ws.root, 'data/people/jane.people.md'));
 		assert.equal(ws.dt('check').code, 0);
 	});
 
-	test('schema rm-collection drops it, and --force is needed once it has records', () => {
+	test('rm collections/<name> drops it, and --force is needed once it has records', () => {
 		const ws = base();
-		assert.equal(ws.dt('schema', 'add-collection', '--name', 'widgets').code, 0);
+		assert.equal(ws.dt('add', 'collections', '--name', 'widgets').code, 0);
 		assert.equal(ws.dt('add', 'widgets', '--name', 'A').code, 0);
-		const refused = ws.dt('schema', 'rm-collection', 'widgets');
+		const refused = ws.dt('rm', 'collections/widgets');
 		assert.equal(refused.code, 1);
-		assert.equal(ws.dt('schema', 'rm-collection', 'widgets', '--force').code, 0);
+		assert.equal(ws.dt('rm', 'collections/widgets', '--force').code, 0);
 	});
 
-	test('schema add-view / set-view / rm-view carry the ui-view verbs', () => {
+	test('ui-views take add / set / rm under the same verbs', () => {
 		const ws = base();
-		const add = ws.dt('schema', 'add-view', '--path', '/recent', '--target', 'list',
+		const add = ws.dt('add', 'ui-views', '--path', '/recent', '--target', 'list',
 			'--collection', 'collections/contacts', '--layout', 'table');
 		assert.equal(add.code, 0, add.stderr);
-		assert.equal(ws.dt('schema', 'set-view', 'recent', 'options.sort=-name').code, 0);
-		assert.equal(ws.dt('schema', 'rm-view', 'recent').code, 0);
+		assert.equal(ws.dt('set', 'ui-views/recent', 'options.sort=-name').code, 0);
+		assert.equal(ws.dt('rm', 'ui-views/recent').code, 0);
 	});
 
-	test('an unknown schema sub-verb is refused', () => {
+	test('rename-field is a verb of its own', () => {
 		const ws = base();
-		const res = ws.dt('schema', 'nonsense');
+		assert.equal(ws.dt('add-field', 'contacts', '--name', 'tier', '--type', 'string').code, 0);
+		assert.equal(ws.dt('rename-field', 'contacts', '--name', 'tier', '--to', 'band').code, 0);
+		assert.match(readFile(ws.root, '.dreamteamer/collections/contacts.collection.yaml'), /band/);
+	});
+
+	// ⚠ THE BREAKING CHANGE, and it must fail with the TRANSLATION. Every doc, skill and downstream
+	// script spelled these `dt schema <op>` for seven releases — the same shape `dt contacts list`
+	// had before 0.12.0, and the same policy applies: no alias layer, no deprecation window.
+	//
+	// This REPLACES `test('an unknown schema sub-verb is refused')`, which asserted
+	// `unknown schema operation "nonsense"` — a message the flip deletes. That test deliberately
+	// pinned the old grammar, so it is gone rather than rewritten.
+	test('dt schema is gone and the error carries the new spellings', () => {
+		const ws = base();
+		const res = ws.dt('schema', 'add-collection', '--name', 'widgets');
 		assert.equal(res.code, 1);
-		assert.match(res.stderr, /unknown schema operation "nonsense"/);
+		assert.match(res.stderr, /unknown verb "schema"/);
+		assert.match(res.stderr, /schema verbs are gone since 0\.19\.0/);
+		assert.match(res.stderr, /dt add collections/);
+		assert.match(res.stderr, /dt add-field <c>/);
+		assert.match(res.stderr, /UPDATING\.md/);
 	});
 });
 
@@ -339,12 +357,40 @@ describe('workspace verbs keep their spellings', () => {
 		assert.equal(ws.dt('compile').code, 0);
 	});
 
-	test('help prints the three verb groups', () => {
+	// THE VERB LIST IS PINNED TO THE DISPATCH. `help` is the single source with it, so this test is
+	// what makes the two unable to drift — and it is updated in the SAME commit as the flip, because
+	// a help text describing a grammar the dispatch no longer has is worse than no help text.
+	test('help prints the four verb groups, and states the commit policy once', () => {
 		const ws = base();
 		const res = ws.dt('help');
 		assert.equal(res.code, 0);
 		assert.match(res.stdout, /record verbs/);
-		assert.match(res.stdout, /schema verbs/);
+		assert.match(res.stdout, /system verbs/);
+		assert.match(res.stdout, /field verbs/);
 		assert.match(res.stdout, /workspace verbs/);
+		assert.doesNotMatch(res.stdout, /schema verbs \(write SOURCES/);
+		assert.match(res.stdout, /a SYSTEM write commits itself/);
+		assert.match(res.stdout, /a RECORD write does not/);
+	});
+
+	// Every verb `help` documents must DISPATCH, and every verb that dispatches must be documented.
+	// Derived from the text rather than hand-listed, so adding a verb to one and not the other fails
+	// here instead of at the first person who reads the wrong one.
+	test('every verb named in help dispatches, and no verb dispatches undocumented', () => {
+		const ws = base();
+		const help = ws.dt('help').stdout;
+		const documented = new Set();
+		for (const m of help.matchAll(/^ {2}([a-z][a-z-]*)\s{2,}/gm)) documented.add(m[1]);
+		// ⚠ A PIN THAT MATCHES NOTHING PASSES VACUOUSLY, which is the one outcome to avoid.
+		assert.ok(documented.size >= 25, `help yielded only ${documented.size} verb names — the extraction pattern no longer matches USAGE`);
+		for (const verb of documented) {
+			const res = ws.dt(verb);
+			// A documented verb answers with its OWN complaint (a missing target, a missing flag) or
+			// succeeds — never with "unknown verb", which is the only failure this asserts against.
+			assert.doesNotMatch(res.stderr + res.stdout, new RegExp(`unknown verb "${verb}"`), `help documents \`${verb}\` but the dispatch does not know it`);
+		}
+		for (const verb of ['add', 'set', 'rm', 'rename', 'list', 'get', 'move', 'values', 'history', 'diff', 'revert', 'commands', 'relations', 'ensure', 'resolve', 'add-field', 'update-field', 'remove-field', 'rename-field', 'init', 'install', 'update', 'compile', 'check', 'status', 'start', 'changes', 'commit', 'help']) {
+			assert.ok(documented.has(verb), `\`${verb}\` dispatches but help does not document it`);
+		}
 	});
 });

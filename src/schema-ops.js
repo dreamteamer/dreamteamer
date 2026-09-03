@@ -1704,7 +1704,7 @@ function pruneEmpty(dir, stopAt) {
  *
  * ⚠ SCOPED TO THE FIELD BEING EDITED, deliberately, and not to "every relation that disappeared from
  * the graph". A whole-graph diff would also fire when the runtime was stale before the op for
- * unrelated reasons, which means a `dt schema add-field` on collection A rewriting records of C — a
+ * unrelated reasons, which means a `dt add-field` on collection A rewriting records of C — a
  * commit sweeping records nobody named, which is the one thing this repo's rule 6 exists to stop.
  *
  * Returns the `{files, undo}` shape `store.applyMirrorEdits` returns, so writeGated can put the
@@ -1861,7 +1861,7 @@ export function updateField(ws, store, collection, fieldName, { prop, required, 
 	// keyword. `fieldDef` builds a prop from the flags ALONE, so a call that named no type came back
 	// `{type: string}` — not a statement about the field, just the default of a function that was told
 	// nothing — and `upsertField` writes the prop it is handed. So
-	// `dt schema update-field <c> --name <f> --description "…"` RETYPED every field it touched.
+	// `dt update-field <c> --name <f> --description "…"` RETYPED every field it touched.
 	// Measured, one description-only edit each:
 	//
 	//   prose  {type: string, format: markdown, x-body: true} → {type: string}  a body field, no longer one
@@ -2017,7 +2017,7 @@ function refuseUnremovableField(ws, d, collection, fieldName, hasOwnDoc) {
 		// clearing that keyword is the removal. This remedy WORKS — the spelling-B one did not, because
 		// the owner never carried an `x-inverse` to clear.
 		const dot = of.lastIndexOf('.'); // a collection name may contain '/', so split at the LAST dot
-		throw new Error(`field "${fieldName}" on ${collection} is GENERATED from ${of}, the two-way relation that owns it — no source of ${collection} declares it, so no edit here can remove it. Remove the relation instead: dreamteamer schema update-field ${of.slice(0, dot)} --name ${of.slice(dot + 1)} --inverse=`);
+		throw new Error(`field "${fieldName}" on ${collection} is GENERATED from ${of}, the two-way relation that owns it — no source of ${collection} declares it, so no edit here can remove it. Remove the relation instead: dreamteamer update-field ${of.slice(0, dot)} --name ${of.slice(dot + 1)} --inverse=`);
 	}
 	// ⚠ These two sentences used to name the WORKSPACE module, because that is where this verb wrote.
 	// It now writes in the module that OWNS the collection, so "the workspace descriptor" was a fact
@@ -2387,7 +2387,7 @@ export function fieldDef(store, flags, collection) {
  *
  * Without this, the spec's own worked command was refused for not restating what it had just said:
  *
- *   dt schema add-field meetings --name recordings --mirror-of recordings.meeting
+ *   dt add-field meetings --name recordings --mirror-of recordings.meeting
  *   ✖ --mirror-of needs a --type <collection> reference.
  *
  * …and restating it was a chance to DISAGREE, which is worse than the refusal: compile derives the
@@ -2497,3 +2497,195 @@ function defaultInverseName(unique, target, owner, namespaces) {
 	return unique ? singular(stripped) : stripped;
 }
 
+// ---- the identity entities: skills, agents, commands, command-bindings, collection-templates ----
+// §3.1's last row. These are FLAT at a module root and stay flat (decision 274) — their ids are
+// single segments, and namespacing them was cut with the wave that considered it.
+//
+// `add` is a SCAFFOLD for skills only, and refused with the path for the rest. That asymmetry is not
+// arbitrary: a skill's minimum-that-compiles is two frontmatter keys and an empty body, which a verb
+// can write honestly. An agent, a command, a binding and a template are all PROSE or PREDICATES —
+// the value is entirely in what a human writes, and a verb that scaffolds one produces a file whose
+// only content is the fact that a verb made it.
+
+/** kind → {suffix, folder} — one table, because five verbs read it and a sixth spelling of "where
+ *  does a command live" is how a kind the engine stopped knowing sat in a module for two days
+ *  (decision 156). */
+const ENTITY_SHAPE = {
+	skills: { suffix: 'SKILL.md', folder: true },
+	agents: { suffix: '.agent.md', folder: false },
+	commands: { suffix: '.command.md', folder: false },
+	'command-bindings': { suffix: '.command-binding.yaml', folder: false },
+	'collection-templates': { suffix: '.collection-template.yaml', folder: false },
+};
+
+/** The source file (or folder) ONE entity is compiled from, asked of the manifest — the same
+ *  question `uiViewSourceFile` asks, for the four other kinds. */
+function entitySource(ws, kind, id) {
+	const shape = ENTITY_SHAPE[kind];
+	const key = shape.folder ? `${kind}/${id}/SKILL.md` : `${kind}/${id}${shape.suffix}`;
+	const src = readManifest(ws.root)?.entries?.[key]?.sources?.[0];
+	const shipped = typeof src === 'string' ? src : src?.path;
+	if (!shipped) return { file: null, dir: null, shipped: null };
+	const file = path.join(ws.root, shipped);
+	return { file, dir: shape.folder ? path.dirname(file) : file, shipped };
+}
+
+/** Refuse a write into an installed package, with `disable` as the remedy — the message every other
+ *  op in this file already gives, in one place. */
+function refuseNpmEntity(kind, id, shipped) {
+	if (!shipped || !IN_NODE_MODULES(shipped)) return;
+	throw new Error(`${kind.replace(/s$/, '')} "${id}" is shipped by an installed package (${shipped}) — a write there is erased by the next \`npm install\`.\n  disable it instead: add "<module>/${id}" to dreamteamer.disable in package.json.`);
+}
+
+const ENTITY_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+export function createSkill(ws, store, { name, description, moduleId }) {
+	if (!name || name === true) throw new Error('missing skill name — dreamteamer add skills --name <id> --description "…"');
+	if (!ENTITY_ID.test(name)) throw new Error(`invalid skill id "${name}" — lowercase alphanumeric with single hyphens (it is a folder name and the frontmatter \`name\` at once).`);
+	if (typeof description !== 'string' || !description.trim()) {
+		// ⚠ REQUIRED, not defaulted. claude-code discovers skills natively and shows the description
+		// as the trigger; the orientation block indexes it for every other harness. A skill with no
+		// description is loadable by nobody and shows up as a bare id in the one place an agent looks.
+		throw new Error('--description is required: it is the sentence that says WHEN to load this skill, and it is all any harness shows. An undescribed skill is undiscoverable.');
+	}
+	if (store.descriptors.has('skills') && store.ids('skills').has(name)) {
+		throw new Error(`skill "${name}" already exists — dt get skills/${name}`);
+	}
+	const root = moduleId ? path.join(ws.root, moduleRecord(store, moduleId).fields.path) : null;
+	if (root && IN_NODE_MODULES(path.relative(ws.root, root))) {
+		throw new Error(`module "${moduleId}" ships from node_modules — a write there is erased by the next \`npm install\`.`);
+	}
+	const dir = path.join(root ? kindDir(root, 'skills') : workspaceSystemDir(ws, 'skills'), name);
+	const file = path.join(dir, 'SKILL.md');
+	if (fs.existsSync(file)) throw new Error(`${path.relative(ws.root, file)} already exists`);
+	// THE MINIMUM THAT COMPILES, and nothing more: two frontmatter keys and an empty body. A
+	// scaffold that guesses at sections is a file whose only content is that a verb made it.
+	const text = `---\nname: ${name}\ndescription: ${JSON.stringify(description)}\n---\n\n`;
+	const out = gatedTreeOp(ws, store, {
+		subject: `dreamteamer: skills add ${name}`,
+		paths: [path.relative(ws.root, file)],
+		mutate: () => {
+			fs.mkdirSync(dir, { recursive: true });
+			fs.writeFileSync(file, text);
+		},
+		undo: () => fs.rmSync(dir, { recursive: true, force: true }),
+	});
+	return { id: name, file, commits: out.commits };
+}
+
+/** `add` on a kind nobody can scaffold honestly — refused WITH THE PATH, because "hand-authored"
+ *  without the filename is a refusal the reader has to go research. */
+export function refuseHandAuthored(ws, store, kind, id, moduleId) {
+	const shape = ENTITY_SHAPE[kind];
+	const root = moduleId ? moduleRecord(store, moduleId).fields.path : path.join('modules', ws.pkg.dreamteamer?.['workspace-module'] ?? 'default');
+	const where = path.join(root, kind, `${id || '<id>'}${shape.suffix}`);
+	throw new Error(`a ${kind.replace(/s$/, '')} is hand-authored — its whole value is what you write in it, and a scaffold would produce a file whose only content is that a verb made it.\n  write ${where}, then run \`dreamteamer compile\`.\n  edit an existing one with: dreamteamer set ${kind}/<id> <key>=<value>`);
+}
+
+export function removeEntity(ws, store, kind, id) {
+	const { dir, shipped } = entitySource(ws, kind, id);
+	if (!shipped) throw new Error(`${kind.replace(/s$/, '')} "${id}" does not exist — dt list ${kind}`);
+	refuseNpmEntity(kind, id, shipped);
+	// ⚠ STASH, DO NOT DELETE, UNTIL THE COMMIT LANDS — `gatedTreeOp`'s `undo` has to be able to put a
+	// whole folder back, and a `rmSync` cannot be undone. Same reasoning as `removeModule`.
+	const stash = path.join(ws.root, '.dreamteamer', `.rm-${kind}-${id}`);
+	fs.rmSync(stash, { recursive: true, force: true });
+	try {
+		const out = gatedTreeOp(ws, store, {
+			subject: `dreamteamer: ${kind} rm ${id}`,
+			paths: [path.relative(ws.root, dir)],
+			mutate: () => {
+				fs.mkdirSync(path.dirname(stash), { recursive: true });
+				fs.renameSync(dir, stash);
+			},
+			undo: () => { if (fs.existsSync(stash)) fs.renameSync(stash, dir); },
+		});
+		return { removed: id, file: dir, commits: out.commits };
+	} finally {
+		fs.rmSync(stash, { recursive: true, force: true });
+	}
+}
+
+export function renameEntity(ws, store, kind, oldId, newId) {
+	if (!newId || newId === true) throw new Error(`missing new id — dreamteamer rename ${kind}/${oldId} <new-id>`);
+	if (oldId === newId) return { renamed: false, id: newId };
+	if (!ENTITY_ID.test(newId)) throw new Error(`invalid ${kind.replace(/s$/, '')} id "${newId}" — lowercase alphanumeric with single hyphens.`);
+	const shape = ENTITY_SHAPE[kind];
+	const { dir, file, shipped } = entitySource(ws, kind, oldId);
+	if (!shipped) throw new Error(`${kind.replace(/s$/, '')} "${oldId}" does not exist — dt list ${kind}`);
+	refuseNpmEntity(kind, oldId, shipped);
+	const newDir = shape.folder
+		? path.join(path.dirname(dir), newId)
+		: path.join(path.dirname(file), `${newId}${shape.suffix}`);
+	if (fs.existsSync(newDir)) throw new Error(`${path.relative(ws.root, newDir)} already exists`);
+	const entityFile = shape.folder ? path.join(newDir, 'SKILL.md') : newDir;
+	const isYaml = shape.suffix.endsWith('.yaml');
+	let before = null;
+	const out = gatedTreeOp(ws, store, {
+		subject: `dreamteamer: ${kind} rename ${oldId} → ${newId}`,
+		paths: [path.relative(ws.root, shape.folder ? dir : file), path.relative(ws.root, newDir)],
+		mutate: () => {
+			fs.renameSync(shape.folder ? dir : file, newDir);
+			// ⚠ THE FRONTMATTER `name` IS PART OF THE ID. compile reads the FILENAME for the entity id
+			// and the frontmatter for what the harness shows, and letting them disagree is how a skill
+			// answers to one name in the tree and another in the session that loads it. A YAML entity
+			// (a binding, a template) carries no `name` key, so there is nothing to move.
+			before = fs.readFileSync(entityFile, 'utf8');
+			if (!isYaml) fs.writeFileSync(entityFile, setFrontmatterKey(before, 'name', newId));
+		},
+		undo: () => {
+			if (before !== null && fs.existsSync(entityFile)) fs.writeFileSync(entityFile, before);
+			if (fs.existsSync(newDir)) fs.renameSync(newDir, shape.folder ? dir : file);
+		},
+	});
+	return { renamed: true, id: newId, commits: out.commits };
+}
+
+export function setEntityFrontmatter(ws, store, kind, id, changes) {
+	const shape = ENTITY_SHAPE[kind];
+	const { dir, file, shipped } = entitySource(ws, kind, id);
+	if (!shipped) throw new Error(`${kind.replace(/s$/, '')} "${id}" does not exist — dt list ${kind}`);
+	refuseNpmEntity(kind, id, shipped);
+	const target = shape.folder ? path.join(dir, 'SKILL.md') : file;
+	// A YAML source (a binding, a template) is a whole document; a markdown one has frontmatter and
+	// prose. `writeSource` round-trips both — the difference is only which text it is handed.
+	const isYaml = shape.suffix.endsWith('.yaml');
+	const previousText = fs.readFileSync(target, 'utf8');
+	const changed = [];
+	const gate = writeGated(ws, store, [target], `dreamteamer: ${kind} set ${id} ${Object.keys(changes).join(' ')}`, () => {
+		if (isYaml) {
+			const doc = load(previousText) ?? {};
+			for (const [k, v] of Object.entries(changes)) {
+				if (v === '' || v === null) delete doc[k];
+				else doc[k] = v;
+				changed.push(k);
+			}
+			fs.writeFileSync(target, writeSource(previousText, doc));
+		} else {
+			let text = previousText;
+			for (const [k, v] of Object.entries(changes)) {
+				text = setFrontmatterKey(text, k, v === '' ? null : v);
+				changed.push(k);
+			}
+			fs.writeFileSync(target, text);
+		}
+	}, undefined, { commentsMayDecrease: true });
+	return { id, file: target, changed, commits: gate.commits };
+}
+
+/**
+ * One frontmatter key, set (or removed with `null`), with the BODY untouched.
+ *
+ * ⚠ Round-tripped through `writeSource` over the frontmatter block ALONE, and the body re-attached
+ * verbatim. Re-dumping a whole markdown file is how a skill's prose gets re-wrapped by a verb that
+ * was asked to change one word of its description — and a skill's prose is the entire artifact.
+ */
+function setFrontmatterKey(text, key, value) {
+	const m = /^---\r?\n([\s\S]*?)\r?\n---(\r?\n[\s\S]*)?$/.exec(text);
+	if (!m) throw new Error('no YAML frontmatter — a markdown entity starts with a `---` block, and this file does not.');
+	const doc = load(m[1]) ?? {};
+	if (value === null) delete doc[key];
+	else doc[key] = value;
+	const front = writeSource(m[1], doc).replace(/\n+$/, '');
+	return `---\n${front}\n---${m[2] ?? '\n'}`;
+}

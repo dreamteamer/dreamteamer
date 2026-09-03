@@ -31,8 +31,9 @@ One skill, two acts, syntax delegated to `help`.
 The consolidation re-verified every claim against the engine at 0.15.1 and fixed what had
 drifted. Worth knowing because the OLD prose said otherwise:
 
-- **`dt help` is complete** — record, schema and workspace verbs all documented. (The old
-  records.md claimed schema verbs were absent from it.)
+- **`dt help` is complete** — record, system, field and workspace verbs all documented. (The old
+  records.md claimed schema verbs were absent from it. The `schema` GROUP itself retired in 0.19.0:
+  system entities take the record verbs and fields have four verbs of their own.)
 - **`dt changes` diffs per-descriptor storage paths across every repo that holds records**, and
   resolves `--since` shas to dates cross-repo; the old git-events.md described a literal
   `data/ state/` pathspec. `state/` itself is a deprecated convention.
@@ -40,7 +41,7 @@ drifted. Worth knowing because the OLD prose said otherwise:
   `--where`. Verified live. ⚠ **No longer true**: a repeated flag now composes as a conjunction
   (the last-wins parse was fixed after 0.16.1, because "returns rows the caller excluded, at exit
   0" is a defect and not a grammar).
-- **`options.sort: ''` cannot be written through `schema set-view`** (an empty dotted value
+- **`options.sort: ''` cannot be written through `set ui-views/<id>`** (an empty dotted value
   removes the key) — hand-write it in the source. Verified live. ⚠ **No longer true**: a QUOTED
   value says "the empty string IS the value" (`'options.sort=""'`), added after 0.16.1; a bare
   `options.sort=` still removes.
