@@ -95,7 +95,8 @@ describe('the hand-authored kinds — add is refused WITH THE PATH', () => {
 			const ws = twoModuleWorkspace();
 			const res = ws.dt('add', kind, '--name', 'thing');
 			assert.equal(res.code, 1);
-			assert.match(res.stderr, new RegExp(`a ${kind.replace(/s$/, '')} is hand-authored`));
+			// `an agent`, `a command` — the article follows the noun rather than being hardcoded
+			assert.match(res.stderr, new RegExp(`an? ${kind.replace(/s$/, '')} is hand-authored`));
 			assert.match(res.stderr, /modules\/default\//);
 			assert.match(res.stderr, /dreamteamer compile/);
 		});
