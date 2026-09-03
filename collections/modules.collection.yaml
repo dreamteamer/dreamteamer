@@ -37,6 +37,12 @@ schema:
         What to CALL this module — authored as `dreamteamer.title` in its package.json, else derived
         from the id. Authored because deriving cannot know an acronym: titleCase("crm") is "Crm".
         A module names itself, which is what replaces a display-name map maintained in a surface.
+    description:
+      type: string
+      description: >-
+        What this module is FOR, in one line — authored as `dreamteamer.description` in its
+        package.json, never derived. Written by `dt add modules --description` and
+        `dt set modules/<id> description=…`.
     channel:
       type: string
       enum: [path, git, npm, inline]
@@ -84,6 +90,9 @@ schema:
         type: string
         x-reference: collections
 order: 140
-list_fields: [title, name, channel, collections]
+# ⚠ ALL THREE IDENTITY SPELLINGS. A module is one string after `add modules` (folder = package name
+# = id), and three strings for anything that predates it — so the listing shows the id (always
+# printed first), the package `name` and the `path`, which is how an operator sees the fork at all.
+list_fields: [channel, path, name, collections]
 icon: deployed_code
 group: system

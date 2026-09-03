@@ -13,7 +13,9 @@ import {
 	// was copy-pasted here, and the copy went stale the moment the source layout gained a second
 	// spelling — one implementation, two callers
 	workspaceSystemDir,
+	createModule, removeModule, renameModule, setModule,
 } from './schema-ops.js';
+import { KINDS } from './compile.js';
 import { history, historyDiff } from './history.js';
 import { commandsFor, recordResolver } from './record-commands.js';
 import { distinctValues } from './field-values.js';
@@ -77,6 +79,10 @@ export function collectionCommand(ws, collection, verb, args) {
 	if (collection === 'collections' && verb === 'rename') return metaCollectionsRename(ws, store, flags, pos);
 	if (collection === 'commands' && verb === 'for') return metaCommandsFor(ws, store, flags, pos);
 	if (collection === 'ui-views' && ['add', 'set', 'rm'].includes(verb)) return metaUiView(ws, store, verb, flags, pos);
+	if (collection === 'modules' && verb === 'add') return metaModulesAdd(ws, store, flags);
+	if (collection === 'modules' && verb === 'rm') return metaModulesRm(ws, store, flags, pos);
+	if (collection === 'modules' && verb === 'rename') return metaModulesRename(ws, store, flags, pos);
+	if (collection === 'modules' && verb === 'set') return metaModulesSet(ws, store, flags, pos);
 	if (collection === 'repos' && verb === 'ensure') return metaReposEnsure(ws, flags, pos);
 	if (verb === 'add-field') return metaAddField(ws, store, collection, flags);
 	if (verb === 'update-field') return metaUpdateField(ws, store, collection, flags);
@@ -286,6 +292,79 @@ function metaReposEnsure(ws, flags, pos) {
 	for (const r of results) console.log(r.cloned ? `✔ cloned ${r.path}` : `✔ ${r.path} (present)`);
 	if (!results.length) console.log('(no repos declared)');
 	return 0;
+}
+
+// ---- modules ----------------------------------------------------------------------------------
+// A module is the one system entity that had no verbs at all, which is what left system-entity CRUD
+// incomplete: there was no `add-module`, no `rm-module`, no `rename-field`, and no way to NAME a
+// target module. §6.2.
+
+// `dreamteamer add modules --name core [--description "…"]`
+function metaModulesAdd(ws, store, flags) {
+	refuseRepeats(flags);
+	const out = createModule(ws, store, { name: oneValue(flags, 'name'), description: oneValue(flags, 'description') });
+	if (flags.json) { emit(JSON.stringify(out)); return 0; }
+	console.log(`✔ ${out.root}/ — package.json + ${KIND_COUNT} kind folder(s)`);
+	console.log('✔ compiled — the module is live (add a collection with `dreamteamer add collections --name <c> --module ' + out.id + '`)');
+	return 0;
+}
+
+// `dreamteamer rm modules/core [--force] [--dry-run]`
+function metaModulesRm(ws, store, flags, pos) {
+	refuseRepeats(flags);
+	const id = need(pos, 0, 'module id');
+	const out = removeModule(ws, store, id, { force: !!flags.force, dryRun: !!flags['dry-run'] });
+	if (flags.json) { emit(JSON.stringify(out)); return 0; }
+	if (out.dryRun) {
+		console.log(`dry run — dreamteamer rm modules/${id} --force would:`);
+		console.log(planLine(out));
+		if (out.collections.length) console.log(`  sources removed for: ${out.collections.join(', ')}`);
+		if (out.withRecords.length) console.log(`  records left in place and UNINDEXED: ${out.withRecords.join(', ')}`);
+		if (out.dependents.length) console.log(`  dependencies entry dropped from: ${out.dependents.join(', ')}`);
+		return 0;
+	}
+	console.log(`✔ removed module ${out.removed}`);
+	if (out.withRecords.length) console.log(`  ⚠ records remain and are now unindexed: ${out.withRecords.join(', ')}`);
+	if (out.dependents.length) console.log(`  dropped it from ${out.dependents.join(', ')}'s dependencies`);
+	console.log('✔ compiled — the module is gone');
+	return 0;
+}
+
+// `dreamteamer rename modules/core shared`
+function metaModulesRename(ws, store, flags, pos) {
+	refuseRepeats(flags);
+	const oldId = need(pos, 0, 'module id');
+	const out = renameModule(ws, store, oldId, need(pos, 1, 'new module id'));
+	if (flags.json) { emit(JSON.stringify(out)); return 0; }
+	if (!out.renamed) { console.log(`✔ ${oldId} — already named that, nothing to do`); return 0; }
+	console.log(`✔ ${oldId} → ${out.id}`);
+	console.log(`  rewrote  ${out.rewrites} reference(s): extends, dependencies, disable and modules/${oldId} refs`);
+	console.log('✔ compiled — the rename is live, in ONE commit');
+	return 0;
+}
+
+// `dreamteamer set modules/hr description="…" dependencies=modules/core`
+function metaModulesSet(ws, store, flags, pos) {
+	refuseRepeats(flags);
+	const id = need(pos, 0, 'module id');
+	const changes = { ...pairs(pos.slice(1)), ...stripMeta(flags) };
+	if (!Object.keys(changes).length) throw new Error('nothing to set — pass key=value pairs (description, dependencies, peerDependencies)');
+	const out = setModule(ws, store, id, changes);
+	if (flags.json) { emit(JSON.stringify(out)); return 0; }
+	console.log(`✔ ${rel(ws.root, out.file)} — ${out.changed.join(', ')}`);
+	console.log('✔ compiled — the module record is up to date');
+	return 0;
+}
+
+/** How many kind folders `add modules` scaffolds, for its own report. Read off the engine's own
+ *  KINDS so the sentence cannot go stale against the list it describes. */
+const KIND_COUNT = KINDS.length;
+
+/** The plan line every destructive verb prints, one shape: `records N · refs M · descriptors K ·
+ *  values cleared V`. ONE format, because a reader comparing two dry runs must not have to work out
+ *  whether a missing term means zero or means "this verb does not count that". */
+function planLine(plan) {
+	return `  records ${plan.records ?? 0} · refs ${plan.refs ?? 0} · descriptors ${plan.descriptors ?? 0} · values cleared ${plan.cleared ?? 0}`;
 }
 
 // `dreamteamer collections add --name research-docs --template docs`

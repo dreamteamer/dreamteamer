@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { load, dump, writeSource, commentCount } from './yaml.js';
-import { compile, kindDir, titleCase } from './compile.js';
+import { compile, kindDir, titleCase, KINDS } from './compile.js';
 import { readManifest, runtimeKindDir } from './runtime.js';
 import { normalizeNamespaces, namespaceOf, baseNameOf, qualify, defaultStoragePath, singular } from './namespace.js';
 import { refTargetsOf } from './ref.js';
@@ -116,6 +116,383 @@ function writeGated(ws, store, files, subject, mutate, after, { commentsMayDecre
  *  meant "the compiled runtime is valid and current". */
 function compileGated(ws, store) {
 	return store.withWriteLock(() => compile(ws));
+}
+
+/**
+ * THE GATE FOR AN OP WHOSE MUTATION IS NOT A SET OF FILE WRITES — a folder move, a delete, several
+ * package.json edits at once.
+ *
+ * `writeGated` snapshots BYTES per file, which cannot express any of those: a directory hands
+ * `readFileSync` an EISDIR, and a pathspec naming only one file inside a deleted tree commits one
+ * deletion and leaves the rest staged-but-uncommitted. So the caller supplies its own `undo` and
+ * this owns the ORDER, which is the part that must not be re-derived per op: mutate → compile →
+ * commit, and on any failure undo, recompile, rethrow.
+ *
+ * Same cross-process write lock, same "nothing half-done" contract, same `headMoved()` after a
+ * commit. `renameCollection` is the precedent — it has carried its own copy of this block since it
+ * needed to move a record folder, and this is that block with the mutation lifted out.
+ *
+ * `mutate()` may return `{ paths }` to extend the commit pathspec with files it discovered; its
+ * return value is what this returns.
+ */
+export function gatedTreeOp(ws, store, { subject, paths, mutate, undo }) {
+	return store.withWriteLock(() => {
+		let out;
+		try {
+			out = mutate() ?? {};
+			compile(ws); // the gate: an uncompilable change never reaches history
+		} catch (e) {
+			undo();
+			try { compile(ws); } catch { /* pre-op sources were compilable */ }
+			throw e;
+		}
+		// `git add -- <path>` FAILS OUTRIGHT on a pathspec that is neither on disk nor in the index,
+		// and one bad entry aborts the whole add — which is precisely what a never-committed source
+		// becomes when this op deletes it. Filter, don't assume (renameCollection's lesson).
+		const rels = [...new Set([...paths, ...(out.paths ?? [])])]
+			.filter((rel) => fs.existsSync(path.join(ws.root, rel)) || isTracked(ws.root, rel));
+		try {
+			if (rels.length) {
+				execFileSync('git', ['add', '--all', '--', ...rels], { cwd: ws.root, stdio: GIT_QUIET });
+				execFileSync('git', ['commit', '--quiet', '-m', subject, '--', ...rels], { cwd: ws.root, stdio: GIT_QUIET });
+			}
+		} catch (e) {
+			try { execFileSync('git', ['reset', '--quiet', '--', ...rels], { cwd: ws.root, stdio: GIT_QUIET }); } catch { /* nothing staged */ }
+			undo();
+			try { compile(ws); } catch { /* pre-op sources were compilable */ }
+			throw new Error(`git commit failed — ${subject} was rolled back, nothing was changed. (${e.message.split('\n')[0]})`);
+		} finally {
+			store.headMoved(); // this ran `git commit` — see store.gitHead
+		}
+		return out;
+	});
+}
+
+// ---- modules ---------------------------------------------------------------------------------
+// A module is THREE-SPELLED today: the package `name` (discovery, `extends:`, `dependencies`), the
+// folder (the `workspace-module` key), and the slugged scope-stripped record id. The RECORD ID is
+// the identity everywhere the operator types it — `--module <id>`, `modules/<id>` references,
+// `dependencies` values — and the engine maps id → package name internally. `add modules` sets all
+// three to one string so a new module never forks; an existing forked module keeps working, and
+// `dt list modules` prints all three columns so the fork is visible.
+
+/** A module id: the same id-safe alphabet a namespace segment uses, because it becomes a folder
+ *  name, a package name and a record id at once. */
+const MODULE_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+/** Every module as `{ id, fields }`, off the compiled projection — the one enumeration, so `--module`
+ *  validation, the "known:" list and the id→package-name map cannot disagree. */
+function moduleRows(store) {
+	if (!store.descriptors.has('modules')) return [];
+	return [...store.readAll('modules')].map((r) => ({ id: r.id, fields: r.fields }));
+}
+
+/** One module, or the refusal §13 requires: `no module "nope" — known: core, hr, default (dt list
+ *  modules). A module is named by its id.` */
+export function moduleRecord(store, id) {
+	const rows = moduleRows(store);
+	const hit = rows.find((r) => r.id === id);
+	if (hit) return hit;
+	throw new Error(`no module "${id}" — known: ${rows.map((r) => r.id).join(', ') || 'none'} (dt list modules). A module is named by its id.`);
+}
+
+/** id → the package `name` its sources actually spell, which is what `extends`, `dependencies` and
+ *  `disable` are written in. Equal to the id for anything `add modules` created. */
+const packageNameOf = (store, id) => moduleRecord(store, id).fields.name;
+
+/** A module's own package.json, absolute. */
+function modulePkgFile(ws, store, id) {
+	return path.join(ws.root, moduleRecord(store, id).fields.path, 'package.json');
+}
+
+/** Read → mutate the `dreamteamer` section → write, preserving every other key and the tab
+ *  indentation `init` uses. Returns the file path so a caller can put it in a pathspec. */
+function editModulePkg(file, mutate) {
+	const pkg = JSON.parse(fs.readFileSync(file, 'utf8'));
+	pkg.dreamteamer ??= {};
+	mutate(pkg.dreamteamer, pkg);
+	fs.writeFileSync(file, JSON.stringify(pkg, null, '\t') + '\n');
+	return file;
+}
+
+/** The workspace's own package.json, read → mutate → write. `ws.pkg` is refreshed in place because
+ *  `compile({root, pkg})` reads the object it was handed, not the file — a rename that moved
+ *  `workspace-module` and did not do this compiled the PREVIOUS layout and failed on a stray-sources
+ *  error naming a module that no longer exists. */
+function editWorkspacePkg(ws, mutate) {
+	const file = path.join(ws.root, 'package.json');
+	const pkg = JSON.parse(fs.readFileSync(file, 'utf8'));
+	pkg.dreamteamer ??= {};
+	mutate(pkg.dreamteamer, pkg);
+	fs.writeFileSync(file, JSON.stringify(pkg, null, '\t') + '\n');
+	for (const k of Object.keys(ws.pkg)) delete ws.pkg[k];
+	Object.assign(ws.pkg, pkg);
+	return file;
+}
+
+export function createModule(ws, store, { name, description }) {
+	if (!name || name === true) throw new Error('missing module name — dreamteamer add modules --name <id>');
+	if (!MODULE_ID.test(name)) {
+		throw new Error(`invalid module id "${name}" — lowercase alphanumeric with single hyphens. It becomes a folder name, a package name and a record id at once, so there is only one spelling.`);
+	}
+	const rows = moduleRows(store);
+	const clash = rows.find((r) => r.id === name);
+	if (clash) throw new Error(`module "${name}" already exists (${clash.fields.path}) — dt list modules`);
+	const root = path.join(ws.root, 'modules', name);
+	if (fs.existsSync(root)) throw new Error(`modules/${name} already exists on disk — remove it or pick another id`);
+
+	const dt = {};
+	if (typeof description === 'string' && description) dt.description = description;
+	// `files` is the npm publish surface: every kind a module CAN ship, so a kind added to the engine
+	// does not silently stop being packaged.
+	const mpkg = { name, private: true, version: '0.0.1', files: [...KINDS], dreamteamer: dt };
+	const pkgFile = path.join(root, 'package.json');
+
+	const out = gatedTreeOp(ws, store, {
+		subject: `dreamteamer: modules add ${name}`,
+		paths: [path.relative(ws.root, pkgFile)],
+		mutate: () => {
+			// ⚠ SCAFFOLD EVERY KIND FOLDER. Not decoration: it is what makes the module's shape
+			// self-documenting the moment it exists, and compile's "contributed no recognised sources"
+			// warning is taught to read a scaffolded folder as a module being authored (see compile.js)
+			// rather than as a mistake — a verb whose own output triggers a warning reads as broken.
+			// git cannot track an empty directory, so only package.json is in the pathspec.
+			for (const kind of KINDS) fs.mkdirSync(path.join(root, kind), { recursive: true });
+			fs.writeFileSync(pkgFile, JSON.stringify(mpkg, null, '\t') + '\n');
+		},
+		undo: () => fs.rmSync(root, { recursive: true, force: true }),
+	});
+	return { id: name, root: path.relative(ws.root, root), file: pkgFile, commits: out.commits };
+}
+
+/** The settable fields of a `modules` record, and how each translates from the record-shaped value
+ *  the operator types to the form the source file uses. */
+const MODULE_SETTABLE = {
+	description: { key: 'description', from: (v) => String(v) },
+	dependencies: { key: 'dependencies', from: (v, store) => asList(v).map((r) => moduleIdFromRef(r, store)) },
+	peerDependencies: { key: 'peerDependencies', from: (v) => asList(v).map((r) => String(r).replace(/^collections\//, '')) },
+};
+
+const asList = (v) => (Array.isArray(v) ? v : String(v).split(',')).map((s) => String(s).trim()).filter(Boolean);
+
+/** `modules/core` → the package name `core` spells. A bare `core` is accepted and named as a
+ *  mistake-in-waiting rather than silently: a reference VALUE is `<collection>/<id>` everywhere else
+ *  in this engine, and `check` rejects the bare form. */
+function moduleIdFromRef(ref, store) {
+	const s = String(ref);
+	if (!s.startsWith('modules/')) {
+		throw new Error(`dependencies takes record-shaped values — write "modules/${s}", not "${s}" (a reference is <collection>/<id> everywhere in this engine).`);
+	}
+	return packageNameOf(store, s.slice('modules/'.length));
+}
+
+export function setModule(ws, store, id, changes) {
+	const rec = moduleRecord(store, id);
+	const unknown = Object.keys(changes).filter((k) => !(k in MODULE_SETTABLE));
+	if (unknown.length) {
+		throw new Error(`"${unknown[0]}" is not a settable field of modules — settable: ${Object.keys(MODULE_SETTABLE).join(', ')}. Everything else on a module record is PROJECTED by compile from its package.json.`);
+	}
+	const file = path.join(ws.root, rec.fields.path, 'package.json');
+	if (IN_NODE_MODULES(rec.fields.path)) {
+		throw new Error(`module "${id}" ships from node_modules (${rec.fields.path}) — a write there is erased by the next \`npm install\`. Vendor it into modules/ or install it as a git module.`);
+	}
+	const changed = [];
+	const gate = writeGated(ws, store, [file], `dreamteamer: modules set ${id}`, () => {
+		editModulePkg(file, (dt) => {
+			for (const [k, raw] of Object.entries(changes)) {
+				const spec = MODULE_SETTABLE[k];
+				// An empty value REMOVES the key — the same convention `store.set` has always had for a
+				// record field, extended to the package.json a module record is projected from.
+				if (raw === '' || raw === null) { delete dt[spec.key]; changed.push(k); continue; }
+				const value = spec.from(raw, store);
+				if (Array.isArray(value) && !value.length) { delete dt[spec.key]; changed.push(k); continue; }
+				dt[spec.key] = value;
+				changed.push(k);
+			}
+		});
+	}, undefined, { commentsMayDecrease: true });
+	return { id, file, changed, commits: gate.commits };
+}
+
+export function removeModule(ws, store, id, { force = false, dryRun = false } = {}) {
+	const { fields } = moduleRecord(store, id);
+	if (fields.channel === 'npm') {
+		throw new Error(`module "${id}" is installed by npm (${fields.path}) — remove it from package.json dependencies and run \`npm install\`; a delete under node_modules/ is erased by the next install.`);
+	}
+	if (fields.channel === 'git') {
+		throw new Error(`module "${id}" is a clone under ${fields.path}, and its package.json lives in ANOTHER repo — remove it from dreamteamer.git-modules and delete the clone. This verb removes inline modules only.`);
+	}
+	if (ws.pkg.dreamteamer?.['workspace-module'] === id) {
+		throw new Error(`module "${id}" IS this workspace's own module (dreamteamer.workspace-module) — removing it would leave the workspace with no sources of its own. Point workspace-module at another module first.`);
+	}
+	if (fields.owns_data === true) {
+		throw new Error(`module "${id}" sets owns-data, so its records live INSIDE ${fields.path}/data — removing the module would delete them, which this verb never does. Drop owns-data and move the records out first.`);
+	}
+
+	const shipped = (fields.collections ?? []).map((r) => String(r).replace(/^collections\//, '')).sort();
+	const withRecords = shipped.filter((c) => store.descriptors.has(c) && store.ids(c).size > 0);
+	if (shipped.length && !force) {
+		throw new Error(`${id} still ships ${shipped.length} collection${shipped.length === 1 ? '' : 's'} (${shipped.join(', ')}), ${withRecords.length} with records. --force removes the sources; records stay and become unindexed.`);
+	}
+	// A `dependencies` entry naming this module in ANOTHER module fails the gate compile ("depends
+	// on X, which is not installed"), so it goes in the SAME write — otherwise --force is a verb that
+	// cannot succeed. peerDependencies names COLLECTIONS and needs no edit: a peer whose provider is
+	// gone is exactly what `unresolved_peers` exists to excuse.
+	const pkgName = fields.name;
+	const dependents = moduleRows(store)
+		.filter((r) => r.id !== id && (r.fields.dependencies ?? []).includes(`modules/${id}`))
+		.map((r) => r.id);
+	const plan = {
+		collections: shipped, withRecords, dependents,
+		records: 0, refs: 0, descriptors: shipped.length,
+		cleared: 0,
+	};
+	if (dryRun) return { ...plan, dryRun: true };
+
+	const root = path.join(ws.root, 'modules', id);
+	// ⚠ STASH, DO NOT DELETE, UNTIL THE COMMIT LANDS. `gatedTreeOp`'s `undo` has to be able to put the
+	// whole tree back, and a `rmSync` cannot be undone. `.dreamteamer/` is gitignored and on the same
+	// device (a cross-device rename would fail), and compile only ever removes the kind folders and
+	// `system/`/`ui/` by name — a dot-prefixed sibling survives it.
+	const stash = path.join(ws.root, '.dreamteamer', `.rm-module-${id}`);
+	const depFiles = dependents.map((m) => modulePkgFile(ws, store, m));
+	const depBytes = new Map(depFiles.map((f) => [f, fs.readFileSync(f)]));
+	fs.rmSync(stash, { recursive: true, force: true });
+
+	let out;
+	try {
+		out = gatedTreeOp(ws, store, {
+			subject: `dreamteamer: modules rm ${id}`,
+			paths: [path.relative(ws.root, root), ...depFiles.map((f) => path.relative(ws.root, f))],
+			mutate: () => {
+				for (const f of depFiles) {
+					editModulePkg(f, (dt) => {
+						dt.dependencies = (dt.dependencies ?? []).filter((n) => n !== pkgName);
+						if (!dt.dependencies.length) delete dt.dependencies;
+					});
+				}
+				fs.mkdirSync(path.dirname(stash), { recursive: true });
+				fs.renameSync(root, stash);
+			},
+			undo: () => {
+				if (fs.existsSync(stash)) fs.renameSync(stash, root);
+				for (const [f, bytes] of depBytes) fs.writeFileSync(f, bytes);
+			},
+		});
+	} finally {
+		fs.rmSync(stash, { recursive: true, force: true });
+	}
+	return { removed: id, ...plan, commits: out.commits };
+}
+
+export function renameModule(ws, store, oldId, newId) {
+	if (!newId || newId === true) throw new Error('missing new module id — dreamteamer rename modules/<old> <new>');
+	if (oldId === newId) return { renamed: false, id: newId, files: [], rewrites: 0 };
+	if (!MODULE_ID.test(newId)) throw new Error(`invalid module id "${newId}" — lowercase alphanumeric with single hyphens.`);
+	const { fields } = moduleRecord(store, oldId);
+	if (moduleRows(store).some((r) => r.id === newId)) throw new Error(`module "${newId}" already exists — dt list modules`);
+	if (fields.channel === 'npm') {
+		throw new Error(`module "${oldId}" ships from node_modules (${fields.path}) — a write there is erased by the next \`npm install\`. Rename it in its own repo and release.`);
+	}
+	if (fields.channel === 'git') {
+		// ⚠ TWO COMMITS BY CONSTRUCTION, and the verb says so rather than half-doing it: the module's
+		// package.json lives in the clone's own repo, and this workspace's half (git-modules, extends,
+		// dependencies, modules/<id> refs) is a commit here. Perform the workspace half only after the
+		// clone half has landed and been pushed.
+		throw new Error(`module "${oldId}" is a clone under ${fields.path}, whose package.json is in ANOTHER repo — a git-shape rename is TWO commits by construction.\n  1. rename it there (package.json name → "${newId}") and push;\n  2. re-run this to perform the workspace half: dreamteamer.git-modules, every extends:, every dependencies entry, and modules/${oldId} references.`);
+	}
+	const oldPkgName = fields.name;
+	const oldRoot = path.join(ws.root, 'modules', oldId);
+	const newRoot = path.join(ws.root, 'modules', newId);
+	if (fs.existsSync(newRoot)) throw new Error(`modules/${newId} already exists on disk`);
+
+	const snapshots = new Map(); // absolute file -> bytes, for undo
+	const snap = (f) => { if (!snapshots.has(f) && fs.existsSync(f)) snapshots.set(f, fs.readFileSync(f)); return f; };
+	const paths = new Set([`modules/${oldId}`, `modules/${newId}`, 'package.json']);
+	let moved = false;
+	let rewrites = 0;
+	const undoRefs = [];
+
+	const out = gatedTreeOp(ws, store, {
+		subject: `dreamteamer: modules rename ${oldId} → ${newId}`,
+		paths: [...paths],
+		mutate: () => {
+			// 1. the module's own record refs, BEFORE the folder moves — `store.rewriteRefsBatch`
+			//    resolves each collection's directory from the descriptors the Store was built with,
+			//    and those are still correct until compile re-runs.
+			const refs = store.rewriteRefs(`modules/${oldId}`, `modules/${newId}`);
+			undoRefs.push(refs.restore);
+			rewrites += refs.rewrites;
+			for (const f of refs.touched) paths.add(path.relative(ws.root, f));
+
+			// 2. the folder, then its package.json `name`
+			fs.renameSync(oldRoot, newRoot);
+			moved = true;
+			const ownPkg = path.join(newRoot, 'package.json');
+			const ownBytes = fs.readFileSync(ownPkg);
+			snapshots.set(path.join(oldRoot, 'package.json'), ownBytes); // restored after the un-move
+			const own = JSON.parse(ownBytes.toString('utf8'));
+			own.name = newId;
+			fs.writeFileSync(ownPkg, JSON.stringify(own, null, '\t') + '\n');
+
+			// 3. the WORKSPACE package.json: `workspace-module` when it names this module, and every
+			//    `disable` entry prefixed with the old package name. SNAPSHOTTED FIRST — editWorkspacePkg
+			//    writes, so capturing the pre-image afterwards is impossible.
+			snap(path.join(ws.root, 'package.json'));
+			const wsFile = editWorkspacePkg(ws, (dt) => {
+				if (dt['workspace-module'] === oldId) dt['workspace-module'] = newId;
+				if (Array.isArray(dt.disable)) {
+					dt.disable = dt.disable.map((e) => (String(e).startsWith(`${oldPkgName}/`) ? `${newId}/${String(e).slice(oldPkgName.length + 1)}` : e));
+				}
+			});
+			paths.add(path.relative(ws.root, wsFile));
+
+			// 4. every OTHER module's `dreamteamer.dependencies` naming it. peerDependencies names
+			//    collections and is untouched.
+			for (const r of moduleRows(store)) {
+				if (r.id === oldId || r.fields.channel === 'npm') continue;
+				const f = path.join(ws.root, r.fields.path, 'package.json');
+				if (!fs.existsSync(f)) continue;
+				const dt = JSON.parse(fs.readFileSync(f, 'utf8')).dreamteamer ?? {};
+				if (!(dt.dependencies ?? []).includes(oldPkgName)) continue;
+				snap(f);
+				editModulePkg(f, (d) => { d.dependencies = d.dependencies.map((n) => (n === oldPkgName ? newId : n)); });
+				paths.add(path.relative(ws.root, f));
+				rewrites++;
+			}
+
+			// 5. every `extends: <oldPkgName>/<collection>` in a descriptor source — ROUND-TRIPPED, for
+			//    the reason renameCollection round-trips: a descriptor's comments are where a module
+			//    writes down why the collection exists, and `dump` cannot keep them.
+			for (const f of descriptorSources(ws, store)) {
+				const before = fs.readFileSync(f, 'utf8');
+				const doc = load(before);
+				const ext = doc?.extends;
+				if (typeof ext !== 'string' || !ext.startsWith(`${oldPkgName}/`)) continue;
+				doc.extends = `${newId}/${ext.slice(oldPkgName.length + 1)}`;
+				const after = writeSource(before, doc);
+				if (load(after)?.extends !== doc.extends || commentCount(after) < commentCount(before)) {
+					throw new Error(`could not rewrite \`extends\` in ${path.relative(ws.root, f)} without reformatting it — nothing was changed.`);
+				}
+				snap(f);
+				fs.writeFileSync(f, after);
+				paths.add(path.relative(ws.root, f));
+				rewrites++;
+			}
+			return { paths: [...paths] };
+		},
+		undo: () => {
+			for (const u of [...undoRefs].reverse()) u();
+			if (moved && fs.existsSync(newRoot)) fs.renameSync(newRoot, oldRoot);
+			for (const [f, bytes] of snapshots) {
+				fs.mkdirSync(path.dirname(f), { recursive: true });
+				fs.writeFileSync(f, bytes);
+			}
+			// re-read the workspace package.json into ws.pkg, whatever it now says on disk
+			editWorkspacePkg(ws, () => {});
+		},
+	});
+	return { renamed: true, id: newId, files: out.paths ?? [], rewrites, commits: out.commits };
 }
 
 /** The workspace's writable source dir for a kind (workspace-module aware). `kindDir` picks the
