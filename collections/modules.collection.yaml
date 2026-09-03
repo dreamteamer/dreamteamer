@@ -26,7 +26,7 @@ id:
 title_template: "{{ name }}"
 schema:
   type: object
-  required: [name, channel]
+  required: [name, location]
   properties:
     name:
       type: string
@@ -52,10 +52,17 @@ schema:
         plus its own; two modules declaring one namespace is a compile error, and USING another
         module's namespace requires that module in `dependencies`. ABSENT means this module ships
         into the default namespace — the empty prefix, which is the commons.
-    channel:
+    location:
       type: string
-      enum: [path, git, npm, inline]
-      description: How this module reached the workspace. `inline` is the workspace's own sources.
+      enum: [modules, git_modules, node_modules, root]
+      description: >-
+        WHERE this module's sources sit — the folder name the operator already knows, so `dt status`
+        needs no legend. `root` is the classic no-workspace-module layout, where the workspace's own
+        sources live at its root rather than under `modules/<id>/`.
+        ⚠ Renamed from `channel` in 0.19.0, and the enum's `path` value was DELETED rather than
+        renamed: discovery never emitted it, so it was an enum advertising work nobody had done.
+        `origin` was rejected (one token from `origin/main`, which `update` literally pulls) and
+        `shape` was rejected (`storage.shape` owns that word).
     path:
       type: string
       description: Workspace-relative root of the module's sources.
@@ -102,6 +109,6 @@ order: 140
 # ⚠ ALL THREE IDENTITY SPELLINGS. A module is one string after `add modules` (folder = package name
 # = id), and three strings for anything that predates it — so the listing shows the id (always
 # printed first), the package `name` and the `path`, which is how an operator sees the fork at all.
-list_fields: [channel, path, namespaces, name, collections]
+list_fields: [location, path, namespaces, name, collections]
 icon: deployed_code
 group: system

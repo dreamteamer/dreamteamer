@@ -138,6 +138,12 @@ function derivedBase(d) {
  */
 export function sourceRoots(root) {
 	const modules = readManifest(root)?.modules ?? [];
-	const roots = [root, ...modules.filter((m) => m.channel !== 'npm').map((m) => path.resolve(root, m.root))];
+	// ⚠ EITHER SPELLING. `location` is what this engine writes; `channel` is what every runtime on
+	// disk before 0.19.0 has, and a stale runtime is the NORMAL state between a `git pull` and the
+	// next `dt compile`. Reading only the new key would silently make this list the workspace root
+	// alone — and this list is what ref surgery walks, so "silently fewer modules" means a rename
+	// that reports ✔ and leaves half the references dangling.
+	const isNpm = (m) => (m.location ? m.location === 'node_modules' : m.channel === 'npm');
+	const roots = [root, ...modules.filter((m) => !isNpm(m)).map((m) => path.resolve(root, m.root))];
 	return [...new Set(roots)];
 }

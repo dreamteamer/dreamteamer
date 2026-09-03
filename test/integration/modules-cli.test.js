@@ -13,7 +13,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { twoModuleWorkspace, readFile } from '../helpers/ws.js';
-import { load } from '../../src/yaml.js';
+import { load, dump } from '../../src/yaml.js';
 
 const modulePkg = (ws, id) => JSON.parse(readFile(ws.root, `modules/${id}/package.json`));
 
@@ -41,7 +41,7 @@ describe('dt add modules', () => {
 		const rec = JSON.parse(ws.dt('get', 'modules/payroll', '--json').stdout);
 		assert.equal(rec.id, 'payroll');
 		assert.equal(rec.name, 'payroll');
-		assert.equal(rec.channel, 'inline');
+		assert.equal(rec.location, 'modules');
 		assert.equal(rec.path, 'modules/payroll');
 	});
 
@@ -234,6 +234,61 @@ describe('dt list modules shows all three identity spellings', () => {
 		assert.equal(core.name, 'core');
 		assert.equal(core.path, 'modules/core');
 		const plain = ws.dt('list', 'modules').stdout;
-		assert.match(plain, /core\s+inline\s+modules\/core/);
+		assert.match(plain, /core\s+modules\s+modules\/core/);
+	});
+});
+
+describe('location — the folder the operator already knows (§10)', () => {
+	test('an inline module reads `modules`, not `inline`', () => {
+		const ws = twoModuleWorkspace();
+		const rec = JSON.parse(ws.dt('get', 'modules/core', '--json').stdout);
+		assert.equal(rec.location, 'modules');
+		assert.equal(rec.channel, undefined, 'this is a RENAME — the old key is gone from the record');
+	});
+
+	test('an npm module reads `node_modules`', () => {
+		const ws = twoModuleWorkspace();
+		assert.equal(JSON.parse(ws.dt('get', 'modules/dreamteamer', '--json').stdout).location, 'node_modules');
+	});
+
+	test('dt status needs no legend', () => {
+		const ws = twoModuleWorkspace();
+		const out = ws.dt('status').stdout;
+		assert.match(out, /core\s+modules$/m, 'the folder name IS the label — no [inline] to decode');
+		assert.match(out, /dreamteamer\s+node_modules$/m);
+		assert.doesNotMatch(out, /\[inline\]|\[npm\]|\[git\]/);
+	});
+
+	test('the enum has no `path` value — discovery never emitted one', () => {
+		const ws = twoModuleWorkspace();
+		const d = load(readFile(ws.root, '.dreamteamer/collections/modules.collection.yaml'));
+		assert.deepEqual(d.schema.properties.location.enum, ['modules', 'git_modules', 'node_modules', 'root']);
+	});
+
+	test('the manifest carries BOTH keys for one release', () => {
+		const ws = twoModuleWorkspace();
+		const m = load(readFile(ws.root, '.dreamteamer/manifest.yaml'));
+		const core = m.modules.find((x) => x.name === 'core');
+		assert.equal(core.location, 'modules');
+		assert.equal(core.channel, 'inline', 'compat: a reader that has not moved keeps working');
+	});
+
+	test('sourceRoots still excludes npm copies, read off either key', () => {
+		const ws = twoModuleWorkspace();
+		// the ref-surgery path uses sourceRoots; a rename proves it still reaches the right modules
+		assert.equal(ws.dt('rename', 'collections/teams', 'squads').code, 0);
+		assert.ok(readFile(ws.root, 'modules/core/collections/squads.collection.yaml'));
+	});
+
+	test('a manifest written by an OLDER engine (channel only) still resolves sourceRoots', () => {
+		const ws = twoModuleWorkspace();
+		const file = path.join(ws.root, '.dreamteamer/manifest.yaml');
+		const m = load(fs.readFileSync(file, 'utf8'));
+		// strip the new key, leaving exactly what 0.18.0 wrote
+		m.modules = m.modules.map(({ location, ...rest }) => rest);
+		fs.writeFileSync(file, dump(m));
+		// a read path that goes through sourceRoots must not see zero modules
+		assert.equal(ws.dt('list', 'people').code, 0);
+		assert.equal(ws.dt('check').code, 0);
 	});
 });

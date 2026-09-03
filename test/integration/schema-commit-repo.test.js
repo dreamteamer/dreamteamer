@@ -90,9 +90,8 @@ describe('a schema write into a git-shape module', () => {
 		assert.equal(ws.dt('add-field', 'hr/positions', '--name', 'grade', '--type', 'integer').code, 0);
 		const status = ws.dt('status');
 		assert.equal(status.code, 0, status.stderr);
-		// ⚠ TODAY'S FORMAT. `hr  git_modules @ <sha>` is Task 8's rename of the channel column; this
-		// task asserts what `status` actually prints now.
-		assert.match(status.stdout, /hr \[git\] @ \w+/);
+		// §10: the folder name IS the label, so there is no `[git]` to decode.
+		assert.match(status.stdout, /hr\s+git_modules @ \w+/);
 		assert.match(status.stdout, /ahead \d+/);
 	});
 
