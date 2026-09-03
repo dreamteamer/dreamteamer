@@ -253,7 +253,15 @@ console.log(`    compile           ${secs(fixture.compileMs)}`);
 console.log(`    ${(RECORDS + FILLER).toLocaleString()} record writes  ${secs(fixture.writeMs)}   ${rate(RECORDS + FILLER, fixture.writeMs)} through the real Store`);
 // ⚠ ms/add EXPLICITLY, because that is the number the front-matter round-trip is measured against
 // and a rate has to be inverted to compare. Baseline: 0.57 ms/add (1,581 writes/sec), measured on
-// an M-series Mac 2026-09-01 at --records=400 --filler=100.
+// an M-series Mac 2026-09-01 at --records=400 --filler=100. Re-measured 2026-09-03 after the
+// 0.19.0 wave: **0.79 ms/add**, best of three, same flags, same machine — inside the 1.14 ceiling.
+//
+// ⚠ AND THIS NUMBER DOES NOT MEASURE THE ROUND-TRIP. `store.add` never has a previous document, so
+// it takes `serialize`'s `dump` path unchanged; only `store.set` passes `previousText`. A/B on the
+// same machine, best of three each: **2.69 ms/set without the round-trip, 3.28 with — +0.59 ms,
+// +22%**, against a rule whose ceiling was 2x. Isolated, `serialize` itself goes 7.5 µs → 238 µs.
+// If you are gating the round-trip, measure `set`; a run of this harness under load reads 2 ms/add
+// and says nothing about it either way.
 console.log(`    per add           ${(fixture.writeMs / (RECORDS + FILLER)).toFixed(2)}ms   (baseline 0.57ms — the round-trip's ceiling is 1.14)`);
 console.log(`    record files (M)  ${fixture.files.toLocaleString()}   — what one ref pass reads`);
 console.log(`\n  The write rate above is the whole point of measuring generation. \`add\` needs the ids that`);
