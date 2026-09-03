@@ -162,6 +162,22 @@ describe('every surface that names a field by NAME', () => {
 		assert.equal(src(ws, 'hr', 'people').schema.properties.badge, undefined);
 	});
 
+	test('a SAME-NAMED field on ANOTHER collection is left alone', () => {
+		const ws = twoModuleWorkspace();
+		// ⚠ THE REGRESSION THIS PINS, found on a scratch workspace: `notes` is the body field of
+		// almost every collection anybody writes, and the descriptor sweep applied the SCHEMA half to
+		// every file it parsed — so renaming `people.notes` renamed `teams.notes` and
+		// `hr/positions.notes` too, silently, with `check` clean either side of it. Only the relation
+		// keywords name a field across collections.
+		assert.equal(ws.dt('rename-field', 'people', '--name', 'notes', '--to', 'summary').code, 0);
+		assert.equal(src(ws, 'core', 'people').schema.properties.summary['x-body'], true);
+		assert.ok(src(ws, 'core', 'teams').schema.properties.notes, 'teams.notes is a different field');
+		assert.equal(src(ws, 'core', 'teams').schema.properties.summary, undefined);
+		assert.ok(src(ws, 'hr', 'hr/positions').schema.properties.notes);
+		assert.equal(src(ws, 'hr', 'hr/positions').schema.properties.summary, undefined);
+		assert.equal(ws.dt('check').code, 0);
+	});
+
 	test('the report names every source it touched', () => {
 		const ws = twoModuleWorkspace();
 		assert.equal(ws.dt('set', 'collections/people', 'list_fields=name,employer').code, 0);

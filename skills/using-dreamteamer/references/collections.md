@@ -11,7 +11,7 @@ reference is organized for both:
 | the question | read |
 |---|---|
 | what compile actually does to my source | the pipeline |
-| create or change shape with the CLI | the schema verbs |
+| create or change shape with the CLI | the system and field verbs |
 | a brand-new module for a domain | declaring a module |
 | a prefix / a folder per domain | namespaces |
 | the same field set on several collections | `templates:` |
@@ -54,13 +54,13 @@ order explains most "why does the compiled file say that" questions:
 Consequence: **read the compiled file to know what IS; edit the source to change it.** They
 differ by design, and diffing them is often the fastest way to see what compile decided for you.
 
-## the schema verbs — writes through a compile gate
+## the system and field verbs — writes through a compile gate
 
 The one sanctioned way to write schema without hand-editing. Every verb round-trips through a
 **compile gate**, so a change that would not compile is rejected before it lands — and unlike a
 record write, a schema verb **commits its source write itself**, because an uncompilable or
 unpublished schema is not a state the workspace should sit in. The verbs and every flag live in
-`dt help` under "schema verbs" — read that, not prose. What help cannot tell you:
+`dt help` under "system verbs" and "field verbs" — read that, not prose. What help cannot tell you:
 
 - **The field verbs write the WORKSPACE module.** On a collection another module owns, `add-field`
   and `update-field` author an `extends:` overlay in the workspace module — which compiles only
@@ -84,7 +84,7 @@ unpublished schema is not a state the workspace should sit in. The verbs and eve
 - **`add-field` inserts before the `x-body` field**, on the same rule as a `templates:` merge
   below: property order is form order, and a record's body belongs last. `update-field` never
   reorders — an existing field keeps the place its author gave it.
-- **`schema rename-collection <old> <new>`** moves the descriptor **in the module that ships it**
+- **`dt rename collections/<old> <new>`** moves the descriptor **in the module that ships it**
   (its guard is against writes an `npm install` would erase, not against modules), plus the
   records, the filenames and every inbound reference — `x-reference` targets in other descriptors
   and ui-views included — in ONE commit. It refuses: a runtime source, an **overlaid** collection
@@ -129,9 +129,15 @@ module graph (the reference contract, below).
 
 A collection name may carry a slash-delimited namespace, and it becomes real directory nesting:
 
-| declare in the workspace `package.json` | create it | lands in | referenced as |
+| declare in the OWNING MODULE's `package.json` | create it | lands in | referenced as |
 |---|---|---|---|
-| `"namespaces": ["health"]` | `dt schema add-collection --namespace health --name doctors` | `data/health/doctors/` | `health/doctors/dana-levi` |
+| `"dreamteamer": {"namespaces": ["health"]}` | `dt add collections --name doctors --module clinic` | `data/health/doctors/` | `health/doctors/dana-levi` |
+
+A module declaring exactly ONE namespace **infers** it, and the resolved name is always echoed
+(`✔ health/doctors (namespace inferred from module clinic)`). Two or more declared and it refuses
+to guess: `--namespace health`. `--namespace ''` means no namespace. `--namespace x` where nobody
+declares `x` writes the declaration into the target module — which is what travels when the module
+is copied.
 
 - **The default namespace is the empty prefix.** `tasks` stays `data/tasks/` and `tasks/kickoff`,
   so common entities need no prefix and adopting namespaces migrates nothing. `default` is
@@ -139,8 +145,22 @@ A collection name may carry a slash-delimited namespace, and it becomes real dir
 - ⚠ **The namespace MUST be declared before the collection compiles.** An id is also a slash path
   (`meetings/2026/07/kickoff`), so `a/b/c` is ambiguous without the declared set; an undeclared
   prefix is a compile error rather than a reference that silently names a different collection.
-- **Namespaces are declared by the WORKSPACE only, never by a module** — a module that could
-  declare one could rename where another module's records live.
+- **A MODULE declares the namespaces it owns** — `"dreamteamer": { "namespaces": ["hr"] }` in its
+  own `package.json`, and the workspace's effective set is the **union** with its own
+  `dreamteamer.namespaces`. This reversed in 0.19.0. The old rule ("the workspace only, never a
+  module") had a real reason — a module that can declare a namespace can rename where another
+  module's records live — but it made decision 130's own acceptance test, *"a module compiles alone
+  in a bare workspace"*, unpassable for any namespaced module: the consuming workspace had to edit
+  its manifest first, which is exactly the coupling that rule forbids.
+  - **One owner per namespace.** Two modules declaring it is a compile error naming both.
+  - **Using another module's namespace requires the dependency** — shipping `hr/<c>` while only
+    `hr` declares `hr` means listing `hr` in your `dreamteamer.dependencies`. Without this rule the
+    union would let you squat in another module's namespace silently.
+  - **A workspace-level declaration a module also declares is a WARNING**, not an error, and
+    `dt set modules/<m> namespaces=<ns>` removes the redundant workspace entry in the same write.
+  - **The set is a function of the INSTALLED MODULE SET.** Removing or disabling a namespace-owning
+    module re-splits every reference into it; `check` reports the dangle, and the compile error says
+    the namespace was declared by a module you just removed. `default` stays reserved.
 - `--namespace health --name doctors` and `--name health/doctors` are the same thing. The
   descriptor lands at `collections/health/doctors.collection.yaml` — `collections/` is enumerated
   recursively, so the source tree mirrors the runtime — and the `suffix` comes off the bare name
@@ -203,7 +223,7 @@ Two gates around it:
   hardest dependency there is (the overlay does not compile at all without its base), so compile
   refuses the undeclared case. The workspace module gets **no exemption here** (unlike the
   mirror-stamp and wildcard gates, which do exempt it) — this is exactly the refusal you meet
-  when a field verb targets a module-owned collection (the schema verbs, above).
+  when a field verb targets a module-owned collection (the field verbs, above).
 - ⚠ **An overlay can add fields but cannot remove an inherited one.** If the shape is wrong for
   the module rather than just for this workspace, fix the base.
 

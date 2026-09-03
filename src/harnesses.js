@@ -199,7 +199,13 @@ function collectionsSection(index, namespaces) {
 		}
 	}
 	const system = index.filter((c) => c.system).map((c) => c.name);
-	if (system.length) lines.push(`- schema-ops only (write with the meta verbs, never by hand): ${system.join(' · ')}`);
+	// ⚠ THIS LINE IS THE FIRST THING A SESSION READS about the system collections, and until 0.19.0
+	// it said "schema-ops only", which named an internal module and a grammar that no longer exists.
+	// It now names the VERBS and the one policy difference, because an agent that knows the verbs
+	// exist still has to be told that these commit and records do not.
+	if (system.length) {
+		lines.push(`- system collections — the SAME verbs (add · set · rm · rename · list · get), plus \`dt add-field\`/\`update-field\`/\`remove-field\`/\`rename-field <collection>\`. A system write COMMITS ITSELF, in the repo holding the source; a record write does not (\`dt commit\` publishes). Never hand-edit \`.dreamteamer/\` — it is build output: ${system.join(' · ')}`);
+	}
 	return lines;
 }
 

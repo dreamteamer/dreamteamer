@@ -128,7 +128,7 @@ same record. A misspelled key is read by nobody, silently. The two edges that bi
   (`options.arrangement`) has only the JSON spelling.
 - ⚠ **`options.sort` must be written even when empty** (`sort: ''`), or "unsorted" cannot
   round-trip and silently reverts to a fallback ordering on the next load. The spelling is a
-  QUOTED value — `dt schema set-view <id> 'options.sort=""'` — because a bare `options.sort=`
+  QUOTED value — `dt set ui-views/<id> 'options.sort=""'` — because a bare `options.sort=`
   removes the key, as an empty value does everywhere else. Quoting any value makes it a literal
   string (`options.sort='"-date"'` is the same as `options.sort=-date`).
 
@@ -152,7 +152,7 @@ One shape, one home, both agent-writable, both diffable in git.
 
 ## the CLI can write these
 
-`dt schema add-view | set-view | rm-view` — `add-view` derives the record id from `path` with the
+`dt add ui-views` / `dt set ui-views/<id>` / `dt rm ui-views/<id>` — `add` derives the record id from `path` with the
 descriptor's own template, so a view saved from the CLI and one saved from the UI land on the
 **same record**; `set-view <id>` takes dotted keys (`options.sort=-date`, `nav.label=Recent`). This is the one system-stored
 kind with full CLI write support, because it goes through the same compile gate. Two edges:

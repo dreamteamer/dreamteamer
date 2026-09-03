@@ -821,11 +821,21 @@ function rewriteTemplateField(tpl, from, to) {
 	return tpl.replace(new RegExp(`(\\{\\{\\s*)${from.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\s*(?:\\||\\}\\}))`, 'g'), `$1${to}$2`);
 }
 
-/** Every rename this field name forces on ONE parsed descriptor, applied in place. Returns true if
- *  anything changed, so the caller only rewrites files it has to. */
-function rewriteFieldName(doc, collection, from, to) {
+/**
+ * Every rename this field name forces on ONE parsed descriptor, applied in place. Returns true if
+ * anything changed, so the caller only rewrites files it has to.
+ *
+ * ⚠ `own` DECIDES WHETHER THE SCHEMA HALF APPLIES, and it is not optional. `properties`, `required`,
+ * `list_fields`, `sort_field`, `title_template` and `id.generate` are facts about THIS collection's
+ * own field; the relation keywords (`x-inverse`, `x-inverse-of`) are the only ones that name a field
+ * ACROSS collections. Applying the schema half everywhere renamed a same-named field on every other
+ * descriptor in the workspace — measured on a scratch workspace: `rename-field people --name notes
+ * --to summary` renamed `hr/positions.notes` too, because `notes` is the body field of almost every
+ * collection anybody writes. Silent, and a `check` clean either side of it.
+ */
+function rewriteFieldName(doc, collection, from, to, own) {
 	let changed = false;
-	const props = doc?.schema?.properties;
+	const props = own ? doc?.schema?.properties : undefined;
 	if (props && from in props) {
 		// rebuild preserving ORDER — property order is FORM order, and a body field belongs last
 		const rebuilt = {};
@@ -833,20 +843,20 @@ function rewriteFieldName(doc, collection, from, to) {
 		doc.schema.properties = rebuilt;
 		changed = true;
 	}
-	if (Array.isArray(doc?.schema?.required) && doc.schema.required.includes(from)) {
+	if (own && Array.isArray(doc?.schema?.required) && doc.schema.required.includes(from)) {
 		doc.schema.required = doc.schema.required.map((r) => (r === from ? to : r));
 		changed = true;
 	}
-	if (Array.isArray(doc?.list_fields) && doc.list_fields.includes(from)) {
+	if (own && Array.isArray(doc?.list_fields) && doc.list_fields.includes(from)) {
 		doc.list_fields = doc.list_fields.map((c) => (c === from ? to : c));
 		changed = true;
 	}
-	if (doc?.sort_field === from) { doc.sort_field = to; changed = true; }
-	{
+	if (own && doc?.sort_field === from) { doc.sort_field = to; changed = true; }
+	if (own) {
 		const next = rewriteTemplateField(doc?.title_template, from, to);
 		if (next !== doc?.title_template) { doc.title_template = next; changed = true; }
 	}
-	if (doc?.id?.generate) {
+	if (own && doc?.id?.generate) {
 		const next = rewriteTemplateField(doc.id.generate, from, to);
 		if (next !== doc.id.generate) { doc.id.generate = next; changed = true; }
 	}
@@ -920,14 +930,14 @@ export function renameField(ws, store, collection, from, to, { moduleId, dryRun 
 			//    name a field across collections, so the owner of a mirror may be a different file in
 			//    a different module. ROUND-TRIPPED, because a descriptor's comments are where a module
 			//    writes down why the collection exists, and the comment above a RENAMED field still
-			//    explains it. `rewriteFieldName` already scopes the schema half to
-			//    `doc.schema.properties`, which a foreign descriptor does not carry for this field, so
-			//    its boolean return is the whole "is this file affected" test.
+			//    explains it. ⚠ A FOREIGN descriptor gets the relation keywords ONLY — see
+			//    `rewriteFieldName`'s `own` argument for what applying the schema half everywhere did.
 			for (const f of descriptorSources(ws, store)) {
 				const before = fs.readFileSync(f, 'utf8');
 				const doc = load(before);
 				if (!doc || typeof doc !== 'object') continue;
-				if (!rewriteFieldName(doc, collection, from, to)) continue;
+				// `doc.name === collection` covers the base AND every overlay, which both declare it.
+				if (!rewriteFieldName(doc, collection, from, to, doc.name === collection)) continue;
 				const after = writeSource(before, doc);
 				if (!load(after) || commentCount(after) < commentCount(before)) {
 					throw new Error(`could not rename ${collection}.${from} in ${path.relative(ws.root, f)} without reformatting it — nothing was changed.`);
@@ -1052,18 +1062,27 @@ export function workspaceSystemDir(ws, kind) {
  */
 function descriptorSourceDir(ws, name) {
 	const entry = readManifest(ws.root)?.entries?.[`collections/${name}.collection.yaml`];
-	// `sources` mixes the descriptor with any collection-templates it merged, so match on the shape
-	// of a descriptor path for THIS collection. A namespaced name is nested, hence the full suffix.
-	const suffix = `collections/${name}.collection.yaml`;
+	// `sources` mixes the descriptor with any collection-templates it merged, so match on the KIND —
+	// see baseDescriptorSource for why matching the collection's NAME into the path was wrong.
 	const sources = (entry?.sources ?? [])
-		.map((s) => s.path)
-		.filter((p) => p.endsWith(suffix));
+		.map((s) => (typeof s === 'string' ? s : s?.path))
+		.filter((p) => typeof p === 'string' && p.endsWith('.collection.yaml'));
 	if (!sources.length) return { dir: null, sources };
 	// The BASE descriptor is the one to move. With an overlay present there are two, and the overlay's
 	// `extends` names the base by its old qualified id — rewriting that is a second, different
 	// migration, so the caller refuses rather than half-doing it.
-	const moduleRoot = path.join(ws.root, sources[0].slice(0, sources[0].length - suffix.length));
-	return { dir: kindDir(moduleRoot, 'collections'), sources };
+	//
+	// ⚠ `dir` IS THE OWNING MODULE'S `collections/` KIND DIR — asked of the manifest's module list,
+	// not re-derived by stripping the collection's name off the source path. That arithmetic only
+	// worked while the source path mirrored the name, which a module owning its own namespace need
+	// not do (see baseDescriptorSource). `file` is the base's ACTUAL path, so a caller renaming it
+	// moves the file that exists rather than a path it assumed.
+	const file = path.join(ws.root, sources[0]);
+	const mod = (readManifest(ws.root)?.modules ?? [])
+		.map((m) => (m.root === '.' ? '' : `${m.root}/`))
+		.filter((r) => r === '' || sources[0].startsWith(r))
+		.sort((a, b) => b.length - a.length)[0] ?? '';
+	return { dir: kindDir(path.join(ws.root, mod), 'collections'), file, sources };
 }
 
 /**
@@ -1083,7 +1102,17 @@ export function baseDescriptorSource(ws, name) {
 	const sources = (readManifest(ws.root)?.entries?.[suffix]?.sources ?? [])
 		// sources are `{path, hash}`; tolerate the pre-0.10 string form, as compile's staleness does
 		.map((s) => (typeof s === 'string' ? s : s?.path))
-		.filter((p) => typeof p === 'string' && p.endsWith(suffix));
+		// ⚠ MATCHED ON THE KIND, not on the source path mirroring the collection's NAME. This used
+		// to require `endsWith('collections/<name>.collection.yaml')`, which assumes a namespaced
+		// descriptor is authored NESTED — true of what `dt add collections` writes, and NOT true of a
+		// module that authors `collections/positions.collection.yaml` with `name: hr/positions`,
+		// which is the ordinary shape for a module that OWNS its namespace (§8) and does not want to
+		// repeat it in every path. Measured on a scratch workspace: that module's base was invisible
+		// here, so `add-field hr/positions` created an overlay in the WORKSPACE module and failed
+		// compile for a dependency nobody asked for — the exact defect this wave exists to remove,
+		// surviving one layer down. `sources` is already scoped to THIS collection's manifest entry;
+		// the only other thing in it is a merged collection-TEMPLATE, whose suffix differs.
+		.filter((p) => typeof p === 'string' && p.endsWith('.collection.yaml'));
 	let base = null;
 	const overlays = [];
 	for (const rel of sources) {
@@ -1362,16 +1391,17 @@ export function renameCollection(ws, store, oldName, newName) {
 
 	// The descriptor is renamed IN THE MODULE THAT SHIPS IT — see `descriptorSourceDir`. Two cases
 	// this refuses, both because doing them halfway is worse than not doing them:
-	const { dir: sourceDir, sources } = descriptorSourceDir(ws, oldName);
+	const { dir: sourceDir, file: sourceFile, sources } = descriptorSourceDir(ws, oldName);
 	if (sources.length > 1) {
 		throw new Error(`"${oldName}" is overlaid — ${sources.length} modules contribute a descriptor (${sources.join(', ')}).\n  the overlay's \`extends\` names the base by its current id, so renaming the base alone would break it. merge or remove the overlay first.`);
 	}
 	if (sources.some((p) => p.split(path.sep).includes('node_modules'))) {
 		throw new Error(`"${oldName}" ships from node_modules (${sources[0]}) — a write there is erased by the next \`npm install\`. rename it in its own repo and release, or overlay it with \`extends\`.`);
 	}
-	const src = sourceDir
-		? path.join(sourceDir, `${oldName}.collection.yaml`)
-		: path.join(workspaceSystemDir(ws, 'collections'), `${oldName}.collection.yaml`);
+	// The base's ACTUAL path, not one rebuilt from the name — a module that owns its namespace may
+	// author `collections/positions.collection.yaml` as `hr/positions`, and rebuilding the path then
+	// named a file that does not exist.
+	const src = sourceFile ?? path.join(workspaceSystemDir(ws, 'collections'), `${oldName}.collection.yaml`);
 	const dest = path.join(sourceDir ?? workspaceSystemDir(ws, 'collections'), `${newName}.collection.yaml`);
 	if (!fs.existsSync(src)) {
 		throw new Error(`"${oldName}" has no writable descriptor source — the manifest names none under a module in this workspace. it may be contributed by the engine itself; overlay it with \`extends\` instead.`);

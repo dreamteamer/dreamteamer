@@ -329,16 +329,21 @@ describe('the harness orientation block', () => {
 // ⚠ THE LEXICON IS THE HALF OF THE DSL THAT WAS MISSING AT t=0. A workspace could state the shape of
 // a reference and not name one collection it could point at — and the dogfood vault's hand-written
 // substitute in CLAUDE.md named three collections for 48 hours after they were deleted. These guard
-// the properties that made it safe to derive: every non-system collection present, schema-ops ones
+// the properties that made it safe to derive: every non-system collection present, SYSTEM ones
 // collapsed, `use_when` rendered only when authored, and BYTE-STABILITY across compiles — that last
 // one because this block lands in three COMMITTED root files, where churn is somebody else's merge.
 describe('the orientation block names the workspace', () => {
-	test('every non-system collection appears; schema-ops ones group into one line', () => {
+	test('every non-system collection appears; system ones group into one line', () => {
 		const ws = workspace({ collections: { widgets: simpleCollection({ description: 'a widget', storage: { suffix: 'widget' } }) } });
 		const block = readFile(ws.root, 'CLAUDE.md');
 		assert.match(block, /^- widgets — a widget$/m);
-		assert.match(block, /^- schema-ops only \(write with the meta verbs, never by hand\): .*collections/m);
-		assert.doesNotMatch(block, /^- collections —/m, 'a schema-ops collection must not get its own line');
+		// ⚠ ASSERTED ON THE TWO FACTS, not on the sentence byte-for-byte. This line lands in three
+		// COMMITTED root files in every consuming workspace, so pinning its wording makes a reword
+		// somebody else's merge conflict — and the wording changed in 0.19.0 for exactly that reason.
+		assert.match(block, /system collections — the SAME verbs/);
+		assert.match(block, /A system write COMMITS ITSELF/);
+		assert.doesNotMatch(block, /schema-ops only/);
+		assert.doesNotMatch(block, /^- collections —/m, 'a system collection must not get its own line');
 	});
 
 	test('use_when renders as an indented clause, and its absence renders nothing', () => {
