@@ -157,6 +157,58 @@ function descriptorSourceDir(ws, name) {
 	return { dir: kindDir(moduleRoot, 'collections'), sources };
 }
 
+/**
+ * THE BASE DESCRIPTOR SOURCE, and the overlays beside it — asked of the manifest, decided by parsing.
+ *
+ * `descriptorSourceDir` above assumes `sources[0]` is the base, which is true in discovery order and
+ * is not a fact anything checks. Every EDIT verb needs the base specifically — the rule is that
+ * `set`, `rm`, `rename` and the field verbs act on the module that owns the entity and never teleport
+ * it into the workspace module — so the base is identified the only way it is actually defined: it is
+ * the contributing source that declares no `extends`.
+ *
+ * Returns workspace-relative paths. `base` is null when nothing in this workspace declares it (the
+ * engine's own nine collections reach here that way), which is the signal to write an overlay.
+ */
+export function baseDescriptorSource(ws, name) {
+	const suffix = `collections/${name}.collection.yaml`;
+	const sources = (readManifest(ws.root)?.entries?.[suffix]?.sources ?? [])
+		// sources are `{path, hash}`; tolerate the pre-0.10 string form, as compile's staleness does
+		.map((s) => (typeof s === 'string' ? s : s?.path))
+		.filter((p) => typeof p === 'string' && p.endsWith(suffix));
+	let base = null;
+	const overlays = [];
+	for (const rel of sources) {
+		const file = path.join(ws.root, rel);
+		if (!fs.existsSync(file)) continue;
+		let doc;
+		try { doc = load(fs.readFileSync(file, 'utf8')); } catch { continue; }
+		if (doc?.extends) overlays.push(rel);
+		else base ??= rel;
+	}
+	return { base, overlays, sources };
+}
+
+/** A path git will not let us rewrite usefully: `npm install` erases it. Matched on the SEGMENT, in
+ *  either separator, because manifest paths carry the host's. */
+const IN_NODE_MODULES = (rel) => /(^|[\\/])node_modules([\\/]|$)/.test(String(rel));
+
+/**
+ * WHERE A FIELD VERB WRITES. The base descriptor's own file when this workspace may rewrite it; the
+ * workspace module's overlay path when it may not.
+ *
+ * ⚠ The guard is `node_modules/`, NOT "which module" — that is the line `descriptorSourceDir`
+ * already drew for `renameCollection` and the reason it drew it: the thing that erases a write is
+ * `npm install`, and a module whose sources are inline in the workspace repo is under the same git
+ * history as everything else. Resolving this from `workspaceSystemDir` instead meant a field verb on
+ * ANY other inline module's collection silently created an overlay in the workspace module and then
+ * failed compile for a dependency the operator never asked to declare.
+ */
+function collectionSourceFile(ws, collection) {
+	const { base } = baseDescriptorSource(ws, collection);
+	if (base && !IN_NODE_MODULES(base)) return { file: path.join(ws.root, base), overlay: false };
+	return { file: path.join(workspaceSystemDir(ws, 'collections'), `${collection}.collection.yaml`), overlay: true };
+}
+
 // ---- ops ------------------------------------------------------------------------
 
 export function createCollection(ws, store, { name, template, namespace }) {
@@ -207,8 +259,22 @@ export function createCollection(ws, store, { name, template, namespace }) {
 
 export function removeCollection(ws, store, name, { force = false } = {}) {
 	const d = store.descriptor(name);
-	const dest = path.join(workspaceSystemDir(ws, 'collections'), `${name}.collection.yaml`);
-	if (!fs.existsSync(dest)) throw new Error(`"${name}" is not workspace-owned — it ships with a module; add "<module>/${name}" to dreamteamer.disable instead`);
+	// The module that SHIPS it, not the workspace module. Refusing every module-shipped collection
+	// made this verb unusable for exactly the workspace it was built for: a vault's domain
+	// collections almost always live in a module.
+	const { base, overlays } = baseDescriptorSource(ws, name);
+	if (!base) {
+		throw new Error(`"${name}" has no writable descriptor source — the manifest names none under a module in this workspace. It may be contributed by the engine itself; add "<module>/${name}" to dreamteamer.disable instead.`);
+	}
+	if (IN_NODE_MODULES(base)) {
+		throw new Error(`"${name}" ships from node_modules (${base}) — a write there is erased by the next \`npm install\`. Add "<module>/${name}" to dreamteamer.disable instead.`);
+	}
+	// An `extends` descriptor with no base fails compile ("every descriptor declares 'extends' — no
+	// base found"), so removing the base under a live overlay is a half-migration that cannot compile.
+	if (overlays.length) {
+		throw new Error(`"${name}" is overlaid by ${overlays.join(', ')} — an overlay cannot compile without its base, so removing the base alone would break the workspace. Remove the overlay first: dreamteamer remove-field ${name} --module <overlay-module> --name <field> (removing its last field removes the overlay).`);
+	}
+	const dest = path.join(ws.root, base);
 	const dataDir = path.join(ws.root, d.storage.path);
 	const hasRecords = fs.existsSync(dataDir) && fs.readdirSync(dataDir).some((e) => !e.startsWith('.'));
 	if (hasRecords && !force) throw new Error(`collection "${name}" still has records under ${d.storage.path} — remove them first or pass force`);
@@ -853,7 +919,7 @@ function authoredField(ws, collection, fieldName) {
  * relation in the dogfood vault uses (see authoredField for why the compiled prop cannot tell them
  * apart).
  */
-function refuseUnremovableField(ws, d, collection, fieldName, hasWorkspaceDoc) {
+function refuseUnremovableField(ws, d, collection, fieldName, hasOwnDoc) {
 	const prop = d.schema.properties[fieldName];
 	const holder = (prop.items && typeof prop.items === 'object') ? prop.items : prop;
 	const of = holder['x-inverse-of'];
@@ -863,7 +929,7 @@ function refuseUnremovableField(ws, d, collection, fieldName, hasWorkspaceDoc) {
 		// carrying it IS the relation, and deleting it there is the removal. Name the file.
 		const declaring = authoredField(ws, collection, fieldName).files;
 		if (declaring.length) {
-			throw new Error(`field "${fieldName}" on ${collection} DECLARES a relation (x-inverse-of: ${of}) in ${declaring.join(', ')} — that declaration is the relation, so deleting the field there removes it. This verb only edits the workspace module's own descriptor, which does not carry it.`);
+			throw new Error(`field "${fieldName}" on ${collection} DECLARES a relation (x-inverse-of: ${of}) in ${declaring.join(', ')} — that declaration is the relation, so deleting the field there removes it. This verb edits ${collection}'s base descriptor, which does not carry it.`);
 		}
 		// SPELLING A: nothing here declares it; compile stamped it from the owner's `x-inverse`, and
 		// clearing that keyword is the removal. This remedy WORKS — the spelling-B one did not, because
@@ -871,9 +937,12 @@ function refuseUnremovableField(ws, d, collection, fieldName, hasWorkspaceDoc) {
 		const dot = of.lastIndexOf('.'); // a collection name may contain '/', so split at the LAST dot
 		throw new Error(`field "${fieldName}" on ${collection} is GENERATED from ${of}, the two-way relation that owns it — no source of ${collection} declares it, so no edit here can remove it. Remove the relation instead: dreamteamer schema update-field ${of.slice(0, dot)} --name ${of.slice(dot + 1)} --inverse=`);
 	}
-	throw new Error(hasWorkspaceDoc
-		? `field "${fieldName}" is inherited from the base module — the workspace descriptor doesn't declare it`
-		: `"${collection}" is module-shipped; the workspace can only OVERRIDE fields (extends), not remove them`);
+	// ⚠ These two sentences used to name the WORKSPACE module, because that is where this verb wrote.
+	// It now writes in the module that OWNS the collection, so "the workspace descriptor" was a fact
+	// about the old routing — and naming the wrong file is how a correct refusal reads as a bug.
+	throw new Error(hasOwnDoc
+		? `field "${fieldName}" is inherited — ${collection}'s own descriptor does not declare it, so there is nothing here to remove. Override it instead: dreamteamer add-field ${collection} --name ${fieldName} … --module <your-module>`
+		: `"${collection}" ships from a source this workspace cannot rewrite; it can only OVERRIDE fields (extends), not remove them`);
 }
 
 /**
@@ -903,7 +972,7 @@ export function removeField(ws, store, collection, fieldName) {
 	// Removing the OWNING foreign key drops the relation just as `--inverse=` does, and leaves the
 	// same residue on the target. Same sweep, same commit.
 	const was = relationsOwnedBy(store, collection, fieldName);
-	const dest = path.join(workspaceSystemDir(ws, 'collections'), `${collection}.collection.yaml`);
+	const dest = collectionSourceFile(ws, collection).file;
 	const previousText = fs.existsSync(dest) ? fs.readFileSync(dest, 'utf8') : null;
 	const doc = previousText === null ? null : load(previousText);
 	// ⚠ ASK THE SOURCE THIS VERB EDITS, and ask it FIRST. A field the descriptor declares is removable
@@ -1012,7 +1081,8 @@ function upsertField(ws, store, collection, fieldName, prop, required, verb) {
 			delete prop.items['x-title-template'];
 		}
 	}
-	const dest = path.join(workspaceSystemDir(ws, 'collections'), `${collection}.collection.yaml`);
+	// The module that OWNS the collection, not the workspace module — see collectionSourceFile.
+	const { file: dest, overlay } = collectionSourceFile(ws, collection);
 	let doc;
 	// The BYTES, not just the parse: `dump` cannot round-trip a comment, and a collection descriptor is
 	// where a module writes down why the collection exists (see writeSource).
@@ -1020,8 +1090,15 @@ function upsertField(ws, store, collection, fieldName, prop, required, verb) {
 	if (fs.existsSync(dest)) {
 		previousText = fs.readFileSync(dest, 'utf8');
 		doc = load(previousText);
-	} else {
+	} else if (overlay) {
+		// Reached only when no source in this workspace declares the base — an npm-shipped or
+		// engine-contributed collection. An overlay in the workspace module is the remedy, and
+		// compile still requires that module to declare the base's in dreamteamer.dependencies.
 		doc = { name: collection, extends: baseModuleRef(ws.root, collection), schema: { properties: {} } };
+	} else {
+		// The manifest named a base under a module in this workspace, so the file must be there. If
+		// it is not, the runtime is describing a source that has been deleted underneath it.
+		throw new Error(`${path.relative(ws.root, dest)} is named by the compiled manifest but is not on disk — run \`dreamteamer compile\` and re-run.`);
 	}
 	// AN IDEMPOTENT WRITE IS A SUCCESS. A command that asks for what is already on disk produced a
 	// byte-identical source, and the write gate's `git commit` then failed with "the schema change
