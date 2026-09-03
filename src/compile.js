@@ -520,7 +520,7 @@ function dataOwningModules(sources, fail, rel) {
 /** The git repo that will hold a module's records: nearest `.git` at or above the module root,
  *  as a workspace-relative path (`.` = the workspace itself). `.git` may be a FILE — worktrees
  *  and submodules write a pointer file rather than a directory — so existsSync, not isDirectory. */
-function repoRootOf(moduleRoot, wsRoot) {
+export function repoRootOf(moduleRoot, wsRoot) {
 	const stop = path.resolve(wsRoot);
 	let dir = path.resolve(moduleRoot);
 	while (dir.startsWith(stop)) {
