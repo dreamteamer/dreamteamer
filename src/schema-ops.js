@@ -358,9 +358,6 @@ export function removeModule(ws, store, id, { force = false, dryRun = false } = 
 
 	const shipped = (fields.collections ?? []).map((r) => String(r).replace(/^collections\//, '')).sort();
 	const withRecords = shipped.filter((c) => store.descriptors.has(c) && store.ids(c).size > 0);
-	if (shipped.length && !force) {
-		throw new Error(`${id} still ships ${shipped.length} collection${shipped.length === 1 ? '' : 's'} (${shipped.join(', ')}), ${withRecords.length} with records. --force removes the sources; records stay and become unindexed.`);
-	}
 	// A `dependencies` entry naming this module in ANOTHER module fails the gate compile ("depends
 	// on X, which is not installed"), so it goes in the SAME write — otherwise --force is a verb that
 	// cannot succeed. peerDependencies names COLLECTIONS and needs no edit: a peer whose provider is
@@ -374,7 +371,13 @@ export function removeModule(ws, store, id, { force = false, dryRun = false } = 
 		records: 0, refs: 0, descriptors: shipped.length,
 		cleared: 0,
 	};
+	// ⚠ THE DRY RUN COMES FIRST, BEFORE THE --force REFUSAL. A dry run writes nothing, so refusing
+	// it for the want of a flag is pure friction — and it is the WRONG WAY ROUND: the plan is what
+	// the operator reads to decide whether `--force` is a thing they want to type.
 	if (dryRun) return { ...plan, dryRun: true };
+	if (shipped.length && !force) {
+		throw new Error(`${id} still ships ${shipped.length} collection${shipped.length === 1 ? '' : 's'} (${shipped.join(', ')}), ${withRecords.length} with records. --force removes the sources; records stay and become unindexed.`);
+	}
 
 	const root = path.join(ws.root, 'modules', id);
 	// ⚠ STASH, DO NOT DELETE, UNTIL THE COMMIT LANDS. `gatedTreeOp`'s `undo` has to be able to put the
