@@ -20,6 +20,116 @@ npx dreamteamer check
 
 ---
 
+## 0.18.0 → 0.19.0
+
+**BREAKING — `dt schema <op>` is gone. System entities take the RECORD verbs.**
+
+Modules, collections, skills, agents, commands, command-bindings, ui-views and collection-templates
+have been readable with `list`/`get`/`history` since 0.10.0; they are now WRITABLE with the same
+verbs, and the separate `schema` grammar is retired. No alias layer and no deprecation window —
+0.12.0's policy, because a half-working grammar teaches the wrong shape without ever saying so.
+
+⚠ **`dt schema …` fails with the translation printed**, so a stale script tells you what to type.
+
+### The complete mapping
+
+| 0.18.0 | 0.19.0 |
+|---|---|
+| `dt schema add-collection --name <c>` | `dt add collections --name <c> [--module <m>]` |
+| `dt schema rm-collection <c> [--force]` | `dt rm collections/<c> [--force]` |
+| `dt schema rename-collection <old> <new>` | `dt rename collections/<old> <new>` |
+| `dt schema add-field <c> …` | `dt add-field <c> …` |
+| `dt schema update-field <c> …` | `dt update-field <c> …` |
+| `dt schema remove-field <c> …` | `dt remove-field <c> …` |
+| *(did not exist)* | `dt rename-field <c> --name <f> --to <g>` |
+| `dt schema add-view …` | `dt add ui-views …` |
+| `dt schema set-view <id> k=v` | `dt set ui-views/<id> k=v` |
+| `dt schema rm-view <id>` | `dt rm ui-views/<id>` |
+| *(six manual steps)* | `dt add modules --name <id>` |
+| *(no verb)* | `dt set modules/<id> description=… namespaces=… dependencies=modules/<m>` |
+| *(no verb)* | `dt rm modules/<id> [--force]` · `dt rename modules/<old> <new>` |
+| *(no verb)* | `dt set collections/<c> module=<m>` — moves the collection |
+| *(no verb)* | `dt set collections/<c> description=… icon=… order=… list_fields=…` |
+| *(no verb)* | `dt add skills --name <id> --description "…"` |
+| *(no verb)* | `dt set\|rm\|rename skills\|agents\|commands\|command-bindings\|collection-templates/<id>` |
+| `POST /api/schema/collections` | `POST /api/collections/collections/records?module=<m>` |
+| `DELETE /api/schema/collections/:c` | `DELETE /api/collections/collections/records/:c` |
+| `POST /api/schema/collections/:c/fields` | `POST /api/collections/:c/fields?module=<m>` |
+| `PATCH /api/schema/collections/:c/fields/:f` | `PATCH /api/collections/:c/fields/:f?module=<m>` |
+| *(did not exist)* | `PATCH /api/collections/:c/fields/:f/name` `{to}` — rename-field |
+| `DELETE /api/schema/collections/:c/fields/:f` | `DELETE /api/collections/:c/fields/:f?module=<m>` |
+| `POST /api/schema/ui-views` | `POST /api/collections/ui-views/records` |
+| `DELETE /api/schema/ui-views/:id` | `DELETE /api/collections/ui-views/records/:id` |
+
+**The in-process exports are UNCHANGED.** `createCollection`, `addField`, `updateField`,
+`removeField`, `fieldDef`, `statedKeywords`, `saveUiView`, `removeUiView` and `workspaceSystemDir`
+all keep their names and signatures (`moduleId` is an added, optional option). New capabilities are
+new exports beside them: `createModule`, `renameModule`, `removeModule`, `setModule`,
+`moveCollection`, `renameField`, `renameFieldPlan`, `removeFieldPlan`, `setCollectionScalars`,
+`collectionSourceFileFor`, `createSkill`, `refuseHandAuthored`, `removeEntity`, `renameEntity`,
+`setEntityFrontmatter`, `gatedTreeOp`, `moduleRecord`, `baseDescriptorSource`, `repoRootOf`.
+
+### The other five changes in this release
+
+- **A field verb follows the module that OWNS the collection.** `add-field` / `update-field` /
+  `remove-field` used to write into the WORKSPACE module, so on a collection shipped by any other
+  inline module they created an overlay and then failed compile with `module <ws> does not declare
+  <owner> in dreamteamer.dependencies`. They now edit the owner's descriptor. **⚠ If a workaround of
+  yours points `dreamteamer.workspace-module` at a module you were authoring, undo it** — that was a
+  mode switch that also granted the module the workspace module's privileges.
+- **A module declares the namespaces it owns.** `"dreamteamer": { "namespaces": ["hr"] }` in a
+  module's own package.json; the workspace's effective set is the UNION with its own. Two modules
+  declaring one namespace is a compile error; using another module's namespace requires that module
+  in `dependencies`. **A workspace-level declaration a module also declares is a WARNING** and
+  keeps working — `dt set modules/<m> namespaces=<ns>` removes the redundant workspace entry in the
+  same write. ⚠ **Stated trade:** the namespace set is now a function of the installed module set,
+  so removing a namespace-owning module re-splits every reference into it; `check` reports the
+  dangle and the compile error says the namespace was declared by a module you just removed.
+- **A schema commit runs in the repo that holds the source.** A write into a `git_modules/` module
+  used to compile, fail to commit and roll back (that path is gitignored at the workspace root). It
+  now commits in the clone and says so: `✔ committed in git_modules/hr (3f2a1c, ahead 1 — push when
+  ready)`, with `dt status` showing the count. Two repos cannot commit atomically, so a failure in
+  the second leaves the first standing, named in the error.
+- **`module` is a field on a collection**, carrying the owner as the bare id, with `overlays` beside
+  it. `owner` (the `modules/<id>` reference form) is still written and is **COMPAT for this release
+  only** — it is removed in 0.20.0. Read `module`.
+- **`dt init` writes an adapter for every known harness** (`claude-code`, `codex`, `pi`,
+  `gemini-cli`, `cursor`) rather than `claude-code` alone. A missing adapter fails silently; a spare
+  one is an empty file. Existing workspaces are unaffected — `dreamteamer.harnesses` already exists
+  and wins over the seed.
+
+### Pinning the engine version
+
+Three surfaces, all carrying the same string, for three kinds of consumer:
+
+- `.dreamteamer/manifest.yaml` → **`engine: 0.19.0`** — a plain semver, new in this release, for a
+  consumer that has to COMPARE it. (`host: dreamteamer@0.19.0` is a display string and stays one.)
+- `engineVersion()` exported from `src/compile.js` — in-process.
+- `dt --version` → `dreamteamer@0.19.0` — a subprocess, and it works outside a workspace.
+
+The VS Code extension pins a **hard minimum** and refuses to load below it with a clear message,
+rather than negotiating capabilities: the failure it prevents is structural, not per-feature — an
+extension built against these exports calling a 0.17 engine throws out of `activate()` before the
+tree view exists, and VS Code renders that as its `viewsWelcome` text, which names the one thing
+that is definitely fine.
+
+### What to do
+
+```bash
+npm install dreamteamer@0.19.0
+npx dreamteamer compile
+npx dreamteamer check
+```
+
+Then grep your own scripts, skills and docs:
+
+```bash
+grep -rn "schema add-collection\|schema rm-collection\|schema rename-collection" .
+grep -rn "schema add-field\|schema update-field\|schema remove-field" .
+grep -rn "schema add-view\|schema set-view\|schema rm-view" .
+grep -rn "/api/schema/" .
+```
+
 ## 0.17.0 → 0.18.0
 
 **Source writes round-trip.** Every schema verb (`add-field`, `update-field`, `remove-field`,

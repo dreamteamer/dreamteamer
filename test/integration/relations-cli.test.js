@@ -348,14 +348,14 @@ describe('remove-field on a generated mirror', () => {
 
 	test('the mirror answer fires whichever module ships the collection', () => {
 		const ws = withModule();
-		const res = runDt(ws.root, 'schema', 'remove-field', 'patients', '--name', 'visits');
+		const res = runDt(ws.root, 'remove-field', 'patients', '--name', 'visits');
 		assert.equal(res.code, 1);
 		// It used to answer `"patients" is module-shipped; the workspace can only OVERRIDE fields`,
 		// because the field was resolved out of the WORKSPACE module's own sources. True of a real
 		// inherited field, useless for a mirror: an `extends` overlay cannot remove one either, and
 		// the edit that can is on another collection.
 		assert.match(res.stderr, /GENERATED from visits\.patient/);
-		assert.match(res.stderr, /dreamteamer schema update-field visits --name patient --inverse=/);
+		assert.match(res.stderr, /dreamteamer update-field visits --name patient --inverse=/);
 	});
 
 	// ⚠ THE FIRST OF THESE TWO USED TO ASSERT THE DEFECT. `patients` ships from an INLINE module and
@@ -365,7 +365,7 @@ describe('remove-field on a generated mirror', () => {
 	// a source the workspace genuinely cannot rewrite, which is what `npm install` erases.
 	test('a real own field in an inline module is edited THERE, not refused', () => {
 		const ws = withModule();
-		const res = runDt(ws.root, 'schema', 'remove-field', 'patients', '--name', 'age');
+		const res = runDt(ws.root, 'remove-field', 'patients', '--name', 'age');
 		assert.equal(res.code, 0, res.stdout + res.stderr);
 		const owned = load(readFile(ws.root, 'modules/clinic/collections/patients.collection.yaml'));
 		assert.equal(owned.schema.properties.age, undefined);
@@ -374,7 +374,7 @@ describe('remove-field on a generated mirror', () => {
 	test('a real inherited field the workspace cannot rewrite is still refused', () => {
 		const ws = withModule();
 		// `repos` ships from node_modules/dreamteamer, which the next `npm install` overwrites.
-		const res = runDt(ws.root, 'schema', 'remove-field', 'repos', '--name', 'path');
+		const res = runDt(ws.root, 'remove-field', 'repos', '--name', 'path');
 		assert.equal(res.code, 1);
 		assert.match(res.stderr, /cannot rewrite/);
 	});
@@ -413,7 +413,7 @@ describe('dropping a relation takes its generated values with it', () => {
 		// …which reads like a typo, for a state the schema op created one command earlier, with the
 		// repair (`relations rebuild <target> --drop <mirror>`) named nowhere.
 		const ws = linked();
-		const res = ws.dt('schema', 'update-field', 'recordings', '--name', 'meeting', '--inverse=');
+		const res = ws.dt('update-field', 'recordings', '--name', 'meeting', '--inverse=');
 		assert.equal(res.code, 0, res.stderr);
 		assert.match(res.stdout, /dropped the generated meetings\.recordings value from 1 meetings record/);
 		assert.doesNotMatch(readFile(ws.root, 'data/meetings/kickoff.meeting.md'), /recordings:/);
@@ -425,7 +425,7 @@ describe('dropping a relation takes its generated values with it', () => {
 
 	test('remove-field on the owning foreign key does the same', () => {
 		const ws = linked();
-		const res = ws.dt('schema', 'remove-field', 'recordings', '--name', 'meeting');
+		const res = ws.dt('remove-field', 'recordings', '--name', 'meeting');
 		assert.equal(res.code, 0, res.stderr);
 		assert.match(res.stdout, /dropped the generated meetings\.recordings value from 1 meetings record/);
 		assert.doesNotMatch(readFile(ws.root, 'data/meetings/kickoff.meeting.md'), /recordings:/);
@@ -448,7 +448,7 @@ describe('dropping a relation takes its generated values with it', () => {
 		// rebuild, which `reportMirror` already names. A sweep that keyed off "a relation disappeared"
 		// without checking whether the target still declares the field would delete live data here.
 		const ws = linked();
-		const res = ws.dt('schema', 'update-field', 'recordings', '--name', 'meeting', '--inverse', 'captures');
+		const res = ws.dt('update-field', 'recordings', '--name', 'meeting', '--inverse', 'captures');
 		assert.equal(res.code, 0, res.stderr);
 		assert.match(res.stdout, /dropped the generated meetings\.recordings value/);
 		assert.match(res.stdout, /relations rebuild meetings/);
@@ -459,7 +459,7 @@ describe('dropping a relation takes its generated values with it', () => {
 
 	test('add-field sweeps nothing — it cannot remove a relation it is creating', () => {
 		const ws = linked();
-		const res = ws.dt('schema', 'add-field', 'recordings', '--name', 'duration', '--type', 'number');
+		const res = ws.dt('add-field', 'recordings', '--name', 'duration', '--type', 'number');
 		assert.equal(res.code, 0, res.stderr);
 		assert.doesNotMatch(res.stdout, /dropped/);
 		assert.match(readFile(ws.root, 'data/meetings/kickoff.meeting.md'), /recordings\/cap-one/);
@@ -515,7 +515,7 @@ describe('remove-field knows which side declared the relation', () => {
 		// remedy it named — `update-field summaries --name meeting --inverse=` — exits 0 changing
 		// nothing, because `summaries.meeting` never carried an `x-inverse` to clear.
 		const ws = spellingB();
-		const res = ws.dt('schema', 'remove-field', 'meetings', '--name', 'summary');
+		const res = ws.dt('remove-field', 'meetings', '--name', 'summary');
 		assert.equal(res.code, 0, res.stdout + res.stderr);
 		assert.equal(
 			load(readFile(ws.root, 'modules/default/collections/meetings.collection.yaml')).schema.properties.summary,
@@ -533,13 +533,13 @@ describe('remove-field knows which side declared the relation', () => {
 		const ws = workspace({ collections: { meetings: MEETINGS, recordings: RECORDINGS } });
 		assert.equal(ws.dt('add', 'meetings', '--name', 'Kickoff').code, 0);
 		assert.equal(ws.dt('add', 'recordings', '--name', 'Cap', '--meeting', 'meetings/kickoff').code, 0);
-		const res = ws.dt('schema', 'remove-field', 'meetings', '--name', 'recordings');
+		const res = ws.dt('remove-field', 'meetings', '--name', 'recordings');
 		assert.equal(res.code, 1);
 		assert.match(res.stderr, /is GENERATED from recordings\.meeting/);
 		assert.match(res.stderr, /no source of meetings declares it/);
 		// THE REMEDY, RUN VERBATIM. It was never exercised, which is how the spelling-B version got
 		// away with naming a command that does nothing.
-		assert.equal(ws.dt('schema', 'update-field', 'recordings', '--name', 'meeting', '--inverse=').code, 0);
+		assert.equal(ws.dt('update-field', 'recordings', '--name', 'meeting', '--inverse=').code, 0);
 		assert.equal(ws.dt('relations', '--json').stdout.trim(), '[]');
 		assert.equal(ws.dt('check').code, 0);
 	});
@@ -551,7 +551,7 @@ describe('remove-field knows which side declared the relation', () => {
 		// relation was then declared on both sides and every compile said so. This is the defect the
 		// extension was producing from its own save path.
 		const ws = spellingB();
-		const res = ws.dt('schema', 'update-field', 'summaries', '--name', 'meeting', '--description', 'the call');
+		const res = ws.dt('update-field', 'summaries', '--name', 'meeting', '--description', 'the call');
 		assert.equal(res.code, 0, res.stderr);
 		const src = load(readFile(ws.root, 'modules/default/collections/summaries.collection.yaml')).schema.properties.meeting;
 		assert.equal(src.description, 'the call');
@@ -567,7 +567,7 @@ describe('remove-field knows which side declared the relation', () => {
 describe('remove-field clears the values it orphans', () => {
 	const populated = () => {
 		const ws = workspace({ collections: { meetings: simpleCollection({ storage: { suffix: 'meeting' } }) } });
-		assert.equal(ws.dt('schema', 'add-field', 'meetings', '--name', 'venue', '--type', 'string').code, 0);
+		assert.equal(ws.dt('add-field', 'meetings', '--name', 'venue', '--type', 'string').code, 0);
 		for (const n of ['Kickoff', 'Retro']) assert.equal(ws.dt('add', 'meetings', '--name', n, '--venue', 'Room 3').code, 0);
 		return ws;
 	};
@@ -579,7 +579,7 @@ describe('remove-field clears the values it orphans', () => {
 		// `relations rebuild meetings --drop venue`, a verb whose name says "relations" for a field
 		// that has nothing to do with them, and which nothing told the operator to run.
 		const ws = populated();
-		const res = ws.dt('schema', 'remove-field', 'meetings', '--name', 'venue');
+		const res = ws.dt('remove-field', 'meetings', '--name', 'venue');
 		assert.equal(res.code, 0, res.stderr);
 		assert.match(res.stdout, /cleared its values from 2 meetings records/);
 		assert.match(res.stdout, /git show HEAD~1/, 'a destructive act names where the values went');
@@ -593,7 +593,7 @@ describe('remove-field clears the values it orphans', () => {
 	test('the values and the schema land in ONE commit', () => {
 		const ws = populated();
 		assert.equal(ws.dt('commit').code, 0);
-		assert.equal(ws.dt('schema', 'remove-field', 'meetings', '--name', 'venue').code, 0);
+		assert.equal(ws.dt('remove-field', 'meetings', '--name', 'venue').code, 0);
 		const stat = ws.git(['show', '--stat', '--oneline', 'HEAD']);
 		assert.match(stat, /data\/meetings\/kickoff\.meeting\.md/);
 		assert.match(stat, /modules\/default\/collections\/meetings\.collection\.yaml/);
@@ -602,9 +602,9 @@ describe('remove-field clears the values it orphans', () => {
 
 	test('an UNPOPULATED field reports no clearing, and says nothing about records', () => {
 		const ws = workspace({ collections: { meetings: simpleCollection({ storage: { suffix: 'meeting' } }) } });
-		assert.equal(ws.dt('schema', 'add-field', 'meetings', '--name', 'venue', '--type', 'string').code, 0);
+		assert.equal(ws.dt('add-field', 'meetings', '--name', 'venue', '--type', 'string').code, 0);
 		assert.equal(ws.dt('add', 'meetings', '--name', 'Kickoff').code, 0);
-		const res = ws.dt('schema', 'remove-field', 'meetings', '--name', 'venue');
+		const res = ws.dt('remove-field', 'meetings', '--name', 'venue');
 		assert.equal(res.code, 0, res.stderr);
 		assert.doesNotMatch(res.stdout, /cleared/);
 	});
@@ -617,7 +617,7 @@ describe('remove-field clears the values it orphans', () => {
 		// record's whole content on a schema edit.
 		const ws = workspace({ collections: { meetings: simpleCollection({ storage: { suffix: 'meeting' } }) } });
 		assert.equal(ws.dt('add', 'meetings', '--name', 'Kickoff', '--notes', 'the prose that must survive').code, 0);
-		const res = ws.dt('schema', 'remove-field', 'meetings', '--name', 'notes');
+		const res = ws.dt('remove-field', 'meetings', '--name', 'notes');
 		assert.equal(res.code, 0, res.stderr);
 		assert.match(readFile(ws.root, 'data/meetings/kickoff.meeting.md'), /the prose that must survive/);
 		assert.equal(ws.dt('check').code, 0, ws.dt('check').stdout);
@@ -627,7 +627,7 @@ describe('remove-field clears the values it orphans', () => {
 		// `collections rename` moves a descriptor and its records; no field is removed, so no value may
 		// be. The sweep is scoped to the field actually named, never to a graph diff (rule 6).
 		const ws = populated();
-		assert.equal(ws.dt('schema', 'rename-collection', 'meetings', 'calls').code, 0);
+		assert.equal(ws.dt('rename', 'collections/meetings', 'calls').code, 0);
 		assert.match(readFile(ws.root, 'data/calls/kickoff.call.md'), /venue: Room 3/);
 		assert.equal(ws.dt('check').code, 0);
 	});

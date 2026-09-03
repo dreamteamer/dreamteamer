@@ -160,10 +160,10 @@ describe('removeUiView', () => {
 // Two of these used to have no spelling at all: a list option could only be written as JSON, and
 // the one setting whose meaningful value is the empty string could not be written by any spelling.
 
-describe('dt schema set-view — dotted values', () => {
+describe('dt set ui-views/<id> — dotted values', () => {
 	const viewed = () => {
 		const ws = workspace({ collections: { doctors: simpleCollection() } });
-		const add = ws.dt('schema', 'add-view', '--path', '/recent', '--target', 'list',
+		const add = ws.dt('add', 'ui-views', '--path', '/recent', '--target', 'list',
 			'--collection', 'collections/doctors', '--layout', 'table');
 		assert.equal(add.code, 0, add.stderr);
 		return ws;
@@ -172,51 +172,51 @@ describe('dt schema set-view — dotted values', () => {
 
 	test('options.columns=a,b is a LIST — the comma spelling every other verb takes', () => {
 		const ws = viewed();
-		const res = ws.dt('schema', 'set-view', 'recent', 'options.columns=name,notes');
+		const res = ws.dt('set', 'ui-views/recent', 'options.columns=name,notes');
 		assert.equal(res.code, 0, res.stderr);
 		assert.deepEqual(saved(ws).options.columns, ['name', 'notes'], 'a literal "name,notes" is read by nobody');
 	});
 
 	test('one column is still a list of one, and spaces around the commas are trimmed', () => {
 		const ws = viewed();
-		assert.equal(ws.dt('schema', 'set-view', 'recent', 'options.columns=name').code, 0);
+		assert.equal(ws.dt('set', 'ui-views/recent', 'options.columns=name').code, 0);
 		assert.deepEqual(saved(ws).options.columns, ['name']);
-		assert.equal(ws.dt('schema', 'set-view', 'recent', 'options.columns=name, notes').code, 0);
+		assert.equal(ws.dt('set', 'ui-views/recent', 'options.columns=name, notes').code, 0);
 		assert.deepEqual(saved(ws).options.columns, ['name', 'notes']);
 	});
 
 	test('the JSON form still works, and is the only spelling for a list of objects', () => {
 		const ws = viewed();
-		assert.equal(ws.dt('schema', 'set-view', 'recent', 'options.columns=["name","notes"]').code, 0);
+		assert.equal(ws.dt('set', 'ui-views/recent', 'options.columns=["name","notes"]').code, 0);
 		assert.deepEqual(saved(ws).options.columns, ['name', 'notes']);
-		assert.equal(ws.dt('schema', 'set-view', 'recent', 'options.arrangement=[{"node":"a","x":1,"y":2}]').code, 0);
+		assert.equal(ws.dt('set', 'ui-views/recent', 'options.arrangement=[{"node":"a","x":1,"y":2}]').code, 0);
 		assert.deepEqual(saved(ws).options.arrangement, [{ node: 'a', x: 1, y: 2 }]);
 	});
 
 	test('a comma in a SCALAR option stays one string — the key decides, not the comma', () => {
 		const ws = viewed();
-		assert.equal(ws.dt('schema', 'set-view', 'recent', 'options.template=a, b').code, 0);
+		assert.equal(ws.dt('set', 'ui-views/recent', 'options.template=a, b').code, 0);
 		assert.equal(saved(ws).options.template, 'a, b');
 	});
 
 	test('the flag form takes the same value grammar as the positional one', () => {
 		const ws = viewed();
-		assert.equal(ws.dt('schema', 'set-view', 'recent', '--options.columns', 'name,notes').code, 0);
+		assert.equal(ws.dt('set', 'ui-views/recent', '--options.columns', 'name,notes').code, 0);
 		assert.deepEqual(saved(ws).options.columns, ['name', 'notes']);
 	});
 
 	test('an EMPTY list option still removes the key, rather than showing no columns', () => {
 		const ws = viewed();
-		assert.equal(ws.dt('schema', 'set-view', 'recent', 'options.columns=name,notes').code, 0);
-		assert.equal(ws.dt('schema', 'set-view', 'recent', 'options.columns=').code, 0);
+		assert.equal(ws.dt('set', 'ui-views/recent', 'options.columns=name,notes').code, 0);
+		assert.equal(ws.dt('set', 'ui-views/recent', 'options.columns=').code, 0);
 		assert.equal(saved(ws).options?.columns, undefined);
 	});
 });
 
-describe('dt schema set-view — the empty string that MEANS something', () => {
+describe('dt set ui-views/<id> — the empty string that MEANS something', () => {
 	const viewed = () => {
 		const ws = workspace({ collections: { doctors: simpleCollection() } });
-		const add = ws.dt('schema', 'add-view', '--path', '/recent', '--target', 'list',
+		const add = ws.dt('add', 'ui-views', '--path', '/recent', '--target', 'list',
 			'--collection', 'collections/doctors', '--layout', 'table', 'options.sort=-name');
 		assert.equal(add.code, 0, add.stderr);
 		return ws;
@@ -225,7 +225,7 @@ describe('dt schema set-view — the empty string that MEANS something', () => {
 
 	test("a QUOTED empty value writes sort: '' — what the surface needs to mean unsorted", () => {
 		const ws = viewed();
-		const res = ws.dt('schema', 'set-view', 'recent', 'options.sort=""');
+		const res = ws.dt('set', 'ui-views/recent', 'options.sort=""');
 		assert.equal(res.code, 0, res.stderr);
 		assert.equal(saved(ws).options.sort, '', 'the key must be PRESENT and empty, not absent');
 		assert.ok('sort' in saved(ws).options);
@@ -233,33 +233,33 @@ describe('dt schema set-view — the empty string that MEANS something', () => {
 
 	test('and it survives a compile, so the record round-trips', () => {
 		const ws = viewed();
-		assert.equal(ws.dt('schema', 'set-view', 'recent', 'options.sort=""').code, 0);
+		assert.equal(ws.dt('set', 'ui-views/recent', 'options.sort=""').code, 0);
 		assert.equal(compileQuietly(ws.ws).code, 0);
 		assert.equal(ws.store.read('ui-views', 'recent').fields.options.sort, '');
 	});
 
 	test('a BARE empty value still removes the key — the convention is untouched', () => {
 		const ws = viewed();
-		assert.equal(ws.dt('schema', 'set-view', 'recent', 'options.sort=').code, 0);
+		assert.equal(ws.dt('set', 'ui-views/recent', 'options.sort=').code, 0);
 		assert.equal(saved(ws).options?.sort, undefined);
 	});
 
 	test('a quoted NON-empty value is that literal string', () => {
 		const ws = viewed();
-		assert.equal(ws.dt('schema', 'set-view', 'recent', 'nav.label="Recent"', 'options.sort="-name"').code, 0);
+		assert.equal(ws.dt('set', 'ui-views/recent', 'nav.label="Recent"', 'options.sort="-name"').code, 0);
 		assert.equal(saved(ws).nav.label, 'Recent');
 		assert.equal(saved(ws).options.sort, '-name');
 	});
 
 	test('the flag form takes it too', () => {
 		const ws = viewed();
-		assert.equal(ws.dt('schema', 'set-view', 'recent', '--options.sort', '""').code, 0);
+		assert.equal(ws.dt('set', 'ui-views/recent', '--options.sort', '""').code, 0);
 		assert.equal(saved(ws).options.sort, '');
 	});
 
 	test('an unbalanced quote is named, not written', () => {
 		const ws = viewed();
-		const res = ws.dt('schema', 'set-view', 'recent', 'options.sort="-name');
+		const res = ws.dt('set', 'ui-views/recent', 'options.sort="-name');
 		assert.equal(res.code, 1);
 		assert.match(res.stderr, /not a quoted string/);
 		assert.equal(saved(ws).options.sort, '-name', 'the view is untouched');

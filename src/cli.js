@@ -78,19 +78,49 @@ the longest DECLARED collection prefix, so finance/transactions/2026/03/coffee i
                                                record keeps the template verbatim. An array
                                                field prints one item per line)
 
-schema verbs (write SOURCES through a compile gate, never the runtime — a different act, so a
-different word in front of it):
-  schema add-collection --name <name> [--namespace <ns>] [--template docs|entity]
-                            (--namespace health --name doctors === --name health/doctors; the
-                             namespace must already be declared in dreamteamer.namespaces, and
-                             records land in data/<ns>/<name>/)
-  schema rm-collection <name> [--force]       (--force required if it still has records)
-  schema rename-collection <old> <new>        (or <old> --namespace <ns> to move it into one)
-                            moves the descriptor AND the records, re-suffixes files when the
-                            suffix was derived, rewrites every inbound reference, ONE commit
-  schema add-field    <collection> --name <field> --type <type> [--options a,b] [--default-value v]
-                            [--required true] [--description "what this field means"]
-                            [--many] [--inverse [name]] [--unique] [--body]
+system verbs — the SAME verbs, on the entities the compiler materializes (modules, collections,
+skills, agents, commands, command-bindings, ui-views, collection-templates). ⚠ ONE difference in
+POLICY, not in spelling: a SYSTEM write commits itself, because an uncompilable or unpublished
+schema is not a state a workspace should sit in; a RECORD write does not — \`commit\` publishes it.
+The commit lands in the repo that holds the source, so a write into a git module commits there.
+  add    collections --name <name> [--module <m>] [--namespace <ns>] [--template docs|entity]
+                                              [--description "…"] [--suffix <s>] [--id-shape dated|slug]
+                                              (--namespace health --name doctors === --name
+                                               health/doctors; a module declaring exactly ONE
+                                               namespace infers it, and the resolved name is echoed.
+                                               --namespace '' means no namespace)
+  add    modules --name <id> [--description "…"]
+                                              (modules/<id>/ + every kind folder + package.json.
+                                               folder = package name = id, so a module never forks.
+                                               the git shape is \`install --clone <url> [name]\`)
+  add    skills --name <id> --description "…"  (skills/<id>/SKILL.md — --description is required,
+                                               because an undescribed skill is undiscoverable)
+  add    ui-views --path </route> --target list --collection collections/<c> --layout <id>
+                                              [--id <id>] [k.v=…]
+  set    <system>/<id> <field>=<value> …      (collections: description · use_when · title ·
+                                               title_template · icon · group · list_fields ·
+                                               sort_field · order, plus module=<m>, which MOVES it.
+                                               modules: description · namespaces · dependencies ·
+                                               peerDependencies, record-shaped (modules/core).
+                                               ui-views: dotted keys — options.sort=-date. An empty
+                                               value REMOVES the key; quote it to write the empty
+                                               string itself ('options.sort=""').
+                                               skills/agents/commands/…: frontmatter keys)
+  rm     <system>/<id> [--force] [--dry-run]
+  rename <system>/<id> <new-id>               (a collection's rename moves its records, re-suffixes
+                                               the files and rewrites every inbound ref, ONE commit)
+  move   <system>/<id> --after|--before <id>  (nav ordering — it writes \`order\`)
+  get    collections/<c> [--module <m>]       (--module prints ONE module's source contribution
+                                               rather than the merged descriptor)
+  list   modules | collections | skills | …   (id · location · path · namespaces · package name)
+  revert <system>/<id>                        (refused: its source is in git —
+                                               \`git checkout <sha> -- <path>\` then \`dt compile\`)
+
+field verbs — a field is the one sub-entity, and it has verbs of its own (there is no \`fields\`
+collection: the ENGINE does not read one, and \`rename-field\` was the only capability it would buy):
+  add-field    <collection> --name <field> --type <type> [--options a,b] [--default-value v]
+                            [--required true] [--description "…"] [--many] [--inverse [name]]
+                            [--inverse-description "…"] [--unique] [--body] [--module <m>]
                             [--on-delete restrict|set-null] [--mirror-of <collection>.<field>]
                             types: string text markdown boolean number integer date datetime
                                    enum tags <collection> — a date-time may be written as
@@ -101,9 +131,11 @@ different word in front of it):
                             --body marks the field a record's PROSE lands in (the text after the
                             frontmatter). One per collection, and a relation mirror needs the
                             target to have one.
-  schema update-field <collection> --name <field> --type <type> [--options a,b] [--default-value v]
+                            --module writes an OVERLAY in that module (it must declare the base's
+                            module in dreamteamer.dependencies).
+  update-field <collection> --name <field> [--type <type>] [--options a,b] [--default-value v]
                             [--required true|false] [--description "…"] [--body true|false]
-                            [--many] [--inverse [name]] [--unique]
+                            [--many] [--inverse [name]] [--unique] [--module <m>]
                             [--on-delete restrict|set-null] [--mirror-of <collection>.<field>]
                             (an existing description survives a retype, and so does every relation
                              keyword you do not restate. --inverse on an EXISTING reference is the
@@ -111,19 +143,16 @@ different word in front of it):
                              restating --type. --inverse= drops the mirror; --unique false clears
                              the one-to-one. Records written before the mirror existed are counted
                              for you, with the "relations rebuild" that repairs them.)
-  schema remove-field <collection> --name <field>
+  remove-field <collection> --name <field> [--module <m>] [--dry-run]
+                            (clears the field's VALUES in the same write, and reports the count)
   rename-field <collection> --name <field> --to <new-name> [--module <m>] [--dry-run]
-                            rewrites the key in every record AND everywhere a descriptor or view
-                            names the field: list_fields, sort_field, x-inverse, x-inverse-of,
-                            title_template, id.generate, a ui-view's options.columns and filter,
-                            and a command-binding's can-enter/can-exit. ONE commit.
-  schema add-view --path </route> --target list --collection collections/<c> --layout <id>
-                            [--id <id>] [k.v=…]
-  schema set-view <id> <key>=<value> …        (dotted keys: options.sort=-date, nav.label=Recent.
-                            A list option takes commas — options.columns=name,status — or JSON.
-                            An empty value REMOVES the key; quote it to write the empty string
-                            itself: 'options.sort=""' is the "unsorted" the surface needs.)
-  schema rm-view <id>
+                            (rewrites the key in every record AND everywhere a descriptor or view
+                             names the field: list_fields, sort_field, x-inverse, x-inverse-of,
+                             title_template, id.generate, a ui-view's options.columns and filter,
+                             and a command-binding's can-enter/can-exit. ONE commit)
+
+Every verb that MOVES records or CLEARS values takes --dry-run and prints its plan first:
+  records N · refs M · descriptors K · values cleared V
 
 workspace verbs:
   init        write the workspace skeleton into the current directory (never compiles)
@@ -157,21 +186,11 @@ const REF_VERBS = new Set(['get', 'set', 'rm', 'rename', 'history', 'diff', 'rev
 const COLLECTION_VERBS = new Set(['list', 'add', 'values']);
 const EITHER_VERBS = new Set(['move', 'commands']);
 
-// `schema <op>` → the (collection, verb) pair the implementation layer already answers to. The
-// collections are literals: `collections` and `ui-views` are SYSTEM-stored, which is precisely what
-// makes these a separate group in the grammar rather than records like any other.
-const SCHEMA_OPS = {
-	'add-collection': ['collections', 'add'],
-	'rm-collection': ['collections', 'rm'],
-	'rename-collection': ['collections', 'rename'],
-	'add-view': ['ui-views', 'add'],
-	'set-view': ['ui-views', 'set'],
-	'rm-view': ['ui-views', 'rm'],
-};
-// These three name their collection POSITIONALLY (`schema add-field contacts --name phone`) and keep
-// their existing verb spelling on it — the schema group is a prefix here, not a rename.
-const SCHEMA_FIELD_OPS = new Set(['add-field', 'update-field', 'remove-field']);
-const SCHEMA_OP_LIST = [...Object.keys(SCHEMA_OPS), ...SCHEMA_FIELD_OPS].join(' | ');
+// FIELD VERBS. Their <target> is a collection and everything else is flags, which is the one shape
+// that differs from the record verbs — so they get their own case arm rather than being folded into
+// `dispatchRecordVerb`. There is no `schema <op>` table any more: system entities take the record
+// verbs, and `collectionCommand`'s interceptors are the whole dispatch (§4).
+const FIELD_VERBS = ['add-field', 'update-field', 'remove-field', 'rename-field'];
 
 export function run(argv) {
 	const [cmd, ...rest] = argv;
@@ -365,16 +384,19 @@ export function run(argv) {
 				process.exit(dispatchRecordVerb(ws, cmd, rest));
 			// The verb `check`'s stale-mirror message names. It reads the compiled relations, and
 			// rebuild WRITES records, so both want the same staleness warning every record verb gets.
-			// `rename-field` is a FIELD verb, so its target is a collection and its arguments are
-			// flags — the same shape `add-field` has. It arrives here before the grammar flip because
-			// the operation is NEW; the next commit brings its three siblings up beside it.
-			case 'rename-field': {
+			// FIELD VERBS — see FIELD_VERBS. Their <target> is a collection and everything else is
+			// flags, so they are their own case rather than being folded into `dispatchRecordVerb`.
+			//
+			// ⚠ `dt schema <op>` is GONE, not aliased. The 0.12.0 policy: a stale invocation must fail
+			// loudly, because a half-working grammar teaches the wrong shape without ever saying so.
+			// The `default` arm below names `schema` specifically.
+			case 'add-field': case 'update-field': case 'remove-field': case 'rename-field': {
 				warnIfStale(ws.root);
 				const [target, ...flagArgs] = rest;
 				if (!target || target.startsWith('--')) {
-					throw new Error('dt rename-field needs a collection: dreamteamer rename-field <collection> --name <field> --to <new-name>');
+					throw new Error(`dt ${cmd} needs a collection: dreamteamer ${cmd} <collection> --name <field> …`);
 				}
-				process.exit(collectionCommand(ws, target, 'rename-field', flagArgs));
+				process.exit(collectionCommand(ws, target, cmd, flagArgs));
 			}
 			case 'relations':
 				warnIfStale(ws.root);
@@ -384,12 +406,24 @@ export function run(argv) {
 			case 'ensure':
 				warnIfStale(ws.root);
 				process.exit(collectionCommand(ws, 'repos', 'ensure', rest));
-			case 'schema':
-				warnIfStale(ws.root);
-				process.exit(dispatchSchemaVerb(ws, rest));
 			case 'resolve':
 				process.exit(resolveVariables(ws, rest));
 			default:
+				// ⚠ NAMED, not just unknown. Every doc, skill and downstream script spelled these
+				// `dt schema <op>` for seven releases, so the failure has to carry the translation —
+				// an "unknown verb" alone sends the reader to `help` to guess which of nine verbs
+				// replaced the one they typed. No alias layer and no deprecation window: 0.12.0's
+				// policy, and the reason it is the right one is that `dt contacts list` failing
+				// loudly is what taught the verb-first grammar in one command.
+				if (cmd === 'schema') {
+					console.error('✖ unknown verb "schema" — schema verbs are gone since 0.19.0. System entities take the RECORD verbs now:');
+					console.error('    dt add collections --name <c> [--module <m>] · dt rm collections/<c> · dt rename collections/<old> <new>');
+					console.error('    dt set collections/<c> module=<m> | <scalar>=<v>   · dt get collections/<c> [--module <m>]');
+					console.error('    dt add-field <c> … · dt update-field <c> … · dt remove-field <c> … · dt rename-field <c> --name <f> --to <g>');
+					console.error('    dt add|set|rm|rename modules/<id> …               · dt add|set|rm|rename ui-views/<id> …');
+					console.error('  the full mapping table is in UPDATING.md (0.18.0 → 0.19.0), and `dt help` has the current spellings.');
+					process.exit(1);
+				}
 				console.error(`✖ unknown verb "${cmd}" — dreamteamer is verb-first since 0.12.0: dt <verb> [<target>]`);
 				console.error(USAGE);
 				process.exit(1);
@@ -486,22 +520,6 @@ function resolveVariables(ws, args) {
 	const rendered = items.map((v) => renderTemplate(v, ctx));
 	if (rendered.length) console.log(rendered.join('\n'));
 	return 0;
-}
-
-/** Translate `dt schema <op> …` onto the same meta verbs `collectionCommand` already routes. */
-function dispatchSchemaVerb(ws, args) {
-	const [op, ...rest] = args;
-	if (!op) throw new Error(`dt schema needs an operation — use ${SCHEMA_OP_LIST}`);
-	if (SCHEMA_FIELD_OPS.has(op)) {
-		const [collection, ...flags] = rest;
-		if (!collection || collection.startsWith('--')) {
-			throw new Error(`dt schema ${op} needs a collection: dreamteamer schema ${op} <collection> --name <field> …`);
-		}
-		return collectionCommand(ws, collection, op, flags);
-	}
-	const pair = SCHEMA_OPS[op];
-	if (!pair) throw new Error(`unknown schema operation "${op}" — use ${SCHEMA_OP_LIST}`);
-	return collectionCommand(ws, pair[0], pair[1], rest);
 }
 
 function tryGit(cwd, args) {

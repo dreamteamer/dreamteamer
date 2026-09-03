@@ -51,7 +51,7 @@ describe('a schema write into a git-shape module', () => {
 		const wsBefore = ws.git(['rev-parse', 'HEAD']);
 		const cloneBefore = git(clone, ['rev-parse', 'HEAD']);
 
-		const res = ws.dt('schema', 'add-field', 'hr/positions', '--name', 'grade', '--type', 'integer');
+		const res = ws.dt('add-field', 'hr/positions', '--name', 'grade', '--type', 'integer');
 		assert.equal(res.code, 0, res.stdout + res.stderr);
 
 		// the field is on disk, in the clone
@@ -70,7 +70,7 @@ describe('a schema write into a git-shape module', () => {
 		const ws = twoModuleWorkspace();
 		asGitModule(ws, 'hr');
 		assert.equal(ws.dt('compile').code, 0);
-		const res = ws.dt('schema', 'add-field', 'hr/positions', '--name', 'grade', '--type', 'integer');
+		const res = ws.dt('add-field', 'hr/positions', '--name', 'grade', '--type', 'integer');
 		assert.equal(res.code, 0, res.stderr);
 		assert.match(res.stdout, /✔ committed in git_modules\/hr \(\w+, ahead \d+ — push when ready\)/);
 	});
@@ -87,7 +87,7 @@ describe('a schema write into a git-shape module', () => {
 		const ws = twoModuleWorkspace();
 		asGitModule(ws, 'hr');
 		assert.equal(ws.dt('compile').code, 0);
-		assert.equal(ws.dt('schema', 'add-field', 'hr/positions', '--name', 'grade', '--type', 'integer').code, 0);
+		assert.equal(ws.dt('add-field', 'hr/positions', '--name', 'grade', '--type', 'integer').code, 0);
 		const status = ws.dt('status');
 		assert.equal(status.code, 0, status.stderr);
 		// ⚠ TODAY'S FORMAT. `hr  git_modules @ <sha>` is Task 8's rename of the channel column; this
@@ -112,7 +112,7 @@ describe('a schema write into a git-shape module', () => {
 		const cloneBefore = git(clone, ['rev-parse', 'HEAD']);
 		// an overlay in hr on core's `people` — the write is in the clone, and `people`'s own
 		// descriptor in the workspace repo is untouched by this verb
-		const res = ws.dt('schema', 'add-field', 'people', '--name', 'badge', '--type', 'string', '--module', 'hr');
+		const res = ws.dt('add-field', 'people', '--name', 'badge', '--type', 'string', '--module', 'hr');
 		assert.equal(res.code, 0, res.stdout + res.stderr);
 		assert.notEqual(git(clone, ['rev-parse', 'HEAD']), cloneBefore);
 		assert.equal(ws.git(['rev-parse', 'HEAD']), wsBefore);
@@ -129,7 +129,7 @@ describe('a schema write into a git-shape module', () => {
 		// through the environment (test/helpers/ws.js), so git has an identity whatever the repo
 		// config says. Make `.git` unwritable instead: no env var rescues that.
 		fs.chmodSync(path.join(clone, '.git'), 0o500);
-		const res = ws.dt('schema', 'add-field', 'hr/positions', '--name', 'grade', '--type', 'integer');
+		const res = ws.dt('add-field', 'hr/positions', '--name', 'grade', '--type', 'integer');
 		fs.chmodSync(path.join(clone, '.git'), 0o700);
 		assert.equal(res.code, 1);
 		assert.match(res.stderr, /rolled back/);

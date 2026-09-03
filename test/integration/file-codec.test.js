@@ -199,7 +199,7 @@ describe('rename-collection', () => {
 		const ws = workspace({ collections: { pics: { description: 'x', storage: { codec: 'file', suffix: 'pic' }, id: { pattern: '^[a-z/-]+$' } } } });
 		ws.dt('add', 'pics', 'a/star', '--from', source('x.svg', '<svg/>'));
 		ws.dt('add', 'pics', 'a/acme', '--from', source('y.png', 'p'));
-		const res = ws.dt('schema', 'rename-collection', 'pics', 'images');
+		const res = ws.dt('rename', 'collections/pics', 'images');
 		assert.equal(res.code, 0, res.stderr);
 		assert.ok(fs.existsSync(path.join(ws.root, 'data/images/a/star.image.svg')), 'svg kept its extension');
 		assert.ok(fs.existsSync(path.join(ws.root, 'data/images/a/acme.image.png')), 'png kept its extension');

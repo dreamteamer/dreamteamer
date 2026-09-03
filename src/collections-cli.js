@@ -1,7 +1,7 @@
 // The IMPLEMENTATION layer behind the verb-first CLI: `collectionCommand(ws, collection, verb, args)`
 // is (collection, verb) shaped and stays that way — `cli.js` translates `dt <verb> <target>` onto it.
 // So a spelling here (`collections add`, `<collection> add-field`, `commands for`, `repos ensure`) is
-// an INTERNAL pair, not what the operator types; `dt schema add-collection` is what they type.
+// an INTERNAL pair, not what the operator types; `dt add collections` is what they type.
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -14,6 +14,7 @@ import {
 	// spelling — one implementation, two callers
 	workspaceSystemDir,
 	createModule, removeModule, renameModule, setModule, moveCollection, setCollectionScalars, collectionSourceFileFor, removeFieldPlan, renameField, renameFieldPlan,
+	createSkill, refuseHandAuthored, removeEntity, renameEntity, setEntityFrontmatter,
 } from './schema-ops.js';
 import { KINDS } from './compile.js';
 import { history, historyDiff } from './history.js';
@@ -71,7 +72,7 @@ export function collectionCommand(ws, collection, verb, args) {
 	const store = new Store(ws);
 	const { flags, pos } = parseArgs(args);
 
-	// ---- meta verbs: schema operations write SOURCES, never the runtime ----------
+	// ---- system verbs: source writes, never the runtime ----------
 	// These MUST come before the generic switch: their collections are system-stored, so the
 	// ordinary record path refuses them ("… are system sources") and always would.
 	if (collection === 'collections' && verb === 'add') return metaCollectionsAdd(ws, store, flags);
@@ -90,6 +91,19 @@ export function collectionCommand(ws, collection, verb, args) {
 	if (verb === 'update-field') return metaUpdateField(ws, store, collection, flags);
 	if (verb === 'remove-field') return metaRemoveField(ws, store, collection, flags);
 	if (verb === 'rename-field') return metaRenameField(ws, store, collection, flags);
+
+	// ---- the identity entities. §3.1's last row: `add` scaffolds a skill and is refused WITH THE
+	// PATH for the four hand-authored kinds; `set` edits frontmatter; `rm` and `rename` work on all
+	// five. Keyed on the collection NAME rather than on `storage.base` because these five are the
+	// ones with a source-file shape — `modules` is projected and `collections` has its own verbs.
+	if (ENTITY_KINDS.has(collection) && ['add', 'set', 'rm', 'rename'].includes(verb)) {
+		return metaEntityVerb(ws, store, collection, verb, flags, pos);
+	}
+	// `revert` on ANY system entity: its history is git's, and `store.revert` writes a RECORD.
+	if (verb === 'revert' && store.descriptors.get(collection)?.storage?.base === 'runtime') {
+		const src = sourceHintFor(store, collection);
+		throw new Error(`${collection}/${pos[0] ?? '<id>'} is a compiled source, so there is no record to revert — its source is in git.\n  git log -- ${src}\n  git checkout <sha> -- ${src}\n  dreamteamer compile`);
+	}
 
 	const d = store.descriptor(collection);
 
@@ -479,7 +493,7 @@ function metaCollectionsGet(ws, store, flags, pos) {
 function metaCollectionsRename(ws, store, flags, pos) {
 	refuseRepeats(flags);
 	const [oldName, explicitNew] = pos;
-	if (!oldName) throw new Error('usage: dreamteamer schema rename-collection <old> <new> | <old> --namespace <ns>');
+	if (!oldName) throw new Error('usage: dreamteamer rename collections/<old> <new> | collections/<old> --namespace <ns>');
 	// `--namespace health` on its own moves the collection INTO that namespace keeping its bare name,
 	// which is the common case and saves retyping it.
 	const newName = explicitNew
@@ -623,9 +637,64 @@ function metaRemoveField(ws, store, collection, flags) {
 		// This descriptor's own `list_fields`/`sort_field` were pruned with the field; a ui-view is a
 		// source this verb does not own, so it is NAMED rather than edited — and naming it is the whole
 		// point, since a column of a field that no longer exists renders as an empty one.
-		if (out.staleViews?.length) console.warn(`⚠ still listing ${collection}.${name} as a column: ${out.staleViews.join(', ')} — edit with \`dreamteamer schema set-view <id> options.columns=…\``);
+		if (out.staleViews?.length) console.warn(`⚠ still listing ${collection}.${name} as a column: ${out.staleViews.join(', ')} — edit with \`dreamteamer set ui-views/<id> options.columns=…\``);
 	}
 	return 0;
+}
+
+const ENTITY_KINDS = new Set(['skills', 'agents', 'commands', 'command-bindings', 'collection-templates']);
+const SCAFFOLDABLE = new Set(['skills']);
+
+function metaEntityVerb(ws, store, kind, verb, flags, pos) {
+	refuseRepeats(flags);
+	const one = kind.replace(/s$/, '');
+	if (verb === 'add') {
+		const name = oneValue(flags, 'name');
+		if (!SCAFFOLDABLE.has(kind)) refuseHandAuthored(ws, store, kind, name, oneValue(flags, 'module'));
+		const out = createSkill(ws, store, {
+			name,
+			description: oneValue(flags, 'description'),
+			moduleId: oneValue(flags, 'module'),
+		});
+		if (flags.json) { emit(JSON.stringify(out)); return 0; }
+		console.log(`✔ ${rel(ws.root, out.file)}`);
+		console.log('✔ compiled — the skill is live (write its body next; the frontmatter is the trigger)');
+		reportCommits(out.commits);
+		return 0;
+	}
+	if (verb === 'rm') {
+		const out = removeEntity(ws, store, kind, need(pos, 0, `${one} id`));
+		if (flags.json) { emit(JSON.stringify(out)); return 0; }
+		console.log(`✔ removed ${one} ${out.removed}`);
+		console.log('✔ compiled — it is gone');
+		reportCommits(out.commits);
+		return 0;
+	}
+	if (verb === 'rename') {
+		const oldId = need(pos, 0, `${one} id`);
+		const out = renameEntity(ws, store, kind, oldId, need(pos, 1, 'new id'));
+		if (flags.json) { emit(JSON.stringify(out)); return 0; }
+		if (!out.renamed) { console.log(`✔ ${oldId} — already named that, nothing to do`); return 0; }
+		console.log(`✔ ${kind}/${oldId} → ${kind}/${out.id}`);
+		console.log('✔ compiled — the rename is live');
+		reportCommits(out.commits);
+		return 0;
+	}
+	const id = need(pos, 0, `${one} id`);
+	const changes = { ...pairs(pos.slice(1)), ...stripMeta(flags) };
+	if (!Object.keys(changes).length) throw new Error(`nothing to set — pass key=value pairs (a ${one}'s frontmatter keys)`);
+	const out = setEntityFrontmatter(ws, store, kind, id, changes);
+	if (flags.json) { emit(JSON.stringify(out)); return 0; }
+	console.log(`✔ ${rel(ws.root, out.file)} — ${out.changed.join(', ')}`);
+	console.log('✔ compiled — the change is live');
+	reportCommits(out.commits);
+	return 0;
+}
+
+/** The path `revert`'s refusal names — where a human edits this compiled entity. */
+function sourceHintFor(store, collection) {
+	const d = store.descriptors.get(collection);
+	return d?.storage?.path ? `modules/*/${d.storage.path}/` : `modules/*/${collection}/`;
 }
 
 // `dreamteamer rename-field people --name employer --to company`
