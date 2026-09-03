@@ -61,7 +61,7 @@ dispatch, so it cannot drift):
 
 - read & measure — `list` `get` `values` `history` `diff` `commands` `relations` `resolve`
 - write & publish — `add` `set` `rm` `rename` `move` `revert` `commit` `ensure`
-- schema (sources, through the compile gate) — `schema` `add-collection` `rm-collection` `rename-collection` `add-field` `update-field` `remove-field` `add-view` `set-view` `rm-view`
+- schema (sources, through the compile gate) — `schema` `add-collection` `rm-collection` `rename-collection` `add-field` `update-field` `remove-field` `rename-field` `add-view` `set-view` `rm-view`
 - workspace — `init` `install` `update` `compile` `check` `status` `start` `changes` `help` don't learn syntax from prose, this skill included: prose drifts, and `help` ships in
 the same file as the dispatch it documents. run it once before your first write of a session.
 what prose adds is judgment — *when* a verb is the right move, and the guarantees you can lean

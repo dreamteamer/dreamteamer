@@ -112,6 +112,11 @@ different word in front of it):
                              the one-to-one. Records written before the mirror existed are counted
                              for you, with the "relations rebuild" that repairs them.)
   schema remove-field <collection> --name <field>
+  rename-field <collection> --name <field> --to <new-name> [--module <m>] [--dry-run]
+                            rewrites the key in every record AND everywhere a descriptor or view
+                            names the field: list_fields, sort_field, x-inverse, x-inverse-of,
+                            title_template, id.generate, a ui-view's options.columns and filter,
+                            and a command-binding's can-enter/can-exit. ONE commit.
   schema add-view --path </route> --target list --collection collections/<c> --layout <id>
                             [--id <id>] [k.v=…]
   schema set-view <id> <key>=<value> …        (dotted keys: options.sort=-date, nav.label=Recent.
@@ -360,6 +365,17 @@ export function run(argv) {
 				process.exit(dispatchRecordVerb(ws, cmd, rest));
 			// The verb `check`'s stale-mirror message names. It reads the compiled relations, and
 			// rebuild WRITES records, so both want the same staleness warning every record verb gets.
+			// `rename-field` is a FIELD verb, so its target is a collection and its arguments are
+			// flags — the same shape `add-field` has. It arrives here before the grammar flip because
+			// the operation is NEW; the next commit brings its three siblings up beside it.
+			case 'rename-field': {
+				warnIfStale(ws.root);
+				const [target, ...flagArgs] = rest;
+				if (!target || target.startsWith('--')) {
+					throw new Error('dt rename-field needs a collection: dreamteamer rename-field <collection> --name <field> --to <new-name>');
+				}
+				process.exit(collectionCommand(ws, target, 'rename-field', flagArgs));
+			}
 			case 'relations':
 				warnIfStale(ws.root);
 				process.exit(relationsCommand(ws, rest));
