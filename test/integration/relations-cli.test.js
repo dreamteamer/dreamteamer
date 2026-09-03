@@ -324,6 +324,7 @@ describe('remove-field on a generated mirror', () => {
 		fs.writeFileSync(path.join(mod, 'collections', 'patients.collection.yaml'),
 			'name: patients\nid: { generate: "{{ name | slug }}" }\nstorage: { suffix: patient }\n'
 			+ 'schema:\n  type: object\n  required: [name]\n  properties:\n    name: { type: string }\n'
+			+ '    age: { type: integer }\n'
 			+ '    notes: { type: string, format: markdown, x-body: true }\n');
 		writeCollection(ws.root, 'visits', simpleCollection({
 			storage: { suffix: 'visit' },
@@ -357,11 +358,25 @@ describe('remove-field on a generated mirror', () => {
 		assert.match(res.stderr, /dreamteamer schema update-field visits --name patient --inverse=/);
 	});
 
-	test('a real inherited field on the same collection still says module-shipped', () => {
+	// ⚠ THE FIRST OF THESE TWO USED TO ASSERT THE DEFECT. `patients` ships from an INLINE module and
+	// the verb refused it as "module-shipped", because it resolved its write target from the workspace
+	// module. Inline sources sit under the same git history as everything else, so a field verb now
+	// edits clinic's own descriptor — see `collectionSourceFile`. The fallthrough refusal survives for
+	// a source the workspace genuinely cannot rewrite, which is what `npm install` erases.
+	test('a real own field in an inline module is edited THERE, not refused', () => {
 		const ws = withModule();
-		const res = runDt(ws.root, 'schema', 'remove-field', 'patients', '--name', 'name');
+		const res = runDt(ws.root, 'schema', 'remove-field', 'patients', '--name', 'age');
+		assert.equal(res.code, 0, res.stdout + res.stderr);
+		const owned = load(readFile(ws.root, 'modules/clinic/collections/patients.collection.yaml'));
+		assert.equal(owned.schema.properties.age, undefined);
+	});
+
+	test('a real inherited field the workspace cannot rewrite is still refused', () => {
+		const ws = withModule();
+		// `repos` ships from node_modules/dreamteamer, which the next `npm install` overwrites.
+		const res = runDt(ws.root, 'schema', 'remove-field', 'repos', '--name', 'path');
 		assert.equal(res.code, 1);
-		assert.match(res.stderr, /is module-shipped/);
+		assert.match(res.stderr, /cannot rewrite/);
 	});
 });
 

@@ -240,6 +240,160 @@ export function readFile(root, rel) {
 	try { return fs.readFileSync(path.join(root, rel), 'utf8'); } catch { return null; }
 }
 
+/**
+ * A second module under `modules/<id>/`, the shape every real workspace has — a workspace's domain
+ * collections live in modules, not at its root.
+ *
+ * `collections` is written FLAT-at-the-module-root (`modules/<id>/collections/<name>.collection.yaml`),
+ * nested for a namespaced name, which is where compile enumerates them recursively and where
+ * `schema-ops` derives the path from the collection's own name.
+ */
+export function writeModule(root, id, opts = {}) {
+	const modRoot = path.join(root, 'modules', id);
+	fs.mkdirSync(path.join(modRoot, 'collections'), { recursive: true });
+	const dt = {};
+	if (opts.description) dt.description = opts.description;
+	if (opts.namespaces) dt.namespaces = opts.namespaces;
+	if (opts.dependencies) dt.dependencies = opts.dependencies;
+	if (opts.peerDependencies) dt.peerDependencies = opts.peerDependencies;
+	if (opts.ownsData) dt['owns-data'] = true;
+	fs.writeFileSync(
+		path.join(modRoot, 'package.json'),
+		JSON.stringify({ name: id, private: true, version: '0.0.1', files: ['collections', 'skills', 'agents', 'commands', 'command-bindings', 'ui-views', 'collection-templates'], dreamteamer: dt }, null, '\t') + '\n',
+	);
+	for (const [name, descriptor] of Object.entries(opts.collections ?? {})) {
+		const file = path.join(modRoot, 'collections', `${name}.collection.yaml`);
+		fs.mkdirSync(path.dirname(file), { recursive: true });
+		fs.writeFileSync(file, dump({ name, ...descriptor }));
+	}
+	return modRoot;
+}
+
+/** A `dreamteamer.<key>` edit on one module's package.json, for a fixture that needs to declare a
+ *  dependency after the module already exists. */
+export function patchModulePkg(root, id, patch) {
+	const file = path.join(root, 'modules', id, 'package.json');
+	const pkg = JSON.parse(fs.readFileSync(file, 'utf8'));
+	pkg.dreamteamer = { ...pkg.dreamteamer, ...patch };
+	fs.writeFileSync(file, JSON.stringify(pkg, null, '\t') + '\n');
+}
+
+/**
+ * THE synthetic fixture for this whole wave: two domain modules plus the workspace module.
+ *
+ *   core  — people, teams, tasks (the shared nouns)
+ *   hr    — hr/positions, in its OWN namespace, referencing core's `people` as a declared PEER
+ *
+ * ⚠ `hr` declares `peerDependencies: ['people']` rather than `dependencies: ['core']` on purpose:
+ * a peer names a CONCEPT rather than a module, which is what lets `modules/hr` be copied alone into
+ * a bare workspace and still compile — decision 130's acceptance test, which nothing had ever run.
+ * A test that needs the hard edge adds it with `patchModulePkg`.
+ *
+ * Invented names throughout: this engine is published and the vault it is dogfooded on is not.
+ */
+export const CORE_COLLECTIONS = {
+	people: {
+		id: { generate: '{{ name | slug }}' },
+		storage: { suffix: 'person' },
+		description: 'A person this workspace knows about.',
+		schema: {
+			type: 'object',
+			required: ['name'],
+			properties: {
+				name: { type: 'string' },
+				employer: { type: 'string' },
+				notes: { type: 'string', format: 'markdown', 'x-body': true },
+			},
+		},
+	},
+	teams: {
+		id: { generate: '{{ name | slug }}' },
+		storage: { suffix: 'team' },
+		description: 'A group of people with a shared remit.',
+		schema: {
+			type: 'object',
+			required: ['name'],
+			properties: {
+				name: { type: 'string' },
+				notes: { type: 'string', format: 'markdown', 'x-body': true },
+			},
+		},
+	},
+	tasks: {
+		id: { generate: '{{ name | slug }}' },
+		storage: { suffix: 'task' },
+		description: 'One concrete commitment.',
+		schema: {
+			type: 'object',
+			required: ['name'],
+			properties: {
+				name: { type: 'string' },
+				owner: { type: 'string', 'x-reference': 'people' },
+				notes: { type: 'string', format: 'markdown', 'x-body': true },
+			},
+		},
+	},
+};
+
+export const HR_COLLECTIONS = {
+	'hr/positions': {
+		id: { generate: '{{ name | slug }}' },
+		storage: { suffix: 'position' },
+		description: 'An open or filled role.',
+		schema: {
+			type: 'object',
+			required: ['name'],
+			properties: {
+				name: { type: 'string' },
+				holder: { type: 'string', 'x-reference': 'people' },
+				notes: { type: 'string', format: 'markdown', 'x-body': true },
+			},
+		},
+	},
+};
+
+export function twoModuleWorkspace(opts = {}) {
+	const base = baseWorkspace();
+	const root = fs.mkdtempSync(path.join(TMP, 'ws2-'));
+	created.push(root);
+	fs.cpSync(base, root, { recursive: true, dereference: false, verbatimSymlinks: true });
+
+	writeModule(root, 'core', { description: 'The shared nouns.', collections: CORE_COLLECTIONS });
+	writeModule(root, 'hr', {
+		description: 'Roles and headcount.',
+		// The namespace is declared at the WORKSPACE level here, because Task 4 is what teaches
+		// compile to read a module's own declaration. Task 4 flips this fixture to the module.
+		peerDependencies: ['people'],
+		collections: HR_COLLECTIONS,
+	});
+
+	const pkgPath = path.join(root, 'package.json');
+	const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+	pkg.dreamteamer.namespaces = opts.namespaces ?? ['hr'];
+	Object.assign(pkg.dreamteamer, opts.pkg ?? {});
+	fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, '\t') + '\n');
+
+	for (const [name, descriptor] of Object.entries(opts.collections ?? {})) {
+		writeCollection(root, name, descriptor);
+	}
+
+	// ⚠ COMMIT THE MODULES, as `buildBase` commits the base. A real workspace's module sources are in
+	// git, and a source write is gated by `git add -- <path>` — which FAILS OUTRIGHT on a pathspec
+	// that is neither on disk nor in the index. So an UNcommitted descriptor made `rm-collection` roll
+	// back on a file git simply did not care about, and the fixture, not the verb, was the liar.
+	git(root, ['add', '--', 'modules', 'package.json']);
+	git(root, ['commit', '-qm', 'fixture: two modules']);
+
+	const ws = { root, pkg };
+	if (opts.compile === false) return { root, ws, git: (a) => git(root, a), dt: (...a) => dt(root, ...a) };
+	const out = compileQuietly(ws);
+	const store = new Store(ws);
+	for (const [collection, rows] of Object.entries(opts.records ?? {})) {
+		for (const fields of rows) store.add(collection, { ...fields });
+	}
+	return { root, ws, store, out, git: (a) => git(root, a), dt: (...a) => dt(root, ...a) };
+}
+
 /** Every workspace-relative file path under a directory, sorted — for asserting on layout. */
 export function tree(root, rel = '.') {
 	const start = path.join(root, rel);

@@ -5,7 +5,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { workspace, simpleCollection, readFile, compileQuietly, dt as runDt } from '../helpers/ws.js';
+import { workspace, twoModuleWorkspace, simpleCollection, readFile, compileQuietly, dt as runDt } from '../helpers/ws.js';
 import { load, dump } from '../../src/yaml.js';
 import { Store } from '../../src/store.js';
 import { fieldDef, updateField, statedKeywords } from '../../src/schema-ops.js';
@@ -1028,5 +1028,69 @@ describe('remove-field prunes the presentation it invalidates', () => {
 		const ws = withPresentation();
 		assert.equal(runDt(ws.root, 'schema', 'remove-field', 'articles', '--name', 'rank').code, 0);
 		assert.match(readFile(ws.root, 'modules/default/collections/articles.collection.yaml'), /# ARTICLES — the header/);
+	});
+});
+
+// ---------------------------------------------------------------------------------------------
+// THE MEASURED DEFECT (engine 0.17.0, 2026-09-01). Three call sites resolved their write target
+// from the WORKSPACE MODULE while two others already resolved it from the manifest's sources. So a
+// field verb on a collection shipped by any other inline module wrote an OVERLAY into the workspace
+// module and failed the gate compile with "module default does not declare core in
+// dreamteamer.dependencies" — and the only working workaround was pointing `workspace-module` at
+// the module being authored, which is a mode switch that also grants it the workspace module's
+// privileges.
+describe('a field verb follows the module that OWNS the collection', () => {
+	test('add-field edits the owning module\'s descriptor, never an overlay in the workspace module', () => {
+		const ws = twoModuleWorkspace();
+		const res = ws.dt('schema', 'add-field', 'people', '--name', 'email', '--type', 'string',
+			'--description', 'Where to write to them.');
+		assert.equal(res.code, 0, res.stdout + res.stderr);
+
+		const owned = load(readFile(ws.root, 'modules/core/collections/people.collection.yaml'));
+		assert.equal(owned.schema.properties.email.type, 'string',
+			'the field lands in the module that ships the collection');
+		assert.equal(readFile(ws.root, 'modules/default/collections/people.collection.yaml'), null,
+			'no overlay is created in the workspace module');
+		assert.match(res.stdout, /modules\/core\/collections\/people\.collection\.yaml/);
+		assert.doesNotMatch(res.stdout, /extends/);
+	});
+
+	test('add-field on a NAMESPACED collection in another module writes the nested path', () => {
+		const ws = twoModuleWorkspace();
+		const res = ws.dt('schema', 'add-field', 'hr/positions', '--name', 'grade', '--type', 'integer');
+		assert.equal(res.code, 0, res.stdout + res.stderr);
+		const owned = load(readFile(ws.root, 'modules/hr/collections/hr/positions.collection.yaml'));
+		assert.equal(owned.schema.properties.grade.type, 'integer');
+	});
+
+	test('remove-field edits the owning module\'s descriptor and clears the values', () => {
+		const ws = twoModuleWorkspace();
+		// `employer` is already on the fixture's `people` — it is core's own field, which is the point:
+		// this verb has to reach into the module that ships it.
+		assert.equal(ws.dt('add', 'people', '--name', 'Dana Levi', '--employer', 'Acme').code, 0);
+		const res = ws.dt('schema', 'remove-field', 'people', '--name', 'employer');
+		assert.equal(res.code, 0, res.stdout + res.stderr);
+		assert.equal(
+			load(readFile(ws.root, 'modules/core/collections/people.collection.yaml')).schema.properties.employer,
+			undefined,
+		);
+		assert.match(res.stdout, /cleared its values from 1 people record/);
+	});
+
+	test('rm-collection removes the descriptor from the module that ships it', () => {
+		const ws = twoModuleWorkspace();
+		const res = ws.dt('schema', 'rm-collection', 'teams');
+		assert.equal(res.code, 0, res.stdout + res.stderr);
+		assert.equal(readFile(ws.root, 'modules/core/collections/teams.collection.yaml'), null);
+		assert.equal(ws.dt('check').code, 0);
+	});
+
+	test('an npm-shipped collection is still refused, with the overlay spelling as the remedy', () => {
+		const ws = twoModuleWorkspace();
+		// `collections` itself ships from node_modules/dreamteamer — the real npm-shape case.
+		const res = ws.dt('schema', 'rm-collection', 'collections');
+		assert.equal(res.code, 1);
+		assert.match(res.stderr, /node_modules/);
+		assert.match(res.stderr, /dreamteamer\.disable/);
 	});
 });
