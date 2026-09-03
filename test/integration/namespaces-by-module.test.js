@@ -225,10 +225,14 @@ describe('the stated trade', () => {
 	test('removing a namespace-owning module makes the compile error name it', () => {
 		const ws = twoModuleWorkspace();
 		ws.dt('add', 'hr/positions', '--name', 'Engineer');
-		// move the collection out so `rm --force` is not what breaks it, then drop the module
-		assert.equal(ws.dt('set', 'collections/hr/positions', 'module=core').code, 0);
+		// ⚠ THE DEPENDENCY FIRST. §8's own rule: core cannot ship a collection in hr's namespace
+		// without depending on hr, so the move is illegal until that is declared — the gate compile
+		// refuses it, which is the rule working rather than a fixture problem.
 		patchModulePkg(ws.root, 'core', { dependencies: ['hr'], peerDependencies: ['people'] });
 		assert.equal(ws.dt('compile').code, 0);
+		// move the collection out so `rm --force` is not what breaks it, then drop the module
+		const moved = ws.dt('set', 'collections/hr/positions', 'module=core');
+		assert.equal(moved.code, 0, moved.stdout + moved.stderr);
 		const res = ws.dt('rm', 'modules/hr', '--force');
 		assert.equal(res.code, 1, 'core still needs the namespace hr declares');
 		assert.match(res.stderr, /by a module you just removed or disabled/);

@@ -5,6 +5,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { discoverModules, KINDS } from './compile.js';
+import { KNOWN_HARNESSES } from './harnesses.js';
 import { Store } from './store.js';
 import { envContext, renderTemplate } from './env-vars.js';
 
@@ -66,7 +67,17 @@ export function init({ flags = {} } = {}) {
 	const root = process.cwd();
 	const name = flags.name ?? path.basename(root);
 	const dataPath = flags['data-path'] ?? 'data';
-	const harnesses = typeof flags.harnesses === 'string' ? flags.harnesses.split(',').map((s) => s.trim()) : ['claude-code'];
+	// EVERY known harness by default, and this is the operator's explicit call over the architecture
+	// review's dissent — recorded, not elided: it writes AGENTS.md, GEMINI.md and .cursor/rules/ into
+	// every new workspace, which is real clutter. The decision stands on the ASYMMETRY. A missing
+	// adapter fails SILENTLY: the session opens, the agent reads no orientation block, and it models
+	// the workspace by guessing — which is indistinguishable from the engine working. A spare adapter
+	// is an empty file the operator deletes in one command. One of those two failures is recoverable.
+	// `--harnesses claude-code` still narrows it, and an EXISTING workspace is untouched: the
+	// `harnesses` key already exists and wins over the seed.
+	const harnesses = typeof flags.harnesses === 'string'
+		? flags.harnesses.split(',').map((s) => s.trim())
+		: [...KNOWN_HARNESSES];
 
 	// package.json: create or update — the single manifest
 	const pkgPath = path.join(root, 'package.json');

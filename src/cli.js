@@ -152,7 +152,7 @@ collection: the ENGINE does not read one, and \`rename-field\` was the only capa
                              and a command-binding's can-enter/can-exit. ONE commit)
 
 Every verb that MOVES records or CLEARS values takes --dry-run and prints its plan first:
-  records N · refs M · descriptors K · values cleared V
+    records N · refs M · descriptors K · values cleared V
 
 workspace verbs:
   init        write the workspace skeleton into the current directory (never compiles)
@@ -208,7 +208,7 @@ export function run(argv) {
 			process.exit(init({ flags }));
 		}
 		if (!cmd) {
-			console.log(USAGE);
+			emit(USAGE);
 			process.exit(0);
 		}
 		const ws = findWorkspace();
@@ -377,7 +377,7 @@ export function run(argv) {
 				process.exit(0);
 			}
 			case 'help':
-				console.log(USAGE);
+				emit(USAGE);
 				process.exit(0);
 			case 'list': case 'add': case 'values':
 			case 'get': case 'set': case 'rm': case 'rename': case 'history': case 'diff': case 'revert':
@@ -427,7 +427,7 @@ export function run(argv) {
 					process.exit(1);
 				}
 				console.error(`✖ unknown verb "${cmd}" — dreamteamer is verb-first since 0.12.0: dt <verb> [<target>]`);
-				console.error(USAGE);
+				emit(USAGE, 2);
 				process.exit(1);
 		}
 	} catch (e) {

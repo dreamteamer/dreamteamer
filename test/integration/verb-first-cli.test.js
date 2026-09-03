@@ -380,7 +380,7 @@ describe('workspace verbs keep their spellings', () => {
 		const ws = base();
 		const help = ws.dt('help').stdout;
 		const documented = new Set();
-		for (const m of help.matchAll(/^ {2}([a-z][a-z-]*)\s{2,}/gm)) documented.add(m[1]);
+		for (const m of help.matchAll(/^ {2}([a-z][a-z-]*)\s/gm)) documented.add(m[1]);
 		// ⚠ A PIN THAT MATCHES NOTHING PASSES VACUOUSLY, which is the one outcome to avoid.
 		assert.ok(documented.size >= 25, `help yielded only ${documented.size} verb names — the extraction pattern no longer matches USAGE`);
 		for (const verb of documented) {

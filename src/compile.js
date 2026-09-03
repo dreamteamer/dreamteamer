@@ -269,7 +269,13 @@ function materializeRelations(mergedGroups, ctx) {
 			}
 			holder['x-inverse'] = mirrorName; // canonical string form in the compiled output
 			for (const target of Array.isArray(raw) ? raw : [raw]) {
-				stampMirror(byName, ctx, name, field, prop, holder, mirrorName, target, typeof inv === 'object' ? inv.description : undefined);
+				// ⚠ `x-inverse-description` wins over the object form's `description`, because it is the
+				// flag `--inverse-description` writes and the object form has no CLI spelling at all.
+				// It is an AUTHORED description of a GENERATED field — the one field in this engine
+				// that could never have an explanation, since the owning side's `--description`
+				// describes the foreign key, which is the other direction.
+				stampMirror(byName, ctx, name, field, prop, holder, mirrorName, target,
+					holder['x-inverse-description'] ?? (typeof inv === 'object' ? inv.description : undefined));
 			}
 		}
 	}

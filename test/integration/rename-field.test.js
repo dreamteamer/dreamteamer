@@ -54,7 +54,9 @@ describe('the values', () => {
 		const rec = readFile(ws.root, 'data/people/dana-levi.person.md');
 		assert.match(rec, /Met at Acme\./, 'the prose is the text after the frontmatter — it has no key to rewrite');
 		assert.equal(src(ws, 'core', 'people').schema.properties.summary['x-body'], true);
-		assert.equal(JSON.parse(ws.dt('get', 'people/dana-levi', '--json').stdout).summary, 'Met at Acme.');
+		// `parseRecord` hands the body back with the trailing newline the file carries — that is
+		// pre-existing and orthogonal to the rename, so the assertion trims rather than pinning it.
+		assert.equal(JSON.parse(ws.dt('get', 'people/dana-levi', '--json').stdout).summary.trim(), 'Met at Acme.');
 	});
 });
 

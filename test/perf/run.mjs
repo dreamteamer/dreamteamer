@@ -251,6 +251,10 @@ const fixture = generate();
 console.log(`    fixture           ${secs(fixture.totalMs)}  (init + compile + ${(RECORDS + FILLER).toLocaleString()} writes + one commit)`);
 console.log(`    compile           ${secs(fixture.compileMs)}`);
 console.log(`    ${(RECORDS + FILLER).toLocaleString()} record writes  ${secs(fixture.writeMs)}   ${rate(RECORDS + FILLER, fixture.writeMs)} through the real Store`);
+// ⚠ ms/add EXPLICITLY, because that is the number the front-matter round-trip is measured against
+// and a rate has to be inverted to compare. Baseline: 0.57 ms/add (1,581 writes/sec), measured on
+// an M-series Mac 2026-09-01 at --records=400 --filler=100.
+console.log(`    per add           ${(fixture.writeMs / (RECORDS + FILLER)).toFixed(2)}ms   (baseline 0.57ms — the round-trip's ceiling is 1.14)`);
 console.log(`    record files (M)  ${fixture.files.toLocaleString()}   — what one ref pass reads`);
 console.log(`\n  The write rate above is the whole point of measuring generation. \`add\` needs the ids that`);
 console.log(`  already exist to generate one that is unique, so it calls \`ids()\` — which asked`);

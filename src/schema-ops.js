@@ -1160,7 +1160,7 @@ export function collectionSourceFileFor(ws, store, collection, moduleId) {
 
 // ---- ops ------------------------------------------------------------------------
 
-export function createCollection(ws, store, { name, template, namespace, moduleId }) {
+export function createCollection(ws, store, { name, template, namespace, moduleId, description, suffix, id }) {
 	if (!name) throw new Error('missing collection name');
 	// §8. `--namespace health --name doctors` and `--name health/doctors` are the SAME collection,
 	// because the qualified name IS the identity everywhere else in the engine — and a module that
@@ -1193,13 +1193,19 @@ export function createCollection(ws, store, { name, template, namespace, moduleI
 	if (qualified.includes('/') && !ns) {
 		throw new Error(`namespace "${qualified.slice(0, qualified.lastIndexOf('/'))}" is not declared — pass --namespace <ns> (which declares it where the collection will live), or declare it first: dt set modules/<m> namespaces=<ns>.`);
 	}
-	if (store.descriptors.has(qualified)) {
+	// ⚠ THE NAME AS TYPED, TOO, not only the qualified one. Namespace inference (§8) turns
+	// `--name people --module hr` into `hr/people`, which is a DIFFERENT collection — so with the
+	// qualified check alone, asking to create a collection that already exists silently created a
+	// second one in the module's namespace. §13 requires the refusal, and it has to fire on the name
+	// the operator actually typed.
+	for (const clash of new Set([qualified, name])) {
+		if (!store.descriptors.has(clash)) continue;
 		// §13: name both remedies, because the operator asking for this wants ONE of them and the
 		// generic "already exists" tells them which neither.
-		const owner = store.descriptors.get(qualified).module
-			?? String(store.descriptors.get(qualified).owner ?? '').replace(/^modules\//, '');
+		const owner = store.descriptors.get(clash).module
+			?? String(store.descriptors.get(clash).owner ?? '').replace(/^modules\//, '');
 		const target = moduleId ?? ws.pkg.dreamteamer?.['workspace-module'] ?? 'default';
-		throw new Error(`collection "${qualified}" already exists, owned by ${owner}. Fields from ${target}: dreamteamer add-field ${qualified} --module ${target} --name <f> --type <t> · move it: dreamteamer set collections/${qualified} module=${target}`);
+		throw new Error(`collection "${clash}" already exists, owned by ${owner}. Fields from ${target}: dreamteamer add-field ${clash} --module ${target} --name <f> --type <t> · move it: dreamteamer set collections/${clash} module=${target}`);
 	}
 	// NESTED, mirroring where compile puts it in the runtime: `collections/health/doctors.collection.yaml`.
 	// compile enumerates this kind recursively for exactly this reason — and `upsertField` derives the
@@ -1234,6 +1240,25 @@ export function createCollection(ws, store, { name, template, namespace, moduleI
 		// `<id>.health/doctor.md`
 		suffix: descriptor.storage?.suffix ?? singular(baseNameOf(qualified, declaredAll)),
 	};
+	// ⚠ A DESCRIPTION IS NOT DECORATION. compile WARNS about a collection without one, because it
+	// renders as a bare NAME in the orientation block every session loads — an agent learns the noun
+	// exists and nothing about when it is the right one. There was no way to supply it at creation,
+	// so every new collection started life triggering that warning.
+	if (typeof description === 'string' && description) descriptor.description = description;
+	// `--id-shape dated|slug` overrides the template's id shape (`entity` = slug, `docs` = dated).
+	// Two spellings, because those two are the shapes that exist — not an enum with room for a
+	// roadmap. Spelled `--id-shape` because `--id` already means the explicit RECORD id on `add`.
+	if (id !== undefined) {
+		if (id === 'slug') descriptor.id = { generate: '{{ name | slug }}', pattern: '^[a-z0-9-]+$' };
+		else if (id === 'dated') descriptor.id = { generate: '{{ created | date }}--{{ name | slug }}', pattern: '^\\d{4}-\\d{2}-\\d{2}--[a-z0-9-]+$' };
+		else throw new Error(`--id-shape takes dated or slug — got "${id}".`);
+	}
+	// An explicit suffix WINS over the derivation, and the derivation is echoed by the caller either
+	// way. `singular()` is deliberately crude (`finance` → `financ`), and a smarter one was CUT: the
+	// derived-vs-authored predicate `rename-collection` uses (`oldSuffix === singular(oldBase)`)
+	// would flip for existing collections, which is a hidden migration. The echo plus this flag is
+	// what covers the papercut instead.
+	if (typeof suffix === 'string' && suffix) descriptor.storage.suffix = suffix;
 	// `--namespace x` where nobody declares `x` DECLARES it, in the module the collection is landing
 	// in — else the workspace. Writing a source that cannot compile and then telling the operator to
 	// go declare it is the shape §8 exists to remove; and the module is the right home, because that
@@ -1254,6 +1279,8 @@ export function createCollection(ws, store, { name, template, namespace, moduleI
 	return {
 		file: dest, descriptor, name: qualified, inferred,
 		declaredNamespace: needsDeclaration ? ns : null,
+		suffix: descriptor.storage.suffix,
+		suffixDerived: suffix === undefined || suffix === '',
 		commits: gate.commits,
 	};
 }
@@ -1821,14 +1848,14 @@ export function addField(ws, store, collection, { name: fieldName, prop, require
  *  prop. ⚠ `--many` is deliberately absent: it restates a reference's CARDINALITY, not the reference,
  *  so "make this a list" must not sever the relation. */
 export function statedKeywords(flags) {
-	const byFlag = { type: 'x-reference', inverse: 'x-inverse', unique: 'x-unique', 'on-delete': 'x-on-delete', 'mirror-of': 'x-inverse-of' };
+	const byFlag = { type: 'x-reference', inverse: 'x-inverse', 'inverse-description': 'x-inverse-description', unique: 'x-unique', 'on-delete': 'x-on-delete', 'mirror-of': 'x-inverse-of' };
 	return new Set(Object.entries(byFlag).filter(([f]) => flags[f] !== undefined).map(([, kw]) => kw));
 }
 
 /** Every keyword a caller could state — the default, because a caller that says nothing about what
  *  it stated has supplied a WHOLE prop (server.js's `b.prop` path) and nothing may be carried into
  *  it behind its back. */
-const ALL_RELATION_KEYWORDS = new Set(['x-reference', 'x-inverse', 'x-unique', 'x-on-delete', 'x-inverse-of']);
+const ALL_RELATION_KEYWORDS = new Set(['x-reference', 'x-inverse', 'x-inverse-description', 'x-unique', 'x-on-delete', 'x-inverse-of']);
 
 export function updateField(ws, store, collection, fieldName, { prop, required, flags = {}, stated, moduleId }) {
 	// Did the caller build this prop from the FLAG VOCABULARY, or hand over a whole field? `stated` is
@@ -2469,12 +2496,21 @@ function applyRelationFlags(holder, flags, collection, namespaces) {
 			? flags.inverse
 			: defaultInverseName(holder['x-unique'] === true, target, collection, namespaces);
 	}
+	// The MIRROR'S own description. A generated field is a field an operator reads in a form and a
+	// listing, and it was the one field in the engine that could never have an explanation — the
+	// owning side's `--description` describes the foreign key, which is the other direction.
+	// Folds in the 2026-08-31 feature request (the x-inverse object form) without an object form:
+	// one more keyword is cheaper than a second spelling for `x-inverse`.
+	if (typeof flags['inverse-description'] === 'string' && flags['inverse-description']) {
+		if (holder['x-inverse'] === undefined) throw new Error('--inverse-description needs --inverse (it describes the MIRROR field, which only exists once the mirror does).');
+		holder['x-inverse-description'] = flags['inverse-description'];
+	}
 }
 
 /** The first relation flag a caller stated, or undefined — for refusing them on a field that
  *  references nothing, where every one of them would be written as a dead keyword. */
 export function relationFlagsStated(flags) {
-	return ['inverse', 'unique', 'on-delete', 'mirror-of', 'many'].find((f) => flags[f] !== undefined);
+	return ['inverse', 'inverse-description', 'unique', 'on-delete', 'mirror-of', 'many'].find((f) => flags[f] !== undefined);
 }
 
 /**

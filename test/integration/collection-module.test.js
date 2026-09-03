@@ -75,7 +75,12 @@ describe('dt set collections/<c> module=<m> — the move', () => {
 	test('a namespaced collection keeps its namespace and its folder', () => {
 		const ws = twoModuleWorkspace();
 		ws.dt('add', 'hr/positions', '--name', 'Engineer');
-		assert.equal(ws.dt('set', 'collections/hr/positions', 'module=core').code, 0);
+		// §8: `hr` is hr's namespace, so core must DEPEND on hr to ship a collection inside it —
+		// the same rule `extends` has. The move is legal once that is declared.
+		patchModulePkg(ws.root, 'core', { dependencies: ['hr'] });
+		assert.equal(ws.dt('compile').code, 0);
+		const moved = ws.dt('set', 'collections/hr/positions', 'module=core');
+		assert.equal(moved.code, 0, moved.stdout + moved.stderr);
 		assert.ok(readFile(ws.root, 'modules/core/collections/hr/positions.collection.yaml'),
 			'the nested source path follows the collection NAME, not the module');
 		assert.ok(readFile(ws.root, 'data/hr/positions/engineer.position.md'));
@@ -203,8 +208,10 @@ describe('--module targets one module\'s contribution', () => {
 		const ws = twoModuleWorkspace();
 		const res = ws.dt('add', 'collections', '--name', 'grades', '--module', 'hr');
 		assert.equal(res.code, 0, res.stdout + res.stderr);
-		assert.ok(readFile(ws.root, 'modules/hr/collections/grades.collection.yaml'));
-		assert.equal(compiled(ws, 'grades').module, 'hr');
+		// ⚠ hr declares the namespace `hr` (§8), so the resolved name is `hr/grades` and the source
+		// is nested to match. The echo says so — namespace inference is never silent.
+		assert.ok(readFile(ws.root, 'modules/hr/collections/hr/grades.collection.yaml'));
+		assert.equal(compiled(ws, 'hr/grades').module, 'hr');
 	});
 
 	test('add collections with no --module lands in the workspace module, as before', () => {
