@@ -1094,3 +1094,107 @@ describe('a field verb follows the module that OWNS the collection', () => {
 		assert.match(res.stderr, /dreamteamer\.disable/);
 	});
 });
+
+describe('§11 papercuts', () => {
+	test('add collections --description lands, and the suffix is echoed with its override', () => {
+		const ws = workspace();
+		const res = ws.dt('add', 'collections', '--name', 'people', '--description', 'A person.');
+		assert.equal(res.code, 0, res.stdout + res.stderr);
+		assert.equal(load(readFile(ws.root, 'modules/default/collections/people.collection.yaml')).description, 'A person.');
+		// ⚠ `people`, not `person`: `singular()` strips a trailing `s` and nothing else, which is
+		// exactly why the derivation is ECHOED and `--suffix` exists. A smarter singularizer was CUT
+		// (it would flip `rename-collection`'s derived-vs-authored predicate for every existing
+		// collection — a hidden migration).
+		assert.match(res.stdout, /suffix: people — override with --suffix <singular>/);
+	});
+
+	test('a collection created WITH a description does not trigger compile\'s warning', () => {
+		const ws = workspace();
+		assert.equal(ws.dt('add', 'collections', '--name', 'people', '--description', 'A person.').code, 0);
+		assert.doesNotMatch(ws.dt('compile').stderr, /people has no description/);
+	});
+
+	test('--suffix overrides the crude derivation, and is not echoed as derived', () => {
+		const ws = workspace();
+		const res = ws.dt('add', 'collections', '--name', 'finance', '--description', 'x', '--suffix', 'entry');
+		assert.equal(res.code, 0, res.stderr);
+		assert.equal(load(readFile(ws.root, 'modules/default/collections/finance.collection.yaml')).storage.suffix, 'entry');
+		assert.doesNotMatch(res.stdout, /override with --suffix/);
+	});
+
+	test('--id-shape dated|slug overrides the template\'s id shape', () => {
+		const ws = workspace();
+		assert.equal(ws.dt('add', 'collections', '--name', 'memos', '--description', 'x', '--id-shape', 'dated').code, 0);
+		const d = load(readFile(ws.root, 'modules/default/collections/memos.collection.yaml'));
+		assert.match(d.id.generate, /\{\{ created \| date \}\}/);
+		assert.equal(ws.dt('add', 'collections', '--name', 'labels', '--description', 'x', '--id-shape', 'nope').code, 1);
+	});
+
+	test('--inverse-description describes the GENERATED field', () => {
+		const ws = twoModuleWorkspace();
+		const res = ws.dt('update-field', 'tasks', '--name', 'owner', '--type', 'people',
+			'--inverse', 'tasks', '--inverse-description', 'Tasks this person owns.');
+		assert.equal(res.code, 0, res.stdout + res.stderr);
+		const mirror = load(readFile(ws.root, '.dreamteamer/collections/people.collection.yaml')).schema.properties.tasks;
+		assert.equal(mirror.description, 'Tasks this person owns.',
+			'the owning side\'s --description describes the foreign key — the other direction');
+	});
+
+	test('--inverse-description survives an unrelated update-field', () => {
+		const ws = twoModuleWorkspace();
+		assert.equal(ws.dt('update-field', 'tasks', '--name', 'owner', '--type', 'people',
+			'--inverse', 'tasks', '--inverse-description', 'Tasks this person owns.').code, 0);
+		assert.equal(ws.dt('update-field', 'tasks', '--name', 'owner', '--description', 'Who owns it.').code, 0);
+		assert.equal(
+			load(readFile(ws.root, '.dreamteamer/collections/people.collection.yaml')).schema.properties.tasks.description,
+			'Tasks this person owns.',
+			'an unstated relation keyword is CARRIED — this is the carry-forward defect from 0.15.0',
+		);
+	});
+
+	test('--inverse-description without --inverse is refused', () => {
+		const ws = twoModuleWorkspace();
+		const res = ws.dt('add-field', 'teams', '--name', 'lead', '--type', 'people',
+			'--inverse-description', 'x');
+		assert.equal(res.code, 1);
+		assert.match(res.stderr, /--inverse-description needs --inverse/);
+	});
+
+	// ⚠ THE ENGINE'S OWN NINE COLLECTIONS CARRY `order` TOO (10…140), and `move` sorts across every
+	// collection because the nav does. So these place the fixture's collections at values no core
+	// descriptor uses, rather than asserting an absolute number that a core `order` could collide
+	// with — a test that passes only while nobody re-orders the engine's nav is not a test.
+	const orderOf = (ws, c) => load(readFile(ws.root, `modules/core/collections/${c}.collection.yaml`)).order;
+
+	test('move collections/<c> --after writes order and renumbers nothing else', () => {
+		const ws = twoModuleWorkspace();
+		assert.equal(ws.dt('set', 'collections/people', 'order=1000').code, 0);
+		assert.equal(ws.dt('set', 'collections/tasks', 'order=3000').code, 0);
+		assert.equal(ws.dt('move', 'collections/teams', '--after', 'people').code, 0);
+		assert.equal(orderOf(ws, 'teams'), 2000, 'the midpoint between people and its next neighbour');
+		assert.equal(orderOf(ws, 'people'), 1000, 'untouched');
+		assert.equal(orderOf(ws, 'tasks'), 3000, 'untouched');
+	});
+
+	test('move --top and --bottom need no anchor', () => {
+		const ws = twoModuleWorkspace();
+		const others = () => [...JSON.parse(ws.dt('list', 'collections', '--json').stdout)]
+			.map((r) => r.order).filter((o) => typeof o === 'number');
+		assert.equal(ws.dt('move', 'collections/teams', '--top').code, 0);
+		assert.ok(orderOf(ws, 'teams') < Math.min(...others().filter((o) => o !== orderOf(ws, 'teams'))),
+			'--top sits below every ordered collection');
+		assert.equal(ws.dt('move', 'collections/tasks', '--bottom').code, 0);
+		assert.ok(orderOf(ws, 'tasks') > Math.max(...others().filter((o) => o !== orderOf(ws, 'tasks'))),
+			'--bottom sits above every ordered collection');
+	});
+
+	test('no room between two adjacent integers is refused with the fix', () => {
+		const ws = twoModuleWorkspace();
+		assert.equal(ws.dt('set', 'collections/people', 'order=1000').code, 0);
+		assert.equal(ws.dt('set', 'collections/tasks', 'order=1001').code, 0);
+		const res = ws.dt('move', 'collections/teams', '--after', 'people');
+		assert.equal(res.code, 1);
+		assert.match(res.stderr, /no room between people \(1000\) and its neighbour \(1001\)/);
+		assert.match(res.stderr, /Spread them first/);
+	});
+});

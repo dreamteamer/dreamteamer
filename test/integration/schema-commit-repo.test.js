@@ -116,7 +116,11 @@ describe('a schema write into a git-shape module', () => {
 		assert.notEqual(git(clone, ['rev-parse', 'HEAD']), cloneBefore);
 		assert.equal(ws.git(['rev-parse', 'HEAD']), wsBefore);
 		assert.equal(git(clone, ['status', '--porcelain']), '');
-		assert.equal(ws.git(['status', '--porcelain']), '', 'no stragglers in either repo');
+		// ⚠ SCOPED to what a schema write can touch. `dt init` now seeds every known harness, so a
+		// fixture carries untracked AGENTS.md/GEMINI.md/CLAUDE.md — noise for this assertion, and
+		// nothing to do with whether the verb left a straggler.
+		assert.equal(ws.git(['status', '--porcelain', '--', 'modules', 'git_modules', 'package.json']), '',
+			'no stragglers in either repo');
 	});
 
 	test('a FAILED commit in one repo rolls the whole op back, in both', () => {

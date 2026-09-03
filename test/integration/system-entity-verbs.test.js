@@ -158,7 +158,8 @@ describe('the two policies, spelled the same', () => {
 		const after = ws.git(['rev-parse', 'HEAD']);
 		assert.equal(ws.dt('add', 'grades', '--name', 'Band 4').code, 0);
 		assert.equal(ws.git(['rev-parse', 'HEAD']), after, 'the record write did not — dt commit publishes it');
-		assert.match(ws.git(['status', '--porcelain']), /data\/grades/);
+		// -uall, because porcelain collapses a wholly-untracked tree to `?? data/`
+		assert.match(ws.git(['status', '--porcelain', '-uall']), /data\/grades\/band-4/);
 	});
 
 	test('help states the difference once', () => {

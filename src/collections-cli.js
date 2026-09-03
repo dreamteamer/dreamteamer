@@ -51,13 +51,20 @@ import { parseRecord } from './records.js';
  * per fix.
  *
  * So: write in a LOOP until every byte lands, and retry EAGAIN — stdout can be a non-blocking pipe.
+ *
+ * ⚠ 2026-09-03: `USAGE` became the SECOND victim, and it is the one every agent reads. `dt help`
+ * ended `console.log(USAGE); process.exit(0)`, which was fine while the text fit one pipe buffer —
+ * and the system-verbs rewrite took it to 12,189 bytes. Measured with spawnSync: **8,113 bytes**
+ * captured, i.e. help silently ends mid-sentence for every script, agent and test that reads it,
+ * at exit 0. Hence the `fd` argument: `help` writes through here now, and so does the USAGE echoed
+ * on an unknown verb (fd 2, same failure mode).
  */
-export const emit = (s) => {
+export const emit = (s, fd = 1) => {
   const buf = Buffer.from(s + '\n');
   let off = 0;
   while (off < buf.length) {
     try {
-      off += fs.writeSync(1, buf, off, buf.length - off);
+      off += fs.writeSync(fd, buf, off, buf.length - off);
     } catch (e) {
       if (e.code === 'EAGAIN') continue;
       throw e;
@@ -80,6 +87,7 @@ export function collectionCommand(ws, collection, verb, args) {
 	if (collection === 'collections' && verb === 'rename') return metaCollectionsRename(ws, store, flags, pos);
 	if (collection === 'collections' && verb === 'set') return metaCollectionsSet(ws, store, flags, pos);
 	if (collection === 'collections' && verb === 'get' && flags.module !== undefined) return metaCollectionsGet(ws, store, flags, pos);
+	if (collection === 'collections' && verb === 'move') return metaCollectionsMove(ws, store, flags, pos);
 	if (collection === 'commands' && verb === 'for') return metaCommandsFor(ws, store, flags, pos);
 	if (collection === 'ui-views' && ['add', 'set', 'rm'].includes(verb)) return metaUiView(ws, store, verb, flags, pos);
 	if (collection === 'modules' && verb === 'add') return metaModulesAdd(ws, store, flags);
@@ -420,10 +428,17 @@ function metaCollectionsAdd(ws, store, flags) {
 		template: oneValue(flags, 'template'),
 		namespace: flags.namespace,
 		moduleId,
+		description: oneValue(flags, 'description'),
+		suffix: oneValue(flags, 'suffix'),
+		id: oneValue(flags, 'id-shape'),
 	});
 	console.log(`✔ ${out.name}${out.inferred ? ` (namespace inferred from module ${moduleId})` : ''}`);
 	console.log(`✔ ${rel(ws.root, out.file)}`);
 	if (out.declaredNamespace) console.log(`✔ declared namespace "${out.declaredNamespace}" in ${moduleId ? `modules/${moduleId}` : 'the workspace'}`);
+	// ⚠ ECHO THE SUFFIX, because it is DERIVED and the derivation is crude on purpose: every record
+	// filename carries it (`<id>.<suffix>.md`), and the operator otherwise finds out what it decided
+	// by looking at a file. Naming it here, with the override, is the whole papercut.
+	if (out.suffixDerived) console.log(`  suffix: ${out.suffix} — override with --suffix <singular>`);
 	console.log('✔ compiled — the collection is live (schema ops prove sources with a real compile)');
 	reportCommits(out.commits);
 	return 0;
@@ -469,6 +484,54 @@ function metaCollectionsSet(ws, store, flags, pos) {
 	if (flags.json) { emit(JSON.stringify(out)); return 0; }
 	console.log(`✔ ${rel(ws.root, out.file)} — ${out.changed.join(', ')}`);
 	console.log('✔ compiled — the descriptor is up to date');
+	reportCommits(out.commits);
+	return 0;
+}
+
+/**
+ * `dt move collections/teams --after tasks` — NAV ORDERING, and now that is all `move` means on a
+ * collection. §7's other half: `module=` is the move between modules, `order` is the position in
+ * the nav, and giving one verb both meanings is what made "move a collection" ambiguous.
+ *
+ * ⚠ `order` is a NUMBER on the descriptor, not a fractional index — unlike a record's `sort_field`,
+ * which uses one because a record collection has thousands of rows and a dense integer would
+ * renumber everything below the insertion point. A workspace has tens of collections and their
+ * `order` values are hand-authored and readable (10, 40, 140), so a midpoint is the right shape:
+ * it writes ONE descriptor and keeps the numbers legible.
+ */
+function metaCollectionsMove(ws, store, flags, pos) {
+	refuseRepeats(flags);
+	const name = need(pos, 0, 'collection name');
+	store.descriptor(name);
+	const rows = [...store.readAll('collections')]
+		.map((r) => ({ id: r.id, order: typeof r.fields.order === 'number' ? r.fields.order : null }))
+		.filter((r) => r.id !== name && r.order !== null)
+		.sort((a, b) => a.order - b.order);
+	const anchorId = oneValue(flags, 'after') ?? oneValue(flags, 'before');
+	let next;
+	if (flags.top) {
+		next = rows.length ? rows[0].order - 10 : 10;
+	} else if (flags.bottom) {
+		next = rows.length ? rows[rows.length - 1].order + 10 : 10;
+	} else {
+		if (!anchorId) throw new Error(`dt move collections/${name} needs --after <c> | --before <c> | --top | --bottom`);
+		const i = rows.findIndex((r) => r.id === anchorId);
+		if (i < 0) throw new Error(`"${anchorId}" has no \`order\` to sit beside — set one first (dreamteamer set collections/${anchorId} order=<n>), or use --top/--bottom.`);
+		const anchorOrder = rows[i].order;
+		const neighbour = flags.after ? rows[i + 1]?.order : rows[i - 1]?.order;
+		// a MIDPOINT when there is a neighbour, a step of 10 when the anchor is at the end — and
+		// nothing else is renumbered, which is the whole point
+		next = neighbour === undefined
+			? (flags.after ? anchorOrder + 10 : anchorOrder - 10)
+			: Math.round((anchorOrder + neighbour) / 2);
+		if (next === anchorOrder || next === neighbour) {
+			throw new Error(`no room between ${anchorId} (${anchorOrder}) and its neighbour (${neighbour}) — the two are adjacent integers. Spread them first: dreamteamer set collections/${anchorId} order=<n>.`);
+		}
+	}
+	const out = setCollectionScalars(ws, store, name, { order: next });
+	if (flags.json) { emit(JSON.stringify({ ...out, order: next })); return 0; }
+	console.log(`✔ ${name} order=${next}`);
+	console.log('✔ compiled — the nav order is live');
 	reportCommits(out.commits);
 	return 0;
 }

@@ -7,7 +7,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { workspace, simpleCollection, tree, readFile, git } from '../helpers/ws.js';
+import { workspace, twoModuleWorkspace, simpleCollection, tree, readFile, git } from '../helpers/ws.js';
 import { Store } from '../../src/store.js';
 
 const TASKS = {
@@ -368,11 +368,21 @@ describe('system-stored collections are read-only through the store', () => {
 		assert.throws(() => ws.store.add('collections', { name: 'x' }), /are compiled sources — edit/);
 	});
 
-	test('the CLI refuses too', () => {
+	// ⚠ THIS TEST USED TO ASSERT "THE CLI REFUSES TOO", and that is deliberately no longer true:
+	// since 0.19.0 a system collection takes the record verbs, and `dt set collections/<c> icon=…`
+	// is a legitimate source write through the compile gate (§4). What STAYS is the STORE's own
+	// refusal above — dispatch is at the SURFACE and the store is the belt for the mirror pass and
+	// for `revert` (decision 14 affirmed, not reversed). So this asserts both halves of the new
+	// line: the surface routes a settable scalar to the source, and a key no system verb owns is
+	// still refused rather than written.
+	test('the CLI routes it to the SOURCE instead, and still refuses a key no system verb owns', () => {
 		const ws = base();
-		const res = ws.dt('set', 'collections/tasks', 'icon=star');
-		assert.equal(res.code, 1);
-		assert.match(res.stderr, /compiled sources/);
+		const ok = ws.dt('set', 'collections/tasks', 'icon=star');
+		assert.equal(ok.code, 0, ok.stdout + ok.stderr);
+		assert.match(readFile(ws.root, 'modules/default/collections/tasks.collection.yaml'), /icon: star/);
+		const refused = ws.dt('set', 'collections/tasks', 'schema=nope');
+		assert.equal(refused.code, 1);
+		assert.match(refused.stderr, /"schema" is not a settable scalar of a collection/);
 	});
 });
 
@@ -432,5 +442,27 @@ describe('the id index key', () => {
 		store.add('widgets', { name: 'One' });
 		assert.equal(store.gitHead(), memo, 'a write that committed nothing dropped the HEAD memo');
 		assert.ok(store.ids('widgets').has('one'));
+	});
+});
+
+describe('a one-field set produces a one-field diff', () => {
+	test('unchanged front-matter bytes are RESTORED, not re-emitted', () => {
+		const ws = twoModuleWorkspace();
+		ws.dt('add', 'people', '--name', 'Dana Levi');
+		const file = path.join(ws.root, 'data/people/dana-levi.person.md');
+		// hand-author the record the way a human does: a quoted scalar and a comment. `employer` is
+		// already declared by the fixture's `people`, so nothing has to be added first.
+		fs.writeFileSync(file, '---\nname: "Dana Levi"\n# reached via Acme\nemployer: Acme\n---\n\nMet at Acme.\n');
+		ws.git(['add', '--', 'data/people/dana-levi.person.md']);
+		ws.git(['commit', '-qm', 'hand-authored record']);
+
+		assert.equal(ws.dt('set', 'people/dana-levi', 'employer=Globex').code, 0);
+		const diff = ws.git(['diff', '--unified=0', '--', 'data/people/dana-levi.person.md']);
+		const changed = diff.split('\n').filter((l) => /^[+-][^+-]/.test(l));
+		assert.deepEqual(changed, ['-employer: Acme', '+employer: Globex'],
+			'exactly one field moved, so exactly one line moved');
+		assert.match(readFile(ws.root, 'data/people/dana-levi.person.md'), /name: "Dana Levi"/, 'the quoting survives');
+		assert.match(readFile(ws.root, 'data/people/dana-levi.person.md'), /# reached via Acme/, 'the comment survives');
+		assert.match(readFile(ws.root, 'data/people/dana-levi.person.md'), /Met at Acme\./, 'the body survives');
 	});
 });

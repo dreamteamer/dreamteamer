@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import Ajv from 'ajv';
 import addFormats from 'ajv-formats';
-import { dump } from './yaml.js';
+import { dump, writeSource } from './yaml.js';
 import { generateId } from './template.js';
 import { parseRecord, parseRecordText, patternRe, fmtAjvError, unknownFields, walk, EXT, assertSafeId, idFromRecordPath, MAX_RECORD_BYTES } from './records.js';
 import { normalizeRecord } from './temporal.js';
@@ -596,7 +596,7 @@ export class Store {
 		this.validate(d, next);
 		return this.withWriteLock(() => {
 			this._idsCache.delete(collection);
-			atomicWrite(file, serialize(d, next));
+			atomicWrite(file, serialize(d, next, previous));
 			// `fields` is the record as it was ON DISK and `next` as it will be, which is exactly the
 			// before/after pair a mirror edit is: an FK that moved detaches from the old target and
 			// attaches to the new one, in this same write. Same ordering as `add` — see the note there.
@@ -1155,7 +1155,7 @@ function pruneEmptyDirs(dir, stopAt) {
 	}
 }
 
-export function serialize(d, fields) {
+export function serialize(d, fields, previousText) {
 	const codec = d.storage.codec ?? 'md';
 	if (codec === 'json') return JSON.stringify(fields, null, 2) + '\n';
 	if (codec === 'yaml') return dump(fields);
@@ -1166,7 +1166,22 @@ export function serialize(d, fields) {
 		body = String(fm[bf]).trim();
 		delete fm[bf];
 	}
-	return `---\n${dump(fm)}---\n${body ? body + '\n' : ''}`;
+	// ⚠ BYTE-RESTORING WHEN WE HAVE THE PREVIOUS TEXT (issue 2026-08-31). Building the whole document
+	// from the parsed fields means a one-field `dt set` re-emits every key — so quoting, key order and
+	// any hand-folded scalar are normalised, and the diff a human reviews is the whole record rather
+	// than the change. `writeSource` restores every unchanged node from the bytes it was parsed out
+	// of; only the mutated ones are re-emitted.
+	//
+	// ⚠ AND IT COSTS A SECOND PARSE PER WRITE. `parseDocument` twice is heavier than js-yaml, so the
+	// third argument is passed by `set` ALONE — the one write where a previous document exists and
+	// the diff is what the operator reads. Every other caller hits the `dump` path unchanged.
+	const frontText = previousText === undefined ? dump(fm) : `${writeSource(frontMatterOf(previousText) ?? '', fm).replace(/\n+$/, '')}\n`;
+	return `---\n${frontText}---\n${body ? body + '\n' : ''}`;
+}
+
+/** The YAML between the `---` fences, or null when the text has none. */
+function frontMatterOf(text) {
+	return /^---\r?\n([\s\S]*?)\r?\n---/.exec(String(text))?.[1] ?? null;
 }
 
 export function atomicWrite(file, content) {
