@@ -2645,7 +2645,8 @@ export function refuseHandAuthored(ws, store, kind, id, moduleId) {
 	const shape = ENTITY_SHAPE[kind];
 	const root = moduleId ? moduleRecord(store, moduleId).fields.path : path.join('modules', ws.pkg.dreamteamer?.['workspace-module'] ?? 'default');
 	const where = path.join(root, kind, `${id || '<id>'}${shape.suffix}`);
-	throw new Error(`a ${kind.replace(/s$/, '')} is hand-authored — its whole value is what you write in it, and a scaffold would produce a file whose only content is that a verb made it.\n  write ${where}, then run \`dreamteamer compile\`.\n  edit an existing one with: dreamteamer set ${kind}/<id> <key>=<value>`);
+	const one = kind.replace(/s$/, '');
+	throw new Error(`${/^[aeiou]/.test(one) ? 'an' : 'a'} ${one} is hand-authored — its whole value is what you write in it, and a scaffold would produce a file whose only content is that a verb made it.\n  write ${where}, then run \`dreamteamer compile\`.\n  edit an existing one with: dreamteamer set ${kind}/<id> <key>=<value>`);
 }
 
 export function removeEntity(ws, store, kind, id) {
