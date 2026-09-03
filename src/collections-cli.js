@@ -308,6 +308,7 @@ function metaModulesAdd(ws, store, flags) {
 	if (flags.json) { emit(JSON.stringify(out)); return 0; }
 	console.log(`✔ ${out.root}/ — package.json + ${KIND_COUNT} kind folder(s)`);
 	console.log('✔ compiled — the module is live (add a collection with `dreamteamer add collections --name <c> --module ' + out.id + '`)');
+	reportCommits(out.commits);
 	return 0;
 }
 
@@ -329,6 +330,7 @@ function metaModulesRm(ws, store, flags, pos) {
 	if (out.withRecords.length) console.log(`  ⚠ records remain and are now unindexed: ${out.withRecords.join(', ')}`);
 	if (out.dependents.length) console.log(`  dropped it from ${out.dependents.join(', ')}'s dependencies`);
 	console.log('✔ compiled — the module is gone');
+	reportCommits(out.commits);
 	return 0;
 }
 
@@ -342,6 +344,7 @@ function metaModulesRename(ws, store, flags, pos) {
 	console.log(`✔ ${oldId} → ${out.id}`);
 	console.log(`  rewrote  ${out.rewrites} reference(s): extends, dependencies, disable and modules/${oldId} refs`);
 	console.log('✔ compiled — the rename is live, in ONE commit');
+	reportCommits(out.commits);
 	return 0;
 }
 
@@ -355,6 +358,7 @@ function metaModulesSet(ws, store, flags, pos) {
 	if (flags.json) { emit(JSON.stringify(out)); return 0; }
 	console.log(`✔ ${rel(ws.root, out.file)} — ${out.changed.join(', ')}`);
 	console.log('✔ compiled — the module record is up to date');
+	reportCommits(out.commits);
 	return 0;
 }
 
@@ -367,6 +371,25 @@ const KIND_COUNT = KINDS.length;
  *  whether a missing term means zero or means "this verb does not count that". */
 function planLine(plan) {
 	return `  records ${plan.records ?? 0} · refs ${plan.refs ?? 0} · descriptors ${plan.descriptors ?? 0} · values cleared ${plan.cleared ?? 0}`;
+}
+
+/**
+ * WHERE the schema change landed. ONE printer, because §9's whole point is that the answer is not
+ * always "here": a write into a git-shape module commits in that clone, and the operator has to be
+ * told — otherwise the change is in a repo they have not pushed and nothing said so.
+ *
+ * The workspace gets no "ahead" count on purpose: pushing the workspace is a thing the operator
+ * already thinks about, and a number beside it would read as a new obligation.
+ */
+function reportCommits(commits) {
+	for (const c of commits ?? []) {
+		if (c.repo === '.') {
+			console.log(`✔ committed in the workspace${c.sha ? ` (${c.sha})` : ''}`);
+			continue;
+		}
+		const parts = [c.sha, c.ahead ? `ahead ${c.ahead} — push when ready` : null].filter(Boolean);
+		console.log(`✔ committed in ${c.repo}${parts.length ? ` (${parts.join(', ')})` : ''}`);
+	}
 }
 
 // `dreamteamer collections add --name research-docs --template docs`
@@ -387,6 +410,7 @@ function metaCollectionsAdd(ws, store, flags) {
 	console.log(`✔ ${rel(ws.root, out.file)}`);
 	if (out.declaredNamespace) console.log(`✔ declared namespace "${out.declaredNamespace}" in ${moduleId ? `modules/${moduleId}` : 'the workspace'}`);
 	console.log('✔ compiled — the collection is live (schema ops prove sources with a real compile)');
+	reportCommits(out.commits);
 	return 0;
 }
 
@@ -422,6 +446,7 @@ function metaCollectionsSet(ws, store, flags, pos) {
 		console.log(`  records     ${out.records} left in place — a move never changes an id`);
 		console.log(`  descriptors ${out.descriptors} rewritten`);
 		console.log('✔ compiled — the move is live, in ONE commit');
+		reportCommits(out.commits);
 		return 0;
 	}
 	if (!Object.keys(changes).length) throw new Error('nothing to set — pass key=value pairs, or module=<id> to move it');
@@ -429,6 +454,7 @@ function metaCollectionsSet(ws, store, flags, pos) {
 	if (flags.json) { emit(JSON.stringify(out)); return 0; }
 	console.log(`✔ ${rel(ws.root, out.file)} — ${out.changed.join(', ')}`);
 	console.log('✔ compiled — the descriptor is up to date');
+	reportCommits(out.commits);
 	return 0;
 }
 
@@ -481,6 +507,7 @@ function metaCollectionsRename(ws, store, flags, pos) {
 	if (out.pathKept) console.log(`  ⚠ storage.path kept as "${out.pathKept}" — it was authored, so the rename did not overrule it`);
 	console.log(`  refs     ${out.rewrites} rewritten`);
 	console.log('✔ compiled — the rename is live, in ONE commit');
+	reportCommits(out.commits);
 	return 0;
 }
 
@@ -492,6 +519,7 @@ function metaCollectionsRm(ws, store, flags, pos) {
 	const out = removeCollection(ws, store, name, { force: !!flags.force });
 	flags.json ? emit(JSON.stringify(out)) : console.log(`✔ removed collection ${out.removed}`);
 	console.log('✔ compiled — the collection is gone');
+	reportCommits(out.commits);
 	return 0;
 }
 
@@ -508,6 +536,7 @@ function metaAddField(ws, store, collection, flags) {
 	if (out.unchanged) return alreadyThat(collection, flags.name);
 	console.log(`✔ ${rel(ws.root, out.file)}${out.extends ? ` (extends ${out.extends})` : ''}`);
 	console.log('✔ compiled — the field is live');
+	reportCommits(out.commits);
 	reportMirror(store, collection, flags.name, out.prop);
 	reportDropped(out.dropped);
 	return 0;
@@ -559,6 +588,7 @@ function metaUpdateField(ws, store, collection, flags) {
 	if (out.unchanged) return alreadyThat(collection, flags.name);
 	console.log(`✔ ${rel(ws.root, out.file)}${out.extends ? ` (extends ${out.extends})` : ''}`);
 	console.log('✔ compiled — the field is updated');
+	reportCommits(out.commits);
 	reportDropped(out.dropped);
 	// off `out.prop`, never the one passed in: updateField reassigns it when it rebuilds a carried
 	// reference as an array, and reporting off the stale object printed nothing on exactly the
@@ -583,6 +613,7 @@ function metaRemoveField(ws, store, collection, flags) {
 	const out = removeField(ws, store, collection, name, { moduleId });
 	flags.json ? emit(JSON.stringify(out)) : console.log(`✔ removed field ${collection}.${out.removed}`);
 	console.log('✔ compiled — the field is gone');
+	reportCommits(out.commits);
 	if (!flags.json) {
 		// The field's own VALUES went with it, and that has to be said out loud: it is the destructive
 		// half of a destructive verb, and a silent deletion is a different act from a reported one.
@@ -693,6 +724,7 @@ function metaUiView(ws, store, verb, flags, pos) {
 		const out = removeUiView(ws, store, need(pos, 0, 'ui-view id'));
 		flags.json ? emit(JSON.stringify(out)) : console.log(`✔ removed ui-view ${out.removed}`);
 		console.log('✔ compiled — the route is gone');
+		reportCommits(out.commits);
 		return 0;
 	}
 
@@ -730,6 +762,7 @@ function metaUiView(ws, store, verb, flags, pos) {
 	const out = saveUiView(ws, store, { id, view });
 	flags.json ? emit(JSON.stringify(out)) : console.log(`✔ ${rel(ws.root, out.file)}`);
 	console.log(`✔ compiled — ${view.path} is live`);
+	reportCommits(out.commits);
 	return 0;
 }
 

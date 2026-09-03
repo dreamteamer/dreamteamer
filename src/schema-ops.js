@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { load, dump, writeSource, commentCount } from './yaml.js';
-import { compile, kindDir, titleCase, KINDS } from './compile.js';
+import { compile, kindDir, titleCase, KINDS, repoRootOf } from './compile.js';
 import { readManifest, runtimeKindDir } from './runtime.js';
 import { normalizeNamespaces, namespaceOf, baseNameOf, qualify, defaultStoragePath, singular } from './namespace.js';
 import { refTargetsOf } from './ref.js';
@@ -103,21 +103,24 @@ function writeGated(ws, store, files, subject, mutate, after, { commentsMayDecre
 		// change is inseparable from the compile that validated it, and `dt commit` scopes itself
 		// to record directories, so a deferred source edit would be publishable by nothing.
 		// Extending `dt commit` to module sources is the natural follow-on; it is not this wave.
+		//
+		// ⚠ IN THE REPO THAT HOLDS THE SOURCE, not at the workspace root — see commitByRepo for what
+		// running it at the root cost a git-shape module.
+		let commits;
 		try {
-			execFileSync('git', ['add', '--', ...rels], { cwd: ws.root, stdio: GIT_QUIET });
-			execFileSync('git', ['commit', '--quiet', '-m', subject, '--', ...rels], { cwd: ws.root, stdio: GIT_QUIET });
+			commits = commitByRepo(ws, store, rels, subject);
 		} catch (e) {
-			try { execFileSync('git', ['reset', '--quiet', '--', ...rels], { cwd: ws.root, stdio: GIT_QUIET }); } catch { /* nothing staged */ }
 			extra.undo();
 			restore();
 			try { compile(ws); } catch { /* pre-op sources were compilable */ }
-			throw new Error(`git commit failed — the schema change was rolled back, nothing was changed. (${e.message.split('\n')[0]})`);
-		} finally {
-			store.headMoved(); // this ran `git commit`, so the store's HEAD memo is stale — see store.gitHead
+			const landed = (e.commits ?? []).length
+				? ` (${e.commits.map((c) => `${c.repo} already committed as ${c.sha}`).join('; ')} — that commit stands; two repos cannot commit atomically)`
+				: '';
+			throw new Error(`git commit failed — the schema change was rolled back, nothing was changed.${landed} (${e.message.split('\n')[0]})`);
 		}
 		// The hook's own report, for the caller to print: what a source change did to DATA is not
 		// visible in the file list, and a silent data change is a different act from a reported one.
-		return extra;
+		return { ...extra, commits };
 	});
 }
 
@@ -157,23 +160,19 @@ export function gatedTreeOp(ws, store, { subject, paths, mutate, undo }) {
 			try { compile(ws); } catch { /* pre-op sources were compilable */ }
 			throw e;
 		}
-		// `git add -- <path>` FAILS OUTRIGHT on a pathspec that is neither on disk nor in the index,
-		// and one bad entry aborts the whole add — which is precisely what a never-committed source
-		// becomes when this op deletes it. Filter, don't assume (renameCollection's lesson).
-		const rels = [...new Set([...paths, ...(out.paths ?? [])])]
-			.filter((rel) => fs.existsSync(path.join(ws.root, rel)) || isTracked(ws.root, rel));
+		// ⚠ NO PATHSPEC FILTER HERE ANY MORE. `commitByRepo` does it per repo, which is the correct
+		// place: `isTracked` has to run in the repo that would track the path, and running it at the
+		// workspace root answered "no" for every path inside a clone.
+		const rels = [...new Set([...paths, ...(out.paths ?? [])])];
 		try {
-			if (rels.length) {
-				execFileSync('git', ['add', '--all', '--', ...rels], { cwd: ws.root, stdio: GIT_QUIET });
-				execFileSync('git', ['commit', '--quiet', '-m', subject, '--', ...rels], { cwd: ws.root, stdio: GIT_QUIET });
-			}
+			out.commits = commitByRepo(ws, store, rels, subject);
 		} catch (e) {
-			try { execFileSync('git', ['reset', '--quiet', '--', ...rels], { cwd: ws.root, stdio: GIT_QUIET }); } catch { /* nothing staged */ }
 			undo();
 			try { compile(ws); } catch { /* pre-op sources were compilable */ }
-			throw new Error(`git commit failed — ${subject} was rolled back, nothing was changed. (${e.message.split('\n')[0]})`);
-		} finally {
-			store.headMoved(); // this ran `git commit` — see store.gitHead
+			const landed = (e.commits ?? []).length
+				? ` (${e.commits.map((c) => `${c.repo} already committed as ${c.sha}`).join('; ')} — that commit stands)`
+				: '';
+			throw new Error(`git commit failed — ${subject} was rolled back, nothing was changed.${landed} (${e.message.split('\n')[0]})`);
 		}
 		return out;
 	});
@@ -1048,8 +1047,8 @@ export function removeCollection(ws, store, name, { force = false } = {}) {
 	const dataDir = path.join(ws.root, d.storage.path);
 	const hasRecords = fs.existsSync(dataDir) && fs.readdirSync(dataDir).some((e) => !e.startsWith('.'));
 	if (hasRecords && !force) throw new Error(`collection "${name}" still has records under ${d.storage.path} — remove them first or pass force`);
-	writeGated(ws, store, [dest], `dreamteamer: collections rm ${name}`, () => fs.rmSync(dest));
-	return { removed: name };
+	const gate = writeGated(ws, store, [dest], `dreamteamer: collections rm ${name}`, () => fs.rmSync(dest), undefined, { commentsMayDecrease: true });
+	return { removed: name, commits: gate.commits };
 }
 
 /**
@@ -1297,28 +1296,22 @@ export function renameCollection(ws, store, oldName, newName) {
 			throw e;
 		}
 
-		// `git add -- <path>` FAILS OUTRIGHT on a pathspec that is neither on disk nor in the index —
-		// which is exactly what the old descriptor becomes when it was never committed in the first
-		// place (a collection added but not yet published). One bad entry aborts the whole `add`, so
-		// the rename rolled back over a file git simply did not care about. Filter, don't assume.
-		const rels = [...touched]
-			.map((f) => path.relative(ws.root, f))
-			.filter((rel) => fs.existsSync(path.join(ws.root, rel)) || isTracked(ws.root, rel));
+		// The pathspec filter now lives in `commitByRepo`, per repo — `isTracked` has to run in the
+		// repo that would track the path, and running it at the workspace root answered "no" for
+		// every path inside a git-shape module.
+		const rels = [...touched].map((f) => path.relative(ws.root, f));
+		let commits;
 		try {
-			execFileSync('git', ['add', '--all', '--', ...rels], { cwd: ws.root, stdio: GIT_QUIET });
-			execFileSync('git', ['commit', '--quiet', '-m', `dreamteamer: collections rename ${oldName} → ${newName}`, '--', ...rels], { cwd: ws.root, stdio: GIT_QUIET });
+			commits = commitByRepo(ws, store, rels, `dreamteamer: collections rename ${oldName} → ${newName}`);
 		} catch (e) {
-			try { execFileSync('git', ['reset', '--quiet', '--', ...rels], { cwd: ws.root, stdio: GIT_QUIET }); } catch { /* nothing staged */ }
 			undo();
 			restoreRefs();
 			try { compile(ws); } catch { /* pre-rename sources were compilable */ }
 			throw new Error(`git commit failed — the rename was rolled back, nothing was changed. (${e.message.split('\n')[0]})`);
-		} finally {
-			store.headMoved(); // as writeGated — see store.gitHead
 		}
 
 		return {
-			renamed: true, name: newName, records: ids.length, rewrites,
+			renamed: true, name: newName, records: ids.length, rewrites, commits,
 			from: path.relative(ws.root, oldDir), to: path.relative(ws.root, newDir),
 			suffix: newSuffix !== oldSuffix ? { from: oldSuffix, to: newSuffix } : null,
 			pathKept: pathWasDerived ? null : authoredPath,
@@ -1332,6 +1325,85 @@ function isTracked(root, rel) {
 		execFileSync('git', ['ls-files', '--error-unmatch', '--', rel], { cwd: root, stdio: ['ignore', 'ignore', 'ignore'] });
 		return true;
 	} catch { return false; }
+}
+
+/**
+ * ONE COMMIT PER REPO, in the repo that actually holds each source.
+ *
+ * ⚠ THE DEFECT THIS FIXES WAS SILENT ABOUT ITS OWN CAUSE. Every schema commit ran at the WORKSPACE
+ * root, and `git_modules/` is gitignored there — so `git add -- git_modules/hr/collections/…` added
+ * nothing, the pathspec-scoped `git commit` had nothing to record and failed, and the gate rolled
+ * the whole op back with a message naming git. A schema write into a git-shape module was therefore
+ * impossible, and the reason was invisible: the source compiled, the field was live for one
+ * instant, and then the file was restored.
+ *
+ * `repoRootOf` (compile.js, there since `owns-data` needed it) answers "which repo holds this path"
+ * — nearest `.git` at or above it, workspace-relative, `.` for the workspace itself. Grouping by it
+ * is the whole fix.
+ *
+ * Returns `[{repo, sha, ahead}]` so the caller can say WHERE the change landed. `ahead` is the count
+ * of commits the repo has that its upstream does not — meaningful only for a clone, and `null` for
+ * the workspace, whose publishing story is `git push` like any repo the operator already thinks
+ * about.
+ *
+ * ⚠ ALL-OR-NOTHING ACROSS REPOS IS NOT ACHIEVABLE and is not claimed. Two repos cannot commit
+ * atomically. So the FIRST failure aborts, the caller's `undo` restores every source in every repo,
+ * and any commit already made is left standing with its own subject — which is honest and
+ * inspectable, unlike a partial write with no history. `dt status` then shows the drift. Extending
+ * `dt commit` to module sources is the follow-on this file has always named; it is not this wave.
+ */
+function commitByRepo(ws, store, rels, subject) {
+	const byRepo = new Map(); // workspace-relative repo root -> {root, paths relative to THAT repo}
+	for (const rel of new Set(rels)) {
+		const abs = path.join(ws.root, rel);
+		// A path that is neither on disk nor in any index cannot be a pathspec, and one bad entry
+		// aborts the whole `git add` — the lesson `renameCollection` paid for. ⚠ The filter runs PER
+		// REPO: `isTracked` has to run in the repo that would track the path, and running it at the
+		// workspace root answered "no" for every path inside a clone.
+		const repo = repoRootOf(path.dirname(abs), ws.root);
+		const repoAbs = repo === '.' ? ws.root : path.join(ws.root, repo);
+		const inRepo = path.relative(repoAbs, abs);
+		if (!fs.existsSync(abs) && !isTracked(repoAbs, inRepo)) continue;
+		if (!byRepo.has(repo)) byRepo.set(repo, { root: repoAbs, paths: [] });
+		byRepo.get(repo).paths.push(inRepo);
+	}
+	const out = [];
+	try {
+		for (const [repo, { root, paths }] of byRepo) {
+			execFileSync('git', ['add', '--all', '--', ...paths], { cwd: root, stdio: GIT_QUIET });
+			execFileSync('git', ['commit', '--quiet', '-m', subject, '--', ...paths], { cwd: root, stdio: GIT_QUIET });
+			out.push({ repo, sha: shortHead(root), ahead: repo === '.' ? null : aheadCount(root) });
+		}
+	} catch (e) {
+		// unstage everything this call touched, in every repo, before handing the failure back
+		for (const [, { root, paths }] of byRepo) {
+			try { execFileSync('git', ['reset', '--quiet', '--', ...paths], { cwd: root, stdio: GIT_QUIET }); } catch { /* nothing staged */ }
+		}
+		e.commits = out; // what DID land, for the caller's message
+		throw e;
+	} finally {
+		store.headMoved(); // this ran `git commit` — see store.gitHead
+	}
+	return out;
+}
+
+const shortHead = (root) => {
+	try { return execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: root, stdio: GIT_QUIET }).toString().trim(); } catch { return null; }
+};
+
+/** How many commits this repo has that its upstream does not. Falls back to "not on any remote",
+ *  because a fresh `dt install --clone` has no upstream configured and "ahead of nothing" is not a
+ *  number the report can print. */
+function aheadCount(root) {
+	try {
+		const n = execFileSync('git', ['rev-list', '--count', '@{upstream}..HEAD'], { cwd: root, stdio: GIT_QUIET }).toString().trim();
+		return Number(n);
+	} catch {
+		try {
+			const n = execFileSync('git', ['rev-list', '--count', 'HEAD', '--not', '--remotes'], { cwd: root, stdio: GIT_QUIET }).toString().trim();
+			return Number(n) || 1;
+		} catch { return 1; }
+	}
 }
 
 /** Every workspace-owned descriptor source, recursively (namespaced descriptors are nested). */
@@ -1801,7 +1873,7 @@ export function removeField(ws, store, collection, fieldName, { moduleId } = {})
 		// it, and that is the outcome the operator asked for. Every other source write is still held to
 		// the count.
 	}, { commentsMayDecrease: true });
-	return { collection, removed: fieldName, dropped: out.dropped, cleared: out.cleared, staleViews };
+	return { collection, removed: fieldName, dropped: out.dropped, cleared: out.cleared, staleViews, commits: out.commits };
 }
 
 /**
@@ -1904,7 +1976,7 @@ function upsertField(ws, store, collection, fieldName, prop, required, verb, tar
 		compileGated(ws, store);
 		return { collection, field: fieldName, file: dest, extends: doc.extends, prop: already, unchanged: true };
 	}
-	const dropped = writeGated(ws, store, [dest], `dreamteamer: ${collection} ${verb}`, () => {
+	const gate = writeGated(ws, store, [dest], `dreamteamer: ${collection} ${verb}`, () => {
 		doc.schema ??= { properties: {} };
 		doc.schema.properties ??= {};
 		doc.schema.properties = insertBeforeBody(doc.schema.properties, fieldName, prop);
@@ -1912,10 +1984,11 @@ function upsertField(ws, store, collection, fieldName, prop, required, verb, tar
 		if (required === false && Array.isArray(doc.schema.required)) doc.schema.required = doc.schema.required.filter((r) => r !== fieldName);
 		fs.mkdirSync(path.dirname(dest), { recursive: true });
 		fs.writeFileSync(dest, writeSource(previousText, doc));
-	}, () => dropOrphanedMirrors(new Store(ws), was)).dropped;
+	}, () => dropOrphanedMirrors(new Store(ws), was));
+	const { dropped, commits } = gate;
 	// the prop as WRITTEN — callers report the relation off this, never off the one they passed:
 	// both this function and updateField reassign it, so a caller's own copy can be a stale object.
-	return { collection, field: fieldName, file: dest, extends: doc.extends, prop, dropped };
+	return { collection, field: fieldName, file: dest, extends: doc.extends, prop, dropped, commits };
 }
 
 /**
@@ -1956,11 +2029,11 @@ export function saveUiView(ws, store, { id, view }) {
 	// the view, so a key the caller omits is deliberately gone (see the `filter:` case) and the comment
 	// explaining that key goes with it. Every key that SURVIVES keeps its comments, which is what the
 	// round-trip buys and what the old `dump` could not do.
-	writeGated(ws, store, [dest], `dreamteamer: ui-views ${existed ? 'update' : 'add'} ${id}`, () => {
+	const gate = writeGated(ws, store, [dest], `dreamteamer: ui-views ${existed ? 'update' : 'add'} ${id}`, () => {
 		fs.mkdirSync(path.dirname(dest), { recursive: true });
 		fs.writeFileSync(dest, writeSource(previous, view));
 	}, undefined, { commentsMayDecrease: true });
-	return { id, file: dest, updated: existed };
+	return { id, file: dest, updated: existed, commits: gate.commits };
 }
 
 export function removeUiView(ws, store, id) {
@@ -1971,8 +2044,8 @@ export function removeUiView(ws, store, id) {
 	if (shipped && /(^|\/)node_modules\//.test(shipped))
 		throw new Error(`ui-view "${id}" is shipped by an installed package (${shipped}) — removing the file would be undone by the next npm install.\n  disable it instead: add "<module>/${id}" to dreamteamer.disable in package.json.`);
 	if (!fs.existsSync(dest)) throw new Error(`ui-view "${id}" does not exist`);
-	writeGated(ws, store, [dest], `dreamteamer: ui-views rm ${id}`, () => fs.rmSync(dest));
-	return { removed: id };
+	const gate = writeGated(ws, store, [dest], `dreamteamer: ui-views rm ${id}`, () => fs.rmSync(dest), undefined, { commentsMayDecrease: true });
+	return { removed: id, commits: gate.commits };
 }
 
 // base module for an extends pointer — resolved via manifest.modules across ALL channels

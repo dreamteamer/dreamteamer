@@ -308,7 +308,11 @@ export function run(argv) {
 					if (m.channel === 'git') {
 						const ref = tryGit(m.root, ['rev-parse', '--short', 'HEAD']);
 						const dirty = tryGit(m.root, ['status', '--porcelain']);
-						line += ` @ ${ref ?? '?'}${dirty ? ' (dirty)' : ''}`;
+						// ⚠ A SCHEMA WRITE NOW COMMITS HERE (§9), so a clone can be ahead of its remote
+						// with work the operator does not know they are holding. `status` is the command
+						// they run when something feels wrong, so it is where the count belongs.
+						const ahead = tryGit(m.root, ['rev-list', '--count', 'HEAD', '--not', '--remotes']);
+						line += ` @ ${ref ?? '?'}${dirty ? ' (dirty)' : ''}${Number(ahead) > 0 ? ` — ahead ${ahead}, push when ready` : ''}`;
 					}
 					const sh = shadowed.get(m.name);
 					if (sh) line += ` — shadows ${CHANNEL_LABEL[sh.loser]} copy`;
