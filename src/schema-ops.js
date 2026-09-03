@@ -70,6 +70,17 @@ function writeGated(ws, store, files, subject, mutate, after, { commentsMayDecre
 		} catch (e) {
 			restore();
 			try { compile(ws); } catch { /* runtime was already broken before this op */ }
+			// ⚠ THE ROLLBACK IS THE HALF THE OPERATOR CANNOT SEE. compile's sentence is correct and
+			// names the missing declaration; what it cannot know is that a verb just undid itself over
+			// it. The commonest case by far is an overlay write into a module that does not yet declare
+			// its base, so the remedy is spelled as the verb that fixes it — §13. The module names in
+			// compile's sentence are PACKAGE names while `dt set modules/<id>` takes an ID; for anything
+			// `add modules` created they are the same string, for a forked module they are not.
+			const dep = /module "([^"]+)" does not declare "([^"]+)" in dreamteamer\.dependencies/.exec(e.message);
+			if (dep) {
+				const idOf = (pkgName) => moduleRows(store).find((r) => r.fields.name === pkgName)?.id ?? pkgName;
+				throw new Error(`${e.message}\n  rolled back — dt set modules/${idOf(dep[1])} dependencies=modules/${idOf(dep[2])}, then re-run`);
+			}
 			throw e;
 		}
 		// ⚠ AFTER THE GATE COMPILE, BEFORE THE COMMIT, INSIDE THE LOCK. A schema op that INVALIDATES
@@ -495,6 +506,279 @@ export function renameModule(ws, store, oldId, newId) {
 	return { renamed: true, id: newId, files: out.paths ?? [], rewrites, commits: out.commits };
 }
 
+// ---- moving a collection between modules -------------------------------------------------------
+// §7. `dt set collections/teams module=hr` — NOT `move`, which is nav ordering. The descriptor
+// SOURCE relocates; the RECORDS do not, because a namespace and a `storage.path` are properties of
+// the collection rather than of the module, so a move never changes an id and never touches data.
+
+/**
+ * WHAT THE MOVE WOULD MAKE ILLEGAL, and what the fix would cost — computed BEFORE anything moves.
+ *
+ * The reference contract (2026-08-11, part 1) says every target of an `x-reference` is owned by the
+ * referencing module, declared in its `dependencies`, or named in its `peerDependencies`. Moving a
+ * collection changes who owns it, so it can break the contract in two directions at once: this
+ * collection's own outbound refs, and every inbound ref pointing at it.
+ *
+ * ⚠ AND THE FIX CAN BE WORSE THAN THE BREAK. `dependencies` must be acyclic, so "add A to B's
+ * dependencies" is only a fix when B does not already sit upstream of A — otherwise it is a ring,
+ * and the honest answer is `peerDependencies` (which names a COLLECTION and therefore cannot cycle)
+ * or moving the other collection too. Naming the ring is the difference between a refusal an
+ * operator can act on and one they have to re-derive.
+ *
+ * Reads the compiled projections through the Store rather than re-running discovery: `modules`
+ * records carry `dependencies`, `collections` records carry `module`, and the manifest is what
+ * actually compiled.
+ */
+function moveImpact(store, name, toModule) {
+	const mods = moduleRows(store);
+	const depsOf = new Map(mods.map((m) => [m.id, (m.fields.dependencies ?? []).map((r) => String(r).replace(/^modules\//, ''))]));
+	// ⚠ `peer_dependencies`, SNAKE-CASED — that is the key compile projects onto the module record
+	// (`peerDependencies` is the package.json spelling). Reading the camel form here returned
+	// undefined for every module and silently switched the peer escape hatch off, so a move a
+	// declared peer legitimately permits would have been refused with the ring message.
+	const peersOf = new Map(mods.map((m) => [m.id, (m.fields.peer_dependencies ?? []).map((r) => String(r).replace(/^collections\//, ''))]));
+	const ownerOf = new Map();
+	for (const { id, fields } of store.readAll('collections')) ownerOf.set(id, fields.module ?? String(fields.owner ?? '').replace(/^modules\//, ''));
+	ownerOf.set(name, toModule); // the world as the move would leave it
+
+	/** Does `from` reach `to` along `dependencies`? */
+	const reaches = (from, to, seen = new Set()) => {
+		if (from === to) return true;
+		if (seen.has(from)) return false;
+		seen.add(from);
+		return (depsOf.get(from) ?? []).some((d) => reaches(d, to, seen));
+	};
+
+	const needs = [];
+	const add = (referrer, target) => {
+		const owner = ownerOf.get(target);
+		if (!owner || owner === referrer) return;
+		if ((depsOf.get(referrer) ?? []).includes(owner)) return;
+		if ((peersOf.get(referrer) ?? []).includes(target)) return;
+		// CORE_COLLECTIONS is an implicit dependency of every module — the entity kinds the compiler
+		// materializes plus `repos`. Asked of the descriptor rather than of a list here: a
+		// runtime-stored collection is exactly that set.
+		if (store.descriptors.get(target)?.storage?.base === 'runtime' || target === 'repos') return;
+		needs.push({ referrer, target, owner, ring: reaches(owner, referrer) });
+	};
+
+	for (const [cName, d] of store.descriptors) {
+		const referrer = ownerOf.get(cName);
+		if (!referrer) continue;
+		for (const target of outboundTargets(d)) {
+			if (cName !== name && target !== name) continue; // only edges this move actually re-owns
+			add(referrer, target);
+		}
+	}
+	return needs;
+}
+
+/** Every collection an `x-reference` in this descriptor points at — scalar, union list, on the prop
+ *  or on `items`. `refTargetsOf` answers per prop; this walks the schema. `'*'` is skipped: the
+ *  wildcard is rule 6's, and rule 6 is the workspace module's only exemption. */
+function outboundTargets(d) {
+	const out = new Set();
+	const walkProps = (schema) => {
+		for (const prop of Object.values(schema?.properties ?? {})) {
+			if (!prop || typeof prop !== 'object') continue;
+			for (const holder of [prop, prop.items]) {
+				const raw = holder && typeof holder === 'object' ? holder['x-reference'] : undefined;
+				if (raw === undefined || raw === '*') continue;
+				for (const t of [].concat(raw)) if (typeof t === 'string' && t !== '*') out.add(t);
+			}
+			if (prop.properties) walkProps(prop);
+			if (prop.items?.properties) walkProps(prop.items);
+		}
+	};
+	walkProps(d.schema);
+	return out;
+}
+
+export function moveCollection(ws, store, name, toModule, { dryRun = false } = {}) {
+	const d = store.descriptor(name); // throws with the known-collection list
+	if (d.storage.base === 'runtime') {
+		throw new Error(`"${name}" is a compiled source, not a data collection — it has no module to move it to.`);
+	}
+	const to = moduleRecord(store, toModule); // throws with the known-module list
+	const from = d.module ?? String(d.owner ?? '').replace(/^modules\//, '');
+	if (from === toModule) return { moved: false, name, from, to: toModule };
+	if (IN_NODE_MODULES(to.fields.path)) {
+		throw new Error(`module "${toModule}" ships from node_modules (${to.fields.path}) — a write there is erased by the next \`npm install\`. Vendor it into modules/ first.`);
+	}
+	const { base, overlays } = baseDescriptorSource(ws, name);
+	if (!base) throw new Error(`"${name}" has no writable descriptor source in this workspace — the manifest names none under a module here.`);
+	if (IN_NODE_MODULES(base)) {
+		throw new Error(`"${name}" ships from node_modules (${base}) — a write there is erased by the next \`npm install\`. Overlay it with \`extends\` instead: dreamteamer add-field ${name} --module <your-module> …`);
+	}
+
+	// ---- the reference contract, BEFORE anything moves ------------------------------------------
+	const needs = moveImpact(store, name, toModule);
+	const plan = {
+		name, from, to: toModule, needs,
+		records: store.ids(name).size,
+		refs: 0,
+		descriptors: 1 + overlays.length,
+		cleared: 0,
+	};
+	if (needs.length) {
+		const lines = needs.map((n) => {
+			const fix = n.ring
+				? `${n.referrer} → ${n.owner} would be a ring (${n.owner} already reaches ${n.referrer}). Add ${n.target} to ${n.referrer}'s peerDependencies (dt set modules/${n.referrer} peerDependencies=collections/${n.target}), or move ${n.target} as well.`
+				: `add it: dt set modules/${n.referrer} dependencies=modules/${n.owner} — or dt set modules/${n.referrer} peerDependencies=collections/${n.target} if ${n.referrer} should work without it.`;
+			return `  ${n.referrer} references ${n.target}, owned by ${n.owner} after the move. ${fix}`;
+		});
+		throw new Error(`move rolled back. ${name} → ${toModule} breaks the reference contract:\n${lines.join('\n')}`);
+	}
+	if (dryRun) return { ...plan, moved: false, dryRun: true };
+
+	const dest = path.join(kindDir(path.join(ws.root, to.fields.path), 'collections'), `${name}.collection.yaml`);
+	if (fs.existsSync(dest)) throw new Error(`${path.relative(ws.root, dest)} already exists — move or remove it first; nothing was moved`);
+	const src = path.join(ws.root, base);
+	const fromRow = moduleRows(store).find((m) => m.id === from);
+	const fromPkgName = fromRow?.fields.name ?? from;
+	const toPkgName = to.fields.name;
+	// The floor `pruneEmpty` walks up to: the SOURCE MODULE'S OWN collections dir. Deriving it from
+	// the path's first segment resolved to `<root>/modules`, which could delete the module's whole
+	// `collections/` folder after its last collection left — re-triggering the "contributed no
+	// recognised sources" warning for a module whose only kind folder that was.
+	const pruneFloor = fromRow ? kindDir(path.join(ws.root, fromRow.fields.path), 'collections') : path.dirname(src);
+
+	const snapshots = new Map([[src, fs.readFileSync(src)]]);
+	const touched = new Set([base, path.relative(ws.root, dest)]);
+	let moved = false;
+
+	const out = gatedTreeOp(ws, store, {
+		subject: `dreamteamer: collections set ${name} module=${toModule}`,
+		paths: [...touched],
+		mutate: () => {
+			// 1. the descriptor itself. Its BYTES, not a re-dump: a descriptor's comments are where a
+			//    module writes down why the collection exists, and the move changes no key at all — the
+			//    file is identical, at a new path.
+			fs.mkdirSync(path.dirname(dest), { recursive: true });
+			fs.writeFileSync(dest, snapshots.get(src));
+			fs.rmSync(src);
+			pruneEmpty(path.dirname(src), pruneFloor);
+			moved = true;
+
+			// 2. every overlay's `extends`, which names the base by its OLD module's package name.
+			for (const rel of overlays) {
+				const f = path.join(ws.root, rel);
+				const before = fs.readFileSync(f, 'utf8');
+				const doc = load(before);
+				if (doc?.extends !== `${fromPkgName}/${name}`) continue;
+				doc.extends = `${toPkgName}/${name}`;
+				const after = writeSource(before, doc);
+				if (load(after)?.extends !== doc.extends || commentCount(after) < commentCount(before)) {
+					throw new Error(`could not rewrite \`extends\` in ${rel} without reformatting it — nothing was changed.`);
+				}
+				snapshots.set(f, Buffer.from(before));
+				fs.writeFileSync(f, after);
+				touched.add(rel);
+			}
+			return { paths: [...touched] };
+		},
+		undo: () => {
+			if (moved && fs.existsSync(dest)) fs.rmSync(dest);
+			for (const [f, bytes] of snapshots) {
+				fs.mkdirSync(path.dirname(f), { recursive: true });
+				fs.writeFileSync(f, bytes);
+			}
+		},
+	});
+	return { ...plan, moved: true, commits: out.commits };
+}
+
+/**
+ * The collection-level scalars, and how each parses. §11's papercut, and the other half of §7: with
+ * `order` settable, `dt move collections/<c> --after <c>` can mean nav ordering and nothing else.
+ *
+ * ⚠ `name` is deliberately absent, and so is `extends`, `schema` and `storage`. Renaming a
+ * collection moves its descriptor, its records, their filenames and every inbound reference in one
+ * commit — that is `rename collections/<old> <new>`, and offering `name=` here would be a second
+ * spelling for it that does one of those five things.
+ */
+const COLLECTION_SETTABLE = {
+	description: (v) => String(v),
+	use_when: (v) => String(v),
+	title: (v) => String(v),
+	title_template: (v) => String(v),
+	icon: (v) => String(v),
+	group: (v) => String(v),
+	sort_field: (v) => String(v),
+	order: (v) => {
+		const n = Number(v);
+		if (!Number.isFinite(n)) throw new Error(`order takes a number — got "${v}"`);
+		return n;
+	},
+	list_fields: (v) => (Array.isArray(v) ? v : String(v).split(',')).map((s) => String(s).trim()).filter(Boolean),
+};
+
+/** "people has no field X" / "people has no fields X, Y" — the plural without a second sentence. */
+const collectionMissingFields = (name, missing) => `${name} has no field${missing.length === 1 ? '' : 's'} ${missing.join(', ')}`;
+
+export function setCollectionScalars(ws, store, name, changes, { moduleId } = {}) {
+	store.descriptor(name);
+	const unknown = Object.keys(changes).filter((k) => !(k in COLLECTION_SETTABLE));
+	if (unknown.length) {
+		const k = unknown[0];
+		const extra = k === 'name' ? ` — a collection is renamed with its records and every inbound reference in one commit: dreamteamer rename collections/${name} <new-name>` : '';
+		throw new Error(`"${k}" is not a settable scalar of a collection${extra}. Settable: ${Object.keys(COLLECTION_SETTABLE).join(', ')}, plus module= (which MOVES it). A field of the record schema is written with dreamteamer add-field/update-field ${name}.`);
+	}
+	// `list_fields` and `sort_field` name fields of THIS collection's OWN schema. A dangling
+	// `sort_field` is already a compile error; a dangling `list_fields` entry compiles CLEAN and puts
+	// a dead column in every default listing, which is why it is caught here.
+	for (const key of ['list_fields', 'sort_field']) {
+		if (!(key in changes)) continue;
+		if (changes[key] === '' || changes[key] === null) continue; // a clear has nothing to validate
+		const named = key === 'sort_field' ? [String(changes[key])] : COLLECTION_SETTABLE.list_fields(changes[key]);
+		const missing = named.filter((f) => f && !store.descriptor(name).schema?.properties?.[f]);
+		if (missing.length) {
+			throw new Error(`${key}: ${collectionMissingFields(name, missing)} — declare it first (dreamteamer add-field ${name} --name ${missing[0]} --type <t>).`);
+		}
+	}
+	const { file } = collectionSourceFile(ws, store, name, moduleId, { subject: name });
+	if (!fs.existsSync(file)) throw new Error(`${path.relative(ws.root, file)} is not on disk — run \`dreamteamer compile\` and re-run.`);
+	const previousText = fs.readFileSync(file, 'utf8');
+	const doc = load(previousText);
+	const changed = [];
+	const gate = writeGated(ws, store, [file], `dreamteamer: collections set ${name} ${Object.keys(changes).join(' ')}`, () => {
+		for (const [k, raw] of Object.entries(changes)) {
+			// An empty value REMOVES the key — `store.set`'s convention, and `assignPath`'s, extended
+			// to the descriptor a collection record is projected from.
+			if (raw === '' || raw === null) delete doc[k];
+			else doc[k] = COLLECTION_SETTABLE[k](raw);
+			changed.push(k);
+		}
+		fs.writeFileSync(file, writeSource(previousText, doc));
+	});
+	return { name, file, changed, commits: gate.commits };
+}
+
+/** What `remove-field` would do, counted without writing — §7's rule that every verb clearing values
+ *  prints its plan. The counts come from the same two sweeps the real op runs (`clearFieldValues`
+ *  and `dropOrphanedMirrors`), asked in read-only form. */
+export function removeFieldPlan(store, collection, fieldName) {
+	const d = store.descriptor(collection);
+	if (!d.schema?.properties?.[fieldName]) throw new Error(`no field "${fieldName}" on ${collection}`);
+	const bf = bodyField(d);
+	let cleared = 0;
+	if (store.canRewrite(collection)) {
+		for (const [, file] of store.ids(collection)) {
+			let fields;
+			try { fields = parseRecord(file, d, bf); } catch { continue; }
+			if (fieldName in fields) cleared++;
+		}
+	}
+	const mirrors = relationsOwnedBy(store, collection, fieldName);
+	let records = cleared;
+	for (const r of mirrors) if (store.canRewrite(r.target)) records += store.ids(r.target).size;
+	return {
+		collection, field: fieldName,
+		records, refs: 0, descriptors: 1, cleared,
+		staleViews: viewsNamingField(store, collection, fieldName),
+	};
+}
+
 /** The workspace's writable source dir for a kind (workspace-module aware). `kindDir` picks the
  *  layout that module already uses and falls back to flat, so a `collections add` never splits a
  *  half-moved module across both. */
@@ -571,7 +855,7 @@ const IN_NODE_MODULES = (rel) => /(^|[\\/])node_modules([\\/]|$)/.test(String(re
 
 /**
  * WHERE A FIELD VERB WRITES. The base descriptor's own file when this workspace may rewrite it; the
- * workspace module's overlay path when it may not.
+ * named module's overlay when a selector says so; the workspace module's overlay when neither.
  *
  * ⚠ The guard is `node_modules/`, NOT "which module" — that is the line `descriptorSourceDir`
  * already drew for `renameCollection` and the reason it drew it: the thing that erases a write is
@@ -579,16 +863,56 @@ const IN_NODE_MODULES = (rel) => /(^|[\\/])node_modules([\\/]|$)/.test(String(re
  * history as everything else. Resolving this from `workspaceSystemDir` instead meant a field verb on
  * ANY other inline module's collection silently created an overlay in the workspace module and then
  * failed compile for a dependency the operator never asked to declare.
+ *
+ * ⚠ `moduleId` IS A SELECTOR, NOT A DESTINATION. Naming the owner is redundant and naming a module
+ * that contributes nothing is the DEFECT this wave exists to remove: `upsertField` used to create an
+ * overlay wherever it was pointed, silently. So a selector that selects nothing is refused unless
+ * the caller is deliberately creating an overlay, which `allowNew` says out loud.
  */
-function collectionSourceFile(ws, collection) {
-	const { base } = baseDescriptorSource(ws, collection);
-	if (base && !IN_NODE_MODULES(base)) return { file: path.join(ws.root, base), overlay: false };
-	return { file: path.join(workspaceSystemDir(ws, 'collections'), `${collection}.collection.yaml`), overlay: true };
+function collectionSourceFile(ws, store, collection, moduleId, { allowNew = false, subject } = {}) {
+	const { base, overlays } = baseDescriptorSource(ws, collection);
+	if (moduleId !== undefined && moduleId !== null && moduleId !== '') {
+		const rec = moduleRecord(store, moduleId); // throws with the known-module list
+		if (IN_NODE_MODULES(rec.fields.path)) {
+			throw new Error(`module "${moduleId}" ships from node_modules (${rec.fields.path}) — a write there is erased by the next \`npm install\`.\n  to add fields from this workspace: dreamteamer add-field ${collection} --name <f> --module ${ws.pkg.dreamteamer?.['workspace-module'] ?? 'default'}`);
+		}
+		// ⚠ A SELECTOR SELECTS AMONG THINGS. `--module` is only meaningful where the entity is
+		// declared by MORE than one module (a base plus overlays); anywhere else it is refused (§5),
+		// naming who does declare it. `allowNew` is the one caller deliberately CREATING an overlay.
+		const declared = declaringModules(ws, store, collection);
+		if (!allowNew && declared.length < 2) {
+			throw new Error(`${subject ?? collection} is declared only by ${declared.join(', ') || '?'} — drop --module`);
+		}
+		const own = [base, ...overlays].find((p) => p && String(p).startsWith(`${rec.fields.path}/`));
+		if (own) return { file: path.join(ws.root, own), overlay: own !== base, module: moduleId };
+		if (!allowNew) {
+			throw new Error(`module "${moduleId}" contributes no source to ${collection} — it is declared by ${declared.join(', ') || 'nothing in this workspace'}. To ADD fields from ${moduleId}: dreamteamer add-field ${collection} --name <f> --module ${moduleId}`);
+		}
+		return { file: path.join(kindDir(path.join(ws.root, rec.fields.path), 'collections'), `${collection}.collection.yaml`), overlay: true, module: moduleId };
+	}
+	if (base && !IN_NODE_MODULES(base)) return { file: path.join(ws.root, base), overlay: false, module: null };
+	return { file: path.join(workspaceSystemDir(ws, 'collections'), `${collection}.collection.yaml`), overlay: true, module: null };
+}
+
+/** The module ids whose sources declare this collection, base first — for the "declared only by X"
+ *  refusal, which has to name them to be actionable. */
+function declaringModules(ws, store, collection) {
+	const { base, overlays } = baseDescriptorSource(ws, collection);
+	const rows = moduleRows(store);
+	const idOf = (rel) => rows.find((r) => String(rel).startsWith(`${r.fields.path}/`))?.id ?? '?';
+	return [...new Set([base, ...overlays].filter(Boolean).map(idOf))];
+}
+
+/** The source file ONE module contributes to a collection — the read half of `--module`. Exported
+ *  because `dt get collections/<c> --module <m>` is the only way to see what a given module actually
+ *  wrote, and the merged descriptor cannot answer it. */
+export function collectionSourceFileFor(ws, store, collection, moduleId) {
+	return collectionSourceFile(ws, store, collection, moduleId);
 }
 
 // ---- ops ------------------------------------------------------------------------
 
-export function createCollection(ws, store, { name, template, namespace }) {
+export function createCollection(ws, store, { name, template, namespace, moduleId }) {
 	if (!name) throw new Error('missing collection name');
 	// `--namespace health --name doctors` and `--name health/doctors` are the SAME collection, because
 	// the qualified name IS the identity everywhere else in the engine. Accepting both keeps the CLI
@@ -599,12 +923,25 @@ export function createCollection(ws, store, { name, template, namespace }) {
 	if (qualified.includes('/') && !ns) {
 		throw new Error(`namespace "${qualified.slice(0, qualified.lastIndexOf('/'))}" is not declared — add it to dreamteamer.namespaces in package.json first, or the collection will not compile.`);
 	}
-	if (store.descriptors.has(qualified)) throw new Error(`collection "${qualified}" already exists`);
+	if (store.descriptors.has(qualified)) {
+		// §13: name both remedies, because the operator asking for this wants ONE of them and the
+		// generic "already exists" tells them which neither.
+		const owner = store.descriptors.get(qualified).module
+			?? String(store.descriptors.get(qualified).owner ?? '').replace(/^modules\//, '');
+		const target = moduleId ?? ws.pkg.dreamteamer?.['workspace-module'] ?? 'default';
+		throw new Error(`collection "${qualified}" already exists, owned by ${owner}. Fields from ${target}: dreamteamer add-field ${qualified} --module ${target} --name <f> --type <t> · move it: dreamteamer set collections/${qualified} module=${target}`);
+	}
 	// NESTED, mirroring where compile puts it in the runtime: `collections/health/doctors.collection.yaml`.
 	// compile enumerates this kind recursively for exactly this reason — and `upsertField` derives the
 	// same path from the same name, which is what keeps a later `add-field` editing the base descriptor
 	// instead of quietly creating an overlay beside it.
-	const dest = path.join(workspaceSystemDir(ws, 'collections'), `${qualified}.collection.yaml`);
+	// …and in the module the caller NAMED — the workspace module only by default. `--module` is what
+	// makes a module-first modeling session one verb per step instead of six manual ones.
+	const intoRoot = moduleId ? path.join(ws.root, moduleRecord(store, moduleId).fields.path) : null;
+	if (intoRoot && IN_NODE_MODULES(path.relative(ws.root, intoRoot))) {
+		throw new Error(`module "${moduleId}" ships from node_modules — a write there is erased by the next \`npm install\`. Vendor it into modules/ first.`);
+	}
+	const dest = path.join(intoRoot ? kindDir(intoRoot, 'collections') : workspaceSystemDir(ws, 'collections'), `${qualified}.collection.yaml`);
 	if (fs.existsSync(dest)) throw new Error(`${path.relative(ws.root, dest)} already exists`);
 
 	let descriptor = { name: qualified };
@@ -1104,11 +1441,16 @@ function relationsOwnedBy(store, collection, fieldName) {
 	return store.relations().filter((r) => r.owner === collection && r.field === fieldName);
 }
 
-export function addField(ws, store, collection, { name: fieldName, prop, required }) {
+export function addField(ws, store, collection, { name: fieldName, prop, required, moduleId }) {
 	store.descriptor(collection); // must exist in the compiled runtime
 	if (!fieldName) throw new Error('missing field name');
-	if (store.descriptor(collection).schema?.properties?.[fieldName]) throw new Error(`field "${fieldName}" already exists on ${collection}`);
-	return upsertField(ws, store, collection, fieldName, prop, required, `add-field ${fieldName}`);
+	// ⚠ On an OVERLAY, a field the base already declares is an OVERRIDE, not a duplicate — that is
+	// what `extends` is for. Only a write to the base itself can collide.
+	const target = collectionSourceFile(ws, store, collection, moduleId, { allowNew: true, subject: `${collection}.${fieldName}` });
+	if (!target.overlay && store.descriptor(collection).schema?.properties?.[fieldName]) {
+		throw new Error(`field "${fieldName}" already exists on ${collection}`);
+	}
+	return upsertField(ws, store, collection, fieldName, prop, required, `add-field ${fieldName}`, target);
 }
 
 /** The relation keywords a caller is RESTATING, from the flag vocabulary the CLI and the HTTP schema
@@ -1126,7 +1468,7 @@ export function statedKeywords(flags) {
  *  it behind its back. */
 const ALL_RELATION_KEYWORDS = new Set(['x-reference', 'x-inverse', 'x-unique', 'x-on-delete', 'x-inverse-of']);
 
-export function updateField(ws, store, collection, fieldName, { prop, required, flags = {}, stated }) {
+export function updateField(ws, store, collection, fieldName, { prop, required, flags = {}, stated, moduleId }) {
 	// Did the caller build this prop from the FLAG VOCABULARY, or hand over a whole field? `stated` is
 	// how it says so (see ALL_RELATION_KEYWORDS): a flag-built prop is only what the flags could
 	// express, so the rest is carried; a whole prop IS the field, and nothing may be carried into it
@@ -1250,7 +1592,8 @@ export function updateField(ws, store, collection, fieldName, { prop, required, 
 		throw new Error(`--${relationFlagsStated(flags)} needs a --type <collection> reference — ${collection}.${fieldName} points at nothing.`);
 	}
 
-	return upsertField(ws, store, collection, fieldName, prop, required, `update-field ${fieldName}`);
+	return upsertField(ws, store, collection, fieldName, prop, required, `update-field ${fieldName}`,
+		collectionSourceFile(ws, store, collection, moduleId, { subject: `${collection}.${fieldName}` }));
 }
 
 /**
@@ -1342,14 +1685,14 @@ function viewsNamingField(store, collection, fieldName) {
 		.map((v) => v.id);
 }
 
-export function removeField(ws, store, collection, fieldName) {
+export function removeField(ws, store, collection, fieldName, { moduleId } = {}) {
 	const d = store.descriptor(collection);
 	if (!d.schema?.properties?.[fieldName]) throw new Error(`no field "${fieldName}" on ${collection}`);
 	const staleViews = viewsNamingField(store, collection, fieldName);
 	// Removing the OWNING foreign key drops the relation just as `--inverse=` does, and leaves the
 	// same residue on the target. Same sweep, same commit.
 	const was = relationsOwnedBy(store, collection, fieldName);
-	const dest = collectionSourceFile(ws, collection).file;
+	const dest = collectionSourceFile(ws, store, collection, moduleId, { subject: `${collection}.${fieldName}` }).file;
 	const previousText = fs.existsSync(dest) ? fs.readFileSync(dest, 'utf8') : null;
 	const doc = previousText === null ? null : load(previousText);
 	// ⚠ ASK THE SOURCE THIS VERB EDITS, and ask it FIRST. A field the descriptor declares is removable
@@ -1376,7 +1719,12 @@ export function removeField(ws, store, collection, fieldName) {
 			if (!doc.list_fields.length) delete doc.list_fields;
 		}
 		if (doc.sort_field === fieldName) delete doc.sort_field;
-		fs.writeFileSync(dest, writeSource(previousText, doc));
+		// ⚠ AN OVERLAY WHOSE LAST FIELD IS GONE IS NOT A DESCRIPTOR ANYBODY MEANT TO KEEP. An
+		// `extends:` descriptor contributing no properties adds nothing to the merge and is a source
+		// the next reader has to work out the purpose of; §5's stated rule is that removing its last
+		// field removes the file.
+		if (doc.extends && !Object.keys(doc.schema?.properties ?? {}).length) fs.rmSync(dest);
+		else fs.writeFileSync(dest, writeSource(previousText, doc));
 	}, () => {
 		// ONE Store for both sweeps — the runtime as the gate compile just left it.
 		const after = new Store(ws);
@@ -1421,7 +1769,7 @@ function insertBeforeBody(properties, fieldName, prop) {
 	return out;
 }
 
-function upsertField(ws, store, collection, fieldName, prop, required, verb) {
+function upsertField(ws, store, collection, fieldName, prop, required, verb, target) {
 	// Read BEFORE the source is touched. Empty for a field that does not exist yet, so `add-field`
 	// shares this path with no branch — it cannot remove a relation it is creating.
 	const was = relationsOwnedBy(store, collection, fieldName);
@@ -1458,8 +1806,9 @@ function upsertField(ws, store, collection, fieldName, prop, required, verb) {
 			delete prop.items['x-title-template'];
 		}
 	}
-	// The module that OWNS the collection, not the workspace module — see collectionSourceFile.
-	const { file: dest, overlay } = collectionSourceFile(ws, collection);
+	// Resolved by the CALLER, because only it knows whether a `--module` selector was given and
+	// whether creating an overlay is the point (add-field) or a defect (update-field).
+	const { file: dest, overlay } = target ?? collectionSourceFile(ws, store, collection, undefined);
 	let doc;
 	// The BYTES, not just the parse: `dump` cannot round-trip a comment, and a collection descriptor is
 	// where a module writes down why the collection exists (see writeSource).

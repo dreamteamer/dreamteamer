@@ -115,14 +115,29 @@ schema:
         opened on its own. It is stated here as DATA precisely so the record layer never has to
         learn what a module is; a bare string list rather than `x-reference: collections`, because
         the whole point is that the target is absent.
+    module:
+      type: string
+      description: >-
+        The module that OWNS this concept, as its bare id — DERIVED by compile from the base source,
+        and the one field a `dt set` may write: `dt set collections/<c> module=<m>` MOVES the
+        descriptor into that module. An overlay adds fields to somebody else's collection and does
+        not take it over, so the owner is the source declaring no `extends`. This is the workspace's
+        real partition, and what the nav groups by.
+    overlays:
+      type: array
+      items: { type: string }
+      description: >-
+        DERIVED by compile, never authored — the modules contributing an `extends:` overlay to this
+        collection, by id. ABSENT when there are none: an empty list is a statement nobody made.
+        `dt get collections/<c> --module <m>` prints one contribution alone.
     owner:
       type: string
       x-reference: modules
       description: >-
-        The module that OWNS this concept — DERIVED by compile from the base source, never authored.
-        An overlay adds fields to somebody else's collection and does not take it over, so `meetings`
-        stays owned by crm even though the workspace module overlays it. This is the workspace's real partition, and
-        what the nav groups by.
+        ⚠ COMPAT, ONE RELEASE ONLY — superseded by `module`, which carries the same fact as the bare
+        id the operator actually types. Kept because a surface groups its nav by this key and reads
+        it as a reference; both are written by compile until that surface has moved. Removed in the
+        release after 0.19.0.
     group:
       type: string
       description: >-
