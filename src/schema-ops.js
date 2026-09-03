@@ -770,6 +770,238 @@ export function setCollectionScalars(ws, store, name, changes, { moduleId } = {}
 	return { name, file, changed, commits: gate.commits };
 }
 
+// ---- rename-field ------------------------------------------------------------------------------
+// §3.2. THE WIDEST BLAST RADIUS IN THIS ENGINE, and the reason is a property of the data model
+// rather than of any one feature: a field is referenced BY NAME, not as a `<collection>/<id>`
+// reference — so `store.rewriteRefs`, which knows the boundary rules and scopes prose to
+// `[[wikilinks]]`, can see none of it. Eight surfaces name a field by name:
+//
+//   1. the record's own frontmatter key            (the values)
+//   2. `schema.properties.<name>` + `schema.required`
+//   3. `list_fields`, `sort_field`                 (the field's presentation, same descriptor)
+//   4. `title_template`, `id.generate`             (templates, `{{ name | slug }}`)
+//   5. `x-inverse` on the OWNING side              (the generated mirror's NAME)
+//   6. `x-inverse-of: <collection>.<field>`        (spelling B, on the far side)
+//   7. a ui-view's `options.columns` and `filter`
+//   8. a command-binding's `can-enter` / `can-exit`
+//
+// Missing any one of them is silent in a different way, which is why they are enumerated here
+// rather than found by grep: a stale `list_fields` entry draws a dead column, a stale `filter`
+// narrows a view to nothing at exit 0, a stale `x-inverse` leaves a mirror with no owner, and a
+// stale frontmatter key makes the record unwritable (an unknown field the store refuses).
+
+/** Rewrite one field NAME inside a filter-shaped object — a ui-view's `filter`, a binding's
+ *  `can-enter`/`can-exit`. Keys beginning `_` are OPERATORS (`_eq`, `_and`) and are never field
+ *  names; everything else at a non-operator position is a path segment that may be one. */
+function rewriteFilterField(node, from, to) {
+	if (!node || typeof node !== 'object') return false;
+	if (Array.isArray(node)) {
+		let hit = false;
+		for (const item of node) if (rewriteFilterField(item, from, to)) hit = true;
+		return hit;
+	}
+	let changed = false;
+	for (const key of Object.keys(node)) {
+		if (rewriteFilterField(node[key], from, to)) changed = true;
+		if (key.startsWith('_') || key !== from) continue;
+		// rebuild in place, preserving key ORDER: a filter a human wrote is read back by a human
+		const rebuilt = {};
+		for (const k of Object.keys(node)) rebuilt[k === from ? to : k] = node[k];
+		for (const k of Object.keys(node)) delete node[k];
+		Object.assign(node, rebuilt);
+		changed = true;
+	}
+	return changed;
+}
+
+/** Rewrite `{{ <from> …}}` inside a template string, keeping any filters after the pipe. Matched on
+ *  the whole identifier so `{{ name }}` is not found inside `{{ full_name }}`. */
+function rewriteTemplateField(tpl, from, to) {
+	if (typeof tpl !== 'string') return tpl;
+	return tpl.replace(new RegExp(`(\\{\\{\\s*)${from.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\s*(?:\\||\\}\\}))`, 'g'), `$1${to}$2`);
+}
+
+/** Every rename this field name forces on ONE parsed descriptor, applied in place. Returns true if
+ *  anything changed, so the caller only rewrites files it has to. */
+function rewriteFieldName(doc, collection, from, to) {
+	let changed = false;
+	const props = doc?.schema?.properties;
+	if (props && from in props) {
+		// rebuild preserving ORDER — property order is FORM order, and a body field belongs last
+		const rebuilt = {};
+		for (const [k, v] of Object.entries(props)) rebuilt[k === from ? to : k] = v;
+		doc.schema.properties = rebuilt;
+		changed = true;
+	}
+	if (Array.isArray(doc?.schema?.required) && doc.schema.required.includes(from)) {
+		doc.schema.required = doc.schema.required.map((r) => (r === from ? to : r));
+		changed = true;
+	}
+	if (Array.isArray(doc?.list_fields) && doc.list_fields.includes(from)) {
+		doc.list_fields = doc.list_fields.map((c) => (c === from ? to : c));
+		changed = true;
+	}
+	if (doc?.sort_field === from) { doc.sort_field = to; changed = true; }
+	{
+		const next = rewriteTemplateField(doc?.title_template, from, to);
+		if (next !== doc?.title_template) { doc.title_template = next; changed = true; }
+	}
+	if (doc?.id?.generate) {
+		const next = rewriteTemplateField(doc.id.generate, from, to);
+		if (next !== doc.id.generate) { doc.id.generate = next; changed = true; }
+	}
+	// the relation keywords, on THIS descriptor, naming a field of ANOTHER collection or of this one
+	for (const prop of Object.values(doc?.schema?.properties ?? {})) {
+		for (const holder of [prop, prop?.items]) {
+			if (!holder || typeof holder !== 'object') continue;
+			// `x-inverse` names the MIRROR field on the target — rename it when the target is the
+			// collection being edited and the mirror is the field being renamed.
+			const target = holder['x-reference'];
+			const targets = Array.isArray(target) ? target : [target];
+			if (holder['x-inverse'] === from && targets.includes(collection)) { holder['x-inverse'] = to; changed = true; }
+			// `x-inverse-of` names <collection>.<field> on the OWNING side. Split at the LAST dot: a
+			// collection name may contain a slash, never a dot.
+			const of = holder['x-inverse-of'];
+			if (typeof of === 'string') {
+				const dot = of.lastIndexOf('.');
+				if (dot > 0 && of.slice(0, dot) === collection && of.slice(dot + 1) === from) {
+					holder['x-inverse-of'] = `${collection}.${to}`;
+					changed = true;
+				}
+			}
+		}
+	}
+	return changed;
+}
+
+export function renameFieldPlan(store, collection, from) {
+	const d = store.descriptor(collection);
+	if (!d.schema?.properties?.[from]) throw new Error(`no field "${from}" on ${collection}`);
+	const bf = bodyField(d);
+	let records = 0;
+	if (store.canRewrite(collection)) {
+		for (const [, file] of store.ids(collection)) {
+			let fields;
+			try { fields = parseRecord(file, d, bf); } catch { continue; }
+			// ⚠ THE BODY FIELD HAS NO KEY TO REWRITE. Its value is the prose after the frontmatter, so
+			// `parseRecord` synthesises the key and `serialize` writes the text back — the rename is
+			// entirely in the schema, and counting the record as touched would be a lie.
+			if (from !== bf && from in fields) records++;
+		}
+	}
+	return { collection, from, records, refs: 0, descriptors: 1, cleared: 0 };
+}
+
+export function renameField(ws, store, collection, from, to, { moduleId, dryRun = false } = {}) {
+	const d = store.descriptor(collection);
+	if (!to || to === true) throw new Error(`missing --to <new-name>: dreamteamer rename-field ${collection} --name ${from} --to <new-name>`);
+	if (from === to) return { renamed: false, collection, from, to };
+	if (!d.schema?.properties?.[from]) throw new Error(`no field "${from}" on ${collection}`);
+	if (d.schema.properties[to]) {
+		throw new Error(`${collection} already has a field "${to}" — pick another name, or remove it first (dreamteamer remove-field ${collection} --name ${to}).`);
+	}
+	const plan = renameFieldPlan(store, collection, from);
+	if (dryRun) return { ...plan, to, renamed: false, dryRun: true };
+
+	const own = collectionSourceFile(ws, store, collection, moduleId, { subject: `${collection}.${from}` });
+	if (!fs.existsSync(own.file)) throw new Error(`${path.relative(ws.root, own.file)} is not on disk — run \`dreamteamer compile\` and re-run.`);
+
+	const snapshots = new Map(); // absolute file -> bytes
+	const surfaces = [];
+	const snap = (f) => { if (!snapshots.has(f)) snapshots.set(f, fs.readFileSync(f)); return f; };
+
+	const out = gatedTreeOp(ws, store, {
+		subject: `dreamteamer: ${collection} rename-field ${from} → ${to}`,
+		paths: [path.relative(ws.root, own.file)],
+		mutate: () => {
+			const touched = new Set([path.relative(ws.root, own.file)]);
+
+			// 1. EVERY DESCRIPTOR SOURCE, not only this collection's — `x-inverse` and `x-inverse-of`
+			//    name a field across collections, so the owner of a mirror may be a different file in
+			//    a different module. ROUND-TRIPPED, because a descriptor's comments are where a module
+			//    writes down why the collection exists, and the comment above a RENAMED field still
+			//    explains it. `rewriteFieldName` already scopes the schema half to
+			//    `doc.schema.properties`, which a foreign descriptor does not carry for this field, so
+			//    its boolean return is the whole "is this file affected" test.
+			for (const f of descriptorSources(ws, store)) {
+				const before = fs.readFileSync(f, 'utf8');
+				const doc = load(before);
+				if (!doc || typeof doc !== 'object') continue;
+				if (!rewriteFieldName(doc, collection, from, to)) continue;
+				const after = writeSource(before, doc);
+				if (!load(after) || commentCount(after) < commentCount(before)) {
+					throw new Error(`could not rename ${collection}.${from} in ${path.relative(ws.root, f)} without reformatting it — nothing was changed.`);
+				}
+				snap(f);
+				fs.writeFileSync(f, after);
+				touched.add(path.relative(ws.root, f));
+				surfaces.push(path.relative(ws.root, f));
+			}
+
+			// 2. ui-views: `options.columns` (a plain name list, the same vocabulary `list_fields`
+			//    uses) and `filter` (which the ENGINE interprets — a stale key narrows a view to
+			//    nothing, at exit 0). Command-bindings: `can-enter`/`can-exit`, same shape.
+			for (const root of store.sourceRoots()) {
+				for (const kind of ['ui-views', 'command-bindings']) {
+					const dir = kindDir(root, kind);
+					if (!fs.existsSync(dir)) continue;
+					for (const f of [...walk(dir)]) {
+						const before = fs.readFileSync(f, 'utf8');
+						const doc = load(before);
+						if (!doc || typeof doc !== 'object') continue;
+						if (String(doc.collection ?? '') !== `collections/${collection}`) continue;
+						const keys = kind === 'ui-views' ? ['filter'] : ['can-enter', 'can-exit'];
+						let changed = false;
+						if (Array.isArray(doc.options?.columns) && doc.options.columns.includes(from)) {
+							doc.options.columns = doc.options.columns.map((c) => (c === from ? to : c));
+							changed = true;
+						}
+						for (const key of keys) if (rewriteFilterField(doc[key], from, to)) changed = true;
+						if (!changed) continue;
+						const after = writeSource(before, doc);
+						if (commentCount(after) < commentCount(before)) {
+							throw new Error(`could not rename ${collection}.${from} in ${path.relative(ws.root, f)} without losing a comment — nothing was changed.`);
+						}
+						snap(f);
+						fs.writeFileSync(f, after);
+						touched.add(path.relative(ws.root, f));
+						surfaces.push(path.relative(ws.root, f));
+					}
+				}
+			}
+
+			// 3. THE VALUES. Every record of this collection whose frontmatter carries the key — which
+			//    covers a GENERATED MIRROR too, because a mirror lives on this collection and its key
+			//    IS `from`.
+			//    ⚠ The body field is skipped: its value is the prose after the frontmatter, so there
+			//    is no key to rewrite — `serialize` writes the text back under whatever the schema now
+			//    calls it, which is the rename, done.
+			const cd = store.descriptors.get(collection);
+			const cbf = bodyField(cd);
+			if (cd && store.canRewrite(collection) && from !== cbf) {
+				for (const [, file] of store.ids(collection)) {
+					let fields;
+					try { fields = parseRecord(file, cd, cbf); } catch { continue; }
+					if (!(from in fields)) continue;
+					const rebuilt = {};
+					for (const [k, v] of Object.entries(fields)) rebuilt[k === from ? to : k] = v;
+					snap(file);
+					atomicWrite(file, serialize(cd, rebuilt));
+					touched.add(path.relative(ws.root, file));
+				}
+			}
+			return { paths: [...touched] };
+		},
+		undo: () => {
+			for (const [f, bytes] of snapshots) {
+				fs.mkdirSync(path.dirname(f), { recursive: true });
+				fs.writeFileSync(f, bytes);
+			}
+		},
+	});
+	return { ...plan, to, renamed: true, surfaces: [...new Set(surfaces)], commits: out.commits };
+}
+
 /** What `remove-field` would do, counted without writing — §7's rule that every verb clearing values
  *  prints its plan. The counts come from the same two sweeps the real op runs (`clearFieldValues`
  *  and `dropOrphanedMirrors`), asked in read-only form. */

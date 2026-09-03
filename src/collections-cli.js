@@ -13,7 +13,7 @@ import {
 	// was copy-pasted here, and the copy went stale the moment the source layout gained a second
 	// spelling — one implementation, two callers
 	workspaceSystemDir,
-	createModule, removeModule, renameModule, setModule, moveCollection, setCollectionScalars, collectionSourceFileFor, removeFieldPlan,
+	createModule, removeModule, renameModule, setModule, moveCollection, setCollectionScalars, collectionSourceFileFor, removeFieldPlan, renameField, renameFieldPlan,
 } from './schema-ops.js';
 import { KINDS } from './compile.js';
 import { history, historyDiff } from './history.js';
@@ -89,6 +89,7 @@ export function collectionCommand(ws, collection, verb, args) {
 	if (verb === 'add-field') return metaAddField(ws, store, collection, flags);
 	if (verb === 'update-field') return metaUpdateField(ws, store, collection, flags);
 	if (verb === 'remove-field') return metaRemoveField(ws, store, collection, flags);
+	if (verb === 'rename-field') return metaRenameField(ws, store, collection, flags);
 
 	const d = store.descriptor(collection);
 
@@ -624,6 +625,33 @@ function metaRemoveField(ws, store, collection, flags) {
 		// point, since a column of a field that no longer exists renders as an empty one.
 		if (out.staleViews?.length) console.warn(`⚠ still listing ${collection}.${name} as a column: ${out.staleViews.join(', ')} — edit with \`dreamteamer schema set-view <id> options.columns=…\``);
 	}
+	return 0;
+}
+
+// `dreamteamer rename-field people --name employer --to company`
+function metaRenameField(ws, store, collection, flags) {
+	refuseRepeats(flags);
+	const from = oneValue(flags, 'name') ?? oneValue(flags, 'field');
+	if (!from) throw new Error(`missing --name <field>: dreamteamer rename-field ${collection} --name <field> --to <new-name>`);
+	const to = oneValue(flags, 'to');
+	if (flags['dry-run']) {
+		const plan = renameFieldPlan(store, collection, from);
+		console.log(`dry run — dreamteamer rename-field ${collection} --name ${from} --to ${to ?? '<new-name>'} would:`);
+		console.log(planLine(plan));
+		// ⚠ The same honesty the `rename collections` dry run needs, for the same reason: a number the
+		// plan cannot know is worse than a stated gap.
+		console.log('  descriptors, ui-views and command-bindings naming it are counted by the real run —');
+		console.log('  the rewrite is what discovers which of them carry the name');
+		return 0;
+	}
+	const out = renameField(ws, store, collection, from, to, { moduleId: oneValue(flags, 'module') });
+	if (flags.json) { emit(JSON.stringify(out)); return 0; }
+	if (!out.renamed) { console.log(`✔ ${collection}.${from} — already named that, nothing to do`); return 0; }
+	console.log(`✔ ${collection}.${out.from} → ${collection}.${out.to}`);
+	console.log(`  records  ${out.records} rewritten`);
+	for (const f of out.surfaces) console.log(`  source   ${f}`);
+	console.log('✔ compiled — the rename is live, in ONE commit');
+	reportCommits(out.commits);
 	return 0;
 }
 
