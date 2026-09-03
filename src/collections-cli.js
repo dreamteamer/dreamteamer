@@ -20,7 +20,7 @@ import { history, historyDiff } from './history.js';
 import { commandsFor, recordResolver } from './record-commands.js';
 import { distinctValues } from './field-values.js';
 import { matchesFilter } from './filter.js';
-import { baseNameOf, normalizeNamespaces, defaultStoragePath } from './namespace.js';
+import { baseNameOf, defaultStoragePath } from './namespace.js';
 import { sortRows } from './temporal.js';
 import { keyBetween, placementKey } from './fractional-index.js';
 import { ensureRepo, ensureAllRepos } from './init.js';
@@ -372,13 +372,20 @@ function planLine(plan) {
 // `dreamteamer collections add --name research-docs --template docs`
 function metaCollectionsAdd(ws, store, flags) {
 	refuseRepeats(flags);
-	const { file } = createCollection(ws, store, {
+	// ⚠ BEFORE the write, not after. `--namespace=` is the empty STRING (clear it); a bare
+	// `--namespace` parses as `true`, which is a mistake worth naming — and naming it AFTER the call
+	// lands a committed collection and then exits 1, which is the one report shape that lies twice.
+	if (flags.namespace === true) throw new Error("--namespace takes a value; --namespace '' means no namespace");
+	const moduleId = oneValue(flags, 'module');
+	const out = createCollection(ws, store, {
 		name: oneValue(flags, 'name'),
 		template: oneValue(flags, 'template'),
 		namespace: flags.namespace,
-		moduleId: oneValue(flags, 'module'),
+		moduleId,
 	});
-	console.log(`✔ ${rel(ws.root, file)}`);
+	console.log(`✔ ${out.name}${out.inferred ? ` (namespace inferred from module ${moduleId})` : ''}`);
+	console.log(`✔ ${rel(ws.root, out.file)}`);
+	if (out.declaredNamespace) console.log(`✔ declared namespace "${out.declaredNamespace}" in ${moduleId ? `modules/${moduleId}` : 'the workspace'}`);
 	console.log('✔ compiled — the collection is live (schema ops prove sources with a real compile)');
 	return 0;
 }
@@ -449,7 +456,7 @@ function metaCollectionsRename(ws, store, flags, pos) {
 	// `--namespace health` on its own moves the collection INTO that namespace keeping its bare name,
 	// which is the common case and saves retyping it.
 	const newName = explicitNew
-		?? (flags.namespace ? `${String(flags.namespace).replace(/^\/+|\/+$/g, '')}/${baseNameOf(oldName, normalizeNamespaces(ws.pkg.dreamteamer?.namespaces))}` : null);
+		?? (flags.namespace ? `${String(flags.namespace).replace(/^\/+|\/+$/g, '')}/${baseNameOf(oldName, store.namespaces)}` : null);
 	if (!newName) throw new Error('missing new name — give it positionally or with --namespace <ns>');
 
 	if (flags['dry-run']) {

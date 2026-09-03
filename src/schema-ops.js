@@ -282,6 +282,9 @@ const MODULE_SETTABLE = {
 	description: { key: 'description', from: (v) => String(v) },
 	dependencies: { key: 'dependencies', from: (v, store) => asList(v).map((r) => moduleIdFromRef(r, store)) },
 	peerDependencies: { key: 'peerDependencies', from: (v) => asList(v).map((r) => String(r).replace(/^collections\//, '')) },
+	// §8. A namespace is a plain name, not a reference — there is no `namespaces` collection and
+	// there should not be: the value's whole job is to be parseable before anything has compiled.
+	namespaces: { key: 'namespaces', from: (v) => asList(v).map((x) => x.replace(/^\/+|\/+$/g, '')).filter(Boolean) },
 };
 
 const asList = (v) => (Array.isArray(v) ? v : String(v).split(',')).map((s) => String(s).trim()).filter(Boolean);
@@ -308,7 +311,13 @@ export function setModule(ws, store, id, changes) {
 		throw new Error(`module "${id}" ships from node_modules (${rec.fields.path}) — a write there is erased by the next \`npm install\`. Vendor it into modules/ or install it as a git module.`);
 	}
 	const changed = [];
-	const gate = writeGated(ws, store, [file], `dreamteamer: modules set ${id}`, () => {
+	// ⚠ THE WORKSPACE'S REDUNDANT COPY GOES IN THE SAME WRITE. Declaring a namespace on the module
+	// is what makes the workspace-level entry redundant, and compile WARNS about it — so leaving it
+	// behind makes the warning permanent and the fix a second command nobody is told to run.
+	const wsFile = path.join(ws.root, 'package.json');
+	const files = 'namespaces' in changes ? [file, wsFile] : [file];
+	const gate = writeGated(ws, store, files, `dreamteamer: modules set ${id}`, () => {
+		let declared = [];
 		editModulePkg(file, (dt) => {
 			for (const [k, raw] of Object.entries(changes)) {
 				const spec = MODULE_SETTABLE[k];
@@ -319,8 +328,16 @@ export function setModule(ws, store, id, changes) {
 				if (Array.isArray(value) && !value.length) { delete dt[spec.key]; changed.push(k); continue; }
 				dt[spec.key] = value;
 				changed.push(k);
+				if (k === 'namespaces') declared = value;
 			}
 		});
+		if (declared.length) {
+			editWorkspacePkg(ws, (dt) => {
+				if (!Array.isArray(dt.namespaces)) return;
+				dt.namespaces = dt.namespaces.filter((n) => !declared.includes(String(n).replace(/^\/+|\/+$/g, '')));
+				if (!dt.namespaces.length) delete dt.namespaces;
+			});
+		}
 	}, undefined, { commentsMayDecrease: true });
 	return { id, file, changed, commits: gate.commits };
 }
@@ -914,14 +931,36 @@ export function collectionSourceFileFor(ws, store, collection, moduleId) {
 
 export function createCollection(ws, store, { name, template, namespace, moduleId }) {
 	if (!name) throw new Error('missing collection name');
-	// `--namespace health --name doctors` and `--name health/doctors` are the SAME collection, because
-	// the qualified name IS the identity everywhere else in the engine. Accepting both keeps the CLI
-	// honest about that rather than making the operator learn which spelling a verb wants.
-	const declared = normalizeNamespaces(ws.pkg.dreamteamer?.namespaces);
-	const qualified = namespace ? qualify(namespace, name) : name;
-	const ns = namespaceOf(qualified, declared);
+	// §8. `--namespace health --name doctors` and `--name health/doctors` are the SAME collection,
+	// because the qualified name IS the identity everywhere else in the engine — and a module that
+	// declares exactly one namespace makes even that redundant. The resolved name is ALWAYS echoed,
+	// because an inferred identity the operator did not type is one they must be able to read back.
+	//
+	// ⚠ THE COMPILED SET, not `ws.pkg.dreamteamer.namespaces`. Since §8 the declaration may live in
+	// any module's package.json, and the union is resolved by compile and stamped into the manifest —
+	// so a verb reading the workspace's own key alone would refuse a namespace a module declares.
+	const declared = store.namespaces;
+	const modNs = moduleId ? normalizeNamespaces(moduleRecord(store, moduleId).fields.namespaces) : [];
+	let inferred = false;
+	let ns0 = namespace;
+	if (ns0 === undefined && modNs.length === 1 && !namespaceOf(name, [modNs[0]])) {
+		ns0 = modNs[0];
+		inferred = true;
+	} else if (ns0 === undefined && modNs.length > 1 && !namespaceOf(name, modNs)) {
+		throw new Error(`module ${moduleId} declares ${modNs.join(', ')} — say which: --namespace ${modNs[0]}`);
+	}
+	// `--namespace ''` is the explicit "no namespace", the same convention `dt set` has for clearing
+	// a field. It arrives as the empty string and must not be confused with "not given".
+	// ⚠ `qualify(ns, baseNameOf(name, [ns]))` is what stops the prefix DOUBLING: `--name hr/grades
+	// --module hr` resolves the base name to `grades` and re-qualifies it once.
+	const qualified = ns0 ? qualify(ns0, baseNameOf(name, [ns0])) : name;
+	// The set INCLUDING a namespace this call is about to declare — `defaultStoragePath` and the
+	// suffix derivation both split on it, and a name whose prefix is not yet in the set derives
+	// `suffix: ops/plan` from `ops/plans`.
+	const declaredAll = [...new Set([...declared, ...(ns0 ? [ns0] : [])])];
+	const ns = namespaceOf(qualified, declaredAll);
 	if (qualified.includes('/') && !ns) {
-		throw new Error(`namespace "${qualified.slice(0, qualified.lastIndexOf('/'))}" is not declared — add it to dreamteamer.namespaces in package.json first, or the collection will not compile.`);
+		throw new Error(`namespace "${qualified.slice(0, qualified.lastIndexOf('/'))}" is not declared — pass --namespace <ns> (which declares it where the collection will live), or declare it first: dt set modules/<m> namespaces=<ns>.`);
 	}
 	if (store.descriptors.has(qualified)) {
 		// §13: name both remedies, because the operator asking for this wants ONE of them and the
@@ -957,18 +996,35 @@ export function createCollection(ws, store, { name, template, namespace, moduleI
 	descriptor.storage = {
 		// AUTHORED even though compile would derive the same value, because a descriptor a human opens
 		// should say where its records live without them having to know the derivation rule.
-		path: defaultStoragePath(qualified, declared, ws.pkg.dreamteamer?.['data-path'] ?? 'data'),
+		path: defaultStoragePath(qualified, declaredAll, ws.pkg.dreamteamer?.['data-path'] ?? 'data'),
 		codec: 'md', shape: 'file',
 		...descriptor.storage,
 		// the SUFFIX comes off the bare name — `health/doctors` records are `<id>.doctor.md`, not
 		// `<id>.health/doctor.md`
-		suffix: descriptor.storage?.suffix ?? singular(baseNameOf(qualified, declared)),
+		suffix: descriptor.storage?.suffix ?? singular(baseNameOf(qualified, declaredAll)),
 	};
-	writeGated(ws, store, [dest], `dreamteamer: collections add ${qualified}`, () => {
+	// `--namespace x` where nobody declares `x` DECLARES it, in the module the collection is landing
+	// in — else the workspace. Writing a source that cannot compile and then telling the operator to
+	// go declare it is the shape §8 exists to remove; and the module is the right home, because that
+	// is what travels when the module is copied (decision 130's gate).
+	const needsDeclaration = !!ns && !declared.includes(ns);
+	const declFile = needsDeclaration
+		? (moduleId ? path.join(ws.root, moduleRecord(store, moduleId).fields.path, 'package.json') : path.join(ws.root, 'package.json'))
+		: null;
+	const gate = writeGated(ws, store, declFile ? [dest, declFile] : [dest], `dreamteamer: collections add ${qualified}`, () => {
+		if (declFile && moduleId) {
+			editModulePkg(declFile, (dt) => { dt.namespaces = normalizeNamespaces([...(dt.namespaces ?? []), ns]); });
+		} else if (declFile) {
+			editWorkspacePkg(ws, (dt) => { dt.namespaces = normalizeNamespaces([...(dt.namespaces ?? []), ns]); });
+		}
 		fs.mkdirSync(path.dirname(dest), { recursive: true });
 		fs.writeFileSync(dest, dump(descriptor));
-	});
-	return { file: dest, descriptor };
+	}, undefined, { commentsMayDecrease: true });
+	return {
+		file: dest, descriptor, name: qualified, inferred,
+		declaredNamespace: needsDeclaration ? ns : null,
+		commits: gate.commits,
+	};
 }
 
 export function removeCollection(ws, store, name, { force = false } = {}) {
@@ -1037,9 +1093,11 @@ export function renameCollection(ws, store, oldName, newName) {
 	if (!newName) throw new Error('missing new collection name');
 	if (oldName === newName) return { renamed: false, name: newName };
 
-	const declared = normalizeNamespaces(ws.pkg.dreamteamer?.namespaces);
+	// ⚠ THE COMPILED SET (§8) — the declaration may live in any module's package.json now, and the
+	// union is what compile stamped into the manifest.
+	const declared = store.namespaces;
 	if (newName.includes('/') && !namespaceOf(newName, declared)) {
-		throw new Error(`namespace "${newName.slice(0, newName.lastIndexOf('/'))}" is not declared — add it to dreamteamer.namespaces in package.json first.`);
+		throw new Error(`namespace "${newName.slice(0, newName.lastIndexOf('/'))}" is not declared — declare it where the collection will live (dt set modules/<m> namespaces=<ns>), or in dreamteamer.namespaces for a workspace-level one.`);
 	}
 	if (store.descriptors.has(newName)) throw new Error(`collection "${newName}" already exists`);
 	if (d.storage.base === 'runtime') throw new Error(`"${oldName}" is a compiled source, not a data collection — it cannot be renamed`);

@@ -12,8 +12,7 @@ import { walk, patternRe } from './records.js';
 import { unknownOperators } from './filter.js';
 import {
 	normalizeNamespaces, namespaceProblems, unqualifiedProblems, defaultStoragePath, storageOverlaps,
-	baseNameOf, singular,
-} from './namespace.js';
+	baseNameOf, singular, namespaceOf } from './namespace.js';
 // circular on paper in earlier versions — safe: both sides only
 // call at run time, same pattern as store.js ↔ compile.js.
 import { runHarnessAdapters } from './harnesses.js';
@@ -592,10 +591,15 @@ export function compile({ root, pkg }) {
 	// both are WARNINGS, never errors — a version skew or missing secret must not
 	// brick a solo operator's workspace at compile time.
 	const engineVer = engineVersion();
+	// A module's record id: the npm scope stripped, so `@dreamteamer/crm` reads as `crm` — which is
+	// what every message in this engine already calls it. Defined HERE, above the namespace pass,
+	// because a namespace error has to name the module by the id the fix is typed with.
+	const moduleId = (n) => slug(String(n).replace(/^@[^/]+\//, ''));
 	const declaredEnv = new Map(); // env key -> [module names]
 	const moduleIgnores = new Map(); // module name -> non-source folders it declares (strayKindDirs)
 	const moduleDeps = new Map();  // module name -> [module names]      — HARD, must be acyclic
 	const modulePeers = new Map(); // module name -> [collection names]  — SOFT, cannot cycle
+	const moduleNamespaces = new Map(); // module name -> [namespaces it DECLARES] (§8, option A)
 	for (const source of sources) {
 		let mpkg;
 		try { mpkg = JSON.parse(fs.readFileSync(path.join(source.root, 'package.json'), 'utf8')); } catch { continue; }
@@ -613,6 +617,17 @@ export function compile({ root, pkg }) {
 				fail(`module "${source.name}": dreamteamer.${key} must be a list of ${key === 'dependencies' ? 'module names' : 'collection names'} (got ${JSON.stringify(decl)})`);
 			}
 			sink.set(source.name, decl);
+		}
+		// §8: A MODULE DECLARES THE NAMESPACES IT OWNS. Reversed from "the workspace only, never a
+		// module", whose real reason (a module could rename where another module's records live) is
+		// kept by the single-owner rule and the use-requires-dependency rule below — while the rule it
+		// replaces made decision 130's own acceptance test unpassable for any namespaced module.
+		const ns = mpkg.dreamteamer?.namespaces;
+		if (ns !== undefined) {
+			if (!Array.isArray(ns) || ns.some((v) => typeof v !== 'string')) {
+				fail(`module "${source.name}": dreamteamer.namespaces must be a list of namespace names (got ${JSON.stringify(ns)})`);
+			}
+			moduleNamespaces.set(source.name, ns);
 		}
 		const range = mpkg.dreamteamer?.engine;
 		if (range) {
@@ -873,28 +888,68 @@ export function compile({ root, pkg }) {
 		templateDocs.set(m[1], { template: doc?.template ?? {}, src: entry.sources[0] });
 	}
 
-	// ---- namespaces: the declared list, validated against what actually compiled ----------
-	// Declared in the WORKSPACE package.json only, never per-module. A module that could declare a
-	// namespace could rename where another module's records live, and the whole point of a namespace
-	// is that the workspace decides how its own data is partitioned. `namespaces` is also config
-	// rather than records for the same bootstrap reason `git-modules` is (docs/repos-and-modules.md):
-	// a reference has to be parseable before anything has been compiled.
-	const namespaces = normalizeNamespaces(config.namespaces);
+	// ---- namespaces: the UNION of every module's declaration plus the workspace's (§8) ----------
+	//
+	// This used to be "the workspace package.json only, never per-module", and the reason was real: a
+	// module that can declare a namespace can rename where another module's records live. What it
+	// cost was decision 130's own acceptance test — "a module compiles alone in a bare workspace" —
+	// which no NAMESPACED module could ever pass, because the consuming workspace had to edit its
+	// manifest before the module would compile. That is precisely the coupling the rule forbids.
+	//
+	// Three rules keep the protection:
+	//   1. ONE OWNER per namespace. Two modules declaring it is a hard error naming both.
+	//   2. USING one requires the dependency (checked per collection, below) — otherwise the union
+	//      would let a second module squat in the first's namespace silently. Before the union, B
+	//      alone simply failed loudly, and that accident was the safer behaviour.
+	//   3. A WORKSPACE declaration duplicating a module's is a WARNING. Every existing workspace
+	//      declares at the workspace level, and an upgrade must not brick compile.
+	//
+	// The resolved set is STAMPED INTO THE MANIFEST, so `namespace.js`, `parseRef`, the store, `check`
+	// and the extension are all unchanged — they read the artifact, exactly as they read
+	// `storage.base`. Config rather than records for the same bootstrap reason `git-modules` is: a
+	// reference has to be parseable before anything has been compiled.
+	const nsOwners = new Map(); // namespace -> the module NAME that declares it
+	for (const source of sources) {
+		for (const ns of normalizeNamespaces(moduleNamespaces.get(source.name))) {
+			const prev = nsOwners.get(ns);
+			if (prev && prev !== source.name) {
+				fail(`namespace "${ns}" is declared by ${moduleId(prev)} AND ${moduleId(source.name)} — one owner. Remove it from one (dt set modules/<m> namespaces=…).`);
+			}
+			nsOwners.set(ns, source.name);
+		}
+	}
+	for (const ns of normalizeNamespaces(config.namespaces)) {
+		const owner = nsOwners.get(ns);
+		if (!owner) continue;
+		console.warn(`⚠ namespace "${ns}" is declared both by module ${moduleId(owner)} and at the workspace level — the module's declaration is the one that TRAVELS, so the workspace copy is redundant. Drop it: dt set modules/${moduleId(owner)} namespaces=${ns}`);
+	}
+	const namespaces = normalizeNamespaces([...nsOwners.keys(), ...(config.namespaces ?? [])]);
 	const collectionNames = [...descriptorGroups.keys()];
 	for (const p of namespaceProblems(namespaces, collectionNames)) fail(p);
 	// The silent failure this whole feature had to fix: a slash in a collection name used to compile
 	// clean, land at `.dreamteamer/collections/<ns>/<name>.collection.yaml`, and then vanish — the
 	// descriptor loader read one directory level, so the collection was simply absent from the
 	// runtime while compile reported ✔ (the same shape as decision 156).
-	for (const p of unqualifiedProblems(collectionNames, namespaces)) fail(p);
+	// ⚠ THE STATED TRADE (§8): the namespace set is now a function of the INSTALLED MODULE SET, so
+	// removing or disabling a namespace-owning module re-splits every reference into it. The record
+	// layer's sentence is correct and cannot know that — `namespace.js` is pure and must stay so — so
+	// the module half is appended here, where the module set is in hand.
+	for (const p of unqualifiedProblems(collectionNames, namespaces)) {
+		const guess = /but "([^"]+)" is not declared/.exec(p)?.[1];
+		const gone = guess && prevManifestNamespaces(root).includes(guess) ? guess : null;
+		fail(gone
+			? `${p}\n  ⚠ "${gone}" WAS declared in the previous compile — by a module you just removed or disabled. Re-install it, or declare the namespace where the collection now lives: dt set modules/<m> namespaces=${gone}`
+			: p);
+	}
 
 	// ---- who owns which collection, and which module IS the workspace ----------------
 	// Needed before the resolution loop so each descriptor can be validated against the graph as it
 	// is merged. The owner is the group member that does NOT declare `extends`; a group with two of
 	// those is a name collision, and the loop below raises it properly — this pass only maps.
 	// A module's record id: the npm scope stripped, so `@dreamteamer/crm` reads as `crm` — which is
-	// what every message in this engine already calls it.
-	const moduleId = (n) => slug(String(n).replace(/^@[^/]+\//, ''));
+	// what every message in this engine already calls it. Defined above the namespace pass (see
+	// `const moduleId` there), because a namespace error has to name the module by the id the fix is
+	// typed with.
 	const collOwner = new Map(); // collection name -> owning module name
 	const moduleColls = new Map(); // module name -> Set(collection names it contributed to)
 	for (const [name, group] of descriptorGroups) {
@@ -1081,6 +1136,18 @@ export function compile({ root, pkg }) {
 		// and `overlays: []` on 70 descriptors is noise a reader has to learn to ignore.
 		const overlayIds = extenders.map((e) => moduleId(e.moduleName)).filter((m) => m !== ownerId).sort();
 		if (overlayIds.length) merged.overlays = overlayIds;
+		// ---- using another module's NAMESPACE requires the dependency (§8) ----------------------
+		// The union would otherwise let module B ship `hr/people` while only A declares `hr` — B
+		// squatting in A's namespace, silently. (Before the union, B alone failed loudly with
+		// "namespace hr is not declared", which was accidentally the safer outcome.) The rule is the
+		// one `extends` already has, for the same reason: B does not compile without A's declaration,
+		// so it must say so.
+		const collNs = namespaceOf(name, namespaces);
+		const nsOwnerName = collNs ? nsOwners.get(collNs) : null;
+		if (nsOwnerName && !groupModules.includes(nsOwnerName)
+			&& !groupModules.some((m) => (moduleDeps.get(m) ?? []).includes(nsOwnerName))) {
+			fail(`collection "${name}" sits in namespace "${collNs}", which module ${moduleId(nsOwnerName)} declares — ${groupModules.map(moduleId).join('/')} neither owns it nor depends on it.\n  dt set modules/${moduleId(groupModules[0])} dependencies=modules/${moduleId(nsOwnerName)}`);
+		}
 		// EVERY contributing module, not just the base — a collection merged from `crm` and the
 		// workspace module that overlays it belongs
 		// to both, and saying otherwise is what made a flat "which module owns this" field wrong.
@@ -1254,6 +1321,9 @@ export function compile({ root, pkg }) {
 			// package.json. There is no derivation for it and there should not be: a module is the only
 			// place that knows, and an absent one renders as a bare name in every listing.
 			...(typeof mpkg.description === 'string' && mpkg.description ? { description: mpkg.description } : {}),
+			// §8: the namespaces THIS module declares — projected from its package.json, so
+			// `dt list modules` answers "who owns hr?" without reading seven package.json files.
+			...(normalizeNamespaces(mpkg.namespaces).length ? { namespaces: normalizeNamespaces(mpkg.namespaces) } : {}),
 			channel: source.channel,
 			path: rel(source.root) || '.',
 			...(mpkg['owns-data'] === true ? { owns_data: true } : {}),
@@ -1432,6 +1502,13 @@ export function compile({ root, pkg }) {
 	console.log(`✔ compiled ${summary || 'nothing'} from ${sourceLabel} → .dreamteamer`);
 	for (const line of harnessSummary) console.log(`✔ harness ${line}`);
 	return 0;
+}
+
+/** What the PREVIOUS compile resolved, for the one message that needs to know a namespace has just
+ *  disappeared rather than never existing. Read off the runtime on disk, which at this point in
+ *  compile is still the old one. */
+function prevManifestNamespaces(root) {
+	return normalizeNamespaces(readManifest(root)?.namespaces);
 }
 
 function engineId() {
