@@ -13,14 +13,14 @@ import {
 	// was copy-pasted here, and the copy went stale the moment the source layout gained a second
 	// spelling — one implementation, two callers
 	workspaceSystemDir,
-	createModule, removeModule, renameModule, setModule,
+	createModule, removeModule, renameModule, setModule, moveCollection, setCollectionScalars, collectionSourceFileFor, removeFieldPlan,
 } from './schema-ops.js';
 import { KINDS } from './compile.js';
 import { history, historyDiff } from './history.js';
 import { commandsFor, recordResolver } from './record-commands.js';
 import { distinctValues } from './field-values.js';
 import { matchesFilter } from './filter.js';
-import { baseNameOf, normalizeNamespaces } from './namespace.js';
+import { baseNameOf, normalizeNamespaces, defaultStoragePath } from './namespace.js';
 import { sortRows } from './temporal.js';
 import { keyBetween, placementKey } from './fractional-index.js';
 import { ensureRepo, ensureAllRepos } from './init.js';
@@ -77,6 +77,8 @@ export function collectionCommand(ws, collection, verb, args) {
 	if (collection === 'collections' && verb === 'add') return metaCollectionsAdd(ws, store, flags);
 	if (collection === 'collections' && verb === 'rm') return metaCollectionsRm(ws, store, flags, pos);
 	if (collection === 'collections' && verb === 'rename') return metaCollectionsRename(ws, store, flags, pos);
+	if (collection === 'collections' && verb === 'set') return metaCollectionsSet(ws, store, flags, pos);
+	if (collection === 'collections' && verb === 'get' && flags.module !== undefined) return metaCollectionsGet(ws, store, flags, pos);
 	if (collection === 'commands' && verb === 'for') return metaCommandsFor(ws, store, flags, pos);
 	if (collection === 'ui-views' && ['add', 'set', 'rm'].includes(verb)) return metaUiView(ws, store, verb, flags, pos);
 	if (collection === 'modules' && verb === 'add') return metaModulesAdd(ws, store, flags);
@@ -370,9 +372,70 @@ function planLine(plan) {
 // `dreamteamer collections add --name research-docs --template docs`
 function metaCollectionsAdd(ws, store, flags) {
 	refuseRepeats(flags);
-	const { file } = createCollection(ws, store, { name: flags.name, template: flags.template, namespace: flags.namespace });
+	const { file } = createCollection(ws, store, {
+		name: oneValue(flags, 'name'),
+		template: oneValue(flags, 'template'),
+		namespace: flags.namespace,
+		moduleId: oneValue(flags, 'module'),
+	});
 	console.log(`✔ ${rel(ws.root, file)}`);
 	console.log('✔ compiled — the collection is live (schema ops prove sources with a real compile)');
+	return 0;
+}
+
+/**
+ * `dt set collections/<c> module=<m>` — the MOVE — or the collection-level scalars.
+ *
+ * ⚠ Never both in one call. `module=` relocates a descriptor and validates the whole reference
+ * contract; a scalar rewrites one key in it. Bundling them would make one command that either
+ * half-applies or has to be explained, and the operator gets no signal about which happened.
+ */
+function metaCollectionsSet(ws, store, flags, pos) {
+	refuseRepeats(flags);
+	const name = need(pos, 0, 'collection name');
+	const positional = pairs(pos.slice(1));
+	const changes = { ...positional, ...stripMeta(flags) };
+	delete changes.module;
+	delete changes['dry-run'];
+	const moveTo = positional.module ?? oneValue(flags, 'module');
+	if (moveTo !== undefined && Object.keys(changes).length) {
+		throw new Error(`module= moves the collection to another module and validates the whole reference contract; a scalar rewrites one key in its descriptor. Run them as two commands: dreamteamer set collections/${name} module=${moveTo}, then dreamteamer set collections/${name} ${Object.entries(changes).map(([k, v]) => `${k}=${v}`).join(' ')}`);
+	}
+	if (moveTo !== undefined) {
+		const out = moveCollection(ws, store, name, String(moveTo), { dryRun: !!flags['dry-run'] });
+		if (flags.json) { emit(JSON.stringify(out)); return 0; }
+		if (out.dryRun) {
+			console.log(`dry run — dreamteamer set collections/${name} module=${moveTo} would:`);
+			console.log(planLine(out));
+			console.log(`  descriptor  ${out.from} → ${out.to} (records stay where they are)`);
+			return 0;
+		}
+		if (!out.moved) { console.log(`✔ ${name} — already owned by ${out.from}, nothing to do`); return 0; }
+		console.log(`✔ ${name}: ${out.from} → ${out.to}`);
+		console.log(`  records     ${out.records} left in place — a move never changes an id`);
+		console.log(`  descriptors ${out.descriptors} rewritten`);
+		console.log('✔ compiled — the move is live, in ONE commit');
+		return 0;
+	}
+	if (!Object.keys(changes).length) throw new Error('nothing to set — pass key=value pairs, or module=<id> to move it');
+	const out = setCollectionScalars(ws, store, name, changes, { moduleId: undefined });
+	if (flags.json) { emit(JSON.stringify(out)); return 0; }
+	console.log(`✔ ${rel(ws.root, out.file)} — ${out.changed.join(', ')}`);
+	console.log('✔ compiled — the descriptor is up to date');
+	return 0;
+}
+
+/** `dt get collections/<c> --module <m>` — ONE module's source contribution, not the merged
+ *  descriptor. The merged one is what `dt get collections/<c>` prints and what every reader uses;
+ *  this is the only way to see what a given module actually wrote, which is the question an overlay
+ *  makes unanswerable from the runtime alone. */
+function metaCollectionsGet(ws, store, flags, pos) {
+	refuseRepeats(flags);
+	const name = need(pos, 0, 'collection name');
+	const moduleId = oneValue(flags, 'module');
+	const { file } = collectionSourceFileFor(ws, store, name, moduleId);
+	const doc = load(fs.readFileSync(file, 'utf8'));
+	flags.json ? emit(JSON.stringify({ ...doc, id: name, source: rel(ws.root, file) }, null, 2)) : console.log(dump(doc).trimEnd());
 	return 0;
 }
 
@@ -389,6 +452,19 @@ function metaCollectionsRename(ws, store, flags, pos) {
 		?? (flags.namespace ? `${String(flags.namespace).replace(/^\/+|\/+$/g, '')}/${baseNameOf(oldName, normalizeNamespaces(ws.pkg.dreamteamer?.namespaces))}` : null);
 	if (!newName) throw new Error('missing new name — give it positionally or with --namespace <ns>');
 
+	if (flags['dry-run']) {
+		const d = store.descriptor(oldName);
+		const records = store.ids(oldName).size;
+		console.log(`dry run — dreamteamer rename collections/${oldName} ${newName} would:`);
+		console.log(planLine({ records, refs: 0, descriptors: 1, cleared: 0 }));
+		console.log(`  records  ${d.storage.path} → ${defaultStoragePath(newName, store.namespaces, ws.pkg.dreamteamer?.['data-path'] ?? 'data')}`);
+		// ⚠ `refs` is honestly 0 here and the line says so. Counting them would mean running the batch
+		// rewrite to find out, which IS the op — and a number the plan cannot know is worse than a
+		// stated gap: the plan line has a fixed shape precisely so a reader never has to guess whether
+		// a term is zero or unmeasured.
+		console.log('  refs are counted only by the real run — the rewrite is what discovers them');
+		return 0;
+	}
 	const out = renameCollection(ws, store, oldName, newName);
 	if (flags.json) { emit(JSON.stringify(out)); return 0; }
 	if (!out.renamed) { console.log(`✔ ${oldName} — already named that, nothing to do`); return 0; }
@@ -421,7 +497,7 @@ function metaAddField(ws, store, collection, flags) {
 	// landed nowhere is a mistake — refused here rather than written as a dead keyword.
 	const stray = (prop.items ?? prop)['x-reference'] === undefined && relationFlagsStated(flags);
 	if (stray) throw new Error(`--${stray} needs a --type <collection> reference.`);
-	const out = addField(ws, store, collection, { name: flags.name, prop, required: flags.required === 'true' });
+	const out = addField(ws, store, collection, { name: flags.name, prop, required: flags.required === 'true', moduleId: oneValue(flags, 'module') });
 	if (out.unchanged) return alreadyThat(collection, flags.name);
 	console.log(`✔ ${rel(ws.root, out.file)}${out.extends ? ` (extends ${out.extends})` : ''}`);
 	console.log('✔ compiled — the field is live');
@@ -472,7 +548,7 @@ function metaUpdateField(ws, store, collection, flags) {
 	const required = flags.required === undefined ? undefined : flags.required === 'true' || flags.required === true;
 	// `flags` for the VALUES and `stated` for what the caller meant to restate: updateField carries
 	// every unstated relation keyword forward from the previous prop.
-	const out = updateField(ws, store, collection, flags.name, { prop, required, flags, stated: statedKeywords(flags) });
+	const out = updateField(ws, store, collection, flags.name, { prop, required, flags, stated: statedKeywords(flags), moduleId: oneValue(flags, 'module') });
 	if (out.unchanged) return alreadyThat(collection, flags.name);
 	console.log(`✔ ${rel(ws.root, out.file)}${out.extends ? ` (extends ${out.extends})` : ''}`);
 	console.log('✔ compiled — the field is updated');
@@ -489,7 +565,15 @@ function metaRemoveField(ws, store, collection, flags) {
 	refuseRepeats(flags);
 	const name = flags.name ?? flags.field;
 	if (!name) throw new Error('missing --name <field>');
-	const out = removeField(ws, store, collection, name);
+	const moduleId = oneValue(flags, 'module');
+	if (flags['dry-run']) {
+		const plan = removeFieldPlan(store, collection, name);
+		console.log(`dry run — dreamteamer remove-field ${collection} --name ${name} would:`);
+		console.log(planLine(plan));
+		if (plan.staleViews.length) console.log(`  ui-views still listing it as a column: ${plan.staleViews.join(', ')}`);
+		return 0;
+	}
+	const out = removeField(ws, store, collection, name, { moduleId });
 	flags.json ? emit(JSON.stringify(out)) : console.log(`✔ removed field ${collection}.${out.removed}`);
 	console.log('✔ compiled — the field is gone');
 	if (!flags.json) {
@@ -838,7 +922,10 @@ function pairs(list) {
 	return out;
 }
 
-const META_FLAGS = new Set(['id', 'json', 'force', 'filter']);
+// ⚠ `module` and `dry-run` are VERB OPTIONS on every verb that takes them, so they may never be
+// read as record field names. A collection wanting a field literally called `module` writes it as
+// `module=<v>` positionally, which `pairs()` reads and `stripMeta` never sees.
+const META_FLAGS = new Set(['id', 'json', 'force', 'filter', 'module', 'dry-run']);
 const stripMeta = (flags) => Object.fromEntries(Object.entries(flags).filter(([k]) => !META_FLAGS.has(k)));
 
 // CLI values are strings; split comma-lists for array-typed fields (ajv coerces the rest)

@@ -1069,7 +1069,18 @@ export function compile({ root, pkg }) {
 		// wrong by taking the first source. This names ONE thing — the owner — for which the base
 		// IS the answer, and it exists to REPLACE `group:` as the workspace's partition rather than
 		// to sit beside it.
-		merged.owner = `modules/${moduleId(base?.moduleName ?? groupModules[0])}`;
+		// ---- provenance as DATA: the owner, and every module overlaying it ----------------------
+		// `module` is the BARE ID — the identity the operator types (`--module core`, `modules/core`,
+		// a `dependencies` value), so a reader never has to strip a prefix to use it. `owner` keeps
+		// its `modules/<id>` reference form for ONE release, because the extension's nav groups by it
+		// (§10's compat-read precedent); it is removed in the release after this one.
+		const ownerId = moduleId(base?.moduleName ?? groupModules[0]);
+		merged.module = ownerId;
+		merged.owner = `modules/${ownerId}`;
+		// ⚠ ABSENT rather than empty when there are none. An empty list is a statement nobody made,
+		// and `overlays: []` on 70 descriptors is noise a reader has to learn to ignore.
+		const overlayIds = extenders.map((e) => moduleId(e.moduleName)).filter((m) => m !== ownerId).sort();
+		if (overlayIds.length) merged.overlays = overlayIds;
 		// EVERY contributing module, not just the base — a collection merged from `crm` and the
 		// workspace module that overlays it belongs
 		// to both, and saying otherwise is what made a flat "which module owns this" field wrong.
