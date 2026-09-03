@@ -343,10 +343,10 @@ export function setModule(ws, store, id, changes) {
 
 export function removeModule(ws, store, id, { force = false, dryRun = false } = {}) {
 	const { fields } = moduleRecord(store, id);
-	if (fields.channel === 'npm') {
+	if (fields.location === 'node_modules') {
 		throw new Error(`module "${id}" is installed by npm (${fields.path}) — remove it from package.json dependencies and run \`npm install\`; a delete under node_modules/ is erased by the next install.`);
 	}
-	if (fields.channel === 'git') {
+	if (fields.location === 'git_modules') {
 		throw new Error(`module "${id}" is a clone under ${fields.path}, and its package.json lives in ANOTHER repo — remove it from dreamteamer.git-modules and delete the clone. This verb removes inline modules only.`);
 	}
 	if (ws.pkg.dreamteamer?.['workspace-module'] === id) {
@@ -418,10 +418,10 @@ export function renameModule(ws, store, oldId, newId) {
 	if (!MODULE_ID.test(newId)) throw new Error(`invalid module id "${newId}" — lowercase alphanumeric with single hyphens.`);
 	const { fields } = moduleRecord(store, oldId);
 	if (moduleRows(store).some((r) => r.id === newId)) throw new Error(`module "${newId}" already exists — dt list modules`);
-	if (fields.channel === 'npm') {
+	if (fields.location === 'node_modules') {
 		throw new Error(`module "${oldId}" ships from node_modules (${fields.path}) — a write there is erased by the next \`npm install\`. Rename it in its own repo and release.`);
 	}
-	if (fields.channel === 'git') {
+	if (fields.location === 'git_modules') {
 		// ⚠ TWO COMMITS BY CONSTRUCTION, and the verb says so rather than half-doing it: the module's
 		// package.json lives in the clone's own repo, and this workspace's half (git-modules, extends,
 		// dependencies, modules/<id> refs) is a commit here. Perform the workspace half only after the
@@ -477,7 +477,7 @@ export function renameModule(ws, store, oldId, newId) {
 			// 4. every OTHER module's `dreamteamer.dependencies` naming it. peerDependencies names
 			//    collections and is untouched.
 			for (const r of moduleRows(store)) {
-				if (r.id === oldId || r.fields.channel === 'npm') continue;
+				if (r.id === oldId || r.fields.location === 'node_modules') continue;
 				const f = path.join(ws.root, r.fields.path, 'package.json');
 				if (!fs.existsSync(f)) continue;
 				const dt = JSON.parse(fs.readFileSync(f, 'utf8')).dreamteamer ?? {};

@@ -13,7 +13,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { findWorkspace } from './workspace.js';
-import { compile, staleness, warnIfStale, discoverModules, CHANNEL_LABEL, KINDS } from './compile.js';
+import { compile, staleness, warnIfStale, discoverModules, CHANNEL_LABEL, locationOf, KINDS } from './compile.js';
 import { check } from './check.js';
 import { collectionCommand, emit, relationsCommand } from './collections-cli.js';
 import { init, install, installClone, update, listRepos } from './init.js';
@@ -328,7 +328,9 @@ export function run(argv) {
 				const shadowed = new Map(shadows.map((sh) => [sh.name, sh]));
 				console.log('modules:');
 				for (const m of modules) {
-					let line = `  ${m.name} [${m.channel}]`;
+					// §10: the folder name IS the label. `hr  git_modules @ 3f2a1c (dirty)` needs no
+					// legend, and `[inline]` needed one every single time.
+					let line = `  ${m.name.padEnd(20)} ${locationOf(m, ws.root)}`;
 					if (m.channel === 'git') {
 						const ref = tryGit(m.root, ['rev-parse', '--short', 'HEAD']);
 						const dirty = tryGit(m.root, ['status', '--porcelain']);

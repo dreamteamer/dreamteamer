@@ -449,8 +449,16 @@ function strayKindDirs(source, wsRoot, declaredIgnore) {
 
 const sha256 = (buf) => 'sha256:' + createHash('sha256').update(buf).digest('hex');
 
-// channel -> the directory the operator knows it by (used in shadow warnings)
+// channel -> the directory the operator knows it by (used in shadow warnings, and it IS the
+// `location` field's vocabulary — see collections/modules.collection.yaml. Keeping the export name
+// on purpose: renaming a symbol under src/ is a cross-repo change, and this one buys nothing.)
 export const CHANNEL_LABEL = { inline: 'modules', git: 'git_modules', npm: 'node_modules' };
+
+/** A module's `location` — the folder its sources sit in. `root` is the classic layout, where the
+ *  workspace's own sources are at its root rather than under `modules/<id>/`; discovery reports that
+ *  as the `inline` channel with `root === '.'`, which is the one case the label table cannot see. */
+export const locationOf = (source, wsRoot) =>
+	(path.resolve(source.root) === path.resolve(wsRoot) ? 'root' : (CHANNEL_LABEL[source.channel] ?? source.channel));
 
 // module discovery, three channels in precedence order: inline modules/* >
 // git_modules/* > npm deps (declared in package.json, NOT a node_modules scan).
@@ -1333,7 +1341,9 @@ export function compile({ root, pkg }) {
 			// §8: the namespaces THIS module declares — projected from its package.json, so
 			// `dt list modules` answers "who owns hr?" without reading seven package.json files.
 			...(normalizeNamespaces(mpkg.namespaces).length ? { namespaces: normalizeNamespaces(mpkg.namespaces) } : {}),
-			channel: source.channel,
+			// §10: the folder name, not an internal channel word. `dt status` then reads
+			// `hr  git_modules @ 3f2a1c (dirty)` and needs no legend.
+			location: locationOf(source, root),
 			path: rel(source.root) || '.',
 			...(mpkg['owns-data'] === true ? { owns_data: true } : {}),
 			// Declared module names become record IDS here, because that is what an x-reference
@@ -1508,7 +1518,15 @@ export function compile({ root, pkg }) {
 		// `storage.base` is a field instead of a path test. An older runtime has no key here, which
 		// reads as "no namespaces", which is exactly right for a workspace that never declared any.
 		namespaces,
-		modules: sources.map((s) => ({ name: s.name, channel: s.channel, root: rel(s.root) || '.' })),
+		// ⚠ BOTH KEYS FOR ONE RELEASE. `location` is the new spelling; `channel` stays so a reader
+		// that has not moved — `runtime.sourceRoots`'s npm filter, and the extension — keeps working
+		// against a runtime this engine compiled. Removed in 0.20.0.
+		modules: sources.map((s) => ({
+			name: s.name,
+			location: locationOf(s, root),
+			channel: s.channel,
+			root: rel(s.root) || '.',
+		})),
 		ui: uiModules.sort(),
 		'adapter-outputs': adapterOutputs.sort(),
 		entries: Object.fromEntries(
