@@ -361,15 +361,20 @@ export function twoModuleWorkspace(opts = {}) {
 	writeModule(root, 'core', { description: 'The shared nouns.', collections: CORE_COLLECTIONS });
 	writeModule(root, 'hr', {
 		description: 'Roles and headcount.',
-		// The namespace is declared at the WORKSPACE level here, because Task 4 is what teaches
-		// compile to read a module's own declaration. Task 4 flips this fixture to the module.
+		// §8: THE MODULE declares the namespace it owns, so `modules/hr` can be copied alone into a
+		// bare workspace and compile — decision 130's gate, which was unpassable while namespaces
+		// were workspace-only.
+		namespaces: ['hr'],
 		peerDependencies: ['people'],
 		collections: HR_COLLECTIONS,
 	});
 
 	const pkgPath = path.join(root, 'package.json');
 	const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
-	pkg.dreamteamer.namespaces = opts.namespaces ?? ['hr'];
+	// The workspace declares NOTHING by default now. A test that wants the duplicate-declaration
+	// warning passes `namespaces` explicitly.
+	if (opts.namespaces) pkg.dreamteamer.namespaces = opts.namespaces;
+	else delete pkg.dreamteamer.namespaces;
 	Object.assign(pkg.dreamteamer, opts.pkg ?? {});
 	fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, '\t') + '\n');
 
@@ -409,4 +414,39 @@ export function tree(root, rel = '.') {
 	};
 	walk(start);
 	return out;
+}
+
+/**
+ * ONE MODULE, ALONE, IN A VIRGIN WORKSPACE — decision 130's acceptance test, which nothing has ever
+ * run.
+ *
+ * "A module compiles alone in a bare workspace" was the self-containment rule from the day modules
+ * existed, and it was UNPASSABLE for any namespaced module: namespaces were declared by the
+ * workspace only, so the consuming workspace had to edit its own manifest before the module would
+ * compile — which is exactly the coupling the rule forbids. §8 reverses that, and this is the
+ * fixture that proves it.
+ *
+ * The module is COPIED, not linked: recipes modules are copied rather than installed (decision 129),
+ * so copying is what a consumer actually does.
+ */
+export function bareWorkspace(sourceRoot, moduleId) {
+	const base = baseWorkspace();
+	const root = fs.mkdtempSync(path.join(TMP, 'bare-'));
+	created.push(root);
+	fs.cpSync(base, root, { recursive: true, dereference: false, verbatimSymlinks: true });
+	// A virgin workspace declares NOTHING: no namespaces, no dependencies, no disable entries. That
+	// is the whole point — anything the module needs, the module has to carry.
+	const pkgPath = path.join(root, 'package.json');
+	const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+	delete pkg.dreamteamer.namespaces;
+	fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, '\t') + '\n');
+	fs.cpSync(path.join(sourceRoot, 'modules', moduleId), path.join(root, 'modules', moduleId), { recursive: true });
+	git(root, ['add', '--', 'modules', 'package.json']);
+	git(root, ['commit', '-qm', `fixture: ${moduleId} alone`]);
+	return {
+		root,
+		ws: { root, pkg },
+		dt: (...a) => dt(root, ...a),
+		git: (a) => git(root, a),
+	};
 }

@@ -43,6 +43,15 @@ schema:
         What this module is FOR, in one line — authored as `dreamteamer.description` in its
         package.json, never derived. Written by `dt add modules --description` and
         `dt set modules/<id> description=…`.
+    namespaces:
+      type: array
+      items: { type: string }
+      description: >-
+        The namespaces this module DECLARES and owns — authored as `dreamteamer.namespaces` in its
+        package.json (§8). The workspace's effective set is the union of every module's declarations
+        plus its own; two modules declaring one namespace is a compile error, and USING another
+        module's namespace requires that module in `dependencies`. ABSENT means this module ships
+        into the default namespace — the empty prefix, which is the commons.
     channel:
       type: string
       enum: [path, git, npm, inline]
@@ -93,6 +102,6 @@ order: 140
 # ⚠ ALL THREE IDENTITY SPELLINGS. A module is one string after `add modules` (folder = package name
 # = id), and three strings for anything that predates it — so the listing shows the id (always
 # printed first), the package `name` and the `path`, which is how an operator sees the fork at all.
-list_fields: [channel, path, name, collections]
+list_fields: [channel, path, namespaces, name, collections]
 icon: deployed_code
 group: system

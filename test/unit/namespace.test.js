@@ -180,3 +180,20 @@ describe('storageOverlaps — the measured data-loss guard', () => {
 		assert.deepEqual(storageOverlaps(core), []);
 	});
 });
+
+describe('normalizeNamespaces over a union', () => {
+	test('de-duplicates across sources and keeps longest-first', () => {
+		// The union is assembled by compile from several package.json files, so duplicates are the
+		// NORMAL case during an upgrade (a workspace and its module both declare one) rather than a
+		// mistake. Order is the correctness property: parent-first would claim `work/clients/acme`
+		// for the namespace `work`.
+		assert.deepEqual(
+			normalizeNamespaces(['work', 'work/clients', 'work', 'hr']),
+			['work/clients', 'work', 'hr'],
+		);
+	});
+
+	test('a non-string or blank entry from a hand-edited package.json is dropped, not thrown on', () => {
+		assert.deepEqual(normalizeNamespaces(['hr', '', null, 42, '  /ops/ ']), ['ops', 'hr']);
+	});
+});
