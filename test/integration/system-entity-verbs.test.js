@@ -170,3 +170,48 @@ describe('the two policies, spelled the same', () => {
 		assert.match(out, /a RECORD write does not/);
 	});
 });
+
+// ⚠ THE REGRESSION THIS FILE MOST NEEDS. `presentation` used to set `meta.readonly` on every
+// collection whose `storage.base` is `runtime`, because before the system verbs existed those two
+// facts were the same one. They are not any more, and nothing in this suite noticed: a skill
+// authored in the workspace's own module rendered padlocked and read-only in a surface reading the
+// projection, while `dt set skills/<id>` in the same workspace wrote it and committed. Zero tests
+// failed, because no test asserted the collection-level flag — only the field-level ones.
+//
+// So this asserts BOTH halves, in one place: `system` still marks the kind (dispatch and the schema
+// surface depend on it), and `readonly` is NOT how a system kind is described (writability is per
+// record — an inline module's entity is writable, an npm-shipped one is refused with its own
+// sentence).
+describe('the presentation contract does not call a writable system kind read-only', () => {
+	test('a system collection is `system` and NOT collection-level readonly', async () => {
+		const ws = twoModuleWorkspace();
+		const { Store } = await import('../../src/store.js');
+		const { presentation } = await import('../../src/presentation.js');
+		const { collections } = presentation(new Store(ws.ws).descriptors);
+
+		for (const name of ['skills', 'collections', 'modules', 'ui-views']) {
+			const row = collections.find((c) => c.collection === name);
+			assert.ok(row, `${name} is missing from the presentation contract`);
+			assert.equal(row.system, true, `${name} must still be flagged \`system\` — dispatch keys on it`);
+			assert.notEqual(
+				row.meta.readonly, true,
+				`${name} is written by \`dt set ${name}/<id>\`, so the contract must not describe the whole collection as read-only — a consumer keying on this disables a form the engine would have written`,
+			);
+			assert.equal(
+				row.meta.readonly_hint, undefined,
+				`${name} must carry no collection-level readonly_hint — the refusals that remain are per record, per verb or per field, and each carries its own sentence`,
+			);
+		}
+	});
+
+	test('and a plain data collection is neither', async () => {
+		const ws = twoModuleWorkspace();
+		const { Store } = await import('../../src/store.js');
+		const { presentation } = await import('../../src/presentation.js');
+		const { collections } = presentation(new Store(ws.ws).descriptors);
+		const people = collections.find((c) => c.collection === 'people');
+		assert.ok(people, 'the fixture should ship a `people` collection');
+		assert.equal(people.system, undefined === people.system ? undefined : false);
+		assert.notEqual(people.meta.readonly, true);
+	});
+});
