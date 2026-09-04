@@ -383,7 +383,14 @@ describe('workspace verbs keep their spellings', () => {
 		for (const m of help.matchAll(/^ {2}([a-z][a-z-]*)\s/gm)) documented.add(m[1]);
 		// ⚠ A PIN THAT MATCHES NOTHING PASSES VACUOUSLY, which is the one outcome to avoid.
 		assert.ok(documented.size >= 25, `help yielded only ${documented.size} verb names — the extraction pattern no longer matches USAGE`);
+		// ⚠ `start` IS EXCLUDED FROM THE EXECUTION HALF, AND ONLY FROM IT. It binds a port and never
+		// returns, so `dt(verb)` — a spawnSync — waits forever. This hung a release for six hours:
+		// the suite passed on a developer machine because something already held the port and the
+		// server died on EADDRINUSE, and hung on a CI runner where the port was free. It is still
+		// required to be documented by the second loop below, which only reads the set.
+		const SERVES_FOREVER = new Set(['start']);
 		for (const verb of documented) {
+			if (SERVES_FOREVER.has(verb)) continue;
 			const res = ws.dt(verb);
 			// A documented verb answers with its OWN complaint (a missing target, a missing flag) or
 			// succeeds — never with "unknown verb", which is the only failure this asserts against.
