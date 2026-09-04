@@ -78,6 +78,7 @@ const LIST_META_FLAGS = new Set(['json', 'filter', 'where', 'sort']);
 export function collectionCommand(ws, collection, verb, args) {
 	const store = new Store(ws);
 	const { flags, pos } = parseArgs(args);
+	refuseUnknownFlags(store, collection, verb, flags);
 
 	// ---- system verbs: source writes, never the runtime ----------
 	// These MUST come before the generic switch: their collections are system-stored, so the
@@ -224,6 +225,7 @@ export function collectionCommand(ws, collection, verb, args) {
 		}
 		case 'rm': {
 			const id = need(pos, 0, 'id');
+			if (flags['dry-run']) return dryRunPlan(`rm ${collection}/${id}`, { records: store.ids(collection).has(id) ? 1 : 0, refs: store.findInboundRefs(`${collection}/${id}`).length });
 			const { inboundIgnored } = store.rm(collection, id, { force: !!flags.force });
 			flags.json ? emit(JSON.stringify({ id, removed: true, inboundIgnored })) : console.log(`✔ removed${inboundIgnored ? ` (${inboundIgnored} inbound reference(s) left dangling — run \`dreamteamer check\`)` : ''}`);
 			return 0;
@@ -326,10 +328,20 @@ function metaReposEnsure(ws, flags, pos) {
 
 // `dreamteamer add modules --name core [--description "…"]`
 function metaModulesAdd(ws, store, flags) {
-	refuseRepeats(flags);
-	const out = createModule(ws, store, { name: oneValue(flags, 'name'), description: oneValue(flags, 'description') });
+	// ⚠ BEFORE the write, as `add collections` does it and for the same reason: naming the mistake
+	// after the call lands a committed module and then exits 1.
+	if (flags.namespace === true) throw new Error("--namespace takes a value: dreamteamer add modules --name <id> --namespace <ns>");
+	const out = createModule(ws, store, {
+		name: oneValue(flags, 'name'),
+		description: oneValue(flags, 'description'),
+		namespace: oneValue(flags, 'namespace'),
+	});
 	if (flags.json) { emit(JSON.stringify(out)); return 0; }
 	console.log(`✔ ${out.root}/ — package.json + ${KIND_COUNT} kind folder(s)`);
+	// §6.2 promises the namespace is DECLARED IN THE MODULE, and §8 makes every later
+	// `add collections --module <id>` infer it — so the declaration is echoed, because an inferred
+	// identity the operator did not type is one they must be able to read back.
+	if (out.namespace) console.log(`✔ declared namespace "${out.namespace}" in modules/${out.id}`);
 	console.log('✔ compiled — the module is live (add a collection with `dreamteamer add collections --name <c> --module ' + out.id + '`)');
 	reportCommits(out.commits);
 	return 0;
@@ -337,18 +349,14 @@ function metaModulesAdd(ws, store, flags) {
 
 // `dreamteamer rm modules/core [--force] [--dry-run]`
 function metaModulesRm(ws, store, flags, pos) {
-	refuseRepeats(flags);
 	const id = need(pos, 0, 'module id');
 	const out = removeModule(ws, store, id, { force: !!flags.force, dryRun: !!flags['dry-run'] });
 	if (flags.json) { emit(JSON.stringify(out)); return 0; }
-	if (out.dryRun) {
-		console.log(`dry run — dreamteamer rm modules/${id} --force would:`);
-		console.log(planLine(out));
-		if (out.collections.length) console.log(`  sources removed for: ${out.collections.join(', ')}`);
-		if (out.withRecords.length) console.log(`  records left in place and UNINDEXED: ${out.withRecords.join(', ')}`);
-		if (out.dependents.length) console.log(`  dependencies entry dropped from: ${out.dependents.join(', ')}`);
-		return 0;
-	}
+	if (out.dryRun) return dryRunPlan(`rm modules/${id} --force`, out, [
+		out.collections.length ? `sources removed for: ${out.collections.join(', ')}` : null,
+		out.withRecords.length ? `records left in place and UNINDEXED: ${out.withRecords.join(', ')}` : null,
+		out.dependents.length ? `dependencies entry dropped from: ${out.dependents.join(', ')}` : null,
+	]);
 	console.log(`✔ removed module ${out.removed}`);
 	if (out.withRecords.length) console.log(`  ⚠ records remain and are now unindexed: ${out.withRecords.join(', ')}`);
 	if (out.dependents.length) console.log(`  dropped it from ${out.dependents.join(', ')}'s dependencies`);
@@ -359,7 +367,6 @@ function metaModulesRm(ws, store, flags, pos) {
 
 // `dreamteamer rename modules/core shared`
 function metaModulesRename(ws, store, flags, pos) {
-	refuseRepeats(flags);
 	const oldId = need(pos, 0, 'module id');
 	const out = renameModule(ws, store, oldId, need(pos, 1, 'new module id'));
 	if (flags.json) { emit(JSON.stringify(out)); return 0; }
@@ -373,12 +380,12 @@ function metaModulesRename(ws, store, flags, pos) {
 
 // `dreamteamer set modules/hr description="…" dependencies=modules/core`
 function metaModulesSet(ws, store, flags, pos) {
-	refuseRepeats(flags);
 	const id = need(pos, 0, 'module id');
 	const changes = { ...pairs(pos.slice(1)), ...stripMeta(flags) };
 	if (!Object.keys(changes).length) throw new Error('nothing to set — pass key=value pairs (description, dependencies, peerDependencies)');
 	const out = setModule(ws, store, id, changes);
 	if (flags.json) { emit(JSON.stringify(out)); return 0; }
+	if (out.unchanged) return alreadyThat(`modules/${id} ${out.changed.join(', ')}`);
 	console.log(`✔ ${rel(ws.root, out.file)} — ${out.changed.join(', ')}`);
 	console.log('✔ compiled — the module record is up to date');
 	reportCommits(out.commits);
@@ -394,6 +401,27 @@ const KIND_COUNT = KINDS.length;
  *  whether a missing term means zero or means "this verb does not count that". */
 function planLine(plan) {
 	return `  records ${plan.records ?? 0} · refs ${plan.refs ?? 0} · descriptors ${plan.descriptors ?? 0} · values cleared ${plan.cleared ?? 0}`;
+}
+
+/**
+ * `--dry-run` on a `rm`, for the four spellings that DOCUMENTED it and executed anyway.
+ *
+ * ⚠ THE DEFECT THIS CLOSES WAS DATA LOSS, and the self-commit made it durable: `dt rm
+ * collections/widgets --dry-run --force` printed "✔ removed collection widgets", deleted the source
+ * and committed it, at exit 0, against a `dt help` that spells `rm <system>/<id> [--force]
+ * [--dry-run]` verbatim. `rm modules/<id>` was the ONE spelling that honoured it. A flag a verb
+ * advertises and ignores is worse than one it does not have — the operator's whole reason for
+ * typing it is that they are not sure yet.
+ *
+ * The plan is deliberately the same `planLine` shape every other destructive verb prints, and it
+ * counts only what it can count without doing the op — an unmeasured term is stated as such rather
+ * than guessed at, per `rename collections`' dry run.
+ */
+function dryRunPlan(what, plan, extra) {
+	console.log(`dry run — dreamteamer ${what} would:`);
+	console.log(planLine(plan));
+	for (const line of extra ?? []) if (line) console.log(`  ${line}`);
+	return 0;
 }
 
 /**
@@ -417,7 +445,6 @@ function reportCommits(commits) {
 
 // `dreamteamer collections add --name research-docs --template docs`
 function metaCollectionsAdd(ws, store, flags) {
-	refuseRepeats(flags);
 	// ⚠ BEFORE the write, not after. `--namespace=` is the empty STRING (clear it); a bare
 	// `--namespace` parses as `true`, which is a mistake worth naming — and naming it AFTER the call
 	// lands a committed collection and then exits 1, which is the one report shape that lies twice.
@@ -452,7 +479,6 @@ function metaCollectionsAdd(ws, store, flags) {
  * half-applies or has to be explained, and the operator gets no signal about which happened.
  */
 function metaCollectionsSet(ws, store, flags, pos) {
-	refuseRepeats(flags);
 	const name = need(pos, 0, 'collection name');
 	const positional = pairs(pos.slice(1));
 	const changes = { ...positional, ...stripMeta(flags) };
@@ -465,12 +491,7 @@ function metaCollectionsSet(ws, store, flags, pos) {
 	if (moveTo !== undefined) {
 		const out = moveCollection(ws, store, name, String(moveTo), { dryRun: !!flags['dry-run'] });
 		if (flags.json) { emit(JSON.stringify(out)); return 0; }
-		if (out.dryRun) {
-			console.log(`dry run — dreamteamer set collections/${name} module=${moveTo} would:`);
-			console.log(planLine(out));
-			console.log(`  descriptor  ${out.from} → ${out.to} (records stay where they are)`);
-			return 0;
-		}
+		if (out.dryRun) return dryRunPlan(`set collections/${name} module=${moveTo}`, out, [`descriptor  ${out.from} → ${out.to} (records stay where they are)`]);
 		if (!out.moved) { console.log(`✔ ${name} — already owned by ${out.from}, nothing to do`); return 0; }
 		console.log(`✔ ${name}: ${out.from} → ${out.to}`);
 		console.log(`  records     ${out.records} left in place — a move never changes an id`);
@@ -482,6 +503,7 @@ function metaCollectionsSet(ws, store, flags, pos) {
 	if (!Object.keys(changes).length) throw new Error('nothing to set — pass key=value pairs, or module=<id> to move it');
 	const out = setCollectionScalars(ws, store, name, changes, { moduleId: undefined });
 	if (flags.json) { emit(JSON.stringify(out)); return 0; }
+	if (out.unchanged) return alreadyThat(`collections/${name} ${out.changed.join(', ')}`);
 	console.log(`✔ ${rel(ws.root, out.file)} — ${out.changed.join(', ')}`);
 	console.log('✔ compiled — the descriptor is up to date');
 	reportCommits(out.commits);
@@ -500,7 +522,6 @@ function metaCollectionsSet(ws, store, flags, pos) {
  * it writes ONE descriptor and keeps the numbers legible.
  */
 function metaCollectionsMove(ws, store, flags, pos) {
-	refuseRepeats(flags);
 	const name = need(pos, 0, 'collection name');
 	store.descriptor(name);
 	const rows = [...store.readAll('collections')]
@@ -541,7 +562,6 @@ function metaCollectionsMove(ws, store, flags, pos) {
  *  this is the only way to see what a given module actually wrote, which is the question an overlay
  *  makes unanswerable from the runtime alone. */
 function metaCollectionsGet(ws, store, flags, pos) {
-	refuseRepeats(flags);
 	const name = need(pos, 0, 'collection name');
 	const moduleId = oneValue(flags, 'module');
 	const { file } = collectionSourceFileFor(ws, store, name, moduleId);
@@ -554,7 +574,6 @@ function metaCollectionsGet(ws, store, flags, pos) {
 // The whole point is that namespacing EXISTING data is one command instead of a six-step hand
 // migration whose last step (rewriting references) dangles everything when forgotten.
 function metaCollectionsRename(ws, store, flags, pos) {
-	refuseRepeats(flags);
 	const [oldName, explicitNew] = pos;
 	if (!oldName) throw new Error('usage: dreamteamer rename collections/<old> <new> | collections/<old> --namespace <ns>');
 	// `--namespace health` on its own moves the collection INTO that namespace keeping its bare name,
@@ -566,15 +585,14 @@ function metaCollectionsRename(ws, store, flags, pos) {
 	if (flags['dry-run']) {
 		const d = store.descriptor(oldName);
 		const records = store.ids(oldName).size;
-		console.log(`dry run — dreamteamer rename collections/${oldName} ${newName} would:`);
-		console.log(planLine({ records, refs: 0, descriptors: 1, cleared: 0 }));
-		console.log(`  records  ${d.storage.path} → ${defaultStoragePath(newName, store.namespaces, ws.pkg.dreamteamer?.['data-path'] ?? 'data')}`);
 		// ⚠ `refs` is honestly 0 here and the line says so. Counting them would mean running the batch
 		// rewrite to find out, which IS the op — and a number the plan cannot know is worse than a
 		// stated gap: the plan line has a fixed shape precisely so a reader never has to guess whether
 		// a term is zero or unmeasured.
-		console.log('  refs are counted only by the real run — the rewrite is what discovers them');
-		return 0;
+		return dryRunPlan(`rename collections/${oldName} ${newName}`, { records, descriptors: 1 }, [
+			`records  ${d.storage.path} → ${defaultStoragePath(newName, store.namespaces, ws.pkg.dreamteamer?.['data-path'] ?? 'data')}`,
+			'refs are counted only by the real run — the rewrite is what discovers them',
+		]);
 	}
 	const out = renameCollection(ws, store, oldName, newName);
 	if (flags.json) { emit(JSON.stringify(out)); return 0; }
@@ -592,8 +610,8 @@ function metaCollectionsRename(ws, store, flags, pos) {
 // `dreamteamer collections rm widgets [--force]` — --force is required to drop a collection
 // that still has records (removeCollection refuses otherwise, and says so).
 function metaCollectionsRm(ws, store, flags, pos) {
-	refuseRepeats(flags);
 	const name = need(pos, 0, 'collection name');
+	if (flags['dry-run']) return dryRunPlan(`rm collections/${name}`, { records: store.ids(name).size, descriptors: 1 }, [`descriptor removed; records under ${store.descriptor(name).storage.path} stay in place and become unindexed`]);
 	const out = removeCollection(ws, store, name, { force: !!flags.force });
 	flags.json ? emit(JSON.stringify(out)) : console.log(`✔ removed collection ${out.removed}`);
 	console.log('✔ compiled — the collection is gone');
@@ -603,7 +621,6 @@ function metaCollectionsRm(ws, store, flags, pos) {
 
 // `dreamteamer tasks add-field --name urgent --type boolean --default-value false`
 function metaAddField(ws, store, collection, flags) {
-	refuseRepeats(flags);
 	const prop = fieldDef(store, flags, collection);
 	// fieldDef DEFERS every relation flag it has no reference to attach to, because on update-field
 	// the target is carried in afterwards. add-field has nothing to carry, so a relation flag that
@@ -611,7 +628,7 @@ function metaAddField(ws, store, collection, flags) {
 	const stray = (prop.items ?? prop)['x-reference'] === undefined && relationFlagsStated(flags);
 	if (stray) throw new Error(`--${stray} needs a --type <collection> reference.`);
 	const out = addField(ws, store, collection, { name: flags.name, prop, required: flags.required === 'true', moduleId: oneValue(flags, 'module') });
-	if (out.unchanged) return alreadyThat(collection, flags.name);
+	if (out.unchanged) return alreadyThat(`${collection}.${flags.name}`);
 	console.log(`✔ ${rel(ws.root, out.file)}${out.extends ? ` (extends ${out.extends})` : ''}`);
 	console.log('✔ compiled — the field is live');
 	reportCommits(out.commits);
@@ -622,8 +639,8 @@ function metaAddField(ws, store, collection, flags) {
 
 /** The idempotent answer, in `rename-collection`'s words — a command that asks for what is already
  *  there succeeded, and the operator needs to know which field it was talking about. */
-function alreadyThat(collection, field) {
-	console.log(`✔ ${collection}.${field} — already exactly that, nothing to do`);
+function alreadyThat(subject) {
+	console.log(`✔ ${subject} — already exactly that, nothing to do`);
 	return 0;
 }
 
@@ -655,7 +672,6 @@ function reportMirror(store, collection, fieldName, prop) {
 // Same flag vocabulary as add-field (one `fieldDef`), so the two read as one operation with two
 // preconditions rather than two dialects.
 function metaUpdateField(ws, store, collection, flags) {
-	refuseRepeats(flags);
 	if (!flags.name) throw new Error('missing --name <field>');
 	const prop = fieldDef(store, flags, collection);
 	// tri-state: omitting --required leaves requiredness ALONE, rather than silently clearing it
@@ -663,7 +679,7 @@ function metaUpdateField(ws, store, collection, flags) {
 	// `flags` for the VALUES and `stated` for what the caller meant to restate: updateField carries
 	// every unstated relation keyword forward from the previous prop.
 	const out = updateField(ws, store, collection, flags.name, { prop, required, flags, stated: statedKeywords(flags), moduleId: oneValue(flags, 'module') });
-	if (out.unchanged) return alreadyThat(collection, flags.name);
+	if (out.unchanged) return alreadyThat(`${collection}.${flags.name}`);
 	console.log(`✔ ${rel(ws.root, out.file)}${out.extends ? ` (extends ${out.extends})` : ''}`);
 	console.log('✔ compiled — the field is updated');
 	reportCommits(out.commits);
@@ -677,16 +693,12 @@ function metaUpdateField(ws, store, collection, flags) {
 
 // `dreamteamer tasks remove-field --name urgent`
 function metaRemoveField(ws, store, collection, flags) {
-	refuseRepeats(flags);
 	const name = flags.name ?? flags.field;
 	if (!name) throw new Error('missing --name <field>');
 	const moduleId = oneValue(flags, 'module');
 	if (flags['dry-run']) {
 		const plan = removeFieldPlan(store, collection, name);
-		console.log(`dry run — dreamteamer remove-field ${collection} --name ${name} would:`);
-		console.log(planLine(plan));
-		if (plan.staleViews.length) console.log(`  ui-views still listing it as a column: ${plan.staleViews.join(', ')}`);
-		return 0;
+		return dryRunPlan(`remove-field ${collection} --name ${name}`, plan, [plan.staleViews.length ? `ui-views still listing it as a column: ${plan.staleViews.join(', ')}` : null]);
 	}
 	const out = removeField(ws, store, collection, name, { moduleId });
 	flags.json ? emit(JSON.stringify(out)) : console.log(`✔ removed field ${collection}.${out.removed}`);
@@ -709,7 +721,6 @@ const ENTITY_KINDS = new Set(['skills', 'agents', 'commands', 'command-bindings'
 const SCAFFOLDABLE = new Set(['skills']);
 
 function metaEntityVerb(ws, store, kind, verb, flags, pos) {
-	refuseRepeats(flags);
 	const one = kind.replace(/s$/, '');
 	if (verb === 'add') {
 		const name = oneValue(flags, 'name');
@@ -726,7 +737,9 @@ function metaEntityVerb(ws, store, kind, verb, flags, pos) {
 		return 0;
 	}
 	if (verb === 'rm') {
-		const out = removeEntity(ws, store, kind, need(pos, 0, `${one} id`));
+		const id0 = need(pos, 0, `${one} id`);
+		if (flags['dry-run']) return dryRunPlan(`rm ${kind}/${id0}`, { descriptors: 1 }, [`the ${one} source is removed; nothing else moves`]);
+		const out = removeEntity(ws, store, kind, id0);
 		if (flags.json) { emit(JSON.stringify(out)); return 0; }
 		console.log(`✔ removed ${one} ${out.removed}`);
 		console.log('✔ compiled — it is gone');
@@ -748,6 +761,7 @@ function metaEntityVerb(ws, store, kind, verb, flags, pos) {
 	if (!Object.keys(changes).length) throw new Error(`nothing to set — pass key=value pairs (a ${one}'s frontmatter keys)`);
 	const out = setEntityFrontmatter(ws, store, kind, id, changes);
 	if (flags.json) { emit(JSON.stringify(out)); return 0; }
+	if (out.unchanged) return alreadyThat(`${kind}/${id} ${out.changed.join(', ')}`);
 	console.log(`✔ ${rel(ws.root, out.file)} — ${out.changed.join(', ')}`);
 	console.log('✔ compiled — the change is live');
 	reportCommits(out.commits);
@@ -756,25 +770,28 @@ function metaEntityVerb(ws, store, kind, verb, flags, pos) {
 
 /** The path `revert`'s refusal names — where a human edits this compiled entity. */
 function sourceHintFor(store, collection) {
+	// ⚠ `modules` is the one system collection that is PROJECTED rather than stored as a kind folder:
+	// its source is each module's package.json. Deriving the hint from `storage.path` gave
+	// `modules/*/modules/`, which `git ls-files` matches nothing at all — a correct refusal handing
+	// over an unusable remedy.
+	if (collection === 'modules') return 'modules/*/package.json';
 	const d = store.descriptors.get(collection);
 	return d?.storage?.path ? `modules/*/${d.storage.path}/` : `modules/*/${collection}/`;
 }
 
 // `dreamteamer rename-field people --name employer --to company`
 function metaRenameField(ws, store, collection, flags) {
-	refuseRepeats(flags);
 	const from = oneValue(flags, 'name') ?? oneValue(flags, 'field');
 	if (!from) throw new Error(`missing --name <field>: dreamteamer rename-field ${collection} --name <field> --to <new-name>`);
 	const to = oneValue(flags, 'to');
 	if (flags['dry-run']) {
 		const plan = renameFieldPlan(store, collection, from);
-		console.log(`dry run — dreamteamer rename-field ${collection} --name ${from} --to ${to ?? '<new-name>'} would:`);
-		console.log(planLine(plan));
 		// ⚠ The same honesty the `rename collections` dry run needs, for the same reason: a number the
 		// plan cannot know is worse than a stated gap.
-		console.log('  descriptors, ui-views and command-bindings naming it are counted by the real run —');
-		console.log('  the rewrite is what discovers which of them carry the name');
-		return 0;
+		return dryRunPlan(`rename-field ${collection} --name ${from} --to ${to ?? '<new-name>'}`, plan, [
+			'descriptors, ui-views and command-bindings naming it are counted by the real run —',
+			'the rewrite is what discovers which of them carry the name',
+		]);
 	}
 	const out = renameField(ws, store, collection, from, to, { moduleId: oneValue(flags, 'module') });
 	if (flags.json) { emit(JSON.stringify(out)); return 0; }
@@ -877,11 +894,16 @@ function assignViewValue(view, key, raw) {
 	assignPath(view, key, parseViewValue(raw, key), typeof raw === 'string' && raw.trim().startsWith('"'));
 }
 
-const VIEW_META_FLAGS = new Set(['id', 'json', 'force']);
+// ⚠ `module` is a VERB OPTION, exactly as it is on every other verb that takes one (see META_FLAGS)
+// — it says WHERE the source lands and is never a key of the view. Omitting it here is what wrote
+// `module: core` into the yaml as a field.
+const VIEW_META_FLAGS = new Set(['id', 'json', 'force', 'module']);
 
 function metaUiView(ws, store, verb, flags, pos) {
 	if (verb === 'rm') {
-		const out = removeUiView(ws, store, need(pos, 0, 'ui-view id'));
+		const viewId = need(pos, 0, 'ui-view id');
+		if (flags['dry-run']) return dryRunPlan(`rm ui-views/${viewId}`, { descriptors: 1 }, ['the view source is removed; its route stops resolving']);
+		const out = removeUiView(ws, store, viewId);
 		flags.json ? emit(JSON.stringify(out)) : console.log(`✔ removed ui-view ${out.removed}`);
 		console.log('✔ compiled — the route is gone');
 		reportCommits(out.commits);
@@ -919,8 +941,10 @@ function metaUiView(ws, store, verb, flags, pos) {
 	// saved from the CLI and one saved from the panel land on the SAME record.
 	id ??= slug(view.path);
 
-	const out = saveUiView(ws, store, { id, view });
-	flags.json ? emit(JSON.stringify(out)) : console.log(`✔ ${rel(ws.root, out.file)}`);
+	const out = saveUiView(ws, store, { id, view, moduleId: oneValue(flags, 'module') });
+	if (flags.json) { emit(JSON.stringify(out)); return 0; }
+	if (out.unchanged) return alreadyThat(`ui-views/${id}`);
+	console.log(`✔ ${rel(ws.root, out.file)}`);
 	console.log(`✔ compiled — ${view.path} is live`);
 	reportCommits(out.commits);
 	return 0;
@@ -938,7 +962,9 @@ function metaUiView(ws, store, verb, flags, pos) {
 export function relationsCommand(ws, args) {
 	const store = new Store(ws);
 	const { flags, pos } = parseArgs(args);
-	if (pos[0] === 'rebuild') return relationsRebuild(store, flags, pos);
+	const rebuilding = pos[0] === 'rebuild';
+	refuseUnknownFlags(store, (rebuilding ? pos[1] : pos[0]) ?? '', rebuilding ? 'rebuild' : 'relations', flags);
+	if (rebuilding) return relationsRebuild(store, flags, pos);
 
 	// `store.relations()` is `relationsOf(this.descriptors)` memoized per Store — going through it
 	// rather than calling relationsOf here keeps one decoder for the whole process.
@@ -1093,22 +1119,6 @@ function oneValue(flags, key) {
 	return typeof v === 'string' ? v : undefined;
 }
 
-/**
- * A schema verb takes ONE value per flag, and a repeat is refused before anything is written.
- *
- * None of them means a list by repetition — `--options a,b` is one value, and `--name` names the
- * single thing being written — so every repeat is a mistake. It has to be caught here because the
- * ones that matter are IDENTITY: `--name x --name y` wrote a field called `y` before the promotion
- * and one called `x,y` after it, and both of those are a source file the operator then has to find
- * and edit by hand.
- */
-function refuseRepeats(flags) {
-	const dup = Object.entries(flags).find(([, v]) => Array.isArray(v));
-	if (!dup) return;
-	const [k, v] = dup;
-	throw new Error(`--${k} was given ${v.length} times, and a schema verb takes ONE value per flag: ${v.map((x) => `--${k} ${x}`).join(' ')}`);
-}
-
 /** `field=value` positionals, with the same promote-on-repeat rule the flags have. It was
  *  `Object.fromEntries`, which keeps the LAST pair — `dt set c/id tags=a tags=b` wrote `[b]`. */
 function pairs(list) {
@@ -1157,4 +1167,97 @@ const fmtCell = (v) => (v === undefined ? '-' : Array.isArray(v) ? v.join(',') :
 
 function rel(root, p) {
 	return p.startsWith(root) ? p.slice(root.length + 1) : p;
+}
+
+/**
+ * THE ONE PLACE A FLAG NAME IS VALIDATED — every record, system and field verb goes through
+ * `collectionCommand`, so the check lives beside the parser they share rather than being
+ * re-invented per verb.
+ *
+ * ⚠ IT EXISTS BECAUSE THE PARSER USED TO SWALLOW EVERYTHING. `dt add modules --name hr --bogusflag x`
+ * succeeded silently, so a misspelled flag and a supported one were indistinguishable — and that is
+ * what let `add modules --namespace hr` be accepted-and-ignored for a whole release with nobody
+ * noticing. The worst instance was `--dryrun`, where the swallowed flag is the one standing between
+ * a plan and a self-committed delete.
+ *
+ * TWO VOCABULARIES, and the split is what keeps the refusal honest. A verb's OPTIONS are closed and
+ * enumerated here; an entity's own KEYS are open and cannot be — `dt list people --status todo` is a
+ * shorthand filter on a declared field, `dt add people --name Ada` writes one, and a ui-view's
+ * `options.*` is an open bag by design. So the allowlist is the table PLUS the target's declared
+ * properties, and nothing is refused that either half can name.
+ *
+ * ⚠ A REFUSAL THAT REJECTS A VALID FLAG IS WORSE THAN THE SILENCE IT REPLACES, which is why a verb
+ * with no table entry is left exactly as it was rather than being guessed at — and why the field
+ * verbs' row is the whole `fieldDef` vocabulary, read off nothing, so a flag added there has to be
+ * added here too or its own test fails.
+ *
+ * A key is `<collection>:<verb>` where the system entity has its own interceptor, `<verb>` otherwise.
+ */
+export const FIELD_FLAGS = ['json', 'module', 'name', 'field', 'type', 'options', 'default-value', 'default', 'required', 'description', 'many', 'inverse', 'inverse-description', 'unique', 'body', 'on-delete', 'mirror-of', 'target'];
+const JSON_ONLY = ['json'];
+const FORCE_RM = ['json', 'force', 'dry-run'];
+const NAV_MOVE = ['json', 'after', 'before', 'top', 'bottom'];
+
+const VERB_FLAGS = {
+	list: ['json', 'filter', 'where', 'sort'], get: JSON_ONLY, add: ['json', 'id', 'from', 'force'], set: JSON_ONLY,
+	rm: FORCE_RM, rename: JSON_ONLY, move: [...NAV_MOVE, 'init'], values: ['json', 'limit'],
+	history: JSON_ONLY, diff: ['json', 'hash'], revert: ['json', 'hash'],
+	ensure: ['json', 'all'], for: ['json', 'ids'], relations: JSON_ONLY, rebuild: ['json', 'drop'],
+	'add-field': FIELD_FLAGS, 'update-field': FIELD_FLAGS,
+	'remove-field': ['json', 'module', 'name', 'field', 'dry-run'],
+	'rename-field': ['json', 'module', 'name', 'field', 'to', 'dry-run'],
+	'collections:add': ['json', 'module', 'name', 'namespace', 'template', 'description', 'suffix', 'id-shape'],
+	'collections:get': ['json', 'module'], 'collections:set': ['json', 'module', 'dry-run'],
+	'collections:rm': FORCE_RM, 'collections:rename': ['json', 'namespace', 'dry-run'], 'collections:move': NAV_MOVE,
+	'modules:add': ['json', 'name', 'description', 'namespace'], 'modules:rename': JSON_ONLY, 'modules:rm': FORCE_RM,
+	'modules:set': ['json', 'description', 'namespaces', 'dependencies', 'peerDependencies'],
+	// the identity kinds: `add` scaffolds, `rm`/`rename` fall through to the generic rows, and `set`
+	// is deliberately UNCHECKED — a skill's frontmatter is an open document (`allowed-tools`, `model`,
+	// whatever a harness reads), so there is no closed set to check it against.
+	'skills:add': ['json', 'module', 'name', 'description'],
+	'ui-views:add': ['json', 'module', 'id', 'force'], 'ui-views:set': ['json', 'module', 'id', 'force'], 'ui-views:rm': FORCE_RM,
+};
+
+/** Edit distance, capped — enough to turn `--fliter` into "did you mean --filter?", and to refuse to
+ *  guess at anything further away than a typo. */
+function nearest(word, candidates) {
+	const distance = (c) => {
+		let prev = [...Array(word.length + 1).keys()];
+		for (let i = 1; i <= c.length; i++) {
+			const row = [i];
+			for (let j = 1; j <= word.length; j++) row[j] = Math.min(prev[j] + 1, row[j - 1] + 1, prev[j - 1] + (c[i - 1] === word[j - 1] ? 0 : 1));
+			prev = row;
+		}
+		return prev[word.length];
+	};
+	const cap = Math.min(3, Math.ceil(word.length / 2));
+	return candidates.map((c) => [c, distance(c)]).filter(([, n]) => n < cap).sort((a, b) => a[1] - b[1])[0]?.[0] ?? null;
+}
+
+function refuseUnknownFlags(store, collection, verb, flags) {
+	const d = store.descriptors.get(collection);
+	const known = VERB_FLAGS[`${collection}:${verb}`]
+		?? (ENTITY_KINDS.has(collection) ? (verb === 'add' ? VERB_FLAGS['skills:add'] : verb === 'set' ? null : VERB_FLAGS[verb]) : VERB_FLAGS[verb]);
+	if (!known) return; // no declared vocabulary — left exactly as it was rather than guessed at
+	// The OPEN half: a data collection's own fields (shorthand filters and field writes), and a
+	// ui-view's own keys (`--layout`, `--target`, and dotted `options.sort`).
+	const system = d?.storage?.base === 'runtime';
+	const openOf = !system && ['list', 'add', 'set'].includes(verb) ? `field of ${collection}`
+		: collection === 'ui-views' && verb !== 'rm' ? 'key of a ui-view' : null;
+	const open = openOf ? Object.keys(d?.schema?.properties ?? {}) : [];
+	const allowed = new Set([...known, ...open]);
+	for (const f of Object.keys(flags)) {
+		if (allowed.has(f) || (openOf && allowed.has(f.split('.')[0]))) continue;
+		const near = nearest(f, [...allowed]);
+		throw new Error(`unknown flag "--${f}" on \`dt ${verb} ${collection}\`${near ? ` — did you mean --${near}?` : ''}\n  known: ${[...known].sort().map((k) => `--${k}`).join(', ')}${openOf ? `, plus any ${openOf}` : ''}`);
+	}
+	// ⚠ AND THE REPEAT REFUSAL, which used to be 15 hand-written `refuseRepeats(flags)` lines — one
+	// per meta verb, and a new verb had to remember it. A SCHEMA verb takes one value per flag (none
+	// of them means a list by repetition), so the same table that says which flags exist says which
+	// verbs the rule applies to: everything with a closed vocabulary EXCEPT the open halves, where a
+	// repeat legitimately composes (`--filter a=1 --filter b=2`, `--tags a --tags b`). `ui-views`
+	// keeps its own message, which names both spellings of the fix.
+	if (openOf || collection === 'ui-views') return;
+	const dup = Object.entries(flags).find(([, v]) => Array.isArray(v));
+	if (dup) throw new Error(`--${dup[0]} was given ${dup[1].length} times, and a schema verb takes ONE value per flag: ${dup[1].map((x) => `--${dup[0]} ${x}`).join(' ')}`);
 }
