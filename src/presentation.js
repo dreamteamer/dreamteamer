@@ -5,7 +5,9 @@
 // the client adapter shrinks to a thin path translator. shapes deliberately match what
 // the studio components already speak (field {field,type,meta,schema}).
 
-import { sourceHint } from './runtime.js';
+// `sourceHint` is deliberately NOT imported here any more — see the note beside `system` below.
+// It survives for the store's own refusal (`store.js`) and `revert`'s (`collections-cli.js`), both
+// of which are still true statements about a path that genuinely cannot be written.
 import { refTargetsOf } from './ref.js';
 
 /** the projection for every collection: rows keyed by collection name + collection meta. */
@@ -82,15 +84,34 @@ function collectionRow(d) {
 
 	if (typeof d.group === 'string') meta.group = d.group;
 	if (typeof d.description === 'string' && d.description.length > 0) meta.description = d.description;
-	// A compiled collection is READ-ONLY through the record layer, and the UI needs to say so
-	// BEFORE offering a button — an error after the click is a worse answer than a disabled
-	// control with a reason. The sentence comes from runtime.js so the store's refusal and this
-	// hint can never disagree.
+	// ⚠ `system` IS NOT `readonly`, AND SAYING SO COST A RELEASE. Until 0.19.0 the two were the
+	// same fact: nothing could write a compiled entity, so this projection set `meta.readonly` for
+	// every `storage.base === 'runtime'` collection and the UI disabled the form. 0.19.0 gave the
+	// record verbs a system write path — `set skills/<id>`, `rename`, `rm`, `set collections/<c>`,
+	// `set modules/<id>` — dispatched at the SURFACE, around the store (`collections-cli.js`,
+	// `server.js`). This file was never touched by that wave, so the projection kept describing the
+	// old world and a skill in the workspace's own `modules/<m>/skills/` rendered padlocked while
+	// `dt set` wrote it happily.
+	//
+	// So no collection-level readonly is emitted for a system kind any more. Three reasons it is a
+	// DELETION rather than a narrower predicate:
+	//
+	//   1. Writability is per RECORD, not per collection. `skills/<one>` authored in an inline
+	//      module is writable; `skills/<another>` shipped from `node_modules/` is refused, because
+	//      the next `npm install` erases the edit. One flag on the collection cannot say both, and
+	//      a flag that is wrong half the time is worse than none.
+	//   2. On today's verb set there is no system kind with no writable path at all, so a correct
+	//      collection-level predicate would be constant-false.
+	//   3. The refusals that remain are per record (npm-shipped), per verb (`revert`, and `add` on
+	//      the hand-authored kinds) or per field (`x-body`) — none of them collection-shaped. Each
+	//      already answers with its own sentence naming the fix, which is the contract the schema
+	//      surfaces are built on.
+	//
+	// `system` STAYS and is unchanged: the CLI and REST dispatch key on it, and it is what puts a
+	// kind in the schema surface rather than the data one. A consumer that disables editing must
+	// key on `meta.readonly` (per field, as `id`, `last-modified` and relation mirrors do) or on
+	// the verb it is about to offer — never on `system`.
 	const system = d.storage?.base === 'runtime';
-	if (system) {
-		meta.readonly = true;
-		meta.readonly_hint = sourceHint(d);
-	}
 	return { collection: d.name, meta, system };
 }
 
