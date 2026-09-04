@@ -29,7 +29,7 @@ import { envContext, renderTemplate } from './env-vars.js';
 const QUIET = ['ignore', 'pipe', 'ignore'];
 
 
-const USAGE = `usage: dreamteamer <verb> [<target>] [flags]
+export const USAGE = `usage: dreamteamer <verb> [<target>] [flags]
 
 record verbs (hard validation — invalid writes are rejected before disk).
 A <target> is either a collection name or a <collection>/<id> reference; the reference splits at
@@ -89,8 +89,10 @@ The commit lands in the repo that holds the source, so a write into a git module
                                                health/doctors; a module declaring exactly ONE
                                                namespace infers it, and the resolved name is echoed.
                                                --namespace '' means no namespace)
-  add    modules --name <id> [--description "…"]
+  add    modules --name <id> [--description "…"] [--namespace <ns>]
                                               (modules/<id>/ + every kind folder + package.json.
+                                               --namespace DECLARES it in the module (§8), so every
+                                               later \`add collections --module <id>\` infers it.
                                                folder = package name = id, so a module never forks.
                                                the git shape is \`install --clone <url> [name]\`)
   add    skills --name <id> --description "…"  (skills/<id>/SKILL.md — --description is required,
@@ -196,7 +198,7 @@ const FIELD_VERBS = ['add-field', 'update-field', 'remove-field', 'rename-field'
 // misspelling — `dt commit --dryrun` COMMITTED, because `rest.includes('--dry-run')` is false for a
 // flag nobody typed correctly. The record/system/field verbs are checked in `collections-cli.js`,
 // beside the parser they share; these nine have no shared parser, so the table is here.
-const WORKSPACE_FLAGS = {
+export const WORKSPACE_FLAGS = {
 	init: ['name', 'data-path', 'harnesses', 'workspace-module'], install: ['clone'], update: [],
 	start: ['port'], compile: ['watch'], check: [], status: [],
 	changes: ['since', 'json'], commit: ['dry-run', 'json'],

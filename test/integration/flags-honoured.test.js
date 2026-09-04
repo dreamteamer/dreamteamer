@@ -25,7 +25,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { twoModuleWorkspace, readFile, ENGINE_ROOT } from '../helpers/ws.js';
-import { FIELD_FLAGS } from '../../src/collections-cli.js';
+import { FIELD_FLAGS, VERB_FLAGS } from '../../src/collections-cli.js';
+import { USAGE, WORKSPACE_FLAGS } from '../../src/cli.js';
 
 const exists = (root, rel) => fs.existsSync(path.join(root, rel));
 
@@ -325,5 +326,122 @@ describe("revert on a system entity hands over a path that actually matches some
 		assert.ok(hint, res.stderr);
 		const hits = ws.git(['ls-files', '--', hint]);
 		assert.ok(hits.length > 0, `\`git ls-files -- ${hint}\` matched nothing`);
+	});
+});
+
+// ⚠ THE ALLOWLIST IS A SECOND HAND-ENUMERATION, and the spec's own §3.1 table drifted from the code
+// exactly this way. So the two are round-tripped here rather than the drift being moved: a flag the
+// CLI accepts must be documented, and a flag `dt help` documents must be accepted somewhere.
+describe('the flag tables and `dt help` do not drift apart', () => {
+	const documented = new Set([...USAGE.matchAll(/--([a-z][a-z0-9-]*)/g)].map((m) => m[1]));
+	const accepted = new Set([...Object.values(VERB_FLAGS).flat(), ...Object.values(WORKSPACE_FLAGS).flat()]);
+
+	// USAGE names these as ui-view KEYS (the open half, read off the `ui-views` descriptor) rather
+	// than as verb options, plus `--version`, which `run()` answers before any dispatch.
+	const OPEN_HALF = ['collection', 'layout', 'path', 'version'];
+	// Accepted and NOT in `dt help` — every one a real documentation gap, listed so it is a decision
+	// rather than a silence. `--field` and `--default` are undocumented ALIASES of `--name` and
+	// `--default-value`; the three `init` flags and the three `modules set` keys are documented in
+	// their positional `k=v` spelling only.
+	const UNDOCUMENTED = ['field', 'default', 'data-path', 'harnesses', 'workspace-module', 'dependencies', 'namespaces', 'peerDependencies'];
+
+	test('every flag `dt help` documents is accepted by some verb', () => {
+		const stray = [...documented].filter((f) => !accepted.has(f) && !OPEN_HALF.includes(f)).sort();
+		assert.deepEqual(stray, [], `documented and now REFUSED: ${stray.join(', ')}`);
+	});
+
+	test('every flag the CLI accepts is documented, or listed as a known gap', () => {
+		const undocumented = [...accepted].filter((f) => !documented.has(f)).sort();
+		assert.deepEqual(undocumented, [...UNDOCUMENTED].sort(), 'the documentation gap changed — update `dt help` or the list');
+	});
+});
+
+describe('a flag NAME can be right and its VALUE still name nothing', () => {
+	const ws = twoModuleWorkspace({ records: { people: [{ name: 'Ada Byron' }] } });
+
+	test('--filter on a field that does not exist is refused, not answered empty', () => {
+		const res = ws.dt('list', 'people', '--filter', 'nmae=Ada Byron');
+		assert.equal(res.code, 1, `answered at exit 0:\n${res.stdout}`);
+		assert.match(res.stderr, /people has no field "nmae" — did you mean "name"\?/);
+	});
+
+	test('--sort on a field that does not exist is refused, not answered unsorted', () => {
+		const res = ws.dt('list', 'people', '--sort', '-nmae');
+		assert.equal(res.code, 1, `answered at exit 0:\n${res.stdout}`);
+		assert.match(res.stderr, /people has no field "nmae"/);
+	});
+
+	test('--where that yaml-parses to a STRING is refused, not matched against every row', () => {
+		const res = ws.dt('list', 'people', '--where', 'name _eq Ada');
+		assert.equal(res.code, 1, `matched every row at exit 0:\n${res.stdout}`);
+		assert.match(res.stderr, /--where takes ONE filter OBJECT and got a string/);
+	});
+
+	test('a bare --limit is refused rather than silently truncating to one value', () => {
+		const res = ws.dt('values', 'people', 'name', '--limit');
+		assert.equal(res.code, 1, `truncated to Number(true) === 1 and claimed "showing 1":\n${res.stdout}`);
+		assert.match(res.stderr, /--limit needs a number/);
+	});
+
+	test('the legitimate spellings all still work', () => {
+		assert.equal(ws.dt('list', 'people', '--filter', 'name=Ada Byron').code, 0);
+		assert.equal(ws.dt('list', 'people', '--sort', '-name').code, 0);
+		assert.equal(ws.dt('list', 'people', '--filter', 'id=ada-byron').code, 0);
+		assert.equal(ws.dt('values', 'people', 'name', '--limit', '5').code, 0);
+	});
+});
+
+describe('the workspace verbs refuse an unknown flag too', () => {
+	// ⚠ THE WORST INSTANCE FOUND: `dt commit --dryrun` COMMITTED FOR REAL and unscoped, exit 0 —
+	// `rest.includes('--dry-run')` is false for a flag nobody typed correctly, so an operator
+	// checking what a commit would sweep instead published every pending record, including whatever
+	// another session was holding.
+	test('commit --dryrun does not commit', () => {
+		const ws = twoModuleWorkspace();
+		ws.store.add('people', { name: 'Ada Byron' });
+		const head = ws.git(['rev-parse', 'HEAD']);
+
+		const res = ws.dt('commit', '--dryrun');
+		assert.equal(res.code, 1, `COMMITTED:\n${res.stdout}`);
+		assert.match(res.stderr, /unknown flag "--dryrun"/);
+		assert.match(res.stderr, /--dry-run/);
+		assert.equal(ws.git(['rev-parse', 'HEAD']), head, 'the typo published everything pending');
+		assert.match(ws.dt('commit', '--dry-run').stdout, /dry run|people/);
+	});
+
+	for (const [verb, flag] of [['check', '--jsno'], ['status', '--verbose'], ['compile', '--wathc'], ['changes', '--sicne']]) {
+		test(`${verb} ${flag} is refused`, () => {
+			const ws = twoModuleWorkspace();
+			const res = ws.dt(verb, flag);
+			assert.equal(res.code, 1, res.stdout);
+			assert.match(res.stderr, new RegExp(`unknown flag "${flag}"`));
+		});
+	}
+});
+
+describe('a system `set` is refused where `check` would reject what it wrote', () => {
+	// ⚠ THE ENGINE WAS DISAGREEING WITH ITSELF: this wrote the typo, compiled, SELF-COMMITTED, and
+	// then `dt check` failed on the very workspace the self-commit exists to keep valid. The
+	// descriptor declares a closed set of properties, so it is the authority — and both siblings
+	// (`set collections/…`, `set modules/…`) already read this way.
+	test('a misspelled frontmatter key on a skill is refused before it is committed', () => {
+		const ws = twoModuleWorkspace();
+		assert.equal(ws.dt('add', 'skills', '--name', 'tmpskill', '--description', 'A scratch skill.').code, 0);
+		const head = ws.git(['rev-parse', 'HEAD']);
+
+		const res = ws.dt('set', 'skills/tmpskill', 'descripton=oops');
+		assert.equal(res.code, 1, res.stdout);
+		assert.match(res.stderr, /"descripton" is not a settable key of skills/);
+		assert.match(res.stderr, /declared: name, description/);
+		assert.equal(ws.git(['rev-parse', 'HEAD']), head);
+		assert.match(ws.dt('check').stdout, /0 violations/);
+	});
+
+	test('the declared keys still set', () => {
+		const ws = twoModuleWorkspace();
+		assert.equal(ws.dt('add', 'skills', '--name', 'tmpskill', '--description', 'A scratch skill.').code, 0);
+		const res = ws.dt('set', 'skills/tmpskill', 'description=When a scratch skill is wanted.');
+		assert.equal(res.code, 0, res.stderr);
+		assert.match(readFile(ws.root, 'modules/default/skills/tmpskill/SKILL.md'), /When a scratch skill is wanted/);
 	});
 });
