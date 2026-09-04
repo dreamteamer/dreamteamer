@@ -190,6 +190,38 @@ workspace into gitignored `test/.perf/`, times the operation and prints; a timin
 machine that took it, so it asserts nothing and never gates a build. `--records=N` sets the scale,
 and generation is timed too because N writes through the real Store is the write path's own number.
 
+## IMPORTANT — a FEATURE is not done until the suite would fail without it, and a RELEASE is not made until the suite has been RUN
+
+A standing rule, not a note about one release. Four parts:
+
+- **Every new feature or fixed defect ships its test in the SAME commit.** The assertion must pin the
+  BEHAVIOUR promised, not that the code path is reachable. A suite can be green and worthless.
+- **A design doc or plan that adds a capability NAMES the assertion that will prove it**, per
+  capability. Reviewing a design is the cheapest moment to notice a promise nothing can falsify.
+- **Every escaped defect earns a regression test BEFORE or WITH its fix**, and that test must FAIL
+  against the released build. "Fixed" with no test that would have caught it ships the defect again.
+- **Before a release: run `npm run verify` (layers + metrics:check + tests) and QUOTE ITS EXIT CODE.**
+  ⚠ Read the exit code, never a `# pass` grep — a grep reports green on a red suite. A check the
+  suite cannot express is itself the defect: extend the harness rather than ship the gap.
+
+⚠ **Why this is written here. 0.19.0 (2026-09-04) shipped with defects a three-command walk found.**
+The release was clean by every instrument: `npm test` 892/892 exit 0, `layers` and `metrics:check`
+green, every CI step green, npm serving it. Then walking the flow the release exists FOR —
+`add modules` → `add collections --module` → `add-field` — surfaced two: `dt add modules --namespace hr`
+**silently ignores the flag** (the module ships `"dreamteamer": {}`, the manifest keeps
+`namespaces: []`, the next collection gets no prefix, nothing errors), and **the CLI accepts ANY
+unknown flag without complaint**, which is what let the first one hide.
+
+The suite asserted that `help` LISTS every verb and that each one dispatches. **Nothing asserted that a
+flag is HONOURED.** So a whole class — the arg parser silently swallowing what it does not recognise —
+had no coverage at all, and two features' worth of promises went out unexercised.
+
+**The lesson to keep: verifying the pipeline is not verifying the thing.** Green tests, green gates and
+a green publish prove the release mechanism worked. They say nothing about whether the feature does what
+its spec says. Walk the user's actual flow before calling a release good — and when that walk finds
+something, the suite was incomplete by definition, so the fix is two commits' worth of work: the
+behaviour, and the assertion that would have caught it.
+
 ## IMPORTANT — the record/workspace split is enforced, and it is NOT two packages
 
 The engine has two halves and the edge between them goes ONE way. `npm run layers` prints the graph
