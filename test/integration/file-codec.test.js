@@ -166,7 +166,7 @@ describe('the other verbs', () => {
 	test('rm removes the one file whatever its extension', () => {
 		const ws = base();
 		ws.dt('add', 'files', 'logos/acme', '--from', source('x.svg', '<svg/>'));
-		assert.equal(ws.dt('rm', 'files/logos/acme', '--yes').code, 0);
+		assert.equal(ws.dt('rm', 'files/logos/acme').code, 0);
 		assert.ok(!fs.existsSync(path.join(ws.root, 'data/files/logos/acme.bin.svg')));
 	});
 
@@ -185,8 +185,8 @@ describe('the other verbs', () => {
 		assert.match(checkOut(ws), /✔ 0 violations/);
 		// …and rm protects it like any other referenced record, leaving a dangling reference only
 		// when forced — the SAME generic rules, with nothing about files special-cased into them.
-		assert.match(ws.dt('rm', 'files/logos/acme', '--yes').stderr, /referenced by/);
-		ws.dt('rm', 'files/logos/acme', '--yes', '--force');
+		assert.match(ws.dt('rm', 'files/logos/acme').stderr, /referenced by/);
+		ws.dt('rm', 'files/logos/acme', '--force');
 		assert.match(checkOut(ws), /dangling reference "files\/logos\/acme"/);
 	});
 });

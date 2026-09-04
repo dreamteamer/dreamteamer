@@ -192,9 +192,23 @@ const EITHER_VERBS = new Set(['move', 'commands']);
 // verbs, and `collectionCommand`'s interceptors are the whole dispatch (§4).
 const FIELD_VERBS = ['add-field', 'update-field', 'remove-field', 'rename-field'];
 
+// WORKSPACE VERBS take a closed set of options, and nothing downstream of here would notice a
+// misspelling — `dt commit --dryrun` COMMITTED, because `rest.includes('--dry-run')` is false for a
+// flag nobody typed correctly. The record/system/field verbs are checked in `collections-cli.js`,
+// beside the parser they share; these nine have no shared parser, so the table is here.
+const WORKSPACE_FLAGS = {
+	init: ['name', 'data-path', 'harnesses', 'workspace-module'], install: ['clone'], update: [],
+	start: ['port'], compile: ['watch'], check: [], status: [],
+	changes: ['since', 'json'], commit: ['dry-run', 'json'],
+};
+
 export function run(argv) {
 	const [cmd, ...rest] = argv;
 	try {
+		if (cmd in WORKSPACE_FLAGS) {
+			const bad = rest.filter((a) => a.startsWith('--')).map((a) => a.slice(2).split('=')[0]).find((f) => !WORKSPACE_FLAGS[cmd].includes(f));
+			if (bad) throw new Error(`unknown flag "--${bad}" on \`dt ${cmd}\`\n  known: ${WORKSPACE_FLAGS[cmd].map((f) => `--${f}`).join(', ') || '(none — this verb takes no flags)'}`);
+		}
 		if (cmd === '--version' || cmd === '-v' || cmd === 'version') {
 			// works OUTSIDE a workspace — the post-install "did it land?" affordance
 			const p = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));

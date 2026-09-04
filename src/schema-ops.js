@@ -98,6 +98,22 @@ function writeGated(ws, store, files, subject, mutate, after, { commentsMayDecre
 				throw e;
 			}
 		}
+		// ⚠ A WRITE THAT CHANGED NO BYTES MUST NOT REACH `git commit`. `git commit` on an empty index
+		// exits NON-ZERO, so the catch below read a successful no-op as a failed op and reported
+		// `✖ git commit failed — the schema change was rolled back` with the raw git command appended,
+		// at exit 1 — for `dt set collections/people description=<the value it already has>`, which
+		// asked for nothing and got nothing. Every sibling verb already has the graceful spelling
+		// ("already named that, nothing to do"), and the documented namespace cleanup path
+		// (`dt set modules/<m> namespaces=<ns>` where it is already declared) ran straight into it.
+		//
+		// Compared as BYTES, after the gate compile: an op whose mutation is a re-serialization can
+		// produce an identical file, and "identical" is the only definition of no-op the caller can
+		// act on.
+		const moved = snapshots.some(({ f, prev }) => {
+			const now = fs.existsSync(f) ? fs.readFileSync(f) : null;
+			return now === null ? prev !== null : prev === null || !now.equals(prev);
+		});
+		if (!moved && !extra.files.length) return { ...extra, commits: [], unchanged: true };
 		const rels = [...files, ...extra.files].map((f) => path.relative(ws.root, f));
 		// Schema ops commit UNCONDITIONALLY — `auto-commit` governs RECORD writes only. A source
 		// change is inseparable from the compile that validated it, and `dt commit` scopes itself
@@ -240,7 +256,7 @@ function editWorkspacePkg(ws, mutate) {
 	return file;
 }
 
-export function createModule(ws, store, { name, description }) {
+export function createModule(ws, store, { name, description, namespace }) {
 	if (!name || name === true) throw new Error('missing module name — dreamteamer add modules --name <id>');
 	if (!MODULE_ID.test(name)) {
 		throw new Error(`invalid module id "${name}" — lowercase alphanumeric with single hyphens. It becomes a folder name, a package name and a record id at once, so there is only one spelling.`);
@@ -253,6 +269,23 @@ export function createModule(ws, store, { name, description }) {
 
 	const dt = {};
 	if (typeof description === 'string' && description) dt.description = description;
+	// §6.2: `--namespace hr` DECLARES THE NAMESPACE IN THE MODULE, which is the whole point of §8 —
+	// the workspace's effective set is the union of what its modules declare, so a module that owns a
+	// namespace can be copied alone into a bare workspace and still compile.
+	//
+	// ⚠ It used to be dropped on the floor. `dt add modules --name hr --namespace hr` reported ✔,
+	// shipped `"dreamteamer": {}`, left the manifest's `namespaces: []`, and the next
+	// `add collections --module hr` then created an UNPREFIXED collection — four steps of silence
+	// behind one accepted-and-ignored flag. Normalized here rather than trusted: a leading or
+	// trailing slash in a declaration re-splits every reference under it.
+	const ns = typeof namespace === 'string' ? namespace.replace(/^\/+|\/+$/g, '') : '';
+	if (ns) {
+		const owner = moduleRows(store).find((r) => normalizeNamespaces(r.fields.namespaces).includes(ns));
+		// compile refuses two declarations of one namespace, and refusing it HERE names the verb that
+		// fixes it instead of rolling a created module back over a compile error.
+		if (owner) throw new Error(`namespace "${ns}" is already declared by ${owner.id} — one owner. Remove it there first (dt set modules/${owner.id} namespaces=…), or pick another namespace.`);
+		dt.namespaces = [ns];
+	}
 	// `files` is the npm publish surface: every kind a module CAN ship, so a kind added to the engine
 	// does not silently stop being packaged.
 	const mpkg = { name, private: true, version: '0.0.1', files: [...KINDS], dreamteamer: dt };
@@ -272,7 +305,7 @@ export function createModule(ws, store, { name, description }) {
 		},
 		undo: () => fs.rmSync(root, { recursive: true, force: true }),
 	});
-	return { id: name, root: path.relative(ws.root, root), file: pkgFile, commits: out.commits };
+	return { id: name, root: path.relative(ws.root, root), file: pkgFile, namespace: ns || null, commits: out.commits };
 }
 
 /** The settable fields of a `modules` record, and how each translates from the record-shaped value
@@ -338,7 +371,7 @@ export function setModule(ws, store, id, changes) {
 			});
 		}
 	}, undefined, { commentsMayDecrease: true });
-	return { id, file, changed, commits: gate.commits };
+	return { id, file, changed, commits: gate.commits, unchanged: gate.unchanged };
 }
 
 export function removeModule(ws, store, id, { force = false, dryRun = false } = {}) {
@@ -755,6 +788,15 @@ export function setCollectionScalars(ws, store, name, changes, { moduleId } = {}
 			throw new Error(`${key}: ${collectionMissingFields(name, missing)} — declare it first (dreamteamer add-field ${name} --name ${missing[0]} --type <t>).`);
 		}
 	}
+	// ⚠ NAMED, not resolved to an overlay. `collectionSourceFile` falls back to a workspace-module
+	// path for a base it cannot write, which is right for `add-field` (an overlay IS the remedy) and
+	// wrong here: a collection-level scalar has no overlay spelling, so the fallback produced
+	// `modules/default/collections/repos.collection.yaml is not on disk — run compile and re-run`,
+	// and compiling will never help. `rm` and `rename` already say the true sentence.
+	const owned = baseDescriptorSource(ws, name).base;
+	if (owned && IN_NODE_MODULES(owned)) {
+		throw new Error(`"${name}" ships from node_modules (${owned}) — a write there is erased by the next \`npm install\`, and a collection-level scalar has no overlay spelling. Add "<module>/${name}" to dreamteamer.disable and declare your own instead.`);
+	}
 	const { file } = collectionSourceFile(ws, store, name, moduleId, { subject: name });
 	if (!fs.existsSync(file)) throw new Error(`${path.relative(ws.root, file)} is not on disk — run \`dreamteamer compile\` and re-run.`);
 	const previousText = fs.readFileSync(file, 'utf8');
@@ -770,7 +812,7 @@ export function setCollectionScalars(ws, store, name, changes, { moduleId } = {}
 		}
 		fs.writeFileSync(file, writeSource(previousText, doc));
 	});
-	return { name, file, changed, commits: gate.commits };
+	return { name, file, changed, commits: gate.commits, unchanged: gate.unchanged };
 }
 
 // ---- rename-field ------------------------------------------------------------------------------
@@ -965,10 +1007,19 @@ export function renameField(ws, store, collection, from, to, { moduleId, dryRun 
 						if (String(doc.collection ?? '') !== `collections/${collection}`) continue;
 						const keys = kind === 'ui-views' ? ['filter'] : ['can-enter', 'can-exit'];
 						let changed = false;
-						if (Array.isArray(doc.options?.columns) && doc.options.columns.includes(from)) {
-							doc.options.columns = doc.options.columns.map((c) => (c === from ? to : c));
+						// The field-name LISTS: `columns` is honoured by every layout, `ref_fields` and
+						// `value_fields` are the diagram's link-by pickers. Same vocabulary `list_fields` uses.
+						for (const key of ['columns', 'ref_fields', 'value_fields']) {
+							if (!Array.isArray(doc.options?.[key]) || !doc.options[key].includes(from)) continue;
+							doc.options[key] = doc.options[key].map((c) => (c === from ? to : c));
 							changed = true;
 						}
+						// ⚠ AND `options.sort`, which is a field name with an optional `-` in front of it. It
+						// was the one §3.2 surface the rename missed, and the miss is invisible: `dt check`
+						// reports 0 violations for a view sorting on a field that no longer exists, so the
+						// listing silently falls back to an arbitrary order.
+						const sorted = /^(-?)(.+)$/.exec(typeof doc.options?.sort === 'string' ? doc.options.sort : '');
+						if (sorted && sorted[2] === from) { doc.options.sort = sorted[1] + to; changed = true; }
 						for (const key of keys) if (rewriteFilterField(doc[key], from, to)) changed = true;
 						if (!changed) continue;
 						const after = writeSource(before, doc);
@@ -2309,9 +2360,17 @@ function uiViewSourceFile(ws, id) {
 // saved views (M3): a studio-saved view IS a ui-view record — but ui-views are
 // system-stored (sources + compile), so the write goes through the same gate as any
 // other schema op. the studio "save view" button lands here.
-export function saveUiView(ws, store, { id, view }) {
+export function saveUiView(ws, store, { id, view, moduleId }) {
 	if (!id || !/^[a-z0-9][a-z0-9-/]*$/.test(id)) throw new Error(`invalid ui-view id "${id}" — lowercase slug required`);
-	const { file: dest, shipped } = uiViewSourceFile(ws, id);
+	// §5: `add` on a system collection takes `--module`. It used to be dropped by the parser and then
+	// assigned into the VIEW as a field called `module` — `dt add ui-views … --module core` wrote
+	// `module: core` into the yaml, compiled clean, and self-committed a workspace only `dt check`
+	// would later object to. An explicit target module resolves the destination; without one the
+	// manifest answers (an existing view is edited where it lives), and the workspace module is the
+	// fallback for a new one.
+	const { file: dest, shipped } = moduleId
+		? { file: path.join(kindDir(path.join(ws.root, moduleRecord(store, moduleId).fields.path), 'ui-views'), `${id}.ui-view.yaml`), shipped: null }
+		: uiViewSourceFile(ws, id);
 	if (shipped && /(^|\/)node_modules\//.test(shipped))
 		throw new Error(`ui-view "${id}" is shipped by an installed package (${shipped}) — a write there is erased by the next npm install.\n  save it under a different name, or disable it (dreamteamer.disable) and re-create it.`);
 	const existed = fs.existsSync(dest);
@@ -2325,7 +2384,7 @@ export function saveUiView(ws, store, { id, view }) {
 		fs.mkdirSync(path.dirname(dest), { recursive: true });
 		fs.writeFileSync(dest, writeSource(previous, view));
 	}, undefined, { commentsMayDecrease: true });
-	return { id, file: dest, updated: existed, commits: gate.commits };
+	return { id, file: dest, updated: existed, commits: gate.commits, unchanged: gate.unchanged };
 }
 
 export function removeUiView(ws, store, id) {
@@ -2740,7 +2799,7 @@ export function setEntityFrontmatter(ws, store, kind, id, changes) {
 			fs.writeFileSync(target, text);
 		}
 	}, undefined, { commentsMayDecrease: true });
-	return { id, file: target, changed, commits: gate.commits };
+	return { id, file: target, changed, commits: gate.commits, unchanged: gate.unchanged };
 }
 
 /**
