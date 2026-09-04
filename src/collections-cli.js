@@ -138,6 +138,17 @@ export function collectionCommand(ws, collection, verb, args) {
 			// panel that produced that JSON cannot disagree about which records match.
 			const whereJson = oneValue(flags, 'where');
 			const where = whereJson ? load(whereJson) : null;
+			// ⚠ A FLAG NAME IS NOT THE ONLY THING THAT CAN BE MISSPELLED. `--filter nmae=Ada` and
+			// `--sort nmae` are correctly spelled FLAGS whose VALUE names a field that does not exist,
+			// and both answer at exit 0 — an empty listing and an unsorted one. Same silent-empty class,
+			// worse than a bad write because there is nothing to notice. `--where` gets the type check
+			// for the same reason: `--where 'name _eq Ada'` yaml-parses to a STRING, and matchesFilter
+			// then matched every row.
+			if (whereJson && (typeof where !== 'object' || where === null)) throw new Error(`--where takes ONE filter OBJECT and got a ${where === null ? 'null' : typeof where}: ${whereJson}\n  a condition is {"<field>":{"_eq":"<value>"}} — the shorthand for one equality is --filter <field>=<value>`);
+			const sort = oneValue(flags, 'sort');
+			const vocab = ['id', ...Object.keys(d.schema?.properties ?? {})];
+			const stray = [...filters.map(([k]) => k), ...(sort ? [String(sort).replace(/^-/, '')] : [])].find((f) => !vocab.includes(f));
+			if (stray) throw new Error(`${collection} has no field "${stray}"${nearest(stray, vocab) ? ` — did you mean "${nearest(stray, vocab)}"?` : ''} (dt get collections/${collection} lists them)`);
 			const resolve = where ? recordResolver(store) : null;
 			const bf = bodyField(d);
 			const rows = [];
@@ -150,7 +161,6 @@ export function collectionCommand(ws, collection, verb, args) {
 			// sorting was studio-only until now: the browse table ordered records and no CLI
 			// invocation could. Same `sortRows` the server and api.ts call, so `--sort -starts`
 			// orders date-times by INSTANT across mixed offsets rather than by string.
-			const sort = oneValue(flags, 'sort');
 			if (sort) sortRows(rows, sort);
 			if (flags.json) { emit(JSON.stringify(rows, null, 2)); return 0; }
 			const cols = ['id', ...(d.list_fields ?? []).filter((c) => c !== 'id')];
@@ -242,9 +252,11 @@ export function collectionCommand(ws, collection, verb, args) {
 		// no enum describes (operator: "still no dropdown for many things, visibility, status").
 		case 'values': {
 			const field = need(pos, 0, 'field');
-			const out = distinctValues(store, collection, field, {
-				limit: flags.limit === undefined ? undefined : Number(flags.limit),
-			});
+			// ⚠ A BARE `--limit` parses as the boolean `true`, and `Number(true)` is 1 — so it
+			// truncated the vocabulary to one value while the footer claimed "showing 1", which reads
+			// as a fact about the collection. Refused, in `--drop`'s words.
+			if ('limit' in flags && !Number.isFinite(Number(oneValue(flags, 'limit')))) throw new Error(`--limit needs a number: dreamteamer values ${collection} ${field} --limit 20`);
+			const out = distinctValues(store, collection, field, { limit: flags.limit === undefined ? undefined : Number(flags.limit) });
 			if (flags.json) { emit(JSON.stringify(out, null, 2)); return 0; }
 			if (out.skipped) { console.log(`(${collection}.${field} is a ${out.skipped} field — no value vocabulary)`); return 0; }
 			if (!out.values.length) { console.log(`(no values set on ${collection}.${field})`); return 0; }
@@ -396,30 +408,24 @@ function metaModulesSet(ws, store, flags, pos) {
  *  KINDS so the sentence cannot go stale against the list it describes. */
 const KIND_COUNT = KINDS.length;
 
-/** The plan line every destructive verb prints, one shape: `records N · refs M · descriptors K ·
- *  values cleared V`. ONE format, because a reader comparing two dry runs must not have to work out
- *  whether a missing term means zero or means "this verb does not count that". */
-function planLine(plan) {
-	return `  records ${plan.records ?? 0} · refs ${plan.refs ?? 0} · descriptors ${plan.descriptors ?? 0} · values cleared ${plan.cleared ?? 0}`;
-}
-
 /**
- * `--dry-run` on a `rm`, for the four spellings that DOCUMENTED it and executed anyway.
+ * THE ONE PLAN PRINTER, for every verb that moves records or clears values — one shape, `records N ·
+ * refs M · descriptors K · values cleared V`, because a reader comparing two dry runs must not have
+ * to work out whether a missing term means zero or means "this verb does not count that".
  *
- * ⚠ THE DEFECT THIS CLOSES WAS DATA LOSS, and the self-commit made it durable: `dt rm
- * collections/widgets --dry-run --force` printed "✔ removed collection widgets", deleted the source
- * and committed it, at exit 0, against a `dt help` that spells `rm <system>/<id> [--force]
- * [--dry-run]` verbatim. `rm modules/<id>` was the ONE spelling that honoured it. A flag a verb
- * advertises and ignores is worse than one it does not have — the operator's whole reason for
- * typing it is that they are not sure yet.
+ * ⚠ FOUR OF THE SIX SPELLINGS DOCUMENTED `--dry-run` AND EXECUTED ANYWAY, and the self-commit made
+ * it durable: `dt rm collections/widgets --dry-run --force` printed "✔ removed collection widgets",
+ * deleted the source and committed it, at exit 0, against a `dt help` that spells `rm <system>/<id>
+ * [--force] [--dry-run]` verbatim. `rm modules/<id>` was the ONE that honoured it. A flag a verb
+ * advertises and ignores is worse than one it does not have — the operator's whole reason for typing
+ * it is that they are not sure yet.
  *
- * The plan is deliberately the same `planLine` shape every other destructive verb prints, and it
- * counts only what it can count without doing the op — an unmeasured term is stated as such rather
- * than guessed at, per `rename collections`' dry run.
+ * It counts only what it can count WITHOUT doing the op; an unmeasured term is stated as such in
+ * `extra` rather than guessed at, per `rename collections`' dry run.
  */
 function dryRunPlan(what, plan, extra) {
 	console.log(`dry run — dreamteamer ${what} would:`);
-	console.log(planLine(plan));
+	console.log(`  records ${plan.records ?? 0} · refs ${plan.refs ?? 0} · descriptors ${plan.descriptors ?? 0} · values cleared ${plan.cleared ?? 0}`);
 	for (const line of extra ?? []) if (line) console.log(`  ${line}`);
 	return 0;
 }
@@ -775,8 +781,7 @@ function sourceHintFor(store, collection) {
 	// `modules/*/modules/`, which `git ls-files` matches nothing at all — a correct refusal handing
 	// over an unusable remedy.
 	if (collection === 'modules') return 'modules/*/package.json';
-	const d = store.descriptors.get(collection);
-	return d?.storage?.path ? `modules/*/${d.storage.path}/` : `modules/*/${collection}/`;
+	return `modules/*/${store.descriptors.get(collection)?.storage?.path ?? collection}/`;
 }
 
 // `dreamteamer rename-field people --name employer --to company`
@@ -1198,7 +1203,7 @@ const JSON_ONLY = ['json'];
 const FORCE_RM = ['json', 'force', 'dry-run'];
 const NAV_MOVE = ['json', 'after', 'before', 'top', 'bottom'];
 
-const VERB_FLAGS = {
+export const VERB_FLAGS = {
 	list: ['json', 'filter', 'where', 'sort'], get: JSON_ONLY, add: ['json', 'id', 'from', 'force'], set: JSON_ONLY,
 	rm: FORCE_RM, rename: JSON_ONLY, move: [...NAV_MOVE, 'init'], values: ['json', 'limit'],
 	history: JSON_ONLY, diff: ['json', 'hash'], revert: ['json', 'hash'],
@@ -1231,19 +1236,19 @@ function nearest(word, candidates) {
 		return prev[word.length];
 	};
 	const cap = Math.min(3, Math.ceil(word.length / 2));
-	return candidates.map((c) => [c, distance(c)]).filter(([, n]) => n < cap).sort((a, b) => a[1] - b[1])[0]?.[0] ?? null;
+	return candidates.map((c) => [c, distance(c)]).filter(([, n]) => n <= cap).sort((a, b) => a[1] - b[1])[0]?.[0] ?? null;
 }
 
 function refuseUnknownFlags(store, collection, verb, flags) {
 	const d = store.descriptors.get(collection);
 	const known = VERB_FLAGS[`${collection}:${verb}`]
-		?? (ENTITY_KINDS.has(collection) ? (verb === 'add' ? VERB_FLAGS['skills:add'] : verb === 'set' ? null : VERB_FLAGS[verb]) : VERB_FLAGS[verb]);
+		?? (ENTITY_KINDS.has(collection) && verb === 'add' ? VERB_FLAGS['skills:add'] : VERB_FLAGS[verb]);
 	if (!known) return; // no declared vocabulary — left exactly as it was rather than guessed at
-	// The OPEN half: a data collection's own fields (shorthand filters and field writes), and a
-	// ui-view's own keys (`--layout`, `--target`, and dotted `options.sort`).
+	// The OPEN half: a data collection's own fields (shorthand filters and field writes), and the
+	// declared keys of an entity `set` writes (`--layout` on a view, and dotted `options.sort`).
 	const system = d?.storage?.base === 'runtime';
-	const openOf = !system && ['list', 'add', 'set'].includes(verb) ? `field of ${collection}`
-		: collection === 'ui-views' && verb !== 'rm' ? 'key of a ui-view' : null;
+	const openOf = !system ? (['list', 'add', 'set'].includes(verb) ? `field of ${collection}` : null)
+		: (collection === 'ui-views' && verb !== 'rm') || (ENTITY_KINDS.has(collection) && verb === 'set') ? `declared key of ${collection}` : null;
 	const open = openOf ? Object.keys(d?.schema?.properties ?? {}) : [];
 	const allowed = new Set([...known, ...open]);
 	for (const f of Object.keys(flags)) {
@@ -1256,8 +1261,10 @@ function refuseUnknownFlags(store, collection, verb, flags) {
 	// of them means a list by repetition), so the same table that says which flags exist says which
 	// verbs the rule applies to: everything with a closed vocabulary EXCEPT the open halves, where a
 	// repeat legitimately composes (`--filter a=1 --filter b=2`, `--tags a --tags b`). `ui-views`
-	// keeps its own message, which names both spellings of the fix.
-	if (openOf || collection === 'ui-views') return;
+	// keeps its own message, which names both spellings of the fix. ⚠ THE FIELD VERBS COUNT AS SCHEMA
+	// VERBS EVEN THOUGH THEIR TARGET IS A DATA COLLECTION — `add-field notes --name x --name y` is the
+	// case the old helper was written for, and keying the rule on the target alone excused it.
+	if (collection === 'ui-views' || (!system && !verb.endsWith('-field'))) return;
 	const dup = Object.entries(flags).find(([, v]) => Array.isArray(v));
 	if (dup) throw new Error(`--${dup[0]} was given ${dup[1].length} times, and a schema verb takes ONE value per flag: ${dup[1].map((x) => `--${dup[0]} ${x}`).join(' ')}`);
 }
