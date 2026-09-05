@@ -379,7 +379,9 @@ describe('the orientation block names the workspace', () => {
 		const n = block.split('\n').length;
 		// 32 → 34 on 2026-09-05: the two `write:` lines for `notes` (required title) and `repos`
 		// (required name · url; visibility enum(2)) — the clause that keeps a first write from bouncing.
-		assert.ok(n <= 34, `virgin orientation block is ${n} lines, budget 34`);
+		// 34 → 36 the same day: two header lines stating that line's convention (required = required
+		// WITHOUT a default), because a blind reader took it for the descriptor's `required:` list.
+		assert.ok(n <= 36, `virgin orientation block is ${n} lines, budget 36`);
 	});
 });
 
@@ -831,8 +833,10 @@ describe('the orientation block is grouped by module', () => {
 				notes: { type: 'string', format: 'markdown', 'x-body': true },
 			} },
 		}) } });
-		assert.match(blockOf(ws), /^- widgets — a widget\n {4}write: required name · kind; kind enum\(40\) · stage enum\(2\); e\.g\. tags='area:finance'$/m,
+		const block = blockOf(ws);
+		assert.match(block, /^- widgets — a widget\n {4}write: required name · kind; kind enum\(40\) · stage enum\(2\); e\.g\. tags='area:finance'$/m,
 			'a required field WITH a default never refuses, so it is not listed');
+		assert.match(block, /`write:` line names only what the store REFUSES — required fields that have no\ndefault/, 'the convention is stated where the line is read, not left to be inferred');
 	});
 
 	test('a collection nothing can refuse renders no write line', () => {

@@ -244,7 +244,9 @@ function collectionsSection(index, modules, workspaceModule) {
 		'read its skills before working in its area. The descriptor at',
 		'`.dreamteamer/collections/<name>.collection.yaml` is the authority on fields, id shape and',
 		'defaults — read it before writing a kind you have not written this session. Create records',
-		'with `dt add <collection>`: it generates the id and rejects invalid writes before disk.',
+		'with `dt add <collection>`: it generates the id and rejects invalid writes before disk. A',
+		'collection\'s `write:` line names only what the store REFUSES — required fields that have no',
+		'default (a defaulted one is filled in for you), closed enums with their size, one example.',
 	];
 	const data = index.filter((c) => !c.system);
 	const isWs = (m) => m.path === `modules/${workspaceModule}/`;
