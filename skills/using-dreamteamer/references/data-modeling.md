@@ -445,14 +445,18 @@ reach for it* · *what does this value mean*. So:
   from elsewhere, and states the convention an agent must follow ("empty means unmatched — the
   matching command's queue").
 - A field whose valid value has a non-obvious SHAPE carries an `examples:` annotation — standard
-  JSON Schema, passed through to the compiled descriptor unchanged — so the canonical value lives
-  in the contract, not in whichever record a writer happens to open. Two or three, real-looking
+  JSON Schema, passed through to the compiled descriptor unchanged, and its first value rendered
+  into the collection's `write:` line in the orientation block beside the required fields and closed
+  enums — so the canonical value lives in the contract, not in whichever record a writer happens to
+  open, and a session sees it before its first write. Two or three, real-looking
   and synthetic: a `${env:…}` path template, a `key:value` tag, an RRULE, a composite id.
 - Descriptions are the cheapest UX in the system: the same line is the tooltip in every surface,
   the agent's guidance, and the future maintainer's note. Budget a real sentence per field.
 - Compile WARNS on a module, collection or collection-template with no description — each renders
-  as a bare name in the block otherwise. It does not warn on a missing `use_when`, because it cannot
-  tell a considered omission from a forgotten one; that judgement is yours, per collection.
+  as a bare name in the block otherwise — and on a `use_when` that restates its description (content
+  words shared ≥ 0.5): name the situation, do not delete the clause. It does not warn on a missing
+  `use_when`, because it cannot tell a considered omission from a forgotten one; that judgement is
+  yours, per collection.
 
 ---
 

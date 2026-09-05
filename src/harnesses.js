@@ -152,9 +152,25 @@ function buildCollectionsIndex(entries) {
 			description: flat(d.description),
 			useWhen: flat(d.use_when),
 			module: d.module ?? '',
+			write: writeLine(d.schema),
 		});
 	}
 	return index.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** What can REFUSE a write, in one clause — nothing else about the fields. Required fields with no
+ *  default (the CLI materializes defaults, so those never refuse), closed enums with their size, and
+ *  the first `examples:` value where one is authored. A blind session's plan was correct until its
+ *  first `dt add`, which the store refused on a 100-value enum and a required field the block never
+ *  showed; the descriptor stays the authority, this is the line that keeps the first write from
+ *  bouncing. Empty string when there is nothing that refuses. */
+function writeLine(schema) {
+	const props = schema?.properties ?? {};
+	const required = (schema?.required ?? []).filter((f) => props[f] && props[f].default === undefined);
+	const enums = Object.entries(props).flatMap(([f, p]) => { const e = p?.enum ?? p?.items?.enum; return Array.isArray(e) && e.length ? [`${f} enum(${e.length})`] : []; });
+	const egs = Object.entries(props).flatMap(([f, p]) => Array.isArray(p?.examples) && p.examples.length ? [`${f}='${p.examples[0]}'`] : []);
+	const parts = [...(required.length ? [`required ${required.join(' · ')}`] : []), ...(enums.length ? [enums.join(' · ')] : []), ...(egs.length ? [`e.g. ${egs.join(', ')}`] : [])];
+	return parts.join('; ');
 }
 
 /** module id -> title / description / namespaces / source path, plus the skills and commands whose
@@ -169,7 +185,7 @@ function buildModulesIndex(entries) {
 		let d = {};
 		try { d = load(e.bytes.toString('utf8')) ?? {}; } catch { /* unparseable record */ }
 		const p = !d.path || d.path === '.' ? '' : `${d.path}/`;
-		mods.push({ id: m[1], title: d.title ?? m[1], description: flat(d.description), namespaces: d.namespaces ?? [], path: p, skills: [], commands: [] });
+		mods.push({ id: m[1], title: d.title ?? m[1], description: flat(d.description), namespaces: d.namespaces ?? [], path: p, bin: d.bin ?? [], skills: [], commands: [] });
 	}
 	mods.sort((a, b) => b.path.length - a.path.length); // longest prefix first
 	for (const [rt, e] of entries) {
@@ -233,16 +249,17 @@ function collectionsSection(index, modules, workspaceModule) {
 	const data = index.filter((c) => !c.system);
 	const isWs = (m) => m.path === `modules/${workspaceModule}/`;
 	const groups = modules
-		.filter((m) => { const own = index.filter((c) => c.module === m.id); return own.some((c) => !c.system) || (!own.length && (m.skills.length || m.commands.length)); })
+		.filter((m) => { const own = index.filter((c) => c.module === m.id); return own.some((c) => !c.system) || (!own.length && (m.skills.length || m.commands.length || m.bin.length)); })
 		.sort((a, b) => (isWs(b) - isWs(a)) || a.title.localeCompare(b.title));
 	for (const m of groups) {
 		const where = [`\`${m.id}\``, m.path ? m.path.replace(/\/$/, '') : 'the workspace root', ...(m.namespaces.length ? [`namespaces: ${m.namespaces.join(' · ')}`] : [])];
 		lines.push('', `**${m.title}** (${where.join(' · ')})${m.description ? ` — ${m.description}` : ''}`);
-		const ships = [...(m.skills.length ? [`skills: ${m.skills.join(' · ')}`] : []), ...(m.commands.length ? [`commands: ${m.commands.map((c) => `/${c}`).join(' · ')}`] : [])];
+		const ships = [...(m.skills.length ? [`skills: ${m.skills.join(' · ')}`] : []), ...(m.commands.length ? [`commands: ${m.commands.map((c) => `/${c}`).join(' · ')}`] : []), ...(m.bin.length ? [`runs: ${m.bin.join(' · ')}`] : [])];
 		if (ships.length) lines.push(`  ${ships.join(' · ')}`);
 		for (const c of data.filter((c) => c.module === m.id)) {
 			lines.push(`- ${c.name}${c.description ? ` — ${c.description}` : ''}`);
 			if (c.useWhen) lines.push(`    use when: ${c.useWhen}`);
+			if (c.write) lines.push(`    write: ${c.write}`);
 		}
 	}
 	const system = index.filter((c) => c.system).map((c) => c.name);

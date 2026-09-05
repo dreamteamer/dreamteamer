@@ -66,6 +66,15 @@ schema:
     path:
       type: string
       description: Workspace-relative root of the module's sources.
+    bin:
+      type: array
+      description: >-
+        The module's runnable entry points — every file under its `bin/`, module-relative, projected by
+        compile. Rendered into the orientation block beside the module's skills and commands as the
+        POINTER that a procedure is a script here (how to run it stays in the module's skill); a module
+        with no `bin/` has no field.
+      items:
+        type: string
     owns_data:
       type: boolean
       description: >-
