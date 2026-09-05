@@ -33,6 +33,7 @@ media/
 // output, which reads as a broken install. One starter collection answers both. `notes` is
 // deliberately the most generic thing a workspace can hold.
 const STARTER_COLLECTION = `name: notes
+description: A dated note — the starter collection init seeds, to rename or replace with what this workspace actually keeps.
 storage:
   path: data/notes
   codec: md
@@ -112,7 +113,11 @@ export function init({ flags = {} } = {}) {
 		if (!fs.existsSync(modulePkg)) {
 			// `files` is the npm publish surface: every kind a module can ship, since a new one here
 			// is an engine change that would otherwise silently stop being packaged.
-			fs.writeFileSync(modulePkg, JSON.stringify({ name: wm, private: true, version: '0.0.1', files: [...KINDS], dreamteamer: {} }, null, '\t') + '\n');
+			// `description` is npm's own key and the one compile falls back to for the module's sentence
+			// — the line that heads this module's group in the orientation block. Seeded so a fresh
+			// workspace does not open with a warning about the module init just made; the operator
+			// replaces it with what THIS workspace is for.
+			fs.writeFileSync(modulePkg, JSON.stringify({ name: wm, private: true, version: '0.0.1', description: "This workspace's own collections, skills and commands.", files: [...KINDS], dreamteamer: {} }, null, '\t') + '\n');
 		}
 	}
 	// one starter collection, so `compile` has something to report instead of warning about the

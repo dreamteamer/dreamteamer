@@ -900,6 +900,9 @@ export function compile({ root, pkg }) {
 		if (!m) continue;
 		const doc = loadSource(entry.bytes.toString('utf8'), entry.sources[0].path);
 		templateDocs.set(m[1], { template: doc?.template ?? {}, src: entry.sources[0] });
+		// The orientation block lists every template by its own sentence (harnesses.templatesSection);
+		// the engine's two shipped ones rendered as bare names for a month before anyone noticed.
+		if (!String(doc?.description ?? '').trim()) console.warn(`⚠ collection-template ${m[1]} has no description — it renders as a bare name in the orientation block every session loads`);
 	}
 
 	// ---- namespaces: the UNION of every module's declaration plus the workspace's (§8) ----------
@@ -1298,9 +1301,10 @@ export function compile({ root, pkg }) {
 		// rather than a heroic backfill pass, and the same shape as the per-missing-env-key warning:
 		// non-blocking, named per offender, so the gap converges instead of being rediscovered.
 		//
-		// ⚠ Deliberately NO equivalent warning for `use_when`. That field is optional and correct to
-		// omit on most collections — warning on it would invert its authoring test and manufacture a
-		// restatement of the description on every collection that does not need one.
+		// No equivalent warning for `use_when`, though the field is WANTED on most collections
+		// (data-modeling §18: a description says what a record IS, `use_when` says which situations
+		// should lead a session here). A warning cannot tell a considered omission from a forgotten
+		// one, and a manufactured restatement of the description is worse than an absent clause.
 		if (merged.storage.base !== 'runtime' && !String(merged.description ?? '').trim()) {
 			console.warn(`⚠ collection ${name} has no description — it renders as a bare name in the orientation block every session loads`);
 		}
@@ -1332,18 +1336,26 @@ export function compile({ root, pkg }) {
 	}
 	for (const source of sources) {
 		const id = moduleId(source.name);
-		let mpkg = {};
-		try { mpkg = JSON.parse(fs.readFileSync(path.join(source.root, 'package.json'), 'utf8')).dreamteamer ?? {}; } catch { /* inline workspace source */ }
+		let pkg = {};
+		try { pkg = JSON.parse(fs.readFileSync(path.join(source.root, 'package.json'), 'utf8')); } catch { /* inline workspace source */ }
+		const mpkg = pkg.dreamteamer ?? {};
+		// What this module is FOR, in one line. `dreamteamer.description` wins; npm's own top-level
+		// `description` is the fallback, because it is the one place a package author already writes
+		// that sentence — six modules on one dogfood workspace had authored it THERE and every
+		// `dt list modules` row read `-` for description. There is no derivation past that and there
+		// should not be: a module is the only place that knows.
+		const description = [mpkg.description, pkg.description].find((s) => typeof s === 'string' && s.trim());
+		// A module with no sentence renders as a bare title at the head of its section in the
+		// orientation block — the one place a session learns what an AREA of the workspace is for.
+		// Same shape as the per-collection warning: non-blocking, named per offender.
+		if (!description) console.warn(`⚠ module ${source.name} has no description — set "description" in its package.json; it heads its own section in the orientation block every session loads`);
 		const record = {
 			name: source.name,
 			// Authored wins; the derived fallback title-cases the id the same way a collection's
 			// `title` is derived. `@dreamteamer/crm` -> "Crm" until crm declares "CRM" — which is
 			// the point: the module is the only place that knows.
 			title: typeof mpkg.title === 'string' && mpkg.title ? mpkg.title : titleCase(id),
-			// What this module is FOR, in one line — authored as `dreamteamer.description` in its
-			// package.json. There is no derivation for it and there should not be: a module is the only
-			// place that knows, and an absent one renders as a bare name in every listing.
-			...(typeof mpkg.description === 'string' && mpkg.description ? { description: mpkg.description } : {}),
+			...(description ? { description } : {}),
 			// §8: the namespaces THIS module declares — projected from its package.json, so
 			// `dt list modules` answers "who owns hr?" without reading seven package.json files.
 			...(normalizeNamespaces(mpkg.namespaces).length ? { namespaces: normalizeNamespaces(mpkg.namespaces) } : {}),
@@ -1500,7 +1512,7 @@ export function compile({ root, pkg }) {
 	const anyFlat = sources.some((s) => KINDS.some((k) => fs.existsSync(path.join(s.root, k))));
 	const anyNested = sources.some((s) => KINDS.some((k) => fs.existsSync(path.join(s.root, 'system', k))));
 	const sourceLayout = anyFlat && anyNested ? 'mixed' : anyNested ? 'nested' : 'flat';
-	const { outputs: adapterOutputs, summary: harnessSummary } = runHarnessAdapters({ root, entries, harnesses, prevManifest, sourceLayout, namespaces, version: engineVer });
+	const { outputs: adapterOutputs, blocks: adapterBlocks, summary: harnessSummary } = runHarnessAdapters({ root, entries, harnesses, prevManifest, sourceLayout, namespaces, version: engineVer, workspaceModule: config['workspace-module'] ?? '' });
 
 	// ---- provenance manifest ------------------------------------------------------
 	const manifest = {
@@ -1535,6 +1547,9 @@ export function compile({ root, pkg }) {
 		})),
 		ui: uiModules.sort(),
 		'adapter-outputs': adapterOutputs.sort(),
+		// the root files whose managed BLOCK this compile rewrote — never pruned, but committed with a
+		// schema write so the block and the schema it names land together (schema-ops.regeneratedOutputs)
+		'adapter-blocks': adapterBlocks.sort(),
 		entries: Object.fromEntries(
 			[...entries].map(([rt, e]) => [rt, { sources: e.sources, hash: sha256(e.bytes) }]) // sources: [{path, hash}] — per-SOURCE hashes power staleness
 		),

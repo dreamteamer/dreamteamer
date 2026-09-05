@@ -1,26 +1,26 @@
 {
-	"measured": "2026-08-31",
-	"note": "Budgets are ceilings with ~10% headroom. Raising one is a deliberate act — do it in the same commit as the growth, and say why in the message.",
+	"measured": "2026-09-05",
+	"note": "Budgets are ceilings. code.total was raised 7000 \u2192 7100 on 2026-09-05 for the module-grouped orientation block (+44 lines, three questions answered in that commit) with ~50 lines of headroom, not 10%. Raising one is a deliberate act \u2014 do it in the same commit as the growth, and say why in the message.",
 	"code": {
-		"total": 5309,
-		"comments": 2781,
-		"decisions": 2054,
+		"total": 7044,
+		"comments": 3937,
+		"decisions": 2807,
 		"files": 29
 	},
 	"surface": {
 		"collections": 9,
 		"collection-templates": 2,
-		"skills": 2,
+		"skills": 1,
 		"agents": 1,
 		"ui-views": 0,
 		"commands": 0
 	},
 	"prose": {
-		"skill-lines": 2677,
-		"system-lines": 3183
+		"skill-lines": 2948,
+		"system-lines": 3528
 	},
 	"budgets": {
-		"code.total": 7000,
+		"code.total": 7100,
 		"code.decisions": 2900,
 		"surface.collections": 9,
 		"surface.skills": 2,

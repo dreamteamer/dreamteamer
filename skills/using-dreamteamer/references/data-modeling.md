@@ -420,23 +420,39 @@ step downstream.
 ### 18. Descriptions and `use_when` — the model is also the prompt
 
 In an agent-operated workspace, descriptor prose is not documentation; it is **retrieval surface**.
-Collection descriptions are compiled into the orientation block every session loads, and field
-descriptions are what an agent reads before writing a value. So:
+The orientation block every session loads is rendered from it, top-down: each **module's** sentence
+heads its group (with the namespaces, skills and commands it ships), each **collection's**
+`description` and `use_when` follow, and field descriptions are what an agent reads before writing a
+value. Three layers, three questions — *what is this area for* · *what is this thing, and when do I
+reach for it* · *what does this value mean*. So:
 
-- A collection's `description` carries the question it answers **and the neighbour it is NOT**:
+- A **module's** `description` (its package.json — `dreamteamer.description`, or npm's own
+  top-level `description`) says what the AREA is for and what it deliberately is not: the domain,
+  its boundary with a neighbouring module, anything a session must know before working in it
+  (private data, a machine-bound account). It is the top of the tree a session reads first.
+- A **collection's** `description` says what one record IS, and names the neighbour it is NOT:
   "the person, never the org — that is `companies`". Confusable pairs each point at the other.
-- A field's `description` says what the value MEANS, names the source when the value is copied
+- A collection's **`use_when`** names the SITUATIONS that should bring a session here, in both
+  directions — read ("about to diagnose a defect — search here first, filtered by repo") and write
+  ("a thought arrives that has no home yet"). **Author it for every collection whose trigger is not
+  literally "you have one of these."** A schema is designed to be used, and the measured failure
+  mode is a session inventing a new state, field or terminal condition while the collection that
+  already modelled it sat in its context under a description it had read. Two rules: it names a
+  situation, never a procedure (a `how` belongs in the module's skill); and it must not paraphrase
+  the description — that costs every session tokens and dilutes the clauses that carry signal.
+  ⚠ It is prose; nothing fires on it. It raises the odds a session looks; it does not make it.
+- A **field's** `description` says what the value MEANS, names the source when the value is copied
   from elsewhere, and states the convention an agent must follow ("empty means unmatched — the
   matching command's queue").
 - A field whose valid value has a non-obvious SHAPE carries an `examples:` annotation — standard
-  JSON Schema, passed through to the compiled descriptor — so the canonical value lives in the
-  contract, not in whichever record a writer happens to open.
-- `use_when` is authored **only** when an agent that fully understood the description would still
-  not reach for the collection — a search-here-first trigger, a write-here-when situation. It is
-  prose; nothing fires on it; and a `use_when` restating the description costs every session
-  tokens while diluting the few that carry real signal.
+  JSON Schema, passed through to the compiled descriptor unchanged — so the canonical value lives
+  in the contract, not in whichever record a writer happens to open. Two or three, real-looking
+  and synthetic: a `${env:…}` path template, a `key:value` tag, an RRULE, a composite id.
 - Descriptions are the cheapest UX in the system: the same line is the tooltip in every surface,
   the agent's guidance, and the future maintainer's note. Budget a real sentence per field.
+- Compile WARNS on a module, collection or collection-template with no description — each renders
+  as a bare name in the block otherwise. It does not warn on a missing `use_when`, because it cannot
+  tell a considered omission from a forgotten one; that judgement is yours, per collection.
 
 ---
 
