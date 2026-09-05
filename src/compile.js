@@ -421,6 +421,28 @@ function bothLayouts(root, kind) {
  * (`dreamteamer.ignore`). That is real per-module variance — `services` has `dashboard/`, `agentlog`
  * has `data/` — not a layout knob every module would set identically.
  */
+/** `bin/*` files of a module root, module-relative and sorted — dotfiles and subfolders (lib/,
+ *  parsers/) excluded. Empty when there is no bin/. */
+function binEntries(moduleRoot) {
+	const dir = path.join(moduleRoot, 'bin');
+	if (!fs.existsSync(dir)) return [];
+	return fs.readdirSync(dir, { withFileTypes: true })
+		.filter((e) => e.isFile() && !e.name.startsWith('.'))
+		.map((e) => `bin/${e.name}`).sort();
+}
+
+/** Content-word Jaccard between two clauses, thresholded. Short words and the join words of
+ *  English carry no signal here; ≥ 0.5 of the remaining vocabulary shared is a paraphrase. */
+function paraphrases(description, useWhen) {
+	const STOP = new Set(['this', 'that', 'with', 'from', 'into', 'here', 'when', 'what', 'never', 'every', 'their', 'there', 'them', 'they', 'have', 'been', 'each', 'than', 'then', 'only', 'also', 'before', 'after', 'about']);
+	const words = (t) => new Set(String(t ?? '').toLowerCase().replace(/[`'"“”‘’()[\],.;:—–-]/g, ' ').split(/\s+/).filter((w) => w.length > 3 && !STOP.has(w)));
+	const a = words(description), b = words(useWhen);
+	if (!a.size || !b.size) return false;
+	let shared = 0;
+	for (const w of b) if (a.has(w)) shared++;
+	return shared / (a.size + b.size - shared) >= 0.5;
+}
+
 const NON_SOURCE_DIRS = new Set([
 	'node_modules', 'data', 'state', 'media', 'bin', 'src', 'lib', 'scripts',
 	'ui', 'studio', // the module's UI bundle — 'studio' is the pre-archive name, kept as a fallback
@@ -900,6 +922,9 @@ export function compile({ root, pkg }) {
 		if (!m) continue;
 		const doc = loadSource(entry.bytes.toString('utf8'), entry.sources[0].path);
 		templateDocs.set(m[1], { template: doc?.template ?? {}, src: entry.sources[0] });
+		// The orientation block lists every template by its own sentence (harnesses.templatesSection);
+		// the engine's two shipped ones rendered as bare names for a month before anyone noticed.
+		if (!String(doc?.description ?? '').trim()) console.warn(`⚠ collection-template ${m[1]} has no description — it renders as a bare name in the orientation block every session loads`);
 	}
 
 	// ---- namespaces: the UNION of every module's declaration plus the workspace's (§8) ----------
@@ -1298,11 +1323,19 @@ export function compile({ root, pkg }) {
 		// rather than a heroic backfill pass, and the same shape as the per-missing-env-key warning:
 		// non-blocking, named per offender, so the gap converges instead of being rediscovered.
 		//
-		// ⚠ Deliberately NO equivalent warning for `use_when`. That field is optional and correct to
-		// omit on most collections — warning on it would invert its authoring test and manufacture a
-		// restatement of the description on every collection that does not need one.
+		// No equivalent warning for `use_when`, though the field is WANTED on most collections
+		// (data-modeling §18: a description says what a record IS, `use_when` says which situations
+		// should lead a session here). A warning cannot tell a considered omission from a forgotten
+		// one, and a manufactured restatement of the description is worse than an absent clause.
 		if (merged.storage.base !== 'runtime' && !String(merged.description ?? '').trim()) {
 			console.warn(`⚠ collection ${name} has no description — it renders as a bare name in the orientation block every session loads`);
+		}
+		// A `use_when` that restates the description costs every session tokens and dilutes the clauses
+		// that carry signal (data-modeling §18); a reader catches it, nothing else did. Word overlap is
+		// the mechanical proxy: the clauses that earned their place in a blind evaluation encoded an
+		// ORDER or a REFUSAL, and shared few content words with their description.
+		if (merged.use_when && paraphrases(merged.description, merged.use_when)) {
+			console.warn(`⚠ collection ${name}: use_when restates its description — name the SITUATION that brings a session here (search here first · capture here when), not the noun again`);
 		}
 		counts.collections++;
 	}
@@ -1332,18 +1365,26 @@ export function compile({ root, pkg }) {
 	}
 	for (const source of sources) {
 		const id = moduleId(source.name);
-		let mpkg = {};
-		try { mpkg = JSON.parse(fs.readFileSync(path.join(source.root, 'package.json'), 'utf8')).dreamteamer ?? {}; } catch { /* inline workspace source */ }
+		let pkg = {};
+		try { pkg = JSON.parse(fs.readFileSync(path.join(source.root, 'package.json'), 'utf8')); } catch { /* inline workspace source */ }
+		const mpkg = pkg.dreamteamer ?? {};
+		// What this module is FOR, in one line. `dreamteamer.description` wins; npm's own top-level
+		// `description` is the fallback, because it is the one place a package author already writes
+		// that sentence — six modules on one dogfood workspace had authored it THERE and every
+		// `dt list modules` row read `-` for description. There is no derivation past that and there
+		// should not be: a module is the only place that knows.
+		const description = [mpkg.description, pkg.description].find((s) => typeof s === 'string' && s.trim());
+		// A module with no sentence renders as a bare title at the head of its section in the
+		// orientation block — the one place a session learns what an AREA of the workspace is for.
+		// Same shape as the per-collection warning: non-blocking, named per offender.
+		if (!description) console.warn(`⚠ module ${source.name} has no description — set "description" in its package.json; it heads its own section in the orientation block every session loads`);
 		const record = {
 			name: source.name,
 			// Authored wins; the derived fallback title-cases the id the same way a collection's
 			// `title` is derived. `@dreamteamer/crm` -> "Crm" until crm declares "CRM" — which is
 			// the point: the module is the only place that knows.
 			title: typeof mpkg.title === 'string' && mpkg.title ? mpkg.title : titleCase(id),
-			// What this module is FOR, in one line — authored as `dreamteamer.description` in its
-			// package.json. There is no derivation for it and there should not be: a module is the only
-			// place that knows, and an absent one renders as a bare name in every listing.
-			...(typeof mpkg.description === 'string' && mpkg.description ? { description: mpkg.description } : {}),
+			...(description ? { description } : {}),
 			// §8: the namespaces THIS module declares — projected from its package.json, so
 			// `dt list modules` answers "who owns hr?" without reading seven package.json files.
 			...(normalizeNamespaces(mpkg.namespaces).length ? { namespaces: normalizeNamespaces(mpkg.namespaces) } : {}),
@@ -1351,6 +1392,11 @@ export function compile({ root, pkg }) {
 			// `hr  git_modules @ 3f2a1c (dirty)` and needs no legend.
 			location: locationOf(source, root),
 			path: rel(source.root) || '.',
+			// The module's RUNNABLE entry points — `bin/<file>`, the folder NON_SOURCE_DIRS waves through.
+			// Skills and commands render into the orientation block; a module whose procedure is a
+			// script did not, so a session planned `dt add` writes the tooling forbids. This is the
+			// POINTER that the procedure exists, never its arguments — those stay in the skill.
+			...(binEntries(source.root).length ? { bin: binEntries(source.root) } : {}),
 			...(mpkg['owns-data'] === true ? { owns_data: true } : {}),
 			// Declared module names become record IDS here, because that is what an x-reference
 			// resolves against. An undeclared/unknown name would dangle, and `check` would say so —
@@ -1500,7 +1546,7 @@ export function compile({ root, pkg }) {
 	const anyFlat = sources.some((s) => KINDS.some((k) => fs.existsSync(path.join(s.root, k))));
 	const anyNested = sources.some((s) => KINDS.some((k) => fs.existsSync(path.join(s.root, 'system', k))));
 	const sourceLayout = anyFlat && anyNested ? 'mixed' : anyNested ? 'nested' : 'flat';
-	const { outputs: adapterOutputs, summary: harnessSummary } = runHarnessAdapters({ root, entries, harnesses, prevManifest, sourceLayout, namespaces, version: engineVer });
+	const { outputs: adapterOutputs, blocks: adapterBlocks, summary: harnessSummary } = runHarnessAdapters({ root, entries, harnesses, prevManifest, sourceLayout, namespaces, version: engineVer, workspaceModule: config['workspace-module'] ?? '' });
 
 	// ---- provenance manifest ------------------------------------------------------
 	const manifest = {
@@ -1535,6 +1581,9 @@ export function compile({ root, pkg }) {
 		})),
 		ui: uiModules.sort(),
 		'adapter-outputs': adapterOutputs.sort(),
+		// the root files whose managed BLOCK this compile rewrote — never pruned, but committed with a
+		// schema write so the block and the schema it names land together (schema-ops.regeneratedOutputs)
+		'adapter-blocks': adapterBlocks.sort(),
 		entries: Object.fromEntries(
 			[...entries].map(([rt, e]) => [rt, { sources: e.sources, hash: sha256(e.bytes) }]) // sources: [{path, hash}] — per-SOURCE hashes power staleness
 		),

@@ -10,18 +10,23 @@ schema:
       description: The collection id — must equal the filename, and must be unique across every installed module.
     description:
       type: string
-      description: What kind of thing this collection holds, in one line.
+      description: >-
+        What one record IS, in one line — and the neighbour it is NOT, when a confusable one exists
+        ("the person, never the org — that is `companies`"). Rendered into the orientation block
+        every agent session loads, so it is retrieval surface, not documentation.
     use_when:
       type: string
       description: >-
-        WHEN to reach for this collection, in one clause — rendered into the orientation block every
-        agent session loads. OPTIONAL and usually absent: for most collections the trigger IS the
-        description (`contacts` = a person; you use it when you have a person), and a restatement
-        there costs every session tokens while diluting the few that carry real information. The
-        test: author this only when an agent that FULLY UNDERSTANDS the description would still not
-        know to reach for the collection. It spans both acts — read ("you are about to diagnose a
-        defect — search here first") and write ("a day needs planning"). NOT a place for procedure:
-        a `how` belongs in the module's skill, this field holds a `when`.
+        The SITUATIONS that should bring a session here, in one clause — rendered under the
+        description in the orientation block. A description says what a record is; this says when
+        to reach for the collection, in both directions: to READ ("about to diagnose a defect — search
+        here first, filtered by repo") and to WRITE ("a thought arrives that has no home yet"). Author
+        it for every collection whose trigger is not literally "you have one of these": a schema is
+        designed to be used, and the measured failure is a session inventing a new state or field while
+        the collection that already modelled it sat in its context. Two rules: it names a situation,
+        never a procedure (a `how` belongs in the module's skill); and it must not restate the
+        description — a paraphrase costs every session tokens and dilutes the clauses that carry
+        signal. Omit only where the noun is the whole trigger.
     title:
       type: string
       description: What to call this collection in the nav and page headers. DERIVED from `name` by title-casing when absent — author it only when that is wrong (`ui-views` → `UI Views`).

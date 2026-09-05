@@ -1,4 +1,7 @@
 name: docs
+description: >-
+  title / content / tags, under a dated slug id (`2026-07-23--<title>`) — the shape of a thing that
+  HAPPENED or was written on a day: a note, a report, a meeting write-up. For a thing that IS, use `entity`.
 template:
   storage: { codec: md, shape: file }
   id:
