@@ -800,6 +800,10 @@ describe('the orientation block is grouped by module', () => {
 		assert.match(block, /^- entity — /m);
 	});
 
+	test("the engine's own data collection carries a use when — a clone's location is a record, not a path a session guesses", () => {
+		assert.match(blockOf(workspace()), /^- repos — [^\n]*\n {4}use when: [^\n]*`path`/m);
+	});
+
 	test('a fresh workspace has a sentence for its own module, so it does not open warning about itself', () => {
 		const { warnings } = compileQuietly(uncompiled().ws);
 		assert.ok(!warnings.some((w) => w.includes('has no description')), warnings.join('\n'));

@@ -2,6 +2,11 @@ name: repos
 description: >-
   A git repository this workspace knows about — where it lives and how a working tree is
   materialized on demand.
+use_when: >-
+  a repository this workspace depends on is named — its own engine or extension clone, a client's
+  repo — read the record here for WHERE it lives (`path`, a `${env:…}` template `dt resolve` renders
+  per machine) before assuming a path or concluding a clone is unreachable; `dt status` reports
+  each one and `dt ensure` materializes it
 # An external git repo attached to this workspace. Owns CLONE LIFECYCLE ONLY — a repo record
 # never contributes schema, skills or UI (that is what a module is, declared in package.json
 # `dreamteamer.git-modules`, because modules must be restorable BEFORE compile can run).
