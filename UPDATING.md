@@ -20,6 +20,53 @@ npx dreamteamer check
 
 ---
 
+## 0.19.1 → 0.20.0
+
+**The orientation block is grouped by MODULE, and a schema write commits the block it regenerated.**
+Nothing to do beyond `dt compile` — but read the first bullet, because the block lands in your
+committed `CLAUDE.md` / `AGENTS.md` / `GEMINI.md` and the diff is large once:
+
+- **MODULES AND THEIR COLLECTIONS replaces COLLECTIONS.** Each module heads its own group with its
+  sentence, its namespaces, and the skills and commands it ships; its collections follow, with
+  `use when` clauses as before. The workspace module comes first, then modules by title. The module
+  that ships only system collections gets no group — the one `system collections` line stays. A
+  hand-written module table in your own `CLAUDE.md` is now a second copy of this; delete it.
+- **A module's sentence falls back to npm's `description`.** `dreamteamer.description` still wins;
+  a module that authored only the top-level `description` (the one npm already asks for) stops
+  reading `-` in `dt list modules` and stops rendering as a bare title in the block.
+- **Three new compile WARNINGS, none failing:** a module with no description, a collection-template
+  with no description (the engine's own `docs` and `entity` now carry one), and — unchanged — a
+  collection with none. Each names what would otherwise render bare.
+- **`use_when` is WANTED, not rare.** The meta-descriptor and `data-modeling.md` §18 now say: author
+  it for every collection whose trigger is not literally "you have one of these", in both directions
+  (search here first · capture here when). The two rules stand — a situation, never a procedure; and
+  never a paraphrase of the description. Compile still does not warn on its absence.
+- **A schema write COMMITS the harness files its gate compile regenerated** — `CLAUDE.md`,
+  `AGENTS.md`, `GEMINI.md` and anything else in `dreamteamer.harnesses`, narrowed to what git already
+  TRACKS in that repo. Before, every `dt set collections/…` left the three root files dirty with the
+  block naming the change it had just committed, and the next unscoped `git add` swept them into
+  someone else's subject. An untracked root file is still yours to add; ignored ones (`.claude/`)
+  are never handed to `git add`. The manifest gains `adapter-blocks` (the root files whose managed
+  block was written) beside `adapter-outputs`; older readers ignore the key.
+- **Each module's `bin/` renders as `runs: bin/<file> · …`** beside its skills and commands, and the
+  module record gains a `bin` field compile projects from the folder. A module whose procedure is a
+  script was invisible in the block, so a fresh session planned `dt add` writes the tooling forbids.
+  The pointer that the procedure exists, never its arguments — those stay in the module's skill.
+- **Each collection gets a `write:` line naming only what can REFUSE a write** — required fields with
+  no default, closed enums with their size (`analyte enum(103)`), and the first `examples:` value
+  where one is authored. A blind session's plan was correct until its first `dt add`, which the store
+  refused on a constraint the block never showed. The descriptor stays the authority; this keeps the
+  first write from bouncing. A collection nothing can refuse gets no line.
+- **Compile WARNS when a `use_when` restates its description** (content-word overlap ≥ 0.5) — the
+  clauses that earn their tokens encode an order or a refusal; a paraphrase costs every session. Fix
+  by naming the situation (search here first · capture here when), never by deleting the clause.
+- **`dt init` seeds a description** on the workspace module's package.json and on the starter `notes`
+  collection, so a fresh workspace does not open warning about the module init just made.
+- **Field `examples:` is pinned as pass-through** — standard JSON Schema, carried to the compiled
+  descriptor unchanged, never gating a write. Use it for values with a non-obvious shape.
+
+---
+
 ## 0.18.0 → 0.19.0
 
 **BREAKING — `dt schema <op>` is gone. System entities take the RECORD verbs.**

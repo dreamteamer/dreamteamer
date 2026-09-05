@@ -174,3 +174,40 @@ describe('a schema write into a git-shape module', () => {
 		assert.equal(ws.dt('check').code, 0);
 	});
 });
+
+// ⚠ THE GATE COMPILE REGENERATES CLAUDE.md, AGENTS.md AND GEMINI.md, and the commit used to cover only
+// the mutated source — so every schema write left the three COMMITTED root files dirty with the block
+// that names the change just committed, and the next unscoped `git add` in a shared tree swept them
+// into somebody else's subject. Reproduced twice in one day on a dogfood workspace before this pinned
+// it. The generated files ride the manifest's `adapter-outputs` + `adapter-blocks`, narrowed to what
+// git already TRACKS: an ignored one (`.claude/`) is a hard error to `git add`, and an UNTRACKED root
+// file is the operator's to add — a write into a clone must not start tracking files in the workspace
+// repo as a side effect (the two-repo test above holds the workspace HEAD still for exactly that).
+describe('a schema write commits the harness files the gate compile regenerated', () => {
+	test('the three root files land in the SAME commit, and nothing generated is left dirty', () => {
+		const ws = twoModuleWorkspace();
+		// init seeds them untracked; track them first so the assertion is about a REGENERATION
+		ws.git(['add', '--', 'CLAUDE.md', 'AGENTS.md', 'GEMINI.md']);
+		ws.git(['commit', '-qm', 'fixture: harness files']);
+		const res = ws.dt('set', 'collections/people', 'description=A person, and the block now says so.');
+		assert.equal(res.code, 0, res.stdout + res.stderr);
+		assert.equal(ws.git(['status', '--porcelain', '--', 'CLAUDE.md', 'AGENTS.md', 'GEMINI.md', 'modules']), '',
+			'the regenerated block is in the commit, not left dirty beside it');
+		const shown = ws.git(['show', '--stat', '--oneline', 'HEAD']);
+		assert.match(shown, /CLAUDE\.md/);
+		assert.match(shown, /AGENTS\.md/);
+		assert.match(shown, /modules\/core\/collections\/people\.collection\.yaml/);
+		assert.match(readFile(ws.root, 'CLAUDE.md'), /A person, and the block now says so\./);
+	});
+
+	test('an ignored or untracked generated path is never handed to git add', () => {
+		const ws = twoModuleWorkspace();
+		assert.ok(fs.existsSync(path.join(ws.root, '.claude/skills')), 'the fixture writes the ignored dir');
+		assert.equal(ws.git(['check-ignore', '.claude/skills']).trim(), '.claude/skills');
+		assert.match(ws.git(['status', '--porcelain', '--', 'CLAUDE.md']), /^\?\? CLAUDE\.md/, 'init seeds it untracked');
+		const res = ws.dt('set', 'collections/people', 'description=Still a person.');
+		assert.equal(res.code, 0, `an ignored path in the pathspec would have failed this: ${res.stderr}`);
+		assert.match(ws.git(['status', '--porcelain', '--', 'CLAUDE.md']), /^\?\? CLAUDE\.md/, 'still untracked — not the schema write\'s to add');
+		assert.doesNotMatch(ws.git(['show', '--stat', '--oneline', 'HEAD']), /CLAUDE\.md/);
+	});
+});
