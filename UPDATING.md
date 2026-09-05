@@ -64,6 +64,19 @@ committed `CLAUDE.md` / `AGENTS.md` / `GEMINI.md` and the diff is large once:
   collection, so a fresh workspace does not open warning about the module init just made.
 - **Field `examples:` is pinned as pass-through** — standard JSON Schema, carried to the compiled
   descriptor unchanged, never gating a write. Use it for values with a non-obvious shape.
+- ⚠ **A UI CHANGE: `presentation` no longer emits a collection-level `meta.readonly` for a system
+  kind.** Until 0.19.0 `system` and `readonly` were one fact, because nothing could write a compiled
+  entity. 0.19.0 gave the record verbs a system write path — `set`/`rename`/`rm` on skills, agents,
+  commands, ui-views, collections and modules — but this projection was not touched by that wave, so
+  a skill in the workspace's own module rendered padlocked while `dt set` wrote it happily. The flag
+  is DELETED rather than narrowed: writability is per RECORD (an inline module's entity is writable,
+  an npm-shipped one is refused because the next `npm install` erases the edit), so one
+  collection-level flag cannot say both, and on today's verb set a correct predicate would be
+  constant-false. **If you consume `presentation` and disable editing on `meta.readonly`, you will
+  now offer a control you did not before** — key on the per-field `readonly` (as `id`,
+  `last-modified` and relation mirrors do) or on the verb you are about to offer, never on `system`,
+  which is unchanged and still what puts a kind in the schema surface. Every remaining refusal is
+  per record, per verb or per field, and each answers with its own sentence naming the fix.
 
 ---
 

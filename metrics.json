@@ -1,10 +1,10 @@
 {
 	"measured": "2026-09-05",
-	"note": "Budgets are ceilings. code.total was raised 7000 \u2192 7100 on 2026-09-05 for the module-grouped orientation block (+44 lines, three questions answered in that commit) with ~50 lines of headroom, not 10%. Raising one is a deliberate act \u2014 do it in the same commit as the growth, and say why in the message.",
+	"note": "Budgets are ceilings, re-based 2026-09-05 on the operator's instruction: every budget carries at least 20% headroom over the measured value at that date. A budget already above that line was left alone (surface.skills). Raising one is still a deliberate act — do it in the same commit as the growth, and say why in the message. Headroom is not permission: the three questions (does the ENGINE read it · is this a recipe creeping into core · could a module do it instead) are owed whatever the number says.",
 	"code": {
-		"total": 7044,
-		"comments": 3937,
-		"decisions": 2807,
+		"total": 7071,
+		"comments": 3981,
+		"decisions": 2831,
 		"files": 29
 	},
 	"surface": {
@@ -16,15 +16,15 @@
 		"commands": 0
 	},
 	"prose": {
-		"skill-lines": 2948,
-		"system-lines": 3528
+		"skill-lines": 2952,
+		"system-lines": 3546
 	},
 	"budgets": {
-		"code.total": 7100,
-		"code.decisions": 2900,
-		"surface.collections": 9,
+		"code.total": 8500,
+		"code.decisions": 3400,
+		"surface.collections": 11,
 		"surface.skills": 2,
-		"surface.agents": 1,
-		"prose.skill-lines": 3200
+		"surface.agents": 2,
+		"prose.skill-lines": 3550
 	}
 }
