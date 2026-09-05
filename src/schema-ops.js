@@ -1697,7 +1697,7 @@ function isTracked(root, rel) {
  */
 function commitByRepo(ws, store, rels, subject) {
 	const byRepo = new Map(); // workspace-relative repo root -> {root, paths relative to THAT repo}
-	for (const rel of new Set(rels)) {
+	for (const rel of new Set([...rels, ...regeneratedOutputs(ws)])) {
 		const abs = path.join(ws.root, rel);
 		// A path that is neither on disk nor in any index cannot be a pathspec, and one bad entry
 		// aborts the whole `git add` — the lesson `renameCollection` paid for. ⚠ The filter runs PER
@@ -1728,6 +1728,26 @@ function commitByRepo(ws, store, rels, subject) {
 		store.headMoved(); // this ran `git commit` — see store.gitHead
 	}
 	return out;
+}
+
+/** The harness files the gate compile just REGENERATED — CLAUDE.md, AGENTS.md, GEMINI.md and whatever
+ *  else `dreamteamer.harnesses` writes — narrowed to the ones git already TRACKS. A schema write
+ *  committed only the mutated source, so every one left the three committed root files dirty with the
+ *  block that names the very change just committed; the next unscoped `git add` in a shared tree swept
+ *  them into somebody else's subject. The list is read off the manifest compile has just written
+ *  (`adapter-outputs` for the generated dirs, `adapter-blocks` for the root files whose managed block
+ *  was rewritten), so no API changes hands. TRACKED ONLY, in one `git ls-files` call: an untracked
+ *  root file is the operator's to add (a fresh workspace has not committed its instructions yet, and
+ *  a write into a clone must not start tracking files in the workspace repo as a side effect), and an
+ *  ignored one (`.claude/`) is a hard error to `git add`, so neither may reach the pathspec. */
+function regeneratedOutputs(ws) {
+	const m = readManifest(ws.root) ?? {};
+	const outputs = [...(m['adapter-outputs'] ?? []), ...(m['adapter-blocks'] ?? [])].filter((p) => fs.existsSync(path.join(ws.root, p)));
+	if (!outputs.length) return [];
+	try {
+		return execFileSync('git', ['ls-files', '-z', '--', ...outputs], { cwd: ws.root, stdio: ['ignore', 'pipe', 'ignore'] })
+			.toString().split('\0').filter(Boolean);
+	} catch { return []; } // no git here at all — the source commit proceeds without them, as before
 }
 
 const shortHead = (root) => {

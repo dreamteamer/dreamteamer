@@ -8,7 +8,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { workspace, writeCollection, simpleCollection, compileError, compileQuietly, readFile, tree, dt, WS_MODULE } from '../helpers/ws.js';
+import { workspace, writeCollection, simpleCollection, compileError, compileQuietly, readFile, tree, dt, WS_MODULE, twoModuleWorkspace, writeModule } from '../helpers/ws.js';
 import { load } from '../../src/yaml.js';
 
 const uncompiled = (opts) => workspace({ ...opts, compile: false });
@@ -702,5 +702,121 @@ describe('stray source folders under the legacy system/ level', () => {
 			path.join(mod, 'skills', 'probing', 'SKILL.md'));
 		const { warnings } = compileQuietly(ws.ws);
 		assert.ok(warnings.some((w) => /both skills\/ and system\/skills\/ exist/.test(w)), warnings.join('\n'));
+	});
+});
+
+// ⚠ THE BLOCK IS TOP-DOWN NOW. Before this, the lexicon listed nouns grouped by namespace and a reader
+// inferred the domains from the prefixes — so one dogfood workspace kept a hand-written module table
+// in CLAUDE.md to say what each AREA was for, which is exactly the hand-maintained list the derived
+// lexicon had replaced for collections. A module is the entity that owns that sentence; here its
+// sentence heads its collections, with the skills and commands it ships on the line below. These pin
+// the grouping, the ordering (workspace module first), the fallback for the sentence, and the two
+// warnings that keep a group from rendering as a bare title.
+describe('the orientation block is grouped by module', () => {
+	const blockOf = (ws) => /<!-- dreamteamer:begin[\s\S]*?dreamteamer:end -->/.exec(readFile(ws.root, 'CLAUDE.md'))[0];
+	const skill = (root, mod, id) => {
+		fs.mkdirSync(path.join(root, 'modules', mod, 'skills', id), { recursive: true });
+		fs.writeFileSync(path.join(root, 'modules', mod, 'skills', id, 'SKILL.md'), `---\nname: ${id}\ndescription: Use when ${id} is the job.\n---\nDo it.\n`);
+	};
+
+	test('each module heads its own collections with its sentence — the workspace module first, then by title', () => {
+		const ws = twoModuleWorkspace({ collections: { widgets: simpleCollection({ description: 'a widget', storage: { suffix: 'widget' } }) } });
+		const block = blockOf(ws);
+		const at = (re) => { const m = re.exec(block); assert.ok(m, `${re} is not in the block:\n${block}`); return m.index; };
+		const dflt = at(/^\*\*Default\*\* \(`default` · modules\/default\) — This workspace's own collections, skills and commands\.$/m);
+		const core = at(/^\*\*Core\*\* \(`core` · modules\/core\) — The shared nouns\.$/m);
+		const hr = at(/^\*\*Hr\*\* \(`hr` · modules\/hr · namespaces: hr\) — Roles and headcount\.$/m);
+		assert.ok(dflt < core && core < hr, 'workspace module first, then alphabetical by title');
+		const widgets = at(/^- widgets — a widget$/m);
+		const people = at(/^- people — A person this workspace knows about\.$/m);
+		const positions = at(/^- hr\/positions — An open or filled role\.$/m);
+		assert.ok(dflt < widgets && widgets < core, 'a workspace collection sits under the workspace module');
+		assert.ok(core < people && people < hr, "core's collection sits under core");
+		assert.ok(hr < positions, "hr's namespaced collection sits under hr");
+		// the module that ships the system collections is still ONE line at the end, never a group of eight
+		assert.doesNotMatch(block, /^- collections —/m);
+		assert.ok(at(/^- system collections — /m) > positions);
+	});
+
+	test("a module's skills and commands ride on the line under its heading; a module shipping none has no such line", () => {
+		const ws = twoModuleWorkspace({ compile: false });
+		skill(ws.root, 'hr', 'hiring');
+		fs.mkdirSync(path.join(ws.root, 'modules/hr/commands'), { recursive: true });
+		fs.writeFileSync(path.join(ws.root, 'modules/hr/commands/open-role.command.md'), '---\nname: open-role\ndescription: Open a role.\n---\nOpen it.\n');
+		assert.equal(compileQuietly(ws.ws).code, 0);
+		const block = blockOf(ws);
+		assert.match(block, /^\*\*Hr\*\* [^\n]*\n {2}skills: hiring · commands: \/open-role\n- hr\/positions/m);
+		assert.match(block, /^\*\*Core\*\* [^\n]*\n- people/m, 'core ships neither, so its collections follow directly');
+	});
+
+	test('a skills-only module is a group of its own — a domain with techniques and no nouns', () => {
+		const ws = uncompiled();
+		writeModule(ws.root, 'toolbelt', { description: 'Techniques, no nouns.' });
+		skill(ws.root, 'toolbelt', 'probing');
+		assert.equal(compileQuietly(ws.ws).code, 0);
+		assert.match(blockOf(ws), /^\*\*Toolbelt\*\* \(`toolbelt` · modules\/toolbelt\) — Techniques, no nouns\.\n {2}skills: probing$/m);
+	});
+
+	test("npm's own `description` is the fallback for a module's sentence, in the record and in the block", () => {
+		const ws = twoModuleWorkspace({ compile: false });
+		const file = path.join(ws.root, 'modules/core/package.json');
+		const pkg = JSON.parse(fs.readFileSync(file, 'utf8'));
+		delete pkg.dreamteamer.description;
+		pkg.description = 'Shared nouns, from the npm key.';
+		fs.writeFileSync(file, JSON.stringify(pkg, null, '\t') + '\n');
+		const { code, warnings } = compileQuietly(ws.ws);
+		assert.equal(code, 0);
+		assert.ok(!warnings.some((w) => w.includes('module core has no description')), warnings.join('\n'));
+		assert.equal(load(readFile(ws.root, '.dreamteamer/modules/core.module.yaml')).description, 'Shared nouns, from the npm key.');
+		assert.match(blockOf(ws), /^\*\*Core\*\* \(`core` · modules\/core\) — Shared nouns, from the npm key\.$/m);
+	});
+
+	test('a module with no sentence anywhere is warned about by name, and compile still succeeds', () => {
+		const ws = twoModuleWorkspace({ compile: false });
+		const file = path.join(ws.root, 'modules/core/package.json');
+		const pkg = JSON.parse(fs.readFileSync(file, 'utf8'));
+		delete pkg.dreamteamer.description;
+		fs.writeFileSync(file, JSON.stringify(pkg, null, '\t') + '\n');
+		const { code, warnings } = compileQuietly(ws.ws);
+		assert.equal(code, 0, 'a missing description is a warning, never a failure');
+		assert.ok(warnings.some((w) => w.includes('module core has no description')), warnings.join('\n'));
+		assert.match(blockOf(ws), /^\*\*Core\*\* \(`core` · modules\/core\)$/m, 'the bare heading the warning is about');
+	});
+
+	test('a collection-template with no description is warned about by name — it renders bare', () => {
+		const ws = uncompiled();
+		fs.mkdirSync(path.join(ws.root, 'modules', WS_MODULE, 'collection-templates'), { recursive: true });
+		fs.writeFileSync(path.join(ws.root, 'modules', WS_MODULE, 'collection-templates', 'bare.collection-template.yaml'),
+			'name: bare\ntemplate:\n  schema:\n    type: object\n    properties:\n      tags: { type: array, items: { type: string } }\n');
+		const { code, warnings } = compileQuietly(ws.ws);
+		assert.equal(code, 0);
+		assert.ok(warnings.some((w) => w.includes('collection-template bare has no description')), warnings.join('\n'));
+		assert.match(blockOf(ws), /^- bare$/m);
+	});
+
+	test("the engine's own two templates carry a sentence — nothing shipped renders bare", () => {
+		const block = blockOf(workspace());
+		assert.match(block, /^- docs — /m);
+		assert.match(block, /^- entity — /m);
+	});
+
+	test('a fresh workspace has a sentence for its own module, so it does not open warning about itself', () => {
+		const { warnings } = compileQuietly(uncompiled().ws);
+		assert.ok(!warnings.some((w) => w.includes('has no description')), warnings.join('\n'));
+	});
+
+	test('a field `examples:` annotation reaches the compiled descriptor unchanged — the contract carries the canonical value', () => {
+		const ws = workspace({ collections: { widgets: simpleCollection({
+			description: 'a widget',
+			storage: { suffix: 'widget' },
+			schema: { type: 'object', required: ['name'], properties: {
+				name: { type: 'string' },
+				tags: { type: 'array', items: { type: 'string' }, examples: ['stage:draft', 'source:import'] },
+				notes: { type: 'string', format: 'markdown', 'x-body': true },
+			} },
+		}) } });
+		assert.deepEqual(ws.store.descriptor('widgets').schema.properties.tags.examples, ['stage:draft', 'source:import']);
+		const res = ws.dt('add', 'widgets', '--name', 'w', '--tags', 'stage:draft');
+		assert.equal(res.code, 0, `an annotation never gates a write: ${res.stderr}`);
 	});
 });

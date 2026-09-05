@@ -2,6 +2,10 @@
 # no date prefix (docs-style dated ids read wrong for things that ARE, not happen).
 # storage is left to the template mechanism's standard defaults (data/<name>, md, file).
 name: entity
+description: >-
+  name / notes / tags, under a bare slug id (`<name>`) — the shape of a thing that IS: a person, a
+  supplier, a tool. No date in the id, because an entity does not happen on a day. For a dated
+  document, use `docs`.
 template:
   id:
     generate: "{{ name | slug }}"
