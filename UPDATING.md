@@ -48,6 +48,18 @@ committed `CLAUDE.md` / `AGENTS.md` / `GEMINI.md` and the diff is large once:
   someone else's subject. An untracked root file is still yours to add; ignored ones (`.claude/`)
   are never handed to `git add`. The manifest gains `adapter-blocks` (the root files whose managed
   block was written) beside `adapter-outputs`; older readers ignore the key.
+- **Each module's `bin/` renders as `runs: bin/<file> · …`** beside its skills and commands, and the
+  module record gains a `bin` field compile projects from the folder. A module whose procedure is a
+  script was invisible in the block, so a fresh session planned `dt add` writes the tooling forbids.
+  The pointer that the procedure exists, never its arguments — those stay in the module's skill.
+- **Each collection gets a `write:` line naming only what can REFUSE a write** — required fields with
+  no default, closed enums with their size (`analyte enum(103)`), and the first `examples:` value
+  where one is authored. A blind session's plan was correct until its first `dt add`, which the store
+  refused on a constraint the block never showed. The descriptor stays the authority; this keeps the
+  first write from bouncing. A collection nothing can refuse gets no line.
+- **Compile WARNS when a `use_when` restates its description** (content-word overlap ≥ 0.5) — the
+  clauses that earn their tokens encode an order or a refusal; a paraphrase costs every session. Fix
+  by naming the situation (search here first · capture here when), never by deleting the clause.
 - **`dt init` seeds a description** on the workspace module's package.json and on the starter `notes`
   collection, so a fresh workspace does not open warning about the module init just made.
 - **Field `examples:` is pinned as pass-through** — standard JSON Schema, carried to the compiled

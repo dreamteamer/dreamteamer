@@ -377,7 +377,9 @@ describe('the orientation block names the workspace', () => {
 		const ws = workspace();
 		const block = /<!-- dreamteamer:begin[\s\S]*?dreamteamer:end -->/.exec(readFile(ws.root, 'CLAUDE.md'))[0];
 		const n = block.split('\n').length;
-		assert.ok(n <= 32, `virgin orientation block is ${n} lines, budget 32`);
+		// 32 → 34 on 2026-09-05: the two `write:` lines for `notes` (required title) and `repos`
+		// (required name · url; visibility enum(2)) — the clause that keeps a first write from bouncing.
+		assert.ok(n <= 34, `virgin orientation block is ${n} lines, budget 34`);
 	});
 });
 
@@ -802,6 +804,54 @@ describe('the orientation block is grouped by module', () => {
 
 	test("the engine's own data collection carries a use when — a clone's location is a record, not a path a session guesses", () => {
 		assert.match(blockOf(workspace()), /^- repos — [^\n]*\n {4}use when: [^\n]*`path`/m);
+	});
+
+	test("a module's bin/ renders as its runnable entry points — the pointer that the procedure is a script here", () => {
+		const ws = twoModuleWorkspace({ compile: false });
+		fs.mkdirSync(path.join(ws.root, 'modules/hr/bin/lib'), { recursive: true });
+		fs.writeFileSync(path.join(ws.root, 'modules/hr/bin/close-month.py'), '#!/usr/bin/env python3\n');
+		fs.writeFileSync(path.join(ws.root, 'modules/hr/bin/lib/helper.py'), '');
+		fs.writeFileSync(path.join(ws.root, 'modules/hr/bin/.keep'), '');
+		assert.equal(compileQuietly(ws.ws).code, 0);
+		const block = blockOf(ws);
+		assert.match(block, /^\*\*Hr\*\* [^\n]*\n {2}runs: bin\/close-month\.py\n/m);
+		assert.doesNotMatch(block, /helper\.py|\.keep/, 'subfolders and dotfiles are not entry points');
+		assert.deepEqual(load(readFile(ws.root, '.dreamteamer/modules/hr.module.yaml')).bin, ['bin/close-month.py']);
+		assert.match(block, /^\*\*Core\*\* [^\n]*\n- people/m, 'no runs: line where there is no bin/');
+	});
+
+	test('what can REFUSE a write renders as one line — required fields without a default, closed enums with their size, the first example', () => {
+		const ws = workspace({ collections: { widgets: simpleCollection({
+			description: 'a widget', storage: { suffix: 'widget' },
+			schema: { type: 'object', required: ['name', 'kind', 'stage'], properties: {
+				name: { type: 'string' },
+				kind: { type: 'string', enum: Array.from({ length: 40 }, (_, i) => `k${i}`) },
+				stage: { type: 'string', enum: ['draft', 'done'], default: 'draft' },
+				tags: { type: 'array', items: { type: 'string' }, examples: ['area:finance', 'local-first'] },
+				notes: { type: 'string', format: 'markdown', 'x-body': true },
+			} },
+		}) } });
+		assert.match(blockOf(ws), /^- widgets — a widget\n {4}write: required name · kind; kind enum\(40\) · stage enum\(2\); e\.g\. tags='area:finance'$/m,
+			'a required field WITH a default never refuses, so it is not listed');
+	});
+
+	test('a collection nothing can refuse renders no write line', () => {
+		const ws = workspace({ collections: { widgets: simpleCollection({
+			description: 'a widget', storage: { suffix: 'widget' },
+			schema: { type: 'object', properties: { name: { type: 'string' }, notes: { type: 'string', format: 'markdown', 'x-body': true } } },
+		}) } });
+		assert.doesNotMatch(blockOf(ws), /^- widgets — a widget\n {4}write:/m);
+	});
+
+	test('a use_when that restates its description is warned about by name; one that names a situation is not', () => {
+		const ws = uncompiled({ collections: {
+			gadgets: simpleCollection({ description: 'A gadget the workshop keeps on the shelf.', use_when: 'the workshop keeps a gadget on the shelf', storage: { suffix: 'gadget' } }),
+			widgets: simpleCollection({ description: 'A widget.', use_when: 'before ordering parts — search here first, the part may already be stocked', storage: { suffix: 'widget' } }),
+		} });
+		const { code, warnings } = compileQuietly(ws.ws);
+		assert.equal(code, 0, 'a paraphrase is a warning, never a failure');
+		assert.ok(warnings.some((w) => w.includes('collection gadgets: use_when restates')), warnings.join('\n'));
+		assert.ok(!warnings.some((w) => w.includes('collection widgets: use_when')), warnings.join('\n'));
 	});
 
 	test('a fresh workspace has a sentence for its own module, so it does not open warning about itself', () => {

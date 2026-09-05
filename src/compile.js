@@ -421,6 +421,28 @@ function bothLayouts(root, kind) {
  * (`dreamteamer.ignore`). That is real per-module variance — `services` has `dashboard/`, `agentlog`
  * has `data/` — not a layout knob every module would set identically.
  */
+/** `bin/*` files of a module root, module-relative and sorted — dotfiles and subfolders (lib/,
+ *  parsers/) excluded. Empty when there is no bin/. */
+function binEntries(moduleRoot) {
+	const dir = path.join(moduleRoot, 'bin');
+	if (!fs.existsSync(dir)) return [];
+	return fs.readdirSync(dir, { withFileTypes: true })
+		.filter((e) => e.isFile() && !e.name.startsWith('.'))
+		.map((e) => `bin/${e.name}`).sort();
+}
+
+/** Content-word Jaccard between two clauses, thresholded. Short words and the join words of
+ *  English carry no signal here; ≥ 0.5 of the remaining vocabulary shared is a paraphrase. */
+function paraphrases(description, useWhen) {
+	const STOP = new Set(['this', 'that', 'with', 'from', 'into', 'here', 'when', 'what', 'never', 'every', 'their', 'there', 'them', 'they', 'have', 'been', 'each', 'than', 'then', 'only', 'also', 'before', 'after', 'about']);
+	const words = (t) => new Set(String(t ?? '').toLowerCase().replace(/[`'"“”‘’()[\],.;:—–-]/g, ' ').split(/\s+/).filter((w) => w.length > 3 && !STOP.has(w)));
+	const a = words(description), b = words(useWhen);
+	if (!a.size || !b.size) return false;
+	let shared = 0;
+	for (const w of b) if (a.has(w)) shared++;
+	return shared / (a.size + b.size - shared) >= 0.5;
+}
+
 const NON_SOURCE_DIRS = new Set([
 	'node_modules', 'data', 'state', 'media', 'bin', 'src', 'lib', 'scripts',
 	'ui', 'studio', // the module's UI bundle — 'studio' is the pre-archive name, kept as a fallback
@@ -1308,6 +1330,13 @@ export function compile({ root, pkg }) {
 		if (merged.storage.base !== 'runtime' && !String(merged.description ?? '').trim()) {
 			console.warn(`⚠ collection ${name} has no description — it renders as a bare name in the orientation block every session loads`);
 		}
+		// A `use_when` that restates the description costs every session tokens and dilutes the clauses
+		// that carry signal (data-modeling §18); a reader catches it, nothing else did. Word overlap is
+		// the mechanical proxy: the clauses that earned their place in a blind evaluation encoded an
+		// ORDER or a REFUSAL, and shared few content words with their description.
+		if (merged.use_when && paraphrases(merged.description, merged.use_when)) {
+			console.warn(`⚠ collection ${name}: use_when restates its description — name the SITUATION that brings a session here (search here first · capture here when), not the noun again`);
+		}
 		counts.collections++;
 	}
 
@@ -1363,6 +1392,11 @@ export function compile({ root, pkg }) {
 			// `hr  git_modules @ 3f2a1c (dirty)` and needs no legend.
 			location: locationOf(source, root),
 			path: rel(source.root) || '.',
+			// The module's RUNNABLE entry points — `bin/<file>`, the folder NON_SOURCE_DIRS waves through.
+			// Skills and commands render into the orientation block; a module whose procedure is a
+			// script did not, so a session planned `dt add` writes the tooling forbids. This is the
+			// POINTER that the procedure exists, never its arguments — those stay in the skill.
+			...(binEntries(source.root).length ? { bin: binEntries(source.root) } : {}),
 			...(mpkg['owns-data'] === true ? { owns_data: true } : {}),
 			// Declared module names become record IDS here, because that is what an x-reference
 			// resolves against. An undeclared/unknown name would dangle, and `check` would say so —
