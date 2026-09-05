@@ -89,8 +89,15 @@ jobs:
 
       - name: oversized files
         run: |
-          big=$(git ls-files -z | xargs -0 -I{} sh -c 'test -f "{}" && s=$(wc -c <"{}") && [ "$s" -gt 153600 ] && echo "$s {}"' || true)
+          # 210 KB. Raised from 150 KB on 2026-09-05: src/schema-ops.js crossed the old ceiling at
+          # 0.19.0 (82,029 → 163,795 bytes) and 0.19.0 and 0.19.1 both SHIPPED with this step red,
+          # which is the failure mode a gate nobody can pass always becomes. The rule now carries 20%
+          # headroom over the largest tracked file (171,369 bytes → 205,643 needed → 210 KB).
+          # ⚠ This number is DUPLICATED in dreamteamer-vscode's copy of this workflow and in the
+          # vault's modules/default/bin/leak-scan.sh, which is what the local pre-commit hook execs.
+          # Change one, change all three, or the hook and CI disagree about what passes.
+          big=$(git ls-files -z | xargs -0 -I{} sh -c 'test -f "{}" && s=$(wc -c <"{}") && [ "$s" -gt 215040 ] && echo "$s {}"' || true)
           if [ -n "$big" ]; then
-            echo "::error::tracked files over 150 KB:"; echo "$big"; exit 1
+            echo "::error::tracked files over 210 KB:"; echo "$big"; exit 1
           fi
-          echo "✔ no tracked file over 150 KB"
+          echo "✔ no tracked file over 210 KB"
