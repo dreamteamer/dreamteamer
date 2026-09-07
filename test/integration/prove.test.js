@@ -17,7 +17,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { workspace, readFile, compileError, simpleCollection, dt } from '../helpers/ws.js';
+import { workspace, readFile, compileError, simpleCollection, writeCollection, dt } from '../helpers/ws.js';
 import { USAGE, WORKSPACE_FLAGS } from '../../src/cli.js';
 import {
 	artifactRefs, PROOF_KINDS, PROOF_MODES,
@@ -1715,6 +1715,14 @@ function sandboxOf(stdout) {
 
 const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+/** `removeWorktree` reports on stdout and these calls are IN-PROCESS — held so the suite's own
+ *  output stays a line of dots (the same affordance `worktrees.test.js` uses). */
+function quietly(fn) {
+	const log = console.log;
+	console.log = () => {};
+	try { return fn(); } finally { console.log = log; }
+}
+
 describe('writes proofs are sandboxed', () => {
 	test('a writes proof pends inside a throwaway worktree, and the primary store never sees the fixture', () => {
 		const ws = sandboxWorkspace();
@@ -1782,6 +1790,7 @@ describe('writes proofs are sandboxed', () => {
 		assert.ok(!ws.git(['worktree', 'list']).includes(sandbox), 'git still registers the sandbox');
 		assert.equal(readFile(ws.root, FX_PATH), null, 'the PASS landed the fixture in the primary');
 		assert.equal(tail(ws.root, SANDBOX_PROOF).verdict, 'PASS');
+		assert.equal(tail(ws.root, SANDBOX_PROOF).sandbox_removed, true);
 	});
 
 	// ⚠ THE HALF WITH NO HUMAN IN IT, and the only shape that reaches the judge on a FRESH run with
@@ -1815,12 +1824,9 @@ describe('writes proofs are sandboxed', () => {
 		assert.equal(done.code, 0, done.stdout + done.stderr);
 		assert.match(done.stdout, new RegExp(`^kept     ${esc(sandbox)}$`, 'm'));
 		assert.ok(fs.existsSync(sandbox), '--keep kept nothing');
+		assert.equal(tail(ws.root, SANDBOX_PROOF).sandbox_removed, null, 'nothing was attempted, so nothing failed');
 
-		const said = [];
-		const log = console.log;
-		console.log = (...a) => said.push(a.join(' '));
-		try { removeWorktree(findWorkspace(ws.root), sandbox, { force: true }); }
-		finally { console.log = log; }
+		quietly(() => removeWorktree(findWorkspace(ws.root), sandbox, { force: true }));
 		assert.ok(!fs.existsSync(sandbox));
 	});
 
@@ -1847,6 +1853,87 @@ describe('writes proofs are sandboxed', () => {
 		assert.equal(res.code, 1, res.stdout + res.stderr);
 		assert.match(res.stdout, new RegExp(`^FAIL  ${SANDBOX_PROOF} — sandbox ${esc(sandbox)} is gone \\(removed by hand\\?\\)$`, 'm'));
 		assert.equal(tail(ws.root, SANDBOX_PROOF).verdict, 'FAIL');
+	});
+
+	// ⚠ R27 — THE WINDOW BETWEEN THE WORKTREE AND THE FIRST STEP. It used to sit ABOVE the
+	// `ledgering` wrap, so a throw in the fixture copy, the pick, the `_delta` snapshot or the
+	// pre-check exited 1 with a raw error, NO ledger row, and a leaked `.worktrees/.tmp-*`. The
+	// reachable route is an expect-side collection compiled in the working tree but never COMMITTED:
+	// a sandbox is cut from HEAD, so `countMatching` answers `unknown collection` on it.
+	test('a throw between the worktree and the first step still leaves a row, and no sandbox behind', () => {
+		const ws = sandboxWorkspace();
+		writeCollection(ws.root, 'ghosts', simpleCollection());
+		writeProof(ws.root, 'haunts', {
+			...SANDBOX_PROOF_SOURCE,
+			steps: [{ run: 'true' }],
+			expect: [{ collection: 'ghosts', where: {}, count: { _delta: 1 } }],
+		});
+		const fx = path.join(ws.root, 'modules', 'default', 'proofs', 'fixtures', 'haunts', path.dirname(FX_PATH));
+		fs.mkdirSync(fx, { recursive: true });
+		fs.writeFileSync(path.join(fx, path.basename(FX_PATH)), FX_OPEN);
+		const compiled = ws.dt('compile'); // COMPILED, deliberately NOT committed
+		assert.equal(compiled.code, 0, compiled.stdout + compiled.stderr);
+
+		const res = ws.dt('prove', 'haunts');
+		assert.equal(res.code, 1, res.stdout + res.stderr);
+		assert.match(res.stderr, /ghosts/);
+		const row = tail(ws.root, 'haunts');
+		assert.equal(row.verdict, 'FAIL', 'a run with no row is a run the ledger denies happened');
+		assert.match(row.failure_reason, /ghosts/);
+		assert.equal(row.sandbox_removed, true);
+		assert.deepEqual(fs.readdirSync(path.join(ws.root, '.worktrees')).filter((n) => n.startsWith('.tmp-')), []);
+	});
+
+	// ⚠ THE FIXTURE MIRRORS THE WORKSPACE ROOT, so a copy of the directory WHOLE would let it
+	// overwrite anything the checkout carries — and `sandboxUnfit` runs after the copy, so a fixture
+	// could ship the very schema its own records are then validated against.
+	test('a fixture may contain only data/, and anything else is named and refused', () => {
+		const ws = sandboxWorkspace();
+		fs.writeFileSync(path.join(ws.root, 'modules', 'default', 'proofs', 'fixtures', SANDBOX_PROOF, 'package.json'), '{"name":"sneaky"}\n');
+		const res = ws.dt('prove', SANDBOX_PROOF);
+		assert.equal(res.code, 1, res.stdout + res.stderr);
+		assert.match(res.stdout, new RegExp(`^FAIL  ${SANDBOX_PROOF} — fixture may contain only data/ — found package\\.json$`, 'm'));
+		assert.equal(tail(ws.root, SANDBOX_PROOF).verdict, 'FAIL');
+		assert.deepEqual(fs.readdirSync(path.join(ws.root, '.worktrees')).filter((n) => n.startsWith('.tmp-')), []);
+		assert.match(readFile(ws.root, 'package.json'), /dreamteamer/, "the checkout's own package.json");
+	});
+
+	// ⚠ A WARNING ON STDERR IS GONE WHEN THE TERMINAL SCROLLS, and the row it belongs to is
+	// non-PENDING with a `sandbox` set — so nothing would ever come back for the directory.
+	test('a sandbox that could not be removed says so ON THE ROW, not only on stderr', () => {
+		const ws = sandboxWorkspace();
+		const sandbox = sandboxOf(ws.dt('prove', SANDBOX_PROOF).stdout);
+		assert.equal(dt(sandbox, 'set', 'notes/fx-open', 'status=done').code, 0);
+		// a REAL failure rather than a simulated one: `git worktree remove --force` refuses a locked tree
+		ws.git(['worktree', 'lock', sandbox]);
+
+		const done = ws.dt('prove', SANDBOX_PROOF, '--record', 'notes/fx-open');
+		assert.equal(done.code, 0, done.stdout + done.stderr);
+		assert.match(done.stderr, /could not be removed/);
+		const row = tail(ws.root, SANDBOX_PROOF);
+		assert.equal(row.verdict, 'PASS', 'the VERDICT is about the artifact, not about the housekeeping');
+		assert.equal(row.sandbox_removed, false);
+		assert.ok(fs.existsSync(sandbox));
+
+		ws.git(['worktree', 'unlock', sandbox]);
+		quietly(() => removeWorktree(findWorkspace(ws.root), sandbox, { force: true }));
+	});
+
+	test('--keep under --json says so IN the object — the human line is suppressed there', () => {
+		const ws = sandboxWorkspace();
+		const sandbox = sandboxOf(ws.dt('prove', SANDBOX_PROOF).stdout);
+		assert.equal(dt(sandbox, 'set', 'notes/fx-open', 'status=done').code, 0);
+
+		const done = ws.dt('prove', SANDBOX_PROOF, '--record', 'notes/fx-open', '--keep', '--json');
+		assert.equal(done.code, 0, done.stdout + done.stderr);
+		const out = JSON.parse(done.stdout);
+		assert.equal(out.verdict, 'PASS');
+		assert.equal(out.sandbox, sandbox);
+		assert.equal(out.kept, true, 'a --json consumer cannot see the `kept` line');
+		assert.equal(out.sandbox_removed, null);
+		assert.ok(fs.existsSync(sandbox));
+
+		quietly(() => removeWorktree(findWorkspace(ws.root), sandbox, { force: true }));
 	});
 
 	// ⚠ COMPILE ALLOWS THE SHAPE, because `--here` is a legitimate use of it. The runtime refusal is
