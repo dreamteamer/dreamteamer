@@ -419,6 +419,13 @@ function expectErrors(expect, given, descriptors, stepCount = 0) {
 		if (form === 'step') {
 			if ('stdout' in row && !isPlainMap(row.stdout)) errors.push(`expect[${i}] stdout must be a filter object, e.g. { _contains: "…" }`);
 			if ('stdout_json' in row && !isPlainMap(row.stdout_json)) errors.push(`expect[${i}] stdout_json must be a map of dotted paths to filter objects`);
+			// ⚠ AND AN EMPTY MAP IS THE SAME DEFECT WEARING THE RIGHT SHAPE. `stdout: {}` passes every
+			// check above, reaches the judge, and `matchesFilter` answers TRUE for a filter with no
+			// conditions — a verdict line that always ✔. The shape guard catches the author who typed
+			// the wrong KIND of thing; this catches the one who typed the right kind and forgot to
+			// say anything in it. Same rule `count: {}` already gets, one form over.
+			if (isPlainMap(row.stdout) && !Object.keys(row.stdout).length) errors.push(`expect[${i}] stdout must name at least one condition`);
+			if (isPlainMap(row.stdout_json) && !Object.keys(row.stdout_json).length) errors.push(`expect[${i}] stdout_json must name at least one path`);
 		}
 	}
 	return errors;

@@ -1075,6 +1075,16 @@ describe('validateProofShape — a step row\'s stdout is a FILTER, never a scala
 		only(live({ expect: [{ step: 1, stdout: 'hello' }] }), stdoutErr);
 	});
 
+	// The right shape saying nothing. `matchesFilter` answers true for a condition-less filter, so an
+	// empty map is a verdict line that can only ever ✔ — the `count: {}` defect, one form over.
+	test('an empty stdout map is refused', () => {
+		only(live({ expect: [{ step: 1, stdout: {} }] }), 'expect[0] stdout must name at least one condition');
+	});
+
+	test('an empty stdout_json map is refused', () => {
+		only(live({ expect: [{ step: 1, stdout_json: {} }] }), 'expect[0] stdout_json must name at least one path');
+	});
+
 	test('a number stdout is refused', () => {
 		only(live({ expect: [{ step: 1, stdout: 7 }] }), stdoutErr);
 	});
