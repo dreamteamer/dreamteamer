@@ -20,7 +20,7 @@ import { runHarnessAdapters } from './harnesses.js';
 import { satisfies } from './semver.js';
 import { parseEnvValues } from './env-vars.js';
 import { DERIVED_KINDS, readManifest, runtimeDir } from './runtime.js';
-import { artifactRefs, proofPathFor, validateProofShape } from './prove.js';
+import { artifactRefs, proofPathFor, validateProofShape, stepWarnings } from './prove.js';
 
 // re-exported, not moved: `readManifest` is in the VS Code extension's hand-maintained engine
 // contract as `compileMod.readManifest` (engine.ts), and a removed export is the same cross-repo
@@ -1606,6 +1606,11 @@ export function compile({ root, pkg }) {
 			const proof = loadSource(e.bytes.toString('utf8'), e.sources[0].path);
 			const errs = validateProofShape(proof, proofCtx);
 			if (errs.length) fail(errs.map((m) => `${rt}: ${m}`).join('\n  '));
+			// ⚠ WARNINGS, not errors (R17). A step is a shell string, so a brace nobody substitutes is
+			// as likely to be `awk '{print}'` as a typo'd `{recrod}` — and `substitute` refusing both
+			// at run time was measured to kill four correct steps. Naming the token here is the whole
+			// net that remains: it costs a line, and the proof still compiles and still runs.
+			for (const w of stepWarnings(proof)) console.warn(`⚠ ${rt}: ${w}`);
 			for (const ref of proof?.about ?? []) provenRefs.add(String(ref));
 		}
 	}

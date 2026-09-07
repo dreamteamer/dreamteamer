@@ -13,6 +13,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { load } from './yaml.js';
+import { atomicWrite } from './store.js';
 import { matchesFilter, unknownOperators, looseEq } from './filter.js';
 import { sortRows } from './temporal.js';
 import { parseEnvValues } from './env-vars.js';
@@ -417,30 +418,63 @@ function enumErrors(errors, field, prop, values) {
 /**
  * Render a proof's `{record}` and `{record.<field>}` braces against the picked record.
  *
- * ⚠ `${…}` IS LEFT ALONE. That bracket belongs to the resolver (`${env:FILES_FOLDER}` in a `path:`
- * expectation, rendered per machine) and to the shell (`${HOME}` in a `run:` step). A `{…}` matcher
- * that did not exempt a `$`-prefixed brace would throw on both, on proofs that are correct.
+ * ⚠ IT RENDERS ONLY WHAT IT OWNS, AND PASSES EVERYTHING ELSE THROUGH (R17). A step is a SHELL
+ * STRING, and the shell owns braces too: refusing every unrecognised `{…}` was measured to kill
+ * `awk '{print $1}'`, `sed -n '1,3{p}'`, `jq '{a: .b}'` and `mkdir -p x/{a,b}` — four correct steps,
+ * for a check whose whole purpose was to catch a typo. A net that refuses correct proofs teaches the
+ * author to delete correct lines, which is strictly worse than the typo. So the net moved to compile
+ * time and became advisory: `stepWarnings` names an identifier-shaped brace nobody substitutes, and
+ * compile prints it as a warning.
  *
- * Everything else in braces THROWS rather than rendering. An unbound `{recrod.name}` would otherwise
- * reach the shell as the literal text and a missing field as the string "undefined" — the same
- * silent-wrong class the compile-time validator exists to close, one layer down.
+ * `${…}` is untouched for the same reason it always was — that bracket belongs to the resolver
+ * (`${env:FILES_FOLDER}` in a `path:` expectation) and to the shell (`${HOME}` in a `run:` step).
+ *
+ * What still THROWS is the one case where passing through would be silently wrong: `{record.<f>}`
+ * naming a field the picked record does not carry would otherwise reach the shell as the string
+ * "undefined", and `{record}` with no record bound has nothing to be.
  *
  * @param {string} text
  * @param {{record?: {ref: string, fields: object}}} ctx
  */
 export function substitute(text, ctx) {
 	if (typeof text !== 'string') return text;
-	return text.replace(/(\$?)\{([^{}]*)\}/g, (whole, dollar, name) => {
+	return text.replace(/(\$?)\{(record(?:\.([^{}]*))?)\}/g, (whole, dollar, name, field) => {
 		if (dollar) return whole;
 		const rec = ctx?.record;
-		const field = /^record\.(.+)$/.exec(name)?.[1];
-		if (name !== 'record' && !field) throw new Error(`unknown substitution "{${name}}" — a proof may use {record} and {record.<field>}`);
 		if (!rec) throw new Error(`{${name}} has nothing to bind to — this proof declares no given`);
-		if (!field) return String(rec.ref);
+		if (field === undefined) return String(rec.ref);
 		const value = rec.fields?.[field];
 		if (value === undefined) throw new Error(`{${name}} — ${rec.ref} has no field "${field}"`);
 		return String(value);
 	});
+}
+
+/** An identifier-shaped brace token: what a static reader can tell apart from shell syntax. `{print}`
+ *  matches and `{print $1}` does not, which is the asymmetry that makes the net affordable. */
+const BRACE_TOKEN = /(\$?)\{([A-Za-z_][A-Za-z0-9_.-]*)\}/g;
+
+/**
+ * Every brace in this proof's steps that NOTHING substitutes — one advisory string per token, for
+ * compile to print. Empty means nothing suspicious.
+ *
+ * ⚠ A WARNING, NEVER AN ERROR, and that is the whole design (R17). The token it flags may be
+ * perfectly intentional shell — `awk '{print}'` is the worked example — so the cost of a false
+ * positive has to be one line of output rather than a refused proof. And the net can only judge
+ * SHAPE: a `$`-prefixed brace is exempt (the resolver's and the shell's), and a token with a space
+ * in it is invisible here, which is why the commonest awk one-liner is never flagged.
+ */
+export function stepWarnings(proof) {
+	const out = [];
+	for (const [i, step] of (Array.isArray(proof?.steps) ? proof.steps : []).entries()) {
+		for (const text of [step?.run, step?.perform]) {
+			if (typeof text !== 'string') continue;
+			for (const [, dollar, token] of text.matchAll(BRACE_TOKEN)) {
+				if (dollar || token === 'record' || token.startsWith('record.')) continue;
+				out.push(`step ${i + 1} uses "{${token}}" — only {record} and {record.<field>} are substituted; the rest reaches the shell as written`);
+			}
+		}
+	}
+	return out;
 }
 
 /**
@@ -448,9 +482,12 @@ export function substitute(text, ctx) {
  *
  * The oldest row is the one that leaves. A ledger is read for what happened recently, so trimming
  * from the other end would make the cap delete exactly the rows anyone wants.
+ *
+ * ⚠ THE `cap <= 0` GUARD IS NOT DEFENSIVE, IT IS ARITHMETIC. `slice(-0)` is `slice(0)` — the whole
+ * array — so a cap of zero silently kept EVERYTHING, which is the opposite of what the number says.
  */
 export function applyCap(rows, row, cap = LEDGER_CAP) {
-	return [...rows, row].slice(-cap);
+	return cap <= 0 ? [] : [...rows, row].slice(-cap);
 }
 
 /** The closed glyph set (R6). An operator with no glyph prints its own NAME: the filter operator set
@@ -487,13 +524,19 @@ const wanted = (v) => (Array.isArray(v) ? `[${v.join(', ')}]` : String(v));
  * literally `count`, and for a `record:` expectation it is the field the `where` names. A bare
  * operator map (`{ _delta: 1 }`) is a count condition, because that is the only place one appears.
  *
+ * ⚠ MORE THAN ONE ENTRY THROWS (R18). A raw `expect` entry carries `collection`, `where` and `count`
+ * together, and handed here whole it rendered the FIRST key — `collection 1 = notes ✖`, a verdict
+ * line about the wrong thing, marked failed, for a proof that passed. The caller narrows the entry
+ * to the one condition being judged; a throw is what makes forgetting visible.
+ *
  * The mark comes from `matchesFilter` itself, so the judgement and the rendering can never disagree
  * about whether the line passed. `_delta` is the exception: no filter has it, so it is compared here.
  */
 export function verdictLine(expectation, actual) {
 	const entries = Object.entries(expectation ?? {});
 	const bare = entries.length > 0 && entries.every(([k]) => k.startsWith('_'));
-	const [field, cond] = bare ? ['count', expectation] : (entries[0] ?? ['count', null]);
+	if (!bare && entries.length !== 1) throw new Error(`verdictLine takes ONE expectation entry — got ${entries.length ? `keys ${entries.map(([k]) => k).join(', ')}` : 'none'}`);
+	const [field, cond] = bare ? ['count', expectation] : entries[0];
 	const ops = cond !== null && typeof cond === 'object' && !Array.isArray(cond) ? cond : { _eq: cond };
 	const pass = '_delta' in ops ? Number(actual) === Number(ops._delta) : matchesFilter({ [field]: actual }, { [field]: ops }, null);
 	const mark = pass ? '✔' : '✖';
@@ -590,7 +633,14 @@ function readOne(store, collection, id) {
 	try {
 		const { fields } = store.read(collection, id);
 		return { ref: `${collection}/${id}`, fields: { ...fields, id } };
-	} catch { return null; } // no such record — NO-FIXTURE, not a crash
+	} catch (e) {
+		// ⚠ ONLY "no such record" IS NO-FIXTURE. A bare catch here swallowed `unknown collection`
+		// too, so a proof whose `given` names a collection this workspace does not have reported
+		// exit 4 — "the proof did not run" — instead of the error naming the typo. A parse failure
+		// on the record's own file is the same class: a real error, and it must reach the operator.
+		if (!String(e?.message ?? '').endsWith(': no such record')) throw e;
+		return null;
+	}
 }
 
 /**
@@ -625,10 +675,18 @@ function envKeys(root) {
 	catch { return new Set(); }
 }
 
+/** ⚠ `accessSync(X_OK)` ALONE IS NOT ENOUGH: on a DIRECTORY the execute bit means "searchable", so a
+ *  folder named `ffmpeg` anywhere on PATH satisfied `requires: { bin: [ffmpeg] }` and the proof then
+ *  died at the step with a shell error instead of reporting UNAVAILABLE with a fix. `statSync`
+ *  follows symlinks, which is what most real binaries on PATH are. */
 function onPath(name) {
 	for (const dir of (process.env.PATH ?? '').split(path.delimiter)) {
 		if (!dir) continue;
-		try { fs.accessSync(path.join(dir, name), fs.constants.X_OK); return true; } catch { /* next dir */ }
+		const file = path.join(dir, name);
+		try {
+			fs.accessSync(file, fs.constants.X_OK);
+			if (fs.statSync(file).isFile()) return true;
+		} catch { /* next dir */ }
 	}
 	return false;
 }
@@ -666,12 +724,17 @@ export function readLedger(root, proofId) {
 }
 
 /** Append one row, capped at the last LEDGER_CAP. A rewrite rather than an `appendFileSync` because
- *  the cap has to drop the oldest row, and the rewrite is what repairs a malformed line. */
+ *  the cap has to drop the oldest row, and the rewrite is what repairs a malformed line.
+ *
+ *  Through `atomicWrite`, the one writer every record write already goes through: a proof's steps run
+ *  arbitrary commands, so a run can be killed mid-write, and a half-written ledger line is exactly
+ *  the malformed row `readLedger` has to warn about. Write-to-temp + rename means the file on disk is
+ *  always a whole ledger. */
 export function appendLedger(root, proofId, row) {
 	const file = ledgerPath(root, proofId);
 	const rows = applyCap(readLedger(root, proofId), row);
 	fs.mkdirSync(path.dirname(file), { recursive: true });
-	fs.writeFileSync(file, rows.map((r) => JSON.stringify(r)).join('\n') + '\n');
+	atomicWrite(file, rows.map((r) => JSON.stringify(r)).join('\n') + '\n');
 	return rows;
 }
 
