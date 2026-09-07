@@ -152,6 +152,33 @@ describe('worktrees are an observed entity', () => {
 		assert.equal(git(ws.root, ['branch', '--list', 'worktree-x']), '', 'a branch was created anyway');
 	});
 
+	// ⚠ `--path` WOULD BE ACCEPTED AND IGNORED: --temp places the sandbox itself, so the directory
+	// asked for is silently not the directory made. Same class as --tmep, one flag further in.
+	test('--temp and --path together are refused rather than one being ignored', () => {
+		const ws = workspace();
+		const r = dt(ws.root, 'add', 'worktrees', '--name', 't', '--temp', '--path', 'elsewhere');
+		assert.equal(r.code, 1, `--path was ignored:\n${r.stdout}`);
+		assert.match(r.stderr, /--temp places the sandbox itself/);
+		assert.ok(!fs.existsSync(path.join(ws.root, '.worktrees')));
+	});
+
+	// Found by walking the flow: git keeps listing a worktree whose directory was deleted by hand,
+	// and reading its dirty state there died as `✖ spawnSync git ENOENT` — a message about the
+	// wrong thing entirely, on the one state where removing the registration is perfectly safe.
+	test('rm names a worktree whose directory is GONE instead of failing in git', () => {
+		const ws = workspace();
+		assert.equal(dt(ws.root, 'add', 'worktrees', '--name', 'g').code, 0);
+		fs.rmSync(path.join(ws.root, '.worktrees', 'g'), { recursive: true, force: true });
+
+		assert.equal(dt(ws.root, 'list', 'worktrees', '--json').code, 0, 'list must survive it too');
+		const r = dt(ws.root, 'rm', 'worktrees/g');
+		assert.equal(r.code, 1);
+		assert.match(r.stderr, /its directory is gone/);
+		assert.doesNotMatch(r.stderr, /ENOENT/);
+		assert.equal(dt(ws.root, 'rm', 'worktrees/g', '--force').code, 0);
+		assert.equal(git(ws.root, ['worktree', 'list', '--porcelain']).match(/\/g$/m), null, 'the registration outlived --force');
+	});
+
 	test('a verb worktrees do not have says which four they do', () => {
 		const ws = workspace();
 		const r = dt(ws.root, 'history', 'worktrees/probe');
