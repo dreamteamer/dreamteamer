@@ -31,14 +31,15 @@ record CLI verbs, and history for free.
 Working trees are materialized **on demand**:
 
 ```bash
-dreamteamer ensure <id>     # clone if missing, print the path; idempotent
-dreamteamer ensure --all    # explicit opt-in, e.g. before going offline
+dreamteamer install repos/<id>   # clone if missing, print the path; idempotent
+dreamteamer install repos --all  # explicit opt-in, e.g. before going offline
 ```
 
-`install` deliberately does not do this. The record count only grows while the fraction any given
-session needs only shrinks, so eager restore would make every fresh clone slow, would require every
-identity's credentials to be present at install time, and would let one unreachable remote fail the
-whole install. Lazy materialization fails only the action you asked for, at the moment you asked.
+Materializing a repo is never part of making a checkout ready — `dt install` with no target does
+that, and it does not touch these. The record count only grows while the fraction any given session
+needs only shrinks, so eager restore would make every fresh clone slow, would require every
+identity's credentials to be present at that moment, and would let one unreachable remote fail the
+whole thing. Lazy materialization fails only the action you asked for, at the moment you asked.
 
 ## Path resolution
 

@@ -86,7 +86,18 @@ const isLink = (p) => { try { return fs.lstatSync(p).isSymbolicLink() && fs.exis
  *  silently by any id-keyed read of the board. */
 export function declaredLocalAssets(ws) {
 	const seen = new Map(); // rel → {rel, module}
-	const add = (rel, module) => { if (!seen.has(rel)) seen.set(rel, { rel, module }); };
+	const add = (raw, module) => {
+		// ⚠ A REL MAY NOT CLIMB OUT OF THE WORKSPACE. `placeLink` writes wherever the rel points, so
+		// `local-assets: ['../../x']` in a careless module declaration would drop a symlink beside
+		// the workspace with nothing consulted. Refused when the plan is BUILT, so the board never
+		// prints a step it must not run. (Task 4 teaches compile the same rule; a runtime that
+		// writes outside the root should not wait for the compiler to be run.)
+		const rel = path.normalize(raw);
+		if (path.isAbsolute(rel) || rel === '..' || rel.startsWith(`..${path.sep}`)) {
+			throw new Error(`local-assets: "${raw}"${module ? ` (declared by module ${module})` : ''} resolves outside the workspace root — a local asset must be a path INSIDE the workspace`);
+		}
+		if (!seen.has(rel)) seen.set(rel, { rel, module });
+	};
 	for (const rel of ws.pkg.dreamteamer?.['local-assets'] ?? []) add(rel, null);
 	for (const m of discoverModules(ws.root, ws.pkg).modules) {
 		let mp = {};
@@ -125,48 +136,71 @@ function placeLink(target, at) {
 	return 0;
 }
 
-// One executor per step id, keyed by the id's kind. Each returns an exit code; none decides
-// ANYTHING — whether a step runs at all was settled by `planInstall`.
+/** ⚠ EVERY EXECUTOR ANSWERS WITH A CODE, NEVER A THROW. The board's contract is that one failure
+ *  names itself and the remaining steps still run — and under `--json` a throw out of here would
+ *  abandon the payload as well as the rest of the plan. `compile` throws on a source error, and fs
+ *  throws on everything from EACCES to a primary that vanished mid-run, so the guard is the rule
+ *  here rather than the exception. */
+const guard = (name, fn) => (...a) => {
+	try { return fn(...a) ?? 0; } catch (e) { console.error(`✖ ${name}: ${e.message.split('\n')[0]}`); return 1; }
+};
+
+// One executor per step id, keyed by the id's kind. None decides ANYTHING — whether a step runs at
+// all was settled by `planInstall`. `stdio` is the caller's, so a `--json` run can send a
+// subprocess's chatter to stderr and keep stdout for the payload.
 const RUN = {
-	engine: (ws) => spawnSync('npm', [fs.existsSync(path.join(ws.root, 'package-lock.json')) ? 'ci' : 'install', '--prefer-offline', '--no-audit', '--no-fund'], { cwd: ws.root, stdio: 'inherit' }).status ?? 1,
-	env: (ws, st) => placeLink(path.join(st.checkout.primary, '.env'), path.join(ws.root, '.env')),
-	asset: (ws, st, rel) => placeLink(path.join(st.checkout.primary, rel), path.join(ws.root, rel)),
-	'git-modules': (ws) => restoreGitModules(ws),
-	compile: (ws) => { try { return compile(ws); } catch (e) { console.error(`✖ compile: ${e.message.split('\n')[0]}`); return 1; } }, // compile THROWS on a source error
-	postinstall: (ws, st) => spawnSync(st.postinstall, { cwd: ws.root, shell: true, stdio: 'inherit', env: { ...process.env, DT_PRIMARY: st.checkout.primary } }).status ?? 1,
+	engine: guard('engine', (ws, st, rel, stdio) => spawnSync('npm', [fs.existsSync(path.join(ws.root, 'package-lock.json')) ? 'ci' : 'install', '--prefer-offline', '--no-audit', '--no-fund'], { cwd: ws.root, stdio }).status ?? 1),
+	env: guard('.env', (ws, st) => placeLink(path.join(st.checkout.primary, '.env'), path.join(ws.root, '.env'))),
+	asset: guard('asset', (ws, st, rel) => placeLink(path.join(st.checkout.primary, rel), path.join(ws.root, rel))),
+	'git-modules': guard('git modules', (ws) => restoreGitModules(ws)),
+	compile: guard('compile', (ws) => compile(ws)),
+	postinstall: guard('postinstall', (ws, st, rel, stdio) => spawnSync(st.postinstall, { cwd: ws.root, shell: true, stdio, env: { ...process.env, DT_PRIMARY: st.checkout.primary } }).status ?? 1),
 };
 
 /** Print the board and run the todo steps in order. `dryRun` prints and runs nothing. Returns 1 if
  *  any step errored — one failure never abandons the rest, because a checkout half-made-ready with
  *  a named failure is more useful than one that stopped at the first thing it could not do. */
-export function applyInstall(ws, state, steps, { dryRun = false, log = console.log } = {}) {
+export function applyInstall(ws, state, steps, { dryRun = false, log = console.log, stdio = 'inherit' } = {}) {
 	let failed = 0;
 	for (const s of steps) {
 		const glyph = s.state === 'todo' ? '▶' : s.state === 'already' ? '✔' : '—';
 		log(`${glyph} ${s.label}${s.why ? `\n    ${s.why}` : ''}`);
 		if (s.state !== 'todo' || dryRun) continue;
 		const [kind, rel] = s.id.split(/:(.+)/);
-		const code = RUN[kind](ws, state, rel);
+		const code = RUN[kind](ws, state, rel, stdio);
 		if (code !== 0) { failed++; log(`✖ ${s.id} failed (exit ${code})`); }
 	}
 	return failed ? 1 : 0;
 }
 
-/** `dt install` on THIS checkout. */
+/** `dt install` on THIS checkout.
+ *
+ *  ⚠ `--json` IS NOT A DRY RUN: it applies the plan and then reports it as data. Which means the
+ *  run that most needs to be parseable — the FIRST install in a fresh worktree — is also the one
+ *  with the most to say: `compile` logs its summary through console.log, and the shelled-out steps
+ *  write to whatever handles they inherit. So under `--json` stdout carries the payload and
+ *  NOTHING else: the board goes to stderr (a human watching a piped run still wants it),
+ *  console.log is pointed at stderr for the duration, and each subprocess is handed stderr for its
+ *  own stdout. A `--json` that only parses on an already-settled checkout is not an interface. */
 export function installCommand(ws, rest) {
 	const flags = new Set(rest.filter((a) => a.startsWith('--')));
+	const json = flags.has('--json');
 	const state = observeState(ws);
 	const steps = planInstall(state, { linkEnv: flags.has('--link-env') });
-	// --json is NOT a dry run: it applies, then reports the same board as data. Every line goes
-	// through `log` so the payload stays parseable — a human header printed beside it is a --json
-	// nobody can pipe. (A step that shells out with inherited stdio still writes its own output.)
-	const quiet = flags.has('--json') ? [] : null;
-	const log = quiet ? (l) => quiet.push(l) : console.log;
+	const board = [];
+	const log = (l) => { board.push(l); (json ? console.error : console.log)(l); };
 	log(state.checkout.kind === 'linked'
 		? `linked worktree of ${state.checkout.primary}${state.checkout.insideRoot ? '' : ' (outside its root)'}`
 		: 'primary checkout');
-	const code = applyInstall(ws, state, steps, { dryRun: flags.has('--dry-run'), log });
-	if (quiet) { console.log(JSON.stringify({ checkout: state.checkout, steps, log: quiet, code }, null, 2)); return code; }
+	const stdout = console.log;
+	if (json) console.log = console.error; // compile() and the git-modules restore report through it
+	let code;
+	try {
+		code = applyInstall(ws, state, steps, { dryRun: flags.has('--dry-run'), log, stdio: json ? ['ignore', 2, 2] : 'inherit' });
+	} finally {
+		console.log = stdout;
+	}
+	if (json) { console.log(JSON.stringify({ checkout: state.checkout, steps, log: board, code }, null, 2)); return code; }
 	if (state.checkout.kind === 'linked') log(`\nbefore you finish here: dt commit your records. Landing (dt land worktrees/${path.basename(ws.root)}) ships in slice 4 — until then the primary merges branch ${'worktree-' + path.basename(ws.root)} by hand.`);
 	return code;
 }
