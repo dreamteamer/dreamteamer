@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { describeCheckout, defaultGit, planInstall } from '../../src/checkout.js';
+import { describeCheckout, defaultGit, planInstall, readHookInput } from '../../src/checkout.js';
 
 const fakeGit = (answers) => (args) => answers[args.join(' ')] ?? '';
 
@@ -115,5 +115,45 @@ describe('planInstall — every step checks before it acts', () => {
 		const s = linked({ localAssets: [{ rel: '.profiles', module: null, presentHere: false, isLinkHere: false, presentInPrimary: true }] });
 		assert.deepEqual(planInstall(s).map((x) => x.id),
 			['engine', 'env', 'asset:.profiles', 'git-modules', 'compile', 'postinstall']);
+	});
+});
+
+// ---- readHookInput -------------------------------------------------------------------------
+//
+// ⚠ THE FIELD NAMES ARE THE HARNESS'S, NOT OURS. Claude Code's hooks reference (fetched
+// 2026-09-07) documents `WorktreeCreate`/`WorktreeRemove` as carrying `worktree_name` and
+// `worktree_path` beside the `cwd` every event has — so the plain `name` an interface sketch
+// would reach for is the FALLBACK spelling here, never the primary one. A parser that read only
+// `name` would have answered "no worktree name" to a perfectly well-formed WorktreeCreate.
+describe('readHookInput — the harness speaks JSON on stdin', () => {
+	test('a SessionStart payload yields its cwd', () => {
+		const i = readHookInput(JSON.stringify({ session_id: 's1', cwd: '/w/ws/.worktrees/a', hook_event_name: 'SessionStart' }));
+		assert.equal(i.cwd, '/w/ws/.worktrees/a');
+		assert.equal(i.name, null);
+		assert.equal(i.raw.hook_event_name, 'SessionStart');
+	});
+	test('a WorktreeCreate payload yields the DOCUMENTED worktree_name', () => {
+		const i = readHookInput(JSON.stringify({ cwd: '/w/ws', hook_event_name: 'WorktreeCreate', worktree_name: 'probe', worktree_path: '/w/ws/.worktrees/probe' }));
+		assert.equal(i.name, 'probe');
+		assert.equal(i.cwd, '/w/ws');
+		assert.equal(i.raw.worktree_path, '/w/ws/.worktrees/probe', 'the raw payload is kept — land reads worktree_path off it');
+	});
+	test('a bare `name` still works — the fallback spelling', () => {
+		assert.equal(readHookInput('{"name":"probe"}').name, 'probe');
+	});
+	test('worktree_path stands in for a payload with no cwd', () => {
+		assert.equal(readHookInput('{"worktree_path":"/w/ws/.worktrees/a"}').cwd, '/w/ws/.worktrees/a');
+	});
+	test('garbage is named as garbage', () => {
+		assert.throws(() => readHookInput('not json at all'), /hook input is not JSON/);
+		assert.throws(() => readHookInput(''), /hook input is not JSON/);
+		assert.throws(() => readHookInput('42'), /hook input is not JSON/);
+	});
+	// ⚠ THE KEYS RECEIVED ARE THE WHOLE DIAGNOSTIC. A hook wired to the wrong event sends a
+	// well-formed payload with the wrong shape, and "no cwd" alone leaves nobody able to tell which
+	// event actually fired.
+	test('a payload with neither cwd nor a name lists the keys it did carry', () => {
+		assert.throws(() => readHookInput('{"session_id":"s1","hook_event_name":"Stop"}'),
+			/neither[\s\S]*session_id, hook_event_name/);
 	});
 });

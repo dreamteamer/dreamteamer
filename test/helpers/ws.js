@@ -235,6 +235,14 @@ export function dt(root, ...args) {
 	return { code: res.status, stdout: res.stdout ?? '', stderr: res.stderr ?? '' };
 }
 
+/** Run the real CLI with a JSON payload on STDIN — what a harness hook does, and the ONLY way to
+ *  reach `--hook`. `spawnSync`'s `input:` closes the pipe at EOF, which is what `readFileSync(0)`
+ *  on the other side is waiting for; a `dt()` run inherits the runner's stdin and would hang. */
+export function dtStdin(root, stdin, ...args) {
+	const res = spawnSync(process.execPath, [BIN, ...args], { cwd: root, env: GIT_ENV, encoding: 'utf8', input: stdin });
+	return { code: res.status, stdout: res.stdout ?? '', stderr: res.stderr ?? '' };
+}
+
 /** Read a file in a workspace as text, or null. */
 export function readFile(root, rel) {
 	try { return fs.readFileSync(path.join(root, rel), 'utf8'); } catch { return null; }
