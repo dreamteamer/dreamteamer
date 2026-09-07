@@ -211,7 +211,7 @@ export function validateProofShape(proof, ctx) {
 		const expect = Array.isArray(p.expect) ? p.expect : [];
 		if (!steps.length || !expect.length) errors.push('a live proof needs at least one step and one expectation');
 		errors.push(...givenErrors(p.given, descriptors));
-		errors.push(...expectErrors(expect, p.given, descriptors));
+		errors.push(...expectErrors(expect, p.given, descriptors, steps.length));
 	}
 
 	// ---- requires.env: a key nothing declares is a proof that reports UNAVAILABLE forever.
@@ -277,31 +277,104 @@ function givenErrors(given, descriptors) {
 	}
 
 	if (hasWhere && given.where && typeof given.where === 'object') {
-		errors.push(...whereErrors(given.where, collection, descriptors));
+		// ⚠ I1 — THE R45 EXEMPTION IS FOR EXPECTATIONS, AND NOTHING SUBSTITUTES HERE. `pickFixture`
+		// hands `given.where` to `matchesFilter` RAW, and nothing ever could render it: the given is
+		// what PICKS the record, so at the moment this filter runs there is no record to bind to. The
+		// exemption (which exists so a judge-rendered literal is not compared to a closed enum) let
+		// the literal through compile, and the proof then answered NO-FIXTURE forever — which reads as
+		// a fact about the workspace's data rather than about the proof.
+		//
+		// The refusal REPLACES the ordinary checks rather than joining them: one mistake, one error,
+		// and a `{record}` compared to an enum would otherwise produce a second line about the brace.
+		if (hasSubstitutable(given.where)) errors.push('given.where cannot use {record} — the given is what PICKS the record');
+		else errors.push(...whereErrors(given.where, collection, descriptors));
 	}
 	return errors;
 }
 
-function expectErrors(expect, given, descriptors) {
+/**
+ * ⚠ R48 — THE ONE ANSWER TO "WHAT SHAPE IS THIS ROW", and the whole reason it is exported.
+ *
+ * Until this existed, compile recognised a form by ONE key-subset (`'record' in row && 'where' in
+ * row`) and the judge dispatched on ANOTHER (`'record' in e`) — and every gap between the two was a
+ * SILENT GREEN, because a row judged as the wrong form produces zero verdict lines and
+ * `verdicts.every(ok)` is vacuously true over an empty list. Measured: `{record: '{record}', path:
+ * 'nope.txt', exists: true}` compiled as a path row, was judged as a record row, and answered exit 0
+ * `PASS` on a file that never existed. `{record, where, count}` was the same seam upside down: the
+ * count's operators and integers were validated line by line and then never read.
+ *
+ * So there is one function, both sides call it, and a row whose keys span two forms is refused by
+ * compile rather than resolved in favour of whichever reader asked first.
+ *
+ * ⚠ `where` IS NOT A DISCRIMINATOR. It belongs to two forms, so it can never say which one a row is;
+ * `step` is optional on the output form (it defaults to the last run step), so THAT form is
+ * recognised by what it ASSERTS.
+ *
+ * @param {object} row  one entry of `expect[]`
+ * @returns {'collection'|'record'|'step'|'path'|null}
+ */
+export function formOf(row) {
+	const r = row ?? {};
+	if ('collection' in r && 'where' in r && 'count' in r) return 'collection';
+	if ('record' in r && 'where' in r) return 'record';
+	if ('exit' in r || 'stdout' in r || 'stdout_json' in r) return 'step';
+	if ('path' in r && 'exists' in r) return 'path';
+	return null;
+}
+
+/** Which form each DISCRIMINATING key belongs to — `where` is deliberately absent (it belongs to
+ *  two), and so is a bare `step:` index, which is meaningless without something to assert. */
+const FORM_OF_KEY = {
+	collection: 'collection', count: 'collection',
+	record: 'record',
+	exit: 'step', stdout: 'step', stdout_json: 'step',
+	path: 'path', exists: 'path',
+};
+
+/** Every form this row's keys reach into — one entry for a well-formed row, two or more for the
+ *  mixture R48 refuses. */
+function formsIn(row) {
+	const out = new Set();
+	for (const k of Object.keys(row ?? {})) if (FORM_OF_KEY[k]) out.add(FORM_OF_KEY[k]);
+	return [...out];
+}
+
+function expectErrors(expect, given, descriptors, stepCount = 0) {
 	const errors = [];
 	for (const [i, e] of expect.entries()) {
 		const row = e ?? {};
-		const hasCount = 'collection' in row && 'where' in row && 'count' in row;
-		const hasRecord = 'record' in row && 'where' in row;
-		// `step` is OPTIONAL on the output form (it defaults to the last run step), so the form is
-		// recognised by what it ASSERTS, never by the presence of the index.
-		const hasStep = 'exit' in row || 'stdout' in row || 'stdout_json' in row;
-		const hasPath = 'path' in row && 'exists' in row;
+		// ⚠ R48 — THE MIXTURE IS REFUSED BEFORE ANYTHING ELSE IS SAID ABOUT THE ROW. A row spanning
+		// two forms has no single meaning to validate against, and the errors the per-form checks
+		// would then produce are about a shape the author never meant to write.
+		const forms = formsIn(row);
+		if (forms.length > 1) {
+			errors.push(`expect[${i}] mixes two forms — a row is one of collection+where+count · record+where · step · path+exists`);
+			continue;
+		}
+		const form = formOf(row);
 		if ('collection' in row && !descriptors.has(String(row.collection))) {
 			errors.push(`expect[${i}].collection "${row.collection}" is not a collection`);
-		} else if (!hasCount && !hasRecord && !hasStep && !hasPath) {
+		} else if (!form) {
 			errors.push(`expect[${i}] needs one of: collection+where+count · record+where · step+exit/stdout/stdout_json · path+exists`);
 		} else if (row.where && typeof row.where === 'object') {
 			// a collection-scope where is judged against THAT collection; a `record:` where against the
 			// picked record's own collection, which is `given.collection`.
-			const scope = hasCount ? String(row.collection) : String(given?.collection ?? '');
+			const scope = form === 'collection' ? String(row.collection) : String(given?.collection ?? '');
 			if (descriptors.has(scope)) errors.push(...whereErrors(row.where, scope, descriptors));
 		}
+		// ⚠ I4 — R14, WIDENED TO EVERY `where`. The guard fired only for a `record:` row, so a
+		// COLLECTION row whose filter carries `{record}` on a proof with no `given` compiled clean —
+		// and `substituteWhere` throws at run time, which is a FAIL row and a red `dt status --strict`
+		// for a proof that could never have run at all.
+		if (given === undefined && hasSubstitutable(row.where)) {
+			errors.push('an expectation uses {record} but this proof declares no given');
+		}
+		// M7 — a `step:` past the end resolved to `undefined` and was judged: the line read
+		// `exit undefined = 0 ✖`, a FAIL naming an exit code no step ever produced.
+		if (form === 'step' && Number.isInteger(row.step) && row.step > stepCount) {
+			errors.push(`expect[${i}] step ${row.step} is past the last step (${stepCount})`);
+		}
+		const hasRecord = form === 'record';
 		// R14 — `{record}` is bound by `given`. Without one, the substitution has nothing to render
 		// and the proof cannot run; refusing at compile beats an unresolved brace at run time.
 		if (hasRecord && given === undefined) errors.push('a record expectation needs a given — nothing binds {record}');
@@ -331,7 +404,10 @@ function expectErrors(expect, given, descriptors) {
 		if (hasRecord && (row.where === null || typeof row.where !== 'object' || !Object.keys(row.where).length)) {
 			errors.push(`expect[${i}] where must name at least one condition`);
 		}
-		if ('count' in row) errors.push(...countErrors(row.count, i));
+		// ⚠ ONLY THE COLLECTION FORM HAS A COUNT. It used to be checked wherever it appeared, which is
+		// how `{record, where, count}` got a fully validated count that the judge never read (I3) —
+		// the count is now either this row's own assertion or part of a refused mixture.
+		if (form === 'collection') errors.push(...countErrors(row.count, i));
 	}
 	return errors;
 }
@@ -517,6 +593,17 @@ const BRACE_TOKEN = /(\$?)\{([A-Za-z_][A-Za-z0-9_.-]*)\}/g;
  *  value alone (R45), and it deliberately asks about `{record…}` only — every other brace is either
  *  the resolver's (`${…}`) or the shell's, and neither reaches a filter. */
 const isSubstitutable = (v) => typeof v === 'string' && /\{record(\.[^{}]*)?\}/.test(v);
+
+/** Does any string ANYWHERE in this filter node carry a `{record…}` brace? The same question
+ *  `isSubstitutable` asks of one value, asked of a whole `where` — which is the grain both callers
+ *  need: `given.where` may not carry one at all (I1), and an expectation's may only when a `given`
+ *  exists to bind it (I4). Keys are never examined: a filter's keys are field names and operators. */
+function hasSubstitutable(node) {
+	if (typeof node === 'string') return isSubstitutable(node);
+	if (Array.isArray(node)) return node.some(hasSubstitutable);
+	if (node === null || typeof node !== 'object') return false;
+	return Object.values(node).some(hasSubstitutable);
+}
 
 /**
  * ⚠ R45 — A FILTER'S STRING LITERALS ARE SUBSTITUTED BEFORE THE FILTER IS EVALUATED, and until this
@@ -1011,7 +1098,23 @@ export function proveCommand(ws, rest) {
 	// does anybody CLAIM about this thing, and does it hold" — which is what `about` exists for.
 	if (artifactRefs(store).all.has(target)) {
 		refuseStray(rest, `dt prove ${target}`, ['--kind', '--json', '--external', '--strict']);
-		return proveMany(ws, proofs, flags, (p) => (p.about ?? []).map(String).includes(target));
+		const about = (p) => (p.about ?? []).map(String).includes(target);
+		// ⚠ C3/R49 — AN ARTIFACT NOTHING PROVES IS VACUOUS, NOT PROVED. This form answered
+		// `proofs: 0 passed · 0 failed · …` at exit 0 — and the orientation block every compile writes
+		// tells a session to quote exactly this command before saying an artifact works, so a green
+		// result from a question nobody had asked shipped rule 7's own failure mode as a feature. It
+		// is the same judgement `VACUOUS` already makes one level down: a check that cannot fail is
+		// not a check.
+		//
+		// ⚠ `--all` KEEPS ITS ZERO, deliberately. "this workspace declares no proofs" is a true and
+		// green answer to "run everything"; "this artifact has no proof" is not a green answer to
+		// "prove this artifact".
+		if (![...proofs.values()].some(about)) {
+			const summary = `no proof is about ${target} — dt list proofs --missing`;
+			console.log(flags.json ? JSON.stringify({ summary, proofs: [], code: EXIT.VACUOUS }, null, 2) : summary);
+			return { code: EXIT.VACUOUS };
+		}
+		return proveMany(ws, proofs, flags, about);
 	}
 	throw new Error(`dt prove takes a proof id or an artifact (skills/<id>, commands/<id>, …) — got "${target}"; dt list proofs`);
 }
@@ -1112,7 +1215,7 @@ const isDelta = (count) => count !== null && typeof count === 'object' && !Array
 /** An expectation that can be judged against the STORE, and so can be pre-checked before any step
  *  runs. A `step`/`path` one cannot: there is no step result yet, and a path a step will create is
  *  supposed to be absent. */
-const isStoreBased = (e) => !!e && (('collection' in e && 'count' in e) || 'record' in e);
+const isStoreBased = (e) => ['collection', 'record'].includes(formOf(e));
 
 /** The 1-based index of the last `run` step — the default a `step:` expectation resolves to, so the
  *  commonest shape ("the command I ran exited 0") needs no index at all. */
@@ -1126,7 +1229,8 @@ function lastRunIndex(proof) {
  *  failure or the thing being asserted. */
 function stepExpect(proof, n) {
 	for (const e of Array.isArray(proof.expect) ? proof.expect : []) {
-		if (!e || !('exit' in e || 'stdout' in e || 'stdout_json' in e)) continue;
+		// the SAME form test the judge dispatches on (R48) — a third subset here is a third answer
+		if (formOf(e) !== 'step') continue;
 		if ((Number.isInteger(e.step) ? e.step : lastRunIndex(proof)) === n) return e;
 	}
 	return null;
@@ -1170,7 +1274,13 @@ function judge(ws, store, proof, id, record, before, stepResults, storeOnly) {
 	for (const [i, raw] of (Array.isArray(proof.expect) ? proof.expect : []).entries()) {
 		const e = raw ?? {};
 		if (storeOnly && !isStoreBased(e)) continue;
-		if ('collection' in e && 'count' in e) {
+		// ⚠ R48 — THE SAME `formOf` COMPILE READ. The dispatch used to be its own chain of `in` tests,
+		// and every disagreement between the two subsets was a row compiled as one form and judged as
+		// another — which produces zero verdict lines and passes vacuously. A row with NO form cannot
+		// reach here (compile refuses it), and if an older runtime carries one it is skipped rather
+		// than judged against a shape it does not have.
+		const form = formOf(e);
+		if (form === 'collection') {
 			// R45 — the LITERALS first: `{record}` in a filter is the picked record's reference, and
 			// handing the brace to `matchesFilter` matched nothing and blamed the count.
 			const total = countMatching(store, String(e.collection), substituteWhere(e.where, ctx), resolve);
@@ -1187,22 +1297,29 @@ function judge(ws, store, proof, id, record, before, stepResults, storeOnly) {
 			push({ count: e.count }, total - Number(before[i]));
 			continue;
 		}
-		if ('record' in e) {
+		if (form === 'record') {
 			const row = record ? record.fields : {};
 			// R45 again, and it matters here too: `where: { owner: { _eq: '{record.owner}' } }` and any
 			// cross-field literal are rendered before the condition is judged.
 			for (const [field, cond] of Object.entries(substituteWhere(e.where ?? {}, ctx))) push({ [field]: cond }, row[field]);
 			continue;
 		}
-		if ('path' in e) {
+		if (form === 'path') {
 			// THE ONE RESOLVER (decision 240) — a `path:` expectation renders through the same
 			// `${env:…}` renderer `dt resolve` uses, so a proof and the record it is about can never
 			// disagree about where a machine's folder is. An undeclared `${env:…}` THROWS out of here,
 			// loudly, which is that resolver's contract and not something to soften.
 			const rendered = renderTemplate(substitute(String(e.path), ctx, { strict: true }), envContext(ws));
-			push({ exists: e.exists }, fs.existsSync(rendered));
+			// ⚠ C2/R51 — AGAINST THE WORKSPACE, NEVER `process.cwd()`. `existsSync` on a relative path
+			// asks about whatever directory the operator happened to be standing in, so the SAME proof
+			// passed from the root and failed from a subdirectory of it. And `ws` here is `tws` — the
+			// SANDBOX's root for a `writes` proof — so a path a sandboxed step created is asked about
+			// where the step actually wrote it, rather than in the primary checkout it never touched.
+			// An absolute rendered path is unaffected: `resolve` keeps it.
+			push({ exists: e.exists }, fs.existsSync(path.resolve(ws.root, rendered)));
 			continue;
 		}
+		if (form !== 'step') continue;
 		const step = stepResults[(Number.isInteger(e.step) ? e.step : lastRunIndex(proof)) - 1];
 		if ('exit' in e) push({ exit: e.exit }, step?.exit);
 		// R23 — the FULL capture, not the display tail
@@ -1369,7 +1486,11 @@ function proveOne(ws, id, proof, flags) {
 		//
 		// ⚠ AND IT HAPPENS BEFORE THE ROW IS BUILT, so the row can say what actually became of the
 		// directory (R28) — a removal that failed is a fact about this machine that outlives the run.
-		const kept = !!(sandbox && state !== 'PENDING' && flags.keep);
+		// ⚠ M11 — `kept` IS `null` WHILE PENDING, NOT `false`. A PENDING run's sandbox is still there
+		// on purpose (the operator is about to act inside it), so `false` — which reads as "the
+		// directory is gone" — was the one answer that is certainly wrong. `null` is the same
+		// three-valued shape `sandbox_removed` already uses: nothing has been DECIDED yet.
+		const kept = state === 'PENDING' ? (sandbox ? null : false) : !!(sandbox && flags.keep);
 		let removed = null;
 		if (kept) say(`kept     ${sandbox}`);
 		else if (sandbox && state !== 'PENDING') removed = removeSandbox(ws, sandbox);
@@ -1412,14 +1533,17 @@ function proveOne(ws, id, proof, flags) {
 	if (sandboxed && proof.given?.fixture !== true) {
 		// ⚠ COMPILE ALLOWS THE SHAPE, because a `given.where` writes proof is legitimate WITH `--here`
 		// — which is exactly why this refusal is at RUN time: it is what protects the real store.
-		// ⚠ `unavailable` IS READ BY `--all` (R24): every other throw from a proof is that proof's
-		// FAIL, and this is the one exception — the artifact is fine, this INVOCATION cannot answer
-		// for it. A message match would have made the distinction a string compare.
+		//
+		// ⚠ I2/R50 — IT SETTLES, IT DOES NOT THROW. It used to throw with an `unavailable` marker that
+		// only `--all` read, so ONE seam answered two different things: a single run exited 1 (FAIL —
+		// "the artifact is broken") and left NO ledger row, while the board answered UNAVAILABLE with
+		// one. This is exactly what code 3 means — the artifact is fine, this INVOCATION cannot answer
+		// for it — so the state is decided here, once, and every caller reads the same verdict.
 		const at = path.relative(ws.root, fixtureDir(ws.root, proofModuleRoot(ws.root, id) ?? '<m>', id));
-		throw Object.assign(
-			new Error(`${id} is a writes proof with no fixture — it runs only with --here (against a real record in THIS store), or add ${at}/`),
-			{ unavailable: true },
-		);
+		const reason = `${id} is a writes proof with no fixture — it runs only with --here (against a real record in THIS store), or add ${at}/`;
+		say(`UNAVAILABLE  ${id}`);
+		say(`  ${reason}`);
+		return settle('UNAVAILABLE', { failure_reason: reason });
 	}
 	if (flags.keep && !sandboxed) {
 		throw new Error(`--keep keeps a writes proof's sandbox — ${id} runs in the workspace, so there is nothing to keep`);
@@ -1658,6 +1782,13 @@ function proveOne(ws, id, proof, flags) {
 	 */
 	function decide(rec, snapshot, stepResults) {
 		const fresh = new Store(tws);
+		// ⚠ M10 — THE FALLBACK IS FOR A RECORD THE STEPS DELETED OR RENAMED, and it is deliberate.
+		// `pickFixture(…, rec.ref)` re-reads the picked record so the verdict is judged on its state
+		// AFTER the steps ran; when it comes back null the record is gone, and the pre-step snapshot
+		// (`rec`) is what the expectations are then judged against. That is honest — every `where`
+		// over a field the record no longer has answers ✖, which is what "the step deleted it" should
+		// look like — where re-reporting NO-FIXTURE here would say "the proof did not run" about a
+		// run that ran all the way to the end.
 		const current = rec ? pickFixture(fresh, proof.given, rec.ref) ?? rec : null;
 		const currentRef = current ? current.ref : null;
 		const verdicts = judge(tws, fresh, proof, id, current, snapshot, stepResults, false);
@@ -1720,9 +1851,13 @@ function proveMany(ws, proofs, flags, select) {
 			// ⚠ R24 — A THROW IS THAT PROOF'S FAILURE, WITH A ROW. This used to tally any throw as
 			// UNAVAILABLE and write nothing: a proof BROKEN in a way that throws (an undeclared
 			// `${env:…}` in a `path:`, a typo'd brace) left `--all` GREEN without `--strict` and left
-			// no evidence that it had ever been attempted. The ONE exception is the Task-5 seam, which
-			// marks itself `unavailable`: there the artifact is fine and the engine is not ready.
-			state = e.unavailable ? 'UNAVAILABLE' : 'FAIL';
+			// no evidence that it had ever been attempted.
+			//
+			// ⚠ AND THERE IS NO LONGER AN EXCEPTION (I2/R50). The one seam that used to mark its throw
+			// `unavailable` now SETTLES that state inside `proveOne`, so it arrives here as an ordinary
+			// returned verdict. Reading a state off a thrown error is how the board and the single run
+			// came to disagree about the same seam; a throw means one thing again.
+			state = 'FAIL';
 			reason = firstLine(e.message);
 			// `ledgered` means `proveOne` already wrote the row for this throw (MINOR 8) — writing a
 			// second one would make the ledger claim the proof ran twice.

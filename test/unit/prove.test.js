@@ -14,7 +14,7 @@
 // makes `pick: latest` invalid there.
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { validateProofShape, PROOF_KINDS, PROOF_MODES, substitute, substituteWhere, stepWarnings, applyCap, verdictLine, exitFor, stepOutcome, flagValue, flagEnabled, EXIT, LEDGER_CAP } from '../../src/prove.js';
+import { validateProofShape, formOf, PROOF_KINDS, PROOF_MODES, substitute, substituteWhere, stepWarnings, applyCap, verdictLine, exitFor, stepOutcome, flagValue, flagEnabled, EXIT, LEDGER_CAP } from '../../src/prove.js';
 
 const descriptors = new Map([
 	['notes', {
@@ -237,11 +237,13 @@ describe('validateProofShape — a where is checked against the descriptor', () 
 		only(live({ given: { collection: 'notes', where: { status: { _in: ['open', 'archived'] } }, pick: 'a-note' } }), 'where "status" compares "archived", which is not one of status\'s options [open, done]');
 	});
 
-	// ⚠ R45 — A `{record…}` LITERAL IS A RUNTIME VALUE. The judge renders it against the picked
-	// record before the filter runs, so comparing the BRACE to the enum's options refuses a correct
-	// proof — and the author's only way to make compile go green is to delete the line that works.
+	// ⚠ R45 — A `{record…}` LITERAL IS A RUNTIME VALUE, IN AN EXPECTATION. The judge renders it
+	// against the picked record before the filter runs, so comparing the BRACE to the enum's options
+	// refuses a correct proof — and the author's only way to make compile go green is to delete the
+	// line that works. ⚠ I1 — THE EXEMPTION IS EXPECTATION-ONLY: in `given.where` nothing
+	// substitutes, so the literal is refused there instead (see the I1/I4 block at the end).
 	test('a {record.<field>} literal on an enum field is accepted, not compared to the options', () => {
-		assert.deepEqual(validateProofShape(live({ given: { collection: 'notes', where: { status: { _eq: '{record.status}' } }, pick: 'a-note' } }), ctx), []);
+		assert.deepEqual(validateProofShape(live({ expect: [{ collection: 'notes', where: { status: { _eq: '{record.status}' } }, count: { _gte: 1 } }] }), ctx), []);
 	});
 
 	test('a bare {record} literal is accepted on a reference field, which is the canonical shape', () => {
@@ -990,5 +992,122 @@ describe('stepOutcome — a kill is not an exit code, and a signal is not a caus
 	test('a spawn failure with no code at all falls back to its message', () => {
 		const res = { status: null, signal: null, error: new Error('something went wrong') };
 		assert.equal(stepOutcome(res, 120, 1, 0).failure_reason, 'step 1 could not start: something went wrong');
+	});
+});
+
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+// THE FINAL FIX ROUND — one defect, five shapes: COMPILE RECOGNISED AN EXPECTATION'S FORM BY ONE
+// KEY-SUBSET AND THE JUDGE DISPATCHED ON ANOTHER. Every gap between the two subsets was a silent
+// green: a row compiled as one form, judged as another, produced ZERO verdict lines, and
+// `verdicts.every(ok)` is vacuously true. `formOf` is now the ONE answer both sides read, and a row
+// whose keys span two forms is refused rather than silently resolved in favour of whichever side
+// asked first.
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+
+describe('formOf — ONE answer to "what shape is this row", read by compile AND the judge (R48)', () => {
+	test('each of the four forms is named', () => {
+		assert.equal(formOf({ collection: 'notes', where: {}, count: 1 }), 'collection');
+		assert.equal(formOf({ record: '{record}', where: { status: { _eq: 'done' } } }), 'record');
+		assert.equal(formOf({ step: 1, exit: 0 }), 'step');
+		assert.equal(formOf({ path: 'x', exists: true }), 'path');
+	});
+
+	test('a step form is recognised by what it ASSERTS, so the index is optional', () => {
+		assert.equal(formOf({ exit: 0 }), 'step');
+		assert.equal(formOf({ stdout: { _contains: 'x' } }), 'step');
+		assert.equal(formOf({ stdout_json: { rows: { _gte: 1 } } }), 'step');
+	});
+
+	test('a row that names no form at all is null, not a guess', () => {
+		assert.equal(formOf({}), null);
+		assert.equal(formOf(null), null);
+		assert.equal(formOf({ where: { status: { _eq: 'done' } } }), null);
+	});
+});
+
+describe('validateProofShape — a row that MIXES two forms is refused (C1/I3/R48)', () => {
+	const mixes = 'expect[0] mixes two forms — a row is one of collection+where+count · record+where · step · path+exists';
+
+	// ⚠ THE MEASURED CRITICAL. `{record: '{record}', path: …, exists: true}` compiled as a PATH row
+	// (`'path' in row && 'exists' in row`) and was judged as a RECORD row (`'record' in e`), whose
+	// `where ?? {}` has no entries — so it produced zero verdict lines and the proof answered PASS
+	// on a file that was never there.
+	test('record + path is refused rather than judged as one and compiled as the other', () => {
+		only(live({ expect: [{ record: '{record}', path: 'definitely/not/here.txt', exists: true }] }), mixes);
+	});
+
+	// ⚠ AND THE SAME SEAM THE OTHER WAY UP: `count` on a record row was VALIDATED by compile (its
+	// operators and integers checked, line by line) and then never read by the judge at all — a
+	// `count: {_eq: 999}` that is plainly false, sitting beside a `where` that is true, and the
+	// proof passed.
+	test('record + count is refused — the count was validated and then ignored', () => {
+		only(live({ expect: [{ record: '{record}', where: { status: { _eq: 'done' } }, count: { _eq: 999 } }] }), mixes);
+	});
+
+	test('collection + step is refused too — the judge takes the first branch it matches', () => {
+		only(live({ expect: [{ collection: 'notes', where: {}, count: 1, step: 1, exit: 0 }] }), mixes);
+	});
+
+	test('the index is the row\'s own, so the reader goes to the right line', () => {
+		only(
+			live({ expect: [{ step: 1, exit: 0 }, { path: 'x', exists: true, record: '{record}' }] }),
+			'expect[1] mixes two forms — a row is one of collection+where+count · record+where · step · path+exists',
+		);
+	});
+
+	// ⚠ `where` IS NOT A DISCRIMINATOR, and must never be read as one: it belongs to TWO forms, so a
+	// row carrying it plus one form's own keys is that form, not a mixture.
+	test('a `where` beside a collection or a record is not a mixture', () => {
+		assert.deepEqual(validateProofShape(live({ expect: [{ collection: 'notes', where: { status: { _eq: 'done' } }, count: 1 }] }), ctx), []);
+		assert.deepEqual(validateProofShape(live({ expect: [{ record: '{record}', where: { status: { _eq: 'done' } } }] }), ctx), []);
+	});
+});
+
+describe('validateProofShape — a step index past the last step (M7)', () => {
+	// ⚠ IT RESOLVED TO `undefined` AND JUDGED THAT. `stepResults[6]` on a one-step proof is
+	// undefined, so the line read `exit undefined = 0 ✖` — a FAIL naming an exit code no step ever
+	// produced, for a proof whose only defect is an index nobody can satisfy.
+	test('a step: past the end is refused, naming both numbers', () => {
+		only(live({ steps: [{ run: 'true' }], expect: [{ step: 7, exit: 0 }] }), 'expect[0] step 7 is past the last step (1)');
+	});
+
+	test('the last step itself is fine, and so is a step with no index at all', () => {
+		assert.deepEqual(validateProofShape(live({ steps: [{ run: 'a' }, { run: 'b' }], expect: [{ step: 2, exit: 0 }] }), ctx), []);
+		assert.deepEqual(validateProofShape(live({ steps: [{ run: 'a' }], expect: [{ exit: 0 }] }), ctx), []);
+	});
+});
+
+describe('validateProofShape — where a {record} literal may and may not appear (I1/I4)', () => {
+	// ⚠ THE R45 EXEMPTION IS FOR EXPECTATIONS ONLY. `pickFixture` hands `given.where` to
+	// `matchesFilter` RAW — nothing substitutes it, and nothing ever could: the given is what PICKS
+	// the record, so there is no record yet to render. The exemption let the literal through compile
+	// and the proof then answered NO-FIXTURE forever, which reads as a fact about the workspace's
+	// data rather than about the proof.
+	test('a {record.<field>} literal in given.where is refused — nothing substitutes it', () => {
+		only(
+			live({ given: { collection: 'notes', where: { status: { _eq: '{record.status}' } }, pick: 'a-note' } }),
+			'given.where cannot use {record} — the given is what PICKS the record',
+		);
+	});
+
+	test('a bare {record} in given.where is refused the same way', () => {
+		only(
+			live({ given: { collection: 'notes', where: { owner: { _eq: '{record}' } }, pick: 'a-note' } }),
+			'given.where cannot use {record} — the given is what PICKS the record',
+		);
+	});
+
+	// ⚠ R14, WIDENED (I4). The guard fired only for a `record:` row, so a COLLECTION row whose
+	// `where` carries `{record}` on a proof with no `given` compiled clean — and `substituteWhere`
+	// throws at run time, which is a FAIL row and a red `dt status --strict` for a proof that could
+	// never have run.
+	test('a {record} literal in an expectation where, on a proof with no given, is refused', () => {
+		const proof = live({ expect: [{ collection: 'notes', where: { owner: { _eq: '{record}' } }, count: { _gte: 1 } }] });
+		delete proof.given;
+		only(proof, 'an expectation uses {record} but this proof declares no given');
+	});
+
+	test('the same literal WITH a given is silent — that is the canonical shape', () => {
+		assert.deepEqual(validateProofShape(live({ expect: [{ collection: 'notes', where: { owner: { _eq: '{record}' } }, count: { _gte: 1 } }] }), ctx), []);
 	});
 });

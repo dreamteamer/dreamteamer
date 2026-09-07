@@ -17,7 +17,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { workspace, readFile, compileError, simpleCollection, writeCollection, dt } from '../helpers/ws.js';
+import { workspace, readFile, compileError, simpleCollection, writeCollection, dt, dtIn } from '../helpers/ws.js';
 import { USAGE, WORKSPACE_FLAGS } from '../../src/cli.js';
 import {
 	artifactRefs, PROOF_KINDS, PROOF_MODES,
@@ -1248,8 +1248,10 @@ describe('dt prove — the usage surface', () => {
 			},
 		});
 		const res = ws.dt('prove', 'writes-a-note');
-		assert.equal(res.code, 1, res.stdout + res.stderr);
-		assert.match(res.stderr, /writes-a-note is a writes proof with no fixture — it runs only with --here/);
+		// I2/R50 — it SETTLES unavailable (exit 3, with a row) rather than throwing: the artifact is
+		// fine and this invocation cannot answer for it, which is what code 3 means.
+		assert.equal(res.code, 3, res.stdout + res.stderr);
+		assert.match(res.stdout, /writes-a-note is a writes proof with no fixture — it runs only with --here/);
 	});
 });
 
@@ -1460,8 +1462,11 @@ describe('dt prove --all — a broken proof is FAILED, with a row (R24)', () => 
 		assert.equal(tail(ws.root, 'bad-var').verdict, 'FAIL');
 	});
 
-	// the ONE exception, and it is the only one: the artifact is fine and this INVOCATION cannot
-	// answer for it — a `writes` proof with no fixture runs only against a real store, with --here
+	// ⚠ AND THERE IS NO LONGER AN EXCEPTION TO IT (I2/R50). `--all` used to read an `unavailable`
+	// marker off the THROWN error, which is how the two forms of the same seam answered differently:
+	// exit 1 with no row for a single run, UNAVAILABLE with a row here. `proveOne` settles the state
+	// itself now, so both forms read the same settled verdict and this test asserts the same thing
+	// from the board's side.
 	test('a writes proof --all cannot run stays UNAVAILABLE, and still writes a row', () => {
 		const ws = proveWorkspace({
 			proofs: {
@@ -1476,8 +1481,8 @@ describe('dt prove --all — a broken proof is FAILED, with a row (R24)', () => 
 		const res = ws.dt('prove', '--all', '--kind', 'live');
 		assert.match(res.stdout, /^UNAVAILABLE  writes-a-note — writes-a-note is a writes proof with no fixture — it runs only with --here .*$/m);
 		assert.equal(tail(ws.root, 'writes-a-note').verdict, 'UNAVAILABLE');
-		// unavailable is not fatal without --strict, so this run is green on that proof alone
-		assert.equal(ws.dt('prove', 'writes-a-note', '--json').code, 1, 'a single-proof run still refuses');
+		// and the single-proof form answers the SAME state, with the same row — one seam, one verdict
+		assert.equal(ws.dt('prove', 'writes-a-note', '--json').code, 3, 'a single-proof run settles unavailable');
 	});
 });
 
@@ -1938,9 +1943,26 @@ describe('writes proofs are sandboxed', () => {
 		quietly(() => removeWorktree(findWorkspace(ws.root), sandbox, { force: true }));
 	});
 
+	// ⚠ M11 — `false` ON A PENDING ROW WAS THE ONE ANSWER THAT IS CERTAINLY WRONG. The sandbox is
+	// still there while a run is pending, deliberately — the operator is about to act inside it — so
+	// "kept: false" told a `--json` consumer the directory was gone at exactly the moment it was
+	// not. `null` is the same three-valued shape `sandbox_removed` uses: nothing decided yet.
+	test('a PENDING row under --json says kept: null, not false', () => {
+		const ws = sandboxWorkspace();
+		const res = ws.dt('prove', SANDBOX_PROOF, '--json');
+		assert.equal(res.code, 5, res.stdout + res.stderr);
+		const out = JSON.parse(res.stdout);
+		assert.equal(out.verdict, 'PENDING');
+		assert.equal(out.kept, null, 'a pending sandbox is neither kept nor removed yet');
+		assert.equal(out.sandbox_removed, null);
+		assert.ok(fs.existsSync(out.sandbox));
+
+		quietly(() => removeWorktree(findWorkspace(ws.root), out.sandbox, { force: true }));
+	});
+
 	// ⚠ COMPILE ALLOWS THE SHAPE, because `--here` is a legitimate use of it. The runtime refusal is
-	// what protects the real store, and it is `unavailable`-marked so `--all` counts it rather than
-	// reporting the artifact broken.
+	// what protects the real store, and it SETTLES `UNAVAILABLE` (I2/R50) — the artifact is fine and
+	// this invocation cannot answer for it.
 	test('a writes proof with no fixture refuses at run time, and names both ways forward', () => {
 		const ws = proveWorkspace({
 			proofs: {
@@ -1954,10 +1976,10 @@ describe('writes proofs are sandboxed', () => {
 			},
 		});
 		const res = ws.dt('prove', 'writes-in-place');
-		assert.equal(res.code, 1, res.stdout + res.stderr);
-		assert.match(res.stderr, /writes-in-place is a writes proof with no fixture — it runs only with --here/);
-		assert.match(res.stderr, /modules\/default\/proofs\/fixtures\/writes-in-place\//);
-		assert.equal(readLedger(ws.root, 'writes-in-place').length, 0, 'nothing ran, so nothing is claimed');
+		assert.equal(res.code, 3, res.stdout + res.stderr);
+		assert.match(res.stdout, /writes-in-place is a writes proof with no fixture — it runs only with --here/);
+		assert.match(res.stdout, /modules\/default\/proofs\/fixtures\/writes-in-place\//);
+		assert.equal(readLedger(ws.root, 'writes-in-place').length, 1, 'the attempt is recorded, as every terminal state is');
 
 		// --here is the documented way in, and it says so BEFORE it writes anything
 		const here = ws.dt('prove', 'writes-in-place', '--here');
@@ -2016,20 +2038,25 @@ describe('proof read surfaces', () => {
 	// ⚠ THE TWO COLUMNS NO RECORD CARRIES, pinned as WHOLE lines. A loose regex for `available`
 	// would pass on a listing that printed the word for every proof including the one this machine
 	// cannot run — which is the exact question the column exists to answer.
+	//
+	// ⚠ AND THERE IS NO BARE `-` MID-ROW ANY MORE (M12). `last-modified` was in the descriptor's
+	// `list_fields` like every other collection's, and on a proof it rendered as an empty cell
+	// BETWEEN the about list and the two computed columns the reader came for. A proof's meaningful
+	// date is its last RUN, which is the `last` column.
 	test('list proofs appends the computed availability and the tail of the ledger', () => {
 		const res = ws.dt('list', 'proofs');
 		assert.equal(res.code, 0, res.stderr);
 
-		assert.equal(rowFor(res.stdout, 'gate-passes'), `gate-passes  gate-passes  gate  skills/using-dreamteamer  -  available  PASS ${TODAY}`);
-		assert.equal(rowFor(res.stdout, 'gate-fails'), `gate-fails  gate-fails  gate  skills/using-dreamteamer  -  available  FAIL ${TODAY}`);
+		assert.equal(rowFor(res.stdout, 'gate-passes'), `gate-passes  gate-passes  gate  skills/using-dreamteamer  available  PASS ${TODAY}`);
+		assert.equal(rowFor(res.stdout, 'gate-fails'), `gate-fails  gate-fails  gate  skills/using-dreamteamer  available  FAIL ${TODAY}`);
 		// UNAVAILABLE is not a failure of the artifact — the column names the FIX, and the ledger
 		// still records that the question was asked here
-		assert.equal(rowFor(res.stdout, 'needs-a-var'), `needs-a-var  needs-a-var  gate  skills/using-dreamteamer  -  unavailable (PROVE_TEST_VAR is not set — add it to .env)  UNAVAILABLE ${TODAY}`);
+		assert.equal(rowFor(res.stdout, 'needs-a-var'), `needs-a-var  needs-a-var  gate  skills/using-dreamteamer  unavailable (PROVE_TEST_VAR is not set — add it to .env)  UNAVAILABLE ${TODAY}`);
 		// never run HERE: the ledger is per-machine and gitignored, so "never" is the honest answer
-		assert.equal(rowFor(res.stdout, 'already-true'), 'already-true  already-true  live  skills/using-dreamteamer  -  available  never');
+		assert.equal(rowFor(res.stdout, 'already-true'), 'already-true  already-true  live  skills/using-dreamteamer  available  never');
 		// a live `where` is a question about the DATA, and the only way to answer it is to ask it
-		assert.equal(rowFor(res.stdout, 'note-gets-closed'), 'note-gets-closed  note-gets-closed  live  commands/close-note  -  available  never');
-		assert.equal(rowFor(res.stdout, 'wants-a-closed-note'), 'wants-a-closed-note  wants-a-closed-note  live  skills/using-dreamteamer  -  no-fixture  never');
+		assert.equal(rowFor(res.stdout, 'note-gets-closed'), 'note-gets-closed  note-gets-closed  live  commands/close-note  available  never');
+		assert.equal(rowFor(res.stdout, 'wants-a-closed-note'), 'wants-a-closed-note  wants-a-closed-note  live  skills/using-dreamteamer  no-fixture  never');
 
 		// ⚠ `.env` HOLDS CREDENTIALS and `requires.env` is checked by KEY. The availability column is
 		// the one place a value could reach stdout.
@@ -2411,5 +2438,209 @@ describe('discarding, enumerating and diagnosing a sandbox', () => {
 		assert.match(res.stdout, new RegExp(`^FAIL  ${SANDBOX_PROOF} — fixture data/ must be a directory$`, 'm'));
 		assert.equal(tail(ws.root, SANDBOX_PROOF).verdict, 'FAIL');
 		assert.deepEqual(fs.readdirSync(path.join(ws.root, '.worktrees')).filter((n) => n.startsWith('.tmp-')), []);
+	});
+});
+
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+// THE FINAL FIX ROUND. The whole-branch review found ONE defect wearing five costumes: compile
+// recognised an expectation's FORM by one key-subset and the judge dispatched on another, so every
+// gap between the two was a silent green. Plus three states that answered the wrong number: a path
+// judged against the process's cwd, an artifact nothing proves reported as proved, and a seam that
+// threw where it should have settled.
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+
+describe('dt prove — a row mixing two forms is refused at COMPILE (C1/I3/R48)', () => {
+	const mixed = (expect) => {
+		const ws = workspace({ collections: { notes: PROVE_NOTES, people: simpleCollection() }, compile: false });
+		writeProof(ws.root, 'mixed', {
+			about: ['skills/using-dreamteamer'],
+			kind: 'live',
+			mode: 'readonly',
+			given: { collection: 'notes', where: { status: { _eq: 'open' } }, pick: 'latest' },
+			steps: [{ run: 'true' }],
+			expect,
+		});
+		return compileError(ws.ws) ?? '';
+	};
+
+	// ⚠ MEASURED BEFORE THE FIX: this proof COMPILED (as a `path` row — `'path' in row && 'exists' in
+	// row`), was JUDGED as a record row (`'record' in e`), whose `where ?? {}` has no entries — so it
+	// produced zero verdict lines, `verdicts.every(ok)` was vacuously true, and `dt prove` answered
+	// exit 0 `PASS` on a file that has never existed.
+	test('record + path fails to compile, where it used to PASS on a missing file', () => {
+		assert.match(
+			mixed([{ record: '{record}', path: 'definitely/not/here.txt', exists: true }]),
+			/proofs\/mixed\.proof\.yaml: expect\[0\] mixes two forms — a row is one of collection\+where\+count · record\+where · step · path\+exists/,
+		);
+	});
+
+	test('record + count fails too — the count was checked by compile and never read by the judge', () => {
+		assert.match(mixed([{ record: '{record}', where: { status: { _eq: 'open' } }, count: { _eq: 999 } }]), /expect\[0\] mixes two forms/);
+	});
+
+	test('the four unmixed forms all still compile', () => {
+		const ws = workspace({ collections: { notes: PROVE_NOTES, people: simpleCollection() }, compile: false });
+		writeProof(ws.root, 'four-forms', {
+			about: ['skills/using-dreamteamer'],
+			kind: 'live',
+			mode: 'readonly',
+			given: { collection: 'notes', where: { status: { _eq: 'open' } }, pick: 'latest' },
+			steps: [{ run: 'true' }],
+			expect: [
+				{ collection: 'notes', where: {}, count: { _gte: 1 } },
+				{ record: '{record}', where: { status: { _eq: 'open' } } },
+				{ step: 1, exit: 0 },
+				{ path: 'x', exists: false },
+			],
+		});
+		assert.equal(compileError(ws.ws), null);
+	});
+});
+
+describe('dt prove — a path: is resolved against the WORKSPACE, not the process cwd (C2/R51)', () => {
+	// ⚠ MEASURED: `existsSync(rendered)` on a relative path answered against whatever directory the
+	// operator happened to be standing in. The same proof PASSED from the workspace root and FAILED
+	// from a subdirectory of it — and in a sandboxed `writes` proof it would have asked about the
+	// PRIMARY checkout while the step wrote into the throwaway worktree, which is a confident verdict
+	// about a different store.
+	const madeByStep = {
+		...LIVE,
+		given: { collection: 'notes', where: {}, pick: 'latest' },
+		steps: [{ run: 'echo hi > made-by-step.txt' }],
+		expect: [{ path: 'made-by-step.txt', exists: true }],
+	};
+
+	test('a relative path the step created is found when dt is run from a SUBDIRECTORY', () => {
+		const ws = proveWorkspace({ proofs: { 'writes-a-file': madeByStep } });
+		const sub = path.join(ws.root, 'sub');
+		fs.mkdirSync(sub, { recursive: true });
+		const res = dtIn(sub, 'prove', 'writes-a-file');
+		assert.equal(res.code, 0, res.stdout + res.stderr);
+		assert.match(res.stdout, /exists true = true ✔/);
+		// the step ran with cwd = the workspace root, so this is where the file actually is
+		assert.ok(fs.existsSync(path.join(ws.root, 'made-by-step.txt')));
+		assert.ok(!fs.existsSync(path.join(sub, 'made-by-step.txt')));
+	});
+
+	test('an absolute rendered path is unaffected — resolve() keeps it', () => {
+		const ws = proveWorkspace({
+			proofs: { 'writes-into-fixdir': { ...LIVE, steps: [{ run: 'mkdir -p made && touch made/made.txt' }], expect: [{ path: '${env:PROVE_FIX_DIR}/made.txt', exists: true }] } },
+		});
+		const sub = path.join(ws.root, 'sub');
+		fs.mkdirSync(sub, { recursive: true });
+		const res = dtIn(sub, 'prove', 'writes-into-fixdir');
+		assert.equal(res.code, 0, res.stdout + res.stderr);
+	});
+});
+
+describe('dt prove <artifact> — an artifact nothing proves is VACUOUS, not proved (C3/R49)', () => {
+	// ⚠ THE ORIENTATION BLOCK TELLS EVERY SESSION TO QUOTE THIS COMMAND before saying an artifact
+	// works — so `proofs: 0 passed · 0 failed · …` at exit 0 shipped rule 7's own failure mode as a
+	// feature: a green result from a question nobody had asked.
+	// the engine's own CLI script: a real artifact ref (`<module>/bin/<file>`), and nothing in the
+	// fixture is `about` it — every fixture proof names `skills/using-dreamteamer` or the command
+	test('zero proofs about the artifact exits 6 and names the way forward', () => {
+		const ws = proveWorkspace();
+		const res = ws.dt('prove', 'dreamteamer/bin/dreamteamer.js');
+		assert.ok(res.code !== 0, `a green board over zero proofs: ${res.stdout}`);
+		assert.equal(res.code, 6, res.stdout + res.stderr);
+		assert.match(res.stdout, /^no proof is about dreamteamer\/bin\/dreamteamer\.js — dt list proofs --missing$/m);
+	});
+
+	test('--json says the same thing as ONE object, for a script', () => {
+		const ws = proveWorkspace();
+		const res = ws.dt('prove', 'dreamteamer/bin/dreamteamer.js', '--json');
+		assert.equal(res.code, 6, res.stdout + res.stderr);
+		const out = JSON.parse(res.stdout);
+		assert.equal(out.code, 6);
+		assert.deepEqual(out.proofs, []);
+		assert.match(out.summary, /^no proof is about dreamteamer\/bin\/dreamteamer\.js/);
+	});
+
+	test('an artifact that IS proved runs its board as before', () => {
+		const ws = proveWorkspace();
+		const res = ws.dt('prove', 'commands/close-note');
+		// `note-gets-closed` and `counts-a-new-note` both `about` it, and both need an actor
+		assert.equal(res.code, 0, res.stdout + res.stderr);
+		assert.match(res.stdout, /2 need an actor$/m);
+	});
+
+	// ⚠ AND `--all` KEEPS ITS ZERO. "this workspace declares no proofs" is a true and green answer to
+	// "run everything"; "this artifact has no proof" is not a green answer to "prove this artifact".
+	test('--all over a workspace with no proofs at all is still exit 0', () => {
+		const ws = workspace({ collections: { notes: simpleCollection() } });
+		const res = ws.dt('prove', '--all');
+		assert.equal(res.code, 0, res.stdout + res.stderr);
+		assert.match(res.stdout, /^proofs: 0 passed · 0 failed · 0 unavailable · 0 no-fixture · 0 vacuous · 0 need an actor$/m);
+	});
+});
+
+describe('dt prove — writes-without-a-fixture SETTLES unavailable (I2/R50)', () => {
+	const writesNoFixture = {
+		kind: 'live',
+		mode: 'writes',
+		given: { collection: 'notes', where: { status: { _eq: 'open' } }, pick: 'latest' },
+		steps: [{ perform: 'close it' }],
+		expect: [{ record: '{record}', where: { status: { _eq: 'done' } } }],
+	};
+
+	// ⚠ IT USED TO THROW. A single run answered exit 1 (FAIL — "the artifact is broken") and wrote NO
+	// ledger row, while `--all` read the same throw's `unavailable` marker and answered UNAVAILABLE
+	// WITH a row. One seam, two verdicts, and the more visible of them was the wrong one.
+	test('a single run is UNAVAILABLE at code 3, with a row, naming both ways forward', () => {
+		const ws = proveWorkspace({ proofs: { 'writes-in-place': writesNoFixture } });
+		const res = ws.dt('prove', 'writes-in-place');
+		assert.equal(res.code, 3, res.stdout + res.stderr);
+		assert.match(res.stdout, /^UNAVAILABLE  writes-in-place$/m);
+		assert.match(res.stdout, /writes-in-place is a writes proof with no fixture — it runs only with --here/);
+		assert.match(res.stdout, /modules\/default\/proofs\/fixtures\/writes-in-place\//);
+		const row = tail(ws.root, 'writes-in-place');
+		assert.equal(row.verdict, 'UNAVAILABLE');
+		assert.match(row.failure_reason, /is a writes proof with no fixture/);
+	});
+
+	test('--all counts it unavailable exactly as before, from the settled state', () => {
+		const ws = proveWorkspace({ proofs: { 'writes-in-place': { ...writesNoFixture, steps: [{ run: 'true' }] } } });
+		const res = ws.dt('prove', '--all', '--kind', 'live');
+		assert.match(res.stdout, /^UNAVAILABLE  writes-in-place — writes-in-place is a writes proof with no fixture/m);
+		assert.equal(tail(ws.root, 'writes-in-place').verdict, 'UNAVAILABLE');
+		assert.equal(ws.dt('prove', '--all', '--kind', 'live', '--strict').code, 1, '--strict is what makes it fatal');
+	});
+});
+
+describe('the proof read surfaces — the two asymmetries (M2/M3)', () => {
+	// ⚠ `--missing=false` TURNED THE FLAG ON. The listing tested `!== undefined`, so the one spelling
+	// a person uses to say "no" selected the inverted listing — the same class as `--strict=false`
+	// arming a gate (R46), and the fix is the same shared reader.
+	test('--missing=false lists the PROOFS, which is what it says', () => {
+		const ws = proveWorkspace();
+		const off = ws.dt('list', 'proofs', '--missing=false');
+		assert.equal(off.code, 0, off.stderr);
+		assert.match(off.stdout, /gate-passes/);
+		assert.doesNotMatch(off.stdout, /^skills\/using-dreamteamer$/m);
+
+		const on = ws.dt('list', 'proofs', '--missing');
+		assert.equal(on.code, 0, on.stderr);
+		assert.doesNotMatch(on.stdout, /gate-passes/);
+	});
+
+	// ⚠ THE TWO COMPUTED COLUMNS ARE THE POINT OF THE VERB, and `--json` — the shape a script reads —
+	// was the one surface that dropped them. `dt list proofs --json` carried both; `dt get
+	// proofs/<id> --json` carried neither, so a script asking about ONE proof had to list them all.
+	test('dt get proofs/<id> --json carries availability and last, like the listing does', () => {
+		const ws = proveWorkspace();
+		const before = JSON.parse(ws.dt('get', 'proofs/gate-passes', '--json').stdout);
+		assert.equal(before.availability, 'available');
+		assert.equal(before.last, null, 'never run on this machine');
+
+		assert.equal(ws.dt('prove', 'gate-passes').code, 0);
+		const after = JSON.parse(ws.dt('get', 'proofs/gate-passes', '--json').stdout);
+		assert.equal(after.last.verdict, 'PASS');
+		assert.equal(after.last.record, null);
+
+		// and the machine's answer for a proof it cannot satisfy — the FIX, never a `.env` value
+		const un = JSON.parse(ws.dt('get', 'proofs/needs-a-var', '--json').stdout);
+		assert.match(un.availability, /^unavailable \(PROVE_TEST_VAR is not set/);
+		assert.ok(!ws.dt('get', 'proofs/needs-a-var', '--json').stdout.includes(DECOY));
 	});
 });

@@ -467,6 +467,11 @@ export function run(argv) {
 				// last week surfaces without being asked for. The TAIL per proof, not every row: a
 				// proof that failed on Monday and passed on Tuesday is passing. Wrapped like every
 				// block here — an older runtime has no `proofs` descriptor, and status must still print.
+				// ⚠ M5 — COUNTED AS THE WALK GOES, NEVER ASSIGNED AT THE END OF IT. `proofsFailed =
+				// tally.FAIL` sat below the loop, inside the try — so a throw partway through (an
+				// unreadable ledger, a record that will not parse) left the gate reading ZERO failures
+				// and `--strict` exiting 0 BECAUSE the count broke. That is the one direction a gate
+				// must never fail: a silent green bought with a swallowed exception.
 				let proofsFailed = 0;
 				try {
 					const tally = { PASS: 0, FAIL: 0, UNAVAILABLE: 0 };
@@ -482,14 +487,13 @@ export function run(argv) {
 						const rows = readLedger(ws.root, id);
 						const t = rows[rows.length - 1];
 						if (!t) never++;
-						else if (t.verdict in tally) tally[t.verdict]++;
+						else if (t.verdict in tally) { tally[t.verdict]++; if (t.verdict === 'FAIL') proofsFailed++; }
 						else other++;
 						for (const r of rows) {
 							const behind = r.sandbox_removed === false || (r.verdict !== 'PENDING' && r.sandbox_removed === null);
 							if (r.sandbox && behind && fs.existsSync(r.sandbox)) left.add(r.sandbox);
 						}
 					}
-					proofsFailed = tally.FAIL;
 					console.log(`proofs: ${declared} declared · ${tally.PASS} passed · ${tally.FAIL} failed · ${tally.UNAVAILABLE} unavailable · ${never} never${other ? ` · ${other} other` : ''}`);
 					if (left.size) console.log(`  sandboxes left behind: ${left.size} — dt list worktrees`);
 				} catch { /* no proofs descriptor compiled — nothing to report */ }
