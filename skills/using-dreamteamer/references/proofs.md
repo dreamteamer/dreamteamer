@@ -204,6 +204,9 @@ a tail. `stdout` takes filter operators over the text (`{ _contains: 'wrote 3 ro
 (`{ 'summary.rows': { _gte: 1 } }`). A payload that is not JSON is its own verdict —
 `stdout is not JSON (…) ✖` — rather than a pile of `undefined` comparisons. Output larger than
 64 KB belongs in a file the proof asserts with `path:`.
+⚠ **Both are FILTER MAPS, and compile refuses anything else.** `stdout: hello` reads like "the step
+printed hello" and is the spelling everybody tries first — it used to compile clean, produce zero
+verdict lines, and PASS against a step that printed something else. Write `{ _contains: 'hello' }`.
 
 **Every verdict line prints the ACTUAL value beside the wanted one**, always:
 
@@ -304,12 +307,20 @@ The point of the verb: a script branches on the number.
 | `3` | UNAVAILABLE | this machine lacks a required var or binary — **not** a failure of the artifact |
 | `4` | NO-FIXTURE | the `given` matched no record, or the fixture folder holds none |
 | `5` | PENDING | a `perform` step is owed a human or an agent |
-| `6` | VACUOUS | every expectation ALREADY held before any step ran |
+| `6` | VACUOUS | every expectation ALREADY held before any step ran — or the run produced NO verdict at all |
 
 **VACUOUS is the most valuable state in the set.** A proof whose expectations already hold reports
 PASS forever and measures nothing — the silent green this whole verb exists to remove. It is checked
 BEFORE any step runs, so it is caught before the proof takes an action. `step` and `path`
 expectations are not pre-checkable and never make a proof vacuous.
+
+⚠ **And the floor under it: a run that DECLARED expectations and produced zero verdict lines is
+VACUOUS too** — `no expectation produced a verdict — a proof that asserts nothing is not a proof`.
+`verdicts.every(ok)` is vacuously true over an empty list, so every shape that made a declared
+expectation judge nothing came out as `PASS` at exit 0. Compile refuses those shapes now; the floor
+is what makes the class unreachable rather than closed one spelling at a time, including for a
+runtime an older engine wrote. A `gate` declares no expectations at all — its assertion is the
+step's exit code — and is untouched.
 
 ⚠ **`dt prove <artifact>` with NO proof about it is VACUOUS too** (exit 6,
 `no proof is about <ref> — dt list proofs --missing`). It used to answer `proofs: 0 passed · …` at
@@ -412,6 +423,7 @@ WRITE (a closed enum, a required field) the prose never showed.
 | judging a `writes` proof by running it with `--here` on real records | that is what a fixture and a sandbox are for; `--here` is the exception, not the default |
 | expecting `--all` to run the `perform` proofs | it lists them; a board is for a hook, and a hook cannot perform |
 | reading a step's stdout as a tail | it is captured and judged WHOLE, to 64 KB — over that, write a file and assert `path:` |
+| `stdout: hello` — a scalar where a filter goes | refused at compile; a bare `stdout:`, a number and a list are the same defect — write `{ _contains: 'hello' }` |
 | committing the ledger | it is per-machine evidence under gitignored build output; the SOURCE is what travels |
 | a fixture carrying a `package.json` or a descriptor | only `data/` is admitted — otherwise a proof can bring the rules it is judged by |
 | a proof whose descriptor is not committed | a sandbox is cut from HEAD; commit the schema before the proof that needs it |

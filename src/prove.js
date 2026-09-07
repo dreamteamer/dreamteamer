@@ -408,16 +408,32 @@ function expectErrors(expect, given, descriptors, stepCount = 0) {
 		// how `{record, where, count}` got a fully validated count that the judge never read (I3) —
 		// the count is now either this row's own assertion or part of a refused mixture.
 		if (form === 'collection') errors.push(...countErrors(row.count, i));
+		// ⚠ R57 — THE LAST SILENT GREEN OF THE CLASS, and it is the spelling every author reaches for
+		// first. `stdout` and `stdout_json` are FILTER MAPS, and the judge gates on
+		// `typeof e.stdout === 'object'` — so `{step: 1, stdout: 'hello'}` against
+		// `steps: [{run: 'echo goodbye'}]` compiled clean, produced ZERO verdict lines, and answered
+		// exit 0 PASS having measured nothing. Compile had no shape check here at all: the two keys
+		// were read only as DISCRIMINATORS (is this a step row?) and never as values. A scalar, a
+		// number, an array and a bare `stdout:` (which YAML parses to null) are all the same defect,
+		// so the guard turns on the SHAPE rather than on enumerated wrong values — the R26 lesson.
+		if (form === 'step') {
+			if ('stdout' in row && !isPlainMap(row.stdout)) errors.push(`expect[${i}] stdout must be a filter object, e.g. { _contains: "…" }`);
+			if ('stdout_json' in row && !isPlainMap(row.stdout_json)) errors.push(`expect[${i}] stdout_json must be a map of dotted paths to filter objects`);
+		}
 	}
 	return errors;
 }
+
+/** A YAML mapping and nothing else — not null (a bare `key:`), not an array, not a scalar. The one
+ *  test three separate guards need, because every one of them is a key whose VALUE is a filter. */
+function isPlainMap(v) { return v !== null && typeof v === 'object' && !Array.isArray(v); }
 
 /** R11 — a count map's operators and operands. Its own closed set (see COUNT_OPERATORS), and every
  *  operand an INTEGER: a count is a number of records, so `_gte: 'one'` and `_eq: 1.5` are both
  *  filters that can never be satisfied, silently. A bare scalar is the `_eq` it stands for. */
 function countErrors(count, index) {
 	const errors = [];
-	const isMap = count !== null && typeof count === 'object' && !Array.isArray(count);
+	const isMap = isPlainMap(count);
 	// `count: {}` compares nothing, so the expectation holds for EVERY possible count — the same
 	// silent green an empty `where` produces, and no reading of it asserts anything.
 	if (isMap && !Object.keys(count).length) return [`expect[${index}] count must name one operator`];
@@ -1793,6 +1809,21 @@ function proveOne(ws, id, proof, flags) {
 		const currentRef = current ? current.ref : null;
 		const verdicts = judge(tws, fresh, proof, id, current, snapshot, stepResults, false);
 		for (const v of verdicts) say(`  ${v.line}`);
+		// ⚠ R57 — THE FLOOR UNDER THE WHOLE CLASS. `verdicts.every(ok)` is VACUOUSLY TRUE over an
+		// empty list, so every seam that made a declared expectation produce no verdict line came out
+		// of here as `PASS` at exit 0 — the mixed row (R48), the scalar `stdout` above, a row an older
+		// runtime carries that `formOf` cannot name. Each of those is now refused at compile, and this
+		// is what makes the whole class UNREACHABLE rather than closed one shape at a time: a run that
+		// declared expectations and produced no verdict measured nothing, whatever the reason.
+		//
+		// ⚠ SCOPED TO PROOFS THAT DECLARE EXPECTATIONS. A `gate` proof has none by construction — its
+		// assertion IS the step's exit code, judged in `runSteps` — so an unscoped floor would turn
+		// every passing gate in the workspace vacuous.
+		if (Array.isArray(proof.expect) && proof.expect.length && !verdicts.length) {
+			const reason = 'no expectation produced a verdict — a proof that asserts nothing is not a proof';
+			say(`VACUOUS  ${id} — ${reason}`);
+			return settle('VACUOUS', { record: currentRef, steps: stepResults, before: snapshot, failure_reason: reason }, verdicts);
+		}
 		const failed = verdicts.find((v) => !v.ok);
 		if (!failed) {
 			say(`PASS  ${id} (${Date.now() - started} ms)`);
