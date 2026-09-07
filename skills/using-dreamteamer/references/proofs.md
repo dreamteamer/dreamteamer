@@ -154,6 +154,14 @@ after-pass. ⚠ Inside a `_delta` write **`{record}` (the reference), not `{reco
 counts are taken either side of the steps, so a field literal is rendered from two different values
 and their difference means nothing — assert a field with a `record:` expectation instead.
 
+⚠ **`given.where` may NOT use `{record}`** — compile refuses it (`given.where cannot use {record} —
+the given is what PICKS the record`). The substitution is an EXPECTATION's, and for a reason that is
+not a rule but arithmetic: the given is what selects the record, so at the moment its filter runs
+there is nothing bound yet. The literal used to compile and the proof then answered NO-FIXTURE
+forever, which reads as a fact about the workspace's data. For the same reason, a `{record}` literal
+in an expectation's `where` on a proof with **no `given` at all** is refused too (`an expectation
+uses {record} but this proof declares no given`).
+
 ⚠ **`record:` is not a template — it is always the literal `{record}`**, and compile refuses any
 other value (`a record expectation targets {record} — the picked record is its only target`). The
 `given` picks one record and there is no second one to target, so `record: notes/b` was a proof
@@ -165,8 +173,17 @@ judged against a different record than the one it names.
 |---|---|
 | `{ collection, where, count }` | how many records of `collection` match `where`, collection-scope |
 | `{ record: '{record}', where }` | the picked record's own fields. Needs a `given`; an empty `where` is refused |
-| `{ step: <n>, exit, stdout, stdout_json }` | what one `run` step did. `step` defaults to the LAST run step |
-| `{ path: '<template>', exists: true\|false }` | whether a path is there, rendered through the ONE resolver |
+| `{ step: <n>, exit, stdout, stdout_json }` | what one `run` step did. `step` defaults to the LAST run step; an index past the last step is refused |
+| `{ path: '<template>', exists: true\|false }` | whether a path is there, rendered through the ONE resolver, **relative to the workspace root** (the sandbox's root inside a `writes` proof) |
+
+⚠ **A row is exactly ONE form, and a row whose keys span two is a compile error** —
+`expect[<i>] mixes two forms — a row is one of collection+where+count · record+where · step ·
+path+exists`. It is refused rather than resolved because compile and the judge would otherwise read
+the same row as different shapes, and a row judged as the wrong form produces **zero verdict lines**
+— which passes, vacuously. Measured: `{ record: '{record}', path: 'nope.txt', exists: true }`
+compiled as a path row, was judged as a record row, and answered exit 0 `PASS` on a file that has
+never existed. `{ record, where, count }` was the same seam upside down — the count's operators and
+integers were validated line by line and then never read.
 
 **`count`** takes its own closed operator set — `_eq _neq _gt _gte _lt _lte _delta` — and every
 operand must be an INTEGER: `_gte: 'one'` and `_eq: 1.5` are filters that can never be satisfied, and
@@ -294,14 +311,30 @@ PASS forever and measures nothing — the silent green this whole verb exists to
 BEFORE any step runs, so it is caught before the proof takes an action. `step` and `path`
 expectations are not pre-checkable and never make a proof vacuous.
 
+⚠ **`dt prove <artifact>` with NO proof about it is VACUOUS too** (exit 6,
+`no proof is about <ref> — dt list proofs --missing`). It used to answer `proofs: 0 passed · …` at
+exit 0 — and the orientation block tells every session to quote this command before saying an
+artifact works, so a green result from a question nobody had asked was rule 7's own failure mode
+shipped as a feature. `--all` over a workspace with no proofs keeps its exit 0: "run everything" is
+truthfully green at zero; "prove THIS artifact" is not.
+
 **UNAVAILABLE is checked before the fixture**, so a machine that cannot answer never reports
 NO-FIXTURE — which would read as a fact about the workspace's data rather than about this laptop.
+A `writes` proof with no fixture is UNAVAILABLE too: the artifact is fine, and this invocation
+cannot answer for it without `--here`.
+
+⚠ **`--strict` means two different things, on purpose.** On `dt prove --all` (and the artifact form)
+it makes **UNAVAILABLE fatal** — a board is what a hook runs, and "this machine could not ask" is a
+gap the hook may want to fail on. On `dt status` it fails on a **FAIL tail** in the ledger and says
+nothing about UNAVAILABLE, because that line reports what this machine has already proved rather
+than running anything.
 
 ## reading the surface
 
 ```bash
 dt prove <proof>                 # one proof: the transcript, and one of six codes
-dt prove skills/<id>             # every proof whose `about` names this artifact — a board
+dt prove skills/<id>             # every proof whose `about` names this artifact — a board;
+                                 #   exit 6 when NOTHING is about it
 dt prove --all [--kind gate|live] [--external] [--strict] [--json]
 dt list proofs [--missing] [--filter …] [--json]
 dt get proofs/<id>               # the record, plus availability and the ledger tail
@@ -313,9 +346,9 @@ dt status [--strict]
   (`proofs: 3 passed · 1 failed · 0 unavailable · …`). A transcript is what a single-proof run is
   for. A proof with a `perform` step is **listed, never started**, so a board can never exit 5 —
   "one of your forty proofs would like a human" is not an answer a hook can act on. A proof that
-  THROWS is that proof's FAIL, with a ledger row, not a silently green skip — with ONE exception,
-  the `writes` proof that has no fixture: there the artifact is fine and this invocation cannot
-  answer for it, so it tallies UNAVAILABLE (and `--strict` is what makes it fatal).
+  THROWS is that proof's FAIL, with a ledger row, not a silently green skip. The `writes` proof with
+  no fixture is not an exception to that: it SETTLES `UNAVAILABLE` with a row, in the single-proof
+  form and on the board alike (and `--strict` is what makes it fatal).
 - **`--strict`** makes UNAVAILABLE fatal on a board. It is a flag rather than the default because a
   proof needing a credential is ordinarily unavailable on a cloud session.
 - **`dt list proofs`** appends two COMPUTED columns no record carries: `availability` on THIS machine
@@ -384,3 +417,7 @@ WRITE (a closed enum, a required field) the prose never showed.
 | a proof whose descriptor is not committed | a sandbox is cut from HEAD; commit the schema before the proof that needs it |
 | treating UNAVAILABLE as a failure | this machine cannot answer the question — the artifact is not implicated |
 | a `kind: eval` proof | there is no such kind; the eval layer is a procedure, and the engine never runs an agent |
+| one `expect` row carrying two forms' keys | refused at compile — a row judged as the wrong form asserts nothing and passes |
+| `{record}` in `given.where` | nothing substitutes there; the given is what picks the record |
+| a relative `path:` read as "beside where I typed dt" | it is resolved against the WORKSPACE root — the sandbox's, inside a `writes` proof |
+| `dt prove skills/x` exiting 0 as proof that the skill works | exit 6 when nothing is `about` it; check the code, not the absence of red |

@@ -195,7 +195,9 @@ function buildModulesIndex(entries) {
 		const owner = mods.find((mod) => src.startsWith(mod.path));
 		if (owner) owner[kind].push(kind === 'skills' ? rt.split('/')[1] : path.basename(rt).replace(/\.(command\.md|proof\.yaml)$/, ''));
 	}
-	for (const mod of mods) { mod.skills.sort(); mod.commands.sort(); mod.proofs.sort(); }
+	// `proofs` is COUNTED, never listed (see the module filter below), so it is deliberately not
+	// sorted — an order nothing reads is work that reads as a promise the output does not keep.
+	for (const mod of mods) { mod.skills.sort(); mod.commands.sort(); }
 	return mods;
 }
 

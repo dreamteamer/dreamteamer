@@ -235,6 +235,20 @@ export function dt(root, ...args) {
 	return { code: res.status, stdout: res.stdout ?? '', stderr: res.stderr ?? '' };
 }
 
+/**
+ * The same CLI, run from a DIRECTORY of the operator's choosing rather than the workspace root.
+ *
+ * ⚠ IT EXISTS BECAUSE `dt` HIDES A WHOLE CLASS OF BUG. Every other helper runs with `cwd` = the
+ * workspace root, so anything the engine resolves against `process.cwd()` instead of the workspace
+ * root answers correctly by accident — which is exactly how a `path:` expectation shipped resolving
+ * against the invoking directory (R51). `dt` finds its workspace by walking UP, so a subdirectory
+ * is an ordinary place to stand.
+ */
+export function dtIn(cwd, ...args) {
+	const res = spawnSync(process.execPath, [BIN, ...args], { cwd, env: GIT_ENV, encoding: 'utf8' });
+	return { code: res.status, stdout: res.stdout ?? '', stderr: res.stderr ?? '' };
+}
+
 /** Read a file in a workspace as text, or null. */
 export function readFile(root, rel) {
 	try { return fs.readFileSync(path.join(root, rel), 'utf8'); } catch { return null; }

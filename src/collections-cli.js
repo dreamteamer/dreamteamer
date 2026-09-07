@@ -17,7 +17,7 @@ import {
 	createSkill, refuseHandAuthored, removeEntity, renameEntity, setEntityFrontmatter,
 } from './schema-ops.js';
 import { KINDS } from './compile.js';
-import { proofPathFor, artifactRefs, pickFixture, readLedger, resolveRequires, envKeys } from './prove.js';
+import { proofPathFor, artifactRefs, pickFixture, readLedger, resolveRequires, envKeys, flagValue } from './prove.js';
 import { history, historyDiff } from './history.js';
 import { commandsFor, recordResolver } from './record-commands.js';
 import { distinctValues } from './field-values.js';
@@ -141,7 +141,13 @@ export function collectionCommand(ws, collection, verb, args) {
 				// empty made "nothing is about this" indistinguishable from "this engine does not compute
 				// the join", so every consumer needed a `?? []` it had no reason to expect. A collection
 				// that is not an artifact kind still grows no key at all — there is no join to report.
-				emit(JSON.stringify({ ...fields, id, ...(isArtifact ? { proofs: about } : {}) }, null, 2));
+				//
+				// ⚠ M3 — AND THE PROOF'S OWN TWO COMPUTED COLUMNS TRAVEL WITH IT. `--json` is the shape a
+				// script reads, and it was the ONE surface that dropped them: `dt list proofs --json`
+				// carried `availability` and `last`, this carried neither, so a script asking about one
+				// proof had to list every proof to learn what the text output had already told a human.
+				const facts = collection === 'proofs' ? proofFacts(ws, store, id, fields) : null;
+				emit(JSON.stringify({ ...fields, id, ...(isArtifact ? { proofs: about } : {}), ...(facts ?? {}) }, null, 2));
 				return 0;
 			}
 			console.log(dump(fields).trimEnd());
@@ -1219,8 +1225,17 @@ const listColumns = (d) => ['id', ...(d.list_fields ?? []).filter((c) => c !== '
 // about one — can it run HERE, what did it last answer, what has no proof at all — is a fact about
 // this machine and this store, so it is computed at read time (R1).
 
-/** The three artifact kinds a proof's `about` can name and `dt get` can be asked for. A module
- *  script has no record of its own, so `<module>/bin/<file>` appears only in `--missing`. */
+/**
+ * The three artifact kinds a proof's `about` can name AND `dt get <collection>/<id>` can be asked
+ * for. A module script has no record of its own, so `<module>/bin/<file>` appears only in
+ * `--missing`.
+ *
+ * ⚠ THIS IS THE `dt get` HALF OF `artifactRefs`'s FOUR BUCKETS (`src/prove.js`), and the fourth is
+ * missing on purpose rather than by omission: `skills` · `commands` · `bindings` each have a record
+ * to hang a `proofs:` line off, and `scripts` does not. If a fifth artifact kind is ever added there,
+ * it belongs here too — the two enumerations answer the same question from opposite sides, and a
+ * kind present in one and absent from the other is a join that silently reports nothing.
+ */
 const ARTIFACT_KINDS = new Set(['skills', 'commands', 'command-bindings']);
 
 /** Every proof whose `about` names this artifact, by id. */
@@ -1274,7 +1289,10 @@ const lastCell = (last) => (last ? `${last.verdict} ${last.when}${last.record ? 
  */
 function metaProofsList(ws, store, flags) {
 	const d = store.descriptor('proofs');
-	if (flags.missing !== undefined) {
+	// ⚠ M2/R46 — `--missing=false` TURNED THE FLAG ON. `!== undefined` is true for every value a
+	// person can type, so the one spelling that says "no" selected the inverted listing — the same
+	// class as `--strict=false` arming a gate, and the same shared reader is the fix.
+	if (flagValue(flags.missing)) {
 		const narrowing = Object.keys(flags).filter((f) => f !== 'missing' && f !== 'json');
 		// ⚠ R38 — IT NAMES THE FLAG THAT CAUSED IT. "it takes no filter" sent a reader who had typed
 		// `--sort` looking for a `--filter` they never wrote, which is one round trip more than the
@@ -1291,7 +1309,12 @@ function metaProofsList(ws, store, flags) {
 		if (!missing.length) console.log('(every artifact has a proof)');
 		return 0;
 	}
-	const { rows, narrowed } = narrowRows(store, d, 'proofs', flags);
+	// ⚠ `missing` IS CONSUMED HERE AND MUST NOT TRAVEL ON. `narrowRows` reads every non-meta flag as
+	// a bare-field filter, so `--missing=false` — now correctly read as OFF (M2) — reached it as a
+	// filter on a field `proofs` does not have and refused the whole listing. It is this function's
+	// own flag, answered above, and there is nothing left of it to narrow by.
+	const { missing: _consumed, ...narrowing } = flags;
+	const { rows, narrowed } = narrowRows(store, d, 'proofs', narrowing);
 	// ONE `.env` parse for the whole listing (R38): the key set is a fact about the machine, and
 	// re-reading the file per row is work whose answer cannot change between rows.
 	const names = envKeys(ws.root);
