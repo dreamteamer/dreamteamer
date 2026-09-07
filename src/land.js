@@ -8,7 +8,7 @@
 //
 // WHY THE CLASSIFICATION IS THE WHOLE DESIGN (decision 308). A rebase of a worktree branch onto the
 // primary conflicts in exactly two interesting places. One is the managed orientation block that
-// `compile` regenerates into CLAUDE.md / AGENTS.md / GEMINI.md / .cursor/rules — a file BOTH sides
+// `compile` regenerates into the root CLAUDE.md / AGENTS.md / GEMINI.md — a file BOTH sides
 // legitimately rewrote, whose content is derived and therefore has no merge to do: take the
 // primary's, recompile at the tip, done. The other is a record two sessions edited, which is a real
 // disagreement no policy can settle — abort, name the paths by collection, leave both trees
@@ -20,18 +20,25 @@
 // Union merge is deliberately ABSENT (§13.5): DECISION-LOG.md is not append-only by construction,
 // and a union driver runs once per replayed commit, so two branches each appending a row keep both
 // copies. A decision-log conflict is a records-row conflict.
-import path from 'node:path';
-
 /** The advisory mutex, a directory under `describeCheckout(root).commonDir` — so all of a repo's
  *  worktrees contend for ONE lock, whichever of them the operator ran `dt land` from. */
 export const LAND_LOCK = 'dreamteamer-land.lock';
 
-/** The root files `harnesses.js` writes a managed block into, by BASENAME — plus any path under
- *  `.cursor/rules/`, where cursor's block is a whole generated `.mdc` rather than a section. */
+/**
+ * The files `harnesses.js` writes a managed BEGIN…END block into — matched by EXACT root-relative
+ * path, never by basename. Claude Code also reads hand-written nested files (`docs/CLAUDE.md`), and
+ * compile never touches one: matching on the basename would let a nested file that happens to carry
+ * a copied block be resolved `--ours` and discarded silently (ruling R32).
+ *
+ * ⚠ `.cursor/rules/dreamteamer.mdc` is deliberately NOT here (ruling R33). Cursor's output is a
+ * WHOLE generated file — frontmatter, body and STAMP, no begin/end markers (harnesses.js:97) — so
+ * there is no block to take `--ours` on, and `init` gitignores `.cursor/` anyway. A conflict there
+ * is an ordinary non-records conflict and aborts the landing like any other.
+ */
 export const MANAGED_FILES = ['CLAUDE.md', 'AGENTS.md', 'GEMINI.md'];
 
-const CURSOR_RULES = '.cursor/rules/';
-const isManaged = (filePath) => MANAGED_FILES.includes(path.basename(filePath)) || filePath.startsWith(CURSOR_RULES);
+/** Does compile write a managed block into this exact path? Task C's per-commit loop asks too. */
+export const isManaged = (filePath) => MANAGED_FILES.includes(filePath);
 
 /**
  * What a conflicted file is, from its path and its conflicted bytes alone.
@@ -79,8 +86,9 @@ function hunkSpans(text) {
 }
 
 /**
- * Conflicted paths grouped by the collection the operator knows them as, with everything else under
- * `other files`. Longest `storage.path` wins — `data/hr` must not swallow `data/hr/people` (the
+ * Conflicted paths grouped by the collection the operator knows them as — an unclaimed path under
+ * the data path under `data (no collection)`, everything else under `other files`. Longest
+ * `storage.path` wins — `data/hr` must not swallow `data/hr/people` (the
  * shape `storageOverlaps` refuses at compile time; a conflict report is the wrong place to discover
  * it). Runtime collections are skipped: `.dreamteamer/` is build output, never a record.
  * Insertion order follows the paths given, so the report reads in the order git listed them.
@@ -96,7 +104,10 @@ export function groupByCollection(paths, descriptors, dataPath = 'data') {
 	const groups = new Map();
 	for (const p of paths) {
 		const hit = bases.find((b) => p.startsWith(b.prefix));
-		const key = hit ? hit.name : 'other files';
+		// A path under the data path that no collection claims is still a RECORD to `classifyConflict`
+		// — an orphan, a folder whose descriptor was removed. Reporting it as "other files" would tell
+		// the operator to look in the wrong place, so the two halves say the same thing.
+		const key = hit ? hit.name : (p.startsWith(dataPath + '/') ? 'data (no collection)' : 'other files');
 		if (!groups.has(key)) groups.set(key, []);
 		groups.get(key).push(p);
 	}
@@ -128,7 +139,7 @@ export function planLand(state) {
 	if (state.pendingPrimary) refusals.push(`the primary has ${state.pendingPrimary} pending record write(s) — dt commit them first (a landing would sweep them into someone else's subject)`);
 	if (touched.length) refusals.push(`the primary has uncommitted changes to ${touched.length} file(s) this branch also touches: ${touched.slice(0, 5).join(', ')}${touched.length > 5 ? ', …' : ''}`);
 	if (lock.held) refusals.push(`another land holds the lock (pid ${lock.pid}, ${age(lock.age_s)}) — wait, or remove ${lock.path} if that process is gone`);
-	if (!range.commits) refusals.push(`nothing to land — ${branch} is already on ${primaryBranch}`);
+	if (!range.commits) refusals.push(`nothing to land — ${branch ?? '(detached)'} is already on ${primaryBranch}`);
 	if (refusals.length) return { refusals, steps: [] };
 
 	const managed = range.files.filter(isManaged);
