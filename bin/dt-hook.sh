@@ -28,10 +28,12 @@ elif command -v node >/dev/null 2>&1; then
 else
 	# `sort -V`, never a plain sort: v9.9.9 sorts AFTER v10.10.0 lexicographically, which would hand
 	# every hook the oldest install on the disk. A glob that matches nothing expands to itself, so
-	# the whole pipeline is allowed to come back empty rather than being trusted.
+	# the whole pipeline is allowed to come back empty rather than being trusted — and EVERY stage
+	# of it is silenced, because `-V` is not in POSIX and a sort that lacks it would otherwise write
+	# a usage error into the one stream a hook must leave clean.
 	nvm=""
 	if [ -n "${HOME:-}" ]; then
-		nvm="$(ls -d "${HOME}"/.nvm/versions/node/*/bin/node 2>/dev/null | sort -V | tail -1)" || nvm=""
+		nvm="$(ls -d "${HOME}"/.nvm/versions/node/*/bin/node 2>/dev/null | sort -V 2>/dev/null | tail -1 2>/dev/null)" || nvm=""
 	fi
 	for candidate in "${nvm}" /opt/homebrew/bin/node /usr/local/bin/node; do
 		if [ -n "${candidate}" ] && [ -x "${candidate}" ]; then

@@ -404,6 +404,29 @@ describe('dt add worktrees --hook takes its name from STDIN', () => {
 		assert.equal(r.stdout.trim().split('\n').at(-1), path.join(ws.root, '.worktrees', 'q'));
 	});
 
+	// ⚠ A FLAG ACCEPTED AND DROPPED IS A SILENT WRONG ANSWER, and `--hook` is a FORM: the name and
+	// the placement both come off stdin, so the other form's three flags are meaningless once it is
+	// given. Both of these were MEASURED at exit 0 doing the opposite of what was typed —
+	// `--hook --temp` cut a PERMANENT branch worktree, `--hook --base nosuchref` cut from HEAD.
+	for (const [flag, value] of [['--temp', null], ['--base', 'nosuchref'], ['--path', 'elsewhere/p']]) {
+		test(`${flag} is refused by name on the --hook form, and nothing is cut`, () => {
+			const ws = workspace();
+			const args = ['add', 'worktrees', '--hook', flag, ...(value ? [value] : [])];
+			const r = dtStdin(ws.root, JSON.stringify({ worktree_name: 'p' }), ...args);
+			assert.equal(r.code, 1, `${flag} was swallowed and the worktree was cut anyway:\n${r.stdout}`);
+			assert.match(r.stderr, new RegExp(`\\${flag} is not a flag of \`dt add worktrees --hook\``));
+			assert.match(r.stderr, /that form takes --hook --json/);
+			assert.equal(JSON.parse(dt(ws.root, 'list', 'worktrees', '--json').stdout).length, 1, 'a worktree was cut anyway');
+		});
+	}
+
+	test('two stray flags at once are named together', () => {
+		const ws = workspace();
+		const r = dtStdin(ws.root, JSON.stringify({ worktree_name: 'p' }), 'add', 'worktrees', '--hook', '--temp', '--base', 'HEAD');
+		assert.equal(r.code, 1, r.stdout);
+		assert.match(r.stderr, /--temp --base are not flags of `dt add worktrees --hook`/);
+	});
+
 	// A hook wired to the wrong event sends a perfectly well-formed payload with no name in it, and
 	// `.worktrees/undefined` is not a failure anybody would read as one.
 	test('a payload with no worktree name is refused, and nothing is cut', () => {
