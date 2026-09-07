@@ -1523,3 +1523,108 @@ describe('dt prove — --kind is validated, and every pending record is named', 
 		assert.equal(discarded.length, 2, 'a --restart that discards only one refuses again on the next');
 	});
 });
+
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+// Fix round 2 — the two routes a verdict could still vanish down: a `where:` typed the shortest way,
+// and a throw on the RESUME half of the protocol.
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+describe('dt prove — a bare `where:` is caught at compile (R26)', () => {
+	// ⚠ THE SPELLING AN AUTHOR IS MOST LIKELY TO TYPE. `where:` with nothing after it parses to
+	// **null**, not to `{}`, and the first version of the MINOR-9 guard skipped null to keep
+	// `Object.keys` from throwing — so the shortest route to a proof that measures nothing was the one
+	// route it did not close. Measured before the fix: compiled clean, judged zero conditions,
+	// `dt prove nothing --record notes/b` → exit 0, `PASS  nothing`, not one verdict line.
+	test('a record expectation whose where is bare fails compile, naming the entry', () => {
+		const ws = workspace({ collections: { notes: PROVE_NOTES, people: simpleCollection() }, compile: false });
+		writeProof(ws.root, 'nothing', {
+			about: ['skills/using-dreamteamer'],
+			kind: 'live',
+			mode: 'readonly',
+			given: { collection: 'notes', where: { status: { _eq: 'open' } }, pick: 'latest' },
+			steps: [{ perform: 'do a thing' }],
+			expect: [{ record: '{record}', where: null }],
+		});
+		assert.match(compileError(ws.ws) ?? '', /proofs\/nothing\.proof\.yaml: expect\[0\] where must name at least one condition/);
+	});
+
+	// and the false refusal it must not become: on a COLLECTION entry the `count` is the assertion
+	test('a bare where on a collection count still compiles', () => {
+		const ws = workspace({ collections: { notes: PROVE_NOTES, people: simpleCollection() }, compile: false });
+		writeProof(ws.root, 'counts-anything', {
+			about: ['skills/using-dreamteamer'],
+			kind: 'live',
+			mode: 'readonly',
+			steps: [{ run: 'true' }],
+			expect: [{ collection: 'notes', where: null, count: { _gte: 0 } }],
+		});
+		assert.equal(compileError(ws.ws), null);
+	});
+});
+
+describe('dt prove — a throw while judging a RESUME still leaves a row (MINOR B)', () => {
+	// ⚠ THE FIRST WRAP SAT BELOW THE RESUME EARLY-RETURN. A throw while judging a `--record` resume
+	// left the ledger at PENDING with the failed run unrecorded — so the operator is told to finish a
+	// run they have already finished, and the ledger denies it ever happened. Both halves of the
+	// protocol write a row now, not just the half that runs steps.
+	const BAD_RESUME = {
+		kind: 'live',
+		mode: 'readonly',
+		given: { collection: 'notes', where: { status: { _eq: 'open' } }, pick: 'latest' },
+		steps: [{ perform: 'do a thing' }],
+		expect: [{ path: '${env:NOPE}/x', exists: true }],
+	};
+
+	test('the resume exits 1 and the ledger\'s last row is a FAIL naming the resolver\'s error', () => {
+		const ws = proveWorkspace({ proofs: { 'bad-var-resume': BAD_RESUME } });
+		assert.equal(ws.dt('prove', 'bad-var-resume').code, 5);
+		assert.equal(tail(ws.root, 'bad-var-resume').verdict, 'PENDING');
+
+		const res = ws.dt('prove', 'bad-var-resume', '--record', 'notes/b');
+		assert.equal(res.code, 1, res.stdout + res.stderr);
+		assert.match(res.stderr, /\$\{env:NOPE\}: "NOPE" is not declared in dreamteamer\.vars/);
+
+		const row = tail(ws.root, 'bad-var-resume');
+		assert.equal(row.verdict, 'FAIL', 'the ledger was left sitting at PENDING');
+		assert.match(row.failure_reason, /is not declared in dreamteamer\.vars/);
+		// the pending row's own facts travel onto the FAIL row: this invocation only JUDGED that run
+		assert.equal(row.record, 'notes/b');
+	});
+
+	// the same throw must not produce TWO rows when `--all` catches it after proveOne already wrote one
+	test('exactly one row per run — the wrap and --all\'s catch do not both write', () => {
+		const ws = proveWorkspace({
+			proofs: { 'bad-var': { kind: 'live', mode: 'readonly', steps: [{ run: 'true' }], expect: [{ path: '${env:NOPE}/x', exists: true }] } },
+		});
+		assert.equal(ws.dt('prove', '--all', '--kind', 'live').code, 1);
+		const rows = readLedger(ws.root, 'bad-var');
+		assert.equal(rows.length, 1, JSON.stringify(rows.map((r) => r.verdict)));
+		assert.equal(rows[0].verdict, 'FAIL');
+	});
+});
+
+describe('dt prove — a step may print more than spawnSync\'s 1 MB default', () => {
+	// ⚠ THE WIRING, NOT THE CLASSIFIER. `stepOutcome` is unit-tested on a literal ENOBUFS result;
+	// this pins that the step spawn actually raises the threshold. 2 MB rather than 16 is deliberate:
+	// it crosses the DEFAULT in milliseconds, and a step big enough to cross the new limit would cost
+	// seconds to prove a number.
+	test('2 MB of stdout runs to completion, and the LEDGER still caps at 64 KB', () => {
+		const ws = proveWorkspace({
+			proofs: {
+				'big-output': {
+					kind: 'live',
+					mode: 'readonly',
+					steps: [{ run: 'node -e "process.stdout.write(\'x\'.repeat(2 * 1024 * 1024))"' }],
+					expect: [{ step: 1, exit: 0 }],
+				},
+			},
+		});
+		const res = ws.dt('prove', 'big-output');
+		assert.equal(res.code, 0, res.stdout + res.stderr);
+
+		const row = tail(ws.root, 'big-output');
+		assert.equal(row.steps[0].exit, 0, 'the default 1 MB maxBuffer KILLS this step');
+		// only the kill threshold moved — what a ledger row keeps is still 64 KB, marked as truncated
+		assert.equal(row.steps[0].stdout_truncated, true);
+		assert.equal(row.steps[0].stdout.length, 64 * 1024);
+	});
+});

@@ -14,7 +14,7 @@
 // makes `pick: latest` invalid there.
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { validateProofShape, PROOF_KINDS, PROOF_MODES, substitute, stepWarnings, applyCap, verdictLine, exitFor, EXIT, LEDGER_CAP } from '../../src/prove.js';
+import { validateProofShape, PROOF_KINDS, PROOF_MODES, substitute, stepWarnings, applyCap, verdictLine, exitFor, stepOutcome, EXIT, LEDGER_CAP } from '../../src/prove.js';
 
 const descriptors = new Map([
 	['notes', {
@@ -729,6 +729,18 @@ describe('validateProofShape — an expectation that asserts nothing (MINOR 9)',
 		);
 	});
 
+	// ⚠ R26 — THE SPELLING AN AUTHOR IS MOST LIKELY TO TYPE. A bare `where:` in YAML parses to
+	// **null**, not to `{}`, and the first version of the guard skipped null to keep `Object.keys`
+	// from throwing — so the shortest route to a proof that measures nothing was the one that slipped
+	// through. Measured before the fix: compiled clean, zero verdict lines, `PASS`.
+	test('a bare `where:` — which parses to null — is an empty where too', () => {
+		only(live({ expect: [{ record: '{record}', where: null }] }), 'expect[0] where must name at least one condition');
+	});
+
+	test('a null where on a COLLECTION entry is still fine — count carries the assertion', () => {
+		assert.deepEqual(validateProofShape(live({ expect: [{ collection: 'notes', where: null, count: { _delta: 1 } }] }), ctx), []);
+	});
+
 	test('count: {} compares nothing, so it holds for every count — refused', () => {
 		only(live({ expect: [{ collection: 'notes', where: {}, count: {} }] }), 'expect[0] count must name one operator');
 	});
@@ -779,5 +791,67 @@ describe('verdictLine — a one-hop reference resolves rather than narrowing', (
 		assert.equal(verdictLine({ status: { _eq: 'done' } }, 'open'), 'status "open" = done ✖');
 		assert.equal(verdictLine({ status: { _in: ['done'] } }, 'open'), 'status "open" ∈ [done] ✖');
 		assert.equal(verdictLine({ count: { _gte: 1 } }, 1), 'count 1 ≥ 1 ✔');
+	});
+});
+
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+// Fix round 2 — `stepOutcome`: five things a finished step can be, and only ONE of them is an exit
+// code. Pure, so every shape is a literal `spawnSync` result rather than a process that has to be
+// made to misbehave (a step printing 16 MB to prove the ENOBUFS arm costs seconds and proves less).
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+describe('stepOutcome — a kill is not an exit code, and a signal is not a cause', () => {
+	test('a plain success is no failure at all', () => {
+		assert.deepEqual(stepOutcome({ status: 0, signal: null }, 120, 1, 0), { exit: 0, failure_reason: null });
+	});
+
+	test('a plain non-zero exit names the code', () => {
+		assert.deepEqual(stepOutcome({ status: 3, signal: null }, 120, 2, 0), { exit: 3, failure_reason: 'step 2 exited 3' });
+	});
+
+	// a `step:` expectation may WANT a non-zero exit — a proof that a guard refuses
+	test('a non-zero exit the proof WANTED is no failure', () => {
+		assert.deepEqual(stepOutcome({ status: 3, signal: null }, 120, 1, 3), { exit: 3, failure_reason: null });
+	});
+
+	// the shape node actually produces on a timeout, measured: status null · signal SIGTERM · ETIMEDOUT
+	test('a timeout is decided by error.code, and reports the proof\'s own timeout', () => {
+		const res = { status: null, signal: 'SIGTERM', error: Object.assign(new Error('spawnSync /bin/sh ETIMEDOUT'), { code: 'ETIMEDOUT' }) };
+		assert.deepEqual(stepOutcome(res, 1, 1, 0), { exit: 124, failure_reason: 'step 1 timed out after 1s' });
+	});
+
+	// ⚠ THE BUG THIS FUNCTION EXISTS FOR. `spawnSync` KILLS the child when maxBuffer overflows, which
+	// arrives as `status: null · signal: SIGTERM` — identical to a timeout by signal alone. A step
+	// killed by its own output volume used to report "timed out after 120s": a cause and a number the
+	// operator would go and act on, both invented.
+	test('an ENOBUFS kill says it was the OUTPUT, and what to do instead', () => {
+		const res = { status: null, signal: 'SIGTERM', error: Object.assign(new Error('spawnSync ENOBUFS'), { code: 'ENOBUFS' }) };
+		assert.deepEqual(stepOutcome(res, 120, 1, 0), {
+			exit: 124,
+			failure_reason: 'step 1 produced more than 16 MB of output — write it to a file and assert with path:',
+		});
+	});
+
+	test('the two kills are told apart by error.code alone — the SIGNAL is identical', () => {
+		const sig = { status: null, signal: 'SIGTERM' };
+		const timeout = stepOutcome({ ...sig, error: Object.assign(new Error('x'), { code: 'ETIMEDOUT' }) }, 5, 1, 0);
+		const overflow = stepOutcome({ ...sig, error: Object.assign(new Error('x'), { code: 'ENOBUFS' }) }, 5, 1, 0);
+		assert.notEqual(timeout.failure_reason, overflow.failure_reason);
+	});
+
+	// ⚠ A BARE SIGNAL SAYS ONLY WHAT IS KNOWN. The OOM killer, an external `kill`, a SIGINT from the
+	// terminal — none of them is a timeout, and inventing one sends the reader to raise a number that
+	// was never reached.
+	test('a bare signal with no error names the signal and invents no cause', () => {
+		assert.deepEqual(stepOutcome({ status: null, signal: 'SIGKILL' }, 120, 4, 0), { exit: 124, failure_reason: 'step 4 was killed (SIGKILL)' });
+	});
+
+	test('a spawn failure that is neither reports its code', () => {
+		const res = { status: null, signal: null, error: Object.assign(new Error('spawnSync ENOENT'), { code: 'ENOENT' }) };
+		assert.deepEqual(stepOutcome(res, 120, 1, 0), { exit: 1, failure_reason: 'step 1 could not start: ENOENT' });
+	});
+
+	test('a spawn failure with no code at all falls back to its message', () => {
+		const res = { status: null, signal: null, error: new Error('something went wrong') };
+		assert.equal(stepOutcome(res, 120, 1, 0).failure_reason, 'step 1 could not start: something went wrong');
 	});
 });
