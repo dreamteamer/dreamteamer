@@ -166,7 +166,9 @@ export function planLand(state) {
 	steps.push({ id: 'ff', why: `git merge --ff-only land/${name} in the primary — ${primaryBranch} moves` });
 	if (range.files.includes('package-lock.json')) steps.push({ id: 'npm-ci', why: 'package-lock.json is in the range — npm ci in the primary before it compiles against the new engine' });
 	steps.push({ id: 'recompile-primary', why: `compile the primary — its runtime is per checkout and is now behind its tree` });
-	if (!state.keep) steps.push({ id: 'retire', why: `git worktree remove ${worktree.root} and git branch -d ${branch}` });
+	// `-D`, not `-d`, and the plan says so: the branch has just been fast-forwarded INTO the primary,
+	// but a rebase rewrote its hashes, so git's own merged-ness test answers no.
+	if (!state.keep) steps.push({ id: 'retire', why: `git worktree remove ${worktree.root} and git branch -D ${branch}` });
 	return { refusals, steps };
 }
 
@@ -192,10 +194,29 @@ const REBASE_STEPS = 200;
  *  `status --porcelain` is already root-relative by definition and takes no such flag. */
 const gitLines = (git, root, args) => git(['-C', root, ...args], root).split('\n').filter(Boolean);
 
-/** `git status --porcelain` paths. The rename form (`old -> new`) keeps its arrow; it is only ever
- *  compared against the range's paths, where a miss costs a refusal that did not fire, not a wrong
- *  write. */
-const statusPaths = (git, root) => gitLines(git, root, ['status', '--porcelain']).map((l) => l.slice(3));
+/** The same, for a `-z` command — NUL-separated and UNQUOTED.
+ *
+ *  ⚠ THE QUOTING IS THE BUG. Without `-z`, git renders a path holding a non-ASCII byte, a space or a
+ *  quote as a C-quoted string (`"data/notes/\303\251.note.md"`) — so a record with an accent in its
+ *  id read as one path out of `diff --name-only` and a DIFFERENT one out of `status --porcelain`,
+ *  and the two would never match. Every path this file compares, classifies or hands to git comes
+ *  through here. */
+const gitZ = (git, root, args) => git(['-C', root, ...args], root).split('\0').filter(Boolean);
+
+/** `git status --porcelain -z` paths.
+ *
+ *  ⚠ A RENAME IS TWO RECORDS in the `-z` format — `R  <new>\0<old>\0` — with no arrow to split on.
+ *  The second one is consumed rather than read as a status line of its own, which it is not. */
+const statusPaths = (git, root) => {
+	const parts = gitZ(git, root, ['status', '--porcelain', '-z']);
+	const paths = [];
+	for (let i = 0; i < parts.length; i++) {
+		const xy = parts[i].slice(0, 2);
+		paths.push(parts[i].slice(3));
+		if (xy.includes('R') || xy.includes('C')) i++; // its source follows in its own record
+	}
+	return paths;
+};
 
 /** Is that pid a process we could signal? EPERM means it exists and is someone else's — alive. */
 const alive = (pid) => {
@@ -240,18 +261,22 @@ function takeLock(lock, log = console.log) {
  * The state a landing is planned from. Every field is READ — nothing here writes, so an operator can
  * always ask what would happen. The key set is the contract `planLand` is unit-tested against.
  */
-export function observeLand(ws, ref, { keep = false } = {}, git = defaultGit) {
+export function observeLand(ws, ref, { keep = false, assumeBranch = null } = {}, git = defaultGit) {
 	const c = describeCheckout(ws.root, git);
 	const w = findWorktree(ws, ref);
 	if (!w) throw new Error(`no worktree "${ref}" — dt list worktrees`);
 	const primaryBranch = git(['rev-parse', '--abbrev-ref', 'HEAD'], c.primary);
-	const branch = w.primary ? null : w.branch;
+	// `assumeBranch` is `--dry-run --branch <n>` asking what would happen AFTER the switch it
+	// deliberately does not make. The branch does not exist yet, so the range is measured from the
+	// worktree's own HEAD — which is exactly what that branch would point at.
+	const branch = w.primary ? null : (w.branch ?? (assumeBranch ? `worktree-${assumeBranch}` : null));
+	const rev = w.primary ? null : (w.branch ?? (branch ? w.head : null));
 	const range = { commits: 0, files: [] };
-	if (branch) {
-		range.commits = Number(gitLines(git, c.primary, ['rev-list', '--count', `${primaryBranch}..${branch}`])[0] ?? 0);
+	if (rev) {
+		range.commits = Number(gitLines(git, c.primary, ['rev-list', '--count', `${primaryBranch}..${rev}`])[0] ?? 0);
 		// `...` (symmetric difference), not `..`: the range is what THIS branch added, so a file the
 		// primary changed underneath it is not part of what would land.
-		range.files = gitLines(git, c.primary, ['diff', '--name-only', '--no-relative', `${primaryBranch}...${branch}`]);
+		range.files = gitZ(git, c.primary, ['diff', '--name-only', '-z', '--no-relative', `${primaryBranch}...${rev}`]);
 	}
 	// The two dirty counts PARTITION the worktree's status, so a tree holding both kinds gets both
 	// refusals and one fix list. `dirtyRecords` is git's own count under the data path (listWorktrees).
@@ -302,26 +327,40 @@ const refusalBlock = (name, refusals) => `✖ cannot land worktrees/${name}:\n${
  * `dt land worktrees/<name>` — the whole verb. Returns rather than exits, so the CLI owns the
  * process code and `--json` can report the same object the operator was shown.
  */
-export function landWorktree(ws, ref, { keep = false, dryRun = false, branch = null } = {}, git = defaultGit) {
+export function landWorktree(ws, ref, { keep = false, dryRun = false, branch = null, npmRun } = {}, git = defaultGit) {
 	const c = describeCheckout(ws.root, git);
-	// ⚠ BEFORE THE OBSERVATION, because it changes the very thing being observed. `--branch` exists
-	// for exactly one state — a detached worktree, which is what every real one on a working disk
-	// turned out to be (§13.1) — and it does by hand what the refusal tells the operator to type.
-	if (branch) {
-		const w = findWorktree(ws, ref);
-		if (w && !w.primary && !w.branch) git(['-C', w.path, 'switch', '-c', `worktree-${branch}`], w.path);
+	// ⚠ `--branch` NAMES THE WORKTREE, it does not choose a branch. `worktree-<name>` is the one
+	// spelling `list`, `rm` and this verb all key on — recovering the name FROM the branch is how
+	// `listWorktrees` knows what a worktree is called — so a `--branch zulu` on the worktree `a`
+	// renamed it out from under every one of those readers and then failed on the next lookup
+	// (measured). It is refused rather than honoured.
+	const target = findWorktree(ws, ref);
+	let switchTo = null;
+	if (branch && target && !target.primary) {
+		if (branch !== target.name) throw new Error(`--branch must be ${target.name} — the worktree's branch is worktree-${target.name}`);
+		// ⚠ AND IT IS A MUTATION, so `--dry-run` must not perform it: `--dry-run --branch a` created
+		// and checked out the branch before printing a plan whose whole promise is that it changed
+		// nothing (measured). Under a dry run it becomes the first line of the plan instead.
+		if (target.branch) switchTo = null;
+		else if (dryRun) switchTo = `would switch ${target.path} to worktree-${target.name}`;
+		else git(['-C', target.path, 'switch', '-c', `worktree-${target.name}`], target.path);
 	}
-	const state = observeLand(ws, ref, { keep }, git);
+	const state = observeLand(ws, ref, { keep, assumeBranch: dryRun && switchTo ? branch : null }, git);
 	const plan = planLand(state);
 	const dataPath = ws.pkg.dreamteamer?.['data-path'] ?? 'data';
 	const descriptors = loadDescriptors(c.primary) ?? new Map();
-	if (plan.refusals.length) {
-		console.error(refusalBlock(state.name, plan.refusals));
-		return { code: 1, landed: null, refused: plan.refusals };
+	// ⚠ THE PRIMARY IS ONE FACT, NOT FIVE. Every other refusal a primary checkout collects — nothing
+	// ahead, no branch to land — is a CONSEQUENCE of that one, and a fix list of five lines for a
+	// state with one fix reads as five problems.
+	const refusals = state.worktree.kind === 'primary' ? ['it is the primary checkout'] : plan.refusals;
+	if (refusals.length) {
+		console.error(refusalBlock(state.name, refusals));
+		return { code: 1, landed: null, refused: refusals };
 	}
 	if (dryRun) {
 		console.log(`dt land worktrees/${state.name} → ${state.primaryBranch} (dry run)`);
 		console.log(`  ${summarize(state.range, recordsIn(state.range, descriptors, dataPath))}`);
+		if (switchTo) console.log(`  ▶ branch: ${switchTo}`);
 		for (const s of plan.steps) console.log(`  ▶ ${s.id}: ${s.why}`);
 		return { code: 0, landed: null, refused: null };
 	}
@@ -331,7 +370,7 @@ export function landWorktree(ws, ref, { keep = false, dryRun = false, branch = n
 		return { code: 1, landed: null, refused: [taken.refused] };
 	}
 	try {
-		return runLanding(ws, c, state, { descriptors, dataPath }, git);
+		return runLanding(ws, c, state, { descriptors, dataPath, npmRun }, git);
 	} finally {
 		fs.rmSync(state.lock.path, { recursive: true, force: true });
 	}
@@ -339,9 +378,17 @@ export function landWorktree(ws, ref, { keep = false, dryRun = false, branch = n
 
 /** The mutating half, under the lock. Split out so the lock's `finally` is one line and every early
  *  return inside it is still covered by the cleanup below. */
-function runLanding(ws, c, state, { descriptors, dataPath }, git) {
+function runLanding(ws, c, state, { descriptors, dataPath, npmRun }, git) {
 	const { name, worktree, branch, primaryBranch, range, keep } = state;
 	const copy = `land/${name}`;
+	// ⚠ A LEFTOVER COPY IS EVIDENCE, not scratch. `land/<name>` survives exactly one failure — a
+	// `dt check` that refused the rebased tree — and the message that left it there says to inspect
+	// it. Forcing it forward would delete the one thing the operator was told to look at.
+	if (git(['branch', '--list', copy], c.primary)) {
+		const why = `${copy} exists from an earlier landing — inspect or delete it first`;
+		console.error(refusalBlock(name, [why]));
+		return { code: 1, landed: null, refused: [why] };
+	}
 	const holder = path.join(c.primary, '.worktrees');
 	const temp = path.join(holder, `.land-${randomBytes(4).toString('hex')}`);
 	const managed = [];
@@ -387,7 +434,14 @@ function runLanding(ws, c, state, { descriptors, dataPath }, git) {
 			// ⚠ THE SECOND LAND FAILS HERE, not at the lock (§13.2) — two lands that rebased onto the
 			// same tip both produce a non-fast-forward, and a retry WITHOUT re-rebasing fails
 			// identically. So the loop goes back to the rebase, onto whatever the primary is now.
-			if (!/not a fast-forward|not possible to fast-forward/i.test(String(ff.stderr))) throw new Error(String(ff.stderr).trim().split('\n')[0] || `git merge --ff-only ${copy} exited ${ff.status}`);
+			//
+			// ⚠ AND THE QUESTION IS ASKED OF GIT, not of git's English. Matching "not a fast-forward"
+			// in stderr makes the retry depend on the operator's locale: under any translated git the
+			// pattern misses and a routine race becomes a thrown error. `merge-base --is-ancestor`
+			// answers the same question numerically — if the primary is still an ancestor of the copy
+			// the fast-forward WAS possible, so this failure is something else entirely.
+			const ancestor = spawnSync('git', ['-C', c.primary, 'merge-base', '--is-ancestor', primaryBranch, copy], { encoding: 'utf8' }).status;
+			if (ancestor !== 1) throw new Error(String(ff.stderr).trim().split('\n')[0] || `git merge --ff-only ${copy} exited ${ff.status}`);
 			if (attempt === FF_ATTEMPTS) {
 				const why = `the primary moved ${FF_ATTEMPTS} times during the landing — try again`;
 				console.error(refusalBlock(name, [why]));
@@ -396,19 +450,34 @@ function runLanding(ws, c, state, { descriptors, dataPath }, git) {
 		}
 		// ---- landed: the primary is now on the branch's commits -------------------------------
 		const primaryWs = findWorkspace(c.primary); // re-read: package.json may itself be in the range
-		if (range.files.includes('package-lock.json')) installDeps(primaryWs);
+		if (range.files.includes('package-lock.json')) installDeps(primaryWs, npmRun);
 		compile(primaryWs);
-		if (keep) {
-			// Clean by precondition, so `--hard` discards nothing: it moves the branch the operator is
-			// standing on to what actually landed, which is the only state that will land next time.
+		// ⚠ RE-MEASURED, AS LATE AS POSSIBLE, AND IT IS A DATA-LOSS GUARD (ruling R53). The
+		// worktree's cleanliness was measured before the lock was even taken, and a landing is
+		// seconds of rebasing, compiling and checking — a session (or a hook) writing a record into
+		// that worktree meanwhile had it DESTROYED at exit 0 with nothing printed: `--force` removed
+		// it under the default retire, `reset --hard` discarded it under `--keep`. Both were probed.
+		// The landing itself has already succeeded, so this is not a refusal — it keeps the worktree
+		// and says why, and the next `dt land` picks the new work up.
+		const changed = statusPaths(git, worktree.root);
+		let retired;
+		if (changed.length) {
+			retired = `  worktree kept at ${worktree.root} — it changed during the landing (${plural(changed.length, 'path')}); land again to pick them up`;
+		} else if (keep) {
+			// Clean by re-measurement, so `--hard` discards nothing: it moves the branch the operator
+			// is standing on to what actually landed, which is the only state that will land next
+			// time. Its runtime is then behind its tree, exactly as the primary's was.
 			git(['-C', worktree.root, 'reset', '--hard', copy], worktree.root);
+			compile(findWorkspace(worktree.root));
+			retired = `  worktree kept at ${worktree.root}, branch reset to ${git(['-C', worktree.root, 'rev-parse', '--short=7', 'HEAD'], worktree.root)}`;
 		} else {
 			// ⚠ `force` IS THE HONEST FLAG HERE. `removeWorktree` refuses over dirty records and
 			// commits that are on no other branch — both of which this landing has just published to
 			// the primary. Asking it to re-derive that would only make it refuse over the work it is
-			// being removed BECAUSE of.
+			// being removed BECAUSE of. What `force` must NOT skip is the measurement above.
 			removeWorktree(primaryWs, worktree.root, { force: true }, git);
 			if (git(['branch', '--list', `worktree-${name}`], c.primary)) git(['branch', '-D', `worktree-${name}`], c.primary);
+			retired = '  worktree and branch removed';
 		}
 		const records = recordsIn(range, descriptors, dataPath);
 		landed = { records, commits: range.commits };
@@ -416,7 +485,7 @@ function runLanding(ws, c, state, { descriptors, dataPath }, git) {
 		for (const [collection, n] of records) console.log(`  ${collection}: ${plural(n, 'record')}`);
 		if (managed.length) console.log(`  managed block regenerated: ${managed.join(', ')}`);
 		console.log('  primary recompiled');
-		console.log(keep ? `  worktree kept at ${worktree.root}, branch reset to ${git(['-C', worktree.root, 'rev-parse', '--short=7', 'HEAD'], worktree.root)}` : '  worktree and branch removed');
+		console.log(retired);
 		return { code: 0, landed, refused: null };
 	} finally {
 		// EVERY exit path — success, conflict, a failed check, a throw out of git itself. The holder is
@@ -448,16 +517,23 @@ function rebaseCopy(temp, onto, managed, dataPath, git) {
 	// GIT_EDITOR=true: a rebase that stops to open an editor in a hook or an unattended run is a hang.
 	const step = (...args) => spawnSync('git', ['-C', temp, ...args], { encoding: 'utf8', env: { ...process.env, GIT_EDITOR: 'true' } });
 	let r = step('rebase', onto);
+	let skipped = false;
 	for (let guard = REBASE_STEPS; r.status !== 0; guard--) {
-		if (!guard) throw new Error(`the rebase of ${onto} did not converge after ${REBASE_STEPS} steps — the copy branch is left for inspection`);
-		const unmerged = gitLines(git, temp, ['diff', '--name-only', '--diff-filter=U', '--no-relative']);
+		if (!guard) throw new Error(`the rebase of ${onto} did not converge after ${REBASE_STEPS} steps — nothing was landed and every tree is unchanged`);
+		const unmerged = gitZ(git, temp, ['diff', '--name-only', '-z', '--diff-filter=U', '--no-relative']);
 		if (!unmerged.length) {
-			// The replayed commit resolved to nothing: everything it carried is already in the primary
-			// (the ordinary shape when both sides ran the same system write). Skipping is the honest
-			// resolution — the content is not lost, it is already there.
-			if (spawnSync('git', ['-C', temp, 'diff', '--cached', '--quiet', 'HEAD'], { encoding: 'utf8' }).status === 0) { r = step('rebase', '--skip'); continue; }
-			throw new Error(`the rebase stopped without a conflict:\n${String(r.stderr).trim()}`);
+			// ⚠ A STOP WITH NOTHING TO RESOLVE IS REPORTED, NOT DRIVEN. `git rebase` also fails
+			// without ever starting — an unstaged change, a ref it cannot find, a hook refusing — and
+			// that state has no unmerged paths either. Driving it with `--skip` in a loop would burn
+			// every one of the guard's steps and then report the wrong thing entirely, so exactly ONE
+			// skip is allowed, and only while a rebase is genuinely in progress with an empty index
+			// diff: the replayed commit resolved to nothing because the primary already carries its
+			// content (the ordinary shape when both sides ran the same system write).
+			const empty = spawnSync('git', ['-C', temp, 'diff', '--cached', '--quiet', 'HEAD'], { encoding: 'utf8' }).status === 0;
+			if (empty && !skipped && rebaseInProgress(temp)) { skipped = true; r = step('rebase', '--skip'); continue; }
+			throw new Error(`rebase stopped without a conflict: ${String(r.stderr || r.stdout).trim().split('\n')[0]}`);
 		}
+		skipped = false;
 		const classes = unmerged.map((p) => classifyConflict(p, readOrEmpty(path.join(temp, p)), { BEGIN, END, dataPath }));
 		if (!classes.every((k) => k === 'managed-block')) {
 			// Read BEFORE the abort: REBASE_HEAD is what the abort throws away.
@@ -478,13 +554,22 @@ function rebaseCopy(temp, onto, managed, dataPath, git) {
 
 const readOrEmpty = (p) => { try { return fs.readFileSync(p, 'utf8'); } catch { return ''; } };
 
+/** Is a rebase actually running in this checkout? Git's own test: the state directory either backend
+ *  writes. A stop with no rebase in progress is a rebase that never started. */
+const rebaseInProgress = (root) => ['rebase-merge', 'rebase-apply'].some((d) => fs.existsSync(path.join(root, '.git', d)) || fs.existsSync(path.join(gitDirOf(root), d)));
+
+/** A linked worktree's own git dir (`.git` is a FILE there, pointing at it). */
+function gitDirOf(root) {
+	try { return path.resolve(root, /^gitdir: (.+)$/m.exec(fs.readFileSync(path.join(root, '.git'), 'utf8'))?.[1] ?? '.git'); } catch { return path.join(root, '.git'); }
+}
+
 /** Commit the blocks this compile rewrote, pathspec-scoped — the system-write contract, applied to
  *  a landing. TRACKED ONLY: an untracked CLAUDE.md is the operator's to add, and an ignored one is a
  *  hard error to `git add` (the lesson `schema-ops.regeneratedOutputs` already paid for). */
 function commitBlocks(temp, git) {
 	const blocks = (readManifest(temp)?.['adapter-blocks'] ?? []).filter((p) => fs.existsSync(path.join(temp, p)));
 	if (!blocks.length) return;
-	const tracked = gitLines(git, temp, ['ls-files', '--', ...blocks]);
+	const tracked = gitZ(git, temp, ['ls-files', '-z', '--', ...blocks]);
 	if (!tracked.length) return;
 	git(['-C', temp, 'add', '--', ...tracked], temp);
 	// Nothing staged means the block already equalled what the primary had — a commit here would be
@@ -495,11 +580,11 @@ function commitBlocks(temp, git) {
 
 /** `npm ci` in the primary, when the landing moved the lockfile. Resolved beside the running node
  *  first and handed node's own directory on PATH — a hook's `sh` has neither (see `resolveNpm`). */
-function installDeps(primaryWs) {
+function installDeps(primaryWs, run = (npm, args, opts) => spawnSync(npm, args, opts)) {
 	const npm = resolveNpm();
 	if (!npm) return console.warn('⚠ package-lock.json changed and npm is not on PATH — run npm ci in the primary before its next compile');
-	const r = spawnSync(npm, ['ci', '--prefer-offline', '--no-audit', '--no-fund'], { cwd: primaryWs.root, stdio: ['ignore', 2, 2], env: childEnv() });
-	if (r.status !== 0) console.warn(`⚠ npm ci exited ${r.status} in the primary — the landing stands; re-run it there`);
+	const r = run(npm, ['ci', '--prefer-offline', '--no-audit', '--no-fund'], { cwd: primaryWs.root, stdio: ['ignore', 2, 2], env: childEnv() });
+	if (r?.status) console.warn(`⚠ npm ci exited ${r.status} in the primary — the landing stands; re-run it there`);
 }
 
 /**
@@ -524,12 +609,24 @@ export function landCommand(ws, rest) {
 	let ref = args[0];
 	let dryRun = flags.has('--dry-run');
 	if (flags.has('--hook')) {
+		// Refused BEFORE the read, so a mistake about the invocation is not answered by a blocking
+		// wait on a pipe nobody is filling. `--hook` takes the worktree from the payload, and a
+		// positional beside it names a second, possibly different one.
+		if (args.length) throw new Error(`--hook reads the worktree from stdin — drop the positional ("${args[0]}")`);
 		const input = readHookInput(readStdin());
 		// The tree being removed, named by the event. `cwd` is the harness's own — in a hook that is
 		// the PRIMARY checkout ($CLAUDE_PROJECT_DIR), so it is a fallback for a payload shaped by
 		// another event, never the preferred spelling.
 		ref = input.raw.worktree_path ?? input.cwd;
 		if (!ref) throw new Error(`hook input carries no worktree_path — keys received: ${Object.keys(input.raw).join(', ')}`);
+		// ⚠ AND THE TREE MAY ALREADY BE GONE. WorktreeRemove fires around a removal the harness is
+		// performing, so by the time this runs git may no longer list it — which is not an error,
+		// it is the event having nothing left to report on. A non-zero exit here would surface in
+		// the session as a failed hook on every ordinary worktree deletion.
+		if (!findWorktree(ws, ref)) {
+			console.log(`${ref} is not a registered worktree (already removed?)`);
+			return 0;
+		}
 		dryRun = true;
 	} else if (!ref?.startsWith('worktrees/')) {
 		throw new Error('dt land needs a worktree: dt land worktrees/<name>');
