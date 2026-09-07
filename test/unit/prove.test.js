@@ -1063,6 +1063,53 @@ describe('validateProofShape — a row that MIXES two forms is refused (C1/I3/R4
 	});
 });
 
+describe('validateProofShape — a step row\'s stdout is a FILTER, never a scalar (R57)', () => {
+	// ⚠ THE MEASURED RESIDUAL, and the spelling an author reaches for first. `stdout: hello` reads
+	// like "the step printed hello" and compiled clean — the judge gates on
+	// `typeof e.stdout === 'object'`, so the row produced ZERO verdict lines and the proof answered
+	// exit 0 PASS against a step that printed something else entirely.
+	const stdoutErr = 'expect[0] stdout must be a filter object, e.g. { _contains: "…" }';
+	const jsonErr = 'expect[0] stdout_json must be a map of dotted paths to filter objects';
+
+	test('a string stdout is refused', () => {
+		only(live({ expect: [{ step: 1, stdout: 'hello' }] }), stdoutErr);
+	});
+
+	test('a number stdout is refused', () => {
+		only(live({ expect: [{ step: 1, stdout: 7 }] }), stdoutErr);
+	});
+
+	test('an array stdout is refused — a list of filters is not a filter', () => {
+		only(live({ expect: [{ step: 1, stdout: [{ _contains: 'hello' }] }] }), stdoutErr);
+	});
+
+	// ⚠ R26 AGAIN: a bare `stdout:` in YAML parses to **null**, and `typeof null === 'object'` —
+	// so a guard written as a typeof test would let through the one spelling that costs nothing to
+	// type. The judge's own `e.stdout &&` gate drops it, silently, exactly like a scalar.
+	test('a bare stdout: — which YAML parses to null — is refused too', () => {
+		only(live({ expect: [{ step: 1, stdout: null }] }), stdoutErr);
+	});
+
+	test('stdout_json gets its own message, naming what its keys are', () => {
+		only(live({ expect: [{ step: 1, stdout_json: 'rows' }] }), jsonErr);
+		only(live({ expect: [{ step: 1, stdout_json: null }] }), jsonErr);
+	});
+
+	test('the row index is the row\'s own', () => {
+		only(
+			live({ expect: [{ step: 1, exit: 0 }, { step: 1, stdout: 'hello' }] }),
+			'expect[1] stdout must be a filter object, e.g. { _contains: "…" }',
+		);
+	});
+
+	test('the filter-map spellings are silent — that is the shape the judge reads', () => {
+		assert.deepEqual(validateProofShape(live({ expect: [{ step: 1, stdout: { _contains: 'hello' } }] }), ctx), []);
+		assert.deepEqual(validateProofShape(live({ expect: [{ step: 1, stdout_json: { 'a.b': { _gte: 1 } } }] }), ctx), []);
+		// and a step row that asserts only an exit code names neither key at all
+		assert.deepEqual(validateProofShape(live({ expect: [{ step: 1, exit: 0 }] }), ctx), []);
+	});
+});
+
 describe('validateProofShape — a step index past the last step (M7)', () => {
 	// ⚠ IT RESOLVED TO `undefined` AND JUDGED THAT. `stepResults[6]` on a one-step proof is
 	// undefined, so the line read `exit undefined = 0 ✖` — a FAIL naming an exit code no step ever

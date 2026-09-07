@@ -150,7 +150,7 @@ dt status [--strict]
 | `3` | UNAVAILABLE | this machine lacks a required var or binary — not a failure of the artifact |
 | `4` | NO-FIXTURE | the `given` matched no record |
 | `5` | PENDING | a `perform` step is owed a human or an agent |
-| `6` | VACUOUS | every expectation ALREADY held before any step ran — **and `dt prove <artifact>` when NO proof is about it**, which would otherwise report a green board over zero questions |
+| `6` | VACUOUS | every expectation ALREADY held before any step ran — **and `dt prove <artifact>` when NO proof is about it**, which would otherwise report a green board over zero questions — **and a run that declared expectations and produced NO verdict line at all** |
 
 ⚠ **`--strict` means two different things**, deliberately: on `dt prove --all` (and the artifact
 form) it makes UNAVAILABLE fatal; on `dt status` it fails on a FAIL tail in the ledger and says

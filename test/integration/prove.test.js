@@ -2644,3 +2644,89 @@ describe('the proof read surfaces — the two asymmetries (M2/M3)', () => {
 		assert.ok(!ws.dt('get', 'proofs/needs-a-var', '--json').stdout.includes(DECOY));
 	});
 });
+
+describe('dt prove — a scalar `stdout:` is refused at COMPILE, and a run that asserts nothing is VACUOUS (R57)', () => {
+	// ⚠ THE MEASURED RESIDUAL OF THE SILENT-GREEN CLASS, at both ends. `{step: 1, stdout: 'hello'}`
+	// against `steps: [{run: 'echo goodbye'}]` compiled clean and answered exit 0 PASS with ZERO
+	// verdict lines: the judge gates on `typeof e.stdout === 'object'` and compile had no shape check
+	// at all. Compile now refuses the shape (below), and the RUNNER carries a floor under every other
+	// route to the same state — including one an older engine already wrote to disk.
+	const PROBE = { ...LIVE, steps: [{ run: 'echo goodbye' }], expect: [{ step: 1, stdout: 'hello' }] };
+
+	test("the reviewer's probe fails to compile, naming the key and the shape it wants", () => {
+		const ws = workspace({ collections: { notes: PROVE_NOTES, people: simpleCollection() }, compile: false });
+		writeProof(ws.root, 'scalar-stdout', { about: ['skills/using-dreamteamer'], ...PROBE });
+		assert.match(
+			compileError(ws.ws) ?? '',
+			/proofs\/scalar-stdout\.proof\.yaml: expect\[0\] stdout must be a filter object, e\.g\. \{ _contains: "…" \}/,
+		);
+	});
+
+	test('a scalar stdout_json is refused too, with its own message', () => {
+		const ws = workspace({ collections: { notes: PROVE_NOTES, people: simpleCollection() }, compile: false });
+		writeProof(ws.root, 'scalar-json', { about: ['skills/using-dreamteamer'], ...LIVE, steps: [{ run: 'true' }], expect: [{ step: 1, stdout_json: 'rows' }] });
+		assert.match(compileError(ws.ws) ?? '', /expect\[0\] stdout_json must be a map of dotted paths to filter objects/);
+	});
+
+	// ⚠ WRITTEN STRAIGHT INTO THE RUNTIME, the way the R38 availability test stages a shape compile
+	// refuses. That is not a contrivance: `.dreamteamer/` is build output an OLDER engine may have
+	// written, and the floor exists precisely for the rows this engine's compile can no longer
+	// produce. Reaching the state any other way is impossible now, which is the point.
+	test('a run whose declared expectations produce NO verdict is VACUOUS at exit 6, never PASS', () => {
+		const ws = proveWorkspace();
+		fs.writeFileSync(
+			path.join(ws.root, '.dreamteamer', 'proofs', 'asserts-nothing.proof.yaml'),
+			dump({ name: 'asserts-nothing', about: ['skills/using-dreamteamer'], ...PROBE }),
+		);
+		const res = ws.dt('prove', 'asserts-nothing');
+		assert.equal(res.code, 6, res.stdout + res.stderr);
+		assert.match(res.stdout, /no expectation produced a verdict — a proof that asserts nothing is not a proof/);
+		assert.doesNotMatch(res.stdout, /^PASS/m);
+
+		// and the LEDGER says the same thing — a row reading PASS is what `dt status` and
+		// `dt list proofs` would then repeat for as long as the file sits there
+		const row = tail(ws.root, 'asserts-nothing');
+		assert.equal(row.verdict, 'VACUOUS');
+		assert.equal(row.failure_reason, 'no expectation produced a verdict — a proof that asserts nothing is not a proof');
+	});
+
+	// ⚠ THE FALSE-REFUSAL SIDE, and it is the expensive one: a floor written unscoped turns every
+	// passing `gate` in the workspace vacuous, because a gate declares no expectations at all — its
+	// assertion IS the step's exit code, judged in `runSteps` before anything reaches the floor.
+	test('a gate with no expectations still PASSES, and a live proof with one verdict is untouched', () => {
+		const ws = proveWorkspace({
+			proofs: { 'one-verdict': { ...LIVE, steps: [{ run: 'echo hello' }], expect: [{ step: 1, stdout: { _contains: 'hello' } }] } },
+		});
+		const gate = ws.dt('prove', 'gate-passes');
+		assert.equal(gate.code, 0, gate.stdout + gate.stderr);
+		assert.match(gate.stdout, /^PASS  gate-passes/m);
+		assert.equal(tail(ws.root, 'gate-passes').verdict, 'PASS');
+
+		const live = ws.dt('prove', 'one-verdict');
+		assert.equal(live.code, 0, live.stdout + live.stderr);
+		assert.match(live.stdout, /^PASS  one-verdict/m);
+	});
+});
+
+describe('dt status --strict — a tally that THROWS mid-walk still reports the failures it counted (M5)', () => {
+	// ⚠ THE ONE DIRECTION A GATE MUST NEVER FAIL: a silent green bought with a swallowed exception.
+	// `proofsFailed = tally.FAIL` sat below the loop and inside the `try`, so a throw partway through
+	// the walk — an unreadable ledger, a record that will not parse — left the gate reading ZERO
+	// failures and `--strict` exiting 0 BECAUSE the count broke. The count now accumulates as the
+	// walk goes, so a FAIL already seen survives whatever the next record does.
+	test('an earlier FAIL is still fatal when a LATER proof record will not parse', () => {
+		const ws = proveWorkspace();
+		// `gate-fails` sorts before `zz-` — so the FAIL is counted, and THEN the walk throws
+		assert.equal(ws.dt('prove', 'gate-fails').code, 1);
+		assert.equal(tail(ws.root, 'gate-fails').verdict, 'FAIL');
+
+		fs.writeFileSync(path.join(ws.root, '.dreamteamer', 'proofs', 'zz-unparseable.proof.yaml'), 'name: [unclosed\n\t- : :\n');
+
+		const res = ws.dt('status', '--strict');
+		assert.equal(res.code, 1, res.stdout + res.stderr);
+		assert.match(res.stdout, /^✖ 1 proof\(s\) FAILED on this machine — dt list proofs$/m);
+		// and the proofs line itself never printed — the walk did not finish, which is exactly the
+		// state the old code read as "nothing failed"
+		assert.doesNotMatch(res.stdout, /^proofs: \d+ declared/m);
+	});
+});
