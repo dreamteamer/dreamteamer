@@ -15,7 +15,7 @@
 // time, so a reworded refusal shows up as a failing test rather than as a support question.
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { LAND_LOCK, MANAGED_FILES, classifyConflict, groupByCollection, planLand } from '../../src/land.js';
+import { LAND_LOCK, MANAGED_FILES, isManaged, classifyConflict, groupByCollection, planLand } from '../../src/land.js';
 import { BEGIN, END } from '../../src/harnesses.js';
 
 const markers = { BEGIN, END };
@@ -45,9 +45,22 @@ describe('classifyConflict — a generated block is not the operator\'s prose', 
 		assert.equal(classifyConflict('AGENTS.md', `# rules\n\n${hunk('x', 'y')}`, markers), 'managed-outside-block');
 	});
 
-	test('any path under .cursor/rules/ is managed — the block lives in an .mdc there, not in a root file', () => {
+	// R33: cursor's output is a WHOLE generated file — frontmatter, body and STAMP, no BEGIN/END
+	// (harnesses.js:97) — so there is nothing to take `--ours` on. A conflict there aborts.
+	test('.cursor/rules/ is NOT managed — a whole-file generated output has no block', () => {
 		const text = managed('be brief.', hunk('- a', '- b'));
-		assert.equal(classifyConflict('.cursor/rules/dreamteamer.mdc', text, markers), 'managed-block');
+		assert.equal(classifyConflict('.cursor/rules/dreamteamer.mdc', text, markers), 'other');
+		assert.equal(isManaged('.cursor/rules/dreamteamer.mdc'), false);
+	});
+
+	// R32: Claude Code reads hand-written nested instruction files, and compile never regenerates
+	// one. A basename match would resolve somebody's own prose with `--ours` and say nothing.
+	test('a NESTED file with a managed basename is not managed — the match is the exact root-relative path', () => {
+		const text = managed('be brief.', hunk('- a', '- b'));
+		assert.equal(classifyConflict('docs/CLAUDE.md', text, markers), 'other');
+		assert.equal(classifyConflict('CLAUDE.md', text, markers), 'managed-block', 'the root file still is');
+		assert.equal(isManaged('docs/CLAUDE.md'), false);
+		assert.equal(isManaged('CLAUDE.md'), true);
 	});
 
 	test('GEMINI.md and AGENTS.md are managed by basename; every other root file is not', () => {
@@ -101,6 +114,14 @@ describe('groupByCollection — conflicted paths, named by the collection the op
 		assert.deepEqual(g.get('hr'), ['data/hr/c.hr.md']);
 	});
 
+	test('a path under the data path that no collection claims is named as such, not filed under other files', () => {
+		const g = groupByCollection(['data/orphans/x.md', 'README.md'], descriptors);
+		assert.deepEqual([...g.keys()], ['data (no collection)', 'other files']);
+		assert.deepEqual(g.get('data (no collection)'), ['data/orphans/x.md']);
+		// and the classifier agrees it is a record — the two halves must not disagree
+		assert.equal(classifyConflict('data/orphans/x.md', hunk('a', 'b'), markers), 'records');
+	});
+
 	test('a runtime collection never claims a path — .dreamteamer is build output, not a record', () => {
 		const g = groupByCollection(['collections/notes.collection.yaml'], descriptors);
 		assert.deepEqual([...g.keys()], ['other files']);
@@ -118,6 +139,10 @@ describe('groupByCollection — conflicted paths, named by the collection the op
 	test('the data path is a parameter — a descriptor outside it is not a collection here', () => {
 		const g = groupByCollection(['data/notes/a.note.md'], descriptors, 'records');
 		assert.deepEqual([...g.keys()], ['other files'], 'data/notes is outside the declared data path');
+	});
+
+	test('… and the unclaimed group follows the same parameter', () => {
+		assert.deepEqual([...groupByCollection(['records/x/y.md'], descriptors, 'records').keys()], ['data (no collection)']);
 	});
 });
 
@@ -200,6 +225,11 @@ describe('planLand — the refusals, each for exactly its state', () => {
 			['nothing to land — worktree-w is already on main']);
 	});
 
+	test('… and a detached worktree with nothing to land says (detached), never "null"', () => {
+		const r = refusalsFor({ detached: true, branch: null, range: { commits: 0, files: [] } });
+		assert.equal(r.at(-1), 'nothing to land — (detached) is already on main');
+	});
+
 	test('several bad things are ALL reported, in the contract\'s order — one run, one fix list', () => {
 		assert.deepEqual(refusalsFor({ dirtyRecords: 1, uncommitted: 2, pendingPrimary: 3 }), [
 			'1 dirty record(s) — dt commit them first',
@@ -228,8 +258,9 @@ describe('planLand — the steps, in the order they run', () => {
 		assert.ok(!idsFor({}).includes('recompile-copy'));
 		assert.deepEqual(idsFor({ range: { commits: 1, files: ['CLAUDE.md', 'data/notes/a.note.md'] } }),
 			['lock', 'copy', 'rebase', 'recompile-copy', 'check', 'ff', 'recompile-primary', 'retire']);
-		assert.ok(idsFor({ range: { commits: 1, files: ['.cursor/rules/dreamteamer.mdc'] } }).includes('recompile-copy'),
-			'a cursor rule file is managed too');
+		assert.ok(idsFor({ range: { commits: 1, files: ['AGENTS.md'] } }).includes('recompile-copy'), 'AGENTS.md carries a block too');
+		assert.ok(!idsFor({ range: { commits: 1, files: ['docs/CLAUDE.md', '.cursor/rules/dreamteamer.mdc'] } }).includes('recompile-copy'),
+			'neither a nested instruction file nor a cursor rule triggers a recompile of the copy');
 	});
 
 	test('npm-ci appears iff package-lock.json is in the range, and after the fast-forward', () => {
