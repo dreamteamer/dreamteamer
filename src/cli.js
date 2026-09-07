@@ -65,8 +65,9 @@ the longest DECLARED collection prefix, so finance/transactions/2026/03/coffee i
   history <collection>/<id> [--json]          (git revisions of this record, newest first)
   diff    <collection>/<id> [--hash <sha>]    (the patch one revision applied; defaults to HEAD)
   revert  <collection>/<id> --hash <sha>      (restore the content at <sha> as a pending write)
-  commands <collection>[/<id>] [--ids <id>,…] (bound commands + per-record state:
-                                               available / done / not-applicable)
+  next    <collection>[/<id>] [--ids <id>,…]  (which bound commands apply, and in which state:
+                                               available / done / not-applicable — what can
+                                               happen to this record next)
   relations [<collection>]                    (every two-way pair: owner.field → target.mirror)
   relations rebuild <collection> [--drop <f>] (regenerate mirror VALUES from the owning side;
                                                --drop removes a stale ex-mirror key from records)
@@ -133,7 +134,7 @@ collection: the ENGINE does not read one, and \`rename-field\` was the only capa
                             target to have one.
                             --module writes an OVERLAY in that module (it must declare the base's
                             module in dreamteamer.dependencies).
-  update-field <collection> --name <field> [--type <type>] [--options a,b] [--default-value v]
+  set-field    <collection> --name <field> [--type <type>] [--options a,b] [--default-value v]
                             [--required true|false] [--description "…"] [--body true|false]
                             [--many] [--inverse [name]] [--unique] [--module <m>]
                             [--on-delete restrict|set-null] [--mirror-of <collection>.<field>]
@@ -143,7 +144,7 @@ collection: the ENGINE does not read one, and \`rename-field\` was the only capa
                              restating --type. --inverse= drops the mirror; --unique false clears
                              the one-to-one. Records written before the mirror existed are counted
                              for you, with the "relations rebuild" that repairs them.)
-  remove-field <collection> --name <field> [--module <m>] [--dry-run]
+  rm-field     <collection> --name <field> [--module <m>] [--dry-run]
                             (clears the field's VALUES in the same write, and reports the count)
   rename-field <collection> --name <field> --to <new-name> [--module <m>] [--dry-run]
                             (rewrites the key in every record AND everywhere a descriptor or view
@@ -191,7 +192,7 @@ workspace verbs:
   help        this text
 `;
 
-// Record verbs, split by what their <target> means. `move` and `commands` are in NEITHER set: both
+// Record verbs, split by what their <target> means. `move` and `next` are in NEITHER set: both
 // accept either shape, and which one it is has to be decided against the declared collections.
 // How many rows a per-record listing prints before it summarises. ONE number, because a report that
 // caps one of its lists and not the next reads as a bug in whichever list ran long.
@@ -199,13 +200,13 @@ const ROWS_SHOWN = 20;
 
 const REF_VERBS = new Set(['get', 'set', 'rm', 'rename', 'history', 'diff', 'revert']);
 const COLLECTION_VERBS = new Set(['list', 'add', 'values']);
-const EITHER_VERBS = new Set(['move', 'commands']);
+const EITHER_VERBS = new Set(['move', 'next']);
 
 // FIELD VERBS. Their <target> is a collection and everything else is flags, which is the one shape
 // that differs from the record verbs — so they get their own case arm rather than being folded into
 // `dispatchRecordVerb`. There is no `schema <op>` table any more: system entities take the record
 // verbs, and `collectionCommand`'s interceptors are the whole dispatch (§4).
-const FIELD_VERBS = ['add-field', 'update-field', 'remove-field', 'rename-field'];
+const FIELD_VERBS = ['add-field', 'set-field', 'rm-field', 'rename-field'];
 
 // WORKSPACE VERBS take a closed set of options, and nothing downstream of here would notice a
 // misspelling — `dt commit --dryrun` COMMITTED, because `rest.includes('--dry-run')` is false for a
@@ -455,7 +456,7 @@ export function run(argv) {
 				process.exit(0);
 			case 'list': case 'add': case 'values':
 			case 'get': case 'set': case 'rm': case 'rename': case 'history': case 'diff': case 'revert':
-			case 'move': case 'commands': {
+			case 'move': case 'next': {
 				// ⚠ `worktrees` IS NOT A COLLECTION — it is observed from git — so it is intercepted
 				// here rather than being dispatched. Which means it never reaches
 				// `collectionCommand`, where every other verb's flags are refused: the parse and the
@@ -475,10 +476,11 @@ export function run(argv) {
 			// FIELD VERBS — see FIELD_VERBS. Their <target> is a collection and everything else is
 			// flags, so they are their own case rather than being folded into `dispatchRecordVerb`.
 			//
-			// ⚠ `dt schema <op>` is GONE, not aliased. The 0.12.0 policy: a stale invocation must fail
-			// loudly, because a half-working grammar teaches the wrong shape without ever saying so.
-			// The `default` arm below names `schema` — and `ensure` — specifically.
-			case 'add-field': case 'update-field': case 'remove-field': case 'rename-field': {
+			// ⚠ THE RETIRED SPELLINGS ARE GONE, not aliased. The 0.12.0 policy: a stale invocation
+			// must fail loudly, because a half-working grammar teaches the wrong shape without ever
+			// saying so. The `default` arm below names each one — `schema`, `ensure`, `update-field`,
+			// `remove-field`, `commands` — and carries its replacement.
+			case 'add-field': case 'set-field': case 'rm-field': case 'rename-field': {
 				warnIfStale(ws.root);
 				const [target, ...flagArgs] = rest;
 				if (!target || target.startsWith('--')) {
@@ -494,23 +496,45 @@ export function run(argv) {
 			default:
 				// ⚠ NAMED, not just unknown. Every doc, skill and downstream script spelled these
 				// `dt schema <op>` for seven releases, so the failure has to carry the translation —
-				// an "unknown verb" alone sends the reader to `help` to guess which of nine verbs
+				// an "unknown verb" alone sends the reader to `help` to guess which of thirty verbs
 				// replaced the one they typed. No alias layer and no deprecation window: 0.12.0's
 				// policy, and the reason it is the right one is that `dt contacts list` failing
 				// loudly is what taught the verb-first grammar in one command.
+				//
+				// ⚠ ONE EXIT CODE FOR ALL OF THEM: 2, the usage code. "You typed a verb that is
+				// gone" is one answer, so a script (and an operator) asks it once rather than
+				// learning which retirement exits 1 and which exits 2.
 				if (cmd === 'schema') {
 					console.error('✖ unknown verb "schema" — schema verbs are gone since 0.19.0. System entities take the RECORD verbs now:');
 					console.error('    dt add collections --name <c> [--module <m>] · dt rm collections/<c> · dt rename collections/<old> <new>');
 					console.error('    dt set collections/<c> module=<m> | <scalar>=<v>   · dt get collections/<c> [--module <m>]');
-					console.error('    dt add-field <c> … · dt update-field <c> … · dt remove-field <c> … · dt rename-field <c> --name <f> --to <g>');
+					console.error('    dt add-field <c> … · dt set-field <c> … · dt rm-field <c> … · dt rename-field <c> --name <f> --to <g>');
 					console.error('    dt add|set|rm|rename modules/<id> …               · dt add|set|rm|rename ui-views/<id> …');
 					console.error('  the full mapping table is in UPDATING.md (0.18.0 → 0.19.0), and `dt help` has the current spellings.');
-					process.exit(1);
+					process.exit(2);
 				}
 				if (cmd === 'ensure') {
 					console.error('✖ unknown verb "ensure" — gone since 0.22.0 (decision 309: install is the one verb that makes a thing present and ready):');
 					console.error('    dt install                 this checkout — engine, .env, local assets, git modules, compile, postinstall');
 					console.error('    dt install repos/<id>      materialize one attached repo · dt install repos --all');
+					process.exit(2);
+				}
+				// The change verbs spell one way. `add · set · rm · rename` are the record verbs, so
+				// `update-field`/`remove-field` were a second spelling for one action inside one
+				// grammar — the field verbs now say `add-field · set-field · rm-field · rename-field`.
+				if (cmd === 'update-field' || cmd === 'remove-field') {
+					const to = cmd === 'update-field' ? 'set-field' : 'rm-field';
+					console.error(`✖ unknown verb "${cmd}" — gone since 0.22.0 (decision 309: a field verb spells its action the way the record verbs do):`);
+					console.error(`    dt ${to} <collection> --name <field> …`);
+					console.error('    the field verbs are: dt add-field · dt set-field · dt rm-field · dt rename-field');
+					process.exit(2);
+				}
+				// `dt commands <ref>` and `dt list commands` were one word for two things — the read
+				// verb and the system entity. `next` also says what it answers.
+				if (cmd === 'commands') {
+					console.error('✖ unknown verb "commands" — gone since 0.22.0 (decision 309: it collided with the `commands` ENTITY, which `dt list commands` reads):');
+					console.error('    dt next <collection>[/<id>]   which bound commands apply to this record, and in which state');
+					console.error('    dt list commands              the command entities this workspace ships');
 					process.exit(2);
 				}
 				console.error(`✖ unknown verb "${cmd}" — dreamteamer is verb-first since 0.12.0: dt <verb> [<target>]`);
@@ -536,7 +560,7 @@ function dispatchRecordVerb(ws, verb, args) {
 		return collectionCommand(ws, collection, verb, [id, ...rest]);
 	}
 	// EITHER_VERBS from here: a bare collection is legal for both — `move <collection> --init`,
-	// `commands <collection>`.
+	// `next <collection>`.
 	const { descriptors } = new Store(ws);
 	if (descriptors.has(target)) {
 		return verb === 'move'

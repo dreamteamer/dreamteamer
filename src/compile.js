@@ -1349,7 +1349,7 @@ export function compile({ root, pkg }) {
 			// generated mirror (which never carries x-unique) cannot trip it.
 			const h = (prop.items && typeof prop.items === 'object') ? prop.items : prop;
 			if (h['x-unique'] === true && h['x-inverse'] === undefined && h['x-inverse-of'] === undefined) {
-				console.warn(`⚠ collection ${name}: x-unique on "${fieldName}" is inert — it is a RELATION keyword, enforced only while the store maintains a mirror, and this field declares no x-inverse. Nothing constrains the value. Declare the relation (dreamteamer update-field ${name} --name ${fieldName} --inverse) or drop x-unique.`);
+				console.warn(`⚠ collection ${name}: x-unique on "${fieldName}" is inert — it is a RELATION keyword, enforced only while the store maintains a mirror, and this field declares no x-inverse. Nothing constrains the value. Declare the relation (dreamteamer set-field ${name} --name ${fieldName} --inverse) or drop x-unique.`);
 			}
 			// `x-choices` decorates ENUM VALUES (presentation.js#choiceRow, 0.21.0), and both ways of
 			// getting it wrong are SILENT: a key that is not a value decorates nothing, and the keyword

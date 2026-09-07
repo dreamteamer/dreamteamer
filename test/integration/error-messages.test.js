@@ -1,7 +1,7 @@
 // Tier 2 — §13's TABLE, message by message.
 //
 // These are not "nice error text". Every row is a sentence somebody needed and did not get, and
-// several of them replace a message that was FALSE: `remove-field` on a spelling-B mirror answered
+// several of them replace a message that was FALSE: `rm-field` on a spelling-B mirror answered
 // "no descriptor declares it" while the file that declared it sat in front of the operator, and
 // named a remedy that exits 0 changing nothing. A refusal that names the wrong thing costs more
 // than no refusal, because it sends the reader somewhere.
@@ -89,7 +89,7 @@ describe('§13 — the error messages the implementation must ship', () => {
 
 	test('set --module on a singly-declared field', () => {
 		const ws = twoModuleWorkspace();
-		const res = ws.dt('update-field', 'people', '--name', 'name', '--module', 'core', '--description', 'Their name.');
+		const res = ws.dt('set-field', 'people', '--name', 'name', '--module', 'core', '--description', 'Their name.');
 		assert.equal(res.code, 1);
 		assert.match(res.stderr, /people\.name is declared only by core — drop --module/);
 	});
@@ -128,7 +128,8 @@ describe('§13 — the error messages the implementation must ship', () => {
 	test('dt schema … is gone, and the error names the new spellings', () => {
 		const ws = twoModuleWorkspace();
 		const res = ws.dt('schema', 'add-collection', '--name', 'grades');
-		assert.equal(res.code, 1);
+		// 2, the usage code — the same one every retired spelling exits with since 0.22.0
+		assert.equal(res.code, 2);
 		assert.match(res.stderr, /unknown verb "schema"/);
 		assert.match(res.stderr, /schema verbs are gone since 0\.19\.0/);
 		assert.match(res.stderr, /dt add collections/);

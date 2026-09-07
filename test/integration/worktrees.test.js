@@ -13,6 +13,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { workspace, git, dt } from '../helpers/ws.js';
+import { removeWorktree, defaultGit } from '../../src/checkout.js';
+import { findWorkspace } from '../../src/workspace.js';
 
 /** The fixture commits BEFORE it compiles (`buildBase`), so CLAUDE.md/AGENTS.md/GEMINI.md are
  *  UNTRACKED in a fresh workspace — and a worktree's own install compiles them there too, leaving a
@@ -298,6 +300,57 @@ describe('worktrees are an observed entity', () => {
 		assert.equal(r.code, 0, r.stderr);
 		assert.match(r.stdout, /branch feature-x kept/);
 		assert.match(git(ws.root, ['branch', '--list', 'feature-x']), /feature-x/, 'a branch this verb did not create must survive');
+	});
+
+	// ⚠ A DATA-LOSS GUARD MUST FAIL CLOSED, and this one failed OPEN. The reachability measurement
+	// is a `git rev-list`, and its result decided whether the refusal above fires — but the call was
+	// wrapped in `catch { ahead = null }`, so a git that ERRORED read as "nothing ahead" and the
+	// destructive removal went through at exit 0. That is the exact loss the guard exists to
+	// prevent, reached by the one path nobody tests: the measurement not working.
+	//
+	// The trigger is practically unreachable through the CLI, so the failure is INJECTED —
+	// `removeWorktree` takes its git runner as its last argument, and only the reachability call is
+	// broken; everything else is real git, so the fixture is a real detached worktree holding a real
+	// commit. `findWorktree` runs on the default git by construction, which is why this needs one.
+	test('rm refuses when the reachability measurement itself FAILS, rather than reading it as safe', () => {
+		const ws = workspace();
+		commitHarness(ws.root);
+		const r = dt(ws.root, 'add', 'worktrees', '--name', 'unmeasured', '--temp');
+		assert.equal(r.code, 0, r.stderr);
+		const dir = r.stdout.trim().split('\n').at(-1);
+		fs.writeFileSync(path.join(dir, 'note.txt'), 'x');
+		git(dir, ['add', 'note.txt']);
+		git(dir, ['commit', '-qm', 'work only this worktree holds']);
+		const head = git(dir, ['rev-parse', 'HEAD']).slice(0, 7);
+
+		// real git for everything except the one measurement the refusal turns on
+		const brokenGit = (args, cwd) => {
+			if (args[0] === 'rev-list' && args.includes('--branches')) throw new Error('injected: rev-list is unavailable');
+			return defaultGit(args, cwd);
+		};
+		const wsObj = findWorkspace(ws.root);
+		assert.throws(
+			() => removeWorktree(wsObj, dir, {}, brokenGit),
+			(e) => {
+				assert.match(e.message, /could not be measured/, e.message);
+				assert.match(e.message, new RegExp(head), 'the sha must be named — no branch does');
+				assert.match(e.message, /--force/, 'the override must be named');
+				return true;
+			},
+		);
+		assert.ok(fs.existsSync(dir), 'THE COMMITS WERE ORPHANED on an unmeasured guard');
+
+		// ⚠ AND --force MUST STILL WORK. A guard that fails closed on a broken measurement would be
+		// a worktree nobody can ever remove if the documented override went with it.
+		// (`removeWorktree` reports on stdout, and this call is IN-PROCESS — held so the suite's own
+		// output stays a line of dots.)
+		const said = [];
+		const log = console.log;
+		console.log = (...a) => said.push(a.join(' '));
+		try { assert.equal(removeWorktree(wsObj, dir, { force: true }, brokenGit), 0); }
+		finally { console.log = log; }
+		assert.match(said.join('\n'), /removed worktree unmeasured/);
+		assert.ok(!fs.existsSync(dir));
 	});
 
 	test('a verb worktrees do not have says which four they do', () => {

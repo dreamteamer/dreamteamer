@@ -90,7 +90,7 @@ describe('--dry-run PLANS — it never destroys (the data-loss class)', () => {
 		const ws = twoModuleWorkspace();
 		assert.equal(ws.dt('add-field', 'people', '--name', 'badge', '--type', 'string').code, 0);
 
-		const res = ws.dt('remove-field', 'people', '--name', 'badge', '--dryrun');
+		const res = ws.dt('rm-field', 'people', '--name', 'badge', '--dryrun');
 		assert.equal(res.code, 1, `--dryrun was accepted and the field was REMOVED:\n${res.stdout}`);
 		assert.match(res.stderr, /unknown flag "--dryrun"/);
 		assert.match(res.stderr, /--dry-run/); // the nearest valid spelling
@@ -165,8 +165,8 @@ describe('an unknown flag is refused on every verb that has a closed vocabulary'
 		['history', ['history', 'people/ada-byron']],
 		['diff', ['diff', 'people/ada-byron']],
 		['add-field', ['add-field', 'people', '--name', 'zz', '--type', 'string']],
-		['update-field', ['update-field', 'people', '--name', 'badge', '--type', 'text']],
-		['remove-field', ['remove-field', 'people', '--name', 'badge']],
+		['set-field', ['set-field', 'people', '--name', 'badge', '--type', 'text']],
+		['rm-field', ['rm-field', 'people', '--name', 'badge']],
 		['rename-field', ['rename-field', 'people', '--name', 'badge', '--to', 'pass']],
 		['relations', ['relations', 'people']],
 		['install repos', ['install', 'repos', '--all']],

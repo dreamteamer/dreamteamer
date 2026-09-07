@@ -59,9 +59,9 @@ their flags, on one page (there is no per-verb `--help`).
 the verb names, as a map (semantics and flags live in `help`; a test holds this list to the
 dispatch, so it cannot drift):
 
-- read & measure — `list` `get` `values` `history` `diff` `commands` `relations` `resolve`
+- read & measure — `list` `get` `values` `history` `diff` `next` `relations` `resolve`
 - write & publish — `add` `set` `rm` `rename` `move` `revert` `commit`
-- fields (sources, through the compile gate) — `add-field` `update-field` `remove-field` `rename-field` (system entities — modules, collections, skills, ui-views… — take the RECORD verbs above)
+- fields (sources, through the compile gate) — `add-field` `set-field` `rm-field` `rename-field` (system entities — modules, collections, skills, ui-views… — take the RECORD verbs above)
 - workspace — `init` `install` `update` `compile` `check` `status` `start` `changes` `help` don't learn syntax from prose, this skill included: prose drifts, and `help` ships in
 the same file as the dispatch it documents. run it once before your first write of a session.
 what prose adds is judgment — *when* a verb is the right move, and the guarantees you can lean
@@ -130,7 +130,7 @@ holds the source**, so a write into a `git_modules/` module commits there and sa
 `ahead 1 — push when ready`. A record write lands on disk and `dt commit` publishes it.
 
 ⚠ **Every verb that moves records or clears values takes `--dry-run` and prints its plan first:**
-`rename collections/…`, `rename-field`, `remove-field`, `set collections/… module=`,
+`rename collections/…`, `rename-field`, `rm-field`, `set collections/… module=`,
 `rm modules/… --force`. The plan line is one shape — `records N · refs M · descriptors K · values
 cleared V` — so two dry runs are comparable, and a term that reads 0 means zero rather than
 unmeasured (where a number genuinely cannot be known before the run, the plan says so in words).

@@ -29,7 +29,7 @@ const MAX_PREIMAGE_BYTES = 64 * 1024 * 1024;
 const VERB = { A: 'add', M: 'set', D: 'rm', R: 'rename', '?': 'add' };
 
 /** What the caller asked to publish. A target is EITHER a collection name or a `<collection>/<id>`
- *  reference — the same either-shape `move` and `commands` accept, and after 0.12.0 the shape every
+ *  reference — the same either-shape `move` and `next` accept, and after 0.12.0 the shape every
  *  other verb's target has. Which one it is cannot be guessed from the string (an id may contain
  *  slashes and so may a namespaced collection name), so it is decided against the DECLARED
  *  collections: a key of `descriptors` is a collection, anything else goes to splitRef — which

@@ -19,7 +19,7 @@ schema:
     collection:
       type: string
       x-reference: collections
-      description: The collection the command applies TO — which is what makes `dt commands for <ref>` able to answer "what can I do with this record".
+      description: The collection the command applies TO — which is what makes `dt next <ref>` able to answer "what can I do with this record".
     target:
       type: string
       enum:

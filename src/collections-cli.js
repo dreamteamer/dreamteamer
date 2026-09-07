@@ -97,8 +97,8 @@ export function collectionCommand(ws, collection, verb, args) {
 	if (collection === 'modules' && verb === 'set') return metaModulesSet(ws, store, flags, pos);
 	if (collection === 'repos' && verb === 'ensure') return metaReposEnsure(ws, flags, pos);
 	if (verb === 'add-field') return metaAddField(ws, store, collection, flags);
-	if (verb === 'update-field') return metaUpdateField(ws, store, collection, flags);
-	if (verb === 'remove-field') return metaRemoveField(ws, store, collection, flags);
+	if (verb === 'set-field') return metaUpdateField(ws, store, collection, flags);
+	if (verb === 'rm-field') return metaRemoveField(ws, store, collection, flags);
 	if (verb === 'rename-field') return metaRenameField(ws, store, collection, flags);
 
 	// ---- the identity entities. §3.1's last row: `add` scaffolds a skill and is refused WITH THE
@@ -628,7 +628,7 @@ function metaCollectionsRm(ws, store, flags, pos) {
 // `dreamteamer tasks add-field --name urgent --type boolean --default-value false`
 function metaAddField(ws, store, collection, flags) {
 	const prop = fieldDef(store, flags, collection);
-	// fieldDef DEFERS every relation flag it has no reference to attach to, because on update-field
+	// fieldDef DEFERS every relation flag it has no reference to attach to, because on set-field
 	// the target is carried in afterwards. add-field has nothing to carry, so a relation flag that
 	// landed nowhere is a mistake — refused here rather than written as a dead keyword.
 	const stray = (prop.items ?? prop)['x-reference'] === undefined && relationFlagsStated(flags);
@@ -660,7 +660,7 @@ function reportDropped(dropped) {
 	}
 }
 
-/** A relation writes a field onto ANOTHER collection — the one consequence of add-field/update-field
+/** A relation writes a field onto ANOTHER collection — the one consequence of add-field/set-field
  *  that the written path above does not show. And the mirror is only correct for records written
  *  AFTER it existed, so records already carrying a value are counted here, with the repair: this is
  *  the migration path (a plain FK gains its mirror) and check flags every one of them the moment
@@ -674,7 +674,7 @@ function reportMirror(store, collection, fieldName, prop) {
 	if (n) console.log(`  ${n} ${collection} ${n === 1 ? 'record carries' : 'records carry'} values — run: dreamteamer relations rebuild ${target}`);
 }
 
-// `dreamteamer tasks update-field --name urgent --type enum --options a,b --required false`
+// `dreamteamer tasks set-field --name urgent --type enum --options a,b --required false`
 // Same flag vocabulary as add-field (one `fieldDef`), so the two read as one operation with two
 // preconditions rather than two dialects.
 function metaUpdateField(ws, store, collection, flags) {
@@ -697,14 +697,14 @@ function metaUpdateField(ws, store, collection, flags) {
 	return 0;
 }
 
-// `dreamteamer tasks remove-field --name urgent`
+// `dreamteamer tasks rm-field --name urgent`
 function metaRemoveField(ws, store, collection, flags) {
 	const name = flags.name ?? flags.field;
 	if (!name) throw new Error('missing --name <field>');
 	const moduleId = oneValue(flags, 'module');
 	if (flags['dry-run']) {
 		const plan = removeFieldPlan(store, collection, name);
-		return dryRunPlan(`remove-field ${collection} --name ${name}`, plan, [plan.staleViews.length ? `ui-views still listing it as a column: ${plan.staleViews.join(', ')}` : null]);
+		return dryRunPlan(`rm-field ${collection} --name ${name}`, plan, [plan.staleViews.length ? `ui-views still listing it as a column: ${plan.staleViews.join(', ')}` : null]);
 	}
 	const out = removeField(ws, store, collection, name, { moduleId });
 	flags.json ? emit(JSON.stringify(out)) : console.log(`✔ removed field ${collection}.${out.removed}`);
@@ -1208,8 +1208,8 @@ export const VERB_FLAGS = {
 	rm: FORCE_RM, rename: JSON_ONLY, move: [...NAV_MOVE, 'init'], values: ['json', 'limit'],
 	history: JSON_ONLY, diff: ['json', 'hash'], revert: ['json', 'hash'],
 	ensure: ['json', 'all'], for: ['json', 'ids'], relations: JSON_ONLY, rebuild: ['json', 'drop'],
-	'add-field': FIELD_FLAGS, 'update-field': FIELD_FLAGS,
-	'remove-field': ['json', 'module', 'name', 'field', 'dry-run'],
+	'add-field': FIELD_FLAGS, 'set-field': FIELD_FLAGS,
+	'rm-field': ['json', 'module', 'name', 'field', 'dry-run'],
 	'rename-field': ['json', 'module', 'name', 'field', 'to', 'dry-run'],
 	'collections:add': ['json', 'module', 'name', 'namespace', 'template', 'description', 'suffix', 'id-shape'],
 	'collections:get': ['json', 'module'], 'collections:set': ['json', 'module', 'dry-run'],

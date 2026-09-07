@@ -357,12 +357,27 @@ export function removeWorktree(ws, ref, { force = false } = {}, git = defaultGit
 	// ref at all", and once any branch holds it the removal is safe. `--not --all` cannot answer
 	// this: `--all` examines every working tree, the sandbox's own HEAD included, so it answered 0
 	// for the very commits at risk (measured). `--branches --tags --remotes` is the honest ref set.
+	//
+	// ⚠ AND IT FAILS CLOSED. This measurement is what the refusal turns on, so a `catch` that set it
+	// back to null answered "nothing ahead" for a measurement that never ran — no refusal fired and
+	// the destructive removal went through at exit 0, which is the exact loss the guard exists to
+	// prevent, reached by the one path nobody walks. An unmeasured guard is a refusal, not a pass.
+	// (NaN counts as unmeasured too: it is falsy, so it would have read as safe just the same.)
 	let ahead = w.ahead;
+	let unmeasured = null;
 	const orphaned = w.ahead === null && !w.primary && w.head;
 	if (orphaned) {
-		try { ahead = Number(git(['rev-list', '--count', w.head, '--not', '--branches', '--tags', '--remotes'], c.primary)); } catch { ahead = null; }
+		try {
+			ahead = Number(git(['rev-list', '--count', w.head, '--not', '--branches', '--tags', '--remotes'], c.primary));
+			if (!Number.isInteger(ahead)) unmeasured = 'git rev-list answered something that is not a count';
+		} catch (e) { unmeasured = String(e.message ?? e).split('\n')[0]; }
 	}
 	if (!force) {
+		// The unmeasured case leads, because it is the one refusal that cannot name what is at risk:
+		// a detached worktree's commits are held by nothing but the HEAD about to be deleted.
+		if (unmeasured) {
+			throw new Error(`refusing to remove worktree "${w.name}": whether its commits are reachable from anything else could not be measured — ${unmeasured}\n  ${w.head} is held by nothing but this worktree unless a ref names it: git branch <name> ${w.head} to keep it, or --force to remove without the check`);
+		}
 		// ⚠ THE DIRECTORY CAN BE GONE while git still lists the worktree — someone deleted it by
 		// hand. `list` already reports that (NOT installed); here, reading its dirty state in a cwd
 		// that does not exist died as `✖ spawnSync git ENOENT`, a message about the wrong thing
