@@ -78,10 +78,11 @@ the longest DECLARED collection prefix, so finance/transactions/2026/03/coffee i
                                                field prints one item per line)
 
 system verbs — the SAME verbs, on the entities the compiler materializes (modules, collections,
-skills, agents, commands, command-bindings, ui-views, collection-templates, proofs). ⚠ ONE difference in
-POLICY, not in spelling: a SYSTEM write commits itself, because an uncompilable or unpublished
-schema is not a state a workspace should sit in; a RECORD write does not — \`commit\` publishes it.
-The commit lands in the repo that holds the source, so a write into a git module commits there.
+skills, agents, commands, command-bindings, ui-views, collection-templates, proofs). ⚠ ONE
+difference in POLICY, not in spelling: a SYSTEM write commits itself, because an uncompilable or
+unpublished schema is not a state a workspace should sit in; a RECORD write does not — \`commit\`
+publishes it. The commit lands in the repo that holds the source, so a write into a git module
+commits there.
   add    collections --name <name> [--module <m>] [--namespace <ns>] [--template docs|entity]
                                               [--description "…"] [--suffix <s>] [--id-shape dated|slug]
                                               (--namespace health --name doctors === --name

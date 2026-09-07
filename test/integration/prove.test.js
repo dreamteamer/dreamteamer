@@ -62,6 +62,10 @@ describe('the proofs kind', () => {
 		assert.equal(res.code, 0, res.stdout + res.stderr);
 		const src = readFile(ws.root, 'modules/default/proofs/skill-loads.proof.yaml');
 		assert.match(src, /kind: live/);
+		// self-commits, like every system write (policy stated once in `dt help`) — assert the
+		// commit actually landed, not just that the printed line CLAIMS it did.
+		assert.match(res.stdout, /✔ committed in the workspace/);
+		assert.match(ws.git(['log', '-1', '--format=%s']), /proofs set skill-loads kind/);
 	});
 
 	// ⚠ THE DESIGN-BUG REGRESSION — the whole reason the plan carries a §2. Every `dt compile`
@@ -112,5 +116,41 @@ describe('the proofs kind', () => {
 		const sourcesBlock = /sources \(write\):[\s\S]*?\(see manifest for channels\)/.exec(claude)?.[0];
 		assert.ok(sourcesBlock, 'CLAUDE.md should carry a "sources (write):" paragraph');
 		assert.match(sourcesBlock, /`proofs\/`/);
+	});
+
+	// ⚠ R8: `given.collection` is a PLAIN collection NAME, never an `x-reference`. `notes` (not
+	// `collections/notes`) is the documented form — with an x-reference the ajv schema would want a
+	// `<collection>/<id>` shape and `dt check`'s x-reference resolution (parseRef, which returns null
+	// for a slashless value) would flag the documented spelling as unresolvable. This is a `live`
+	// proof rather than a `gate` one purely to exercise `given` at all; Task 1 does not validate its
+	// cross-field rules (exactly one of where/fixture, pick: latest needing a sort_field, …).
+	test('given.collection is a bare collection name, not a reference — compiles and check is silent about it', () => {
+		const ws = workspace();
+		writeProof(ws.root, 'live-proof', {
+			kind: 'live',
+			mode: 'readonly',
+			given: { collection: 'notes', where: {}, pick: 'latest' },
+			steps: [{ run: 'true' }],
+			expect: [{ collection: 'notes', where: {}, count: { _gte: 0 } }],
+		});
+		assert.equal(ws.dt('compile').code, 0);
+		const res = ws.dt('check');
+		assert.equal(res.code, 0, res.stdout + res.stderr);
+		assert.doesNotMatch(res.stdout + res.stderr, /given\.collection/);
+		assert.doesNotMatch(res.stdout + res.stderr, /notes/);
+	});
+
+	// ⚠ MINOR 7 — pinning the ajv ENUM as a gate, and nothing more. `kind` is a closed enum on the
+	// descriptor, so an invalid value is a schema violation `check` catches — but compile only
+	// STAGES a proof (never validates its semantics), so an invalid `kind` still compiles clean.
+	// The two together are the whole point: staging is unconditional, and the gate is `check`, not
+	// `compile` — exactly the split Task 1 owes and Task 2's `validateProofShape` builds on top of.
+	test('an invalid kind stages clean through compile and is caught by check', () => {
+		const ws = workspace();
+		writeProof(ws.root, 'bad-kind', { kind: 'nope' });
+		assert.equal(ws.dt('compile').code, 0, 'compile stages sources — it does not validate proof semantics');
+		const res = ws.dt('check');
+		assert.notEqual(res.code, 0, 'check runs ajv over every runtime-stored record, including proofs');
+		assert.match(res.stdout + res.stderr, /field kind: "nope" not in enum/);
 	});
 });

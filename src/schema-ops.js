@@ -2668,7 +2668,7 @@ const ENTITY_SHAPE = {
 };
 
 /** The source file (or folder) ONE entity is compiled from, asked of the manifest — the same
- *  question `uiViewSourceFile` asks, for the four other kinds. */
+ *  question `uiViewSourceFile` asks, for the five other kinds. */
 function entitySource(ws, kind, id) {
 	const shape = ENTITY_SHAPE[kind];
 	const key = shape.folder ? `${kind}/${id}/SKILL.md` : `${kind}/${id}${shape.suffix}`;
