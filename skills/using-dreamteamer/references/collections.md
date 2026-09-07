@@ -227,6 +227,45 @@ Two gates around it:
 - ⚠ **An overlay can add fields but cannot remove an inherited one.** If the shape is wrong for
   the module rather than just for this workspace, fix the base.
 
+## `x-choices` — what an enum VALUE looks like
+
+An enum value carries a label and nothing else by default: a surface gets `{ text, value }` and
+draws the value. `x-choices` is an OPTIONAL sparse map, keyed by the value, that gives a surface
+more to draw with — a board grouping by the field, a dropdown in a form, anything reading
+`edit_options.choices`.
+
+```yaml
+lane:
+  type: string
+  enum: [alpha, bravo, charlie]
+  x-choices:
+    alpha:
+      label: Alpha team          # what a surface shows; the stored VALUE is still `alpha`
+      description: the one that ships
+      icon: rocket               # a codicon name …
+      color: charts.blue         # a theme colour id — the accent
+      background: charts.blue    #   … and the fill
+    bravo:
+      icon: assets/icons/lucide/anchor   # … OR a reference to a `codec: file` record
+```
+
+- **Sparse and additive.** Decorate one value, or none. A value with no entry projects exactly as it
+  did before this keyword existed, so adding it changes nothing that already works.
+- **`enum` still owns the value set AND its order.** A map key cannot add, remove or reorder a
+  value — which matters, because a grouped view takes its band order from the enum.
+- **Five keys, and only five** — `label` · `description` · `icon` · `color` · `background`, each an
+  optional string. Anything else in an entry is dropped: the projection copies by name, so a
+  descriptor cannot inject keys into a contract every surface reads.
+- **`label` becomes `text`.** So a workspace can relabel a value without touching the value, and no
+  stored record moves.
+- **`icon` is a codicon name or a reference to a record of a `codec: file` collection.** A codicon
+  name never contains a slash and a record reference always does, so the surface decides which
+  without a second keyword.
+- **Colours are theme colour ids, not hex.** A hex is authored against one theme and wrong in the
+  other.
+- **Both mistakes warn rather than fail** — a key that is not one of the enum's values, and the
+  keyword on a field with no enum. See the message catalog below.
+
 ## the reference contract — `x-reference` across the module graph
 
 Every `x-reference` target must be one of: a **core** collection (the entity kinds plus `repos`)
@@ -291,6 +330,8 @@ collection author actually meets. (⚠ = warning: it compiled, and you should st
 | `cyclic module dependencies: a → b → a` | concept-level links declared as module deps | the collection belongs in `peerDependencies` |
 | relation refusals (`stamps a mirror onto…`, `declared on both sides…`) | the relation rules | `data-modeling.md` Part VI |
 | ⚠ `x-unique on "f" is inert` | a relation keyword with no relation — nothing enforces it | declare the inverse, or drop it |
+| ⚠ `x-choices on "f" has an entry for "k"` | it decorates enum VALUES and `k` is not one — a typo, or a value since removed | fix the spelling, or drop the entry |
+| ⚠ `x-choices on "f" is inert` | the keyword on a field that declares no enum — nothing reads it | give the field an enum, or drop the keyword |
 | ⚠ `collection … has no description` | it renders as a bare name in the orientation block every session loads | write the sentence (`data-modeling.md` §18) |
 | ⚠ `module "…" contributed no recognised sources` | its folders match no kind and it ships no UI bundle | usually a layout or naming mistake |
 | ⚠ `module X: <channel> copy shadows <channel> copy` | the same module delivered twice — the more local wins (npm-link semantics) | intended for dev; otherwise remove one |
