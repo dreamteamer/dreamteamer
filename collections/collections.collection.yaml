@@ -120,6 +120,15 @@ schema:
         opened on its own. It is stated here as DATA precisely so the record layer never has to
         learn what a module is; a bare string list rather than `x-reference: collections`, because
         the whole point is that the target is absent.
+    sensitive:
+      type: boolean
+      description: >-
+        This collection's records must not leave the workspace through an export — `dt export
+        <target>` writes none of them and names the omission in what it does write (the schema
+        source, the persona), so a reader knows the gap is deliberate. Set with `dt set
+        collections/<c> sensitive=true`. For ONE field rather than the collection, mark the field:
+        `x-sensitive: true` on its property (`dt add-field … --sensitive`). Nothing is inferred
+        from a name — the mark is the decision.
     module:
       type: string
       description: >-

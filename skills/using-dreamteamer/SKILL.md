@@ -62,7 +62,7 @@ dispatch, so it cannot drift):
 - read & measure — `list` `get` `values` `history` `diff` `commands` `relations` `resolve`
 - write & publish — `add` `set` `rm` `rename` `move` `revert` `commit` `ensure`
 - fields (sources, through the compile gate) — `add-field` `update-field` `remove-field` `rename-field` (system entities — modules, collections, skills, ui-views… — take the RECORD verbs above)
-- workspace — `init` `install` `update` `compile` `check` `status` `start` `changes` `help` don't learn syntax from prose, this skill included: prose drifts, and `help` ships in
+- workspace — `init` `install` `update` `compile` `check` `status` `start` `changes` `export` `help` don't learn syntax from prose, this skill included: prose drifts, and `help` ships in
 the same file as the dispatch it documents. run it once before your first write of a session.
 what prose adds is judgment — *when* a verb is the right move, and the guarantees you can lean
 on: **validation is hard** (unknown fields included; an invalid write is rejected before disk
@@ -80,6 +80,7 @@ Load by the map; nothing here is loaded "just in case".
 | a brand-new or empty workspace, dreamteamer over an existing pile of files, "help me set this up" | `references/getting-started.md` |
 | read, create, update, rename, delete, commit — or UNDO — a record | `references/records.md` |
 | "what changed while I was away" | `references/changes.md` |
+| the workspace has to reach a reader that is not a coding agent — a NotebookLM notebook; "which fields are sensitive" | `references/exporting.md` |
 | the workspace seems unable to do something — a new kind of thing, a missing capability, "don't we already have this?" | `references/before-you-build.md` (look first); a new model then continues `references/data-modeling.md` (decide) → `references/collections.md` (write it) |
 | a collection or field, mechanically — the descriptor, the system and field verbs, `templates:`/`extends:`, a compile or check message | `references/collections.md` |
 | knowledge a session should find on its own | `references/skills.md` |

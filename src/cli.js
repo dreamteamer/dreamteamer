@@ -22,6 +22,8 @@ import { commitPending } from './commit.js';
 import { Store } from './store.js';
 import { splitRef } from './ref.js';
 import { envContext, renderTemplate } from './env-vars.js';
+import { exportCommand, EXPORT_FLAGS } from './export-notebooklm.js';
+import { parseArgs } from './collections-cli.js';
 
 // git calls whose failure we CATCH must not print git's own error: execFileSync forwards the
 // child's stderr to ours unless told otherwise, so a handled "not a git repository" still
@@ -122,7 +124,7 @@ field verbs — a field is the one sub-entity, and it has verbs of its own (ther
 collection: the ENGINE does not read one, and \`rename-field\` was the only capability it would buy):
   add-field    <collection> --name <field> --type <type> [--options a,b] [--default-value v]
                             [--required true] [--description "…"] [--many] [--inverse [name]]
-                            [--inverse-description "…"] [--unique] [--body] [--module <m>]
+                            [--inverse-description "…"] [--unique] [--body] [--sensitive] [--module <m>]
                             [--on-delete restrict|set-null] [--mirror-of <collection>.<field>]
                             types: string text markdown boolean number integer date datetime
                                    enum tags <collection> — a date-time may be written as
@@ -136,7 +138,7 @@ collection: the ENGINE does not read one, and \`rename-field\` was the only capa
                             --module writes an OVERLAY in that module (it must declare the base's
                             module in dreamteamer.dependencies).
   update-field <collection> --name <field> [--type <type>] [--options a,b] [--default-value v]
-                            [--required true|false] [--description "…"] [--body true|false]
+                            [--required true|false] [--description "…"] [--body true|false] [--sensitive true|false]
                             [--many] [--inverse [name]] [--unique] [--module <m>]
                             [--on-delete restrict|set-null] [--mirror-of <collection>.<field>]
                             (an existing description survives a retype, and so does every relation
@@ -175,6 +177,16 @@ workspace verbs:
               <collection> or one <collection>/<id> — the record form is what keeps a
               concurrent session's pending records out of your commit.
               [<collection>|<collection>/<id> …] [-m <subject>] [--dry-run] [--json]
+  export      render the workspace for a consumer that is not a coding agent, and optionally sync it
+              export notebooklm [--out <dir>] [--plan standard|plus|pro|ultra|<n>] [--max-words <n>]
+                                [--collections a,b] [--instructions <template.md>]
+                                [--notebook <id> | --create "<title>"] [--response-length default|longer|shorter]
+                                [--mode default|learning-guide|concise|detailed] [--wait] [--json]
+              writes one schema source (workspace → module → collection → field), one source per
+              collection (sharded by --max-words, titled \`dt · <c> [n/m]\`), and the persona from a
+              template; a collection marked \`sensitive: true\` and a field marked \`x-sensitive: true\`
+              never travel. Refuses when the sources exceed the plan. With --notebook/--create it
+              adds, replaces and removes its own sources to match and applies the persona.
   help        this text
 `;
 
@@ -202,6 +214,7 @@ export const WORKSPACE_FLAGS = {
 	init: ['name', 'data-path', 'harnesses', 'workspace-module'], install: ['clone'], update: [],
 	start: ['port'], compile: ['watch'], check: [], status: [],
 	changes: ['since', 'json'], commit: ['dry-run', 'json'],
+	export: EXPORT_FLAGS,
 };
 
 export function run(argv) {
@@ -391,6 +404,14 @@ export function run(argv) {
 				}
 				console.log('✔ .dreamteamer is fresh');
 				process.exit(0);
+			}
+			// `export <target>` — the workspace rendered for a consumer that is not a coding agent. One
+			// target today; the map in export-notebooklm.js is where a second one would register, the way
+			// harnesses do. Without --notebook/--create it is a pure render and touches no network.
+			case 'export': {
+				warnIfStale(ws.root);
+				const { flags, pos } = parseArgs(rest);
+				process.exit(exportCommand(ws, pos[0], flags));
 			}
 			case 'help':
 				emit(USAGE);
