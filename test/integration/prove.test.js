@@ -17,7 +17,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { workspace, readFile, compileError, simpleCollection } from '../helpers/ws.js';
+import { workspace, readFile, compileError, simpleCollection, dt } from '../helpers/ws.js';
 import { USAGE, WORKSPACE_FLAGS } from '../../src/cli.js';
 import {
 	artifactRefs, PROOF_KINDS, PROOF_MODES,
@@ -26,6 +26,8 @@ import {
 } from '../../src/prove.js';
 import { readManifest } from '../../src/runtime.js';
 import { recordResolver } from '../../src/record-commands.js';
+import { removeWorktree } from '../../src/checkout.js';
+import { findWorkspace } from '../../src/workspace.js';
 
 /** compile's `entries` Map, reconstructed from what compile WROTE — the manifest names every entry
  *  by its runtime-relative path, and the bytes are on disk beside it. Lets a test drive
@@ -38,7 +40,7 @@ function runtimeEntries(root) {
 		bytes: fs.readFileSync(path.join(root, '.dreamteamer', rt)),
 	}]));
 }
-import { dump } from '../../src/yaml.js';
+import { dump, load } from '../../src/yaml.js';
 import { Store } from '../../src/store.js';
 
 /** Write a minimal proof source at `modules/default/proofs/<id>.proof.yaml`.
@@ -1230,8 +1232,9 @@ describe('dt prove — the usage surface', () => {
 		assert.deepEqual(undocumented, [], `dt prove accepts these and dt help never names them: ${undocumented.join(', ')}`);
 	});
 
-	// The Task 5 seam, asserted so the refusal is a DECISION rather than a crash: a `writes` proof
-	// runs in a sandbox, and until that exists it says so instead of writing to the live workspace.
+	// A `writes` proof runs in a sandbox on its OWN fixtures — so one with a `given.where` (a filter
+	// over the REAL store) has nothing to run against but this checkout, and says so rather than
+	// writing to it. The sandbox itself is covered in `writes proofs are sandboxed`, below.
 	test('a writes proof without --here refuses rather than writing to the live workspace', () => {
 		const ws = proveWorkspace({
 			proofs: {
@@ -1246,7 +1249,7 @@ describe('dt prove — the usage surface', () => {
 		});
 		const res = ws.dt('prove', 'writes-a-note');
 		assert.equal(res.code, 1, res.stdout + res.stderr);
-		assert.match(res.stderr, /writes proofs run in a sandbox — not yet implemented \(Task 5\)/);
+		assert.match(res.stderr, /writes-a-note is a writes proof with no fixture — it runs only with --here/);
 	});
 });
 
@@ -1457,8 +1460,9 @@ describe('dt prove --all — a broken proof is FAILED, with a row (R24)', () => 
 		assert.equal(tail(ws.root, 'bad-var').verdict, 'FAIL');
 	});
 
-	// the ONE exception, and it is the only one: the artifact is fine and this engine is not ready
-	test('the Task-5 seam stays UNAVAILABLE under --all, and still writes a row', () => {
+	// the ONE exception, and it is the only one: the artifact is fine and this INVOCATION cannot
+	// answer for it — a `writes` proof with no fixture runs only against a real store, with --here
+	test('a writes proof --all cannot run stays UNAVAILABLE, and still writes a row', () => {
 		const ws = proveWorkspace({
 			proofs: {
 				'writes-a-note': {
@@ -1470,7 +1474,7 @@ describe('dt prove --all — a broken proof is FAILED, with a row (R24)', () => 
 			},
 		});
 		const res = ws.dt('prove', '--all', '--kind', 'live');
-		assert.match(res.stdout, /^UNAVAILABLE  writes-a-note — writes proofs run in a sandbox — not yet implemented \(Task 5\)$/m);
+		assert.match(res.stdout, /^UNAVAILABLE  writes-a-note — writes-a-note is a writes proof with no fixture — it runs only with --here .*$/m);
 		assert.equal(tail(ws.root, 'writes-a-note').verdict, 'UNAVAILABLE');
 		// unavailable is not fatal without --strict, so this run is green on that proof alone
 		assert.equal(ws.dt('prove', 'writes-a-note', '--json').code, 1, 'a single-proof run still refuses');
@@ -1626,5 +1630,251 @@ describe('dt prove — a step may print more than spawnSync\'s 1 MB default', ()
 		// only the kill threshold moved — what a ledger row keeps is still 64 KB, marked as truncated
 		assert.equal(row.steps[0].stdout_truncated, true);
 		assert.equal(row.steps[0].stdout.length, 64 * 1024);
+	});
+});
+
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+// Task 5 — a `writes` proof runs in a throwaway detached worktree, on its OWN fixture records.
+//
+// ⚠ THE PRIMARY STORE IS THE THING BEING PROTECTED. A `writes` proof asks a human (or a step) to
+// mutate a record and then judges the mutation — so run in the live workspace it would leave real
+// records behind, which is the one outcome a proof must never produce. Every assertion below is
+// ultimately about the same sentence: `fx-open` exists in the sandbox and NOWHERE else.
+//
+// The ledger is the other half. It belongs to the INVOKING checkout, never to the sandbox: a sandbox
+// is deleted the moment the verdict is in, and evidence written inside it would go with it.
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+
+const SANDBOX_PROOF = 'note-gets-closed-in-sandbox';
+/** Byte-for-byte what `store.add` writes for this fixture's `notes` — pinned, and re-derived by the
+ *  first test from the COMPILED descriptor so a change to the storage default breaks here loudly
+ *  rather than silently writing a file the sandbox's `check` would never look at. */
+const FX_OPEN = '---\nname: fx-open\nstatus: open\n---\n';
+const FX_PATH = 'data/notes/fx-open.note.md';
+
+const SANDBOX_PROOF_SOURCE = {
+	kind: 'live',
+	mode: 'writes',
+	about: ['commands/close-note'],
+	given: { collection: 'notes', fixture: true, pick: 'fx-open' },
+	steps: [{ perform: '/close-note {record}' }],
+	expect: [{ record: '{record}', where: { status: { _eq: 'done' } } }],
+};
+
+/** A `writes` proof that needs no human at all: its `run` step does the writing, so the whole run
+ *  — pick, mutate, judge — happens inside the sandbox in ONE process. The engine is reached by a
+ *  RELATIVE path on purpose: it resolves only from a cwd that has `node_modules/dreamteamer`, which
+ *  is what makes "the step ran in the sandbox" an assertion rather than a hope. */
+const STEP_WRITES = 'note-closed-by-a-step';
+const STEP_WRITES_SOURCE = {
+	...SANDBOX_PROOF_SOURCE,
+	steps: [
+		{ run: 'node node_modules/dreamteamer/bin/dreamteamer.js set {record} status=done' },
+		{ run: 'touch made-in-the-sandbox.txt' },
+	],
+	expect: [
+		{ record: '{record}', where: { status: { _eq: 'done' } } },
+		// ⚠ `${workspaceFolder}` HAS TO RENDER THE SANDBOX. A `path:` expectation goes through the ONE
+		// resolver, and a resolver handed the invoking checkout would look for the step's own artefact
+		// in a directory the step never ran in — ✖ for a proof that held, every time.
+		{ path: '${workspaceFolder}/made-in-the-sandbox.txt', exists: true },
+	],
+};
+
+/**
+ * `proveWorkspace` plus a `writes` proof, its fixture directory, and a COMMIT.
+ *
+ * ⚠ THE COMMIT IS LOAD-BEARING, not tidiness. A sandbox is a DETACHED worktree cut from `HEAD`, so
+ * a descriptor, a module or a proof that lives only in the working tree does not exist inside it.
+ * That is also how a real workspace ships a proof — a committed source — and it is precisely what
+ * the fixture-copy step exists to bridge for the RECORDS, which are deliberately not committed
+ * anywhere: `data/notes/fx-open.note.md` must never appear in the primary's store.
+ */
+function sandboxWorkspace({ fixtureBody = FX_OPEN, proofs = {}, fixturesFor = [SANDBOX_PROOF] } = {}) {
+	const ws = proveWorkspace({
+		notes: [], // the primary holds NO notes: fx-open may only ever exist inside a sandbox
+		proofs: { [SANDBOX_PROOF]: SANDBOX_PROOF_SOURCE, ...proofs },
+	});
+	for (const id of fixturesFor) {
+		const dir = path.join(ws.root, 'modules', 'default', 'proofs', 'fixtures', id, path.dirname(FX_PATH));
+		fs.mkdirSync(dir, { recursive: true });
+		fs.writeFileSync(path.join(dir, path.basename(FX_PATH)), fixtureBody);
+	}
+	ws.git(['add', '-A']);
+	ws.git(['commit', '-qm', 'fixture: the sandboxed proof and its fixture records']);
+	return ws;
+}
+
+/** The sandbox a PENDING run is waiting in, off the printed block — the same string the operator
+ *  reads, so a test can never assert against a path the run did not actually print. */
+function sandboxOf(stdout) {
+	const m = /^in {7}(.+?) {3}\(a throwaway worktree/m.exec(stdout);
+	assert.ok(m, `no "in" line in:\n${stdout}`);
+	return m[1];
+}
+
+const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+describe('writes proofs are sandboxed', () => {
+	test('a writes proof pends inside a throwaway worktree, and the primary store never sees the fixture', () => {
+		const ws = sandboxWorkspace();
+		// the pinned path is the COMPILED path — assert it rather than trusting the default
+		const d = load(readFile(ws.root, '.dreamteamer/collections/notes.collection.yaml'));
+		assert.equal(path.join(d.storage.path, `fx-open.${d.storage.suffix}.md`), FX_PATH);
+
+		const res = ws.dt('prove', SANDBOX_PROOF);
+		assert.equal(res.code, 5, res.stdout + res.stderr);
+		const sandbox = sandboxOf(res.stdout);
+		assert.ok(sandbox.startsWith(path.join(ws.root, '.worktrees', '.tmp-')), sandbox);
+		// the `in` line is ABOVE the PERFORM block, because "where am I acting" is read first
+		assert.ok(res.stdout.indexOf('\nin ') < res.stdout.indexOf('\nPERFORM'), res.stdout);
+		assert.equal(fs.readFileSync(path.join(sandbox, FX_PATH), 'utf8'), FX_OPEN);
+		assert.equal(readFile(ws.root, FX_PATH), null, 'THE PRIMARY STORE WAS WRITTEN TO');
+
+		const row = tail(ws.root, SANDBOX_PROOF);
+		assert.equal(row.verdict, 'PENDING');
+		assert.equal(row.record, 'notes/fx-open');
+		assert.equal(row.sandbox, sandbox, 'a PENDING row that does not name its sandbox cannot be resumed');
+		// ⚠ THE LEDGER IS THE INVOKING CHECKOUT'S. Evidence written inside a sandbox is deleted with it.
+		assert.ok(!fs.existsSync(path.join(sandbox, '.dreamteamer', LEDGER_DIR)), 'the sandbox kept a ledger of its own');
+
+		ws.dt('prove', SANDBOX_PROOF, '--record', 'notes/fx-open'); // tidy the sandbox away
+	});
+
+	// ⚠ COMPILE USED TO STAGE THE FIXTURE AS A PROOF. `proofs/fixtures/` sits under the `proofs`
+	// kind directory, and every kind's nested folders are staged recursively — so the first fixture
+	// ever written made the whole module uncompilable: `data/notes/fx-open.note.md: expected a
+	// single document in the stream, but found more`, on a file that is a RECORD, not a proof.
+	test('a proof fixture directory is records, and compile does not read it as a proof', () => {
+		const ws = proveWorkspace();
+		const dir = path.join(ws.root, 'modules', 'default', 'proofs', 'fixtures', 'note-gets-closed', 'data', 'notes');
+		fs.mkdirSync(dir, { recursive: true });
+		fs.writeFileSync(path.join(dir, 'fx-open.note.md'), FX_OPEN);
+		const res = ws.dt('compile');
+		assert.equal(res.code, 0, res.stdout + res.stderr);
+		assert.deepEqual(Object.keys(readManifest(ws.root).entries).filter((k) => k.includes('fixtures')), []);
+	});
+
+	// ⚠ AND THE OTHER HALF OF THE SAME RULE. Skipping the fixture in the STAGER alone left the
+	// staleness scan reporting every fixture file "(new, uncompiled)" on every single command — a
+	// permanent `⚠ .dreamteamer is stale` that no compile could ever clear.
+	test('a fixture directory does not leave the workspace permanently stale', () => {
+		const ws = sandboxWorkspace();
+		const res = ws.dt('list', 'proofs');
+		assert.equal(res.code, 0, res.stderr);
+		assert.doesNotMatch(res.stderr, /stale/);
+	});
+
+	test('the resume judges the SANDBOX store, passes, and the sandbox is gone — registration and all', () => {
+		const ws = sandboxWorkspace();
+		const sandbox = sandboxOf(ws.dt('prove', SANDBOX_PROOF).stdout);
+
+		// the agent's PERFORM, done where the proof asked for it
+		const set = dt(sandbox, 'set', 'notes/fx-open', 'status=done');
+		assert.equal(set.code, 0, set.stdout + set.stderr);
+
+		const done = ws.dt('prove', SANDBOX_PROOF, '--record', 'notes/fx-open');
+		assert.equal(done.code, 0, done.stdout + done.stderr);
+		assert.match(done.stdout, new RegExp(`^PASS  ${SANDBOX_PROOF} \\(\\d+ ms\\)$`, 'm'));
+		assert.match(done.stdout, /status "done" = done ✔/);
+		assert.ok(!fs.existsSync(sandbox), 'the sandbox outlived its verdict');
+		// a directory removed by hand leaves git still listing the worktree — this is the other half
+		assert.ok(!ws.git(['worktree', 'list']).includes(sandbox), 'git still registers the sandbox');
+		assert.equal(readFile(ws.root, FX_PATH), null, 'the PASS landed the fixture in the primary');
+		assert.equal(tail(ws.root, SANDBOX_PROOF).verdict, 'PASS');
+	});
+
+	// ⚠ THE HALF WITH NO HUMAN IN IT, and the only shape that reaches the judge on a FRESH run with
+	// a sandbox in play. Two things are only assertable here: the step's `cwd` (the engine is named
+	// by a relative path, so it resolves nowhere but the sandbox) and the verdict's own store — judged
+	// against the primary, `pickFixture` finds nothing and FALLS BACK to the record picked before the
+	// step ran, which is a confident PASS read off a stale copy.
+	test('a writes proof whose STEP does the writing passes with no actor, in the sandbox and only there', () => {
+		const ws = sandboxWorkspace({ proofs: { [STEP_WRITES]: STEP_WRITES_SOURCE }, fixturesFor: [SANDBOX_PROOF, STEP_WRITES] });
+		const res = ws.dt('prove', STEP_WRITES);
+		assert.equal(res.code, 0, res.stdout + res.stderr);
+		assert.match(res.stdout, /status "done" = done ✔/);
+		assert.match(res.stdout, /exists true = true ✔/);
+		assert.equal(readFile(ws.root, FX_PATH), null, 'THE PRIMARY STORE WAS WRITTEN TO');
+		assert.ok(!fs.existsSync(path.join(ws.root, 'made-in-the-sandbox.txt')), 'the step wrote into the PRIMARY');
+
+		const row = tail(ws.root, STEP_WRITES);
+		assert.equal(row.verdict, 'PASS');
+		// the row keeps WHERE it ran even though the place is gone — that is the evidence
+		assert.ok(row.sandbox.startsWith(path.join(ws.root, '.worktrees', '.tmp-')), row.sandbox);
+		assert.ok(!fs.existsSync(row.sandbox), 'the sandbox outlived its verdict');
+		assert.deepEqual(fs.readdirSync(path.join(ws.root, '.worktrees')).filter((n) => n.startsWith('.tmp-')), []);
+	});
+
+	test('--keep leaves the sandbox behind and says where it is', () => {
+		const ws = sandboxWorkspace();
+		const sandbox = sandboxOf(ws.dt('prove', SANDBOX_PROOF).stdout);
+		assert.equal(dt(sandbox, 'set', 'notes/fx-open', 'status=done').code, 0);
+
+		const done = ws.dt('prove', SANDBOX_PROOF, '--record', 'notes/fx-open', '--keep');
+		assert.equal(done.code, 0, done.stdout + done.stderr);
+		assert.match(done.stdout, new RegExp(`^kept     ${esc(sandbox)}$`, 'm'));
+		assert.ok(fs.existsSync(sandbox), '--keep kept nothing');
+
+		const said = [];
+		const log = console.log;
+		console.log = (...a) => said.push(a.join(' '));
+		try { removeWorktree(findWorkspace(ws.root), sandbox, { force: true }); }
+		finally { console.log = log; }
+		assert.ok(!fs.existsSync(sandbox));
+	});
+
+	// ⚠ THE FIXTURE IS RECORDS NOBODY VALIDATED. It is hand-authored under `modules/<m>/proofs/
+	// fixtures/`, never written through the store — so it is the one input to a proof that can be
+	// schema-invalid, and every verdict judged against it would be measuring the wrong thing.
+	test('a fixture that does not validate fails before any step, and leaves no sandbox behind', () => {
+		const ws = sandboxWorkspace({ fixtureBody: '---\nname: fx-open\nstatus: nope\n---\n' });
+		const res = ws.dt('prove', SANDBOX_PROOF);
+		assert.equal(res.code, 1, res.stdout + res.stderr);
+		assert.match(res.stdout, new RegExp(`^FAIL  ${SANDBOX_PROOF} — fixture does not validate:$`, 'm'));
+		assert.match(res.stdout, /^ {2}data\/notes\/fx-open\.note\.md: field status: "nope" not in enum \[open, done\]$/m);
+		assert.doesNotMatch(res.stdout, /^PERFORM/m, 'a step ran against an invalid fixture');
+		assert.deepEqual(fs.readdirSync(path.join(ws.root, '.worktrees')).filter((n) => n.startsWith('.tmp-')), []);
+		assert.equal(tail(ws.root, SANDBOX_PROOF).verdict, 'FAIL');
+	});
+
+	test('a sandbox removed by hand is named at resume rather than judged against the primary', () => {
+		const ws = sandboxWorkspace();
+		const sandbox = sandboxOf(ws.dt('prove', SANDBOX_PROOF).stdout);
+		removeWorktree(findWorkspace(ws.root), sandbox, { force: true });
+
+		const res = ws.dt('prove', SANDBOX_PROOF, '--record', 'notes/fx-open');
+		assert.equal(res.code, 1, res.stdout + res.stderr);
+		assert.match(res.stdout, new RegExp(`^FAIL  ${SANDBOX_PROOF} — sandbox ${esc(sandbox)} is gone \\(removed by hand\\?\\)$`, 'm'));
+		assert.equal(tail(ws.root, SANDBOX_PROOF).verdict, 'FAIL');
+	});
+
+	// ⚠ COMPILE ALLOWS THE SHAPE, because `--here` is a legitimate use of it. The runtime refusal is
+	// what protects the real store, and it is `unavailable`-marked so `--all` counts it rather than
+	// reporting the artifact broken.
+	test('a writes proof with no fixture refuses at run time, and names both ways forward', () => {
+		const ws = proveWorkspace({
+			proofs: {
+				'writes-in-place': {
+					kind: 'live',
+					mode: 'writes',
+					given: { collection: 'notes', where: { status: { _eq: 'open' } }, pick: 'latest' },
+					steps: [{ perform: 'close it' }],
+					expect: [{ record: '{record}', where: { status: { _eq: 'done' } } }],
+				},
+			},
+		});
+		const res = ws.dt('prove', 'writes-in-place');
+		assert.equal(res.code, 1, res.stdout + res.stderr);
+		assert.match(res.stderr, /writes-in-place is a writes proof with no fixture — it runs only with --here/);
+		assert.match(res.stderr, /modules\/default\/proofs\/fixtures\/writes-in-place\//);
+		assert.equal(readLedger(ws.root, 'writes-in-place').length, 0, 'nothing ran, so nothing is claimed');
+
+		// --here is the documented way in, and it says so BEFORE it writes anything
+		const here = ws.dt('prove', 'writes-in-place', '--here');
+		assert.equal(here.code, 5, here.stdout + here.stderr);
+		assert.match(here.stdout, /^⚠ --here: writing to THIS checkout's store$/m);
+		assert.doesNotMatch(here.stdout, /^in {7}/m, '--here has no sandbox to name');
+		assert.equal(tail(ws.root, 'writes-in-place').sandbox, null);
 	});
 });

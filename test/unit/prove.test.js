@@ -737,6 +737,14 @@ describe('validateProofShape — an expectation that asserts nothing (MINOR 9)',
 		only(live({ expect: [{ record: '{record}', where: null }] }), 'expect[0] where must name at least one condition');
 	});
 
+	// ⚠ AND A SCALAR IS AN EMPTY WHERE TOO. `where: done` is the other spelling that produces zero
+	// verdict lines — `Object.entries('done')` in the judge yields nothing — so it passed having
+	// measured nothing, exactly like the bare `where:` above. The guard turns on the SHAPE now, not
+	// on two enumerated wrong values.
+	test('a scalar where names no condition either, however it is spelled', () => {
+		only(live({ expect: [{ record: '{record}', where: 'done' }] }), 'expect[0] where must name at least one condition');
+	});
+
 	test('a null where on a COLLECTION entry is still fine — count carries the assertion', () => {
 		assert.deepEqual(validateProofShape(live({ expect: [{ collection: 'notes', where: null, count: { _delta: 1 } }] }), ctx), []);
 	});

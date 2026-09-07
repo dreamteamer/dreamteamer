@@ -22,7 +22,9 @@ import { parseEnvValues, envContext, renderTemplate } from './env-vars.js';
 import { parseRef } from './namespace.js';
 import { refTargetsOf } from './ref.js';
 import { recordResolver } from './record-commands.js';
-import { RUNTIME_DIR, runtimeDir, readManifest, engineVersion } from './runtime.js';
+import { RUNTIME_DIR, runtimeDir, readManifest, engineVersion, loadDescriptors } from './runtime.js';
+import { createWorktree, removeWorktree } from './checkout.js';
+import { check } from './check.js';
 
 export const PROOF_KINDS = ['gate', 'live'];
 export const PROOF_MODES = ['readonly', 'writes'];
@@ -314,7 +316,10 @@ function expectErrors(expect, given, descriptors) {
 		// through the one spelling an author is most likely to type. Measured: the proof compiled
 		// clean, judged ZERO conditions, and answered `PASS` — the exact silent green this rule exists
 		// to close, reached by the shortest possible route.
-		if (hasRecord && (row.where === null || (typeof row.where === 'object' && !Object.keys(row.where).length))) {
+		// ⚠ THE GUARD TURNS ON THE SHAPE, not on two enumerated wrong values. `where: done` produces
+		// zero verdict lines exactly like `where:` and `where: {}` do — `Object.entries('done')` in
+		// the judge yields nothing — so it passed having measured nothing, by the third spelling.
+		if (hasRecord && (row.where === null || typeof row.where !== 'object' || !Object.keys(row.where).length)) {
 			errors.push(`expect[${i}] where must name at least one condition`);
 		}
 		if ('count' in row) errors.push(...countErrors(row.count, i));
@@ -1137,6 +1142,78 @@ function allPending(root, proofId) {
 	return [...last.values()].filter((r) => r?.verdict === 'PENDING');
 }
 
+// ── the sandbox ─────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Run `fn` with everything it PRINTS captured and handed back, and everything it throws handed back
+ * as a value. Two callees need it: `check` reports its findings by printing them rather than
+ * returning them, and `removeWorktree` announces itself — and neither is part of a proof's report,
+ * while under `--json` a single stray line makes the one object on stdout unparseable.
+ *
+ * It never throws, because every caller is already in the middle of deciding a verdict.
+ */
+function captureLog(fn) {
+	const lines = [];
+	const log = console.log;
+	const err = console.error;
+	console.log = (...a) => lines.push(a.map(String).join(' '));
+	console.error = (...a) => lines.push(a.map(String).join(' '));
+	try { return { value: fn(), lines }; }
+	catch (e) { return { error: e, lines }; }
+	finally { console.log = log; console.error = err; }
+}
+
+/** The module root that SHIPS this proof, off the MANIFEST — the same read `commandSource` makes,
+ *  and for the same reason: deriving a module root from a file path is the bug the nudge had. */
+function proofModuleRoot(root, id) {
+	const src = readManifest(root)?.entries?.[`proofs/${id}.proof.yaml`]?.sources?.[0];
+	const p = src ? (typeof src === 'string' ? src : src.path) : null;
+	return p ? path.dirname(path.dirname(p)) : null;
+}
+
+/** `modules/<m>/proofs/fixtures/<id>` — where a fixture proof's records live, absolute. */
+function fixtureDir(root, moduleRoot, id) {
+	return path.join(root, moduleRoot && moduleRoot !== '.' ? moduleRoot : '', 'proofs', 'fixtures', id);
+}
+
+/**
+ * Why this sandbox cannot be judged against — one line — or null.
+ *
+ * ⚠ A FIXTURE IS RECORDS NOBODY VALIDATED. Everything else a proof reads went through the store's
+ * validator on its way in; `modules/<m>/proofs/fixtures/` is hand-authored bytes, so it is the ONE
+ * input that can be schema-invalid — and a verdict judged against an invalid record measures the
+ * wrong thing while reporting it confidently. So the engine's own `check` runs against the sandbox
+ * before any step does, and the FIRST violation is what the failure names.
+ */
+function sandboxUnfit(root, pkg, collection) {
+	// ⚠ A SANDBOX IS CUT FROM **HEAD**, so a descriptor that is not COMMITTED is not compiled inside
+	// it — and `check` cannot see that: an unknown collection has no directory to walk, so the
+	// fixture's records are INVISIBLE rather than invalid, and every count below would read zero.
+	if (collection && !loadDescriptors(root)?.has(collection)) {
+		return `collection "${collection}" is not compiled in the sandbox — commit its descriptor, because a sandbox is cut from HEAD`;
+	}
+	const { value, lines } = captureLog(() => check({ root, pkg }));
+	if (value === 0) return null;
+	// `check` prints `✖ <file>` and then one indented line per finding — the first one, as ONE line
+	const i = lines.findIndex((l) => l.startsWith('✖'));
+	if (i === -1) return lines[0] ?? `check exited ${value}`;
+	const msg = String(lines[i + 1] ?? '').trim();
+	return `${lines[i].replace(/^✖\s*/, '')}${msg ? `: ${msg}` : ''}`;
+}
+
+/**
+ * ⚠ `force` IS HONEST HERE, AND NOWHERE ELSE IN THIS ENGINE. `removeWorktree` refuses by default
+ * because a worktree holds two things the primary cannot see — records written but not committed,
+ * and commits not yet landed. A proof sandbox is DISPOSABLE BY DESIGN: it was cut minutes ago from
+ * HEAD, it holds nothing but the fixture and whatever the proof wrote onto it, and LANDING any of
+ * that is the one outcome a `writes` proof must never produce. Without `force` the refusal would
+ * fire on every single run, on exactly the state the sandbox exists to reach.
+ */
+function removeSandbox(ws, dir) {
+	const { error } = captureLog(() => removeWorktree(ws, dir, { force: true }));
+	if (error) console.warn(`⚠ sandbox ${dir} could not be removed: ${firstLine(error.message)} — remove it by hand`);
+}
+
 /**
  * ONE proof, start to finish. Returns `{ code, state, row, verdicts }`.
  *
@@ -1148,11 +1225,29 @@ function proveOne(ws, id, proof, flags) {
 	const say = flags.silent || flags.json ? () => {} : (line) => console.log(line);
 	const timeout = Number.isInteger(proof.timeout) ? proof.timeout : DEFAULT_TIMEOUT;
 
+	/** The throwaway worktree this run is happening in, once there is one — `null` for every readonly
+	 *  proof and every `--here` one, which run in the invoking checkout itself. */
+	let sandbox = null;
+	/** The workspace everything AFTER `requires` runs against: the sandbox when there is one, the
+	 *  invoking checkout otherwise. The ledger is the deliberate exception (see `settle`). */
+	let tws = ws;
+	const enter = (dir) => { sandbox = dir; tws = dir ? { ...ws, root: dir } : ws; };
+
 	/** Append the row this state produces and answer with its code. Every terminal state goes
-	 *  through here, so "exactly one row per run" is structural rather than remembered. */
+	 *  through here, so "exactly one row per run" is structural rather than remembered.
+	 *
+	 *  ⚠ THE LEDGER IS THE INVOKING CHECKOUT'S, ALWAYS — `ws.root`, never `tws.root`. A sandbox is
+	 *  deleted the moment the verdict is in, so evidence written inside one would go with it. */
 	const settle = (state, over = {}, verdicts = []) => {
-		const row = ledgerRow(state, started, over);
+		const row = ledgerRow(state, started, { sandbox, ...over });
 		appendLedger(ws.root, id, row);
+		// ⚠ A SANDBOX IS NEVER LEFT BEHIND, except while PENDING (the operator is about to act inside
+		// it) or under `--keep` (they asked to look). Every terminal state funnels through here, which
+		// is what makes that structural rather than a line remembered at each of the eight exits.
+		if (sandbox && state !== 'PENDING') {
+			if (flags.keep) say(`kept     ${sandbox}`);
+			else removeSandbox(ws, sandbox);
+		}
 		// ⚠ ONE OBJECT ON STDOUT AND NOTHING ELSE. A script parses stdout WHOLE, so a single human
 		// line ahead of the object makes `JSON.parse` throw — indistinguishable from a failed run.
 		if (flags.json) console.log(JSON.stringify({ ...row, verdicts }, null, 2));
@@ -1178,16 +1273,24 @@ function proveOne(ws, id, proof, flags) {
 		}
 	};
 
-	// ---- 0. THE SANDBOX SEAM. A `writes` proof mutates the workspace, so it runs in a throwaway
-	// worktree — which does not exist yet. Refusing is the only honest answer: running it here would
-	// leave real records behind, which is the one outcome a proof must never produce.
-	if (proof.mode === 'writes' && !flags.here) {
+	// ---- 0. WHERE THIS PROOF IS ALLOWED TO WRITE. A `writes` proof mutates records, so it runs in a
+	// throwaway detached worktree on its OWN fixtures and the primary store is never touched.
+	// `--here` is the documented opt-out, and it says so out loud before anything moves.
+	const sandboxed = proof.mode === 'writes' && !flags.here;
+	if (proof.mode === 'writes' && flags.here) say(`⚠ --here: writing to THIS checkout's store`);
+	if (sandboxed && proof.given?.fixture !== true) {
+		// ⚠ COMPILE ALLOWS THE SHAPE, because a `given.where` writes proof is legitimate WITH `--here`
+		// — which is exactly why this refusal is at RUN time: it is what protects the real store.
 		// ⚠ `unavailable` IS READ BY `--all` (R24): every other throw from a proof is that proof's
-		// FAIL, and this one is the single exception — the artifact is not broken, this engine simply
-		// cannot run the proof yet. A message match would have made the distinction a string compare.
-		throw Object.assign(new Error('writes proofs run in a sandbox — not yet implemented (Task 5)'), { unavailable: true });
+		// FAIL, and this is the one exception — the artifact is fine, this INVOCATION cannot answer
+		// for it. A message match would have made the distinction a string compare.
+		const at = path.relative(ws.root, fixtureDir(ws.root, proofModuleRoot(ws.root, id) ?? '<m>', id));
+		throw Object.assign(
+			new Error(`${id} is a writes proof with no fixture — it runs only with --here (against a real record in THIS store), or add ${at}/`),
+			{ unavailable: true },
+		);
 	}
-	if (flags.keep) {
+	if (flags.keep && !sandboxed) {
 		throw new Error(`--keep keeps a writes proof's sandbox — ${id} runs in the workspace, so there is nothing to keep`);
 	}
 
@@ -1198,7 +1301,7 @@ function proveOne(ws, id, proof, flags) {
 	if (override) {
 		const pend = pendingFor(ws.root, id, override);
 		if (!pend) throw new Error(`no pending run of ${id} for ${override} — run dt prove ${id} first`);
-		return ledgering(rowOf(pend), () => verify(pend));
+		return resume(pend);
 	}
 
 	// ---- 2. THE PENDING GUARD. A second fresh run while one is outstanding would re-ask for the
@@ -1211,15 +1314,21 @@ function proveOne(ws, id, proof, flags) {
 		if (age >= 0 && age <= timeout) { live.push(row); continue; }
 		say(`stale pending run of ${id} for ${row.record === null ? '(no record)' : row.record} (${age}s) — cleared`);
 		appendLedger(ws.root, id, { ...row, when: new Date().toISOString(), verdict: 'FAIL', failure_reason: 'stale' });
+		// the run it belonged to is gone, and `.worktrees/` is gitignored — a sandbox nobody discards
+		// here is one that accumulates unnoticed for ever
+		if (row.sandbox && fs.existsSync(row.sandbox)) removeSandbox(ws, row.sandbox);
 	}
 	if (live.length && flags.restart) {
 		// EVERY live pending is discarded, not just the newest — otherwise `--restart` refuses again
 		// on the next one and the flag reads as broken.
-		for (const row of live) appendLedger(ws.root, id, { ...row, when: new Date().toISOString(), verdict: 'FAIL', failure_reason: 'restarted' });
+		for (const row of live) {
+			appendLedger(ws.root, id, { ...row, when: new Date().toISOString(), verdict: 'FAIL', failure_reason: 'restarted' });
+			if (row.sandbox && fs.existsSync(row.sandbox)) removeSandbox(ws, row.sandbox);
+		}
 	} else if (live.length === 1 && live[0].record === null) {
 		// a live proof with no `given` pends against no record, so `--record` cannot name it — the
 		// bare verb is the only way back, and refusing here would strand the run permanently.
-		return ledgering(rowOf(live[0]), () => verify(live[0]));
+		return resume(live[0]);
 	} else if (live.length === 1) {
 		throw new Error(`${id} is pending for ${live[0].record} since ${live[0].when} — finish it with dt prove ${id} --record ${live[0].record}, or --restart to discard it`);
 	} else if (live.length) {
@@ -1235,8 +1344,32 @@ function proveOne(ws, id, proof, flags) {
 		return settle('UNAVAILABLE', { failure_reason: need.missing.map((m) => m.fix).join('; ') });
 	}
 
+	// ---- 3b. THE SANDBOX, cut AFTER `requires` (a machine that cannot answer must not pay for a
+	// worktree) and BEFORE the fixture, which is picked from INSIDE it. `--temp` means detached and
+	// under `.worktrees/.tmp-<rand>/` in the primary root — see `addWorktree` for why not tmpdir.
+	if (sandboxed) {
+		const src = fixtureDir(ws.root, proofModuleRoot(ws.root, id), id);
+		if (!fs.existsSync(src)) {
+			// `given.fixture: true` with no directory behind it: the same fact as "matched 0 records",
+			// and naming the path is the difference between a fix and a hunt.
+			const at = `${path.relative(ws.root, src)}/`;
+			say(`NO-FIXTURE  ${id} — no fixture records at ${at}`);
+			return settle('NO-FIXTURE', { failure_reason: `no fixture records at ${at}` });
+		}
+		enter(createWorktree(ws, { name: id, temp: true, quiet: true }));
+		// the fixture directory MIRRORS the workspace root (`data/<collection path>/<id>.<suffix>.<ext>`),
+		// so it is laid ONTO the sandbox root rather than into a folder of its own
+		fs.cpSync(src, sandbox, { recursive: true });
+		const unfit = sandboxUnfit(sandbox, ws.pkg, proof.given?.collection);
+		if (unfit) {
+			say(`FAIL  ${id} — fixture does not validate:`);
+			say(`  ${unfit}`);
+			return settle('FAIL', { failure_reason: `fixture does not validate: ${unfit}` });
+		}
+	}
+
 	// ---- 4. THE FIXTURE — the ONE record this proof runs against, or none.
-	const store = new Store(ws);
+	const store = new Store(tws);
 	const record = proof.given ? pickFixture(store, proof.given, null) : null;
 	const ref = record ? record.ref : null;
 	if (proof.given && !record) {
@@ -1256,7 +1389,7 @@ function proveOne(ws, id, proof, flags) {
 	// ALREADY hold reports PASS forever and measures nothing — the silent-green failure `prove` exists
 	// to remove. `step`/`path` expectations are not pre-checkable and do not count toward "all", so a
 	// proof judged only on those is never vacuous.
-	const pre = judge(ws, store, proof, id, record, before, [], true);
+	const pre = judge(tws, store, proof, id, record, before, [], true);
 	if (pre.length && pre.every((v) => v.ok)) {
 		say(`VACUOUS  ${id} — every expectation already holds against ${ref ? ref : 'this workspace'}; a proof that cannot fail is not a proof`);
 		return settle('VACUOUS', { record: ref, before, failure_reason: 'every expectation already holds' });
@@ -1276,7 +1409,24 @@ function proveOne(ws, id, proof, flags) {
 	/** What a FAIL row for a resumed run carries: the pending row's own record, steps and snapshot,
 	 *  because those are the facts of the run being finished — this invocation only judged it. */
 	function rowOf(pending) {
-		return { record: pending.record ?? null, steps: pending.steps ?? [], before: pending.before ?? {} };
+		return { record: pending.record ?? null, steps: pending.steps ?? [], before: pending.before ?? {}, sandbox: pending.sandbox ?? null };
+	}
+
+	/**
+	 * Finish a PENDING run — in the place that run actually happened.
+	 *
+	 * ⚠ A SANDBOX THAT IS GONE CANNOT BE JUDGED, and falling back to the primary would answer about
+	 * records this proof never touched — a confident verdict about the wrong store.
+	 */
+	function resume(pend) {
+		enter(pend.sandbox ?? null);
+		if (sandbox && !fs.existsSync(sandbox)) {
+			const gone = `sandbox ${sandbox} is gone (removed by hand?)`;
+			say(`FAIL  ${id} — ${gone}`);
+			enter(null); // there is nothing left to remove, and `settle` would try
+			return settle('FAIL', { ...rowOf(pend), failure_reason: gone });
+		}
+		return ledgering(rowOf(pend), () => verify(pend));
 	}
 
 	function runSteps() {
@@ -1288,6 +1438,9 @@ function proveOne(ws, id, proof, flags) {
 				// two still leaves a resumable ledger — the operator may already have taken the action.
 				const text = substitute(String(step.perform), ctx);
 				const out = settle('PENDING', { record: ref, steps, before });
+				// ⚠ ABOVE the PERFORM, because "where am I acting" is read BEFORE "what do I do" — and a
+				// human who acts in the wrong checkout has written real records this proof will not judge.
+				if (sandbox) say(`in       ${sandbox}   (a throwaway worktree — records written here are never landed)`);
 				say(`PERFORM  ${text}`);
 				const src = commandSource(ws.root, text);
 				if (src) say(`source   ${src}`);
@@ -1297,7 +1450,7 @@ function proveOne(ws, id, proof, flags) {
 			const cmd = substitute(String(step.run ?? ''), ctx);
 			say(`RUN ${n}  ${cmd}`);
 			const t0 = Date.now();
-			const res = spawnSync(cmd, { shell: true, cwd: ws.root, timeout: timeout * 1000, encoding: 'utf8', maxBuffer: MAX_OUTPUT_MB * 1024 * 1024 });
+			const res = spawnSync(cmd, { shell: true, cwd: tws.root, timeout: timeout * 1000, encoding: 'utf8', maxBuffer: MAX_OUTPUT_MB * 1024 * 1024 });
 			const ms = Date.now() - t0;
 			// MINOR 7 / R26 — the classification is `stepOutcome`, pure and unit-tested: a step killed
 			// at the timeout, one killed by its own output volume, one killed from outside, one the
@@ -1330,10 +1483,10 @@ function proveOne(ws, id, proof, flags) {
 	 * of 0 with nothing wrong anywhere. This is the ONE place that gap would be a wrong verdict.
 	 */
 	function decide(rec, snapshot, stepResults) {
-		const fresh = new Store(ws);
+		const fresh = new Store(tws);
 		const current = rec ? pickFixture(fresh, proof.given, rec.ref) ?? rec : null;
 		const currentRef = current ? current.ref : null;
-		const verdicts = judge(ws, fresh, proof, id, current, snapshot, stepResults, false);
+		const verdicts = judge(tws, fresh, proof, id, current, snapshot, stepResults, false);
 		for (const v of verdicts) say(`  ${v.line}`);
 		const failed = verdicts.find((v) => !v.ok);
 		if (!failed) {
@@ -1349,7 +1502,7 @@ function proveOne(ws, id, proof, flags) {
 	/** The resume half: the steps already ran (in an earlier process, and the perform by a human), so
 	 *  there is nothing to do but judge — against the `before` the PENDING row carries. */
 	function verify(pending) {
-		const fresh = new Store(ws);
+		const fresh = new Store(tws);
 		const rec = pending.record && proof.given ? pickFixture(fresh, proof.given, pending.record) : null;
 		if (pending.record && proof.given && !rec) {
 			say(`NO-FIXTURE  ${id} — ${pending.record} is gone`);
