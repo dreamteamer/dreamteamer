@@ -269,6 +269,9 @@ export function addWorktree(ws, { name, dir, base = 'HEAD', temp = false }, git 
 	// sandbox outside it would never get credentials; and git records the REALPATH of a worktree,
 	// while macOS resolves /var to /private/var — so an os.tmpdir() sandbox compares unequal to its
 	// own row in `git worktree list` and could be neither got nor removed by the path it printed.
+	// ⚠ NOT ACCEPTED AND IGNORED. --temp places the sandbox itself, so a --path alongside it names a
+	// directory that would silently not be the one made.
+	if (temp && dir) throw new Error('--temp places the sandbox itself (.worktrees/.tmp-<rand>/<name>) — pass either --temp or --path <dir>, not both');
 	const holder = path.join(c.primary, '.worktrees');
 	if (temp) fs.mkdirSync(holder, { recursive: true });
 	// ⚠ NEVER PRE-CREATE `target`: `git worktree add` creates it, and an empty pre-created folder is
@@ -303,6 +306,11 @@ export function removeWorktree(ws, ref, { force = false } = {}, git = defaultGit
 	const c = describeCheckout(ws.root, git);
 	const primaryBranch = git(['rev-parse', '--abbrev-ref', 'HEAD'], c.primary);
 	if (!force) {
+		// ⚠ THE DIRECTORY CAN BE GONE while git still lists the worktree — someone deleted it by
+		// hand. `list` already reports that (NOT installed); here, reading its dirty state in a cwd
+		// that does not exist died as `✖ spawnSync git ENOENT`, a message about the wrong thing
+		// entirely on the one state where dropping the registration cannot lose anything.
+		if (!resolves(w.path)) throw new Error(`worktree "${w.name}" is registered but its directory is gone (${w.path}) — nothing to lose: dt rm worktrees/${w.name} --force drops the registration`);
 		const dirty = git(['status', '--porcelain'], w.path).split('\n').filter(Boolean).length;
 		const why = [];
 		if (w.dirtyRecords) why.push(`${w.dirtyRecords} dirty record(s) — dt commit them, or --force to discard`);
