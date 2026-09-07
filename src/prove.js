@@ -958,6 +958,10 @@ function ledgerRow(state, started, over = {}) {
 		failure_reason: null,
 		steps: [],
 		sandbox: null,
+		// `null` = no removal was ATTEMPTED (no sandbox, still PENDING, or kept by `--keep`);
+		// `true` = the sandbox is gone; `false` = the removal FAILED and the directory is still
+		// there. Always present, because a key that appears only sometimes is worse to read.
+		sandbox_removed: null,
 		before: {},
 		...over,
 		verdict: state,
@@ -1185,14 +1189,16 @@ function fixtureDir(root, moduleRoot, id) {
  * wrong thing while reporting it confidently. So the engine's own `check` runs against the sandbox
  * before any step does, and the FIRST violation is what the failure names.
  */
-function sandboxUnfit(root, pkg, collection) {
+function sandboxUnfit(root, collection) {
 	// ⚠ A SANDBOX IS CUT FROM **HEAD**, so a descriptor that is not COMMITTED is not compiled inside
 	// it — and `check` cannot see that: an unknown collection has no directory to walk, so the
 	// fixture's records are INVISIBLE rather than invalid, and every count below would read zero.
 	if (collection && !loadDescriptors(root)?.has(collection)) {
 		return `collection "${collection}" is not compiled in the sandbox — commit its descriptor, because a sandbox is cut from HEAD`;
 	}
-	const { value, lines } = captureLog(() => check({ root, pkg }));
+	// `check` takes `{ root }` and reads its descriptors off the compiled runtime — there is no
+	// `pkg` to thread, and one passed in would be a parameter nothing reads.
+	const { value, lines } = captureLog(() => check({ root }));
 	if (value === 0) return null;
 	// `check` prints `✖ <file>` and then one indented line per finding — the first one, as ONE line
 	const i = lines.findIndex((l) => l.startsWith('✖'));
@@ -1211,7 +1217,12 @@ function sandboxUnfit(root, pkg, collection) {
  */
 function removeSandbox(ws, dir) {
 	const { error } = captureLog(() => removeWorktree(ws, dir, { force: true }));
-	if (error) console.warn(`⚠ sandbox ${dir} could not be removed: ${firstLine(error.message)} — remove it by hand`);
+	if (!error) return true;
+	// ⚠ AND THE FAILURE IS RECORDED, NOT JUST WARNED (R28). A warning on stderr is gone the moment
+	// the terminal scrolls, and the row it belongs to is non-PENDING with a `sandbox` set — so
+	// nothing would ever revisit the directory. `sandbox_removed: false` is what `dt status` counts.
+	console.warn(`⚠ sandbox ${dir} could not be removed: ${firstLine(error.message)} — remove it by hand`);
+	return false;
 }
 
 /**
@@ -1239,18 +1250,25 @@ function proveOne(ws, id, proof, flags) {
 	 *  ⚠ THE LEDGER IS THE INVOKING CHECKOUT'S, ALWAYS — `ws.root`, never `tws.root`. A sandbox is
 	 *  deleted the moment the verdict is in, so evidence written inside one would go with it. */
 	const settle = (state, over = {}, verdicts = []) => {
-		const row = ledgerRow(state, started, { sandbox, ...over });
-		appendLedger(ws.root, id, row);
 		// ⚠ A SANDBOX IS NEVER LEFT BEHIND, except while PENDING (the operator is about to act inside
 		// it) or under `--keep` (they asked to look). Every terminal state funnels through here, which
-		// is what makes that structural rather than a line remembered at each of the eight exits.
-		if (sandbox && state !== 'PENDING') {
-			if (flags.keep) say(`kept     ${sandbox}`);
-			else removeSandbox(ws, sandbox);
-		}
+		// is what makes that structural rather than a line remembered at each of the nine exits.
+		//
+		// ⚠ AND IT HAPPENS BEFORE THE ROW IS BUILT, so the row can say what actually became of the
+		// directory (R28) — a removal that failed is a fact about this machine that outlives the run.
+		const kept = !!(sandbox && state !== 'PENDING' && flags.keep);
+		let removed = null;
+		if (kept) say(`kept     ${sandbox}`);
+		else if (sandbox && state !== 'PENDING') removed = removeSandbox(ws, sandbox);
+
+		const row = ledgerRow(state, started, { sandbox, sandbox_removed: removed, ...over });
+		appendLedger(ws.root, id, row);
 		// ⚠ ONE OBJECT ON STDOUT AND NOTHING ELSE. A script parses stdout WHOLE, so a single human
 		// line ahead of the object makes `JSON.parse` throw — indistinguishable from a failed run.
-		if (flags.json) console.log(JSON.stringify({ ...row, verdicts }, null, 2));
+		// `kept` rides along rather than living on the row: under `--keep --json` the human `kept`
+		// line is suppressed, and "the sandbox is still there ON PURPOSE" would otherwise have to be
+		// derived from three fields at once.
+		if (flags.json) console.log(JSON.stringify({ ...row, verdicts, kept }, null, 2));
 		return { code: exitFor(state), state, row, verdicts };
 	};
 
@@ -1344,67 +1362,90 @@ function proveOne(ws, id, proof, flags) {
 		return settle('UNAVAILABLE', { failure_reason: need.missing.map((m) => m.fix).join('; ') });
 	}
 
-	// ---- 3b. THE SANDBOX, cut AFTER `requires` (a machine that cannot answer must not pay for a
-	// worktree) and BEFORE the fixture, which is picked from INSIDE it. `--temp` means detached and
-	// under `.worktrees/.tmp-<rand>/` in the primary root — see `addWorktree` for why not tmpdir.
-	if (sandboxed) {
-		const src = fixtureDir(ws.root, proofModuleRoot(ws.root, id), id);
-		if (!fs.existsSync(src)) {
-			// `given.fixture: true` with no directory behind it: the same fact as "matched 0 records",
-			// and naming the path is the difference between a fix and a hunt.
-			const at = `${path.relative(ws.root, src)}/`;
-			say(`NO-FIXTURE  ${id} — no fixture records at ${at}`);
-			return settle('NO-FIXTURE', { failure_reason: `no fixture records at ${at}` });
-		}
-		enter(createWorktree(ws, { name: id, temp: true, quiet: true }));
-		// the fixture directory MIRRORS the workspace root (`data/<collection path>/<id>.<suffix>.<ext>`),
-		// so it is laid ONTO the sandbox root rather than into a folder of its own
-		fs.cpSync(src, sandbox, { recursive: true });
-		const unfit = sandboxUnfit(sandbox, ws.pkg, proof.given?.collection);
-		if (unfit) {
-			say(`FAIL  ${id} — fixture does not validate:`);
-			say(`  ${unfit}`);
-			return settle('FAIL', { failure_reason: `fixture does not validate: ${unfit}` });
-		}
-	}
-
-	// ---- 4. THE FIXTURE — the ONE record this proof runs against, or none.
-	const store = new Store(tws);
-	const record = proof.given ? pickFixture(store, proof.given, null) : null;
-	const ref = record ? record.ref : null;
-	if (proof.given && !record) {
-		say(`NO-FIXTURE  ${id} — given matched 0 records in ${proof.given.collection}`);
-		return settle('NO-FIXTURE', { failure_reason: `given matched 0 records in ${proof.given.collection}` });
-	}
-
-	// ---- 5. THE `_delta` SNAPSHOT, taken before anything runs. It is also what makes the pre-check
-	// below read a delta of 0 rather than the whole collection's size.
-	const resolve = recordResolver(store);
-	const before = {};
-	for (const [i, e] of (Array.isArray(proof.expect) ? proof.expect : []).entries()) {
-		if (e && 'collection' in e && isDelta(e.count)) before[i] = countMatching(store, String(e.collection), e.where, resolve);
-	}
-
-	// ---- 6. THE PRE-CHECK, and it is the most valuable state in the set. A proof whose expectations
-	// ALREADY hold reports PASS forever and measures nothing — the silent-green failure `prove` exists
-	// to remove. `step`/`path` expectations are not pre-checkable and do not count toward "all", so a
-	// proof judged only on those is never vacuous.
-	const pre = judge(tws, store, proof, id, record, before, [], true);
-	if (pre.length && pre.every((v) => v.ok)) {
-		say(`VACUOUS  ${id} — every expectation already holds against ${ref ? ref : 'this workspace'}; a proof that cannot fail is not a proof`);
-		return settle('VACUOUS', { record: ref, before, failure_reason: 'every expectation already holds' });
-	}
-
-	// ---- 7. THE STEPS, in order, until one fails or one asks for an actor.
+	// ---- 3b THROUGH 7 ARE ALL WRAPPED, and the wrap starts ABOVE the sandbox (R27), not below the
+	// pre-check where it used to. Everything from the fixture copy down can throw: `cpSync` on an
+	// unreadable fixture, `pickFixture` on a collection the SANDBOX has no descriptor for, the
+	// `_delta` snapshot and the pre-check on an expect-side collection that is compiled in the
+	// working tree but not COMMITTED — a sandbox is cut from HEAD, so `countMatching` answers
+	// `unknown collection`. Every one of those used to exit 1 with a raw error, NO ledger row, and a
+	// leaked `.worktrees/.tmp-*` that nothing would ever come back for.
 	//
-	// ⚠ MINOR 8 — EVERYTHING FROM HERE IS WRAPPED, because a throw past this point used to leave NO
-	// LEDGER ROW AT ALL. The two live sources are the resolver refusing an undeclared `${env:…}` in a
-	// `path:` expectation and `substitute` refusing a typo'd brace — both correct, loud refusals, and
-	// both about a proof that DID run its steps. A run with no row is a run the ledger denies
-	// happened, which is worse than a FAIL that names the cause.
-	const ctx = record ? { record } : {};
+	// `over` is MUTATED as each phase learns its part and READ at the moment of the throw, so a
+	// failure halfway through records what was known by then rather than nothing. Teardown comes free:
+	// `ledgering`'s catch goes through `settle`, and `settle` is what removes the sandbox.
+	let record = null;
+	let ref = null;
+	let ctx = {};
+	const before = {};
 	const steps = [];
-	return ledgering({ record: ref, steps, before }, runSteps);
+	const over = { record: null, steps, before };
+	return ledgering(over, phases);
+
+	function phases() {
+		// ---- 3b. THE SANDBOX, cut AFTER `requires` (a machine that cannot answer must not pay for a
+		// worktree) and BEFORE the fixture, which is picked from INSIDE it. `--temp` means detached and
+		// under `.worktrees/.tmp-<rand>/` in the primary root — see `addWorktree` for why not tmpdir.
+		if (sandboxed) {
+			const src = fixtureDir(ws.root, proofModuleRoot(ws.root, id), id);
+			const entries = fs.existsSync(src) ? fs.readdirSync(src) : [];
+			if (!entries.includes('data')) {
+				// `given.fixture: true` with no records behind it: the same fact as "matched 0 records",
+				// and naming the path is the difference between a fix and a hunt.
+				const at = `${path.relative(ws.root, src)}/data/`;
+				say(`NO-FIXTURE  ${id} — no fixture records at ${at}`);
+				return settle('NO-FIXTURE', { failure_reason: `no fixture records at ${at}` });
+			}
+			enter(createWorktree(ws, { name: id, temp: true, quiet: true }));
+			// ⚠ ONLY `data/` IS ADMITTED (R28). The fixture mirrors the workspace ROOT, so copying the
+			// directory whole would let it overwrite anything the checkout carries — `package.json`, a
+			// descriptor, `.dreamteamer/` itself. And `sandboxUnfit` runs AFTER the copy, so a fixture
+			// could ship the very schema its records are then validated against: a proof that passes
+			// because it brought its own rules.
+			const stray = entries.find((e) => e !== 'data');
+			if (stray) {
+				say(`FAIL  ${id} — fixture may contain only data/ — found ${stray}`);
+				return settle('FAIL', { failure_reason: `fixture may contain only data/ — found ${stray}` });
+			}
+			fs.cpSync(path.join(src, 'data'), path.join(sandbox, 'data'), { recursive: true });
+			const unfit = sandboxUnfit(sandbox, proof.given?.collection);
+			if (unfit) {
+				say(`FAIL  ${id} — fixture does not validate:`);
+				say(`  ${unfit}`);
+				return settle('FAIL', { failure_reason: `fixture does not validate: ${unfit}` });
+			}
+		}
+
+		// ---- 4. THE FIXTURE — the ONE record this proof runs against, or none.
+		const store = new Store(tws);
+		record = proof.given ? pickFixture(store, proof.given, null) : null;
+		ref = record ? record.ref : null;
+		over.record = ref;
+		if (proof.given && !record) {
+			say(`NO-FIXTURE  ${id} — given matched 0 records in ${proof.given.collection}`);
+			return settle('NO-FIXTURE', { failure_reason: `given matched 0 records in ${proof.given.collection}` });
+		}
+
+		// ---- 5. THE `_delta` SNAPSHOT, taken before anything runs. It is also what makes the pre-check
+		// below read a delta of 0 rather than the whole collection's size.
+		const resolve = recordResolver(store);
+		for (const [i, e] of (Array.isArray(proof.expect) ? proof.expect : []).entries()) {
+			if (e && 'collection' in e && isDelta(e.count)) before[i] = countMatching(store, String(e.collection), e.where, resolve);
+		}
+
+		// ---- 6. THE PRE-CHECK, and it is the most valuable state in the set. A proof whose expectations
+		// ALREADY hold reports PASS forever and measures nothing — the silent-green failure `prove` exists
+		// to remove. `step`/`path` expectations are not pre-checkable and do not count toward "all", so a
+		// proof judged only on those is never vacuous.
+		const pre = judge(tws, store, proof, id, record, before, [], true);
+		if (pre.length && pre.every((v) => v.ok)) {
+			say(`VACUOUS  ${id} — every expectation already holds against ${ref ? ref : 'this workspace'}; a proof that cannot fail is not a proof`);
+			return settle('VACUOUS', { record: ref, before, failure_reason: 'every expectation already holds' });
+		}
+
+		// ---- 7. THE STEPS, in order, until one fails or one asks for an actor.
+		ctx = record ? { record } : {};
+		return runSteps();
+	}
 
 	/** What a FAIL row for a resumed run carries: the pending row's own record, steps and snapshot,
 	 *  because those are the facts of the run being finished — this invocation only judged it. */

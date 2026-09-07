@@ -189,7 +189,8 @@ workspace verbs:
               <proof>          [--record <c>/<id>] finish the pending run for that record
                                [--restart] discard a pending run and start over
                                [--here] run a \`writes\` proof in this workspace, not a sandbox
-                               [--keep] keep the sandbox afterwards  [--json] one object on stdout
+                               [--keep] keep the sandbox afterwards — under --json that is
+                               \`kept: true\` beside the \`sandbox\` path  [--json] one object on stdout
               <artifact-ref>   every proof whose \`about\` names skills/<id>, commands/<id>,
                                command-bindings/<id> or <module>/bin/<file> — board semantics, so
                                it takes the same [--kind gate|live] [--external] [--strict] [--json]
