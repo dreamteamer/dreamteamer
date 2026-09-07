@@ -212,7 +212,7 @@ describe('a namespaced collection, through every target shape', () => {
 	});
 });
 
-describe('commands and ensure absorb their old noun', () => {
+describe('commands and install repos absorb their old noun', () => {
 	test('commands takes the collection or a record reference', () => {
 		const ws = base();
 		ws.dt('add', 'contacts', '--name', 'Jane');
@@ -224,9 +224,9 @@ describe('commands and ensure absorb their old noun', () => {
 		assert.equal(JSON.parse(r.stdout).collection, 'contacts');
 	});
 
-	test('ensure --all is a no-op report when no repos are declared', () => {
+	test('install repos --all is a no-op report when no repos are declared', () => {
 		const ws = base();
-		const res = ws.dt('ensure', '--all');
+		const res = ws.dt('install', 'repos', '--all');
 		assert.equal(res.code, 0, res.stderr);
 		assert.match(res.stdout, /no repos declared/);
 	});
@@ -396,7 +396,7 @@ describe('workspace verbs keep their spellings', () => {
 			// succeeds — never with "unknown verb", which is the only failure this asserts against.
 			assert.doesNotMatch(res.stderr + res.stdout, new RegExp(`unknown verb "${verb}"`), `help documents \`${verb}\` but the dispatch does not know it`);
 		}
-		for (const verb of ['add', 'set', 'rm', 'rename', 'list', 'get', 'move', 'values', 'history', 'diff', 'revert', 'commands', 'relations', 'ensure', 'resolve', 'add-field', 'update-field', 'remove-field', 'rename-field', 'init', 'install', 'update', 'compile', 'check', 'status', 'start', 'changes', 'commit', 'help']) {
+		for (const verb of ['add', 'set', 'rm', 'rename', 'list', 'get', 'move', 'values', 'history', 'diff', 'revert', 'commands', 'relations', 'resolve', 'add-field', 'update-field', 'remove-field', 'rename-field', 'init', 'install', 'update', 'compile', 'check', 'status', 'start', 'changes', 'commit', 'help']) {
 			assert.ok(documented.has(verb), `\`${verb}\` dispatches but help does not document it`);
 		}
 	});
