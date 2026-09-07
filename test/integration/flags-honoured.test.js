@@ -169,7 +169,7 @@ describe('an unknown flag is refused on every verb that has a closed vocabulary'
 		['remove-field', ['remove-field', 'people', '--name', 'badge']],
 		['rename-field', ['rename-field', 'people', '--name', 'badge', '--to', 'pass']],
 		['relations', ['relations', 'people']],
-		['ensure', ['ensure', '--all']],
+		['install repos', ['install', 'repos', '--all']],
 	];
 
 	for (const [label, args] of rows) {

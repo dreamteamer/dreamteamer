@@ -16,7 +16,8 @@ import { findWorkspace } from './workspace.js';
 import { compile, staleness, warnIfStale, discoverModules, CHANNEL_LABEL, locationOf, KINDS } from './compile.js';
 import { check } from './check.js';
 import { collectionCommand, emit, relationsCommand } from './collections-cli.js';
-import { init, install, installClone, update, listRepos } from './init.js';
+import { init, installClone, update, listRepos } from './init.js';
+import { installCommand } from './checkout.js';
 import { deriveEvents } from './events.js';
 import { commitPending } from './commit.js';
 import { Store } from './store.js';
@@ -69,9 +70,6 @@ the longest DECLARED collection prefix, so finance/transactions/2026/03/coffee i
   relations [<collection>]                    (every two-way pair: owner.field → target.mirror)
   relations rebuild <collection> [--drop <f>] (regenerate mirror VALUES from the owning side;
                                                --drop removes a stale ex-mirror key from records)
-  ensure  <repos-id> | --all [--json]         (materialize an attached repo's working tree ON
-                                               DEMAND — never at install; --all is the explicit
-                                               opt-in, e.g. before going offline)
   resolve '<string>' | <collection>/<id> <field>
                                               (render \${env:NAME} · \${workspaceFolder} ·
                                                \${userHome} — the ONLY substitution point; a
@@ -159,7 +157,15 @@ Every verb that MOVES records or CLEARS values takes --dry-run and prints its pl
 workspace verbs:
   init        write the workspace skeleton into the current directory (never compiles)
   --version   print the engine version (works anywhere)
-  install     restore git_modules/ from the lockfile map; --clone <url> [name] adds one
+  install     make THIS checkout ready — the engine, .env (linked from the primary when this is a
+              worktree), declared local assets, git modules, compile, and a declared postinstall.
+              Idempotent: it prints a board of what it found and what it did
+              [--dry-run] plan only  [--json] the board as data
+              [--link-env] link .env even into a worktree OUTSIDE the primary root
+  install     repos/<id> | repos --all [--json]
+              materialize an attached repo's working tree ON DEMAND — never as part of making a
+              checkout ready; --all is the explicit opt-in, e.g. before going offline
+  install     --clone <url> [name]            attach a git module to this workspace
   update      pull git_modules clones forward (ff-only on the lockfile ref), rebuild,
               then compile; [<name>] updates just one. dirty clones are skipped
   compile     materialize modules + workspace sources into .dreamteamer (+ harness adapters)
@@ -199,7 +205,8 @@ const FIELD_VERBS = ['add-field', 'update-field', 'remove-field', 'rename-field'
 // flag nobody typed correctly. The record/system/field verbs are checked in `collections-cli.js`,
 // beside the parser they share; these nine have no shared parser, so the table is here.
 export const WORKSPACE_FLAGS = {
-	init: ['name', 'data-path', 'harnesses', 'workspace-module'], install: ['clone'], update: [],
+	init: ['name', 'data-path', 'harnesses', 'workspace-module'], update: [],
+	install: ['clone', 'dry-run', 'json', 'link-env', 'all'],
 	start: ['port'], compile: ['watch'], check: [], status: [],
 	changes: ['since', 'json'], commit: ['dry-run', 'json'],
 };
@@ -229,10 +236,21 @@ export function run(argv) {
 		}
 		const ws = findWorkspace();
 		switch (cmd) {
+			// ONE verb makes a thing present and ready: this checkout, or an attached repo's
+			// working tree. `ensure` was the second spelling of the same idea and is retired in the
+			// `default` arm below — no alias, per the 0.12.0 policy.
 			case 'install': {
 				const ci = rest.indexOf('--clone');
 				if (ci > -1) process.exit(installClone(ws, rest[ci + 1], rest[ci + 2]));
-				process.exit(install(ws));
+				const target = rest.find((a) => !a.startsWith('--'));
+				if (target === 'repos' || target?.startsWith('repos/')) {
+					warnIfStale(ws.root);
+					// ensure's own vocabulary only — --link-env and --dry-run are the checkout form's
+					const fwd = rest.filter((a) => a === '--all' || a === '--json');
+					const args = target === 'repos' ? fwd : [target.slice('repos/'.length), ...fwd];
+					process.exit(collectionCommand(ws, 'repos', 'ensure', args));
+				}
+				process.exit(installCommand(ws, rest));
 			}
 			case 'update': {
 				const code = update(ws, rest.find((a) => !a.startsWith('--')));
@@ -370,8 +388,8 @@ export function run(argv) {
 						const here = repos.filter((r) => r.present).length;
 						console.log(`repos:    ${here}/${repos.length} materialized`);
 						// an UNRESOLVED path is not the same absence as a repo simply not cloned yet, and
-						// `dreamteamer ensure` is not the fix for it — say which one this is.
-						for (const r of repos) if (!r.present) console.log(`  absent: ${r.id} → ${r.path}${r.unresolved ? ` — ${r.unresolved}` : ` (dreamteamer ensure ${r.id})`}`);
+						// `dreamteamer install repos/<id>` is not the fix for it — say which one this is.
+						for (const r of repos) if (!r.present) console.log(`  absent: ${r.id} → ${r.path}${r.unresolved ? ` — ${r.unresolved}` : ` (dreamteamer install repos/${r.id})`}`);
 					}
 				} catch { /* no repos descriptor compiled — nothing to report */ }
 				// Uncommitted records are invisible to `dt changes` (it diffs commits), so the
@@ -407,7 +425,7 @@ export function run(argv) {
 			//
 			// ⚠ `dt schema <op>` is GONE, not aliased. The 0.12.0 policy: a stale invocation must fail
 			// loudly, because a half-working grammar teaches the wrong shape without ever saying so.
-			// The `default` arm below names `schema` specifically.
+			// The `default` arm below names `schema` — and `ensure` — specifically.
 			case 'add-field': case 'update-field': case 'remove-field': case 'rename-field': {
 				warnIfStale(ws.root);
 				const [target, ...flagArgs] = rest;
@@ -419,11 +437,6 @@ export function run(argv) {
 			case 'relations':
 				warnIfStale(ws.root);
 				process.exit(relationsCommand(ws, rest));
-			// `repos ensure` lost its noun: the repos collection is still where the declaration lives,
-			// but materializing one is a verb the operator types, not a record write.
-			case 'ensure':
-				warnIfStale(ws.root);
-				process.exit(collectionCommand(ws, 'repos', 'ensure', rest));
 			case 'resolve':
 				process.exit(resolveVariables(ws, rest));
 			default:
@@ -441,6 +454,12 @@ export function run(argv) {
 					console.error('    dt add|set|rm|rename modules/<id> …               · dt add|set|rm|rename ui-views/<id> …');
 					console.error('  the full mapping table is in UPDATING.md (0.18.0 → 0.19.0), and `dt help` has the current spellings.');
 					process.exit(1);
+				}
+				if (cmd === 'ensure') {
+					console.error('✖ unknown verb "ensure" — gone since 0.22.0 (decision 309: install is the one verb that makes a thing present and ready):');
+					console.error('    dt install                 this checkout — engine, .env, local assets, git modules, compile, postinstall');
+					console.error('    dt install repos/<id>      materialize one attached repo · dt install repos --all');
+					process.exit(2);
 				}
 				console.error(`✖ unknown verb "${cmd}" — dreamteamer is verb-first since 0.12.0: dt <verb> [<target>]`);
 				emit(USAGE, 2);
