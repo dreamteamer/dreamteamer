@@ -383,7 +383,7 @@ function stampMirror(byName, ctx, ownerName, field, prop, holder, mirrorName, ta
 	t.schema.properties = { ...t.schema.properties, [mirrorName]: generated };
 }
 
-export const KINDS = ['collections', 'skills', 'agents', 'commands', 'command-bindings', 'ui-views', 'collection-templates'];
+export const KINDS = ['collections', 'skills', 'agents', 'commands', 'command-bindings', 'ui-views', 'collection-templates', 'proofs'];
 const FOLDER_KINDS = new Set(['skills']); // folder-shape entities: copy the whole record folder
 // DERIVED_KINDS (projected, not staged) lives in runtime.js — the boundary both halves read. Not in
 // KINDS on purpose: a module folder named `modules/` would be nonsense, and `isSystem` below keys

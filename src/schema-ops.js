@@ -2664,6 +2664,7 @@ const ENTITY_SHAPE = {
 	commands: { suffix: '.command.md', folder: false },
 	'command-bindings': { suffix: '.command-binding.yaml', folder: false },
 	'collection-templates': { suffix: '.collection-template.yaml', folder: false },
+	proofs: { suffix: '.proof.yaml', folder: false },
 };
 
 /** The source file (or folder) ONE entity is compiled from, asked of the manifest — the same

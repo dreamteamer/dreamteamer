@@ -185,17 +185,17 @@ function buildModulesIndex(entries) {
 		let d = {};
 		try { d = load(e.bytes.toString('utf8')) ?? {}; } catch { /* unparseable record */ }
 		const p = !d.path || d.path === '.' ? '' : `${d.path}/`;
-		mods.push({ id: m[1], title: d.title ?? m[1], description: flat(d.description), namespaces: d.namespaces ?? [], path: p, bin: d.bin ?? [], skills: [], commands: [] });
+		mods.push({ id: m[1], title: d.title ?? m[1], description: flat(d.description), namespaces: d.namespaces ?? [], path: p, bin: d.bin ?? [], skills: [], commands: [], proofs: [] });
 	}
 	mods.sort((a, b) => b.path.length - a.path.length); // longest prefix first
 	for (const [rt, e] of entries) {
-		const kind = /^skills\/([^/]+)\/SKILL\.md$/.exec(rt) ? 'skills' : /^commands\/(.+)\.command\.md$/.exec(rt) ? 'commands' : null;
+		const kind = /^skills\/([^/]+)\/SKILL\.md$/.exec(rt) ? 'skills' : /^commands\/(.+)\.command\.md$/.exec(rt) ? 'commands' : /^proofs\/(.+)\.proof\.yaml$/.exec(rt) ? 'proofs' : null;
 		if (!kind) continue;
 		const src = e.sources?.[0]?.path ?? '';
 		const owner = mods.find((mod) => src.startsWith(mod.path));
-		if (owner) owner[kind].push(kind === 'skills' ? rt.split('/')[1] : path.basename(rt).replace(/\.command\.md$/, ''));
+		if (owner) owner[kind].push(kind === 'skills' ? rt.split('/')[1] : path.basename(rt).replace(/\.(command\.md|proof\.yaml)$/, ''));
 	}
-	for (const mod of mods) { mod.skills.sort(); mod.commands.sort(); }
+	for (const mod of mods) { mod.skills.sort(); mod.commands.sort(); mod.proofs.sort(); }
 	return mods;
 }
 
@@ -251,12 +251,12 @@ function collectionsSection(index, modules, workspaceModule) {
 	const data = index.filter((c) => !c.system);
 	const isWs = (m) => m.path === `modules/${workspaceModule}/`;
 	const groups = modules
-		.filter((m) => { const own = index.filter((c) => c.module === m.id); return own.some((c) => !c.system) || (!own.length && (m.skills.length || m.commands.length || m.bin.length)); })
+		.filter((m) => { const own = index.filter((c) => c.module === m.id); return own.some((c) => !c.system) || (!own.length && (m.skills.length || m.commands.length || m.bin.length || m.proofs.length)); })
 		.sort((a, b) => (isWs(b) - isWs(a)) || a.title.localeCompare(b.title));
 	for (const m of groups) {
 		const where = [`\`${m.id}\``, m.path ? m.path.replace(/\/$/, '') : 'the workspace root', ...(m.namespaces.length ? [`namespaces: ${m.namespaces.join(' · ')}`] : [])];
 		lines.push('', `**${m.title}** (${where.join(' · ')})${m.description ? ` — ${m.description}` : ''}`);
-		const ships = [...(m.skills.length ? [`skills: ${m.skills.join(' · ')}`] : []), ...(m.commands.length ? [`commands: ${m.commands.map((c) => `/${c}`).join(' · ')}`] : []), ...(m.bin.length ? [`runs: ${m.bin.join(' · ')}`] : [])];
+		const ships = [...(m.skills.length ? [`skills: ${m.skills.join(' · ')}`] : []), ...(m.commands.length ? [`commands: ${m.commands.map((c) => `/${c}`).join(' · ')}`] : []), ...(m.proofs.length ? [`proofs: ${m.proofs.join(' · ')}`] : []), ...(m.bin.length ? [`runs: ${m.bin.join(' · ')}`] : [])];
 		if (ships.length) lines.push(`  ${ships.join(' · ')}`);
 		for (const c of data.filter((c) => c.module === m.id)) {
 			lines.push(`- ${c.name}${c.description ? ` — ${c.description}` : ''}`);
@@ -376,7 +376,7 @@ function orientationBlock(flavor, skillsIndex, sourceLayout = 'flat', namespaces
 		'nouns. **read the `using-dreamteamer` skill before working with data or changing what the',
 		'workspace keeps or does.** schemas (read): `.dreamteamer/collections/` (provenance:',
 		'`.dreamteamer/manifest.yaml`). sources (write): ' + sourcesLine,
-		'`command-bindings/`, `ui-views/`, `collection-templates/`',
+		'`command-bindings/`, `ui-views/`, `collection-templates/`, `proofs/`',
 		'(see manifest for channels). data: `data/`. records are `<id>.<suffix>.<ext>`',
 		'files; ids are paths; references are `<collection>/<id>`. run `dreamteamer check` (`npm run',
 		'check`) after bulk edits; run `dreamteamer compile` (`npm run compile`) after changing any',
