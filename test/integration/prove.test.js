@@ -12,7 +12,7 @@
 //
 // A proof's own semantics are unit-tested where they are written (`test/unit/prove.test.js`); what
 // this file proves is that compile actually CALLS that judgement and refuses on it.
-import { test, describe } from 'node:test';
+import { test, describe, before } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -1855,12 +1855,13 @@ describe('writes proofs are sandboxed', () => {
 		assert.equal(tail(ws.root, SANDBOX_PROOF).verdict, 'FAIL');
 	});
 
-	// ⚠ R27 — THE WINDOW BETWEEN THE WORKTREE AND THE FIRST STEP. It used to sit ABOVE the
-	// `ledgering` wrap, so a throw in the fixture copy, the pick, the `_delta` snapshot or the
-	// pre-check exited 1 with a raw error, NO ledger row, and a leaked `.worktrees/.tmp-*`. The
-	// reachable route is an expect-side collection compiled in the working tree but never COMMITTED:
-	// a sandbox is cut from HEAD, so `countMatching` answers `unknown collection` on it.
-	test('a throw between the worktree and the first step still leaves a row, and no sandbox behind', () => {
+	// ⚠ R31 — THE DIAGNOSIS COVERS EVERY COLLECTION THE PROOF READS, not only `given`'s. A sandbox
+	// is cut from HEAD, so a collection compiled in the working tree but never COMMITTED does not
+	// exist inside it — and an EXPECT-side one reached `countMatching` as a raw `unknown collection
+	// "ghosts"`, which reads as a typo in the proof rather than as "commit its descriptor". The row
+	// and the teardown are the R27 half of the same test: this window sits INSIDE `ledgering`, so a
+	// failure here leaves a ledger row and no `.worktrees/.tmp-*` behind.
+	test('an expect-side collection missing from the sandbox is diagnosed, with a row and no sandbox left', () => {
 		const ws = sandboxWorkspace();
 		writeCollection(ws.root, 'ghosts', simpleCollection());
 		writeProof(ws.root, 'haunts', {
@@ -1876,7 +1877,8 @@ describe('writes proofs are sandboxed', () => {
 
 		const res = ws.dt('prove', 'haunts');
 		assert.equal(res.code, 1, res.stdout + res.stderr);
-		assert.match(res.stderr, /ghosts/);
+		assert.match(res.stdout, /^ {2}collection "ghosts" is not compiled in the sandbox — commit its descriptor, because a sandbox is cut from HEAD$/m);
+		assert.doesNotMatch(res.stdout, /^PERFORM/m, 'a step ran against a sandbox that cannot be judged');
 		const row = tail(ws.root, 'haunts');
 		assert.equal(row.verdict, 'FAIL', 'a run with no row is a run the ledger denies happened');
 		assert.match(row.failure_reason, /ghosts/);
@@ -1963,5 +1965,278 @@ describe('writes proofs are sandboxed', () => {
 		assert.match(here.stdout, /^⚠ --here: writing to THIS checkout's store$/m);
 		assert.doesNotMatch(here.stdout, /^in {7}/m, '--here has no sandbox to name');
 		assert.equal(tail(ws.root, 'writes-in-place').sandbox, null);
+	});
+});
+
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+// THE READ SURFACES (Task 6). A proof's record says what it ASSERTS; everything an operator
+// actually asks about one — can it run HERE, what did it last answer, what has no proof at all —
+// is a fact about this machine, not about the repo. So it is computed at READ time from
+// `requires`, the store and the ledger, and never written onto the source (R1: a derived key on a
+// staged kind lands in every harness's copy of the file). Nothing below writes a byte.
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+
+/** A live proof whose `given` matches NOTHING in this fixture (no note is `done`) — the third
+ *  availability, and the one that is a fact about the DATA rather than about the machine. */
+const WANTS_A_CLOSED_NOTE = {
+	kind: 'live',
+	mode: 'readonly',
+	given: { collection: 'notes', where: { status: { _eq: 'done' } }, pick: 'latest' },
+	steps: [{ perform: 'reopen it' }],
+	expect: [{ record: '{record}', where: { status: { _eq: 'open' } } }],
+};
+
+/** The fixture every read-surface test reads: seven proofs, a SECOND command nothing proves, and
+ *  three ledgers left in three different states. Read-only afterwards, so the block builds it once. */
+function readSurfaceWorkspace() {
+	const ws = proveWorkspace({ proofs: { 'wants-a-closed-note': WANTS_A_CLOSED_NOTE } });
+	fs.writeFileSync(
+		path.join(ws.root, 'modules', 'default', 'commands', 'open-note.command.md'),
+		'---\nname: open-note\ndescription: Open one note.\n---\n\nSet the note\'s status to open.\n',
+	);
+	const compiled = ws.dt('compile');
+	assert.equal(compiled.code, 0, compiled.stdout + compiled.stderr);
+	assert.equal(ws.dt('prove', 'gate-passes').code, 0);
+	assert.equal(ws.dt('prove', 'gate-fails').code, 1);
+	assert.equal(ws.dt('prove', 'needs-a-var').code, 3);
+	return ws;
+}
+
+/** The UTC day a ledger row written during this test run carries — `when` is `toISOString()`, so
+ *  the column is the UTC date and a local one would be a different day for eight hours of every day. */
+const TODAY = new Date().toISOString().slice(0, 10);
+
+/** One printed row of `dt list proofs`, by id. */
+const rowFor = (stdout, id) => stdout.split('\n').find((l) => l.startsWith(`${id}  `));
+
+describe('proof read surfaces', () => {
+	let ws;
+	before(() => { ws = readSurfaceWorkspace(); });
+
+	// ⚠ THE TWO COLUMNS NO RECORD CARRIES, pinned as WHOLE lines. A loose regex for `available`
+	// would pass on a listing that printed the word for every proof including the one this machine
+	// cannot run — which is the exact question the column exists to answer.
+	test('list proofs appends the computed availability and the tail of the ledger', () => {
+		const res = ws.dt('list', 'proofs');
+		assert.equal(res.code, 0, res.stderr);
+
+		assert.equal(rowFor(res.stdout, 'gate-passes'), `gate-passes  gate-passes  gate  skills/using-dreamteamer  -  available  PASS ${TODAY}`);
+		assert.equal(rowFor(res.stdout, 'gate-fails'), `gate-fails  gate-fails  gate  skills/using-dreamteamer  -  available  FAIL ${TODAY}`);
+		// UNAVAILABLE is not a failure of the artifact — the column names the FIX, and the ledger
+		// still records that the question was asked here
+		assert.equal(rowFor(res.stdout, 'needs-a-var'), `needs-a-var  needs-a-var  gate  skills/using-dreamteamer  -  unavailable (PROVE_TEST_VAR is not set — add it to .env)  UNAVAILABLE ${TODAY}`);
+		// never run HERE: the ledger is per-machine and gitignored, so "never" is the honest answer
+		assert.equal(rowFor(res.stdout, 'already-true'), 'already-true  already-true  live  skills/using-dreamteamer  -  available  never');
+		// a live `where` is a question about the DATA, and the only way to answer it is to ask it
+		assert.equal(rowFor(res.stdout, 'note-gets-closed'), 'note-gets-closed  note-gets-closed  live  commands/close-note  -  available  never');
+		assert.equal(rowFor(res.stdout, 'wants-a-closed-note'), 'wants-a-closed-note  wants-a-closed-note  live  skills/using-dreamteamer  -  no-fixture  never');
+
+		// ⚠ `.env` HOLDS CREDENTIALS and `requires.env` is checked by KEY. The availability column is
+		// the one place a value could reach stdout.
+		assert.doesNotMatch(res.stdout, new RegExp(DECOY));
+	});
+
+	test('the picked record rides on the last column, so two runs of one proof are told apart', () => {
+		const res = ws.dt('list', 'proofs');
+		// a gate pends and passes against no record, so there is nothing to name
+		assert.doesNotMatch(rowFor(res.stdout, 'gate-passes'), /\[/);
+	});
+
+	test('--json carries both as fields — availability a string, last an object or null', () => {
+		const res = ws.dt('list', 'proofs', '--json');
+		assert.equal(res.code, 0, res.stderr);
+		const rows = JSON.parse(res.stdout);
+		const by = Object.fromEntries(rows.map((r) => [r.id, r]));
+		assert.equal(by['gate-passes'].availability, 'available');
+		assert.deepEqual(by['gate-passes'].last, { verdict: 'PASS', when: TODAY, record: null });
+		assert.equal(by['needs-a-var'].availability, 'unavailable (PROVE_TEST_VAR is not set — add it to .env)');
+		assert.equal(by['wants-a-closed-note'].availability, 'no-fixture');
+		assert.equal(by['already-true'].last, null, 'a proof that never ran here has no tail, and null says so');
+	});
+
+	// the generic narrowing is REUSED, not re-implemented — a second copy is how `--sort` ends up
+	// working on one collection and not on another
+	test('--filter and --sort still narrow and order the rows they always did', () => {
+		const res = ws.dt('list', 'proofs', '--filter', 'kind=gate', '--sort', '-name');
+		assert.equal(res.code, 0, res.stderr);
+		const ids = res.stdout.trim().split('\n').map((l) => l.split('  ')[0]);
+		assert.deepEqual(ids, ['needs-a-var', 'gate-passes', 'gate-fails']);
+	});
+
+	// ⚠ THE OTHER HALF OF COMPILE'S COVERAGE LINE. The line says `commands 1/2`; this says WHICH one.
+	test('--missing names every artifact no proof is about, and not the ones that have one', () => {
+		const res = ws.dt('list', 'proofs', '--missing');
+		assert.equal(res.code, 0, res.stderr);
+		const lines = res.stdout.trim().split('\n');
+		assert.ok(lines.includes('commands/open-note'), res.stdout);
+		assert.ok(!lines.includes('commands/close-note'), 'an artifact WITH a proof was listed as missing one');
+		assert.ok(!lines.includes('skills/using-dreamteamer'), res.stdout);
+		// the module-script form, which is the one an `about` can name and a folder listing cannot
+		assert.ok(lines.some((l) => /^dreamteamer\/bin\//.test(l)), res.stdout);
+	});
+
+	test('--missing --json is an array of strings, grouped in the coverage line\'s own order', () => {
+		const res = ws.dt('list', 'proofs', '--missing', '--json');
+		assert.equal(res.code, 0, res.stderr);
+		const missing = JSON.parse(res.stdout);
+		assert.ok(Array.isArray(missing) && missing.every((m) => typeof m === 'string'), res.stdout);
+		assert.deepEqual(missing, ['commands/open-note', 'dreamteamer/bin/dreamteamer.js']);
+	});
+
+	// a flag that narrows PROOFS cannot narrow ARTIFACTS — accepting it silently would answer a
+	// question nobody asked, at exit 0, which is the one failure a narrowing verb must not have
+	test('--missing with a filter is refused rather than quietly ignoring it', () => {
+		const res = ws.dt('list', 'proofs', '--missing', '--filter', 'kind=gate');
+		assert.equal(res.code, 1, res.stdout);
+		assert.match(res.stderr, /--missing lists artifacts, not proofs — it takes no filter/);
+	});
+
+	// ⚠ COMPUTED, NEVER STORED (R1). Compile writes a staged kind's bytes to the runtime verbatim and
+	// the Claude adapter copies a command's bytes into `.claude/commands/` — a derived `proofs:`
+	// frontmatter key would land in every harness's copy of the file.
+	test('get <artifact> ends with the proofs that are about it, and the bytes are untouched', () => {
+		const before = readFile(ws.root, 'modules/default/commands/close-note.command.md');
+		const res = ws.dt('get', 'commands/close-note');
+		assert.equal(res.code, 0, res.stderr);
+		assert.equal(res.stdout.trim().split('\n').at(-1), 'proofs: counts-a-new-note, note-gets-closed');
+		assert.equal(readFile(ws.root, 'modules/default/commands/close-note.command.md'), before, 'the join was WRITTEN');
+		assert.doesNotMatch(readFile(ws.root, '.dreamteamer/commands/close-note.command.md'), /^proofs:/m);
+	});
+
+	test('get <artifact> --json carries a proofs key, and an unproven artifact carries none', () => {
+		const proven = ws.dt('get', 'commands/close-note', '--json');
+		assert.equal(proven.code, 0, proven.stderr);
+		assert.deepEqual(JSON.parse(proven.stdout).proofs, ['counts-a-new-note', 'note-gets-closed']);
+
+		const bare = ws.dt('get', 'commands/open-note', '--json');
+		assert.equal(bare.code, 0, bare.stderr);
+		assert.ok(!('proofs' in JSON.parse(bare.stdout)), 'an artifact with no proof claimed one');
+		assert.doesNotMatch(ws.dt('get', 'commands/open-note').stdout, /^proofs:/m);
+	});
+
+	test('get proofs/<id> answers the same two questions the listing does', () => {
+		const res = ws.dt('get', 'proofs/needs-a-var');
+		assert.equal(res.code, 0, res.stderr);
+		const lines = res.stdout.trim().split('\n');
+		assert.equal(lines.at(-2), 'availability: unavailable (PROVE_TEST_VAR is not set — add it to .env)');
+		assert.equal(lines.at(-1), `last: UNAVAILABLE ${TODAY}`);
+		assert.doesNotMatch(res.stdout, new RegExp(DECOY));
+	});
+
+	// ⚠ THE TAIL PER PROOF, not every row — a proof that failed on Monday and passed on Tuesday is
+	// passing. The ledger is gitignored and per-machine, so this whole line is about THIS machine.
+	test('status counts the ledger tails, and --strict makes a FAIL fatal', () => {
+		const res = ws.dt('status');
+		assert.equal(res.code, 0, res.stdout + res.stderr);
+		assert.ok(
+			res.stdout.split('\n').includes('proofs: 7 declared · 1 passed · 1 failed · 1 unavailable · 4 never'),
+			res.stdout,
+		);
+		// the line sits with the other per-checkout facts, above the entry count
+		assert.ok(res.stdout.indexOf('\nproofs:') > res.stdout.indexOf('\nworktrees:'), res.stdout);
+		assert.ok(res.stdout.indexOf('\nproofs:') < res.stdout.indexOf('\nentries:'), res.stdout);
+
+		const strict = ws.dt('status', '--strict');
+		assert.equal(strict.code, 1, strict.stdout + strict.stderr);
+		assert.match(strict.stdout, /^✖ 1 proof\(s\) FAILED on this machine — dt list proofs$/m);
+		// status is the command you run when things are already wrong: it prints EVERYTHING first
+		assert.match(strict.stdout, /^✔ \.dreamteamer is fresh$/m);
+		assert.ok(strict.stdout.split('\n').includes('proofs: 7 declared · 1 passed · 1 failed · 1 unavailable · 4 never'));
+	});
+
+	test('status --bogus is refused, and the refusal names --strict', () => {
+		const res = ws.dt('status', '--bogus');
+		assert.equal(res.code, 1, res.stdout);
+		assert.match(res.stderr, /unknown flag "--bogus" on `dt status`/);
+		assert.match(res.stderr, /--strict/);
+	});
+
+	test('a workspace where every proof last passed exits 0 under --strict', () => {
+		const clean = proveWorkspace();
+		assert.equal(clean.dt('prove', 'gate-passes').code, 0);
+		const res = clean.dt('status', '--strict');
+		assert.equal(res.code, 0, res.stdout + res.stderr);
+		assert.ok(res.stdout.split('\n').includes('proofs: 6 declared · 1 passed · 0 failed · 0 unavailable · 5 never'), res.stdout);
+	});
+
+	// a verdict that is neither pass, fail, unavailable nor never still has to be COUNTED — a
+	// summary whose numbers do not add up to the declared count is worse than no summary
+	test('a PENDING tail is counted in the `other` segment, which appears only when it is not zero', () => {
+		const pending = proveWorkspace();
+		assert.equal(pending.dt('prove', 'note-gets-closed').code, 5);
+		const res = pending.dt('status');
+		assert.equal(res.code, 0, res.stdout + res.stderr);
+		assert.ok(res.stdout.split('\n').includes('proofs: 6 declared · 0 passed · 0 failed · 0 unavailable · 5 never · 1 other'), res.stdout);
+	});
+
+	// ⚠ R28 — A KEPT SANDBOX IS A DIRECTORY NOTHING WILL COME BACK FOR. `.worktrees/` is gitignored,
+	// so it accumulates in silence; the ledger is the only thing that knows the directory exists.
+	test('status names the sandboxes a run left behind on purpose', () => {
+		const kept = sandboxWorkspace();
+		const sandbox = sandboxOf(kept.dt('prove', SANDBOX_PROOF).stdout);
+		assert.equal(dt(sandbox, 'set', 'notes/fx-open', 'status=done').code, 0);
+		assert.equal(kept.dt('prove', SANDBOX_PROOF, '--record', 'notes/fx-open', '--keep').code, 0);
+
+		const res = kept.dt('status');
+		assert.equal(res.code, 0, res.stdout + res.stderr);
+		assert.match(res.stdout, /^ {2}sandboxes left behind: 1 — dt list worktrees$/m);
+
+		quietly(() => removeWorktree(findWorkspace(kept.root), sandbox, { force: true }));
+		// and the line goes away when the directory does — a count nothing can clear is a lie
+		assert.doesNotMatch(kept.dt('status').stdout, /sandboxes left behind/);
+	});
+});
+
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+// The four the sandbox's own review round left open. Each one is a way a run could report something
+// that is not true — a discard that claims nothing was attempted, a fixture refused for a file the
+// operator's Finder wrote, a `data` that is not a directory, and a diagnosis that names only half
+// the collections a proof actually reads.
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+describe('discarding, enumerating and diagnosing a sandbox', () => {
+	// ⚠ THE DISCARDED ROW USED TO INHERIT THE PENDING ROW'S `sandbox_removed: null`, which reads as
+	// "no removal was attempted" — about the one row where a removal certainly was. Nothing would
+	// ever come back for the directory, and `dt status` counted it as fine.
+	test('--restart removes the sandbox FIRST and records what actually happened to it', () => {
+		const ws = sandboxWorkspace();
+		const sandbox = sandboxOf(ws.dt('prove', SANDBOX_PROOF).stdout);
+		assert.ok(fs.existsSync(sandbox));
+
+		const again = ws.dt('prove', SANDBOX_PROOF, '--restart');
+		assert.equal(again.code, 5, again.stdout + again.stderr);
+
+		const rows = readLedger(ws.root, SANDBOX_PROOF);
+		assert.equal(rows.length, 3, JSON.stringify(rows.map((r) => r.verdict)));
+		assert.equal(rows[1].verdict, 'FAIL');
+		assert.equal(rows[1].failure_reason, 'restarted');
+		assert.equal(rows[1].sandbox, sandbox);
+		assert.equal(rows[1].sandbox_removed, true, 'the discarded row claims no removal was attempted');
+		assert.ok(!fs.existsSync(sandbox), 'the discarded sandbox is still on disk');
+		// and the restart really did start over, in a NEW sandbox
+		assert.notEqual(rows[2].sandbox, sandbox);
+	});
+
+	// ⚠ THE OPERATOR'S FILE MANAGER WRITES INTO THIS DIRECTORY. `.DS_Store` appears the first time
+	// anyone opens the fixture folder in Finder, and refusing the whole proof for it would be a
+	// failure nobody could act on — the file comes back.
+	test('a dot-entry in the fixture directory is not a stray file', () => {
+		const ws = sandboxWorkspace();
+		fs.writeFileSync(path.join(ws.root, 'modules', 'default', 'proofs', 'fixtures', SANDBOX_PROOF, '.DS_Store'), 'finder\n');
+		const res = ws.dt('prove', SANDBOX_PROOF);
+		assert.equal(res.code, 5, res.stdout + res.stderr);
+		assert.doesNotMatch(res.stdout, /may contain only data/);
+	});
+
+	test('a fixture whose data is a FILE says so, rather than copying it over the sandbox', () => {
+		const ws = sandboxWorkspace({ fixturesFor: [] });
+		const dir = path.join(ws.root, 'modules', 'default', 'proofs', 'fixtures', SANDBOX_PROOF);
+		fs.mkdirSync(dir, { recursive: true });
+		fs.writeFileSync(path.join(dir, 'data'), 'not a directory\n');
+
+		const res = ws.dt('prove', SANDBOX_PROOF);
+		assert.equal(res.code, 1, res.stdout + res.stderr);
+		assert.match(res.stdout, new RegExp(`^FAIL  ${SANDBOX_PROOF} — fixture data/ must be a directory$`, 'm'));
+		assert.equal(tail(ws.root, SANDBOX_PROOF).verdict, 'FAIL');
+		assert.deepEqual(fs.readdirSync(path.join(ws.root, '.worktrees')).filter((n) => n.startsWith('.tmp-')), []);
 	});
 });

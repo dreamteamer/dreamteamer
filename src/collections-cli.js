@@ -17,7 +17,7 @@ import {
 	createSkill, refuseHandAuthored, removeEntity, renameEntity, setEntityFrontmatter,
 } from './schema-ops.js';
 import { KINDS } from './compile.js';
-import { proofPathFor } from './prove.js';
+import { proofPathFor, artifactRefs, pickFixture, readLedger, resolveRequires } from './prove.js';
 import { history, historyDiff } from './history.js';
 import { commandsFor, recordResolver } from './record-commands.js';
 import { distinctValues } from './field-values.js';
@@ -91,6 +91,7 @@ export function collectionCommand(ws, collection, verb, args) {
 	if (collection === 'collections' && verb === 'get' && flags.module !== undefined) return metaCollectionsGet(ws, store, flags, pos);
 	if (collection === 'collections' && verb === 'move') return metaCollectionsMove(ws, store, flags, pos);
 	if (collection === 'commands' && verb === 'for') return metaCommandsFor(ws, store, flags, pos);
+	if (collection === 'proofs' && verb === 'list') return metaProofsList(ws, store, flags);
 	if (collection === 'ui-views' && ['add', 'set', 'rm'].includes(verb)) return metaUiView(ws, store, verb, flags, pos);
 	if (collection === 'modules' && verb === 'add') return metaModulesAdd(ws, store, flags);
 	if (collection === 'modules' && verb === 'rm') return metaModulesRm(ws, store, flags, pos);
@@ -119,60 +120,33 @@ export function collectionCommand(ws, collection, verb, args) {
 
 	switch (verb) {
 		case 'list': {
-			// EVERY condition, ANDed — a repeated flag composes rather than replacing. `--filter a=1
-			// --filter b=2` used to keep only `b=2` and return rows the caller had excluded, which is
-			// the one failure a narrowing verb must not have: a listing that answers a question nobody
-			// asked, at exit 0. Bare-field flags (`--status todo`) already composed this way; the
-			// meta flag now reads the same, and `[].concat` treats one and many alike.
-			const filters = Object.entries(flags)
-				.filter(([k]) => !LIST_META_FLAGS.has(k))
-				.flatMap(([k, v]) => [].concat(v).map((one) => [k, one]));
-			for (const cond of [].concat(flags.filter ?? [])) {
-				const eq = String(cond).indexOf('=');
-				// `--filter status` is not a condition. It used to slice into `statu = status`, which
-				// matches nothing and reads as a fact about the collection.
-				if (eq < 1) throw new Error(`--filter takes <field>=<value> — got "${cond}"`);
-				filters.push([String(cond).slice(0, eq), String(cond).slice(eq + 1)]);
-			}
-			// `--where` is the SAME operator set the studio's filter panel emits and saved views
-			// store — one `matchesFilter`, so `--where '{"starts":{"_gte":"2026-07-01"}}'` and the
-			// panel that produced that JSON cannot disagree about which records match.
-			const whereJson = oneValue(flags, 'where');
-			const where = whereJson ? load(whereJson) : null;
-			// ⚠ A FLAG NAME IS NOT THE ONLY THING THAT CAN BE MISSPELLED. `--filter nmae=Ada` and
-			// `--sort nmae` are correctly spelled FLAGS whose VALUE names a field that does not exist,
-			// and both answer at exit 0 — an empty listing and an unsorted one. Same silent-empty class,
-			// worse than a bad write because there is nothing to notice. `--where` gets the type check
-			// for the same reason: `--where 'name _eq Ada'` yaml-parses to a STRING, and matchesFilter
-			// then matched every row.
-			if (whereJson && (typeof where !== 'object' || where === null)) throw new Error(`--where takes ONE filter OBJECT and got a ${where === null ? 'null' : typeof where}: ${whereJson}\n  a condition is {"<field>":{"_eq":"<value>"}} — the shorthand for one equality is --filter <field>=<value>`);
-			const sort = oneValue(flags, 'sort');
-			const vocab = ['id', ...Object.keys(d.schema?.properties ?? {})];
-			const stray = [...filters.map(([k]) => k), ...(sort ? [String(sort).replace(/^-/, '')] : [])].find((f) => !vocab.includes(f));
-			if (stray) throw new Error(`${collection} has no field "${stray}"${nearest(stray, vocab) ? ` — did you mean "${nearest(stray, vocab)}"?` : ''} (dt get collections/${collection} lists them)`);
-			const resolve = where ? recordResolver(store) : null;
-			const bf = bodyField(d);
-			const rows = [];
-			for (const { id, fields } of store.readAll(collection)) { // ONE walk, not one per record
-				if (!filters.every(([k, v]) => String(fields[k] ?? '') === String(v))) continue;
-				if (where && !matchesFilter({ ...fields, id }, where, resolve)) continue;
-				if (bf) delete fields[bf]; // bodies don't belong in listings
-				rows.push({ ...fields, id }); // record id WINS over any schema field named "id"
-			}
-			// sorting was studio-only until now: the browse table ordered records and no CLI
-			// invocation could. Same `sortRows` the server and api.ts call, so `--sort -starts`
-			// orders date-times by INSTANT across mixed offsets rather than by string.
-			if (sort) sortRows(rows, sort);
+			const { rows, narrowed } = narrowRows(store, d, collection, flags);
 			if (flags.json) { emit(JSON.stringify(rows, null, 2)); return 0; }
-			const cols = ['id', ...(d.list_fields ?? []).filter((c) => c !== 'id')];
+			const cols = listColumns(d);
 			for (const r of rows) console.log(cols.map((c) => fmtCell(r[c])).join('  '));
-			if (!rows.length) console.log(`(no ${collection}${filters.length || where ? ' matching' : ''})`);
+			if (!rows.length) console.log(`(no ${collection}${narrowed ? ' matching' : ''})`);
 			return 0;
 		}
 		case 'get': {
 			const id = need(pos, 0, 'id');
 			const { fields } = store.read(collection, id);
-			flags.json ? emit(JSON.stringify({ ...fields, id }, null, 2)) : console.log(dump(fields).trimEnd());
+			// ⚠ COMPUTED HERE, NEVER STORED (R1). Compile writes a staged kind's bytes to the runtime
+			// verbatim and the Claude adapter copies a command's bytes into `.claude/commands/`, so a
+			// derived `proofs:` frontmatter key would land in every harness's copy of the file — the
+			// exact noise a sidecar collection exists to avoid. One `readAll('proofs')` instead.
+			const about = ARTIFACT_KINDS.has(collection) ? proofsAbout(store, `${collection}/${id}`) : [];
+			if (flags.json) {
+				emit(JSON.stringify({ ...fields, id, ...(about.length ? { proofs: about } : {}) }, null, 2));
+				return 0;
+			}
+			console.log(dump(fields).trimEnd());
+			if (about.length) console.log(`proofs: ${about.join(', ')}`);
+			// the same two questions the listing answers, for the one proof asked about
+			if (collection === 'proofs') {
+				const facts = proofFacts(ws, store, id, fields);
+				console.log(`availability: ${facts.availability}`);
+				console.log(`last: ${lastCell(facts.last)}`);
+			}
 			return 0;
 		}
 		case 'add': {
@@ -1176,6 +1150,146 @@ function need(pos, i, what) {
 
 const fmtCell = (v) => (v === undefined ? '-' : Array.isArray(v) ? v.join(',') : String(v));
 
+/**
+ * The rows one `list` invocation actually wants — narrowed, ordered, bodies dropped.
+ *
+ * ⚠ ONE implementation, two callers: the generic `list` case and the `proofs` interceptor, which
+ * appends two COMPUTED columns to the same rows. A second copy is how `--sort` ends up working on
+ * one collection and not on another, and how a `--filter` fix lands in half the listings.
+ */
+function narrowRows(store, d, collection, flags) {
+	// EVERY condition, ANDed — a repeated flag composes rather than replacing. `--filter a=1
+	// --filter b=2` used to keep only `b=2` and return rows the caller had excluded, which is
+	// the one failure a narrowing verb must not have: a listing that answers a question nobody
+	// asked, at exit 0. Bare-field flags (`--status todo`) already composed this way; the
+	// meta flag now reads the same, and `[].concat` treats one and many alike.
+	const filters = Object.entries(flags)
+		.filter(([k]) => !LIST_META_FLAGS.has(k))
+		.flatMap(([k, v]) => [].concat(v).map((one) => [k, one]));
+	for (const cond of [].concat(flags.filter ?? [])) {
+		const eq = String(cond).indexOf('=');
+		// `--filter status` is not a condition. It used to slice into `statu = status`, which
+		// matches nothing and reads as a fact about the collection.
+		if (eq < 1) throw new Error(`--filter takes <field>=<value> — got "${cond}"`);
+		filters.push([String(cond).slice(0, eq), String(cond).slice(eq + 1)]);
+	}
+	// `--where` is the SAME operator set the studio's filter panel emits and saved views
+	// store — one `matchesFilter`, so `--where '{"starts":{"_gte":"2026-07-01"}}'` and the
+	// panel that produced that JSON cannot disagree about which records match.
+	const whereJson = oneValue(flags, 'where');
+	const where = whereJson ? load(whereJson) : null;
+	// ⚠ A FLAG NAME IS NOT THE ONLY THING THAT CAN BE MISSPELLED. `--filter nmae=Ada` and
+	// `--sort nmae` are correctly spelled FLAGS whose VALUE names a field that does not exist,
+	// and both answer at exit 0 — an empty listing and an unsorted one. Same silent-empty class,
+	// worse than a bad write because there is nothing to notice. `--where` gets the type check
+	// for the same reason: `--where 'name _eq Ada'` yaml-parses to a STRING, and matchesFilter
+	// then matched every row.
+	if (whereJson && (typeof where !== 'object' || where === null)) throw new Error(`--where takes ONE filter OBJECT and got a ${where === null ? 'null' : typeof where}: ${whereJson}\n  a condition is {"<field>":{"_eq":"<value>"}} — the shorthand for one equality is --filter <field>=<value>`);
+	const sort = oneValue(flags, 'sort');
+	const vocab = ['id', ...Object.keys(d.schema?.properties ?? {})];
+	const stray = [...filters.map(([k]) => k), ...(sort ? [String(sort).replace(/^-/, '')] : [])].find((f) => !vocab.includes(f));
+	if (stray) throw new Error(`${collection} has no field "${stray}"${nearest(stray, vocab) ? ` — did you mean "${nearest(stray, vocab)}"?` : ''} (dt get collections/${collection} lists them)`);
+	const resolve = where ? recordResolver(store) : null;
+	const bf = bodyField(d);
+	const rows = [];
+	for (const { id, fields } of store.readAll(collection)) { // ONE walk, not one per record
+		if (!filters.every(([k, v]) => String(fields[k] ?? '') === String(v))) continue;
+		if (where && !matchesFilter({ ...fields, id }, where, resolve)) continue;
+		if (bf) delete fields[bf]; // bodies don't belong in listings
+		rows.push({ ...fields, id }); // record id WINS over any schema field named "id"
+	}
+	// sorting was studio-only until now: the browse table ordered records and no CLI
+	// invocation could. Same `sortRows` the server and api.ts call, so `--sort -starts`
+	// orders date-times by INSTANT across mixed offsets rather than by string.
+	if (sort) sortRows(rows, sort);
+	return { rows, narrowed: !!(filters.length || where) };
+}
+
+/** `id` first, then the descriptor's own columns — the shape every text listing prints. */
+const listColumns = (d) => ['id', ...(d.list_fields ?? []).filter((c) => c !== 'id')];
+
+// ── the proof read surfaces ─────────────────────────────────────────────────────────────────────
+//
+// ⚠ NOTHING BELOW WRITES A BYTE. A proof's SOURCE says what it asserts; everything an operator asks
+// about one — can it run HERE, what did it last answer, what has no proof at all — is a fact about
+// this machine and this store, so it is computed at read time (R1).
+
+/** The three artifact kinds a proof's `about` can name and `dt get` can be asked for. A module
+ *  script has no record of its own, so `<module>/bin/<file>` appears only in `--missing`. */
+const ARTIFACT_KINDS = new Set(['skills', 'commands', 'command-bindings']);
+
+/** Every proof whose `about` names this artifact, by id. */
+function proofsAbout(store, ref) {
+	if (!store.descriptors.has('proofs')) return [];
+	const ids = [];
+	for (const { id, fields } of store.readAll('proofs')) if ((fields.about ?? []).includes(ref)) ids.push(id);
+	return ids.sort();
+}
+
+/**
+ * `{ availability, last }` for ONE proof — the two columns no record carries.
+ *
+ * `availability` answers "could this run here, right now": `requires` against this machine first
+ * (its FIX is what the column names, never the env value — `.env` holds credentials), then, for a
+ * live proof picking from the live store, whether `given` actually matches anything. A `fixture`
+ * proof brings its own record and a gate needs none, so both are `available` once requires pass.
+ *
+ * `last` is the TAIL of this machine's ledger — a proof that failed on Monday and passed on Tuesday
+ * is passing — or null, which prints as `never`.
+ */
+function proofFacts(ws, store, id, proof) {
+	const need = resolveRequires(ws, proof.requires);
+	let availability = need.ok ? 'available' : `unavailable (${need.missing[0].fix})`;
+	if (need.ok && proof.given?.fixture !== true && proof.given?.where !== undefined) {
+		// a probe, not a run: the only way to answer "is there a record for this" is to ask
+		let picked = null;
+		try { picked = pickFixture(store, proof.given, null); } catch { picked = null; }
+		if (!picked) availability = 'no-fixture';
+	}
+	const rows = readLedger(ws.root, id);
+	const t = rows[rows.length - 1];
+	return { availability, last: t ? { verdict: t.verdict, when: String(t.when).slice(0, 10), record: t.record ?? null } : null };
+}
+
+/** The `last` column: `<verdict> <YYYY-MM-DD> [<record>]`, or `never`. */
+const lastCell = (last) => (last ? `${last.verdict} ${last.when}${last.record ? ` [${last.record}]` : ''}` : 'never');
+
+/**
+ * `dt list proofs` — the generic listing plus `availability` and `last`, or, under `--missing`, the
+ * artifacts NO proof names.
+ *
+ * ⚠ `--missing` LISTS ARTIFACTS, NOT PROOFS, so it takes no narrowing: accepting `--filter kind=gate`
+ * and ignoring it would answer a question nobody asked, at exit 0.
+ */
+function metaProofsList(ws, store, flags) {
+	const d = store.descriptor('proofs');
+	if (flags.missing !== undefined) {
+		const narrowing = Object.keys(flags).filter((f) => f !== 'missing' && f !== 'json');
+		if (narrowing.length) throw new Error('--missing lists artifacts, not proofs — it takes no filter');
+		const named = new Set();
+		for (const { fields } of store.readAll('proofs')) for (const a of fields.about ?? []) named.add(String(a));
+		// the same enumeration compile's coverage line counts, in its order — that line says
+		// `commands 1/2`, this says WHICH one
+		const refs = artifactRefs(store);
+		const missing = [...refs.commands, ...refs.skills, ...refs.scripts, ...refs.bindings].filter((r) => !named.has(r));
+		if (flags.json) { emit(JSON.stringify(missing, null, 2)); return 0; }
+		for (const m of missing) console.log(m);
+		if (!missing.length) console.log('(every artifact has a proof)');
+		return 0;
+	}
+	const { rows, narrowed } = narrowRows(store, d, 'proofs', flags);
+	const facts = rows.map((r) => proofFacts(ws, store, r.id, r));
+	if (flags.json) {
+		emit(JSON.stringify(rows.map((r, i) => ({ ...r, ...facts[i] })), null, 2));
+		return 0;
+	}
+	const cols = listColumns(d);
+	rows.forEach((r, i) => console.log([...cols.map((c) => fmtCell(r[c])), facts[i].availability, lastCell(facts[i].last)].join('  ')));
+	if (!rows.length) console.log(`(no proofs${narrowed ? ' matching' : ''})`);
+	return 0;
+}
+
+
 function rel(root, p) {
 	return p.startsWith(root) ? p.slice(root.length + 1) : p;
 }
@@ -1230,6 +1344,9 @@ export const VERB_FLAGS = {
 	// `worktrees` is OBSERVED from git and has no descriptor, so nothing downstream of the CLI would
 	// ever catch a typo here — and the typo that matters is `--tmep`, which silently turns a request
 	// for a throwaway sandbox into a permanent branch worktree.
+	// `--missing` inverts the listing: the artifacts NO proof names, which is the other half of
+	// compile's coverage line. It is DECLARED here or `refuseUnknownFlags` rejects it as a typo.
+	'proofs:list': ['json', 'filter', 'where', 'sort', 'missing'],
 	'worktrees:list': JSON_ONLY, 'worktrees:get': JSON_ONLY,
 	'worktrees:add': ['json', 'name', 'path', 'base', 'temp'], 'worktrees:rm': ['json', 'force'],
 };
