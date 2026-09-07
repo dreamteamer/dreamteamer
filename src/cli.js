@@ -18,7 +18,7 @@ import { check } from './check.js';
 import { collectionCommand, emit, relationsCommand, parseArgs, refuseUnknownFlags } from './collections-cli.js';
 import { init, installClone, update, listRepos } from './init.js';
 import { installCommand, describeCheckout, listWorktrees, worktreeCommand } from './checkout.js';
-import { proveCommand } from './prove.js';
+import { proveCommand, readLedger } from './prove.js';
 import { deriveEvents } from './events.js';
 import { commitPending } from './commit.js';
 import { Store } from './store.js';
@@ -37,6 +37,10 @@ record verbs (hard validation — invalid writes are rejected before disk).
 A <target> is either a collection name or a <collection>/<id> reference; the reference splits at
 the longest DECLARED collection prefix, so finance/transactions/2026/03/coffee is ONE argument:
   list   <collection> [--filter k=v] [--where <json>] [--sort [-]<field>] [--json]
+  list   proofs [--missing]                   (a proof listing appends two COMPUTED columns:
+                                               availability on THIS machine, and the last verdict
+                                               from its ledger. --missing inverts it — one line per
+                                               artifact no proof is about, so it takes no filter)
                                               (--filter is ONE condition — repeat it to AND more
                                                (--filter a=1 --filter b=2 wants both);
                                                anything compound goes in one --where, operator
@@ -198,7 +202,9 @@ workspace verbs:
                                never exits 5. ONE line per proof — a step transcript is what a
                                single-proof run is for [--kind gate|live] [--external] include
                                external proofs [--strict] make an unavailable fatal [--json]
-  status      workspace status: compiled runtime freshness, per-module channel/ref, staleness
+  status      workspace status: compiled runtime freshness, per-module channel/ref, staleness,
+              and one \`proofs:\` line counting each proof's LAST verdict on this machine
+              [--strict] exit 1 when any proof's ledger tail is a FAIL
   start       serve the clean REST api at /api [--port <n>]
   changes     what changed in every repo that holds records, as record events
               [--since <sha|YYYY-MM-DD>] (default: HEAD~1 — the last commit's own changes) [--json]
@@ -234,7 +240,7 @@ const FIELD_VERBS = ['add-field', 'set-field', 'rm-field', 'rename-field'];
 export const WORKSPACE_FLAGS = {
 	init: ['name', 'data-path', 'harnesses', 'workspace-module'], update: [],
 	install: ['clone', 'dry-run', 'json', 'link-env', 'all'],
-	start: ['port'], compile: ['watch'], check: [], status: [],
+	start: ['port'], compile: ['watch'], check: [], status: ['strict'],
 	changes: ['since', 'json'], commit: ['dry-run', 'json'],
 	// the UNION of every form's flags — the outer typo gate. Which flags each FORM takes is refused
 	// inside `proveCommand`, where the target has been resolved against the compiled proofs.
@@ -456,6 +462,37 @@ export function run(argv) {
 					const wts = listWorktrees(ws).filter((w) => !w.primary);
 					console.log(`worktrees: ${wts.length} · ${wts.filter((w) => w.dirtyRecords).length} with dirty records · ${wts.filter((w) => w.ahead).length} ahead`);
 				} catch { /* not a git checkout — nothing to report about worktrees */ }
+				// ⚠ WHAT THIS MACHINE HAS ACTUALLY PROVED. A ledger is per-machine and gitignored, so
+				// this line cannot be derived from the repo — and it is the only place a FAIL from
+				// last week surfaces without being asked for. The TAIL per proof, not every row: a
+				// proof that failed on Monday and passed on Tuesday is passing. Wrapped like every
+				// block here — an older runtime has no `proofs` descriptor, and status must still print.
+				let proofsFailed = 0;
+				try {
+					const tally = { PASS: 0, FAIL: 0, UNAVAILABLE: 0 };
+					let declared = 0; let never = 0; let other = 0;
+					// ⚠ A SANDBOX NOTHING WILL COME BACK FOR. `.worktrees/` is gitignored, so a kept or
+					// un-removable one accumulates in silence and the ledger is the only thing that
+					// knows the directory exists. `kept` is not a row field: a terminal row with a
+					// sandbox and NO removal attempted (`null`) is exactly what `--keep` leaves behind.
+					// `existsSync` because a count nothing can clear is a lie.
+					const left = new Set();
+					for (const { id } of new Store(ws).readAll('proofs')) {
+						declared++;
+						const rows = readLedger(ws.root, id);
+						const t = rows[rows.length - 1];
+						if (!t) never++;
+						else if (t.verdict in tally) tally[t.verdict]++;
+						else other++;
+						for (const r of rows) {
+							const behind = r.sandbox_removed === false || (r.verdict !== 'PENDING' && r.sandbox_removed === null);
+							if (r.sandbox && behind && fs.existsSync(r.sandbox)) left.add(r.sandbox);
+						}
+					}
+					proofsFailed = tally.FAIL;
+					console.log(`proofs: ${declared} declared · ${tally.PASS} passed · ${tally.FAIL} failed · ${tally.UNAVAILABLE} unavailable · ${never} never${other ? ` · ${other} other` : ''}`);
+					if (left.size) console.log(`  sandboxes left behind: ${left.size} — dt list worktrees`);
+				} catch { /* no proofs descriptor compiled — nothing to report */ }
 				console.log(`entries:  ${Object.keys(s.manifest.entries).length}`);
 				// repos materialize LAZILY, so presence is REPORTED here rather than stored on the
 				// record. Wrapped: an older workspace may predate the repos descriptor, and status
@@ -486,6 +523,13 @@ export function run(argv) {
 					process.exit(1);
 				}
 				console.log('✔ .dreamteamer is fresh');
+				// ⚠ THE FAIL IS FATAL ONLY WHEN ASKED. `status` is the command you run when things are
+				// already wrong, so it prints EVERYTHING first and gates last — the same shape the
+				// staleness exit above has.
+				if (rest.includes('--strict') && proofsFailed) {
+					console.log(`✖ ${proofsFailed} proof(s) FAILED on this machine — dt list proofs`);
+					process.exit(1);
+				}
 				process.exit(0);
 			}
 			case 'help':

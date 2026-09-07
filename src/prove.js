@@ -1189,12 +1189,17 @@ function fixtureDir(root, moduleRoot, id) {
  * wrong thing while reporting it confidently. So the engine's own `check` runs against the sandbox
  * before any step does, and the FIRST violation is what the failure names.
  */
-function sandboxUnfit(root, collection) {
+function sandboxUnfit(root, collections) {
 	// ⚠ A SANDBOX IS CUT FROM **HEAD**, so a descriptor that is not COMMITTED is not compiled inside
 	// it — and `check` cannot see that: an unknown collection has no directory to walk, so the
 	// fixture's records are INVISIBLE rather than invalid, and every count below would read zero.
-	if (collection && !loadDescriptors(root)?.has(collection)) {
-		return `collection "${collection}" is not compiled in the sandbox — commit its descriptor, because a sandbox is cut from HEAD`;
+	//
+	// ⚠ EVERY collection the proof READS, not only `given`'s (R31). An expect-side one reached
+	// `countMatching` as a raw `unknown collection "x"`, which reads as a typo in the proof.
+	const known = loadDescriptors(root);
+	const absent = [...new Set(collections.filter(Boolean))].find((c) => !known?.has(c));
+	if (absent) {
+		return `collection "${absent}" is not compiled in the sandbox — commit its descriptor, because a sandbox is cut from HEAD`;
 	}
 	// `check` takes `{ root }` and reads its descriptors off the compiled runtime — there is no
 	// `pkg` to thread, and one passed in would be a parameter nothing reads.
@@ -1326,23 +1331,26 @@ function proveOne(ws, id, proof, flags) {
 	// same action, and the operator would have no way to tell which pending row their eventual
 	// verify is judged against. A pending older than the proof's own timeout is STALE — the run it
 	// belongs to is gone — so it is cleared, out loud, and recorded as cleared.
+	//
+	// ⚠ THE REMOVAL IS ATTEMPTED FIRST, AND THE ROW SAYS WHAT HAPPENED TO THE DIRECTORY (R28). Both
+	// discards used to append the PENDING row's `sandbox_removed: null` — "no removal was attempted"
+	// — about the one row where one certainly was, so `dt status` counted a leaked sandbox as fine
+	// and nothing would ever come back for it. `.worktrees/` is gitignored: this is the only record.
+	const discard = (row, reason) => {
+		const removed = !row.sandbox ? null : fs.existsSync(row.sandbox) ? removeSandbox(ws, row.sandbox) : true;
+		appendLedger(ws.root, id, { ...row, when: new Date().toISOString(), verdict: 'FAIL', failure_reason: reason, sandbox_removed: removed });
+	};
 	const live = [];
 	for (const row of allPending(ws.root, id)) {
 		const age = Math.round((Date.now() - Date.parse(row.when)) / 1000);
 		if (age >= 0 && age <= timeout) { live.push(row); continue; }
 		say(`stale pending run of ${id} for ${row.record === null ? '(no record)' : row.record} (${age}s) — cleared`);
-		appendLedger(ws.root, id, { ...row, when: new Date().toISOString(), verdict: 'FAIL', failure_reason: 'stale' });
-		// the run it belonged to is gone, and `.worktrees/` is gitignored — a sandbox nobody discards
-		// here is one that accumulates unnoticed for ever
-		if (row.sandbox && fs.existsSync(row.sandbox)) removeSandbox(ws, row.sandbox);
+		discard(row, 'stale');
 	}
 	if (live.length && flags.restart) {
 		// EVERY live pending is discarded, not just the newest — otherwise `--restart` refuses again
 		// on the next one and the flag reads as broken.
-		for (const row of live) {
-			appendLedger(ws.root, id, { ...row, when: new Date().toISOString(), verdict: 'FAIL', failure_reason: 'restarted' });
-			if (row.sandbox && fs.existsSync(row.sandbox)) removeSandbox(ws, row.sandbox);
-		}
+		for (const row of live) discard(row, 'restarted');
 	} else if (live.length === 1 && live[0].record === null) {
 		// a live proof with no `given` pends against no record, so `--record` cannot name it — the
 		// bare verb is the only way back, and refusing here would strand the run permanently.
@@ -1387,7 +1395,10 @@ function proveOne(ws, id, proof, flags) {
 		// under `.worktrees/.tmp-<rand>/` in the primary root — see `addWorktree` for why not tmpdir.
 		if (sandboxed) {
 			const src = fixtureDir(ws.root, proofModuleRoot(ws.root, id), id);
-			const entries = fs.existsSync(src) ? fs.readdirSync(src) : [];
+			// ⚠ DOT-ENTRIES ARE NOT STRAY FILES. The operator's file manager writes `.DS_Store` into
+			// this directory the first time anyone opens it, and refusing the whole proof for it
+			// would be a failure nobody can act on — the file comes back.
+			const entries = fs.existsSync(src) ? fs.readdirSync(src).filter((e) => !e.startsWith('.')) : [];
 			if (!entries.includes('data')) {
 				// `given.fixture: true` with no records behind it: the same fact as "matched 0 records",
 				// and naming the path is the difference between a fix and a hunt.
@@ -1406,8 +1417,15 @@ function proveOne(ws, id, proof, flags) {
 				say(`FAIL  ${id} — fixture may contain only data/ — found ${stray}`);
 				return settle('FAIL', { failure_reason: `fixture may contain only data/ — found ${stray}` });
 			}
+			// ⚠ AND `data` HAS TO BE A DIRECTORY. `cpSync(file, dir)` does not refuse — it writes the
+			// file OVER the sandbox's `data/`, and the records the proof then reads are whatever
+			// survived. A named refusal is the difference between a fix and a mystery verdict.
+			if (!fs.statSync(path.join(src, 'data')).isDirectory()) {
+				say(`FAIL  ${id} — fixture data/ must be a directory`);
+				return settle('FAIL', { failure_reason: 'fixture data/ must be a directory' });
+			}
 			fs.cpSync(path.join(src, 'data'), path.join(sandbox, 'data'), { recursive: true });
-			const unfit = sandboxUnfit(sandbox, proof.given?.collection);
+			const unfit = sandboxUnfit(sandbox, [proof.given?.collection, ...(proof.expect ?? []).map((e) => e?.collection)]);
 			if (unfit) {
 				say(`FAIL  ${id} — fixture does not validate:`);
 				say(`  ${unfit}`);
