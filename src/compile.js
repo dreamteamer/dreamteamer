@@ -1315,6 +1315,25 @@ export function compile({ root, pkg }) {
 			if (h['x-unique'] === true && h['x-inverse'] === undefined && h['x-inverse-of'] === undefined) {
 				console.warn(`⚠ collection ${name}: x-unique on "${fieldName}" is inert — it is a RELATION keyword, enforced only while the store maintains a mirror, and this field declares no x-inverse. Nothing constrains the value. Declare the relation (dreamteamer update-field ${name} --name ${fieldName} --inverse) or drop x-unique.`);
 			}
+			// `x-choices` decorates ENUM VALUES (presentation.js#choiceRow, 0.21.0), and both ways of
+			// getting it wrong are SILENT: a key that is not a value decorates nothing, and the keyword
+			// on a non-enum field is read by no one at all. Either way the author sees no error and no
+			// decoration — on a surface they are probably not looking at while editing the descriptor.
+			// ⚠ WARNINGS, not failures, for the same reason as x-unique directly above: neither breaks
+			// anything today, and a descriptor mid-edit must stay compilable.
+			const choices = h['x-choices'];
+			if (choices && typeof choices === 'object' && !Array.isArray(choices)) {
+				const values = Array.isArray(h.enum) ? h.enum.map(String) : null;
+				if (!values) {
+					console.warn(`⚠ collection ${name}: x-choices on "${fieldName}" is inert — it decorates the values of an enum, and this field declares no enum. Nothing reads it.`);
+				} else {
+					// Named per offending key rather than "some keys are wrong", and the legal values are
+					// quoted so the fix needs no second lookup — the same shape as every other warning here.
+					for (const k of Object.keys(choices)) {
+						if (!values.includes(k)) console.warn(`⚠ collection ${name}: x-choices on "${fieldName}" has an entry for "${k}", which is not one of its enum values (${values.join(', ')}) — it decorates nothing. Fix the spelling, or drop the entry.`);
+					}
+				}
+			}
 		}
 		const rt = path.join('collections', `${name}.collection.yaml`);
 		entries.set(rt, { sources: descriptorSources, bytes: Buffer.from(dump(merged)) });
