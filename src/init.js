@@ -26,6 +26,7 @@ git_modules/
 .env
 media/
 .screenshots/
+.cache/
 `;
 
 // A brand-new workspace with no collections gives a user nothing to run, and makes `compile` warn

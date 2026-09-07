@@ -763,6 +763,13 @@ const COLLECTION_SETTABLE = {
 		return n;
 	},
 	list_fields: (v) => (Array.isArray(v) ? v : String(v).split(',')).map((s) => String(s).trim()).filter(Boolean),
+	// `sensitive=true` withholds the WHOLE collection from `dt export`; anything but true/false is refused
+	// because a privacy switch that coerces "yes" to false is the wrong kind of forgiving.
+	sensitive: (v) => {
+		if (v === true || v === 'true') return true;
+		if (v === false || v === 'false') return false;
+		throw new Error(`sensitive takes true or false — got "${v}"`);
+	},
 };
 
 /** "people has no field X" / "people has no fields X, Y" — the plural without a second sentence. */
@@ -1986,6 +1993,9 @@ export function updateField(ws, store, collection, fieldName, { prop, required, 
 	// this a retype would silently un-body the field — the record's text then parses into nothing and
 	// the next write serializes it away. `--body false` is how you clear it.
 	if (flags.body === undefined && previous['x-body'] === true) prop = { ...prop, 'x-body': true };
+	// `x-sensitive` is a PRIVACY decision, carried on the same rule: a description-only edit must not
+	// silently un-mark a field and let its values into the next `dt export`. `--sensitive false` clears.
+	if (flags.sensitive === undefined && previous['x-sensitive'] === true) prop = { ...prop, 'x-sensitive': true };
 
 	// ⚠ WITHOUT `--type`, THE PREVIOUS SHAPE STANDS — and this is the same silent-corruption class the
 	// relation carry below closed, except that carry named five keywords and the problem is EVERY
@@ -2013,6 +2023,7 @@ export function updateField(ws, store, collection, fieldName, { prop, required, 
 		// prop has nothing to say, which is what makes a restating flag still win.
 		const spokenFor = new Set(['title', 'description']);
 		if (flags.body !== undefined) spokenFor.add('x-body');
+		if (flags.sensitive !== undefined) spokenFor.add('x-sensitive');
 		if (flags.many !== undefined) { spokenFor.add('type'); spokenFor.add('items'); } // cardinality, restated
 		// `--options` alone restates an EXISTING enum's values. `fieldDef` cannot: its enum case needs
 		// `--type enum`, so without this the carry below would put the OLD values back and
@@ -2495,6 +2506,10 @@ export function fieldDef(store, flags, collection) {
 		if (p.type !== 'string') throw new Error(`--body marks the field a record's PROSE lands in, so it has to be text — try --type markdown (got ${flags.type ?? 'string'}).`);
 		p['x-body'] = true;
 	}
+	// `--sensitive` marks a field whose VALUES must not leave the workspace through `dt export` — it is
+	// projected out of every exported record and named as omitted. The mark is the decision: nothing
+	// is inferred from a field's name, so `email` travels unless somebody says otherwise here.
+	if (isOn(flags.sensitive)) p['x-sensitive'] = true;
 
 	// ---- relations ----------------------------------------------------------------------------
 	// ⚠ EVERY relation flag is skipped when the flags name no reference, because on `update-field`

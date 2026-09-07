@@ -20,6 +20,33 @@ npx dreamteamer check
 
 ---
 
+## 0.21.0 → 0.22.0
+
+**A sixth consumer of the runtime: `dt export notebooklm`, and two schema marks that decide what may leave.**
+
+Nothing to do but `dt compile`. Three things are new, none changes existing behaviour:
+
+- **`dt export notebooklm [--out <dir>] [--plan …] [--collections …] [--instructions <tpl.md>] [--notebook <id> | --create "<title>"] …`**
+  renders the workspace for NotebookLM — one hierarchical schema source, one source per collection
+  (sharded by `--max-words`), the persona from a template — and with a notebook id syncs the notebook
+  to match by title. Without an id it is a pure render into `.cache/dreamteamer/notebooklm/` and touches
+  no network. `using-dreamteamer/references/exporting.md` has the judgment; `dt help` the flags.
+- **`sensitive: true` on a collection descriptor** (`dt set collections/<c> sensitive=true`) withholds
+  the whole collection from every export and names the omission in what is written.
+- **`x-sensitive: true` on a field** (`dt add-field … --sensitive`, `dt update-field … --sensitive [false]`)
+  projects that field out of every exported record. A description-only `update-field` carries the mark
+  forward, like `x-body`.
+
+⚠ Nothing is inferred from a field's name. **Before the first export of an existing workspace, mark
+what must not travel, then read the export's report** — it prints every field it exported per
+collection. `init` now gitignores `.cache/`; an existing workspace adds the line by hand if it wants it.
+
+The sync needs the vendor CLI `notebooklm` (notebooklm-py ≥ 0.7.3) on PATH and a login the operator
+made in a browser; preflight is `auth check --test`, because the bare check reports an expired session
+as valid.
+
+---
+
 ## 0.19.1 → 0.20.0
 
 **The orientation block is grouped by MODULE, and a schema write commits the block it regenerated.**

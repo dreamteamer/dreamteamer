@@ -1198,7 +1198,7 @@ function rel(root, p) {
  *
  * A key is `<collection>:<verb>` where the system entity has its own interceptor, `<verb>` otherwise.
  */
-export const FIELD_FLAGS = ['json', 'module', 'name', 'field', 'type', 'options', 'default-value', 'default', 'required', 'description', 'many', 'inverse', 'inverse-description', 'unique', 'body', 'on-delete', 'mirror-of', 'target'];
+export const FIELD_FLAGS = ['json', 'module', 'name', 'field', 'type', 'options', 'default-value', 'default', 'required', 'description', 'many', 'inverse', 'inverse-description', 'unique', 'body', 'sensitive', 'on-delete', 'mirror-of', 'target'];
 const JSON_ONLY = ['json'];
 const FORCE_RM = ['json', 'force', 'dry-run'];
 const NAV_MOVE = ['json', 'after', 'before', 'top', 'bottom'];
