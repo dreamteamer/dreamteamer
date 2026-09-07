@@ -362,14 +362,21 @@ export function removeWorktree(ws, ref, { force = false } = {}, git = defaultGit
 	// back to null answered "nothing ahead" for a measurement that never ran — no refusal fired and
 	// the destructive removal went through at exit 0, which is the exact loss the guard exists to
 	// prevent, reached by the one path nobody walks. An unmeasured guard is a refusal, not a pass.
-	// (NaN counts as unmeasured too: it is falsy, so it would have read as safe just the same.)
+	//
+	// ⚠ SO THE RAW STRING IS VALIDATED, NOT THE NUMBER, and the difference is a data-loss bug.
+	// `Number('')` is 0 and `Number.isInteger(0)` is true, so an integer check waves an EMPTY answer
+	// through as "nothing ahead" — the same fail-open, one layer down. `/^\d+$/` is the only gate
+	// that separates "git counted zero" from "git said nothing"; `Number()` runs after it, on a
+	// string already known to be a count. (`git` is an exported PARAMETER of this function, so the
+	// trimming, exit-code-checking `defaultGit` is not the only runner this has to survive.)
 	let ahead = w.ahead;
 	let unmeasured = null;
 	const orphaned = w.ahead === null && !w.primary && w.head;
 	if (orphaned) {
 		try {
-			ahead = Number(git(['rev-list', '--count', w.head, '--not', '--branches', '--tags', '--remotes'], c.primary));
-			if (!Number.isInteger(ahead)) unmeasured = 'git rev-list answered something that is not a count';
+			const out = String(git(['rev-list', '--count', w.head, '--not', '--branches', '--tags', '--remotes'], c.primary) ?? '').trim();
+			if (/^\d+$/.test(out)) ahead = Number(out);
+			else unmeasured = out ? `git rev-list answered "${out}", which is not a count` : 'git rev-list answered nothing';
 		} catch (e) { unmeasured = String(e.message ?? e).split('\n')[0]; }
 	}
 	if (!force) {

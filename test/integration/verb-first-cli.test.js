@@ -338,6 +338,19 @@ describe('system verbs — the SAME verbs, on the entities the compiler material
 			assert.match(r.stderr, replacement, `dt ${old} did not carry its replacement`);
 		}
 	});
+
+	// ⚠ THE OTHER HALF OF THE COLLISION, and without it the rename is only half pinned. `commands`
+	// was one word for two things: the read verb AND the system ENTITY. Retiring the verb is
+	// worthless if the entity went with it — so this asserts the noun still answers, on the same
+	// spelling it always had, beside the refusal that says where the verb went.
+	test('`commands` survives as the ENTITY the retired verb collided with', () => {
+		const ws = base();
+		const l = ws.dt('list', 'commands');
+		assert.equal(l.code, 0, `dt list commands broke with the verb:\n${l.stderr}`);
+		const j = ws.dt('list', 'commands', '--json');
+		assert.equal(j.code, 0, j.stderr);
+		assert.ok(Array.isArray(JSON.parse(j.stdout)), 'dt list commands --json must answer a list');
+	});
 });
 
 describe('the verb set is closed', () => {

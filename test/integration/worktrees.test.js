@@ -308,11 +308,19 @@ describe('worktrees are an observed entity', () => {
 	// destructive removal went through at exit 0. That is the exact loss the guard exists to
 	// prevent, reached by the one path nobody tests: the measurement not working.
 	//
+	// ⚠ AND "FAILED" HAS THREE SHAPES, not one — a throw is only the loudest. The two quiet ones
+	// both used to pass the check and both read as ZERO: a non-numeric answer (`Number('x')` is NaN,
+	// which is falsy) and an EMPTY answer (`Number('')` is 0, and `Number.isInteger(0)` is true, so
+	// even an integer check waves it through). All three are one question — "did the measurement
+	// actually produce a count?" — so all three are asserted here against one raw-string gate.
+	//
 	// The trigger is practically unreachable through the CLI, so the failure is INJECTED —
 	// `removeWorktree` takes its git runner as its last argument, and only the reachability call is
 	// broken; everything else is real git, so the fixture is a real detached worktree holding a real
 	// commit. `findWorktree` runs on the default git by construction, which is why this needs one.
-	test('rm refuses when the reachability measurement itself FAILS, rather than reading it as safe', () => {
+	// And the runner is a PUBLIC parameter, so the shipped `defaultGit` is not the only caller that
+	// has to be survived.
+	test('rm refuses when the reachability measurement itself fails — thrown, non-numeric or EMPTY', () => {
 		const ws = workspace();
 		commitHarness(ws.root);
 		const r = dt(ws.root, 'add', 'worktrees', '--name', 'unmeasured', '--temp');
@@ -324,21 +332,32 @@ describe('worktrees are an observed entity', () => {
 		const head = git(dir, ['rev-parse', 'HEAD']).slice(0, 7);
 
 		// real git for everything except the one measurement the refusal turns on
-		const brokenGit = (args, cwd) => {
-			if (args[0] === 'rev-list' && args.includes('--branches')) throw new Error('injected: rev-list is unavailable');
+		const measuresAs = (answer) => (args, cwd) => {
+			if (args[0] === 'rev-list' && args.includes('--branches')) {
+				if (answer instanceof Error) throw answer;
+				return answer;
+			}
 			return defaultGit(args, cwd);
 		};
 		const wsObj = findWorkspace(ws.root);
-		assert.throws(
-			() => removeWorktree(wsObj, dir, {}, brokenGit),
-			(e) => {
-				assert.match(e.message, /could not be measured/, e.message);
-				assert.match(e.message, new RegExp(head), 'the sha must be named — no branch does');
-				assert.match(e.message, /--force/, 'the override must be named');
-				return true;
-			},
-		);
-		assert.ok(fs.existsSync(dir), 'THE COMMITS WERE ORPHANED on an unmeasured guard');
+		const shapes = {
+			thrown: measuresAs(new Error('injected: rev-list is unavailable')),
+			'non-numeric': measuresAs('not-a-number'),
+			empty: measuresAs(''),
+		};
+		for (const [shape, brokenGit] of Object.entries(shapes)) {
+			assert.throws(
+				() => removeWorktree(wsObj, dir, {}, brokenGit),
+				(e) => {
+					assert.match(e.message, /could not be measured/, `${shape}: ${e.message}`);
+					assert.match(e.message, new RegExp(head), `${shape}: the sha must be named — no branch does`);
+					assert.match(e.message, /--force/, `${shape}: the override must be named`);
+					return true;
+				},
+				`${shape}: the measurement read as SAFE and the commits were orphaned`,
+			);
+			assert.ok(fs.existsSync(dir), `${shape}: THE COMMITS WERE ORPHANED on an unmeasured guard`);
+		}
 
 		// ⚠ AND --force MUST STILL WORK. A guard that fails closed on a broken measurement would be
 		// a worktree nobody can ever remove if the documented override went with it.
@@ -347,7 +366,7 @@ describe('worktrees are an observed entity', () => {
 		const said = [];
 		const log = console.log;
 		console.log = (...a) => said.push(a.join(' '));
-		try { assert.equal(removeWorktree(wsObj, dir, { force: true }, brokenGit), 0); }
+		try { assert.equal(removeWorktree(wsObj, dir, { force: true }, shapes.empty), 0); }
 		finally { console.log = log; }
 		assert.match(said.join('\n'), /removed worktree unmeasured/);
 		assert.ok(!fs.existsSync(dir));
