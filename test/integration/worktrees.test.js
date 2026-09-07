@@ -397,6 +397,19 @@ describe('dt add worktrees --hook takes its name from STDIN', () => {
 		assert.equal(git(dir, ['rev-parse', '--abbrev-ref', 'HEAD']), 'worktree-p');
 	});
 
+	// ⚠ `--json` WAS IN THE FLAG TABLE AND READ BY NEITHER FORM (found reviewing the hook work): it
+	// parsed, it was accepted, and both forms printed a bare path at exit 0. A creation hook that
+	// asked for data got a line of text and no error.
+	test('--json answers with the path as ONE object, and nothing else on stdout', () => {
+		const ws = workspace();
+		const r = dtStdin(ws.root, JSON.stringify({ worktree_name: 'j' }), 'add', 'worktrees', '--hook', '--json');
+		assert.equal(r.code, 0, r.stderr);
+		assert.deepEqual(JSON.parse(r.stdout), { path: path.join(ws.root, '.worktrees', 'j') });
+		const plain = dt(ws.root, 'add', 'worktrees', '--name', 'k', '--json');
+		assert.equal(plain.code, 0, plain.stderr);
+		assert.deepEqual(JSON.parse(plain.stdout), { path: path.join(ws.root, '.worktrees', 'k') });
+	});
+
 	test('the bare `name` spelling works too', () => {
 		const ws = workspace();
 		const r = dtStdin(ws.root, JSON.stringify({ name: 'q' }), 'add', 'worktrees', '--hook');

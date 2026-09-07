@@ -191,7 +191,7 @@ export function resolveNpm(execPath = process.execPath, env = process.env) {
  *  `env: node: No such file or directory` — the interpreter lookup, one level below the one the
  *  shim fixes. A declared `postinstall` has exactly the same problem for exactly the same reason,
  *  so both steps are handed the same environment. */
-const childEnv = () => ({ ...process.env, PATH: [path.dirname(process.execPath), process.env.PATH ?? ''].filter(Boolean).join(path.delimiter) });
+export const childEnv = () => ({ ...process.env, PATH: [path.dirname(process.execPath), process.env.PATH ?? ''].filter(Boolean).join(path.delimiter) });
 
 // One executor per step id, keyed by the id's kind. None decides ANYTHING — whether a step runs at
 // all was settled by `planInstall`. `stdio` is the caller's, so a `--json` run can send a
@@ -422,7 +422,7 @@ export function listWorktrees(ws, git = defaultGit) {
  *  sandboxes may share a name — their random holders keep the paths distinct, which is the whole
  *  point of having one — and silently picking one of them is how a removal lands on the wrong
  *  sandbox and takes work with it. */
-function findWorktree(ws, ref) {
+export function findWorktree(ws, ref) {
 	if (!ref) return null;
 	const rows = listWorktrees(ws);
 	const byPath = rows.find((w) => real(w.path) === real(path.resolve(ws.root, ref)));
@@ -496,10 +496,17 @@ export function createWorktree(ws, { name, dir, base = 'HEAD', temp = false, qui
 	return target;
 }
 
-/** `dt add worktrees --name <name>`. Contract: the PATH is the last line, and the code is 0. */
+/** `dt add worktrees --name <name>`. Contract: the PATH is the last line, and the code is 0.
+ *
+ *  ⚠ `--json` IS HONOURED HERE OR NOWHERE. The flag was in the verb's table and read by neither
+ *  form, so `dt add worktrees --name x --json` printed a bare path at exit 0 — a flag accepted and
+ *  dropped, which is the class this file's own comments call a silent wrong answer. Under it stdout
+ *  carries ONE object and nothing else, so the install inside runs quiet: its compile transcript
+ *  would otherwise be spliced in ahead of the payload. */
 export function addWorktree(ws, opts, git = defaultGit) {
-	const target = createWorktree(ws, opts, git);
-	console.log(target); // LAST line, by contract: a creation hook echoes it
+	const json = !!opts.json;
+	const target = createWorktree(ws, { ...opts, quiet: json }, git);
+	console.log(json ? JSON.stringify({ path: target }) : target); // LAST line, by contract: a creation hook echoes it
 	return 0;
 }
 
@@ -621,7 +628,7 @@ export function worktreeCommand(ws, verb, target, flags = {}) {
 			// under `.claude` sits inside compile's empty-directory sweep — so the primary's next
 			// compile would walk a LIVE worktree and delete its empty folders. Claude's own placement
 			// logic is replaced by this hook, so the path printed last is the path it then uses.
-			if (!flags.hook) return addWorktree(ws, { name: one('name'), dir: one('path'), base: one('base'), temp: !!flags.temp });
+			if (!flags.hook) return addWorktree(ws, { name: one('name'), dir: one('path'), base: one('base'), temp: !!flags.temp, json });
 			// ⚠ AND IT IS A FORM, so it refuses the other form's vocabulary itself — the same policy
 			// `dt install`'s three forms follow, for the same measured reason. The flag table can
 			// only say which flags the VERB has; it cannot know that `--temp` is meaningless once
@@ -635,7 +642,7 @@ export function worktreeCommand(ws, verb, target, flags = {}) {
 			}
 			const input = readHookInput(readStdin());
 			if (!input.name) throw new Error(`hook input carries no worktree_name — keys received: ${Object.keys(input.raw).join(', ')}`);
-			return addWorktree(ws, { name: input.name, dir: path.join('.worktrees', input.name) });
+			return addWorktree(ws, { name: input.name, dir: path.join('.worktrees', input.name), json });
 		}
 		case 'rm': return removeWorktree(ws, needId(), { force: !!flags.force });
 		default: throw new Error(`dt ${verb} does not apply to worktrees — they take list · get · add · rm`);

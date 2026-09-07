@@ -15,6 +15,8 @@
 // time, so a reworded refusal shows up as a failing test rather than as a support question.
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { LAND_LOCK, MANAGED_FILES, isManaged, classifyConflict, groupByCollection, planLand } from '../../src/land.js';
 import { BEGIN, END } from '../../src/harnesses.js';
 
@@ -63,10 +65,21 @@ describe('classifyConflict — a generated block is not the operator\'s prose', 
 		assert.equal(isManaged('CLAUDE.md'), true);
 	});
 
-	test('GEMINI.md and AGENTS.md are managed by basename; every other root file is not', () => {
+	test('every file in MANAGED_FILES is managed by its exact root path; every other root file is not', () => {
 		const inside = managed('be brief.', hunk('- a', '- b'));
 		for (const f of MANAGED_FILES) assert.equal(classifyConflict(f, inside, markers), 'managed-block', f);
 		assert.equal(classifyConflict('README.md', inside, markers), 'other', 'README.md carries no managed block, whatever it contains');
+	});
+
+	// ⚠ THE LIST IS A SECOND HAND-ENUMERATION of what `harnesses.js` writes a block into, and the two
+	// drift silently in the expensive direction: a harness that grows a fourth block file gets its
+	// conflicts classified `other` (an abort — loud, recoverable), while a file dropped from
+	// harnesses.js and left here would be resolved `--ours` as if it were generated. So the source is
+	// read rather than the memory of it.
+	test('MANAGED_FILES is exactly the set of root files harnesses.js writes a block into', () => {
+		const src = fs.readFileSync(fileURLToPath(new URL('../../src/harnesses.js', import.meta.url)), 'utf8');
+		const written = [...src.matchAll(/^\tblock\('([^']+)'/gm)].map((m) => m[1]);
+		assert.deepEqual([...new Set(written)].sort(), [...MANAGED_FILES].sort());
 	});
 
 	test('a record is a records conflict — the row that aborts the whole landing', () => {

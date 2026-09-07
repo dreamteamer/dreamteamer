@@ -19,6 +19,7 @@ import { collectionCommand, emit, relationsCommand, parseArgs, refuseUnknownFlag
 import { init, installClone, update, listRepos } from './init.js';
 import { installCommand, describeCheckout, listWorktrees, worktreeCommand } from './checkout.js';
 import { proveCommand } from './prove.js';
+import { landCommand } from './land.js';
 import { deriveEvents } from './events.js';
 import { commitPending } from './commit.js';
 import { Store } from './store.js';
@@ -183,6 +184,18 @@ workspace verbs:
   list        worktrees | get worktrees/<n> | rm worktrees/<n> [--force]
               observed from \`git worktree list\`, never stored. rm refuses a worktree holding
               dirty records or commits not on the primary branch — neither is visible from here
+  land        worktrees/<name|path> [--keep] [--dry-run] [--branch <n>] [--json]
+              land a worktree's commits onto the primary branch — the one MOVEMENT verb. It refuses
+              while the primary holds pending record writes, rebases a COPY of the branch under one
+              engine-owned lock, resolves ONLY the generated harness block, fast-forwards, recompiles
+              the primary, then removes the worktree and its branch. A conflict in a record aborts
+              and leaves every tree exactly as it was
+              [--keep] keep the worktree, reset onto what landed
+              [--branch <n>] give a DETACHED worktree the branch worktree-<n> first
+              [--dry-run] print the plan and change nothing
+  land        --hook [--dry-run] [--json]
+              read a WorktreeRemove payload on stdin and report what that worktree still holds.
+              ALWAYS a dry run — the engine never lands while a harness is deleting the tree
   update      pull git_modules clones forward (ff-only on the lockfile ref), rebuild,
               then compile; [<name>] updates just one. dirty clones are skipped
   compile     materialize modules + workspace sources into .dreamteamer (+ harness adapters)
@@ -245,6 +258,8 @@ export const WORKSPACE_FLAGS = {
 	// the UNION of every form's flags — the outer typo gate. Which flags each FORM takes is refused
 	// inside `proveCommand`, where the target has been resolved against the compiled proofs.
 	prove: ['all', 'kind', 'record', 'restart', 'json', 'keep', 'here', 'external', 'strict'],
+	// same shape: the union of both forms, with `--hook`'s vocabulary refused in the arm below
+	land: ['keep', 'dry-run', 'branch', 'hook', 'json'],
 };
 
 export function run(argv) {
@@ -338,6 +353,21 @@ export function run(argv) {
 			case 'prove':
 				warnIfStale(ws.root);
 				process.exit(proveCommand(ws, rest).code);
+			// THE ONE MOVEMENT VERB (decision 309). Two forms and, like `install`'s, each refuses the
+			// other's vocabulary here: the flag table can only say which flags `land` HAS, and a
+			// `--hook --keep` accepted-and-dropped would promise a worktree kept by a form that is
+			// always a dry run. A refusal or a conflict throws or returns 1; 2 stays what it is
+			// everywhere else — "you typed a verb that is gone".
+			case 'land': {
+				const given = rest.filter((a) => a.startsWith('--'));
+				const stray = given.filter((f) => !(given.includes('--hook') ? ['--hook', '--dry-run', '--json'] : ['--keep', '--dry-run', '--branch', '--json']).includes(f));
+				if (stray.length) {
+					const form = given.includes('--hook') ? 'dt land --hook' : 'dt land worktrees/<name>';
+					throw new Error(`${stray.join(' ')} ${stray.length > 1 ? 'are not flags' : 'is not a flag'} of \`${form}\` — that form takes ${(given.includes('--hook') ? ['--hook', '--dry-run', '--json'] : ['--keep', '--dry-run', '--branch', '--json']).join(' ')}`);
+				}
+				warnIfStale(ws.root);
+				process.exit(landCommand(ws, rest));
+			}
 			case 'update': {
 				const code = update(ws, rest.find((a) => !a.startsWith('--')));
 				compile(ws); // pulled modules may carry new sources — prints its own summary
