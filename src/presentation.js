@@ -152,6 +152,33 @@ function titleTemplateOf(prop, descriptors) {
 	return typeof first === 'string' && first.length > 0 && inherited.every((v) => v === first) ? first : undefined;
 }
 
+// The keys a descriptor may attach to an enum VALUE through `x-choices` (0.21.0), beyond the label.
+// Copied BY NAME rather than spread: a descriptor is authored data, and spreading whatever it
+// happens to carry would let a workspace inject arbitrary keys into a contract every surface reads.
+// One line is the whole vocabulary, which is also what makes it readable from the consuming side.
+//
+// `icon` is a codicon name OR a reference to a record of a `codec: file` collection — the surface
+// decides which by whether it resolves as a reference, so no second keyword and no set of known
+// collection names. `color`/`background` are theme colour ids for the same reason a hex is not one:
+// a hex is authored against one theme and wrong in the other.
+const CHOICE_KEYS = ['description', 'icon', 'color', 'background'];
+
+/**
+ * One `choices` row: `{ text, value }` as it has always been, plus whatever `x-choices` declared.
+ *
+ * ⚠ PURELY ADDITIVE. A value with no entry projects byte-identically to what it projected before
+ * this existed, which is the only reason not one of the descriptors already in the wild had to
+ * change. `label` arrives as `text` — the key every surface already reads — so a workspace can
+ * relabel a value without touching the value, and a stored record never moves.
+ */
+function choiceRow(v, entry) {
+	const row = { text: String(entry?.label ?? v), value: v };
+	if (entry && typeof entry === 'object' && !Array.isArray(entry)) {
+		for (const k of CHOICE_KEYS) if (typeof entry[k] === 'string' && entry[k].length > 0) row[k] = entry[k];
+	}
+	return row;
+}
+
 function fieldRow(d, name, prop, isRequired, descriptors) {
 	const meta = { collection: d.name, field: name };
 	if (isRequired) meta.required = true;
@@ -233,7 +260,7 @@ function fieldRow(d, name, prop, isRequired, descriptors) {
 	}
 
 	if (Array.isArray(prop.enum) && prop.enum.length > 0) {
-		meta.edit_options = { choices: prop.enum.map((v) => ({ text: String(v), value: v })) };
+		meta.edit_options = { choices: prop.enum.map((v) => choiceRow(v, prop['x-choices']?.[v])) };
 	}
 	const tpl = titleTemplateOf(prop, descriptors);
 	if (typeof tpl === 'string' && tpl.length > 0) meta.view_options = { ...meta.view_options, template: tpl };
