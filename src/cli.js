@@ -407,6 +407,17 @@ export function run(argv) {
 					if (sh) line += ` — shadows ${CHANNEL_LABEL[sh.loser]} copy`;
 					console.log(line);
 				}
+				// ⚠ WHICH CHECKOUT AM I. Everything `install` decides turns on this, and a linked
+				// worktree is indistinguishable from the primary by eye — so it is stated, with the
+				// count of sibling worktrees holding records and commits that are invisible from
+				// here. Wrapped like every other block below: `status` is the command run when
+				// things are already wrong, and it must still print.
+				try {
+					const co = describeCheckout(ws.root);
+					console.log(`checkout: ${co.kind === 'primary' ? 'primary' : `linked worktree of ${co.primary}`}`);
+					const wts = listWorktrees(ws).filter((w) => !w.primary);
+					console.log(`worktrees: ${wts.length} · ${wts.filter((w) => w.dirtyRecords).length} with dirty records · ${wts.filter((w) => w.ahead).length} ahead`);
+				} catch { /* not a git checkout — nothing to report about worktrees */ }
 				console.log(`entries:  ${Object.keys(s.manifest.entries).length}`);
 				// repos materialize LAZILY, so presence is REPORTED here rather than stored on the
 				// record. Wrapped: an older workspace may predate the repos descriptor, and status
