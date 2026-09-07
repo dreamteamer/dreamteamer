@@ -10,13 +10,48 @@
 // output names. So compile refuses a proof it cannot interpret, on exactly the rule the ui-view and
 // command-binding filter blocks already follow: the engine validates a value iff the engine
 // INTERPRETS it.
+import fs from 'node:fs';
 import path from 'node:path';
 import { load } from './yaml.js';
-import { unknownOperators } from './filter.js';
+import { matchesFilter, unknownOperators, looseEq } from './filter.js';
+import { sortRows } from './temporal.js';
+import { parseEnvValues } from './env-vars.js';
+import { parseRef } from './namespace.js';
 import { refTargetsOf } from './ref.js';
+import { recordResolver } from './record-commands.js';
+import { RUNTIME_DIR, runtimeDir } from './runtime.js';
 
 export const PROOF_KINDS = ['gate', 'live'];
 export const PROOF_MODES = ['readonly', 'writes'];
+
+/**
+ * The verdict of a proof, as a process exit code — a CONTRACT, because the point of `dt prove` is
+ * that a script can branch on it without parsing prose.
+ *
+ * `USAGE` is here for completeness and is deliberately NOT reachable from any proof STATE: "you
+ * typed something that is gone" is decided before a proof is selected, and every retired verb
+ * already answers 2. `exitFor` is the state → code map.
+ */
+export const EXIT = { PASS: 0, FAIL: 1, USAGE: 2, UNAVAILABLE: 3, NO_FIXTURE: 4, PENDING: 5, VACUOUS: 6 };
+
+/** How many rows one proof's ledger keeps. Per proof, per machine — a ledger answers "what happened
+ *  recently", and an unbounded one is a file nobody ever reads the end of. */
+export const LEDGER_CAP = 50;
+
+/**
+ * ⚠ THE DOT IS LOAD-BEARING, and it is the design bug the spike found. `.dreamteamer/proofs/` is a
+ * KIND folder now, and compile wipes every kind folder on every run (`compile.js`, the `rmSync` loop
+ * over `[...KINDS, ...DERIVED_KINDS]`) — so a ledger written there is destroyed by the next compile,
+ * silently, with no error. A dot-prefixed sibling is UNNAMEABLE by that loop (it matches bare KINDS
+ * entries) and invisible to every source enumeration (they all skip dotfiles), and it is already
+ * gitignored, because `.dreamteamer/` is the first block of the ignore file `init` writes.
+ *
+ * The accepted cost, stated rather than discovered: `rm -rf .dreamteamer && dt compile` — the folk
+ * recovery for a stale runtime — takes the ledger with it. No engine code does that, and the
+ * consequence is RE-PROVING, not data loss: the ledger is per-machine evidence, and what a proof
+ * asserts lives in the committed source.
+ */
+export const LEDGER_DIR = '.proofs';
 
 /**
  * EVERY artifact reference this workspace compiles, per kind — `skills/<id>`, `commands/<id>`,
@@ -361,8 +396,296 @@ function whereErrors(where, collection, descriptors, errors = []) {
 function enumErrors(errors, field, prop, values) {
 	const options = prop?.enum ?? prop?.items?.enum;
 	if (!Array.isArray(options) || !options.length) return;
+	// ⚠ `looseEq`, NOT `includes`. filter.js compares an operand to a field value with
+	// `String(v) === String(o)`, so on a numeric enum the YAML scalar `5` and the string `'5'` are
+	// ONE filter at run time — and a strict `includes` here refused a proof that works. A false
+	// refusal is worse than the silent pass this check exists to prevent: the author deletes a
+	// correct line to make compile go green. The option plays the record-value role, as at run time.
 	for (const v of values) {
-		if (v == null || options.includes(v)) continue;
+		if (v == null || options.some((o) => looseEq(o, v))) continue;
 		errors.push(`where "${field}" compares "${v}", which is not one of ${field}'s options [${options.join(', ')}]`);
 	}
+}
+
+// ── the pure core ───────────────────────────────────────────────────────────────────────────────
+//
+// Four functions with no fs, no store and no subprocess between them: substitution, the ledger's
+// cap, the printable verdict, and the state → exit-code map. They are separable from the runner
+// because each one is a place a proof can be MISREAD, and a misread proof reports a verdict about
+// something other than what its author wrote.
+
+/**
+ * Render a proof's `{record}` and `{record.<field>}` braces against the picked record.
+ *
+ * ⚠ `${…}` IS LEFT ALONE. That bracket belongs to the resolver (`${env:FILES_FOLDER}` in a `path:`
+ * expectation, rendered per machine) and to the shell (`${HOME}` in a `run:` step). A `{…}` matcher
+ * that did not exempt a `$`-prefixed brace would throw on both, on proofs that are correct.
+ *
+ * Everything else in braces THROWS rather than rendering. An unbound `{recrod.name}` would otherwise
+ * reach the shell as the literal text and a missing field as the string "undefined" — the same
+ * silent-wrong class the compile-time validator exists to close, one layer down.
+ *
+ * @param {string} text
+ * @param {{record?: {ref: string, fields: object}}} ctx
+ */
+export function substitute(text, ctx) {
+	if (typeof text !== 'string') return text;
+	return text.replace(/(\$?)\{([^{}]*)\}/g, (whole, dollar, name) => {
+		if (dollar) return whole;
+		const rec = ctx?.record;
+		const field = /^record\.(.+)$/.exec(name)?.[1];
+		if (name !== 'record' && !field) throw new Error(`unknown substitution "{${name}}" — a proof may use {record} and {record.<field>}`);
+		if (!rec) throw new Error(`{${name}} has nothing to bind to — this proof declares no given`);
+		if (!field) return String(rec.ref);
+		const value = rec.fields?.[field];
+		if (value === undefined) throw new Error(`{${name}} — ${rec.ref} has no field "${field}"`);
+		return String(value);
+	});
+}
+
+/**
+ * `rows` plus `row`, trimmed to the LAST `cap` entries — a new array, never a mutation.
+ *
+ * The oldest row is the one that leaves. A ledger is read for what happened recently, so trimming
+ * from the other end would make the cap delete exactly the rows anyone wants.
+ */
+export function applyCap(rows, row, cap = LEDGER_CAP) {
+	return [...rows, row].slice(-cap);
+}
+
+/** The closed glyph set (R6). An operator with no glyph prints its own NAME: the filter operator set
+ *  is open enough (`_regex`, `_starts_with`, `_between`) that a glyph per member would be a second
+ *  vocabulary to keep in sync with filter.js, and a symbol nobody can look up is worse than a name. */
+const GLYPH = {
+	_eq: '=', _neq: '≠', _gte: '≥', _gt: '>', _lte: '≤', _lt: '<',
+	_in: '∈', _nin: '∉', _nempty: 'nonempty', _empty: 'empty', _contains: 'contains',
+};
+
+/** A count is a NUMBER OF RECORDS and a delta is a DIFFERENCE between two of them; `count 1 = 1`
+ *  and `count +1 = +1` say different things, and only the second says which number is a difference. */
+const signed = (n) => (Number(n) >= 0 ? `+${Number(n)}` : String(Number(n)));
+
+/** The ACTUAL value: bare when it is a number, JSON-quoted otherwise — a string is where a trailing
+ *  space or an empty value hides, and `status  = done` names neither. */
+function shown(v) {
+	if (typeof v === 'number') return String(v);
+	const json = JSON.stringify(v);
+	return json === undefined ? String(v) : json; // `undefined` has no JSON form
+}
+
+/** The WANTED value, bare: an array renders as the list a reader would type back. */
+const wanted = (v) => (Array.isArray(v) ? `[${v.join(', ')}]` : String(v));
+
+/**
+ * One printable line for one expectation — `count 1 ≥ 1 ✔` · `status "open" ∈ [done] ✖`.
+ *
+ * ⚠ THE ACTUAL VALUE SITS BESIDE THE WANTED ONE, ALWAYS. A line that printed only what was wanted
+ * ("expected status done ✖") sends the reader to re-run the proof by hand to learn what it actually
+ * was — which is the whole cost `prove` exists to remove.
+ *
+ * `expectation` is a ONE-ENTRY `{ <field>: <condition> }` map: for a collection count that field is
+ * literally `count`, and for a `record:` expectation it is the field the `where` names. A bare
+ * operator map (`{ _delta: 1 }`) is a count condition, because that is the only place one appears.
+ *
+ * The mark comes from `matchesFilter` itself, so the judgement and the rendering can never disagree
+ * about whether the line passed. `_delta` is the exception: no filter has it, so it is compared here.
+ */
+export function verdictLine(expectation, actual) {
+	const entries = Object.entries(expectation ?? {});
+	const bare = entries.length > 0 && entries.every(([k]) => k.startsWith('_'));
+	const [field, cond] = bare ? ['count', expectation] : (entries[0] ?? ['count', null]);
+	const ops = cond !== null && typeof cond === 'object' && !Array.isArray(cond) ? cond : { _eq: cond };
+	const pass = '_delta' in ops ? Number(actual) === Number(ops._delta) : matchesFilter({ [field]: actual }, { [field]: ops }, null);
+	const mark = pass ? '✔' : '✖';
+	if ('_delta' in ops) return `${field} ${signed(actual)} = ${signed(ops._delta)} ${mark}`;
+	const want = Object.entries(ops).map(([op, o]) => `${GLYPH[op] ?? op} ${wanted(o)}`).join(' and ');
+	return `${field} ${shown(actual)} ${want} ${mark}`;
+}
+
+/** State → exit code. Six states, six codes, and an unknown one THROWS rather than defaulting to a
+ *  plausible number — a wrong exit code is a lie a script cannot see through. */
+export function exitFor(state) {
+	const code = { PASS: EXIT.PASS, FAIL: EXIT.FAIL, UNAVAILABLE: EXIT.UNAVAILABLE, 'NO-FIXTURE': EXIT.NO_FIXTURE, PENDING: EXIT.PENDING, VACUOUS: EXIT.VACUOUS }[state];
+	if (code === undefined) throw new Error(`unknown proof state "${state}" — one of PASS, FAIL, UNAVAILABLE, NO-FIXTURE, PENDING, VACUOUS`);
+	return code;
+}
+
+// ── store-bound: counting, picking, and what a proof needs from the machine ─────────────────────
+
+/**
+ * How many records of `collection` a filter keeps — `readAll` + `matchesFilter`, the pattern every
+ * existing caller uses (there is no `store.count`, and one directory walk with lazy parsing is what
+ * `list` does). The row handed to the filter is `{ ...fields, id }`, exactly as `list` builds it, so
+ * `{ id: { _eq: 'a' } }` is a filter a proof may write.
+ *
+ * ⚠ A `_delta` AFTER-COUNT NEEDS A FRESH `Store`. `readAll` walks `ids()`, which is memoized on
+ * (git HEAD, collection dir mtime) with a documented gap — a deep direct edit that adds a record
+ * without moving either can serve one stale read. A proof's steps run shell commands that write
+ * records and do NOT commit (`auto-commit` is off), so the same Store instance can answer the
+ * after-count off the index it built before the steps ran, and the delta reads as 0 with nothing
+ * wrong anywhere. The RUNNER constructs a new Store for the after-pass; this function cannot know
+ * which side of the steps it is on.
+ *
+ * `resolve` is the caller's — `recordResolver(store)` when the filter hops a reference, `null` when
+ * it does not. A hop with no resolver NARROWS, which is filter.js's documented fail-closed posture.
+ */
+export function countMatching(store, collection, where, resolve) {
+	let n = 0;
+	for (const { id, fields } of store.readAll(collection)) {
+		if (where && !matchesFilter({ ...fields, id }, where, resolve)) continue;
+		n++;
+	}
+	return n;
+}
+
+/**
+ * The ONE record a live proof runs against — `{ ref, fields }`, or null when there is none.
+ *
+ * `null` is a first-class answer, not an error: a `given` that matches nothing is NO-FIXTURE
+ * (exit 4), which says the proof did not run rather than that the artifact is broken.
+ *
+ * `pick: latest` is the head of the matching rows ordered by the collection's own `sort_field`,
+ * DESCENDING, through the same `sortRows` every `?sort=` and `--sort` goes through — so a date-time
+ * orders by INSTANT across mixed offsets rather than by string. `pick: <id>` reads that id and
+ * returns null when it is absent or does not match the `where`.
+ *
+ * A fixture-backed `given` needs nothing special here: the runner hands this function the SANDBOX's
+ * store, where the fixture's records are the collection, and `pick: <id>` names one of them.
+ *
+ * `override` is `--record <collection>/<id>`, and it REPLACES the selection rather than filtering
+ * through it: an operator naming a record is saying which one to use, and re-testing it against the
+ * `where` would answer NO-FIXTURE for the record they just typed.
+ */
+export function pickFixture(store, given, override) {
+	const collection = String(given?.collection ?? '');
+	if (override) {
+		const parsed = parseRef(String(override), store.namespaces);
+		if (!parsed) throw new Error(`--record takes a <collection>/<id> reference and got "${override}"`);
+		if (collection && parsed.collection !== collection) throw new Error(`--record ${override} is not a record of ${collection}, which is what this proof's given picks from`);
+		return readOne(store, parsed.collection, parsed.id);
+	}
+	const where = given?.where && typeof given.where === 'object' ? given.where : null;
+	const resolve = where ? recordResolver(store) : null;
+	if (given?.pick !== 'latest') {
+		const picked = readOne(store, collection, String(given?.pick ?? ''));
+		if (!picked || !where) return picked;
+		return matchesFilter(picked.fields, where, resolve) ? picked : null;
+	}
+	const field = store.descriptor(collection).sort_field;
+	// compile refuses `pick: latest` on a collection with no sort_field; a runtime compiled by an
+	// older engine could still carry one, and picking an arbitrary record is the failure to avoid.
+	if (!field) throw new Error(`pick: latest needs a sort_field on ${collection} — name the record (pick: <id>) or use a fixture`);
+	const rows = [];
+	for (const { id, fields } of store.readAll(collection)) {
+		const row = { ...fields, id };
+		if (!where || matchesFilter(row, where, resolve)) rows.push(row);
+	}
+	sortRows(rows, `-${field}`);
+	return rows.length ? { ref: `${collection}/${rows[0].id}`, fields: rows[0] } : null;
+}
+
+/** One record as `{ ref, fields }`, or null when it is not there. The id travels IN the fields, the
+ *  same row shape the filter sees, so `{record.id}` and a filter on `id` cannot disagree. */
+function readOne(store, collection, id) {
+	try {
+		const { fields } = store.read(collection, id);
+		return { ref: `${collection}/${id}`, fields: { ...fields, id } };
+	} catch { return null; } // no such record — NO-FIXTURE, not a crash
+}
+
+/**
+ * What this proof needs from THIS machine — `{ ok, missing: [{ kind, name, fix }] }`.
+ *
+ * ⚠ NO ENV VALUE IS EVER READ, COMPARED OR PRINTED. `.env` is desktop-only and its values are
+ * credentials; the question is whether the machine has the key CONFIGURED, which the key name
+ * answers. `parseEnvValues` is used for its names only, and an empty value counts as declared —
+ * judging a value would mean holding one.
+ *
+ * `bin` walks `PATH` with `accessSync(X_OK)` rather than shelling out to `command -v`: a proof's
+ * requirement check must not itself run a shell.
+ */
+export function resolveRequires(ws, requires) {
+	const missing = [];
+	const names = envKeys(ws.root);
+	for (const name of requires?.env ?? []) {
+		if (process.env[String(name)] !== undefined || names.has(String(name))) continue;
+		missing.push({ kind: 'env', name: String(name), fix: `${name} is not set — add it to .env` });
+	}
+	for (const name of requires?.bin ?? []) {
+		if (onPath(String(name))) continue;
+		missing.push({ kind: 'bin', name: String(name), fix: `${name} is not on PATH` });
+	}
+	return { ok: !missing.length, missing };
+}
+
+/** The KEY NAMES this machine's `.env` declares. Absent file → no names, which is the ordinary state
+ *  in a cloud session and not an error. */
+function envKeys(root) {
+	try { return new Set(parseEnvValues(fs.readFileSync(path.join(root, '.env'), 'utf8')).keys()); }
+	catch { return new Set(); }
+}
+
+function onPath(name) {
+	for (const dir of (process.env.PATH ?? '').split(path.delimiter)) {
+		if (!dir) continue;
+		try { fs.accessSync(path.join(dir, name), fs.constants.X_OK); return true; } catch { /* next dir */ }
+	}
+	return false;
+}
+
+// ── the ledger ──────────────────────────────────────────────────────────────────────────────────
+//
+// One append-only JSONL file per proof, capped, per machine, gitignored. It answers "when did this
+// last pass, on this machine, and against which record" — and it is what makes a `perform` step
+// resumable: the PENDING row is where the run stopped.
+
+/** `<root>/.dreamteamer/.proofs/<proof-id>.jsonl` — see LEDGER_DIR for why the dot is load-bearing. */
+export function ledgerPath(root, proofId) {
+	return path.join(runtimeDir(root), LEDGER_DIR, `${proofId}.jsonl`);
+}
+
+/**
+ * Every row of one proof's ledger, oldest first. A missing file is `[]`, not an error — a proof that
+ * has never run has no history, which is a fact and not a failure.
+ *
+ * ⚠ A MALFORMED LINE IS SKIPPED WITH A WARNING, never thrown on. This file is per-machine state
+ * under a build directory: a killed run or a hand edit can leave a partial line, and refusing to
+ * read the ledger would make `prove` unrunnable until someone deleted evidence to get it working.
+ * The next `appendLedger` rewrites the file, so the bad line is repaired rather than accumulating.
+ */
+export function readLedger(root, proofId) {
+	let text;
+	try { text = fs.readFileSync(ledgerPath(root, proofId), 'utf8'); } catch { return []; }
+	const rows = [];
+	for (const [i, line] of text.split('\n').entries()) {
+		if (!line.trim()) continue;
+		try { rows.push(JSON.parse(line)); }
+		catch { console.warn(`⚠ ${path.join(RUNTIME_DIR, LEDGER_DIR, `${proofId}.jsonl`)}:${i + 1} is not a JSON row — skipped`); }
+	}
+	return rows;
+}
+
+/** Append one row, capped at the last LEDGER_CAP. A rewrite rather than an `appendFileSync` because
+ *  the cap has to drop the oldest row, and the rewrite is what repairs a malformed line. */
+export function appendLedger(root, proofId, row) {
+	const file = ledgerPath(root, proofId);
+	const rows = applyCap(readLedger(root, proofId), row);
+	fs.mkdirSync(path.dirname(file), { recursive: true });
+	fs.writeFileSync(file, rows.map((r) => JSON.stringify(r)).join('\n') + '\n');
+	return rows;
+}
+
+/**
+ * The PENDING row this proof stopped on for `record` (null for a gate, which pends against no
+ * record), or null.
+ *
+ * ⚠ SUPERSEDING IS WHAT MAKES A RESUME SAFE: only the LAST row for that record counts. Once the
+ * same record has a later verdict the earlier PENDING is history, and re-offering it would ask the
+ * operator to perform a step they already performed.
+ */
+export function pendingFor(root, proofId, record) {
+	const want = record ?? null;
+	const rows = readLedger(root, proofId).filter((r) => (r?.record ?? null) === want);
+	const last = rows[rows.length - 1];
+	return last?.verdict === 'PENDING' ? last : null;
 }

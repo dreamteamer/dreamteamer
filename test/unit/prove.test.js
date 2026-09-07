@@ -14,7 +14,7 @@
 // makes `pick: latest` invalid there.
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { validateProofShape, PROOF_KINDS, PROOF_MODES } from '../../src/prove.js';
+import { validateProofShape, PROOF_KINDS, PROOF_MODES, substitute, applyCap, verdictLine, exitFor, EXIT, LEDGER_CAP } from '../../src/prove.js';
 
 const descriptors = new Map([
 	['notes', {
@@ -342,5 +342,229 @@ describe('validateProofShape — the fix-round-1 rulings', () => {
 
 	test('_in still enum-checks each member of a comma string', () => {
 		only(live({ given: { collection: 'notes', where: { status: { _in: 'open,archived' } }, pick: 'a-note' } }), 'where "status" compares "archived", which is not one of status\'s options [open, done]');
+	});
+});
+
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+// Task 3 — the PURE core the runner is built out of. Everything below runs against literals: no
+// store, no fs, no subprocess, which is the whole reason these four functions are separable from
+// the runner at all.
+//
+// Every string in this block is a CONTRACT. `verdictLine` is what an operator reads to decide
+// whether a proof's verdict is believable, and a line that prints only the WANTED value ("expected
+// status done ✖") sends them to re-run the proof by hand to find out what it actually was. So the
+// actual sits beside the wanted on every line, and the glyph set is closed and pinned here.
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+
+describe('substitute — {record} and {record.<field>}, and nothing else', () => {
+	const bound = { record: { ref: 'notes/a', fields: { id: 'a', name: 'Ada', status: 'open', revision: 3 } } };
+
+	test('{record} renders the ref', () => {
+		assert.equal(substitute('dt get {record}', bound), 'dt get notes/a');
+	});
+
+	test('{record.<field>} renders the value', () => {
+		assert.equal(substitute('echo {record.name}', bound), 'echo Ada');
+	});
+
+	test('a numeric field renders bare, as its String form', () => {
+		assert.equal(substitute('r={record.revision}', bound), 'r=3');
+	});
+
+	test('several substitutions in one string are all rendered', () => {
+		assert.equal(substitute('{record} {record.status} {record.name}', bound), 'notes/a open Ada');
+	});
+
+	// ⚠ `${env:X}` is the RESOLVER's bracket, not this one — a proof's `path:` expectation is rendered
+	// per machine by `dt resolve`, and a shell step may legitimately carry `${HOME}`. A `{…}` matcher
+	// that did not exempt a `$`-prefixed brace would throw on both.
+	test('${env:X} is left untouched — that bracket belongs to the resolver', () => {
+		assert.equal(substitute('ls ${env:FILES_FOLDER}/out', bound), 'ls ${env:FILES_FOLDER}/out');
+	});
+
+	test('a $-prefixed shell brace is left untouched too', () => {
+		assert.equal(substitute('echo ${HOME}', bound), 'echo ${HOME}');
+	});
+
+	test('an unknown brace name throws, naming what a proof may use', () => {
+		assert.throws(() => substitute('echo {nope}', bound), /^Error: unknown substitution "\{nope\}" — a proof may use \{record\} and \{record\.<field>\}$/);
+	});
+
+	// A field the picked record does not carry would otherwise render as the STRING "undefined" into
+	// a shell command — the silent-wrong-command failure, one layer down from the silent-zero-rows one
+	// the validator exists to close.
+	test('a field the picked record does not carry throws, naming the field', () => {
+		assert.throws(() => substitute('echo {record.missing}', bound), /^Error: \{record\.missing\} — notes\/a has no field "missing"$/);
+	});
+
+	test('{record} with nothing bound throws rather than rendering "undefined"', () => {
+		assert.throws(() => substitute('dt get {record}', {}), /^Error: \{record\} has nothing to bind to — this proof declares no given$/);
+	});
+
+	test('a string with no braces comes back untouched', () => {
+		assert.equal(substitute('npm test', bound), 'npm test');
+	});
+});
+
+describe('applyCap — the ledger is append-only and bounded', () => {
+	const rows = (n) => Array.from({ length: n }, (_, i) => ({ i }));
+
+	test('the cap is 50', () => {
+		assert.equal(LEDGER_CAP, 50);
+	});
+
+	// ⚠ THE FIRST row is dropped and the NEW one is last: a ledger is read for "what happened
+	// recently", so trimming the newest would make the cap delete the only rows anyone wants.
+	test('50 rows plus one stays 50 — the oldest drops, the new row is last', () => {
+		const out = applyCap(rows(50), { i: 'new' });
+		assert.equal(out.length, 50);
+		assert.deepEqual(out[0], { i: 1 }, 'the FIRST row is the one dropped');
+		assert.deepEqual(out[49], { i: 'new' }, 'the appended row is LAST');
+	});
+
+	test('under the cap nothing is dropped', () => {
+		assert.deepEqual(applyCap(rows(3), { i: 'new' }), [{ i: 0 }, { i: 1 }, { i: 2 }, { i: 'new' }]);
+	});
+
+	test('it returns a NEW array and never mutates the one it was given', () => {
+		const before = rows(2);
+		const out = applyCap(before, { i: 'new' });
+		assert.equal(before.length, 2);
+		assert.notEqual(out, before);
+	});
+
+	test('an explicit cap overrides the default', () => {
+		assert.deepEqual(applyCap(rows(3), { i: 'new' }, 2), [{ i: 2 }, { i: 'new' }]);
+	});
+});
+
+describe('verdictLine — the actual value beside the wanted one, always', () => {
+	test('a satisfied count reads count <actual> ≥ <wanted> ✔', () => {
+		assert.equal(verdictLine({ count: { _gte: 1 } }, 1), 'count 1 ≥ 1 ✔');
+	});
+
+	test('an unsatisfied count prints the SAME line with ✖ — the actual is what makes it readable', () => {
+		assert.equal(verdictLine({ count: { _gte: 1 } }, 0), 'count 0 ≥ 1 ✖');
+	});
+
+	// ⚠ `_delta` is the one operator no filter has (after-minus-before is something only a proof has
+	// two sides of), and the SIGN is always printed: `count 1 = 1` and `count +1 = +1` say different
+	// things, and only the second one says which of the two numbers is a difference.
+	test('_delta prints both numbers signed', () => {
+		assert.equal(verdictLine({ count: { _delta: 1 } }, 1), 'count +1 = +1 ✔');
+	});
+
+	test('a zero delta still shows its sign', () => {
+		assert.equal(verdictLine({ count: { _delta: 0 } }, 0), 'count +0 = +0 ✔');
+	});
+
+	test('a negative delta keeps its own sign and fails against a positive want', () => {
+		assert.equal(verdictLine({ count: { _delta: 1 } }, -2), 'count -2 = +1 ✖');
+	});
+
+	test('a bare operator map is the count condition it can only be', () => {
+		assert.equal(verdictLine({ _delta: 1 }, 1), 'count +1 = +1 ✔');
+	});
+
+	// The record form: the FIELD is the key, and the actual is JSON-quoted because a string value is
+	// where a trailing space or an empty string hides.
+	test('a record-field line quotes the actual string and prints the wanted bare', () => {
+		assert.equal(verdictLine({ status: { _in: ['done'] } }, 'open'), 'status "open" ∈ [done] ✖');
+	});
+
+	test('the _eq line is the one R6 names', () => {
+		assert.equal(verdictLine({ status: { _eq: 'done' } }, 'open'), 'status "open" = done ✖');
+	});
+
+	test('the bare shorthand for _eq renders the same line', () => {
+		assert.equal(verdictLine({ status: 'done' }, 'open'), 'status "open" = done ✖');
+	});
+
+	test('every glyph in the closed set, one line each', () => {
+		assert.equal(verdictLine({ status: { _neq: 'done' } }, 'open'), 'status "open" ≠ done ✔');
+		assert.equal(verdictLine({ count: { _gt: 1 } }, 2), 'count 2 > 1 ✔');
+		assert.equal(verdictLine({ count: { _lte: 1 } }, 1), 'count 1 ≤ 1 ✔');
+		assert.equal(verdictLine({ count: { _lt: 1 } }, 0), 'count 0 < 1 ✔');
+		assert.equal(verdictLine({ status: { _nin: ['done'] } }, 'open'), 'status "open" ∉ [done] ✔');
+		assert.equal(verdictLine({ status: { _nempty: true } }, 'open'), 'status "open" nonempty true ✔');
+		assert.equal(verdictLine({ status: { _empty: true } }, ''), 'status "" empty true ✔');
+		assert.equal(verdictLine({ status: { _contains: 'pen' } }, 'open'), 'status "open" contains pen ✔');
+	});
+
+	// An operator with no glyph prints its own NAME rather than a symbol nobody can look up — the
+	// filter operator set is open enough (`_regex`, `_starts_with`, `_between`) that inventing a
+	// glyph per member would be a second vocabulary to keep in sync with filter.js.
+	test('an operator outside the glyph table prints its own name', () => {
+		assert.equal(verdictLine({ status: { _starts_with: 'op' } }, 'open'), 'status "open" _starts_with op ✔');
+	});
+
+	test('two operators on one field are both rendered', () => {
+		assert.equal(verdictLine({ count: { _gte: 1, _lte: 3 } }, 2), 'count 2 ≥ 1 and ≤ 3 ✔');
+	});
+
+	test('an absent actual prints as undefined rather than as an empty gap', () => {
+		assert.equal(verdictLine({ status: { _eq: 'done' } }, undefined), 'status undefined = done ✖');
+	});
+});
+
+describe('exitFor — the six states and their codes are a contract', () => {
+	test('the codes are the ones the CLI documents', () => {
+		assert.deepEqual(EXIT, { PASS: 0, FAIL: 1, USAGE: 2, UNAVAILABLE: 3, NO_FIXTURE: 4, PENDING: 5, VACUOUS: 6 });
+	});
+
+	test('each state maps to its code', () => {
+		assert.equal(exitFor('PASS'), 0);
+		assert.equal(exitFor('FAIL'), 1);
+		assert.equal(exitFor('UNAVAILABLE'), 3);
+		assert.equal(exitFor('NO-FIXTURE'), 4);
+		assert.equal(exitFor('PENDING'), 5);
+		assert.equal(exitFor('VACUOUS'), 6);
+	});
+
+	// 2 is USAGE and is deliberately NOT reachable from a state: "you typed something that is gone"
+	// is decided by the CLI before a proof is ever selected, and every retired verb already answers 2.
+	test('USAGE is not a proof state — no state maps to 2', () => {
+		for (const s of ['PASS', 'FAIL', 'UNAVAILABLE', 'NO-FIXTURE', 'PENDING', 'VACUOUS']) {
+			assert.notEqual(exitFor(s), EXIT.USAGE, s);
+		}
+	});
+
+	test('an unknown state throws rather than defaulting to a plausible code', () => {
+		assert.throws(() => exitFor('nope'), /^Error: unknown proof state "nope" — one of PASS, FAIL, UNAVAILABLE, NO-FIXTURE, PENDING, VACUOUS$/);
+	});
+});
+
+// ⚠ CARRIED MINOR from Task 2's review, fixed here because Task 3 owns this file: the enum check
+// compared with a strict `includes`, while `filter.js` compares with `looseEq` (`String(v) ===
+// String(o)`). So on a NUMERIC enum the YAML scalar `5` and the string `'5'` are the same filter at
+// run time and were two different things to the validator — a false refusal of a proof that works,
+// which is worse than the silent pass it was written to prevent: the author deletes a correct line.
+describe('validateProofShape — a numeric enum is compared the way filter.js compares it', () => {
+	const numeric = new Map([['gauges', {
+		name: 'gauges',
+		schema: { type: 'object', required: ['name'], properties: { name: { type: 'string' }, level: { type: 'number', enum: [5, 10] } } },
+	}]]);
+	const nctx = { descriptors: numeric, declaredVars: [], moduleEnv: new Set(), artifacts: new Set(['skills/a']) };
+	const proof = (where) => ({
+		name: 'l', about: ['skills/a'], kind: 'live', mode: 'readonly',
+		given: { collection: 'gauges', where, pick: 'a-gauge' },
+		steps: [{ run: 'true' }],
+		expect: [{ collection: 'gauges', where: {}, count: { _gte: 1 } }],
+	});
+
+	test('a string literal against a numeric enum member is accepted', () => {
+		assert.deepEqual(validateProofShape(proof({ level: { _eq: '5' } }), nctx), []);
+	});
+
+	test('the number itself is accepted', () => {
+		assert.deepEqual(validateProofShape(proof({ level: { _eq: 5 } }), nctx), []);
+	});
+
+	test('_in over a comma string of numeric members is accepted', () => {
+		assert.deepEqual(validateProofShape(proof({ level: { _in: '5,10' } }), nctx), []);
+	});
+
+	test('a value outside the enum is still refused, listing the options', () => {
+		assert.deepEqual(validateProofShape(proof({ level: { _eq: 7 } }), nctx), ['where "level" compares "7", which is not one of level\'s options [5, 10]']);
 	});
 });
