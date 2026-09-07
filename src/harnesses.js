@@ -270,7 +270,7 @@ function collectionsSection(index, modules, workspaceModule) {
 	// It now names the VERBS and the one policy difference, because an agent that knows the verbs
 	// exist still has to be told that these commit and records do not.
 	if (system.length) {
-		lines.push('', `- system collections — the SAME verbs (add · set · rm · rename · list · get), plus \`dt add-field\`/\`update-field\`/\`remove-field\`/\`rename-field <collection>\`. A system write COMMITS ITSELF, in the repo holding the source; a record write does not (\`dt commit\` publishes). Never hand-edit \`.dreamteamer/\` — it is build output: ${system.join(' · ')}`);
+		lines.push('', `- system collections — the SAME verbs (add · set · rm · rename · list · get), plus \`dt add-field\`/\`set-field\`/\`rm-field\`/\`rename-field <collection>\`. A system write COMMITS ITSELF, in the repo holding the source; a record write does not (\`dt commit\` publishes). Never hand-edit \`.dreamteamer/\` — it is build output: ${system.join(' · ')}`);
 	}
 	return lines;
 }
@@ -345,7 +345,7 @@ function bindingsSection(entries) {
 		byCollection.get(coll).push(`/${cmd}${gate ? ` (${gate})` : ''}`);
 	}
 	if (!byCollection.size) return [];
-	const lines = ['', 'VERBS BOUND TO COLLECTIONS (`dt commands <collection>[/<id>]` answers per record):'];
+	const lines = ['', 'VERBS BOUND TO COLLECTIONS (`dt next <collection>[/<id>]` answers per record):'];
 	for (const coll of [...byCollection.keys()].sort()) lines.push(`- ${coll} — ${byCollection.get(coll).sort().join(' · ')}`);
 	return lines;
 }

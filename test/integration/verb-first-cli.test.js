@@ -160,8 +160,9 @@ describe('record verbs — dt <verb> <target>', () => {
 });
 
 // The fixture above exists so that a NAMESPACED collection is exercised by every target shape, not
-// just by `get`. It is not decoration: `commands` was broken for every namespaced target in both
-// shapes while `get` passed, because the two resolve the reference in different places.
+// just by `get`. It is not decoration: the read verb (`next`, spelled `commands` before 0.22.0) was
+// broken for every namespaced target in both shapes while `get` passed, because the two resolve the
+// reference in different places.
 describe('a namespaced collection, through every target shape', () => {
 	const seeded = () => {
 		const ws = nsBase();
@@ -170,16 +171,16 @@ describe('a namespaced collection, through every target shape', () => {
 		return ws;
 	};
 
-	test('commands takes the namespaced collection', () => {
+	test('next takes the namespaced collection', () => {
 		const ws = seeded();
-		const res = ws.dt('commands', 'finance/transactions', '--json');
+		const res = ws.dt('next', 'finance/transactions', '--json');
 		assert.equal(res.code, 0, res.stderr);
 		assert.equal(JSON.parse(res.stdout).collection, 'finance/transactions');
 	});
 
-	test('commands takes a namespaced reference with a path-shaped id', () => {
+	test('next takes a namespaced reference with a path-shaped id', () => {
 		const ws = seeded();
-		const res = ws.dt('commands', 'finance/transactions/2026/03/coffee', '--json');
+		const res = ws.dt('next', 'finance/transactions/2026/03/coffee', '--json');
 		assert.equal(res.code, 0, res.stderr);
 		assert.equal(JSON.parse(res.stdout).collection, 'finance/transactions');
 	});
@@ -212,14 +213,14 @@ describe('a namespaced collection, through every target shape', () => {
 	});
 });
 
-describe('commands and install repos absorb their old noun', () => {
-	test('commands takes the collection or a record reference', () => {
+describe('next and install repos absorb their old noun', () => {
+	test('next takes the collection or a record reference', () => {
 		const ws = base();
 		ws.dt('add', 'contacts', '--name', 'Jane');
-		const c = ws.dt('commands', 'contacts', '--json');
+		const c = ws.dt('next', 'contacts', '--json');
 		assert.equal(c.code, 0, c.stderr);
 		assert.equal(JSON.parse(c.stdout).collection, 'contacts');
-		const r = ws.dt('commands', 'contacts/jane', '--json');
+		const r = ws.dt('next', 'contacts/jane', '--json');
 		assert.equal(r.code, 0, r.stderr);
 		assert.equal(JSON.parse(r.stdout).collection, 'contacts');
 	});
@@ -246,15 +247,15 @@ describe('system verbs — the SAME verbs, on the entities the compiler material
 		assert.equal(add.code, 0, add.stderr);
 		assert.match(readFile(ws.root, '.dreamteamer/collections/contacts.collection.yaml'), /phone/);
 
-		const rm = ws.dt('remove-field', 'contacts', '--name', 'phone');
+		const rm = ws.dt('rm-field', 'contacts', '--name', 'phone');
 		assert.equal(rm.code, 0, rm.stderr);
 		assert.doesNotMatch(readFile(ws.root, '.dreamteamer/collections/contacts.collection.yaml'), /phone/);
 	});
 
-	test('update-field retypes it', () => {
+	test('set-field retypes it', () => {
 		const ws = base();
 		assert.equal(ws.dt('add-field', 'contacts', '--name', 'tier', '--type', 'string').code, 0);
-		const res = ws.dt('update-field', 'contacts', '--name', 'tier', '--type', 'enum', '--options', 'a,b');
+		const res = ws.dt('set-field', 'contacts', '--name', 'tier', '--type', 'enum', '--options', 'a,b');
 		assert.equal(res.code, 0, res.stderr);
 		assert.match(readFile(ws.root, '.dreamteamer/collections/contacts.collection.yaml'), /enum/);
 	});
@@ -304,12 +305,38 @@ describe('system verbs — the SAME verbs, on the entities the compiler material
 	test('dt schema is gone and the error carries the new spellings', () => {
 		const ws = base();
 		const res = ws.dt('schema', 'add-collection', '--name', 'widgets');
-		assert.equal(res.code, 1);
+		assert.equal(res.code, 2);
 		assert.match(res.stderr, /unknown verb "schema"/);
 		assert.match(res.stderr, /schema verbs are gone since 0\.19\.0/);
 		assert.match(res.stderr, /dt add collections/);
 		assert.match(res.stderr, /dt add-field <c>/);
 		assert.match(res.stderr, /UPDATING\.md/);
+	});
+
+	// ⚠ FOUR RETIRED SPELLINGS, ONE EXIT CODE. The 0.12.0 policy is that a stale invocation fails
+	// LOUDLY and by name — never as an alias, and never as a bare "unknown verb" that sends the
+	// reader back to `help` to guess which of thirty verbs replaced the one they typed. The exit
+	// code is the same 2 for all of them, `schema` included, so a script can ask "did I type a verb
+	// that is gone?" with one number rather than two.
+	//
+	// It also fails if a rename is HALF done: an old spelling that still dispatches answers 0 or 1
+	// with its own complaint, not 2 with the translation.
+	test('every retired verb spelling refuses by name, at exit 2, with the translation', () => {
+		const ws = base();
+		const named = {
+			'update-field': /dt set-field/,
+			'remove-field': /dt rm-field/,
+			commands: /dt next/,
+			ensure: /dt install/,
+			schema: /dt add-field <c>/,
+		};
+		for (const [old, replacement] of Object.entries(named)) {
+			const r = ws.dt(old);
+			assert.equal(r.code, 2, `dt ${old} exited ${r.code}, not 2:\n${r.stderr}${r.stdout}`);
+			assert.match(r.stderr, new RegExp(`unknown verb "${old}"`), `dt ${old} did not name the verb`);
+			assert.match(r.stderr, /gone since 0\.\d+\.\d+/, `dt ${old} did not say when it went`);
+			assert.match(r.stderr, replacement, `dt ${old} did not carry its replacement`);
+		}
 	});
 });
 
@@ -396,7 +423,7 @@ describe('workspace verbs keep their spellings', () => {
 			// succeeds — never with "unknown verb", which is the only failure this asserts against.
 			assert.doesNotMatch(res.stderr + res.stdout, new RegExp(`unknown verb "${verb}"`), `help documents \`${verb}\` but the dispatch does not know it`);
 		}
-		for (const verb of ['add', 'set', 'rm', 'rename', 'list', 'get', 'move', 'values', 'history', 'diff', 'revert', 'commands', 'relations', 'resolve', 'add-field', 'update-field', 'remove-field', 'rename-field', 'init', 'install', 'update', 'compile', 'check', 'status', 'start', 'changes', 'commit', 'help']) {
+		for (const verb of ['add', 'set', 'rm', 'rename', 'list', 'get', 'move', 'values', 'history', 'diff', 'revert', 'next', 'relations', 'resolve', 'add-field', 'set-field', 'rm-field', 'rename-field', 'init', 'install', 'update', 'compile', 'check', 'status', 'start', 'changes', 'commit', 'help']) {
 			assert.ok(documented.has(verb), `\`${verb}\` dispatches but help does not document it`);
 		}
 	});

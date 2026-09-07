@@ -250,12 +250,12 @@ describe('--module targets one module\'s contribution', () => {
 			'nothing was left behind');
 	});
 
-	test('remove-field --module removes from the overlay, and its LAST field removes the file', () => {
+	test('rm-field --module removes from the overlay, and its LAST field removes the file', () => {
 		const ws = twoModuleWorkspace();
 		patchModulePkg(ws.root, 'hr', { dependencies: ['core'], peerDependencies: ['people'] });
 		assert.equal(ws.dt('compile').code, 0);
 		assert.equal(ws.dt('add-field', 'people', '--name', 'badge', '--type', 'string', '--module', 'hr').code, 0);
-		const res = ws.dt('remove-field', 'people', '--name', 'badge', '--module', 'hr');
+		const res = ws.dt('rm-field', 'people', '--name', 'badge', '--module', 'hr');
 		assert.equal(res.code, 0, res.stdout + res.stderr);
 		assert.equal(readFile(ws.root, 'modules/hr/collections/people.collection.yaml'), null,
 			'an overlay whose last field is gone is not a descriptor anybody meant to keep');
@@ -264,7 +264,7 @@ describe('--module targets one module\'s contribution', () => {
 
 	test('--module on a SINGLY-declared field is refused as a selector that selects nothing', () => {
 		const ws = twoModuleWorkspace();
-		const res = ws.dt('update-field', 'people', '--name', 'name', '--module', 'core',
+		const res = ws.dt('set-field', 'people', '--name', 'name', '--module', 'core',
 			'--description', 'Their name.');
 		assert.equal(res.code, 1);
 		assert.match(res.stderr, /people\.name is declared only by core — drop --module/);
@@ -290,13 +290,13 @@ describe('--dry-run on the other destructive verbs', () => {
 		assert.ok(readFile(ws.root, 'data/teams/platform.team.md'));
 	});
 
-	test('remove-field on a POPULATED field counts the values it would clear', () => {
+	test('rm-field on a POPULATED field counts the values it would clear', () => {
 		const ws = twoModuleWorkspace();
 		// ⚠ `employer` is ALREADY declared by the fixture's `people` — an `add-field` here would be
 		// refused as a duplicate, which is the correct behaviour and the wrong prep.
 		ws.dt('add', 'people', '--name', 'Dana Levi', '--employer', 'Acme');
 		ws.dt('add', 'people', '--name', 'Sam Ortiz');
-		const res = ws.dt('remove-field', 'people', '--name', 'employer', '--dry-run');
+		const res = ws.dt('rm-field', 'people', '--name', 'employer', '--dry-run');
 		assert.equal(res.code, 0, res.stderr);
 		assert.match(res.stdout, /values cleared 1/, 'one of the two records carries a value');
 		assert.ok(load(readFile(ws.root, 'modules/core/collections/people.collection.yaml')).schema.properties.employer,

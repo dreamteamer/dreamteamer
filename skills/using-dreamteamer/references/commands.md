@@ -8,7 +8,7 @@ queue without any run records.
 What you write is consumed by three readers with different needs: the **operator** scanning the
 `/` picker, who sees the `description` and `argument-hint` and nothing else; the **session** that
 receives the body verbatim as its turn, and needs instructions, not documentation; and the
-**surfaces** that render bindings — `dt commands <ref>`, the studio's Commands tab, and the
+**surfaces** that render bindings — `dt next <ref>`, the studio's Commands tab, and the
 orientation block, which prints every binding's gates so each new session knows the queue exists
 before any skill is loaded.
 
@@ -107,7 +107,7 @@ can-exit:  { transcript: { _nempty: true } }
 description: audio present, not yet transcribed
 ```
 
-What a binding buys: `dt commands <collection>[/<id>] [--ids a,b] [--json]` answers "what can I do
+What a binding buys: `dt next <collection>[/<id>] [--ids a,b] [--json]` answers "what can I do
 with this record right now"; the studio draws the same answer as buttons; and the orientation block
 renders every binding with its gates **literally** (`/transcribe-visit (enter: recording_file set ·
 exit: transcript set)`) — so the gate you write is also documentation every session reads without
@@ -152,7 +152,7 @@ they read stay honest:
   without a `can-exit` and accept that it never shows done. What is not honest is a proxy field a
   human must remember to set.
 - **The binding's `description` is the state pair in words** ("audio present, not yet
-  transcribed") — it renders beside the button and in `dt commands` output (the orientation block
+  transcribed") — it renders beside the button and in `dt next` output (the orientation block
   carries the gates themselves), so write it as the answer to "why is this available".
 
 ## the chain — multi-step processes

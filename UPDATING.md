@@ -20,6 +20,108 @@ npx dreamteamer check
 
 ---
 
+## 0.21.0 → 0.22.0
+
+**Two things: `install` is now the one verb that makes a thing ready, and three verb spellings
+changed.** The renames are BREAKING and fail with the translation printed; the `install` work is
+additive. `dt compile` after upgrading, as always.
+
+### The complete mapping
+
+| 0.21.0 | 0.22.0 |
+|---|---|
+| `dt ensure <id>` | `dt install repos/<id>` |
+| `dt ensure --all` | `dt install repos --all` |
+| `dt update-field <c> …` | `dt set-field <c> …` |
+| `dt remove-field <c> …` | `dt rm-field <c> …` |
+| `dt commands <collection>[/<id>]` | `dt next <collection>[/<id>]` |
+
+⚠ **All four retired spellings — and `dt schema`, which went in 0.19.0 — now exit 2 and print
+what to type instead.** No alias layer and no deprecation window: 0.12.0's policy, because a
+half-working grammar teaches the wrong shape without ever saying so. One exit code for all of them,
+so a script asks "did I type a verb that is gone?" once rather than learning which retirement
+exits 1 and which exits 2. Grep before you upgrade:
+
+```bash
+grep -rn "dt ensure\|dt update-field\|dt remove-field\|dt commands" .
+```
+
+**Why each rename.** The record verbs are `add` · `set` · `rm` · `rename` · `move`, so
+`update-field`/`remove-field` were a second spelling for one action inside one grammar — the field
+verbs now say `add-field` · `set-field` · `rm-field` · `rename-field`. And `dt commands <ref>` (the
+read verb: which bound commands apply to this record, and in which state) collided head-on with
+`dt list commands` (the system entity) — one word for two things. `next` also says what it
+answers: what can happen to this record next.
+
+**The in-process exports are UNCHANGED.** `updateField`, `removeField`, `removeFieldPlan` and
+`commandsFor` keep their names and signatures; only the CLI spelling moved. The internal noun-verb
+calls (`commands for`, `repos ensure`) are unchanged too — they are not a surface.
+
+### `install` makes THIS checkout ready
+
+`dt install` used to be `install --clone <url>` alone. With no target it now walks a checkout to
+ready, in this order, checking before it acts and printing a board of what it found and what it did:
+
+1. **the engine** — `npm ci --prefer-offline` when there is a lockfile, else `npm install`
+2. **`.env`** — linked from the primary when this checkout is a linked worktree UNDER the primary
+   root. A worktree outside that root is skipped and says so; `--link-env` overrides for one run,
+   and an `.env` the worktree carries itself is never replaced
+3. **declared `local-assets`** — linked from the primary (see below)
+4. **git modules** — the declared clones that are missing here are restored
+5. **compile** — only when the runtime is missing or stale
+6. **`dreamteamer.postinstall`** — last, if declared
+
+It is idempotent: a second run is all "already"/"skip". `--dry-run` plans only, `--json` returns the
+board as data. `dt install repos/<id>` and `dt install repos --all` are the old `ensure`, and they
+are deliberately NOT part of making a checkout ready — materializing an attached repo stays an
+explicit ask.
+
+### `worktrees` — an observed CLI noun
+
+```bash
+dt add worktrees --name <n> [--path <dir>] [--base <ref>] [--temp]
+dt list worktrees
+dt get worktrees/<n>
+dt rm worktrees/<n> [--force]
+```
+
+There is no `worktrees` collection and no record: `git worktree list` is the authority, so nothing
+can drift from it. `add` cuts a linked worktree on branch `worktree-<n>`, runs `install` in it, and
+prints its absolute path LAST — which is what a creation hook echoes. `--temp` is a detached sandbox
+under `.worktrees/.tmp-*` with no branch.
+
+⚠ **`rm` REFUSES by default, and the reason is named.** A worktree holds two things the primary
+cannot see: records written but not committed, and commits not yet landed. `git worktree remove`
+knows about neither — it checks a dirty tree and stops there. So `rm` counts dirty records, counts
+commits not on the primary branch, and for a DETACHED worktree counts commits reachable from no ref
+at all (naming the sha, because no branch does). If the reachability measurement itself fails, it
+refuses too — a data-loss guard that cannot measure is a refusal, not a pass. `--force` is the
+override, and it means what it says.
+
+### Two new `package.json` declarations
+
+- **`dreamteamer.local-assets`** — an array of gitignored heavy folders that a checkout SHARES with
+  the primary by symlink instead of copying. Workspace-level paths are root-relative; a module may
+  declare its own, module-relative. `install` links them; `compile` REFUSES a declaration that is
+  tracked by git, not gitignored, engine-owned (`.env`, `node_modules`, `.dreamteamer`, `.git`), or
+  escaping its module or the workspace root with `..`.
+- **`dreamteamer.postinstall`** — one shell string, run LAST by `install`. Deliberately not npm's
+  own `scripts.postinstall`, which fires before anything is compiled and so cannot depend on the
+  runtime it would want to read.
+
+⚠ **A gitignore pattern for a `local-assets` path must NOT carry a trailing slash.** In a worktree
+the asset is a SYMLINK, and a dir-only pattern (`big-files/`) matches neither a symlink nor an
+absent path — so the compile refusal fires on a path you believe you ignored. Write `big-files`.
+
+### `dt status` gains two lines
+
+A **`checkout:`** line — primary, or linked worktree and which primary it belongs to — and a
+**`worktrees:`** line: how many, how many hold dirty records, how many are ahead. So a session can
+tell where it is and what work is sitting in a tree nobody is looking at. Both come from git alone;
+neither costs a network request.
+
+---
+
 ## 0.19.1 → 0.20.0
 
 **The orientation block is grouped by MODULE, and a schema write commits the block it regenerated.**
