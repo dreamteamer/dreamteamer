@@ -220,3 +220,24 @@ describe('dt install repos/<id> replaces ensure', () => {
 		assert.notEqual(r.code, 0); assert.match(r.stderr + r.stdout, /nope/);
 	});
 });
+
+// ⚠ A SESSION HAS TO KNOW WHERE IT IS. Everything install decides turns on primary-vs-linked — .env
+// is linked in one and not the other — and a linked worktree is otherwise indistinguishable from
+// the primary by eye. `status` is the command run when something feels wrong, so it is where the
+// answer belongs, together with the count of sibling worktrees holding work nobody can see from here.
+describe('dt status reports the checkout and the worktrees', () => {
+	test('status names the checkout kind and counts worktrees', () => {
+		const ws = workspace();
+		assert.equal(dt(ws.root, 'compile').code, 0);
+		assert.equal(dt(ws.root, 'add', 'worktrees', '--name', 's').code, 0);
+
+		const r = dt(ws.root, 'status');
+		assert.equal(r.code, 0, r.stderr);
+		assert.match(r.stdout, /checkout: primary/);
+		assert.match(r.stdout, /worktrees: 1 · 0 with dirty records · 0 ahead/);
+
+		const r2 = dt(path.join(ws.root, '.worktrees', 's'), 'status');
+		assert.equal(r2.code, 0, r2.stderr);
+		assert.match(r2.stdout, /checkout: linked worktree of /);
+	});
+});
