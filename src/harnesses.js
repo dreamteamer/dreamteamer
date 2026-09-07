@@ -256,7 +256,7 @@ function collectionsSection(index, modules, workspaceModule) {
 	for (const m of groups) {
 		const where = [`\`${m.id}\``, m.path ? m.path.replace(/\/$/, '') : 'the workspace root', ...(m.namespaces.length ? [`namespaces: ${m.namespaces.join(' · ')}`] : [])];
 		lines.push('', `**${m.title}** (${where.join(' · ')})${m.description ? ` — ${m.description}` : ''}`);
-		const ships = [...(m.skills.length ? [`skills: ${m.skills.join(' · ')}`] : []), ...(m.commands.length ? [`commands: ${m.commands.map((c) => `/${c}`).join(' · ')}`] : []), ...(m.proofs.length ? [`proofs: ${m.proofs.join(' · ')}`] : []), ...(m.bin.length ? [`runs: ${m.bin.join(' · ')}`] : [])];
+		const ships = [...(m.skills.length ? [`skills: ${m.skills.join(' · ')}`] : []), ...(m.commands.length ? [`commands: ${m.commands.map((c) => `/${c}`).join(' · ')}`] : []), ...(m.bin.length ? [`runs: ${m.bin.join(' · ')}`] : [])];
 		if (ships.length) lines.push(`  ${ships.join(' · ')}`);
 		for (const c of data.filter((c) => c.module === m.id)) {
 			lines.push(`- ${c.name}${c.description ? ` — ${c.description}` : ''}`);

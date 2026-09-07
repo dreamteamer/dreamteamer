@@ -102,8 +102,8 @@ export function collectionCommand(ws, collection, verb, args) {
 	if (verb === 'rename-field') return metaRenameField(ws, store, collection, flags);
 
 	// ---- the identity entities. §3.1's last row: `add` scaffolds a skill and is refused WITH THE
-	// PATH for the four hand-authored kinds; `set` edits frontmatter; `rm` and `rename` work on all
-	// five. Keyed on the collection NAME rather than on `storage.base` because these five are the
+	// PATH for the five hand-authored kinds; `set` edits frontmatter; `rm` and `rename` work on all
+	// six. Keyed on the collection NAME rather than on `storage.base` because these six are the
 	// ones with a source-file shape — `modules` is projected and `collections` has its own verbs.
 	if (ENTITY_KINDS.has(collection) && ['add', 'set', 'rm', 'rename'].includes(verb)) {
 		return metaEntityVerb(ws, store, collection, verb, flags, pos);

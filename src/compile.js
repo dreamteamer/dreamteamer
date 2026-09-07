@@ -935,7 +935,7 @@ export function compile({ root, pkg }) {
 	// NOTHING. Warn; do not fail, since a module that is temporarily source-free is the
 	// operator's business, not the compiler's. Runs AFTER UI staging so a UI-only module counts.
 	// ⚠ A module with a scaffolded-but-EMPTY kind folder is a module being AUTHORED, not a mistake.
-	// `add modules` creates exactly that shape — seven empty kind folders — and a verb whose own
+	// `add modules` creates exactly that shape — eight empty kind folders — and a verb whose own
 	// output triggers a warning reads as a broken install. The warning's remaining job is the case it
 	// was written for: a module that ships nothing the engine recognises AT ALL, which is what
 	// decision 156 cost two days. `kindDir` returns the flat path when neither layout exists, so this

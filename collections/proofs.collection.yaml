@@ -59,8 +59,7 @@ schema:
       properties:
         collection:
           type: string
-          x-reference: collections
-          description: The collection the record is picked from.
+          description: A collection NAME (not a reference) the record is picked from — e.g. `notes`, never `collections/notes`.
         where:
           type: object
           description: A filter narrowing which record is picked.
