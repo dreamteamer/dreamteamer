@@ -18,6 +18,7 @@ import { check } from './check.js';
 import { collectionCommand, emit, relationsCommand, parseArgs, refuseUnknownFlags } from './collections-cli.js';
 import { init, installClone, update, listRepos } from './init.js';
 import { installCommand, describeCheckout, listWorktrees, worktreeCommand } from './checkout.js';
+import { proveCommand } from './prove.js';
 import { deriveEvents } from './events.js';
 import { commitPending } from './commit.js';
 import { Store } from './store.js';
@@ -180,6 +181,20 @@ workspace verbs:
   compile     materialize modules + workspace sources into .dreamteamer (+ harness adapters)
               [--watch] recompile on source changes
   check       validate every record against the compiled descriptors (report-only)
+  prove       <proof> | <artifact-ref> | --all
+              run a proof and answer with an EXIT CODE: 0 pass · 1 fail · 3 unavailable (this
+              machine lacks a required var or binary) · 4 no-fixture (the given matched no record)
+              · 5 a \`perform\` step is owed a human/agent · 6 vacuous (every expectation already
+              held, so the proof cannot fail). Evidence lands in .dreamteamer/.proofs/<id>.jsonl
+              <proof>          [--record <c>/<id>] finish the pending run for that record
+                               [--restart] discard a pending run and start over
+                               [--here] run a \`writes\` proof in this workspace, not a sandbox
+                               [--keep] keep the sandbox afterwards  [--json] one object on stdout
+              <artifact-ref>   every proof whose \`about\` names skills/<id>, commands/<id>,
+                               command-bindings/<id> or <module>/bin/<file> — board semantics
+              --all            every proof; a \`perform\` one is LISTED, never started, so this
+                               never exits 5 [--kind gate|live] [--external] include external
+                               proofs [--strict] make an unavailable fatal [--json]
   status      workspace status: compiled runtime freshness, per-module channel/ref, staleness
   start       serve the clean REST api at /api [--port <n>]
   changes     what changed in every repo that holds records, as record events
@@ -218,6 +233,9 @@ export const WORKSPACE_FLAGS = {
 	install: ['clone', 'dry-run', 'json', 'link-env', 'all'],
 	start: ['port'], compile: ['watch'], check: [], status: [],
 	changes: ['since', 'json'], commit: ['dry-run', 'json'],
+	// the UNION of every form's flags — the outer typo gate. Which flags each FORM takes is refused
+	// inside `proveCommand`, where the target has been resolved against the compiled proofs.
+	prove: ['all', 'kind', 'record', 'restart', 'json', 'keep', 'here', 'external', 'strict'],
 };
 
 export function run(argv) {
@@ -283,6 +301,21 @@ export function run(argv) {
 				refuse('dt install', ['--dry-run', '--json', '--link-env']);
 				process.exit(installCommand(ws, rest));
 			}
+			// ⚠ THE EXIT CODE IS THE WHOLE POINT OF THIS VERB, so `proveCommand` RETURNS it and this
+			// line is the only place it becomes a process exit. Six codes are a contract — 0 pass ·
+			// 1 fail · 3 unavailable · 4 no-fixture · 5 an actor is owed a step · 6 vacuous — and a
+			// `throw` inside `prove` becomes 1 through the shared catch below, which is right for
+			// every refusal it makes (a target that names nothing, a resume with nothing to resume,
+			// a stray flag of the other form): those are errors about the INVOCATION, not verdicts
+			// about an artifact, and 2 is already spoken for by "you typed a verb that is gone".
+			//
+			// The per-form flag refusal lives in `proveCommand` rather than here, unlike `install`'s:
+			// deciding which form was typed means resolving the target against the compiled proofs
+			// and artifacts, and a second copy of that resolution in this file — purely to choose
+			// which message to print — is the drift the comment above `case 'install':` describes.
+			case 'prove':
+				warnIfStale(ws.root);
+				process.exit(proveCommand(ws, rest).code);
 			case 'update': {
 				const code = update(ws, rest.find((a) => !a.startsWith('--')));
 				compile(ws); // pulled modules may carry new sources — prints its own summary

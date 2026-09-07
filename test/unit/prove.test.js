@@ -423,6 +423,50 @@ describe('substitute — {record} and {record.<field>}, and nothing else', () =>
 	});
 });
 
+// ⚠ R20 — A PATH IS NOT A SHELL STRING, so the pass-through that saves `awk '{print}'` is exactly
+// wrong for a `path:` or `record:` value. Nothing downstream of those two would ever notice a
+// typo'd `{recrod}`: `path: "{recrod}/out.txt"` becomes a literal directory name that does not
+// exist, and the expectation answers `exists false` — a FAIL that names the wrong cause. So the two
+// values the ENGINE consumes (rather than the shell) are substituted in STRICT mode, where an
+// identifier-shaped brace nobody substitutes throws.
+describe('substitute — strict mode, for the values the engine consumes rather than the shell', () => {
+	const bound = { record: { ref: 'notes/a', fields: { id: 'a', name: 'Ada', status: 'open' } } };
+	const strict = { strict: true };
+
+	test('the two it owns still render, exactly as in lenient mode', () => {
+		assert.equal(substitute('{record}', bound, strict), 'notes/a');
+		assert.equal(substitute('out/{record.name}.txt', bound, strict), 'out/Ada.txt');
+	});
+
+	test('an identifier-shaped brace nobody substitutes THROWS, naming what a proof may use', () => {
+		assert.throws(
+			() => substitute('{recrod}/out.txt', bound, strict),
+			/^Error: unknown substitution "\{recrod\}" in a path — a proof may use \{record\} and \{record\.<field>\}$/,
+		);
+	});
+
+	test('the SAME string passes through untouched in lenient mode — the modes really differ', () => {
+		assert.equal(substitute('{recrod}/out.txt', bound), '{recrod}/out.txt');
+	});
+
+	// The resolver's own bracket must survive strict mode, or no `path:` expectation could name a
+	// machine-dependent folder at all — which is the whole point of the form.
+	test('${env:X} and ${HOME} survive strict mode — the $ brace is not ours', () => {
+		assert.equal(substitute('${env:FILES_FOLDER}/out', bound, strict), '${env:FILES_FOLDER}/out');
+		assert.equal(substitute('${HOME}/out', bound, strict), '${HOME}/out');
+	});
+
+	// The same asymmetry `stepWarnings` accepts: only an IDENTIFIER-shaped token is judgeable, so a
+	// brace with a space in it is invisible here too. Stated as a test so it is a decision.
+	test('a non-identifier brace is invisible to strict mode, as it is to the warning net', () => {
+		assert.equal(substitute('{a b}/out', bound, strict), '{a b}/out');
+	});
+
+	test('a missing field still throws in strict mode, with the same message', () => {
+		assert.throws(() => substitute('{record.missing}', bound, strict), /has no field "missing"/);
+	});
+});
+
 describe('applyCap — the ledger is append-only and bounded', () => {
 	const rows = (n) => Array.from({ length: n }, (_, i) => ({ i }));
 
