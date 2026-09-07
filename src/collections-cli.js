@@ -1231,7 +1231,7 @@ export const VERB_FLAGS = {
 	// ever catch a typo here — and the typo that matters is `--tmep`, which silently turns a request
 	// for a throwaway sandbox into a permanent branch worktree.
 	'worktrees:list': JSON_ONLY, 'worktrees:get': JSON_ONLY,
-	'worktrees:add': ['json', 'name', 'path', 'base', 'temp'], 'worktrees:rm': ['json', 'force'],
+	'worktrees:add': ['json', 'name', 'path', 'base', 'temp', 'hook'], 'worktrees:rm': ['json', 'force'],
 };
 
 /** Edit distance, capped — enough to turn `--fliter` into "did you mean --filter?", and to refuse to

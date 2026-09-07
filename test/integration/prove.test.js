@@ -246,8 +246,8 @@ describe('compile validates proofs', () => {
 	// fixture ships, measured: ONE skill (`using-dreamteamer`, from node_modules/dreamteamer) and
 	// ONE module script (that package's `bin/dreamteamer.js`); no commands, no bindings. The two
 	// lines differ in exactly one place — the skill numerator — which is the whole assertion.
-	const COVERED = 'proofs: 1 declared · commands 0/0 · skills 1/1 · scripts 0/1 · bindings 0/0';
-	const UNCOVERED = 'proofs: 0 declared · commands 0/0 · skills 0/1 · scripts 0/1 · bindings 0/0';
+	const COVERED = 'proofs: 1 declared · commands 0/0 · skills 1/1 · scripts 0/2 · bindings 0/0';
+	const UNCOVERED = 'proofs: 0 declared · commands 0/0 · skills 0/1 · scripts 0/2 · bindings 0/0';
 
 	test('an about that names no artifact FAILS compile, listing the four forms', () => {
 		const ws = workspace({ compile: false });
@@ -391,8 +391,8 @@ describe('compile validates proofs', () => {
 		assert.deepEqual(fromEntries.skills, ['skills/using-dreamteamer'], 'a skill is its FOLDER, not its references/*.md');
 		assert.deepEqual(fromEntries.commands, ['commands/hello']);
 		assert.deepEqual(fromEntries.bindings, []);
-		assert.deepEqual(fromEntries.scripts, ['dreamteamer/bin/dreamteamer.js'], 'a module script is <module-id>/bin/<file>');
-		assert.equal(fromEntries.all.size, 3);
+		assert.deepEqual(fromEntries.scripts, ['dreamteamer/bin/dreamteamer.js', 'dreamteamer/bin/dt-hook.sh'], 'a module script is <module-id>/bin/<file> — EVERY file in bin/, the sh shim included');
+		assert.equal(fromEntries.all.size, 4);
 	});
 
 	// ⚠ THE ROOT LAYOUT, which every path-slicing derivation gets wrong. With no `workspace-module`

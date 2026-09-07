@@ -12,7 +12,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { workspace, git, dt } from '../helpers/ws.js';
+import { workspace, git, dt, dtStdin } from '../helpers/ws.js';
 import { removeWorktree, defaultGit } from '../../src/checkout.js';
 import { findWorkspace } from '../../src/workspace.js';
 
@@ -377,5 +377,40 @@ describe('worktrees are an observed entity', () => {
 		const r = dt(ws.root, 'history', 'worktrees/probe');
 		assert.equal(r.code, 1);
 		assert.match(r.stderr, /list · get · add · rm/);
+	});
+});
+
+// ---- the WorktreeCreate hook form ------------------------------------------------------------
+//
+// ⚠ THE PLACEMENT IS THE ENGINE'S, NOT THE HARNESS'S. `.worktrees/` is already gitignored by every
+// workspace `init` writes, while `.claude/worktrees/` sits under compile's empty-directory sweep of
+// `.claude` — so a worktree placed there would have its empty directories deleted by the PRIMARY's
+// next compile. The hook implies `--path .worktrees/<name>` for exactly that reason, and the path
+// it prints last is the path the harness then uses.
+describe('dt add worktrees --hook takes its name from STDIN', () => {
+	test('the documented worktree_name lands at .worktrees/<name> on branch worktree-<name>', () => {
+		const ws = workspace();
+		const r = dtStdin(ws.root, JSON.stringify({ cwd: ws.root, hook_event_name: 'WorktreeCreate', worktree_name: 'p' }), 'add', 'worktrees', '--hook');
+		assert.equal(r.code, 0, r.stderr);
+		const dir = r.stdout.trim().split('\n').at(-1);
+		assert.equal(dir, path.join(ws.root, '.worktrees', 'p'), 'the PATH must be the last line — the harness echoes it');
+		assert.equal(git(dir, ['rev-parse', '--abbrev-ref', 'HEAD']), 'worktree-p');
+	});
+
+	test('the bare `name` spelling works too', () => {
+		const ws = workspace();
+		const r = dtStdin(ws.root, JSON.stringify({ name: 'q' }), 'add', 'worktrees', '--hook');
+		assert.equal(r.code, 0, r.stderr);
+		assert.equal(r.stdout.trim().split('\n').at(-1), path.join(ws.root, '.worktrees', 'q'));
+	});
+
+	// A hook wired to the wrong event sends a perfectly well-formed payload with no name in it, and
+	// `.worktrees/undefined` is not a failure anybody would read as one.
+	test('a payload with no worktree name is refused, and nothing is cut', () => {
+		const ws = workspace();
+		const r = dtStdin(ws.root, JSON.stringify({ cwd: ws.root, hook_event_name: 'SessionStart' }), 'add', 'worktrees', '--hook');
+		assert.equal(r.code, 1, r.stdout);
+		assert.match(r.stderr, /worktree_name/);
+		assert.equal(JSON.parse(dt(ws.root, 'list', 'worktrees', '--json').stdout).length, 1, 'a worktree was cut anyway');
 	});
 });

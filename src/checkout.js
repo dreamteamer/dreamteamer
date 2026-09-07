@@ -6,6 +6,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { staleness, compile, discoverModules } from './compile.js';
 import { install as restoreGitModules } from './init.js';
+import { findWorkspace } from './workspace.js';
 
 export const defaultGit = (args, cwd) => {
 	try {
@@ -158,16 +159,52 @@ const guard = (name, fn) => (...a) => {
 	try { return fn(...a) ?? 0; } catch (e) { console.error(`✖ ${name}: ${e.message.split('\n')[0]}`); return 1; }
 };
 
+/** npm, resolved BESIDE the running node first and on PATH second.
+ *
+ *  ⚠ THE ORDER IS THE MEASUREMENT (spec §15). A hook runs under `sh`, which reads no startup file,
+ *  so PATH may carry nothing at all — while `process.execPath` is an absolute path to the node that
+ *  is running this line, and every installer that ships node ships npm beside it. Trusting PATH
+ *  first would pick a stale global npm on a machine that has both, and find nothing on a machine
+ *  reached through the shim. Returns null when neither resolves, which is a board line, not a throw.
+ */
+export function resolveNpm(execPath = process.execPath, env = process.env) {
+	const bin = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+	const beside = path.join(path.dirname(execPath), bin);
+	if (resolves(beside)) return beside;
+	for (const dir of (env.PATH ?? '').split(path.delimiter)) {
+		if (dir && resolves(path.join(dir, bin))) return path.join(dir, bin);
+	}
+	return null;
+}
+
+/** The environment a shelled-out step gets: this process's, plus the directory of the node that is
+ *  running it, at the FRONT of PATH.
+ *
+ *  ⚠ MEASURED, and it is the other half of `resolveNpm`. Resolving npm absolutely is not enough:
+ *  npm's own shebang is `#!/usr/bin/env node`, so under a hook's environment
+ *  (`env -i PATH=/usr/bin:/bin`) the resolved npm was found, spawned, and died at exit 127 with
+ *  `env: node: No such file or directory` — the interpreter lookup, one level below the one the
+ *  shim fixes. A declared `postinstall` has exactly the same problem for exactly the same reason,
+ *  so both steps are handed the same environment. */
+const childEnv = () => ({ ...process.env, PATH: [path.dirname(process.execPath), process.env.PATH ?? ''].filter(Boolean).join(path.delimiter) });
+
 // One executor per step id, keyed by the id's kind. None decides ANYTHING — whether a step runs at
 // all was settled by `planInstall`. `stdio` is the caller's, so a `--json` run can send a
 // subprocess's chatter to stderr and keep stdout for the payload.
 const RUN = {
-	engine: guard('engine', (ws, st, rel, stdio) => spawnSync('npm', [fs.existsSync(path.join(ws.root, 'package-lock.json')) ? 'ci' : 'install', '--prefer-offline', '--no-audit', '--no-fund'], { cwd: ws.root, stdio }).status ?? 1),
+	engine: guard('engine', (ws, st, rel, stdio) => {
+		const npm = resolveNpm();
+		// ⚠ THE HONEST BOARD LINE, not a crash. `npm` is missing far more often than `node` is —
+		// a hook's `sh` finds neither, and the shim resolves only node — so the step has to say
+		// WHICH of the two it could not find. `✖ engine:` is prepended by the guard.
+		if (!npm) throw new Error('cannot install — node found, npm not on PATH');
+		return spawnSync(npm, [fs.existsSync(path.join(ws.root, 'package-lock.json')) ? 'ci' : 'install', '--prefer-offline', '--no-audit', '--no-fund'], { cwd: ws.root, stdio, env: childEnv() }).status ?? 1;
+	}),
 	env: guard('.env', (ws, st) => placeLink(path.join(st.checkout.primary, '.env'), path.join(ws.root, '.env'))),
 	asset: guard('asset', (ws, st, rel) => placeLink(path.join(st.checkout.primary, rel), path.join(ws.root, rel))),
 	'git-modules': guard('git modules', (ws) => restoreGitModules(ws)),
 	compile: guard('compile', (ws) => compile(ws)),
-	postinstall: guard('postinstall', (ws, st, rel, stdio) => spawnSync(st.postinstall, { cwd: ws.root, shell: true, stdio, env: { ...process.env, DT_PRIMARY: st.checkout.primary } }).status ?? 1),
+	postinstall: guard('postinstall', (ws, st, rel, stdio) => spawnSync(st.postinstall, { cwd: ws.root, shell: true, stdio, env: { ...childEnv(), DT_PRIMARY: st.checkout.primary } }).status ?? 1),
 };
 
 /** Print the board and run the todo steps in order. `dryRun` prints and runs nothing. Returns 1 if
@@ -186,6 +223,79 @@ export function applyInstall(ws, state, steps, { dryRun = false, log = console.l
 	return failed ? 1 : 0;
 }
 
+// ---- the harness hook forms ----------------------------------------------------------------
+//
+// A hook is not a person: it does not type a target, it hands the engine a JSON object on stdin and
+// reads whatever comes back on stdout. Two of this file's verbs grow that form, and one function
+// parses the payload for both.
+
+/** The hook's payload, read to EOF. fd 0 rather than a stream, because every caller here is
+ *  synchronous and a hook's stdin is a pipe that the harness closes. A stdin that cannot be read at
+ *  all (a TTY, a closed descriptor) comes back empty, and `readHookInput` names that. */
+const readStdin = () => { try { return fs.readFileSync(0, 'utf8'); } catch { return ''; } };
+
+/** What the harness said, as `{ cwd, name, raw }`.
+ *
+ *  ⚠ THE FIELD NAMES ARE THE HARNESS'S. Claude Code's hooks reference documents every event as
+ *  carrying `cwd`, and the two worktree events as additionally carrying `worktree_name` and
+ *  `worktree_path` — so `worktree_name` is the primary spelling here and a bare `name` is only the
+ *  fallback, not the other way round. `raw` is kept whole because a later verb reads a field these
+ *  three do not name (`land` wants `worktree_path`), and because the KEYS are the whole diagnostic
+ *  when a hook has been wired to the wrong event: a well-formed payload of the wrong shape is
+ *  indistinguishable from a broken one until you can see what it did carry. */
+export function readHookInput(stdinText) {
+	let raw;
+	try { raw = JSON.parse(stdinText); } catch { throw new Error('hook input is not JSON'); }
+	if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('hook input is not JSON');
+	const cwd = raw.cwd ?? raw.worktree_path ?? null;
+	const name = raw.worktree_name ?? raw.name ?? null;
+	if (!cwd && !name) {
+		throw new Error(`hook input carries neither a cwd nor a worktree_name — keys received: ${Object.keys(raw).join(', ') || '(none)'}`);
+	}
+	return { cwd, name, raw };
+}
+
+// The three worktree-lifecycle events and the verb each one runs. NO MATCHER on any of them
+// (spec §13.9): bootstrap is idempotent precisely so the session-start hook may fire on every
+// event — `startup` alone would silence it on resume, clear, compact and fork, which is most of
+// what a long worktree session actually does.
+const CLAUDE_HOOKS = {
+	SessionStart: 'install --hook',
+	WorktreeCreate: 'add worktrees --hook',
+	WorktreeRemove: 'land --hook --dry-run',
+};
+
+/** Print the harness snippets for this workspace's declared harnesses.
+ *
+ *  ⚠ NO ABSOLUTE MACHINE PATH IS EVER RENDERED, and the command is `sh <script>` rather than a bare
+ *  `npm`/`npx`/`node` — the two constraints that between them decide every character of the line.
+ *  `$CLAUDE_PROJECT_DIR` is documented to stay at the MAIN checkout even inside a worktree, which is
+ *  exactly the engine wanted: the primary's pinned one, never whatever a fresh worktree lacks. The
+ *  worktree's own cwd arrives in the hook's stdin instead.
+ *
+ *  ⚠ AND THE ENGINE NEVER WRITES A HARNESS SETTINGS FILE. `.claude/settings.json` is the operator's,
+ *  reviewed like any config change; a fifth harness channel writing into a user-owned file is a
+ *  decision this engine has not made (spec §13.7). So this verb PRINTS — snippets on stdout, so the
+ *  output can be piped, and everything else on stderr so it stays parseable. */
+export function printAdapters(ws, { harnesses = ws.pkg.dreamteamer?.harnesses ?? ['claude-code'] } = {}) {
+	for (const h of harnesses) {
+		// `claude` is the spelling the design doc uses; `claude-code` is the one KNOWN_HARNESSES and
+		// every real package.json carry. Both name the same adapter, and matching only the former
+		// would print "not yet shipped" on every workspace that exists.
+		if (h !== 'claude-code' && h !== 'claude') {
+			console.error(`${h}: adapter not yet shipped (decision 311) — see using-dreamteamer › worktrees.md`);
+			continue;
+		}
+		const hooks = {};
+		for (const [event, verb] of Object.entries(CLAUDE_HOOKS)) {
+			hooks[event] = [{ hooks: [{ type: 'command', command: `sh "$CLAUDE_PROJECT_DIR/node_modules/dreamteamer/bin/dt-hook.sh" ${verb}`, timeout: 600 }] }];
+		}
+		console.error('# merge into .claude/settings.json — writing it is the operator\'s act, never the engine\'s');
+		console.log(JSON.stringify({ hooks }, null, 2));
+	}
+	return 0;
+}
+
 /** `dt install` on THIS checkout.
  *
  *  ⚠ `--json` IS NOT A DRY RUN: it applies the plan and then reports it as data. Which means the
@@ -197,6 +307,17 @@ export function applyInstall(ws, state, steps, { dryRun = false, log = console.l
  *  own stdout. A `--json` that only parses on an already-settled checkout is not an interface. */
 export function installCommand(ws, rest) {
 	const flags = new Set(rest.filter((a) => a.startsWith('--')));
+	if (flags.has('--print-adapters')) return printAdapters(ws, {});
+	const hook = flags.has('--hook');
+	// ⚠ NEVER `process.chdir`. The hook runs in the PRIMARY (that is what $CLAUDE_PROJECT_DIR
+	// resolves to, worktree or not), and the checkout it is about is the one named on stdin — so the
+	// workspace is rebuilt from that path and everything downstream is unchanged. Installing
+	// `process.cwd()` instead would print a green board about the wrong checkout on every spawn.
+	if (hook) {
+		const input = readHookInput(readStdin());
+		if (!input.cwd) throw new Error(`hook input carries no cwd — keys received: ${Object.keys(input.raw).join(', ')}`);
+		ws = findWorkspace(input.cwd);
+	}
 	const json = flags.has('--json');
 	const state = observeState(ws);
 	const steps = planInstall(state, { linkEnv: flags.has('--link-env') });
@@ -214,7 +335,15 @@ export function installCommand(ws, rest) {
 		console.log = stdout;
 	}
 	if (json) { console.log(JSON.stringify({ checkout: state.checkout, steps, log: board, code }, null, 2)); return code; }
-	if (state.checkout.kind === 'linked') log(`\nbefore you finish here: dt commit your records. Landing (dt land worktrees/${path.basename(ws.root)}) ships in slice 4 — until then the primary merges branch ${'worktree-' + path.basename(ws.root)} by hand.`);
+	// ⚠ THE BOARD IS THE SESSION'S CONTEXT when a session-start hook runs it, so its LAST line is
+	// the landing instruction (spec §13.10) — the one thing a spawned session cannot work out for
+	// itself and the one thing it has to do before it finishes.
+	if (state.checkout.kind === 'linked') {
+		const name = path.basename(ws.root);
+		log(hook
+			? `\nthis is worktree ${name} of ${state.checkout.primary}; before you finish, dt commit your records and tell the operator to run dt land worktrees/${name}`
+			: `\nbefore you finish here: dt commit your records, then the operator runs dt land worktrees/${name}.`);
+	}
 	return code;
 }
 
@@ -463,7 +592,17 @@ export function worktreeCommand(ws, verb, target, flags = {}) {
 			console.log(json ? JSON.stringify(w, null, 2) : Object.entries(w).map(([k, v]) => `${k}: ${v}`).join('\n'));
 			return 0;
 		}
-		case 'add': return addWorktree(ws, { name: one('name'), dir: one('path'), base: one('base'), temp: !!flags.temp });
+		case 'add': {
+			// ⚠ THE HOOK IMPLIES THE PLACEMENT, and it is `.worktrees/`, never `.claude/worktrees/`.
+			// `.worktrees/` is already gitignored by every workspace `init` writes, while anything
+			// under `.claude` sits inside compile's empty-directory sweep — so the primary's next
+			// compile would walk a LIVE worktree and delete its empty folders. Claude's own placement
+			// logic is replaced by this hook, so the path printed last is the path it then uses.
+			if (!flags.hook) return addWorktree(ws, { name: one('name'), dir: one('path'), base: one('base'), temp: !!flags.temp });
+			const input = readHookInput(readStdin());
+			if (!input.name) throw new Error(`hook input carries no worktree_name — keys received: ${Object.keys(input.raw).join(', ')}`);
+			return addWorktree(ws, { name: input.name, dir: path.join('.worktrees', input.name) });
+		}
 		case 'rm': return removeWorktree(ws, needId(), { force: !!flags.force });
 		default: throw new Error(`dt ${verb} does not apply to worktrees — they take list · get · add · rm`);
 	}

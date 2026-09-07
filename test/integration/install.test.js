@@ -8,7 +8,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { workspace, git, dt } from '../helpers/ws.js';
+import { workspace, git, dt, dtStdin } from '../helpers/ws.js';
 import { observeState } from '../../src/checkout.js';
 
 /** A linked worktree of a fixture workspace. Two things the fixture does NOT do for you and a
@@ -239,5 +239,118 @@ describe('dt status reports the checkout and the worktrees', () => {
 		const r2 = dt(path.join(ws.root, '.worktrees', 's'), 'status');
 		assert.equal(r2.code, 0, r2.stderr);
 		assert.match(r2.stdout, /checkout: linked worktree of /);
+	});
+});
+
+// ---- the harness hook forms -----------------------------------------------------------------
+//
+// ⚠ A HOOK RUNS IN THE PRIMARY AND IS ABOUT THE WORKTREE. Claude Code's hook command resolves
+// `$CLAUDE_PROJECT_DIR`, which the docs pin to the MAIN checkout even inside a worktree — so the
+// process cwd is the primary and the only thing that says which checkout the session is actually
+// in is the `cwd` field of the JSON on stdin. An `install --hook` that installed `process.cwd()`
+// would report a green board for the wrong checkout, every time, and the worktree would open
+// uncompiled with nobody told.
+describe('dt install --hook installs the checkout named on STDIN', () => {
+	test('it compiles and links the WORKTREE, not the cwd it was invoked from', () => {
+		const ws = workspace();
+		fs.writeFileSync(path.join(ws.root, '.env'), 'X=1\n');
+		const wt = linkedWorktree(ws, 'a');
+		fs.rmSync(path.join(wt, '.dreamteamer'), { recursive: true, force: true });
+
+		const r = dtStdin(ws.root, JSON.stringify({ session_id: 's1', hook_event_name: 'SessionStart', cwd: wt }), 'install', '--hook');
+		assert.equal(r.code, 0, r.stderr);
+		assert.match(r.stdout, /linked worktree of /, 'the board is about the worktree');
+		assert.ok(fs.existsSync(path.join(wt, '.dreamteamer', 'manifest.yaml')), 'the worktree was never compiled — the stdin cwd was ignored');
+		assert.ok(fs.lstatSync(path.join(wt, '.env')).isSymbolicLink(), '.env was not linked into the worktree');
+	});
+
+	// §13.10 — the board becomes the session's context, so its LAST line is the landing instruction.
+	test('the §13.10 landing line closes the board, verbatim', () => {
+		const ws = workspace();
+		const wt = linkedWorktree(ws, 'b');
+		const r = dtStdin(ws.root, JSON.stringify({ cwd: wt }), 'install', '--hook');
+		assert.equal(r.code, 0, r.stderr);
+		assert.equal(r.stdout.trim().split('\n').at(-1),
+			`this is worktree b of ${ws.root}; before you finish, dt commit your records and tell the operator to run dt land worktrees/b`);
+	});
+
+	test('in the PRIMARY there is nothing to land, so no landing line is printed', () => {
+		const ws = workspace();
+		const r = dtStdin(ws.root, JSON.stringify({ cwd: ws.root }), 'install', '--hook');
+		assert.equal(r.code, 0, r.stderr);
+		assert.match(r.stdout, /primary checkout/);
+		assert.doesNotMatch(r.stdout, /this is worktree/);
+	});
+
+	test('garbage on stdin is named rather than silently installing the cwd', () => {
+		const ws = workspace();
+		const r = dtStdin(ws.root, 'not json', 'install', '--hook');
+		assert.equal(r.code, 1, r.stdout);
+		assert.match(r.stderr, /hook input is not JSON/);
+	});
+});
+
+describe('dt install --print-adapters renders the harness snippet', () => {
+	const CMD = 'sh "$CLAUDE_PROJECT_DIR/node_modules/dreamteamer/bin/dt-hook.sh"';
+
+	test('stdout is JSON, and it is the three worktree-lifecycle hooks', () => {
+		const ws = workspace();
+		const r = dt(ws.root, 'install', '--print-adapters');
+		assert.equal(r.code, 0, r.stderr);
+		const snippet = JSON.parse(r.stdout);
+		assert.deepEqual(Object.keys(snippet.hooks), ['SessionStart', 'WorktreeCreate', 'WorktreeRemove']);
+		assert.equal(snippet.hooks.SessionStart[0].hooks[0].command, `${CMD} install --hook`);
+		assert.equal(snippet.hooks.WorktreeCreate[0].hooks[0].command, `${CMD} add worktrees --hook`);
+		assert.equal(snippet.hooks.WorktreeRemove[0].hooks[0].command, `${CMD} land --hook --dry-run`);
+	});
+
+	// §13.9 — bootstrap is idempotent precisely so the hook may fire on EVERY session event. A
+	// `"matcher": "startup"` would silence it on resume, clear, compact and fork, which are most of
+	// the events a long worktree session actually has.
+	test('every hook carries timeout 600 and NO matcher', () => {
+		const ws = workspace();
+		const snippet = JSON.parse(dt(ws.root, 'install', '--print-adapters').stdout);
+		for (const [event, entries] of Object.entries(snippet.hooks)) {
+			for (const entry of entries) {
+				assert.ok(!('matcher' in entry), `${event} carries a matcher`);
+				for (const h of entry.hooks) {
+					assert.equal(h.type, 'command');
+					assert.equal(h.timeout, 600, `${event} has no 600s timeout`);
+				}
+			}
+		}
+	});
+
+	// ⚠ NO ABSOLUTE MACHINE PATH IS EVER PRINTED. The snippet is committed into a harness settings
+	// file that travels with the repo, so a path from THIS disk is a line that works on exactly one
+	// machine — and the whole reason the command is `$CLAUDE_PROJECT_DIR`-relative.
+	test('the snippet carries no path from this machine', () => {
+		const ws = workspace();
+		const out = dt(ws.root, 'install', '--print-adapters').stdout;
+		assert.ok(out.includes('$CLAUDE_PROJECT_DIR'), out);
+		assert.ok(!out.includes(ws.root), `the snippet named this checkout:\n${out}`);
+		assert.doesNotMatch(out, /"[^"]*(?<!\$CLAUDE_PROJECT_DIR)\/(Users|home|private|opt|usr)\//);
+	});
+
+	test('a harness with no adapter says so, by name, and stdout stays parseable', () => {
+		const ws = workspace({ compile: false, pkg: { harnesses: ['codex', 'claude-code'] } });
+		const r = dt(ws.root, 'install', '--print-adapters');
+		assert.equal(r.code, 0, r.stderr);
+		assert.match(r.stderr, /codex: adapter not yet shipped \(decision 311\) — see using-dreamteamer › worktrees\.md/);
+		assert.ok(JSON.parse(r.stdout).hooks.SessionStart, 'the claude snippet must still be the whole of stdout');
+	});
+
+	test('--print-adapters plans nothing and installs nothing', () => {
+		const ws = workspace();
+		const wt = linkedWorktree(ws, 'c');
+		fs.rmSync(path.join(wt, '.dreamteamer'), { recursive: true, force: true });
+		assert.equal(dt(wt, 'install', '--print-adapters').code, 0);
+		assert.ok(!fs.existsSync(path.join(wt, '.dreamteamer', 'manifest.yaml')), '--print-adapters ran the install');
+	});
+
+	test('the two hook flags are refused on the repos form', () => {
+		const ws = workspace();
+		assert.match(dt(ws.root, 'install', 'repos', '--hook').stderr, /--hook is not a flag of `dt install repos`/);
+		assert.match(dt(ws.root, 'install', 'repos', '--print-adapters').stderr, /--print-adapters is not a flag of `dt install repos`/);
 	});
 });
