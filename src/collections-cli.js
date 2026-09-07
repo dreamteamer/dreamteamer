@@ -17,7 +17,7 @@ import {
 	createSkill, refuseHandAuthored, removeEntity, renameEntity, setEntityFrontmatter,
 } from './schema-ops.js';
 import { KINDS } from './compile.js';
-import { proofPathFor, artifactRefs, pickFixture, readLedger, resolveRequires } from './prove.js';
+import { proofPathFor, artifactRefs, pickFixture, readLedger, resolveRequires, envKeys } from './prove.js';
 import { history, historyDiff } from './history.js';
 import { commandsFor, recordResolver } from './record-commands.js';
 import { distinctValues } from './field-values.js';
@@ -134,9 +134,14 @@ export function collectionCommand(ws, collection, verb, args) {
 			// verbatim and the Claude adapter copies a command's bytes into `.claude/commands/`, so a
 			// derived `proofs:` frontmatter key would land in every harness's copy of the file — the
 			// exact noise a sidecar collection exists to avoid. One `readAll('proofs')` instead.
-			const about = ARTIFACT_KINDS.has(collection) ? proofsAbout(store, `${collection}/${id}`) : [];
+			const isArtifact = ARTIFACT_KINDS.has(collection);
+			const about = isArtifact ? proofsAbout(store, `${collection}/${id}`) : [];
 			if (flags.json) {
-				emit(JSON.stringify({ ...fields, id, ...(about.length ? { proofs: about } : {}) }, null, 2));
+				// ⚠ R38 — `proofs` IS NEVER A SOMETIMES-KEY on an artifact. Omitting it when the list was
+				// empty made "nothing is about this" indistinguishable from "this engine does not compute
+				// the join", so every consumer needed a `?? []` it had no reason to expect. A collection
+				// that is not an artifact kind still grows no key at all — there is no join to report.
+				emit(JSON.stringify({ ...fields, id, ...(isArtifact ? { proofs: about } : {}) }, null, 2));
 				return 0;
 			}
 			console.log(dump(fields).trimEnd());
@@ -1236,11 +1241,17 @@ function proofsAbout(store, ref) {
  *
  * `last` is the TAIL of this machine's ledger — a proof that failed on Monday and passed on Tuesday
  * is passing — or null, which prints as `never`.
+ *
+ * `names` is the machine's `.env` KEY set, read once by a caller that loops (R38) — never its values.
  */
-function proofFacts(ws, store, id, proof) {
-	const need = resolveRequires(ws, proof.requires);
+function proofFacts(ws, store, id, proof, names) {
+	const need = resolveRequires(ws, proof.requires, names ?? envKeys(ws.root));
 	let availability = need.ok ? 'available' : `unavailable (${need.missing[0].fix})`;
-	if (need.ok && proof.given?.fixture !== true && proof.given?.where !== undefined) {
+	// ⚠ R38 — THE PROBE TURNS ON "IS THERE A RECORD TO PICK", NOT ON `where`. It used to require a
+	// `where`, so a `given` that names its record another way printed `available` and then exited 4
+	// on the very next command. A `fixture` proof brings its own record and a gate needs none; every
+	// other live proof is a question about THIS store, and the only way to answer it is to ask.
+	if (need.ok && proof.given !== undefined && proof.given?.fixture !== true) {
 		// a probe, not a run: the only way to answer "is there a record for this" is to ask
 		let picked = null;
 		try { picked = pickFixture(store, proof.given, null); } catch { picked = null; }
@@ -1265,7 +1276,10 @@ function metaProofsList(ws, store, flags) {
 	const d = store.descriptor('proofs');
 	if (flags.missing !== undefined) {
 		const narrowing = Object.keys(flags).filter((f) => f !== 'missing' && f !== 'json');
-		if (narrowing.length) throw new Error('--missing lists artifacts, not proofs — it takes no filter');
+		// ⚠ R38 — IT NAMES THE FLAG THAT CAUSED IT. "it takes no filter" sent a reader who had typed
+		// `--sort` looking for a `--filter` they never wrote, which is one round trip more than the
+		// refusal needs to cost.
+		if (narrowing.length) throw new Error(`--missing lists artifacts, not proofs — drop ${narrowing.map((f) => `--${f}`).join(' ')}`);
 		const named = new Set();
 		for (const { fields } of store.readAll('proofs')) for (const a of fields.about ?? []) named.add(String(a));
 		// the same enumeration compile's coverage line counts, in its order — that line says
@@ -1278,7 +1292,10 @@ function metaProofsList(ws, store, flags) {
 		return 0;
 	}
 	const { rows, narrowed } = narrowRows(store, d, 'proofs', flags);
-	const facts = rows.map((r) => proofFacts(ws, store, r.id, r));
+	// ONE `.env` parse for the whole listing (R38): the key set is a fact about the machine, and
+	// re-reading the file per row is work whose answer cannot change between rows.
+	const names = envKeys(ws.root);
+	const facts = rows.map((r) => proofFacts(ws, store, r.id, r, names));
 	if (flags.json) {
 		emit(JSON.stringify(rows.map((r, i) => ({ ...r, ...facts[i] })), null, 2));
 		return 0;

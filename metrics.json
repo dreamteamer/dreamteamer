@@ -1,14 +1,14 @@
 {
-	"measured": "2026-09-05",
-	"note": "Budgets are ceilings, re-based 2026-09-05 on the operator's instruction: every budget carries at least 20% headroom over the measured value at that date. A budget already above that line was left alone (surface.skills). Raising one is still a deliberate act — do it in the same commit as the growth, and say why in the message. Headroom is not permission: the three questions (does the ENGINE read it · is this a recipe creeping into core · could a module do it instead) are owed whatever the number says.",
+	"measured": "2026-09-07",
+	"note": "Budgets are ceilings, re-based 2026-09-07 on the operator's standing instruction: every budget carries at least 20% headroom over the measured value at that date, rounded up to the hundred. ⚠ The script's `--update` writes ~10% and drops the SURFACE ceilings to the measured count — those three are set by hand and left alone (surface.collections 11 keeps one slot above the ten `proofs` made; skills and agents keep theirs). Raising one is still a deliberate act — do it in the same commit as the growth, and say why in the message. Headroom is not permission: the three questions (does the ENGINE read it · is this a recipe creeping into core · could a module do it instead) are owed whatever the number says.",
 	"code": {
-		"total": 7071,
-		"comments": 3981,
-		"decisions": 2831,
-		"files": 29
+		"total": 8472,
+		"comments": 5122,
+		"decisions": 3504,
+		"files": 31
 	},
 	"surface": {
-		"collections": 9,
+		"collections": 10,
 		"collection-templates": 2,
 		"skills": 1,
 		"agents": 1,
@@ -16,15 +16,15 @@
 		"commands": 0
 	},
 	"prose": {
-		"skill-lines": 2952,
-		"system-lines": 3546
+		"skill-lines": 3392,
+		"system-lines": 4080
 	},
 	"budgets": {
-		"code.total": 8500,
-		"code.decisions": 4100,
+		"code.total": 10200,
+		"code.decisions": 4300,
 		"surface.collections": 11,
 		"surface.skills": 2,
 		"surface.agents": 2,
-		"prose.skill-lines": 3550
+		"prose.skill-lines": 4100
 	}
 }

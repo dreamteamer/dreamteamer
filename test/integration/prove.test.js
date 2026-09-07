@@ -2085,10 +2085,18 @@ describe('proof read surfaces', () => {
 
 	// a flag that narrows PROOFS cannot narrow ARTIFACTS — accepting it silently would answer a
 	// question nobody asked, at exit 0, which is the one failure a narrowing verb must not have
-	test('--missing with a filter is refused rather than quietly ignoring it', () => {
-		const res = ws.dt('list', 'proofs', '--missing', '--filter', 'kind=gate');
-		assert.equal(res.code, 1, res.stdout);
-		assert.match(res.stderr, /--missing lists artifacts, not proofs — it takes no filter/);
+	// ⚠ R38 — THE REFUSAL NAMES THE FLAG THAT CAUSED IT. "it takes no filter" sent the reader looking
+	// for a `--filter` when what they had typed was `--sort`, and a refusal you have to guess the
+	// cause of is one round trip longer than one that says it.
+	test('--missing with a narrowing flag is refused, and the refusal names the flag actually passed', () => {
+		const filtered = ws.dt('list', 'proofs', '--missing', '--filter', 'kind=gate');
+		assert.equal(filtered.code, 1, filtered.stdout);
+		assert.match(filtered.stderr, /--missing lists artifacts, not proofs — drop --filter/);
+
+		const sorted = ws.dt('list', 'proofs', '--missing', '--sort', 'name');
+		assert.equal(sorted.code, 1, sorted.stdout);
+		assert.match(sorted.stderr, /--missing lists artifacts, not proofs — drop --sort/);
+		assert.doesNotMatch(sorted.stderr, /--filter/, 'the refusal named a flag nobody typed');
 	});
 
 	// ⚠ COMPUTED, NEVER STORED (R1). Compile writes a staged kind's bytes to the runtime verbatim and
@@ -2103,15 +2111,22 @@ describe('proof read surfaces', () => {
 		assert.doesNotMatch(readFile(ws.root, '.dreamteamer/commands/close-note.command.md'), /^proofs:/m);
 	});
 
-	test('get <artifact> --json carries a proofs key, and an unproven artifact carries none', () => {
+	// ⚠ R38 — A SOMETIMES-KEY IS WORSE TO CONSUME THAN AN EMPTY ONE. `proofs` used to be omitted when
+	// an artifact had none, so a script could not tell "nothing is about this" from "this engine does
+	// not compute the join at all", and every consumer needed a `?? []` it had no reason to expect.
+	// The HUMAN form still says nothing, because a printed `proofs:` with no ids is noise.
+	test('get <artifact> --json ALWAYS carries a proofs key — empty when nothing is about it', () => {
 		const proven = ws.dt('get', 'commands/close-note', '--json');
 		assert.equal(proven.code, 0, proven.stderr);
 		assert.deepEqual(JSON.parse(proven.stdout).proofs, ['counts-a-new-note', 'note-gets-closed']);
 
 		const bare = ws.dt('get', 'commands/open-note', '--json');
 		assert.equal(bare.code, 0, bare.stderr);
-		assert.ok(!('proofs' in JSON.parse(bare.stdout)), 'an artifact with no proof claimed one');
+		assert.deepEqual(JSON.parse(bare.stdout).proofs, [], 'the key vanished for an unproven artifact');
 		assert.doesNotMatch(ws.dt('get', 'commands/open-note').stdout, /^proofs:/m);
+
+		// and a collection that is not an artifact kind grows no such key at all
+		assert.ok(!('proofs' in JSON.parse(ws.dt('get', 'notes/a', '--json').stdout)), 'a note claimed a proofs join');
 	});
 
 	test('get proofs/<id> answers the same two questions the listing does', () => {
@@ -2142,6 +2157,15 @@ describe('proof read surfaces', () => {
 		// status is the command you run when things are already wrong: it prints EVERYTHING first
 		assert.match(strict.stdout, /^✔ \.dreamteamer is fresh$/m);
 		assert.ok(strict.stdout.split('\n').includes('proofs: 7 declared · 1 passed · 1 failed · 1 unavailable · 4 never'));
+	});
+
+	// ⚠ R38 — THE FLAG GATE ACCEPTS THE `=` FORM AND THE READER DID NOT. `dt status --strict=true`
+	// passed the unknown-flag check (which splits on `=`) and then read as "no --strict at all", so a
+	// FAILING proof exited 0 — a CI step written that way is green forever, for a reason nothing prints.
+	test('status --strict=true is the same flag as --strict, not a flag nobody honoured', () => {
+		const res = ws.dt('status', '--strict=true');
+		assert.equal(res.code, 1, res.stdout + res.stderr);
+		assert.match(res.stdout, /^✖ 1 proof\(s\) FAILED on this machine — dt list proofs$/m);
 	});
 
 	test('status --bogus is refused, and the refusal names --strict', () => {
@@ -2184,6 +2208,44 @@ describe('proof read surfaces', () => {
 		quietly(() => removeWorktree(findWorkspace(kept.root), sandbox, { force: true }));
 		// and the line goes away when the directory does — a count nothing can clear is a lie
 		assert.doesNotMatch(kept.dt('status').stdout, /sandboxes left behind/);
+	});
+
+	// ⚠ R38 — THE PROBE TURNED ON `given.where`, NOT ON "there is a record to pick". Compile refuses a
+	// `given` carrying neither `where` nor `fixture`, so the only way here is a runtime written by an
+	// engine that did not — which is exactly the case a read surface must survive: it printed
+	// `available` for a proof whose record is not there, and `dt prove` then exited 4. The column now
+	// asks the same question the runner does, for EVERY live proof that does not bring its own record.
+	test('availability probes every live proof that is not a fixture, not only the ones with a where', () => {
+		const legacy = proveWorkspace();
+		fs.writeFileSync(
+			path.join(legacy.root, '.dreamteamer', 'proofs', 'picks-a-ghost.proof.yaml'),
+			dump({
+				name: 'picks-a-ghost',
+				about: ['skills/using-dreamteamer'],
+				kind: 'live',
+				mode: 'readonly',
+				given: { collection: 'notes', pick: 'ghost' },
+				steps: [{ perform: 'reopen it' }],
+				expect: [{ record: '{record}', where: { status: { _eq: 'open' } } }],
+			}),
+		);
+		assert.equal(rowFor(legacy.dt('list', 'proofs').stdout, 'picks-a-ghost').endsWith('  no-fixture  never'), true,
+			legacy.dt('list', 'proofs').stdout);
+		// and the column agrees with what the runner actually answers
+		assert.equal(legacy.dt('prove', 'picks-a-ghost').code, 4);
+	});
+
+	// ⚠ R38 — ONE `.env` READ PER LISTING, NOT ONE PER PROOF. `resolveRequires` parsed the file itself
+	// on every call, so `dt list proofs` re-read and re-parsed it once per row. The names are now a
+	// parameter, which is also what makes "the file was not consulted" assertable at all.
+	test('resolveRequires takes the .env key names as a parameter, so a listing parses the file once', () => {
+		const ws = proveWorkspace();
+		const injected = resolveRequires({ root: ws.root }, { env: ['NOT_IN_THE_FILE'] }, new Set(['NOT_IN_THE_FILE']));
+		assert.deepEqual(injected, { ok: true, missing: [] }, 'the injected names were ignored and the file was read');
+		// and the default still reads the file, so no caller has to know the seam exists
+		const read = resolveRequires({ root: ws.root }, { env: ['NOT_IN_THE_FILE'] });
+		assert.equal(read.ok, false);
+		assert.equal(read.missing[0].fix, 'NOT_IN_THE_FILE is not set — add it to .env');
 	});
 });
 

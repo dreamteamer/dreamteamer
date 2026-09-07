@@ -47,6 +47,20 @@ install. The looking still matters; the taking changed shape.
 
 Only after all four: build it, in the module that owns the concept.
 
+## name the proof before you build it
+
+**Before writing the thing, say how anyone would know it works** — one sentence, in the shape a
+`proofs` record takes: *this record, in this state, after this step, must look like this*
+(`proofs.md`). It costs a minute and it is the cheapest design review there is.
+
+⚠ **When you cannot name one, the artifact has no observable post-state, and THAT is the first
+thing to change** — not something to note and carry on past. A skill nothing can check is a skill
+whose only evidence is that a session read it; a command whose completion leaves no trace in any
+record is a command nobody can tell ran. Give it a post-state — a field it sets, a record it
+writes, a file it leaves, an exit code it returns — and the proof follows for free. Do it after the
+proposal is accepted and before the build, so the assertion is what you build toward rather than
+what you retrofit.
+
 ## what "found" actually means
 
 Rarely the exact thing. Four outcomes, each with its own move:

@@ -151,6 +151,17 @@ they read stay honest:
   `{ summary: { _nempty: true } }` works the moment `summary` is a mirror — or ship the binding
   without a `can-exit` and accept that it never shows done. What is not honest is a proxy field a
   human must remember to set.
+- **A `can-exit` and a proof's `count` answer different questions — put each expectation on its own
+  side.** A gate is a filter over ONE record, evaluated on every render of `dt next` and every board
+  the studio draws, so it can only ever read that record's own fields (plus one outbound hop) — which
+  is exactly the gap the bullet above names: "a summary referencing this record exists" is
+  inexpressible there. A **proof** (`proofs.md`) is evaluated on demand and is collection-scoped, so
+  it says the thing a gate cannot: `{ collection: summaries, where: { about: { _eq: '{record}' } },
+  count: { _delta: 1 } }` — *running this command left one more summary behind*. The rule of thumb:
+  **the record's own post-state is the binding's** (it has to be, or the queue cannot advance);
+  **what the command left elsewhere is the proof's**. Writing the second one as a gate needs a mirror
+  field or a proxy a human must remember to set; writing the first one only as a proof leaves every
+  record reading `available` forever.
 - **The binding's `description` is the state pair in words** ("audio present, not yet
   transcribed") — it renders beside the button and in `dt next` output (the orientation block
   carries the gates themselves), so write it as the answer to "why is this available".
