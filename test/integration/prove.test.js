@@ -16,8 +16,12 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { workspace, readFile, compileError } from '../helpers/ws.js';
-import { artifactRefs, PROOF_KINDS, PROOF_MODES } from '../../src/prove.js';
+import { workspace, readFile, compileError, simpleCollection } from '../helpers/ws.js';
+import {
+	artifactRefs, PROOF_KINDS, PROOF_MODES,
+	countMatching, pickFixture, resolveRequires,
+	ledgerPath, readLedger, appendLedger, pendingFor, LEDGER_CAP, LEDGER_DIR,
+} from '../../src/prove.js';
 import { readManifest } from '../../src/runtime.js';
 
 /** compile's `entries` Map, reconstructed from what compile WROTE — the manifest names every entry
@@ -419,5 +423,287 @@ describe('compile validates proofs', () => {
 		assert.equal(ws.dt('compile').code, 0);
 		const claude = readFile(ws.root, 'CLAUDE.md');
 		assert.match(claude, /run `dreamteamer prove <artifact>` and quote its result/);
+	});
+});
+
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+// Task 3 — the store-bound helpers and the ledger. Tier 2 because every one of them needs either a
+// compiled runtime (a descriptor, a `sort_field`, records on disk) or the filesystem itself; the
+// four PURE functions the runner is built out of are pinned in test/unit/prove.test.js.
+//
+// ONE fixture shape for the whole block: `notes` with a `sort_field` (so `pick: latest` has an
+// ordering to take the head of) and two records, `a` and `b`. `people` is here empty, because
+// "zero" is the count a filter machinery gets wrong in the interesting way — an empty walk must
+// answer 0, not throw and not read as unfiltered.
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+const NOTES = simpleCollection({
+	sort_field: 'name',
+	schema: {
+		type: 'object',
+		required: ['name'],
+		properties: {
+			name: { type: 'string' },
+			status: { type: 'string', enum: ['open', 'done'] },
+			notes: { type: 'string', format: 'markdown', 'x-body': true },
+		},
+	},
+});
+
+const notesWorkspace = () => workspace({
+	collections: { notes: NOTES, people: simpleCollection() },
+	records: { notes: [{ name: 'a' }, { name: 'b' }] },
+});
+
+describe('prove helpers against a store', () => {
+	test('countMatching counts the rows a filter keeps', () => {
+		const { store } = notesWorkspace();
+		assert.equal(countMatching(store, 'notes', { name: { _eq: 'a' } }, null), 1);
+	});
+
+	test('countMatching with no filter counts the whole collection', () => {
+		const { store } = notesWorkspace();
+		assert.equal(countMatching(store, 'notes', null, null), 2);
+	});
+
+	// ⚠ ZERO IS AN ANSWER, not an error. A `count: { _eq: 0 }` expectation over a collection nothing
+	// has ever written to is the ordinary shape of "this command creates the first one", and a walk
+	// that threw on a missing directory would turn it into a crash.
+	test('an empty collection counts 0 rather than throwing', () => {
+		const { store } = notesWorkspace();
+		assert.equal(countMatching(store, 'people', {}, null), 0);
+	});
+
+	test('a filter that matches nothing counts 0', () => {
+		const { store } = notesWorkspace();
+		assert.equal(countMatching(store, 'notes', { status: { _eq: 'done' } }, null), 0);
+	});
+
+	// The record id is part of what a filter may test — `{ id: { _eq: 'a' } }` is how a proof asserts
+	// that a named record exists — so the row handed to matchesFilter is `{ ...fields, id }`, exactly
+	// what `list` builds.
+	test('the id is filterable, because the row carries it like a list row does', () => {
+		const { store } = notesWorkspace();
+		assert.equal(countMatching(store, 'notes', { id: { _eq: 'b' } }, null), 1);
+	});
+
+	test('pickFixture with pick: latest takes the head of the sort_field, DESCENDING', () => {
+		const { store } = notesWorkspace();
+		const picked = pickFixture(store, { collection: 'notes', where: {}, pick: 'latest' });
+		assert.equal(picked.ref, 'notes/b');
+		assert.equal(picked.fields.name, 'b');
+	});
+
+	test('pickFixture with pick: <id> reads that record', () => {
+		const { store } = notesWorkspace();
+		assert.equal(pickFixture(store, { collection: 'notes', where: {}, pick: 'a' }).ref, 'notes/a');
+	});
+
+	// NO-FIXTURE (exit 4) rather than a crash: a live proof whose `given` matches nothing is not a
+	// failure of the artifact, and the runner has a distinct code for exactly that.
+	test('pickFixture returns null for an id that is not there', () => {
+		const { store } = notesWorkspace();
+		assert.equal(pickFixture(store, { collection: 'notes', where: {}, pick: 'zz' }), null);
+	});
+
+	test('pickFixture returns null when the named record does not match the given where', () => {
+		const { store } = notesWorkspace();
+		assert.equal(pickFixture(store, { collection: 'notes', where: { name: { _eq: 'b' } }, pick: 'a' }), null);
+	});
+
+	test('pick: latest respects the where — it is the head of the MATCHING rows', () => {
+		const { store } = notesWorkspace();
+		assert.equal(pickFixture(store, { collection: 'notes', where: { name: { _eq: 'a' } }, pick: 'latest' }).ref, 'notes/a');
+	});
+
+	test('pick: latest over a where that matches nothing is null', () => {
+		const { store } = notesWorkspace();
+		assert.equal(pickFixture(store, { collection: 'notes', where: { status: { _eq: 'done' } }, pick: 'latest' }), null);
+	});
+
+	// The picked record's own fields are what `{record.<field>}` substitutes from, and `id` is one of
+	// them — the same row shape the filter sees, so a proof cannot find a field in one and not the other.
+	test('the picked record carries its id among its fields', () => {
+		const { store } = notesWorkspace();
+		assert.equal(pickFixture(store, { collection: 'notes', where: {}, pick: 'a' }).fields.id, 'a');
+	});
+
+	// --record OVERRIDES the picker rather than filtering through it: an operator who names a record
+	// is telling the runner which one to use, and re-testing it against `given.where` would answer
+	// NO-FIXTURE for the record they just typed.
+	test('an override names the record outright, past the where', () => {
+		const { store } = notesWorkspace();
+		const picked = pickFixture(store, { collection: 'notes', where: { name: { _eq: 'b' } }, pick: 'latest' }, 'notes/a');
+		assert.equal(picked.ref, 'notes/a');
+	});
+
+	test('an override for a record that is not there is null', () => {
+		const { store } = notesWorkspace();
+		assert.equal(pickFixture(store, { collection: 'notes', where: {}, pick: 'latest' }, 'notes/zz'), null);
+	});
+
+	test('an override that is not a <collection>/<id> ref is refused, naming the shape', () => {
+		const { store } = notesWorkspace();
+		assert.throws(() => pickFixture(store, { collection: 'notes', where: {}, pick: 'latest' }, 'a'), /--record takes a <collection>\/<id> reference/);
+	});
+
+	test('an override naming a DIFFERENT collection than the given is refused', () => {
+		const { store } = notesWorkspace();
+		assert.throws(() => pickFixture(store, { collection: 'notes', where: {}, pick: 'latest' }, 'people/x'), /--record people\/x is not a record of notes/);
+	});
+
+	test('resolveRequires is satisfied by a binary that is on PATH', () => {
+		const { ws } = notesWorkspace();
+		assert.deepEqual(resolveRequires(ws, { bin: ['node'] }), { ok: true, missing: [] });
+	});
+
+	test('a binary that is not on PATH is missing, with the fix that names PATH', () => {
+		const { ws } = notesWorkspace();
+		const res = resolveRequires(ws, { bin: ['definitely-not-a-binary-xyz'] });
+		assert.equal(res.ok, false);
+		assert.deepEqual(res.missing, [{ kind: 'bin', name: 'definitely-not-a-binary-xyz', fix: 'definitely-not-a-binary-xyz is not on PATH' }]);
+	});
+
+	test('an unset env var is missing, with the fix that names .env', () => {
+		const { ws } = notesWorkspace();
+		const res = resolveRequires(ws, { env: ['PROVE_TEST_UNSET_VAR'] });
+		assert.equal(res.ok, false);
+		assert.deepEqual(res.missing, [{ kind: 'env', name: 'PROVE_TEST_UNSET_VAR', fix: 'PROVE_TEST_UNSET_VAR is not set — add it to .env' }]);
+	});
+
+	// ⚠ A KEY IN `.env` SATISFIES IT, and the value is never read. `.env` is desktop-only and its
+	// values are credentials: the requirement is "this machine has it configured", which the KEY
+	// answers, and parsing for names only is what keeps a secret out of every code path here.
+	test('a key declared in .env satisfies the requirement, and nothing reads its value', () => {
+		const { ws, root } = notesWorkspace();
+		fs.writeFileSync(path.join(root, '.env'), 'PROVE_TEST_ENV_KEY=a-value-nothing-should-print\n');
+		assert.deepEqual(resolveRequires(ws, { env: ['PROVE_TEST_ENV_KEY'] }), { ok: true, missing: [] });
+	});
+
+	test('a var exported into the process satisfies it too', () => {
+		const { ws } = notesWorkspace();
+		process.env.PROVE_TEST_PROCESS_VAR = 'x';
+		try {
+			assert.deepEqual(resolveRequires(ws, { env: ['PROVE_TEST_PROCESS_VAR'] }), { ok: true, missing: [] });
+		} finally {
+			delete process.env.PROVE_TEST_PROCESS_VAR;
+		}
+	});
+
+	test('no requires at all is satisfied', () => {
+		const { ws } = notesWorkspace();
+		assert.deepEqual(resolveRequires(ws, undefined), { ok: true, missing: [] });
+	});
+
+	test('every missing requirement is reported, env before bin', () => {
+		const { ws } = notesWorkspace();
+		const res = resolveRequires(ws, { env: ['PROVE_TEST_UNSET_VAR'], bin: ['definitely-not-a-binary-xyz'] });
+		assert.deepEqual(res.missing.map((m) => m.kind), ['env', 'bin']);
+	});
+
+	// ⚠ THE PATH ASSERTION, and the whole reason the plan carries a §2: `.dreamteamer/proofs/` is a
+	// KIND folder that every compile wipes. The dot is what makes the ledger survive.
+	test('the ledger lives under .dreamteamer/.proofs/, never .dreamteamer/proofs/', () => {
+		const { root } = notesWorkspace();
+		assert.equal(LEDGER_DIR, '.proofs');
+		assert.equal(ledgerPath(root, 'skill-loads'), path.join(root, '.dreamteamer', '.proofs', 'skill-loads.jsonl'));
+		assert.doesNotMatch(ledgerPath(root, 'skill-loads'), /\.dreamteamer[\\/]proofs[\\/]/);
+	});
+
+	test('readLedger on a proof that has never run is empty, not an error', () => {
+		const { root } = notesWorkspace();
+		assert.deepEqual(readLedger(root, 'never-run'), []);
+	});
+
+	test('appendLedger creates the directory on the first row and reads back what it wrote', () => {
+		const { root } = notesWorkspace();
+		assert.equal(fs.existsSync(path.join(root, '.dreamteamer', '.proofs')), false);
+		appendLedger(root, 'skill-loads', { when: '2026-09-07T10:00:00+03:00', verdict: 'PASS', record: null });
+		const rows = readLedger(root, 'skill-loads');
+		assert.equal(rows.length, 1);
+		assert.equal(rows[0].verdict, 'PASS');
+	});
+
+	test('one line per row — the file is JSONL, not a JSON array', () => {
+		const { root } = notesWorkspace();
+		appendLedger(root, 'skill-loads', { verdict: 'PASS', record: null });
+		appendLedger(root, 'skill-loads', { verdict: 'FAIL', record: null });
+		const text = fs.readFileSync(ledgerPath(root, 'skill-loads'), 'utf8');
+		assert.equal(text.trimEnd().split('\n').length, 2);
+	});
+
+	// 51 appends, because the cap is only interesting at the boundary: the 51st row must land and the
+	// FIRST one must be the row that leaves.
+	test('the 51st row caps the file at 50 — the oldest goes, the newest stays', () => {
+		const { root } = notesWorkspace();
+		for (let i = 1; i <= LEDGER_CAP + 1; i++) appendLedger(root, 'skill-loads', { verdict: 'PASS', record: null, seq: i });
+		const rows = readLedger(root, 'skill-loads');
+		assert.equal(rows.length, LEDGER_CAP);
+		assert.equal(rows[0].seq, 2, 'the first row is the one dropped');
+		assert.equal(rows[rows.length - 1].seq, LEDGER_CAP + 1, 'the newest row is last');
+	});
+
+	// ⚠ A HAND-EDITED OR HALF-WRITTEN LINE MUST NOT BLIND THE WHOLE LEDGER. This file is per-machine
+	// state under a build directory: a killed run or an editor can leave a partial line, and throwing
+	// on it would make `prove` unrunnable until someone deleted evidence to get it working again.
+	test('a malformed line is skipped with a warning naming its line number, and the rest read', () => {
+		const { root } = notesWorkspace();
+		const file = ledgerPath(root, 'skill-loads');
+		fs.mkdirSync(path.dirname(file), { recursive: true });
+		fs.writeFileSync(file, '{"verdict":"PASS","record":null}\n{not json\n{"verdict":"FAIL","record":null}\n');
+		const warnings = [];
+		const warn = console.warn;
+		console.warn = (...a) => warnings.push(a.join(' '));
+		let rows;
+		try { rows = readLedger(root, 'skill-loads'); } finally { console.warn = warn; }
+		assert.deepEqual(rows.map((r) => r.verdict), ['PASS', 'FAIL']);
+		assert.equal(warnings.length, 1, warnings.join('\n'));
+		assert.match(warnings[0], /\.dreamteamer\/\.proofs\/skill-loads\.jsonl:2/);
+	});
+
+	test('the next append rewrites the file without the malformed line', () => {
+		const { root } = notesWorkspace();
+		const file = ledgerPath(root, 'skill-loads');
+		fs.mkdirSync(path.dirname(file), { recursive: true });
+		fs.writeFileSync(file, '{"verdict":"PASS","record":null}\n{not json\n');
+		const warn = console.warn;
+		console.warn = () => {};
+		try { appendLedger(root, 'skill-loads', { verdict: 'FAIL', record: null }); } finally { console.warn = warn; }
+		assert.equal(fs.readFileSync(file, 'utf8'), '{"verdict":"PASS","record":null}\n{"verdict":"FAIL","record":null}\n');
+	});
+
+	test('pendingFor returns the PENDING row for that record', () => {
+		const { root } = notesWorkspace();
+		appendLedger(root, 'skill-loads', { verdict: 'PENDING', record: 'notes/a', failure_reason: null });
+		const row = pendingFor(root, 'skill-loads', 'notes/a');
+		assert.equal(row.verdict, 'PENDING');
+		assert.equal(row.record, 'notes/a');
+	});
+
+	// ⚠ SUPERSEDING is what makes a resume safe: once the same record has a later verdict, the earlier
+	// PENDING is history, and re-offering it would ask the operator to perform a step twice.
+	test('a later row for the same record supersedes the PENDING', () => {
+		const { root } = notesWorkspace();
+		appendLedger(root, 'skill-loads', { verdict: 'PENDING', record: 'notes/a' });
+		appendLedger(root, 'skill-loads', { verdict: 'PASS', record: 'notes/a' });
+		assert.equal(pendingFor(root, 'skill-loads', 'notes/a'), null);
+	});
+
+	test('a later row for a DIFFERENT record supersedes nothing', () => {
+		const { root } = notesWorkspace();
+		appendLedger(root, 'skill-loads', { verdict: 'PENDING', record: 'notes/a' });
+		appendLedger(root, 'skill-loads', { verdict: 'PASS', record: 'notes/b' });
+		assert.equal(pendingFor(root, 'skill-loads', 'notes/a').verdict, 'PENDING');
+	});
+
+	test('a gate proof pends against no record at all, and null is that record', () => {
+		const { root } = notesWorkspace();
+		appendLedger(root, 'skill-loads', { verdict: 'PENDING', record: null });
+		assert.equal(pendingFor(root, 'skill-loads', null).verdict, 'PENDING');
+		assert.equal(pendingFor(root, 'skill-loads', 'notes/a'), null);
+	});
+
+	test('pendingFor on a ledger that does not exist is null', () => {
+		const { root } = notesWorkspace();
+		assert.equal(pendingFor(root, 'never-run', null), null);
 	});
 });
