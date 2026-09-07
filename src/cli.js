@@ -191,10 +191,12 @@ workspace verbs:
                                [--here] run a \`writes\` proof in this workspace, not a sandbox
                                [--keep] keep the sandbox afterwards  [--json] one object on stdout
               <artifact-ref>   every proof whose \`about\` names skills/<id>, commands/<id>,
-                               command-bindings/<id> or <module>/bin/<file> — board semantics
+                               command-bindings/<id> or <module>/bin/<file> — board semantics, so
+                               it takes the same [--kind gate|live] [--external] [--strict] [--json]
               --all            every proof; a \`perform\` one is LISTED, never started, so this
-                               never exits 5 [--kind gate|live] [--external] include external
-                               proofs [--strict] make an unavailable fatal [--json]
+                               never exits 5. ONE line per proof — a step transcript is what a
+                               single-proof run is for [--kind gate|live] [--external] include
+                               external proofs [--strict] make an unavailable fatal [--json]
   status      workspace status: compiled runtime freshness, per-module channel/ref, staleness
   start       serve the clean REST api at /api [--port <n>]
   changes     what changed in every repo that holds records, as record events
