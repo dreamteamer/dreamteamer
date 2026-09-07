@@ -900,7 +900,7 @@ describe('local-assets and postinstall are validated at compile', () => {
 	});
 
 	test('the engine-owned paths are refused by name', () => {
-		for (const bad of ['.env', 'node_modules', '.dreamteamer']) {
+		for (const bad of ['.env', 'node_modules', '.dreamteamer', '.git']) {
 			const ws = workspace({ compile: false, pkg: { 'local-assets': [bad] } });
 			assert.match(compileError(ws.ws), new RegExp(`local-assets.*${bad.replace('.', '\\.')}.*engine`));
 		}
@@ -909,6 +909,16 @@ describe('local-assets and postinstall are validated at compile', () => {
 	test('a module-level entry escaping the module is refused', () => {
 		const ws = twoModuleWorkspace(); patchModulePkg(ws.root, 'core', { 'local-assets': ['../outside'] });
 		assert.match(compileError(ws.ws), /local-assets.*\.\..*escapes/);
+	});
+
+	// ⚠ A NON-STRING `postinstall` IS THE ONE DECLARATION THE INSTALLER HANDS TO A SHELL. Both
+	// shapes below reach `execSync` in `checkout.js` as whatever `String()` makes of them — an array
+	// joins on a comma and a number becomes a command nobody typed — so the refusal is the compiler's.
+	test('a postinstall that is not a string is refused', () => {
+		for (const bad of [['npm', 'ci'], 7]) {
+			const ws = workspace({ compile: false, pkg: { postinstall: bad } });
+			assert.match(compileError(ws.ws), /postinstall.*string/);
+		}
 	});
 
 	// ⚠ THE WORKSPACE-LEVEL TWIN NEEDS ITS OWN CASE. `git check-ignore` cannot see a path outside the
