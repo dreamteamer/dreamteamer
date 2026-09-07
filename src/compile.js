@@ -1,6 +1,7 @@
 // dreamteamer compile — materialize (modules × workspace sources) into .dreamteamer,
 // the single runtime read surface: copies + provenance manifest, then harness adapters.
 // explicit only; nothing rebuilds implicitly.
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -636,6 +637,7 @@ export function compile({ root, pkg }) {
 	const moduleDeps = new Map();  // module name -> [module names]      — HARD, must be acyclic
 	const modulePeers = new Map(); // module name -> [collection names]  — SOFT, cannot cycle
 	const moduleNamespaces = new Map(); // module name -> [namespaces it DECLARES] (§8, option A)
+	const moduleLocalAssets = []; // {rel, owner, base} — validated with the workspace's own, below
 	for (const source of sources) {
 		let mpkg;
 		try { mpkg = JSON.parse(fs.readFileSync(path.join(source.root, 'package.json'), 'utf8')); } catch { continue; }
@@ -675,6 +677,13 @@ export function compile({ root, pkg }) {
 			if (!declaredEnv.has(k)) declaredEnv.set(k, []);
 			declaredEnv.get(k).push(source.name);
 		}
+		// Gathered here because mpkg is already parsed; refused below, next to the workspace's own
+		// declaration. The classic layout pushes the ROOT itself as an inline source, whose
+		// package.json IS `config` — reading it here too would report every workspace-level
+		// declaration twice, under the wrong owner.
+		if (source.root !== root) {
+			for (const rel of mpkg.dreamteamer?.['local-assets'] ?? []) moduleLocalAssets.push({ rel, owner: source.name, base: source.root });
+		}
 	}
 	// `dreamteamer.vars` is the WORKSPACE's own declaration (root package.json, not a module's): the
 	// keys a `${env:NAME}` template is allowed to name. Same missing-key question as
@@ -713,6 +722,33 @@ export function compile({ root, pkg }) {
 			}
 		}
 	}
+
+	// ---- local-assets and postinstall: what `dt install` will do to a checkout -------
+	// `local-assets` are the gitignored heavy folders a checkout SHARES by symlink instead of
+	// duplicating — a browser profile dir, a model cache. Declared, never discovered. Every
+	// refusal below is something the installer would otherwise hit at RUN time, on a machine nobody
+	// is watching; the compiler is where a declaration is cheap to fix. (`src/checkout.js` refuses
+	// the escaping rel a second time when the plan is built — a runtime that writes a symlink
+	// outside the root must not wait for the compiler to be run.)
+	const ENGINE_OWNED = new Set(['.env', 'node_modules', '.dreamteamer', '.git']);
+	const gitQ = (args) => { try { execFileSync('git', args, { cwd: root, stdio: 'ignore' }); return true; } catch { return false; } };
+	for (const a of [...(config['local-assets'] ?? []).map((rel) => ({ rel, owner: 'workspace', base: root })), ...moduleLocalAssets]) {
+		const abs = path.resolve(a.base, a.rel), rel = path.relative(root, abs);
+		if (a.owner !== 'workspace' && path.relative(a.base, abs).startsWith('..')) fail(`local-assets: "${a.rel}" (module ${a.owner}) escapes its module with .. — declare it at the workspace level instead`);
+		// The workspace-level twin, and it earns its own line: a rel that climbs out of the ROOT
+		// otherwise reached the gitignore check below, which cannot see a path outside the repo and
+		// so told the operator to ignore something git will never match. `checkout.js` refuses the
+		// same shape when the plan is built.
+		if (rel.startsWith('..')) fail(`local-assets: "${a.rel}" escapes the workspace root with .. — a local asset must be a path INSIDE the workspace`);
+		if (ENGINE_OWNED.has(rel.split(path.sep)[0])) fail(`local-assets: "${rel}" is engine-owned — install links .env and installs node_modules itself; never declare them`);
+		if (gitQ(['ls-files', '--error-unmatch', rel])) fail(`local-assets: "${rel}" is tracked — a tracked path needs no link and a link would shadow it`);
+		// ⚠ WITHOUT a trailing slash, and the message has to say so: a dir-only pattern (`.profiles/`)
+		// matches neither a symlink nor a path that does not exist yet (measured, git 2.50) — and a
+		// shared asset is exactly those two shapes, a symlink in every non-primary checkout and
+		// absent before the first install.
+		if (!gitQ(['check-ignore', '-q', rel])) fail(`local-assets: "${rel}" is not gitignored — add it to .gitignore WITHOUT a trailing slash (a worktree holds it as a symlink, and a dir-only pattern ignores neither a symlink nor an absent path); a shared asset must never be committed`);
+	}
+	if (config.postinstall != null && typeof config.postinstall !== 'string') fail('dreamteamer.postinstall must be a single shell string');
 
 	// ---- the module dependency graph -------------------------------------------------
 	// `dependencies` names MODULES and must be acyclic. `peerDependencies` names COLLECTIONS and
