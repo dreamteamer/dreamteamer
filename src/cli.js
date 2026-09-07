@@ -239,17 +239,39 @@ export function run(argv) {
 			// ONE verb makes a thing present and ready: this checkout, or an attached repo's
 			// working tree. `ensure` was the second spelling of the same idea and is retired in the
 			// `default` arm below — no alias, per the 0.12.0 policy.
+			//
+			// ⚠ THREE FORMS, ONE FLAG TABLE — so each form REFUSES the other's vocabulary itself.
+			// `WORKSPACE_FLAGS.install` can only say which flags the verb has; it cannot know that
+			// `--dry-run` is meaningless once a target is named. Forwarding just the flags a form
+			// understands DROPS the rest in silence, and that is not a cosmetic loss:
+			// `dt install repos/x --dry-run` materialized the repo for real, driven past a flag
+			// whose entire meaning is "do nothing". A bare positional had the same shape of bug —
+			// `dt install <repo-id>`, the muscle memory `dt ensure <id>` taught for nine releases,
+			// matched neither branch, so the target was ignored and a whole checkout install ran.
+			// Same policy as the retired verbs below: a stale invocation fails loudly.
 			case 'install': {
+				const given = rest.filter((a) => a.startsWith('--'));
+				const refuse = (form, allowed) => {
+					const stray = given.filter((f) => !allowed.includes(f));
+					if (!stray.length) return;
+					throw new Error(`${stray.join(' ')} ${stray.length > 1 ? 'are not flags' : 'is not a flag'} of \`${form}\` — that form takes ${allowed.join(' ')}`);
+				};
 				const ci = rest.indexOf('--clone');
-				if (ci > -1) process.exit(installClone(ws, rest[ci + 1], rest[ci + 2]));
+				if (ci > -1) {
+					refuse('dt install --clone <url> [name]', ['--clone']);
+					process.exit(installClone(ws, rest[ci + 1], rest[ci + 2]));
+				}
 				const target = rest.find((a) => !a.startsWith('--'));
 				if (target === 'repos' || target?.startsWith('repos/')) {
+					refuse(`dt install ${target}`, ['--all', '--json']);
 					warnIfStale(ws.root);
-					// ensure's own vocabulary only — --link-env and --dry-run are the checkout form's
-					const fwd = rest.filter((a) => a === '--all' || a === '--json');
-					const args = target === 'repos' ? fwd : [target.slice('repos/'.length), ...fwd];
+					const args = target === 'repos' ? given : [target.slice('repos/'.length), ...given];
 					process.exit(collectionCommand(ws, 'repos', 'ensure', args));
 				}
+				if (target) {
+					throw new Error(`dt install takes no target "${target}" — \`dt install\` makes THIS checkout ready, and \`dt install repos/${target}\` materializes an attached repo`);
+				}
+				refuse('dt install', ['--dry-run', '--json', '--link-env']);
 				process.exit(installCommand(ws, rest));
 			}
 			case 'update': {
