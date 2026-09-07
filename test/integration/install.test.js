@@ -282,6 +282,16 @@ describe('dt install --hook installs the checkout named on STDIN', () => {
 		assert.doesNotMatch(r.stdout, /this is worktree/);
 	});
 
+	// A WorktreeCreate payload piped into the SessionStart hook is well-formed and names the wrong
+	// thing; without this it would install `process.cwd()` — the primary — and report success.
+	test('a payload with a name but no cwd is refused, with the keys it did carry', () => {
+		const ws = workspace();
+		const r = dtStdin(ws.root, '{"name":"p"}', 'install', '--hook');
+		assert.equal(r.code, 1, r.stdout);
+		assert.match(r.stderr, /hook input carries no cwd/);
+		assert.match(r.stderr, /keys received: name/);
+	});
+
 	test('garbage on stdin is named rather than silently installing the cwd', () => {
 		const ws = workspace();
 		const r = dtStdin(ws.root, 'not json', 'install', '--hook');
@@ -346,6 +356,39 @@ describe('dt install --print-adapters renders the harness snippet', () => {
 		fs.rmSync(path.join(wt, '.dreamteamer'), { recursive: true, force: true });
 		assert.equal(dt(wt, 'install', '--print-adapters').code, 0);
 		assert.ok(!fs.existsSync(path.join(wt, '.dreamteamer', 'manifest.yaml')), '--print-adapters ran the install');
+	});
+
+	// ⚠ EACH IS A FORM, so each refuses the OTHER forms' vocabulary. `--hook --dry-run` would
+	// otherwise read as "plan the checkout named on stdin" — a thing this verb cannot do — and
+	// `--print-adapters --json` as a board that is never produced.
+	test('--hook refuses the checkout form\'s flags by name', () => {
+		const ws = workspace();
+		for (const flag of ['--dry-run', '--json', '--link-env']) {
+			const r = dt(ws.root, 'install', '--hook', flag);
+			assert.equal(r.code, 1, `${flag} was swallowed:\n${r.stdout}`);
+			assert.match(r.stderr, new RegExp(`\\${flag} is not a flag of \`dt install --hook\``));
+			assert.match(r.stderr, /that form takes --hook/);
+		}
+	});
+
+	test('--print-adapters refuses the checkout form\'s flags by name', () => {
+		const ws = workspace();
+		for (const flag of ['--json', '--dry-run', '--link-env']) {
+			const r = dt(ws.root, 'install', '--print-adapters', flag);
+			assert.equal(r.code, 1, `${flag} was swallowed:\n${r.stdout}`);
+			assert.match(r.stderr, new RegExp(`\\${flag} is not a flag of \`dt install --print-adapters\``));
+		}
+	});
+
+	// ⚠ AN EMPTY RENDER AT EXIT 0 IS A DESTROYED FILE. `dt install --print-adapters > hooks.json` is
+	// the way this output is used, and a workspace that never declared claude-code would have
+	// truncated that file to nothing while reporting success.
+	test('a workspace with no claude-code harness refuses rather than printing nothing', () => {
+		const ws = workspace({ compile: false, pkg: { harnesses: ['codex', 'cursor'] } });
+		const r = dt(ws.root, 'install', '--print-adapters');
+		assert.equal(r.code, 1, `exit 0 with empty stdout truncates the file it is redirected into:\n${r.stdout}`);
+		assert.equal(r.stdout.trim(), '');
+		assert.match(r.stderr, /no claude-code harness declared — nothing to render/);
 	});
 
 	test('the two hook flags are refused on the repos form', () => {

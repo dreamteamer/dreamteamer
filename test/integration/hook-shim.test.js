@@ -120,17 +120,32 @@ describe('bin/dt-hook.sh resolves node where a hook has no PATH', () => {
 	// flow rather than by reading it. npm's own shebang is `#!/usr/bin/env node`, so the npm the
 	// engine resolves beside `process.execPath` was spawned successfully and then died at exit 127
 	// with `env: node: No such file or directory` — the interpreter lookup, one level below the one
-	// the shim fixes. So the whole chain is walked here, end to end, in the environment a hook
-	// actually gets: shim → engine → npm → npm's own node.
-	test('the npm step survives a hook environment — the whole chain, under env -i', (t) => {
-		if (!fs.existsSync(process.execPath)) return t.skip('no node to point at');
+	// the shim fixes. The whole chain is walked here, end to end: shim → engine → npm → npm's node.
+	//
+	// ⚠ THE PATH IS BUILT, NOT BORROWED, and that is the point of the fixture. An earlier version
+	// used `PATH=/usr/bin:/bin`, which is a statement about THIS disk: on a box with node at
+	// /usr/bin/node the assertion holds whether or not the fix exists. Here PATH is one directory
+	// this test made, holding symlinks to exactly the three utilities the shim needs (`dirname` for
+	// its own exec line, `git` because `describeCheckout` shells out, `sh` for anything npm runs)
+	// and NOTHING ELSE — so "node is not on PATH" is true by construction on every machine.
+	test('the npm step survives a hook environment — the whole chain, on a PATH built here', (t) => {
+		const which = (n) => spawnSync('sh', ['-c', `command -v ${n}`], { encoding: 'utf8' }).stdout.trim();
+		const [git, sh, dirname] = ['git', 'sh', 'dirname'].map(which);
+		if (!git || !sh || !dirname) return t.skip('git, sh or dirname is not on this machine at all');
+
+		const onlyPath = path.join(tmp(), 'bin');
+		fs.mkdirSync(onlyPath, { recursive: true });
+		for (const [name, target] of [['git', git], ['sh', sh], ['dirname', dirname]]) fs.symlinkSync(target, path.join(onlyPath, name));
+		assert.ok(!fs.existsSync(path.join(onlyPath, 'node')) && !fs.existsSync(path.join(onlyPath, 'npm')),
+			'the fixture PATH must hold neither node nor npm, or this test proves nothing');
+
 		const dir = tmp();
 		spawnSync('git', ['init', '-q', dir], { encoding: 'utf8' });
 		const init = spawnSync(process.execPath, [path.join(ENGINE_ROOT, 'bin', 'dreamteamer.js'), 'init'], { cwd: dir, encoding: 'utf8' });
 		assert.equal(init.status, 0, init.stderr + init.stdout);
 
-		const r = spawnSync('env', ['-i', 'PATH=/usr/bin:/bin', `HOME=${os.homedir()}`, 'sh', SHIM, 'install'],
-			{ cwd: dir, encoding: 'utf8' });
+		const r = spawnSync('env', ['-i', `PATH=${onlyPath}`, `HOME=${os.homedir()}`,
+			`DREAMTEAMER_NODE=${process.execPath}`, sh, SHIM, 'install'], { cwd: dir, encoding: 'utf8' });
 		const out = (r.stdout ?? '') + (r.stderr ?? '');
 		assert.doesNotMatch(out, /env: node: No such file/, 'npm could not find its own interpreter');
 		assert.doesNotMatch(out, /engine failed \(exit 127\)/, out);

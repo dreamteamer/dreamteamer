@@ -169,10 +169,15 @@ const guard = (name, fn) => (...a) => {
  */
 export function resolveNpm(execPath = process.execPath, env = process.env) {
 	const bin = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+	// ⚠ EXECUTABLE, not merely present. `resolves` is `existsSync`, which is true of a DIRECTORY
+	// called `npm` and of a file nobody may run — and this path is then spawned, so the difference
+	// between "it is there" and "it can be executed" is the difference between a named board line
+	// and an EACCES nobody planned for. `prove`'s `requires: { bin: … }` already learned this.
+	const runnable = (p) => { try { fs.accessSync(p, fs.constants.X_OK); return fs.statSync(p).isFile(); } catch { return false; } };
 	const beside = path.join(path.dirname(execPath), bin);
-	if (resolves(beside)) return beside;
+	if (runnable(beside)) return beside;
 	for (const dir of (env.PATH ?? '').split(path.delimiter)) {
-		if (dir && resolves(path.join(dir, bin))) return path.join(dir, bin);
+		if (dir && runnable(path.join(dir, bin))) return path.join(dir, bin);
 	}
 	return null;
 }
@@ -192,8 +197,10 @@ const childEnv = () => ({ ...process.env, PATH: [path.dirname(process.execPath),
 // all was settled by `planInstall`. `stdio` is the caller's, so a `--json` run can send a
 // subprocess's chatter to stderr and keep stdout for the payload.
 const RUN = {
-	engine: guard('engine', (ws, st, rel, stdio) => {
-		const npm = resolveNpm();
+	// ⚠ `npm` ARRIVES AS AN ARGUMENT rather than being resolved here, and that is what makes the
+	// refusal below testable at all: with the resolution inlined, deleting the guard left the suite
+	// green, because no fixture can make npm unresolvable beside the node running the test.
+	engine: guard('engine', (ws, st, rel, stdio, npm) => {
 		// ⚠ THE HONEST BOARD LINE, not a crash. `npm` is missing far more often than `node` is —
 		// a hook's `sh` finds neither, and the shim resolves only node — so the step has to say
 		// WHICH of the two it could not find. `✖ engine:` is prepended by the guard.
@@ -210,14 +217,14 @@ const RUN = {
 /** Print the board and run the todo steps in order. `dryRun` prints and runs nothing. Returns 1 if
  *  any step errored — one failure never abandons the rest, because a checkout half-made-ready with
  *  a named failure is more useful than one that stopped at the first thing it could not do. */
-export function applyInstall(ws, state, steps, { dryRun = false, log = console.log, stdio = 'inherit' } = {}) {
+export function applyInstall(ws, state, steps, { dryRun = false, log = console.log, stdio = 'inherit', npm = resolveNpm() } = {}) {
 	let failed = 0;
 	for (const s of steps) {
 		const glyph = s.state === 'todo' ? '▶' : s.state === 'already' ? '✔' : '—';
 		log(`${glyph} ${s.label}${s.why ? `\n    ${s.why}` : ''}`);
 		if (s.state !== 'todo' || dryRun) continue;
 		const [kind, rel] = s.id.split(/:(.+)/);
-		const code = RUN[kind](ws, state, rel, stdio);
+		const code = RUN[kind](ws, state, rel, stdio, npm);
 		if (code !== 0) { failed++; log(`✖ ${s.id} failed (exit ${code})`); }
 	}
 	return failed ? 1 : 0;
@@ -230,9 +237,18 @@ export function applyInstall(ws, state, steps, { dryRun = false, log = console.l
 // parses the payload for both.
 
 /** The hook's payload, read to EOF. fd 0 rather than a stream, because every caller here is
- *  synchronous and a hook's stdin is a pipe that the harness closes. A stdin that cannot be read at
- *  all (a TTY, a closed descriptor) comes back empty, and `readHookInput` names that. */
-const readStdin = () => { try { return fs.readFileSync(0, 'utf8'); } catch { return ''; } };
+ *  synchronous and a hook's stdin is a pipe that the harness closes.
+ *
+ *  ⚠ A TTY DOES NOT COME BACK EMPTY — IT BLOCKS FOREVER (measured). `readFileSync(0)` on a terminal
+ *  waits for an EOF the operator has no reason to know he must send, so `dt install --hook` typed
+ *  by hand hung silently with no prompt and no output: the worst failure shape a CLI has, because
+ *  there is nothing to read and nothing to search for. So the terminal case is refused BEFORE the
+ *  read. `isTTY` is a parameter so the refusal can be tested without a pty. A closed or unreadable
+ *  descriptor still comes back empty, and `readHookInput` names that one. */
+export function readStdin(isTTY = process.stdin.isTTY) {
+	if (isTTY) throw new Error('--hook reads the harness\'s JSON on stdin — nothing is piped');
+	try { return fs.readFileSync(0, 'utf8'); } catch { return ''; }
+}
 
 /** What the harness said, as `{ cwd, name, raw }`.
  *
@@ -278,11 +294,18 @@ const CLAUDE_HOOKS = {
  *  decision this engine has not made (spec §13.7). So this verb PRINTS — snippets on stdout, so the
  *  output can be piped, and everything else on stderr so it stays parseable. */
 export function printAdapters(ws, { harnesses = ws.pkg.dreamteamer?.harnesses ?? ['claude-code'] } = {}) {
+	// ⚠ AN EMPTY RENDER IS A REFUSAL, NOT A SUCCESS. The whole point of this verb is that its stdout
+	// is redirected into a settings file — so printing nothing at exit 0 writes an EMPTY hooks.json
+	// over whatever was there, silently, on the one workspace that never declared the harness.
+	if (!harnesses.includes('claude-code')) {
+		console.error('no claude-code harness declared — nothing to render');
+		return 1;
+	}
 	for (const h of harnesses) {
-		// `claude` is the spelling the design doc uses; `claude-code` is the one KNOWN_HARNESSES and
-		// every real package.json carry. Both name the same adapter, and matching only the former
-		// would print "not yet shipped" on every workspace that exists.
-		if (h !== 'claude-code' && h !== 'claude') {
+		// `claude-code` is the ONLY spelling: it is what KNOWN_HARNESSES holds and what every real
+		// package.json carries. The design doc's shorter `claude` names no harness this engine
+		// compiles for, so accepting it would only ever mask a misspelling.
+		if (h !== 'claude-code') {
 			console.error(`${h}: adapter not yet shipped (decision 311) — see using-dreamteamer › worktrees.md`);
 			continue;
 		}
@@ -599,6 +622,17 @@ export function worktreeCommand(ws, verb, target, flags = {}) {
 			// compile would walk a LIVE worktree and delete its empty folders. Claude's own placement
 			// logic is replaced by this hook, so the path printed last is the path it then uses.
 			if (!flags.hook) return addWorktree(ws, { name: one('name'), dir: one('path'), base: one('base'), temp: !!flags.temp });
+			// ⚠ AND IT IS A FORM, so it refuses the other form's vocabulary itself — the same policy
+			// `dt install`'s three forms follow, for the same measured reason. The flag table can
+			// only say which flags the VERB has; it cannot know that `--temp` is meaningless once
+			// the name and the placement both come off stdin. `--hook --temp` cut a PERMANENT branch
+			// worktree at exit 0, and `--hook --base nosuchref` cut from HEAD at exit 0: a flag
+			// accepted and dropped is a silent wrong answer, not a cosmetic loss.
+			const stray = ['temp', 'path', 'base'].filter((f) => flags[f] !== undefined);
+			if (stray.length) {
+				const named = stray.map((f) => `--${f}`).join(' ');
+				throw new Error(`${named} ${stray.length > 1 ? 'are not flags' : 'is not a flag'} of \`dt add worktrees --hook\` — that form takes --hook --json`);
+			}
 			const input = readHookInput(readStdin());
 			if (!input.name) throw new Error(`hook input carries no worktree_name — keys received: ${Object.keys(input.raw).join(', ')}`);
 			return addWorktree(ws, { name: input.name, dir: path.join('.worktrees', input.name) });
