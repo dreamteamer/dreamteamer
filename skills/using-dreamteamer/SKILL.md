@@ -88,6 +88,7 @@ Load by the map; nothing here is loaded "just in case".
 | a job needing a fresh context and its own tools | `references/agents.md` |
 | a route, a nav entry, a board / calendar / map over records | `references/ui-views.md` |
 | a rendering or editing behaviour nothing registered has | `references/ui-components.md` |
+| a second checkout — making one ready, landing its records, a harness that cuts them for you | `references/worktrees.md` |
 
 three act-two tie-breakers, because they are the ones that go wrong:
 
