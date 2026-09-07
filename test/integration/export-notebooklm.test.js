@@ -36,7 +36,14 @@ const LEDGER = {
 	sensitive: true,
 	storage: { suffix: 'entry' },
 	id: { generate: '{{ name | slug }}' },
-	schema: { type: 'object', required: ['name'], properties: { name: { type: 'string' }, amount: { type: 'number' } } },
+	schema: { type: 'object', required: ['name'], properties: {
+		name: { type: 'string' },
+		amount: { type: 'number' },
+		// an authored example and an enum, both of which the schema source used to publish for a
+		// collection whose records it correctly withheld
+		account: { type: 'string', description: 'Which account, e.g. bank-main-349911.', examples: ['bank-main-349911'] },
+		kind: { type: 'string', enum: ['salary', 'alimony', 'medical'] },
+	} },
 };
 
 const EMAILS = ['ada@example.invalid', 'grace@example.invalid', 'linus@example.invalid'];
@@ -80,8 +87,12 @@ describe('dt export notebooklm — the render', () => {
 		assert.deepEqual(bundleFiles(ws.root), ['00-schema.md', 'companies.md', 'instructions.md', 'people.md']);
 		const m = manifest(ws.root);
 		assert.deepEqual(m.omitted.collections, ['ledger']);
-		assert.match(readFile(ws.root, 'bundle/00-schema.md'), /### collection: ledger[\s\S]*?sensitive — not exported/);
-		assert.ok(!readFile(ws.root, 'bundle/00-schema.md').includes('1234.5'));
+		const schema = readFile(ws.root, 'bundle/00-schema.md');
+		assert.match(schema, /### collection: ledger[\s\S]*?sensitive — not exported/);
+		assert.ok(!schema.includes('1234.5'));
+		// the entry STOPS at the note: no field names, no authored examples, no enum values
+		for (const leak of ['bank-main-349911', 'alimony', '- amount', '- kind']) assert.ok(!schema.includes(leak), `the schema published "${leak}" of a withheld collection`);
+		assert.ok(schema.includes('Money that moved.'), 'the description survives — the reader has to know what the gap covers');
 	});
 
 	test('system collections get no shard — they ARE the schema source', () => {
@@ -115,6 +126,19 @@ describe('dt export notebooklm — the render', () => {
 		assert.match(people, /^### Ada$/m, 'a body H1 becomes H3 so record sections stay the H2 boundary');
 		assert.match(people, /^- peers: people\/ada \(Ada\)$/m, 'each element of a many-reference is labelled');
 		assert.ok(!people.includes('- email:'));
+	});
+
+	test('a reference into a withheld collection is redacted wherever it appears — field value and body prose', () => {
+		const ws = fixture();
+		assert.equal(ws.dt('add-field', 'people', '--name', 'paid_from', '--type', 'ledger').code, 0);
+		assert.equal(ws.dt('set', 'people/ada', 'paid_from=ledger/rent').code, 0);
+		assert.equal(ws.dt('set', 'people/grace', 'notes=Billed against [[ledger/rent]] last month.').code, 0);
+		assert.equal(ws.dt('export', 'notebooklm', '--out', 'bundle').code, 0);
+		const people = readFile(ws.root, 'bundle/people.md');
+		assert.match(people, /^- paid_from: ledger\/… \(withheld\)$/m);
+		assert.match(people, /\[\[ledger\/… \(withheld\)\]\]/);
+		assert.ok(!people.includes('ledger/rent'), 'the id of a withheld record survived');
+		assert.match(readFile(ws.root, 'bundle/companies.md'), /^## companies\/analytical-engines$/m, 'an exported collection\'s own refs are untouched');
 	});
 
 	test('--collections narrows the render', () => {

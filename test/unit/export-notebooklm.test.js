@@ -5,7 +5,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-	words, projectRecord, omittedFields, exportability, shardSections, planSync, renderInstructions,
+	words, projectRecord, omittedFields, exportability, shardSections, planSync, renderInstructions, redactWithheld,
 	sourceTitle, sourceFile, OWNED_PREFIX, PERSONA_MAX, PLANS, sourceLimit,
 } from '../../src/export-notebooklm.js';
 
@@ -108,6 +108,25 @@ describe('planSync — what a sync would do, decided before any call is made', (
 	test('a title the state tracks but that is no longer wanted is removed by its id even when its title is foreign-looking', () => {
 		const plan = planSync([], [{ id: 'old', title: 'whatever the vendor kept' }], { [A]: { source_id: 'old', sha256: '1' } });
 		assert.deepEqual(plan.remove.map((s) => s.id), ['old']);
+	});
+});
+
+describe('redactWithheld — an id is not an opaque handle', () => {
+	const W = new Set(['finance/accounts', 'finance/account-source-artifacts', 'family/travel/trips']);
+	test('a reference into a withheld collection keeps its collection and loses its id', () => {
+		assert.equal(redactWithheld('pay from finance/accounts/bank-main-349911 today', W), 'pay from finance/accounts/… (withheld) today');
+	});
+	test('it reaches body prose, wikilinks included', () => {
+		assert.equal(redactWithheld('see [[family/travel/trips/2026-08--slovakia]]', W), 'see [[family/travel/trips/… (withheld)]]');
+	});
+	test('the LONGEST collection name wins, so a prefix cannot claim another collection\'s reference', () => {
+		assert.equal(redactWithheld('finance/account-source-artifacts/bank/2026/07', W), 'finance/account-source-artifacts/… (withheld)');
+	});
+	test('a reference to an exported collection is untouched, and so is the bare collection name', () => {
+		assert.equal(redactWithheld('companies/acme and finance/accounts alone', W), 'companies/acme and finance/accounts alone');
+	});
+	test('nothing withheld, nothing changed', () => {
+		assert.equal(redactWithheld('finance/accounts/bank-main', new Set()), 'finance/accounts/bank-main');
 	});
 });
 

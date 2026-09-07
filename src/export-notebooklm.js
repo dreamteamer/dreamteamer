@@ -117,11 +117,19 @@ export function renderSchema({ workspace, version, exportedAt, modules, descript
 		const why = exportability(d);
 		lines.push('', `### collection: ${d.name}`);
 		if (d.description) lines.push(flat(d.description));
+		// ⚠ A WITHHELD COLLECTION IS NAMED AND THEN THE ENTRY STOPS. Naming it is deliberate — the reader
+		// has to know the gap exists — but its SCHEMA is not neutral: a field description carries authored
+		// examples (a real vat-period id, a real trip name) and an enum publishes the value set itself
+		// (`relation: parent-partner …` describes a household). Measured on a real vault: 5 of 23 canary
+		// hits came from this block alone, from collections whose records were correctly withheld.
+		if (why === 'sensitive') {
+			lines.push('⚠ sensitive — not exported: no record, field or value of this collection is in this notebook.');
+			return;
+		}
 		if (d.use_when) lines.push(`use when: ${flat(d.use_when)}`);
 		const idShape = [d.id?.generate ? `generated as ${d.id.generate}` : null, d.id?.pattern ? `pattern ${d.id.pattern}` : null].filter(Boolean).join(', ');
 		lines.push(`id: ${idShape || 'free'} · storage: ${d.storage?.path ?? '?'} (${d.storage?.codec ?? 'md'})`);
-		if (why === 'sensitive') lines.push('⚠ sensitive — not exported: no record of this collection is in this notebook.');
-		else if (why === 'file') lines.push('binary records — not exported.');
+		if (why === 'file') lines.push('binary records — not exported.');
 		else if (selected && !selected.has(d.name)) lines.push('not included in this export (--collections).');
 		const required = new Set(d.schema?.required ?? []);
 		for (const [name, p] of Object.entries(d.schema?.properties ?? {})) lines.push(fieldLine(name, p ?? {}, required.has(name)));
@@ -156,6 +164,24 @@ export function schemaBrief(modules, descriptors, omitted) {
 }
 
 const demote = (md) => String(md).replace(/^(#{1,4})(\s)/gm, (_, h, s) => `${h}##${s}`);
+
+/** ⚠ A REFERENCE INTO A WITHHELD COLLECTION IS ITSELF A DISCLOSURE, and the sharper half is that an
+ *  id is not an opaque handle here — ids are authored, so they carry account numbers, people's names
+ *  and trip destinations. Withholding `finance/accounts` while an exported task still reads
+ *  `finance/accounts/<bank>-<account number>` withholds nothing. Measured on a real vault: 11 of 23
+ *  canary hits were exactly this, in field values AND in body prose (`[[…]]` links and bare refs).
+ *
+ *  So every rendered text — record sections, the schema source, the persona — goes through this. The
+ *  collection NAME survives, because "there is a finance account behind this and you were not given
+ *  it" is a true and useful sentence; the id does not. Longest name first, so `finance/accounts`
+ *  cannot claim a reference belonging to `finance/account-source-artifacts`. */
+export function redactWithheld(text, withheld) {
+	let out = String(text);
+	for (const name of [...withheld].sort((a, b) => b.length - a.length)) {
+		out = out.replace(new RegExp(`${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/[A-Za-z0-9._~:@+/-]+`, 'g'), `${name}/… (withheld)`);
+	}
+	return out;
+}
 
 function value(v, labels) {
 	if (Array.isArray(v)) return v.map((x) => value(x, labels)).join(', ');
@@ -276,8 +302,9 @@ export function buildBundle(ws, flags = {}) {
 	}
 
 	const meta = { workspace, version, exportedAt };
+	const withheld = new Set(omitted.collections);
 	const sources = [];
-	const schemaText = renderSchema({ workspace, version, exportedAt, modules, descriptors, omitted, selected });
+	const schemaText = redactWithheld(renderSchema({ workspace, version, exportedAt, modules, descriptors, omitted, selected }), withheld);
 	sources.push({ title: SCHEMA_TITLE, file: '00-schema.md', text: schemaText, words: words(schemaText), records: [], collection: null, shard: [1, 1] });
 	for (const d of exportable) {
 		const list = rows.get(d.name);
@@ -286,7 +313,7 @@ export function buildBundle(ws, flags = {}) {
 		const header = shardHeader(d, exportedFields, 1, 1, list.length, meta);
 		const budget = maxWords - words(header) - 4; // the header's own words come off the cap
 		if (budget < 1) throw new Error(`--max-words ${maxWords} is smaller than the shard header of ${d.name} (${words(header)} words)`);
-		const sections = list.map((r) => ({ id: r.id, text: renderRecord(d, r.id, r.fields, labels) }));
+		const sections = list.map((r) => ({ id: r.id, text: redactWithheld(renderRecord(d, r.id, r.fields, labels), withheld) }));
 		const shards = shardSections(sections, budget);
 		shards.forEach((secs, i) => {
 			const text = shardHeader(d, exportedFields, i + 1, shards.length, secs.length, meta) + secs.map((s) => s.text).join('\n');
@@ -305,13 +332,13 @@ export function buildBundle(ws, flags = {}) {
 		...Object.entries(omitted.fields).map(([c, fs_]) => `${c}.${fs_.join(`, ${c}.`)}`),
 	].join('; ') || 'nothing';
 	const template = flags.instructions !== undefined ? fs.readFileSync(path.resolve(ws.root, String(flags.instructions)), 'utf8') : DEFAULT_TEMPLATE;
-	const instructions = renderInstructions(template, {
+	const instructions = redactWithheld(renderInstructions(template, {
 		workspace, engine_version: version, exported_at: exportedAt, schema_title: SCHEMA_TITLE,
 		schema_brief: schemaBrief(modules, descriptors, omitted) || '- (no collections)',
 		sources: sources.map((s) => s.title).join(', '),
 		omitted: omittedText,
 		collections: exportable.length,
-	});
+	}), withheld);
 
 	return { workspace, version, exportedAt, plan, limit, sources, omitted, instructions, exportedFields: Object.fromEntries(exportable.map((d) => [d.name, Object.keys(d.schema?.properties ?? {}).filter((k) => !omittedFields(d).includes(k))])) };
 }
