@@ -179,6 +179,127 @@ describe('worktrees are an observed entity', () => {
 		assert.equal(git(ws.root, ['worktree', 'list', '--porcelain']).match(/\/g$/m), null, 'the registration outlived --force');
 	});
 
+	// ⚠ THE DATA-LOSS PATH, and the sandbox verb makes it the ordinary one. `ahead` is null for a
+	// DETACHED worktree by construction, and `git worktree remove` checks only modified and
+	// untracked files — never reachability. So a --temp sandbox whose work was committed read as
+	// clean-and-nothing-ahead and went at exit 0, orphaning every commit the moment its HEAD reflog
+	// went with it. Detached or not, the COUNT is what matters; only the fix differs.
+	test('rm refuses a DETACHED worktree holding commits, and names the sha because no branch does', () => {
+		const ws = workspace();
+		commitHarness(ws.root); // so the tree is CLEAN and the ahead check is the only thing left
+		const r = dt(ws.root, 'add', 'worktrees', '--name', 's', '--temp');
+		assert.equal(r.code, 0, r.stderr);
+		const dir = r.stdout.trim().split('\n').at(-1);
+		fs.writeFileSync(path.join(dir, 'note.txt'), 'x');
+		git(dir, ['add', 'note.txt']);
+		git(dir, ['commit', '-qm', 'sandbox work']);
+		const head = git(dir, ['rev-parse', 'HEAD']).slice(0, 7);
+
+		const rm = dt(ws.root, 'rm', `worktrees/${dir}`);
+		assert.notEqual(rm.code, 0, `THE COMMITS WERE ORPHANED:\n${rm.stdout}`);
+		assert.match(rm.stderr, /1 commit\(s\) reachable from NOTHING but this worktree/);
+		assert.match(rm.stderr, new RegExp(head), 'no branch names them, so the sha must');
+		assert.ok(fs.existsSync(dir), 'the refusal removed it anyway');
+
+		// ⚠ AND DOING WHAT THE MESSAGE SAYS HAS TO WORK. The danger in a detached worktree is that
+		// the commits are reachable from NOTHING but its HEAD — so once a branch holds them they are
+		// safe, and a refusal that still fired would be a message whose own instruction is a lie.
+		git(ws.root, ['branch', 'kept-work', head]);
+		const after = dt(ws.root, 'rm', `worktrees/${dir}`);
+		assert.equal(after.code, 0, `the message said to keep them with a branch, and it did not help:\n${after.stderr}`);
+		assert.match(git(ws.root, ['log', '--oneline', '-1', 'kept-work']), /sandbox work/, 'the work must survive');
+	});
+
+	// `--path` lets the directory basename differ from the name that was typed, and the name is what
+	// `get`, the duplicate guard and the branch cleanup all have to key on — otherwise the name just
+	// typed finds nothing, and `rm` leaves branch worktree-<n> behind while reporting success.
+	test('--path places the worktree elsewhere and the NAME still addresses it everywhere', () => {
+		const ws = workspace();
+		commitHarness(ws.root);
+		const r = dt(ws.root, 'add', 'worktrees', '--name', 'n', '--path', 'elsewhere/tree');
+		assert.equal(r.code, 0, r.stderr);
+		const dir = r.stdout.trim().split('\n').at(-1);
+		assert.equal(dir, path.join(ws.root, 'elsewhere', 'tree'));
+
+		const g = dt(ws.root, 'get', 'worktrees/n', '--json');
+		assert.equal(g.code, 0, g.stderr);
+		assert.equal(JSON.parse(g.stdout).path, dir);
+
+		const again = dt(ws.root, 'add', 'worktrees', '--name', 'n');
+		assert.notEqual(again.code, 0);
+		assert.match(again.stderr, /worktree "n" already exists/, 'the duplicate guard could not see it');
+
+		const rm = dt(ws.root, 'rm', 'worktrees/n');
+		assert.equal(rm.code, 0, rm.stderr);
+		assert.ok(!fs.existsSync(dir));
+		assert.equal(git(ws.root, ['branch', '--list', 'worktree-n']), '', 'a stale branch outlived the worktree');
+	});
+
+	// The random holder exists so that sandboxes can share a name; refusing the second one would
+	// half-defeat it. Which makes the NAME ambiguous — so it is refused rather than resolved to
+	// whichever row git happened to list first.
+	test('two --temp sandboxes coexist under one name, and the ambiguous name is refused', () => {
+		const ws = workspace();
+		const a = dt(ws.root, 'add', 'worktrees', '--name', 's', '--temp');
+		assert.equal(a.code, 0, a.stderr);
+		const b = dt(ws.root, 'add', 'worktrees', '--name', 's', '--temp');
+		assert.equal(b.code, 0, b.stderr);
+		const [da, db] = [a, b].map((r) => r.stdout.trim().split('\n').at(-1));
+		assert.notEqual(da, db);
+		assert.equal(JSON.parse(dt(ws.root, 'list', 'worktrees', '--json').stdout).filter((w) => w.name === 's').length, 2);
+
+		const g = dt(ws.root, 'get', 'worktrees/s');
+		assert.equal(g.code, 1, `one of two was picked silently:\n${g.stdout}`);
+		assert.match(g.stderr, /names 2 worktrees/);
+		assert.equal(dt(ws.root, 'rm', `worktrees/${da}`, '--force').code, 0);
+		assert.equal(dt(ws.root, 'rm', `worktrees/${db}`, '--force').code, 0);
+	});
+
+	test('the .tmp-<rand> holder goes with the sandbox it held', () => {
+		const ws = workspace();
+		const r = dt(ws.root, 'add', 'worktrees', '--name', 's', '--temp');
+		assert.equal(r.code, 0, r.stderr);
+		const dir = r.stdout.trim().split('\n').at(-1);
+		const holder = path.dirname(dir);
+		assert.ok(fs.existsSync(holder), 'fixture: the holder should be there first');
+		assert.equal(dt(ws.root, 'rm', `worktrees/${dir}`, '--force').code, 0);
+		assert.ok(!fs.existsSync(holder), 'an empty .tmp- holder was left behind for ever');
+	});
+
+	// ⚠ git's REASON is in its stderr, which this engine pipes — so a failure used to be reported as
+	// the command line and nothing else. A locked worktree is the everyday case (tooling locks the
+	// ones it creates) and "locked" is the one word that explains the refusal.
+	test('a git failure carries git own reason — a LOCKED worktree says it is locked', () => {
+		const ws = workspace();
+		commitHarness(ws.root);
+		assert.equal(dt(ws.root, 'add', 'worktrees', '--name', 'l').code, 0);
+		const dir = path.join(ws.root, '.worktrees', 'l');
+		git(ws.root, ['worktree', 'lock', dir]);
+
+		const r = dt(ws.root, 'rm', 'worktrees/l');
+		assert.equal(r.code, 1);
+		assert.match(r.stderr, /locked/i, `git's reason was dropped:\n${r.stderr}`);
+		// and it is the HEADLINE: every summary in checkout.js reads message.split('\n')[0], so a
+		// reason sitting behind "Command failed: git worktree remove <path>" is a reason that
+		// vanishes wherever the message is summarised to one line.
+		assert.doesNotMatch(r.stderr, /^✖ Command failed/, `the command line led and the reason followed:\n${r.stderr}`);
+		assert.ok(fs.existsSync(dir));
+		git(ws.root, ['worktree', 'unlock', dir]);
+	});
+
+	test('rm SAYS which branch it kept when it is not the one this verb creates', () => {
+		const ws = workspace();
+		commitHarness(ws.root);
+		const dir = path.join(ws.root, '.worktrees', 'own');
+		git(ws.root, ['branch', 'feature-x']);
+		git(ws.root, ['worktree', 'add', dir, 'feature-x']);
+
+		const r = dt(ws.root, 'rm', `worktrees/${dir}`);
+		assert.equal(r.code, 0, r.stderr);
+		assert.match(r.stdout, /branch feature-x kept/);
+		assert.match(git(ws.root, ['branch', '--list', 'feature-x']), /feature-x/, 'a branch this verb did not create must survive');
+	});
+
 	test('a verb worktrees do not have says which four they do', () => {
 		const ws = workspace();
 		const r = dt(ws.root, 'history', 'worktrees/probe');

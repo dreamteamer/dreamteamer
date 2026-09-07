@@ -7,8 +7,20 @@ import { fileURLToPath } from 'node:url';
 import { staleness, compile, discoverModules } from './compile.js';
 import { install as restoreGitModules } from './init.js';
 
-export const defaultGit = (args, cwd) =>
-	execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+export const defaultGit = (args, cwd) => {
+	try {
+		return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+	} catch (e) {
+		// ⚠ GIT'S REASON LEADS. execFileSync does append the child's stderr to its message, but
+		// BEHIND `Command failed: git <argv>` — and every summary in this file reads
+		// `message.split('\n')[0]` (describeCheckout's parenthetical, applyInstall's per-step ✖), so
+		// the one line that survived was the command line and never the explanation. `dt rm` on a
+		// LOCKED worktree led with the argv and mentioned the lock underneath it.
+		const why = String(e.stderr ?? '').trim().split('\n').filter(Boolean);
+		if (why.length) e.message = [...why, `(git ${args.join(' ')})`].join('\n  ');
+		throw e;
+	}
+};
 
 // Git answers --git-common-dir as a REALPATH, so the two sides of the insideRoot test must be
 // spelled the same way or a checkout reached through a symlink reads as outside its own primary
@@ -232,6 +244,11 @@ export function listWorktrees(ws, git = defaultGit) {
 	}
 	return rows.map((w) => {
 		const primary = real(w.path) === real(c.primary);
+		// ⚠ THE NAME IS WHAT WAS TYPED, not the directory it landed in. `--path` lets the two
+		// differ, and the name is what `get`, the duplicate guard and the branch cleanup key on —
+		// so it is recovered from the branch this verb creates, which is the only place git keeps
+		// it. A worktree on someone else's branch, or a detached one, has nothing but its basename.
+		const name = !primary && w.branch?.startsWith('worktree-') ? w.branch.slice('worktree-'.length) : path.basename(w.path);
 		let ahead = null;
 		if (w.branch && !primary) {
 			try { ahead = Number(git(['rev-list', '--count', `${primaryBranch}..${w.branch}`], c.primary)); } catch { ahead = null; }
@@ -239,17 +256,30 @@ export function listWorktrees(ws, git = defaultGit) {
 		let dirtyRecords = 0;
 		try { dirtyRecords = git(['status', '--porcelain', '--', dataPath], w.path).split('\n').filter(Boolean).length; } catch { /* unreadable tree — a moved or deleted directory */ }
 		return {
-			name: path.basename(w.path), path: w.path, branch: w.branch, head: w.head, primary, ahead, dirtyRecords,
+			name, path: w.path, branch: w.branch, head: w.head, primary, ahead, dirtyRecords,
 			bootstrapped: resolves(path.join(w.path, '.dreamteamer', 'manifest.yaml')),
 		};
 	});
 }
 
-/** A worktree by directory basename or by path — one id shape, two spellings, because the name is
- *  what an operator types and the path is what a hook echoes. */
+/** A worktree by name or by path — one id shape, two spellings, because the name is what an
+ *  operator types and the path is what a creation hook echoes. The PATH is tried first, since it is
+ *  unique by construction and a name is not.
+ *
+ *  ⚠ AN AMBIGUOUS NAME IS REFUSED, never resolved to whichever row git listed first. Two --temp
+ *  sandboxes may share a name — their random holders keep the paths distinct, which is the whole
+ *  point of having one — and silently picking one of them is how a removal lands on the wrong
+ *  sandbox and takes work with it. */
 function findWorktree(ws, ref) {
 	if (!ref) return null;
-	return listWorktrees(ws).find((w) => w.name === ref || real(w.path) === real(path.resolve(ws.root, ref))) ?? null;
+	const rows = listWorktrees(ws);
+	const byPath = rows.find((w) => real(w.path) === real(path.resolve(ws.root, ref)));
+	if (byPath) return byPath;
+	const byName = rows.filter((w) => w.name === ref);
+	if (byName.length > 1) {
+		throw new Error(`"${ref}" names ${byName.length} worktrees — address one by path:\n  ${byName.map((w) => `worktrees/${w.path}`).join('\n  ')}`);
+	}
+	return byName[0] ?? null;
 }
 
 /** The engine binary that is RUNNING — never `node_modules/dreamteamer` resolved in the workspace.
@@ -260,7 +290,10 @@ const engineBin = () => fileURLToPath(new URL('../bin/dreamteamer.js', import.me
 export function addWorktree(ws, { name, dir, base = 'HEAD', temp = false }, git = defaultGit) {
 	if (!name) throw new Error('dt add worktrees needs --name <name>');
 	const c = describeCheckout(ws.root, git);
-	if (findWorktree(ws, name)) throw new Error(`worktree "${name}" already exists — dt get worktrees/${name}`);
+	// ⚠ A --temp SANDBOX MAY REUSE A NAME, and refusing the second one would half-defeat the random
+	// holder that exists to allow it. So a sandbox is addressed by the PATH `add` printed, and the
+	// ambiguous name is refused at the READ instead (findWorktree).
+	if (!temp && findWorktree(ws, name)) throw new Error(`worktree "${name}" already exists — dt get worktrees/${name}`);
 	if (!temp && git(['branch', '--list', `worktree-${name}`], c.primary)) {
 		throw new Error(`branch worktree-${name} already exists — pick another name or delete the branch`);
 	}
@@ -276,9 +309,16 @@ export function addWorktree(ws, { name, dir, base = 'HEAD', temp = false }, git 
 	if (temp) fs.mkdirSync(holder, { recursive: true });
 	// ⚠ NEVER PRE-CREATE `target`: `git worktree add` creates it, and an empty pre-created folder is
 	// swept by compile's empty-directory pass.
-	const target = temp ? path.join(fs.mkdtempSync(path.join(holder, '.tmp-')), name)
-		: path.resolve(ws.root, dir ?? path.join(holder, name));
-	git(temp ? ['worktree', 'add', '--detach', target, base] : ['worktree', 'add', '-b', `worktree-${name}`, target, base], c.primary);
+	const sandbox = temp ? fs.mkdtempSync(path.join(holder, '.tmp-')) : null;
+	const target = sandbox ? path.join(sandbox, name) : path.resolve(ws.root, dir ?? path.join(holder, name));
+	try {
+		git(temp ? ['worktree', 'add', '--detach', target, base] : ['worktree', 'add', '-b', `worktree-${name}`, target, base], c.primary);
+	} catch (e) {
+		// The holder was made a line ago and holds nothing yet: a bad --base would otherwise leave
+		// an empty `.tmp-<rand>` behind, and `.worktrees/` is ignored, so nobody would ever see it.
+		if (sandbox) fs.rmSync(sandbox, { recursive: true, force: true });
+		throw e;
+	}
 	// The engine must be reachable from the new tree before `install` can compile there. When THIS
 	// tree's node_modules/dreamteamer is a SYMLINK (a dev shadow, a test fixture) mirror that ONE
 	// link — never the node_modules directory, which is a real folder holding it. Otherwise
@@ -305,6 +345,23 @@ export function removeWorktree(ws, ref, { force = false } = {}, git = defaultGit
 	if (w.primary) throw new Error('refusing to remove the primary checkout');
 	const c = describeCheckout(ws.root, git);
 	const primaryBranch = git(['rev-parse', '--abbrev-ref', 'HEAD'], c.primary);
+	// ⚠ THE DATA-LOSS PATH, and `--temp` makes it the ordinary one. `ahead` is null for a DETACHED
+	// worktree by construction (the field is specified that way and pinned by its own test), and
+	// `git worktree remove` checks only modified and untracked files — never reachability. So a
+	// sandbox whose work had been COMMITTED read as clean with nothing ahead and was removed at exit
+	// 0, orphaning every commit the moment its HEAD went with it.
+	//
+	// ⚠ AND THE DETACHED QUESTION IS A DIFFERENT QUESTION. A branch's work is held by the branch and
+	// merely un-LANDED (`primaryBranch..branch`, fixed by a merge); a detached HEAD's work is held by
+	// nothing but the HEAD about to be deleted, i.e. ORPHANED — so the measure is "reachable from no
+	// ref at all", and once any branch holds it the removal is safe. `--not --all` cannot answer
+	// this: `--all` examines every working tree, the sandbox's own HEAD included, so it answered 0
+	// for the very commits at risk (measured). `--branches --tags --remotes` is the honest ref set.
+	let ahead = w.ahead;
+	const orphaned = w.ahead === null && !w.primary && w.head;
+	if (orphaned) {
+		try { ahead = Number(git(['rev-list', '--count', w.head, '--not', '--branches', '--tags', '--remotes'], c.primary)); } catch { ahead = null; }
+	}
 	if (!force) {
 		// ⚠ THE DIRECTORY CAN BE GONE while git still lists the worktree — someone deleted it by
 		// hand. `list` already reports that (NOT installed); here, reading its dirty state in a cwd
@@ -315,14 +372,25 @@ export function removeWorktree(ws, ref, { force = false } = {}, git = defaultGit
 		const why = [];
 		if (w.dirtyRecords) why.push(`${w.dirtyRecords} dirty record(s) — dt commit them, or --force to discard`);
 		else if (dirty) why.push(`${dirty} uncommitted change(s) — commit or --force`);
-		if (w.ahead) why.push(`${w.ahead} commit(s) not on ${primaryBranch} — merge branch ${w.branch}, or --force to discard`);
+		if (ahead && orphaned) why.push(`${ahead} commit(s) reachable from NOTHING but this worktree — git branch <name> ${w.head} to keep them, or --force to discard`);
+		else if (ahead) why.push(`${ahead} commit(s) not on ${primaryBranch} — merge branch ${w.branch}, or --force to discard`);
 		if (why.length) throw new Error(`refusing to remove worktree "${w.name}":\n  ${why.join('\n  ')}`);
 	}
 	git(['worktree', 'remove', ...(force ? ['--force'] : []), w.path], c.primary);
-	// Only a branch this verb CREATED is deleted with the worktree. A worktree checked out on
-	// `main` or on someone's feature branch keeps it.
+	// Only a branch this verb CREATED is deleted with the worktree. A worktree checked out on `main`
+	// or on someone's feature branch keeps it — and SAYS SO, because a branch left behind silently
+	// is a branch nobody knows to look at: `list` cannot show it once the worktree is gone.
 	if (w.branch === `worktree-${w.name}`) {
 		try { git(['branch', force ? '-D' : '-d', w.branch], c.primary); } catch { console.warn(`⚠ branch ${w.branch} kept (not merged)`); }
+	} else if (w.branch) {
+		console.log(`  branch ${w.branch} kept — it is not the worktree-${w.name} this verb creates`);
+	}
+	// A sandbox lives alone in its own `.tmp-<rand>` holder; nothing else does. The holder goes with
+	// it, or every sandbox ever cut leaves an empty directory behind for ever — and `.worktrees/` is
+	// ignored, which is exactly why it would accumulate unnoticed.
+	const holder = path.dirname(w.path);
+	if (path.basename(holder).startsWith('.tmp-') && path.dirname(holder) === path.join(c.primary, '.worktrees')) {
+		try { fs.rmdirSync(holder); } catch { /* not empty — something else is in there */ }
 	}
 	console.log(`✔ removed worktree ${w.name}`);
 	return 0;
