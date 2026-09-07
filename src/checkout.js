@@ -287,7 +287,17 @@ function findWorktree(ws, ref) {
  *  that should make it ready. */
 const engineBin = () => fileURLToPath(new URL('../bin/dreamteamer.js', import.meta.url));
 
-export function addWorktree(ws, { name, dir, base = 'HEAD', temp = false }, git = defaultGit) {
+/**
+ * The worktree, MADE — everything `addWorktree` does except the final `console.log`, and the path it
+ * returns is that same line. Split out for `dt prove`, whose `writes` sandbox is a `--temp` worktree
+ * it has to keep the path of rather than read back off stdout.
+ *
+ * ⚠ `quiet` EXTENDS THE OPTION BAG, and it is not cosmetic. The install step runs with
+ * `stdio: 'inherit'`, so a caller printing a machine-readable stream (`dt prove --json` emits ONE
+ * object on stdout and nothing else) would have a compile transcript spliced in ahead of it.
+ * `addWorktree` never passes it, so what a `dt add worktrees` prints is unchanged.
+ */
+export function createWorktree(ws, { name, dir, base = 'HEAD', temp = false, quiet = false }, git = defaultGit) {
 	if (!name) throw new Error('dt add worktrees needs --name <name>');
 	const c = describeCheckout(ws.root, git);
 	// ⚠ A --temp SANDBOX MAY REUSE A NAME, and refusing the second one would half-defeat the random
@@ -329,8 +339,14 @@ export function addWorktree(ws, { name, dir, base = 'HEAD', temp = false }, git 
 		fs.mkdirSync(path.join(target, 'node_modules'), { recursive: true });
 		fs.symlinkSync(realpathSync(eng), path.join(target, 'node_modules', 'dreamteamer'), 'dir');
 	}
-	const r = spawnSync(process.execPath, [engineBin(), 'install'], { cwd: target, stdio: 'inherit' });
+	const r = spawnSync(process.execPath, [engineBin(), 'install'], { cwd: target, stdio: quiet ? 'pipe' : 'inherit' });
 	if (r.status !== 0) console.warn(`⚠ install inside ${target} exited ${r.status} — the worktree exists; re-run dt install there`);
+	return target;
+}
+
+/** `dt add worktrees --name <name>`. Contract: the PATH is the last line, and the code is 0. */
+export function addWorktree(ws, opts, git = defaultGit) {
+	const target = createWorktree(ws, opts, git);
 	console.log(target); // LAST line, by contract: a creation hook echoes it
 	return 0;
 }

@@ -391,6 +391,21 @@ function stampMirror(byName, ctx, ownerName, field, prop, holder, mirrorName, ta
 
 export const KINDS = ['collections', 'skills', 'agents', 'commands', 'command-bindings', 'ui-views', 'collection-templates', 'proofs'];
 const FOLDER_KINDS = new Set(['skills']); // folder-shape entities: copy the whole record folder
+
+/**
+ * ⚠ `proofs/fixtures/` IS RECORDS, NOT PROOFS. It holds the store a `writes` proof runs against —
+ * laid onto a throwaway worktree by `dt prove`, mirroring the workspace root — so it is not a
+ * compiled source at all.
+ *
+ * ONE predicate, because BOTH enumerations of a kind directory have to agree about it and they are
+ * 900 lines apart. The stager alone made compile read `data/notes/x.note.md` as a proof and refuse
+ * the whole module; the staleness scan alone then reported every fixture file "(new, uncompiled)"
+ * on every single command, for ever, with no compile able to clear it.
+ *
+ * @param {string} kind         the source kind being enumerated
+ * @param {string} relFromKind  the entry's path RELATIVE to the kind directory, '/'-separated
+ */
+const isProofFixture = (kind, relFromKind) => kind === 'proofs' && (relFromKind === 'fixtures' || relFromKind.startsWith('fixtures/'));
 // DERIVED_KINDS (projected, not staged) lives in runtime.js — the boundary both halves read. Not in
 // KINDS on purpose: a module folder named `modules/` would be nonsense, and `isSystem` below keys
 // off KINDS to decide `storage.base`, so a `modules` collection landing on `base: workspace` would
@@ -855,6 +870,7 @@ export function compile({ root, pkg }) {
 				: fs.readdirSync(srcDir).sort();
 			for (const name of names) {
 				if (name.startsWith('.')) continue;
+				if (isProofFixture(kind, name)) continue;
 				const entityId = name.replace(/\.[^.]+\.(yaml|md|json)$/, '');
 				if (disabled.has(`${source.name}/${entityId}`)) { disabledHits.add(`${source.name}/${entityId}`); continue; }
 				const srcPath = path.join(srcDir, name);
@@ -1804,6 +1820,7 @@ export function staleness(root) {
 			const dir = kindDir(r, kind);
 			if (!fs.existsSync(dir)) continue;
 			for (const f of walk(dir)) {
+				if (isProofFixture(kind, path.relative(dir, f).split(path.sep).join('/'))) continue;
 				const relPath = path.relative(root, f);
 				if (!known.has(relPath)) stale.push(`${relPath} (new, uncompiled)`);
 			}
