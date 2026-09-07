@@ -17,6 +17,7 @@ import {
 	createSkill, refuseHandAuthored, removeEntity, renameEntity, setEntityFrontmatter,
 } from './schema-ops.js';
 import { KINDS } from './compile.js';
+import { proofPathFor } from './prove.js';
 import { history, historyDiff } from './history.js';
 import { commandsFor, recordResolver } from './record-commands.js';
 import { distinctValues } from './field-values.js';
@@ -740,6 +741,11 @@ function metaEntityVerb(ws, store, kind, verb, flags, pos) {
 		console.log(`✔ ${rel(ws.root, out.file)}`);
 		console.log('✔ compiled — the skill is live (write its body next; the frontmatter is the trigger)');
 		reportCommits(out.commits);
+		// ⚠ LAST, after the commit report, and it is a nudge rather than a gate: a skill that nobody
+		// can prove loads is the artifact `dt prove` exists for, and the cheapest moment to say so is
+		// the moment the file is created. Named path, never a rule to derive — the module root is
+		// whichever one actually received the skill (`--module`, or the workspace module).
+		console.log(`no proof yet — ${proofPathFor(`skills/${out.id}`, rel(ws.root, out.file).split('/skills/')[0])} (see using-dreamteamer › proofs)`);
 		return 0;
 	}
 	if (verb === 'rm') {
