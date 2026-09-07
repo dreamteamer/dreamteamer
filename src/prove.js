@@ -309,7 +309,12 @@ function expectErrors(expect, given, descriptors) {
 		// ⚠ Scoped to the forms where the `where` IS the assertion: on a collection entry `count:`
 		// carries it, and `{collection, where: {}, count: {_delta: 1}}` — "one more record anywhere in
 		// this collection" — is a correct and common proof, so refusing it would be a false refusal.
-		if (hasRecord && row.where !== null && typeof row.where === 'object' && !Object.keys(row.where).length) {
+		// ⚠ R26 — A BARE `where:` IN YAML PARSES TO **null**, NOT TO `{}`. The first version of this
+		// guard tested `row.where !== null` to keep `Object.keys(null)` from throwing, which let
+		// through the one spelling an author is most likely to type. Measured: the proof compiled
+		// clean, judged ZERO conditions, and answered `PASS` — the exact silent green this rule exists
+		// to close, reached by the shortest possible route.
+		if (hasRecord && (row.where === null || (typeof row.where === 'object' && !Object.keys(row.where).length))) {
 			errors.push(`expect[${i}] where must name at least one condition`);
 		}
 		if ('count' in row) errors.push(...countErrors(row.count, i));
@@ -954,6 +959,41 @@ function ledgerRow(state, started, over = {}) {
 	};
 }
 
+/**
+ * How much output one `run` step may produce. `spawnSync`'s default `maxBuffer` is 1 MB and it KILLS
+ * the child on overflow — which used to arrive as a bare signal and get reported as a timeout. 16 MB
+ * because a proof step's stdout is judged whole (R23) and a ledger row keeps 64 KB of it; anything
+ * larger belongs in a file the proof asserts with `path:`, which the message says.
+ */
+const MAX_OUTPUT_MB = 16;
+
+/**
+ * What a finished `run` step actually DID — `{ exit, failure_reason }`, with `failure_reason: null`
+ * when nothing is wrong. PURE, and lifted out of the loop precisely because the loop cannot be
+ * unit-tested and this is where several different events were being reported as one.
+ *
+ * ⚠ ORDER MATTERS, AND ONLY `error.code` MAY DECIDE A TIMEOUT (R26). The first version read
+ * `res.error?.code === 'ETIMEDOUT' || (res.status === null && !!res.signal)` — and that second
+ * clause is ALSO true for an ENOBUFS kill (spawnSync kills the child when `maxBuffer` overflows),
+ * for the OOM killer, and for any external `kill`. So a step killed by its own output volume
+ * reported "timed out after 120s": a cause and a number the operator would go and act on, both
+ * invented. A bare signal now says only what is known — WHICH signal — and nothing about why.
+ *
+ * `index` and `want` extend the ruled `(res, timeoutSeconds)` signature so the whole message is
+ * assembled HERE: a reason half-built at the call site is a reason no test can pin.
+ */
+export function stepOutcome(res, timeoutSeconds, index = 1, want = 0) {
+	// a killed step has a null status and a signal — reporting `exit null` would read as success
+	const exit = res?.status ?? (res?.signal ? 124 : 1);
+	const code = res?.error?.code ?? null;
+	const reason = (text) => ({ exit, failure_reason: `step ${index} ${text}` });
+	if (code === 'ETIMEDOUT') return reason(`timed out after ${timeoutSeconds}s`);
+	if (code === 'ENOBUFS') return reason(`produced more than ${MAX_OUTPUT_MB} MB of output — write it to a file and assert with path:`);
+	if (res?.error) return reason(`could not start: ${code ?? res.error.message}`);
+	if (res?.signal) return reason(`was killed (${res.signal})`);
+	return exit === want ? { exit, failure_reason: null } : reason(`exited ${exit}`);
+}
+
 const isDelta = (count) => count !== null && typeof count === 'object' && !Array.isArray(count) && '_delta' in count;
 
 /** An expectation that can be judged against the STORE, and so can be pre-checked before any step
@@ -1119,6 +1159,25 @@ function proveOne(ws, id, proof, flags) {
 		return { code: exitFor(state), state, row, verdicts };
 	};
 
+	/**
+	 * ⚠ EVERY PATH THAT JUDGES LEAVES A ROW, EVEN WHEN IT THROWS (MINOR 8, widened by R26). The first
+	 * version wrapped only the fresh step-and-judge run — which sits BELOW the resume early-return,
+	 * so a throw while judging a `--record` resume (an undeclared `${env:…}` in a `path:`, a typo'd
+	 * brace) left the ledger sitting at PENDING with the failed run unrecorded. The operator is then
+	 * told to finish a run they have already finished, and the ledger denies it ever happened.
+	 *
+	 * `over` is built BEFORE the run, and its `steps` is the live array — so a throw halfway through
+	 * the loop still records the steps that did complete.
+	 */
+	const ledgering = (over, run) => {
+		try { return run(); }
+		catch (e) {
+			if (e.ledgered) throw e;
+			settle('FAIL', { ...over, failure_reason: firstLine(e.message) });
+			throw Object.assign(e, { ledgered: true });
+		}
+	};
+
 	// ---- 0. THE SANDBOX SEAM. A `writes` proof mutates the workspace, so it runs in a throwaway
 	// worktree — which does not exist yet. Refusing is the only honest answer: running it here would
 	// leave real records behind, which is the one outcome a proof must never produce.
@@ -1139,7 +1198,7 @@ function proveOne(ws, id, proof, flags) {
 	if (override) {
 		const pend = pendingFor(ws.root, id, override);
 		if (!pend) throw new Error(`no pending run of ${id} for ${override} — run dt prove ${id} first`);
-		return verify(pend);
+		return ledgering(rowOf(pend), () => verify(pend));
 	}
 
 	// ---- 2. THE PENDING GUARD. A second fresh run while one is outstanding would re-ask for the
@@ -1160,7 +1219,7 @@ function proveOne(ws, id, proof, flags) {
 	} else if (live.length === 1 && live[0].record === null) {
 		// a live proof with no `given` pends against no record, so `--record` cannot name it — the
 		// bare verb is the only way back, and refusing here would strand the run permanently.
-		return verify(live[0]);
+		return ledgering(rowOf(live[0]), () => verify(live[0]));
 	} else if (live.length === 1) {
 		throw new Error(`${id} is pending for ${live[0].record} since ${live[0].when} — finish it with dt prove ${id} --record ${live[0].record}, or --restart to discard it`);
 	} else if (live.length) {
@@ -1212,12 +1271,12 @@ function proveOne(ws, id, proof, flags) {
 	// happened, which is worse than a FAIL that names the cause.
 	const ctx = record ? { record } : {};
 	const steps = [];
-	try {
-		return runSteps();
-	} catch (e) {
-		if (e.ledgered) throw e;
-		settle('FAIL', { record: ref, steps, before, failure_reason: firstLine(e.message) });
-		throw Object.assign(e, { ledgered: true });
+	return ledgering({ record: ref, steps, before }, runSteps);
+
+	/** What a FAIL row for a resumed run carries: the pending row's own record, steps and snapshot,
+	 *  because those are the facts of the run being finished — this invocation only judged it. */
+	function rowOf(pending) {
+		return { record: pending.record ?? null, steps: pending.steps ?? [], before: pending.before ?? {} };
 	}
 
 	function runSteps() {
@@ -1238,31 +1297,26 @@ function proveOne(ws, id, proof, flags) {
 			const cmd = substitute(String(step.run ?? ''), ctx);
 			say(`RUN ${n}  ${cmd}`);
 			const t0 = Date.now();
-			const res = spawnSync(cmd, { shell: true, cwd: ws.root, timeout: timeout * 1000, encoding: 'utf8' });
+			const res = spawnSync(cmd, { shell: true, cwd: ws.root, timeout: timeout * 1000, encoding: 'utf8', maxBuffer: MAX_OUTPUT_MB * 1024 * 1024 });
 			const ms = Date.now() - t0;
-			// a killed step has a null status and a signal — reporting `exit null` would read as success
-			const exit = res.status ?? (res.signal ? 124 : 1);
+			// MINOR 7 / R26 — the classification is `stepOutcome`, pure and unit-tested: a step killed
+			// at the timeout, one killed by its own output volume, one killed from outside, one the
+			// shell could not start and one that simply returned non-zero are five different things to
+			// go and fix, and every one of them is invisible in an exit code.
+			const want = stepExpect(proof, n)?.exit ?? 0;
+			const { exit, failure_reason } = stepOutcome(res, timeout, n, want);
 			const out = captured(res.stdout);
 			say(`  exit ${exit} (${ms} ms)`);
 			steps.push({ index: n, kind: 'run', exit, stdout: out.text, stdout_truncated: out.truncated, stdout_tail: lastLines(out.text), stderr_tail: lastLines(res.stderr) });
-			// ⚠ MINOR 7 — THREE DIFFERENT FAILURES WERE ALL REPORTED AS `exited 124`. A step KILLED at
-			// the timeout, a step the shell could not start, and a step that ran and returned non-zero
-			// are three different things to go and fix, and the first two are invisible in an exit
-			// code: node reports a timeout as `status: null · signal: SIGTERM · error.code ETIMEDOUT`
-			// (measured), which the `?? (res.signal ? 124 : 1)` above flattens into a plausible number.
-			const want = stepExpect(proof, n)?.exit ?? 0;
-			const timedOut = res.error?.code === 'ETIMEDOUT' || (res.status === null && !!res.signal);
-			let reason = null;
-			if (timedOut) reason = `step ${n} timed out after ${timeout}s`;
-			else if (res.error) reason = `step ${n} could not start: ${res.error.code ?? res.error.message}`;
-			else if (exit !== want) reason = `step ${n} exited ${exit}`;
-			if (reason) {
+			if (failure_reason) {
 				// ⚠ NOT "the expectations failed": nothing was judged. A verdict line here would be a
 				// claim about something no step ever measured, so the failure names the STEP and shows
-				// its stderr.
-				say(`FAIL at step ${n}  ${id} — ${timedOut || res.error ? reason.slice(`step ${n} `.length) : `exit ${exit} (want ${want})`}`);
+				// its stderr. An ordinary non-zero exit keeps its `(want N)` form, because there the
+				// wanted value is the whole point; every other cause prints its own sentence.
+				const plain = failure_reason === `step ${n} exited ${exit}`;
+				say(`FAIL at step ${n}  ${id} — ${plain ? `exit ${exit} (want ${want})` : failure_reason.slice(`step ${n} `.length)}`);
 				for (const line of lastLines(res.stderr).split('\n')) if (line) say(`  ${line}`);
-				return settle('FAIL', { record: ref, steps, before, failure_reason: reason });
+				return settle('FAIL', { record: ref, steps, before, failure_reason });
 			}
 		}
 		return decide(record, before, steps);
