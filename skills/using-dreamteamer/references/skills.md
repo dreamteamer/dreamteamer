@@ -162,8 +162,9 @@ Skills ship with modules and are read by any operator on any machine:
   follow-up.
 - **Give it a proof, and know what a proof cannot cover.** A `proofs` record (`proofs.md`) pins the
   mechanical half: the script the skill names runs, the record it promises appears, the path it
-  files to exists. Write it in the same commit — `dt compile` nudges once for a new artifact with
-  none, and `dt list proofs --missing` names every artifact nobody claimed anything about. ⚠ **A
+  files to exists. Write it in the same commit — `dt add skills` nudges you with the path the moment
+  it writes the skill (compile's own nudge covers new commands and scripts, never skills), and
+  `dt list proofs --missing` names every artifact nobody claimed anything about. ⚠ **A
   green proof is not evidence the skill TEACHES.** Whether a fresh session finds it, loads it and
   does the job right is the eval layer: real tasks, blind sessions, a scoring sheet — a procedure,
   never something the engine runs.

@@ -157,7 +157,9 @@ they read stay honest:
   is exactly the gap the bullet above names: "a summary referencing this record exists" is
   inexpressible there. A **proof** (`proofs.md`) is evaluated on demand and is collection-scoped, so
   it says the thing a gate cannot: `{ collection: summaries, where: { about: { _eq: '{record}' } },
-  count: { _delta: 1 } }` — *running this command left one more summary behind*. The rule of thumb:
+  count: { _delta: 1 } }` — *running this command left one more summary behind*. (`{record}` inside a
+  proof's `where` is SUBSTITUTED with the picked record's reference before the filter runs, which is
+  what makes that line count the summaries about THIS record rather than all of them.) The rule of thumb:
   **the record's own post-state is the binding's** (it has to be, or the queue cannot advance);
   **what the command left elsewhere is the proof's**. Writing the second one as a gate needs a mirror
   field or a proxy a human must remember to set; writing the first one only as a proof leaves every

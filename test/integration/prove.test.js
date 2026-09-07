@@ -2168,6 +2168,39 @@ describe('proof read surfaces', () => {
 		assert.match(res.stdout, /^✖ 1 proof\(s\) FAILED on this machine — dt list proofs$/m);
 	});
 
+	// ⚠ R46 — AND `--strict=false` IS OFF. `'false'` is a truthy string, so the first fix (match by
+	// flag NAME) turned the `=` form on WHATEVER followed it — a CI step that had deliberately
+	// disarmed the gate started failing, which is the same defect pointing the other way.
+	test('status --strict=false is OFF — the value after the = is read, not just the name', () => {
+		const res = ws.dt('status', '--strict=false');
+		assert.equal(res.code, 0, res.stdout + res.stderr);
+		// the LINE still prints: status reports everything and gates last
+		assert.ok(res.stdout.split('\n').some((l) => l.startsWith('proofs: 7 declared')), res.stdout);
+		assert.doesNotMatch(res.stdout, /FAILED on this machine/);
+
+		for (const off of ['--strict=0', '--strict=no', '--strict=off']) {
+			assert.equal(ws.dt('status', off).code, 0, `${off} armed the gate`);
+		}
+	});
+
+	// the same reader, on the verb that parses its own arguments — ONE implementation, so the two can
+	// never disagree about what was typed. The fixture overrides `gate-fails` to pass, so the only
+	// thing standing between this board and exit 0 is the UNAVAILABLE that `--strict` governs.
+	test('prove --all --strict=false does not make an unavailable proof fatal', () => {
+		const clean = proveWorkspace({ proofs: { 'gate-fails': { kind: 'gate', steps: [{ run: 'true' }] } } });
+
+		const armed = clean.dt('prove', '--all', '--strict');
+		assert.equal(armed.code, 1, armed.stdout + armed.stderr);
+		assert.match(armed.stdout, /1 unavailable/);
+
+		const off = clean.dt('prove', '--all', '--strict=false');
+		assert.equal(off.code, 0, off.stdout + off.stderr);
+		assert.match(off.stdout, /1 unavailable/);
+
+		// and the bare flag is unchanged — a boolean that reads its value must still read its absence
+		assert.equal(clean.dt('prove', '--all').code, 0);
+	});
+
 	test('status --bogus is refused, and the refusal names --strict', () => {
 		const res = ws.dt('status', '--bogus');
 		assert.equal(res.code, 1, res.stdout);
@@ -2246,6 +2279,84 @@ describe('proof read surfaces', () => {
 		const read = resolveRequires({ root: ws.root }, { env: ['NOT_IN_THE_FILE'] });
 		assert.equal(read.ok, false);
 		assert.equal(read.missing[0].fix, 'NOT_IN_THE_FILE is not set — add it to .env');
+	});
+});
+
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+// R45 — A FILTER'S LITERALS ARE SUBSTITUTED BEFORE THE FILTER RUNS.
+//
+// The defect the prose exposed: `expect: [{ collection: notes, where: { owner: { _eq: '{record}' } },
+// count: … }]` — "running this left a note owned by the person I picked", which is the shape the
+// spec's own worked example uses — reached `matchesFilter` as the LITERAL eight characters
+// `{record}`. It matched nothing, in all three places a filter is evaluated: the `_delta` snapshot,
+// the pre-check, and the after-pass. So the canonical live proof could not work at all, and what it
+// printed was a confident count of zero.
+//
+// Three tests, one per evaluation site, and each one FAILS with the substitution removed.
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+
+/** ada owns TWO notes, bob owns one, and the collection holds three — so the same filter, bound to
+ *  two different picked records, has to answer two different numbers, and NEITHER of them is the
+ *  zero an unsubstituted `{record}` matches or the three an absent filter would. That asymmetry is
+ *  the whole assertion. */
+function ownerWorkspace(proofs) {
+	return proveWorkspace({
+		people: [{ name: 'Ada' }, { name: 'Bob' }],
+		notes: [{ name: 'a', owner: 'people/ada' }, { name: 'b', owner: 'people/bob' }, { name: 'c', owner: 'people/ada' }],
+		proofs,
+	});
+}
+
+/** `given` picks one person by id; the expectation counts the notes that point BACK at them. */
+const ownerProof = (pick, count) => ({
+	kind: 'live',
+	mode: 'readonly',
+	given: { collection: 'people', where: { name: { _nempty: true } }, pick },
+	steps: [count._delta === undefined ? { run: 'true' } : { perform: 'add a note owned by {record}' }],
+	expect: [{ collection: 'notes', where: { owner: { _eq: '{record}' } }, count }],
+});
+
+describe('dt prove — a {record} literal inside a where is the picked record (R45)', () => {
+	// ⚠ THE SNAPSHOT AND THE AFTER-COUNT MUST RENDER THE SAME FILTER. A before-count taken on the raw
+	// filter and an after-count on the rendered one are counts of two DIFFERENT questions, and their
+	// difference is a number with no meaning — worse than either being wrong, because it looks like a
+	// measurement. Unsubstituted, both sides count zero and the delta reads 0 for a proof that held.
+	test('a _delta over a {record} filter counts only the picked record\'s notes, before and after', () => {
+		const ws = ownerWorkspace({ 'notes-land-on-the-picked-person': ownerProof('ada', { _delta: 1 }) });
+
+		const first = ws.dt('prove', 'notes-land-on-the-picked-person');
+		assert.equal(first.code, 5, first.stdout + first.stderr);
+		assert.match(first.stdout, /^PERFORM {2}add a note owned by people\/ada$/m);
+		// ada's TWO notes — not the zero a literal `{record}` matches, and not the three the
+		// collection holds
+		assert.deepEqual(tail(ws.root, 'notes-land-on-the-picked-person').before, { 0: 2 });
+
+		assert.equal(ws.dt('add', 'notes', '--name', 'd', '--owner', 'people/ada').code, 0);
+		const done = ws.dt('prove', 'notes-land-on-the-picked-person', '--record', 'people/ada');
+		assert.equal(done.code, 0, done.stdout + done.stderr);
+		assert.match(done.stdout, /^ {2}count \+1 = \+1 ✔$/m);
+	});
+
+	// ⚠ THE FAIL SIDE HAS TO NAME A NUMBER ONLY THE RENDERED FILTER PRODUCES. bob owns ONE of the
+	// three notes: an unsubstituted `{record}` would print `count 0`, and a missing filter `count 3`
+	// — so the line below is wrong under either defect, which is what makes it a test rather than a
+	// restatement.
+	test('the count is the picked record\'s own — not zero, and not the whole collection', () => {
+		const ws = ownerWorkspace({ 'owns-at-least-two': ownerProof('bob', { _gte: 2 }) });
+		const res = ws.dt('prove', 'owns-at-least-two');
+		assert.equal(res.code, 1, res.stdout + res.stderr);
+		assert.match(res.stdout, /^ {2}count 1 ≥ 2 ✖$/m);
+	});
+
+	// ⚠ THE PRE-CHECK EVALUATES THE SAME FILTER, and this is the test that pins it. For ada the
+	// expectation ALREADY holds, so the proof is VACUOUS and no step ever runs — which is only
+	// reachable if the pre-check rendered `{record}` too. Unsubstituted it counts zero, decides the
+	// expectation does not hold, runs the step and answers FAIL.
+	test('the PRE-CHECK renders it too — an already-true {record} count is VACUOUS, not FAIL', () => {
+		const ws = ownerWorkspace({ 'someone-owns-a-note': ownerProof('ada', { _gte: 1 }) });
+		const res = ws.dt('prove', 'someone-owns-a-note');
+		assert.equal(res.code, 6, res.stdout + res.stderr);
+		assert.match(res.stdout, /^VACUOUS {2}someone-owns-a-note — every expectation already holds against people\/ada/m);
 	});
 });
 

@@ -18,7 +18,7 @@ import { check } from './check.js';
 import { collectionCommand, emit, relationsCommand, parseArgs, refuseUnknownFlags } from './collections-cli.js';
 import { init, installClone, update, listRepos } from './init.js';
 import { installCommand, describeCheckout, listWorktrees, worktreeCommand } from './checkout.js';
-import { proveCommand, readLedger } from './prove.js';
+import { proveCommand, readLedger, flagEnabled } from './prove.js';
 import { deriveEvents } from './events.js';
 import { commitPending } from './commit.js';
 import { Store } from './store.js';
@@ -526,11 +526,12 @@ export function run(argv) {
 				// ⚠ THE FAIL IS FATAL ONLY WHEN ASKED. `status` is the command you run when things are
 				// already wrong, so it prints EVERYTHING first and gates last — the same shape the
 				// staleness exit above has.
-				// ⚠ R38 — `--strict=true` IS THE SAME FLAG. The unknown-flag gate above splits on `=`, so
-				// that spelling was ACCEPTED and then read as "no --strict at all" — a CI step written
-				// that way stayed green over a failing proof, for a reason nothing printed. Matched the
-				// way the gate matches, by flag NAME.
-				if (rest.some((a) => a.startsWith('--') && a.slice(2).split('=')[0] === 'strict') && proofsFailed) {
+				// ⚠ R38/R46 — `--strict=true` IS THE SAME FLAG, AND `--strict=false` IS OFF. The
+				// unknown-flag gate above splits on `=`, so the `=` spelling was ACCEPTED and then read
+				// as "no --strict at all" — a CI step written that way stayed green over a failing
+				// proof, for a reason nothing printed. `flagEnabled` is the one reader of that shape,
+				// shared with `dt prove`, so the two verbs cannot disagree about what was typed.
+				if (flagEnabled(rest, 'strict') && proofsFailed) {
 					console.log(`✖ ${proofsFailed} proof(s) FAILED on this machine — dt list proofs`);
 					process.exit(1);
 				}

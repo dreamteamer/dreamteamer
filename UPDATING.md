@@ -155,6 +155,12 @@ dt status [--strict]
 ⚠ **Two strings are contracts from this release on:** the six codes above, and the ledger path
 `.dreamteamer/.proofs/<proof-id>.jsonl`. A script may branch on either.
 
+**Inside a live proof, `{record}` is the record the `given` picked** — substituted in `run` and
+`perform` steps, in a `path:` expectation, and in every string literal of an expectation's `where`,
+which is what makes the commonest shape work: `where: { owner: { _eq: "{record}" } }` counts the
+records pointing back at it. Every OTHER brace reaches the shell as written (`awk '{print $1}'` is a
+correct step), and compile warns rather than refuses when one looks like a typo.
+
 **The ledger** is per proof, per machine, append-only, capped at the last 50 rows, and gitignored
 (it sits under `.dreamteamer/`, and the dot prefix is why compile's kind-folder wipe cannot reach
 it). It is EVIDENCE, not data: `rm -rf .dreamteamer && dt compile` takes it with it, and the cost is

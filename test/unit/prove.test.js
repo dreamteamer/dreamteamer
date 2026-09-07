@@ -14,7 +14,7 @@
 // makes `pick: latest` invalid there.
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { validateProofShape, PROOF_KINDS, PROOF_MODES, substitute, stepWarnings, applyCap, verdictLine, exitFor, stepOutcome, EXIT, LEDGER_CAP } from '../../src/prove.js';
+import { validateProofShape, PROOF_KINDS, PROOF_MODES, substitute, substituteWhere, stepWarnings, applyCap, verdictLine, exitFor, stepOutcome, flagValue, flagEnabled, EXIT, LEDGER_CAP } from '../../src/prove.js';
 
 const descriptors = new Map([
 	['notes', {
@@ -235,6 +235,21 @@ describe('validateProofShape — a where is checked against the descriptor', () 
 
 	test('_in is checked member by member', () => {
 		only(live({ given: { collection: 'notes', where: { status: { _in: ['open', 'archived'] } }, pick: 'a-note' } }), 'where "status" compares "archived", which is not one of status\'s options [open, done]');
+	});
+
+	// ⚠ R45 — A `{record…}` LITERAL IS A RUNTIME VALUE. The judge renders it against the picked
+	// record before the filter runs, so comparing the BRACE to the enum's options refuses a correct
+	// proof — and the author's only way to make compile go green is to delete the line that works.
+	test('a {record.<field>} literal on an enum field is accepted, not compared to the options', () => {
+		assert.deepEqual(validateProofShape(live({ given: { collection: 'notes', where: { status: { _eq: '{record.status}' } }, pick: 'a-note' } }), ctx), []);
+	});
+
+	test('a bare {record} literal is accepted on a reference field, which is the canonical shape', () => {
+		assert.deepEqual(validateProofShape(live({ expect: [{ collection: 'notes', where: { owner: { _eq: '{record}' } }, count: { _gte: 1 } }] }), ctx), []);
+	});
+
+	test('a NON-brace typo on the same enum field is still refused — the exemption is not a hole', () => {
+		only(live({ given: { collection: 'notes', where: { status: { _eq: 'recordish' } }, pick: 'a-note' } }), 'where "status" compares "recordish", which is not one of status\'s options [open, done]');
 	});
 
 	test('_neq and _nin are checked as well — a typo there narrows just as silently', () => {
@@ -762,6 +777,120 @@ describe('validateProofShape — an expectation that asserts nothing (MINOR 9)',
 
 	test('a non-empty record where is unaffected', () => {
 		assert.deepEqual(validateProofShape(live({ expect: [{ record: '{record}', where: { status: { _eq: 'done' } } }] }), ctx), []);
+	});
+});
+
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+// FIX ROUND 1 of the prose task. Three rulings, all of them about a value the engine reads and did
+// not: a `record:` selector nothing consumed, a filter literal nothing rendered, and a flag value
+// nothing parsed. Each one was a confident answer about the wrong thing.
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+
+describe('validateProofShape — R44: a record expectation has exactly one legal target', () => {
+	// ⚠ NOTHING READ `e.record`. The judge takes the picked record straight off `given`, so a proof
+	// naming any other target compiled clean and was then judged against a DIFFERENT record than the
+	// one it names — a confident verdict about the wrong thing, with no way to see it from the output.
+	test('a record: that is not the literal {record} is refused', () => {
+		only(live({ expect: [{ record: 'notes/b', where: { status: { _eq: 'done' } } }] }), 'a record expectation targets {record} — the picked record is its only target');
+	});
+
+	test('a {record.<field>} target is refused too — a field is not a record', () => {
+		only(live({ expect: [{ record: '{record.owner}', where: { status: { _eq: 'done' } } }] }), 'a record expectation targets {record} — the picked record is its only target');
+	});
+
+	test('the literal {record} is silent, which is the only shape that ever worked', () => {
+		assert.deepEqual(validateProofShape(live({ expect: [{ record: '{record}', where: { status: { _eq: 'done' } } }] }), ctx), []);
+	});
+});
+
+describe('substituteWhere — R45: a filter\'s literals are rendered before the filter runs', () => {
+	const ctxA = { record: { ref: 'people/ada', fields: { id: 'ada', name: 'Ada', status: 'open' } } };
+
+	// ⚠ THE CANONICAL SHAPE, AND IT COULD NOT WORK. `{ owner: { _eq: '{record}' } }` reached
+	// `matchesFilter` as the literal eight characters `{record}`, matched nothing, and reported a
+	// FAIL naming a count that was never the question.
+	test('a {record} literal becomes the picked record\'s reference', () => {
+		assert.deepEqual(substituteWhere({ owner: { _eq: '{record}' } }, ctxA), { owner: { _eq: 'people/ada' } });
+	});
+
+	test('a {record.<field>} literal becomes that field\'s value', () => {
+		assert.deepEqual(substituteWhere({ status: { _eq: '{record.status}' } }, ctxA), { status: { _eq: 'open' } });
+	});
+
+	test('an array operand is walked member by member', () => {
+		assert.deepEqual(substituteWhere({ owner: { _in: ['{record}', 'people/bob'] } }, ctxA), { owner: { _in: ['people/ada', 'people/bob'] } });
+	});
+
+	test('_and / _or nest, and every leaf is rendered', () => {
+		assert.deepEqual(
+			substituteWhere({ _and: [{ owner: { _eq: '{record}' } }, { status: { _eq: 'done' } }] }, ctxA),
+			{ _and: [{ owner: { _eq: 'people/ada' } }, { status: { _eq: 'done' } }] },
+		);
+	});
+
+	// ⚠ KEYS ARE FIELD NAMES. A `{record}` on the left would be asking to look up a field whose name
+	// is a record reference, which is not a thing — so keys travel through untouched.
+	test('keys are never substituted, only values', () => {
+		assert.deepEqual(substituteWhere({ '{record}': { _eq: 'x' } }, ctxA), { '{record}': { _eq: 'x' } });
+	});
+
+	// ⚠ A COPY, NEVER A MUTATION: the proof source is judged twice (the pre-check and the after-pass),
+	// and a `where` rewritten in place would carry the FIRST render into the second judgement.
+	test('the source object is not mutated', () => {
+		const where = { owner: { _eq: '{record}' } };
+		substituteWhere(where, ctxA);
+		assert.deepEqual(where, { owner: { _eq: '{record}' } });
+	});
+
+	test('a filter with no braces is returned unchanged, and non-strings are left alone', () => {
+		assert.deepEqual(substituteWhere({ status: { _eq: 'done' }, n: { _gte: 3 }, flag: true }, ctxA), { status: { _eq: 'done' }, n: { _gte: 3 }, flag: true });
+		assert.equal(substituteWhere(null, ctxA), null);
+	});
+
+	// STRICT, because nothing downstream of a filter would ever notice: `{recrod}` becomes a literal
+	// the field never equals, and the expectation answers ✖ with the wrong cause printed beside it.
+	test('an unknown identifier brace THROWS rather than narrowing to nothing', () => {
+		assert.throws(() => substituteWhere({ owner: { _eq: '{recrod}' } }, ctxA), /unknown substitution "{recrod}"/);
+	});
+
+	test('a ${…} bracket is the resolver\'s and is left alone', () => {
+		assert.deepEqual(substituteWhere({ path: { _eq: '${env:FILES_FOLDER}/x' } }, ctxA), { path: { _eq: '${env:FILES_FOLDER}/x' } });
+	});
+
+	test('a {record} with nothing bound throws, naming the missing given', () => {
+		assert.throws(() => substituteWhere({ owner: { _eq: '{record}' } }, {}), /this proof declares no given/);
+	});
+});
+
+describe('flagValue / flagEnabled — R46: --flag=false is OFF', () => {
+	// ⚠ `'false'` IS A TRUTHY STRING. Every boolean flag was stored as the raw text after the `=`, so
+	// `--strict=false` armed the gate it names — the exact opposite of what was typed, silently.
+	test('the four spellings of off are off', () => {
+		for (const v of ['false', '0', 'no', 'off', 'FALSE', ' No ']) assert.equal(flagValue(v), false, v);
+	});
+
+	test('anything else after the = is on, an empty value included', () => {
+		for (const v of ['true', '1', 'yes', '', 'whatever']) assert.equal(flagValue(v), true, JSON.stringify(v));
+	});
+
+	test('a bare flag is on, and an absent one is off', () => {
+		assert.equal(flagEnabled(['--strict'], 'strict'), true);
+		assert.equal(flagEnabled(['--json'], 'strict'), false);
+		assert.equal(flagEnabled([], 'strict'), false);
+	});
+
+	test('the = form is read, in both directions', () => {
+		assert.equal(flagEnabled(['--strict=true'], 'strict'), true);
+		assert.equal(flagEnabled(['--strict=false'], 'strict'), false);
+	});
+
+	test('the LAST occurrence wins — a person edits the end of a line', () => {
+		assert.equal(flagEnabled(['--strict=false', '--strict'], 'strict'), true);
+		assert.equal(flagEnabled(['--strict', '--strict=no'], 'strict'), false);
+	});
+
+	test('a positional that merely contains the name is not a flag', () => {
+		assert.equal(flagEnabled(['strict', 'notes/strict'], 'strict'), false);
 	});
 });
 

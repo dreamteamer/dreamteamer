@@ -118,9 +118,10 @@ expect:
 gates use, enumerated in `dt help` and described in `records.md`. Two proof-specific rules:
 
 - **one hop, and a second is refused.** `{ owner: { name: { _eq: Ada } } }` resolves `owner` as a
-  reference and tests the target's `name`. A third level is refused at compile
-  (`where hops more than one reference (…)`), because the evaluator would silently narrow it to
-  false. A proof that genuinely needs two hops writes its `expect` against the far collection.
+  reference and tests the target's `name`. A third level is refused at compile —
+  `where hops more than one reference (<field>.<hop>.<key>) — a proof filter hops at most one` —
+  because the evaluator would silently narrow it to false. A proof that genuinely needs two hops
+  writes its `expect` against the far collection.
 - ⚠ **a nested key is a reference HOP, not a field comparison.** `{ a: { b: … } }` never means
   "compare `a` to `b`" — it means "resolve `a`, then test `b` on the target". When `a` is not a
   reference field, compile says so by name; at run time it would narrow to zero rows with no
@@ -139,10 +140,24 @@ substituted; the rest reaches the shell as written`)
 and the proof still compiles and still runs. `${…}` is untouched — that bracket is the resolver's
 (`${env:FILES_FOLDER}`) and the shell's (`${HOME}`).
 
-⚠ **`path:` and `record:` values are STRICT.** There the engine consumes the string, so an unknown
-brace THROWS instead of passing through: `path: "{recrod}/out.txt"` would otherwise become a literal
-directory that does not exist, and the expectation would answer `exists false` — a FAIL naming the
-wrong cause.
+⚠ **A `path:` and every string literal inside an expectation's `where` are STRICT.** There the
+ENGINE consumes the string, so an unknown brace THROWS instead of passing through:
+`path: "{recrod}/out.txt"` would otherwise become a literal directory that does not exist and the
+expectation would answer `exists false` — a FAIL naming the wrong cause; a filter literal fails the
+same way one layer quieter, becoming a value the field never equals.
+
+⚠ **A `where`'s literals are substituted BEFORE the filter runs, and that is what makes the
+commonest live proof work at all.** `where: { owner: { _eq: "{record}" } }` counts the records
+pointing back at the one this proof picked — the shape most collection-scope expectations take. It
+is rendered in all three places a filter is evaluated: the `_delta` snapshot, the pre-check, and the
+after-pass. ⚠ Inside a `_delta` write **`{record}` (the reference), not `{record.<field>}`**: the two
+counts are taken either side of the steps, so a field literal is rendered from two different values
+and their difference means nothing — assert a field with a `record:` expectation instead.
+
+⚠ **`record:` is not a template — it is always the literal `{record}`**, and compile refuses any
+other value (`a record expectation targets {record} — the picked record is its only target`). The
+`given` picks one record and there is no second one to target, so `record: notes/b` was a proof
+judged against a different record than the one it names.
 
 **The four expectation forms.**
 
@@ -154,9 +169,10 @@ wrong cause.
 | `{ path: '<template>', exists: true\|false }` | whether a path is there, rendered through the ONE resolver |
 
 **`count`** takes its own closed operator set — `_eq _neq _gt _gte _lt _lte _delta` — and every
-operand must be an INTEGER (`_gte: 'one'` and `_eq: 1.5` are filters that can never be satisfied). A
-bare scalar is the `_eq` it stands for. `count: {}` is refused: it compares nothing and so holds for
-every possible count.
+operand must be an INTEGER: `_gte: 'one'` and `_eq: 1.5` are filters that can never be satisfied, and
+compile says so as `count "<op>" compares "<v>", which is not an integer`. A bare scalar is the
+`_eq` it stands for. `count: {}` is refused: it compares nothing and so holds for every possible
+count.
 
 **`_delta` is after − before**, judged against the snapshot taken before the first step ran and
 carried on the PENDING row. It is the honest way to say "one more note exists" in a collection that
@@ -203,12 +219,19 @@ then     dt prove notes-close-cleanly --record notes/b   (the same verb, again)
 The re-run judges — it does not re-run the steps. The record, the step results and the `_delta`
 snapshot all come off the pending row, because those are the facts of the run being finished.
 
-**One pending run at a time, per record.** A second fresh run while one is outstanding is refused,
-naming what to type; when several records are pending it lists them all rather than sending you
-round the loop once per row. **`--restart`** discards every live pending run and starts over (the
-discarded rows are recorded as discarded, and their sandboxes removed). A pending run older than the
-proof's own `timeout` is **stale** — the process it belonged to is gone — so it is cleared out loud
-on the next run.
+**A live pending run blocks a fresh one.** Any of them: the refusal names the record to finish
+with, and when several records are pending it lists them all rather than sending you round the loop
+once per row. (The one case that resumes itself is a proof with no `given` — it pends against no
+record, so `--record` cannot name it and the bare verb is the only way back.)
+
+**`--restart`** discards every live pending run and starts over: the discarded rows are recorded as
+discarded and their sandboxes removed. ⚠ A discarded row is written as a **FAIL**, so until the
+restarted run reaches a verdict this proof's ledger tail is a FAIL — `dt status --strict` is red in
+between, which is correct (nothing has passed since) and worth knowing before you wire it into a
+hook.
+
+A pending run older than the proof's own `timeout` is **stale** — the process it belonged to is gone
+— so it is cleared out loud on the next run.
 
 ## the sandbox — where a `writes` proof is allowed to write
 
@@ -290,7 +313,9 @@ dt status [--strict]
   (`proofs: 3 passed · 1 failed · 0 unavailable · …`). A transcript is what a single-proof run is
   for. A proof with a `perform` step is **listed, never started**, so a board can never exit 5 —
   "one of your forty proofs would like a human" is not an answer a hook can act on. A proof that
-  THROWS is that proof's FAIL, with a ledger row, not a silently green skip.
+  THROWS is that proof's FAIL, with a ledger row, not a silently green skip — with ONE exception,
+  the `writes` proof that has no fixture: there the artifact is fine and this invocation cannot
+  answer for it, so it tallies UNAVAILABLE (and `--strict` is what makes it fatal).
 - **`--strict`** makes UNAVAILABLE fatal on a board. It is a flag rather than the default because a
   proof needing a credential is ordinarily unavailable on a cloud session.
 - **`dt list proofs`** appends two COMPUTED columns no record carries: `availability` on THIS machine
@@ -310,8 +335,8 @@ dt status [--strict]
 A skill's proof can assert that its file compiles, that the script it names runs, that the record it
 promises appears. None of that answers the question a skill exists for: does a fresh session FIND
 it, LOAD it and DO the job right. That is answered by running sessions and scoring them. **The
-engine never runs an agent** — this is a procedure, and the record of it belongs in the workspace's
-own research or meta-analysis collections, not in a `proofs` record.
+engine never runs an agent** — this is a procedure, and the record of it belongs wherever the
+workspace keeps its findings, not in a `proofs` record.
 
 The method, as run on 2026-09-05 against a rebuilt orientation block:
 
@@ -348,6 +373,8 @@ WRITE (a closed enum, a required field) the prose never showed.
 | a `count: { _gte: 1 }` on a collection that already has records | it holds before the step runs — that is VACUOUS, and `_delta` is what you meant |
 | `about:` naming a skill that does not exist | compile fails: a proof about nothing reports success forever |
 | a nested key meant as a field comparison | it is a reference HOP; compile refuses it by name |
+| `record: notes/b`, or any target but `{record}` | the `given` picks the record; compile refuses a second target |
+| expecting a `{record}` in a `run:` step to reach the shell as a reference | it does — that one IS substituted; it is every OTHER brace that passes through untouched |
 | `where:` left bare, or `where: {}` | it asserts nothing and the proof passes having measured nothing — refused at compile |
 | judging a `writes` proof by running it with `--here` on real records | that is what a fixture and a sandbox are for; `--here` is the exception, not the default |
 | expecting `--all` to run the `perform` proofs | it lists them; a board is for a hook, and a hook cannot perform |
