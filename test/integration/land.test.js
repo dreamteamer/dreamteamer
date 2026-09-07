@@ -377,6 +377,20 @@ describe('dt land — work written into the worktree DURING the landing survives
 		assert.equal(git(ws.root, ['branch', '--list', 'land/a']), '', 'the copy branch was kept as well');
 	});
 
+	// The same bit as `--keep`'s, deliberately: to a caller "you asked me to keep it" and "you were
+	// still writing in it" are one outcome — the worktree is there and holds work to land next time.
+	test('… and the landing REPORTS it as kept, in the object --json prints', () => {
+		const ws = landable();
+		addAndCommit(ws.wt, 'first note');
+		const late = path.join(ws.wt, 'data', 'notes', '2026-01-03--reported-as-kept.note.md');
+		const probe = onCopyMoved(ws.root, `  printf -- '---\\ntitle: late\\n---\\n' > "${late}"`);
+
+		const out = landWorktree(ws.ws, 'a');
+		assert.equal(out.code, 0);
+		assert.equal(probe.fired(), 1, 'the probe never ran — this test proves nothing');
+		assert.equal(out.kept, true, 'the worktree was spared and the object said it was retired');
+	});
+
 	test('… and under --keep the edit is not discarded by the reset', () => {
 		const ws = landable();
 		const rel = addAndCommit(ws.wt, 'first note');
@@ -504,6 +518,29 @@ describe('dt land — npm ci in the primary', () => {
 		assert.equal(landWorktree(plain.ws, 'a', { npmRun: noLock.run }).code, 0);
 		assert.deepEqual(noLock.calls, [], 'npm ci ran for a landing that touched no lockfile');
 	});
+
+	// ⚠ THE SILENT FAILURE MODE, AND IT IS THE ONLY ONE THIS WARNING EXISTS FOR. A child that never
+	// starts (the binary went between the resolve and the call, EACCES, ENOENT) answers `status:
+	// null`, not a number — so a truthy check on the status reads the worst case as success and the
+	// operator is left with a primary whose node_modules do not match the lockfile it just landed.
+	test('a child that never STARTED is warned about too — status null is not success', () => {
+		const ws = landable();
+		fs.writeFileSync(path.join(ws.wt, 'package-lock.json'), '{\n\t"name": "fixture",\n\t"lockfileVersion": 3\n}\n');
+		git(ws.wt, ['add', '--', 'package-lock.json']);
+		git(ws.wt, ['commit', '-qm', 'deps: a lockfile']);
+
+		const said = [];
+		const warn = console.warn;
+		console.warn = (...a) => said.push(a.join(' '));
+		let out;
+		try {
+			out = landWorktree(ws.ws, 'a', { npmRun: () => ({ status: null, error: new Error('spawn npm ENOENT') }) });
+		} finally { console.warn = warn; }
+
+		assert.equal(out.code, 0, 'the landing itself had already succeeded and must still report so');
+		assert.ok(said.some((w) => /npm ci never started \(spawn npm ENOENT\) in the primary/.test(w)),
+			`nothing was said about a spawn that never ran: ${said.join(' | ') || '(silence)'}`);
+	});
 });
 
 describe('dt land — the invocation itself', () => {
@@ -571,5 +608,18 @@ describe('dt land — the invocation itself', () => {
 		assert.equal(out.code, 0);
 		assert.equal(out.landed.commits, 1);
 		assert.deepEqual(out.landed.records, { notes: 1 });
+		assert.equal(out.kept, false, 'the worktree was retired — a script reading this would go looking for it');
+	});
+
+	// ⚠ EXIT 0 IS TWO DIFFERENT OUTCOMES, and a script cannot tell them apart from the code alone:
+	// the worktree is gone, or it is still there holding work (`--keep`, or the R53 rescue). `kept`
+	// is that one bit, and it is read off the DISK rather than inferred from the flags.
+	test('--json says whether the worktree survived', () => {
+		const ws = landable();
+		addAndCommit(ws.wt, 'first note');
+		const r = ws.land('worktrees/a', '--keep', '--json');
+		assert.equal(r.code, 0, r.stderr);
+		assert.equal(JSON.parse(r.stdout).kept, true);
+		assert.ok(fs.existsSync(ws.wt), 'kept:true was reported for a worktree that is not there');
 	});
 });

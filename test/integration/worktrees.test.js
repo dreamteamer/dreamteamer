@@ -380,6 +380,39 @@ describe('worktrees are an observed entity', () => {
 	});
 });
 
+// ---- the dev-clone shadow -------------------------------------------------------------------
+//
+// ⚠ A WORKTREE MUST RUN THE ENGINE ITS WORKSPACE RUNS, and on a dev-clone toggle that engine is not
+// the pinned npm copy: it is a SYMLINK under `git_modules/`, which is gitignored and therefore per
+// checkout. A worktree cut from such a workspace got the `node_modules/dreamteamer` link mirrored
+// and this one not, so its install fell back to the pinned copy and it compiled against a different
+// compiler than the tree it was cut from — silently, because both compilers work.
+describe('a worktree of a workspace running a git_modules shadow runs the same engine', () => {
+	test('a symlinked git_modules entry is mirrored into the new tree, a real clone is not', () => {
+		const ws = workspace();
+		// The shadow: a module-shaped directory OUTSIDE the workspace, reached through a link, which
+		// is the shape `npm run engine on` leaves behind.
+		const clone = fs.mkdtempSync(path.join(ws.root, '..', 'shadow-'));
+		fs.writeFileSync(path.join(clone, 'package.json'),
+			JSON.stringify({ name: 'shadowed', version: '0.0.0', description: 'A shadowed module.', dreamteamer: {} }, null, '\t') + '\n');
+		fs.mkdirSync(path.join(ws.root, 'git_modules'), { recursive: true });
+		fs.symlinkSync(fs.realpathSync(clone), path.join(ws.root, 'git_modules', 'shadowed'), 'dir');
+		// … and a REAL clone beside it: per-checkout working state, restored by `install` from the
+		// lockfile, never shared between two checkouts.
+		fs.mkdirSync(path.join(ws.root, 'git_modules', 'ordinary'), { recursive: true });
+
+		const r = dt(ws.root, 'add', 'worktrees', '--name', 'shadow');
+		assert.equal(r.code, 0, r.stderr);
+		const dir = r.stdout.trim().split('\n').at(-1);
+
+		const mirrored = path.join(dir, 'git_modules', 'shadowed');
+		assert.ok(fs.lstatSync(mirrored).isSymbolicLink(), 'the shadow was not mirrored — the worktree runs a different engine');
+		assert.equal(fs.realpathSync(mirrored), fs.realpathSync(clone));
+		assert.equal(fs.existsSync(path.join(dir, 'git_modules', 'ordinary')), false,
+			'a real clone was linked into the worktree — two checkouts would share one working tree');
+	});
+});
+
 // ---- the WorktreeCreate hook form ------------------------------------------------------------
 //
 // ⚠ THE PLACEMENT IS THE ENGINE'S, NOT THE HARNESS'S. `.worktrees/` is already gitignored by every

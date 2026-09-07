@@ -326,6 +326,12 @@ const refusalBlock = (name, refusals) => `✖ cannot land worktrees/${name}:\n${
 /**
  * `dt land worktrees/<name>` — the whole verb. Returns rather than exits, so the CLI owns the
  * process code and `--json` can report the same object the operator was shown.
+ *
+ * `kept` answers ONE question a script cannot otherwise ask of an exit code: is that worktree still
+ * on disk now? It is true for every refusal and conflict (nothing was touched), true after `--keep`,
+ * true when the tree CHANGED during the landing and was therefore spared (ruling R53) — and false
+ * only when the landing retired it. So `--keep` and "kept because you were still typing in it" read
+ * identically to a caller, which is the point: either way the next `dt land` has something to land.
  */
 export function landWorktree(ws, ref, { keep = false, dryRun = false, branch = null, npmRun } = {}, git = defaultGit) {
 	const c = describeCheckout(ws.root, git);
@@ -353,24 +359,28 @@ export function landWorktree(ws, ref, { keep = false, dryRun = false, branch = n
 	// ahead, no branch to land — is a CONSEQUENCE of that one, and a fix list of five lines for a
 	// state with one fix reads as five problems.
 	const refusals = state.worktree.kind === 'primary' ? ['it is the primary checkout'] : plan.refusals;
+	// ⚠ MEASURED, NEVER INFERRED. Every non-landing path leaves the tree alone, and `--keep` and the
+	// R53 rescue both keep it — but so does a throw out of git in the middle, so the honest answer is
+	// the disk's, read after the work rather than derived from the flags that went in.
+	const kept = () => fs.existsSync(state.worktree.root);
 	if (refusals.length) {
 		console.error(refusalBlock(state.name, refusals));
-		return { code: 1, landed: null, refused: refusals };
+		return { code: 1, landed: null, refused: refusals, kept: kept() };
 	}
 	if (dryRun) {
 		console.log(`dt land worktrees/${state.name} → ${state.primaryBranch} (dry run)`);
 		console.log(`  ${summarize(state.range, recordsIn(state.range, descriptors, dataPath))}`);
 		if (switchTo) console.log(`  ▶ branch: ${switchTo}`);
 		for (const s of plan.steps) console.log(`  ▶ ${s.id}: ${s.why}`);
-		return { code: 0, landed: null, refused: null };
+		return { code: 0, landed: null, refused: null, kept: kept() };
 	}
 	const taken = takeLock(state.lock);
 	if (taken.refused) {
 		console.error(refusalBlock(state.name, [taken.refused]));
-		return { code: 1, landed: null, refused: [taken.refused] };
+		return { code: 1, landed: null, refused: [taken.refused], kept: kept() };
 	}
 	try {
-		return runLanding(ws, c, state, { descriptors, dataPath, npmRun }, git);
+		return { ...runLanding(ws, c, state, { descriptors, dataPath, npmRun }, git), kept: kept() };
 	} finally {
 		fs.rmSync(state.lock.path, { recursive: true, force: true });
 	}
@@ -584,7 +594,10 @@ function installDeps(primaryWs, run = (npm, args, opts) => spawnSync(npm, args, 
 	const npm = resolveNpm();
 	if (!npm) return console.warn('⚠ package-lock.json changed and npm is not on PATH — run npm ci in the primary before its next compile');
 	const r = run(npm, ['ci', '--prefer-offline', '--no-audit', '--no-fund'], { cwd: primaryWs.root, stdio: ['ignore', 2, 2], env: childEnv() });
-	if (r?.status) console.warn(`⚠ npm ci exited ${r.status} in the primary — the landing stands; re-run it there`);
+	// ⚠ `!== 0`, NOT TRUTHINESS. A spawn that never STARTED — the binary vanished between the resolve
+	// and the call, EACCES, ENOENT — comes back with `status: null` and an `error`, and a truthy test
+	// reads that as success: the one failure mode this warning exists for would print nothing at all.
+	if (r?.status !== 0) console.warn(`⚠ npm ci ${typeof r?.status === 'number' ? `exited ${r.status}` : `never started (${r?.error?.message ?? 'no exit status'})`} in the primary — the landing stands; re-run it there`);
 }
 
 /**

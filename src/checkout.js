@@ -491,6 +491,22 @@ export function createWorktree(ws, { name, dir, base = 'HEAD', temp = false, qui
 		fs.mkdirSync(path.join(target, 'node_modules'), { recursive: true });
 		fs.symlinkSync(realpathSync(eng), path.join(target, 'node_modules', 'dreamteamer'), 'dir');
 	}
+	// ⚠ AND THE SAME FOR A SHADOWING `git_modules` ENTRY, for the same reason one layer up. A
+	// workspace on the dev-clone toggle runs its engine — or one of its modules — from a SYMLINK
+	// under `git_modules/`, which is gitignored and therefore per checkout: a worktree cut from such
+	// a workspace got neither the link nor a clone, so its own `install` fell back to the PINNED npm
+	// copy and it compiled against a different compiler than the tree it was cut from. Measured in a
+	// sandbox of a shadowed workspace: compile hard-failed on a kind the pinned engine does not know
+	// and every proof in it reported FAIL.
+	//
+	// LINKS ONLY. A real `git_modules/<name>` clone is per-checkout working state that `install`
+	// restores from the lockfile; linking one would give two checkouts a single working tree.
+	const shadows = path.join(ws.root, 'git_modules');
+	for (const name of (fs.existsSync(shadows) ? fs.readdirSync(shadows) : [])) {
+		if (!isLink(path.join(shadows, name))) continue;
+		fs.mkdirSync(path.join(target, 'git_modules'), { recursive: true });
+		fs.symlinkSync(realpathSync(path.join(shadows, name)), path.join(target, 'git_modules', name), 'dir');
+	}
 	const r = spawnSync(process.execPath, [engineBin(), 'install'], { cwd: target, stdio: quiet ? 'pipe' : 'inherit' });
 	if (r.status !== 0) console.warn(`⚠ install inside ${target} exited ${r.status} — the worktree exists; re-run dt install there`);
 	return target;
