@@ -1702,6 +1702,12 @@ export function compile({ root, pkg }) {
 	console.log(`proofs: ${proofEntries.length} declared · commands ${covered(proofArtifacts.commands)} · skills ${covered(proofArtifacts.skills)} · scripts ${covered(proofArtifacts.scripts)} · bindings ${covered(proofArtifacts.bindings)}`);
 
 	// ---- the nudge: ONCE, per NEW command or script with no proof -----------------
+	// module id → the module's workspace-relative ROOT, exactly the value the module projection
+	// stores in `path`. Sorted longest-first so a nested module wins over its parent, and the root
+	// layout's `.` (the empty prefix) matches last.
+	const moduleRoots = sources.map((s) => ({ id: moduleId(s.name), root: rel(s.root) || '.' }))
+		.sort((a, b) => b.root.length - a.root.length);
+	const ownerRoot = (srcPath) => moduleRoots.find(({ root: r }) => r === '.' || srcPath === r || srcPath.startsWith(`${r}/`))?.root ?? '.';
 	// ⚠ NEW, not merely uncovered. A workspace adopting proofs has forty-odd artifacts and none of
 	// them proven; forty-four warnings on day one is the noise that teaches an operator to skip
 	// every line this compile prints. So the nudge fires only for an artifact absent from the
@@ -1724,22 +1730,30 @@ export function compile({ root, pkg }) {
 		}
 	}
 
-	/** Where an artifact's source lives, and whether the PREVIOUS manifest already knew it. */
+	/** Where an artifact's source lives, and whether the PREVIOUS manifest already knew it.
+	 *
+	 *  ⚠ THE MODULE ROOT COMES OFF THE SOURCE, NEVER OFF THE FILE PATH. Slicing it out of the
+	 *  artifact's source path (`lastIndexOf('/commands/')`, `replace(/\/package\.json$/)`) is
+	 *  correct only in the `workspace-module` layout. In the ROOT layout (no `workspace-module`, see
+	 *  :619) a command's source is `commands/hello.command.md` — no module segment at all — so the
+	 *  slice returned -1 and the nudge named `commands/hello.command.m/proofs/…`, and a module
+	 *  script named `package.json/proofs/…`. `rel(source.root)` is the same value the module record's
+	 *  `path` field carries (see the projection near :1459), which is the value that is always right. */
 	function artifactSource(all, ref) {
 		if (ref.startsWith('commands/')) {
 			const key = `${ref}.command.md`;
 			const source = all.get(key)?.sources?.[0]?.path ?? '';
 			if (!source) return null;
-			return { source, moduleRoot: source.slice(0, source.lastIndexOf('/commands/')), new: !(key in prevManifest.entries) };
+			return { source, moduleRoot: ownerRoot(source), new: !(key in prevManifest.entries) };
 		}
-		// a module script: `<module-id>/bin/<file>`. Its "entry" is the module record compile
-		// projected, so a whole NEW module's scripts nudge and an existing module's do not (above).
-		const moduleId = ref.slice(0, ref.indexOf('/'));
-		const key = `modules/${moduleId}.module.yaml`;
+		// a module script: `<module-id>/bin/<file>` — the id is in the ref, so the root is a lookup
+		// rather than a guess. Its "entry" is the module record compile projected, so a whole NEW
+		// module's scripts nudge and an existing module's do not (above).
+		const mod = ref.slice(0, ref.indexOf('/'));
+		const key = `modules/${mod}.module.yaml`;
 		const entry = all.get(key);
 		if (!entry) return null;
-		const source = entry.sources?.[0]?.path ?? '';
-		return { source, moduleRoot: source.replace(/\/package\.json$/, ''), new: !(key in prevManifest.entries) };
+		return { source: entry.sources?.[0]?.path ?? '', moduleRoot: moduleRoots.find((m) => m.id === mod)?.root ?? '.', new: !(key in prevManifest.entries) };
 	}
 	return 0;
 }

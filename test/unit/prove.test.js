@@ -32,7 +32,9 @@ const descriptors = new Map([
 	}],
 	['people', {
 		name: 'people',
-		schema: { type: 'object', required: ['name'], properties: { name: { type: 'string' } } },
+		// `manager` exists so a TWO-hop filter is expressible: `owner.manager.name` is one hop past
+		// what the evaluator resolves, and has to be refused rather than left to narrow to false.
+		schema: { type: 'object', required: ['name'], properties: { name: { type: 'string' }, manager: { type: 'string', 'x-reference': 'people' } } },
 	}],
 ]);
 
@@ -94,6 +96,22 @@ describe('validateProofShape — a valid proof is silent', () => {
 
 	test('pick: latest is accepted when the collection declares a sort_field', () => {
 		assert.deepEqual(validateProofShape(live({ given: { collection: 'notes', where: {}, pick: 'latest' } }), ctx), []);
+	});
+
+	test('every count operator in the closed set is accepted, _delta included', () => {
+		for (const op of ['_eq', '_neq', '_gt', '_gte', '_lt', '_lte', '_delta']) {
+			assert.deepEqual(validateProofShape(live({ expect: [{ collection: 'notes', where: {}, count: { [op]: 1 } }] }), ctx), [], op);
+		}
+	});
+
+	test('a bare integer count is accepted — it is shorthand for _eq', () => {
+		assert.deepEqual(validateProofShape(live({ expect: [{ collection: 'notes', where: {}, count: 1 }] }), ctx), []);
+	});
+
+	test('_in accepts the comma-string spelling filter.js itself accepts', () => {
+		// `toArray` (filter.js:100) splits a non-array operand on commas, so `_in: 'open,done'` is a
+		// LEGAL two-value filter — reading it as one literal reported a false enum violation.
+		assert.deepEqual(validateProofShape(live({ given: { collection: 'notes', where: { status: { _in: 'open,done' } }, pick: 'a-note' } }), ctx), []);
 	});
 
 	test('a fixture-backed given is accepted, and every other expect form with it', () => {
@@ -264,5 +282,65 @@ describe('validateProofShape — requires, expect and timeout', () => {
 
 	test('a non-numeric timeout is refused', () => {
 		only(gate({ timeout: '60' }), 'timeout must be a positive integer of seconds');
+	});
+});
+
+describe('validateProofShape — the fix-round-1 rulings', () => {
+	// R12 — `mode` is meaningless on a gate (there is no workspace state to read or write), and the
+	// descriptor already says "forbidden on a gate". A key the engine ignores is a key whose author
+	// believes something untrue about what will run.
+	test('a gate carrying mode is refused', () => {
+		only(gate({ mode: 'readonly' }), 'a gate proof takes no mode');
+	});
+
+	// R11 — `count` has its OWN operator set: the filter operators that order integers, plus
+	// `_delta`, which no filter has. So neither `KNOWN_OPERATORS` nor `unknownOperators` can judge
+	// it — `_delta` would read as a typo there, and a real typo (`_gtee`) reads as fine.
+	test('a count operator outside the closed set is refused, listing the set', () => {
+		only(live({ expect: [{ collection: 'notes', where: {}, count: { _gtee: 1 } }] }), 'count operator "_gtee" is not one of _eq _neq _gt _gte _lt _lte _delta');
+	});
+
+	test('a filter operator that is not a COUNT operator is refused too', () => {
+		only(live({ expect: [{ collection: 'notes', where: {}, count: { _contains: 1 } }] }), 'count operator "_contains" is not one of _eq _neq _gt _gte _lt _lte _delta');
+	});
+
+	test('a non-integer count operand is refused', () => {
+		only(live({ expect: [{ collection: 'notes', where: {}, count: { _gte: 'one' } }] }), 'count "_gte" compares "one", which is not an integer');
+	});
+
+	test('a fractional count operand is refused — half a record does not exist', () => {
+		only(live({ expect: [{ collection: 'notes', where: {}, count: { _eq: 1.5 } }] }), 'count "_eq" compares "1.5", which is not an integer');
+	});
+
+	test('a bare non-integer count is refused as the _eq it stands for', () => {
+		only(live({ expect: [{ collection: 'notes', where: {}, count: 'many' }] }), 'count "_eq" compares "many", which is not an integer');
+	});
+
+	// ⚠ TWO HOPS ARE REFUSED, not silently accepted. `matchesFilter` resolves ONE reference and
+	// evaluates the sub-condition against the target record; a second nesting level is treated as
+	// another ref traversal on a value that is a plain field, which narrows to false with no
+	// warning. Exactly the silent-zero-rows failure the whole validator exists to close.
+	test('a two-hop where is refused, naming the dotted path', () => {
+		only(live({ given: { collection: 'notes', where: { owner: { manager: { name: { _eq: 'Dana' } } } }, pick: 'a-note' } }), 'where hops more than one reference (owner.manager.name) — a proof filter hops at most one');
+	});
+
+	test('a second hop over a NON-reference target field is refused the same way', () => {
+		only(live({ given: { collection: 'notes', where: { owner: { name: { first: { _eq: 'Dana' } } } }, pick: 'a-note' } }), 'where hops more than one reference (owner.name.first) — a proof filter hops at most one');
+	});
+
+	// R14 — `{record}` is bound by `given`. A `record:` expectation without one is a proof that
+	// cannot run, and the failure would surface at run time as an unresolved substitution.
+	test('a record expectation with no given is refused', () => {
+		const proof = live({ expect: [{ record: '{record}', where: { status: { _eq: 'done' } } }] });
+		delete proof.given;
+		only(proof, 'a record expectation needs a given — nothing binds {record}');
+	});
+
+	test('a fixture with no pick is refused — a fixture folder holds records, not A record', () => {
+		only(live({ given: { collection: 'notes', fixture: true } }), 'a fixture needs pick: <id> naming one of its records');
+	});
+
+	test('_in still enum-checks each member of a comma string', () => {
+		only(live({ given: { collection: 'notes', where: { status: { _in: 'open,archived' } }, pick: 'a-note' } }), 'where "status" compares "archived", which is not one of status\'s options [open, done]');
 	});
 });
