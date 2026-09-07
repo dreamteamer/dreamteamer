@@ -20,6 +20,7 @@ import { runHarnessAdapters } from './harnesses.js';
 import { satisfies } from './semver.js';
 import { parseEnvValues } from './env-vars.js';
 import { DERIVED_KINDS, readManifest, runtimeDir } from './runtime.js';
+import { artifactRefs, proofPathFor, validateProofShape } from './prove.js';
 
 // re-exported, not moved: `readManifest` is in the VS Code extension's hand-maintained engine
 // contract as `compileMod.readManifest` (engine.ts), and a removed export is the same cross-repo
@@ -477,6 +478,11 @@ function strayKindDirs(source, wsRoot, declaredIgnore) {
 }
 
 const sha256 = (buf) => 'sha256:' + createHash('sha256').update(buf).digest('hex');
+
+/** Is this workspace-relative source path inside an installed package? A nudge to write a file
+ *  there would name a path the next `npm install` erases. (schema-ops has the same one-liner for the
+ *  same reason; importing it back here would close a cycle for one regex.) */
+const inNodeModules = (p) => /(^|[\\/])node_modules([\\/]|$)/.test(String(p));
 
 // channel -> the directory the operator knows it by (used in shadow warnings, and it IS the
 // `location` field's vocabulary — see collections/modules.collection.yaml. Keeping the export name
@@ -1569,6 +1575,41 @@ export function compile({ root, pkg }) {
 		}
 	}
 
+	// ---- proof validation --------------------------------------------------------------
+	// A proof declares behaviour the ENGINE judges, so every key in one is a value the engine
+	// interprets — which by the rule stated above the ui-view block makes all of them compile's to
+	// validate. The two silent failures this refuses, both measured in the spike:
+	//   `about: skills/greter` — names no artifact, so the proof proves nothing and says so nowhere.
+	//   `where: { statuz: … }` — an unknown key fails CLOSED in `matchesFilter`, so a `count`
+	//   expectation over it passes or fails FOREVER for a reason no output names.
+	// The judgement itself lives in `prove.js` (unit-tested against a hand-built descriptor set);
+	// this block is the wiring, and it is deliberately paid for only when a proof exists.
+	//
+	// ⚠ `artifactRefs` is computed unconditionally, because the coverage line below prints its
+	// denominators on EVERY compile — a workspace with no proofs still gets told what it has.
+	const proofArtifacts = artifactRefs(entries);
+	const proofEntries = [...entries].filter(([rt]) => rt.startsWith('proofs/'));
+	/** every artifact ref named by at least one proof — the coverage numerators, and the nudge's silencer */
+	const provenRefs = new Set();
+	if (proofEntries.length) {
+		// the MERGED descriptors, read back out of the entries this compile is about to write —
+		// the same source of truth the ui-view block reads its own field list from, so a proof is
+		// judged against the schema the workspace will actually run on (`extends` applied).
+		const merged = new Map();
+		for (const [rt, e] of entries) {
+			if (!rt.startsWith('collections/')) continue;
+			const doc = load(e.bytes.toString('utf8'));
+			if (doc?.name) merged.set(doc.name, doc);
+		}
+		const proofCtx = { descriptors: merged, declaredVars, moduleEnv: new Set(declaredEnv.keys()), artifacts: proofArtifacts.all };
+		for (const [rt, e] of proofEntries) {
+			const proof = loadSource(e.bytes.toString('utf8'), e.sources[0].path);
+			const errs = validateProofShape(proof, proofCtx);
+			if (errs.length) fail(errs.map((m) => `${rt}: ${m}`).join('\n  '));
+			for (const ref of proof?.about ?? []) provenRefs.add(String(ref));
+		}
+	}
+
 	// ---- materialize .dreamteamer ------------------------------------------------
 	// mkdir the runtime ROOT unconditionally: with zero entries nothing below created it, so the
 	// manifest write at the end failed ENOENT — `init` followed by `compile` in a fresh workspace
@@ -1651,6 +1692,55 @@ export function compile({ root, pkg }) {
 		: `${sources.length - 1} module(s) + workspace`;
 	console.log(`✔ compiled ${summary || 'nothing'} from ${sourceLabel} → .dreamteamer`);
 	for (const line of harnessSummary) console.log(`✔ harness ${line}`);
+
+	// ---- proof coverage, on EVERY compile ----------------------------------------
+	// One line, unconditional, even at zero: coverage that is only reported when someone asks is
+	// coverage nobody knows the number of. The denominators are what this compile actually produced
+	// (`artifactRefs`, the one enumeration `prove --missing` also reads), the numerators what a
+	// proof names.
+	const covered = (list) => `${list.filter((a) => provenRefs.has(a)).length}/${list.length}`;
+	console.log(`proofs: ${proofEntries.length} declared · commands ${covered(proofArtifacts.commands)} · skills ${covered(proofArtifacts.skills)} · scripts ${covered(proofArtifacts.scripts)} · bindings ${covered(proofArtifacts.bindings)}`);
+
+	// ---- the nudge: ONCE, per NEW command or script with no proof -----------------
+	// ⚠ NEW, not merely uncovered. A workspace adopting proofs has forty-odd artifacts and none of
+	// them proven; forty-four warnings on day one is the noise that teaches an operator to skip
+	// every line this compile prints. So the nudge fires only for an artifact absent from the
+	// PREVIOUS manifest, and a first-ever compile (no previous manifest at all) nudges nothing.
+	//
+	// Commands and scripts only — they are the artifacts that RUN, and a skill gets its nudge at the
+	// moment `dt add skills` writes it. An artifact shipped from node_modules is skipped: a proof
+	// written there is erased by the next `npm install`.
+	//
+	// ⚠ A KNOWN GAP, stated rather than hidden: a script added to an EXISTING module does not nudge.
+	// The manifest records a module record's SOURCE hash (its package.json), and adding a file under
+	// `bin/` changes neither the entry key nor that hash, so there is nothing to compare. The
+	// coverage line still counts it.
+	if (prevManifest?.entries) {
+		for (const ref of [...proofArtifacts.commands, ...proofArtifacts.scripts]) {
+			if (provenRefs.has(ref)) continue;
+			const known = artifactSource(entries, ref);
+			if (!known || known.new === false || inNodeModules(known.source)) continue;
+			console.log(`no proof yet for ${ref} — ${proofPathFor(ref, known.moduleRoot)} (see using-dreamteamer › proofs)`);
+		}
+	}
+
+	/** Where an artifact's source lives, and whether the PREVIOUS manifest already knew it. */
+	function artifactSource(all, ref) {
+		if (ref.startsWith('commands/')) {
+			const key = `${ref}.command.md`;
+			const source = all.get(key)?.sources?.[0]?.path ?? '';
+			if (!source) return null;
+			return { source, moduleRoot: source.slice(0, source.lastIndexOf('/commands/')), new: !(key in prevManifest.entries) };
+		}
+		// a module script: `<module-id>/bin/<file>`. Its "entry" is the module record compile
+		// projected, so a whole NEW module's scripts nudge and an existing module's do not (above).
+		const moduleId = ref.slice(0, ref.indexOf('/'));
+		const key = `modules/${moduleId}.module.yaml`;
+		const entry = all.get(key);
+		if (!entry) return null;
+		const source = entry.sources?.[0]?.path ?? '';
+		return { source, moduleRoot: source.replace(/\/package\.json$/, ''), new: !(key in prevManifest.entries) };
+	}
 	return 0;
 }
 

@@ -380,7 +380,12 @@ function orientationBlock(flavor, skillsIndex, sourceLayout = 'flat', namespaces
 		'(see manifest for channels). data: `data/`. records are `<id>.<suffix>.<ext>`',
 		'files; ids are paths; references are `<collection>/<id>`. run `dreamteamer check` (`npm run',
 		'check`) after bulk edits; run `dreamteamer compile` (`npm run compile`) after changing any',
-		'source or installing modules.',
+		// ⚠ ONE sentence, APPENDED to the line above rather than given one of its own: this block is
+		// committed prose in every workspace and its budget is asserted (compile.test.js, "a workspace
+		// that has added nothing gets a SMALL block"), so a clause that earns its place still may not
+		// spend a line. It says the one thing a session cannot derive from the schema — that a claim
+		// an artifact works is a claim about the RUNNING system, and which instrument produces one.
+		'source or installing modules. before saying an artifact works, run `dreamteamer prove <artifact>` and quote its result.',
 	];
 	// ⚠ Only when the workspace HAS namespaces. Telling an agent about a feature this workspace does
 	// not use is the same failure as telling it the wrong source layout — prose that contradicts the
