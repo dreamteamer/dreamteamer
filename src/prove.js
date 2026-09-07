@@ -305,6 +305,15 @@ function expectErrors(expect, given, descriptors) {
 		// R14 — `{record}` is bound by `given`. Without one, the substitution has nothing to render
 		// and the proof cannot run; refusing at compile beats an unresolved brace at run time.
 		if (hasRecord && given === undefined) errors.push('a record expectation needs a given — nothing binds {record}');
+		// ⚠ R44 — `record:` IS A SELECTOR WITH EXACTLY ONE LEGAL VALUE, and nothing read it. The judge
+		// takes the picked record straight off `given` and never looks at `e.record` at all, so
+		// `record: '{record.owner}'` or `record: 'notes/b'` compiled clean and was then judged against
+		// a DIFFERENT record than the one it names — a confident verdict about the wrong thing. There
+		// is no second record to target (the `given` picks one), so the value is a constant, and a
+		// constant that is written wrong must be refused rather than ignored.
+		if (hasRecord && String(row.record) !== '{record}') {
+			errors.push('a record expectation targets {record} — the picked record is its only target');
+		}
 		// MINOR 9 — AN EXPECTATION THAT ASSERTS NOTHING IS THE SILENT GREEN, one layer below the
 		// vacuous proof. A `record:` entry with an empty `where` produces ZERO verdict lines, so
 		// `verdicts.every(ok)` is vacuously true and the proof PASSES having measured nothing at all.
@@ -429,6 +438,11 @@ function enumErrors(errors, field, prop, values) {
 	// correct line to make compile go green. The option plays the record-value role, as at run time.
 	for (const v of values) {
 		if (v == null || options.some((o) => looseEq(o, v))) continue;
+		// ⚠ R45 — A `{record…}` LITERAL IS A RUNTIME VALUE, and compile cannot know what it will be.
+		// `where: { status: { _eq: '{record.status}' } }` is a legitimate filter — the judge
+		// substitutes it against the picked record before evaluating — and comparing the BRACE to the
+		// enum's options refused a correct proof for a value that never reaches the filter.
+		if (isSubstitutable(v)) continue;
 		errors.push(`where "${field}" compares "${v}", which is not one of ${field}'s options [${options.join(', ')}]`);
 	}
 }
@@ -458,14 +472,19 @@ function enumErrors(errors, field, prop, values) {
  * naming a field the picked record does not carry would otherwise reach the shell as the string
  * "undefined", and `{record}` with no record bound has nothing to be.
  *
- * ⚠ STRICT MODE IS FOR THE VALUES THE ENGINE CONSUMES, NOT THE SHELL — a `path:` expectation and a
- * `record:` selector. The pass-through above is right for a `run:` string precisely because the
- * shell owns braces too; it is exactly wrong for a path, where nothing downstream would ever notice
- * the typo: `path: "{recrod}/out.txt"` becomes a literal directory that does not exist, and the
- * expectation answers `exists false` — a FAIL naming the wrong cause. So those two call sites pass
- * `{ strict: true }` and an identifier-shaped brace nobody substitutes THROWS. The token test is the
- * same `BRACE_TOKEN` the warning net uses, `$`-exemption included: `${env:FILES_FOLDER}` is the
- * resolver's, and a `path:` expectation naming a machine-dependent folder is the form's whole point.
+ * ⚠ STRICT MODE IS FOR THE VALUES THE ENGINE CONSUMES, NOT THE SHELL — a `path:` expectation and
+ * every string literal inside an expectation's `where` (R45, `substituteWhere`). The pass-through
+ * above is right for a `run:` string precisely because the shell owns braces too; it is exactly
+ * wrong for a path, where nothing downstream would ever notice the typo: `path: "{recrod}/out.txt"`
+ * becomes a literal directory that does not exist, and the expectation answers `exists false` — a
+ * FAIL naming the wrong cause. A filter literal fails the same way, one layer quieter: it becomes a
+ * value the field never equals. So those call sites pass `{ strict: true }` and an identifier-shaped
+ * brace nobody substitutes THROWS. The token test is the same `BRACE_TOKEN` the warning net uses,
+ * `$`-exemption included: `${env:FILES_FOLDER}` is the resolver's, and a `path:` expectation naming
+ * a machine-dependent folder is the form's whole point.
+ *
+ * ⚠ `record:` IS NOT SUBSTITUTED, because it is not a template — compile refuses any value but the
+ * literal `{record}` (R44), so there is nothing to render and nothing to get wrong.
  *
  * @param {string} text
  * @param {{record?: {ref: string, fields: object}}} ctx
@@ -493,6 +512,47 @@ export function substitute(text, ctx, options) {
 /** An identifier-shaped brace token: what a static reader can tell apart from shell syntax. `{print}`
  *  matches and `{print $1}` does not, which is the asymmetry that makes the net affordable. */
 const BRACE_TOKEN = /(\$?)\{([A-Za-z_][A-Za-z0-9_.-]*)\}/g;
+
+/** Does this value carry a brace `substitute` will render? Used by the VALIDATOR to leave a runtime
+ *  value alone (R45), and it deliberately asks about `{record…}` only — every other brace is either
+ *  the resolver's (`${…}`) or the shell's, and neither reaches a filter. */
+const isSubstitutable = (v) => typeof v === 'string' && /\{record(\.[^{}]*)?\}/.test(v);
+
+/**
+ * ⚠ R45 — A FILTER'S STRING LITERALS ARE SUBSTITUTED BEFORE THE FILTER IS EVALUATED, and until this
+ * existed the canonical live proof could not work at all. `expect: [{ collection: notes, where: {
+ * owner: { _eq: '{record}' } }, count: { _gte: 1 } }]` — "running this left a note owned by the
+ * person I picked" — reached `matchesFilter` with the LITERAL eight characters `{record}`, matched
+ * nothing, and reported a confident FAIL naming a count that was never the question. The shape is
+ * the one the spec's own worked example uses, so the defect was in every proof written to the
+ * documented form.
+ *
+ * A deep copy, never a mutation: the proof source is read once and judged twice (the pre-check and
+ * the after-pass), and a `where` rewritten in place would carry the FIRST record's ref into the
+ * second judgement.
+ *
+ * STRICT, for the same reason a `path:` is (see `substitute`): nothing downstream of a filter would
+ * ever notice `{recrod}` — it becomes a literal the field never equals, and the expectation answers
+ * ✖ with the wrong cause printed beside it.
+ *
+ * ⚠ `{record}` (the REF) is stable across a run; `{record.<field>}` is not. A `_delta` snapshot is
+ * taken before the steps and its after-count after them, so a `{record.<field>}` inside a `_delta`
+ * where is rendered from two different values of that field and the difference means nothing. Write
+ * `{record}` there, or assert the field with a `record:` expectation instead.
+ *
+ * @param {*} where     any filter node — map, array or scalar
+ * @param {{record?: {ref: string, fields: object}}} ctx
+ */
+export function substituteWhere(where, ctx) {
+	if (typeof where === 'string') return substitute(where, ctx, { strict: true });
+	if (Array.isArray(where)) return where.map((v) => substituteWhere(v, ctx));
+	if (where === null || typeof where !== 'object') return where;
+	const out = {};
+	// KEYS ARE FIELD NAMES AND OPERATORS — never substituted. A `{record}` on the left of a filter
+	// entry would be asking to look up a field whose name is a record reference, which is not a thing.
+	for (const [k, v] of Object.entries(where)) out[k] = substituteWhere(v, ctx);
+	return out;
+}
 
 /**
  * Every brace in this proof's steps that NOTHING substitutes — one advisory string per token, for
@@ -840,6 +900,39 @@ const DEFAULT_TIMEOUT = 120;
  *  without this, `dt prove --record notes/b` read `notes/b` as the proof id. */
 const VALUE_FLAGS = new Set(['kind', 'record']);
 
+/** The spellings of "off" a person actually types. Anything else after the `=` is on, including an
+ *  empty string: `--strict=` is a fumbled command line, and reading it as OFF would silently disarm
+ *  the gate it names. */
+const FALSEY = new Set(['false', '0', 'no', 'off']);
+
+/**
+ * ⚠ R46 — `--flag=false` MEANS FALSE, and until this existed it meant TRUE. Every boolean flag was
+ * stored as the raw string after the `=`, and `'false'` is a truthy string — so `dt prove --all
+ * --strict=false` made an unavailable proof fatal, and `dt status --strict=false` failed the run,
+ * both doing the exact opposite of what was typed with nothing printed either way. A bare `--flag`
+ * is still `true`.
+ */
+export const flagValue = (v) => (typeof v === 'string' ? !FALSEY.has(v.trim().toLowerCase()) : v !== undefined && v !== false);
+
+/**
+ * Is `--<name>` on, reading the `=` form's VALUE — the one place the answer is decided, so the
+ * verbs that parse their own arguments (`prove`) and the ones that scan `rest` (`status`) can never
+ * disagree about what `--strict=false` meant.
+ *
+ * The LAST occurrence wins: `--strict=false --strict` is a person changing their mind at the end of
+ * a line, and reading the first would answer the version they edited away.
+ */
+export function flagEnabled(args, name) {
+	let on = false;
+	for (const a of args ?? []) {
+		if (!a.startsWith('--')) continue;
+		const eq = a.indexOf('=');
+		if ((eq > -1 ? a.slice(2, eq) : a.slice(2)) !== name) continue;
+		on = eq > -1 ? flagValue(a.slice(eq + 1)) : true;
+	}
+	return on;
+}
+
 function parseProveArgs(rest) {
 	const flags = {};
 	const targets = [];
@@ -847,7 +940,12 @@ function parseProveArgs(rest) {
 		const a = rest[i];
 		if (!a.startsWith('--')) { targets.push(a); continue; }
 		const eq = a.indexOf('=');
-		if (eq > -1) { flags[a.slice(2, eq)] = a.slice(eq + 1); continue; }
+		if (eq > -1) {
+			const name = a.slice(2, eq);
+			// a VALUE flag keeps its string (`--kind=gate`); a boolean one is READ (R46)
+			flags[name] = VALUE_FLAGS.has(name) ? a.slice(eq + 1) : flagValue(a.slice(eq + 1));
+			continue;
+		}
 		const name = a.slice(2);
 		flags[name] = VALUE_FLAGS.has(name) ? rest[++i] : true;
 	}
@@ -1073,7 +1171,9 @@ function judge(ws, store, proof, id, record, before, stepResults, storeOnly) {
 		const e = raw ?? {};
 		if (storeOnly && !isStoreBased(e)) continue;
 		if ('collection' in e && 'count' in e) {
-			const total = countMatching(store, String(e.collection), e.where, resolve);
+			// R45 — the LITERALS first: `{record}` in a filter is the picked record's reference, and
+			// handing the brace to `matchesFilter` matched nothing and blamed the count.
+			const total = countMatching(store, String(e.collection), substituteWhere(e.where, ctx), resolve);
 			if (!isDelta(e.count)) { push({ count: e.count }, total); continue; }
 			// ⚠ R24 — A MISSING BEFORE-COUNT FAILS CLOSED. `before[i] || 0` treated an absent snapshot
 			// as zero, so the delta became the ABSOLUTE count and a `_delta: 1` expectation PASSED on
@@ -1089,7 +1189,9 @@ function judge(ws, store, proof, id, record, before, stepResults, storeOnly) {
 		}
 		if ('record' in e) {
 			const row = record ? record.fields : {};
-			for (const [field, cond] of Object.entries(e.where ?? {})) push({ [field]: cond }, row[field]);
+			// R45 again, and it matters here too: `where: { owner: { _eq: '{record.owner}' } }` and any
+			// cross-field literal are rendered before the condition is judged.
+			for (const [field, cond] of Object.entries(substituteWhere(e.where ?? {}, ctx))) push({ [field]: cond }, row[field]);
 			continue;
 		}
 		if ('path' in e) {
@@ -1444,6 +1546,9 @@ function proveOne(ws, id, proof, flags) {
 		record = proof.given ? pickFixture(store, proof.given, null) : null;
 		ref = record ? record.ref : null;
 		over.record = ref;
+		// ⚠ BOUND HERE, not below the pre-check where it used to be: the `_delta` snapshot and the
+		// pre-check both render `{record}` now (R45), and both run before the steps do.
+		ctx = record ? { record } : {};
 		if (proof.given && !record) {
 			say(`NO-FIXTURE  ${id} — given matched 0 records in ${proof.given.collection}`);
 			return settle('NO-FIXTURE', { failure_reason: `given matched 0 records in ${proof.given.collection}` });
@@ -1451,9 +1556,14 @@ function proveOne(ws, id, proof, flags) {
 
 		// ---- 5. THE `_delta` SNAPSHOT, taken before anything runs. It is also what makes the pre-check
 		// below read a delta of 0 rather than the whole collection's size.
+		//
+		// ⚠ THROUGH THE SAME `substituteWhere` THE JUDGE USES (R45). A before-count taken on the raw
+		// filter and an after-count taken on the rendered one are counts of two DIFFERENT questions,
+		// and their difference is a number with no meaning at all — which is worse than either being
+		// wrong, because the delta looks like a measurement.
 		const resolve = recordResolver(store);
 		for (const [i, e] of (Array.isArray(proof.expect) ? proof.expect : []).entries()) {
-			if (e && 'collection' in e && isDelta(e.count)) before[i] = countMatching(store, String(e.collection), e.where, resolve);
+			if (e && 'collection' in e && isDelta(e.count)) before[i] = countMatching(store, String(e.collection), substituteWhere(e.where, ctx), resolve);
 		}
 
 		// ---- 6. THE PRE-CHECK, and it is the most valuable state in the set. A proof whose expectations
@@ -1467,7 +1577,6 @@ function proveOne(ws, id, proof, flags) {
 		}
 
 		// ---- 7. THE STEPS, in order, until one fails or one asks for an actor.
-		ctx = record ? { record } : {};
 		return runSteps();
 	}
 
