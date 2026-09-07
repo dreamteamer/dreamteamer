@@ -43,8 +43,12 @@ so a script asks "did I type a verb that is gone?" once rather than learning whi
 exits 1 and which exits 2. Grep before you upgrade:
 
 ```bash
-grep -rn "dt ensure\|dt update-field\|dt remove-field\|dt commands" .
+grep -rnE "(dt|dreamteamer) (ensure|update-field|remove-field|commands)\b" .
 ```
+
+(Both spellings, because the engine's own error strings say `dreamteamer <verb>` and a package
+script says `npm run dt -- <verb>`; a `dt`-only pattern misses most of a real workspace's call
+sites.)
 
 **Why each rename.** The record verbs are `add` · `set` · `rm` · `rename` · `move`, so
 `update-field`/`remove-field` were a second spelling for one action inside one grammar — the field
