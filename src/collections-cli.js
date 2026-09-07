@@ -1221,6 +1221,11 @@ export const VERB_FLAGS = {
 	// whatever a harness reads), so there is no closed set to check it against.
 	'skills:add': ['json', 'module', 'name', 'description'],
 	'ui-views:add': ['json', 'module', 'id', 'force'], 'ui-views:set': ['json', 'module', 'id', 'force'], 'ui-views:rm': FORCE_RM,
+	// `worktrees` is OBSERVED from git and has no descriptor, so nothing downstream of the CLI would
+	// ever catch a typo here — and the typo that matters is `--tmep`, which silently turns a request
+	// for a throwaway sandbox into a permanent branch worktree.
+	'worktrees:list': JSON_ONLY, 'worktrees:get': JSON_ONLY,
+	'worktrees:add': ['json', 'name', 'path', 'base', 'temp'], 'worktrees:rm': ['json', 'force'],
 };
 
 /** Edit distance, capped — enough to turn `--fliter` into "did you mean --filter?", and to refuse to
@@ -1239,15 +1244,21 @@ function nearest(word, candidates) {
 	return candidates.map((c) => [c, distance(c)]).filter(([, n]) => n <= cap).sort((a, b) => a[1] - b[1])[0]?.[0] ?? null;
 }
 
-function refuseUnknownFlags(store, collection, verb, flags) {
-	const d = store.descriptors.get(collection);
+export function refuseUnknownFlags(store, collection, verb, flags) {
+	// `store` is null for an entity the store does not know: `worktrees` is observed from git, and
+	// the surface still owes its flags the same refusal every other verb gets.
+	const d = store?.descriptors.get(collection);
 	const known = VERB_FLAGS[`${collection}:${verb}`]
 		?? (ENTITY_KINDS.has(collection) && verb === 'add' ? VERB_FLAGS['skills:add'] : VERB_FLAGS[verb]);
 	if (!known) return; // no declared vocabulary — left exactly as it was rather than guessed at
 	// The OPEN half: a data collection's own fields (shorthand filters and field writes), and the
 	// declared keys of an entity `set` writes (`--layout` on a view, and dotted `options.sort`).
 	const system = d?.storage?.base === 'runtime';
-	const openOf = !system ? (['list', 'add', 'set'].includes(verb) ? `field of ${collection}` : null)
+	// ⚠ NO DESCRIPTOR MEANS NO OPEN HALF. `worktrees` has no fields to shorthand-filter or write, so
+	// its vocabulary is CLOSED — offering "plus any field of worktrees" would name a half that does
+	// not exist and read as though the refused flag were merely misspelled.
+	const openOf = !d ? null
+		: !system ? (['list', 'add', 'set'].includes(verb) ? `field of ${collection}` : null)
 		: (collection === 'ui-views' && verb !== 'rm') || (ENTITY_KINDS.has(collection) && verb === 'set') ? `declared key of ${collection}` : null;
 	const open = openOf ? Object.keys(d?.schema?.properties ?? {}) : [];
 	const allowed = new Set([...known, ...open]);

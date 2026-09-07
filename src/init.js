@@ -19,6 +19,7 @@ const SKELETON_KINDS = ['collections', 'skills', 'agents', 'commands', 'ui-views
 
 const GITIGNORE = `node_modules/
 git_modules/
+.worktrees/
 .dreamteamer/
 .claude/
 .agents/
