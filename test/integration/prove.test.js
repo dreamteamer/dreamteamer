@@ -15,8 +15,10 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { workspace, readFile, compileError, simpleCollection } from '../helpers/ws.js';
+import { USAGE, WORKSPACE_FLAGS } from '../../src/cli.js';
 import {
 	artifactRefs, PROOF_KINDS, PROOF_MODES,
 	countMatching, pickFixture, resolveRequires,
@@ -773,5 +775,457 @@ describe('prove helpers against a store', () => {
 	test('pendingFor on a ledger that does not exist is null', () => {
 		const { root } = notesWorkspace();
 		assert.equal(pendingFor(root, 'never-run', null), null);
+	});
+});
+
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+// Task 4 — THE RUNNER. `proveCommand` plus the `case 'prove':` arm: one verb, six exit codes, and a
+// resume protocol for the one step a machine cannot take.
+//
+// ⚠ EVERY ASSERTION HERE GOES THROUGH `ws.dt(...)`, i.e. the real binary in a real workspace, and
+// asserts the EXIT CODE first. The code is the contract — `dt prove` exists so a script can branch
+// without parsing prose — and an in-process call to `proveCommand` would assert the return value of
+// a function while leaving the CLI's own translation of it (the one thing 0.19.0 shipped broken)
+// unexercised.
+//
+// The fixture is deliberately ONE shape for the whole block: a `notes` collection with a closed
+// `status` enum and a `sort_field`, a real `close-note` command source (so the PERFORM block has a
+// source path to name), a decoy `.env` value (so "no output prints a credential" is assertable),
+// and six proofs covering the six states.
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+
+const PROVE_NOTES = simpleCollection({
+	sort_field: 'name',
+	schema: {
+		type: 'object',
+		required: ['name'],
+		properties: {
+			name: { type: 'string' },
+			status: { type: 'string', enum: ['open', 'done'], default: 'open' },
+			notes: { type: 'string', format: 'markdown', 'x-body': true },
+		},
+	},
+});
+
+/** A value no `dt prove` output may ever contain. `.env` holds credentials, and `requires.env` is
+ *  checked by KEY — so the UNAVAILABLE report is the one place a value could leak. */
+const DECOY = 'decoy-value-nothing-should-print';
+
+const PROOFS = {
+	'gate-passes': { kind: 'gate', steps: [{ run: "node -e 'process.exit(0)'" }] },
+	'gate-fails': { kind: 'gate', steps: [{ run: "node -e 'process.exit(3)'" }] },
+	// declared in `dreamteamer.vars` (so compile accepts the proof) and absent from `.env` (so the
+	// machine cannot satisfy it) — the UNAVAILABLE state, which is NOT a failure of the artifact.
+	'needs-a-var': { kind: 'gate', requires: { env: ['PROVE_TEST_VAR'] }, steps: [{ run: 'true' }] },
+	'note-gets-closed': {
+		kind: 'live',
+		mode: 'readonly',
+		about: ['commands/close-note'],
+		given: { collection: 'notes', where: { status: { _eq: 'open' } }, pick: 'latest' },
+		steps: [{ perform: '/close-note {record}' }],
+		expect: [{ record: '{record}', where: { status: { _eq: 'done' } } }],
+	},
+	'counts-a-new-note': {
+		kind: 'live',
+		mode: 'readonly',
+		about: ['commands/close-note'],
+		given: { collection: 'notes', where: { status: { _eq: 'open' } }, pick: 'latest' },
+		steps: [{ perform: 'add a note' }],
+		expect: [{ collection: 'notes', where: {}, count: { _delta: 1 } }],
+	},
+	// every expectation already holds BEFORE the step runs — so the proof cannot fail, and a proof
+	// that cannot fail is not a proof.
+	'already-true': {
+		kind: 'live',
+		mode: 'readonly',
+		given: { collection: 'notes', where: {}, pick: 'latest' },
+		steps: [{ perform: 'do nothing' }],
+		expect: [{ record: '{record}', where: { name: { _nempty: true } } }],
+	},
+};
+
+/** The fixture, compiled, with every proof above on disk.
+ *  `records` overrides the two default notes (both `open`, so `pick: latest` is `notes/b`). */
+function proveWorkspace(opts = {}) {
+	const ws = workspace({
+		pkg: { vars: ['PROVE_TEST_VAR'] },
+		collections: { notes: PROVE_NOTES },
+		records: { notes: opts.notes ?? [{ name: 'a' }, { name: 'b' }] },
+	});
+	const cmdDir = path.join(ws.root, 'modules', 'default', 'commands');
+	fs.mkdirSync(cmdDir, { recursive: true });
+	fs.writeFileSync(path.join(cmdDir, 'close-note.command.md'), '---\nname: close-note\ndescription: Close one note.\n---\n\nSet the note\'s status to done.\n');
+	fs.writeFileSync(path.join(ws.root, '.env'), `PROVE_DECOY_KEY=${DECOY}\n`);
+	for (const [id, fields] of Object.entries({ ...PROOFS, ...(opts.proofs ?? {}) })) {
+		writeProof(ws.root, id, { about: ['skills/using-dreamteamer'], ...fields });
+	}
+	const compiled = ws.dt('compile');
+	assert.equal(compiled.code, 0, compiled.stdout + compiled.stderr);
+	return ws;
+}
+
+const tail = (root, id) => {
+	const rows = readLedger(root, id);
+	return rows[rows.length - 1] ?? null;
+};
+
+describe('dt prove — a gate, and what the ledger records about it', () => {
+	test('a gate whose step exits 0 PASSES at code 0, and the ledger row names this machine', () => {
+		const ws = proveWorkspace();
+		const res = ws.dt('prove', 'gate-passes');
+		assert.equal(res.code, 0, res.stdout + res.stderr);
+		assert.match(res.stdout, /^PASS  gate-passes/m);
+
+		const rows = readLedger(ws.root, 'gate-passes');
+		assert.equal(rows.length, 1, JSON.stringify(rows));
+		assert.equal(rows[0].verdict, 'PASS');
+		// ⚠ THE LEDGER IS PER-MACHINE EVIDENCE, so the machine is part of the row. A row with no
+		// `machine` cannot answer "did this ever pass HERE", which is the only question it exists for.
+		assert.equal(rows[0].machine, os.hostname());
+		assert.equal(rows[0].record, null, 'a gate pends and passes against no record');
+		assert.equal(typeof rows[0].duration_ms, 'number');
+		assert.equal(rows[0].failure_reason, null);
+		assert.equal(rows[0].sandbox, null);
+		assert.equal(rows[0].steps.length, 1);
+		assert.equal(rows[0].steps[0].exit, 0);
+	});
+
+	// ⚠ A NON-ZERO STEP EXIT IS NOT "the expectations failed" — the proof never got as far as judging
+	// anything, and a verdict line about an expectation would be a claim nothing measured. So the
+	// failure names the STEP, and `failure_reason` carries the exit code a script can branch on.
+	test('a gate whose step exits non-zero FAILS at the step, naming the step and the code', () => {
+		const ws = proveWorkspace();
+		const res = ws.dt('prove', 'gate-fails');
+		assert.equal(res.code, 1, res.stdout + res.stderr);
+		assert.match(res.stdout, /FAIL at step 1/);
+		assert.equal(tail(ws.root, 'gate-fails').failure_reason, 'step 1 exited 3');
+	});
+
+	test('the step line reports the command and its exit with a duration', () => {
+		const ws = proveWorkspace();
+		const res = ws.dt('prove', 'gate-passes');
+		assert.match(res.stdout, /^RUN 1  node -e 'process\.exit\(0\)'$/m);
+		assert.match(res.stdout, /^ {2}exit 0 \(\d+ ms\)$/m);
+	});
+
+	// ⚠ UNAVAILABLE IS NOT FAIL, and the distinction is the whole reason for a third code: "this
+	// machine cannot answer the question" must never read as "the artifact is broken".
+	test('a requirement this machine cannot meet is UNAVAILABLE at code 3, with the fix', () => {
+		const ws = proveWorkspace();
+		const res = ws.dt('prove', 'needs-a-var');
+		assert.equal(res.code, 3, res.stdout + res.stderr);
+		assert.match(res.stdout, /UNAVAILABLE/);
+		assert.match(res.stdout, /PROVE_TEST_VAR is not set/);
+		assert.equal(tail(ws.root, 'needs-a-var').verdict, 'UNAVAILABLE');
+	});
+
+	// The one place a credential could reach stdout: `.env` is read to decide whether a KEY is
+	// configured, and a report that printed the pair would put a secret in a terminal and a CI log.
+	test('the UNAVAILABLE report never prints a value out of .env', () => {
+		const ws = proveWorkspace();
+		const res = ws.dt('prove', 'needs-a-var');
+		assert.ok(!(res.stdout + res.stderr).includes(DECOY), 'a .env VALUE reached the output');
+	});
+
+	// ⚠ THE LEDGER LIVES BESIDE THE KIND FOLDER, NEVER INSIDE IT — compile wipes `.dreamteamer/proofs/`
+	// on every run, so a row written there is destroyed silently. Asserted from the RUNNER's side here:
+	// the file the runner actually created is the dot-prefixed one, and the kind folder holds sources only.
+	test('the runner writes its ledger to .dreamteamer/.proofs/, and the kind folder stays sources-only', () => {
+		const ws = proveWorkspace();
+		assert.equal(ws.dt('prove', 'gate-passes').code, 0);
+		assert.ok(fs.existsSync(path.join(ws.root, '.dreamteamer', '.proofs', 'gate-passes.jsonl')));
+		const staged = fs.readdirSync(path.join(ws.root, '.dreamteamer', 'proofs'));
+		assert.deepEqual(staged.filter((f) => !f.endsWith('.proof.yaml')), [], staged.join(', '));
+	});
+
+	// --json is for a script, and a script parses stdout WHOLE. One warning line ahead of the object
+	// makes `JSON.parse` throw, which is indistinguishable from the run having failed.
+	test('--json prints ONE object on stdout and nothing else', () => {
+		const ws = proveWorkspace();
+		const res = ws.dt('prove', 'gate-passes', '--json');
+		assert.equal(res.code, 0, res.stderr);
+		const row = JSON.parse(res.stdout);
+		assert.equal(row.verdict, 'PASS');
+		assert.ok(Array.isArray(row.verdicts));
+		assert.doesNotMatch(res.stdout, /^RUN /m, 'the human step lines leaked into the JSON stream');
+	});
+});
+
+describe('dt prove — a live proof, the fixture and the pre-check', () => {
+	// exit 4, not 1: a `given` that matches nothing says the proof DID NOT RUN. Reporting FAIL there
+	// would put an artifact on a red list for a state of the workspace's data.
+	test('a given that matches no record is NO-FIXTURE at code 4, naming the collection', () => {
+		const ws = proveWorkspace({ notes: [] });
+		const res = ws.dt('prove', 'note-gets-closed');
+		assert.equal(res.code, 4, res.stdout + res.stderr);
+		assert.match(res.stdout, /NO-FIXTURE/);
+		assert.match(res.stdout, /given matched 0 records in notes/);
+		assert.equal(tail(ws.root, 'note-gets-closed').verdict, 'NO-FIXTURE');
+	});
+
+	// ⚠ THE MOST VALUABLE STATE IN THE WHOLE SET. A proof whose expectations already hold before its
+	// step runs reports PASS forever and measures nothing — the silent-green failure `prove` exists to
+	// remove. So it is refused with its own code, BEFORE any step is taken.
+	test('a proof whose expectations already hold is VACUOUS at code 6, before any step runs', () => {
+		const ws = proveWorkspace();
+		const res = ws.dt('prove', 'already-true');
+		assert.equal(res.code, 6, res.stdout + res.stderr);
+		assert.match(res.stdout, /VACUOUS/);
+		assert.match(res.stdout, /a proof that cannot fail is not a proof/);
+		assert.doesNotMatch(res.stdout, /PERFORM/, 'the pre-check must run BEFORE the steps');
+		assert.equal(tail(ws.root, 'already-true').verdict, 'VACUOUS');
+	});
+});
+
+describe('dt prove — the resume protocol around a perform step', () => {
+	test('the first perform step stops the run at code 5 and prints the three-line block', () => {
+		const ws = proveWorkspace();
+		const res = ws.dt('prove', 'note-gets-closed');
+		assert.equal(res.code, 5, res.stdout + res.stderr);
+		// the substituted command, the SOURCE FILE it lives in, and the same verb to type next —
+		// nothing else, because this block is read by an agent that has to act on it.
+		assert.match(res.stdout, /^PERFORM  \/close-note notes\/b$/m);
+		assert.match(res.stdout, /^source   modules\/default\/commands\/close-note\.command\.md$/m);
+		assert.match(res.stdout, /^then     dt prove note-gets-closed --record notes\/b {3}\(the same verb, again\)$/m);
+
+		const row = tail(ws.root, 'note-gets-closed');
+		assert.equal(row.verdict, 'PENDING');
+		assert.equal(row.record, 'notes/b');
+		assert.equal(row.sandbox, null);
+	});
+
+	// ⚠ THE VERDICT LINE CARRIES THE ACTUAL VALUE. "expected status done ✖" sends the reader back to
+	// re-run the proof by hand to learn what it actually was, which is the entire cost `prove` removes.
+	test('resuming before the action was taken FAILS at code 1, with the actual value beside the wanted one', () => {
+		const ws = proveWorkspace();
+		assert.equal(ws.dt('prove', 'note-gets-closed').code, 5);
+		const res = ws.dt('prove', 'note-gets-closed', '--record', 'notes/b');
+		assert.equal(res.code, 1, res.stdout + res.stderr);
+		assert.match(res.stdout, /status "open" = done ✖/);
+		assert.match(res.stdout, /^FAIL {2}note-gets-closed$/m);
+		assert.equal(tail(ws.root, 'note-gets-closed').failure_reason, 'status "open" = done ✖');
+	});
+
+	test('resuming after the action was taken PASSES at code 0', () => {
+		const ws = proveWorkspace();
+		assert.equal(ws.dt('prove', 'note-gets-closed').code, 5);
+		// the earlier FAIL supersedes the pending row, so a fresh one is needed before the verify
+		assert.equal(ws.dt('prove', 'note-gets-closed', '--record', 'notes/b').code, 1);
+		assert.equal(ws.dt('prove', 'note-gets-closed').code, 5);
+
+		// the ACTION, taken by hand — a record write, which does not commit
+		const set = ws.dt('set', 'notes/b', 'status=done');
+		assert.equal(set.code, 0, set.stdout + set.stderr);
+
+		const res = ws.dt('prove', 'note-gets-closed', '--record', 'notes/b');
+		assert.equal(res.code, 0, res.stdout + res.stderr);
+		assert.match(res.stdout, /status "done" = done ✔/);
+		assert.match(res.stdout, /^PASS  note-gets-closed \(\d+ ms\)$/m);
+	});
+
+	// A resume with nothing to resume is an ERROR, not a fresh run: silently starting over would
+	// discard a pending row the operator is halfway through, and re-ask for an action already taken.
+	test('--record with no pending run for that record is refused, naming the command to run first', () => {
+		const ws = proveWorkspace();
+		assert.equal(ws.dt('prove', 'note-gets-closed').code, 5);
+		const res = ws.dt('prove', 'note-gets-closed', '--record', 'notes/a');
+		assert.equal(res.code, 1, res.stdout + res.stderr);
+		assert.match(res.stderr, /no pending run of note-gets-closed for notes\/a — run dt prove note-gets-closed first/);
+	});
+
+	// ⚠ A SECOND RUN WHILE ONE IS PENDING IS REFUSED, because the second run would re-ask for the
+	// action the first is still waiting on — and the operator would have no way to tell which pending
+	// row their eventual verify is judged against.
+	test('a second run while one is pending is refused, and --restart discards it explicitly', () => {
+		const ws = proveWorkspace();
+		assert.equal(ws.dt('prove', 'note-gets-closed').code, 5);
+
+		const second = ws.dt('prove', 'note-gets-closed');
+		assert.equal(second.code, 1, second.stdout + second.stderr);
+		assert.match(second.stderr, /note-gets-closed is pending for notes\/b since /);
+		assert.match(second.stderr, /--restart to discard it/);
+
+		const restarted = ws.dt('prove', 'note-gets-closed', '--restart');
+		assert.equal(restarted.code, 5, restarted.stdout + restarted.stderr);
+		// the discard is RECORDED, not silent: the ledger shows why the first attempt ended
+		const verdicts = readLedger(ws.root, 'note-gets-closed').map((r) => `${r.verdict}:${r.failure_reason ?? ''}`);
+		assert.deepEqual(verdicts, ['PENDING:', 'FAIL:restarted', 'PENDING:']);
+	});
+});
+
+describe('dt prove — _delta is judged against a FRESH store', () => {
+	// ⚠ THE TRAP, REPRODUCED. `Store.ids()` memoizes on (git HEAD, collection dir mtime), with a
+	// documented gap: a DEEP write that adds a record without moving the TOP directory's mtime serves
+	// one stale read. A proof's steps write records and do not commit, so a runner that reused its
+	// before-count Store for the after-count would read a delta of 0 with nothing wrong anywhere.
+	test('the same Store instance serves a stale count after a deep write; a fresh one does not', () => {
+		const { ws, root } = proveWorkspace();
+		// `sub/` is created FIRST, so the later write into it moves only ITS mtime, not data/notes'
+		const sub = path.join(root, 'data', 'notes', 'sub');
+		fs.mkdirSync(sub, { recursive: true });
+		fs.writeFileSync(path.join(sub, 'x.note.md'), '---\nname: x\nstatus: open\n---\n');
+
+		const stale = new Store(ws);
+		assert.equal(countMatching(stale, 'notes', {}, null), 3, 'the before-count, which memoizes the index');
+
+		fs.writeFileSync(path.join(sub, 'y.note.md'), '---\nname: y\nstatus: open\n---\n');
+		assert.equal(countMatching(stale, 'notes', {}, null), 3, 'the SAME Store still serves the memoized index — this IS the trap');
+		assert.equal(countMatching(new Store(ws), 'notes', {}, null), 4, 'a FRESH Store walks disk');
+	});
+
+	// The behavioural half: the trap above, driven through the RUNNER in ONE process. A step writes a
+	// record deep, and `_delta: 1` must still be +1 — which it can only be if the after-count came off
+	// a Store constructed after the steps.
+	test('a run step that writes deep is still counted — the runner rebuilds its Store to judge', () => {
+		const ws = proveWorkspace({
+			proofs: {
+				'counts-a-deep-note': {
+					kind: 'live',
+					mode: 'readonly',
+					given: { collection: 'notes', where: {}, pick: 'latest' },
+					steps: [{ run: "printf '%s\\n' '---' 'name: y' 'status: open' '---' > data/notes/sub/y.note.md" }],
+					expect: [{ collection: 'notes', where: {}, count: { _delta: 1 } }],
+				},
+			},
+		});
+		const sub = path.join(ws.root, 'data', 'notes', 'sub');
+		fs.mkdirSync(sub, { recursive: true });
+		fs.writeFileSync(path.join(sub, 'x.note.md'), '---\nname: x\nstatus: open\n---\n');
+
+		const res = ws.dt('prove', 'counts-a-deep-note');
+		assert.equal(res.code, 0, res.stdout + res.stderr);
+		assert.match(res.stdout, /count \+1 = \+1 ✔/);
+	});
+
+	// The cross-process half of the same expectation: the before-count is snapshotted into the PENDING
+	// row, and the verify subtracts it from a count taken in a whole new process.
+	test('the before-count is carried in the PENDING row and the delta measured against it', () => {
+		const ws = proveWorkspace();
+		const res = ws.dt('prove', 'counts-a-new-note');
+		assert.equal(res.code, 5, res.stdout + res.stderr);
+		assert.deepEqual(tail(ws.root, 'counts-a-new-note').before, { 0: 2 });
+
+		assert.equal(ws.dt('add', 'notes', '--name', 'c').code, 0);
+		const verified = ws.dt('prove', 'counts-a-new-note', '--record', 'notes/b');
+		assert.equal(verified.code, 0, verified.stdout + verified.stderr);
+		assert.match(verified.stdout, /count \+1 = \+1 ✔/);
+	});
+});
+
+describe('dt prove --all — a board, and never a request for an actor', () => {
+	// ⚠ EXIT 5 CAN NEVER COME OUT OF `--all` (spec §13.3). `--all` is what a pre-commit hook and a CI
+	// step run, and "one of your 40 proofs would like a human" is not an answer either can act on. So
+	// a perform proof is LISTED rather than started, and the code only reflects what actually ran.
+	test('--all runs every machine-runnable proof, lists the rest, and never exits 5', () => {
+		const ws = proveWorkspace();
+		const res = ws.dt('prove', '--all');
+		assert.equal(res.code, 1, res.stdout + res.stderr); // gate-fails
+		assert.match(res.stdout, /proofs: \d+ passed · 1 failed · 1 unavailable/);
+		assert.match(res.stdout, /^proofs: 1 passed · 1 failed · 1 unavailable · 0 no-fixture · 0 vacuous · 3 need an actor$/m);
+		assert.match(res.stdout, /^needs an actor:$/m);
+		assert.match(res.stdout, /^ {2}dt prove note-gets-closed$/m);
+		assert.doesNotMatch(res.stdout, /^PERFORM /m, '--all must not start a perform step');
+	});
+
+	test('--kind gate selects only gates, so nothing needs an actor', () => {
+		const ws = proveWorkspace();
+		const res = ws.dt('prove', '--all', '--kind', 'gate');
+		assert.equal(res.code, 1, res.stdout + res.stderr);
+		assert.match(res.stdout, /^proofs: 1 passed · 1 failed · 1 unavailable · 0 no-fixture · 0 vacuous · 0 need an actor$/m);
+		assert.doesNotMatch(res.stdout, /note-gets-closed/);
+	});
+
+	// ⚠ `--strict` IS WHAT MAKES "unavailable" FATAL, and it has to be a flag rather than the default:
+	// UNAVAILABLE is the ordinary state of a proof that needs a credential on a machine that has none,
+	// so failing on it by default would make `--all` red on every cloud session.
+	test('--strict makes an UNAVAILABLE fatal, where a bare --all is green without it', () => {
+		const ws = proveWorkspace();
+		// fix the one failing gate, so `unavailable` is the only thing left that could be fatal
+		writeProof(ws.root, 'gate-fails', { about: ['skills/using-dreamteamer'], kind: 'gate', steps: [{ run: "node -e 'process.exit(0)'" }] });
+		assert.equal(ws.dt('compile').code, 0);
+
+		const lenient = ws.dt('prove', '--all');
+		assert.equal(lenient.code, 0, lenient.stdout + lenient.stderr);
+		assert.match(lenient.stdout, /^proofs: 2 passed · 0 failed · 1 unavailable · 0 no-fixture · 0 vacuous · 3 need an actor$/m);
+
+		const strict = ws.dt('prove', '--all', '--strict');
+		assert.equal(strict.code, 1, strict.stdout + strict.stderr);
+	});
+
+	// ⚠ `external: true` IS OPT-IN, so a proof that needs the network is invisible to the default run
+	// rather than red on it. Counted only when asked for.
+	test('an external proof is skipped by --all and included by --external', () => {
+		const ws = proveWorkspace({
+			proofs: { 'reaches-out': { kind: 'gate', external: true, steps: [{ run: "node -e 'process.exit(0)'" }] } },
+		});
+		const bare = ws.dt('prove', '--all', '--kind', 'gate');
+		assert.match(bare.stdout, /^proofs: 1 passed · 1 failed · 1 unavailable · 0 no-fixture · 0 vacuous · 0 need an actor$/m);
+
+		const withExternal = ws.dt('prove', '--all', '--kind', 'gate', '--external');
+		assert.match(withExternal.stdout, /^proofs: 2 passed · 1 failed · 1 unavailable · 0 no-fixture · 0 vacuous · 0 need an actor$/m);
+	});
+
+	// The artifact form: "prove everything anybody claims about this command" — the question a reader
+	// of a skill or a command actually has, and the one `about` exists to make answerable.
+	test('dt prove <artifact-ref> selects every proof whose about names it, with --all semantics', () => {
+		const ws = proveWorkspace();
+		const res = ws.dt('prove', 'commands/close-note');
+		assert.equal(res.code, 0, res.stdout + res.stderr);
+		assert.match(res.stdout, /^ {2}dt prove note-gets-closed$/m);
+		assert.match(res.stdout, /^proofs: 0 passed · 0 failed · 0 unavailable · 0 no-fixture · 0 vacuous · 2 need an actor$/m);
+		assert.doesNotMatch(res.stdout, /gate-passes/);
+	});
+});
+
+describe('dt prove — the usage surface', () => {
+	// ⚠ A BARE POSITIONAL THAT NAMES NOTHING must not be answered as a fresh run of nothing. `install`
+	// set the precedent: a stale invocation fails loudly and names both real forms.
+	test('a target that is neither a proof nor an artifact is refused, naming both forms', () => {
+		const ws = proveWorkspace();
+		const res = ws.dt('prove', 'nope');
+		assert.equal(res.code, 1, res.stdout + res.stderr);
+		assert.match(res.stderr, /takes a proof id or an artifact \(skills\/<id>, commands\/<id>, …\) — got "nope"/);
+		assert.match(res.stderr, /dt list proofs/);
+	});
+
+	// PER-FORM refusal: the verb-level allowlist can say which flags `prove` HAS, never that `--all`
+	// is meaningless once a proof is named. Forwarding it silently would run one proof and report a board.
+	test('a flag of the wrong form is refused, naming the form and what it takes', () => {
+		const ws = proveWorkspace();
+		const res = ws.dt('prove', 'gate-passes', '--all');
+		assert.equal(res.code, 1, res.stdout + res.stderr);
+		assert.match(res.stderr, /--all is not a flag of `dt prove <proof>`/);
+	});
+
+	test('an unknown flag is refused by the verb-level allowlist', () => {
+		const ws = proveWorkspace();
+		const res = ws.dt('prove', '--bogus');
+		assert.equal(res.code, 1, res.stdout + res.stderr);
+		assert.match(res.stderr, /unknown flag "--bogus" on `dt prove`/);
+	});
+
+	test('every flag `dt prove` accepts is documented in `dt help`', () => {
+		const documented = new Set([...USAGE.matchAll(/--([a-z][a-z0-9-]*)/g)].map((m) => m[1]));
+		const undocumented = WORKSPACE_FLAGS.prove.filter((f) => !documented.has(f));
+		assert.deepEqual(undocumented, [], `dt prove accepts these and dt help never names them: ${undocumented.join(', ')}`);
+	});
+
+	// The Task 5 seam, asserted so the refusal is a DECISION rather than a crash: a `writes` proof
+	// runs in a sandbox, and until that exists it says so instead of writing to the live workspace.
+	test('a writes proof without --here refuses rather than writing to the live workspace', () => {
+		const ws = proveWorkspace({
+			proofs: {
+				'writes-a-note': {
+					kind: 'live',
+					mode: 'writes',
+					given: { collection: 'notes', where: {}, pick: 'latest' },
+					steps: [{ run: 'true' }],
+					expect: [{ collection: 'notes', where: {}, count: { _delta: 1 } }],
+				},
+			},
+		});
+		const res = ws.dt('prove', 'writes-a-note');
+		assert.equal(res.code, 1, res.stdout + res.stderr);
+		assert.match(res.stderr, /writes proofs run in a sandbox — not yet implemented \(Task 5\)/);
 	});
 });
