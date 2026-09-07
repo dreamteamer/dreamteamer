@@ -350,6 +350,10 @@ describe('system verbs — the SAME verbs, on the entities the compiler material
 		const j = ws.dt('list', 'commands', '--json');
 		assert.equal(j.code, 0, j.stderr);
 		assert.ok(Array.isArray(JSON.parse(j.stdout)), 'dt list commands --json must answer a list');
+		// ⚠ AND THE EXIT 0 ABOVE HAS TO MEAN "RESOLVED". A `list` that answered 0 for any word would
+		// pass the two assertions above while proving nothing, so the negative control rides along:
+		// an undeclared name is refused in the SAME fixture.
+		assert.equal(ws.dt('list', 'nonesuch').code, 1, 'list answers 0 for a collection that does not exist — the assertions above are vacuous');
 	});
 });
 
