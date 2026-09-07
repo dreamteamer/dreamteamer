@@ -745,7 +745,7 @@ function metaEntityVerb(ws, store, kind, verb, flags, pos) {
 		// can prove loads is the artifact `dt prove` exists for, and the cheapest moment to say so is
 		// the moment the file is created. Named path, never a rule to derive — the module root is
 		// whichever one actually received the skill (`--module`, or the workspace module).
-		console.log(`no proof yet — ${proofPathFor(`skills/${out.id}`, rel(ws.root, out.file).split('/skills/')[0])} (see using-dreamteamer › proofs)`);
+		console.log(`no proof yet — ${proofPathFor(`skills/${out.id}`, out.moduleRoot)} (see using-dreamteamer › proofs)`);
 		return 0;
 	}
 	if (verb === 'rm') {

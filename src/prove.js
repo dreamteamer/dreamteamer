@@ -88,7 +88,10 @@ function fromStore(store) {
  *  what the nudge names, so the reader never has to derive a path from a rule. */
 export function proofPathFor(artifactRef, moduleRoot) {
 	const id = path.basename(artifactRef).replace(/\.[^.]+$/, '');
-	return `${moduleRoot}/proofs/${id}.proof.yaml`;
+	// `.` is the ROOT layout's module root (a workspace with no `workspace-module`): its sources sit
+	// at the workspace root, so the path a reader types has no prefix at all — `./proofs/x` would be
+	// a path they have to mentally normalize before using it.
+	return moduleRoot && moduleRoot !== '.' ? `${moduleRoot}/proofs/${id}.proof.yaml` : `proofs/${id}.proof.yaml`;
 }
 
 // ── validation ──────────────────────────────────────────────────────────────────────────────────
@@ -97,6 +100,22 @@ export function proofPathFor(artifactRef, moduleRoot) {
  *  closed enum. `_contains`/`_starts_with` take a fragment, not a value; `_null`/`_empty` take a
  *  boolean; a range operator on an enum field is meaningless but not a typo. */
 const ENUM_CHECKED = new Set(['_eq', '_neq', '_in', '_nin']);
+
+/** `count`'s OWN operator set, and the reason it needs one: `_delta` exists on no filter (it is
+ *  after-minus-before, which only a proof has two sides of), and the ordering operators that DO
+ *  overlap are a strict subset of the filter set — `_contains` on a record count is nonsense. So
+ *  neither `KNOWN_OPERATORS` nor `unknownOperators` can judge a count map: run through the filter
+ *  walker, `_delta` reads as a typo and `_gtee` reads as fine, which is exactly backwards. */
+const COUNT_OPERATORS = ['_eq', '_neq', '_gt', '_gte', '_lt', '_lte', '_delta'];
+
+/** The literal values an operator's operand stands for. ⚠ `_in`/`_nin` accept a COMMA STRING —
+ *  `filter.js`'s `toArray` (:100) splits a non-array operand — so `_in: 'open,done'` is a legal
+ *  two-value filter, and reading it as one literal reported a false enum violation. Every other
+ *  operator takes its operand whole: a comma in an `_eq` is part of the value. */
+function literalsFor(op, operand) {
+	if (op !== '_in' && op !== '_nin') return [operand];
+	return Array.isArray(operand) ? operand : String(operand).split(',').map((x) => x.trim());
+}
 
 /**
  * Every way a proof can be wrong, as printable lines — empty means valid.
@@ -143,6 +162,10 @@ export function validateProofShape(proof, ctx) {
 		if (p.given !== undefined || p.expect !== undefined || !steps.length || steps.some((s) => !s || s.run === undefined)) {
 			errors.push('a gate proof has run steps only and no given or expect');
 		}
+		// R12 — the descriptor already says `mode` is forbidden on a gate, and nothing enforced it. A
+		// gate reads and writes no workspace state, so `mode` there is a key the engine ignores and
+		// its author believes something untrue about what will run.
+		if (p.mode !== undefined) errors.push('a gate proof takes no mode');
 	} else {
 		if (!PROOF_MODES.includes(p.mode)) errors.push('a live proof declares mode: readonly | writes');
 		const expect = Array.isArray(p.expect) ? p.expect : [];
@@ -201,6 +224,10 @@ function givenErrors(given, descriptors) {
 	const hasFixture = given?.fixture !== undefined && given.fixture !== false;
 	if (hasWhere === hasFixture) errors.push('given needs exactly one of where or fixture');
 
+	// R14 — a fixture folder holds RECORDS; `pick` is what names the one this proof runs against.
+	// Without it there is nothing to bind, and the proof would pick arbitrarily.
+	if (hasFixture && given?.pick === undefined) errors.push('a fixture needs pick: <id> naming one of its records');
+
 	if (given?.pick === 'any') {
 		errors.push('pick: any is not accepted — a proof names its record or uses a fixture');
 	} else if (given?.pick === 'latest' && !d.sort_field) {
@@ -235,6 +262,25 @@ function expectErrors(expect, given, descriptors) {
 			const scope = hasCount ? String(row.collection) : String(given?.collection ?? '');
 			if (descriptors.has(scope)) errors.push(...whereErrors(row.where, scope, descriptors));
 		}
+		// R14 — `{record}` is bound by `given`. Without one, the substitution has nothing to render
+		// and the proof cannot run; refusing at compile beats an unresolved brace at run time.
+		if (hasRecord && given === undefined) errors.push('a record expectation needs a given — nothing binds {record}');
+		if ('count' in row) errors.push(...countErrors(row.count));
+	}
+	return errors;
+}
+
+/** R11 — a count map's operators and operands. Its own closed set (see COUNT_OPERATORS), and every
+ *  operand an INTEGER: a count is a number of records, so `_gte: 'one'` and `_eq: 1.5` are both
+ *  filters that can never be satisfied, silently. A bare scalar is the `_eq` it stands for. */
+function countErrors(count) {
+	const errors = [];
+	const pairs = count !== null && typeof count === 'object' && !Array.isArray(count)
+		? Object.entries(count)
+		: [['_eq', count]];
+	for (const [op, operand] of pairs) {
+		if (!COUNT_OPERATORS.includes(op)) { errors.push(`count operator "${op}" is not one of ${COUNT_OPERATORS.join(' ')}`); continue; }
+		if (!Number.isInteger(operand)) errors.push(`count "${op}" compares "${operand}", which is not an integer`);
 	}
 	return errors;
 }
@@ -269,7 +315,7 @@ function whereErrors(where, collection, descriptors, errors = []) {
 		}
 		const nested = Object.keys(cond).filter((k) => !k.startsWith('_'));
 		for (const [op, operand] of Object.entries(cond)) {
-			if (ENUM_CHECKED.has(op)) enumErrors(errors, key, prop, Array.isArray(operand) ? operand : [operand]);
+			if (ENUM_CHECKED.has(op)) enumErrors(errors, key, prop, literalsFor(op, operand));
 		}
 		if (!nested.length) continue;
 		const targets = refTargetsOf(prop);
@@ -277,11 +323,21 @@ function whereErrors(where, collection, descriptors, errors = []) {
 			errors.push(`where "${key}" is not a reference field — a nested key hops a reference, it does not compare two fields`);
 			continue;
 		}
-		// ONE hop, and no further: `filter.js` resolves a ref and evaluates the sub-condition against
-		// the target record, which is itself a field condition — so a second nesting level is another
-		// hop the evaluator does support, but a proof that needs two is a proof whose `expect` belongs
-		// on the other collection. When the reference targets a LIST of collections or '*', any field
-		// name is accepted: the value decides which target it resolves to, and that is a run-time fact.
+		// ⚠ ONE HOP, AND A SECOND IS REFUSED. `matchesFilter` resolves ONE reference and evaluates the
+		// sub-condition against the target record; a THIRD level is treated as another ref traversal,
+		// on a value that is by then an ordinary field — so it narrows to false with no warning at
+		// all. That is the silent-zero-rows failure this whole validator exists to close, so the
+		// refusal is by name and cites the dotted path. (A proof that genuinely needs two hops writes
+		// its `expect` against the far collection instead.)
+		for (const hop of nested) {
+			const sub = cond[hop];
+			if (sub === null || typeof sub !== 'object' || Array.isArray(sub)) continue;
+			for (const deep of Object.keys(sub).filter((k) => !k.startsWith('_'))) {
+				errors.push(`where hops more than one reference (${key}.${hop}.${deep}) — a proof filter hops at most one`);
+			}
+		}
+		// When the reference targets a LIST of collections or '*', any field name is accepted: the
+		// value decides which target it resolves to, and that is a run-time fact.
 		if (targets === '*' || targets.length !== 1) continue;
 		const [target] = targets;
 		const targetProps = descriptors.get(target)?.schema?.properties;
@@ -292,7 +348,7 @@ function whereErrors(where, collection, descriptors, errors = []) {
 			const sub = cond[hop];
 			if (sub === null || typeof sub !== 'object' || Array.isArray(sub)) { enumErrors(errors, hop, hopProp, [sub]); continue; }
 			for (const [op, operand] of Object.entries(sub)) {
-				if (ENUM_CHECKED.has(op)) enumErrors(errors, hop, hopProp, Array.isArray(operand) ? operand : [operand]);
+				if (ENUM_CHECKED.has(op)) enumErrors(errors, hop, hopProp, literalsFor(op, operand));
 			}
 		}
 	}

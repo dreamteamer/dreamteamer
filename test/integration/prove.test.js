@@ -17,7 +17,20 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { workspace, readFile, compileError } from '../helpers/ws.js';
-import { artifactRefs } from '../../src/prove.js';
+import { artifactRefs, PROOF_KINDS, PROOF_MODES } from '../../src/prove.js';
+import { readManifest } from '../../src/runtime.js';
+
+/** compile's `entries` Map, reconstructed from what compile WROTE — the manifest names every entry
+ *  by its runtime-relative path, and the bytes are on disk beside it. Lets a test drive
+ *  `artifactRefs`'s compile-side path from outside compile, which is the only way to assert that
+ *  both of its inputs answer the same thing. */
+function runtimeEntries(root) {
+	const manifest = readManifest(root);
+	return new Map(Object.entries(manifest.entries).map(([rt, e]) => [rt, {
+		sources: e.sources,
+		bytes: fs.readFileSync(path.join(root, '.dreamteamer', rt)),
+	}]));
+}
 import { dump } from '../../src/yaml.js';
 import { Store } from '../../src/store.js';
 
@@ -191,7 +204,19 @@ describe('the proofs kind', () => {
 		assert.equal(ws2.dt('compile').code, 0, 'compile judges vocabulary, not every JSON type');
 		const res = ws2.dt('check');
 		assert.notEqual(res.code, 0, 'check runs ajv over every runtime-stored record, including proofs');
-		assert.match(res.stdout + res.stderr, /external/);
+		assert.match(res.stdout + res.stderr, /field external: "yes" must be boolean/);
+	});
+
+	// ⚠ THE ENUM PIN THAT SURVIVED THE MOVE. While compile ignored a proof's semantics, `kind` was
+	// pinned by an ajv test on an invalid value; now compile refuses that value before anything is
+	// staged, so ajv can never see it and the old assertion is unreachable. What is worth pinning is
+	// the thing that can actually drift: the descriptor's closed enums and the code constants that
+	// name the same vocabulary. Widen one without the other and this fails.
+	test('the descriptor\'s kind and mode enums ARE the code constants', () => {
+		const ws = workspace();
+		const d = new Store(ws.ws).descriptors.get('proofs');
+		assert.deepEqual(d.schema.properties.kind.enum, PROOF_KINDS);
+		assert.deepEqual(d.schema.properties.mode.enum, PROOF_MODES);
 	});
 });
 
@@ -324,12 +349,69 @@ describe('compile validates proofs', () => {
 		fs.writeFileSync(path.join(dir, 'hello.command.md'), '---\nname: hello\ndescription: Say hello.\n---\n\nSay hello.\n');
 		assert.equal(ws.dt('compile').code, 0);
 
-		const refs = artifactRefs(new Store(ws.ws));
-		assert.deepEqual(refs.skills, ['skills/using-dreamteamer'], 'a skill is its FOLDER, not its references/*.md');
-		assert.deepEqual(refs.commands, ['commands/hello']);
-		assert.deepEqual(refs.bindings, []);
-		assert.deepEqual(refs.scripts, ['dreamteamer/bin/dreamteamer.js'], 'a module script is <module-id>/bin/<file>');
-		assert.equal(refs.all.size, 3);
+		// BOTH inputs, actually invoked — comparing one of them to a literal would leave the
+		// agreement asserted in a comment and nowhere else.
+		const fromEntries = artifactRefs(runtimeEntries(ws.root));
+		const fromStore = artifactRefs(new Store(ws.ws));
+		assert.deepEqual(fromEntries, fromStore);
+
+		// and the shape both agree ON, so a matched pair of wrong answers cannot pass
+		assert.deepEqual(fromEntries.skills, ['skills/using-dreamteamer'], 'a skill is its FOLDER, not its references/*.md');
+		assert.deepEqual(fromEntries.commands, ['commands/hello']);
+		assert.deepEqual(fromEntries.bindings, []);
+		assert.deepEqual(fromEntries.scripts, ['dreamteamer/bin/dreamteamer.js'], 'a module script is <module-id>/bin/<file>');
+		assert.equal(fromEntries.all.size, 3);
+	});
+
+	// ⚠ THE ROOT LAYOUT, which every path-slicing derivation gets wrong. With no `workspace-module`
+	// the workspace's own sources sit at the ROOT (compile.js:619), so a command's source path is
+	// `commands/hello.command.md` — no module segment to cut at. Slicing produced
+	// `commands/hello.command.m/proofs/hello.proof.yaml`, a path that exists nowhere, in the one
+	// message whose entire job is to name a path the reader can type.
+	test('the nudge names the right path in a ROOT-layout workspace, where there is no module segment', () => {
+		const ws = workspace();
+		const pkgPath = path.join(ws.root, 'package.json');
+		const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+		delete pkg.dreamteamer['workspace-module'];
+		fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, '\t') + '\n');
+		fs.mkdirSync(path.join(ws.root, 'commands'), { recursive: true });
+		fs.writeFileSync(path.join(ws.root, 'commands', 'hello.command.md'), '---\nname: hello\ndescription: Say hello.\n---\n\nSay hello.\n');
+
+		const res = ws.dt('compile');
+		assert.equal(res.code, 0, res.stdout + res.stderr);
+		assert.ok(res.stdout.includes('no proof yet for commands/hello — proofs/hello.proof.yaml (see using-dreamteamer › proofs)'), res.stdout);
+		assert.doesNotMatch(res.stdout, /command\.m\/proofs|package\.json\/proofs|SKILL\.md\/proofs/);
+	});
+
+	test('`add skills` names the right path in a ROOT-layout workspace too', () => {
+		const ws = workspace();
+		const pkgPath = path.join(ws.root, 'package.json');
+		const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+		delete pkg.dreamteamer['workspace-module'];
+		fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, '\t') + '\n');
+		assert.equal(ws.dt('compile').code, 0);
+
+		const res = ws.dt('add', 'skills', '--name', 'greeter', '--description', 'x');
+		assert.equal(res.code, 0, res.stdout + res.stderr);
+		assert.equal(
+			res.stdout.trim().split('\n').pop(),
+			'no proof yet — proofs/greeter.proof.yaml (see using-dreamteamer › proofs)',
+			res.stdout,
+		);
+	});
+
+	// a MODULE's script, in the layout where the module is not the workspace module: the root comes
+	// off the module record's own `path`, so a nested or oddly-named module root is exact.
+	test('a new module\'s script is nudged with that module\'s own root', () => {
+		const ws = workspace();
+		const mod = path.join(ws.root, 'modules', 'ops');
+		fs.mkdirSync(path.join(mod, 'bin'), { recursive: true });
+		fs.writeFileSync(path.join(mod, 'package.json'), JSON.stringify({ name: 'ops', private: true, version: '0.0.1', dreamteamer: { description: 'Operational scripts.' } }, null, '\t') + '\n');
+		fs.writeFileSync(path.join(mod, 'bin', 'sweep.mjs'), '#!/usr/bin/env node\n');
+
+		const res = ws.dt('compile');
+		assert.equal(res.code, 0, res.stdout + res.stderr);
+		assert.ok(res.stdout.includes('no proof yet for ops/bin/sweep.mjs — modules/ops/proofs/sweep.proof.yaml (see using-dreamteamer › proofs)'), res.stdout);
 	});
 
 	test('the orientation block every session reads tells it to run `dreamteamer prove`', () => {

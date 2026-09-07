@@ -2704,6 +2704,13 @@ export function createSkill(ws, store, { name, description, moduleId }) {
 	if (root && IN_NODE_MODULES(path.relative(ws.root, root))) {
 		throw new Error(`module "${moduleId}" ships from node_modules — a write there is erased by the next \`npm install\`.`);
 	}
+	// ⚠ THE MODULE ROOT IS RETURNED, not left to the caller to slice back out of `file`. The caller
+	// prints a path under it (the `no proof yet` nudge), and deriving that by cutting at `/skills/`
+	// is wrong in both layouts this function already handles: the ROOT layout writes
+	// `skills/<id>/SKILL.md` with no module segment at all, and the pre-flatten one writes
+	// `system/skills/…`. Here the answer is known exactly, in one line.
+	const wm = ws.pkg.dreamteamer?.['workspace-module'];
+	const modRoot = root ?? (wm ? path.join(ws.root, 'modules', wm) : ws.root);
 	const dir = path.join(root ? kindDir(root, 'skills') : workspaceSystemDir(ws, 'skills'), name);
 	const file = path.join(dir, 'SKILL.md');
 	if (fs.existsSync(file)) throw new Error(`${path.relative(ws.root, file)} already exists`);
@@ -2719,7 +2726,7 @@ export function createSkill(ws, store, { name, description, moduleId }) {
 		},
 		undo: () => fs.rmSync(dir, { recursive: true, force: true }),
 	});
-	return { id: name, file, commits: out.commits };
+	return { id: name, file, moduleRoot: path.relative(ws.root, modRoot) || '.', commits: out.commits };
 }
 
 /** `add` on a kind nobody can scaffold honestly — refused WITH THE PATH, because "hand-authored"
