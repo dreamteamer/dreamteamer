@@ -73,6 +73,11 @@ describe('planInstall — every step checks before it acts', () => {
 		const s = linked({ checkout: { kind: 'primary', primary: '/w/ws', root: '/w/ws', insideRoot: true } });
 		assert.equal(byId(planInstall(s), 'env').state, 'skip');
 	});
+	test('a primary with no .env of its own leaves nothing to link', () => {
+		// the only guard between this state and the todo branch below it — delete it and the plan
+		// tells the runner to symlink a file that does not exist
+		assert.equal(byId(planInstall(linked({ primaryHasEnv: false })), 'env').state, 'skip');
+	});
 	test('a local asset present in the primary and absent here is linked; absent in the primary is skipped with a line', () => {
 		const s = linked({ localAssets: [
 			{ rel: 'modules/m/skills/t/.models', module: 'm', presentHere: false, isLinkHere: false, presentInPrimary: true },
@@ -84,6 +89,11 @@ describe('planInstall — every step checks before it acts', () => {
 	test('a real directory already here is never replaced by a link', () => {
 		const s = linked({ localAssets: [{ rel: '.profiles', module: null, presentHere: true, isLinkHere: false, presentInPrimary: true }] });
 		assert.equal(byId(planInstall(s), 'asset:.profiles').state, 'already');
+	});
+	test('a primary checkout links no asset either — there is nowhere to link from', () => {
+		const s = linked({ checkout: { kind: 'primary', primary: '/w/ws', root: '/w/ws', insideRoot: true },
+			localAssets: [{ rel: '.profiles', module: null, presentHere: false, isLinkHere: false, presentInPrimary: true }] });
+		assert.equal(byId(planInstall(s), 'asset:.profiles').state, 'skip');
 	});
 	test('engine absent → the npm step is todo; present → already', () => {
 		assert.equal(byId(planInstall(linked({ hasEngine: false })), 'engine').state, 'todo');
@@ -98,5 +108,12 @@ describe('planInstall — every step checks before it acts', () => {
 	test('a second run is all "already"/"skip" — nothing todo', () => {
 		const s = linked({ hasEnv: true, envIsLink: true, stale: false });
 		assert.ok(planInstall(s).every((x) => x.state !== 'todo'));
+		// gitModules is the MISSING clones, so an empty one means restored, not undeclared
+		assert.match(byId(planInstall(s), 'git-modules').label, /nothing to restore/);
+	});
+	test('the id order IS the contract Task 3 renders — engine, env, assets, git modules, compile, postinstall', () => {
+		const s = linked({ localAssets: [{ rel: '.profiles', module: null, presentHere: false, isLinkHere: false, presentInPrimary: true }] });
+		assert.deepEqual(planInstall(s).map((x) => x.id),
+			['engine', 'env', 'asset:.profiles', 'git-modules', 'compile', 'postinstall']);
 	});
 });

@@ -57,7 +57,10 @@ export function planInstall(state, opts = {}) {
 		else if (!a.presentInPrimary) steps.push({ id, label: `${a.rel}: absent in the primary — skipped (the doctor reports the capability degraded)`, state: 'skip' });
 		else steps.push({ id, label: `${a.rel}: link → ${c.primary}/${a.rel}`, state: 'todo' });
 	}
-	steps.push({ id: 'git-modules', label: state.gitModules.length ? `git modules: restore ${state.gitModules.join(', ')}` : 'git modules: none declared', state: state.gitModules.length ? 'todo' : 'skip' });
+	// gitModules carries the declared clones that are MISSING on this checkout, not every declared
+	// one — the observer narrows it, which is what makes an empty array mean "nothing to restore"
+	// rather than "none declared", and what lets a settled checkout plan with nothing todo.
+	steps.push({ id: 'git-modules', label: state.gitModules.length ? `git modules: restore ${state.gitModules.join(', ')}` : 'git modules: nothing to restore', state: state.gitModules.length ? 'todo' : 'skip' });
 	steps.push({ id: 'compile', label: state.stale ? 'compile: runtime missing or stale' : 'compile: fresh', state: state.stale ? 'todo' : 'already' });
 	steps.push(state.postinstall
 		? { id: 'postinstall', label: `postinstall: ${state.postinstall}`, state: 'todo' }
