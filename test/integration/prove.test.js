@@ -23,6 +23,7 @@ import {
 	ledgerPath, readLedger, appendLedger, pendingFor, LEDGER_CAP, LEDGER_DIR,
 } from '../../src/prove.js';
 import { readManifest } from '../../src/runtime.js';
+import { recordResolver } from '../../src/record-commands.js';
 
 /** compile's `entries` Map, reconstructed from what compile WROTE — the manifest names every entry
  *  by its runtime-relative path, and the bytes are on disk beside it. Lets a test drive
@@ -284,6 +285,29 @@ describe('compile validates proofs', () => {
 		assert.equal(compileError(ws.ws), null);
 	});
 
+	// ⚠ R17 — A BRACE TYPO IS A WARNING HERE, NOT A REFUSAL, and this is where the net lives now.
+	// It used to be `substitute` throwing at RUN time on any brace it did not own, which killed
+	// `awk '{print $1}'` in a step. Static, advisory, and named: compile prints the token, the proof
+	// compiles, and a proof that really did mean the shell keeps working.
+	test('a brace nobody substitutes is WARNED about at compile, and the proof still compiles', () => {
+		const ws = workspace();
+		writeProof(ws.root, 'skill-loads', { steps: [{ run: 'echo {recrod}' }] });
+		const res = ws.dt('compile');
+		assert.equal(res.code, 0, res.stdout + res.stderr);
+		assert.ok(
+			(res.stdout + res.stderr).includes('⚠ proofs/skill-loads.proof.yaml: step 1 uses "{recrod}" — only {record} and {record.<field>} are substituted; the rest reaches the shell as written'),
+			res.stdout + res.stderr,
+		);
+	});
+
+	test("awk '{print $1}' in a run step compiles with no warning at all", () => {
+		const ws = workspace();
+		writeProof(ws.root, 'skill-loads', { steps: [{ run: "awk '{print $1}' f" }] });
+		const res = ws.dt('compile');
+		assert.equal(res.code, 0, res.stdout + res.stderr);
+		assert.doesNotMatch(res.stdout + res.stderr, /only \{record\} and \{record\.<field>\} are substituted/);
+	});
+
 	test('a valid proof compiles, and the coverage line names every artifact kind', () => {
 		const ws = workspace();
 		writeProof(ws.root, 'skill-loads');
@@ -444,6 +468,9 @@ const NOTES = simpleCollection({
 		properties: {
 			name: { type: 'string' },
 			status: { type: 'string', enum: ['open', 'done'] },
+			// the hop target, so a `where` that RESOLVES a reference is expressible against this
+			// fixture — the resolver path is the one countMatching argument nothing else exercises
+			owner: { type: 'string', 'x-reference': 'people' },
 			notes: { type: 'string', format: 'markdown', 'x-body': true },
 		},
 	},
@@ -486,6 +513,20 @@ describe('prove helpers against a store', () => {
 		assert.equal(countMatching(store, 'notes', { id: { _eq: 'b' } }, null), 1);
 	});
 
+	// ⚠ THE RESOLVER ARGUMENT IS LOAD-BEARING AND WAS UNEXERCISED. A `where` whose key is not an
+	// operator is a one-hop relational condition, and `filter.js` NARROWS when no resolver is wired —
+	// so a proof hopping `owner.name` with a null resolve counts 0 forever, with nothing wrong
+	// anywhere. Both sides are asserted here so the runner cannot drop the argument silently.
+	test('a where that hops a reference counts through the resolver, and narrows without one', () => {
+		const { store } = workspace({
+			collections: { notes: NOTES, people: simpleCollection() },
+			records: { people: [{ name: 'Ada' }], notes: [{ name: 'a', owner: 'people/ada' }, { name: 'b' }] },
+		});
+		const where = { owner: { name: { _eq: 'Ada' } } };
+		assert.equal(countMatching(store, 'notes', where, recordResolver(store)), 1);
+		assert.equal(countMatching(store, 'notes', where, null), 0, 'a hop with no resolver NARROWS');
+	});
+
 	test('pickFixture with pick: latest takes the head of the sort_field, DESCENDING', () => {
 		const { store } = notesWorkspace();
 		const picked = pickFixture(store, { collection: 'notes', where: {}, pick: 'latest' });
@@ -503,6 +544,14 @@ describe('prove helpers against a store', () => {
 	test('pickFixture returns null for an id that is not there', () => {
 		const { store } = notesWorkspace();
 		assert.equal(pickFixture(store, { collection: 'notes', where: {}, pick: 'zz' }), null);
+	});
+
+	// ⚠ NULL MEANS "NO FIXTURE", NOT "NO SUCH COLLECTION". A bare catch around `store.read` made
+	// both answer null, so a proof naming a collection this workspace does not have reported
+	// NO-FIXTURE (exit 4, "the proof did not run") instead of the error that names the typo.
+	test('a given naming a collection that does not exist THROWS rather than reading as no-fixture', () => {
+		const { store } = notesWorkspace();
+		assert.throws(() => pickFixture(store, { collection: 'ghosts', where: {}, pick: 'x' }), /unknown collection "ghosts"/);
 	});
 
 	test('pickFixture returns null when the named record does not match the given where', () => {
@@ -561,6 +610,25 @@ describe('prove helpers against a store', () => {
 		const res = resolveRequires(ws, { bin: ['definitely-not-a-binary-xyz'] });
 		assert.equal(res.ok, false);
 		assert.deepEqual(res.missing, [{ kind: 'bin', name: 'definitely-not-a-binary-xyz', fix: 'definitely-not-a-binary-xyz is not on PATH' }]);
+	});
+
+	// ⚠ `accessSync(X_OK)` SUCCEEDS ON A DIRECTORY — the execute bit on a directory means
+	// "searchable". Without the isFile() test, a folder called `ffmpeg` anywhere on PATH satisfied
+	// `requires: { bin: [ffmpeg] }`, and the proof then failed at the step with a shell error
+	// instead of reporting UNAVAILABLE with a fix.
+	test('a DIRECTORY on PATH named like the tool does not satisfy the requirement', () => {
+		const { ws, root } = notesWorkspace();
+		const dir = path.join(root, 'fake-bin');
+		fs.mkdirSync(path.join(dir, 'prove-fake-tool'), { recursive: true });
+		const previous = process.env.PATH;
+		process.env.PATH = `${dir}${path.delimiter}${previous}`;
+		try {
+			const res = resolveRequires(ws, { bin: ['prove-fake-tool'] });
+			assert.equal(res.ok, false);
+			assert.deepEqual(res.missing, [{ kind: 'bin', name: 'prove-fake-tool', fix: 'prove-fake-tool is not on PATH' }]);
+		} finally {
+			process.env.PATH = previous;
+		}
 	});
 
 	test('an unset env var is missing, with the fix that names .env', () => {

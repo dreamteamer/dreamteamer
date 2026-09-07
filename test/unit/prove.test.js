@@ -14,7 +14,7 @@
 // makes `pick: latest` invalid there.
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { validateProofShape, PROOF_KINDS, PROOF_MODES, substitute, applyCap, verdictLine, exitFor, EXIT, LEDGER_CAP } from '../../src/prove.js';
+import { validateProofShape, PROOF_KINDS, PROOF_MODES, substitute, stepWarnings, applyCap, verdictLine, exitFor, EXIT, LEDGER_CAP } from '../../src/prove.js';
 
 const descriptors = new Map([
 	['notes', {
@@ -386,8 +386,25 @@ describe('substitute — {record} and {record.<field>}, and nothing else', () =>
 		assert.equal(substitute('echo ${HOME}', bound), 'echo ${HOME}');
 	});
 
-	test('an unknown brace name throws, naming what a proof may use', () => {
-		assert.throws(() => substitute('echo {nope}', bound), /^Error: unknown substitution "\{nope\}" — a proof may use \{record\} and \{record\.<field>\}$/);
+	// ⚠ R17 — A RUN STEP IS A SHELL STRING, AND THE SHELL OWNS BRACES TOO. Throwing on every
+	// unrecognised `{…}` was measured to kill four correct steps — `awk '{print $1}'`,
+	// `sed -n '1,3{p}'`, `jq '{a: .b}'` and `mkdir -p x/{a,b}` — for a check that exists to catch a
+	// typo. So this function renders what it OWNS and passes everything else through untouched; the
+	// typo net is `stepWarnings`, printed by compile, where a false positive costs a warning line
+	// instead of a refused proof.
+	test('an unknown brace passes through untouched — the shell owns braces too', () => {
+		assert.equal(substitute('echo {nope}', bound), 'echo {nope}');
+	});
+
+	test('the four measured shell shapes survive: awk, sed, jq and brace expansion', () => {
+		assert.equal(substitute("awk '{print $1}' f", bound), "awk '{print $1}' f");
+		assert.equal(substitute("sed -n '1,3{p}' f", bound), "sed -n '1,3{p}' f");
+		assert.equal(substitute("jq '{a: .b}' f", bound), "jq '{a: .b}' f");
+		assert.equal(substitute('mkdir -p x/{a,b}', bound), 'mkdir -p x/{a,b}');
+	});
+
+	test('a passed-through brace beside a real one leaves only the real one rendered', () => {
+		assert.equal(substitute("awk '{print $1}' {record}", bound), "awk '{print $1}' notes/a");
 	});
 
 	// A field the picked record does not carry would otherwise render as the STRING "undefined" into
@@ -435,6 +452,16 @@ describe('applyCap — the ledger is append-only and bounded', () => {
 
 	test('an explicit cap overrides the default', () => {
 		assert.deepEqual(applyCap(rows(3), { i: 'new' }, 2), [{ i: 2 }, { i: 'new' }]);
+	});
+
+	// ⚠ `slice(-0)` IS `slice(0)` — the whole array. A cap of zero has to keep NOTHING, and without
+	// the guard it silently disables the cap instead, which is the opposite of what the number says.
+	test('a cap of 0 keeps nothing — never everything', () => {
+		assert.deepEqual(applyCap(rows(2), { i: 'new' }, 0), []);
+	});
+
+	test('a negative cap keeps nothing too', () => {
+		assert.deepEqual(applyCap(rows(2), { i: 'new' }, -1), []);
 	});
 });
 
@@ -504,6 +531,75 @@ describe('verdictLine — the actual value beside the wanted one, always', () =>
 
 	test('an absent actual prints as undefined rather than as an empty gap', () => {
 		assert.equal(verdictLine({ status: { _eq: 'done' } }, undefined), 'status undefined = done ✖');
+	});
+
+	// ⚠ R18 — ONE ENTRY, and anything else THROWS. A raw `expect` entry carries `collection`, `where`
+	// and `count` together; handed here whole it silently rendered the FIRST key —
+	// `collection 1 = notes ✖` — a verdict line about the wrong thing, marked failed, for a proof
+	// that passed. A caller has to narrow the entry to the one condition being judged, and a throw is
+	// the only answer that makes forgetting visible.
+	test('a multi-entry expectation throws rather than rendering its first key', () => {
+		assert.throws(
+			() => verdictLine({ collection: 'notes', where: { status: { _eq: 'done' } }, count: { _gte: 1 } }, 1),
+			/^Error: verdictLine takes ONE expectation entry — got keys collection, where, count$/,
+		);
+	});
+
+	test('an empty expectation throws, saying it got none', () => {
+		assert.throws(() => verdictLine({}, 1), /^Error: verdictLine takes ONE expectation entry — got none$/);
+	});
+});
+
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+// `stepWarnings` — where the typo net went (R17).
+//
+// `substitute` used to be the net, and it caught shell syntax: `awk '{print $1}'` in a `run:` step
+// died as "unknown substitution". A net that refuses correct proofs teaches the author to delete
+// correct lines, which is worse than the typo it was hunting — so the net moved to COMPILE and
+// became a WARNING. It judges the one thing a static reader can judge: a brace token that LOOKS like
+// an identifier and is not one of the two names a proof may use.
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+
+describe('stepWarnings — the typo net is a compile WARNING, never an error', () => {
+	const proof = (...steps) => ({ name: 'p', about: ['skills/a'], kind: 'gate', steps });
+	const warned = (token, step = 1) => `step ${step} uses "{${token}}" — only {record} and {record.<field>} are substituted; the rest reaches the shell as written`;
+
+	test("a typo'd {recrod} is warned about, naming the step and what IS substituted", () => {
+		assert.deepEqual(stepWarnings(proof({ run: 'echo {recrod}' })), [warned('recrod')]);
+	});
+
+	test('{record} and {record.<field>} are never warned about', () => {
+		assert.deepEqual(stepWarnings(proof({ run: 'dt get {record}' }, { run: 'echo {record.name}' })), []);
+	});
+
+	// ⚠ THE SPACE IS THE WHOLE POINT. `{print $1}` is not identifier-shaped, so the most common awk
+	// one-liner earns nothing; `{print}` is, so it earns a warning it does not deserve. That
+	// asymmetry is deliberate and cheap: the false positive is one line of stdout, and the proof
+	// still compiles and still runs.
+	test("awk '{print $1}' earns no warning — it is not identifier-shaped", () => {
+		assert.deepEqual(stepWarnings(proof({ run: "awk '{print $1}' f" })), []);
+	});
+
+	test("awk '{print}' DOES earn one — identifier-shaped is all a static net can judge", () => {
+		assert.deepEqual(stepWarnings(proof({ run: "awk '{print}' f" })), [warned('print')]);
+	});
+
+	test('a perform step is netted too, and the step number counts across both kinds', () => {
+		assert.deepEqual(stepWarnings(proof({ run: 'true' }, { perform: 'open {recrod}' })), [warned('recrod', 2)]);
+	});
+
+	// `${…}` is the resolver's bracket and the shell's, exempted here for the same reason
+	// `substitute` exempts it — warning on `${HOME}` is how a warning channel gets ignored.
+	test('a $-prefixed brace earns no warning', () => {
+		assert.deepEqual(stepWarnings(proof({ run: 'ls ${HOME} ${env:FILES_FOLDER}' })), []);
+	});
+
+	test('every offending token in one step is reported', () => {
+		assert.deepEqual(stepWarnings(proof({ run: 'echo {recrod} {noep}' })), [warned('recrod'), warned('noep')]);
+	});
+
+	test('a proof with no steps warns nothing', () => {
+		assert.deepEqual(stepWarnings({ name: 'p' }), []);
 	});
 });
 
