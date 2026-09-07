@@ -19,7 +19,12 @@ import {
 import { runHarnessAdapters } from './harnesses.js';
 import { satisfies } from './semver.js';
 import { parseEnvValues } from './env-vars.js';
-import { DERIVED_KINDS, readManifest, runtimeDir } from './runtime.js';
+import { DERIVED_KINDS, readManifest, runtimeDir, engineId, engineVersion } from './runtime.js';
+// ⚠ RE-EXPORTED, NOT RE-IMPLEMENTED. `engineVersion` moved to the boundary layer so `prove` can
+// stamp a ledger row without importing the compiler (that edge was a real, if latent, cycle).
+// Every existing caller spells it `from './compile.js'`, and a second reader of the engine's own
+// package.json is exactly the drift this file's comments keep naming.
+export { engineId, engineVersion };
 import { artifactRefs, proofPathFor, validateProofShape, stepWarnings } from './prove.js';
 
 // re-exported, not moved: `readManifest` is in the VS Code extension's hand-maintained engine
@@ -1770,17 +1775,6 @@ function prevManifestNamespaces(root) {
 	return normalizeNamespaces(readManifest(root)?.namespaces);
 }
 
-function engineId() {
-	try {
-		const p = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
-		return `${p.name}@${p.version}`;
-	} catch { return 'dreamteamer@unknown'; }
-}
-
-// bare version of the RUNNING engine (dev clone or installed copy — whichever loaded)
-export function engineVersion() {
-	return engineId().split('@').pop();
-}
 
 // staleness: does any manifest entry's SOURCE differ from what was compiled, or is a
 // source file missing/new? used by `status` and warned about at every tool entry.

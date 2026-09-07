@@ -22,8 +22,7 @@ import { parseEnvValues, envContext, renderTemplate } from './env-vars.js';
 import { parseRef } from './namespace.js';
 import { refTargetsOf } from './ref.js';
 import { recordResolver } from './record-commands.js';
-import { engineVersion } from './compile.js';
-import { RUNTIME_DIR, runtimeDir, readManifest } from './runtime.js';
+import { RUNTIME_DIR, runtimeDir, readManifest, engineVersion } from './runtime.js';
 
 export const PROOF_KINDS = ['gate', 'live'];
 export const PROOF_MODES = ['readonly', 'writes'];
@@ -304,7 +303,16 @@ function expectErrors(expect, given, descriptors) {
 		// R14 — `{record}` is bound by `given`. Without one, the substitution has nothing to render
 		// and the proof cannot run; refusing at compile beats an unresolved brace at run time.
 		if (hasRecord && given === undefined) errors.push('a record expectation needs a given — nothing binds {record}');
-		if ('count' in row) errors.push(...countErrors(row.count));
+		// MINOR 9 — AN EXPECTATION THAT ASSERTS NOTHING IS THE SILENT GREEN, one layer below the
+		// vacuous proof. A `record:` entry with an empty `where` produces ZERO verdict lines, so
+		// `verdicts.every(ok)` is vacuously true and the proof PASSES having measured nothing at all.
+		// ⚠ Scoped to the forms where the `where` IS the assertion: on a collection entry `count:`
+		// carries it, and `{collection, where: {}, count: {_delta: 1}}` — "one more record anywhere in
+		// this collection" — is a correct and common proof, so refusing it would be a false refusal.
+		if (hasRecord && row.where !== null && typeof row.where === 'object' && !Object.keys(row.where).length) {
+			errors.push(`expect[${i}] where must name at least one condition`);
+		}
+		if ('count' in row) errors.push(...countErrors(row.count, i));
 	}
 	return errors;
 }
@@ -312,9 +320,13 @@ function expectErrors(expect, given, descriptors) {
 /** R11 — a count map's operators and operands. Its own closed set (see COUNT_OPERATORS), and every
  *  operand an INTEGER: a count is a number of records, so `_gte: 'one'` and `_eq: 1.5` are both
  *  filters that can never be satisfied, silently. A bare scalar is the `_eq` it stands for. */
-function countErrors(count) {
+function countErrors(count, index) {
 	const errors = [];
-	const pairs = count !== null && typeof count === 'object' && !Array.isArray(count)
+	const isMap = count !== null && typeof count === 'object' && !Array.isArray(count);
+	// `count: {}` compares nothing, so the expectation holds for EVERY possible count — the same
+	// silent green an empty `where` produces, and no reading of it asserts anything.
+	if (isMap && !Object.keys(count).length) return [`expect[${index}] count must name one operator`];
+	const pairs = isMap
 		? Object.entries(count)
 		: [['_eq', count]];
 	for (const [op, operand] of pairs) {
@@ -529,8 +541,14 @@ function shown(v) {
 	return json === undefined ? String(v) : json; // `undefined` has no JSON form
 }
 
-/** The WANTED value, bare: an array renders as the list a reader would type back. */
-const wanted = (v) => (Array.isArray(v) ? `[${v.join(', ')}]` : String(v));
+/** The WANTED value, bare: an array renders as the list a reader would type back, and a nested
+ *  CONDITION as its JSON. A one-hop reference expectation (`owner: { name: { _eq: Ada } }`) has an
+ *  object where every other operator has a scalar, and `String({})` printed `[object Object]` —
+ *  a verdict line naming nothing at all. */
+const wanted = (v) => {
+	if (Array.isArray(v)) return `[${v.join(', ')}]`;
+	return v !== null && typeof v === 'object' ? JSON.stringify(v) : String(v);
+};
 
 /**
  * One printable line for one expectation — `count 1 ≥ 1 ✔` · `status "open" ∈ [done] ✖`.
@@ -550,14 +568,20 @@ const wanted = (v) => (Array.isArray(v) ? `[${v.join(', ')}]` : String(v));
  *
  * The mark comes from `matchesFilter` itself, so the judgement and the rendering can never disagree
  * about whether the line passed. `_delta` is the exception: no filter has it, so it is compared here.
+ *
+ * ⚠ `resolve` IS NOT OPTIONAL IN PRACTICE, and leaving it out was a wrong verdict rather than a
+ * missing feature. A non-operator key under a field is a ONE-HOP REFERENCE traversal, and
+ * `matchesFilter` NARROWS with no resolver wired — so `record: '{record}', where: { owner: { name:
+ * { _eq: Ada } } }` read ✖ forever, for a proof that held. The collection form always passed
+ * `recordResolver(store)`; the record form now does too.
  */
-export function verdictLine(expectation, actual) {
+export function verdictLine(expectation, actual, resolve) {
 	const entries = Object.entries(expectation ?? {});
 	const bare = entries.length > 0 && entries.every(([k]) => k.startsWith('_'));
 	if (!bare && entries.length !== 1) throw new Error(`verdictLine takes ONE expectation entry — got ${entries.length ? `keys ${entries.map(([k]) => k).join(', ')}` : 'none'}`);
 	const [field, cond] = bare ? ['count', expectation] : entries[0];
 	const ops = cond !== null && typeof cond === 'object' && !Array.isArray(cond) ? cond : { _eq: cond };
-	const pass = '_delta' in ops ? Number(actual) === Number(ops._delta) : matchesFilter({ [field]: actual }, { [field]: ops }, null);
+	const pass = '_delta' in ops ? Number(actual) === Number(ops._delta) : matchesFilter({ [field]: actual }, { [field]: ops }, resolve ?? null);
 	const mark = pass ? '✔' : '✖';
 	if ('_delta' in ops) return `${field} ${signed(actual)} = ${signed(ops._delta)} ${mark}`;
 	const want = Object.entries(ops).map(([op, o]) => `${GLYPH[op] ?? op} ${wanted(o)}`).join(' and ');
@@ -852,6 +876,13 @@ export function proveCommand(ws, rest) {
 	const proofs = new Map();
 	for (const { id, fields } of store.readAll('proofs')) proofs.set(id, fields);
 	const target = targets[0];
+	// ⚠ MINOR 6 — AN UNVALIDATED `--kind` IS A SILENT EMPTY BOARD. `--kind gates` (or a bare `--kind`
+	// with its value eaten by the next flag) matched no proof, so `--all` answered
+	// `proofs: 0 passed · 0 failed · …` at exit 0 — a green run that ran nothing, which is the exact
+	// shape of the `--fliter` escape `flags-honoured.test.js` exists for.
+	if ('kind' in flags && !PROOF_KINDS.includes(flags.kind)) {
+		throw new Error(`--kind takes ${PROOF_KINDS.join(' or ')} — got "${flags.kind}"`);
+	}
 
 	if (!target) {
 		refuseStray(rest, 'dt prove --all', MANY_FORM);
@@ -865,16 +896,62 @@ export function proveCommand(ws, rest) {
 	// the artifact form answers the question a reader of a skill or a command actually has — "what
 	// does anybody CLAIM about this thing, and does it hold" — which is what `about` exists for.
 	if (artifactRefs(store).all.has(target)) {
-		refuseStray(rest, `dt prove ${target}`, ['--json', '--external', '--strict']);
+		refuseStray(rest, `dt prove ${target}`, ['--kind', '--json', '--external', '--strict']);
 		return proveMany(ws, proofs, flags, (p) => (p.about ?? []).map(String).includes(target));
 	}
 	throw new Error(`dt prove takes a proof id or an artifact (skills/<id>, commands/<id>, …) — got "${target}"; dt list proofs`);
 }
 
-/** The last `n` lines of a captured stream — what a ledger row keeps and a step failure prints. A
- *  whole stdout in a JSONL row would make the ledger unreadable and unbounded. */
+/** The last `n` lines of a captured stream — what a step failure PRINTS. Display only: judging on a
+ *  tail is R23's defect, not its remedy. */
 function lastLines(text, n = 10) {
 	return String(text ?? '').replace(/\n+$/, '').split('\n').slice(-n).join('\n');
+}
+
+/**
+ * ⚠ R23 — A STEP'S STDOUT IS CAPTURED WHOLE, AND JUDGED WHOLE. It used to be kept as a 10-line
+ * TAIL, which made every `dt … --json` payload — pretty-printed, and more than ten lines the moment
+ * it carries a `steps` array — unparseable, so a `stdout_json` expectation read `undefined` and
+ * failed for a reason nothing named. A `stdout: { _contains: … }` over a marker on line 1 of 20 was
+ * the same bug the other way up: silently false.
+ *
+ * 64 KB, and the FIRST 64 KB rather than the last: a JSON payload starts at the beginning, and a
+ * truncated one must fail loudly (`stdout is not JSON`) rather than parse to something smaller than
+ * what the step actually printed. `stdout_truncated` is always present, because a key that appears
+ * only sometimes is worse to read than a `false`.
+ */
+const STDOUT_CAP = 64 * 1024;
+
+function captured(text) {
+	const whole = String(text ?? '');
+	return whole.length > STDOUT_CAP
+		? { text: whole.slice(0, STDOUT_CAP), truncated: true }
+		: { text: whole, truncated: false };
+}
+
+/** The first line of a thrown message — what a `failure_reason` carries. A multi-line reason inside
+ *  a JSONL row is legal and unreadable, and the first line is the sentence that names the cause. */
+const firstLine = (message) => String(message ?? '').split('\n')[0];
+
+/**
+ * ONE builder for every ledger row, used by `proveOne`'s `settle` AND by `--all`'s catch — because
+ * R24's whole point is that a proof which THREW still gets a row. Two writers of this shape is how
+ * one of them ends up missing `machine` or `before`.
+ */
+function ledgerRow(state, started, over = {}) {
+	return {
+		when: new Date().toISOString(),
+		record: null,
+		engine: engineVersion(),
+		machine: os.hostname(),
+		duration_ms: Date.now() - started,
+		failure_reason: null,
+		steps: [],
+		sandbox: null,
+		before: {},
+		...over,
+		verdict: state,
+	};
 }
 
 const isDelta = (count) => count !== null && typeof count === 'object' && !Array.isArray(count) && '_delta' in count;
@@ -924,20 +1001,35 @@ function valueAt(json, dotted) {
  *
  * `storeOnly` is the PRE-CHECK pass: the store-based forms only, judged before any step has run.
  */
-function judge(ws, store, proof, record, before, stepResults, storeOnly) {
+function judge(ws, store, proof, id, record, before, stepResults, storeOnly) {
 	const verdicts = [];
 	const resolve = recordResolver(store);
 	const ctx = record ? { record } : {};
 	const push = (expectation, actual) => {
-		const line = verdictLine(expectation, actual);
+		const line = verdictLine(expectation, actual, resolve);
 		verdicts.push({ expect: expectation, actual, ok: line.endsWith('✔'), line });
+	};
+	/** A ✖ that no filter produced — the two states where the QUESTION could not be asked. It carries
+	 *  its own `reason`, because a `failure_reason` must not end in a glyph. */
+	const fail = (expectation, actual, reason) => {
+		verdicts.push({ expect: expectation, actual, ok: false, line: `${reason} ✖`, reason });
 	};
 	for (const [i, raw] of (Array.isArray(proof.expect) ? proof.expect : []).entries()) {
 		const e = raw ?? {};
 		if (storeOnly && !isStoreBased(e)) continue;
 		if ('collection' in e && 'count' in e) {
 			const total = countMatching(store, String(e.collection), e.where, resolve);
-			push({ count: e.count }, isDelta(e.count) ? total - Number(before[i] || 0) : total);
+			if (!isDelta(e.count)) { push({ count: e.count }, total); continue; }
+			// ⚠ R24 — A MISSING BEFORE-COUNT FAILS CLOSED. `before[i] || 0` treated an absent snapshot
+			// as zero, so the delta became the ABSOLUTE count and a `_delta: 1` expectation PASSED on
+			// a collection that already had records and had had nothing performed against it. That is
+			// the silent green this whole verb exists to remove, reachable from a hand-edited or
+			// half-written PENDING row, or from a row an older engine wrote.
+			if (before === null || typeof before !== 'object' || !(i in before)) {
+				fail({ count: e.count }, null, `no before-count in the pending row — re-run dt prove ${id} --restart`);
+				continue;
+			}
+			push({ count: e.count }, total - Number(before[i]));
 			continue;
 		}
 		if ('record' in e) {
@@ -948,17 +1040,32 @@ function judge(ws, store, proof, record, before, stepResults, storeOnly) {
 		if ('path' in e) {
 			// THE ONE RESOLVER (decision 240) — a `path:` expectation renders through the same
 			// `${env:…}` renderer `dt resolve` uses, so a proof and the record it is about can never
-			// disagree about where a machine's folder is.
+			// disagree about where a machine's folder is. An undeclared `${env:…}` THROWS out of here,
+			// loudly, which is that resolver's contract and not something to soften.
 			const rendered = renderTemplate(substitute(String(e.path), ctx, { strict: true }), envContext(ws));
 			push({ exists: e.exists }, fs.existsSync(rendered));
 			continue;
 		}
 		const step = stepResults[(Number.isInteger(e.step) ? e.step : lastRunIndex(proof)) - 1];
 		if ('exit' in e) push({ exit: e.exit }, step?.exit);
-		if (e.stdout && typeof e.stdout === 'object') push({ stdout: e.stdout }, step?.stdout_tail ?? '');
+		// R23 — the FULL capture, not the display tail
+		if (e.stdout && typeof e.stdout === 'object') push({ stdout: e.stdout }, step?.stdout ?? '');
 		if (e.stdout_json && typeof e.stdout_json === 'object') {
-			let parsed = null;
-			try { parsed = JSON.parse(step?.stdout_tail ?? ''); } catch { /* not JSON: every path reads undefined */ }
+			const text = step?.stdout ?? '';
+			let parsed;
+			try { parsed = JSON.parse(text); }
+			catch {
+				// ⚠ NEVER A SILENT `undefined`. An unparseable payload used to make every dotted path
+				// read undefined, so the line said `a.b undefined = 1 ✖` and sent the reader to look
+				// for a missing key in output that was never JSON at all.
+				//
+				// The head is FLATTENED before it is quoted: this is one verdict line, and 60 raw
+				// characters of a multi-line stream puts newlines inside it — a "line" that is four
+				// lines long, which is unreadable exactly where the reader is already confused.
+				const head = text.trim().replace(/\s+/g, ' ').slice(0, 60);
+				fail({ stdout_json: e.stdout_json }, head, `stdout is not JSON (${head})`);
+				continue;
+			}
 			for (const [dotted, cond] of Object.entries(e.stdout_json)) push({ [dotted]: cond }, valueAt(parsed, dotted));
 		}
 	}
@@ -976,14 +1083,18 @@ function commandSource(root, performText) {
 	return src ? (typeof src === 'string' ? src : src.path) : null;
 }
 
-/** The last non-superseded PENDING row of this proof, for ANY record — what makes a second run
- *  refuse. `pendingFor` answers for one named record; a fresh run does not know the record yet. */
-function anyPending(root, proofId) {
+/**
+ * EVERY non-superseded PENDING row of this proof, one per record — what makes a second run refuse.
+ * `pendingFor` answers for one named record; a fresh run does not know the record yet.
+ *
+ * ⚠ ALL OF THEM, not the last one (MINOR 10). A proof can be pending for several records at once —
+ * `--record a`, then a fresh run picking `b` — and a refusal naming only the newest sends the
+ * operator round the loop once per pending row, learning about the next one each time.
+ */
+function allPending(root, proofId) {
 	const last = new Map();
 	for (const r of readLedger(root, proofId)) last.set(r?.record ?? null, r);
-	let found = null;
-	for (const row of last.values()) if (row?.verdict === 'PENDING') found = row;
-	return found;
+	return [...last.values()].filter((r) => r?.verdict === 'PENDING');
 }
 
 /**
@@ -1000,19 +1111,7 @@ function proveOne(ws, id, proof, flags) {
 	/** Append the row this state produces and answer with its code. Every terminal state goes
 	 *  through here, so "exactly one row per run" is structural rather than remembered. */
 	const settle = (state, over = {}, verdicts = []) => {
-		const row = {
-			when: new Date().toISOString(),
-			record: null,
-			engine: engineVersion(),
-			machine: os.hostname(),
-			duration_ms: Date.now() - started,
-			failure_reason: null,
-			steps: [],
-			sandbox: null,
-			before: {},
-			...over,
-			verdict: state,
-		};
+		const row = ledgerRow(state, started, over);
 		appendLedger(ws.root, id, row);
 		// ⚠ ONE OBJECT ON STDOUT AND NOTHING ELSE. A script parses stdout WHOLE, so a single human
 		// line ahead of the object makes `JSON.parse` throw — indistinguishable from a failed run.
@@ -1024,7 +1123,10 @@ function proveOne(ws, id, proof, flags) {
 	// worktree — which does not exist yet. Refusing is the only honest answer: running it here would
 	// leave real records behind, which is the one outcome a proof must never produce.
 	if (proof.mode === 'writes' && !flags.here) {
-		throw new Error('writes proofs run in a sandbox — not yet implemented (Task 5)');
+		// ⚠ `unavailable` IS READ BY `--all` (R24): every other throw from a proof is that proof's
+		// FAIL, and this one is the single exception — the artifact is not broken, this engine simply
+		// cannot run the proof yet. A message match would have made the distinction a string compare.
+		throw Object.assign(new Error('writes proofs run in a sandbox — not yet implemented (Task 5)'), { unavailable: true });
 	}
 	if (flags.keep) {
 		throw new Error(`--keep keeps a writes proof's sandbox — ${id} runs in the workspace, so there is nothing to keep`);
@@ -1044,22 +1146,25 @@ function proveOne(ws, id, proof, flags) {
 	// same action, and the operator would have no way to tell which pending row their eventual
 	// verify is judged against. A pending older than the proof's own timeout is STALE — the run it
 	// belongs to is gone — so it is cleared, out loud, and recorded as cleared.
-	const pend = anyPending(ws.root, id);
-	if (pend) {
-		const age = Math.round((Date.now() - Date.parse(pend.when)) / 1000);
-		const pendRef = pend.record === null ? '(no record)' : pend.record;
-		if (!(age >= 0) || age > timeout) {
-			say(`stale pending run of ${id} for ${pendRef} (${age}s) — cleared`);
-			appendLedger(ws.root, id, { ...pend, when: new Date().toISOString(), verdict: 'FAIL', failure_reason: 'stale' });
-		} else if (flags.restart) {
-			appendLedger(ws.root, id, { ...pend, when: new Date().toISOString(), verdict: 'FAIL', failure_reason: 'restarted' });
-		} else if (pend.record === null) {
-			// a live proof with no `given` pends against no record, so `--record` cannot name it — the
-			// bare verb is the only way back, and refusing here would strand the run permanently.
-			return verify(pend);
-		} else {
-			throw new Error(`${id} is pending for ${pend.record} since ${pend.when} — finish it with dt prove ${id} --record ${pend.record}, or --restart to discard it`);
-		}
+	const live = [];
+	for (const row of allPending(ws.root, id)) {
+		const age = Math.round((Date.now() - Date.parse(row.when)) / 1000);
+		if (age >= 0 && age <= timeout) { live.push(row); continue; }
+		say(`stale pending run of ${id} for ${row.record === null ? '(no record)' : row.record} (${age}s) — cleared`);
+		appendLedger(ws.root, id, { ...row, when: new Date().toISOString(), verdict: 'FAIL', failure_reason: 'stale' });
+	}
+	if (live.length && flags.restart) {
+		// EVERY live pending is discarded, not just the newest — otherwise `--restart` refuses again
+		// on the next one and the flag reads as broken.
+		for (const row of live) appendLedger(ws.root, id, { ...row, when: new Date().toISOString(), verdict: 'FAIL', failure_reason: 'restarted' });
+	} else if (live.length === 1 && live[0].record === null) {
+		// a live proof with no `given` pends against no record, so `--record` cannot name it — the
+		// bare verb is the only way back, and refusing here would strand the run permanently.
+		return verify(live[0]);
+	} else if (live.length === 1) {
+		throw new Error(`${id} is pending for ${live[0].record} since ${live[0].when} — finish it with dt prove ${id} --record ${live[0].record}, or --restart to discard it`);
+	} else if (live.length) {
+		throw new Error(`${id} is pending for ${live.length} records — finish each with:\n${live.map((row) => `  dt prove ${id} --record ${row.record}`).join('\n')}\nor --restart to discard them`);
 	}
 
 	// ---- 3. REQUIRES, before the fixture: a machine that cannot answer the question must not report
@@ -1092,50 +1197,76 @@ function proveOne(ws, id, proof, flags) {
 	// ALREADY hold reports PASS forever and measures nothing — the silent-green failure `prove` exists
 	// to remove. `step`/`path` expectations are not pre-checkable and do not count toward "all", so a
 	// proof judged only on those is never vacuous.
-	const pre = judge(ws, store, proof, record, before, [], true);
+	const pre = judge(ws, store, proof, id, record, before, [], true);
 	if (pre.length && pre.every((v) => v.ok)) {
 		say(`VACUOUS  ${id} — every expectation already holds against ${ref ? ref : 'this workspace'}; a proof that cannot fail is not a proof`);
 		return settle('VACUOUS', { record: ref, before, failure_reason: 'every expectation already holds' });
 	}
 
 	// ---- 7. THE STEPS, in order, until one fails or one asks for an actor.
+	//
+	// ⚠ MINOR 8 — EVERYTHING FROM HERE IS WRAPPED, because a throw past this point used to leave NO
+	// LEDGER ROW AT ALL. The two live sources are the resolver refusing an undeclared `${env:…}` in a
+	// `path:` expectation and `substitute` refusing a typo'd brace — both correct, loud refusals, and
+	// both about a proof that DID run its steps. A run with no row is a run the ledger denies
+	// happened, which is worse than a FAIL that names the cause.
 	const ctx = record ? { record } : {};
 	const steps = [];
-	for (const [i, raw] of (Array.isArray(proof.steps) ? proof.steps : []).entries()) {
-		const step = raw ?? {};
-		const n = i + 1;
-		if (step.perform !== undefined) {
-			// ⚠ THE PENDING ROW IS WRITTEN BEFORE THE BLOCK IS PRINTED, so a run killed between the
-			// two still leaves a resumable ledger — the operator may already have taken the action.
-			const text = substitute(String(step.perform), ctx);
-			const out = settle('PENDING', { record: ref, steps, before });
-			say(`PERFORM  ${text}`);
-			const src = commandSource(ws.root, text);
-			if (src) say(`source   ${src}`);
-			say(`then     dt prove ${id}${record ? ` --record ${record.ref}` : ''}   (the same verb, again)`);
-			return out;
-		}
-		const cmd = substitute(String(step.run ?? ''), ctx);
-		say(`RUN ${n}  ${cmd}`);
-		const t0 = Date.now();
-		const res = spawnSync(cmd, { shell: true, cwd: ws.root, timeout: timeout * 1000, encoding: 'utf8' });
-		const ms = Date.now() - t0;
-		// a killed step has a null status and a signal — reporting `exit null` would read as success
-		const exit = res.status ?? (res.signal ? 124 : 1);
-		say(`  exit ${exit} (${ms} ms)`);
-		steps.push({ index: n, kind: 'run', exit, stdout_tail: lastLines(res.stdout), stderr_tail: lastLines(res.stderr) });
-		// a `step:` expectation may WANT a non-zero exit (a proof that a guard refuses); with none,
-		// zero is the only non-failure.
-		const want = stepExpect(proof, n)?.exit ?? 0;
-		if (exit !== want) {
-			// ⚠ NOT "the expectations failed": nothing was judged. A verdict line here would be a claim
-			// about something no step ever measured, so the failure names the STEP and shows its stderr.
-			say(`FAIL at step ${n}  ${id} — exit ${exit} (want ${want})`);
-			for (const line of lastLines(res.stderr).split('\n')) if (line) say(`  ${line}`);
-			return settle('FAIL', { record: ref, steps, before, failure_reason: `step ${n} exited ${exit}` });
-		}
+	try {
+		return runSteps();
+	} catch (e) {
+		if (e.ledgered) throw e;
+		settle('FAIL', { record: ref, steps, before, failure_reason: firstLine(e.message) });
+		throw Object.assign(e, { ledgered: true });
 	}
-	return decide(record, before, steps);
+
+	function runSteps() {
+		for (const [i, raw] of (Array.isArray(proof.steps) ? proof.steps : []).entries()) {
+			const step = raw ?? {};
+			const n = i + 1;
+			if (step.perform !== undefined) {
+				// ⚠ THE PENDING ROW IS WRITTEN BEFORE THE BLOCK IS PRINTED, so a run killed between the
+				// two still leaves a resumable ledger — the operator may already have taken the action.
+				const text = substitute(String(step.perform), ctx);
+				const out = settle('PENDING', { record: ref, steps, before });
+				say(`PERFORM  ${text}`);
+				const src = commandSource(ws.root, text);
+				if (src) say(`source   ${src}`);
+				say(`then     dt prove ${id}${record ? ` --record ${record.ref}` : ''}   (the same verb, again)`);
+				return out;
+			}
+			const cmd = substitute(String(step.run ?? ''), ctx);
+			say(`RUN ${n}  ${cmd}`);
+			const t0 = Date.now();
+			const res = spawnSync(cmd, { shell: true, cwd: ws.root, timeout: timeout * 1000, encoding: 'utf8' });
+			const ms = Date.now() - t0;
+			// a killed step has a null status and a signal — reporting `exit null` would read as success
+			const exit = res.status ?? (res.signal ? 124 : 1);
+			const out = captured(res.stdout);
+			say(`  exit ${exit} (${ms} ms)`);
+			steps.push({ index: n, kind: 'run', exit, stdout: out.text, stdout_truncated: out.truncated, stdout_tail: lastLines(out.text), stderr_tail: lastLines(res.stderr) });
+			// ⚠ MINOR 7 — THREE DIFFERENT FAILURES WERE ALL REPORTED AS `exited 124`. A step KILLED at
+			// the timeout, a step the shell could not start, and a step that ran and returned non-zero
+			// are three different things to go and fix, and the first two are invisible in an exit
+			// code: node reports a timeout as `status: null · signal: SIGTERM · error.code ETIMEDOUT`
+			// (measured), which the `?? (res.signal ? 124 : 1)` above flattens into a plausible number.
+			const want = stepExpect(proof, n)?.exit ?? 0;
+			const timedOut = res.error?.code === 'ETIMEDOUT' || (res.status === null && !!res.signal);
+			let reason = null;
+			if (timedOut) reason = `step ${n} timed out after ${timeout}s`;
+			else if (res.error) reason = `step ${n} could not start: ${res.error.code ?? res.error.message}`;
+			else if (exit !== want) reason = `step ${n} exited ${exit}`;
+			if (reason) {
+				// ⚠ NOT "the expectations failed": nothing was judged. A verdict line here would be a
+				// claim about something no step ever measured, so the failure names the STEP and shows
+				// its stderr.
+				say(`FAIL at step ${n}  ${id} — ${timedOut || res.error ? reason.slice(`step ${n} `.length) : `exit ${exit} (want ${want})`}`);
+				for (const line of lastLines(res.stderr).split('\n')) if (line) say(`  ${line}`);
+				return settle('FAIL', { record: ref, steps, before, failure_reason: reason });
+			}
+		}
+		return decide(record, before, steps);
+	}
 
 	/**
 	 * ⚠ A FRESH `Store`, ALWAYS. `readAll` walks `ids()`, memoized on (git HEAD, collection dir
@@ -1148,7 +1279,7 @@ function proveOne(ws, id, proof, flags) {
 		const fresh = new Store(ws);
 		const current = rec ? pickFixture(fresh, proof.given, rec.ref) ?? rec : null;
 		const currentRef = current ? current.ref : null;
-		const verdicts = judge(ws, fresh, proof, current, snapshot, stepResults, false);
+		const verdicts = judge(ws, fresh, proof, id, current, snapshot, stepResults, false);
 		for (const v of verdicts) say(`  ${v.line}`);
 		const failed = verdicts.find((v) => !v.ok);
 		if (!failed) {
@@ -1156,7 +1287,9 @@ function proveOne(ws, id, proof, flags) {
 			return settle('PASS', { record: currentRef, steps: stepResults, before: snapshot }, verdicts);
 		}
 		say(`FAIL  ${id}`);
-		return settle('FAIL', { record: currentRef, steps: stepResults, before: snapshot, failure_reason: failed.line }, verdicts);
+		// `reason` is set only by the two ✖s no filter produced (a missing before-count, an
+		// unparseable stdout), whose LINE ends in a glyph a `failure_reason` must not carry.
+		return settle('FAIL', { record: currentRef, steps: stepResults, before: snapshot, failure_reason: failed.reason ?? failed.line }, verdicts);
 	}
 
 	/** The resume half: the steps already ran (in an earlier process, and the perform by a human), so
@@ -1192,19 +1325,32 @@ function proveMany(ws, proofs, flags, select) {
 		if (typeof flags.kind === 'string' && proof.kind !== flags.kind) continue;
 		if (proof.external === true && !flags.external) continue;
 		if ((Array.isArray(proof.steps) ? proof.steps : []).some((s) => s?.perform !== undefined)) { actors.push(id); continue; }
+		const t0 = Date.now();
 		let state;
+		let reason;
 		try {
-			const out = proveOne(ws, id, proof, { silent: !!flags.json });
+			// ⚠ R22 — EVERY PROOF RUNS SILENT HERE, ALWAYS. It used to be `silent: !!flags.json`, so a
+			// human `--all` printed a full step transcript per proof and the board it exists to be was
+			// forty screens down. A transcript is what a SINGLE-proof run is for.
+			const out = proveOne(ws, id, proof, { silent: true });
 			state = out.state;
-			rows.push({ proof: id, verdict: out.state, failure_reason: out.row.failure_reason });
+			reason = out.row.failure_reason;
 		} catch (e) {
-			// a proof this engine cannot RUN at all (a `writes` one, until the sandbox exists) is
-			// unavailable, not failed — and one bad proof must not abort the other thirty-nine.
-			say(`UNAVAILABLE  ${id}`);
-			say(`  ${e.message}`);
-			state = 'UNAVAILABLE';
-			rows.push({ proof: id, verdict: state, failure_reason: e.message });
+			// ⚠ R24 — A THROW IS THAT PROOF'S FAILURE, WITH A ROW. This used to tally any throw as
+			// UNAVAILABLE and write nothing: a proof BROKEN in a way that throws (an undeclared
+			// `${env:…}` in a `path:`, a typo'd brace) left `--all` GREEN without `--strict` and left
+			// no evidence that it had ever been attempted. The ONE exception is the Task-5 seam, which
+			// marks itself `unavailable`: there the artifact is fine and the engine is not ready.
+			state = e.unavailable ? 'UNAVAILABLE' : 'FAIL';
+			reason = firstLine(e.message);
+			// `ledgered` means `proveOne` already wrote the row for this throw (MINOR 8) — writing a
+			// second one would make the ledger claim the proof ran twice.
+			if (!e.ledgered) appendLedger(ws.root, id, ledgerRow(state, t0, { failure_reason: reason }));
 		}
+		// ONE LINE PER PROOF, and the reason on it: a board whose rows say only PASS/FAIL sends the
+		// reader to re-run each red one just to learn what it was.
+		say(`${state}  ${id}${reason ? ` — ${reason}` : ''}`);
+		rows.push({ proof: id, verdict: state, failure_reason: reason ?? null });
 		tally[state] = (tally[state] ?? 0) + 1;
 	}
 	if (actors.length) {

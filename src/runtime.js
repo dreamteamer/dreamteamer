@@ -18,6 +18,32 @@ import { normalizeNamespaces } from './namespace.js';
 export const RUNTIME_DIR = '.dreamteamer';
 
 /**
+ * `name@version` of the RUNNING engine — the dev clone or the installed copy, whichever loaded.
+ *
+ * ⚠ IT LIVES HERE, NOT IN `compile.js`, BECAUSE THE LEDGER STAMPS IT. `prove` writes the engine
+ * version onto every ledger row (a per-machine record of what judged what), and reaching back into
+ * the compiler for one string closed a `prove` ↔ `compile` import cycle — function-level and
+ * therefore working, right up until someone calls a prove export at compile.js's module scope. The
+ * engine's own identity is a fact about the boundary, the same way `RUNTIME_DIR` is: `compile.js`
+ * re-exports both names so its existing callers are unchanged.
+ *
+ * `../package.json` resolves against THIS file's URL, which is `src/`, so it is the engine root's
+ * manifest either way — and a failure to read it is `dreamteamer@unknown` rather than a throw,
+ * because a version string is never worth crashing a compile or a proof over.
+ */
+export function engineId() {
+	try {
+		const p = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+		return `${p.name}@${p.version}`;
+	} catch { return 'dreamteamer@unknown'; }
+}
+
+/** Bare semver of the running engine — what the manifest's `engine` key and every ledger row carry. */
+export function engineVersion() {
+	return engineId().split('@').pop();
+}
+
+/**
  * Runtime kinds compile PROJECTS rather than stages — they have no source folder under a module
  * root, so nothing can be "edited and recompiled" in the usual place. Lives here, in the boundary,
  * because it is a fact about the runtime's SHAPE: the compiler writes them and the record layer has

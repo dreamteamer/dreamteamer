@@ -802,6 +802,9 @@ const PROVE_NOTES = simpleCollection({
 		properties: {
 			name: { type: 'string' },
 			status: { type: 'string', enum: ['open', 'done'], default: 'open' },
+			// the hop target: a `record:` expectation over a REFERENCE is the one shape that needs a
+			// resolver, and `verdictLine` used to judge with none — so it narrowed to ✖ forever
+			owner: { type: 'string', 'x-reference': 'people' },
 			notes: { type: 'string', format: 'markdown', 'x-body': true },
 		},
 	},
@@ -848,14 +851,19 @@ const PROOFS = {
  *  `records` overrides the two default notes (both `open`, so `pick: latest` is `notes/b`). */
 function proveWorkspace(opts = {}) {
 	const ws = workspace({
-		pkg: { vars: ['PROVE_TEST_VAR'] },
-		collections: { notes: PROVE_NOTES },
-		records: { notes: opts.notes ?? [{ name: 'a' }, { name: 'b' }] },
+		// PROVE_TEST_VAR is declared and NEVER given a value (the UNAVAILABLE state); PROVE_FIX_DIR is
+		// declared AND valued, so a `path:` expectation has a real machine-dependent folder to render.
+		pkg: { vars: ['PROVE_TEST_VAR', 'PROVE_FIX_DIR'] },
+		collections: { notes: PROVE_NOTES, people: simpleCollection() },
+		records: { people: opts.people ?? [], notes: opts.notes ?? [{ name: 'a' }, { name: 'b' }] },
 	});
 	const cmdDir = path.join(ws.root, 'modules', 'default', 'commands');
 	fs.mkdirSync(cmdDir, { recursive: true });
 	fs.writeFileSync(path.join(cmdDir, 'close-note.command.md'), '---\nname: close-note\ndescription: Close one note.\n---\n\nSet the note\'s status to done.\n');
-	fs.writeFileSync(path.join(ws.root, '.env'), `PROVE_DECOY_KEY=${DECOY}\n`);
+	// ⚠ THE VALUE GOES IN THE WORKSPACE'S `.env`, not `process.env`: `envContext(ws)` — the ONE
+	// resolver `dt resolve` uses — reads `.env` for values and package.json for what is DECLARED, so
+	// exporting the var into the test process would render nothing and prove nothing.
+	fs.writeFileSync(ws.root + '/.env', `PROVE_DECOY_KEY=${DECOY}\nPROVE_FIX_DIR=${path.join(ws.root, 'made')}\n`);
 	for (const [id, fields] of Object.entries({ ...PROOFS, ...(opts.proofs ?? {}) })) {
 		writeProof(ws.root, id, { about: ['skills/using-dreamteamer'], ...fields });
 	}
@@ -1116,7 +1124,10 @@ describe('dt prove --all — a board, and never a request for an actor', () => {
 	// ⚠ EXIT 5 CAN NEVER COME OUT OF `--all` (spec §13.3). `--all` is what a pre-commit hook and a CI
 	// step run, and "one of your 40 proofs would like a human" is not an answer either can act on. So
 	// a perform proof is LISTED rather than started, and the code only reflects what actually ran.
-	test('--all runs every machine-runnable proof, lists the rest, and never exits 5', () => {
+	// ⚠ R22 — ONE LINE PER PROOF, AND THE REASON ON IT. `--all` used to run each proof at full
+	// volume, so the board it exists to be was forty step transcripts deep; and a board whose rows
+	// said only PASS/FAIL sends the reader to re-run every red one just to learn what it was.
+	test('--all runs every machine-runnable proof, one line each, lists the rest, and never exits 5', () => {
 		const ws = proveWorkspace();
 		const res = ws.dt('prove', '--all');
 		assert.equal(res.code, 1, res.stdout + res.stderr); // gate-fails
@@ -1125,6 +1136,14 @@ describe('dt prove --all — a board, and never a request for an actor', () => {
 		assert.match(res.stdout, /^needs an actor:$/m);
 		assert.match(res.stdout, /^ {2}dt prove note-gets-closed$/m);
 		assert.doesNotMatch(res.stdout, /^PERFORM /m, '--all must not start a perform step');
+
+		// the per-proof board rows, exactly — a PASS carries no reason, everything else does
+		assert.match(res.stdout, /^PASS  gate-passes$/m);
+		assert.match(res.stdout, /^FAIL  gate-fails — step 1 exited 3$/m);
+		assert.match(res.stdout, /^UNAVAILABLE  needs-a-var — PROVE_TEST_VAR is not set — add it to \.env$/m);
+		// and NO step transcript: that is what a single-proof run is for
+		assert.doesNotMatch(res.stdout, /^RUN /m, '--all is quiet per proof');
+		assert.doesNotMatch(res.stdout, /^ {2}exit \d+ \(/m);
 	});
 
 	test('--kind gate selects only gates, so nothing needs an actor', () => {
@@ -1160,6 +1179,7 @@ describe('dt prove --all — a board, and never a request for an actor', () => {
 		});
 		const bare = ws.dt('prove', '--all', '--kind', 'gate');
 		assert.match(bare.stdout, /^proofs: 1 passed · 1 failed · 1 unavailable · 0 no-fixture · 0 vacuous · 0 need an actor$/m);
+		assert.doesNotMatch(bare.stdout, /reaches-out/);
 
 		const withExternal = ws.dt('prove', '--all', '--kind', 'gate', '--external');
 		assert.match(withExternal.stdout, /^proofs: 2 passed · 1 failed · 1 unavailable · 0 no-fixture · 0 vacuous · 0 need an actor$/m);
@@ -1227,5 +1247,279 @@ describe('dt prove — the usage surface', () => {
 		const res = ws.dt('prove', 'writes-a-note');
 		assert.equal(res.code, 1, res.stdout + res.stderr);
 		assert.match(res.stderr, /writes proofs run in a sandbox — not yet implemented \(Task 5\)/);
+	});
+});
+
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+// Fix round 1 — the four expectation FORMS end to end, and the three ways a verdict could be a lie:
+// a `_delta` judged against a missing snapshot, a `stdout` judged on a 10-line tail, and a proof
+// that threw and left no evidence it was ever attempted.
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+
+/** A step printing pretty JSON over more than ten lines — which is EVERY `dt … --json` payload, and
+ *  the exact shape the old 10-line tail made unparseable. `String.fromCharCode(10)` rather than a
+ *  `\n` escape, so the YAML round-trip through `dump` cannot change what the shell receives. */
+const JSON_STEP = "node -e \"console.log(JSON.stringify({a:{b:1},pad:Array.from({length:20},(_,i)=>i)},null,2))\"";
+const MARKER_STEP = "node -e \"console.log('HEAD-MARKER'); console.log(Array.from({length:25},(_,i)=>'filler '+i).join(String.fromCharCode(10)))\"";
+const LIVE = { kind: 'live', mode: 'readonly' };
+
+describe('dt prove — the step expectation form', () => {
+	// ⚠ A `step:` EXPECTATION MAY WANT A NON-ZERO EXIT. A proof that a guard REFUSES is the commonest
+	// gate there is, and the step loop must not read the refusal as its own failure.
+	test('a step expectation that wants exit 3 PASSES on a step that exits 3', () => {
+		const ws = proveWorkspace({
+			proofs: { 'wants-three': { ...LIVE, steps: [{ run: "node -e 'process.exit(3)'" }], expect: [{ step: 1, exit: 3 }] } },
+		});
+		const res = ws.dt('prove', 'wants-three');
+		assert.equal(res.code, 0, res.stdout + res.stderr);
+		assert.match(res.stdout, /exit 3 = 3 ✔/);
+		assert.match(res.stdout, /^PASS  wants-three \(\d+ ms\)$/m);
+	});
+
+	test('the same step with exit: 0 expected FAILS at the step, naming it', () => {
+		const ws = proveWorkspace({
+			proofs: { 'wants-zero': { ...LIVE, steps: [{ run: "node -e 'process.exit(3)'" }], expect: [{ step: 1, exit: 0 }] } },
+		});
+		const res = ws.dt('prove', 'wants-zero');
+		assert.equal(res.code, 1, res.stdout + res.stderr);
+		assert.match(res.stdout, /^FAIL at step 1  wants-zero — exit 3 \(want 0\)$/m);
+		assert.equal(tail(ws.root, 'wants-zero').failure_reason, 'step 1 exited 3');
+	});
+
+	// ⚠ R23 — THE WHOLE STDOUT, NOT A TEN-LINE TAIL. Judging on a tail made every pretty-printed JSON
+	// payload unparseable, so `stdout_json` read `undefined` and failed for a reason nothing named.
+	test('stdout_json parses a 20-line pretty JSON payload', () => {
+		const ws = proveWorkspace({
+			proofs: { 'json-payload': { ...LIVE, steps: [{ run: JSON_STEP }], expect: [{ step: 1, stdout_json: { 'a.b': { _eq: 1 } } }] } },
+		});
+		const res = ws.dt('prove', 'json-payload');
+		assert.equal(res.code, 0, res.stdout + res.stderr);
+		assert.match(res.stdout, /a\.b 1 = 1 ✔/);
+		// the full capture is what the LEDGER keeps, so a resume judges the same bytes
+		const row = tail(ws.root, 'json-payload');
+		assert.equal(row.steps[0].stdout_truncated, false);
+		assert.deepEqual(JSON.parse(row.steps[0].stdout).a, { b: 1 });
+		assert.ok(row.steps[0].stdout.split('\n').length > 10, 'the payload must exceed the display tail');
+	});
+
+	// the same bug the other way up: a marker on line 1 of 26 was silently false against the tail
+	test('stdout _contains sees a marker on the FIRST line of a 26-line stream', () => {
+		const ws = proveWorkspace({
+			proofs: { 'head-marker': { ...LIVE, steps: [{ run: MARKER_STEP }], expect: [{ step: 1, stdout: { _contains: 'HEAD-MARKER' } }] } },
+		});
+		const res = ws.dt('prove', 'head-marker');
+		assert.equal(res.code, 0, res.stdout + res.stderr);
+		assert.match(res.stdout, /✔/);
+		assert.doesNotMatch(res.stdout, /✖/);
+	});
+
+	// ⚠ NEVER A SILENT `undefined`. An unparseable payload used to make every dotted path read
+	// undefined, so the line said `a.b undefined = 1 ✖` and sent the reader hunting for a missing key
+	// in output that was never JSON at all.
+	test('a non-JSON payload says so, with the first 60 characters of what it actually was', () => {
+		const ws = proveWorkspace({
+			proofs: { 'not-json': { ...LIVE, steps: [{ run: 'echo not-json-at-all' }], expect: [{ step: 1, stdout_json: { 'a.b': { _eq: 1 } } }] } },
+		});
+		const res = ws.dt('prove', 'not-json');
+		assert.equal(res.code, 1, res.stdout + res.stderr);
+		assert.match(res.stdout, /stdout is not JSON \(not-json-at-all\) ✖/);
+		assert.equal(tail(ws.root, 'not-json').failure_reason, 'stdout is not JSON (not-json-at-all)');
+	});
+});
+
+describe('dt prove — the path expectation form, through the ONE resolver', () => {
+	// decision 240: a `path:` renders through the same `${env:…}` renderer `dt resolve` uses, so a
+	// proof and the record it is about can never disagree about where a machine's folder is.
+	const MAKES = { ...LIVE, steps: [{ run: 'mkdir -p made && touch made/made.txt' }] };
+
+	test('a path the step created exists — the ${env:…} template renders per machine', () => {
+		const ws = proveWorkspace({
+			proofs: { 'makes-a-file': { ...MAKES, expect: [{ path: '${env:PROVE_FIX_DIR}/made.txt', exists: true }] } },
+		});
+		const res = ws.dt('prove', 'makes-a-file');
+		assert.equal(res.code, 0, res.stdout + res.stderr);
+		assert.match(res.stdout, /exists true = true ✔/);
+		assert.ok(fs.existsSync(path.join(ws.root, 'made', 'made.txt')), 'the step really wrote it');
+	});
+
+	test('exists: false on the same path FAILS, with the actual beside the wanted', () => {
+		const ws = proveWorkspace({
+			proofs: { 'makes-no-file': { ...MAKES, expect: [{ path: '${env:PROVE_FIX_DIR}/made.txt', exists: false }] } },
+		});
+		const res = ws.dt('prove', 'makes-no-file');
+		assert.equal(res.code, 1, res.stdout + res.stderr);
+		assert.match(res.stdout, /exists true = false ✖/);
+	});
+
+	// ⚠ THE RESOLVER'S REFUSAL IS LOUD AND STAYS LOUD (decision 240). An undeclared key renders to
+	// nothing silently in any hand-rolled substituter, producing a plausible path that exists nowhere
+	// — so `renderTemplate` throws, and `prove` must not soften it into `exists false`.
+	test('an UNDECLARED ${env:…} in a path is the resolver\'s own loud error, and still leaves a row', () => {
+		const ws = proveWorkspace({
+			proofs: { 'bad-var': { ...LIVE, steps: [{ run: 'true' }], expect: [{ path: '${env:NOPE}/x', exists: true }] } },
+		});
+		const res = ws.dt('prove', 'bad-var');
+		assert.equal(res.code, 1, res.stdout + res.stderr);
+		assert.match(res.stderr, /\$\{env:NOPE\}: "NOPE" is not declared in dreamteamer\.vars/);
+		// MINOR 8 — a throw past the steps used to leave NO ledger row at all, i.e. a run the ledger
+		// denies ever happened
+		const row = tail(ws.root, 'bad-var');
+		assert.equal(row.verdict, 'FAIL');
+		assert.match(row.failure_reason, /is not declared in dreamteamer\.vars/);
+	});
+});
+
+describe('dt prove — a _delta with no snapshot fails CLOSED', () => {
+	// ⚠ R24, AND IT WAS A FAIL-OPEN. `before[i] || 0` treated a missing snapshot as zero, so the
+	// delta became the ABSOLUTE count — and with ONE note in the collection and `_delta: 1` wanted,
+	// the proof reported `count +1 = +1 ✔` and PASSED with nothing performed against it. Exactly one
+	// note is what makes this test bite; two would have failed for the wrong reason.
+	test('a hand-written PENDING row lacking `before` is a FAIL naming the fix, not a PASS', () => {
+		const ws = proveWorkspace({ notes: [{ name: 'a' }] });
+		appendLedger(ws.root, 'counts-a-new-note', {
+			when: new Date().toISOString(),
+			verdict: 'PENDING',
+			record: 'notes/a',
+			engine: '0.0.0',
+			machine: 'somewhere-else',
+			duration_ms: 1,
+			failure_reason: null,
+			steps: [],
+			sandbox: null,
+		});
+		const res = ws.dt('prove', 'counts-a-new-note', '--record', 'notes/a');
+		assert.equal(res.code, 1, res.stdout + res.stderr);
+		assert.match(res.stdout, /no before-count in the pending row — re-run dt prove counts-a-new-note --restart ✖/);
+		assert.equal(
+			tail(ws.root, 'counts-a-new-note').failure_reason,
+			'no before-count in the pending row — re-run dt prove counts-a-new-note --restart',
+			'a failure_reason must not end in a glyph',
+		);
+	});
+});
+
+describe('dt prove — a record expectation resolves one reference hop', () => {
+	// ⚠ `verdictLine` JUDGED WITH NO RESOLVER, so a non-operator key under a field — which is a ONE-HOP
+	// REFERENCE traversal, not a field comparison — narrowed to ✖ forever. The collection form always
+	// passed `recordResolver(store)`; this is the record form catching up.
+	const OWNED = {
+		...LIVE,
+		given: { collection: 'notes', where: { status: { _eq: 'open' } }, pick: 'latest' },
+		steps: [{ perform: 'set the owner' }],
+		expect: [{ record: '{record}', where: { owner: { name: { _eq: 'Ada' } } } }],
+	};
+
+	test('the hop resolves through the fresh store, so the expectation can actually be met', () => {
+		const ws = proveWorkspace({ people: [{ name: 'Ada' }], proofs: { 'owner-is-ada': OWNED } });
+		// unowned before the action, so the pre-check cannot call it vacuous
+		assert.equal(ws.dt('prove', 'owner-is-ada').code, 5);
+		const set = ws.dt('set', 'notes/b', 'owner=people/ada');
+		assert.equal(set.code, 0, set.stdout + set.stderr);
+
+		const res = ws.dt('prove', 'owner-is-ada', '--record', 'notes/b');
+		assert.equal(res.code, 0, res.stdout + res.stderr);
+		assert.match(res.stdout, /^PASS  owner-is-ada \(\d+ ms\)$/m);
+	});
+
+	test('a hop to the WRONG value still fails, so the resolver did not just widen everything', () => {
+		const ws = proveWorkspace({ people: [{ name: 'Ada' }, { name: 'Bea' }], proofs: { 'owner-is-ada': OWNED } });
+		assert.equal(ws.dt('prove', 'owner-is-ada').code, 5);
+		assert.equal(ws.dt('set', 'notes/b', 'owner=people/bea').code, 0);
+		const res = ws.dt('prove', 'owner-is-ada', '--record', 'notes/b');
+		assert.equal(res.code, 1, res.stdout + res.stderr);
+	});
+});
+
+describe('dt prove — a step that never ran is not a step that returned non-zero', () => {
+	// ⚠ MINOR 7 — THREE DIFFERENT FAILURES WERE ALL `exited 124`. Node reports a timeout as
+	// `status: null · signal: SIGTERM · error.code ETIMEDOUT` (measured), which the exit-code
+	// flattening turned into a plausible number naming the wrong thing to go and fix.
+	test('a step killed at the timeout says so, with the proof\'s own timeout in seconds', () => {
+		const ws = proveWorkspace({ proofs: { 'times-out': { kind: 'gate', timeout: 1, steps: [{ run: 'sleep 3' }] } } });
+		const res = ws.dt('prove', 'times-out');
+		assert.equal(res.code, 1, res.stdout + res.stderr);
+		assert.match(res.stdout, /^FAIL at step 1  times-out — timed out after 1s$/m);
+		assert.equal(tail(ws.root, 'times-out').failure_reason, 'step 1 timed out after 1s');
+	});
+});
+
+describe('dt prove --all — a broken proof is FAILED, with a row (R24)', () => {
+	// ⚠ IT USED TO BE COUNTED UNAVAILABLE AND LEFT NO ROW: a proof broken in a way that THROWS left
+	// `--all` green without `--strict`, and left no evidence it had ever been attempted.
+	test('a proof whose path names an undeclared var is counted failed and exits 1', () => {
+		const ws = proveWorkspace({
+			proofs: { 'bad-var': { ...LIVE, steps: [{ run: 'true' }], expect: [{ path: '${env:NOPE}/x', exists: true }] } },
+		});
+		const res = ws.dt('prove', '--all', '--kind', 'live');
+		assert.equal(res.code, 1, res.stdout + res.stderr);
+		assert.match(res.stdout, /^FAIL  bad-var — .*is not declared in dreamteamer\.vars/m);
+		assert.match(res.stdout, /· 1 failed · /);
+		assert.equal(tail(ws.root, 'bad-var').verdict, 'FAIL');
+	});
+
+	// the ONE exception, and it is the only one: the artifact is fine and this engine is not ready
+	test('the Task-5 seam stays UNAVAILABLE under --all, and still writes a row', () => {
+		const ws = proveWorkspace({
+			proofs: {
+				'writes-a-note': {
+					kind: 'live',
+					mode: 'writes',
+					steps: [{ run: 'true' }],
+					expect: [{ collection: 'notes', where: {}, count: { _delta: 1 } }],
+				},
+			},
+		});
+		const res = ws.dt('prove', '--all', '--kind', 'live');
+		assert.match(res.stdout, /^UNAVAILABLE  writes-a-note — writes proofs run in a sandbox — not yet implemented \(Task 5\)$/m);
+		assert.equal(tail(ws.root, 'writes-a-note').verdict, 'UNAVAILABLE');
+		// unavailable is not fatal without --strict, so this run is green on that proof alone
+		assert.equal(ws.dt('prove', 'writes-a-note', '--json').code, 1, 'a single-proof run still refuses');
+	});
+});
+
+describe('dt prove — --kind is validated, and every pending record is named', () => {
+	// ⚠ MINOR 6 — AN UNVALIDATED `--kind` IS A SILENT EMPTY BOARD: `--kind gates` matched no proof, so
+	// `--all` answered `0 passed · 0 failed` at exit 0 — a green run that ran nothing.
+	test('a typo\'d --kind is refused rather than matching no proof at exit 0', () => {
+		const ws = proveWorkspace();
+		const res = ws.dt('prove', '--all', '--kind', 'gates');
+		assert.equal(res.code, 1, res.stdout + res.stderr);
+		assert.match(res.stderr, /--kind takes gate or live — got "gates"/);
+	});
+
+	test('a --kind with no value at all is refused too', () => {
+		const ws = proveWorkspace();
+		const res = ws.dt('prove', '--all', '--kind');
+		assert.equal(res.code, 1, res.stdout + res.stderr);
+		assert.match(res.stderr, /--kind takes gate or live/);
+	});
+
+	test('the artifact form takes --kind as well', () => {
+		const ws = proveWorkspace();
+		const res = ws.dt('prove', 'commands/close-note', '--kind', 'live');
+		assert.equal(res.code, 0, res.stdout + res.stderr);
+		assert.match(res.stdout, /^ {2}dt prove note-gets-closed$/m);
+	});
+
+	// ⚠ MINOR 10 — a refusal naming only the NEWEST pending row sends the operator round the loop once
+	// per pending record, learning about the next one each time. Two pendings at once is what a second
+	// session leaves behind.
+	test('when several records are pending, the refusal lists every one and --restart discards all', () => {
+		const ws = proveWorkspace();
+		assert.equal(ws.dt('prove', 'note-gets-closed').code, 5); // PENDING notes/b
+		appendLedger(ws.root, 'note-gets-closed', {
+			when: new Date().toISOString(), verdict: 'PENDING', record: 'notes/a', before: {}, steps: [], failure_reason: null,
+		});
+
+		const res = ws.dt('prove', 'note-gets-closed');
+		assert.equal(res.code, 1, res.stdout + res.stderr);
+		assert.match(res.stderr, /note-gets-closed is pending for 2 records — finish each with:/);
+		assert.match(res.stderr, /^ {2}dt prove note-gets-closed --record notes\/b$/m);
+		assert.match(res.stderr, /^ {2}dt prove note-gets-closed --record notes\/a$/m);
+		assert.match(res.stderr, /or --restart to discard them/);
+
+		assert.equal(ws.dt('prove', 'note-gets-closed', '--restart').code, 5);
+		const discarded = readLedger(ws.root, 'note-gets-closed').filter((r) => r.failure_reason === 'restarted');
+		assert.equal(discarded.length, 2, 'a --restart that discards only one refuses again on the next');
 	});
 });

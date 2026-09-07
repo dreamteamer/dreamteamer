@@ -708,3 +708,76 @@ describe('validateProofShape — a numeric enum is compared the way filter.js co
 		assert.deepEqual(validateProofShape(proof({ level: { _eq: 7 } }), nctx), ['where "level" compares "7", which is not one of level\'s options [5, 10]']);
 	});
 });
+
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+// Fix round 1 — an expectation that asserts NOTHING, and a verdict line that can resolve a hop.
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+
+describe('validateProofShape — an expectation that asserts nothing (MINOR 9)', () => {
+	// ⚠ THE SILENT GREEN, ONE LAYER BELOW THE VACUOUS PROOF. A `record:` entry with an empty `where`
+	// produces ZERO verdict lines, so `verdicts.every(ok)` is vacuously true and the proof PASSES
+	// having measured nothing at all — and unlike a vacuous proof, nothing at RUN time can see it.
+	// `only()` throughout: one mistake must produce ONE error, or the reader fixes the wrong line.
+	test('a record expectation with an empty where is refused, naming the index', () => {
+		only(live({ expect: [{ record: '{record}', where: {} }] }), 'expect[0] where must name at least one condition');
+	});
+
+	test('the index is the entry\'s own, so a reader goes to the right line', () => {
+		only(
+			live({ expect: [{ record: '{record}', where: { status: { _eq: 'done' } } }, { record: '{record}', where: {} }] }),
+			'expect[1] where must name at least one condition',
+		);
+	});
+
+	test('count: {} compares nothing, so it holds for every count — refused', () => {
+		only(live({ expect: [{ collection: 'notes', where: {}, count: {} }] }), 'expect[0] count must name one operator');
+	});
+
+	// ⚠ THE FALSE REFUSAL THIS RULE MUST NOT BECOME. On a COLLECTION entry the `count` IS the
+	// assertion, so an empty `where` means "anywhere in this collection" — which is exactly what
+	// `{collection, where: {}, count: {_delta: 1}}`, the plan's own worked example, says.
+	test('a collection count over an EMPTY where is still valid — count carries the assertion', () => {
+		assert.deepEqual(validateProofShape(live({ expect: [{ collection: 'notes', where: {}, count: { _delta: 1 } }] }), ctx), []);
+	});
+
+	test('a non-empty record where is unaffected', () => {
+		assert.deepEqual(validateProofShape(live({ expect: [{ record: '{record}', where: { status: { _eq: 'done' } } }] }), ctx), []);
+	});
+});
+
+describe('verdictLine — a one-hop reference resolves rather than narrowing', () => {
+	// A non-operator key under a field is a ONE-HOP REFERENCE traversal (filter.js:22-31), and
+	// `matchesFilter` NARROWS with no resolver wired. Judging with `null` made every such expectation
+	// read ✖ forever — a wrong verdict, not a missing feature.
+	const resolve = (ref) => (ref === 'people/ada' ? { id: 'ada', name: 'Ada' } : null);
+
+	test('with a resolver, the hop is evaluated against the target record', () => {
+		assert.match(verdictLine({ owner: { name: { _eq: 'Ada' } } }, 'people/ada', resolve), /✔$/);
+	});
+
+	test('without one it narrows, which is what the record form used to do always', () => {
+		assert.match(verdictLine({ owner: { name: { _eq: 'Ada' } } }, 'people/ada'), /✖$/);
+	});
+
+	test('a hop to the wrong value still fails — the resolver does not widen', () => {
+		assert.match(verdictLine({ owner: { name: { _eq: 'Bea' } } }, 'people/ada', resolve), /✖$/);
+	});
+
+	test('a dangling ref fails closed', () => {
+		assert.match(verdictLine({ owner: { name: { _eq: 'Ada' } } }, 'people/ghost', resolve), /✖$/);
+	});
+
+	// `String({})` printed `[object Object]` — a line naming neither the field it hopped nor the
+	// value it wanted.
+	test('the nested condition renders as JSON, never [object Object]', () => {
+		const line = verdictLine({ owner: { name: { _eq: 'Ada' } } }, 'people/ada', resolve);
+		assert.doesNotMatch(line, /\[object Object\]/);
+		assert.equal(line, 'owner "people/ada" name {"_eq":"Ada"} ✔');
+	});
+
+	test('every scalar and array line is unchanged by the new renderer', () => {
+		assert.equal(verdictLine({ status: { _eq: 'done' } }, 'open'), 'status "open" = done ✖');
+		assert.equal(verdictLine({ status: { _in: ['done'] } }, 'open'), 'status "open" ∈ [done] ✖');
+		assert.equal(verdictLine({ count: { _gte: 1 } }, 1), 'count 1 ≥ 1 ✔');
+	});
+});
