@@ -929,3 +929,21 @@ describe('local-assets and postinstall are validated at compile', () => {
 		assert.match(compileError(ws.ws), /local-assets: "\.\.\/outside" escapes the workspace root/);
 	});
 });
+
+// ⚠ COMPILE MUST NOT WALK A LIVE WORKTREE. `.claude/` is a generated dir, so the post-prune sweep
+// deletes every empty directory under it — and a linked worktree parked at `.claude/worktrees/<name>`
+// is somebody's checked-out tree, whose empty directories are not compile's to delete. `dt land`
+// places worktrees under `.worktrees/` for exactly this reason (they are already gitignored by
+// `init`); this is the belt to that pair of braces, because a harness may put one there itself.
+describe('the empty-directory sweep leaves a linked worktree alone', () => {
+	test('an empty dir under .claude/worktrees/ survives; one under any other .claude child does not', () => {
+		const ws = workspace();
+		const live = path.join(ws.root, '.claude', 'worktrees', 'w', 'src');
+		const generated = path.join(ws.root, '.claude', 'other', 'hollow');
+		fs.mkdirSync(live, { recursive: true });
+		fs.mkdirSync(generated, { recursive: true });
+		assert.equal(compileQuietly(ws.ws).code, 0);
+		assert.ok(fs.existsSync(live), '.claude/worktrees/w/src is a worktree\'s tree, not compile\'s to sweep');
+		assert.ok(!fs.existsSync(generated), '.claude/other/hollow is generated leftovers and is still swept');
+	});
+});
