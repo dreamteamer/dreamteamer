@@ -26,7 +26,7 @@ describe('dt add modules', () => {
 		const pkg = modulePkg(ws, 'payroll');
 		assert.equal(pkg.name, 'payroll', 'folder = package name = id, so a new module never forks');
 		assert.equal(pkg.dreamteamer.description, 'What people are paid.');
-		assert.deepEqual(pkg.files, ['collections', 'skills', 'agents', 'commands', 'command-bindings', 'ui-views', 'collection-templates']);
+		assert.deepEqual(pkg.files, ['collections', 'skills', 'agents', 'commands', 'command-bindings', 'ui-views', 'collection-templates', 'proofs']);
 		for (const kind of pkg.files) {
 			assert.ok(fs.existsSync(path.join(ws.root, 'modules/payroll', kind)), `${kind}/ is scaffolded`);
 		}

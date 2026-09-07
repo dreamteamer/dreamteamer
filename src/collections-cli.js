@@ -723,7 +723,7 @@ function metaRemoveField(ws, store, collection, flags) {
 	return 0;
 }
 
-const ENTITY_KINDS = new Set(['skills', 'agents', 'commands', 'command-bindings', 'collection-templates']);
+const ENTITY_KINDS = new Set(['skills', 'agents', 'commands', 'command-bindings', 'collection-templates', 'proofs']);
 const SCAFFOLDABLE = new Set(['skills']);
 
 function metaEntityVerb(ws, store, kind, verb, flags, pos) {
