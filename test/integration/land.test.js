@@ -14,6 +14,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { workspace, git, dt, dtStdin } from '../helpers/ws.js';
+import { landWorktree } from '../../src/land.js';
 
 /** The fixture commits BEFORE it compiles (`buildBase`), so CLAUDE.md/AGENTS.md/GEMINI.md are
  *  UNTRACKED in a fresh workspace — and a worktree's own install compiles them there too, leaving a
@@ -63,6 +64,44 @@ const landHolders = (root) => fs.existsSync(path.join(root, '.worktrees'))
 	: [];
 
 const compiledAt = (root) => /^compiled:\s*(\S+)/m.exec(fs.readFileSync(path.join(root, '.dreamteamer', 'manifest.yaml'), 'utf8'))?.[1];
+
+/**
+ * A `reference-transaction` hook in the shared git dir — the only way to make something happen at a
+ * precise moment INSIDE a landing without a second process and a sleep.
+ *
+ * ⚠ IT FIRES ON THE COPY BRANCH BEING MOVED, which is the instant between the rebase and the
+ * fast-forward. That is the whole window this file's two hardest tests are about: what a landing
+ * does when the world changes underneath it. `core.hooksPath=/dev/null` on the inner command is what
+ * keeps it from re-entering itself.
+ */
+function onCopyMoved(root, body, { max = 1 } = {}) {
+	const hooks = path.join(root, '.git', 'hooks');
+	fs.mkdirSync(hooks, { recursive: true });
+	const counter = path.join(root, '.git', 'land-probe-count');
+	const file = path.join(hooks, 'reference-transaction');
+	// ⚠ THE DISCRIMINATOR IS THE CWD, not the old OID. `git branch -f` names no expected old value,
+	// so the hook is handed all-zeros for BOTH the copy's creation and its post-rebase move
+	// (measured) — the two are told apart by where git was run: the creation happens in the primary,
+	// the move inside the throwaway `.worktrees/.land-*` worktree.
+	fs.writeFileSync(file, `#!/bin/sh
+[ "$1" = "committed" ] || exit 0
+case "$PWD" in *"/.worktrees/.land-"*) ;; *) exit 0 ;; esac
+# A hook INHERITS git's environment, so a "git -C <primary>" in the body below still ran against the
+# temp worktree's GIT_DIR and index: its commit moved a detached HEAD nobody was watching instead of
+# the primary branch (measured). The whole set is unset before anything is run.
+unset GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE GIT_PREFIX GIT_COMMON_DIR GIT_OBJECT_DIRECTORY GIT_QUARANTINE_PATH
+while read -r old new ref; do
+  case "$ref" in refs/heads/land/*) ;; *) continue ;; esac
+  n=$(cat "${counter}" 2>/dev/null || echo 0)
+  [ "$n" -ge "${max}" ] && continue
+  echo $((n+1)) > "${counter}"
+${body}
+done
+exit 0
+`);
+	fs.chmodSync(file, 0o755);
+	return { fired: () => Number(fs.existsSync(counter) ? fs.readFileSync(counter, 'utf8').trim() : 0) };
+}
 
 describe('dt land — the happy path', () => {
 	test('one committed record lands, the primary recompiles, and the worktree and both branches are retired', () => {
@@ -272,6 +311,24 @@ describe('dt land — the copy is kept when the rebased tree does not check', ()
 		assert.equal(git(ws.root, ['rev-parse', 'HEAD']), before.primaryHead);
 		assert.equal(git(ws.wt, ['rev-parse', 'HEAD']), before.worktreeHead);
 		assert.deepEqual(landHolders(ws.root), [], 'a .land-* holder was left behind');
+
+		// ⚠ AND THE SECOND ATTEMPT MUST NOT FORCE IT FORWARD. The message above says to inspect
+		// land/a; a `branch -f` over it would delete the one thing the operator was told to look at.
+		const again = ws.land('worktrees/a');
+		assert.equal(again.code, 1, again.stdout);
+		assert.match(again.stderr, /land\/a exists from an earlier landing — inspect or delete it first/);
+		assert.notEqual(git(ws.root, ['branch', '--list', 'land/a']), '');
+	});
+});
+
+describe('dt land — the primary checkout is ONE refusal, not five', () => {
+	test('landing the primary says only that', () => {
+		const ws = landable();
+		const r = ws.land(`worktrees/${ws.root}`);
+		assert.equal(r.code, 1, r.stdout);
+		assert.equal(r.stderr.trim().split('\n').length, 2, `every consequence was listed as well:\n${r.stderr}`);
+		assert.match(r.stderr, /it is the primary checkout/);
+		assert.doesNotMatch(r.stderr, /nothing to land/);
 	});
 });
 
@@ -299,6 +356,78 @@ describe('dt land --dry-run mutates nothing', () => {
 	});
 });
 
+// ⚠ THE PRECONDITION IS STALE THE MOMENT IT IS MEASURED. `observeLand` reads the worktree's
+// cleanliness BEFORE the lock is taken, and a landing then spends seconds rebasing, compiling and
+// checking — during which the session that lives in that worktree may write. Both destructive
+// retire paths were probed with the hook below and both DESTROYED that work at exit 0 with nothing
+// printed. So the measurement is repeated as late as it can be, and a tree that moved is kept.
+describe('dt land — work written into the worktree DURING the landing survives it', () => {
+	test('an uncommitted record that appears mid-landing keeps the worktree instead of removing it', () => {
+		const ws = landable();
+		addAndCommit(ws.wt, 'first note');
+		const late = path.join(ws.wt, 'data', 'notes', '2026-01-02--written-mid-landing.note.md');
+		const probe = onCopyMoved(ws.root, `  printf -- '---\\ntitle: late\\n---\\n' > "${late}"`);
+
+		const r = ws.land('worktrees/a');
+		assert.equal(r.code, 0, `${r.stdout}\n${r.stderr}`);
+		assert.equal(probe.fired(), 1, 'the probe never ran — this test proves nothing');
+		assert.ok(fs.existsSync(late), 'the record written during the landing was DESTROYED');
+		assert.ok(fs.existsSync(ws.wt), 'the worktree was removed with work in it');
+		assert.match(r.stdout, /worktree kept at .+ — it changed during the landing \(1 path\); land again to pick them up/);
+		assert.equal(git(ws.root, ['branch', '--list', 'land/a']), '', 'the copy branch was kept as well');
+	});
+
+	test('… and under --keep the edit is not discarded by the reset', () => {
+		const ws = landable();
+		const rel = addAndCommit(ws.wt, 'first note');
+		const file = path.join(ws.wt, rel);
+		const probe = onCopyMoved(ws.root, `  printf -- 'edited mid-landing\\n' >> "${file}"`);
+
+		const r = ws.land('worktrees/a', '--keep');
+		assert.equal(r.code, 0, `${r.stdout}\n${r.stderr}`);
+		assert.equal(probe.fired(), 1);
+		assert.match(fs.readFileSync(file, 'utf8'), /edited mid-landing/, 'reset --hard discarded the edit');
+		assert.match(r.stdout, /it changed during the landing \(1 path\)/);
+	});
+});
+
+// ⚠ THE PRIMARY MOVES UNDER LANDINGS, and that is the ordinary case rather than the exotic one:
+// two lands rebased onto the same tip both produce a non-fast-forward (§13.2). The hook advances
+// the primary at the one instant that matters — after the rebase, before the merge.
+describe('dt land — the primary moving under the fast-forward', () => {
+	const advance = (root) => `  git -C "${root}" -c core.hooksPath=/dev/null commit -q --allow-empty -m "someone else landed"`;
+
+	test('one move is absorbed: the copy is rebased again and the landing succeeds', () => {
+		const ws = landable();
+		const rel = addAndCommit(ws.wt, 'first note');
+		const probe = onCopyMoved(ws.root, advance(ws.root), { max: 1 });
+
+		const r = ws.land('worktrees/a');
+		assert.equal(r.code, 0, `${r.stdout}\n${r.stderr}`);
+		assert.equal(probe.fired(), 1, 'the primary never moved — this test proves nothing');
+		assert.ok(fs.existsSync(path.join(ws.root, rel)), 'the record did not survive the retry');
+		const log = git(ws.root, ['log', '--format=%s', '-3']);
+		assert.match(log, /someone else landed/, "the other session's commit was rewritten away");
+		assert.match(log, /notes add/);
+		assert.ok(!fs.existsSync(ws.wt));
+	});
+
+	test('three moves in a row are refused by name, and nothing is left behind', () => {
+		const ws = landable();
+		addAndCommit(ws.wt, 'first note');
+		const probe = onCopyMoved(ws.root, advance(ws.root), { max: 3 });
+		const wtHead = git(ws.wt, ['rev-parse', 'HEAD']);
+
+		const r = ws.land('worktrees/a');
+		assert.equal(r.code, 1, r.stdout);
+		assert.equal(probe.fired(), 3);
+		assert.match(r.stderr, /the primary moved 3 times during the landing — try again/);
+		assert.equal(git(ws.wt, ['rev-parse', 'HEAD']), wtHead, 'the worktree branch was rewritten anyway');
+		assert.equal(git(ws.root, ['branch', '--list', 'land/a']), '', 'the copy branch survived the refusal');
+		assert.deepEqual(landHolders(ws.root), []);
+	});
+});
+
 describe('dt land --keep', () => {
 	test('the worktree survives, reset onto the landed commit, and only the copy branch is deleted', () => {
 		const ws = landable();
@@ -311,6 +440,69 @@ describe('dt land --keep', () => {
 		assert.match(r.stdout, /worktree kept at /);
 		assert.equal(git(ws.root, ['branch', '--list', 'land/a']), '', 'the copy branch survived');
 		assert.notEqual(git(ws.root, ['branch', '--list', 'worktree-a']), '', '--keep deleted the branch');
+	});
+});
+
+// ⚠ `--branch` IS THE ONE FLAG THAT MUTATES BEFORE THE PLAN IS EVEN MADE, which makes it the one
+// flag a dry run can silently violate — and it did.
+describe('dt land --branch', () => {
+	/** A detached worktree with a commit on it and no branch pointing at that commit. */
+	function detached() {
+		const ws = landable();
+		addAndCommit(ws.wt, 'first note');
+		git(ws.wt, ['switch', '--detach']);
+		git(ws.root, ['branch', '-D', 'worktree-a']);
+		return ws;
+	}
+
+	test('--dry-run --branch does NOT create the branch — it prints the switch as the first step', () => {
+		const ws = detached();
+		const before = { head: git(ws.wt, ['rev-parse', 'HEAD']), branches: git(ws.root, ['branch', '--list']), status: git(ws.wt, ['status', '--porcelain']) };
+
+		const r = ws.land('worktrees/a', '--branch', 'a', '--dry-run');
+		assert.equal(r.code, 0, `${r.stdout}\n${r.stderr}`);
+		assert.match(r.stdout, /▶ branch: would switch .+ to worktree-a/);
+		assert.match(r.stdout, /1 commit · 1 record file in 1 collection/, 'the plan was computed against the branch it would create');
+		assert.equal(git(ws.root, ['branch', '--list']), before.branches, 'the DRY RUN created the branch');
+		assert.equal(git(ws.wt, ['rev-parse', 'HEAD']), before.head);
+		assert.equal(git(ws.wt, ['status', '--porcelain']), before.status);
+		assert.equal(git(ws.wt, ['rev-parse', '--abbrev-ref', 'HEAD']), 'HEAD', 'the worktree was switched onto a branch');
+	});
+
+	// The name is not a free choice: `listWorktrees` RECOVERS a worktree's name from `worktree-<n>`,
+	// so a different one renames the worktree out from under `list`, `get`, `rm` and this verb.
+	test('a --branch that is not the worktree name is refused, and nothing is switched', () => {
+		const ws = detached();
+		const r = ws.land('worktrees/a', '--branch', 'zulu');
+		assert.equal(r.code, 1, r.stdout);
+		assert.match(r.stderr, /--branch must be a — the worktree's branch is worktree-a/);
+		assert.equal(git(ws.root, ['branch', '--list', 'worktree-zulu']), '');
+		assert.equal(git(ws.wt, ['rev-parse', '--abbrev-ref', 'HEAD']), 'HEAD');
+	});
+});
+
+// ⚠ AN UNTESTED SHELL-OUT IS AN UNTESTED SHELL-OUT. `npm ci` runs only when the landing moved the
+// lockfile, and no fixture can make the real npm's absence or presence the thing under test — so the
+// runner is a parameter, exactly as `git` is everywhere else in this file's source.
+describe('dt land — npm ci in the primary', () => {
+	const spy = () => { const calls = []; return { calls, run: (npm, args, opts) => (calls.push({ npm, args, cwd: opts.cwd }), { status: 0 }) }; };
+
+	test('it runs iff package-lock.json is in the range', () => {
+		const ws = landable();
+		fs.writeFileSync(path.join(ws.wt, 'package-lock.json'), '{\n\t"name": "fixture",\n\t"lockfileVersion": 3\n}\n');
+		git(ws.wt, ['add', '--', 'package-lock.json']);
+		git(ws.wt, ['commit', '-qm', 'deps: a lockfile']);
+		const withLock = spy();
+		assert.equal(landWorktree(ws.ws, 'a', { npmRun: withLock.run }).code, 0);
+		assert.equal(withLock.calls.length, 1, 'npm ci did not run for a landing that moved the lockfile');
+		assert.deepEqual(withLock.calls[0].args, ['ci', '--prefer-offline', '--no-audit', '--no-fund']);
+		assert.equal(withLock.calls[0].cwd, ws.root, 'npm ci ran somewhere other than the primary');
+
+		const plain = landable();
+		addAndCommit(plain.wt, 'first note');
+		const noLock = spy();
+		assert.equal(landWorktree(plain.ws, 'a', { npmRun: noLock.run }).code, 0);
+		assert.deepEqual(noLock.calls, [], 'npm ci ran for a landing that touched no lockfile');
 	});
 });
 
@@ -327,6 +519,24 @@ describe('dt land — the invocation itself', () => {
 		const r = ws.land('worktrees/a', '--bogus');
 		assert.equal(r.code, 1, r.stdout);
 		assert.match(r.stderr, /unknown flag "--bogus"/);
+	});
+
+	test('a positional beside --hook is refused before stdin is even read', () => {
+		const ws = landable();
+		const r = dtStdin(ws.root, JSON.stringify({ worktree_path: ws.wt }), 'land', 'worktrees/a', '--hook', '--dry-run');
+		assert.equal(r.code, 1, r.stdout);
+		assert.match(r.stderr, /--hook reads the worktree from stdin — drop the positional \("worktrees\/a"\)/);
+	});
+
+	// WorktreeRemove fires around a removal the harness is performing, so the tree may already be
+	// gone by the time this runs. That is the event having nothing to report, not a failure — and a
+	// non-zero exit would surface as a broken hook on every ordinary worktree deletion.
+	test('--hook on a path git no longer lists says so and exits 0', () => {
+		const ws = landable();
+		const gone = path.join(ws.root, '.worktrees', 'already-removed');
+		const r = dtStdin(ws.root, JSON.stringify({ cwd: ws.root, worktree_path: gone }), 'land', '--hook', '--dry-run');
+		assert.equal(r.code, 0, r.stderr);
+		assert.match(r.stdout, /is not a registered worktree \(already removed\?\)/);
 	});
 
 	test('--hook with no JSON on stdin says so instead of landing something', () => {
