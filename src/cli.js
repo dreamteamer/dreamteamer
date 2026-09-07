@@ -526,7 +526,11 @@ export function run(argv) {
 				// ⚠ THE FAIL IS FATAL ONLY WHEN ASKED. `status` is the command you run when things are
 				// already wrong, so it prints EVERYTHING first and gates last — the same shape the
 				// staleness exit above has.
-				if (rest.includes('--strict') && proofsFailed) {
+				// ⚠ R38 — `--strict=true` IS THE SAME FLAG. The unknown-flag gate above splits on `=`, so
+				// that spelling was ACCEPTED and then read as "no --strict at all" — a CI step written
+				// that way stayed green over a failing proof, for a reason nothing printed. Matched the
+				// way the gate matches, by flag NAME.
+				if (rest.some((a) => a.startsWith('--') && a.slice(2).split('=')[0] === 'strict') && proofsFailed) {
 					console.log(`✖ ${proofsFailed} proof(s) FAILED on this machine — dt list proofs`);
 					process.exit(1);
 				}

@@ -22,9 +22,10 @@ npx dreamteamer check
 
 ## 0.21.0 → 0.22.0
 
-**Two things: `install` is now the one verb that makes a thing ready, and three verb spellings
-changed.** The renames are BREAKING and fail with the translation printed; the `install` work is
-additive. `dt compile` after upgrading, as always.
+**Three things: `install` is now the one verb that makes a thing ready, three verb spellings
+changed, and `dt prove` arrives with a `proofs/` source kind.** The renames are BREAKING and fail
+with the translation printed; the `install` and `prove` work is additive. `dt compile` after
+upgrading, as always.
 
 ### The complete mapping
 
@@ -118,7 +119,80 @@ override, and it means what it says.
 the asset is a SYMLINK, and a dir-only pattern (`big-files/`) matches neither a symlink nor an
 absent path — so the compile refusal fires on a path you believe you ignored. Write `big-files`.
 
-### `dt status` gains two lines
+### `dt prove` — a proof is a record, and a verdict is an exit code
+
+**A new source kind, `proofs/`, and a new verb.** Purely additive: nothing breaks, no existing
+workspace has a proof, and a workspace with none is unaffected beyond one extra line of compile
+output.
+
+A **proof** is a record that says what an artifact — a skill, a command, a command-binding, a module
+script — actually does, in a form the engine can run and judge. It lives at
+`modules/<module>/proofs/<id>.proof.yaml` and is hand-authored: **`dt add proofs` is refused**,
+naming the file to write, exactly as skills and commands are. Every other record verb works on it
+(`list` · `get` · `set` · `rm` · `rename`). Two kinds: a **gate** (run steps, judged on exit codes)
+and a **live** proof (picks one record, runs its steps, and judges the post-state with `expect`).
+
+```bash
+dt prove <proof>                 # one proof — the transcript, and one of six exit codes
+dt prove skills/<id>             # every proof whose `about` names that artifact — a board
+dt prove --all [--kind gate|live] [--external] [--strict] [--json]
+dt list proofs [--missing]
+dt status [--strict]
+```
+
+**The exit code is the contract:**
+
+| code | state | means |
+|---|---|---|
+| `0` | PASS | every expectation held |
+| `1` | FAIL | a step failed, or an expectation did not hold |
+| `2` | usage | reserved — what a RETIRED verb spelling answers, never a proof state. A bad flag or an unknown target inside `dt prove` exits `1` |
+| `3` | UNAVAILABLE | this machine lacks a required var or binary — not a failure of the artifact |
+| `4` | NO-FIXTURE | the `given` matched no record |
+| `5` | PENDING | a `perform` step is owed a human or an agent |
+| `6` | VACUOUS | every expectation ALREADY held before any step ran |
+
+⚠ **Two strings are contracts from this release on:** the six codes above, and the ledger path
+`.dreamteamer/.proofs/<proof-id>.jsonl`. A script may branch on either.
+
+**The ledger** is per proof, per machine, append-only, capped at the last 50 rows, and gitignored
+(it sits under `.dreamteamer/`, and the dot prefix is why compile's kind-folder wipe cannot reach
+it). It is EVIDENCE, not data: `rm -rf .dreamteamer && dt compile` takes it with it, and the cost is
+re-proving rather than data loss.
+
+**`dt compile` prints one coverage line on every compile, even at zero** —
+`proofs: 0 declared · commands 0/3 · skills 0/1 · scripts 0/2 · bindings 0/1` — and nudges once when
+a NEW command or script compiles with no proof, naming the file to write. A first-ever compile
+nudges nothing, so adopting the engine does not produce forty warnings on day one.
+**`dt list proofs`** appends two computed columns — availability on THIS machine (with the fix, never
+a `.env` value) and the ledger tail — and **`dt list proofs --missing`** names every artifact no proof
+is about. **`dt status`** gains a `proofs:` line counting each proof's last verdict here, and
+**`dt status --strict`** exits 1 when any of those tails is a FAIL.
+
+**A `writes` proof runs in a sandbox** — a detached throwaway worktree under `.worktrees/.tmp-*`, cut
+from HEAD, carrying the proof's own fixture (`modules/<module>/proofs/fixtures/<id>/data/…`), removed
+the moment the verdict is in. The primary store is never touched. `--keep` leaves it for inspection
+(and `dt status` counts what was left behind); `--here` is the documented opt-out for a proof meant
+to run against a real record, and it says so out loud before it writes anything. ⚠ Because the
+sandbox is cut from HEAD, **a descriptor that is not committed is not compiled inside it** — commit
+the schema before the proof that needs it.
+
+**What to do after upgrading: nothing.** `dt compile` as always. Then write your first proof — the
+cheapest one is a gate over a script you already run by hand:
+
+```yaml
+name: export-runs-clean
+about: [hr/bin/export.mjs]
+kind: gate
+description: the export script runs end to end and exits 0.
+steps:
+  - run: node modules/hr/bin/export.mjs --dry-run
+```
+
+`dt compile && dt prove export-runs-clean`. The full reference — the predicate language, the resume
+protocol, the sandbox and the eval layer — is `using-dreamteamer › references/proofs.md`.
+
+### `dt status` gains a checkout and a worktrees line
 
 A **`checkout:`** line — primary, or linked worktree and which primary it belongs to — and a
 **`worktrees:`** line: how many, how many hold dirty records, how many are ahead. So a session can

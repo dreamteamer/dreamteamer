@@ -706,10 +706,15 @@ function readOne(store, collection, id) {
  *
  * `bin` walks `PATH` with `accessSync(X_OK)` rather than shelling out to `command -v`: a proof's
  * requirement check must not itself run a shell.
+ *
+ * ⚠ `names` IS HOISTED OUT ON PURPOSE (R38). `dt list proofs` asks this question once per row, and
+ * the key set is a property of the MACHINE, not of the proof — so parsing `.env` inside meant
+ * reading and parsing the same file once per proof for a listing whose whole job is to be cheap.
+ * The caller that loops passes it in; every other caller gets the default and never learns the seam
+ * exists.
  */
-export function resolveRequires(ws, requires) {
+export function resolveRequires(ws, requires, names = envKeys(ws.root)) {
 	const missing = [];
-	const names = envKeys(ws.root);
 	for (const name of requires?.env ?? []) {
 		if (process.env[String(name)] !== undefined || names.has(String(name))) continue;
 		missing.push({ kind: 'env', name: String(name), fix: `${name} is not set — add it to .env` });
@@ -722,8 +727,9 @@ export function resolveRequires(ws, requires) {
 }
 
 /** The KEY NAMES this machine's `.env` declares. Absent file → no names, which is the ordinary state
- *  in a cloud session and not an error. */
-function envKeys(root) {
+ *  in a cloud session and not an error. Exported so a caller that asks `resolveRequires` many times
+ *  in a row (`dt list proofs`) can read the file ONCE and hand the set down. */
+export function envKeys(root) {
 	try { return new Set(parseEnvValues(fs.readFileSync(path.join(root, '.env'), 'utf8')).keys()); }
 	catch { return new Set(); }
 }
