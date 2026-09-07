@@ -15,9 +15,9 @@ import { execFileSync } from 'node:child_process';
 import { findWorkspace } from './workspace.js';
 import { compile, staleness, warnIfStale, discoverModules, CHANNEL_LABEL, locationOf, KINDS } from './compile.js';
 import { check } from './check.js';
-import { collectionCommand, emit, relationsCommand } from './collections-cli.js';
+import { collectionCommand, emit, relationsCommand, parseArgs, refuseUnknownFlags } from './collections-cli.js';
 import { init, installClone, update, listRepos } from './init.js';
-import { installCommand } from './checkout.js';
+import { installCommand, describeCheckout, listWorktrees, worktreeCommand } from './checkout.js';
 import { deriveEvents } from './events.js';
 import { commitPending } from './commit.js';
 import { Store } from './store.js';
@@ -166,6 +166,13 @@ workspace verbs:
               materialize an attached repo's working tree ON DEMAND — never as part of making a
               checkout ready; --all is the explicit opt-in, e.g. before going offline
   install     --clone <url> [name]            attach a git module to this workspace
+  add         worktrees --name <n> [--path <dir>] [--base <ref>] [--temp]
+              cut a linked git worktree on branch worktree-<n> and \`install\` it, so it is ready
+              to work in; it prints its absolute path LAST, which is what a creation hook echoes.
+              --temp: detached, no branch, under .worktrees/.tmp-* inside this root — a sandbox
+  list        worktrees | get worktrees/<n> | rm worktrees/<n> [--force]
+              observed from \`git worktree list\`, never stored. rm refuses a worktree holding
+              dirty records or commits not on the primary branch — neither is visible from here
   update      pull git_modules clones forward (ff-only on the lockfile ref), rebuild,
               then compile; [<name>] updates just one. dirty clones are skipped
   compile     materialize modules + workspace sources into .dreamteamer (+ harness adapters)
@@ -437,9 +444,21 @@ export function run(argv) {
 				process.exit(0);
 			case 'list': case 'add': case 'values':
 			case 'get': case 'set': case 'rm': case 'rename': case 'history': case 'diff': case 'revert':
-			case 'move': case 'commands':
+			case 'move': case 'commands': {
+				// ⚠ `worktrees` IS NOT A COLLECTION — it is observed from git — so it is intercepted
+				// here rather than being dispatched. Which means it never reaches
+				// `collectionCommand`, where every other verb's flags are refused: the parse and the
+				// refusal have to be done HERE or `--tmep` is swallowed and a request for a
+				// throwaway sandbox silently becomes a permanent branch worktree.
+				const target = rest[0];
+				if (target === 'worktrees' || target?.startsWith('worktrees/')) {
+					const { flags } = parseArgs(rest.slice(1));
+					refuseUnknownFlags(null, 'worktrees', cmd, flags);
+					process.exit(worktreeCommand(ws, cmd, target, flags));
+				}
 				warnIfStale(ws.root);
 				process.exit(dispatchRecordVerb(ws, cmd, rest));
+			}
 			// The verb `check`'s stale-mirror message names. It reads the compiled relations, and
 			// rebuild WRITES records, so both want the same staleness warning every record verb gets.
 			// FIELD VERBS — see FIELD_VERBS. Their <target> is a collection and everything else is

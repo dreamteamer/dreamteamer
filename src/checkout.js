@@ -3,6 +3,7 @@
 import path from 'node:path';
 import fs, { realpathSync } from 'node:fs';
 import { execFileSync, spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { staleness, compile, discoverModules } from './compile.js';
 import { install as restoreGitModules } from './init.js';
 
@@ -203,4 +204,153 @@ export function installCommand(ws, rest) {
 	if (json) { console.log(JSON.stringify({ checkout: state.checkout, steps, log: board, code }, null, 2)); return code; }
 	if (state.checkout.kind === 'linked') log(`\nbefore you finish here: dt commit your records. Landing (dt land worktrees/${path.basename(ws.root)}) ships in slice 4 — until then the primary merges branch ${'worktree-' + path.basename(ws.root)} by hand.`);
 	return code;
+}
+
+// ---- worktrees: an OBSERVED entity ---------------------------------------------------------
+//
+// There is no `worktrees` collection and no record. `git worktree list` is the authority, and a
+// stored copy of it could only ever drift — a worktree the operator removed by hand, a branch
+// deleted from the primary, a directory moved. So every row below is DERIVED: git's porcelain plus
+// two cheap reads per row (the dirty records under the data path, and whether a manifest is there).
+
+/** Every checkout of this repo, primary first, as git reports it.
+ *
+ *  ⚠ `ahead` IS NULL FOR A DETACHED WORKTREE, not 0 — `rev-list <primary>..<no branch>` has nothing
+ *  to count, and `--detach` is how anyone bisects, so the null case is ordinary rather than exotic.
+ *  `dirtyRecords` is deliberately scoped to the DATA path: uncommitted records are the thing that
+ *  cannot be recovered from the primary, and they are invisible from it. */
+export function listWorktrees(ws, git = defaultGit) {
+	const c = describeCheckout(ws.root, git);
+	const primaryBranch = git(['rev-parse', '--abbrev-ref', 'HEAD'], c.primary);
+	const dataPath = ws.pkg.dreamteamer?.['data-path'] ?? 'data';
+	const rows = [];
+	let cur = null;
+	for (const line of git(['worktree', 'list', '--porcelain'], c.primary).split('\n')) {
+		if (line.startsWith('worktree ')) { cur = { path: line.slice(9), branch: null, head: null }; rows.push(cur); }
+		else if (line.startsWith('HEAD ')) cur.head = line.slice(5, 12);
+		else if (line.startsWith('branch ')) cur.branch = line.slice(7).replace(/^refs\/heads\//, '');
+	}
+	return rows.map((w) => {
+		const primary = real(w.path) === real(c.primary);
+		let ahead = null;
+		if (w.branch && !primary) {
+			try { ahead = Number(git(['rev-list', '--count', `${primaryBranch}..${w.branch}`], c.primary)); } catch { ahead = null; }
+		}
+		let dirtyRecords = 0;
+		try { dirtyRecords = git(['status', '--porcelain', '--', dataPath], w.path).split('\n').filter(Boolean).length; } catch { /* unreadable tree — a moved or deleted directory */ }
+		return {
+			name: path.basename(w.path), path: w.path, branch: w.branch, head: w.head, primary, ahead, dirtyRecords,
+			bootstrapped: resolves(path.join(w.path, '.dreamteamer', 'manifest.yaml')),
+		};
+	});
+}
+
+/** A worktree by directory basename or by path — one id shape, two spellings, because the name is
+ *  what an operator types and the path is what a hook echoes. */
+function findWorktree(ws, ref) {
+	if (!ref) return null;
+	return listWorktrees(ws).find((w) => w.name === ref || real(w.path) === real(path.resolve(ws.root, ref))) ?? null;
+}
+
+/** The engine binary that is RUNNING — never `node_modules/dreamteamer` resolved in the workspace.
+ *  The new tree may have no node_modules at all yet, and the engine the operator invoked is the one
+ *  that should make it ready. */
+const engineBin = () => fileURLToPath(new URL('../bin/dreamteamer.js', import.meta.url));
+
+export function addWorktree(ws, { name, dir, base = 'HEAD', temp = false }, git = defaultGit) {
+	if (!name) throw new Error('dt add worktrees needs --name <name>');
+	const c = describeCheckout(ws.root, git);
+	if (findWorktree(ws, name)) throw new Error(`worktree "${name}" already exists — dt get worktrees/${name}`);
+	if (!temp && git(['branch', '--list', `worktree-${name}`], c.primary)) {
+		throw new Error(`branch worktree-${name} already exists — pick another name or delete the branch`);
+	}
+	// ⚠ --temp LIVES INSIDE THE PRIMARY ROOT TOO: `.worktrees/.tmp-<rand>/<name>`. Two measured
+	// reasons, neither cosmetic. `.env` is linked only for a worktree under the primary root, so a
+	// sandbox outside it would never get credentials; and git records the REALPATH of a worktree,
+	// while macOS resolves /var to /private/var — so an os.tmpdir() sandbox compares unequal to its
+	// own row in `git worktree list` and could be neither got nor removed by the path it printed.
+	const holder = path.join(c.primary, '.worktrees');
+	if (temp) fs.mkdirSync(holder, { recursive: true });
+	// ⚠ NEVER PRE-CREATE `target`: `git worktree add` creates it, and an empty pre-created folder is
+	// swept by compile's empty-directory pass.
+	const target = temp ? path.join(fs.mkdtempSync(path.join(holder, '.tmp-')), name)
+		: path.resolve(ws.root, dir ?? path.join(holder, name));
+	git(temp ? ['worktree', 'add', '--detach', target, base] : ['worktree', 'add', '-b', `worktree-${name}`, target, base], c.primary);
+	// The engine must be reachable from the new tree before `install` can compile there. When THIS
+	// tree's node_modules/dreamteamer is a SYMLINK (a dev shadow, a test fixture) mirror that ONE
+	// link — never the node_modules directory, which is a real folder holding it. Otherwise
+	// install's own engine step runs npm there, so a real workspace pays one `npm ci` per worktree
+	// and per --temp sandbox (from the npm cache).
+	const eng = path.join(ws.root, 'node_modules', 'dreamteamer');
+	if (isLink(eng)) {
+		fs.mkdirSync(path.join(target, 'node_modules'), { recursive: true });
+		fs.symlinkSync(realpathSync(eng), path.join(target, 'node_modules', 'dreamteamer'), 'dir');
+	}
+	const r = spawnSync(process.execPath, [engineBin(), 'install'], { cwd: target, stdio: 'inherit' });
+	if (r.status !== 0) console.warn(`⚠ install inside ${target} exited ${r.status} — the worktree exists; re-run dt install there`);
+	console.log(target); // LAST line, by contract: a creation hook echoes it
+	return 0;
+}
+
+/** ⚠ IT REFUSES BY DEFAULT, AND THE REASON IS NAMED. A worktree holds two things the primary cannot
+ *  see: records written but not committed, and commits not yet landed. `git worktree remove` knows
+ *  about neither — it checks a dirty tree and stops there — so the records, the one thing this
+ *  engine exists to keep, are exactly what a bare `remove` would take with it. */
+export function removeWorktree(ws, ref, { force = false } = {}, git = defaultGit) {
+	const w = findWorktree(ws, ref);
+	if (!w) throw new Error(`no worktree "${ref}" — dt list worktrees`);
+	if (w.primary) throw new Error('refusing to remove the primary checkout');
+	const c = describeCheckout(ws.root, git);
+	const primaryBranch = git(['rev-parse', '--abbrev-ref', 'HEAD'], c.primary);
+	if (!force) {
+		const dirty = git(['status', '--porcelain'], w.path).split('\n').filter(Boolean).length;
+		const why = [];
+		if (w.dirtyRecords) why.push(`${w.dirtyRecords} dirty record(s) — dt commit them, or --force to discard`);
+		else if (dirty) why.push(`${dirty} uncommitted change(s) — commit or --force`);
+		if (w.ahead) why.push(`${w.ahead} commit(s) not on ${primaryBranch} — merge branch ${w.branch}, or --force to discard`);
+		if (why.length) throw new Error(`refusing to remove worktree "${w.name}":\n  ${why.join('\n  ')}`);
+	}
+	git(['worktree', 'remove', ...(force ? ['--force'] : []), w.path], c.primary);
+	// Only a branch this verb CREATED is deleted with the worktree. A worktree checked out on
+	// `main` or on someone's feature branch keeps it.
+	if (w.branch === `worktree-${w.name}`) {
+		try { git(['branch', force ? '-D' : '-d', w.branch], c.primary); } catch { console.warn(`⚠ branch ${w.branch} kept (not merged)`); }
+	}
+	console.log(`✔ removed worktree ${w.name}`);
+	return 0;
+}
+
+/** `dt list|get|add|rm worktrees[/<ref>]`. The flags arrive PARSED and already refused by the
+ *  surface — `worktrees` has no descriptor, so nothing downstream would catch a typo. */
+export function worktreeCommand(ws, verb, target, flags = {}) {
+	// A repeated flag arrives as an array (the parser promotes rather than overwrites). Every flag
+	// here holds ONE value, so a repeat is a mistake — and a silent last-one-wins would spell
+	// `--name a --name b` as the branch `worktree-a,b`.
+	const one = (k) => {
+		if (Array.isArray(flags[k])) throw new Error(`--${k} was given ${flags[k].length} times and takes ONE value: ${flags[k].map((x) => `--${k} ${x}`).join(' ')}`);
+		return typeof flags[k] === 'string' ? flags[k] : undefined;
+	};
+	const json = !!flags.json;
+	// SLICE, never split: `worktrees//abs/path` is one valid id, and a split at '/' mangles it.
+	const id = target.startsWith('worktrees/') ? target.slice('worktrees/'.length) : null;
+	const needId = () => { if (!id) throw new Error(`dt ${verb} needs a worktree: dt ${verb} worktrees/<name>`); return id; };
+	switch (verb) {
+		case 'list': {
+			const rows = listWorktrees(ws);
+			if (json) console.log(JSON.stringify(rows, null, 2));
+			else for (const w of rows) {
+				console.log(`${w.primary ? '●' : '○'} ${w.name.padEnd(24)} ${(w.branch ?? '(detached)').padEnd(28)} ${w.head}  ahead ${w.ahead ?? '—'}  dirty records ${w.dirtyRecords}  ${w.bootstrapped ? 'installed' : 'NOT installed'}  ${w.path}`);
+			}
+			return 0;
+		}
+		case 'get': {
+			const w = findWorktree(ws, needId());
+			if (!w) throw new Error(`no worktree "${id}" — dt list worktrees`);
+			console.log(json ? JSON.stringify(w, null, 2) : Object.entries(w).map(([k, v]) => `${k}: ${v}`).join('\n'));
+			return 0;
+		}
+		case 'add': return addWorktree(ws, { name: one('name'), dir: one('path'), base: one('base'), temp: !!flags.temp });
+		case 'rm': return removeWorktree(ws, needId(), { force: !!flags.force });
+		default: throw new Error(`dt ${verb} does not apply to worktrees — they take list · get · add · rm`);
+	}
 }
