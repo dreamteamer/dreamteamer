@@ -703,6 +703,12 @@ export function run(argv) {
 		}
 	} catch (e) {
 		console.error(`✖ ${e.message}`);
+		// ⚠ AND ON STDOUT UNDER `--hook`, because that is the whole reason the shim exists.
+		// `bin/dt-hook.sh` fails onto stdout with a comment saying why: a hook's stdout is added to
+		// the session's context and its stderr is nobody's problem. Every success path here already
+		// prints to stdout; every FAILURE went to stderr alone, so a mis-wired hook, a bad payload, a
+		// TTY invocation or a refusal was invisible to exactly the reader the shim was built for.
+		if (process.argv.includes('--hook')) console.log(`✖ ${e.message}`);
 		process.exit(1);
 	}
 }

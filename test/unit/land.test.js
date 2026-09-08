@@ -17,7 +17,9 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { LAND_LOCK, MANAGED_FILES, isManaged, classifyConflict, groupByCollection, planLand } from '../../src/land.js';
+import os from 'node:os';
+import path from 'node:path';
+import { LAND_LOCK, MANAGED_FILES, isManaged, classifyConflict, groupByCollection, planLand, mirrorModules } from '../../src/land.js';
 import { BEGIN, END } from '../../src/harnesses.js';
 
 const markers = { BEGIN, END };
@@ -259,31 +261,38 @@ describe('planLand — the refusals, each for exactly its state', () => {
 const idsFor = (patch) => planLand({ ...clean(), ...patch }).steps.map((s) => s.id);
 
 describe('planLand — the steps, in the order they run', () => {
-	test('the ordinary landing: lock, a copy, the rebase, check, ff, recompile the primary, retire', () => {
-		assert.deepEqual(idsFor({}), ['lock', 'copy', 'rebase', 'check', 'ff', 'recompile-primary', 'retire']);
+	test('the ordinary landing: lock, a copy, the rebase, recompile the copy, check, ff, recompile the primary, retire', () => {
+		assert.deepEqual(idsFor({}), ['lock', 'copy', 'rebase', 'recompile-copy', 'check', 'ff', 'recompile-primary', 'retire']);
 	});
 
 	test('every step says why — the plan is what --dry-run prints', () => {
 		for (const s of planLand(clean()).steps) assert.ok(s.why && s.why.length > 0, `step ${s.id} has no why`);
 	});
 
-	test('recompile-copy appears iff a managed file is in the range', () => {
-		assert.ok(!idsFor({}).includes('recompile-copy'));
+	// ⚠ THE PLAN IS THE RUN, and this test used to lock in the opposite. `landWorktree` compiles the
+	// copy on EVERY landing — `.dreamteamer/` is gitignored, so a fresh checkout has no runtime for
+	// `check` to read — while the plan listed the step only when a managed file was in the range. A
+	// --dry-run over pure record commits therefore printed a plan the real run did not follow.
+	test('recompile-copy is in EVERY plan, and its why names the managed files when there are any', () => {
+		assert.deepEqual(idsFor({}),
+			['lock', 'copy', 'rebase', 'recompile-copy', 'check', 'ff', 'recompile-primary', 'retire']);
 		assert.deepEqual(idsFor({ range: { commits: 1, files: ['CLAUDE.md', 'data/notes/a.note.md'] } }),
 			['lock', 'copy', 'rebase', 'recompile-copy', 'check', 'ff', 'recompile-primary', 'retire']);
-		assert.ok(idsFor({ range: { commits: 1, files: ['AGENTS.md'] } }).includes('recompile-copy'), 'AGENTS.md carries a block too');
-		assert.ok(!idsFor({ range: { commits: 1, files: ['docs/CLAUDE.md', '.cursor/rules/dreamteamer.mdc'] } }).includes('recompile-copy'),
-			'neither a nested instruction file nor a cursor rule triggers a recompile of the copy');
+		const whyOf = (state) => planLand({ ...clean(), ...state }).steps.find((x) => x.id === 'recompile-copy').why;
+		assert.match(whyOf({ range: { commits: 1, files: ['AGENTS.md'] } }), /AGENTS\.md/, 'AGENTS.md carries a block too');
+		// a nested instruction file and a cursor rule are NOT managed — the step still runs, but its
+		// why must not claim they are blocks being regenerated
+		assert.doesNotMatch(whyOf({ range: { commits: 1, files: ['docs/CLAUDE.md', '.cursor/rules/dreamteamer.mdc'] } }), /managed file/);
 	});
 
 	test('npm-ci appears iff package-lock.json is in the range, and after the fast-forward', () => {
 		assert.ok(!idsFor({}).includes('npm-ci'));
 		assert.deepEqual(idsFor({ range: { commits: 1, files: ['package-lock.json'] } }),
-			['lock', 'copy', 'rebase', 'check', 'ff', 'npm-ci', 'recompile-primary', 'retire']);
+			['lock', 'copy', 'rebase', 'recompile-copy', 'check', 'ff', 'npm-ci', 'recompile-primary', 'retire']);
 	});
 
 	test('--keep drops retire and nothing else', () => {
-		assert.deepEqual(idsFor({ keep: true }), ['lock', 'copy', 'rebase', 'check', 'ff', 'recompile-primary']);
+		assert.deepEqual(idsFor({ keep: true }), ['lock', 'copy', 'rebase', 'recompile-copy', 'check', 'ff', 'recompile-primary']);
 	});
 
 	test('both extras together, still in the contract\'s order', () => {
@@ -295,5 +304,49 @@ describe('planLand — the steps, in the order they run', () => {
 		const [lock] = planLand(clean()).steps;
 		assert.equal(lock.id, 'lock');
 		assert.ok(lock.why.includes(LAND_LOCK), `the lock step names ${LAND_LOCK}: ${lock.why}`);
+	});
+});
+
+// ⚠ THE SEAM BETWEEN TWO TASKS, and the one thing a per-task review could not see. `createWorktree`
+// (checkout.js) learned to mirror a shadowing `git_modules/<name>` symlink into a new worktree;
+// `land` makes a SECOND worktree — the throwaway the rebase runs in — and never got the same fix.
+// `git_modules/` is gitignored, so the copy had none, and `land` runs only `compile` there, never
+// `install`. The copy therefore compiled without a whole module and did two silent things with the
+// result: committed an orientation block missing that module's collections onto the primary branch,
+// and ran the `check` gate against fewer collections than the workspace has.
+describe('mirrorModules — the copy compiles with the SAME modules as the primary', () => {
+	const mk = () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dt-mirror-'));
+		fs.mkdirSync(path.join(root, 'primary', 'git_modules'), { recursive: true });
+		fs.mkdirSync(path.join(root, 'primary', 'node_modules'), { recursive: true });
+		fs.mkdirSync(path.join(root, 'temp'), { recursive: true });
+		fs.mkdirSync(path.join(root, 'elsewhere', 'extra'), { recursive: true });
+		return root;
+	};
+
+	test('a SYMLINKED git_modules entry is mirrored into the temp tree', () => {
+		const root = mk();
+		fs.symlinkSync(path.join(root, 'elsewhere', 'extra'), path.join(root, 'primary', 'git_modules', 'extra'), 'dir');
+		mirrorModules(path.join(root, 'primary'), path.join(root, 'temp'));
+		const at = path.join(root, 'temp', 'git_modules', 'extra');
+		assert.ok(fs.existsSync(at), 'the shadowing module never reached the copy — it would compile a truncated orientation block');
+		assert.equal(fs.realpathSync(at), fs.realpathSync(path.join(root, 'elsewhere', 'extra')));
+	});
+
+	// LINKS ONLY, for the reason createWorktree gives: a real clone under git_modules/ is
+	// per-checkout working state, and linking it would hand two checkouts one working tree.
+	test('a REAL git_modules clone is left alone', () => {
+		const root = mk();
+		fs.mkdirSync(path.join(root, 'primary', 'git_modules', 'hr'), { recursive: true });
+		mirrorModules(path.join(root, 'primary'), path.join(root, 'temp'));
+		assert.equal(fs.existsSync(path.join(root, 'temp', 'git_modules', 'hr')), false);
+	});
+
+	test('node_modules is still mirrored, and no git_modules folder is invented when there is none', () => {
+		const root = mk();
+		fs.rmSync(path.join(root, 'primary', 'git_modules'), { recursive: true });
+		mirrorModules(path.join(root, 'primary'), path.join(root, 'temp'));
+		assert.ok(fs.existsSync(path.join(root, 'temp', 'node_modules')));
+		assert.equal(fs.existsSync(path.join(root, 'temp', 'git_modules')), false);
 	});
 });

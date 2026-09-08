@@ -2,9 +2,9 @@
 	"measured": "2026-09-08",
 	"note": "Budgets are ceilings, re-based 2026-09-07 on the operator's standing instruction: every budget carries at least 20% headroom over the measured value at that date, rounded up to the hundred. ⚠ The script's `--update` writes ~10% and drops the SURFACE ceilings to the measured count — those three are set by hand and left alone (surface.collections 11 keeps one slot above the ten `proofs` made; skills and agents keep theirs), and the three numeric ceilings are re-raised to the 20% line the first sentence promises. Raising one is still a deliberate act — do it in the same commit as the growth, and say why in the message. Headroom is not permission: the three questions (does the ENGINE read it · is this a recipe creeping into core · could a module do it instead) are owed whatever the number says. ⚠ Re-measured 2026-09-08 on the MERGED 0.22.0 tree (export + prove + land); all six ceilings still hold with the largest at 92% (code.total 9466/10300), so the combined release needed no budget raised.",
 	"code": {
-		"total": 9466,
+		"total": 9496,
 		"comments": 5800,
-		"decisions": 3901,
+		"decisions": 3906,
 		"files": 33
 	},
 	"surface": {
