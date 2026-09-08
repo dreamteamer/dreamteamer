@@ -28,6 +28,14 @@ const fixture = (harnesses = ['notebooklm']) =>
 	workspace({ pkg: { harnesses }, collections: { people: PEOPLE, ledger: LEDGER } });
 
 describe('NOTEBOOKLM.md is written when the harness is on', () => {
+	test('⚠ it warns that --mode DISCARDS the persona, and never advises setting one', () => {
+		const md = readFile(fixture().root, 'NOTEBOOKLM.md');
+		assert.match(md, /chat mode \| \*\*do not set one\*\*/);
+		assert.match(md, /passing `--mode` with a persona silently discards the persona/);
+		assert.match(md, /a bare `configure`.*CLEARS them/s, 'the no-read-only-inspection trap must be stated');
+		assert.ok(!/\| chat mode \| \*\*default\*\*/.test(md), 'advising --mode default is the defect');
+	});
+
 	test('it carries the settings, the persona and the limits', () => {
 		const ws = fixture();
 		const md = readFile(ws.root, 'NOTEBOOKLM.md');
