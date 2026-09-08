@@ -341,9 +341,11 @@ describe('the flag tables and `dt help` do not drift apart', () => {
 	const OPEN_HALF = ['collection', 'layout', 'path', 'version'];
 	// Accepted and NOT in `dt help` — every one a real documentation gap, listed so it is a decision
 	// rather than a silence. `--field` and `--default` are undocumented ALIASES of `--name` and
-	// `--default-value`; the three `init` flags and the three `modules set` keys are documented in
-	// their positional `k=v` spelling only.
-	const UNDOCUMENTED = ['field', 'default', 'data-path', 'harnesses', 'workspace-module', 'dependencies', 'namespaces', 'peerDependencies'];
+	// `--default-value`; the two remaining `init` flags and the three `modules set` keys are
+	// documented in their positional `k=v` spelling only.
+	// `harnesses` came OFF this list when `notebooklm` was added: the harness set is now a choice an
+	// operator makes rather than a default nobody changes, so `dt help` names the values.
+	const UNDOCUMENTED = ['field', 'default', 'data-path', 'workspace-module', 'dependencies', 'namespaces', 'peerDependencies'];
 
 	test('every flag `dt help` documents is accepted by some verb', () => {
 		const stray = [...documented].filter((f) => !accepted.has(f) && !OPEN_HALF.includes(f)).sort();

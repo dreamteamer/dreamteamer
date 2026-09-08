@@ -165,6 +165,7 @@ Every verb that MOVES records or CLEARS values takes --dry-run and prints its pl
 
 workspace verbs:
   init        write the workspace skeleton into the current directory (never compiles)
+              [--harnesses claude-code,codex,pi,gemini-cli,cursor,notebooklm]
   --version   print the engine version (works anywhere)
   install     make THIS checkout ready — the engine, .env (linked from the primary when this is a
               worktree), declared local assets, git modules, compile, and a declared postinstall.
