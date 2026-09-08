@@ -43,12 +43,19 @@ export const LAND_LOCK = 'dreamteamer-land.lock';
  * compile never touches one: matching on the basename would let a nested file that happens to carry
  * a copied block be resolved `--ours` and discarded silently (ruling R32).
  *
+ * ⚠ THIS LIST DRIFTS THE MOMENT A HARNESS IS ADDED ON A DIFFERENT BRANCH, and it did:
+ * `NOTEBOOKLM.md` was written by a harness developed in parallel with `land`, so neither branch's
+ * suite could see the gap and both were green. Landed together, `dt land` classified a conflict in
+ * that file as `other` — a foreign file that ABORTS the landing — instead of a managed block it can
+ * simply regenerate. The unit test below derives this list from `harnesses.js` itself for exactly
+ * this reason, and it is what caught it; keep it that way rather than asserting a literal.
+ *
  * ⚠ `.cursor/rules/dreamteamer.mdc` is deliberately NOT here (ruling R33). Cursor's output is a
  * WHOLE generated file — frontmatter, body and STAMP, no begin/end markers (harnesses.js:97) — so
  * there is no block to take `--ours` on, and `init` gitignores `.cursor/` anyway. A conflict there
  * is an ordinary non-records conflict and aborts the landing like any other.
  */
-export const MANAGED_FILES = ['CLAUDE.md', 'AGENTS.md', 'GEMINI.md'];
+export const MANAGED_FILES = ['CLAUDE.md', 'AGENTS.md', 'GEMINI.md', 'NOTEBOOKLM.md'];
 
 /** Does compile write a managed block into this exact path? Task C's per-commit loop asks too. */
 export const isManaged = (filePath) => MANAGED_FILES.includes(filePath);
