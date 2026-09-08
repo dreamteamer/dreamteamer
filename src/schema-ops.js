@@ -30,7 +30,7 @@ import { Store, bodyField, serialize, atomicWrite } from './store.js';
  * the reasoning is deleted. Counting comment lines is crude on purpose — it is structural, it costs
  * one pass over bytes already in hand, and it fails the op rather than reporting it afterwards.
  *
- * ⚠ THE OPT-OUT IS REAL AND NARROW. `remove-field` takes the comment ABOVE the field with the field,
+ * ⚠ THE OPT-OUT IS REAL AND NARROW. `rm-field` takes the comment ABOVE the field with the field,
  * which is the correct outcome and a decrease; so does deleting a file. Those ops say so explicitly
  * (`commentsMayDecrease`) rather than being exempted by a heuristic that would also excuse a bug.
  */
@@ -781,7 +781,7 @@ export function setCollectionScalars(ws, store, name, changes, { moduleId } = {}
 	if (unknown.length) {
 		const k = unknown[0];
 		const extra = k === 'name' ? ` — a collection is renamed with its records and every inbound reference in one commit: dreamteamer rename collections/${name} <new-name>` : '';
-		throw new Error(`"${k}" is not a settable scalar of a collection${extra}. Settable: ${Object.keys(COLLECTION_SETTABLE).join(', ')}, plus module= (which MOVES it). A field of the record schema is written with dreamteamer add-field/update-field ${name}.`);
+		throw new Error(`"${k}" is not a settable scalar of a collection${extra}. Settable: ${Object.keys(COLLECTION_SETTABLE).join(', ')}, plus module= (which MOVES it). A field of the record schema is written with dreamteamer add-field/set-field ${name}.`);
 	}
 	// `list_fields` and `sort_field` name fields of THIS collection's OWN schema. A dangling
 	// `sort_field` is already a compile error; a dangling `list_fields` entry compiles CLEAN and puts
@@ -960,7 +960,7 @@ export function renameField(ws, store, collection, from, to, { moduleId, dryRun 
 	if (from === to) return { renamed: false, collection, from, to };
 	if (!d.schema?.properties?.[from]) throw new Error(`no field "${from}" on ${collection}`);
 	if (d.schema.properties[to]) {
-		throw new Error(`${collection} already has a field "${to}" — pick another name, or remove it first (dreamteamer remove-field ${collection} --name ${to}).`);
+		throw new Error(`${collection} already has a field "${to}" — pick another name, or remove it first (dreamteamer rm-field ${collection} --name ${to}).`);
 	}
 	const plan = renameFieldPlan(store, collection, from);
 	if (dryRun) return { ...plan, to, renamed: false, dryRun: true };
@@ -1073,7 +1073,7 @@ export function renameField(ws, store, collection, from, to, { moduleId, dryRun 
 	return { ...plan, to, renamed: true, surfaces: [...new Set(surfaces)], commits: out.commits };
 }
 
-/** What `remove-field` would do, counted without writing — §7's rule that every verb clearing values
+/** What `rm-field` would do, counted without writing — §7's rule that every verb clearing values
  *  prints its plan. The counts come from the same two sweeps the real op runs (`clearFieldValues`
  *  and `dropOrphanedMirrors`), asked in read-only form. */
 export function removeFieldPlan(store, collection, fieldName) {
@@ -1390,7 +1390,7 @@ export function removeCollection(ws, store, name, { force = false } = {}) {
 	// An `extends` descriptor with no base fails compile ("every descriptor declares 'extends' — no
 	// base found"), so removing the base under a live overlay is a half-migration that cannot compile.
 	if (overlays.length) {
-		throw new Error(`"${name}" is overlaid by ${overlays.join(', ')} — an overlay cannot compile without its base, so removing the base alone would break the workspace. Remove the overlay first: dreamteamer remove-field ${name} --module <overlay-module> --name <field> (removing its last field removes the overlay).`);
+		throw new Error(`"${name}" is overlaid by ${overlays.join(', ')} — an overlay cannot compile without its base, so removing the base alone would break the workspace. Remove the overlay first: dreamteamer rm-field ${name} --module <overlay-module> --name <field> (removing its last field removes the overlay).`);
 	}
 	const dest = path.join(ws.root, base);
 	const dataDir = path.join(ws.root, d.storage.path);
@@ -1825,7 +1825,7 @@ function pruneEmpty(dir, stopAt) {
 /**
  * THE MIRROR VALUES A DROPPED RELATION LEAVES BEHIND.
  *
- * `update-field --name meeting --inverse=` removes the mirror from the compiled descriptor and does
+ * `set-field --name meeting --inverse=` removes the mirror from the compiled descriptor and does
  * nothing else, so the values the relation generated stay in every target record — in a field the
  * schema no longer declares. The next `check` then said:
  *
@@ -1888,7 +1888,7 @@ function dropOrphanedMirrors(store, was) {
 /**
  * Clear one field's values from every record of a collection — the other half of removing it.
  *
- * `remove-field` deleted the field from the schema and left the values in the files, which left the
+ * `rm-field` deleted the field from the schema and left the values in the files, which left the
  * whole collection READABLE AND UNWRITABLE: the key is now an unknown field, so `check` reports it
  * and the store refuses the next write to that record. Nothing said so, and a record write could not
  * fix it — `dt set <c>/<id> field=` writes `field: []`, which is still the key. The only repair was
@@ -1982,14 +1982,14 @@ export function updateField(ws, store, collection, fieldName, { prop, required, 
 	// authored `title` — but ONLY an authored one: a derived title is compile's output, not a
 	// human's choice, and `titleCase` is how the two are told apart.
 	// ⚠ THE AUTHORED PROP, not the compiled one — see authoredField. Carrying compile's own derivation
-	// back into a source is how `update-field <owner> --name <fk> --description "…"` turned a
+	// back into a source is how `set-field <owner> --name <fk> --description "…"` turned a
 	// spelling-B relation into one declared on BOTH sides. The compiled prop is the base only where no
 	// source declares the field, i.e. an inherited field being overridden here for the first time.
 	const previous = authoredField(ws, collection, fieldName).prop ?? d.schema.properties[fieldName];
 	if (prop.description === undefined && typeof previous.description === 'string') prop = { ...prop, description: previous.description };
 	if (prop.title === undefined && typeof previous.title === 'string' && previous.title !== titleCase(fieldName)) prop = { ...prop, title: previous.title };
 	// `x-body` is STRUCTURE, not prose, and carried on the same rule as the relation keywords below:
-	// `update-field --name notes --description "…"` rebuilds the prop from the flags alone, so without
+	// `set-field --name notes --description "…"` rebuilds the prop from the flags alone, so without
 	// this a retype would silently un-body the field — the record's text then parses into nothing and
 	// the next write serializes it away. `--body false` is how you clear it.
 	if (flags.body === undefined && previous['x-body'] === true) prop = { ...prop, 'x-body': true };
@@ -2002,7 +2002,7 @@ export function updateField(ws, store, collection, fieldName, { prop, required, 
 	// keyword. `fieldDef` builds a prop from the flags ALONE, so a call that named no type came back
 	// `{type: string}` — not a statement about the field, just the default of a function that was told
 	// nothing — and `upsertField` writes the prop it is handed. So
-	// `dt update-field <c> --name <f> --description "…"` RETYPED every field it touched.
+	// `dt set-field <c> --name <f> --description "…"` RETYPED every field it touched.
 	// Measured, one description-only edit each:
 	//
 	//   prose  {type: string, format: markdown, x-body: true} → {type: string}  a body field, no longer one
@@ -2027,7 +2027,7 @@ export function updateField(ws, store, collection, fieldName, { prop, required, 
 		if (flags.many !== undefined) { spokenFor.add('type'); spokenFor.add('items'); } // cardinality, restated
 		// `--options` alone restates an EXISTING enum's values. `fieldDef` cannot: its enum case needs
 		// `--type enum`, so without this the carry below would put the OLD values back and
-		// `update-field --options open,shut` would be a silent no-op — trading one quiet wrong answer
+		// `set-field --options open,shut` would be a silent no-op — trading one quiet wrong answer
 		// for another.
 		if (flags.options !== undefined && previous.enum !== undefined) {
 			prop = { ...prop, enum: optionList(flags.options) };
@@ -2054,7 +2054,7 @@ export function updateField(ws, store, collection, fieldName, { prop, required, 
 	}
 
 	// Relation keywords are STRUCTURE, not prose — and the same replacement is far more expensive
-	// for them. `dt <c> update-field --name meeting --description "…"` rebuilt the prop from
+	// for them. `dt <c> set-field --name meeting --description "…"` rebuilt the prop from
 	// `fieldDef` with no `--type`, so it wrote back a plain `{type: string}`: the foreign key was
 	// gone, the mirror on the other side had no owner, and nothing said so. Each keyword is carried
 	// forward from the previous prop unless a flag NAMES it.
@@ -2087,7 +2087,7 @@ export function updateField(ws, store, collection, fieldName, { prop, required, 
 			if (prevHolder[kw] !== undefined && holder()[kw] === undefined) holder()[kw] = prevHolder[kw];
 		}
 		// Then the STATED ones, on top: fieldDef deferred them because the prop it built from the
-		// flags alone carried no reference — this is the migration path, where `update-field --name
+		// flags alone carried no reference — this is the migration path, where `set-field --name
 		// meeting --inverse` turns a plain FK written before relations existed into a relation. It
 		// runs AFTER the carry so a carried `x-unique` still informs a bare `--inverse`, and it runs
 		// on the holder the reshape above produced rather than the one fieldDef saw.
@@ -2096,7 +2096,7 @@ export function updateField(ws, store, collection, fieldName, { prop, required, 
 		throw new Error(`--${relationFlagsStated(flags)} needs a --type <collection> reference — ${collection}.${fieldName} points at nothing.`);
 	}
 
-	return upsertField(ws, store, collection, fieldName, prop, required, `update-field ${fieldName}`,
+	return upsertField(ws, store, collection, fieldName, prop, required, `set-field ${fieldName}`,
 		collectionSourceFile(ws, store, collection, moduleId, { subject: `${collection}.${fieldName}` }));
 }
 
@@ -2110,9 +2110,9 @@ export function updateField(ws, store, collection, fieldName, { prop, required, 
  * onto the OWNER when the far side used spelling B. Reading a prop out of the compiled descriptor
  * and writing it back into a source therefore did two bad things, both measured on 0.15.0:
  *
- *   - `remove-field` on a spelling-B mirror answered "no descriptor declares it" while the file that
+ *   - `rm-field` on a spelling-B mirror answered "no descriptor declares it" while the file that
  *     declared it sat in front of the operator, and named a remedy that exits 0 changing nothing.
- *   - `update-field <owner> --name <fk> --description "…"` carried compile's DERIVED `x-inverse` and
+ *   - `set-field <owner> --name <fk> --description "…"` carried compile's DERIVED `x-inverse` and
  *     `x-unique` into the owner's source, so the relation was then declared on both sides and every
  *     compile afterwards printed `⚠ relation …: declared on both sides — keep one`. That is the same
  *     defect the extension was writing from its own save path.
@@ -2159,7 +2159,7 @@ function refuseUnremovableField(ws, d, collection, fieldName, hasOwnDoc) {
 		// clearing that keyword is the removal. This remedy WORKS — the spelling-B one did not, because
 		// the owner never carried an `x-inverse` to clear.
 		const dot = of.lastIndexOf('.'); // a collection name may contain '/', so split at the LAST dot
-		throw new Error(`field "${fieldName}" on ${collection} is GENERATED from ${of}, the two-way relation that owns it — no source of ${collection} declares it, so no edit here can remove it. Remove the relation instead: dreamteamer update-field ${of.slice(0, dot)} --name ${of.slice(dot + 1)} --inverse=`);
+		throw new Error(`field "${fieldName}" on ${collection} is GENERATED from ${of}, the two-way relation that owns it — no source of ${collection} declares it, so no edit here can remove it. Remove the relation instead: dreamteamer set-field ${of.slice(0, dot)} --name ${of.slice(dot + 1)} --inverse=`);
 	}
 	// ⚠ These two sentences used to name the WORKSPACE module, because that is where this verb wrote.
 	// It now writes in the module that OWNS the collection, so "the workspace descriptor" was a fact
@@ -2207,7 +2207,7 @@ export function removeField(ws, store, collection, fieldName, { moduleId } = {})
 	if (doc?.schema?.properties?.[fieldName] === undefined) {
 		refuseUnremovableField(ws, d, collection, fieldName, doc !== null);
 	}
-	const out = writeGated(ws, store, [dest], `dreamteamer: ${collection} remove-field ${fieldName}`, () => {
+	const out = writeGated(ws, store, [dest], `dreamteamer: ${collection} rm-field ${fieldName}`, () => {
 		delete doc.schema.properties[fieldName];
 		if (Array.isArray(doc.schema.required)) doc.schema.required = doc.schema.required.filter((r) => r !== fieldName);
 		// THE FIELD'S OWN PRESENTATION, IN THIS SAME FILE, GOES WITH IT. `list_fields` and `sort_field`
@@ -2259,7 +2259,7 @@ export function removeField(ws, store, collection, fieldName, { moduleId } = {})
  * output an operator reads back as the form they are about to fill in was also the one that appended
  * after the body.
  *
- * An EXISTING field keeps its place: `update-field` must not silently reorder a descriptor its author
+ * An EXISTING field keeps its place: `set-field` must not silently reorder a descriptor its author
  * ordered by hand. With no body field there is nothing to sit above, so this is a plain append.
  */
 function insertBeforeBody(properties, fieldName, prop) {
@@ -2311,7 +2311,7 @@ function upsertField(ws, store, collection, fieldName, prop, required, verb, tar
 		}
 	}
 	// Resolved by the CALLER, because only it knows whether a `--module` selector was given and
-	// whether creating an overlay is the point (add-field) or a defect (update-field).
+	// whether creating an overlay is the point (add-field) or a defect (set-field).
 	const { file: dest, overlay } = target ?? collectionSourceFile(ws, store, collection, undefined);
 	let doc;
 	// The BYTES, not just the parse: `dump` cannot round-trip a comment, and a collection descriptor is
@@ -2407,7 +2407,7 @@ export function saveUiView(ws, store, { id, view, moduleId }) {
 	const existed = fs.existsSync(dest);
 	// A module source is where this project writes down WHY a view exists; `dump` cannot keep that.
 	const previous = existed ? fs.readFileSync(dest, 'utf8') : null;
-	// ⚠ opted OUT of the comment invariant, on the same rule `remove-field` is: this write REPLACES
+	// ⚠ opted OUT of the comment invariant, on the same rule `rm-field` is: this write REPLACES
 	// the view, so a key the caller omits is deliberately gone (see the `filter:` case) and the comment
 	// explaining that key goes with it. Every key that SURVIVES keeps its comments, which is what the
 	// round-trip buys and what the old `dump` could not do.
@@ -2468,7 +2468,7 @@ export function fieldDef(store, flags, collection) {
 		//
 		// ⚠ Only a STATED type, never the `'string'` default. With no `--type` that value is the
 		// default of a function that was told nothing (see updateField's carry) — resolving it would
-		// turn every description-only `update-field` in a workspace with a collection literally named
+		// turn every description-only `set-field` in a workspace with a collection literally named
 		// `string` into a silent retype to a reference, which is the exact class of bug that carry exists
 		// to close.
 		if (flags.type !== undefined && store.descriptors.has(t)) return { type: 'string', 'x-reference': t };
@@ -2512,7 +2512,7 @@ export function fieldDef(store, flags, collection) {
 	if (isOn(flags.sensitive)) p['x-sensitive'] = true;
 
 	// ---- relations ----------------------------------------------------------------------------
-	// ⚠ EVERY relation flag is skipped when the flags name no reference, because on `update-field`
+	// ⚠ EVERY relation flag is skipped when the flags name no reference, because on `set-field`
 	// with no `--type` the target has not arrived yet — it is carried from the previous prop, after
 	// this. updateField applies them once it has one; metaAddField, which has nothing to carry,
 	// refuses instead. Applying them here would also put them on the WRONG node: updateField may
@@ -2679,10 +2679,11 @@ const ENTITY_SHAPE = {
 	commands: { suffix: '.command.md', folder: false },
 	'command-bindings': { suffix: '.command-binding.yaml', folder: false },
 	'collection-templates': { suffix: '.collection-template.yaml', folder: false },
+	proofs: { suffix: '.proof.yaml', folder: false },
 };
 
 /** The source file (or folder) ONE entity is compiled from, asked of the manifest — the same
- *  question `uiViewSourceFile` asks, for the four other kinds. */
+ *  question `uiViewSourceFile` asks, for the five other kinds. */
 function entitySource(ws, kind, id) {
 	const shape = ENTITY_SHAPE[kind];
 	const key = shape.folder ? `${kind}/${id}/SKILL.md` : `${kind}/${id}${shape.suffix}`;
@@ -2718,6 +2719,13 @@ export function createSkill(ws, store, { name, description, moduleId }) {
 	if (root && IN_NODE_MODULES(path.relative(ws.root, root))) {
 		throw new Error(`module "${moduleId}" ships from node_modules — a write there is erased by the next \`npm install\`.`);
 	}
+	// ⚠ THE MODULE ROOT IS RETURNED, not left to the caller to slice back out of `file`. The caller
+	// prints a path under it (the `no proof yet` nudge), and deriving that by cutting at `/skills/`
+	// is wrong in both layouts this function already handles: the ROOT layout writes
+	// `skills/<id>/SKILL.md` with no module segment at all, and the pre-flatten one writes
+	// `system/skills/…`. Here the answer is known exactly, in one line.
+	const wm = ws.pkg.dreamteamer?.['workspace-module'];
+	const modRoot = root ?? (wm ? path.join(ws.root, 'modules', wm) : ws.root);
 	const dir = path.join(root ? kindDir(root, 'skills') : workspaceSystemDir(ws, 'skills'), name);
 	const file = path.join(dir, 'SKILL.md');
 	if (fs.existsSync(file)) throw new Error(`${path.relative(ws.root, file)} already exists`);
@@ -2733,7 +2741,7 @@ export function createSkill(ws, store, { name, description, moduleId }) {
 		},
 		undo: () => fs.rmSync(dir, { recursive: true, force: true }),
 	});
-	return { id: name, file, commits: out.commits };
+	return { id: name, file, moduleRoot: path.relative(ws.root, modRoot) || '.', commits: out.commits };
 }
 
 /** `add` on a kind nobody can scaffold honestly — refused WITH THE PATH, because "hand-authored"

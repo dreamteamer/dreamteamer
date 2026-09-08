@@ -84,7 +84,7 @@ describe('collections rm', () => {
 });
 
 describe('field verbs on a namespaced collection', () => {
-	test('add-field, update-field and remove-field all address it by qualified name', () => {
+	test('add-field, set-field and rm-field all address it by qualified name', () => {
 		const ws = workspace({ namespaces: ['health'] });
 		ws.dt('add', 'collections', '--name', 'health/doctors');
 
@@ -93,13 +93,13 @@ describe('field verbs on a namespaced collection', () => {
 		assert.equal(d.schema.properties.speciality.type, 'string');
 
 		assert.equal(
-			ws.dt('update-field', 'health/doctors', '--name', 'speciality', '--type', 'enum', '--options', 'gp,ent').code,
+			ws.dt('set-field', 'health/doctors', '--name', 'speciality', '--type', 'enum', '--options', 'gp,ent').code,
 			0,
 		);
 		d = descriptorOf(ws, 'modules/default/collections/health/doctors.collection.yaml');
 		assert.deepEqual(d.schema.properties.speciality.enum, ['gp', 'ent']);
 
-		assert.equal(ws.dt('remove-field', 'health/doctors', '--name', 'speciality').code, 0);
+		assert.equal(ws.dt('rm-field', 'health/doctors', '--name', 'speciality').code, 0);
 		d = descriptorOf(ws, 'modules/default/collections/health/doctors.collection.yaml');
 		assert.equal(d.schema.properties.speciality, undefined);
 	});
@@ -120,7 +120,7 @@ describe('field verbs on a namespaced collection', () => {
 // ---- relation authoring flags ------------------------------------------------------------------
 // A two-way relation is one line of YAML, and until these flags existed you had to know which line
 // and which of the three source spellings to write it in. The load-bearing case is the LAST group:
-// `update-field` rebuilds the prop from `fieldDef`, so an update that only touches a description
+// `set-field` rebuilds the prop from `fieldDef`, so an update that only touches a description
 // used to silently turn a foreign key into a plain string and orphan the mirror on the other side.
 describe('relation authoring flags', () => {
 	function bare() {
@@ -239,10 +239,10 @@ describe('relation authoring flags', () => {
 		assert.match(unknown.stderr, /there is no collection "nope"/);
 	});
 
-	test('update-field without relation flags PRESERVES the relation keywords', () => {
+	test('set-field without relation flags PRESERVES the relation keywords', () => {
 		const ws = bare();
 		ws.dt('add-field', 'meeting-recordings', '--name', 'meeting', '--type', 'meetings', '--inverse');
-		const res = ws.dt('update-field', 'meeting-recordings', '--name', 'meeting', '--description', 'the call this captures');
+		const res = ws.dt('set-field', 'meeting-recordings', '--name', 'meeting', '--description', 'the call this captures');
 		assert.equal(res.code, 0, res.stderr);
 		const meeting = sourceOf(ws, 'meeting-recordings').schema.properties.meeting;
 		assert.equal(meeting['x-reference'], 'meetings');
@@ -250,13 +250,13 @@ describe('relation authoring flags', () => {
 		assert.equal(meeting.description, 'the call this captures');
 	});
 
-	test('update-field --inverse adds a mirror to an EXISTING foreign key', () => {
+	test('set-field --inverse adds a mirror to an EXISTING foreign key', () => {
 		// The migration path: a plain FK written before relations existed gains its mirror without
 		// restating --type. fieldDef alone cannot resolve this — the target only arrives with the
 		// carry-forward — and the first cut refused it outright.
 		const ws = bare();
 		ws.dt('add-field', 'meeting-recordings', '--name', 'meeting', '--type', 'meetings');
-		const res = ws.dt('update-field', 'meeting-recordings', '--name', 'meeting', '--inverse');
+		const res = ws.dt('set-field', 'meeting-recordings', '--name', 'meeting', '--inverse');
 		assert.equal(res.code, 0, res.stderr);
 		assert.equal(sourceOf(ws, 'meeting-recordings').schema.properties.meeting['x-inverse'], 'recordings');
 		assert.equal(compiledOf(ws, 'meetings').schema.properties.recordings.items['x-inverse-of'], 'meeting-recordings.meeting');
@@ -268,7 +268,7 @@ describe('relation authoring flags', () => {
 		ws.dt('add-field', 'meeting-recordings', '--name', 'meeting', '--type', 'meetings');
 		ws.dt('add', 'meeting-recordings', '--name', 'Cap1', '--meeting', 'meetings/standup');
 		ws.dt('add', 'meeting-recordings', '--name', 'Cap2', '--meeting', 'meetings/standup');
-		const res = ws.dt('update-field', 'meeting-recordings', '--name', 'meeting', '--inverse');
+		const res = ws.dt('set-field', 'meeting-recordings', '--name', 'meeting', '--inverse');
 		assert.equal(res.code, 0, res.stderr);
 		assert.match(res.stdout, /2 meeting-recordings records carry values — run: dreamteamer relations rebuild meetings/);
 		// and the hint is not decoration: check says the same thing about the same records
@@ -284,10 +284,10 @@ describe('relation authoring flags', () => {
 		assert.match(res.stderr, /--inverse needs a --type <collection> reference/);
 	});
 
-	test('update-field --inverse "" drops the mirror', () => {
+	test('set-field --inverse "" drops the mirror', () => {
 		const ws = bare();
 		ws.dt('add-field', 'meeting-recordings', '--name', 'meeting', '--type', 'meetings', '--inverse');
-		const res = ws.dt('update-field', 'meeting-recordings', '--name', 'meeting', '--inverse=');
+		const res = ws.dt('set-field', 'meeting-recordings', '--name', 'meeting', '--inverse=');
 		assert.equal(res.code, 0, res.stderr);
 		const meeting = sourceOf(ws, 'meeting-recordings').schema.properties.meeting;
 		assert.equal(meeting['x-inverse'], undefined);
@@ -295,24 +295,24 @@ describe('relation authoring flags', () => {
 		assert.equal(compiledOf(ws, 'meetings').schema.properties.recordings, undefined);
 	});
 
-	test('remove-field on a GENERATED mirror says it is generated, and names the verb that removes it', () => {
+	test('rm-field on a GENERATED mirror says it is generated, and names the verb that removes it', () => {
 		// I5. It said the field was "inherited from the base module — the workspace descriptor
 		// doesn't declare it", which is a true sentence about a different situation: the workspace
 		// descriptor does not declare it because COMPILE writes it, and the reader who follows that
 		// advice goes looking for a base module that has no such field either.
 		const ws = bare();
 		ws.dt('add-field', 'meeting-recordings', '--name', 'meeting', '--type', 'meetings', '--inverse');
-		const res = ws.dt('remove-field', 'meetings', '--name', 'recordings');
+		const res = ws.dt('rm-field', 'meetings', '--name', 'recordings');
 		assert.equal(res.code, 1);
 		assert.match(res.stderr, /GENERATED from meeting-recordings\.meeting/);
-		assert.match(res.stderr, /dreamteamer update-field meeting-recordings --name meeting --inverse=/);
+		assert.match(res.stderr, /dreamteamer set-field meeting-recordings --name meeting --inverse=/);
 		assert.doesNotMatch(res.stderr, /inherited/);
 	});
 
-	test('update-field on a NON-relation field is unchanged — no relation keywords appear', () => {
+	test('set-field on a NON-relation field is unchanged — no relation keywords appear', () => {
 		const ws = bare();
 		ws.dt('add-field', 'meeting-recordings', '--name', 'quality', '--type', 'string', '--description', 'how clean the audio is');
-		const res = ws.dt('update-field', 'meeting-recordings', '--name', 'quality', '--type', 'enum', '--options', 'clear,noisy');
+		const res = ws.dt('set-field', 'meeting-recordings', '--name', 'quality', '--type', 'enum', '--options', 'clear,noisy');
 		assert.equal(res.code, 0, res.stderr);
 		const quality = sourceOf(ws, 'meeting-recordings').schema.properties.quality;
 		assert.deepEqual(quality.enum, ['clear', 'noisy']);
@@ -345,11 +345,11 @@ describe('a stated relation flag means the same thing everywhere', () => {
 	}
 
 	for (const spelling of [['--unique'], ['--unique', 'true'], ['--unique=true']]) {
-		test(`update-field ${spelling.join(' ')} keeps the one-to-one`, () => {
+		test(`set-field ${spelling.join(' ')} keeps the one-to-one`, () => {
 			const ws = withUniqueFk();
 			// `--description` so this is a REAL write: restating --unique on an already-unique field is
 			// now correctly a no-op, and a no-op cannot show that the keyword survives the rebuild.
-			const res = ws.dt('update-field', 'meeting-recordings', '--name', 'meeting', ...spelling, '--description', 'the call');
+			const res = ws.dt('set-field', 'meeting-recordings', '--name', 'meeting', ...spelling, '--description', 'the call');
 			assert.equal(res.code, 0, res.stderr);
 			const meeting = sourceOf(ws, 'meeting-recordings').schema.properties.meeting;
 			assert.equal(meeting['x-unique'], true, 'x-unique must survive its own flag');
@@ -358,32 +358,32 @@ describe('a stated relation flag means the same thing everywhere', () => {
 		});
 	}
 
-	test('update-field --unique false CLEARS it — a stated flag is not a carried one', () => {
+	test('set-field --unique false CLEARS it — a stated flag is not a carried one', () => {
 		const ws = withUniqueFk();
-		const res = ws.dt('update-field', 'meeting-recordings', '--name', 'meeting', '--unique', 'false');
+		const res = ws.dt('set-field', 'meeting-recordings', '--name', 'meeting', '--unique', 'false');
 		assert.equal(res.code, 0, res.stderr);
 		const meeting = sourceOf(ws, 'meeting-recordings').schema.properties.meeting;
 		assert.equal(meeting['x-unique'], undefined);
 		assert.equal(meeting['x-inverse'], 'recording'); // only the stated keyword moves
 	});
 
-	test('update-field --many true keeps the array FK an array', () => {
+	test('set-field --many true keeps the array FK an array', () => {
 		const ws = bare();
 		ws.dt('add-field', 'meeting-recordings', '--name', 'meetings', '--type', 'meetings', '--many');
 		// `--description` so the write is a real one: `--many true` on an already-array FK changes
-		// nothing on its own, and a no-op update-field trips the write gate's empty-commit failure —
+		// nothing on its own, and a no-op set-field trips the write gate's empty-commit failure —
 		// a pre-existing wart of every restating update, not the behaviour under test here.
-		const res = ws.dt('update-field', 'meeting-recordings', '--name', 'meetings', '--many', 'true', '--description', 'the calls this captures');
+		const res = ws.dt('set-field', 'meeting-recordings', '--name', 'meetings', '--many', 'true', '--description', 'the calls this captures');
 		assert.equal(res.code, 0, res.stderr);
 		const fk = sourceOf(ws, 'meeting-recordings').schema.properties.meetings;
 		assert.equal(fk.type, 'array', 'an array FK must not be rewritten to a scalar under records that hold lists');
 		assert.equal(fk.items['x-reference'], 'meetings');
 	});
 
-	test('update-field --many false demotes it to a scalar, deliberately', () => {
+	test('set-field --many false demotes it to a scalar, deliberately', () => {
 		const ws = bare();
 		ws.dt('add-field', 'meeting-recordings', '--name', 'meetings', '--type', 'meetings', '--many');
-		assert.equal(ws.dt('update-field', 'meeting-recordings', '--name', 'meetings', '--many', 'false').code, 0);
+		assert.equal(ws.dt('set-field', 'meeting-recordings', '--name', 'meetings', '--many', 'false').code, 0);
 		const fk = sourceOf(ws, 'meeting-recordings').schema.properties.meetings;
 		assert.equal(fk.type, 'string');
 		assert.equal(fk['x-reference'], 'meetings');
@@ -417,7 +417,7 @@ describe('a stated relation flag means the same thing everywhere', () => {
 		ws.dt('add-field', 'meeting-recordings', '--name', 'meetings', '--type', 'meetings', '--many');
 		ws.dt('add', 'meeting-recordings', '--name', 'Cap1', '--meetings', 'meetings/standup');
 		ws.dt('add', 'meeting-recordings', '--name', 'Cap2', '--meetings', 'meetings/standup');
-		const res = ws.dt('update-field', 'meeting-recordings', '--name', 'meetings', '--inverse');
+		const res = ws.dt('set-field', 'meeting-recordings', '--name', 'meetings', '--inverse');
 		assert.equal(res.code, 0, res.stderr);
 		assert.match(res.stdout, /mirror: meetings\.recordings\[\]/);
 		assert.match(res.stdout, /2 meeting-recordings records carry values — run: dreamteamer relations rebuild meetings/);
@@ -431,7 +431,7 @@ describe('a stated relation flag means the same thing everywhere', () => {
 		ws.dt('add', 'meetings', '--name', 'Standup');
 		ws.dt('add-field', 'meeting-recordings', '--name', 'meeting', '--type', 'meetings');
 		ws.dt('add', 'meeting-recordings', '--name', 'Cap1', '--meeting', 'meetings/standup');
-		const res = ws.dt('update-field', 'meeting-recordings', '--name', 'meeting', '--inverse');
+		const res = ws.dt('set-field', 'meeting-recordings', '--name', 'meeting', '--inverse');
 		assert.match(res.stdout, /1 meeting-recordings record carries values/);
 	});
 
@@ -471,7 +471,7 @@ describe('a stated relation flag means the same thing everywhere', () => {
 // command that did exactly what was asked, on a workspace left correct. Ten distinct CORRECT
 // spellings hit it, so an "apply my schema" script failed on every already-satisfied field, as did
 // any retry after a partial failure. `rename-collection` set the precedent: say so, and exit 0.
-describe('an idempotent update-field says so and exits 0', () => {
+describe('an idempotent set-field says so and exits 0', () => {
 	function fk({ unique = false, many = false } = {}) {
 		const ws = workspace({ collections: {
 			meetings: simpleCollection({ storage: { suffix: 'meeting' } }),
@@ -496,9 +496,9 @@ describe('an idempotent update-field says so and exits 0', () => {
 		test(what, () => {
 			const ws = fk(opts);
 			// the first --inverse= actually removes the mirror; run it twice so the SECOND is the no-op
-			if (flags[0] === '--inverse=') ws.dt('update-field', 'meeting-recordings', '--name', 'meeting', ...flags);
+			if (flags[0] === '--inverse=') ws.dt('set-field', 'meeting-recordings', '--name', 'meeting', ...flags);
 			const before = sourceOf(ws);
-			const res = ws.dt('update-field', 'meeting-recordings', '--name', 'meeting', ...flags);
+			const res = ws.dt('set-field', 'meeting-recordings', '--name', 'meeting', ...flags);
 			assert.equal(res.code, 0, res.stdout + res.stderr);
 			assert.doesNotMatch(res.stdout + res.stderr, /git commit failed|rolled back/);
 			assert.match(res.stdout, /meeting-recordings\.meeting — already exactly that, nothing to do/);
@@ -520,7 +520,7 @@ describe('an idempotent update-field says so and exits 0', () => {
 			+ '    name: { type: string }\n    ghost: { type: string, x-reference: no-such-collection }\n');
 		assert.equal(ws.dt('compile').code, 1, 'the fixture must actually be broken');
 
-		const res = ws.dt('update-field', 'meeting-recordings', '--name', 'meeting', '--inverse');
+		const res = ws.dt('set-field', 'meeting-recordings', '--name', 'meeting', '--inverse');
 		assert.equal(res.code, 1, `a no-op on a broken tree must not report success:\n${res.stdout}`);
 		assert.match(res.stdout + res.stderr, /compile error: collection "broken"/);
 		assert.doesNotMatch(res.stdout, /already exactly that/);
@@ -533,7 +533,7 @@ describe('an idempotent update-field says so and exits 0', () => {
 		// already untracked noise here that has nothing to do with this command.
 		const commits = ws.git(['rev-list', '--count', 'HEAD']);
 		const status = ws.git(['status', '--porcelain']);
-		const res = ws.dt('update-field', 'meeting-recordings', '--name', 'meeting', '--inverse');
+		const res = ws.dt('set-field', 'meeting-recordings', '--name', 'meeting', '--inverse');
 		assert.equal(res.code, 0, res.stderr);
 		assert.match(res.stdout, /already exactly that, nothing to do/);
 		assert.equal(ws.git(['rev-list', '--count', 'HEAD']), commits, 'a no-op writes no commit');
@@ -542,7 +542,7 @@ describe('an idempotent update-field says so and exits 0', () => {
 
 	test('the run that DOES change something still reports the change', () => {
 		const ws = fk();
-		const res = ws.dt('update-field', 'meeting-recordings', '--name', 'meeting', '--description', 'the call');
+		const res = ws.dt('set-field', 'meeting-recordings', '--name', 'meeting', '--description', 'the call');
 		assert.equal(res.code, 0, res.stderr);
 		assert.match(res.stdout, /✔ compiled — the field is updated/);
 		assert.doesNotMatch(res.stdout, /nothing to do/);
@@ -564,7 +564,7 @@ describe('restating --type keeps the cardinality', () => {
 		ws.dt('add', 'meeting-recordings', '--name', 'Cap1', '--meetings', 'meetings/standup');
 		assert.equal(ws.dt('check').code, 0);
 
-		const res = ws.dt('update-field', 'meeting-recordings', '--name', 'meetings', '--type', 'meetings', '--description', 'the calls');
+		const res = ws.dt('set-field', 'meeting-recordings', '--name', 'meetings', '--type', 'meetings', '--description', 'the calls');
 		assert.equal(res.code, 0, res.stderr);
 		const fk = load(readFile(ws.root, 'modules/default/collections/meeting-recordings.collection.yaml')).schema.properties.meetings;
 		assert.equal(fk.type, 'array', 'restating --type must not collapse an array FK to a scalar');
@@ -580,7 +580,7 @@ describe('restating --type keeps the cardinality', () => {
 			'meeting-recordings': simpleCollection({ storage: { suffix: 'recording' } }),
 		} });
 		ws.dt('add-field', 'meeting-recordings', '--name', 'meetings', '--type', 'meetings', '--many');
-		assert.equal(ws.dt('update-field', 'meeting-recordings', '--name', 'meetings', '--type', 'meetings', '--many', 'false').code, 0);
+		assert.equal(ws.dt('set-field', 'meeting-recordings', '--name', 'meetings', '--type', 'meetings', '--many', 'false').code, 0);
 		const fk = load(readFile(ws.root, 'modules/default/collections/meeting-recordings.collection.yaml')).schema.properties.meetings;
 		assert.equal(fk.type, 'string');
 		assert.equal(fk['x-reference'], 'meetings');
@@ -667,9 +667,9 @@ describe('a schema op rewrites only what it changes', () => {
 		assert.match(after, /^ {4}vendor_code: \{ type: string \}$/m);
 	});
 
-	test('update-field rewrites one line and leaves the rest of the file alone', () => {
+	test('set-field rewrites one line and leaves the rest of the file alone', () => {
 		const ws = commented();
-		const res = runDt(ws.root, 'update-field', 'things', '--name', 'vendor_code', '--type', 'integer');
+		const res = runDt(ws.root, 'set-field', 'things', '--name', 'vendor_code', '--type', 'integer');
 		assert.equal(res.code, 0, res.stderr);
 		const after = textOf(ws);
 		assert.deepEqual(lost(SOURCE, after), ['    vendor_code: { type: string }']);
@@ -677,17 +677,17 @@ describe('a schema op rewrites only what it changes', () => {
 		assert.match(after, /^ {4}# ⚠ nested: the importer reads this/m, 'the comment explaining the edited field went with it');
 	});
 
-	test('add-field then remove-field is BYTE-IDENTICAL — the net-zero probe that found the bug', () => {
+	test('add-field then rm-field is BYTE-IDENTICAL — the net-zero probe that found the bug', () => {
 		const ws = commented();
 		assert.equal(runDt(ws.root, 'add-field', 'things', '--name', 'colour', '--type', 'string').code, 0);
 		assert.notEqual(textOf(ws), SOURCE);
-		assert.equal(runDt(ws.root, 'remove-field', 'things', '--name', 'colour').code, 0);
+		assert.equal(runDt(ws.root, 'rm-field', 'things', '--name', 'colour').code, 0);
 		assert.equal(textOf(ws), SOURCE, 'an add and its removal must leave the file exactly as it was');
 	});
 
-	test('remove-field still prunes list_fields, and prunes only that', () => {
+	test('rm-field still prunes list_fields, and prunes only that', () => {
 		const ws = commented();
-		const res = runDt(ws.root, 'remove-field', 'things', '--name', 'vendor_code');
+		const res = runDt(ws.root, 'rm-field', 'things', '--name', 'vendor_code');
 		assert.equal(res.code, 0, res.stderr);
 		const after = textOf(ws);
 		assert.deepEqual(load(after).list_fields, ['name']);
@@ -751,13 +751,13 @@ describe('writeGated refuses a write that would lose a comment', () => {
 		fs.writeFileSync(file, src);
 		compileQuietly(ws.ws);
 
-		const res = runDt(ws.root, 'update-field', 'things', '--name', 'origin', '--type', 'string');
+		const res = runDt(ws.root, 'set-field', 'things', '--name', 'origin', '--type', 'string');
 		assert.notEqual(res.code, 0, 'the op should have been refused');
 		assert.match(res.stdout + res.stderr, /would lose 1 comment line/);
 		assert.equal(fs.readFileSync(file, 'utf8'), src, 'nothing was changed');
 	});
 
-	test('a legitimate removal IS allowed — remove-field takes the comment with its field', () => {
+	test('a legitimate removal IS allowed — rm-field takes the comment with its field', () => {
 		const ws = workspace({ compile: false });
 		fs.writeFileSync(`${ws.root}/modules/default/collections/things.collection.yaml`, [
 			'# the header',
@@ -773,7 +773,7 @@ describe('writeGated refuses a write that would lose a comment', () => {
 			'',
 		].join('\n'));
 		compileQuietly(ws.ws);
-		const res = runDt(ws.root, 'remove-field', 'things', '--name', 'vendor_code');
+		const res = runDt(ws.root, 'rm-field', 'things', '--name', 'vendor_code');
 		assert.equal(res.code, 0, res.stderr);
 		const after = readFile(ws.root, 'modules/default/collections/things.collection.yaml');
 		assert.match(after, /^# the header$/m, 'the header is not the field being removed');
@@ -787,10 +787,10 @@ describe('writeGated refuses a write that would lose a comment', () => {
 // enough: it named five keywords, and the problem is every keyword. `fieldDef` builds a prop from the
 // flags ALONE, so a call naming no `--type` came back `{type: string}` — the default of a function
 // that was told nothing — and `upsertField` writes what it is handed. Measured before the fix, one
-// `update-field --description "…"` each: a markdown body field, a date, an enum, an array and a
+// `set-field --description "…"` each: a markdown body field, a date, an enum, an array and a
 // number ALL came back a plain string, losing format, enum, items, default and the numeric bounds.
 // The ones that WIDEN are invisible to `check` — a string accepts everything the number held.
-describe('update-field carries every keyword no flag restated', () => {
+describe('set-field carries every keyword no flag restated', () => {
 	function shapes() {
 		const ws = workspace();
 		assert.equal(ws.dt('add', 'collections', '--name', 'shapes').code, 0);
@@ -811,7 +811,7 @@ describe('update-field carries every keyword no flag restated', () => {
 	test('--description alone keeps the type, the format, the enum, the items and the constraints', () => {
 		const ws = shapes();
 		for (const f of ['prose', 'due', 'status', 'labels', 'score']) {
-			const res = ws.dt('update-field', 'shapes', '--name', f, '--description', 'a description');
+			const res = ws.dt('set-field', 'shapes', '--name', f, '--description', 'a description');
 			assert.equal(res.code, 0, res.stderr);
 			assert.equal(propOf(ws, f).description, 'a description');
 		}
@@ -832,7 +832,7 @@ describe('update-field carries every keyword no flag restated', () => {
 		// behind. This is the line between the two behaviours and the reason the carry is keyed on
 		// whether `--type` was passed rather than on a list of safe keywords.
 		const ws = shapes();
-		assert.equal(ws.dt('update-field', 'shapes', '--name', 'score', '--type', 'string').code, 0);
+		assert.equal(ws.dt('set-field', 'shapes', '--name', 'score', '--type', 'string').code, 0);
 		const p = propOf(ws, 'score');
 		assert.equal(p.type, 'string');
 		assert.equal(p.default, undefined);
@@ -841,12 +841,12 @@ describe('update-field carries every keyword no flag restated', () => {
 
 	test('a restating flag still REPLACES what it owns', () => {
 		const ws = shapes();
-		assert.equal(ws.dt('update-field', 'shapes', '--name', 'status', '--options', 'open,shut').code, 0);
+		assert.equal(ws.dt('set-field', 'shapes', '--name', 'status', '--options', 'open,shut').code, 0);
 		assert.deepEqual(propOf(ws, 'status').enum, ['open', 'shut']);
-		assert.equal(ws.dt('update-field', 'shapes', '--name', 'score', '--default-value', '7').code, 0);
+		assert.equal(ws.dt('set-field', 'shapes', '--name', 'score', '--default-value', '7').code, 0);
 		assert.equal(propOf(ws, 'score').default, 7);
 		assert.equal(propOf(ws, 'score').minimum, 0, 'and only what it owns');
-		assert.equal(ws.dt('update-field', 'shapes', '--name', 'prose', '--body', 'false').code, 0);
+		assert.equal(ws.dt('set-field', 'shapes', '--name', 'prose', '--body', 'false').code, 0);
 		assert.equal(propOf(ws, 'prose')['x-body'], undefined);
 	});
 
@@ -859,7 +859,7 @@ describe('update-field carries every keyword no flag restated', () => {
 			meetings: simpleCollection({ storage: { suffix: 'meeting' } }),
 			'meeting-recordings': simpleCollection({ storage: { suffix: 'recording' } }),
 		} });
-		const upd = (...a) => assert.equal(ws.dt('update-field', 'meeting-recordings', '--name', 'meeting', ...a).code, 0);
+		const upd = (...a) => assert.equal(ws.dt('set-field', 'meeting-recordings', '--name', 'meeting', ...a).code, 0);
 		const src = () => load(readFile(ws.root, 'modules/default/collections/meeting-recordings.collection.yaml')).schema.properties.meeting;
 		assert.equal(ws.dt('add-field', 'meeting-recordings', '--name', 'meeting', '--type', 'meetings', '--many', '--inverse').code, 0);
 
@@ -961,14 +961,14 @@ describe('add-field inserts before the x-body field', () => {
 		assert.deepEqual(keysOf(ws, 'articles'), ['name', 'status']);
 	});
 
-	test('update-field does NOT reorder — an existing field keeps the place its author gave it', () => {
+	test('set-field does NOT reorder — an existing field keeps the place its author gave it', () => {
 		const ws = workspace({ collections: { articles: simpleCollection({ storage: { suffix: 'article' } }) } });
-		assert.equal(ws.dt('update-field', 'articles', '--name', 'name', '--description', 'the title').code, 0);
+		assert.equal(ws.dt('set-field', 'articles', '--name', 'name', '--description', 'the title').code, 0);
 		assert.deepEqual(keysOf(ws, 'articles'), ['name', 'notes']);
 	});
 });
 
-// ── remove-field takes the field's own PRESENTATION references with it ──────────────────────────
+// ── rm-field takes the field's own PRESENTATION references with it ──────────────────────────
 //
 // Removing a field is an explicit act, and `list_fields` and `sort_field` in the SAME descriptor are
 // that field's presentation, not independent facts about the collection. Left behind they were two
@@ -976,7 +976,7 @@ describe('add-field inserts before the x-body field', () => {
 // every default listing, and a dangling `sort_field` made compile REFUSE the removal — a verb that
 // owns the descriptor telling the operator to go hand-edit it. A ui-view's columns are a different
 // file the verb does not own, so those are a WARNING that names the views.
-describe('remove-field prunes the presentation it invalidates', () => {
+describe('rm-field prunes the presentation it invalidates', () => {
 	function withPresentation() {
 		const ws = workspace({ compile: false, collections: { articles: simpleCollection({
 			storage: { suffix: 'article' },
@@ -1004,7 +1004,7 @@ describe('remove-field prunes the presentation it invalidates', () => {
 		const ws = withPresentation();
 		assert.deepEqual(sourceOf(ws).list_fields, ['name', 'rank']);
 
-		const res = runDt(ws.root, 'remove-field', 'articles', '--name', 'rank');
+		const res = runDt(ws.root, 'rm-field', 'articles', '--name', 'rank');
 		assert.equal(res.code, 0, res.stderr);
 
 		const d = sourceOf(ws);
@@ -1018,7 +1018,7 @@ describe('remove-field prunes the presentation it invalidates', () => {
 		// A different file, shipped by a module this verb does not own — so it is said out loud and
 		// left alone. Silently editing somebody else's source is the worse of the two.
 		const ws = withPresentation();
-		const res = runDt(ws.root, 'remove-field', 'articles', '--name', 'rank');
+		const res = runDt(ws.root, 'rm-field', 'articles', '--name', 'rank');
 		assert.equal(res.code, 0, res.stderr);
 		assert.match(res.stdout + res.stderr, /articles-table/, 'the warning has to name the view to be actionable');
 		assert.match(res.stdout + res.stderr, /rank/);
@@ -1026,7 +1026,7 @@ describe('remove-field prunes the presentation it invalidates', () => {
 
 	test('the descriptor\'s comments survive the prune', () => {
 		const ws = withPresentation();
-		assert.equal(runDt(ws.root, 'remove-field', 'articles', '--name', 'rank').code, 0);
+		assert.equal(runDt(ws.root, 'rm-field', 'articles', '--name', 'rank').code, 0);
 		assert.match(readFile(ws.root, 'modules/default/collections/articles.collection.yaml'), /# ARTICLES — the header/);
 	});
 });
@@ -1063,12 +1063,12 @@ describe('a field verb follows the module that OWNS the collection', () => {
 		assert.equal(owned.schema.properties.grade.type, 'integer');
 	});
 
-	test('remove-field edits the owning module\'s descriptor and clears the values', () => {
+	test('rm-field edits the owning module\'s descriptor and clears the values', () => {
 		const ws = twoModuleWorkspace();
 		// `employer` is already on the fixture's `people` — it is core's own field, which is the point:
 		// this verb has to reach into the module that ships it.
 		assert.equal(ws.dt('add', 'people', '--name', 'Dana Levi', '--employer', 'Acme').code, 0);
-		const res = ws.dt('remove-field', 'people', '--name', 'employer');
+		const res = ws.dt('rm-field', 'people', '--name', 'employer');
 		assert.equal(res.code, 0, res.stdout + res.stderr);
 		assert.equal(
 			load(readFile(ws.root, 'modules/core/collections/people.collection.yaml')).schema.properties.employer,
@@ -1132,7 +1132,7 @@ describe('§11 papercuts', () => {
 
 	test('--inverse-description describes the GENERATED field', () => {
 		const ws = twoModuleWorkspace();
-		const res = ws.dt('update-field', 'tasks', '--name', 'owner', '--type', 'people',
+		const res = ws.dt('set-field', 'tasks', '--name', 'owner', '--type', 'people',
 			'--inverse', 'tasks', '--inverse-description', 'Tasks this person owns.');
 		assert.equal(res.code, 0, res.stdout + res.stderr);
 		const mirror = load(readFile(ws.root, '.dreamteamer/collections/people.collection.yaml')).schema.properties.tasks;
@@ -1140,11 +1140,11 @@ describe('§11 papercuts', () => {
 			'the owning side\'s --description describes the foreign key — the other direction');
 	});
 
-	test('--inverse-description survives an unrelated update-field', () => {
+	test('--inverse-description survives an unrelated set-field', () => {
 		const ws = twoModuleWorkspace();
-		assert.equal(ws.dt('update-field', 'tasks', '--name', 'owner', '--type', 'people',
+		assert.equal(ws.dt('set-field', 'tasks', '--name', 'owner', '--type', 'people',
 			'--inverse', 'tasks', '--inverse-description', 'Tasks this person owns.').code, 0);
-		assert.equal(ws.dt('update-field', 'tasks', '--name', 'owner', '--description', 'Who owns it.').code, 0);
+		assert.equal(ws.dt('set-field', 'tasks', '--name', 'owner', '--description', 'Who owns it.').code, 0);
 		assert.equal(
 			load(readFile(ws.root, '.dreamteamer/collections/people.collection.yaml')).schema.properties.tasks.description,
 			'Tasks this person owns.',

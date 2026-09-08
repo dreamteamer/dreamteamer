@@ -19,8 +19,10 @@ npm run metrics -- --update   # rewrite metrics.json — a DELIBERATE act, same 
 questions **before** writing the code, out loud, in the commit message:
 
 1. **Does the ENGINE read it?** That is the whole test for a core collection or field. What survives
-   it: the entity kinds the compiler materializes, and `repos` (because `repos ensure` clones them).
-   **Nine collections, and that is the intended ceiling.**
+   it: the entity kinds the compiler materializes, `repos` (because `install repos/<id>` clones them),
+   and — since `dt prove` — `proofs`, which compile stages, validates and counts, and which no module
+   could execute because the judge needs the store, the ledger and the sandbox.
+   **Ten collections, and that is the intended ceiling.**
 
    ⚠ **`users` failed it on 2026-08-17 (0.8.0), and the lesson is a CIRCULAR justification.** It was
    core "because `@me` resolves against it" — and `@me` existed because `users` was core. Nothing in

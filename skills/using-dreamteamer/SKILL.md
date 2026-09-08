@@ -59,10 +59,12 @@ their flags, on one page (there is no per-verb `--help`).
 the verb names, as a map (semantics and flags live in `help`; a test holds this list to the
 dispatch, so it cannot drift):
 
-- read & measure — `list` `get` `values` `history` `diff` `commands` `relations` `resolve`
-- write & publish — `add` `set` `rm` `rename` `move` `revert` `commit` `ensure`
-- fields (sources, through the compile gate) — `add-field` `update-field` `remove-field` `rename-field` (system entities — modules, collections, skills, ui-views… — take the RECORD verbs above)
-- workspace — `init` `install` `update` `compile` `check` `status` `start` `changes` `export` `help` don't learn syntax from prose, this skill included: prose drifts, and `help` ships in
+- read & measure — `list` `get` `values` `history` `diff` `next` `relations` `resolve`
+- write & publish — `add` `set` `rm` `rename` `move` `revert` `commit`
+- fields (sources, through the compile gate) — `add-field` `set-field` `rm-field` `rename-field` (system entities — modules, collections, skills, ui-views… — take the RECORD verbs above)
+- workspace — `init` `install` `update` `compile` `check` `prove` `status` `start` `changes` `export` `help`
+
+don't learn syntax from prose, this skill included: prose drifts, and `help` ships in
 the same file as the dispatch it documents. run it once before your first write of a session.
 what prose adds is judgment — *when* a verb is the right move, and the guarantees you can lean
 on: **validation is hard** (unknown fields included; an invalid write is rejected before disk
@@ -86,6 +88,7 @@ Load by the map; nothing here is loaded "just in case".
 | knowledge a session should find on its own | `references/skills.md` |
 | "let me type one word and have this done" | `references/commands.md` |
 | "which command applies to this record?" — a binding, a gate | `references/commands.md` |
+| "how would anyone know this still works?" — a proof of a skill, a command or a script, and the exit code `dt prove` answers with | `references/proofs.md` |
 | a job needing a fresh context and its own tools | `references/agents.md` |
 | a route, a nav entry, a board / calendar / map over records | `references/ui-views.md` |
 | a rendering or editing behaviour nothing registered has | `references/ui-components.md` |
@@ -108,8 +111,8 @@ workspace's decision log (where one exists) wins over older documents.
 
 ## system entities take the RECORD verbs
 
-Modules, collections, skills, agents, commands, command-bindings, ui-views and collection-templates
-are collections in the runtime, and since 0.19.0 the ordinary verbs write them:
+Modules, collections, skills, agents, commands, command-bindings, ui-views, collection-templates
+and proofs are collections in the runtime, and since 0.19.0 the ordinary verbs write them:
 
 ```
 dt add modules --name core --description "The shared nouns."
@@ -121,6 +124,10 @@ dt set modules/hr namespaces=hr dependencies=modules/core
 dt rm modules/hr --force                     # --dry-run first; it prints its plan
 ```
 
+⚠ **`proofs` is the one exception, and only to `add`:** a proof is hand-authored like a skill or a
+command, so `dt add proofs` is refused, naming the file to write
+(`modules/<module>/proofs/<id>.proof.yaml`, `references/proofs.md`). Every other verb works on it.
+
 `dt schema <op>` is **gone** since 0.19.0 and fails with the translation printed. `UPDATING.md` has
 the complete mapping table.
 
@@ -131,7 +138,7 @@ holds the source**, so a write into a `git_modules/` module commits there and sa
 `ahead 1 — push when ready`. A record write lands on disk and `dt commit` publishes it.
 
 ⚠ **Every verb that moves records or clears values takes `--dry-run` and prints its plan first:**
-`rename collections/…`, `rename-field`, `remove-field`, `set collections/… module=`,
+`rename collections/…`, `rename-field`, `rm-field`, `set collections/… module=`,
 `rm modules/… --force`. The plan line is one shape — `records N · refs M · descriptors K · values
 cleared V` — so two dry runs are comparable, and a term that reads 0 means zero rather than
 unmeasured (where a number genuinely cannot be known before the run, the plan says so in words).

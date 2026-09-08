@@ -63,26 +63,26 @@ unpublished schema is not a state the workspace should sit in. The verbs and eve
 `dt help` under "system verbs" and "field verbs" — read that, not prose. What help cannot tell you:
 
 - **The field verbs write the WORKSPACE module.** On a collection another module owns, `add-field`
-  and `update-field` author an `extends:` overlay in the workspace module — which compiles only
+  and `set-field` author an `extends:` overlay in the workspace module — which compiles only
   if the workspace module declares the owning module in `dreamteamer.dependencies` (the extends
-  gate exempts nobody). `remove-field` has no overlay form at all — an overlay cannot remove an
+  gate exempts nobody). `rm-field` has no overlay form at all — an overlay cannot remove an
   inherited field, so it refuses a module-shipped field by name. So on a module-owned collection:
-  declare the dependency and let add/update write the overlay (the change stays workspace-local),
-  or **edit the owning module's descriptor by hand** and compile (the change ships with the
-  module) — the only exit for a removal. Pick by who should own the field — `data-modeling.md`
-  Part III.
+  declare the dependency and let `add-field`/`set-field` write the overlay (the change stays
+  workspace-local), or **edit the owning module's descriptor by hand** and compile (the change
+  ships with the module) — the only exit for a removal. Pick by who should own the field —
+  `data-modeling.md` Part III.
 - **`--type <collection>` beats the type sugar, always.** A type that names a collection in the
   runtime is a reference to it, whatever `string`/`enum`/`date`/`tags`/… would otherwise mean — so
   in a workspace that ships a `tags` collection, `--type tags` points at it and the relation flags
   work on it. Only a stated `--type` resolves this way; omitting it still means a plain string.
-- `remove-field` on a populated field **clears the values in the same write and reports the
+- `rm-field` on a populated field **clears the values in the same write and reports the
   count** — a leftover key would make every later write to those records fail as unknown. It also
   prunes the field out of **the same descriptor's `list_fields` and `sort_field`** (that is the
   field's own presentation, and a dangling `sort_field` is a compile error), and **warns, by id,**
   about any ui-view whose `options.columns` still names it — a different source, so it is named
   rather than edited.
 - **`add-field` inserts before the `x-body` field**, on the same rule as a `templates:` merge
-  below: property order is form order, and a record's body belongs last. `update-field` never
+  below: property order is form order, and a record's body belongs last. `set-field` never
   reorders — an existing field keeps the place its author gave it.
 - **`dt rename collections/<old> <new>`** moves the descriptor **in the module that ships it**
   (its guard is against writes an `npm install` would erase, not against modules), plus the
@@ -357,7 +357,7 @@ silently not discovered — see declaring a module.)*
 | a second same-name descriptor without `extends` | compile error by design |
 | a plain string where a ref belongs | use `x-reference` so `check` and `rename` can follow it |
 | a `templates:` ref pointing at another module | that module can no longer be copied or installed alone |
-| a field verb aimed at a module-owned collection, retried verbatim | add/update write a workspace overlay behind a dependency gate — declare the dependency or edit the owning module; remove-field refuses outright (edit the module) |
+| a field verb aimed at a module-owned collection, retried verbatim | add-field/set-field write a workspace overlay behind a dependency gate — declare the dependency or edit the owning module; rm-field refuses outright (edit the module) |
 | authoring `storage.path` under an entity-kind name | it compiles as a runtime collection and becomes unwritable |
 | hand-editing schema when a schema verb could express it | the verbs are compile-gated and commit their write; a hand edit can land uncompilable and sit unpublished |
 | ignoring a ⚠ because compile said ✔ | every warning above is a defect with a deferred bill |

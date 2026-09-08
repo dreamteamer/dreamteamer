@@ -1,0 +1,96 @@
+name: proofs
+storage:
+  path: proofs
+  codec: yaml
+  shape: file
+  suffix: proof
+id:
+  generate: '{{ name | slug }}'
+schema:
+  type: object
+  required:
+    - name
+    - about
+    - kind
+  properties:
+    name:
+      type: string
+      description: The proof id — must equal the filename.
+    about:
+      type: array
+      items:
+        type: string
+      description: What this proof is ABOUT — one or more artifact refs it proves something about. An artifact ref is `skills/<id>` · `commands/<id>` · `command-bindings/<id>` · `<module-id>/bin/<file>`.
+    kind:
+      type: string
+      enum:
+        - gate
+        - live
+      description: '`gate` — a static check with no fixture record; `live` — runs against a real record and is judged by `expect`.'
+    mode:
+      type: string
+      enum:
+        - readonly
+        - writes
+      description: Whether a `live` proof only reads the workspace or actually writes to it. Required when kind is live, forbidden on a gate.
+    description:
+      type: string
+      description: What this proof asserts, in one line.
+    external:
+      type: boolean
+      description: Excludes this proof from a bare `--all` run — it needs a network call, a credential or a mount that is not always present. `--external` still runs it.
+    requires:
+      type: object
+      description: What must already be present for this proof to be runnable at all — missing ones make it UNAVAILABLE rather than FAIL.
+      properties:
+        env:
+          type: array
+          items:
+            type: string
+          description: '.env keys (names only, never values) that must be set.'
+        bin:
+          type: array
+          items:
+            type: string
+          description: Binaries that must be on PATH.
+    given:
+      type: object
+      description: The record a `live` proof runs against — either a live filter over a collection or a checked-in fixture. Exactly one of `where`/`fixture`.
+      properties:
+        collection:
+          type: string
+          description: A collection NAME (not a reference) the record is picked from — e.g. `notes`, never `collections/notes`.
+        where:
+          type: object
+          description: 'A filter narrowing which record is picked — the ordinary filter grammar, one reference hop deep. ⚠ It may NOT use `{record}`: the given is what PICKS the record, so nothing substitutes here and compile refuses the literal.'
+        pick:
+          type: string
+          description: '`latest` (the collection''s own `sort_field`, descending — refused when the collection declares none) or an explicit record id. `any` is refused. A `fixture` given REQUIRES a `pick: <id>` naming one of its records.'
+        fixture:
+          type: boolean
+          description: Read the record from this proof's own fixtures folder instead of the live workspace.
+    steps:
+      type: array
+      items:
+        type: object
+      description: What actually runs, in order — a shell command (`run`) or a bound command (`perform`). Required; a gate takes one or more `run` steps, a live proof one or more of either.
+    expect:
+      type: array
+      items:
+        type: object
+      description: 'What must hold for a `live` proof to PASS. Live only, and every row is exactly ONE of four forms — `collection`+`where`+`count` · `record`+`where` · `step` (`exit`/`stdout`/`stdout_json`) · `path`+`exists`. A row whose keys span two forms is a compile error, because compile and the judge would otherwise read it as different shapes. `count` takes its own closed operator set (`_eq _neq _gt _gte _lt _lte _delta`) and every operand must be an INTEGER; a `record:` row REQUIRES a non-empty `where` and takes only the literal `{record}` as its target; a `step:` index past the last step is refused; `stdout` and `stdout_json` are FILTER MAPS (`{ _contains: ''…'' }` · `{ ''a.b'': { _gte: 1 } }`) and a scalar, a list or a bare key is refused, because the judge reads only a map and a row it skips asserts nothing. A `where`''s string literals substitute `{record}` and `{record.<field>}` against the picked record before the filter runs — in an expectation only, never in `given.where`.'
+    timeout:
+      type: integer
+      description: Seconds allowed per `run` step before it is killed.
+order: 46
+# ⚠ NO `last-modified` HERE (M12). Every other list_fields carries it, and on a proof it renders as
+# a bare `-` in the MIDDLE of the row: `dt list proofs` appends two computed columns (availability
+# and the ledger tail) after the declared ones, so the empty cell sits between the about list and
+# the answer the reader came for. A proof's meaningful date is its LAST RUN, which is the `last`
+# column, not the mtime of a file git already tracks.
+list_fields:
+  - name
+  - kind
+  - about
+icon: verified
+group: system

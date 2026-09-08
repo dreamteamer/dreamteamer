@@ -185,16 +185,18 @@ function buildModulesIndex(entries) {
 		let d = {};
 		try { d = load(e.bytes.toString('utf8')) ?? {}; } catch { /* unparseable record */ }
 		const p = !d.path || d.path === '.' ? '' : `${d.path}/`;
-		mods.push({ id: m[1], title: d.title ?? m[1], description: flat(d.description), namespaces: d.namespaces ?? [], path: p, bin: d.bin ?? [], skills: [], commands: [] });
+		mods.push({ id: m[1], title: d.title ?? m[1], description: flat(d.description), namespaces: d.namespaces ?? [], path: p, bin: d.bin ?? [], skills: [], commands: [], proofs: [] });
 	}
 	mods.sort((a, b) => b.path.length - a.path.length); // longest prefix first
 	for (const [rt, e] of entries) {
-		const kind = /^skills\/([^/]+)\/SKILL\.md$/.exec(rt) ? 'skills' : /^commands\/(.+)\.command\.md$/.exec(rt) ? 'commands' : null;
+		const kind = /^skills\/([^/]+)\/SKILL\.md$/.exec(rt) ? 'skills' : /^commands\/(.+)\.command\.md$/.exec(rt) ? 'commands' : /^proofs\/(.+)\.proof\.yaml$/.exec(rt) ? 'proofs' : null;
 		if (!kind) continue;
 		const src = e.sources?.[0]?.path ?? '';
 		const owner = mods.find((mod) => src.startsWith(mod.path));
-		if (owner) owner[kind].push(kind === 'skills' ? rt.split('/')[1] : path.basename(rt).replace(/\.command\.md$/, ''));
+		if (owner) owner[kind].push(kind === 'skills' ? rt.split('/')[1] : path.basename(rt).replace(/\.(command\.md|proof\.yaml)$/, ''));
 	}
+	// `proofs` is COUNTED, never listed (see the module filter below), so it is deliberately not
+	// sorted — an order nothing reads is work that reads as a promise the output does not keep.
 	for (const mod of mods) { mod.skills.sort(); mod.commands.sort(); }
 	return mods;
 }
@@ -251,7 +253,7 @@ function collectionsSection(index, modules, workspaceModule) {
 	const data = index.filter((c) => !c.system);
 	const isWs = (m) => m.path === `modules/${workspaceModule}/`;
 	const groups = modules
-		.filter((m) => { const own = index.filter((c) => c.module === m.id); return own.some((c) => !c.system) || (!own.length && (m.skills.length || m.commands.length || m.bin.length)); })
+		.filter((m) => { const own = index.filter((c) => c.module === m.id); return own.some((c) => !c.system) || (!own.length && (m.skills.length || m.commands.length || m.bin.length || m.proofs.length)); })
 		.sort((a, b) => (isWs(b) - isWs(a)) || a.title.localeCompare(b.title));
 	for (const m of groups) {
 		const where = [`\`${m.id}\``, m.path ? m.path.replace(/\/$/, '') : 'the workspace root', ...(m.namespaces.length ? [`namespaces: ${m.namespaces.join(' · ')}`] : [])];
@@ -270,7 +272,7 @@ function collectionsSection(index, modules, workspaceModule) {
 	// It now names the VERBS and the one policy difference, because an agent that knows the verbs
 	// exist still has to be told that these commit and records do not.
 	if (system.length) {
-		lines.push('', `- system collections — the SAME verbs (add · set · rm · rename · list · get), plus \`dt add-field\`/\`update-field\`/\`remove-field\`/\`rename-field <collection>\`. A system write COMMITS ITSELF, in the repo holding the source; a record write does not (\`dt commit\` publishes). Never hand-edit \`.dreamteamer/\` — it is build output: ${system.join(' · ')}`);
+		lines.push('', `- system collections — the SAME verbs (add · set · rm · rename · list · get), plus \`dt add-field\`/\`set-field\`/\`rm-field\`/\`rename-field <collection>\`. A system write COMMITS ITSELF, in the repo holding the source; a record write does not (\`dt commit\` publishes). Never hand-edit \`.dreamteamer/\` — it is build output: ${system.join(' · ')}`);
 	}
 	return lines;
 }
@@ -345,7 +347,7 @@ function bindingsSection(entries) {
 		byCollection.get(coll).push(`/${cmd}${gate ? ` (${gate})` : ''}`);
 	}
 	if (!byCollection.size) return [];
-	const lines = ['', 'VERBS BOUND TO COLLECTIONS (`dt commands <collection>[/<id>]` answers per record):'];
+	const lines = ['', 'VERBS BOUND TO COLLECTIONS (`dt next <collection>[/<id>]` answers per record):'];
 	for (const coll of [...byCollection.keys()].sort()) lines.push(`- ${coll} — ${byCollection.get(coll).sort().join(' · ')}`);
 	return lines;
 }
@@ -376,11 +378,16 @@ function orientationBlock(flavor, skillsIndex, sourceLayout = 'flat', namespaces
 		'nouns. **read the `using-dreamteamer` skill before working with data or changing what the',
 		'workspace keeps or does.** schemas (read): `.dreamteamer/collections/` (provenance:',
 		'`.dreamteamer/manifest.yaml`). sources (write): ' + sourcesLine,
-		'`command-bindings/`, `ui-views/`, `collection-templates/`',
+		'`command-bindings/`, `ui-views/`, `collection-templates/`, `proofs/`',
 		'(see manifest for channels). data: `data/`. records are `<id>.<suffix>.<ext>`',
 		'files; ids are paths; references are `<collection>/<id>`. run `dreamteamer check` (`npm run',
 		'check`) after bulk edits; run `dreamteamer compile` (`npm run compile`) after changing any',
-		'source or installing modules.',
+		// ⚠ ONE sentence, APPENDED to the line above rather than given one of its own: this block is
+		// committed prose in every workspace and its budget is asserted (compile.test.js, "a workspace
+		// that has added nothing gets a SMALL block"), so a clause that earns its place still may not
+		// spend a line. It says the one thing a session cannot derive from the schema — that a claim
+		// an artifact works is a claim about the RUNNING system, and which instrument produces one.
+		'source or installing modules. before saying an artifact works, run `dreamteamer prove <artifact>` and quote its result.',
 	];
 	// ⚠ Only when the workspace HAS namespaces. Telling an agent about a feature this workspace does
 	// not use is the same failure as telling it the wrong source layout — prose that contradicts the

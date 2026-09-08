@@ -242,7 +242,7 @@ describe('dt export — the verb', () => {
 });
 
 describe('the marks are written by the schema verbs', () => {
-	test('add-field --sensitive writes x-sensitive, update-field --sensitive false clears it, and the export follows', () => {
+	test('add-field --sensitive writes x-sensitive, set-field --sensitive false clears it, and the export follows', () => {
 		const ws = fixture();
 		let res = ws.dt('add-field', 'people', '--name', 'phone', '--type', 'string', '--sensitive');
 		assert.equal(res.code, 0, res.stderr);
@@ -252,17 +252,17 @@ describe('the marks are written by the schema verbs', () => {
 		assert.equal(ws.dt('export', 'notebooklm', '--out', 'bundle').code, 0);
 		assert.ok(!readFile(ws.root, 'bundle/people.md').includes('+000-0000'));
 		assert.deepEqual(manifest(ws.root).omitted.fields.people, ['email', 'phone']);
-		res = ws.dt('update-field', 'people', '--name', 'phone', '--sensitive', 'false');
+		res = ws.dt('set-field', 'people', '--name', 'phone', '--sensitive', 'false');
 		assert.equal(res.code, 0, res.stderr);
 		d = readFile(ws.root, '.dreamteamer/collections/people.collection.yaml');
 		assert.ok(!/phone:[\s\S]*?x-sensitive/.test(d.split('company:')[0]), 'the mark is cleared');
-		res = ws.dt('update-field', 'people', '--name', 'phone', '--description', 'A number.');
+		res = ws.dt('set-field', 'people', '--name', 'phone', '--description', 'A number.');
 		assert.equal(res.code, 0, res.stderr);
 	});
 
-	test('a description-only update-field carries an existing x-sensitive forward', () => {
+	test('a description-only set-field carries an existing x-sensitive forward', () => {
 		const ws = fixture();
-		const res = ws.dt('update-field', 'people', '--name', 'email', '--description', 'Still private.');
+		const res = ws.dt('set-field', 'people', '--name', 'email', '--description', 'Still private.');
 		assert.equal(res.code, 0, res.stderr);
 		assert.match(readFile(ws.root, '.dreamteamer/collections/people.collection.yaml'), /email:[\s\S]*?x-sensitive: true/);
 	});

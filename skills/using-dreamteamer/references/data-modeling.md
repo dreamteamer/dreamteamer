@@ -93,7 +93,7 @@ The useful half of object orientation maps cleanly onto a workspace; the inherit
 | OO idea | its shape here | its non-shape |
 |---|---|---|
 | an object owns its state | a record owns its fields; the collection is the class | fields about X scattered on Y "for convenience" |
-| methods | **command-bindings**: verbs bound to a collection, gated on field state (`can-enter`/`can-exit`) — `dt commands <ref>` lists what applies to a record right now | a workflow engine; procedures copied into descriptions |
+| methods | **command-bindings**: verbs bound to a collection, gated on field state (`can-enter`/`can-exit`) — `dt next <ref>` lists what applies to a record right now | a workflow engine; procedures copied into descriptions |
 | interfaces / mixins | **`templates:`** — a shared field set stamped onto consumers, merged at compile | copy-pasting the same four fields into six descriptors |
 | encapsulation | **module ownership** — a concept's fields live with the module that owns the concept | the module that happened to need the field first |
 | polymorphism | a **union reference** (`x-reference: [meetings, visits]`) or the open-world `'*'` for evidence/source fields | a `type` field plus fields that only apply to some rows |
@@ -845,7 +845,7 @@ useless until the flood is drained.
   command-binding's `can-enter`/`can-exit`. A field is referenced BY NAME rather than as a
   `<collection>/<id>` reference, so `store.rewriteRefs` can see none of those — which is exactly
   why this used to be "no rename verb, deliberately", with the honest sequence being add-new,
-  script the values, `remove-field` the old. That sequence still works and is what you want when
+  script the values, `rm-field` the old. That sequence still works and is what you want when
   the values themselves have to CHANGE shape; when only the name changes, the verb is one command
   and takes `--dry-run`.
 - **Values** (an id, a reference target): `dt rename <collection>/<old> <new>` rewrites inbound
