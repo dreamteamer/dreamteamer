@@ -12,7 +12,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { workspace, git, dt } from '../helpers/ws.js';
+import { workspace, git, dt, dtStdin } from '../helpers/ws.js';
 import { removeWorktree, defaultGit } from '../../src/checkout.js';
 import { findWorkspace } from '../../src/workspace.js';
 
@@ -377,5 +377,109 @@ describe('worktrees are an observed entity', () => {
 		const r = dt(ws.root, 'history', 'worktrees/probe');
 		assert.equal(r.code, 1);
 		assert.match(r.stderr, /list · get · add · rm/);
+	});
+});
+
+// ---- the dev-clone shadow -------------------------------------------------------------------
+//
+// ⚠ A WORKTREE MUST RUN THE ENGINE ITS WORKSPACE RUNS, and on a dev-clone toggle that engine is not
+// the pinned npm copy: it is a SYMLINK under `git_modules/`, which is gitignored and therefore per
+// checkout. A worktree cut from such a workspace got the `node_modules/dreamteamer` link mirrored
+// and this one not, so its install fell back to the pinned copy and it compiled against a different
+// compiler than the tree it was cut from — silently, because both compilers work.
+describe('a worktree of a workspace running a git_modules shadow runs the same engine', () => {
+	test('a symlinked git_modules entry is mirrored into the new tree, a real clone is not', () => {
+		const ws = workspace();
+		// The shadow: a module-shaped directory OUTSIDE the workspace, reached through a link, which
+		// is the shape `npm run engine on` leaves behind.
+		const clone = fs.mkdtempSync(path.join(ws.root, '..', 'shadow-'));
+		fs.writeFileSync(path.join(clone, 'package.json'),
+			JSON.stringify({ name: 'shadowed', version: '0.0.0', description: 'A shadowed module.', dreamteamer: {} }, null, '\t') + '\n');
+		fs.mkdirSync(path.join(ws.root, 'git_modules'), { recursive: true });
+		fs.symlinkSync(fs.realpathSync(clone), path.join(ws.root, 'git_modules', 'shadowed'), 'dir');
+		// … and a REAL clone beside it: per-checkout working state, restored by `install` from the
+		// lockfile, never shared between two checkouts.
+		fs.mkdirSync(path.join(ws.root, 'git_modules', 'ordinary'), { recursive: true });
+
+		const r = dt(ws.root, 'add', 'worktrees', '--name', 'shadow');
+		assert.equal(r.code, 0, r.stderr);
+		const dir = r.stdout.trim().split('\n').at(-1);
+
+		const mirrored = path.join(dir, 'git_modules', 'shadowed');
+		assert.ok(fs.lstatSync(mirrored).isSymbolicLink(), 'the shadow was not mirrored — the worktree runs a different engine');
+		assert.equal(fs.realpathSync(mirrored), fs.realpathSync(clone));
+		assert.equal(fs.existsSync(path.join(dir, 'git_modules', 'ordinary')), false,
+			'a real clone was linked into the worktree — two checkouts would share one working tree');
+	});
+});
+
+// ---- the WorktreeCreate hook form ------------------------------------------------------------
+//
+// ⚠ THE PLACEMENT IS THE ENGINE'S, NOT THE HARNESS'S. `.worktrees/` is already gitignored by every
+// workspace `init` writes, while `.claude/worktrees/` sits under compile's empty-directory sweep of
+// `.claude` — so a worktree placed there would have its empty directories deleted by the PRIMARY's
+// next compile. The hook implies `--path .worktrees/<name>` for exactly that reason, and the path
+// it prints last is the path the harness then uses.
+describe('dt add worktrees --hook takes its name from STDIN', () => {
+	test('the documented worktree_name lands at .worktrees/<name> on branch worktree-<name>', () => {
+		const ws = workspace();
+		const r = dtStdin(ws.root, JSON.stringify({ cwd: ws.root, hook_event_name: 'WorktreeCreate', worktree_name: 'p' }), 'add', 'worktrees', '--hook');
+		assert.equal(r.code, 0, r.stderr);
+		const dir = r.stdout.trim().split('\n').at(-1);
+		assert.equal(dir, path.join(ws.root, '.worktrees', 'p'), 'the PATH must be the last line — the harness echoes it');
+		assert.equal(git(dir, ['rev-parse', '--abbrev-ref', 'HEAD']), 'worktree-p');
+	});
+
+	// ⚠ `--json` WAS IN THE FLAG TABLE AND READ BY NEITHER FORM (found reviewing the hook work): it
+	// parsed, it was accepted, and both forms printed a bare path at exit 0. A creation hook that
+	// asked for data got a line of text and no error.
+	test('--json answers with the path as ONE object, and nothing else on stdout', () => {
+		const ws = workspace();
+		const r = dtStdin(ws.root, JSON.stringify({ worktree_name: 'j' }), 'add', 'worktrees', '--hook', '--json');
+		assert.equal(r.code, 0, r.stderr);
+		assert.deepEqual(JSON.parse(r.stdout), { path: path.join(ws.root, '.worktrees', 'j') });
+		const plain = dt(ws.root, 'add', 'worktrees', '--name', 'k', '--json');
+		assert.equal(plain.code, 0, plain.stderr);
+		assert.deepEqual(JSON.parse(plain.stdout), { path: path.join(ws.root, '.worktrees', 'k') });
+	});
+
+	test('the bare `name` spelling works too', () => {
+		const ws = workspace();
+		const r = dtStdin(ws.root, JSON.stringify({ name: 'q' }), 'add', 'worktrees', '--hook');
+		assert.equal(r.code, 0, r.stderr);
+		assert.equal(r.stdout.trim().split('\n').at(-1), path.join(ws.root, '.worktrees', 'q'));
+	});
+
+	// ⚠ A FLAG ACCEPTED AND DROPPED IS A SILENT WRONG ANSWER, and `--hook` is a FORM: the name and
+	// the placement both come off stdin, so the other form's three flags are meaningless once it is
+	// given. Both of these were MEASURED at exit 0 doing the opposite of what was typed —
+	// `--hook --temp` cut a PERMANENT branch worktree, `--hook --base nosuchref` cut from HEAD.
+	for (const [flag, value] of [['--temp', null], ['--base', 'nosuchref'], ['--path', 'elsewhere/p']]) {
+		test(`${flag} is refused by name on the --hook form, and nothing is cut`, () => {
+			const ws = workspace();
+			const args = ['add', 'worktrees', '--hook', flag, ...(value ? [value] : [])];
+			const r = dtStdin(ws.root, JSON.stringify({ worktree_name: 'p' }), ...args);
+			assert.equal(r.code, 1, `${flag} was swallowed and the worktree was cut anyway:\n${r.stdout}`);
+			assert.match(r.stderr, new RegExp(`\\${flag} is not a flag of \`dt add worktrees --hook\``));
+			assert.match(r.stderr, /that form takes --hook --json/);
+			assert.equal(JSON.parse(dt(ws.root, 'list', 'worktrees', '--json').stdout).length, 1, 'a worktree was cut anyway');
+		});
+	}
+
+	test('two stray flags at once are named together', () => {
+		const ws = workspace();
+		const r = dtStdin(ws.root, JSON.stringify({ worktree_name: 'p' }), 'add', 'worktrees', '--hook', '--temp', '--base', 'HEAD');
+		assert.equal(r.code, 1, r.stdout);
+		assert.match(r.stderr, /--temp --base are not flags of `dt add worktrees --hook`/);
+	});
+
+	// A hook wired to the wrong event sends a perfectly well-formed payload with no name in it, and
+	// `.worktrees/undefined` is not a failure anybody would read as one.
+	test('a payload with no worktree name is refused, and nothing is cut', () => {
+		const ws = workspace();
+		const r = dtStdin(ws.root, JSON.stringify({ cwd: ws.root, hook_event_name: 'SessionStart' }), 'add', 'worktrees', '--hook');
+		assert.equal(r.code, 1, r.stdout);
+		assert.match(r.stderr, /worktree_name/);
+		assert.equal(JSON.parse(dt(ws.root, 'list', 'worktrees', '--json').stdout).length, 1, 'a worktree was cut anyway');
 	});
 });
