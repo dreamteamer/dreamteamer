@@ -40,12 +40,26 @@ install. The looking still matters; the taking changed shape.
 
 | # | look at | how, concretely | what you get |
 |---|---|---|---|
-| 1 | **this workspace's own modules** | the orientation block's MODULES AND THEIR COLLECTIONS list is already in your context — find the module whose sentence owns the concept, then reread its collections with the concept's *synonyms* in mind, `use when` clauses included; then read the candidate's DESCRIPTOR, not its records; `dt help` shows the verbs and `dt commands <collection>` the bound ones; the module's skills line names the techniques | the thing may already exist under a name you didn't guess. This is where misses actually happen, because it is the place you assume you already know |
+| 1 | **this workspace's own modules** | the orientation block's MODULES AND THEIR COLLECTIONS list is already in your context — find the module whose sentence owns the concept, then reread its collections with the concept's *synonyms* in mind, `use when` clauses included; then read the candidate's DESCRIPTOR, not its records; `dt help` shows the verbs and `dt next <collection>` the bound ones; the module's skills line names the techniques | the thing may already exist under a name you didn't guess. This is where misses actually happen, because it is the place you assume you already know |
 | 2 | **a recipes repo — where this workspace's own CLAUDE.md names one** (reference modules maintained to be **copied and adapted**) | read that repo's own instructions first; they ARE the adoption procedure. no recipes repo declared → skip this row | a working module with its reasoning attached — descriptors, skills, and the trap notes that each cost someone a day |
 | 3 | **a sibling workspace — where the operator has named one** | read-only; grep its `modules/` for the concept. none named → skip | another vault may have solved it concretely. That is a *reference*, not a source — it holds real personal data, so read the shape, never lift the content |
-| 4 | **the engine's own surface** | `dt help` — the complete verb surface, system and field verbs included; read it rather than recalling it | the capability may already be a verb (`relations rebuild`, `resolve`, `ensure`) rather than a missing module |
+| 4 | **the engine's own surface** | `dt help` — the complete verb surface, system and field verbs included; read it rather than recalling it | the capability may already be a verb (`relations rebuild`, `resolve`, `install repos/<id>`) rather than a missing module |
 
 Only after all four: build it, in the module that owns the concept.
+
+## name the proof before you build it
+
+**Before writing the thing, say how anyone would know it works** — one sentence, in the shape a
+`proofs` record takes: *this record, in this state, after this step, must look like this*
+(`proofs.md`). It costs a minute and it is the cheapest design review there is.
+
+⚠ **When you cannot name one, the artifact has no observable post-state, and THAT is the first
+thing to change** — not something to note and carry on past. A skill nothing can check is a skill
+whose only evidence is that a session read it; a command whose completion leaves no trace in any
+record is a command nobody can tell ran. Give it a post-state — a field it sets, a record it
+writes, a file it leaves, an exit code it returns — and the proof follows for free. Do it after the
+proposal is accepted and before the build, so the assertion is what you build toward rather than
+what you retrofit.
 
 ## what "found" actually means
 

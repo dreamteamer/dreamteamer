@@ -8,7 +8,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { workspace, writeCollection, simpleCollection, compileError, compileQuietly, readFile, tree, dt, WS_MODULE, twoModuleWorkspace, writeModule } from '../helpers/ws.js';
+import { workspace, writeCollection, simpleCollection, compileError, compileQuietly, readFile, tree, dt, git, patchModulePkg, WS_MODULE, twoModuleWorkspace, writeModule } from '../helpers/ws.js';
 import { load } from '../../src/yaml.js';
 
 const uncompiled = (opts) => workspace({ ...opts, compile: false });
@@ -876,5 +876,56 @@ describe('the orientation block is grouped by module', () => {
 		assert.deepEqual(ws.store.descriptor('widgets').schema.properties.tags.examples, ['stage:draft', 'source:import']);
 		const res = ws.dt('add', 'widgets', '--name', 'w', '--tags', 'stage:draft');
 		assert.equal(res.code, 0, `an annotation never gates a write: ${res.stderr}`);
+	});
+});
+
+describe('local-assets and postinstall are validated at compile', () => {
+	test('a tracked path is refused', () => {
+		// ⚠ `workspace()` compiles at construction unless `compile: false` — a refused declaration would throw inside the fixture builder;
+		// and compile takes the inner `{root, pkg}` (`ws.ws`), exactly as the collision test above does.
+		const ws = workspace({ compile: false, pkg: { 'local-assets': ['README.md'] } });
+		fs.writeFileSync(path.join(ws.root, 'README.md'), '# x\n'); git(ws.root, ['add', 'README.md']); git(ws.root, ['commit', '-qm', 'readme']);
+		assert.match(compileError(ws.ws), /local-assets.*README\.md.*tracked/);
+	});
+
+	test('an un-ignored path is refused, an ignored one accepted', () => {
+		const ws = workspace({ compile: false, pkg: { 'local-assets': ['.profiles'] } });
+		assert.match(compileError(ws.ws), /local-assets.*\.profiles.*not gitignored/);
+		// ⚠ NO trailing slash: a dir-only pattern (`.profiles/`) matches neither a SYMLINK nor a path that does not exist yet
+		// (measured, git 2.50) — and in a worktree the asset IS a symlink. The compile error names this.
+		fs.appendFileSync(path.join(ws.root, '.gitignore'), '.profiles\n');
+		assert.equal(compileQuietly(ws.ws).code, 0);
+		fs.symlinkSync('/nonexistent-target', path.join(ws.root, '.profiles')); // the worktree shape
+		assert.equal(compileQuietly(ws.ws).code, 0);
+	});
+
+	test('the engine-owned paths are refused by name', () => {
+		for (const bad of ['.env', 'node_modules', '.dreamteamer', '.git']) {
+			const ws = workspace({ compile: false, pkg: { 'local-assets': [bad] } });
+			assert.match(compileError(ws.ws), new RegExp(`local-assets.*${bad.replace('.', '\\.')}.*engine`));
+		}
+	});
+
+	test('a module-level entry escaping the module is refused', () => {
+		const ws = twoModuleWorkspace(); patchModulePkg(ws.root, 'core', { 'local-assets': ['../outside'] });
+		assert.match(compileError(ws.ws), /local-assets.*\.\..*escapes/);
+	});
+
+	// ⚠ A NON-STRING `postinstall` IS THE ONE DECLARATION THE INSTALLER HANDS TO A SHELL. Both
+	// shapes below reach `execSync` in `checkout.js` as whatever `String()` makes of them — an array
+	// joins on a comma and a number becomes a command nobody typed — so the refusal is the compiler's.
+	test('a postinstall that is not a string is refused', () => {
+		for (const bad of [['npm', 'ci'], 7]) {
+			const ws = workspace({ compile: false, pkg: { postinstall: bad } });
+			assert.match(compileError(ws.ws), /postinstall.*string/);
+		}
+	});
+
+	// ⚠ THE WORKSPACE-LEVEL TWIN NEEDS ITS OWN CASE. `git check-ignore` cannot see a path outside the
+	// repo, so a root-relative climb-out reached that branch and was reported as "not gitignored" —
+	// a correct refusal carrying advice the operator could not act on.
+	test('a workspace-level entry escaping the root is refused as an escape, not as un-ignored', () => {
+		const ws = workspace({ compile: false, pkg: { 'local-assets': ['../outside'] } });
+		assert.match(compileError(ws.ws), /local-assets: "\.\.\/outside" escapes the workspace root/);
 	});
 });

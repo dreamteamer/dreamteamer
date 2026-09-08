@@ -91,7 +91,7 @@ describe('every surface that names a field by NAME', () => {
 
 	test('x-inverse on the OWNER, and the generated mirror with it', () => {
 		const ws = twoModuleWorkspace();
-		assert.equal(ws.dt('update-field', 'tasks', '--name', 'owner', '--type', 'people',
+		assert.equal(ws.dt('set-field', 'tasks', '--name', 'owner', '--type', 'people',
 			'--inverse', 'tasks').code, 0);
 		ws.dt('add', 'people', '--name', 'Dana Levi');
 		ws.dt('add', 'tasks', '--name', 'Ship it', '--owner', 'people/dana-levi');
@@ -221,7 +221,7 @@ describe('the refusals and the plan', () => {
 
 	test('a GENERATED mirror renamed onto a TAKEN name is refused, like any other field', () => {
 		const ws = twoModuleWorkspace();
-		assert.equal(ws.dt('update-field', 'tasks', '--name', 'owner', '--type', 'people',
+		assert.equal(ws.dt('set-field', 'tasks', '--name', 'owner', '--type', 'people',
 			'--inverse', 'tasks').code, 0);
 		// `people.tasks` IS generated — renaming it means renaming the owner's keyword, which the
 		// earlier test proves works. The name-taken guard applies to it exactly as to an authored one.

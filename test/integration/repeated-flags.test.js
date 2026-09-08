@@ -146,11 +146,11 @@ describe('a flag that holds ONE value says so when it is repeated', () => {
 	});
 
 	test("but a caller's own --ids on a record target is still honoured, not counted as a repeat", () => {
-		// `dt commands <c>/<id>` injects `--ids <id>`; it used to rely on last-wins to let an
+		// `dt next <c>/<id>` injects `--ids <id>`; it used to rely on last-wins to let an
 		// explicit --ids override it, which promote-on-repeat would have turned into a refusal.
 		const ws = base();
 		ws.dt('add', 'notes', '--title', 'One');
-		const res = ws.dt('commands', 'notes/one', '--ids', 'one');
+		const res = ws.dt('next', 'notes/one', '--ids', 'one');
 		assert.equal(res.code, 0, res.stderr);
 		assert.match(res.stdout, /no commands bound to notes/);
 	});

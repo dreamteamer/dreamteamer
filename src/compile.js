@@ -1,6 +1,7 @@
 // dreamteamer compile — materialize (modules × workspace sources) into .dreamteamer,
 // the single runtime read surface: copies + provenance manifest, then harness adapters.
 // explicit only; nothing rebuilds implicitly.
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -18,7 +19,13 @@ import {
 import { runHarnessAdapters } from './harnesses.js';
 import { satisfies } from './semver.js';
 import { parseEnvValues } from './env-vars.js';
-import { DERIVED_KINDS, readManifest, runtimeDir } from './runtime.js';
+import { DERIVED_KINDS, readManifest, runtimeDir, engineId, engineVersion } from './runtime.js';
+// ⚠ RE-EXPORTED, NOT RE-IMPLEMENTED. `engineVersion` moved to the boundary layer so `prove` can
+// stamp a ledger row without importing the compiler (that edge was a real, if latent, cycle).
+// Every existing caller spells it `from './compile.js'`, and a second reader of the engine's own
+// package.json is exactly the drift this file's comments keep naming.
+export { engineId, engineVersion };
+import { artifactRefs, proofPathFor, validateProofShape, stepWarnings } from './prove.js';
 
 // re-exported, not moved: `readManifest` is in the VS Code extension's hand-maintained engine
 // contract as `compileMod.readManifest` (engine.ts), and a removed export is the same cross-repo
@@ -382,8 +389,23 @@ function stampMirror(byName, ctx, ownerName, field, prop, holder, mirrorName, ta
 	t.schema.properties = { ...t.schema.properties, [mirrorName]: generated };
 }
 
-export const KINDS = ['collections', 'skills', 'agents', 'commands', 'command-bindings', 'ui-views', 'collection-templates'];
+export const KINDS = ['collections', 'skills', 'agents', 'commands', 'command-bindings', 'ui-views', 'collection-templates', 'proofs'];
 const FOLDER_KINDS = new Set(['skills']); // folder-shape entities: copy the whole record folder
+
+/**
+ * ⚠ `proofs/fixtures/` IS RECORDS, NOT PROOFS. It holds the store a `writes` proof runs against —
+ * laid onto a throwaway worktree by `dt prove`, mirroring the workspace root — so it is not a
+ * compiled source at all.
+ *
+ * ONE predicate, because BOTH enumerations of a kind directory have to agree about it and they are
+ * 900 lines apart. The stager alone made compile read `data/notes/x.note.md` as a proof and refuse
+ * the whole module; the staleness scan alone then reported every fixture file "(new, uncompiled)"
+ * on every single command, for ever, with no compile able to clear it.
+ *
+ * @param {string} kind         the source kind being enumerated
+ * @param {string} relFromKind  the entry's path RELATIVE to the kind directory, '/'-separated
+ */
+const isProofFixture = (kind, relFromKind) => kind === 'proofs' && (relFromKind === 'fixtures' || relFromKind.startsWith('fixtures/'));
 // DERIVED_KINDS (projected, not staged) lives in runtime.js — the boundary both halves read. Not in
 // KINDS on purpose: a module folder named `modules/` would be nonsense, and `isSystem` below keys
 // off KINDS to decide `storage.base`, so a `modules` collection landing on `base: workspace` would
@@ -476,6 +498,11 @@ function strayKindDirs(source, wsRoot, declaredIgnore) {
 }
 
 const sha256 = (buf) => 'sha256:' + createHash('sha256').update(buf).digest('hex');
+
+/** Is this workspace-relative source path inside an installed package? A nudge to write a file
+ *  there would name a path the next `npm install` erases. (schema-ops has the same one-liner for the
+ *  same reason; importing it back here would close a cycle for one regex.) */
+const inNodeModules = (p) => /(^|[\\/])node_modules([\\/]|$)/.test(String(p));
 
 // channel -> the directory the operator knows it by (used in shadow warnings, and it IS the
 // `location` field's vocabulary — see collections/modules.collection.yaml. Keeping the export name
@@ -636,6 +663,7 @@ export function compile({ root, pkg }) {
 	const moduleDeps = new Map();  // module name -> [module names]      — HARD, must be acyclic
 	const modulePeers = new Map(); // module name -> [collection names]  — SOFT, cannot cycle
 	const moduleNamespaces = new Map(); // module name -> [namespaces it DECLARES] (§8, option A)
+	const moduleLocalAssets = []; // {rel, owner, base} — validated with the workspace's own, below
 	for (const source of sources) {
 		let mpkg;
 		try { mpkg = JSON.parse(fs.readFileSync(path.join(source.root, 'package.json'), 'utf8')); } catch { continue; }
@@ -675,6 +703,13 @@ export function compile({ root, pkg }) {
 			if (!declaredEnv.has(k)) declaredEnv.set(k, []);
 			declaredEnv.get(k).push(source.name);
 		}
+		// Gathered here because mpkg is already parsed; refused below, next to the workspace's own
+		// declaration. The classic layout pushes the ROOT itself as an inline source, whose
+		// package.json IS `config` — reading it here too would report every workspace-level
+		// declaration twice, under the wrong owner.
+		if (source.root !== root) {
+			for (const rel of mpkg.dreamteamer?.['local-assets'] ?? []) moduleLocalAssets.push({ rel, owner: source.name, base: source.root });
+		}
 	}
 	// `dreamteamer.vars` is the WORKSPACE's own declaration (root package.json, not a module's): the
 	// keys a `${env:NAME}` template is allowed to name. Same missing-key question as
@@ -713,6 +748,33 @@ export function compile({ root, pkg }) {
 			}
 		}
 	}
+
+	// ---- local-assets and postinstall: what `dt install` will do to a checkout -------
+	// `local-assets` are the gitignored heavy folders a checkout SHARES by symlink instead of
+	// duplicating — a browser profile dir, a model cache. Declared, never discovered. Every
+	// refusal below is something the installer would otherwise hit at RUN time, on a machine nobody
+	// is watching; the compiler is where a declaration is cheap to fix. (`src/checkout.js` refuses
+	// the escaping rel a second time when the plan is built — a runtime that writes a symlink
+	// outside the root must not wait for the compiler to be run.)
+	const ENGINE_OWNED = new Set(['.env', 'node_modules', '.dreamteamer', '.git']);
+	const gitQ = (args) => { try { execFileSync('git', args, { cwd: root, stdio: 'ignore' }); return true; } catch { return false; } };
+	for (const a of [...(config['local-assets'] ?? []).map((rel) => ({ rel, owner: 'workspace', base: root })), ...moduleLocalAssets]) {
+		const abs = path.resolve(a.base, a.rel), rel = path.relative(root, abs);
+		if (a.owner !== 'workspace' && path.relative(a.base, abs).startsWith('..')) fail(`local-assets: "${a.rel}" (module ${a.owner}) escapes its module with .. — declare it at the workspace level instead`);
+		// The workspace-level twin, and it earns its own line: a rel that climbs out of the ROOT
+		// otherwise reached the gitignore check below, which cannot see a path outside the repo and
+		// so told the operator to ignore something git will never match. `checkout.js` refuses the
+		// same shape when the plan is built.
+		if (rel.startsWith('..')) fail(`local-assets: "${a.rel}" escapes the workspace root with .. — a local asset must be a path INSIDE the workspace`);
+		if (ENGINE_OWNED.has(rel.split(path.sep)[0])) fail(`local-assets: "${rel}" is engine-owned — install links .env and installs node_modules itself; never declare them`);
+		if (gitQ(['ls-files', '--error-unmatch', rel])) fail(`local-assets: "${rel}" is tracked — a tracked path needs no link and a link would shadow it`);
+		// ⚠ WITHOUT a trailing slash, and the message has to say so: a dir-only pattern (`.profiles/`)
+		// matches neither a symlink nor a path that does not exist yet (measured, git 2.50) — and a
+		// shared asset is exactly those two shapes, a symlink in every non-primary checkout and
+		// absent before the first install.
+		if (!gitQ(['check-ignore', '-q', rel])) fail(`local-assets: "${rel}" is not gitignored — add it to .gitignore WITHOUT a trailing slash (a worktree holds it as a symlink, and a dir-only pattern ignores neither a symlink nor an absent path); a shared asset must never be committed`);
+	}
+	if (config.postinstall != null && typeof config.postinstall !== 'string') fail('dreamteamer.postinstall must be a single shell string');
 
 	// ---- the module dependency graph -------------------------------------------------
 	// `dependencies` names MODULES and must be acyclic. `peerDependencies` names COLLECTIONS and
@@ -808,6 +870,7 @@ export function compile({ root, pkg }) {
 				: fs.readdirSync(srcDir).sort();
 			for (const name of names) {
 				if (name.startsWith('.')) continue;
+				if (isProofFixture(kind, name)) continue;
 				const entityId = name.replace(/\.[^.]+\.(yaml|md|json)$/, '');
 				if (disabled.has(`${source.name}/${entityId}`)) { disabledHits.add(`${source.name}/${entityId}`); continue; }
 				const srcPath = path.join(srcDir, name);
@@ -899,7 +962,7 @@ export function compile({ root, pkg }) {
 	// NOTHING. Warn; do not fail, since a module that is temporarily source-free is the
 	// operator's business, not the compiler's. Runs AFTER UI staging so a UI-only module counts.
 	// ⚠ A module with a scaffolded-but-EMPTY kind folder is a module being AUTHORED, not a mistake.
-	// `add modules` creates exactly that shape — seven empty kind folders — and a verb whose own
+	// `add modules` creates exactly that shape — eight empty kind folders — and a verb whose own
 	// output triggers a warning reads as a broken install. The warning's remaining job is the case it
 	// was written for: a module that ships nothing the engine recognises AT ALL, which is what
 	// decision 156 cost two days. `kindDir` returns the flat path when neither layout exists, so this
@@ -1313,7 +1376,7 @@ export function compile({ root, pkg }) {
 			// generated mirror (which never carries x-unique) cannot trip it.
 			const h = (prop.items && typeof prop.items === 'object') ? prop.items : prop;
 			if (h['x-unique'] === true && h['x-inverse'] === undefined && h['x-inverse-of'] === undefined) {
-				console.warn(`⚠ collection ${name}: x-unique on "${fieldName}" is inert — it is a RELATION keyword, enforced only while the store maintains a mirror, and this field declares no x-inverse. Nothing constrains the value. Declare the relation (dreamteamer update-field ${name} --name ${fieldName} --inverse) or drop x-unique.`);
+				console.warn(`⚠ collection ${name}: x-unique on "${fieldName}" is inert — it is a RELATION keyword, enforced only while the store maintains a mirror, and this field declares no x-inverse. Nothing constrains the value. Declare the relation (dreamteamer set-field ${name} --name ${fieldName} --inverse) or drop x-unique.`);
 			}
 			// `x-choices` decorates ENUM VALUES (presentation.js#choiceRow, 0.21.0), and both ways of
 			// getting it wrong are SILENT: a key that is not a value decorates nothing, and the keyword
@@ -1533,6 +1596,46 @@ export function compile({ root, pkg }) {
 		}
 	}
 
+	// ---- proof validation --------------------------------------------------------------
+	// A proof declares behaviour the ENGINE judges, so every key in one is a value the engine
+	// interprets — which by the rule stated above the ui-view block makes all of them compile's to
+	// validate. The two silent failures this refuses, both measured in the spike:
+	//   `about: skills/greter` — names no artifact, so the proof proves nothing and says so nowhere.
+	//   `where: { statuz: … }` — an unknown key fails CLOSED in `matchesFilter`, so a `count`
+	//   expectation over it passes or fails FOREVER for a reason no output names.
+	// The judgement itself lives in `prove.js` (unit-tested against a hand-built descriptor set);
+	// this block is the wiring, and it is deliberately paid for only when a proof exists.
+	//
+	// ⚠ `artifactRefs` is computed unconditionally, because the coverage line below prints its
+	// denominators on EVERY compile — a workspace with no proofs still gets told what it has.
+	const proofArtifacts = artifactRefs(entries);
+	const proofEntries = [...entries].filter(([rt]) => rt.startsWith('proofs/'));
+	/** every artifact ref named by at least one proof — the coverage numerators, and the nudge's silencer */
+	const provenRefs = new Set();
+	if (proofEntries.length) {
+		// the MERGED descriptors, read back out of the entries this compile is about to write —
+		// the same source of truth the ui-view block reads its own field list from, so a proof is
+		// judged against the schema the workspace will actually run on (`extends` applied).
+		const merged = new Map();
+		for (const [rt, e] of entries) {
+			if (!rt.startsWith('collections/')) continue;
+			const doc = load(e.bytes.toString('utf8'));
+			if (doc?.name) merged.set(doc.name, doc);
+		}
+		const proofCtx = { descriptors: merged, declaredVars, moduleEnv: new Set(declaredEnv.keys()), artifacts: proofArtifacts.all };
+		for (const [rt, e] of proofEntries) {
+			const proof = loadSource(e.bytes.toString('utf8'), e.sources[0].path);
+			const errs = validateProofShape(proof, proofCtx);
+			if (errs.length) fail(errs.map((m) => `${rt}: ${m}`).join('\n  '));
+			// ⚠ WARNINGS, not errors (R17). A step is a shell string, so a brace nobody substitutes is
+			// as likely to be `awk '{print}'` as a typo'd `{recrod}` — and `substitute` refusing both
+			// at run time was measured to kill four correct steps. Naming the token here is the whole
+			// net that remains: it costs a line, and the proof still compiles and still runs.
+			for (const w of stepWarnings(proof)) console.warn(`⚠ ${rt}: ${w}`);
+			for (const ref of proof?.about ?? []) provenRefs.add(String(ref));
+		}
+	}
+
 	// ---- materialize .dreamteamer ------------------------------------------------
 	// mkdir the runtime ROOT unconditionally: with zero entries nothing below created it, so the
 	// manifest write at the end failed ENOENT — `init` followed by `compile` in a fresh workspace
@@ -1615,6 +1718,69 @@ export function compile({ root, pkg }) {
 		: `${sources.length - 1} module(s) + workspace`;
 	console.log(`✔ compiled ${summary || 'nothing'} from ${sourceLabel} → .dreamteamer`);
 	for (const line of harnessSummary) console.log(`✔ harness ${line}`);
+
+	// ---- proof coverage, on EVERY compile ----------------------------------------
+	// One line, unconditional, even at zero: coverage that is only reported when someone asks is
+	// coverage nobody knows the number of. The denominators are what this compile actually produced
+	// (`artifactRefs`, the one enumeration `prove --missing` also reads), the numerators what a
+	// proof names.
+	const covered = (list) => `${list.filter((a) => provenRefs.has(a)).length}/${list.length}`;
+	console.log(`proofs: ${proofEntries.length} declared · commands ${covered(proofArtifacts.commands)} · skills ${covered(proofArtifacts.skills)} · scripts ${covered(proofArtifacts.scripts)} · bindings ${covered(proofArtifacts.bindings)}`);
+
+	// ---- the nudge: ONCE, per NEW command or script with no proof -----------------
+	// module id → the module's workspace-relative ROOT, exactly the value the module projection
+	// stores in `path`. Sorted longest-first so a nested module wins over its parent, and the root
+	// layout's `.` (the empty prefix) matches last.
+	const moduleRoots = sources.map((s) => ({ id: moduleId(s.name), root: rel(s.root) || '.' }))
+		.sort((a, b) => b.root.length - a.root.length);
+	const ownerRoot = (srcPath) => moduleRoots.find(({ root: r }) => r === '.' || srcPath === r || srcPath.startsWith(`${r}/`))?.root ?? '.';
+	// ⚠ NEW, not merely uncovered. A workspace adopting proofs has forty-odd artifacts and none of
+	// them proven; forty-four warnings on day one is the noise that teaches an operator to skip
+	// every line this compile prints. So the nudge fires only for an artifact absent from the
+	// PREVIOUS manifest, and a first-ever compile (no previous manifest at all) nudges nothing.
+	//
+	// Commands and scripts only — they are the artifacts that RUN, and a skill gets its nudge at the
+	// moment `dt add skills` writes it. An artifact shipped from node_modules is skipped: a proof
+	// written there is erased by the next `npm install`.
+	//
+	// ⚠ A KNOWN GAP, stated rather than hidden: a script added to an EXISTING module does not nudge.
+	// The manifest records a module record's SOURCE hash (its package.json), and adding a file under
+	// `bin/` changes neither the entry key nor that hash, so there is nothing to compare. The
+	// coverage line still counts it.
+	if (prevManifest?.entries) {
+		for (const ref of [...proofArtifacts.commands, ...proofArtifacts.scripts]) {
+			if (provenRefs.has(ref)) continue;
+			const known = artifactSource(entries, ref);
+			if (!known || known.new === false || inNodeModules(known.source)) continue;
+			console.log(`no proof yet for ${ref} — ${proofPathFor(ref, known.moduleRoot)} (see using-dreamteamer › proofs)`);
+		}
+	}
+
+	/** Where an artifact's source lives, and whether the PREVIOUS manifest already knew it.
+	 *
+	 *  ⚠ THE MODULE ROOT COMES OFF THE SOURCE, NEVER OFF THE FILE PATH. Slicing it out of the
+	 *  artifact's source path (`lastIndexOf('/commands/')`, `replace(/\/package\.json$/)`) is
+	 *  correct only in the `workspace-module` layout. In the ROOT layout (no `workspace-module`, see
+	 *  :619) a command's source is `commands/hello.command.md` — no module segment at all — so the
+	 *  slice returned -1 and the nudge named `commands/hello.command.m/proofs/…`, and a module
+	 *  script named `package.json/proofs/…`. `rel(source.root)` is the same value the module record's
+	 *  `path` field carries (see the projection near :1459), which is the value that is always right. */
+	function artifactSource(all, ref) {
+		if (ref.startsWith('commands/')) {
+			const key = `${ref}.command.md`;
+			const source = all.get(key)?.sources?.[0]?.path ?? '';
+			if (!source) return null;
+			return { source, moduleRoot: ownerRoot(source), new: !(key in prevManifest.entries) };
+		}
+		// a module script: `<module-id>/bin/<file>` — the id is in the ref, so the root is a lookup
+		// rather than a guess. Its "entry" is the module record compile projected, so a whole NEW
+		// module's scripts nudge and an existing module's do not (above).
+		const mod = ref.slice(0, ref.indexOf('/'));
+		const key = `modules/${mod}.module.yaml`;
+		const entry = all.get(key);
+		if (!entry) return null;
+		return { source: entry.sources?.[0]?.path ?? '', moduleRoot: moduleRoots.find((m) => m.id === mod)?.root ?? '.', new: !(key in prevManifest.entries) };
+	}
 	return 0;
 }
 
@@ -1625,17 +1791,6 @@ function prevManifestNamespaces(root) {
 	return normalizeNamespaces(readManifest(root)?.namespaces);
 }
 
-function engineId() {
-	try {
-		const p = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
-		return `${p.name}@${p.version}`;
-	} catch { return 'dreamteamer@unknown'; }
-}
-
-// bare version of the RUNNING engine (dev clone or installed copy — whichever loaded)
-export function engineVersion() {
-	return engineId().split('@').pop();
-}
 
 // staleness: does any manifest entry's SOURCE differ from what was compiled, or is a
 // source file missing/new? used by `status` and warned about at every tool entry.
@@ -1665,6 +1820,7 @@ export function staleness(root) {
 			const dir = kindDir(r, kind);
 			if (!fs.existsSync(dir)) continue;
 			for (const f of walk(dir)) {
+				if (isProofFixture(kind, path.relative(dir, f).split(path.sep).join('/'))) continue;
 				const relPath = path.relative(root, f);
 				if (!known.has(relPath)) stale.push(`${relPath} (new, uncompiled)`);
 			}

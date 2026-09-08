@@ -651,19 +651,19 @@ describe('x-body — the remedy the mirror refusal names', () => {
 	});
 
 	test('a retype that says nothing about the body keeps it', () => {
-		// `update-field --description` rebuilds the prop from the flags alone, so an uncarried x-body
+		// `set-field --description` rebuilds the prop from the flags alone, so an uncarried x-body
 		// would silently un-body the field: the record's text then parses into nothing and the next
 		// write serializes it away. Same carry rule as the relation keywords.
 		const ws = workspace({ collections: { plain: BODYLESS } });
 		assert.equal(ws.dt('add-field', 'plain', '--name', 'notes', '--type', 'markdown', '--body').code, 0);
-		const res = ws.dt('update-field', 'plain', '--name', 'notes', '--description', 'what happened');
+		const res = ws.dt('set-field', 'plain', '--name', 'notes', '--description', 'what happened');
 		assert.equal(res.code, 0, res.stderr);
 		const d = load(readFile(ws.root, 'modules/default/collections/plain.collection.yaml'));
 		assert.equal(d.schema.properties.notes['x-body'], true);
 		assert.equal(d.schema.properties.notes.description, 'what happened');
 
 		// …and --body false is how you deliberately clear it
-		assert.equal(ws.dt('update-field', 'plain', '--name', 'notes', '--body', 'false').code, 0);
+		assert.equal(ws.dt('set-field', 'plain', '--name', 'notes', '--body', 'false').code, 0);
 		const after = load(readFile(ws.root, 'modules/default/collections/plain.collection.yaml'));
 		assert.equal(after.schema.properties.notes['x-body'], undefined);
 	});

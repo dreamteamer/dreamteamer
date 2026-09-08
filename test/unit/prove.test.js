@@ -1,0 +1,1170 @@
+// Tier 1 — `validateProofShape`: what a proof may say, decided from the descriptors alone.
+//
+// WHY THIS IS THE FIRST THING WRITTEN. A proof is the one source kind whose whole job is to be RUN
+// later, which makes a typo in it uniquely expensive — and SILENT in both directions. `about:
+// skills/greter` is a proof that proves nothing about anything and never says so. `where: { statuz:
+// { _eq: open } }` is a filter that narrows to zero rows, so a `count: { _eq: 0 }` expectation
+// PASSES forever and a `_gte: 1` one FAILS forever, in both cases for a reason no output names. So
+// every one of these strings is a contract: compile prints it verbatim, prefixed with the proof's
+// runtime path, and the wording has to be enough to fix the file without reading the engine.
+//
+// Pure by construction: a hand-built `descriptors` Map, a hand-built artifact Set, no fs, no git,
+// no compile. `notes` carries the interesting shapes (a closed enum, an outbound reference, a
+// `sort_field`); `people` is the hop target and deliberately has NO `sort_field`, which is what
+// makes `pick: latest` invalid there.
+import { test, describe } from 'node:test';
+import assert from 'node:assert/strict';
+import { validateProofShape, formOf, PROOF_KINDS, PROOF_MODES, substitute, substituteWhere, stepWarnings, applyCap, verdictLine, exitFor, stepOutcome, flagValue, flagEnabled, EXIT, LEDGER_CAP } from '../../src/prove.js';
+
+const descriptors = new Map([
+	['notes', {
+		name: 'notes',
+		sort_field: 'name',
+		schema: {
+			type: 'object',
+			required: ['name'],
+			properties: {
+				name: { type: 'string' },
+				status: { type: 'string', enum: ['open', 'done'] },
+				owner: { type: 'string', 'x-reference': 'people' },
+			},
+		},
+	}],
+	['people', {
+		name: 'people',
+		// `manager` exists so a TWO-hop filter is expressible: `owner.manager.name` is one hop past
+		// what the evaluator resolves, and has to be refused rather than left to narrow to false.
+		schema: { type: 'object', required: ['name'], properties: { name: { type: 'string' }, manager: { type: 'string', 'x-reference': 'people' } } },
+	}],
+]);
+
+const ctx = {
+	descriptors,
+	declaredVars: ['FILES_FOLDER'],
+	moduleEnv: new Set(['API_KEY']),
+	artifacts: new Set(['skills/a', 'commands/b', 'command-bindings/c', 'hr/bin/check.mjs']),
+};
+
+/** A valid gate proof, plus whatever the test is about. */
+const gate = (extra = {}) => ({ name: 'g', about: ['skills/a'], kind: 'gate', steps: [{ run: 'true' }], ...extra });
+
+/** A valid live proof, plus whatever the test is about. Named record (not `pick: latest`) so a
+ *  test about something else never trips the sort_field rule. */
+const live = (extra = {}) => ({
+	name: 'l',
+	about: ['commands/b'],
+	kind: 'live',
+	mode: 'readonly',
+	given: { collection: 'notes', where: { status: { _eq: 'open' } }, pick: 'a-note' },
+	steps: [{ run: 'echo hi' }],
+	expect: [{ collection: 'notes', where: { status: { _eq: 'done' } }, count: { _gte: 1 } }],
+	...extra,
+});
+
+/** The one error a proof is expected to produce — and NOTHING else. A test that accepts "contains"
+ *  would pass on a validator that fires six errors for one mistake, which is the failure mode this
+ *  suite exists to prevent: an operator fixing the wrong line. */
+const only = (proof, message) => assert.deepEqual(validateProofShape(proof, ctx), [message]);
+
+describe('the vocabulary is closed and named once', () => {
+	test('PROOF_KINDS and PROOF_MODES are the two enums the descriptor declares', () => {
+		assert.deepEqual(PROOF_KINDS, ['gate', 'live']);
+		assert.deepEqual(PROOF_MODES, ['readonly', 'writes']);
+	});
+});
+
+describe('validateProofShape — a valid proof is silent', () => {
+	test('a valid gate returns no errors', () => {
+		assert.deepEqual(validateProofShape(gate(), ctx), []);
+	});
+
+	test('a valid live proof returns no errors', () => {
+		assert.deepEqual(validateProofShape(live(), ctx), []);
+	});
+
+	test('every artifact form is accepted — skill, command, binding, module script', () => {
+		assert.deepEqual(validateProofShape(gate({ about: ['skills/a', 'commands/b', 'command-bindings/c', 'hr/bin/check.mjs'] }), ctx), []);
+	});
+
+	test('a declared env key is accepted from dreamteamer.vars OR a module dreamteamer.env', () => {
+		assert.deepEqual(validateProofShape(gate({ requires: { env: ['FILES_FOLDER', 'API_KEY'], bin: ['git'] } }), ctx), []);
+	});
+
+	test('a one-hop reference condition is accepted — owner is an x-reference, name is a field of people', () => {
+		assert.deepEqual(validateProofShape(live({ given: { collection: 'notes', where: { owner: { name: { _eq: 'Dana' } } }, pick: 'a-note' } }), ctx), []);
+	});
+
+	test('pick: latest is accepted when the collection declares a sort_field', () => {
+		assert.deepEqual(validateProofShape(live({ given: { collection: 'notes', where: {}, pick: 'latest' } }), ctx), []);
+	});
+
+	test('every count operator in the closed set is accepted, _delta included', () => {
+		for (const op of ['_eq', '_neq', '_gt', '_gte', '_lt', '_lte', '_delta']) {
+			assert.deepEqual(validateProofShape(live({ expect: [{ collection: 'notes', where: {}, count: { [op]: 1 } }] }), ctx), [], op);
+		}
+	});
+
+	test('a bare integer count is accepted — it is shorthand for _eq', () => {
+		assert.deepEqual(validateProofShape(live({ expect: [{ collection: 'notes', where: {}, count: 1 }] }), ctx), []);
+	});
+
+	test('_in accepts the comma-string spelling filter.js itself accepts', () => {
+		// `toArray` (filter.js:100) splits a non-array operand on commas, so `_in: 'open,done'` is a
+		// LEGAL two-value filter — reading it as one literal reported a false enum violation.
+		assert.deepEqual(validateProofShape(live({ given: { collection: 'notes', where: { status: { _in: 'open,done' } }, pick: 'a-note' } }), ctx), []);
+	});
+
+	test('a fixture-backed given is accepted, and every other expect form with it', () => {
+		assert.deepEqual(validateProofShape(live({
+			given: { collection: 'notes', fixture: true, pick: 'a-note' },
+			expect: [
+				{ record: '{record}', where: { status: { _eq: 'done' } } },
+				{ step: 1, exit: 0 },
+				{ path: '${env:FILES_FOLDER}/out.txt', exists: true },
+			],
+			timeout: 60,
+		}), ctx), []);
+	});
+});
+
+describe('validateProofShape — about', () => {
+	test('a missing about is refused', () => {
+		const proof = gate();
+		delete proof.about;
+		only(proof, 'about is required and names at least one artifact');
+	});
+
+	test('an empty about is refused the same way', () => {
+		only(gate({ about: [] }), 'about is required and names at least one artifact');
+	});
+
+	test('an about naming no artifact is refused, with the four forms spelled out', () => {
+		only(gate({ about: ['skills/greter'] }), 'about "skills/greter" names no artifact — an artifact is skills/<id>, commands/<id>, command-bindings/<id>, or <module>/bin/<file>');
+	});
+});
+
+describe('validateProofShape — kind, gate and live', () => {
+	test('an unknown kind is refused, and nothing else is judged', () => {
+		only(gate({ kind: 'smoke' }), 'kind must be gate or live');
+	});
+
+	test('a gate carrying expect is refused', () => {
+		only(gate({ expect: [{ collection: 'notes', where: {}, count: { _gte: 1 } }] }), 'a gate proof has run steps only and no given or expect');
+	});
+
+	test('a gate carrying given is refused', () => {
+		only(gate({ given: { collection: 'notes', where: {} } }), 'a gate proof has run steps only and no given or expect');
+	});
+
+	test('a gate whose step is a perform is refused — a gate runs, it does not ask', () => {
+		only(gate({ steps: [{ perform: 'summarize-meeting' }] }), 'a gate proof has run steps only and no given or expect');
+	});
+
+	test('a live proof with no mode is refused', () => {
+		const proof = live();
+		delete proof.mode;
+		only(proof, 'a live proof declares mode: readonly | writes');
+	});
+
+	test('a live proof with an unknown mode is refused the same way', () => {
+		only(live({ mode: 'read-only' }), 'a live proof declares mode: readonly | writes');
+	});
+
+	test('a live proof with no expectation is refused', () => {
+		only(live({ expect: [] }), 'a live proof needs at least one step and one expectation');
+	});
+
+	test('a live proof with no steps is refused the same way', () => {
+		only(live({ steps: [] }), 'a live proof needs at least one step and one expectation');
+	});
+});
+
+describe('validateProofShape — given', () => {
+	test('given.collection must name a collection', () => {
+		only(live({ given: { collection: 'ghosts', where: {}, pick: 'a-note' } }), 'given.collection "ghosts" is not a collection');
+	});
+
+	test('a missing given.collection is the same error, naming the empty value', () => {
+		only(live({ given: { where: {}, pick: 'a-note' } }), 'given.collection "" is not a collection');
+	});
+
+	test('both where and fixture is refused', () => {
+		only(live({ given: { collection: 'notes', where: {}, fixture: true, pick: 'a-note' } }), 'given needs exactly one of where or fixture');
+	});
+
+	test('neither where nor fixture is refused', () => {
+		only(live({ given: { collection: 'notes', pick: 'a-note' } }), 'given needs exactly one of where or fixture');
+	});
+
+	test('pick: latest needs a sort_field on the collection it picks from', () => {
+		only(live({ given: { collection: 'people', where: { name: { _eq: 'Dana' } }, pick: 'latest' } }), 'pick: latest needs a sort_field on people — name the record (pick: <id>) or use a fixture');
+	});
+
+	test('pick: any is refused outright — a proof names its record', () => {
+		only(live({ given: { collection: 'notes', where: {}, pick: 'any' } }), 'pick: any is not accepted — a proof names its record or uses a fixture');
+	});
+});
+
+describe('validateProofShape — a where is checked against the descriptor', () => {
+	test('a field the collection does not have is refused', () => {
+		only(live({ given: { collection: 'notes', where: { statuz: { _eq: 'open' } }, pick: 'a-note' } }), 'where names "statuz", which notes has no field for');
+	});
+
+	test('the same check runs over an expect where, against THAT collection', () => {
+		only(live({ expect: [{ collection: 'people', where: { statuz: { _eq: 'open' } }, count: { _gte: 1 } }] }), 'where names "statuz", which people has no field for');
+	});
+
+	// ⚠ THE TRAP the spike measured (§3c): a non-operator key is a one-hop REFERENCE traversal, not a
+	// field-vs-field comparison. `{name: {status: …}}` reads as "resolve `name` as a ref and test its
+	// `status`", and because `name` is not a ref it narrows to false with no warning at all.
+	test('a nested key under a non-reference field is refused, saying what a nested key means', () => {
+		only(live({ given: { collection: 'notes', where: { name: { status: { _eq: 'open' } } }, pick: 'a-note' } }), 'where "name" is not a reference field — a nested key hops a reference, it does not compare two fields');
+	});
+
+	test('a one-hop key the TARGET collection has no field for is refused, naming the target', () => {
+		only(live({ given: { collection: 'notes', where: { owner: { employer: { _eq: 'Acme' } } }, pick: 'a-note' } }), 'where names "employer", which people has no field for');
+	});
+
+	test('an _eq literal outside a closed enum is refused, listing the options', () => {
+		only(live({ given: { collection: 'notes', where: { status: { _eq: 'archived' } }, pick: 'a-note' } }), 'where "status" compares "archived", which is not one of status\'s options [open, done]');
+	});
+
+	test('the bare shorthand for _eq is checked against the enum too', () => {
+		only(live({ given: { collection: 'notes', where: { status: 'archived' }, pick: 'a-note' } }), 'where "status" compares "archived", which is not one of status\'s options [open, done]');
+	});
+
+	test('_in is checked member by member', () => {
+		only(live({ given: { collection: 'notes', where: { status: { _in: ['open', 'archived'] } }, pick: 'a-note' } }), 'where "status" compares "archived", which is not one of status\'s options [open, done]');
+	});
+
+	// ⚠ R45 — A `{record…}` LITERAL IS A RUNTIME VALUE, IN AN EXPECTATION. The judge renders it
+	// against the picked record before the filter runs, so comparing the BRACE to the enum's options
+	// refuses a correct proof — and the author's only way to make compile go green is to delete the
+	// line that works. ⚠ I1 — THE EXEMPTION IS EXPECTATION-ONLY: in `given.where` nothing
+	// substitutes, so the literal is refused there instead (see the I1/I4 block at the end).
+	test('a {record.<field>} literal on an enum field is accepted, not compared to the options', () => {
+		assert.deepEqual(validateProofShape(live({ expect: [{ collection: 'notes', where: { status: { _eq: '{record.status}' } }, count: { _gte: 1 } }] }), ctx), []);
+	});
+
+	test('a bare {record} literal is accepted on a reference field, which is the canonical shape', () => {
+		assert.deepEqual(validateProofShape(live({ expect: [{ collection: 'notes', where: { owner: { _eq: '{record}' } }, count: { _gte: 1 } }] }), ctx), []);
+	});
+
+	test('a NON-brace typo on the same enum field is still refused — the exemption is not a hole', () => {
+		only(live({ given: { collection: 'notes', where: { status: { _eq: 'recordish' } }, pick: 'a-note' } }), 'where "status" compares "recordish", which is not one of status\'s options [open, done]');
+	});
+
+	test('_neq and _nin are checked as well — a typo there narrows just as silently', () => {
+		only(live({ given: { collection: 'notes', where: { status: { _neq: 'closed' } }, pick: 'a-note' } }), 'where "status" compares "closed", which is not one of status\'s options [open, done]');
+	});
+
+	test('an unknown filter operator is refused, reusing the filter module\'s own walker', () => {
+		only(live({ given: { collection: 'notes', where: { status: { _nq: 'open' } }, pick: 'a-note' } }), 'unknown filter operator(s) _nq');
+	});
+
+	test('unknown operators from every where in the proof are reported once, sorted', () => {
+		only(live({
+			given: { collection: 'notes', where: { status: { _nq: 'open' } }, pick: 'a-note' },
+			expect: [{ collection: 'notes', where: { name: { _bogus: 'x' } }, count: { _gte: 1 } }],
+		}), 'unknown filter operator(s) _bogus, _nq');
+	});
+});
+
+describe('validateProofShape — requires, expect and timeout', () => {
+	test('an undeclared env key is refused, naming both places it could be declared', () => {
+		only(gate({ requires: { env: ['OPENAI_KEY'] } }), 'requires.env "OPENAI_KEY" is not declared — add it to dreamteamer.vars or a module\'s dreamteamer.env');
+	});
+
+	test('expect[i].collection must name a collection, and the index is in the message', () => {
+		only(live({ expect: [{ collection: 'ghosts', where: {}, count: { _gte: 1 } }] }), 'expect[0].collection "ghosts" is not a collection');
+	});
+
+	test('an expectation matching no known form is refused, listing every form', () => {
+		only(live({ expect: [{ nonsense: true }] }), 'expect[0] needs one of: collection+where+count · record+where · step+exit/stdout/stdout_json · path+exists');
+	});
+
+	test('the index is the offending one, not the first', () => {
+		only(live({
+			expect: [{ collection: 'notes', where: {}, count: { _gte: 1 } }, { nonsense: true }],
+		}), 'expect[1] needs one of: collection+where+count · record+where · step+exit/stdout/stdout_json · path+exists');
+	});
+
+	test('a zero timeout is refused', () => {
+		only(gate({ timeout: 0 }), 'timeout must be a positive integer of seconds');
+	});
+
+	test('a fractional timeout is refused', () => {
+		only(gate({ timeout: 1.5 }), 'timeout must be a positive integer of seconds');
+	});
+
+	test('a non-numeric timeout is refused', () => {
+		only(gate({ timeout: '60' }), 'timeout must be a positive integer of seconds');
+	});
+});
+
+describe('validateProofShape — the fix-round-1 rulings', () => {
+	// R12 — `mode` is meaningless on a gate (there is no workspace state to read or write), and the
+	// descriptor already says "forbidden on a gate". A key the engine ignores is a key whose author
+	// believes something untrue about what will run.
+	test('a gate carrying mode is refused', () => {
+		only(gate({ mode: 'readonly' }), 'a gate proof takes no mode');
+	});
+
+	// R11 — `count` has its OWN operator set: the filter operators that order integers, plus
+	// `_delta`, which no filter has. So neither `KNOWN_OPERATORS` nor `unknownOperators` can judge
+	// it — `_delta` would read as a typo there, and a real typo (`_gtee`) reads as fine.
+	test('a count operator outside the closed set is refused, listing the set', () => {
+		only(live({ expect: [{ collection: 'notes', where: {}, count: { _gtee: 1 } }] }), 'count operator "_gtee" is not one of _eq _neq _gt _gte _lt _lte _delta');
+	});
+
+	test('a filter operator that is not a COUNT operator is refused too', () => {
+		only(live({ expect: [{ collection: 'notes', where: {}, count: { _contains: 1 } }] }), 'count operator "_contains" is not one of _eq _neq _gt _gte _lt _lte _delta');
+	});
+
+	test('a non-integer count operand is refused', () => {
+		only(live({ expect: [{ collection: 'notes', where: {}, count: { _gte: 'one' } }] }), 'count "_gte" compares "one", which is not an integer');
+	});
+
+	test('a fractional count operand is refused — half a record does not exist', () => {
+		only(live({ expect: [{ collection: 'notes', where: {}, count: { _eq: 1.5 } }] }), 'count "_eq" compares "1.5", which is not an integer');
+	});
+
+	test('a bare non-integer count is refused as the _eq it stands for', () => {
+		only(live({ expect: [{ collection: 'notes', where: {}, count: 'many' }] }), 'count "_eq" compares "many", which is not an integer');
+	});
+
+	// ⚠ TWO HOPS ARE REFUSED, not silently accepted. `matchesFilter` resolves ONE reference and
+	// evaluates the sub-condition against the target record; a second nesting level is treated as
+	// another ref traversal on a value that is a plain field, which narrows to false with no
+	// warning. Exactly the silent-zero-rows failure the whole validator exists to close.
+	test('a two-hop where is refused, naming the dotted path', () => {
+		only(live({ given: { collection: 'notes', where: { owner: { manager: { name: { _eq: 'Dana' } } } }, pick: 'a-note' } }), 'where hops more than one reference (owner.manager.name) — a proof filter hops at most one');
+	});
+
+	test('a second hop over a NON-reference target field is refused the same way', () => {
+		only(live({ given: { collection: 'notes', where: { owner: { name: { first: { _eq: 'Dana' } } } }, pick: 'a-note' } }), 'where hops more than one reference (owner.name.first) — a proof filter hops at most one');
+	});
+
+	// R14 — `{record}` is bound by `given`. A `record:` expectation without one is a proof that
+	// cannot run, and the failure would surface at run time as an unresolved substitution.
+	test('a record expectation with no given is refused', () => {
+		const proof = live({ expect: [{ record: '{record}', where: { status: { _eq: 'done' } } }] });
+		delete proof.given;
+		only(proof, 'a record expectation needs a given — nothing binds {record}');
+	});
+
+	test('a fixture with no pick is refused — a fixture folder holds records, not A record', () => {
+		only(live({ given: { collection: 'notes', fixture: true } }), 'a fixture needs pick: <id> naming one of its records');
+	});
+
+	test('_in still enum-checks each member of a comma string', () => {
+		only(live({ given: { collection: 'notes', where: { status: { _in: 'open,archived' } }, pick: 'a-note' } }), 'where "status" compares "archived", which is not one of status\'s options [open, done]');
+	});
+});
+
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+// Task 3 — the PURE core the runner is built out of. Everything below runs against literals: no
+// store, no fs, no subprocess, which is the whole reason these four functions are separable from
+// the runner at all.
+//
+// Every string in this block is a CONTRACT. `verdictLine` is what an operator reads to decide
+// whether a proof's verdict is believable, and a line that prints only the WANTED value ("expected
+// status done ✖") sends them to re-run the proof by hand to find out what it actually was. So the
+// actual sits beside the wanted on every line, and the glyph set is closed and pinned here.
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+
+describe('substitute — {record} and {record.<field>}, and nothing else', () => {
+	const bound = { record: { ref: 'notes/a', fields: { id: 'a', name: 'Ada', status: 'open', revision: 3 } } };
+
+	test('{record} renders the ref', () => {
+		assert.equal(substitute('dt get {record}', bound), 'dt get notes/a');
+	});
+
+	test('{record.<field>} renders the value', () => {
+		assert.equal(substitute('echo {record.name}', bound), 'echo Ada');
+	});
+
+	test('a numeric field renders bare, as its String form', () => {
+		assert.equal(substitute('r={record.revision}', bound), 'r=3');
+	});
+
+	test('several substitutions in one string are all rendered', () => {
+		assert.equal(substitute('{record} {record.status} {record.name}', bound), 'notes/a open Ada');
+	});
+
+	// ⚠ `${env:X}` is the RESOLVER's bracket, not this one — a proof's `path:` expectation is rendered
+	// per machine by `dt resolve`, and a shell step may legitimately carry `${HOME}`. A `{…}` matcher
+	// that did not exempt a `$`-prefixed brace would throw on both.
+	test('${env:X} is left untouched — that bracket belongs to the resolver', () => {
+		assert.equal(substitute('ls ${env:FILES_FOLDER}/out', bound), 'ls ${env:FILES_FOLDER}/out');
+	});
+
+	test('a $-prefixed shell brace is left untouched too', () => {
+		assert.equal(substitute('echo ${HOME}', bound), 'echo ${HOME}');
+	});
+
+	// ⚠ R17 — A RUN STEP IS A SHELL STRING, AND THE SHELL OWNS BRACES TOO. Throwing on every
+	// unrecognised `{…}` was measured to kill four correct steps — `awk '{print $1}'`,
+	// `sed -n '1,3{p}'`, `jq '{a: .b}'` and `mkdir -p x/{a,b}` — for a check that exists to catch a
+	// typo. So this function renders what it OWNS and passes everything else through untouched; the
+	// typo net is `stepWarnings`, printed by compile, where a false positive costs a warning line
+	// instead of a refused proof.
+	test('an unknown brace passes through untouched — the shell owns braces too', () => {
+		assert.equal(substitute('echo {nope}', bound), 'echo {nope}');
+	});
+
+	test('the four measured shell shapes survive: awk, sed, jq and brace expansion', () => {
+		assert.equal(substitute("awk '{print $1}' f", bound), "awk '{print $1}' f");
+		assert.equal(substitute("sed -n '1,3{p}' f", bound), "sed -n '1,3{p}' f");
+		assert.equal(substitute("jq '{a: .b}' f", bound), "jq '{a: .b}' f");
+		assert.equal(substitute('mkdir -p x/{a,b}', bound), 'mkdir -p x/{a,b}');
+	});
+
+	test('a passed-through brace beside a real one leaves only the real one rendered', () => {
+		assert.equal(substitute("awk '{print $1}' {record}", bound), "awk '{print $1}' notes/a");
+	});
+
+	// A field the picked record does not carry would otherwise render as the STRING "undefined" into
+	// a shell command — the silent-wrong-command failure, one layer down from the silent-zero-rows one
+	// the validator exists to close.
+	test('a field the picked record does not carry throws, naming the field', () => {
+		assert.throws(() => substitute('echo {record.missing}', bound), /^Error: \{record\.missing\} — notes\/a has no field "missing"$/);
+	});
+
+	test('{record} with nothing bound throws rather than rendering "undefined"', () => {
+		assert.throws(() => substitute('dt get {record}', {}), /^Error: \{record\} has nothing to bind to — this proof declares no given$/);
+	});
+
+	test('a string with no braces comes back untouched', () => {
+		assert.equal(substitute('npm test', bound), 'npm test');
+	});
+});
+
+// ⚠ R20 — A PATH IS NOT A SHELL STRING, so the pass-through that saves `awk '{print}'` is exactly
+// wrong for a `path:` or `record:` value. Nothing downstream of those two would ever notice a
+// typo'd `{recrod}`: `path: "{recrod}/out.txt"` becomes a literal directory name that does not
+// exist, and the expectation answers `exists false` — a FAIL that names the wrong cause. So the two
+// values the ENGINE consumes (rather than the shell) are substituted in STRICT mode, where an
+// identifier-shaped brace nobody substitutes throws.
+describe('substitute — strict mode, for the values the engine consumes rather than the shell', () => {
+	const bound = { record: { ref: 'notes/a', fields: { id: 'a', name: 'Ada', status: 'open' } } };
+	const strict = { strict: true };
+
+	test('the two it owns still render, exactly as in lenient mode', () => {
+		assert.equal(substitute('{record}', bound, strict), 'notes/a');
+		assert.equal(substitute('out/{record.name}.txt', bound, strict), 'out/Ada.txt');
+	});
+
+	test('an identifier-shaped brace nobody substitutes THROWS, naming what a proof may use', () => {
+		assert.throws(
+			() => substitute('{recrod}/out.txt', bound, strict),
+			/^Error: unknown substitution "\{recrod\}" in a path — a proof may use \{record\} and \{record\.<field>\}$/,
+		);
+	});
+
+	test('the SAME string passes through untouched in lenient mode — the modes really differ', () => {
+		assert.equal(substitute('{recrod}/out.txt', bound), '{recrod}/out.txt');
+	});
+
+	// The resolver's own bracket must survive strict mode, or no `path:` expectation could name a
+	// machine-dependent folder at all — which is the whole point of the form.
+	test('${env:X} and ${HOME} survive strict mode — the $ brace is not ours', () => {
+		assert.equal(substitute('${env:FILES_FOLDER}/out', bound, strict), '${env:FILES_FOLDER}/out');
+		assert.equal(substitute('${HOME}/out', bound, strict), '${HOME}/out');
+	});
+
+	// The same asymmetry `stepWarnings` accepts: only an IDENTIFIER-shaped token is judgeable, so a
+	// brace with a space in it is invisible here too. Stated as a test so it is a decision.
+	test('a non-identifier brace is invisible to strict mode, as it is to the warning net', () => {
+		assert.equal(substitute('{a b}/out', bound, strict), '{a b}/out');
+	});
+
+	test('a missing field still throws in strict mode, with the same message', () => {
+		assert.throws(() => substitute('{record.missing}', bound, strict), /has no field "missing"/);
+	});
+});
+
+describe('applyCap — the ledger is append-only and bounded', () => {
+	const rows = (n) => Array.from({ length: n }, (_, i) => ({ i }));
+
+	test('the cap is 50', () => {
+		assert.equal(LEDGER_CAP, 50);
+	});
+
+	// ⚠ THE FIRST row is dropped and the NEW one is last: a ledger is read for "what happened
+	// recently", so trimming the newest would make the cap delete the only rows anyone wants.
+	test('50 rows plus one stays 50 — the oldest drops, the new row is last', () => {
+		const out = applyCap(rows(50), { i: 'new' });
+		assert.equal(out.length, 50);
+		assert.deepEqual(out[0], { i: 1 }, 'the FIRST row is the one dropped');
+		assert.deepEqual(out[49], { i: 'new' }, 'the appended row is LAST');
+	});
+
+	test('under the cap nothing is dropped', () => {
+		assert.deepEqual(applyCap(rows(3), { i: 'new' }), [{ i: 0 }, { i: 1 }, { i: 2 }, { i: 'new' }]);
+	});
+
+	test('it returns a NEW array and never mutates the one it was given', () => {
+		const before = rows(2);
+		const out = applyCap(before, { i: 'new' });
+		assert.equal(before.length, 2);
+		assert.notEqual(out, before);
+	});
+
+	test('an explicit cap overrides the default', () => {
+		assert.deepEqual(applyCap(rows(3), { i: 'new' }, 2), [{ i: 2 }, { i: 'new' }]);
+	});
+
+	// ⚠ `slice(-0)` IS `slice(0)` — the whole array. A cap of zero has to keep NOTHING, and without
+	// the guard it silently disables the cap instead, which is the opposite of what the number says.
+	test('a cap of 0 keeps nothing — never everything', () => {
+		assert.deepEqual(applyCap(rows(2), { i: 'new' }, 0), []);
+	});
+
+	test('a negative cap keeps nothing too', () => {
+		assert.deepEqual(applyCap(rows(2), { i: 'new' }, -1), []);
+	});
+});
+
+describe('verdictLine — the actual value beside the wanted one, always', () => {
+	test('a satisfied count reads count <actual> ≥ <wanted> ✔', () => {
+		assert.equal(verdictLine({ count: { _gte: 1 } }, 1), 'count 1 ≥ 1 ✔');
+	});
+
+	test('an unsatisfied count prints the SAME line with ✖ — the actual is what makes it readable', () => {
+		assert.equal(verdictLine({ count: { _gte: 1 } }, 0), 'count 0 ≥ 1 ✖');
+	});
+
+	// ⚠ `_delta` is the one operator no filter has (after-minus-before is something only a proof has
+	// two sides of), and the SIGN is always printed: `count 1 = 1` and `count +1 = +1` say different
+	// things, and only the second one says which of the two numbers is a difference.
+	test('_delta prints both numbers signed', () => {
+		assert.equal(verdictLine({ count: { _delta: 1 } }, 1), 'count +1 = +1 ✔');
+	});
+
+	test('a zero delta still shows its sign', () => {
+		assert.equal(verdictLine({ count: { _delta: 0 } }, 0), 'count +0 = +0 ✔');
+	});
+
+	test('a negative delta keeps its own sign and fails against a positive want', () => {
+		assert.equal(verdictLine({ count: { _delta: 1 } }, -2), 'count -2 = +1 ✖');
+	});
+
+	test('a bare operator map is the count condition it can only be', () => {
+		assert.equal(verdictLine({ _delta: 1 }, 1), 'count +1 = +1 ✔');
+	});
+
+	// The record form: the FIELD is the key, and the actual is JSON-quoted because a string value is
+	// where a trailing space or an empty string hides.
+	test('a record-field line quotes the actual string and prints the wanted bare', () => {
+		assert.equal(verdictLine({ status: { _in: ['done'] } }, 'open'), 'status "open" ∈ [done] ✖');
+	});
+
+	test('the _eq line is the one R6 names', () => {
+		assert.equal(verdictLine({ status: { _eq: 'done' } }, 'open'), 'status "open" = done ✖');
+	});
+
+	test('the bare shorthand for _eq renders the same line', () => {
+		assert.equal(verdictLine({ status: 'done' }, 'open'), 'status "open" = done ✖');
+	});
+
+	test('every glyph in the closed set, one line each', () => {
+		assert.equal(verdictLine({ status: { _neq: 'done' } }, 'open'), 'status "open" ≠ done ✔');
+		assert.equal(verdictLine({ count: { _gt: 1 } }, 2), 'count 2 > 1 ✔');
+		assert.equal(verdictLine({ count: { _lte: 1 } }, 1), 'count 1 ≤ 1 ✔');
+		assert.equal(verdictLine({ count: { _lt: 1 } }, 0), 'count 0 < 1 ✔');
+		assert.equal(verdictLine({ status: { _nin: ['done'] } }, 'open'), 'status "open" ∉ [done] ✔');
+		assert.equal(verdictLine({ status: { _nempty: true } }, 'open'), 'status "open" nonempty true ✔');
+		assert.equal(verdictLine({ status: { _empty: true } }, ''), 'status "" empty true ✔');
+		assert.equal(verdictLine({ status: { _contains: 'pen' } }, 'open'), 'status "open" contains pen ✔');
+	});
+
+	// An operator with no glyph prints its own NAME rather than a symbol nobody can look up — the
+	// filter operator set is open enough (`_regex`, `_starts_with`, `_between`) that inventing a
+	// glyph per member would be a second vocabulary to keep in sync with filter.js.
+	test('an operator outside the glyph table prints its own name', () => {
+		assert.equal(verdictLine({ status: { _starts_with: 'op' } }, 'open'), 'status "open" _starts_with op ✔');
+	});
+
+	test('two operators on one field are both rendered', () => {
+		assert.equal(verdictLine({ count: { _gte: 1, _lte: 3 } }, 2), 'count 2 ≥ 1 and ≤ 3 ✔');
+	});
+
+	test('an absent actual prints as undefined rather than as an empty gap', () => {
+		assert.equal(verdictLine({ status: { _eq: 'done' } }, undefined), 'status undefined = done ✖');
+	});
+
+	// ⚠ R18 — ONE ENTRY, and anything else THROWS. A raw `expect` entry carries `collection`, `where`
+	// and `count` together; handed here whole it silently rendered the FIRST key —
+	// `collection 1 = notes ✖` — a verdict line about the wrong thing, marked failed, for a proof
+	// that passed. A caller has to narrow the entry to the one condition being judged, and a throw is
+	// the only answer that makes forgetting visible.
+	test('a multi-entry expectation throws rather than rendering its first key', () => {
+		assert.throws(
+			() => verdictLine({ collection: 'notes', where: { status: { _eq: 'done' } }, count: { _gte: 1 } }, 1),
+			/^Error: verdictLine takes ONE expectation entry — got keys collection, where, count$/,
+		);
+	});
+
+	test('an empty expectation throws, saying it got none', () => {
+		assert.throws(() => verdictLine({}, 1), /^Error: verdictLine takes ONE expectation entry — got none$/);
+	});
+});
+
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+// `stepWarnings` — where the typo net went (R17).
+//
+// `substitute` used to be the net, and it caught shell syntax: `awk '{print $1}'` in a `run:` step
+// died as "unknown substitution". A net that refuses correct proofs teaches the author to delete
+// correct lines, which is worse than the typo it was hunting — so the net moved to COMPILE and
+// became a WARNING. It judges the one thing a static reader can judge: a brace token that LOOKS like
+// an identifier and is not one of the two names a proof may use.
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+
+describe('stepWarnings — the typo net is a compile WARNING, never an error', () => {
+	const proof = (...steps) => ({ name: 'p', about: ['skills/a'], kind: 'gate', steps });
+	const warned = (token, step = 1) => `step ${step} uses "{${token}}" — only {record} and {record.<field>} are substituted; the rest reaches the shell as written`;
+
+	test("a typo'd {recrod} is warned about, naming the step and what IS substituted", () => {
+		assert.deepEqual(stepWarnings(proof({ run: 'echo {recrod}' })), [warned('recrod')]);
+	});
+
+	test('{record} and {record.<field>} are never warned about', () => {
+		assert.deepEqual(stepWarnings(proof({ run: 'dt get {record}' }, { run: 'echo {record.name}' })), []);
+	});
+
+	// ⚠ THE SPACE IS THE WHOLE POINT. `{print $1}` is not identifier-shaped, so the most common awk
+	// one-liner earns nothing; `{print}` is, so it earns a warning it does not deserve. That
+	// asymmetry is deliberate and cheap: the false positive is one line of stdout, and the proof
+	// still compiles and still runs.
+	test("awk '{print $1}' earns no warning — it is not identifier-shaped", () => {
+		assert.deepEqual(stepWarnings(proof({ run: "awk '{print $1}' f" })), []);
+	});
+
+	test("awk '{print}' DOES earn one — identifier-shaped is all a static net can judge", () => {
+		assert.deepEqual(stepWarnings(proof({ run: "awk '{print}' f" })), [warned('print')]);
+	});
+
+	test('a perform step is netted too, and the step number counts across both kinds', () => {
+		assert.deepEqual(stepWarnings(proof({ run: 'true' }, { perform: 'open {recrod}' })), [warned('recrod', 2)]);
+	});
+
+	// `${…}` is the resolver's bracket and the shell's, exempted here for the same reason
+	// `substitute` exempts it — warning on `${HOME}` is how a warning channel gets ignored.
+	test('a $-prefixed brace earns no warning', () => {
+		assert.deepEqual(stepWarnings(proof({ run: 'ls ${HOME} ${env:FILES_FOLDER}' })), []);
+	});
+
+	test('every offending token in one step is reported', () => {
+		assert.deepEqual(stepWarnings(proof({ run: 'echo {recrod} {noep}' })), [warned('recrod'), warned('noep')]);
+	});
+
+	test('a proof with no steps warns nothing', () => {
+		assert.deepEqual(stepWarnings({ name: 'p' }), []);
+	});
+});
+
+describe('exitFor — the six states and their codes are a contract', () => {
+	test('the codes are the ones the CLI documents', () => {
+		assert.deepEqual(EXIT, { PASS: 0, FAIL: 1, USAGE: 2, UNAVAILABLE: 3, NO_FIXTURE: 4, PENDING: 5, VACUOUS: 6 });
+	});
+
+	test('each state maps to its code', () => {
+		assert.equal(exitFor('PASS'), 0);
+		assert.equal(exitFor('FAIL'), 1);
+		assert.equal(exitFor('UNAVAILABLE'), 3);
+		assert.equal(exitFor('NO-FIXTURE'), 4);
+		assert.equal(exitFor('PENDING'), 5);
+		assert.equal(exitFor('VACUOUS'), 6);
+	});
+
+	// 2 is USAGE and is deliberately NOT reachable from a state: "you typed something that is gone"
+	// is decided by the CLI before a proof is ever selected, and every retired verb already answers 2.
+	test('USAGE is not a proof state — no state maps to 2', () => {
+		for (const s of ['PASS', 'FAIL', 'UNAVAILABLE', 'NO-FIXTURE', 'PENDING', 'VACUOUS']) {
+			assert.notEqual(exitFor(s), EXIT.USAGE, s);
+		}
+	});
+
+	test('an unknown state throws rather than defaulting to a plausible code', () => {
+		assert.throws(() => exitFor('nope'), /^Error: unknown proof state "nope" — one of PASS, FAIL, UNAVAILABLE, NO-FIXTURE, PENDING, VACUOUS$/);
+	});
+});
+
+// ⚠ CARRIED MINOR from Task 2's review, fixed here because Task 3 owns this file: the enum check
+// compared with a strict `includes`, while `filter.js` compares with `looseEq` (`String(v) ===
+// String(o)`). So on a NUMERIC enum the YAML scalar `5` and the string `'5'` are the same filter at
+// run time and were two different things to the validator — a false refusal of a proof that works,
+// which is worse than the silent pass it was written to prevent: the author deletes a correct line.
+describe('validateProofShape — a numeric enum is compared the way filter.js compares it', () => {
+	const numeric = new Map([['gauges', {
+		name: 'gauges',
+		schema: { type: 'object', required: ['name'], properties: { name: { type: 'string' }, level: { type: 'number', enum: [5, 10] } } },
+	}]]);
+	const nctx = { descriptors: numeric, declaredVars: [], moduleEnv: new Set(), artifacts: new Set(['skills/a']) };
+	const proof = (where) => ({
+		name: 'l', about: ['skills/a'], kind: 'live', mode: 'readonly',
+		given: { collection: 'gauges', where, pick: 'a-gauge' },
+		steps: [{ run: 'true' }],
+		expect: [{ collection: 'gauges', where: {}, count: { _gte: 1 } }],
+	});
+
+	test('a string literal against a numeric enum member is accepted', () => {
+		assert.deepEqual(validateProofShape(proof({ level: { _eq: '5' } }), nctx), []);
+	});
+
+	test('the number itself is accepted', () => {
+		assert.deepEqual(validateProofShape(proof({ level: { _eq: 5 } }), nctx), []);
+	});
+
+	test('_in over a comma string of numeric members is accepted', () => {
+		assert.deepEqual(validateProofShape(proof({ level: { _in: '5,10' } }), nctx), []);
+	});
+
+	test('a value outside the enum is still refused, listing the options', () => {
+		assert.deepEqual(validateProofShape(proof({ level: { _eq: 7 } }), nctx), ['where "level" compares "7", which is not one of level\'s options [5, 10]']);
+	});
+});
+
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+// Fix round 1 — an expectation that asserts NOTHING, and a verdict line that can resolve a hop.
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+
+describe('validateProofShape — an expectation that asserts nothing (MINOR 9)', () => {
+	// ⚠ THE SILENT GREEN, ONE LAYER BELOW THE VACUOUS PROOF. A `record:` entry with an empty `where`
+	// produces ZERO verdict lines, so `verdicts.every(ok)` is vacuously true and the proof PASSES
+	// having measured nothing at all — and unlike a vacuous proof, nothing at RUN time can see it.
+	// `only()` throughout: one mistake must produce ONE error, or the reader fixes the wrong line.
+	test('a record expectation with an empty where is refused, naming the index', () => {
+		only(live({ expect: [{ record: '{record}', where: {} }] }), 'expect[0] where must name at least one condition');
+	});
+
+	test('the index is the entry\'s own, so a reader goes to the right line', () => {
+		only(
+			live({ expect: [{ record: '{record}', where: { status: { _eq: 'done' } } }, { record: '{record}', where: {} }] }),
+			'expect[1] where must name at least one condition',
+		);
+	});
+
+	// ⚠ R26 — THE SPELLING AN AUTHOR IS MOST LIKELY TO TYPE. A bare `where:` in YAML parses to
+	// **null**, not to `{}`, and the first version of the guard skipped null to keep `Object.keys`
+	// from throwing — so the shortest route to a proof that measures nothing was the one that slipped
+	// through. Measured before the fix: compiled clean, zero verdict lines, `PASS`.
+	test('a bare `where:` — which parses to null — is an empty where too', () => {
+		only(live({ expect: [{ record: '{record}', where: null }] }), 'expect[0] where must name at least one condition');
+	});
+
+	// ⚠ AND A SCALAR IS AN EMPTY WHERE TOO. `where: done` is the other spelling that produces zero
+	// verdict lines — `Object.entries('done')` in the judge yields nothing — so it passed having
+	// measured nothing, exactly like the bare `where:` above. The guard turns on the SHAPE now, not
+	// on two enumerated wrong values.
+	test('a scalar where names no condition either, however it is spelled', () => {
+		only(live({ expect: [{ record: '{record}', where: 'done' }] }), 'expect[0] where must name at least one condition');
+	});
+
+	test('a null where on a COLLECTION entry is still fine — count carries the assertion', () => {
+		assert.deepEqual(validateProofShape(live({ expect: [{ collection: 'notes', where: null, count: { _delta: 1 } }] }), ctx), []);
+	});
+
+	test('count: {} compares nothing, so it holds for every count — refused', () => {
+		only(live({ expect: [{ collection: 'notes', where: {}, count: {} }] }), 'expect[0] count must name one operator');
+	});
+
+	// ⚠ THE FALSE REFUSAL THIS RULE MUST NOT BECOME. On a COLLECTION entry the `count` IS the
+	// assertion, so an empty `where` means "anywhere in this collection" — which is exactly what
+	// `{collection, where: {}, count: {_delta: 1}}`, the plan's own worked example, says.
+	test('a collection count over an EMPTY where is still valid — count carries the assertion', () => {
+		assert.deepEqual(validateProofShape(live({ expect: [{ collection: 'notes', where: {}, count: { _delta: 1 } }] }), ctx), []);
+	});
+
+	test('a non-empty record where is unaffected', () => {
+		assert.deepEqual(validateProofShape(live({ expect: [{ record: '{record}', where: { status: { _eq: 'done' } } }] }), ctx), []);
+	});
+});
+
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+// FIX ROUND 1 of the prose task. Three rulings, all of them about a value the engine reads and did
+// not: a `record:` selector nothing consumed, a filter literal nothing rendered, and a flag value
+// nothing parsed. Each one was a confident answer about the wrong thing.
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+
+describe('validateProofShape — R44: a record expectation has exactly one legal target', () => {
+	// ⚠ NOTHING READ `e.record`. The judge takes the picked record straight off `given`, so a proof
+	// naming any other target compiled clean and was then judged against a DIFFERENT record than the
+	// one it names — a confident verdict about the wrong thing, with no way to see it from the output.
+	test('a record: that is not the literal {record} is refused', () => {
+		only(live({ expect: [{ record: 'notes/b', where: { status: { _eq: 'done' } } }] }), 'a record expectation targets {record} — the picked record is its only target');
+	});
+
+	test('a {record.<field>} target is refused too — a field is not a record', () => {
+		only(live({ expect: [{ record: '{record.owner}', where: { status: { _eq: 'done' } } }] }), 'a record expectation targets {record} — the picked record is its only target');
+	});
+
+	test('the literal {record} is silent, which is the only shape that ever worked', () => {
+		assert.deepEqual(validateProofShape(live({ expect: [{ record: '{record}', where: { status: { _eq: 'done' } } }] }), ctx), []);
+	});
+});
+
+describe('substituteWhere — R45: a filter\'s literals are rendered before the filter runs', () => {
+	const ctxA = { record: { ref: 'people/ada', fields: { id: 'ada', name: 'Ada', status: 'open' } } };
+
+	// ⚠ THE CANONICAL SHAPE, AND IT COULD NOT WORK. `{ owner: { _eq: '{record}' } }` reached
+	// `matchesFilter` as the literal eight characters `{record}`, matched nothing, and reported a
+	// FAIL naming a count that was never the question.
+	test('a {record} literal becomes the picked record\'s reference', () => {
+		assert.deepEqual(substituteWhere({ owner: { _eq: '{record}' } }, ctxA), { owner: { _eq: 'people/ada' } });
+	});
+
+	test('a {record.<field>} literal becomes that field\'s value', () => {
+		assert.deepEqual(substituteWhere({ status: { _eq: '{record.status}' } }, ctxA), { status: { _eq: 'open' } });
+	});
+
+	test('an array operand is walked member by member', () => {
+		assert.deepEqual(substituteWhere({ owner: { _in: ['{record}', 'people/bob'] } }, ctxA), { owner: { _in: ['people/ada', 'people/bob'] } });
+	});
+
+	test('_and / _or nest, and every leaf is rendered', () => {
+		assert.deepEqual(
+			substituteWhere({ _and: [{ owner: { _eq: '{record}' } }, { status: { _eq: 'done' } }] }, ctxA),
+			{ _and: [{ owner: { _eq: 'people/ada' } }, { status: { _eq: 'done' } }] },
+		);
+	});
+
+	// ⚠ KEYS ARE FIELD NAMES. A `{record}` on the left would be asking to look up a field whose name
+	// is a record reference, which is not a thing — so keys travel through untouched.
+	test('keys are never substituted, only values', () => {
+		assert.deepEqual(substituteWhere({ '{record}': { _eq: 'x' } }, ctxA), { '{record}': { _eq: 'x' } });
+	});
+
+	// ⚠ A COPY, NEVER A MUTATION: the proof source is judged twice (the pre-check and the after-pass),
+	// and a `where` rewritten in place would carry the FIRST render into the second judgement.
+	test('the source object is not mutated', () => {
+		const where = { owner: { _eq: '{record}' } };
+		substituteWhere(where, ctxA);
+		assert.deepEqual(where, { owner: { _eq: '{record}' } });
+	});
+
+	test('a filter with no braces is returned unchanged, and non-strings are left alone', () => {
+		assert.deepEqual(substituteWhere({ status: { _eq: 'done' }, n: { _gte: 3 }, flag: true }, ctxA), { status: { _eq: 'done' }, n: { _gte: 3 }, flag: true });
+		assert.equal(substituteWhere(null, ctxA), null);
+	});
+
+	// STRICT, because nothing downstream of a filter would ever notice: `{recrod}` becomes a literal
+	// the field never equals, and the expectation answers ✖ with the wrong cause printed beside it.
+	test('an unknown identifier brace THROWS rather than narrowing to nothing', () => {
+		assert.throws(() => substituteWhere({ owner: { _eq: '{recrod}' } }, ctxA), /unknown substitution "{recrod}"/);
+	});
+
+	test('a ${…} bracket is the resolver\'s and is left alone', () => {
+		assert.deepEqual(substituteWhere({ path: { _eq: '${env:FILES_FOLDER}/x' } }, ctxA), { path: { _eq: '${env:FILES_FOLDER}/x' } });
+	});
+
+	test('a {record} with nothing bound throws, naming the missing given', () => {
+		assert.throws(() => substituteWhere({ owner: { _eq: '{record}' } }, {}), /this proof declares no given/);
+	});
+});
+
+describe('flagValue / flagEnabled — R46: --flag=false is OFF', () => {
+	// ⚠ `'false'` IS A TRUTHY STRING. Every boolean flag was stored as the raw text after the `=`, so
+	// `--strict=false` armed the gate it names — the exact opposite of what was typed, silently.
+	test('the four spellings of off are off', () => {
+		for (const v of ['false', '0', 'no', 'off', 'FALSE', ' No ']) assert.equal(flagValue(v), false, v);
+	});
+
+	test('anything else after the = is on, an empty value included', () => {
+		for (const v of ['true', '1', 'yes', '', 'whatever']) assert.equal(flagValue(v), true, JSON.stringify(v));
+	});
+
+	test('a bare flag is on, and an absent one is off', () => {
+		assert.equal(flagEnabled(['--strict'], 'strict'), true);
+		assert.equal(flagEnabled(['--json'], 'strict'), false);
+		assert.equal(flagEnabled([], 'strict'), false);
+	});
+
+	test('the = form is read, in both directions', () => {
+		assert.equal(flagEnabled(['--strict=true'], 'strict'), true);
+		assert.equal(flagEnabled(['--strict=false'], 'strict'), false);
+	});
+
+	test('the LAST occurrence wins — a person edits the end of a line', () => {
+		assert.equal(flagEnabled(['--strict=false', '--strict'], 'strict'), true);
+		assert.equal(flagEnabled(['--strict', '--strict=no'], 'strict'), false);
+	});
+
+	test('a positional that merely contains the name is not a flag', () => {
+		assert.equal(flagEnabled(['strict', 'notes/strict'], 'strict'), false);
+	});
+});
+
+describe('verdictLine — a one-hop reference resolves rather than narrowing', () => {
+	// A non-operator key under a field is a ONE-HOP REFERENCE traversal (filter.js:22-31), and
+	// `matchesFilter` NARROWS with no resolver wired. Judging with `null` made every such expectation
+	// read ✖ forever — a wrong verdict, not a missing feature.
+	const resolve = (ref) => (ref === 'people/ada' ? { id: 'ada', name: 'Ada' } : null);
+
+	test('with a resolver, the hop is evaluated against the target record', () => {
+		assert.match(verdictLine({ owner: { name: { _eq: 'Ada' } } }, 'people/ada', resolve), /✔$/);
+	});
+
+	test('without one it narrows, which is what the record form used to do always', () => {
+		assert.match(verdictLine({ owner: { name: { _eq: 'Ada' } } }, 'people/ada'), /✖$/);
+	});
+
+	test('a hop to the wrong value still fails — the resolver does not widen', () => {
+		assert.match(verdictLine({ owner: { name: { _eq: 'Bea' } } }, 'people/ada', resolve), /✖$/);
+	});
+
+	test('a dangling ref fails closed', () => {
+		assert.match(verdictLine({ owner: { name: { _eq: 'Ada' } } }, 'people/ghost', resolve), /✖$/);
+	});
+
+	// `String({})` printed `[object Object]` — a line naming neither the field it hopped nor the
+	// value it wanted.
+	test('the nested condition renders as JSON, never [object Object]', () => {
+		const line = verdictLine({ owner: { name: { _eq: 'Ada' } } }, 'people/ada', resolve);
+		assert.doesNotMatch(line, /\[object Object\]/);
+		assert.equal(line, 'owner "people/ada" name {"_eq":"Ada"} ✔');
+	});
+
+	test('every scalar and array line is unchanged by the new renderer', () => {
+		assert.equal(verdictLine({ status: { _eq: 'done' } }, 'open'), 'status "open" = done ✖');
+		assert.equal(verdictLine({ status: { _in: ['done'] } }, 'open'), 'status "open" ∈ [done] ✖');
+		assert.equal(verdictLine({ count: { _gte: 1 } }, 1), 'count 1 ≥ 1 ✔');
+	});
+});
+
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+// Fix round 2 — `stepOutcome`: five things a finished step can be, and only ONE of them is an exit
+// code. Pure, so every shape is a literal `spawnSync` result rather than a process that has to be
+// made to misbehave (a step printing 16 MB to prove the ENOBUFS arm costs seconds and proves less).
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+describe('stepOutcome — a kill is not an exit code, and a signal is not a cause', () => {
+	test('a plain success is no failure at all', () => {
+		assert.deepEqual(stepOutcome({ status: 0, signal: null }, 120, 1, 0), { exit: 0, failure_reason: null });
+	});
+
+	test('a plain non-zero exit names the code', () => {
+		assert.deepEqual(stepOutcome({ status: 3, signal: null }, 120, 2, 0), { exit: 3, failure_reason: 'step 2 exited 3' });
+	});
+
+	// a `step:` expectation may WANT a non-zero exit — a proof that a guard refuses
+	test('a non-zero exit the proof WANTED is no failure', () => {
+		assert.deepEqual(stepOutcome({ status: 3, signal: null }, 120, 1, 3), { exit: 3, failure_reason: null });
+	});
+
+	// the shape node actually produces on a timeout, measured: status null · signal SIGTERM · ETIMEDOUT
+	test('a timeout is decided by error.code, and reports the proof\'s own timeout', () => {
+		const res = { status: null, signal: 'SIGTERM', error: Object.assign(new Error('spawnSync /bin/sh ETIMEDOUT'), { code: 'ETIMEDOUT' }) };
+		assert.deepEqual(stepOutcome(res, 1, 1, 0), { exit: 124, failure_reason: 'step 1 timed out after 1s' });
+	});
+
+	// ⚠ THE BUG THIS FUNCTION EXISTS FOR. `spawnSync` KILLS the child when maxBuffer overflows, which
+	// arrives as `status: null · signal: SIGTERM` — identical to a timeout by signal alone. A step
+	// killed by its own output volume used to report "timed out after 120s": a cause and a number the
+	// operator would go and act on, both invented.
+	test('an ENOBUFS kill says it was the OUTPUT, and what to do instead', () => {
+		const res = { status: null, signal: 'SIGTERM', error: Object.assign(new Error('spawnSync ENOBUFS'), { code: 'ENOBUFS' }) };
+		assert.deepEqual(stepOutcome(res, 120, 1, 0), {
+			exit: 124,
+			failure_reason: 'step 1 produced more than 16 MB of output — write it to a file and assert with path:',
+		});
+	});
+
+	test('the two kills are told apart by error.code alone — the SIGNAL is identical', () => {
+		const sig = { status: null, signal: 'SIGTERM' };
+		const timeout = stepOutcome({ ...sig, error: Object.assign(new Error('x'), { code: 'ETIMEDOUT' }) }, 5, 1, 0);
+		const overflow = stepOutcome({ ...sig, error: Object.assign(new Error('x'), { code: 'ENOBUFS' }) }, 5, 1, 0);
+		assert.notEqual(timeout.failure_reason, overflow.failure_reason);
+	});
+
+	// ⚠ A BARE SIGNAL SAYS ONLY WHAT IS KNOWN. The OOM killer, an external `kill`, a SIGINT from the
+	// terminal — none of them is a timeout, and inventing one sends the reader to raise a number that
+	// was never reached.
+	test('a bare signal with no error names the signal and invents no cause', () => {
+		assert.deepEqual(stepOutcome({ status: null, signal: 'SIGKILL' }, 120, 4, 0), { exit: 124, failure_reason: 'step 4 was killed (SIGKILL)' });
+	});
+
+	test('a spawn failure that is neither reports its code', () => {
+		const res = { status: null, signal: null, error: Object.assign(new Error('spawnSync ENOENT'), { code: 'ENOENT' }) };
+		assert.deepEqual(stepOutcome(res, 120, 1, 0), { exit: 1, failure_reason: 'step 1 could not start: ENOENT' });
+	});
+
+	test('a spawn failure with no code at all falls back to its message', () => {
+		const res = { status: null, signal: null, error: new Error('something went wrong') };
+		assert.equal(stepOutcome(res, 120, 1, 0).failure_reason, 'step 1 could not start: something went wrong');
+	});
+});
+
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+// THE FINAL FIX ROUND — one defect, five shapes: COMPILE RECOGNISED AN EXPECTATION'S FORM BY ONE
+// KEY-SUBSET AND THE JUDGE DISPATCHED ON ANOTHER. Every gap between the two subsets was a silent
+// green: a row compiled as one form, judged as another, produced ZERO verdict lines, and
+// `verdicts.every(ok)` is vacuously true. `formOf` is now the ONE answer both sides read, and a row
+// whose keys span two forms is refused rather than silently resolved in favour of whichever side
+// asked first.
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+
+describe('formOf — ONE answer to "what shape is this row", read by compile AND the judge (R48)', () => {
+	test('each of the four forms is named', () => {
+		assert.equal(formOf({ collection: 'notes', where: {}, count: 1 }), 'collection');
+		assert.equal(formOf({ record: '{record}', where: { status: { _eq: 'done' } } }), 'record');
+		assert.equal(formOf({ step: 1, exit: 0 }), 'step');
+		assert.equal(formOf({ path: 'x', exists: true }), 'path');
+	});
+
+	test('a step form is recognised by what it ASSERTS, so the index is optional', () => {
+		assert.equal(formOf({ exit: 0 }), 'step');
+		assert.equal(formOf({ stdout: { _contains: 'x' } }), 'step');
+		assert.equal(formOf({ stdout_json: { rows: { _gte: 1 } } }), 'step');
+	});
+
+	test('a row that names no form at all is null, not a guess', () => {
+		assert.equal(formOf({}), null);
+		assert.equal(formOf(null), null);
+		assert.equal(formOf({ where: { status: { _eq: 'done' } } }), null);
+	});
+});
+
+describe('validateProofShape — a row that MIXES two forms is refused (C1/I3/R48)', () => {
+	const mixes = 'expect[0] mixes two forms — a row is one of collection+where+count · record+where · step · path+exists';
+
+	// ⚠ THE MEASURED CRITICAL. `{record: '{record}', path: …, exists: true}` compiled as a PATH row
+	// (`'path' in row && 'exists' in row`) and was judged as a RECORD row (`'record' in e`), whose
+	// `where ?? {}` has no entries — so it produced zero verdict lines and the proof answered PASS
+	// on a file that was never there.
+	test('record + path is refused rather than judged as one and compiled as the other', () => {
+		only(live({ expect: [{ record: '{record}', path: 'definitely/not/here.txt', exists: true }] }), mixes);
+	});
+
+	// ⚠ AND THE SAME SEAM THE OTHER WAY UP: `count` on a record row was VALIDATED by compile (its
+	// operators and integers checked, line by line) and then never read by the judge at all — a
+	// `count: {_eq: 999}` that is plainly false, sitting beside a `where` that is true, and the
+	// proof passed.
+	test('record + count is refused — the count was validated and then ignored', () => {
+		only(live({ expect: [{ record: '{record}', where: { status: { _eq: 'done' } }, count: { _eq: 999 } }] }), mixes);
+	});
+
+	test('collection + step is refused too — the judge takes the first branch it matches', () => {
+		only(live({ expect: [{ collection: 'notes', where: {}, count: 1, step: 1, exit: 0 }] }), mixes);
+	});
+
+	test('the index is the row\'s own, so the reader goes to the right line', () => {
+		only(
+			live({ expect: [{ step: 1, exit: 0 }, { path: 'x', exists: true, record: '{record}' }] }),
+			'expect[1] mixes two forms — a row is one of collection+where+count · record+where · step · path+exists',
+		);
+	});
+
+	// ⚠ `where` IS NOT A DISCRIMINATOR, and must never be read as one: it belongs to TWO forms, so a
+	// row carrying it plus one form's own keys is that form, not a mixture.
+	test('a `where` beside a collection or a record is not a mixture', () => {
+		assert.deepEqual(validateProofShape(live({ expect: [{ collection: 'notes', where: { status: { _eq: 'done' } }, count: 1 }] }), ctx), []);
+		assert.deepEqual(validateProofShape(live({ expect: [{ record: '{record}', where: { status: { _eq: 'done' } } }] }), ctx), []);
+	});
+});
+
+describe('validateProofShape — a step row\'s stdout is a FILTER, never a scalar (R57)', () => {
+	// ⚠ THE MEASURED RESIDUAL, and the spelling an author reaches for first. `stdout: hello` reads
+	// like "the step printed hello" and compiled clean — the judge gates on
+	// `typeof e.stdout === 'object'`, so the row produced ZERO verdict lines and the proof answered
+	// exit 0 PASS against a step that printed something else entirely.
+	const stdoutErr = 'expect[0] stdout must be a filter object, e.g. { _contains: "…" }';
+	const jsonErr = 'expect[0] stdout_json must be a map of dotted paths to filter objects';
+
+	test('a string stdout is refused', () => {
+		only(live({ expect: [{ step: 1, stdout: 'hello' }] }), stdoutErr);
+	});
+
+	// The right shape saying nothing. `matchesFilter` answers true for a condition-less filter, so an
+	// empty map is a verdict line that can only ever ✔ — the `count: {}` defect, one form over.
+	test('an empty stdout map is refused', () => {
+		only(live({ expect: [{ step: 1, stdout: {} }] }), 'expect[0] stdout must name at least one condition');
+	});
+
+	test('an empty stdout_json map is refused', () => {
+		only(live({ expect: [{ step: 1, stdout_json: {} }] }), 'expect[0] stdout_json must name at least one path');
+	});
+
+	test('a number stdout is refused', () => {
+		only(live({ expect: [{ step: 1, stdout: 7 }] }), stdoutErr);
+	});
+
+	test('an array stdout is refused — a list of filters is not a filter', () => {
+		only(live({ expect: [{ step: 1, stdout: [{ _contains: 'hello' }] }] }), stdoutErr);
+	});
+
+	// ⚠ R26 AGAIN: a bare `stdout:` in YAML parses to **null**, and `typeof null === 'object'` —
+	// so a guard written as a typeof test would let through the one spelling that costs nothing to
+	// type. The judge's own `e.stdout &&` gate drops it, silently, exactly like a scalar.
+	test('a bare stdout: — which YAML parses to null — is refused too', () => {
+		only(live({ expect: [{ step: 1, stdout: null }] }), stdoutErr);
+	});
+
+	test('stdout_json gets its own message, naming what its keys are', () => {
+		only(live({ expect: [{ step: 1, stdout_json: 'rows' }] }), jsonErr);
+		only(live({ expect: [{ step: 1, stdout_json: null }] }), jsonErr);
+	});
+
+	test('the row index is the row\'s own', () => {
+		only(
+			live({ expect: [{ step: 1, exit: 0 }, { step: 1, stdout: 'hello' }] }),
+			'expect[1] stdout must be a filter object, e.g. { _contains: "…" }',
+		);
+	});
+
+	test('the filter-map spellings are silent — that is the shape the judge reads', () => {
+		assert.deepEqual(validateProofShape(live({ expect: [{ step: 1, stdout: { _contains: 'hello' } }] }), ctx), []);
+		assert.deepEqual(validateProofShape(live({ expect: [{ step: 1, stdout_json: { 'a.b': { _gte: 1 } } }] }), ctx), []);
+		// and a step row that asserts only an exit code names neither key at all
+		assert.deepEqual(validateProofShape(live({ expect: [{ step: 1, exit: 0 }] }), ctx), []);
+	});
+});
+
+describe('validateProofShape — a step index past the last step (M7)', () => {
+	// ⚠ IT RESOLVED TO `undefined` AND JUDGED THAT. `stepResults[6]` on a one-step proof is
+	// undefined, so the line read `exit undefined = 0 ✖` — a FAIL naming an exit code no step ever
+	// produced, for a proof whose only defect is an index nobody can satisfy.
+	test('a step: past the end is refused, naming both numbers', () => {
+		only(live({ steps: [{ run: 'true' }], expect: [{ step: 7, exit: 0 }] }), 'expect[0] step 7 is past the last step (1)');
+	});
+
+	test('the last step itself is fine, and so is a step with no index at all', () => {
+		assert.deepEqual(validateProofShape(live({ steps: [{ run: 'a' }, { run: 'b' }], expect: [{ step: 2, exit: 0 }] }), ctx), []);
+		assert.deepEqual(validateProofShape(live({ steps: [{ run: 'a' }], expect: [{ exit: 0 }] }), ctx), []);
+	});
+});
+
+describe('validateProofShape — where a {record} literal may and may not appear (I1/I4)', () => {
+	// ⚠ THE R45 EXEMPTION IS FOR EXPECTATIONS ONLY. `pickFixture` hands `given.where` to
+	// `matchesFilter` RAW — nothing substitutes it, and nothing ever could: the given is what PICKS
+	// the record, so there is no record yet to render. The exemption let the literal through compile
+	// and the proof then answered NO-FIXTURE forever, which reads as a fact about the workspace's
+	// data rather than about the proof.
+	test('a {record.<field>} literal in given.where is refused — nothing substitutes it', () => {
+		only(
+			live({ given: { collection: 'notes', where: { status: { _eq: '{record.status}' } }, pick: 'a-note' } }),
+			'given.where cannot use {record} — the given is what PICKS the record',
+		);
+	});
+
+	test('a bare {record} in given.where is refused the same way', () => {
+		only(
+			live({ given: { collection: 'notes', where: { owner: { _eq: '{record}' } }, pick: 'a-note' } }),
+			'given.where cannot use {record} — the given is what PICKS the record',
+		);
+	});
+
+	// ⚠ R14, WIDENED (I4). The guard fired only for a `record:` row, so a COLLECTION row whose
+	// `where` carries `{record}` on a proof with no `given` compiled clean — and `substituteWhere`
+	// throws at run time, which is a FAIL row and a red `dt status --strict` for a proof that could
+	// never have run.
+	test('a {record} literal in an expectation where, on a proof with no given, is refused', () => {
+		const proof = live({ expect: [{ collection: 'notes', where: { owner: { _eq: '{record}' } }, count: { _gte: 1 } }] });
+		delete proof.given;
+		only(proof, 'an expectation uses {record} but this proof declares no given');
+	});
+
+	test('the same literal WITH a given is silent — that is the canonical shape', () => {
+		assert.deepEqual(validateProofShape(live({ expect: [{ collection: 'notes', where: { owner: { _eq: '{record}' } }, count: { _gte: 1 } }] }), ctx), []);
+	});
+});

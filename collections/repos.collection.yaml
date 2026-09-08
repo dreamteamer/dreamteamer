@@ -6,12 +6,13 @@ use_when: >-
   a repository this workspace depends on is named — its own engine or extension clone, a client's
   repo — read the record here for WHERE it lives (`path`, a `${env:…}` template `dt resolve` renders
   per machine) before assuming a path or concluding a clone is unreachable; `dt status` reports
-  each one and `dt ensure` materializes it
+  each one and `dt install repos/<id>` materializes it
 # An external git repo attached to this workspace. Owns CLONE LIFECYCLE ONLY — a repo record
 # never contributes schema, skills or UI (that is what a module is, declared in package.json
 # `dreamteamer.git-modules`, because modules must be restorable BEFORE compile can run).
-# Working trees are materialized ON DEMAND via `dreamteamer repos ensure <id>`, never at install:
-# the record count only grows and any given session needs almost none of them.
+# Working trees are materialized ON DEMAND via `dreamteamer install repos/<id>`, and never as part
+# of making a checkout ready: the record count only grows and any given session needs almost none
+# of them.
 storage: { path: data/repos, codec: yaml, shape: file, suffix: repo }
 id:
   generate: "{{ name | slug }}"

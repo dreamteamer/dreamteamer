@@ -12,7 +12,7 @@ never inferred from a field's name (`email` travels unless somebody marked it):
 
 - **a whole collection**: `dt set collections/<c> sensitive=true`. No record of it is written; the
   schema source and the persona NAME the omission so the reader knows the gap is deliberate.
-- **one field**: `dt add-field <c> --name <f> … --sensitive`, or `dt update-field <c> --name <f>
+- **one field**: `dt add-field <c> --name <f> … --sensitive`, or `dt set-field <c> --name <f>
   --sensitive` (`--sensitive false` clears). The field is projected out of every record.
 
 Also never exported as records: the system collections (they ARE the schema source) and `codec: file`
