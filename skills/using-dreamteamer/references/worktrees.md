@@ -120,6 +120,12 @@ again to pick them up`. Exit 0 — the landing itself succeeded. The window is m
 `--json` carries `kept`, read from the disk after the work rather than inferred from the flags that
 went in, so a script can tell a retired worktree from one that survived.
 
+⚠ **`--keep` recompiles the kept worktree, and a compile is a write.** The tree is reset to what
+landed and then compiled, so if that compile produces a block even one byte different from the one
+just committed, the worktree is left with a modified tracked `CLAUDE.md` — and the NEXT `dt land` of
+it refuses with `1 uncommitted change(s)`. That is an ordinary system write, not a fault: commit it
+in the worktree, or land without `--keep`.
+
 ## the refusals
 
 Each is printed under `✖ cannot land worktrees/<name>:` and each names its own fix:

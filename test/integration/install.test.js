@@ -346,7 +346,7 @@ describe('dt install --print-adapters renders the harness snippet', () => {
 		const ws = workspace({ compile: false, pkg: { harnesses: ['codex', 'claude-code'] } });
 		const r = dt(ws.root, 'install', '--print-adapters');
 		assert.equal(r.code, 0, r.stderr);
-		assert.match(r.stderr, /codex: adapter not yet shipped \(decision 311\) — see using-dreamteamer › worktrees\.md/);
+		assert.match(r.stderr, /codex: adapter not yet shipped \(decision 315\) — see using-dreamteamer › references\/worktrees\.md/);
 		assert.ok(JSON.parse(r.stdout).hooks.SessionStart, 'the claude snippet must still be the whole of stdout');
 	});
 
