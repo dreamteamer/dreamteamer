@@ -161,7 +161,14 @@ export function planLand(state) {
 		{ id: 'copy', why: `create land/${name} from ${branch} — the original branch keeps its hashes until the fast-forward succeeds` },
 		{ id: 'rebase', why: `rebase land/${name} onto ${primaryBranch} — ${range.commits} commit(s) replayed, GIT_EDITOR=true` },
 	];
-	if (managed.length) steps.push({ id: 'recompile-copy', why: `${managed.length} managed file(s) in the range (${managed.join(', ')}) — recompile once on the copy's tip and commit the regenerated block, pathspec-scoped` });
+	// ⚠ UNCONDITIONAL, because the CODE is unconditional. `.dreamteamer/` is gitignored, so the copy
+	// is a fresh checkout with no runtime at all and `check` would answer "no compiled runtime" for
+	// every landing. This step used to be listed only when a managed file was in the range, which
+	// made `--dry-run` print a plan the run did not follow — the one property this object exists to
+	// have (see planLand's contract above).
+	steps.push({ id: 'recompile-copy', why: managed.length
+		? `recompile on the copy's tip; ${managed.length} managed file(s) in the range (${managed.join(', ')}) — the regenerated block is committed, pathspec-scoped`
+		: `recompile on the copy's tip — .dreamteamer/ is gitignored, so the copy has no runtime for check to read` });
 	steps.push({ id: 'check', why: `dt check on the copy — a failure stops here, and says the branch is rebased but NOT landed` });
 	steps.push({ id: 'ff', why: `git merge --ff-only land/${name} in the primary — ${primaryBranch} moves` });
 	if (range.files.includes('package-lock.json')) steps.push({ id: 'npm-ci', why: 'package-lock.json is in the range — npm ci in the primary before it compiles against the new engine' });
@@ -364,7 +371,7 @@ export function landWorktree(ws, ref, { keep = false, dryRun = false, branch = n
 	// the disk's, read after the work rather than derived from the flags that went in.
 	const kept = () => fs.existsSync(state.worktree.root);
 	if (refusals.length) {
-		console.error(refusalBlock(state.name, refusals));
+		printRefusal(state.name, refusals);
 		return { code: 1, landed: null, refused: refusals, kept: kept() };
 	}
 	if (dryRun) {
@@ -376,7 +383,7 @@ export function landWorktree(ws, ref, { keep = false, dryRun = false, branch = n
 	}
 	const taken = takeLock(state.lock);
 	if (taken.refused) {
-		console.error(refusalBlock(state.name, [taken.refused]));
+		printRefusal(state.name, [taken.refused]);
 		return { code: 1, landed: null, refused: [taken.refused], kept: kept() };
 	}
 	try {
@@ -396,7 +403,7 @@ function runLanding(ws, c, state, { descriptors, dataPath, npmRun }, git) {
 	// it. Forcing it forward would delete the one thing the operator was told to look at.
 	if (git(['branch', '--list', copy], c.primary)) {
 		const why = `${copy} exists from an earlier landing — inspect or delete it first`;
-		console.error(refusalBlock(name, [why]));
+		printRefusal(name, [why]);
 		return { code: 1, landed: null, refused: [why] };
 	}
 	const holder = path.join(c.primary, '.worktrees');
@@ -404,6 +411,7 @@ function runLanding(ws, c, state, { descriptors, dataPath, npmRun }, git) {
 	const managed = [];
 	let keptCopy = false;
 	let landed = null;
+	let ffDone = false; // the fast-forward has happened — a throw past this point is not "nothing happened"
 	try {
 		// The COPY (§13.3). The worktree's own branch keeps its hashes until the fast-forward has
 		// succeeded, which is what makes "both trees are exactly as before" true after an abort.
@@ -454,11 +462,19 @@ function runLanding(ws, c, state, { descriptors, dataPath, npmRun }, git) {
 			if (ancestor !== 1) throw new Error(String(ff.stderr).trim().split('\n')[0] || `git merge --ff-only ${copy} exited ${ff.status}`);
 			if (attempt === FF_ATTEMPTS) {
 				const why = `the primary moved ${FF_ATTEMPTS} times during the landing — try again`;
-				console.error(refusalBlock(name, [why]));
+				printRefusal(name, [why]);
 				return { code: 1, landed: null, refused: [why] };
 			}
 		}
 		// ---- landed: the primary is now on the branch's commits -------------------------------
+		// ⚠ FROM HERE THE PRIMARY HAS ALREADY MOVED, so a throw is NOT "nothing happened". Every
+		// remaining step can throw — `installDeps` (the realistic one: the range moved
+		// package-lock.json, npm ci reinstalls, and the primary then compiles against a new engine),
+		// `compile`, `statusPaths` if the worktree vanished mid-landing, `removeWorktree` on several
+		// states — and each reached the CLI's bare `✖ <message>` at exit 1, with the primary silently
+		// on the new commits, the worktree still standing, and no success line. Every other exit in
+		// this verb leaves the trees byte-identical; this one cannot, so it must SAY so.
+		ffDone = true;
 		const primaryWs = findWorkspace(c.primary); // re-read: package.json may itself be in the range
 		if (range.files.includes('package-lock.json')) installDeps(primaryWs, npmRun);
 		compile(primaryWs);
@@ -497,6 +513,15 @@ function runLanding(ws, c, state, { descriptors, dataPath, npmRun }, git) {
 		console.log('  primary recompiled');
 		console.log(retired);
 		return { code: 0, landed, refused: null };
+	} catch (e) {
+		// The fast-forward succeeded and something after it did not: say what is true, then let the
+		// error out unchanged so the exit code and the message are still the caller's.
+		if (ffDone) {
+			console.log(`✔ landed worktrees/${name} onto ${primaryBranch}, but the step after the fast-forward failed — ${e.message}`);
+			console.log(`  the primary is on the landed commits and its runtime may be behind its tree: run dt compile in ${c.primary}`);
+			console.log(`  the worktree at ${worktree.root} was NOT removed`);
+		}
+		throw e;
 	} finally {
 		// EVERY exit path — success, conflict, a failed check, a throw out of git itself. The holder is
 		// gitignored, so anything left here would accumulate unseen.
@@ -513,11 +538,42 @@ function runLanding(ws, c, state, { descriptors, dataPath, npmRun }, git) {
  *  compiled without them would regenerate the orientation block MISSING half the workspace and then
  *  commit it. One symlink, because nothing here writes into node_modules and it is gitignored in
  *  every workspace `init` writes, so it can never dirty the tree being landed. */
-function mirrorModules(primary, temp) {
+export function mirrorModules(primary, temp) {
 	const src = path.join(primary, 'node_modules');
 	const at = path.join(temp, 'node_modules');
-	if (!fs.existsSync(src) || fs.existsSync(at)) return;
-	try { fs.symlinkSync(fs.realpathSync(src), at, 'dir'); } catch { /* a copy without modules still compiles its inline ones */ }
+	if (fs.existsSync(src) && !fs.existsSync(at)) {
+		try { fs.symlinkSync(fs.realpathSync(src), at, 'dir'); } catch { /* a copy without modules still compiles its inline ones */ }
+	}
+	// ⚠ AND THE SAME FOR A SHADOWING `git_modules` ENTRY — the fix `createWorktree` already carries
+	// (`checkout.js`), which this second worktree-maker did not get. `git_modules/` is gitignored, so
+	// it is per checkout and a fresh copy has NONE; `land` never runs `install` in the temp tree, only
+	// `compile`. So on a workspace whose engine or module is a `git_modules` symlink, the copy
+	// compiled WITHOUT that module and then did two silent things with the result: committed an
+	// orientation block missing a whole module's collections onto the primary branch, and ran the
+	// `check` gate — the one this verb leans on — against fewer collections than the workspace has.
+	// Measured before the fix: landed at exit 0 having checked 13 collections where the primary has
+	// 14, leaving CLAUDE.md/AGENTS.md/GEMINI.md modified in the primary with nothing printed.
+	//
+	// LINKS ONLY, for the reason `createWorktree` gives: a real `git_modules/<name>` clone is
+	// per-checkout working state, and linking one would hand two checkouts a single working tree.
+	const shadows = path.join(primary, 'git_modules');
+	for (const name of (fs.existsSync(shadows) ? fs.readdirSync(shadows) : [])) {
+		const from = path.join(shadows, name);
+		let real; try { if (!fs.lstatSync(from).isSymbolicLink()) continue; real = fs.realpathSync(from); } catch { continue; }
+		try {
+			fs.mkdirSync(path.join(temp, 'git_modules'), { recursive: true });
+			fs.symlinkSync(real, path.join(temp, 'git_modules', name), 'dir');
+		} catch { /* the copy compiles with what it has */ }
+	}
+}
+
+/** Print a refusal. ⚠ ON STDOUT TOO UNDER `--hook`: a hook's stdout is added to the session's
+ *  context and its stderr is not — which is why `bin/dt-hook.sh` fails onto stdout. A refusal that
+ *  only ever reached stderr was invisible to the one reader the hook forms exist to talk to. */
+function printRefusal(name, reasons) {
+	const block = refusalBlock(name, reasons);
+	console.error(block);
+	if (process.argv.includes('--hook')) console.log(block);
 }
 
 /** Rebase the copy onto the primary branch, resolving generated blocks and nothing else.
@@ -630,8 +686,17 @@ export function landCommand(ws, rest) {
 		// The tree being removed, named by the event. `cwd` is the harness's own — in a hook that is
 		// the PRIMARY checkout ($CLAUDE_PROJECT_DIR), so it is a fallback for a payload shaped by
 		// another event, never the preferred spelling.
-		ref = input.raw.worktree_path ?? input.cwd;
-		if (!ref) throw new Error(`hook input carries no worktree_path — keys received: ${Object.keys(input.raw).join(', ')}`);
+		// ⚠ `worktree_path` ONLY — NEVER a `cwd` fallback. `cwd` is on every Claude Code hook event and
+		// in a hook it is $CLAUDE_PROJECT_DIR, i.e. the PRIMARY. So a payload missing the key (a renamed
+		// field, a hook wired to another event, a harness version bump) resolved to the primary — which
+		// IS a registered worktree — and exited 1 with "it is the primary checkout", the exact outcome
+		// the comment below says must never happen. Absent key is the same quiet exit 0 as a tree that
+		// is already gone: this hook reports, it never fails a removal.
+		ref = input.raw.worktree_path;
+		if (!ref) {
+			console.log(`hook input carries no worktree_path — nothing to report on (keys received: ${Object.keys(input.raw).join(', ') || 'none'})`);
+			return 0;
+		}
 		// ⚠ AND THE TREE MAY ALREADY BE GONE. WorktreeRemove fires around a removal the harness is
 		// performing, so by the time this runs git may no longer list it — which is not an error,
 		// it is the event having nothing left to report on. A non-zero exit here would surface in

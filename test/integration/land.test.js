@@ -576,6 +576,32 @@ describe('dt land — the invocation itself', () => {
 		assert.match(r.stdout, /is not a registered worktree \(already removed\?\)/);
 	});
 
+	// ⚠ `cwd` IS NOT A FALLBACK FOR `worktree_path`. `cwd` rides on every Claude Code hook event and
+	// in a hook it is $CLAUDE_PROJECT_DIR — the PRIMARY. So a payload missing the key (a renamed
+	// field, a hook wired to another event, a harness version bump) used to resolve to the primary,
+	// which IS a registered worktree, and exit 1 with "it is the primary checkout" — the exact
+	// outcome this form promises never to produce, on every ordinary worktree deletion.
+	test('--hook with a payload carrying only cwd exits 0 and says nothing alarming', () => {
+		const ws = landable();
+		addAndCommit(ws.wt, 'first note');
+		const before = snapshot(ws);
+		const r = dtStdin(ws.root, JSON.stringify({ cwd: ws.root }), 'land', '--hook', '--dry-run');
+		assert.equal(r.code, 0, `stdout: ${r.stdout}\nstderr: ${r.stderr}`);
+		assert.doesNotMatch(r.stdout + r.stderr, /primary checkout/, 'the cwd fallback resolved to the primary and refused');
+		assert.match(r.stdout, /carries no worktree_path/);
+		assert.deepEqual(snapshot(ws), before);
+	});
+
+	// ⚠ A HOOK'S STDERR IS NOBODY'S PROBLEM. `bin/dt-hook.sh` fails onto STDOUT for that reason —
+	// stdout is added to the session's context — and every failure past the shim went to stderr
+	// alone, invisible to the one reader the hook forms exist to talk to.
+	test('a hook refusal reaches STDOUT, not stderr alone', () => {
+		const ws = landable();
+		const r = dtStdin(ws.root, JSON.stringify({ worktree_path: ws.root }), 'land', '--hook', '--dry-run');
+		assert.notEqual(r.code, 0);
+		assert.match(r.stdout, /cannot land/, 'the refusal never reached the stream a hook is read from');
+	});
+
 	test('--hook with no JSON on stdin says so instead of landing something', () => {
 		const ws = landable();
 		addAndCommit(ws.wt, 'first note');
