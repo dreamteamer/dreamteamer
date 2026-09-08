@@ -306,7 +306,7 @@ export function printAdapters(ws, { harnesses = ws.pkg.dreamteamer?.harnesses ??
 		// package.json carries. The design doc's shorter `claude` names no harness this engine
 		// compiles for, so accepting it would only ever mask a misspelling.
 		if (h !== 'claude-code') {
-			console.error(`${h}: adapter not yet shipped (decision 311) — see using-dreamteamer › worktrees.md`);
+			console.error(`${h}: adapter not yet shipped (decision 315) — see using-dreamteamer › references/worktrees.md`);
 			continue;
 		}
 		const hooks = {};

@@ -525,10 +525,19 @@ function runLanding(ws, c, state, { descriptors, dataPath, npmRun }, git) {
 	} finally {
 		// EVERY exit path — success, conflict, a failed check, a throw out of git itself. The holder is
 		// gitignored, so anything left here would accumulate unseen.
+		// ⚠ PRUNE ONLY WHEN WE ORPHANED SOMETHING OURSELVES. `git worktree prune` is repo-wide: it
+		// de-registers EVERY worktree whose directory is currently missing, so a peer's tree on an
+		// unmounted volume or a renamed folder was silently unregistered as a side effect of someone
+		// else's failed landing — work the operator then has to re-create by hand. This tree shares a
+		// repo with several sessions' worktrees, so the blast radius is not hypothetical. Only the
+		// `fs.rmSync` fallback leaves a stale registration behind; `worktree remove` cleans up after
+		// itself.
+		let orphaned = false;
 		if (fs.existsSync(temp)) {
-			try { git(['worktree', 'remove', '--force', temp], c.primary); } catch { fs.rmSync(temp, { recursive: true, force: true }); }
+			try { git(['worktree', 'remove', '--force', temp], c.primary); }
+			catch { fs.rmSync(temp, { recursive: true, force: true }); orphaned = true; }
 		}
-		try { git(['worktree', 'prune'], c.primary); } catch { /* nothing registered to prune */ }
+		if (orphaned) { try { git(['worktree', 'prune'], c.primary); } catch { /* nothing registered to prune */ } }
 		if (!keptCopy && git(['branch', '--list', copy], c.primary)) git(['branch', '-D', copy], c.primary);
 	}
 }
