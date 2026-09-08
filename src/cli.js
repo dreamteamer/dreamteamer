@@ -160,6 +160,7 @@ Every verb that MOVES records or CLEARS values takes --dry-run and prints its pl
 
 workspace verbs:
   init        write the workspace skeleton into the current directory (never compiles)
+              [--harnesses claude-code,codex,pi,gemini-cli,cursor,notebooklm]
   --version   print the engine version (works anywhere)
   install     restore git_modules/ from the lockfile map; --clone <url> [name] adds one
   update      pull git_modules clones forward (ff-only on the lockfile ref), rebuild,
