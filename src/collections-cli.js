@@ -1388,7 +1388,7 @@ export const VERB_FLAGS = {
 	// compile's coverage line. It is DECLARED here or `refuseUnknownFlags` rejects it as a typo.
 	'proofs:list': ['json', 'filter', 'where', 'sort', 'missing'],
 	'worktrees:list': JSON_ONLY, 'worktrees:get': JSON_ONLY,
-	'worktrees:add': ['json', 'name', 'path', 'base', 'temp'], 'worktrees:rm': ['json', 'force'],
+	'worktrees:add': ['json', 'name', 'path', 'base', 'temp', 'hook'], 'worktrees:rm': ['json', 'force'],
 };
 
 /** Edit distance, capped — enough to turn `--fliter` into "did you mean --filter?", and to refuse to

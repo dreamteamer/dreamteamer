@@ -62,7 +62,7 @@ dispatch, so it cannot drift):
 - read & measure — `list` `get` `values` `history` `diff` `next` `relations` `resolve`
 - write & publish — `add` `set` `rm` `rename` `move` `revert` `commit`
 - fields (sources, through the compile gate) — `add-field` `set-field` `rm-field` `rename-field` (system entities — modules, collections, skills, ui-views… — take the RECORD verbs above)
-- workspace — `init` `install` `update` `compile` `check` `prove` `status` `start` `changes` `export` `help`
+- workspace — `init` `install` `land` `update` `compile` `check` `prove` `status` `start` `changes` `export` `help`
 
 don't learn syntax from prose, this skill included: prose drifts, and `help` ships in
 the same file as the dispatch it documents. run it once before your first write of a session.
@@ -92,6 +92,7 @@ Load by the map; nothing here is loaded "just in case".
 | a job needing a fresh context and its own tools | `references/agents.md` |
 | a route, a nav entry, a board / calendar / map over records | `references/ui-views.md` |
 | a rendering or editing behaviour nothing registered has | `references/ui-components.md` |
+| a second checkout — making one ready, landing its records, a harness that cuts them for you | `references/worktrees.md` |
 
 three act-two tie-breakers, because they are the ones that go wrong:
 

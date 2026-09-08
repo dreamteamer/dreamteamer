@@ -237,6 +237,58 @@ The sync needs the vendor CLI `notebooklm` (notebooklm-py ≥ 0.7.3) on PATH and
 made in a browser; preflight is `auth check --test`, because the bare check reports an expired session
 as valid.
 
+### `dt land` — the one MOVEMENT verb
+
+```
+dt land worktrees/<name|path> [--keep] [--dry-run] [--branch <n>] [--json]
+```
+
+Brings a linked worktree's commits onto the primary branch. Run it from the primary. It **refuses
+while the primary has pending record writes** (read from the store, not from `git status` — a
+landing would otherwise sweep another session's unpublished records into it), takes one
+engine-owned lock, rebases a **copy** of the branch in a throwaway worktree, recompiles and
+`check`s that copy, fast-forwards, then retires the worktree.
+
+Two guarantees worth knowing before you wire it into anything:
+
+- **A landing that cannot proceed leaves every tree byte-identical.** The rebase happens on
+  `land/<name>`, never on the branch you are standing on, so a records conflict aborts with the
+  paths listed by collection and nothing — not even a reflog entry on your branch — moved.
+- **A worktree that CHANGED during the landing is kept, not destroyed.** Cleanliness is measured
+  again immediately before the destructive step; if a session wrote a record in there while the
+  rebase ran, the tree survives with `worktree kept at <path> — it changed during the landing`.
+  The window is milliseconds, not zero, so **a harness hook must never delete a dirty worktree.**
+
+The only conflict resolved automatically is the generated instruction block in the root
+`CLAUDE.md` / `AGENTS.md` / `GEMINI.md`, and only when every hunk lies inside its markers — the
+primary's block wins and the file is regenerated once at the end. Everything else, records
+included, is surfaced and aborted. There is no union merge.
+
+`--json` carries `kept`, read from the disk after the work, so a script can tell a retired
+worktree from one that survived.
+
+### hooks — `--hook`, and a shim because a hook has no PATH
+
+`dt install --hook`, `dt add worktrees --hook` and `dt land --hook --dry-run` read a harness hook's
+JSON payload from **stdin** (they refuse a terminal rather than blocking on it). `dt install
+--print-adapters` prints the configuration for each declared harness, filled in for this workspace.
+
+⚠ **A hook's shell reads no startup file.** A hook runs as `sh -c` / `bash -c`, and neither reads a
+profile — so a hook line beginning with `npm` or `npx` can fail with *command not found* in an
+environment where the same command works in the operator's terminal, with the error going nowhere.
+No profile edit reaches it. The engine therefore ships `bin/dt-hook.sh`, which resolves node
+absolutely (`$DREAMTEAMER_NODE` → `command -v node` → the highest `~/.nvm` version → Homebrew →
+`/usr/local`) and fails loudly onto stdout when none resolves. And because npm's own shebang is
+`#!/usr/bin/env node`, the engine also puts node's directory at the front of the PATH it hands to
+any child that needs npm — an absolutely-resolved npm still dies at exit 127 without it.
+
+**After upgrading:** nothing breaks — every verb above is new. To wire a harness up, run `dt install
+--print-adapters`, review what it prints, and merge it into that harness's settings file yourself
+(the engine does not write your config). If you commit that file, un-ignore exactly it —
+`.claude/*` plus `!.claude/settings.json`, since git cannot un-ignore a file inside an ignored
+directory. Only Claude Code's adapter ships in this release; the rest are documented in
+`using-dreamteamer › references/worktrees.md` as they are measured.
+
 ---
 
 ## 0.19.1 → 0.20.0
