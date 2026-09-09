@@ -111,6 +111,19 @@ node_modules/<name>/   # published package
 Precedence runs top to bottom, so a local copy shadows a published one — which is how you develop a
 module and use it in the same workspace at the same time.
 
+A published package or a git clone may carry **several** modules: when its root has a `modules/`
+folder, each `modules/<name>/` with a `dreamteamer` key in its `package.json` is a module on that
+channel, and the root itself is never compiled. One `npm install` then delivers a whole family, and the
+workspace keeps what it wants — a bare module name in `dreamteamer.disable` drops a module before
+compile looks at it (an entry with a slash, `<module>/<entity>`, still disables one entity):
+
+```json
+"dreamteamer": { "disable": ["recordings", "introspection"] }
+```
+
+Disabling a module another one declares in `dependencies` is refused, naming what is present. The
+workspace's own `modules/*` never nest.
+
 Sources live **flat at a module root** — `modules/crm/skills/`, beside `package.json` — and a folder
 at a module root that isn't a known kind is a compile error rather than a silent skip.
 

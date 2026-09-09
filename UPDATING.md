@@ -20,6 +20,29 @@ npx dreamteamer check
 
 ---
 
+## 0.23.0 → 0.24.0
+
+**One arrival, additive: a dependency or a git clone can be a PACKAGE of modules, and `disable` can
+name a whole module.** A root under `node_modules/` or `git_modules/` whose `package.json` carries the
+`dreamteamer` key AND whose folder carries `modules/` is a bundle: each `modules/<name>/` with its own
+`dreamteamer` key is discovered as a module on that channel, and the bundle root is never compiled. A
+bare entry in `dreamteamer.disable` — no slash — drops that module at discovery, so `compile`, `status`
+and `install` all see the same set; `<module>/<entity>` entries keep their meaning. Nothing changes for
+a workspace whose dependencies and clones are single modules, and the workspace's own `modules/*` never
+nest — a `modules/` folder inside one of them is still the unknown-folder error.
+
+- **To consume a bundle:** `npm install <package>` or `dreamteamer install --clone <url> <name>`, then
+  `dt compile`. To keep only some of its modules, list the others in `dreamteamer.disable`.
+- ⚠ **A bundle's module may not declare `local-assets`** when it arrives through npm — compile refuses
+  a local asset under `node_modules/`, because npm owns that folder. Keep large per-machine files
+  outside the package (an env-var-addressed folder) and say so in the module's README.
+- **Disabling a module another one depends on** fails with the existing "depends on X, which is not
+  installed — modules present: …" message.
+
+`dt compile`, then `dt check`, as always.
+
+---
+
 ## 0.22.0 → 0.23.0
 
 **One arrival, additive: a `notebooklm` harness.** `dt compile` can now write `NOTEBOOKLM.md` at the
