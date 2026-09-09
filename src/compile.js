@@ -523,33 +523,51 @@ export const locationOf = (source, wsRoot) =>
 export function discoverModules(root, pkg) {
 	const byName = new Map(); // name -> {name, root, channel}
 	const shadows = []; // {name, winner, loser} — channels
+	// A BARE `dreamteamer.disable` entry names a whole module; `<module>/<entity>` names one entity and
+	// is applied per source at compile time. The bare form is what lets a workspace take a PACKAGE of
+	// modules and keep only the ones it wants — a disabled module is simply never discovered, so every
+	// caller (compile, status, install) sees the same set.
+	const disabledModules = new Set((pkg?.dreamteamer?.disable ?? []).filter((d) => typeof d === 'string' && !d.includes('/')));
+	const disabledHits = new Set();
 	const tryAdd = (name, srcRoot, channel) => {
+		if (disabledModules.has(name)) { disabledHits.add(name); return; }
 		const existing = byName.get(name);
 		if (existing) { shadows.push({ name, winner: existing.channel, loser: channel }); return; }
 		byName.set(name, { name, root: srcRoot, channel });
 	};
-	const scanDir = (dir, channel) => {
+	const readPkg = (dir) => {
+		try {
+			const mpkg = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8'));
+			return 'dreamteamer' in mpkg ? mpkg : null;
+		} catch { return null; } // no package.json, or unparseable — not a module
+	};
+	// A PACKAGE OF MODULES: a dependency or a git clone whose root carries `modules/` bundles several
+	// modules — its sub-modules are the modules, and the root itself is never compiled. One
+	// `npm install` (or one clone) then delivers a whole family, and `disable` cherry-picks from it.
+	// Inline `modules/*` never nest: a `modules/` folder at an inline module root stays the
+	// unknown-folder compile error it always was, because the workspace's own tree has no reason to
+	// bundle.
+	const scanDir = (dir, channel, unpack) => {
 		if (!fs.existsSync(dir)) return;
 		for (const name of fs.readdirSync(dir).sort()) {
 			const srcRoot = path.join(dir, name);
-			const pkgPath = path.join(srcRoot, 'package.json');
-			if (!fs.existsSync(pkgPath)) continue;
-			try {
-				const mpkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
-				if ('dreamteamer' in mpkg) tryAdd(mpkg.name ?? name, srcRoot, channel);
-			} catch { /* unparseable package.json — skip */ }
+			const mpkg = readPkg(srcRoot);
+			if (mpkg) (unpack ? tryAddOrUnpack : tryAdd)(mpkg.name ?? name, srcRoot, channel);
 		}
 	};
-	scanDir(path.join(root, 'modules'), 'inline');
-	scanDir(path.join(root, 'git_modules'), 'git');
+	const tryAddOrUnpack = (name, srcRoot, channel) => {
+		const bundle = path.join(srcRoot, 'modules');
+		if (fs.existsSync(bundle) && fs.statSync(bundle).isDirectory()) { scanDir(bundle, channel, false); return; }
+		tryAdd(name, srcRoot, channel);
+	};
+	scanDir(path.join(root, 'modules'), 'inline', false);
+	scanDir(path.join(root, 'git_modules'), 'git', true);
 	for (const dep of Object.keys({ ...pkg.dependencies, ...pkg.devDependencies }).sort()) {
 		const srcRoot = path.join(root, 'node_modules', dep);
-		try {
-			const mpkg = JSON.parse(fs.readFileSync(path.join(srcRoot, 'package.json'), 'utf8'));
-			if ('dreamteamer' in mpkg) tryAdd(mpkg.name ?? dep, srcRoot, 'npm');
-		} catch { /* dep not installed or no package.json — skip */ }
+		const mpkg = readPkg(srcRoot);
+		if (mpkg) tryAddOrUnpack(mpkg.name ?? dep, srcRoot, 'npm');
 	}
-	return { modules: [...byName.values()], shadows };
+	return { modules: [...byName.values()], shadows, disabledModules: [...disabledHits] };
 }
 
 // ---- module-owned data ----------------------------------------------------------
@@ -629,7 +647,7 @@ export function compile({ root, pkg }) {
 	};
 
 	// ---- discover sources: channel modules then the workspace's own -----------------
-	const { modules: discovered, shadows } = discoverModules(root, pkg);
+	const { modules: discovered, shadows, disabledModules } = discoverModules(root, pkg);
 	for (const s of shadows) console.warn(shadowWarning(s));
 	const sources = [...discovered];
 	// workspace-owned sources: either at the root (classic layout) or in the designated
@@ -809,7 +827,7 @@ export function compile({ root, pkg }) {
 	const dataOwners = dataOwningModules(sources, fail, rel);
 
 	const disabled = new Set(config.disable ?? []);
-	const disabledHits = new Set();
+	const disabledHits = new Set(disabledModules); // bare entries were applied at discovery
 
 	/** entries: runtime-relative path -> { sources: [workspace-relative], bytes } */
 	const entries = new Map();
