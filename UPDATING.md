@@ -20,6 +20,25 @@ npx dreamteamer check
 
 ---
 
+## 0.22.0 → 0.23.0
+
+**One arrival, additive: a `notebooklm` harness.** `dt compile` can now write `NOTEBOOKLM.md` at the
+workspace root — the notebook's configuration, the way `CLAUDE.md` is Claude Code's — with a
+generated block that names every collection and the fields the export withholds, plus the exact
+`notebooklm configure` invocation that applies it. Everything above the block is yours and survives
+every compile. Nothing changes for a workspace that does not opt in.
+
+- **To opt in**, add `notebooklm` to `dreamteamer.harnesses` in `package.json` and run `dt compile`.
+  A workspace created by `dreamteamer init` on 0.23.0 gets it by default, like the other five.
+- ⚠ **The block advises `--mode` explicitly.** An earlier draft advised `--mode default`, which
+  silently discards the persona it had just written; the shipped block does not.
+- **`dt land` treats `NOTEBOOKLM.md` as a managed block**, so a landing that meets a conflict inside
+  the generated section resolves it by recompiling rather than aborting the whole land.
+
+`dt compile`, then `dt check`, as always.
+
+---
+
 ## 0.21.0 → 0.22.0
 
 **One release, three arrivals: `install` becomes the one verb that makes a thing ready, three verb
