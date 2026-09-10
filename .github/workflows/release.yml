@@ -15,6 +15,91 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          # The ancestry gate below needs main's history; the default shallow tip cannot answer it.
+          fetch-depth: 0
+
+      # 🔴 THE LEAK GATE, ON THE PUBLISH PATH — added 2026-09-10.
+      #
+      # `leak-scan.yml` triggers on `push: branches: [main]` and `pull_request`. A TAG matches
+      # NEITHER, so until today the release path scanned nothing at all — and the scan that did run
+      # on main only ever saw the lines that push ADDED. This is the gate against the incident that
+      # already shipped a private vault name in three npm tarballs (immutable, provenance-attested,
+      # fixed only by a git-history rewrite), and the publish skipped it. This one scans the WHOLE
+      # TREE about to be published, because that is what a stranger downloads.
+      #
+      # ⚠ IT FAILS CLOSED, unlike its main-branch sibling. There, an unset `LEAK_NAMES` is a
+      # `::warning::` and the check is skipped; on a release, silence is indistinguishable from a
+      # pass — and both layers were once off on a second machine during a public-repo push prep.
+      # Measured 2026-09-10: all three repos DO carry the secret and the check really runs, so this
+      # costs nothing today and is the only thing between an unset secret and an immutable publish.
+      #
+      # ⚠ PATHS are printed; CONTENT never is. This log is readable by anyone with repo access.
+      - name: leak gate — the whole tree about to be published
+        env:
+          LEAK_NAMES: ${{ secrets.LEAK_NAMES }}
+        run: |
+          set -uo pipefail
+          if [ -z "${LEAK_NAMES:-}" ]; then
+            echo "::error::secrets.LEAK_NAMES is not set, so the private-name check cannot run — and a skipped gate is not a passed gate. Set it on this repo before releasing."
+            exit 1
+          fi
+          fail=0
+
+          # Text files only. A binary blob's bytes can decode to anything, and a PNG that happens
+          # to carry a valid two-byte sequence would fail the Hebrew rule for no reason.
+          TEXT=$(git grep -I -l -e '.' -- . || true)
+          [ -n "$TEXT" ] || { echo "::error::no text files found to scan — the gate would pass vacuously"; exit 1; }
+
+          hits=$(printf '%s\n' "$TEXT" | xargs -r grep -lIiE "$LEAK_NAMES" 2>/dev/null || true)
+          if [ -n "$hits" ]; then
+            echo "::error::$(printf '%s\n' "$hits" | wc -l | tr -d ' ') tracked file(s) match a private name"
+            printf '%s\n' "$hits" | sed 's/^/  /'
+            fail=1
+          fi
+
+          SECRET_SHAPES='sk-ant-[A-Za-z0-9_-]{20}|sk-[A-Za-z0-9]{32}|ghp_[A-Za-z0-9]{36}|gho_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{50}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{35}|xox[baprs]-[0-9A-Za-z-]{10,}|glpat-[0-9A-Za-z_-]{20}|npm_[A-Za-z0-9]{36}|-----BEGIN [A-Z ]*PRIVATE KEY-----'
+          hits=$(printf '%s\n' "$TEXT" | xargs -r grep -lIE "$SECRET_SHAPES" 2>/dev/null || true)
+          if [ -n "$hits" ]; then
+            echo "::error::$(printf '%s\n' "$hits" | wc -l | tr -d ' ') tracked file(s) match a credential shape"
+            printf '%s\n' "$hits" | sed 's/^/  /'
+            fail=1
+          fi
+
+          # Hebrew — a strong proxy for "vault content escaped into this repo" — honouring
+          # `.leak-scan-allow` per FILE and per RULE, the same file the pre-commit scanner reads.
+          # ⚠ perl with -CSD, never `grep -P`: `S` fixes the standard handles and `D` sets the
+          # default layer for files opened from @ARGV, so the pattern matches CODEPOINTS. Without
+          # -CSD it matches bytes and silently never fires, which is the worst failure a gate has.
+          heb=$(printf '%s\n' "$TEXT" | xargs -r perl -CSD -ne 'print "$ARGV\n" if /[\x{0590}-\x{05FF}]/' 2>/dev/null | sort -u || true)
+          if [ -f .leak-scan-allow ] && [ -n "$heb" ]; then
+            allowed=$(awk -F'\t' '$0 !~ /^[[:space:]]*(#|$)/ && $2 == "hebrew" { print $1 }' .leak-scan-allow)
+            [ -n "$allowed" ] && heb=$(printf '%s\n' "$heb" | grep -vxF "$allowed" || true)
+          fi
+          if [ -n "$heb" ]; then
+            echo "::error::$(printf '%s\n' "$heb" | wc -l | tr -d ' ') file(s) carry Hebrew codepoints outside .leak-scan-allow"
+            printf '%s\n' "$heb" | sed 's/^/  /'
+            echo "Exempt a REVIEWED file: <path><TAB>hebrew<TAB><why>"
+            fail=1
+          fi
+
+          [ "$fail" -eq 0 ] || exit 1
+          echo "✔ the published tree is clean — no private name, no credential shape, no Hebrew outside the allow-list"
+
+      # ⚠ A TAG ON AN ARBITRARY COMMIT PUBLISHES A TREE CI HAS NEVER SEEN. Nothing else stops it:
+      # main is unprotected and there is no tag ruleset. The release runbook pushes main, waits for
+      # green, then tags — so this assertion is free on the happy path and refuses the accident.
+      - name: the tag must point at a commit on main
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --quiet origin main
+          if git merge-base --is-ancestor HEAD origin/main; then
+            echo "✔ $(git rev-parse --short HEAD) is on origin/main"
+          else
+            echo "::error::this tag points at a commit that is NOT on origin/main, so CI has never seen this tree. Merge to main and let ci.yml pass before tagging."
+            exit 1
+          fi
+
 
       - uses: actions/setup-node@v5
         with:
