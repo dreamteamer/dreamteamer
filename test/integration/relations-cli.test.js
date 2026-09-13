@@ -13,6 +13,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { workspace, simpleCollection, readFile, writeCollection, compileQuietly, dt as runDt, WS_MODULE } from '../helpers/ws.js';
 import { load } from '../../src/yaml.js';
 
@@ -268,7 +269,13 @@ describe('dt relations', () => {
 		// only a caller that actually acquires it reclaims and then releases the directory.
 		const ws = relWorkspace();
 		ws.dt('add', 'meetings', '--name', 'Standup');
-		const lock = `${ws.root}/.dreamteamer/.write-lock`;
+		// ⚠ The lock lives in the GIT COMMON DIR, not in `.dreamteamer/` — it protects
+		// `.git/index.lock` and `HEAD`, which every worktree of a repo shares, while the runtime
+		// folder is per-checkout build output. Derived here rather than spelled out, so this test
+		// follows the lock instead of pinning a path it does not own.
+		const commonDir = path.resolve(ws.root, execFileSync('git', ['rev-parse', '--git-common-dir'],
+			{ cwd: ws.root, encoding: 'utf8' }).trim());
+		const lock = path.join(commonDir, '.dreamteamer-write-lock');
 		fs.mkdirSync(lock, { recursive: true });
 		const stale = (Date.now() - 60_000) / 1000; // older than the 30s steal threshold
 		fs.utimesSync(lock, stale, stale);
