@@ -251,6 +251,29 @@ describe('disable', () => {
 		assert.equal(readFile(ws.root, '.dreamteamer/ui-views/board.ui-view.yaml'), null);
 	});
 
+	// ⚠ A SKILL IS A FOLDER, and `compile` names a folder-shaped entity by the folder alone — it
+	// reads every kind but collections with a flat readdir. Deriving the id from the full path
+	// therefore cleared a disabled ui-view and left a disabled SKILL stale forever. Found by running
+	// the fix against a real workspace whose disable list held one of each, AFTER the first three
+	// tests here were green: the file-shaped case passing says nothing about the folder-shaped one.
+	test('a disabled SKILL — a folder, not a file — is not reported stale', () => {
+		const ws = uncompiled({ collections: { widgets: simpleCollection({ storage: { suffix: 'widget' } }) } });
+		const dir = path.join(ws.root, 'modules', WS_MODULE, 'skills', 'doing-a-thing');
+		fs.mkdirSync(dir, { recursive: true });
+		fs.writeFileSync(path.join(dir, 'SKILL.md'),
+			'---\nname: doing-a-thing\ndescription: Use when a thing must be done.\n---\n\n# doing a thing\n');
+		fs.mkdirSync(path.join(dir, 'references'), { recursive: true });
+		fs.writeFileSync(path.join(dir, 'references', 'more.md'), '# more\n');   // a nested file, too
+		const pkg = JSON.parse(readFile(ws.root, 'package.json'));
+		pkg.dreamteamer.disable = [`${WS_MODULE}/doing-a-thing`];
+		fs.writeFileSync(path.join(ws.root, 'package.json'), JSON.stringify(pkg, null, '\t'));
+		compileQuietly({ root: ws.root, pkg });
+		assert.deepEqual(staleness(ws.root).stale, [],
+			'neither SKILL.md nor anything nested under the disabled folder is stale');
+		assert.equal(readFile(ws.root, '.dreamteamer/skills/doing-a-thing/SKILL.md'), null,
+			'and the disable really is in force');
+	});
+
 	test('a disabled NAMESPACED collection is not reported stale either', () => {
 		// The id carries a namespace segment, so the disable entry is `<module>/<ns>/<name>` and the
 		// staleness scan has to derive the id from the whole relative path, exactly as compile does.
