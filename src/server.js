@@ -131,7 +131,7 @@ export function startServer(ws, { port = 8080, host = '127.0.0.1' } = {}) {
 		// branch is here, at the surface, exactly as the CLI's interceptor is.
 		if (store.descriptors.get(req.params.name)?.storage?.base === 'runtime') {
 			const out = systemWrite(ws, store, req);
-			reload();
+			if (!out?.dryRun) reload();
 			return res.json(out);
 		}
 		const { id: explicitId, ...fields } = req.body ?? {};
@@ -142,7 +142,7 @@ export function startServer(ws, { port = 8080, host = '127.0.0.1' } = {}) {
 	api.patch('/collections/:name/records/*id', (req, res) => {
 		if (store.descriptors.get(req.params.name)?.storage?.base === 'runtime') {
 			const out = systemWrite(ws, store, req);
-			reload();
+			if (!out?.dryRun) reload();
 			return res.json(out);
 		}
 		// clients may echo synthetic response keys back on save (id/path/last-modified/the two
@@ -182,7 +182,7 @@ export function startServer(ws, { port = 8080, host = '127.0.0.1' } = {}) {
 	api.delete('/collections/:name/records/*id', (req, res) => {
 		if (store.descriptors.get(req.params.name)?.storage?.base === 'runtime') {
 			const out = systemWrite(ws, store, req);
-			reload();
+			if (!out?.dryRun) reload();
 			return res.json(out);
 		}
 		store.rm(req.params.name, idParam(req), { force: req.query.force === 'true' });
@@ -224,7 +224,9 @@ export function startServer(ws, { port = 8080, host = '127.0.0.1' } = {}) {
 	const schemaOp = (fn) => (req, res, next) => {
 		try {
 			const out = fn(req);
-			reload();
+			// A dry run wrote nothing, so there is nothing to reload — and reloading would imply to
+			// every reader that something changed.
+			if (!out?.dryRun) reload();
 			res.json(out);
 		} catch (e) { next(e); }
 	};
@@ -250,9 +252,14 @@ export function startServer(ws, { port = 8080, host = '127.0.0.1' } = {}) {
 	// `…/name` rather than a body key, because renaming a field is a DIFFERENT act from editing one:
 	// it rewrites the key in every record and in every descriptor, view and binding that names it.
 	api.patch('/collections/:name/fields/:field/name', schemaOp((req) =>
-		renameField(ws, store, req.params.name, req.params.field, String(req.body?.to ?? ''), { moduleId: moduleParam(req) })));
-	api.delete('/collections/:name/fields/:field', schemaOp((req) =>
-		removeField(ws, store, req.params.name, req.params.field, { moduleId: moduleParam(req) })));
+		renameField(ws, store, req.params.name, req.params.field, String(req.body?.to ?? ''),
+			{ moduleId: moduleParam(req), dryRun: wantsDryRun(req) })));
+	api.delete('/collections/:name/fields/:field', schemaOp((req) => {
+		// `removeField` computes no plan, so a dry-run request is refused rather than performed —
+		// clearing a value out of every record is the last thing to guess at.
+		if (wantsDryRun(req)) throw new DryRunUnsupported('fields:rm');
+		return removeField(ws, store, req.params.name, req.params.field, { moduleId: moduleParam(req) });
+	}));
 
 	// per-record revision diff + revert (M3: git already has the data; this exposes it)
 	api.get('/history-diff/:name/*id', (req, res) => {
@@ -273,6 +280,7 @@ export function startServer(ws, { port = 8080, host = '127.0.0.1' } = {}) {
 	// error contract: store errors are 400 (validation) / 404 (missing) / 409 (referenced)
 	app.use((err, req, res, next) => {
 		const msg = err.message ?? String(err);
+		if (err instanceof DryRunUnsupported) return res.status(400).json({ error: msg, 'dry-run': 'unsupported' });
 		const code = err instanceof CompileError ? 400
 			: /no such record/.test(msg) ? 404
 			: /referenced by|already exists/.test(msg) ? 409 : 400;
@@ -333,11 +341,53 @@ function moduleParam(req) {
  * name; renaming any of them is a cross-repo activation failure, so the new operations are new
  * exports beside them.
  */
+// ⚠ A CLIENT ASKING FOR A PLAN MUST NEVER GET A WRITE. `?dry-run=true` was read by nothing here:
+// the query string was parsed for `force` and nothing else, so every request asking what a
+// destructive verb WOULD do performed it instead — a module removal, a collection moved between
+// modules, a field renamed across every record and descriptor that names it. The CLI has taken
+// `--dry-run` on those verbs since the plan/apply split, which is exactly what makes the omission
+// dangerous: the two surfaces are documented as the same operation, so a client has every reason to
+// believe the flag is honoured.
+//
+// Three ops can produce a plan (`removeModule`, `moveCollection`, `renameField` — each returns
+// `{…plan, dryRun: true}` and touches nothing). For anything else the answer is a REFUSAL, never a
+// write: an op that cannot describe itself must not be guessed at, and returning a 200 with an empty
+// plan would read as "this would change nothing", which is the opposite of the truth.
+export function wantsDryRun(req) {
+	const v = req?.query?.['dry-run'];
+	return v === true || v === 'true' || v === '1';
+}
+
+/** The `<kind>:<verb>` pairs whose op accepts `dryRun` and returns a plan instead of writing. */
+export const DRY_RUNNABLE = new Set(['modules:rm', 'collections:move', 'fields:rename']);
+
+export class DryRunUnsupported extends Error {
+	constructor(what) {
+		super(`dry-run is not supported for ${what} — supported: ${[...DRY_RUNNABLE].join(', ')}. `
+			+ 'Nothing was written; re-send without dry-run to perform it.');
+		this.status = 400;
+		this.dryRunUnsupported = what;
+	}
+}
+
 function systemWrite(ws, store, req) {
 	const kind = req.params.name;
 	const id = req.params.id ? idParam(req) : undefined;
 	const moduleId = moduleParam(req);
 	const b = req.body ?? {};
+	const dryRun = wantsDryRun(req);
+	if (dryRun) {
+		// Decide from the SAME shape the dispatch below uses, so the two can never disagree about
+		// which op a request reaches — a refusal that names a different verb than the one that would
+		// have run is worse than no refusal.
+		if (req.method === 'DELETE' && kind === 'modules') {
+			return removeModule(ws, store, id, { force: req.query.force === 'true', dryRun: true });
+		}
+		if (req.method === 'PATCH' && kind === 'collections' && typeof b.module === 'string') {
+			return moveCollection(ws, store, id, b.module, { dryRun: true });
+		}
+		throw new DryRunUnsupported(`${kind}:${req.method.toLowerCase()}`);
+	}
 	if (req.method === 'POST') {
 		if (kind === 'collections') return createCollection(ws, store, { ...b, moduleId });
 		if (kind === 'modules') return createModule(ws, store, b);
