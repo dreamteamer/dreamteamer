@@ -20,6 +20,62 @@ npx dreamteamer check
 
 ---
 
+## 0.24.1 → 0.25.0
+
+**Three silent losses closed and one new way to spell an id. Nothing to migrate, and every existing
+descriptor keeps working unchanged — but two of these change behaviour you may have been working
+around, so they are worth reading before you upgrade.**
+
+**`dt commit` is serialized, and the lock moved.** Concurrent publishes were abandoning records:
+`commitPending` took no write lock at all, so two processes collided on `.git/index.lock` and `HEAD`
+— repository-wide locks that do not care that the records are unrelated — and the loser's records
+stayed on disk, uncommitted, for the next unscoped commit to sweep under somebody else's subject.
+Measured on six concurrent publishes of six distinct records: five of six were left behind. The whole
+verb now takes the lock, planning included, because a plan built from a `git status` taken before a
+sibling's commit describes a tree that no longer exists by the time it is applied.
+⚠ **The lock now lives in the git common dir, not in `.dreamteamer/`.** What it protects is shared by
+every worktree of a repo, while the runtime folder is per-checkout build output — so the old location
+serialized a checkout against itself and left two worktrees free to collide. **If you had tooling
+that looked for `.dreamteamer/.write-lock`, it should look for `.dreamteamer-write-lock` inside
+`git rev-parse --git-common-dir`.** Nothing in a workspace normally does.
+
+**A disabled entity is no longer reported stale.** `dreamteamer.disable` entries of the
+`<module>/<entity>` form were skipped by `compile` but still counted as uncompiled sources by
+`status` and by the warning every tool entry prints — so a workspace with any entity disabled was
+told, forever, to run a compile that could never clear it. If you have been ignoring a stale banner,
+run `dt status` after upgrading: what it says now is real.
+
+**`?dry-run=true` on the REST server no longer performs the write.** The query parameter was read by
+nothing, so a client asking what a destructive schema verb WOULD do performed it — a module removed,
+a collection moved, a field renamed across every record naming it. `modules:rm`, `collections:move`
+and `fields:rename` now return a plan and touch nothing; every other schema write REFUSES a dry-run
+request with 400 rather than guessing. **If you built a client that sent `dry-run` and relied on the
+write happening, it will now be refused** — which is the point.
+
+**`id.generate` accepts an ORDERED LIST.** New, additive, and the reason to upgrade if your values
+are not in a latin script:
+
+```yaml
+id:
+  generate:
+    - '{{ code }}'          # used when the record has one
+    - '{{ name | slug }}'   # otherwise
+```
+
+The first template whose fields are all present wins; one naming a missing field is skipped rather
+than fatal, and if every template fails the last error is raised. This was previously inexpressible —
+a missing field threw before any fallback could run — so the only way to keep a readable latin handle
+was to make a code field REQUIRED on every record, or to pass `--id` on every write.
+
+**And a hash id now announces itself.** A value with no `a-z0-9` in it has nothing to slug, so `slug`
+falls back to a deterministic hash and the write succeeds. That has not changed — refusing would
+break every workspace whose values are not latin, and existing records keep their ids — but `dt add`
+now prints which field it happened to, what the value was, and the list form above. Previously an
+`x1a2b3c4` id landed, passed `check`, got referenced by other records, and was discovered only when
+a person read the tree, by which point renaming it was a migration.
+
+---
+
 ## 0.23.0 → 0.24.0
 
 **One arrival, additive: a dependency or a git clone can be a PACKAGE of modules, and `disable` can
