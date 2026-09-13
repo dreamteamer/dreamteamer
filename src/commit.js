@@ -415,7 +415,27 @@ function assertResolvable(store, records, matched) {
 	}
 }
 
-export function commitPending(store, { only = [], message, dryRun = false } = {}) {
+export function commitPending(store, opts = {}) {
+	// ⚠ THE WHOLE VERB TAKES THE WRITE LOCK, PLANNING INCLUDED — not just the two git calls at the
+	// end. `dt commit` was the one write path that took no lock at all: it sampled `git status`,
+	// planned a sweep from what it saw, then ran `git add` and `git commit`. Two sessions doing that
+	// at once collide on `.git/index.lock` and `HEAD`, which are repository-wide and do not care
+	// that the records are unrelated — and the loser is not told, so its records stay on disk,
+	// uncommitted, for the next unscoped commit to sweep under someone else's subject.
+	//
+	// The lock has to cover the PLAN as well as the write, because a plan built from a `git status`
+	// taken before a sibling's commit describes a tree that no longer exists by the time it is
+	// applied. Serialising only the git calls would trade a lock collision for a stale plan, which
+	// is the same loss wearing a quieter failure.
+	//
+	// This matters more than it reads: since auto-commit was turned off, a write does not commit, so
+	// the window between writing a record and publishing it is a whole session rather than
+	// milliseconds — and this vault family is routinely operated by several concurrent sessions.
+	if (opts.dryRun) return commitPlan(store, opts);   // reads only; nothing to serialize
+	return store.withWriteLock(() => commitPlan(store, opts));
+}
+
+function commitPlan(store, { only = [], message, dryRun = false } = {}) {
 	// Targets are resolved BEFORE anything is committed, so one bad target in a list of good ones
 	// leaves the whole tree untouched rather than committing a prefix of what was asked for.
 	const targets = parseTargets(store.descriptors, only);

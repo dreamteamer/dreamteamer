@@ -1003,13 +1003,35 @@ export class Store {
 		return { touched, rewrites, skipped, ambiguous, restore };
 	}
 
+	/** Where the cross-process write lock lives.
+	 *
+	 *  ⚠ IT BELONGS TO THE REPOSITORY, NOT TO THE CHECKOUT. What it protects is `.git/index.lock`
+	 *  and `HEAD` — both of which are SHARED by every worktree of a repo, while `.dreamteamer/` is
+	 *  gitignored build output that each checkout has its own copy of. A lock in the runtime folder
+	 *  therefore serialized a single checkout against itself and left two worktrees of one repo free
+	 *  to collide on exactly the files it exists to guard. `--git-common-dir` is the one path that
+	 *  resolves to the same place from the primary and from every linked worktree.
+	 *
+	 *  The runtime folder stays the fallback, because a workspace need not be a git repo at all and
+	 *  a store that cannot lock is worse than one that locks narrowly. */
+	writeLockPath() {
+		if (this._lockPath) return this._lockPath;
+		let dir = null;
+		try {
+			const common = execFileSync('git', ['rev-parse', '--git-common-dir'], { cwd: this.root, stdio: QUIET }).toString().trim();
+			if (common) dir = path.resolve(this.root, common);
+		} catch { /* not a git repo — fall back to the runtime folder */ }
+		this._lockPath = path.join(dir ?? this.runtime, '.dreamteamer-write-lock');
+		return this._lockPath;
+	}
+
 	// ---- write serialization + rollback (review finding 3; reinstates the v2 commit
 	// queue idea in sync form). within ONE process Node's sync fs/exec already serializes;
 	// the lock guards CLI-beside-server cross-process races on .git/index.lock. a commit
 	// failure UNDOES the write, so "one mutation = one commit" fails CLOSED and
 	// "nothing was written" stays true.
 	withWriteLock(fn) {
-		const lock = path.join(this.runtime, '.write-lock');
+		const lock = this.writeLockPath();
 		fs.mkdirSync(path.dirname(lock), { recursive: true });
 		const deadline = Date.now() + 5000;
 		for (;;) {
