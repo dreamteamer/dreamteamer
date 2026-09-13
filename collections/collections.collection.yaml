@@ -85,8 +85,25 @@ schema:
       description: How a record's id is derived and what shape it is allowed to take.
       properties:
         generate:
-          type: string
-          description: 'Template the id is built from, e.g. `{{ created | date }}--{{ name | slug }}`. Derive it from a field the record OWNS, never from write time.'
+          # ⚠ STRING OR AN ORDERED LIST OF STRINGS, and this schema has to say so or `check` refuses
+          # the very form 0.25.0 added. `generateId` learned the list in 0.25.0 and THIS declaration
+          # did not, so a descriptor carrying one compiled fine and then failed `check` with
+          # "must be string" — the feature was unusable in exactly the workspaces it was written for.
+          # Missed because the release was smoked with `dt add` against string templates; nothing
+          # ran `check` over a descriptor that used a list.
+          # anyOf, NOT oneOf: the validator coerces a single-element array to a string, so
+          # `['{{ name | slug }}']` matches BOTH branches and `oneOf` (exactly one) rejects it.
+          anyOf:
+            - type: string
+            - type: array
+              minItems: 1
+              items: { type: string }
+          description: >-
+            Template the id is built from, e.g. `{{ created | date }}--{{ name | slug }}`. Derive it from a field the
+            record OWNS, never from write time. An ORDERED LIST takes the first template whose fields are all present —
+            `['{{ code }}', '{{ name | slug }}']` is "the code when there is one, the name otherwise", which is how a
+            collection keeps a readable latin handle without forcing a field onto every record. A template naming a
+            missing field is skipped rather than fatal; when every one fails, the last error is the one raised.
         pattern:
           type: string
           description: Regex every id must match. `check` enforces it.
