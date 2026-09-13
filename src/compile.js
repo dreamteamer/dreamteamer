@@ -1857,9 +1857,21 @@ export function staleness(root) {
 				const rel = path.relative(dir, f).split(path.sep).join('/');
 				if (isProofFixture(kind, rel)) continue;
 				// The SAME id derivation `compile` uses, so the two can never disagree about which
-				// file a disable entry names. A collection's id may itself carry a namespace segment
-				// (`<module>/<ns>/<name>`), which is why the whole relative path is used.
-				if (moduleName && disabledEntities.has(`${moduleName}/${rel.replace(/\.[^.]+\.(yaml|md|json)$/, '')}`)) continue;
+				// file a disable entry names.
+				//
+				// ⚠ AND THE TWO KINDS DERIVE IT DIFFERENTLY. `compile` walks collections recursively,
+				// so a collection's id is its whole relative path (it may carry a namespace segment,
+				// `<ns>/<name>`); every other kind it reads with a flat `readdirSync`, so the entity
+				// is the TOP-LEVEL entry and a folder-shaped one — a skill is a directory holding
+				// `SKILL.md` — is named by the folder alone. Matching the full path for those meant a
+				// disabled SKILL still counted as stale, because `working-with-tasks/SKILL.md` is not
+				// `working-with-tasks`. Caught against a real workspace whose disable list held one
+				// of each: the ui-view cleared and the skill did not.
+				if (moduleName) {
+					const relEntity = kind === 'collections' ? rel : rel.split('/')[0];
+					const entityId = relEntity.replace(/\.[^.]+\.(yaml|md|json)$/, '');
+					if (disabledEntities.has(`${moduleName}/${entityId}`)) continue;
+				}
 				const relPath = path.relative(root, f);
 				if (!known.has(relPath)) stale.push(`${relPath} (new, uncompiled)`);
 			}
