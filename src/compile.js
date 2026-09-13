@@ -1832,13 +1832,34 @@ export function staleness(root) {
 	let pkg = {};
 	try { pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')); } catch { /* no pkg */ }
 	const wm = pkg.dreamteamer?.['workspace-module'];
-	const roots = [...(wm ? [] : [root]), ...discoverModules(root, pkg).modules.map((m) => m.root)];
-	for (const r of roots) {
+	const found = discoverModules(root, pkg);
+	// ⚠ A DISABLED ENTITY IS NOT A NEW ONE, AND THIS IS THE DIFFERENCE BETWEEN A WARNING AND A LIE.
+	// `compile` skips every source named by an ENTITY-LEVEL `dreamteamer.disable` entry
+	// (`<module>/<entity>`) before `addEntry`, so that file's path never becomes a manifest source.
+	// This scan used to have no knowledge of that filter, so it found the file on disk, found it
+	// absent from `known`, and reported it `(new, uncompiled)` — permanently, because every future
+	// compile skips it exactly the same way. The workspace was told to run a compile that could not
+	// possibly clear the warning, at every tool entry, for as long as the disable stood.
+	//
+	// Two consuming workspaces were sitting in that state when this was found, one of them with a
+	// clean compile seconds earlier. The MODULE-level form (a bare name) needs no handling here:
+	// `discoverModules` drops the whole module, so its files are never walked at all.
+	//
+	// The root itself, when a workspace declares no `workspace-module`, is not a named module, so no
+	// `<module>/<entity>` entry can address its sources — it is walked unfiltered, as before.
+	const disabledEntities = new Set((pkg.dreamteamer?.disable ?? []).filter((d) => typeof d === 'string' && d.includes('/')));
+	const roots = [...(wm ? [] : [{ name: null, root }]), ...found.modules.map((m) => ({ name: m.name, root: m.root }))];
+	for (const { name: moduleName, root: r } of roots) {
 		for (const kind of KINDS) {
 			const dir = kindDir(r, kind);
 			if (!fs.existsSync(dir)) continue;
 			for (const f of walk(dir)) {
-				if (isProofFixture(kind, path.relative(dir, f).split(path.sep).join('/'))) continue;
+				const rel = path.relative(dir, f).split(path.sep).join('/');
+				if (isProofFixture(kind, rel)) continue;
+				// The SAME id derivation `compile` uses, so the two can never disagree about which
+				// file a disable entry names. A collection's id may itself carry a namespace segment
+				// (`<module>/<ns>/<name>`), which is why the whole relative path is used.
+				if (moduleName && disabledEntities.has(`${moduleName}/${rel.replace(/\.[^.]+\.(yaml|md|json)$/, '')}`)) continue;
 				const relPath = path.relative(root, f);
 				if (!known.has(relPath)) stale.push(`${relPath} (new, uncompiled)`);
 			}

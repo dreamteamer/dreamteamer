@@ -10,6 +10,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { workspace, writeCollection, simpleCollection, compileError, compileQuietly, readFile, tree, dt, git, patchModulePkg, WS_MODULE, twoModuleWorkspace, writeModule } from '../helpers/ws.js';
 import { load } from '../../src/yaml.js';
+import { staleness } from '../../src/compile.js';
 
 const uncompiled = (opts) => workspace({ ...opts, compile: false });
 const dtCheck = (root) => dt(root, 'check');
@@ -221,6 +222,61 @@ describe('disable', () => {
 		fs.writeFileSync(pkgFile, JSON.stringify(pkg, null, '\t'));
 		compileQuietly({ root: ws.root, pkg });
 		assert.equal(readFile(ws.root, '.dreamteamer/collections/widgets.collection.yaml'), null);
+	});
+
+	// ⚠ THE WARNING MUST BE CLEARABLE. `staleness` (what `status` prints and what every tool entry
+	// warns on) walks each winning module root for sources the manifest does not carry. A disabled
+	// entity is exactly that by construction — compile skips it before `addEntry`, so its path is
+	// never a manifest source — and for as long as the disable stood, the workspace was told at
+	// every command to run a compile that could not possibly clear the warning. Two consuming
+	// workspaces were in that state when this was found, one of them with a clean compile seconds
+	// earlier. A warning that cannot be acted on is worse than none: it trains the reader to ignore
+	// the one signal that says the runtime is genuinely behind its sources.
+	test('a disabled entity is not reported STALE — the warning it produced could never be cleared', () => {
+		const ws = uncompiled({ collections: { widgets: simpleCollection({ storage: { suffix: 'widget' } }) } });
+		const dir = path.join(ws.root, 'modules', WS_MODULE, 'ui-views');
+		fs.mkdirSync(dir, { recursive: true });
+		fs.writeFileSync(path.join(dir, 'board.ui-view.yaml'),
+			'path: /board\ntarget: list\ncollection: collections/widgets\nlayout: table\n');
+		const pkgFile = path.join(ws.root, 'package.json');
+		const pkg = JSON.parse(readFile(ws.root, 'package.json'));
+		pkg.dreamteamer.disable = [`${WS_MODULE}/board`];
+		fs.writeFileSync(pkgFile, JSON.stringify(pkg, null, '\t'));
+		compileQuietly({ root: ws.root, pkg });
+
+		const after = staleness(ws.root);
+		assert.equal(after.compiled, true);
+		assert.deepEqual(after.stale, [], 'a clean compile leaves nothing stale');
+		// and the disable really is in force — this is not passing because the view compiled
+		assert.equal(readFile(ws.root, '.dreamteamer/ui-views/board.ui-view.yaml'), null);
+	});
+
+	test('a disabled NAMESPACED collection is not reported stale either', () => {
+		// The id carries a namespace segment, so the disable entry is `<module>/<ns>/<name>` and the
+		// staleness scan has to derive the id from the whole relative path, exactly as compile does.
+		const ws = uncompiled({
+			namespaces: ['health'],
+			collections: { 'health/doctors': simpleCollection({ storage: { suffix: 'doctor' } }) },
+		});
+		const pkg = JSON.parse(readFile(ws.root, 'package.json'));
+		pkg.dreamteamer.disable = [`${WS_MODULE}/health/doctors`];
+		fs.writeFileSync(path.join(ws.root, 'package.json'), JSON.stringify(pkg, null, '\t'));
+		compileQuietly({ root: ws.root, pkg });
+		assert.deepEqual(staleness(ws.root).stale, []);
+	});
+
+	test('an ENABLED new source is still reported stale — the fix must not blind the check', () => {
+		const ws = uncompiled({ collections: { widgets: simpleCollection({ storage: { suffix: 'widget' } }) } });
+		const pkg = JSON.parse(readFile(ws.root, 'package.json'));
+		compileQuietly({ root: ws.root, pkg });
+		assert.deepEqual(staleness(ws.root).stale, [], 'clean to start with');
+		const dir = path.join(ws.root, 'modules', WS_MODULE, 'ui-views');
+		fs.mkdirSync(dir, { recursive: true });
+		fs.writeFileSync(path.join(dir, 'later.ui-view.yaml'),
+			'path: /later\ntarget: list\ncollection: collections/widgets\nlayout: table\n');
+		const stale = staleness(ws.root).stale;
+		assert.equal(stale.length, 1, 'a real uncompiled source is still named');
+		assert.match(stale[0], /later\.ui-view\.yaml \(new, uncompiled\)/);
 	});
 
 	test('a namespaced collection is disabled by its qualified name', () => {
