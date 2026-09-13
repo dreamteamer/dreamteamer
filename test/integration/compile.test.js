@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { workspace, writeCollection, simpleCollection, compileError, compileQuietly, readFile, tree, dt, git, patchModulePkg, WS_MODULE, twoModuleWorkspace, writeModule } from '../helpers/ws.js';
-import { load } from '../../src/yaml.js';
+import { load, dump } from '../../src/yaml.js';
 import { staleness } from '../../src/compile.js';
 
 const uncompiled = (opts) => workspace({ ...opts, compile: false });
@@ -312,6 +312,55 @@ describe('disable', () => {
 		fs.writeFileSync(path.join(ws.root, 'package.json'), JSON.stringify(pkg, null, '\t'));
 		compileQuietly({ root: ws.root, pkg });
 		assert.equal(readFile(ws.root, '.dreamteamer/collections/health/doctors.collection.yaml'), null);
+	});
+});
+
+// ⚠ 0.25.0 TAUGHT `generateId` THE LIST AND FORGOT TO TELL `check`. The meta-descriptor still
+// declared `id.generate` as `type: string`, so a collection using the ordered form compiled fine and
+// then failed validation with "must be string" — the feature was unusable in exactly the workspaces
+// it was written for, and it SHIPPED that way. It was missed because the release was smoked with
+// `dt add` against string templates; nothing ran `check` over a descriptor that used a list.
+//
+// The second trap is in the fix: `check` runs ajv with `coerceTypes: 'array'`, which unwraps a
+// one-element list into a string — so a `oneOf` [string, array] matches BOTH branches for
+// `['{{ name | slug }}']` and rejects it for matching more than one. It has to be `anyOf`.
+describe('id.generate as an ordered list survives check', () => {
+	const withGenerate = (generate) => {
+		const ws = uncompiled({ collections: { widgets: simpleCollection({ storage: { suffix: 'widget' } }) } });
+		const f = path.join(ws.root, 'modules', WS_MODULE, 'collections', 'widgets.collection.yaml');
+		const y = load(fs.readFileSync(f, 'utf8'));
+		y.id = { generate };
+		fs.writeFileSync(f, dump(y));
+		const pkg = JSON.parse(readFile(ws.root, 'package.json'));
+		compileQuietly({ root: ws.root, pkg });
+		return ws;
+	};
+
+	test('a two-arm list compiles AND checks clean', () => {
+		const ws = withGenerate(['{{ code }}', '{{ name | slug }}']);
+		const res = dtCheck(ws.root);
+		assert.equal(res.code, 0, `check refused the list form:\n${res.stdout}${res.stderr}`);
+	});
+
+	test('a ONE-ELEMENT list is not silently coerced into a string and rejected', () => {
+		// The ajv `coerceTypes: 'array'` trap, pinned: this is the shape `oneOf` got wrong.
+		const ws = withGenerate(['{{ name | slug }}']);
+		const res = dtCheck(ws.root);
+		assert.equal(res.code, 0, `check refused a one-element list:\n${res.stdout}${res.stderr}`);
+	});
+
+	test('the plain string form still checks clean', () => {
+		const ws = withGenerate('{{ name | slug }}');
+		assert.equal(dtCheck(ws.root).code, 0);
+	});
+
+	test('and the list actually drives an id end to end', () => {
+		const ws = withGenerate(['{{ code }}', '{{ name | slug }}']);
+		// no `code` on the record -> the name arm
+		const a = dt(ws.root, 'add', 'widgets', '--name', 'First Widget');
+		assert.equal(a.code, 0, a.stderr);
+		assert.ok(fs.existsSync(path.join(ws.root, 'data/widgets/first-widget.widget.md')),
+			`the name arm did not drive the id: ${a.stdout}`);
 	});
 });
 

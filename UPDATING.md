@@ -20,6 +20,27 @@ npx dreamteamer check
 
 ---
 
+## 0.25.0 → 0.25.1
+
+**A one-line repair to something 0.25.0 shipped broken. Upgrade if you use the new ordered
+`id.generate` list — on 0.25.0 it does not survive `check`.**
+
+0.25.0 taught the id generator to accept a list of templates and did NOT widen the meta-descriptor
+that validates a collection, which still declared `id.generate` as `type: string`. So a descriptor
+using the new form compiled fine and then failed validation with `must be string` — the feature was
+unusable in exactly the workspaces it was written for. Nothing else was affected: a string template
+behaved identically throughout.
+
+If you already wrote a list-form `id.generate` and saw `check` refuse it, nothing is wrong with your
+descriptor. Upgrade and re-run.
+
+⚠ For anyone extending that schema later: the declaration is `anyOf`, not `oneOf`, and it has to be.
+`check` runs ajv with `coerceTypes: 'array'`, which unwraps a one-element list into a string — so a
+`oneOf [string, array]` matches BOTH branches for `['{{ name | slug }}']` and rejects it for matching
+more than one.
+
+---
+
 ## 0.24.1 → 0.25.0
 
 **Three silent losses closed and one new way to spell an id. Nothing to migrate, and every existing
