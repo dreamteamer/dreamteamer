@@ -172,8 +172,20 @@ export function collectionCommand(ws, collection, verb, args) {
 			}
 			if (flags.from) throw new Error(`--from imports a file as a record, and "${collection}" is not a \`codec: file\` collection`);
 			const fields = coerceArrays(d, stripMeta(flags));
-			const { id, file } = store.add(collection, fields, { id: flags.id });
-			flags.json ? emit(JSON.stringify({ id, path: rel(ws.root, file) })) : console.log(`✔ ${rel(ws.root, file)}`);
+			const { id, file, idFallback } = store.add(collection, fields, { id: flags.id });
+			flags.json
+				? emit(JSON.stringify({ id, path: rel(ws.root, file), ...(idFallback ? { idFallback } : {}) }))
+				: console.log(`✔ ${rel(ws.root, file)}`);
+			// ⚠ SAY IT, EVERY TIME. The id was derived from a hash because the value it is generated
+			// from carries no a-z0-9 — the write succeeded and the record is fine, but the id is
+			// unreadable and unguessable, and nobody finds that out until they try to type it. By
+			// then other records reference it and renaming is a migration.
+			if (idFallback && !flags.json) {
+				console.warn(`⚠ id "${idFallback.id}" is a hash, not a name — "${idFallback.field}" (${idFallback.value}) has no latin characters to slug.`);
+				console.warn('  give this collection a latin handle: id.generate accepts an ORDERED LIST and takes the first that renders —');
+				console.warn("      id: { generate: ['{{ code }}', '{{ name | slug }}'] }");
+				console.warn('  or pass --id on this write. Renaming later rewrites every reference.');
+			}
 			return 0;
 		}
 		case 'set': {

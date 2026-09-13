@@ -111,3 +111,80 @@ describe('generateId', () => {
 		assert.throws(() => generateId('{{ name | bogus }}', { name: 'x' }), /unknown id-template filter/);
 	});
 });
+
+// ── an ordered list of templates: "use this, else that" ───────────────────────────────────────
+// The only way a descriptor can keep a readable latin handle WITHOUT forcing a required field onto
+// every record. Before this, a missing field threw before any fallback could run, and an unknown
+// `default` filter threw too, so `{{ code }} else {{ name | slug }}` was inexpressible — the
+// workaround was passing --id on every single add.
+describe('id.generate as an ordered list', () => {
+	const NON_LATIN = '\u05e9\u05dc\u05d5\u05dd';   // a word with no a-z0-9 in it
+
+	test('the first template whose fields are all present wins', () => {
+		assert.equal(generateId(['{{ code }}', '{{ name | slug }}'], { code: 'rk-01', name: 'Operational Risk' }), 'rk-01');
+	});
+
+	test('a template naming a missing field is SKIPPED, not fatal', () => {
+		assert.equal(generateId(['{{ code }}', '{{ name | slug }}'], { name: 'Operational Risk' }), 'operational-risk');
+		// empty and null count as missing, exactly as they do for a single template
+		assert.equal(generateId(['{{ code }}', '{{ name | slug }}'], { code: '', name: 'Operational Risk' }), 'operational-risk');
+		assert.equal(generateId(['{{ code }}', '{{ name | slug }}'], { code: null, name: 'Operational Risk' }), 'operational-risk');
+	});
+
+	test('when every template fails, the LAST error is the one the writer sees', () => {
+		assert.throws(
+			() => generateId(['{{ code }}', '{{ ref }}'], { name: 'Operational Risk' }),
+			/id template needs "ref"/,
+			'naming the last template tried is more useful than naming the first');
+	});
+
+	test('a one-element list behaves exactly like the bare string', () => {
+		assert.equal(generateId(['{{ name | slug }}'], { name: 'Operational Risk' }),
+			generateId('{{ name | slug }}', { name: 'Operational Risk' }));
+	});
+
+	test('filters, dates and seq still work inside a list', () => {
+		const id = generateId(['{{ code }}', '{{ created | date }}--{{ name | slug }}'], { name: 'Operational Risk' });
+		assert.match(id, /^\d{4}-\d{2}-\d{2}--operational-risk$/);
+	});
+});
+
+// ── the hash fallback is no longer silent ─────────────────────────────────────────────────────
+// ⚠ THE SILENCE WAS THE DEFECT, NOT THE ERGONOMICS. A hashed id LANDS, passes `check`, gets
+// referenced by other records, and is discovered only when a person reads the tree — at which point
+// renaming it is a migration. The fallback still happens (an id must be produced, and refusing would
+// break every workspace whose values are not latin); what changed is that the caller is told.
+describe('the hash fallback reports itself', () => {
+	const NON_LATIN = '\u05e9\u05dc\u05d5\u05dd';
+
+	test('a value with nothing to slug notifies, with the field, the value and the id', () => {
+		let seen = null;
+		const id = generateId('{{ name | slug }}', { name: NON_LATIN }, [], { onFallback: (f) => { seen = f; } });
+		assert.equal(id, slugOrHash(NON_LATIN));
+		assert.deepEqual(seen, { field: 'name', value: NON_LATIN, id });
+	});
+
+	test('an ordinary latin value notifies NOTHING', () => {
+		let seen = null;
+		generateId('{{ name | slug }}', { name: 'Operational Risk' }, [], { onFallback: (f) => { seen = f; } });
+		assert.equal(seen, null, 'a warning on every write would be noise, and noise is ignored');
+	});
+
+	test('a value that is PARTLY latin slugs normally and does not notify', () => {
+		let seen = null;
+		const id = generateId('{{ name | slug }}', { name: `${NON_LATIN} v2` }, [], { onFallback: (f) => { seen = f; } });
+		assert.equal(id, 'v2', 'the latin part is a real slug, not a hash');
+		assert.equal(seen, null);
+	});
+
+	test('the notice survives the list form', () => {
+		let seen = null;
+		generateId(['{{ code }}', '{{ name | slug }}'], { name: NON_LATIN }, [], { onFallback: (f) => { seen = f; } });
+		assert.ok(seen, 'a fallback reached through a list is still a fallback');
+		assert.equal(seen.field, 'name');
+	});
+
+	test('no callback is not an error — the old call shape still works', () => {
+		assert.equal(generateId('{{ name | slug }}', { name: NON_LATIN }), slugOrHash(NON_LATIN));
+	});
+});

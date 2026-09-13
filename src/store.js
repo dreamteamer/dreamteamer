@@ -502,7 +502,15 @@ export class Store {
 		// the KEYS, not a copy of them: `generateId` iterates this once and only for a `{{ seq }}`
 		// template, so materializing the whole id list was an O(N) allocation per add that almost
 		// every collection threw away unread.
-		const id = explicitId ?? generateId(d.id?.generate ?? '{{ name | slug }}', fields, this.ids(collection).keys());
+		// An id derived from a hash rather than from readable text is reported back to the caller, not
+		// swallowed — see the `slug` filter's note. The write still happens: an id must be produced,
+		// and refusing here would break every workspace whose values are not latin. What must not
+		// happen is that nobody is told.
+		let idFallback = null;
+		const id = explicitId ?? generateId(
+			d.id?.generate ?? '{{ name | slug }}', fields, this.ids(collection).keys(),
+			{ onFallback: (f) => { idFallback = f; } },
+		);
 		if (d.id?.pattern && !patternRe(d.id.pattern).test(id)) {
 			throw new Error(`id "${id}" does not match pattern ${d.id.pattern} — nothing was written.`);
 		}
@@ -545,7 +553,7 @@ export class Store {
 			}, d.storage.repo ?? '.');
 			// LAST, after the commit: the key it is re-stated under carries the sha, and `commit` moves it
 			this._indexAdd(collection, memo, id, file);
-			return { id, file };
+			return { id, file, idFallback };
 		});
 	}
 
