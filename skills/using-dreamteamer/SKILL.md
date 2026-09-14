@@ -71,6 +71,22 @@ on: **validation is hard** (unknown fields included; an invalid write is rejecte
 with no partial state), and **a write does not commit** — `dt commit` publishes, scoped
 (`references/records.md`).
 
+## one session, several workspaces
+
+a harness can be pointed at more than one workspace at a time. when it is, it loads skills, commands
+and agents from ALL of them and the workspace INSTRUCTIONS from the PRIMARY one only — measured:
+zero instruction blocks from the others across every session on record. so the schema in context is
+the primary workspace's, whoever shipped the skill you are reading.
+
+- **start a session in the workspace it is about.** it is the only thing that loads that workspace's
+  instructions, and it settles name collisions in its favour.
+- **to touch another workspace from here, `--vault <path>` — not `cd`.** the flag resolves the
+  target's schema, validates and commits there, and leaves the working directory alone; a `cd`
+  outlives the command.
+- **every record write prints the workspace it landed in** — `✔ <workspace> · <path>`. a write to
+  the wrong workspace passes validation, because the collection usually exists in both, so that line
+  is what distinguishes them.
+
 ## two acts, one map
 
 Act one is **working with data** — the records themselves. Act two is **modeling the workspace**

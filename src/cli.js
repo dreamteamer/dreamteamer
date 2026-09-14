@@ -35,6 +35,10 @@ const QUIET = ['ignore', 'pipe', 'ignore'];
 
 export const USAGE = `usage: dreamteamer <verb> [<target>] [flags]
 
+  --vault <path>   run against another workspace. The path resolves from the directory you typed it
+                   in; every other path in the command resolves inside the target. The working
+                   directory is unchanged.
+
 record verbs (hard validation — invalid writes are rejected before disk).
 A <target> is either a collection name or a <collection>/<id> reference; the reference splits at
 the longest DECLARED collection prefix, so finance/transactions/2026/03/coffee is ONE argument:
@@ -269,6 +273,16 @@ const FIELD_VERBS = ['add-field', 'set-field', 'rm-field', 'rename-field'];
 // misspelling — `dt commit --dryrun` COMMITTED, because `rest.includes('--dry-run')` is false for a
 // flag nobody typed correctly. The record/system/field verbs are checked in `collections-cli.js`,
 // beside the parser they share; these nine have no shared parser, so the table is here.
+// Flags consumed BEFORE dispatch, in bin/dreamteamer.js, so no verb ever sees them. They are real
+// and honoured; they are simply honoured earlier than VERB_FLAGS/WORKSPACE_FLAGS can express.
+//
+// ⚠ Listing one here EXEMPTS it from the "documented flags are accepted by some verb" guard, which
+// exists because 0.19.0 shipped a flag that was documented and silently swallowed. The exemption is
+// only safe while the behaviour is pinned somewhere else: `--vault` is covered end-to-end in
+// test/integration/cross-workspace-targeting.test.js. A global flag with no such file is the exact
+// defect that guard was written to catch \u2014 add the coverage, not the entry.
+export const GLOBAL_FLAGS = ['vault'];
+
 export const WORKSPACE_FLAGS = {
 	init: ['name', 'data-path', 'harnesses', 'workspace-module'], update: [],
 	install: ['clone', 'dry-run', 'json', 'link-env', 'all', 'hook', 'print-adapters'],

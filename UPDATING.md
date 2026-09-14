@@ -20,6 +20,34 @@ npx dreamteamer check
 
 ---
 
+## 0.25.1 → 0.26.0
+
+**Additive, and nothing to do. A bare command behaves exactly as it did on 0.25.1.**
+
+### `--vault <path>` runs a command against another workspace
+
+```bash
+dreamteamer --vault ../another-workspace add tasks --name "…"
+✔ another-workspace · data/tasks/2026-09-15--….task.md
+```
+
+The target's schema validates the write, the target's git commits it, and **the working directory is
+untouched** — which is the whole difference between this and a `cd`, whose effect outlives the
+command and silently steers whatever runs next. The path resolves from the directory you typed it in;
+every other relative path in the command resolves inside the target.
+
+It is optional and changes nothing about a bare command, which still resolves from the working
+directory as it always has.
+
+### Every record write names the workspace it landed in
+
+`add`, `set`, `rm`, `rename` and `move` now print `✔ <workspace> · …`. `--json` output is unchanged.
+
+The reason is the failure `--vault` cannot prevent: a write aimed at one workspace and issued in
+another usually SUCCEEDS, because most collection names are shared between workspaces while the
+fields under them are not. Validation has nothing to object to. The confirmation line is the only
+thing that can tell you, so it now does — one word, no state, nothing refused.
+
 ## 0.25.0 → 0.25.1
 
 **A one-line repair to something 0.25.0 shipped broken. Upgrade if you use the new ordered

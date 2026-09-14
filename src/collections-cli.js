@@ -118,6 +118,14 @@ export function collectionCommand(ws, collection, verb, args) {
 
 	const d = store.descriptor(collection);
 
+	// Every record write says WHICH workspace it landed in. `--vault` is OPTIONAL and a bare command
+	// resolves from the working directory, so the one thing the flag cannot do is tell you when you
+	// forgot it \u2014 this can, for the price of one word, with no state and nothing refused. A write
+	// aimed at one workspace and landed in another becomes visible on the very next line of output
+	// instead of never: on a machine holding several workspaces most collection NAMES are shared while
+	// their fields are not, so the misplaced write succeeds and reports success.
+	const at = ws.pkg?.name ? `${ws.pkg.name} \u00b7 ` : '';
+
 	switch (verb) {
 		case 'list': {
 			const { rows, narrowed } = narrowRows(store, d, collection, flags);
@@ -167,7 +175,7 @@ export function collectionCommand(ws, collection, verb, args) {
 				const id = need(pos, 0, 'id');
 				if (!flags.from) throw new Error(`"${collection}" is a \`codec: file\` collection — pass --from <path> with the file to import`);
 				const { id: written, file } = store.addFile(collection, id, flags.from, { force: !!flags.force });
-				flags.json ? emit(JSON.stringify({ id: written, path: rel(ws.root, file) })) : console.log(`✔ ${rel(ws.root, file)}`);
+				flags.json ? emit(JSON.stringify({ id: written, path: rel(ws.root, file) })) : console.log(`✔ ${at}${rel(ws.root, file)}`);
 				return 0;
 			}
 			if (flags.from) throw new Error(`--from imports a file as a record, and "${collection}" is not a \`codec: file\` collection`);
@@ -175,7 +183,7 @@ export function collectionCommand(ws, collection, verb, args) {
 			const { id, file, idFallback } = store.add(collection, fields, { id: flags.id });
 			flags.json
 				? emit(JSON.stringify({ id, path: rel(ws.root, file), ...(idFallback ? { idFallback } : {}) }))
-				: console.log(`✔ ${rel(ws.root, file)}`);
+				: console.log(`✔ ${at}${rel(ws.root, file)}`);
 			// ⚠ SAY IT, EVERY TIME. The id was derived from a hash because the value it is generated
 			// from carries no a-z0-9 — the write succeeded and the record is fine, but the id is
 			// unreadable and unguessable, and nobody finds that out until they try to type it. By
@@ -194,7 +202,7 @@ export function collectionCommand(ws, collection, verb, args) {
 			Object.assign(changes, coerceArrays(d, stripMeta(flags)));
 			if (!Object.keys(changes).length) throw new Error('nothing to set — pass key=value pairs or --key value flags');
 			store.set(collection, id, changes);
-			flags.json ? emit(JSON.stringify({ id })) : console.log('✔ updated');
+			flags.json ? emit(JSON.stringify({ id })) : console.log(`✔ ${at}updated`);
 			return 0;
 		}
 		// Manual ordering. ONE record is written per move — that is the entire feature; a dense
@@ -228,20 +236,20 @@ export function collectionCommand(ws, collection, verb, args) {
 
 			const id = need(pos, 0, 'id');
 			store.set(collection, id, { [field]: placementKey(rows, id, flags, collection) });
-			flags.json ? emit(JSON.stringify({ id })) : console.log('✔ moved');
+			flags.json ? emit(JSON.stringify({ id })) : console.log(`✔ ${at}moved`);
 			return 0;
 		}
 		case 'rm': {
 			const id = need(pos, 0, 'id');
 			if (flags['dry-run']) return dryRunPlan(`rm ${collection}/${id}`, { records: store.ids(collection).has(id) ? 1 : 0, refs: store.findInboundRefs(`${collection}/${id}`).length });
 			const { inboundIgnored } = store.rm(collection, id, { force: !!flags.force });
-			flags.json ? emit(JSON.stringify({ id, removed: true, inboundIgnored })) : console.log(`✔ removed${inboundIgnored ? ` (${inboundIgnored} inbound reference(s) left dangling — run \`dreamteamer check\`)` : ''}`);
+			flags.json ? emit(JSON.stringify({ id, removed: true, inboundIgnored })) : console.log(`✔ ${at}removed${inboundIgnored ? ` (${inboundIgnored} inbound reference(s) left dangling — run \`dreamteamer check\`)` : ''}`);
 			return 0;
 		}
 		case 'rename': {
 			const out = store.rename(collection, need(pos, 0, 'old id'), need(pos, 1, 'new id'));
 			if (flags.json) { emit(JSON.stringify(out)); return 0; }
-			console.log(`✔ renamed ${collection}/${need(pos, 0, 'old id')} → ${collection}/${out.id}`);
+			console.log(`✔ ${at}renamed ${collection}/${need(pos, 0, 'old id')} → ${collection}/${out.id}`);
 			if (out.touched) console.log(`✔ rewrote ${out.rewrites} inbound reference(s) across ${out.touched} file(s)`);
 			return 0;
 		}

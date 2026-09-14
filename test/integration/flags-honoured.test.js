@@ -26,7 +26,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { twoModuleWorkspace, readFile, ENGINE_ROOT } from '../helpers/ws.js';
 import { FIELD_FLAGS, VERB_FLAGS } from '../../src/collections-cli.js';
-import { USAGE, WORKSPACE_FLAGS } from '../../src/cli.js';
+import { USAGE, WORKSPACE_FLAGS, GLOBAL_FLAGS } from '../../src/cli.js';
 
 const exists = (root, rel) => fs.existsSync(path.join(root, rel));
 
@@ -334,7 +334,10 @@ describe("revert on a system entity hands over a path that actually matches some
 // CLI accepts must be documented, and a flag `dt help` documents must be accepted somewhere.
 describe('the flag tables and `dt help` do not drift apart', () => {
 	const documented = new Set([...USAGE.matchAll(/--([a-z][a-z0-9-]*)/g)].map((m) => m[1]));
-	const accepted = new Set([...Object.values(VERB_FLAGS).flat(), ...Object.values(WORKSPACE_FLAGS).flat()]);
+	// GLOBAL_FLAGS are consumed in bin/dreamteamer.js before any verb is chosen, so they can never
+	// appear in a per-verb table. They still have to be HONOURED \u2014 that is what this describe block
+	// is for \u2014 which is why each one is pinned behaviourally in its own file rather than trusted here.
+	const accepted = new Set([...Object.values(VERB_FLAGS).flat(), ...Object.values(WORKSPACE_FLAGS).flat(), ...GLOBAL_FLAGS]);
 
 	// USAGE names these as ui-view KEYS (the open half, read off the `ui-views` descriptor) rather
 	// than as verb options, plus `--version`, which `run()` answers before any dispatch.
