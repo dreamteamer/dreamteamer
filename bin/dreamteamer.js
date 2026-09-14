@@ -12,6 +12,34 @@ import { pathToFileURL, fileURLToPath } from 'node:url';
 const MODULE_SEGMENTS = new Set(['node_modules', 'git_modules', 'modules']);
 
 const self = fileURLToPath(import.meta.url);
+
+// `--vault <path>` — operate on ANOTHER workspace without leaving this one. Consumed HERE, before
+// anything else resolves, because every verb downstream answers "which workspace am I in" from
+// process.cwd(): changing the directory once IS the whole implementation, and it also points the
+// dev-clone walk below at the TARGET's git_modules rather than the caller's.
+//
+// ⚠ It is spliced out of process.argv, not just out of the slice handed to run(): the dev-clone
+// branch re-enters this same file, and a flag left in place would be applied a SECOND time — the
+// path resolving against the already-changed directory, i.e. at the wrong workspace, silently.
+//
+// The path resolves against the INVOKING directory, which is where the caller typed it. Every other
+// relative path in the command then resolves against the target — the same rule a `cd` would give.
+const vaultAt = process.argv.indexOf('--vault', 2);
+if (vaultAt !== -1) {
+	const target = process.argv[vaultAt + 1];
+	if (!target || target.startsWith('-')) {
+		console.error('\u2716 --vault needs a path to a workspace, e.g. `--vault ../another-workspace`');
+		process.exit(1);
+	}
+	const resolved = path.resolve(process.cwd(), target);
+	if (!fs.existsSync(resolved)) {
+		console.error(`\u2716 --vault ${target} \u2014 no such directory (resolved to ${resolved})`);
+		process.exit(1);
+	}
+	process.chdir(resolved);
+	process.argv.splice(vaultAt, 2);
+}
+
 const devBin = findDevClone(process.cwd());
 // `realpath`, NOT `path.resolve`: resolve is pure string math and does not follow symlinks, so a
 // workspace whose git_modules/dreamteamer is a SYMLINK to the engine it is already running (the
