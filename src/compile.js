@@ -1526,6 +1526,18 @@ export function compile({ root, pkg }) {
 		counts.modules = (counts.modules ?? 0) + 1;
 	}
 
+	// ---- the workspace's own hand-written instructions -------------------------------
+	// ONE source, rendered verbatim into every harness's instruction file. It is registered as a
+	// manifest entry for exactly one reason: `staleness` walks manifest sources, so a file that is
+	// not one can be edited forever without `dt status` ever saying the harness files lag it — and a
+	// silent lag on the file carrying the operator's rules is the worst possible thing to be silent
+	// about. The runtime copy is never read by anything; the manifest ENTRY is the whole point.
+	const instructionsPath = path.join(root, 'dreamteamer.md');
+	if (fs.existsSync(instructionsPath)) {
+		const bytes = fs.readFileSync(instructionsPath);
+		entries.set('instructions.md', { sources: [{ path: rel(instructionsPath), hash: sha256(bytes) }], bytes });
+	}
+
 	// ---- unresolved references are compile errors (an agent's declared skills)
 	const skillIds = new Set([...entries.keys()].filter((k) => k.startsWith('skills/')).map((k) => k.split('/')[1]));
 	for (const [rt, e] of entries) {
