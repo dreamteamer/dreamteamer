@@ -109,7 +109,11 @@ export function runHarnessAdapters({ root, entries, harnesses, prevManifest, sou
 	// ⚠ NOT through the local `block()` helper: that pushes the filename onto `blocks`, and these
 	// three files are already on it from their orientation calls above — pushing twice would hand
 	// git the same pathspec twice (schema-ops.regeneratedOutputs is the reader).
-	const instructions = entries.get('instructions.md')?.bytes?.toString('utf8').trimEnd() ?? null;
+	// ⚠ `|| null`, NOT `?? null`. `.trimEnd()` on a whitespace-only source yields `''`, which is not
+	// nullish — so the three Markdown files got an empty BEGIN/END pair while the cursor rule, which
+	// tests the string for truthiness below, omitted the part entirely. An empty source means no
+	// block, everywhere.
+	const instructions = entries.get('instructions.md')?.bytes?.toString('utf8').trimEnd() || null;
 	const instructionsBlock = (file, enabled) =>
 		writeBlock(root, file, enabled ? instructions : null, { begin: INSTRUCTIONS_BEGIN, end: INSTRUCTIONS_END, above: BEGIN });
 	instructionsBlock('CLAUDE.md', on('claude-code'));

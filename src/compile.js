@@ -16,7 +16,7 @@ import {
 	baseNameOf, singular, namespaceOf } from './namespace.js';
 // circular on paper in earlier versions — safe: both sides only
 // call at run time, same pattern as store.js ↔ compile.js.
-import { runHarnessAdapters } from './harnesses.js';
+import { runHarnessAdapters, BEGIN, END, INSTRUCTIONS_BEGIN, INSTRUCTIONS_END } from './harnesses.js';
 import { satisfies } from './semver.js';
 import { parseEnvValues } from './env-vars.js';
 import { DERIVED_KINDS, readManifest, runtimeDir, engineId, engineVersion } from './runtime.js';
@@ -1532,9 +1532,10 @@ export function compile({ root, pkg }) {
 	// not one can be edited forever without `dt status` ever saying the harness files lag it — and a
 	// silent lag on the file carrying the operator's rules is the worst possible thing to be silent
 	// about. The runtime copy is never read by anything; the manifest ENTRY is the whole point.
-	const instructionsPath = path.join(root, 'dreamteamer.md');
+	const instructionsPath = path.join(root, INSTRUCTIONS_SOURCE);
 	if (fs.existsSync(instructionsPath)) {
 		const bytes = fs.readFileSync(instructionsPath);
+		refuseManagedMarkers(bytes.toString('utf8'), rel(instructionsPath));
 		entries.set('instructions.md', { sources: [{ path: rel(instructionsPath), hash: sha256(bytes) }], bytes });
 	}
 
@@ -1889,6 +1890,14 @@ export function staleness(root) {
 			}
 		}
 	}
+	// ⚠ `dreamteamer.md` is a compile source that is NOT under a KIND directory, so the walk above
+	// cannot reach it — and its CREATION is the one moment that matters most: day one in an adopting
+	// workspace, when no harness file carries an instructions block yet. Every later EDIT was already
+	// caught by the manifest-source walk at the top of this function; only the first write was silent,
+	// and it reported `.dreamteamer is fresh` while the rules reached no agent at all.
+	if (fs.existsSync(path.join(root, INSTRUCTIONS_SOURCE)) && !known.has(INSTRUCTIONS_SOURCE)) {
+		stale.push(`${INSTRUCTIONS_SOURCE} (new, uncompiled)`);
+	}
 	return { compiled: true, stale, manifest };
 }
 
@@ -1975,6 +1984,42 @@ function descriptorAjv() {
 		_descriptorAjv.addFormat('markdown', true);
 	}
 	return _descriptorAjv;
+}
+
+// ⚠ A MANAGED MARKER INSIDE `dreamteamer.md` IS A REFUSAL, not something to escape around.
+// The file is rendered VERBATIM into a managed block, and `writeBlock` finds that block by the FIRST
+// occurrence of its begin marker anywhere in the file — so a marker quoted inside the rendered text
+// is found before the real delimiter. Both directions were measured on a fixture:
+//
+//   - quoting the ORIENTATION pair: the orientation pass rewrites the quoted region, the instructions
+//     pass that runs immediately after restores it from source, and the real orientation block is
+//     never touched again. It silently keeps describing the schema of the day it was written, while
+//     `compile` exits 0 and `status` reports the runtime fresh.
+//   - quoting the INSTRUCTIONS end marker: the block is closed at the quote and a second end line is
+//     appended, so all three committed root files grow by ~40 bytes and one duplicated line per
+//     compile, without ever reaching a fixed point.
+//
+// Escaping the markers on the way out is the alternative, and it is not one: the whole promise of
+// this file is that what was written is what every agent reads, and an escaped marker is not that.
+// A rule ABOUT the block describes it instead of quoting it.
+/** The one hand-written root source. Named once: `compile` reads it and `staleness` looks for it. */
+export const INSTRUCTIONS_SOURCE = 'dreamteamer.md';
+
+const MANAGED_MARKERS = [
+	['the orientation block', BEGIN],
+	['the orientation block', END],
+	['the instructions block', INSTRUCTIONS_BEGIN],
+	['the instructions block', INSTRUCTIONS_END],
+];
+
+function refuseManagedMarkers(text, srcPath) {
+	const lines = text.split('\n');
+	for (const [i, line] of lines.entries()) {
+		for (const [which, marker] of MANAGED_MARKERS) {
+			if (!line.includes(marker)) continue;
+			fail(`${srcPath}:${i + 1}: contains the managed marker ${marker}, which delimits ${which} in the harness files. This source is rendered verbatim into that block, so the quoted copy is found before the real delimiter and the block is rewritten around the wrong place. Describe the block instead of quoting its marker.`);
+		}
+	}
 }
 
 function fail(msg) {
