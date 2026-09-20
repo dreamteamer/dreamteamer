@@ -52,4 +52,10 @@ schema:
 order: 145
 list_fields: [name, identity, ref, url]
 icon: source
+# MACHINERY, NOT A DOMAIN NOUN, and `group: system` is the whole statement of it. `repos` is the
+# engine's only collection whose records live in `data/`, which used to make every workspace render
+# a **System** module group with one collection under it — the group the block's own renderer says
+# should not exist (harnesses.js). Being in the `system` partition folds it out of the block's
+# domain listing and onto the schema surface instead. The records stay real, writable and committed;
+# only the presentation changes.
 group: system

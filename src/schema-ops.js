@@ -755,6 +755,9 @@ const COLLECTION_SETTABLE = {
 	title: (v) => String(v),
 	title_template: (v) => String(v),
 	icon: (v) => String(v),
+	// The collection's partition. `group=system` is the reserved value: it moves the collection out
+	// of the block's domain listing and onto a surface's schema surface, and changes nothing about
+	// where its records live or whether they can be written.
 	group: (v) => String(v),
 	sort_field: (v) => String(v),
 	order: (v) => {

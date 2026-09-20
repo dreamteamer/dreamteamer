@@ -65,6 +65,48 @@ describe('NOTEBOOKLM.md is written when the harness is on', () => {
 		assert.match(readFile(ws.root, 'NOTEBOOKLM.md'), /exports \*\*\d+ collections\*\* \(1 withheld\)/);
 	});
 
+	// ⚠ TWO RENDERERS, ONE NUMBER — and nothing related them, so they diverged silently.
+	//
+	// `notebooklmBlock` (harnesses.js) filtered on the `system` PARTITION, which is a question about
+	// where a collection is DRAWN; `renderSchema` (export-notebooklm.js) filters on storage, which is
+	// what actually decides whether a collection is shipped as a source. They answered identically
+	// until a collection was in the partition WITHOUT being build output —
+	// `repos` — and then NOTEBOOKLM.md said "exports 1 collections" and listed only `notes` for an export that
+	// shipped `repos.md` and headed a `## module: System` group for it in the schema map. The
+	// persona generated from that brief would not know about a source it had been handed.
+	//
+	// So the assertion is made ACROSS the two, from their own output, rather than by re-deriving the
+	// number a third time here.
+	test('the count and the brief describe what the export actually ships', () => {
+		const ws = workspace({ pkg: { harnesses: ['notebooklm'] }, collections: { people: PEOPLE, ledger: LEDGER } });
+		ws.dt('add', 'repos', '--name', 'acme', '--url', 'git@example.invalid:acme/acme.git');
+		const out = path.join(ws.root, '.notebook-out');
+		const res = ws.dt('export', 'notebooklm', '--out', out);
+		assert.equal(res.code, 0, `the export must run — stderr:\n${res.stderr}`);
+
+		// what the EXPORT says it is shipping, from the schema source it writes
+		const schema = fs.readFileSync(path.join(out, '00-schema.md'), 'utf8');
+		const counted = /· (\d+) collections \((\d+) exported, (\d+) omitted as sensitive\)/.exec(schema);
+		assert.ok(counted, `the schema source must state its counts — got:\n${schema.split('\n')[4]}`);
+		const [, , exported, omitted] = counted;
+
+		// what NOTEBOOKLM.md tells the operator to plan for
+		const md = readFile(ws.root, 'NOTEBOOKLM.md');
+		const stated = /exports \*\*(\d+) collections\*\*(?: \((\d+) withheld\))?/.exec(md);
+		assert.ok(stated, `NOTEBOOKLM.md must state a count — got:\n${md}`);
+		assert.equal(stated[1], exported, 'the plan-slot count must be the number of sources the export ships');
+		assert.equal(stated[2] ?? '0', omitted, 'and the withheld count must be the export\'s own');
+
+		// and every collection the export heads in its schema map must be named in the brief the
+		// persona is built from — a source the reference desk was given but never told about is the
+		// same defect wearing a different number
+		const brief = md.split('What this workspace keeps, by module:')[1].split('\n\n')[0];
+		for (const [, name] of schema.matchAll(/^### collection: (\S+)$/gm)) {
+			assert.match(brief, new RegExp(`\\b${name}\\b`), `the brief must name ${name}, which the export ships — got:\n${brief}`);
+		}
+		assert.match(brief, /\brepos\b/, 'data-backed machinery is exported, so it belongs in the brief');
+	});
+
 	test('the measured CSV ceiling is carried, and it names no workspace', () => {
 		const md = readFile(fixture().root, 'NOTEBOOKLM.md');
 		assert.match(md, /805,081 bytes indexed/);

@@ -142,7 +142,16 @@ const NOTEBOOK_PLANS = [
 function notebooklmBlock(entries, version) {
 	const index = buildCollectionsIndex(entries);
 	const modules = buildModulesIndex(entries);
-	const data = index.filter((c) => !c.system);
+	// ⚠ `generated`, NOT `systemGroup` — the same split the orientation block's system line makes,
+	// asked for the opposite reason. There the question is presentational ("group it out of the
+	// domain listing"); HERE it is a STORAGE question, because every number and name below has to
+	// describe what `dt export notebooklm` will actually ship, and the export ships by storage
+	// (`storage.base !== 'runtime'` — export-notebooklm.js). Reading the partition here made this file
+	// say "exports 1 collections" and list only `notes` for a workspace whose export shipped
+	// `repos.md` as a second source and headed a `## module: System` group for it in the schema map
+	// — so the persona generated from this line would not know about a source it had been given.
+	// The count and the export are pinned to each other by a test (notebooklm-harness.test.js).
+	const data = index.filter((c) => !c.generated);
 	const withheldCollections = data.filter((c) => c.sensitive).map((c) => c.name);
 	const withheldFields = data.flatMap((c) => c.sensitiveFields.map((f) => `${c.name}.${f}`));
 	const exported = data.filter((c) => !c.sensitive);
@@ -245,10 +254,16 @@ function buildCollectionsIndex(entries) {
 		try { d = load(e.bytes.toString('utf8')) ?? {}; } catch { /* unparseable descriptor */ }
 		index.push({
 			name: d.name ?? m[1],
-			// DERIVED, never a hardcoded name list: `runtime` is exactly the schema-ops set
-			// (collections, commands, skills, agents, ui-views, command-bindings,
-			// collection-templates, modules) and stays right in a workspace shipping others.
-			system: d.storage?.base === 'runtime',
+			// ⚠ TWO QUESTIONS, KEPT SEPARATE. `systemGroup` answers "is this machinery, group it out
+			// of the domain listing"; `generated` answers "is this build output the hand-edit warning
+			// is about" — they agreed until `repos`, machinery whose records are still real files
+			// under `data/`. The partition is AUTHORED (`group: system` on the descriptor, ten core
+			// collections carry it), never derived from storage: a workspace collection may be its
+			// own apparatus, and a runtime-stored one may not be. An unparseable descriptor (`d = {}`
+			// from the catch above) carries neither key and answers false to both, which leaves it in
+			// the domain listing — the visible failure rather than the silent one.
+			systemGroup: d.group === 'system',
+			generated: d.storage?.base === 'runtime',
 			description: flat(d.description),
 			useWhen: flat(d.use_when),
 			module: d.module ?? '',
@@ -354,10 +369,10 @@ function collectionsSection(index, modules, workspaceModule) {
 		'collection\'s `write:` line names only what the store REFUSES — required fields that have no',
 		'default (a defaulted one is filled in for you), closed enums with their size, one example.',
 	];
-	const data = index.filter((c) => !c.system);
+	const data = index.filter((c) => !c.systemGroup);
 	const isWs = (m) => m.path === `modules/${workspaceModule}/`;
 	const groups = modules
-		.filter((m) => { const own = index.filter((c) => c.module === m.id); return own.some((c) => !c.system) || (!own.length && (m.skills.length || m.commands.length || m.bin.length || m.proofs.length)); })
+		.filter((m) => { const own = index.filter((c) => c.module === m.id); return own.some((c) => !c.systemGroup) || (!own.length && (m.skills.length || m.commands.length || m.bin.length || m.proofs.length)); })
 		.sort((a, b) => (isWs(b) - isWs(a)) || a.title.localeCompare(b.title));
 	for (const m of groups) {
 		const where = [`\`${m.id}\``, m.path ? m.path.replace(/\/$/, '') : 'the workspace root', ...(m.namespaces.length ? [`namespaces: ${m.namespaces.join(' · ')}`] : [])];
@@ -370,13 +385,19 @@ function collectionsSection(index, modules, workspaceModule) {
 			if (c.write) lines.push(`    write: ${c.write}`);
 		}
 	}
-	const system = index.filter((c) => c.system).map((c) => c.name);
+	const sys = index.filter((c) => c.systemGroup);
+	const system = sys.filter((c) => c.generated).map((c) => c.name);
+	const kept = sys.filter((c) => !c.generated).map((c) => c.name);
 	// ⚠ THIS LINE IS THE FIRST THING A SESSION READS about the system collections, and until 0.19.0
 	// it said "schema-ops only", which named an internal module and a grammar that no longer exists.
 	// It now names the VERBS and the one policy difference, because an agent that knows the verbs
-	// exist still has to be told that these commit and records do not.
-	if (system.length) {
-		lines.push('', `- system collections — the SAME verbs (add · set · rm · rename · list · get), plus \`dt add-field\`/\`set-field\`/\`rm-field\`/\`rename-field <collection>\`. A system write COMMITS ITSELF, in the repo holding the source; a record write does not (\`dt commit\` publishes). Never hand-edit \`.dreamteamer/\` — it is build output: ${system.join(' · ')}`);
+	// exist still has to be told that these commit and records do not. And it is PARTITIONED on
+	// `generated`, not `systemGroup`: the partition only answers the grouping question, so a system
+	// collection whose records are real files (`repos`) gets its own trailing clause instead of being
+	// told "it is build output" — a sentence that was false of it and is false of the next data-backed
+	// system collection too, since the split is derived rather than naming one.
+	if (sys.length) {
+		lines.push('', `- system collections — the SAME verbs (add · set · rm · rename · list · get), plus \`dt add-field\`/\`set-field\`/\`rm-field\`/\`rename-field <collection>\`. A system write COMMITS ITSELF, in the repo holding the source; a record write does not (\`dt commit\` publishes).${system.length ? ` Never hand-edit \`.dreamteamer/\` — it is build output: ${system.join(' · ')}.` : ''}${kept.length ? ` Machinery whose records are real files you edit like any other: ${kept.join(' · ')}` : ''}`);
 	}
 	return lines;
 }
