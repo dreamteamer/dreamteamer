@@ -82,6 +82,10 @@ function collectionRow(d) {
 	// it — the extension reads the presentation contract, not raw descriptors.
 	if (typeof d.sort_field === 'string') meta.sort_field = d.sort_field;
 
+	// The collection's PARTITION, and the reserved value `system` is how a surface knows to draw this
+	// collection as the workspace's machinery rather than in the record tree. It is carried in `meta`
+	// beside the other presentation keys because that is the question it answers; the top-level
+	// `system` below answers a different one and they must never be folded together.
 	if (typeof d.group === 'string') meta.group = d.group;
 	if (typeof d.description === 'string' && d.description.length > 0) meta.description = d.description;
 	// ⚠ `system` IS NOT `readonly`, AND SAYING SO COST A RELEASE. Until 0.19.0 the two were the
@@ -107,10 +111,25 @@ function collectionRow(d) {
 	//      already answers with its own sentence naming the fix, which is the contract the schema
 	//      surfaces are built on.
 	//
-	// `system` STAYS and is unchanged: the CLI and REST dispatch key on it, and it is what puts a
-	// kind in the schema surface rather than the data one. A consumer that disables editing must
-	// key on `meta.readonly` (per field, as `id`, `last-modified` and relation mirrors do) or on
-	// the verb it is about to offer — never on `system`.
+	// `system` STAYS and is unchanged: the CLI and REST dispatch key on it. A consumer that disables
+	// editing must key on `meta.readonly` (per field, as `id`, `last-modified` and relation mirrors
+	// do) or on the verb it is about to offer — never on `system`.
+	//
+	// ⚠ AND `system` IS NO LONGER WHAT PUTS A KIND ON THE SCHEMA SURFACE — that clause stood here
+	// until `repos` and belongs to `meta.group` now. TWO QUESTIONS, KEPT SEPARATE, exactly as
+	// `buildCollectionsIndex` in src/harnesses.js keeps them:
+	//
+	//   `system`       decides HOW A WRITE IS PERFORMED. Is this collection's storage the compiled
+	//                  runtime? The CLI and the REST layer dispatch on it, and a surface that gets
+	//                  it wrong answers 400 to a write the store would have accepted.
+	//   `meta.group`   decides WHERE THE COLLECTION IS DRAWN. Its reserved value `system` says this
+	//                  is the workspace's machinery rather than one of its domain nouns, and folds
+	//                  the collection out of the record tree and onto the schema surface.
+	//
+	// The two agreed for every collection until `repos` — machinery whose records are ordinary,
+	// hand-edited files under `data/` — and it is why they must never be collapsed into one: a
+	// surface routing a `repos` write by the partition sends it to the system write path, whose
+	// entity ops know no such kind, and the write dies as a 400. Measured.
 	const system = d.storage?.base === 'runtime';
 	return { collection: d.name, meta, system };
 }

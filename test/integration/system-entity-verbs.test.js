@@ -214,4 +214,31 @@ describe('the presentation contract does not call a writable system kind read-on
 		assert.equal(people.system, undefined === people.system ? undefined : false);
 		assert.notEqual(people.meta.readonly, true);
 	});
+
+	// ⚠ THE COLLECTION WHERE THE TWO FLAGS SPLIT, asserted against the REAL compiled `repos` rather
+	// than a synthetic descriptor — because the thing that can break is compile's stamping as much
+	// as the projection's reading, and only a compiled workspace exercises both.
+	//
+	// `repos` is machinery the operator EDITS: folded out of the record tree and drawn on the schema
+	// surface (`group: system`), while its records are ordinary files under `data/repos` that the
+	// record store writes (`system: false`). Pointing `system` at the descriptor's partition is the
+	// mistake this guards — it made the extension's write router answer 400 to every `repos` edit,
+	// and it went green in CI because the two answers agree for every OTHER collection. Here they
+	// disagree, so here it fails.
+	test('`repos` is machinery that is NOT build output — the two answers disagree, and must', async () => {
+		const ws = twoModuleWorkspace();
+		const { Store } = await import('../../src/store.js');
+		const { presentation } = await import('../../src/presentation.js');
+		const { collections } = presentation(new Store(ws.ws).descriptors);
+		const repos = collections.find((c) => c.collection === 'repos');
+		assert.ok(repos, '`repos` is a core collection — it must reach the presentation contract');
+		assert.equal(
+			repos.system, false,
+			'`repos` records live under `data/` and are written through the record store — a surface dispatching on `system` must send a record write, not a system one',
+		);
+		assert.equal(
+			repos.meta.group, 'system',
+			'…and it is still drawn as machinery: out of the record tree, onto the schema surface',
+		);
+	});
 });

@@ -509,7 +509,11 @@ describe('the orientation block names the workspace', () => {
 		// (required name · url; visibility enum(2)) — the clause that keeps a first write from bouncing.
 		// 34 → 36 the same day: two header lines stating that line's convention (required = required
 		// WITHOUT a default), because a blind reader took it for the descriptor's `required:` list.
-		assert.ok(n <= 36, `virgin orientation block is ${n} lines, budget 36`);
+		// 36 → 30 on 2026-09-19: the block began reading `group: system`, which `repos` already
+		// carried, so its three-line domain entry AND the engine's whole **System** module heading
+		// left the block — `repos` now costs one name on the system-collections line instead. This
+		// number went DOWN; lower it rather than leaving slack, or the budget stops measuring anything.
+		assert.ok(n <= 30, `virgin orientation block is ${n} lines, budget 30`);
 	});
 });
 
@@ -932,8 +936,20 @@ describe('the orientation block is grouped by module', () => {
 		assert.match(block, /^- entity — /m);
 	});
 
-	test("the engine's own data collection carries a use when — a clone's location is a record, not a path a session guesses", () => {
-		assert.match(blockOf(workspace()), /^- repos — [^\n]*\n {4}use when: [^\n]*`path`/m);
+	// `repos` left the domain listing on 2026-09-19 (harnesses.js reads `d.group === 'system'`, which
+	// `repos` already carried), so it no longer renders with its own `use when` clause — it is a name on the
+	// system-collections line instead. The use_when text itself is not lost; it still compiles onto
+	// the descriptor for a reader who opens it directly.
+	test("the engine's own data collection keeps its use when on the compiled descriptor, even though the block no longer renders it", () => {
+		const ws = workspace();
+		// Widened from a `... \n {4}use when:` match: that regex only catches repos rendering WITH a
+		// use-when clause at this exact indent — repos rendering as a bare domain line (no clause, a
+		// different dash, different indent) would still pass. `system-flag.test.js` already asserts
+		// the general "never a domain line" case broadly; this mirrors that here rather than trusting
+		// cross-file layering alone.
+		assert.doesNotMatch(blockOf(ws), /^- repos — /m, 'repos must not render as a domain collection at all');
+		const d = load(readFile(ws.root, '.dreamteamer/collections/repos.collection.yaml'));
+		assert.match(d.use_when, /`path`/, 'the use_when text survives compile, it is just not surfaced in the block');
 	});
 
 	test("a module's bin/ renders as its runnable entry points — the pointer that the procedure is a script here", () => {
