@@ -4,10 +4,24 @@ id: { generate: "{{ name | slug }}" }
 schema:
   type: object
   required: [name, schema]
+  # The fields fall into five groups, in this order: IDENTITY (name · singular · title ·
+  # title_template — what the collection and a record of it are called), RETRIEVAL (description ·
+  # use_when — what brings a session here), SHAPE (extends · schema · id · sensitive), PLACEMENT
+  # (storage · module · group — where records live and who owns them), PRESENTATION (order ·
+  # list_fields · sort_field · icon · ui — how the surfaces show it). A new field joins one of
+  # these; a field that fits none is a sign it belongs on a record, not on the collection.
   properties:
     name:
       type: string
       description: The collection id — must equal the filename, and must be unique across every installed module.
+    singular:
+      type: string
+      description: >-
+        The word the CLI accepts beside `name` — `dt add task …` for `tasks`. DERIVED by inflection
+        when absent (`tasks` → `task`, `companies` → `company`, `rnd/projects` → `rnd/project`) and
+        authored only where inflection is wrong (`people` → `person`, `meeting-analyses` →
+        `meeting-analysis`). Typed input only: a REFERENCE inside a record still spells the full
+        name. compile refuses two collections whose name or singular coincide.
     description:
       type: string
       description: >-

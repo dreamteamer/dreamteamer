@@ -7,7 +7,7 @@ import path from 'node:path';
 import { pathToRecord } from './events.js';
 import { parseRecordText } from './records.js';
 import { relationsOf } from './relations.js';
-import { splitRef } from './ref.js';
+import { splitRef, canonicalCollection } from './ref.js';
 
 // git calls whose failure we CATCH must not print git's own error: execFileSync forwards the
 // child's stderr to ours unless told otherwise, so a handled "not a git repository" still
@@ -42,7 +42,8 @@ function parseTargets(descriptors, only) {
 	const whole = new Set();
 	const records = new Map();
 	for (const target of only) {
-		if (descriptors.has(target)) { whole.add(target); scope.add(target); continue; }
+		const asCollection = canonicalCollection(descriptors, target);
+		if (asCollection) { whole.add(asCollection); scope.add(asCollection); continue; }
 		const { collection, id } = splitRef(descriptors, target);
 		records.set(`${collection}/${id}`, { collection, id });
 		scope.add(collection);

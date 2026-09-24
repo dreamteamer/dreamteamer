@@ -28,6 +28,25 @@ npx dreamteamer check
 
 `npm i -g dreamteamer` now puts both `dreamteamer` and `dt` on PATH.
 
+### Every record verb accepts the singular, and `add` takes the title as one bare positional
+
+```bash
+dt add task "call the bank" --status todo     # ≡ dt add tasks --name "call the bank" --status todo
+dt get task/call-the-bank · dt list task · dt add-field task --name due … · dt commit task/call-the-bank
+dt add rnd/project "Q4 launch"                # a namespaced singular keeps its prefix
+```
+
+- Compile stamps `singular` on every descriptor — derived by inflection (`tasks` → `task`,
+  `companies` → `company`), authored on the descriptor where inflection is wrong
+  (`singular: person` on `people`, `singular: meeting-analysis` on `meeting-analyses`). Nothing to
+  do unless you want to author one: the derived word is there after `dt compile`.
+- Compile **refuses** two collections whose name or singular coincide, naming both.
+- References inside records are unchanged: `tasks/kickoff`, never `task/kickoff` — `check` still
+  reports the latter as dangling.
+- One bare positional on `add` fills the field the collection's `title_template` names; two
+  positionals, or a title given twice, are refused. A collection labelled by `id` has no title
+  field and says so.
+
 ### A workspace as a container — `containers` and `images`, over the Docker Engine API
 
 Two driver-backed collections that need no workspace at all:

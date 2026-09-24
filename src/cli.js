@@ -24,7 +24,7 @@ import { landCommand } from './land.js';
 import { deriveEvents } from './events.js';
 import { commitPending } from './commit.js';
 import { Store } from './store.js';
-import { splitRef } from './ref.js';
+import { splitRef, canonicalCollection } from './ref.js';
 import { envContext, renderTemplate } from './env-vars.js';
 import { exportCommand, EXPORT_FLAGS } from './export-notebooklm.js';
 
@@ -58,8 +58,12 @@ the longest DECLARED collection prefix, so finance/transactions/2026/03/coffee i
                                                case-insensitive variants; date-times sort and
                                                compare as instants, across offsets)
   get    <collection>/<id> [--json]
-  add    <collection> --<field> <value> … [--id <explicit-id>]
-                                              (a codec-file collection takes --from <path>
+  add    <collection> ["<title>"] --<field> <value> … [--id <explicit-id>]
+                                              (ONE bare positional fills the collection's title
+                                               field — the one its title_template names — so
+                                               dt add task "call the bank" is
+                                               dt add tasks --name "call the bank".
+                                               a codec-file collection takes --from <path>
                                                instead — the file IS the record, fields derive;
                                                --force replaces an existing file record.
                                                A repeated --<field> is one ELEMENT of an array
@@ -164,6 +168,12 @@ collection: the ENGINE does not read one, and \`rename-field\` was the only capa
                              names the field: list_fields, sort_field, x-inverse, x-inverse-of,
                              title_template, id.generate, a ui-view's options.columns and filter,
                              and a command-binding's can-enter/can-exit. ONE commit)
+
+Every <collection> above may be spelled in the SINGULAR: dt add task …, dt get task/<id>,
+dt list meeting-analysis, dt add-field task …. The singular is derived from the descriptor
+(tasks → task, companies → company) and authored on it as singular: where inflection is
+wrong (people → person); compile refuses two collections whose words collide. A REFERENCE
+inside a record still names the collection in full — tasks/kickoff, never task/kickoff.
 
 Every verb that MOVES records or CLEARS values takes --dry-run and prints its plan first:
     records N · refs M · descriptors K · values cleared V
@@ -694,7 +704,8 @@ export function run(argv) {
 				if (!target || target.startsWith('--')) {
 					throw new Error(`dt ${cmd} needs a collection: dreamteamer ${cmd} <collection> --name <field> …`);
 				}
-				process.exit(collectionCommand(ws, target, cmd, flagArgs));
+				// the singular is legal here too: `dt add-field task --name due …`
+				process.exit(collectionCommand(ws, canonicalCollection(new Store(ws).descriptors, target) ?? target, cmd, flagArgs));
 			}
 			case 'relations':
 				warnIfStale(ws.root);
@@ -787,18 +798,22 @@ function dispatchRecordVerb(ws, verb, args) {
 	// A flag in the target slot is a word-order mistake, not a collection: without this,
 	// `dt list --json contacts` reported `unknown collection "--json"` and dumped every name.
 	if (target.startsWith('--')) throw new Error(`dt ${verb} takes its target BEFORE the flags: dreamteamer ${verb} <target> ${target} …`);
-	if (COLLECTION_VERBS.has(verb)) return collectionCommand(ws, target, verb, rest);
+	// A collection may be named by its declared name OR its singular (`dt add task …`); the
+	// canonical name is what every layer below sees. An unknown word passes through unchanged so
+	// the store's own "unknown collection" sentence, which lists what exists, is the one printed.
+	const { descriptors } = new Store(ws);
+	const canonical = canonicalCollection(descriptors, target) ?? target;
+	if (COLLECTION_VERBS.has(verb)) return collectionCommand(ws, canonical, verb, rest);
 	if (REF_VERBS.has(verb)) {
-		const { collection, id } = splitRef(new Store(ws).descriptors, target);
+		const { collection, id } = splitRef(descriptors, target);
 		return collectionCommand(ws, collection, verb, [id, ...rest]);
 	}
 	// EITHER_VERBS from here: a bare collection is legal for both — `move <collection> --init`,
 	// `next <collection>`.
-	const { descriptors } = new Store(ws);
-	if (descriptors.has(target)) {
+	if (descriptors.has(canonical)) {
 		return verb === 'move'
-			? collectionCommand(ws, target, 'move', rest)
-			: collectionCommand(ws, 'commands', 'for', [target, ...rest]);
+			? collectionCommand(ws, canonical, 'move', rest)
+			: collectionCommand(ws, 'commands', 'for', [canonical, ...rest]);
 	}
 	const { collection, id } = splitRef(descriptors, target);
 	if (verb === 'move') return collectionCommand(ws, collection, 'move', [id, ...rest]);
