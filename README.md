@@ -150,6 +150,9 @@ adapters: Claude Code, Codex, Pi, Gemini CLI, Cursor. Author a skill once; every
 
 ## The editor
 
+Extension id `dreamteamer.dreamteamer-vscode` (Marketplace · Open VSX). `init` and `compile` write the
+`.vscode/extensions.json` recommendation, and `dt status` reports whether it is active.
+
 [dreamteamer-vscode](https://github.com/dreamteamer/dreamteamer-vscode) gives you tables, boards,
 calendars, maps, forms and a data-model designer over the same files — and it loads **the engine your
 workspace pins**, so the editor, the CLI and any agent session are provably running the same code.

@@ -17,6 +17,7 @@ import {
 // circular on paper in earlier versions — safe: both sides only
 // call at run time, same pattern as store.js ↔ compile.js.
 import { runHarnessAdapters, BEGIN, END, INSTRUCTIONS_BEGIN, INSTRUCTIONS_END } from './harnesses.js';
+import { ensureEditorRecommendation, ensureEnvExample } from './workspace.js';
 import { satisfies } from './semver.js';
 import { parseEnvValues } from './env-vars.js';
 import { DERIVED_KINDS, readManifest, runtimeDir, engineId, engineVersion } from './runtime.js';
@@ -676,7 +677,9 @@ export function compile({ root, pkg }) {
 	// what every message in this engine already calls it. Defined HERE, above the namespace pass,
 	// because a namespace error has to name the module by the id the fix is typed with.
 	const moduleId = (n) => slug(String(n).replace(/^@[^/]+\//, ''));
+	const channelOf = new Map(sources.map((s) => [s.name, s.channel]));
 	const declaredEnv = new Map(); // env key -> [module names]
+	const envMeta = new Map();     // env key -> { description, example } — the first module to say wins
 	const moduleIgnores = new Map(); // module name -> non-source folders it declares (strayKindDirs)
 	const moduleDeps = new Map();  // module name -> [module names]      — HARD, must be acyclic
 	const modulePeers = new Map(); // module name -> [collection names]  — SOFT, cannot cycle
@@ -717,9 +720,17 @@ export function compile({ root, pkg }) {
 			if (ok === false) console.warn(`⚠ module ${source.name} declares engine "${range}" — running engine is ${engineVer} (out of range; compile continues)`);
 			else if (ok === null) console.warn(`⚠ module ${source.name}: engine range "${range}" not understood by the built-in checker (see src/semver.js) — not verified`);
 		}
-		for (const k of mpkg.dreamteamer?.env ?? []) {
+		// `dreamteamer.env`: a bare key name, or `{ name, description, example }` so the warning and
+		// `.env.example` can say what the key IS and what a value looks like — a bare `WORK_CALENDARS`
+		// told a first-run operator nothing about ids, addresses or display names (2026-09-24).
+		const envDecl = mpkg.dreamteamer?.env ?? [];
+		if (!Array.isArray(envDecl)) fail(`module "${source.name}": dreamteamer.env must be a list of key names or { name, description, example } objects (got ${JSON.stringify(envDecl)})`);
+		for (const entry of envDecl) {
+			const k = typeof entry === 'string' ? entry : entry?.name;
+			if (typeof k !== 'string' || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(k)) fail(`module "${source.name}": dreamteamer.env entry ${JSON.stringify(entry)} — a key is an identifier (A-Z, 0-9, _) as a string or as { name, description, example }`);
 			if (!declaredEnv.has(k)) declaredEnv.set(k, []);
 			declaredEnv.get(k).push(source.name);
+			if (typeof entry === 'object' && !envMeta.has(k)) envMeta.set(k, { description: entry.description ? String(entry.description) : undefined, example: entry.example !== undefined ? String(entry.example) : undefined });
 		}
 		// Gathered here because mpkg is already parsed; refused below, next to the workspace's own
 		// declaration. The classic layout pushes the ROOT itself as an inline source, whose
@@ -758,13 +769,25 @@ export function compile({ root, pkg }) {
 			const present = new Set([...parsedEnv].filter(([, v]) => v.trim() !== '').map(([k]) => k));
 			for (const [k, mods] of declaredEnv) {
 				if (present.has(k)) continue;
-				for (const mod of mods) console.warn(`⚠ module ${mod} declares env key ${k} — missing from .env (see .env.example)`);
+				const about = envMeta.get(k)?.description ? ` (${envMeta.get(k).description})` : '';
+				for (const mod of mods) console.warn(`⚠ module ${mod} declares env key ${k}${about} — missing from .env (see .env.example)`);
 			}
 			for (const k of declaredVars) {
 				if (present.has(k)) continue;
 				console.warn(`⚠ dreamteamer.vars declares ${k} — missing from .env, so \${env:${k}} cannot render on this machine`);
 			}
 		}
+	}
+
+	// Two root files kept current on every compile, both cheap and both about the FIRST run of a
+	// stranger: `.env.example` lists every declared key with its description, so the warning above
+	// points at a file that actually names them; `.vscode/extensions.json` recommends the editor
+	// extension, so the first window offers it. Both are append/merge-only — nothing authored moves.
+	{
+		const added = ensureEnvExample(root, [...declaredEnv].map(([key, mods]) => ({ key, modules: mods, ...(envMeta.get(key) ?? {}) })),
+			'# secrets for skills and modules go here (copy to .env; .env is never committed).\n# modules declare the env keys they require in their package.json dreamteamer.env list.\n');
+		if (added.length) console.log(`✔ .env.example now names ${added.join(', ')}`);
+		ensureEditorRecommendation(root);
 	}
 
 	// ---- local-assets and postinstall: what `dt install` will do to a checkout -------
@@ -1286,8 +1309,14 @@ export function compile({ root, pkg }) {
 			if (raw === '*') {
 				// The workspace module is the orchestrating parent and may reference anything —
 				// including modules that do not exist yet, which is what `tasks.item` means.
-				// Anywhere else a wildcard is a cross-module surface no declaration can cover.
-				if (!groupModules.includes(wsModuleName)) {
+				// Anywhere else a wildcard is a cross-module surface no declaration can cover — and
+				// it is the MODULE AUTHOR's to cover, so the warning is raised only where the author
+				// is: a module in this tree (inline). A module installed from npm or a clone is
+				// somebody else's source; warning its consumers about it on every compile told a
+				// first-run operator four things they could not fix (2026-09-24). The module's own
+				// CI, compiling it alone, still sees them.
+				const authoredHere = groupModules.some((m) => (channelOf.get(m) ?? 'inline') === 'inline');
+				if (!groupModules.includes(wsModuleName) && authoredHere) {
 					console.warn(`⚠ collection ${name}: field "${at}" uses x-reference: '*' outside the workspace module — an unverifiable cross-module surface; name the collections it may target`);
 				}
 				continue;

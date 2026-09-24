@@ -28,6 +28,25 @@ npx dreamteamer check
 
 `npm i -g dreamteamer` now puts both `dreamteamer` and `dt` on PATH.
 
+### First run, made less clunky (the 2026-09-24 report from a fresh workspace inside code-server)
+
+- **`init` writes `.vscode/extensions.json`** recommending `dreamteamer.dreamteamer-vscode`, and
+  **`compile` keeps it** — created when missing, merged when present without the id, left alone (with
+  a warning) when it is commented JSON the engine cannot parse. A VS Code, Cursor or code-server
+  window now offers the install; nobody has to search a registry for the id.
+- **`dt status` has an `editor:` line** — read from `.dreamteamer/editor.json`, which extension
+  0.20.0+ writes on every boot outcome (`active` · `engine-too-old` · `engine-failed`, with its
+  version, the engine it saw, the host and the time). Older extensions: `editor: not detected`.
+- **A module's `dreamteamer.env` entry may be `{ name, description, example }`.** The missing-key
+  warning carries the description, and **`.env.example` gains every declared key** (append-only,
+  never touching a key already named, commented or not) — so the file the warning points at lists
+  what it is cited for.
+- **The `x-reference: '*'` warning is raised only for modules authored in this tree** (inline). A
+  module from npm or a clone is its author's to fix; its consumers no longer see four warnings they
+  cannot act on. The module's own CI, compiling it alone, still does.
+- **`npm audit` is clean**: `yaml` 2.8.4, the transitive `fast-uri`, `js-yaml` and `qs` advisories
+  resolved within their ranges. No behaviour change.
+
 ### Every record verb accepts the singular, and `add` takes the title as one bare positional
 
 ```bash

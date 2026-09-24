@@ -112,3 +112,24 @@ prefers. Nothing about the code moves; `check` and `compile` read only what desc
 | hand-writing the first descriptor | `dt add collections` is compile-gated and publishes itself; hand-written sources owe `dt compile` |
 | rewriting existing files to fit a guessed schema | describe reality, compile, `check` — then decide which violations are worth fixing in the data |
 | waiting for a UI before starting | the CLI and the records are the complete system; any surface renders them later, unchanged |
+
+## The editor
+
+The VS Code-family extension is **`dreamteamer.dreamteamer-vscode`** (Marketplace and Open VSX). It
+loads the engine the workspace pins, so the editor, the CLI and an agent session run the same code.
+`init` writes `.vscode/extensions.json` recommending it and `compile` keeps that file current, so a
+VS Code, Cursor or code-server window opened on the workspace offers to install it — that prompt is
+the intended path. From a terminal:
+
+```bash
+code --install-extension dreamteamer.dreamteamer-vscode            # VS Code (on some machines `code` is Cursor)
+code-server --install-extension dreamteamer.dreamteamer-vscode \
+  --extensions-dir <the dir the running server was started with>   # match its --extensions-dir, or the window never sees it
+```
+
+⚠ Inside code-server's own terminal (or an agent it started) that command fails with `error not spawned
+with IPC`: the shell inherits code-server's `VSCODE_*` / `CODE_SERVER_PARENT_PID` variables and the
+CLI thinks it is a forked child. Prefix it with `env -u VSCODE_ESM_ENTRYPOINT -u VSCODE_HANDLES_SIGPIPE
+-u VSCODE_HANDLES_UNCAUGHT_ERRORS -u VSCODE_NLS_CONFIG -u VSCODE_CWD -u VSCODE_RECONNECTION_GRACE_TIME
+-u CODE_SERVER_PARENT_PID`, or let the recommendation prompt do the install. Whether the extension is
+ACTIVE is `dt status`'s `editor:` line — it reads the marker the extension writes on activation.
