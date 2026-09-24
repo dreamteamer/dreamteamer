@@ -179,6 +179,16 @@ export function collectionCommand(ws, collection, verb, args) {
 				return 0;
 			}
 			if (flags.from) throw new Error(`--from imports a file as a record, and "${collection}" is not a \`codec: file\` collection`);
+			// ONE bare positional is the record's title — the field `title_template` names — so
+			// `dt add task "call the bank"` reads as a sentence. Two positionals is a mistake (a flag
+			// value that lost its flag), and so is giving the title twice; both are refused by name.
+			if (pos.length > 1) throw new Error(`dt add ${collection} takes ONE positional (the title) and flags for the rest — got ${pos.length}: ${pos.map((p) => `"${p}"`).join(' ')}`);
+			if (pos.length === 1) {
+				const titleField = /\{\{\s*([A-Za-z_][\w]*)/.exec(d.title_template ?? '')?.[1];
+				if (!titleField || titleField === 'id') throw new Error(`"${collection}" labels its records by id, so there is no title field for "${pos[0]}" to fill — pass fields as --<field> <value>`);
+				if (titleField in flags) throw new Error(`the title was given twice — "${pos[0]}" and --${titleField} ${JSON.stringify(flags[titleField])}`);
+				flags[titleField] = pos[0];
+			}
 			const fields = coerceArrays(d, stripMeta(flags));
 			const { id, file, idFallback } = store.add(collection, fields, { id: flags.id });
 			flags.json

@@ -1093,6 +1093,7 @@ export function compile({ root, pkg }) {
 	let mergedCount = 0;
 	let templatedCount = 0;
 	const storageEntries = []; // {name, path, base} per collection — checked for overlap after the loop
+	const wordEntries = [];    // {name, word: singular} per collection — checked for collisions after the loop
 	// Merged descriptors are held, NOT dumped, until every one of them exists: a relation spans two
 	// collections, and the second is not merged yet when the first is reached. So this loop resolves
 	// and validates each descriptor on its own, `materializeRelations` runs over the whole set, and
@@ -1380,6 +1381,16 @@ export function compile({ root, pkg }) {
 		// for `meta.title_field`, promoted to an authorable field. Reference fields pointing here
 		// inherit it (presentation.js), which is what replaces 51 hand-written `x-display` lines.
 		merged.title_template ??= `{{ ${['title', 'name', 'subject'].find((f) => f in labelProps) ?? 'id'} }}`;
+		// The word the CLI accepts beside the name (`dt add task …`). DERIVED by the same inflection
+		// the storage suffix already uses, with the namespace kept (`rnd/projects` → `rnd/project`),
+		// so the two never disagree; AUTHORED where inflection is wrong (`people` → `person`).
+		// Collisions are refused after the loop, once every descriptor has one.
+		if (merged.singular !== undefined && (typeof merged.singular !== 'string' || !merged.singular.trim())) fail(`collection "${name}": \`singular\` must be a non-empty string`);
+		if (merged.singular === undefined) {
+			const ns = namespaceOf(name, namespaces);
+			merged.singular = ns ? `${ns}/${singular(baseNameOf(name, namespaces))}` : singular(name);
+		}
+		wordEntries.push({ name, word: merged.singular });
 		for (const [fieldName, prop] of Object.entries(labelProps)) {
 			if (!prop || typeof prop !== 'object' || Array.isArray(prop)) continue;
 			prop.title ??= titleCase(fieldName);
@@ -1445,6 +1456,19 @@ export function compile({ root, pkg }) {
 	// `owns-data` module prefix and any authored override all already applied). See
 	// namespace.storageOverlaps for what this silently did before it was checked.
 	for (const p of storageOverlaps(storageEntries)) fail(p);
+	// Two collections that answer to one word would make `dt add <word>` a coin toss, so the set of
+	// words — every name and every singular — must be injective. Refused with both names, because
+	// the fix is an authored `singular:` on one of them and the author needs to know which two.
+	{
+		const owners = new Map(); // word -> name
+		for (const { name } of wordEntries) owners.set(name, name);
+		for (const { name, word } of wordEntries) {
+			if (word === name) continue;
+			const other = owners.get(word);
+			if (other && other !== name) fail(`collections "${name}" and "${other}" both answer to the word "${word}" (a name or a singular) — author \`singular:\` on one of them so \`dt add ${word}\` names exactly one collection`);
+			owners.set(word, name);
+		}
+	}
 
 	// ---- modules, projected ---------------------------------------------------------
 	// One record per discovered module, written from what discovery and the package pass already
