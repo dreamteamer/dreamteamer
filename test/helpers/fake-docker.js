@@ -101,7 +101,8 @@ export function startFakeDocker(socketPath, { images = [], plain = [] } = {}) {
 					Id, Name: `/${name}`, Created: new Date().toISOString(),
 					Config: { Image: body.Image, Labels: body.Labels ?? {}, Env: body.Env ?? [] },
 					HostConfig: body.HostConfig ?? {},
-					Mounts: (body.HostConfig?.Mounts ?? []).map((mt) => ({ Type: mt.Type, Name: mt.Source, Destination: mt.Target })),
+					// as Docker reports them: a volume has Name, a bind has Source, both carry RW
+					Mounts: (body.HostConfig?.Mounts ?? []).map((mt) => ({ Type: mt.Type, ...(mt.Type === 'bind' ? { Source: mt.Source } : { Name: mt.Source }), Destination: mt.Target, RW: !mt.ReadOnly })),
 					State: { Status: 'created', StartedAt: '' }, RestartCount: 0,
 				});
 				return json(201, { Id, Warnings: [] });

@@ -13,7 +13,7 @@ import { ENGINE_ROOT, twoModuleWorkspace } from '../helpers/ws.js';
 
 const BIN = path.join(ENGINE_ROOT, 'bin', 'dreamteamer.js');
 const FAKE = path.join(ENGINE_ROOT, 'test', 'helpers', 'fake-docker.js');
-const HQ = 'dreamteamer/hq:latest';
+const HQ = 'ghcr.io/dreamteamer/hq:latest';
 
 /** The fake Engine API as a CHILD process (see fake-docker.js for why), with its recorded state
  *  readable over the socket between the spawnSync calls that drive the CLI. */
@@ -60,7 +60,7 @@ describe('host mode — the verbs answer with NO workspace', () => {
 	test('list images shows the template with its labels, singular spelling included', () => {
 		const r = h.dt('list', 'images');
 		assert.equal(r.code, 0, r.out);
-		assert.match(r.stdout, /hq\s+dreamteamer\/hq:latest/);
+		assert.match(r.stdout, /hq\s+ghcr\.io\/dreamteamer\/hq:latest/);
 		const s = h.dt('list', 'image', '--json');
 		assert.equal(JSON.parse(s.stdout)[0].template, 'hq');
 	});
@@ -68,7 +68,7 @@ describe('host mode — the verbs answer with NO workspace', () => {
 	test('start container <name> --template hq creates from the image, binds loopback:8100, mounts three volumes, injects no token', async () => {
 		const r = h.dt('start', 'container', 'hq-dana', '--template', 'hq', '--no-open');
 		assert.equal(r.code, 0, r.out);
-		assert.match(r.stdout, /✔ created hq-dana from dreamteamer\/hq:latest/);
+		assert.match(r.stdout, /✔ created hq-dana from ghcr\.io\/dreamteamer\/hq:latest/);
 		assert.match(r.stdout, /http:\/\/localhost:8100\/\?folder=\/workspaces\/hq-dana/);
 		const st = await fake.state();
 		const create = st.requests.find((q) => q.path.startsWith('/containers/create'));
@@ -125,8 +125,8 @@ describe('host mode — the verbs answer with NO workspace', () => {
 	test('an absent image is pulled before create', async () => {
 		const r = h.dt('start', 'container', 'hq-pulled', '--template', 'other', '--no-open');
 		assert.equal(r.code, 0, r.out);
-		assert.deepEqual((await fake.state()).pulls, ['dreamteamer/other:latest']);
-		assert.match(r.stdout, /pulling dreamteamer\/other:latest/);
+		assert.deepEqual((await fake.state()).pulls, ['ghcr.io/dreamteamer/other:latest']);
+		assert.match(r.stdout, /pulling ghcr\.io\/dreamteamer\/other:latest/);
 	});
 
 	test('DT_IMAGE_<template> pins a template to any image ref', async () => {
@@ -163,10 +163,10 @@ describe('host mode — the verbs answer with NO workspace', () => {
 	test('add image --template pulls; rm image removes; start on an image is refused', async () => {
 		const a = h.dt('add', 'image', '--template', 'third');
 		assert.equal(a.code, 0, a.out);
-		assert.ok((await fake.state()).pulls.includes('dreamteamer/third:latest'));
-		assert.equal(h.dt('rm', 'image', 'dreamteamer/third:latest').code, 0);
-		assert.equal(h.dt('get', 'image', 'dreamteamer/third:latest').code, 1);
-		const s = h.dt('start', 'image', 'dreamteamer/hq:latest');
+		assert.ok((await fake.state()).pulls.includes('ghcr.io/dreamteamer/third:latest'));
+		assert.equal(h.dt('rm', 'image', 'ghcr.io/dreamteamer/third:latest').code, 0);
+		assert.equal(h.dt('get', 'image', 'ghcr.io/dreamteamer/third:latest').code, 1);
+		const s = h.dt('start', 'image', HQ);
 		assert.equal(s.code, 1);
 		assert.match(s.stderr, /an image is started by starting a container from it/);
 	});
@@ -177,7 +177,7 @@ describe('host mode — the verbs answer with NO workspace', () => {
 		assert.match(first.stdout, /docker\s+99\.0\.0-fake · api 1\.99/);
 		const envFile = path.join(h.home, '.env');
 		const text = fs.readFileSync(envFile, 'utf8');
-		for (const k of ['DT_PORT_BASE=8100', 'DT_BIND=127.0.0.1', 'DT_REGISTRY=dreamteamer', 'DT_TEMPLATE_TAG=latest']) assert.ok(text.includes(k), `${k} missing from ${text}`);
+		for (const k of ['DT_PORT_BASE=8100', 'DT_BIND=127.0.0.1', 'DT_REGISTRY=ghcr.io/dreamteamer', 'DT_TEMPLATE_TAG=latest']) assert.ok(text.includes(k), `${k} missing from ${text}`);
 		fs.appendFileSync(envFile, 'DT_PORT_BASE=9000\n');
 		const second = h.dt('setup');
 		assert.equal(second.code, 0, second.out);
@@ -233,8 +233,8 @@ describe('host mode — the verbs answer with NO workspace', () => {
 	test('a pull the registry refuses fails with the build and the pin as the two ways out', async () => {
 		const r = h.dt('start', 'container', 'hq-missing', '--template', 'missing', '--no-open');
 		assert.equal(r.code, 1);
-		assert.match(r.stderr, /pull dreamteamer\/missing:latest: Docker answered 404/);
-		assert.match(r.stderr, /docker build -t dreamteamer\/missing:latest/);
+		assert.match(r.stderr, /pull ghcr\.io\/dreamteamer\/missing:latest: Docker answered 404/);
+		assert.match(r.stderr, /docker build -t ghcr\.io\/dreamteamer\/missing:latest/);
 		assert.match(r.stderr, /DT_IMAGE_<template>/);
 		assert.ok(!(await fake.state()).requests.some((q) => q.path.includes('name=hq-missing')), 'a container was created from an image that never arrived');
 	});
@@ -247,7 +247,7 @@ describe('host mode — the verbs answer with NO workspace', () => {
 		assert.ok(JSON.parse(raw.stdout).Config.Labels['dreamteamer.template']);
 		assert.equal(h.dt('get', 'image', 'dreamteamer/nope:latest').code, 1);
 		assert.equal(h.dt('add', 'image', '--template', 'forced').code, 0);
-		assert.equal(h.dt('rm', 'image', 'dreamteamer/forced:latest', '--force').code, 0);
+		assert.equal(h.dt('rm', 'image', 'ghcr.io/dreamteamer/forced:latest', '--force').code, 0);
 		const del = (await fake.state()).requests.find((q) => q.method === 'DELETE' && q.path.includes('forced'));
 		assert.match(del.path, /force=true/);
 	});
@@ -354,29 +354,33 @@ describe('the no-dependency promise', () => {
 	});
 });
 
-// ⚠ SKIPPED 2026-09-24 on the operator's call — the in-process REST server beside a spawnSync-driven
-// CLI needs the same child-process treatment the fake Docker got; filed in the vault's rnd/issues.
-describe.skip('the REST route dispatches driver collections to Docker', () => {
+describe('the REST route dispatches driver collections to Docker', () => {
 	test('GET list/get answer from the fake; every write is 405 with the CLI spelling; the descriptors are compiled with storage.driver', async () => {
 		const h = harness();
-		const fake = await startFakeDocker(h.sock, { images: h.images });
-		const ws = twoModuleWorkspace();
-		const containersYaml = fs.readFileSync(path.join(ws.root, '.dreamteamer', 'collections', 'containers.collection.yaml'), 'utf8');
-		assert.match(containersYaml, /^storage:\n(?:.*\n)*?\s+driver: docker/m);
-		assert.match(containersYaml, /^group: system$/m);
-		assert.match(fs.readFileSync(path.join(ws.root, '.dreamteamer', 'collections', 'images.collection.yaml'), 'utf8'), /driver: docker/);
-		// check and commit read zero records from a driver collection and say nothing about them
-		const check = ws.dt('check');
-		assert.equal(check.code, 0, check.stderr);
-		assert.doesNotMatch(check.stdout + check.stderr, /containers|images/);
+		// ⚠ EVERYTHING that can keep the process alive — the fake's child, the server — is created INSIDE
+		// the try, so an assertion that fails early still reaches the finally that shuts them down. The
+		// first version created them before the try, and one TypeError left the runner waiting forever.
+		let fake; let server;
 		const prevSock = process.env.DT_DOCKER_SOCKET;
-		process.env.DT_DOCKER_SOCKET = h.sock;
-		const { startServer } = await import('../../src/server.js');
-		const PORT = 8171;
-		const log = console.log; console.log = () => {};
-		const server = await startServer(ws, { port: PORT });
-		console.log = log;
+		const log = console.log;
 		try {
+			fake = await startFakeDocker(h.sock, { images: h.images });
+			const ws = twoModuleWorkspace();
+			const containersYaml = fs.readFileSync(path.join(ws.root, '.dreamteamer', 'collections', 'containers.collection.yaml'), 'utf8');
+			assert.match(containersYaml, /^storage:\n(?:.*\n)*?\s+driver: docker/m);
+			assert.match(containersYaml, /^group: system$/m);
+			assert.match(fs.readFileSync(path.join(ws.root, '.dreamteamer', 'collections', 'images.collection.yaml'), 'utf8'), /driver: docker/);
+			// check and commit read zero records from a driver collection and say nothing about them
+			const check = ws.dt('check');
+			assert.equal(check.code, 0, check.stderr);
+			assert.doesNotMatch(check.stdout + check.stderr, /containers|images/);
+			process.env.DT_DOCKER_SOCKET = h.sock;
+			const { startServer } = await import('../../src/server.js');
+			const PORT = 8171;
+			console.log = () => {};
+			// the server takes the workspace shape findWorkspace returns — root AND its package.json
+			server = await startServer({ root: ws.root, pkg: JSON.parse(fs.readFileSync(path.join(ws.root, 'package.json'), 'utf8')) }, { port: PORT });
+			console.log = log;
 			const base = `http://127.0.0.1:${PORT}/api`;
 			const list = await (await fetch(`${base}/collections/images/records`)).json();
 			assert.equal(list.total, 1);
@@ -397,9 +401,12 @@ describe.skip('the REST route dispatches driver collections to Docker', () => {
 			const tasks = await (await fetch(`${base}/collections/tasks/records`)).json();
 			assert.equal(tasks.total, 0);
 		} finally {
-			await new Promise((r) => server.close(r));
+			console.log = log;
+			// fetch keeps its connections alive; close() waits for them forever unless they are cut first
+			if (server) { server.closeAllConnections(); await new Promise((r) => server.close(r)); }
 			if (prevSock === undefined) delete process.env.DT_DOCKER_SOCKET; else process.env.DT_DOCKER_SOCKET = prevSock;
-			await fake.close(); fs.rmSync(h.dir, { recursive: true, force: true });
+			if (fake) await fake.close();
+			fs.rmSync(h.dir, { recursive: true, force: true });
 		}
 	});
 });
