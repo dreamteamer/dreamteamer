@@ -54,7 +54,7 @@ export function driverTarget(word) {
 export const HOST_DEFAULTS = {
 	DT_PORT_BASE: '8100',       // NOT 8080: that is code-server's in-container port, `dt start`'s REST default, and the old dev image's exposed port — three things on one number
 	DT_BIND: '127.0.0.1',       // loopback only; a remote tier puts auth in front before this changes
-	DT_REGISTRY: 'dreamteamer', // `<registry>/<template>:<tag>` is the image a template name resolves to
+	DT_REGISTRY: 'ghcr.io/dreamteamer', // `<registry>/<template>:<tag>` is the image a template name resolves to — the public images repo publishes here
 	DT_TEMPLATE_TAG: 'latest',
 };
 
@@ -126,7 +126,7 @@ function ok(res, what) {
 	throw new Error(`${what}: Docker answered ${res.status}${msg ? ` — ${msg}` : ''}`);
 }
 
-const LABEL = { workspace: 'dreamteamer.workspace', template: 'dreamteamer.template', person: 'dreamteamer.person', ports: 'dreamteamer.ports', modules: 'dreamteamer.modules' };
+const LABEL = { workspace: 'dreamteamer.workspace', template: 'dreamteamer.template', person: 'dreamteamer.person', ports: 'dreamteamer.ports', modules: 'dreamteamer.modules', workdir: 'dreamteamer.workdir' };
 const filters = (label) => encodeURIComponent(JSON.stringify({ label: [label] }));
 
 // ---- images ------------------------------------------------------------------------------------
@@ -177,11 +177,29 @@ const containerRow = (c) => {
 	const port = (c.Ports ?? []).find((p) => p.PublicPort)?.PublicPort;
 	return {
 		name, template: c.Labels?.[LABEL.template] ?? '', state: c.State, status: c.Status,
-		editor_url: port ? editorUrl(port) : '', image: c.Image, person: c.Labels?.[LABEL.person] ?? '',
+		editor_url: port ? editorUrl(port, name) : '', image: c.Image, person: c.Labels?.[LABEL.person] ?? '',
 		created: c.Created ? new Date(c.Created * 1000).toISOString().slice(0, 16).replace('T', ' ') : '', id: c.Id,
 	};
 };
-const editorUrl = (port) => `http://localhost:${port}/?folder=/workspace`;
+/** The dev-container convention: the workspace is mounted at `/workspaces/<name>`, so the folder the
+ *  editor opens, the URL, and a VS Code attach all name the workspace rather than a fixed word. */
+export const workspaceDir = (name) => `/workspaces/${name}`;
+const editorUrl = (port, name) => `http://localhost:${port}/?folder=${workspaceDir(name)}`;
+/** `--mount <host-path|volume>:<container-path>[:ro]` → a Docker Mount. A source starting with `/`,
+ *  `~` or `.` is a bind mount of a host path (resolved against cwd); anything else is a named volume. */
+export function parseMount(spec) {
+	const parts = String(spec).split(':');
+	if (parts.length < 2 || parts.length > 3 || !parts[0] || !parts[1].startsWith('/')) throw new Error(`--mount takes <host-path|volume>:<container-path>[:ro] — got "${spec}"`);
+	const [src, target, mode] = parts;
+	if (mode !== undefined && mode !== 'ro' && mode !== 'rw') throw new Error(`--mount "${spec}": the third part is ro or rw`);
+	const isPath = /^[/~.]/.test(src);
+	const source = isPath ? path.resolve(src.replace(/^~(?=\/|$)/, os.homedir())) : src;
+	if (!isPath && !/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/.test(src)) throw new Error(`--mount "${spec}": "${src}" is neither a path nor a volume name`);
+	return { Type: isPath ? 'bind' : 'volume', Source: source, Target: target, ReadOnly: mode === 'ro' };
+}
+/** The URI VS Code on the host opens to attach to this container (Dev Containers extension). The
+ *  container name is hex-encoded, as the extension spells it. */
+export const attachUri = (name) => `vscode-remote://attached-container+${Buffer.from(name, 'utf8').toString('hex')}${workspaceDir(name)}`;
 const volumeNames = (name) => ({ workspace: `dreamteamer-${name}-workspace`, home: `dreamteamer-${name}-home`, files: `dreamteamer-${name}-files` });
 
 export async function listContainers() {
@@ -200,14 +218,21 @@ export async function inspectContainer(name) {
 /** The shape `dt get container <name>` prints: the categorised view over `docker inspect`. */
 export function containerDetail(c) {
 	const binding = Object.values(c.HostConfig?.PortBindings ?? {}).flat()[0];
+	const name = c.Name.replace(/^\//, '');
+	const wsDir = c.Config.Labels?.[LABEL.workdir] ?? workspaceDir(name);
+	const own = new Set([wsDir, '/home/node', '/files']);
 	const mounts = Object.fromEntries((c.Mounts ?? []).filter((m) => m.Type === 'volume').map((m) => [m.Destination, m.Name]));
 	return {
-		name: c.Name.replace(/^\//, ''), id: c.Id.slice(0, 12),
+		name, id: c.Id.slice(0, 12),
 		template: c.Config.Labels[LABEL.template] ?? '', image: c.Config.Image,
 		state: c.State?.Status, started: c.State?.StartedAt, restarts: c.RestartCount ?? 0,
 		bind: binding?.HostIp ?? '', port: binding ? Number(binding.HostPort) : undefined,
-		editor_url: binding ? editorUrl(binding.HostPort) : '',
-		volumes: { workspace: mounts['/workspace'] ?? '', home: mounts['/home/node'] ?? '', files: mounts['/files'] ?? '' },
+		editor_url: binding ? editorUrl(binding.HostPort, name) : '',
+		attach_uri: attachUri(name),
+		workspace_dir: wsDir,
+		volumes: { workspace: mounts[wsDir] ?? '', home: mounts['/home/node'] ?? '', files: mounts['/files'] ?? '' },
+		mounts: (c.Mounts ?? []).filter((m) => !own.has(m.Destination)).map((m) => `${m.Type === 'bind' ? m.Source : m.Name}:${m.Destination}${m.RW === false ? ':ro' : ''}`),
+		repo: (c.Config.Env ?? []).find((e) => e.startsWith('DT_REPO='))?.slice(8) ?? '',
 		person: c.Config.Labels[LABEL.person] ?? '', created: c.Created, labels: c.Config.Labels,
 	};
 }
@@ -254,11 +279,21 @@ export async function startContainer(name, flags, log = console.log) {
 		const port = await allocatePort(env);
 		const who = person(flags, env);
 		const vols = volumeNames(name);
+		const wsDir = workspaceDir(name);
+		// `--mount` adds bind or volume mounts beside the three the container always has; a mount aimed
+		// at one of those three targets is refused rather than silently shadowing the volume.
+		const extra = (flags.mount ?? []).map(parseMount);
+		for (const m of extra) if ([wsDir, '/home/node', '/files'].includes(m.Target)) throw new Error(`--mount cannot target ${m.Target} — that is one of the container's own volumes (${wsDir} · /home/node · /files)`);
+		// `--repo <url>` clones an EXISTING workspace into the workspace volume on first start instead of
+		// laying the template down — the way a person joins a workspace that already lives on GitHub.
+		const repo = typeof flags.repo === 'string' ? flags.repo : undefined;
+		if (repo !== undefined && !/^(https?:\/\/|git@|ssh:\/\/|file:\/\/|\/)/.test(repo)) throw new Error(`--repo takes a git URL or an absolute path — got "${repo}"`);
 		const body = {
 			Image: ref,
-			Labels: { [LABEL.workspace]: name, [LABEL.template]: template, [LABEL.person]: who.name },
+			Labels: { [LABEL.workspace]: name, [LABEL.template]: template, [LABEL.person]: who.name, [LABEL.workdir]: wsDir },
 			Env: [
-				`DT_WORKSPACE=${name}`, `DT_TEMPLATE=${template}`, 'FILES_FOLDER=/files',
+				`DT_WORKSPACE=${name}`, `DT_TEMPLATE=${template}`, `DT_WORKSPACE_DIR=${wsDir}`, 'FILES_FOLDER=/files',
+				...(repo ? [`DT_REPO=${repo}`] : []),
 				...(who.name ? [`GIT_AUTHOR_NAME=${who.name}`, `GIT_COMMITTER_NAME=${who.name}`] : []),
 				...(who.email ? [`GIT_AUTHOR_EMAIL=${who.email}`, `GIT_COMMITTER_EMAIL=${who.email}`] : []),
 			],
@@ -266,16 +301,17 @@ export async function startContainer(name, flags, log = console.log) {
 			HostConfig: {
 				PortBindings: { [`${inner}/tcp`]: [{ HostIp: env.DT_BIND, HostPort: String(port) }] },
 				Mounts: [
-					{ Type: 'volume', Source: vols.workspace, Target: '/workspace' },
+					{ Type: 'volume', Source: vols.workspace, Target: wsDir },
 					{ Type: 'volume', Source: vols.home, Target: '/home/node' },
 					{ Type: 'volume', Source: vols.files, Target: '/files' },
+					...extra,
 				],
 				RestartPolicy: { Name: 'unless-stopped' },
 			},
 		};
 		ok(await api('POST', `/containers/create?name=${encodeURIComponent(name)}`, body), `create container ${name}`);
 		c = await inspectContainer(name);
-		log(`✔ created ${name} from ${ref} · ${env.DT_BIND}:${port} → ${inner} · volumes ${Object.values(vols).join(', ')}`);
+		log(`✔ created ${name} from ${ref} · ${env.DT_BIND}:${port} → ${inner} · ${wsDir} · volumes ${Object.values(vols).join(', ')}${extra.length ? ` · mounts ${extra.map((m) => `${m.Source}→${m.Target}${m.ReadOnly ? ' (ro)' : ''}`).join(', ')}` : ''}${repo ? ` · clones ${repo} on first start` : ''}`);
 	}
 	if (c.State?.Status !== 'running') {
 		const res = await api('POST', `/containers/${c.Id}/start`);
@@ -399,7 +435,20 @@ export async function driverCommand(verb, target, args) {
 	if (verb === 'get') { const c = await inspectContainer(id); if (!c) throw new Error(`no container "${id}" — dt list containers`); emit(JSON.stringify(json ? c : containerDetail(c), null, 2)); return 0; }
 	if (verb === 'start' || verb === 'add') { const d = await startContainer(id, flags); if (json) emit(JSON.stringify(d, null, 2)); return 0; }
 	if (verb === 'stop') { const d = await stopContainer(id); console.log(`✔ stopped ${id} · volumes kept`); if (json) emit(JSON.stringify(d, null, 2)); return 0; }
-	if (verb === 'open') { const c = await inspectContainer(id); if (!c) throw new Error(`no container "${id}"`); const d = containerDetail(c); if (!d.editor_url) throw new Error(`${id} publishes no port`); console.log(d.editor_url); if (!flags['no-open']) openUrl(d.editor_url); return 0; }
+	if (verb === 'open') {
+		const c = await inspectContainer(id); if (!c) throw new Error(`no container "${id}"`);
+		const d = containerDetail(c);
+		if (flags.vscode) {
+			// Dev Containers attach: the host's own VS Code opens the workspace INSIDE the container, and
+			// installs the extensions the image's `devcontainer.metadata` label names into the container's
+			// VS Code Server — a second extension host beside code-server's, over the same files.
+			console.log(d.attach_uri);
+			if (!flags['no-open']) { try { spawn('code', ['--folder-uri', d.attach_uri], { stdio: 'ignore', detached: true }).unref(); } catch { /* the URI is printed either way */ } }
+			return 0;
+		}
+		if (!d.editor_url) throw new Error(`${id} publishes no port`);
+		console.log(d.editor_url); if (!flags['no-open']) openUrl(d.editor_url); return 0;
+	}
 	if (verb === 'rm') { await removeContainer(id, { force: flags.force === true }); return 0; }
 	return 1;
 }
@@ -408,15 +457,17 @@ export async function driverCommand(verb, target, args) {
  *  record parser's promotion rules — a repeated flag on these verbs is a mistake, not an array. */
 export function parseFlags(args) {
 	const flags = {}; const pos = [];
+	// `--mount` is the one flag that repeats — every other repeat is a mistake and the LAST wins.
+	const put = (k, v) => { if (k === 'mount') flags.mount = [...(flags.mount ?? []), v]; else flags[k] = v; };
 	for (let i = 0; i < args.length; i++) {
 		const a = args[i];
 		if (!a.startsWith('--')) { pos.push(a); continue; }
 		const eq = a.indexOf('=');
-		if (eq > -1) flags[a.slice(2, eq)] = a.slice(eq + 1);
-		else if (i + 1 < args.length && !args[i + 1].startsWith('--')) flags[a.slice(2)] = args[++i];
-		else flags[a.slice(2)] = true;
+		if (eq > -1) put(a.slice(2, eq), a.slice(eq + 1));
+		else if (i + 1 < args.length && !args[i + 1].startsWith('--')) put(a.slice(2), args[++i]);
+		else put(a.slice(2), true);
 	}
 	return { flags, pos };
 }
 
-export const CONTAINER_FLAGS = ['template', 'name', 'email', 'no-open', 'json', 'force'];
+export const CONTAINER_FLAGS = ['template', 'name', 'email', 'no-open', 'json', 'force', 'mount', 'repo', 'vscode'];

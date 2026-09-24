@@ -1,0 +1,81 @@
+name: containers
+description: >-
+  A workspace running as a container — one person's editor, harness and compiled workspace over a
+  named volume set, answered over the Docker Engine API rather than from a folder of files.
+use_when: >-
+  a workspace has to RUN somewhere for someone — `dt start container <name> --template <t>` makes
+  one and prints its editor URL; `dt list containers` says what is running and where; `stop`, `open`,
+  `rm` are the lifecycle. Not a record: nothing lands under data/, nothing is committed, and Docker
+  keeps the history
+# MACHINERY WITH A DRIVER, NOT A RECORD COLLECTION. `storage.driver: docker` says every verb on this
+# collection is answered by src/containers.js over the Engine API: `list` is GET /containers/json,
+# `get` is an inspect, `add`/`start` create-and-start, `rm` removes. The derived storage.path names a
+# folder that never exists, so every walker (check, commit, the store's index) reads zero records here
+# and never writes one; the REST route and the CLI dispatch to the driver before the store is asked.
+# `group: system` folds it out of the orientation block's domain listing, beside `repos` and the
+# compiled kinds, which is where a stranger's mental model puts "the thing my workspace runs in".
+storage:
+  driver: docker
+schema:
+  type: object
+  required: [name, template]
+  properties:
+    # ---- identity ----
+    name:
+      type: string
+      description: The workspace name — also the container name and the stem of its three volumes (`dreamteamer-<name>-workspace` · `-home` · `-files`).
+    template:
+      type: string
+      description: The template it was made from — an image carrying `dreamteamer.template`, `dreamteamer.ports` and `dreamteamer.modules` labels; `--template hq` resolves to `<DT_REGISTRY>/hq:<DT_TEMPLATE_TAG>` or to `DT_IMAGE_hq`.
+    image:
+      type: string
+      description: The image reference the container runs.
+    id:
+      type: string
+      description: Docker's short id.
+    # ---- runtime ----
+    state:
+      type: string
+      enum: [created, running, paused, restarting, exited, dead]
+      description: Docker's container state.
+    status:
+      type: string
+      description: Docker's own phrase — `Up 2 hours`, `Exited (0) 3 minutes ago`.
+    started:
+      type: string
+      format: date-time
+      description: When it last started.
+    # ---- network ----
+    editor_url:
+      type: string
+      description: Where the person opens the editor — `http://localhost:<port>/?folder=<workspace dir>`; the host port comes from DT_PORT_BASE upward, bound to DT_BIND (127.0.0.1).
+    port:
+      type: integer
+      description: The host port the editor is published on.
+    bind:
+      type: string
+      description: The host address it is bound to — loopback unless the host .env says otherwise.
+    # ---- storage ----
+    workspace_dir:
+      type: string
+      description: Where the workspace is mounted inside — `/workspaces/<name>`, the dev-container convention.
+    volumes:
+      type: object
+      description: The three named volumes — `workspace` (the repo), `home` (the person's logins and editor settings), `files` (FILES_FOLDER). Plain `rm` keeps them; `rm --force` removes them.
+    mounts:
+      type: array
+      items: { type: string }
+      description: Extra bind or volume mounts passed as `--mount <host-path|volume>:<container-path>[:ro]`.
+    # ---- person ----
+    person:
+      type: string
+      description: Whose container this is — the git identity injected as env; the harness login happens INSIDE, once, and is never injected.
+    # ---- provenance ----
+    created:
+      type: string
+      format: date-time
+      description: When Docker created it.
+order: 146
+list_fields: [name, template, state, editor_url, person]
+icon: deployed_code
+group: system

@@ -67,6 +67,15 @@ schema:
             have lived in `modules/<module>/<kind>/` since the 2026-08-05 flatten, and a `system/`
             prefix is only how `runtime.js` recognises a RUNTIME collection in a descriptor compiled
             by a pre-flatten engine.
+        driver:
+          type: string
+          description: >-
+            The name of an engine DRIVER that answers this collection's verbs instead of a folder of
+            files — `docker` is the one shipped (src/containers.js: `containers`, `images`). A driver
+            collection has no records on disk: its derived `path` names a folder that never exists,
+            so check, commit and the store read zero records and never write one; the CLI and the REST
+            route dispatch to the driver first. A string checked against the drivers the engine has,
+            not an enum — one implementation, and a second is a code change, not a vocabulary change.
         codec:
           type: string
           enum: [md, yaml, json, file]

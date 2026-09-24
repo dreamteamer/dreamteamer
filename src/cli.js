@@ -252,10 +252,16 @@ these verbs work with NO workspace, so npm i -g dreamteamer and Docker Desktop a
   start       container <name> --template <t>   create-if-absent and start: a code-server editor at
               http://localhost:<port>/?folder=/workspace over a compiled workspace, three named volumes
               (workspace · home · files), image <DT_REGISTRY>/<template>:<tag> or DT_IMAGE_<template>.
-              Idempotent. NO token is ever injected — log in INSIDE, once; the home volume keeps it.
+              The workspace is mounted at /workspaces/<name>. Idempotent. NO token is ever injected —
+              log in INSIDE, once; the home volume keeps it.
+              [--repo <git url>]  clone an EXISTING workspace into the volume on first start, instead
+                                  of laying the template down — how a person joins one on GitHub
+              [--mount <host-path|volume>:<container-path>[:ro]]  extra mounts, repeatable
               [--name <git name>] [--email <git email>] [--no-open] [--json]
   stop        container <name>                  stop it; every volume kept [--json]
   open        container <name>                  print (and open) its editor URL [--no-open]
+              [--vscode]  print (and open) the Dev Containers attach URI instead — the host's own
+                          VS Code inside the container, extensions from the image's metadata label
   list        containers | images               the record verbs, answered over Docker instead of a
   get         container <name> | image <ref>    folder — singular or plural, either spelling.
   rm          container <name> [--force]        plain rm keeps the volumes; --force removes them too
@@ -318,7 +324,7 @@ export const WORKSPACE_FLAGS = {
 	// `start` is TWO forms: bare, the REST api (--port); with a `container <name>` target, the
 	// lifecycle verb — whose flags are the driver's. One table, because `flags-honoured` reads it.
 	start: ['port', ...CONTAINER_FLAGS], compile: ['watch'], check: [], status: ['strict'],
-	setup: ['template', 'json'], stop: ['json'], open: ['json', 'no-open'],
+	setup: ['template', 'json'], stop: ['json'], open: ['json', 'no-open', 'vscode'],
 	changes: ['since', 'json'], commit: ['dry-run', 'json'],
 	export: EXPORT_FLAGS,
 	// the UNION of every form's flags — the outer typo gate. Which flags each FORM takes is refused

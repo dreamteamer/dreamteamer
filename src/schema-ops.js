@@ -754,6 +754,7 @@ const COLLECTION_SETTABLE = {
 	use_when: (v) => String(v),
 	title: (v) => String(v),
 	title_template: (v) => String(v),
+	singular: (v) => String(v), // the word the CLI accepts beside the name; compile refuses a collision
 	icon: (v) => String(v),
 	// The collection's partition. `group=system` is the reserved value: it moves the collection out
 	// of the block's domain listing and onto a surface's schema surface, and changes nothing about
