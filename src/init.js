@@ -8,6 +8,7 @@ import { discoverModules, KINDS } from './compile.js';
 import { KNOWN_HARNESSES } from './harnesses.js';
 import { Store } from './store.js';
 import { envContext, renderTemplate } from './env-vars.js';
+import { ensureEditorRecommendation } from './workspace.js';
 
 // git calls whose failure we CATCH must not print git's own error: execFileSync forwards the
 // child's stderr to ours unless told otherwise, so a handled "not a git repository" still
@@ -147,8 +148,10 @@ export function init({ flags = {} } = {}) {
 	// A workspace that needs people as records ships its own collection (a module's `contacts` already
 	// does), and reads the operator from git where it needs one. `teams` went the same way 2026-07-31.
 
-	// .gitignore + .env.example (append-if-missing, never clobber)
+	// .gitignore + .env.example (append-if-missing, never clobber) + the editor recommendation, so
+	// the first window opened on this workspace offers the extension instead of leaving it to be found
 	appendMissing(path.join(root, '.gitignore'), GITIGNORE);
+	ensureEditorRecommendation(root);
 	if (!fs.existsSync(path.join(root, '.env.example'))) fs.writeFileSync(path.join(root, '.env.example'), ENV_EXAMPLE);
 
 	// one init commit (if we're in a git repo)

@@ -550,6 +550,16 @@ export function run(argv) {
 					process.exit(1);
 				}
 				console.log(`compiled: ${s.manifest.compiled}`);
+				// THE EDITOR, from the marker the extension writes on activation (`.dreamteamer/editor.json`).
+				// Without it an agent working inside the editor could not tell whether the extension was
+				// installed, active, or refusing the engine — the operator had to report "no icon".
+				try {
+					const marker = path.join(ws.root, '.dreamteamer', 'editor.json');
+					if (fs.existsSync(marker)) {
+						const e = JSON.parse(fs.readFileSync(marker, 'utf8'));
+						console.log(`editor: ${e.extension ?? 'dreamteamer-vscode'} ${e.version ?? '?'} · ${e.state ?? 'active'} ${e.activated ?? ''} · engine ${e.engine ?? '?'}${e.host ? ` · ${e.host}` : ''}`);
+					} else console.log('editor: not detected — the extension dreamteamer.dreamteamer-vscode writes .dreamteamer/editor.json when it activates on this workspace');
+				} catch { console.log('editor: marker unreadable — .dreamteamer/editor.json is not JSON'); }
 				// provenance is LIVE discovery (not the manifest) — shows what the next compile would use
 				const { modules, shadows } = discoverModules(ws.root, ws.pkg);
 				const shadowed = new Map(shadows.map((sh) => [sh.name, sh]));
