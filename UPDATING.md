@@ -20,6 +20,39 @@ npx dreamteamer check
 
 ---
 
+## 0.28.0 → next (unreleased): containers
+
+**Additive. Nothing to do in an existing workspace.** Every record verb behaves as before.
+
+### `dt` is a second bin name
+
+`npm i -g dreamteamer` now puts both `dreamteamer` and `dt` on PATH.
+
+### A workspace as a container — `containers` and `images`, over the Docker Engine API
+
+Two driver-backed collections that need no workspace at all:
+
+```bash
+npm i -g dreamteamer
+dt setup                                        # checks Docker, writes ~/.dreamteamer/.env defaults
+dt start container hq-dana --template hq      # create-if-absent + start → http://localhost:8100/?folder=/workspace
+dt list containers · dt get container hq-dana · dt stop container hq-dana · dt rm container hq-dana [--force]
+dt list images · dt add image --template hq · dt rm image <ref>
+```
+
+- A template is an IMAGE carrying `dreamteamer.template`, `dreamteamer.ports` and `dreamteamer.modules`
+  labels; `--template hq` resolves to `<DT_REGISTRY>/hq:<DT_TEMPLATE_TAG>`, or to `DT_IMAGE_hq` when the
+  host `.env` pins one.
+- Host ports start at `DT_PORT_BASE` (8100) on `DT_BIND` (127.0.0.1) — loopback only.
+- Three named volumes per container: `dreamteamer-<name>-workspace`, `dreamteamer-<name>-home`, `dreamteamer-<name>-files`. Plain
+  `rm` keeps them; `--force` removes them.
+- **No token is ever injected.** The person logs in to their coding agent inside the container, once;
+  the home volume keeps the login.
+- `dt start` with no target still serves the REST api. `dt start tasks` (a record collection) is
+  refused by name rather than answered with "unknown collection".
+- No new dependency: `node:http` over the Docker socket (a named pipe on Windows). `DT_DOCKER_SOCKET`
+  overrides the socket path.
+
 ## 0.25.1 → 0.26.0
 
 **Additive, and nothing to do. A bare command behaves exactly as it did on 0.25.1.**

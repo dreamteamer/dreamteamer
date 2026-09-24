@@ -16,6 +16,7 @@ import { findWorkspace } from './workspace.js';
 import { compile, staleness, warnIfStale, discoverModules, CHANNEL_LABEL, locationOf, KINDS } from './compile.js';
 import { check } from './check.js';
 import { collectionCommand, emit, relationsCommand, parseArgs, refuseUnknownFlags } from './collections-cli.js';
+import { driverTarget, driverCommand, setup as hostSetup, parseFlags as hostFlags, DRIVER_VERBS, LIFECYCLE_VERBS, CONTAINER_FLAGS } from './containers.js';
 import { init, installClone, update, listRepos } from './init.js';
 import { installCommand, describeCheckout, listWorktrees, worktreeCommand } from './checkout.js';
 import { proveCommand, readLedger, flagEnabled } from './prove.js';
@@ -232,6 +233,24 @@ workspace verbs:
               and one \`proofs:\` line counting each proof's LAST verdict on this machine
               [--strict] exit 1 when any proof's ledger tail is a FAIL
   start       serve the clean REST api at /api [--port <n>]
+
+containers — a workspace as a running container (Docker Engine API over its socket, no dependency;
+these verbs work with NO workspace, so npm i -g dreamteamer and Docker Desktop are enough):
+  setup       make THIS MACHINE ready: checks Docker, writes ~/.dreamteamer/.env with its defaults
+              (DT_PORT_BASE 8100 · DT_BIND 127.0.0.1 · DT_REGISTRY · DT_TEMPLATE_TAG), lists the
+              templates present, pulls one on request [--template <t>] [--json]
+  start       container <name> --template <t>   create-if-absent and start: a code-server editor at
+              http://localhost:<port>/?folder=/workspace over a compiled workspace, three named volumes
+              (workspace · home · files), image <DT_REGISTRY>/<template>:<tag> or DT_IMAGE_<template>.
+              Idempotent. NO token is ever injected — log in INSIDE, once; the home volume keeps it.
+              [--name <git name>] [--email <git email>] [--no-open] [--json]
+  stop        container <name>                  stop it; every volume kept [--json]
+  open        container <name>                  print (and open) its editor URL [--no-open]
+  list        containers | images               the record verbs, answered over Docker instead of a
+  get         container <name> | image <ref>    folder — singular or plural, either spelling.
+  rm          container <name> [--force]        plain rm keeps the volumes; --force removes them too
+  add         image --template <t>              pull a template's image; rm image <ref> removes one
+
   changes     what changed in every repo that holds records, as record events
               [--since <sha|YYYY-MM-DD>] (default: HEAD~1 — the last commit's own changes) [--json]
   commit      publish records already written to disk: samples git status over every
@@ -286,7 +305,10 @@ export const GLOBAL_FLAGS = ['vault'];
 export const WORKSPACE_FLAGS = {
 	init: ['name', 'data-path', 'harnesses', 'workspace-module'], update: [],
 	install: ['clone', 'dry-run', 'json', 'link-env', 'all', 'hook', 'print-adapters'],
-	start: ['port'], compile: ['watch'], check: [], status: ['strict'],
+	// `start` is TWO forms: bare, the REST api (--port); with a `container <name>` target, the
+	// lifecycle verb — whose flags are the driver's. One table, because `flags-honoured` reads it.
+	start: ['port', ...CONTAINER_FLAGS], compile: ['watch'], check: [], status: ['strict'],
+	setup: ['template', 'json'], stop: ['json'], open: ['json', 'no-open'],
 	changes: ['since', 'json'], commit: ['dry-run', 'json'],
 	export: EXPORT_FLAGS,
 	// the UNION of every form's flags — the outer typo gate. Which flags each FORM takes is refused
@@ -299,6 +321,15 @@ export const WORKSPACE_FLAGS = {
 export function run(argv) {
 	const [cmd, ...rest] = argv;
 	try {
+		// HOST VERBS resolve BEFORE workspace discovery: `setup`, and any verb whose target is a
+		// driver collection (`containers`, `images`, singular or plural). They answer identically on a
+		// bare machine — `npm i -g dreamteamer` and Docker Desktop, nothing else — and inside a
+		// workspace, because the thing they make IS the workspace (src/containers.js).
+		const host = hostDispatch(cmd, rest);
+		if (host) {
+			host.then((code) => process.exit(code)).catch((e) => { console.error(`✖ ${e.message}`); process.exit(1); });
+			return;
+		}
 		if (cmd in WORKSPACE_FLAGS) {
 			const bad = rest.filter((a) => a.startsWith('--')).map((a) => a.slice(2).split('=')[0]).find((f) => !WORKSPACE_FLAGS[cmd].includes(f));
 			if (bad) throw new Error(`unknown flag "--${bad}" on \`dt ${cmd}\`\n  known: ${WORKSPACE_FLAGS[cmd].map((f) => `--${f}`).join(', ') || '(none — this verb takes no flags)'}`);
@@ -315,7 +346,9 @@ export function run(argv) {
 			for (let i = 0; i < rest.length; i++) if (rest[i].startsWith('--')) flags[rest[i].slice(2)] = rest[i + 1];
 			process.exit(init({ flags }));
 		}
-		if (!cmd) {
+		if (!cmd || cmd === 'help') {
+			// `help` works OUTSIDE a workspace too — the host verbs above do, and a person who just ran
+			// `npm i -g dreamteamer` on a bare machine has nothing else to read.
 			emit(USAGE);
 			process.exit(0);
 		}
@@ -726,6 +759,25 @@ export function run(argv) {
 		if (process.argv.includes('--hook')) console.log(`✖ ${e.message}`);
 		process.exit(1);
 	}
+}
+
+/** The verbs that run with no workspace. Returns a promise of an exit code, or null when the
+ *  command is not ours and the ordinary workspace dispatch should take it. */
+function hostDispatch(cmd, rest) {
+	if (cmd === 'setup') {
+		const bad = rest.filter((a) => a.startsWith('--')).map((a) => a.slice(2).split('=')[0]).find((f) => !WORKSPACE_FLAGS.setup.includes(f));
+		if (bad) throw new Error(`unknown flag "--${bad}" on \`dt setup\`\n  known: ${WORKSPACE_FLAGS.setup.map((f) => `--${f}`).join(', ')}`);
+		return hostSetup(hostFlags(rest).flags);
+	}
+	const target = driverTarget(rest[0]);
+	if (target && DRIVER_VERBS.has(cmd)) return driverCommand(cmd, target, rest.slice(1));
+	// A lifecycle verb aimed at anything else is refused by name: `dt start tasks` is not a
+	// server and not a container, and "unknown collection" would send the reader the wrong way.
+	if (LIFECYCLE_VERBS.has(cmd) && rest[0] && !rest[0].startsWith('--')) {
+		return Promise.reject(new Error(`\`${cmd}\` is a container lifecycle verb — "${rest[0]}" is not a container. dt ${cmd} container <name>${cmd === 'start' ? ' --template <t>' : ''}${cmd === 'start' ? '; a bare `dt start` serves the REST api' : ''}`));
+	}
+	if (cmd === 'stop' || cmd === 'open') return Promise.reject(new Error(`dt ${cmd} container <name> — see \`dreamteamer help\``));
+	return null;
 }
 
 /** Translate `dt <verb> <target> …` into the noun-verb call the implementation layer takes. */

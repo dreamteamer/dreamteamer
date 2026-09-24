@@ -32,7 +32,7 @@ const LAYERS = {
 	// the workspace compiler and the harness surface
 	workspace: ['compile', 'harnesses', 'schema-ops', 'init', 'record-commands', 'semver', 'export-notebooklm', 'checkout', 'prove', 'land'],
 	// entry points; span both halves by definition (cli, http, descriptor→UI read model)
-	surface: ['cli', 'collections-cli', 'server', 'presentation'],
+	surface: ['cli', 'collections-cli', 'server', 'presentation', 'containers'],
 };
 
 // who may import whom. `record` and `boundary` are the constrained half; surfaces are free.
