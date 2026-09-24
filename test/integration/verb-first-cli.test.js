@@ -433,8 +433,12 @@ describe('workspace verbs keep their spellings', () => {
 		// server died on EADDRINUSE, and hung on a CI runner where the port was free. It is still
 		// required to be documented by the second loop below, which only reads the set.
 		const SERVES_FOREVER = new Set(['start']);
+		// `setup` is a HOST verb: bare, it probes the Docker socket and writes ~/.dreamteamer/.env on
+		// the machine running the suite. Its dispatch is pinned in containers.test.js under DT_HOME
+		// and a fake socket; running it here would touch the developer's real home.
+		const TOUCHES_THE_HOST = new Set(['setup']);
 		for (const verb of documented) {
-			if (SERVES_FOREVER.has(verb)) continue;
+			if (SERVES_FOREVER.has(verb) || TOUCHES_THE_HOST.has(verb)) continue;
 			const res = ws.dt(verb);
 			// A documented verb answers with its OWN complaint (a missing target, a missing flag) or
 			// succeeds — never with "unknown verb", which is the only failure this asserts against.
