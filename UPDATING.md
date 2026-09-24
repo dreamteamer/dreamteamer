@@ -20,9 +20,17 @@ npx dreamteamer check
 
 ---
 
-## 0.28.0 → next (unreleased): containers
+## 0.27.0 → 0.28.0
 
-**Additive. Nothing to do in an existing workspace.** Every record verb behaves as before.
+**Additive. Nothing to do in an existing workspace.** Every record verb behaves as before; `dt compile`
+once, as always.
+
+### A root `dreamteamer.md` is a compile source
+
+A `dreamteamer.md` at the workspace root renders VERBATIM into every harness instruction file
+(`CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, the Cursor rules) — one place for the operator's own standing
+text, carried to every harness. compile refuses a `dreamteamer.md` that quotes a managed marker,
+because the file would then be rewriting the block that writes it.
 
 ### `dt` is a second bin name
 
