@@ -57,7 +57,12 @@ if (!files.length) {
 }
 
 const reporter = flag('verbose') ? 'spec' : join(ROOT, 'scripts', 'test-reporter.mjs');
-const nodeArgs = ['--test', `--test-reporter=${reporter}`];
+// A FILE that hangs is a FAILURE, never a wait. `--test-timeout` bounds each top-level test, and
+// with files on the command line a top-level test IS a file — so this is a per-file cap. Ten
+// minutes: measured 2026-09-24, the slowest file alone is prove at 75 s, land 53 s, commit 43 s,
+// and under 8-way concurrency they run ~3× slower (120 s cut all three off). Per-COMMAND timers
+// live in test/helpers/ws.js (SPAWN_TIMEOUT_MS); this is the backstop above them.
+const nodeArgs = ['--test', `--test-reporter=${reporter}`, '--test-timeout=600000'];
 if (namePattern) nodeArgs.push(`--test-name-pattern=${namePattern}`);
 // Concurrency is the other half of "fast": tier-2 files each build their own workspace, and those
 // builds are independent. One process per file, as many at once as there are cores.

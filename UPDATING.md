@@ -25,6 +25,14 @@ npx dreamteamer check
 **Additive. `dt compile` once.** Two new collections appear in every workspace's runtime and nothing
 else about records changes.
 
+### Every request to Docker carries a timer
+
+Docker Desktop paused, or still starting, accepts its socket and never answers, and 0.28.0 waited
+on it forever — every container verb hung, and so did anything waiting on one. Now each request
+has an idle timer, `DT_DOCKER_TIMEOUT` seconds (default 30; `dt setup` appends the line to a host
+`.env` that lacks it), and a silent daemon fails the verb naming the knob. Idle, not total: a pull
+that keeps streaming progress is never cut off. `0` disables it.
+
 ### `containers` and `images` are collections with a driver
 
 `storage.driver: docker` is a new storage kind: the two nouns now have descriptors (`group: system`,
