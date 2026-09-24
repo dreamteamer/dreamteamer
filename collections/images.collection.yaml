@@ -1,0 +1,46 @@
+name: images
+description: >-
+  A template a workspace container is made from — a Docker image carrying the `dreamteamer.template`,
+  `dreamteamer.ports` and `dreamteamer.modules` labels — as the local Docker holds it.
+use_when: >-
+  choosing what a container runs — `dt list images` shows the templates present, `dt add image
+  --template <t>` pulls one, `dt rm image <ref>` removes one; a template is an IMAGE WITH LABELS, not
+  a record here, so there is nothing to author — publish an image with the labels and it appears
+# The second driver-backed collection (see containers.collection.yaml for what that means). `list` is
+# GET /images/json filtered to the template label, `get` an inspect, `add --template` a pull, `rm` a
+# delete. No records, no folder, no commit.
+storage:
+  driver: docker
+schema:
+  type: object
+  required: [image]
+  properties:
+    # ---- identity ----
+    image:
+      type: string
+      description: The image reference — `<registry>/<template>:<tag>`.
+    template:
+      type: string
+      description: The `dreamteamer.template` label — the word `--template` takes.
+    id:
+      type: string
+      description: Docker's image id.
+    # ---- what it runs ----
+    ports:
+      type: string
+      description: The `dreamteamer.ports` label — the in-container port the editor listens on (8080 by convention).
+    modules:
+      type: string
+      description: The `dreamteamer.modules` label — the modules the template installs, comma-separated.
+    # ---- size and time ----
+    size_mb:
+      type: integer
+      description: Image size in megabytes.
+    created:
+      type: string
+      format: date
+      description: When the image was built.
+order: 147
+list_fields: [template, image, size_mb, created]
+icon: layers
+group: system

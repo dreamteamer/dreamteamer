@@ -295,6 +295,7 @@ function buildCollectionsIndex(entries) {
 			// the domain listing — the visible failure rather than the silent one.
 			systemGroup: d.group === 'system',
 			generated: d.storage?.base === 'runtime',
+			driver: d.storage?.driver ?? null,
 			description: flat(d.description),
 			useWhen: flat(d.use_when),
 			module: d.module ?? '',
@@ -418,7 +419,10 @@ function collectionsSection(index, modules, workspaceModule) {
 	}
 	const sys = index.filter((c) => c.systemGroup);
 	const system = sys.filter((c) => c.generated).map((c) => c.name);
-	const kept = sys.filter((c) => !c.generated).map((c) => c.name);
+	const kept = sys.filter((c) => !c.generated && !c.driver).map((c) => c.name);
+	// A DRIVER collection is neither build output nor files: its verbs are answered by a driver over
+	// something that runs (Docker), so it gets its own clause rather than being called either.
+	const driven = sys.filter((c) => c.driver).map((c) => `${c.name} (${c.driver})`);
 	// ⚠ THIS LINE IS THE FIRST THING A SESSION READS about the system collections, and until 0.19.0
 	// it said "schema-ops only", which named an internal module and a grammar that no longer exists.
 	// It now names the VERBS and the one policy difference, because an agent that knows the verbs
@@ -428,7 +432,7 @@ function collectionsSection(index, modules, workspaceModule) {
 	// told "it is build output" — a sentence that was false of it and is false of the next data-backed
 	// system collection too, since the split is derived rather than naming one.
 	if (sys.length) {
-		lines.push('', `- system collections — the SAME verbs (add · set · rm · rename · list · get), plus \`dt add-field\`/\`set-field\`/\`rm-field\`/\`rename-field <collection>\`. A system write COMMITS ITSELF, in the repo holding the source; a record write does not (\`dt commit\` publishes).${system.length ? ` Never hand-edit \`.dreamteamer/\` — it is build output: ${system.join(' · ')}.` : ''}${kept.length ? ` Machinery whose records are real files you edit like any other: ${kept.join(' · ')}` : ''}`);
+		lines.push('', `- system collections — the SAME verbs (add · set · rm · rename · list · get), plus \`dt add-field\`/\`set-field\`/\`rm-field\`/\`rename-field <collection>\`. A system write COMMITS ITSELF, in the repo holding the source; a record write does not (\`dt commit\` publishes).${system.length ? ` Never hand-edit \`.dreamteamer/\` — it is build output: ${system.join(' · ')}.` : ''}${kept.length ? ` Machinery whose records are real files you edit like any other: ${kept.join(' · ')}.` : ''}${driven.length ? ` Answered by a DRIVER, not files — nothing under data/, nothing to commit, the same verbs plus start · stop · open: ${driven.join(' · ')}` : ''}`);
 	}
 	return lines;
 }

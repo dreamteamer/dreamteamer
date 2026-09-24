@@ -1,6 +1,6 @@
 {
 	"measured": "2026-09-08",
-	"note": "Budgets are ceilings, re-based 2026-09-07 on the operator's standing instruction: every budget carries at least 20% headroom over the measured value at that date, rounded up to the hundred. ⚠ The script's `--update` writes ~10% and drops the SURFACE ceilings to the measured count — those three are set by hand and left alone (surface.collections 11 keeps one slot above the ten `proofs` made; skills and agents keep theirs), and the three numeric ceilings are re-raised to the 20% line the first sentence promises. Raising one is still a deliberate act — do it in the same commit as the growth, and say why in the message. Headroom is not permission: the three questions (does the ENGINE read it · is this a recipe creeping into core · could a module do it instead) are owed whatever the number says. ⚠ Re-measured 2026-09-08 on the MERGED 0.22.0 tree (export + prove + land); all six ceilings still hold with the largest at 92% (code.total 9466/10300), so the combined release needed no budget raised.",
+	"note": "Budgets are ceilings, re-based 2026-09-07 on the operator's standing instruction: every budget carries at least 20% headroom over the measured value at that date, rounded up to the hundred. \u26a0 The script's `--update` writes ~10% and drops the SURFACE ceilings to the measured count \u2014 those three are set by hand and left alone (surface.collections 11 keeps one slot above the ten `proofs` made; skills and agents keep theirs), and the three numeric ceilings are re-raised to the 20% line the first sentence promises. Raising one is still a deliberate act \u2014 do it in the same commit as the growth, and say why in the message. Headroom is not permission: the three questions (does the ENGINE read it \u00b7 is this a recipe creeping into core \u00b7 could a module do it instead) are owed whatever the number says. \u26a0 Re-measured 2026-09-08 on the MERGED 0.22.0 tree (export + prove + land); all six ceilings still hold with the largest at 92% (code.total 9466/10300), so the combined release needed no budget raised. \u26a0 surface.collections 11 \u2192 13 on 2026-09-24: `containers` and `images`, the two docker-driver collections (decision: a container is the runtime a workspace runs in; the engine reads both \u2014 the driver answers their verbs, compile derives and checks them, the REST route dispatches on `storage.driver`; no module can add a storage driver or run before a workspace exists).",
 	"code": {
 		"total": 9496,
 		"comments": 5800,
@@ -22,7 +22,7 @@
 	"budgets": {
 		"code.total": 10300,
 		"code.decisions": 4300,
-		"surface.collections": 11,
+		"surface.collections": 13,
 		"surface.skills": 2,
 		"surface.agents": 2,
 		"prose.skill-lines": 4200

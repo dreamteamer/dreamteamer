@@ -69,7 +69,7 @@ describe('host mode — the verbs answer with NO workspace', () => {
 		const r = h.dt('start', 'container', 'hq-dana', '--template', 'hq', '--no-open');
 		assert.equal(r.code, 0, r.out);
 		assert.match(r.stdout, /✔ created hq-dana from dreamteamer\/hq:latest/);
-		assert.match(r.stdout, /http:\/\/localhost:8100\/\?folder=\/workspace/);
+		assert.match(r.stdout, /http:\/\/localhost:8100\/\?folder=\/workspaces\/hq-dana/);
 		const st = await fake.state();
 		const create = st.requests.find((q) => q.path.startsWith('/containers/create'));
 		assert.ok(create, 'no create request reached Docker');
@@ -77,9 +77,11 @@ describe('host mode — the verbs answer with NO workspace', () => {
 		assert.equal(create.body.Labels['dreamteamer.workspace'], 'hq-dana');
 		assert.equal(create.body.Labels['dreamteamer.template'], 'hq');
 		assert.deepEqual(create.body.HostConfig.PortBindings, { '8080/tcp': [{ HostIp: '127.0.0.1', HostPort: '8100' }] });
-		assert.deepEqual(create.body.HostConfig.Mounts.map((m) => `${m.Source}:${m.Target}`), ['dreamteamer-hq-dana-workspace:/workspace', 'dreamteamer-hq-dana-home:/home/node', 'dreamteamer-hq-dana-files:/files']);
+		assert.deepEqual(create.body.HostConfig.Mounts.map((m) => `${m.Source}:${m.Target}`), ['dreamteamer-hq-dana-workspace:/workspaces/hq-dana', 'dreamteamer-hq-dana-home:/home/node', 'dreamteamer-hq-dana-files:/files']);
 		assert.ok(create.body.Env.every((e) => !/CLAUDE|TOKEN|KEY/i.test(e)), `a credential-shaped env reached the container: ${create.body.Env}`);
 		assert.ok(create.body.Env.includes('GIT_AUTHOR_NAME=Test Person'));
+		assert.ok(create.body.Env.includes('DT_WORKSPACE_DIR=/workspaces/hq-dana'));
+		assert.equal(create.body.Labels['dreamteamer.workdir'], '/workspaces/hq-dana');
 		const started = st.requests.some((q) => /\/containers\/.+\/start$/.test(q.path));
 		assert.ok(started, 'created but never started');
 	});
@@ -196,7 +198,10 @@ describe('host mode — the verbs answer with NO workspace', () => {
 	test('open prints the editor URL (and refuses an absent container)', () => {
 		const r = h.dt('open', 'container', 'hq-dana', '--no-open');
 		assert.equal(r.code, 0, r.out);
-		assert.equal(r.stdout.trim(), 'http://localhost:8100/?folder=/workspace');
+		assert.equal(r.stdout.trim(), 'http://localhost:8100/?folder=/workspaces/hq-dana');
+		const attach = h.dt('open', 'container', 'hq-dana', '--vscode', '--no-open');
+		assert.equal(attach.code, 0, attach.out);
+		assert.equal(attach.stdout.trim(), `vscode-remote://attached-container+${Buffer.from('hq-dana').toString('hex')}/workspaces/hq-dana`);
 		const gone = h.dt('open', 'container', 'hq-nobody', '--no-open');
 		assert.equal(gone.code, 1);
 		assert.match(gone.stderr, /no container "hq-nobody"/);
@@ -262,6 +267,36 @@ describe('host mode — the verbs answer with NO workspace', () => {
 		for (const line of [/^ {2}setup {7}/m, /^ {2}start {7}container <name> --template <t>/m, /^ {2}stop {8}container <name>/m, /^ {2}open {8}container <name>/m, /--no-open/, /--force/, /DT_IMAGE_<template>/]) assert.match(help, line);
 	});
 
+	test('--mount adds bind and volume mounts beside the three; a mount aimed at an own volume is refused', async () => {
+		const r = h.dt('start', 'container', 'hq-mounts', '--template', 'hq', '--no-open', '--mount', `${h.dir}:/mnt/shared:ro`, '--mount', 'team-files:/files-team');
+		assert.equal(r.code, 0, r.out);
+		const create = (await fake.state()).requests.find((q) => q.path === '/containers/create?name=hq-mounts');
+		const extra = create.body.HostConfig.Mounts.slice(3);
+		assert.deepEqual(extra, [{ Type: 'bind', Source: h.dir, Target: '/mnt/shared', ReadOnly: true }, { Type: 'volume', Source: 'team-files', Target: '/files-team', ReadOnly: false }]);
+		assert.match(r.stdout, /mounts .*→\/mnt\/shared \(ro\), team-files→\/files-team/);
+		const d = JSON.parse(h.dt('get', 'container', 'hq-mounts').stdout);
+		assert.deepEqual(d.mounts, [`${h.dir}:/mnt/shared:ro`, 'team-files:/files-team']);
+		assert.equal(d.workspace_dir, '/workspaces/hq-mounts');
+		const bad = h.dt('start', 'container', 'hq-bad', '--template', 'hq', '--no-open', '--mount', 'x:/home/node');
+		assert.equal(bad.code, 1);
+		assert.match(bad.stderr, /--mount cannot target \/home\/node/);
+		const shape = h.dt('start', 'container', 'hq-bad', '--template', 'hq', '--no-open', '--mount', 'nocolon');
+		assert.equal(shape.code, 1);
+		assert.match(shape.stderr, /--mount takes <host-path\|volume>:<container-path>\[:ro\]/);
+	});
+
+	test('--repo hands the clone URL to the container as DT_REPO, and refuses a word that is not a URL', async () => {
+		const r = h.dt('start', 'container', 'hq-joined', '--template', 'hq', '--no-open', '--repo', 'https://github.com/example/hq-joined.git');
+		assert.equal(r.code, 0, r.out);
+		const create = (await fake.state()).requests.find((q) => q.path === '/containers/create?name=hq-joined');
+		assert.ok(create.body.Env.includes('DT_REPO=https://github.com/example/hq-joined.git'));
+		assert.match(r.stdout, /clones https:\/\/github\.com\/example\/hq-joined\.git on first start/);
+		assert.equal(JSON.parse(h.dt('get', 'container', 'hq-joined').stdout).repo, 'https://github.com/example/hq-joined.git');
+		const bad = h.dt('start', 'container', 'hq-bad2', '--template', 'hq', '--no-open', '--repo', 'not-a-url');
+		assert.equal(bad.code, 1);
+		assert.match(bad.stderr, /--repo takes a git URL or an absolute path/);
+	});
+
 	test('setup --json refuses an unknown flag like every other verb', () => {
 		const r = h.dt('setup', '--templte', 'hq');
 		assert.equal(r.code, 1);
@@ -316,5 +351,55 @@ describe('the no-dependency promise', () => {
 		const pkg = JSON.parse(fs.readFileSync(path.join(ENGINE_ROOT, 'package.json'), 'utf8'));
 		assert.deepEqual(Object.keys(pkg.dependencies).sort(), ['ajv', 'ajv-formats', 'express', 'fractional-indexing', 'js-yaml', 'yaml']);
 		assert.equal(pkg.bin.dt, 'bin/dreamteamer.js', 'the `dt` bin the four-line install promises');
+	});
+});
+
+// ⚠ SKIPPED 2026-09-24 on the operator's call — the in-process REST server beside a spawnSync-driven
+// CLI needs the same child-process treatment the fake Docker got; filed in the vault's rnd/issues.
+describe.skip('the REST route dispatches driver collections to Docker', () => {
+	test('GET list/get answer from the fake; every write is 405 with the CLI spelling; the descriptors are compiled with storage.driver', async () => {
+		const h = harness();
+		const fake = await startFakeDocker(h.sock, { images: h.images });
+		const ws = twoModuleWorkspace();
+		const containersYaml = fs.readFileSync(path.join(ws.root, '.dreamteamer', 'collections', 'containers.collection.yaml'), 'utf8');
+		assert.match(containersYaml, /^storage:\n(?:.*\n)*?\s+driver: docker/m);
+		assert.match(containersYaml, /^group: system$/m);
+		assert.match(fs.readFileSync(path.join(ws.root, '.dreamteamer', 'collections', 'images.collection.yaml'), 'utf8'), /driver: docker/);
+		// check and commit read zero records from a driver collection and say nothing about them
+		const check = ws.dt('check');
+		assert.equal(check.code, 0, check.stderr);
+		assert.doesNotMatch(check.stdout + check.stderr, /containers|images/);
+		const prevSock = process.env.DT_DOCKER_SOCKET;
+		process.env.DT_DOCKER_SOCKET = h.sock;
+		const { startServer } = await import('../../src/server.js');
+		const PORT = 8171;
+		const log = console.log; console.log = () => {};
+		const server = await startServer(ws, { port: PORT });
+		console.log = log;
+		try {
+			const base = `http://127.0.0.1:${PORT}/api`;
+			const list = await (await fetch(`${base}/collections/images/records`)).json();
+			assert.equal(list.total, 1);
+			assert.equal(list.records[0].template, 'hq');
+			assert.equal(list.records[0].id, HQ);
+			const none = await (await fetch(`${base}/collections/containers/records`)).json();
+			assert.deepEqual(none, { records: [], total: 0 });
+			assert.equal(spawnSync(process.execPath, [BIN, 'start', 'container', 'hq-rest', '--template', 'hq', '--no-open'], { cwd: ws.root, env: h.env, encoding: 'utf8' }).status, 0);
+			const one = await (await fetch(`${base}/collections/containers/records/hq-rest`)).json();
+			assert.equal(one.fields.name, 'hq-rest');
+			assert.equal(one.fields.workspace_dir, '/workspaces/hq-rest');
+			const missing = await fetch(`${base}/collections/containers/records/nobody`);
+			assert.equal(missing.status, 404);
+			const write = await fetch(`${base}/collections/containers/records`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'x' }) });
+			assert.equal(write.status, 405);
+			assert.match((await write.json()).error, /dt start container <name> --template <t>/);
+			// and an ordinary collection still answers from the store
+			const tasks = await (await fetch(`${base}/collections/tasks/records`)).json();
+			assert.equal(tasks.total, 0);
+		} finally {
+			await new Promise((r) => server.close(r));
+			if (prevSock === undefined) delete process.env.DT_DOCKER_SOCKET; else process.env.DT_DOCKER_SOCKET = prevSock;
+			await fake.close(); fs.rmSync(h.dir, { recursive: true, force: true });
+		}
 	});
 });

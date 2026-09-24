@@ -20,6 +20,41 @@ npx dreamteamer check
 
 ---
 
+## 0.28.0 → 0.29.0
+
+**Additive. `dt compile` once.** Two new collections appear in every workspace's runtime and nothing
+else about records changes.
+
+### `containers` and `images` are collections with a driver
+
+`storage.driver: docker` is a new storage kind: the two nouns now have descriptors (`group: system`,
+so they fold beside `repos`), appear in the compiled runtime and in the editor's tree, answer
+`GET /api/collections/containers/records` and `…/images/records` from Docker, and refuse every REST
+write with the CLI spelling (405). They have no records on disk — check, commit and the store read
+zero — and the orientation block says so in its own clause.
+
+### The workspace lives at `/workspaces/<name>`
+
+The dev-container convention replaces the fixed `/workspace`: the volume, the editor URL
+(`?folder=/workspaces/<name>`) and a VS Code attach all name the workspace. Containers made by 0.28.0
+keep their old path (the `dreamteamer.workdir` label is absent, so `dt get` reads the new convention
+for them and reports no workspace volume); recreate them with plain `rm` + `start` — the volumes
+survive.
+
+### `--repo`, `--mount`, `open --vscode`, and the public registry
+
+```bash
+dt start container hq-dana --template hq --repo https://github.com/example/hq-dana.git   # join an existing workspace
+dt start container hq-dana --template hq --mount ~/Shared:/mnt/shared:ro --mount team-files:/files-team
+dt open container hq-dana --vscode        # the Dev Containers attach URI — the host's VS Code inside the container
+```
+
+`DT_REGISTRY` now defaults to `ghcr.io/dreamteamer`, where the public images repo publishes `hq` and
+`hq-agents`; a host `.env` written by 0.28.0's `dt setup` keeps its `DT_REGISTRY=dreamteamer` line
+until you change it.
+
+### `dt set collections/<c> singular=<word>` is a settable scalar
+
 ## 0.27.0 → 0.28.0
 
 **Additive. Nothing to do in an existing workspace.** Every record verb behaves as before; `dt compile`

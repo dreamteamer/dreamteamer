@@ -22,6 +22,7 @@ import { sortRows } from './temporal.js';
 import { placementKey } from './fractional-index.js';
 import { commandsFor, recordResolver } from './record-commands.js';
 import { distinctValues } from './field-values.js';
+import { listContainers, listImages, inspectContainer, inspectImage, containerDetail } from './containers.js';
 
 
 export function startServer(ws, { port = 8080, host = '127.0.0.1' } = {}) {
@@ -77,6 +78,33 @@ export function startServer(ws, { port = 8080, host = '127.0.0.1' } = {}) {
 	// wildcard, a literal and a second wildcard in one pattern, so `/collections/a/b/records/c` has
 	// several readings and the router picks one. Encoding keeps the boundary explicit at the caller,
 	// which is the same reason references declare their namespace instead of having it inferred.
+	// A DRIVER collection (`storage.driver: docker`) has no records on disk: list and get are answered
+	// by the driver, and every write is refused with the verb that does it — the same interception the
+	// CLI performs, at the same surface, so the extension's tree and record views work without either
+	// side learning Docker. Wrapped in `driven` so an unreachable daemon is a 502 with its sentence,
+	// not a 500 from the store looking for a folder that never exists.
+	const driverOf = (name) => store.descriptors.get(name)?.storage?.driver;
+	const driven = (fn) => (req, res, next) => {
+		if (!driverOf(req.params.name)) return next();
+		fn(req, res).catch((e) => res.status(502).json({ error: e.message }));
+	};
+	api.get('/collections/:name/records', driven(async (req, res) => {
+		const rows = req.params.name === 'images' ? await listImages() : await listContainers();
+		res.json({ records: rows.map((r) => ({ ...r, id: r.name ?? r.image })), total: rows.length });
+	}));
+	api.get('/collections/:name/records/*id', driven(async (req, res) => {
+		const id = idParam(req);
+		const fields = req.params.name === 'images' ? await inspectImage(id) : (await inspectContainer(id).then((c) => c && containerDetail(c)));
+		if (!fields) return res.status(404).json({ error: `no ${req.params.name === 'images' ? 'image' : 'container'} "${id}"` });
+		res.json({ id, fields, path: null });
+	}));
+	for (const [method, route] of [['post', '/collections/:name/records'], ['patch', '/collections/:name/records/*id'], ['delete', '/collections/:name/records/*id'], ['patch', '/collections/:name/position/*id'], ['post', '/collections/:name/rename']]) {
+		api[method](route, (req, res, next) => {
+			if (!driverOf(req.params.name)) return next();
+			const noun = req.params.name === 'images' ? 'image' : 'container';
+			res.status(405).json({ error: `"${req.params.name}" is a ${driverOf(req.params.name)} driver collection — it is written with the CLI, not as a record: dt start ${noun} <name> --template <t> · dt stop ${noun} <name> · dt rm ${noun} <name>` });
+		});
+	}
 	api.get('/collections/:name/records', (req, res) => {
 		const d = store.descriptor(req.params.name);
 		const bf = bodyField(d);
