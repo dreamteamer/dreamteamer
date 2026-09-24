@@ -9,6 +9,10 @@
 // Everything here is deliberately synchronous. These are file and git operations in a throwaway
 // directory; async would buy nothing and make every test body noisier.
 import { execFileSync, spawnSync } from 'node:child_process';
+
+// Every CLI spawn is bounded. A hung `dt` then fails ITS test (status null, error ETIMEDOUT) instead
+// of hanging the whole suite — which is what a silent Docker socket did on 2026-09-24.
+export const SPAWN_TIMEOUT_MS = 60_000;
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -107,7 +111,7 @@ function buildBase(dir) {
 	git(dir, ['config', 'user.name', 'dreamteamer test']);
 	// through the real binary, because "what a user gets from `dreamteamer init`" is the thing
 	// every tier-2 test is implicitly asserting against
-	const res = spawnSync(process.execPath, [BIN, 'init'], { cwd: dir, env: GIT_ENV, encoding: 'utf8' });
+	const res = spawnSync(process.execPath, [BIN, 'init'], { cwd: dir, env: GIT_ENV, encoding: 'utf8', timeout: SPAWN_TIMEOUT_MS, killSignal: 'SIGKILL' });
 	if (res.status !== 0) throw new Error(`fixture init failed:\n${res.stdout}\n${res.stderr}`);
 	// THE ENGINE AS AN INSTALLED MODULE — without this the fixture has no `collections`, `ui-views`,
 	// `repos` or `modules` collection, because those are sources the engine CONTRIBUTES rather than
@@ -231,7 +235,7 @@ export function compileError(ws) {
 
 /** Run the real CLI in a workspace. Returns {code, stdout, stderr} — never throws on a non-zero exit. */
 export function dt(root, ...args) {
-	const res = spawnSync(process.execPath, [BIN, ...args], { cwd: root, env: GIT_ENV, encoding: 'utf8' });
+	const res = spawnSync(process.execPath, [BIN, ...args], { cwd: root, env: GIT_ENV, encoding: 'utf8', timeout: SPAWN_TIMEOUT_MS, killSignal: 'SIGKILL' });
 	return { code: res.status, stdout: res.stdout ?? '', stderr: res.stderr ?? '' };
 }
 
@@ -245,7 +249,7 @@ export function dt(root, ...args) {
  * is an ordinary place to stand.
  */
 export function dtIn(cwd, ...args) {
-	const res = spawnSync(process.execPath, [BIN, ...args], { cwd, env: GIT_ENV, encoding: 'utf8' });
+	const res = spawnSync(process.execPath, [BIN, ...args], { cwd, env: GIT_ENV, encoding: 'utf8', timeout: SPAWN_TIMEOUT_MS, killSignal: 'SIGKILL' });
 	return { code: res.status, stdout: res.stdout ?? '', stderr: res.stderr ?? '' };
 }
 
@@ -253,7 +257,7 @@ export function dtIn(cwd, ...args) {
  *  reach `--hook`. `spawnSync`'s `input:` closes the pipe at EOF, which is what `readFileSync(0)`
  *  on the other side is waiting for; a `dt()` run inherits the runner's stdin and would hang. */
 export function dtStdin(root, stdin, ...args) {
-	const res = spawnSync(process.execPath, [BIN, ...args], { cwd: root, env: GIT_ENV, encoding: 'utf8', input: stdin });
+	const res = spawnSync(process.execPath, [BIN, ...args], { cwd: root, env: GIT_ENV, encoding: 'utf8', input: stdin, timeout: SPAWN_TIMEOUT_MS, killSignal: 'SIGKILL' });
 	return { code: res.status, stdout: res.stdout ?? '', stderr: res.stderr ?? '' };
 }
 

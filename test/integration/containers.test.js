@@ -26,7 +26,11 @@ function startFakeDocker(sock, { images = [], plain = [] } = {}) {
 			const req = http.get({ socketPath: sock, path: '/_fake/state' }, (res) => { let b = ''; res.on('data', (c) => { b += c; }); res.on('end', () => ok(JSON.parse(b))); });
 			req.on('error', no);
 		});
-		const handle = { state, close: () => new Promise((ok) => { child.once('exit', () => ok()); child.kill(); }) };
+		const hangNext = () => new Promise((ok, no) => {
+			const req = http.request({ socketPath: sock, path: '/_fake/hang', method: 'POST' }, (res) => { res.resume(); res.on('end', ok); });
+			req.on('error', no); req.end();
+		});
+		const handle = { state, hangNext, close: () => new Promise((ok) => { child.once('exit', () => ok()); child.kill(); }) };
 	});
 }
 
@@ -37,9 +41,12 @@ function harness(images = [{ ref: HQ, labels: { 'dreamteamer.template': 'hq', 'd
 	const bare = path.join(dir, 'bare'); // a directory with NO workspace above it that git could find
 	fs.mkdirSync(bare, { recursive: true });
 	const env = { ...process.env, DT_DOCKER_SOCKET: sock, DT_HOME: home, DT_HEALTH_TIMEOUT: '0', DT_PERSON_NAME: 'Test Person', DT_PERSON_EMAIL: 'test@example.invalid' };
+	// Every spawn is bounded: a CLI that hangs fails THIS test with `code === null` instead of
+	// hanging the suite. A trailing object is an env override (`{ DT_DOCKER_TIMEOUT: '1' }`).
 	const dt = (...args) => {
-		const r = spawnSync(process.execPath, [BIN, ...args], { cwd: bare, env, encoding: 'utf8' });
-		return { code: r.status, stdout: r.stdout, stderr: r.stderr, out: r.stdout + r.stderr };
+		const extra = typeof args[args.length - 1] === 'object' ? args.pop() : {};
+		const r = spawnSync(process.execPath, [BIN, ...args], { cwd: bare, env: { ...env, ...extra }, encoding: 'utf8', timeout: 20_000, killSignal: 'SIGKILL' });
+		return { code: r.status, stdout: r.stdout, stderr: r.stderr, out: r.stdout + r.stderr + (r.error ? `\n[spawn] ${r.error.message}` : '') };
 	};
 	return { dir, sock, home, env, dt, images };
 }
@@ -177,7 +184,7 @@ describe('host mode — the verbs answer with NO workspace', () => {
 		assert.match(first.stdout, /docker\s+99\.0\.0-fake · api 1\.99/);
 		const envFile = path.join(h.home, '.env');
 		const text = fs.readFileSync(envFile, 'utf8');
-		for (const k of ['DT_PORT_BASE=8100', 'DT_BIND=127.0.0.1', 'DT_REGISTRY=ghcr.io/dreamteamer', 'DT_TEMPLATE_TAG=latest']) assert.ok(text.includes(k), `${k} missing from ${text}`);
+		for (const k of ['DT_PORT_BASE=8100', 'DT_BIND=127.0.0.1', 'DT_REGISTRY=ghcr.io/dreamteamer', 'DT_TEMPLATE_TAG=latest', 'DT_DOCKER_TIMEOUT=30']) assert.ok(text.includes(k), `${k} missing from ${text}`);
 		fs.appendFileSync(envFile, 'DT_PORT_BASE=9000\n');
 		const second = h.dt('setup');
 		assert.equal(second.code, 0, second.out);
@@ -316,6 +323,35 @@ describe('when Docker is not there', () => {
 			assert.equal(s.code, 1);
 			assert.match(s.stdout + s.stderr, /docker\s+✖/);
 		} finally { fs.rmSync(h.dir, { recursive: true, force: true }); }
+	});
+});
+
+describe('every request to Docker carries a timer', () => {
+	// The failure this exists for: Docker Desktop paused or still starting accepts the socket and
+	// never answers. Without a timer every driver verb — and anything that waits on it — hangs.
+	test('a daemon that accepts and never answers fails the verb within DT_DOCKER_TIMEOUT, naming the knob', async () => {
+		const h = harness();
+		const fake = await startFakeDocker(h.sock, { images: h.images });
+		try {
+			await fake.hangNext();
+			const t0 = Date.now();
+			const r = h.dt('list', 'containers', { DT_DOCKER_TIMEOUT: '1' });
+			const took = Date.now() - t0;
+			assert.equal(r.code, 1, r.out);
+			assert.match(r.stderr, /Docker did not answer within 1s/);
+			assert.match(r.stderr, /DT_DOCKER_TIMEOUT/);
+			assert.ok(took < 8000, `took ${took}ms`);
+			assert.deepEqual((await fake.state()).hung, [{ method: 'GET', path: '/containers/json' }]);
+		} finally { await fake.close(); fs.rmSync(h.dir, { recursive: true, force: true }); }
+	});
+	test('the timer is idle-based: a pull that keeps streaming progress is not cut off by it', async () => {
+		const h = harness([]);
+		const fake = await startFakeDocker(h.sock, { images: [] });
+		try {
+			const r = h.dt('add', 'image', '--template', 'hq', { DT_DOCKER_TIMEOUT: '1' });
+			assert.equal(r.code, 0, r.out);
+			assert.deepEqual((await fake.state()).pulls, [HQ]);
+		} finally { await fake.close(); fs.rmSync(h.dir, { recursive: true, force: true }); }
 	});
 });
 

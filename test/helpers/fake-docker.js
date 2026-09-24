@@ -20,6 +20,8 @@ export function startFakeDocker(socketPath, { images = [], plain = [] } = {}) {
 		containers: new Map(),              // id -> { Id, Name, Config, HostConfig, Mounts, State, Created }
 		volumesRemoved: [],
 		pulls: [],
+		hangNext: false,                    // POST /_fake/hang arms it: the next real request is accepted and never answered
+		hung: [],                           // { method, path } of every request left hanging, so a test can prove it arrived
 	};
 	let n = 0;
 	const addImage = (ref, labels = {}) => {
@@ -63,7 +65,11 @@ export function startFakeDocker(socketPath, { images = [], plain = [] } = {}) {
 			const json = (status, obj) => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(obj === undefined ? '' : JSON.stringify(obj)); };
 			const p = u.pathname;
 			let m;
-			if (p === '/_fake/state') return json(200, { requests: state.requests.slice(0, -1), pulls: state.pulls, volumesRemoved: state.volumesRemoved, containers: [...state.containers.values()], images: [...state.images.keys()] });
+			if (p === '/_fake/state') return json(200, { requests: state.requests.slice(0, -1), pulls: state.pulls, volumesRemoved: state.volumesRemoved, containers: [...state.containers.values()], images: [...state.images.keys()], hung: state.hung });
+			// A daemon that is paused or still starting accepts the connection and says nothing — the
+			// one failure mode a timer exists for. Armed per request so the suite stays deterministic.
+			if (p === '/_fake/hang') { state.hangNext = true; return json(204); }
+			if (state.hangNext) { state.hangNext = false; state.hung.push({ method: req.method, path: p }); return; }
 			if (p === '/version') return json(200, { Version: '99.0.0-fake', ApiVersion: '1.99', Os: 'linux', Arch: 'fake' });
 			if (p === '/_ping') { res.writeHead(200); return res.end('OK'); }
 			// images

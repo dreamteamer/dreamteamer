@@ -195,14 +195,15 @@ describe('rename-collection', () => {
 	// A re-suffix must keep each file's OWN extension: an opaque record's extension is part of what
 	// it IS, and renaming `.svg` into the collection's "one" extension would corrupt every record.
 	test('re-suffixes opaque records without touching their extensions', () => {
-		// `suffix: pic` is `singular('pics')`, which is what makes the rename re-derive it as `image`.
+		// `suffix: pic` is `singular('pics')`, which is what makes the rename re-derive it as `photo`.
+		// (Not `images`: that is a shipped system collection since 0.29.0, and the rename refuses it.)
 		const ws = workspace({ collections: { pics: { description: 'x', storage: { codec: 'file', suffix: 'pic' }, id: { pattern: '^[a-z/-]+$' } } } });
 		ws.dt('add', 'pics', 'a/star', '--from', source('x.svg', '<svg/>'));
 		ws.dt('add', 'pics', 'a/acme', '--from', source('y.png', 'p'));
-		const res = ws.dt('rename', 'collections/pics', 'images');
+		const res = ws.dt('rename', 'collections/pics', 'photos');
 		assert.equal(res.code, 0, res.stderr);
-		assert.ok(fs.existsSync(path.join(ws.root, 'data/images/a/star.image.svg')), 'svg kept its extension');
-		assert.ok(fs.existsSync(path.join(ws.root, 'data/images/a/acme.image.png')), 'png kept its extension');
+		assert.ok(fs.existsSync(path.join(ws.root, 'data/photos/a/star.photo.svg')), 'svg kept its extension');
+		assert.ok(fs.existsSync(path.join(ws.root, 'data/photos/a/acme.photo.png')), 'png kept its extension');
 		assert.equal(ws.dt('check').code, 0);
 	});
 });

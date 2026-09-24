@@ -21,6 +21,14 @@
 // `.dreamteamer/collections` either — these two nouns resolve HERE, ahead of workspace discovery,
 // so `dt list containers` answers identically inside a workspace and on a bare host.
 //
+// EVERY REQUEST CARRIES A TIMER. Docker Desktop paused, or still starting, ACCEPTS the socket and
+// says nothing — and a client with no timer then hangs every verb, and everything waiting on it,
+// forever (measured 2026-09-24: a fake that accepts and never answers held `dt list containers`
+// until the harness killed it at 20 s). So `api()` sets an IDLE timer of `DT_DOCKER_TIMEOUT`
+// seconds (default 30, host `.env` or env) on the socket: idle, not total, so a pull that keeps
+// streaming progress lines is never cut off, while a silent daemon fails the verb with the knob
+// named. `DT_HEALTH_TIMEOUT` (default 90) bounds the other wait, code-server's /healthz.
+//
 // TEST KNOBS, stated once: `DT_DOCKER_SOCKET` points the client at any socket (a fake in tests);
 // `DT_HOME` relocates `~/.dreamteamer`; `DT_HEALTH_TIMEOUT=0` skips the wait for code-server's
 // /healthz. None is documented in help — they are how the suite drives this file without Docker.
@@ -56,6 +64,7 @@ export const HOST_DEFAULTS = {
 	DT_BIND: '127.0.0.1',       // loopback only; a remote tier puts auth in front before this changes
 	DT_REGISTRY: 'ghcr.io/dreamteamer', // `<registry>/<template>:<tag>` is the image a template name resolves to — the public images repo publishes here
 	DT_TEMPLATE_TAG: 'latest',
+	DT_DOCKER_TIMEOUT: '30',    // seconds a request to Docker may sit IDLE before the verb fails — see the header
 };
 
 export function hostDir() { return process.env.DT_HOME ?? path.join(os.homedir(), '.dreamteamer'); }
@@ -87,8 +96,15 @@ function unreachable(sock) {
 
 /** One request. Resolves { status, body } where body is parsed JSON when the response is JSON,
  *  else the raw text. `onLine` receives each JSON line of a streaming response (a pull). */
+/** Seconds a request may sit idle before it fails; 0 disables — `DT_DOCKER_TIMEOUT`, env over file over default. */
+export function dockerTimeoutSeconds() {
+	const n = Number(hostEnv().DT_DOCKER_TIMEOUT);
+	return Number.isFinite(n) && n >= 0 ? n : Number(HOST_DEFAULTS.DT_DOCKER_TIMEOUT);
+}
+
 export function api(method, urlPath, body, { onLine } = {}) {
 	const sock = socketPath();
+	const seconds = dockerTimeoutSeconds();
 	return new Promise((resolve, reject) => {
 		const payload = body === undefined ? undefined : JSON.stringify(body);
 		const req = http.request({
@@ -114,6 +130,9 @@ export function api(method, urlPath, body, { onLine } = {}) {
 			});
 		});
 		req.on('error', (e) => reject(e.code === 'ENOENT' || e.code === 'ECONNREFUSED' ? unreachable(sock) : e));
+		// idle-based: fires only when NOTHING has moved on the socket for `seconds` — a streaming
+		// pull resets it with every progress line, a paused daemon never does
+		if (seconds) req.setTimeout(seconds * 1000, () => req.destroy(new Error(`${method} ${urlPath}: Docker did not answer within ${seconds}s — is Docker Desktop paused or still starting? DT_DOCKER_TIMEOUT=<seconds> in ${path.join(hostDir(), '.env')} changes the wait (0 disables it)`)));
 		if (payload) req.write(payload);
 		req.end();
 	});

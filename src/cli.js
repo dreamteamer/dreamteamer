@@ -247,8 +247,9 @@ workspace verbs:
 containers — a workspace as a running container (Docker Engine API over its socket, no dependency;
 these verbs work with NO workspace, so npm i -g dreamteamer and Docker Desktop are enough):
   setup       make THIS MACHINE ready: checks Docker, writes ~/.dreamteamer/.env with its defaults
-              (DT_PORT_BASE 8100 · DT_BIND 127.0.0.1 · DT_REGISTRY · DT_TEMPLATE_TAG), lists the
-              templates present, pulls one on request [--template <t>] [--json]
+              (DT_PORT_BASE 8100 · DT_BIND 127.0.0.1 · DT_REGISTRY · DT_TEMPLATE_TAG ·
+              DT_DOCKER_TIMEOUT 30 — seconds a request to Docker may sit idle before the verb
+              fails), lists the templates present, pulls one on request [--template <t>] [--json]
   start       container <name> --template <t>   create-if-absent and start: a code-server editor at
               http://localhost:<port>/?folder=/workspace over a compiled workspace, three named volumes
               (workspace · home · files), image <DT_REGISTRY>/<template>:<tag> or DT_IMAGE_<template>.
