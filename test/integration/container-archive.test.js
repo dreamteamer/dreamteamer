@@ -341,6 +341,26 @@ describe('export and import a container\'s workspaces', () => {
 		assert.ok(!zlib.gunzipSync(fs.readFileSync(out('names.tgz'))).includes('SECRET-MARKER'), 'a marker is in the archive');
 	});
 
+	test('.git/config: userinfo cut from [url "…"] section names, every [credential] section dropped, extraheader dropped, the rest kept', () => {
+		const config = [
+			'[core]', '\tbare = false',
+			'[url "https://dana:tok-one@example.invalid/"]', '\tinsteadOf = https://example.invalid/',
+			'[credential]', '\thelper = "!f() { echo password=tok-two; }; f"',
+			'[Credential "https://example.invalid"]', '\tusername = dana', '\thelper = store',
+			'[credential.https://other.invalid]', '\thelper = tok-three',
+			'[http]', '\textraheader = AUTHORIZATION: bearer tok-four',
+			'[user]', '\tname = Dana', '',
+		].join('\n');
+		put('hq-dana', 'workspaces/hq-dana/.git/config', config);
+		assert.equal(dt('export', 'container', 'hq-dana', '--out', out('gc.tgz'), '--no-encrypt').code, 0);
+		const cfg = spawnSync('tar', ['-xzOf', out('gc.tgz'), 'hq-dana/.git/config'], { encoding: 'utf8' }).stdout;
+		assert.doesNotMatch(cfg, /tok-(one|two|three|four)/);
+		assert.doesNotMatch(cfg, /credential|helper|username|extraheader/i);
+		assert.match(cfg, /\[url "https:\/\/example\.invalid\/"\]\n\tinsteadOf = https:\/\/example\.invalid\//);
+		assert.match(cfg, /\[core\]\n\tbare = false/);
+		assert.match(cfg, /\[user\]\n\tname = Dana/);
+	});
+
 	test('an unknown flag is refused, not swallowed', () => {
 		const r = dt('export', 'container', 'hq-dana', '--out', out('u.tgz'), '--no-encrpyt');
 		assert.equal(r.code, 1);

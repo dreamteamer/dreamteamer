@@ -28,9 +28,11 @@ file      = gzip(tar)                  --no-encrypt: a plain .tar.gz, told apart
 - Secrets, unless the owner exports with `--with-secrets`: at any depth, no file named `.env`, no
   `.env.<anything>` except `.env.example`, `.env.sample` and `.env.template`, no `.envrc`, `.npmrc`,
   `.netrc`, `.git-credentials` or `.pypirc`, and no `config.json` inside a `.docker` folder. Every
-  `…/.git/config` is rewritten — the userinfo cut from `url`/`pushurl` values
-  starting `http://` or `https://` (`https://user:token@host/x` → `https://host/x`; ssh remotes are
-  untouched) and every `extraheader` line removed. An importer need not repeat this; a writer must.
+  `…/.git/config` is rewritten: every `[credential]` and `[credential "…"]` (or
+  `[credential.…]`) section removed, header to next header — an inline `!` helper can hold a
+  password; every `extraheader` line removed; and the userinfo cut from every `http://`/`https://`
+  URL anywhere in the file, section names included (`[url "https://user:token@host/"]` →
+  `[url "https://host/"]`). ssh remotes are untouched. An importer need not repeat this; a writer must.
 - Ends with two zero blocks.
 
 ## The sealed envelope
