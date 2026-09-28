@@ -10,6 +10,9 @@
 // [<images-json>]` starts one and prints `ready`; the test reads its state over the same socket at
 // GET /_fake/state, asynchronously, between spawnSync calls.
 import http from 'node:http';
+import fs from 'node:fs';
+import path from 'node:path';
+import { spawn } from 'node:child_process';
 import { URL } from 'node:url';
 import { fileURLToPath } from 'node:url';
 
@@ -58,7 +61,37 @@ export function startFakeDocker(socketPath, { images = [], plain = [] } = {}) {
 			: [],
 	});
 
+	// A container's FILES live in a real folder, `$FAKE_DOCKER_FS/<container name>/` standing for its
+	// `/`, and GET/PUT …/archive are the system `tar` over it — so the driver's tar handling is checked
+	// against a real tar on both ends, not against a second implementation of its own.
+	const fsRoot = process.env.FAKE_DOCKER_FS;
+	const inside = (c, p) => path.join(fsRoot, c.Name.slice(1), path.posix.normalize(p));
+	const archive = (req, res, u, c) => {
+		const at = u.searchParams.get('path');
+		state.requests.push({ method: req.method, path: u.pathname + u.search });
+		const dir = inside(c, at);
+		const tar = (args, cwd) => spawn('tar', args, { cwd, env: { ...process.env, COPYFILE_DISABLE: '1' }, stdio: ['pipe', 'pipe', 'inherit'] });
+		if (req.method === 'PUT') {
+			if (!fs.existsSync(dir)) { res.writeHead(404, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ message: `Could not find the file ${at} in container` })); }
+			const t = tar(['-xf', '-'], dir);
+			req.pipe(t.stdin);
+			t.stdout.resume();
+			return t.on('close', (code) => { res.writeHead(code === 0 ? 200 : 500, { 'Content-Type': 'application/json' }); res.end(code === 0 ? '' : JSON.stringify({ message: `tar exited ${code}` })); });
+		}
+		req.resume();
+		if (!fs.existsSync(dir)) { res.writeHead(404, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ message: `Could not find the file ${at} in container` })); }
+		res.writeHead(200, { 'Content-Type': 'application/x-tar' });
+		tar(['-cf', '-', path.basename(dir)], path.dirname(dir)).stdout.pipe(res);
+	};
+
 	const server = http.createServer((req, res) => {
+		const au = new URL(req.url, 'http://docker');
+		const am = au.pathname.match(/^\/containers\/([^/]+)\/archive$/);
+		if (am && fsRoot) {
+			const c = byIdOrName(decodeURIComponent(am[1]));
+			if (!c) { req.resume(); res.writeHead(404, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ message: 'No such container' })); }
+			return archive(req, res, au, c);
+		}
 		let raw = '';
 		req.on('data', (d) => { raw += d; });
 		req.on('end', () => {
@@ -134,6 +167,16 @@ export function startFakeDocker(socketPath, { images = [], plain = [] } = {}) {
 				else if (cmd === 'dt-url-token' && features) {
 					if (e.User !== 'root') { err = 'dt-url-token: run as root\n'; e.code = 1; }
 					else { if (arg === 'rotate' || !state.tokens[e.container]) state.tokens[e.container] = `tok${++n}${'x'.repeat(40)}`.slice(0, 43); out = `${state.tokens[e.container]}\n`; }
+				} else if (fsRoot && cmd === 'cat' && arg === '/proc/mounts') {
+					// as a container sees it: its own layer at `/`, a real filesystem at each mount
+					out = ['overlay / overlay rw 0 0', ...(c.Mounts ?? []).map((mt) => `/dev/vda1 ${mt.Destination} ext4 rw 0 0`)].join('\n') + '\n';
+				} else if (fsRoot && cmd === 'find') {
+					const dir = inside(c, arg);
+					if (!fs.existsSync(dir)) { err = `find: '${arg}': No such file or directory\n`; e.code = 1; }
+					else if (e.Cmd.includes('-delete')) { if (e.User !== 'root') { err = 'find: Permission denied\n'; e.code = 1; } else for (const f of fs.readdirSync(dir)) fs.rmSync(path.join(dir, f), { recursive: true, force: true }); }
+					else { const first = fs.readdirSync(dir)[0]; if (first) out = `${arg}/${first}\n`; }
+				} else if (fsRoot && cmd === 'chown') {
+					if (e.User !== 'root') { err = 'chown: Operation not permitted\n'; e.code = 1; }
 				} else { err = `exec: "${cmd}": executable file not found in $PATH\n`; e.code = 126; }
 				// Docker's multiplexed stream: [stream, 0, 0, 0, length BE] then the bytes
 				const frame = (stream, text) => { const b = Buffer.from(text); const h = Buffer.alloc(8); h[0] = stream; h.writeUInt32BE(b.length, 4); return Buffer.concat([h, b]); };
