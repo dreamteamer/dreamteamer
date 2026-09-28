@@ -262,6 +262,7 @@ function checkEntry(e, only, found) {
 	}
 	if (only.size && !only.has(segs[0])) return null;
 	found.add(segs[0]);
+	if (segs.length === 2 && segs[1] === 'package.json' && e.type === FILE) found.add(`${segs[0]}/package.json`);
 	return e.type === DIR ? `${rel}/` : rel;
 }
 
@@ -281,6 +282,8 @@ export async function importContainer(name, file, flags, log = console.log) {
 	// pass 1: every chunk authenticated and every entry checked before anything is written
 	const found = new Set();
 	await pipeline(...read(found), async (src) => { for await (const _ of src); });
+	const installs = [...found].filter((w) => w.endsWith('/package.json')).map((w) => `${ROOT}/${w.split('/')[0]}`);
+	for (const w of [...found]) if (w.includes('/')) found.delete(w);
 	const missing = [...only].filter((w) => !found.has(w));
 	if (missing.length) throw new Error(`the export holds no workspace ${missing.join(', ')} — it holds ${[...found].join(', ') || 'none'}`);
 	if (!found.size) throw new Error(`${file} holds no workspace`);
@@ -300,6 +303,9 @@ export async function importContainer(name, file, flags, log = console.log) {
 	const own = await exec(name, ['chown', '-R', 'node:node', ...targets], { user: 'root' });
 	if (own.code !== 0) throw new Error(`chown of ${targets.join(' ')} failed (exit ${own.code}) — ${own.stderr.trim()}`);
 	log(`✔ imported ${targets.join(', ')} into ${name}${full.length ? ` · replaced ${full.join(', ')}` : ''} · owned by node`);
+	// principle 3: an install runs code the workspace chose (lifecycle scripts, a pinned engine), so
+	// import names the step and the person takes it
+	if (installs.length) log(`next, in ${installs.join(', ')}: npm ci && npx dreamteamer compile — import ran neither (both run code the workspace chose)`);
 	return 0;
 }
 
