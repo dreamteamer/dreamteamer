@@ -229,8 +229,11 @@ export function parseMount(spec) {
 /** The URI VS Code on the host opens to attach to this container (Dev Containers extension). The
  *  container name is hex-encoded, as the extension spells it. */
 export const attachUri = (name) => `vscode-remote://attached-container+${Buffer.from(name, 'utf8').toString('hex')}${workspaceDir(name)}`;
-/** Each container gets its OWN user-defined bridge, so two workspaces on one machine cannot reach
- *  each other's ports the way two containers on Docker's default bridge can. */
+/** Each container gets its OWN user-defined bridge, so it shares no network with another
+ *  workspace and its network carries its name. That is NOT isolation on its own: measured 2026-09-28
+ *  on Docker Desktop 29.3.1, a container on one user-defined bridge reaches another's by IP and via
+ *  host.docker.internal:<its published port>. What isolates is the image's egress firewall (see
+ *  CapAdd below); the bridge still helps where the platform does separate bridges. */
 export const networkName = (name) => `dreamteamer-${name}`;
 const volumeNames = (name) => ({ workspace: `dreamteamer-${name}-workspace`, home: `dreamteamer-${name}-home`, files: `dreamteamer-${name}-files` });
 
@@ -362,7 +365,12 @@ export async function startContainer(name, flags, log = console.log) {
 					...extra,
 				],
 				RestartPolicy: { Name: 'unless-stopped' },
-				NetworkMode: network.net, // its own bridge ONLY — never the default one
+				NetworkMode: network.net, // its own bridge ONLY — never the default one; naming, not the isolation
+				// NET_ADMIN, and nothing else, for the image's ROOT phase: the entrypoint applies the local
+				// egress policy (what the container may reach — not another workspace, not the host's
+				// published ports) before it drops to the editor and agents, which run with NO capabilities,
+				// so none of them can change the rules. Separate bridges alone do not isolate (above).
+				CapAdd: ['NET_ADMIN'],
 			},
 		};
 		// A create Docker refuses must not leave this attempt's debris: the network ensureNetwork just

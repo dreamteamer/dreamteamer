@@ -30,8 +30,16 @@ volumes survive).
 
 `dt start container <name>` creates a user-defined bridge `dreamteamer-<name>` (labels `dreamteamer=1`,
 `dreamteamer.name=<name>`) and attaches the container to it ONLY — two workspaces on one machine no
-longer share Docker's default bridge. `dt rm container` removes it. A network of that name that
-dreamteamer did not make is refused rather than joined.
+longer share Docker's default bridge. `dt rm container` removes it, and a create Docker refuses
+removes the network and volumes that attempt made. A network of that name that dreamteamer did not
+make is refused rather than joined.
+
+The network alone does NOT isolate one workspace from another: on Docker Desktop (measured 29.3.1)
+a container on one user-defined bridge reaches another by IP and through
+`host.docker.internal:<its published port>`. Isolation is the image's egress firewall, applied by
+its root entrypoint before the editor and agents start with no capabilities — so the container is
+created with `CapAdd: ["NET_ADMIN"]`, and no other added privilege. An image without that firewall
+gets the capability and does nothing with it, and its workspaces are not isolated from each other.
 
 ### The editor listens inside, the URL carries the image's token
 
