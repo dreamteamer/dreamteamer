@@ -102,7 +102,7 @@ export function dockerTimeoutSeconds() {
 	return Number.isFinite(n) && n >= 0 ? n : Number(HOST_DEFAULTS.DT_DOCKER_TIMEOUT);
 }
 
-export function api(method, urlPath, body, { onLine } = {}) {
+export function api(method, urlPath, body, { onLine, raw } = {}) {
 	const sock = socketPath();
 	const seconds = dockerTimeoutSeconds();
 	return new Promise((resolve, reject) => {
@@ -113,8 +113,10 @@ export function api(method, urlPath, body, { onLine } = {}) {
 		}, (res) => {
 			let text = '';
 			let pending = '';
-			res.setEncoding('utf8');
+			const bufs = []; // `raw`: an exec's multiplexed stream is binary framing, so it stays bytes
+			if (!raw) res.setEncoding('utf8');
 			res.on('data', (chunk) => {
+				if (raw) { bufs.push(chunk); return; }
 				text += chunk;
 				if (!onLine) return;
 				pending += chunk;
@@ -123,6 +125,7 @@ export function api(method, urlPath, body, { onLine } = {}) {
 				for (const l of lines) if (l.trim()) { try { onLine(JSON.parse(l)); } catch { /* not JSON */ } }
 			});
 			res.on('end', () => {
+				if (raw) return resolve({ status: res.statusCode, body: Buffer.concat(bufs) });
 				const isJson = /json/.test(res.headers['content-type'] ?? '');
 				let parsed = text;
 				if (isJson && !onLine) { try { parsed = text ? JSON.parse(text) : null; } catch { parsed = text; } }
@@ -196,20 +199,27 @@ const containerRow = (c) => {
 	const port = (c.Ports ?? []).find((p) => p.PublicPort)?.PublicPort;
 	return {
 		name, template: c.Labels?.[LABEL.template] ?? '', state: c.State, status: c.Status,
-		editor_url: port ? editorUrl(port, name) : '', image: c.Image, person: c.Labels?.[LABEL.person] ?? '',
+		editor_url: port ? editorUrl(port) : '', image: c.Image, person: c.Labels?.[LABEL.person] ?? '',
 		created: c.Created ? new Date(c.Created * 1000).toISOString().slice(0, 16).replace('T', ' ') : '', id: c.Id,
 	};
 };
 /** The dev-container convention: the workspace is mounted at `/workspaces/<name>`, so the folder the
  *  editor opens, the URL, and a VS Code attach all name the workspace rather than a fixed word. */
 export const workspaceDir = (name) => `/workspaces/${name}`;
-const editorUrl = (port, name) => `http://localhost:${port}/?folder=${workspaceDir(name)}`;
+/** A bare URL opens the machine home (`/opt/dt-launcher`: every workspace, create, clone) — `?folder=`
+ *  only when the caller asks for one workspace (`--workspace`). */
+const editorUrl = (port, folder) => `http://localhost:${port}/${folder ? `?folder=${folder}` : ''}`;
+/** Where `--mount` may land: the image's own trees. Anywhere else (`/etc`, `/usr/local/bin`, `/opt`)
+ *  replaces what the image runs — a mount there is a way round the image, not a mount. */
+export const MOUNT_ROOTS = ['/workspaces', '/home/node', '/files', '/mnt'];
 /** `--mount <host-path|volume>:<container-path>[:ro]` → a Docker Mount. A source starting with `/`,
  *  `~` or `.` is a bind mount of a host path (resolved against cwd); anything else is a named volume. */
 export function parseMount(spec) {
 	const parts = String(spec).split(':');
 	if (parts.length < 2 || parts.length > 3 || !parts[0] || !parts[1].startsWith('/')) throw new Error(`--mount takes <host-path|volume>:<container-path>[:ro] — got "${spec}"`);
-	const [src, target, mode] = parts;
+	const [src, rawTarget, mode] = parts;
+	const target = path.posix.normalize(rawTarget).replace(/(.)\/$/, '$1'); // `/mnt/../etc` is `/etc`
+	if (!MOUNT_ROOTS.some((r) => target === r || target.startsWith(`${r}/`))) throw new Error(`--mount "${spec}": the target must be under ${MOUNT_ROOTS.join(' · ')} — ${target} is not`);
 	if (mode !== undefined && mode !== 'ro' && mode !== 'rw') throw new Error(`--mount "${spec}": the third part is ro or rw`);
 	const isPath = /^[/~.]/.test(src);
 	const source = isPath ? path.resolve(src.replace(/^~(?=\/|$)/, os.homedir())) : src;
@@ -219,6 +229,9 @@ export function parseMount(spec) {
 /** The URI VS Code on the host opens to attach to this container (Dev Containers extension). The
  *  container name is hex-encoded, as the extension spells it. */
 export const attachUri = (name) => `vscode-remote://attached-container+${Buffer.from(name, 'utf8').toString('hex')}${workspaceDir(name)}`;
+/** Each container gets its OWN user-defined bridge, so two workspaces on one machine cannot reach
+ *  each other's ports the way two containers on Docker's default bridge can. */
+export const networkName = (name) => `dreamteamer-${name}`;
 const volumeNames = (name) => ({ workspace: `dreamteamer-${name}-workspace`, home: `dreamteamer-${name}-home`, files: `dreamteamer-${name}-files` });
 
 export async function listContainers() {
@@ -246,7 +259,7 @@ export function containerDetail(c) {
 		template: c.Config.Labels[LABEL.template] ?? '', image: c.Config.Image,
 		state: c.State?.Status, started: c.State?.StartedAt, restarts: c.RestartCount ?? 0,
 		bind: binding?.HostIp ?? '', port: binding ? Number(binding.HostPort) : undefined,
-		editor_url: binding ? editorUrl(binding.HostPort, name) : '',
+		editor_url: binding ? editorUrl(binding.HostPort) : '',
 		attach_uri: attachUri(name),
 		workspace_dir: wsDir,
 		volumes: { workspace: mounts[wsDir] ?? '', home: mounts['/home/node'] ?? '', files: mounts['/files'] ?? '' },
@@ -281,7 +294,8 @@ function person(flags, env) {
 }
 
 /** Create-if-absent and start. Idempotent: a second call on an existing name starts it and prints
- *  the same URL. Never injects a token — the person logs in INSIDE, once, and the home volume keeps it. */
+ *  the same URL. Never injects a credential — the person logs in INSIDE, once, and the home volume
+ *  keeps it. The one secret that crosses is the image's own URL token, read back OUT (launchUrl). */
 export async function startContainer(name, flags, log = console.log) {
 	if (!/^[a-z0-9][a-z0-9_.-]*$/.test(name)) throw new Error(`"${name}" is not a container name — lowercase letters, digits, "-", "_" and "."; e.g. hq-dana`);
 	const env = hostEnv();
@@ -302,7 +316,12 @@ export async function startContainer(name, flags, log = console.log) {
 		// `--mount` adds bind or volume mounts beside the three the container always has; a mount aimed
 		// at one of those three targets is refused rather than silently shadowing the volume.
 		const extra = (flags.mount ?? []).map(parseMount);
-		for (const m of extra) if ([wsDir, '/home/node', '/files'].includes(m.Target)) throw new Error(`--mount cannot target ${m.Target} — that is one of the container's own volumes (${wsDir} · /home/node · /files)`);
+		for (const m of extra) if ([wsDir, '/workspaces', '/home/node', '/files'].includes(m.Target)) throw new Error(`--mount cannot target ${m.Target} — that is one of the container's own volumes, or holds them (${wsDir} · /home/node · /files)`);
+		// A bind whose source lies inside another bind's (or IS it) reaches the same files twice — the
+		// way a `:ro` mount of a folder is undone by a writable mount of the folder it sits in.
+		const real = (p) => { try { return fs.realpathSync(p); } catch { return p; } };
+		const binds = extra.filter((m) => m.Type === 'bind').map((m) => ({ m, real: real(m.Source) }));
+		for (const a of binds) for (const b of binds) if (a !== b && !path.relative(b.real, a.real).startsWith('..')) throw new Error(`--mount ${a.m.Source}:${a.m.Target} lies inside ${b.m.Source} (mounted at ${b.m.Target}) — one container reaches a host folder through one mount`);
 		// `--repo <url>` clones an EXISTING workspace into the workspace volume on first start instead of
 		// laying the template down — the way a person joins a workspace that already lives on GitHub.
 		const repo = typeof flags.repo === 'string' ? flags.repo : undefined;
@@ -312,6 +331,9 @@ export async function startContainer(name, flags, log = console.log) {
 			Labels: { [LABEL.workspace]: name, [LABEL.template]: template, [LABEL.person]: who.name, [LABEL.workdir]: wsDir },
 			Env: [
 				`DT_WORKSPACE=${name}`, `DT_TEMPLATE=${template}`, `DT_WORKSPACE_DIR=${wsDir}`, 'FILES_FOLDER=/files',
+				// the editor listens on every interface INSIDE the container so the port mapping reaches
+				// it; the host side stays DT_BIND (loopback) — and the image's proxy checks a token
+				'DT_LOCAL_BIND=0.0.0.0',
 				...(repo ? [`DT_REPO=${repo}`] : []),
 				...(who.name ? [`GIT_AUTHOR_NAME=${who.name}`, `GIT_COMMITTER_NAME=${who.name}`] : []),
 				...(who.email ? [`GIT_AUTHOR_EMAIL=${who.email}`, `GIT_COMMITTER_EMAIL=${who.email}`] : []),
@@ -326,6 +348,7 @@ export async function startContainer(name, flags, log = console.log) {
 					...extra,
 				],
 				RestartPolicy: { Name: 'unless-stopped' },
+				NetworkMode: await ensureNetwork(name), // its own bridge ONLY — never the default one
 			},
 		};
 		ok(await api('POST', `/containers/create?name=${encodeURIComponent(name)}`, body), `create container ${name}`);
@@ -339,9 +362,54 @@ export async function startContainer(name, flags, log = console.log) {
 	}
 	const detail = containerDetail(c);
 	await waitHealthy(detail, log);
-	log(`✔ container ${name} · ${detail.state} · ${detail.editor_url}`);
-	if (!flags['no-open'] && detail.editor_url) openUrl(detail.editor_url);
+	const url = await launchUrl(detail, flags);
+	log(`✔ container ${name} · ${detail.state} · ${url.text}`);
+	if (!flags['no-open'] && detail.port) openUrl(url, log);
 	return detail;
+}
+
+async function ensureNetwork(name) {
+	const net = networkName(name);
+	const res = await api('GET', `/networks/${encodeURIComponent(net)}`);
+	if (res.status === 404) { ok(await api('POST', '/networks/create', { Name: net, Driver: 'bridge', Labels: { dreamteamer: '1', 'dreamteamer.name': name } }), `create network ${net}`); return net; }
+	if (ok(res, `get network ${net}`).Labels?.['dreamteamer.name'] !== name) throw new Error(`a Docker network "${net}" exists that dreamteamer did not make — remove or rename it (docker network rm ${net})`);
+	return net;
+}
+
+/** Run `cmd` (an argv, never a shell line) in a running container as `user` — one Docker exec under
+ *  the same idle timer as every request. Answers { code, stdout, stderr }; a non-zero exit is the
+ *  caller's to judge. */
+export async function exec(name, cmd, { user } = {}) {
+	const what = `exec ${cmd[0]} in ${name}`;
+	const { Id } = ok(await api('POST', `/containers/${encodeURIComponent(name)}/exec`, { Cmd: cmd, AttachStdout: true, AttachStderr: true, ...(user ? { User: user } : {}) }), what);
+	const res = await api('POST', `/exec/${Id}/start`, { Detach: false, Tty: false }, { raw: true });
+	ok({ status: res.status, body: res.body.toString('utf8') }, what);
+	// Tty:false answers Docker's multiplexed stream: per frame an 8-byte header — stream (1 out, 2 err),
+	// three zero bytes, a big-endian length — then that many bytes
+	const out = { stdout: '', stderr: '' };
+	for (let b = res.body, i = 0, n; i + 8 <= b.length; i += 8 + n) { n = b.readUInt32BE(i + 4); out[b[i] === 2 ? 'stderr' : 'stdout'] += b.subarray(i + 8, i + 8 + n).toString('utf8'); }
+	return { code: ok(await api('GET', `/exec/${Id}/json`), what).ExitCode, ...out };
+}
+
+/** The URL to print and open. An image that lists `url-token` in /opt/dt-image/features (hq 0.6+)
+ *  holds a secret its proxy checks; it is read by exec as root, lives in this process only, and
+ *  reaches the person as `?tkn=` on the ONE line that prints the URL. An older image has no file and
+ *  gets the plain URL. `text` is that line's URL; `secret` says the token rides on it. */
+async function launchUrl(detail, flags) {
+	const folder = flags.workspace === true ? detail.workspace_dir : typeof flags.workspace === 'string' ? workspaceDir(flags.workspace) : undefined;
+	if (folder && !/^\/workspaces\/[a-z0-9][a-z0-9_.-]*$/.test(folder)) throw new Error(`--workspace takes a workspace folder name under /workspaces — got "${flags.workspace}"`);
+	const plain = detail.port ? editorUrl(detail.port, folder) : '';
+	const features = await exec(detail.name, ['cat', '/opt/dt-image/features']);
+	const tokened = features.code === 0 && features.stdout.split('\n').some((l) => l.trim() === 'url-token');
+	const rotate = flags['rotate-token'] === true;
+	if (!tokened) {
+		if (rotate) throw new Error(`${detail.name} runs an image with no URL token (no url-token in /opt/dt-image/features) — --rotate-token needs hq 0.6 or later`);
+		return { text: plain, secret: false };
+	}
+	const r = await exec(detail.name, ['dt-url-token', rotate ? 'rotate' : 'show'], { user: 'root' });
+	const token = r.stdout.trim();
+	if (r.code !== 0 || !/^[A-Za-z0-9_-]{16,}$/.test(token)) throw new Error(`dt-url-token ${rotate ? 'rotate' : 'show'} in ${detail.name} failed (exit ${r.code})${r.stderr.trim() ? ` — ${r.stderr.trim()}` : ''}`);
+	return { text: `${plain}${folder ? '&' : '?'}tkn=${token}`, secret: true };
 }
 
 /** Poll code-server's /healthz so the URL printed is one that already answers. */
@@ -362,9 +430,19 @@ async function waitHealthy(detail, log) {
 	log(`⚠ the editor did not answer within ${seconds}s — \`docker logs ${detail.name}\` says why`);
 }
 
-function openUrl(url) {
-	const cmd = process.platform === 'darwin' ? ['open', url] : process.platform === 'win32' ? ['cmd', '/c', 'start', '', url] : ['xdg-open', url];
-	try { spawn(cmd[0], cmd.slice(1), { stdio: 'ignore', detached: true }).unref(); } catch { /* printing the URL is the contract; opening it is a courtesy */ }
+/** Printing the URL is the contract; opening it is a courtesy. A tokened URL never becomes a process
+ *  ARGUMENT (every local user's `ps` reads those): on macOS it reaches `osascript` on stdin; where no
+ *  opener takes stdin (xdg-open, start) it is printed and left for the person to open. */
+function openUrl({ text, secret }, log) {
+	try {
+		if (secret && process.platform === 'darwin') {
+			const p = spawn('osascript', ['-'], { stdio: ['pipe', 'ignore', 'ignore'], detached: true });
+			p.on('error', () => {}); p.stdin.end(`open location "${text}"\n`); p.unref(); return;
+		}
+		if (secret) { log('  (open the URL above yourself — this platform\'s opener would put the token in a process argument)'); return; }
+		const cmd = process.platform === 'darwin' ? ['open', text] : process.platform === 'win32' ? ['cmd', '/c', 'start', '', text] : ['xdg-open', text];
+		spawn(cmd[0], cmd.slice(1), { stdio: 'ignore', detached: true }).on('error', () => {}).unref();
+	} catch { /* the URL is printed either way */ }
 }
 
 export async function stopContainer(name) {
@@ -382,12 +460,14 @@ export async function removeContainer(name, { force = false } = {}, log = consol
 	const vols = containerDetail(c).volumes;
 	if (c.State?.Status === 'running') await api('POST', `/containers/${c.Id}/stop?t=10`);
 	ok(await api('DELETE', `/containers/${c.Id}?v=false`), `rm container ${name}`);
+	const net = await api('GET', `/networks/${encodeURIComponent(networkName(name))}`);
+	if (net.status === 200 && net.body?.Labels?.['dreamteamer.name'] === name) ok(await api('DELETE', `/networks/${encodeURIComponent(networkName(name))}`), `rm network ${networkName(name)}`);
 	const named = Object.values(vols).filter(Boolean);
 	if (force) {
 		for (const v of named) { const r = await api('DELETE', `/volumes/${encodeURIComponent(v)}`); if (r.status !== 204 && r.status !== 404) ok(r, `rm volume ${v}`); }
-		log(`✔ removed ${name} and its volumes ${named.join(', ')}`);
+		log(`✔ removed ${name}, its network and its volumes ${named.join(', ')}`);
 	} else {
-		log(`✔ removed ${name} · kept volumes ${named.join(', ')} (dt rm container ${name} --force removes them too; dt start container ${name} --template <t> reattaches them)`);
+		log(`✔ removed ${name} and its network · kept volumes ${named.join(', ')} (dt rm container ${name} --force removes them too; dt start container ${name} --template <t> reattaches them)`);
 	}
 }
 
@@ -466,7 +546,9 @@ export async function driverCommand(verb, target, args) {
 			return 0;
 		}
 		if (!d.editor_url) throw new Error(`${id} publishes no port`);
-		console.log(d.editor_url); if (!flags['no-open']) openUrl(d.editor_url); return 0;
+		if (d.state !== 'running') throw new Error(`${id} is ${d.state} — dt start container ${id} starts it and prints its URL`);
+		const url = await launchUrl(d, flags);
+		console.log(url.text); if (!flags['no-open']) openUrl(url, console.log); return 0;
 	}
 	if (verb === 'rm') { await removeContainer(id, { force: flags.force === true }); return 0; }
 	return 1;
@@ -489,4 +571,4 @@ export function parseFlags(args) {
 	return { flags, pos };
 }
 
-export const CONTAINER_FLAGS = ['template', 'name', 'email', 'no-open', 'json', 'force', 'mount', 'repo', 'vscode'];
+export const CONTAINER_FLAGS = ['template', 'name', 'email', 'no-open', 'json', 'force', 'mount', 'repo', 'vscode', 'rotate-token', 'workspace'];

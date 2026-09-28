@@ -251,21 +251,27 @@ these verbs work with NO workspace, so npm i -g dreamteamer and Docker Desktop a
               DT_DOCKER_TIMEOUT 30 — seconds a request to Docker may sit idle before the verb
               fails), lists the templates present, pulls one on request [--template <t>] [--json]
   start       container <name> --template <t>   create-if-absent and start: a code-server editor at
-              http://localhost:<port>/?folder=/workspace over a compiled workspace, three named volumes
-              (workspace · home · files), image <DT_REGISTRY>/<template>:<tag> or DT_IMAGE_<template>.
-              The workspace is mounted at /workspaces/<name>. Idempotent. NO token is ever injected —
-              log in INSIDE, once; the home volume keeps it.
+              http://localhost:<port>/ — the machine home — over a compiled workspace, three named
+              volumes (workspace · home · files), its own bridge network dreamteamer-<name>, image
+              <DT_REGISTRY>/<template>:<tag> or DT_IMAGE_<template>. The workspace is mounted at
+              /workspaces/<name>. Idempotent. NO credential is ever injected — log in INSIDE, once;
+              the home volume keeps it. An image with a URL token (hq 0.6+) prints the URL as
+              ?tkn=<token>, read from the container; the token is never written on the host.
+              [--rotate-token]    replace the image's URL token and print the new URL
+              [--workspace [<w>]] open /workspaces/<w> (default: its own) instead of the home
               [--repo <git url>]  clone an EXISTING workspace into the volume on first start, instead
                                   of laying the template down — how a person joins one on GitHub
-              [--mount <host-path|volume>:<container-path>[:ro]]  extra mounts, repeatable
+              [--mount <host-path|volume>:<container-path>[:ro]]  extra mounts, repeatable; targets
+                                  under /workspaces · /home/node · /files · /mnt, no bind inside another
               [--name <git name>] [--email <git email>] [--no-open] [--json]
   stop        container <name>                  stop it; every volume kept [--json]
-  open        container <name>                  print (and open) its editor URL [--no-open]
+  open        container <name>                  print (and open) its URL, token included [--no-open]
+              [--workspace [<w>]]
               [--vscode]  print (and open) the Dev Containers attach URI instead — the host's own
                           VS Code inside the container, extensions from the image's metadata label
   list        containers | images               the record verbs, answered over Docker instead of a
   get         container <name> | image <ref>    folder — singular or plural, either spelling.
-  rm          container <name> [--force]        plain rm keeps the volumes; --force removes them too
+  rm          container <name> [--force]        removes it and its network; keeps the volumes unless --force
   add         image --template <t>              pull a template's image; rm image <ref> removes one
 
   changes     what changed in every repo that holds records, as record events
@@ -325,7 +331,7 @@ export const WORKSPACE_FLAGS = {
 	// `start` is TWO forms: bare, the REST api (--port); with a `container <name>` target, the
 	// lifecycle verb — whose flags are the driver's. One table, because `flags-honoured` reads it.
 	start: ['port', ...CONTAINER_FLAGS], compile: ['watch'], check: [], status: ['strict'],
-	setup: ['template', 'json'], stop: ['json'], open: ['json', 'no-open', 'vscode'],
+	setup: ['template', 'json'], stop: ['json'], open: ['json', 'no-open', 'vscode', 'workspace'],
 	changes: ['since', 'json'], commit: ['dry-run', 'json'],
 	export: EXPORT_FLAGS,
 	// the UNION of every form's flags — the outer typo gate. Which flags each FORM takes is refused

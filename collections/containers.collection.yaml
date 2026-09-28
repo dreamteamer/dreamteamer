@@ -48,7 +48,7 @@ schema:
     # ---- network ----
     editor_url:
       type: string
-      description: Where the person opens the editor — `http://localhost:<port>/?folder=<workspace dir>`; the host port comes from DT_PORT_BASE upward, bound to DT_BIND (127.0.0.1).
+      description: Where the person opens the machine — `http://localhost:<port>/`, its home (every workspace, create, clone); the host port comes from DT_PORT_BASE upward, bound to DT_BIND (127.0.0.1). Never carries the image's URL token — `dt open container <name>` prints the URL that does.
     port:
       type: integer
       description: The host port the editor is published on.
@@ -65,7 +65,7 @@ schema:
     mounts:
       type: array
       items: { type: string }
-      description: Extra bind or volume mounts passed as `--mount <host-path|volume>:<container-path>[:ro]`.
+      description: Extra bind or volume mounts passed as `--mount <host-path|volume>:<container-path>[:ro]` — targets under /workspaces · /home/node · /files · /mnt only, and no bind source inside another.
     # ---- person ----
     person:
       type: string
