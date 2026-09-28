@@ -262,7 +262,8 @@ these verbs work with NO workspace, so npm i -g dreamteamer and Docker Desktop a
               [--repo <git url>]  clone an EXISTING workspace into the volume on first start, instead
                                   of laying the template down — how a person joins one on GitHub
               [--mount <host-path|volume>:<container-path>[:ro]]  extra mounts, repeatable; targets
-                                  under /workspaces · /home/node · /files · /mnt, no bind inside another
+                                  under /workspaces · /home/node · /files · /mnt, none at or under
+                                  another mount's target, no bind source inside another
               [--name <git name>] [--email <git email>] [--no-open] [--json]
   stop        container <name>                  stop it; every volume kept [--json]
   open        container <name>                  print (and open) its URL, token included [--no-open] [--json]

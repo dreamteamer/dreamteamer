@@ -64,7 +64,10 @@ for one workspace. `dt open container` on a stopped container is now refused, na
 Targets must be under `/workspaces`, `/home/node`, `/files` or `/mnt` after `..` is normalised
 (`/etc`, `/opt`, `/usr/local/bin` are refused), and `/workspaces` itself is refused beside the three
 own volumes. A bind whose host source lies inside — or is — another bind source of the same
-container is refused. A mount that 0.29.0 accepted at, say, `/files-team` moves to `/files/team`.
+container is refused. No mount target may lie at or under another mount's target, the three own
+volumes included — so `/files/team`, `/home/node/.config` and `/workspaces/<name>/x` are refused,
+because Docker resolves a mount point through symlinks written inside the mount above it. A mount
+that 0.29.0 accepted at, say, `/files-team` or `/files/team` moves to `/mnt/team`.
 
 ---
 

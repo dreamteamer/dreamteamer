@@ -302,14 +302,14 @@ describe('host mode — the verbs answer with NO workspace', () => {
 	});
 
 	test('--mount adds bind and volume mounts beside the three; a mount aimed at an own volume is refused', async () => {
-		const r = h.dt('start', 'container', 'hq-mounts', '--template', 'hq', '--no-open', '--mount', `${h.dir}:/mnt/shared:ro`, '--mount', 'team-files:/files/team');
+		const r = h.dt('start', 'container', 'hq-mounts', '--template', 'hq', '--no-open', '--mount', `${h.dir}:/mnt/shared:ro`, '--mount', 'team-files:/mnt/team');
 		assert.equal(r.code, 0, r.out);
 		const create = (await fake.state()).requests.find((q) => q.path === '/containers/create?name=hq-mounts');
 		const extra = create.body.HostConfig.Mounts.slice(3);
-		assert.deepEqual(extra, [{ Type: 'bind', Source: h.dir, Target: '/mnt/shared', ReadOnly: true }, { Type: 'volume', Source: 'team-files', Target: '/files/team', ReadOnly: false }]);
-		assert.match(r.stdout, /mounts .*→\/mnt\/shared \(ro\), team-files→\/files\/team/);
+		assert.deepEqual(extra, [{ Type: 'bind', Source: h.dir, Target: '/mnt/shared', ReadOnly: true }, { Type: 'volume', Source: 'team-files', Target: '/mnt/team', ReadOnly: false }]);
+		assert.match(r.stdout, /mounts .*→\/mnt\/shared \(ro\), team-files→\/mnt\/team/);
 		const d = JSON.parse(h.dt('get', 'container', 'hq-mounts').stdout);
-		assert.deepEqual(d.mounts, [`${h.dir}:/mnt/shared:ro`, 'team-files:/files/team']);
+		assert.deepEqual(d.mounts, [`${h.dir}:/mnt/shared:ro`, 'team-files:/mnt/team']);
 		assert.equal(d.workspace_dir, '/workspaces/hq-mounts');
 		const bad = h.dt('start', 'container', 'hq-bad', '--template', 'hq', '--no-open', '--mount', 'x:/home/node');
 		assert.equal(bad.code, 1);
@@ -473,6 +473,19 @@ describe('the image\'s URL token, the per-container network, and the mount rules
 		const ok = h.dt('start', 'container', 'hq-mt', '--template', 'hq', '--no-open', '--mount', `${h.dir}:/workspaces/extra/../shared/`);
 		assert.equal(ok.code, 0, ok.out);
 		assert.match(ok.stdout, /→\/workspaces\/shared\b/);
+	});
+
+	// runc resolves a mount DESTINATION through symlinks inside the rootfs: a volume mounted at
+	// /workspaces/<name> that holds `evil -> /opt` makes `--mount x:/workspaces/<name>/evil` land on the
+	// image's real /opt. The lexical target check cannot see that, so nesting itself is refused.
+	test('a --mount target at or under ANOTHER mount\'s target — the three own volumes included — is refused', () => {
+		for (const pair of [['x:/files/team'], ['x:/home/node/.config'], ['x:/workspaces/hq-nt/evil'], ['a:/mnt/a', 'b:/mnt/a/b'], ['b:/mnt/a/b', 'a:/mnt/a'], ['a:/mnt/a', 'b:/mnt/a']]) {
+			const r = h.dt('start', 'container', 'hq-nt', '--template', 'hq', '--no-open', ...pair.flatMap((m) => ['--mount', m]));
+			assert.equal(r.code, 1, `${pair} was accepted`);
+			assert.match(r.stderr, /lies at or under .*another mount of this container/);
+		}
+		const ok = h.dt('start', 'container', 'hq-nt', '--template', 'hq', '--no-open', '--mount', 'a:/mnt/a', '--mount', 'b:/mnt/ab', '--mount', 'c:/workspaces/other');
+		assert.equal(ok.code, 0, ok.out);
 	});
 
 	test('a bind whose host source lies inside (or is) another bind source of the same container is refused', () => {
