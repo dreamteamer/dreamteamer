@@ -319,9 +319,22 @@ export async function startContainer(name, flags, log = console.log) {
 		for (const m of extra) if ([wsDir, '/workspaces', '/home/node', '/files'].includes(m.Target)) throw new Error(`--mount cannot target ${m.Target} — that is one of the container's own volumes, or holds them (${wsDir} · /home/node · /files)`);
 		// A bind whose source lies inside another bind's (or IS it) reaches the same files twice — the
 		// way a `:ro` mount of a folder is undone by a writable mount of the folder it sits in.
+		// "Inside" is decided by IDENTITY, not spelling: realpath keeps the case it was given, so on a
+		// case-insensitive volume (APFS, NTFS by default) `/x/INNER` passes a path comparison against `/x`.
+		// So walk up a's real path and compare each ancestor's dev+ino with b's — the filesystem's own
+		// rules (case, Unicode normalisation) answer, none guessed here. A source that does not exist has
+		// no inode (Docker refuses the bind anyway); it falls back to a path compare, case-folded where
+		// the platform's default volume folds.
 		const real = (p) => { try { return fs.realpathSync(p); } catch { return p; } };
+		const ident = (p) => { try { const s = fs.statSync(p, { bigint: true }); return `${s.dev}:${s.ino}`; } catch { return null; } };
+		const fold = (p) => (['darwin', 'win32'].includes(process.platform) ? p.toLowerCase() : p);
+		const inside = (a, b) => {
+			const want = ident(b.real);
+			if (!want) return !path.relative(fold(b.real), fold(a.real)).startsWith('..');
+			for (let p = a.real; ; p = path.dirname(p)) { if (ident(p) === want) return true; if (path.dirname(p) === p) return false; }
+		};
 		const binds = extra.filter((m) => m.Type === 'bind').map((m) => ({ m, real: real(m.Source) }));
-		for (const a of binds) for (const b of binds) if (a !== b && !path.relative(b.real, a.real).startsWith('..')) throw new Error(`--mount ${a.m.Source}:${a.m.Target} lies inside ${b.m.Source} (mounted at ${b.m.Target}) — one container reaches a host folder through one mount`);
+		for (const a of binds) for (const b of binds) if (a !== b && inside(a, b)) throw new Error(`--mount ${a.m.Source}:${a.m.Target} lies inside ${b.m.Source} (mounted at ${b.m.Target}) — one container reaches a host folder through one mount`);
 		// `--repo <url>` clones an EXISTING workspace into the workspace volume on first start instead of
 		// laying the template down — the way a person joins a workspace that already lives on GitHub.
 		const repo = typeof flags.repo === 'string' ? flags.repo : undefined;

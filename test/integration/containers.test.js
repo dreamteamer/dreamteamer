@@ -441,6 +441,21 @@ describe('the image\'s URL token, the per-container network, and the mount rules
 		fs.mkdirSync(sibling, { recursive: true });
 		assert.equal(h.dt('start', 'container', 'hq-nest', '--template', 'hq', '--no-open', '--mount', `${inner}:/mnt/a`, '--mount', `${sibling}:/mnt/b`).code, 0);
 	});
+
+	// macOS APFS and Windows NTFS are case-insensitive by default, and realpath keeps the case it was
+	// GIVEN — so a path comparison alone lets `/x/INNER` beside `/x:ro` reach the ro folder writably.
+	// Only meaningful where the filesystem folds case; on a case-sensitive one the spelling is absent.
+	const folds = (() => { try { return fs.statSync(os.tmpdir().toUpperCase()).ino === fs.statSync(os.tmpdir()).ino; } catch { return false; } })();
+	test('the nested-source refusal holds when the same folder is spelled in another case', { skip: !folds && 'this filesystem is case-sensitive' }, () => {
+		const inner = path.join(h.dir, 'inner');
+		fs.mkdirSync(inner, { recursive: true });
+		const upper = path.join(path.dirname(h.dir), path.basename(h.dir).toUpperCase());
+		for (const pair of [[`${h.dir}:/mnt/a:ro`, `${path.join(upper, 'INNER')}:/mnt/b`], [`${upper}:/mnt/a`, `${h.dir}:/mnt/b:ro`], [`${inner.toUpperCase()}:/mnt/b`, `${h.dir}:/mnt/a:ro`]]) {
+			const r = h.dt('start', 'container', 'hq-case', '--template', 'hq', '--no-open', '--mount', pair[0], '--mount', pair[1]);
+			assert.equal(r.code, 1, `${pair} was accepted`);
+			assert.match(r.stderr, /lies inside .* one container reaches a host folder through one mount/);
+		}
+	});
 });
 
 describe('when Docker is not there', () => {
