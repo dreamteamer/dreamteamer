@@ -582,4 +582,4 @@ export function parseFlags(args) {
 	return { flags, pos };
 }
 
-export const CONTAINER_FLAGS = ['template', 'name', 'email', 'no-open', 'json', 'force', 'mount', 'repo', 'vscode', 'rotate-token', 'workspace', 'out', 'no-encrypt', 'replace'];
+export const CONTAINER_FLAGS = ['template', 'name', 'email', 'no-open', 'json', 'force', 'mount', 'repo', 'vscode', 'rotate-token', 'workspace', 'out', 'no-encrypt', 'replace', 'with-secrets'];

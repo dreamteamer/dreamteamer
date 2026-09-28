@@ -236,6 +236,34 @@ describe('export and import a container\'s workspaces', () => {
 		assert.match(miss.out, /holds no workspace gamma/);
 	});
 
+	test('secrets stay behind by default — .env and .git-credentials left out, userinfo and auth headers cut from .git/config; --with-secrets keeps them and says so', () => {
+		put('hq-dana', 'workspaces/hq-dana/.env', 'API_KEY=sk-live-secret\n');
+		put('hq-dana', 'workspaces/hq-dana/.env.example', 'API_KEY=\n');
+		put('hq-dana', 'workspaces/hq-dana/sub/.env', 'NESTED=secret\n');
+		put('hq-dana', 'workspaces/hq-dana/.git-credentials', 'https://dana:ghp_token@example.invalid\n');
+		const config = '[core]\n\tbare = false\n[remote "origin"]\n\turl = https://dana:ghp_token@example.invalid/acme/hq.git\n\tpushurl = https://ghp_other@example.invalid/acme/hq.git\n[remote "ssh"]\n\turl = git@example.invalid:acme/hq.git\n[http "https://example.invalid/"]\n\textraheader = AUTHORIZATION: basic c2VjcmV0\n';
+		put('hq-dana', 'workspaces/hq-dana/.git/config', config);
+		const e = dt('export', 'container', 'hq-dana', '--out', out('sec.tgz'), '--no-encrypt');
+		assert.equal(e.code, 0, e.out);
+		assert.match(e.stdout, /left behind: .*hq-dana\/\.env\b/);
+		assert.match(e.stdout, /hq-dana\/\.git-credentials/);
+		const names = listTarGz(out('sec.tgz'));
+		assert.deepEqual(names.filter((n) => /(^|\/)(\.env|\.git-credentials)$/.test(n)), []);
+		assert.ok(names.includes('hq-dana/.env.example'), '.env.example is not a secret');
+		const cfg = spawnSync('tar', ['-xzOf', out('sec.tgz'), 'hq-dana/.git/config'], { encoding: 'utf8' }).stdout;
+		assert.match(cfg, /url = https:\/\/example\.invalid\/acme\/hq\.git/);
+		assert.match(cfg, /pushurl = https:\/\/example\.invalid\/acme\/hq\.git/);
+		assert.match(cfg, /url = git@example\.invalid:acme\/hq\.git/, 'an ssh remote is not a credential');
+		assert.doesNotMatch(cfg, /ghp_|extraheader|c2VjcmV0/);
+		assert.match(cfg, /bare = false/);
+		const w = dt('export', 'container', 'hq-dana', '--out', out('with.tgz'), '--no-encrypt', '--with-secrets');
+		assert.equal(w.code, 0, w.out);
+		assert.match(w.out, /--with-secrets: .*INCLUDED/);
+		const all = listTarGz(out('with.tgz'));
+		assert.ok(all.includes('hq-dana/.env') && all.includes('hq-dana/.git-credentials'), all.join('\n'));
+		assert.equal(spawnSync('tar', ['-xzOf', out('with.tgz'), 'hq-dana/.git/config'], { encoding: 'utf8' }).stdout, config);
+	});
+
 	test('an unknown flag is refused, not swallowed', () => {
 		const r = dt('export', 'container', 'hq-dana', '--out', out('u.tgz'), '--no-encrpyt');
 		assert.equal(r.code, 1);
