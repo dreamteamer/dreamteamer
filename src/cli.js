@@ -17,6 +17,7 @@ import { compile, staleness, warnIfStale, discoverModules, CHANNEL_LABEL, locati
 import { check } from './check.js';
 import { collectionCommand, emit, relationsCommand, parseArgs, refuseUnknownFlags } from './collections-cli.js';
 import { driverTarget, driverCommand, setup as hostSetup, parseFlags as hostFlags, DRIVER_VERBS, LIFECYCLE_VERBS, CONTAINER_FLAGS } from './containers.js';
+import { archiveCommand } from './container-archive.js';
 import { init, installClone, update, listRepos } from './init.js';
 import { installCommand, describeCheckout, listWorktrees, worktreeCommand } from './checkout.js';
 import { proveCommand, readLedger, flagEnabled } from './prove.js';
@@ -273,6 +274,14 @@ these verbs work with NO workspace, so npm i -g dreamteamer and Docker Desktop a
   get         container <name> | image <ref>    folder — singular or plural, either spelling.
   rm          container <name> [--force]        removes it and its network; keeps the volumes unless --force
   add         image --template <t>              pull a template's image; rm image <ref> removes one
+  export      container <name> --out <file>     its WORKSPACES as one file — every folder under
+              /workspaces, never the home or a login; node_modules and .files stay behind. Works on
+              a stopped container. Encrypted with the owner passphrase (DT_EXPORT_PASSPHRASE, else a
+              prompt — never a flag). [--workspace <w>]... only these  [--no-encrypt] a plain .tar.gz
+  import      container <name> <file>           unpack an export into a RUNNING container, owned by
+              node. Refuses a wrong passphrase, a damaged file, an entry leaving its workspace and a
+              workspace already holding files — each before anything is written.
+              [--workspace <w>]... only these  [--replace] empty a workspace that holds files first
 
   changes     what changed in every repo that holds records, as record events
               [--since <sha|YYYY-MM-DD>] (default: HEAD~1 — the last commit's own changes) [--json]
@@ -804,6 +813,9 @@ function hostDispatch(cmd, rest) {
 		return hostSetup(hostFlags(rest).flags);
 	}
 	const target = driverTarget(rest[0]);
+	// `export container` is the driver's; `export notebooklm` stays the workspace verb below
+	if (target && (cmd === 'export' || cmd === 'import')) return archiveCommand(cmd, target, rest.slice(1));
+	if (cmd === 'import') return Promise.reject(new Error('dt import container <name> <file> [--workspace <w>]... [--replace]'));
 	if (target && DRIVER_VERBS.has(cmd)) return driverCommand(cmd, target, rest.slice(1));
 	// A lifecycle verb aimed at anything else is refused by name: `dt start tasks` is not a
 	// server and not a container, and "unknown collection" would send the reader the wrong way.

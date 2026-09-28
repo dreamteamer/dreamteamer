@@ -37,6 +37,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync, spawn } from 'node:child_process';
+import { pipeline } from 'node:stream/promises';
 import { parseEnvValues } from './env-vars.js';
 import { emit } from './collections-cli.js';
 
@@ -102,15 +103,19 @@ export function dockerTimeoutSeconds() {
 	return Number.isFinite(n) && n >= 0 ? n : Number(HOST_DEFAULTS.DT_DOCKER_TIMEOUT);
 }
 
-export function api(method, urlPath, body, { onLine, raw } = {}) {
+/** `send` streams a body (a tar upload) instead of JSON; `stream` resolves a 2xx with the response
+ *  itself, unread (a tar download) — both under the same idle timer, which keeps running while the
+ *  bytes move. */
+export function api(method, urlPath, body, { onLine, raw, send, stream } = {}) {
 	const sock = socketPath();
 	const seconds = dockerTimeoutSeconds();
 	return new Promise((resolve, reject) => {
 		const payload = body === undefined ? undefined : JSON.stringify(body);
 		const req = http.request({
 			socketPath: sock, method, path: urlPath,
-			headers: payload ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) } : {},
+			headers: payload ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) } : send ? { 'Content-Type': 'application/x-tar' } : {},
 		}, (res) => {
+			if (stream && res.statusCode < 300) return resolve({ status: res.statusCode, res });
 			let text = '';
 			let pending = '';
 			const bufs = []; // `raw`: an exec's multiplexed stream is binary framing, so it stays bytes
@@ -136,13 +141,14 @@ export function api(method, urlPath, body, { onLine, raw } = {}) {
 		// idle-based: fires only when NOTHING has moved on the socket for `seconds` — a streaming
 		// pull resets it with every progress line, a paused daemon never does
 		if (seconds) req.setTimeout(seconds * 1000, () => req.destroy(new Error(`${method} ${urlPath}: Docker did not answer within ${seconds}s — is Docker Desktop paused or still starting? DT_DOCKER_TIMEOUT=<seconds> in ${path.join(hostDir(), '.env')} changes the wait (0 disables it)`)));
+		if (send) return pipeline(send, req).catch((e) => req.destroy(e));
 		if (payload) req.write(payload);
 		req.end();
 	});
 }
 
 /** Throw the daemon's own sentence on a non-2xx, so a refusal reads as Docker's rather than ours. */
-function ok(res, what) {
+export function ok(res, what) {
 	if (res.status >= 200 && res.status < 400) return res.body;
 	const msg = res.body && typeof res.body === 'object' && res.body.message ? res.body.message : String(res.body ?? '').trim();
 	throw new Error(`${what}: Docker answered ${res.status}${msg ? ` — ${msg}` : ''}`);
@@ -559,8 +565,12 @@ export async function driverCommand(verb, target, args) {
  *  record parser's promotion rules — a repeated flag on these verbs is a mistake, not an array. */
 export function parseFlags(args) {
 	const flags = {}; const pos = [];
-	// `--mount` is the one flag that repeats — every other repeat is a mistake and the LAST wins.
-	const put = (k, v) => { if (k === 'mount') flags.mount = [...(flags.mount ?? []), v]; else flags[k] = v; };
+	// `--mount` repeats; `--workspace` repeats on export/import, which read every value from
+	// `workspaces` while start/open keep the last. Any other repeat is a mistake and the LAST wins.
+	const put = (k, v) => {
+		if (k === 'mount') flags.mount = [...(flags.mount ?? []), v]; else flags[k] = v;
+		if (k === 'workspace') flags.workspaces = [...(flags.workspaces ?? []), v];
+	};
 	for (let i = 0; i < args.length; i++) {
 		const a = args[i];
 		if (!a.startsWith('--')) { pos.push(a); continue; }
@@ -572,4 +582,4 @@ export function parseFlags(args) {
 	return { flags, pos };
 }
 
-export const CONTAINER_FLAGS = ['template', 'name', 'email', 'no-open', 'json', 'force', 'mount', 'repo', 'vscode', 'rotate-token', 'workspace'];
+export const CONTAINER_FLAGS = ['template', 'name', 'email', 'no-open', 'json', 'force', 'mount', 'repo', 'vscode', 'rotate-token', 'workspace', 'out', 'no-encrypt', 'replace'];

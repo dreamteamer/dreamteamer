@@ -56,6 +56,19 @@ Targets must be under `/workspaces`, `/home/node`, `/files` or `/mnt` after `..`
 own volumes. A bind whose host source lies inside — or is — another bind source of the same
 container is refused. A mount that 0.29.0 accepted at, say, `/files-team` moves to `/files/team`.
 
+### `dt export container` and `dt import container` (new)
+
+`dt export container <name> --out <file> [--workspace <w>]...` writes the container's workspaces —
+the folders under `/workspaces`, never the home or a login — to one file, stopped container or
+running. `node_modules` and `.files` folders stay behind. The file is encrypted with the owner
+passphrase (`DT_EXPORT_PASSPHRASE`, else a no-echo prompt; never a flag); `--no-encrypt` writes a
+plain `.tar.gz` and says so. `dt import container <name> <file> [--workspace <w>]... [--replace]`
+reads the whole file once before writing anything — a wrong passphrase, a damaged or truncated file,
+an absolute or `..` path, a symlink leaving its workspace, a hard link or device are each refused
+with nothing written — then refuses a workspace that already holds files unless `--replace`, and one
+that would land on the container's own layer rather than a volume. Imported folders are owned by
+`node`. The format is `docs/container-export-format.md`.
+
 ---
 
 ## 0.28.0 → 0.29.0
