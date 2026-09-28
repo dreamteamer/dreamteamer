@@ -8,6 +8,11 @@
 // the way out and REFUSED on the way in, with setuid bits and owners dropped both ways: this file
 // writes every tar header itself rather than passing Docker's through.
 //
+// NO SECRETS BY DEFAULT (principle 8: an export strips them unless the owner asks). Every `.env` and
+// `.git-credentials` stays behind, and each `.git/config` travels with the userinfo cut from its
+// http(s) URLs and its `extraheader` lines (where CI tooling parks a token) dropped. `--with-secrets`
+// carries all of it unchanged and says so. Encryption is on either way.
+//
 // WHY THE TAR IS PARSED HERE. The Engine API speaks tar both ways (GET/PUT …/archive) and cannot
 // filter, re-root or check it. Node has gzip and AES-GCM but no tar, and the subset needed — ustar
 // headers, PAX and GNU long names in, ustar plus PAX out — is ~60 lines, against a dependency.
@@ -33,8 +38,11 @@ import { api, ok, inspectContainer, exec, parseFlags } from './containers.js';
 const ROOT = '/workspaces';
 const WS_NAME = /^[a-z0-9][a-z0-9_.-]*$/;
 const LEFT_BEHIND = new Set(['node_modules', '.files']);
+const SECRET_FILES = new Set(['.env', '.git-credentials']);
+/** A `.git/config` minus its credentials: `https://user:token@host` → `https://host`, no extraheader. */
+export const stripGitConfig = (text) => text.replace(/^[ \t]*extraheader[ \t]*=.*(\r?\n|$)/gim, '').replace(/^([ \t]*(?:push)?url[ \t]*=[ \t]*"?https?:\/\/)[^@\/\s"]*@/gim, '$1');
 const FILE = '0', DIR = '5', SYMLINK = '2';
-const FLAGS = { export: ['workspace', 'out', 'no-encrypt'], import: ['workspace', 'replace'] };
+const FLAGS = { export: ['workspace', 'out', 'no-encrypt', 'with-secrets'], import: ['workspace', 'replace'] };
 
 // ---- tar: read any of ustar · PAX · GNU long names, write ustar (+ PAX when a name is long) -------
 const str = (b, o, n) => { const e = b.indexOf(0, o); return b.toString('utf8', o, e === -1 || e > o + n ? o + n : e); };
@@ -57,8 +65,9 @@ function header({ name, type, mode, size, mtime, linkname = '' }) {
 	return Buffer.concat([header({ name: 'PaxHeader', type: 'x', mode: 0o644, size: pax.length, mtime }), pax, Buffer.alloc(pad(pax.length)), h]);
 }
 
-/** Re-emit a tar: `decide(entry)` answers the name to write it under, or null to drop it. Headers are
- *  rewritten (owner 0, permission bits only); bodies stream through. No end marker — the caller adds one. */
+/** Re-emit a tar: `decide(entry)` answers the name to write it under, or null to drop it, or
+ *  { name, rewrite } to replace a small file's body. Headers are rewritten (owner 0, permission bits
+ *  only); bodies stream through. No end marker — the caller adds one. */
 export async function* retar(source, decide) {
 	const it = source[Symbol.asyncIterator]();
 	let buf = Buffer.alloc(0);
@@ -85,7 +94,13 @@ export async function* retar(source, decide) {
 		size = ext.size !== undefined ? Number(ext.size) : size;
 		e.size = e.type === FILE ? size : 0;
 		ext = {};
-		const name = decide(e);
+		const d = decide(e);
+		if (d?.rewrite && e.type === FILE && size <= 1 << 20) {
+			const body = d.rewrite((await take(size + pad(size))).subarray(0, size));
+			yield header({ ...e, name: d.name, size: body.length }); yield body; yield Buffer.alloc(pad(body.length));
+			continue;
+		}
+		const name = d?.name ?? d;
 		if (name) yield header({ ...e, name });
 		const keep = name && e.type === FILE; // only a file's body is written; any other entry's is read past
 		for (let left = size + pad(size); left > 0;) {
@@ -187,6 +202,7 @@ export async function exportContainer(name, flags, log = console.log) {
 	const c = await inspectContainer(name);
 	if (!c) throw new Error(`no container "${name}" — dt list containers`);
 	const encrypt = flags['no-encrypt'] !== true;
+	const secrets = flags['with-secrets'] === true;
 	const sealer = encrypt ? await newSeal(await passphrase({ confirm: true })) : null;
 	// one read of the root, or one per named workspace so the others never leave the container
 	const sources = only.length ? only.map((w) => ({ at: `${ROOT}/${w}`, strip: '' })) : [{ at: ROOT, strip: `${path.posix.basename(ROOT)}/` }];
@@ -197,9 +213,11 @@ export async function exportContainer(name, flags, log = console.log) {
 		const segs = rel.split('/');
 		if (segs.some((s) => LEFT_BEHIND.has(s))) { left.add(segs.slice(0, segs.findIndex((s) => LEFT_BEHIND.has(s)) + 1).join('/')); return null; }
 		if (!WS_NAME.test(segs[0]) || (segs.length === 1 && e.type !== DIR)) { if (segs.length === 1) skipped.push(`${rel} (not a workspace folder)`); return null; }
+		if (!secrets && SECRET_FILES.has(segs[segs.length - 1]) && e.type !== DIR) { left.add(rel); return null; }
 		if (![FILE, DIR, SYMLINK].includes(e.type)) { skipped.push(`${rel} (${e.type === '1' ? 'hard link' : 'device or fifo'})`); return null; }
 		const s = stats.get(segs[0]) ?? { files: 0, bytes: 0 }; stats.set(segs[0], s);
 		if (e.type === FILE) { s.files++; s.bytes += e.size; }
+		if (!secrets && e.type === FILE && rel.endsWith('/.git/config')) return { name: rel, rewrite: (b) => Buffer.from(stripGitConfig(b.toString('utf8'))) };
 		return e.type === DIR ? `${rel}/` : rel;
 	};
 	async function* tar() {
@@ -220,6 +238,8 @@ export async function exportContainer(name, flags, log = console.log) {
 	for (const [w, s] of stats) log(`  ${w}  ${s.files} files · ${(s.bytes / 1e6).toFixed(1)} MB`);
 	if (left.size) log(`  left behind: ${[...left].join(' · ')}`);
 	for (const s of skipped) log(`  skipped: ${s}`);
+	if (secrets) log('⚠ --with-secrets: every .env, .git-credentials and .git/config credential is INCLUDED, unchanged — whoever opens this file holds them');
+	else log('  secrets left out: .env and .git-credentials files; credentials cut from .git/config (--with-secrets keeps them)');
 	log(`✔ exported ${stats.size} workspace(s) from ${name} to ${out} · ${encrypt ? 'encrypted with the owner passphrase' : 'NOT encrypted (--no-encrypt): a plain .tar.gz anyone holding the file can read'}`);
 	return 0;
 }
