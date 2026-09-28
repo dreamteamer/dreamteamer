@@ -22,6 +22,7 @@ export function startFakeDocker(socketPath, { images = [], plain = [] } = {}) {
 		images: new Map(),                  // ref -> { Id, RepoTags, Labels, Created, Size }
 		containers: new Map(),              // id -> { Id, Name, Config, HostConfig, Mounts, State, Created }
 		volumesRemoved: [],
+		volumes: new Set(),                 // names that exist — a create makes its named volumes, as Docker does
 		pulls: [],
 		networks: new Map(),                // name -> { Name, Driver, Labels }
 		execs: [],                          // { id, container, Cmd, User, code } of every exec created
@@ -101,7 +102,7 @@ export function startFakeDocker(socketPath, { images = [], plain = [] } = {}) {
 			const json = (status, obj) => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(obj === undefined ? '' : JSON.stringify(obj)); };
 			const p = u.pathname;
 			let m;
-			if (p === '/_fake/state') return json(200, { requests: state.requests.slice(0, -1), pulls: state.pulls, volumesRemoved: state.volumesRemoved, containers: [...state.containers.values()], images: [...state.images.keys()], hung: state.hung, networks: [...state.networks.values()], execs: state.execs, tokens: state.tokens });
+			if (p === '/_fake/state') return json(200, { requests: state.requests.slice(0, -1), pulls: state.pulls, volumesRemoved: state.volumesRemoved, volumes: [...state.volumes], containers: [...state.containers.values()], images: [...state.images.keys()], hung: state.hung, networks: [...state.networks.values()], execs: state.execs, tokens: state.tokens });
 			// A daemon that is paused or still starting accepts the connection and says nothing — the
 			// one failure mode a timer exists for. Armed per request so the suite stays deterministic.
 			if (p === '/_fake/hang') { state.hangNext = u.searchParams.get('path') ?? ''; return json(204); }
@@ -131,7 +132,9 @@ export function startFakeDocker(socketPath, { images = [], plain = [] } = {}) {
 				return json(200, [{ Deleted: ref }]);
 			}
 			// volumes
-			if (req.method === 'DELETE' && (m = p.match(/^\/volumes\/(.+)$/))) { state.volumesRemoved.push(decodeURIComponent(m[1])); return json(204); }
+			if (req.method === 'DELETE' && (m = p.match(/^\/volumes\/(.+)$/))) { state.volumesRemoved.push(decodeURIComponent(m[1])); state.volumes.delete(decodeURIComponent(m[1])); return json(204); }
+			if (p === '/volumes/create' && req.method === 'POST') { state.volumes.add(body.Name); return json(201, { Name: body.Name }); }
+			if ((m = p.match(/^\/volumes\/([^/]+)$/))) return state.volumes.has(decodeURIComponent(m[1])) ? json(200, { Name: decodeURIComponent(m[1]) }) : json(404, { message: `get ${m[1]}: no such volume` });
 			// networks
 			if (p === '/networks/create' && req.method === 'POST') {
 				if (state.networks.has(body.Name)) return json(409, { message: `network with name ${body.Name} already exists` });
@@ -191,6 +194,10 @@ export function startFakeDocker(socketPath, { images = [], plain = [] } = {}) {
 				if (!state.images.has(body.Image)) return json(404, { message: `No such image: ${body.Image}` });
 			const net = body.HostConfig?.NetworkMode;
 			if (net && !['bridge', 'host', 'none', 'default'].includes(net) && !state.networks.has(net)) return json(404, { message: `network ${net} not found` });
+				for (const mt of body.HostConfig?.Mounts ?? []) if (mt.Type === 'volume') state.volumes.add(mt.Source);
+				// an image labelled `fake.createfail` fails AFTER Docker has made the volumes — the worst
+				// case a failed create leaves behind (a bad device, a driver error, a port Docker refuses)
+				if (state.images.get(body.Image)?.Labels?.['fake.createfail']) return json(500, { message: 'fake: create failed after the volumes were made' });
 				const Id = `${String(++n).padStart(12, 'a')}${'0'.repeat(52)}`;
 				state.containers.set(Id, {
 					Id, Name: `/${name}`, Created: new Date().toISOString(),

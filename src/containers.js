@@ -235,8 +235,11 @@ export function parseMount(spec) {
 /** The URI VS Code on the host opens to attach to this container (Dev Containers extension). The
  *  container name is hex-encoded, as the extension spells it. */
 export const attachUri = (name) => `vscode-remote://attached-container+${Buffer.from(name, 'utf8').toString('hex')}${workspaceDir(name)}`;
-/** Each container gets its OWN user-defined bridge, so two workspaces on one machine cannot reach
- *  each other's ports the way two containers on Docker's default bridge can. */
+/** Each container gets its OWN user-defined bridge, so it shares no network with another
+ *  workspace and its network carries its name. That is NOT isolation on its own: measured 2026-09-28
+ *  on Docker Desktop 29.3.1, a container on one user-defined bridge reaches another's by IP and via
+ *  host.docker.internal:<its published port>. What isolates is the image's egress firewall (see
+ *  CapAdd below); the bridge still helps where the platform does separate bridges. */
 export const networkName = (name) => `dreamteamer-${name}`;
 const volumeNames = (name) => ({ workspace: `dreamteamer-${name}-workspace`, home: `dreamteamer-${name}-home`, files: `dreamteamer-${name}-files` });
 
@@ -323,15 +326,37 @@ export async function startContainer(name, flags, log = console.log) {
 		// at one of those three targets is refused rather than silently shadowing the volume.
 		const extra = (flags.mount ?? []).map(parseMount);
 		for (const m of extra) if ([wsDir, '/workspaces', '/home/node', '/files'].includes(m.Target)) throw new Error(`--mount cannot target ${m.Target} — that is one of the container's own volumes, or holds them (${wsDir} · /home/node · /files)`);
+		// No mount point INSIDE another mount, the three own volumes included. runc resolves a mount
+		// destination through symlinks in the rootfs, and a mounted volume is writable by whoever runs
+		// in it: `evil -> /opt` inside /workspaces/<name> makes a mount at /workspaces/<name>/evil land
+		// on the image's real /opt (measured with plain Docker). Only the image's own filesystem — no
+		// symlinks on these roots, which the image pins with a test — may lie between / and a mount point.
+		const under = (t, r) => t === r || t.startsWith(`${r}/`);
+		const targets = [wsDir, '/home/node', '/files', ...extra.map((m) => m.Target)];
+		extra.forEach((m, i) => { for (const [j, t] of targets.entries()) if (j !== i + 3 && (under(m.Target, t) || under(t, m.Target))) throw new Error(`--mount ${m.Source}:${m.Target} lies at or under ${t}, another mount of this container — a mount point inside a mount resolves through whatever symlinks were written there; mount it beside, e.g. /mnt/<name>`); });
 		// A bind whose source lies inside another bind's (or IS it) reaches the same files twice — the
 		// way a `:ro` mount of a folder is undone by a writable mount of the folder it sits in.
+		// "Inside" is decided by IDENTITY, not spelling: realpath keeps the case it was given, so on a
+		// case-insensitive volume (APFS, NTFS by default) `/x/INNER` passes a path comparison against `/x`.
+		// So walk up a's real path and compare each ancestor's dev+ino with b's — the filesystem's own
+		// rules (case, Unicode normalisation) answer, none guessed here. A source that does not exist has
+		// no inode (Docker refuses the bind anyway); it falls back to a path compare, case-folded where
+		// the platform's default volume folds.
 		const real = (p) => { try { return fs.realpathSync(p); } catch { return p; } };
+		const ident = (p) => { try { const s = fs.statSync(p, { bigint: true }); return `${s.dev}:${s.ino}`; } catch { return null; } };
+		const fold = (p) => (['darwin', 'win32'].includes(process.platform) ? p.toLowerCase() : p);
+		const inside = (a, b) => {
+			const want = ident(b.real);
+			if (!want) return !path.relative(fold(b.real), fold(a.real)).startsWith('..');
+			for (let p = a.real; ; p = path.dirname(p)) { if (ident(p) === want) return true; if (path.dirname(p) === p) return false; }
+		};
 		const binds = extra.filter((m) => m.Type === 'bind').map((m) => ({ m, real: real(m.Source) }));
-		for (const a of binds) for (const b of binds) if (a !== b && !path.relative(b.real, a.real).startsWith('..')) throw new Error(`--mount ${a.m.Source}:${a.m.Target} lies inside ${b.m.Source} (mounted at ${b.m.Target}) — one container reaches a host folder through one mount`);
+		for (const a of binds) for (const b of binds) if (a !== b && inside(a, b)) throw new Error(`--mount ${a.m.Source}:${a.m.Target} lies inside ${b.m.Source} (mounted at ${b.m.Target}) — one container reaches a host folder through one mount`);
 		// `--repo <url>` clones an EXISTING workspace into the workspace volume on first start instead of
 		// laying the template down — the way a person joins a workspace that already lives on GitHub.
 		const repo = typeof flags.repo === 'string' ? flags.repo : undefined;
 		if (repo !== undefined && !/^(https?:\/\/|git@|ssh:\/\/|file:\/\/|\/)/.test(repo)) throw new Error(`--repo takes a git URL or an absolute path — got "${repo}"`);
+		const network = await ensureNetwork(name);
 		const body = {
 			Image: ref,
 			Labels: { [LABEL.workspace]: name, [LABEL.template]: template, [LABEL.person]: who.name, [LABEL.workdir]: wsDir },
@@ -354,10 +379,29 @@ export async function startContainer(name, flags, log = console.log) {
 					...extra,
 				],
 				RestartPolicy: { Name: 'unless-stopped' },
-				NetworkMode: await ensureNetwork(name), // its own bridge ONLY — never the default one
+				NetworkMode: network.net, // its own bridge ONLY — never the default one; naming, not the isolation
+				// NET_ADMIN, and nothing else, for the image's ROOT phase: the entrypoint applies the local
+				// egress policy (what the container may reach — not another workspace, not the host's
+				// published ports) before it drops to the editor and agents, which run with NO capabilities,
+				// so none of them can change the rules. Separate bridges alone do not isolate (above).
+				CapAdd: ['NET_ADMIN'],
 			},
 		};
-		ok(await api('POST', `/containers/create?name=${encodeURIComponent(name)}`, body), `create container ${name}`);
+		// A create Docker refuses must not leave this attempt's debris: the network ensureNetwork just
+		// made, and the named volumes Docker makes during create. Only what did NOT exist before is
+		// removed — a pre-existing volume holds someone's work. Docker refuses to remove either while a
+		// container uses it, which covers the create that did land before its answer was lost.
+		const fresh = [];
+		try {
+			for (const m of body.HostConfig.Mounts) if (m.Type === 'volume' && (await api('GET', `/volumes/${encodeURIComponent(m.Source)}`)).status === 404) fresh.push(m.Source);
+			ok(await api('POST', `/containers/create?name=${encodeURIComponent(name)}`, body), `create container ${name}`);
+		} catch (e) {
+			try {
+				for (const v of fresh) await api('DELETE', `/volumes/${encodeURIComponent(v)}`);
+				if (network.created) await api('DELETE', `/networks/${encodeURIComponent(network.net)}`);
+			} catch { /* the create's own failure is the one to report */ }
+			throw e;
+		}
 		c = await inspectContainer(name);
 		log(`✔ created ${name} from ${ref} · ${env.DT_BIND}:${port} → ${inner} · ${wsDir} · volumes ${Object.values(vols).join(', ')}${extra.length ? ` · mounts ${extra.map((m) => `${m.Source}→${m.Target}${m.ReadOnly ? ' (ro)' : ''}`).join(', ')}` : ''}${repo ? ` · clones ${repo} on first start` : ''}`);
 	}
@@ -377,9 +421,9 @@ export async function startContainer(name, flags, log = console.log) {
 async function ensureNetwork(name) {
 	const net = networkName(name);
 	const res = await api('GET', `/networks/${encodeURIComponent(net)}`);
-	if (res.status === 404) { ok(await api('POST', '/networks/create', { Name: net, Driver: 'bridge', Labels: { dreamteamer: '1', 'dreamteamer.name': name } }), `create network ${net}`); return net; }
+	if (res.status === 404) { ok(await api('POST', '/networks/create', { Name: net, Driver: 'bridge', Labels: { dreamteamer: '1', 'dreamteamer.name': name } }), `create network ${net}`); return { net, created: true }; }
 	if (ok(res, `get network ${net}`).Labels?.['dreamteamer.name'] !== name) throw new Error(`a Docker network "${net}" exists that dreamteamer did not make — remove or rename it (docker network rm ${net})`);
-	return net;
+	return { net, created: false };
 }
 
 /** Run `cmd` (an argv, never a shell line) in a running container as `user` — one Docker exec under
@@ -527,6 +571,9 @@ export async function driverCommand(verb, target, args) {
 	const id = target.id ?? pos[0];
 	const json = flags.json === true;
 	const col = target.collection;
+	// under --json stdout is the JSON document and nothing else — every human line (the URL carrying
+	// the image's token among them) goes to stderr, so a script parsing or logging stdout never holds it
+	const say = json ? console.error : console.log;
 	if (!DRIVER_VERBS.has(verb)) throw new Error(`\`${verb}\` is not a verb on ${col} — list · get · add · rm${col === 'containers' ? ' · start · stop · open' : ''}`);
 	if (col === 'images') {
 		if (LIFECYCLE_VERBS.has(verb)) throw new Error(`\`${verb}\` is a container verb — an image is started by starting a container from it: dt start container <name> --template <t>`);
@@ -539,8 +586,8 @@ export async function driverCommand(verb, target, args) {
 	if (verb === 'list') { const rows = await listContainers(); json ? emit(JSON.stringify(rows, null, 2)) : console.log(table(rows, ['name', 'template', 'state', 'editor_url', 'person', 'created'])); return 0; }
 	if (!id) throw new Error(`dt ${verb} container <name>${verb === 'start' || verb === 'add' ? ' --template <t>' : ''}`);
 	if (verb === 'get') { const c = await inspectContainer(id); if (!c) throw new Error(`no container "${id}" — dt list containers`); emit(JSON.stringify(json ? c : containerDetail(c), null, 2)); return 0; }
-	if (verb === 'start' || verb === 'add') { const d = await startContainer(id, flags); if (json) emit(JSON.stringify(d, null, 2)); return 0; }
-	if (verb === 'stop') { const d = await stopContainer(id); console.log(`✔ stopped ${id} · volumes kept`); if (json) emit(JSON.stringify(d, null, 2)); return 0; }
+	if (verb === 'start' || verb === 'add') { const d = await startContainer(id, flags, say); if (json) emit(JSON.stringify(d, null, 2)); return 0; }
+	if (verb === 'stop') { const d = await stopContainer(id); say(`✔ stopped ${id} · volumes kept`); if (json) emit(JSON.stringify(d, null, 2)); return 0; }
 	if (verb === 'open') {
 		const c = await inspectContainer(id); if (!c) throw new Error(`no container "${id}"`);
 		const d = containerDetail(c);
@@ -548,14 +595,17 @@ export async function driverCommand(verb, target, args) {
 			// Dev Containers attach: the host's own VS Code opens the workspace INSIDE the container, and
 			// installs the extensions the image's `devcontainer.metadata` label names into the container's
 			// VS Code Server — a second extension host beside code-server's, over the same files.
-			console.log(d.attach_uri);
+			say(d.attach_uri);
 			if (!flags['no-open']) { try { spawn('code', ['--folder-uri', d.attach_uri], { stdio: 'ignore', detached: true }).unref(); } catch { /* the URI is printed either way */ } }
+			if (json) emit(JSON.stringify(d, null, 2));
 			return 0;
 		}
 		if (!d.editor_url) throw new Error(`${id} publishes no port`);
 		if (d.state !== 'running') throw new Error(`${id} is ${d.state} — dt start container ${id} starts it and prints its URL`);
 		const url = await launchUrl(d, flags);
-		console.log(url.text); if (!flags['no-open']) openUrl(url, console.log); return 0;
+		say(url.text); if (!flags['no-open']) openUrl(url, say);
+		if (json) emit(JSON.stringify(d, null, 2)); // containerDetail: its editor_url never carries the token
+		return 0;
 	}
 	if (verb === 'rm') { await removeContainer(id, { force: flags.force === true }); return 0; }
 	return 1;
