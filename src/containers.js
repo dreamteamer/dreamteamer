@@ -339,6 +339,7 @@ export async function startContainer(name, flags, log = console.log) {
 		// laying the template down — the way a person joins a workspace that already lives on GitHub.
 		const repo = typeof flags.repo === 'string' ? flags.repo : undefined;
 		if (repo !== undefined && !/^(https?:\/\/|git@|ssh:\/\/|file:\/\/|\/)/.test(repo)) throw new Error(`--repo takes a git URL or an absolute path — got "${repo}"`);
+		const network = await ensureNetwork(name);
 		const body = {
 			Image: ref,
 			Labels: { [LABEL.workspace]: name, [LABEL.template]: template, [LABEL.person]: who.name, [LABEL.workdir]: wsDir },
@@ -361,10 +362,24 @@ export async function startContainer(name, flags, log = console.log) {
 					...extra,
 				],
 				RestartPolicy: { Name: 'unless-stopped' },
-				NetworkMode: await ensureNetwork(name), // its own bridge ONLY — never the default one
+				NetworkMode: network.net, // its own bridge ONLY — never the default one
 			},
 		};
-		ok(await api('POST', `/containers/create?name=${encodeURIComponent(name)}`, body), `create container ${name}`);
+		// A create Docker refuses must not leave this attempt's debris: the network ensureNetwork just
+		// made, and the named volumes Docker makes during create. Only what did NOT exist before is
+		// removed — a pre-existing volume holds someone's work. Docker refuses to remove either while a
+		// container uses it, which covers the create that did land before its answer was lost.
+		const fresh = [];
+		try {
+			for (const m of body.HostConfig.Mounts) if (m.Type === 'volume' && (await api('GET', `/volumes/${encodeURIComponent(m.Source)}`)).status === 404) fresh.push(m.Source);
+			ok(await api('POST', `/containers/create?name=${encodeURIComponent(name)}`, body), `create container ${name}`);
+		} catch (e) {
+			try {
+				for (const v of fresh) await api('DELETE', `/volumes/${encodeURIComponent(v)}`);
+				if (network.created) await api('DELETE', `/networks/${encodeURIComponent(network.net)}`);
+			} catch { /* the create's own failure is the one to report */ }
+			throw e;
+		}
 		c = await inspectContainer(name);
 		log(`✔ created ${name} from ${ref} · ${env.DT_BIND}:${port} → ${inner} · ${wsDir} · volumes ${Object.values(vols).join(', ')}${extra.length ? ` · mounts ${extra.map((m) => `${m.Source}→${m.Target}${m.ReadOnly ? ' (ro)' : ''}`).join(', ')}` : ''}${repo ? ` · clones ${repo} on first start` : ''}`);
 	}
@@ -384,9 +399,9 @@ export async function startContainer(name, flags, log = console.log) {
 async function ensureNetwork(name) {
 	const net = networkName(name);
 	const res = await api('GET', `/networks/${encodeURIComponent(net)}`);
-	if (res.status === 404) { ok(await api('POST', '/networks/create', { Name: net, Driver: 'bridge', Labels: { dreamteamer: '1', 'dreamteamer.name': name } }), `create network ${net}`); return net; }
+	if (res.status === 404) { ok(await api('POST', '/networks/create', { Name: net, Driver: 'bridge', Labels: { dreamteamer: '1', 'dreamteamer.name': name } }), `create network ${net}`); return { net, created: true }; }
 	if (ok(res, `get network ${net}`).Labels?.['dreamteamer.name'] !== name) throw new Error(`a Docker network "${net}" exists that dreamteamer did not make — remove or rename it (docker network rm ${net})`);
-	return net;
+	return { net, created: false };
 }
 
 /** Run `cmd` (an argv, never a shell line) in a running container as `user` — one Docker exec under
