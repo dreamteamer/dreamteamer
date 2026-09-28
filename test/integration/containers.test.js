@@ -205,8 +205,8 @@ describe('host mode — the verbs answer with NO workspace', () => {
 	test('stop leaves the container exited, keeps its volumes, and --json prints the detail', () => {
 		const r = h.dt('stop', 'container', 'hq-dana', '--json');
 		assert.equal(r.code, 0, r.out);
-		assert.match(r.stdout, /✔ stopped hq-dana · volumes kept/);
-		const detail = JSON.parse(r.stdout.slice(r.stdout.indexOf('{')));
+		assert.match(r.stderr, /✔ stopped hq-dana · volumes kept/);
+		const detail = JSON.parse(r.stdout);
 		assert.equal(detail.state, 'exited');
 		assert.equal(detail.volumes.home, 'dreamteamer-hq-dana-home');
 		assert.equal(JSON.parse(h.dt('get', 'container', 'hq-dana').stdout).state, 'exited');
@@ -349,14 +349,28 @@ describe('the image\'s URL token, the per-container network, and the mount rules
 		const st = await fake.state();
 		const token = st.tokens['hq-ada'];
 		assert.ok(token, 'no token was ever asked for');
-		assert.match(r.stdout, new RegExp(`· http://localhost:8100/\\?tkn=${token}\\n`));
+		// under --json stdout is the JSON and nothing else; the human line (the one carrying the token)
+		// goes to stderr, where a script piping stdout into a log or a parser never sees it
+		assert.match(r.stderr, new RegExp(`· http://localhost:8100/\\?tkn=${token}\\n`));
+		assert.ok(!r.stdout.includes(token), 'the token reached --json stdout');
 		assert.equal(r.out.split(token).length - 1, 1, 'the token appeared on more than the one URL line');
 		const show = st.execs.find((e) => e.Cmd[0] === 'dt-url-token');
 		assert.deepEqual([show.Cmd, show.User, show.container], [['dt-url-token', 'show'], 'root', 'hq-ada']);
 		assert.deepEqual(st.execs.find((e) => e.Cmd[0] === 'cat').Cmd, ['cat', '/opt/dt-image/features']);
 		assert.ok(!JSON.stringify(st.requests.find((q) => q.path.startsWith('/containers/create')).body).includes(token));
 		for (const f of hostFiles(h.home)) assert.ok(!fs.readFileSync(f, 'utf8').includes(token), `the token was written to ${f}`);
-		assert.equal(JSON.parse(r.stdout.slice(r.stdout.indexOf('{'))).editor_url, 'http://localhost:8100/');
+		assert.equal(JSON.parse(r.stdout).editor_url, 'http://localhost:8100/', 'stdout under --json is not exactly one JSON document');
+	});
+
+	test('open --json prints the detail as exactly one JSON document with no token; the URL goes to stderr', async () => {
+		const token = (await fake.state()).tokens['hq-ada'];
+		const r = h.dt('open', 'container', 'hq-ada', '--no-open', '--json');
+		assert.equal(r.code, 0, r.out);
+		const d = JSON.parse(r.stdout);
+		assert.equal(d.name, 'hq-ada');
+		assert.equal(d.editor_url, 'http://localhost:8100/');
+		assert.ok(!r.stdout.includes(token), 'the token reached --json stdout');
+		assert.equal(r.stderr.trim(), `http://localhost:8100/?tkn=${token}`);
 	});
 
 	test('open reads the same token; --workspace keeps ?folder= beside it', async () => {

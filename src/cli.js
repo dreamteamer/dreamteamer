@@ -265,7 +265,7 @@ these verbs work with NO workspace, so npm i -g dreamteamer and Docker Desktop a
                                   under /workspaces · /home/node · /files · /mnt, no bind inside another
               [--name <git name>] [--email <git email>] [--no-open] [--json]
   stop        container <name>                  stop it; every volume kept [--json]
-  open        container <name>                  print (and open) its URL, token included [--no-open]
+  open        container <name>                  print (and open) its URL, token included [--no-open] [--json]
               [--workspace [<w>]]
               [--vscode]  print (and open) the Dev Containers attach URI instead — the host's own
                           VS Code inside the container, extensions from the image's metadata label

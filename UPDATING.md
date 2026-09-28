@@ -38,7 +38,9 @@ dreamteamer did not make is refused rather than joined.
 The container gets `DT_LOCAL_BIND=0.0.0.0`, so the image's editor answers the port mapping; the host
 side stays `DT_BIND` (loopback). An image that lists `url-token` in `/opt/dt-image/features` (hq
 0.6+) holds a URL token its proxy checks: `start` and `open` read it by `docker exec` as root and
-print `http://localhost:<port>/?tkn=<token>` — on that one line only, never in a file or `--json`,
+print `http://localhost:<port>/?tkn=<token>` — on that one line only, never in a file or `--json`
+output (under `--json` every human line, that one included, goes to stderr and stdout is exactly the
+JSON document; `open` and `stop` honour `--json` too),
 and on macOS opened through `osascript` on stdin rather than a process argument (elsewhere it is
 printed for you to open). `dt start container <name> --rotate-token` replaces it. An older image
 gets the plain URL, as before.
