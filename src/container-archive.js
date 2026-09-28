@@ -34,6 +34,7 @@ import crypto from 'node:crypto';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { api, ok, inspectContainer, exec, parseFlags } from './containers.js';
+import { emit } from './collections-cli.js';
 
 const ROOT = '/workspaces';
 const WS_NAME = /^[a-z0-9][a-z0-9_.-]*$/;
@@ -45,7 +46,7 @@ const SECRET_FILES = new Set(['.env', '.git-credentials']);
 /** A `.git/config` minus its credentials: `https://user:token@host` → `https://host`, no extraheader. */
 export const stripGitConfig = (text) => text.replace(/^[ \t]*extraheader[ \t]*=.*(\r?\n|$)/gim, '').replace(/^([ \t]*(?:push)?url[ \t]*=[ \t]*"?https?:\/\/)[^@\/\s"]*@/gim, '$1');
 const FILE = '0', DIR = '5', SYMLINK = '2';
-const FLAGS = { export: ['workspace', 'out', 'no-encrypt', 'with-secrets'], import: ['workspace', 'replace', 'as'] };
+const FLAGS = { export: ['workspace', 'out', 'no-encrypt', 'with-secrets', 'json'], import: ['workspace', 'replace', 'as', 'json'] };
 
 // ---- tar: read any of ustar · PAX · GNU long names, write ustar (+ PAX when a name is long) -------
 const str = (b, o, n) => { const e = b.indexOf(0, o); return b.toString('utf8', o, e === -1 || e > o + n ? o + n : e); };
@@ -244,7 +245,7 @@ export async function exportContainer(name, flags, log = console.log) {
 	if (secrets) log('⚠ --with-secrets: every .env, .git-credentials and .git/config credential is INCLUDED, unchanged — whoever opens this file holds them');
 	else log('  secrets left out: .env and .git-credentials files; credentials cut from .git/config (--with-secrets keeps them)');
 	log(`✔ exported ${stats.size} workspace(s) from ${name} to ${out} · ${encrypt ? 'encrypted with the owner passphrase' : 'NOT encrypted (--no-encrypt): a plain .tar.gz anyone holding the file can read'}`);
-	return 0;
+	return { container: name, out, encrypted: encrypt, with_secrets: secrets, workspaces: [...stats].map(([w, s]) => ({ name: w, ...s })), left_behind: [...left], skipped };
 }
 
 // ---- import --------------------------------------------------------------------------------------
@@ -314,7 +315,7 @@ export async function importContainer(name, file, flags, log = console.log) {
 	// principle 3: an install runs code the workspace chose (lifecycle scripts, a pinned engine), so
 	// import names the step and the person takes it
 	if (installs.length) log(`next, in ${installs.join(', ')}: npm ci && npx dreamteamer compile — import ran neither (both run code the workspace chose)`);
-	return 0;
+	return { container: name, imported: targets, replaced: full, next: installs };
 }
 
 /** `dt export|import container <name> …` → exit code. */
@@ -325,5 +326,10 @@ export async function archiveCommand(verb, target, args) {
 	if (bad) throw new Error(`unknown flag "--${bad}" on \`dt ${verb} container\` — known: ${FLAGS[verb].map((f) => `--${f}`).join(', ')}`);
 	const name = target.id ?? pos.shift();
 	if (target.collection !== 'containers' || !name) throw new Error(verb === 'export' ? 'dt export container <name> [--workspace <w>]... --out <file> [--no-encrypt]' : 'dt import container <name> <file> [--workspace <w>]... [--replace]');
-	return verb === 'export' ? exportContainer(name, flags) : importContainer(name, pos[0], flags);
+	// the driver's rule: under --json stdout carries ONLY the JSON, every human line goes to stderr
+	const json = flags.json === true;
+	const say = json ? console.error : console.log;
+	const r = verb === 'export' ? await exportContainer(name, flags, say) : await importContainer(name, pos[0], flags, say);
+	if (json) emit(JSON.stringify(r, null, 2));
+	return 0;
 }

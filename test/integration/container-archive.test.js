@@ -310,6 +310,24 @@ describe('export and import a container\'s workspaces', () => {
 		fs.rmSync(at('hq-dana', 'workspaces/beta'), { recursive: true });
 	});
 
+	test('--json: export and import print ONLY their JSON on stdout; the human lines go to stderr', () => {
+		put('hq-dana', 'workspaces/hq-dana/package.json', '{"name":"acme"}');
+		const e = dt('export', 'container', 'hq-dana', '--out', out('j.tgz'), '--no-encrypt', '--json');
+		assert.equal(e.code, 0, e.out);
+		const ej = JSON.parse(e.stdout);
+		assert.equal(ej.encrypted, false);
+		assert.deepEqual(ej.workspaces.map((w) => w.name), ['hq-dana']);
+		assert.ok(ej.left_behind.includes('hq-dana/node_modules'));
+		assert.match(e.out, /NOT encrypted/, 'the human line still reaches stderr');
+		const i = dt('import', 'container', 'hq-dana', out('j.tgz'), '--replace', '--json');
+		assert.equal(i.code, 0, i.out);
+		const ij = JSON.parse(i.stdout);
+		assert.deepEqual(ij.imported, ['/workspaces/hq-dana']);
+		assert.deepEqual(ij.next, ['/workspaces/hq-dana']);
+		assert.match(i.out, /next, in \/workspaces\/hq-dana/);
+		fs.rmSync(at('hq-dana', 'workspaces/hq-dana/package.json'));
+	});
+
 	test('an unknown flag is refused, not swallowed', () => {
 		const r = dt('export', 'container', 'hq-dana', '--out', out('u.tgz'), '--no-encrpyt');
 		assert.equal(r.code, 1);
