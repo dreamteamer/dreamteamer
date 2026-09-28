@@ -53,8 +53,11 @@ offset  size  field
 ```
 
 **Keys.** `scrypt(passphrase NFC-normalised as UTF-8, salt, N = 2^log2N, r, p, dkLen = 64)`; bytes
-0..31 are the AES-256-GCM key, bytes 32..63 the HMAC key. A reader refuses `log2N` outside 14..20,
-`r` outside 1..16, `p` outside 1..4 and a chunk size outside 1 KiB..16 MiB, before deriving anything.
+0..31 are the AES-256-GCM key, bytes 32..63 the HMAC key. The parameters are read before the MAC can be
+checked (the MAC needs the key they derive), so they are untrusted: a version-1 reader accepts
+**exactly** `log2N = 17`, `r = 8`, `p = 1` and a chunk size of 65536, and refuses anything else before
+running scrypt or asking for the passphrase. A future version that wants other costs is a new
+version number.
 
 **Header MAC.** Checked (constant time) before any chunk is opened. A mismatch means a wrong passphrase
 or a damaged header, and nothing is written.

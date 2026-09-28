@@ -368,3 +368,30 @@ describe('export and import a container\'s workspaces', () => {
 		assert.ok(!fs.existsSync(out('u.tgz')));
 	});
 });
+
+// ⚠ The scrypt parameters sit in the header BEFORE its MAC can be checked — the MAC needs the key
+// the parameters derive. So a header naming a bigger cost buys an attacker gigabytes and seconds of
+// the importer's work with no passphrase at all. Only the exact v1 parameters are accepted, and the
+// refusal must come before scrypt runs: a spy on crypto.scrypt, in-process, proves it never did.
+describe('the sealed header: scrypt parameters are refused before scrypt runs', () => {
+	const header = ({ log2N = 17, r = 8, p = 1, chunk = 65536 } = {}) => {
+		const h = Buffer.alloc(72); Buffer.from('DTEXPORT').copy(h); h[8] = 1; h[9] = log2N; h[10] = r; h[11] = p; h.writeUInt32BE(chunk, 12);
+		return Buffer.concat([h, Buffer.alloc(64)]);
+	};
+	test('N=2^20, r=16, p=4 or another chunk size: refused, scrypt never called; the exact v1 values reach scrypt', async () => {
+		const { openSeal } = await import('../../src/container-archive.js');
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dt-hdr-'));
+		const real = crypto.scrypt; let calls = 0;
+		crypto.scrypt = (...a) => { calls++; a[a.length - 1](null, Buffer.alloc(64)); };
+		try {
+			for (const bad of [{ log2N: 20 }, { log2N: 18 }, { r: 16 }, { p: 4 }, { log2N: 16 }, { chunk: 1 << 24 }]) {
+				const f = path.join(dir, 'h.dtx'); fs.writeFileSync(f, header(bad));
+				await assert.rejects(openSeal(f, 'any passphrase'), /parameters/, JSON.stringify(bad));
+				assert.equal(calls, 0, `${JSON.stringify(bad)} reached scrypt`);
+			}
+			const f = path.join(dir, 'ok.dtx'); fs.writeFileSync(f, header());
+			await assert.rejects(openSeal(f, 'any passphrase'), /wrong passphrase/);
+			assert.equal(calls, 1, 'the spy is not wired: the v1 parameters never reached it');
+		} finally { crypto.scrypt = real; fs.rmSync(dir, { recursive: true, force: true }); }
+	});
+});
