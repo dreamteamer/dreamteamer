@@ -30,15 +30,25 @@ volumes survive).
 
 `dt start container <name>` creates a user-defined bridge `dreamteamer-<name>` (labels `dreamteamer=1`,
 `dreamteamer.name=<name>`) and attaches the container to it ONLY — two workspaces on one machine no
-longer share Docker's default bridge. `dt rm container` removes it. A network of that name that
-dreamteamer did not make is refused rather than joined.
+longer share Docker's default bridge. `dt rm container` removes it, and a create Docker refuses
+removes the network and volumes that attempt made. A network of that name that dreamteamer did not
+make is refused rather than joined.
+
+The network alone does NOT isolate one workspace from another: on Docker Desktop (measured 29.3.1)
+a container on one user-defined bridge reaches another by IP and through
+`host.docker.internal:<its published port>`. Isolation is the image's egress firewall, applied by
+its root entrypoint before the editor and agents start with no capabilities — so the container is
+created with `CapAdd: ["NET_ADMIN"]`, and no other added privilege. An image without that firewall
+gets the capability and does nothing with it, and its workspaces are not isolated from each other.
 
 ### The editor listens inside, the URL carries the image's token
 
 The container gets `DT_LOCAL_BIND=0.0.0.0`, so the image's editor answers the port mapping; the host
 side stays `DT_BIND` (loopback). An image that lists `url-token` in `/opt/dt-image/features` (hq
 0.6+) holds a URL token its proxy checks: `start` and `open` read it by `docker exec` as root and
-print `http://localhost:<port>/?tkn=<token>` — on that one line only, never in a file or `--json`,
+print `http://localhost:<port>/?tkn=<token>` — on that one line only, never in a file or `--json`
+output (under `--json` every human line, that one included, goes to stderr and stdout is exactly the
+JSON document; `open` and `stop` honour `--json` too),
 and on macOS opened through `osascript` on stdin rather than a process argument (elsewhere it is
 printed for you to open). `dt start container <name> --rotate-token` replaces it. An older image
 gets the plain URL, as before.
@@ -54,7 +64,10 @@ for one workspace. `dt open container` on a stopped container is now refused, na
 Targets must be under `/workspaces`, `/home/node`, `/files` or `/mnt` after `..` is normalised
 (`/etc`, `/opt`, `/usr/local/bin` are refused), and `/workspaces` itself is refused beside the three
 own volumes. A bind whose host source lies inside — or is — another bind source of the same
-container is refused. A mount that 0.29.0 accepted at, say, `/files-team` moves to `/files/team`.
+container is refused. No mount target may lie at or under another mount's target, the three own
+volumes included — so `/files/team`, `/home/node/.config` and `/workspaces/<name>/x` are refused,
+because Docker resolves a mount point through symlinks written inside the mount above it. A mount
+that 0.29.0 accepted at, say, `/files-team` or `/files/team` moves to `/mnt/team`.
 
 ### `dt export container` and `dt import container` (new)
 
