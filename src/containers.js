@@ -534,6 +534,9 @@ export async function driverCommand(verb, target, args) {
 	const id = target.id ?? pos[0];
 	const json = flags.json === true;
 	const col = target.collection;
+	// under --json stdout is the JSON document and nothing else — every human line (the URL carrying
+	// the image's token among them) goes to stderr, so a script parsing or logging stdout never holds it
+	const say = json ? console.error : console.log;
 	if (!DRIVER_VERBS.has(verb)) throw new Error(`\`${verb}\` is not a verb on ${col} — list · get · add · rm${col === 'containers' ? ' · start · stop · open' : ''}`);
 	if (col === 'images') {
 		if (LIFECYCLE_VERBS.has(verb)) throw new Error(`\`${verb}\` is a container verb — an image is started by starting a container from it: dt start container <name> --template <t>`);
@@ -546,8 +549,8 @@ export async function driverCommand(verb, target, args) {
 	if (verb === 'list') { const rows = await listContainers(); json ? emit(JSON.stringify(rows, null, 2)) : console.log(table(rows, ['name', 'template', 'state', 'editor_url', 'person', 'created'])); return 0; }
 	if (!id) throw new Error(`dt ${verb} container <name>${verb === 'start' || verb === 'add' ? ' --template <t>' : ''}`);
 	if (verb === 'get') { const c = await inspectContainer(id); if (!c) throw new Error(`no container "${id}" — dt list containers`); emit(JSON.stringify(json ? c : containerDetail(c), null, 2)); return 0; }
-	if (verb === 'start' || verb === 'add') { const d = await startContainer(id, flags); if (json) emit(JSON.stringify(d, null, 2)); return 0; }
-	if (verb === 'stop') { const d = await stopContainer(id); console.log(`✔ stopped ${id} · volumes kept`); if (json) emit(JSON.stringify(d, null, 2)); return 0; }
+	if (verb === 'start' || verb === 'add') { const d = await startContainer(id, flags, say); if (json) emit(JSON.stringify(d, null, 2)); return 0; }
+	if (verb === 'stop') { const d = await stopContainer(id); say(`✔ stopped ${id} · volumes kept`); if (json) emit(JSON.stringify(d, null, 2)); return 0; }
 	if (verb === 'open') {
 		const c = await inspectContainer(id); if (!c) throw new Error(`no container "${id}"`);
 		const d = containerDetail(c);
@@ -555,14 +558,17 @@ export async function driverCommand(verb, target, args) {
 			// Dev Containers attach: the host's own VS Code opens the workspace INSIDE the container, and
 			// installs the extensions the image's `devcontainer.metadata` label names into the container's
 			// VS Code Server — a second extension host beside code-server's, over the same files.
-			console.log(d.attach_uri);
+			say(d.attach_uri);
 			if (!flags['no-open']) { try { spawn('code', ['--folder-uri', d.attach_uri], { stdio: 'ignore', detached: true }).unref(); } catch { /* the URI is printed either way */ } }
+			if (json) emit(JSON.stringify(d, null, 2));
 			return 0;
 		}
 		if (!d.editor_url) throw new Error(`${id} publishes no port`);
 		if (d.state !== 'running') throw new Error(`${id} is ${d.state} — dt start container ${id} starts it and prints its URL`);
 		const url = await launchUrl(d, flags);
-		console.log(url.text); if (!flags['no-open']) openUrl(url, console.log); return 0;
+		say(url.text); if (!flags['no-open']) openUrl(url, say);
+		if (json) emit(JSON.stringify(d, null, 2)); // containerDetail: its editor_url never carries the token
+		return 0;
 	}
 	if (verb === 'rm') { await removeContainer(id, { force: flags.force === true }); return 0; }
 	return 1;
