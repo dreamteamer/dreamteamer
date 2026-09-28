@@ -42,7 +42,11 @@ const WS_NAME = /^[a-z0-9][a-z0-9_.-]*$/;
 const NEW_NAME = /^[a-z0-9][a-z0-9-]{0,39}$/;
 const RESERVED = new Set(['files', 'lost-found', 'trash']);
 const LEFT_BEHIND = new Set(['node_modules', '.files']);
-const SECRET_FILES = new Set(['.env', '.git-credentials']);
+// credential files by NAME, at any depth: `.env` and every `.env.*` but the three template spellings,
+// and the dotfiles package managers and git keep tokens in — docs/container-export-format.md
+const SECRET_FILES = new Set(['.env', '.envrc', '.npmrc', '.netrc', '.git-credentials', '.pypirc']);
+const ENV_TEMPLATES = new Set(['.env.example', '.env.sample', '.env.template']);
+export const isSecretFile = (segs) => { const b = segs[segs.length - 1]; return SECRET_FILES.has(b) || (b.startsWith('.env.') && !ENV_TEMPLATES.has(b)) || (b === 'config.json' && segs[segs.length - 2] === '.docker'); };
 /** A `.git/config` minus its credentials: `https://user:token@host` → `https://host`, no extraheader. */
 export const stripGitConfig = (text) => text.replace(/^[ \t]*extraheader[ \t]*=.*(\r?\n|$)/gim, '').replace(/^([ \t]*(?:push)?url[ \t]*=[ \t]*"?https?:\/\/)[^@\/\s"]*@/gim, '$1');
 const FILE = '0', DIR = '5', SYMLINK = '2';
@@ -217,7 +221,7 @@ export async function exportContainer(name, flags, log = console.log) {
 		const segs = rel.split('/');
 		if (segs.some((s) => LEFT_BEHIND.has(s))) { left.add(segs.slice(0, segs.findIndex((s) => LEFT_BEHIND.has(s)) + 1).join('/')); return null; }
 		if (!WS_NAME.test(segs[0]) || (segs.length === 1 && e.type !== DIR)) { if (segs.length === 1) skipped.push(`${rel} (not a workspace folder)`); return null; }
-		if (!secrets && SECRET_FILES.has(segs[segs.length - 1]) && e.type !== DIR) { left.add(rel); return null; }
+		if (!secrets && isSecretFile(segs) && e.type !== DIR) { left.add(rel); return null; }
 		if (![FILE, DIR, SYMLINK].includes(e.type)) { skipped.push(`${rel} (${e.type === '1' ? 'hard link' : 'device or fifo'})`); return null; }
 		const s = stats.get(segs[0]) ?? { files: 0, bytes: 0 }; stats.set(segs[0], s);
 		if (e.type === FILE) { s.files++; s.bytes += e.size; }
@@ -242,8 +246,8 @@ export async function exportContainer(name, flags, log = console.log) {
 	for (const [w, s] of stats) log(`  ${w}  ${s.files} files · ${(s.bytes / 1e6).toFixed(1)} MB`);
 	if (left.size) log(`  left behind: ${[...left].join(' · ')}`);
 	for (const s of skipped) log(`  skipped: ${s}`);
-	if (secrets) log('⚠ --with-secrets: every .env, .git-credentials and .git/config credential is INCLUDED, unchanged — whoever opens this file holds them');
-	else log('  secrets left out: .env and .git-credentials files; credentials cut from .git/config (--with-secrets keeps them)');
+	if (secrets) log('⚠ --with-secrets: every credential file (.env*, .npmrc, .netrc, …) and .git/config credential is INCLUDED, unchanged — whoever opens this file holds them');
+	else log('  secrets left out: credential files (.env*, .envrc, .npmrc, .netrc, .git-credentials, .pypirc, .docker/config.json); credentials cut from .git/config (--with-secrets keeps them)');
 	log(`✔ exported ${stats.size} workspace(s) from ${name} to ${out} · ${encrypt ? 'encrypted with the owner passphrase' : 'NOT encrypted (--no-encrypt): a plain .tar.gz anyone holding the file can read'}`);
 	return { container: name, out, encrypted: encrypt, with_secrets: secrets, workspaces: [...stats].map(([w, s]) => ({ name: w, ...s })), left_behind: [...left], skipped };
 }
