@@ -37,12 +37,15 @@ import { api, ok, inspectContainer, exec, parseFlags } from './containers.js';
 
 const ROOT = '/workspaces';
 const WS_NAME = /^[a-z0-9][a-z0-9_.-]*$/;
+// `--as` names a NEW folder, so it takes dt-new's rule (hq image, new-workspace.sh), reserved words included
+const NEW_NAME = /^[a-z0-9][a-z0-9-]{0,39}$/;
+const RESERVED = new Set(['files', 'lost-found', 'trash']);
 const LEFT_BEHIND = new Set(['node_modules', '.files']);
 const SECRET_FILES = new Set(['.env', '.git-credentials']);
 /** A `.git/config` minus its credentials: `https://user:token@host` → `https://host`, no extraheader. */
 export const stripGitConfig = (text) => text.replace(/^[ \t]*extraheader[ \t]*=.*(\r?\n|$)/gim, '').replace(/^([ \t]*(?:push)?url[ \t]*=[ \t]*"?https?:\/\/)[^@\/\s"]*@/gim, '$1');
 const FILE = '0', DIR = '5', SYMLINK = '2';
-const FLAGS = { export: ['workspace', 'out', 'no-encrypt', 'with-secrets'], import: ['workspace', 'replace'] };
+const FLAGS = { export: ['workspace', 'out', 'no-encrypt', 'with-secrets'], import: ['workspace', 'replace', 'as'] };
 
 // ---- tar: read any of ustar · PAX · GNU long names, write ustar (+ PAX when a name is long) -------
 const str = (b, o, n) => { const e = b.indexOf(0, o); return b.toString('utf8', o, e === -1 || e > o + n ? o + n : e); };
@@ -245,8 +248,9 @@ export async function exportContainer(name, flags, log = console.log) {
 }
 
 // ---- import --------------------------------------------------------------------------------------
-/** The name to upload an entry under, null to leave it out (`--workspace`), or a refusal. */
-function checkEntry(e, only, found) {
+/** The name to upload an entry under — re-rooted at `as` when given — null to leave it out
+ *  (`--workspace`), or a refusal. `found` collects the SOURCE workspace names. */
+function checkEntry(e, only, found, as) {
 	const name = e.name.replace(/^(\.\/)+/, '');
 	const rel = name.replace(/\/+$/, '');
 	const segs = rel.split('/');
@@ -255,15 +259,16 @@ function checkEntry(e, only, found) {
 	if (segs.some((s) => s === '..' || s === '.' || s === '')) refuse(`leaves ${ROOT}`);
 	if (!WS_NAME.test(segs[0]) || (segs.length === 1 && e.type !== DIR)) refuse(`is not inside a workspace folder`);
 	if (![FILE, DIR, SYMLINK].includes(e.type)) refuse(`is a ${e.type === '1' ? 'hard link' : 'device, fifo or unknown entry'}`);
+	const dest = [as ?? segs[0], ...segs.slice(1)].join('/');
 	if (e.type === SYMLINK) {
-		const own = `${ROOT}/${segs[0]}`;
-		const to = path.posix.resolve(path.posix.dirname(`${ROOT}/${rel}`), e.linkname);
+		const own = `${ROOT}/${as ?? segs[0]}`;
+		const to = path.posix.resolve(path.posix.dirname(`${ROOT}/${dest}`), e.linkname);
 		if (to !== own && !to.startsWith(`${own}/`)) refuse(`is a symlink to ${e.linkname}, outside its workspace`);
 	}
 	if (only.size && !only.has(segs[0])) return null;
 	found.add(segs[0]);
 	if (segs.length === 2 && segs[1] === 'package.json' && e.type === FILE) found.add(`${segs[0]}/package.json`);
-	return e.type === DIR ? `${rel}/` : rel;
+	return e.type === DIR ? `${dest}/` : dest;
 }
 
 export async function importContainer(name, file, flags, log = console.log) {
@@ -277,17 +282,20 @@ export async function importContainer(name, file, flags, log = console.log) {
 	const key = sealed ? await openSeal(file, await passphrase({ confirm: false })) : null;
 	if (!sealed) log(`… ${file} is NOT encrypted — reading it as a plain .tar.gz`);
 	const only = new Set(flags.workspaces ?? []);
+	const as = flags.as;
+	if (as !== undefined && (typeof as !== 'string' || !NEW_NAME.test(as) || RESERVED.has(as))) throw new Error(`--as takes a workspace name: 1–40 of a-z, 0-9 and '-', starting with a letter or digit, not files · lost-found · trash (got "${as === true ? '' : as}")`);
 	const read = (found) => [fs.createReadStream(file, { start: sealed ? HEAD + MAC : 0 }), ...(key ? [(src) => unseal(src, key)] : []), zlib.createGunzip(),
-		async function* (src) { yield* retar(src, (e) => checkEntry(e, only, found)); yield TAR_END; }];
+		async function* (src) { yield* retar(src, (e) => checkEntry(e, only, found, as)); yield TAR_END; }];
 	// pass 1: every chunk authenticated and every entry checked before anything is written
 	const found = new Set();
 	await pipeline(...read(found), async (src) => { for await (const _ of src); });
-	const installs = [...found].filter((w) => w.endsWith('/package.json')).map((w) => `${ROOT}/${w.split('/')[0]}`);
+	const installs = [...found].filter((w) => w.endsWith('/package.json')).map((w) => `${ROOT}/${as ?? w.split('/')[0]}`);
 	for (const w of [...found]) if (w.includes('/')) found.delete(w);
 	const missing = [...only].filter((w) => !found.has(w));
 	if (missing.length) throw new Error(`the export holds no workspace ${missing.join(', ')} — it holds ${[...found].join(', ') || 'none'}`);
 	if (!found.size) throw new Error(`${file} holds no workspace`);
-	const targets = [...found].map((w) => `${ROOT}/${w}`);
+	if (as && found.size !== 1) throw new Error(`--as names ONE workspace, and the export holds ${[...found].join(', ')} — pick it with --workspace <w>`);
+	const targets = as ? [`${ROOT}/${as}`] : [...found].map((w) => `${ROOT}/${w}`);
 	// a folder on the container's own layer vanishes with the container — the rule dt-new keeps
 	const mounts = (await exec(name, ['cat', '/proc/mounts'])).stdout.split('\n').map((l) => l.split(' ')).filter((m) => m[1]);
 	for (const t of targets) {

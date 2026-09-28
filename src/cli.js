@@ -284,6 +284,8 @@ these verbs work with NO workspace, so npm i -g dreamteamer and Docker Desktop a
               node. Refuses a wrong passphrase, a damaged file, an entry leaving its workspace and a
               workspace already holding files — each before anything is written.
               [--workspace <w>]... only these  [--replace] empty a workspace that holds files first
+              [--as <name>] land the ONE workspace in /workspaces/<name> — e.g. another container's
+                            own volume folder (dt-new's name rule; never the container's own layer)
 
   changes     what changed in every repo that holds records, as record events
               [--since <sha|YYYY-MM-DD>] (default: HEAD~1 — the last commit's own changes) [--json]
