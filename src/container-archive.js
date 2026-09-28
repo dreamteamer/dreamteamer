@@ -47,8 +47,18 @@ const LEFT_BEHIND = new Set(['node_modules', '.files']);
 const SECRET_FILES = new Set(['.env', '.envrc', '.npmrc', '.netrc', '.git-credentials', '.pypirc']);
 const ENV_TEMPLATES = new Set(['.env.example', '.env.sample', '.env.template']);
 export const isSecretFile = (segs) => { const b = segs[segs.length - 1]; return SECRET_FILES.has(b) || (b.startsWith('.env.') && !ENV_TEMPLATES.has(b)) || (b === 'config.json' && segs[segs.length - 2] === '.docker'); };
-/** A `.git/config` minus its credentials: `https://user:token@host` → `https://host`, no extraheader. */
-export const stripGitConfig = (text) => text.replace(/^[ \t]*extraheader[ \t]*=.*(\r?\n|$)/gim, '').replace(/^([ \t]*(?:push)?url[ \t]*=[ \t]*"?https?:\/\/)[^@\/\s"]*@/gim, '$1');
+/** A `.git/config` minus its credentials: every `[credential]` / `[credential "…"]` section dropped
+ *  (an inline `!` helper can hold a password), every `extraheader` line dropped (where CI parks a
+ *  token), and the userinfo cut from every http(s) URL — values and `[url "…"]` section names alike. */
+export function stripGitConfig(text) {
+	let drop = false;
+	const kept = text.split(/(?<=\n)/).filter((line) => {
+		const head = /^\s*\[\s*([^\]\s."]+)/.exec(line);
+		if (head) drop = head[1].toLowerCase() === 'credential';
+		return !drop && !/^\s*extraheader\s*=/i.test(line);
+	});
+	return kept.join('').replace(/(https?:\/\/)[^@/\s"\]]*@/gi, '$1');
+}
 const FILE = '0', DIR = '5', SYMLINK = '2';
 const FLAGS = { export: ['workspace', 'out', 'no-encrypt', 'with-secrets', 'json'], import: ['workspace', 'replace', 'as', 'json'] };
 
