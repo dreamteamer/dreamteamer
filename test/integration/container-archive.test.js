@@ -279,6 +279,37 @@ describe('export and import a container\'s workspaces', () => {
 		assert.doesNotMatch(dt('import', 'container', 'hq-dana', out('nopkg.tgz'), '--replace').out, /npm ci/, 'no package.json, no install line');
 	});
 
+	test('--as lands one workspace in a differently named container\'s own volume folder, under dt-new\'s name rule and the same overlay refusal', async () => {
+		assert.equal(dt('export', 'container', 'hq-dana', '--workspace', 'hq-dana', '--out', out('as.dtx'), { DT_EXPORT_PASSPHRASE: PASS }).code, 0);
+		fs.rmSync(at('hq-eli', 'workspaces'), { recursive: true, force: true }); fs.mkdirSync(at('hq-eli', 'workspaces/hq-eli'), { recursive: true });
+		const r = dt('import', 'container', 'hq-eli', out('as.dtx'), '--as', 'hq-eli', { DT_EXPORT_PASSPHRASE: PASS });
+		assert.equal(r.code, 0, r.out);
+		assert.match(r.stdout, /imported \/workspaces\/hq-eli into hq-eli/);
+		assert.equal(fs.readFileSync(at('hq-eli', 'workspaces/hq-eli/notes/2026-09-01--kickoff.md'), 'utf8'), 'dana met acme\n');
+		assert.equal(fs.readlinkSync(at('hq-eli', 'workspaces/hq-eli/readme-link')), 'README.md');
+		assert.ok(!fs.existsSync(at('hq-eli', 'workspaces/hq-dana')), 'the source name was written too');
+		const chown = (await fake.state()).execs.filter((x) => x.Cmd[0] === 'chown').pop();
+		assert.deepEqual(chown.Cmd, ['chown', '-R', 'node:node', '/workspaces/hq-eli']);
+		for (const bad of ['Hq-Eli', 'hq_eli', 'files', '-x', 'a'.repeat(41)]) {
+			const b = dt('import', 'container', 'hq-eli', out('as.dtx'), '--as', bad, '--replace', { DT_EXPORT_PASSPHRASE: PASS });
+			assert.equal(b.code, 1, `${bad}: ${b.out}`);
+			assert.match(b.out, /--as/, bad);
+		}
+		const since = await mark();
+		const o = dt('import', 'container', 'hq-eli', out('as.dtx'), '--as', 'elsewhere', { DT_EXPORT_PASSPHRASE: PASS });
+		assert.equal(o.code, 1);
+		assert.match(o.out, /\/workspaces\/elsewhere would land on overlay, not a volume/);
+		assert.equal((await writesSince(since)).puts.length, 0);
+		put('hq-dana', 'workspaces/beta/x.md', 'beta');
+		assert.equal(dt('export', 'container', 'hq-dana', '--out', out('two.tgz'), '--no-encrypt').code, 0);
+		const two = dt('import', 'container', 'hq-eli', out('two.tgz'), '--as', 'hq-eli', '--replace');
+		assert.equal(two.code, 1);
+		assert.match(two.out, /--as names ONE workspace.*--workspace/);
+		assert.equal(dt('import', 'container', 'hq-eli', out('two.tgz'), '--workspace', 'beta', '--as', 'hq-eli', '--replace').code, 0);
+		assert.equal(fs.readFileSync(at('hq-eli', 'workspaces/hq-eli/x.md'), 'utf8'), 'beta');
+		fs.rmSync(at('hq-dana', 'workspaces/beta'), { recursive: true });
+	});
+
 	test('an unknown flag is refused, not swallowed', () => {
 		const r = dt('export', 'container', 'hq-dana', '--out', out('u.tgz'), '--no-encrpyt');
 		assert.equal(r.code, 1);
