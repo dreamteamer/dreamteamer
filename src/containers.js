@@ -320,6 +320,14 @@ export async function startContainer(name, flags, log = console.log) {
 		// at one of those three targets is refused rather than silently shadowing the volume.
 		const extra = (flags.mount ?? []).map(parseMount);
 		for (const m of extra) if ([wsDir, '/workspaces', '/home/node', '/files'].includes(m.Target)) throw new Error(`--mount cannot target ${m.Target} — that is one of the container's own volumes, or holds them (${wsDir} · /home/node · /files)`);
+		// No mount point INSIDE another mount, the three own volumes included. runc resolves a mount
+		// destination through symlinks in the rootfs, and a mounted volume is writable by whoever runs
+		// in it: `evil -> /opt` inside /workspaces/<name> makes a mount at /workspaces/<name>/evil land
+		// on the image's real /opt (measured with plain Docker). Only the image's own filesystem — no
+		// symlinks on these roots, which the image pins with a test — may lie between / and a mount point.
+		const under = (t, r) => t === r || t.startsWith(`${r}/`);
+		const targets = [wsDir, '/home/node', '/files', ...extra.map((m) => m.Target)];
+		extra.forEach((m, i) => { for (const [j, t] of targets.entries()) if (j !== i + 3 && (under(m.Target, t) || under(t, m.Target))) throw new Error(`--mount ${m.Source}:${m.Target} lies at or under ${t}, another mount of this container — a mount point inside a mount resolves through whatever symlinks were written there; mount it beside, e.g. /mnt/<name>`); });
 		// A bind whose source lies inside another bind's (or IS it) reaches the same files twice — the
 		// way a `:ro` mount of a folder is undone by a writable mount of the folder it sits in.
 		// "Inside" is decided by IDENTITY, not spelling: realpath keeps the case it was given, so on a
