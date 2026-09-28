@@ -252,10 +252,13 @@ export async function exportContainer(name, flags, log = console.log) {
 		yield TAR_END;
 	}
 	const tmp = `${out}.partial`;
+	// an interrupted export leaves nothing: not a half file that looks like a whole one, not ciphertext
+	const onSignal = (sig) => { fs.rmSync(tmp, { force: true }); process.exit(sig === 'SIGINT' ? 130 : 143); };
+	process.once('SIGINT', onSignal); process.once('SIGTERM', onSignal);
 	try {
 		await pipeline(Readable.from(tar()), zlib.createGzip(), ...(sealer ? [(src) => seal(src, sealer)] : []), fs.createWriteStream(tmp, { flags: 'wx', mode: 0o600 }));
 		fs.renameSync(tmp, out);
-	} catch (e) { fs.rmSync(tmp, { force: true }); throw e; }
+	} catch (e) { fs.rmSync(tmp, { force: true }); throw e; } finally { process.off('SIGINT', onSignal); process.off('SIGTERM', onSignal); }
 	if (!stats.size) { fs.rmSync(out); throw new Error(`${name} holds no workspace folder under ${ROOT} — nothing was written`); }
 	for (const [w, s] of stats) log(`  ${w}  ${s.files} files · ${(s.bytes / 1e6).toFixed(1)} MB`);
 	if (left.size) log(`  left behind: ${[...left].join(' · ')}`);
