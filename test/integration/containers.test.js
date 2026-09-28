@@ -100,6 +100,14 @@ describe('host mode — the verbs answer with NO workspace', () => {
 		assert.ok(started, 'created but never started');
 	});
 
+	test('the create body adds NET_ADMIN — the root entrypoint\'s egress policy needs it — and no other privilege', async () => {
+		const create = (await fake.state()).requests.find((q) => q.path === '/containers/create?name=hq-dana');
+		assert.deepEqual(create.body.HostConfig.CapAdd, ['NET_ADMIN']);
+		// nothing else widened: no other key beside the five the driver always sends
+		assert.deepEqual(Object.keys(create.body.HostConfig).sort(), ['CapAdd', 'Mounts', 'NetworkMode', 'PortBindings', 'RestartPolicy']);
+		assert.deepEqual(Object.keys(create.body).sort(), ['Env', 'ExposedPorts', 'HostConfig', 'Image', 'Labels']);
+	});
+
 	test('a second start on the same name is idempotent — no second create, same URL', async () => {
 		const creates = async () => (await fake.state()).requests.filter((q) => q.path.startsWith('/containers/create')).length;
 		const before = await creates();
