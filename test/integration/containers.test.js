@@ -337,7 +337,7 @@ describe('the image\'s URL token, the per-container network, and the mount rules
 	const HQ6 = 'ghcr.io/dreamteamer/hq6:latest';
 	let h, fake;
 	before(async () => {
-		h = harness([{ ref: HQ6, labels: { 'dreamteamer.template': 'hq6', 'dreamteamer.ports': '8080', 'fake.features': 'url-token' } }, { ref: HQ, labels: { 'dreamteamer.template': 'hq', 'dreamteamer.ports': '8080' } }, { ref: 'ghcr.io/dreamteamer/crash:latest', labels: { 'dreamteamer.template': 'crash', 'fake.crashloop': '1' } }]);
+		h = harness([{ ref: HQ6, labels: { 'dreamteamer.template': 'hq6', 'dreamteamer.ports': '8080', 'fake.features': 'url-token' } }, { ref: HQ, labels: { 'dreamteamer.template': 'hq', 'dreamteamer.ports': '8080' } }, { ref: 'ghcr.io/dreamteamer/crash:latest', labels: { 'dreamteamer.template': 'crash', 'fake.crashloop': '1' } }, { ref: 'ghcr.io/dreamteamer/failing:latest', labels: { 'dreamteamer.template': 'failing', 'fake.createfail': '1' } }]);
 		fake = await startFakeDocker(h.sock, { images: h.images });
 	});
 	after(async () => { await fake.close(); fs.rmSync(h.dir, { recursive: true, force: true }); });
@@ -420,6 +420,30 @@ describe('the image\'s URL token, the per-container network, and the mount rules
 		assert.equal(r.code, 1);
 		assert.match(r.stderr, /a Docker network "dreamteamer-hq-squat" exists that dreamteamer did not make/);
 		assert.ok(!(await fake.state()).requests.some((q) => q.path === '/containers/create?name=hq-squat'));
+	});
+
+	test('a create Docker refuses removes the network and volumes THIS attempt made, never ones that were there, and says Docker\'s sentence', async () => {
+		const post = (p, body) => new Promise((ok, no) => {
+			const req = http.request({ socketPath: h.sock, path: p, method: 'POST', headers: { 'content-type': 'application/json' } }, (res) => { res.resume(); res.on('end', ok); });
+			req.on('error', no); req.end(JSON.stringify(body));
+		});
+		// fresh: nothing exists yet, so the network and all four named volumes are this attempt's
+		const r = h.dt('start', 'container', 'hq-fail', '--template', 'failing', '--no-open', '--mount', 'team-new:/mnt/team');
+		assert.equal(r.code, 1, r.out);
+		assert.match(r.stderr, /create container hq-fail: Docker answered 500 — fake: create failed after the volumes were made/);
+		let st = await fake.state();
+		assert.ok(!st.networks.some((n) => n.Name === 'dreamteamer-hq-fail'), 'the failed create left its network behind');
+		assert.deepEqual(st.volumes.filter((v) => v.includes('hq-fail') || v === 'team-new'), [], `left behind: ${st.volumes}`);
+		// pre-existing: a network dreamteamer made earlier, the home volume and a shared volume — all kept
+		await post('/networks/create', { Name: 'dreamteamer-hq-fail2', Driver: 'bridge', Labels: { dreamteamer: '1', 'dreamteamer.name': 'hq-fail2' } });
+		await post('/volumes/create', { Name: 'dreamteamer-hq-fail2-home' });
+		await post('/volumes/create', { Name: 'team-shared' });
+		const removedBefore = st.volumesRemoved.length;
+		assert.equal(h.dt('start', 'container', 'hq-fail2', '--template', 'failing', '--no-open', '--mount', 'team-shared:/mnt/team').code, 1);
+		st = await fake.state();
+		assert.ok(st.networks.some((n) => n.Name === 'dreamteamer-hq-fail2'), 'a network that was there before the attempt was removed');
+		assert.ok(st.volumes.includes('dreamteamer-hq-fail2-home') && st.volumes.includes('team-shared'), `a pre-existing volume was removed: ${st.volumes}`);
+		assert.deepEqual(st.volumesRemoved.slice(removedBefore).sort(), ['dreamteamer-hq-fail2-files', 'dreamteamer-hq-fail2-workspace']);
 	});
 
 	test('rm stops a crash-looping (restarting) container before removing it, and its network goes too', async () => {
