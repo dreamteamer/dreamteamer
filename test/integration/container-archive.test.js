@@ -28,7 +28,11 @@ function startFake(sock, fsRoot) {
 			const req = http.get({ socketPath: sock, path: '/_fake/state' }, (res) => { let b = ''; res.on('data', (c) => { b += c; }); res.on('end', () => ok(JSON.parse(b))); });
 			req.on('error', no);
 		});
-		const handle = { state, close: () => new Promise((ok) => { child.once('exit', () => ok()); child.kill(); }) };
+		const hangNext = (prefix) => new Promise((ok, no) => {
+			const req = http.request({ socketPath: sock, path: `/_fake/hang?path=${encodeURIComponent(prefix)}`, method: 'POST' }, (res) => { res.resume(); res.on('end', ok); });
+			req.on('error', no); req.end();
+		});
+		const handle = { state, hangNext, close: () => new Promise((ok) => { child.once('exit', () => ok()); child.kill(); }) };
 	});
 }
 
@@ -360,6 +364,31 @@ describe('export and import a container\'s workspaces', () => {
 		assert.match(cfg, /\[core\]\n\tbare = false/);
 		assert.match(cfg, /\[user\]\n\tname = Dana/);
 	});
+
+	test('an export that fails part-way removes the .partial file', () => {
+		const r = dt('export', 'container', 'hq-dana', '--workspace', 'hq-dana', '--workspace', 'ghost', '--out', out('err.dtx'), { DT_EXPORT_PASSPHRASE: PASS });
+		assert.equal(r.code, 1);
+		assert.match(r.out, /hq-dana has no \/workspaces\/ghost/);
+		assert.ok(!fs.existsSync(out('err.dtx.partial')) && !fs.existsSync(out('err.dtx')));
+	});
+
+	for (const [sig, code] of [['SIGINT', 130], ['SIGTERM', 143]]) {
+		test(`${sig} in the middle of an export removes the .partial file`, async () => {
+			const { Id } = (await fake.state()).containers.find((c) => c.Name === '/hq-dana');
+			await fake.hangNext(`/containers/${Id}/archive`); // the archive read is accepted and never answered
+			const file = out(`sig-${sig}.dtx`);
+			const child = spawn(process.execPath, [BIN, 'export', 'container', 'hq-dana', '--out', file], { cwd: bare, env: { ...env, DT_EXPORT_PASSPHRASE: PASS, DT_DOCKER_TIMEOUT: '60' }, stdio: 'ignore' });
+			const exited = new Promise((ok) => child.on('exit', (c, s) => ok({ c, s })));
+			const until = Date.now() + 15_000;
+			while (!fs.existsSync(`${file}.partial`) && Date.now() < until) await new Promise((r) => setTimeout(r, 50));
+			assert.ok(fs.existsSync(`${file}.partial`), 'the export never started writing');
+			child.kill(sig);
+			const timer = setTimeout(() => child.kill('SIGKILL'), 10_000);
+			const r = await exited; clearTimeout(timer);
+			assert.deepEqual(r, { c: code, s: null });
+			assert.ok(!fs.existsSync(`${file}.partial`) && !fs.existsSync(file), `${sig} left ciphertext behind`);
+		});
+	}
 
 	test('an unknown flag is refused, not swallowed', () => {
 		const r = dt('export', 'container', 'hq-dana', '--out', out('u.tgz'), '--no-encrpyt');

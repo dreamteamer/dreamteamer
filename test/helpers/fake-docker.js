@@ -91,6 +91,8 @@ export function startFakeDocker(socketPath, { images = [], plain = [] } = {}) {
 		if (am && fsRoot) {
 			const c = byIdOrName(decodeURIComponent(am[1]));
 			if (!c) { req.resume(); res.writeHead(404, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ message: 'No such container' })); }
+			// the hang switch reaches the archive routes too: accepted, never answered
+			if (state.hangNext !== false && au.pathname.startsWith(state.hangNext)) { state.hangNext = false; state.hung.push({ method: req.method, path: au.pathname }); req.resume(); return; }
 			return archive(req, res, au, c);
 		}
 		let raw = '';
