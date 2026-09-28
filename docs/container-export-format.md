@@ -25,8 +25,10 @@ file      = gzip(tar)                  --no-encrypt: a plain .tar.gz, told apart
   sets the owner itself (`chown -R node:node` on each imported workspace).
 - Never included: the home (`/home/node`, where logins live), any folder named `node_modules` or
   `.files`, at any depth.
-- Secrets, unless the owner exports with `--with-secrets`: no file named `.env` or `.git-credentials`
-  at any depth, and every `…/.git/config` rewritten — the userinfo cut from `url`/`pushurl` values
+- Secrets, unless the owner exports with `--with-secrets`: at any depth, no file named `.env`, no
+  `.env.<anything>` except `.env.example`, `.env.sample` and `.env.template`, no `.envrc`, `.npmrc`,
+  `.netrc`, `.git-credentials` or `.pypirc`, and no `config.json` inside a `.docker` folder. Every
+  `…/.git/config` is rewritten — the userinfo cut from `url`/`pushurl` values
   starting `http://` or `https://` (`https://user:token@host/x` → `https://host/x`; ssh remotes are
   untouched) and every `extraheader` line removed. An importer need not repeat this; a writer must.
 - Ends with two zero blocks.

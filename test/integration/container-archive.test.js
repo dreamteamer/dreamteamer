@@ -328,6 +328,19 @@ describe('export and import a container\'s workspaces', () => {
 		fs.rmSync(at('hq-dana', 'workspaces/hq-dana/package.json'));
 	});
 
+	test('every credential-file NAME stays behind at any depth — .env and .env.*, .envrc, .npmrc, .netrc, .pypirc, .docker/config.json — while .env templates travel', () => {
+		const secret = ['.env', '.env.local', '.env.production', '.envrc', '.npmrc', '.netrc', '.git-credentials', '.pypirc', '.docker/config.json'];
+		const kept = ['.env.example', '.env.sample', '.env.template', 'docker/config.json', 'env.md'];
+		for (const [i, f] of secret.entries()) { put('hq-dana', `workspaces/hq-dana/${f}`, `SECRET-MARKER-${i}\n`); put('hq-dana', `workspaces/hq-dana/pkg/deep/${f}`, `SECRET-MARKER-${i}\n`); }
+		for (const f of kept) put('hq-dana', `workspaces/hq-dana/${f}`, 'kept\n');
+		const e = dt('export', 'container', 'hq-dana', '--out', out('names.tgz'), '--no-encrypt');
+		assert.equal(e.code, 0, e.out);
+		const names = listTarGz(out('names.tgz'));
+		for (const f of secret) for (const p of [`hq-dana/${f}`, `hq-dana/pkg/deep/${f}`]) assert.ok(!names.includes(p), `${p} travelled`);
+		for (const f of kept) assert.ok(names.includes(`hq-dana/${f}`), `${f} was left behind`);
+		assert.ok(!zlib.gunzipSync(fs.readFileSync(out('names.tgz'))).includes('SECRET-MARKER'), 'a marker is in the archive');
+	});
+
 	test('an unknown flag is refused, not swallowed', () => {
 		const r = dt('export', 'container', 'hq-dana', '--out', out('u.tgz'), '--no-encrpyt');
 		assert.equal(r.code, 1);

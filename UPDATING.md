@@ -73,8 +73,9 @@ that 0.29.0 accepted at, say, `/files-team` or `/files/team` moves to `/mnt/team
 
 `dt export container <name> --out <file> [--workspace <w>]...` writes the container's workspaces —
 the folders under `/workspaces`, never the home or a login — to one file, stopped container or
-running. `node_modules` and `.files` folders stay behind, and so do secrets: every `.env` and
-`.git-credentials`, and the credentials in each `.git/config` (userinfo in http(s) URLs,
+running. `node_modules` and `.files` folders stay behind, and so do secrets: `.env` and `.env.*` (the
+`.example`/`.sample`/`.template` spellings travel), `.envrc`, `.npmrc`, `.netrc`, `.git-credentials`,
+`.pypirc` and `.docker/config.json`, at any depth, and the credentials in each `.git/config` (userinfo in http(s) URLs,
 `extraheader` lines) — `--with-secrets` carries them unchanged and says so. The file is encrypted with the owner
 passphrase (`DT_EXPORT_PASSPHRASE`, else a no-echo prompt; never a flag); `--no-encrypt` writes a
 plain `.tar.gz` and says so. `dt import container <name> <file> [--workspace <w>]... [--replace]`

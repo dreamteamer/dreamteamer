@@ -280,8 +280,9 @@ these verbs work with NO workspace, so npm i -g dreamteamer and Docker Desktop a
               a stopped container. Encrypted with the owner passphrase (DT_EXPORT_PASSPHRASE, else a
               prompt — never a flag). [--workspace <w>]... only these  [--no-encrypt] a plain .tar.gz
               [--json] (both verbs) the summary as JSON on stdout, every other line on stderr
-              Secrets stay behind: every .env and .git-credentials, and the credentials in each
-              .git/config URL. [--with-secrets] carries them unchanged
+              Secrets stay behind: .env and .env.* (not .example/.sample/.template), .envrc,
+              .npmrc, .netrc, .git-credentials, .pypirc, .docker/config.json, and the credentials in
+              each .git/config. [--with-secrets] carries them unchanged
   import      container <name> <file>           unpack an export into a RUNNING container, owned by
               node. Refuses a wrong passphrase, a damaged file, an entry leaving its workspace and a
               workspace already holding files — each before anything is written.
