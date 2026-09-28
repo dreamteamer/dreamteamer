@@ -337,7 +337,7 @@ describe('the image\'s URL token, the per-container network, and the mount rules
 	const HQ6 = 'ghcr.io/dreamteamer/hq6:latest';
 	let h, fake;
 	before(async () => {
-		h = harness([{ ref: HQ6, labels: { 'dreamteamer.template': 'hq6', 'dreamteamer.ports': '8080', 'fake.features': 'url-token' } }, { ref: HQ, labels: { 'dreamteamer.template': 'hq', 'dreamteamer.ports': '8080' } }]);
+		h = harness([{ ref: HQ6, labels: { 'dreamteamer.template': 'hq6', 'dreamteamer.ports': '8080', 'fake.features': 'url-token' } }, { ref: HQ, labels: { 'dreamteamer.template': 'hq', 'dreamteamer.ports': '8080' } }, { ref: 'ghcr.io/dreamteamer/crash:latest', labels: { 'dreamteamer.template': 'crash', 'fake.crashloop': '1' } }]);
 		fake = await startFakeDocker(h.sock, { images: h.images });
 	});
 	after(async () => { await fake.close(); fs.rmSync(h.dir, { recursive: true, force: true }); });
@@ -406,6 +406,16 @@ describe('the image\'s URL token, the per-container network, and the mount rules
 		assert.equal(r.code, 1);
 		assert.match(r.stderr, /a Docker network "dreamteamer-hq-squat" exists that dreamteamer did not make/);
 		assert.ok(!(await fake.state()).requests.some((q) => q.path === '/containers/create?name=hq-squat'));
+	});
+
+	test('rm stops a crash-looping (restarting) container before removing it, and its network goes too', async () => {
+		h.dt('start', 'container', 'hq-loop', '--template', 'crash', '--no-open');
+		assert.equal((await fake.state()).containers.find((c) => c.Name === '/hq-loop').State.Status, 'restarting');
+		const r = h.dt('rm', 'container', 'hq-loop', '--force');
+		assert.equal(r.code, 0, r.out);
+		const st = await fake.state();
+		assert.ok(!st.containers.some((c) => c.Name === '/hq-loop'));
+		assert.ok(!st.networks.some((n) => n.Name === 'dreamteamer-hq-loop'));
 	});
 
 	test('a --mount target outside /workspaces · /home/node · /files · /mnt is refused after .. is normalised, naming the roots', () => {
