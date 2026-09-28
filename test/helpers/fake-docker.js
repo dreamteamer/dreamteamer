@@ -166,7 +166,8 @@ export function startFakeDocker(socketPath, { images = [], plain = [] } = {}) {
 			if ((m = p.match(/^\/containers\/([^/]+)\/(start|stop)$/)) && req.method === 'POST') {
 				const c = byIdOrName(decodeURIComponent(m[1]));
 				if (!c) return json(404, { message: 'No such container' });
-				const want = m[2] === 'start' ? 'running' : 'exited';
+				// an image labelled `fake.crashloop` never stays up — Docker reports it `restarting`
+				const want = m[2] === 'stop' ? 'exited' : state.images.get(c.Config.Image)?.Labels?.['fake.crashloop'] ? 'restarting' : 'running';
 				if (c.State.Status === want) return json(304);
 				c.State = { Status: want, StartedAt: want === 'running' ? new Date().toISOString() : c.State.StartedAt };
 				return json(204);
@@ -174,7 +175,7 @@ export function startFakeDocker(socketPath, { images = [], plain = [] } = {}) {
 			if (req.method === 'DELETE' && (m = p.match(/^\/containers\/([^/]+)$/))) {
 				const c = byIdOrName(decodeURIComponent(m[1]));
 				if (!c) return json(404, { message: 'No such container' });
-				if (c.State.Status === 'running' && u.searchParams.get('force') !== 'true') return json(409, { message: 'container is running: stop it or use --force' });
+				if (['running', 'restarting'].includes(c.State.Status) && u.searchParams.get('force') !== 'true') return json(409, { message: `container is ${c.State.Status}: stop the container before removing or force remove` });
 				state.containers.delete(c.Id);
 				return json(204);
 			}

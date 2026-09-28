@@ -458,7 +458,8 @@ export async function removeContainer(name, { force = false } = {}, log = consol
 	const c = await inspectContainer(name);
 	if (!c) throw new Error(`no container "${name}" — dt list containers`);
 	const vols = containerDetail(c).volumes;
-	if (c.State?.Status === 'running') await api('POST', `/containers/${c.Id}/stop?t=10`);
+	// `restarting` too: a crash-looping container refuses DELETE until it is stopped (measured, Docker Desktop)
+	if (['running', 'restarting'].includes(c.State?.Status)) await api('POST', `/containers/${c.Id}/stop?t=10`);
 	ok(await api('DELETE', `/containers/${c.Id}?v=false`), `rm container ${name}`);
 	const net = await api('GET', `/networks/${encodeURIComponent(networkName(name))}`);
 	if (net.status === 200 && net.body?.Labels?.['dreamteamer.name'] === name) ok(await api('DELETE', `/networks/${encodeURIComponent(networkName(name))}`), `rm network ${networkName(name)}`);
