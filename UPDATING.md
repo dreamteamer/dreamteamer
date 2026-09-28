@@ -69,7 +69,8 @@ reads the whole file once before writing anything — a wrong passphrase, a dama
 an absolute or `..` path, a symlink leaving its workspace, a hard link or device are each refused
 with nothing written — then refuses a workspace that already holds files unless `--replace`, and one
 that would land on the container's own layer rather than a volume. Imported folders are owned by
-`node`. The format is `docs/container-export-format.md`.
+`node`. Import installs nothing: for a workspace with a `package.json` it prints one line naming
+`npm ci && npx dreamteamer compile`, because both run code the workspace chose. The format is `docs/container-export-format.md`.
 
 ---
 

@@ -264,6 +264,21 @@ describe('export and import a container\'s workspaces', () => {
 		assert.equal(spawnSync('tar', ['-xzOf', out('with.tgz'), 'hq-dana/.git/config'], { encoding: 'utf8' }).stdout, config);
 	});
 
+	test('import runs no install: it names the next command for a workspace with a package.json, once, and execs nothing of the repo\'s', async () => {
+		put('hq-dana', 'workspaces/hq-dana/package.json', '{"name":"acme","scripts":{"postinstall":"echo ran"}}');
+		assert.equal(dt('export', 'container', 'hq-dana', '--out', out('ci.tgz'), '--no-encrypt').code, 0);
+		const before = (await fake.state()).execs.length;
+		const r = dt('import', 'container', 'hq-dana', out('ci.tgz'), '--replace');
+		assert.equal(r.code, 0, r.out);
+		const next = r.stdout.split('\n').filter((l) => /npm ci/.test(l));
+		assert.deepEqual(next, ['next, in /workspaces/hq-dana: npm ci && npx dreamteamer compile — import ran neither (both run code the workspace chose)']);
+		const cmds = (await fake.state()).execs.slice(before).map((x) => x.Cmd[0]);
+		assert.deepEqual(cmds.filter((c) => !['cat', 'find', 'chown'].includes(c)), [], `import ran ${cmds.join(', ')}`);
+		fs.rmSync(at('hq-dana', 'workspaces/hq-dana/package.json'));
+		assert.equal(dt('export', 'container', 'hq-dana', '--out', out('nopkg.tgz'), '--no-encrypt').code, 0);
+		assert.doesNotMatch(dt('import', 'container', 'hq-dana', out('nopkg.tgz'), '--replace').out, /npm ci/, 'no package.json, no install line');
+	});
+
 	test('an unknown flag is refused, not swallowed', () => {
 		const r = dt('export', 'container', 'hq-dana', '--out', out('u.tgz'), '--no-encrpyt');
 		assert.equal(r.code, 1);
