@@ -20,7 +20,10 @@ export function startFakeDocker(socketPath, { images = [], plain = [] } = {}) {
 		containers: new Map(),              // id -> { Id, Name, Config, HostConfig, Mounts, State, Created }
 		volumesRemoved: [],
 		pulls: [],
-		hangNext: false,                    // POST /_fake/hang arms it: the next real request is accepted and never answered
+		networks: new Map(),                // name -> { Name, Driver, Labels }
+		execs: [],                          // { id, container, Cmd, User, code } of every exec created
+		tokens: {},                         // container name -> its url token, as the image's dt-url-token would hold it
+		hangNext: false,                    // POST /_fake/hang[?path=<prefix>] arms it: the next real request (whose path starts with the prefix) is accepted and never answered
 		hung: [],                           // { method, path } of every request left hanging, so a test can prove it arrived
 	};
 	let n = 0;
@@ -65,11 +68,11 @@ export function startFakeDocker(socketPath, { images = [], plain = [] } = {}) {
 			const json = (status, obj) => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(obj === undefined ? '' : JSON.stringify(obj)); };
 			const p = u.pathname;
 			let m;
-			if (p === '/_fake/state') return json(200, { requests: state.requests.slice(0, -1), pulls: state.pulls, volumesRemoved: state.volumesRemoved, containers: [...state.containers.values()], images: [...state.images.keys()], hung: state.hung });
+			if (p === '/_fake/state') return json(200, { requests: state.requests.slice(0, -1), pulls: state.pulls, volumesRemoved: state.volumesRemoved, containers: [...state.containers.values()], images: [...state.images.keys()], hung: state.hung, networks: [...state.networks.values()], execs: state.execs, tokens: state.tokens });
 			// A daemon that is paused or still starting accepts the connection and says nothing — the
 			// one failure mode a timer exists for. Armed per request so the suite stays deterministic.
-			if (p === '/_fake/hang') { state.hangNext = true; return json(204); }
-			if (state.hangNext) { state.hangNext = false; state.hung.push({ method: req.method, path: p }); return; }
+			if (p === '/_fake/hang') { state.hangNext = u.searchParams.get('path') ?? ''; return json(204); }
+			if (state.hangNext !== false && p.startsWith(state.hangNext)) { state.hangNext = false; state.hung.push({ method: req.method, path: p }); return; }
 			if (p === '/version') return json(200, { Version: '99.0.0-fake', ApiVersion: '1.99', Os: 'linux', Arch: 'fake' });
 			if (p === '/_ping') { res.writeHead(200); return res.end('OK'); }
 			// images
@@ -96,12 +99,55 @@ export function startFakeDocker(socketPath, { images = [], plain = [] } = {}) {
 			}
 			// volumes
 			if (req.method === 'DELETE' && (m = p.match(/^\/volumes\/(.+)$/))) { state.volumesRemoved.push(decodeURIComponent(m[1])); return json(204); }
+			// networks
+			if (p === '/networks/create' && req.method === 'POST') {
+				if (state.networks.has(body.Name)) return json(409, { message: `network with name ${body.Name} already exists` });
+				state.networks.set(body.Name, { Name: body.Name, Driver: body.Driver, Labels: body.Labels ?? {} });
+				return json(201, { Id: body.Name });
+			}
+			if ((m = p.match(/^\/networks\/([^/]+)$/))) {
+				const name = decodeURIComponent(m[1]);
+				const net = state.networks.get(name);
+				if (!net) return json(404, { message: `network ${name} not found` });
+				if (req.method === 'DELETE') { state.networks.delete(name); return json(204); }
+				return json(200, net);
+			}
+			// exec — the two commands the driver runs, answered as an hq image would. An image whose
+			// `fake.features` label is set has /opt/dt-image/features; `dt-url-token` answers root only.
+			if ((m = p.match(/^\/containers\/([^/]+)\/exec$/)) && req.method === 'POST') {
+				const c = byIdOrName(decodeURIComponent(m[1]));
+				if (!c) return json(404, { message: 'No such container' });
+				if (c.State.Status !== 'running') return json(409, { message: `container ${c.Id} is not running` });
+				const Id = `exec${++n}`;
+				state.execs.push({ id: Id, container: c.Name.slice(1), Cmd: body.Cmd, User: body.User ?? '' });
+				return json(201, { Id });
+			}
+			if ((m = p.match(/^\/exec\/([^/]+)\/(start|json)$/))) {
+				const e = state.execs.find((x) => x.id === m[1]);
+				if (!e) return json(404, { message: 'No such exec instance' });
+				if (m[2] === 'json') return json(200, { ExitCode: e.code, Running: false });
+				const c = byIdOrName(e.container);
+				const features = state.images.get(c.Config.Image)?.Labels?.['fake.features'];
+				let out = ''; let err = ''; e.code = 0;
+				const [cmd, arg] = e.Cmd;
+				if (cmd === 'cat' && arg === '/opt/dt-image/features') { if (features) out = `${features.split(',').join('\n')}\n`; else { err = `cat: ${arg}: No such file or directory\n`; e.code = 1; } }
+				else if (cmd === 'dt-url-token' && features) {
+					if (e.User !== 'root') { err = 'dt-url-token: run as root\n'; e.code = 1; }
+					else { if (arg === 'rotate' || !state.tokens[e.container]) state.tokens[e.container] = `tok${++n}${'x'.repeat(40)}`.slice(0, 43); out = `${state.tokens[e.container]}\n`; }
+				} else { err = `exec: "${cmd}": executable file not found in $PATH\n`; e.code = 126; }
+				// Docker's multiplexed stream: [stream, 0, 0, 0, length BE] then the bytes
+				const frame = (stream, text) => { const b = Buffer.from(text); const h = Buffer.alloc(8); h[0] = stream; h.writeUInt32BE(b.length, 4); return Buffer.concat([h, b]); };
+				res.writeHead(200, { 'Content-Type': 'application/vnd.docker.multiplexed-stream' });
+				return res.end(Buffer.concat([...(out ? [frame(1, out)] : []), ...(err ? [frame(2, err)] : [])]));
+			}
 			// containers
 			if (p === '/containers/json') return json(200, [...state.containers.values()].filter((c) => labelFilter(u)({ Labels: c.Config.Labels })).map(summary));
 			if (p === '/containers/create' && req.method === 'POST') {
 				const name = u.searchParams.get('name');
 				if (byIdOrName(name)) return json(409, { message: `Conflict. The container name "/${name}" is already in use` });
 				if (!state.images.has(body.Image)) return json(404, { message: `No such image: ${body.Image}` });
+			const net = body.HostConfig?.NetworkMode;
+			if (net && !['bridge', 'host', 'none', 'default'].includes(net) && !state.networks.has(net)) return json(404, { message: `network ${net} not found` });
 				const Id = `${String(++n).padStart(12, 'a')}${'0'.repeat(52)}`;
 				state.containers.set(Id, {
 					Id, Name: `/${name}`, Created: new Date().toISOString(),

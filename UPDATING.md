@@ -20,6 +20,44 @@ npx dreamteamer check
 
 ---
 
+## Unreleased (0.29.0 → next)
+
+**Nothing to do for records.** The container driver changes what a `dt start container` makes, so a
+container created by 0.29.0 keeps its old shape until it is recreated (plain `rm` + `start` — the
+volumes survive).
+
+### Each container gets its own network
+
+`dt start container <name>` creates a user-defined bridge `dreamteamer-<name>` (labels `dreamteamer=1`,
+`dreamteamer.name=<name>`) and attaches the container to it ONLY — two workspaces on one machine no
+longer share Docker's default bridge. `dt rm container` removes it. A network of that name that
+dreamteamer did not make is refused rather than joined.
+
+### The editor listens inside, the URL carries the image's token
+
+The container gets `DT_LOCAL_BIND=0.0.0.0`, so the image's editor answers the port mapping; the host
+side stays `DT_BIND` (loopback). An image that lists `url-token` in `/opt/dt-image/features` (hq
+0.6+) holds a URL token its proxy checks: `start` and `open` read it by `docker exec` as root and
+print `http://localhost:<port>/?tkn=<token>` — on that one line only, never in a file or `--json`,
+and on macOS opened through `osascript` on stdin rather than a process argument (elsewhere it is
+printed for you to open). `dt start container <name> --rotate-token` replaces it. An older image
+gets the plain URL, as before.
+
+### A bare URL opens the machine home
+
+`editor_url` and the printed URL are `http://localhost:<port>/` — the machine home, every workspace
+in it — rather than `?folder=/workspaces/<name>`. `--workspace` (its own) or `--workspace <w>` asks
+for one workspace. `dt open container` on a stopped container is now refused, naming `dt start`.
+
+### `--mount` is narrower
+
+Targets must be under `/workspaces`, `/home/node`, `/files` or `/mnt` after `..` is normalised
+(`/etc`, `/opt`, `/usr/local/bin` are refused), and `/workspaces` itself is refused beside the three
+own volumes. A bind whose host source lies inside — or is — another bind source of the same
+container is refused. A mount that 0.29.0 accepted at, say, `/files-team` moves to `/files/team`.
+
+---
+
 ## 0.28.0 → 0.29.0
 
 **Additive. `dt compile` once.** Two new collections appear in every workspace's runtime and nothing
