@@ -132,6 +132,7 @@ export async function* retar(source, decide) {
 // ---- the sealed format (docs/container-export-format.md) ---------------------------------------
 const MAGIC = Buffer.from('DTEXPORT');
 const HEAD = 40, MAC = 32, CHUNK = 64 * 1024;
+const KDF = { log2N: 17, r: 8, p: 1 }; // the ONLY parameters v1 writes or reads — see openSeal
 
 function scryptKeys(pass, salt, log2N, r, p) {
 	return new Promise((resolve, reject) => crypto.scrypt(pass.normalize('NFC'), salt, 64, { N: 2 ** log2N, r, p, maxmem: 256 * 2 ** log2N * r * p }, (e, k) => (e ? reject(e) : resolve({ enc: k.subarray(0, 32), mac: k.subarray(32) }))));
@@ -141,22 +142,25 @@ const nonce = (prefix, i, last) => { const n = Buffer.alloc(12); prefix.copy(n);
 
 async function newSeal(pass) {
 	const h = Buffer.alloc(HEAD);
-	MAGIC.copy(h); h[8] = 1; h[9] = 17; h[10] = 8; h[11] = 1; h.writeUInt32BE(CHUNK, 12);
+	MAGIC.copy(h); h[8] = 1; h[9] = KDF.log2N; h[10] = KDF.r; h[11] = KDF.p; h.writeUInt32BE(CHUNK, 12);
 	crypto.randomFillSync(h, 16, 23); // salt 16..31 · nonce prefix 32..38 · 39 reserved
-	const keys = await scryptKeys(pass, h.subarray(16, 32), 17, 8, 1);
+	const keys = await scryptKeys(pass, h.subarray(16, 32), KDF.log2N, KDF.r, KDF.p);
 	return { keys, head: Buffer.concat([h, hmac(keys.mac, h)]) };
 }
 
-/** Parse and authenticate a header — a wrong passphrase fails HERE, before any chunk is opened. */
-async function openSeal(file, pass) {
+/** Parse and authenticate a header — a wrong passphrase fails HERE, before any chunk is opened.
+ *  The KDF parameters are read BEFORE the MAC can be checked (the MAC needs the key they derive), so
+ *  they are an attacker's to choose: only the exact values this version writes are accepted, before
+ *  scrypt runs and before the passphrase is even asked for (`pass` may be a function that asks). */
+export async function openSeal(file, pass) {
 	const fd = fs.openSync(file, 'r');
 	const h = Buffer.alloc(HEAD + MAC);
 	const n = fs.readSync(fd, h, 0, h.length, 0); fs.closeSync(fd);
 	if (n < h.length) throw new Error(`${file} is too short to be an encrypted export`);
 	if (h[8] !== 1) throw new Error(`${file} is export format version ${h[8]} — this engine reads version 1; upgrade dreamteamer`);
 	const [log2N, r, p, chunk] = [h[9], h[10], h[11], h.readUInt32BE(12)];
-	if (log2N < 14 || log2N > 20 || r < 1 || r > 16 || p < 1 || p > 4 || chunk < 1024 || chunk > 1 << 24) throw new Error(`${file}: its header asks for parameters outside what an export uses — refusing it`);
-	const keys = await scryptKeys(pass, h.subarray(16, 32), log2N, r, p);
+	if (log2N !== KDF.log2N || r !== KDF.r || p !== KDF.p || chunk !== CHUNK) throw new Error(`${file}: its header asks for scrypt N=2^${log2N} r=${r} p=${p} and ${chunk}-byte chunks — version 1 is exactly N=2^${KDF.log2N} r=${KDF.r} p=${KDF.p}, ${CHUNK}; refusing these parameters before any work`);
+	const keys = await scryptKeys(typeof pass === 'function' ? await pass() : pass, h.subarray(16, 32), log2N, r, p);
 	if (!crypto.timingSafeEqual(hmac(keys.mac, h.subarray(0, HEAD)), h.subarray(HEAD))) throw new Error(`wrong passphrase for ${file} (or its header is damaged) — nothing was written`);
 	return { keys, prefix: h.subarray(32, 39), chunk };
 }
@@ -294,7 +298,7 @@ export async function importContainer(name, file, flags, log = console.log) {
 	const head = Buffer.alloc(8); { const fd = fs.openSync(file, 'r'); fs.readSync(fd, head, 0, 8, 0); fs.closeSync(fd); }
 	const sealed = head.equals(MAGIC);
 	if (!sealed && !(head[0] === 0x1f && head[1] === 0x8b)) throw new Error(`${file} is neither a dreamteamer export nor a .tar.gz`);
-	const key = sealed ? await openSeal(file, await passphrase({ confirm: false })) : null;
+	const key = sealed ? await openSeal(file, () => passphrase({ confirm: false })) : null;
 	if (!sealed) log(`… ${file} is NOT encrypted — reading it as a plain .tar.gz`);
 	const only = new Set(flags.workspaces ?? []);
 	const as = flags.as;
