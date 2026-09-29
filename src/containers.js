@@ -64,7 +64,7 @@ export const HOST_DEFAULTS = {
 	DT_PORT_BASE: '8100',       // NOT 8080: that is code-server's in-container port, `dt start`'s REST default, and the old dev image's exposed port — three things on one number
 	DT_BIND: '127.0.0.1',       // loopback only; a remote tier puts auth in front before this changes
 	DT_REGISTRY: 'ghcr.io/dreamteamer', // `<registry>/<template>:<tag>` is the image a template name resolves to — the public images repo publishes here
-	DT_TEMPLATE_TAG: 'latest',
+	DT_TEMPLATE_TAG: '0.6.0',   // the image release this engine is tested against, bumped with it; `setup` never writes it, so an upgrade moves it
 	DT_DOCKER_TIMEOUT: '30',    // seconds a request to Docker may sit IDLE before the verb fails — see the header
 };
 
@@ -528,7 +528,7 @@ export async function setup(flags, log = console.log) {
 	const file = path.join(dir, '.env');
 	fs.mkdirSync(dir, { recursive: true });
 	const existing = fs.existsSync(file) ? Object.fromEntries(parseEnvValues(fs.readFileSync(file, 'utf8'))) : {};
-	const missing = Object.entries(HOST_DEFAULTS).filter(([k]) => !(k in existing));
+	const missing = Object.entries(HOST_DEFAULTS).filter(([k]) => k !== 'DT_TEMPLATE_TAG' && !(k in existing));
 	if (missing.length) {
 		const header = fs.existsSync(file) ? '' : '# dreamteamer host configuration — read by `dt setup`, `dt start container` and friends.\n# DT_IMAGE_<template>=<ref> pins a template to an image; DT_PERSON_NAME / DT_PERSON_EMAIL are the git identity containers get.\n';
 		fs.appendFileSync(file, header + missing.map(([k, v]) => `${k}=${v}`).join('\n') + '\n');

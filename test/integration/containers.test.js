@@ -13,7 +13,7 @@ import { ENGINE_ROOT, twoModuleWorkspace } from '../helpers/ws.js';
 
 const BIN = path.join(ENGINE_ROOT, 'bin', 'dreamteamer.js');
 const FAKE = path.join(ENGINE_ROOT, 'test', 'helpers', 'fake-docker.js');
-const HQ = 'ghcr.io/dreamteamer/hq:latest';
+const HQ = 'ghcr.io/dreamteamer/hq:0.6.0'; // the engine's pinned default template tag
 
 /** The fake Engine API as a CHILD process (see fake-docker.js for why), with its recorded state
  *  readable over the socket between the spawnSync calls that drive the CLI. */
@@ -67,7 +67,7 @@ describe('host mode — the verbs answer with NO workspace', () => {
 	test('list images shows the template with its labels, singular spelling included', () => {
 		const r = h.dt('list', 'images');
 		assert.equal(r.code, 0, r.out);
-		assert.match(r.stdout, /hq\s+ghcr\.io\/dreamteamer\/hq:latest/);
+		assert.match(r.stdout, /hq\s+ghcr\.io\/dreamteamer\/hq:0\.6\.0/);
 		const s = h.dt('list', 'image', '--json');
 		assert.equal(JSON.parse(s.stdout)[0].template, 'hq');
 	});
@@ -75,7 +75,7 @@ describe('host mode — the verbs answer with NO workspace', () => {
 	test('start container <name> --template hq creates from the image, binds loopback:8100, mounts three volumes, injects no token', async () => {
 		const r = h.dt('start', 'container', 'hq-dana', '--template', 'hq', '--no-open');
 		assert.equal(r.code, 0, r.out);
-		assert.match(r.stdout, /✔ created hq-dana from ghcr\.io\/dreamteamer\/hq:latest/);
+		assert.match(r.stdout, /✔ created hq-dana from ghcr\.io\/dreamteamer\/hq:0\.6\.0/);
 		// the bare URL opens the machine home; an image with no features file gets no ?tkn=
 		assert.match(r.stdout, /· http:\/\/localhost:8100\/\n/);
 		const st = await fake.state();
@@ -147,8 +147,8 @@ describe('host mode — the verbs answer with NO workspace', () => {
 	test('an absent image is pulled before create', async () => {
 		const r = h.dt('start', 'container', 'hq-pulled', '--template', 'other', '--no-open');
 		assert.equal(r.code, 0, r.out);
-		assert.deepEqual((await fake.state()).pulls, ['ghcr.io/dreamteamer/other:latest']);
-		assert.match(r.stdout, /pulling ghcr\.io\/dreamteamer\/other:latest/);
+		assert.deepEqual((await fake.state()).pulls, ['ghcr.io/dreamteamer/other:0.6.0']);
+		assert.match(r.stdout, /pulling ghcr\.io\/dreamteamer\/other:0\.6\.0/);
 	});
 
 	test('DT_IMAGE_<template> pins a template to any image ref', async () => {
@@ -188,9 +188,9 @@ describe('host mode — the verbs answer with NO workspace', () => {
 	test('add image --template pulls; rm image removes; start on an image is refused', async () => {
 		const a = h.dt('add', 'image', '--template', 'third');
 		assert.equal(a.code, 0, a.out);
-		assert.ok((await fake.state()).pulls.includes('ghcr.io/dreamteamer/third:latest'));
-		assert.equal(h.dt('rm', 'image', 'ghcr.io/dreamteamer/third:latest').code, 0);
-		assert.equal(h.dt('get', 'image', 'ghcr.io/dreamteamer/third:latest').code, 1);
+		assert.ok((await fake.state()).pulls.includes('ghcr.io/dreamteamer/third:0.6.0'));
+		assert.equal(h.dt('rm', 'image', 'ghcr.io/dreamteamer/third:0.6.0').code, 0);
+		assert.equal(h.dt('get', 'image', 'ghcr.io/dreamteamer/third:0.6.0').code, 1);
 		const s = h.dt('start', 'image', HQ);
 		assert.equal(s.code, 1);
 		assert.match(s.stderr, /an image is started by starting a container from it/);
@@ -202,7 +202,8 @@ describe('host mode — the verbs answer with NO workspace', () => {
 		assert.match(first.stdout, /docker\s+99\.0\.0-fake · api 1\.99/);
 		const envFile = path.join(h.home, '.env');
 		const text = fs.readFileSync(envFile, 'utf8');
-		for (const k of ['DT_PORT_BASE=8100', 'DT_BIND=127.0.0.1', 'DT_REGISTRY=ghcr.io/dreamteamer', 'DT_TEMPLATE_TAG=latest', 'DT_DOCKER_TIMEOUT=30']) assert.ok(text.includes(k), `${k} missing from ${text}`);
+		for (const k of ['DT_PORT_BASE=8100', 'DT_BIND=127.0.0.1', 'DT_REGISTRY=ghcr.io/dreamteamer', 'DT_DOCKER_TIMEOUT=30']) assert.ok(text.includes(k), `${k} missing from ${text}`);
+		assert.ok(!text.includes('DT_TEMPLATE_TAG'), `setup pinned the template tag, so an engine upgrade would never move it: ${text}`);
 		fs.appendFileSync(envFile, 'DT_PORT_BASE=9000\n');
 		const second = h.dt('setup');
 		assert.equal(second.code, 0, second.out);
@@ -267,8 +268,8 @@ describe('host mode — the verbs answer with NO workspace', () => {
 	test('a pull the registry refuses fails with the build and the pin as the two ways out', async () => {
 		const r = h.dt('start', 'container', 'hq-missing', '--template', 'missing', '--no-open');
 		assert.equal(r.code, 1);
-		assert.match(r.stderr, /pull ghcr\.io\/dreamteamer\/missing:latest: Docker answered 404/);
-		assert.match(r.stderr, /docker build -t ghcr\.io\/dreamteamer\/missing:latest/);
+		assert.match(r.stderr, /pull ghcr\.io\/dreamteamer\/missing:0\.6\.0: Docker answered 404/);
+		assert.match(r.stderr, /docker build -t ghcr\.io\/dreamteamer\/missing:0\.6\.0/);
 		assert.match(r.stderr, /DT_IMAGE_<template>/);
 		assert.ok(!(await fake.state()).requests.some((q) => q.path.includes('name=hq-missing')), 'a container was created from an image that never arrived');
 	});
@@ -281,7 +282,7 @@ describe('host mode — the verbs answer with NO workspace', () => {
 		assert.ok(JSON.parse(raw.stdout).Config.Labels['dreamteamer.template']);
 		assert.equal(h.dt('get', 'image', 'dreamteamer/nope:latest').code, 1);
 		assert.equal(h.dt('add', 'image', '--template', 'forced').code, 0);
-		assert.equal(h.dt('rm', 'image', 'ghcr.io/dreamteamer/forced:latest', '--force').code, 0);
+		assert.equal(h.dt('rm', 'image', 'ghcr.io/dreamteamer/forced:0.6.0', '--force').code, 0);
 		const del = (await fake.state()).requests.find((q) => q.method === 'DELETE' && q.path.includes('forced'));
 		assert.match(del.path, /force=true/);
 	});
@@ -342,10 +343,10 @@ describe('host mode — the verbs answer with NO workspace', () => {
 describe('the image\'s URL token, the per-container network, and the mount rules', () => {
 	// `hq6` stands for an hq 0.6+ image: its `fake.features` label gives it /opt/dt-image/features
 	// listing url-token, and a dt-url-token that answers root only — the fake's model of the image.
-	const HQ6 = 'ghcr.io/dreamteamer/hq6:latest';
+	const HQ6 = 'ghcr.io/dreamteamer/hq6:0.6.0';
 	let h, fake;
 	before(async () => {
-		h = harness([{ ref: HQ6, labels: { 'dreamteamer.template': 'hq6', 'dreamteamer.ports': '8080', 'fake.features': 'url-token' } }, { ref: HQ, labels: { 'dreamteamer.template': 'hq', 'dreamteamer.ports': '8080' } }, { ref: 'ghcr.io/dreamteamer/crash:latest', labels: { 'dreamteamer.template': 'crash', 'fake.crashloop': '1' } }, { ref: 'ghcr.io/dreamteamer/failing:latest', labels: { 'dreamteamer.template': 'failing', 'fake.createfail': '1' } }]);
+		h = harness([{ ref: HQ6, labels: { 'dreamteamer.template': 'hq6', 'dreamteamer.ports': '8080', 'fake.features': 'url-token' } }, { ref: HQ, labels: { 'dreamteamer.template': 'hq', 'dreamteamer.ports': '8080' } }, { ref: 'ghcr.io/dreamteamer/crash:0.6.0', labels: { 'dreamteamer.template': 'crash', 'fake.crashloop': '1' } }, { ref: 'ghcr.io/dreamteamer/failing:0.6.0', labels: { 'dreamteamer.template': 'failing', 'fake.createfail': '1' } }]);
 		fake = await startFakeDocker(h.sock, { images: h.images });
 	});
 	after(async () => { await fake.close(); fs.rmSync(h.dir, { recursive: true, force: true }); });
