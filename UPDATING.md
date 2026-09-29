@@ -20,11 +20,19 @@ npx dreamteamer check
 
 ---
 
-## Unreleased (0.29.0 → next)
+## 0.30.0
 
 **Nothing to do for records.** The container driver changes what a `dt start container` makes, so a
 container created by 0.29.0 keeps its old shape until it is recreated (plain `rm` + `start` — the
 volumes survive).
+
+### `--template hq` resolves to hq 0.6.0, not `:latest`
+
+The default template tag is the image release this engine is tested against (`DT_TEMPLATE_TAG`,
+now `0.6.0`), and `dt setup` no longer writes it into `~/.dreamteamer/.env`, so the next engine
+upgrade moves it. **Do:** if your `~/.dreamteamer/.env` has `DT_TEMPLATE_TAG=latest` (written by an
+older `dt setup`), delete that line — otherwise `--template hq` keeps resolving to `:latest`, which
+still points at an image from before the URL token.
 
 ### Each container gets its own network
 
