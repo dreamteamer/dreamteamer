@@ -26,8 +26,8 @@ function startFakeDocker(sock, { images = [], plain = [] } = {}) {
 			const req = http.get({ socketPath: sock, path: '/_fake/state' }, (res) => { let b = ''; res.on('data', (c) => { b += c; }); res.on('end', () => ok(JSON.parse(b))); });
 			req.on('error', no);
 		});
-		const hangNext = () => new Promise((ok, no) => {
-			const req = http.request({ socketPath: sock, path: '/_fake/hang', method: 'POST' }, (res) => { res.resume(); res.on('end', ok); });
+		const hangNext = (prefix) => new Promise((ok, no) => {
+			const req = http.request({ socketPath: sock, path: `/_fake/hang${prefix ? `?path=${encodeURIComponent(prefix)}` : ''}`, method: 'POST' }, (res) => { res.resume(); res.on('end', ok); });
 			req.on('error', no); req.end();
 		});
 		const handle = { state, hangNext, close: () => new Promise((ok) => { child.once('exit', () => ok()); child.kill(); }) };
@@ -76,7 +76,8 @@ describe('host mode — the verbs answer with NO workspace', () => {
 		const r = h.dt('start', 'container', 'hq-dana', '--template', 'hq', '--no-open');
 		assert.equal(r.code, 0, r.out);
 		assert.match(r.stdout, /✔ created hq-dana from ghcr\.io\/dreamteamer\/hq:latest/);
-		assert.match(r.stdout, /http:\/\/localhost:8100\/\?folder=\/workspaces\/hq-dana/);
+		// the bare URL opens the machine home; an image with no features file gets no ?tkn=
+		assert.match(r.stdout, /· http:\/\/localhost:8100\/\n/);
 		const st = await fake.state();
 		const create = st.requests.find((q) => q.path.startsWith('/containers/create'));
 		assert.ok(create, 'no create request reached Docker');
@@ -89,8 +90,22 @@ describe('host mode — the verbs answer with NO workspace', () => {
 		assert.ok(create.body.Env.includes('GIT_AUTHOR_NAME=Test Person'));
 		assert.ok(create.body.Env.includes('DT_WORKSPACE_DIR=/workspaces/hq-dana'));
 		assert.equal(create.body.Labels['dreamteamer.workdir'], '/workspaces/hq-dana');
+		// the editor listens on every interface INSIDE; the host side stays loopback (PortBindings above)
+		assert.ok(create.body.Env.includes('DT_LOCAL_BIND=0.0.0.0'), `no DT_LOCAL_BIND in ${create.body.Env}`);
+		// its OWN bridge, created first with the two labels, and the ONLY network it is attached to
+		assert.equal(create.body.HostConfig.NetworkMode, 'dreamteamer-hq-dana');
+		assert.deepEqual(st.networks, [{ Name: 'dreamteamer-hq-dana', Driver: 'bridge', Labels: { dreamteamer: '1', 'dreamteamer.name': 'hq-dana' } }]);
+		assert.ok(st.requests.findIndex((q) => q.path === '/networks/create') < st.requests.indexOf(create), 'the network was not created before the container');
 		const started = st.requests.some((q) => /\/containers\/.+\/start$/.test(q.path));
 		assert.ok(started, 'created but never started');
+	});
+
+	test('the create body adds NET_ADMIN — the root entrypoint\'s egress policy needs it — and no other privilege', async () => {
+		const create = (await fake.state()).requests.find((q) => q.path === '/containers/create?name=hq-dana');
+		assert.deepEqual(create.body.HostConfig.CapAdd, ['NET_ADMIN']);
+		// nothing else widened: no other key beside the five the driver always sends
+		assert.deepEqual(Object.keys(create.body.HostConfig).sort(), ['CapAdd', 'Mounts', 'NetworkMode', 'PortBindings', 'RestartPolicy']);
+		assert.deepEqual(Object.keys(create.body).sort(), ['Env', 'ExposedPorts', 'HostConfig', 'Image', 'Labels']);
 	});
 
 	test('a second start on the same name is idempotent — no second create, same URL', async () => {
@@ -151,9 +166,12 @@ describe('host mode — the verbs answer with NO workspace', () => {
 		assert.equal(r.code, 0, r.out);
 		assert.match(r.stdout, /kept volumes dreamteamer-hq-noa-workspace, dreamteamer-hq-noa-home, dreamteamer-hq-noa-files/);
 		assert.deepEqual((await fake.state()).volumesRemoved, []);
+		assert.ok(!(await fake.state()).networks.some((n) => n.Name === 'dreamteamer-hq-noa'), 'plain rm left the network behind');
 		const f = h.dt('rm', 'container', 'hq-eli', '--force');
 		assert.equal(f.code, 0, f.out);
 		assert.deepEqual((await fake.state()).volumesRemoved, ['dreamteamer-hq-eli-workspace', 'dreamteamer-hq-eli-home', 'dreamteamer-hq-eli-files']);
+		assert.ok(!(await fake.state()).networks.some((n) => n.Name === 'dreamteamer-hq-eli'), 'rm --force left the network behind');
+		assert.ok((await fake.state()).networks.some((n) => n.Name === 'dreamteamer-hq-dana'), 'rm of one container removed another\'s network');
 		assert.equal(h.dt('get', 'container', 'hq-eli').code, 1);
 	});
 
@@ -195,17 +213,26 @@ describe('host mode — the verbs answer with NO workspace', () => {
 	test('stop leaves the container exited, keeps its volumes, and --json prints the detail', () => {
 		const r = h.dt('stop', 'container', 'hq-dana', '--json');
 		assert.equal(r.code, 0, r.out);
-		assert.match(r.stdout, /✔ stopped hq-dana · volumes kept/);
-		const detail = JSON.parse(r.stdout.slice(r.stdout.indexOf('{')));
+		assert.match(r.stderr, /✔ stopped hq-dana · volumes kept/);
+		const detail = JSON.parse(r.stdout);
 		assert.equal(detail.state, 'exited');
 		assert.equal(detail.volumes.home, 'dreamteamer-hq-dana-home');
 		assert.equal(JSON.parse(h.dt('get', 'container', 'hq-dana').stdout).state, 'exited');
 	});
 
-	test('open prints the editor URL (and refuses an absent container)', () => {
+	test('open prints the editor URL — bare, or one workspace on --workspace — and refuses a stopped or absent container', () => {
+		const stopped = h.dt('open', 'container', 'hq-dana', '--no-open');
+		assert.equal(stopped.code, 1);
+		assert.match(stopped.stderr, /hq-dana is exited — dt start container hq-dana/);
+		assert.equal(h.dt('start', 'container', 'hq-dana', '--no-open').code, 0);
 		const r = h.dt('open', 'container', 'hq-dana', '--no-open');
 		assert.equal(r.code, 0, r.out);
-		assert.equal(r.stdout.trim(), 'http://localhost:8100/?folder=/workspaces/hq-dana');
+		assert.equal(r.stdout.trim(), 'http://localhost:8100/');
+		assert.equal(h.dt('open', 'container', 'hq-dana', '--no-open', '--workspace').stdout.trim(), 'http://localhost:8100/?folder=/workspaces/hq-dana');
+		assert.equal(h.dt('open', 'container', 'hq-dana', '--no-open', '--workspace', 'second').stdout.trim(), 'http://localhost:8100/?folder=/workspaces/second');
+		const bad = h.dt('open', 'container', 'hq-dana', '--no-open', '--workspace', '../etc');
+		assert.equal(bad.code, 1);
+		assert.match(bad.stderr, /--workspace takes a workspace folder name/);
 		const attach = h.dt('open', 'container', 'hq-dana', '--vscode', '--no-open');
 		assert.equal(attach.code, 0, attach.out);
 		assert.equal(attach.stdout.trim(), `vscode-remote://attached-container+${Buffer.from('hq-dana').toString('hex')}/workspaces/hq-dana`);
@@ -275,18 +302,19 @@ describe('host mode — the verbs answer with NO workspace', () => {
 	});
 
 	test('--mount adds bind and volume mounts beside the three; a mount aimed at an own volume is refused', async () => {
-		const r = h.dt('start', 'container', 'hq-mounts', '--template', 'hq', '--no-open', '--mount', `${h.dir}:/mnt/shared:ro`, '--mount', 'team-files:/files-team');
+		const r = h.dt('start', 'container', 'hq-mounts', '--template', 'hq', '--no-open', '--mount', `${h.dir}:/mnt/shared:ro`, '--mount', 'team-files:/mnt/team');
 		assert.equal(r.code, 0, r.out);
 		const create = (await fake.state()).requests.find((q) => q.path === '/containers/create?name=hq-mounts');
 		const extra = create.body.HostConfig.Mounts.slice(3);
-		assert.deepEqual(extra, [{ Type: 'bind', Source: h.dir, Target: '/mnt/shared', ReadOnly: true }, { Type: 'volume', Source: 'team-files', Target: '/files-team', ReadOnly: false }]);
-		assert.match(r.stdout, /mounts .*→\/mnt\/shared \(ro\), team-files→\/files-team/);
+		assert.deepEqual(extra, [{ Type: 'bind', Source: h.dir, Target: '/mnt/shared', ReadOnly: true }, { Type: 'volume', Source: 'team-files', Target: '/mnt/team', ReadOnly: false }]);
+		assert.match(r.stdout, /mounts .*→\/mnt\/shared \(ro\), team-files→\/mnt\/team/);
 		const d = JSON.parse(h.dt('get', 'container', 'hq-mounts').stdout);
-		assert.deepEqual(d.mounts, [`${h.dir}:/mnt/shared:ro`, 'team-files:/files-team']);
+		assert.deepEqual(d.mounts, [`${h.dir}:/mnt/shared:ro`, 'team-files:/mnt/team']);
 		assert.equal(d.workspace_dir, '/workspaces/hq-mounts');
 		const bad = h.dt('start', 'container', 'hq-bad', '--template', 'hq', '--no-open', '--mount', 'x:/home/node');
 		assert.equal(bad.code, 1);
 		assert.match(bad.stderr, /--mount cannot target \/home\/node/);
+		assert.match(h.dt('start', 'container', 'hq-bad', '--template', 'hq', '--no-open', '--mount', 'x:/workspaces').stderr, /--mount cannot target \/workspaces —/);
 		const shape = h.dt('start', 'container', 'hq-bad', '--template', 'hq', '--no-open', '--mount', 'nocolon');
 		assert.equal(shape.code, 1);
 		assert.match(shape.stderr, /--mount takes <host-path\|volume>:<container-path>\[:ro\]/);
@@ -308,6 +336,184 @@ describe('host mode — the verbs answer with NO workspace', () => {
 		const r = h.dt('setup', '--templte', 'hq');
 		assert.equal(r.code, 1);
 		assert.match(r.stderr, /unknown flag "--templte" on `dt setup`/);
+	});
+});
+
+describe('the image\'s URL token, the per-container network, and the mount rules', () => {
+	// `hq6` stands for an hq 0.6+ image: its `fake.features` label gives it /opt/dt-image/features
+	// listing url-token, and a dt-url-token that answers root only — the fake's model of the image.
+	const HQ6 = 'ghcr.io/dreamteamer/hq6:latest';
+	let h, fake;
+	before(async () => {
+		h = harness([{ ref: HQ6, labels: { 'dreamteamer.template': 'hq6', 'dreamteamer.ports': '8080', 'fake.features': 'url-token' } }, { ref: HQ, labels: { 'dreamteamer.template': 'hq', 'dreamteamer.ports': '8080' } }, { ref: 'ghcr.io/dreamteamer/crash:latest', labels: { 'dreamteamer.template': 'crash', 'fake.crashloop': '1' } }, { ref: 'ghcr.io/dreamteamer/failing:latest', labels: { 'dreamteamer.template': 'failing', 'fake.createfail': '1' } }]);
+		fake = await startFakeDocker(h.sock, { images: h.images });
+	});
+	after(async () => { await fake.close(); fs.rmSync(h.dir, { recursive: true, force: true }); });
+	const hostFiles = (dir) => fs.existsSync(dir) ? fs.readdirSync(dir, { recursive: true }).map((f) => path.join(dir, f)).filter((f) => fs.statSync(f).isFile()) : [];
+
+	test('start on a url-token image reads the token by exec AS ROOT and prints it on the ONE URL line — never in a file, the create body or --json', async () => {
+		const r = h.dt('start', 'container', 'hq-ada', '--template', 'hq6', '--no-open', '--json');
+		assert.equal(r.code, 0, r.out);
+		const st = await fake.state();
+		const token = st.tokens['hq-ada'];
+		assert.ok(token, 'no token was ever asked for');
+		// under --json stdout is the JSON and nothing else; the human line (the one carrying the token)
+		// goes to stderr, where a script piping stdout into a log or a parser never sees it
+		assert.match(r.stderr, new RegExp(`· http://localhost:8100/\\?tkn=${token}\\n`));
+		assert.ok(!r.stdout.includes(token), 'the token reached --json stdout');
+		assert.equal(r.out.split(token).length - 1, 1, 'the token appeared on more than the one URL line');
+		const show = st.execs.find((e) => e.Cmd[0] === 'dt-url-token');
+		assert.deepEqual([show.Cmd, show.User, show.container], [['dt-url-token', 'show'], 'root', 'hq-ada']);
+		assert.deepEqual(st.execs.find((e) => e.Cmd[0] === 'cat').Cmd, ['cat', '/opt/dt-image/features']);
+		assert.ok(!JSON.stringify(st.requests.find((q) => q.path.startsWith('/containers/create')).body).includes(token));
+		for (const f of hostFiles(h.home)) assert.ok(!fs.readFileSync(f, 'utf8').includes(token), `the token was written to ${f}`);
+		assert.equal(JSON.parse(r.stdout).editor_url, 'http://localhost:8100/', 'stdout under --json is not exactly one JSON document');
+	});
+
+	test('open --json prints the detail as exactly one JSON document with no token; the URL goes to stderr', async () => {
+		const token = (await fake.state()).tokens['hq-ada'];
+		const r = h.dt('open', 'container', 'hq-ada', '--no-open', '--json');
+		assert.equal(r.code, 0, r.out);
+		const d = JSON.parse(r.stdout);
+		assert.equal(d.name, 'hq-ada');
+		assert.equal(d.editor_url, 'http://localhost:8100/');
+		assert.ok(!r.stdout.includes(token), 'the token reached --json stdout');
+		assert.equal(r.stderr.trim(), `http://localhost:8100/?tkn=${token}`);
+	});
+
+	test('open reads the same token; --workspace keeps ?folder= beside it', async () => {
+		const token = (await fake.state()).tokens['hq-ada'];
+		assert.equal(h.dt('open', 'container', 'hq-ada', '--no-open').stdout.trim(), `http://localhost:8100/?tkn=${token}`);
+		assert.equal(h.dt('open', 'container', 'hq-ada', '--no-open', '--workspace').stdout.trim(), `http://localhost:8100/?folder=/workspaces/hq-ada&tkn=${token}`);
+	});
+
+	test('--rotate-token execs dt-url-token rotate as root and prints the NEW URL; the old token is gone', async () => {
+		const old = (await fake.state()).tokens['hq-ada'];
+		const r = h.dt('start', 'container', 'hq-ada', '--rotate-token', '--no-open');
+		assert.equal(r.code, 0, r.out);
+		const st = await fake.state();
+		assert.notEqual(st.tokens['hq-ada'], old);
+		assert.match(r.stdout, new RegExp(`http://localhost:8100/\\?tkn=${st.tokens['hq-ada']}\\n`));
+		assert.ok(!r.out.includes(old));
+		assert.deepEqual(st.execs.filter((e) => e.Cmd[1] === 'rotate').map((e) => e.User), ['root']);
+	});
+
+	test('an image with no features file gets the plain URL, and --rotate-token on it is refused by name', async () => {
+		const r = h.dt('start', 'container', 'hq-old', '--template', 'hq', '--no-open');
+		assert.equal(r.code, 0, r.out);
+		assert.match(r.stdout, /· http:\/\/localhost:8101\/\n/);
+		assert.ok(!(await fake.state()).execs.some((e) => e.container === 'hq-old' && e.Cmd[0] === 'dt-url-token'), 'dt-url-token was run on an image that lists no url-token');
+		const rot = h.dt('start', 'container', 'hq-old', '--rotate-token', '--no-open');
+		assert.equal(rot.code, 1);
+		assert.match(rot.stderr, /no URL token .* --rotate-token needs hq 0\.6/);
+	});
+
+	test('the exec carries the Docker idle timer: an exec that never answers fails naming DT_DOCKER_TIMEOUT', async () => {
+		await fake.hangNext('/exec/');
+		const t0 = Date.now();
+		const r = h.dt('open', 'container', 'hq-ada', '--no-open', { DT_DOCKER_TIMEOUT: '1' });
+		assert.equal(r.code, 1, r.out);
+		assert.match(r.stderr, /Docker did not answer within 1s .*DT_DOCKER_TIMEOUT/);
+		assert.ok(Date.now() - t0 < 8000);
+		assert.match((await fake.state()).hung.at(-1).path, /^\/exec\/.+\/start$/);
+	});
+
+	test('a network of that name dreamteamer did not make is refused, not joined', async () => {
+		const create = () => new Promise((ok, no) => {
+			const req = http.request({ socketPath: h.sock, path: '/networks/create', method: 'POST', headers: { 'content-type': 'application/json' } }, (res) => { res.resume(); res.on('end', ok); });
+			req.on('error', no); req.end(JSON.stringify({ Name: 'dreamteamer-hq-squat', Driver: 'bridge' }));
+		});
+		await create();
+		const r = h.dt('start', 'container', 'hq-squat', '--template', 'hq', '--no-open');
+		assert.equal(r.code, 1);
+		assert.match(r.stderr, /a Docker network "dreamteamer-hq-squat" exists that dreamteamer did not make/);
+		assert.ok(!(await fake.state()).requests.some((q) => q.path === '/containers/create?name=hq-squat'));
+	});
+
+	test('a create Docker refuses removes the network and volumes THIS attempt made, never ones that were there, and says Docker\'s sentence', async () => {
+		const post = (p, body) => new Promise((ok, no) => {
+			const req = http.request({ socketPath: h.sock, path: p, method: 'POST', headers: { 'content-type': 'application/json' } }, (res) => { res.resume(); res.on('end', ok); });
+			req.on('error', no); req.end(JSON.stringify(body));
+		});
+		// fresh: nothing exists yet, so the network and all four named volumes are this attempt's
+		const r = h.dt('start', 'container', 'hq-fail', '--template', 'failing', '--no-open', '--mount', 'team-new:/mnt/team');
+		assert.equal(r.code, 1, r.out);
+		assert.match(r.stderr, /create container hq-fail: Docker answered 500 — fake: create failed after the volumes were made/);
+		let st = await fake.state();
+		assert.ok(!st.networks.some((n) => n.Name === 'dreamteamer-hq-fail'), 'the failed create left its network behind');
+		assert.deepEqual(st.volumes.filter((v) => v.includes('hq-fail') || v === 'team-new'), [], `left behind: ${st.volumes}`);
+		// pre-existing: a network dreamteamer made earlier, the home volume and a shared volume — all kept
+		await post('/networks/create', { Name: 'dreamteamer-hq-fail2', Driver: 'bridge', Labels: { dreamteamer: '1', 'dreamteamer.name': 'hq-fail2' } });
+		await post('/volumes/create', { Name: 'dreamteamer-hq-fail2-home' });
+		await post('/volumes/create', { Name: 'team-shared' });
+		const removedBefore = st.volumesRemoved.length;
+		assert.equal(h.dt('start', 'container', 'hq-fail2', '--template', 'failing', '--no-open', '--mount', 'team-shared:/mnt/team').code, 1);
+		st = await fake.state();
+		assert.ok(st.networks.some((n) => n.Name === 'dreamteamer-hq-fail2'), 'a network that was there before the attempt was removed');
+		assert.ok(st.volumes.includes('dreamteamer-hq-fail2-home') && st.volumes.includes('team-shared'), `a pre-existing volume was removed: ${st.volumes}`);
+		assert.deepEqual(st.volumesRemoved.slice(removedBefore).sort(), ['dreamteamer-hq-fail2-files', 'dreamteamer-hq-fail2-workspace']);
+	});
+
+	test('rm stops a crash-looping (restarting) container before removing it, and its network goes too', async () => {
+		h.dt('start', 'container', 'hq-loop', '--template', 'crash', '--no-open');
+		assert.equal((await fake.state()).containers.find((c) => c.Name === '/hq-loop').State.Status, 'restarting');
+		const r = h.dt('rm', 'container', 'hq-loop', '--force');
+		assert.equal(r.code, 0, r.out);
+		const st = await fake.state();
+		assert.ok(!st.containers.some((c) => c.Name === '/hq-loop'));
+		assert.ok(!st.networks.some((n) => n.Name === 'dreamteamer-hq-loop'));
+	});
+
+	test('a --mount target outside /workspaces · /home/node · /files · /mnt is refused after .. is normalised, naming the roots', () => {
+		for (const t of ['/etc', '/mnt/../etc', '/usr/local/bin', '/opt/dt-image', '/workspacesx/a', '/']) {
+			const r = h.dt('start', 'container', 'hq-mt', '--template', 'hq', '--no-open', '--mount', `${h.dir}:${t}`);
+			assert.equal(r.code, 1, `${t} was accepted`);
+			assert.match(r.stderr, /the target must be under \/workspaces · \/home\/node · \/files · \/mnt/);
+		}
+		const ok = h.dt('start', 'container', 'hq-mt', '--template', 'hq', '--no-open', '--mount', `${h.dir}:/workspaces/extra/../shared/`);
+		assert.equal(ok.code, 0, ok.out);
+		assert.match(ok.stdout, /→\/workspaces\/shared\b/);
+	});
+
+	// runc resolves a mount DESTINATION through symlinks inside the rootfs: a volume mounted at
+	// /workspaces/<name> that holds `evil -> /opt` makes `--mount x:/workspaces/<name>/evil` land on the
+	// image's real /opt. The lexical target check cannot see that, so nesting itself is refused.
+	test('a --mount target at or under ANOTHER mount\'s target — the three own volumes included — is refused', () => {
+		for (const pair of [['x:/files/team'], ['x:/home/node/.config'], ['x:/workspaces/hq-nt/evil'], ['a:/mnt/a', 'b:/mnt/a/b'], ['b:/mnt/a/b', 'a:/mnt/a'], ['a:/mnt/a', 'b:/mnt/a']]) {
+			const r = h.dt('start', 'container', 'hq-nt', '--template', 'hq', '--no-open', ...pair.flatMap((m) => ['--mount', m]));
+			assert.equal(r.code, 1, `${pair} was accepted`);
+			assert.match(r.stderr, /lies at or under .*another mount of this container/);
+		}
+		const ok = h.dt('start', 'container', 'hq-nt', '--template', 'hq', '--no-open', '--mount', 'a:/mnt/a', '--mount', 'b:/mnt/ab', '--mount', 'c:/workspaces/other');
+		assert.equal(ok.code, 0, ok.out);
+	});
+
+	test('a bind whose host source lies inside (or is) another bind source of the same container is refused', () => {
+		const inner = path.join(h.dir, 'inner');
+		fs.mkdirSync(inner, { recursive: true });
+		for (const pair of [[`${h.dir}:/mnt/a:ro`, `${inner}:/mnt/b`], [`${inner}:/mnt/b`, `${h.dir}:/mnt/a:ro`], [`${h.dir}:/mnt/a:ro`, `${h.dir}:/mnt/b`]]) {
+			const r = h.dt('start', 'container', 'hq-nest', '--template', 'hq', '--no-open', '--mount', pair[0], '--mount', pair[1]);
+			assert.equal(r.code, 1, `${pair} was accepted`);
+			assert.match(r.stderr, /lies inside .* one container reaches a host folder through one mount/);
+		}
+		const sibling = path.join(h.dir, 'sibling');
+		fs.mkdirSync(sibling, { recursive: true });
+		assert.equal(h.dt('start', 'container', 'hq-nest', '--template', 'hq', '--no-open', '--mount', `${inner}:/mnt/a`, '--mount', `${sibling}:/mnt/b`).code, 0);
+	});
+
+	// macOS APFS and Windows NTFS are case-insensitive by default, and realpath keeps the case it was
+	// GIVEN — so a path comparison alone lets `/x/INNER` beside `/x:ro` reach the ro folder writably.
+	// Only meaningful where the filesystem folds case; on a case-sensitive one the spelling is absent.
+	const folds = (() => { try { return fs.statSync(os.tmpdir().toUpperCase()).ino === fs.statSync(os.tmpdir()).ino; } catch { return false; } })();
+	test('the nested-source refusal holds when the same folder is spelled in another case', { skip: !folds && 'this filesystem is case-sensitive' }, () => {
+		const inner = path.join(h.dir, 'inner');
+		fs.mkdirSync(inner, { recursive: true });
+		const upper = path.join(path.dirname(h.dir), path.basename(h.dir).toUpperCase());
+		for (const pair of [[`${h.dir}:/mnt/a:ro`, `${path.join(upper, 'INNER')}:/mnt/b`], [`${upper}:/mnt/a`, `${h.dir}:/mnt/b:ro`], [`${inner.toUpperCase()}:/mnt/b`, `${h.dir}:/mnt/a:ro`]]) {
+			const r = h.dt('start', 'container', 'hq-case', '--template', 'hq', '--no-open', '--mount', pair[0], '--mount', pair[1]);
+			assert.equal(r.code, 1, `${pair} was accepted`);
+			assert.match(r.stderr, /lies inside .* one container reaches a host folder through one mount/);
+		}
 	});
 });
 

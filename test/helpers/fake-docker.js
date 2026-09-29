@@ -10,6 +10,9 @@
 // [<images-json>]` starts one and prints `ready`; the test reads its state over the same socket at
 // GET /_fake/state, asynchronously, between spawnSync calls.
 import http from 'node:http';
+import fs from 'node:fs';
+import path from 'node:path';
+import { spawn } from 'node:child_process';
 import { URL } from 'node:url';
 import { fileURLToPath } from 'node:url';
 
@@ -19,8 +22,12 @@ export function startFakeDocker(socketPath, { images = [], plain = [] } = {}) {
 		images: new Map(),                  // ref -> { Id, RepoTags, Labels, Created, Size }
 		containers: new Map(),              // id -> { Id, Name, Config, HostConfig, Mounts, State, Created }
 		volumesRemoved: [],
+		volumes: new Set(),                 // names that exist — a create makes its named volumes, as Docker does
 		pulls: [],
-		hangNext: false,                    // POST /_fake/hang arms it: the next real request is accepted and never answered
+		networks: new Map(),                // name -> { Name, Driver, Labels }
+		execs: [],                          // { id, container, Cmd, User, code } of every exec created
+		tokens: {},                         // container name -> its url token, as the image's dt-url-token would hold it
+		hangNext: false,                    // POST /_fake/hang[?path=<prefix>] arms it: the next real request (whose path starts with the prefix) is accepted and never answered
 		hung: [],                           // { method, path } of every request left hanging, so a test can prove it arrived
 	};
 	let n = 0;
@@ -55,7 +62,39 @@ export function startFakeDocker(socketPath, { images = [], plain = [] } = {}) {
 			: [],
 	});
 
+	// A container's FILES live in a real folder, `$FAKE_DOCKER_FS/<container name>/` standing for its
+	// `/`, and GET/PUT …/archive are the system `tar` over it — so the driver's tar handling is checked
+	// against a real tar on both ends, not against a second implementation of its own.
+	const fsRoot = process.env.FAKE_DOCKER_FS;
+	const inside = (c, p) => path.join(fsRoot, c.Name.slice(1), path.posix.normalize(p));
+	const archive = (req, res, u, c) => {
+		const at = u.searchParams.get('path');
+		state.requests.push({ method: req.method, path: u.pathname + u.search });
+		const dir = inside(c, at);
+		const tar = (args, cwd) => spawn('tar', args, { cwd, env: { ...process.env, COPYFILE_DISABLE: '1' }, stdio: ['pipe', 'pipe', 'inherit'] });
+		if (req.method === 'PUT') {
+			if (!fs.existsSync(dir)) { res.writeHead(404, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ message: `Could not find the file ${at} in container` })); }
+			const t = tar(['-xf', '-'], dir);
+			req.pipe(t.stdin);
+			t.stdout.resume();
+			return t.on('close', (code) => { res.writeHead(code === 0 ? 200 : 500, { 'Content-Type': 'application/json' }); res.end(code === 0 ? '' : JSON.stringify({ message: `tar exited ${code}` })); });
+		}
+		req.resume();
+		if (!fs.existsSync(dir)) { res.writeHead(404, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ message: `Could not find the file ${at} in container` })); }
+		res.writeHead(200, { 'Content-Type': 'application/x-tar' });
+		tar(['-cf', '-', path.basename(dir)], path.dirname(dir)).stdout.pipe(res);
+	};
+
 	const server = http.createServer((req, res) => {
+		const au = new URL(req.url, 'http://docker');
+		const am = au.pathname.match(/^\/containers\/([^/]+)\/archive$/);
+		if (am && fsRoot) {
+			const c = byIdOrName(decodeURIComponent(am[1]));
+			if (!c) { req.resume(); res.writeHead(404, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ message: 'No such container' })); }
+			// the hang switch reaches the archive routes too: accepted, never answered
+			if (state.hangNext !== false && au.pathname.startsWith(state.hangNext)) { state.hangNext = false; state.hung.push({ method: req.method, path: au.pathname }); req.resume(); return; }
+			return archive(req, res, au, c);
+		}
 		let raw = '';
 		req.on('data', (d) => { raw += d; });
 		req.on('end', () => {
@@ -65,11 +104,11 @@ export function startFakeDocker(socketPath, { images = [], plain = [] } = {}) {
 			const json = (status, obj) => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(obj === undefined ? '' : JSON.stringify(obj)); };
 			const p = u.pathname;
 			let m;
-			if (p === '/_fake/state') return json(200, { requests: state.requests.slice(0, -1), pulls: state.pulls, volumesRemoved: state.volumesRemoved, containers: [...state.containers.values()], images: [...state.images.keys()], hung: state.hung });
+			if (p === '/_fake/state') return json(200, { requests: state.requests.slice(0, -1), pulls: state.pulls, volumesRemoved: state.volumesRemoved, volumes: [...state.volumes], containers: [...state.containers.values()], images: [...state.images.keys()], hung: state.hung, networks: [...state.networks.values()], execs: state.execs, tokens: state.tokens });
 			// A daemon that is paused or still starting accepts the connection and says nothing — the
 			// one failure mode a timer exists for. Armed per request so the suite stays deterministic.
-			if (p === '/_fake/hang') { state.hangNext = true; return json(204); }
-			if (state.hangNext) { state.hangNext = false; state.hung.push({ method: req.method, path: p }); return; }
+			if (p === '/_fake/hang') { state.hangNext = u.searchParams.get('path') ?? ''; return json(204); }
+			if (state.hangNext !== false && p.startsWith(state.hangNext)) { state.hangNext = false; state.hung.push({ method: req.method, path: p }); return; }
 			if (p === '/version') return json(200, { Version: '99.0.0-fake', ApiVersion: '1.99', Os: 'linux', Arch: 'fake' });
 			if (p === '/_ping') { res.writeHead(200); return res.end('OK'); }
 			// images
@@ -95,13 +134,72 @@ export function startFakeDocker(socketPath, { images = [], plain = [] } = {}) {
 				return json(200, [{ Deleted: ref }]);
 			}
 			// volumes
-			if (req.method === 'DELETE' && (m = p.match(/^\/volumes\/(.+)$/))) { state.volumesRemoved.push(decodeURIComponent(m[1])); return json(204); }
+			if (req.method === 'DELETE' && (m = p.match(/^\/volumes\/(.+)$/))) { state.volumesRemoved.push(decodeURIComponent(m[1])); state.volumes.delete(decodeURIComponent(m[1])); return json(204); }
+			if (p === '/volumes/create' && req.method === 'POST') { state.volumes.add(body.Name); return json(201, { Name: body.Name }); }
+			if ((m = p.match(/^\/volumes\/([^/]+)$/))) return state.volumes.has(decodeURIComponent(m[1])) ? json(200, { Name: decodeURIComponent(m[1]) }) : json(404, { message: `get ${m[1]}: no such volume` });
+			// networks
+			if (p === '/networks/create' && req.method === 'POST') {
+				if (state.networks.has(body.Name)) return json(409, { message: `network with name ${body.Name} already exists` });
+				state.networks.set(body.Name, { Name: body.Name, Driver: body.Driver, Labels: body.Labels ?? {} });
+				return json(201, { Id: body.Name });
+			}
+			if ((m = p.match(/^\/networks\/([^/]+)$/))) {
+				const name = decodeURIComponent(m[1]);
+				const net = state.networks.get(name);
+				if (!net) return json(404, { message: `network ${name} not found` });
+				if (req.method === 'DELETE') { state.networks.delete(name); return json(204); }
+				return json(200, net);
+			}
+			// exec — the two commands the driver runs, answered as an hq image would. An image whose
+			// `fake.features` label is set has /opt/dt-image/features; `dt-url-token` answers root only.
+			if ((m = p.match(/^\/containers\/([^/]+)\/exec$/)) && req.method === 'POST') {
+				const c = byIdOrName(decodeURIComponent(m[1]));
+				if (!c) return json(404, { message: 'No such container' });
+				if (c.State.Status !== 'running') return json(409, { message: `container ${c.Id} is not running` });
+				const Id = `exec${++n}`;
+				state.execs.push({ id: Id, container: c.Name.slice(1), Cmd: body.Cmd, User: body.User ?? '' });
+				return json(201, { Id });
+			}
+			if ((m = p.match(/^\/exec\/([^/]+)\/(start|json)$/))) {
+				const e = state.execs.find((x) => x.id === m[1]);
+				if (!e) return json(404, { message: 'No such exec instance' });
+				if (m[2] === 'json') return json(200, { ExitCode: e.code, Running: false });
+				const c = byIdOrName(e.container);
+				const features = state.images.get(c.Config.Image)?.Labels?.['fake.features'];
+				let out = ''; let err = ''; e.code = 0;
+				const [cmd, arg] = e.Cmd;
+				if (cmd === 'cat' && arg === '/opt/dt-image/features') { if (features) out = `${features.split(',').join('\n')}\n`; else { err = `cat: ${arg}: No such file or directory\n`; e.code = 1; } }
+				else if (cmd === 'dt-url-token' && features) {
+					if (e.User !== 'root') { err = 'dt-url-token: run as root\n'; e.code = 1; }
+					else { if (arg === 'rotate' || !state.tokens[e.container]) state.tokens[e.container] = `tok${++n}${'x'.repeat(40)}`.slice(0, 43); out = `${state.tokens[e.container]}\n`; }
+				} else if (fsRoot && cmd === 'cat' && arg === '/proc/mounts') {
+					// as a container sees it: its own layer at `/`, a real filesystem at each mount
+					out = ['overlay / overlay rw 0 0', ...(c.Mounts ?? []).map((mt) => `/dev/vda1 ${mt.Destination} ext4 rw 0 0`)].join('\n') + '\n';
+				} else if (fsRoot && cmd === 'find') {
+					const dir = inside(c, arg);
+					if (!fs.existsSync(dir)) { err = `find: '${arg}': No such file or directory\n`; e.code = 1; }
+					else if (e.Cmd.includes('-delete')) { if (e.User !== 'root') { err = 'find: Permission denied\n'; e.code = 1; } else for (const f of fs.readdirSync(dir)) fs.rmSync(path.join(dir, f), { recursive: true, force: true }); }
+					else { const first = fs.readdirSync(dir)[0]; if (first) out = `${arg}/${first}\n`; }
+				} else if (fsRoot && cmd === 'chown') {
+					if (e.User !== 'root') { err = 'chown: Operation not permitted\n'; e.code = 1; }
+				} else { err = `exec: "${cmd}": executable file not found in $PATH\n`; e.code = 126; }
+				// Docker's multiplexed stream: [stream, 0, 0, 0, length BE] then the bytes
+				const frame = (stream, text) => { const b = Buffer.from(text); const h = Buffer.alloc(8); h[0] = stream; h.writeUInt32BE(b.length, 4); return Buffer.concat([h, b]); };
+				res.writeHead(200, { 'Content-Type': 'application/vnd.docker.multiplexed-stream' });
+				return res.end(Buffer.concat([...(out ? [frame(1, out)] : []), ...(err ? [frame(2, err)] : [])]));
+			}
 			// containers
 			if (p === '/containers/json') return json(200, [...state.containers.values()].filter((c) => labelFilter(u)({ Labels: c.Config.Labels })).map(summary));
 			if (p === '/containers/create' && req.method === 'POST') {
 				const name = u.searchParams.get('name');
 				if (byIdOrName(name)) return json(409, { message: `Conflict. The container name "/${name}" is already in use` });
 				if (!state.images.has(body.Image)) return json(404, { message: `No such image: ${body.Image}` });
+			const net = body.HostConfig?.NetworkMode;
+			if (net && !['bridge', 'host', 'none', 'default'].includes(net) && !state.networks.has(net)) return json(404, { message: `network ${net} not found` });
+				for (const mt of body.HostConfig?.Mounts ?? []) if (mt.Type === 'volume') state.volumes.add(mt.Source);
+				// an image labelled `fake.createfail` fails AFTER Docker has made the volumes — the worst
+				// case a failed create leaves behind (a bad device, a driver error, a port Docker refuses)
+				if (state.images.get(body.Image)?.Labels?.['fake.createfail']) return json(500, { message: 'fake: create failed after the volumes were made' });
 				const Id = `${String(++n).padStart(12, 'a')}${'0'.repeat(52)}`;
 				state.containers.set(Id, {
 					Id, Name: `/${name}`, Created: new Date().toISOString(),
@@ -120,7 +218,8 @@ export function startFakeDocker(socketPath, { images = [], plain = [] } = {}) {
 			if ((m = p.match(/^\/containers\/([^/]+)\/(start|stop)$/)) && req.method === 'POST') {
 				const c = byIdOrName(decodeURIComponent(m[1]));
 				if (!c) return json(404, { message: 'No such container' });
-				const want = m[2] === 'start' ? 'running' : 'exited';
+				// an image labelled `fake.crashloop` never stays up — Docker reports it `restarting`
+				const want = m[2] === 'stop' ? 'exited' : state.images.get(c.Config.Image)?.Labels?.['fake.crashloop'] ? 'restarting' : 'running';
 				if (c.State.Status === want) return json(304);
 				c.State = { Status: want, StartedAt: want === 'running' ? new Date().toISOString() : c.State.StartedAt };
 				return json(204);
@@ -128,7 +227,7 @@ export function startFakeDocker(socketPath, { images = [], plain = [] } = {}) {
 			if (req.method === 'DELETE' && (m = p.match(/^\/containers\/([^/]+)$/))) {
 				const c = byIdOrName(decodeURIComponent(m[1]));
 				if (!c) return json(404, { message: 'No such container' });
-				if (c.State.Status === 'running' && u.searchParams.get('force') !== 'true') return json(409, { message: 'container is running: stop it or use --force' });
+				if (['running', 'restarting'].includes(c.State.Status) && u.searchParams.get('force') !== 'true') return json(409, { message: `container is ${c.State.Status}: stop the container before removing or force remove` });
 				state.containers.delete(c.Id);
 				return json(204);
 			}
