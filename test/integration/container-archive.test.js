@@ -15,7 +15,7 @@ import { ENGINE_ROOT } from '../helpers/ws.js';
 
 const BIN = path.join(ENGINE_ROOT, 'bin', 'dreamteamer.js');
 const FAKE = path.join(ENGINE_ROOT, 'test', 'helpers', 'fake-docker.js');
-const HQ = 'ghcr.io/dreamteamer/hq:latest';
+const HQ = 'ghcr.io/dreamteamer/hq:0.6.0'; // the engine's pinned default template tag
 const PASS = 'correct horse battery staple';
 
 function startFake(sock, fsRoot) {
