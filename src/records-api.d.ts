@@ -28,6 +28,8 @@ export class Store {
 	root: string;
 	descriptors: Descriptors;
 	descriptor(collection: string): Descriptor;
+	/** the absolute folder a collection's records live in */
+	dir(d: Descriptor): string;
 	ids(collection: string): Set<string>;
 	read(collection: string, id: string): { fields: Fields; file: string };
 	readAll(collection: string): Iterable<{ id: string; fields: Fields; file: string }>;

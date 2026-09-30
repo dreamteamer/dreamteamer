@@ -82,7 +82,7 @@ export const MANAGED_BLOCKS: readonly { id: 'orientation' | 'instructions'; begi
 type SchemaOp = (ws: Workspace, store: Store, ...args: any[]) => any;
 export const createCollection: SchemaOp, removeCollection: SchemaOp, renameCollection: SchemaOp, moveCollection: SchemaOp, setCollectionScalars: SchemaOp;
 export const addField: SchemaOp, updateField: SchemaOp, removeField: SchemaOp, removeFieldPlan: SchemaOp, renameField: SchemaOp, renameFieldPlan: SchemaOp;
-export function fieldDef(flags: Record<string, unknown>, ...rest: any[]): any;
+export function fieldDef(store: Store, flags: Record<string, unknown>, collection: string): any;
 export function statedKeywords(flags: Record<string, unknown>): any;
 export const saveUiView: SchemaOp, removeUiView: SchemaOp;
 export const createModule: SchemaOp, setModule: SchemaOp, renameModule: SchemaOp, removeModule: SchemaOp;
