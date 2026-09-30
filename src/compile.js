@@ -1585,6 +1585,13 @@ export function compile(ws) {
 	// ---- unresolved references are compile errors (an agent's declared skills)
 	const skillIds = new Set([...entries.keys()].filter((k) => k.startsWith('skills/')).map((k) => k.split('/')[1]));
 	for (const [rt, e] of entries) {
+		// A SKILL whose frontmatter is not YAML compiled ✔ and was refused one gate later by `check`,
+		// naming the compiled copy under .dreamteamer/ that nobody can edit — found when an installed
+		// package shipped a description holding `: `. Parsed here, where the source path is known.
+		if (/^skills\/[^/]+\/SKILL\.md$/.test(rt)) {
+			const fm = /^---\r?\n([\s\S]*?)\r?\n---/.exec(e.bytes.toString('utf8'));
+			if (fm) loadSource(fm[1], e.sources[0].path);
+		}
 		if (rt.startsWith('agents/')) {
 			const fm = /^---\r?\n([\s\S]*?)\r?\n---/.exec(e.bytes.toString('utf8'));
 			const doc = fm ? loadSource(fm[1], e.sources[0].path) : {};

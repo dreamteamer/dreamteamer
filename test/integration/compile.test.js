@@ -1091,3 +1091,15 @@ describe('the empty-directory sweep leaves a linked worktree alone', () => {
 		assert.ok(!fs.existsSync(generated), '.claude/other/hollow is generated leftovers and is still swept');
 	});
 });
+
+describe('a skill whose frontmatter is not YAML', () => {
+	test('is a compile error naming the SOURCE, not a check error on the compiled copy', () => {
+		const ws = workspace({ compile: false });
+		const dir = path.join(ws.root, 'modules', WS_MODULE, 'skills', 'broken');
+		fs.mkdirSync(dir, { recursive: true });
+		fs.writeFileSync(path.join(dir, 'SKILL.md'), '---\nname: broken\ndescription: use when a field (`sensitive: true`) is withheld\n---\n\nBody.\n');
+		const err = compileError(ws.ws);
+		assert.match(err ?? '', /modules\/default\/skills\/broken\/SKILL\.md: /);
+	});
+});
+
