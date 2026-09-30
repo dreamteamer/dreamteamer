@@ -104,6 +104,6 @@ export function readStdin(isTTY?: boolean): string;
 
 // ---- CLI helpers ------------------------------------------------------------------------------------------
 
-/** write synchronously, looping on short writes — safe before process.exit */
+/** write `text` plus a trailing newline, synchronously, looping on short writes — safe before process.exit */
 export function emit(text: string, fd?: number): void;
 export function parseArgs(argv: string[]): { flags: Record<string, string | boolean | string[]>; pos: string[] };
