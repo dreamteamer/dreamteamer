@@ -18,7 +18,7 @@ npx dreamteamer check     # prove every record and every link is intact
 npx dreamteamer help      # the full command surface
 ```
 
-Apache-2.0. No server, no account, no telemetry.
+Apache-2.0. No server, no account, no telemetry — and ten npm packages in the whole install.
 
 ## Structured
 
@@ -147,6 +147,41 @@ normal case rather than a failure.
 
 `compile` writes `.dreamteamer/` — the single runtime read surface — and from there into per-harness
 adapters: Claude Code, Codex, Pi, Gemini CLI, Cursor. Author a skill once; every agent you run sees it.
+
+## Extensions — the optional tools
+
+Core is the records and the compiler, and deliberately nothing else. Everything with a lifecycle of
+its own is a separate package a workspace installs only when it wants it
+([dreamteamer-tools](https://github.com/dreamteamer/dreamteamer-tools)):
+
+| package | adds |
+|---|---|
+| `@dreamteamer/workflows` | `dt prove` (behaviour proofs of skills, commands, scripts) · `dt land` · `dt worktree` |
+| `@dreamteamer/http` | `dt serve` — a REST api over the same validating store |
+| `@dreamteamer/notebooklm` | `dt notebooklm` — export (and sync) the workspace to a NotebookLM notebook |
+| `@dreamteamer/host` | `dt-host` — run a workspace as a local Docker container (its own binary) |
+
+```bash
+npm i -D @dreamteamer/workflows   # a direct dependency declaring an extension IS the opt-in
+npx dreamteamer compile           # its collections and skills compile in; `dt help` lists its verbs
+```
+
+An extension is handed the running engine's public API and may contribute verbs, a source kind with
+its own compile-time validation, a harness adapter, a paragraph of orientation and harness hooks —
+the contract is `skills/using-dreamteamer/references/extensions.md`. A contribution that collides with
+core or another extension is refused, naming both.
+
+## From code
+
+```js
+import { openWorkspace, Store, compile, check } from 'dreamteamer';
+const ws = await openWorkspace('.');        // { root, pkg, extensions } — no compile, no writes
+const store = new Store(ws);
+for (const { id, fields } of store.readAll('notes')) console.log(id, fields.title);
+```
+
+`dreamteamer` exports one public API (`src/api.js`, typed by `src/api.d.ts`); `src/*` is not
+importable, so internals can change without breaking a consumer.
 
 ## The editor
 

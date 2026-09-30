@@ -20,9 +20,9 @@ export const RUNTIME_DIR = '.dreamteamer';
 /**
  * `name@version` of the RUNNING engine — the dev clone or the installed copy, whichever loaded.
  *
- * ⚠ IT LIVES HERE, NOT IN `compile.js`, BECAUSE THE LEDGER STAMPS IT. `prove` writes the engine
+ * ⚠ IT LIVES HERE, NOT IN `compile.js`, BECAUSE A LEDGER STAMPS IT. A proof runner writes the engine
  * version onto every ledger row (a per-machine record of what judged what), and reaching back into
- * the compiler for one string closed a `prove` ↔ `compile` import cycle — function-level and
+ * the compiler for one string closed a runner ↔ `compile` import cycle — function-level and
  * therefore working, right up until someone calls a prove export at compile.js's module scope. The
  * engine's own identity is a fact about the boundary, the same way `RUNTIME_DIR` is: `compile.js`
  * re-exports both names so its existing callers are unchanged.

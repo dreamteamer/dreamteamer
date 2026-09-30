@@ -1,8 +1,29 @@
 # dreamteamer — the engine
 
-`@dreamteamer/dreamteamer`: workspace compiler, CLI, store, schema-ops. See `README.md` for
-the contract (sources → `.dreamteamer/` → harness adapters; records are files; a write lands on
-disk and `dreamteamer commit` publishes it, one commit per repo; hard validation before disk).
+`dreamteamer`: workspace compiler, CLI, store, schema-ops — and a public API (`src/api.js`,
+typed by `src/api.d.ts`) that is the ONLY importable surface. See `README.md` for the contract
+(sources → `.dreamteamer/` → harness adapters; records are files; a write lands on disk and
+`dreamteamer commit` publishes it, one commit per repo; hard validation before disk).
+
+## IMPORTANT — core is records + the compiler; everything else is an EXTENSION
+
+Since 0.31.0 anything with a lifecycle of its own lives in a sibling package in
+[dreamteamer-tools](https://github.com/dreamteamer/dreamteamer-tools): `@dreamteamer/workflows`
+(`prove` · `land` · `worktree`), `@dreamteamer/http` (`serve`), `@dreamteamer/notebooklm`, and
+`@dreamteamer/host` (`dt-host`, the local Docker host — it needs no workspace and no engine). The
+extraction took core from 10,669 to ~7,600 code lines and its install from 77 packages to 10.
+
+An extension is a DIRECT dependency declaring `dreamteamer.extension`; `src/extensions.js` activates it
+with this engine's public API, and it may contribute `commands`, `sourceKinds` (+`exclude`), `analyze`,
+`harnesses`, `orientation`, `hooks` — nothing else, and a collision refuses. The contract lives in
+`skills/using-dreamteamer/references/extensions.md`. **So the fourth leanness question below is: could
+an extension do it instead?** A new verb whose engine reading is "the CLI dispatches it" is the
+extension shape, not a core verb.
+
+⚠ **Do not grow the seam casually.** Six contribution keys, each with one consumer that needed it.
+A seventh is a design decision (the deferred ones: a storage driver, a record-write hook, a workflow
+scheduler, an external harness REGISTRY beyond managed blocks). "An extension might want it" is not a
+consumer.
 
 ## IMPORTANT — core stays EXTREMELY lean, and that is measured
 
@@ -19,10 +40,10 @@ npm run metrics -- --update   # rewrite metrics.json — a DELIBERATE act, same 
 questions **before** writing the code, out loud, in the commit message:
 
 1. **Does the ENGINE read it?** That is the whole test for a core collection or field. What survives
-   it: the entity kinds the compiler materializes, `repos` (because `install repos/<id>` clones them),
-   and — since `dt prove` — `proofs`, which compile stages, validates and counts, and which no module
-   could execute because the judge needs the store, the ledger and the sandbox.
-   **Ten collections, and that is the intended ceiling.**
+   it: the entity kinds the compiler materializes and `repos` (because `install repos/<id>` clones
+   them) — **nine collections**. `proofs` was the tenth until 0.31.0; it passed this test only
+   because compile hard-coded proof validation, which is the circular shape below — now the
+   workflows extension contributes the kind AND its validator, and core reads neither.
 
    ⚠ **`users` failed it on 2026-08-17 (0.8.0), and the lesson is a CIRCULAR justification.** It was
    core "because `@me` resolves against it" — and `@me` existed because `users` was core. Nothing in
@@ -52,6 +73,8 @@ questions **before** writing the code, out loud, in the commit message:
 3. **Could a module do it instead?** A module can ship collections, skills, commands,
    command-bindings, agents, ui-views and component code. If the capability is expressible as a
    module, core growing to hold it is a decision to make everyone carry it.
+4. **Could an EXTENSION do it instead?** If it is code with its own lifecycle — a server, a runner,
+   an exporter, a host — it is an extension package, and core owes it at most a contribution key.
 
 Two shapes to reject on sight, both learned here:
 
@@ -234,8 +257,8 @@ adding one costs the same sentence of thought as adding a core collection.
 |---|---|---|
 | **record** | store · records · check · temporal · filter · field-values · commit · events · history · template · workspace · yaml · namespace | schema-validated records over git. **Must not know that modules, channels, `extends` or skills exist.** |
 | **boundary** | runtime | the compiled `.dreamteamer/` artifact — descriptors + manifest. The whole interface. |
-| **workspace** | compile · harnesses · schema-ops · init · record-commands · semver | the compiler and the agent-harness surface. May import record. |
-| **surface** | cli · collections-cli · server · presentation | entry points; span both halves by definition. |
+| **workspace** | compile · harnesses · schema-ops · init · checkout · extensions · record-commands · semver | the compiler, the agent-harness surface, and the extension loader. May import record. |
+| **surface** | cli · collections-cli · presentation · api | entry points; span both halves by definition. `api` is the public export surface. |
 
 The seam was always real — the store has only ever read compiled descriptors, never a source. What
 it lacked was a direction: `store.js` and `history.js` imported `compile.js` to reach a manifest,
@@ -279,8 +302,8 @@ Corollaries:
 - Loading the engine in-process (what `dreamteamer-vscode/src/engine.ts` does) satisfies "one
   implementation" but **not** the test — an in-process-only export is still UI-exclusive until the
   CLI exposes it.
-- `src/server.js` and the extension's `src/api.ts` are thin skins over these functions. If a route
-  exists with no CLI equivalent, that's a gap, not a design.
+- The HTTP extension (`@dreamteamer/http`) and the editor's `src/api.ts` are thin skins over these
+  functions. If a route exists with no CLI equivalent, that's a gap, not a design.
 
 ## parity status (closed 2026-07-27)
 
@@ -329,26 +352,20 @@ Notes worth keeping:
 ## how to keep it closed
 
 When you add an engine capability, the CLI verb is part of the change, not a follow-up. When you
-add an extension gesture, the verb must already exist. A route in `server.js` or the extension's
+add an extension gesture, the verb must already exist. A route in the HTTP extension or the editor's
 `api.ts` with no CLI equivalent is a gap — re-derive this table rather than trusting it.
 
-## ⚠ DELETING a `src/` module is a CROSS-REPO change
+## ⚠ The PUBLIC API is the cross-repo contract — `src/api.js`
 
-The extension loads the engine in-process, and `dreamteamer-vscode/src/engine.ts` imports a fixed
-list of modules in a **non-tolerant `Promise.all`**. One missing file rejects it, which throws out of
-`activate()` **before the tree view is created**, which leaves the view empty, which makes VS Code
-print its `viewsWelcome` text. On 2026-07-31 that text still claimed *"this folder is not a
-dreamteamer workspace (no .dreamteamer/manifest.yaml found)"* — for a workspace whose manifest was
-freshly compiled and 52KB. The symptom named the one thing that was definitely fine, and the real
-cause was `sync.js` having been deleted an hour earlier.
+Until 0.31.0 the editor imported fifteen internal files by path in a non-tolerant `Promise.all`, so
+deleting or renaming ANY `src/` file threw out of `activate()` before the tree view existed (the
+2026-07-31 `sync.js` incident, whose symptom named the one thing that was fine). Now every consumer —
+the editor, the mobile app, every extension — reaches the engine through `src/api.js` only, and
+package `exports` makes `src/*` unimportable. So:
 
-**So: when you remove or rename a file under `src/`, grep the extension for it in the same wave.**
-
-```bash
-grep -rn "<module>.js\|eng\.<export>\|engine()\.<export>" ../dreamteamer-vscode/src/
-```
-
-The extension's welcome text is now `when`-gated so the two failures name themselves, but that makes
-the mistake *legible*, not impossible. The import list is still a hand-maintained mirror of this
-repo's file names, and nothing checks it automatically — a real check would have to know which engine
-a given workspace pins, which only that workspace knows.
+- **A file under `src/` may be split, renamed or deleted freely** as long as `src/api.js` still
+  exports the same names.
+- **Removing or renaming an export of `src/api.js` IS the cross-repo change**, and needs the same
+  wave in every consumer. `test/integration/public-api.test.js` pins the runtime export list to
+  `src/api.d.ts`, and installs the packed tarball to prove the API resolves and `src/*` does not.
+- An addition to the API needs a consumer, like anything else in core.

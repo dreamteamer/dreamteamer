@@ -172,7 +172,7 @@ export function resolveNpm(execPath = process.execPath, env = process.env) {
 	// ⚠ EXECUTABLE, not merely present. `resolves` is `existsSync`, which is true of a DIRECTORY
 	// called `npm` and of a file nobody may run — and this path is then spawned, so the difference
 	// between "it is there" and "it can be executed" is the difference between a named board line
-	// and an EACCES nobody planned for. `prove`'s `requires: { bin: … }` already learned this.
+	// and an EACCES nobody planned for. A proof runner's `requires: { bin: … }` learned the same.
 	const runnable = (p) => { try { fs.accessSync(p, fs.constants.X_OK); return fs.statSync(p).isFile(); } catch { return false; } };
 	const beside = path.join(path.dirname(execPath), bin);
 	if (runnable(beside)) return beside;

@@ -565,7 +565,7 @@ function pruneEmptyDirs(dir) {
 	for (const name of fs.readdirSync(dir)) {
 		// ⚠ a LIVE linked worktree may sit at `.claude/worktrees/<name>` — a harness can park one
 		// there itself. Its empty directories belong to whoever checked it out; compile must never
-		// walk it. (`dt land` places worktrees under `.worktrees/` for the same reason.)
+		// walk it. (the workflows extension places worktrees under `.worktrees/` for the same reason.)
 		if (name === 'worktrees' && path.basename(dir) === '.claude') continue;
 		const p = path.join(dir, name);
 		if (fs.statSync(p).isDirectory()) pruneEmptyDirs(p);

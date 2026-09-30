@@ -20,6 +20,46 @@ npx dreamteamer check
 
 ---
 
+## 0.31.0 — the lean core
+
+**Core is now records + the workspace compiler.** Five capabilities left for separately installed
+extensions, and nothing old is kept as an alias. What to do depends on what you used:
+
+| you ran | now | do |
+|---|---|---|
+| `dt prove …`, `dt list proofs`, `dt status` proofs line, a `proofs/` folder | `dt prove …` · `dt prove --list [--missing] [--strict]` | `npm i -D @dreamteamer/workflows`, then `dt compile`. Without it a module's `proofs/` folder is a compile error ("not a known kind") — deliberately: an unvalidated proof is a claim nothing checks |
+| `dt land worktrees/<n>`, `dt add/list/get/rm worktrees…` | `dt land <n>` · `dt worktree add\|list\|get\|rm` | the same package; re-run `dt install --print-adapters` and re-merge the hooks (the worktree hooks now come from it) |
+| `dt start` (the REST api) | `dt serve [--port <n>]` | `npm i -D @dreamteamer/http`. The container routes and the `/admin` studio route are gone |
+| `dt export notebooklm …`, the `notebooklm` harness | `dt notebooklm …` | `npm i -D @dreamteamer/notebooklm`; the harness id is unchanged, so `dreamteamer.harnesses` keeps `notebooklm` |
+| `dt setup`, `dt start\|stop\|open\|rm container …`, `dt list containers\|images`, `dt export\|import container …` | `dt-host <the same words>` | `npm i -g @dreamteamer/host`. Volumes, labels, networks and the archive format are unchanged, so existing containers and exports keep working |
+
+A moved verb typed against core fails with exit 2 and names the package to install.
+
+### A public API, and `src/*` is closed
+
+`import … from 'dreamteamer'` is the API (`src/api.js`, typed by `src/api.d.ts`); package `exports`
+hides every internal file. **Do:** a script that imported `dreamteamer/src/<file>.js` imports the same
+names from `dreamteamer` instead. `openWorkspace(root)` (async) is the handle a compile or schema
+operation needs when the workspace has extensions installed.
+
+### Extensions
+
+A direct dependency whose package.json declares `"dreamteamer": { "extension": "./entry.js" }` is
+loaded by every `dt` invocation, `dt status` lists it, and `dt help` appends its usage. The contract is
+`skills/using-dreamteamer/references/extensions.md`.
+
+### Smaller things
+
+- `express` is no longer a dependency: the install is ten packages, not seventy-seven.
+- `containers`, `images` and `proofs` are no longer core collections; `storage.driver` is gone from
+  the collection meta-descriptor. A descriptor still carrying `storage.driver` is a compile error
+  naming its file — delete it (it would otherwise become a writable folder of fake host records).
+- `dt init` commits only the files it wrote; unrelated staged work in an existing repo stays staged.
+- `dt install --hook` in a linked worktree closes with "commit your records here" instead of naming
+  `dt land`.
+
+---
+
 ## 0.30.0
 
 **Nothing to do for records.** The container driver changes what a `dt start container` makes, so a

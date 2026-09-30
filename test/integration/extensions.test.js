@@ -277,3 +277,11 @@ describe('the loader refuses what it cannot honour — at open, by name', () => 
 		assert.ok(!fs.existsSync(path.join(ws.root, '.dreamteamer', 'probes')));
 	});
 });
+
+describe('what left core is refused where it would otherwise mislead', () => {
+	test('a descriptor still declaring storage.driver is a compile error, not a writable folder of fake host records', () => {
+		const ws = workspace({ compile: false, collections: { containers: { storage: { driver: 'docker' }, schema: { type: 'object', properties: { name: { type: 'string' } } } } } });
+		assert.match(compileError(ws.ws) ?? '', /collection "containers": storage\.driver is gone since 0\.31\.0/);
+	});
+});
+

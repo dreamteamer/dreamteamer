@@ -1159,6 +1159,9 @@ export function compile(ws) {
 		// inverted: every one of the seven would have compiled as `base: workspace`, resolved under
 		// the workspace root, read as zero records, and become writable through the store.
 		merged.storage ??= {};
+		// A DRIVER collection (0.24–0.30: `containers`, `images`) was answered by Docker, never by files.
+		// Compiled as an ordinary collection it would become a writable folder of fake host records.
+		if (merged.storage.driver !== undefined) fail(`collection "${name}": storage.driver is gone since 0.31.0 — a container is not a record; the local Docker host is @dreamteamer/host (\`dt-host\`). Delete the descriptor (${group.map((g) => g.src.path).join(', ')}).`);
 		const owned = dataOwners.get(storageOwnerOf(group, base));
 		// A namespaced collection's folder IS its namespace, nested: `health/doctors` →
 		// `data/health/doctors`. Derived rather than required so a descriptor never has to repeat its
