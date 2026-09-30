@@ -30,7 +30,8 @@ export class Store {
 	descriptor(collection: string): Descriptor;
 	/** the absolute folder a collection's records live in */
 	dir(d: Descriptor): string;
-	ids(collection: string): Set<string>;
+	/** id → record file */
+	ids(collection: string): Map<string, string>;
 	read(collection: string, id: string): { fields: Fields; file: string };
 	readAll(collection: string): Iterable<{ id: string; fields: Fields; file: string }>;
 	add(collection: string, fields: Fields, opts?: { id?: string }): { id: string; file: string; idFallback?: unknown };
