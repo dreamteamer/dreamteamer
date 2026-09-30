@@ -509,11 +509,15 @@ export function discoverModules(root, pkg) {
 	// caller (compile, status, install) sees the same set.
 	const disable = pkg?.dreamteamer?.disable ?? [];
 	const disabledHits = new Set();
-	const tryAdd = (name, srcRoot, channel) => {
-		// the same rule the extension loader applies (full package name, or its scope-stripped id), so
-		// a disabled package loses its content AND its code together
+	// the same rule the extension loader applies (full package name, or its scope-stripped id), so a
+	// disabled package loses its content AND its code together
+	const disabled = (name) => {
 		const hit = disable.find((d) => isPackageEntry(d) && disablesPackage([d], name));
-		if (hit) { disabledHits.add(hit); return; }
+		if (hit) disabledHits.add(hit);
+		return !!hit;
+	};
+	const tryAdd = (name, srcRoot, channel) => {
+		if (disabled(name)) return;
 		const existing = byName.get(name);
 		if (existing) { shadows.push({ name, winner: existing.channel, loser: channel }); return; }
 		byName.set(name, { name, root: srcRoot, channel });
@@ -539,6 +543,9 @@ export function discoverModules(root, pkg) {
 		}
 	};
 	const tryAddOrUnpack = (name, srcRoot, channel) => {
+		// ⚠ THE PACKAGE FIRST: disabling a bundle disables every module in it. Only the children used to
+		// be checked, so `disable: ['@x/bundle']` stopped its code and compiled all of its content.
+		if (disabled(name)) return;
 		const bundle = path.join(srcRoot, 'modules');
 		if (fs.existsSync(bundle) && fs.statSync(bundle).isDirectory()) { scanDir(bundle, channel, false); return; }
 		tryAdd(name, srcRoot, channel);

@@ -359,3 +359,60 @@ describe('a contributed harness that throws leaves the last good runtime untouch
 	});
 });
 
+
+describe('disabling a PACKAGE OF MODULES switches off its code and every module it bundles (review R4)', () => {
+	const CRATES = { name: 'crates', description: 'A crate.', storage: { path: 'crates', codec: 'yaml', shape: 'file', suffix: 'crate' },
+		id: { generate: '{{ name | slug }}' }, schema: { type: 'object', required: ['name'], properties: { name: { type: 'string' } } } };
+	const bundle = (disable) => {
+		const ws = workspace({ compile: false, pkg: disable ? { disable } : {} });
+		const dir = install(ws.root, { name: '@test/bundle', descriptor: null, entry: `export default async () => { if (process.env.DT_TEST_MARKER) (await import('node:fs')).writeFileSync(process.env.DT_TEST_MARKER, 'activated'); return { commands: { bundleverb: { run() { return 0; } } } }; };` });
+		const child = path.join(dir, 'modules', 'crates');
+		fs.mkdirSync(path.join(child, 'collections'), { recursive: true });
+		fs.writeFileSync(path.join(child, 'package.json'), JSON.stringify({ name: 'crates', version: '1.0.0', dreamteamer: { description: 'Crates.' } }));
+		fs.writeFileSync(path.join(child, 'collections', 'crates.collection.yaml'), dump(CRATES));
+		return ws;
+	};
+	const crates = (ws) => path.join(ws.root, '.dreamteamer', 'collections', 'crates.collection.yaml');
+	const opened = async (ws) => {
+		process.env.DT_TEST_MARKER = path.join(ws.root, 'activated.txt');
+		try { return (await openWorkspace(ws.root)).extensions.map((e) => e.name); } finally { delete process.env.DT_TEST_MARKER; }
+	};
+	for (const spelling of ['@test/bundle', 'bundle']) {
+		test(`disabled as "${spelling}": not activated, no bundled module compiled, and the entry matched`, async () => {
+			const ws = bundle([spelling]);
+			assert.deepEqual(await opened(ws), []);
+			const r = dt(ws.root, 'compile');
+			assert.equal(r.code, 0, r.stderr);
+			assert.ok(!fs.existsSync(crates(ws)), 'a module bundled by the disabled package was compiled');
+			assert.doesNotMatch(r.stderr, /matched nothing/);
+		});
+	}
+	test('re-enabled, the extension activates and its bundled module compiles', async () => {
+		const ws = bundle(null);
+		assert.deepEqual(await opened(ws), ['@test/bundle']);
+		const r = dt(ws.root, 'compile');
+		assert.equal(r.code, 0, r.stderr);
+		assert.ok(fs.existsSync(crates(ws)));
+	});
+	test('a git_modules bundle follows the same rule — the root name disables its children', async () => {
+		const { discoverModules } = await import('../../src/compile.js');
+		const ws = workspace({ compile: false });
+		const child = path.join(ws.root, 'git_modules', 'gitbundle', 'modules', 'crates');
+		fs.mkdirSync(child, { recursive: true });
+		fs.writeFileSync(path.join(ws.root, 'git_modules', 'gitbundle', 'package.json'), JSON.stringify({ name: 'gitbundle', dreamteamer: {} }));
+		fs.writeFileSync(path.join(child, 'package.json'), JSON.stringify({ name: 'crates', dreamteamer: {} }));
+		const names = (disable) => discoverModules(ws.root, { ...ws.ws.pkg, dreamteamer: { ...ws.ws.pkg.dreamteamer, disable } });
+		assert.ok(names([]).modules.some((m) => m.name === 'crates'));
+		const off = names(['gitbundle']);
+		assert.ok(!off.modules.some((m) => m.name === 'crates'));
+		assert.deepEqual(off.disabledModules, ['gitbundle']);
+	});
+	test('disabling only the CHILD keeps the extension and drops that module', async () => {
+		const ws = bundle(['crates']);
+		assert.deepEqual(await opened(ws), ['@test/bundle']);
+		const r = dt(ws.root, 'compile');
+		assert.equal(r.code, 0, r.stderr);
+		assert.ok(!fs.existsSync(crates(ws)));
+		assert.doesNotMatch(r.stderr, /matched nothing/);
+	});
+});
