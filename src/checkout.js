@@ -6,7 +6,6 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { staleness, compile, discoverModules } from './compile.js';
 import { install as restoreGitModules } from './init.js';
-import { findWorkspace } from './workspace.js';
 
 export const defaultGit = (args, cwd) => {
 	try {
@@ -238,7 +237,9 @@ const RUN = {
 		// re-points a linked package at the registry, so a dev engine (or a linked extension) would be
 		// silently replaced by the published copy — a checkout running a different engine than the one
 		// it was cut to test. Every linked direct dependency is recorded here and put back after npm.
-		const links = linkedPackages(ws.root);
+		// ⚠ WORKING links only. A DANGLING one (a moved checkout, a deleted vendor folder) is exactly the
+		// broken entry this step exists to repair — restoring it undid npm's repair and failed the install.
+		const links = linkedPackages(ws.root).filter(([p]) => resolves(p));
 		const status = spawnSync(npm, [fs.existsSync(path.join(ws.root, 'package-lock.json')) ? 'ci' : 'install', '--prefer-offline', '--no-audit', '--no-fund'], { cwd: ws.root, stdio, env: childEnv(), timeout: 600_000 }).status ?? 1;
 		for (const [p, target] of links) {
 			let same = false;
@@ -267,8 +268,12 @@ const RUN = {
  *  any step errored — one failure never abandons the rest, because a checkout half-made-ready with
  *  a named failure is more useful than one that stopped at the first thing it could not do. */
 export async function applyInstall(ws, state, steps, { dryRun = false, log = console.log, stdio = 'inherit', npm = resolveNpm(), open = null } = {}) {
-	let failed = 0;
+	let failed = 0, installed = false;
 	for (const s of steps) {
+		// ⚠ NEW PACKAGES ARE NEW SOURCES. The plan judged the runtime fresh BEFORE npm put a module (or an
+		// extension) into node_modules, so a compiled workspace that just gained a dependency kept the
+		// old runtime at exit 0. Once dependencies were installed, the compile runs whatever the plan said.
+		if (s.id === 'compile' && installed && s.state === 'already') Object.assign(s, { label: 'compile: dependencies were just installed', state: 'todo' });
 		const glyph = s.state === 'todo' ? '▶' : s.state === 'already' ? '✔' : '—';
 		log(`${glyph} ${s.label}${s.why ? `\n    ${s.why}` : ''}`);
 		if (s.state !== 'todo' || dryRun) continue;
@@ -282,6 +287,7 @@ export async function applyInstall(ws, state, steps, { dryRun = false, log = con
 		}
 		const code = RUN[kind](ws, state, rel, stdio, npm);
 		if (code !== 0) { failed++; log(`✖ ${s.id} failed (exit ${code})`); }
+		else if (kind === 'dependencies') installed = true;
 	}
 	return failed ? 1 : 0;
 }
@@ -389,7 +395,11 @@ export function printAdapters(ws, { harnesses = ws.pkg.dreamteamer?.harnesses ??
  *  NOTHING else: the board goes to stderr (a human watching a piped run still wants it),
  *  console.log is pointed at stderr for the duration, and each subprocess is handed stderr for its
  *  own stdout. A `--json` that only parses on an already-settled checkout is not an interface. */
-export async function installCommand(ws, rest, { open = async (at) => findWorkspace(at) } = {}) {
+export async function installCommand(ws, rest, { open } = {}) {
+	// ⚠ THE OPENER IS REQUIRED, and it must ACTIVATE extensions: the compile step reopens with it (see
+	// applyInstall), so a raw `findWorkspace` default compiled an extension's kind as an unknown folder.
+	// The public export (api.js) supplies `openWorkspace`; this layer cannot import it.
+	if (typeof open !== 'function') throw new Error('installCommand: opts.open (an extension-activating opener, e.g. openWorkspace) is required');
 	const flags = new Set(rest.filter((a) => a.startsWith('--')));
 	if (flags.has('--print-adapters')) return printAdapters(ws, {});
 	const hook = flags.has('--hook');

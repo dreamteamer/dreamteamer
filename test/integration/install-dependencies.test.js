@@ -32,9 +32,25 @@ export default () => ({
 });
 `;
 
+const writeProbe = (root) => {
+	const probe = path.join(root, 'modules', WS_MODULE, 'probes', 'first.probe.yaml');
+	fs.mkdirSync(path.dirname(probe), { recursive: true });
+	fs.writeFileSync(probe, dump({ name: 'first' }));
+};
+
+/** The PUBLIC installer, called the way an API consumer calls it — `installCommand(await
+ *  openWorkspace(root), argv)` and no options — in a child process, so its board stays out of the
+ *  test runner's stdout. */
+const apiInstall = (cwd, ...argv) => {
+	const script = `import { openWorkspace, installCommand } from ${JSON.stringify(path.join(ENGINE_ROOT, 'src', 'api.js'))};
+process.exitCode = await installCommand(await openWorkspace(process.cwd()), ${JSON.stringify(argv)});`;
+	const r = spawnSync(process.execPath, ['--input-type=module', '-e', script], { cwd, encoding: 'utf8', timeout: 300_000, killSignal: 'SIGKILL' });
+	return { code: r.status, stdout: r.stdout ?? '', stderr: r.stderr ?? '' };
+};
+
 /** A workspace whose node_modules holds ONLY the dev-linked engine, and which declares an extension
  *  (`probe-kit`, a local file: package) that is not installed yet — a fresh checkout. */
-function freshCheckout({ missing = 'probe-kit' } = {}) {
+function freshCheckout({ missing = 'probe-kit', withProbe = true } = {}) {
 	const ws = workspace({ compile: false });
 	const vendor = path.join(ws.root, 'vendor', 'probe-kit');
 	fs.mkdirSync(path.join(vendor, 'collections'), { recursive: true });
@@ -44,9 +60,7 @@ function freshCheckout({ missing = 'probe-kit' } = {}) {
 		name: 'probes', description: 'A claim.', storage: { path: 'probes', codec: 'yaml', shape: 'file', suffix: 'probe' },
 		id: { generate: '{{ name | slug }}' }, schema: { type: 'object', required: ['name'], properties: { name: { type: 'string' } } },
 	}));
-	const probe = path.join(ws.root, 'modules', WS_MODULE, 'probes', 'first.probe.yaml');
-	fs.mkdirSync(path.dirname(probe), { recursive: true });
-	fs.writeFileSync(probe, dump({ name: 'first' }));
+	if (withProbe) writeProbe(ws.root);
 	const pkgFile = path.join(ws.root, 'package.json');
 	const pkg = JSON.parse(fs.readFileSync(pkgFile, 'utf8'));
 	// every dependency is a local path, so npm needs no registry; the engine stays the dev LINK the
@@ -94,5 +108,69 @@ describe('dt install brings in what the workspace declares, and compiles WITH it
 		const r = run(ws.root, 'install', '--json');
 		assert.equal(r.code, 1, 'an npm failure reported success');
 		assert.match(JSON.parse(r.stdout).log.join('\n'), /dependencies failed/);
+	});
+});
+
+describe('the PUBLIC installer compiles with the activated extensions by default (review R1)', () => {
+	test('the checkout layer refuses to run without an opener, rather than defaulting to one that loads no extension', async () => {
+		const { installCommand } = await import('../../src/checkout.js');
+		await assert.rejects(installCommand({ root: '/nowhere', pkg: {} }, []), /opts\.open .* is required/);
+	});
+
+	test('an extension installed BEFORE the call: its kind compiles, and the manifest names it', () => {
+		const ws = freshCheckout();
+		// already in node_modules — no npm run at all, only the compile step's reopen
+		fs.cpSync(path.join(ws.root, 'vendor', 'probe-kit'), path.join(ws.root, 'node_modules', 'probe-kit'), { recursive: true });
+		const r = apiInstall(ws.root);
+		assert.equal(r.code, 0, `${r.stdout}\n${r.stderr}`);
+		assert.match(readFile(ws.root, '.dreamteamer/manifest.yaml') ?? '', /extensions:\n {2}- name: probe-kit/);
+		assert.match(readFile(ws.root, '.dreamteamer/collections/probes.collection.yaml') ?? '', /base: runtime/);
+		assert.match(r.stdout + r.stderr, /probe-kit judged 1 probe/);
+	});
+
+	test('an extension npm installs DURING the call is activated before the compile', () => {
+		const ws = freshCheckout();
+		const r = apiInstall(ws.root, '--json');
+		assert.equal(r.code, 0, `${r.stdout}\n${r.stderr}`);
+		assert.match(readFile(ws.root, '.dreamteamer/manifest.yaml') ?? '', /extensions:\n {2}- name: probe-kit/);
+		assert.ok(fs.existsSync(path.join(ws.root, '.dreamteamer', 'probes', 'first.probe.yaml')));
+	});
+});
+
+describe('installing a dependency into an ALREADY COMPILED workspace compiles it in (review R2)', () => {
+	test('one install: the provider and its collection reach the runtime, and a second compile changes nothing', () => {
+		const ws = freshCheckout({ withProbe: false });
+		assert.equal(run(ws.root, 'compile').code, 0);
+		git(ws.root, ['add', '-A']); git(ws.root, ['commit', '-qm', 'fixture: compiled']);
+		const r = run(ws.root, 'install', '--json');
+		assert.equal(r.code, 0, r.stderr);
+		const steps = JSON.parse(r.stdout).steps;
+		assert.equal(steps.find((s) => s.id === 'dependencies').state, 'todo');
+		assert.equal(steps.find((s) => s.id === 'compile').state, 'todo', 'the compile step was decided before npm installed anything');
+		const manifest = readFile(ws.root, '.dreamteamer/manifest.yaml');
+		assert.match(manifest, /extensions:\n {2}- name: probe-kit/, 'the provider npm installed never reached the runtime');
+		const descriptor = readFile(ws.root, '.dreamteamer/collections/probes.collection.yaml');
+		assert.match(descriptor ?? '', /base: runtime/, 'the installed module\'s collection was not compiled');
+		const semantic = (m) => m.replace(/^compiled: .*\n/m, '');
+		assert.equal(run(ws.root, 'compile').code, 0);
+		assert.equal(semantic(readFile(ws.root, '.dreamteamer/manifest.yaml')), semantic(manifest));
+	});
+});
+
+describe('a DANGLING link in node_modules is npm\'s to repair, never a development link to restore (review R3)', () => {
+	test('npm replaces the broken link, the working engine link is kept, and a repeat install is clean', () => {
+		const ws = freshCheckout();
+		const broken = path.join(ws.root, 'node_modules', 'probe-kit');
+		fs.symlinkSync('../old-moved-probe', broken);
+		const engine = path.join(ws.root, 'node_modules', 'dreamteamer');
+		const engineTarget = fs.readlinkSync(engine);
+		const r = run(ws.root, 'install');
+		assert.equal(r.code, 0, `${r.stdout}\n${r.stderr}`);
+		assert.doesNotMatch(r.stderr, /kept the development link node_modules\/probe-kit/);
+		assert.equal(fs.realpathSync(broken), fs.realpathSync(path.join(ws.root, 'vendor', 'probe-kit')), 'the repaired dependency was replaced by the dangling link again');
+		assert.equal(fs.readlinkSync(engine), engineTarget, 'the working development engine link was not kept');
+		const again = run(ws.root, 'install', '--json');
+		assert.equal(again.code, 0, again.stderr);
+		assert.equal(JSON.parse(again.stdout).steps.find((s) => s.id === 'dependencies').state, 'already');
 	});
 });

@@ -17,6 +17,7 @@ import { KINDS } from './compile.js';
 import { DERIVED_KINDS } from './runtime.js';
 import { KNOWN_HARNESSES } from './harnesses.js';
 import { CORE_VERBS } from './cli.js';
+import { installCommand as installCheckout } from './checkout.js';
 
 // Everything the record half exports (the browser-safe entry, `dreamteamer/records`), then the rest.
 export * from './records-api.js';
@@ -57,7 +58,13 @@ export {
 export { init, ensureRepo, ensureAllRepos, listRepos, installClone } from './init.js';
 
 // ---- the checkout: which one this is, and how it becomes ready ---------------------------------
-export { describeCheckout, installCommand, resolveNpm, childEnv, readHookInput, readStdin } from './checkout.js';
+export { describeCheckout, resolveNpm, childEnv, readHookInput, readStdin } from './checkout.js';
+
+/** `dt install` on the checkout `ws`, as the CLI runs it. The compile step reopens the workspace with
+ *  `opts.open` — `openWorkspace` unless a caller injects another — so the extensions npm just
+ *  installed take part in that compile. The one name here that supplies a default rather than
+ *  re-exporting: the checkout layer cannot import the opener that activates extensions. */
+export const installCommand = (ws, argv, opts = {}) => installCheckout(ws, argv, { open: openWorkspace, ...opts });
 
 // ---- CLI helpers an extension command reuses -----------------------------------------------------
 export { emit, parseArgs } from './collections-cli.js';
