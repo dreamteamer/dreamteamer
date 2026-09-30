@@ -16,12 +16,12 @@ import {
 	baseNameOf, singular, namespaceOf } from './namespace.js';
 // circular on paper in earlier versions — safe: both sides only
 // call at run time, same pattern as store.js ↔ compile.js.
-import { runHarnessAdapters, BEGIN, END, INSTRUCTIONS_BEGIN, INSTRUCTIONS_END } from './harnesses.js';
+import { runHarnessAdapters, renderContributions, BEGIN, END, INSTRUCTIONS_BEGIN, INSTRUCTIONS_END } from './harnesses.js';
 import { ensureEditorRecommendation, ensureEnvExample } from './workspace.js';
 import { satisfies } from './semver.js';
 import { parseEnvValues } from './env-vars.js';
 import { DERIVED_KINDS, readManifest, runtimeDir, engineId, engineVersion } from './runtime.js';
-import { excludedFromKind } from './extensions.js';
+import { excludedFromKind, disablesPackage, isPackageEntry } from './extensions.js';
 export { engineId, engineVersion, readManifest };
 
 /**
@@ -507,10 +507,13 @@ export function discoverModules(root, pkg) {
 	// is applied per source at compile time. The bare form is what lets a workspace take a PACKAGE of
 	// modules and keep only the ones it wants — a disabled module is simply never discovered, so every
 	// caller (compile, status, install) sees the same set.
-	const disabledModules = new Set((pkg?.dreamteamer?.disable ?? []).filter((d) => typeof d === 'string' && !d.includes('/')));
+	const disable = pkg?.dreamteamer?.disable ?? [];
 	const disabledHits = new Set();
 	const tryAdd = (name, srcRoot, channel) => {
-		if (disabledModules.has(name)) { disabledHits.add(name); return; }
+		// the same rule the extension loader applies (full package name, or its scope-stripped id), so
+		// a disabled package loses its content AND its code together
+		const hit = disable.find((d) => isPackageEntry(d) && disablesPackage([d], name));
+		if (hit) { disabledHits.add(hit); return; }
 		const existing = byName.get(name);
 		if (existing) { shadows.push({ name, winner: existing.channel, loser: channel }); return; }
 		byName.set(name, { name, root: srcRoot, channel });
@@ -1709,6 +1712,13 @@ export function compile(ws) {
 		}
 	}
 
+	// ---- extension code for the harness pass, run BEFORE anything is replaced ------------
+	// A contributed renderer that throws must leave the last good runtime and every harness file
+	// byte-for-byte as they were — so it runs here, on data, and the write pass below only writes.
+	let contributions;
+	try { contributions = renderContributions({ entries, harnesses, version: engineVer, extensions }); }
+	catch (e) { fail(e.message); }
+
 	// ---- materialize .dreamteamer ------------------------------------------------
 	// mkdir the runtime ROOT unconditionally: with zero entries nothing below created it, so the
 	// manifest write at the end failed ENOENT — `init` followed by `compile` in a fresh workspace
@@ -1743,7 +1753,7 @@ export function compile(ws) {
 	const anyFlat = sources.some((s) => kinds.some((k) => fs.existsSync(path.join(s.root, k))));
 	const anyNested = sources.some((s) => kinds.some((k) => fs.existsSync(path.join(s.root, 'system', k))));
 	const sourceLayout = anyFlat && anyNested ? 'mixed' : anyNested ? 'nested' : 'flat';
-	const { outputs: adapterOutputs, blocks: adapterBlocks, summary: harnessSummary } = runHarnessAdapters({ root, entries, harnesses, prevManifest, sourceLayout, namespaces, version: engineVer, workspaceModule: config['workspace-module'] ?? '', extensions, kinds: contributed.map((k) => k.kind) });
+	const { outputs: adapterOutputs, blocks: adapterBlocks, summary: harnessSummary } = runHarnessAdapters({ root, entries, harnesses, prevManifest, sourceLayout, namespaces, version: engineVer, workspaceModule: config['workspace-module'] ?? '', extensions, kinds: contributed.map((k) => k.kind), contributions });
 
 	// ---- provenance manifest ------------------------------------------------------
 	const manifest = {
@@ -1848,7 +1858,7 @@ export function staleness(root) {
 	//
 	// The root itself, when a workspace declares no `workspace-module`, is not a named module, so no
 	// `<module>/<entity>` entry can address its sources — it is walked unfiltered, as before.
-	const disabledEntities = new Set((pkg.dreamteamer?.disable ?? []).filter((d) => typeof d === 'string' && d.includes('/')));
+	const disabledEntities = new Set((pkg.dreamteamer?.disable ?? []).filter((d) => typeof d === 'string' && !isPackageEntry(d)));
 	const roots = [...(wm ? [] : [{ name: null, root }]), ...found.modules.map((m) => ({ name: m.name, root: m.root }))];
 	// the kinds the last compile STAGED, read off its manifest — staleness loads no extension code
 	const contributedKinds = (manifest['source-kinds'] ?? []).map((k) => ({ kind: k.kind, exclude: k.exclude ?? [] }));

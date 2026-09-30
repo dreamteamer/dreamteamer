@@ -39,7 +39,38 @@ export const MANAGED_BLOCKS = Object.freeze([
 	Object.freeze({ id: 'instructions', begin: INSTRUCTIONS_BEGIN, end: INSTRUCTIONS_END }),
 ]);
 
-export function runHarnessAdapters({ root, entries, harnesses, prevManifest, sourceLayout = 'flat', namespaces = [], version = 'unknown', workspaceModule = '', extensions = [], kinds = [] }) {
+/**
+ * Run every piece of EXTENSION code the harness pass needs — contributed renderers and orientation
+ * paragraphs — and return plain data. Compile calls this BEFORE it replaces a single runtime byte: a
+ * renderer that throws used to do so halfway through materialization, leaving new descriptors beside
+ * the old manifest (review F7). Anything invalid is refused here with the extension's name.
+ */
+export function renderContributions({ entries, harnesses, version = 'unknown', extensions = [] }) {
+	const rendered = [];
+	const paragraphs = [];
+	for (const e of extensions) {
+		const where = (what) => `extension ${e.name}: ${what}`;
+		try {
+			const p = typeof e.orientation === 'function' ? e.orientation({ entries }) : e.orientation;
+			if (typeof p === 'string' && p.trim()) paragraphs.push(p);
+		} catch (err) { throw new Error(where(`orientation failed — ${err.message}`)); }
+		for (const [id, render] of Object.entries(e.harnesses ?? {})) {
+			if (!harnesses.includes(id)) continue;
+			let out;
+			try { out = render({ entries, version, collections: buildCollectionsIndex(entries), modules: buildModulesIndex(entries) }) ?? {}; }
+			catch (err) { throw new Error(where(`harness "${id}" failed — ${err.message}`)); }
+			for (const [file, content] of Object.entries(out.blocks ?? {})) {
+				const norm = path.posix.normalize(file);
+				if (path.isAbsolute(file) || norm.startsWith('..') || norm.includes('/../')) throw new Error(where(`harness "${id}" writes "${file}", which is not a path inside the workspace`));
+				if (content != null && typeof content !== 'string') throw new Error(where(`harness "${id}" returned a ${typeof content} block for ${file} — a block is text, or null to remove it`));
+			}
+			rendered.push([id, out]);
+		}
+	}
+	return { rendered, paragraphs };
+}
+
+export function runHarnessAdapters({ root, entries, harnesses, prevManifest, sourceLayout = 'flat', namespaces = [], version = 'unknown', workspaceModule = '', extensions = [], kinds = [], contributions = renderContributions({ entries, harnesses, version, extensions }) }) {
 	const outputs = [];
 	// ⚠ SEPARATE from `outputs`: these are USER-OWNED root files carrying a managed block, and the
 	// prune loop below DELETES anything in a previous manifest's `adapter-outputs` that this compile
@@ -67,7 +98,7 @@ export function runHarnessAdapters({ root, entries, harnesses, prevManifest, sou
 	const skillsIndex = buildSkillsIndex(entries);
 	// what every orientation block carries beyond the schema: the source kinds extensions add, and the
 	// one paragraph each may contribute about itself
-	const extra = { kinds, paragraphs: extensions.map((e) => (typeof e.orientation === 'function' ? e.orientation({ entries }) : e.orientation)).filter((p) => typeof p === 'string' && p.trim()) };
+	const extra = { kinds, paragraphs: contributions.paragraphs };
 	const orient = (flavor) => orientationBlock(flavor, skillsIndex, sourceLayout, namespaces, version, entries, workspaceModule, extra);
 
 	// ---- claude-code: native skills/agents/commands dirs + CLAUDE.md block ----------
@@ -149,9 +180,7 @@ export function runHarnessAdapters({ root, entries, harnesses, prevManifest, sou
 	// A contributed adapter returns managed BLOCKS for user-owned files — never whole files, which
 	// would need an ownership story of their own. Read-only indexes are handed in so an adapter never
 	// re-parses the entries this module already parsed.
-	for (const [id, render] of contributed) {
-		if (!on(id)) continue;
-		const out = render({ entries, version, collections: buildCollectionsIndex(entries), modules: buildModulesIndex(entries) }) ?? {};
+	for (const [id, out] of contributions.rendered) {
 		for (const [file, content] of Object.entries(out.blocks ?? {})) block(file, content);
 		summary.push(out.summary ?? `${id} → ${Object.keys(out.blocks ?? {}).join(', ') || 'nothing'}`);
 	}

@@ -285,3 +285,77 @@ describe('what left core is refused where it would otherwise mislead', () => {
 	});
 });
 
+describe('a SCOPED extension can be switched off with dreamteamer.disable (review F5)', () => {
+	// activation writes a marker, so "never activated" is observable rather than inferred
+	const scoped = (disable) => {
+		const ws = workspace({ compile: false, pkg: disable ? { disable } : {} });
+		const dir = install(ws.root, { name: '@test/scoped', entry: `export default async () => { (await import('node:fs')).writeFileSync(process.env.DT_TEST_MARKER, 'activated'); return { commands: { scopedverb: { run() { return 0; } } }, sourceKinds: ['gizmos'] }; };` });
+		return { ws, dir };
+	};
+	for (const spelling of ['@test/scoped', 'scoped']) {
+		test(`disabled as "${spelling}": never activated, and its content module is not compiled`, async () => {
+			const { ws } = scoped([spelling]);
+			const marker = path.join(ws.root, 'activated.txt');
+			process.env.DT_TEST_MARKER = marker;
+			try {
+				assert.deepEqual((await openWorkspace(ws.root)).extensions, []);
+				assert.ok(!fs.existsSync(marker), 'activate() ran for a disabled extension');
+			} finally { delete process.env.DT_TEST_MARKER; }
+			const r = dt(ws.root, 'compile');
+			assert.equal(r.code, 0, r.stderr);
+			assert.ok(!fs.existsSync(path.join(ws.root, '.dreamteamer', 'collections', 'probes.collection.yaml')), 'the disabled package\'s collection was compiled');
+			assert.doesNotMatch(r.stderr, /matched nothing/, 'the disable entry was reported as matching nothing');
+		});
+	}
+	test('re-enabled, it activates again with its verbs and kinds', async () => {
+		const { ws } = scoped(null);
+		const marker = path.join(ws.root, 'activated.txt');
+		process.env.DT_TEST_MARKER = marker;
+		try {
+			const handle = await openWorkspace(ws.root);
+			assert.deepEqual(handle.extensions.map((e) => e.name), ['@test/scoped']);
+			assert.ok('scopedverb' in handle.extensions[0].commands);
+			assert.deepEqual(handle.extensions[0].sourceKinds.map((k) => k.kind), ['gizmos']);
+			assert.ok(fs.existsSync(marker));
+		} finally { delete process.env.DT_TEST_MARKER; }
+	});
+	test('an entity-level entry is still an entity, not a package', async () => {
+		const { ws } = scoped(['@test/scoped/probes']);
+		process.env.DT_TEST_MARKER = path.join(ws.root, 'activated.txt');
+		try { assert.equal((await openWorkspace(ws.root)).extensions.length, 1); } finally { delete process.env.DT_TEST_MARKER; }
+	});
+});
+
+describe('a contributed harness that throws leaves the last good runtime untouched (review F7)', () => {
+	const ENTRY2 = `export default () => ({ harnesses: {
+		good: () => ({ blocks: { 'GOOD.md': 'good config' } }),
+		bad: () => { throw new Error('renderer unavailable'); },
+	} });`;
+	test('the compile is refused, and the manifest, every descriptor and every harness file are byte-for-byte unchanged', () => {
+		const ws = workspace({ compile: false, pkg: { harnesses: ['claude-code', 'good'] } });
+		install(ws.root, { entry: ENTRY2, descriptor: null });
+		assert.equal(dt(ws.root, 'compile').code, 0);
+		fs.writeFileSync(path.join(ws.root, 'GOOD.md'), 'my own text above\n\n' + readFile(ws.root, 'GOOD.md') + '\nmy own text below\n');
+		const files = ['.dreamteamer/manifest.yaml', '.dreamteamer/collections/notes.collection.yaml', 'CLAUDE.md', 'GOOD.md'];
+		const before = Object.fromEntries(files.map((f) => [f, readFile(ws.root, f)]));
+		// a source change that WOULD rewrite a descriptor, and the throwing harness switched on after the good one
+		const src = path.join(ws.root, 'modules', WS_MODULE, 'collections', 'notes.collection.yaml');
+		fs.writeFileSync(src, fs.readFileSync(src, 'utf8').replace(/^description: .*$/m, 'description: A changed sentence.'));
+		const pkgFile = path.join(ws.root, 'package.json');
+		const pkg = JSON.parse(fs.readFileSync(pkgFile, 'utf8'));
+		pkg.dreamteamer.harnesses = ['claude-code', 'good', 'bad'];
+		fs.writeFileSync(pkgFile, JSON.stringify(pkg, null, '\t') + '\n');
+		const r = dt(ws.root, 'compile');
+		assert.equal(r.code, 1);
+		assert.match(r.stderr, /extension probe-kit: harness "bad" failed — renderer unavailable/);
+		for (const f of files) assert.equal(readFile(ws.root, f), before[f], `${f} changed under a refused compile`);
+		// corrected: one compile brings everything forward together
+		pkg.dreamteamer.harnesses = ['claude-code', 'good'];
+		fs.writeFileSync(pkgFile, JSON.stringify(pkg, null, '\t') + '\n');
+		assert.equal(dt(ws.root, 'compile').code, 0);
+		assert.match(readFile(ws.root, '.dreamteamer/collections/notes.collection.yaml'), /A changed sentence/);
+		assert.notEqual(readFile(ws.root, '.dreamteamer/manifest.yaml'), before['.dreamteamer/manifest.yaml']);
+		assert.match(readFile(ws.root, 'GOOD.md'), /^my own text above[\s\S]*good config[\s\S]*my own text below\n$/);
+	});
+});
+

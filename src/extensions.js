@@ -32,19 +32,38 @@ const CONTRIBUTION_KEYS = new Set(['commands', 'sourceKinds', 'analyze', 'harnes
  *  A module DISABLED by a bare `dreamteamer.disable` entry is not an extension either — disabling is
  *  how a workspace keeps a package installed and switches it off. */
 export function declaredExtensions(ws) {
-	const disabled = new Set((ws.pkg?.dreamteamer?.disable ?? []).filter((d) => typeof d === 'string' && !d.includes('/')));
+	const disable = ws.pkg?.dreamteamer?.disable ?? [];
 	const out = [];
 	for (const dep of Object.keys({ ...ws.pkg?.dependencies, ...ws.pkg?.devDependencies }).sort()) {
 		const dir = path.join(ws.root, 'node_modules', dep);
 		let pkg;
 		try { pkg = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8')); } catch { continue; }
 		const entry = pkg.dreamteamer?.extension;
-		if (!entry || disabled.has(pkg.name ?? dep)) continue;
+		if (!entry || disablesPackage(disable, pkg.name ?? dep)) continue;
 		if (typeof entry !== 'string') throw new Error(`${dep}: dreamteamer.extension must be a path to the entry module (got ${JSON.stringify(entry)})`);
 		out.push({ name: pkg.name ?? dep, version: pkg.version ?? '0.0.0', dir, entry: path.join(dir, entry) });
 	}
 	return out;
 }
+
+/**
+ * Does a `dreamteamer.disable` list switch off the WHOLE package `name`? An entry names a package by
+ * its full name (`@dreamteamer/workflows`, `probe-kit`) or by its module id — the name with the npm
+ * scope stripped (`workflows`), which is what every engine message calls a module. Anything else with
+ * a slash is `<module>/<entity>`, one entity of a module, and never the package.
+ *
+ * ⚠ The scoped full name used to be read as `<module>/<entity>` because it contains a slash, and the
+ * bare id was compared against the full name — so neither spelling could disable a scoped package.
+ * Every extension this project ships is scoped.
+ */
+export function disablesPackage(disable, name) {
+	const id = String(name).replace(/^@[^/]+\//, '');
+	return (disable ?? []).some((d) => typeof d === 'string' && (d === name || d === id));
+}
+
+/** Is a `dreamteamer.disable` entry a whole-package name rather than `<module>/<entity>`? A bare
+ *  word, or a scoped npm name (`@scope/name` — one slash, leading `@`). */
+export const isPackageEntry = (d) => typeof d === 'string' && (!d.includes('/') || /^@[^/]+\/[^/]+$/.test(d));
 
 /**
  * Import and activate every declared extension against `api`, and check the contributions cannot
@@ -59,7 +78,7 @@ export async function loadExtensions(ws, api, reserved = {}) {
 	for (const r of reserved.harnesses ?? []) owner.harness.set(r, 'the engine');
 	const claim = (what, key, by) => {
 		const prev = owner[what].get(key);
-		if (prev) throw new Error(`extension ${by} contributes the ${what} "${key}", which ${prev} already owns — uninstall one, or disable it in dreamteamer.disable`);
+		if (prev) throw new Error(`extension ${by} contributes the ${what} "${key}", which ${prev} already owns — uninstall one, or switch it off: add "${by}" to dreamteamer.disable in package.json`);
 		owner[what].set(key, by);
 	};
 	for (const ext of declaredExtensions(ws)) {
