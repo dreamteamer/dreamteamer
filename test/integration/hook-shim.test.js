@@ -143,13 +143,21 @@ describe('bin/dt-hook.sh resolves node where a hook has no PATH', () => {
 		spawnSync('git', ['init', '-q', dir], { encoding: 'utf8' });
 		const init = spawnSync(process.execPath, [path.join(ENGINE_ROOT, 'bin', 'dreamteamer.js'), 'init'], { cwd: dir, encoding: 'utf8' });
 		assert.equal(init.status, 0, init.stderr + init.stdout);
+		// a declared dependency that is not installed, so the npm step has work to do — a local
+		// `file:` package, so npm needs no registry
+		fs.mkdirSync(path.join(dir, 'vendor', 'tiny'), { recursive: true });
+		fs.writeFileSync(path.join(dir, 'vendor', 'tiny', 'package.json'), JSON.stringify({ name: 'tiny', version: '1.0.0' }));
+		const pkg = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8'));
+		pkg.dependencies = { tiny: 'file:./vendor/tiny' };
+		fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify(pkg, null, '\t') + '\n');
 
 		const r = spawnSync('env', ['-i', `PATH=${onlyPath}`, `HOME=${os.homedir()}`,
 			`DREAMTEAMER_NODE=${process.execPath}`, sh, SHIM, 'install'], { cwd: dir, encoding: 'utf8' });
 		const out = (r.stdout ?? '') + (r.stderr ?? '');
 		assert.doesNotMatch(out, /env: node: No such file/, 'npm could not find its own interpreter');
-		assert.doesNotMatch(out, /engine failed \(exit 127\)/, out);
-		assert.match(out, /engine: npm/, out);
+		assert.doesNotMatch(out, /dependencies failed \(exit 127\)/, out);
+		assert.match(out, /dependencies: tiny missing — npm/, out);
+		assert.ok(fs.existsSync(path.join(dir, 'node_modules', 'tiny', 'package.json')), `npm did not run under the hook environment:\n${out}`);
 		assert.equal(r.status, 0, out);
 	});
 

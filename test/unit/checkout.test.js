@@ -54,7 +54,7 @@ describe('describeCheckout — primary vs linked, from git alone', () => {
 	});
 });
 
-const linked = (over = {}) => ({ checkout: { kind: 'linked', primary: '/w/ws', root: '/w/ws/.worktrees/a', insideRoot: true }, hasEngine: true,
+const linked = (over = {}) => ({ checkout: { kind: 'linked', primary: '/w/ws', root: '/w/ws/.worktrees/a', insideRoot: true }, missingDeps: [],
 	hasEnv: false, primaryHasEnv: true, envIsLink: false, localAssets: [], gitModules: [], stale: true, postinstall: null, ...over });
 const byId = (steps, id) => steps.find((s) => s.id === id);
 
@@ -99,8 +99,9 @@ describe('planInstall — every step checks before it acts', () => {
 		assert.equal(byId(planInstall(s), 'asset:.profiles').state, 'skip');
 	});
 	test('engine absent → the npm step is todo; present → already', () => {
-		assert.equal(byId(planInstall(linked({ hasEngine: false })), 'engine').state, 'todo');
-		assert.equal(byId(planInstall(linked()), 'engine').state, 'already');
+		assert.equal(byId(planInstall(linked({ missingDeps: ['@acme/tool'] })), 'dependencies').state, 'todo');
+		assert.match(byId(planInstall(linked({ missingDeps: ['@acme/tool'] })), 'dependencies').label, /@acme\/tool missing/);
+		assert.equal(byId(planInstall(linked()), 'dependencies').state, 'already');
 	});
 	test('compile only when stale; postinstall only when declared; postinstall is LAST', () => {
 		const steps = planInstall(linked({ stale: false, postinstall: 'node bin/post.mjs' }));
@@ -117,7 +118,7 @@ describe('planInstall — every step checks before it acts', () => {
 	test('the id order IS the contract Task 3 renders — engine, env, assets, git modules, compile, postinstall', () => {
 		const s = linked({ localAssets: [{ rel: '.profiles', module: null, presentHere: false, isLinkHere: false, presentInPrimary: true }] });
 		assert.deepEqual(planInstall(s).map((x) => x.id),
-			['engine', 'env', 'asset:.profiles', 'git-modules', 'compile', 'postinstall']);
+			['dependencies', 'env', 'asset:.profiles', 'git-modules', 'compile', 'postinstall']);
 	});
 });
 
@@ -222,25 +223,25 @@ describe('resolveNpm — beside the running node first, PATH second', () => {
 
 // ---- the engine step's board line -------------------------------------------------------------
 describe('the engine step says WHICH of node and npm is missing', () => {
-	const step = [{ id: 'engine', label: 'engine: npm ci', state: 'todo' }];
+	const step = [{ id: 'dependencies', label: 'dependencies: npm ci', state: 'todo' }];
 	// The reason a step failed is `guard`'s, and `guard` reports on stderr — the board's own `log`
 	// carries only the outcome line. Both halves are asserted, because either one alone leaves the
 	// operator with a failure whose cause or whose consequence is missing.
-	test('no npm anywhere → the §15 board line, and the step FAILS', () => {
+	test('no npm anywhere → the §15 board line, and the step FAILS', async () => {
 		const said = [], erred = [];
 		const err = console.error;
 		console.error = (...a) => erred.push(a.join(' '));
 		let code;
-		try { code = applyInstall({ root: '/nowhere' }, {}, step, { npm: null, log: (l) => said.push(l), stdio: 'ignore' }); }
+		try { code = await applyInstall({ root: '/nowhere' }, {}, step, { npm: null, log: (l) => said.push(l), stdio: 'ignore' }); }
 		finally { console.error = err; }
 		assert.equal(code, 1);
-		assert.ok(erred.includes('✖ engine: cannot install — node found, npm not on PATH'),
+		assert.ok(erred.includes('✖ dependencies: cannot install — node found, npm not on PATH'),
 			`the board never named the missing npm:\n${erred.join('\n')}`);
-		assert.ok(said.some((l) => l.includes('engine failed')), said.join('\n'));
+		assert.ok(said.some((l) => l.includes('dependencies failed')), said.join('\n'));
 	});
-	test('a dry run resolves nothing and runs nothing', () => {
+	test('a dry run resolves nothing and runs nothing', async () => {
 		const said = [];
-		assert.equal(applyInstall({ root: '/nowhere' }, {}, step, { npm: null, dryRun: true, log: (l) => said.push(l) }), 0);
+		assert.equal(await applyInstall({ root: '/nowhere' }, {}, step, { npm: null, dryRun: true, log: (l) => said.push(l) }), 0);
 		assert.ok(!said.some((l) => l.includes('cannot install')), said.join('\n'));
 	});
 });

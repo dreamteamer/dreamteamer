@@ -105,7 +105,7 @@ describe('dt install in a linked worktree', () => {
 		const r = dt(wt, 'install');
 		assert.equal(r.code, 1, `a postinstall exiting 3 reported success:\n${r.stdout}`);
 		assert.match(r.stdout, /✖ postinstall failed \(exit 3\)/);
-		assert.match(r.stdout, /✔ engine/, 'the steps before the failure still ran');
+		assert.match(r.stdout, /✔ dependencies/, 'the steps before the failure still ran');
 	});
 	// ⚠ AN EXECUTOR THAT THROWS ABANDONS THE REST OF THE PLAN — and under --json the payload with
 	// it. fs throws on far more than a missing file, so the guard is the rule here, not the

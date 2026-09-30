@@ -55,9 +55,13 @@ export function describeCheckout(rootArg, git = defaultGit) {
 export function planInstall(state, opts = {}) {
 	const { checkout: c } = state;
 	const steps = [];
-	steps.push(state.hasEngine
-		? { id: 'engine', label: 'engine: node_modules/dreamteamer present', state: 'already' }
-		: { id: 'engine', label: 'engine: npm ci --prefer-offline (package-lock.json) or npm install', state: 'todo' });
+	// ⚠ EVERY declared direct dependency, not just the engine. A worktree whose engine is a mirrored dev
+	// LINK used to read as ready while an installed extension (@dreamteamer/workflows) was missing — so
+	// npm never ran, and compile then refused the extension's source folder as an unknown kind.
+	const missing = state.missingDeps ?? [];
+	steps.push(missing.length
+		? { id: 'dependencies', label: `dependencies: ${missing.join(', ')} missing — npm ci --prefer-offline (package-lock.json) or npm install; a linked one is kept`, state: 'todo' }
+		: { id: 'dependencies', label: 'dependencies: every declared package present', state: 'already' });
 	if (c.kind === 'primary') steps.push({ id: 'env', label: '.env: primary checkout — nothing to link', state: 'skip' });
 	else if (state.hasEnv && !state.envIsLink) steps.push({ id: 'env', label: '.env: this worktree carries its own .env — left alone', state: 'already' });
 	else if (state.hasEnv && state.envIsLink) steps.push({ id: 'env', label: '.env: linked to the primary', state: 'already' });
@@ -129,7 +133,7 @@ export function observeState(ws) {
 	const s = staleness(ws.root);
 	return {
 		checkout,
-		hasEngine: resolves(here('node_modules/dreamteamer')),
+		missingDeps: declaredDeps(ws).filter((d) => !resolves(here(path.join('node_modules', d)))),
 		hasEnv: resolves(here('.env')), envIsLink: isLink(here('.env')), primaryHasEnv: resolves(there('.env')),
 		localAssets: declaredLocalAssets(ws).map((a) => ({ ...a, presentHere: resolves(here(a.rel)), isLinkHere: isLink(here(a.rel)), presentInPrimary: resolves(there(a.rel)) })),
 		// ⚠ THE MISSING clones, not every declared one. A settled worktree would otherwise print
@@ -140,6 +144,31 @@ export function observeState(ws) {
 		postinstall: ws.pkg.dreamteamer?.postinstall ?? null,
 	};
 }
+
+/** Every top-level package in node_modules that is a SYMLINK (scoped ones included), as
+ *  `[path, raw link target]` — declared or not: the engine a checkout was cut to test is often an
+ *  undeclared link, and it is exactly the one npm's pruning would delete. */
+function linkedPackages(root) {
+	const nm = path.join(root, 'node_modules');
+	const out = [];
+	const scan = (dir) => {
+		let names = [];
+		try { names = fs.readdirSync(dir); } catch { return; }
+		for (const n of names) {
+			if (n.startsWith('.')) continue;
+			const p = path.join(dir, n);
+			let st;
+			try { st = fs.lstatSync(p); } catch { continue; }
+			if (st.isSymbolicLink()) out.push([p, fs.readlinkSync(p)]);
+			else if (n.startsWith('@') && dir === nm && st.isDirectory()) scan(p);
+		}
+	};
+	scan(nm);
+	return out;
+}
+
+/** The workspace's direct dependencies, sorted — what `npm install` is responsible for. */
+const declaredDeps = (ws) => Object.keys({ ...ws.pkg?.dependencies, ...ws.pkg?.devDependencies }).sort();
 
 /** Place a symlink, replacing a dangling one. A step only reaches here because the observer read
  *  the path as absent, which a broken link is — so the leftover has to be cleared, never trusted. */
@@ -200,30 +229,57 @@ const RUN = {
 	// ⚠ `npm` ARRIVES AS AN ARGUMENT rather than being resolved here, and that is what makes the
 	// refusal below testable at all: with the resolution inlined, deleting the guard left the suite
 	// green, because no fixture can make npm unresolvable beside the node running the test.
-	engine: guard('engine', (ws, st, rel, stdio, npm) => {
+	dependencies: guard('dependencies', (ws, st, rel, stdio, npm) => {
 		// ⚠ THE HONEST BOARD LINE, not a crash. `npm` is missing far more often than `node` is —
 		// a hook's `sh` finds neither, and the shim resolves only node — so the step has to say
-		// WHICH of the two it could not find. `✖ engine:` is prepended by the guard.
+		// WHICH of the two it could not find. `✖ dependencies:` is prepended by the guard.
 		if (!npm) throw new Error('cannot install — node found, npm not on PATH');
-		return spawnSync(npm, [fs.existsSync(path.join(ws.root, 'package-lock.json')) ? 'ci' : 'install', '--prefer-offline', '--no-audit', '--no-fund'], { cwd: ws.root, stdio, env: childEnv() }).status ?? 1;
+		// ⚠ A DELIBERATE DEVELOPMENT LINK SURVIVES. `npm ci` deletes node_modules and `npm install`
+		// re-points a linked package at the registry, so a dev engine (or a linked extension) would be
+		// silently replaced by the published copy — a checkout running a different engine than the one
+		// it was cut to test. Every linked direct dependency is recorded here and put back after npm.
+		const links = linkedPackages(ws.root);
+		const status = spawnSync(npm, [fs.existsSync(path.join(ws.root, 'package-lock.json')) ? 'ci' : 'install', '--prefer-offline', '--no-audit', '--no-fund'], { cwd: ws.root, stdio, env: childEnv(), timeout: 600_000 }).status ?? 1;
+		for (const [p, target] of links) {
+			let same = false;
+			try { same = fs.lstatSync(p).isSymbolicLink() && fs.readlinkSync(p) === target; } catch { /* gone */ }
+			if (same) continue;
+			fs.rmSync(p, { recursive: true, force: true });
+			fs.mkdirSync(path.dirname(p), { recursive: true });
+			fs.symlinkSync(target, p);
+			console.error(`… kept the development link ${path.relative(ws.root, p)} → ${target}`);
+		}
+		if (status !== 0) return status;
+		// ⚠ npm's exit code is not the answer: a `file:` dependency whose folder does not exist is
+		// "added" as a DANGLING link at exit 0. Ready means every declared package now resolves.
+		const still = declaredDeps(ws).filter((d) => !resolves(path.join(ws.root, 'node_modules', d)));
+		if (still.length) throw new Error(`npm exited 0, but ${still.join(', ')} still do${still.length === 1 ? 'es' : ''} not resolve in node_modules`);
+		return 0;
 	}),
 	env: guard('.env', (ws, st) => placeLink(path.join(st.checkout.primary, '.env'), path.join(ws.root, '.env'))),
 	asset: guard('asset', (ws, st, rel) => placeLink(path.join(st.checkout.primary, rel), path.join(ws.root, rel))),
 	'git-modules': guard('git modules', (ws) => restoreGitModules(ws)),
-	compile: guard('compile', (ws) => compile(ws)),
+	compile: guard('compile', (ws) => compile(ws)),  // `ws` is REOPENED first — see applyInstall
 	postinstall: guard('postinstall', (ws, st, rel, stdio) => spawnSync(st.postinstall, { cwd: ws.root, shell: true, stdio, env: { ...childEnv(), DT_PRIMARY: st.checkout.primary } }).status ?? 1),
 };
 
 /** Print the board and run the todo steps in order. `dryRun` prints and runs nothing. Returns 1 if
  *  any step errored — one failure never abandons the rest, because a checkout half-made-ready with
  *  a named failure is more useful than one that stopped at the first thing it could not do. */
-export function applyInstall(ws, state, steps, { dryRun = false, log = console.log, stdio = 'inherit', npm = resolveNpm() } = {}) {
+export async function applyInstall(ws, state, steps, { dryRun = false, log = console.log, stdio = 'inherit', npm = resolveNpm(), open = null } = {}) {
 	let failed = 0;
 	for (const s of steps) {
 		const glyph = s.state === 'todo' ? '▶' : s.state === 'already' ? '✔' : '—';
 		log(`${glyph} ${s.label}${s.why ? `\n    ${s.why}` : ''}`);
 		if (s.state !== 'todo' || dryRun) continue;
 		const [kind, rel] = s.id.split(/:(.+)/);
+		// ⚠ COMPILE WITH WHAT WAS JUST INSTALLED. The handle was opened before npm ran, so its
+		// extension list predates the packages npm just put in node_modules: a first install compiled an
+		// extension's collection as an ordinary one (`storage.base: workspace`) and left the manifest
+		// without the provider, and only a second, manual compile repaired it. Reopened here, once.
+		if (kind === 'compile' && open) {
+			try { ws = await open(ws.root); } catch (e) { failed++; log(`✖ compile: the workspace would not reopen after installing — ${e.message.split('\n')[0]}`); continue; }
+		}
 		const code = RUN[kind](ws, state, rel, stdio, npm);
 		if (code !== 0) { failed++; log(`✖ ${s.id} failed (exit ${code})`); }
 	}
@@ -360,7 +416,7 @@ export async function installCommand(ws, rest, { open = async (at) => findWorksp
 	if (json) console.log = console.error; // compile() and the git-modules restore report through it
 	let code;
 	try {
-		code = applyInstall(ws, state, steps, { dryRun: flags.has('--dry-run'), log, stdio: json ? ['ignore', 2, 2] : 'inherit' });
+		code = await applyInstall(ws, state, steps, { dryRun: flags.has('--dry-run'), log, stdio: json ? ['ignore', 2, 2] : 'inherit', open });
 	} finally {
 		console.log = stdout;
 	}
