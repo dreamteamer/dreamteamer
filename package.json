@@ -35,6 +35,10 @@
 			"types": "./src/api.d.ts",
 			"default": "./src/api.js"
 		},
+		"./records": {
+			"types": "./src/records-api.d.ts",
+			"default": "./src/records-api.js"
+		},
 		"./package.json": "./package.json"
 	},
 	"bin": {

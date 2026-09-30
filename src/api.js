@@ -18,8 +18,8 @@ import { DERIVED_KINDS } from './runtime.js';
 import { KNOWN_HARNESSES } from './harnesses.js';
 import { CORE_VERBS } from './cli.js';
 
-/** Bumped on a breaking change to anything exported here or to the extension contract. */
-export const apiVersion = 1;
+// Everything the record half exports (the browser-safe entry, `dreamteamer/records`), then the rest.
+export * from './records-api.js';
 
 // ---- the workspace ------------------------------------------------------------------------------
 
@@ -39,31 +39,10 @@ export { EXTENSION_API, declaredExtensions } from './extensions.js';
 /** The engine's own CLI entry — what a tool spawns to run `dt` in another checkout. */
 export const engineBin = fileURLToPath(new URL('../bin/dreamteamer.js', import.meta.url));
 export const engineRoot = path.dirname(path.dirname(engineBin));
-export { engineVersion, engineId } from './runtime.js';
 
-// ---- records ------------------------------------------------------------------------------------
-export { Store, bodyField, serialize, atomicWrite } from './store.js';
-export { parseRecord, parseRecordText, idFromRecordPath } from './records.js';
-export { check } from './check.js';
-export { commitPending, composeSubject } from './commit.js';
-export { history, historyDiff } from './history.js';
-export { deriveEvents } from './events.js';
-export { relationsOf } from './relations.js';
-
-// ---- values, references and queries ---------------------------------------------------------------
-export { matchesFilter, unknownOperators, looseEq, KNOWN_OPERATORS } from './filter.js';
-export { sortRows, compareValues } from './temporal.js';
-export { distinctValues } from './field-values.js';
-export { keyBetween, placementKey } from './fractional-index.js';
-export { parseRef, normalizeNamespaces } from './namespace.js';
-export { splitRef, canonicalCollection, refTargetsOf } from './ref.js';
-export { slug, slugOrHash } from './template.js';
+// ---- values the workspace half adds ---------------------------------------------------------------
 export { envContext, renderTemplate, parseEnvValues } from './env-vars.js';
-export { load as loadYaml, dump as dumpYaml } from './yaml.js';
 export { satisfies } from './semver.js';
-
-// ---- the compiled runtime (the boundary both halves read) -------------------------------------
-export { RUNTIME_DIR, runtimeDir, readManifest, loadDescriptors, namespaces } from './runtime.js';
 
 // ---- the compiler, schema and module operations ---------------------------------------------------
 export { compile, staleness, warnIfStale, discoverModules, CompileError, KINDS } from './compile.js';
@@ -79,10 +58,6 @@ export { init, ensureRepo, ensureAllRepos, listRepos, installClone } from './ini
 
 // ---- the checkout: which one this is, and how it becomes ready ---------------------------------
 export { describeCheckout, installCommand, resolveNpm, childEnv, readHookInput, readStdin } from './checkout.js';
-
-// ---- read models a surface draws -------------------------------------------------------------------
-export { presentation } from './presentation.js';
-export { commandsFor, recordResolver } from './record-commands.js';
 
 // ---- CLI helpers an extension command reuses -----------------------------------------------------
 export { emit, parseArgs } from './collections-cli.js';

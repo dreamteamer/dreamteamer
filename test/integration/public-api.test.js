@@ -10,26 +10,59 @@ import { spawnSync, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { workspace, git, ENGINE_ROOT } from '../helpers/ws.js';
 
-const DTS = fs.readFileSync(path.join(ENGINE_ROOT, 'src', 'api.d.ts'), 'utf8');
+const dts = (f) => fs.readFileSync(path.join(ENGINE_ROOT, 'src', f), 'utf8');
 
-/** Every runtime name `api.d.ts` declares: `export function|const|class X`, and the comma lists. */
-function declared() {
+/** Every runtime name a declaration file declares: `export function|const|class X`, and the comma
+ *  lists. `api.d.ts` re-exports `records-api.d.ts`, so its set is the union. */
+function declared(file) {
+	const text = dts(file);
 	const names = new Set();
-	for (const m of DTS.matchAll(/^export (?:declare )?(?:function|class|const) ([A-Za-z_$][\w$]*)/gm)) names.add(m[1]);
-	for (const m of DTS.matchAll(/^export const ([^;]+);/gm)) {
+	for (const m of text.matchAll(/^export (?:declare )?(?:function|class|const) ([A-Za-z_$][\w$]*)/gm)) names.add(m[1]);
+	for (const m of text.matchAll(/^export const ([^;]+);/gm)) {
 		for (const part of m[1].split(/,\s*/)) { const n = /^([A-Za-z_$][\w$]*)\s*:/.exec(part.trim()); if (n) names.add(n[1]); }
 	}
+	if (/^export \* from '\.\/records-api\.js';/m.test(text)) for (const n of declared('records-api.d.ts')) names.add(n);
 	return names;
 }
 
+/** The static import closure of one src/ module: every src file reached, and every bare specifier. */
+function closure(entry) {
+	const files = new Set(), bare = new Set();
+	const visit = (f) => {
+		if (files.has(f)) return;
+		files.add(f);
+		const body = fs.readFileSync(path.join(ENGINE_ROOT, 'src', f), 'utf8');
+		for (const m of body.matchAll(/(?:^|\n)\s*(?:import|export)[\s\S]*?from\s+'([^']+)'|import\(\s*'([^']+)'/g)) {
+			const spec = m[1] ?? m[2];
+			if (spec.startsWith('./')) visit(spec.slice(2)); else bare.add(spec);
+		}
+	};
+	visit(entry);
+	return { files, bare };
+}
+
 describe('dreamteamer (the public API)', () => {
-	test('the runtime exports are exactly the declared ones', async () => {
-		const api = await import('../../src/api.js');
-		const runtime = new Set(Object.keys(api));
-		const types = declared();
-		assert.ok(types.size > 60, `the declaration parse found only ${types.size} names — the pattern no longer matches api.d.ts`);
-		assert.deepEqual([...runtime].filter((n) => !types.has(n)).sort(), [], 'exported but not declared in api.d.ts');
-		assert.deepEqual([...types].filter((n) => !runtime.has(n)).sort(), [], 'declared in api.d.ts but not exported');
+	test('the runtime exports are exactly the declared ones — for both entries', async () => {
+		for (const [mod, file, floor] of [['../../src/api.js', 'api.d.ts', 60], ['../../src/records-api.js', 'records-api.d.ts', 30]]) {
+			const runtime = new Set(Object.keys(await import(mod)));
+			const types = declared(file);
+			assert.ok(types.size > floor, `the declaration parse found only ${types.size} names — the pattern no longer matches ${file}`);
+			assert.deepEqual([...runtime].filter((n) => !types.has(n)).sort(), [], `exported but not declared in ${file}`);
+			assert.deepEqual([...types].filter((n) => !runtime.has(n)).sort(), [], `declared in ${file} but not exported`);
+		}
+	});
+
+	// ⚠ THE BROWSER CONSTRAINT. The mobile app runs `dreamteamer/records` in a browser with shims for
+	// exactly three node builtins. A record-half import that reached the compiler, the extension
+	// loader or the CLI would pull `node:url`/`node:crypto`/`node:os` in at import time and the app
+	// would die on load — the one failure its own tests cannot see until a bundle is built.
+	test('dreamteamer/records reaches only the record half and three node builtins', () => {
+		const { files, bare } = closure('records-api.js');
+		for (const f of ['compile.js', 'cli.js', 'extensions.js', 'checkout.js', 'init.js', 'harnesses.js', 'schema-ops.js', 'api.js', 'env-vars.js']) {
+			assert.ok(!files.has(f), `records-api.js reaches ${f}`);
+		}
+		const builtins = [...bare].filter((b) => b.startsWith('node:')).sort();
+		assert.deepEqual(builtins, ['node:child_process', 'node:fs', 'node:path']);
 	});
 
 	test('importing it prints nothing, writes nothing, and binds nothing', () => {
@@ -66,6 +99,8 @@ describe('the INSTALLED package', () => {
 		assert.ok(!installed.includes('express'), 'express is still in the core dependency tree');
 		const pub = spawnSync(process.execPath, ['-e', "import('dreamteamer').then((m) => console.log(m.apiVersion, typeof m.openWorkspace, typeof m.Store))"], { cwd: dir, encoding: 'utf8', timeout: 30_000 });
 		assert.equal(pub.stdout.trim(), '1 function function', pub.stderr);
+		const rec = spawnSync(process.execPath, ['-e', "import('dreamteamer/records').then((m) => console.log(m.apiVersion, typeof m.Store, typeof m.openWorkspace))"], { cwd: dir, encoding: 'utf8', timeout: 30_000 });
+		assert.equal(rec.stdout.trim(), '1 function undefined', rec.stderr);
 		const deep = spawnSync(process.execPath, ['-e', "import('dreamteamer/src/store.js').then(() => console.log('REACHED'), (e) => console.log(e.code))"], { cwd: dir, encoding: 'utf8', timeout: 30_000 });
 		assert.equal(deep.stdout.trim(), 'ERR_PACKAGE_PATH_NOT_EXPORTED');
 		// and the extracted tools are NOT in the tarball
@@ -73,7 +108,7 @@ describe('the INSTALLED package', () => {
 		for (const gone of ['src/server.js', 'src/prove.js', 'src/land.js', 'src/containers.js', 'src/container-archive.js', 'src/export-notebooklm.js']) {
 			assert.ok(!listing.includes(`package/${gone}`), `${gone} is still published`);
 		}
-		assert.ok(listing.includes('package/src/api.d.ts'), 'the type declarations are not published');
+		assert.ok(listing.includes('package/src/api.d.ts') && listing.includes('package/src/records-api.d.ts'), 'the type declarations are not published');
 	});
 });
 
