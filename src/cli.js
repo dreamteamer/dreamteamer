@@ -12,22 +12,17 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { findWorkspace } from './workspace.js';
-import { compile, staleness, warnIfStale, discoverModules, CHANNEL_LABEL, locationOf, KINDS } from './compile.js';
+import { openWorkspace } from './api.js';
+import { compile, staleness, warnIfStale, discoverModules, CHANNEL_LABEL, locationOf, kindsOf } from './compile.js';
 import { check } from './check.js';
-import { collectionCommand, emit, relationsCommand, parseArgs, refuseUnknownFlags } from './collections-cli.js';
-import { driverTarget, driverCommand, setup as hostSetup, parseFlags as hostFlags, DRIVER_VERBS, LIFECYCLE_VERBS, CONTAINER_FLAGS } from './containers.js';
-import { archiveCommand } from './container-archive.js';
+import { collectionCommand, emit, relationsCommand } from './collections-cli.js';
 import { init, installClone, update, listRepos } from './init.js';
-import { installCommand, describeCheckout, listWorktrees, worktreeCommand } from './checkout.js';
-import { proveCommand, readLedger, flagEnabled } from './prove.js';
-import { landCommand } from './land.js';
+import { installCommand, describeCheckout } from './checkout.js';
 import { deriveEvents } from './events.js';
 import { commitPending } from './commit.js';
 import { Store } from './store.js';
 import { splitRef, canonicalCollection } from './ref.js';
 import { envContext, renderTemplate } from './env-vars.js';
-import { exportCommand, EXPORT_FLAGS } from './export-notebooklm.js';
 
 // git calls whose failure we CATCH must not print git's own error: execFileSync forwards the
 // child's stderr to ours unless told otherwise, so a handled "not a git repository" still
@@ -45,10 +40,6 @@ record verbs (hard validation — invalid writes are rejected before disk).
 A <target> is either a collection name or a <collection>/<id> reference; the reference splits at
 the longest DECLARED collection prefix, so finance/transactions/2026/03/coffee is ONE argument:
   list   <collection> [--filter k=v] [--where <json>] [--sort [-]<field>] [--json]
-  list   proofs [--missing]                   (a proof listing appends two COMPUTED columns:
-                                               availability on THIS machine, and the last verdict
-                                               from its ledger. --missing inverts it — one line per
-                                               artifact no proof is about, so it takes no filter)
                                               (--filter is ONE condition — repeat it to AND more
                                                (--filter a=1 --filter b=2 wants both);
                                                anything compound goes in one --where, operator
@@ -95,7 +86,8 @@ the longest DECLARED collection prefix, so finance/transactions/2026/03/coffee i
                                                field prints one item per line)
 
 system verbs — the SAME verbs, on the entities the compiler materializes (modules, collections,
-skills, agents, commands, command-bindings, ui-views, collection-templates, proofs). ⚠ ONE
+skills, agents, commands, command-bindings, ui-views, collection-templates, and any kind an
+installed extension adds). ⚠ ONE
 difference in POLICY, not in spelling: a SYSTEM write commits itself, because an uncompilable or
 unpublished schema is not a state a workspace should sit in; a RECORD write does not — \`commit\`
 publishes it. The commit lands in the repo that holds the source, so a write into a git module
@@ -181,7 +173,7 @@ Every verb that MOVES records or CLEARS values takes --dry-run and prints its pl
 
 workspace verbs:
   init        write the workspace skeleton into the current directory (never compiles)
-              [--harnesses claude-code,codex,pi,gemini-cli,cursor,notebooklm]
+              [--harnesses claude-code,codex,pi,gemini-cli,cursor]
   --version   print the engine version (works anywhere)
   install     make THIS checkout ready — the engine, .env (linked from the primary when this is a
               worktree), declared local assets, git modules, compile, and a declared postinstall.
@@ -190,105 +182,20 @@ workspace verbs:
               [--link-env] link .env even into a worktree OUTSIDE the primary root
   install     --hook | --print-adapters
               --hook: read a harness hook's JSON payload from stdin and install the checkout its
-              \`cwd\` names — the process cwd is the harness's, never the worktree's. In a linked
-              worktree the board's last line is the landing instruction.
-              --print-adapters: print the hook snippet for each declared harness. Merging it into
-              the harness's own settings file is the operator's act — the engine never writes one
+              \`cwd\` names — the process cwd is the harness's, never the worktree's
+              --print-adapters: print the hook snippet for each declared harness, with every hook an
+              installed extension adds. Merging it into the harness's own settings file is the
+              operator's act — the engine never writes one
   install     repos/<id> | repos --all [--json]
               materialize an attached repo's working tree ON DEMAND — never as part of making a
               checkout ready; --all is the explicit opt-in, e.g. before going offline
   install     --clone <url> [name]            attach a git module to this workspace
-  add         worktrees --name <n> [--path <dir>] [--base <ref>] [--temp] | --hook
-              cut a linked git worktree on branch worktree-<n> and \`install\` it, so it is ready
-              to work in; it prints its absolute path LAST, which is what a creation hook echoes.
-              --temp: detached, no branch, under .worktrees/.tmp-* inside this root — a sandbox
-              --hook: take the name from a WorktreeCreate payload on stdin; implies .worktrees/<n>
-  list        worktrees | get worktrees/<n> | rm worktrees/<n> [--force]
-              observed from \`git worktree list\`, never stored. rm refuses a worktree holding
-              dirty records or commits not on the primary branch — neither is visible from here
-  land        worktrees/<name|path> [--keep] [--dry-run] [--branch <n>] [--json]
-              land a worktree's commits onto the primary branch — the one MOVEMENT verb. It refuses
-              while the primary holds pending record writes, rebases a COPY of the branch under one
-              engine-owned lock, resolves ONLY the generated harness block, fast-forwards, recompiles
-              the primary, then removes the worktree and its branch. A conflict in a record aborts
-              and leaves every tree exactly as it was
-              [--keep] keep the worktree, reset onto what landed
-              [--branch <n>] give a DETACHED worktree the branch worktree-<n> first
-              [--dry-run] print the plan and change nothing
-  land        --hook [--dry-run] [--json]
-              read a WorktreeRemove payload on stdin and report what that worktree still holds.
-              ALWAYS a dry run — the engine never lands while a harness is deleting the tree
   update      pull git_modules clones forward (ff-only on the lockfile ref), rebuild,
               then compile; [<name>] updates just one. dirty clones are skipped
   compile     materialize modules + workspace sources into .dreamteamer (+ harness adapters)
               [--watch] recompile on source changes
   check       validate every record against the compiled descriptors (report-only)
-  prove       <proof> | <artifact-ref> | --all
-              run a proof and answer with an EXIT CODE: 0 pass · 1 fail · 3 unavailable (this
-              machine lacks a required var or binary) · 4 no-fixture (the given matched no record)
-              · 5 a \`perform\` step is owed a human/agent · 6 vacuous (every expectation already
-              held, so the proof cannot fail). Evidence lands in .dreamteamer/.proofs/<id>.jsonl
-              <proof>          [--record <c>/<id>] finish the pending run for that record
-                               [--restart] discard a pending run and start over
-                               [--here] run a \`writes\` proof in this workspace, not a sandbox
-                               [--keep] keep the sandbox afterwards — under --json that is
-                               \`kept: true\` beside the \`sandbox\` path  [--json] one object on stdout
-              <artifact-ref>   every proof whose \`about\` names skills/<id>, commands/<id>,
-                               command-bindings/<id> or <module>/bin/<file> — board semantics, so
-                               it takes the same [--kind gate|live] [--external] [--strict] [--json]
-              --all            every proof; a \`perform\` one is LISTED, never started, so this
-                               never exits 5. ONE line per proof — a step transcript is what a
-                               single-proof run is for [--kind gate|live] [--external] include
-                               external proofs [--strict] make an unavailable fatal [--json]
-  status      workspace status: compiled runtime freshness, per-module channel/ref, staleness,
-              and one \`proofs:\` line counting each proof's LAST verdict on this machine
-              [--strict] exit 1 when any proof's ledger tail is a FAIL
-  start       serve the clean REST api at /api [--port <n>]
-
-containers — a workspace as a running container (Docker Engine API over its socket, no dependency;
-these verbs work with NO workspace, so npm i -g dreamteamer and Docker Desktop are enough):
-  setup       make THIS MACHINE ready: checks Docker, writes ~/.dreamteamer/.env with its defaults
-              (DT_PORT_BASE 8100 · DT_BIND 127.0.0.1 · DT_REGISTRY · DT_TEMPLATE_TAG ·
-              DT_DOCKER_TIMEOUT 30 — seconds a request to Docker may sit idle before the verb
-              fails), lists the templates present, pulls one on request [--template <t>] [--json]
-  start       container <name> --template <t>   create-if-absent and start: a code-server editor at
-              http://localhost:<port>/ — the machine home — over a compiled workspace, three named
-              volumes (workspace · home · files), its own bridge network dreamteamer-<name>, image
-              <DT_REGISTRY>/<template>:<tag> or DT_IMAGE_<template>. The workspace is mounted at
-              /workspaces/<name>. Idempotent. NO credential is ever injected — log in INSIDE, once;
-              the home volume keeps it. An image with a URL token (hq 0.6+) prints the URL as
-              ?tkn=<token>, read from the container; the token is never written on the host.
-              [--rotate-token]    replace the image's URL token and print the new URL
-              [--workspace [<w>]] open /workspaces/<w> (default: its own) instead of the home
-              [--repo <git url>]  clone an EXISTING workspace into the volume on first start, instead
-                                  of laying the template down — how a person joins one on GitHub
-              [--mount <host-path|volume>:<container-path>[:ro]]  extra mounts, repeatable; targets
-                                  under /workspaces · /home/node · /files · /mnt, none at or under
-                                  another mount's target, no bind source inside another
-              [--name <git name>] [--email <git email>] [--no-open] [--json]
-  stop        container <name>                  stop it; every volume kept [--json]
-  open        container <name>                  print (and open) its URL, token included [--no-open] [--json]
-              [--workspace [<w>]]
-              [--vscode]  print (and open) the Dev Containers attach URI instead — the host's own
-                          VS Code inside the container, extensions from the image's metadata label
-  list        containers | images               the record verbs, answered over Docker instead of a
-  get         container <name> | image <ref>    folder — singular or plural, either spelling.
-  rm          container <name> [--force]        removes it and its network; keeps the volumes unless --force
-  add         image --template <t>              pull a template's image; rm image <ref> removes one
-  export      container <name> --out <file>     its WORKSPACES as one file — every folder under
-              /workspaces, never the home or a login; node_modules and .files stay behind. Works on
-              a stopped container. Encrypted with the owner passphrase (DT_EXPORT_PASSPHRASE, else a
-              prompt — never a flag). [--workspace <w>]... only these  [--no-encrypt] a plain .tar.gz
-              [--json] (both verbs) the summary as JSON on stdout, every other line on stderr
-              Secrets stay behind: .env and .env.* (not .example/.sample/.template), .envrc,
-              .npmrc, .netrc, .git-credentials, .pypirc, .docker/config.json, and the credentials in
-              each .git/config. [--with-secrets] carries them unchanged
-  import      container <name> <file>           unpack an export into a RUNNING container, owned by
-              node. Refuses a wrong passphrase, a damaged file, an entry leaving its workspace and a
-              workspace already holding files — each before anything is written.
-              [--workspace <w>]... only these  [--replace] empty a workspace that holds files first
-              [--as <name>] land the ONE workspace in /workspaces/<name> — e.g. another container's
-                            own volume folder (dt-new's name rule; never the container's own layer)
+  status      workspace status: compiled runtime freshness, per-module channel/ref, staleness
 
   changes     what changed in every repo that holds records, as record events
               [--since <sha|YYYY-MM-DD>] (default: HEAD~1 — the last commit's own changes) [--json]
@@ -298,17 +205,14 @@ these verbs work with NO workspace, so npm i -g dreamteamer and Docker Desktop a
               <collection> or one <collection>/<id> — the record form is what keeps a
               concurrent session's pending records out of your commit.
               [<collection>|<collection>/<id> …] [-m <subject>] [--dry-run] [--json]
-  export      render the workspace for a consumer that is not a coding agent, and optionally sync it
-              export notebooklm [--out <dir>] [--plan standard|plus|pro|ultra|<n>] [--max-words <n>]
-                                [--collections a,b] [--instructions <template.md>]
-                                [--notebook <id> | --create "<title>"] [--response-length default|longer|shorter]
-                                [--mode default|learning-guide|concise|detailed] [--wait] [--json]
-              writes one schema source (workspace → module → collection → field), one source per
-              collection (sharded by --max-words, titled \`dt · <c> [n/m]\`), and the persona from a
-              template; a collection marked \`sensitive: true\` and a field marked \`x-sensitive: true\`
-              never travel. Refuses when the sources exceed the plan. With --notebook/--create it
-              adds, replaces and removes its own sources to match and applies the persona.
   help        this text
+
+extension verbs — an installed extension (a dependency whose package.json declares
+\`dreamteamer.extension\`) adds its own verbs, listed below when this workspace has any:
+  @dreamteamer/workflows   prove · land · worktree      behaviour proofs, landing a worktree
+  @dreamteamer/http        serve                        the REST api at /api
+  @dreamteamer/notebooklm  notebooklm                   export (and sync) to a NotebookLM notebook
+  @dreamteamer/host        dt-host (its own binary)     a workspace as a local Docker container
 `;
 
 // Record verbs, split by what their <target> means. `move` and `next` are in NEITHER set: both
@@ -344,31 +248,37 @@ export const GLOBAL_FLAGS = ['vault'];
 export const WORKSPACE_FLAGS = {
 	init: ['name', 'data-path', 'harnesses', 'workspace-module'], update: [],
 	install: ['clone', 'dry-run', 'json', 'link-env', 'all', 'hook', 'print-adapters'],
-	// `start` is TWO forms: bare, the REST api (--port); with a `container <name>` target, the
-	// lifecycle verb — whose flags are the driver's. One table, because `flags-honoured` reads it.
-	start: ['port', ...CONTAINER_FLAGS], compile: ['watch'], check: [], status: ['strict'],
-	setup: ['template', 'json'], stop: ['json'], open: ['json', 'no-open', 'vscode', 'workspace'],
+	compile: ['watch'], check: [], status: [],
 	changes: ['since', 'json'], commit: ['dry-run', 'json'],
-	export: EXPORT_FLAGS,
-	// the UNION of every form's flags — the outer typo gate. Which flags each FORM takes is refused
-	// inside `proveCommand`, where the target has been resolved against the compiled proofs.
-	prove: ['all', 'kind', 'record', 'restart', 'json', 'keep', 'here', 'external', 'strict'],
-	// same shape: the union of both forms, with `--hook`'s vocabulary refused in the arm below
-	land: ['keep', 'dry-run', 'branch', 'hook', 'json'],
 };
 
-export function run(argv) {
+/** Every verb this CLI answers itself — the set an extension's `commands` may not claim. The retired
+ *  spellings are in it too: they answer with their replacement, and an extension taking one over
+ *  would turn a loud translation into a different command. */
+export const CORE_VERBS = [
+	'init', 'install', 'update', 'compile', 'check', 'status', 'changes', 'commit', 'help', 'version', '--version', '-v',
+	'list', 'add', 'values', 'get', 'set', 'rm', 'rename', 'history', 'diff', 'revert', 'move', 'next',
+	'add-field', 'set-field', 'rm-field', 'rename-field', 'relations', 'resolve',
+	'schema', 'ensure', 'update-field', 'remove-field', 'commands',
+];
+
+/** Verbs that left core for an extension (0.31.0), and the package that now answers each — so the
+ *  old spelling in a script or a skill fails with the install line rather than "unknown verb". */
+const WORKFLOWS = { pkg: '@dreamteamer/workflows' };
+const HTTP = { pkg: '@dreamteamer/http', as: 'dt serve' };
+const NOTEBOOKLM = { pkg: '@dreamteamer/notebooklm', as: 'dt notebooklm' };
+const HOST = { pkg: '@dreamteamer/host', global: true };
+const MOVED_VERBS = {
+	prove: [WORKFLOWS], land: [WORKFLOWS], worktree: [WORKFLOWS], serve: [HTTP], notebooklm: [NOTEBOOKLM],
+	start: [HTTP, { ...HOST, as: 'dt-host start container <name>' }],
+	export: [NOTEBOOKLM, { ...HOST, as: 'dt-host export container <name>' }],
+	setup: [{ ...HOST, as: 'dt-host setup' }], stop: [{ ...HOST, as: 'dt-host stop container <name>' }],
+	open: [{ ...HOST, as: 'dt-host open container <name>' }], import: [{ ...HOST, as: 'dt-host import container <name> <file>' }],
+};
+
+export async function run(argv) {
 	const [cmd, ...rest] = argv;
 	try {
-		// HOST VERBS resolve BEFORE workspace discovery: `setup`, and any verb whose target is a
-		// driver collection (`containers`, `images`, singular or plural). They answer identically on a
-		// bare machine — `npm i -g dreamteamer` and Docker Desktop, nothing else — and inside a
-		// workspace, because the thing they make IS the workspace (src/containers.js).
-		const host = hostDispatch(cmd, rest);
-		if (host) {
-			host.then((code) => process.exit(code)).catch((e) => { console.error(`✖ ${e.message}`); process.exit(1); });
-			return;
-		}
 		if (cmd in WORKSPACE_FLAGS) {
 			const bad = rest.filter((a) => a.startsWith('--')).map((a) => a.slice(2).split('=')[0]).find((f) => !WORKSPACE_FLAGS[cmd].includes(f));
 			if (bad) throw new Error(`unknown flag "--${bad}" on \`dt ${cmd}\`\n  known: ${WORKSPACE_FLAGS[cmd].map((f) => `--${f}`).join(', ') || '(none — this verb takes no flags)'}`);
@@ -386,12 +296,19 @@ export function run(argv) {
 			process.exit(init({ flags }));
 		}
 		if (!cmd || cmd === 'help') {
-			// `help` works OUTSIDE a workspace too — the host verbs above do, and a person who just ran
-			// `npm i -g dreamteamer` on a bare machine has nothing else to read.
-			emit(USAGE);
+			// `help` works OUTSIDE a workspace too — a person who just ran `npm i -g dreamteamer` on a
+			// bare machine has nothing else to read. Inside one, each installed extension's own usage
+			// follows the engine's.
+			let ws = null;
+			try { ws = await openWorkspace(); } catch { /* no workspace, or an extension that will not load — plain help */ }
+			emit(USAGE + extensionUsage(ws));
 			process.exit(0);
 		}
-		const ws = findWorkspace();
+		const ws = await openWorkspace();
+		// An EXTENSION'S VERB runs in-process, handed this workspace — the same engine instance, the
+		// same loaded extensions. Its exit code is the process's.
+		const ext = ws.extensions.find((e) => cmd in e.commands);
+		if (ext) process.exit((await ext.commands[cmd].run(ws, rest)) ?? 0);
 		switch (cmd) {
 			// ONE verb makes a thing present and ready: this checkout, or an attached repo's
 			// working tree. `ensure` was the second spelling of the same idea and is retired in the
@@ -435,56 +352,19 @@ export function run(argv) {
 				// as a symlink placed by a verb whose whole job is to print.
 				if (given.includes('--hook')) {
 					refuse('dt install --hook', ['--hook']);
-					process.exit(installCommand(ws, rest));
+					process.exit(await installCommand(ws, rest, { open: openWorkspace }));
 				}
 				if (given.includes('--print-adapters')) {
 					refuse('dt install --print-adapters', ['--print-adapters']);
-					process.exit(installCommand(ws, rest));
+					process.exit(await installCommand(ws, rest, { open: openWorkspace }));
 				}
 				refuse('dt install', ['--dry-run', '--json', '--link-env']);
-				process.exit(installCommand(ws, rest));
-			}
-			// ⚠ THE EXIT CODE IS THE WHOLE POINT OF THIS VERB, so `proveCommand` RETURNS it and this
-			// line is the only place it becomes a process exit. Six codes are a contract — 0 pass ·
-			// 1 fail · 3 unavailable · 4 no-fixture · 5 an actor is owed a step · 6 vacuous — and a
-			// `throw` inside `prove` becomes 1 through the shared catch below, which is right for
-			// every refusal it makes (a target that names nothing, a resume with nothing to resume,
-			// a stray flag of the other form): those are errors about the INVOCATION, not verdicts
-			// about an artifact, and 2 is already spoken for by "you typed a verb that is gone".
-			//
-			// The per-form flag refusal lives in `proveCommand` rather than here, unlike `install`'s:
-			// deciding which form was typed means resolving the target against the compiled proofs
-			// and artifacts, and a second copy of that resolution in this file — purely to choose
-			// which message to print — is the drift the comment above `case 'install':` describes.
-			case 'prove':
-				warnIfStale(ws.root);
-				process.exit(proveCommand(ws, rest).code);
-			// THE ONE MOVEMENT VERB (decision 309). Two forms and, like `install`'s, each refuses the
-			// other's vocabulary here: the flag table can only say which flags `land` HAS, and a
-			// `--hook --keep` accepted-and-dropped would promise a worktree kept by a form that is
-			// always a dry run. A refusal or a conflict throws or returns 1; 2 stays what it is
-			// everywhere else — "you typed a verb that is gone".
-			case 'land': {
-				const given = rest.filter((a) => a.startsWith('--'));
-				const stray = given.filter((f) => !(given.includes('--hook') ? ['--hook', '--dry-run', '--json'] : ['--keep', '--dry-run', '--branch', '--json']).includes(f));
-				if (stray.length) {
-					const form = given.includes('--hook') ? 'dt land --hook' : 'dt land worktrees/<name>';
-					throw new Error(`${stray.join(' ')} ${stray.length > 1 ? 'are not flags' : 'is not a flag'} of \`${form}\` — that form takes ${(given.includes('--hook') ? ['--hook', '--dry-run', '--json'] : ['--keep', '--dry-run', '--branch', '--json']).join(' ')}`);
-				}
-				warnIfStale(ws.root);
-				process.exit(landCommand(ws, rest));
+				process.exit(await installCommand(ws, rest, { open: openWorkspace }));
 			}
 			case 'update': {
 				const code = update(ws, rest.find((a) => !a.startsWith('--')));
 				compile(ws); // pulled modules may carry new sources — prints its own summary
 				process.exit(code);
-			}
-			case 'start': {
-				warnIfStale(ws.root);
-				const portIdx = rest.indexOf('--port');
-				import('./server.js').then(({ startServer }) =>
-					startServer(ws, { port: portIdx > -1 ? Number(rest[portIdx + 1]) : 8080 }));
-				return; // keep the process alive
 			}
 			case 'compile': {
 				const code = compile(ws);
@@ -611,51 +491,13 @@ export function run(argv) {
 					console.log(line);
 				}
 				// ⚠ WHICH CHECKOUT AM I. Everything `install` decides turns on this, and a linked
-				// worktree is indistinguishable from the primary by eye — so it is stated, with the
-				// count of sibling worktrees holding records and commits that are invisible from
-				// here. Wrapped like every other block below: `status` is the command run when
-				// things are already wrong, and it must still print.
+				// worktree is indistinguishable from the primary by eye — so it is stated. Wrapped like
+				// every other block below: `status` is the command run when things are already wrong.
 				try {
 					const co = describeCheckout(ws.root);
 					console.log(`checkout: ${co.kind === 'primary' ? 'primary' : `linked worktree of ${co.primary}`}`);
-					const wts = listWorktrees(ws).filter((w) => !w.primary);
-					console.log(`worktrees: ${wts.length} · ${wts.filter((w) => w.dirtyRecords).length} with dirty records · ${wts.filter((w) => w.ahead).length} ahead`);
-				} catch { /* not a git checkout — nothing to report about worktrees */ }
-				// ⚠ WHAT THIS MACHINE HAS ACTUALLY PROVED. A ledger is per-machine and gitignored, so
-				// this line cannot be derived from the repo — and it is the only place a FAIL from
-				// last week surfaces without being asked for. The TAIL per proof, not every row: a
-				// proof that failed on Monday and passed on Tuesday is passing. Wrapped like every
-				// block here — an older runtime has no `proofs` descriptor, and status must still print.
-				// ⚠ M5 — COUNTED AS THE WALK GOES, NEVER ASSIGNED AT THE END OF IT. `proofsFailed =
-				// tally.FAIL` sat below the loop, inside the try — so a throw partway through (an
-				// unreadable ledger, a record that will not parse) left the gate reading ZERO failures
-				// and `--strict` exiting 0 BECAUSE the count broke. That is the one direction a gate
-				// must never fail: a silent green bought with a swallowed exception.
-				let proofsFailed = 0;
-				try {
-					const tally = { PASS: 0, FAIL: 0, UNAVAILABLE: 0 };
-					let declared = 0; let never = 0; let other = 0;
-					// ⚠ A SANDBOX NOTHING WILL COME BACK FOR. `.worktrees/` is gitignored, so a kept or
-					// un-removable one accumulates in silence and the ledger is the only thing that
-					// knows the directory exists. `kept` is not a row field: a terminal row with a
-					// sandbox and NO removal attempted (`null`) is exactly what `--keep` leaves behind.
-					// `existsSync` because a count nothing can clear is a lie.
-					const left = new Set();
-					for (const { id } of new Store(ws).readAll('proofs')) {
-						declared++;
-						const rows = readLedger(ws.root, id);
-						const t = rows[rows.length - 1];
-						if (!t) never++;
-						else if (t.verdict in tally) { tally[t.verdict]++; if (t.verdict === 'FAIL') proofsFailed++; }
-						else other++;
-						for (const r of rows) {
-							const behind = r.sandbox_removed === false || (r.verdict !== 'PENDING' && r.sandbox_removed === null);
-							if (r.sandbox && behind && fs.existsSync(r.sandbox)) left.add(r.sandbox);
-						}
-					}
-					console.log(`proofs: ${declared} declared · ${tally.PASS} passed · ${tally.FAIL} failed · ${tally.UNAVAILABLE} unavailable · ${never} never${other ? ` · ${other} other` : ''}`);
-					if (left.size) console.log(`  sandboxes left behind: ${left.size} — dt list worktrees`);
-				} catch { /* no proofs descriptor compiled — nothing to report */ }
+				} catch { /* not a git checkout */ }
+				if (ws.extensions.length) console.log(`extensions: ${ws.extensions.map((e) => `${e.name}@${e.version}`).join(' · ')}`);
 				console.log(`entries:  ${Object.keys(s.manifest.entries).length}`);
 				// repos materialize LAZILY, so presence is REPORTED here rather than stored on the
 				// record. Wrapped: an older workspace may predate the repos descriptor, and status
@@ -686,27 +528,7 @@ export function run(argv) {
 					process.exit(1);
 				}
 				console.log('✔ .dreamteamer is fresh');
-				// ⚠ THE FAIL IS FATAL ONLY WHEN ASKED. `status` is the command you run when things are
-				// already wrong, so it prints EVERYTHING first and gates last — the same shape the
-				// staleness exit above has.
-				// ⚠ R38/R46 — `--strict=true` IS THE SAME FLAG, AND `--strict=false` IS OFF. The
-				// unknown-flag gate above splits on `=`, so the `=` spelling was ACCEPTED and then read
-				// as "no --strict at all" — a CI step written that way stayed green over a failing
-				// proof, for a reason nothing printed. `flagEnabled` is the one reader of that shape,
-				// shared with `dt prove`, so the two verbs cannot disagree about what was typed.
-				if (flagEnabled(rest, 'strict') && proofsFailed) {
-					console.log(`✖ ${proofsFailed} proof(s) FAILED on this machine — dt list proofs`);
-					process.exit(1);
-				}
 				process.exit(0);
-			}
-			// `export <target>` — the workspace rendered for a consumer that is not a coding agent. One
-			// target today; the map in export-notebooklm.js is where a second one would register, the way
-			// harnesses do. Without --notebook/--create it is a pure render and touches no network.
-			case 'export': {
-				warnIfStale(ws.root);
-				const { flags, pos } = parseArgs(rest);
-				process.exit(exportCommand(ws, pos[0], flags));
 			}
 			case 'help':
 				emit(USAGE);
@@ -714,17 +536,6 @@ export function run(argv) {
 			case 'list': case 'add': case 'values':
 			case 'get': case 'set': case 'rm': case 'rename': case 'history': case 'diff': case 'revert':
 			case 'move': case 'next': {
-				// ⚠ `worktrees` IS NOT A COLLECTION — it is observed from git — so it is intercepted
-				// here rather than being dispatched. Which means it never reaches
-				// `collectionCommand`, where every other verb's flags are refused: the parse and the
-				// refusal have to be done HERE or `--tmep` is swallowed and a request for a
-				// throwaway sandbox silently becomes a permanent branch worktree.
-				const target = rest[0];
-				if (target === 'worktrees' || target?.startsWith('worktrees/')) {
-					const { flags } = parseArgs(rest.slice(1));
-					refuseUnknownFlags(null, 'worktrees', cmd, flags);
-					process.exit(worktreeCommand(ws, cmd, target, flags));
-				}
 				warnIfStale(ws.root);
 				process.exit(dispatchRecordVerb(ws, cmd, rest));
 			}
@@ -795,6 +606,13 @@ export function run(argv) {
 					console.error('    dt list commands              the command entities this workspace ships');
 					process.exit(2);
 				}
+				if (MOVED_VERBS[cmd]) {
+					console.error(`✖ \`dt ${cmd}\` left core in 0.31.0 — it is an extension now:`);
+					for (const m of MOVED_VERBS[cmd]) {
+						console.error(`    ${m.as ?? `dt ${cmd}`}  ←  ${m.global ? `npm install --global ${m.pkg}` : `npm install --save-dev ${m.pkg}   (in this workspace)`}`);
+					}
+					process.exit(2);
+				}
 				console.error(`✖ unknown verb "${cmd}" — dreamteamer is verb-first since 0.12.0: dt <verb> [<target>]`);
 				emit(USAGE, 2);
 				process.exit(1);
@@ -811,26 +629,11 @@ export function run(argv) {
 	}
 }
 
-/** The verbs that run with no workspace. Returns a promise of an exit code, or null when the
- *  command is not ours and the ordinary workspace dispatch should take it. */
-function hostDispatch(cmd, rest) {
-	if (cmd === 'setup') {
-		const bad = rest.filter((a) => a.startsWith('--')).map((a) => a.slice(2).split('=')[0]).find((f) => !WORKSPACE_FLAGS.setup.includes(f));
-		if (bad) throw new Error(`unknown flag "--${bad}" on \`dt setup\`\n  known: ${WORKSPACE_FLAGS.setup.map((f) => `--${f}`).join(', ')}`);
-		return hostSetup(hostFlags(rest).flags);
-	}
-	const target = driverTarget(rest[0]);
-	// `export container` is the driver's; `export notebooklm` stays the workspace verb below
-	if (target && (cmd === 'export' || cmd === 'import')) return archiveCommand(cmd, target, rest.slice(1));
-	if (cmd === 'import') return Promise.reject(new Error('dt import container <name> <file> [--workspace <w>]... [--replace]'));
-	if (target && DRIVER_VERBS.has(cmd)) return driverCommand(cmd, target, rest.slice(1));
-	// A lifecycle verb aimed at anything else is refused by name: `dt start tasks` is not a
-	// server and not a container, and "unknown collection" would send the reader the wrong way.
-	if (LIFECYCLE_VERBS.has(cmd) && rest[0] && !rest[0].startsWith('--')) {
-		return Promise.reject(new Error(`\`${cmd}\` is a container lifecycle verb — "${rest[0]}" is not a container. dt ${cmd} container <name>${cmd === 'start' ? ' --template <t>' : ''}${cmd === 'start' ? '; a bare `dt start` serves the REST api' : ''}`));
-	}
-	if (cmd === 'stop' || cmd === 'open') return Promise.reject(new Error(`dt ${cmd} container <name> — see \`dreamteamer help\``));
-	return null;
+/** Each installed extension's usage block, headed by its package — '' outside a workspace. */
+function extensionUsage(ws) {
+	const blocks = (ws?.extensions ?? []).filter((e) => Object.keys(e.commands).length).map((e) =>
+		`\n${e.name}@${e.version}:\n${Object.entries(e.commands).map(([verb, c]) => (c.usage ?? `  ${verb}`).replace(/\s+$/, '')).join('\n')}`);
+	return blocks.length ? `\ninstalled extensions:${blocks.join('\n')}` : '';
 }
 
 /** Translate `dt <verb> <target> …` into the noun-verb call the implementation layer takes. */
@@ -940,7 +743,7 @@ function watchAndRecompile(ws) {
 	};
 	// 'system' plus the flat kinds: the classic layout can put sources at the workspace root under
 	// either spelling, and a watcher that misses one makes --watch quietly stop recompiling.
-	for (const dir of ['system', ...KINDS, 'modules', 'git_modules'].map((d) => path.join(ws.root, d))) {
+	for (const dir of ['system', ...kindsOf(ws), 'modules', 'git_modules'].map((d) => path.join(ws.root, d))) {
 		if (fs.existsSync(dir)) fs.watch(dir, { recursive: true }, trigger);
 	}
 }

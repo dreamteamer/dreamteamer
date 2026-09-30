@@ -49,9 +49,10 @@ Only after all four: build it, in the module that owns the concept.
 
 ## name the proof before you build it
 
-**Before writing the thing, say how anyone would know it works** — one sentence, in the shape a
-`proofs` record takes: *this record, in this state, after this step, must look like this*
-(`proofs.md`). It costs a minute and it is the cheapest design review there is.
+**Before writing the thing, say how anyone would know it works** — one sentence: *this record, in
+this state, after this step, must look like this*. It costs a minute and it is the cheapest design
+review there is. (With `@dreamteamer/workflows` installed, that sentence is exactly the shape of a
+`proofs` record, and `dt prove` runs it — its own skill says how.)
 
 ⚠ **When you cannot name one, the artifact has no observable post-state, and THAT is the first
 thing to change** — not something to note and carry on past. A skill nothing can check is a skill

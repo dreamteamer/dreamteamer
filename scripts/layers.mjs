@@ -30,9 +30,9 @@ const LAYERS = {
 	// the compiled artifact both halves share
 	boundary: ['runtime'],
 	// the workspace compiler and the harness surface
-	workspace: ['compile', 'harnesses', 'schema-ops', 'init', 'record-commands', 'semver', 'export-notebooklm', 'checkout', 'prove', 'land'],
-	// entry points; span both halves by definition (cli, http, descriptor→UI read model)
-	surface: ['cli', 'collections-cli', 'server', 'presentation', 'containers', 'container-archive'],
+	workspace: ['compile', 'harnesses', 'schema-ops', 'init', 'record-commands', 'semver', 'checkout', 'extensions'],
+	// entry points; span both halves by definition (the CLI, the public API, the descriptor→UI read model)
+	surface: ['cli', 'collections-cli', 'presentation', 'api'],
 };
 
 // who may import whom. `record` and `boundary` are the constrained half; surfaces are free.
@@ -57,9 +57,11 @@ for (const f of files) {
 		continue;
 	}
 	const body = readFileSync(join(SRC, f), 'utf8');
-	// static `import … from './x.js'` and `export … from './x.js'` — the only cross-module
-	// mechanism this codebase uses (no dynamic import inside src/).
-	for (const m of body.matchAll(/(?:^|\n)\s*(?:import|export)[\s\S]*?from\s+'\.\/([\w.-]+)\.js'/g)) {
+	// static `import … from './x.js'` / `export … from './x.js'`, AND a dynamic `import('./x.js')` with a
+	// literal path — a lazy import is still an edge, and a scanner that skipped them passed a layering
+	// the code did not have. (An extension's entry is imported by a COMPUTED path, which names no file
+	// under src/ and so is not an edge this graph can have.)
+	for (const m of body.matchAll(/(?:(?:^|\n)\s*(?:import|export)[\s\S]*?from\s+|import\(\s*)'\.\/([\w.-]+)\.js'/g)) {
 		const target = m[1];
 		const targetLayer = layerOf.get(target);
 		if (!targetLayer) continue; // the missing-assignment failure is already reported on that file

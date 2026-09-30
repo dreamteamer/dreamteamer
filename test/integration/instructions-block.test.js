@@ -85,16 +85,6 @@ describe('the instructions block reaches every harness', () => {
 		assert.equal(between(mdc).trim(), RULES.trim());
 	});
 
-	test('NOTEBOOKLM.md is deliberately excluded', () => {
-		const ws = withInstructions();
-		const nb = readFile(ws.root, 'NOTEBOOKLM.md');
-		// Not `if (nb)`: the fixture enables every known harness, so an absent file would silently
-		// turn the one assertion this test exists for into a no-op.
-		assert.ok(nb, 'the fixture enables notebooklm, so the file must exist');
-		assert.match(nb, /dreamteamer:begin/, 'and it must carry its own managed block');
-		assert.doesNotMatch(nb, /dreamteamer:instructions:begin/, 'a notebook config is not agent instructions');
-	});
-
 	test('removing the source removes the block from every file', () => {
 		const ws = withInstructions();
 		// The block has to BE there before its removal can mean anything.

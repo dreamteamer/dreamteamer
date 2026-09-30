@@ -1,14 +1,14 @@
 {
-	"measured": "2026-09-08",
-	"note": "Budgets are ceilings, re-based 2026-09-07 on the operator's standing instruction: every budget carries at least 20% headroom over the measured value at that date, rounded up to the hundred. \u26a0 The script's `--update` writes ~10% and drops the SURFACE ceilings to the measured count \u2014 those three are set by hand and left alone (surface.collections 11 keeps one slot above the ten `proofs` made; skills and agents keep theirs), and the three numeric ceilings are re-raised to the 20% line the first sentence promises. Raising one is still a deliberate act \u2014 do it in the same commit as the growth, and say why in the message. Headroom is not permission: the three questions (does the ENGINE read it \u00b7 is this a recipe creeping into core \u00b7 could a module do it instead) are owed whatever the number says. \u26a0 Re-measured 2026-09-08 on the MERGED 0.22.0 tree (export + prove + land); all six ceilings still hold with the largest at 92% (code.total 9466/10300), so the combined release needed no budget raised. \u26a0 surface.collections 11 \u2192 13 on 2026-09-24: `containers` and `images`, the two docker-driver collections (decision: a container is the runtime a workspace runs in; the engine reads both \u2014 the driver answers their verbs, compile derives and checks them, the REST route dispatches on `storage.driver`; no module can add a storage driver or run before a workspace exists). \u26a0 code.total 10300 \u2192 10400 on 2026-09-28: the container driver's isolation half (+62 code lines in src/containers.js \u2014 a bridge network per container, exec, the image's URL token read back out, the mount-target and nested-source refusals) landed on a tree already at 10276/10300. The engine reads all of it: it is the driver's own create/start/rm, and no module runs before the workspace it makes exists. Raised by the hundred, not to the 20% line, so the next growth is asked the three questions again. \u26a0 code.total 10400 \u2192 10700 and code.decisions 4300 \u2192 4500 on 2026-09-28: `dt export container` / `dt import container` (src/container-archive.js, +257 code lines, +132 decisions on a tree at 10338/4264) \u2014 a tar reader/writer, the sealed chunked AES-GCM format and the import refusals. The engine reads it: it is the container driver moving a machine's workspaces through the Engine API's archive routes, before or after any workspace exists; no module can stand there. Raised by the hundred again.",
+	"measured": "2026-09-30",
+	"note": "Budgets are ceilings with at least 20% headroom over the measured value, rounded up to the hundred (the operator's standing instruction of 2026-09-07). ⚠ The script's `--update` writes ~10% and drops the SURFACE ceilings to the measured count — set those by hand. Raising one is a deliberate act: same commit as the growth, the three questions (does the ENGINE read it · is this a recipe creeping into core · could a module do it instead — and now: could an EXTENSION do it instead) answered in the message. ⚠ Re-based 2026-09-30 on the lean-core extraction (0.31.0): HTTP, the Docker host and its archives, prove/land/worktrees and the NotebookLM exporter left core for extensions, and the public API plus the one extension seam arrived. code.total 10669 → 7574, dependency closure 77 → 10 packages, collections 12 → 9. The ceilings were LOWERED to the 20% line: 10700 → 9100, 4500 → 3800, collections 13 → 10, prose 4200 → 4100. A ceiling left at the old number is a budget with 3000 lines of silent permission in it.",
 	"code": {
-		"total": 9496,
-		"comments": 5800,
-		"decisions": 3906,
-		"files": 33
+		"total": 7574,
+		"comments": 4511,
+		"decisions": 3100,
+		"files": 31
 	},
 	"surface": {
-		"collections": 10,
+		"collections": 9,
 		"collection-templates": 2,
 		"skills": 1,
 		"agents": 1,
@@ -16,15 +16,15 @@
 		"commands": 0
 	},
 	"prose": {
-		"skill-lines": 3757,
-		"system-lines": 4458
+		"skill-lines": 3346,
+		"system-lines": 3996
 	},
 	"budgets": {
-		"code.total": 10700,
-		"code.decisions": 4500,
-		"surface.collections": 13,
+		"code.total": 9100,
+		"code.decisions": 3800,
+		"surface.collections": 10,
 		"surface.skills": 2,
 		"surface.agents": 2,
-		"prose.skill-lines": 4200
+		"prose.skill-lines": 4100
 	}
 }

@@ -6,7 +6,7 @@ refusals that keep that from looping, lying, or carrying private data somewhere 
 
 The whole design turns on one asymmetry. Two sessions in the same tree are conflict-BLIND, and so are
 two sessions in one conversation: **the second write wins and nobody is told.** Sessions are
-`worktrees`' twin — observed, never stored, and the registry is the authority rather than anyone's
+git worktrees' twin — observed, never stored, and the registry is the authority rather than anyone's
 memory of it.
 
 | the question | read |
@@ -175,10 +175,9 @@ A coordinator spans repos by construction, and one of them may publish.
    records it may not message a publishing session at all, whatever it means to say. This is what
    keeps rule 1 safe after compaction, when it can no longer recall precisely what it read.
 6. ⚠ **`cwd` is not the repo, and one repo is not one tree.** Harnesses put worktrees *inside* the
-   repo or *under the home directory* depending on the harness (`references/worktrees.md`). A `cwd`
-   under a harness's own worktree root is still that repo and carries its full boundary — so a
-   path-prefix test against the primary root gets it wrong in the dangerous direction. `dt list
-   worktrees` is the instrument.
+   repo or *under the home directory* depending on the harness. A `cwd` under a harness's own
+   worktree root is still that repo and carries its full boundary — so a path-prefix test against
+   the primary root gets it wrong in the dangerous direction. `git worktree list` is the instrument.
 
 ## not stepping on your own toes
 

@@ -224,19 +224,20 @@ describe('dt install repos/<id> replaces ensure', () => {
 // ⚠ A SESSION HAS TO KNOW WHERE IT IS. Everything install decides turns on primary-vs-linked — .env
 // is linked in one and not the other — and a linked worktree is otherwise indistinguishable from
 // the primary by eye. `status` is the command run when something feels wrong, so it is where the
-// answer belongs, together with the count of sibling worktrees holding work nobody can see from here.
-describe('dt status reports the checkout and the worktrees', () => {
-	test('status names the checkout kind and counts worktrees', () => {
+// answer belongs. (Counting SIBLING worktrees is the worktree tool's job — @dreamteamer/workflows.)
+describe('dt status reports the checkout', () => {
+	test('status names the checkout kind, primary and linked', () => {
 		const ws = workspace();
 		assert.equal(dt(ws.root, 'compile').code, 0);
-		assert.equal(dt(ws.root, 'add', 'worktrees', '--name', 's').code, 0);
+		const wt = linkedWorktree(ws, 's');
+		assert.equal(dt(wt, 'install').code, 0);
 
 		const r = dt(ws.root, 'status');
 		assert.equal(r.code, 0, r.stderr);
 		assert.match(r.stdout, /checkout: primary/);
-		assert.match(r.stdout, /worktrees: 1 · 0 with dirty records · 0 ahead/);
+		assert.doesNotMatch(r.stdout, /worktrees:/, 'core no longer lists sibling worktrees');
 
-		const r2 = dt(path.join(ws.root, '.worktrees', 's'), 'status');
+		const r2 = dt(wt, 'status');
 		assert.equal(r2.code, 0, r2.stderr);
 		assert.match(r2.stdout, /checkout: linked worktree of /);
 	});
@@ -264,22 +265,24 @@ describe('dt install --hook installs the checkout named on STDIN', () => {
 		assert.ok(fs.lstatSync(path.join(wt, '.env')).isSymbolicLink(), '.env was not linked into the worktree');
 	});
 
-	// §13.10 — the board becomes the session's context, so its LAST line is the landing instruction.
-	test('the §13.10 landing line closes the board, verbatim', () => {
+	// §13.10 — the board becomes the session's context, so its LAST line is what a session in a
+	// linked worktree cannot work out for itself.
+	test('the §13.10 closing line ends the board, verbatim', () => {
 		const ws = workspace();
 		const wt = linkedWorktree(ws, 'b');
 		const r = dtStdin(ws.root, JSON.stringify({ cwd: wt }), 'install', '--hook');
 		assert.equal(r.code, 0, r.stderr);
 		assert.equal(r.stdout.trim().split('\n').at(-1),
-			`this is worktree b of ${ws.root}; before you finish, dt commit your records and tell the operator to run dt land worktrees/b`);
+			`this is linked worktree b of ${ws.root}; before you finish, dt commit your records here — they are invisible from the primary until you do.`);
+		assert.doesNotMatch(r.stdout, /dt land/, 'core names no extension verb');
 	});
 
-	test('in the PRIMARY there is nothing to land, so no landing line is printed', () => {
+	test('in the PRIMARY there is nothing to say, so no closing line is printed', () => {
 		const ws = workspace();
 		const r = dtStdin(ws.root, JSON.stringify({ cwd: ws.root }), 'install', '--hook');
 		assert.equal(r.code, 0, r.stderr);
 		assert.match(r.stdout, /primary checkout/);
-		assert.doesNotMatch(r.stdout, /this is worktree/);
+		assert.doesNotMatch(r.stdout, /this is linked worktree/);
 	});
 
 	// A WorktreeCreate payload piped into the SessionStart hook is well-formed and names the wrong
@@ -303,15 +306,15 @@ describe('dt install --hook installs the checkout named on STDIN', () => {
 describe('dt install --print-adapters renders the harness snippet', () => {
 	const CMD = 'sh "$CLAUDE_PROJECT_DIR/node_modules/dreamteamer/bin/dt-hook.sh"';
 
-	test('stdout is JSON, and it is the three worktree-lifecycle hooks', () => {
+	test('stdout is JSON, and core owns exactly the session-start hook', () => {
 		const ws = workspace();
 		const r = dt(ws.root, 'install', '--print-adapters');
 		assert.equal(r.code, 0, r.stderr);
 		const snippet = JSON.parse(r.stdout);
-		assert.deepEqual(Object.keys(snippet.hooks), ['SessionStart', 'WorktreeCreate', 'WorktreeRemove']);
+		// the worktree-lifecycle hooks are an extension's (@dreamteamer/workflows) — extensions.test.js
+		// pins that a contributed hook is merged in
+		assert.deepEqual(Object.keys(snippet.hooks), ['SessionStart']);
 		assert.equal(snippet.hooks.SessionStart[0].hooks[0].command, `${CMD} install --hook`);
-		assert.equal(snippet.hooks.WorktreeCreate[0].hooks[0].command, `${CMD} add worktrees --hook`);
-		assert.equal(snippet.hooks.WorktreeRemove[0].hooks[0].command, `${CMD} land --hook --dry-run`);
 	});
 
 	// §13.9 — bootstrap is idempotent precisely so the hook may fire on EVERY session event. A
@@ -346,7 +349,7 @@ describe('dt install --print-adapters renders the harness snippet', () => {
 		const ws = workspace({ compile: false, pkg: { harnesses: ['codex', 'claude-code'] } });
 		const r = dt(ws.root, 'install', '--print-adapters');
 		assert.equal(r.code, 0, r.stderr);
-		assert.match(r.stderr, /codex: adapter not yet shipped \(decision 315\) — see using-dreamteamer › references\/worktrees\.md/);
+		assert.match(r.stderr, /codex: adapter not yet shipped \(decision 315\)/);
 		assert.ok(JSON.parse(r.stdout).hooks.SessionStart, 'the claude snippet must still be the whole of stdout');
 	});
 

@@ -21,17 +21,8 @@ import { ensureEditorRecommendation, ensureEnvExample } from './workspace.js';
 import { satisfies } from './semver.js';
 import { parseEnvValues } from './env-vars.js';
 import { DERIVED_KINDS, readManifest, runtimeDir, engineId, engineVersion } from './runtime.js';
-// ⚠ RE-EXPORTED, NOT RE-IMPLEMENTED. `engineVersion` moved to the boundary layer so `prove` can
-// stamp a ledger row without importing the compiler (that edge was a real, if latent, cycle).
-// Every existing caller spells it `from './compile.js'`, and a second reader of the engine's own
-// package.json is exactly the drift this file's comments keep naming.
-export { engineId, engineVersion };
-import { artifactRefs, proofPathFor, validateProofShape, stepWarnings } from './prove.js';
-
-// re-exported, not moved: `readManifest` is in the VS Code extension's hand-maintained engine
-// contract as `compileMod.readManifest` (engine.ts), and a removed export is the same cross-repo
-// break as a removed file — decision 139.
-export { readManifest };
+import { excludedFromKind } from './extensions.js';
+export { engineId, engineVersion, readManifest };
 
 /**
  * Identifier → display label: `finance-accounts` → "Finance Accounts".
@@ -390,23 +381,15 @@ function stampMirror(byName, ctx, ownerName, field, prop, holder, mirrorName, ta
 	t.schema.properties = { ...t.schema.properties, [mirrorName]: generated };
 }
 
-export const KINDS = ['collections', 'skills', 'agents', 'commands', 'command-bindings', 'ui-views', 'collection-templates', 'proofs'];
+/** The source kinds the compiler itself stages. An installed extension may add more
+ *  (`sourceKinds`, src/extensions.js) — every enumeration below reads `kindsOf(ws)`, never this alone. */
+export const KINDS = ['collections', 'skills', 'agents', 'commands', 'command-bindings', 'ui-views', 'collection-templates'];
 const FOLDER_KINDS = new Set(['skills']); // folder-shape entities: copy the whole record folder
 
-/**
- * ⚠ `proofs/fixtures/` IS RECORDS, NOT PROOFS. It holds the store a `writes` proof runs against —
- * laid onto a throwaway worktree by `dt prove`, mirroring the workspace root — so it is not a
- * compiled source at all.
- *
- * ONE predicate, because BOTH enumerations of a kind directory have to agree about it and they are
- * 900 lines apart. The stager alone made compile read `data/notes/x.note.md` as a proof and refuse
- * the whole module; the staleness scan alone then reported every fixture file "(new, uncompiled)"
- * on every single command, for ever, with no compile able to clear it.
- *
- * @param {string} kind         the source kind being enumerated
- * @param {string} relFromKind  the entry's path RELATIVE to the kind directory, '/'-separated
- */
-const isProofFixture = (kind, relFromKind) => kind === 'proofs' && (relFromKind === 'fixtures' || relFromKind.startsWith('fixtures/'));
+/** Every contributed kind of the workspace's loaded extensions, as `{ kind, exclude, extension }`. */
+export const contributedKinds = (ws) => (ws.extensions ?? []).flatMap((e) => e.sourceKinds ?? []);
+/** Built-in kinds, then contributed ones. */
+export const kindsOf = (ws) => [...KINDS, ...contributedKinds(ws).map((k) => k.kind)];
 // DERIVED_KINDS (projected, not staged) lives in runtime.js — the boundary both halves read. Not in
 // KINDS on purpose: a module folder named `modules/` would be nonsense, and `isSystem` below keys
 // off KINDS to decide `storage.base`, so a `modules` collection landing on `base: workspace` would
@@ -484,9 +467,9 @@ const NON_SOURCE_DIRS = new Set([
  *  for one to be. Known kinds under `system/` keep compiling — the fallback is deliberate and stays
  *  (CLAUDE.md); only UNKNOWN folders become errors, and `dreamteamer.ignore` excuses them in both
  *  places with one entry. */
-function strayKindDirs(source, wsRoot, declaredIgnore) {
+function strayKindDirs(source, wsRoot, declaredIgnore, kinds) {
 	if (path.resolve(source.root) === path.resolve(wsRoot)) return [];
-	const allow = new Set([...KINDS, ...NON_SOURCE_DIRS, ...declaredIgnore]);
+	const allow = new Set([...kinds, ...NON_SOURCE_DIRS, ...declaredIgnore]);
 	const dirsIn = (dir, prefix = '') => (fs.existsSync(dir) ? fs.readdirSync(dir, { withFileTypes: true }) : [])
 		.filter((e) => e.isDirectory() && !e.name.startsWith('.') && !allow.has(e.name))
 		.map((e) => `${prefix}${e.name}`);
@@ -500,10 +483,6 @@ function strayKindDirs(source, wsRoot, declaredIgnore) {
 
 const sha256 = (buf) => 'sha256:' + createHash('sha256').update(buf).digest('hex');
 
-/** Is this workspace-relative source path inside an installed package? A nudge to write a file
- *  there would name a path the next `npm install` erases. (schema-ops has the same one-liner for the
- *  same reason; importing it back here would close a cycle for one regex.) */
-const inNodeModules = (p) => /(^|[\\/])node_modules([\\/]|$)/.test(String(p));
 
 // channel -> the directory the operator knows it by (used in shadow warnings, and it IS the
 // `location` field's vocabulary — see collections/modules.collection.yaml. Keeping the export name
@@ -617,8 +596,15 @@ export function shadowWarning({ name, winner, loser }) {
 	return `⚠ module ${name}: ${CHANNEL_LABEL[winner]} copy shadows ${CHANNEL_LABEL[loser]} copy`;
 }
 
-export function compile({ root, pkg }) {
+export function compile(ws) {
+	const { root, pkg } = ws;
+	const extensions = ws.extensions ?? [];
+	const contributed = contributedKinds(ws);
+	const kinds = kindsOf(ws);
 	const RUNTIME = runtimeDir(root);
+	// read BEFORE anything below replaces the runtime: an extension's analysis compares against it,
+	// and the harness pass prunes what it listed
+	const prevManifest = readManifest(root);
 	const config = pkg.dreamteamer ?? {};
 	const harnesses = config.harnesses ?? ['claude-code'];
 	const rel = (p) => path.relative(root, p);
@@ -660,7 +646,7 @@ export function compile({ root, pkg }) {
 	} else {
 		const strays = [];
 		if (fs.existsSync(path.join(root, 'system')) && [...walk(path.join(root, 'system'))].length) strays.push('system/');
-		for (const kind of KINDS) {
+		for (const kind of kinds) {
 			const dir = path.join(root, kind);
 			if (fs.existsSync(dir) && [...walk(dir)].length) strays.push(`${kind}/`);
 		}
@@ -874,22 +860,22 @@ export function compile({ root, pkg }) {
 	}
 
 	/** module names that actually put something into the compiled runtime — see the warning below */
-	const contributed = new Set();
+	const contributedBy = new Set();
 
 	for (const source of sources) {
 		// an unrecognised folder at a module root is a typo'd kind or a kind the engine dropped —
 		// both of which used to compile ✔ and contribute nothing (see NON_SOURCE_DIRS)
-		const strays = strayKindDirs(source, root, moduleIgnores.get(source.name) ?? []);
+		const strays = strayKindDirs(source, root, moduleIgnores.get(source.name) ?? [], kinds);
 		if (strays.length) {
 			// `ignore` matches a FOLDER NAME, at the root and under `system/` alike, so the remedy has
 			// to quote the bare name — suggesting "system/gizmos" would print an entry that matches
 			// nothing and send the reader back for a second compile to find that out.
 			const ignorable = [...new Set(strays.map((s) => s.replace(/^system\//, '')))];
 			fail(`module "${source.name}" (${rel(source.root)}) has folder(s) that are not a known kind: ${strays.join(', ')}
-  known kinds: ${KINDS.join(', ')}
+  known kinds: ${kinds.join(', ')}${contributed.length ? '' : `\n  a kind an extension adds (e.g. proofs/, from @dreamteamer/workflows) is known only while that extension is installed`}
   if these are not sources, declare them: "dreamteamer": { "ignore": [${ignorable.map((s) => `"${s}"`).join(', ')}] } in ${rel(path.join(source.root, 'package.json'))}`);
 		}
-		for (const kind of KINDS) {
+		for (const kind of kinds) {
 			// a half-moved module compiles its flat half and drops the rest — say so rather than
 			// reporting ✔ over a silent partial read (the decision-156 failure shape)
 			if (bothLayouts(source.root, kind)) {
@@ -911,7 +897,7 @@ export function compile({ root, pkg }) {
 				: fs.readdirSync(srcDir).sort();
 			for (const name of names) {
 				if (name.startsWith('.')) continue;
-				if (isProofFixture(kind, name)) continue;
+				if (excludedFromKind(contributed, kind, name)) continue;
 				const entityId = name.replace(/\.[^.]+\.(yaml|md|json)$/, '');
 				if (disabled.has(`${source.name}/${entityId}`)) { disabledHits.add(`${source.name}/${entityId}`); continue; }
 				const srcPath = path.join(srcDir, name);
@@ -938,27 +924,27 @@ export function compile({ root, pkg }) {
 					if (opaque && Object.keys(doc.schema?.properties ?? {}).length) console.warn(`⚠ collection ${doc.name}: \`schema\` is ignored under \`codec: file\` — an opaque record's fields are derived (ext, bytes)`);
 					if (!descriptorGroups.has(doc.name)) descriptorGroups.set(doc.name, []);
 					descriptorGroups.get(doc.name).push({ src: { path: rel(srcPath), hash: sha256(bytes) }, doc, moduleName: source.name });
-					contributed.add(source.name);
+					contributedBy.add(source.name);
 				} else if (FOLDER_KINDS.has(kind) && isDir) {
 					// the folder's ENTITY file, not its payload — see refuseEmptySource
 					const entityFile = path.join(srcPath, 'SKILL.md');
 					if (fs.existsSync(entityFile)) refuseEmptySource(entityFile);
 					for (const file of walk(srcPath)) {
 						addEntry(path.join(kind, name, path.relative(srcPath, file)), file);
-						contributed.add(source.name);
+						contributedBy.add(source.name);
 					}
 					counts[kind]++;
 				} else if (!isDir) {
 					refuseEmptySource(srcPath);
 					addEntry(path.join(kind, name), srcPath);
-					contributed.add(source.name);
+					contributedBy.add(source.name);
 					counts[kind]++;
 				} else {
 					// nested dirs for file-shape kinds (e.g. date-partitioned) — recurse
 					for (const file of walk(srcPath)) {
 						refuseEmptySource(file);
 						addEntry(path.join(kind, path.relative(srcDir, file)), file);
-						contributed.add(source.name);
+						contributedBy.add(source.name);
 						counts[kind]++;
 					}
 				}
@@ -996,7 +982,7 @@ export function compile({ root, pkg }) {
 		// A UI bundle IS a contribution. Counting it here is what keeps the warning below honest —
 		// a module whose whole purpose is a layout used to be told it "contributed no recognised
 		// sources" while its layout was rendering in the app.
-		contributed.add(source.name);
+		contributedBy.add(source.name);
 	}
 
 	// A module that ships only folders the engine does not recognise compiles ✔ and contributes
@@ -1008,10 +994,11 @@ export function compile({ root, pkg }) {
 	// was written for: a module that ships nothing the engine recognises AT ALL, which is what
 	// decision 156 cost two days. `kindDir` returns the flat path when neither layout exists, so this
 	// is a genuine existence test on either spelling.
+	const extensionNames = new Set(extensions.map((e) => e.name));
 	for (const source of sources) {
-		if (contributed.has(source.name)) continue;
-		if (KINDS.some((k) => fs.existsSync(kindDir(source.root, k)))) continue;
-		console.warn(`⚠ module "${source.name}" (${rel(source.root)}) contributed no recognised sources — its folder names must match a known kind (${KINDS.join(', ')}) or it must ship a UI bundle at ui/app.js`);
+		if (contributedBy.has(source.name) || extensionNames.has(source.name)) continue;
+		if (kinds.some((k) => fs.existsSync(kindDir(source.root, k)))) continue;
+		console.warn(`⚠ module "${source.name}" (${rel(source.root)}) contributed no recognised sources — its folder names must match a known kind (${kinds.join(', ')}) or it must ship a UI bundle at ui/app.js`);
 	}
 
 	// ---- collection-templates, for `templates:` merging ----------------------------
@@ -1105,7 +1092,7 @@ export function compile({ root, pkg }) {
 	// verification. ⚠ `users` was in this set until 0.8.0 — a module still declaring
 	// `x-reference: users` now FAILS here, which is the intended loud outcome rather than a ref
 	// pointing at a collection nothing provides.
-	const CORE_COLLECTIONS = new Set([...KINDS, ...DERIVED_KINDS, 'repos']);
+	const CORE_COLLECTIONS = new Set([...kinds, ...DERIVED_KINDS, 'repos']);
 	const wsDir = config['workspace-module'];
 	const wsModuleName = wsDir
 		? sources.find((s) => rel(s.root) === path.join('modules', wsDir))?.name
@@ -1195,7 +1182,7 @@ export function compile({ root, pkg }) {
 		// authors a suffix keeps it, and one that does not was writing `.undefined.` files.
 		merged.storage.suffix ??= singular(baseNameOf(name, namespaces));
 		const storagePath = String(merged.storage.path ?? '');
-		const systemKinds = [...KINDS, ...DERIVED_KINDS];
+		const systemKinds = [...kinds, ...DERIVED_KINDS];
 		const isSystem = systemKinds.includes(storagePath) || systemKinds.includes(storagePath.replace(/^system\//, ''));
 		merged.storage.base = isSystem ? 'runtime' : 'workspace';
 		if (owned && !isSystem) {
@@ -1680,43 +1667,35 @@ export function compile({ root, pkg }) {
 		}
 	}
 
-	// ---- proof validation --------------------------------------------------------------
-	// A proof declares behaviour the ENGINE judges, so every key in one is a value the engine
-	// interprets — which by the rule stated above the ui-view block makes all of them compile's to
-	// validate. The two silent failures this refuses, both measured in the spike:
-	//   `about: skills/greter` — names no artifact, so the proof proves nothing and says so nowhere.
-	//   `where: { statuz: … }` — an unknown key fails CLOSED in `matchesFilter`, so a `count`
-	//   expectation over it passes or fails FOREVER for a reason no output names.
-	// The judgement itself lives in `prove.js` (unit-tested against a hand-built descriptor set);
-	// this block is the wiring, and it is deliberately paid for only when a proof exists.
-	//
-	// ⚠ `artifactRefs` is computed unconditionally, because the coverage line below prints its
-	// denominators on EVERY compile — a workspace with no proofs still gets told what it has.
-	const proofArtifacts = artifactRefs(entries);
-	const proofEntries = [...entries].filter(([rt]) => rt.startsWith('proofs/'));
-	/** every artifact ref named by at least one proof — the coverage numerators, and the nudge's silencer */
-	const provenRefs = new Set();
-	if (proofEntries.length) {
-		// the MERGED descriptors, read back out of the entries this compile is about to write —
-		// the same source of truth the ui-view block reads its own field list from, so a proof is
-		// judged against the schema the workspace will actually run on (`extends` applied).
-		const merged = new Map();
+	// ---- extension analysis ------------------------------------------------------------
+	// After the whole compile is assembled and BEFORE any output is replaced: an extension that owns a
+	// source kind judges its entries against the final merged schemas (proofs name artifacts and filter
+	// on fields, so only the assembled workspace can say whether they mean anything). The draft is data
+	// only — no filesystem writer, no Store, no environment VALUES, key names only. An error fails the
+	// compile exactly like a built-in check; notes print after the summary.
+	const notes = [];
+	if (extensions.some((e) => e.analyze)) {
+		const descriptors = new Map();
 		for (const [rt, e] of entries) {
 			if (!rt.startsWith('collections/')) continue;
 			const doc = load(e.bytes.toString('utf8'));
-			if (doc?.name) merged.set(doc.name, doc);
+			if (doc?.name) descriptors.set(doc.name, doc);
 		}
-		const proofCtx = { descriptors: merged, declaredVars, moduleEnv: new Set(declaredEnv.keys()), artifacts: proofArtifacts.all };
-		for (const [rt, e] of proofEntries) {
-			const proof = loadSource(e.bytes.toString('utf8'), e.sources[0].path);
-			const errs = validateProofShape(proof, proofCtx);
-			if (errs.length) fail(errs.map((m) => `${rt}: ${m}`).join('\n  '));
-			// ⚠ WARNINGS, not errors (R17). A step is a shell string, so a brace nobody substitutes is
-			// as likely to be `awk '{print}'` as a typo'd `{recrod}` — and `substitute` refusing both
-			// at run time was measured to kill four correct steps. Naming the token here is the whole
-			// net that remains: it costs a line, and the proof still compiles and still runs.
-			for (const w of stepWarnings(proof)) console.warn(`⚠ ${rt}: ${w}`);
-			for (const ref of proof?.about ?? []) provenRefs.add(String(ref));
+		const draft = Object.freeze({
+			entries,
+			descriptors,
+			modules: sources.map((s) => ({ id: moduleId(s.name), name: s.name, root: rel(s.root) || '.', channel: s.channel })),
+			declaredVars: [...declaredVars],
+			declaredEnv: [...declaredEnv.keys()],
+			previousManifest: prevManifest,
+			parse: (rt) => loadSource(entries.get(rt).bytes.toString('utf8'), entries.get(rt).sources[0].path),
+		});
+		for (const ext of extensions) {
+			if (!ext.analyze) continue;
+			const out = ext.analyze(draft) ?? {};
+			if (out.errors?.length) fail(out.errors.join('\n  '));
+			for (const w of out.warnings ?? []) console.warn(`⚠ ${w}`);
+			notes.push(...(out.notes ?? []));
 		}
 	}
 
@@ -1735,7 +1714,10 @@ export function compile({ root, pkg }) {
 	// (the workspace module's own record after it was renamed, and a domain module's after it was
 	// folded into another). The
 	// runtime is build output; stale build output is the compiler's problem, not the reader's.
-	for (const kind of [...KINDS, ...DERIVED_KINDS]) fs.rmSync(path.join(RUNTIME, kind), { recursive: true, force: true });
+	// ⚠ AND every kind the PREVIOUS compile staged: an extension uninstalled since then leaves its
+	// compiled folder behind otherwise, read by nothing and listed by `dt list` for ever.
+	const prevKinds = (prevManifest?.['source-kinds'] ?? []).map((k) => k.kind).filter((k) => typeof k === 'string' && /^[a-z][a-z0-9-]*$/.test(k));
+	for (const kind of new Set([...kinds, ...DERIVED_KINDS, ...prevKinds])) fs.rmSync(path.join(RUNTIME, kind), { recursive: true, force: true });
 	fs.rmSync(path.join(RUNTIME, 'system'), { recursive: true, force: true });
 	fs.rmSync(path.join(RUNTIME, 'ui'), { recursive: true, force: true });
 	for (const [rt, e] of entries) {
@@ -1745,14 +1727,13 @@ export function compile({ root, pkg }) {
 	}
 
 	// ---- harness adapters (dispatch table lives in harnesses.js) -------------------
-	const prevManifest = readManifest(root);
 	// What the harness blocks should TELL an agent about where sources live — measured, not assumed.
 	// A workspace still on the nested layout was being handed prose naming the flat one, and that
 	// block is the first thing a session reads.
-	const anyFlat = sources.some((s) => KINDS.some((k) => fs.existsSync(path.join(s.root, k))));
-	const anyNested = sources.some((s) => KINDS.some((k) => fs.existsSync(path.join(s.root, 'system', k))));
+	const anyFlat = sources.some((s) => kinds.some((k) => fs.existsSync(path.join(s.root, k))));
+	const anyNested = sources.some((s) => kinds.some((k) => fs.existsSync(path.join(s.root, 'system', k))));
 	const sourceLayout = anyFlat && anyNested ? 'mixed' : anyNested ? 'nested' : 'flat';
-	const { outputs: adapterOutputs, blocks: adapterBlocks, summary: harnessSummary } = runHarnessAdapters({ root, entries, harnesses, prevManifest, sourceLayout, namespaces, version: engineVer, workspaceModule: config['workspace-module'] ?? '' });
+	const { outputs: adapterOutputs, blocks: adapterBlocks, summary: harnessSummary } = runHarnessAdapters({ root, entries, harnesses, prevManifest, sourceLayout, namespaces, version: engineVer, workspaceModule: config['workspace-module'] ?? '', extensions, kinds: contributed.map((k) => k.kind) });
 
 	// ---- provenance manifest ------------------------------------------------------
 	const manifest = {
@@ -1776,6 +1757,11 @@ export function compile({ root, pkg }) {
 		// `storage.base` is a field instead of a path test. An older runtime has no key here, which
 		// reads as "no namespaces", which is exactly right for a workspace that never declared any.
 		namespaces,
+		// The extensions this runtime was compiled WITH, and the source kinds they staged — so the next
+		// compile can prune a kind whose extension is gone, and `staleness` can walk a contributed kind
+		// without loading any extension code.
+		...(extensions.length ? { extensions: extensions.map((e) => ({ name: e.name, version: e.version })) } : {}),
+		...(contributed.length ? { 'source-kinds': contributed.map((k) => ({ kind: k.kind, exclude: k.exclude, extension: k.extension })) } : {}),
 		// ⚠ BOTH KEYS FOR ONE RELEASE. `location` is the new spelling; `channel` stays so a reader
 		// that has not moved — `runtime.sourceRoots`'s npm filter, and the extension — keeps working
 		// against a runtime this engine compiled. Removed in 0.20.0.
@@ -1796,75 +1782,14 @@ export function compile({ root, pkg }) {
 	};
 	fs.writeFileSync(path.join(RUNTIME, 'manifest.yaml'), dump(manifest));
 
-	const summary = KINDS.filter((k) => counts[k]).map((k) => `${counts[k]} ${k}${k === 'collections' && mergedCount ? ` (${mergedCount} merged)` : ''}`).join(', ');
+	const summary = kinds.filter((k) => counts[k]).map((k) => `${counts[k]} ${k}${k === 'collections' && mergedCount ? ` (${mergedCount} merged)` : ''}`).join(', ');
 	const sourceLabel = config['workspace-module']
 		? `${sources.length} module(s) (workspace-module: ${config['workspace-module']})`
 		: `${sources.length - 1} module(s) + workspace`;
 	console.log(`✔ compiled ${summary || 'nothing'} from ${sourceLabel} → .dreamteamer`);
 	for (const line of harnessSummary) console.log(`✔ harness ${line}`);
 
-	// ---- proof coverage, on EVERY compile ----------------------------------------
-	// One line, unconditional, even at zero: coverage that is only reported when someone asks is
-	// coverage nobody knows the number of. The denominators are what this compile actually produced
-	// (`artifactRefs`, the one enumeration `prove --missing` also reads), the numerators what a
-	// proof names.
-	const covered = (list) => `${list.filter((a) => provenRefs.has(a)).length}/${list.length}`;
-	console.log(`proofs: ${proofEntries.length} declared · commands ${covered(proofArtifacts.commands)} · skills ${covered(proofArtifacts.skills)} · scripts ${covered(proofArtifacts.scripts)} · bindings ${covered(proofArtifacts.bindings)}`);
-
-	// ---- the nudge: ONCE, per NEW command or script with no proof -----------------
-	// module id → the module's workspace-relative ROOT, exactly the value the module projection
-	// stores in `path`. Sorted longest-first so a nested module wins over its parent, and the root
-	// layout's `.` (the empty prefix) matches last.
-	const moduleRoots = sources.map((s) => ({ id: moduleId(s.name), root: rel(s.root) || '.' }))
-		.sort((a, b) => b.root.length - a.root.length);
-	const ownerRoot = (srcPath) => moduleRoots.find(({ root: r }) => r === '.' || srcPath === r || srcPath.startsWith(`${r}/`))?.root ?? '.';
-	// ⚠ NEW, not merely uncovered. A workspace adopting proofs has forty-odd artifacts and none of
-	// them proven; forty-four warnings on day one is the noise that teaches an operator to skip
-	// every line this compile prints. So the nudge fires only for an artifact absent from the
-	// PREVIOUS manifest, and a first-ever compile (no previous manifest at all) nudges nothing.
-	//
-	// Commands and scripts only — they are the artifacts that RUN, and a skill gets its nudge at the
-	// moment `dt add skills` writes it. An artifact shipped from node_modules is skipped: a proof
-	// written there is erased by the next `npm install`.
-	//
-	// ⚠ A KNOWN GAP, stated rather than hidden: a script added to an EXISTING module does not nudge.
-	// The manifest records a module record's SOURCE hash (its package.json), and adding a file under
-	// `bin/` changes neither the entry key nor that hash, so there is nothing to compare. The
-	// coverage line still counts it.
-	if (prevManifest?.entries) {
-		for (const ref of [...proofArtifacts.commands, ...proofArtifacts.scripts]) {
-			if (provenRefs.has(ref)) continue;
-			const known = artifactSource(entries, ref);
-			if (!known || known.new === false || inNodeModules(known.source)) continue;
-			console.log(`no proof yet for ${ref} — ${proofPathFor(ref, known.moduleRoot)} (see using-dreamteamer › proofs)`);
-		}
-	}
-
-	/** Where an artifact's source lives, and whether the PREVIOUS manifest already knew it.
-	 *
-	 *  ⚠ THE MODULE ROOT COMES OFF THE SOURCE, NEVER OFF THE FILE PATH. Slicing it out of the
-	 *  artifact's source path (`lastIndexOf('/commands/')`, `replace(/\/package\.json$/)`) is
-	 *  correct only in the `workspace-module` layout. In the ROOT layout (no `workspace-module`, see
-	 *  :619) a command's source is `commands/hello.command.md` — no module segment at all — so the
-	 *  slice returned -1 and the nudge named `commands/hello.command.m/proofs/…`, and a module
-	 *  script named `package.json/proofs/…`. `rel(source.root)` is the same value the module record's
-	 *  `path` field carries (see the projection near :1459), which is the value that is always right. */
-	function artifactSource(all, ref) {
-		if (ref.startsWith('commands/')) {
-			const key = `${ref}.command.md`;
-			const source = all.get(key)?.sources?.[0]?.path ?? '';
-			if (!source) return null;
-			return { source, moduleRoot: ownerRoot(source), new: !(key in prevManifest.entries) };
-		}
-		// a module script: `<module-id>/bin/<file>` — the id is in the ref, so the root is a lookup
-		// rather than a guess. Its "entry" is the module record compile projected, so a whole NEW
-		// module's scripts nudge and an existing module's do not (above).
-		const mod = ref.slice(0, ref.indexOf('/'));
-		const key = `modules/${mod}.module.yaml`;
-		const entry = all.get(key);
-		if (!entry) return null;
-		return { source: entry.sources?.[0]?.path ?? '', moduleRoot: moduleRoots.find((m) => m.id === mod)?.root ?? '.', new: !(key in prevManifest.entries) };
-	}
+	for (const n of notes) console.log(n);
 	return 0;
 }
 
@@ -1915,13 +1840,15 @@ export function staleness(root) {
 	// `<module>/<entity>` entry can address its sources — it is walked unfiltered, as before.
 	const disabledEntities = new Set((pkg.dreamteamer?.disable ?? []).filter((d) => typeof d === 'string' && d.includes('/')));
 	const roots = [...(wm ? [] : [{ name: null, root }]), ...found.modules.map((m) => ({ name: m.name, root: m.root }))];
+	// the kinds the last compile STAGED, read off its manifest — staleness loads no extension code
+	const contributedKinds = (manifest['source-kinds'] ?? []).map((k) => ({ kind: k.kind, exclude: k.exclude ?? [] }));
 	for (const { name: moduleName, root: r } of roots) {
-		for (const kind of KINDS) {
+		for (const kind of [...KINDS, ...contributedKinds.map((k) => k.kind)]) {
 			const dir = kindDir(r, kind);
 			if (!fs.existsSync(dir)) continue;
 			for (const f of walk(dir)) {
 				const rel = path.relative(dir, f).split(path.sep).join('/');
-				if (isProofFixture(kind, rel)) continue;
+				if (excludedFromKind(contributedKinds, kind, rel)) continue;
 				// The SAME id derivation `compile` uses, so the two can never disagree about which
 				// file a disable entry names.
 				//

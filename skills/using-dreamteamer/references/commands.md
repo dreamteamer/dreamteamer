@@ -151,11 +151,11 @@ they read stay honest:
   `{ summary: { _nempty: true } }` works the moment `summary` is a mirror — or ship the binding
   without a `can-exit` and accept that it never shows done. What is not honest is a proxy field a
   human must remember to set.
-- **A `can-exit` and a proof's `count` answer different questions — put each expectation on its own
-  side.** A gate is a filter over ONE record, evaluated on every render of `dt next` and every board
+- **A `can-exit` and a proof's `count` (`@dreamteamer/workflows`) answer different questions — put
+  each expectation on its own side.** A gate is a filter over ONE record, evaluated on every render of `dt next` and every board
   the studio draws, so it can only ever read that record's own fields (plus one outbound hop) — which
   is exactly the gap the bullet above names: "a summary referencing this record exists" is
-  inexpressible there. A **proof** (`proofs.md`) is evaluated on demand and is collection-scoped, so
+  inexpressible there. A **proof** is evaluated on demand and is collection-scoped, so
   it says the thing a gate cannot: `{ collection: summaries, where: { about: { _eq: '{record}' } },
   count: { _delta: 1 } }` — *running this command left one more summary behind*. (`{record}` inside a
   proof's `where` is SUBSTITUTED with the picked record's reference before the filter runs, which is

@@ -63,7 +63,11 @@ dispatch, so it cannot drift):
 - read & measure — `list` `get` `values` `history` `diff` `next` `relations` `resolve`
 - write & publish — `add` `set` `rm` `rename` `move` `revert` `commit`
 - fields (sources, through the compile gate) — `add-field` `set-field` `rm-field` `rename-field` (system entities — modules, collections, skills, ui-views… — take the RECORD verbs above)
-- workspace — `init` `install` `land` `update` `compile` `check` `prove` `status` `start` `changes` `export` `help`
+- workspace — `init` `install` `update` `compile` `check` `status` `changes` `help`
+- an installed EXTENSION adds verbs of its own, and `dt help` lists them under its package name —
+  `@dreamteamer/workflows` (`dt prove` · `dt land` · `dt worktree`), `@dreamteamer/http` (`dt serve`),
+  `@dreamteamer/notebooklm` (`dt notebooklm`); a local Docker host is `@dreamteamer/host`'s own `dt-host …`.
+  Each ships the skill that teaches it. A verb that answers "left core in 0.31.0" names the package to install.
 
 don't learn syntax from prose, this skill included: prose drifts, and `help` ships in
 the same file as the dispatch it documents. run it once before your first write of a session.
@@ -99,17 +103,15 @@ Load by the map; nothing here is loaded "just in case".
 | a brand-new or empty workspace, dreamteamer over an existing pile of files, "help me set this up" | `references/getting-started.md` |
 | read, create, update, rename, delete, commit — or UNDO — a record | `references/records.md` |
 | "what changed while I was away" | `references/changes.md` |
-| the workspace has to reach a reader that is not a coding agent — a NotebookLM notebook; "which fields are sensitive" | `references/exporting.md` |
 | the workspace seems unable to do something — a new kind of thing, a missing capability, "don't we already have this?" | `references/before-you-build.md` (look first); a new model then continues `references/data-modeling.md` (decide) → `references/collections.md` (write it) |
 | a collection or field, mechanically — the descriptor, the system and field verbs, `templates:`/`extends:`, a compile or check message | `references/collections.md` |
 | knowledge a session should find on its own | `references/skills.md` |
 | "let me type one word and have this done" | `references/commands.md` |
 | "which command applies to this record?" — a binding, a gate | `references/commands.md` |
-| "how would anyone know this still works?" — a proof of a skill, a command or a script, and the exit code `dt prove` answers with | `references/proofs.md` |
 | a job needing a fresh context and its own tools | `references/agents.md` |
 | a route, a nav entry, a board / calendar / map over records | `references/ui-views.md` |
 | a rendering or editing behaviour nothing registered has | `references/ui-components.md` |
-| a second checkout — making one ready, landing its records, a harness that cuts them for you | `references/worktrees.md` |
+| an optional tool — behaviour proofs, worktrees, a REST server, an exporter, a new harness — and whether to write one | `references/extensions.md` |
 | other agent sessions are running on this machine — finding them, messaging one, coordinating several, and what may not cross between them | `references/sessions.md` |
 
 three act-two tie-breakers, because they are the ones that go wrong:
@@ -131,7 +133,8 @@ workspace's decision log (where one exists) wins over older documents.
 ## system entities take the RECORD verbs
 
 Modules, collections, skills, agents, commands, command-bindings, ui-views, collection-templates
-and proofs are collections in the runtime, and since 0.19.0 the ordinary verbs write them:
+— and any kind an installed extension contributes — are collections in the runtime, and since
+0.19.0 the ordinary verbs write them:
 
 ```
 dt add modules --name core --description "The shared nouns."
@@ -143,9 +146,8 @@ dt set modules/hr namespaces=hr dependencies=modules/core
 dt rm modules/hr --force                     # --dry-run first; it prints its plan
 ```
 
-⚠ **`proofs` is the one exception, and only to `add`:** a proof is hand-authored like a skill or a
-command, so `dt add proofs` is refused, naming the file to write
-(`modules/<module>/proofs/<id>.proof.yaml`, `references/proofs.md`). Every other verb works on it.
+⚠ **`add` scaffolds skills only.** Agents, commands, bindings, templates and contributed kinds are
+hand-authored — `dt add agents` is refused, naming the file to write. Every other verb works on them.
 
 `dt schema <op>` is **gone** since 0.19.0 and fails with the translation printed. `UPDATING.md` has
 the complete mapping table.

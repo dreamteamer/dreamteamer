@@ -427,24 +427,21 @@ describe('workspace verbs keep their spellings', () => {
 		for (const m of help.matchAll(/^ {2}([a-z][a-z-]*)\s/gm)) documented.add(m[1]);
 		// ⚠ A PIN THAT MATCHES NOTHING PASSES VACUOUSLY, which is the one outcome to avoid.
 		assert.ok(documented.size >= 25, `help yielded only ${documented.size} verb names — the extraction pattern no longer matches USAGE`);
-		// ⚠ `start` IS EXCLUDED FROM THE EXECUTION HALF, AND ONLY FROM IT. It binds a port and never
-		// returns, so `dt(verb)` — a spawnSync — waits forever. This hung a release for six hours:
-		// the suite passed on a developer machine because something already held the port and the
-		// server died on EADDRINUSE, and hung on a CI runner where the port was free. It is still
-		// required to be documented by the second loop below, which only reads the set.
-		const SERVES_FOREVER = new Set(['start']);
-		// `setup` is a HOST verb: bare, it probes the Docker socket and writes ~/.dreamteamer/.env on
-		// the machine running the suite. Its dispatch is pinned in containers.test.js under DT_HOME
-		// and a fake socket; running it here would touch the developer's real home.
-		const TOUCHES_THE_HOST = new Set(['setup']);
+		// ⚠ A VERB THAT SERVES IS EXCLUDED FROM THE EXECUTION HALF, AND ONLY FROM IT. It binds a port and
+		// never returns, so `dt(verb)` — a spawnSync — waits forever. This hung a release for six hours
+		// when `start` was a core verb: the suite passed on a developer machine because something already
+		// held the port, and hung on a CI runner where it was free. The server is an extension now
+		// (`dt serve`, @dreamteamer/http) and this fixture installs none — but the guard stays, because
+		// the day a test fixture does install one this loop would run it.
+		const SERVES_FOREVER = new Set(['start', 'serve']);
 		for (const verb of documented) {
-			if (SERVES_FOREVER.has(verb) || TOUCHES_THE_HOST.has(verb)) continue;
+			if (SERVES_FOREVER.has(verb)) continue;
 			const res = ws.dt(verb);
 			// A documented verb answers with its OWN complaint (a missing target, a missing flag) or
 			// succeeds — never with "unknown verb", which is the only failure this asserts against.
 			assert.doesNotMatch(res.stderr + res.stdout, new RegExp(`unknown verb "${verb}"`), `help documents \`${verb}\` but the dispatch does not know it`);
 		}
-		for (const verb of ['add', 'set', 'rm', 'rename', 'list', 'get', 'move', 'values', 'history', 'diff', 'revert', 'next', 'relations', 'resolve', 'add-field', 'set-field', 'rm-field', 'rename-field', 'init', 'install', 'update', 'compile', 'check', 'status', 'start', 'changes', 'commit', 'help']) {
+		for (const verb of ['add', 'set', 'rm', 'rename', 'list', 'get', 'move', 'values', 'history', 'diff', 'revert', 'next', 'relations', 'resolve', 'add-field', 'set-field', 'rm-field', 'rename-field', 'init', 'install', 'update', 'compile', 'check', 'status', 'changes', 'commit', 'help']) {
 			assert.ok(documented.has(verb), `\`${verb}\` dispatches but help does not document it`);
 		}
 	});

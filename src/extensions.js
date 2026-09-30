@@ -1,0 +1,106 @@
+// Engine extensions — the ONE seam an optional tool plugs into.
+//
+// Core is records + the workspace compiler, and nothing that has a lifecycle of its own: an HTTP
+// server, a Docker host, a behaviour-test runner, an exporter to one vendor. Those ship as sibling
+// packages, and a workspace opts into one by DEPENDING on it — a direct dependency whose package.json
+// declares `"dreamteamer": { "extension": "./entry.js" }`. That is the whole declaration: npm already
+// put the code there on purpose, and a transitive package is never loaded however it advertises.
+//
+// The entry's default export is `activate(dt)` — `dt` is the RUNNING engine's public API (api.js), so
+// an extension never imports a second engine copy of its own and can never disagree with the one the
+// operator ran (the dev-clone shadow and `--vault` both pick the engine before this file loads).
+// It returns a contribution, every key optional:
+//
+//   commands    { <verb>: { usage, run(ws, argv) } }       `dt <verb> …`, dispatched in-process
+//   sourceKinds [{ kind, exclude?: [subtree] }]             folders compile stages like a built-in kind
+//   analyze     (draft) → { errors?, warnings?, notes? }    judged after assembly, before any output
+//   harnesses   { <id>: (ctx) → { blocks: {file: text}, summary } }   a harness adapter
+//   orientation string                                      one paragraph appended to the orientation block
+//   hooks       { <ClaudeHookEvent>: '<dt verb args>' }     rendered by `dt install --print-adapters`
+//
+// Two contributions claiming the same verb, kind or harness is a refusal — there is no "last one
+// wins", because the loser would be an extension the operator installed that silently does nothing.
+import fs from 'node:fs';
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+
+export const EXTENSION_API = 1;
+
+const CONTRIBUTION_KEYS = new Set(['commands', 'sourceKinds', 'analyze', 'harnesses', 'orientation', 'hooks']);
+
+/** The workspace's direct dependencies that declare an extension entry, sorted by package name.
+ *  A module DISABLED by a bare `dreamteamer.disable` entry is not an extension either — disabling is
+ *  how a workspace keeps a package installed and switches it off. */
+export function declaredExtensions(ws) {
+	const disabled = new Set((ws.pkg?.dreamteamer?.disable ?? []).filter((d) => typeof d === 'string' && !d.includes('/')));
+	const out = [];
+	for (const dep of Object.keys({ ...ws.pkg?.dependencies, ...ws.pkg?.devDependencies }).sort()) {
+		const dir = path.join(ws.root, 'node_modules', dep);
+		let pkg;
+		try { pkg = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8')); } catch { continue; }
+		const entry = pkg.dreamteamer?.extension;
+		if (!entry || disabled.has(pkg.name ?? dep)) continue;
+		if (typeof entry !== 'string') throw new Error(`${dep}: dreamteamer.extension must be a path to the entry module (got ${JSON.stringify(entry)})`);
+		out.push({ name: pkg.name ?? dep, version: pkg.version ?? '0.0.0', dir, entry: path.join(dir, entry) });
+	}
+	return out;
+}
+
+/**
+ * Import and activate every declared extension against `api`, and check the contributions cannot
+ * collide with core or with each other. `reserved` is what core already owns: its verbs, kinds and
+ * harness ids.
+ */
+export async function loadExtensions(ws, api, reserved = {}) {
+	const loaded = [];
+	const owner = { command: new Map(), kind: new Map(), harness: new Map() };
+	for (const r of reserved.verbs ?? []) owner.command.set(r, 'the engine');
+	for (const r of reserved.kinds ?? []) owner.kind.set(r, 'the engine');
+	for (const r of reserved.harnesses ?? []) owner.harness.set(r, 'the engine');
+	const claim = (what, key, by) => {
+		const prev = owner[what].get(key);
+		if (prev) throw new Error(`extension ${by} contributes the ${what} "${key}", which ${prev} already owns — uninstall one, or disable it in dreamteamer.disable`);
+		owner[what].set(key, by);
+	};
+	for (const ext of declaredExtensions(ws)) {
+		let mod;
+		try { mod = await import(pathToFileURL(ext.entry).href); } catch (e) {
+			throw new Error(`extension ${ext.name}: its entry ${path.relative(ws.root, ext.entry)} did not load — ${e.message.split('\n')[0]} (npm install?)`);
+		}
+		if (typeof mod.default !== 'function') throw new Error(`extension ${ext.name}: ${path.relative(ws.root, ext.entry)} must default-export activate(dt)`);
+		if (mod.apiVersion !== undefined && mod.apiVersion !== EXTENSION_API) {
+			throw new Error(`extension ${ext.name} targets extension API ${mod.apiVersion}; this engine (${api.engineVersion?.() ?? '?'}) speaks ${EXTENSION_API}`);
+		}
+		const c = (await mod.default(api)) ?? {};
+		for (const k of Object.keys(c)) if (!CONTRIBUTION_KEYS.has(k)) throw new Error(`extension ${ext.name} contributes an unknown key "${k}" — known: ${[...CONTRIBUTION_KEYS].join(', ')}`);
+		const commands = c.commands ?? {};
+		for (const [verb, cmd] of Object.entries(commands)) {
+			if (typeof cmd?.run !== 'function') throw new Error(`extension ${ext.name}: command "${verb}" has no run(ws, argv)`);
+			claim('command', verb, ext.name);
+		}
+		const sourceKinds = (c.sourceKinds ?? []).map((k) => normalizeKind(ext.name, k));
+		for (const k of sourceKinds) claim('kind', k.kind, ext.name);
+		for (const id of Object.keys(c.harnesses ?? {})) claim('harness', id, ext.name);
+		if (c.analyze !== undefined && typeof c.analyze !== 'function') throw new Error(`extension ${ext.name}: analyze must be a function`);
+		loaded.push({ name: ext.name, version: ext.version, commands, sourceKinds, analyze: c.analyze ?? null, harnesses: c.harnesses ?? {}, orientation: c.orientation ?? null, hooks: c.hooks ?? {} });
+	}
+	return loaded;
+}
+
+/** A contributed source kind: a plain folder name, and excluded subtrees that stay RELATIVE to it. */
+function normalizeKind(by, k) {
+	const kind = typeof k === 'string' ? k : k?.kind;
+	if (typeof kind !== 'string' || !/^[a-z][a-z0-9-]*$/.test(kind)) throw new Error(`extension ${by}: a source kind is a lowercase folder name (got ${JSON.stringify(kind)})`);
+	const exclude = (typeof k === 'object' ? k.exclude ?? [] : []).map((e) => {
+		const rel = path.posix.normalize(String(e)).replace(/\/+$/, '');
+		if (!rel || rel === '.' || rel.startsWith('..') || path.posix.isAbsolute(rel)) throw new Error(`extension ${by}: kind "${kind}" excludes "${e}", which is not a subtree of it`);
+		return rel;
+	});
+	return { kind, exclude, extension: by };
+}
+
+/** Is `relFromKind` (a '/'-separated path under the kind folder) inside one of its excluded subtrees? */
+export function excludedFromKind(kinds, kind, relFromKind) {
+	const k = kinds.find((x) => x.kind === kind);
+	return !!k && k.exclude.some((e) => relFromKind === e || relFromKind.startsWith(`${e}/`));
+}

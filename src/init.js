@@ -154,13 +154,19 @@ export function init({ flags = {} } = {}) {
 	ensureEditorRecommendation(root);
 	if (!fs.existsSync(path.join(root, '.env.example'))) fs.writeFileSync(path.join(root, '.env.example'), ENV_EXAMPLE);
 
-	// one init commit (if we're in a git repo)
+	// one init commit (if we're in a git repo) — of the files init WROTE, and nothing else. It used to
+	// `git add --all`, which in an existing repo swept every unrelated staged and unstaged change into
+	// a commit titled "init workspace": the one write in this engine that was not pathspec-scoped.
+	// `commit -- <paths>` also leaves anything the operator had already staged exactly as it was.
+	const written = ['package.json', '.gitignore', '.env.example', '.vscode/extensions.json',
+		...(wm ? [path.join('modules', wm, 'package.json')] : []), path.relative(root, starter)]
+		.filter((f) => fs.existsSync(path.join(root, f)));
 	try {
 		// stdio ignored on purpose: this whole block is best-effort, and execFileSync forwards the
 		// child's stderr to ours by default — so a plain `dreamteamer init` in a non-git folder
 		// printed git's raw "fatal: not a git repository" above our own handled warning.
-		execFileSync('git', ['add', '--all'], { cwd: root, stdio: 'ignore' });
-		execFileSync('git', ['commit', '--quiet', '-m', `dreamteamer: init workspace ${name}`], { cwd: root, stdio: 'ignore' });
+		execFileSync('git', ['add', '--', ...written], { cwd: root, stdio: 'ignore' });
+		execFileSync('git', ['commit', '--quiet', '-m', `dreamteamer: init workspace ${name}`, '--', ...written], { cwd: root, stdio: 'ignore' });
 	} catch { console.warn('⚠ not a git repo (or nothing to commit) — init files written, no commit'); }
 
 	console.log(`✔ workspace ${name} initialized — run \`dreamteamer compile\` to materialize the runtime`);

@@ -17,7 +17,6 @@ import {
 	createSkill, refuseHandAuthored, removeEntity, renameEntity, setEntityFrontmatter,
 } from './schema-ops.js';
 import { KINDS } from './compile.js';
-import { proofPathFor, artifactRefs, pickFixture, readLedger, resolveRequires, envKeys, flagValue } from './prove.js';
 import { history, historyDiff } from './history.js';
 import { commandsFor, recordResolver } from './record-commands.js';
 import { distinctValues } from './field-values.js';
@@ -91,7 +90,6 @@ export function collectionCommand(ws, collection, verb, args) {
 	if (collection === 'collections' && verb === 'get' && flags.module !== undefined) return metaCollectionsGet(ws, store, flags, pos);
 	if (collection === 'collections' && verb === 'move') return metaCollectionsMove(ws, store, flags, pos);
 	if (collection === 'commands' && verb === 'for') return metaCommandsFor(ws, store, flags, pos);
-	if (collection === 'proofs' && verb === 'list') return metaProofsList(ws, store, flags);
 	if (collection === 'ui-views' && ['add', 'set', 'rm'].includes(verb)) return metaUiView(ws, store, verb, flags, pos);
 	if (collection === 'modules' && verb === 'add') return metaModulesAdd(ws, store, flags);
 	if (collection === 'modules' && verb === 'rm') return metaModulesRm(ws, store, flags, pos);
@@ -107,7 +105,7 @@ export function collectionCommand(ws, collection, verb, args) {
 	// PATH for the five hand-authored kinds; `set` edits frontmatter; `rm` and `rename` work on all
 	// six. Keyed on the collection NAME rather than on `storage.base` because these six are the
 	// ones with a source-file shape — `modules` is projected and `collections` has its own verbs.
-	if (ENTITY_KINDS.has(collection) && ['add', 'set', 'rm', 'rename'].includes(verb)) {
+	if (isEntityKind(store, collection) && ['add', 'set', 'rm', 'rename'].includes(verb)) {
 		return metaEntityVerb(ws, store, collection, verb, flags, pos);
 	}
 	// `revert` on ANY system entity: its history is git's, and `store.revert` writes a RECORD.
@@ -138,34 +136,8 @@ export function collectionCommand(ws, collection, verb, args) {
 		case 'get': {
 			const id = need(pos, 0, 'id');
 			const { fields } = store.read(collection, id);
-			// ⚠ COMPUTED HERE, NEVER STORED (R1). Compile writes a staged kind's bytes to the runtime
-			// verbatim and the Claude adapter copies a command's bytes into `.claude/commands/`, so a
-			// derived `proofs:` frontmatter key would land in every harness's copy of the file — the
-			// exact noise a sidecar collection exists to avoid. One `readAll('proofs')` instead.
-			const isArtifact = ARTIFACT_KINDS.has(collection);
-			const about = isArtifact ? proofsAbout(store, `${collection}/${id}`) : [];
-			if (flags.json) {
-				// ⚠ R38 — `proofs` IS NEVER A SOMETIMES-KEY on an artifact. Omitting it when the list was
-				// empty made "nothing is about this" indistinguishable from "this engine does not compute
-				// the join", so every consumer needed a `?? []` it had no reason to expect. A collection
-				// that is not an artifact kind still grows no key at all — there is no join to report.
-				//
-				// ⚠ M3 — AND THE PROOF'S OWN TWO COMPUTED COLUMNS TRAVEL WITH IT. `--json` is the shape a
-				// script reads, and it was the ONE surface that dropped them: `dt list proofs --json`
-				// carried `availability` and `last`, this carried neither, so a script asking about one
-				// proof had to list every proof to learn what the text output had already told a human.
-				const facts = collection === 'proofs' ? proofFacts(ws, store, id, fields) : null;
-				emit(JSON.stringify({ ...fields, id, ...(isArtifact ? { proofs: about } : {}), ...(facts ?? {}) }, null, 2));
-				return 0;
-			}
+			if (flags.json) { emit(JSON.stringify({ ...fields, id }, null, 2)); return 0; }
 			console.log(dump(fields).trimEnd());
-			if (about.length) console.log(`proofs: ${about.join(', ')}`);
-			// the same two questions the listing answers, for the one proof asked about
-			if (collection === 'proofs') {
-				const facts = proofFacts(ws, store, id, fields);
-				console.log(`availability: ${facts.availability}`);
-				console.log(`last: ${lastCell(facts.last)}`);
-			}
 			return 0;
 		}
 		case 'add': {
@@ -739,7 +711,12 @@ function metaRemoveField(ws, store, collection, flags) {
 	return 0;
 }
 
-const ENTITY_KINDS = new Set(['skills', 'agents', 'commands', 'command-bindings', 'collection-templates', 'proofs']);
+/** An IDENTITY entity kind — a compiled source file per id (skills, agents, commands, bindings,
+ *  collection-templates, and any kind an extension contributes). Derived from the runtime rather than
+ *  listed, so a contributed kind gets `set · rm · rename` without core knowing its name; `collections`,
+ *  `ui-views` and `modules` have verbs of their own. */
+const OWN_VERBS = new Set(['collections', 'ui-views', 'modules']);
+const isEntityKind = (store, collection) => store?.descriptors.get(collection)?.storage?.base === 'runtime' && !OWN_VERBS.has(collection);
 const SCAFFOLDABLE = new Set(['skills']);
 
 function metaEntityVerb(ws, store, kind, verb, flags, pos) {
@@ -756,11 +733,6 @@ function metaEntityVerb(ws, store, kind, verb, flags, pos) {
 		console.log(`✔ ${rel(ws.root, out.file)}`);
 		console.log('✔ compiled — the skill is live (write its body next; the frontmatter is the trigger)');
 		reportCommits(out.commits);
-		// ⚠ LAST, after the commit report, and it is a nudge rather than a gate: a skill that nobody
-		// can prove loads is the artifact `dt prove` exists for, and the cheapest moment to say so is
-		// the moment the file is created. Named path, never a rule to derive — the module root is
-		// whichever one actually received the skill (`--module`, or the workspace module).
-		console.log(`no proof yet — ${proofPathFor(`skills/${out.id}`, out.moduleRoot)} (see using-dreamteamer › proofs)`);
 		return 0;
 	}
 	if (verb === 'rm') {
@@ -1194,9 +1166,9 @@ const fmtCell = (v) => (v === undefined ? '-' : Array.isArray(v) ? v.join(',') :
 /**
  * The rows one `list` invocation actually wants — narrowed, ordered, bodies dropped.
  *
- * ⚠ ONE implementation, two callers: the generic `list` case and the `proofs` interceptor, which
- * appends two COMPUTED columns to the same rows. A second copy is how `--sort` ends up working on
- * one collection and not on another, and how a `--filter` fix lands in half the listings.
+ * ⚠ ONE implementation: the generic `list` case is its only caller today, and an interceptor that
+ * adds columns calls it rather than copying it — a second copy is how `--sort` ends up working on
+ * one collection and not on another.
  */
 function narrowRows(store, d, collection, flags) {
 	// EVERY condition, ANDed — a repeated flag composes rather than replacing. `--filter a=1
@@ -1249,117 +1221,6 @@ function narrowRows(store, d, collection, flags) {
 /** `id` first, then the descriptor's own columns — the shape every text listing prints. */
 const listColumns = (d) => ['id', ...(d.list_fields ?? []).filter((c) => c !== 'id')];
 
-// ── the proof read surfaces ─────────────────────────────────────────────────────────────────────
-//
-// ⚠ NOTHING BELOW WRITES A BYTE. A proof's SOURCE says what it asserts; everything an operator asks
-// about one — can it run HERE, what did it last answer, what has no proof at all — is a fact about
-// this machine and this store, so it is computed at read time (R1).
-
-/**
- * The three artifact kinds a proof's `about` can name AND `dt get <collection>/<id>` can be asked
- * for. A module script has no record of its own, so `<module>/bin/<file>` appears only in
- * `--missing`.
- *
- * ⚠ THIS IS THE `dt get` HALF OF `artifactRefs`'s FOUR BUCKETS (`src/prove.js`), and the fourth is
- * missing on purpose rather than by omission: `skills` · `commands` · `bindings` each have a record
- * to hang a `proofs:` line off, and `scripts` does not. If a fifth artifact kind is ever added there,
- * it belongs here too — the two enumerations answer the same question from opposite sides, and a
- * kind present in one and absent from the other is a join that silently reports nothing.
- */
-const ARTIFACT_KINDS = new Set(['skills', 'commands', 'command-bindings']);
-
-/** Every proof whose `about` names this artifact, by id. */
-function proofsAbout(store, ref) {
-	if (!store.descriptors.has('proofs')) return [];
-	const ids = [];
-	for (const { id, fields } of store.readAll('proofs')) if ((fields.about ?? []).includes(ref)) ids.push(id);
-	return ids.sort();
-}
-
-/**
- * `{ availability, last }` for ONE proof — the two columns no record carries.
- *
- * `availability` answers "could this run here, right now": `requires` against this machine first
- * (its FIX is what the column names, never the env value — `.env` holds credentials), then, for a
- * live proof picking from the live store, whether `given` actually matches anything. A `fixture`
- * proof brings its own record and a gate needs none, so both are `available` once requires pass.
- *
- * `last` is the TAIL of this machine's ledger — a proof that failed on Monday and passed on Tuesday
- * is passing — or null, which prints as `never`.
- *
- * `names` is the machine's `.env` KEY set, read once by a caller that loops (R38) — never its values.
- */
-function proofFacts(ws, store, id, proof, names) {
-	const need = resolveRequires(ws, proof.requires, names ?? envKeys(ws.root));
-	let availability = need.ok ? 'available' : `unavailable (${need.missing[0].fix})`;
-	// ⚠ R38 — THE PROBE TURNS ON "IS THERE A RECORD TO PICK", NOT ON `where`. It used to require a
-	// `where`, so a `given` that names its record another way printed `available` and then exited 4
-	// on the very next command. A `fixture` proof brings its own record and a gate needs none; every
-	// other live proof is a question about THIS store, and the only way to answer it is to ask.
-	if (need.ok && proof.given !== undefined && proof.given?.fixture !== true) {
-		// a probe, not a run: the only way to answer "is there a record for this" is to ask
-		let picked = null;
-		try { picked = pickFixture(store, proof.given, null); } catch { picked = null; }
-		if (!picked) availability = 'no-fixture';
-	}
-	const rows = readLedger(ws.root, id);
-	const t = rows[rows.length - 1];
-	return { availability, last: t ? { verdict: t.verdict, when: String(t.when).slice(0, 10), record: t.record ?? null } : null };
-}
-
-/** The `last` column: `<verdict> <YYYY-MM-DD> [<record>]`, or `never`. */
-const lastCell = (last) => (last ? `${last.verdict} ${last.when}${last.record ? ` [${last.record}]` : ''}` : 'never');
-
-/**
- * `dt list proofs` — the generic listing plus `availability` and `last`, or, under `--missing`, the
- * artifacts NO proof names.
- *
- * ⚠ `--missing` LISTS ARTIFACTS, NOT PROOFS, so it takes no narrowing: accepting `--filter kind=gate`
- * and ignoring it would answer a question nobody asked, at exit 0.
- */
-function metaProofsList(ws, store, flags) {
-	const d = store.descriptor('proofs');
-	// ⚠ M2/R46 — `--missing=false` TURNED THE FLAG ON. `!== undefined` is true for every value a
-	// person can type, so the one spelling that says "no" selected the inverted listing — the same
-	// class as `--strict=false` arming a gate, and the same shared reader is the fix.
-	if (flagValue(flags.missing)) {
-		const narrowing = Object.keys(flags).filter((f) => f !== 'missing' && f !== 'json');
-		// ⚠ R38 — IT NAMES THE FLAG THAT CAUSED IT. "it takes no filter" sent a reader who had typed
-		// `--sort` looking for a `--filter` they never wrote, which is one round trip more than the
-		// refusal needs to cost.
-		if (narrowing.length) throw new Error(`--missing lists artifacts, not proofs — drop ${narrowing.map((f) => `--${f}`).join(' ')}`);
-		const named = new Set();
-		for (const { fields } of store.readAll('proofs')) for (const a of fields.about ?? []) named.add(String(a));
-		// the same enumeration compile's coverage line counts, in its order — that line says
-		// `commands 1/2`, this says WHICH one
-		const refs = artifactRefs(store);
-		const missing = [...refs.commands, ...refs.skills, ...refs.scripts, ...refs.bindings].filter((r) => !named.has(r));
-		if (flags.json) { emit(JSON.stringify(missing, null, 2)); return 0; }
-		for (const m of missing) console.log(m);
-		if (!missing.length) console.log('(every artifact has a proof)');
-		return 0;
-	}
-	// ⚠ `missing` IS CONSUMED HERE AND MUST NOT TRAVEL ON. `narrowRows` reads every non-meta flag as
-	// a bare-field filter, so `--missing=false` — now correctly read as OFF (M2) — reached it as a
-	// filter on a field `proofs` does not have and refused the whole listing. It is this function's
-	// own flag, answered above, and there is nothing left of it to narrow by.
-	const { missing: _consumed, ...narrowing } = flags;
-	const { rows, narrowed } = narrowRows(store, d, 'proofs', narrowing);
-	// ONE `.env` parse for the whole listing (R38): the key set is a fact about the machine, and
-	// re-reading the file per row is work whose answer cannot change between rows.
-	const names = envKeys(ws.root);
-	const facts = rows.map((r) => proofFacts(ws, store, r.id, r, names));
-	if (flags.json) {
-		emit(JSON.stringify(rows.map((r, i) => ({ ...r, ...facts[i] })), null, 2));
-		return 0;
-	}
-	const cols = listColumns(d);
-	rows.forEach((r, i) => console.log([...cols.map((c) => fmtCell(r[c])), facts[i].availability, lastCell(facts[i].last)].join('  ')));
-	if (!rows.length) console.log(`(no proofs${narrowed ? ' matching' : ''})`);
-	return 0;
-}
-
-
 function rel(root, p) {
 	return p.startsWith(root) ? p.slice(root.length + 1) : p;
 }
@@ -1411,14 +1272,6 @@ export const VERB_FLAGS = {
 	// whatever a harness reads), so there is no closed set to check it against.
 	'skills:add': ['json', 'module', 'name', 'description'],
 	'ui-views:add': ['json', 'module', 'id', 'force'], 'ui-views:set': ['json', 'module', 'id', 'force'], 'ui-views:rm': FORCE_RM,
-	// `worktrees` is OBSERVED from git and has no descriptor, so nothing downstream of the CLI would
-	// ever catch a typo here — and the typo that matters is `--tmep`, which silently turns a request
-	// for a throwaway sandbox into a permanent branch worktree.
-	// `--missing` inverts the listing: the artifacts NO proof names, which is the other half of
-	// compile's coverage line. It is DECLARED here or `refuseUnknownFlags` rejects it as a typo.
-	'proofs:list': ['json', 'filter', 'where', 'sort', 'missing'],
-	'worktrees:list': JSON_ONLY, 'worktrees:get': JSON_ONLY,
-	'worktrees:add': ['json', 'name', 'path', 'base', 'temp', 'hook'], 'worktrees:rm': ['json', 'force'],
 };
 
 /** Edit distance, capped — enough to turn `--fliter` into "did you mean --filter?", and to refuse to
@@ -1438,21 +1291,19 @@ function nearest(word, candidates) {
 }
 
 export function refuseUnknownFlags(store, collection, verb, flags) {
-	// `store` is null for an entity the store does not know: `worktrees` is observed from git, and
-	// the surface still owes its flags the same refusal every other verb gets.
+	// `store` may be null for an entity the store does not know — the refusal is still owed.
 	const d = store?.descriptors.get(collection);
 	const known = VERB_FLAGS[`${collection}:${verb}`]
-		?? (ENTITY_KINDS.has(collection) && verb === 'add' ? VERB_FLAGS['skills:add'] : VERB_FLAGS[verb]);
+		?? (isEntityKind(store, collection) && verb === 'add' ? VERB_FLAGS['skills:add'] : VERB_FLAGS[verb]);
 	if (!known) return; // no declared vocabulary — left exactly as it was rather than guessed at
 	// The OPEN half: a data collection's own fields (shorthand filters and field writes), and the
 	// declared keys of an entity `set` writes (`--layout` on a view, and dotted `options.sort`).
 	const system = d?.storage?.base === 'runtime';
-	// ⚠ NO DESCRIPTOR MEANS NO OPEN HALF. `worktrees` has no fields to shorthand-filter or write, so
-	// its vocabulary is CLOSED — offering "plus any field of worktrees" would name a half that does
-	// not exist and read as though the refused flag were merely misspelled.
+	// ⚠ NO DESCRIPTOR MEANS NO OPEN HALF — offering "plus any field of X" for a thing with no fields
+	// would read as though the refused flag were merely misspelled.
 	const openOf = !d ? null
 		: !system ? (['list', 'add', 'set'].includes(verb) ? `field of ${collection}` : null)
-		: (collection === 'ui-views' && verb !== 'rm') || (ENTITY_KINDS.has(collection) && verb === 'set') ? `declared key of ${collection}` : null;
+		: (collection === 'ui-views' && verb !== 'rm') || (isEntityKind(store, collection) && verb === 'set') ? `declared key of ${collection}` : null;
 	const open = openOf ? Object.keys(d?.schema?.properties ?? {}) : [];
 	const allowed = new Set([...known, ...open]);
 	for (const f of Object.keys(flags)) {

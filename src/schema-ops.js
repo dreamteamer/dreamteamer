@@ -9,14 +9,14 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { load, dump, writeSource, commentCount } from './yaml.js';
 import { compile, kindDir, titleCase, KINDS, repoRootOf } from './compile.js';
-import { readManifest, runtimeKindDir } from './runtime.js';
+import { readManifest, runtimeKindDir, loadDescriptors } from './runtime.js';
 import { normalizeNamespaces, namespaceOf, baseNameOf, qualify, defaultStoragePath, singular } from './namespace.js';
 import { refTargetsOf } from './ref.js';
 
 // Same rule as store.js: a git failure we CATCH must not also print git's own error on top of the
 // clean message we throw. stdout stays piped because some callers read it.
 const GIT_QUIET = ['ignore', 'pipe', 'ignore'];
-import { walk, idFromRecordPath, parseRecord } from './records.js';
+import { walk, idFromRecordPath, parseRecord, EXT } from './records.js';
 import { Store, bodyField, serialize, atomicWrite } from './store.js';
 
 // ---- the gate -------------------------------------------------------------------
@@ -2683,13 +2683,22 @@ const ENTITY_SHAPE = {
 	commands: { suffix: '.command.md', folder: false },
 	'command-bindings': { suffix: '.command-binding.yaml', folder: false },
 	'collection-templates': { suffix: '.collection-template.yaml', folder: false },
-	proofs: { suffix: '.proof.yaml', folder: false },
 };
+
+/** The shape of one kind — the table above, else DERIVED from the compiled descriptor, which is how
+ *  a kind an extension contributes (`proofs`) gets `rm · rename · set` without this file naming it:
+ *  `storage.suffix` + the codec's extension, one file per id. */
+function entityShape(ws, kind) {
+	if (ENTITY_SHAPE[kind]) return ENTITY_SHAPE[kind];
+	const d = loadDescriptors(ws.root).get(kind);
+	if (d?.storage?.base !== 'runtime' || !d.storage.suffix) throw new Error(`"${kind}" is not an entity kind this workspace compiles`);
+	return { suffix: `.${d.storage.suffix}${EXT[d.storage.codec ?? 'md'] ?? '.md'}`, folder: d.storage.shape === 'folder' };
+}
 
 /** The source file (or folder) ONE entity is compiled from, asked of the manifest — the same
  *  question `uiViewSourceFile` asks, for the five other kinds. */
 function entitySource(ws, kind, id) {
-	const shape = ENTITY_SHAPE[kind];
+	const shape = entityShape(ws, kind);
 	const key = shape.folder ? `${kind}/${id}/SKILL.md` : `${kind}/${id}${shape.suffix}`;
 	const src = readManifest(ws.root)?.entries?.[key]?.sources?.[0];
 	const shipped = typeof src === 'string' ? src : src?.path;
@@ -2751,7 +2760,7 @@ export function createSkill(ws, store, { name, description, moduleId }) {
 /** `add` on a kind nobody can scaffold honestly — refused WITH THE PATH, because "hand-authored"
  *  without the filename is a refusal the reader has to go research. */
 export function refuseHandAuthored(ws, store, kind, id, moduleId) {
-	const shape = ENTITY_SHAPE[kind];
+	const shape = entityShape(ws, kind);
 	const root = moduleId ? moduleRecord(store, moduleId).fields.path : path.join('modules', ws.pkg.dreamteamer?.['workspace-module'] ?? 'default');
 	const where = path.join(root, kind, `${id || '<id>'}${shape.suffix}`);
 	const one = kind.replace(/s$/, '');
@@ -2786,7 +2795,7 @@ export function renameEntity(ws, store, kind, oldId, newId) {
 	if (!newId || newId === true) throw new Error(`missing new id — dreamteamer rename ${kind}/${oldId} <new-id>`);
 	if (oldId === newId) return { renamed: false, id: newId };
 	if (!ENTITY_ID.test(newId)) throw new Error(`invalid ${kind.replace(/s$/, '')} id "${newId}" — lowercase alphanumeric with single hyphens.`);
-	const shape = ENTITY_SHAPE[kind];
+	const shape = entityShape(ws, kind);
 	const { dir, file, shipped } = entitySource(ws, kind, oldId);
 	if (!shipped) throw new Error(`${kind.replace(/s$/, '')} "${oldId}" does not exist — dt list ${kind}`);
 	refuseNpmEntity(kind, oldId, shipped);
@@ -2818,7 +2827,7 @@ export function renameEntity(ws, store, kind, oldId, newId) {
 }
 
 export function setEntityFrontmatter(ws, store, kind, id, changes) {
-	const shape = ENTITY_SHAPE[kind];
+	const shape = entityShape(ws, kind);
 	const { dir, file, shipped } = entitySource(ws, kind, id);
 	if (!shipped) throw new Error(`${kind.replace(/s$/, '')} "${id}" does not exist — dt list ${kind}`);
 	refuseNpmEntity(kind, id, shipped);

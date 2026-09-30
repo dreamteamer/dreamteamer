@@ -250,7 +250,8 @@ export function readStdin(isTTY = process.stdin.isTTY) {
 	try { return fs.readFileSync(0, 'utf8'); } catch { return ''; }
 }
 
-/** What the harness said, as `{ cwd, name, raw }`.
+/** What the harness said, as `{ cwd, name, raw }`. Exported through the public API because an
+ *  extension's own hook form (`worktree add --hook`) parses the same payload.
  *
  *  ⚠ THE FIELD NAMES ARE THE HARNESS'S. Claude Code's hooks reference documents every event as
  *  carrying `cwd`, and the two worktree events as additionally carrying `worktree_name` and
@@ -271,15 +272,12 @@ export function readHookInput(stdinText) {
 	return { cwd, name, raw };
 }
 
-// The three worktree-lifecycle events and the verb each one runs. NO MATCHER on any of them
-// (spec §13.9): bootstrap is idempotent precisely so the session-start hook may fire on every
-// event — `startup` alone would silence it on resume, clear, compact and fork, which is most of
-// what a long worktree session actually does.
-const CLAUDE_HOOKS = {
-	SessionStart: 'install --hook',
-	WorktreeCreate: 'add worktrees --hook',
-	WorktreeRemove: 'land --hook --dry-run',
-};
+// The hook events and the verb each one runs. Core owns ONE — making the checkout a session opens in
+// ready — and an installed extension adds its own (`hooks:` in its contribution; the worktree
+// lifecycle lives in @dreamteamer/workflows). NO MATCHER on any of them (spec §13.9): bootstrap is
+// idempotent precisely so the session-start hook may fire on every event — `startup` alone would
+// silence it on resume, clear, compact and fork, which is most of what a long session actually does.
+const CLAUDE_HOOKS = { SessionStart: 'install --hook' };
 
 /** Print the harness snippets for this workspace's declared harnesses.
  *
@@ -293,7 +291,7 @@ const CLAUDE_HOOKS = {
  *  reviewed like any config change; a fifth harness channel writing into a user-owned file is a
  *  decision this engine has not made (spec §13.7). So this verb PRINTS — snippets on stdout, so the
  *  output can be piped, and everything else on stderr so it stays parseable. */
-export function printAdapters(ws, { harnesses = ws.pkg.dreamteamer?.harnesses ?? ['claude-code'] } = {}) {
+export function printAdapters(ws, { harnesses = ws.pkg.dreamteamer?.harnesses ?? ['claude-code'], extensions = ws.extensions ?? [] } = {}) {
 	// ⚠ AN EMPTY RENDER IS A REFUSAL, NOT A SUCCESS. The whole point of this verb is that its stdout
 	// is redirected into a settings file — so printing nothing at exit 0 writes an EMPTY hooks.json
 	// over whatever was there, silently, on the one workspace that never declared the harness.
@@ -306,11 +304,18 @@ export function printAdapters(ws, { harnesses = ws.pkg.dreamteamer?.harnesses ??
 		// package.json carries. The design doc's shorter `claude` names no harness this engine
 		// compiles for, so accepting it would only ever mask a misspelling.
 		if (h !== 'claude-code') {
-			console.error(`${h}: adapter not yet shipped (decision 315) — see using-dreamteamer › references/worktrees.md`);
+			console.error(`${h}: adapter not yet shipped (decision 315)`);
 			continue;
 		}
 		const hooks = {};
-		for (const [event, verb] of Object.entries(CLAUDE_HOOKS)) {
+		const events = { ...CLAUDE_HOOKS };
+		for (const e of extensions) {
+			for (const [event, verb] of Object.entries(e.hooks ?? {})) {
+				if (events[event]) throw new Error(`extension ${e.name} and ${Object.keys(CLAUDE_HOOKS).includes(event) ? 'the engine' : 'another extension'} both hook ${event} — uninstall or disable one`);
+				events[event] = verb;
+			}
+		}
+		for (const [event, verb] of Object.entries(events)) {
 			hooks[event] = [{ hooks: [{ type: 'command', command: `sh "$CLAUDE_PROJECT_DIR/node_modules/dreamteamer/bin/dt-hook.sh" ${verb}`, timeout: 600 }] }];
 		}
 		console.error('# merge into .claude/settings.json — writing it is the operator\'s act, never the engine\'s');
@@ -328,7 +333,7 @@ export function printAdapters(ws, { harnesses = ws.pkg.dreamteamer?.harnesses ??
  *  NOTHING else: the board goes to stderr (a human watching a piped run still wants it),
  *  console.log is pointed at stderr for the duration, and each subprocess is handed stderr for its
  *  own stdout. A `--json` that only parses on an already-settled checkout is not an interface. */
-export function installCommand(ws, rest) {
+export async function installCommand(ws, rest, { open = async (at) => findWorkspace(at) } = {}) {
 	const flags = new Set(rest.filter((a) => a.startsWith('--')));
 	if (flags.has('--print-adapters')) return printAdapters(ws, {});
 	const hook = flags.has('--hook');
@@ -339,7 +344,9 @@ export function installCommand(ws, rest) {
 	if (hook) {
 		const input = readHookInput(readStdin());
 		if (!input.cwd) throw new Error(`hook input carries no cwd — keys received: ${Object.keys(input.raw).join(', ')}`);
-		ws = findWorkspace(input.cwd);
+		// the checkout the payload names, opened the way the caller opens one (the CLI passes
+		// `openWorkspace`, so ITS extensions load — their hooks and kinds are part of that checkout)
+		ws = await open(input.cwd);
 	}
 	const json = flags.has('--json');
 	const state = observeState(ws);
@@ -358,309 +365,11 @@ export function installCommand(ws, rest) {
 		console.log = stdout;
 	}
 	if (json) { console.log(JSON.stringify({ checkout: state.checkout, steps, log: board, code }, null, 2)); return code; }
-	// ⚠ THE BOARD IS THE SESSION'S CONTEXT when a session-start hook runs it, so its LAST line is
-	// the landing instruction (spec §13.10) — the one thing a spawned session cannot work out for
-	// itself and the one thing it has to do before it finishes.
+	// ⚠ THE BOARD IS THE SESSION'S CONTEXT when a session-start hook runs it, so its LAST line says
+	// the one thing a session in a linked worktree cannot work out for itself: its records are
+	// invisible from the primary until they are committed here.
 	if (state.checkout.kind === 'linked') {
-		const name = path.basename(ws.root);
-		log(hook
-			? `\nthis is worktree ${name} of ${state.checkout.primary}; before you finish, dt commit your records and tell the operator to run dt land worktrees/${name}`
-			: `\nbefore you finish here: dt commit your records, then the operator runs dt land worktrees/${name}.`);
+		log(`\nthis is linked worktree ${path.basename(ws.root)} of ${state.checkout.primary}; before you finish, dt commit your records here — they are invisible from the primary until you do.`);
 	}
 	return code;
-}
-
-// ---- worktrees: an OBSERVED entity ---------------------------------------------------------
-//
-// There is no `worktrees` collection and no record. `git worktree list` is the authority, and a
-// stored copy of it could only ever drift — a worktree the operator removed by hand, a branch
-// deleted from the primary, a directory moved. So every row below is DERIVED: git's porcelain plus
-// two cheap reads per row (the dirty records under the data path, and whether a manifest is there).
-
-/** Every checkout of this repo, primary first, as git reports it.
- *
- *  ⚠ `ahead` IS NULL FOR A DETACHED WORKTREE, not 0 — `rev-list <primary>..<no branch>` has nothing
- *  to count, and `--detach` is how anyone bisects, so the null case is ordinary rather than exotic.
- *  `dirtyRecords` is deliberately scoped to the DATA path: uncommitted records are the thing that
- *  cannot be recovered from the primary, and they are invisible from it. */
-export function listWorktrees(ws, git = defaultGit) {
-	const c = describeCheckout(ws.root, git);
-	const primaryBranch = git(['rev-parse', '--abbrev-ref', 'HEAD'], c.primary);
-	const dataPath = ws.pkg.dreamteamer?.['data-path'] ?? 'data';
-	const rows = [];
-	let cur = null;
-	for (const line of git(['worktree', 'list', '--porcelain'], c.primary).split('\n')) {
-		if (line.startsWith('worktree ')) { cur = { path: line.slice(9), branch: null, head: null }; rows.push(cur); }
-		else if (line.startsWith('HEAD ')) cur.head = line.slice(5, 12);
-		else if (line.startsWith('branch ')) cur.branch = line.slice(7).replace(/^refs\/heads\//, '');
-	}
-	return rows.map((w) => {
-		const primary = real(w.path) === real(c.primary);
-		// ⚠ THE NAME IS WHAT WAS TYPED, not the directory it landed in. `--path` lets the two
-		// differ, and the name is what `get`, the duplicate guard and the branch cleanup key on —
-		// so it is recovered from the branch this verb creates, which is the only place git keeps
-		// it. A worktree on someone else's branch, or a detached one, has nothing but its basename.
-		const name = !primary && w.branch?.startsWith('worktree-') ? w.branch.slice('worktree-'.length) : path.basename(w.path);
-		let ahead = null;
-		if (w.branch && !primary) {
-			try { ahead = Number(git(['rev-list', '--count', `${primaryBranch}..${w.branch}`], c.primary)); } catch { ahead = null; }
-		}
-		let dirtyRecords = 0;
-		try { dirtyRecords = git(['status', '--porcelain', '--', dataPath], w.path).split('\n').filter(Boolean).length; } catch { /* unreadable tree — a moved or deleted directory */ }
-		return {
-			name, path: w.path, branch: w.branch, head: w.head, primary, ahead, dirtyRecords,
-			bootstrapped: resolves(path.join(w.path, '.dreamteamer', 'manifest.yaml')),
-		};
-	});
-}
-
-/** A worktree by name or by path — one id shape, two spellings, because the name is what an
- *  operator types and the path is what a creation hook echoes. The PATH is tried first, since it is
- *  unique by construction and a name is not.
- *
- *  ⚠ AN AMBIGUOUS NAME IS REFUSED, never resolved to whichever row git listed first. Two --temp
- *  sandboxes may share a name — their random holders keep the paths distinct, which is the whole
- *  point of having one — and silently picking one of them is how a removal lands on the wrong
- *  sandbox and takes work with it. */
-export function findWorktree(ws, ref) {
-	if (!ref) return null;
-	const rows = listWorktrees(ws);
-	const byPath = rows.find((w) => real(w.path) === real(path.resolve(ws.root, ref)));
-	if (byPath) return byPath;
-	const byName = rows.filter((w) => w.name === ref);
-	if (byName.length > 1) {
-		throw new Error(`"${ref}" names ${byName.length} worktrees — address one by path:\n  ${byName.map((w) => `worktrees/${w.path}`).join('\n  ')}`);
-	}
-	return byName[0] ?? null;
-}
-
-/** The engine binary that is RUNNING — never `node_modules/dreamteamer` resolved in the workspace.
- *  The new tree may have no node_modules at all yet, and the engine the operator invoked is the one
- *  that should make it ready. */
-const engineBin = () => fileURLToPath(new URL('../bin/dreamteamer.js', import.meta.url));
-
-/**
- * The worktree, MADE — everything `addWorktree` does except the final `console.log`, and the path it
- * returns is that same line. Split out for `dt prove`, whose `writes` sandbox is a `--temp` worktree
- * it has to keep the path of rather than read back off stdout.
- *
- * ⚠ `quiet` EXTENDS THE OPTION BAG, and it is not cosmetic. The install step runs with
- * `stdio: 'inherit'`, so a caller printing a machine-readable stream (`dt prove --json` emits ONE
- * object on stdout and nothing else) would have a compile transcript spliced in ahead of it.
- * `addWorktree` never passes it, so what a `dt add worktrees` prints is unchanged.
- */
-export function createWorktree(ws, { name, dir, base = 'HEAD', temp = false, quiet = false }, git = defaultGit) {
-	if (!name) throw new Error('dt add worktrees needs --name <name>');
-	const c = describeCheckout(ws.root, git);
-	// ⚠ A --temp SANDBOX MAY REUSE A NAME, and refusing the second one would half-defeat the random
-	// holder that exists to allow it. So a sandbox is addressed by the PATH `add` printed, and the
-	// ambiguous name is refused at the READ instead (findWorktree).
-	if (!temp && findWorktree(ws, name)) throw new Error(`worktree "${name}" already exists — dt get worktrees/${name}`);
-	if (!temp && git(['branch', '--list', `worktree-${name}`], c.primary)) {
-		throw new Error(`branch worktree-${name} already exists — pick another name or delete the branch`);
-	}
-	// ⚠ --temp LIVES INSIDE THE PRIMARY ROOT TOO: `.worktrees/.tmp-<rand>/<name>`. Two measured
-	// reasons, neither cosmetic. `.env` is linked only for a worktree under the primary root, so a
-	// sandbox outside it would never get credentials; and git records the REALPATH of a worktree,
-	// while macOS resolves /var to /private/var — so an os.tmpdir() sandbox compares unequal to its
-	// own row in `git worktree list` and could be neither got nor removed by the path it printed.
-	// ⚠ NOT ACCEPTED AND IGNORED. --temp places the sandbox itself, so a --path alongside it names a
-	// directory that would silently not be the one made.
-	if (temp && dir) throw new Error('--temp places the sandbox itself (.worktrees/.tmp-<rand>/<name>) — pass either --temp or --path <dir>, not both');
-	const holder = path.join(c.primary, '.worktrees');
-	if (temp) fs.mkdirSync(holder, { recursive: true });
-	// ⚠ NEVER PRE-CREATE `target`: `git worktree add` creates it, and an empty pre-created folder is
-	// swept by compile's empty-directory pass.
-	const sandbox = temp ? fs.mkdtempSync(path.join(holder, '.tmp-')) : null;
-	const target = sandbox ? path.join(sandbox, name) : path.resolve(ws.root, dir ?? path.join(holder, name));
-	try {
-		git(temp ? ['worktree', 'add', '--detach', target, base] : ['worktree', 'add', '-b', `worktree-${name}`, target, base], c.primary);
-	} catch (e) {
-		// The holder was made a line ago and holds nothing yet: a bad --base would otherwise leave
-		// an empty `.tmp-<rand>` behind, and `.worktrees/` is ignored, so nobody would ever see it.
-		if (sandbox) fs.rmSync(sandbox, { recursive: true, force: true });
-		throw e;
-	}
-	// The engine must be reachable from the new tree before `install` can compile there. When THIS
-	// tree's node_modules/dreamteamer is a SYMLINK (a dev shadow, a test fixture) mirror that ONE
-	// link — never the node_modules directory, which is a real folder holding it. Otherwise
-	// install's own engine step runs npm there, so a real workspace pays one `npm ci` per worktree
-	// and per --temp sandbox (from the npm cache).
-	const eng = path.join(ws.root, 'node_modules', 'dreamteamer');
-	if (isLink(eng)) {
-		fs.mkdirSync(path.join(target, 'node_modules'), { recursive: true });
-		fs.symlinkSync(realpathSync(eng), path.join(target, 'node_modules', 'dreamteamer'), 'dir');
-	}
-	// ⚠ AND THE SAME FOR A SHADOWING `git_modules` ENTRY, for the same reason one layer up. A
-	// workspace on the dev-clone toggle runs its engine — or one of its modules — from a SYMLINK
-	// under `git_modules/`, which is gitignored and therefore per checkout: a worktree cut from such
-	// a workspace got neither the link nor a clone, so its own `install` fell back to the PINNED npm
-	// copy and it compiled against a different compiler than the tree it was cut from. Measured in a
-	// sandbox of a shadowed workspace: compile hard-failed on a kind the pinned engine does not know
-	// and every proof in it reported FAIL.
-	//
-	// LINKS ONLY. A real `git_modules/<name>` clone is per-checkout working state that `install`
-	// restores from the lockfile; linking one would give two checkouts a single working tree.
-	const shadows = path.join(ws.root, 'git_modules');
-	for (const name of (fs.existsSync(shadows) ? fs.readdirSync(shadows) : [])) {
-		if (!isLink(path.join(shadows, name))) continue;
-		fs.mkdirSync(path.join(target, 'git_modules'), { recursive: true });
-		fs.symlinkSync(realpathSync(path.join(shadows, name)), path.join(target, 'git_modules', name), 'dir');
-	}
-	const r = spawnSync(process.execPath, [engineBin(), 'install'], { cwd: target, stdio: quiet ? 'pipe' : 'inherit' });
-	if (r.status !== 0) console.warn(`⚠ install inside ${target} exited ${r.status} — the worktree exists; re-run dt install there`);
-	return target;
-}
-
-/** `dt add worktrees --name <name>`. Contract: the PATH is the last line, and the code is 0.
- *
- *  ⚠ `--json` IS HONOURED HERE OR NOWHERE. The flag was in the verb's table and read by neither
- *  form, so `dt add worktrees --name x --json` printed a bare path at exit 0 — a flag accepted and
- *  dropped, which is the class this file's own comments call a silent wrong answer. Under it stdout
- *  carries ONE object and nothing else, so the install inside runs quiet: its compile transcript
- *  would otherwise be spliced in ahead of the payload. */
-export function addWorktree(ws, opts, git = defaultGit) {
-	const json = !!opts.json;
-	const target = createWorktree(ws, { ...opts, quiet: json }, git);
-	console.log(json ? JSON.stringify({ path: target }) : target); // LAST line, by contract: a creation hook echoes it
-	return 0;
-}
-
-/** ⚠ IT REFUSES BY DEFAULT, AND THE REASON IS NAMED. A worktree holds two things the primary cannot
- *  see: records written but not committed, and commits not yet landed. `git worktree remove` knows
- *  about neither — it checks a dirty tree and stops there — so the records, the one thing this
- *  engine exists to keep, are exactly what a bare `remove` would take with it. */
-export function removeWorktree(ws, ref, { force = false } = {}, git = defaultGit) {
-	const w = findWorktree(ws, ref);
-	if (!w) throw new Error(`no worktree "${ref}" — dt list worktrees`);
-	if (w.primary) throw new Error('refusing to remove the primary checkout');
-	const c = describeCheckout(ws.root, git);
-	const primaryBranch = git(['rev-parse', '--abbrev-ref', 'HEAD'], c.primary);
-	// ⚠ THE DATA-LOSS PATH, and `--temp` makes it the ordinary one. `ahead` is null for a DETACHED
-	// worktree by construction (the field is specified that way and pinned by its own test), and
-	// `git worktree remove` checks only modified and untracked files — never reachability. So a
-	// sandbox whose work had been COMMITTED read as clean with nothing ahead and was removed at exit
-	// 0, orphaning every commit the moment its HEAD went with it.
-	//
-	// ⚠ AND THE DETACHED QUESTION IS A DIFFERENT QUESTION. A branch's work is held by the branch and
-	// merely un-LANDED (`primaryBranch..branch`, fixed by a merge); a detached HEAD's work is held by
-	// nothing but the HEAD about to be deleted, i.e. ORPHANED — so the measure is "reachable from no
-	// ref at all", and once any branch holds it the removal is safe. `--not --all` cannot answer
-	// this: `--all` examines every working tree, the sandbox's own HEAD included, so it answered 0
-	// for the very commits at risk (measured). `--branches --tags --remotes` is the honest ref set.
-	//
-	// ⚠ AND IT FAILS CLOSED. This measurement is what the refusal turns on, so a `catch` that set it
-	// back to null answered "nothing ahead" for a measurement that never ran — no refusal fired and
-	// the destructive removal went through at exit 0, which is the exact loss the guard exists to
-	// prevent, reached by the one path nobody walks. An unmeasured guard is a refusal, not a pass.
-	//
-	// ⚠ SO THE RAW STRING IS VALIDATED, NOT THE NUMBER, and the difference is a data-loss bug.
-	// `Number('')` is 0 and `Number.isInteger(0)` is true, so an integer check waves an EMPTY answer
-	// through as "nothing ahead" — the same fail-open, one layer down. `/^\d+$/` is the only gate
-	// that separates "git counted zero" from "git said nothing"; `Number()` runs after it, on a
-	// string already known to be a count. (`git` is an exported PARAMETER of this function, so the
-	// trimming, exit-code-checking `defaultGit` is not the only runner this has to survive.)
-	let ahead = w.ahead;
-	let unmeasured = null;
-	const orphaned = w.ahead === null && !w.primary && w.head;
-	if (orphaned) {
-		try {
-			const out = String(git(['rev-list', '--count', w.head, '--not', '--branches', '--tags', '--remotes'], c.primary) ?? '').trim();
-			if (/^\d+$/.test(out)) ahead = Number(out);
-			else unmeasured = out ? `git rev-list answered "${out}", which is not a count` : 'git rev-list answered nothing';
-		} catch (e) { unmeasured = String(e.message ?? e).split('\n')[0]; }
-	}
-	if (!force) {
-		// The unmeasured case leads, because it is the one refusal that cannot name what is at risk:
-		// a detached worktree's commits are held by nothing but the HEAD about to be deleted.
-		if (unmeasured) {
-			throw new Error(`refusing to remove worktree "${w.name}": whether its commits are reachable from anything else could not be measured — ${unmeasured}\n  ${w.head} is held by nothing but this worktree unless a ref names it: git branch <name> ${w.head} to keep it, or --force to remove without the check`);
-		}
-		// ⚠ THE DIRECTORY CAN BE GONE while git still lists the worktree — someone deleted it by
-		// hand. `list` already reports that (NOT installed); here, reading its dirty state in a cwd
-		// that does not exist died as `✖ spawnSync git ENOENT`, a message about the wrong thing
-		// entirely on the one state where dropping the registration cannot lose anything.
-		if (!resolves(w.path)) throw new Error(`worktree "${w.name}" is registered but its directory is gone (${w.path}) — nothing to lose: dt rm worktrees/${w.name} --force drops the registration`);
-		const dirty = git(['status', '--porcelain'], w.path).split('\n').filter(Boolean).length;
-		const why = [];
-		if (w.dirtyRecords) why.push(`${w.dirtyRecords} dirty record(s) — dt commit them, or --force to discard`);
-		else if (dirty) why.push(`${dirty} uncommitted change(s) — commit or --force`);
-		if (ahead && orphaned) why.push(`${ahead} commit(s) reachable from NOTHING but this worktree — git branch <name> ${w.head} to keep them, or --force to discard`);
-		else if (ahead) why.push(`${ahead} commit(s) not on ${primaryBranch} — merge branch ${w.branch}, or --force to discard`);
-		if (why.length) throw new Error(`refusing to remove worktree "${w.name}":\n  ${why.join('\n  ')}`);
-	}
-	git(['worktree', 'remove', ...(force ? ['--force'] : []), w.path], c.primary);
-	// Only a branch this verb CREATED is deleted with the worktree. A worktree checked out on `main`
-	// or on someone's feature branch keeps it — and SAYS SO, because a branch left behind silently
-	// is a branch nobody knows to look at: `list` cannot show it once the worktree is gone.
-	if (w.branch === `worktree-${w.name}`) {
-		try { git(['branch', force ? '-D' : '-d', w.branch], c.primary); } catch { console.warn(`⚠ branch ${w.branch} kept (not merged)`); }
-	} else if (w.branch) {
-		console.log(`  branch ${w.branch} kept — it is not the worktree-${w.name} this verb creates`);
-	}
-	// A sandbox lives alone in its own `.tmp-<rand>` holder; nothing else does. The holder goes with
-	// it, or every sandbox ever cut leaves an empty directory behind for ever — and `.worktrees/` is
-	// ignored, which is exactly why it would accumulate unnoticed.
-	const holder = path.dirname(w.path);
-	if (path.basename(holder).startsWith('.tmp-') && path.dirname(holder) === path.join(c.primary, '.worktrees')) {
-		try { fs.rmdirSync(holder); } catch { /* not empty — something else is in there */ }
-	}
-	console.log(`✔ removed worktree ${w.name}`);
-	return 0;
-}
-
-/** `dt list|get|add|rm worktrees[/<ref>]`. The flags arrive PARSED and already refused by the
- *  surface — `worktrees` has no descriptor, so nothing downstream would catch a typo. */
-export function worktreeCommand(ws, verb, target, flags = {}) {
-	// A repeated flag arrives as an array (the parser promotes rather than overwrites). Every flag
-	// here holds ONE value, so a repeat is a mistake — and a silent last-one-wins would spell
-	// `--name a --name b` as the branch `worktree-a,b`.
-	const one = (k) => {
-		if (Array.isArray(flags[k])) throw new Error(`--${k} was given ${flags[k].length} times and takes ONE value: ${flags[k].map((x) => `--${k} ${x}`).join(' ')}`);
-		return typeof flags[k] === 'string' ? flags[k] : undefined;
-	};
-	const json = !!flags.json;
-	// SLICE, never split: `worktrees//abs/path` is one valid id, and a split at '/' mangles it.
-	const id = target.startsWith('worktrees/') ? target.slice('worktrees/'.length) : null;
-	const needId = () => { if (!id) throw new Error(`dt ${verb} needs a worktree: dt ${verb} worktrees/<name>`); return id; };
-	switch (verb) {
-		case 'list': {
-			const rows = listWorktrees(ws);
-			if (json) console.log(JSON.stringify(rows, null, 2));
-			else for (const w of rows) {
-				console.log(`${w.primary ? '●' : '○'} ${w.name.padEnd(24)} ${(w.branch ?? '(detached)').padEnd(28)} ${w.head}  ahead ${w.ahead ?? '—'}  dirty records ${w.dirtyRecords}  ${w.bootstrapped ? 'installed' : 'NOT installed'}  ${w.path}`);
-			}
-			return 0;
-		}
-		case 'get': {
-			const w = findWorktree(ws, needId());
-			if (!w) throw new Error(`no worktree "${id}" — dt list worktrees`);
-			console.log(json ? JSON.stringify(w, null, 2) : Object.entries(w).map(([k, v]) => `${k}: ${v}`).join('\n'));
-			return 0;
-		}
-		case 'add': {
-			// ⚠ THE HOOK IMPLIES THE PLACEMENT, and it is `.worktrees/`, never `.claude/worktrees/`.
-			// `.worktrees/` is already gitignored by every workspace `init` writes, while anything
-			// under `.claude` sits inside compile's empty-directory sweep — so the primary's next
-			// compile would walk a LIVE worktree and delete its empty folders. Claude's own placement
-			// logic is replaced by this hook, so the path printed last is the path it then uses.
-			if (!flags.hook) return addWorktree(ws, { name: one('name'), dir: one('path'), base: one('base'), temp: !!flags.temp, json });
-			// ⚠ AND IT IS A FORM, so it refuses the other form's vocabulary itself — the same policy
-			// `dt install`'s three forms follow, for the same measured reason. The flag table can
-			// only say which flags the VERB has; it cannot know that `--temp` is meaningless once
-			// the name and the placement both come off stdin. `--hook --temp` cut a PERMANENT branch
-			// worktree at exit 0, and `--hook --base nosuchref` cut from HEAD at exit 0: a flag
-			// accepted and dropped is a silent wrong answer, not a cosmetic loss.
-			const stray = ['temp', 'path', 'base'].filter((f) => flags[f] !== undefined);
-			if (stray.length) {
-				const named = stray.map((f) => `--${f}`).join(' ');
-				throw new Error(`${named} ${stray.length > 1 ? 'are not flags' : 'is not a flag'} of \`dt add worktrees --hook\` — that form takes --hook --json`);
-			}
-			const input = readHookInput(readStdin());
-			if (!input.name) throw new Error(`hook input carries no worktree_name — keys received: ${Object.keys(input.raw).join(', ')}`);
-			return addWorktree(ws, { name: input.name, dir: path.join('.worktrees', input.name), json });
-		}
-		case 'rm': return removeWorktree(ws, needId(), { force: !!flags.force });
-		default: throw new Error(`dt ${verb} does not apply to worktrees — they take list · get · add · rm`);
-	}
 }
