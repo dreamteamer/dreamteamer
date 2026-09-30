@@ -63,7 +63,7 @@ export function relationsOf(descriptors: Descriptors): any[];
 export function matchesFilter(row: Fields, filter: unknown, resolve?: unknown): boolean;
 export function unknownOperators(filter: unknown): Set<string>;
 export function looseEq(a: unknown, b: unknown): boolean;
-export const KNOWN_OPERATORS: readonly string[];
+export const KNOWN_OPERATORS: ReadonlySet<string>;
 export function sortRows<T>(rows: T[], sort: string | null | undefined): T[];
 export function compareValues(a: unknown, b: unknown): number;
 export function distinctValues(store: Store, collection: string, field: string, opts?: { limit?: number }): any;

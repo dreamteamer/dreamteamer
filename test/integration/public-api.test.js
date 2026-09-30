@@ -9,6 +9,7 @@ import path from 'node:path';
 import { spawnSync, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { workspace, git, ENGINE_ROOT } from '../helpers/ws.js';
+import { resolveNpm, childEnv } from '../../src/checkout.js';
 
 const dts = (f) => fs.readFileSync(path.join(ENGINE_ROOT, 'src', f), 'utf8');
 
@@ -52,6 +53,35 @@ describe('dreamteamer (the public API)', () => {
 		}
 	});
 
+	// ⚠ NAMES ARE NOT ENOUGH — the SHAPE is the contract too. `KNOWN_OPERATORS` was declared an array
+	// while the runtime value is a Set, so strict TypeScript accepted `.includes('_eq')` and it threw
+	// at run time (review F8). Every declared value is checked against the kind its type names.
+	test('every declared export has the runtime SHAPE its type says', async () => {
+		for (const [mod, file] of [['../../src/api.js', 'api.d.ts'], ['../../src/records-api.js', 'records-api.d.ts']]) {
+			const api = await import(mod);
+			const text = dts(file);
+			for (const m of text.matchAll(/^export (?:declare )?(?:function|class) ([A-Za-z_$][\w$]*)/gm)) {
+				assert.equal(typeof api[m[1]], 'function', `${file}: ${m[1]} is declared a function/class, runtime is ${typeof api[m[1]]}`);
+			}
+			for (const m of text.matchAll(/^export const (.+);$/gm)) {
+				for (const part of m[1].split(/,\s*(?=[A-Za-z_$][\w$]*\s*:\s*[A-Z'\d(r])/)) {
+					const [, name, type] = /^([A-Za-z_$][\w$]*)\s*:\s*([\s\S]+)$/.exec(part.trim()) ?? [];
+					if (!name) continue;
+					const v = api[name];
+					if (/^ReadonlySet</.test(type)) assert.ok(v instanceof Set, `${name}: declared ReadonlySet, runtime is not a Set`);
+					else if (/^readonly .*\[\]$/.test(type)) assert.ok(Array.isArray(v), `${name}: declared an array, runtime is not one`);
+					else if (type === 'string') assert.equal(typeof v, 'string', name);
+					else if (/^'.*'$/.test(type)) assert.equal(v, type.slice(1, -1), name);
+					else if (/^\d+$/.test(type)) assert.equal(v, Number(type), name);
+					else if (type === 'SchemaOp') assert.equal(typeof v, 'function', name);
+					else assert.fail(`${file}: ${name}: no shape rule for the declared type "${type}" — add one here`);
+				}
+			}
+		}
+		const { KNOWN_OPERATORS } = await import('../../src/records-api.js');
+		assert.equal(KNOWN_OPERATORS.has('_eq'), true);
+	});
+
 	// ⚠ THE BROWSER CONSTRAINT. The mobile app runs `dreamteamer/records` in a browser with shims for
 	// exactly three node builtins. A record-half import that reached the compiler, the extension
 	// loader or the CLI would pull `node:url`/`node:crypto`/`node:os` in at import time and the app
@@ -90,10 +120,17 @@ describe('the INSTALLED package', () => {
 	test('`import "dreamteamer"` resolves to the API, and `dreamteamer/src/*` is not reachable', () => {
 		const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dt-pack-'));
 		// pack exactly what `files` publishes, then install that tarball — never the source tree
-		const tgz = execFileSync('npm', ['pack', '--silent', '--pack-destination', dir], { cwd: ENGINE_ROOT, encoding: 'utf8', timeout: 120_000 }).trim().split('\n').pop();
+		// npm resolved the way `dt install` resolves it — beside the running node first, PATH second — and
+		// a failure reported with npm's own words: the review saw this step fail in a copied tree with
+		// nothing but "Command failed" to go on.
+		const npm = resolveNpm();
+		assert.ok(npm, 'no npm beside this node or on PATH — the packed-install check cannot run');
+		const pack = spawnSync(npm, ['pack', '--silent', '--pack-destination', dir], { cwd: ENGINE_ROOT, encoding: 'utf8', timeout: 120_000, env: childEnv() });
+		assert.equal(pack.status, 0, `npm pack failed (status ${pack.status}${pack.error ? `, ${pack.error.message}` : ''}):\n${pack.stderr}${pack.stdout}`);
+		const tgz = pack.stdout.trim().split('\n').pop();
 		fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'consumer', private: true, type: 'module' }));
-		const inst = spawnSync('npm', ['install', '--no-audit', '--no-fund', '--prefer-offline', path.join(dir, tgz)], { cwd: dir, encoding: 'utf8', timeout: 300_000 });
-		assert.equal(inst.status, 0, inst.stderr);
+		const inst = spawnSync(npm, ['install', '--no-audit', '--no-fund', '--prefer-offline', path.join(dir, tgz)], { cwd: dir, encoding: 'utf8', timeout: 300_000 });
+		assert.equal(inst.status, 0, `npm install of the tarball failed (status ${inst.status}${inst.error ? `, ${inst.error.message}` : ''}):\n${inst.stderr}`);
 		// the core install is LEAN: no HTTP framework, no optional tool
 		const installed = fs.readdirSync(path.join(dir, 'node_modules'));
 		assert.ok(!installed.includes('express'), 'express is still in the core dependency tree');
