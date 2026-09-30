@@ -57,6 +57,12 @@ loaded by every `dt` invocation, `dt status` lists it, and `dt help` appends its
 - `dt init` commits only the files it wrote; unrelated staged work in an existing repo stays staged.
 - `dt install --hook` in a linked worktree closes with "commit your records here" instead of naming
   `dt land`.
+- `dt install`'s first step is `dependencies` (was `engine`): it runs npm when ANY declared direct
+  dependency is missing, not only the engine, checks afterwards that every one resolves, keeps every
+  linked package (a dev engine) as the link it was, and compiles with the extensions npm just
+  installed. A workspace that declares no dependencies no longer runs npm at all.
+- `dreamteamer.disable` switches off a scoped package by its full name (`@dreamteamer/workflows`) or
+  its module id (`workflows`) — its code and its content together.
 
 ---
 
