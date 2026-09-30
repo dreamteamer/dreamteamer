@@ -45,8 +45,8 @@ export class Store {
 export function bodyField(d: Descriptor): string | null;
 export function serialize(d: Descriptor, fields: Fields): string;
 export function atomicWrite(file: string, data: string | Buffer): void;
-export function parseRecord(d: Descriptor, file: string): Fields;
-export function parseRecordText(d: Descriptor, text: string): Fields;
+export function parseRecord(file: string, d: Descriptor, bodyField?: string | null): Fields;
+export function parseRecordText(text: string, d: Descriptor, bodyField?: string | null): Fields;
 export function idFromRecordPath(d: Descriptor, file: string): string;
 /** 0 clean · 1 violations · 2 no compiled runtime; prints its report */
 export function check(ws: { root: string; pkg?: unknown }): 0 | 1 | 2;
