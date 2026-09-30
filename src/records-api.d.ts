@@ -15,7 +15,7 @@ export type Descriptor = {
 	[k: string]: unknown;
 };
 export type Descriptors = Map<string, Descriptor>;
-export type Manifest = { compiled: string; engine: string; namespaces: string[]; extensions?: { name: string; version: string }[]; 'source-kinds'?: { kind: string; exclude: string[]; extension: string }[]; entries: Record<string, { sources: { path: string; hash: string }[]; hash: string }>; [k: string]: unknown };
+export type Manifest = { compiled: string; host: string; engine: string; namespaces: string[]; modules: { name: string; location: string; channel: string; root: string }[]; ui: string[]; 'adapter-outputs': string[]; 'adapter-blocks': string[]; extensions?: { name: string; version: string }[]; 'source-kinds'?: { kind: string; exclude: string[]; extension: string }[]; entries: Record<string, { sources: { path: string; hash: string }[]; hash: string }>; [k: string]: unknown };
 
 export const apiVersion: 1;
 export function engineVersion(): string;
