@@ -263,6 +263,16 @@ describe('the loader refuses what it cannot honour — at open, by name', () => 
 		await assert.rejects(openWorkspace(c.root), /targets extension API 2/);
 	});
 
+	test('an extension whose engine floor is unmet is not loaded, and says so', () => {
+		const ws = workspace({ compile: false });
+		const dir = install(ws.root, { name: 'late-kit', descriptor: null });
+		const pkg = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8'));
+		fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ ...pkg, dreamteamer: { ...pkg.dreamteamer, engine: '>=99.0.0' } }));
+		const r = dt(ws.root, 'hello');
+		assert.notEqual(r.code, 3, 'its verb did not run');
+		assert.match(r.stderr, /✖ extension late-kit needs engine ">=99\.0\.0" — this is [\d.]+, so it is not loaded/);
+	});
+
 	test('a DISABLED extension is not loaded, and a transitive one never is', async () => {
 		const ws = workspace({ compile: false, pkg: { disable: ['probe-kit'] } });
 		install(ws.root);

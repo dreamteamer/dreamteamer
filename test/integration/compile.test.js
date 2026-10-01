@@ -763,6 +763,48 @@ describe('a command-binding gated on a peer collection', () => {
 });
 
 // ---------------------------------------------------------------------------------------------
+// A module whose `dreamteamer.engine` excludes the running engine is refused whole.
+describe('a module whose engine floor is unmet', () => {
+	const future = (root) => {
+		writeModule(root, 'future', { collections: { gizmos: simpleCollection({ storage: { suffix: 'gizmo' } }) } });
+		patchModulePkg(root, 'future', { engine: '>=99.0.0' });
+		fs.mkdirSync(path.join(root, 'modules', 'future', 'skills', 'tinker'), { recursive: true });
+		fs.writeFileSync(path.join(root, 'modules', 'future', 'skills', 'tinker', 'SKILL.md'), '---\nname: tinker\ndescription: use when tinkering\n---\nTinker.\n');
+	};
+
+	test('is refused with a message naming the floor, and none of its content compiles', () => {
+		const ws = workspace({ compile: false });
+		future(ws.root);
+		const c = dt(ws.root, 'compile');
+		assert.equal(c.code, 0, c.stderr);
+		const version = JSON.parse(fs.readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).version;
+		assert.ok(c.stderr.includes(`✖ module future needs engine ">=99.0.0" — this is ${version}, so none of its content is compiled`), c.stderr);
+		assert.equal(readFile(ws.root, '.dreamteamer/collections/gizmos.collection.yaml'), null);
+		assert.equal(fs.existsSync(path.join(ws.root, '.dreamteamer', 'skills', 'tinker')), false);
+		const list = dt(ws.root, 'list', 'gizmos');
+		assert.match(list.stderr, /unknown collection "gizmos"/);
+		assert.doesNotMatch(list.stderr, /stale/, 'a refused module is not reported as uncompiled sources');
+	});
+
+	test('a module depending on it fails compile, naming the floor', () => {
+		const ws = workspace({ compile: false });
+		future(ws.root);
+		writeModule(ws.root, 'after', { dependencies: ['future'] });
+		const c = dt(ws.root, 'compile');
+		assert.equal(c.code, 1);
+		assert.match(c.stderr, /module "after" depends on "future", which needs engine ">=99\.0\.0" — this is /);
+	});
+
+	test('a floor the engine meets compiles as before', () => {
+		const ws = workspace({ compile: false });
+		future(ws.root);
+		patchModulePkg(ws.root, 'future', { engine: '>=0.1.0' });
+		assert.equal(dt(ws.root, 'compile').code, 0);
+		assert.ok(readFile(ws.root, '.dreamteamer/collections/gizmos.collection.yaml'));
+	});
+});
+
+// ---------------------------------------------------------------------------------------------
 // A descriptor with no `storage.suffix` used to write every record as `<id>.undefined.md` —
 // silent at compile, at `add` and at `check`, and on a `codec: file` collection every later verb
 // then died inside `idFromRecordPath` on `undefined.replace`. compile DERIVES it instead, which is

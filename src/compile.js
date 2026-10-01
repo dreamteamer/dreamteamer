@@ -763,10 +763,21 @@ export function compile(ws) {
 		}
 	}
 
-	// ---- module package pass: engine ranges + env declarations (M4) ---------------
-	// both are WARNINGS, never errors — a version skew or missing secret must not
-	// brick a solo operator's workspace at compile time.
+	// ---- engine floors: a module whose `dreamteamer.engine` excludes this engine is REFUSED whole —
+	// none of its content compiles, since it may use what this engine cannot read; the rest does
 	const engineVer = engineVersion();
+	const refused = new Map(); // module name -> the range it declares
+	for (const source of [...sources]) {
+		if (source.root === root) continue;
+		let range;
+		try { range = JSON.parse(fs.readFileSync(path.join(source.root, 'package.json'), 'utf8')).dreamteamer?.engine; } catch { continue; }
+		if (!range || satisfies(engineVer, range) !== false) continue;
+		refused.set(source.name, range);
+		sources.splice(sources.indexOf(source), 1);
+		console.warn(`✖ module ${source.name} needs engine "${range}" — this is ${engineVer}, so none of its content is compiled. Upgrade dreamteamer, or disable the module.`);
+	}
+
+	// ---- module package pass: env declarations; a missing secret warns, never fails ---------
 	// A module's record id: the npm scope stripped, so `@dreamteamer/crm` reads as `crm` — which is
 	// what every message in this engine already calls it. Defined HERE, above the namespace pass,
 	// because a namespace error has to name the module by the id the fix is typed with.
@@ -809,11 +820,7 @@ export function compile(ws) {
 			moduleNamespaces.set(source.name, ns);
 		}
 		const range = mpkg.dreamteamer?.engine;
-		if (range) {
-			const ok = satisfies(engineVer, range);
-			if (ok === false) console.warn(`⚠ module ${source.name} declares engine "${range}" — running engine is ${engineVer} (out of range; compile continues)`);
-			else if (ok === null) console.warn(`⚠ module ${source.name}: engine range "${range}" not understood by the built-in checker (see src/semver.js) — not verified`);
-		}
+		if (range && satisfies(engineVer, range) === null) console.warn(`⚠ module ${source.name}: engine range "${range}" not understood by the built-in checker (see src/semver.js) — not verified`);
 		// `dreamteamer.env`: a bare key name, or `{ name, description, example }` so the warning and
 		// `.env.example` can say what the key IS and what a value looks like — a bare `WORK_CALENDARS`
 		// told a first-run operator nothing about ids, addresses or display names (2026-09-24).
@@ -920,6 +927,7 @@ export function compile(ws) {
 	for (const [mod, deps] of moduleDeps) {
 		for (const dep of deps) {
 			if (dep === mod) fail(`module "${mod}" declares itself as a dependency`);
+			if (refused.has(dep)) fail(`module "${mod}" depends on "${dep}", which needs engine "${refused.get(dep)}" — this is ${engineVer}. Upgrade dreamteamer, or disable both.`);
 			if (!moduleNames.has(dep)) {
 				fail(`module "${mod}" depends on "${dep}", which is not installed — modules present: ${[...moduleNames].sort().join(', ')}`);
 			}
@@ -1908,6 +1916,8 @@ export function compile(ws) {
 			root: rel(s.root) || '.',
 		})),
 		ui: uiModules.sort(),
+		// modules refused for their engine floor — staleness does not report their files as new
+		...(refused.size ? { refused: [...refused].map(([name, engine]) => ({ name, engine })) } : {}),
 		'adapter-outputs': adapterOutputs.sort(),
 		// the root files whose managed BLOCK this compile rewrote — never pruned, but committed with a
 		// schema write so the block and the schema it names land together (schema-ops.regeneratedOutputs)
@@ -1975,7 +1985,8 @@ export function staleness(root) {
 	// The root itself, when a workspace declares no `workspace-module`, is not a named module, so no
 	// `<module>/<entity>` entry can address its sources — it is walked unfiltered, as before.
 	const disabledEntities = new Set((pkg.dreamteamer?.disable ?? []).filter((d) => typeof d === 'string' && !isPackageEntry(d)));
-	const roots = [...(wm ? [] : [{ name: null, root }]), ...found.modules.map((m) => ({ name: m.name, root: m.root }))];
+	const refused = new Set((manifest.refused ?? []).map((r) => r.name));
+	const roots = [...(wm ? [] : [{ name: null, root }]), ...found.modules.filter((m) => !refused.has(m.name)).map((m) => ({ name: m.name, root: m.root }))];
 	// the kinds the last compile STAGED, read off its manifest — staleness loads no extension code
 	const contributedKinds = (manifest['source-kinds'] ?? []).map((k) => ({ kind: k.kind, exclude: k.exclude ?? [] }));
 	for (const { name: moduleName, root: r } of roots) {

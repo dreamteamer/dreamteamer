@@ -27,6 +27,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { satisfies } from './semver.js';
+import { engineVersion } from './runtime.js';
 
 export const EXTENSION_API = 1;
 
@@ -49,6 +51,9 @@ export function declaredExtensions(ws) {
 		if (!entry || seen.has(name) || disablesPackage(disable, name)) return;
 		if (typeof entry !== 'string') throw new Error(`${name}: dreamteamer.extension must be a path to the entry module (got ${JSON.stringify(entry)})`);
 		seen.add(name);
+		// a module whose engine floor is unmet is refused whole, its code with its content
+		const range = pkg.dreamteamer.engine;
+		if (range && satisfies(engineVersion(), range) === false) return void console.warn(`✖ extension ${name} needs engine "${range}" — this is ${engineVersion()}, so it is not loaded`);
 		out.push({ name, version: pkg.version ?? '0.0.0', dir, entry: path.join(dir, entry) });
 	};
 	let inline = [];
