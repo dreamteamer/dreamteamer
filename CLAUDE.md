@@ -15,13 +15,15 @@ to ~7,600 code lines and its install from 77 packages to 10.
 An extension is a workspace module (`modules/<id>/`) or a DIRECT dependency declaring
 `dreamteamer.extension`; `src/extensions.js` activates it
 with this engine's public API, and it may contribute `commands`, `sourceKinds` (+`exclude`), `analyze`,
-`harnesses`, `orientation`, `hooks`, `check` — nothing else, and a collision refuses. The contract lives in
+`harnesses`, `orientation`, `hooks`, `check`, `doctor` — nothing else, and a collision refuses. The contract lives in
 `skills/using-dreamteamer/references/extensions.md`. **So the fourth leanness question below is: could
 an extension do it instead?** A new verb whose engine reading is "the CLI dispatches it" is the
 extension shape, not a core verb.
 
 ⚠ **Do not grow the seam casually.** Every contribution key has a consumer that needed it — `check`
-carries the record guards modules used to chain after `dt check` by hand. The next one is a design decision (the deferred ones: a storage driver, a record-write hook, a workflow
+carries the record guards modules used to chain after `dt check` by hand, and `doctor` gives every
+module's machine checks one board (`dt doctor`) a stranger has without installing a setup tool. The
+next one is a design decision (the deferred ones: a storage driver, a record-write hook, a workflow
 scheduler, an external harness REGISTRY beyond managed blocks). "An extension might want it" is not a
 consumer.
 
@@ -272,7 +274,7 @@ adding one costs the same sentence of thought as adding a core collection.
 |---|---|---|
 | **record** | store · records · check · temporal · filter · field-values · commit · events · history · template · workspace · yaml · namespace | schema-validated records over git. **Must not know that modules, channels, `extends` or skills exist.** |
 | **boundary** | runtime | the compiled `.dreamteamer/` artifact — descriptors + manifest. The whole interface. |
-| **workspace** | compile · harnesses · schema-ops · init · checkout · extensions · record-commands · semver | the compiler, the agent-harness surface, and the extension loader. May import record. |
+| **workspace** | compile · harnesses · schema-ops · init · checkout · extensions · doctor · record-commands · semver | the compiler, the agent-harness surface, and the extension loader. May import record. |
 | **surface** | cli · collections-cli · presentation · api | entry points; span both halves by definition. `api` is the public export surface. |
 
 The seam was always real — the store has only ever read compiled descriptors, never a source. What

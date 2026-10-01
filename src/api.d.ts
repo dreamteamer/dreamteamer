@@ -26,7 +26,10 @@ export interface Contribution {
 	hooks?: Record<string, string>;
 	/** cross-record rules: `dt check` reports what it returns after the schema's violations */
 	check?(ctx: ExtensionContext): { file?: string; message: string }[] | void | Promise<{ file?: string; message: string }[] | void>;
+	/** machine checks: `dt doctor` renders the rows as one capability named after the extension */
+	doctor?(ctx: ExtensionContext): DoctorRow[] | void | Promise<DoctorRow[] | void>;
 }
+export interface DoctorRow { label: string; state: 'ok' | 'warn' | 'bad'; detail?: string; fix?: string }
 export interface ExtensionContext { root: string; ws: Workspace; dt: typeof import('./api.js') }
 export type Activate = (dt: typeof import('./api.js')) => Contribution | Promise<Contribution>;
 export interface LoadedExtension {
@@ -39,6 +42,7 @@ export interface LoadedExtension {
 	orientation: Contribution['orientation'] | null;
 	hooks: Record<string, string>;
 	check: Contribution['check'] | null;
+	doctor: Contribution['doctor'] | null;
 }
 export type Entry = { sources: { path: string; hash: string }[]; bytes: Buffer };
 export interface CompileDraft {

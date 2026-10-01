@@ -24,6 +24,7 @@ import { commitPending } from './commit.js';
 import { Store } from './store.js';
 import { splitRef, canonicalCollection } from './ref.js';
 import { envContext, renderTemplate } from './env-vars.js';
+import { doctorBoard, renderBoard } from './doctor.js';
 
 // git calls whose failure we CATCH must not print git's own error: execFileSync forwards the
 // child's stderr to ours unless told otherwise, so a handled "not a git repository" still
@@ -206,7 +207,11 @@ workspace verbs:
               then compile; [<name>] updates just one. dirty clones are skipped
   compile     materialize modules + workspace sources into .dreamteamer (+ harness adapters)
               [--watch] recompile on source changes
-  check       validate every record against the compiled descriptors (report-only)
+  check       validate every record against the compiled descriptors (report-only), then every
+              installed extension's own checks
+  doctor      what works on this machine — the engine, then each extension's checks — as one board:
+              READY / DEGRADED / UNAVAILABLE, each fix on its row. Exit 0 [--strict] exit 1 when
+              anything is UNAVAILABLE [--json]
   status      workspace status: compiled runtime freshness, per-module channel/ref, staleness
 
   changes     what changed in every repo that holds records, as record events
@@ -256,7 +261,7 @@ export const GLOBAL_FLAGS = ['vault'];
 export const WORKSPACE_FLAGS = {
 	init: ['name', 'data-path', 'harnesses', 'workspace-module'], update: [],
 	install: ['clone', 'dry-run', 'json', 'link-env', 'all', 'hook', 'print-adapters'],
-	compile: ['watch'], check: [], status: [],
+	compile: ['watch'], check: [], status: [], doctor: ['strict', 'json'],
 	changes: ['since', 'json'], commit: ['dry-run', 'json'], relocate: ['dry-run', 'json', 'to-root'],
 };
 
@@ -264,7 +269,7 @@ export const WORKSPACE_FLAGS = {
  *  spellings are in it too: they answer with their replacement, and an extension taking one over
  *  would turn a loud translation into a different command. */
 export const CORE_VERBS = [
-	'init', 'install', 'update', 'compile', 'check', 'status', 'changes', 'commit', 'help', 'version', '--version', '-v',
+	'init', 'install', 'update', 'compile', 'check', 'doctor', 'status', 'changes', 'commit', 'help', 'version', '--version', '-v',
 	'list', 'add', 'values', 'get', 'set', 'rm', 'rename', 'history', 'diff', 'revert', 'move', 'next',
 	'add-field', 'set-field', 'rm-field', 'rename-field', 'relations', 'resolve', 'relocate',
 	'schema', 'ensure', 'update-field', 'remove-field', 'commands',
@@ -374,6 +379,12 @@ export async function run(argv) {
 			}
 			case 'check':
 				process.exit(check(ws, { extra: warnIfStale(ws.root).compiled ? await contributedViolations(ws) : [] }));
+			case 'doctor': {
+				const caps = await doctorBoard(ws, api);
+				if (rest.includes('--json')) emit(JSON.stringify({ capabilities: caps }, null, 2));
+				else console.log(renderBoard(caps));
+				process.exit(rest.includes('--strict') && caps.some((c) => c.verdict === 'UNAVAILABLE') ? 1 : 0);
+			}
 			// `changes` is what survives of the trigger/run subsystem removed 2026-07-31: deriving
 			// record events from git history was the genuinely used half (catch-up — "what happened
 			// while I was away"), while creating run records from triggers was not. Read-only by

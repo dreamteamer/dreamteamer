@@ -507,3 +507,55 @@ export default function activate() {
 		await assert.rejects(openWorkspace(ws.root), /extension rule-kit: check must be a function/);
 	});
 });
+
+describe('dt doctor renders the engine and every extension as one board', () => {
+	const ROWS = `export default () => ({ doctor: ({ root, ws }) => root === ws.root ? [
+		{ label: 'cache', state: 'ok', detail: 'warm' },
+		{ label: 'token', state: 'warn', detail: 'not set', fix: 'set PROBE_TOKEN in .env' },
+	] : [] });`;
+	const withDoctor = (entry = ROWS, { compiled = true } = {}) => {
+		const ws = workspace({ compile: false });
+		install(ws.root, { name: '@kits/doctor-kit', descriptor: null, entry });
+		if (compiled) assert.equal(dt(ws.root, 'compile').code, 0);
+		return ws;
+	};
+
+	test('a warn and an ok: the capability is DEGRADED, the fix is on its row, exit 0 even with --strict', () => {
+		const ws = withDoctor();
+		const r = dt(ws.root, 'doctor');
+		assert.equal(r.code, 0, r.stderr);
+		const version = JSON.parse(fs.readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).version;
+		assert.match(r.stdout, new RegExp(`^engine — READY\\n {2}✔ engine {2}dreamteamer@${version.replace(/\./g, '\\.')}\\n {2}✔ node {2}${process.versions.node}\\n {2}✔ harness files {2}AGENTS\\.md, CLAUDE\\.md`));
+		assert.match(r.stdout, /\ndoctor-kit — DEGRADED\n {2}✔ cache {2}warm\n {2}⚠ token {2}not set — fix: set PROBE_TOKEN in \.env\n$/);
+		assert.equal(dt(ws.root, 'doctor', '--strict').code, 0, 'DEGRADED still works');
+	});
+
+	test('--json is the same board as data', () => {
+		const ws = withDoctor();
+		const r = dt(ws.root, 'doctor', '--json');
+		assert.equal(r.code, 0, r.stderr);
+		const caps = JSON.parse(r.stdout).capabilities;
+		assert.deepEqual(caps.map((c) => [c.name, c.verdict]), [['engine', 'READY'], ['doctor-kit', 'DEGRADED']]);
+		assert.deepEqual(caps[1].checks[1], { label: 'token', state: 'warn', detail: 'not set', fix: 'set PROBE_TOKEN in .env' });
+	});
+
+	test('a failure is UNAVAILABLE: exit 0 by default, 1 under --strict; a throwing doctor is a failure, not a crash', () => {
+		const ws = withDoctor('export default () => ({ doctor() { throw new Error("socket unreachable"); } });');
+		const r = dt(ws.root, 'doctor');
+		assert.equal(r.code, 0, r.stderr);
+		assert.match(r.stdout, /doctor-kit — UNAVAILABLE\n {2}✖ doctor {2}socket unreachable — fix: report it to @kits\/doctor-kit/);
+		assert.equal(dt(ws.root, 'doctor', '--strict').code, 1);
+	});
+
+	test('an uncompiled workspace: the engine row says so and names the fix', () => {
+		const ws = withDoctor(ROWS, { compiled: false });
+		const r = dt(ws.root, 'doctor');
+		assert.match(r.stdout, /engine — UNAVAILABLE\n(.*\n){2} {2}✖ harness files {2}never compiled — fix: dt compile/);
+	});
+
+	test('a harness file deleted since the compile is DEGRADED with the fix', () => {
+		const ws = withDoctor();
+		fs.rmSync(path.join(ws.root, 'GEMINI.md'));
+		assert.match(dt(ws.root, 'doctor').stdout, /engine — DEGRADED\n(.*\n){2} {2}⚠ harness files {2}1 missing \(GEMINI\.md\) — fix: dt compile/);
+	});
+});
