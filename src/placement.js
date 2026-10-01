@@ -63,12 +63,26 @@ export function placedRoot(under, fallbackDir, parentDir, parentId) {
 	return parentId ? path.join(parentDir, parentId, under.path) : fallbackDir;
 }
 
-/** Every record file of `d` under ONE root, as `{ id, file, root, parentId }`. */
-export function* rootRecords(d, root, parentId = null) {
+/** Every record file of `d` under ONE root, as `{ id, file, root, parentId }`. A placed root (one with
+ *  a `parentId`) is walked through REAL entries only — a symlinked sub-folder or file inside it is
+ *  skipped and reported to `onLink` (R2b); the collection's own root keeps the ordinary walk. */
+export function* rootRecords(d, root, parentId = null, onLink = null) {
 	if (!fs.existsSync(root)) return;
-	for (const f of walk(root)) {
+	for (const f of parentId === null ? walk(root) : walkReal(root, onLink)) {
 		const id = idFromRecordPath(d, path.relative(root, f));
 		if (id !== null) yield { id, file: f, root, parentId };
+	}
+}
+
+/** `walk`, lstat-ing each entry: a symlink — to a folder or a file — is not followed. */
+function* walkReal(dir, onLink) {
+	for (const name of fs.readdirSync(dir).sort()) {
+		if (name.startsWith('.')) continue;
+		const p = path.join(dir, name);
+		const st = fs.lstatSync(p);
+		if (st.isSymbolicLink()) { onLink?.(p); continue; }
+		if (st.isDirectory()) yield* walkReal(p, onLink);
+		else yield p;
 	}
 }
 
@@ -77,7 +91,7 @@ export function* rootRecords(d, root, parentId = null) {
  * parent folder's child root in parent-id order. Duplicates are NOT resolved here — a caller that
  * keeps a map keeps the first and reports the rest; last-one-wins is the one answer this must never give.
  */
-export function* placedRecords(d, fallbackDir, parentDir) {
+export function* placedRecords(d, fallbackDir, parentDir, onLink = null) {
 	const under = placementOf(d);
 	yield* rootRecords(d, fallbackDir, null);
 	for (const [pid, folder] of parentFolders(parentDir)) {
@@ -85,7 +99,7 @@ export function* placedRecords(d, fallbackDir, parentDir) {
 		// a child root reached through a symlink is not read: whatever it points at is not this
 		// parent's folder (see symlinkBelow) — `check` names it, the store simply does not see it
 		if (symlinkBelow(parentDir, root)) continue;
-		yield* rootRecords(d, root, pid);
+		yield* rootRecords(d, root, pid, onLink);
 	}
 }
 

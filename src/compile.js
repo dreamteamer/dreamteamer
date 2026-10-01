@@ -460,13 +460,21 @@ function refusePlacementTransitions(root, byName) {
 		const was = prev?.storage?.under;
 		if (!was?.collection || !was.path) continue;
 		const now = d.storage?.under ?? null;
-		if (now && now.collection === was.collection && now.path === was.path) continue;
 		const parent = previous.get(was.collection);
 		if (!parent?.storage?.path || !prev.storage?.path) continue;
+		// The EFFECTIVE root, not only the annotation: the parent collection's own `storage.path` is
+		// part of where every child record is, so moving the parent's folder in its descriptor strands
+		// the children exactly as dropping `under` does (R3b).
+		const newParentPath = now ? byName.get(now.collection)?.storage?.path : null;
+		const same = now && now.collection === was.collection && now.path === was.path && newParentPath === parent.storage.path;
+		if (same) continue;
 		let n = 0;
 		for (const r of placedRecords(prev, path.join(root, prev.storage.path), path.join(root, parent.storage.path))) if (r.parentId !== null) n++;
 		if (!n) continue;
-		fail(`collection "${name}": storage.under ${now ? `changed (${was.path} → ${now.path})` : 'was removed'}, but ${n} ${name} record(s) still sit inside ${was.collection} folders (<${was.collection} root>/<id>/${was.path}/) — compiling would stop every reader seeing them. First move them out under the CURRENT declaration: dreamteamer relocate ${name} --to-root (to ${prev.storage.path}, ids unchanged), then compile${now ? `, then dreamteamer relocate ${name} to place them under the new path` : ''}.`);
+		const what = !now ? 'storage.under was removed'
+			: now.collection !== was.collection || now.path !== was.path ? `storage.under changed (${was.path} → ${now.path})`
+			: `${was.collection}'s storage.path changed (${parent.storage.path} → ${newParentPath})`;
+		fail(`collection "${name}": ${what}, but ${n} ${name} record(s) still sit inside ${was.collection} folders (${parent.storage.path}/<id>/${was.path}/) — compiling would stop every reader seeing them. First move them out under the CURRENT declaration: dreamteamer relocate ${name} --to-root (to ${prev.storage.path}, ids unchanged), then compile${now ? `, then dreamteamer relocate ${name} to place them again` : ''}.`);
 	}
 }
 

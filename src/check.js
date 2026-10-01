@@ -72,7 +72,8 @@ export function check({ root }) {
 			for (const link of symlinkedChildRoots(under, parentDir)) {
 				violations.push({ file: rel(link), msg: `is a symlink — ${name} records are read only from real folders inside ${under.collection} records; whatever this points at is not indexed. Replace it with a real folder.` });
 			}
-			for (const r of placedRecords(d, dir, parentDir)) {
+			const onLink = (p) => violations.push({ file: rel(p), msg: `is a symlink inside a ${under.collection} record's folder — nothing behind it is read as a ${name} record, and nothing is written through it. Replace it with a real folder or file.` });
+			for (const r of placedRecords(d, dir, parentDir, onLink)) {
 				if (ids.has(r.id)) {
 					violations.push({ file: rel(r.file), msg: `collection "${name}" holds the id "${r.id}" twice — ${rel(ids.get(r.id))} and ${rel(r.file)}. Remove one.` });
 					continue;

@@ -520,3 +520,68 @@ describe('R5 — relocate never creates a folder for an owner that does not exis
 		assert.ok(fs.existsSync(wrong), 'the valid move did not apply either — nothing partial');
 	});
 });
+
+// ── the re-review of 2b184fb (same issue): three residual holes ──────────────────────────────────
+
+describe('R1b — a failure AFTER the rename still leaves exactly one record', () => {
+	test('a cleanup error after a successful rename does not fail the move, and never leaves two copies', () => {
+		const ws = seeded();
+		const file = path.join(ws.root, KICKOFF);
+		const real = fs.rmdirSync;
+		fs.rmdirSync = (p, ...a) => { if (String(p).includes(`northwind${path.sep}meetings`)) throw new Error('injected cleanup failure'); return real(p, ...a); };
+		try { ws.store.set('meetings', '2026/10/kickoff', { company: 'companies/harbor' }); } finally { fs.rmdirSync = real; }
+		const moved = path.join(ws.root, 'data/companies/harbor/meetings/2026/10/kickoff.meeting.md');
+		assert.ok(fs.existsSync(moved), 'the move completed');
+		assert.equal(fs.existsSync(file), false, 'no copy at the old path');
+		assert.equal(ws.store.ids('meetings').size, 3);
+		assert.equal(ws.dt('check').code, 0, ws.dt('check').stdout);
+	});
+	test('anything else failing after the rename undoes the rename and the field write together', () => {
+		const ws = seeded();
+		const file = path.join(ws.root, KICKOFF);
+		const before = fs.readFileSync(file, 'utf8');
+		const proto = Object.getPrototypeOf(ws.store);
+		const realPrune = proto._pruneAround;
+		proto._pruneAround = function (d, f) { if (f === file) throw new Error('injected post-rename failure'); return realPrune.call(this, d, f); };
+		try {
+			assert.throws(() => ws.store.set('meetings', '2026/10/kickoff', { company: 'companies/harbor' }), /injected post-rename/);
+		} finally { proto._pruneAround = realPrune; }
+		assert.equal(fs.readFileSync(file, 'utf8'), before, 'original bytes at the original path');
+		assert.equal(fs.existsSync(path.join(ws.root, 'data/companies/harbor/meetings/2026/10/kickoff.meeting.md')), false, 'no destination copy');
+		assert.equal(ws.dt('check').code, 0, ws.dt('check').stdout);
+	});
+});
+
+describe('R2b — a symlink DEEPER inside a real child root is neither read nor written through', () => {
+	test('an existing record reached through a linked sub-folder is not indexed, cannot be edited, and is named by check', () => {
+		const ws = seeded();
+		const outside = fs.mkdtempSync(path.join(fs.realpathSync(require('node:os').tmpdir()), 'dt-deep-'));
+		try {
+			const external = path.join(outside, 'one.meeting.md');
+			const bytes = '---\nname: External\nwhen: 2026/11\ncompany: companies/northwind\n---\n';
+			fs.writeFileSync(external, bytes);
+			fs.symlinkSync(outside, path.join(ws.root, 'data/companies/northwind/meetings/2026/11'), 'dir');
+			assert.equal(ws.store.ids('meetings').has('2026/11/one'), false, 'not a record of this collection');
+			assert.throws(() => ws.store.set('meetings', '2026/11/one', { name: 'Overwritten outside' }), /no such record/);
+			assert.equal(fs.readFileSync(external, 'utf8'), bytes, 'the external file is byte-identical');
+			const res = ws.dt('check');
+			assert.equal(res.code, 1);
+			assert.match(res.stdout, /2026\/11\n\s+is a symlink inside a companies record/);
+		} finally { fs.rmSync(outside, { recursive: true, force: true }); }
+	});
+});
+
+describe('R3b — moving the PARENT collection\'s root is a transition too', () => {
+	test('compile refuses a parent storage.path change while records sit inside its folders, and --to-root is the way out', () => {
+		const ws = seeded();
+		assert.equal(ws.dt('commit', '-m', 'seed').code, 0);
+		writeCollection(ws.root, 'companies', { ...COMPANIES, storage: { ...COMPANIES.storage, path: 'data/clients' } });
+		const err = compileError(ws.ws);
+		assert.match(err, /companies.*storage\.path changed \(data\/companies → data\/clients\)/s);
+		assert.match(err, /2 meetings record\(s\) still sit inside companies folders/);
+		assert.match(err, /dreamteamer relocate meetings --to-root/);
+		assert.equal(ws.store.ids('meetings').size, 3, 'the runtime still sees every record');
+		assert.equal(ws.dt('relocate', 'meetings', '--to-root').code, 0);
+		assert.equal(compileError(ws.ws), null, 'with nothing under the old parent root, the parent may move');
+	});
+});

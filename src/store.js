@@ -450,12 +450,17 @@ export class Store {
 			this._pruneAround(d, to); // the folders a failed move created, and nothing more
 			throw e;
 		}
-		this._pruneAround(d, from);
-		return () => {
+		// The undo exists from the moment the rename has happened, and anything that fails AFTER it
+		// runs the undo before it propagates (R1b): a cleanup that threw used to leave the caller with
+		// no undo and both copies on disk. Pruning itself no longer throws (pruneEmptyDirs), so this
+		// is the belt to that brace.
+		const undo = () => {
 			fs.mkdirSync(path.dirname(from), { recursive: true });
 			fs.renameSync(to, from);
 			this._pruneAround(d, to);
 		};
+		try { this._pruneAround(d, from); } catch (e) { undo(); throw e; }
+		return undo;
 	}
 
 	/** Empty directories a placed record left behind: its date folders up to the root it sat in, and —
@@ -513,6 +518,7 @@ export class Store {
 		// Restoring an owner field restores its PLACEMENT too — the historical record lived where its
 		// historical owner put it, and writing it into whatever folder the record sits in today would
 		// leave a file `check` reports the moment it lands. Same rule as `set`: only the owner moves it.
+		this._assertContained(d, file);
 		const target = this.ownerChanged(d, currentFields, tmpFields) ? this.filePath(d, id, undefined, tmpFields) : file;
 		if (target !== file) this._assertContained(d, target);
 		if (target !== file && fs.existsSync(target)) throw new Error(`${collection}/${id}: ${path.relative(this.root, target)} already exists — nothing was reverted.`);
@@ -867,6 +873,7 @@ export class Store {
 		// edited, and `check` keeps reporting the mismatch until `relocate` is asked. Moving it as a
 		// side effect of an unrelated edit would make a rename of a meeting relocate a file nobody
 		// mentioned, in a commit whose subject says otherwise.
+		this._assertContained(d, file); // the existing file, not only a new destination (R2b)
 		const target = this.ownerChanged(d, fields, next) ? this.filePath(d, id, undefined, next) : file;
 		if (target !== file) this._assertContained(d, target);
 		if (target !== file && fs.existsSync(target)) throw new Error(`${collection}/${id}: ${path.relative(this.root, target)} already exists — nothing was written.`);
@@ -970,6 +977,7 @@ export class Store {
 		this.assertUnambiguous(collection, id);
 		const self = `${collection}/${id}`;
 		const unit = this.recordRoot(d, id); // folder-shape: the whole folder goes, not just the entry file
+		this._assertContained(d, unit);
 		// A PARENT with records placed inside its folder is refused OUTRIGHT — `--force` included. The
 		// folder delete below would erase every one of those records, each of them somebody's own
 		// record with its own references, under the subject of removing one thing. There is no honest
@@ -1136,6 +1144,7 @@ export class Store {
 			throw new Error(`id "${newId}" does not match pattern ${d.id.pattern} — nothing was renamed.`);
 		}
 		const oldUnit = this.recordRoot(d, oldId); // folder-shape: move the WHOLE folder
+		this._assertContained(d, oldUnit);
 		// a placed record keeps the folder it is in: a rename changes the id, never the owner
 		const newUnit = placementOf(d) ? path.join(this.rootOfFile(d, oldUnit), recordFileName(d, newId)) : this.recordRoot(d, newId);
 		this._assertContained(d, newUnit);
@@ -1524,11 +1533,17 @@ function recordFileName(d, id) {
 
 
 // remove now-empty parent dirs up to (not including) the collection root
+// ⚠ NEVER THROWS. An empty directory left behind is cosmetic; a rename that already happened being
+// reported as a failure because its leftover folder would not go is a duplicate record (R1b). The
+// loop stops at the first directory it cannot remove — a permission, a concurrent write — and says
+// nothing, because there is nothing a caller could do about it that would be better.
 function pruneEmptyDirs(dir, stopAt) {
-	while (dir !== stopAt && dir.startsWith(stopAt) && fs.existsSync(dir) && fs.readdirSync(dir).length === 0) {
-		fs.rmdirSync(dir);
-		dir = path.dirname(dir);
-	}
+	try {
+		while (dir !== stopAt && dir.startsWith(stopAt) && fs.existsSync(dir) && fs.readdirSync(dir).length === 0) {
+			fs.rmdirSync(dir);
+			dir = path.dirname(dir);
+		}
+	} catch { /* left in place */ }
 }
 
 export function serialize(d, fields, previousText) {

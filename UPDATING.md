@@ -41,13 +41,13 @@ exactly as before. Adopting it is three explicit steps (parent to folder shape �
   unpublished changes, or an occupied destination, refuses the whole plan.
 - `dt relocate <collection> --to-root` is the reverse: every placed record back into the collection's
   own folder, ids unchanged — the step before removing or changing `storage.under`. **Compile refuses**
-  a descriptor that drops or changes `under` while records still sit inside parent folders, naming
-  that step; nothing is ever moved by compile.
+  a descriptor that drops or changes `under`, or moves the parent collection's `storage.path`, while
+  records still sit inside parent folders, naming that step; nothing is ever moved by compile.
 - `relocate` refuses the whole plan over a dangling or malformed owner field, an occupied destination,
   an unpublished source or a destination behind a symlink; `--dry-run` reports the problem.
 - `check` reports `placed under … but <field> is …` for a file not where its owner puts it, names a
-  file-shape record left in a folder-shape collection, and names a symlinked child root (which is
-  never read as one). It changes nothing.
+  file-shape record left in a folder-shape collection, and names every symlink inside a parent
+  record's folder (nothing behind one is read or written). It changes nothing.
 - `Store.recordDirs(d)` (public API): every directory a record of the collection can sit in — what
   to ask git about. `Store.dir(d)` is unchanged and is the collection's OWN folder, not an
   enumeration; a surface that passes it to `git status` sees only the fallback root of a placed
