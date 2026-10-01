@@ -784,7 +784,8 @@ export function compile(ws) {
 	const moduleId = (n) => slug(String(n).replace(/^@[^/]+\//, ''));
 	const channelOf = new Map(sources.map((s) => [s.name, s.channel]));
 	const declaredEnv = new Map(); // env key -> [module names]
-	const envMeta = new Map();     // env key -> { description, example } — the first module to say wins
+	const requestedVars = new Map(); // var a module READS through ${env:…} -> [module names]
+	const envMeta = new Map();     // env key or var -> { description, example } — the first module to say wins
 	const moduleIgnores = new Map(); // module name -> non-source folders it declares (strayKindDirs)
 	const moduleDeps = new Map();  // module name -> [module names]      — HARD, must be acyclic
 	const modulePeers = new Map(); // module name -> [collection names]  — SOFT, cannot cycle
@@ -821,17 +822,21 @@ export function compile(ws) {
 		}
 		const range = mpkg.dreamteamer?.engine;
 		if (range && satisfies(engineVer, range) === null) console.warn(`⚠ module ${source.name}: engine range "${range}" not understood by the built-in checker (see src/semver.js) — not verified`);
-		// `dreamteamer.env`: a bare key name, or `{ name, description, example }` so the warning and
-		// `.env.example` can say what the key IS and what a value looks like — a bare `WORK_CALENDARS`
-		// told a first-run operator nothing about ids, addresses or display names (2026-09-24).
-		const envDecl = mpkg.dreamteamer?.env ?? [];
-		if (!Array.isArray(envDecl)) fail(`module "${source.name}": dreamteamer.env must be a list of key names or { name, description, example } objects (got ${JSON.stringify(envDecl)})`);
-		for (const entry of envDecl) {
-			const k = typeof entry === 'string' ? entry : entry?.name;
-			if (typeof k !== 'string' || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(k)) fail(`module "${source.name}": dreamteamer.env entry ${JSON.stringify(entry)} — a key is an identifier (A-Z, 0-9, _) as a string or as { name, description, example }`);
-			if (!declaredEnv.has(k)) declaredEnv.set(k, []);
-			declaredEnv.get(k).push(source.name);
-			if (typeof entry === 'object' && !envMeta.has(k)) envMeta.set(k, { description: entry.description ? String(entry.description) : undefined, example: entry.example !== undefined ? String(entry.example) : undefined });
+		// `dreamteamer.env` (keys the module needs) and, in a module, `dreamteamer.vars` (the
+		// `${env:…}` vars it reads): each entry a bare name or `{ name, description, example }`, so
+		// `.env.example` says what a value looks like. A module only REQUESTS a var — the workspace's
+		// own list is the allow-list, so a module can never add a key to what `dt resolve` renders.
+		for (const key of source.root === root ? ['env'] : ['env', 'vars']) {
+			const decl = mpkg.dreamteamer?.[key] ?? [];
+			const sink = key === 'env' ? declaredEnv : requestedVars;
+			if (!Array.isArray(decl)) fail(`module "${source.name}": dreamteamer.${key} must be a list of key names or { name, description, example } objects (got ${JSON.stringify(decl)})`);
+			for (const entry of decl) {
+				const k = typeof entry === 'string' ? entry : entry?.name;
+				if (typeof k !== 'string' || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(k)) fail(`module "${source.name}": dreamteamer.${key} entry ${JSON.stringify(entry)} — a key is an identifier (A-Z, 0-9, _) as a string or as { name, description, example }`);
+				if (!sink.has(k)) sink.set(k, []);
+				sink.get(k).push(source.name);
+				if (typeof entry === 'object' && !envMeta.has(k)) envMeta.set(k, { description: entry.description ? String(entry.description) : undefined, example: entry.example !== undefined ? String(entry.example) : undefined });
+			}
 		}
 		// Gathered here because mpkg is already parsed; refused below, next to the workspace's own
 		// declaration. The classic layout pushes the ROOT itself as an inline source, whose
@@ -849,6 +854,9 @@ export function compile(ws) {
 		fail(`dreamteamer.vars must be a list of env key names (got ${JSON.stringify(config.vars)})`);
 	}
 	const declaredVars = config.vars ?? [];
+	for (const [k, mods] of requestedVars) {
+		if (!declaredVars.includes(k)) for (const mod of mods) console.warn(`⚠ module ${mod} reads \${env:${k}} — add it to the workspace's dreamteamer.vars`);
+	}
 	if (declaredEnv.size || declaredVars.length) {
 		// .env is parsed for KEY names ONLY — values never reach any output or the manifest
 		const envPath = path.join(root, '.env');
@@ -885,7 +893,7 @@ export function compile(ws) {
 	// points at a file that actually names them; `.vscode/extensions.json` recommends the editor
 	// extension, so the first window offers it. Both are append/merge-only — nothing authored moves.
 	{
-		const added = ensureEnvExample(root, [...declaredEnv].map(([key, mods]) => ({ key, modules: mods, ...(envMeta.get(key) ?? {}) })),
+		const added = ensureEnvExample(root, [...declaredEnv, ...requestedVars].map(([key, mods]) => ({ key, modules: mods, ...(envMeta.get(key) ?? {}) })),
 			'# secrets for skills and modules go here (copy to .env; .env is never committed).\n# modules declare the env keys they require in their package.json dreamteamer.env list.\n');
 		if (added.length) console.log(`✔ .env.example now names ${added.join(', ')}`);
 		ensureEditorRecommendation(root);
