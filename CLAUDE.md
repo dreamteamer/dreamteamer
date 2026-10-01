@@ -197,12 +197,27 @@ Two consequences worth keeping:
 ## IMPORTANT — there are TESTS now, and they are meant to be fast
 
 ```bash
-npm test                      # tiers 1+2, zero dependencies, ~7s
+npm run verify:fast           # the inner loop: tier 1 + the tier-2 files your diff names + last failures
+npm test -- --failed          # after a red run: only the files that failed, until they pass
+npm run verify                # the gate: everything, ONCE, before the commit — run it in the background
 npm test -- --only=namespace  # one file
-npm test -- --unit            # tier 1 only: pure functions, no fs, no git
-npm run verify                # layers + metrics:check + tests — what to run before a commit
+npm test -- --unit            # tier 1 only: pure functions, no fs, no git — under a second
 npm run perf                  # tier 4: generates a workspace, times renameCollection, PRINTS
 ```
+
+**The full suite is ~3.5 minutes (211 s, 1,261 tests, measured 2026-10-01 on an idle 8-core laptop), so it
+runs once per commit, not once per edit.** Iterate on `verify:fast`, which prints what it chose and why
+(a tier-2 file is picked when it is changed, carries a changed `src/` module's stem in its name, or
+mentions the changed file); it is a guess about relevance and never the gate. After a red run, fix with
+`--failed` — never re-run the whole suite to check one file. Three things the runner does for you:
+
+- **A full pass is remembered for the exact working tree** (`git write-tree` through a throwaway index,
+  plus the node version). `npm run verify` again on the same tree prints the stamped result and exits 0
+  in about a second; any edit runs it for real. `--rerun` forces a run.
+- **One tier-2 suite per machine.** A second run — another session, another worktree — prints who holds
+  the lock and waits, then re-checks the stamp. Two suites at once measured 466 s against 211 s alone.
+- **Leaked fixtures are swept.** A killed run never reaches its cleanup; under the lock, fixture folders
+  older than an hour are removed.
 
 Tier 1 (`test/unit/`) is pure functions. Tier 2 (`test/integration/`) drives the real compiler, store
 and CLI binary against a workspace built by `dreamteamer init` — cached once into `test/.tmp/` and

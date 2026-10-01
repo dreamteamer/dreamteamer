@@ -33,15 +33,21 @@ npm run verify               # layers + size budgets + tests — run this before
 ```bash
 npm run layers               # the record/workspace import direction
 npm run metrics:check        # size budgets
-npm test                     # tiers 1+2, ~7s, zero dependencies
+npm test                     # tiers 1+2, ~3.5 min, zero dependencies
+npm run verify:fast          # while iterating: tier 1 + the tier-2 files your diff names
+npm test -- --failed         # after a red run: only what failed
 npm test -- --unit           # tier 1 only: pure functions, no fs, no git
 npm test -- --only=namespace # one file
 npm test -- --clean          # discard the cached tier-2 fixture and rebuild it
 ```
 
+The full suite runs once before a commit, not after every edit. A full pass is remembered for the exact
+working tree, so a second `npm run verify` with nothing changed returns at once (`--rerun` forces it), and
+only one tier-2 suite runs on a machine at a time — a second one waits.
+
 **Tier 1** (`test/unit/`) is pure functions. **Tier 2** (`test/integration/`) drives the real
 compiler, store and CLI binary against a workspace built by `dreamteamer init` — cached once and
-copied per test, so the whole suite stays in the seconds range. A test is expected to arrive with the
+copied per test, so a test costs a directory copy rather than an `init`. A test is expected to arrive with the
 change it covers.
 
 Beyond the suite, it is still worth watching a change work end to end the way a stranger meets it:

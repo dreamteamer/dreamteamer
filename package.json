@@ -75,6 +75,7 @@
 		"metrics": "node scripts/metrics.mjs",
 		"metrics:check": "node scripts/metrics.mjs --check",
 		"layers": "node scripts/layers.mjs",
-		"verify": "node scripts/layers.mjs && node scripts/metrics.mjs --check && node scripts/test.mjs"
+		"verify": "node scripts/layers.mjs && node scripts/metrics.mjs --check && node scripts/test.mjs",
+		"verify:fast": "node scripts/layers.mjs && node scripts/metrics.mjs --check && node scripts/test.mjs --changed"
 	}
 }
