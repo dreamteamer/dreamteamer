@@ -263,6 +263,14 @@ function fieldRow(d, name, prop, isRequired, descriptors) {
 	// than a disabled control with a reason (the same rule collectionRow follows for a compiled
 	// collection). `dt-relation-mirror` names the SHAPE, not a component: what the extension draws
 	// for it is the extension's business.
+	// descriptor v2: a field the engine writes (`created`, stamped at add) or one the descriptor locks
+	// against hand edits (`display.editable: false`) is read-only on every surface — offering a control
+	// produces a write the store refuses, or copies a stamp into a duplicate that then cannot be added.
+	const v2 = d.compiled?.fields?.[name];
+	if (prop.readOnly === true || v2?.derived || v2?.virtual || v2?.display?.editable === false) {
+		meta.readonly = true;
+		if (typeof prop.description === 'string' && prop.description.length > 0) meta.readonly_hint ??= prop.description;
+	}
 	if (targets) {
 		const holder = holderOf(prop);
 		if (holder['x-inverse-of']) {

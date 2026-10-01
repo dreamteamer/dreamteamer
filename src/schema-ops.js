@@ -44,7 +44,25 @@ function assertCommentsKept(ws, snapshots) {
 	}
 }
 
+/**
+ * Descriptor format v2 is AUTHORED by hand in this release: every verb here writes the v1 shape, so
+ * running one on a v2 source would leave a file that mixes the two. Refused before anything is
+ * touched, naming the file and the way forward, rather than failing closed at the compile gate with
+ * a message about formats the operator never asked to mix.
+ */
+function refuseV2Sources(ws, files, subject) {
+	for (const f of files) {
+		if (!String(f).endsWith('.collection.yaml') || !fs.existsSync(f)) continue;
+		let doc;
+		try { doc = load(fs.readFileSync(f, 'utf8')); } catch { continue; }
+		if (doc && typeof doc === 'object' && 'fields' in doc) {
+			throw new Error(`${path.relative(ws.root, f)} is a descriptor format v2 source — \`${subject}\` writes the v1 shape and cannot edit it yet. Edit its \`fields\` by hand, then run \`dt compile\` and \`dt check\`. Nothing was written.`);
+		}
+	}
+}
+
 function writeGated(ws, store, files, subject, mutate, after, { commentsMayDecrease = false } = {}) {
+	refuseV2Sources(ws, files, String(subject ?? '').replace(/^dreamteamer: /, ''));
 	// same guarantees as record writes (docs-audit catch): the STORE's cross-process lock
 	// serializes schema ops too, and a failed git commit rolls the source back — a schema
 	// op fails closed exactly like a record mutation.
