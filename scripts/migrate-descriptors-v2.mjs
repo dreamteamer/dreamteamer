@@ -55,7 +55,8 @@ function rewriteMap(doc, map, value, order, renamed = {}) {
 			// a nested map that is merely re-keyed keeps its own node, comments and all
 			if (isMap(old.value) && isMap(pair.value) && v && typeof v === 'object' && !Array.isArray(v)) {
 				pair.value = old.value;
-				rewriteMap(doc, old.value, v, FIELD_ORDER);
+				// the new value is already in its canonical order (convertField sorts a field's keys)
+				rewriteMap(doc, old.value, v, Object.keys(v));
 			}
 		}
 		return pair;
@@ -73,7 +74,9 @@ export function convertField(p, { required = false } = {}) {
 	const many = p.type === 'array';
 	const holder = many && p.items && typeof p.items === 'object' ? p.items : p;
 	const out = {};
-	const ref = holder['x-reference'];
+	// a SOFT reference names something that may legitimately not exist (a peer nobody installed), which
+	// is exactly what a plain string says — v2 has no soft reference
+	const ref = holder['x-reference-soft'] === true ? undefined : holder['x-reference'];
 	if (ref !== undefined) {
 		out.type = ref === '*' ? 'reference' : ref;
 	} else if (holder.type === 'object') {

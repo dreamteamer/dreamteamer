@@ -20,6 +20,9 @@ describe('convertField', () => {
 		['an open object', { type: 'object' }, { type: 'map' }],
 		['a typed map', { type: 'object', additionalProperties: { type: 'string' } }, { type: 'map', values: 'string' }],
 		['the body', { type: 'string', format: 'markdown', 'x-body': true }, { type: 'markdown', body: true }],
+		['a bare-string body', { type: 'string', 'x-body': true }, { type: 'markdown', body: true }],
+		['a soft reference is a plain string', { type: 'array', items: { type: 'string', 'x-reference': 'collections', 'x-reference-soft': true } }, { type: 'string', many: true }],
+		['an untyped list', { type: 'array' }, { type: 'string', many: true }],
 	];
 	for (const [what, v1, v2] of cases) test(what, () => assert.deepEqual(convertField(v1).field, v2));
 
