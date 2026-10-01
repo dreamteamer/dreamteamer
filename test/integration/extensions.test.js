@@ -477,6 +477,50 @@ describe('a WORKSPACE module can carry an extension entry — no package, no npm
 	});
 });
 
+describe('a git_modules clone carries its extension code, exactly as it carries its content', () => {
+	const clone = (root, { dir = 'kit', name = '@probe/kit', bundle = false } = {}) => {
+		const base = path.join(root, 'git_modules', dir);
+		const mod = bundle ? path.join(base, 'modules', 'kit') : base;
+		fs.mkdirSync(mod, { recursive: true });
+		if (bundle) fs.writeFileSync(path.join(base, 'package.json'), JSON.stringify({ name: '@probe/bundle', private: true, dreamteamer: {} }));
+		fs.writeFileSync(path.join(mod, 'package.json'), JSON.stringify({ name, version: '0.0.1', type: 'module', dreamteamer: { description: 'A cloned kit.', extension: './ext.js' } }));
+		fs.writeFileSync(path.join(mod, 'ext.js'), `export default () => ({ commands: { clonehello: { usage: '  clonehello   say hi', run(ws, argv) { console.log('clone hello ' + argv.join(' ')); return 0; } } } });`);
+	};
+	test('a module cloned under git_modules/ activates: its verb runs', async () => {
+		const ws = workspace({ compile: false });
+		clone(ws.root);
+		assert.deepEqual((await openWorkspace(ws.root)).extensions.map((e) => e.name), ['@probe/kit']);
+		const r = dt(ws.root, 'clonehello', 'there');
+		assert.equal(r.code, 0, r.stderr);
+		assert.match(r.stdout, /clone hello there/);
+	});
+	test('a bundle cloned under git_modules/ activates the extension of a module inside it', async () => {
+		const ws = workspace({ compile: false });
+		clone(ws.root, { dir: 'bundle', bundle: true });
+		assert.deepEqual((await openWorkspace(ws.root)).extensions.map((e) => e.name), ['@probe/kit']);
+		assert.match(dt(ws.root, 'clonehello').stdout, /clone hello/);
+	});
+	test('a disabled clone loads no code, and an inline module of the same name shadows the clone', async () => {
+		const off = workspace({ compile: false });
+		clone(off.root);
+		const pkgFile = path.join(off.root, 'package.json');
+		const pkg = JSON.parse(fs.readFileSync(pkgFile, 'utf8'));
+		pkg.dreamteamer = { ...pkg.dreamteamer, disable: ['kit'] };
+		fs.writeFileSync(pkgFile, JSON.stringify(pkg, null, '\t') + '\n');
+		assert.deepEqual((await openWorkspace(off.root)).extensions, []);
+
+		const shadow = workspace({ compile: false });
+		clone(shadow.root);
+		fs.writeFileSync(path.join(shadow.root, 'git_modules', 'kit', 'ext.js'), 'export default () => { throw new Error("the shadowed clone was activated"); };');
+		const inl = path.join(shadow.root, 'modules', 'kit');
+		fs.mkdirSync(inl, { recursive: true });
+		fs.writeFileSync(path.join(inl, 'package.json'), JSON.stringify({ name: '@probe/kit', version: '0.0.2', dreamteamer: { description: 'The local copy.', extension: './ext.js' } }));
+		fs.writeFileSync(path.join(inl, 'ext.js'), `export default () => ({ commands: { clonehello: { usage: '  clonehello   say hi', run() { console.log('inline wins'); return 0; } } } });`);
+		const h = await openWorkspace(shadow.root);
+		assert.deepEqual(h.extensions.map((e) => e.version), ['0.0.2']);
+	});
+});
+
 describe('a check contribution is reported by dt check, after the schema', () => {
 	const CHECKER = `
 export default function activate() {
