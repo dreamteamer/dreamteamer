@@ -210,3 +210,99 @@ describe('records against a v2 collection', () => {
 		assert.equal(check.code, 0, check.stdout + check.stderr);
 	});
 });
+
+describe('the store and check read compiled.fields', () => {
+	const ready = (visits = VISITS) => {
+		const w = clinic({ visits });
+		compileQuietly(w.ws);
+		dt(w.root, 'add', 'health/doctors', '--name', 'Dr Cohen');
+		dt(w.root, 'add', 'health/patients', '--name', 'Dana Levi', '--national_id', '123456789');
+		return w;
+	};
+	const visit = (w, ...extra) => dt(w.root, 'add', 'health/visit', 'Checkup', '--patient', 'health/patients/dana-levi', '--doctor', 'health/doctors/dr-cohen', '--date', '2026-03-04', ...extra);
+
+	test('created is stamped at add with a local offset, and refused from a writer', () => {
+		const w = ready();
+		assert.equal(visit(w).code, 0);
+		const text = fs.readFileSync(path.join(w.root, 'data', 'health', 'patients', 'dana-levi', 'visits', '2026-03-04--dana-levi--dr-cohen.visit.md'), 'utf8');
+		assert.match(text, /^created: '?\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}'?$/m);
+		const forged = visit(w, '--created', '2020-01-01T00:00:00Z', '--id', 'forged');
+		assert.notEqual(forged.code, 0);
+		assert.match(forged.stderr, /created is written by the engine/);
+		const set = dt(w.root, 'set', 'health/visits/2026-03-04--dana-levi--dr-cohen', 'created=2020-01-01T00:00:00Z');
+		assert.notEqual(set.code, 0);
+		assert.match(set.stderr, /created is written by the engine/);
+	});
+
+	test('ids.from naming created reads the stamp', () => {
+		const w = workspace({ compile: false });
+		writeCollection(w.root, 'notes', { ids: { from: '{{ created | date }}--{{ name | slug }}' }, fields: { name: { type: 'string', required: true }, body: { type: 'markdown', body: true } } });
+		compileQuietly(w.ws);
+		const add = dt(w.root, 'add', 'note', 'First', '--json');
+		assert.equal(add.code, 0, add.stderr);
+		const today = new Date();
+		const p = (n) => String(n).padStart(2, '0');
+		assert.equal(JSON.parse(add.stdout).id, `${today.getFullYear()}-${p(today.getMonth() + 1)}-${p(today.getDate())}--first`);
+	});
+
+	test('a unique value is refused at write and named by check', () => {
+		const w = ready();
+		const dup = dt(w.root, 'add', 'health/patients', '--name', 'Dan Levy', '--national_id', '123456789');
+		assert.notEqual(dup.code, 0);
+		assert.match(dup.stderr, /national_id: "123456789" is already taken by health\/patients\/dana-levi \(unique\)/);
+		// a hand-edited duplicate reaches disk; check is where it is reported
+		dt(w.root, 'add', 'health/patients', '--name', 'Dan Levy', '--national_id', '987654321');
+		const f = path.join(w.root, 'data', 'health', 'patients', 'dan-levy', 'patient.md');
+		fs.writeFileSync(f, fs.readFileSync(f, 'utf8').replace('987654321', '123456789'));
+		const check = dt(w.root, 'check');
+		assert.notEqual(check.code, 0);
+		assert.match(check.stdout + check.stderr, /national_id: "123456789" is already taken by health\/patients\/(dana-levi|dan-levy) \(unique\)/);
+	});
+
+	test('a deprecated field still validates and warns on add', () => {
+		const w = ready({ ...VISITS, fields: { ...VISITS.fields, legacy_code: { type: 'string', deprecated: true } } });
+		const add = visit(w, '--legacy_code', 'A1');
+		assert.equal(add.code, 0, add.stderr);
+		assert.match(add.stderr, /legacy_code is deprecated on health\/visits/);
+	});
+});
+
+describe('created for a record that predates the stamp', () => {
+	const unstamp = (file) => fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace(/^created: .*\n/m, ''));
+
+	test('read from the id when ids are made from created', () => {
+		const w = workspace({ compile: false });
+		writeCollection(w.root, 'notes', { ids: { from: '{{ created | date }}--{{ name | slug }}' }, fields: { name: { type: 'string', required: true }, body: { type: 'markdown', body: true } } });
+		compileQuietly(w.ws);
+		fs.mkdirSync(path.join(w.root, 'data', 'notes'), { recursive: true });
+		fs.writeFileSync(path.join(w.root, 'data', 'notes', '2024-05-06--old.note.md'), '---\nname: Old\n---\n');
+		const got = dt(w.root, 'get', 'notes/2024-05-06--old', '--json');
+		assert.equal(got.code, 0, got.stderr);
+		assert.match(JSON.parse(got.stdout).created, /^2024-05-06T00:00:00[+-]\d{2}:\d{2}$/);
+	});
+
+	test('undefined while no commit holds the record', () => {
+		const w = workspace({ compile: false });
+		writeCollection(w.root, 'notes', { ids: { from: '{{ name | slug }}' }, fields: { name: { type: 'string', required: true }, body: { type: 'markdown', body: true } } });
+		compileQuietly(w.ws);
+		dt(w.root, 'add', 'note', 'Fresh');
+		const file = path.join(w.root, 'data', 'notes', 'fresh.note.md');
+		unstamp(file);
+		assert.equal(JSON.parse(dt(w.root, 'get', 'notes/fresh', '--json').stdout).created, undefined);
+	});
+
+	test('read from the first commit otherwise, and the file is not rewritten', () => {
+		const w = workspace({ compile: false });
+		writeCollection(w.root, 'notes', { ids: { from: '{{ name | slug }}' }, fields: { name: { type: 'string', required: true }, body: { type: 'markdown', body: true } } });
+		compileQuietly(w.ws);
+		assert.equal(dt(w.root, 'add', 'note', 'Kept').code, 0);
+		// a write does not commit; the fallback reads the FIRST COMMIT, so publish it first
+		assert.equal(dt(w.root, 'commit', 'notes/kept').code, 0);
+		const file = path.join(w.root, 'data', 'notes', 'kept.note.md');
+		unstamp(file);
+		const before = fs.readFileSync(file, 'utf8');
+		const got = JSON.parse(dt(w.root, 'get', 'notes/kept', '--json').stdout);
+		assert.match(got.created, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$/);
+		assert.equal(fs.readFileSync(file, 'utf8'), before, 'reading never writes');
+	});
+});
