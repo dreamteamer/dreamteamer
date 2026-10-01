@@ -166,8 +166,8 @@ export function nameErrors(doc) {
  * the surfaces read today. `collections` is every collection name a type may name.
  * @returns {{ internal: object, resolved: object, defaults: object, errors: string[] }}
  */
-export function toInternal(doc, { collections, peers }) {
-	const { fields: resolved, errors, warnings, defaults } = resolveFields(doc.fields, { name: doc.name, collections, peers });
+export function toInternal(doc, { collections, peers, runtime = false }) {
+	const { fields: resolved, errors, warnings, defaults } = resolveFields(doc.fields, { name: doc.name, collections, peers, runtime });
 	// an overlay adds fields to a base that already carries the injected ones
 	if (doc.overlay) for (const k of ['id', 'created', 'last_modified']) delete resolved[k];
 	const internal = { name: doc.name };

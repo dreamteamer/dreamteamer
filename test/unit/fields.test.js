@@ -93,6 +93,18 @@ describe('keys', () => {
 		assert.match(resolve({ k: { type: 'integer', enum: [1] } }).errors[0], /belongs to type string/);
 	});
 
+	test('a non-snake field name warns (renaming it is a record change), a passthrough one does not', () => {
+		const r = resolve({ eventId: { type: 'string' } });
+		assert.deepEqual(r.errors, []);
+		assert.match(r.warnings[0], /names are snake_case/);
+		assert.deepEqual(resolve({ 'argument-hint': { type: 'string', passthrough: true } }).warnings, []);
+	});
+
+	test('a runtime kind gets no created field — compile writes its records, the store never stamps them', () => {
+		const { fields } = resolveFields({ name: { type: 'string' } }, { name: 'skills', collections, runtime: true });
+		assert.deepEqual(Object.keys(fields).slice(0, 2), ['id', 'last_modified']);
+	});
+
 	test('a key outside the closed list fails naming it', () => {
 		assert.match(resolve({ f: { type: 'string', 'x-reference': 'a' } }).errors[0], /unknown key "x-reference"/);
 		assert.match(resolve({ f: { type: 'string', searchable: true } }).errors[0], /unknown key "searchable"/);

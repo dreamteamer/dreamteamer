@@ -1214,7 +1214,11 @@ export function compile(ws) {
 				fail(`collection "${name}" mixes descriptor formats — ${group.filter((g) => !isV2(g.doc)).map((g) => g.src.path).join(', ')} ${group.length - v2.length === 1 ? 'is' : 'are'} still v1. Run the migration.`);
 			}
 			const bases = group.filter((g) => !g.doc.overlay);
-			if (bases.length === 0) fail(`collection "${name}": every source declares \`overlay: true\` — no base found (${group.map((g) => g.src.path).join(', ')})`);
+			// An overlay of a collection its module declares as a PEER applies while that collection is
+			// installed and is skipped while it is not — the same contract the v1 owner-side inverse had
+			// ("stamped onto the target only when it is installed").
+			if (bases.length === 0 && group.every((g) => (modulePeers.get(g.moduleName) ?? []).includes(name))) { descriptorGroups.delete(name); continue; }
+			if (bases.length === 0) fail(`collection "${name}": every source declares \`overlay: true\` — no base found (${group.map((g) => g.src.path).join(', ')}). Install the module that owns it, or declare "${name}" in this module's peer collections so the overlay applies only while it is installed.`);
 			if (bases.length > 1) fail(`name collision on collection "${name}"\n${bases.map((b) => `    - ${b.src.path}`).join('\n')}\n  a second source of one collection must declare \`overlay: true\`.`);
 			const mixed = new Map();
 			for (const g of group) {
@@ -1229,14 +1233,16 @@ export function compile(ws) {
 			const authored = mergeOverlays(mixed.get(bases[0]), overlays.map((g) => mixed.get(g)));
 			const names = nameErrors(authored);
 			if (names.length) fail(`collection "${name}" (${group.map((g) => g.src.path).join(', ')}):\n  ${names.join('\n  ')}`);
-			const whole = toInternal(authored, { collections: typeNames, peers: allPeers });
+			const runtime = kinds.includes(String(authored.storage?.path ?? ''));
+			const whole = toInternal(authored, { collections: typeNames, peers: allPeers, runtime });
 			if (whole.errors.length) fail(`collection "${name}" (${group.map((g) => g.src.path).join(', ')}):\n  ${whole.errors.join('\n  ')}`);
 			for (const w of whole.warnings) console.warn(`⚠ collection ${name}: ${w}`);
 			for (const g of group) {
-				const { internal, errors } = toInternal(mixed.get(g), { collections: typeNames, peers: allPeers });
+				const { internal, errors } = toInternal(mixed.get(g), { collections: typeNames, peers: allPeers, runtime });
 				if (errors.length) fail(`${g.src.path}:\n  ${errors.join('\n  ')}`);
 				if (g.doc.overlay) internal.extends = `${bases[0].moduleName}/${name}`;
 				g.doc = internal;
+				g.v2 = true;
 			}
 			v2Of.set(name, { resolved: whole.resolved, defaults: whole.defaults, constraints: authored.constraints ?? [], display: authored.display, authored });
 		}
@@ -1312,7 +1318,10 @@ export function compile(ws) {
 			}
 			// `extends` is the hardest dependency there is — the extender does not compile at all
 			// without the base (see the "no base found" failure above), so it must say so.
-			if (ext.moduleName !== base.moduleName && !(moduleDeps.get(ext.moduleName) ?? []).includes(base.moduleName)) {
+			// a v2 overlay of a collection its module declares as a PEER is soft by construction (it is
+			// skipped while the base is absent, above), so the peer declaration is the dependency it needs
+			const peerOverlay = ext.v2 && (modulePeers.get(ext.moduleName) ?? []).includes(name);
+			if (ext.moduleName !== base.moduleName && !peerOverlay && !(moduleDeps.get(ext.moduleName) ?? []).includes(base.moduleName)) {
 				fail(`${ext.src.path}: extends "${expected}" but module "${ext.moduleName}" does not declare "${base.moduleName}" in dreamteamer.dependencies — an overlay cannot compile without its base.`);
 			}
 			merged = mergeDescriptor(merged, ext.doc);

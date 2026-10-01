@@ -58,7 +58,9 @@ export function resolveFields(authored, ctx) {
 	const defaults = {};
 	const known = new Set(Object.keys(authored ?? {}));
 	const fields = {};
+	// `created` is STAMPED by the store, which a kind whose records compile writes never goes through
 	for (const [k, v] of Object.entries(INJECTED_FIELDS)) {
+		if (k === 'created' && ctx.runtime) continue;
 		if (known.has(k)) errors.push(`field "${k}" is injected by the engine and cannot be authored`);
 		fields[k] = { ...v };
 	}
@@ -69,7 +71,8 @@ export function resolveFields(authored, ctx) {
 	for (const [name, prop] of Object.entries(authored ?? {})) {
 		if (!prop || typeof prop !== 'object' || Array.isArray(prop)) { errors.push(`field "${name}" must be a map`); continue; }
 		// a key copied verbatim into a harness keeps the harness's spelling, and says so
-		if (!/^[a-z][a-z0-9_]*$/.test(name) && !(prop.passthrough && /^[a-z][a-z0-9-]*$/.test(name))) errors.push(`field "${name}": names are snake_case (a key passed through to a harness in its own spelling is marked \`passthrough: true\`)`);
+		// a WARNING: renaming a field is a record change (`dt rename-field`), which a compile must not force
+		if (!/^[a-z][a-z0-9_]*$/.test(name) && !(prop.passthrough && /^[a-z][a-z0-9-]*$/.test(name))) warnings.push(`field "${name}": names are snake_case — \`dt rename-field\` renames it in every record (a key passed through to a harness in its own spelling is marked \`passthrough: true\`)`);
 		for (const k of Object.keys(prop)) if (!FIELD_KEYS.has(k)) errors.push(`field "${name}" has unknown key "${k}" — the closed list is: ${[...FIELD_KEYS].join(' ')}`);
 		const out = { ...prop };
 		const targets = referenceTargets(prop.type, types);
