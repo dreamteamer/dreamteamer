@@ -140,10 +140,18 @@ export function compareValues(a, b) {
 	return String(a ?? '').localeCompare(String(b ?? ''));
 }
 
-/** `?sort=field` / `?sort=-field`, ordered with `compareValues`. Mutates and returns `rows`. */
-export function sortRows(rows, sort) {
+/** `?sort=field` / `?sort=-field`, ordered with `compareValues`. Mutates and returns `rows`. Given the
+ *  collection's `schema`, an enum field sorts by its DECLARED order (draft → active → done), blanks
+ *  first and values outside the enum after it. */
+export function sortRows(rows, sort, schema) {
 	if (!sort) return rows;
 	const desc = String(sort).startsWith('-');
 	const key = desc ? String(sort).slice(1) : String(sort);
-	return rows.sort((a, b) => compareValues(a[key] ?? '', b[key] ?? '') * (desc ? -1 : 1));
+	const prop = schema?.properties?.[key];
+	const order = prop?.enum ?? prop?.items?.enum;
+	const rank = (v) => (v == null || v === '' ? -1 : order.includes(v) ? order.indexOf(v) : order.length);
+	const cmp = Array.isArray(order)
+		? (a, b) => (rank(a[key]) - rank(b[key])) || compareValues(a[key] ?? '', b[key] ?? '')
+		: (a, b) => compareValues(a[key] ?? '', b[key] ?? '');
+	return rows.sort((a, b) => cmp(a, b) * (desc ? -1 : 1));
 }

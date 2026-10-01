@@ -490,3 +490,19 @@ describe('a date-derived id does not depend on the machine zone', () => {
 		assert.deepEqual(ids[1], ids[0]);
 	});
 });
+
+describe('dt list --sort on an enum field follows the declared order', () => {
+	test('draft → active → done, not alphabetical', () => {
+		const ws = workspace({ collections: { tasks: simpleCollection({
+			storage: { suffix: 'task' },
+			schema: { type: 'object', required: ['name'], properties: {
+				name: { type: 'string' }, status: { type: 'string', enum: ['draft', 'active', 'done'] },
+				notes: { type: 'string', format: 'markdown', 'x-body': true },
+			} },
+		}) } });
+		for (const [name, status] of [['Ship', 'done'], ['Plan', 'draft'], ['Build', 'active']]) assert.equal(ws.dt('add', 'tasks', '--name', name, '--status', status).code, 0);
+		const order = (sort) => JSON.parse(ws.dt('list', 'tasks', '--sort', sort, '--json').stdout).map((r) => r.status);
+		assert.deepEqual(order('status'), ['draft', 'active', 'done']);
+		assert.deepEqual(order('-status'), ['done', 'active', 'draft']);
+	});
+});

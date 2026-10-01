@@ -50,7 +50,8 @@ the longest DECLARED collection prefix, so finance/transactions/2026/03/coffee i
                                                _null _empty _contains _starts_with _ends_with
                                                _between _regex _and _or, plus _n*/_i* negated and
                                                case-insensitive variants; date-times sort and
-                                               compare as instants, across offsets)
+                                               compare as instants, across offsets; an enum
+                                               sorts in its declared order)
   get    <collection>/<id> [--json]
   add    <collection> ["<title>"] --<field> <value> … [--id <explicit-id>]
                                               (ONE bare positional fills the collection's title
