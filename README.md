@@ -1,14 +1,24 @@
 # dreamteamer
 
-**Structured, modular memory for coding agents.**
+**dreamteamer is a modular AI workspace builder.**
 
-Your agent already has a memory. You just can't see it — it's prose, in a black box somewhere,
-untracked and unshared. And memory *is* context, which is the single biggest lever on what your agent
-decides and how well it does it. So the most consequential thing in your setup is the one you have the
-least access to.
+It gives your coding agents a structured, modular memory. Instead of hiding context in unmanaged prose, dreamteamer stores memory as **plain markdown files with a schema** directly in your git repo. Agents read it natively, and you can browse it as tables, boards, and forms.
 
-dreamteamer makes it **files with a schema**: plain markdown in your git repo that your agent reads
-natively, and that you can browse as tables, boards and forms.
+No server, no account, no telemetry. Just a lightweight npm package.
+
+---
+
+## Features
+
+- **Structured Memory as Files**: A record is just a markdown file with YAML frontmatter. Your agent opens it like any other file.
+- **Strict Validation**: Schemas ensure your agents use agreed-upon terminology. Invalid links, wrong types, or unknown fields are rejected before they touch the disk.
+- **Agent Agnostic**: Author a skill or schema once, use it everywhere. Core compiles to Claude Code, Cursor, Gemini CLI, and more.
+- **NPM Modularity**: Distribute domain knowledge, skills, and agents using the npm ecosystem you already know. 
+- **Visual Editor**: The [VS Code extension](https://github.com/dreamteamer/dreamteamer-vscode) gives you a powerful UI (tables, boards, forms) over your plain text files.
+
+## Getting Started
+
+Scaffold your AI workspace in seconds:
 
 ```bash
 npm i dreamteamer
@@ -18,15 +28,10 @@ npx dreamteamer check     # prove every record and every link is intact
 npx dreamteamer help      # the full command surface
 ```
 
-Apache-2.0. No server, no account, no telemetry — and ten npm packages in the whole install.
+## How It Works
 
-## Structured
-
-A record is a file. That's the whole trick.
-
-```
-data/meetings/2026/07/kickoff.meeting.md
-```
+### 1. Define Records
+A record is a file inside your collection directory (e.g., `data/meetings/2026/07/kickoff.meeting.md`):
 
 ```yaml
 ---
@@ -38,195 +43,48 @@ project: projects/apollo
 Ada walked through the constraints. Lin owns the spec by Friday.
 ```
 
-Your agent opens that file the way it opens any file. Nothing is intercepted, nothing is proxied,
-there is no API to learn.
+### 2. Enforce Schemas
+Your agents read the file directly, but `dreamteamer check` ensures that every reference (like `contacts/ada`) actually resolves. **A schema is an agreement about what things are called.**
 
-But `attendees` isn't a string — it's a link. `dreamteamer check` proves every one of them resolves,
-and renaming `contacts/ada` updates everything pointing at it. A write with an unknown field, a wrong
-type, or a reference to a record that doesn't exist is **rejected before it touches disk**.
+### 3. Share & Compose
+Because dreamteamer uses npm, you can install domain modules containing collections, skills, and agents. If a module doesn't perfectly fit your needs, you don't fork it—you adapt it locally by overriding just the schema fields you need to change.
 
-**A schema is an agreement about what things are called.** Shared terminology with guardrails — not a
-cage, because it stays negotiable. You change it by saying so:
+## Programmatic Usage
 
-> *"From here on a client has a renewal date, and it's a date."*
+Use dreamteamer in your own scripts or apps:
 
-That's a schema update and a data migration, and it's an **explicit, reviewable event** rather than
-silent drift. Once it exists you get the column in a table, the field in a form, validation, sorting
-and aggregation — all of it falling out of having said what the thing is.
+```javascript
+import { openWorkspace, Store } from 'dreamteamer';
 
-The shape of a record is deliberately dull, because dull is what survives:
-
-- records are `<id>.<suffix>.<ext>` files; **the id is the path** inside the collection folder
-- references are `<collection>/<id>` — always qualified, greppable, never a bare name
-- a collection may be scoped under a **declared namespace** — `health/doctors/dana-levi`, stored in
-  `data/health/doctors/`. The default namespace is the empty prefix, so `tasks/kickoff` is unchanged
-- a write lands on disk; `dreamteamer commit` publishes it, one commit per repo
-- schemas are JSON Schema in a YAML file, one per collection
-
-### Machine-specific references
-
-Some things a record points at only exist on one machine — a synced Drive folder, an external disk,
-a checkout somewhere else. Those are written as **templates**, never as absolute paths:
-
-```yaml
-source_file: ${env:FILES_FOLDER}/2026/q3.pdf
-```
-
-Three variables, borrowing VS Code's grammar: `${env:NAME}` — declared in `dreamteamer.vars` in
-`package.json`, valued in the gitignored `.env` (an empty or whitespace-only value counts as no
-value at all) — plus `${workspaceFolder}` and `${userHome}`. One verb renders them:
-
-```bash
-npx dreamteamer resolve '${env:FILES_FOLDER}/x'            # → /Volumes/annex/x
-npx dreamteamer resolve <collection>/<id> <field>          # render what a record already holds
-```
-
-**Templates are ordinary data — write them literally; nothing substitutes until `resolve` is
-called.** `get`, `list`, `check` and every harness see the template verbatim, which is exactly what
-makes the record mean the same thing on every machine instead of quietly meaning two things. An
-undeclared key and a declared-but-absent one are different errors, and `compile` warns — by name,
-never by value — when a declared var has nothing behind it here.
-
-## Modular
-
-**Data and skills are the new app structure.** A coding agent with the right skills over the right
-data is arbitrary functionality — but composing that with no module system is where most setups stall.
-
-So dreamteamer doesn't invent one. **It uses npm.**
-
-`node_modules` is battle-tested, universally adopted, and already sitting in nearly every
-coding-agent setup. A module contributes collections, skills, agents, commands, command-bindings and
-UI views — and skills and agents are treated as exactly what they are: **memory that loads into
-context**, living in the same module structure as everything else, in a standard your tooling already
-understands.
-
-Three channels, one shape:
-
-```
-modules/<name>/        # lives in this repo
-git_modules/<name>/    # lives in its own repo
-node_modules/<name>/   # published package
-```
-
-Precedence runs top to bottom, so a local copy shadows a published one — which is how you develop a
-module and use it in the same workspace at the same time.
-
-A published package or a git clone may carry **several** modules: when its root has a `modules/`
-folder, each `modules/<name>/` with a `dreamteamer` key in its `package.json` is a module on that
-channel, and the root itself is never compiled. One `npm install` then delivers a whole family, and the
-workspace keeps what it wants — a bare module name in `dreamteamer.disable` drops a module before
-compile looks at it (an entry with a slash, `<module>/<entity>`, still disables one entity):
-
-```json
-"dreamteamer": { "disable": ["recordings", "introspection"] }
-```
-
-Disabling a module another one declares in `dependencies` is refused, naming what is present. The
-workspace's own `modules/*` never nest.
-
-Sources live **flat at a module root** — `modules/crm/skills/`, beside `package.json` — and a folder
-at a module root that isn't a known kind is a compile error rather than a silent skip.
-
-### Modules are not rigid
-
-This is the part that differs from npm on purpose.
-
-Installing a module into a workspace that already has opinions — its own idea of what a `contact` is —
-is a **negotiation, not an overwrite**. Four workspaces wanted a CRM and all four wanted a different
-`contacts`. A hard import would force one answer and make every divergence a fork.
-
-Two same-name collections is a compile error that names both descriptors and tells you the move:
-declare `extends: <module>/<collection>` and overlay only what differs. Because every schema is one
-small YAML file, adapting is cheap — read it, change what doesn't fit, and the diff shows exactly what
-you agreed to.
-
-So domain modules are **recipes you copy and adapt, not packages you install**, and divergence is the
-normal case rather than a failure.
-
-## Every harness, one source
-
-`compile` writes `.dreamteamer/` — the single runtime read surface — and from there into per-harness
-adapters: Claude Code, Codex, Pi, Gemini CLI, Cursor. Author a skill once; every agent you run sees it.
-
-## Extensions — the optional tools
-
-Core is the records and the compiler, and deliberately nothing else. Everything with a lifecycle of
-its own is a separate package a workspace installs only when it wants it
-([dreamteamer-tools](https://github.com/dreamteamer/dreamteamer-tools)):
-
-| package | adds |
-|---|---|
-| `@dreamteamer/workflows` | `dt prove` (behaviour proofs of skills, commands, scripts) · `dt land` · `dt worktree` |
-| `@dreamteamer/http` | `dt serve` — a REST api over the same validating store |
-| `@dreamteamer/notebooklm` | `dt notebooklm` — export (and sync) the workspace to a NotebookLM notebook |
-| `@dreamteamer/host` | `dt-host` — run a workspace as a local Docker container (its own binary) |
-
-```bash
-npm i -D @dreamteamer/workflows   # a direct dependency declaring an extension IS the opt-in
-npx dreamteamer compile           # its collections and skills compile in; `dt help` lists its verbs
-```
-
-An extension is handed the running engine's public API and may contribute verbs, a source kind with
-its own compile-time validation, a harness adapter, a paragraph of orientation and harness hooks —
-the contract is `skills/using-dreamteamer/references/extensions.md`. A contribution that collides with
-core or another extension is refused, naming both.
-
-## From code
-
-```js
-import { openWorkspace, Store, compile, check } from 'dreamteamer';
-const ws = await openWorkspace('.');        // { root, pkg, extensions } — no compile, no writes
+const ws = await openWorkspace('.');        // no compile, no writes
 const store = new Store(ws);
-for (const { id, fields } of store.readAll('notes')) console.log(id, fields.title);
+
+for (const { id, fields } of store.readAll('notes')) {
+  console.log(id, fields.title);
+}
 ```
 
-`dreamteamer` exports one public API (`src/api.js`, typed by `src/api.d.ts`); `src/*` is not
-importable, so internals can change without breaking a consumer.
+## Extensions
 
-## The editor
+Enhance your workspace with optional, officially-supported extensions:
 
-Extension id `dreamteamer.dreamteamer-vscode` (Marketplace · Open VSX). `init` and `compile` write the
-`.vscode/extensions.json` recommendation, and `dt status` reports whether it is active.
+- `@dreamteamer/workflows`: Behaviour proofs (`dt prove`), worktrees, and land commands.
+- `@dreamteamer/http`: Expose a REST API over your validating store.
+- `@dreamteamer/notebooklm`: Export and sync the workspace to a NotebookLM notebook.
+- `@dreamteamer/host`: Run a workspace as a local Docker container.
 
-[dreamteamer-vscode](https://github.com/dreamteamer/dreamteamer-vscode) gives you tables, boards,
-calendars, maps, forms and a data-model designer over the same files — and it loads **the engine your
-workspace pins**, so the editor, the CLI and any agent session are provably running the same code.
+## Agent-Native Documentation
 
-## Docs
-
-This is an agent-native tool, so its documentation is shipped as skills the agent loads on demand —
-and you can read them like any other file:
-
-- [`skills/using-dreamteamer`](skills/using-dreamteamer) — the one skill: working with records
-  (the CLI, conventions, commits) and modeling the workspace (collections, skills, agents,
-  commands, UI views — and which of those a given request should become), each topic a reference
-  loaded on demand
-- [`docs/one-skill-blast-radius.md`](docs/one-skill-blast-radius.md) — the 0.16.0 skill
-  consolidation: what breaks for a consumer, what to grep for, which claims were verified live
-- [`docs/repos-and-modules.md`](docs/repos-and-modules.md) — attached repos vs modules, and why they
-  have different homes
-- [`docs/namespaces-blast-radius.md`](docs/namespaces-blast-radius.md) — scoping collections under a
-  namespace (`health/doctors`), what it costs consumers, and why the default namespace is transparent
-- [`UPDATING.md`](UPDATING.md) — what to do when upgrading, one section per release
-
-## What it isn't
-
-Not a database — records are files and git is the history. Not a cloud service — there is no server
-and no account. Not a note-taking app — it's the layer underneath one.
-
-And it is **not** for data that needs row-level access control, field-level encryption, or provable
-erasure. Git cannot do those, and pretending otherwise is how people get hurt. This is for
-human-scale structured knowledge: thousands of records, not millions.
+Because this is an agent-native tool, documentation is shipped as skills your agent loads on demand:
+- [`skills/using-dreamteamer`](skills/using-dreamteamer) — Core skill for working with records and modeling the workspace.
+- [`docs/`](docs/) — Deeper architectural context, upgrade guides, and rationale.
 
 ## Contributing
 
-Issues are welcome. For anything larger than a typo, please open a discussion before a pull request —
-this is a small, deliberately lean codebase (`npm run metrics` enforces size budgets), and it's better
-to agree on the shape first.
+We welcome issues and discussions! For anything larger than a typo, please open a discussion before submitting a PR. This is a deliberately lean codebase and we prefer to agree on shape first. `npm run verify` enforces our size and test budgets. 
 
-`npm run verify` is the gate: import-layer direction, size budgets, and the test suite (tiers 1+2,
-zero dependencies, a few seconds). See [CONTRIBUTING.md](CONTRIBUTING.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 
 ## License
 
-Apache-2.0 © 2026 Gilad Khen. See [LICENSE](LICENSE).
+[Apache-2.0](LICENSE) © 2026 Gilad Khen.
