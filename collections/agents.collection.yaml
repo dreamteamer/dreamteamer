@@ -1,33 +1,42 @@
 name: agents
-storage: { path: agents, codec: md, shape: file, suffix: agent }
-id: { generate: "{{ name | slug }}" }
-schema:
-  type: object
-  required: [name, description]
-  properties:
-    name:
-      type: string
-      description: The agent id — must equal the filename, or dispatch misses.
-    description:
-      type: string
-      description: WHEN to dispatch this agent, in one line. The harness matches a request against this, so it is the agent's entire discoverability.
-    tools:
-      type: array
-      items: { type: string }
-      description: The tools this agent may use. Empty means the harness default set.
-    model:
-      type: string
-      description: Which model to run it on. Omit to inherit the session's.
-    skills:
-      type: array
-      items: { type: string, x-reference: skills }
-      description: Skills this agent should load. Reference them rather than restating their steps in the body.
-    instructions:
-      type: string
-      format: markdown
-      x-body: true
-      description: The agent's system prompt — what it is for and how it should work.
-order: 30
-list_fields: [name, last-modified, description]
-icon: smart_toy
-group: system
+record_title: '{{ name }}'
+description: A job that runs in a fresh context with its own tools — dispatched by its `description`.
+use_when: >-
+  a job needs a context of its own (a long search, a review, an isolated build) — write it here; when
+  telling the current session how is enough, it is a skill instead
+internal: true
+storage:
+  path: agents
+  format: md
+ids:
+  from: '{{ name | slug }}'
+fields:
+  name:
+    type: string
+    required: true
+    description: The agent id — must equal the filename, or dispatch misses.
+  description:
+    type: string
+    required: true
+    description: WHEN to dispatch this agent, in one line. The harness matches a request against this, so it is the agent's entire discoverability.
+  tools:
+    type: string
+    many: true
+    description: The tools this agent may use. Empty means the harness default set.
+  model:
+    type: string
+    description: Which model to run it on. Omit to inherit the session's.
+  skills:
+    type: skills
+    many: true
+    description: Skills this agent should load. Reference them rather than restating their steps in the body.
+  instructions:
+    type: markdown
+    body: true
+    description: The agent's system prompt — what it is for and how it should work.
+display:
+  nav:
+    icon: smart_toy
+    order: 30
+  list:
+    columns: [name, last_modified, description]

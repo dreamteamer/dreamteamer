@@ -167,6 +167,18 @@ schema:
     icon:
       type: string
       description: material-symbols-outlined icon name, drawn in the nav and page header. The VS Code tree maps it to the nearest codicon — an unmapped name falls back to a generic cylinder, so pick one that is already mapped or add the row.
+    display:
+      type: object
+      description: >-
+        How the surfaces draw this collection — `nav` (icon, order, section), `list` (layout, columns,
+        sort, options), `record` (layout, subtitle, badge, color_by) and `form` (sections). A ui-view
+        carries the same block and merges over it key by key.
+    compiled:
+      type: object
+      description: >-
+        Written by compile, never authored: the defaults it supplied, the module, the repo, whether the
+        records are build output, the mirrors, the overlaying modules, unresolved peers, the resolved
+        `fields` every consumer reads and the `json_schema` the validator reads.
     unresolved_peers:
       type: array
       items: { type: string }

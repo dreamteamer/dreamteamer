@@ -135,7 +135,10 @@ export function collectionCommand(ws, collection, verb, args) {
 		}
 		case 'get': {
 			const id = need(pos, 0, 'id');
-			const { fields } = store.read(collection, id);
+			const { fields, file } = store.read(collection, id);
+			// descriptor v2: a record older than the `created` stamp still answers it — read, never written
+			const created = store.createdOf(collection, id, fields, file);
+			if (created !== undefined && fields.created === undefined) fields.created = created;
 			if (flags.json) { emit(JSON.stringify({ ...fields, id }, null, 2)); return 0; }
 			console.log(dump(fields).trimEnd());
 			return 0;
@@ -162,7 +165,8 @@ export function collectionCommand(ws, collection, verb, args) {
 				flags[titleField] = pos[0];
 			}
 			const fields = coerceArrays(d, stripMeta(flags));
-			const { id, file, idFallback } = store.add(collection, fields, { id: flags.id });
+			const { id, file, idFallback, deprecated } = store.add(collection, fields, { id: flags.id });
+			for (const k of deprecated ?? []) console.warn(`⚠ ${k} is deprecated on ${collection} — it still validates, and nothing draws it. Check the collection's description for what replaced it.`);
 			flags.json
 				? emit(JSON.stringify({ id, path: rel(ws.root, file), ...(idFallback ? { idFallback } : {}) }))
 				: console.log(`✔ ${at}${rel(ws.root, file)}`);

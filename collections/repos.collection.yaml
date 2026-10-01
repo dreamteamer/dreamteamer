@@ -1,61 +1,58 @@
 name: repos
-description: >-
-  A git repository this workspace knows about — where it lives and how a working tree is
-  materialized on demand.
+record_title: '{{ name }}'
+description: A git repository this workspace knows about — where it lives and how a working tree is materialized on demand.
 use_when: >-
   a repository this workspace depends on is named — its own engine or extension clone, a client's
-  repo — read the record here for WHERE it lives (`path`, a `${env:…}` template `dt resolve` renders
+  repo — read the record here for WHERE it lives (`path`, a `${env:…}` variable `dt resolve` renders
   per machine) before assuming a path or concluding a clone is unreachable; `dt status` reports
   each one and `dt install repos/<id>` materializes it
-# An external git repo attached to this workspace. Owns CLONE LIFECYCLE ONLY — a repo record
-# never contributes schema, skills or UI (that is what a module is, declared in package.json
-# `dreamteamer.git-modules`, because modules must be restorable BEFORE compile can run).
-# Working trees are materialized ON DEMAND via `dreamteamer install repos/<id>`, and never as part
-# of making a checkout ready: the record count only grows and any given session needs almost none
-# of them.
-storage: { path: data/repos, codec: yaml, shape: file, suffix: repo }
-id:
-  generate: "{{ name | slug }}"
-  pattern: "^[a-z0-9-]+$"
-schema:
-  type: object
-  required: [name, url]
-  properties:
-    name:
-      type: string
-      description: The CLONE FOLDER name, not a display title — this is what appears on disk.
-    description:
-      type: string
-      description: What this repo is, in one line.
-    url:
-      type: string
-      description: The git remote to clone from.
-    ref:
-      type: string
-      default: main
-      description: Branch or tag to check out.
-    identity:
-      type: string
-      description: 'Opaque path segment grouping clones by the account that owns them: <repos-path>/<identity>/<name>.'
-    path:
-      type: string
-      description: >-
-        Where the working tree goes, winning over the derived <repos-path>/<identity>/<name>. Takes
-        the ${env:NAME} / ${workspaceFolder} / ${userHome} templates, rendered when the path is
-        needed — which is how a repo that lives OUTSIDE this workspace is expressed, since an
-        absolute rendering escapes the root while a plain relative one still anchors to it.
-    visibility:
-      type: string
-      enum: [private, public]
-      default: private
-      description: Whether the repo is public. Defaults to private, because assuming otherwise is the expensive mistake.
-order: 145
-list_fields: [name, identity, ref, url]
-icon: source
-# MACHINERY, NOT A DOMAIN NOUN, and `group: system` is the whole statement of it. `repos` is the
-# engine's only collection whose records live in `data/`, which used to make every workspace render
-# a **System** module group with one collection under it — the group the block's own renderer says
-# should not exist (harnesses.js). Being in the `system` partition folds it out of the block's
-# domain listing and onto the schema surface instead. The records stay real, writable and committed;
-# only the presentation changes.
-group: system
+# Owns CLONE LIFECYCLE ONLY — a repo record never contributes schema, skills or UI (that is what a
+# module is, declared in package.json `dreamteamer.git_modules`, because modules must be restorable
+# BEFORE compile can run). Working trees are materialized on demand, never as part of making a
+# checkout ready. Internal: workspace plumbing rather than a domain noun, so it is drawn on the
+# schema surface; its records are ordinary, writable, committed data.
+internal: true
+storage:
+  path: data/repos
+  format: yaml
+ids:
+  from: '{{ name | slug }}'
+  pattern: '^[a-z0-9-]+$'
+fields:
+  name:
+    type: string
+    required: true
+    description: The CLONE FOLDER name, not a display title — this is what appears on disk.
+  description:
+    type: string
+    description: What this repo is, in one line.
+  url:
+    type: string
+    required: true
+    title: URL
+    description: The git remote to clone from.
+  ref:
+    type: string
+    default: main
+    description: Branch or tag to check out.
+  identity:
+    type: string
+    description: 'Opaque path segment grouping clones by the account that owns them: <repos-path>/<identity>/<name>.'
+  path:
+    type: string
+    description: >-
+      Where the working tree goes, winning over the derived <repos-path>/<identity>/<name>. Takes the
+      ${env:NAME} / ${workspaceFolder} / ${userHome} variables, rendered when the path is needed — which
+      is how a repo that lives OUTSIDE this workspace is expressed, since an absolute rendering escapes
+      the root while a plain relative one still anchors to it.
+  visibility:
+    type: string
+    default: private
+    enum: [private, public]
+    description: Whether the repo is public. Defaults to private, because assuming otherwise is the expensive mistake.
+display:
+  nav:
+    icon: source
+    order: 145
+  list:
+    columns: [name, identity, ref, url]

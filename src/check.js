@@ -185,6 +185,18 @@ export function check({ root }, { extra = [] } = {}) {
 			}
 			parsed.get(name).set(id, fields);
 		}
+		// descriptor v2: `unique: true` on a scalar field — the second record holding a value is the
+		// one reported, naming the first. Null and absent never claim.
+		for (const [field, f] of Object.entries(d.compiled?.fields ?? {})) {
+			if (!f.unique || f.many) continue;
+			const seen = new Map();
+			for (const [id, fields] of parsed.get(name)) {
+				const v = fields[field];
+				if (v === undefined || v === null || v === '') continue;
+				if (seen.has(v)) flag(index.get(name).get(id), `${field}: "${v}" is already taken by ${name}/${seen.get(v)} (unique)`);
+				else seen.set(v, id);
+			}
+		}
 	}
 
 	// ---- relations: mirrors are DERIVED state ------------------------------------------
