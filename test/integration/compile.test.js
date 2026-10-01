@@ -717,6 +717,52 @@ describe('x-inverse onto a peer collection', () => {
 });
 
 // ---------------------------------------------------------------------------------------------
+// A binding whose can-enter hops through a field a PEER module stamps: absent peer, the binding
+// compiles and reads not-applicable; installed, it reads available once the hop matches.
+describe('a command-binding gated on a peer collection', () => {
+	const meetingDocs = ({ withRecordings }) => {
+		const ws = workspace({ compile: false });
+		writeModule(ws.root, 'meet', { collections: { meetings: simpleCollection({ storage: { suffix: 'meeting' } }) } });
+		const docs = writeModule(ws.root, 'docs', { dependencies: ['meet'], peerDependencies: ['recordings'] });
+		fs.mkdirSync(path.join(docs, 'commands'));
+		fs.mkdirSync(path.join(docs, 'command-bindings'));
+		fs.writeFileSync(path.join(docs, 'commands', 'summarize.command.md'), '---\nname: summarize\ndescription: Summarize a call.\n---\nSummarize it.\n');
+		fs.writeFileSync(path.join(docs, 'command-bindings', 'summarize--meetings.command-binding.yaml'),
+			'command: commands/summarize\ncollection: collections/meetings\ntarget: record\ncan-enter:\n  recordings:\n    transcription:\n      _nempty: true\n');
+		if (withRecordings) {
+			writeModule(ws.root, 'rec', { dependencies: ['meet'], collections: { recordings: simpleCollection({
+				storage: { suffix: 'recording' },
+				schema: { type: 'object', required: ['name'], properties: {
+					name: { type: 'string' },
+					transcription: { type: 'string' },
+					meeting: { type: 'string', 'x-reference': 'meetings', 'x-inverse': 'recordings' },
+				} },
+			}) } });
+		}
+		return ws;
+	};
+	const state = (root) => JSON.parse(dt(root, 'next', 'meetings/kickoff', '--json').stdout).commands[0].states.kickoff;
+
+	test('recordings absent: compiles, checks clean, and the binding is not-applicable', () => {
+		const { root } = meetingDocs({ withRecordings: false });
+		assert.equal(dt(root, 'compile').code, 0);
+		assert.equal(dt(root, 'add', 'meetings', '--name', 'Kickoff').code, 0);
+		assert.equal(state(root), 'not-applicable');
+		assert.equal(dtCheck(root).code, 0);
+	});
+
+	test('recordings installed: the same binding becomes available once a transcribed recording points at the meeting', () => {
+		const { root } = meetingDocs({ withRecordings: true });
+		assert.equal(dt(root, 'compile').code, 0);
+		assert.equal(dt(root, 'add', 'meetings', '--name', 'Kickoff').code, 0);
+		assert.equal(state(root), 'not-applicable');
+		assert.equal(dt(root, 'add', 'recordings', '--name', 'Take one', '--meeting', 'meetings/kickoff', '--transcription', 'done').code, 0);
+		assert.equal(state(root), 'available');
+		assert.equal(dtCheck(root).code, 0);
+	});
+});
+
+// ---------------------------------------------------------------------------------------------
 // A descriptor with no `storage.suffix` used to write every record as `<id>.undefined.md` —
 // silent at compile, at `add` and at `check`, and on a `codec: file` collection every later verb
 // then died inside `idFromRecordPath` on `undefined.replace`. compile DERIVES it instead, which is
