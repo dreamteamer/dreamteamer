@@ -1201,6 +1201,7 @@ export function compile(ws) {
 	// `x-reference: users` now FAILS here, which is the intended loud outcome rather than a ref
 	// pointing at a collection nothing provides.
 	const CORE_COLLECTIONS = new Set([...kinds, ...DERIVED_KINDS, 'repos']);
+	const engineName = engineId().replace(/@[^@]*$/, '');
 	const wsDir = config['workspace-module'];
 	const wsModuleName = wsDir
 		? sources.find((s) => rel(s.root) === path.join('modules', wsDir))?.name
@@ -1372,6 +1373,11 @@ export function compile(ws) {
 		// its `modules/<id>` reference form for ONE release, because the extension's nav groups by it
 		// (§10's compat-read precedent); it is removed in the release after this one.
 		const ownerId = moduleId(base?.moduleName ?? groupModules[0]);
+		// the system partition is the engine's machinery and the workspace's own; a module's collection
+		// is a domain, and `group: system` would drop it from the orientation listing
+		if (merged.group === 'system' && ![engineName, wsModuleName].includes(base?.moduleName)) {
+			fail(`collection "${name}": group: system is reserved for the engine's collections and the workspace module's — module ${ownerId} ships a domain collection. Drop it (${group.map((g) => g.src.path).join(', ')}).`);
+		}
 		merged.module = ownerId;
 		merged.owner = `modules/${ownerId}`;
 		// ⚠ ABSENT rather than empty when there are none. An empty list is a statement nobody made,

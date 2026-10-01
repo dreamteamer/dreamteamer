@@ -214,17 +214,12 @@ schema:
       description: >-
         The collection's PARTITION — which family of nouns it belongs to, authored freely (`crm`,
         `finance`, `family`, `content`…) and set with `dt set collections/<c> group=<g>`. One value
-        is reserved and load-bearing: `group: system` says the collection is the workspace's own
-        MACHINERY rather than one of its domain nouns, so it is left out of the generated block's
-        domain listing, named on the system-collections line instead, and drawn on a surface's
-        schema surface rather than in the record tree. ⚠ It does NOT change where records live or
-        whether they can be written — that is `storage.base`, asked separately, and `repos` is the
-        collection where the two answers split: `group: system` and workspace-stored records the
-        operator edits by hand. Nearly removed on 2026-08-11, when the nav stopped grouping by it in
-        favour of `owner` (a module, which has a title of its own) and nothing else read it; kept
-        then so the change would be a code revert rather than a data migration, and because a
-        workspace may want a partition that deliberately DIFFERS from its modules. That is what it
-        became.
+        is reserved: `group: system` marks the engine's or the workspace module's own MACHINERY, so
+        it is left out of the generated block's domain listing, named on the system-collections line
+        instead, and drawn on a surface's schema surface rather than in the record tree. Compile
+        refuses it on a collection any other module ships. It does NOT change where records live or
+        whether they can be written — that is `storage.base`; `repos` is system-grouped with
+        workspace-stored records edited by hand.
 order: 10
 list_fields: [name, last-modified]
 icon: schema

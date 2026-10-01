@@ -98,7 +98,8 @@ export function runHarnessAdapters({ root, entries, harnesses, prevManifest, sou
 	const skillsIndex = buildSkillsIndex(entries);
 	// what every orientation block carries beyond the schema: the source kinds extensions add, and the
 	// one paragraph each may contribute about itself
-	const extra = { kinds, paragraphs: contributions.paragraphs };
+	const verbs = new Map(extensions.map((e) => [e.name.replace(/^@[^/]+\//, ''), Object.keys(e.commands ?? {}).sort()]));
+	const extra = { kinds, paragraphs: contributions.paragraphs, verbs };
 	const orient = (flavor) => orientationBlock(flavor, skillsIndex, sourceLayout, namespaces, version, entries, workspaceModule, extra);
 
 	// ---- claude-code: native skills/agents/commands dirs + CLAUDE.md block ----------
@@ -344,8 +345,9 @@ function buildCommandsIndex(entries) {
  *  nouns by namespace and the reader had to infer the domains from the prefixes; the hand-written
  *  module table one dogfood workspace kept to fill that gap was the same failure the collection list
  *  had already been through. A module whose every collection is system-stored (the engine) is not a
- *  domain and gets no group; a skills-only module is one and does. */
-function collectionsSection(index, modules, workspaceModule) {
+ *  domain and gets no group; a module shipping only skills, commands, a bin or extension verbs is one
+ *  and does. */
+function collectionsSection(index, modules, workspaceModule, verbs) {
 	if (!index.length) return [];
 	const lines = [
 		'',
@@ -361,12 +363,12 @@ function collectionsSection(index, modules, workspaceModule) {
 	const data = index.filter((c) => !c.systemGroup);
 	const isWs = (m) => m.path === `modules/${workspaceModule}/`;
 	const groups = modules
-		.filter((m) => { const own = index.filter((c) => c.module === m.id); return own.some((c) => !c.systemGroup) || (!own.length && (m.skills.length || m.commands.length || m.bin.length)); })
+		.filter((m) => { const own = index.filter((c) => c.module === m.id); return own.some((c) => !c.systemGroup) || (!own.length && (m.skills.length || m.commands.length || m.bin.length || verbs.get(m.id)?.length)); })
 		.sort((a, b) => (isWs(b) - isWs(a)) || a.title.localeCompare(b.title));
 	for (const m of groups) {
 		const where = [`\`${m.id}\``, m.path ? m.path.replace(/\/$/, '') : 'the workspace root', ...(m.namespaces.length ? [`namespaces: ${m.namespaces.join(' · ')}`] : [])];
 		lines.push('', `**${m.title}** (${where.join(' · ')})${m.description ? ` — ${m.description}` : ''}`);
-		const ships = [...(m.skills.length ? [`skills: ${m.skills.join(' · ')}`] : []), ...(m.commands.length ? [`commands: ${m.commands.map((c) => `/${c}`).join(' · ')}`] : []), ...(m.bin.length ? [`runs: ${m.bin.join(' · ')}`] : [])];
+		const ships = [...(m.skills.length ? [`skills: ${m.skills.join(' · ')}`] : []), ...(m.commands.length ? [`commands: ${m.commands.map((c) => `/${c}`).join(' · ')}`] : []), ...(m.bin.length ? [`runs: ${m.bin.join(' · ')}`] : []), ...(verbs.get(m.id)?.length ? [`verbs: ${verbs.get(m.id).map((v) => `dt ${v}`).join(' · ')}`] : [])];
 		if (ships.length) lines.push(`  ${ships.join(' · ')}`);
 		for (const c of data.filter((c) => c.module === m.id)) {
 			lines.push(`- ${c.name}${c.description ? ` — ${c.description}` : ''}`);
@@ -511,7 +513,7 @@ function orientationBlock(flavor, skillsIndex, sourceLayout = 'flat', namespaces
 			'DECLARED prefix, not at the first slash. collections with no prefix are unaffected.',
 		);
 	}
-	lines.push(...collectionsSection(buildCollectionsIndex(entries), buildModulesIndex(entries), workspaceModule));
+	lines.push(...collectionsSection(buildCollectionsIndex(entries), buildModulesIndex(entries), workspaceModule, extra.verbs ?? new Map()));
 	lines.push(...templatesSection(entries));
 	lines.push(...bindingsSection(entries));
 	// claude-code discovers skills natively (Skill tool) — an index in CLAUDE.md is pure
