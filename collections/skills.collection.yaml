@@ -1,22 +1,33 @@
 name: skills
-storage: { path: skills, codec: md, shape: folder, entry: SKILL.md }
-id: { generate: "{{ name | slug }}" }
-schema:
-  type: object
-  required: [name, description]
-  properties:
-    name:
-      type: string
-      description: The skill id — must equal the folder name.
-    description:
-      type: string
-      description: WHEN to load this skill, not what it contains. A session matches its situation against this line, so a description that describes the contents is a skill that never triggers.
-    instructions:
-      type: string
-      format: markdown
-      x-body: true
-      description: The skill itself. Keep it a digest with references/ beside it — a skill nobody can afford to load is not a capability.
-order: 20
-list_fields: [name, last-modified, description]
-icon: psychology
-group: system
+record_title: '{{ name }}'
+description: A procedure a session loads on its own when its situation matches — its `description` is the trigger, never a summary.
+use_when: >-
+  a job recurs and a session should find the know-how for it without being told — write the procedure
+  here; not a command (an operator has to remember to run one) and not an agent (a whole context)
+internal: true
+storage:
+  path: skills
+  format: md
+  shape: folder
+  entry: SKILL.md
+ids:
+  from: '{{ name | slug }}'
+fields:
+  name:
+    type: string
+    required: true
+    description: The skill id — must equal the folder name.
+  description:
+    type: string
+    required: true
+    description: WHEN to load this skill, not what it contains. A session matches its situation against this line, so a description that describes the contents is a skill that never triggers.
+  instructions:
+    type: markdown
+    body: true
+    description: The skill itself. Keep it a digest with references/ beside it — a skill nobody can afford to load is not a capability.
+display:
+  nav:
+    icon: psychology
+    order: 20
+  list:
+    columns: [name, last_modified, description]

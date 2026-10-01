@@ -86,8 +86,10 @@ describe('keys', () => {
 		assert.deepEqual(enumValues({ a: {}, b: {} }), ['a', 'b']);
 	});
 
-	test('enum values are kebab-case and enum belongs to string', () => {
-		assert.match(resolve({ k: { type: 'string', enum: ['CRM'] } }).errors[0], /not kebab-case/);
+	test('a non-kebab enum value warns (renaming it is a record change), and enum belongs to string', () => {
+		const r = resolve({ k: { type: 'string', enum: ['CRM'] } });
+		assert.deepEqual(r.errors, []);
+		assert.match(r.warnings[0], /not kebab-case/);
 		assert.match(resolve({ k: { type: 'integer', enum: [1] } }).errors[0], /belongs to type string/);
 	});
 

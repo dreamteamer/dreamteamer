@@ -17,7 +17,7 @@ export const SCALAR_TYPES = ['string', 'markdown', 'boolean', 'integer', 'number
 /** The closed set of keys a field may carry. Anything else is a compile error naming the key. */
 export const FIELD_KEYS = new Set([
 	'type', 'title', 'required', 'many', 'default', 'enum', 'unique', 'mirror_of', 'on_delete', 'sensitive',
-	'body', 'derived', 'virtual', 'deprecated', 'fields', 'values', 'item_title',
+	'body', 'derived', 'virtual', 'deprecated', 'passthrough', 'fields', 'values', 'item_title',
 	'examples', 'pattern', 'minimum', 'maximum', 'minItems', 'maxItems', 'minLength', 'maxLength', 'const',
 	'display', 'description',
 ]);
@@ -47,13 +47,14 @@ export function referenceTargets(type, collections) {
  * Resolve one collection's authored fields.
  * @param {object} authored   the descriptor's `fields` (mixins and overlays already merged in by compile)
  * @param {object} ctx        { name, collections: Set<string>, peers?: Set<string> }
- * @returns {{ fields: object, errors: string[], defaults: object }}
+ * @returns {{ fields: object, errors: string[], warnings: string[], defaults: object }}
  *   fields   — resolved: injected fields first, authored fields in order, every field with its type and keys as authored
  *   defaults — per field, the keys compile supplied (title today; on_delete on references)
  *   errors   — each naming the field and the key
  */
 export function resolveFields(authored, ctx) {
 	const errors = [];
+	const warnings = [];
 	const defaults = {};
 	const known = new Set(Object.keys(authored ?? {}));
 	const fields = {};
@@ -67,7 +68,8 @@ export function resolveFields(authored, ctx) {
 	let positions = 0;
 	for (const [name, prop] of Object.entries(authored ?? {})) {
 		if (!prop || typeof prop !== 'object' || Array.isArray(prop)) { errors.push(`field "${name}" must be a map`); continue; }
-		if (!/^[a-z][a-z0-9_]*$/.test(name)) errors.push(`field "${name}": names are snake_case`);
+		// a key copied verbatim into a harness keeps the harness's spelling, and says so
+		if (!/^[a-z][a-z0-9_]*$/.test(name) && !(prop.passthrough && /^[a-z][a-z0-9-]*$/.test(name))) errors.push(`field "${name}": names are snake_case (a key passed through to a harness in its own spelling is marked \`passthrough: true\`)`);
 		for (const k of Object.keys(prop)) if (!FIELD_KEYS.has(k)) errors.push(`field "${name}" has unknown key "${k}" — the closed list is: ${[...FIELD_KEYS].join(' ')}`);
 		const out = { ...prop };
 		const targets = referenceTargets(prop.type, types);
@@ -88,7 +90,8 @@ export function resolveFields(authored, ctx) {
 			if (prop.type !== 'string') errors.push(`field "${name}": \`enum\` belongs to type string (there is no type enum)`);
 			const values = enumValues(prop.enum);
 			if (!values) errors.push(`field "${name}": \`enum\` is a list of values or a map of value → { label, description, icon, color, background }`);
-			else for (const v of values) if (!/^[a-z0-9][a-z0-9-]*$/.test(String(v))) errors.push(`field "${name}": enum value "${v}" is not kebab-case`);
+			// a WARNING: renaming a value is a record change (`dt rename-value`), which a compile must not force
+			else for (const v of values) if (!/^[a-z0-9][a-z0-9-]*$/.test(String(v))) warnings.push(`field "${name}": enum value "${v}" is not kebab-case — values are kebab-case, and the label belongs in the enum map (dt rename-value renames one)`);
 		}
 		if (prop.mirror_of !== undefined) {
 			if (!targets || targets[0] === '*' || targets.length !== 1) errors.push(`field "${name}": \`mirror_of\` needs a type naming exactly one collection`);
@@ -118,7 +121,7 @@ export function resolveFields(authored, ctx) {
 	}
 	if (bodies > 1) errors.push(`${bodies} fields declare body: true — a record has one body`);
 	if (positions > 1) errors.push(`${positions} fields are type position — a collection has one manual order`);
-	return { fields, errors, defaults };
+	return { fields, errors, warnings, defaults };
 }
 
 /** The enum's value list, from a list or a map; null when it is neither. */
@@ -141,8 +144,10 @@ export function enumChoices(e) {
 	return out;
 }
 
+/** The default field label — the same rule compile's titleCase has always applied, so a surface
+ *  draws a v2 field exactly as it drew the v1 one. */
 export function titleOf(name) {
-	return name.split(/[_-]/).map((w, i) => (i === 0 ? w.charAt(0).toUpperCase() + w.slice(1) : w)).join(' ');
+	return String(name).split(/[_\-\s/]+/).filter(Boolean).map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 }
 
 /**

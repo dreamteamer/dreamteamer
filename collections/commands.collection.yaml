@@ -1,36 +1,51 @@
 name: commands
-storage: { path: commands, codec: md, shape: file, suffix: command }
-id: { generate: "{{ name | slug }}" }
-schema:
-  type: object
-  required: [name]
-  properties:
-    name:
-      type: string
-      description: The command id — must equal the filename, and is what the operator types after the slash.
-    description:
-      type: string
-      description: What this command does, in one line. It is the whole entry in the / picker, so write it for someone scanning.
-    # native claude-code slash-command frontmatter — compile copies commands verbatim,
-    # so these flow straight into .claude/commands/<name>.md and the / picker
-    argument-hint:
-      type: string
-      description: What arguments the command takes, shown inline in the / picker.
-    allowed-tools:
-      type: string
-      description: Tools this command may use, when it should be narrower than the session's.
-    model:
-      type: string
-      description: Which model to run it on. Omit to inherit the session's.
-    disable-model-invocation:
-      type: boolean
-      description: Set when only a person may run this — it stops the model invoking it on its own.
-    prompt:
-      type: string
-      format: markdown
-      x-body: true
-      description: The command body. Reference the skill that owns the procedure rather than restating its steps — two copies drift.
-order: 40
-list_fields: [name, last-modified, description]
-icon: terminal
-group: system
+record_title: '{{ name }}'
+description: A procedure the operator starts by typing its name after a slash — the entry point, never the procedure itself.
+use_when: >-
+  a job should start on one typed word, or a chain of jobs should be gated on a record's fields —
+  write the entry here and point it at the skill that owns the steps; if a session should find the
+  job on its own, it is a skill instead
+internal: true
+storage:
+  path: commands
+  format: md
+ids:
+  from: '{{ name | slug }}'
+fields:
+  name:
+    type: string
+    required: true
+    description: The command id — must equal the filename, and is what the operator types after the slash.
+  description:
+    type: string
+    description: What this command does, in one line. It is the whole entry in the / picker, so write it for someone scanning.
+  use_when:
+    type: string
+    description: The situations that should bring a session to this command, one clause. Rendered into the harness's trigger line after the description.
+  # Claude Code's own slash-command frontmatter — compile copies a command verbatim into the
+  # harness, so these keep the harness's spelling and are marked passthrough.
+  argument-hint:
+    type: string
+    passthrough: true
+    description: What arguments the command takes, shown inline in the / picker.
+  allowed-tools:
+    type: string
+    passthrough: true
+    description: Tools this command may use, when it should be narrower than the session's.
+  model:
+    type: string
+    description: Which model to run it on. Omit to inherit the session's.
+  disable-model-invocation:
+    type: boolean
+    passthrough: true
+    description: Set when only a person may run this — it stops the model invoking it on its own.
+  prompt:
+    type: markdown
+    body: true
+    description: The command body. Reference the skill that owns the procedure rather than restating its steps — two copies drift.
+display:
+  nav:
+    icon: terminal
+    order: 40
+  list:
+    columns: [name, last_modified, description]

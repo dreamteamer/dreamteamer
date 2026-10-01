@@ -34,8 +34,10 @@ export const V1_REPLACEMENTS = {
 	unresolved_peers: 'nothing — compile writes it',
 };
 
-const STORAGE_KEYS = ['path', 'format', 'shape', 'entry', 'under', 'max_bytes', 'accept'];
-const STORAGE_V1 = { codec: '`format` (md · yaml · json · binary)', extensions: '`accept`', suffix: 'nothing — the suffix is the bare half of `singular`', base: 'nothing — compile writes `compiled.runtime`', repo: 'nothing — compile writes `compiled.repo`' };
+// `suffix` stays authorable: its default is the bare singular, and existing records carry the suffix
+// they were written with — six collections of one real workspace differ from their singular
+const STORAGE_KEYS = ['path', 'format', 'shape', 'entry', 'suffix', 'under', 'max_bytes', 'accept'];
+const STORAGE_V1 = { codec: '`format` (md · yaml · json · binary)', extensions: '`accept`', base: 'nothing — compile writes `compiled.runtime`', repo: 'nothing — compile writes `compiled.repo`' };
 const DISPLAY_BLOCKS = { nav: ['icon', 'order', 'section'], list: ['layout', 'columns', 'sort', 'options'], record: ['layout', 'subtitle', 'badge', 'color_by'], form: ['sections'] };
 
 export const isV2 = (doc) => !!doc && typeof doc === 'object' && !Array.isArray(doc) && 'fields' in doc;
@@ -165,7 +167,7 @@ export function nameErrors(doc) {
  * @returns {{ internal: object, resolved: object, defaults: object, errors: string[] }}
  */
 export function toInternal(doc, { collections, peers }) {
-	const { fields: resolved, errors, defaults } = resolveFields(doc.fields, { name: doc.name, collections, peers });
+	const { fields: resolved, errors, warnings, defaults } = resolveFields(doc.fields, { name: doc.name, collections, peers });
 	// an overlay adds fields to a base that already carries the injected ones
 	if (doc.overlay) for (const k of ['id', 'created', 'last_modified']) delete resolved[k];
 	const internal = { name: doc.name };
@@ -175,7 +177,8 @@ export function toInternal(doc, { collections, peers }) {
 	else if (doc.display?.nav?.section !== undefined) internal.group = doc.display.nav.section;
 	if (doc.display?.nav?.icon !== undefined) internal.icon = doc.display.nav.icon;
 	if (doc.display?.nav?.order !== undefined) internal.order = doc.display.nav.order;
-	if (doc.display?.list?.columns !== undefined) internal.list_fields = doc.display.list.columns;
+	// the internal shape still spells the injected column the v1 way
+	if (doc.display?.list?.columns !== undefined) internal.list_fields = doc.display.list.columns.map((c) => (c === 'last_modified' ? 'last-modified' : c));
 	const position = Object.entries(doc.fields ?? {}).find(([, f]) => f?.type === 'position')?.[0];
 	if (position) internal.sort_field = position;
 	// storage and id only where AUTHORED: an overlay that carried a default storage block would win
@@ -187,6 +190,7 @@ export function toInternal(doc, { collections, peers }) {
 		if (s.format !== undefined) storage.codec = s.format === 'binary' ? 'file' : s.format;
 		if (s.shape !== undefined) storage.shape = s.shape;
 		if (s.entry !== undefined) storage.entry = s.entry;
+		if (s.suffix !== undefined) storage.suffix = s.suffix;
 		if (s.under) storage.under = { field: s.under.parent, path: s.under.subfolder };
 		if (s.max_bytes !== undefined) storage.max_bytes = s.max_bytes;
 		if (s.accept !== undefined) storage.extensions = s.accept;
@@ -202,7 +206,7 @@ export function toInternal(doc, { collections, peers }) {
 	}
 	internal.schema = { type: 'object', ...(required.length && { required }), properties };
 	if (doc.constraints?.length) internal.schema.allOf = structuredClone(doc.constraints);
-	return { internal, resolved, defaults, errors };
+	return { internal, resolved, defaults, errors, warnings };
 }
 
 /** One resolved v2 field → the internal property. */

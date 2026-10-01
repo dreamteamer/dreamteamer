@@ -1231,6 +1231,7 @@ export function compile(ws) {
 			if (names.length) fail(`collection "${name}" (${group.map((g) => g.src.path).join(', ')}):\n  ${names.join('\n  ')}`);
 			const whole = toInternal(authored, { collections: typeNames, peers: allPeers });
 			if (whole.errors.length) fail(`collection "${name}" (${group.map((g) => g.src.path).join(', ')}):\n  ${whole.errors.join('\n  ')}`);
+			for (const w of whole.warnings) console.warn(`⚠ collection ${name}: ${w}`);
 			for (const g of group) {
 				const { internal, errors } = toInternal(mixed.get(g), { collections: typeNames, peers: allPeers });
 				if (errors.length) fail(`${g.src.path}:\n  ${errors.join('\n  ')}`);
@@ -1626,6 +1627,10 @@ export function compile(ws) {
 			// descriptor v2: the authored display and the `compiled` block ride beside the internal keys
 			// until every consumer reads `compiled.fields`; collection-level defaults are recorded apart
 			if (v2.display) merged.display = v2.display;
+			// the internal shape always carried an explicit codec and shape; readers outside the engine
+			// (the extension) may not default them
+			merged.storage.codec ??= 'md';
+			merged.storage.shape ??= 'file';
 			const a = v2.authored;
 			const defaults = {};
 			if (a.title === undefined) defaults.title = merged.title;
@@ -1635,7 +1640,7 @@ export function compile(ws) {
 			if (a.storage?.path === undefined) sd.path = merged.storage.path;
 			if (a.storage?.format === undefined) sd.format = merged.storage.codec === 'file' ? 'binary' : (merged.storage.codec ?? 'md');
 			if (a.storage?.shape === undefined) sd.shape = merged.storage.shape ?? 'file';
-			sd.suffix = merged.storage.suffix;
+			if (a.storage?.suffix === undefined) sd.suffix = merged.storage.suffix;
 			defaults.storage = sd;
 			const block = compiledBlock({ resolved: v2.resolved, defaults: v2.defaults, constraints: v2.constraints, collections: new Set(mergedGroups.keys()), merged });
 			merged.compiled = { ...block, defaults: { ...defaults, ...block.defaults } };
