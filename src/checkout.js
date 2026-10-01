@@ -55,7 +55,7 @@ export function planInstall(state, opts = {}) {
 	const { checkout: c } = state;
 	const steps = [];
 	// ⚠ EVERY declared direct dependency, not just the engine. A worktree whose engine is a mirrored dev
-	// LINK used to read as ready while an installed extension (@dreamteamer/workflows) was missing — so
+	// LINK used to read as ready while an installed extension was missing — so
 	// npm never ran, and compile then refused the extension's source folder as an unknown kind.
 	const missing = state.missingDeps ?? [];
 	steps.push(missing.length
@@ -336,7 +336,7 @@ export function readHookInput(stdinText) {
 
 // The hook events and the verb each one runs. Core owns ONE — making the checkout a session opens in
 // ready — and an installed extension adds its own (`hooks:` in its contribution; the worktree
-// lifecycle lives in @dreamteamer/workflows). NO MATCHER on any of them (spec §13.9): bootstrap is
+// lifecycle belongs to a worktree extension). NO MATCHER on any of them (spec §13.9): bootstrap is
 // idempotent precisely so the session-start hook may fire on every event — `startup` alone would
 // silence it on resume, clear, compact and fork, which is most of what a long session actually does.
 const CLAUDE_HOOKS = { SessionStart: 'install --hook' };

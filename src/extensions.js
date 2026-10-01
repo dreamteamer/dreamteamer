@@ -58,8 +58,8 @@ export function declaredExtensions(ws) {
 
 /**
  * Does a `dreamteamer.disable` list switch off the WHOLE package `name`? An entry names a package by
- * its full name (`@dreamteamer/workflows`, `probe-kit`) or by its module id — the name with the npm
- * scope stripped (`workflows`), which is what every engine message calls a module. Anything else with
+ * its full name (`@scope/kit`, `probe-kit`) or by its module id — the name with the npm
+ * scope stripped (`kit`), which is what every engine message calls a module. Anything else with
  * a slash is `<module>/<entity>`, one entity of a module, and never the package.
  *
  * ⚠ The scoped full name used to be read as `<module>/<entity>` because it contains a slash, and the
