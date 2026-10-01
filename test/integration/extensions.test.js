@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { workspace, readFile, git, dt, compileQuietly, compileError, WS_MODULE } from '../helpers/ws.js';
 import { dump } from '../../src/yaml.js';
-import { openWorkspace } from '../../src/api.js';
+import { openWorkspace, contributedViolations, check } from '../../src/api.js';
 
 const PROBES = {
 	name: 'probes',
@@ -509,6 +509,20 @@ export default function activate() {
 		const r = dt(ws.root, 'check');
 		assert.equal(r.code, 1, r.stdout + r.stderr);
 		assert.match(r.stdout, /✖ data\/notes\n {4}1 note\(s\) and no index — one rule broken \(rule-kit\)\n1 violation\./);
+	});
+
+	test('an in-process caller gets the same verdict through the public API', async () => {
+		const ws = withChecker();
+		assert.equal(dt(ws.root, 'add', 'notes', '--name', 'First').code, 0);
+		const h = await openWorkspace(ws.root);
+		const extra = await contributedViolations(h);
+		assert.deepEqual(extra, [{ file: 'data/notes', msg: '1 note(s) and no index — one rule broken (rule-kit)' }]);
+		const log = console.log;
+		console.log = () => {};
+		try {
+			assert.equal(check(h, { extra }), 1);
+			assert.equal(check(h), 0, 'the schema alone is clean');
+		} finally { console.log = log; }
 	});
 
 	test('a check that throws is a violation naming the extension, never a crash', () => {

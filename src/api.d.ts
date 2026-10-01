@@ -68,6 +68,8 @@ export interface HarnessContext {
 export const EXTENSION_API: 1;
 export function openWorkspace(start?: string): Promise<Workspace & { extensions: LoadedExtension[] }>;
 export function findWorkspace(start?: string): Workspace;
+/** every extension's `check` contribution on `ws`, in the shape `check(ws, { extra })` takes */
+export function contributedViolations(ws: Workspace): Promise<{ file: string; msg: string }[]>;
 export function declaredExtensions(ws: Workspace): { name: string; version: string; dir: string; entry: string }[];
 export const engineBin: string;
 export const engineRoot: string;

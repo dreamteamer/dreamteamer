@@ -382,7 +382,7 @@ export async function run(argv) {
 				return;
 			}
 			case 'check':
-				process.exit(check(ws, { extra: warnIfStale(ws.root).compiled ? await contributedViolations(ws) : [] }));
+				process.exit(check(ws, { extra: warnIfStale(ws.root).compiled ? await api.contributedViolations(ws) : [] }));
 			case 'doctor': {
 				const caps = await doctorBoard(ws, api);
 				if (rest.includes('--json')) emit(JSON.stringify({ capabilities: caps }, null, 2));
@@ -663,17 +663,6 @@ export async function run(argv) {
 		if (process.argv.includes('--hook')) console.log(`✖ ${e.message}`);
 		process.exit(1);
 	}
-}
-
-/** What every extension's `check` reports, attributed to it. A check that throws is a violation. */
-async function contributedViolations(ws) {
-	const out = [];
-	for (const e of ws.extensions.filter((x) => x.check)) {
-		try {
-			for (const v of (await e.check({ root: ws.root, ws, dt: api })) ?? []) out.push({ file: v.file ?? e.name, msg: `${v.message} (${e.name})` });
-		} catch (err) { out.push({ file: e.name, msg: `check failed — ${err.message}` }); }
-	}
-	return out;
 }
 
 /** Each installed extension's usage block, headed by its package — '' outside a workspace. */

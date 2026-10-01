@@ -37,6 +37,18 @@ export async function openWorkspace(start = process.cwd()) {
 export { findWorkspace };
 export { EXTENSION_API, declaredExtensions } from './extensions.js';
 
+/** What every extension's `check` reports on `ws`, as `check(ws, { extra })` takes it — attributed to
+ *  the extension, a throw being a violation. `dt check` and an in-process caller get one verdict. */
+export async function contributedViolations(ws) {
+	const out = [];
+	for (const e of (ws.extensions ?? []).filter((x) => x.check)) {
+		try {
+			for (const v of (await e.check({ root: ws.root, ws, dt: self })) ?? []) out.push({ file: v.file ?? e.name, msg: `${v.message} (${e.name})` });
+		} catch (err) { out.push({ file: e.name, msg: `check failed — ${err.message}` }); }
+	}
+	return out;
+}
+
 /** The engine's own CLI entry — what a tool spawns to run `dt` in another checkout. */
 export const engineBin = fileURLToPath(new URL('../bin/dreamteamer.js', import.meta.url));
 export const engineRoot = path.dirname(path.dirname(engineBin));
