@@ -353,8 +353,9 @@ without learning what a module is.
 
 `x-reference: '*'` (the open-world evidence field) is warned about outside the workspace module —
 an unverifiable cross-module surface — and tolerated inside it, because the workspace is the
-orchestrating parent. A cross-module `x-inverse` needs the dependency declared too, since it
-stamps a field onto the other module's collection.
+orchestrating parent. A cross-module `x-inverse` needs the target declared as a peer (or its
+module as a dependency): the mirror is stamped when the target is installed, and the relation is
+inert when it is not.
 
 ## registering an existing data folder
 

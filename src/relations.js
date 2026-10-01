@@ -17,6 +17,7 @@ export function relationsOf(descriptors) {
 			const list = prop.type === 'array';
 			const unique = holder['x-unique'] === true;
 			for (const target of targets) {
+				if (!descriptors.has(target)) continue; // an uninstalled peer: nothing to mirror onto
 				out.push({
 					owner: name, field, target,
 					mirror: typeof inverse === 'string' ? inverse : inverse.field,

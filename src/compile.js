@@ -284,14 +284,15 @@ function materializeRelations(mergedGroups, ctx) {
 
 function stampMirror(byName, ctx, ownerName, field, prop, holder, mirrorName, target, description) {
 	const t = byName.get(target);
-	if (!t) return; // an unresolved peer — the ref contract already warned
-	// cross-module gate, mirrored per spelling: the OWNING module stamps a field onto the target,
-	// so it must hard-depend on the target's module (extends: uses the same gate). Same repo only.
+	if (!t) return; // an uninstalled peer: the relation is inert until the target is installed
+	// cross-module gate: the owning module stamps a field onto the target, so it must depend on the
+	// target's module or declare the target collection a peer. Same repo only.
 	const ownerModule = ctx.moduleOf(ownerName), targetModule = ctx.moduleOf(target);
-	if (ownerModule !== targetModule) {
+	if (ownerModule !== targetModule && ownerModule !== ctx.wsModuleName) {
 		const deps = ctx.moduleDeps.get(ownerModule) ?? [];
-		if (![...deps].includes(targetModule) && ownerModule !== ctx.wsModuleName) {
-			fail(`collection "${ownerName}": x-inverse on "${field}" stamps a field onto ${target} (module ${targetModule}) — declare "${targetModule}" in dreamteamer.dependencies, or leave the link one-way.`);
+		const peers = ctx.modulePeers.get(ownerModule) ?? [];
+		if (!deps.includes(targetModule) && !peers.includes(target)) {
+			fail(`collection "${ownerName}": x-inverse on "${field}" stamps a field onto ${target} (module ${targetModule}) — declare "${target}" in dreamteamer.peerDependencies (or "${targetModule}" in dreamteamer.dependencies), or leave the link one-way.`);
 		}
 	}
 	if ((byName.get(ownerName).storage?.repo ?? '.') !== (t.storage?.repo ?? '.')) {
@@ -1480,7 +1481,7 @@ export function compile(ws) {
 	// exists and the last moment before bytes are fixed — a relation writes to a collection OTHER
 	// than the one that declares it, so no per-collection pass can express it.
 	materializeRelations(mergedGroups, {
-		moduleDeps, wsModuleName,
+		moduleDeps, modulePeers, wsModuleName,
 		moduleOf: (n) => collOwner.get(n),
 	});
 	// ---- placement: a collection stored UNDER another ---------------------------------

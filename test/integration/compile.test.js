@@ -660,6 +660,63 @@ describe('peerDependencies — an optional cross-module reference', () => {
 });
 
 // ---------------------------------------------------------------------------------------------
+// A relation whose target is a declared PEER: the mirror is stamped when the peer is installed and
+// the relation is inert when it is not — no hard dependency either way.
+describe('x-inverse onto a peer collection', () => {
+	const mod = (root, name, dtKey, coll, body) => {
+		const dir = path.join(root, 'modules', name);
+		fs.mkdirSync(path.join(dir, 'collections'), { recursive: true });
+		fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name, private: true, version: '0.0.1', dreamteamer: dtKey }));
+		fs.writeFileSync(path.join(dir, 'collections', `${coll}.collection.yaml`), body);
+	};
+	const desc = (name, extra = '') => `name: ${name}\ndescription: A ${name} record.\n`
+		+ `id: { generate: "{{ title | slug }}" }\n`
+		+ 'schema:\n  type: object\n  required: [title]\n  properties:\n'
+		+ `    title: { type: string }\n    body: { type: string, format: markdown, x-body: true }\n${extra}`;
+	/** `blog` owns comments, whose `post` mirrors onto `posts`; `blogbase` owns posts when installed. */
+	const blog = ({ withBase, peers = ['posts'] }) => {
+		const ws = workspace({ compile: false });
+		mod(ws.root, 'blog', { peerDependencies: peers }, 'comments', desc('comments', '    post: { type: string, x-reference: posts, x-inverse: comments }\n'));
+		if (withBase) mod(ws.root, 'blogbase', {}, 'posts', desc('posts'));
+		return { ...ws, dt: (...a) => dt(ws.root, ...a) };
+	};
+
+	test('the peer installed: the mirror is stamped, a write maintains it, check is clean', () => {
+		const ws = blog({ withBase: true });
+		const c = ws.dt('compile');
+		assert.equal(c.code, 0, c.stdout + c.stderr);
+		const mirror = load(readFile(ws.root, '.dreamteamer/collections/posts.collection.yaml')).schema.properties.comments;
+		assert.equal(mirror.readOnly, true);
+		assert.equal(mirror.items['x-inverse-of'], 'comments.post');
+		assert.equal(ws.dt('add', 'posts', '--title', 'Hello').code, 0);
+		const add = ws.dt('add', 'comments', '--title', 'First', '--post', 'posts/hello');
+		assert.equal(add.code, 0, add.stdout + add.stderr);
+		assert.match(readFile(ws.root, 'data/posts/hello.post.md'), /comments:\n\s+- comments\/first/);
+		const res = dtCheck(ws.root);
+		assert.equal(res.code, 0, res.stdout);
+	});
+
+	test('the peer absent: compile, a write naming it, and check all pass — the relation is inert', () => {
+		const ws = blog({ withBase: false });
+		assert.equal(ws.dt('compile').code, 0);
+		const add = ws.dt('add', 'comments', '--title', 'First', '--post', 'posts/hello');
+		assert.equal(add.code, 0, add.stdout + add.stderr);
+		const res = dtCheck(ws.root);
+		assert.equal(res.code, 0, res.stdout);
+		assert.equal(ws.dt('relations').stdout.includes('posts.comments'), false, 'an inert relation lists no mirror');
+	});
+
+	test('a mirror onto a collection the module neither depends on nor peers is refused, naming both remedies', () => {
+		// a core collection passes the reference contract undeclared, so the mirror gate is what stops it
+		const ws = workspace({ compile: false });
+		mod(ws.root, 'blog', {}, 'comments', desc('comments', '    repo: { type: string, x-reference: repos, x-inverse: comments }\n'));
+		const c = dt(ws.root, 'compile');
+		assert.equal(c.code, 1);
+		assert.match(c.stderr, /stamps a field onto repos \(module dreamteamer\) — declare "repos" in dreamteamer\.peerDependencies \(or "dreamteamer" in dreamteamer\.dependencies\)/);
+	});
+});
+
+// ---------------------------------------------------------------------------------------------
 // A descriptor with no `storage.suffix` used to write every record as `<id>.undefined.md` —
 // silent at compile, at `add` and at `check`, and on a `codec: file` collection every later verb
 // then died inside `idFromRecordPath` on `undefined.replace`. compile DERIVES it instead, which is
