@@ -61,6 +61,8 @@ export function resolveFields(authored, ctx) {
 		if (known.has(k)) errors.push(`field "${k}" is injected by the engine and cannot be authored`);
 		fields[k] = { ...v };
 	}
+	// a type may name an installed collection or a declared peer nobody installed yet
+	const types = new Set([...ctx.collections, ...(ctx.peers ?? [])]);
 	let bodies = 0;
 	let positions = 0;
 	for (const [name, prop] of Object.entries(authored ?? {})) {
@@ -68,16 +70,15 @@ export function resolveFields(authored, ctx) {
 		if (!/^[a-z][a-z0-9_]*$/.test(name)) errors.push(`field "${name}": names are snake_case`);
 		for (const k of Object.keys(prop)) if (!FIELD_KEYS.has(k)) errors.push(`field "${name}" has unknown key "${k}" — the closed list is: ${[...FIELD_KEYS].join(' ')}`);
 		const out = { ...prop };
-		const targets = referenceTargets(prop.type, ctx.collections);
+		const targets = referenceTargets(prop.type, types);
 		if (prop.type === undefined) errors.push(`field "${name}" has no type`);
 		else if (!targets && !SCALAR_TYPES.includes(prop.type)) {
 			errors.push(Array.isArray(prop.type)
 				? `field "${name}": a union names collections, and ${JSON.stringify(prop.type)} is not all collections`
 				: `field "${name}": unknown type "${prop.type}" — one of ${SCALAR_TYPES.join(' ')} or a collection name`);
 		}
-		if (Array.isArray(prop.type)) for (const t of prop.type) if (!ctx.collections.has(t) && !(ctx.peers?.has(t))) errors.push(`field "${name}": union member "${t}" is not a collection`);
+		if (Array.isArray(prop.type)) for (const t of prop.type) if (!types.has(t)) errors.push(`field "${name}": union member "${t}" is not a collection`);
 		if (prop.type === 'object' && !prop.fields) errors.push(`field "${name}": type object needs \`fields\``);
-		if (prop.type === 'map' && !prop.values) errors.push(`field "${name}": type map needs \`values\``);
 		if (prop.fields && prop.type !== 'object') errors.push(`field "${name}": \`fields\` belongs to type object`);
 		if (prop.values && prop.type !== 'map') errors.push(`field "${name}": \`values\` belongs to type map`);
 		if (prop.item_title && !(prop.type === 'object' && prop.many)) errors.push(`field "${name}": \`item_title\` labels the rows of a \`many\` object`);
@@ -190,7 +191,8 @@ function scalarSchema(f, collections) {
 		case 'url': return { type: 'string', format: 'uri' };
 		case 'email': return { type: 'string', format: 'email' };
 		case 'position': return { type: 'string', pattern: '^[a-z]+$' };
-		case 'map': return { type: 'object', additionalProperties: valueSchema(f.values, collections) };
+		// `values` absent: any value under any key — the open object a free-form block needs
+		case 'map': return f.values === undefined ? { type: 'object' } : { type: 'object', additionalProperties: valueSchema(f.values, collections) };
 		case 'object': {
 			const inner = toJsonSchema(Object.fromEntries(Object.entries(f.fields ?? {}).map(([k, v]) => [k, { ...v, title: undefined }])), { collections });
 			return inner;
