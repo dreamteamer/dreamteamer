@@ -1086,9 +1086,30 @@ describe('the orientation block is grouped by module', () => {
 		assert.match(block, /`write:` line names only what the store REFUSES — required fields that have no\ndefault/, 'the convention is stated where the line is read, not left to be inferred');
 	});
 
+	test('an id-template input with no default is listed as required; with a list, only what every template names', () => {
+		const ws = workspace({ collections: {
+			meetings: simpleCollection({ description: 'a meeting', storage: { suffix: 'meeting' },
+				id: { generate: '{{ starts | date }}--{{ room }}--{{ name | slug }}--{{ seq }}' },
+				schema: { type: 'object', required: ['name'], properties: {
+					name: { type: 'string' }, starts: { type: 'string', format: 'date-time' }, room: { type: 'string', default: 'main' },
+					notes: { type: 'string', format: 'markdown', 'x-body': true },
+				} } }),
+			risks: simpleCollection({ description: 'a risk', storage: { suffix: 'risk' },
+				id: { generate: ['{{ code }}--{{ area }}', '{{ area }}--{{ name | slug }}'] },
+				schema: { type: 'object', properties: {
+					name: { type: 'string' }, code: { type: 'string' }, area: { type: 'string' },
+					notes: { type: 'string', format: 'markdown', 'x-body': true },
+				} } }),
+		} });
+		const block = blockOf(ws);
+		assert.match(block, /^- meetings — a meeting\n {4}write: required name · starts$/m, 'a defaulted input and created/now/seq never refuse');
+		assert.match(block, /^- risks — a risk\n {4}write: required area$/m);
+		assert.equal(ws.dt('add', 'meetings', '--name', 'Kickoff').code, 1, 'the store does refuse what the line names');
+	});
+
 	test('a collection nothing can refuse renders no write line', () => {
 		const ws = workspace({ collections: { widgets: simpleCollection({
-			description: 'a widget', storage: { suffix: 'widget' },
+			description: 'a widget', storage: { suffix: 'widget' }, id: { generate: '{{ created | date }}-{{ seq }}' },
 			schema: { type: 'object', properties: { name: { type: 'string' }, notes: { type: 'string', format: 'markdown', 'x-body': true } } },
 		}) } });
 		assert.doesNotMatch(blockOf(ws), /^- widgets — a widget\n {4}write:/m);

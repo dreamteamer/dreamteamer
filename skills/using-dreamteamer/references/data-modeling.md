@@ -363,7 +363,8 @@ what is true at creation and stays true:
 - **Creation-time values the record owns.** The domain's own date plus a slug of the name is the
   workhorse: `{{ date | date }}--{{ name | slug }}`. Never write-time (`created`) for domain
   events, never a mutable field (a title that gets edited), never an external id that might be
-  re-keyed.
+  re-keyed. `date` renders a value in its own offset (`…T23:30:00+03:00` is 23:30 on that day on
+  every machine), so the id does not change with the machine's zone.
 - **A time prefix for unbounded growth**: `{{ date | date:YYYY/MM }}/…` shards the folder by
   month, keeps `ls` fast and scannable, and files the record where a human would look. The
   `id.pattern` must then admit `/`.

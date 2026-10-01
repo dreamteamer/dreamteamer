@@ -61,7 +61,7 @@ export function generateId(tpl, fields, existingIds = [], opts = {}) {
 
 function applyFilter(name, arg, value, ctx = {}) {
 	switch (name) {
-		case 'date': return fmtDate(asDate(value), arg || 'YYYY-MM-DD');
+		case 'date': return fmtDate(value, arg || 'YYYY-MM-DD');
 		// ids are paths: no colons (windows-hostile, ungreppable) — 2026-07-25T13-39-17
 		case 'datetime': return asDate(value).toISOString().slice(0, 19).replace(/:/g, '-');
 		// ⚠ THE SILENCE IS THE DEFECT, NOT THE ERGONOMICS. A value with no a-z0-9 in it — any Hebrew,
@@ -86,22 +86,18 @@ function applyFilter(name, arg, value, ctx = {}) {
 
 const asDate = (v) => (v instanceof Date ? v : new Date(v));
 
-// `date:HH-mm` on a date-time field is how an id embeds a start time (data/meetings ids sort by
-// start within a day). Tokens are replaced longest-first so `MM` (month) can't eat the `M` of a
-// minute pattern. Everything is read in the MACHINE's zone — an offset-carrying value like
-// `2026-07-28T12:00:00+03:00` therefore renders as 12:00 only on a +03:00 machine. That is the
-// same exposure the old `date` field had and is why ids are generated at sync time, in the zone
-// the meetings actually happen in, rather than re-derived later somewhere else.
-function fmtDate(d, fmt) {
-	const pad = (n, w = 2) => String(n).padStart(w, '0');
-	const tokens = {
-		YYYY: String(d.getFullYear()),
-		MM: pad(d.getMonth() + 1),
-		DD: pad(d.getDate()),
-		HH: pad(d.getHours()),
-		mm: pad(d.getMinutes()),
-		ss: pad(d.getSeconds()),
-	};
+// `date:HH-mm` on a date-time field is how an id embeds a start time. A date or date-time STRING
+// renders as written, in its own offset (`2026-07-28T23:30:00+03:00` is 23:30 on the 28th on every
+// machine), so an id is the same wherever it is generated. Only `created`/`now` read the machine's
+// zone. Tokens are replaced longest-first so `MM` (month) can't eat the `M` of a minute pattern.
+const WALL_CLOCK = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2}))?)?/;
+function fmtDate(v, fmt) {
+	const pad = (n) => String(n).padStart(2, '0');
+	const m = typeof v === 'string' ? WALL_CLOCK.exec(v) : null;
+	const d = m ? null : asDate(v);
+	const tokens = m
+		? { YYYY: m[1], MM: m[2], DD: m[3], HH: m[4] ?? '00', mm: m[5] ?? '00', ss: m[6] ?? '00' }
+		: { YYYY: String(d.getFullYear()), MM: pad(d.getMonth() + 1), DD: pad(d.getDate()), HH: pad(d.getHours()), mm: pad(d.getMinutes()), ss: pad(d.getSeconds()) };
 	return fmt.replace(/YYYY|MM|DD|HH|mm|ss/g, (t) => tokens[t]);
 }
 
