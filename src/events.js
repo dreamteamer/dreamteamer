@@ -4,6 +4,7 @@
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { idFromRecordPath } from './records.js';
+import { placedChildAt } from './placement.js';
 
 /** Record events between two points, across EVERY repo that holds records. `from` is a sha or a
  *  date — a sha is meaningless in another repo, so it is resolved to its commit DATE and each
@@ -107,8 +108,12 @@ export function pathToRecord(descriptors, relPath) {
 	const rest = relPath.slice(best.storage.path.length + 1);
 	if (best.storage.shape === 'folder') {
 		const entry = best.storage.entry ?? 'SKILL.md';
-		if (!rest.endsWith('/' + entry)) return null;
-		return { collection: best.name, id: rest.slice(0, -(entry.length + 1)) };
+		// `<id>/<entry>` is the parent's own record; anything deeper may be a record of a collection
+		// stored UNDER it (`<id>/meetings/2026/10/kickoff.meeting.md`), which the longest-prefix match
+		// above can never see because its own storage.path is elsewhere. One place decides, so a
+		// commit, an event and a surface agree on whose record a path is.
+		if (rest.endsWith('/' + entry) && rest.indexOf('/') === rest.length - entry.length - 1) return { collection: best.name, id: rest.slice(0, -(entry.length + 1)) };
+		return placedChildAt(descriptors, best.name, rest);
 	}
 	const id = idFromRecordPath(best, rest);
 	return id === null ? null : { collection: best.name, id };

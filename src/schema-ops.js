@@ -1398,8 +1398,13 @@ export function removeCollection(ws, store, name, { force = false } = {}) {
 	}
 	const dest = path.join(ws.root, base);
 	const dataDir = path.join(ws.root, d.storage.path);
-	const hasRecords = fs.existsSync(dataDir) && fs.readdirSync(dataDir).some((e) => !e.startsWith('.'));
-	if (hasRecords && !force) throw new Error(`collection "${name}" still has records under ${d.storage.path} — remove them first or pass force`);
+	// the index, not only the folder: a collection stored UNDER another keeps most of its records
+	// inside the parent's folders, where a readdir of its own root sees nothing
+	const hasRecords = store.ids(name).size > 0 || (fs.existsSync(dataDir) && fs.readdirSync(dataDir).some((e) => !e.startsWith('.')));
+	if (hasRecords && !force) throw new Error(`collection "${name}" still has records under ${d.storage.path}${d.storage.under ? ` and inside ${d.storage.under.collection} folders` : ''} — remove them first or pass force`);
+	for (const c of store.descriptors.values()) {
+		if (c.storage?.under?.collection === name) throw new Error(`collection "${c.name}" stores its records under ${name}'s folders (storage.under) — drop that declaration or relocate its records first; removing the parent would strand them`);
+	}
 	const gate = writeGated(ws, store, [dest], `dreamteamer: collections rm ${name}`, () => fs.rmSync(dest), undefined, { commentsMayDecrease: true });
 	return { removed: name, commits: gate.commits };
 }
@@ -1453,6 +1458,9 @@ export function renameCollection(ws, store, oldName, newName) {
 	}
 	if (store.descriptors.has(newName)) throw new Error(`collection "${newName}" already exists`);
 	if (d.storage.base === 'runtime') throw new Error(`"${oldName}" is a compiled source, not a data collection — it cannot be renamed`);
+	// Its records are spread across the parent's folders, and the per-file re-suffix below walks ONE
+	// directory. Refused rather than half-done — the fix is small and nothing has asked for it yet.
+	if (d.storage.under) throw new Error(`"${oldName}" is stored under ${d.storage.under.collection} (storage.under) — renaming a placed collection is not supported yet; drop the declaration, relocate, rename, then declare it again`);
 
 	// The descriptor is renamed IN THE MODULE THAT SHIPS IT — see `descriptorSourceDir`. Two cases
 	// this refuses, both because doing them halfway is worse than not doing them:

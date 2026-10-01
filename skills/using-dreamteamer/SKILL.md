@@ -30,7 +30,10 @@ unsure which skill owns the job in front of you.
 
 - a record is a `<id>.<suffix>.<ext>` file (or a folder, for folder-shape collections). **the id
   is the path** inside the collection folder minus suffix and extension — nested folders join in:
-  `data/meetings/2026/07/standup.meeting.md` ⇒ id `2026/07/standup`.
+  `data/meetings/2026/07/standup.meeting.md` ⇒ id `2026/07/standup`. a collection may instead keep
+  its records INSIDE the folder of the record they belong to (`storage.under` — a company's
+  meetings in `data/companies/<company>/meetings/`): still ONE collection, the same id, the same
+  `meetings/<id>` reference; only the folder follows the owner field (`references/collections.md`).
 - **references are `<collection>/<id>`** strings — always qualified, greppable, never a bare name
   and never a file path.
 
@@ -61,7 +64,7 @@ dispatch, so it cannot drift):
 
 - a collection may be spelled in the SINGULAR on any of these (`dt add task "call the bank"` — one bare positional is the title); references inside records still spell the full name
 - read & measure — `list` `get` `values` `history` `diff` `next` `relations` `resolve`
-- write & publish — `add` `set` `rm` `rename` `move` `revert` `commit`
+- write & publish — `add` `set` `rm` `rename` `move` `revert` `commit` `relocate`
 - fields (sources, through the compile gate) — `add-field` `set-field` `rm-field` `rename-field` (system entities — modules, collections, skills, ui-views… — take the RECORD verbs above)
 - workspace — `init` `install` `update` `compile` `check` `status` `changes` `help`
 - an EXTENSION (a workspace module or a dependency declaring `dreamteamer.extension`) adds verbs of
@@ -105,6 +108,7 @@ Load by the map; nothing here is loaded "just in case".
 | "what changed while I was away" | `references/changes.md` |
 | the workspace seems unable to do something — a new kind of thing, a missing capability, "don't we already have this?" | `references/before-you-build.md` (look first); a new model then continues `references/data-modeling.md` (decide) → `references/collections.md` (write it) |
 | a collection or field, mechanically — the descriptor, the system and field verbs, `templates:`/`extends:`, a compile or check message | `references/collections.md` |
+| "keep a company's meetings in the company's folder" — records stored beside the record they belong to, a `placed … but` check report, `dt relocate` | `references/collections.md` (declaring it) · `references/records.md` (working with it) |
 | knowledge a session should find on its own | `references/skills.md` |
 | "let me type one word and have this done" | `references/commands.md` |
 | "which command applies to this record?" — a binding, a gate | `references/commands.md` |

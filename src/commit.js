@@ -329,6 +329,13 @@ function scopeByRepo(descriptors, only) {
 		const repo = d.storage.repo ?? '.';
 		if (!byRepo.has(repo)) byRepo.set(repo, []);
 		byRepo.get(repo).push(p);
+		// A collection stored UNDER another keeps most of its files inside the parent's folder, so
+		// scoping `git status` to its own path alone would sample only the fallback root and report
+		// the rest as "nothing pending" — the one report that looks like success. The parent's path
+		// joins the pathspec; pathToRecord then attributes each file to the collection it belongs to,
+		// and the row filter in commitPlan keeps the parent's own records out of a scoped commit.
+		const parent = d.storage.under && descriptors.get(d.storage.under.collection);
+		if (parent?.storage?.path && !byRepo.get(repo).includes(parent.storage.path)) byRepo.get(repo).push(parent.storage.path);
 	}
 	return byRepo;
 }

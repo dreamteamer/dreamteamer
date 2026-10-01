@@ -79,6 +79,13 @@ the longest DECLARED collection prefix, so finance/transactions/2026/03/coffee i
   relations [<collection>]                    (every two-way pair: owner.field → target.mirror)
   relations rebuild <collection> [--drop <f>] (regenerate mirror VALUES from the owning side;
                                                --drop removes a stale ex-mirror key from records)
+  relocate <target> [--dry-run] [--json]      (move record FILES to where the compiled descriptor
+                                               puts them — a record stored under another
+                                               collection (storage.under) whose folder disagrees
+                                               with its owner field, or a file record in a
+                                               collection that became shape: folder. Ids and
+                                               references never change; a pending edit on a
+                                               moved file refuses — commit first)
   resolve '<string>' | <collection>/<id> <field>
                                               (render \${env:NAME} · \${workspaceFolder} ·
                                                \${userHome} — the ONLY substitution point; a
@@ -245,7 +252,7 @@ export const WORKSPACE_FLAGS = {
 	init: ['name', 'data-path', 'harnesses', 'workspace-module'], update: [],
 	install: ['clone', 'dry-run', 'json', 'link-env', 'all', 'hook', 'print-adapters'],
 	compile: ['watch'], check: [], status: [],
-	changes: ['since', 'json'], commit: ['dry-run', 'json'],
+	changes: ['since', 'json'], commit: ['dry-run', 'json'], relocate: ['dry-run', 'json'],
 };
 
 /** Every verb this CLI answers itself — the set an extension's `commands` may not claim. The retired
@@ -254,7 +261,7 @@ export const WORKSPACE_FLAGS = {
 export const CORE_VERBS = [
 	'init', 'install', 'update', 'compile', 'check', 'status', 'changes', 'commit', 'help', 'version', '--version', '-v',
 	'list', 'add', 'values', 'get', 'set', 'rm', 'rename', 'history', 'diff', 'revert', 'move', 'next',
-	'add-field', 'set-field', 'rm-field', 'rename-field', 'relations', 'resolve',
+	'add-field', 'set-field', 'rm-field', 'rename-field', 'relations', 'resolve', 'relocate',
 	'schema', 'ensure', 'update-field', 'remove-field', 'commands',
 ];
 
@@ -547,6 +554,24 @@ export async function run(argv) {
 			case 'relations':
 				warnIfStale(ws.root);
 				process.exit(relationsCommand(ws, rest));
+			case 'relocate': {
+				warnIfStale(ws.root);
+				const store = new Store(ws);
+				const target = rest.find((a) => !a.startsWith('--'));
+				if (!target) throw new Error('dt relocate needs a target: dreamteamer relocate <collection> | <collection>/<id> [--dry-run]');
+				// a collection, or one record of it — the either-shape every other target has
+				const asCollection = canonicalCollection(store.descriptors, target);
+				const { collection, id } = asCollection ? { collection: asCollection, id: null } : splitRef(store.descriptors, target);
+				const out = store.relocate(collection, { only: id ? [id] : null, dryRun: rest.includes('--dry-run') });
+				if (rest.includes('--json')) { emit(JSON.stringify(out, null, 2)); process.exit(out.problems.length ? 1 : 0); }
+				const rel = (p) => path.relative(ws.root, p);
+				for (const m of out.moves) console.log(`${out.applied ? '✔' : '→'} ${collection}/${m.id}  ${rel(m.from)} → ${rel(m.to)}`);
+				for (const p of out.problems) console.error(`✖ ${p}`);
+				if (!out.moves.length && !out.problems.length) console.log(`nothing to relocate — every ${collection} record is where its descriptor puts it`);
+				else if (!out.applied && !out.problems.length) console.log(`${out.moves.length} move(s) planned (dry run) — nothing was moved`);
+				else if (out.applied) console.log(`${out.moves.length} record(s) relocated — ids and references unchanged; \`dreamteamer commit ${collection}\` publishes the moves`);
+				process.exit(out.problems.length ? 1 : 0);
+			}
 			case 'resolve':
 				process.exit(resolveVariables(ws, rest));
 			default:

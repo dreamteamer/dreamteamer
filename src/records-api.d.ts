@@ -28,9 +28,13 @@ export class Store {
 	root: string;
 	descriptors: Descriptors;
 	descriptor(collection: string): Descriptor;
-	/** the absolute folder a collection's records live in */
+	/** the collection's OWN folder — for a collection stored under another (`storage.under`) this is
+	 *  its fallback root, not an enumeration; records are wherever `ids()` says */
 	dir(d: Descriptor): string;
-	/** id → record file */
+	/** every folder a record of this collection can sit in: its own, plus the parent collection's when
+	 *  it is stored under one — what to ask git about */
+	recordDirs(d: Descriptor): string[];
+	/** id → record file, across every folder the collection's records sit in */
 	ids(collection: string): Map<string, string>;
 	read(collection: string, id: string): { fields: Fields; file: string };
 	readAll(collection: string): Iterable<{ id: string; fields: Fields; file: string }>;
@@ -40,6 +44,10 @@ export class Store {
 	rm(collection: string, id: string, opts?: { force?: boolean }): { inboundIgnored: number };
 	rename(collection: string, oldId: string, newId: string): { id: string; rewrites: number; touched: number };
 	revert(collection: string, id: string, hash: string): { reverted: boolean };
+	/** the files `relocate` would move — read-only */
+	relocatePlan(collection: string, only?: string[] | null): { collection: string; moves: { id: string; from: string; to: string; why: 'placement' | 'shape' }[]; problems: string[] };
+	/** move record files to where the compiled descriptor puts them; ids and references unchanged */
+	relocate(collection: string, opts?: { only?: string[] | null; dryRun?: boolean }): { collection: string; moves: { id: string; from: string; to: string; why: 'placement' | 'shape' }[]; problems: string[]; applied: boolean };
 	findInboundRefs(ref: string): unknown[];
 	[k: string]: any;
 }

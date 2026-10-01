@@ -10,6 +10,8 @@ import addFormats from 'ajv-formats';
 import { load, dump } from './yaml.js';
 import { slug } from './template.js';
 import { walk, patternRe } from './records.js';
+import { refTargetsOf } from './ref.js';
+import { subpathProblem } from './placement.js';
 import { unknownOperators } from './filter.js';
 import {
 	normalizeNamespaces, namespaceProblems, unqualifiedProblems, defaultStoragePath, storageOverlaps,
@@ -379,6 +381,65 @@ function stampMirror(byName, ctx, ownerName, field, prop, holder, mirrorName, ta
 		if (e['x-title-template'] !== undefined) gHolder['x-title-template'] = e['x-title-template'];
 	}
 	t.schema.properties = { ...t.schema.properties, [mirrorName]: generated };
+}
+
+/**
+ * `storage.under` — RELATIONSHIP-BASED STORAGE, validated and derived (see src/placement.js for the
+ * contract the record layer holds). Authored as `{ field, path }` on the CHILD; compiled with the
+ * parent `collection` stamped on, read off the field's `x-reference`, so Store, check and events
+ * never open a schema to find the parent.
+ *
+ * Authored on the child rather than on the parent's inverse field on purpose: the parent's side of
+ * the relation is a GENERATED mirror (or absent — no inverse is required), and `storage` is the
+ * block that already answers "where do THIS collection's records live". One authored spelling, one
+ * compiled spelling, no second copy.
+ *
+ * Every refusal below is a shape the record layer could not make safe at runtime: a list owner has
+ * no single folder, a file-shape parent has no folder at all, an opaque or folder-shape child needs
+ * code the store does not carry yet, a second level of nesting has no reader, and two children on
+ * one path would index each other's files. Compile is where a descriptor is read, so compile says no.
+ */
+function resolvePlacement(byName) {
+	const claims = new Map(); // parent collection -> [{ path, name }]
+	for (const [name, d] of byName) {
+		const under = d.storage?.under;
+		if (under === undefined) continue;
+		const where = `collection "${name}": storage.under`;
+		if (!under || typeof under !== 'object' || Array.isArray(under)) fail(`${where} must be an object { field: <reference field>, path: <folder inside the parent record> }`);
+		const unknown = Object.keys(under).filter((k) => k !== 'field' && k !== 'path');
+		if (unknown.length) fail(`${where} has unknown key(s) ${unknown.join(', ')} — it takes \`field\` and \`path\`, nothing else`);
+		if (typeof under.field !== 'string' || !under.field) fail(`${where}.field must name the scalar reference field that holds the parent`);
+		const bad = subpathProblem(under.path);
+		if (bad) fail(`${where}.path ${bad}`);
+		// the CHILD's own shape first: an opaque collection has no authored fields at all (compile
+		// replaces its schema with the derived ones), so judged later this would read as "no such field"
+		if ((d.storage.codec ?? 'md') === 'file') fail(`${where}: this collection is codec: file — an opaque record is not placed under a parent yet; keep it in its own folder`);
+		if ((d.storage.shape ?? 'file') === 'folder') fail(`${where}: this collection is shape: folder — a folder record is not placed under a parent yet; keep it in its own folder`);
+		const prop = d.schema?.properties?.[under.field];
+		if (!prop || typeof prop !== 'object') fail(`${where}.field "${under.field}" — no such field in ${name}'s schema`);
+		if (prop.type === 'array' || prop.items) fail(`${where}.field "${under.field}" is a list — a record lives in ONE place, so its owner is a scalar reference`);
+		const targets = refTargetsOf(prop);
+		if (!targets) fail(`${where}.field "${under.field}" is not a reference — the owner field needs \`x-reference: <parent collection>\``);
+		if (targets === '*' || targets.length !== 1) fail(`${where}.field "${under.field}" must reference exactly one collection — a record can live under one kind of parent`);
+		const parentName = targets[0];
+		const parent = byName.get(parentName);
+		if (!parent) fail(`${where}: parent collection "${parentName}" is not installed — a record cannot live inside a folder nothing provides`);
+		// nesting before shape: a placed collection is file-shape by the rule two lines up, so judged
+		// the other way round every nesting attempt would be told to make its parent a folder
+		if (parent.storage?.under !== undefined) fail(`${where}: "${parentName}" is itself stored under another collection — one level is supported; a placed collection cannot be a parent`);
+		if ((parent.storage?.shape ?? 'file') !== 'folder') fail(`${where}: "${parentName}" is not shape: folder — a record can only live INSIDE a parent that is a folder (storage: { shape: folder, entry: <file> } on ${parentName})`);
+		if ((parent.storage?.repo ?? '.') !== (d.storage?.repo ?? '.')) fail(`${where}: "${parentName}" lives in another git repo (storage.repo) — a record and the folder it sits in must share one`);
+		const entry = parent.storage.entry;
+		if (entry && under.path.split('/')[0] === entry) fail(`${where}.path "${under.path}" collides with ${parentName}'s entry file "${entry}" — pick a folder name`);
+		const siblings = claims.get(parentName) ?? [];
+		for (const s of siblings) {
+			if (s.path === under.path || s.path.startsWith(under.path + '/') || under.path.startsWith(s.path + '/')) {
+				fail(`collections "${s.name}" and "${name}" both store records under ${parentName}/<id>/${s.path === under.path ? s.path : `${s.path} · ${under.path}`} — one would index the other's files; give each its own folder`);
+			}
+		}
+		claims.set(parentName, [...siblings, { path: under.path, name }]);
+		d.storage.under = { field: under.field, path: under.path, collection: parentName };
+	}
 }
 
 /** The source kinds the compiler itself stages. An installed extension may add more
@@ -1386,6 +1447,10 @@ export function compile(ws) {
 		moduleDeps, wsModuleName,
 		moduleOf: (n) => collOwner.get(n),
 	});
+	// ---- placement: a collection stored UNDER another ---------------------------------
+	// Here for the same reason relations are: `storage.under` names a field of this collection AND
+	// the shape of ANOTHER collection, so it can only be judged once every descriptor exists.
+	resolvePlacement(new Map([...mergedGroups].map(([n, g]) => [n, g.merged])));
 
 	// ---- resolved labels, then bytes -------------------------------------------------
 	// A second loop rather than a tail of the first: generated mirror fields do not exist until the

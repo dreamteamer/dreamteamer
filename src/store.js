@@ -15,6 +15,8 @@ import { NO_RUNTIME, sourceHint, loadDescriptors, runtimeDir, namespaces as comp
 import { parseRef } from './namespace.js';
 import { refTargetsOf, refIsSoft } from './ref.js';
 import { relationsOf } from './relations.js';
+import { placementOf, placedRecords, rootRecords, placedRoot, placementOfFile, ownerIdOf } from './placement.js';
+import { pathToRecord } from './events.js';
 
 // git calls whose failure we CATCH must not print git's own error: execFileSync forwards the
 // child's stderr to ours unless told otherwise, so a handled "not a git repository" still
@@ -33,6 +35,7 @@ export class Store {
 		addFormats(this.ajv);
 		this.ajv.addFormat('markdown', true);
 		this._idsCache = new Map(); // collection -> { key, ids } (see ids())
+		this._duplicates = new Map(); // placed collection -> id -> [files], refreshed by every walk (see assertUnambiguous)
 		this._head = undefined;     // memoized `git rev-parse HEAD` (see gitHead())
 		const descriptors = loadDescriptors(root);
 		if (!descriptors) throw new Error(NO_RUNTIME);
@@ -195,11 +198,28 @@ export class Store {
 		return { files, undo: rollback };
 	}
 
+	/** The collection's OWN folder. For a collection stored under another (`storage.under`) this is
+	 *  the FALLBACK root — where a record with no owner lives — and not an enumeration of where its
+	 *  records are: that is `ids()`, and the directories git has to be asked about are `recordDirs`. */
 	dir(d) {
 		return path.join(d.storage.base === 'runtime' ? this.runtime : this.root, d.storage.path);
 	}
 
-	filePath(d, id, ext) {
+	/** The parent collection's folder, for a collection stored under one. */
+	parentDir(d) {
+		return this.dir(this.descriptor(placementOf(d).collection));
+	}
+
+	/** Every directory a record of `d` can sit in: its own root, plus the parent collection's root when
+	 *  it is stored under one. What `commit` scopes `git status` to and what a surface asks git about. */
+	recordDirs(d) {
+		return placementOf(d) ? [this.dir(d), this.parentDir(d)] : [this.dir(d)];
+	}
+
+	/** The file a record of `d` with these `fields` belongs at. For a placed collection the owner
+	 *  field decides the root — the parent's folder, or the fallback root when it is empty — so a
+	 *  caller that has no fields (a bare id) must go through the index instead (recordRoot). */
+	filePath(d, id, ext, fields) {
 		assertSafeId(id); // never fs-join an id that can climb out of the collection
 		if (d.storage.shape === 'folder') {
 			if (!d.storage.entry) throw new Error(`collection "${d.name}" is folder-shape but declares no storage.entry`);
@@ -211,7 +231,25 @@ export class Store {
 			if (!ext) throw new Error(`collection "${d.name}" is \`codec: file\` — its path needs the file's extension`);
 			return path.join(this.dir(d), `${id}.${d.storage.suffix}.${ext}`);
 		}
-		return path.join(this.dir(d), `${id}.${d.storage.suffix}${EXT[d.storage.codec ?? 'md']}`);
+		return path.join(this.rootFor(d, fields), recordFileName(d, id));
+	}
+
+	/** The root a record with these fields belongs under: the owner's child folder, or the fallback. */
+	rootFor(d, fields) {
+		const under = placementOf(d);
+		if (!under || !fields) return this.dir(d);
+		const parentId = ownerIdOf(fields, under, (v) => parseRef(v, this.namespaces));
+		if (parentId) assertSafeId(parentId); // a parsed ref, but it is about to be fs-joined
+		return placedRoot(under, this.dir(d), this.parentDir(d), parentId);
+	}
+
+	/** The root an EXISTING file of `d` sits under — the inverse of rootFor, for pruning and for the
+	 *  observed-vs-declared comparison. Falls back to the collection's own root for a file found
+	 *  under neither, which cannot happen for a file the index produced. */
+	rootOfFile(d, file) {
+		const under = placementOf(d);
+		if (!under) return this.dir(d);
+		return placementOfFile(under, file, this.dir(d), this.parentDir(d))?.root ?? this.dir(d);
 	}
 
 	// the on-disk unit of a record: its folder for folder shapes, its file otherwise
@@ -219,8 +257,9 @@ export class Store {
 		assertSafeId(id);
 		if (d.storage.shape === 'folder') return path.join(this.dir(d), id);
 		// Only the index knows an opaque record's extension, so the on-disk unit is looked up rather
-		// than derived. An unknown id is the caller's error either way — `read` says so first.
-		if ((d.storage.codec ?? 'md') === 'file') {
+		// than derived. An unknown id is the caller's error either way — `read` says so first. The same
+		// goes for a placed record: which parent folder it sits in is a fact about the file, not the id.
+		if ((d.storage.codec ?? 'md') === 'file' || placementOf(d)) {
 			const file = this.ids(d.name).get(id);
 			if (!file) throw new Error(`${d.name}/${id}: no such record`);
 			return file;
@@ -267,13 +306,13 @@ export class Store {
 	ids(collection) {
 		const d = this.descriptor(collection);
 		const dir = this.dir(d);
-		if (!fs.existsSync(dir)) return new Map();
+		if (!this.recordDirs(d).some((p) => fs.existsSync(p))) return new Map();
 		// memoized per collection, keyed by (HEAD sha, collection dir mtime): every tool
 		// write commits (HEAD moves) and every store mutation clears its entry below;
 		// direct top-level edits move the dir mtime. honest gap: a DEEP direct edit that
 		// adds/removes a record without touching HEAD or the top dir mtime can serve one
 		// stale read — acceptable, tool writes always commit and `check` covers hand edits.
-		const key = this._idsKey(dir);
+		const key = this._idsKey(d);
 		const hit = this._idsCache.get(collection);
 		if (hit?.key === key) return hit.ids;
 		const ids = this._walkIds(d, dir);
@@ -282,8 +321,13 @@ export class Store {
 	}
 
 	/** The validity key `ids()` compares against, as its own method because `add` restates it AFTER
-	 *  its write — the only way an index it just extended can still be accepted by the next call. */
-	_idsKey(dir) { return `${this.gitHead()}:${fs.statSync(dir).mtimeMs}`; }
+	 *  its write — the only way an index it just extended can still be accepted by the next call.
+	 *  For a placed collection the PARENT root's mtime is in it too: a new parent folder is a new
+	 *  place records can be, and nothing under the fallback root moves when one appears. */
+	_idsKey(d) {
+		const stamp = (p) => { try { return String(fs.statSync(p).mtimeMs); } catch { return '-'; } };
+		return `${this.gitHead()}:${this.recordDirs(d).map(stamp).join(':')}`;
+	}
 
 	/**
 	 * The id index this add invalidated, handed back with ONE MORE ENTRY rather than thrown away.
@@ -309,20 +353,25 @@ export class Store {
 		// nothing was memoized before this write, or the mirror pass has already rebuilt it cold from
 		// disk — either way a walk is the current answer and this has nothing to add to it.
 		if (!memo || this._idsCache.has(collection)) return;
-		const dir = this.dir(this.descriptor(collection));
+		const d = this.descriptor(collection);
+		const dir = this.dir(d);
+		// a placed collection's order is by ID (see _walkIds), so the insertion point is too
+		const byId = !!placementOf(d);
+		const isBefore = (k, v) => (byId ? id < k : beforeInWalk(path.relative(dir, file), path.relative(dir, v)));
 		const ids = new Map();
 		let placed = false;
 		for (const [k, v] of memo.ids) {
-			if (!placed && beforeInWalk(path.relative(dir, file), path.relative(dir, v))) { ids.set(id, file); placed = true; }
+			if (!placed && isBefore(k, v)) { ids.set(id, file); placed = true; }
 			ids.set(k, v);
 		}
 		if (!placed) ids.set(id, file);
-		this._idsCache.set(collection, { key: this._idsKey(dir), ids });
+		this._idsCache.set(collection, { key: this._idsKey(d), ids });
 	}
 
 	_walkIds(d, dir) {
 		const ids = new Map();
 		if (d.storage.shape === 'folder') {
+			if (!fs.existsSync(dir)) return ids;
 			for (const e of fs.readdirSync(dir).sort()) {
 				if (e.startsWith('.')) continue;
 				const main = path.join(dir, e, d.storage.entry ?? 'SKILL.md');
@@ -330,11 +379,73 @@ export class Store {
 			}
 			return ids;
 		}
+		if (placementOf(d)) {
+			// Across every root. FIRST claimant wins and the rest are left for `check` to report as
+			// duplicates — never last-one-wins, which would make `get` answer with whichever folder
+			// happened to sort later. Ordered by ID, not by where the file sits: a listing whose order
+			// changed because a record moved between two companies would be reporting placement, which
+			// is not what the reader asked.
+			const dupes = new Map();
+			for (const r of placedRecords(d, dir, this.parentDir(d))) {
+				if (!ids.has(r.id)) { ids.set(r.id, r.file); continue; }
+				dupes.set(r.id, [...(dupes.get(r.id) ?? [ids.get(r.id)]), r.file]);
+			}
+			this._duplicates.set(d.name, dupes);
+			return new Map([...ids].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
+		}
 		for (const f of walk(dir)) {
 			const id = idFromRecordPath(d, path.relative(dir, f));
 			if (id !== null) ids.set(id, f);
 		}
 		return ids;
+	}
+
+	/** The parent record folders of a folder-shape collection that hold records of a collection
+	 *  stored under it — the reason `rm` and `rename` on a parent have to look inside the folder. */
+	placedChildrenIn(d, unit) {
+		const out = [];
+		if (d.storage.shape !== 'folder') return out;
+		for (const c of this.descriptors.values()) {
+			const under = placementOf(c);
+			if (under?.collection !== d.name) continue;
+			const n = [...rootRecords(c, path.join(unit, under.path))].length;
+			if (n) out.push({ collection: c.name, under, count: n });
+		}
+		return out;
+	}
+
+	/** Drop the id memo of every collection stored under `collection` — a parent folder that moved or
+	 *  went carries their files with it. */
+	_dropPlacedUnder(collection) {
+		for (const c of this.descriptors.values()) if (placementOf(c)?.collection === collection) this._idsCache.delete(c.name);
+	}
+
+	/**
+	 * Move one record file to the root its fields now say it belongs in — the ONE place a placed
+	 * record changes folders. Creates the destination's parents, prunes the emptied ones up to the
+	 * root it left (so a company's `meetings/` folder disappears with its last meeting), and hands
+	 * back the undo. The caller has already refused an occupied destination.
+	 */
+	_moveRecord(d, from, to) {
+		fs.mkdirSync(path.dirname(to), { recursive: true });
+		fs.renameSync(from, to);
+		this._pruneAround(d, from);
+		return () => {
+			fs.mkdirSync(path.dirname(from), { recursive: true });
+			fs.renameSync(to, from);
+			this._pruneAround(d, to);
+		};
+	}
+
+	/** Empty directories a placed record left behind: its date folders up to the root it sat in, and —
+	 *  inside a parent folder — that root itself (`northwind/meetings/`), never the parent folder and
+	 *  never the collection's own fallback root. */
+	_pruneAround(d, file) {
+		const under = placementOf(d);
+		const where = under ? placementOfFile(under, file, this.dir(d), this.parentDir(d)) : null;
+		const root = where?.root ?? this.dir(d);
+		pruneEmptyDirs(path.dirname(file), root);
+		if (where?.parentId) pruneEmptyDirs(root, path.join(this.parentDir(d), where.parentId));
 	}
 
 	read(collection, id) {
@@ -357,8 +468,11 @@ export class Store {
 	// restore a record to its content at `hash` — validated like any other write, one commit.
 	revert(collection, id, hash) {
 		const d = this.writableDescriptor(collection);
+		this.assertUnambiguous(collection, id);
 		const { fields: currentFields, file } = this.read(collection, id);
-		const relPath = path.relative(this.root, file);
+		// A placed record may have sat in ANOTHER parent's folder at `hash` — the move is what is being
+		// reverted — so the historical path is looked up in that commit's tree, not assumed to be today's.
+		const relPath = this.pathAt(d, id, hash) ?? path.relative(this.root, file);
 		let previousContent;
 		try {
 			previousContent = execFileSync('git', ['show', `${hash}:${relPath}`], { cwd: this.root, stdio: QUIET }).toString();
@@ -375,9 +489,16 @@ export class Store {
 		// for a ref it can parse. Qualifying `after` here would attach a mirror check then calls stale.
 		const restored = { ...tmpFields };
 		this.validate(d, tmpFields);
+		// Restoring an owner field restores its PLACEMENT too — the historical record lived where its
+		// historical owner put it, and writing it into whatever folder the record sits in today would
+		// leave a file `check` reports the moment it lands. Same rule as `set`: only the owner moves it.
+		const target = this.ownerChanged(d, currentFields, tmpFields) ? this.filePath(d, id, undefined, tmpFields) : file;
+		if (target !== file && fs.existsSync(target)) throw new Error(`${collection}/${id}: ${path.relative(this.root, target)} already exists — nothing was reverted.`);
 		return this.withWriteLock(() => {
 			this._idsCache.delete(collection); // every mutation drops the memo — cleared even if the commit rolls back
 			atomicWrite(file, previousContent);
+			const unmove = target !== file ? this._moveRecord(d, file, target) : null;
+			const undo = () => { unmove?.(); atomicWrite(file, current); };
 			// revert is SET-shaped — it changes the owner's foreign key — so the mirrors move with it.
 			// Skipping this left BOTH targets stale: the restored one never got its link back, and the
 			// abandoned one kept a link the owner no longer claims. Same ordering as `add`, see there.
@@ -385,14 +506,98 @@ export class Store {
 			try {
 				mirrors = this.applyMirrorEdits(d, id, currentFields, restored);
 			} catch (e) {
-				atomicWrite(file, current);
+				undo();
 				throw e;
 			}
-			this.commit([file, ...mirrors.files], `dreamteamer: ${collection} revert ${id} to ${String(hash).slice(0, 7)}`, () => {
+			this.commit([target, ...(unmove ? [file] : []), ...mirrors.files], `dreamteamer: ${collection} revert ${id} to ${String(hash).slice(0, 7)}`, () => {
 				mirrors.undo();
-				atomicWrite(file, current);
+				undo();
 			}, d.storage.repo ?? '.');
-			return { id, reverted: true, hash };
+			return { id, reverted: true, hash, file: target };
+		});
+	}
+
+	/**
+	 * What `relocate` would do: every record of `collection` whose file is not where the compiled
+	 * descriptor says it belongs, as `{ id, from, to, why }` — plus the problems that make the plan
+	 * unsafe to apply. Read-only. Two kinds of drift are recognised:
+	 *
+	 *  - `placement`: a placed record whose folder disagrees with its owner field — hand-moved, written
+	 *    by an engine from before `storage.under` existed, or sitting in the fallback root after the
+	 *    annotation was switched on. The field is the truth; the file moves.
+	 *  - `shape`: a FILE record (`<id>.<suffix>.md`) at the root of a collection that is now
+	 *    `shape: folder` — the state a collection is in the moment its descriptor gains a folder shape so
+	 *    something can live inside its records. The bytes move to `<id>/<entry>`; the id is unchanged.
+	 *
+	 * A destination that already exists is a PROBLEM, never a silent overwrite: two files claiming one
+	 * id is exactly the ambiguity `check` reports, and resolving it is a decision, not a move.
+	 */
+	relocatePlan(collection, only = null) {
+		const d = this.writableDescriptor(collection);
+		const moves = [];
+		const problems = [];
+		const rel = (p) => path.relative(this.root, p);
+		const wanted = only ? new Set(only) : null;
+		const plan = (id, from, to, why) => {
+			if (fs.existsSync(to)) problems.push(`${collection}/${id}: ${rel(from)} belongs at ${rel(to)}, which already exists — two files claim one id; remove one before relocating`);
+			else moves.push({ id, from, to, why });
+		};
+		if (placementOf(d)) {
+			const bf = bodyField(d);
+			for (const [id, file] of this.ids(collection)) {
+				if (wanted && !wanted.has(id)) continue;
+				const fields = parseRecord(file, d, bf);
+				this.qualifyBareRefs(d, fields);
+				const to = this.filePath(d, id, undefined, fields);
+				if (to !== file) plan(id, file, to, 'placement');
+			}
+		}
+		if (d.storage.shape === 'folder' && fs.existsSync(this.dir(d))) {
+			// legacy file-shape records sit at the TOP of the folder — a folder id is one segment
+			const asFile = { ...d, storage: { ...d.storage, shape: 'file' } };
+			for (const name of fs.readdirSync(this.dir(d)).sort()) {
+				const p = path.join(this.dir(d), name);
+				if (name.startsWith('.') || fs.statSync(p).isDirectory()) continue;
+				const id = idFromRecordPath(asFile, name);
+				if (id === null || (wanted && !wanted.has(id))) continue;
+				plan(id, p, path.join(this.dir(d), id, d.storage.entry), 'shape');
+			}
+		}
+		return { collection, moves, problems };
+	}
+
+	/**
+	 * Reconcile files to the compiled descriptor — the explicit operation that turns a `check`
+	 * placement report into a clean tree. Ids and references are untouched: only files move. Refuses
+	 * rather than partially applies: a planned destination that exists, or a source git still has
+	 * pending changes for, stops the whole plan (publish first — a move on top of an unpublished edit
+	 * is two changes under one subject, and the second hides the first). A second run after success
+	 * plans nothing and does nothing.
+	 */
+	relocate(collection, { only = null, dryRun = false } = {}) {
+		const d = this.writableDescriptor(collection);
+		const planned = this.relocatePlan(collection, only);
+		if (dryRun || !planned.moves.length) return { ...planned, applied: false };
+		if (planned.problems.length) throw new Error(`relocate refused:\n  ${planned.problems.join('\n  ')}\nnothing was moved.`);
+		const cwd = path.resolve(this.root, d.storage.repo ?? '.');
+		const sources = planned.moves.map((m) => path.relative(cwd, m.from));
+		let dirty = '';
+		try { dirty = execFileSync('git', ['status', '--porcelain', '--', ...sources], { cwd, stdio: QUIET }).toString().trim(); } catch { /* not a git repo — nothing to protect */ }
+		if (dirty) throw new Error(`relocate refused — these records have unpublished changes, and a move on top of them would hide the edit under the move:\n${dirty.split('\n').map((l) => `  ${l}`).join('\n')}\nrun \`dreamteamer commit ${collection}\` first. nothing was moved.`);
+		return this.withWriteLock(() => {
+			this._idsCache.delete(collection);
+			this._dropPlacedUnder(collection);
+			const undos = [];
+			const rollback = () => { for (const u of [...undos].reverse()) u(); this._idsCache.delete(collection); this._dropPlacedUnder(collection); };
+			try {
+				for (const m of planned.moves) undos.push(this._moveRecord(d, m.from, m.to));
+			} catch (e) {
+				rollback();
+				throw e;
+			}
+			const files = planned.moves.flatMap((m) => [m.from, m.to]);
+			this.commit(files, `dreamteamer: ${collection} relocate ${planned.moves.length} record(s)`, rollback, d.storage.repo ?? '.');
+			return { ...planned, applied: true };
 		});
 	}
 
@@ -514,8 +719,11 @@ export class Store {
 		if (d.id?.pattern && !patternRe(d.id.pattern).test(id)) {
 			throw new Error(`id "${id}" does not match pattern ${d.id.pattern} — nothing was written.`);
 		}
-		const file = this.filePath(d, id);
-		if (fs.existsSync(file)) throw new Error(`${collection}/${id} already exists — nothing was written.`);
+		// The fields decide the folder for a placed collection (rootFor), and existence is asked of the
+		// INDEX, not of one path: the same id already sitting under another parent is the duplicate
+		// `check` would report, and refusing it here is what keeps the id unique across every root.
+		const file = this.filePath(d, id, undefined, fields);
+		if (fs.existsSync(file) || (placementOf(d) && this.ids(collection).has(id))) throw new Error(`${collection}/${id} already exists — nothing was written.`);
 		return this.withWriteLock(() => {
 			// captured before the invalidation and handed back, one entry richer, on the success path
 			// below — see _indexAdd for why an add that throws it away is the expensive shape.
@@ -533,7 +741,7 @@ export class Store {
 				mirrors = this.applyMirrorEdits(d, id, null, fields);
 			} catch (e) {
 				fs.rmSync(file, { force: true });
-				pruneEmptyDirs(path.dirname(file), this.dir(d));
+				this._pruneAround(d, file);
 				// ⚠ AND THE MEMO, or the removal is only half done. applyMirrorEdits reads targets through
 				// `ids()`, so a relation whose target is this same collection re-cached it WITH the record
 				// just written — and the memo key (HEAD + the collection's TOP directory mtime) does not
@@ -548,7 +756,7 @@ export class Store {
 			this.commit([file, ...mirrors.files], `dreamteamer: ${collection} add ${id}`, () => {
 				mirrors.undo();
 				fs.rmSync(file, { force: true });
-				pruneEmptyDirs(path.dirname(file), this.dir(d));
+				this._pruneAround(d, file);
 				this._idsCache.delete(collection); // same phantom as the catch above — see the note there
 			}, d.storage.repo ?? '.');
 			// LAST, after the commit: the key it is re-stated under carries the sha, and `commit` moves it
@@ -594,6 +802,7 @@ export class Store {
 	set(collection, id, changes) {
 		const d = this.writableDescriptor(collection);
 		this.refuseMirrorWrites(collection, id, Object.keys(changes));
+		this.assertUnambiguous(collection, id);
 		if ((d.storage.codec ?? 'md') === 'file') {
 			throw new Error(`${collection}/${id} is a file record — its fields are derived from the file, so there is nothing to set. Replace it with \`dreamteamer add ${collection} ${id} --from <path> --force\`.`);
 		}
@@ -602,25 +811,76 @@ export class Store {
 		const next = { ...fields, ...changes };
 		for (const [k, v] of Object.entries(changes)) if (v === null || v === '') delete next[k];
 		this.validate(d, next);
+		// A placed record FOLLOWS ITS OWNER FIELD: changing it moves the file to the new parent's folder
+		// (or back to the fallback root) in this same write, id unchanged. Only a change to THAT field
+		// moves anything — a record found in the wrong folder stays there when some other field is
+		// edited, and `check` keeps reporting the mismatch until `relocate` is asked. Moving it as a
+		// side effect of an unrelated edit would make a rename of a meeting relocate a file nobody
+		// mentioned, in a commit whose subject says otherwise.
+		const target = this.ownerChanged(d, fields, next) ? this.filePath(d, id, undefined, next) : file;
+		if (target !== file && fs.existsSync(target)) throw new Error(`${collection}/${id}: ${path.relative(this.root, target)} already exists — nothing was written.`);
 		return this.withWriteLock(() => {
 			this._idsCache.delete(collection);
 			atomicWrite(file, serialize(d, next, previous));
+			const unmove = target !== file ? this._moveRecord(d, file, target) : null;
 			// `fields` is the record as it was ON DISK and `next` as it will be, which is exactly the
 			// before/after pair a mirror edit is: an FK that moved detaches from the old target and
 			// attaches to the new one, in this same write. Same ordering as `add` — see the note there.
+			const undo = () => { unmove?.(); atomicWrite(file, previous); };
 			let mirrors;
 			try {
 				mirrors = this.applyMirrorEdits(d, id, fields, next);
 			} catch (e) {
-				atomicWrite(file, previous);
+				undo();
 				throw e;
 			}
-			this.commit([file, ...mirrors.files], `dreamteamer: ${collection} set ${id}`, () => {
+			// both paths of a move, so a commit stages the deletion and the addition together
+			this.commit([target, ...(unmove ? [file] : []), ...mirrors.files], `dreamteamer: ${collection} set ${id}`, () => {
 				mirrors.undo();
-				atomicWrite(file, previous);
+				undo();
 			}, d.storage.repo ?? '.');
-			return { id, file };
+			return { id, file: target };
 		});
+	}
+
+	/** Where a placed record's file was at `hash`, workspace-relative — or null when the commit holds no
+	 *  file for that id (or the collection is conventional, where today's path IS the historical one).
+	 *  One `git ls-tree` over the roots the collection can occupy, mapped back through the same
+	 *  path→record rule `commit` and `changes` use. */
+	pathAt(d, id, hash) {
+		if (!placementOf(d)) return null;
+		const cwd = path.resolve(this.root, d.storage.repo ?? '.');
+		const dirs = this.recordDirs(d).map((p) => path.relative(cwd, p));
+		let out = '';
+		try { out = execFileSync('git', ['ls-tree', '-r', '--name-only', hash, '--', ...dirs], { cwd, stdio: QUIET }).toString(); } catch { return null; }
+		const prefix = (d.storage.repo ?? '.') === '.' ? '' : `${d.storage.repo}/`;
+		for (const p of out.split('\n').filter(Boolean)) {
+			const rec = pathToRecord(this.descriptors, prefix + p);
+			if (rec && rec.collection === d.name && rec.id === id) return p;
+		}
+		return null;
+	}
+
+	/** Refuse to WRITE to an id that two files claim. The index keeps the first claimant so reads
+	 *  still answer, but a write would land on one copy and leave the other saying something else —
+	 *  the exact ambiguity `check` reports, made worse under a verb that printed ✔. */
+	assertUnambiguous(collection, id) {
+		const d = this.descriptor(collection);
+		if (!placementOf(d)) return;
+		this.ids(collection); // ensures the duplicate memo is current
+		const dupes = this._duplicates.get(collection)?.get(id);
+		if (dupes) throw new Error(`${collection}/${id} is held by ${dupes.length} files — ${dupes.map((f) => path.relative(this.root, f)).join(' and ')}. Remove one before writing to it (dreamteamer check names them). nothing was written.`);
+	}
+
+	/** Did the owner field of a placed record change between two versions of it? Compared as PARSED
+	 *  owner ids, because `before` comes off disk and may spell the reference bare. */
+	ownerChanged(d, before, after) {
+		const under = placementOf(d);
+		if (!under) return false;
+		const prior = { ...before };
+		this.qualifyBareRefs(d, prior);
+		const parse = (v) => parseRef(v, this.namespaces);
+		return ownerIdOf(prior, under, parse) !== ownerIdOf(after, under, parse);
 	}
 
 	/** Removal, against relations. `rm`'s guard is a TEXT SCAN over every record file — any file whose
@@ -646,7 +906,18 @@ export class Store {
 	 */
 	rm(collection, id, { force = false } = {}) {
 		const d = this.writableDescriptor(collection);
+		this.assertUnambiguous(collection, id);
 		const self = `${collection}/${id}`;
+		const unit = this.recordRoot(d, id); // folder-shape: the whole folder goes, not just the entry file
+		// A PARENT with records placed inside its folder is refused OUTRIGHT — `--force` included. The
+		// folder delete below would erase every one of those records, each of them somebody's own
+		// record with its own references, under the subject of removing one thing. There is no honest
+		// force here: reassign them (or clear their owner) first, and the deletion is then an ordinary one.
+		const held = this.placedChildrenIn(d, unit);
+		if (held.length) {
+			const lines = held.map((h) => `  ${h.count} ${h.collection} record(s) under ${h.under.path}/ — dreamteamer set ${h.collection}/<id> ${h.under.field}=<another ${collection}> (or ${h.under.field}= to clear)`);
+			throw new Error(`${self} holds records of other collections inside its folder:\n${lines.join('\n')}\nmove them first, then remove the ${collection}. nothing was removed.`);
+		}
 		// the existence check, and the FKs whose mirrors are detached below. Qualified on a COPY for the
 		// same reason applyMirrorEdits qualifies `before`: a hand-edited or pre-namespace record can
 		// hold `standup` where the engine writes `meetings/standup`, and a raw string compare misses it.
@@ -729,7 +1000,6 @@ export class Store {
 			throw new Error(`${self} is referenced by:\n${all.map((f) => `  ${f}`).join('\n')}\nfix the references or pass --force. nothing was removed.`);
 		}
 
-		const unit = this.recordRoot(d, id); // folder-shape: the whole folder goes, not just the entry file
 		// snapshot BEFORE the delete, or there is nothing left to read
 		const restore = snapshot([unit]);
 		// ⚠ THE MEMO, on the way in AND on every way back out. `ids()` keys its cache on HEAD plus the
@@ -781,6 +1051,9 @@ export class Store {
 				// by another writer) left the record in place with a mirror already detached and an FK
 				// already cleared — two stale records behind a verb that threw.
 				fs.rmSync(unit, { recursive: true });
+				// a placed record takes its emptied folders with it — a company's `meetings/` does not
+				// outlive its last meeting; a conventional root's date folders are left as they always were
+				if (placementOf(d)) this._pruneAround(d, unit);
 			} catch (e) {
 				rollback();
 				throw e; // …and now "nothing was removed" is true of everything, not just the record
@@ -795,26 +1068,32 @@ export class Store {
 
 	rename(collection, oldId, newId) {
 		const d = this.writableDescriptor(collection);
+		this.assertUnambiguous(collection, oldId);
 		this.read(collection, oldId); // existence check
 		if (oldId === newId) return { id: newId, rewrites: 0 };
 		if (d.id?.pattern && !patternRe(d.id.pattern).test(newId)) {
 			throw new Error(`id "${newId}" does not match pattern ${d.id.pattern} — nothing was renamed.`);
 		}
 		const oldUnit = this.recordRoot(d, oldId); // folder-shape: move the WHOLE folder
-		const newUnit = this.recordRoot(d, newId);
-		if (fs.existsSync(newUnit)) throw new Error(`${collection}/${newId} already exists — nothing was renamed.`);
+		// a placed record keeps the folder it is in: a rename changes the id, never the owner
+		const newUnit = placementOf(d) ? path.join(this.rootOfFile(d, oldUnit), recordFileName(d, newId)) : this.recordRoot(d, newId);
+		if (fs.existsSync(newUnit) || (placementOf(d) && this.ids(collection).has(newId))) throw new Error(`${collection}/${newId} already exists — nothing was renamed.`);
 		return this.withWriteLock(() => {
 			this._idsCache.delete(collection);
+			// a folder-shape PARENT carries the records placed inside it along — their files move,
+			// their ids do not, and their id memos are stale the moment the folder is
+			this._dropPlacedUnder(collection);
 			fs.mkdirSync(path.dirname(newUnit), { recursive: true });
 			fs.renameSync(oldUnit, newUnit);
-			pruneEmptyDirs(path.dirname(oldUnit), this.dir(d)); // cross-partition renames leave empty date dirs
+			pruneEmptyDirs(path.dirname(oldUnit), this.rootOfFile(d, oldUnit)); // cross-partition renames leave empty date dirs
 			// rewrite inbound references (frontmatter/structured always; prose only via wikilinks). It
 			// snapshots what it writes as it writes it — see rewriteRefs for why the caller cannot.
 			const { touched, rewrites, skipped, ambiguous, restore } = this.rewriteRefs(`${collection}/${oldId}`, `${collection}/${newId}`);
 			this.commit([oldUnit, newUnit, ...touched], `dreamteamer: ${collection} rename ${oldId} → ${newId}`, () => {
 				fs.mkdirSync(path.dirname(oldUnit), { recursive: true });
 				fs.renameSync(newUnit, oldUnit);
-				pruneEmptyDirs(path.dirname(newUnit), this.dir(d));
+				pruneEmptyDirs(path.dirname(newUnit), this.rootOfFile(d, newUnit));
+				this._dropPlacedUnder(collection);
 				restore();
 			}, d.storage.repo ?? '.');
 			// each entry names the PAIR it came from, because a batch has more than one — see rewriteRefsBatch
@@ -1174,6 +1453,11 @@ export function mirrorRemedy(d, fieldNames) {
 
 export function bodyField(d) {
 	return Object.entries(d.schema.properties ?? {}).find(([, s]) => s?.['x-body'])?.[0];
+}
+
+/** `<id>.<suffix>.<ext>` — the filename of a text record, wherever its root is. */
+function recordFileName(d, id) {
+	return `${id}.${d.storage.suffix}${EXT[d.storage.codec ?? 'md']}`;
 }
 
 

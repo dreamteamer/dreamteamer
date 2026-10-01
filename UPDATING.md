@@ -20,6 +20,41 @@ npx dreamteamer check
 
 ---
 
+## unreleased — relationship-based storage
+
+**A collection may keep its records INSIDE the folder of the record they belong to.** One line on
+the child's `storage` — `under: { field: company, path: meetings }` — puts a meeting whose `company`
+is `companies/northwind` at `data/companies/northwind/meetings/<id>.meeting.md`; one with no company
+stays in `data/meetings/`. Still one collection, same ids, same `meetings/<id>` references; the owner
+field moves the file. The parent must be `shape: folder`. Declaring, adopting on existing data and
+working with it: `skills/using-dreamteamer/references/collections.md` and `records.md`.
+
+**Do:** nothing. No `under`, no change — every existing workspace reads, writes, checks and commits
+exactly as before. Adopting it is three explicit steps (parent to folder shape → `dt relocate` →
+`under` on the child → compile → `dt relocate`), and compile never moves a file.
+
+### New
+
+- `dt relocate <collection>[/<id>] [--dry-run]` moves record FILES to where the compiled descriptor
+  puts them — a placed record whose folder disagrees with its owner field, or a `<id>.<suffix>.md`
+  in a collection that became `shape: folder`. Ids and references are untouched; a source with
+  unpublished changes, or an occupied destination, refuses the whole plan.
+- `check` reports `placed under … but <field> is …` for a file not where its owner puts it, and names
+  a file-shape record left in a folder-shape collection. It changes nothing.
+- `Store.recordDirs(d)` (public API): every directory a record of the collection can sit in — what
+  to ask git about. `Store.dir(d)` is unchanged and is the collection's OWN folder, not an
+  enumeration; a surface that passes it to `git status` sees only the fallback root of a placed
+  collection.
+
+### Changed only for a placed collection
+
+- `rm` of a parent holding records inside its folder refuses, `--force` included.
+- A write (`set`, `rm`, `rename`, `revert`) to an id two files claim refuses; `check` names both.
+- `revert` of an owner change moves the file back; `commit` stages both paths of a move.
+- `collections rename` of a placed collection is refused for now.
+
+---
+
 ## 0.31.0 — the lean core
 
 **Core is now records + the workspace compiler.** Five capabilities left core, nothing old is kept

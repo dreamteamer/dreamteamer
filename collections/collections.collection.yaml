@@ -91,6 +91,32 @@ schema:
         entry:
           type: string
           description: Folder shapes only — the file inside the folder that IS the record (e.g. SKILL.md).
+        under:
+          type: object
+          description: >-
+            RELATIONSHIP-BASED STORAGE — records live INSIDE the folder of the record they belong
+            to. `{ field: company, path: meetings }` puts a meeting whose `company` is
+            `companies/northwind` at `<companies root>/northwind/meetings/<id>.meeting.md`; one with
+            no `company` stays in this collection's own `path`, which remains its fallback root.
+            Still ONE logical collection: `list` is the union across every parent folder, a
+            reference is `<collection>/<id>` wherever the file sits, and the id never changes when
+            the owner does — `set <field>=…` MOVES the file. `field` must be a scalar `x-reference`
+            to exactly one collection, that collection must be `shape: folder`, and one level is
+            supported (a placed collection cannot be a parent). The field is the intended owner and
+            the folder is observed placement: `check` reports a disagreement, `dreamteamer relocate`
+            reconciles it, nothing infers an owner from where a file was found. Not for a record
+            many parents share equally — that is a plain reference.
+          required: [field, path]
+          properties:
+            field:
+              type: string
+              description: The scalar reference field on THIS collection that names the parent record.
+            path:
+              type: string
+              description: The folder INSIDE each parent record's folder that holds these records — relative, e.g. `meetings`.
+            collection:
+              type: string
+              description: DERIVED by compile, never authored — the parent collection, read off `field`'s x-reference so the record layer never opens a schema to find it.
         repo:
           type: string
           description: DERIVED by compile, never authored — the workspace-relative root of the git repo holding these records ('.' is the workspace). Set from the owning module's `owns-data`.

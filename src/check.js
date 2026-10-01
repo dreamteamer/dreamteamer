@@ -10,6 +10,7 @@ import { NO_RUNTIME, loadDescriptors, runtimeDir, namespaces as compiledNamespac
 import { parseRef } from './namespace.js';
 import { refTargetsOf, refIsSoft } from './ref.js';
 import { relationsOf, expectedMirrors } from './relations.js';
+import { placementOf, placedRecords, ownerIdOf } from './placement.js';
 
 export function check({ root }) {
 	const RUNTIME = runtimeDir(root);
@@ -34,16 +35,19 @@ export function check({ root }) {
 
 	// ---- index all records: collection -> Map<id, filePath> ------------------------
 	const index = new Map();
+	// placed collections only: id -> the parent id its file was FOUND under (null = the fallback root)
+	const observed = new Map();
 	const strays = [];
 	// declared here rather than beside the validation pass: indexing can itself produce a
 	// finding (an unreachable data root, below) before a single record is read.
 	const violations = [];
+	const dirOf = (d) => path.join(d.storage.base === 'runtime' ? RUNTIME : root, d.storage.path);
 	for (const [name, d] of descriptors) {
 		const ids = new Map();
 		index.set(name, ids);
 		// runtime-based (knowhow/meta) collections are read from the COMPILED runtime —
 		// their sources may live in any module; .dreamteamer is the merged read surface
-		const dir = path.join(d.storage.base === 'runtime' ? RUNTIME : root, d.storage.path);
+		const dir = dirOf(d);
 		// An unreachable data ROOT is a finding, not a skip: a collection whose module clone is
 		// missing otherwise reports zero records and a clean check — a silent success. An EMPTY
 		// directory stays fine (a module with no records yet is normal); only a missing owning
@@ -53,13 +57,39 @@ export function check({ root }) {
 			violations.push({ file: d.storage.path, msg: `collection "${name}" is owned by ${d.storage.repo}, which is not present — every record in it is unreadable` });
 			continue;
 		}
+		const under = placementOf(d);
+		if (under) {
+			// ONE logical collection across the fallback root and every parent folder — the same walk
+			// the store indexes with (src/placement.js), so the two cannot disagree about which files
+			// are records. The first file to claim an id keeps it; every later one is a violation,
+			// because a `get` that silently answered from whichever folder sorted later is the
+			// failure this report exists to make visible.
+			const seen = new Map();
+			observed.set(name, seen);
+			for (const r of placedRecords(d, dir, dirOf(descriptors.get(under.collection)))) {
+				if (ids.has(r.id)) {
+					violations.push({ file: rel(r.file), msg: `collection "${name}" holds the id "${r.id}" twice — ${rel(ids.get(r.id))} and ${rel(r.file)}. Remove one.` });
+					continue;
+				}
+				ids.set(r.id, r.file);
+				seen.set(r.id, r.parentId);
+			}
+			continue;
+		}
 		if (!fs.existsSync(dir)) continue;
 		const shape = d.storage.shape ?? 'file';
 		if (shape === 'folder') {
+			// a FILE record at the root of a folder-shape collection is the state a collection is in
+			// right after its shape changed — named as such, with the verb that finishes the change
+			const asFile = { ...d, storage: { ...d.storage, shape: 'file' } };
 			for (const entry of fs.readdirSync(dir).sort()) {
 				if (entry.startsWith('.')) continue;
 				const p = path.join(dir, entry);
-				if (!fs.statSync(p).isDirectory()) { strays.push({ collection: name, file: rel(p) }); continue; }
+				if (!fs.statSync(p).isDirectory()) {
+					const legacy = idFromRecordPath(asFile, entry) !== null;
+					strays.push({ collection: name, file: rel(p), note: legacy ? `a file-shape record in a folder-shape collection — dreamteamer relocate ${name} moves it to ${entry.split('.')[0]}/${d.storage.entry}` : undefined });
+					continue;
+				}
 				const main = path.join(p, d.storage.entry ?? 'SKILL.md');
 				if (fs.existsSync(main)) ids.set(entry, main);
 				else strays.push({ collection: name, file: rel(p), note: `missing entry file ${d.storage.entry}` });
@@ -125,6 +155,24 @@ export function check({ root }) {
 			for (const [fieldPath, target, soft] of refFields) {
 				for (const value of valuesAt(fields, fieldPath)) {
 					checkRef(file, fieldPath, value, target, softTargets, soft);
+				}
+			}
+			// ---- placement: the FIELD is the intended owner, the FOLDER is observed placement ---
+			// Reported, never repaired: a record found under the wrong company is either a hand move
+			// (the field is right, run relocate) or a hand edit of the field (the folder is right, set
+			// it back) and only a person knows which. A malformed owner value is skipped here — the
+			// reference check above has already named it, and "placed under X but owner is empty"
+			// on top of that would be a second report of one typo.
+			const under = placementOf(d);
+			if (under) {
+				const raw = fields[under.field];
+				const wellFormed = raw == null || raw === '' || parseRef(raw, namespaces);
+				const want = ownerIdOf(fields, under, (v) => parseRef(v, namespaces));
+				const got = observed.get(name).get(id);
+				if (wellFormed && want !== got) {
+					const where = got ? `under ${under.collection}/${got}` : `in its own root (${d.storage.path})`;
+					const should = want ? `${under.field} is ${under.collection}/${want}` : `${under.field} is empty`;
+					flag(file, `placed ${where} but ${should} — the file is not where its owner puts it. Run: dreamteamer relocate ${name}/${id}`);
 				}
 			}
 			parsed.get(name).set(id, fields);

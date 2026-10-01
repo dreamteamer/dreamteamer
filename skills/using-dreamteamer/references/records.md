@@ -111,6 +111,20 @@ first slash. the default namespace has no prefix (`tasks/kickoff`, exactly as al
 undeclared prefix reads as a nested id and dangles — `dt check` says so. declaring one is
 `collections.md`.
 
+## records stored under another record — the folder follows the owner
+
+a collection may declare `storage.under` (`collections.md`): a meeting with a `company` lives in
+that company's folder, one without stays in `data/meetings/`. working with it is unchanged in
+every way that names a record — `list` is the whole collection, `get`/`set`/`rm`/`rename` take
+`meetings/<id>` wherever the file sits, references never carry a folder — and different in one:
+**the owner field moves the file.** `dt set meetings/<id> company=companies/harbor` relocates the
+record into Harbor's folder with the same id and every inbound reference intact; `company=`
+moves it back to the fallback root. so never `mv` one by hand, exactly as for a rename — a file
+under the wrong company is what `check` reports as `placed under … but`, and `dt relocate
+<collection>[/<id>]` (`--dry-run` first) is what moves it to where its field says. a parent
+holding records in its folder refuses `rm` until they are reassigned; `dt commit <collection>/<id>`
+after a move publishes both paths; `dt revert` of an owner change moves the file back too.
+
 ## two-way relations — the mirror is generated, and read-only
 
 a reference field may declare `x-inverse`: compile GENERATES the field it names on the TARGET

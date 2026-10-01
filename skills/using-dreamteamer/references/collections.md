@@ -172,7 +172,62 @@ is copied.
 - Nested namespaces work (`work/clients`); the longest declared prefix wins.
 - ⚠ **No collection may store records inside another's folder** — a namespace folder cannot
   itself be a collection root. Compile refuses it, because the outer collection would index the
-  inner one's records as its own.
+  inner one's records as its own. The one DECLARED exception is the next section: a collection
+  stored under the records of a folder-shape parent, where compile knows exactly which files
+  belong to whom.
+
+## relationship-based storage — records beside the record they belong to
+
+A collection can keep each record INSIDE the folder of the record it belongs to, so a company's
+folder holds the company's meetings and a browse of `data/companies/northwind/` shows the whole
+account. It is declared on the CHILD's `storage`, in one line, and changes nothing about what the
+collection IS:
+
+```yaml
+# modules/default/collections/meetings.collection.yaml
+storage: { path: data/meetings, suffix: meeting, under: { field: company, path: meetings } }
+```
+
+```text
+data/companies/northwind/company.md                            ← the parent: shape: folder, entry: company.md
+data/companies/northwind/meetings/2026/10/kickoff.meeting.md   ← meetings/2026/10/kickoff, company: companies/northwind
+data/meetings/2026/10/offsite.meeting.md                       ← meetings/2026/10/offsite, no company: the FALLBACK root
+```
+
+- **Still one logical collection.** `dt list meetings` is the union across every company folder
+  and the fallback root, ordered by id; `dt get meetings/2026/10/kickoff` finds the file wherever it
+  sits; a reference is `meetings/<id>` everywhere. Nothing is spelled per company — no descriptor,
+  no skill, no view.
+- **The id is independent of placement.** `dt set meetings/<id> company=companies/harbor` MOVES
+  the file into Harbor's folder and changes nothing else: not the id, not one inbound reference.
+  Clearing the field moves it back to the fallback root. An id is unique across every root, and a
+  second file claiming one is a `check` violation and a write refusal, never last-one-wins.
+- **`field`** is a scalar `x-reference` to exactly ONE collection (a list has no single folder; a
+  union has no single parent). **`path`** is a relative folder inside each parent record's folder.
+  compile derives `under.collection` from the field; nothing else is authored.
+- **The parent must be `shape: folder`** (`storage: { shape: folder, entry: company.md }`) — only
+  a folder can hold anything beside the record. A file-shape collection that should become a
+  parent changes its descriptor to folder shape, and `dt relocate <collection>` then moves each
+  `<id>.<suffix>.md` into `<id>/<entry>` with its id unchanged (`check` names them until it runs).
+- **One level.** A placed collection cannot itself be a parent; the child is a text record
+  (`md` · `yaml` · `json`, file shape) — an opaque or folder-shape child is refused for now. Two
+  children of one parent need two different paths, and a path never equals the parent's entry.
+- **The field is the owner; the folder is observed placement.** A file found under the wrong
+  company — moved by hand, or sitting in the fallback root from before the declaration existed — is
+  `placed under … but <field> is …` in `check`, which changes nothing. `dt relocate <collection>`
+  (or `<collection>/<id>`, `--dry-run` first) moves files to where the compiled descriptor puts
+  them and refuses a source with unpublished changes or an occupied destination. Editing some OTHER
+  field never relocates as a side effect; nothing ever infers an owner from where a file was found.
+- **A parent with records inside its folder cannot be removed** — not with `--force` either;
+  reassign or clear their owner first. Renaming the parent carries the folder with everything in
+  it and rewrites the children's owner field; their ids do not change.
+- **Adopting it on existing data is three explicit steps**, each reviewable: make the parent folder
+  shape and `relocate` it; add `under` to the child and compile (no file moves at compile — `check`
+  reports every mismatch); `relocate` the child, `--dry-run` first. `dt commit` stages a moved
+  record's old and new path together; `dt revert` of an owner change moves the file back.
+- **When NOT to use it.** A record several parents share equally, a record whose owner is usually
+  unknown, or a collection nobody browses as a folder — keep conventional storage and a plain
+  reference. Folder grouping is a browsing convenience, never a permission boundary.
 
 ## `templates:` — a live shared field set
 

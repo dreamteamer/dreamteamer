@@ -300,7 +300,15 @@ roadmap, not a model; wait for the second consumer.
   `max_bytes` (default 200 KB). A big binary is not a record: it lives outside the vault under a
   declared var, with an ordinary record carrying the `${env:...}` template that points at it.
 - **`shape: folder` when a record is intrinsically several files** (a skill with references beside
-  it). Rare; prefer one file until the record itself demands companions.
+  it), or when OTHER collections' records should live inside it — see the next bullet. Otherwise
+  prefer one file until the record itself demands companions.
+- **`storage.under` when people browse a parent as a unit** — a company folder holding that
+  company's meetings, a case folder holding its documents. It is one line on the CHILD
+  (`under: { field: company, path: meetings }`), the collection stays ONE collection with the same
+  ids and references, and the owner field is what moves a file (`collections.md`). Choose ONE
+  physical owner and leave every other relationship a plain reference; keep conventional storage
+  when no single owner is sensible, when the owner is usually unknown, or when nobody would open
+  the folder. It organises files; it grants nothing.
 - **Machine-specific paths are templates, never absolute paths.** `${env:FILES_FOLDER}/…` is inert
   data rendered per machine by `dt resolve`; an absolute path in a record is wrong on every other
   machine, silently. **A files folder is named after the collection or field that indexes it, and
