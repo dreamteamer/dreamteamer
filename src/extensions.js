@@ -9,6 +9,8 @@
 // The entry's default export is `activate(dt)` — `dt` is the RUNNING engine's public API (api.js), so
 // an extension never imports a second engine copy of its own and can never disagree with the one the
 // operator ran (the dev-clone shadow and `--vault` both pick the engine before this file loads).
+// A workspace's own `modules/<id>/` may declare the same key: its code is the operator's, so it
+// loads without a package — the way a workspace carries an extension nobody has published.
 // It returns a contribution, every key optional:
 //
 //   commands    { <verb>: { usage, run(ws, argv) } }       `dt <verb> …`, dispatched in-process
@@ -28,21 +30,29 @@ export const EXTENSION_API = 1;
 
 const CONTRIBUTION_KEYS = new Set(['commands', 'sourceKinds', 'analyze', 'harnesses', 'orientation', 'hooks']);
 
-/** The workspace's direct dependencies that declare an extension entry, sorted by package name.
- *  A module DISABLED by a bare `dreamteamer.disable` entry is not an extension either — disabling is
- *  how a workspace keeps a package installed and switches it off. */
+/** The modules that declare an extension entry: the workspace's own `modules/<id>/` first, then its
+ *  direct dependencies, each sorted by name. A workspace module is the operator's own code, exactly
+ *  like its `bin/`, so it needs no package and no npm — and it SHADOWS a dependency of the same name,
+ *  the rule module content already follows. A module DISABLED by a bare `dreamteamer.disable` entry
+ *  is not an extension either — disabling is how a workspace keeps a module and switches it off. */
 export function declaredExtensions(ws) {
 	const disable = ws.pkg?.dreamteamer?.disable ?? [];
 	const out = [];
-	for (const dep of Object.keys({ ...ws.pkg?.dependencies, ...ws.pkg?.devDependencies }).sort()) {
-		const dir = path.join(ws.root, 'node_modules', dep);
+	const seen = new Set();
+	const consider = (dir, fallback) => {
 		let pkg;
-		try { pkg = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8')); } catch { continue; }
+		try { pkg = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8')); } catch { return; }
 		const entry = pkg.dreamteamer?.extension;
-		if (!entry || disablesPackage(disable, pkg.name ?? dep)) continue;
-		if (typeof entry !== 'string') throw new Error(`${dep}: dreamteamer.extension must be a path to the entry module (got ${JSON.stringify(entry)})`);
-		out.push({ name: pkg.name ?? dep, version: pkg.version ?? '0.0.0', dir, entry: path.join(dir, entry) });
-	}
+		const name = pkg.name ?? fallback;
+		if (!entry || seen.has(name) || disablesPackage(disable, name)) return;
+		if (typeof entry !== 'string') throw new Error(`${name}: dreamteamer.extension must be a path to the entry module (got ${JSON.stringify(entry)})`);
+		seen.add(name);
+		out.push({ name, version: pkg.version ?? '0.0.0', dir, entry: path.join(dir, entry) });
+	};
+	let inline = [];
+	try { inline = fs.readdirSync(path.join(ws.root, 'modules')).sort(); } catch { /* no modules/ */ }
+	for (const id of inline) consider(path.join(ws.root, 'modules', id), id);
+	for (const dep of Object.keys({ ...ws.pkg?.dependencies, ...ws.pkg?.devDependencies }).sort()) consider(path.join(ws.root, 'node_modules', dep), dep);
 	return out;
 }
 

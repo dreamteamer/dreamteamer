@@ -64,10 +64,10 @@ dispatch, so it cannot drift):
 - write & publish — `add` `set` `rm` `rename` `move` `revert` `commit`
 - fields (sources, through the compile gate) — `add-field` `set-field` `rm-field` `rename-field` (system entities — modules, collections, skills, ui-views… — take the RECORD verbs above)
 - workspace — `init` `install` `update` `compile` `check` `status` `changes` `help`
-- an installed EXTENSION adds verbs of its own, and `dt help` lists them under its package name —
-  `@dreamteamer/workflows` (`dt prove` · `dt land` · `dt worktree`), `@dreamteamer/http` (`dt serve`),
-  `@dreamteamer/notebooklm` (`dt notebooklm`); a local Docker host is `@dreamteamer/host`'s own `dt-host …`.
-  Each ships the skill that teaches it. A verb that answers "left core in 0.31.0" names the package to install.
+- an EXTENSION (a workspace module or a dependency declaring `dreamteamer.extension`) adds verbs of
+  its own, and `dt help` lists them under its name; each ships the skill that teaches it. A verb that
+  answers "left core in 0.31.0" (`prove` · `land` · `worktree` · `serve` · `notebooklm` · the Docker
+  host) has no published extension yet — see `references/extensions.md`.
 
 don't learn syntax from prose, this skill included: prose drifts, and `help` ships in
 the same file as the dispatch it documents. run it once before your first write of a session.

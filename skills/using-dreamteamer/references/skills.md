@@ -162,7 +162,7 @@ Skills ship with modules and are read by any operator on any machine:
   follow-up.
 - **Give it a mechanical check, and know what one cannot cover.** Something must pin the
   mechanical half: the script the skill names runs, the record it promises appears, the path it
-  files to exists — in a workspace with `@dreamteamer/workflows`, that is a `proofs` record, written
+  files to exists — in a workspace with a proofs extension, that is a `proofs` record, written
   in the same commit. ⚠ **A green check is not evidence the skill TEACHES.** Whether a fresh session finds it, loads it and
   does the job right is the eval layer: real tasks, blind sessions, a scoring sheet — a procedure,
   never something the engine runs.

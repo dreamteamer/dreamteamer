@@ -22,18 +22,20 @@ npx dreamteamer check
 
 ## 0.31.0 — the lean core
 
-**Core is now records + the workspace compiler.** Five capabilities left for separately installed
-extensions, and nothing old is kept as an alias. What to do depends on what you used:
+**Core is now records + the workspace compiler.** Five capabilities left core, nothing old is kept
+as an alias, and **the extensions they move to are not published yet**:
 
-| you ran | now | do |
-|---|---|---|
-| `dt prove …`, `dt list proofs`, `dt status` proofs line, a `proofs/` folder | `dt prove …` · `dt prove --list [--missing] [--strict]` | `npm i -D @dreamteamer/workflows`, then `dt compile`. Without it a module's `proofs/` folder is a compile error ("not a known kind") — deliberately: an unvalidated proof is a claim nothing checks |
-| `dt land worktrees/<n>`, `dt add/list/get/rm worktrees…` | `dt land <n>` · `dt worktree add\|list\|get\|rm` | the same package; re-run `dt install --print-adapters` and re-merge the hooks (the worktree hooks now come from it) |
-| `dt start` (the REST api) | `dt serve [--port <n>]` | `npm i -D @dreamteamer/http`. The container routes and the `/admin` studio route are gone |
-| `dt export notebooklm …`, the `notebooklm` harness | `dt notebooklm …` | `npm i -D @dreamteamer/notebooklm`; the harness id is unchanged, so `dreamteamer.harnesses` keeps `notebooklm` |
-| `dt setup`, `dt start\|stop\|open\|rm container …`, `dt list containers\|images`, `dt export\|import container …` | `dt-host <the same words>` | `npm i -g @dreamteamer/host`. Volumes, labels, networks and the archive format are unchanged, so existing containers and exports keep working |
+| you ran | status |
+|---|---|
+| `dt prove …`, `dt list proofs`, `dt status` proofs line, a `proofs/` folder | gone from core. A module's `proofs/` folder is now a compile error ("not a known kind") — deliberately: an unvalidated proof is a claim nothing checks. Delete the folder, or stay on 0.30.x |
+| `dt land worktrees/<n>`, `dt add/list/get/rm worktrees…`, the worktree hooks | gone from core; `dt install --print-adapters` renders only the session-start hook — re-merge it |
+| `dt start` (the REST api) | gone from core |
+| `dt export notebooklm …`, the `notebooklm` harness | gone from core; a `notebooklm` entry in `dreamteamer.harnesses` warns as an unknown harness until an extension contributes it |
+| `dt setup`, `dt start\|stop\|open\|rm container …`, `dt list containers\|images`, `dt export\|import container …` | gone from core. Existing containers, volumes and exports are untouched |
 
-A moved verb typed against core fails with exit 2 and names the package to install.
+**Do:** if you depend on one of these, stay on 0.30.x until its extension ships — or carry the code
+as a workspace module that declares `dreamteamer.extension` (below). A moved verb typed against core
+fails with exit 2 and says it left core.
 
 ### A public API, and `src/*` is closed
 
@@ -44,8 +46,9 @@ operation needs when the workspace has extensions installed.
 
 ### Extensions
 
-A direct dependency whose package.json declares `"dreamteamer": { "extension": "./entry.js" }` is
-loaded by every `dt` invocation, `dt status` lists it, and `dt help` appends its usage. The contract is
+A workspace module (`modules/<id>/package.json`) or a direct dependency whose package.json declares
+`"dreamteamer": { "extension": "./entry.js" }` is loaded by every `dt` invocation — a workspace module
+needs no package and shadows a dependency of the same name, `dt status` lists it, and `dt help` appends its usage. The contract is
 `skills/using-dreamteamer/references/extensions.md`.
 
 ### Smaller things
@@ -63,8 +66,8 @@ loaded by every `dt` invocation, `dt status` lists it, and `dt help` appends its
   replace — and compiles, whatever the plan said, once npm has installed something, with the
   extensions npm just installed. A workspace that declares no dependencies no longer runs npm at all.
 - The exported `installCommand(ws, argv)` reopens with `openWorkspace` by default, as the CLI does.
-- `dreamteamer.disable` switches off a scoped package by its full name (`@dreamteamer/workflows`) or
-  its module id (`workflows`) — its code and its content together, including every module a package
+- `dreamteamer.disable` switches off a scoped package by its full name (`@scope/kit`) or its module
+  id (`kit`) — its code and its content together, including every module a package
   of modules bundles.
 
 ---

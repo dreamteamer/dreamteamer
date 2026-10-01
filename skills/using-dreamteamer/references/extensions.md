@@ -1,34 +1,36 @@
 # extensions — optional tools, and the one seam they plug into
 
 Core is records plus the workspace compiler. Anything with a lifecycle of its own — a server, a
-Docker host, a behaviour-test runner, an exporter to one vendor — is an **extension**: a separate
-npm package the workspace installs when it wants that capability, and does without otherwise.
+Docker host, a behaviour-test runner, an exporter to one vendor — is an **extension**: code the engine
+calls, which a workspace has when it wants that capability and does without otherwise.
 
-| package | adds | install |
-|---|---|---|
-| `@dreamteamer/workflows` | `dt prove` (behaviour proofs, the `proofs/` source kind), `dt land` (land a worktree's commits), `dt worktree` (cut, list, remove checkouts), and the worktree hooks | `npm i -D @dreamteamer/workflows` in the workspace |
-| `@dreamteamer/http` | `dt serve` — the REST api at `/api` | `npm i -D @dreamteamer/http` |
-| `@dreamteamer/notebooklm` | `dt notebooklm` (export, optionally sync) and the `notebooklm` harness (`NOTEBOOKLM.md`) | `npm i -D @dreamteamer/notebooklm` |
-| `@dreamteamer/host` | `dt-host` — a workspace as a local Docker container; needs no workspace | `npm i -g @dreamteamer/host` |
+The verbs that left core in 0.31.0 — `prove` · `land` · `worktree`, `serve`, `notebooklm`, and the
+Docker host — return as extensions, and **none is published yet**. Typed against core, each fails with
+exit 2 and says so. A workspace that needs one now carries it as its own module (below), or stays on
+0.30.x.
 
-Each ships its own skill; with the package installed and compiled, that skill is in the harness.
 `dt status` lists the extensions this workspace loaded, and `dt help` appends each one's usage.
 
 ## how a workspace turns one on
 
-**A direct dependency whose package.json declares `"dreamteamer": { "extension": "./entry.js" }` is
-loaded — that is the whole declaration.** npm put the code there on purpose; a transitive package is
-never loaded however it advertises. A bare entry in `dreamteamer.disable` switches one off while
-leaving it installed. Two extensions claiming the same verb, source kind or harness is a refusal at
-load, naming both — never "last one wins".
+Two places, one declaration — a `package.json` carrying `"dreamteamer": { "extension": "./entry.js" }`:
 
-The same package is usually ALSO a content module (its `dreamteamer` key makes it one): the
-`proofs` collection descriptor and the proving skill travel inside `@dreamteamer/workflows`, and
-compile discovers them like any other module's.
+- **a workspace module**, `modules/<id>/package.json`. Its code is the workspace's own, like `bin/`,
+  so it needs no package and no npm. This is how a workspace carries an extension nobody has
+  published, and it shadows a dependency of the same name.
+- **a direct dependency.** npm put the code there on purpose; a transitive package is never loaded
+  however it advertises.
 
-⚠ **Remove an extension and its kind goes with it.** A workspace holding `proofs/` folders without
-`@dreamteamer/workflows` installed fails compile on the unknown folder — deliberately: a proof that
-compiles with no validator would be a claim nothing checks. The next compile after an uninstall also
+A bare entry in `dreamteamer.disable` switches one off while leaving it in place. Two extensions
+claiming the same verb, source kind or harness is a refusal at load, naming both — never "last one
+wins".
+
+An extension is ALSO a content module (its `dreamteamer` key makes it one): its collections and skills
+travel with its code, and compile discovers them like any other module's.
+
+⚠ **Remove an extension and its kind goes with it.** A workspace holding `proofs/` folders with no
+extension contributing `proofs` fails compile on the unknown folder — deliberately: a proof that
+compiles with no validator would be a claim nothing checks. The next compile after a removal also
 prunes the extension's compiled folder and its managed blocks.
 
 ## writing one — the contract
