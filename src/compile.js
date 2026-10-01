@@ -882,7 +882,7 @@ export function compile(ws) {
 			// nothing and send the reader back for a second compile to find that out.
 			const ignorable = [...new Set(strays.map((s) => s.replace(/^system\//, '')))];
 			fail(`module "${source.name}" (${rel(source.root)}) has folder(s) that are not a known kind: ${strays.join(', ')}
-  known kinds: ${kinds.join(', ')}${contributed.length ? '' : `\n  a kind an extension adds (e.g. proofs/, from @dreamteamer/workflows) is known only while that extension is installed`}
+  known kinds: ${kinds.join(', ')}${contributed.length ? '' : `\n  a kind an extension adds (proofs/, for one) is known only while that extension is installed or its module is present`}
   if these are not sources, declare them: "dreamteamer": { "ignore": [${ignorable.map((s) => `"${s}"`).join(', ')}] } in ${rel(path.join(source.root, 'package.json'))}`);
 		}
 		for (const kind of kinds) {
@@ -1171,7 +1171,7 @@ export function compile(ws) {
 		merged.storage ??= {};
 		// A DRIVER collection (0.24–0.30: `containers`, `images`) was answered by Docker, never by files.
 		// Compiled as an ordinary collection it would become a writable folder of fake host records.
-		if (merged.storage.driver !== undefined) fail(`collection "${name}": storage.driver is gone since 0.31.0 — a container is not a record; the local Docker host is @dreamteamer/host (\`dt-host\`). Delete the descriptor (${group.map((g) => g.src.path).join(', ')}).`);
+		if (merged.storage.driver !== undefined) fail(`collection "${name}": storage.driver is gone since 0.31.0 — a container is not a record, and the Docker host left core. Delete the descriptor (${group.map((g) => g.src.path).join(', ')}).`);
 		const owned = dataOwners.get(storageOwnerOf(group, base));
 		// A namespaced collection's folder IS its namespace, nested: `health/doctors` →
 		// `data/health/doctors`. Derived rather than required so a descriptor never has to repeat its

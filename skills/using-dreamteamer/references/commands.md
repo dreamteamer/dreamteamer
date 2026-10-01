@@ -151,7 +151,7 @@ they read stay honest:
   `{ summary: { _nempty: true } }` works the moment `summary` is a mirror — or ship the binding
   without a `can-exit` and accept that it never shows done. What is not honest is a proxy field a
   human must remember to set.
-- **A `can-exit` and a proof's `count` (`@dreamteamer/workflows`) answer different questions — put
+- **A `can-exit` and a proof's `count` (a proofs extension) answer different questions — put
   each expectation on its own side.** A gate is a filter over ONE record, evaluated on every render of `dt next` and every board
   the studio draws, so it can only ever read that record's own fields (plus one outbound hop) — which
   is exactly the gap the bullet above names: "a summary referencing this record exists" is

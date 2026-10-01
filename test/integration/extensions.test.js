@@ -105,15 +105,14 @@ describe('an extension\'s command runs in-process, handed THIS workspace and THI
 		assert.match(ws.dt('status').stdout, /extensions: probe-kit@1\.2\.3/);
 	});
 
-	test('a moved core verb with no extension to answer it fails with the install line, exit 2', () => {
+	test('a moved core verb with no extension to answer it says so, exit 2 — and names no unpublished package', () => {
 		const ws = workspace();
-		const r = ws.dt('prove', 'x');
-		assert.equal(r.code, 2);
-		assert.match(r.stderr, /`dt prove` left core in 0\.31\.0/);
-		assert.match(r.stderr, /npm install --save-dev @dreamteamer\/workflows/);
-		const h = ws.dt('setup');
-		assert.equal(h.code, 2);
-		assert.match(h.stderr, /npm install --global @dreamteamer\/host/);
+		for (const verb of ['prove', 'setup', 'notebooklm']) {
+			const r = ws.dt(verb, 'x');
+			assert.equal(r.code, 2, verb);
+			assert.match(r.stderr, new RegExp(`\`dt ${verb}\` left core in 0\\.31\\.0 and returns as an extension, which is not published yet`));
+			assert.doesNotMatch(r.stderr, /@dreamteamer\//, 'an install line for a package that is not on npm');
+		}
 	});
 });
 
@@ -414,5 +413,49 @@ describe('disabling a PACKAGE OF MODULES switches off its code and every module 
 		assert.equal(r.code, 0, r.stderr);
 		assert.ok(!fs.existsSync(crates(ws)));
 		assert.doesNotMatch(r.stderr, /matched nothing/);
+	});
+});
+
+describe('a WORKSPACE module can carry an extension entry — no package, no npm (inline extensions)', () => {
+	const inline = (root, { id = 'kit', entry, disable } = {}) => {
+		const dir = path.join(root, 'modules', id);
+		fs.mkdirSync(dir, { recursive: true });
+		fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: id, version: '0.0.1', dreamteamer: { description: 'An inline kit.', extension: './ext.js' } }));
+		fs.writeFileSync(path.join(dir, 'ext.js'), entry ?? `export default () => ({ commands: { inlinehello: { usage: '  inlinehello   say hi', run(ws, argv) { console.log('inline hello ' + argv.join(' ')); return 0; } } }, sourceKinds: ['gizmos'] });`);
+		if (disable) {
+			const pkgFile = path.join(root, 'package.json');
+			const pkg = JSON.parse(fs.readFileSync(pkgFile, 'utf8'));
+			pkg.dreamteamer = { ...pkg.dreamteamer, disable };
+			fs.writeFileSync(pkgFile, JSON.stringify(pkg, null, '\t') + '\n');
+		}
+		return dir;
+	};
+	test('it activates: its verb runs, its kind compiles, and the manifest names it', async () => {
+		const ws = workspace({ compile: false });
+		inline(ws.root);
+		const gizmo = path.join(ws.root, 'modules', WS_MODULE, 'gizmos', 'one.yaml');
+		fs.mkdirSync(path.dirname(gizmo), { recursive: true });
+		fs.writeFileSync(gizmo, 'name: one\n');
+		assert.deepEqual((await openWorkspace(ws.root)).extensions.map((e) => e.name), ['kit']);
+		const r = dt(ws.root, 'inlinehello', 'there');
+		assert.equal(r.code, 0, r.stderr);
+		assert.match(r.stdout, /inline hello there/);
+		const c = dt(ws.root, 'compile');
+		assert.equal(c.code, 0, c.stderr);
+		assert.match(readFile(ws.root, '.dreamteamer/manifest.yaml'), /extensions:\n {2}- name: kit/);
+		assert.ok(fs.existsSync(path.join(ws.root, '.dreamteamer', 'gizmos', 'one.yaml')));
+	});
+	test('dreamteamer.disable switches it off like any module', async () => {
+		const ws = workspace({ compile: false });
+		inline(ws.root, { disable: ['kit'] });
+		assert.deepEqual((await openWorkspace(ws.root)).extensions, []);
+	});
+	test('an inline module shadows the npm package of the same name — its code loads, the package\'s does not', async () => {
+		const ws = workspace({ compile: false });
+		install(ws.root, { name: 'kit', descriptor: null, entry: 'export default () => { throw new Error("the shadowed npm copy was activated"); };' });
+		inline(ws.root);
+		const h = await openWorkspace(ws.root);
+		assert.deepEqual(h.extensions.map((e) => e.name), ['kit']);
+		assert.ok('inlinehello' in h.extensions[0].commands);
 	});
 });

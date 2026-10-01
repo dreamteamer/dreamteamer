@@ -207,12 +207,8 @@ workspace verbs:
               [<collection>|<collection>/<id> …] [-m <subject>] [--dry-run] [--json]
   help        this text
 
-extension verbs — an installed extension (a dependency whose package.json declares
-\`dreamteamer.extension\`) adds its own verbs, listed below when this workspace has any:
-  @dreamteamer/workflows   prove · land · worktree      behaviour proofs, landing a worktree
-  @dreamteamer/http        serve                        the REST api at /api
-  @dreamteamer/notebooklm  notebooklm                   export (and sync) to a NotebookLM notebook
-  @dreamteamer/host        dt-host (its own binary)     a workspace as a local Docker container
+extension verbs — an extension (a workspace module, or a dependency, whose package.json declares
+\`dreamteamer.extension\`) adds its own verbs, listed below when this workspace has any.
 `;
 
 // Record verbs, split by what their <target> means. `move` and `next` are in NEITHER set: both
@@ -262,19 +258,10 @@ export const CORE_VERBS = [
 	'schema', 'ensure', 'update-field', 'remove-field', 'commands',
 ];
 
-/** Verbs that left core for an extension (0.31.0), and the package that now answers each — so the
- *  old spelling in a script or a skill fails with the install line rather than "unknown verb". */
-const WORKFLOWS = { pkg: '@dreamteamer/workflows' };
-const HTTP = { pkg: '@dreamteamer/http', as: 'dt serve' };
-const NOTEBOOKLM = { pkg: '@dreamteamer/notebooklm', as: 'dt notebooklm' };
-const HOST = { pkg: '@dreamteamer/host', global: true };
-const MOVED_VERBS = {
-	prove: [WORKFLOWS], land: [WORKFLOWS], worktree: [WORKFLOWS], serve: [HTTP], notebooklm: [NOTEBOOKLM],
-	start: [HTTP, { ...HOST, as: 'dt-host start container <name>' }],
-	export: [NOTEBOOKLM, { ...HOST, as: 'dt-host export container <name>' }],
-	setup: [{ ...HOST, as: 'dt-host setup' }], stop: [{ ...HOST, as: 'dt-host stop container <name>' }],
-	open: [{ ...HOST, as: 'dt-host open container <name>' }], import: [{ ...HOST, as: 'dt-host import container <name> <file>' }],
-};
+/** Verbs that left core in 0.31.0. The extensions that will answer them are not published, so the old
+ *  spelling in a script or a skill fails saying what happened — never "unknown verb", and never an
+ *  install line for a package a stranger cannot install. */
+const MOVED_VERBS = new Set(['prove', 'land', 'worktree', 'serve', 'notebooklm', 'start', 'export', 'setup', 'stop', 'open', 'import']);
 
 export async function run(argv) {
 	const [cmd, ...rest] = argv;
@@ -606,11 +593,8 @@ export async function run(argv) {
 					console.error('    dt list commands              the command entities this workspace ships');
 					process.exit(2);
 				}
-				if (MOVED_VERBS[cmd]) {
-					console.error(`✖ \`dt ${cmd}\` left core in 0.31.0 — it is an extension now:`);
-					for (const m of MOVED_VERBS[cmd]) {
-						console.error(`    ${m.as ?? `dt ${cmd}`}  ←  ${m.global ? `npm install --global ${m.pkg}` : `npm install --save-dev ${m.pkg}   (in this workspace)`}`);
-					}
+				if (MOVED_VERBS.has(cmd)) {
+					console.error(`✖ \`dt ${cmd}\` left core in 0.31.0 and returns as an extension, which is not published yet — dreamteamer 0.30.x still has it, and a workspace module can carry its own verb (\`dreamteamer.extension\`)`);
 					process.exit(2);
 				}
 				console.error(`✖ unknown verb "${cmd}" — dreamteamer is verb-first since 0.12.0: dt <verb> [<target>]`);

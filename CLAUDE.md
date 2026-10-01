@@ -7,13 +7,13 @@ typed by `src/api.d.ts`) that is the ONLY importable surface. See `README.md` fo
 
 ## IMPORTANT — core is records + the compiler; everything else is an EXTENSION
 
-Since 0.31.0 anything with a lifecycle of its own lives in a sibling package in
-[dreamteamer-tools](https://github.com/dreamteamer/dreamteamer-tools): `@dreamteamer/workflows`
-(`prove` · `land` · `worktree`), `@dreamteamer/http` (`serve`), `@dreamteamer/notebooklm`, and
-`@dreamteamer/host` (`dt-host`, the local Docker host — it needs no workspace and no engine). The
-extraction took core from 10,669 to ~7,600 code lines and its install from 77 packages to 10.
+Since 0.31.0 anything with a lifecycle of its own lives outside core: `prove` · `land` · `worktree`,
+`serve`, `notebooklm` and the local Docker host were extracted as extension packages, which are **not
+published** — the module ecosystem is being restructured first. The extraction took core from 10,669
+to ~7,600 code lines and its install from 77 packages to 10.
 
-An extension is a DIRECT dependency declaring `dreamteamer.extension`; `src/extensions.js` activates it
+An extension is a workspace module (`modules/<id>/`) or a DIRECT dependency declaring
+`dreamteamer.extension`; `src/extensions.js` activates it
 with this engine's public API, and it may contribute `commands`, `sourceKinds` (+`exclude`), `analyze`,
 `harnesses`, `orientation`, `hooks` — nothing else, and a collision refuses. The contract lives in
 `skills/using-dreamteamer/references/extensions.md`. **So the fourth leanness question below is: could
