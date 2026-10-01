@@ -20,7 +20,7 @@ npx dreamteamer check
 
 ---
 
-## unreleased — relationship-based storage
+## 0.32.0 — relationship-based storage
 
 **A collection may keep its records INSIDE the folder of the record they belong to.** One line on
 the child's `storage` — `under: { field: company, path: meetings }` — puts a meeting whose `company`
