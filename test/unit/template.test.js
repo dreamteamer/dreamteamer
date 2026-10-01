@@ -6,6 +6,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { generateId, slug, slugOrHash } from '../../src/template.js';
+import { parseTemplate, templateFields, validateTemplate, renderDisplay, FILTERS } from '../../src/template.js';
 
 // ⚠ The non-latin fixtures below are written as \u escapes, NOT as literal characters. They are
 // the identical strings at runtime — this is purely so the leak scanner that guards this PUBLIC repo
@@ -88,15 +89,17 @@ describe('generateId', () => {
 		assert.match(id, /^[a-z0-9-]+$/);
 	});
 
-	// ⚠ THE DOCUMENTED TRAP (CLAUDE.md, references/collections.md): `created` is the moment the record
-	// is WRITTEN, not a field on the record. A back-dated import therefore files under the import date,
-	// which is why an id must be derived from the domain's own date field instead.
-	test('`created` is write time and IGNORES a field of the same name', () => {
-		const id = generateId('{{ created | date }}', { created: '2020-01-01T00:00:00Z' });
+	// descriptor v2: `created` is a STORED field the engine stamps at add, never written by a user (the
+	// store refuses it), so an id template reads the record's own value — which at add time IS now.
+	// With no stamp present (a dry render) it falls back to now.
+	test('`created` reads the record\'s stamped value', () => {
+		assert.equal(generateId('{{ created | date }}', { created: '2020-01-01T00:00:00' }), '2020-01-01');
+	});
+
+	test('`created` with no stamp is now', () => {
 		const today = new Date();
 		const expected = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-		assert.equal(id, expected);
-		assert.notEqual(id, '2020-01-01');
+		assert.equal(generateId('{{ created | date }}', {}), expected);
 	});
 
 	test('the date filter DOES format a real field when the field is not called created', () => {
@@ -115,7 +118,7 @@ describe('generateId', () => {
 	});
 
 	test('an unknown filter is refused', () => {
-		assert.throws(() => generateId('{{ name | bogus }}', { name: 'x' }), /unknown id-template filter/);
+		assert.throws(() => generateId('{{ name | bogus }}', { name: 'x' }), /unknown template filter "bogus" — the filters are date · datetime · slug · pad · basename/);
 	});
 });
 
@@ -193,5 +196,75 @@ describe('the hash fallback reports itself', () => {
 
 	test('no callback is not an error — the old call shape still works', () => {
 		assert.equal(generateId('{{ name | slug }}', { name: NON_LATIN }), slugOrHash(NON_LATIN));
+	});
+});
+
+// ---- the one grammar (descriptor v2 §3.7) ---------------------------------------------------------
+
+describe('parseTemplate', () => {
+	test('splits literal text from tokens, filters and their args', () => {
+		assert.deepEqual(parseTemplate('{{ date | date:YYYY/MM }} · {{ doctor }}'), [
+			{ field: 'date', filters: [{ name: 'date', arg: 'YYYY/MM' }] },
+			{ text: ' · ' },
+			{ field: 'doctor', filters: [] },
+		]);
+	});
+
+	test('templateFields lists the named fields in order', () => {
+		assert.deepEqual(templateFields('{{ reason }} · {{ date | date }}'), ['reason', 'date']);
+	});
+});
+
+describe('validateTemplate', () => {
+	const fields = ['reason', 'date', 'doctor'];
+
+	test('a template over declared fields and the five filters is valid', () => {
+		assert.deepEqual(validateTemplate('{{ reason }} · {{ date | date }} {{ doctor | basename }}', { position: 'record_title', fields }), []);
+	});
+
+	test('an unknown filter is an error naming the position and the filter list', () => {
+		const [e] = validateTemplate('{{ doctor | title }}', { position: 'display.record.subtitle', fields });
+		assert.match(e, /^display\.record\.subtitle: unknown filter "title"/);
+		assert.match(e, new RegExp(FILTERS.join(' · ')));
+	});
+
+	test('a field the collection does not declare is an error naming it', () => {
+		assert.match(validateTemplate('{{ patient }}', { position: 'record_title', fields })[0], /"\{\{ patient \}\}" is not a field/);
+	});
+
+	test('the built-ins id, created and last_modified are always legal', () => {
+		assert.deepEqual(validateTemplate('{{ id }} {{ created | date }} {{ last_modified }}', { position: 'record_title', fields: [] }), []);
+	});
+
+	test('seq is legal only in an id', () => {
+		assert.equal(validateTemplate('{{ seq }}', { position: 'record_title', fields: [] }).length, 1);
+		assert.deepEqual(validateTemplate('{{ date }}-{{ seq }}', { position: 'id.from', fields, id: true }), []);
+	});
+
+	test('a template naming no field is refused as a constant', () => {
+		assert.match(validateTemplate('Visit', { position: 'record_title', fields })[0], /names no field/);
+	});
+});
+
+describe('renderDisplay', () => {
+	const record = { id: '2026-03-04--dana--dr-cohen', reason: 'Checkup', date: '2026-03-04', doctor: 'health/doctors/dr-cohen', tags: ['a', 'b'] };
+	const isReference = (f) => f === 'doctor';
+	const resolve = (ref) => ({ 'health/doctors/dr-cohen': 'Dr. Cohen' })[ref];
+
+	test('a reference renders through the target\'s record title', () => {
+		assert.equal(renderDisplay('{{ reason }} · {{ doctor }}', record, { resolve, isReference }), 'Checkup · Dr. Cohen');
+	});
+
+	test('filters apply after resolution, and basename still works on a raw id', () => {
+		assert.equal(renderDisplay('{{ doctor | basename }}', record, {}), 'dr-cohen');
+		assert.equal(renderDisplay('{{ date | date:DD/MM }}', record, {}), '04/03');
+	});
+
+	test('a missing value renders empty, never throws', () => {
+		assert.equal(renderDisplay('{{ reason }} [{{ missing }}]', record, {}), 'Checkup []');
+	});
+
+	test('a list renders joined', () => {
+		assert.equal(renderDisplay('{{ tags }}', record, {}), 'a, b');
 	});
 });

@@ -24,6 +24,7 @@ import { satisfies } from './semver.js';
 import { parseEnvValues } from './env-vars.js';
 import { DERIVED_KINDS, readManifest, runtimeDir, engineId, engineVersion, loadDescriptors as loadCompiledDescriptors } from './runtime.js';
 import { excludedFromKind, disablesPackage, isPackageEntry } from './extensions.js';
+import { isV2, shapeErrors, mergeMixins, nameErrors, toInternal, compiledBlock, mergeOverlays } from './descriptor-v2.js';
 export { engineId, engineVersion, readManifest };
 
 /**
@@ -481,7 +482,7 @@ function refusePlacementTransitions(root, byName) {
 
 /** The source kinds the compiler itself stages. An installed extension may add more
  *  (`sourceKinds`, src/extensions.js) — every enumeration below reads `kindsOf(ws)`, never this alone. */
-export const KINDS = ['collections', 'skills', 'agents', 'commands', 'command-bindings', 'ui-views', 'collection-templates'];
+export const KINDS = ['collections', 'skills', 'agents', 'commands', 'command-bindings', 'ui-views', 'collection-templates', 'mixins'];
 const FOLDER_KINDS = new Set(['skills']); // folder-shape entities: copy the whole record folder
 
 /** Every contributed kind of the workspace's loaded extensions, as `{ kind, exclude, extension }`. */
@@ -1042,10 +1043,14 @@ export function compile(ws) {
 					// `codec: file` records are opaque bytes: there are no fields, so there is no schema to
 					// require and none to honour. Every other codec parses text into fields and must declare
 					// what they are.
-					const opaque = doc.storage?.codec === 'file';
-					if (!doc.name || (!doc.schema && !doc.extends && !opaque)) fail(`${rel(srcPath)}: descriptor needs 'name' and 'schema' (or 'extends')`);
+					// descriptor format v2 is recognised by its `fields` block and validated whole in the v2
+					// pass below, once every collection name is known — a type may name any of them
+					const v2 = isV2(doc);
+					const opaque = doc.storage?.codec === 'file' || doc.storage?.format === 'binary';
+					if (v2 && !doc.name) fail(`${rel(srcPath)}: descriptor needs 'name'`);
+					if (!v2 && (!doc.name || (!doc.schema && !doc.extends && !opaque))) fail(`${rel(srcPath)}: descriptor needs 'name' and 'schema' (or 'extends')`);
 					if (opaque && (doc.storage.shape ?? 'file') === 'folder') fail(`${rel(srcPath)}: collection "${doc.name}" is \`codec: file\` — that is one file per record, not a folder; drop \`shape: folder\``);
-					if (opaque && Object.keys(doc.schema?.properties ?? {}).length) console.warn(`⚠ collection ${doc.name}: \`schema\` is ignored under \`codec: file\` — an opaque record's fields are derived (ext, bytes)`);
+					if (!v2 && opaque && Object.keys(doc.schema?.properties ?? {}).length) console.warn(`⚠ collection ${doc.name}: \`schema\` is ignored under \`codec: file\` — an opaque record's fields are derived (ext, bytes)`);
 					if (!descriptorGroups.has(doc.name)) descriptorGroups.set(doc.name, []);
 					descriptorGroups.get(doc.name).push({ src: { path: rel(srcPath), hash: sha256(bytes) }, doc, moduleName: source.name });
 					contributedBy.add(source.name);
@@ -1142,6 +1147,19 @@ export function compile(ws) {
 		if (!String(doc?.description ?? '').trim()) console.warn(`⚠ collection-template ${m[1]} has no description — it renders as a bare name in the orientation block every session loads`);
 	}
 
+	// ---- mixins (descriptor v2): partial descriptors merged into the collections that list them ----
+	const mixinDocs = new Map(); // id -> doc (with `src` for staleness)
+	for (const [rt, entry] of entries) {
+		const m = /^mixins\/(.+)\.mixin\.yaml$/.exec(rt);
+		if (!m) continue;
+		const doc = loadSource(entry.bytes.toString('utf8'), entry.sources[0].path);
+		if (!doc || typeof doc !== 'object') fail(`${entry.sources[0].path}: a mixin is a mapping`);
+		const bad = Object.keys(doc).filter((k) => !['name', 'description', 'use_when', 'fields', 'storage', 'ids', 'display', 'constraints'].includes(k));
+		if (bad.length) fail(`${entry.sources[0].path}: unknown key(s) ${bad.join(', ')} — a mixin carries name · description · use_when · fields · storage · ids · display · constraints`);
+		if (doc.name !== m[1]) fail(`${entry.sources[0].path}: name "${doc.name}" must equal the file's id "${m[1]}"`);
+		mixinDocs.set(m[1], { ...doc, src: entry.sources[0] });
+	}
+
 	// ---- namespaces: the UNION of every module's declaration plus the workspace's (§8) ----------
 	//
 	// This used to be "the workspace package.json only, never per-module", and the reason was real: a
@@ -1194,6 +1212,57 @@ export function compile(ws) {
 		fail(gone
 			? `${p}\n  ⚠ "${gone}" WAS declared in the previous compile — by a module you just removed or disabled. Re-install it, or declare the namespace where the collection now lives: dt set modules/<m> namespaces=${gone}`
 			: p);
+	}
+
+	// ---- descriptor format v2: validate, merge mixins and overlays, translate ---------------
+	// Every collection name is known here, so a `type:` naming a collection can be told from a typo.
+	// Each v2 source is validated alone (shape), merged with its mixins, and the whole group — base
+	// and overlays — is merged in v2 space once to check every name it mentions and to resolve the
+	// fields `compiled.fields` will carry. Then each source is translated into the internal shape the
+	// rest of this function reads, and an overlay gains the `extends` that shape expects.
+	const v2Of = new Map(); // collection name -> { resolved, defaults, constraints, display, authored }
+	{
+		const typeNames = new Set([...collectionNames, ...kinds, ...DERIVED_KINDS, 'repos']);
+		const allPeers = new Set([...modulePeers.values()].flat());
+		for (const [name, group] of descriptorGroups) {
+			const v2 = group.filter((g) => isV2(g.doc));
+			if (!v2.length) continue;
+			if (v2.length !== group.length) {
+				fail(`collection "${name}" mixes descriptor formats — ${group.filter((g) => !isV2(g.doc)).map((g) => g.src.path).join(', ')} ${group.length - v2.length === 1 ? 'is' : 'are'} still v1. Run the migration.`);
+			}
+			const bases = group.filter((g) => !g.doc.overlay);
+			// An overlay of a collection its module declares as a PEER applies while that collection is
+			// installed and is skipped while it is not — the same contract the v1 owner-side inverse had
+			// ("stamped onto the target only when it is installed").
+			if (bases.length === 0 && group.every((g) => (modulePeers.get(g.moduleName) ?? []).includes(name))) { descriptorGroups.delete(name); continue; }
+			if (bases.length === 0) fail(`collection "${name}": every source declares \`overlay: true\` — no base found (${group.map((g) => g.src.path).join(', ')}). Install the module that owns it, or declare "${name}" in this module's peer collections so the overlay applies only while it is installed.`);
+			if (bases.length > 1) fail(`name collision on collection "${name}"\n${bases.map((b) => `    - ${b.src.path}`).join('\n')}\n  a second source of one collection must declare \`overlay: true\`.`);
+			const mixed = new Map();
+			for (const g of group) {
+				const shape = shapeErrors(g.doc);
+				if (shape.length) fail(`${g.src.path}:\n  ${shape.join('\n  ')}`);
+				const { doc, errors, used } = mergeMixins(g.doc, mixinDocs);
+				if (errors.length) fail(`${g.src.path}:\n  ${errors.join('\n  ')}`);
+				g.mixinSources = used.map((id) => mixinDocs.get(id).src);
+				mixed.set(g, doc);
+			}
+			const overlays = group.filter((g) => g.doc.overlay);
+			const authored = mergeOverlays(mixed.get(bases[0]), overlays.map((g) => mixed.get(g)));
+			const names = nameErrors(authored);
+			if (names.length) fail(`collection "${name}" (${group.map((g) => g.src.path).join(', ')}):\n  ${names.join('\n  ')}`);
+			const runtime = kinds.includes(String(authored.storage?.path ?? ''));
+			const whole = toInternal(authored, { collections: typeNames, peers: allPeers, runtime });
+			if (whole.errors.length) fail(`collection "${name}" (${group.map((g) => g.src.path).join(', ')}):\n  ${whole.errors.join('\n  ')}`);
+			for (const w of whole.warnings) console.warn(`⚠ collection ${name}: ${w}`);
+			for (const g of group) {
+				const { internal, errors } = toInternal(mixed.get(g), { collections: typeNames, peers: allPeers, runtime });
+				if (errors.length) fail(`${g.src.path}:\n  ${errors.join('\n  ')}`);
+				if (g.doc.overlay) internal.extends = `${bases[0].moduleName}/${name}`;
+				g.doc = internal;
+				g.v2 = true;
+			}
+			v2Of.set(name, { resolved: whole.resolved, defaults: whole.defaults, constraints: authored.constraints ?? [], display: authored.display, authored });
+		}
 	}
 
 	// ---- who owns which collection, and which module IS the workspace ----------------
@@ -1267,7 +1336,10 @@ export function compile(ws) {
 			}
 			// `extends` is the hardest dependency there is — the extender does not compile at all
 			// without the base (see the "no base found" failure above), so it must say so.
-			if (ext.moduleName !== base.moduleName && !(moduleDeps.get(ext.moduleName) ?? []).includes(base.moduleName)) {
+			// a v2 overlay of a collection its module declares as a PEER is soft by construction (it is
+			// skipped while the base is absent, above), so the peer declaration is the dependency it needs
+			const peerOverlay = ext.v2 && (modulePeers.get(ext.moduleName) ?? []).includes(name);
+			if (ext.moduleName !== base.moduleName && !peerOverlay && !(moduleDeps.get(ext.moduleName) ?? []).includes(base.moduleName)) {
 				fail(`${ext.src.path}: extends "${expected}" but module "${ext.moduleName}" does not declare "${base.moduleName}" in dreamteamer.dependencies — an overlay cannot compile without its base.`);
 			}
 			merged = mergeDescriptor(merged, ext.doc);
@@ -1494,7 +1566,7 @@ export function compile(ws) {
 			fail(`collection "${name}": ${bodies.length} fields declare x-body (${bodies.join(', ')}) — a record has ONE body, the text after its frontmatter. Keep one and drop x-body from the rest.`);
 		}
 
-		mergedGroups.set(name, { merged, sources: [...group.map((g) => g.src), ...templateSources] });
+		mergedGroups.set(name, { merged, sources: [...group.map((g) => g.src), ...templateSources, ...group.flatMap((g) => g.mixinSources ?? [])] });
 		if (extenders.length) mergedCount++;
 	}
 
@@ -1582,6 +1654,29 @@ export function compile(ws) {
 			}
 		}
 		const rt = path.join('collections', `${name}.collection.yaml`);
+		const v2 = v2Of.get(name);
+		if (v2) {
+			// descriptor v2: the authored display and the `compiled` block ride beside the internal keys
+			// until every consumer reads `compiled.fields`; collection-level defaults are recorded apart
+			if (v2.display) merged.display = v2.display;
+			// the internal shape always carried an explicit codec and shape; readers outside the engine
+			// (the extension) may not default them
+			merged.storage.codec ??= 'md';
+			merged.storage.shape ??= 'file';
+			const a = v2.authored;
+			const defaults = {};
+			if (a.title === undefined) defaults.title = merged.title;
+			if (a.singular === undefined) defaults.singular = merged.singular;
+			if (a.record_title === undefined) defaults.record_title = merged.title_template;
+			const sd = {};
+			if (a.storage?.path === undefined) sd.path = merged.storage.path;
+			if (a.storage?.format === undefined) sd.format = merged.storage.codec === 'file' ? 'binary' : (merged.storage.codec ?? 'md');
+			if (a.storage?.shape === undefined) sd.shape = merged.storage.shape ?? 'file';
+			if (a.storage?.suffix === undefined) sd.suffix = merged.storage.suffix;
+			defaults.storage = sd;
+			const block = compiledBlock({ resolved: v2.resolved, defaults: v2.defaults, constraints: v2.constraints, collections: new Set(mergedGroups.keys()), merged });
+			merged.compiled = { ...block, defaults: { ...defaults, ...block.defaults } };
+		}
 		entries.set(rt, { sources: descriptorSources, bytes: Buffer.from(dump(merged)) });
 		// A descriptor with no `description:` renders in the orientation block as a bare NAME — an
 		// agent learns the noun exists and nothing about when it is the right one. Derived pressure

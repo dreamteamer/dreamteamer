@@ -10,7 +10,7 @@ import addFormats from 'ajv-formats';
 import { dump, writeSource } from './yaml.js';
 import { generateId } from './template.js';
 import { parseRecord, parseRecordText, patternRe, fmtAjvError, unknownFields, walk, EXT, assertSafeId, idFromRecordPath, MAX_RECORD_BYTES } from './records.js';
-import { normalizeRecord } from './temporal.js';
+import { normalizeRecord, normalizeTemporal } from './temporal.js';
 import { NO_RUNTIME, sourceHint, loadDescriptors, runtimeDir, namespaces as compiledNamespaces, sourceRoots as compiledSourceRoots } from './runtime.js';
 import { parseRef } from './namespace.js';
 import { refTargetsOf, refIsSoft } from './ref.js';
@@ -92,6 +92,38 @@ export class Store {
 		for (const key of changed) {
 			const r = relations.find((rel) => rel.target === collection && rel.mirror === key);
 			if (r) throw new Error(`${key} is generated from ${r.owner}.${r.field} — set that instead: dreamteamer set ${r.owner}/<id> ${r.field}=${collection}/${id ?? '<id>'} — nothing was written.`);
+		}
+	}
+
+	// ---- descriptor v2: the fields the engine writes, and values that must be unique ----------
+	// Read from `compiled.fields`, the resolved v2 field list — the first reader of it in the store.
+	// A collection compiled from a v1 source has no `compiled` block, and none of this applies to it.
+
+	/** `derived` (stored, engine-written: `created`) and `virtual` (computed on read: `id`,
+	 *  `last_modified`) fields are refused from every writer, naming which they are. */
+	refuseEngineWrites(d, changed) {
+		const fields = d.compiled?.fields;
+		if (!fields) return;
+		for (const key of changed) {
+			const f = fields[key];
+			if (f?.derived) throw new Error(`${key} is written by the engine (stamped when the record is added) — nothing was written.`);
+			if (f?.virtual) throw new Error(`${key} is not stored — it is computed when the record is read — nothing was written.`);
+		}
+	}
+
+	/** `unique: true` on a scalar field: no two records of the collection may hold one value. Null and
+	 *  absent never claim. Only the keys being written are asked, so an unrelated edit to a record
+	 *  that already shares a value is not where that conflict is reported — `check` is. */
+	refuseDuplicateValues(d, collection, id, fields, keys) {
+		const unique = Object.entries(d.compiled?.fields ?? {}).filter(([k, f]) => f.unique && !f.many && keys.includes(k));
+		if (!unique.length) return;
+		for (const { id: other, fields: of } of this.readAll(collection)) {
+			if (other === id) continue;
+			for (const [k] of unique) {
+				const v = fields[k];
+				if (v === undefined || v === null || v === '') continue;
+				if (of[k] === v) throw new Error(`${k}: "${v}" is already taken by ${collection}/${other} (unique) — nothing was written.`);
+			}
 		}
 	}
 
@@ -481,6 +513,28 @@ export class Store {
 		return { fields: parseRecord(file, d, bodyField(d)), file, descriptor: d };
 	}
 
+	/**
+	 * descriptor v2: a record's `created`, READ — never written — when the record predates the stamp.
+	 * The stamp wins. Without one: the id's own date when the collection's ids are made from
+	 * `created` (that date is what the stamp would have said), else the first commit holding the file,
+	 * following renames, which also covers a binary record with no frontmatter. Undefined for a v1
+	 * collection, and for a record no commit holds yet.
+	 */
+	createdOf(collection, id, fields, file) {
+		const d = this.descriptor(collection);
+		if (!d.compiled?.fields?.created) return undefined;
+		if (fields?.created) return fields.created;
+		const from = [d.id?.generate ?? []].flat();
+		if (/^\{\{\s*created\b/.test(String(from[0] ?? ''))) {
+			const day = /(\d{4}-\d{2}-\d{2})/.exec(id)?.[1];
+			if (day) return normalizeTemporal(day, 'date-time');
+		}
+		try {
+			const out = execFileSync('git', ['log', '--follow', '--diff-filter=A', '--format=%aI', '--', path.relative(this.root, file)], { cwd: this.root, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim().split('\n').filter(Boolean);
+			return out.length ? out[out.length - 1] : undefined;
+		} catch { return undefined; }
+	}
+
 	// list-path reader: ONE directory walk for the whole collection (review finding 2:
 	// per-id read() re-walked the dir — O(N²) lists, 46s at 3k records).
 	*readAll(collection) {
@@ -758,7 +812,12 @@ export class Store {
 		const d = this.writableDescriptor(collection);
 		// before validate: a mirror value is refused on its own terms, not as a schema error
 		this.refuseMirrorWrites(collection, null, Object.keys(fields));
+		this.refuseEngineWrites(d, Object.keys(fields));
+		// descriptor v2: `created` is stamped here, before the id is made, so `ids.from` can name it
+		if (d.compiled?.fields?.created) fields.created = nowStamp();
+		const deprecated = Object.keys(fields).filter((k) => d.compiled?.fields?.[k]?.deprecated);
 		this.validate(d, fields);
+		this.refuseDuplicateValues(d, collection, null, fields, Object.keys(fields));
 		// the KEYS, not a copy of them: `generateId` iterates this once and only for a `{{ seq }}`
 		// template, so materializing the whole id list was an O(N) allocation per add that almost
 		// every collection threw away unread.
@@ -817,7 +876,7 @@ export class Store {
 			}, d.storage.repo ?? '.');
 			// LAST, after the commit: the key it is re-stated under carries the sha, and `commit` moves it
 			this._indexAdd(collection, memo, id, file);
-			return { id, file, idFallback };
+			return { id, file, idFallback, ...(deprecated.length && { deprecated }) };
 		});
 	}
 
@@ -858,6 +917,7 @@ export class Store {
 	set(collection, id, changes) {
 		const d = this.writableDescriptor(collection);
 		this.refuseMirrorWrites(collection, id, Object.keys(changes));
+		this.refuseEngineWrites(d, Object.keys(changes));
 		this.assertUnambiguous(collection, id);
 		if ((d.storage.codec ?? 'md') === 'file') {
 			throw new Error(`${collection}/${id} is a file record — its fields are derived from the file, so there is nothing to set. Replace it with \`dreamteamer add ${collection} ${id} --from <path> --force\`.`);
@@ -867,6 +927,7 @@ export class Store {
 		const next = { ...fields, ...changes };
 		for (const [k, v] of Object.entries(changes)) if (v === null || v === '') delete next[k];
 		this.validate(d, next);
+		this.refuseDuplicateValues(d, collection, id, next, Object.keys(changes));
 		// A placed record FOLLOWS ITS OWNER FIELD: changing it moves the file to the new parent's folder
 		// (or back to the fallback root) in this same write, id unchanged. Only a change to THAT field
 		// moves anything — a record found in the wrong folder stays there when some other field is
@@ -1633,4 +1694,11 @@ function snapshotTree(dir) {
 	const out = [];
 	for (const file of walk(dir)) out.push([path.relative(dir, file), fs.readFileSync(file)]);
 	return out;
+}
+
+/** Now, as the one canonical date-time spelling: local wall clock with its offset. */
+function nowStamp() {
+	const t = new Date();
+	const p = (n) => String(n).padStart(2, '0');
+	return normalizeTemporal(`${t.getFullYear()}-${p(t.getMonth() + 1)}-${p(t.getDate())}T${p(t.getHours())}:${p(t.getMinutes())}:${p(t.getSeconds())}`, 'date-time');
 }
