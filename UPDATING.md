@@ -20,6 +20,36 @@ npx dreamteamer check
 
 ---
 
+## Unreleased — module seams
+
+**Do:** `dt compile`, then `dt check`. Three changes can make compile refuse what it accepted:
+
+- a module whose `dreamteamer.engine` excludes this engine is refused whole (its content and its
+  extension code), and a module depending on it fails compile — upgrade dreamteamer or disable both;
+- `group: system` on a collection a module other than the workspace module ships — drop it;
+- a meeting-style id derived with `{{ <date-time> | date:… }}` now renders in the value's own offset,
+  so a record created on a machine whose zone differs from the value's gets a different id than
+  before. Existing records keep their ids; only new ones change.
+
+### New
+
+- A cross-module `x-inverse` onto a collection declared in `dreamteamer.peerDependencies`: the mirror
+  is stamped when the peer is installed and the relation is inert when it is not.
+- Two extension contribution keys: `check` (`dt check` reports its violations after the schema's;
+  `contributedViolations(ws)` gives an in-process caller the same list) and `doctor`, rendered by the
+  new `dt doctor` — the engine's rows, then each extension's, as READY / DEGRADED / UNAVAILABLE with
+  each fix on its row (`--strict`, `--json`).
+- A module may declare `dreamteamer.vars` it reads: compile names any the workspace has not declared
+  and lists them in `.env.example`. The workspace's own list is still the only allow-list.
+- A module that ships only extension verbs gets its own heading in the orientation block, with a
+  `verbs:` line; the `write:` line lists id-template inputs that have no default.
+- `dt list --sort <enum field>` follows the declared order; `sortRows` takes the schema as an optional
+  third argument.
+- An extension verb typed without its package prints `npm i @dreamteamer/<package>`; the container
+  verbs print the `dt-docker` install; `dt setup` points at `dt doctor`.
+
+---
+
 ## 0.32.0 — relationship-based storage
 
 **A collection may keep its records INSIDE the folder of the record they belong to.** One line on
