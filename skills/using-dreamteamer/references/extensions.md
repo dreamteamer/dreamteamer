@@ -47,6 +47,7 @@ never disagree with the one the operator ran. It returns a contribution; every k
 | `harnesses` | `{ <id>: (ctx) → { blocks: { <file>: text }, summary } }` | a harness adapter writing managed blocks into user-owned files |
 | `orientation` | a string | one paragraph appended to every orientation block |
 | `hooks` | `{ <ClaudeHookEvent>: '<dt verb args>' }` | merged into `dt install --print-adapters` |
+| `check` | `({ root, ws, dt }) → [{ file, message }]` | `dt check` reports each as a violation after the schema's, attributed to the extension; a throw is a violation too |
 
 The `draft` is data only: the staged entries, the final merged descriptors, the modules, declared var
 and env key NAMES, and the previous manifest. No writer, no Store, no environment values — an analysis

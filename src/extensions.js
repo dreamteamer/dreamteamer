@@ -19,6 +19,7 @@
 //   harnesses   { <id>: (ctx) → { blocks: {file: text}, summary } }   a harness adapter
 //   orientation string                                      one paragraph appended to the orientation block
 //   hooks       { <ClaudeHookEvent>: '<dt verb args>' }     rendered by `dt install --print-adapters`
+//   check       ({ root, ws, dt }) → [{ file, message }]   cross-record rules `dt check` reports after the schema's
 //
 // Two contributions claiming the same verb, kind or harness is a refusal — there is no "last one
 // wins", because the loser would be an extension the operator installed that silently does nothing.
@@ -28,7 +29,7 @@ import { pathToFileURL } from 'node:url';
 
 export const EXTENSION_API = 1;
 
-const CONTRIBUTION_KEYS = new Set(['commands', 'sourceKinds', 'analyze', 'harnesses', 'orientation', 'hooks']);
+const CONTRIBUTION_KEYS = new Set(['commands', 'sourceKinds', 'analyze', 'harnesses', 'orientation', 'hooks', 'check']);
 
 /** The modules that declare an extension entry: the workspace's own `modules/<id>/` first, then its
  *  direct dependencies, each sorted by name. A workspace module is the operator's own code, exactly
@@ -110,8 +111,8 @@ export async function loadExtensions(ws, api, reserved = {}) {
 		const sourceKinds = (c.sourceKinds ?? []).map((k) => normalizeKind(ext.name, k));
 		for (const k of sourceKinds) claim('kind', k.kind, ext.name);
 		for (const id of Object.keys(c.harnesses ?? {})) claim('harness', id, ext.name);
-		if (c.analyze !== undefined && typeof c.analyze !== 'function') throw new Error(`extension ${ext.name}: analyze must be a function`);
-		loaded.push({ name: ext.name, version: ext.version, commands, sourceKinds, analyze: c.analyze ?? null, harnesses: c.harnesses ?? {}, orientation: c.orientation ?? null, hooks: c.hooks ?? {} });
+		for (const fn of ['analyze', 'check']) if (c[fn] !== undefined && typeof c[fn] !== 'function') throw new Error(`extension ${ext.name}: ${fn} must be a function`);
+		loaded.push({ name: ext.name, version: ext.version, commands, sourceKinds, analyze: c.analyze ?? null, harnesses: c.harnesses ?? {}, orientation: c.orientation ?? null, hooks: c.hooks ?? {}, check: c.check ?? null });
 	}
 	return loaded;
 }

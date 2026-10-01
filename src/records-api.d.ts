@@ -58,7 +58,7 @@ export function parseRecord(file: string, d: Descriptor, bodyField?: string | nu
 export function parseRecordText(text: string, d: Descriptor, bodyField?: string | null): Fields;
 export function idFromRecordPath(d: Descriptor, file: string): string;
 /** 0 clean · 1 violations · 2 no compiled runtime; prints its report */
-export function check(ws: { root: string; pkg?: unknown }): 0 | 1 | 2;
+export function check(ws: { root: string; pkg?: unknown }, opts?: { extra?: { file: string; msg: string }[] }): 0 | 1 | 2;
 export function commitPending(store: Store, opts?: { only?: string[]; message?: string; dryRun?: boolean }): { repo: string; sha?: string; subject: string; rows: { verb: string; collection: string; id: string }[]; blocked?: string; warning?: string; leftPending?: string[] }[];
 export function composeSubject(rows: unknown[]): string;
 export function history(store: Store, collection: string, id: string): { hash: string; date: string; author: string; subject: string }[];

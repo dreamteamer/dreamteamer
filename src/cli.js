@@ -12,6 +12,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import * as api from './api.js';
 import { openWorkspace } from './api.js';
 import { compile, staleness, warnIfStale, discoverModules, CHANNEL_LABEL, locationOf, kindsOf } from './compile.js';
 import { check } from './check.js';
@@ -372,8 +373,7 @@ export async function run(argv) {
 				return;
 			}
 			case 'check':
-				warnIfStale(ws.root);
-				process.exit(check(ws));
+				process.exit(check(ws, { extra: warnIfStale(ws.root).compiled ? await contributedViolations(ws) : [] }));
 			// `changes` is what survives of the trigger/run subsystem removed 2026-07-31: deriving
 			// record events from git history was the genuinely used half (catch-up — "what happened
 			// while I was away"), while creating run records from triggers was not. Read-only by
@@ -640,6 +640,17 @@ export async function run(argv) {
 		if (process.argv.includes('--hook')) console.log(`✖ ${e.message}`);
 		process.exit(1);
 	}
+}
+
+/** What every extension's `check` reports, attributed to it. A check that throws is a violation. */
+async function contributedViolations(ws) {
+	const out = [];
+	for (const e of ws.extensions.filter((x) => x.check)) {
+		try {
+			for (const v of (await e.check({ root: ws.root, ws, dt: api })) ?? []) out.push({ file: v.file ?? e.name, msg: `${v.message} (${e.name})` });
+		} catch (err) { out.push({ file: e.name, msg: `check failed — ${err.message}` }); }
+	}
+	return out;
 }
 
 /** Each installed extension's usage block, headed by its package — '' outside a workspace. */

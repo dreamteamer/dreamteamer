@@ -24,7 +24,10 @@ export interface Contribution {
 	harnesses?: Record<string, (ctx: HarnessContext) => { blocks?: Record<string, string | null>; summary?: string } | void>;
 	orientation?: string | ((ctx: { entries: Map<string, Entry> }) => string);
 	hooks?: Record<string, string>;
+	/** cross-record rules: `dt check` reports what it returns after the schema's violations */
+	check?(ctx: ExtensionContext): { file?: string; message: string }[] | void | Promise<{ file?: string; message: string }[] | void>;
 }
+export interface ExtensionContext { root: string; ws: Workspace; dt: typeof import('./api.js') }
 export type Activate = (dt: typeof import('./api.js')) => Contribution | Promise<Contribution>;
 export interface LoadedExtension {
 	name: string;
@@ -35,6 +38,7 @@ export interface LoadedExtension {
 	harnesses: NonNullable<Contribution['harnesses']>;
 	orientation: Contribution['orientation'] | null;
 	hooks: Record<string, string>;
+	check: Contribution['check'] | null;
 }
 export type Entry = { sources: { path: string; hash: string }[]; bytes: Buffer };
 export interface CompileDraft {

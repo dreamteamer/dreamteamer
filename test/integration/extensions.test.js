@@ -459,3 +459,51 @@ describe('a WORKSPACE module can carry an extension entry — no package, no npm
 		assert.ok('inlinehello' in h.extensions[0].commands);
 	});
 });
+
+describe('a check contribution is reported by dt check, after the schema', () => {
+	const CHECKER = `
+export default function activate() {
+	return {
+		check({ root, ws, dt }) {
+			if (root !== ws.root || typeof dt.engineVersion !== 'function') throw new Error('bad context');
+			const n = [...new dt.Store(ws).readAll('notes')].length;
+			return n ? [{ file: 'data/notes', message: n + ' note(s) and no index — one rule broken' }] : [];
+		},
+	};
+}
+`;
+	const withChecker = (entry = CHECKER) => {
+		const ws = workspace({ collections: { notes: { id: { generate: '{{ name | slug }}' }, schema: { type: 'object', required: ['name'], properties: { name: { type: 'string' } } } } } });
+		install(ws.root, { name: 'rule-kit', descriptor: null, entry });
+		assert.equal(dt(ws.root, 'compile').code, 0);
+		return ws;
+	};
+
+	test('no violation: exit 0', () => {
+		const ws = withChecker();
+		const r = dt(ws.root, 'check');
+		assert.equal(r.code, 0, r.stdout + r.stderr);
+		assert.match(r.stdout, /0 violations/);
+	});
+
+	test('one violation: exit 1, the file and the message, attributed to the extension', () => {
+		const ws = withChecker();
+		assert.equal(dt(ws.root, 'add', 'notes', '--name', 'First').code, 0);
+		const r = dt(ws.root, 'check');
+		assert.equal(r.code, 1, r.stdout + r.stderr);
+		assert.match(r.stdout, /✖ data\/notes\n {4}1 note\(s\) and no index — one rule broken \(rule-kit\)\n1 violation\./);
+	});
+
+	test('a check that throws is a violation naming the extension, never a crash', () => {
+		const ws = withChecker('export default () => ({ check() { throw new Error("index unreadable"); } });');
+		const r = dt(ws.root, 'check');
+		assert.equal(r.code, 1, r.stdout + r.stderr);
+		assert.match(r.stdout, /✖ rule-kit\n {4}check failed — index unreadable/);
+	});
+
+	test('a check that is not a function is refused at load', async () => {
+		const ws = workspace({ compile: false });
+		install(ws.root, { name: 'rule-kit', descriptor: null, entry: 'export default () => ({ check: true });' });
+		await assert.rejects(openWorkspace(ws.root), /extension rule-kit: check must be a function/);
+	});
+});

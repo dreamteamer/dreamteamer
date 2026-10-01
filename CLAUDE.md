@@ -15,13 +15,13 @@ to ~7,600 code lines and its install from 77 packages to 10.
 An extension is a workspace module (`modules/<id>/`) or a DIRECT dependency declaring
 `dreamteamer.extension`; `src/extensions.js` activates it
 with this engine's public API, and it may contribute `commands`, `sourceKinds` (+`exclude`), `analyze`,
-`harnesses`, `orientation`, `hooks` — nothing else, and a collision refuses. The contract lives in
+`harnesses`, `orientation`, `hooks`, `check` — nothing else, and a collision refuses. The contract lives in
 `skills/using-dreamteamer/references/extensions.md`. **So the fourth leanness question below is: could
 an extension do it instead?** A new verb whose engine reading is "the CLI dispatches it" is the
 extension shape, not a core verb.
 
-⚠ **Do not grow the seam casually.** Six contribution keys, each with one consumer that needed it.
-A seventh is a design decision (the deferred ones: a storage driver, a record-write hook, a workflow
+⚠ **Do not grow the seam casually.** Every contribution key has a consumer that needed it — `check`
+carries the record guards modules used to chain after `dt check` by hand. The next one is a design decision (the deferred ones: a storage driver, a record-write hook, a workflow
 scheduler, an external harness REGISTRY beyond managed blocks). "An extension might want it" is not a
 consumer.
 
