@@ -121,9 +121,12 @@ every way that names a record — `list` is the whole collection, `get`/`set`/`r
 record into Harbor's folder with the same id and every inbound reference intact; `company=`
 moves it back to the fallback root. so never `mv` one by hand, exactly as for a rename — a file
 under the wrong company is what `check` reports as `placed under … but`, and `dt relocate
-<collection>[/<id>]` (`--dry-run` first) is what moves it to where its field says. a parent
+<collection>[/<id>]` (`--dry-run` first) is what moves it to where its field says — refusing whole
+when an owner field dangles, a destination is taken or a source is unpublished. a parent
 holding records in its folder refuses `rm` until they are reassigned; `dt commit <collection>/<id>`
-after a move publishes both paths; `dt revert` of an owner change moves the file back too.
+after a move publishes both paths; `dt revert` of an owner change moves the file back too. before
+the declaration is removed or its path changed: `dt relocate <collection> --to-root`
+(`collections.md` has the order — compile refuses the edit while records would be stranded).
 
 ## two-way relations — the mirror is generated, and read-only
 

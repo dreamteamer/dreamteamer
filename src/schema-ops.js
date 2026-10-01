@@ -1460,7 +1460,7 @@ export function renameCollection(ws, store, oldName, newName) {
 	if (d.storage.base === 'runtime') throw new Error(`"${oldName}" is a compiled source, not a data collection — it cannot be renamed`);
 	// Its records are spread across the parent's folders, and the per-file re-suffix below walks ONE
 	// directory. Refused rather than half-done — the fix is small and nothing has asked for it yet.
-	if (d.storage.under) throw new Error(`"${oldName}" is stored under ${d.storage.under.collection} (storage.under) — renaming a placed collection is not supported yet; drop the declaration, relocate, rename, then declare it again`);
+	if (d.storage.under) throw new Error(`"${oldName}" is stored under ${d.storage.under.collection} (storage.under) — renaming a placed collection is not supported yet. The supported order: dreamteamer relocate ${oldName} --to-root · remove storage.under from its descriptor · compile · rename · declare storage.under again · compile · dreamteamer relocate ${newName}`);
 
 	// The descriptor is renamed IN THE MODULE THAT SHIPS IT — see `descriptorSourceDir`. Two cases
 	// this refuses, both because doing them halfway is worse than not doing them:

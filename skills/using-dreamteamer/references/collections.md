@@ -225,6 +225,20 @@ data/meetings/2026/10/offsite.meeting.md                       ← meetings/2026
   shape and `relocate` it; add `under` to the child and compile (no file moves at compile — `check`
   reports every mismatch); `relocate` the child, `--dry-run` first. `dt commit` stages a moved
   record's old and new path together; `dt revert` of an owner change moves the file back.
+- **Removing or changing `under` is the same walk backwards, and compile holds the door.** While
+  records still sit inside parent folders, a compile that drops the declaration or changes its
+  `path` is REFUSED — the new descriptor would stop every reader seeing them. The order is
+  `dt relocate <collection> --to-root` (every placed record back into the collection's own folder,
+  ids unchanged, under the still-current declaration) → edit the descriptor → compile → `dt relocate
+  <collection>` to place them under the new path. The same order renames a placed collection.
+- **`relocate` refuses before it moves anything**: a dangling or malformed owner field (fix the
+  field first — it never makes a folder for a parent that does not exist), an occupied destination,
+  a source with unpublished changes, or a destination behind a symlink. One problem refuses the
+  whole plan; `--dry-run` reports it.
+- **Inside a parent's folder, only real directories count.** A symlink at a child root — or on the
+  way to one — is never written through and never read as a root; `check` names it. The collection's
+  own roots (`data/`, `storage.path`) are not subject to this; the rule is about what a record
+  folder may contain.
 - **When NOT to use it.** A record several parents share equally, a record whose owner is usually
   unknown, or a collection nobody browses as a folder — keep conventional storage and a plain
   reference. Folder grouping is a browsing convenience, never a permission boundary.

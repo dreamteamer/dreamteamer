@@ -11,7 +11,7 @@ import { load, dump } from './yaml.js';
 import { slug } from './template.js';
 import { walk, patternRe } from './records.js';
 import { refTargetsOf } from './ref.js';
-import { subpathProblem } from './placement.js';
+import { subpathProblem, placedRecords } from './placement.js';
 import { unknownOperators } from './filter.js';
 import {
 	normalizeNamespaces, namespaceProblems, unqualifiedProblems, defaultStoragePath, storageOverlaps,
@@ -22,7 +22,7 @@ import { runHarnessAdapters, renderContributions, BEGIN, END, INSTRUCTIONS_BEGIN
 import { ensureEditorRecommendation, ensureEnvExample } from './workspace.js';
 import { satisfies } from './semver.js';
 import { parseEnvValues } from './env-vars.js';
-import { DERIVED_KINDS, readManifest, runtimeDir, engineId, engineVersion } from './runtime.js';
+import { DERIVED_KINDS, readManifest, runtimeDir, engineId, engineVersion, loadDescriptors as loadCompiledDescriptors } from './runtime.js';
 import { excludedFromKind, disablesPackage, isPackageEntry } from './extensions.js';
 export { engineId, engineVersion, readManifest };
 
@@ -439,6 +439,34 @@ function resolvePlacement(byName) {
 		}
 		claims.set(parentName, [...siblings, { path: under.path, name }]);
 		d.storage.under = { field: under.field, path: under.path, collection: parentName };
+	}
+}
+
+/**
+ * A `storage.under` that is REMOVED or CHANGED while records still sit under the old declaration is
+ * refused (R3). The compiled descriptor is the only thing that knows where those records are: the
+ * moment it is rewritten, listing, check and relocate all read the new layout, the old child folders
+ * fall out of every walk, and a workspace with records on disk reports ✔ 0 violations over fewer
+ * records than it holds — the quietest data loss there is. So the runtime about to be replaced is
+ * read first, and a transition with records in the way names the two-step that is safe:
+ * `relocate --to-root` under the OLD declaration (ids unchanged), then compile, then `relocate`.
+ * Adding `under` to a conventional collection moves nothing out of sight and is not refused.
+ */
+function refusePlacementTransitions(root, byName) {
+	const previous = loadCompiledDescriptors(root);
+	if (!previous) return;
+	for (const [name, d] of byName) {
+		const prev = previous.get(name);
+		const was = prev?.storage?.under;
+		if (!was?.collection || !was.path) continue;
+		const now = d.storage?.under ?? null;
+		if (now && now.collection === was.collection && now.path === was.path) continue;
+		const parent = previous.get(was.collection);
+		if (!parent?.storage?.path || !prev.storage?.path) continue;
+		let n = 0;
+		for (const r of placedRecords(prev, path.join(root, prev.storage.path), path.join(root, parent.storage.path))) if (r.parentId !== null) n++;
+		if (!n) continue;
+		fail(`collection "${name}": storage.under ${now ? `changed (${was.path} → ${now.path})` : 'was removed'}, but ${n} ${name} record(s) still sit inside ${was.collection} folders (<${was.collection} root>/<id>/${was.path}/) — compiling would stop every reader seeing them. First move them out under the CURRENT declaration: dreamteamer relocate ${name} --to-root (to ${prev.storage.path}, ids unchanged), then compile${now ? `, then dreamteamer relocate ${name} to place them under the new path` : ''}.`);
 	}
 }
 
@@ -1451,6 +1479,7 @@ export function compile(ws) {
 	// Here for the same reason relations are: `storage.under` names a field of this collection AND
 	// the shape of ANOTHER collection, so it can only be judged once every descriptor exists.
 	resolvePlacement(new Map([...mergedGroups].map(([n, g]) => [n, g.merged])));
+	refusePlacementTransitions(root, new Map([...mergedGroups].map(([n, g]) => [n, g.merged])));
 
 	// ---- resolved labels, then bytes -------------------------------------------------
 	// A second loop rather than a tail of the first: generated mirror fields do not exist until the

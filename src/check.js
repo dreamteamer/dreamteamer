@@ -10,7 +10,7 @@ import { NO_RUNTIME, loadDescriptors, runtimeDir, namespaces as compiledNamespac
 import { parseRef } from './namespace.js';
 import { refTargetsOf, refIsSoft } from './ref.js';
 import { relationsOf, expectedMirrors } from './relations.js';
-import { placementOf, placedRecords, ownerIdOf } from './placement.js';
+import { placementOf, placedRecords, ownerIdOf, symlinkedChildRoots } from './placement.js';
 
 export function check({ root }) {
 	const RUNTIME = runtimeDir(root);
@@ -66,7 +66,13 @@ export function check({ root }) {
 			// failure this report exists to make visible.
 			const seen = new Map();
 			observed.set(name, seen);
-			for (const r of placedRecords(d, dir, dirOf(descriptors.get(under.collection)))) {
+			const parentDir = dirOf(descriptors.get(under.collection));
+			// a child root that is (or sits behind) a symlink is not read — whatever it points at is not
+			// this parent's folder — and it is named here rather than silently skipped
+			for (const link of symlinkedChildRoots(under, parentDir)) {
+				violations.push({ file: rel(link), msg: `is a symlink — ${name} records are read only from real folders inside ${under.collection} records; whatever this points at is not indexed. Replace it with a real folder.` });
+			}
+			for (const r of placedRecords(d, dir, parentDir)) {
 				if (ids.has(r.id)) {
 					violations.push({ file: rel(r.file), msg: `collection "${name}" holds the id "${r.id}" twice — ${rel(ids.get(r.id))} and ${rel(r.file)}. Remove one.` });
 					continue;

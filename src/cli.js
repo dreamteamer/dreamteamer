@@ -85,7 +85,11 @@ the longest DECLARED collection prefix, so finance/transactions/2026/03/coffee i
                                                with its owner field, or a file record in a
                                                collection that became shape: folder. Ids and
                                                references never change; a pending edit on a
-                                               moved file refuses — commit first)
+                                               moved file, or a dangling owner, refuses the whole
+                                               plan — commit, or fix the field, first)
+  relocate <collection> --to-root [--dry-run]  (the REVERSE: every placed record back into the
+                                               collection's own folder, ids unchanged — the step
+                                               before removing or changing storage.under)
   resolve '<string>' | <collection>/<id> <field>
                                               (render \${env:NAME} · \${workspaceFolder} ·
                                                \${userHome} — the ONLY substitution point; a
@@ -252,7 +256,7 @@ export const WORKSPACE_FLAGS = {
 	init: ['name', 'data-path', 'harnesses', 'workspace-module'], update: [],
 	install: ['clone', 'dry-run', 'json', 'link-env', 'all', 'hook', 'print-adapters'],
 	compile: ['watch'], check: [], status: [],
-	changes: ['since', 'json'], commit: ['dry-run', 'json'], relocate: ['dry-run', 'json'],
+	changes: ['since', 'json'], commit: ['dry-run', 'json'], relocate: ['dry-run', 'json', 'to-root'],
 };
 
 /** Every verb this CLI answers itself — the set an extension's `commands` may not claim. The retired
@@ -562,7 +566,7 @@ export async function run(argv) {
 				// a collection, or one record of it — the either-shape every other target has
 				const asCollection = canonicalCollection(store.descriptors, target);
 				const { collection, id } = asCollection ? { collection: asCollection, id: null } : splitRef(store.descriptors, target);
-				const out = store.relocate(collection, { only: id ? [id] : null, dryRun: rest.includes('--dry-run') });
+				const out = store.relocate(collection, { only: id ? [id] : null, dryRun: rest.includes('--dry-run'), toRoot: rest.includes('--to-root') });
 				if (rest.includes('--json')) { emit(JSON.stringify(out, null, 2)); process.exit(out.problems.length ? 1 : 0); }
 				const rel = (p) => path.relative(ws.root, p);
 				for (const m of out.moves) console.log(`${out.applied ? '✔' : '→'} ${collection}/${m.id}  ${rel(m.from)} → ${rel(m.to)}`);

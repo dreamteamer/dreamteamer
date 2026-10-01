@@ -80,7 +80,23 @@ export function* rootRecords(d, root, parentId = null) {
 export function* placedRecords(d, fallbackDir, parentDir) {
 	const under = placementOf(d);
 	yield* rootRecords(d, fallbackDir, null);
-	for (const [pid, folder] of parentFolders(parentDir)) yield* rootRecords(d, path.join(folder, under.path), pid);
+	for (const [pid, folder] of parentFolders(parentDir)) {
+		const root = path.join(folder, under.path);
+		// a child root reached through a symlink is not read: whatever it points at is not this
+		// parent's folder (see symlinkBelow) — `check` names it, the store simply does not see it
+		if (symlinkBelow(parentDir, root)) continue;
+		yield* rootRecords(d, root, pid);
+	}
+}
+
+/** The child roots under `parentDir` that are symlinks (or sit behind one), for `check` to report. */
+export function symlinkedChildRoots(under, parentDir) {
+	const out = [];
+	for (const [, folder] of parentFolders(parentDir)) {
+		const link = symlinkBelow(parentDir, path.join(folder, under.path));
+		if (link) out.push(link);
+	}
+	return out;
 }
 
 /**
@@ -131,4 +147,49 @@ export function placedChildAt(descriptors, parentName, rest) {
 		if (id !== null) return { collection: c.name, id };
 	}
 	return null;
+}
+
+/**
+ * The first SYMLINK on the way from `base` (exclusive) down to `target` (inclusive), or null.
+ *
+ * ⚠ Lexical validation of `under.path` does not establish containment: a symlink dropped at
+ * `data/companies/acme/meetings` points every "placed" write at wherever it likes, and a walk reads
+ * whatever sits there as records. So a placed record is written and read only through REAL
+ * directories below the parent collection's root — every existing component is `lstat`ed, and the
+ * first link ends the enquiry. Components that do not exist yet are fine: they are about to be
+ * created as real directories. The collection's own roots (`storage.path`, `data/` itself) are not
+ * subject to this — a workspace may legitimately keep its data folder behind a link; the rule is
+ * about what a RECORD FOLDER may contain.
+ */
+export function symlinkBelow(base, target) {
+	const rel = path.relative(base, target);
+	if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return null;
+	let p = base;
+	for (const seg of rel.split(path.sep)) {
+		p = path.join(p, seg);
+		let st;
+		try { st = fs.lstatSync(p); } catch { return null; } // not there yet — nothing below can be a link either
+		if (st.isSymbolicLink()) return p;
+	}
+	return null;
+}
+
+/**
+ * One string that changes whenever a directory anywhere under `dir` gains or loses an entry — the
+ * mtime of every directory in the tree, in walk order. Directories only: files are not stat'ed, so
+ * this costs O(directories), not O(records). What a placed collection's id memo is keyed on, because
+ * a root directory's own mtime says nothing about a file dropped three levels down (R4).
+ */
+export function dirTreeStamps(dir) {
+	const out = [];
+	const visit = (d) => {
+		let st;
+		try { st = fs.statSync(d); } catch { return; }
+		out.push(`${path.basename(d)}@${st.mtimeMs}`);
+		let entries;
+		try { entries = fs.readdirSync(d, { withFileTypes: true }); } catch { return; }
+		for (const e of entries) if (e.isDirectory() && !e.name.startsWith('.')) visit(path.join(d, e.name));
+	};
+	visit(dir);
+	return out.join(',');
 }

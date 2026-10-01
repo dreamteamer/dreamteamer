@@ -14,7 +14,9 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { createRequire } from 'node:module';
 import { workspace, writeCollection, compileError, readFile, tree } from '../helpers/ws.js';
+const require = createRequire(import.meta.url);
 
 // The PARENT: a folder-shape collection, one folder per company, `company.md` as its entry file.
 const COMPANIES = {
@@ -384,5 +386,137 @@ describe('with a generated mirror on the parent', () => {
 		assert.deepEqual(ws.store.read('companies', 'harbor').fields.meetings, ['meetings/2026/10/kickoff']);
 		assert.ok(readFile(ws.root, 'data/companies/harbor/meetings/2026/10/kickoff.meeting.md'));
 		assert.equal(ws.dt('check').code, 0, ws.dt('check').stdout);
+	});
+});
+
+// ── the five review findings (rnd/issues 2026-10-01, Codex) ──────────────────────────────────────
+// Each block below was a reproduction that passed through the 32 tests above. They are pinned here
+// as behaviour, in the order the review numbered them.
+
+describe('R1 — a failed owner move leaves the record exactly as it was', () => {
+	const inject = (fn, failWhen) => {
+		const real = fs[fn];
+		fs[fn] = (...a) => { if (failWhen(...a)) throw new Error(`injected ${fn} failure`); return real(...a); };
+		return () => { fs[fn] = real; };
+	};
+	for (const [fn, when] of [
+		['renameSync', (from) => from.endsWith('kickoff.meeting.md')],
+		['mkdirSync', (p) => String(p).includes(`${path.sep}harbor${path.sep}meetings`)],
+	]) {
+		test(`${fn} failing mid-move: bytes, location and mirrors untouched, and the Store still resolves the record`, () => {
+			const ws = seeded();
+			ws.store.add('tasks', { name: 'Follow up', meeting: 'meetings/2026/10/kickoff' });
+			const file = path.join(ws.root, KICKOFF);
+			const before = fs.readFileSync(file, 'utf8');
+			const restore = inject(fn, when);
+			try {
+				assert.throws(() => ws.store.set('meetings', '2026/10/kickoff', { company: 'companies/harbor' }), /injected/);
+			} finally { restore(); }
+			assert.equal(fs.readFileSync(file, 'utf8'), before, 'the original bytes are back');
+			assert.equal(fs.existsSync(path.join(ws.root, 'data/companies/harbor/meetings/2026/10/kickoff.meeting.md')), false, 'no partial destination');
+			assert.equal(path.relative(ws.root, ws.store.read('meetings', '2026/10/kickoff').file), KICKOFF, 'the index still points at the original');
+			assert.equal(ws.dt('check').code, 0, ws.dt('check').stdout);
+		});
+	}
+});
+
+describe('R2 — a symlink inside a parent folder never leads a write or a read outside it', () => {
+	test('a symlinked child root refuses the write and is not read as a root', () => {
+		const ws = seeded();
+		const outside = fs.mkdtempSync(path.join(fs.realpathSync(require('node:os').tmpdir()), 'dt-outside-'));
+		try {
+			fs.writeFileSync(path.join(outside, 'sentinel.meeting.md'), '---\nname: Sentinel\n---\n');
+			const link = path.join(ws.root, 'data/companies/acme');
+			fs.mkdirSync(link);
+			fs.writeFileSync(path.join(link, 'company.md'), '---\nname: Acme\n---\n');
+			fs.symlinkSync(outside, path.join(link, 'meetings'), 'dir');
+			const res = ws.dt('add', 'meetings', '--name', 'Escape', '--when', '2026/11', '--company', 'companies/acme');
+			assert.equal(res.code, 1);
+			assert.match(res.stderr, /symlink/);
+			assert.equal(fs.readdirSync(outside).length, 1, 'nothing was written outside');
+			assert.equal(ws.store.ids('meetings').has('sentinel'), false, 'and nothing outside is indexed as a record');
+			// a symlinked PARENT folder is refused the same way
+			fs.symlinkSync(outside, path.join(ws.root, 'data/companies/ghost'), 'dir');
+			const res2 = ws.dt('add', 'meetings', '--name', 'Escape', '--when', '2026/11', '--company', 'companies/ghost');
+			assert.equal(res2.code, 1, res2.stderr);
+			assert.equal(fs.readdirSync(outside).length, 1);
+		} finally { fs.rmSync(outside, { recursive: true, force: true }); }
+	});
+});
+
+describe('R3 — dropping or changing `under` cannot strand the records it placed', () => {
+	const recompileWith = (ws, storage) => {
+		writeCollection(ws.root, 'meetings', { ...MEETINGS, storage });
+		return compileError(ws.ws);
+	};
+	test('compile refuses to drop the declaration while records sit under parents, and names the way out', () => {
+		const ws = seeded();
+		assert.equal(ws.dt('commit', '-m', 'seed').code, 0);
+		const err = recompileWith(ws, { suffix: 'meeting' });
+		assert.match(err, /2 meetings record\(s\) still sit inside companies folders/);
+		assert.match(err, /dreamteamer relocate meetings --to-root/);
+		// the runtime still describes the placed layout, so the records are still visible
+		assert.deepEqual([...ws.store.ids('meetings').keys()].length, 3);
+	});
+	test('changing under.path is refused the same way; --to-root moves everything to the fallback root, ids intact', () => {
+		const ws = seeded();
+		assert.equal(ws.dt('commit', '-m', 'seed').code, 0);
+		assert.match(recompileWith(ws, { suffix: 'meeting', under: { field: 'company', path: 'calls' } }), /--to-root/);
+		const dry = ws.dt('relocate', 'meetings', '--to-root', '--dry-run');
+		assert.equal(dry.code, 0, dry.stderr);
+		assert.match(dry.stdout, /2 move\(s\) planned/);
+		const res = ws.dt('relocate', 'meetings', '--to-root');
+		assert.equal(res.code, 0, res.stderr);
+		assert.deepEqual(tree(ws.root, 'data/meetings'), ['data/meetings/2026/10/kickoff.meeting.md', 'data/meetings/2026/10/offsite.meeting.md', 'data/meetings/2026/10/review.meeting.md']);
+		assert.equal(fs.existsSync(path.join(ws.root, 'data/companies/northwind/meetings')), false);
+		// now the transition compiles, and under the new path check reports the fallback records as misplaced until relocate runs
+		assert.equal(recompileWith(ws, { suffix: 'meeting', under: { field: 'company', path: 'calls' } }), null);
+		const s2 = new (require('../../src/store.js').Store)(ws.ws);
+		assert.equal(s2.ids('meetings').size, 3);
+		assert.equal(ws.dt('commit', '-m', 'flattened').code, 0);
+		assert.equal(ws.dt('relocate', 'meetings').code, 0);
+		assert.ok(readFile(ws.root, 'data/companies/northwind/calls/2026/10/kickoff.meeting.md'));
+		assert.equal(ws.dt('check').code, 0);
+	});
+	test('the rename refusal teaches the supported procedure', () => {
+		const ws = seeded();
+		const res = ws.dt('rename', 'collections/meetings', 'calls');
+		assert.equal(res.code, 1);
+		assert.match(res.stderr, /relocate meetings --to-root/);
+	});
+});
+
+describe('R4 — a long-lived Store sees what other writers did inside existing folders', () => {
+	test('an external add, an external delete and another Store\'s move are all visible without a restart', () => {
+		const ws = seeded();
+		assert.deepEqual([...ws.store.ids('meetings').keys()].length, 3); // warm
+		const external = path.join(ws.root, 'data/companies/northwind/meetings/2026/10/external.meeting.md');
+		fs.writeFileSync(external, '---\nname: External\nwhen: 2026/10\ncompany: companies/northwind\n---\n');
+		assert.ok(ws.store.ids('meetings').has('2026/10/external'), 'added inside an existing folder');
+		fs.rmSync(external);
+		assert.equal(ws.store.ids('meetings').has('2026/10/external'), false, 'and removed again');
+		const other = new (require('../../src/store.js').Store)(ws.ws);
+		other.set('meetings', '2026/10/kickoff', { company: 'companies/harbor' });
+		assert.equal(path.relative(ws.root, ws.store.read('meetings', '2026/10/kickoff').file), 'data/companies/harbor/meetings/2026/10/kickoff.meeting.md', 'moved by another Store');
+	});
+});
+
+describe('R5 — relocate never creates a folder for an owner that does not exist', () => {
+	test('a dangling owner is a problem in the plan, and apply refuses the whole batch', () => {
+		const ws = seeded();
+		assert.equal(ws.dt('commit', '-m', 'seed').code, 0);
+		fs.writeFileSync(path.join(ws.root, OFFSITE), '---\nname: Offsite\nwhen: 2026/10\ncompany: companies/missing\n---\n');
+		// a second, VALID mismatch in the same batch — it must not move either
+		const wrong = path.join(ws.root, 'data/companies/harbor/meetings/2026/10/kickoff.meeting.md');
+		fs.mkdirSync(path.dirname(wrong), { recursive: true });
+		fs.renameSync(path.join(ws.root, KICKOFF), wrong);
+		assert.equal(ws.dt('commit', '-m', 'hand edits').code, 0);
+		const dry = ws.dt('relocate', 'meetings', '--dry-run');
+		assert.equal(dry.code, 1);
+		assert.match(dry.stderr, /companies\/missing.*no such record/);
+		const res = ws.dt('relocate', 'meetings');
+		assert.equal(res.code, 1);
+		assert.equal(fs.existsSync(path.join(ws.root, 'data/companies/missing')), false, 'no orphan folder');
+		assert.ok(fs.existsSync(wrong), 'the valid move did not apply either — nothing partial');
 	});
 });

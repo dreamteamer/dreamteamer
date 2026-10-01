@@ -15,7 +15,7 @@ import { NO_RUNTIME, sourceHint, loadDescriptors, runtimeDir, namespaces as comp
 import { parseRef } from './namespace.js';
 import { refTargetsOf, refIsSoft } from './ref.js';
 import { relationsOf } from './relations.js';
-import { placementOf, placedRecords, rootRecords, placedRoot, placementOfFile, ownerIdOf } from './placement.js';
+import { placementOf, placedRecords, rootRecords, placedRoot, placementOfFile, ownerIdOf, symlinkBelow, dirTreeStamps } from './placement.js';
 import { pathToRecord } from './events.js';
 
 // git calls whose failure we CATCH must not print git's own error: execFileSync forwards the
@@ -326,7 +326,23 @@ export class Store {
 	 *  place records can be, and nothing under the fallback root moves when one appears. */
 	_idsKey(d) {
 		const stamp = (p) => { try { return String(fs.statSync(p).mtimeMs); } catch { return '-'; } };
-		return `${this.gitHead()}:${this.recordDirs(d).map(stamp).join(':')}`;
+		if (!placementOf(d)) return `${this.gitHead()}:${stamp(this.dir(d))}`;
+		// A placed collection's records sit three levels down in folders this process did not create,
+		// and another writer (an agent, the editor, a hand) adds or removes one without touching a
+		// root's own mtime — so a root-mtime key served a long-lived Store a stale index (R4). Every
+		// DIRECTORY in every root is stamped instead: O(directories), which is small, and a new or
+		// vanished folder changes the string as surely as a changed one.
+		const dirs = [this.dir(d), this.parentDir(d)];
+		return `${this.gitHead()}:${dirs.map(dirTreeStamps).join('|')}`;
+	}
+
+	/** Refuse a placed write whose path crosses a symlink inside the parent collection's root — a link
+	 *  there points anywhere, and "inside the parent's folder" is the whole promise (R2). */
+	_assertContained(d, file) {
+		const under = placementOf(d);
+		if (!under) return;
+		const link = symlinkBelow(this.parentDir(d), file);
+		if (link) throw new Error(`${path.relative(this.root, link)} is a symlink — a placed record is written only inside its parent's real folder, never through a link. nothing was written.`);
 	}
 
 	/**
@@ -427,8 +443,13 @@ export class Store {
 	 * back the undo. The caller has already refused an occupied destination.
 	 */
 	_moveRecord(d, from, to) {
-		fs.mkdirSync(path.dirname(to), { recursive: true });
-		fs.renameSync(from, to);
+		try {
+			fs.mkdirSync(path.dirname(to), { recursive: true });
+			fs.renameSync(from, to);
+		} catch (e) {
+			this._pruneAround(d, to); // the folders a failed move created, and nothing more
+			throw e;
+		}
 		this._pruneAround(d, from);
 		return () => {
 			fs.mkdirSync(path.dirname(from), { recursive: true });
@@ -493,12 +514,19 @@ export class Store {
 		// historical owner put it, and writing it into whatever folder the record sits in today would
 		// leave a file `check` reports the moment it lands. Same rule as `set`: only the owner moves it.
 		const target = this.ownerChanged(d, currentFields, tmpFields) ? this.filePath(d, id, undefined, tmpFields) : file;
+		if (target !== file) this._assertContained(d, target);
 		if (target !== file && fs.existsSync(target)) throw new Error(`${collection}/${id}: ${path.relative(this.root, target)} already exists — nothing was reverted.`);
 		return this.withWriteLock(() => {
 			this._idsCache.delete(collection); // every mutation drops the memo — cleared even if the commit rolls back
-			atomicWrite(file, previousContent);
-			const unmove = target !== file ? this._moveRecord(d, file, target) : null;
+			let unmove = null;
 			const undo = () => { unmove?.(); atomicWrite(file, current); };
+			try {
+				atomicWrite(file, previousContent);
+				if (target !== file) unmove = this._moveRecord(d, file, target);
+			} catch (e) {
+				undo();
+				throw e;
+			}
 			// revert is SET-shaped — it changes the owner's foreign key — so the mirrors move with it.
 			// Skipping this left BOTH targets stale: the restored one never got its link back, and the
 			// abandoned one kept a link the owner no longer claims. Same ordering as `add`, see there.
@@ -532,22 +560,41 @@ export class Store {
 	 * A destination that already exists is a PROBLEM, never a silent overwrite: two files claiming one
 	 * id is exactly the ambiguity `check` reports, and resolving it is a decision, not a move.
 	 */
-	relocatePlan(collection, only = null) {
+	relocatePlan(collection, only = null, { toRoot = false } = {}) {
 		const d = this.writableDescriptor(collection);
 		const moves = [];
 		const problems = [];
 		const rel = (p) => path.relative(this.root, p);
 		const wanted = only ? new Set(only) : null;
 		const plan = (id, from, to, why) => {
-			if (fs.existsSync(to)) problems.push(`${collection}/${id}: ${rel(from)} belongs at ${rel(to)}, which already exists — two files claim one id; remove one before relocating`);
+			const link = placementOf(d) ? symlinkBelow(this.parentDir(d), to) : null;
+			if (link) problems.push(`${collection}/${id}: ${rel(to)} is behind the symlink ${rel(link)} — a placed record is never written through a link`);
+			else if (fs.existsSync(to)) problems.push(`${collection}/${id}: ${rel(from)} belongs at ${rel(to)}, which already exists — two files claim one id; remove one before relocating`);
 			else moves.push({ id, from, to, why });
 		};
-		if (placementOf(d)) {
+		const under = placementOf(d);
+		if (under && toRoot) {
+			// the REVERSE: every record out of its parent's folder and into the collection's own root, ids
+			// unchanged — what makes dropping or changing `storage.under` a safe two-step (see compile)
+			for (const [id, file] of this.ids(collection)) {
+				if (wanted && !wanted.has(id)) continue;
+				const to = path.join(this.dir(d), recordFileName(d, id));
+				if (to !== file) plan(id, file, to, 'to-root');
+			}
+		} else if (under) {
 			const bf = bodyField(d);
+			const parse = (v) => parseRef(v, this.namespaces);
 			for (const [id, file] of this.ids(collection)) {
 				if (wanted && !wanted.has(id)) continue;
 				const fields = parseRecord(file, d, bf);
 				this.qualifyBareRefs(d, fields);
+				// The OWNER is validated before any destination is computed (R5): a folder is never made
+				// for a parent that does not exist, and a value that is not a reference to the parent
+				// collection is a field to fix, not a place to move to. Either stops the whole plan.
+				const raw = fields[under.field];
+				const parentId = ownerIdOf(fields, under, parse);
+				if (raw != null && raw !== '' && !parentId) { problems.push(`${collection}/${id}: ${under.field} is "${raw}", not a reference to ${under.collection} — fix the field first`); continue; }
+				if (parentId && !this.ids(under.collection).has(parentId)) { problems.push(`${collection}/${id}: ${under.field} is ${raw} — no such record; fix the field first (dreamteamer check names it)`); continue; }
 				const to = this.filePath(d, id, undefined, fields);
 				if (to !== file) plan(id, file, to, 'placement');
 			}
@@ -574,11 +621,13 @@ export class Store {
 	 * is two changes under one subject, and the second hides the first). A second run after success
 	 * plans nothing and does nothing.
 	 */
-	relocate(collection, { only = null, dryRun = false } = {}) {
+	relocate(collection, { only = null, dryRun = false, toRoot = false } = {}) {
 		const d = this.writableDescriptor(collection);
-		const planned = this.relocatePlan(collection, only);
+		const planned = this.relocatePlan(collection, only, { toRoot });
+		// problems FIRST, moves or not: a plan with a dangling owner in it is refused whole, and a dry run
+		// of it reports the problem rather than the empty success it would otherwise read as
+		if (planned.problems.length && !dryRun) throw new Error(`relocate refused:\n  ${planned.problems.join('\n  ')}\nnothing was moved.`);
 		if (dryRun || !planned.moves.length) return { ...planned, applied: false };
-		if (planned.problems.length) throw new Error(`relocate refused:\n  ${planned.problems.join('\n  ')}\nnothing was moved.`);
 		const cwd = path.resolve(this.root, d.storage.repo ?? '.');
 		const sources = planned.moves.map((m) => path.relative(cwd, m.from));
 		let dirty = '';
@@ -596,7 +645,7 @@ export class Store {
 				throw e;
 			}
 			const files = planned.moves.flatMap((m) => [m.from, m.to]);
-			this.commit(files, `dreamteamer: ${collection} relocate ${planned.moves.length} record(s)`, rollback, d.storage.repo ?? '.');
+			this.commit(files, `dreamteamer: ${collection} relocate ${planned.moves.length} record(s)${toRoot ? ' to root' : ''}`, rollback, d.storage.repo ?? '.');
 			return { ...planned, applied: true };
 		});
 	}
@@ -723,6 +772,7 @@ export class Store {
 		// INDEX, not of one path: the same id already sitting under another parent is the duplicate
 		// `check` would report, and refusing it here is what keeps the id unique across every root.
 		const file = this.filePath(d, id, undefined, fields);
+		this._assertContained(d, file);
 		if (fs.existsSync(file) || (placementOf(d) && this.ids(collection).has(id))) throw new Error(`${collection}/${id} already exists — nothing was written.`);
 		return this.withWriteLock(() => {
 			// captured before the invalidation and handed back, one entry richer, on the success path
@@ -818,15 +868,26 @@ export class Store {
 		// side effect of an unrelated edit would make a rename of a meeting relocate a file nobody
 		// mentioned, in a commit whose subject says otherwise.
 		const target = this.ownerChanged(d, fields, next) ? this.filePath(d, id, undefined, next) : file;
+		if (target !== file) this._assertContained(d, target);
 		if (target !== file && fs.existsSync(target)) throw new Error(`${collection}/${id}: ${path.relative(this.root, target)} already exists — nothing was written.`);
 		return this.withWriteLock(() => {
 			this._idsCache.delete(collection);
-			atomicWrite(file, serialize(d, next, previous));
-			const unmove = target !== file ? this._moveRecord(d, file, target) : null;
+			// ONE rollback boundary for the bytes, the move and the mirrors (R1): the field write used to
+			// sit before the move and outside any try, so a rename refused by the filesystem left a file
+			// in the OLD folder saying it belonged to the NEW owner — a record `check` reports and a
+			// verb that threw. Whatever fails, `undo` puts the original bytes back where they were.
+			let unmove = null;
+			const undo = () => { unmove?.(); atomicWrite(file, previous); };
+			try {
+				atomicWrite(file, serialize(d, next, previous));
+				if (target !== file) unmove = this._moveRecord(d, file, target);
+			} catch (e) {
+				undo();
+				throw e;
+			}
 			// `fields` is the record as it was ON DISK and `next` as it will be, which is exactly the
 			// before/after pair a mirror edit is: an FK that moved detaches from the old target and
 			// attaches to the new one, in this same write. Same ordering as `add` — see the note there.
-			const undo = () => { unmove?.(); atomicWrite(file, previous); };
 			let mirrors;
 			try {
 				mirrors = this.applyMirrorEdits(d, id, fields, next);
@@ -1077,6 +1138,7 @@ export class Store {
 		const oldUnit = this.recordRoot(d, oldId); // folder-shape: move the WHOLE folder
 		// a placed record keeps the folder it is in: a rename changes the id, never the owner
 		const newUnit = placementOf(d) ? path.join(this.rootOfFile(d, oldUnit), recordFileName(d, newId)) : this.recordRoot(d, newId);
+		this._assertContained(d, newUnit);
 		if (fs.existsSync(newUnit) || (placementOf(d) && this.ids(collection).has(newId))) throw new Error(`${collection}/${newId} already exists — nothing was renamed.`);
 		return this.withWriteLock(() => {
 			this._idsCache.delete(collection);
