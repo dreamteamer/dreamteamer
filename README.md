@@ -66,12 +66,13 @@ for (const { id, fields } of store.readAll('notes')) {
 
 ## Extensions
 
-Enhance your workspace with optional, officially-supported extensions:
+An extension adds verbs, source kinds or harnesses through one contract
+([`references/extensions.md`](skills/using-dreamteamer/references/extensions.md)). It can be a
+workspace module (`modules/<id>/package.json` declaring `dreamteamer.extension`) or an installed
+dependency.
 
-- `@dreamteamer/workflows`: Behaviour proofs (`dt prove`), worktrees, and land commands.
-- `@dreamteamer/http`: Expose a REST API over your validating store.
-- `@dreamteamer/notebooklm`: Export and sync the workspace to a NotebookLM notebook.
-- `@dreamteamer/host`: Run a workspace as a local Docker container.
+Behaviour proofs, worktrees, the REST API, the NotebookLM exporter and the local Docker host left core
+in 0.31.0 and return as extensions. None is published yet.
 
 ## Agent-Native Documentation
 
