@@ -105,14 +105,21 @@ describe('an extension\'s command runs in-process, handed THIS workspace and THI
 		assert.match(ws.dt('status').stdout, /extensions: probe-kit@1\.2\.3/);
 	});
 
-	test('a moved core verb with no extension to answer it says so, exit 2 — and names no unpublished package', () => {
+	test('an extension verb typed without its extension prints the install line, exit 2', () => {
 		const ws = workspace();
-		for (const verb of ['prove', 'setup', 'notebooklm']) {
+		for (const [verb, pkg] of [['prove', 'proofs'], ['land', 'worktrees'], ['worktree', 'worktrees'], ['serve', 'http'], ['notebooklm', 'notebooklm']]) {
 			const r = ws.dt(verb, 'x');
 			assert.equal(r.code, 2, verb);
-			assert.match(r.stderr, new RegExp(`\`dt ${verb}\` left core in 0\\.31\\.0 and returns as an extension, which is not published yet`));
-			assert.doesNotMatch(r.stderr, /@dreamteamer\//, 'an install line for a package that is not on npm');
+			assert.equal(r.stderr, `✖ \`dt ${verb}\` comes from an extension this workspace does not have — install it as a dependency:\n    npm i @dreamteamer/${pkg}\n`);
 		}
+		for (const verb of ['start', 'stop', 'open', 'export', 'import']) {
+			const r = ws.dt(verb, 'x');
+			assert.equal(r.code, 2, verb);
+			assert.match(r.stderr, new RegExp(`npm i -g @dreamteamer/docker-workspaces\\n {4}dt-docker ${verb} container <name>`));
+		}
+		const setup = ws.dt('setup');
+		assert.equal(setup.code, 2);
+		assert.match(setup.stderr, /`dt setup` is gone — `dt doctor` shows what works on this machine/);
 	});
 });
 

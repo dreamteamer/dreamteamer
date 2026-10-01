@@ -275,10 +275,13 @@ export const CORE_VERBS = [
 	'schema', 'ensure', 'update-field', 'remove-field', 'commands',
 ];
 
-/** Verbs that left core in 0.31.0. The extensions that will answer them are not published, so the old
- *  spelling in a script or a skill fails saying what happened — never "unknown verb", and never an
- *  install line for a package a stranger cannot install. */
-const MOVED_VERBS = new Set(['prove', 'land', 'worktree', 'serve', 'notebooklm', 'start', 'export', 'setup', 'stop', 'open', 'import']);
+/** Verbs an extension answers, and the package it ships in — typed without it, the verb prints the
+ *  install line. The container verbs belong to the global `dt-docker` bin, which needs no workspace. */
+const VERB_PACKAGES = {
+	prove: '@dreamteamer/proofs', land: '@dreamteamer/worktrees', worktree: '@dreamteamer/worktrees',
+	serve: '@dreamteamer/http', notebooklm: '@dreamteamer/notebooklm',
+};
+const DOCKER_VERBS = new Set(['start', 'stop', 'open', 'export', 'import']);
 
 export async function run(argv) {
 	const [cmd, ...rest] = argv;
@@ -633,8 +636,16 @@ export async function run(argv) {
 					console.error('    dt list commands              the command entities this workspace ships');
 					process.exit(2);
 				}
-				if (MOVED_VERBS.has(cmd)) {
-					console.error(`✖ \`dt ${cmd}\` left core in 0.31.0 and returns as an extension, which is not published yet — dreamteamer 0.30.x still has it, and a workspace module can carry its own verb (\`dreamteamer.extension\`)`);
+				if (VERB_PACKAGES[cmd]) {
+					console.error(`✖ \`dt ${cmd}\` comes from an extension this workspace does not have — install it as a dependency:\n    npm i ${VERB_PACKAGES[cmd]}`);
+					process.exit(2);
+				}
+				if (DOCKER_VERBS.has(cmd)) {
+					console.error(`✖ \`dt ${cmd}\` is not a workspace verb — containers are managed by dt-docker:\n    npm i -g @dreamteamer/docker-workspaces\n    dt-docker ${cmd} container <name>`);
+					process.exit(2);
+				}
+				if (cmd === 'setup') {
+					console.error('✖ `dt setup` is gone — `dt doctor` shows what works on this machine, each fix on its row');
 					process.exit(2);
 				}
 				console.error(`✖ unknown verb "${cmd}" — dreamteamer is verb-first since 0.12.0: dt <verb> [<target>]`);

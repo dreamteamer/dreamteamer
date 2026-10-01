@@ -71,8 +71,10 @@ An extension adds verbs, source kinds or harnesses through one contract
 workspace module (`modules/<id>/package.json` declaring `dreamteamer.extension`) or an installed
 dependency.
 
-Behaviour proofs, worktrees, the REST API, the NotebookLM exporter and the local Docker host left core
-in 0.31.0 and return as extensions. None is published yet.
+Behaviour proofs (`@dreamteamer/proofs`), worktrees (`@dreamteamer/worktrees`), the REST API
+(`@dreamteamer/http`) and the NotebookLM exporter (`@dreamteamer/notebooklm`) are extension packages;
+the local Docker host is the global `dt-docker` bin (`@dreamteamer/docker-workspaces`). A verb typed
+without its package prints the install line.
 
 ## Agent-Native Documentation
 
