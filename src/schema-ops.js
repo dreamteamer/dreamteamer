@@ -197,7 +197,7 @@ export function gatedTreeOp(ws, store, { subject, paths, mutate, undo }) {
 
 // ---- modules ---------------------------------------------------------------------------------
 // A module is THREE-SPELLED today: the package `name` (discovery, `dependencies`), the
-// folder (the `workspace-module` key), and the slugged scope-stripped record id. The RECORD ID is
+// folder (the `workspace_module` key), and the slugged scope-stripped record id. The RECORD ID is
 // the identity everywhere the operator types it — `--module <id>`, `modules/<id>` references,
 // `dependencies` values — and the engine maps id → package name internally. `add modules` sets all
 // three to one string so a new module never forks; an existing forked module keeps working, and
@@ -244,7 +244,7 @@ function editModulePkg(file, mutate) {
 
 /** The workspace's own package.json, read → mutate → write. `ws.pkg` is refreshed in place because
  *  `compile({root, pkg})` reads the object it was handed, not the file — a rename that moved
- *  `workspace-module` and did not do this compiled the PREVIOUS layout and failed on a stray-sources
+ *  `workspace_module` and did not do this compiled the PREVIOUS layout and failed on a stray-sources
  *  error naming a module that no longer exists. */
 function editWorkspacePkg(ws, mutate) {
 	const file = path.join(ws.root, 'package.json');
@@ -314,7 +314,8 @@ export function createModule(ws, store, { name, description, namespace }) {
 const MODULE_SETTABLE = {
 	description: { key: 'description', from: (v) => String(v) },
 	dependencies: { key: 'dependencies', from: (v, store) => asList(v).map((r) => moduleIdFromRef(r, store)) },
-	peerDependencies: { key: 'peerDependencies', from: (v) => asList(v).map((r) => String(r).replace(/^collections\//, '')) },
+	// the collections a module references but does not own — names, never references, in the source
+	peer_collections: { key: 'peer_collections', from: (v) => asList(v).map((r) => String(r).replace(/^collections\//, '')) },
 	// §8. A namespace is a plain name, not a reference — there is no `namespaces` collection and
 	// there should not be: the value's whole job is to be parseable before anything has compiled.
 	namespaces: { key: 'namespaces', from: (v) => asList(v).map((x) => x.replace(/^\/+|\/+$/g, '')).filter(Boolean) },
@@ -381,20 +382,20 @@ export function removeModule(ws, store, id, { force = false, dryRun = false } = 
 		throw new Error(`module "${id}" is installed by npm (${fields.path}) — remove it from package.json dependencies and run \`npm install\`; a delete under node_modules/ is erased by the next install.`);
 	}
 	if (fields.location === 'git_modules') {
-		throw new Error(`module "${id}" is a clone under ${fields.path}, and its package.json lives in ANOTHER repo — remove it from dreamteamer.git-modules and delete the clone. This verb removes inline modules only.`);
+		throw new Error(`module "${id}" is a clone under ${fields.path}, and its package.json lives in ANOTHER repo — remove it from dreamteamer.git_modules and delete the clone. This verb removes inline modules only.`);
 	}
-	if (ws.pkg.dreamteamer?.['workspace-module'] === id) {
-		throw new Error(`module "${id}" IS this workspace's own module (dreamteamer.workspace-module) — removing it would leave the workspace with no sources of its own. Point workspace-module at another module first.`);
+	if (ws.pkg.dreamteamer?.workspace_module === id) {
+		throw new Error(`module "${id}" IS this workspace's own module (dreamteamer.workspace_module) — removing it would leave the workspace with no sources of its own. Point workspace_module at another module first.`);
 	}
 	if (fields.owns_data === true) {
-		throw new Error(`module "${id}" sets owns-data, so its records live INSIDE ${fields.path}/data — removing the module would delete them, which this verb never does. Drop owns-data and move the records out first.`);
+		throw new Error(`module "${id}" sets owns_data, so its records live INSIDE ${fields.path}/data — removing the module would delete them, which this verb never does. Drop owns_data and move the records out first.`);
 	}
 
 	const shipped = (fields.collections ?? []).map((r) => String(r).replace(/^collections\//, '')).sort();
 	const withRecords = shipped.filter((c) => store.descriptors.has(c) && store.ids(c).size > 0);
 	// A `dependencies` entry naming this module in ANOTHER module fails the gate compile ("depends
 	// on X, which is not installed"), so it goes in the SAME write — otherwise --force is a verb that
-	// cannot succeed. peerDependencies names COLLECTIONS and needs no edit: a peer whose provider is
+	// cannot succeed. peer_collections names COLLECTIONS and needs no edit: a peer whose provider is
 	// gone is exactly what `unresolved_peers` exists to excuse.
 	const pkgName = fields.name;
 	const dependents = moduleRows(store)
@@ -460,10 +461,10 @@ export function renameModule(ws, store, oldId, newId) {
 	}
 	if (fields.location === 'git_modules') {
 		// ⚠ TWO COMMITS BY CONSTRUCTION, and the verb says so rather than half-doing it: the module's
-		// package.json lives in the clone's own repo, and this workspace's half (git-modules,
+		// package.json lives in the clone's own repo, and this workspace's half (git_modules,
 		// dependencies, modules/<id> refs) is a commit here. Perform the workspace half only after the
 		// clone half has landed and been pushed.
-		throw new Error(`module "${oldId}" is a clone under ${fields.path}, whose package.json is in ANOTHER repo — a git-shape rename is TWO commits by construction.\n  1. rename it there (package.json name → "${newId}") and push;\n  2. re-run this to perform the workspace half: dreamteamer.git-modules, every dependencies entry, and modules/${oldId} references.`);
+		throw new Error(`module "${oldId}" is a clone under ${fields.path}, whose package.json is in ANOTHER repo — a git-shape rename is TWO commits by construction.\n  1. rename it there (package.json name → "${newId}") and push;\n  2. re-run this to perform the workspace half: dreamteamer.git_modules, every dependencies entry, and modules/${oldId} references.`);
 	}
 	const oldPkgName = fields.name;
 	const oldRoot = path.join(ws.root, 'modules', oldId);
@@ -499,19 +500,18 @@ export function renameModule(ws, store, oldId, newId) {
 			own.name = newId;
 			fs.writeFileSync(ownPkg, JSON.stringify(own, null, '\t') + '\n');
 
-			// 3. the WORKSPACE package.json: `workspace-module` when it names this module, and every
-			//    `disable` entry prefixed with the old package name. SNAPSHOTTED FIRST — editWorkspacePkg
-			//    writes, so capturing the pre-image afterwards is impossible.
+			// 3. the WORKSPACE package.json: `workspace_module` when it names this module. `disable`
+			//    needs nothing: a `<kind>/<id>` entry names an entity, never its module, and a module a
+			//    `modules/<id>` entry drops is never discovered, so it cannot be the one renamed here.
+			//    SNAPSHOTTED FIRST — editWorkspacePkg writes, so capturing the pre-image afterwards is
+			//    impossible.
 			snap(path.join(ws.root, 'package.json'));
 			const wsFile = editWorkspacePkg(ws, (dt) => {
-				if (dt['workspace-module'] === oldId) dt['workspace-module'] = newId;
-				if (Array.isArray(dt.disable)) {
-					dt.disable = dt.disable.map((e) => (String(e).startsWith(`${oldPkgName}/`) ? `${newId}/${String(e).slice(oldPkgName.length + 1)}` : e));
-				}
+				if (dt.workspace_module === oldId) dt.workspace_module = newId;
 			});
 			paths.add(path.relative(ws.root, wsFile));
 
-			// 4. every OTHER module's `dreamteamer.dependencies` naming it. peerDependencies names
+			// 4. every OTHER module's `dreamteamer.dependencies` naming it. peer_collections names
 			//    collections and is untouched.
 			for (const r of moduleRows(store)) {
 				if (r.id === oldId || r.fields.location === 'node_modules') continue;
@@ -550,13 +550,13 @@ export function renameModule(ws, store, oldId, newId) {
  * WHAT THE MOVE WOULD MAKE ILLEGAL, and what the fix would cost — computed BEFORE anything moves.
  *
  * The reference contract says every collection a field references is owned by the
- * referencing module, declared in its `dependencies`, or named in its `peerDependencies`. Moving a
+ * referencing module, declared in its `dependencies`, or named in its `peer_collections`. Moving a
  * collection changes who owns it, so it can break the contract in two directions at once: this
  * collection's own outbound refs, and every inbound ref pointing at it.
  *
  * ⚠ AND THE FIX CAN BE WORSE THAN THE BREAK. `dependencies` must be acyclic, so "add A to B's
  * dependencies" is only a fix when B does not already sit upstream of A — otherwise it is a ring,
- * and the honest answer is `peerDependencies` (which names a COLLECTION and therefore cannot cycle)
+ * and the honest answer is `peer_collections` (which names a COLLECTION and therefore cannot cycle)
  * or moving the other collection too. Naming the ring is the difference between a refusal an
  * operator can act on and one they have to re-derive.
  *
@@ -567,10 +567,10 @@ export function renameModule(ws, store, oldId, newId) {
 function moveImpact(store, name, toModule) {
 	const mods = moduleRows(store);
 	const depsOf = new Map(mods.map((m) => [m.id, (m.fields.dependencies ?? []).map((r) => String(r).replace(/^modules\//, ''))]));
-	// ⚠ `peer_dependencies`, SNAKE-CASED — that is the key compile projects onto the module record
-	// (`peerDependencies` is the package.json spelling). Reading the camel form here returned
-	// undefined for every module and silently switched the peer escape hatch off, so a move a
-	// declared peer legitimately permits would have been refused with the ring message.
+	// ⚠ `peer_dependencies` — the key compile projects onto the module RECORD (`peer_collections` is
+	// the package.json spelling). Reading the source spelling here returns undefined for every module
+	// and silently switches the peer escape hatch off, so a move a declared peer legitimately permits
+	// would be refused with the ring message.
 	const peersOf = new Map(mods.map((m) => [m.id, (m.fields.peer_dependencies ?? []).map((r) => String(r).replace(/^collections\//, ''))]));
 	const ownerOf = new Map();
 	for (const [id, d] of store.descriptors) ownerOf.set(id, moduleOf(d));
@@ -654,8 +654,8 @@ export function moveCollection(ws, store, name, toModule, { dryRun = false } = {
 	if (needs.length) {
 		const lines = needs.map((n) => {
 			const fix = n.ring
-				? `${n.referrer} → ${n.owner} would be a ring (${n.owner} already reaches ${n.referrer}). Add ${n.target} to ${n.referrer}'s peerDependencies (dt set modules/${n.referrer} peerDependencies=collections/${n.target}), or move ${n.target} as well.`
-				: `add it: dt set modules/${n.referrer} dependencies=modules/${n.owner} — or dt set modules/${n.referrer} peerDependencies=collections/${n.target} if ${n.referrer} should work without it.`;
+				? `${n.referrer} → ${n.owner} would be a ring (${n.owner} already reaches ${n.referrer}). Add ${n.target} to ${n.referrer}'s peer_collections (dt set modules/${n.referrer} peer_collections=collections/${n.target}), or move ${n.target} as well.`
+				: `add it: dt set modules/${n.referrer} dependencies=modules/${n.owner} — or dt set modules/${n.referrer} peer_collections=collections/${n.target} if ${n.referrer} should work without it.`;
 			return `  ${n.referrer} references ${n.target}, owned by ${n.owner} after the move. ${fix}`;
 		});
 		throw new Error(`move rolled back. ${name} → ${toModule} breaks the reference contract:\n${lines.join('\n')}`);
@@ -799,7 +799,7 @@ export function setCollectionScalars(ws, store, name, changes, { moduleId } = {}
 	// silently win over the owner's choice.
 	const owned = baseDescriptorSource(ws, name).base;
 	if (owned && IN_NODE_MODULES(owned)) {
-		throw new Error(`"${name}" ships from node_modules (${owned}) — a write there is erased by the next \`npm install\`, and a collection-level key belongs to the module that owns it. Add "<module>/${name}" to dreamteamer.disable and declare your own instead.`);
+		throw new Error(`"${name}" ships from node_modules (${owned}) — a write there is erased by the next \`npm install\`, and a collection-level key belongs to the module that owns it. Add "collections/${name}" to dreamteamer.disable and declare your own instead.`);
 	}
 	const { file } = collectionSourceFile(ws, store, name, moduleId, { subject: name });
 	if (!fs.existsSync(file)) throw new Error(`${path.relative(ws.root, file)} is not on disk — run \`dreamteamer compile\` and re-run.`);
@@ -1326,11 +1326,11 @@ export function renameValue(ws, store, collection, field, from, to, { dryRun = f
 	return { ...plan, renamed: true, commits: out.commits };
 }
 
-/** The workspace's writable source dir for a kind (workspace-module aware). `kindDir` picks the
+/** The workspace's writable source dir for a kind (workspace_module aware). `kindDir` picks the
  *  layout that module already uses and falls back to flat, so a `collections add` never splits a
  *  half-moved module across both. */
 export function workspaceSystemDir(ws, kind) {
-	const wm = ws.pkg.dreamteamer?.['workspace-module'];
+	const wm = ws.pkg.dreamteamer?.workspace_module;
 	return kindDir(wm ? path.join(ws.root, 'modules', wm) : ws.root, kind);
 }
 
@@ -1438,7 +1438,7 @@ function collectionSourceFile(ws, store, collection, moduleId, { allowNew = fals
 	if (moduleId !== undefined && moduleId !== null && moduleId !== '') {
 		const rec = moduleRecord(store, moduleId); // throws with the known-module list
 		if (IN_NODE_MODULES(rec.fields.path)) {
-			throw new Error(`module "${moduleId}" ships from node_modules (${rec.fields.path}) — a write there is erased by the next \`npm install\`.\n  to add fields from this workspace: dreamteamer add-field ${collection} --name <f> --module ${ws.pkg.dreamteamer?.['workspace-module'] ?? 'default'}`);
+			throw new Error(`module "${moduleId}" ships from node_modules (${rec.fields.path}) — a write there is erased by the next \`npm install\`.\n  to add fields from this workspace: dreamteamer add-field ${collection} --name <f> --module ${ws.pkg.dreamteamer?.workspace_module ?? 'default'}`);
 		}
 		// ⚠ A SELECTOR SELECTS AMONG THINGS. `--module` is only meaningful where the entity is
 		// declared by MORE than one module (a base plus overlays); anywhere else it is refused (§5),
@@ -1519,7 +1519,7 @@ export function createCollection(ws, store, { name, mixins, idFrom, namespace, m
 		// §13: name both remedies, because the operator asking for this wants ONE of them and the
 		// generic "already exists" tells them which neither.
 		const owner = moduleOf(store.descriptors.get(clash));
-		const target = moduleId ?? ws.pkg.dreamteamer?.['workspace-module'] ?? 'default';
+		const target = moduleId ?? ws.pkg.dreamteamer?.workspace_module ?? 'default';
 		throw new Error(`collection "${clash}" already exists, owned by ${owner}. Fields from ${target}: dreamteamer add-field ${clash} --module ${target} --name <f> --type <t> · move it: dreamteamer set collections/${clash} module=${target}`);
 	}
 	// NESTED, mirroring where compile puts it in the runtime: `collections/health/doctors.collection.yaml`.
@@ -1588,10 +1588,10 @@ export function removeCollection(ws, store, name, { force = false } = {}) {
 	// collections almost always live in a module.
 	const { base, overlays } = baseDescriptorSource(ws, name);
 	if (!base) {
-		throw new Error(`"${name}" has no writable descriptor source — the manifest names none under a module in this workspace. It may be contributed by the engine itself; add "<module>/${name}" to dreamteamer.disable instead.`);
+		throw new Error(`"${name}" has no writable descriptor source — the manifest names none under a module in this workspace. It may be contributed by the engine itself; add "collections/${name}" to dreamteamer.disable instead.`);
 	}
 	if (IN_NODE_MODULES(base)) {
-		throw new Error(`"${name}" ships from node_modules (${base}) — a write there is erased by the next \`npm install\`. Add "<module>/${name}" to dreamteamer.disable instead.`);
+		throw new Error(`"${name}" ships from node_modules (${base}) — a write there is erased by the next \`npm install\`. Add "collections/${name}" to dreamteamer.disable instead.`);
 	}
 	// An overlay with no base fails compile ("every source declares `overlay: true` — no base found"),
 	// so removing the base under a live overlay is a half-migration that cannot compile.
@@ -1684,7 +1684,7 @@ export function renameCollection(ws, store, oldName, newName) {
 	}
 
 	const doc = load(fs.readFileSync(src, 'utf8'));
-	const dataPath = ws.pkg.dreamteamer?.['data-path'] ?? 'data';
+	const dataPath = ws.pkg.dreamteamer?.data_path ?? 'data';
 	// `d` is the COMPILED descriptor, so its storage.path already carries any module prefix; the
 	// authored source is what we compare against, and what we rewrite.
 	const authoredPath = String(doc.storage?.path ?? '');
@@ -1910,7 +1910,7 @@ function isTracked(root, rel) {
  * impossible, and the reason was invisible: the source compiled, the field was live for one
  * instant, and then the file was restored.
  *
- * `repoRootOf` (compile.js, there since `owns-data` needed it) answers "which repo holds this path"
+ * `repoRootOf` (compile.js, there since `owns_data` needed it) answers "which repo holds this path"
  * — nearest `.git` at or above it, workspace-relative, `.` for the workspace itself. Grouping by it
  * is the whole fix.
  *
@@ -1927,7 +1927,7 @@ function isTracked(root, rel) {
  */
 function commitByRepo(ws, store, rels, subject) {
 	const byRepo = new Map(); // workspace-relative repo root -> {root, paths relative to THAT repo}
-	for (const rel of new Set([...rels, ...regeneratedOutputs(ws)])) {
+	for (const rel of new Set(rels)) {
 		const abs = path.join(ws.root, rel);
 		// A path that is neither on disk nor in any index cannot be a pathspec, and one bad entry
 		// aborts the whole `git add` — the lesson `renameCollection` paid for. ⚠ The filter runs PER
@@ -1958,26 +1958,6 @@ function commitByRepo(ws, store, rels, subject) {
 		store.headMoved(); // this ran `git commit` — see store.gitHead
 	}
 	return out;
-}
-
-/** The harness files the gate compile just REGENERATED — CLAUDE.md, AGENTS.md, GEMINI.md and whatever
- *  else `dreamteamer.harnesses` writes — narrowed to the ones git already TRACKS. A schema write
- *  committed only the mutated source, so every one left the three committed root files dirty with the
- *  block that names the very change just committed; the next unscoped `git add` in a shared tree swept
- *  them into somebody else's subject. The list is read off the manifest compile has just written
- *  (`adapter-outputs` for the generated dirs, `adapter-blocks` for the root files whose managed block
- *  was rewritten), so no API changes hands. TRACKED ONLY, in one `git ls-files` call: an untracked
- *  root file is the operator's to add (a fresh workspace has not committed its instructions yet, and
- *  a write into a clone must not start tracking files in the workspace repo as a side effect), and an
- *  ignored one (`.claude/`) is a hard error to `git add`, so neither may reach the pathspec. */
-function regeneratedOutputs(ws) {
-	const m = readManifest(ws.root) ?? {};
-	const outputs = [...(m['adapter-outputs'] ?? []), ...(m['adapter-blocks'] ?? [])].filter((p) => fs.existsSync(path.join(ws.root, p)));
-	if (!outputs.length) return [];
-	try {
-		return execFileSync('git', ['ls-files', '-z', '--', ...outputs], { cwd: ws.root, stdio: ['ignore', 'pipe', 'ignore'] })
-			.toString().split('\0').filter(Boolean);
-	} catch { return []; } // no git here at all — the source commit proceeds without them, as before
 }
 
 const shortHead = (root) => {
@@ -2044,7 +2024,7 @@ function pruneEmpty(dir, stopAt) {
 // untouched byte stays where its author put it.
 
 /** The order a field's keys are written in (§3.4.1): facts about the data, `display`, then what it means. */
-const FIELD_KEY_ORDER = ['type', 'title', 'required', 'many', 'default', 'enum', 'unique', 'mirror_of', 'on_delete', 'sensitive', 'body', 'derived', 'virtual', 'deprecated', 'passthrough', 'fields', 'values', 'item_title', 'examples', 'pattern', 'minimum', 'maximum', 'minItems', 'maxItems', 'minLength', 'maxLength', 'const', 'display', 'description'];
+const FIELD_KEY_ORDER = ['type', 'title', 'required', 'many', 'default', 'enum', 'unique', 'mirror_of', 'on_delete', 'soft', 'sensitive', 'body', 'derived', 'virtual', 'deprecated', 'passthrough', 'fields', 'values', 'item_title', 'examples', 'pattern', 'minimum', 'maximum', 'minItems', 'maxItems', 'minLength', 'maxLength', 'const', 'display', 'description'];
 
 /** The three fields compile injects into every collection — no source declares one. */
 const INJECTED = new Set(['id', 'created', 'last_modified']);
@@ -2094,7 +2074,7 @@ const optionList = (v) => (Array.isArray(v) ? v : String(v).split(',')).map((x) 
  * and only the description. The empty value clears a key (`--enum=`), and `false` clears a boolean.
  *
  *   --type string|markdown|…|<collection>|a,b|reference   --many   --required   --unique
- *   --enum a,b   --default-value v   --mirror-of <field>   --on-delete restrict|set-null
+ *   --enum a,b   --default-value v   --mirror-of <field>   --on-delete restrict|set-null   --soft
  *   --sensitive   --body   --description "…"
  */
 export function fieldFromFlags(store, flags, previous = {}) {
@@ -2102,7 +2082,7 @@ export function fieldFromFlags(store, flags, previous = {}) {
 	const has = (k) => flags[k] !== undefined;
 	if (has('type')) f.type = parseType(store, flags.type);
 	f.type ??= 'string';
-	for (const k of ['required', 'many', 'unique', 'sensitive', 'body']) {
+	for (const k of ['required', 'many', 'unique', 'soft', 'sensitive', 'body']) {
 		if (!has(k)) continue;
 		if (flagOn(flags, k)) f[k] = true;
 		else delete f[k];
@@ -2156,6 +2136,7 @@ export function fieldFromFlags(store, flags, previous = {}) {
 	if (f.body && f.type !== 'markdown') throw new Error(`--body marks the field a record's prose lands in, so it is --type markdown (got ${f.type})`);
 	if (has('enum') && f.enum !== undefined && f.type !== 'string') throw new Error(`--enum belongs to --type string (got ${Array.isArray(f.type) ? f.type.join(',') : f.type})`);
 	if (has('on-delete') && f.on_delete !== undefined && !targetsOf(f)) throw new Error(`--on-delete belongs to a reference — give --type <collection>`);
+	if (has('soft') && f.soft && !targetsOf(f)) throw new Error(`--soft belongs to a reference — give --type <collection>`);
 	return orderField(previous ?? {}, f);
 }
 
@@ -2474,7 +2455,7 @@ export function removeUiView(ws, store, id) {
 	// ALLOWING a save to the same file would be an asymmetry with nothing behind it.
 	const { file: dest, shipped } = uiViewSourceFile(ws, id);
 	if (shipped && /(^|\/)node_modules\//.test(shipped))
-		throw new Error(`ui-view "${id}" is shipped by an installed package (${shipped}) — removing the file would be undone by the next npm install.\n  disable it instead: add "<module>/${id}" to dreamteamer.disable in package.json.`);
+		throw new Error(`ui-view "${id}" is shipped by an installed package (${shipped}) — removing the file would be undone by the next npm install.\n  disable it instead: add "ui-views/${id}" to dreamteamer.disable in package.json.`);
 	if (!fs.existsSync(dest)) throw new Error(`ui-view "${id}" does not exist`);
 	const gate = writeGated(ws, store, [dest], `dreamteamer: ui-views rm ${id}`, () => fs.rmSync(dest), undefined, { commentsMayDecrease: true });
 	return { removed: id, commits: gate.commits };
@@ -2528,7 +2509,7 @@ function entitySource(ws, kind, id) {
  *  op in this file already gives, in one place. */
 function refuseNpmEntity(kind, id, shipped) {
 	if (!shipped || !IN_NODE_MODULES(shipped)) return;
-	throw new Error(`${kind.replace(/s$/, '')} "${id}" is shipped by an installed package (${shipped}) — a write there is erased by the next \`npm install\`.\n  disable it instead: add "<module>/${id}" to dreamteamer.disable in package.json.`);
+	throw new Error(`${kind.replace(/s$/, '')} "${id}" is shipped by an installed package (${shipped}) — a write there is erased by the next \`npm install\`.\n  disable it instead: add "${kind}/${id}" to dreamteamer.disable in package.json.`);
 }
 
 const ENTITY_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -2554,7 +2535,7 @@ export function createSkill(ws, store, { name, description, moduleId }) {
 	// is wrong in both layouts this function already handles: the ROOT layout writes
 	// `skills/<id>/SKILL.md` with no module segment at all, and the pre-flatten one writes
 	// `system/skills/…`. Here the answer is known exactly, in one line.
-	const wm = ws.pkg.dreamteamer?.['workspace-module'];
+	const wm = ws.pkg.dreamteamer?.workspace_module;
 	const modRoot = root ?? (wm ? path.join(ws.root, 'modules', wm) : ws.root);
 	const dir = path.join(root ? kindDir(root, 'skills') : workspaceSystemDir(ws, 'skills'), name);
 	const file = path.join(dir, 'SKILL.md');
@@ -2578,7 +2559,7 @@ export function createSkill(ws, store, { name, description, moduleId }) {
  *  without the filename is a refusal the reader has to go research. */
 export function refuseHandAuthored(ws, store, kind, id, moduleId) {
 	const shape = entityShape(ws, kind);
-	const root = moduleId ? moduleRecord(store, moduleId).fields.path : path.join('modules', ws.pkg.dreamteamer?.['workspace-module'] ?? 'default');
+	const root = moduleId ? moduleRecord(store, moduleId).fields.path : path.join('modules', ws.pkg.dreamteamer?.workspace_module ?? 'default');
 	const where = path.join(root, kind, `${id || '<id>'}${shape.suffix}`);
 	const one = kind.replace(/s$/, '');
 	throw new Error(`${/^[aeiou]/.test(one) ? 'an' : 'a'} ${one} is hand-authored — its whole value is what you write in it, and a scaffold would produce a file whose only content is that a verb made it.\n  write ${where}, then run \`dreamteamer compile\`.\n  edit an existing one with: dreamteamer set ${kind}/<id> <key>=<value>`);

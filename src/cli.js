@@ -128,7 +128,7 @@ commits there.
                                                display.nav.section · display.list.columns ·
                                                display.list.sort, plus module=<m>, which MOVES it.
                                                modules: description · namespaces · dependencies ·
-                                               peerDependencies, record-shaped (modules/core).
+                                               peer_collections, record-shaped (modules/core).
                                                ui-views: dotted keys — options.sort=-date. An empty
                                                value REMOVES the key; quote it to write the empty
                                                string itself ('options.sort=""').
@@ -147,7 +147,7 @@ field verbs — a field is the one sub-entity, and it has verbs of its own (ther
 collection: the ENGINE does not read one, and \`rename-field\` was the only capability it would buy):
   add-field    <collection> --name <field> [--type <type>] [--many] [--required]
                             [--enum a,b] [--default-value v] [--unique] [--mirror-of <field>]
-                            [--on-delete restrict|set-null] [--sensitive] [--body]
+                            [--on-delete restrict|set-null] [--soft] [--sensitive] [--body]
                             [--description "…"] [--module <m>]
                             types: string markdown boolean integer number date datetime url email
                                    reference map position, a collection name (a reference), or
@@ -158,6 +158,8 @@ collection: the ENGINE does not read one, and \`rename-field\` was the only capa
                             --mirror-of <field> makes this the generated, read-only mirror of the
                             --type collection's <field>, which references this one; a unique key
                             mirrors as one record, any other as a list.
+                            --soft lets a reference name a record that does not exist (yet); the
+                            value must still name one of its collections.
                             --body marks the field a record's PROSE lands in (the text after the
                             frontmatter): --type markdown, one per collection, and it stays last.
                             A field the collection's module does not own lands in an OVERLAY

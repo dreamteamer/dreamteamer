@@ -389,7 +389,7 @@ function metaModulesRename(ws, store, flags, pos) {
 function metaModulesSet(ws, store, flags, pos) {
 	const id = need(pos, 0, 'module id');
 	const changes = { ...pairs(pos.slice(1)), ...stripMeta(flags) };
-	if (!Object.keys(changes).length) throw new Error('nothing to set — pass key=value pairs (description, dependencies, peerDependencies)');
+	if (!Object.keys(changes).length) throw new Error('nothing to set — pass key=value pairs (description, namespaces, dependencies, peer_collections)');
 	const out = setModule(ws, store, id, changes);
 	if (flags.json) { emit(JSON.stringify(out)); return 0; }
 	if (out.unchanged) return alreadyThat(`modules/${id} ${out.changed.join(', ')}`);
@@ -1239,7 +1239,7 @@ function rel(root, p) {
  *
  * A key is `<collection>:<verb>` where the system entity has its own interceptor, `<verb>` otherwise.
  */
-export const FIELD_FLAGS = ['json', 'module', 'name', 'type', 'enum', 'default-value', 'default', 'required', 'description', 'many', 'unique', 'body', 'sensitive', 'on-delete', 'mirror-of'];
+export const FIELD_FLAGS = ['json', 'module', 'name', 'type', 'enum', 'default-value', 'default', 'required', 'description', 'many', 'unique', 'soft', 'body', 'sensitive', 'on-delete', 'mirror-of'];
 const JSON_ONLY = ['json'];
 const FORCE_RM = ['json', 'force', 'dry-run'];
 const NAV_MOVE = ['json', 'after', 'before', 'top', 'bottom'];

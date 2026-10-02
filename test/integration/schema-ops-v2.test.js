@@ -212,6 +212,14 @@ describe('add-field writes a v2 field', () => {
 		assert.doesNotMatch(w.text(VISITS_FILE), /x-|schema:/);
 	});
 
+	test('--soft writes soft: true on a reference, and a record may then name one that does not exist', () => {
+		const w = clinic();
+		ok(w.dt('add-field', 'health/visits', '--name', 'referred_by', '--type', 'health/doctors', '--soft'));
+		assert.deepEqual(w.doc(VISITS_FILE).fields.referred_by, { type: 'health/doctors', soft: true });
+		ok(w.dt('set', 'health/visits/2026-03-04--dana-levi--dr-cohen', 'referred_by=health/doctors/not-on-file'));
+		refused(w.dt('add-field', 'health/visits', '--name', 'room', '--type', 'string', '--soft'), /--soft belongs to a reference/);
+	});
+
 	test('a union of collections, and `reference`', () => {
 		const w = clinic({ records: false });
 		ok(w.dt('add-field', 'health/visits', '--name', 'about', '--type', 'health/patients,health/doctors'));
@@ -271,6 +279,13 @@ describe('add-field writes a v2 field', () => {
 		const compiled = load(readFile(w.root, '.dreamteamer/collections/health/visits.collection.yaml'));
 		assert.deepEqual(compiled.compiled.overlaid_by, ['billing']);
 		assert.ok(compiled.compiled.fields.claim_ref);
+	});
+
+	test('the commit holds the source alone — the harness files the gate compile rewrote are ignored output', () => {
+		const w = clinic({ records: false });
+		ok(w.dt('add-field', 'health/visits', '--name', 'room', '--type', 'string'));
+		assert.deepEqual(git(w.root, ['show', '--name-only', '--format=', 'HEAD']).split('\n').filter(Boolean), [VISITS_FILE]);
+		assert.equal(git(w.root, ['check-ignore', 'CLAUDE.md']), 'CLAUDE.md');
 	});
 
 	test('a failed gate leaves the source byte-identical', () => {
@@ -444,6 +459,29 @@ describe('collections: add scaffolds v2, set writes v2 keys', () => {
 		ok(w.dt('move', 'collections/health/visits', '--after', 'health/doctors'));
 		assert.equal(w.doc(VISITS_FILE).display.nav.order, 15);
 		assert.match(w.text(VISITS_FILE), /^# A visit is the EVENT/m);
+	});
+});
+
+describe('module verbs write the snake_case manifest', () => {
+	test('set modules/<m> peer_collections writes the collection names', () => {
+		const w = clinic({ records: false });
+		ok(w.dt('set', 'modules/billing', 'peer_collections=collections/health/visits'));
+		const pkg = JSON.parse(readFile(w.root, 'modules/billing/package.json'));
+		assert.deepEqual(pkg.dreamteamer.peer_collections, ['health/visits']);
+		assert.equal(pkg.dreamteamer.peerDependencies, undefined);
+	});
+
+	test('rename modules leaves a `<kind>/<id>` disable entry alone — it names an entity, not a module', () => {
+		const w = clinic({ records: false });
+		const pkgFile = path.join(w.root, 'package.json');
+		const pkg = JSON.parse(fs.readFileSync(pkgFile, 'utf8'));
+		pkg.dreamteamer.disable = ['ui-views/by-patient'];
+		fs.writeFileSync(pkgFile, JSON.stringify(pkg, null, '\t') + '\n');
+		compileQuietly({ root: w.root, pkg });
+		git(w.root, ['commit', '-qam', 'fixture: disable']);
+		ok(w.dt('rename', 'modules/billing', 'claims'));
+		assert.deepEqual(JSON.parse(fs.readFileSync(pkgFile, 'utf8')).dreamteamer.disable, ['ui-views/by-patient']);
+		assert.ok(fs.existsSync(path.join(w.root, 'modules/claims/package.json')));
 	});
 });
 
