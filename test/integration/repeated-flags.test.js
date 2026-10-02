@@ -10,18 +10,14 @@ import assert from 'node:assert/strict';
 import { workspace } from '../helpers/ws.js';
 
 const NOTES = {
-	id: { generate: '{{ title | slug }}' },
+	ids: { from: '{{ title | slug }}' },
 	storage: { suffix: 'note' },
-	schema: {
-		type: 'object',
-		required: ['title'],
-		properties: {
-			title: { type: 'string' },
-			status: { type: 'string' },
-			owner: { type: 'string' },
-			tags: { type: 'array', items: { type: 'string' } },
-			body: { type: 'string', format: 'markdown', 'x-body': true },
-		},
+	fields: {
+		title: { type: 'string', required: true },
+		status: { type: 'string' },
+		owner: { type: 'string' },
+		tags: { type: 'string', many: true },
+		body: { type: 'markdown', body: true },
 	},
 };
 

@@ -15,19 +15,15 @@ import { workspace, simpleCollection, readFile, tree } from '../helpers/ws.js';
 import { renameCollection } from '../../src/schema-ops.js';
 import { load } from '../../src/yaml.js';
 
-const bodied = (props) => simpleCollection({
-	schema: {
-		type: 'object',
-		required: ['name'],
-		properties: { name: { type: 'string' }, notes: { type: 'string', format: 'markdown', 'x-body': true }, ...props },
-	},
+const bodied = (fields) => simpleCollection({
+	fields: { name: { type: 'string', required: true }, ...fields, notes: { type: 'markdown', body: true } },
 });
 
-const LEDGER = { ...bodied({ settles: { type: 'string', 'x-reference': 'ledger' } }), storage: { suffix: 'entry' } };
+const LEDGER = { ...bodied({ settles: { type: 'ledger' } }), storage: { suffix: 'entry' } };
 const MEMOS = {
 	...bodied({
-		entry: { type: 'string', 'x-reference': 'ledger' },
-		entries: { type: 'array', items: { type: 'string', 'x-reference': 'ledger' } },
+		entry: { type: 'ledger' },
+		entries: { type: 'ledger', many: true },
 	}),
 	storage: { suffix: 'memo' },
 };
@@ -91,11 +87,11 @@ describe('a collection rename rewrites every spelling of a reference', () => {
 		assert.match(two, /^ {2}- finance\/ledger\/beta$/m);
 		assert.doesNotMatch(two, /^ {2}- ledger\//m);
 
-		// 8. the x-reference targets in the descriptors — a different mechanism, unchanged by the batch
+		// 8. the reference types in the descriptors — a different mechanism, unchanged by the batch
 		// the round-trip writer quotes only what YAML requires, and `finance/ledger` is a plain scalar —
 		// so assert what it PARSES to rather than the spelling the old line editor happened to emit
 		assert.equal(load(readFile(ws.root, 'modules/default/collections/memos.collection.yaml'))
-			.schema.properties.entry['x-reference'], 'finance/ledger');
+			.fields.entry.type, 'finance/ledger');
 
 		// and the whole thing still validates
 		assert.equal(ws.dt('check').code, 0);
@@ -220,7 +216,9 @@ describe('the batch keeps the per-pair bookkeeping', () => {
 			const sequential = pairs.map(([o, n]) => one.store.rewriteRefs(o, n));
 			const batched = many.store.rewriteRefsBatch(pairs);
 
-			const bytes = (ws) => tree(ws.root, 'data').map((rel) => [rel, readFile(ws.root, rel)]);
+			// the `created` stamp is the second each fixture was seeded in, which the two need not share;
+			// it is no reference, so neither path ever touches it
+			const bytes = (ws) => tree(ws.root, 'data').map((rel) => [rel, readFile(ws.root, rel).replace(/^created: .*\n/m, '')]);
 			assert.deepEqual(bytes(many), bytes(one), `${pairs[0][1]}: the bytes on disk differ`);
 
 			// the two fixtures live in different tmp dirs, so compare by basename

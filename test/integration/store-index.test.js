@@ -119,7 +119,7 @@ describe('what it holds equals a cold rebuild', () => {
 
 describe('the HEAD memo is dropped by whatever moves HEAD', () => {
 	test('an auto-committed record write', () => {
-		const ws = base({ 'auto-commit': true });
+		const ws = base({ auto_commit: true });
 		ws.store.add('items', { name: 'One' });
 		assert.equal(ws.store.gitHead(), git(ws.root, ['rev-parse', 'HEAD']));
 	});
