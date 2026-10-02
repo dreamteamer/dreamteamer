@@ -11,29 +11,24 @@ import fs from 'node:fs';
 import { workspace, simpleCollection, readFile } from '../helpers/ws.js';
 
 const CONTACTS = {
-	id: { generate: '{{ name | slug }}' },
+	ids: { from: '{{ name | slug }}' },
 	storage: { suffix: 'contact' },
-	schema: {
-		type: 'object',
-		required: ['name'],
-		properties: {
-			name: { type: 'string' },
-			email: { type: 'string' },
-			position: { type: 'string' },
-		},
+	fields: {
+		name: { type: 'string', required: true },
+		email: { type: 'string' },
+		position: { type: 'string' },
 	},
 };
 
 // A path-shaped id AND a namespaced collection, together: `finance/transactions/2026/03/coffee` is
 // the reference that no first-slash split can read, and it is the reason splitRef exists.
 const TRANSACTIONS = {
-	id: { generate: '{{ month }}/{{ label | slug }}' },
+	ids: { from: '{{ month }}/{{ label | slug }}' },
 	storage: { suffix: 'txn' },
-	sort_field: 'position',
-	schema: {
-		type: 'object',
-		required: ['label', 'month'],
-		properties: { label: { type: 'string' }, month: { type: 'string' }, position: { type: 'string' } },
+	fields: {
+		label: { type: 'string', required: true },
+		month: { type: 'string', required: true },
+		position: { type: 'position' },
 	},
 };
 
@@ -64,7 +59,9 @@ describe('record verbs — dt <verb> <target>', () => {
 		ws.dt('add', 'contacts', '--name', 'Jane');
 		const res = ws.dt('get', 'contacts/jane', '--json');
 		assert.equal(res.code, 0, res.stderr);
-		assert.deepEqual(JSON.parse(res.stdout), { name: 'Jane', id: 'jane' });
+		const { created, ...rest } = JSON.parse(res.stdout);
+		assert.match(created, /^\d{4}-\d{2}-\d{2}T/, 'the store stamps `created` on add');
+		assert.deepEqual(rest, { name: 'Jane', id: 'jane' });
 	});
 
 	test('set takes a reference, then key=value pairs', () => {
@@ -117,21 +114,22 @@ describe('record verbs — dt <verb> <target>', () => {
 		assert.ok(JSON.parse(res.stdout).length >= 1, 'the commit must appear');
 	});
 
-	// `move` is the one record verb whose target is EITHER shape: a reference to place one record,
+	// `reorder` is the one record verb whose target is EITHER shape: a reference to place one record,
 	// or a bare collection to place all of them with --init.
-	test('move takes a reference, and --init takes the bare collection', () => {
+	test('reorder takes a reference, and --init takes the bare collection', () => {
 		const ws = workspace({
 			collections: {
-				ordered: simpleCollection({ storage: { suffix: 'ord' }, sort_field: 'position', schema: {
-					type: 'object', required: ['name'],
-					properties: { name: { type: 'string' }, position: { type: 'string' } },
+				ordered: simpleCollection({ storage: { suffix: 'ord' }, fields: {
+					name: { type: 'string', required: true },
+					position: { type: 'position' },
+					notes: { type: 'markdown', body: true },
 				} }),
 			},
 		});
 		ws.dt('add', 'ordered', '--name', 'Alpha');
 		ws.dt('add', 'ordered', '--name', 'Bravo');
-		assert.equal(ws.dt('move', 'ordered', '--init').code, 0);
-		const res = ws.dt('move', 'ordered/bravo', '--top');
+		assert.equal(ws.dt('reorder', 'ordered', '--init').code, 0);
+		const res = ws.dt('reorder', 'ordered/bravo', '--top');
 		assert.equal(res.code, 0, res.stderr);
 		const ids = JSON.parse(ws.dt('list', 'ordered', '--sort', 'position', '--json').stdout).map((r) => r.id);
 		assert.deepEqual(ids, ['bravo', 'alpha']);
@@ -192,11 +190,11 @@ describe('a namespaced collection, through every target shape', () => {
 		assert.deepEqual(JSON.parse(res.stdout).values.map((v) => v.value), ['2026/03']);
 	});
 
-	test('move --init takes the namespaced collection, and a reference places one record', () => {
+	test('reorder --init takes the namespaced collection, and a reference places one record', () => {
 		const ws = seeded();
-		const init = ws.dt('move', 'finance/transactions', '--init');
+		const init = ws.dt('reorder', 'finance/transactions', '--init');
 		assert.equal(init.code, 0, init.stderr);
-		const top = ws.dt('move', 'finance/transactions/2026/03/rent', '--top');
+		const top = ws.dt('reorder', 'finance/transactions/2026/03/rent', '--top');
 		assert.equal(top.code, 0, top.stderr);
 		const ids = JSON.parse(ws.dt('list', 'finance/transactions', '--sort', 'position', '--json').stdout)
 			.map((r) => r.id);
@@ -255,7 +253,7 @@ describe('system verbs — the SAME verbs, on the entities the compiler material
 	test('set-field retypes it', () => {
 		const ws = base();
 		assert.equal(ws.dt('add-field', 'contacts', '--name', 'tier', '--type', 'string').code, 0);
-		const res = ws.dt('set-field', 'contacts', '--name', 'tier', '--type', 'enum', '--options', 'a,b');
+		const res = ws.dt('set-field', 'contacts', '--name', 'tier', '--type', 'string', '--enum', 'a,b');
 		assert.equal(res.code, 0, res.stderr);
 		assert.match(readFile(ws.root, '.dreamteamer/collections/contacts.collection.yaml'), /enum/);
 	});
@@ -441,7 +439,7 @@ describe('workspace verbs keep their spellings', () => {
 			// succeeds — never with "unknown verb", which is the only failure this asserts against.
 			assert.doesNotMatch(res.stderr + res.stdout, new RegExp(`unknown verb "${verb}"`), `help documents \`${verb}\` but the dispatch does not know it`);
 		}
-		for (const verb of ['add', 'set', 'rm', 'rename', 'list', 'get', 'move', 'values', 'history', 'diff', 'revert', 'next', 'relations', 'resolve', 'add-field', 'set-field', 'rm-field', 'rename-field', 'init', 'install', 'update', 'compile', 'check', 'status', 'changes', 'commit', 'help']) {
+		for (const verb of ['add', 'set', 'rm', 'rename', 'list', 'get', 'reorder', 'values', 'history', 'diff', 'revert', 'next', 'relations', 'resolve', 'add-field', 'set-field', 'rm-field', 'rename-field', 'init', 'install', 'update', 'compile', 'check', 'status', 'changes', 'commit', 'help']) {
 			assert.ok(documented.has(verb), `\`${verb}\` dispatches but help does not document it`);
 		}
 	});
