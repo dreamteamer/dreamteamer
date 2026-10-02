@@ -9,11 +9,12 @@ import { Store, bodyField, serialize, atomicWrite } from './store.js';
 import { load, dump } from './yaml.js';
 import { slug } from './template.js';
 import {
-	createCollection, removeCollection, renameCollection, addField, updateField, removeField, fieldDef, statedKeywords, relationFlagsStated, saveUiView, removeUiView,
+	createCollection, removeCollection, renameCollection, addField, updateField, removeField, fieldFromFlags, saveUiView, removeUiView,
 	// was copy-pasted here, and the copy went stale the moment the source layout gained a second
 	// spelling — one implementation, two callers
 	workspaceSystemDir,
-	createModule, removeModule, renameModule, setModule, moveCollection, setCollectionScalars, collectionSourceFileFor, removeFieldPlan, renameField, renameFieldPlan,
+	createModule, removeModule, renameModule, setModule, moveCollection, setCollectionScalars, collectionSourceFileFor, renameField, renameFieldPlan,
+	renameValue, renameValuePlan,
 	createSkill, refuseHandAuthored, removeEntity, renameEntity, setEntityFrontmatter,
 } from './schema-ops.js';
 import { KINDS } from './compile.js';
@@ -28,7 +29,7 @@ import { ensureRepo, ensureAllRepos } from './init.js';
 import { expectedMirrors } from './relations.js';
 import { parseRecord } from './records.js';
 
-import { storageOf, jsonSchemaOf, recordTitleOf, positionFieldOf, fieldsOf, displayOf, storedFieldsOf } from './descriptor.js';
+import { storageOf, jsonSchemaOf, recordTitleOf, positionFieldOf, fieldsOf, displayOf, storedFieldsOf, targetsOf } from './descriptor.js';
 /**
  * Emit MACHINE-READABLE output synchronously. Use this for every `--json` payload.
  *
@@ -101,6 +102,7 @@ export function collectionCommand(ws, collection, verb, args) {
 	if (verb === 'set-field') return metaUpdateField(ws, store, collection, flags);
 	if (verb === 'rm-field') return metaRemoveField(ws, store, collection, flags);
 	if (verb === 'rename-field') return metaRenameField(ws, store, collection, flags);
+	if (verb === 'rename-value') return metaRenameValue(ws, store, collection, flags, pos);
 
 	// ---- the identity entities. §3.1's last row: `add` scaffolds a skill and is refused WITH THE
 	// PATH for the five hand-authored kinds; `set` edits frontmatter; `rm` and `rename` work on all
@@ -442,7 +444,7 @@ function reportCommits(commits) {
 	}
 }
 
-// `dreamteamer collections add --name research-docs --template docs`
+// `dreamteamer add collections --name research-docs --mixins docs --id-from '{{ created | date }}--{{ title | slug }}'`
 function metaCollectionsAdd(ws, store, flags) {
 	// ⚠ BEFORE the write, not after. `--namespace=` is the empty STRING (clear it); a bare
 	// `--namespace` parses as `true`, which is a mistake worth naming — and naming it AFTER the call
@@ -451,12 +453,12 @@ function metaCollectionsAdd(ws, store, flags) {
 	const moduleId = oneValue(flags, 'module');
 	const out = createCollection(ws, store, {
 		name: oneValue(flags, 'name'),
-		template: oneValue(flags, 'template'),
+		mixins: oneValue(flags, 'mixins'),
+		idFrom: oneValue(flags, 'id-from'),
 		namespace: flags.namespace,
 		moduleId,
 		description: oneValue(flags, 'description'),
 		suffix: oneValue(flags, 'suffix'),
-		id: oneValue(flags, 'id-shape'),
 	});
 	console.log(`✔ ${out.name}${out.inferred ? ` (namespace inferred from module ${moduleId})` : ''}`);
 	console.log(`✔ ${rel(ws.root, out.file)}`);
@@ -523,8 +525,8 @@ function metaCollectionsSet(ws, store, flags, pos) {
 function metaCollectionsMove(ws, store, flags, pos) {
 	const name = need(pos, 0, 'collection name');
 	store.descriptor(name);
-	const rows = [...store.readAll('collections')]
-		.map((r) => ({ id: r.id, order: typeof r.fields.order === 'number' ? r.fields.order : null }))
+	const rows = [...store.descriptors]
+		.map(([id, d]) => ({ id, order: typeof displayOf(d).nav?.order === 'number' ? displayOf(d).nav.order : null }))
 		.filter((r) => r.id !== name && r.order !== null)
 		.sort((a, b) => a.order - b.order);
 	const anchorId = oneValue(flags, 'after') ?? oneValue(flags, 'before');
@@ -536,7 +538,7 @@ function metaCollectionsMove(ws, store, flags, pos) {
 	} else {
 		if (!anchorId) throw new Error(`dt move collections/${name} needs --after <c> | --before <c> | --top | --bottom`);
 		const i = rows.findIndex((r) => r.id === anchorId);
-		if (i < 0) throw new Error(`"${anchorId}" has no \`order\` to sit beside — set one first (dreamteamer set collections/${anchorId} order=<n>), or use --top/--bottom.`);
+		if (i < 0) throw new Error(`"${anchorId}" has no \`display.nav.order\` to sit beside — set one first (dreamteamer set collections/${anchorId} display.nav.order=<n>), or use --top/--bottom.`);
 		const anchorOrder = rows[i].order;
 		const neighbour = flags.after ? rows[i + 1]?.order : rows[i - 1]?.order;
 		// a MIDPOINT when there is a neighbour, a step of 10 when the anchor is at the end — and
@@ -545,12 +547,12 @@ function metaCollectionsMove(ws, store, flags, pos) {
 			? (flags.after ? anchorOrder + 10 : anchorOrder - 10)
 			: Math.round((anchorOrder + neighbour) / 2);
 		if (next === anchorOrder || next === neighbour) {
-			throw new Error(`no room between ${anchorId} (${anchorOrder}) and its neighbour (${neighbour}) — the two are adjacent integers. Spread them first: dreamteamer set collections/${anchorId} order=<n>.`);
+			throw new Error(`no room between ${anchorId} (${anchorOrder}) and its neighbour (${neighbour}) — the two are adjacent integers. Spread them first: dreamteamer set collections/${anchorId} display.nav.order=<n>.`);
 		}
 	}
-	const out = setCollectionScalars(ws, store, name, { order: next });
+	const out = setCollectionScalars(ws, store, name, { 'display.nav.order': next });
 	if (flags.json) { emit(JSON.stringify({ ...out, order: next })); return 0; }
-	console.log(`✔ ${name} order=${next}`);
+	console.log(`✔ ${name} display.nav.order=${next}`);
 	console.log('✔ compiled — the nav order is live');
 	reportCommits(out.commits);
 	return 0;
@@ -618,21 +620,15 @@ function metaCollectionsRm(ws, store, flags, pos) {
 	return 0;
 }
 
-// `dreamteamer tasks add-field --name urgent --type boolean --default-value false`
+// `dreamteamer add-field health/visits --name kind --enum intake,follow-up --default-value follow-up`
 function metaAddField(ws, store, collection, flags) {
-	const prop = fieldDef(store, flags, collection);
-	// fieldDef DEFERS every relation flag it has no reference to attach to, because on set-field
-	// the target is carried in afterwards. add-field has nothing to carry, so a relation flag that
-	// landed nowhere is a mistake — refused here rather than written as a dead keyword.
-	const stray = (prop.items ?? prop)['x-reference'] === undefined && relationFlagsStated(flags);
-	if (stray) throw new Error(`--${stray} needs a --type <collection> reference.`);
-	const out = addField(ws, store, collection, { name: flags.name, prop, required: flags.required === 'true', moduleId: oneValue(flags, 'module') });
-	if (out.unchanged) return alreadyThat(`${collection}.${flags.name}`);
-	console.log(`✔ ${rel(ws.root, out.file)}${out.extends ? ` (extends ${out.extends})` : ''}`);
+	const field = fieldFromFlags(store, flags);
+	const out = addField(ws, store, collection, { name: oneValue(flags, 'name'), field, moduleId: oneValue(flags, 'module') });
+	if (out.unchanged) return alreadyThat(`${collection}.${out.field}`);
+	console.log(`✔ ${rel(ws.root, out.file)}${out.overlay ? ' (overlay)' : ''}`);
 	console.log('✔ compiled — the field is live');
 	reportCommits(out.commits);
-	reportMirror(store, collection, flags.name, out.prop);
-	reportDropped(out.dropped);
+	reportMirror(store, collection, out.field, out.value);
 	return 0;
 }
 
@@ -643,76 +639,56 @@ function alreadyThat(subject) {
 	return 0;
 }
 
-/** The other consequence a schema op can have on DATA: removing a relation leaves the values its
- *  mirror generated in every target record, in a field the schema no longer declares. The op cleans
- *  them up in its own commit (schema-ops `dropOrphanedMirrors`) — this says how many, because an
- *  operator told a mirror is gone needs to know records changed with it. */
-function reportDropped(dropped) {
-	for (const { target, mirror, records } of dropped ?? []) {
-		console.log(`  dropped the generated ${target}.${mirror} value from ${records} ${target} record${records === 1 ? '' : 's'}`);
-	}
+/** A mirror is only correct for records written AFTER it existed: the far side's records already
+ *  carrying a value are counted here, with the repair, because `check` flags every one of them the
+ *  moment the field lands. */
+function reportMirror(store, collection, fieldName, field) {
+	if (!field?.mirror_of) return;
+	const t = targetsOf(field);
+	const target = Array.isArray(t) ? t[0] : null;
+	if (!target || !store.descriptors.has(target)) return;
+	console.log(`  mirror of ${target}.${field.mirror_of}  (generated, read-only)`);
+	const n = [...store.readAll(target)].filter((r) => r.fields[field.mirror_of] != null).length;
+	if (n) console.log(`  ${n} ${target} ${n === 1 ? 'record carries' : 'records carry'} values — run: dreamteamer relations rebuild ${collection}`);
 }
 
-/** A relation writes a field onto ANOTHER collection — the one consequence of add-field/set-field
- *  that the written path above does not show. And the mirror is only correct for records written
- *  AFTER it existed, so records already carrying a value are counted here, with the repair: this is
- *  the migration path (a plain FK gains its mirror) and check flags every one of them the moment
- *  the field lands. */
-function reportMirror(store, collection, fieldName, prop) {
-	const holder = prop.items ?? prop;
-	if (!holder['x-inverse']) return;
-	const target = holder['x-reference'];
-	console.log(`  mirror: ${target}.${holder['x-inverse']}${holder['x-unique'] === true ? '' : '[]'}  (generated, read-only)`);
-	const n = [...store.readAll(collection)].filter((r) => r.fields[fieldName] != null).length;
-	if (n) console.log(`  ${n} ${collection} ${n === 1 ? 'record carries' : 'records carry'} values — run: dreamteamer relations rebuild ${target}`);
-}
-
-// `dreamteamer tasks set-field --name urgent --type enum --options a,b --required false`
-// Same flag vocabulary as add-field (one `fieldDef`), so the two read as one operation with two
-// preconditions rather than two dialects.
+// `dreamteamer set-field tasks --name urgent --required false`
+// Same flag vocabulary as add-field (one `fieldFromFlags`), applied over the field as its source
+// declares it: a flag that is not passed leaves its key alone.
 function metaUpdateField(ws, store, collection, flags) {
-	if (!flags.name) throw new Error('missing --name <field>');
-	const prop = fieldDef(store, flags, collection);
-	// tri-state: omitting --required leaves requiredness ALONE, rather than silently clearing it
-	const required = flags.required === undefined ? undefined : flags.required === 'true' || flags.required === true;
-	// `flags` for the VALUES and `stated` for what the caller meant to restate: updateField carries
-	// every unstated relation keyword forward from the previous prop.
-	const out = updateField(ws, store, collection, flags.name, { prop, required, flags, stated: statedKeywords(flags), moduleId: oneValue(flags, 'module') });
-	if (out.unchanged) return alreadyThat(`${collection}.${flags.name}`);
-	console.log(`✔ ${rel(ws.root, out.file)}${out.extends ? ` (extends ${out.extends})` : ''}`);
+	const name = oneValue(flags, 'name');
+	if (!name) throw new Error('missing --name <field>');
+	const out = updateField(ws, store, collection, name, { flags, moduleId: oneValue(flags, 'module') });
+	if (out.unchanged) return alreadyThat(`${collection}.${name}`);
+	console.log(`✔ ${rel(ws.root, out.file)}${out.overlay ? ' (overlay)' : ''}`);
 	console.log('✔ compiled — the field is updated');
 	reportCommits(out.commits);
-	reportDropped(out.dropped);
-	// off `out.prop`, never the one passed in: updateField reassigns it when it rebuilds a carried
-	// reference as an array, and reporting off the stale object printed nothing on exactly the
-	// migration path where check fails on the very next command.
-	reportMirror(store, collection, flags.name, out.prop);
+	reportMirror(store, collection, name, out.value);
 	return 0;
 }
 
-// `dreamteamer tasks rm-field --name urgent`
+/** The positions a positional verb rewrites (or refuses on), one line each — what `--dry-run` is
+ *  for: the operator reads WHERE before deciding. */
+function positionLines(positions) {
+	return positions.map((p) => `${p.fixed ? '  ' : '✖ '}${p.rel}  ${p.at}${p.fixed ? '' : ` — ${p.why}`}`);
+}
+
+// `dreamteamer rm-field tasks --name urgent`
 function metaRemoveField(ws, store, collection, flags) {
-	const name = flags.name ?? flags.field;
+	const name = oneValue(flags, 'name');
 	if (!name) throw new Error('missing --name <field>');
 	const moduleId = oneValue(flags, 'module');
 	if (flags['dry-run']) {
-		const plan = removeFieldPlan(store, collection, name);
-		return dryRunPlan(`rm-field ${collection} --name ${name}`, plan, [plan.staleViews.length ? `ui-views still listing it as a column: ${plan.staleViews.join(', ')}` : null]);
+		const plan = removeField(ws, store, collection, name, { moduleId, dryRun: true });
+		return dryRunPlan(`rm-field ${collection} --name ${name}`, plan, [...positionLines(plan.positions), ...positionLines(plan.blocking)]);
 	}
 	const out = removeField(ws, store, collection, name, { moduleId });
 	flags.json ? emit(JSON.stringify(out)) : console.log(`✔ removed field ${collection}.${out.removed}`);
 	console.log('✔ compiled — the field is gone');
 	reportCommits(out.commits);
-	if (!flags.json) {
-		// The field's own VALUES went with it, and that has to be said out loud: it is the destructive
-		// half of a destructive verb, and a silent deletion is a different act from a reported one.
-		if (out.cleared) console.log(`  cleared its values from ${out.cleared} ${collection} record${out.cleared === 1 ? '' : 's'} (git holds them: git show HEAD~1)`);
-		reportDropped(out.dropped);
-		// This descriptor's own `list_fields`/`sort_field` were pruned with the field; a ui-view is a
-		// source this verb does not own, so it is NAMED rather than edited — and naming it is the whole
-		// point, since a column of a field that no longer exists renders as an empty one.
-		if (out.staleViews?.length) console.warn(`⚠ still listing ${collection}.${name} as a column: ${out.staleViews.join(', ')} — edit with \`dreamteamer set ui-views/<id> options.columns=…\``);
-	}
+	// The field's own VALUES went with it, and that has to be said out loud: it is the destructive
+	// half of a destructive verb, and a silent deletion is a different act from a reported one.
+	if (!flags.json && out.cleared) console.log(`  cleared its values from ${out.cleared} ${collection} record${out.cleared === 1 ? '' : 's'} (git holds them: git show HEAD~1)`);
 	return 0;
 }
 
@@ -784,24 +760,31 @@ function sourceHintFor(store, collection) {
 
 // `dreamteamer rename-field people --name employer --to company`
 function metaRenameField(ws, store, collection, flags) {
-	const from = oneValue(flags, 'name') ?? oneValue(flags, 'field');
+	const from = oneValue(flags, 'name');
 	if (!from) throw new Error(`missing --name <field>: dreamteamer rename-field ${collection} --name <field> --to <new-name>`);
 	const to = oneValue(flags, 'to');
-	if (flags['dry-run']) {
-		const plan = renameFieldPlan(store, collection, from);
-		// ⚠ The same honesty the `rename collections` dry run needs, for the same reason: a number the
-		// plan cannot know is worse than a stated gap.
-		return dryRunPlan(`rename-field ${collection} --name ${from} --to ${to ?? '<new-name>'}`, plan, [
-			'descriptors, ui-views and command-bindings naming it are counted by the real run —',
-			'the rewrite is what discovers which of them carry the name',
-		]);
-	}
-	const out = renameField(ws, store, collection, from, to, { moduleId: oneValue(flags, 'module') });
+	const out = renameField(ws, store, collection, from, to, { dryRun: !!flags['dry-run'] });
 	if (flags.json) { emit(JSON.stringify(out)); return 0; }
+	if (out.dryRun) return dryRunPlan(`rename-field ${collection} --name ${from} --to ${to ?? '<new-name>'}`, out, positionLines(out.positions));
 	if (!out.renamed) { console.log(`✔ ${collection}.${from} — already named that, nothing to do`); return 0; }
 	console.log(`✔ ${collection}.${out.from} → ${collection}.${out.to}`);
 	console.log(`  records  ${out.records} rewritten`);
-	for (const f of out.surfaces) console.log(`  source   ${f}`);
+	for (const line of positionLines(out.positions)) console.log(line);
+	console.log('✔ compiled — the rename is live, in ONE commit');
+	reportCommits(out.commits);
+	return 0;
+}
+
+// `dreamteamer rename-value health/visits status seen done`
+function metaRenameValue(ws, store, collection, flags, pos) {
+	const [field, from, to] = pos;
+	if (!field || from === undefined || to === undefined || pos.length > 3) throw new Error(`usage: dreamteamer rename-value ${collection} <field> <old> <new> [--dry-run]`);
+	const out = renameValue(ws, store, collection, field, from, to, { dryRun: !!flags['dry-run'] });
+	if (flags.json) { emit(JSON.stringify(out)); return 0; }
+	if (out.dryRun) return dryRunPlan(`rename-value ${collection} ${field} ${from} ${to}`, out, positionLines(out.positions));
+	console.log(`✔ ${collection}.${field}: ${from} → ${to}`);
+	console.log(`  records  ${out.records} rewritten`);
+	for (const line of positionLines(out.positions)) console.log(line);
 	console.log('✔ compiled — the rename is live, in ONE commit');
 	reportCommits(out.commits);
 	return 0;
@@ -1249,12 +1232,12 @@ function rel(root, p) {
  *
  * ⚠ A REFUSAL THAT REJECTS A VALID FLAG IS WORSE THAN THE SILENCE IT REPLACES, which is why a verb
  * with no table entry is left exactly as it was rather than being guessed at — and why the field
- * verbs' row is the whole `fieldDef` vocabulary, read off nothing, so a flag added there has to be
+ * verbs' row is the whole `fieldFromFlags` vocabulary, read off nothing, so a flag added there has to be
  * added here too or its own test fails.
  *
  * A key is `<collection>:<verb>` where the system entity has its own interceptor, `<verb>` otherwise.
  */
-export const FIELD_FLAGS = ['json', 'module', 'name', 'field', 'type', 'options', 'default-value', 'default', 'required', 'description', 'many', 'inverse', 'inverse-description', 'unique', 'body', 'sensitive', 'on-delete', 'mirror-of', 'target'];
+export const FIELD_FLAGS = ['json', 'module', 'name', 'type', 'enum', 'default-value', 'default', 'required', 'description', 'many', 'unique', 'body', 'sensitive', 'on-delete', 'mirror-of'];
 const JSON_ONLY = ['json'];
 const FORCE_RM = ['json', 'force', 'dry-run'];
 const NAV_MOVE = ['json', 'after', 'before', 'top', 'bottom'];
@@ -1265,9 +1248,10 @@ export const VERB_FLAGS = {
 	history: JSON_ONLY, diff: ['json', 'hash'], revert: ['json', 'hash'],
 	ensure: ['json', 'all'], for: ['json', 'ids'], relations: JSON_ONLY, rebuild: ['json', 'drop'],
 	'add-field': FIELD_FLAGS, 'set-field': FIELD_FLAGS,
-	'rm-field': ['json', 'module', 'name', 'field', 'dry-run'],
-	'rename-field': ['json', 'module', 'name', 'field', 'to', 'dry-run'],
-	'collections:add': ['json', 'module', 'name', 'namespace', 'template', 'description', 'suffix', 'id-shape'],
+	'rm-field': ['json', 'module', 'name', 'dry-run'],
+	'rename-field': ['json', 'name', 'to', 'dry-run'],
+	'rename-value': ['json', 'dry-run'],
+	'collections:add': ['json', 'module', 'name', 'namespace', 'mixins', 'id-from', 'description', 'suffix'],
 	'collections:get': ['json', 'module'], 'collections:set': ['json', 'module', 'dry-run'],
 	'collections:rm': FORCE_RM, 'collections:rename': ['json', 'namespace', 'dry-run'], 'collections:move': NAV_MOVE,
 	'modules:add': ['json', 'name', 'description', 'namespace'], 'modules:rename': JSON_ONLY, 'modules:rm': FORCE_RM,
@@ -1324,7 +1308,7 @@ export function refuseUnknownFlags(store, collection, verb, flags) {
 	// keeps its own message, which names both spellings of the fix. ⚠ THE FIELD VERBS COUNT AS SCHEMA
 	// VERBS EVEN THOUGH THEIR TARGET IS A DATA COLLECTION — `add-field notes --name x --name y` is the
 	// case the old helper was written for, and keying the rule on the target alone excused it.
-	if (collection === 'ui-views' || (!system && !verb.endsWith('-field'))) return;
+	if (collection === 'ui-views' || (!system && !verb.endsWith('-field') && verb !== 'rename-value')) return;
 	const dup = Object.entries(flags).find(([, v]) => Array.isArray(v));
 	if (dup) throw new Error(`--${dup[0]} was given ${dup[1].length} times, and a schema verb takes ONE value per flag: ${dup[1].map((x) => `--${dup[0]} ${x}`).join(' ')}`);
 }

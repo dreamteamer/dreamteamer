@@ -106,8 +106,8 @@ difference in POLICY, not in spelling: a SYSTEM write commits itself, because an
 unpublished schema is not a state a workspace should sit in; a RECORD write does not — \`commit\`
 publishes it. The commit lands in the repo that holds the source, so a write into a git module
 commits there.
-  add    collections --name <name> [--module <m>] [--namespace <ns>] [--template docs|entity]
-                                              [--description "…"] [--suffix <s>] [--id-shape dated|slug]
+  add    collections --name <name> [--module <m>] [--namespace <ns>] [--mixins docs,…]
+                                              [--id-from '{{ … }}'] [--description "…"] [--suffix <s>]
                                               (--namespace health --name doctors === --name
                                                health/doctors; a module declaring exactly ONE
                                                namespace infers it, and the resolved name is echoed.
@@ -123,8 +123,10 @@ commits there.
   add    ui-views --path </route> --target list --collection collections/<c> --layout <id>
                                               [--id <id>] [k.v=…]
   set    <system>/<id> <field>=<value> …      (collections: description · use_when · title ·
-                                               title_template · icon · group · list_fields ·
-                                               sort_field · order, plus module=<m>, which MOVES it.
+                                               singular · record_title · sensitive · internal ·
+                                               display.nav.icon · display.nav.order ·
+                                               display.nav.section · display.list.columns ·
+                                               display.list.sort, plus module=<m>, which MOVES it.
                                                modules: description · namespaces · dependencies ·
                                                peerDependencies, record-shaped (modules/core).
                                                ui-views: dotted keys — options.sort=-date. An empty
@@ -143,38 +145,40 @@ commits there.
 
 field verbs — a field is the one sub-entity, and it has verbs of its own (there is no \`fields\`
 collection: the ENGINE does not read one, and \`rename-field\` was the only capability it would buy):
-  add-field    <collection> --name <field> --type <type> [--options a,b] [--default-value v]
-                            [--required true] [--description "…"] [--many] [--inverse [name]]
-                            [--inverse-description "…"] [--unique] [--body] [--sensitive] [--module <m>]
-                            [--on-delete restrict|set-null] [--mirror-of <collection>.<field>]
-                            types: string text markdown boolean number integer date datetime
-                                   enum tags <collection> — a date-time may be written as
-                                   "2026-07-28 12:00" or "2026-07-28T12:00"; the local offset is
-                                   stamped on for you (2026-07-28T12:00:00+03:00)
-                            --inverse declares the two-way mirror on the target; --mirror-of
-                            declares it from this side instead — there is no wrong side.
+  add-field    <collection> --name <field> [--type <type>] [--many] [--required]
+                            [--enum a,b] [--default-value v] [--unique] [--mirror-of <field>]
+                            [--on-delete restrict|set-null] [--sensitive] [--body]
+                            [--description "…"] [--module <m>]
+                            types: string markdown boolean integer number date datetime url email
+                                   reference map position, a collection name (a reference), or
+                                   a,b for a union of collections (an object's sub-fields are
+                                   authored in the descriptor). --many makes it a list; a
+                                   date-time may be written as "2026-07-28 12:00" and the local
+                                   offset is stamped on for you.
+                            --mirror-of <field> makes this the generated, read-only mirror of the
+                            --type collection's <field>, which references this one; a unique key
+                            mirrors as one record, any other as a list.
                             --body marks the field a record's PROSE lands in (the text after the
-                            frontmatter). One per collection, and a relation mirror needs the
-                            target to have one.
-                            --module writes an OVERLAY in that module (it must declare the base's
-                            module in dreamteamer.dependencies).
-  set-field    <collection> --name <field> [--type <type>] [--options a,b] [--default-value v]
-                            [--required true|false] [--description "…"] [--body true|false] [--sensitive true|false]
-                            [--many] [--inverse [name]] [--unique] [--module <m>]
-                            [--on-delete restrict|set-null] [--mirror-of <collection>.<field>]
-                            (an existing description survives a retype, and so does every relation
-                             keyword you do not restate. --inverse on an EXISTING reference is the
-                             migration: a plain foreign key gains its two-way mirror without
-                             restating --type. --inverse= drops the mirror; --unique false clears
-                             the one-to-one. Records written before the mirror existed are counted
-                             for you, with the "relations rebuild" that repairs them.)
+                            frontmatter): --type markdown, one per collection, and it stays last.
+                            A field the collection's module does not own lands in an OVERLAY
+                            (--module names the module; it must depend on the owner).
+  set-field    <collection> --name <field> [the add-field flags] [--module <m>]
+                            (each flag changes the key it names and nothing else; an empty value
+                             clears it — --enum= --default-value= — and false clears a switch —
+                             --unique false. set-field never moves a field.)
   rm-field     <collection> --name <field> [--module <m>] [--dry-run]
-                            (clears the field's VALUES in the same write, and reports the count)
-  rename-field <collection> --name <field> --to <new-name> [--module <m>] [--dry-run]
-                            (rewrites the key in every record AND everywhere a descriptor or view
-                             names the field: list_fields, sort_field, x-inverse, x-inverse-of,
-                             title_template, id.generate, a ui-view's options.columns and filter,
-                             and a command-binding's can-enter/can-exit. ONE commit)
+                            (clears the field's VALUES in the same write, and reports the count;
+                             prunes it from its own columns, sort, badge and sections, and refuses
+                             naming every other position that still names it)
+  rename-field <collection> --name <field> --to <new-name> [--dry-run]
+                            (rewrites the key in every record AND every position that names the
+                             field: the collection's sources, templates, ids.from, display,
+                             constraints, storage.under.parent, a mirror's mirror_of, a ui-view's
+                             filter and display, a binding's conditions. ONE commit; a position it
+                             cannot rewrite is refused by name, and --dry-run lists each one)
+  rename-value <collection> <field> <old> <new> [--dry-run]
+                            (renames one enum value: the enum, its default, a constraint's const or
+                             enum, view filters, binding conditions and every record. ONE commit)
 
 Every <collection> above may be spelled in the SINGULAR: dt add task …, dt get task/<id>,
 dt list meeting-analysis, dt add-field task …. The singular is derived from the descriptor
@@ -243,7 +247,7 @@ const EITHER_VERBS = new Set(['move', 'next']);
 // that differs from the record verbs — so they get their own case arm rather than being folded into
 // `dispatchRecordVerb`. There is no `schema <op>` table any more: system entities take the record
 // verbs, and `collectionCommand`'s interceptors are the whole dispatch (§4).
-const FIELD_VERBS = ['add-field', 'set-field', 'rm-field', 'rename-field'];
+const FIELD_VERBS = ['add-field', 'set-field', 'rm-field', 'rename-field', 'rename-value'];
 
 // WORKSPACE VERBS take a closed set of options, and nothing downstream of here would notice a
 // misspelling — `dt commit --dryrun` COMMITTED, because `rest.includes('--dry-run')` is false for a
@@ -272,7 +276,7 @@ export const WORKSPACE_FLAGS = {
 export const CORE_VERBS = [
 	'init', 'install', 'update', 'compile', 'check', 'doctor', 'status', 'changes', 'commit', 'help', 'version', '--version', '-v',
 	'list', 'add', 'values', 'get', 'set', 'rm', 'rename', 'history', 'diff', 'revert', 'move', 'next',
-	'add-field', 'set-field', 'rm-field', 'rename-field', 'relations', 'resolve', 'relocate',
+	'add-field', 'set-field', 'rm-field', 'rename-field', 'rename-value', 'relations', 'resolve', 'relocate',
 	'schema', 'ensure', 'update-field', 'remove-field', 'commands',
 ];
 
@@ -561,7 +565,7 @@ export async function run(argv) {
 			// must fail loudly, because a half-working grammar teaches the wrong shape without ever
 			// saying so. The `default` arm below names each one — `schema`, `ensure`, `update-field`,
 			// `remove-field`, `commands` — and carries its replacement.
-			case 'add-field': case 'set-field': case 'rm-field': case 'rename-field': {
+			case 'add-field': case 'set-field': case 'rm-field': case 'rename-field': case 'rename-value': {
 				warnIfStale(ws.root);
 				const [target, ...flagArgs] = rest;
 				if (!target || target.startsWith('--')) {
