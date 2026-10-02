@@ -17,6 +17,9 @@ import { load, dump } from '../../src/yaml.js';
 
 const modulePkg = (ws, id) => JSON.parse(readFile(ws.root, `modules/${id}/package.json`));
 
+// hr's overlay on core's `people` — a second source of the same collection, marked `overlay: true`
+const OVERLAY = 'name: people\noverlay: true\nfields:\n  badge:\n    type: string\n';
+
 describe('dt add modules', () => {
 	test('scaffolds the folder, every kind dir, and a package.json that compiles', () => {
 		const ws = twoModuleWorkspace();
@@ -26,7 +29,7 @@ describe('dt add modules', () => {
 		const pkg = modulePkg(ws, 'payroll');
 		assert.equal(pkg.name, 'payroll', 'folder = package name = id, so a new module never forks');
 		assert.equal(pkg.dreamteamer.description, 'What people are paid.');
-		assert.deepEqual(pkg.files, ['collections', 'skills', 'agents', 'commands', 'command-bindings', 'ui-views', 'collection-templates', 'mixins']);
+		assert.deepEqual(pkg.files, ['collections', 'skills', 'agents', 'commands', 'command-bindings', 'ui-views', 'mixins']);
 		for (const kind of pkg.files) {
 			assert.ok(fs.existsSync(path.join(ws.root, 'modules/payroll', kind)), `${kind}/ is scaffolded`);
 		}
@@ -82,15 +85,15 @@ describe('dt add modules', () => {
 });
 
 describe('dt set modules/<id>', () => {
-	test('writes description, dependencies and peerDependencies in record-shaped values', () => {
+	test('writes description, dependencies and peer_dependencies in record-shaped values', () => {
 		const ws = twoModuleWorkspace();
 		const res = ws.dt('set', 'modules/hr', 'description=Roles, headcount and grades.',
-			'dependencies=modules/core', 'peerDependencies=collections/people');
+			'dependencies=modules/core', 'peer_dependencies=collections/people');
 		assert.equal(res.code, 0, res.stdout + res.stderr);
 		const dt = modulePkg(ws, 'hr').dreamteamer;
 		assert.equal(dt.description, 'Roles, headcount and grades.');
 		assert.deepEqual(dt.dependencies, ['core'], 'the record form is translated to the package-name form the source uses');
-		assert.deepEqual(dt.peerDependencies, ['people'], 'a peer names a COLLECTION, bare');
+		assert.deepEqual(dt.peer_collections, ['people'], 'a peer names a COLLECTION, bare, under the package key peer_collections');
 		const rec = JSON.parse(ws.dt('get', 'modules/hr', '--json').stdout);
 		assert.deepEqual(rec.dependencies, ['modules/core']);
 	});
@@ -186,13 +189,13 @@ describe('dt rm modules/<id>', () => {
 });
 
 describe('dt rename modules/<old> <new>', () => {
-	test('rewrites folder, package name, dependencies, extends and record refs in ONE commit', () => {
+	test('rewrites folder, package name, dependencies and record refs in ONE commit, and an overlay needs no rewrite', () => {
 		const ws = twoModuleWorkspace();
 		assert.equal(ws.dt('set', 'modules/hr', 'dependencies=modules/core').code, 0);
-		// an overlay in hr on core's `people`, so the `extends` rewrite has something to do
+		// an overlay in hr on core's `people`: it names the collection, never the module, so the rename
+		// leaves it byte-for-byte alone and it still compiles onto the renamed base
 		fs.mkdirSync(path.join(ws.root, 'modules/hr/collections'), { recursive: true });
-		fs.writeFileSync(path.join(ws.root, 'modules/hr/collections/people.collection.yaml'),
-			'name: people\nextends: core/people\nschema:\n  properties:\n    badge: { type: string }\n');
+		fs.writeFileSync(path.join(ws.root, 'modules/hr/collections/people.collection.yaml'), OVERLAY);
 		assert.equal(ws.dt('compile').code, 0);
 		const before = ws.git(['rev-parse', 'HEAD']);
 
@@ -202,29 +205,17 @@ describe('dt rename modules/<old> <new>', () => {
 		assert.equal(fs.existsSync(path.join(ws.root, 'modules', 'core')), false);
 		assert.equal(modulePkg(ws, 'shared').name, 'shared');
 		assert.deepEqual(modulePkg(ws, 'hr').dreamteamer.dependencies, ['shared']);
-		assert.equal(load(readFile(ws.root, 'modules/hr/collections/people.collection.yaml')).extends, 'shared/people');
+		assert.equal(readFile(ws.root, 'modules/hr/collections/people.collection.yaml'), OVERLAY);
 		assert.equal(ws.dt('compile').code, 0);
 		assert.equal(ws.dt('check').code, 0);
 		assert.equal(ws.git(['rev-list', '--count', `${before}..HEAD`]), '1', 'ONE commit');
 	});
 
-	test('a `disable` entry naming the module follows the rename', () => {
-		const ws = twoModuleWorkspace();
-		const pkgFile = path.join(ws.root, 'package.json');
-		const pkg = JSON.parse(fs.readFileSync(pkgFile, 'utf8'));
-		pkg.dreamteamer.disable = ['core/teams'];
-		fs.writeFileSync(pkgFile, JSON.stringify(pkg, null, '\t') + '\n');
-		assert.equal(ws.dt('compile').code, 0);
-		assert.equal(ws.dt('rename', 'modules/core', 'shared').code, 0);
-		assert.deepEqual(JSON.parse(fs.readFileSync(pkgFile, 'utf8')).dreamteamer.disable, ['shared/teams']);
-		assert.equal(ws.dt('compile').code, 0);
-	});
-
-	test('renaming the workspace module moves the workspace-module key with it', () => {
+	test('renaming the workspace module moves the workspace_module key with it', () => {
 		const ws = twoModuleWorkspace();
 		assert.equal(ws.dt('rename', 'modules/default', 'commons').code, 0);
 		const pkg = JSON.parse(readFile(ws.root, 'package.json'));
-		assert.equal(pkg.dreamteamer['workspace-module'], 'commons');
+		assert.equal(pkg.dreamteamer.workspace_module, 'commons');
 		assert.equal(ws.dt('compile').code, 0);
 		assert.equal(ws.dt('check').code, 0);
 	});
@@ -273,7 +264,7 @@ describe('location — the folder the operator already knows (§10)', () => {
 	test('the enum has no `path` value — discovery never emitted one', () => {
 		const ws = twoModuleWorkspace();
 		const d = load(readFile(ws.root, '.dreamteamer/collections/modules.collection.yaml'));
-		assert.deepEqual(d.schema.properties.location.enum, ['modules', 'git_modules', 'node_modules', 'root']);
+		assert.deepEqual(d.compiled.fields.location.enum, ['modules', 'git_modules', 'node_modules', 'root']);
 	});
 
 	test('the manifest carries BOTH keys for one release', () => {

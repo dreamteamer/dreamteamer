@@ -1,56 +1,59 @@
 // Tier 2 — a collection's OWNING MODULE as data, and moving it as a field write.
 //
-// §7: "move a collection to another module" is `dt set collections/teams module=hr`, not `move` —
-// `move` is nav ordering, and `order` is a settable scalar now, so `dt move collections/teams
-// --after tasks` means exactly that. The move relocates the descriptor SOURCE and leaves the
-// RECORDS where they are: a namespace and a `storage.path` are properties of the collection, not of
-// the module, so a move never changes an id.
+// §7: "move a collection to another module" is `dt set collections/teams module=hr`; nav ordering
+// is a different act, `dt reorder collections/teams --after tasks`. The move relocates the
+// descriptor SOURCE and leaves the RECORDS where they are: a namespace and a `storage.path` are
+// properties of the collection, not of the module, so a move never changes an id.
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { twoModuleWorkspace, patchModulePkg, readFile } from '../helpers/ws.js';
+import { twoModuleWorkspace, patchModulePkg, readFile, WS_MODULE } from '../helpers/ws.js';
 import { load } from '../../src/yaml.js';
+import { moduleOf, overlaidByOf, storageOf, fieldsOf } from '../../src/descriptor.js';
 
 const compiled = (ws, name) => load(readFile(ws.root, `.dreamteamer/collections/${name}.collection.yaml`));
 
+// hr's overlay on core's `people` — a second source of the same collection, marked `overlay: true`
+const PEOPLE_OVERLAY = 'name: people\noverlay: true\nfields:\n  badge:\n    type: string\n';
+// the workspace module's overlay on core's `teams`
+const TEAMS_OVERLAY = 'name: teams\noverlay: true\nfields:\n  tag:\n    type: string\n';
+
 describe('provenance is DATA on the compiled descriptor', () => {
-	test('module names the owner as a bare id, and owner keeps its reference form for one release', () => {
+	test('module names the owner as a bare id', () => {
 		const ws = twoModuleWorkspace();
 		const d = compiled(ws, 'people');
-		assert.equal(d.module, 'core', 'the id the operator types — `--module core`, `modules/core`');
-		assert.equal(d.owner, 'modules/core', 'the pre-0.19 reference form, kept one release for the extension');
-		assert.equal(d.overlays, undefined, 'no overlays means the key is ABSENT, not an empty list');
+		assert.equal(moduleOf(d), 'core', 'the id the operator types — `--module core`, `modules/core`');
+		assert.equal(d.owner, undefined, 'the reference form is not written — `compiled.module` is the one spelling');
+		assert.deepEqual(overlaidByOf(d), [], 'no overlays');
 	});
 
 	test('an overlay is visible, and the BASE still owns the concept', () => {
 		const ws = twoModuleWorkspace();
-		patchModulePkg(ws.root, 'hr', { dependencies: ['core'], peerDependencies: ['people'] });
-		fs.writeFileSync(path.join(ws.root, 'modules/hr/collections/people.collection.yaml'),
-			'name: people\nextends: core/people\nschema:\n  properties:\n    badge: { type: string }\n');
+		patchModulePkg(ws.root, 'hr', { dependencies: ['core'], peer_collections: ['people'] });
+		fs.writeFileSync(path.join(ws.root, 'modules/hr/collections/people.collection.yaml'), PEOPLE_OVERLAY);
 		assert.equal(ws.dt('compile').code, 0);
 		const d = compiled(ws, 'people');
-		assert.equal(d.module, 'core', 'an overlay adds fields to somebody else\'s collection; it does not take it over');
-		assert.deepEqual(d.overlays, ['hr']);
-		assert.equal(d.schema.properties.badge.type, 'string');
+		assert.equal(moduleOf(d), 'core', 'an overlay adds fields to somebody else\'s collection; it does not take it over');
+		assert.deepEqual(overlaidByOf(d), ['hr']);
+		assert.equal(fieldsOf(d).badge.type, 'string');
 	});
 
 	test('dt get collections/<c> shows module and overlays', () => {
 		const ws = twoModuleWorkspace();
 		const rec = JSON.parse(ws.dt('get', 'collections/people', '--json').stdout);
-		assert.equal(rec.module, 'core');
+		assert.equal(moduleOf(rec), 'core', 'the record is the compiled descriptor, so the owner is compiled.module');
 	});
 
 	test('dt get collections/<c> --module <m> prints THAT module\'s source contribution alone', () => {
 		const ws = twoModuleWorkspace();
-		patchModulePkg(ws.root, 'hr', { dependencies: ['core'], peerDependencies: ['people'] });
-		fs.writeFileSync(path.join(ws.root, 'modules/hr/collections/people.collection.yaml'),
-			'name: people\nextends: core/people\nschema:\n  properties:\n    badge: { type: string }\n');
+		patchModulePkg(ws.root, 'hr', { dependencies: ['core'], peer_collections: ['people'] });
+		fs.writeFileSync(path.join(ws.root, 'modules/hr/collections/people.collection.yaml'), PEOPLE_OVERLAY);
 		assert.equal(ws.dt('compile').code, 0);
 		const own = JSON.parse(ws.dt('get', 'collections/people', '--module', 'hr', '--json').stdout);
-		assert.deepEqual(Object.keys(own.schema.properties), ['badge'],
+		assert.deepEqual(Object.keys(own.fields), ['badge'],
 			'the OVERLAY\'s contribution, not the merged descriptor');
-		assert.equal(own.extends, 'core/people');
+		assert.equal(own.overlay, true);
 	});
 });
 
@@ -66,8 +69,8 @@ describe('dt set collections/<c> module=<m> — the move', () => {
 		assert.ok(readFile(ws.root, 'modules/hr/collections/teams.collection.yaml'), 'descriptor moved');
 		assert.equal(readFile(ws.root, 'modules/core/collections/teams.collection.yaml'), null);
 		assert.ok(readFile(ws.root, 'data/teams/platform.team.md'), 'records stay — a move never changes an id');
-		assert.equal(compiled(ws, 'teams').module, 'hr');
-		assert.equal(compiled(ws, 'teams').storage.path, 'data/teams');
+		assert.equal(moduleOf(compiled(ws, 'teams')), 'hr');
+		assert.equal(storageOf(compiled(ws, 'teams')).path, 'data/teams');
 		assert.equal(ws.dt('check').code, 0);
 		assert.equal(ws.git(['rev-list', '--count', `${before}..HEAD`]), '1', 'ONE commit');
 	});
@@ -76,7 +79,7 @@ describe('dt set collections/<c> module=<m> — the move', () => {
 		const ws = twoModuleWorkspace();
 		ws.dt('add', 'hr/positions', '--name', 'Engineer');
 		// §8: `hr` is hr's namespace, so core must DEPEND on hr to ship a collection inside it —
-		// the same rule `extends` has. The move is legal once that is declared.
+		// the same rule an overlay has. The move is legal once that is declared.
 		patchModulePkg(ws.root, 'core', { dependencies: ['hr'] });
 		assert.equal(ws.dt('compile').code, 0);
 		const moved = ws.dt('set', 'collections/hr/positions', 'module=core');
@@ -84,20 +87,20 @@ describe('dt set collections/<c> module=<m> — the move', () => {
 		assert.ok(readFile(ws.root, 'modules/core/collections/hr/positions.collection.yaml'),
 			'the nested source path follows the collection NAME, not the module');
 		assert.ok(readFile(ws.root, 'data/hr/positions/engineer.position.md'));
-		assert.equal(compiled(ws, 'hr/positions').storage.path, 'data/hr/positions');
+		assert.equal(storageOf(compiled(ws, 'hr/positions')).path, 'data/hr/positions');
 	});
 
-	test('an overlay\'s extends follows the base, in the same commit', () => {
+	test('an overlay names no module, so moving its base leaves it untouched', () => {
 		const ws = twoModuleWorkspace();
 		patchModulePkg(ws.root, 'default', { dependencies: ['core'] });
-		fs.writeFileSync(path.join(ws.root, 'modules/default/collections/teams.collection.yaml'),
-			'name: teams\nextends: core/teams\nschema:\n  properties:\n    tag: { type: string }\n');
+		fs.writeFileSync(path.join(ws.root, 'modules/default/collections/teams.collection.yaml'), TEAMS_OVERLAY);
 		assert.equal(ws.dt('compile').code, 0);
 		// the overlaying module must depend on the NEW owner too
 		patchModulePkg(ws.root, 'default', { dependencies: ['core', 'hr'] });
 		const res = ws.dt('set', 'collections/teams', 'module=hr');
 		assert.equal(res.code, 0, res.stdout + res.stderr);
-		assert.equal(load(readFile(ws.root, 'modules/default/collections/teams.collection.yaml')).extends, 'hr/teams');
+		assert.equal(readFile(ws.root, 'modules/default/collections/teams.collection.yaml'), TEAMS_OVERLAY);
+		assert.deepEqual(overlaidByOf(compiled(ws, 'teams')), [WS_MODULE]);
 	});
 
 	test('an ILLEGAL move is refused with the fix, and nothing is touched', () => {
@@ -110,7 +113,7 @@ describe('dt set collections/<c> module=<m> — the move', () => {
 		assert.equal(res.code, 1);
 		assert.match(res.stderr, /move rolled back/);
 		assert.match(res.stderr, /a ring/);
-		assert.match(res.stderr, /peerDependencies/);
+		assert.match(res.stderr, /peer_collections/);
 		assert.ok(readFile(ws.root, 'modules/core/collections/people.collection.yaml'), 'nothing moved');
 		assert.equal(readFile(ws.root, 'modules/hr/collections/people.collection.yaml'), null);
 		assert.equal(ws.dt('check').code, 0);
@@ -150,28 +153,28 @@ describe('dt set collections/<c> module=<m> — the move', () => {
 });
 
 describe('dt set collections/<c> — the collection-level scalars', () => {
-	test('description, icon, title, order and list_fields land in the owning module\'s source', () => {
+	test('description, nav icon and order, and list columns land in the owning module\'s source', () => {
 		const ws = twoModuleWorkspace();
 		const res = ws.dt('set', 'collections/teams', 'description=A group with a shared remit.',
-			'icon=groups', 'order=40', 'list_fields=name');
+			'display.nav.icon=groups', 'display.nav.order=40', 'display.list.columns=name');
 		assert.equal(res.code, 0, res.stdout + res.stderr);
 		const src = load(readFile(ws.root, 'modules/core/collections/teams.collection.yaml'));
 		assert.equal(src.description, 'A group with a shared remit.');
-		assert.equal(src.icon, 'groups');
-		assert.equal(src.order, 40, 'a numeric scalar is written as a number, not "40"');
-		assert.deepEqual(src.list_fields, ['name'], 'a list scalar takes the comma spelling');
+		assert.equal(src.display.nav.icon, 'groups');
+		assert.equal(src.display.nav.order, 40, 'a numeric scalar is written as a number, not "40"');
+		assert.deepEqual(src.display.list.columns, ['name'], 'a list scalar takes the comma spelling');
 	});
 
 	test('an empty value removes the key', () => {
 		const ws = twoModuleWorkspace();
-		assert.equal(ws.dt('set', 'collections/teams', 'icon=groups').code, 0);
-		assert.equal(ws.dt('set', 'collections/teams', 'icon=').code, 0);
-		assert.equal(load(readFile(ws.root, 'modules/core/collections/teams.collection.yaml')).icon, undefined);
+		assert.equal(ws.dt('set', 'collections/teams', 'display.nav.icon=groups').code, 0);
+		assert.equal(ws.dt('set', 'collections/teams', 'display.nav.icon=').code, 0);
+		assert.equal(load(readFile(ws.root, 'modules/core/collections/teams.collection.yaml')).display?.nav?.icon, undefined);
 	});
 
 	test('a scalar and module= in one call is refused — they are different acts', () => {
 		const ws = twoModuleWorkspace();
-		const res = ws.dt('set', 'collections/teams', 'module=hr', 'icon=groups');
+		const res = ws.dt('set', 'collections/teams', 'module=hr', 'display.nav.icon=groups');
 		assert.equal(res.code, 1);
 		assert.match(res.stderr, /module= moves the collection/);
 	});
@@ -184,9 +187,9 @@ describe('dt set collections/<c> — the collection-level scalars', () => {
 		assert.match(res.stderr, /dreamteamer rename collections\/teams/);
 	});
 
-	test('a list_fields entry naming no field is refused — a dangling column compiles clean', () => {
+	test('a list column naming no field is refused — a dangling column compiles clean', () => {
 		const ws = twoModuleWorkspace();
-		const res = ws.dt('set', 'collections/people', 'list_fields=name,nickname');
+		const res = ws.dt('set', 'collections/people', 'display.list.columns=name,nickname');
 		assert.equal(res.code, 1);
 		assert.match(res.stderr, /people has no field nickname/);
 		assert.match(res.stderr, /dreamteamer add-field people --name nickname/);
@@ -197,7 +200,7 @@ describe('dt set collections/<c> — the collection-level scalars', () => {
 		const file = path.join(ws.root, 'modules/core/collections/teams.collection.yaml');
 		fs.writeFileSync(file, `# WHY this collection exists: a remit, not a headcount.\n${fs.readFileSync(file, 'utf8')}`);
 		assert.equal(ws.dt('compile').code, 0);
-		assert.equal(ws.dt('set', 'collections/teams', 'icon=groups').code, 0);
+		assert.equal(ws.dt('set', 'collections/teams', 'display.nav.icon=groups').code, 0);
 		assert.match(readFile(ws.root, 'modules/core/collections/teams.collection.yaml'),
 			/# WHY this collection exists/);
 	});
@@ -211,7 +214,7 @@ describe('--module targets one module\'s contribution', () => {
 		// ⚠ hr declares the namespace `hr` (§8), so the resolved name is `hr/grades` and the source
 		// is nested to match. The echo says so — namespace inference is never silent.
 		assert.ok(readFile(ws.root, 'modules/hr/collections/hr/grades.collection.yaml'));
-		assert.equal(compiled(ws, 'hr/grades').module, 'hr');
+		assert.equal(moduleOf(compiled(ws, 'hr/grades')), 'hr');
 	});
 
 	test('add collections with no --module lands in the workspace module, as before', () => {
@@ -231,14 +234,14 @@ describe('--module targets one module\'s contribution', () => {
 
 	test('add-field --module writes an OVERLAY in that module', () => {
 		const ws = twoModuleWorkspace();
-		patchModulePkg(ws.root, 'hr', { dependencies: ['core'], peerDependencies: ['people'] });
+		patchModulePkg(ws.root, 'hr', { dependencies: ['core'], peer_collections: ['people'] });
 		assert.equal(ws.dt('compile').code, 0);
 		const res = ws.dt('add-field', 'people', '--name', 'badge', '--type', 'string', '--module', 'hr');
 		assert.equal(res.code, 0, res.stdout + res.stderr);
 		const overlay = load(readFile(ws.root, 'modules/hr/collections/people.collection.yaml'));
-		assert.equal(overlay.extends, 'core/people');
-		assert.equal(overlay.schema.properties.badge.type, 'string');
-		assert.deepEqual(compiled(ws, 'people').overlays, ['hr']);
+		assert.equal(overlay.overlay, true);
+		assert.equal(overlay.fields.badge.type, 'string');
+		assert.deepEqual(overlaidByOf(compiled(ws, 'people')), ['hr']);
 	});
 
 	test('an overlay write with the dependency MISSING is rolled back and names the fix', () => {
@@ -252,7 +255,7 @@ describe('--module targets one module\'s contribution', () => {
 
 	test('rm-field --module removes from the overlay, and its LAST field removes the file', () => {
 		const ws = twoModuleWorkspace();
-		patchModulePkg(ws.root, 'hr', { dependencies: ['core'], peerDependencies: ['people'] });
+		patchModulePkg(ws.root, 'hr', { dependencies: ['core'], peer_collections: ['people'] });
 		assert.equal(ws.dt('compile').code, 0);
 		assert.equal(ws.dt('add-field', 'people', '--name', 'badge', '--type', 'string', '--module', 'hr').code, 0);
 		const res = ws.dt('rm-field', 'people', '--name', 'badge', '--module', 'hr');
@@ -299,7 +302,7 @@ describe('--dry-run on the other destructive verbs', () => {
 		const res = ws.dt('rm-field', 'people', '--name', 'employer', '--dry-run');
 		assert.equal(res.code, 0, res.stderr);
 		assert.match(res.stdout, /values cleared 1/, 'one of the two records carries a value');
-		assert.ok(load(readFile(ws.root, 'modules/core/collections/people.collection.yaml')).schema.properties.employer,
+		assert.ok(load(readFile(ws.root, 'modules/core/collections/people.collection.yaml')).fields.employer,
 			'the field is still declared');
 	});
 });

@@ -26,12 +26,11 @@ import { workspace, simpleCollection, dtIn, ENGINE_ROOT } from '../helpers/ws.js
 
 /** Two workspaces whose same-named collection disagrees about what `status` may hold. */
 function twoWorkspaces() {
-	const enumOf = (v) => ({
-		...simpleCollection(),
-		schema: {
-			type: 'object',
-			required: ['name'],
-			properties: { name: { type: 'string' }, status: { type: 'string', enum: [v] } },
+	const enumOf = (v) => simpleCollection({
+		fields: {
+			name: { type: 'string', required: true },
+			status: { type: 'string', enum: [v] },
+			notes: { type: 'markdown', body: true },
 		},
 	});
 	return {

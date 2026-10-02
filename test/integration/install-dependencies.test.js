@@ -14,7 +14,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { workspace, readFile, git, ENGINE_ROOT, WS_MODULE } from '../helpers/ws.js';
-import { dump } from '../../src/yaml.js';
+import { dump, load } from '../../src/yaml.js';
+import { isRuntime } from '../../src/descriptor.js';
+
+/** A compiled descriptor's text, read as a runtime kind — its records are build output compile writes. */
+const compiledAsRuntime = (text) => isRuntime(load(text ?? '') ?? {});
 
 const BIN = path.join(ENGINE_ROOT, 'bin', 'dreamteamer.js');
 const run = (cwd, ...args) => {
@@ -57,8 +61,8 @@ function freshCheckout({ missing = 'probe-kit', withProbe = true } = {}) {
 	fs.writeFileSync(path.join(vendor, 'package.json'), JSON.stringify({ name: 'probe-kit', version: '1.0.0', description: 'A test extension.', dreamteamer: { extension: './ext.js' } }));
 	fs.writeFileSync(path.join(vendor, 'ext.js'), ENTRY);
 	fs.writeFileSync(path.join(vendor, 'collections', 'probes.collection.yaml'), dump({
-		name: 'probes', description: 'A claim.', storage: { path: 'probes', codec: 'yaml', shape: 'file', suffix: 'probe' },
-		id: { generate: '{{ name | slug }}' }, schema: { type: 'object', required: ['name'], properties: { name: { type: 'string' } } },
+		name: 'probes', description: 'A claim.', storage: { path: 'probes', format: 'yaml', shape: 'file', suffix: 'probe' },
+		ids: { from: '{{ name | slug }}' }, fields: { name: { type: 'string', required: true } },
 	}));
 	if (withProbe) writeProbe(ws.root);
 	const pkgFile = path.join(ws.root, 'package.json');
@@ -83,7 +87,7 @@ describe('dt install brings in what the workspace declares, and compiles WITH it
 		const manifest = readFile(ws.root, '.dreamteamer/manifest.yaml');
 		assert.match(manifest, /extensions:\n {2}- name: probe-kit/, 'the first compile ran without the extension npm had just installed');
 		const descriptor = readFile(ws.root, '.dreamteamer/collections/probes.collection.yaml');
-		assert.match(descriptor, /base: runtime/, 'the contributed kind compiled as an ordinary collection');
+		assert.ok(compiledAsRuntime(descriptor), 'the contributed kind compiled as an ordinary collection');
 		assert.ok(fs.existsSync(path.join(ws.root, '.dreamteamer', 'probes', 'first.probe.yaml')), 'the probe was not staged on the first install');
 		assert.match(r.stderr, /probe-kit judged 1 probe/, 'the extension\'s analysis did not take part in the first install');
 		// no semantic repair left for a second compile to make
@@ -124,7 +128,7 @@ describe('the PUBLIC installer compiles with the activated extensions by default
 		const r = apiInstall(ws.root);
 		assert.equal(r.code, 0, `${r.stdout}\n${r.stderr}`);
 		assert.match(readFile(ws.root, '.dreamteamer/manifest.yaml') ?? '', /extensions:\n {2}- name: probe-kit/);
-		assert.match(readFile(ws.root, '.dreamteamer/collections/probes.collection.yaml') ?? '', /base: runtime/);
+		assert.ok(compiledAsRuntime(readFile(ws.root, '.dreamteamer/collections/probes.collection.yaml')));
 		assert.match(r.stdout + r.stderr, /probe-kit judged 1 probe/);
 	});
 
@@ -141,7 +145,9 @@ describe('installing a dependency into an ALREADY COMPILED workspace compiles it
 	test('one install: the provider and its collection reach the runtime, and a second compile changes nothing', () => {
 		const ws = freshCheckout({ withProbe: false });
 		assert.equal(run(ws.root, 'compile').code, 0);
-		git(ws.root, ['add', '-A']); git(ws.root, ['commit', '-qm', 'fixture: compiled']);
+		// compile's output (.dreamteamer/ and the root harness files) is gitignored, so the compiled
+		// workspace has nothing left to commit
+		assert.equal(git(ws.root, ['status', '--porcelain']), '');
 		const r = run(ws.root, 'install', '--json');
 		assert.equal(r.code, 0, r.stderr);
 		const steps = JSON.parse(r.stdout).steps;
@@ -150,7 +156,7 @@ describe('installing a dependency into an ALREADY COMPILED workspace compiles it
 		const manifest = readFile(ws.root, '.dreamteamer/manifest.yaml');
 		assert.match(manifest, /extensions:\n {2}- name: probe-kit/, 'the provider npm installed never reached the runtime');
 		const descriptor = readFile(ws.root, '.dreamteamer/collections/probes.collection.yaml');
-		assert.match(descriptor ?? '', /base: runtime/, 'the installed module\'s collection was not compiled');
+		assert.ok(compiledAsRuntime(descriptor), 'the installed module\'s collection was not compiled');
 		const semantic = (m) => m.replace(/^compiled: .*\n/m, '');
 		assert.equal(run(ws.root, 'compile').code, 0);
 		assert.equal(semantic(readFile(ws.root, '.dreamteamer/manifest.yaml')), semantic(manifest));

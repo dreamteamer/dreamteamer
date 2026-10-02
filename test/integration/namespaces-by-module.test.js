@@ -84,8 +84,8 @@ describe('one owner per namespace', () => {
 });
 
 describe('using another module\'s namespace requires the dependency', () => {
-	const GRADES = 'name: hr/grades\ndescription: A pay band.\nid: { generate: "{{ name | slug }}" }\nstorage: { suffix: grade }\n'
-		+ 'schema:\n  type: object\n  required: [name]\n  properties:\n    name: { type: string }\n';
+	const GRADES = 'name: hr/grades\ndescription: A pay band.\nstorage:\n  suffix: grade\nids:\n  from: "{{ name | slug }}"\n'
+		+ 'fields:\n  name:\n    type: string\n    required: true\n';
 
 	test('a module shipping hr/<c> without depending on hr is a compile error', () => {
 		const ws = twoModuleWorkspace({ compile: false });
@@ -148,7 +148,7 @@ describe('THE BARE-WORKSPACE GATE — decision 130\'s test, which it never had',
 		const out = bare.dt('compile');
 		assert.equal(out.code, 0, out.stderr);
 		const d = load(readFile(bare.root, '.dreamteamer/collections/hr/positions.collection.yaml'));
-		assert.deepEqual(d.unresolved_peers, ['people'],
+		assert.deepEqual(d.compiled.unresolved_peers, ['people'],
 			'stated as DATA on the descriptor, so check.js can excuse the reference without learning what a module is');
 		assert.equal(bare.dt('check').code, 0);
 	});
@@ -228,10 +228,15 @@ describe('the stated trade', () => {
 		// ⚠ THE DEPENDENCY FIRST. §8's own rule: core cannot ship a collection in hr's namespace
 		// without depending on hr, so the move is illegal until that is declared — the gate compile
 		// refuses it, which is the rule working rather than a fixture problem.
-		patchModulePkg(ws.root, 'core', { dependencies: ['hr'], peerDependencies: ['people'] });
-		assert.equal(ws.dt('compile').code, 0);
-		// move the collection out so `rm --force` is not what breaks it, then drop the module
-		const moved = ws.dt('set', 'collections/hr/positions', 'module=core');
+		patchModulePkg(ws.root, 'core', { dependencies: ['hr'], peer_collections: ['people'] });
+		// move the collection's source out so `rm --force` is not what breaks it, then drop the module
+		const from = 'modules/hr/collections/hr/positions.collection.yaml';
+		const to = 'modules/core/collections/hr/positions.collection.yaml';
+		fs.mkdirSync(path.dirname(path.join(ws.root, to)), { recursive: true });
+		fs.renameSync(path.join(ws.root, from), path.join(ws.root, to));
+		ws.git(['add', '--', from, to, 'modules/core/package.json']);
+		ws.git(['commit', '-qm', 'fixture: positions moves to core']);
+		const moved = ws.dt('compile');
 		assert.equal(moved.code, 0, moved.stdout + moved.stderr);
 		const res = ws.dt('rm', 'modules/hr', '--force');
 		assert.equal(res.code, 1, 'core still needs the namespace hr declares');
