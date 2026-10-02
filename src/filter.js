@@ -33,7 +33,9 @@ function matchesField(value, cond, resolve) {
 	return true;
 }
 
-function compare(op, v, o) {
+function compare(op, v, operand) {
+	const o = resolveTokens(operand);
+	if (o === UNKNOWN_TOKEN) return false;
 	const s = (x) => String(x ?? '');
 	const empty = v == null || v === '' || (Array.isArray(v) && v.length === 0);
 	// array field values (tags, attendees): containment semantics for eq/contains
@@ -96,6 +98,48 @@ export function unknownOperators(filter, found = new Set()) {
 			unknownOperators(cond, found);
 		}
 	}
+	return found;
+}
+
+// ---- value tokens ------------------------------------------------------------------
+// A filter value is a literal or one of VALUE_TOKENS, resolved when the filter is evaluated against
+// the evaluating machine's clock and zone, so a saved view "due before today" stays true tomorrow.
+// `$today` is the local calendar date (the shape a `date` field holds); `$now` is the local instant
+// with its offset (the shape a `datetime` field holds). A token is the WHOLE value: `$100` is a
+// literal, `$yesterday` is an unknown token. compile and `--where` refuse an unknown token through
+// `unknownTokens`; at evaluation one narrows to nothing, the same posture as an unknown operator.
+export const VALUE_TOKENS = ['$today', '$now'];
+const TOKEN = /^\$[A-Za-z_]\w*$/;
+const UNKNOWN_TOKEN = Symbol('unknown token');
+const pad = (n) => String(n).padStart(2, '0');
+
+/** The value a token stands for at `at` (default: now), or undefined for a string that is not a token. */
+export function tokenValue(value, at = new Date()) {
+	if (typeof value !== 'string' || !TOKEN.test(value)) return undefined;
+	const day = `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}`;
+	if (value === '$today') return day;
+	if (value === '$now') {
+		const mins = -at.getTimezoneOffset();
+		const abs = Math.abs(mins);
+		return `${day}T${pad(at.getHours())}:${pad(at.getMinutes())}:${pad(at.getSeconds())}${mins < 0 ? '-' : '+'}${pad(Math.floor(abs / 60))}:${pad(abs % 60)}`;
+	}
+	return UNKNOWN_TOKEN;
+}
+
+function resolveTokens(o) {
+	if (Array.isArray(o)) {
+		const out = o.map((x) => tokenValue(x) ?? x);
+		return out.includes(UNKNOWN_TOKEN) ? UNKNOWN_TOKEN : out;
+	}
+	return tokenValue(o) ?? o;
+}
+
+/** Every `$token` value in a filter tree that is not one of VALUE_TOKENS — what compile and
+ *  `--where` refuse. */
+export function unknownTokens(filter, found = new Set()) {
+	if (typeof filter === 'string') { if (TOKEN.test(filter) && !VALUE_TOKENS.includes(filter)) found.add(filter); return found; }
+	if (filter == null || typeof filter !== 'object') return found;
+	for (const v of Array.isArray(filter) ? filter : Object.values(filter)) unknownTokens(v, found);
 	return found;
 }
 

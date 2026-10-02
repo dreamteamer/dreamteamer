@@ -6,7 +6,7 @@
 // module has, so it is the first thing asserted.
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { matchesFilter, unknownOperators, KNOWN_OPERATORS } from '../../src/filter.js';
+import { matchesFilter, unknownOperators, unknownTokens, tokenValue, VALUE_TOKENS, KNOWN_OPERATORS } from '../../src/filter.js';
 
 const row = { title: 'Fix login', status: 'todo', tags: ['ui', 'bug'], due: '2026-07-28', assignee: null, count: 3 };
 
@@ -149,5 +149,51 @@ describe('one-hop relational conditions', () => {
 describe('degenerate input', () => {
 	test('an absent or non-object filter matches everything', () => {
 		for (const f of [null, undefined, 'nonsense', 42]) assert.equal(matchesFilter(row, f), true);
+	});
+});
+
+// The two value tokens, resolved at evaluation against the local clock and zone. Dates a day away
+// from today keep these assertions true whenever the suite runs.
+describe('value tokens $today and $now', () => {
+	const pad = (n) => String(n).padStart(2, '0');
+	const day = (offsetDays) => { const d = new Date(); d.setDate(d.getDate() + offsetDays); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
+
+	test('the token set is exactly $today and $now', () => {
+		assert.deepEqual(VALUE_TOKENS, ['$today', '$now']);
+	});
+
+	test('$today is the local date and $now the local instant with its offset', () => {
+		const at = new Date(2026, 2, 5, 9, 7, 3);
+		assert.equal(tokenValue('$today', at), '2026-03-05');
+		const now = tokenValue('$now', at);
+		assert.match(now, /^2026-03-05T09:07:03[+-]\d{2}:\d{2}$/);
+		assert.equal(Date.parse(now), at.getTime(), 'the offset makes it the same instant');
+	});
+
+	test('a token resolves in an operator, in the equality shorthand and inside a list operand', () => {
+		const past = { due: day(-1) };
+		const today = { due: day(0) };
+		assert.equal(matchesFilter(past, { due: { _lt: '$today' } }), true);
+		assert.equal(matchesFilter(today, { due: { _lt: '$today' } }), false);
+		assert.equal(matchesFilter(today, { due: '$today' }), true);
+		assert.equal(matchesFilter(today, { due: { _in: ['$today'] } }), true);
+		assert.equal(matchesFilter(past, { due: { _between: [day(-2), '$today'] } }), true);
+	});
+
+	test('$now compares as an instant against a date-time field', () => {
+		assert.equal(matchesFilter({ at: '2000-01-01T00:00:00+00:00' }, { at: { _lt: '$now' } }), true);
+		assert.equal(matchesFilter({ at: '2999-01-01T00:00:00+00:00' }, { at: { _lt: '$now' } }), false);
+	});
+
+	test('an unknown token narrows to nothing, and unknownTokens names it at any depth', () => {
+		assert.equal(matchesFilter({ due: '$yesterday' }, { due: '$yesterday' }), false);
+		assert.deepEqual([...unknownTokens({ _and: [{ due: { _lt: '$yesterday' } }, { owner: { team: { _in: ['$me'] } } }] })].sort(), ['$me', '$yesterday']);
+		assert.equal(unknownTokens({ due: { _lt: '$today' }, at: { _gte: '$now' } }).size, 0);
+	});
+
+	test('a value that merely starts with $ is a literal, not a token', () => {
+		assert.equal(tokenValue('$100'), undefined);
+		assert.equal(unknownTokens({ price: '$100' }).size, 0);
+		assert.equal(matchesFilter({ price: '$100' }, { price: '$100' }), true);
 	});
 });
