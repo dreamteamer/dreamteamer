@@ -142,13 +142,13 @@ describe('§13 — the error messages the implementation must ship', () => {
 		// a lockfile entry whose clone is absent — exactly what a fresh `git clone` of a vault gives
 		const pkgFile = path.join(ws.root, 'package.json');
 		const pkg = JSON.parse(fs.readFileSync(pkgFile, 'utf8'));
-		pkg.dreamteamer['git-modules'] = { billing: { url: 'file:///nonexistent', ref: 'main' } };
+		pkg.dreamteamer.git_modules = { billing: { url: 'file:///nonexistent', ref: 'main' } };
 		fs.writeFileSync(pkgFile, JSON.stringify(pkg, null, '\t') + '\n');
 		// a collection referencing one the absent module would provide
 		fs.writeFileSync(path.join(ws.root, 'modules/core/collections/invoices.collection.yaml'),
-			'name: invoices\ndescription: A bill.\nid: { generate: "{{ name | slug }}" }\nstorage: { suffix: invoice }\n'
-			+ 'schema:\n  type: object\n  required: [name]\n  properties:\n    name: { type: string }\n'
-			+ '    payer: { type: string, x-reference: billing-accounts }\n');
+			'name: invoices\ndescription: A bill.\nids:\n  from: "{{ name | slug }}"\nstorage:\n  suffix: invoice\n'
+			+ 'fields:\n  name:\n    type: string\n    required: true\n'
+			+ '  payer:\n    type: billing-accounts\n');
 		const res = ws.dt('compile');
 		assert.equal(res.code, 1);
 		assert.match(res.stderr, /billing-accounts/);
