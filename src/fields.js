@@ -16,7 +16,7 @@ export const SCALAR_TYPES = ['string', 'markdown', 'boolean', 'integer', 'number
 
 /** The closed set of keys a field may carry. Anything else is a compile error naming the key. */
 export const FIELD_KEYS = new Set([
-	'type', 'title', 'required', 'many', 'default', 'enum', 'unique', 'mirror_of', 'on_delete', 'sensitive',
+	'type', 'title', 'required', 'many', 'default', 'enum', 'unique', 'mirror_of', 'on_delete', 'soft', 'sensitive',
 	'body', 'derived', 'virtual', 'deprecated', 'passthrough', 'fields', 'values', 'item_title',
 	'examples', 'pattern', 'minimum', 'maximum', 'minItems', 'maxItems', 'minLength', 'maxLength', 'const',
 	'display', 'description',
@@ -104,6 +104,13 @@ export function resolveFields(authored, ctx) {
 			if (!targets) errors.push(`field "${name}": \`on_delete\` belongs to a reference`);
 			if (!['restrict', 'set-null'].includes(prop.on_delete)) errors.push(`field "${name}": on_delete is restrict or set-null`);
 			if (prop.on_delete === 'set-null' && prop.required) errors.push(`field "${name}": on_delete: set-null on a required reference would produce an invalid record`);
+		}
+		// a SOFT reference still names what it may point at, but a missing collection or record is
+		// tolerated — for a value that is a declaration rather than a resolved link
+		if (prop.soft !== undefined) {
+			if (prop.soft !== true) errors.push(`field "${name}": \`soft\` is true or absent`);
+			if (!targets) errors.push(`field "${name}": \`soft\` belongs to a reference`);
+			if (prop.mirror_of !== undefined) errors.push(`field "${name}": a mirror is maintained by the engine, so it cannot be soft`);
 		}
 		if (prop.unique && prop.many) errors.push(`field "${name}": \`unique\` is a value constraint on a scalar field`);
 		if (prop.derived && prop.virtual) errors.push(`field "${name}": derived (stored, engine-written) and virtual (never stored) exclude each other`);
