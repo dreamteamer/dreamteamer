@@ -7,7 +7,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { assertSafeId, parseRecordText, patternRe, unknownFields, EXT, idFromRecordPath } from '../../src/records.js';
 
-const md = { storage: { codec: 'md' } };
+const md = { storage: { format: 'md' } };
 
 describe('assertSafeId', () => {
 	test('accepts a plain id and a nested path id', () => {
@@ -61,25 +61,30 @@ describe('parseRecordText', () => {
 		assert.equal(fields.due, '2026-07-28');
 	});
 
-	test('yaml and json codecs parse whole-file', () => {
-		assert.equal(parseRecordText('name: Ada\n', { storage: { codec: 'yaml' } }).name, 'Ada');
-		assert.equal(parseRecordText('{"name":"Ada"}', { storage: { codec: 'json' } }).name, 'Ada');
+	test('yaml and json formats parse whole-file', () => {
+		assert.equal(parseRecordText('name: Ada\n', { storage: { format: 'yaml' } }).name, 'Ada');
+		assert.equal(parseRecordText('{"name":"Ada"}', { storage: { format: 'json' } }).name, 'Ada');
 	});
 });
 
 describe('unknownFields — the typo detector', () => {
-	const schema = { properties: { title: { type: 'string' }, status: { type: 'string' } } };
+	// a compiled descriptor: what a record stores is its non-virtual resolved fields
+	const d = { compiled: { fields: { id: { type: 'string', virtual: true }, title: { type: 'string' }, status: { type: 'string' } } } };
 
 	test('names keys the schema does not declare', () => {
-		assert.deepEqual(unknownFields(schema, { title: 'T', assinee: 'x' }), ['assinee']);
+		assert.deepEqual(unknownFields(d, { title: 'T', assinee: 'x' }), ['assinee']);
 	});
 
 	test('a clean record has none', () => {
-		assert.deepEqual(unknownFields(schema, { title: 'T', status: 'todo' }), []);
+		assert.deepEqual(unknownFields(d, { title: 'T', status: 'todo' }), []);
 	});
 
-	// A schema that declares nothing cannot distinguish a typo from a field, so it must not guess.
-	test('a schema with no properties accepts anything', () => {
+	test('a virtual field is not stored, so a record carrying it is told so', () => {
+		assert.deepEqual(unknownFields(d, { title: 'T', id: 'x' }), ['id']);
+	});
+
+	// A descriptor that declares nothing cannot distinguish a typo from a field, so it must not guess.
+	test('a descriptor with no fields accepts anything', () => {
 		assert.deepEqual(unknownFields({}, { anything: 1 }), []);
 	});
 });
@@ -98,25 +103,25 @@ describe('patternRe', () => {
 });
 
 describe('EXT', () => {
-	// `file` is deliberately absent: an opaque record's extension is whatever was imported, so it has
-	// no fixed tail. idFromRecordPath is where that codec's filenames are understood.
-	test('maps every codec that HAS one extension', () => {
+	// `binary` is deliberately absent: an opaque record's extension is whatever was imported, so it has
+	// no fixed tail. idFromRecordPath is where that format's filenames are understood.
+	test('maps every format that HAS one extension', () => {
 		assert.deepEqual(EXT, { md: '.md', yaml: '.yaml', json: '.json' });
 	});
 });
 
 describe('idFromRecordPath', () => {
-	const fileCodec = { storage: { suffix: 'asset', codec: 'file' } };
-	const mdCodec = { storage: { suffix: 'contact', codec: 'md' } };
+	const fileCodec = { storage: { suffix: 'asset', format: 'binary' } };
+	const mdCodec = { storage: { suffix: 'contact', format: 'md' } };
 
-	test('fixed-extension codecs match their one extension, at any depth', () => {
+	test('fixed-extension formats match their one extension, at any depth', () => {
 		assert.equal(idFromRecordPath(mdCodec, 'adi-moshe.contact.md'), 'adi-moshe');
 		assert.equal(idFromRecordPath(mdCodec, '2026/07/adi.contact.md'), '2026/07/adi');
 		assert.equal(idFromRecordPath(mdCodec, 'adi-moshe.contact.yaml'), null);
 		assert.equal(idFromRecordPath(mdCodec, 'adi-moshe.md'), null);
 	});
 
-	test('the file codec takes ONE extension segment, whatever it is', () => {
+	test('the binary format takes ONE extension segment, whatever it is', () => {
 		assert.equal(idFromRecordPath(fileCodec, 'icons/lucide/hotel.asset.svg'), 'icons/lucide/hotel');
 		assert.equal(idFromRecordPath(fileCodec, 'logos/monday.asset.png'), 'logos/monday');
 		assert.equal(idFromRecordPath(fileCodec, 'a.asset.JPEG'), 'a');
@@ -132,7 +137,7 @@ describe('idFromRecordPath', () => {
 	});
 
 	test('a suffix carrying regex metacharacters is matched literally', () => {
-		const dotty = { storage: { suffix: 'a.b', codec: 'file' } };
+		const dotty = { storage: { suffix: 'a.b', format: 'binary' } };
 		assert.equal(idFromRecordPath(dotty, 'x.a.b.svg'), 'x');
 		assert.equal(idFromRecordPath(dotty, 'x.axb.svg'), null);
 	});

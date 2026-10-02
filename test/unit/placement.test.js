@@ -8,11 +8,14 @@ import { subpathProblem, placedRoot, placementOfFile, placedChildAt, ownerIdOf }
 import { pathToRecord } from '../../src/events.js';
 import { parseRef } from '../../src/namespace.js';
 
-const UNDER = { field: 'company', path: 'meetings', collection: 'companies' };
+// the RESOLVED placement (`storageOf(d).under`): the authored parent field and subfolder, plus the
+// parent collection compile records in `compiled.under_collection`
+const UNDER = { parent: 'company', subfolder: 'meetings', collection: 'companies' };
+const placed = (name, storage, parent) => ({ name, storage, compiled: parent ? { under_collection: parent } : {} });
 const descriptors = new Map([
-	['companies', { name: 'companies', storage: { path: 'data/companies', shape: 'folder', entry: 'company.md', suffix: 'company', codec: 'md', base: 'workspace' } }],
-	['meetings', { name: 'meetings', storage: { path: 'data/meetings', suffix: 'meeting', codec: 'md', base: 'workspace', under: UNDER } }],
-	['contacts', { name: 'contacts', storage: { path: 'data/contacts', suffix: 'contact', codec: 'md', base: 'workspace', under: { field: 'company', path: 'people/contacts', collection: 'companies' } } }],
+	['companies', placed('companies', { path: 'data/companies', shape: 'folder', entry: 'company.md', suffix: 'company', format: 'md' })],
+	['meetings', placed('meetings', { path: 'data/meetings', suffix: 'meeting', format: 'md', under: { parent: 'company', subfolder: 'meetings' } }, 'companies')],
+	['contacts', placed('contacts', { path: 'data/contacts', suffix: 'contact', format: 'md', under: { parent: 'company', subfolder: 'people/contacts' } }, 'companies')],
 ]);
 
 describe('subpathProblem', () => {
