@@ -113,12 +113,12 @@ describe('planInstall — every step checks before it acts', () => {
 		const s = linked({ hasEnv: true, envIsLink: true, stale: false });
 		assert.ok(planInstall(s).every((x) => x.state !== 'todo'));
 		// gitModules is the MISSING clones, so an empty one means restored, not undeclared
-		assert.match(byId(planInstall(s), 'git-modules').label, /nothing to restore/);
+		assert.match(byId(planInstall(s), 'git_modules').label, /nothing to restore/);
 	});
 	test('the id order IS the contract Task 3 renders — engine, env, assets, git modules, compile, postinstall', () => {
 		const s = linked({ localAssets: [{ rel: '.profiles', module: null, presentHere: false, isLinkHere: false, presentInPrimary: true }] });
 		assert.deepEqual(planInstall(s).map((x) => x.id),
-			['dependencies', 'env', 'asset:.profiles', 'git-modules', 'compile', 'postinstall']);
+			['dependencies', 'env', 'asset:.profiles', 'git_modules', 'compile', 'postinstall']);
 	});
 });
 
