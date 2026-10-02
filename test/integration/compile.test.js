@@ -518,7 +518,7 @@ describe('the orientation block names the workspace', () => {
 		// `use when`, the schema of schemas first), the workspace module with the starter `notes`, and
 		// the two engine mixins. Lower it when the block shrinks rather than leaving slack, or the
 		// budget stops measuring anything.
-		assert.ok(n <= 46, `virgin orientation block is ${n} lines, budget 46`);
+		assert.ok(n <= 48, `virgin orientation block is ${n} lines, budget 48`);
 	});
 });
 

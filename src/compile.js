@@ -113,18 +113,6 @@ function binEntries(moduleRoot) {
 		.map((e) => `bin/${e.name}`).sort();
 }
 
-/** Content-word Jaccard between two clauses, thresholded. Short words and the join words of
- *  English carry no signal here; ≥ 0.5 of the remaining vocabulary shared is a paraphrase. */
-function paraphrases(description, useWhen) {
-	const STOP = new Set(['this', 'that', 'with', 'from', 'into', 'here', 'when', 'what', 'never', 'every', 'their', 'there', 'them', 'they', 'have', 'been', 'each', 'than', 'then', 'only', 'also', 'before', 'after', 'about']);
-	const words = (t) => new Set(String(t ?? '').toLowerCase().replace(/[`'"“”‘’()[\],.;:—–-]/g, ' ').split(/\s+/).filter((w) => w.length > 3 && !STOP.has(w)));
-	const a = words(description), b = words(useWhen);
-	if (!a.size || !b.size) return false;
-	let shared = 0;
-	for (const w of b) if (a.has(w)) shared++;
-	return shared / (a.size + b.size - shared) >= 0.5;
-}
-
 const NON_SOURCE_DIRS = new Set([
 	'node_modules', 'data', 'state', 'media', 'bin', 'src', 'lib', 'scripts',
 	'ui', 'studio', // the module's UI bundle — 'studio' is the pre-archive name, kept as a fallback
@@ -717,6 +705,7 @@ export function compile(ws) {
 		const bad = Object.keys(doc).filter((k) => !['name', 'description', 'use_when', 'fields', 'storage', 'ids', 'display', 'constraints'].includes(k));
 		if (bad.length) fail(`${entry.sources[0].path}: unknown key(s) ${bad.join(', ')} — a mixin carries name · description · use_when · fields · storage · ids · display · constraints`);
 		if (doc.name !== m[1]) fail(`${entry.sources[0].path}: name "${doc.name}" must equal the file's id "${m[1]}"`);
+		if (!String(doc.description ?? '').trim()) console.warn(`⚠ mixin ${m[1]} has no description — it renders as a bare name in the orientation block every session loads`);
 		mixinDocs.set(m[1], { ...doc, src: entry.sources[0] });
 	}
 

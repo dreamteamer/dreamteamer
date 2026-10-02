@@ -27,6 +27,18 @@ export function v1Refusal(files) {
 	return `${files.length} source(s) are in the v1 descriptor format, which this engine no longer reads:\n${files.map((f) => `    - ${f}`).join('\n')}\n  convert the workspace once: ${CONVERTER}\n  then dt compile and dt check — UPDATING.md has the walk.`;
 }
 
+/** Content-word Jaccard between two clauses, thresholded. Short words and the join words of
+ *  English carry no signal here; ≥ 0.5 of the remaining vocabulary shared is a paraphrase. */
+function paraphrases(description, useWhen) {
+	const STOP = new Set(['this', 'that', 'with', 'from', 'into', 'here', 'when', 'what', 'never', 'every', 'their', 'there', 'them', 'they', 'have', 'been', 'each', 'than', 'then', 'only', 'also', 'before', 'after', 'about']);
+	const words = (t) => new Set(String(t ?? '').toLowerCase().replace(/[`'"“”‘’()[\],.;:—–-]/g, ' ').split(/\s+/).filter((w) => w.length > 3 && !STOP.has(w)));
+	const a = words(description), b = words(useWhen);
+	if (!a.size || !b.size) return false;
+	let shared = 0;
+	for (const w of b) if (a.has(w)) shared++;
+	return shared / (a.size + b.size - shared) >= 0.5;
+}
+
 let ajv = null;
 const schemaAjv = () => {
 	if (!ajv) { ajv = new Ajv({ allErrors: true, strict: false }); addFormats(ajv); ajv.addFormat('markdown', true); }
@@ -209,6 +221,7 @@ export function compileCollections(ctx) {
 		const recordTitle = authored.record_title ?? `{{ ${probe ?? 'id'} }}`;
 
 		if (!runtime && !String(authored.description ?? '').trim()) warn(`⚠ collection ${name} has no description — it renders as a bare name in the orientation block every session loads`);
+		if (authored.use_when && paraphrases(authored.description, authored.use_when)) warn(`⚠ collection ${name}: use_when restates its description — name the SITUATION that brings a session here (search here first · capture here when), not the noun again`);
 
 		const defaults = {};
 		if (authored.title === undefined) defaults.title = title;
