@@ -281,10 +281,10 @@ describe('system verbs — the SAME verbs, on the entities the compiler material
 
 	test('ui-views take add / set / rm under the same verbs', () => {
 		const ws = base();
-		const add = ws.dt('add', 'ui-views', '--path', '/recent', '--target', 'list',
-			'--collection', 'collections/contacts', '--layout', 'table');
+		const add = ws.dt('add', 'ui-views', '--route', '/recent', '--scope', 'collection',
+			'--collection', 'collections/contacts', 'display.list.layout=table');
 		assert.equal(add.code, 0, add.stderr);
-		assert.equal(ws.dt('set', 'ui-views/recent', 'options.sort=-name').code, 0);
+		assert.equal(ws.dt('set', 'ui-views/recent', 'display.list.sort=-name').code, 0);
 		assert.equal(ws.dt('rm', 'ui-views/recent').code, 0);
 	});
 

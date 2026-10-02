@@ -1,10 +1,14 @@
 name: command-bindings
+description: A command applied to a collection, and the record state that makes it available and that means it is done.
+use_when: >-
+  a command acts on the records of one collection — bind it here, gated on the record's own fields,
+  so `dt next <collection>/<id>` and the orientation block can say what to run on a record and when
 internal: true
 storage:
   path: command-bindings
   format: yaml
 ids:
-  from: "{{ command | basename }}--{{ collection | basename }}"
+  from: '{{ command | basename }}--{{ collection | basename }}'
 fields:
   command:
     type: commands
@@ -13,20 +17,18 @@ fields:
   collection:
     type: collections
     required: true
-    description: The collection the command applies TO — which is what makes `dt next <ref>` able to answer "what can I do with this record".
-  target:
+    description: The collection the command applies to — what lets `dt next <ref>` answer "what can I do with this record".
+  scope:
     type: string
     default: record
-    enum:
-      - record
-      - collection
+    enum: [record, collection]
     description: Whether the command runs against one record or the whole collection.
-  can-enter:
+  available_when:
     type: map
-    description: The record state that makes this command AVAILABLE — a filter over the record's own fields. This is what turns a collection into a queue without any run records.
-  can-exit:
+    description: The record state that makes this command available — a filter over the record's own fields. It turns a collection into a queue with no run records.
+  done_when:
     type: map
-    description: The record state that means the command has already been DONE. Together with can-enter, the record's own fields are the progress marker.
+    description: The record state that means the command has been done. With `available_when`, the record's own fields are the progress marker.
   description:
     type: string
     description: What applying this command to this collection does, in one line.
@@ -35,8 +37,4 @@ display:
     icon: bolt
     order: 45
   list:
-    columns:
-      - command
-      - collection
-      - target
-      - last_modified
+    columns: [command, collection, scope, last_modified]

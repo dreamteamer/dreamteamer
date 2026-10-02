@@ -12,7 +12,7 @@ import { validateTemplate } from './template.js';
 export const V2_KEYS = ['name', 'title', 'singular', 'record_title', 'description', 'use_when', 'internal', 'sensitive', 'storage', 'ids', 'mixins', 'overlay', 'fields', 'constraints', 'display'];
 
 const STORAGE_KEYS = ['path', 'format', 'shape', 'entry', 'suffix', 'under', 'max_bytes', 'accept'];
-const DISPLAY_BLOCKS = { nav: ['icon', 'order', 'section'], list: ['layout', 'columns', 'sort', 'options'], record: ['layout', 'subtitle', 'badge', 'color_by'], form: ['sections'] };
+const DISPLAY_BLOCKS = { nav: ['icon', 'order', 'section'], list: ['layout', 'columns', 'sort', 'options'], record: ['layout', 'subtitle', 'badge', 'color_by', 'options'], form: ['sections'] };
 
 export const isV2 = (doc) => !!doc && typeof doc === 'object' && !Array.isArray(doc) && 'fields' in doc;
 

@@ -13,6 +13,7 @@ import { readManifest, loadDescriptors } from './runtime.js';
 import { normalizeNamespaces, namespaceOf, baseNameOf, qualify, defaultStoragePath, singular } from './namespace.js';
 import { fieldsOf, targetsOf, storageOf, isRuntime, bodyFieldOf, moduleOf } from './descriptor.js';
 import { SCALAR_TYPES, enumValues } from './fields.js';
+import { FIELD_OPTIONS, TEMPLATE_OPTIONS } from './views.js';
 
 // Same rule as store.js: a git failure we CATCH must not also print git's own error on top of the
 // clean message we throw. stdout stays piped because some callers read it.
@@ -838,11 +839,11 @@ export function setCollectionScalars(ws, store, name, changes, { moduleId } = {}
 // through a union — is recorded too, and the verb refuses naming every one of them.
 
 /** A layout option that names a field by the role it plays (§3.5.1). */
-const OPTION_FIELD_KEYS = ['color_by', 'group_by', 'lanes_by', 'start', 'end', 'lat', 'lng'];
+const OPTION_FIELD_KEYS = FIELD_OPTIONS;
 /** A layout option that names several. */
 const OPTION_FIELD_LISTS = ['ref_fields', 'value_fields'];
 /** A layout option that is a template. */
-const OPTION_TEMPLATES = ['card_title', 'group_title', 'group_summary'];
+const OPTION_TEMPLATES = TEMPLATE_OPTIONS;
 
 /** A position label back to its path from the document root: `constraints[0].if.properties.status`
  *  → `['constraints', 0, 'if', 'properties', 'status']`. Labels are built from field names and
@@ -2436,6 +2437,8 @@ export function saveUiView(ws, store, { id, view, moduleId }) {
 	if (shipped && /(^|\/)node_modules\//.test(shipped))
 		throw new Error(`ui-view "${id}" is shipped by an installed package (${shipped}) — a write there is erased by the next npm install.\n  save it under a different name, or disable it (dreamteamer.disable) and re-create it.`);
 	const existed = fs.existsSync(dest);
+	// `compiled` is compile's: a view read back from the runtime carries it, and a source never does
+	view = Object.fromEntries(Object.entries(view).filter(([k]) => k !== 'compiled'));
 	// A module source is where this project writes down WHY a view exists; `dump` cannot keep that.
 	const previous = existed ? fs.readFileSync(dest, 'utf8') : null;
 	// ⚠ opted OUT of the comment invariant, on the same rule `rm-field` is: this write REPLACES

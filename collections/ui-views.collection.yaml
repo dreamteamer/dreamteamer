@@ -1,55 +1,59 @@
+# A view is a named variant of a collection's default view. The default view is the collection's own
+# `display`; a view carries the same block and compile merges it over the collection's, so a view
+# states only what it changes.
 name: ui-views
 title: UI Views
+record_title: '{{ route }}'
+description: A named way to draw a collection, a record or a page — a route, a scope, a filter, and the display keys it changes from the collection's own.
+use_when: >-
+  a collection needs a second way to be looked at (a board by status, today's rows, a map) — write
+  the view here with only the display keys it changes; the collection's default list and record page
+  are its descriptor's `display`, never a view
 internal: true
-storage: {path: ui-views, format: yaml}
-ids: {from: "{{ path | slug }}"}
+storage:
+  path: ui-views
+  format: yaml
+ids:
+  from: '{{ route | slug }}'
 fields:
-  path:
+  name:
+    type: string
+    description: A short handle for the view, for people reading the sources.
+  title:
+    type: string
+    description: The view's heading where a surface draws one.
+  description:
+    type: string
+    description: What the view shows and who it is for, in one line.
+  route:
     type: string
     required: true
-    description: The route this view renders at. The record id is derived from it, so a view saved from the CLI and one saved from the UI land on the same record.
-  nav:
-    type: object
-    fields:
-      label:
-        type: string
-        description: What the nav entry reads.
-      icon:
-        type: string
-        description: material-symbols-outlined icon name for the nav entry.
-      order:
-        type: number
-        description: Sort position among its siblings.
-    description: How the view appears in navigation. Omit it entirely for a route with no nav entry.
-  target:
+    description: The path this view renders at, starting with /. The record id is derived from it, so a view saved from the CLI and one saved from a surface land on the same record.
+  scope:
     type: string
     required: true
-    enum: [list, item, page]
-    description: What the view renders — a collection listing, one record, or a standalone page.
+    enum: [record, collection, page]
+    description: What the view draws — one record, a collection's rows, or a standalone page.
   collection:
     type: collections
-    description: Which collection this view is of.
-  default:
-    type: boolean
-    description: 'Marks the view a bare /content/<collection> renders. Directus-parity: a collection''s default presentation is an ordinary view record, not a second mechanism. At most one per collection, and never its own route — it IS the collection page.'
-  layout:
-    type: string
-    required: true
-    description: A REGISTERED layout/component id (table, cards, kanban, calendar, map…). An unregistered id degrades visibly rather than erroring.
-  options:
-    type: map
-    description: Layout-specific settings — columns, sort, grouping. Deliberately open, since each layout wants different things.
+    description: The collection the view is of. A page may omit it.
   filter:
     type: map
-    description: The saved filter this view applies, in the studio's operator set.
+    description: The rows the view keeps, as field → condition in the filter operator set. Accepts the value tokens `$today` and `$now`.
+  display:
+    type: map
+    description: >-
+      The display keys this view changes, in the collection's own block — `nav` (title · icon · order),
+      `list` (layout · columns · sort · options), `record` (layout · subtitle · badge · color_by ·
+      options), `form` (sections). Merged over the collection's display sub-block by sub-block, a key
+      set here winning; a view with no `nav` has no nav entry.
+  compiled:
+    type: map
+    derived: true
+    description: Written by compile — `display`, the view's display merged over its collection's. What a surface draws.
 display:
   nav:
     icon: dashboard_customize
     order: 50
   list:
-    columns:
-      - path
-      - last_modified
-      - target
-      - collection
-      - layout
+    columns: [route, scope, collection, last_modified]

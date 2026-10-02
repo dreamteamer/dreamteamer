@@ -417,7 +417,7 @@ function templatesSection(entries) {
 		...rows.map((r) => `- ${r.name}${r.description ? ` — ${r.description}` : ''}`)];
 }
 
-/** `can-enter` / `can-exit` rendered LITERALLY. Translating a filter into English would be a
+/** `available_when` / `done_when` rendered LITERALLY. Translating a filter into English would be a
  *  generator that has to grow with every operator the filter grammar gains, for prose the binding's
  *  own `description:` already carries. Real shapes are a nested map terminating in one `_op`:
  *    {status: {_eq: draft}}          -> status=draft
@@ -448,7 +448,7 @@ function renderGate(label, filter) {
  *  that makes it available — invisible on EVERY harness, claude-code included, whose native command
  *  discovery gives the command's description and nothing about what it acts on. The cost of the
  *  absence is on disk: a contact record in the dogfood vault carries the hand-written sentence
- *  "`status: draft` keeps this in the /scrape-contact queue" — an agent re-deriving a can-enter
+ *  "`status: draft` keeps this in the /scrape-contact queue" — an agent re-deriving an available_when
  *  filter into prose because nothing surfaced it. */
 function bindingsSection(entries) {
 	const byCollection = new Map();
@@ -459,7 +459,7 @@ function bindingsSection(entries) {
 		const coll = String(d.collection ?? '').replace(/^collections\//, '');
 		const cmd = String(d.command ?? '').replace(/^commands\//, '');
 		if (!coll || !cmd) continue;
-		const gate = [renderGate('enter', d['can-enter']), renderGate('exit', d['can-exit'])].filter(Boolean).join(' · ');
+		const gate = [renderGate('available when', d.available_when), renderGate('done when', d.done_when)].filter(Boolean).join(' · ');
 		if (!byCollection.has(coll)) byCollection.set(coll, []);
 		byCollection.get(coll).push(`/${cmd}${gate ? ` (${gate})` : ''}`);
 	}

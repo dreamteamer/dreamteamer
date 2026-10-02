@@ -120,8 +120,8 @@ commits there.
                                                the git shape is \`install --clone <url> [name]\`)
   add    skills --name <id> --description "…"  (skills/<id>/SKILL.md — --description is required,
                                                because an undescribed skill is undiscoverable)
-  add    ui-views --path </route> --target list --collection collections/<c> --layout <id>
-                                              [--id <id>] [k.v=…]
+  add    ui-views --route </route> --scope collection --collection collections/<c>
+                                              [--id <id>] [display.list.layout=<id>] [k.v=…]
   set    <system>/<id> <field>=<value> …      (collections: description · use_when · title ·
                                                singular · record_title · sensitive · internal ·
                                                display.nav.icon · display.nav.order ·
@@ -129,9 +129,9 @@ commits there.
                                                display.list.sort, plus module=<m>, which MOVES it.
                                                modules: description · namespaces · dependencies ·
                                                peer_collections, record-shaped (modules/core).
-                                               ui-views: dotted keys — options.sort=-date. An empty
-                                               value REMOVES the key; quote it to write the empty
-                                               string itself ('options.sort=""').
+                                               ui-views: dotted keys — display.list.sort=-date. An
+                                               empty value REMOVES the key; quote it to write the
+                                               empty string itself ('display.list.sort=""').
                                                skills/agents/commands/…: frontmatter keys)
   rm     <system>/<id> [--force] [--dry-run]
   rename <system>/<id> <new-id>               (a collection's rename moves its records, re-suffixes
