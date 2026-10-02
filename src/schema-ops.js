@@ -703,7 +703,7 @@ export function moveCollection(ws, store, name, toModule, { dryRun = false } = {
 /**
  * The collection-level keys `dt set collections/<c>` writes, each by its v2 path, and how each
  * parses. A dotted key is a position inside a block (`display.nav.icon=pulse`). With
- * `display.nav.order` settable, `dt move collections/<c> --after <c>` means nav ordering and nothing
+ * `display.nav.order` settable, `dt reorder collections/<c> --after <c>` means nav ordering and nothing
  * else.
  *
  * ⚠ `name` is deliberately absent, and so are `fields`, `storage` and `ids`. Renaming a
@@ -737,9 +737,20 @@ const COLLECTION_SETTABLE = {
 		return n;
 	},
 	'display.nav.section': text,
+	'display.list.layout': text,
 	'display.list.columns': nameList,
 	'display.list.sort': text,
+	'display.record.layout': text,
+	'display.record.subtitle': text,
+	'display.record.badge': text,
+	'display.record.color_by': text,
 };
+/** A layout option, `display.list.options.<key>` or `display.record.options.<key>`: the block is open
+ *  (each layout reads its own keys), so the value is read as JSON where it parses — a number, a
+ *  boolean, a list — and as the string typed otherwise. */
+const OPTION_KEY = /^display\.(list|record)\.options\.[a-z][a-z0-9_]*$/;
+const optionValue = (v) => { if (typeof v !== 'string') return v; try { return JSON.parse(v); } catch { return v; } };
+const settableOf = (k) => COLLECTION_SETTABLE[k] ?? (OPTION_KEY.test(k) ? optionValue : undefined);
 
 /** "people has no field X" / "people has no fields X, Y" — the plural without a second sentence. */
 const collectionMissingFields = (name, missing) => `${name} has no field${missing.length === 1 ? '' : 's'} ${missing.join(', ')}`;
@@ -774,16 +785,16 @@ function deletePath(obj, dotted) {
 
 export function setCollectionScalars(ws, store, name, changes, { moduleId } = {}) {
 	const d = store.descriptor(name);
-	const unknown = Object.keys(changes).filter((k) => !(k in COLLECTION_SETTABLE));
+	const unknown = Object.keys(changes).filter((k) => !settableOf(k));
 	if (unknown.length) {
 		const k = unknown[0];
 		const extra = k === 'name' ? ` — a collection is renamed with its records and every inbound reference in one commit: dreamteamer rename collections/${name} <new-name>` : '';
-		throw new Error(`"${k}" is not a settable key of a collection${extra}. Settable: ${Object.keys(COLLECTION_SETTABLE).join(', ')}, plus module= (which MOVES it). A field is written with dreamteamer add-field/set-field ${name}.`);
+		throw new Error(`"${k}" is not a settable key of a collection${extra}. Settable: ${Object.keys(COLLECTION_SETTABLE).join(', ')}, display.list.options.<key>, display.record.options.<key>, plus module= (which MOVES it). A field is written with dreamteamer add-field/set-field ${name}.`);
 	}
 	// The columns and the sort name fields of THIS collection. compile refuses a dangling one too;
 	// refusing here names the verb that declares the field instead of rolling a write back.
 	const known = fieldsOf(d);
-	for (const key of ['display.list.columns', 'display.list.sort']) {
+	for (const key of ['display.list.columns', 'display.list.sort', 'display.record.badge', 'display.record.color_by']) {
 		if (!(key in changes) || changes[key] === '' || changes[key] === null) continue; // a clear has nothing to validate
 		const named = key === 'display.list.sort' ? [String(changes[key]).replace(/^-/, '')] : nameList(changes[key]);
 		const missing = named.filter((f) => f && !known[f]);
@@ -808,7 +819,7 @@ export function setCollectionScalars(ws, store, name, changes, { moduleId } = {}
 		for (const [k, raw] of Object.entries(changes)) {
 			// An empty value REMOVES the key — `store.set`'s convention, extended to the descriptor.
 			if (raw === '' || raw === null) deletePath(doc, k);
-			else setPath(doc, k, COLLECTION_SETTABLE[k](raw));
+			else setPath(doc, k, settableOf(k)(raw));
 			changed.push(k);
 		}
 		fs.writeFileSync(file, writeSource(previousText, doc));

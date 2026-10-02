@@ -452,6 +452,18 @@ describe('collections: add scaffolds v2, set writes v2 keys', () => {
 		refused(w.dt('set', 'collections/health/doctors', 'icon=x'), /"icon" is not a settable key of a collection/);
 	});
 
+	test('set collections writes the layout and its options, each option value read as JSON where it parses', () => {
+		const w = clinic({ records: false });
+		ok(w.dt('set', 'collections/health/doctors', 'display.list.layout=kanban', 'display.list.options.lanes_by=name', 'display.list.options.page_size=25', 'display.record.layout=page', 'display.record.options.wide=true'));
+		const doc = load(readFile(w.root, `${MOD}/collections/health/doctors.collection.yaml`));
+		assert.deepEqual(doc.display.list, { layout: 'kanban', options: { lanes_by: 'name', page_size: 25 } });
+		assert.deepEqual(doc.display.record, { layout: 'page', options: { wide: true } });
+		ok(w.dt('set', 'collections/health/doctors', 'display.list.options.page_size='));
+		assert.deepEqual(load(readFile(w.root, `${MOD}/collections/health/doctors.collection.yaml`)).display.list.options, { lanes_by: 'name' });
+		refused(w.dt('set', 'collections/health/doctors', 'display.record.badge=nope'), /health\/doctors has no field nope/);
+		refused(w.dt('set', 'collections/health/doctors', 'display.list.optionz.x=1'), /is not a settable key of a collection/);
+	});
+
 	test('reorder collections --after writes display.nav.order', () => {
 		const w = clinic({ records: false });
 		ok(w.dt('set', 'collections/health/doctors', 'display.nav.order=10'));

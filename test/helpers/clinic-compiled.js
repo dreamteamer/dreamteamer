@@ -43,7 +43,7 @@ export const VISITS = compiledCollection('health/visits', {
 		display: {
 			nav: { icon: 'stethoscope', order: 20, section: 'care' },
 			list: { columns: ['reason', 'patient', 'date', 'doctor', 'kind', 'status', 'fee', 'contact_email'], sort: '-date', options: { page_size: 50 } },
-			record: { subtitle: '{{ patient }} · {{ kind }}', badge: 'status', color_by: 'kind' },
+			record: { subtitle: '{{ patient }} · {{ kind }}', badge: 'status', color_by: 'kind', options: { relation_views: { prescriptions: 'table' } } },
 			form: {
 				sections: [
 					{ title: 'Visit', fields: ['reason', 'patient', 'doctor', 'date', 'checked_in', 'kind', 'status', 'contact_email'] },

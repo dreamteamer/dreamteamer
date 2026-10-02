@@ -21,7 +21,7 @@ const CONTRACT = {
 	collection: ['collection', 'title', 'nav', 'list', 'record', 'form', 'position_field', 'record_title', 'record_type', 'runtime', 'internal'],
 	nav: ['icon', 'order', 'section'],
 	list: ['layout', 'columns', 'sort', 'options'],
-	record: ['layout', 'subtitle', 'badge', 'color_by'],
+	record: ['layout', 'subtitle', 'badge', 'color_by', 'options'],
 	form: ['sections'],
 	section: ['title', 'fields'],
 	field: [

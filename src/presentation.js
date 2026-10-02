@@ -87,13 +87,16 @@ function collectionRow(d, declared) {
 		title: titleOf(d),
 		nav: pick(nav, ['icon', 'order', 'section']),
 		list: { layout: list.layout ?? DEFAULT_LIST_LAYOUT, ...pick({ ...list, columns: list.columns?.filter(drawn) }, ['columns', 'sort', 'options']) },
-		record: { layout: record.layout ?? DEFAULT_RECORD_LAYOUT, ...pick(record, ['subtitle', 'badge', 'color_by']) },
-		// each authored section, plus the fields naming it through `display.form_section`, in field order
+		record: { layout: record.layout ?? DEFAULT_RECORD_LAYOUT, ...pick(record, ['subtitle', 'badge', 'color_by', 'options']) },
+		// each authored section, plus the fields naming it through `display.form_section`, in field order;
+		// a section only fields name follows the authored ones, in the order its first field comes
 		form: {
-			sections: (form.sections ?? []).map((s) => ({
-				title: s.title,
-				fields: [...s.fields, ...Object.keys(declared).filter((n) => declared[n].display?.form_section === s.title && !s.fields.includes(n))].filter(drawn),
-			})),
+			sections: [...(form.sections ?? []).map((s) => s.title), ...Object.values(declared).map((f) => f.display?.form_section)]
+				.filter((t, i, all) => t !== undefined && all.indexOf(t) === i)
+				.map((title) => {
+					const authored = (form.sections ?? []).find((s) => s.title === title)?.fields ?? [];
+					return { title, fields: [...authored, ...Object.keys(declared).filter((n) => declared[n].display?.form_section === title && !authored.includes(n))].filter(drawn) };
+				}),
 		},
 		...pick({ position_field: positionFieldOf(d), record_title: recordTitleOf(d) }, ['position_field', 'record_title']),
 		record_type: storageOf(d).suffix ?? d.name,

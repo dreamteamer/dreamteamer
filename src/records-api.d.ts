@@ -184,7 +184,7 @@ export interface PresentationCollection {
 	title: string;
 	nav: { icon?: string; order?: number; section?: string };
 	list: { layout: string; columns?: string[]; sort?: string; options?: Record<string, unknown> };
-	record: { layout: string; subtitle?: string; badge?: string; color_by?: string };
+	record: { layout: string; subtitle?: string; badge?: string; color_by?: string; options?: Record<string, unknown> };
 	form: { sections: Array<{ title: string; fields: string[] }> };
 	position_field?: string;
 	record_title?: string;

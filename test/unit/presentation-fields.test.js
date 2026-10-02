@@ -18,7 +18,7 @@ describe('a collection row', () => {
 			nav: { icon: 'stethoscope', order: 20, section: 'care' },
 			// contact_email is deprecated: drawn nowhere, so not a column either
 			list: { layout: 'table', columns: ['reason', 'patient', 'date', 'doctor', 'kind', 'status', 'fee'], sort: '-date', options: { page_size: 50 } },
-			record: { layout: 'page', subtitle: '{{ patient }} · {{ kind }}', badge: 'status', color_by: 'kind' },
+			record: { layout: 'page', subtitle: '{{ patient }} · {{ kind }}', badge: 'status', color_by: 'kind', options: { relation_views: { prescriptions: 'table' } } },
 			form: {
 				sections: [
 					{ title: 'Visit', fields: ['reason', 'patient', 'doctor', 'date', 'checked_in', 'kind', 'status'] },
@@ -226,5 +226,23 @@ describe('the contract reads through src/descriptor.js, so compile\'s defaults c
 		const r = presentation(new Map([[none.name, none]])).collections[0];
 		assert.equal(r.title, 'health/beds');
 		assert.equal(r.record_title, '{{ id }}');
+	});
+});
+
+describe('a collection row carries what surfaces read from its display', () => {
+	const notes = compiledCollection('notes', {
+		authored: { display: { record: { options: { relation_views: { links: 'table' } } } } },
+		fields: {
+			name: { type: 'string', title: 'Name', display: { form_section: 'Basics' } },
+			cost: { type: 'number', title: 'Cost', display: { form_section: 'Money' } },
+			when: { type: 'date', title: 'When', display: { form_section: 'Basics' } },
+		},
+	});
+	const row = presentation(new Map([['notes', notes]])).collections.find((c) => c.collection === 'notes');
+	test("display.record.options reaches the row, as display.list.options does", () => {
+		assert.deepEqual(row.record.options, { relation_views: { links: 'table' } });
+	});
+	test('a section only fields name is a section, in the order its first field comes', () => {
+		assert.deepEqual(row.form.sections, [{ title: 'Basics', fields: ['name', 'when'] }, { title: 'Money', fields: ['cost'] }]);
 	});
 });
