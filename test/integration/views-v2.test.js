@@ -66,8 +66,8 @@ describe('a v2 ui-view', () => {
 		const { display } = compiledView(w.root, 'today').compiled;
 		// list: the view's layout and options win; the collection's columns and sort are inherited
 		assert.deepEqual(display.list, { columns: ['reason', 'date', 'status'], sort: '-date', layout: 'kanban', options: { lanes_by: 'status', card_title: '{{ reason }}' } });
-		// a sub-block the view omits is the collection's
-		assert.deepEqual(display.record, VISITS.display.record);
+		// a sub-block the view omits is the collection's, with the defaults compile supplied
+		assert.deepEqual(display.record, { layout: 'page', ...VISITS.display.record });
 		assert.deepEqual(display.form, VISITS.display.form);
 		// nav: the view's keys over the collection's
 		assert.deepEqual(display.nav, { icon: 'calendar', order: 1, title: 'Today' });
@@ -93,7 +93,7 @@ describe('a v2 ui-view', () => {
 		assert.equal(compileError(w.ws), null);
 		const { display } = compiledView(w.root, 'chart').compiled;
 		assert.deepEqual(display.record, { subtitle: '{{ kind }}', badge: 'status', layout: 'chart', options: { start: 'date' } });
-		assert.deepEqual(display.list, VISITS.display.list, 'the list is untouched');
+		assert.deepEqual(display.list, { layout: 'table', ...VISITS.display.list }, 'the list is the collection\'s, default layout included');
 	});
 
 	test('`default` on a v2 view fails compile, naming the collection\'s display as the default view', () => {
