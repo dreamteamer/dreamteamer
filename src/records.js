@@ -3,7 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { load } from './yaml.js';
-import { storageOf, storedFieldsOf } from './descriptor.js';
+import { storageOf, storedFieldsOf, isBinary } from './descriptor.js';
 
 export function parseRecord(file, d, bodyField) {
 	// An opaque record IS its bytes: there is nothing to parse, and reading a PNG as utf8 would
@@ -44,6 +44,7 @@ export function fmtAjvError(e, fields) {
 
 // keys a record carries that its collection does not store (typo detector)
 export function unknownFields(d, fields) {
+	if (isBinary(d)) return []; // a file record's fields are read from the file, never authored
 	const props = storedFieldsOf(d);
 	if (!Object.keys(props).length) return [];
 	return Object.keys(fields).filter((k) => !(k in props));

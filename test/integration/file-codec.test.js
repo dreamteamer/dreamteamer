@@ -216,12 +216,12 @@ describe('compile', () => {
 		assert.match(compileError(ws.ws) ?? '', /`format: binary` — one file per record, not a folder; drop `shape: folder`/);
 	});
 
-	test('warns that a declared field is ignored', () => {
+	test('a declared field is refused — a file record has nowhere to store it', () => {
 		const ws = workspace({ compile: false, collections: { files: FILES } });
 		writeCollection(ws.root, 'schemad', {
 			storage: { path: 'data/schemad', format: 'binary', shape: 'file', suffix: 's' },
 			fields: { a: { type: 'string' } },
 		});
-		assert.match(compileQuietly(ws.ws).warnings.join('\n'), /ignored/);
+		assert.throws(() => compileQuietly(ws.ws), /collection "schemad" is `format: binary`, so a record is the file itself and has nowhere to store "a"/);
 	});
 });

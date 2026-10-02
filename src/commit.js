@@ -109,7 +109,7 @@ function readState(store, rels, row, head) {
  *  It is the same file either way: pathToRecord yields a row only for a record's OWN file (a folder
  *  shape has to end at its `entry`), which is why `sameRecord` below already reads one directly.
  *  Going through parseRecordText also makes the two sides of HEAD symmetric — the pre-image was
- *  always parsed this way — so an opaque `codec: file` record reads the same on both sides. Such a
+ *  always parsed this way — so an opaque `format: binary` record reads the same on both sides. Such a
  *  record cannot carry a relation field at all, having no serialised fields for one to live in, so
  *  readState never reaches here for one. */
 function worktreeFields(store, row) {
@@ -387,7 +387,7 @@ function sample(root, repo, dirs, descriptors) {
 		const rec = pathToRecord(descriptors, prefix + repoRel);
 		if (!rec) continue;
 		// ⚠ `M` MEANS `set` FOR EVERY CODEC BUT ONE. `set` is the single verb the store refuses on a
-		// `codec: file` record — its bytes ARE the record, and the refusal's own message says to use
+		// `format: binary` record — its bytes ARE the record, and the refusal's own message says to use
 		// `add --from … --force` instead — so a forced replacement was published under the name of
 		// the one thing that cannot be done to it. The status letter still decides; the descriptor
 		// only says what the letter is called here.

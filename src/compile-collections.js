@@ -139,6 +139,8 @@ export function compileCollections(ctx) {
 		// an opaque record's fields are the ones derived from the file itself
 		const fields = { ...(authored.fields ?? {}) };
 		if (format === 'binary') {
+			const declared = Object.keys(fields).filter((k) => k !== 'ext' && k !== 'bytes');
+			if (declared.length) fail(`collection "${name}" is \`format: binary\`, so a record is the file itself and has nowhere to store ${declared.map((k) => `"${k}"`).join(', ')} — its fields are ext and bytes, read from the file. Drop the declared fields, or use format md and point a field at the file (${where})`);
 			fields.ext ??= { type: 'string', virtual: true, description: "The file's extension, lowercase and without the dot. Read from the file." };
 			fields.bytes ??= { type: 'integer', virtual: true, description: "The file's size in bytes. Read from the file." };
 		}

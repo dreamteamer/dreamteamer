@@ -69,7 +69,7 @@ export class Store {
 
 	// Can the store rewrite this collection's records AT ALL? The two shapes it cannot are the same
 	// pair `applyMirrorEdits` bails on: a runtime-based record is a build artifact under
-	// `.dreamteamer/` whose source lives elsewhere, and a `codec: file` record's bytes ARE the record
+	// `.dreamteamer/` whose source lives elsewhere, and a `format: binary` record's bytes ARE the record
 	// — `serialize` has no branch for it, so a write would replace an SVG with frontmatter. A
 	// predicate rather than a throw, because the callers that need this are CHOOSING a path (rm's
 	// set-null falls back to restrict) rather than refusing a request.
@@ -176,7 +176,7 @@ export class Store {
 					// compiled from sources, and writing one means editing a build artifact under
 					// `.dreamteamer/` that is gitignored and gone at the next compile — refuse, loudly.
 					const td = this.writableDescriptor(rel.target);
-					// A `codec: file` record's bytes ARE the record: `read` derives its fields and
+					// A `format: binary` record's bytes ARE the record: `read` derives its fields and
 					// `serialize` has no branch for it, so this line would replace an SVG with frontmatter.
 					// BAIL rather than throw — an unwritten mirror is a `check` violation someone can act
 					// on; overwritten bytes are simply gone.
@@ -260,7 +260,7 @@ export class Store {
 		if (storageOf(d).format === 'binary') {
 			// An opaque record's extension is not derivable from its id. A caller that WRITES says what
 			// it is; a caller that reads goes through the id index instead (recordRoot, below).
-			if (!ext) throw new Error(`collection "${d.name}" is \`codec: file\` — its path needs the file's extension`);
+			if (!ext) throw new Error(`collection "${d.name}" is \`format: binary\` — its path needs the file's extension`);
 			return path.join(this.dir(d), `${id}.${storageOf(d).suffix}.${ext}`);
 		}
 		const under = placementOf(d);
@@ -893,7 +893,7 @@ export class Store {
 	 *  lines and nothing else. */
 	addFile(collection, id, srcPath, { force = false } = {}) {
 		const d = this.writableDescriptor(collection);
-		if (storageOf(d).format !== 'binary') throw new Error(`"${collection}" is not a \`codec: file\` collection — add its records with --<field> values, not --from`);
+		if (storageOf(d).format !== 'binary') throw new Error(`"${collection}" is not a \`format: binary\` collection — add its records with --<field> values, not --from`);
 		assertSafeId(id);
 		if (idsOf(d).pattern && !patternRe(idsOf(d).pattern).test(id)) {
 			throw new Error(`id "${id}" does not match pattern ${idsOf(d).pattern} — nothing was written.`);
@@ -924,12 +924,13 @@ export class Store {
 
 	set(collection, id, changes) {
 		const d = this.writableDescriptor(collection);
-		this.refuseMirrorWrites(collection, id, Object.keys(changes));
-		this.refuseEngineWrites(d, Object.keys(changes));
-		this.assertUnambiguous(collection, id);
+		// first: on a file record every field is read from the file, so the answer is the replacement
 		if (storageOf(d).format === 'binary') {
 			throw new Error(`${collection}/${id} is a file record — its fields are derived from the file, so there is nothing to set. Replace it with \`dreamteamer add ${collection} ${id} --from <path> --force\`.`);
 		}
+		this.refuseMirrorWrites(collection, id, Object.keys(changes));
+		this.refuseEngineWrites(d, Object.keys(changes));
+		this.assertUnambiguous(collection, id);
 		const { fields, file } = this.read(collection, id);
 		const nestedUnder = placementOf(d);
 		if (isNested(nestedUnder) && Object.hasOwn(changes, nestedUnder.parent) && changes[nestedUnder.parent] !== fields[nestedUnder.parent]) {
@@ -1102,7 +1103,7 @@ export class Store {
 		//
 		// Paths come through `ids()` so a planned path is the exact file the mirror pass rewrites — a
 		// folder-shape record's ENTRY file, not its folder — which is also the shape findInboundRefs
-		// reports. A target the mirror pass would bail on (`codec: file`, runtime-based) never received
+		// reports. A target the mirror pass would bail on (`format: binary`, runtime-based) never received
 		// a mirror, so nothing is planned there and a hit in it is real.
 		const planned = new Map(); // workspace-relative path -> occurrences of `self` this write removes
 		const plan = (file, n) => { const k = path.relative(this.root, file); planned.set(k, (planned.get(k) ?? 0) + n); };
@@ -1633,9 +1634,9 @@ function pruneEmptyDirs(dir, stopAt) {
 }
 
 export function serialize(d, fields, previousText) {
-	const codec = storageOf(d).format;
-	if (codec === 'json') return JSON.stringify(fields, null, 2) + '\n';
-	if (codec === 'yaml') return dump(fields);
+	const format = storageOf(d).format;
+	if (format === 'json') return JSON.stringify(fields, null, 2) + '\n';
+	if (format === 'yaml') return dump(fields);
 	const bf = bodyField(d);
 	const fm = { ...fields };
 	let body = '';

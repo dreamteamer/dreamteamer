@@ -980,7 +980,7 @@ function relationsRebuild(store, flags, pos) {
 	const d = store.descriptor(collection);
 	// The two shapes compile refuses to stamp a mirror onto, refused again here — because --drop
 	// writes even when NO relation targets this collection, and `serialize` has no branch for
-	// `codec: file`: it would replace the record's own bytes (an SVG, a PDF) with frontmatter.
+	// `format: binary`: it would replace the record's own bytes (an SVG, a PDF) with frontmatter.
 	if (!store.canRewrite(collection)) {
 		const why = storageOf(d).runtime ? 'a compiled source' : 'stored as `format: binary`';
 		throw new Error(`"${collection}" is ${why} — it carries no generated mirrors and this verb will not rewrite it.`);
