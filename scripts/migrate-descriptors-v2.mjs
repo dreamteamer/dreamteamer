@@ -683,12 +683,17 @@ export function migrate(root, { dryRun = false, log = console.log } = {}) {
 	const ignoreFile = path.join(root, '.gitignore');
 	const ignoreText = fs.existsSync(ignoreFile) ? fs.readFileSync(ignoreFile, 'utf8') : '';
 	const ignoreLines = new Set(ignoreText.split(/\r?\n/).map((l) => l.trim()));
-	const toIgnore = HARNESS_FILES.map((f) => `/${f}`).filter((l) => !ignoreLines.has(l));
+	// a root harness file is compile's only when it carries the generated block; one without it is
+	// hand-written, stays tracked, and is named
+	const handWritten = HARNESS_FILES.filter((f) => names.includes(f) && !fs.readFileSync(path.join(root, f), 'utf8').includes('dreamteamer:begin'));
+	for (const f of handWritten) plan.warnings.push(`${f} carries no generated block, so it stays tracked and is not ignored — if compile should own it, move its text into DREAMTEAMER.md`);
+	const generated = HARNESS_FILES.filter((f) => !handWritten.includes(f));
+	const toIgnore = generated.map((f) => `/${f}`).filter((l) => !ignoreLines.has(l));
 	plan.ignored = toIgnore.length;
 	log(`${dryRun ? 'plan' : 'migrated'}: descriptors ${plan.descriptors} · fields ${plan.fields} · relations folded ${plan.folded} · enums merged ${plan.enums} · mixins ${plan.mixins} · views folded ${plan.viewsFolded} · views converted ${plan.viewsConverted} · bindings converted ${plan.bindings} · packages ${plan.packages} · instructions renamed ${plan.instructions} · harness files ignored ${plan.ignored}`);
 	for (const w of plan.warnings) log(`⚠ ${w}`);
 	for (const u of plan.unfolded) log(`⚠ ${u}`);
-	const tracked = trackedFiles(root, HARNESS_FILES);
+	const tracked = trackedFiles(root, generated);
 	if (tracked.length) log(`then stop tracking the generated harness files: git rm --cached ${tracked.join(' ')}`);
 	if (!dryRun) {
 		if (plan.instructions) {
