@@ -197,6 +197,24 @@ describe('a v2 descriptor is refused, with the fix in the message', () => {
 	});
 });
 
+describe('a nested definition is validated before the runtime is replaced', () => {
+	test('a typo inside an object field fails compile, and the previous runtime stands', async () => {
+		const { Store } = await import('../../src/store.js');
+		const w = workspace({ compile: false });
+		const things = (code) => ({ ids: { from: '{{ name | slug }}' }, fields: { name: { type: 'string', required: true }, details: { type: 'object', fields: { code } }, notes: { type: 'markdown', body: true } } });
+		writeCollection(w.root, 'things', things({ type: 'string', pattern: '^[a-z]+$' }));
+		assert.equal(compileError(w.ws), null);
+		const file = path.join(w.root, '.dreamteamer', 'collections', 'things.collection.yaml');
+		const before = fs.readFileSync(file, 'utf8');
+		writeCollection(w.root, 'things', things({ type: 'string', patern: '^[a-z]+$' }));
+		assert.match(compileError(w.ws), /field "details\.code" has unknown key "patern"/);
+		assert.equal(fs.readFileSync(file, 'utf8'), before, 'the runtime is the last good compile');
+		const store = new Store(w.ws);
+		assert.throws(() => store.add('things', { name: 'One', details: { code: 'INVALID' } }), /details\.code.*pattern/, 'the rule the typo would have disabled still holds');
+		assert.doesNotThrow(() => store.add('things', { name: 'Two', details: { code: 'valid' } }));
+	});
+});
+
 describe('an overlay from another module', () => {
 	test('adds a field and is listed in overlaid_by', () => {
 		const w = clinic({

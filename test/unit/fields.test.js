@@ -212,3 +212,22 @@ describe('json_schema.properties is exactly the stored fields', () => {
 		assert.notEqual(s.allOf[0], c[0]);
 	});
 });
+
+describe('a definition nested in an object or a map is held to the same vocabulary', () => {
+	const errs = (fields) => resolve(fields).errors;
+	test('an unknown type and an unknown key, each under its full path', () => {
+		assert.match(errs({ details: { type: 'object', fields: { code: { type: 'strnig' } } } }).join('\n'), /field "details\.code": unknown type "strnig"/);
+		assert.match(errs({ details: { type: 'object', fields: { code: { type: 'string', patern: '^[a-z]+$' } } } }).join('\n'), /field "details\.code" has unknown key "patern"/);
+		assert.match(errs({ scores: { type: 'map', values: { type: 'integr' } } }).join('\n'), /field "scores\.values": unknown type "integr"/);
+		assert.match(errs({ scores: { type: 'map', values: 'nmber' } }).join('\n'), /field "scores": `values` names unknown type "nmber"/);
+	});
+	test('a malformed nested display, and a record-level key where no record is', () => {
+		assert.match(errs({ details: { type: 'object', fields: { code: { type: 'string', display: { widht: 'narrow' } } } } }).join('\n'), /field "details\.code": display has unknown key "widht"/);
+		assert.match(errs({ details: { type: 'object', fields: { code: { type: 'string', unique: true } } } }).join('\n'), /field "details\.code": `unique` belongs to a collection's own field/);
+	});
+	test('valid deep nesting resolves, with no injected field inside it', () => {
+		const r = resolve({ address: { type: 'object', fields: { geo: { type: 'object', fields: { lat: { type: 'number', minimum: -90 }, tags: { type: 'string', many: true, pattern: '^[a-z]+$' } } }, extra: { type: 'map', values: { type: 'object', fields: { note: { type: 'string' } } } } } } });
+		assert.deepEqual(r.errors, []);
+		assert.deepEqual(Object.keys(r.fields.address.fields), ['geo', 'extra']);
+	});
+});
