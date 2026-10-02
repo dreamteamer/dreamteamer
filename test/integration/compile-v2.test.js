@@ -176,6 +176,12 @@ describe('a v2 descriptor is refused, with the fix in the message', () => {
 		assert.match(err, /migrate-descriptors-v2\.mjs --root \./);
 		assert.match(err, /UPDATING\.md/);
 	});
+	test('a v1-spelled package.json block names the converter, not a list of unknown keys', () => {
+		const w = workspace({ compile: false, pkg: { 'data-path': 'data' } });
+		const err = compileError(w.ws);
+		assert.match(err, /package\.json: the dreamteamer block is in the v1 spelling \(data-path\)/);
+		assert.match(err, /migrate-descriptors-v2\.mjs --root \./);
+	});
 });
 
 describe('an overlay from another module', () => {

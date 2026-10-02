@@ -21,7 +21,7 @@ import { satisfies } from './semver.js';
 import { parseEnvValues } from './env-vars.js';
 import { DERIVED_KINDS, readManifest, runtimeDir, engineId, engineVersion, loadDescriptors as loadCompiledDescriptors } from './runtime.js';
 import { excludedFromKind, disablesPackage, isPackageEntry } from './extensions.js';
-import { compileCollections, v1Refusal } from './compile-collections.js';
+import { compileCollections, v1Refusal, CONVERTER } from './compile-collections.js';
 import { storageOf, fieldsOf, displayOf } from './descriptor.js';
 export { engineId, engineVersion, readManifest };
 
@@ -361,6 +361,9 @@ export function compile(ws) {
 	// every module's alike — a key outside it is a typo or a spelling this engine does not read
 	const refuseUnknownKeys = (block, where) => {
 		const bad = Object.keys(block ?? {}).filter((k) => !MANIFEST_KEYS.includes(k));
+		// a kebab-case spelling of a key this engine reads is the v1 manifest: the converter rewrites it
+		const v1 = bad.filter((k) => k === 'peerDependencies' || MANIFEST_KEYS.includes(k.replace(/-/g, '_')));
+		if (v1.length) fail(`${where}: the dreamteamer block is in the v1 spelling (${v1.join(', ')}).\n  convert the workspace once: ${CONVERTER}\n  then dt compile and dt check — UPDATING.md has the walk.`);
 		if (bad.length) fail(`${where}: unknown dreamteamer key(s) ${bad.join(', ')} — the keys are ${MANIFEST_KEYS.join(' · ')}`);
 	};
 	refuseUnknownKeys(config, 'package.json');
