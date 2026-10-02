@@ -513,7 +513,7 @@ export function compile(ws) {
 	if (config.postinstall != null && typeof config.postinstall !== 'string') fail('dreamteamer.postinstall must be a single shell string');
 
 	// ---- the module dependency graph -------------------------------------------------
-	// `dependencies` names MODULES and must be acyclic. `peerDependencies` names COLLECTIONS and
+	// `dependencies` names MODULES and must be acyclic. `peer_collections` names COLLECTIONS and
 	// therefore cannot cycle at all — which is the whole reason it exists: two modules that each
 	// reference a concept the other owns (crm needs `products`, rnd needs `contacts`) would be an
 	// unbreakable ring under module-named deps, and are two independent peer declarations here.
@@ -783,12 +783,18 @@ export function compile(ws) {
 	const wsModuleName = wsDir
 		? sources.find((s) => rel(s.root) === path.join('modules', wsDir))?.name
 		: pkg.name;
+	// a declared git module whose clone is absent is an UNINSTALLED workspace (a fresh clone), so a
+	// collection error there is named with the install, not left reading as a broken reference
+	const uninstalled = Object.keys(config.git_modules ?? {}).filter((n) => !fs.existsSync(path.join(root, 'git_modules', n)));
+	const collectionsFail = (msg) => fail(uninstalled.length
+		? `${msg}\n  run \`dreamteamer install\` first — dreamteamer.git_modules declares ${uninstalled.join(', ')}, and no clone of ${uninstalled.length === 1 ? 'it' : 'them'} is on disk yet`
+		: msg);
 	const { compiled: compiledColls, inert: inertSources, moduleColls } = compileCollections({
 		groups: descriptorGroups, mixins: mixinDocs, namespaces, nsOwners,
 		runtimeKinds: new Set([...kinds, ...DERIVED_KINDS]), core: CORE_COLLECTIONS,
 		moduleDeps, modulePeers, channelOf, wsModuleName, engineName, dataOwners,
 		repoOf: (moduleRoot) => repoRootOf(moduleRoot, root), rel, dataPath: config.data_path ?? 'data',
-		moduleId, fail, warn: (m) => console.warn(m),
+		moduleId, fail: collectionsFail, warn: (m) => console.warn(m),
 	});
 	refusePlacementTransitions(root, compiledColls);
 	counts.collections = 0;
@@ -859,7 +865,7 @@ export function compile(ws) {
 				? { dependencies: moduleDeps.get(source.name).map((n) => `modules/${moduleId(n)}`) }
 				: {}),
 			...(modulePeers.get(source.name)?.length
-				? { peer_dependencies: modulePeers.get(source.name).map((c) => `collections/${c}`) }
+				? { peer_collections: modulePeers.get(source.name).map((c) => `collections/${c}`) }
 				: {}),
 			...(moduleColls.get(source.name)?.size
 				? { collections: [...moduleColls.get(source.name)].sort().map((c) => `collections/${c}`) }

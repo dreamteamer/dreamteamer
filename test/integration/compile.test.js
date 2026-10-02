@@ -528,7 +528,7 @@ describe('the orientation block names the workspace', () => {
 // This is the state a recipes module is opened in on its own, and it has to pass BOTH gates. It
 // did not: compile stamped `unresolved_peers` onto every collection in the module and the
 // `collections` meta-descriptor did not declare it, so `check` flagged compile's own output as an
-// unknown field; and the generated module record's `peer_dependencies` was validated as a hard
+// unknown field; and the generated module record's `peer_collections` was validated as a hard
 // reference, so the absent peer dangled. Each gate has to excuse exactly the declared peer.
 describe('peer_collections — an optional cross-module reference', () => {
 	/** A v2 descriptor with a required `title`, a body, and `extra` fields between them. */
@@ -624,11 +624,11 @@ describe('peer_collections — an optional cross-module reference', () => {
 			'a collection that references no peer must not carry the excuse for one');
 	});
 
-	test('the module record keeps peer_dependencies — it is the declaration, not a resolved link', () => {
+	test('the module record keeps peer_collections — it is the declaration, not a resolved link', () => {
 		const ws = withPeerModule();
 		assert.equal(ws.dt('compile').code, 0);
 		const mod = load(readFile(ws.root, '.dreamteamer/modules/blog.module.yaml'));
-		assert.deepEqual(mod.peer_dependencies, ['collections/posts']);
+		assert.deepEqual(mod.peer_collections, ['collections/posts']);
 	});
 
 	test('with the peer PRESENT the reference is hard again — a dangling target is flagged', () => {

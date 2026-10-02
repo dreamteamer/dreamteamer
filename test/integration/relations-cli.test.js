@@ -332,7 +332,7 @@ describe('rm-field on a module-shipped collection', () => {
 		// `repos` ships from node_modules/dreamteamer, which the next `npm install` overwrites.
 		const res = runDt(ws.root, 'rm-field', 'repos', '--name', 'path');
 		assert.equal(res.code, 1);
-		assert.match(res.stderr, /cannot rewrite/);
+		assert.match(res.stderr, /ships from node_modules — an overlay can override a field there, never remove it/);
 	});
 });
 
@@ -351,17 +351,19 @@ describe('dropping a relation takes its generated values with it', () => {
 		return ws;
 	};
 
-	test('rm-field on the owning foreign key does the same', () => {
+	test('rm-field on the owning reference is refused while a mirror names it; mirror first, then the owner', () => {
 		const ws = linked();
+		const refused = ws.dt('rm-field', 'recordings', '--name', 'meeting');
+		assert.equal(refused.code, 1);
+		assert.match(refused.stderr, /fields\.recordings\.mirror_of — it would name a field that no longer exists/);
+		assert.match(readFile(ws.root, 'data/recordings/cap-one.recording.md'), /meeting: meetings\/kickoff/, 'a refusal writes nothing');
+		assert.equal(ws.dt('rm-field', 'meetings', '--name', 'recordings').code, 0);
+		assert.doesNotMatch(readFile(ws.root, 'data/meetings/kickoff.meeting.md'), /recordings:/);
 		const res = ws.dt('rm-field', 'recordings', '--name', 'meeting');
 		assert.equal(res.code, 0, res.stderr);
-		assert.match(res.stdout, /dropped the generated meetings\.recordings value from 1 meetings record/);
-		assert.doesNotMatch(readFile(ws.root, 'data/meetings/kickoff.meeting.md'), /recordings:/);
 		// ⚠ THE OWNER'S OWN VALUE GOES TOO. Left behind, the key survives in a schema that no longer
 		// declares it, so `check` reports an unknown field and the store refuses every later write to
-		// that record — a collection you can read and not WRITE. Removing a field is an explicit
-		// destructive schema act, the values are one `git show HEAD~1` away because this lands in the
-		// same commit, and the count is REPORTED rather than silent.
+		// that record. The values are one `git show HEAD~1` away, and the count is REPORTED.
 		assert.doesNotMatch(readFile(ws.root, 'data/recordings/cap-one.recording.md'), /meeting:/);
 		assert.match(res.stdout, /cleared its values from 1 recordings record/);
 		assert.equal(ws.dt('check').code, 0, 'and the collection is writable again, which is the point');

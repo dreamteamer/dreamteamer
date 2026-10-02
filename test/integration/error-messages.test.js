@@ -47,9 +47,10 @@ describe('§13 — the error messages the implementation must ship', () => {
 
 	test('an overlay write with the dependency missing is compile\'s text, PREFIXED with the fix', () => {
 		const ws = twoModuleWorkspace();
-		const res = ws.dt('add-field', 'people', '--name', 'badge', '--type', 'string', '--module', 'hr');
+		// teams, not people: hr declares people a peer, which lets it overlay people with no dependency
+		const res = ws.dt('add-field', 'teams', '--name', 'badge', '--type', 'string', '--module', 'hr');
 		assert.equal(res.code, 1);
-		assert.match(res.stderr, /does not declare "core" in dreamteamer\.dependencies/, "compile's own sentence");
+		assert.match(res.stderr, /module "hr" neither depends on "core" nor declares "teams" in peer_collections/, "compile's own sentence");
 		assert.match(res.stderr, /rolled back — dt set modules\/hr dependencies=modules\/core, then re-run/);
 	});
 
@@ -102,7 +103,7 @@ describe('§13 — the error messages the implementation must ship', () => {
 		assert.equal(res.code, 1);
 		assert.match(res.stderr, /move rolled back/);
 		assert.match(res.stderr, /would be a ring/);
-		assert.match(res.stderr, /peerDependencies=collections\/people/);
+		assert.match(res.stderr, /peer_collections=collections\/people/);
 		assert.match(res.stderr, /or move people as well/);
 	});
 

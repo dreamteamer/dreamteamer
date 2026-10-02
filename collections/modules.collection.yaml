@@ -1,7 +1,7 @@
 # The modules this workspace compiled, PROJECTED by compile from what it discovered. `package.json`
 # stays the source of truth and compile keeps reading it, so a record here is a projection, never an
 # input: editing one would be editing a photograph. It earns its place because the engine reads the
-# DATA — `dependencies` is checked for cycles, `peer_dependencies` is what lets a cross-module
+# DATA — `dependencies` is checked for cycles, `peer_collections` is what lets a cross-module
 # reference compile — and because, as a collection, its EDGES are browsable, diagrammable and
 # listable with no code written for any of them.
 name: modules
@@ -58,7 +58,7 @@ fields:
     type: modules
     many: true
     description: Modules this one cannot compile without — an overlay needs its base. Hard and acyclic; compile fails on a ring and names the peer escape hatch.
-  peer_dependencies:
+  peer_collections:
     type: string
     many: true
     description: >-

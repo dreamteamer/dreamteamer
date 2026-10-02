@@ -183,7 +183,7 @@ describe('dt set collections/<c> — the collection-level scalars', () => {
 		const ws = twoModuleWorkspace();
 		const res = ws.dt('set', 'collections/teams', 'name=nope');
 		assert.equal(res.code, 1);
-		assert.match(res.stderr, /"name" is not a settable scalar of a collection/);
+		assert.match(res.stderr, /"name" is not a settable key of a collection/);
 		assert.match(res.stderr, /dreamteamer rename collections\/teams/);
 	});
 
@@ -246,10 +246,11 @@ describe('--module targets one module\'s contribution', () => {
 
 	test('an overlay write with the dependency MISSING is rolled back and names the fix', () => {
 		const ws = twoModuleWorkspace();
-		const res = ws.dt('add-field', 'people', '--name', 'badge', '--type', 'string', '--module', 'hr');
+		// teams, not people: hr declares people a peer, which lets it overlay people with no dependency
+		const res = ws.dt('add-field', 'teams', '--name', 'badge', '--type', 'string', '--module', 'hr');
 		assert.equal(res.code, 1);
 		assert.match(res.stderr, /rolled back — dt set modules\/hr dependencies=modules\/core, then re-run/);
-		assert.equal(readFile(ws.root, 'modules/hr/collections/people.collection.yaml'), null,
+		assert.equal(readFile(ws.root, 'modules/hr/collections/teams.collection.yaml'), null,
 			'nothing was left behind');
 	});
 

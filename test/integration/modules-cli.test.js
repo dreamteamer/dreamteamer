@@ -85,10 +85,10 @@ describe('dt add modules', () => {
 });
 
 describe('dt set modules/<id>', () => {
-	test('writes description, dependencies and peer_dependencies in record-shaped values', () => {
+	test('writes description, dependencies and peer_collections in record-shaped values', () => {
 		const ws = twoModuleWorkspace();
 		const res = ws.dt('set', 'modules/hr', 'description=Roles, headcount and grades.',
-			'dependencies=modules/core', 'peer_dependencies=collections/people');
+			'dependencies=modules/core', 'peer_collections=collections/people');
 		assert.equal(res.code, 0, res.stdout + res.stderr);
 		const dt = modulePkg(ws, 'hr').dreamteamer;
 		assert.equal(dt.description, 'Roles, headcount and grades.');
@@ -96,6 +96,7 @@ describe('dt set modules/<id>', () => {
 		assert.deepEqual(dt.peer_collections, ['people'], 'a peer names a COLLECTION, bare, under the package key peer_collections');
 		const rec = JSON.parse(ws.dt('get', 'modules/hr', '--json').stdout);
 		assert.deepEqual(rec.dependencies, ['modules/core']);
+		assert.deepEqual(rec.peer_collections, ['collections/people'], 'the record field and the package key are one name');
 	});
 
 	test('an empty value clears the key', () => {

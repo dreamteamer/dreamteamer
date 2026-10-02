@@ -374,12 +374,12 @@ describe('system-stored collections are read-only through the store', () => {
 	// still refused rather than written.
 	test('the CLI routes it to the SOURCE instead, and still refuses a key no system verb owns', () => {
 		const ws = base();
-		const ok = ws.dt('set', 'collections/tasks', 'icon=star');
+		const ok = ws.dt('set', 'collections/tasks', 'display.nav.icon=star');
 		assert.equal(ok.code, 0, ok.stdout + ok.stderr);
 		assert.match(readFile(ws.root, 'modules/default/collections/tasks.collection.yaml'), /icon: star/);
 		const refused = ws.dt('set', 'collections/tasks', 'schema=nope');
 		assert.equal(refused.code, 1);
-		assert.match(refused.stderr, /"schema" is not a settable scalar of a collection/);
+		assert.match(refused.stderr, /"schema" is not a settable key of a collection/);
 	});
 });
 

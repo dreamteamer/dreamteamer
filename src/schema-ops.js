@@ -78,7 +78,7 @@ function writeGated(ws, store, files, subject, mutate, after, { commentsMayDecre
 			// its base, so the remedy is spelled as the verb that fixes it — §13. The module names in
 			// compile's sentence are PACKAGE names while `dt set modules/<id>` takes an ID; for anything
 			// `add modules` created they are the same string, for a forked module they are not.
-			const dep = /module "([^"]+)" does not declare "([^"]+)" in dreamteamer\.dependencies/.exec(e.message);
+			const dep = /an overlay of "[^"]+", but module "([^"]+)" neither depends on "([^"]+)"/.exec(e.message);
 			if (dep) {
 				const idOf = (pkgName) => moduleRows(store).find((r) => r.fields.name === pkgName)?.id ?? pkgName;
 				throw new Error(`${e.message}\n  rolled back — dt set modules/${idOf(dep[1])} dependencies=modules/${idOf(dep[2])}, then re-run`);
@@ -568,11 +568,8 @@ export function renameModule(ws, store, oldId, newId) {
 function moveImpact(store, name, toModule) {
 	const mods = moduleRows(store);
 	const depsOf = new Map(mods.map((m) => [m.id, (m.fields.dependencies ?? []).map((r) => String(r).replace(/^modules\//, ''))]));
-	// ⚠ `peer_dependencies` — the key compile projects onto the module RECORD (`peer_collections` is
-	// the package.json spelling). Reading the source spelling here returns undefined for every module
-	// and silently switches the peer escape hatch off, so a move a declared peer legitimately permits
-	// would be refused with the ring message.
-	const peersOf = new Map(mods.map((m) => [m.id, (m.fields.peer_dependencies ?? []).map((r) => String(r).replace(/^collections\//, ''))]));
+	// the module RECORD's `peer_collections`, projected from package.json under the same name
+	const peersOf = new Map(mods.map((m) => [m.id, (m.fields.peer_collections ?? []).map((r) => String(r).replace(/^collections\//, ''))]));
 	const ownerOf = new Map();
 	for (const [id, d] of store.descriptors) ownerOf.set(id, moduleOf(d));
 	ownerOf.set(name, toModule); // the world as the move would leave it
@@ -1445,7 +1442,8 @@ function collectionSourceFile(ws, store, collection, moduleId, { allowNew = fals
 		// declared by MORE than one module (a base plus overlays); anywhere else it is refused (§5),
 		// naming who does declare it. `allowNew` is the one caller deliberately CREATING an overlay.
 		const declared = declaringModules(ws, store, collection);
-		if (!allowNew && declared.length < 2) {
+		// naming the ONLY declarer is redundant even where an overlay may be created: it selects the base
+		if (declared.length < 2 && (!allowNew || declared.includes(moduleId))) {
 			throw new Error(`${subject ?? collection} is declared only by ${declared.join(', ') || '?'} — drop --module`);
 		}
 		const own = [base, ...overlays].find((p) => p && String(p).startsWith(`${rec.fields.path}/`));
