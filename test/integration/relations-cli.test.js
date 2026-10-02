@@ -6,9 +6,8 @@
 // a mirror, asserts `check` FAILS, rebuilds, and asserts `check` passes — the round trip the message
 // promises.
 //
-// Tier 2 rather than a unit test for the same reason as relations-store.test.js: the mirror fields
-// only exist after compile stamps them onto the target, so nothing below is true of a hand-built
-// descriptor map.
+// Tier 2 rather than a unit test for the same reason as relations-store.test.js: the relation rows
+// are read off the compiled descriptors, so nothing below is true of a hand-built descriptor map.
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -18,49 +17,22 @@ import { workspace, simpleCollection, readFile, writeCollection, compileQuietly,
 import { load } from '../../src/yaml.js';
 
 // The same four-collection cast as relations-store.test.js — one anchor plus the three
-// cardinalities: many-to-one (recordings), one-to-one (summaries, via x-unique) and many-to-many
+// cardinalities: many-to-one (recordings), one-to-one (summaries, via unique) and many-to-many
 // (analyses). Copied rather than shared: test files run in separate processes, and a fixture module
 // imported by two of them is read twice anyway, so the sharing would buy nothing and cost the
-// ability to read either file on its own.
-const MEETINGS = simpleCollection({ storage: { suffix: 'meeting' } });
-
-const RECORDINGS = simpleCollection({
-	storage: { suffix: 'recording' },
-	schema: {
-		type: 'object',
-		required: ['name'],
-		properties: {
-			name: { type: 'string' },
-			meeting: { type: 'string', 'x-reference': 'meetings', 'x-inverse': 'recordings' },
-		},
-	},
+// ability to read either file on its own. A relation is declared once, on the mirror.
+const coll = (suffix, fields = {}) => simpleCollection({
+	storage: { suffix },
+	fields: { name: { type: 'string', required: true }, ...fields, notes: { type: 'markdown', body: true } },
 });
-
-const SUMMARIES = simpleCollection({
-	storage: { suffix: 'summary' },
-	schema: {
-		type: 'object',
-		required: ['name'],
-		properties: {
-			name: { type: 'string' },
-			meeting: { type: 'string', 'x-reference': 'meetings', 'x-unique': true, 'x-inverse': 'summary' },
-		},
-	},
+const MEETINGS = coll('meeting', {
+	recordings: { type: 'recordings', many: true, mirror_of: 'meeting' },
+	summary: { type: 'summaries', mirror_of: 'meeting' },
+	analyses: { type: 'analyses', many: true, mirror_of: 'meetings' },
 });
-
-const ANALYSES = simpleCollection({
-	storage: { suffix: 'analysis' },
-	schema: {
-		type: 'object',
-		required: ['name'],
-		properties: {
-			name: { type: 'string' },
-			// authored on the PROPERTY: normalizeRelationKeywords hoists it onto `items`, which is
-			// where every relation consumer reads it from
-			meetings: { type: 'array', 'x-inverse': 'analyses', items: { type: 'string', 'x-reference': 'meetings' } },
-		},
-	},
-});
+const RECORDINGS = coll('recording', { meeting: { type: 'meetings' } });
+const SUMMARIES = coll('summary', { meeting: { type: 'meetings', unique: true } });
+const ANALYSES = coll('analysis', { meetings: { type: 'meetings', many: true } });
 
 const relWorkspace = (extra = {}) => workspace({
 	collections: { meetings: MEETINGS, recordings: RECORDINGS, summaries: SUMMARIES, analyses: ANALYSES },
@@ -114,7 +86,7 @@ describe('dt relations', () => {
 	});
 
 	test('a real collection with no relations still answers, at exit 0', () => {
-		const ws = workspace({ collections: { widgets: simpleCollection({ storage: { suffix: 'widget' } }) } });
+		const ws = workspace({ collections: { widgets: coll('widget') } });
 		const res = ws.dt('relations', 'widgets');
 		assert.equal(res.code, 0, res.stderr);
 		assert.match(res.stdout, /no two-way relations touch widgets/);
@@ -153,8 +125,8 @@ describe('dt relations', () => {
 	});
 
 	test('a duplicated FK: the store, check and rebuild all agree it is ONE entry', () => {
-		// I2, end to end. `--meetings meetings/standup,meetings/standup` is accepted (an AUTHORED
-		// array declares no uniqueItems, and narrowing that is not this fix's business), the store
+		// I2, end to end. `--meetings meetings/standup,meetings/standup` is accepted (an owner's
+		// reference list declares no uniqueItems, and narrowing that is not this fix's business), the store
 		// writes a set, and check compared against an expectation that appended blind — so check
 		// called a correct mirror stale and the repair it names WROTE the duplicate. Three components,
 		// one duplicated value, three answers.
@@ -296,13 +268,13 @@ describe('dt relations', () => {
 	});
 
 	test('rebuild refuses the two shapes it must never rewrite', () => {
-		// compile never stamps a mirror onto either, so the relation loop would simply be empty and
-		// look harmless — but --drop writes whether or not a relation targets the collection, and
-		// `serialize` has no `codec: file` branch: it would replace an SVG with frontmatter.
-		const files = workspace({ collections: { pics: { description: 'x', storage: { codec: 'file', suffix: 'pic' }, id: { pattern: '^[a-z/-]+$' } } } });
+		// compile refuses a mirror onto either, so the relation loop would simply be empty and look
+		// harmless — but --drop writes whether or not a relation targets the collection, and
+		// `serialize` has no binary branch: it would replace an SVG with frontmatter.
+		const files = workspace({ collections: { pics: { description: 'x', storage: { format: 'binary', suffix: 'pic' }, ids: { pattern: '^[a-z/-]+$' }, fields: {} } } });
 		const onFiles = files.dt('relations', 'rebuild', 'pics', '--drop', 'captures');
 		assert.equal(onFiles.code, 1);
-		assert.match(onFiles.stderr, /`codec: file`.+will not rewrite it/s);
+		assert.match(onFiles.stderr, /stored as `format: binary` — .+will not rewrite it/s);
 
 		// a runtime-based collection's records are build artifacts; its source lives elsewhere
 		const onRuntime = files.dt('relations', 'rebuild', 'skills', '--drop', 'captures');
@@ -318,33 +290,22 @@ describe('dt relations', () => {
 	});
 });
 
-describe('rm-field on a generated mirror', () => {
-	/** A workspace whose relation TARGET is shipped by a module other than the workspace module —
-	 *  which is the ordinary case, not an exotic one: a workspace's domain collections almost always
-	 *  live in a module. `patients` comes from `modules/clinic`; `visits` (the owner) is the
-	 *  workspace module's, and the mirror `patients.visits` is compile's output. */
+describe('rm-field on a module-shipped collection', () => {
+	/** A workspace whose collection `patients` is shipped by a module other than the workspace
+	 *  module — the ordinary case: a workspace's domain collections almost always live in a module.
+	 *  `visits` (the workspace module's) references it. */
 	const withModule = () => {
 		const ws = workspace({ compile: false });
 		const mod = path.join(ws.root, 'modules', 'clinic');
 		fs.mkdirSync(path.join(mod, 'collections'), { recursive: true });
 		fs.writeFileSync(path.join(mod, 'package.json'), JSON.stringify({ name: 'clinic', version: '1.0.0', dreamteamer: {} }, null, '\t'));
 		fs.writeFileSync(path.join(mod, 'collections', 'patients.collection.yaml'),
-			'name: patients\nid: { generate: "{{ name | slug }}" }\nstorage: { suffix: patient }\n'
-			+ 'schema:\n  type: object\n  required: [name]\n  properties:\n    name: { type: string }\n'
-			+ '    age: { type: integer }\n'
-			+ '    notes: { type: string, format: markdown, x-body: true }\n');
-		writeCollection(ws.root, 'visits', simpleCollection({
-			storage: { suffix: 'visit' },
-			schema: {
-				type: 'object', required: ['name'],
-				properties: {
-					name: { type: 'string' },
-					notes: { type: 'string', format: 'markdown', 'x-body': true },
-					patient: { type: 'string', 'x-reference': 'patients', 'x-inverse': 'visits' },
-				},
-			},
-		}));
-		// the OWNING module has to declare the dependency it stamps a field across
+			'name: patients\ndescription: A patient.\nids:\n  from: "{{ name | slug }}"\nstorage:\n  suffix: patient\n'
+			+ 'fields:\n  name:\n    type: string\n    required: true\n'
+			+ '  age:\n    type: integer\n'
+			+ '  notes:\n    type: markdown\n    body: true\n');
+		writeCollection(ws.root, 'visits', coll('visit', { patient: { type: 'patients' } }));
+		// the referencing module has to declare the dependency it points across
 		const pkgFile = path.join(ws.root, 'modules', WS_MODULE, 'package.json');
 		const pkg = JSON.parse(fs.readFileSync(pkgFile, 'utf8'));
 		pkg.dreamteamer.dependencies = ['clinic'];
@@ -353,19 +314,7 @@ describe('rm-field on a generated mirror', () => {
 		return ws;
 	};
 
-	test('the mirror answer fires whichever module ships the collection', () => {
-		const ws = withModule();
-		const res = runDt(ws.root, 'rm-field', 'patients', '--name', 'visits');
-		assert.equal(res.code, 1);
-		// It used to answer `"patients" is module-shipped; the workspace can only OVERRIDE fields`,
-		// because the field was resolved out of the WORKSPACE module's own sources. True of a real
-		// inherited field, useless for a mirror: an `extends` overlay cannot remove one either, and
-		// the edit that can is on another collection.
-		assert.match(res.stderr, /GENERATED from visits\.patient/);
-		assert.match(res.stderr, /dreamteamer set-field visits --name patient --inverse=/);
-	});
-
-	// ⚠ THE FIRST OF THESE TWO USED TO ASSERT THE DEFECT. `patients` ships from an INLINE module and
+	// ⚠ THIS USED TO ASSERT THE DEFECT. `patients` ships from an INLINE module and
 	// the verb refused it as "module-shipped", because it resolved its write target from the workspace
 	// module. Inline sources sit under the same git history as everything else, so a field verb now
 	// edits clinic's own descriptor — see `collectionSourceFile`. The fallthrough refusal survives for
@@ -375,7 +324,7 @@ describe('rm-field on a generated mirror', () => {
 		const res = runDt(ws.root, 'rm-field', 'patients', '--name', 'age');
 		assert.equal(res.code, 0, res.stdout + res.stderr);
 		const owned = load(readFile(ws.root, 'modules/clinic/collections/patients.collection.yaml'));
-		assert.equal(owned.schema.properties.age, undefined);
+		assert.equal(owned.fields.age, undefined);
 	});
 
 	test('a real inherited field the workspace cannot rewrite is still refused', () => {
@@ -392,18 +341,8 @@ describe('dropping a relation takes its generated values with it', () => {
 	const linked = () => {
 		const ws = workspace({
 			collections: {
-				meetings: simpleCollection({ storage: { suffix: 'meeting' } }),
-				recordings: simpleCollection({
-					storage: { suffix: 'recording' },
-					schema: {
-						type: 'object', required: ['name'],
-						properties: {
-							name: { type: 'string' },
-							notes: { type: 'string', format: 'markdown', 'x-body': true },
-							meeting: { type: 'string', 'x-reference': 'meetings', 'x-inverse': 'recordings' },
-						},
-					},
-				}),
+				meetings: coll('meeting', { recordings: { type: 'recordings', many: true, mirror_of: 'meeting' } }),
+				recordings: coll('recording', { meeting: { type: 'meetings' } }),
 			},
 		});
 		assert.equal(ws.dt('add', 'meetings', '--name', 'Kickoff').code, 0);
@@ -412,56 +351,21 @@ describe('dropping a relation takes its generated values with it', () => {
 		return ws;
 	};
 
-	test('--inverse= removes the values too, in its own commit', () => {
-		// It used to remove the mirror from the descriptor and NOTHING else, so the generated values
-		// sat in every target record in a field the schema no longer declared:
-		//   ✖ data/meetings/kickoff.meeting.md
-		//       unknown field "recordings" (not in the meetings schema)
-		// …which reads like a typo, for a state the schema op created one command earlier, with the
-		// repair (`relations rebuild <target> --drop <mirror>`) named nowhere.
-		const ws = linked();
-		const res = ws.dt('set-field', 'recordings', '--name', 'meeting', '--inverse=');
-		assert.equal(res.code, 0, res.stderr);
-		assert.match(res.stdout, /dropped the generated meetings\.recordings value from 1 meetings record/);
-		assert.doesNotMatch(readFile(ws.root, 'data/meetings/kickoff.meeting.md'), /recordings:/);
-		const check = ws.dt('check');
-		assert.equal(check.code, 0, check.stdout);
-		// ONE commit: a source change and the data repair it forces are one change
-		assert.match(ws.git(['show', '--stat', '--oneline', 'HEAD']), /data\/meetings\/kickoff\.meeting\.md/);
-	});
-
 	test('rm-field on the owning foreign key does the same', () => {
 		const ws = linked();
 		const res = ws.dt('rm-field', 'recordings', '--name', 'meeting');
 		assert.equal(res.code, 0, res.stderr);
 		assert.match(res.stdout, /dropped the generated meetings\.recordings value from 1 meetings record/);
 		assert.doesNotMatch(readFile(ws.root, 'data/meetings/kickoff.meeting.md'), /recordings:/);
-		// ⚠ THE OWNER'S OWN VALUE GOES TOO — and this REVERSES the boundary this test asserted when it
-		// was written. The old reading was that `meeting: meetings/kickoff` is authored data a schema
-		// edit must not touch. What that actually produced was a collection you could read and not
-		// WRITE: the key survived in a schema that no longer declared it, so `check` reported an
-		// unknown field and the store refused every later write to that record — with no repair a
-		// record write could reach (`field=` writes `field: []`, which is still the key). Removing a
-		// field is an explicit destructive schema act, the values are one `git show HEAD~1` away
-		// because this lands in the same commit, and the count is REPORTED rather than silent.
+		// ⚠ THE OWNER'S OWN VALUE GOES TOO. Left behind, the key survives in a schema that no longer
+		// declares it, so `check` reports an unknown field and the store refuses every later write to
+		// that record — a collection you can read and not WRITE. Removing a field is an explicit
+		// destructive schema act, the values are one `git show HEAD~1` away because this lands in the
+		// same commit, and the count is REPORTED rather than silent.
 		assert.doesNotMatch(readFile(ws.root, 'data/recordings/cap-one.recording.md'), /meeting:/);
 		assert.match(res.stdout, /cleared its values from 1 recordings record/);
 		assert.equal(ws.dt('check').code, 0, 'and the collection is writable again, which is the point');
 		assert.equal(ws.dt('set', 'recordings/cap-one', 'name=Cap Two').code, 0);
-	});
-
-	test('a RENAMED mirror is not residue — only the old key goes', () => {
-		// One relation gone and another arrived. The old key is residue; the new one is stale until a
-		// rebuild, which `reportMirror` already names. A sweep that keyed off "a relation disappeared"
-		// without checking whether the target still declares the field would delete live data here.
-		const ws = linked();
-		const res = ws.dt('set-field', 'recordings', '--name', 'meeting', '--inverse', 'captures');
-		assert.equal(res.code, 0, res.stderr);
-		assert.match(res.stdout, /dropped the generated meetings\.recordings value/);
-		assert.match(res.stdout, /relations rebuild meetings/);
-		assert.equal(ws.dt('relations', 'rebuild', 'meetings').code, 0);
-		assert.match(readFile(ws.root, 'data/meetings/kickoff.meeting.md'), /captures:/);
-		assert.equal(ws.dt('check').code, 0);
 	});
 
 	test('add-field sweeps nothing — it cannot remove a relation it is creating', () => {
@@ -473,41 +377,17 @@ describe('dropping a relation takes its generated values with it', () => {
 	});
 });
 
-// ── the two source SPELLINGS need two different answers, and the compiled prop cannot tell ──────
+// ── rm-field on a relation's two sides ──────────────────────────────────────────────────────
 //
-// materializeRelations compiles both spellings to identical bytes on purpose, so `x-inverse-of` on a
-// compiled prop proves the field is a mirror and proves NOTHING about which side declared it. Every
-// message and every write that assumed spelling A was wrong on spelling B — which is how the
-// relations in the dogfood vault are actually written.
-describe('rm-field knows which side declared the relation', () => {
-	/** SPELLING B: the target's own descriptor declares the far side with `x-inverse-of`. compile
-	 *  folds that into the owner and regenerates the field, so the compiled output is byte-identical
-	 *  to spelling A's — and the declaration the operator can delete is right here. */
-	const spellingB = () => {
+// A relation is declared once, on the mirror, so removing the mirror field from the collection that
+// declares it removes the relation; and an edit to the owner must not write compile's defaults back
+// into the owner's source.
+describe('rm-field and the declaring side of a relation', () => {
+	const declared = () => {
 		const ws = workspace({
 			collections: {
-				meetings: simpleCollection({
-					storage: { suffix: 'meeting' },
-					schema: {
-						type: 'object', required: ['name'],
-						properties: {
-							name: { type: 'string' },
-							notes: { type: 'string', format: 'markdown', 'x-body': true },
-							summary: { type: 'string', 'x-reference': 'summaries', 'x-inverse-of': 'summaries.meeting' },
-						},
-					},
-				}),
-				summaries: simpleCollection({
-					storage: { suffix: 'summary' },
-					schema: {
-						type: 'object', required: ['name'],
-						properties: {
-							name: { type: 'string' },
-							notes: { type: 'string', format: 'markdown', 'x-body': true },
-							meeting: { type: 'string', 'x-reference': 'meetings' },
-						},
-					},
-				}),
+				meetings: coll('meeting', { summary: { type: 'summaries', mirror_of: 'meeting' } }),
+				summaries: coll('summary', { meeting: { type: 'meetings', unique: true } }),
 			},
 		});
 		assert.equal(ws.dt('add', 'meetings', '--name', 'Kickoff').code, 0);
@@ -516,65 +396,44 @@ describe('rm-field knows which side declared the relation', () => {
 		return ws;
 	};
 
-	test('a mirror declared HERE is removed here — not refused with a falsehood', () => {
-		// Measured on 0.15.0: `✖ … is GENERATED from summaries.meeting … no descriptor declares it`,
-		// while meetings.collection.yaml declared it in the file the operator was looking at. And the
-		// remedy it named — `set-field summaries --name meeting --inverse=` — exits 0 changing
-		// nothing, because `summaries.meeting` never carried an `x-inverse` to clear.
-		const ws = spellingB();
+	test('a mirror is removed from the collection that declares it, and its values go with it', () => {
+		const ws = declared();
 		const res = ws.dt('rm-field', 'meetings', '--name', 'summary');
 		assert.equal(res.code, 0, res.stdout + res.stderr);
 		assert.equal(
-			load(readFile(ws.root, 'modules/default/collections/meetings.collection.yaml')).schema.properties.summary,
+			load(readFile(ws.root, 'modules/default/collections/meetings.collection.yaml')).fields.summary,
 			undefined);
 		// the declaration WAS the relation, so removing it removes the relation
 		assert.equal(ws.dt('relations', '--json').stdout.trim(), '[]');
-		// …and item 16: the value went with the field, so the collection is writable again
+		// the value went with the field, so the collection is writable again
 		assert.doesNotMatch(readFile(ws.root, 'data/meetings/kickoff.meeting.md'), /summary:/);
 		assert.match(res.stdout, /cleared its values from 1 meetings record/);
 		assert.equal(ws.dt('check').code, 0, ws.dt('check').stdout);
 		assert.equal(ws.dt('set', 'meetings/kickoff', 'name=Kickoff 2').code, 0);
 	});
 
-	test('spelling A keeps the message it should have, and its remedy WORKS', () => {
-		const ws = workspace({ collections: { meetings: MEETINGS, recordings: RECORDINGS } });
-		assert.equal(ws.dt('add', 'meetings', '--name', 'Kickoff').code, 0);
-		assert.equal(ws.dt('add', 'recordings', '--name', 'Cap', '--meeting', 'meetings/kickoff').code, 0);
-		const res = ws.dt('rm-field', 'meetings', '--name', 'recordings');
-		assert.equal(res.code, 1);
-		assert.match(res.stderr, /is GENERATED from recordings\.meeting/);
-		assert.match(res.stderr, /no source of meetings declares it/);
-		// THE REMEDY, RUN VERBATIM. It was never exercised, which is how the spelling-B version got
-		// away with naming a command that does nothing.
-		assert.equal(ws.dt('set-field', 'recordings', '--name', 'meeting', '--inverse=').code, 0);
-		assert.equal(ws.dt('relations', '--json').stdout.trim(), '[]');
-		assert.equal(ws.dt('check').code, 0);
-	});
-
-	test('an ordinary edit on a spelling-B OWNER does not declare the relation twice', () => {
-		// The same root cause seen from the write side, and the worse half: `previous` came off the
-		// COMPILED prop, which carries the `x-inverse` and `x-unique` that `foldMirrorSide` DERIVED
-		// from the mirror side. Carrying those "forward" wrote them into the owner's source, so the
-		// relation was then declared on both sides and every compile said so. This is the defect the
-		// extension was producing from its own save path.
-		const ws = spellingB();
+	test('an ordinary edit on the OWNER writes back only what was authored', () => {
+		// `previous` must come off the AUTHORED field, not the compiled one: the compiled field carries
+		// what compile supplied (`title`, `on_delete: restrict`), and carrying those "forward" writes
+		// defaults into the source as if the author had chosen them.
+		const ws = declared();
 		const res = ws.dt('set-field', 'summaries', '--name', 'meeting', '--description', 'the call');
 		assert.equal(res.code, 0, res.stderr);
-		const src = load(readFile(ws.root, 'modules/default/collections/summaries.collection.yaml')).schema.properties.meeting;
+		const src = load(readFile(ws.root, 'modules/default/collections/summaries.collection.yaml')).fields.meeting;
 		assert.equal(src.description, 'the call');
-		assert.equal(src['x-inverse'], undefined, 'compile DERIVED this; writing it back declares the relation twice');
-		assert.equal(src['x-unique'], undefined, 'and this — foldMirrorSide sets it when the mirror is scalar');
-		assert.equal(src['x-reference'], 'meetings', 'the authored reference still survives the edit');
-		const out = compileQuietly(ws.ws);
-		assert.deepEqual(out.warnings.filter((w) => w.includes('both sides')), []);
+		assert.equal(src.type, 'meetings', 'the authored reference survives the edit');
+		assert.equal(src.unique, true, 'and so does the authored uniqueness the scalar mirror needs');
+		assert.equal(src.on_delete, undefined, 'compile SUPPLIED this; writing it back makes a default look authored');
+		assert.equal(src.title, undefined, 'and this');
+		assert.equal(compileQuietly(ws.ws).code, 0);
 	});
 });
 
 // ── rm-field must not leave a collection you can read and cannot write ──────────────────────
 describe('rm-field clears the values it orphans', () => {
+	const withVenue = () => workspace({ collections: { meetings: coll('meeting', { venue: { type: 'string' } }) } });
 	const populated = () => {
-		const ws = workspace({ collections: { meetings: simpleCollection({ storage: { suffix: 'meeting' } }) } });
-		assert.equal(ws.dt('add-field', 'meetings', '--name', 'venue', '--type', 'string').code, 0);
+		const ws = withVenue();
 		for (const n of ['Kickoff', 'Retro']) assert.equal(ws.dt('add', 'meetings', '--name', n, '--venue', 'Room 3').code, 0);
 		return ws;
 	};
@@ -584,7 +443,7 @@ describe('rm-field clears the values it orphans', () => {
 		// store refused the next write to each of them — with no repair a record write could reach
 		// (`venue=` writes `venue: []`, which is still the key). The only fix was
 		// `relations rebuild meetings --drop venue`, a verb whose name says "relations" for a field
-		// that has nothing to do with them, and which nothing told the operator to run.
+		// that has nothing to do with them.
 		const ws = populated();
 		const res = ws.dt('rm-field', 'meetings', '--name', 'venue');
 		assert.equal(res.code, 0, res.stderr);
@@ -608,8 +467,7 @@ describe('rm-field clears the values it orphans', () => {
 	});
 
 	test('an UNPOPULATED field reports no clearing, and says nothing about records', () => {
-		const ws = workspace({ collections: { meetings: simpleCollection({ storage: { suffix: 'meeting' } }) } });
-		assert.equal(ws.dt('add-field', 'meetings', '--name', 'venue', '--type', 'string').code, 0);
+		const ws = withVenue();
 		assert.equal(ws.dt('add', 'meetings', '--name', 'Kickoff').code, 0);
 		const res = ws.dt('rm-field', 'meetings', '--name', 'venue');
 		assert.equal(res.code, 0, res.stderr);
@@ -617,12 +475,12 @@ describe('rm-field clears the values it orphans', () => {
 	});
 
 	test('removing the BODY field leaves the prose alone', () => {
-		// ⚠ The one field this cannot and must not clear. With the field gone `bodyField(d)` no longer
+		// ⚠ The one field this cannot and must not clear. With the field gone `bodyFieldOf(d)` no longer
 		// names it, so the prose is never parsed into `fields` — nothing matches, nothing is rewritten,
 		// and the text stays as an ordinary Markdown body no schema field claims. Asserted so the
 		// behaviour is pinned rather than accidental: a sweep that reached the body would delete a
 		// record's whole content on a schema edit.
-		const ws = workspace({ collections: { meetings: simpleCollection({ storage: { suffix: 'meeting' } }) } });
+		const ws = workspace({ collections: { meetings: coll('meeting') } });
 		assert.equal(ws.dt('add', 'meetings', '--name', 'Kickoff', '--notes', 'the prose that must survive').code, 0);
 		const res = ws.dt('rm-field', 'meetings', '--name', 'notes');
 		assert.equal(res.code, 0, res.stderr);
