@@ -1,7 +1,7 @@
 // contract rule: YAML is parsed with the CORE schema — unquoted dates stay strings,
 // never timestamp objects. ALL dreamteamer tooling loads YAML through here.
 import yaml from 'js-yaml';
-import { parseDocument, isMap, isSeq, isScalar } from 'yaml';
+import { parseDocument, isMap, isSeq, isScalar, visit as visitYaml } from 'yaml';
 
 export const load = (text) => yaml.load(text, { schema: yaml.CORE_SCHEMA });
 export const dump = (obj, opts = {}) => yaml.dump(obj, { lineWidth: 120, ...opts });
@@ -127,8 +127,9 @@ const nodeSpan = (text, n, lines) => [n.range[0], endOf(text, n.range[1], lines)
 /** A pair's whole source — the key, the value, and any comment sitting between or after them. */
 const pairSpan = (text, p, lines) => [p.key.range[0], endOf(text, (p.value?.range ? p.value : p.key).range[1], lines)];
 
-/** Emit the document, restoring the original bytes of everything that did not change. */
-function emit(doc, originalText) {
+/** Emit the document, restoring the original bytes of everything that did not change and that
+ *  `keep` accepts — a formatter passes a `keep` that refuses a node whose STYLE it changed. */
+function emit(doc, originalText, keep = () => true) {
 	const out = doc.toString(SOURCE_OPTS);
 	if (originalText == null) return out;
 	const oldRoot = parseDocument(originalText, { schema: 'core' }).contents;
@@ -138,7 +139,7 @@ function emit(doc, originalText) {
 
 	const visit = (o, n) => {
 		if (!o?.range || !n?.range || kind(o) === null || kind(o) !== kind(n)) return;
-		if (same(o.toJSON(), n.toJSON())) {
+		if (keep(o) && same(o.toJSON(), n.toJSON())) {
 			const lines = commentLines(o);
 			edits.push([...nodeSpan(out, n, lines), originalText.slice(...nodeSpan(originalText, o, lines))]);
 			return;
@@ -149,7 +150,7 @@ function emit(doc, originalText) {
 			for (const np of n.items) {
 				const op = o.items.find((p) => keyOf(p) === keyOf(np));
 				if (!op) continue;
-				if (same(op.value?.toJSON?.() ?? null, np.value?.toJSON?.() ?? null)) {
+				if (keep(op.value) && same(op.value?.toJSON?.() ?? null, np.value?.toJSON?.() ?? null)) {
 					const lines = commentLines(op.value);
 					edits.push([...pairSpan(out, np, lines), originalText.slice(...pairSpan(originalText, op, lines))]);
 				} else visit(op.value, np.value);
@@ -184,6 +185,37 @@ export function writeSource(previousText, value) {
 	const doc = parseDocument(previousText, { schema: 'core' });
 	doc.contents = merge(doc, doc.contents, value);
 	return emit(doc, previousText);
+}
+
+/** A flow mapping, or a flow sequence holding a collection — the two flow forms block style replaces.
+ *  A flow sequence of scalars (`enum: [open, done]`) is block style's own short form and stays. */
+const isFlowForm = (n) => !!n?.flow && (isMap(n) || (isSeq(n) && n.items.some((i) => isMap(i) || isSeq(i))));
+const holdsFlowForm = (node) => {
+	let found = false;
+	visitYaml(node, { Node(_, n) { if (isFlowForm(n)) { found = true; return visitYaml.BREAK; } } });
+	return found;
+};
+
+/**
+ * Block style, with the top-level keys in `order` (an unlisted key keeps its place after them).
+ * Nothing below the top level is reordered, and every node whose style is already block keeps its
+ * original bytes — so a second run returns its input unchanged. The comment block opening the file,
+ * when a blank line separates it from the first key, stays at the top whatever key moves there.
+ */
+export function formatSource(text, order) {
+	const doc = parseDocument(text, { schema: 'core' });
+	const top = doc.contents;
+	if (!isMap(top)) return text;
+	const first = top.items[0]?.key;
+	const c = first?.commentBefore;
+	if (c?.includes('\n\n') && doc.commentBefore == null) {
+		const at = c.lastIndexOf('\n\n');
+		[doc.commentBefore, first.commentBefore] = [c.slice(0, at), c.slice(at + 2) || undefined];
+	}
+	const rank = (p) => { const i = order.indexOf(keyOf(p)); return i === -1 ? order.length : i; };
+	top.items = [...top.items].sort((a, b) => rank(a) - rank(b));
+	visitYaml(doc, { Node(_, n) { if (isFlowForm(n)) n.flow = false; } });
+	return emit(doc, text, (o) => !holdsFlowForm(o));
 }
 
 /**

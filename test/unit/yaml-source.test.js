@@ -6,7 +6,7 @@
 // one of those was destroyed or reflowed by the `load` → mutate → `dump` path this replaces.
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { load, dump, writeSource, renameKeys, commentCount } from '../../src/yaml.js';
+import { load, dump, writeSource, renameKeys, commentCount, formatSource } from '../../src/yaml.js';
 
 /** A descriptor carrying every construct the old write path damaged. */
 const DESCRIPTOR = `# THINGS — this header is why the collection exists, and it is the whole reason
@@ -289,5 +289,26 @@ describe('renameKeys — a key renamed in the bytes keeps its pair', () => {
 
 	test('a path naming no key is skipped', () => {
 		assert.equal(renameKeys(SRC, [{ path: ['fields', 'nope'], to: 'x' }, { path: ['missing', 'a'], to: 'b' }]), SRC);
+	});
+});
+
+// `formatSource` is `dt fmt`'s pure half: the flow forms block style replaces, and the two things it
+// must leave alone — a flow sequence of scalars, and a file header that a moving key could carry off.
+describe('formatSource', () => {
+	const ORDER = ['name', 'storage', 'fields', 'constraints'];
+	const SRC = `# header\n\nfields: { b: { type: string }, a: { type: string, enum: [x, y] } }\nconstraints:\n  - { if: { required: [a] }, then: { required: [b] } }\nstorage: { path: data/t }\nname: t\n`;
+	test('flow mappings and flow sequences holding one become block; a scalar flow sequence stays', () => {
+		const out = formatSource(SRC, ORDER);
+		assert.deepEqual(load(out), load(SRC));
+		assert.doesNotMatch(out, /\{/);
+		assert.match(out, /enum: \[x, y\]/);
+		assert.match(out, /^ {2}- if:\n/m);
+		assert.deepEqual(Object.keys(load(out)), ORDER);
+		assert.deepEqual(Object.keys(load(out).fields), ['b', 'a']);
+	});
+	test('the file header stays on top, and a second pass is the identity', () => {
+		const out = formatSource(SRC, ORDER);
+		assert.ok(out.startsWith('# header\n\nname: t\n'), out);
+		assert.equal(formatSource(out, ORDER), out);
 	});
 });

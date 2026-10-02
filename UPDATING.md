@@ -256,6 +256,11 @@ that root.
 - **`dt rename-value <collection> <field> <old> <new>`** renames one enum value in the enum, its default,
   constraints, view filters, binding conditions and every record, in one commit. `rm-field` refuses
   while another position still names the field, and lists each one.
+- **`dt fmt [<collection>]`** formats descriptor and mixin sources: block style (a flow mapping, or a
+  flow sequence holding one, becomes block; `enum: [a, b]` stays), top-level keys in canonical order,
+  `fields` and the keys inside each field untouched, every comment kept. It is opt-in, idempotent,
+  commits itself through the compile gate, and skips sources under `git_modules/` and `node_modules/`.
+  `--dry-run` lists the files it would change.
 - **The harness files.** The instructions source is `DREAMTEAMER.md`. The generated block now sits at
   the TOP of `CLAUDE.md`, `AGENTS.md` and `GEMINI.md`, with your instructions below it, and the system
   collections are listed first, under their own heading. Those files are gitignored build output:

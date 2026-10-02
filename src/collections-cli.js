@@ -433,7 +433,7 @@ function dryRunPlan(what, plan, extra) {
  * The workspace gets no "ahead" count on purpose: pushing the workspace is a thing the operator
  * already thinks about, and a number beside it would read as a new obligation.
  */
-function reportCommits(commits) {
+export function reportCommits(commits) {
 	for (const c of commits ?? []) {
 		if (c.repo === '.') {
 			console.log(`✔ committed in the workspace${c.sha ? ` (${c.sha})` : ''}`);

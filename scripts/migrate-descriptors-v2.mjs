@@ -32,10 +32,10 @@ import { fileURLToPath } from 'node:url';
 import { parseDocument, isMap, isSeq, isScalar, isPair, Scalar, visit } from 'yaml';
 import { singular } from '../src/namespace.js';
 import { MANIFEST_KEYS } from '../src/compile.js';
+import { V2_KEYS as V2_ORDER } from '../src/descriptor-v2.js';
 import { execFileSync } from 'node:child_process';
 
 const STRINGIFY = { lineWidth: 0, flowCollectionPadding: false };
-const V2_ORDER = ['name', 'title', 'singular', 'record_title', 'description', 'use_when', 'internal', 'sensitive', 'storage', 'ids', 'mixins', 'overlay', 'fields', 'constraints', 'display'];
 const FIELD_ORDER = ['type', 'title', 'required', 'many', 'default', 'enum', 'unique', 'mirror_of', 'on_delete', 'soft', 'sensitive', 'body', 'derived', 'virtual', 'deprecated', 'passthrough', 'fields', 'values', 'item_title', 'examples', 'pattern', 'minimum', 'maximum', 'minItems', 'maxItems', 'minLength', 'maxLength', 'const', 'display', 'description'];
 const PASS = ['title', 'default', 'examples', 'pattern', 'minimum', 'maximum', 'minItems', 'maxItems', 'minLength', 'maxLength', 'const', 'description'];
 

@@ -16,7 +16,8 @@ import * as api from './api.js';
 import { openWorkspace } from './api.js';
 import { compile, staleness, warnIfStale, discoverModules, CHANNEL_LABEL, locationOf, kindsOf } from './compile.js';
 import { check } from './check.js';
-import { collectionCommand, emit, relationsCommand } from './collections-cli.js';
+import { collectionCommand, emit, relationsCommand, reportCommits } from './collections-cli.js';
+import { formatDescriptors } from './schema-ops.js';
 import { init, installClone, update, listRepos } from './init.js';
 import { installCommand, describeCheckout } from './checkout.js';
 import { deriveEvents } from './events.js';
@@ -142,6 +143,10 @@ commits there.
   list   modules | collections | skills | …   (id · location · path · namespaces · package name)
   revert <system>/<id>                        (refused: its source is in git —
                                                \`git checkout <sha> -- <path>\` then \`dt compile\`)
+  fmt    [<collection>] [--dry-run]           (collection and mixin sources in block style, top-level
+                                               keys in canonical order; fields, the keys inside a
+                                               field and every comment stay where they are. Sources
+                                               under git_modules/ and node_modules/ are skipped)
 
 field verbs — a field is the one sub-entity, and it has verbs of its own (there is no \`fields\`
 collection: the ENGINE does not read one, and \`rename-field\` was the only capability it would buy):
@@ -269,7 +274,7 @@ export const WORKSPACE_FLAGS = {
 	init: ['name', 'data_path', 'harnesses', 'workspace_module'], update: [],
 	install: ['clone', 'dry-run', 'json', 'link-env', 'all', 'hook', 'print-adapters'],
 	compile: ['watch'], check: [], status: [], doctor: ['strict', 'json'],
-	changes: ['since', 'json'], commit: ['dry-run', 'json'], relocate: ['dry-run', 'json', 'to-root'],
+	changes: ['since', 'json'], commit: ['dry-run', 'json'], fmt: ['dry-run'], relocate: ['dry-run', 'json', 'to-root'],
 };
 
 /** Every verb this CLI answers itself — the set an extension's `commands` may not claim. The retired
@@ -278,7 +283,7 @@ export const WORKSPACE_FLAGS = {
 export const CORE_VERBS = [
 	'init', 'install', 'update', 'compile', 'check', 'doctor', 'status', 'changes', 'commit', 'help', 'version', '--version', '-v',
 	'list', 'add', 'values', 'get', 'set', 'rm', 'rename', 'history', 'diff', 'revert', 'reorder', 'next',
-	'add-field', 'set-field', 'rm-field', 'rename-field', 'rename-value', 'relations', 'resolve', 'relocate',
+	'add-field', 'set-field', 'rm-field', 'rename-field', 'rename-value', 'relations', 'resolve', 'relocate', 'fmt',
 	'schema', 'ensure', 'update-field', 'remove-field', 'commands',
 ];
 
@@ -599,6 +604,19 @@ export async function run(argv) {
 			}
 			case 'resolve':
 				process.exit(resolveVariables(ws, rest));
+			case 'fmt': {
+				const target = rest.find((a) => !a.startsWith('--'));
+				let collection = target ?? null;
+				try { if (target) collection = canonicalCollection(new Store(ws).descriptors, target) ?? target; } catch { /* no runtime: the name as typed */ }
+				const dryRun = rest.includes('--dry-run');
+				const out = formatDescriptors(ws, { collection, dryRun });
+				for (const f of out.changed) console.log(`${dryRun ? '→' : '✔'} ${f}`);
+				const under = (dir) => out.skipped.filter((f) => f.startsWith(`${dir}/`)).length;
+				if (out.skipped.length) console.log(`— skipped ${under('git_modules')} source(s) under git_modules/ and ${under('node_modules')} under node_modules/ — format those in their own repo`);
+				console.log(`${out.changed.length} source(s) ${dryRun ? 'would change (dry run — nothing was written)' : 'formatted'}, ${out.unchanged} already canonical`);
+				reportCommits(out.commits);
+				process.exit(0);
+			}
 			default:
 				// ⚠ NAMED, not just unknown. Every doc, skill and downstream script spelled these
 				// `dt schema <op>` for seven releases, so the failure has to carry the translation —
