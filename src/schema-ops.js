@@ -2866,7 +2866,7 @@ export function setEntityFrontmatter(ws, store, kind, id, changes) {
 	// (`setCollectionScalars`, `setModule`), and a body field is not settable from the CLI at all.
 	const props = store.descriptors.get(kind)?.schema?.properties ?? {};
 	const unknown = Object.keys(changes).find((k) => !(k in props) || props[k]?.['x-body'] === true);
-	if (unknown) throw new Error(`"${unknown}" is not a settable key of ${kind} — declared: ${Object.keys(props).filter((k) => props[k]?.['x-body'] !== true).join(', ')}. \`dreamteamer check\` rejects anything else, so this is refused before it is committed.`);
+	if (unknown) throw new Error(`"${unknown}" is not a settable key of ${kind} — declared: ${Object.keys(props).filter((k) => props[k]?.['x-body'] !== true && props[k]?.readOnly !== true).join(', ')}. \`dreamteamer check\` rejects anything else, so this is refused before it is committed.`);
 	const target = shape.folder ? path.join(dir, 'SKILL.md') : file;
 	// A YAML source (a binding, a template) is a whole document; a markdown one has frontmatter and
 	// prose. `writeSource` round-trips both — the difference is only which text it is handed.

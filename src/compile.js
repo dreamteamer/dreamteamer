@@ -1250,7 +1250,7 @@ export function compile(ws) {
 			const authored = mergeOverlays(mixed.get(bases[0]), overlays.map((g) => mixed.get(g)));
 			const names = nameErrors(authored);
 			if (names.length) fail(`collection "${name}" (${group.map((g) => g.src.path).join(', ')}):\n  ${names.join('\n  ')}`);
-			const runtime = kinds.includes(String(authored.storage?.path ?? ''));
+			const runtime = [...kinds, ...DERIVED_KINDS].includes(String(authored.storage?.path ?? ''));
 			const whole = toInternal(authored, { collections: typeNames, peers: allPeers, runtime });
 			if (whole.errors.length) fail(`collection "${name}" (${group.map((g) => g.src.path).join(', ')}):\n  ${whole.errors.join('\n  ')}`);
 			for (const w of whole.warnings) console.warn(`⚠ collection ${name}: ${w}`);

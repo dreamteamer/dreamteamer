@@ -1,123 +1,76 @@
+# The modules this workspace compiled, PROJECTED by compile from what it discovered. `package.json`
+# stays the source of truth and compile keeps reading it, so a record here is a projection, never an
+# input: editing one would be editing a photograph. It earns its place because the engine reads the
+# DATA — `dependencies` is checked for cycles, `peer_dependencies` is what lets a cross-module
+# reference compile — and because, as a collection, its EDGES are browsable, diagrammable and
+# listable with no code written for any of them.
 name: modules
-# The modules this workspace compiled, PROJECTED by compile from what it discovered — the first
-# derived collection in core, and the shape is deliberate enough to name.
-#
-# Every other runtime-stored collection (skills, commands, ui-views…) is STAGED from a module's
-# source folder and read back by the engine. This one is neither: `package.json` stays the source of
-# truth and compile keeps reading it, so a record here is a projection, never an input. Editing one
-# would be editing a photograph.
-#
-# Why it earns a place anyway, against the three questions:
-#   1. Does the ENGINE read it? It reads the DATA, which is the test that matters. `dependencies`
-#      names modules and is checked for cycles; `peerDependencies` names collections and is what
-#      lets a cross-module reference compile at all (compile.js — "cyclic module dependencies",
-#      "an overlay cannot compile without its base"). This is enforced structure, not annotation.
-#   2. Recipe creeping into core? No. A module is the engine's own concept.
-#   3. Could a module do it instead? No — nothing inside a module can enumerate the module set.
-#
-# What it buys is the thing a `group:` label cannot express: EDGES. A group is a partition; a
-# dependency is a relation, and it has two kinds that mean different things. Once it is a
-# collection, the browse, the diagram, `dt modules list` and the nav all work with no code written
-# for any of them.
-storage: { path: modules, codec: yaml, shape: file, suffix: module }
-id:
-  generate: "{{ name | slug }}"
-  pattern: "^[a-z0-9-]+$"
-title_template: "{{ name }}"
-schema:
-  type: object
-  required: [name, location]
-  properties:
-    name:
-      type: string
-      description: The module's package name, verbatim — `@dreamteamer/crm`, `acme-workspace`.
-    title:
-      type: string
-      description: >-
-        What to CALL this module — authored as `dreamteamer.title` in its package.json, else derived
-        from the id. Authored because deriving cannot know an acronym: titleCase("crm") is "Crm".
-        A module names itself, which is what replaces a display-name map maintained in a surface.
-    description:
-      type: string
-      description: >-
-        What this module is FOR, in one line — authored as `dreamteamer.description` in its
-        package.json, never derived. Written by `dt add modules --description` and
-        `dt set modules/<id> description=…`.
-    namespaces:
-      type: array
-      items: { type: string }
-      description: >-
-        The namespaces this module DECLARES and owns — authored as `dreamteamer.namespaces` in its
-        package.json (§8). The workspace's effective set is the union of every module's declarations
-        plus its own; two modules declaring one namespace is a compile error, and USING another
-        module's namespace requires that module in `dependencies`. ABSENT means this module ships
-        into the default namespace — the empty prefix, which is the commons.
-    location:
-      type: string
-      enum: [modules, git_modules, node_modules, root]
-      description: >-
-        WHERE this module's sources sit — the folder name the operator already knows, so `dt status`
-        needs no legend. `root` is the classic no-workspace-module layout, where the workspace's own
-        sources live at its root rather than under `modules/<id>/`.
-        ⚠ Renamed from `channel` in 0.19.0, and the enum's `path` value was DELETED rather than
-        renamed: discovery never emitted it, so it was an enum advertising work nobody had done.
-        `origin` was rejected (one token from `origin/main`, which `update` literally pulls) and
-        `shape` was rejected (`storage.shape` owns that word).
-    path:
-      type: string
-      description: Workspace-relative root of the module's sources.
-    bin:
-      type: array
-      description: >-
-        The module's runnable entry points — every file under its `bin/`, module-relative, projected by
-        compile. Rendered into the orientation block beside the module's skills and commands as the
-        POINTER that a procedure is a script here (how to run it stays in the module's skill); a module
-        with no `bin/` has no field.
-      items:
-        type: string
-    owns_data:
-      type: boolean
-      description: >-
-        The module keeps its records in its OWN clone rather than this workspace's data/ — so a
-        write there commits in that repo, and a rename spanning both is unavoidably two commits.
-    dependencies:
-      type: array
-      description: >-
-        Modules this one cannot compile without — an overlay needs its base. HARD and acyclic;
-        compile fails on a ring and names the peer escape hatch.
-      items:
-        type: string
-        x-reference: modules
-    peer_dependencies:
-      type: array
-      description: >-
-        Collections this module REFERENCES but does not own. Soft on purpose: naming a concept
-        rather than a module is what keeps two modules from forming a ring, and what lets a module
-        ship an unused reference without dragging in a whole CRM.
-      items:
-        type: string
-        x-reference: collections
-        # SOFT, because the normal state of a module opened on its own is that its peers are NOT
-        # installed — that is the whole reason a peer is declared rather than depended on. Validated
-        # hard, this field made the record it is projected onto fail `check` for saying exactly what
-        # it exists to say, and there was no state in which an optional cross-module reference
-        # passed: dropping the declaration made `compile` fail instead, naming peerDependencies as
-        # the remedy. Present peers still resolve, and a peer that names a collection nobody ever
-        # installs is reported by `check` as a warning off `unresolved_peers`, not silently.
-        x-reference-soft: true
-    collections:
-      type: array
-      description: >-
-        Collections this module contributed a source for. A collection merged from several modules
-        appears under EVERY one of them — which is the honest answer the flat "which module owns
-        this" provenance could not give (it took the first source and dropped the overlay).
-      items:
-        type: string
-        x-reference: collections
-order: 140
-# ⚠ ALL THREE IDENTITY SPELLINGS. A module is one string after `add modules` (folder = package name
-# = id), and three strings for anything that predates it — so the listing shows the id (always
-# printed first), the package `name` and the `path`, which is how an operator sees the fork at all.
-list_fields: [location, path, namespaces, name, collections]
-icon: deployed_code
-group: system
+record_title: '{{ name }}'
+description: A module this workspace compiled — where its sources sit, what it declares, and the modules and collections it reaches.
+use_when: >-
+  asked which module ships a collection, what a module depends on, or where its sources live — read
+  here; a record is projected from the module's package.json, so change the package, not the record
+internal: true
+storage:
+  path: modules
+  format: yaml
+ids:
+  from: '{{ name | slug }}'
+  pattern: '^[a-z0-9-]+$'
+fields:
+  name:
+    type: string
+    required: true
+    description: The module's package name, verbatim — `@dreamteamer/crm`, `acme-workspace`.
+  title:
+    type: string
+    description: What to CALL this module — `dreamteamer.title` in its package.json, else derived from the id. Authored where deriving cannot know an acronym (`crm` → `CRM`).
+  description:
+    type: string
+    description: What this module is FOR, in one line — `dreamteamer.description` in its package.json, never derived.
+  namespaces:
+    type: string
+    many: true
+    description: >-
+      The namespaces this module declares and owns — `dreamteamer.namespaces` in its package.json. The
+      workspace's set is the union of every module's declarations plus its own; two modules declaring
+      one namespace is a compile error, and using another module's namespace requires that module in
+      `dependencies`. Absent: the module ships into the default namespace, the empty prefix.
+  location:
+    type: string
+    required: true
+    enum: [modules, git_modules, node_modules, root]
+    description: >-
+      Where this module's sources sit — the folder name, so `dt status` needs no legend. `root` is the
+      classic layout, where the workspace's own sources live at its root rather than under `modules/<id>/`.
+  path:
+    type: string
+    description: Workspace-relative root of the module's sources.
+  bin:
+    type: string
+    many: true
+    description: The module's runnable entry points — every file under its `bin/`, module-relative. Rendered into the orientation block as the pointer that a procedure is a script here.
+  owns_data:
+    type: boolean
+    description: The module keeps its records in its OWN clone rather than this workspace's data/ — a write there commits in that repo, and a rename spanning both is two commits.
+  dependencies:
+    type: modules
+    many: true
+    description: Modules this one cannot compile without — an overlay needs its base. Hard and acyclic; compile fails on a ring and names the peer escape hatch.
+  peer_dependencies:
+    type: string
+    many: true
+    description: >-
+      Collections this module references but does not own. Soft by design: naming a concept rather than
+      a module keeps two modules from forming a ring, and lets a module ship a reference to a
+      collection nobody installed. A plain list of names, because the point is that the target may be absent.
+  collections:
+    type: collections
+    many: true
+    description: Collections this module contributed a source to. A collection merged from several modules appears under every one of them.
+display:
+  nav:
+    icon: deployed_code
+    order: 140
+  list:
+    columns: [location, path, namespaces, name, collections]
