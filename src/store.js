@@ -562,7 +562,7 @@ export class Store {
 			const key = (p) => path.relative(this.root, path.join(repo, p)).split(path.sep).join('/');
 			let at;
 			for (const line of out.split('\n')) {
-				if (line.startsWith('\x01')) { at = line.slice(1); continue; }
+				if (line.startsWith('\x01')) { at = gitDateToStamp(line.slice(1)); continue; }
 				const [status, a, b] = line.split('\t');
 				if (status === 'A' && !dates.has(key(a))) dates.set(key(a), at);
 				else if (status?.startsWith('R') && b) { dates.set(key(b), dates.get(key(a)) ?? at); dates.delete(key(a)); }
@@ -1752,6 +1752,12 @@ function snapshotTree(dir) {
 }
 
 /** Now, as the one canonical date-time spelling: local wall clock with its offset. */
+/** A `%aI` author date as a record's `created`: git prints a UTC date as `…Z` on some builds, and a
+ *  record's stamp is always offset-spelled, so the two spellings must read as the one value. */
+export function gitDateToStamp(iso) {
+	return iso.replace(/Z$/, '+00:00');
+}
+
 function nowStamp() {
 	const t = new Date();
 	const p = (n) => String(n).padStart(2, '0');

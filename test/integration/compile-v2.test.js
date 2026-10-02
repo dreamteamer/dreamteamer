@@ -7,6 +7,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { workspace, writeCollection, writeModule, compileError, compileQuietly, dt, WS_MODULE } from '../helpers/ws.js';
 import { load, dump } from '../../src/yaml.js';
@@ -343,6 +344,21 @@ describe('created for a record that predates the stamp', () => {
 		const file = path.join(w.root, 'data', 'notes', 'fresh.note.md');
 		unstamp(file);
 		assert.equal(JSON.parse(dt(w.root, 'get', 'notes/fresh', '--json').stdout).created, undefined);
+	});
+
+	test('a UTC author date reads in the offset spelling, never with a trailing Z', () => {
+		const w = workspace({ compile: false });
+		writeCollection(w.root, 'notes', { ids: { from: '{{ name | slug }}' }, fields: { name: { type: 'string', required: true }, body: { type: 'markdown', body: true } } });
+		compileQuietly(w.ws);
+		assert.equal(dt(w.root, 'add', 'note', 'Zulu').code, 0);
+		const file = path.join(w.root, 'data', 'notes', 'zulu.note.md');
+		unstamp(file);
+		// commit it with an explicitly UTC author date, the way a CI runner's clock does
+		const env = { ...process.env, GIT_AUTHOR_NAME: 'dreamteamer test', GIT_AUTHOR_EMAIL: 'test@example.invalid', GIT_COMMITTER_NAME: 'dreamteamer test', GIT_COMMITTER_EMAIL: 'test@example.invalid', GIT_AUTHOR_DATE: '2024-01-02T03:04:05Z', GIT_COMMITTER_DATE: '2024-01-02T03:04:05Z', TZ: 'UTC' };
+		execFileSync('git', ['add', 'data/notes/zulu.note.md'], { cwd: w.root, env, stdio: 'ignore' });
+		execFileSync('git', ['commit', '-q', '-m', 'zulu'], { cwd: w.root, env, stdio: 'ignore' });
+		const got = JSON.parse(dt(w.root, 'get', 'notes/zulu', '--json').stdout);
+		assert.equal(got.created, '2024-01-02T03:04:05+00:00');
 	});
 
 	test('read from the first commit otherwise, and the file is not rewritten', () => {
