@@ -30,7 +30,7 @@ export class Store {
 		// Committing is POLICY, not durability — a write is on disk either way. Default OFF:
 		// `dt commit` is what publishes. `"auto-commit": true` restores the old behaviour of one
 		// commit per mutation.
-		this.autoCommit = (pkg ?? readPkg(root)).dreamteamer?.['auto-commit'] === true;
+		this.autoCommit = (pkg ?? readPkg(root)).dreamteamer?.auto_commit === true;
 		this.ajv = new Ajv({ allErrors: true, strict: false, useDefaults: true, coerceTypes: 'array' });
 		addFormats(this.ajv);
 		this.ajv.addFormat('markdown', true);
