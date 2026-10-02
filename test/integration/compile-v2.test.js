@@ -209,6 +209,20 @@ describe('an overlay from another module', () => {
 		const keys = Object.keys(d.compiled.fields);
 		assert.ok(keys.indexOf('claim_ref') < keys.indexOf('consultation_notes'), 'the overlay field sits before the body');
 	});
+	test('a later overlay refines a field an earlier overlay introduced, display key by key', () => {
+		const w = workspace({ compile: false });
+		writeCollection(w.root, 'things', { ids: { from: '{{ name | slug }}' }, fields: { name: { type: 'string', required: true }, notes: { type: 'markdown', body: true } } });
+		writeModule(w.root, 'first', { dependencies: [WS_MODULE], collections: { things: { overlay: true, fields: { rating: { type: 'integer', maximum: 10, display: { unit: 'stars', width: 'narrow' } } } } } });
+		writeModule(w.root, 'last', { dependencies: [WS_MODULE, 'first'], collections: { things: { overlay: true, fields: { rating: { maximum: 5, display: { unit: 'points' } } } } } });
+		assert.equal(compileError(w.ws), null);
+		const d = compiled(w.root, 'things');
+		assert.equal(d.compiled.fields.rating.maximum, 5, 'the refining overlay wins');
+		assert.equal(d.compiled.fields.rating.type, 'integer', 'what it does not restate is kept');
+		assert.deepEqual(d.compiled.fields.rating.display, { unit: 'points', width: 'narrow' });
+		assert.deepEqual(Object.keys(d.compiled.fields).filter((k) => !['id', 'created', 'last_modified'].includes(k)), ['name', 'rating', 'notes']);
+		assert.notEqual(dt(w.root, 'add', 'things', '--name', 'Example', '--rating', '9').code, 0, 'rating 9 is above the refined maximum');
+		assert.equal(dt(w.root, 'add', 'things', '--name', 'Fine', '--rating', '4').code, 0);
+	});
 	test('without the dependency on the base module it is refused', () => {
 		const w = clinic({
 			extra: (root) => writeModule(root, 'billing', { collections: { 'health/visits': { overlay: true, fields: { claim_ref: { type: 'string' } } } } }),

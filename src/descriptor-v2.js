@@ -135,16 +135,24 @@ export function nameErrors(doc) {
 	return errors;
 }
 
+/** A field refined by an overlay: the overlay's keys win, `display` merged key by key. */
+function refineField(f, by) {
+	const out = { ...f, ...by };
+	if (f?.display && by?.display) out.display = { ...f.display, ...by.display };
+	return out;
+}
+
 /** A base and its overlays as ONE v2 descriptor: overlay fields inserted before the body,
  *  constraints concatenated, every other key overlay-wins key by key (display per sub-block). */
 export function mergeOverlays(base, overlays) {
 	const out = structuredClone(base);
 	for (const o of overlays) {
-		const own = Object.entries(out.fields ?? {});
+		// a field already present — from the base OR an earlier overlay — is refined in place, key by key
+		// (its `display` too); a new one goes in before the body field
+		const own = Object.entries(out.fields ?? {}).map(([k, f]) => [k, k in (o.fields ?? {}) ? refineField(f, o.fields[k]) : f]);
 		const bodyAt = own.findIndex(([, f]) => f?.body);
 		const add = Object.entries(o.fields ?? {}).filter(([k]) => !(k in (out.fields ?? {})));
 		out.fields = Object.fromEntries(bodyAt < 0 ? [...own, ...add] : [...own.slice(0, bodyAt), ...add, ...own.slice(bodyAt)]);
-		for (const [k] of Object.entries(o.fields ?? {})) if (k in (base.fields ?? {})) out.fields[k] = { ...out.fields[k], ...o.fields[k] };
 		if (o.constraints) out.constraints = [...(out.constraints ?? []), ...o.constraints];
 		if (o.display) {
 			out.display ??= {};
