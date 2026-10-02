@@ -55,7 +55,7 @@
 		"commands",
 		"command-bindings",
 		"ui-views",
-		"collection-templates",
+		"mixins",
 		"scripts/migrate-descriptors-v2.mjs"
 	],
 	"dependencies": {

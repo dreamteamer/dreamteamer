@@ -2,30 +2,29 @@
 // runtime — compile is the only producer of that shape (both source spellings normalize to it),
 // so check, the store's mirror maintenance, `dt relations`, rebuild and presentation all read
 // through here and can never disagree about what a relation is.
-import { refTargetsOf } from './ref.js';
+import { fieldsOf, targetsOf } from './descriptor.js';
 
 export function relationsOf(descriptors) {
 	const out = [];
-	for (const [name, d] of descriptors) {
-		for (const [field, prop] of Object.entries(d.schema?.properties ?? {})) {
-			if (!prop || typeof prop !== 'object') continue;
-			const holder = (prop.items && typeof prop.items === 'object') ? prop.items : prop;
-			const inverse = holder['x-inverse'];
-			if (!inverse) continue;
-			const targets = refTargetsOf(prop);
-			if (!targets || targets === '*') continue; // compile refuses these; defensive at runtime
-			const list = prop.type === 'array';
-			const unique = holder['x-unique'] === true;
-			for (const target of targets) {
-				if (!descriptors.has(target)) continue; // an uninstalled peer: nothing to mirror onto
-				out.push({
-					owner: name, field, target,
-					mirror: typeof inverse === 'string' ? inverse : inverse.field,
-					list, unique,
-					onDelete: holder['x-on-delete'] ?? 'restrict',
-					kind: list ? 'm2m' : unique ? 'o2o' : 'm2o',
-				});
-			}
+	// A relation is declared once, on the MIRROR: a field `mirror_of: f` with `type: O` on collection T
+	// is the generated far side of O's reference `f`. The row is keyed by the owner, as every reader
+	// (the store's maintenance, check's expectations, `dt relations`) has always asked it.
+	for (const [target, d] of descriptors) {
+		for (const [mirror, m] of Object.entries(fieldsOf(d))) {
+			if (m.mirror_of === undefined) continue;
+			const owner = targetsOf(m)?.[0];
+			const od = owner && descriptors.get(owner);
+			if (!od) continue; // an uninstalled peer: the mirror is inert
+			const f = fieldsOf(od)[m.mirror_of];
+			if (!f) continue; // compile refuses this; defensive at runtime
+			const list = f.many === true;
+			const unique = f.unique === true && !list;
+			out.push({
+				owner, field: m.mirror_of, target, mirror,
+				list, unique,
+				onDelete: f.on_delete ?? 'restrict',
+				kind: list ? 'm2m' : unique ? 'o2o' : 'm2o',
+			});
 		}
 	}
 	return out;

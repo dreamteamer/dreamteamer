@@ -28,6 +28,7 @@ import { ensureRepo, ensureAllRepos } from './init.js';
 import { expectedMirrors } from './relations.js';
 import { parseRecord } from './records.js';
 
+import { storageOf, jsonSchemaOf, recordTitleOf, positionFieldOf, fieldsOf, displayOf, storedFieldsOf } from './descriptor.js';
 /**
  * Emit MACHINE-READABLE output synchronously. Use this for every `--json` payload.
  *
@@ -109,7 +110,7 @@ export function collectionCommand(ws, collection, verb, args) {
 		return metaEntityVerb(ws, store, collection, verb, flags, pos);
 	}
 	// `revert` on ANY system entity: its history is git's, and `store.revert` writes a RECORD.
-	if (verb === 'revert' && store.descriptors.get(collection)?.storage?.base === 'runtime') {
+	if (verb === 'revert' && storageOf(store.descriptors.get(collection)).runtime) {
 		const src = sourceHintFor(store, collection);
 		throw new Error(`${collection}/${pos[0] ?? '<id>'} is a compiled source, so there is no record to revert — its source is in git.\n  git log -- ${src}\n  git checkout <sha> -- ${src}\n  dreamteamer compile`);
 	}
@@ -146,20 +147,20 @@ export function collectionCommand(ws, collection, verb, args) {
 		case 'add': {
 			// An opaque collection is written by IMPORTING a file: the id is positional (nothing can
 			// generate it from fields that do not exist) and the bytes come from --from.
-			if ((d.storage.codec ?? 'md') === 'file') {
+			if (storageOf(d).format === 'binary') {
 				const id = need(pos, 0, 'id');
-				if (!flags.from) throw new Error(`"${collection}" is a \`codec: file\` collection — pass --from <path> with the file to import`);
+				if (!flags.from) throw new Error(`"${collection}" is a \`format: binary\` collection — pass --from <path> with the file to import`);
 				const { id: written, file } = store.addFile(collection, id, flags.from, { force: !!flags.force });
 				flags.json ? emit(JSON.stringify({ id: written, path: rel(ws.root, file) })) : console.log(`✔ ${at}${rel(ws.root, file)}`);
 				return 0;
 			}
-			if (flags.from) throw new Error(`--from imports a file as a record, and "${collection}" is not a \`codec: file\` collection`);
+			if (flags.from) throw new Error(`--from imports a file as a record, and "${collection}" is not a \`format: binary\` collection`);
 			// ONE bare positional is the record's title — the field `title_template` names — so
 			// `dt add task "call the bank"` reads as a sentence. Two positionals is a mistake (a flag
 			// value that lost its flag), and so is giving the title twice; both are refused by name.
 			if (pos.length > 1) throw new Error(`dt add ${collection} takes ONE positional (the title) and flags for the rest — got ${pos.length}: ${pos.map((p) => `"${p}"`).join(' ')}`);
 			if (pos.length === 1) {
-				const titleField = /\{\{\s*([A-Za-z_][\w]*)/.exec(d.title_template ?? '')?.[1];
+				const titleField = /\{\{\s*([A-Za-z_][\w]*)/.exec(recordTitleOf(d))?.[1];
 				if (!titleField || titleField === 'id') throw new Error(`"${collection}" labels its records by id, so there is no title field for "${pos[0]}" to fill — pass fields as --<field> <value>`);
 				if (titleField in flags) throw new Error(`the title was given twice — "${pos[0]}" and --${titleField} ${JSON.stringify(flags[titleField])}`);
 				flags[titleField] = pos[0];
@@ -195,8 +196,8 @@ export function collectionCommand(ws, collection, verb, args) {
 		// integer would renumber everything below the insertion point and bury the change. The field is
 		// named by the descriptor (`sort_field`), never here, so a workspace may call it anything.
 		case 'move': {
-			const field = d.sort_field;
-			if (!field) throw new Error(`collection "${collection}" declares no sort_field — add one to its descriptor before ordering it by hand.`);
+			const field = positionFieldOf(d);
+			if (!field) throw new Error(`collection "${collection}" has no \`type: position\` field — add one to its descriptor before ordering it by hand.`);
 
 			// Blanks sort FIRST (compareValues, via `?? ''`), so unplaced records surface at the top
 			// rather than hiding at the bottom, and ties fall back to id order: `walk` reads name-sorted
@@ -588,7 +589,7 @@ function metaCollectionsRename(ws, store, flags, pos) {
 		// stated gap: the plan line has a fixed shape precisely so a reader never has to guess whether
 		// a term is zero or unmeasured.
 		return dryRunPlan(`rename collections/${oldName} ${newName}`, { records, descriptors: 1 }, [
-			`records  ${d.storage.path} → ${defaultStoragePath(newName, store.namespaces, ws.pkg.dreamteamer?.['data-path'] ?? 'data')}`,
+			`records  ${storageOf(d).path} → ${defaultStoragePath(newName, store.namespaces, ws.pkg.dreamteamer?.['data-path'] ?? 'data')}`,
 			'refs are counted only by the real run — the rewrite is what discovers them',
 		]);
 	}
@@ -609,7 +610,7 @@ function metaCollectionsRename(ws, store, flags, pos) {
 // that still has records (removeCollection refuses otherwise, and says so).
 function metaCollectionsRm(ws, store, flags, pos) {
 	const name = need(pos, 0, 'collection name');
-	if (flags['dry-run']) return dryRunPlan(`rm collections/${name}`, { records: store.ids(name).size, descriptors: 1 }, [`descriptor removed; records under ${store.descriptor(name).storage.path} stay in place and become unindexed`]);
+	if (flags['dry-run']) return dryRunPlan(`rm collections/${name}`, { records: store.ids(name).size, descriptors: 1 }, [`descriptor removed; records under ${storageOf(store.descriptor(name)).path} stay in place and become unindexed`]);
 	const out = removeCollection(ws, store, name, { force: !!flags.force });
 	flags.json ? emit(JSON.stringify(out)) : console.log(`✔ removed collection ${out.removed}`);
 	console.log('✔ compiled — the collection is gone');
@@ -720,7 +721,7 @@ function metaRemoveField(ws, store, collection, flags) {
  *  listed, so a contributed kind gets `set · rm · rename` without core knowing its name; `collections`,
  *  `ui-views` and `modules` have verbs of their own. */
 const OWN_VERBS = new Set(['collections', 'ui-views', 'modules']);
-const isEntityKind = (store, collection) => store?.descriptors.get(collection)?.storage?.base === 'runtime' && !OWN_VERBS.has(collection);
+const isEntityKind = (store, collection) => storageOf(store?.descriptors.get(collection)).runtime && !OWN_VERBS.has(collection);
 const SCAFFOLDABLE = new Set(['skills']);
 
 function metaEntityVerb(ws, store, kind, verb, flags, pos) {
@@ -778,7 +779,7 @@ function sourceHintFor(store, collection) {
 	// `modules/*/modules/`, which `git ls-files` matches nothing at all — a correct refusal handing
 	// over an unusable remedy.
 	if (collection === 'modules') return 'modules/*/package.json';
-	return `modules/*/${store.descriptors.get(collection)?.storage?.path ?? collection}/`;
+	return `modules/*/${storageOf(store.descriptors.get(collection)).path ?? collection}/`;
 }
 
 // `dreamteamer rename-field people --name employer --to company`
@@ -997,7 +998,7 @@ function relationsRebuild(store, flags, pos) {
 	// writes even when NO relation targets this collection, and `serialize` has no branch for
 	// `codec: file`: it would replace the record's own bytes (an SVG, a PDF) with frontmatter.
 	if (!store.canRewrite(collection)) {
-		const why = d.storage.base === 'runtime' ? 'a compiled source' : 'stored as `codec: file`';
+		const why = storageOf(d).runtime ? 'a compiled source' : 'stored as `format: binary`';
 		throw new Error(`"${collection}" is ${why} — it carries no generated mirrors and this verb will not rewrite it.`);
 	}
 	// `--drop` LAST on the line parses as the boolean `true`. Quietly treating that as "no --drop"
@@ -1007,7 +1008,7 @@ function relationsRebuild(store, flags, pos) {
 		throw new Error('--drop needs a field name: dreamteamer relations rebuild <collection> --drop <field>');
 	}
 	const drop = typeof flags.drop === 'string' ? flags.drop : null;
-	if (drop && d.schema?.properties?.[drop]) throw new Error(`"${drop}" is a live field of ${collection} — --drop only removes keys the schema no longer declares.`);
+	if (drop && fieldsOf(d)[drop]) throw new Error(`"${drop}" is a live field of ${collection} — --drop only removes keys the schema no longer declares.`);
 
 	// Expectations computed ONCE per relation, over a single pass of each owning collection. The
 	// store's own `applyMirrorEdits` re-walks the owners per write, which is right for one edit and
@@ -1144,7 +1145,7 @@ const stripMeta = (flags) => Object.fromEntries(Object.entries(flags).filter(([k
 function coerceArrays(d, fields) {
 	const out = {};
 	for (const [k, v] of Object.entries(fields)) {
-		const isList = d.schema.properties?.[k]?.type === 'array';
+		const isList = fieldsOf(d)[k]?.many === true;
 		// An array here means the operator SPELLED the key twice (`--tags a --tags b`, or
 		// `tags=a tags=b`). On a list field each sighting is one element — deliberately NOT
 		// comma-split again, so a value that contains a comma can be written by repeating the flag.
@@ -1203,7 +1204,7 @@ function narrowRows(store, d, collection, flags) {
 	// then matched every row.
 	if (whereJson && (typeof where !== 'object' || where === null)) throw new Error(`--where takes ONE filter OBJECT and got a ${where === null ? 'null' : typeof where}: ${whereJson}\n  a condition is {"<field>":{"_eq":"<value>"}} — the shorthand for one equality is --filter <field>=<value>`);
 	const sort = oneValue(flags, 'sort');
-	const vocab = ['id', ...Object.keys(d.schema?.properties ?? {})];
+	const vocab = ['id', ...Object.keys(fieldsOf(d))];
 	const stray = [...filters.map(([k]) => k), ...(sort ? [String(sort).replace(/^-/, '')] : [])].find((f) => !vocab.includes(f));
 	if (stray) throw new Error(`${collection} has no field "${stray}"${nearest(stray, vocab) ? ` — did you mean "${nearest(stray, vocab)}"?` : ''} (dt get collections/${collection} lists them)`);
 	const resolve = where ? recordResolver(store) : null;
@@ -1218,12 +1219,12 @@ function narrowRows(store, d, collection, flags) {
 	// sorting was studio-only until now: the browse table ordered records and no CLI
 	// invocation could. Same `sortRows` the server and api.ts call, so `--sort -starts`
 	// orders date-times by INSTANT across mixed offsets rather than by string.
-	if (sort) sortRows(rows, sort, d.schema);
+	if (sort) sortRows(rows, sort, jsonSchemaOf(d));
 	return { rows, narrowed: !!(filters.length || where) };
 }
 
 /** `id` first, then the descriptor's own columns — the shape every text listing prints. */
-const listColumns = (d) => ['id', ...(d.list_fields ?? []).filter((c) => c !== 'id')];
+const listColumns = (d) => ['id', ...(displayOf(d).list?.columns ?? []).map((c) => (c === 'last_modified' ? 'last-modified' : c)).filter((c) => c !== 'id')];
 
 function rel(root, p) {
 	return p.startsWith(root) ? p.slice(root.length + 1) : p;
@@ -1302,13 +1303,13 @@ export function refuseUnknownFlags(store, collection, verb, flags) {
 	if (!known) return; // no declared vocabulary — left exactly as it was rather than guessed at
 	// The OPEN half: a data collection's own fields (shorthand filters and field writes), and the
 	// declared keys of an entity `set` writes (`--layout` on a view, and dotted `options.sort`).
-	const system = d?.storage?.base === 'runtime';
+	const system = storageOf(d).runtime;
 	// ⚠ NO DESCRIPTOR MEANS NO OPEN HALF — offering "plus any field of X" for a thing with no fields
 	// would read as though the refused flag were merely misspelled.
 	const openOf = !d ? null
 		: !system ? (['list', 'add', 'set'].includes(verb) ? `field of ${collection}` : null)
 		: (collection === 'ui-views' && verb !== 'rm') || (isEntityKind(store, collection) && verb === 'set') ? `declared key of ${collection}` : null;
-	const open = openOf ? Object.keys(d?.schema?.properties ?? {}) : [];
+	const open = openOf ? Object.keys(storedFieldsOf(d)) : [];
 	const allowed = new Set([...known, ...open]);
 	for (const f of Object.keys(flags)) {
 		if (allowed.has(f) || (openOf && allowed.has(f.split('.')[0]))) continue;

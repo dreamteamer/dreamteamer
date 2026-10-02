@@ -8,7 +8,7 @@
 // `sourceHint` is deliberately NOT imported here any more — see the note beside `system` below.
 // It survives for the store's own refusal (`store.js`) and `revert`'s (`collections-cli.js`), both
 // of which are still true statements about a path that genuinely cannot be written.
-import { refTargetsOf } from './ref.js';
+import { targetsOf as refTargetsOf } from './descriptor.js'; // ⚠ STUB: this file reads the v1 shape until its slice ports it
 
 /** the projection for every collection: rows keyed by collection name + collection meta. */
 export function presentation(descriptors) {

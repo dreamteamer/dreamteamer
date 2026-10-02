@@ -50,7 +50,7 @@ export function storageOf(d) {
 	const a = d?.storage ?? {};
 	const s = defaults(d).storage ?? {};
 	const out = {
-		path: a.path ?? s.path,
+		path: s.path ?? a.path, // compile records the RESOLVED path when it differs (an owns-data module's prefix)
 		format: a.format ?? s.format ?? 'md',
 		shape: a.shape ?? s.shape ?? 'file',
 		suffix: a.suffix ?? s.suffix,

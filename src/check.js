@@ -9,10 +9,10 @@ import addFormats from 'ajv-formats';
 import { parseRecord, patternRe, fmtAjvError, unknownFields, walk, idFromRecordPath, MAX_RECORD_BYTES } from './records.js';
 import { NO_RUNTIME, loadDescriptors, runtimeDir, namespaces as compiledNamespaces } from './runtime.js';
 import { parseRef } from './namespace.js';
-import { refTargetsOf, refIsSoft } from './ref.js';
 import { relationsOf, expectedMirrors } from './relations.js';
 import { placementOf, placedRecords, ownerIdOf, symlinkedChildRoots } from './placement.js';
 
+import { storageOf, jsonSchemaOf, fieldsOf, unresolvedPeersOf, bodyFieldOf, targetsOf, isSoft, idsOf } from './descriptor.js';
 export function check({ root }, { extra = [] } = {}) {
 	const RUNTIME = runtimeDir(root);
 	const rel = (p) => path.relative(root, p);
@@ -42,7 +42,7 @@ export function check({ root }, { extra = [] } = {}) {
 	// declared here rather than beside the validation pass: indexing can itself produce a
 	// finding (an unreachable data root, below) before a single record is read.
 	const violations = [];
-	const dirOf = (d) => path.join(d.storage.base === 'runtime' ? RUNTIME : root, d.storage.path);
+	const dirOf = (d) => path.join(storageOf(d).runtime ? RUNTIME : root, storageOf(d).path);
 	for (const [name, d] of descriptors) {
 		const ids = new Map();
 		index.set(name, ids);
@@ -53,9 +53,9 @@ export function check({ root }, { extra = [] } = {}) {
 		// missing otherwise reports zero records and a clean check — a silent success. An EMPTY
 		// directory stays fine (a module with no records yet is normal); only a missing owning
 		// repo counts.
-		const repoRoot = path.resolve(root, d.storage.repo ?? '.');
-		if (!fs.existsSync(dir) && (d.storage.repo ?? '.') !== '.' && !fs.existsSync(repoRoot)) {
-			violations.push({ file: d.storage.path, msg: `collection "${name}" is owned by ${d.storage.repo}, which is not present — every record in it is unreadable` });
+		const repoRoot = path.resolve(root, storageOf(d).repo);
+		if (!fs.existsSync(dir) && (storageOf(d).repo) !== '.' && !fs.existsSync(repoRoot)) {
+			violations.push({ file: storageOf(d).path, msg: `collection "${name}" is owned by ${storageOf(d).repo}, which is not present — every record in it is unreadable` });
 			continue;
 		}
 		const under = placementOf(d);
@@ -85,7 +85,7 @@ export function check({ root }, { extra = [] } = {}) {
 			continue;
 		}
 		if (!fs.existsSync(dir)) continue;
-		const shape = d.storage.shape ?? 'file';
+		const shape = storageOf(d).shape ?? 'file';
 		if (shape === 'folder') {
 			// a FILE record at the root of a folder-shape collection is the state a collection is in
 			// right after its shape changed — named as such, with the verb that finishes the change
@@ -95,17 +95,17 @@ export function check({ root }, { extra = [] } = {}) {
 				const p = path.join(dir, entry);
 				if (!fs.statSync(p).isDirectory()) {
 					const legacy = idFromRecordPath(asFile, entry) !== null;
-					strays.push({ collection: name, file: rel(p), note: legacy ? `a file-shape record in a folder-shape collection — dreamteamer relocate ${name} moves it to ${entry.split('.')[0]}/${d.storage.entry}` : undefined });
+					strays.push({ collection: name, file: rel(p), note: legacy ? `a file-shape record in a folder-shape collection — dreamteamer relocate ${name} moves it to ${entry.split('.')[0]}/${storageOf(d).entry}` : undefined });
 					continue;
 				}
-				const main = path.join(p, d.storage.entry ?? 'SKILL.md');
+				const main = path.join(p, storageOf(d).entry ?? 'SKILL.md');
 				if (fs.existsSync(main)) ids.set(entry, main);
-				else strays.push({ collection: name, file: rel(p), note: `missing entry file ${d.storage.entry}` });
+				else strays.push({ collection: name, file: rel(p), note: `missing entry file ${storageOf(d).entry}` });
 			}
 		} else {
-			const opaque = (d.storage.codec ?? 'md') === 'file';
-			const allowed = d.storage.extensions;                  // undefined = any
-			const max = d.storage.max_bytes ?? MAX_RECORD_BYTES;
+			const opaque = storageOf(d).format === 'binary';
+			const allowed = storageOf(d).accept;                  // undefined = any
+			const max = storageOf(d).max_bytes ?? MAX_RECORD_BYTES;
 			for (const f of walk(dir)) {
 				const id = idFromRecordPath(d, path.relative(dir, f));
 				if (id === null) { strays.push({ collection: name, file: rel(f) }); continue; }
@@ -137,15 +137,15 @@ export function check({ root }, { extra = [] } = {}) {
 	const softRefs = new Map(); // absent-but-declared peer collection -> how many refs point at it
 
 	for (const [name, d] of descriptors) {
-		const validate = ajv.compile(d.schema);
-		const refFields = collectRefFields(d.schema);
-		const softTargets = d.unresolved_peers ? new Set(d.unresolved_peers) : null;
-		const bodyField = Object.entries(d.schema.properties ?? {}).find(([, s]) => s?.['x-body'])?.[0];
+		const validate = ajv.compile(jsonSchemaOf(d));
+		const refFields = collectRefFields(fieldsOf(d));
+		const softTargets = unresolvedPeersOf(d).length ? new Set(unresolvedPeersOf(d)) : null;
+		const bodyField = bodyFieldOf(d);
 		parsed.set(name, new Map());
 
 		for (const [id, file] of index.get(name)) {
-			if (d.id?.pattern && !patternRe(d.id.pattern).test(id)) {
-				flag(file, `id "${id}" does not match pattern ${d.id.pattern}`);
+			if (idsOf(d).pattern && !patternRe(idsOf(d).pattern).test(id)) {
+				flag(file, `id "${id}" does not match pattern ${idsOf(d).pattern}`);
 			}
 			let fields;
 			try {
@@ -157,7 +157,7 @@ export function check({ root }, { extra = [] } = {}) {
 			if (!validate(fields)) {
 				for (const err of validate.errors) flag(file, fmtAjvError(err, fields));
 			}
-			for (const k of unknownFields(d.schema, fields)) {
+			for (const k of unknownFields(d, fields)) {
 				flag(file, `unknown field "${k}" (not in the ${name} schema)`);
 			}
 			for (const [fieldPath, target, soft] of refFields) {
@@ -173,13 +173,13 @@ export function check({ root }, { extra = [] } = {}) {
 			// on top of that would be a second report of one typo.
 			const under = placementOf(d);
 			if (under) {
-				const raw = fields[under.field];
+				const raw = fields[under.parent];
 				const wellFormed = raw == null || raw === '' || parseRef(raw, namespaces);
 				const want = ownerIdOf(fields, under, (v) => parseRef(v, namespaces));
 				const got = observed.get(name).get(id);
 				if (wellFormed && want !== got) {
-					const where = got ? `under ${under.collection}/${got}` : `in its own root (${d.storage.path})`;
-					const should = want ? `${under.field} is ${under.collection}/${want}` : `${under.field} is empty`;
+					const where = got ? `under ${under.collection}/${got}` : `in its own root (${storageOf(d).path})`;
+					const should = want ? `${under.parent} is ${under.collection}/${want}` : `${under.parent} is empty`;
 					flag(file, `placed ${where} but ${should} — the file is not where its owner puts it. Run: dreamteamer relocate ${name}/${id}`);
 				}
 			}
@@ -219,7 +219,7 @@ export function check({ root }, { extra = [] } = {}) {
 				// a union FK yields one relation row per target collection; without this filter each
 				// row would re-flag the same duplicate once per member.
 				if (typeof v !== 'string' || !v.startsWith(`${relation.target}/`)) continue;
-				if (seen.has(v)) flag(index.get(relation.owner).get(id), `${relation.field}: "${v}" is already taken by ${relation.owner}/${seen.get(v)} (x-unique)`);
+				if (seen.has(v)) flag(index.get(relation.owner).get(id), `${relation.field}: "${v}" is already taken by ${relation.owner}/${seen.get(v)} (unique)`);
 				else seen.set(v, id);
 			}
 		}
@@ -292,19 +292,17 @@ export function check({ root }, { extra = [] } = {}) {
 }
 
 
-// collect [fieldPath, targets, soft] for every x-reference in the schema, where `targets` is '*' or
-// the normalized array of declared collections (see refTargetsOf) and `soft` says whether an absent
-// target is a finding (see refIsSoft). Relations are NOT read here — they are decoded once, from the
-// compiled descriptors, by src/relations.js.
-function collectRefFields(schema, prefix = []) {
+// collect [fieldPath, targets, soft] for every reference field, nested object fields included, where
+// `targets` is '*' or the list of collections it may target and `soft` says whether an absent target
+// is a finding. Relations are NOT read here — they are decoded once, by src/relations.js.
+function collectRefFields(fields, prefix = []) {
 	const out = [];
-	for (const [key, s] of Object.entries(schema.properties ?? {})) {
-		if (!s || typeof s !== 'object') continue;
+	for (const [key, f] of Object.entries(fields ?? {})) {
+		if (!f || typeof f !== 'object') continue;
 		const p = [...prefix, key];
-		const targets = refTargetsOf(s);
-		if (targets) out.push([p, targets, refIsSoft(s)]);
-		if (s.properties) out.push(...collectRefFields(s, p));
-		if (s.items?.properties) out.push(...collectRefFields(s.items, p));
+		const targets = targetsOf(f);
+		if (targets) out.push([p, targets, isSoft(f)]);
+		if (f.type === 'object' && f.fields) out.push(...collectRefFields(f.fields, p));
 	}
 	return out;
 }

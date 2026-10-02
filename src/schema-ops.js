@@ -11,7 +11,7 @@ import { load, dump, writeSource, commentCount } from './yaml.js';
 import { compile, kindDir, titleCase, KINDS, repoRootOf } from './compile.js';
 import { readManifest, runtimeKindDir, loadDescriptors } from './runtime.js';
 import { normalizeNamespaces, namespaceOf, baseNameOf, qualify, defaultStoragePath, singular } from './namespace.js';
-import { refTargetsOf } from './ref.js';
+import { targetsOf as refTargetsOf } from './descriptor.js'; // ⚠ STUB: this file reads the v1 shape until its slice ports it
 
 // Same rule as store.js: a git failure we CATCH must not also print git's own error on top of the
 // clean message we throw. stdout stays piped because some callers read it.

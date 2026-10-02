@@ -1,48 +1,55 @@
 name: ui-views
 title: UI Views
-storage: { path: ui-views, codec: yaml, shape: file, suffix: ui-view }
-id: { generate: "{{ path | slug }}" }
-schema:
-  type: object
-  required: [path, target, layout]
-  properties:
-    path:
-      type: string
-      description: The route this view renders at. The record id is derived from it, so a view saved from the CLI and one saved from the UI land on the same record.
-    nav:
-      type: object
-      description: How the view appears in navigation. Omit it entirely for a route with no nav entry.
-      properties:
-        label:
-          type: string
-          description: What the nav entry reads.
-        icon:
-          type: string
-          description: material-symbols-outlined icon name for the nav entry.
-        order:
-          type: number
-          description: Sort position among its siblings.
-    target:
-      type: string
-      enum: [list, item, page]
-      description: What the view renders — a collection listing, one record, or a standalone page.
-    collection:
-      type: string
-      x-reference: collections
-      description: Which collection this view is of.
-    default:
-      type: boolean
-      description: 'Marks the view a bare /content/<collection> renders. Directus-parity: a collection''s default presentation is an ordinary view record, not a second mechanism. At most one per collection, and never its own route — it IS the collection page.'
-    layout:
-      type: string
-      description: A REGISTERED layout/component id (table, cards, kanban, calendar, map…). An unregistered id degrades visibly rather than erroring.
-    options:
-      type: object
-      description: Layout-specific settings — columns, sort, grouping. Deliberately open, since each layout wants different things.
-    filter:
-      type: object
-      description: The saved filter this view applies, in the studio's operator set.
-order: 50
-list_fields: [path, last-modified, target, collection, layout]
-icon: dashboard_customize
-group: system
+internal: true
+storage: {path: ui-views, format: yaml}
+ids: {from: "{{ path | slug }}"}
+fields:
+  path:
+    type: string
+    required: true
+    description: The route this view renders at. The record id is derived from it, so a view saved from the CLI and one saved from the UI land on the same record.
+  nav:
+    type: object
+    fields:
+      label:
+        type: string
+        description: What the nav entry reads.
+      icon:
+        type: string
+        description: material-symbols-outlined icon name for the nav entry.
+      order:
+        type: number
+        description: Sort position among its siblings.
+    description: How the view appears in navigation. Omit it entirely for a route with no nav entry.
+  target:
+    type: string
+    required: true
+    enum: [list, item, page]
+    description: What the view renders — a collection listing, one record, or a standalone page.
+  collection:
+    type: collections
+    description: Which collection this view is of.
+  default:
+    type: boolean
+    description: 'Marks the view a bare /content/<collection> renders. Directus-parity: a collection''s default presentation is an ordinary view record, not a second mechanism. At most one per collection, and never its own route — it IS the collection page.'
+  layout:
+    type: string
+    required: true
+    description: A REGISTERED layout/component id (table, cards, kanban, calendar, map…). An unregistered id degrades visibly rather than erroring.
+  options:
+    type: map
+    description: Layout-specific settings — columns, sort, grouping. Deliberately open, since each layout wants different things.
+  filter:
+    type: map
+    description: The saved filter this view applies, in the studio's operator set.
+display:
+  nav:
+    icon: dashboard_customize
+    order: 50
+  list:
+    columns:
+      - path
+      - last_modified
+      - target
+      - collection
+      - layout

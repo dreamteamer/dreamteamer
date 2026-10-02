@@ -1,46 +1,42 @@
 name: command-bindings
+internal: true
 storage:
   path: command-bindings
-  codec: yaml
-  shape: file
-  suffix: command-binding
-id:
-  generate: '{{ command | basename }}--{{ collection | basename }}'
-schema:
-  type: object
-  required:
-    - command
-    - collection
-  properties:
-    command:
-      type: string
-      x-reference: commands
-      description: The command this binding applies.
-    collection:
-      type: string
-      x-reference: collections
-      description: The collection the command applies TO — which is what makes `dt next <ref>` able to answer "what can I do with this record".
-    target:
-      type: string
-      enum:
-        - record
-        - collection
-      default: record
-      description: Whether the command runs against one record or the whole collection.
-    can-enter:
-      type: object
-      description: The record state that makes this command AVAILABLE — a filter over the record's own fields. This is what turns a collection into a queue without any run records.
-    can-exit:
-      type: object
-      description: The record state that means the command has already been DONE. Together with can-enter, the record's own fields are the progress marker.
-    description:
-      type: string
-      description: What applying this command to this collection does, in one line.
-order: 45
-list_fields:
-  - command
-  - collection
-  - target
-  - last-modified
-icon: bolt
-group: system
+  format: yaml
+ids:
+  from: "{{ command | basename }}--{{ collection | basename }}"
+fields:
+  command:
+    type: commands
+    required: true
+    description: The command this binding applies.
+  collection:
+    type: collections
+    required: true
+    description: The collection the command applies TO — which is what makes `dt next <ref>` able to answer "what can I do with this record".
+  target:
+    type: string
+    default: record
+    enum:
+      - record
+      - collection
+    description: Whether the command runs against one record or the whole collection.
+  can-enter:
+    type: map
+    description: The record state that makes this command AVAILABLE — a filter over the record's own fields. This is what turns a collection into a queue without any run records.
+  can-exit:
+    type: map
+    description: The record state that means the command has already been DONE. Together with can-enter, the record's own fields are the progress marker.
+  description:
+    type: string
+    description: What applying this command to this collection does, in one line.
+display:
+  nav:
+    icon: bolt
+    order: 45
+  list:
+    columns:
+      - command
+      - collection
+      - target
+      - last_modified

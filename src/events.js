@@ -6,6 +6,7 @@ import { execFileSync } from 'node:child_process';
 import { idFromRecordPath } from './records.js';
 import { placedChildAt } from './placement.js';
 
+import { storageOf } from './descriptor.js';
 /** Record events between two points, across EVERY repo that holds records. `from` is a sha or a
  *  date — a sha is meaningless in another repo, so it is resolved to its commit DATE and each
  *  repo then resolves that date to its own sha. Still cursor-less and stores nothing, so it can
@@ -13,9 +14,9 @@ import { placedChildAt } from './placement.js';
 export function deriveEvents(root, descriptors, from, to = 'HEAD') {
 	const byRepo = new Map();
 	for (const d of descriptors.values()) {
-		const p = d.storage?.path;
-		if (!p || d.storage.base === 'runtime') continue; // runtime entities aren't item events
-		const repo = d.storage.repo ?? '.';
+		const p = storageOf(d).path;
+		if (!p || storageOf(d).runtime) continue; // runtime entities aren't item events
+		const repo = storageOf(d).repo;
 		if (!byRepo.has(repo)) byRepo.set(repo, []);
 		byRepo.get(repo).push(p);
 	}
@@ -98,16 +99,16 @@ function parseNameStatus(out, prefix, descriptors, repo) {
 export function pathToRecord(descriptors, relPath) {
 	let best = null;
 	for (const d of descriptors.values()) {
-		const base = d.storage?.path;
-		if (!base || d.storage.base === 'runtime') continue; // runtime entities aren't item events
+		const base = storageOf(d).path;
+		if (!base || storageOf(d).runtime) continue; // runtime entities aren't item events
 		if (!relPath.startsWith(base + '/')) continue;
-		if (best && base.length <= best.storage.path.length) continue;
+		if (best && base.length <= storageOf(best).path.length) continue;
 		best = d;
 	}
 	if (!best) return null;
-	const rest = relPath.slice(best.storage.path.length + 1);
-	if (best.storage.shape === 'folder') {
-		const entry = best.storage.entry ?? 'SKILL.md';
+	const rest = relPath.slice(storageOf(best).path.length + 1);
+	if (storageOf(best).shape === 'folder') {
+		const entry = storageOf(best).entry ?? 'SKILL.md';
 		// `<id>/<entry>` is the parent's own record; anything deeper may be a record of a collection
 		// stored UNDER it (`<id>/meetings/2026/10/kickoff.meeting.md`), which the longest-prefix match
 		// above can never see because its own storage.path is elsewhere. One place decides, so a

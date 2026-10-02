@@ -11,6 +11,8 @@
 // low-cardinality field becomes selectable with no schema change and no risk of `check` failing
 // on a value that predates an enum someone added later.
 import { bodyField } from './store.js';
+import { fieldsOf } from './descriptor.js';
+import { enumValues } from './fields.js';
 
 /** Above this many distinct values a dropdown stops being a dropdown — report and stop counting. */
 export const DEFAULT_LIMIT = 50;
@@ -28,17 +30,16 @@ export const DEFAULT_LIMIT = 50;
  */
 export function distinctValues(store, collection, field, { limit = DEFAULT_LIMIT } = {}) {
 	const d = store.descriptor(collection);
-	const prop = d.schema?.properties?.[field];
+	const prop = fieldsOf(d)[field];
 	if (!prop && field !== 'id') {
-		throw new Error(`unknown field "${field}" on ${collection} (known: ${Object.keys(d.schema?.properties ?? {}).join(', ')})`);
+		throw new Error(`unknown field "${field}" on ${collection} (known: ${Object.keys(fieldsOf(d)).join(', ')})`);
 	}
-	if (prop?.['x-body']) return { collection, field, values: [], total: 0, truncated: false, skipped: 'body' };
-	const isObject = prop?.type === 'object' || prop?.items?.type === 'object';
-	if (isObject) return { collection, field, values: [], total: 0, truncated: false, skipped: 'object' };
+	if (prop?.body) return { collection, field, values: [], total: 0, truncated: false, skipped: 'body' };
+	if (prop?.type === 'object' || prop?.type === 'map') return { collection, field, values: [], total: 0, truncated: false, skipped: 'object' };
 
 	// An enum already IS the vocabulary — hand it back verbatim (counts omitted: the schema's
 	// answer must not shrink just because no record happens to use a legal value yet).
-	const declared = prop?.enum ?? prop?.items?.enum;
+	const declared = prop?.enum === undefined ? undefined : enumValues(prop.enum);
 	if (Array.isArray(declared) && declared.length) {
 		return { collection, field, values: declared.map((value) => ({ value, count: null })), total: declared.length, truncated: false, source: 'enum' };
 	}

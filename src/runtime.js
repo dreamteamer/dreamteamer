@@ -13,6 +13,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { load } from './yaml.js';
+import { storageOf } from './descriptor.js';
 import { normalizeNamespaces } from './namespace.js';
 
 export const RUNTIME_DIR = '.dreamteamer';
@@ -59,9 +60,10 @@ export const DERIVED_KINDS = ['modules'];
  * went wrong in both places.
  */
 export function sourceHint(d) {
-	return DERIVED_KINDS.includes(d?.storage?.path)
+	const p = storageOf(d).path;
+	return DERIVED_KINDS.includes(p)
 		? "the source it was projected from (for `modules`, the module's package.json)"
-		: `the file under the owning module (modules/<module>/${d?.storage?.path}/)`;
+		: `the file under the owning module (modules/<module>/${p}/)`;
 }
 
 /** One message, two callers with different manners: the store throws it, `check` prints it. */
@@ -75,25 +77,19 @@ export function readManifest(root) {
 	try { return load(fs.readFileSync(path.join(runtimeDir(root), 'manifest.yaml'), 'utf8')); } catch { return null; }
 }
 
-/**
- * A kind's folder inside the compiled runtime. Flat (`.dreamteamer/<kind>`) is what compile writes;
- * `.dreamteamer/system/<kind>` is probed because the runtime on disk may have been compiled by an
- * engine from before the flatten — a stale runtime is the normal state between a `git pull` and the
- * next `dt compile`, and answering "no compiled runtime" for one would be a lie.
- */
+/** A kind's folder inside the compiled runtime. */
 export function runtimeKindDir(root, kind) {
-	const flat = path.join(runtimeDir(root), kind);
-	if (fs.existsSync(flat)) return flat;
-	const nested = path.join(runtimeDir(root), 'system', kind);
-	return fs.existsSync(nested) ? nested : flat;
+	return path.join(runtimeDir(root), kind);
 }
+
+/** One message for a runtime compiled from v1 descriptors by an older engine. */
+export const STALE_RUNTIME = 'the compiled runtime predates descriptor format v2 — run `dreamteamer compile`';
 
 /**
  * The merged collection descriptors, keyed by name — or `null` when nothing has been compiled.
  *
- * The ONE place descriptors are read, so the one place `storage.base` is guaranteed present. Both
- * readers (store.js, check.js) had their own copy of this loop; the store's copy threw and check's
- * printed-and-returned-2, so the difference is kept at the call site rather than in the loader.
+ * The ONE place descriptors are read. A descriptor without its `compiled` block was written by an
+ * engine that read v1 sources; it is refused with the one message that fixes it, rather than read.
  */
 export function loadDescriptors(root) {
 	const dir = runtimeKindDir(root, 'collections');
@@ -106,8 +102,7 @@ export function loadDescriptors(root) {
 	// just compiled successfully. Keep the walk.
 	for (const f of walkDescriptors(dir)) {
 		const d = load(fs.readFileSync(f, 'utf8'));
-		d.storage ??= {};
-		d.storage.base ??= derivedBase(d);
+		if (!d?.compiled) throw new Error(STALE_RUNTIME);
 		out.set(d.name, d);
 	}
 	return out;
@@ -134,24 +129,6 @@ export function namespaces(root) {
 	return normalizeNamespaces(readManifest(root)?.namespaces);
 }
 
-/**
- * Which root `storage.path` is relative to — the whole of what the record layer needs to know about
- * the system/data distinction, as DATA rather than as a string test it has to perform. `runtime` =
- * compiled sources (skills, agents, ui-views, the descriptors themselves): generated, gitignored,
- * and therefore not writable through the store. `workspace` = data/ and state/ records.
- *
- * compile.js writes the field. This derivation is compat for a runtime compiled by an OLDER engine,
- * and is not optional: without it those collections resolve under the workspace root, where — in the
- * `workspace-module` layout — they do not exist. That reads as zero records (a silent success) and
- * lets `writableDescriptor` treat a compiled artifact as writable. Wrong in the expensive direction.
- *
- * ⚠ It tests for `system/`, which the flatten removed — that is correct and not a leftover. The only
- * descriptors reaching it are ones compiled BEFORE `base` existed, and those necessarily still spell
- * their runtime paths `system/<kind>`. Every descriptor this engine writes carries `base` explicitly.
- */
-function derivedBase(d) {
-	return String(d.storage?.path ?? '').startsWith('system/') ? 'runtime' : 'workspace';
-}
 
 /**
  * Absolute directories that may hold the SOURCES behind runtime-based records — every compiled
