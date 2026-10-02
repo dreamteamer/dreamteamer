@@ -20,33 +20,287 @@ npx dreamteamer check
 
 ---
 
-## Unreleased — module seams
+## 0.33.0 — descriptor format v2, and module seams
 
-**Do:** `dt compile`, then `dt check`. Three changes can make compile refuse what it accepted:
+**Collection descriptors have one format now, v2, and this engine reads nothing else.** A descriptor is
+a `fields:` block in dreamteamer's own field vocabulary (no JSON Schema, no `x-*` keys), one relation
+spelling (`mirror_of`, declared on the mirror), `mixins` in place of collection-templates, `overlay:
+true` in place of `extends:`, and one `display:` block for every surface. ui-views, command-bindings and
+the `dreamteamer` block of `package.json` move to the same vocabulary. Records do not change: no file
+under `data/` is rewritten by the upgrade.
 
-- a module whose `dreamteamer.engine` excludes this engine is refused whole (its content and its
-  extension code), and a module depending on it fails compile — upgrade dreamteamer or disable both;
-- `group: system` on a collection a module other than the workspace module ships — drop it;
-- a meeting-style id derived with `{{ <date-time> | date:… }}` now renders in the value's own offset,
-  so a record created on a machine whose zone differs from the value's gets a different id than
-  before. Existing records keep their ids; only new ones change.
+A workspace still holding a v1 source does not compile. Compile lists every such file in one message:
 
-### New
+```
+✖ compile error: 3 source(s) are in the v1 descriptor format, which this engine no longer reads:
+    - modules/default/collections/visits.collection.yaml
+    - modules/default/ui-views/today.ui-view.yaml
+    - modules/default/command-bindings/summarize.command-binding.yaml
+  convert the workspace once: node node_modules/dreamteamer/scripts/migrate-descriptors-v2.mjs --root .
+  then dt compile and dt check — UPDATING.md has the walk.
+```
 
-- A cross-module `x-inverse` onto a collection declared in `dreamteamer.peerDependencies`: the mirror
-  is stamped when the peer is installed and the relation is inert when it is not.
-- Two extension contribution keys: `check` (`dt check` reports its violations after the schema's;
-  `contributedViolations(ws)` gives an in-process caller the same list) and `doctor`, rendered by the
-  new `dt doctor` — the engine's rows, then each extension's, as READY / DEGRADED / UNAVAILABLE with
-  each fix on its row (`--strict`, `--json`).
-- A module may declare `dreamteamer.vars` it reads: compile names any the workspace has not declared
-  and lists them in `.env.example`. The workspace's own list is still the only allow-list.
-- A module that ships only extension verbs gets its own heading in the orientation block, with a
-  `verbs:` line; the `write:` line lists id-template inputs that have no default.
-- `dt list --sort <enum field>` follows the declared order; `sortRows` takes the schema as an optional
-  third argument.
-- An extension verb typed without its package prints `npm i @dreamteamer/<package>`; the container
-  verbs print the `dt-docker` install; `dt setup` points at `dt doctor`.
+**Do, in one line:** upgrade the engine, then every module you consume, then run the converter over
+your own sources, then compile and check. Change records only where `check` names them.
+
+### 1. Before you start
+
+1. **Start from a clean tree** (`git status` prints nothing), on a branch or a throwaway clone for the
+   first run.
+2. **Record the baseline on 0.32 and keep the output:**
+   ```bash
+   npx dreamteamer compile; echo "compile=$?"
+   npx dreamteamer check;   echo "check=$?"      # or your own check chain
+   npm test;                echo "test=$?"
+   ```
+   Save the record count of every collection (`npx dreamteamer list <collection> --json`) and the output
+   of one or two commands you rely on — a `dt next <record>`, a filtered `dt list`. Section 6 compares
+   against them.
+3. **If `check` is not clean now, fix that first**, or you cannot tell what the upgrade did.
+4. **Know how each module reaches you**: an npm package, a `git_modules/` clone, or an inline copy
+   under `modules/`. The converter rewrites the sources under your `--root` only. A module you consume
+   is converted in ITS repo, and you take its v2 release.
+
+### 2. Upgrade the engine, then the modules
+
+A module whose descriptors are v2 declares `"engine": ">=0.33.0"`; 0.32 cannot read it, and 0.33 cannot
+read a v1 one. So, in this order:
+
+1. `npm install dreamteamer@^0.33.0`, and confirm with `npx dreamteamer --version`.
+2. Move every module to its v2 release.
+   - **npm:** bump the dependency and `npm install`.
+   - **`git_modules/`:** change the ref, then remove the clone and install again —
+     `rm -rf git_modules/<name> && npx dreamteamer install`. An existing clone keeps the checkout it
+     has, and compiling stale module content against this engine is where most first refusals come from.
+3. Do not compile yet. Your own v1 sources are refused until section 3.
+
+### 3. Convert your own sources
+
+The converter ships in the package. Dry run first; it prints its plan and writes nothing:
+
+```bash
+node node_modules/dreamteamer/scripts/migrate-descriptors-v2.mjs --root . --dry-run
+node node_modules/dreamteamer/scripts/migrate-descriptors-v2.mjs --root .
+```
+
+Both runs end with one plan line, and a second run prints zeros everywhere — the converter is
+idempotent, and a source already in v2 is skipped:
+
+```
+migrated: descriptors 89 · fields 1271 · relations folded 34 · enums merged 1 · mixins 7 · views folded 17 · views converted 32 · bindings converted 19 · packages 4 · instructions renamed 1 · harness files ignored 3
+```
+
+| count | what it converted |
+|---|---|
+| `descriptors` | `*.collection.yaml` sources rewritten to v2, overlays included |
+| `fields` | field definitions inside them |
+| `relations folded` | relations rewritten to the one spelling: a `mirror_of` field on the target. A mirror on another module's collection goes into an overlay of it in the owner's module |
+| `enums merged` | an `enum` and its `x-choices` merged into one enum map |
+| `mixins` | `collection-templates/<id>.collection-template.yaml` moved to `mixins/<id>.mixin.yaml` (a package's npm `files` gains `mixins`) |
+| `views folded` | `default: true` views folded into their collection's `display` (a filtered one cannot fold, and is converted as a named view) |
+| `views converted` · `bindings converted` | ui-views and command-bindings rewritten to v2 keys |
+| `packages` | `package.json` `dreamteamer` blocks moved to snake_case, `disable` entries to `modules/<id>` or `<kind>/<id>` |
+| `instructions renamed` | `dreamteamer.md` renamed `DREAMTEAMER.md` |
+| `harness files ignored` | root `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `NOTEBOOKLM.md` added to `.gitignore` |
+
+It never touches `data/`, `node_modules/` or `git_modules/`, and it edits each YAML document in place, so
+a comment stays on its key. Read the diff anyway: it is your schema.
+
+After the plan line it prints `⚠` lines. Each one is a fix you owe by hand:
+
+| `⚠` line | what to do |
+|---|---|
+| `<owner>.<field> → <target>.<mirror>: the target's descriptor is not in this tree — add …` | The target lives in a module you consume. Add the printed field to an overlay of the target in your module. |
+| `folded into an overlay of <c> (…) — an overlay needs "<owner>" in this module's dreamteamer.dependencies` | Add the dependency (`dt set modules/<m> dependencies=modules/<owner>`), or declare `<c>` in `peer_collections`. |
+| `a list with untyped items became type: string, many: true — dt check confirms the records agree` | Run `check`. Records whose items are not strings fail it (section 5). |
+| `type "<t>" has no v2 equivalent — kept as written; fix it by hand` | Pick the type from the field vocabulary. |
+| `record_title "<t>" names no string field to open with — dropped, so the default (title · name · subject) applies` | Nothing, unless you want a different label. |
+| `x-title-template on a reference is dropped …` · `x-display is dropped …` | Nothing: a reference is labelled by its target's `record_title`. |
+| `nav.label "<l>" is dropped — a collection's nav entry reads its title` | Set the collection's `title` if the label mattered. |
+| `dreamteamer.<k> is not a key the engine reads, and compile refuses it — …` | Remove the key, or move what it held where the engine reads it. |
+| `<file> carries no generated block, so it stays tracked and is not ignored — …` | Nothing, if the file is yours. If compile should own it, move its text into `DREAMTEAMER.md`. |
+
+Then stop tracking the generated harness files once, as the run prints:
+`git rm --cached CLAUDE.md AGENTS.md GEMINI.md`.
+
+**The keys, v1 to v2.** The converter writes all of these. The table is for reading the diff, and for a
+source you write by hand from now on:
+
+| v1 | v2 |
+|---|---|
+| `schema: { properties, required }` | `fields: { <f>: { type, required: true } }` |
+| `id: { generate, pattern }` | `ids: { from, pattern }` |
+| `title_template` | `record_title` |
+| `{ type: string, format: date \| date-time \| uri \| email }` | `type: date \| datetime \| url \| email` |
+| `{ type: string, format: markdown, x-body: true }` | `{ type: markdown, body: true }` |
+| `{ type: array, items: { type: X } }` | `{ type: X, many: true }` |
+| `x-reference: <c>` · `'*'` · a list | `type: <c>` · `type: reference` · `type: [a, b]` |
+| `x-reference-soft` | `soft: true` |
+| `x-inverse` on the owner · `x-inverse-of` on the target | `mirror_of: <field>` on the target, only |
+| `x-unique` · `x-on-delete` · `x-sensitive` | `unique` · `on_delete` · `sensitive` |
+| `enum` + `x-choices` | `enum:` a list, or a map of value → `{ label, description, icon, color, background }` |
+| `type: object, properties` · `additionalProperties` | `type: object, fields` · `type: map, values` |
+| `allOf` | `constraints` |
+| `list_fields` · `sort_field` | `display.list.columns` · a `type: position` field, or `display.list.sort` |
+| `icon` · `order` · `group` | `display.nav.icon` · `.order` · `.section` |
+| `group: system` | `internal: true` (the engine's and the workspace module's collections only) |
+| `storage.codec: file` · `storage.extensions` | `storage.format: binary` · `storage.accept` |
+| `storage.under: { field, path }` | `storage.under: { parent, subfolder }` |
+| `templates: [collection-templates/x]` | `mixins: [x]` |
+| `extends: <base>` | `overlay: true` |
+| ui-view `path` · `target` · `layout` · `options` · `default` | `route` · `scope` · `display.<block>.layout` · `display.<block>.options` · the collection's own `display` |
+| binding `target` · `can-enter` · `can-exit` | `scope` · `available_when` · `done_when` |
+| `peerDependencies` · `workspace-module` · `git-modules` · `owns-data` · `data-path` | `peer_collections` · `workspace_module` · `git_modules` · `owns_data` · `data_path` |
+| `disable: [<module>/<entity>]` | `disable: [modules/<id>]` or `[<kind>/<id>]` |
+| `dreamteamer.md` | `DREAMTEAMER.md` |
+
+### 4. Compile, check, test
+
+```bash
+npx dreamteamer compile; echo "compile=$?"
+npx dreamteamer check;   echo "check=$?"
+npm test;                echo "test=$?"
+```
+
+Fix the refusals in section 5 until all three exit 0. Two kinds of `⚠` warn and never fail, because
+fixing them is a record change you schedule yourself:
+
+- a field name that is not snake_case, or an enum value that is not kebab-case — `dt rename-field` and
+  `dt rename-value` rename one everywhere, in one commit;
+- a collection name the inflector cannot singularise — set `singular` if `dt add` should take another word.
+
+### 5. The refusals you may meet, and the fix for each
+
+**Two providers of one extension verb.**
+
+```
+✖ extension @dreamteamer/<x> contributes the command "<verb>", which <copy> already owns — uninstall one, or switch it off: add "modules/<copy>" to dreamteamer.disable in package.json
+```
+
+This engine loads extension code from `git_modules/` as well as npm and workspace modules, so an inline
+copy of an extension now collides with the published one. Delete the copy (`git rm -r modules/<copy>`),
+compile, and confirm `dt help` lists the verb once.
+
+**The engine floor.**
+
+```
+✖ module <id> needs engine "<range>" — this is <version>, so none of its content is compiled. Upgrade dreamteamer, or disable the module.
+```
+
+A module was upgraded before the engine. Do section 2 in order. A module depending on it fails too.
+
+**`internal: true` on a module's collection.**
+
+```
+✖ compile error: collection "<c>": `internal: true` is reserved for the engine's collections and the workspace module's — module <m> ships a domain collection (…).
+```
+
+Under `git_modules/` or `node_modules/` this is almost always a stale checkout: re-clone (section 2).
+In your own module, delete the line.
+
+**A `record_title` that opens with a non-string field.**
+
+```
+record_title opens with "date", a date field — its first token is what `dt add <collection> "<title>"` fills, so it must be a string field
+```
+
+Open it with a string field, or delete it so the label falls back to the default.
+
+**A list whose items are not strings** (from `check`):
+
+```
+✖ data/<collection>/…/<id>.<suffix>.md
+    field participants.0: {"Speaker 0":"Alice"} must be string
+```
+
+A v1 untyped list accepted anything. YAML reads an unquoted `- Speaker 0: Alice` as a one-key map. Quote
+the items (`- "Speaker 0: Alice"`) with a script you dry-run first, or declare the field `type: object,
+many: true` if maps were meant. Quoting is valid on 0.32 too, so it can land before the upgrade, in its
+own commit.
+
+**A `format: binary` collection that declares fields.**
+
+```
+collection "<c>" is `format: binary`, so a record is the file itself and has nowhere to store "<f>" — its fields are ext and bytes, read from the file. …
+```
+
+Drop the fields, or make it `format: md` with a field naming the file.
+
+**An unknown `dreamteamer` key, a lower-case `dreamteamer.md`, a v1 view key.** Each is named with its
+fix; the converter writes all three, so meeting one means a file it did not reach — run it again over
+that root.
+
+### 6. What behaves differently once it compiles
+
+- **`created` is the engine's.** The store stamps it at `dt add`, before the id is generated, so
+  `ids.from` may name it. Writing it is refused (`created is written by the engine (stamped when the
+  record is added) — nothing was written.`). A record that predates the stamp reads `created` from its
+  id's date when its ids are made from `created`, else from the commit that added the file. Re-check
+  any script that set `created` by hand.
+- **`derived` and `virtual` fields refuse a write**, naming why. `id` and `last_modified` are virtual.
+- **`unique` is enforced on its own**, not only on a relation: a second record with the same value is
+  refused before anything is written.
+- **Relations are declared once, on the mirror.** A scalar mirror needs its owner reference
+  `unique: true`; a many mirror of a unique owner is refused. A mirror onto another module's collection
+  is an overlay of it, and an overlay of a collection named in `peer_collections` applies while that
+  collection is installed and is inert while it is not. A reference to an absent peer compiles and is
+  not checked until the peer is installed.
+- **Constraints on a `many` field apply to each item**: a `pattern`, `minimum` or `maxLength` on a list
+  is checked per item by writes and by `check`.
+- **Nested ids** (`storage.under.id: nested`) make a placed record's id begin with its parent's id; a
+  change of parent is a `dt rename`.
+- **Filters take `$today` and `$now`** in `--where`, view filters and binding conditions. Any other
+  `$token` is refused, where it used to match nothing.
+- **`dt reorder` replaces `dt move`** — a record by its `type: position` field, a collection by
+  `display.nav.order`. `dt move` is an unknown verb.
+- **`dt rename-value <collection> <field> <old> <new>`** renames one enum value in the enum, its default,
+  constraints, view filters, binding conditions and every record, in one commit. `rm-field` refuses
+  while another position still names the field, and lists each one.
+- **The harness files.** The instructions source is `DREAMTEAMER.md`. The generated block now sits at
+  the TOP of `CLAUDE.md`, `AGENTS.md` and `GEMINI.md`, with your instructions below it, and the system
+  collections are listed first, under their own heading. Those files are gitignored build output:
+  a bare clone gets them from `dt compile`.
+- **Module records** project `peer_collections` under the package key's own name.
+- **`dt doctor`** renders the engine's readiness rows, then each extension's, as READY / DEGRADED /
+  UNAVAILABLE with the fix on each row (`--strict` exits non-zero, `--json` for a script). An extension
+  can also contribute violations to `dt check`: a guard you chained into `scripts.check` by hand that its
+  module now contributes runs twice — remove the hand-chained call.
+- **A date id in another zone.** An id derived with `{{ <date-time> | date:… }}` renders in the value's
+  own offset. Existing ids keep; a new record made on a machine in another zone may get a different id
+  than 0.32 gave.
+- **Tests that read descriptor source text** (grepping for `x-reference:` or a v1 key) break once the
+  file is v2. Read the compiled descriptor through the accessors `records-api` exports (`fieldsOf`,
+  `storageOf`, `targetsOf`, `displayOf`, …) instead.
+- **The VS Code extension** needs its 0.33-compatible release. Install it after the engine and reload
+  the window.
+
+### 7. Acceptance walk
+
+Quote each exit code; never grep a suite for `# pass`.
+
+1. `npx dreamteamer compile` exits 0.
+2. `npx dreamteamer check` exits 0 with `0 violations`.
+3. Every domain collection holds exactly the baseline number of records. The expected system deltas:
+   `collection-templates` is gone, `mixins` holds one record per converted template, and `modules`
+   loses one per inline extension copy you deleted. Any other difference is a defect: stop.
+4. `npm test` exits 0.
+5. The commands you saved in section 1 print the same output. `dt help` lists each extension verb once.
+6. `git status --porcelain data/` is empty, unless `check` asked for a data fix, and then the diff
+   touches only the records it named.
+7. Commit with explicit paths — `git add modules/ package.json package-lock.json .gitignore
+   DREAMTEAMER.md`, plus the test files you changed — and `git rm --cached` the harness files.
+
+### 8. Rollback
+
+The upgrade changed sources and `package.json` only:
+
+```bash
+git reset --hard <the commit before the upgrade>
+git clean -fd modules                  # the mixins/ files the converter created
+npm ci && npx dreamteamer install && npx dreamteamer compile && npx dreamteamer check
+```
+
+The check after rollback matches the section 1 baseline exactly.
 
 ---
 
