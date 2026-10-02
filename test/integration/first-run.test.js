@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { twoModuleWorkspace, readFile, patchModulePkg } from '../helpers/ws.js';
+import { load, dump } from '../../src/yaml.js';
 import { ensureEditorRecommendation, ensureEnvExample, EDITOR_EXTENSION_ID } from '../../src/workspace.js';
 
 const ID = 'dreamteamer.dreamteamer-vscode';
@@ -89,20 +90,22 @@ describe('declared env keys are described, and .env.example names them', () => {
 });
 
 describe('a shipped module\'s wildcard references are the author\'s warning, not the consumer\'s', () => {
-	test('x-reference "*" in an INLINE module still warns; the same field in a node_modules module does not', () => {
+	test('type: reference in an INLINE module still warns; the same field in a node_modules module does not', () => {
 		const ws = twoModuleWorkspace();
 		// inline: the core module gains a polymorphic field
 		const inline = path.join(ws.root, 'modules', 'core', 'collections', 'tasks.collection.yaml');
-		fs.writeFileSync(inline, fs.readFileSync(inline, 'utf8').replace(/^    owner:/m, "    item:\n      type: string\n      x-reference: '*'\n    owner:"));
+		const tasks = load(fs.readFileSync(inline, 'utf8'));
+		tasks.fields = { item: { type: 'reference' }, ...tasks.fields };
+		fs.writeFileSync(inline, dump(tasks));
 		const r1 = ws.dt('compile');
 		assert.equal(r1.code, 0, r1.stderr);
-		assert.match(r1.stderr, /collection tasks: field "item" uses x-reference: '\*' outside the workspace module/);
+		assert.match(r1.stderr, /collection tasks: field "item" is `type: reference` outside the workspace module/);
 		// npm: the same shape delivered through node_modules, declared as a dependency
 		const pkgDir = path.join(ws.root, 'node_modules', '@acme', 'shipped');
 		fs.mkdirSync(path.join(pkgDir, 'collections'), { recursive: true });
 		fs.writeFileSync(path.join(pkgDir, 'package.json'), JSON.stringify({ name: '@acme/shipped', version: '1.0.0', dreamteamer: {} }));
 		fs.writeFileSync(path.join(pkgDir, 'collections', 'tickets.collection.yaml'), [
-			'name: tickets', 'description: A shipped ticket.', 'schema:', '  type: object', '  properties:', '    name: { type: string }', "    about: { type: string, x-reference: '*' }", '',
+			'name: tickets', 'description: A shipped ticket.', 'fields:', '  name:', '    type: string', '  about:', '    type: reference', '',
 		].join('\n'));
 		const pkgFile = path.join(ws.root, 'package.json');
 		const pkg = JSON.parse(fs.readFileSync(pkgFile, 'utf8'));
