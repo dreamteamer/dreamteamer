@@ -168,6 +168,15 @@ describe('a v2 command-binding', () => {
 		assert.match(readFile(w.root, 'CLAUDE.md'), /- health\/visits — \/prescribe \(available when: status=seen · done when: prescribed=true\)/);
 	});
 
+	test('an _and and an _or gate render as conditions, never as [object Object]', () => {
+		const gated = { ...PRESCRIBE, available_when: { _and: [{ status: { _eq: 'seen' } }, { _or: [{ kind: { _eq: 'intake' } }, { kind: { _eq: 'follow-up' } }] }] } };
+		const w = clinic({ bindings: { 'prescribe--visits': gated } });
+		assert.equal(dt(w.root, 'compile').code, 0);
+		const text = readFile(w.root, 'CLAUDE.md');
+		assert.match(text, /available when: status=seen, \(kind=intake or kind=follow-up\)/);
+		assert.doesNotMatch(text, /object Object/);
+	});
+
 	test('a v1 binding is refused with the converter command', () => {
 		const w = clinic({ bindings: { 'prescribe--visits': 'command: commands/prescribe\ncollection: collections/health/visits\ntarget: record\ncan-enter:\n  status:\n    _eq: seen\n' } });
 		const err = compileError(w.ws);

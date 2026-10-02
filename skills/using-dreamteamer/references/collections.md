@@ -216,6 +216,11 @@ verbs" and "field verbs". What help cannot tell you:
   a placed collection (`relocate --to-root` first), an overlay that sets `storage`, one shipped
   from `node_modules/`, a taken name and an undeclared target namespace. It keeps a hand-set
   `storage.path` (records stay put, and it says so) and an authored `storage.suffix`.
+- **`dt fmt [<collection>]`** rewrites inline descriptor sources to block style and the canonical
+  top-level key order, keeps every comment and the order of `fields`, and commits through the same
+  gate; `--dry-run` names the files it would change. A second run changes nothing.
+- **`dt set collections/<c>`** writes `display.list.layout`, `display.record.*` and one layout option
+  at a time (`display.list.options.page_size=25`, the value read as JSON where it parses).
 - **An empty value removes** in dotted writes (`dt set ui-views/<id> display.list.sort=`); a
   setting whose meaningful value IS empty is written QUOTED: `'display.list.sort=""'`. A value
   holding `{{ }}` is quoted the same way.

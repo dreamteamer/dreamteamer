@@ -432,16 +432,25 @@ const GATE_OPS = {
 };
 
 function renderGate(label, filter) {
+	const parts = gateParts(filter);
+	return parts.length ? `${label}: ${parts.join(', ')}` : '';
+}
+
+/** A filter's conditions as literal strings: `_and` contributes each of its conditions, `_or` one
+ *  `(a or b)` term. */
+function gateParts(filter) {
 	const parts = [];
 	const walkFilter = (obj, at) => {
 		for (const [k, v] of Object.entries(obj ?? {})) {
-			if (k.startsWith('_')) parts.push((GATE_OPS[k] ?? ((p, x) => `${p} ${k.slice(1)} ${x}`))(at, v));
+			if (k === '_and' && Array.isArray(v)) for (const c of v) walkFilter(c, at);
+			else if (k === '_or' && Array.isArray(v)) parts.push(`(${v.map((c) => gateParts(at ? { [at]: c } : c).join(', ')).join(' or ')})`);
+			else if (k.startsWith('_')) parts.push((GATE_OPS[k] ?? ((p, x) => `${p} ${k.slice(1)} ${x}`))(at, v));
 			else if (v && typeof v === 'object') walkFilter(v, at ? `${at}.${k}` : k);
 			else parts.push(`${at ? `${at}.` : ''}${k}=${v}`);
 		}
 	};
 	if (filter && typeof filter === 'object') walkFilter(filter, '');
-	return parts.length ? `${label}: ${parts.join(', ')}` : '';
+	return parts;
 }
 
 /** The METHODS on a type. A binding says which collection a command applies to and the record state

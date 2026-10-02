@@ -312,3 +312,12 @@ describe('formatSource', () => {
 		assert.equal(formatSource(out, ORDER), out);
 	});
 });
+
+describe('writeSource — an empty flow map is a placeholder', () => {
+	test('filling `fields: {}` writes block style; a flow map that already holds keys keeps its style', () => {
+		const filled = writeSource('name: staff\nfields: {}\n', { name: 'staff', fields: { role: { type: 'string' } } });
+		assert.equal(filled, 'name: staff\nfields:\n  role:\n    type: string\n');
+		const kept = writeSource('name: staff\nstorage: { suffix: s }\n', { name: 'staff', storage: { suffix: 's', path: 'x' } });
+		assert.match(kept, /storage: \{/);
+	});
+});

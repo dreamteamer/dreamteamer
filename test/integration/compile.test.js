@@ -69,6 +69,19 @@ describe('overlay — a second source of one collection', () => {
 		assert.equal(d.overlay, undefined, 'the merged descriptor is not itself an overlay');
 	});
 
+	test('two modules shipping one skill is refused, naming the disable entry the grammar reads', () => {
+		const ws = twoModuleWorkspace({ compile: false });
+		for (const m of ['core', 'hr']) {
+			const dir = path.join(ws.root, 'modules', m, 'skills', 'onboarding');
+			fs.mkdirSync(dir, { recursive: true });
+			fs.writeFileSync(path.join(dir, 'SKILL.md'), '---\nname: onboarding\ndescription: Use when a person joins.\n---\nWelcome them.\n');
+		}
+		const err = compileError(ws.ws);
+		assert.match(err, /name collision on skill "onboarding"/);
+		assert.match(err, /add "skills\/onboarding" to dreamteamer\.disable/);
+		assert.match(err, /overlay: true/);
+	});
+
 	test('two same-name descriptors with no overlay is a hard error naming both', () => {
 		const ws = uncompiled({ collections: { widgets: simpleCollection({ storage: { suffix: 'widget' } }) } });
 		fs.writeFileSync(

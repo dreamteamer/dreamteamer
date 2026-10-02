@@ -60,6 +60,8 @@ const keyOf = (pair) => String(pair.key?.value ?? pair.key);
  */
 function merge(doc, node, value) {
 	if (isMap(node) && isObj(value)) {
+		// an empty `{}` is a placeholder, not a style: whatever fills it is written block style
+		if (node.flow && !node.items.length && Object.keys(value).length) node.flow = false;
 		node.items = Object.entries(value).map(([k, v]) => {
 			const pair = node.items.find((p) => keyOf(p) === k);
 			if (!pair) return doc.createPair(k, v);

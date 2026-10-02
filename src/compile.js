@@ -542,7 +542,7 @@ export function compile(ws) {
 	/** entries: runtime-relative path -> { sources: [workspace-relative], bytes } */
 	const entries = new Map();
 	const counts = {};
-	/** collection descriptors collected per name for extends-merging: name -> [{src, doc, moduleName}] */
+	/** collection descriptors collected per name, a base and its overlays: name -> [{src, doc, moduleName}] */
 	const descriptorGroups = new Map();
 
 	function addEntry(runtimePath, srcPath) {
@@ -553,8 +553,8 @@ export function compile(ws) {
 			fail(`name collision on ${kind?.replace(/s$/, '') ?? 'entity'} "${entityId}"
     - ${prev}
     - ${rel(srcPath)}
-  identity entities are never merged or shadowed (schemas may use 'extends').
-  either rename yours, or disable one: add "<module>/${entityId}" to dreamteamer.disable in package.json.`);
+  identity entities are never merged or shadowed (a collection declares \`overlay: true\` to add to another module's).
+  either rename yours, or disable one: add "${kind}/${entityId}" to dreamteamer.disable in package.json.`);
 		}
 		const bytes = fs.readFileSync(srcPath);
 		entries.set(runtimePath, { sources: [{ path: rel(srcPath), hash: sha256(bytes) }], bytes });
