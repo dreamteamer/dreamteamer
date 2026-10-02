@@ -782,7 +782,7 @@ export function compile(ws) {
 	counts.collections = 0;
 	const mergedCount = [...compiledColls.values()].filter((c) => c.compiled.overlaid_by.length).length;
 	for (const [name, c] of compiledColls) {
-		entries.set(path.join('collections', `${name}.collection.yaml`), { sources: c.sources, bytes: Buffer.from(dump(c.doc)) });
+		entries.set(path.join('collections', `${name}.collection.yaml`), { sources: c.sources, bytes: Buffer.from(dump(c.doc, { noRefs: true })) });
 		counts.collections++;
 	}
 
