@@ -58,7 +58,7 @@ function v1Workspace() {
 	write(w.root, `${MOD}/ui-views/contacts.ui-view.yaml`, '# The default contacts list — newest first.\npath: /contacts\ntarget: list\ncollection: collections/contacts\nlayout: table\ndefault: true\noptions:\n  # what the list shows\n  columns: [name, stage, last-modified]\n  sort: -last-modified\n  page_size: 50\n');
 	write(w.root, `${MOD}/ui-views/contacts-record.ui-view.yaml`, 'path: /contacts/record\ntarget: item\ncollection: collections/contacts\nlayout: data-model\ndefault: true\n');
 	write(w.root, `${MOD}/ui-views/meetings-board.ui-view.yaml`, '# Meetings by status.\npath: /meetings/board\ntarget: list\ncollection: collections/meetings\n# one lane per status\nlayout: kanban\noptions:\n  group_columns_by_field: status\n  color_by_field: status\n  template: "{{ name }}"\nnav:\n  label: Board\n  icon: layout\nfilter:\n  status: { _eq: planned }\n');
-	write(w.root, `${MOD}/ui-views/meetings-gantt.ui-view.yaml`, 'path: /meetings/gantt\ntarget: list\ncollection: collections/meetings\nlayout: gantt\noptions:\n  start_field: when\n  end_field: when\n  template: "{{ name }}"\n  group_rows_by_field: company\n  group_template: "{{ company }}"\n');
+	write(w.root, `${MOD}/ui-views/meetings-gantt.ui-view.yaml`, 'path: /meetings/gantt\ntarget: list\ncollection: collections/meetings\nlayout: gantt\noptions:\n  start_field: when\n  end_field: when\n  template: "{{ name }}"\n  group_rows_by_field: company\n  group_template: "{{ name }}"\n');
 	write(w.root, `${MOD}/ui-views/meeting-page.ui-view.yaml`, 'path: /meetings/page\ntarget: item\ncollection: collections/meetings\nlayout: data-model\n');
 	write(w.root, `${MOD}/ui-views/dash.ui-view.yaml`, 'path: /dash\ntarget: page\nlayout: dashboard\n');
 	write(w.root, `${MOD}/commands/summarize.command.md`, '---\nname: summarize\ndescription: Summarize a call.\n---\nSummarize it.\n');
@@ -128,7 +128,7 @@ test('every default view folds by scope, and every option key is rewritten', () 
 	assert.deepEqual(load(board).display, { nav: { title: 'Board', icon: 'layout' }, list: { layout: 'kanban', options: { lanes_by: 'status', color_by: 'status', card_title: '{{ name }}' } } });
 	assert.match(board, /^# Meetings by status\.\nroute: \/meetings\/board/);
 	assert.match(board, /# one lane per status\n\s+layout: kanban/);
-	assert.deepEqual(load(read(w.root, `${MOD}/ui-views/meetings-gantt.ui-view.yaml`)).display.list.options, { start: 'when', end: 'when', bar_title: '{{ name }}', group_by: 'company', group_title: '{{ company }}' });
+	assert.deepEqual(load(read(w.root, `${MOD}/ui-views/meetings-gantt.ui-view.yaml`)).display.list.options, { start: 'when', end: 'when', bar_title: '{{ name }}', group_by: 'company', group_title: '{{ name }}' });
 	assert.deepEqual(load(read(w.root, `${MOD}/ui-views/meeting-page.ui-view.yaml`)), { route: '/meetings/page', scope: 'record', collection: 'collections/meetings', display: { record: { layout: 'data-model' } } });
 	assert.deepEqual(load(read(w.root, `${MOD}/ui-views/dash.ui-view.yaml`)), { route: '/dash', scope: 'page', display: { list: { layout: 'dashboard' } } });
 	const binding = read(w.root, `${MOD}/command-bindings/summarize--meetings.command-binding.yaml`);
