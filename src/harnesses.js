@@ -98,7 +98,8 @@ export function runHarnessAdapters({ root, entries, harnesses, prevManifest, sou
 	const skillsIndex = buildSkillsIndex(entries);
 	// what every orientation block carries beyond the schema: the source kinds extensions add, and the
 	// one paragraph each may contribute about itself
-	const extra = { kinds, paragraphs: contributions.paragraphs };
+	const verbs = new Map(extensions.map((e) => [e.name.replace(/^@[^/]+\//, ''), Object.keys(e.commands ?? {}).sort()]));
+	const extra = { kinds, paragraphs: contributions.paragraphs, verbs };
 	const orient = (flavor) => orientationBlock(flavor, skillsIndex, sourceLayout, namespaces, version, entries, workspaceModule, extra);
 
 	// ---- claude-code: native skills/agents/commands dirs + CLAUDE.md block ----------
@@ -258,21 +259,25 @@ function buildCollectionsIndex(entries) {
 			// "withheld" is a better answer than "I don't know"
 			sensitive: d.sensitive === true,
 			sensitiveFields: Object.entries(d.schema?.properties ?? {}).filter(([, p]) => p?.['x-sensitive'] === true).map(([k]) => k),
-			write: writeLine(d.schema),
+			write: writeLine(d.schema, d.id?.generate),
 		});
 	}
 	return index.sort((a, b) => a.name.localeCompare(b.name));
 }
 
 /** What can REFUSE a write, in one clause — nothing else about the fields. Required fields with no
- *  default (the CLI materializes defaults, so those never refuse), closed enums with their size, and
+ *  default (the CLI materializes defaults, so those never refuse) — and an id-template input is one,
+ *  since a missing input refuses the add; with a list of templates, only the inputs every template
+ *  names — closed enums with their size, and
  *  the first `examples:` value where one is authored. A blind session's plan was correct until its
  *  first `dt add`, which the store refused on a 100-value enum and a required field the block never
  *  showed; the descriptor stays the authority, this is the line that keeps the first write from
  *  bouncing. Empty string when there is nothing that refuses. */
-function writeLine(schema) {
+function writeLine(schema, generate) {
 	const props = schema?.properties ?? {};
-	const required = (schema?.required ?? []).filter((f) => props[f] && props[f].default === undefined);
+	const inputs = [].concat(generate ?? []).map((t) => new Set([...String(t).matchAll(/\{\{\s*([^\s|}]+)/g)].map((m) => m[1])));
+	const idInputs = inputs.length ? [...inputs[0]].filter((f) => inputs.every((s) => s.has(f))) : [];
+	const required = [...new Set([...(schema?.required ?? []), ...idInputs])].filter((f) => props[f] && props[f].default === undefined);
 	const enums = Object.entries(props).flatMap(([f, p]) => { const e = p?.enum ?? p?.items?.enum; return Array.isArray(e) && e.length ? [`${f} enum(${e.length})`] : []; });
 	const egs = Object.entries(props).flatMap(([f, p]) => Array.isArray(p?.examples) && p.examples.length ? [`${f}='${p.examples[0]}'`] : []);
 	const parts = [...(required.length ? [`required ${required.join(' · ')}`] : []), ...(enums.length ? [enums.join(' · ')] : []), ...(egs.length ? [`e.g. ${egs.join(', ')}`] : [])];
@@ -340,8 +345,9 @@ function buildCommandsIndex(entries) {
  *  nouns by namespace and the reader had to infer the domains from the prefixes; the hand-written
  *  module table one dogfood workspace kept to fill that gap was the same failure the collection list
  *  had already been through. A module whose every collection is system-stored (the engine) is not a
- *  domain and gets no group; a skills-only module is one and does. */
-function collectionsSection(index, modules, workspaceModule) {
+ *  domain and gets no group; a module shipping only skills, commands, a bin or extension verbs is one
+ *  and does. */
+function collectionsSection(index, modules, workspaceModule, verbs) {
 	if (!index.length) return [];
 	const lines = [
 		'',
@@ -357,12 +363,12 @@ function collectionsSection(index, modules, workspaceModule) {
 	const data = index.filter((c) => !c.systemGroup);
 	const isWs = (m) => m.path === `modules/${workspaceModule}/`;
 	const groups = modules
-		.filter((m) => { const own = index.filter((c) => c.module === m.id); return own.some((c) => !c.systemGroup) || (!own.length && (m.skills.length || m.commands.length || m.bin.length)); })
+		.filter((m) => { const own = index.filter((c) => c.module === m.id); return own.some((c) => !c.systemGroup) || (!own.length && (m.skills.length || m.commands.length || m.bin.length || verbs.get(m.id)?.length)); })
 		.sort((a, b) => (isWs(b) - isWs(a)) || a.title.localeCompare(b.title));
 	for (const m of groups) {
 		const where = [`\`${m.id}\``, m.path ? m.path.replace(/\/$/, '') : 'the workspace root', ...(m.namespaces.length ? [`namespaces: ${m.namespaces.join(' · ')}`] : [])];
 		lines.push('', `**${m.title}** (${where.join(' · ')})${m.description ? ` — ${m.description}` : ''}`);
-		const ships = [...(m.skills.length ? [`skills: ${m.skills.join(' · ')}`] : []), ...(m.commands.length ? [`commands: ${m.commands.map((c) => `/${c}`).join(' · ')}`] : []), ...(m.bin.length ? [`runs: ${m.bin.join(' · ')}`] : [])];
+		const ships = [...(m.skills.length ? [`skills: ${m.skills.join(' · ')}`] : []), ...(m.commands.length ? [`commands: ${m.commands.map((c) => `/${c}`).join(' · ')}`] : []), ...(m.bin.length ? [`runs: ${m.bin.join(' · ')}`] : []), ...(verbs.get(m.id)?.length ? [`verbs: ${verbs.get(m.id).map((v) => `dt ${v}`).join(' · ')}`] : [])];
 		if (ships.length) lines.push(`  ${ships.join(' · ')}`);
 		for (const c of data.filter((c) => c.module === m.id)) {
 			lines.push(`- ${c.name}${c.description ? ` — ${c.description}` : ''}`);
@@ -507,7 +513,7 @@ function orientationBlock(flavor, skillsIndex, sourceLayout = 'flat', namespaces
 			'DECLARED prefix, not at the first slash. collections with no prefix are unaffected.',
 		);
 	}
-	lines.push(...collectionsSection(buildCollectionsIndex(entries), buildModulesIndex(entries), workspaceModule));
+	lines.push(...collectionsSection(buildCollectionsIndex(entries), buildModulesIndex(entries), workspaceModule, extra.verbs ?? new Map()));
 	lines.push(...templatesSection(entries));
 	lines.push(...bindingsSection(entries));
 	// claude-code discovers skills natively (Skill tool) — an index in CLAUDE.md is pure

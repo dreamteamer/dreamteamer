@@ -6,9 +6,11 @@
 // carry `group: system` — so a workspace-stored collection can join it (`repos`, and `assets` in the
 // dogfood vault) and a runtime-stored one could in principle leave it.
 import { test, describe } from 'node:test';
+import fs from 'node:fs';
+import path from 'node:path';
 import assert from 'node:assert/strict';
 import { load } from '../../src/yaml.js';
-import { workspace, readFile, simpleCollection, writeCollection, compileQuietly } from '../helpers/ws.js';
+import { workspace, readFile, simpleCollection, writeCollection, writeModule, compileQuietly, compileError, dt } from '../helpers/ws.js';
 
 const compiled = (ws, name) => load(readFile(ws.root, `.dreamteamer/collections/${name}.collection.yaml`));
 
@@ -42,6 +44,12 @@ describe('the system partition', () => {
 		compileQuietly(ws.ws);
 		const { code, stdout, stderr } = ws.dt('check');
 		assert.equal(code, 0, `check must accept group: — got:\n${stdout}\n${stderr}`);
+	});
+
+	test('a MODULE may not put its collection in the partition — refused by name', () => {
+		const ws = workspace({ compile: false });
+		writeModule(ws.root, 'kit', { collections: { widgets: { ...simpleCollection(), group: 'system' } } });
+		assert.match(compileError(ws.ws), /collection "widgets": group: system is reserved for the engine's collections and the workspace module's — module kit ships a domain collection\. Drop it \(modules\/kit\/collections\/widgets\.collection\.yaml\)/);
 	});
 
 	test('repos is in the system partition while keeping its records in data/', () => {
@@ -102,5 +110,22 @@ describe('the generated block', () => {
 		assert.match(systemLine, /it is build output: [^.]*\bskills\b/, 'a runtime-stored collection must be named as build output');
 		assert.doesNotMatch(systemLine, /it is build output: [^.]*\brepos\b/, 'repos records are real files, not build output — the false sentence Finding 1 fixed');
 		assert.match(systemLine, /real files you edit like any other:[^.]*\brepos\b/, 'repos gets its own clause instead');
+	});
+});
+
+describe('a module that ships only extension verbs still heads its own group', () => {
+	test('its heading carries its description and a verbs: line', () => {
+		const ws = workspace({ compile: false });
+		const dir = path.join(ws.root, 'node_modules', '@kits', 'serve-kit');
+		fs.mkdirSync(dir, { recursive: true });
+		fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: '@kits/serve-kit', version: '1.0.0', dreamteamer: { description: 'Serves the workspace over HTTP.', extension: './ext.js' } }));
+		fs.writeFileSync(path.join(dir, 'ext.js'), 'export default () => ({ commands: { serve: { run() { return 0; } }, ping: { run() { return 0; } } } });');
+		const pkgFile = path.join(ws.root, 'package.json');
+		const pkg = JSON.parse(fs.readFileSync(pkgFile, 'utf8'));
+		fs.writeFileSync(pkgFile, JSON.stringify({ ...pkg, dependencies: { ...pkg.dependencies, '@kits/serve-kit': '*' } }));
+		const r = dt(ws.root, 'compile');
+		assert.equal(r.code, 0, r.stderr);
+		assert.match(/<!-- dreamteamer:begin[\s\S]*?dreamteamer:end -->/.exec(readFile(ws.root, 'CLAUDE.md'))[0],
+			/^\*\*[^*]+\*\* \(`serve-kit` · node_modules\/@kits\/serve-kit\) — Serves the workspace over HTTP\.\n {2}verbs: dt ping · dt serve$/m);
 	});
 });

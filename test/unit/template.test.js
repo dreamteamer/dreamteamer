@@ -106,6 +106,13 @@ describe('generateId', () => {
 		assert.equal(generateId('{{ starts | date }}', { starts: '2026-07-28T12:00:00' }), '2026-07-28');
 	});
 
+	test('the date filter renders a string in its OWN offset, never the machine zone', () => {
+		// +13:00 is a different calendar day from UTC and from any European or American zone at 00:30
+		assert.equal(generateId('{{ starts | date:YYYY-MM-DD--HH-mm }}', { starts: '2026-07-28T00:30:00+13:00' }), '2026-07-28--00-30');
+		assert.equal(generateId('{{ starts | date:YYYY-MM-DD--HH-mm }}', { starts: '2026-07-28T23:30:00-09:30' }), '2026-07-28--23-30');
+		assert.equal(generateId('{{ day | date }}', { day: '2026-07-28' }), '2026-07-28');
+	});
+
 	test('a missing template field is a loud error, never a partial id', () => {
 		assert.throws(() => generateId('{{ name | slug }}', {}), /needs "name"/);
 	});

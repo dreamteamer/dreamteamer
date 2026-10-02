@@ -73,6 +73,14 @@ describe('sortRows', () => {
 	test('no sort key leaves the order alone', () => {
 		assert.deepEqual(sortRows(rows(), undefined).map((r) => r.id), ['b', 'a', 'c']);
 	});
+
+	test('given the schema, an enum sorts by declared order — blanks first, unknown values last', () => {
+		const schema = { properties: { status: { type: 'string', enum: ['draft', 'active', 'done'] } } };
+		const tasks = () => [{ id: 1, status: 'done' }, { id: 2, status: 'active' }, { id: 3, status: 'zombie' }, { id: 4 }, { id: 5, status: 'draft' }];
+		assert.deepEqual(sortRows(tasks(), 'status', schema).map((r) => r.id), [4, 5, 2, 1, 3]);
+		assert.deepEqual(sortRows(tasks(), '-status', schema).map((r) => r.id), [3, 1, 2, 5, 4]);
+		assert.deepEqual(sortRows(tasks(), 'status').map((r) => r.id), [4, 2, 1, 5, 3], 'without the schema it stays alphabetical');
+	});
 });
 
 describe('normalizeRecord', () => {

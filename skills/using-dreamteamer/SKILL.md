@@ -66,7 +66,7 @@ dispatch, so it cannot drift):
 - read & measure — `list` `get` `values` `history` `diff` `next` `relations` `resolve`
 - write & publish — `add` `set` `rm` `rename` `move` `revert` `commit` `relocate`
 - fields (sources, through the compile gate) — `add-field` `set-field` `rm-field` `rename-field` (system entities — modules, collections, skills, ui-views… — take the RECORD verbs above)
-- workspace — `init` `install` `update` `compile` `check` `status` `changes` `help`
+- workspace — `init` `install` `update` `compile` `check` `doctor` `status` `changes` `help`
 - an EXTENSION (a workspace module or a dependency declaring `dreamteamer.extension`) adds verbs of
   its own, and `dt help` lists them under its name; each ships the skill that teaches it. A verb that
   answers "left core in 0.31.0" (`dt prove` · `dt land` · `dt worktree` · `dt serve` · `dt notebooklm` · the Docker

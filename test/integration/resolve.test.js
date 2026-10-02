@@ -254,3 +254,34 @@ describe('compile warns per declared var with no value', () => {
 		assert.match(res.stderr, /no value in \.env/);
 	});
 });
+
+describe('a module requests the vars it reads; the workspace list stays the allow-list', () => {
+	const withModule = (vars) => {
+		const ws = fixture({ vars });
+		const dir = path.join(ws.root, 'modules', 'annex');
+		fs.mkdirSync(path.join(dir, 'collections'), { recursive: true });
+		fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'annex', version: '0.0.1', dreamteamer: { vars: [{ name: 'ARCHIVE_FOLDER', description: 'Where archived files live', example: '/srv/archive' }] } }));
+		return ws;
+	};
+
+	test('undeclared by the workspace: compile names it, .env.example lists it, resolve still refuses it', () => {
+		const ws = withModule(['FILES_FOLDER']);
+		const res = ws.dt('compile');
+		assert.equal(res.code, 0, res.stderr);
+		assert.match(res.stderr, /⚠ module annex reads \$\{env:ARCHIVE_FOLDER\} — add it to the workspace's dreamteamer\.vars/);
+		assert.match(readFile(ws.root, '.env.example'), /# Where archived files live \(module annex\)\nARCHIVE_FOLDER=\/srv\/archive\n/);
+		fs.appendFileSync(path.join(ws.root, '.env'), 'ARCHIVE_FOLDER=/tmp/archive\n');
+		const r = ws.dt('resolve', '${env:ARCHIVE_FOLDER}');
+		assert.equal(r.code, 1, 'a module request is not an allow-list entry');
+		assert.match(r.stderr, /"ARCHIVE_FOLDER" is not declared in dreamteamer\.vars/);
+	});
+
+	test('declared by the workspace: no request warning, and it resolves', () => {
+		const ws = withModule(['FILES_FOLDER', 'ARCHIVE_FOLDER']);
+		fs.appendFileSync(path.join(ws.root, '.env'), 'ARCHIVE_FOLDER=/tmp/archive\n');
+		const res = ws.dt('compile');
+		assert.equal(res.code, 0, res.stderr);
+		assert.doesNotMatch(res.stderr, /module annex reads/);
+		assert.equal(ws.dt('resolve', '${env:ARCHIVE_FOLDER}').stdout.trim(), '/tmp/archive');
+	});
+});

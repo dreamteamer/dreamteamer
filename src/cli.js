@@ -12,6 +12,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import * as api from './api.js';
 import { openWorkspace } from './api.js';
 import { compile, staleness, warnIfStale, discoverModules, CHANNEL_LABEL, locationOf, kindsOf } from './compile.js';
 import { check } from './check.js';
@@ -23,6 +24,7 @@ import { commitPending } from './commit.js';
 import { Store } from './store.js';
 import { splitRef, canonicalCollection } from './ref.js';
 import { envContext, renderTemplate } from './env-vars.js';
+import { doctorBoard, renderBoard } from './doctor.js';
 
 // git calls whose failure we CATCH must not print git's own error: execFileSync forwards the
 // child's stderr to ours unless told otherwise, so a handled "not a git repository" still
@@ -48,7 +50,8 @@ the longest DECLARED collection prefix, so finance/transactions/2026/03/coffee i
                                                _null _empty _contains _starts_with _ends_with
                                                _between _regex _and _or, plus _n*/_i* negated and
                                                case-insensitive variants; date-times sort and
-                                               compare as instants, across offsets)
+                                               compare as instants, across offsets; an enum
+                                               sorts in its declared order)
   get    <collection>/<id> [--json]
   add    <collection> ["<title>"] --<field> <value> … [--id <explicit-id>]
                                               (ONE bare positional fills the collection's title
@@ -205,7 +208,11 @@ workspace verbs:
               then compile; [<name>] updates just one. dirty clones are skipped
   compile     materialize modules + workspace sources into .dreamteamer (+ harness adapters)
               [--watch] recompile on source changes
-  check       validate every record against the compiled descriptors (report-only)
+  check       validate every record against the compiled descriptors (report-only), then every
+              installed extension's own checks
+  doctor      what works on this machine — the engine, then each extension's checks — as one board:
+              READY / DEGRADED / UNAVAILABLE, each fix on its row. Exit 0 [--strict] exit 1 when
+              anything is UNAVAILABLE [--json]
   status      workspace status: compiled runtime freshness, per-module channel/ref, staleness
 
   changes     what changed in every repo that holds records, as record events
@@ -255,7 +262,7 @@ export const GLOBAL_FLAGS = ['vault'];
 export const WORKSPACE_FLAGS = {
 	init: ['name', 'data-path', 'harnesses', 'workspace-module'], update: [],
 	install: ['clone', 'dry-run', 'json', 'link-env', 'all', 'hook', 'print-adapters'],
-	compile: ['watch'], check: [], status: [],
+	compile: ['watch'], check: [], status: [], doctor: ['strict', 'json'],
 	changes: ['since', 'json'], commit: ['dry-run', 'json'], relocate: ['dry-run', 'json', 'to-root'],
 };
 
@@ -263,16 +270,19 @@ export const WORKSPACE_FLAGS = {
  *  spellings are in it too: they answer with their replacement, and an extension taking one over
  *  would turn a loud translation into a different command. */
 export const CORE_VERBS = [
-	'init', 'install', 'update', 'compile', 'check', 'status', 'changes', 'commit', 'help', 'version', '--version', '-v',
+	'init', 'install', 'update', 'compile', 'check', 'doctor', 'status', 'changes', 'commit', 'help', 'version', '--version', '-v',
 	'list', 'add', 'values', 'get', 'set', 'rm', 'rename', 'history', 'diff', 'revert', 'move', 'next',
 	'add-field', 'set-field', 'rm-field', 'rename-field', 'relations', 'resolve', 'relocate',
 	'schema', 'ensure', 'update-field', 'remove-field', 'commands',
 ];
 
-/** Verbs that left core in 0.31.0. The extensions that will answer them are not published, so the old
- *  spelling in a script or a skill fails saying what happened — never "unknown verb", and never an
- *  install line for a package a stranger cannot install. */
-const MOVED_VERBS = new Set(['prove', 'land', 'worktree', 'serve', 'notebooklm', 'start', 'export', 'setup', 'stop', 'open', 'import']);
+/** Verbs an extension answers, and the package it ships in — typed without it, the verb prints the
+ *  install line. The container verbs belong to the global `dt-docker` bin, which needs no workspace. */
+const VERB_PACKAGES = {
+	prove: '@dreamteamer/proofs', land: '@dreamteamer/worktrees', worktree: '@dreamteamer/worktrees',
+	serve: '@dreamteamer/http', notebooklm: '@dreamteamer/notebooklm',
+};
+const DOCKER_VERBS = new Set(['start', 'stop', 'open', 'export', 'import']);
 
 export async function run(argv) {
 	const [cmd, ...rest] = argv;
@@ -372,8 +382,13 @@ export async function run(argv) {
 				return;
 			}
 			case 'check':
-				warnIfStale(ws.root);
-				process.exit(check(ws));
+				process.exit(check(ws, { extra: warnIfStale(ws.root).compiled ? await api.contributedViolations(ws) : [] }));
+			case 'doctor': {
+				const caps = await doctorBoard(ws, api);
+				if (rest.includes('--json')) emit(JSON.stringify({ capabilities: caps }, null, 2));
+				else console.log(renderBoard(caps));
+				process.exit(rest.includes('--strict') && caps.some((c) => c.verdict === 'UNAVAILABLE') ? 1 : 0);
+			}
 			// `changes` is what survives of the trigger/run subsystem removed 2026-07-31: deriving
 			// record events from git history was the genuinely used half (catch-up — "what happened
 			// while I was away"), while creating run records from triggers was not. Read-only by
@@ -622,8 +637,16 @@ export async function run(argv) {
 					console.error('    dt list commands              the command entities this workspace ships');
 					process.exit(2);
 				}
-				if (MOVED_VERBS.has(cmd)) {
-					console.error(`✖ \`dt ${cmd}\` left core in 0.31.0 and returns as an extension, which is not published yet — dreamteamer 0.30.x still has it, and a workspace module can carry its own verb (\`dreamteamer.extension\`)`);
+				if (VERB_PACKAGES[cmd]) {
+					console.error(`✖ \`dt ${cmd}\` comes from an extension this workspace does not have — install it as a dependency:\n    npm i ${VERB_PACKAGES[cmd]}`);
+					process.exit(2);
+				}
+				if (DOCKER_VERBS.has(cmd)) {
+					console.error(`✖ \`dt ${cmd}\` is not a workspace verb — containers are managed by dt-docker:\n    npm i -g @dreamteamer/docker-workspaces\n    dt-docker ${cmd} container <name>`);
+					process.exit(2);
+				}
+				if (cmd === 'setup') {
+					console.error('✖ `dt setup` is gone — `dt doctor` shows what works on this machine, each fix on its row');
 					process.exit(2);
 				}
 				console.error(`✖ unknown verb "${cmd}" — dreamteamer is verb-first since 0.12.0: dt <verb> [<target>]`);

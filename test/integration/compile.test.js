@@ -660,6 +660,151 @@ describe('peerDependencies — an optional cross-module reference', () => {
 });
 
 // ---------------------------------------------------------------------------------------------
+// A relation whose target is a declared PEER: the mirror is stamped when the peer is installed and
+// the relation is inert when it is not — no hard dependency either way.
+describe('x-inverse onto a peer collection', () => {
+	const mod = (root, name, dtKey, coll, body) => {
+		const dir = path.join(root, 'modules', name);
+		fs.mkdirSync(path.join(dir, 'collections'), { recursive: true });
+		fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name, private: true, version: '0.0.1', dreamteamer: dtKey }));
+		fs.writeFileSync(path.join(dir, 'collections', `${coll}.collection.yaml`), body);
+	};
+	const desc = (name, extra = '') => `name: ${name}\ndescription: A ${name} record.\n`
+		+ `id: { generate: "{{ title | slug }}" }\n`
+		+ 'schema:\n  type: object\n  required: [title]\n  properties:\n'
+		+ `    title: { type: string }\n    body: { type: string, format: markdown, x-body: true }\n${extra}`;
+	/** `blog` owns comments, whose `post` mirrors onto `posts`; `blogbase` owns posts when installed. */
+	const blog = ({ withBase, peers = ['posts'] }) => {
+		const ws = workspace({ compile: false });
+		mod(ws.root, 'blog', { peerDependencies: peers }, 'comments', desc('comments', '    post: { type: string, x-reference: posts, x-inverse: comments }\n'));
+		if (withBase) mod(ws.root, 'blogbase', {}, 'posts', desc('posts'));
+		return { ...ws, dt: (...a) => dt(ws.root, ...a) };
+	};
+
+	test('the peer installed: the mirror is stamped, a write maintains it, check is clean', () => {
+		const ws = blog({ withBase: true });
+		const c = ws.dt('compile');
+		assert.equal(c.code, 0, c.stdout + c.stderr);
+		const mirror = load(readFile(ws.root, '.dreamteamer/collections/posts.collection.yaml')).schema.properties.comments;
+		assert.equal(mirror.readOnly, true);
+		assert.equal(mirror.items['x-inverse-of'], 'comments.post');
+		assert.equal(ws.dt('add', 'posts', '--title', 'Hello').code, 0);
+		const add = ws.dt('add', 'comments', '--title', 'First', '--post', 'posts/hello');
+		assert.equal(add.code, 0, add.stdout + add.stderr);
+		assert.match(readFile(ws.root, 'data/posts/hello.post.md'), /comments:\n\s+- comments\/first/);
+		const res = dtCheck(ws.root);
+		assert.equal(res.code, 0, res.stdout);
+	});
+
+	test('the peer absent: compile, a write naming it, and check all pass — the relation is inert', () => {
+		const ws = blog({ withBase: false });
+		assert.equal(ws.dt('compile').code, 0);
+		const add = ws.dt('add', 'comments', '--title', 'First', '--post', 'posts/hello');
+		assert.equal(add.code, 0, add.stdout + add.stderr);
+		const res = dtCheck(ws.root);
+		assert.equal(res.code, 0, res.stdout);
+		assert.equal(ws.dt('relations').stdout.includes('posts.comments'), false, 'an inert relation lists no mirror');
+	});
+
+	test('a mirror onto a collection the module neither depends on nor peers is refused, naming both remedies', () => {
+		// a core collection passes the reference contract undeclared, so the mirror gate is what stops it
+		const ws = workspace({ compile: false });
+		mod(ws.root, 'blog', {}, 'comments', desc('comments', '    repo: { type: string, x-reference: repos, x-inverse: comments }\n'));
+		const c = dt(ws.root, 'compile');
+		assert.equal(c.code, 1);
+		assert.match(c.stderr, /stamps a field onto repos \(module dreamteamer\) — declare "repos" in dreamteamer\.peerDependencies \(or "dreamteamer" in dreamteamer\.dependencies\)/);
+	});
+});
+
+// ---------------------------------------------------------------------------------------------
+// A binding whose can-enter hops through a field a PEER module stamps: absent peer, the binding
+// compiles and reads not-applicable; installed, it reads available once the hop matches.
+describe('a command-binding gated on a peer collection', () => {
+	const meetingDocs = ({ withRecordings }) => {
+		const ws = workspace({ compile: false });
+		writeModule(ws.root, 'meet', { collections: { meetings: simpleCollection({ storage: { suffix: 'meeting' } }) } });
+		const docs = writeModule(ws.root, 'docs', { dependencies: ['meet'], peerDependencies: ['recordings'] });
+		fs.mkdirSync(path.join(docs, 'commands'));
+		fs.mkdirSync(path.join(docs, 'command-bindings'));
+		fs.writeFileSync(path.join(docs, 'commands', 'summarize.command.md'), '---\nname: summarize\ndescription: Summarize a call.\n---\nSummarize it.\n');
+		fs.writeFileSync(path.join(docs, 'command-bindings', 'summarize--meetings.command-binding.yaml'),
+			'command: commands/summarize\ncollection: collections/meetings\ntarget: record\ncan-enter:\n  recordings:\n    transcription:\n      _nempty: true\n');
+		if (withRecordings) {
+			writeModule(ws.root, 'rec', { dependencies: ['meet'], collections: { recordings: simpleCollection({
+				storage: { suffix: 'recording' },
+				schema: { type: 'object', required: ['name'], properties: {
+					name: { type: 'string' },
+					transcription: { type: 'string' },
+					meeting: { type: 'string', 'x-reference': 'meetings', 'x-inverse': 'recordings' },
+				} },
+			}) } });
+		}
+		return ws;
+	};
+	const state = (root) => JSON.parse(dt(root, 'next', 'meetings/kickoff', '--json').stdout).commands[0].states.kickoff;
+
+	test('recordings absent: compiles, checks clean, and the binding is not-applicable', () => {
+		const { root } = meetingDocs({ withRecordings: false });
+		assert.equal(dt(root, 'compile').code, 0);
+		assert.equal(dt(root, 'add', 'meetings', '--name', 'Kickoff').code, 0);
+		assert.equal(state(root), 'not-applicable');
+		assert.equal(dtCheck(root).code, 0);
+	});
+
+	test('recordings installed: the same binding becomes available once a transcribed recording points at the meeting', () => {
+		const { root } = meetingDocs({ withRecordings: true });
+		assert.equal(dt(root, 'compile').code, 0);
+		assert.equal(dt(root, 'add', 'meetings', '--name', 'Kickoff').code, 0);
+		assert.equal(state(root), 'not-applicable');
+		assert.equal(dt(root, 'add', 'recordings', '--name', 'Take one', '--meeting', 'meetings/kickoff', '--transcription', 'done').code, 0);
+		assert.equal(state(root), 'available');
+		assert.equal(dtCheck(root).code, 0);
+	});
+});
+
+// ---------------------------------------------------------------------------------------------
+// A module whose `dreamteamer.engine` excludes the running engine is refused whole.
+describe('a module whose engine floor is unmet', () => {
+	const future = (root) => {
+		writeModule(root, 'future', { collections: { gizmos: simpleCollection({ storage: { suffix: 'gizmo' } }) } });
+		patchModulePkg(root, 'future', { engine: '>=99.0.0' });
+		fs.mkdirSync(path.join(root, 'modules', 'future', 'skills', 'tinker'), { recursive: true });
+		fs.writeFileSync(path.join(root, 'modules', 'future', 'skills', 'tinker', 'SKILL.md'), '---\nname: tinker\ndescription: use when tinkering\n---\nTinker.\n');
+	};
+
+	test('is refused with a message naming the floor, and none of its content compiles', () => {
+		const ws = workspace({ compile: false });
+		future(ws.root);
+		const c = dt(ws.root, 'compile');
+		assert.equal(c.code, 0, c.stderr);
+		const version = JSON.parse(fs.readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).version;
+		assert.ok(c.stderr.includes(`✖ module future needs engine ">=99.0.0" — this is ${version}, so none of its content is compiled`), c.stderr);
+		assert.equal(readFile(ws.root, '.dreamteamer/collections/gizmos.collection.yaml'), null);
+		assert.equal(fs.existsSync(path.join(ws.root, '.dreamteamer', 'skills', 'tinker')), false);
+		const list = dt(ws.root, 'list', 'gizmos');
+		assert.match(list.stderr, /unknown collection "gizmos"/);
+		assert.doesNotMatch(list.stderr, /stale/, 'a refused module is not reported as uncompiled sources');
+	});
+
+	test('a module depending on it fails compile, naming the floor', () => {
+		const ws = workspace({ compile: false });
+		future(ws.root);
+		writeModule(ws.root, 'after', { dependencies: ['future'] });
+		const c = dt(ws.root, 'compile');
+		assert.equal(c.code, 1);
+		assert.match(c.stderr, /module "after" depends on "future", which needs engine ">=99\.0\.0" — this is /);
+	});
+
+	test('a floor the engine meets compiles as before', () => {
+		const ws = workspace({ compile: false });
+		future(ws.root);
+		patchModulePkg(ws.root, 'future', { engine: '>=0.1.0' });
+		assert.equal(dt(ws.root, 'compile').code, 0);
+		assert.ok(readFile(ws.root, '.dreamteamer/collections/gizmos.collection.yaml'));
+	});
+});
+
+// ---------------------------------------------------------------------------------------------
 // A descriptor with no `storage.suffix` used to write every record as `<id>.undefined.md` —
 // silent at compile, at `add` and at `check`, and on a `codec: file` collection every later verb
 // then died inside `idFromRecordPath` on `undefined.replace`. compile DERIVES it instead, which is
@@ -983,9 +1128,30 @@ describe('the orientation block is grouped by module', () => {
 		assert.match(block, /`write:` line names only what the store REFUSES — required fields that have no\ndefault/, 'the convention is stated where the line is read, not left to be inferred');
 	});
 
+	test('an id-template input with no default is listed as required; with a list, only what every template names', () => {
+		const ws = workspace({ collections: {
+			meetings: simpleCollection({ description: 'a meeting', storage: { suffix: 'meeting' },
+				id: { generate: '{{ starts | date }}--{{ room }}--{{ name | slug }}--{{ seq }}' },
+				schema: { type: 'object', required: ['name'], properties: {
+					name: { type: 'string' }, starts: { type: 'string', format: 'date-time' }, room: { type: 'string', default: 'main' },
+					notes: { type: 'string', format: 'markdown', 'x-body': true },
+				} } }),
+			risks: simpleCollection({ description: 'a risk', storage: { suffix: 'risk' },
+				id: { generate: ['{{ code }}--{{ area }}', '{{ area }}--{{ name | slug }}'] },
+				schema: { type: 'object', properties: {
+					name: { type: 'string' }, code: { type: 'string' }, area: { type: 'string' },
+					notes: { type: 'string', format: 'markdown', 'x-body': true },
+				} } }),
+		} });
+		const block = blockOf(ws);
+		assert.match(block, /^- meetings — a meeting\n {4}write: required name · starts$/m, 'a defaulted input and created/now/seq never refuse');
+		assert.match(block, /^- risks — a risk\n {4}write: required area$/m);
+		assert.equal(ws.dt('add', 'meetings', '--name', 'Kickoff').code, 1, 'the store does refuse what the line names');
+	});
+
 	test('a collection nothing can refuse renders no write line', () => {
 		const ws = workspace({ collections: { widgets: simpleCollection({
-			description: 'a widget', storage: { suffix: 'widget' },
+			description: 'a widget', storage: { suffix: 'widget' }, id: { generate: '{{ created | date }}-{{ seq }}' },
 			schema: { type: 'object', properties: { name: { type: 'string' }, notes: { type: 'string', format: 'markdown', 'x-body': true } } },
 		}) } });
 		assert.doesNotMatch(blockOf(ws), /^- widgets — a widget\n {4}write:/m);

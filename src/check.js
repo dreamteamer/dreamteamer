@@ -1,6 +1,7 @@
 // dreamteamer check — validate every record against the compiled descriptors.
-// report-only: JSON Schema (ajv), id patterns, x-reference resolution, stray files.
-// NEVER modifies a file. returns the number of violations.
+// report-only: JSON Schema (ajv), id patterns, x-reference resolution, stray files, plus any
+// `extra` violations a caller gathered (extension checks), reported after the schema's.
+// NEVER modifies a file. returns the exit code.
 import fs from 'node:fs';
 import path from 'node:path';
 import Ajv from 'ajv';
@@ -12,7 +13,7 @@ import { refTargetsOf, refIsSoft } from './ref.js';
 import { relationsOf, expectedMirrors } from './relations.js';
 import { placementOf, placedRecords, ownerIdOf, symlinkedChildRoots } from './placement.js';
 
-export function check({ root }) {
+export function check({ root }, { extra = [] } = {}) {
 	const RUNTIME = runtimeDir(root);
 	const rel = (p) => path.relative(root, p);
 
@@ -267,6 +268,7 @@ export function check({ root }) {
 	}
 
 	// ---- report ----------------------------------------------------------------------
+	violations.push(...extra);
 	for (const s of strays) {
 		console.log(`⚠ ${s.file} — unrecognized file in ${s.collection} folder${s.note ? ` (${s.note})` : ''}`);
 	}

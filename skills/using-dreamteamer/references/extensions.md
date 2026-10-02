@@ -4,12 +4,13 @@ Core is records plus the workspace compiler. Anything with a lifecycle of its ow
 Docker host, a behaviour-test runner, an exporter to one vendor — is an **extension**: code the engine
 calls, which a workspace has when it wants that capability and does without otherwise.
 
-The verbs that left core in 0.31.0 — `prove` · `land` · `worktree`, `serve`, `notebooklm`, and the
-Docker host — return as extensions, and **none is published yet**. Typed against core, each fails with
-exit 2 and says so. A workspace that needs one now carries it as its own module (below), or stays on
-0.30.x.
+The verbs that left core in 0.31.0 live in packages: `prove` in `@dreamteamer/proofs`, `land` and
+`worktree` in `@dreamteamer/worktrees`, `serve` in `@dreamteamer/http`, `notebooklm` in
+`@dreamteamer/notebooklm`, and the container verbs in the global `dt-docker` bin. Typed without the
+package, each exits 2 and prints its install line.
 
-`dt status` lists the extensions this workspace loaded, and `dt help` appends each one's usage.
+`dt status` lists the extensions this workspace loaded, `dt help` appends each one's usage, and
+`dt doctor` shows what works on this machine — the engine's rows, then each extension's checks.
 
 ## how a workspace turns one on
 
@@ -47,6 +48,8 @@ never disagree with the one the operator ran. It returns a contribution; every k
 | `harnesses` | `{ <id>: (ctx) → { blocks: { <file>: text }, summary } }` | a harness adapter writing managed blocks into user-owned files |
 | `orientation` | a string | one paragraph appended to every orientation block |
 | `hooks` | `{ <ClaudeHookEvent>: '<dt verb args>' }` | merged into `dt install --print-adapters` |
+| `check` | `({ root, ws, dt }) → [{ file, message }]` | `dt check` reports each as a violation after the schema's, attributed to the extension; a throw is a violation too |
+| `doctor` | `({ root, ws, dt }) → [{ label, state: ok\|warn\|bad, detail?, fix? }]` | `dt doctor` renders the rows as one capability named after the extension: READY, DEGRADED (a warn) or UNAVAILABLE (a bad), each fix on its row |
 
 The `draft` is data only: the staged entries, the final merged descriptors, the modules, declared var
 and env key NAMES, and the previous manifest. No writer, no Store, no environment values — an analysis

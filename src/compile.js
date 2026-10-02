@@ -285,14 +285,15 @@ function materializeRelations(mergedGroups, ctx) {
 
 function stampMirror(byName, ctx, ownerName, field, prop, holder, mirrorName, target, description) {
 	const t = byName.get(target);
-	if (!t) return; // an unresolved peer — the ref contract already warned
-	// cross-module gate, mirrored per spelling: the OWNING module stamps a field onto the target,
-	// so it must hard-depend on the target's module (extends: uses the same gate). Same repo only.
+	if (!t) return; // an uninstalled peer: the relation is inert until the target is installed
+	// cross-module gate: the owning module stamps a field onto the target, so it must depend on the
+	// target's module or declare the target collection a peer. Same repo only.
 	const ownerModule = ctx.moduleOf(ownerName), targetModule = ctx.moduleOf(target);
-	if (ownerModule !== targetModule) {
+	if (ownerModule !== targetModule && ownerModule !== ctx.wsModuleName) {
 		const deps = ctx.moduleDeps.get(ownerModule) ?? [];
-		if (![...deps].includes(targetModule) && ownerModule !== ctx.wsModuleName) {
-			fail(`collection "${ownerName}": x-inverse on "${field}" stamps a field onto ${target} (module ${targetModule}) — declare "${targetModule}" in dreamteamer.dependencies, or leave the link one-way.`);
+		const peers = ctx.modulePeers.get(ownerModule) ?? [];
+		if (!deps.includes(targetModule) && !peers.includes(target)) {
+			fail(`collection "${ownerName}": x-inverse on "${field}" stamps a field onto ${target} (module ${targetModule}) — declare "${target}" in dreamteamer.peerDependencies (or "${targetModule}" in dreamteamer.dependencies), or leave the link one-way.`);
 		}
 	}
 	if ((byName.get(ownerName).storage?.repo ?? '.') !== (t.storage?.repo ?? '.')) {
@@ -763,17 +764,29 @@ export function compile(ws) {
 		}
 	}
 
-	// ---- module package pass: engine ranges + env declarations (M4) ---------------
-	// both are WARNINGS, never errors — a version skew or missing secret must not
-	// brick a solo operator's workspace at compile time.
+	// ---- engine floors: a module whose `dreamteamer.engine` excludes this engine is REFUSED whole —
+	// none of its content compiles, since it may use what this engine cannot read; the rest does
 	const engineVer = engineVersion();
+	const refused = new Map(); // module name -> the range it declares
+	for (const source of [...sources]) {
+		if (source.root === root) continue;
+		let range;
+		try { range = JSON.parse(fs.readFileSync(path.join(source.root, 'package.json'), 'utf8')).dreamteamer?.engine; } catch { continue; }
+		if (!range || satisfies(engineVer, range) !== false) continue;
+		refused.set(source.name, range);
+		sources.splice(sources.indexOf(source), 1);
+		console.warn(`✖ module ${source.name} needs engine "${range}" — this is ${engineVer}, so none of its content is compiled. Upgrade dreamteamer, or disable the module.`);
+	}
+
+	// ---- module package pass: env declarations; a missing secret warns, never fails ---------
 	// A module's record id: the npm scope stripped, so `@dreamteamer/crm` reads as `crm` — which is
 	// what every message in this engine already calls it. Defined HERE, above the namespace pass,
 	// because a namespace error has to name the module by the id the fix is typed with.
 	const moduleId = (n) => slug(String(n).replace(/^@[^/]+\//, ''));
 	const channelOf = new Map(sources.map((s) => [s.name, s.channel]));
 	const declaredEnv = new Map(); // env key -> [module names]
-	const envMeta = new Map();     // env key -> { description, example } — the first module to say wins
+	const requestedVars = new Map(); // var a module READS through ${env:…} -> [module names]
+	const envMeta = new Map();     // env key or var -> { description, example } — the first module to say wins
 	const moduleIgnores = new Map(); // module name -> non-source folders it declares (strayKindDirs)
 	const moduleDeps = new Map();  // module name -> [module names]      — HARD, must be acyclic
 	const modulePeers = new Map(); // module name -> [collection names]  — SOFT, cannot cycle
@@ -809,22 +822,22 @@ export function compile(ws) {
 			moduleNamespaces.set(source.name, ns);
 		}
 		const range = mpkg.dreamteamer?.engine;
-		if (range) {
-			const ok = satisfies(engineVer, range);
-			if (ok === false) console.warn(`⚠ module ${source.name} declares engine "${range}" — running engine is ${engineVer} (out of range; compile continues)`);
-			else if (ok === null) console.warn(`⚠ module ${source.name}: engine range "${range}" not understood by the built-in checker (see src/semver.js) — not verified`);
-		}
-		// `dreamteamer.env`: a bare key name, or `{ name, description, example }` so the warning and
-		// `.env.example` can say what the key IS and what a value looks like — a bare `WORK_CALENDARS`
-		// told a first-run operator nothing about ids, addresses or display names (2026-09-24).
-		const envDecl = mpkg.dreamteamer?.env ?? [];
-		if (!Array.isArray(envDecl)) fail(`module "${source.name}": dreamteamer.env must be a list of key names or { name, description, example } objects (got ${JSON.stringify(envDecl)})`);
-		for (const entry of envDecl) {
-			const k = typeof entry === 'string' ? entry : entry?.name;
-			if (typeof k !== 'string' || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(k)) fail(`module "${source.name}": dreamteamer.env entry ${JSON.stringify(entry)} — a key is an identifier (A-Z, 0-9, _) as a string or as { name, description, example }`);
-			if (!declaredEnv.has(k)) declaredEnv.set(k, []);
-			declaredEnv.get(k).push(source.name);
-			if (typeof entry === 'object' && !envMeta.has(k)) envMeta.set(k, { description: entry.description ? String(entry.description) : undefined, example: entry.example !== undefined ? String(entry.example) : undefined });
+		if (range && satisfies(engineVer, range) === null) console.warn(`⚠ module ${source.name}: engine range "${range}" not understood by the built-in checker (see src/semver.js) — not verified`);
+		// `dreamteamer.env` (keys the module needs) and, in a module, `dreamteamer.vars` (the
+		// `${env:…}` vars it reads): each entry a bare name or `{ name, description, example }`, so
+		// `.env.example` says what a value looks like. A module only REQUESTS a var — the workspace's
+		// own list is the allow-list, so a module can never add a key to what `dt resolve` renders.
+		for (const key of source.root === root ? ['env'] : ['env', 'vars']) {
+			const decl = mpkg.dreamteamer?.[key] ?? [];
+			const sink = key === 'env' ? declaredEnv : requestedVars;
+			if (!Array.isArray(decl)) fail(`module "${source.name}": dreamteamer.${key} must be a list of key names or { name, description, example } objects (got ${JSON.stringify(decl)})`);
+			for (const entry of decl) {
+				const k = typeof entry === 'string' ? entry : entry?.name;
+				if (typeof k !== 'string' || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(k)) fail(`module "${source.name}": dreamteamer.${key} entry ${JSON.stringify(entry)} — a key is an identifier (A-Z, 0-9, _) as a string or as { name, description, example }`);
+				if (!sink.has(k)) sink.set(k, []);
+				sink.get(k).push(source.name);
+				if (typeof entry === 'object' && !envMeta.has(k)) envMeta.set(k, { description: entry.description ? String(entry.description) : undefined, example: entry.example !== undefined ? String(entry.example) : undefined });
+			}
 		}
 		// Gathered here because mpkg is already parsed; refused below, next to the workspace's own
 		// declaration. The classic layout pushes the ROOT itself as an inline source, whose
@@ -842,6 +855,9 @@ export function compile(ws) {
 		fail(`dreamteamer.vars must be a list of env key names (got ${JSON.stringify(config.vars)})`);
 	}
 	const declaredVars = config.vars ?? [];
+	for (const [k, mods] of requestedVars) {
+		if (!declaredVars.includes(k)) for (const mod of mods) console.warn(`⚠ module ${mod} reads \${env:${k}} — add it to the workspace's dreamteamer.vars`);
+	}
 	if (declaredEnv.size || declaredVars.length) {
 		// .env is parsed for KEY names ONLY — values never reach any output or the manifest
 		const envPath = path.join(root, '.env');
@@ -878,7 +894,7 @@ export function compile(ws) {
 	// points at a file that actually names them; `.vscode/extensions.json` recommends the editor
 	// extension, so the first window offers it. Both are append/merge-only — nothing authored moves.
 	{
-		const added = ensureEnvExample(root, [...declaredEnv].map(([key, mods]) => ({ key, modules: mods, ...(envMeta.get(key) ?? {}) })),
+		const added = ensureEnvExample(root, [...declaredEnv, ...requestedVars].map(([key, mods]) => ({ key, modules: mods, ...(envMeta.get(key) ?? {}) })),
 			'# secrets for skills and modules go here (copy to .env; .env is never committed).\n# modules declare the env keys they require in their package.json dreamteamer.env list.\n');
 		if (added.length) console.log(`✔ .env.example now names ${added.join(', ')}`);
 		ensureEditorRecommendation(root);
@@ -920,6 +936,7 @@ export function compile(ws) {
 	for (const [mod, deps] of moduleDeps) {
 		for (const dep of deps) {
 			if (dep === mod) fail(`module "${mod}" declares itself as a dependency`);
+			if (refused.has(dep)) fail(`module "${mod}" depends on "${dep}", which needs engine "${refused.get(dep)}" — this is ${engineVer}. Upgrade dreamteamer, or disable both.`);
 			if (!moduleNames.has(dep)) {
 				fail(`module "${mod}" depends on "${dep}", which is not installed — modules present: ${[...moduleNames].sort().join(', ')}`);
 			}
@@ -1269,6 +1286,7 @@ export function compile(ws) {
 	// `x-reference: users` now FAILS here, which is the intended loud outcome rather than a ref
 	// pointing at a collection nothing provides.
 	const CORE_COLLECTIONS = new Set([...kinds, ...DERIVED_KINDS, 'repos']);
+	const engineName = engineId().replace(/@[^@]*$/, '');
 	const wsDir = config['workspace-module'];
 	const wsModuleName = wsDir
 		? sources.find((s) => rel(s.root) === path.join('modules', wsDir))?.name
@@ -1443,6 +1461,11 @@ export function compile(ws) {
 		// its `modules/<id>` reference form for ONE release, because the extension's nav groups by it
 		// (§10's compat-read precedent); it is removed in the release after this one.
 		const ownerId = moduleId(base?.moduleName ?? groupModules[0]);
+		// the system partition is the engine's machinery and the workspace's own; a module's collection
+		// is a domain, and `group: system` would drop it from the orientation listing
+		if (merged.group === 'system' && ![engineName, wsModuleName].includes(base?.moduleName)) {
+			fail(`collection "${name}": group: system is reserved for the engine's collections and the workspace module's — module ${ownerId} ships a domain collection. Drop it (${group.map((g) => g.src.path).join(', ')}).`);
+		}
 		merged.module = ownerId;
 		merged.owner = `modules/${ownerId}`;
 		// ⚠ ABSENT rather than empty when there are none. An empty list is a statement nobody made,
@@ -1552,7 +1575,7 @@ export function compile(ws) {
 	// exists and the last moment before bytes are fixed — a relation writes to a collection OTHER
 	// than the one that declares it, so no per-collection pass can express it.
 	materializeRelations(mergedGroups, {
-		moduleDeps, wsModuleName,
+		moduleDeps, modulePeers, wsModuleName,
 		moduleOf: (n) => collOwner.get(n),
 	});
 	// ---- placement: a collection stored UNDER another ---------------------------------
@@ -1996,6 +2019,8 @@ export function compile(ws) {
 			root: rel(s.root) || '.',
 		})),
 		ui: uiModules.sort(),
+		// modules refused for their engine floor — staleness does not report their files as new
+		...(refused.size ? { refused: [...refused].map(([name, engine]) => ({ name, engine })) } : {}),
 		'adapter-outputs': adapterOutputs.sort(),
 		// the root files whose managed BLOCK this compile rewrote — never pruned, but committed with a
 		// schema write so the block and the schema it names land together (schema-ops.regeneratedOutputs)
@@ -2063,7 +2088,8 @@ export function staleness(root) {
 	// The root itself, when a workspace declares no `workspace-module`, is not a named module, so no
 	// `<module>/<entity>` entry can address its sources — it is walked unfiltered, as before.
 	const disabledEntities = new Set((pkg.dreamteamer?.disable ?? []).filter((d) => typeof d === 'string' && !isPackageEntry(d)));
-	const roots = [...(wm ? [] : [{ name: null, root }]), ...found.modules.map((m) => ({ name: m.name, root: m.root }))];
+	const refused = new Set((manifest.refused ?? []).map((r) => r.name));
+	const roots = [...(wm ? [] : [{ name: null, root }]), ...found.modules.filter((m) => !refused.has(m.name)).map((m) => ({ name: m.name, root: m.root }))];
 	// the kinds the last compile STAGED, read off its manifest — staleness loads no extension code
 	const contributedKinds = (manifest['source-kinds'] ?? []).map((k) => ({ kind: k.kind, exclude: k.exclude ?? [] }));
 	for (const { name: moduleName, root: r } of roots) {

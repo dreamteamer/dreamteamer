@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { workspace, readFile, git, dt, compileQuietly, compileError, WS_MODULE } from '../helpers/ws.js';
 import { dump } from '../../src/yaml.js';
-import { openWorkspace } from '../../src/api.js';
+import { openWorkspace, contributedViolations, check } from '../../src/api.js';
 
 const PROBES = {
 	name: 'probes',
@@ -105,14 +105,21 @@ describe('an extension\'s command runs in-process, handed THIS workspace and THI
 		assert.match(ws.dt('status').stdout, /extensions: probe-kit@1\.2\.3/);
 	});
 
-	test('a moved core verb with no extension to answer it says so, exit 2 — and names no unpublished package', () => {
+	test('an extension verb typed without its extension prints the install line, exit 2', () => {
 		const ws = workspace();
-		for (const verb of ['prove', 'setup', 'notebooklm']) {
+		for (const [verb, pkg] of [['prove', 'proofs'], ['land', 'worktrees'], ['worktree', 'worktrees'], ['serve', 'http'], ['notebooklm', 'notebooklm']]) {
 			const r = ws.dt(verb, 'x');
 			assert.equal(r.code, 2, verb);
-			assert.match(r.stderr, new RegExp(`\`dt ${verb}\` left core in 0\\.31\\.0 and returns as an extension, which is not published yet`));
-			assert.doesNotMatch(r.stderr, /@dreamteamer\//, 'an install line for a package that is not on npm');
+			assert.equal(r.stderr, `✖ \`dt ${verb}\` comes from an extension this workspace does not have — install it as a dependency:\n    npm i @dreamteamer/${pkg}\n`);
 		}
+		for (const verb of ['start', 'stop', 'open', 'export', 'import']) {
+			const r = ws.dt(verb, 'x');
+			assert.equal(r.code, 2, verb);
+			assert.match(r.stderr, new RegExp(`npm i -g @dreamteamer/docker-workspaces\\n {4}dt-docker ${verb} container <name>`));
+		}
+		const setup = ws.dt('setup');
+		assert.equal(setup.code, 2);
+		assert.match(setup.stderr, /`dt setup` is gone — `dt doctor` shows what works on this machine/);
 	});
 });
 
@@ -254,6 +261,16 @@ describe('the loader refuses what it cannot honour — at open, by name', () => 
 		const c = workspace({ compile: false });
 		install(c.root, { entry: 'export const apiVersion = 2; export default () => ({});' });
 		await assert.rejects(openWorkspace(c.root), /targets extension API 2/);
+	});
+
+	test('an extension whose engine floor is unmet is not loaded, and says so', () => {
+		const ws = workspace({ compile: false });
+		const dir = install(ws.root, { name: 'late-kit', descriptor: null });
+		const pkg = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8'));
+		fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ ...pkg, dreamteamer: { ...pkg.dreamteamer, engine: '>=99.0.0' } }));
+		const r = dt(ws.root, 'hello');
+		assert.notEqual(r.code, 3, 'its verb did not run');
+		assert.match(r.stderr, /✖ extension late-kit needs engine ">=99\.0\.0" — this is [\d.]+, so it is not loaded/);
 	});
 
 	test('a DISABLED extension is not loaded, and a transitive one never is', async () => {
@@ -457,5 +474,163 @@ describe('a WORKSPACE module can carry an extension entry — no package, no npm
 		const h = await openWorkspace(ws.root);
 		assert.deepEqual(h.extensions.map((e) => e.name), ['kit']);
 		assert.ok('inlinehello' in h.extensions[0].commands);
+	});
+});
+
+describe('a git_modules clone carries its extension code, exactly as it carries its content', () => {
+	const clone = (root, { dir = 'kit', name = '@probe/kit', bundle = false } = {}) => {
+		const base = path.join(root, 'git_modules', dir);
+		const mod = bundle ? path.join(base, 'modules', 'kit') : base;
+		fs.mkdirSync(mod, { recursive: true });
+		if (bundle) fs.writeFileSync(path.join(base, 'package.json'), JSON.stringify({ name: '@probe/bundle', private: true, dreamteamer: {} }));
+		fs.writeFileSync(path.join(mod, 'package.json'), JSON.stringify({ name, version: '0.0.1', type: 'module', dreamteamer: { description: 'A cloned kit.', extension: './ext.js' } }));
+		fs.writeFileSync(path.join(mod, 'ext.js'), `export default () => ({ commands: { clonehello: { usage: '  clonehello   say hi', run(ws, argv) { console.log('clone hello ' + argv.join(' ')); return 0; } } } });`);
+	};
+	test('a module cloned under git_modules/ activates: its verb runs', async () => {
+		const ws = workspace({ compile: false });
+		clone(ws.root);
+		assert.deepEqual((await openWorkspace(ws.root)).extensions.map((e) => e.name), ['@probe/kit']);
+		const r = dt(ws.root, 'clonehello', 'there');
+		assert.equal(r.code, 0, r.stderr);
+		assert.match(r.stdout, /clone hello there/);
+	});
+	test('a bundle cloned under git_modules/ activates the extension of a module inside it', async () => {
+		const ws = workspace({ compile: false });
+		clone(ws.root, { dir: 'bundle', bundle: true });
+		assert.deepEqual((await openWorkspace(ws.root)).extensions.map((e) => e.name), ['@probe/kit']);
+		assert.match(dt(ws.root, 'clonehello').stdout, /clone hello/);
+	});
+	test('a disabled clone loads no code, and an inline module of the same name shadows the clone', async () => {
+		const off = workspace({ compile: false });
+		clone(off.root);
+		const pkgFile = path.join(off.root, 'package.json');
+		const pkg = JSON.parse(fs.readFileSync(pkgFile, 'utf8'));
+		pkg.dreamteamer = { ...pkg.dreamteamer, disable: ['kit'] };
+		fs.writeFileSync(pkgFile, JSON.stringify(pkg, null, '\t') + '\n');
+		assert.deepEqual((await openWorkspace(off.root)).extensions, []);
+
+		const shadow = workspace({ compile: false });
+		clone(shadow.root);
+		fs.writeFileSync(path.join(shadow.root, 'git_modules', 'kit', 'ext.js'), 'export default () => { throw new Error("the shadowed clone was activated"); };');
+		const inl = path.join(shadow.root, 'modules', 'kit');
+		fs.mkdirSync(inl, { recursive: true });
+		fs.writeFileSync(path.join(inl, 'package.json'), JSON.stringify({ name: '@probe/kit', version: '0.0.2', dreamteamer: { description: 'The local copy.', extension: './ext.js' } }));
+		fs.writeFileSync(path.join(inl, 'ext.js'), `export default () => ({ commands: { clonehello: { usage: '  clonehello   say hi', run() { console.log('inline wins'); return 0; } } } });`);
+		const h = await openWorkspace(shadow.root);
+		assert.deepEqual(h.extensions.map((e) => e.version), ['0.0.2']);
+	});
+});
+
+describe('a check contribution is reported by dt check, after the schema', () => {
+	const CHECKER = `
+export default function activate() {
+	return {
+		check({ root, ws, dt }) {
+			if (root !== ws.root || typeof dt.engineVersion !== 'function') throw new Error('bad context');
+			const n = [...new dt.Store(ws).readAll('notes')].length;
+			return n ? [{ file: 'data/notes', message: n + ' note(s) and no index — one rule broken' }] : [];
+		},
+	};
+}
+`;
+	const withChecker = (entry = CHECKER) => {
+		const ws = workspace({ collections: { notes: { id: { generate: '{{ name | slug }}' }, schema: { type: 'object', required: ['name'], properties: { name: { type: 'string' } } } } } });
+		install(ws.root, { name: 'rule-kit', descriptor: null, entry });
+		assert.equal(dt(ws.root, 'compile').code, 0);
+		return ws;
+	};
+
+	test('no violation: exit 0', () => {
+		const ws = withChecker();
+		const r = dt(ws.root, 'check');
+		assert.equal(r.code, 0, r.stdout + r.stderr);
+		assert.match(r.stdout, /0 violations/);
+	});
+
+	test('one violation: exit 1, the file and the message, attributed to the extension', () => {
+		const ws = withChecker();
+		assert.equal(dt(ws.root, 'add', 'notes', '--name', 'First').code, 0);
+		const r = dt(ws.root, 'check');
+		assert.equal(r.code, 1, r.stdout + r.stderr);
+		assert.match(r.stdout, /✖ data\/notes\n {4}1 note\(s\) and no index — one rule broken \(rule-kit\)\n1 violation\./);
+	});
+
+	test('an in-process caller gets the same verdict through the public API', async () => {
+		const ws = withChecker();
+		assert.equal(dt(ws.root, 'add', 'notes', '--name', 'First').code, 0);
+		const h = await openWorkspace(ws.root);
+		const extra = await contributedViolations(h);
+		assert.deepEqual(extra, [{ file: 'data/notes', msg: '1 note(s) and no index — one rule broken (rule-kit)' }]);
+		const log = console.log;
+		console.log = () => {};
+		try {
+			assert.equal(check(h, { extra }), 1);
+			assert.equal(check(h), 0, 'the schema alone is clean');
+		} finally { console.log = log; }
+	});
+
+	test('a check that throws is a violation naming the extension, never a crash', () => {
+		const ws = withChecker('export default () => ({ check() { throw new Error("index unreadable"); } });');
+		const r = dt(ws.root, 'check');
+		assert.equal(r.code, 1, r.stdout + r.stderr);
+		assert.match(r.stdout, /✖ rule-kit\n {4}check failed — index unreadable/);
+	});
+
+	test('a check that is not a function is refused at load', async () => {
+		const ws = workspace({ compile: false });
+		install(ws.root, { name: 'rule-kit', descriptor: null, entry: 'export default () => ({ check: true });' });
+		await assert.rejects(openWorkspace(ws.root), /extension rule-kit: check must be a function/);
+	});
+});
+
+describe('dt doctor renders the engine and every extension as one board', () => {
+	const ROWS = `export default () => ({ doctor: ({ root, ws }) => root === ws.root ? [
+		{ label: 'cache', state: 'ok', detail: 'warm' },
+		{ label: 'token', state: 'warn', detail: 'not set', fix: 'set PROBE_TOKEN in .env' },
+	] : [] });`;
+	const withDoctor = (entry = ROWS, { compiled = true } = {}) => {
+		const ws = workspace({ compile: false });
+		install(ws.root, { name: '@kits/doctor-kit', descriptor: null, entry });
+		if (compiled) assert.equal(dt(ws.root, 'compile').code, 0);
+		return ws;
+	};
+
+	test('a warn and an ok: the capability is DEGRADED, the fix is on its row, exit 0 even with --strict', () => {
+		const ws = withDoctor();
+		const r = dt(ws.root, 'doctor');
+		assert.equal(r.code, 0, r.stderr);
+		const version = JSON.parse(fs.readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).version;
+		assert.match(r.stdout, new RegExp(`^engine — READY\\n {2}✔ engine {2}dreamteamer@${version.replace(/\./g, '\\.')}\\n {2}✔ node {2}${process.versions.node}\\n {2}✔ harness files {2}AGENTS\\.md, CLAUDE\\.md`));
+		assert.match(r.stdout, /\ndoctor-kit — DEGRADED\n {2}✔ cache {2}warm\n {2}⚠ token {2}not set — fix: set PROBE_TOKEN in \.env\n$/);
+		assert.equal(dt(ws.root, 'doctor', '--strict').code, 0, 'DEGRADED still works');
+	});
+
+	test('--json is the same board as data', () => {
+		const ws = withDoctor();
+		const r = dt(ws.root, 'doctor', '--json');
+		assert.equal(r.code, 0, r.stderr);
+		const caps = JSON.parse(r.stdout).capabilities;
+		assert.deepEqual(caps.map((c) => [c.name, c.verdict]), [['engine', 'READY'], ['doctor-kit', 'DEGRADED']]);
+		assert.deepEqual(caps[1].checks[1], { label: 'token', state: 'warn', detail: 'not set', fix: 'set PROBE_TOKEN in .env' });
+	});
+
+	test('a failure is UNAVAILABLE: exit 0 by default, 1 under --strict; a throwing doctor is a failure, not a crash', () => {
+		const ws = withDoctor('export default () => ({ doctor() { throw new Error("socket unreachable"); } });');
+		const r = dt(ws.root, 'doctor');
+		assert.equal(r.code, 0, r.stderr);
+		assert.match(r.stdout, /doctor-kit — UNAVAILABLE\n {2}✖ doctor {2}socket unreachable — fix: report it to @kits\/doctor-kit/);
+		assert.equal(dt(ws.root, 'doctor', '--strict').code, 1);
+	});
+
+	test('an uncompiled workspace: the engine row says so and names the fix', () => {
+		const ws = withDoctor(ROWS, { compiled: false });
+		const r = dt(ws.root, 'doctor');
+		assert.match(r.stdout, /engine — UNAVAILABLE\n(.*\n){2} {2}✖ harness files {2}never compiled — fix: dt compile/);
+	});
+
+	test('a harness file deleted since the compile is DEGRADED with the fix', () => {
+		const ws = withDoctor();
+		fs.rmSync(path.join(ws.root, 'GEMINI.md'));
+		assert.match(dt(ws.root, 'doctor').stdout, /engine — DEGRADED\n(.*\n){2} {2}⚠ harness files {2}1 missing \(GEMINI\.md\) — fix: dt compile/);
 	});
 });

@@ -353,8 +353,9 @@ without learning what a module is.
 
 `x-reference: '*'` (the open-world evidence field) is warned about outside the workspace module —
 an unverifiable cross-module surface — and tolerated inside it, because the workspace is the
-orchestrating parent. A cross-module `x-inverse` needs the dependency declared too, since it
-stamps a field onto the other module's collection.
+orchestrating parent. A cross-module `x-inverse` needs the target declared as a peer (or its
+module as a dependency): the mirror is stamped when the target is installed, and the relation is
+inert when it is not.
 
 ## registering an existing data folder
 
@@ -398,6 +399,9 @@ collection author actually meets. (⚠ = warning: it compiled, and you should st
 | `N fields declare x-body` | a record has ONE body — the text after the frontmatter | keep one |
 | `references "X", which … neither owns nor declares` | the reference contract | add the dependency or the peer, as the message says |
 | `cyclic module dependencies: a → b → a` | concept-level links declared as module deps | the collection belongs in `peerDependencies` |
+| ⚠ `module X reads ${env:NAME} — add it to the workspace's dreamteamer.vars` | the module's `dreamteamer.vars` requests a var the workspace has not allowed; `.env.example` lists it | add the name to the workspace's `dreamteamer.vars` — a module request never widens what `dt resolve` renders |
+| ✖ `module X needs engine ">=…" — … none of its content is compiled` | the module's `dreamteamer.engine` excludes this engine; it is refused whole, code included, and a module depending on it fails compile | upgrade dreamteamer, or disable the module |
+| `group: system is reserved for the engine's collections and the workspace module's` | a module put its own collection in the machinery partition, which hides it from the orientation listing | drop `group: system` |
 | relation refusals (`stamps a mirror onto…`, `declared on both sides…`) | the relation rules | `data-modeling.md` Part VI |
 | ⚠ `x-unique on "f" is inert` | a relation keyword with no relation — nothing enforces it | declare the inverse, or drop it |
 | ⚠ `x-choices on "f" has an entry for "k"` | it decorates enum VALUES and `k` is not one — a typo, or a value since removed | fix the spelling, or drop the entry |

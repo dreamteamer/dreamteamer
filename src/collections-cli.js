@@ -1218,7 +1218,7 @@ function narrowRows(store, d, collection, flags) {
 	// sorting was studio-only until now: the browse table ordered records and no CLI
 	// invocation could. Same `sortRows` the server and api.ts call, so `--sort -starts`
 	// orders date-times by INSTANT across mixed offsets rather than by string.
-	if (sort) sortRows(rows, sort);
+	if (sort) sortRows(rows, sort, d.schema);
 	return { rows, narrowed: !!(filters.length || where) };
 }
 

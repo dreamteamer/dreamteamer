@@ -7,7 +7,8 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { workspace, twoModuleWorkspace, simpleCollection, tree, readFile, git } from '../helpers/ws.js';
+import { spawnSync } from 'node:child_process';
+import { workspace, twoModuleWorkspace, simpleCollection, tree, readFile, git, ENGINE_ROOT, SPAWN_TIMEOUT_MS } from '../helpers/ws.js';
 import { Store } from '../../src/store.js';
 
 const TASKS = {
@@ -464,5 +465,44 @@ describe('a one-field set produces a one-field diff', () => {
 		assert.match(readFile(ws.root, 'data/people/dana-levi.person.md'), /name: "Dana Levi"/, 'the quoting survives');
 		assert.match(readFile(ws.root, 'data/people/dana-levi.person.md'), /# reached via Acme/, 'the comment survives');
 		assert.match(readFile(ws.root, 'data/people/dana-levi.person.md'), /Met at Acme\./, 'the body survives');
+	});
+});
+
+// An id derived from a date-time renders in the value's own offset, so the same `dt add` gives the
+// same id on a UTC cloud machine and on a laptop fourteen hours ahead of it.
+describe('a date-derived id does not depend on the machine zone', () => {
+	test('dt add under TZ=UTC and TZ=Pacific/Kiritimati writes the same id', () => {
+		const ids = ['UTC', 'Pacific/Kiritimati'].map((tz) => {
+			const ws = workspace({ collections: { meetings: simpleCollection({
+				storage: { suffix: 'meeting' },
+				id: { generate: '{{ starts | date:YYYY-MM-DD--HH-mm }}--{{ name | slug }}' },
+				schema: { type: 'object', required: ['name', 'starts'], properties: {
+					name: { type: 'string' }, starts: { type: 'string', format: 'date-time' },
+					notes: { type: 'string', format: 'markdown', 'x-body': true },
+				} },
+			}) } });
+			const res = spawnSync(process.execPath, [path.join(ENGINE_ROOT, 'bin', 'dreamteamer.js'), 'add', 'meetings', '--name', 'Kickoff', '--starts', '2026-07-28T23:30:00+03:00'],
+				{ cwd: ws.root, env: { ...process.env, TZ: tz }, encoding: 'utf8', timeout: SPAWN_TIMEOUT_MS, killSignal: 'SIGKILL' });
+			assert.equal(res.status, 0, res.stderr);
+			return tree(ws.root, 'data/meetings');
+		});
+		assert.deepEqual(ids[0], ['data/meetings/2026-07-28--23-30--kickoff.meeting.md']);
+		assert.deepEqual(ids[1], ids[0]);
+	});
+});
+
+describe('dt list --sort on an enum field follows the declared order', () => {
+	test('draft → active → done, not alphabetical', () => {
+		const ws = workspace({ collections: { tasks: simpleCollection({
+			storage: { suffix: 'task' },
+			schema: { type: 'object', required: ['name'], properties: {
+				name: { type: 'string' }, status: { type: 'string', enum: ['draft', 'active', 'done'] },
+				notes: { type: 'string', format: 'markdown', 'x-body': true },
+			} },
+		}) } });
+		for (const [name, status] of [['Ship', 'done'], ['Plan', 'draft'], ['Build', 'active']]) assert.equal(ws.dt('add', 'tasks', '--name', name, '--status', status).code, 0);
+		const order = (sort) => JSON.parse(ws.dt('list', 'tasks', '--sort', sort, '--json').stdout).map((r) => r.status);
+		assert.deepEqual(order('status'), ['draft', 'active', 'done']);
+		assert.deepEqual(order('-status'), ['done', 'active', 'draft']);
 	});
 });
