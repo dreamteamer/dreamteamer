@@ -30,9 +30,9 @@ const PASS_THROUGH = ['default', 'examples', 'pattern', 'minimum', 'maximum', 'm
 
 /** The three fields every collection has. `created` is stored (engine-written); the other two are computed on read. */
 export const INJECTED_FIELDS = {
-	id: { type: 'string', virtual: true, description: 'The record\'s path inside its collection.' },
-	created: { type: 'datetime', derived: true, description: 'When the record was first written. Stamped by the engine at add; read from the id\'s date or the first commit for a record written before it existed.' },
-	last_modified: { type: 'datetime', virtual: true, description: 'When the record was last committed, from git.' },
+	id: { type: 'string', title: 'Id', virtual: true, description: 'The record\'s path inside its collection.' },
+	created: { type: 'datetime', title: 'Created', derived: true, description: 'When the record was first written. Stamped by the engine at add; read from the id\'s date or the first commit for a record written before it existed.' },
+	last_modified: { type: 'datetime', title: 'Last modified', virtual: true, description: 'When the record was last committed, from git.' },
 };
 
 /** Is `type` a reference to one or more collections, given the names that exist? */

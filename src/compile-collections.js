@@ -212,6 +212,11 @@ export function compileCollections(ctx) {
 		if (authored.singular === undefined) defaults.singular = singularWord;
 		if (authored.record_title === undefined) defaults.record_title = recordTitle;
 		if (Object.keys(sdefaults).length) defaults.storage = sdefaults;
+		// the layouts a surface draws when the descriptor names none
+		const ddefaults = {};
+		if (authored.display?.list?.layout === undefined) ddefaults.list = { layout: 'table' };
+		if (authored.display?.record?.layout === undefined) ddefaults.record = { layout: 'page' };
+		defaults.display = ddefaults;
 		if (Object.keys(fieldDefaults).length) defaults.fields = fieldDefaults;
 
 		const doc = { ...authored };
