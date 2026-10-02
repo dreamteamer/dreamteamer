@@ -6,7 +6,7 @@
 // one of those was destroyed or reflowed by the `load` → mutate → `dump` path this replaces.
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { load, dump, writeSource, commentCount } from '../../src/yaml.js';
+import { load, dump, writeSource, renameKeys, commentCount } from '../../src/yaml.js';
 
 /** A descriptor carrying every construct the old write path damaged. */
 const DESCRIPTOR = `# THINGS — this header is why the collection exists, and it is the whole reason
@@ -252,5 +252,42 @@ describe('commentCount', () => {
 		assert.equal(commentCount(DESCRIPTOR), 5);
 		assert.equal(commentCount('a: 1\n'), 0);
 		assert.equal(commentCount('a: 1 # trailing does not count as its own line\n'), 0);
+	});
+});
+
+describe('renameKeys — a key renamed in the bytes keeps its pair', () => {
+	const SRC = [
+		'fields:',
+		'  status:',
+		'    type: string',
+		'    # the comment INSIDE the pair being renamed',
+		'    enum: [booked, seen]',
+		'  date: { type: date }',
+		'constraints:',
+		'  - if:',
+		'      properties:',
+		"        'status': { const: seen }",
+		'',
+	].join('\n');
+
+	test('a nested key, a key under a list, and a quoted key, each renamed in place', () => {
+		const out = renameKeys(SRC, [
+			{ path: ['fields', 'status'], to: 'state' },
+			{ path: ['constraints', 0, 'if', 'properties', 'status'], to: 'state' },
+		]);
+		assert.equal(out, SRC.replace('  status:', '  state:').replace("'status':", "'state':"));
+	});
+
+	test('then writeSource keeps the comment the pair carried, which a value-level rename loses', () => {
+		const value = load(SRC);
+		value.fields = { state: value.fields.status, date: value.fields.date };
+		assert.ok(commentCount(writeSource(SRC, value)) < commentCount(SRC), 'without renameKeys the pair is replaced and its comment goes');
+		const kept = writeSource(renameKeys(SRC, [{ path: ['fields', 'status'], to: 'state' }]), value);
+		assert.equal(commentCount(kept), commentCount(SRC));
+		assert.deepEqual(load(kept), value);
+	});
+
+	test('a path naming no key is skipped', () => {
+		assert.equal(renameKeys(SRC, [{ path: ['fields', 'nope'], to: 'x' }, { path: ['missing', 'a'], to: 'b' }]), SRC);
 	});
 });
