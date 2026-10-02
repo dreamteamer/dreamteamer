@@ -1346,31 +1346,27 @@ export function workspaceSystemDir(ws, kind) {
  * `collections rename` unusable for exactly the migration it was built for, because a workspace's
  * domain collections almost always live in a module.
  *
- * Returns `{ dir, sources }` — the kind dir to write into (the SAME module the descriptor came from,
- * so a rename never teleports a collection into the workspace module), and every descriptor source
- * that contributed, so the caller can refuse the cases this cannot honestly do.
+ * Returns `{ dir, file, overlays, sources }` — the base's kind dir to write into (the SAME module the
+ * descriptor came from, so a rename never teleports a collection into the workspace module) and its
+ * file; each overlay as `{ dir, file }` in ITS module, so the rename carries it along; and every
+ * descriptor source that contributed, so the caller can refuse the cases this cannot honestly do.
  */
 function descriptorSourceDir(ws, name) {
-	const entry = readManifest(ws.root)?.entries?.[`collections/${name}.collection.yaml`];
-	// `sources` mixes the descriptor with any mixins it merged, so match on the KIND — see
-	// baseDescriptorSource for why matching the collection's NAME into the path was wrong.
-	const sources = (entry?.sources ?? [])
-		.map((s) => (typeof s === 'string' ? s : s?.path))
-		.filter((p) => typeof p === 'string' && p.endsWith('.collection.yaml'));
-	if (!sources.length) return { dir: null, sources };
-	// The BASE descriptor is the one to move.
-	//
+	// The base is the source without `overlay: true` — see baseDescriptorSource; discovery order
+	// says nothing about which source is which.
+	const { base, overlays, sources } = baseDescriptorSource(ws, name);
 	// ⚠ `dir` IS THE OWNING MODULE'S `collections/` KIND DIR — asked of the manifest's module list,
 	// not re-derived by stripping the collection's name off the source path. That arithmetic only
 	// worked while the source path mirrored the name, which a module owning its own namespace need
-	// not do (see baseDescriptorSource). `file` is the base's ACTUAL path, so a caller renaming it
-	// moves the file that exists rather than a path it assumed.
-	const file = path.join(ws.root, sources[0]);
-	const mod = (readManifest(ws.root)?.modules ?? [])
-		.map((m) => (m.root === '.' ? '' : `${m.root}/`))
-		.filter((r) => r === '' || sources[0].startsWith(r))
-		.sort((a, b) => b.length - a.length)[0] ?? '';
-	return { dir: kindDir(path.join(ws.root, mod), 'collections'), file, sources };
+	// not do (see baseDescriptorSource). `file` is the ACTUAL path, so a caller renaming it moves the
+	// file that exists rather than a path it assumed.
+	const roots = (readManifest(ws.root)?.modules ?? []).map((m) => (m.root === '.' ? '' : `${m.root}/`));
+	const at = (rel) => {
+		const mod = roots.filter((r) => r === '' || rel.startsWith(r)).sort((a, b) => b.length - a.length)[0] ?? '';
+		return { dir: kindDir(path.join(ws.root, mod), 'collections'), file: path.join(ws.root, rel) };
+	};
+	if (!base) return { dir: null, file: null, overlays: overlays.map(at), sources };
+	return { ...at(base), overlays: overlays.map(at), sources };
 }
 
 /**
@@ -1666,15 +1662,26 @@ export function renameCollection(ws, store, oldName, newName) {
 	// directory. Refused rather than half-done — the fix is small and nothing has asked for it yet.
 	if (storageOf(d).under) throw new Error(`"${oldName}" is stored under ${storageOf(d).under.collection} (storage.under) — renaming a placed collection is not supported yet. The supported order: dreamteamer relocate ${oldName} --to-root · remove storage.under from its descriptor · compile · rename · declare storage.under again · compile · dreamteamer relocate ${newName}`);
 
-	// The descriptor is renamed IN THE MODULE THAT SHIPS IT — see `descriptorSourceDir`. Two cases
-	// this refuses, both because doing them halfway is worse than not doing them:
-	const { dir: sourceDir, file: sourceFile, sources } = descriptorSourceDir(ws, oldName);
-	if (sources.length > 1) {
-		throw new Error(`"${oldName}" is overlaid — ${sources.length} modules contribute a descriptor (${sources.join(', ')}).\n  each overlay names the collection, so renaming the base alone would leave them overlaying nothing. merge or remove the overlay first.`);
+	// The descriptor is renamed IN THE MODULE THAT SHIPS IT — see `descriptorSourceDir` — and so is
+	// every overlay of it, each in its own module: an overlay names only the collection, so one left
+	// behind would overlay a collection with no base. Refused where doing it halfway is worse than not
+	// doing it:
+	const { dir: sourceDir, file: sourceFile, overlays, sources } = descriptorSourceDir(ws, oldName);
+	const shipped = sources.find((p) => IN_NODE_MODULES(p));
+	if (shipped) {
+		throw new Error(`"${oldName}" ships from node_modules (${shipped}) — a write there is erased by the next \`npm install\`. rename it in its own repo and release.`);
 	}
-	if (sources.some((p) => p.split(path.sep).includes('node_modules'))) {
-		throw new Error(`"${oldName}" ships from node_modules (${sources[0]}) — a write there is erased by the next \`npm install\`. rename it in its own repo and release.`);
-	}
+	// An overlay's `storage` wins over the base's, and the path and suffix are re-derived from the
+	// base's below — so an overlay that sets either has no rename this can do honestly.
+	const overlayMoves = overlays.map(({ dir, file }) => {
+		const text = fs.readFileSync(file, 'utf8');
+		const odoc = load(text);
+		const set = ['path', 'suffix'].filter((k) => odoc?.storage?.[k] !== undefined);
+		if (set.length) throw new Error(`${path.relative(ws.root, file)} overlays "${oldName}" and sets storage.${set.join(' and storage.')} — move ${set.length === 1 ? 'it' : 'them'} into the base descriptor, then rename. nothing was renamed.`);
+		const to = path.join(dir, `${newName}.collection.yaml`);
+		if (to !== file && fs.existsSync(to)) throw new Error(`${path.relative(ws.root, to)} already exists — move or remove it first; nothing was renamed`);
+		return { file, to, text, doc: odoc };
+	});
 	// The base's ACTUAL path, not one rebuilt from the name — a module that owns its namespace may
 	// author `collections/positions.collection.yaml` as `hr/positions`, and rebuilding the path then
 	// named a file that does not exist.
@@ -1724,6 +1731,11 @@ export function renameCollection(ws, store, oldName, newName) {
 		fs.mkdirSync(path.dirname(src), { recursive: true });
 		fs.writeFileSync(src, srcBytes);
 		if (dest !== src) fs.rmSync(dest, { force: true });
+		for (const o of overlayMoves) {
+			fs.mkdirSync(path.dirname(o.file), { recursive: true });
+			fs.writeFileSync(o.file, o.text);
+			if (o.to !== o.file) fs.rmSync(o.to, { force: true });
+		}
 	};
 
 	return store.withWriteLock(() => {
@@ -1731,9 +1743,10 @@ export function renameCollection(ws, store, oldName, newName) {
 		// of every record file — purely to snapshot the referencing files for rollback, and then step 2
 		// walked them all again to rewrite them: the same bytes read twice, per id. The rewrite
 		// snapshots what it writes as it writes it (`store.rewriteRefsBatch`), so its own `restore` is
-		// the rollback and the pre-walk is pure cost. `refFiles` is now step 4's descriptor sources
-		// only, which no walk visits.
+		// the rollback and the pre-walk is pure cost. `refFiles` holds the sources steps 4 and 5
+		// rewrite (descriptors, mixins, views, package.json files), which no record walk visits.
 		const refFiles = new Map();
+		const rootPkg = path.join(ws.root, 'package.json');
 		const undoRewrites = [];
 		const restoreRefs = () => {
 			// reverse-chronological: one file can be written by both ref passes, and undoing the earlier
@@ -1778,6 +1791,19 @@ export function renameCollection(ws, store, oldName, newName) {
 			if (dest !== src) fs.rmSync(src);
 			touched.add(src);
 			touched.add(dest);
+			// each overlay the same way: only its `name` changes, round-tripped over its own bytes
+			for (const o of overlayMoves) {
+				o.doc.name = newName;
+				const out = writeSource(o.text, o.doc);
+				if (load(out)?.name !== newName || commentCount(out) < commentCount(o.text)) {
+					throw new Error(`could not rewrite ${path.relative(ws.root, o.file)} in place — its name did not take without reformatting it. nothing was changed.`);
+				}
+				fs.mkdirSync(path.dirname(o.to), { recursive: true });
+				fs.writeFileSync(o.to, out);
+				if (o.to !== o.file) fs.rmSync(o.file);
+				touched.add(o.file);
+				touched.add(o.to);
+			}
 
 			// 2. INBOUND REFERENCES FIRST, while the records are still where the store thinks they are.
 			//
@@ -1858,6 +1884,23 @@ export function renameCollection(ws, store, oldName, newName) {
 				rewrites++;
 			}
 
+			// 5. every module's `dreamteamer.peer_collections` naming the collection: the list that
+			//    lets a module overlay or reference it while it is installed. Step 4 retargeted those
+			//    types and overlays, so a peer list left on the old name makes compile refuse them.
+			for (const f of modulePackageFiles(ws)) {
+				const before = fs.readFileSync(f, 'utf8');
+				let pkg;
+				try { pkg = JSON.parse(before); } catch { continue; }
+				const peers = pkg?.dreamteamer?.peer_collections;
+				if (!Array.isArray(peers) || !peers.includes(oldName)) continue;
+				pkg.dreamteamer.peer_collections = peers.map((p) => (p === oldName ? newName : p));
+				if (!refFiles.has(f)) refFiles.set(f, Buffer.from(before));
+				fs.writeFileSync(f, JSON.stringify(pkg, null, '\t') + '\n');
+				if (f === rootPkg) refreshWorkspacePkg(ws);
+				touched.add(f);
+				rewrites++;
+			}
+
 			compile(ws); // the gate: an uncompilable rename never reaches history
 		} catch (e) {
 			// ⚠ undo() FIRST. A captured file can be a SELF-reference — a record of the collection being
@@ -1866,6 +1909,7 @@ export function renameCollection(ws, store, oldName, newName) {
 			// error actually being rolled back from.
 			undo();
 			restoreRefs();
+			if (refFiles.has(rootPkg)) refreshWorkspacePkg(ws);
 			try { compile(ws); } catch { /* pre-rename sources were compilable */ }
 			throw e;
 		}
@@ -1880,6 +1924,7 @@ export function renameCollection(ws, store, oldName, newName) {
 		} catch (e) {
 			undo();
 			restoreRefs();
+			if (refFiles.has(rootPkg)) refreshWorkspacePkg(ws);
 			try { compile(ws); } catch { /* pre-rename sources were compilable */ }
 			throw new Error(`git commit failed — the rename was rolled back, nothing was changed. (${e.message.split('\n')[0]})`);
 		}
@@ -1991,6 +2036,25 @@ function descriptorSources(ws, store) {
 		if (fs.existsSync(dir)) out.push(...[...walk(dir)].filter((f) => f.endsWith('.collection.yaml')));
 	}
 	return out;
+}
+
+/** Every package.json in this workspace that can declare `peer_collections` — the workspace's own
+ *  and each module's outside node_modules (a write there is erased by the next install). */
+function modulePackageFiles(ws) {
+	const roots = new Set(['.', ...(readManifest(ws.root)?.modules ?? []).map((m) => m.root)]);
+	return [...roots]
+		.filter((r) => typeof r === 'string' && !IN_NODE_MODULES(r))
+		.map((r) => path.join(ws.root, r, 'package.json'))
+		.filter((f) => fs.existsSync(f));
+}
+
+/** Re-read the workspace package.json into `ws.pkg` in place — `compile({root, pkg})` reads the
+ *  object it was handed, not the file. */
+function refreshWorkspacePkg(ws) {
+	let pkg;
+	try { pkg = JSON.parse(fs.readFileSync(path.join(ws.root, 'package.json'), 'utf8')); } catch { return; }
+	for (const k of Object.keys(ws.pkg)) delete ws.pkg[k];
+	Object.assign(ws.pkg, pkg);
 }
 
 /** Rewrite a field `type` naming `oldName` → `newName` — a scalar type or a union member, at any
