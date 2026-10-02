@@ -229,7 +229,10 @@ function propertyOf(f, collections, peers) {
 	} else {
 		for (const k of ['minItems', 'maxItems']) if (f[k] !== undefined) p[k] = f[k];
 	}
-	for (const k of ['minimum', 'maximum', 'minLength', 'maxLength', 'pattern', 'const']) if (f[k] !== undefined && !f.many) item[k] = f[k];
+	// value constraints describe ONE value, so on a list they sit on each item — exactly where
+	// compiled.json_schema puts them (fields.js); dropping them for `many` let a write the validator's
+	// own schema refuses through the store and check, which still read this shape
+	for (const k of ['minimum', 'maximum', 'minLength', 'maxLength', 'pattern', 'const']) if (f[k] !== undefined) item[k] = f[k];
 	if (f.default !== undefined) p.default = f.default;
 	if (f.examples !== undefined) p.examples = f.examples;
 	if (f.mirror_of !== undefined) p['x-inverse-of'] = `${targets[0]}.${f.mirror_of}`;
@@ -256,7 +259,8 @@ function scalarOf(f, collections, peers) {
 		case 'datetime': return { type: 'string', format: 'date-time' };
 		case 'url': return { type: 'string', format: 'uri' };
 		case 'email': return { type: 'string', format: 'email' };
-		case 'position': return { type: 'string' };
+		// the fractional key `dt reorder` writes — a-z by design, the same pattern compiled.json_schema states
+		case 'position': return { type: 'string', pattern: '^[a-z]+$' };
 		case 'map': {
 			const v = f.values;
 			const inner = typeof v === 'string' ? scalarOf({ type: v }, collections, peers) : v && typeof v === 'object' ? propertyOf(v, collections, peers) : {};

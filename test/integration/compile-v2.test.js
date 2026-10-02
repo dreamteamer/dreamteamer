@@ -334,3 +334,55 @@ describe('the transitional cut: field verbs and the display contract', () => {
 		assert.equal(q.fields['health/visits'].find((r) => r.field === 'summary_url').meta.readonly, true);
 	});
 });
+
+describe('item constraints on a list reach the store and check (review R3)', () => {
+	const NOTES = {
+		description: 'A note.',
+		ids: { from: '{{ name | slug }}' },
+		fields: {
+			name: { type: 'string', required: true },
+			tags: { type: 'string', many: true, pattern: '^[a-z][a-z0-9-]*$' },
+			scores: { type: 'integer', many: true, minimum: 1, maximum: 5 },
+			codes: { type: 'string', many: true, minLength: 2, maxLength: 3 },
+			marks: { type: 'string', many: true, const: 'x' },
+			position: { type: 'position' },
+			body: { type: 'markdown', body: true },
+		},
+	};
+	const ready = () => {
+		const w = workspace({ compile: false });
+		writeCollection(w.root, 'notes', NOTES);
+		compileQuietly(w.ws);
+		return w;
+	};
+	const bad = [
+		['tags', 'INVALID', /tags/],
+		['scores', '9', /scores/],
+		['codes', 'abcdef', /codes/],
+		['marks', 'y', /marks/],
+		['position', '123!', /position/],
+	];
+	for (const [field, value, re] of bad) {
+		test(`store.add refuses ${field}=${value}`, () => {
+			const w = ready();
+			const r = dt(w.root, 'add', 'note', `Bad ${field}`, `--${field}`, value);
+			assert.notEqual(r.code, 0, `${field}=${value} was accepted`);
+			assert.match(r.stderr, re);
+		});
+	}
+	test('valid values pass add and check', () => {
+		const w = ready();
+		const r = dt(w.root, 'add', 'note', 'Good', '--tags', 'alpha', '--scores', '3', '--codes', 'ab', '--marks', 'x', '--position', 'm');
+		assert.equal(r.code, 0, r.stderr);
+		assert.equal(dt(w.root, 'check').code, 0);
+	});
+	test('check reports a hand-edited bad item and a bad position', () => {
+		const w = ready();
+		fs.mkdirSync(path.join(w.root, 'data', 'notes'), { recursive: true });
+		fs.writeFileSync(path.join(w.root, 'data', 'notes', 'hand.note.md'), "---\nname: Hand\ntags:\n  - INVALID\nposition: '123!'\n---\n");
+		const c = dt(w.root, 'check');
+		assert.notEqual(c.code, 0);
+		assert.match(c.stdout + c.stderr, /tags/);
+		assert.match(c.stdout + c.stderr, /position/);
+	});
+});
