@@ -14,7 +14,7 @@ const NOTE = { description: 'A note.', ids: { from: '{{ title | slug }}' }, fiel
 test('a workspace still carrying dreamteamer.md is refused with the rename', () => {
 	const w = workspace({ compile: false });
 	fs.writeFileSync(path.join(w.root, 'dreamteamer.md'), 'Rule one.\n');
-	assert.match(compileError(w.ws), /dreamteamer\.md is named DREAMTEAMER\.md now — rename it/);
+	assert.match(compileError(w.ws), /the instructions source is DREAMTEAMER\.md, and dreamteamer\.md is not read — rename it/);
 });
 
 test('CLAUDE.md opens with the generated block; the operator text comes only after it', () => {
