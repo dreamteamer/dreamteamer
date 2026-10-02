@@ -150,7 +150,7 @@ describe('references that are not record refs', () => {
 		const dir = path.join(ws.root, 'modules', WS_MODULE, 'ui-views');
 		fs.mkdirSync(dir, { recursive: true });
 		fs.writeFileSync(path.join(dir, 'docs.ui-view.yaml'),
-			'path: /doctors\ntarget: list\ncollection: collections/doctors\nlayout: table\n');
+			'route: /doctors\nscope: collection\ncollection: collections/doctors\n');
 		assert.equal(ws.dt('compile').code, 0);
 
 		assert.equal(ws.dt('rename', 'collections/doctors', 'health/doctors').code, 0);

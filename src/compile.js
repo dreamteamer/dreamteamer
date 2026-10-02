@@ -12,7 +12,8 @@ import { slug } from './template.js';
 import { walk, patternRe } from './records.js';
 import { refTargetsOf } from './ref.js';
 import { subpathProblem, placedRecords } from './placement.js';
-import { unknownOperators } from './filter.js';
+import { viewErrors, viewDisplay, bindingErrors } from './views.js';
+import { fieldsOf, displayOf } from './descriptor.js';
 import {
 	normalizeNamespaces, namespaceProblems, unqualifiedProblems, defaultStoragePath, storageOverlaps,
 	baseNameOf, singular, namespaceOf } from './namespace.js';
@@ -1834,77 +1835,47 @@ export function compile(ws) {
 		for (const d of disabled) if (!disabledHits.has(d)) console.warn(`⚠ dreamteamer.disable entry "${d}" matched nothing`);
 	}
 
-	// ---- ui-view layout validation --------------------------------------------------
-	// ⚠ `layout` is NOT validated here, deliberately. The rule: the engine validates a value if and
-	// only if the ENGINE INTERPRETS it. It interprets filter operators (`matchesFilter`, and the
-	// CLI's `--where`), so a typo'd operator is a real bug it can catch — hence the check below.
-	// It interprets `layout` nowhere: the value is opaque payload forwarded to whichever surface
-	// renders, and only that surface's registry knows which ids exist.
-	//
-	// There used to be an allowlist here, hardcoded to mirror dreamteamer-vscode's
-	// `lists.register(...)` calls in a DIFFERENT REPO. It was wrong both times it was tested:
-	// kanban/calendar/map (2026-07-29) and erd/graph (2026-08-10), each costing an engine edit to
-	// add a UI feature. Worse, it BLOCKED the sanctioned extension path — a module's `app.js` gets
-	// a `registerList({ id, ... })` API, so it can contribute a layout with no engine involvement,
-	// and this check then rejected the very view naming it unless the module also duplicated the id
-	// into a `dreamteamer.studio.layouts` key (zero users, in any repo, ever). Proven 2026-08-11 by
-	// modules/ui-smoke: the layout rendered in the app while compile refused the view.
-	//
-	// The descriptor already documented the correct behaviour — ui-views.collection.yaml: "An
-	// unregistered id degrades visibly rather than erroring" — and the surface already implements
-	// it (presets.ts#resolveRendererEntry falls back to table). Decision 195.
-	// ui-views' own field names, read from the descriptor that was just merged rather than hardcoded —
-	// a list in here would silently stop covering a field the moment ui-views grew one.
-	const ownFields = load(entries.get(path.join('collections', 'ui-views.collection.yaml'))?.bytes?.toString('utf8') ?? '')?.schema?.properties ?? {};
+	// ---- ui-views and command-bindings: validated against the collection each one names ----------
+	// `layout` is not validated: the engine validates a value only where it interprets it, and a layout
+	// id is opaque payload for whichever surface renders it (an unregistered one degrades there). Filter
+	// operators, field names and templates the engine does interpret, so a typo fails here rather than
+	// as a view that draws nothing or a gate that never opens. A view's compiled file is its source plus
+	// `compiled.display`: its display merged over its collection's.
+	const collectionOf = (ref) => {
+		const name = String(ref ?? '').replace(/^collections\//, '');
+		const e = name && entries.get(path.join('collections', `${name}.collection.yaml`));
+		return e ? load(e.bytes.toString('utf8')) : null;
+	};
+	// a collection compiled without the v2 block has no resolved fields to check names against
+	const fieldsKnown = (d) => (d?.compiled?.fields ? fieldsOf(d) : undefined);
+	// a module declaring a peer that is not installed may name a field that peer's overlay adds
+	const lenientFor = (file) => {
+		const owner = sources.map((s) => ({ s, at: rel(s.root) })).filter(({ at }) => !at || file.startsWith(`${at}/`)).sort((a, b) => b.at.length - a.at.length)[0]?.s;
+		return (modulePeers.get(owner?.name) ?? []).some((p) => !descriptorGroups.has(p));
+	};
 	for (const [rt, e] of entries) {
 		if (!rt.startsWith('ui-views/')) continue;
-		const view = loadSource(e.bytes.toString('utf8'), e.sources[0].path);
-		// filters are load-bearing (they narrow what the operator SEES) — typo'd operators
-		// fail at compile, not silently at render (review finding 5)
-		const badOps = view?.filter ? [...unknownOperators(view.filter)] : [];
-		if (badOps.length) fail(`${rt}: unknown filter operator(s) ${badOps.join(', ')}`);
-		// `@me` died with the `users` collection in 0.8.0. It expanded to `users/<slug>`, so on this
-		// engine it can only ever match nothing — and a filter that narrows to zero rows is the exact
-		// silent failure this block exists to prevent. Refuse it by name, with the fix.
-		if (view?.filter && JSON.stringify(view.filter).includes('"@me"')) {
-			fail(`${rt}: filter uses "@me", which was removed with the \`users\` collection in 0.8.0 — it would now match nothing.\n  filter on a field this workspace owns instead (e.g. { status: { _eq: "todo" } }).`);
-		}
-		// ⚠ `options` is a deliberately OPEN object — every key it does not own rides through untouched
-		// to whichever surface renders the layout. That openness is right, and it has one sharp edge: a
-		// field that belongs ONE LEVEL UP, written inside it, is accepted, saved, round-tripped and read
-		// by nobody. `options.filter` cost a real afternoon — the view drew all 429 rows of a collection
-		// it was supposed to narrow to 90, and neither compile nor check nor the surface said a word.
-		//
-		// This is the same rule the block above states, not an exception to it: the engine DOES interpret
-		// `filter`, so a `filter` it will never be handed is a value it can catch. A warning rather than a
-		// failure because `options` is open by contract and a surface may legitimately want a key that
-		// collides — but the operator has to be told, because the symptom is a view that looks like it
-		// works.
-		const shadowed = view?.options && typeof view.options === 'object' && !Array.isArray(view.options)
-			? Object.keys(view.options).filter((k) => k in ownFields)
-			: [];
-		for (const k of shadowed) {
-			console.warn(`⚠ ${rt}: options.${k} is read by nothing — \`${k}\` is a field of ui-views itself, one level up. move it out of \`options\`.`);
-		}
+		const file = e.sources[0].path;
+		const view = loadSource(e.bytes.toString('utf8'), file);
+		const d = view?.collection ? collectionOf(view.collection) : null;
+		const { errors, warnings } = viewErrors(view, { file, fields: fieldsKnown(d), lenient: lenientFor(file) });
+		if (errors.length) fail(errors.join('\n  '));
+		for (const w of warnings) console.warn(`⚠ ${w}`);
+		const text = e.bytes.toString('utf8');
+		e.bytes = Buffer.from(`${text}${text.endsWith('\n') ? '' : '\n'}${dump({ compiled: { display: viewDisplay(d ? displayOf(d) : {}, view) } })}`);
 	}
-
-	// ---- command-binding validation --------------------------------------------------
-	// a binding joins a command to a collection under can-enter/can-exit predicates;
-	// dangling refs and typo'd operators fail HERE, not silently at evaluation (the same
-	// guarantee ui-view filters get — validators are load-bearing, they gate what runs).
 	const commandIds = new Set([...entries.keys()].filter((k) => k.startsWith('commands/')).map((k) => path.basename(k).replace(/\.command\.md$/, '')));
 	for (const [rt, e] of entries) {
 		if (!rt.startsWith('command-bindings/')) continue;
-		const b = loadSource(e.bytes.toString('utf8'), e.sources[0].path);
+		const file = e.sources[0].path;
+		const b = loadSource(e.bytes.toString('utf8'), file);
 		const cmd = String(b?.command ?? '').replace(/^commands\//, '');
 		if (!cmd || !commandIds.has(cmd)) fail(`${rt}: references unknown command "${b?.command ?? ''}"`);
 		const coll = String(b?.collection ?? '').replace(/^collections\//, '');
 		if (!coll || !descriptorGroups.has(coll)) fail(`${rt}: references unknown collection "${b?.collection ?? ''}"`);
-		for (const key of ['can-enter', 'can-exit']) {
-			const badBindOps = b?.[key] ? [...unknownOperators(b[key])] : [];
-			if (badBindOps.length) fail(`${rt}: ${key} has unknown filter operator(s) ${badBindOps.join(', ')}`);
-			if (b?.[key] && b?.target === 'collection') console.warn(`⚠ ${rt}: ${key} is ignored — target=collection bindings evaluate no record`);
-		}
+		const { errors, warnings } = bindingErrors(b, { file, fields: fieldsKnown(collectionOf(coll)), lenient: lenientFor(file) });
+		if (errors.length) fail(errors.join('\n  '));
+		for (const w of warnings) console.warn(`⚠ ${w}`);
 	}
 
 	// ---- extension analysis ------------------------------------------------------------

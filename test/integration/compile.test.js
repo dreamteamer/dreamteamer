@@ -116,7 +116,7 @@ describe('descriptor validation', () => {
 
 	// A ui-view's filter narrows what the operator SEES, so a typo'd operator is worse than an error:
 	// review finding 5 was a `_nq` matching EVERYTHING, which showed every user's tasks with no signal.
-	// `filter` is a TOP-LEVEL key on a ui-view, a sibling of `options` — which is where the schema puts
+	// `filter` is a TOP-LEVEL key on a ui-view, a sibling of `display` — which is where the schema puts
 	// it and where the studio writes it. Asserting the location matters as much as the refusal: the first
 	// version of this test put the filter under `options.filter`, where nothing reads it, so it passed
 	// while proving nothing.
@@ -125,7 +125,7 @@ describe('descriptor validation', () => {
 		const dir = path.join(ws.root, 'modules', WS_MODULE, 'ui-views');
 		fs.mkdirSync(dir, { recursive: true });
 		fs.writeFileSync(path.join(dir, 'v.ui-view.yaml'),
-			`path: /v\ntarget: list\ncollection: collections/widgets\nlayout: table\n${body}`);
+			`route: /v\nscope: collection\ncollection: collections/widgets\n${body}`);
 		return ws;
 	};
 
@@ -151,29 +151,30 @@ describe('descriptor validation', () => {
 	// since the symptom is a view that looks like it works.
 	const warningsFor = (body) => compileQuietly(uiView(body).ws).warnings.join('\n');
 
+	const inOptions = (opts) => `display:\n  list:\n    options:\n${Object.entries(opts).map(([k, v]) => `      ${k}: ${v}\n`).join('')}`;
 	test('a filter hidden inside options is warned about, naming the key', () => {
-		const warn = warningsFor('options: { filter: { name: { _eq: x } } }\n');
-		assert.match(warn, /options\.filter is read by nothing/);
-		assert.match(warn, /one level up/);
+		const warn = warningsFor(inOptions({ filter: '{ name: { _eq: x } }' }));
+		assert.match(warn, /display\.list\.options\.filter is read by nothing/);
+		assert.match(warn, /a key of the view itself/);
 	});
 
 	test('the warning does not fail the compile — options is open by contract', () => {
-		assert.equal(compileError(uiView('options: { filter: { name: { _eq: x } } }\n').ws), null);
+		assert.equal(compileError(uiView(inOptions({ filter: '{ name: { _eq: x } }' })).ws), null);
 	});
 
 	// Every field ui-views owns, not a hardcoded list of one: `sort` and `columns` are the other two
 	// anyone will actually type, and the check reads the merged descriptor so it keeps covering a
 	// field the collection grows later.
-	test('any sibling field shadowed inside options is warned about', () => {
-		const warn = warningsFor('options: { path: /elsewhere, layout: kanban }\n');
-		assert.match(warn, /options\.path is read by nothing/);
-		assert.match(warn, /options\.layout is read by nothing/);
+	test('any sibling key shadowed inside options is warned about', () => {
+		const warn = warningsFor(inOptions({ route: '/elsewhere', layout: 'kanban', columns: '[name]' }));
+		assert.match(warn, /options\.route is read by nothing/);
+		assert.match(warn, /options\.layout is read by nothing — `layout` is a key of display\.list, one level up/);
+		assert.match(warn, /options\.columns is read by nothing/);
 	});
 
 	test('a genuine layout option is left alone', () => {
-		// `columns` and `sort` ARE ui-view fields... but `group-by` is not, and neither is anything a
-		// module's own list registers. Those must ride through silently or the warning is noise.
-		const warn = warningsFor('options: { group-by: status, swimlanes: true }\n');
+		// anything a module's own list registers must ride through silently or the warning is noise
+		const warn = warningsFor(inOptions({ page_size: 50, swimlanes: true }));
 		assert.doesNotMatch(warn, /read by nothing/);
 	});
 
@@ -191,7 +192,7 @@ describe('descriptor validation', () => {
 		const dir = path.join(ws.root, 'modules', WS_MODULE, 'ui-views');
 		fs.mkdirSync(dir, { recursive: true });
 		fs.writeFileSync(path.join(dir, 'v.ui-view.yaml'),
-			'path: /v\ntarget: list\ncollection: collections/nope\nlayout: table\n');
+			'route: /v\nscope: collection\ncollection: collections/nope\n');
 		assert.equal(compileError(ws.ws), null);
 
 		const res = ws.dt ? ws.dt('check') : null;
@@ -208,7 +209,7 @@ describe('descriptor validation', () => {
 		const dir = path.join(ws.root, 'modules', WS_MODULE, 'ui-views');
 		fs.mkdirSync(dir, { recursive: true });
 		fs.writeFileSync(path.join(dir, 'v.ui-view.yaml'),
-			'path: /doctors\ntarget: list\ncollection: collections/health/doctors\nlayout: table\n');
+			'route: /doctors\nscope: collection\ncollection: collections/health/doctors\n');
 		assert.equal(compileError(ws.ws), null, 'a qualified name is just a record id of `collections`');
 	});
 });
@@ -237,7 +238,7 @@ describe('disable', () => {
 		const dir = path.join(ws.root, 'modules', WS_MODULE, 'ui-views');
 		fs.mkdirSync(dir, { recursive: true });
 		fs.writeFileSync(path.join(dir, 'board.ui-view.yaml'),
-			'path: /board\ntarget: list\ncollection: collections/widgets\nlayout: table\n');
+			'route: /board\nscope: collection\ncollection: collections/widgets\n');
 		const pkgFile = path.join(ws.root, 'package.json');
 		const pkg = JSON.parse(readFile(ws.root, 'package.json'));
 		pkg.dreamteamer.disable = [`${WS_MODULE}/board`];
@@ -296,7 +297,7 @@ describe('disable', () => {
 		const dir = path.join(ws.root, 'modules', WS_MODULE, 'ui-views');
 		fs.mkdirSync(dir, { recursive: true });
 		fs.writeFileSync(path.join(dir, 'later.ui-view.yaml'),
-			'path: /later\ntarget: list\ncollection: collections/widgets\nlayout: table\n');
+			'route: /later\nscope: collection\ncollection: collections/widgets\n');
 		const stale = staleness(ws.root).stale;
 		assert.equal(stale.length, 1, 'a real uncompiled source is still named');
 		assert.match(stale[0], /later\.ui-view\.yaml \(new, uncompiled\)/);
@@ -717,7 +718,7 @@ describe('x-inverse onto a peer collection', () => {
 });
 
 // ---------------------------------------------------------------------------------------------
-// A binding whose can-enter hops through a field a PEER module stamps: absent peer, the binding
+// A binding whose available_when hops through a field a PEER module stamps: absent peer, the binding
 // compiles and reads not-applicable; installed, it reads available once the hop matches.
 describe('a command-binding gated on a peer collection', () => {
 	const meetingDocs = ({ withRecordings }) => {
@@ -728,7 +729,7 @@ describe('a command-binding gated on a peer collection', () => {
 		fs.mkdirSync(path.join(docs, 'command-bindings'));
 		fs.writeFileSync(path.join(docs, 'commands', 'summarize.command.md'), '---\nname: summarize\ndescription: Summarize a call.\n---\nSummarize it.\n');
 		fs.writeFileSync(path.join(docs, 'command-bindings', 'summarize--meetings.command-binding.yaml'),
-			'command: commands/summarize\ncollection: collections/meetings\ntarget: record\ncan-enter:\n  recordings:\n    transcription:\n      _nempty: true\n');
+			'command: commands/summarize\ncollection: collections/meetings\nscope: record\navailable_when:\n  recordings:\n    transcription:\n      _nempty: true\n');
 		if (withRecordings) {
 			writeModule(ws.root, 'rec', { dependencies: ['meet'], collections: { recordings: simpleCollection({
 				storage: { suffix: 'recording' },
@@ -929,7 +930,7 @@ describe('a malformed source names itself', () => {
 		const ws = uncompiled();
 		const dir = path.join(ws.root, 'modules', WS_MODULE, 'ui-views');
 		fs.mkdirSync(dir, { recursive: true });
-		fs.writeFileSync(path.join(dir, 'tabbed.ui-view.yaml'), 'path: tabbed\noptions:\n\tsort: -date\n');
+		fs.writeFileSync(path.join(dir, 'tabbed.ui-view.yaml'), 'route: tabbed\ndisplay:\n\tlist: {}\n');
 		const err = compileError(ws.ws);
 		assert.match(err, /tabbed\.ui-view\.yaml/);
 		assert.match(err, /tab characters/);

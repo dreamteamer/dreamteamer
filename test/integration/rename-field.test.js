@@ -117,19 +117,19 @@ describe('every surface that names a field by NAME', () => {
 		assert.equal(ws.dt('check').code, 0);
 	});
 
-	test("a ui-view's options.columns and its filter", () => {
+	test("a ui-view's display.list.columns and its filter", () => {
 		const ws = twoModuleWorkspace();
-		assert.equal(ws.dt('add', 'ui-views', '--path', '/staff', '--target', 'list',
-			'--collection', 'collections/people', '--layout', 'table',
-			'options.columns=name,employer', '--filter', '{"employer":{"_eq":"Acme"}}').code, 0);
+		assert.equal(ws.dt('add', 'ui-views', '--route', '/staff', '--scope', 'collection',
+			'--collection', 'collections/people',
+			'display.list.columns=name,employer', '--filter', '{"employer":{"_eq":"Acme"}}').code, 0);
 		assert.equal(ws.dt('rename-field', 'people', '--name', 'employer', '--to', 'company').code, 0);
 		const view = load(readFile(ws.root, 'modules/default/ui-views/staff.ui-view.yaml'));
-		assert.deepEqual(view.options.columns, ['name', 'company']);
+		assert.deepEqual(view.display.list.columns, ['name', 'company']);
 		assert.deepEqual(view.filter, { company: { _eq: 'Acme' } },
 			'a filter narrows what the operator SEES — a stale key narrows to nothing, silently');
 	});
 
-	test("a command-binding's can-enter and can-exit", () => {
+	test("a command-binding's available_when and done_when", () => {
 		const ws = twoModuleWorkspace();
 		assert.equal(ws.dt('add-field', 'people', '--name', 'status', '--type', 'enum',
 			'--options', 'draft,done').code, 0);
@@ -141,13 +141,13 @@ describe('every surface that names a field by NAME', () => {
 		// so the filename is `enrich--people` — compile takes a file-shaped record's id from the
 		// FILENAME, and a name that disagrees with `id.generate` is a `check` finding waiting to happen
 		fs.writeFileSync(path.join(ws.root, 'modules/default/command-bindings/enrich--people.command-binding.yaml'),
-			'command: commands/enrich\ncollection: collections/people\ntarget: record\n'
-			+ 'can-enter: { status: { _eq: draft } }\ncan-exit: { status: { _eq: done } }\n');
+			'command: commands/enrich\ncollection: collections/people\nscope: record\n'
+			+ 'available_when:\n  status:\n    _eq: draft\ndone_when:\n  status:\n    _eq: done\n');
 		assert.equal(ws.dt('compile').code, 0);
 		assert.equal(ws.dt('rename-field', 'people', '--name', 'status', '--to', 'stage').code, 0);
 		const b = load(readFile(ws.root, 'modules/default/command-bindings/enrich--people.command-binding.yaml'));
-		assert.deepEqual(b['can-enter'], { stage: { _eq: 'draft' } });
-		assert.deepEqual(b['can-exit'], { stage: { _eq: 'done' } });
+		assert.deepEqual(b.available_when, { stage: { _eq: 'draft' } });
+		assert.deepEqual(b.done_when, { stage: { _eq: 'done' } });
 	});
 
 	test('an OVERLAY in another module is rewritten too', () => {

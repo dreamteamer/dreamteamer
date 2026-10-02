@@ -9,9 +9,16 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { workspace, simpleCollection, compileQuietly, readFile } from '../helpers/ws.js';
+import { workspace, compileQuietly, readFile } from '../helpers/ws.js';
 import { saveUiView, removeUiView } from '../../src/schema-ops.js';
 import { load, dump } from '../../src/yaml.js';
+
+const DOCTORS = {
+	description: 'A doctor.',
+	ids: { from: '{{ name | slug }}' },
+	fields: { name: { type: 'string', required: true }, notes: { type: 'markdown', body: true } },
+};
+const simpleCollection = () => DOCTORS;
 
 const HEADER = '# Every doctor worth calling twice — the triage list.\n#\n# The whole file, explained.\n';
 // A comment above a TOP-LEVEL key, which is where this vault keeps its ⚠ warnings — the reason
@@ -24,8 +31,8 @@ function withModuleView(viewBody = {}) {
 	const mod = path.join(ws.root, 'modules', 'clinic');
 	fs.mkdirSync(path.join(mod, 'ui-views'), { recursive: true });
 	fs.writeFileSync(path.join(mod, 'package.json'), JSON.stringify({ name: 'clinic', dreamteamer: {} }, null, '\t'));
-	const body = dump({ path: '/clinic/doctors', target: 'list', collection: 'collections/doctors', layout: 'table', ...viewBody })
-		.replace(/^layout:/m, `${KEY_NOTE}\nlayout:`);
+	const body = dump({ route: '/clinic/doctors', scope: 'collection', collection: 'collections/doctors', display: { list: { layout: 'table' } }, ...viewBody })
+		.replace(/^display:/m, `${KEY_NOTE}\ndisplay:`);
 	fs.writeFileSync(path.join(mod, 'ui-views', 'clinic-doctors.ui-view.yaml'), HEADER + body);
 	// Committed, because that is the state a real module source is in — and `git add -- <path>` on a
 	// DELETED file only works if the file was tracked, which is what the remove test needs.
@@ -35,7 +42,7 @@ function withModuleView(viewBody = {}) {
 	return ws;
 }
 
-const VIEW = { path: '/clinic/doctors', target: 'list', collection: 'collections/doctors', layout: 'cards' };
+const VIEW = { route: '/clinic/doctors', scope: 'collection', collection: 'collections/doctors', display: { list: { layout: 'cards' } } };
 
 describe('saveUiView writes the view where it already lives', () => {
 	test("a view shipped by ANOTHER inline module is updated in place, not copied into the workspace module", () => {
@@ -45,7 +52,7 @@ describe('saveUiView writes the view where it already lives', () => {
 
 		assert.equal(res.updated, true, 'it is an update, not a create');
 		assert.equal(path.relative(ws.root, res.file), path.join('modules', 'clinic', 'ui-views', 'clinic-doctors.ui-view.yaml'));
-		assert.equal(load(readFile(ws.root, 'modules/clinic/ui-views/clinic-doctors.ui-view.yaml')).layout, 'cards');
+		assert.equal(load(readFile(ws.root, 'modules/clinic/ui-views/clinic-doctors.ui-view.yaml')).display.list.layout, 'cards');
 		assert.equal(
 			readFile(ws.root, 'modules/default/ui-views/clinic-doctors.ui-view.yaml'),
 			null,
@@ -72,7 +79,7 @@ describe('saveUiView writes the view where it already lives', () => {
 		const ws = withModuleView();
 		saveUiView(ws.ws, ws.store, { id: 'clinic-doctors', view: VIEW });
 		const text = readFile(ws.root, 'modules/clinic/ui-views/clinic-doctors.ui-view.yaml');
-		assert.match(text, new RegExp(`${KEY_NOTE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\nlayout: cards`), text);
+		assert.match(text, new RegExp(`${KEY_NOTE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\ndisplay:`), text);
 	});
 
 	test('a comment whose key did NOT survive is dropped, never re-attached to something else', () => {
@@ -93,7 +100,7 @@ describe('saveUiView writes the view where it already lives', () => {
 
 	test('a BRAND NEW view still lands in the workspace module', () => {
 		const ws = workspace({ collections: { doctors: simpleCollection() } });
-		const res = saveUiView(ws.ws, ws.store, { id: 'my-doctors', view: { ...VIEW, path: '/my/doctors' } });
+		const res = saveUiView(ws.ws, ws.store, { id: 'my-doctors', view: { ...VIEW, route: '/my/doctors' } });
 		assert.equal(res.updated, false);
 		assert.equal(path.relative(ws.root, res.file), path.join('modules', 'default', 'ui-views', 'my-doctors.ui-view.yaml'));
 	});
@@ -114,7 +121,7 @@ describe('a view shipped by an INSTALLED package', () => {
 		const mod = path.join(ws.root, 'node_modules', '@acme', 'views');
 		fs.mkdirSync(path.join(mod, 'ui-views'), { recursive: true });
 		fs.writeFileSync(path.join(mod, 'package.json'), JSON.stringify({ name: '@acme/views', dreamteamer: {} }, null, '\t'));
-		fs.writeFileSync(path.join(mod, 'ui-views', 'acme-doctors.ui-view.yaml'), dump({ ...VIEW, path: '/acme/doctors', layout: 'table' }));
+		fs.writeFileSync(path.join(mod, 'ui-views', 'acme-doctors.ui-view.yaml'), dump({ ...VIEW, route: '/acme/doctors', display: { list: { layout: 'table' } } }));
 		const pkgPath = path.join(ws.root, 'package.json');
 		const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
 		pkg.dependencies = { ...pkg.dependencies, '@acme/views': '*' };
@@ -131,7 +138,7 @@ describe('a view shipped by an INSTALLED package', () => {
 			/erased by the next npm install/,
 		);
 		// and the package source is untouched — a refusal that half-wrote would be worse than none
-		assert.equal(load(readFile(ws.root, 'node_modules/@acme/views/ui-views/acme-doctors.ui-view.yaml')).layout, 'table');
+		assert.equal(load(readFile(ws.root, 'node_modules/@acme/views/ui-views/acme-doctors.ui-view.yaml')).display.list.layout, 'table');
 	});
 
 	test('and cannot be removed either — disable is the route', () => {
@@ -163,61 +170,74 @@ describe('removeUiView', () => {
 describe('dt set ui-views/<id> — dotted values', () => {
 	const viewed = () => {
 		const ws = workspace({ collections: { doctors: simpleCollection() } });
-		const add = ws.dt('add', 'ui-views', '--path', '/recent', '--target', 'list',
-			'--collection', 'collections/doctors', '--layout', 'table');
+		const add = ws.dt('add', 'ui-views', '--route', '/recent', '--scope', 'collection',
+			'--collection', 'collections/doctors', 'display.list.layout=table');
 		assert.equal(add.code, 0, add.stderr);
 		return ws;
 	};
 	const saved = (ws) => load(readFile(ws.root, 'modules/default/ui-views/recent.ui-view.yaml'));
 
-	test('options.columns=a,b is a LIST — the comma spelling every other verb takes', () => {
+	test('add takes --route and --scope, and the id is the route slug', () => {
 		const ws = viewed();
-		const res = ws.dt('set', 'ui-views/recent', 'options.columns=name,notes');
+		assert.deepEqual(saved(ws), { route: '/recent', scope: 'collection', collection: 'collections/doctors', display: { list: { layout: 'table' } } });
+	});
+
+	test('a flag that is not a key of ui-views is refused before anything is written', () => {
+		const ws = workspace({ collections: { doctors: simpleCollection() } });
+		const res = ws.dt('add', 'ui-views', '--path', '/recent', '--target', 'list', '--collection', 'collections/doctors');
+		assert.equal(res.code, 1);
+		assert.match(res.stderr, /unknown flag "--path"/);
+		assert.equal(readFile(ws.root, 'modules/default/ui-views/recent.ui-view.yaml'), null);
+	});
+
+	test('display.list.columns=a,b is a LIST — the comma spelling every other verb takes', () => {
+		const ws = viewed();
+		const res = ws.dt('set', 'ui-views/recent', 'display.list.columns=name,notes');
 		assert.equal(res.code, 0, res.stderr);
-		assert.deepEqual(saved(ws).options.columns, ['name', 'notes'], 'a literal "name,notes" is read by nobody');
+		assert.deepEqual(saved(ws).display.list.columns, ['name', 'notes'], 'a literal "name,notes" is read by nobody');
 	});
 
 	test('one column is still a list of one, and spaces around the commas are trimmed', () => {
 		const ws = viewed();
-		assert.equal(ws.dt('set', 'ui-views/recent', 'options.columns=name').code, 0);
-		assert.deepEqual(saved(ws).options.columns, ['name']);
-		assert.equal(ws.dt('set', 'ui-views/recent', 'options.columns=name, notes').code, 0);
-		assert.deepEqual(saved(ws).options.columns, ['name', 'notes']);
+		assert.equal(ws.dt('set', 'ui-views/recent', 'display.list.columns=name').code, 0);
+		assert.deepEqual(saved(ws).display.list.columns, ['name']);
+		assert.equal(ws.dt('set', 'ui-views/recent', 'display.list.columns=name, notes').code, 0);
+		assert.deepEqual(saved(ws).display.list.columns, ['name', 'notes']);
 	});
 
 	test('the JSON form still works, and is the only spelling for a list of objects', () => {
 		const ws = viewed();
-		assert.equal(ws.dt('set', 'ui-views/recent', 'options.columns=["name","notes"]').code, 0);
-		assert.deepEqual(saved(ws).options.columns, ['name', 'notes']);
-		assert.equal(ws.dt('set', 'ui-views/recent', 'options.arrangement=[{"node":"a","x":1,"y":2}]').code, 0);
-		assert.deepEqual(saved(ws).options.arrangement, [{ node: 'a', x: 1, y: 2 }]);
+		assert.equal(ws.dt('set', 'ui-views/recent', 'display.list.columns=["name","notes"]').code, 0);
+		assert.deepEqual(saved(ws).display.list.columns, ['name', 'notes']);
+		assert.equal(ws.dt('set', 'ui-views/recent', 'display.list.options.arrangement=[{"node":"a","x":1,"y":2}]').code, 0);
+		assert.deepEqual(saved(ws).display.list.options.arrangement, [{ node: 'a', x: 1, y: 2 }]);
 	});
 
 	test('a comma in a SCALAR option stays one string — the key decides, not the comma', () => {
 		const ws = viewed();
-		assert.equal(ws.dt('set', 'ui-views/recent', 'options.template=a, b').code, 0);
-		assert.equal(saved(ws).options.template, 'a, b');
+		assert.equal(ws.dt('set', 'ui-views/recent', 'display.list.options.card_title=Dr {{ name }}, {{ id }}').code, 0);
+		assert.equal(saved(ws).display.list.options.card_title, 'Dr {{ name }}, {{ id }}');
 	});
 
 	test('the flag form takes the same value grammar as the positional one', () => {
 		const ws = viewed();
-		assert.equal(ws.dt('set', 'ui-views/recent', '--options.columns', 'name,notes').code, 0);
-		assert.deepEqual(saved(ws).options.columns, ['name', 'notes']);
+		assert.equal(ws.dt('set', 'ui-views/recent', '--display.list.columns', 'name,notes').code, 0);
+		assert.deepEqual(saved(ws).display.list.columns, ['name', 'notes']);
 	});
 
 	test('an EMPTY list option still removes the key, rather than showing no columns', () => {
 		const ws = viewed();
-		assert.equal(ws.dt('set', 'ui-views/recent', 'options.columns=name,notes').code, 0);
-		assert.equal(ws.dt('set', 'ui-views/recent', 'options.columns=').code, 0);
-		assert.equal(saved(ws).options?.columns, undefined);
+		assert.equal(ws.dt('set', 'ui-views/recent', 'display.list.columns=name,notes').code, 0);
+		assert.equal(ws.dt('set', 'ui-views/recent', 'display.list.columns=').code, 0);
+		assert.equal(saved(ws).display.list.columns, undefined);
 	});
 });
 
 describe('dt set ui-views/<id> — the empty string that MEANS something', () => {
 	const viewed = () => {
 		const ws = workspace({ collections: { doctors: simpleCollection() } });
-		const add = ws.dt('add', 'ui-views', '--path', '/recent', '--target', 'list',
-			'--collection', 'collections/doctors', '--layout', 'table', 'options.sort=-name');
+		const add = ws.dt('add', 'ui-views', '--route', '/recent', '--scope', 'collection',
+			'--collection', 'collections/doctors', 'display.list.layout=table', 'display.list.sort=-name');
 		assert.equal(add.code, 0, add.stderr);
 		return ws;
 	};
@@ -225,43 +245,50 @@ describe('dt set ui-views/<id> — the empty string that MEANS something', () =>
 
 	test("a QUOTED empty value writes sort: '' — what the surface needs to mean unsorted", () => {
 		const ws = viewed();
-		const res = ws.dt('set', 'ui-views/recent', 'options.sort=""');
+		const res = ws.dt('set', 'ui-views/recent', 'display.list.sort=""');
 		assert.equal(res.code, 0, res.stderr);
-		assert.equal(saved(ws).options.sort, '', 'the key must be PRESENT and empty, not absent');
-		assert.ok('sort' in saved(ws).options);
+		assert.equal(saved(ws).display.list.sort, '', 'the key must be PRESENT and empty, not absent');
+		assert.ok('sort' in saved(ws).display.list);
 	});
 
 	test('and it survives a compile, so the record round-trips', () => {
 		const ws = viewed();
-		assert.equal(ws.dt('set', 'ui-views/recent', 'options.sort=""').code, 0);
+		assert.equal(ws.dt('set', 'ui-views/recent', 'display.list.sort=""').code, 0);
 		assert.equal(compileQuietly(ws.ws).code, 0);
-		assert.equal(ws.store.read('ui-views', 'recent').fields.options.sort, '');
+		assert.equal(ws.store.read('ui-views', 'recent').fields.display.list.sort, '');
+	});
+
+	test('a set reads the compiled view and writes back only what the source carries', () => {
+		const ws = viewed();
+		assert.equal(ws.dt('set', 'ui-views/recent', 'title=Recent').code, 0);
+		assert.equal(saved(ws).compiled, undefined, '`compiled` is compile\'s, and a source carrying it would not compile');
+		assert.equal(saved(ws).title, 'Recent');
 	});
 
 	test('a BARE empty value still removes the key — the convention is untouched', () => {
 		const ws = viewed();
-		assert.equal(ws.dt('set', 'ui-views/recent', 'options.sort=').code, 0);
-		assert.equal(saved(ws).options?.sort, undefined);
+		assert.equal(ws.dt('set', 'ui-views/recent', 'display.list.sort=').code, 0);
+		assert.equal(saved(ws).display.list.sort, undefined);
 	});
 
 	test('a quoted NON-empty value is that literal string', () => {
 		const ws = viewed();
-		assert.equal(ws.dt('set', 'ui-views/recent', 'nav.label="Recent"', 'options.sort="-name"').code, 0);
-		assert.equal(saved(ws).nav.label, 'Recent');
-		assert.equal(saved(ws).options.sort, '-name');
+		assert.equal(ws.dt('set', 'ui-views/recent', 'display.nav.title="Recent"', 'display.list.sort="-name"').code, 0);
+		assert.equal(saved(ws).display.nav.title, 'Recent');
+		assert.equal(saved(ws).display.list.sort, '-name');
 	});
 
 	test('the flag form takes it too', () => {
 		const ws = viewed();
-		assert.equal(ws.dt('set', 'ui-views/recent', '--options.sort', '""').code, 0);
-		assert.equal(saved(ws).options.sort, '');
+		assert.equal(ws.dt('set', 'ui-views/recent', '--display.list.sort', '""').code, 0);
+		assert.equal(saved(ws).display.list.sort, '');
 	});
 
 	test('an unbalanced quote is named, not written', () => {
 		const ws = viewed();
-		const res = ws.dt('set', 'ui-views/recent', 'options.sort="-name');
+		const res = ws.dt('set', 'ui-views/recent', 'display.list.sort="-name');
 		assert.equal(res.code, 1);
 		assert.match(res.stderr, /not a quoted string/);
-		assert.equal(saved(ws).options.sort, '-name', 'the view is untouched');
+		assert.equal(saved(ws).display.list.sort, '-name', 'the view is untouched');
 	});
 });

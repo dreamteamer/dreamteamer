@@ -304,7 +304,7 @@ function metaCommandsFor(ws, store, flags, pos) {
 	if (flags.json) { emit(JSON.stringify(out, null, 2)); return 0; }
 	if (!out.commands.length) { console.log(`(no commands bound to ${collection})`); return 0; }
 	for (const c of out.commands) {
-		if (c.target === 'collection') { console.log(`${c.name}  [collection]  ${c.invocation}`); continue; }
+		if (c.scope === 'collection') { console.log(`${c.name}  [collection]  ${c.invocation}`); continue; }
 		const counts = ids.length ? `  ${c.eligible.length}/${ids.length} eligible${c.done.length ? `, ${c.done.length} done` : ''}` : '  (no ids given)';
 		console.log(`${c.name}  [record]${counts}${c.invocation ? `\n  ${c.invocation}` : ''}`);
 	}
@@ -710,7 +710,7 @@ function metaRemoveField(ws, store, collection, flags) {
 		// This descriptor's own `list_fields`/`sort_field` were pruned with the field; a ui-view is a
 		// source this verb does not own, so it is NAMED rather than edited — and naming it is the whole
 		// point, since a column of a field that no longer exists renders as an empty one.
-		if (out.staleViews?.length) console.warn(`⚠ still listing ${collection}.${name} as a column: ${out.staleViews.join(', ')} — edit with \`dreamteamer set ui-views/<id> options.columns=…\``);
+		if (out.staleViews?.length) console.warn(`⚠ still listing ${collection}.${name} as a column: ${out.staleViews.join(', ')} — edit with \`dreamteamer set ui-views/<id> display.list.columns=…\``);
 	}
 	return 0;
 }
@@ -812,7 +812,7 @@ function metaRenameField(ws, store, collection, flags) {
 // the Layout options panel does — columns, order, sort, layout, filter, nav — was click-only.
 
 /**
- * Layout options whose value is a LIST, so `options.columns=title,status` means what it says.
+ * View keys whose value is a LIST, so `display.list.columns=title,status` means what it says.
  *
  * ⚠ NAMED, not inferred, and that is the whole design: `options` is an open bag with no schema —
  * each layout declares its own keys and unknown ones ride through untouched — so nothing in the
@@ -821,13 +821,13 @@ function metaRenameField(ws, store, collection, flags) {
  * surface reads with `Array.isArray` and therefore ignores: a view that looked configured, drew
  * the descriptor's `list_fields` instead, and reported nothing anywhere.
  *
- * `columns` is honoured by every layout; `ref_fields` and `value_fields` are the diagram's
+ * `columns` is honoured by every list layout; `ref_fields` and `value_fields` are the diagram's
  * link-by pickers. `arrangement` is deliberately ABSENT — its elements are objects, so the JSON
  * form is its only honest spelling, and a comma split would quietly produce garbage.
  */
-const VIEW_LIST_OPTIONS = new Set(['options.columns', 'options.ref_fields', 'options.value_fields']);
+const VIEW_LIST_OPTIONS = new Set(['display.list.columns', ...['list', 'record'].flatMap((b) => [`display.${b}.options.ref_fields`, `display.${b}.options.value_fields`])]);
 
-/** `--options '{"sort":"-date"}'` style flags, plus dotted `options.sort=-date` positionals. The
+/** `--filter '{"status":{"_eq":"seen"}}'` style flags, plus dotted `display.list.sort=-date` positionals. The
  *  KEY is passed because the value's shape depends on it: only the key says whether a comma is a
  *  separator or a character. */
 function parseViewValue(raw, key) {
@@ -839,7 +839,7 @@ function parseViewValue(raw, key) {
 	if (t.startsWith('{') || t.startsWith('[')) {
 		try { return JSON.parse(t); } catch { throw new Error(`not valid JSON: ${t}`); }
 	}
-	// ⚠ A QUOTED value is a LITERAL string, and `options.sort='""'` is the whole reason the branch
+	// ⚠ A QUOTED value is a LITERAL string, and `display.list.sort='""'` is the whole reason the branch
 	// exists: `sort: ''` is what the surface requires to round-trip "unsorted" (omit it and the
 	// ordering silently reverts to a fallback on the next load), and the dotted grammar could not
 	// express it — an empty value UNSETS, by the same convention `dt set` has for a record field.
@@ -871,7 +871,7 @@ function parseViewValue(raw, key) {
  * `a` should leave the record alone, not grow an empty `a: {}`.
  *
  * `explicit` is the escape hatch, and it has exactly one caller: a value the operator QUOTED
- * (`options.sort='""'`) is a value, empty or not. Without it the convention above has no exception
+ * (`display.list.sort='""'`) is a value, empty or not. Without it the convention above has no exception
  * and `sort: ''` — which the surface needs to mean "unsorted" — is unwritable from the CLI.
  */
 function assignPath(target, dotted, value, explicit = false) {
@@ -922,6 +922,7 @@ function metaUiView(ws, store, verb, flags, pos) {
 		const { fields } = store.read('ui-views', id);
 		view = JSON.parse(JSON.stringify(fields));
 		delete view.id; // the id is the filename, never a body key
+		delete view.compiled; // compile's, rewritten on every compile
 	}
 
 	for (const p of pos.slice(verb === 'set' ? 1 : 0)) {
@@ -938,16 +939,16 @@ function metaUiView(ws, store, verb, flags, pos) {
 		assignViewValue(view, k, v);
 	}
 
-	if (!view.path) throw new Error('missing --path </route> — a view is addressed by its route');
-	// same id rule the descriptor declares (`{{ path | slug }}`) and the UI derives, so a view
+	if (!view.route) throw new Error('missing --route </route> — a view is addressed by its route');
+	// same id rule the descriptor declares (`{{ route | slug }}`) and the UI derives, so a view
 	// saved from the CLI and one saved from the panel land on the SAME record.
-	id ??= slug(view.path);
+	id ??= slug(view.route);
 
 	const out = saveUiView(ws, store, { id, view, moduleId: oneValue(flags, 'module') });
 	if (flags.json) { emit(JSON.stringify(out)); return 0; }
 	if (out.unchanged) return alreadyThat(`ui-views/${id}`);
 	console.log(`✔ ${rel(ws.root, out.file)}`);
-	console.log(`✔ compiled — ${view.path} is live`);
+	console.log(`✔ compiled — ${view.route} is live`);
 	reportCommits(out.commits);
 	return 0;
 }
@@ -1243,7 +1244,7 @@ function rel(root, p) {
  * TWO VOCABULARIES, and the split is what keeps the refusal honest. A verb's OPTIONS are closed and
  * enumerated here; an entity's own KEYS are open and cannot be — `dt list people --status todo` is a
  * shorthand filter on a declared field, `dt add people --name Ada` writes one, and a ui-view's
- * `options.*` is an open bag by design. So the allowlist is the table PLUS the target's declared
+ * `display.list.options.*` is an open bag by design. So the allowlist is the table PLUS the target's declared
  * properties, and nothing is refused that either half can name.
  *
  * ⚠ A REFUSAL THAT REJECTS A VALID FLAG IS WORSE THAN THE SILENCE IT REPLACES, which is why a verb
@@ -1301,7 +1302,7 @@ export function refuseUnknownFlags(store, collection, verb, flags) {
 		?? (isEntityKind(store, collection) && verb === 'add' ? VERB_FLAGS['skills:add'] : VERB_FLAGS[verb]);
 	if (!known) return; // no declared vocabulary — left exactly as it was rather than guessed at
 	// The OPEN half: a data collection's own fields (shorthand filters and field writes), and the
-	// declared keys of an entity `set` writes (`--layout` on a view, and dotted `options.sort`).
+	// declared keys of an entity `set` writes (`--route` on a view, and dotted `display.list.sort`).
 	const system = d?.storage?.base === 'runtime';
 	// ⚠ NO DESCRIPTOR MEANS NO OPEN HALF — offering "plus any field of X" for a thing with no fields
 	// would read as though the refused flag were merely misspelled.

@@ -12,6 +12,7 @@ import { compile, kindDir, titleCase, KINDS, repoRootOf } from './compile.js';
 import { readManifest, runtimeKindDir, loadDescriptors } from './runtime.js';
 import { normalizeNamespaces, namespaceOf, baseNameOf, qualify, defaultStoragePath, singular } from './namespace.js';
 import { refTargetsOf } from './ref.js';
+import { FIELD_OPTIONS, TEMPLATE_OPTIONS } from './views.js';
 
 // Same rule as store.js: a git failure we CATCH must not also print git's own error on top of the
 // clean message we throw. stdout stays piped because some callers read it.
@@ -856,8 +857,8 @@ export function setCollectionScalars(ws, store, name, changes, { moduleId } = {}
 //   4. `title_template`, `id.generate`             (templates, `{{ name | slug }}`)
 //   5. `x-inverse` on the OWNING side              (the generated mirror's NAME)
 //   6. `x-inverse-of: <collection>.<field>`        (spelling B, on the far side)
-//   7. a ui-view's `options.columns` and `filter`
-//   8. a command-binding's `can-enter` / `can-exit`
+//   7. a ui-view's `display` field positions and `filter`
+//   8. a command-binding's `available_when` / `done_when`
 //
 // Missing any one of them is silent in a different way, which is why they are enumerated here
 // rather than found by grep: a stale `list_fields` entry draws a dead column, a stale `filter`
@@ -865,7 +866,7 @@ export function setCollectionScalars(ws, store, name, changes, { moduleId } = {}
 // stale frontmatter key makes the record unwritable (an unknown field the store refuses).
 
 /** Rewrite one field NAME inside a filter-shaped object — a ui-view's `filter`, a binding's
- *  `can-enter`/`can-exit`. Keys beginning `_` are OPERATORS (`_eq`, `_and`) and are never field
+ *  `available_when`/`done_when`. Keys beginning `_` are OPERATORS (`_eq`, `_and`) and are never field
  *  names; everything else at a non-operator position is a path segment that may be one. */
 function rewriteFilterField(node, from, to) {
 	if (!node || typeof node !== 'object') return false;
@@ -1022,9 +1023,10 @@ export function renameField(ws, store, collection, from, to, { moduleId, dryRun 
 				surfaces.push(path.relative(ws.root, f));
 			}
 
-			// 2. ui-views: `options.columns` (a plain name list, the same vocabulary `list_fields`
-			//    uses) and `filter` (which the ENGINE interprets — a stale key narrows a view to
-			//    nothing, at exit 0). Command-bindings: `can-enter`/`can-exit`, same shape.
+			// 2. ui-views: every display position that names a field — `columns`, `sort` (with its
+			//    optional `-`), `badge`, `color_by`, the layout options that take a field, every
+			//    template — and `filter`, which the ENGINE interprets (a stale key narrows a view to
+			//    nothing, at exit 0). Command-bindings: `available_when`/`done_when`, same shape.
 			for (const root of store.sourceRoots()) {
 				for (const kind of ['ui-views', 'command-bindings']) {
 					const dir = kindDir(root, kind);
@@ -1034,21 +1036,26 @@ export function renameField(ws, store, collection, from, to, { moduleId, dryRun 
 						const doc = load(before);
 						if (!doc || typeof doc !== 'object') continue;
 						if (String(doc.collection ?? '') !== `collections/${collection}`) continue;
-						const keys = kind === 'ui-views' ? ['filter'] : ['can-enter', 'can-exit'];
+						const keys = kind === 'ui-views' ? ['filter'] : ['available_when', 'done_when'];
 						let changed = false;
-						// The field-name LISTS: `columns` is honoured by every layout, `ref_fields` and
-						// `value_fields` are the diagram's link-by pickers. Same vocabulary `list_fields` uses.
-						for (const key of ['columns', 'ref_fields', 'value_fields']) {
-							if (!Array.isArray(doc.options?.[key]) || !doc.options[key].includes(from)) continue;
-							doc.options[key] = doc.options[key].map((c) => (c === from ? to : c));
-							changed = true;
+						for (const b of Object.values(doc.display ?? {})) {
+							if (!b || typeof b !== 'object') continue;
+							const o = b.options && typeof b.options === 'object' ? b.options : {};
+							for (const [holder, key] of [[b, 'columns'], [o, 'ref_fields'], [o, 'value_fields']]) {
+								if (!Array.isArray(holder[key]) || !holder[key].includes(from)) continue;
+								holder[key] = holder[key].map((c) => (c === from ? to : c));
+								changed = true;
+							}
+							const sorted = /^(-?)(.+)$/.exec(typeof b.sort === 'string' ? b.sort : '');
+							if (sorted && sorted[2] === from) { b.sort = sorted[1] + to; changed = true; }
+							for (const [holder, key] of [[b, 'badge'], [b, 'color_by'], ...FIELD_OPTIONS.map((k) => [o, k])]) {
+								if (holder[key] === from) { holder[key] = to; changed = true; }
+							}
+							for (const [holder, key] of [[b, 'subtitle'], ...TEMPLATE_OPTIONS.map((k) => [o, k])]) {
+								const t = rewriteTemplateField(holder[key], from, to);
+								if (t !== holder[key]) { holder[key] = t; changed = true; }
+							}
 						}
-						// ⚠ AND `options.sort`, which is a field name with an optional `-` in front of it. It
-						// was the one §3.2 surface the rename missed, and the miss is invisible: `dt check`
-						// reports 0 violations for a view sorting on a field that no longer exists, so the
-						// listing silently falls back to an arbitrary order.
-						const sorted = /^(-?)(.+)$/.exec(typeof doc.options?.sort === 'string' ? doc.options.sort : '');
-						if (sorted && sorted[2] === from) { doc.options.sort = sorted[1] + to; changed = true; }
 						for (const key of keys) if (rewriteFilterField(doc[key], from, to)) changed = true;
 						if (!changed) continue;
 						const after = writeSource(before, doc);
@@ -2208,14 +2215,14 @@ function refuseUnremovableField(ws, d, collection, fieldName, hasOwnDoc) {
  * layout somebody tuned — so the verb says which views it just invalidated and leaves them alone.
  * Silently editing somebody else's source is the worse of the two failures.
  *
- * Columns are matched as plain names, the same vocabulary `list_fields` uses. `options` is
- * deliberately open (each layout wants different things), so anything else in there is not a column.
+ * Columns are matched as plain names in `display.list.columns`. `options` is deliberately open
+ * (each layout wants different things), so nothing in there is a column.
  */
 function viewsNamingField(store, collection, fieldName) {
 	if (!store.descriptors.has('ui-views')) return [];
 	return [...store.readAll('ui-views')]
 		.filter((v) => v.fields.collection === `collections/${collection}`
-			&& (v.fields.options?.columns ?? []).includes(fieldName))
+			&& (v.fields.display?.list?.columns ?? []).includes(fieldName))
 		.map((v) => v.id);
 }
 
@@ -2435,6 +2442,8 @@ export function saveUiView(ws, store, { id, view, moduleId }) {
 	if (shipped && /(^|\/)node_modules\//.test(shipped))
 		throw new Error(`ui-view "${id}" is shipped by an installed package (${shipped}) — a write there is erased by the next npm install.\n  save it under a different name, or disable it (dreamteamer.disable) and re-create it.`);
 	const existed = fs.existsSync(dest);
+	// `compiled` is compile's: a view read back from the runtime carries it, and a source never does
+	view = Object.fromEntries(Object.entries(view).filter(([k]) => k !== 'compiled'));
 	// A module source is where this project writes down WHY a view exists; `dump` cannot keep that.
 	const previous = existed ? fs.readFileSync(dest, 'utf8') : null;
 	// ⚠ opted OUT of the comment invariant, on the same rule `rm-field` is: this write REPLACES

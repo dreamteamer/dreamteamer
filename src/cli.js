@@ -120,16 +120,16 @@ commits there.
                                                the git shape is \`install --clone <url> [name]\`)
   add    skills --name <id> --description "…"  (skills/<id>/SKILL.md — --description is required,
                                                because an undescribed skill is undiscoverable)
-  add    ui-views --path </route> --target list --collection collections/<c> --layout <id>
-                                              [--id <id>] [k.v=…]
+  add    ui-views --route </route> --scope collection --collection collections/<c>
+                                              [--id <id>] [display.list.layout=<id>] [k.v=…]
   set    <system>/<id> <field>=<value> …      (collections: description · use_when · title ·
                                                title_template · icon · group · list_fields ·
                                                sort_field · order, plus module=<m>, which MOVES it.
                                                modules: description · namespaces · dependencies ·
                                                peerDependencies, record-shaped (modules/core).
-                                               ui-views: dotted keys — options.sort=-date. An empty
-                                               value REMOVES the key; quote it to write the empty
-                                               string itself ('options.sort=""').
+                                               ui-views: dotted keys — display.list.sort=-date. An
+                                               empty value REMOVES the key; quote it to write the
+                                               empty string itself ('display.list.sort=""').
                                                skills/agents/commands/…: frontmatter keys)
   rm     <system>/<id> [--force] [--dry-run]
   rename <system>/<id> <new-id>               (a collection's rename moves its records, re-suffixes
@@ -173,8 +173,8 @@ collection: the ENGINE does not read one, and \`rename-field\` was the only capa
   rename-field <collection> --name <field> --to <new-name> [--module <m>] [--dry-run]
                             (rewrites the key in every record AND everywhere a descriptor or view
                              names the field: list_fields, sort_field, x-inverse, x-inverse-of,
-                             title_template, id.generate, a ui-view's options.columns and filter,
-                             and a command-binding's can-enter/can-exit. ONE commit)
+                             title_template, id.generate, a ui-view's display and filter, and
+                             a command-binding's available_when/done_when. ONE commit)
 
 Every <collection> above may be spelled in the SINGULAR: dt add task …, dt get task/<id>,
 dt list meeting-analysis, dt add-field task …. The singular is derived from the descriptor

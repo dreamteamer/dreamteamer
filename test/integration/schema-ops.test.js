@@ -992,8 +992,8 @@ describe('rm-field prunes the presentation it invalidates', () => {
 		].join('\n'));
 		fs.mkdirSync(`${ws.root}/modules/default/ui-views`, { recursive: true });
 		fs.writeFileSync(`${ws.root}/modules/default/ui-views/articles-table.ui-view.yaml`, dump({
-			path: '/content/articles', target: 'list', collection: 'collections/articles', layout: 'table',
-			options: { columns: ['name', 'rank'] },
+			route: '/content/articles', scope: 'collection', collection: 'collections/articles',
+			display: { list: { columns: ['name', 'rank'] } },
 		}));
 		compileQuietly(ws.ws);
 		return ws;

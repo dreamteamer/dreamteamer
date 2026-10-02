@@ -60,7 +60,7 @@ describe('--dry-run PLANS — it never destroys (the data-loss class)', () => {
 
 	test('rm ui-views/<id> --dry-run leaves the view source on disk', () => {
 		const ws = twoModuleWorkspace();
-		assert.equal(ws.dt('add', 'ui-views', '--path', '/zz', '--target', 'list', '--collection', 'collections/people', '--layout', 'table').code, 0);
+		assert.equal(ws.dt('add', 'ui-views', '--route', '/zz', '--scope', 'collection', '--collection', 'collections/people', 'display.list.layout=table').code, 0);
 		const src = 'modules/default/ui-views/zz.ui-view.yaml';
 		assert.ok(exists(ws.root, src));
 
@@ -149,7 +149,7 @@ describe('an unknown flag is refused on every verb that has a closed vocabulary'
 		['add modules', ['add', 'modules', '--name', 'zz']],
 		['add collections', ['add', 'collections', '--name', 'zz']],
 		['add skills', ['add', 'skills', '--name', 'zz', '--description', 'x']],
-		['add ui-views', ['add', 'ui-views', '--path', '/zz', '--target', 'list', '--layout', 'table']],
+		['add ui-views', ['add', 'ui-views', '--route', '/zz', '--scope', 'collection', 'display.list.layout=table']],
 		['add <record>', ['add', 'people', '--name', 'Grace']],
 		['set <record>', ['set', 'people/ada-byron', 'badge=x']],
 		['set collections', ['set', 'collections/people', 'icon=person']],
@@ -215,7 +215,7 @@ test('every flag schema-ops reads off a field verb is in the allowlist', () => {
 describe('add ui-views honours the flags it takes and refuses the ones it does not', () => {
 	test('an unknown flag is NOT written into the view record as a field', () => {
 		const ws = twoModuleWorkspace();
-		const res = ws.dt('add', 'ui-views', '--path', '/zz', '--target', 'list', '--collection', 'collections/people', '--layout', 'table', '--wibble', 'wobble');
+		const res = ws.dt('add', 'ui-views', '--route', '/zz', '--scope', 'collection', '--collection', 'collections/people', 'display.list.layout=table', '--wibble', 'wobble');
 		assert.equal(res.code, 1, `--wibble was accepted:\n${res.stdout}`);
 		assert.match(res.stderr, /unknown flag "--wibble"/);
 		assert.equal(readFile(ws.root, 'modules/default/ui-views/zz.ui-view.yaml'), null, 'an invalid view was written AND self-committed');
@@ -223,7 +223,7 @@ describe('add ui-views honours the flags it takes and refuses the ones it does n
 
 	test('--module <m> puts the view in that module rather than being written in as a field', () => {
 		const ws = twoModuleWorkspace();
-		const res = ws.dt('add', 'ui-views', '--path', '/zz', '--target', 'list', '--collection', 'collections/people', '--layout', 'table', '--module', 'core');
+		const res = ws.dt('add', 'ui-views', '--route', '/zz', '--scope', 'collection', '--collection', 'collections/people', 'display.list.layout=table', '--module', 'core');
 		assert.equal(res.code, 0, res.stderr);
 		assert.ok(exists(ws.root, 'modules/core/ui-views/zz.ui-view.yaml'), '--module was ignored');
 		assert.doesNotMatch(readFile(ws.root, 'modules/core/ui-views/zz.ui-view.yaml'), /^module:/m);
@@ -302,12 +302,12 @@ describe('a write into a node_modules-owned collection is refused where it is re
 	});
 });
 
-describe('rename-field rewrites EVERY surface that names the field, options.sort included', () => {
-	test("a ui-view's options.sort follows the rename, with and without the - prefix", () => {
+describe('rename-field rewrites EVERY surface that names the field, a view\'s sort included', () => {
+	test("a ui-view's display.list.sort follows the rename, with and without the - prefix", () => {
 		const ws = twoModuleWorkspace();
 		assert.equal(ws.dt('add-field', 'people', '--name', 'email', '--type', 'string').code, 0);
-		assert.equal(ws.dt('add', 'ui-views', '--path', '/pp', '--target', 'list', '--collection', 'collections/people', '--layout', 'table', 'options.columns=name,email', 'options.sort=-email').code, 0);
-		assert.equal(ws.dt('add', 'ui-views', '--path', '/qq', '--target', 'list', '--collection', 'collections/people', '--layout', 'table', 'options.sort=email').code, 0);
+		assert.equal(ws.dt('add', 'ui-views', '--route', '/pp', '--scope', 'collection', '--collection', 'collections/people', 'display.list.columns=name,email', 'display.list.sort=-email').code, 0);
+		assert.equal(ws.dt('add', 'ui-views', '--route', '/qq', '--scope', 'collection', '--collection', 'collections/people', 'display.list.sort=email').code, 0);
 
 		const res = ws.dt('rename-field', 'people', '--name', 'email', '--to', 'mail');
 		assert.equal(res.code, 0, res.stderr);
@@ -341,14 +341,15 @@ describe('the flag tables and `dt help` do not drift apart', () => {
 
 	// USAGE names these as ui-view KEYS (the open half, read off the `ui-views` descriptor) rather
 	// than as verb options, plus `--version`, which `run()` answers before any dispatch.
-	const OPEN_HALF = ['collection', 'layout', 'path', 'version'];
+	const OPEN_HALF = ['collection', 'route', 'scope', 'version'];
 	// Accepted and NOT in `dt help` — every one a real documentation gap, listed so it is a decision
 	// rather than a silence. `--field` and `--default` are undocumented ALIASES of `--name` and
 	// `--default-value`; the two remaining `init` flags and the three `modules set` keys are
 	// documented in their positional `k=v` spelling only.
 	// `harnesses` came OFF this list when `notebooklm` was added: the harness set is now a choice an
 	// operator makes rather than a default nobody changes, so `dt help` names the values.
-	const UNDOCUMENTED = ['field', 'default', 'data-path', 'workspace-module', 'dependencies', 'namespaces', 'peerDependencies'];
+	// `target` is add-field's reference target, documented by no line of its own.
+	const UNDOCUMENTED = ['field', 'default', 'data-path', 'workspace-module', 'dependencies', 'namespaces', 'peerDependencies', 'target'];
 
 	test('every flag `dt help` documents is accepted by some verb', () => {
 		const stray = [...documented].filter((f) => !accepted.has(f) && !OPEN_HALF.includes(f)).sort();
