@@ -248,7 +248,7 @@ describe('the loader refuses what it cannot honour — at open, by name', () => 
 		const ws = workspace({ compile: false });
 		install(ws.root, { name: 'kit-a', entry: "export default () => ({ sourceKinds: ['gizmos'] });", descriptor: null });
 		install(ws.root, { name: 'kit-b', entry: "export default () => ({ sourceKinds: ['gizmos'] });", descriptor: null });
-		await assert.rejects(openWorkspace(ws.root), /kit-b contributes the kind "gizmos", which kit-a already owns/);
+		await assert.rejects(openWorkspace(ws.root), /kit-b contributes the kind "gizmos", which kit-a already owns — uninstall one, or switch it off: add "modules\/kit-b" to dreamteamer\.disable/);
 	});
 
 	test('an unknown contribution key, an entry that will not load, a newer API', async () => {

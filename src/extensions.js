@@ -105,7 +105,7 @@ export async function loadExtensions(ws, api, reserved = {}) {
 	for (const r of reserved.harnesses ?? []) owner.harness.set(r, 'the engine');
 	const claim = (what, key, by) => {
 		const prev = owner[what].get(key);
-		if (prev) throw new Error(`extension ${by} contributes the ${what} "${key}", which ${prev} already owns — uninstall one, or switch it off: add "${by}" to dreamteamer.disable in package.json`);
+		if (prev) throw new Error(`extension ${by} contributes the ${what} "${key}", which ${prev} already owns — uninstall one, or switch it off: add "modules/${by}" to dreamteamer.disable in package.json`);
 		owner[what].set(key, by);
 	};
 	for (const ext of declaredExtensions(ws)) {
