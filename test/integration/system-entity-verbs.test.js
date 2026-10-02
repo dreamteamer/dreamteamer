@@ -90,7 +90,7 @@ describe('skills — add scaffolds the minimum that compiles', () => {
 });
 
 describe('the hand-authored kinds — add is refused WITH THE PATH', () => {
-	for (const kind of ['agents', 'commands', 'command-bindings', 'collection-templates']) {
+	for (const kind of ['agents', 'commands', 'command-bindings', 'mixins']) {
 		test(`add ${kind} names the file to write`, () => {
 			const ws = twoModuleWorkspace();
 			const res = ws.dt('add', kind, '--name', 'thing');
@@ -171,19 +171,16 @@ describe('the two policies, spelled the same', () => {
 	});
 });
 
-// ⚠ THE REGRESSION THIS FILE MOST NEEDS. `presentation` used to set `meta.readonly` on every
-// collection whose `storage.base` is `runtime`, because before the system verbs existed those two
-// facts were the same one. They are not any more, and nothing in this suite noticed: a skill
-// authored in the workspace's own module rendered padlocked and read-only in a surface reading the
-// projection, while `dt set skills/<id>` in the same workspace wrote it and committed. Zero tests
-// failed, because no test asserted the collection-level flag — only the field-level ones.
+// ⚠ THE REGRESSION THIS FILE MOST NEEDS. A runtime collection is not a read-only one: a skill
+// authored in the workspace's own module is written by `dt set skills/<id>`, so a surface that drew
+// the whole kind padlocked would disable a form the engine would have written. Only a test of the
+// collection-level row catches that — the field-level tests all stay green.
 //
-// So this asserts BOTH halves, in one place: `system` still marks the kind (dispatch and the schema
-// surface depend on it), and `readonly` is NOT how a system kind is described (writability is per
-// record — an inline module's entity is writable, an npm-shipped one is refused with its own
-// sentence).
+// So this asserts BOTH halves, in one place: `runtime` still marks the kind (dispatch and the schema
+// surface depend on it), and no collection-level `readonly` describes it (writability is per record —
+// an inline module's entity is writable, an npm-shipped one is refused with its own sentence).
 describe('the presentation contract does not call a writable system kind read-only', () => {
-	test('a system collection is `system` and NOT collection-level readonly', async () => {
+	test('a system collection is `runtime` and NOT collection-level readonly', async () => {
 		const ws = twoModuleWorkspace();
 		const { Store } = await import('../../src/store.js');
 		const { presentation } = await import('../../src/presentation.js');
@@ -192,13 +189,13 @@ describe('the presentation contract does not call a writable system kind read-on
 		for (const name of ['skills', 'collections', 'modules', 'ui-views']) {
 			const row = collections.find((c) => c.collection === name);
 			assert.ok(row, `${name} is missing from the presentation contract`);
-			assert.equal(row.system, true, `${name} must still be flagged \`system\` — dispatch keys on it`);
-			assert.notEqual(
-				row.meta.readonly, true,
+			assert.equal(row.runtime, true, `${name} must still be flagged \`runtime\` — dispatch keys on it`);
+			assert.equal(
+				'readonly' in row, false,
 				`${name} is written by \`dt set ${name}/<id>\`, so the contract must not describe the whole collection as read-only — a consumer keying on this disables a form the engine would have written`,
 			);
 			assert.equal(
-				row.meta.readonly_hint, undefined,
+				'readonly_hint' in row, false,
 				`${name} must carry no collection-level readonly_hint — the refusals that remain are per record, per verb or per field, and each carries its own sentence`,
 			);
 		}
@@ -211,20 +208,20 @@ describe('the presentation contract does not call a writable system kind read-on
 		const { collections } = presentation(new Store(ws.ws).descriptors);
 		const people = collections.find((c) => c.collection === 'people');
 		assert.ok(people, 'the fixture should ship a `people` collection');
-		assert.equal(people.system, undefined === people.system ? undefined : false);
-		assert.notEqual(people.meta.readonly, true);
+		assert.equal(people.runtime, false);
+		assert.equal(people.internal, false);
+		assert.equal('readonly' in people, false);
 	});
 
 	// ⚠ THE COLLECTION WHERE THE TWO FLAGS SPLIT, asserted against the REAL compiled `repos` rather
 	// than a synthetic descriptor — because the thing that can break is compile's stamping as much
 	// as the projection's reading, and only a compiled workspace exercises both.
 	//
-	// `repos` is machinery the operator EDITS: folded out of the record tree and drawn on the schema
-	// surface (`group: system`), while its records are ordinary files under `data/repos` that the
-	// record store writes (`system: false`). Pointing `system` at the descriptor's partition is the
-	// mistake this guards — it made the extension's write router answer 400 to every `repos` edit,
-	// and it went green in CI because the two answers agree for every OTHER collection. Here they
-	// disagree, so here it fails.
+	// `repos` is machinery the operator EDITS: drawn on the schema surface (`internal: true`), while
+	// its records are ordinary files under `data/repos` that the record store writes (`runtime:
+	// false`). Pointing `runtime` at the `internal` flag is the mistake this guards — the extension's
+	// write router would answer 400 to every `repos` edit, and it stays green for every OTHER
+	// collection because the two answers agree there. Here they disagree, so here it fails.
 	test('`repos` is machinery that is NOT build output — the two answers disagree, and must', async () => {
 		const ws = twoModuleWorkspace();
 		const { Store } = await import('../../src/store.js');
@@ -233,11 +230,11 @@ describe('the presentation contract does not call a writable system kind read-on
 		const repos = collections.find((c) => c.collection === 'repos');
 		assert.ok(repos, '`repos` is a core collection — it must reach the presentation contract');
 		assert.equal(
-			repos.system, false,
-			'`repos` records live under `data/` and are written through the record store — a surface dispatching on `system` must send a record write, not a system one',
+			repos.runtime, false,
+			'`repos` records live under `data/` and are written through the record store — a surface dispatching on `runtime` must send a record write, not a system one',
 		);
 		assert.equal(
-			repos.meta.group, 'system',
+			repos.internal, true,
 			'…and it is still drawn as machinery: out of the record tree, onto the schema surface',
 		);
 	});

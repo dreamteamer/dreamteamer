@@ -12,9 +12,9 @@ import { openWorkspace, contributedViolations, check } from '../../src/api.js';
 const PROBES = {
 	name: 'probes',
 	description: 'A claim about an artifact, judged at compile.',
-	storage: { path: 'probes', codec: 'yaml', shape: 'file', suffix: 'probe' },
-	id: { generate: '{{ name | slug }}' },
-	schema: { type: 'object', required: ['name', 'about'], properties: { name: { type: 'string' }, about: { type: 'string' } } },
+	storage: { path: 'probes', format: 'yaml', shape: 'file', suffix: 'probe' },
+	ids: { from: '{{ name | slug }}' },
+	fields: { name: { type: 'string', required: true }, about: { type: 'string', required: true } },
 };
 
 // The extension's entry. `activate` receives the engine API — the test asserts it is THIS engine's.
@@ -224,7 +224,7 @@ describe('harness, orientation and hook contributions', () => {
 		assert.equal(ws.dt('compile').code, 0);
 		const claude = readFile(ws.root, 'CLAUDE.md');
 		assert.match(claude, /probe-kit is installed: every skill here has a probe under probes\//);
-		assert.match(claude, /`collection-templates\/`, `probes\/`/);
+		assert.match(claude, /`mixins\/`, `probes\/`/);
 	});
 
 	test('a contributed hook is merged into --print-adapters beside core\'s', () => {
@@ -274,7 +274,7 @@ describe('the loader refuses what it cannot honour — at open, by name', () => 
 	});
 
 	test('a DISABLED extension is not loaded, and a transitive one never is', async () => {
-		const ws = workspace({ compile: false, pkg: { disable: ['probe-kit'] } });
+		const ws = workspace({ compile: false, pkg: { disable: ['modules/probe-kit'] } });
 		install(ws.root);
 		assert.deepEqual((await openWorkspace(ws.root)).extensions, []);
 		const t = workspace({ compile: false });
@@ -296,8 +296,8 @@ describe('the loader refuses what it cannot honour — at open, by name', () => 
 
 describe('what left core is refused where it would otherwise mislead', () => {
 	test('a descriptor still declaring storage.driver is a compile error, not a writable folder of fake host records', () => {
-		const ws = workspace({ compile: false, collections: { containers: { storage: { driver: 'docker' }, schema: { type: 'object', properties: { name: { type: 'string' } } } } } });
-		assert.match(compileError(ws.ws) ?? '', /collection "containers": storage\.driver is gone since 0\.31\.0/);
+		const ws = workspace({ compile: false, collections: { containers: { storage: { driver: 'docker' }, ids: { from: '{{ name | slug }}' }, fields: { name: { type: 'string', required: true } } } } });
+		assert.match(compileError(ws.ws) ?? '', /containers\.collection\.yaml:\n {2}unknown key `storage\.driver` — storage keys are path · format/);
 	});
 });
 
@@ -308,7 +308,7 @@ describe('a SCOPED extension can be switched off with dreamteamer.disable (revie
 		const dir = install(ws.root, { name: '@test/scoped', entry: `export default async () => { (await import('node:fs')).writeFileSync(process.env.DT_TEST_MARKER, 'activated'); return { commands: { scopedverb: { run() { return 0; } } }, sourceKinds: ['gizmos'] }; };` });
 		return { ws, dir };
 	};
-	for (const spelling of ['@test/scoped', 'scoped']) {
+	for (const spelling of ['modules/@test/scoped', 'modules/scoped']) {
 		test(`disabled as "${spelling}": never activated, and its content module is not compiled`, async () => {
 			const { ws } = scoped([spelling]);
 			const marker = path.join(ws.root, 'activated.txt');
@@ -336,7 +336,7 @@ describe('a SCOPED extension can be switched off with dreamteamer.disable (revie
 		} finally { delete process.env.DT_TEST_MARKER; }
 	});
 	test('an entity-level entry is still an entity, not a package', async () => {
-		const { ws } = scoped(['@test/scoped/probes']);
+		const { ws } = scoped(['gizmos/one']);
 		process.env.DT_TEST_MARKER = path.join(ws.root, 'activated.txt');
 		try { assert.equal((await openWorkspace(ws.root)).extensions.length, 1); } finally { delete process.env.DT_TEST_MARKER; }
 	});
@@ -377,8 +377,8 @@ describe('a contributed harness that throws leaves the last good runtime untouch
 
 
 describe('disabling a PACKAGE OF MODULES switches off its code and every module it bundles (review R4)', () => {
-	const CRATES = { name: 'crates', description: 'A crate.', storage: { path: 'crates', codec: 'yaml', shape: 'file', suffix: 'crate' },
-		id: { generate: '{{ name | slug }}' }, schema: { type: 'object', required: ['name'], properties: { name: { type: 'string' } } } };
+	const CRATES = { name: 'crates', description: 'A crate.', storage: { path: 'crates', format: 'yaml', shape: 'file', suffix: 'crate' },
+		ids: { from: '{{ name | slug }}' }, fields: { name: { type: 'string', required: true } } };
 	const bundle = (disable) => {
 		const ws = workspace({ compile: false, pkg: disable ? { disable } : {} });
 		const dir = install(ws.root, { name: '@test/bundle', descriptor: null, entry: `export default async () => { if (process.env.DT_TEST_MARKER) (await import('node:fs')).writeFileSync(process.env.DT_TEST_MARKER, 'activated'); return { commands: { bundleverb: { run() { return 0; } } } }; };` });
@@ -393,7 +393,7 @@ describe('disabling a PACKAGE OF MODULES switches off its code and every module 
 		process.env.DT_TEST_MARKER = path.join(ws.root, 'activated.txt');
 		try { return (await openWorkspace(ws.root)).extensions.map((e) => e.name); } finally { delete process.env.DT_TEST_MARKER; }
 	};
-	for (const spelling of ['@test/bundle', 'bundle']) {
+	for (const spelling of ['modules/@test/bundle', 'modules/bundle']) {
 		test(`disabled as "${spelling}": not activated, no bundled module compiled, and the entry matched`, async () => {
 			const ws = bundle([spelling]);
 			assert.deepEqual(await opened(ws), []);
@@ -419,12 +419,12 @@ describe('disabling a PACKAGE OF MODULES switches off its code and every module 
 		fs.writeFileSync(path.join(child, 'package.json'), JSON.stringify({ name: 'crates', dreamteamer: {} }));
 		const names = (disable) => discoverModules(ws.root, { ...ws.ws.pkg, dreamteamer: { ...ws.ws.pkg.dreamteamer, disable } });
 		assert.ok(names([]).modules.some((m) => m.name === 'crates'));
-		const off = names(['gitbundle']);
+		const off = names(['modules/gitbundle']);
 		assert.ok(!off.modules.some((m) => m.name === 'crates'));
-		assert.deepEqual(off.disabledModules, ['gitbundle']);
+		assert.deepEqual(off.disabledModules, ['modules/gitbundle']);
 	});
 	test('disabling only the CHILD keeps the extension and drops that module', async () => {
-		const ws = bundle(['crates']);
+		const ws = bundle(['modules/crates']);
 		assert.deepEqual(await opened(ws), ['@test/bundle']);
 		const r = dt(ws.root, 'compile');
 		assert.equal(r.code, 0, r.stderr);
@@ -464,7 +464,7 @@ describe('a WORKSPACE module can carry an extension entry — no package, no npm
 	});
 	test('dreamteamer.disable switches it off like any module', async () => {
 		const ws = workspace({ compile: false });
-		inline(ws.root, { disable: ['kit'] });
+		inline(ws.root, { disable: ['modules/kit'] });
 		assert.deepEqual((await openWorkspace(ws.root)).extensions, []);
 	});
 	test('an inline module shadows the npm package of the same name — its code loads, the package\'s does not', async () => {
@@ -505,7 +505,7 @@ describe('a git_modules clone carries its extension code, exactly as it carries 
 		clone(off.root);
 		const pkgFile = path.join(off.root, 'package.json');
 		const pkg = JSON.parse(fs.readFileSync(pkgFile, 'utf8'));
-		pkg.dreamteamer = { ...pkg.dreamteamer, disable: ['kit'] };
+		pkg.dreamteamer = { ...pkg.dreamteamer, disable: ['modules/kit'] };
 		fs.writeFileSync(pkgFile, JSON.stringify(pkg, null, '\t') + '\n');
 		assert.deepEqual((await openWorkspace(off.root)).extensions, []);
 
@@ -534,7 +534,7 @@ export default function activate() {
 }
 `;
 	const withChecker = (entry = CHECKER) => {
-		const ws = workspace({ collections: { notes: { id: { generate: '{{ name | slug }}' }, schema: { type: 'object', required: ['name'], properties: { name: { type: 'string' } } } } } });
+		const ws = workspace({ collections: { notes: { ids: { from: '{{ name | slug }}' }, fields: { name: { type: 'string', required: true } } } } });
 		install(ws.root, { name: 'rule-kit', descriptor: null, entry });
 		assert.equal(dt(ws.root, 'compile').code, 0);
 		return ws;

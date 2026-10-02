@@ -61,10 +61,10 @@ describe('dt install in a linked worktree', () => {
 		assert.equal(fs.readFileSync(path.join(wt, '.env'), 'utf8'), 'X=1\n');
 	});
 	// ⚠ `compile: false` in every asset fixture below, and it is not incidental: compile REFUSES a
-	// `local-assets` entry that is not yet gitignored, and the fixture builder compiles before the
+	// `local_assets` entry that is not yet gitignored, and the fixture builder compiles before the
 	// test body can write the `.gitignore` line. The worktree's own install compiles anyway.
 	test('a declared local asset present in the primary is linked', () => {
-		const ws = workspace({ compile: false, pkg: { 'local-assets': ['.profiles'] } });
+		const ws = workspace({ compile: false, pkg: { local_assets: ['.profiles'] } });
 		fs.mkdirSync(path.join(ws.root, '.profiles')); fs.appendFileSync(path.join(ws.root, '.gitignore'), '.profiles\n'); // no slash — see Task 4
 		const wt = linkedWorktree(ws); // commits .gitignore and package.json before the worktree is cut
 		assert.equal(dt(wt, 'install').code, 0);
@@ -73,7 +73,7 @@ describe('dt install in a linked worktree', () => {
 	// ⚠ TWO MODULES DECLARING THE SAME REL would otherwise produce two steps sharing one id, and
 	// the second is silently dropped by any id-keyed lookup of the board.
 	test('the same local asset declared twice yields ONE step', () => {
-		const ws = workspace({ compile: false, pkg: { 'local-assets': ['.profiles', '.profiles'] } });
+		const ws = workspace({ compile: false, pkg: { local_assets: ['.profiles', '.profiles'] } });
 		fs.mkdirSync(path.join(ws.root, '.profiles')); fs.appendFileSync(path.join(ws.root, '.gitignore'), '.profiles\n');
 		const wt = linkedWorktree(ws);
 		const r = dt(wt, 'install');
@@ -111,7 +111,7 @@ describe('dt install in a linked worktree', () => {
 	// it. fs throws on far more than a missing file, so the guard is the rule here, not the
 	// exception: a file sitting where a link's parent directory has to go is one line of setup.
 	test('a step that THROWS is reported as a failed step, and the plan continues', () => {
-		const ws = workspace({ compile: false, pkg: { 'local-assets': ['nested/dir'] } });
+		const ws = workspace({ compile: false, pkg: { local_assets: ['nested/dir'] } });
 		fs.mkdirSync(path.join(ws.root, 'nested', 'dir'), { recursive: true });
 		fs.appendFileSync(path.join(ws.root, '.gitignore'), 'nested\n');
 		const wt = linkedWorktree(ws);
@@ -148,7 +148,7 @@ describe('dt install in a linked worktree', () => {
 // `▶ git modules: restore <names>` for ever and the restore runs on every install. Both directions,
 // through `observeState` directly — no clone is ever attempted, so nothing here reaches the network.
 describe('observeState narrows git modules to the MISSING clones', () => {
-	const declared = { 'git-modules': { widgets: { url: 'https://widgets.invalid/widgets.git', ref: 'main' } } };
+	const declared = { git_modules: { widgets: { url: 'https://widgets.invalid/widgets.git', ref: 'main' } } };
 	test('a declared clone that is absent is named', () => {
 		const ws = workspace({ pkg: declared });
 		assert.deepEqual(observeState(ws.ws).gitModules, ['widgets']);
@@ -166,7 +166,7 @@ describe('a local asset may not escape the workspace root', () => {
 	test('a rel that climbs out is refused by name, and nothing is linked', () => {
 		// compile: false — a rel that climbs out is refused by the COMPILER too now (Task 4); this
 		// case is about the runtime refusal, which must not depend on the compiler having been run.
-		const ws = workspace({ compile: false, pkg: { 'local-assets': ['../outside'] } });
+		const ws = workspace({ compile: false, pkg: { local_assets: ['../outside'] } });
 		const wt = linkedWorktree(ws);
 		const r = dt(wt, 'install');
 		assert.equal(r.code, 1, `a rel outside the root was accepted:\n${r.stdout}`);
