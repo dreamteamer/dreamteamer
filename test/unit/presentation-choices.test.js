@@ -1,144 +1,96 @@
-// Tier 1 — `x-choices`: optional metadata attached to ENUM VALUES, projected into the `choices`
-// rows the presentation contract already emits.
+// Tier 1 — an enum's values reach a surface as choice rows: `{ label, value }` plus whatever the
+// descriptor's enum MAP decorates each value with (`description`, `icon`, `color`, `background`).
 //
-// Until 0.21.0 an enum value had a label and nothing else: `{ text: String(v), value: v }`, which is
-// all any surface could ever know about it. A board grouping by that field could draw a header with
-// the value on it and no glyph, no colour and no explanation — and there was nowhere to author one,
-// because a field row's `schema` key is a Directus stub and the raw JSON Schema property never
-// reaches a surface at all. `edit_options.choices` is the ONLY channel, so this is where the
-// vocabulary had to grow.
+// Two properties are load-bearing:
+//   1. THE ENUM DECIDES WHICH VALUES EXIST AND THEIR ORDER. A list enum is undecorated; a map enum's
+//      key order is the band order a board groups by.
+//   2. THE KEYS ARE COPIED BY NAME. A descriptor is authored data; spreading whatever an entry carries
+//      into a contract every surface reads would let a workspace inject arbitrary keys.
 //
-// Two properties are load-bearing and each has a test that fails loudly if it stops holding:
-//
-//   1. IT IS PURELY ADDITIVE. An enum with no `x-choices` must project byte-identically to what it
-//      projected before, because every existing descriptor is one of those and none of them were
-//      touched. That is the regression test, and it is first on purpose.
-//   2. THE KEYS ARE COPIED BY NAME. A descriptor is authored data; spreading whatever it happens to
-//      carry into the presentation contract would let a workspace inject arbitrary keys into a
-//      structure every surface reads. The vocabulary is closed and one line names it.
-//
-// `presentation()` takes a Map of descriptors and returns a projection — pure, no workspace, no fs.
+// The rows ride in the field's component options (`editor_options.choices`, the same object as
+// `viewer_options.choices`), beside any authored `display.options`.
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { presentation } from '../../src/presentation.js';
+import { compiledCollection } from '../helpers/clinic-compiled.js';
 
-/** One collection whose `lane` field is an enum, optionally decorated. Synthetic throughout. */
-function withLane(prop) {
-	return new Map([
-		['tickets', {
-			name: 'tickets',
-			storage: { suffix: 'ticket' },
-			schema: { type: 'object', properties: { name: { type: 'string' }, lane: prop } },
-		}],
-	]);
-}
+/** One collection whose `lane` field carries `field` — compiled v2 shape. */
+const withLane = (field) => new Map([['tickets', compiledCollection('tickets', { fields: { name: { type: 'string', title: 'Name' }, lane: { title: 'Lane', ...field } } })]]);
+const laneRow = (descriptors) => presentation(descriptors).fields.tickets.find((r) => r.field === 'lane');
+const choicesOf = (descriptors) => laneRow(descriptors).editor_options?.choices;
 
-const choicesOf = (descriptors, field = 'lane') =>
-	descriptors && presentation(descriptors).fields['tickets'].find((r) => r.field === field)?.meta?.edit_options?.choices;
-
-const laneRow = (descriptors, field = 'lane') =>
-	presentation(descriptors).fields['tickets'].find((r) => r.field === field);
-
-describe('an enum with no x-choices is untouched', () => {
-	test('projects exactly what it always projected', () => {
-		const choices = choicesOf(withLane({ type: 'string', enum: ['alpha', 'bravo'] }));
-		assert.deepEqual(choices, [
-			{ text: 'alpha', value: 'alpha' },
-			{ text: 'bravo', value: 'bravo' },
+describe('a list enum', () => {
+	test('projects one undecorated row per value, labelled by the value', () => {
+		assert.deepEqual(choicesOf(withLane({ type: 'string', enum: ['alpha', 'bravo'] })), [
+			{ label: 'alpha', value: 'alpha' },
+			{ label: 'bravo', value: 'bravo' },
 		]);
 	});
 
-	test('and a non-string enum still stringifies its label while keeping the raw value', () => {
-		const choices = choicesOf(withLane({ enum: [1, 2] }));
-		assert.deepEqual(choices, [
-			{ text: '1', value: 1 },
-			{ text: '2', value: 2 },
-		]);
+	test('the viewer reads the same rows as the editor', () => {
+		const row = laneRow(withLane({ type: 'string', enum: ['alpha'] }));
+		assert.deepEqual(row.viewer_options, row.editor_options);
+	});
+
+	test('a many enum is a multi-select over the same rows', () => {
+		const row = laneRow(withLane({ type: 'string', many: true, enum: ['alpha', 'bravo'] }));
+		assert.equal(row.many, true);
+		assert.deepEqual(row.editor_options.choices.map((c) => c.value), ['alpha', 'bravo']);
 	});
 });
 
-describe('x-choices decorates a value', () => {
+describe('a map enum decorates its values', () => {
 	const descriptors = withLane({
 		type: 'string',
-		enum: ['alpha', 'bravo', 'charlie'],
-		'x-choices': {
-			alpha: {
-				label: 'Alpha team',
-				description: 'the one that ships',
-				icon: 'rocket',
-				color: 'charts.blue',
-				background: 'charts.blue',
-			},
+		enum: {
+			alpha: { label: 'Alpha team', description: 'the one that ships', icon: 'rocket', color: 'charts.blue', background: 'charts.blue' },
 			bravo: { icon: 'assets/icons/lucide/anchor' },
+			charlie: {},
 		},
 	});
 
-	test('all five keys arrive, and `label` becomes `text`', () => {
-		const [alpha] = choicesOf(descriptors);
-		assert.deepEqual(alpha, {
-			text: 'Alpha team',
-			value: 'alpha',
-			description: 'the one that ships',
-			icon: 'rocket',
-			color: 'charts.blue',
-			background: 'charts.blue',
+	test('all five decoration keys arrive under their own names', () => {
+		assert.deepEqual(choicesOf(descriptors)[0], {
+			label: 'Alpha team', value: 'alpha', description: 'the one that ships', icon: 'rocket', color: 'charts.blue', background: 'charts.blue',
 		});
-		assert.ok(!('label' in alpha), '`label` is never emitted under its own name — `text` is the contract');
 	});
 
-	test('a partially decorated value carries only what it declared', () => {
-		const bravo = choicesOf(descriptors)[1];
-		assert.deepEqual(bravo, { text: 'bravo', value: 'bravo', icon: 'assets/icons/lucide/anchor' });
+	test('a partially decorated value carries only what it declared, labelled by the value', () => {
+		assert.deepEqual(choicesOf(descriptors)[1], { label: 'bravo', value: 'bravo', icon: 'assets/icons/lucide/anchor' });
+		assert.deepEqual(choicesOf(descriptors)[2], { label: 'charlie', value: 'charlie' });
 	});
 
-	test('a value absent from the map is exactly as it was before', () => {
-		assert.deepEqual(choicesOf(descriptors)[2], { text: 'charlie', value: 'charlie' });
-	});
-
-	test('the enum still decides which values exist, and their ORDER', () => {
-		// The map is unordered and partial by design; a surface that groups by this field takes its
-		// band order from `enum`, so a map key must never be able to add, remove or reorder a value.
+	test('the map order is the band order', () => {
 		assert.deepEqual(choicesOf(descriptors).map((c) => c.value), ['alpha', 'bravo', 'charlie']);
 	});
 });
 
-describe('what x-choices may NOT do', () => {
-	test('a key that is not an enum value contributes nothing', () => {
-		const choices = choicesOf(withLane({
-			type: 'string',
-			enum: ['alpha'],
-			'x-choices': { alpha: { icon: 'rocket' }, delta: { icon: 'bug' } },
-		}));
-		assert.deepEqual(choices, [{ text: 'alpha', value: 'alpha', icon: 'rocket' }]);
-	});
-
-	test('an unknown key INSIDE an entry is dropped — the vocabulary is closed', () => {
-		const [alpha] = choicesOf(withLane({
-			type: 'string',
-			enum: ['alpha'],
-			'x-choices': { alpha: { icon: 'rocket', onclick: 'rm -rf /', weight: 3 } },
-		}));
-		assert.deepEqual(alpha, { text: 'alpha', value: 'alpha', icon: 'rocket' });
+describe('what an enum map may NOT do', () => {
+	test('an unknown key inside an entry is dropped — the vocabulary is closed', () => {
+		const [alpha] = choicesOf(withLane({ type: 'string', enum: { alpha: { icon: 'rocket', onclick: 'rm -rf /', weight: 3, text: 'old' } } }));
+		assert.deepEqual(alpha, { label: 'alpha', value: 'alpha', icon: 'rocket' });
 	});
 
 	test('a non-string value for a known key is dropped rather than passed through', () => {
-		const [alpha] = choicesOf(withLane({
-			type: 'string',
-			enum: ['alpha'],
-			'x-choices': { alpha: { icon: 42, color: null, description: '' } },
-		}));
-		assert.deepEqual(alpha, { text: 'alpha', value: 'alpha' });
+		const [alpha] = choicesOf(withLane({ type: 'string', enum: { alpha: { icon: 42, color: null, description: '' } } }));
+		assert.deepEqual(alpha, { label: 'alpha', value: 'alpha' });
 	});
 
-	test('on a field with no enum it produces no edit_options at all', () => {
-		const row = laneRow(withLane({ type: 'string', 'x-choices': { alpha: { icon: 'rocket' } } }));
-		assert.equal(row.meta.edit_options, undefined, 'no enum, no choices — compile warns about this separately');
+	test('a null entry is an undecorated value', () => {
+		assert.deepEqual(choicesOf(withLane({ type: 'string', enum: { alpha: null } })), [{ label: 'alpha', value: 'alpha' }]);
 	});
 
-	test('a malformed x-choices does not throw — an array, a string, null', () => {
-		for (const bad of [[], 'nope', null, 7]) {
-			const choices = choicesOf(withLane({ type: 'string', enum: ['alpha'], 'x-choices': bad }));
-			assert.deepEqual(choices, [{ text: 'alpha', value: 'alpha' }], `x-choices: ${JSON.stringify(bad)}`);
-		}
+	test('a field with no enum has no choices and, with nothing else, no component options', () => {
+		const row = laneRow(withLane({ type: 'string' }));
+		assert.equal(row.editor_options, undefined);
+		assert.equal(row.viewer_options, undefined);
+	});
+});
+
+describe('authored component options ride beside the choices', () => {
+	test('display.options merges into the same object', () => {
+		const row = laneRow(withLane({ type: 'string', enum: ['alpha'], display: { editor: 'segmented', options: { compact: true } } }));
+		assert.equal(row.editor, 'segmented');
+		assert.deepEqual(row.editor_options, { choices: [{ label: 'alpha', value: 'alpha' }], compact: true });
 	});
 });
