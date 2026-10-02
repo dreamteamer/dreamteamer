@@ -12,18 +12,14 @@ import path from 'node:path';
 import { workspace, readFile } from '../helpers/ws.js';
 
 const DOCS = {
-	id: { generate: '{{ name | slug }}' },
+	ids: { from: '{{ name | slug }}' },
 	storage: { suffix: 'doc' },
-	schema: {
-		type: 'object',
-		required: ['name'],
-		properties: {
-			name: { type: 'string' },
-			source_file: { type: 'string' },
-			attachments: { type: 'array', items: { type: 'string' } },
-			mixed: { type: 'array' },
-			pages: { type: 'integer' },
-		},
+	fields: {
+		name: { type: 'string', required: true },
+		source_file: { type: 'string' },
+		attachments: { type: 'string', many: true },
+		mixed: { type: 'string', many: true },
+		pages: { type: 'integer' },
 	},
 };
 
@@ -137,10 +133,13 @@ describe('dt resolve <collection>/<id> <field> — a stored template', () => {
 	// render must print NOTHING — the failure has to be the exit code, not a shorter list.
 	test('a mixed array prints nothing at all before failing', () => {
 		const ws = fixture();
-		ws.store.add('docs', { name: 'Mixed', mixed: ['${env:FILES_FOLDER}/ok.pdf', 42] });
+		// written by hand: the store refuses a non-string item, and a hand edit is how one arrives
+		fs.mkdirSync(path.join(ws.root, 'data/docs'), { recursive: true });
+		fs.writeFileSync(path.join(ws.root, 'data/docs/mixed.doc.md'), '---\nname: Mixed\nmixed:\n  - ${env:FILES_FOLDER}/ok.pdf\n  - 42\n---\n');
 		const res = ws.dt('resolve', 'docs/mixed', 'mixed');
 		assert.equal(res.code, 1);
 		assert.equal(res.stdout, '', 'no item may reach stdout when one of them cannot render');
+		assert.match(res.stderr, /field "mixed" holds a number/, 'refused for the item, not for a missing record');
 	});
 
 	test('an extra argument is an error, not silently ignored', () => {

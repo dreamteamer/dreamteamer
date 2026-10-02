@@ -1,5 +1,5 @@
 // Tier 2 — relationship-based storage: a collection whose records live UNDER the record they
-// belong to. `storage.under: { field, path }` on the CHILD says "a meeting with a `company` lives in
+// belong to. `storage.under: { parent, subfolder }` on the CHILD says "a meeting with a `company` lives in
 // that company's folder, in `meetings/`"; one without a company stays in the collection's own root.
 //
 // The contract this file holds:
@@ -16,44 +16,39 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { workspace, writeCollection, compileError, readFile, tree } from '../helpers/ws.js';
+import { storageOf } from '../../src/descriptor.js';
 const require = createRequire(import.meta.url);
 
 // The PARENT: a folder-shape collection, one folder per company, `company.md` as its entry file.
 const COMPANIES = {
-	id: { generate: '{{ name | slug }}' },
-	storage: { shape: 'folder', entry: 'company.md', suffix: 'company', codec: 'md' },
-	schema: {
-		type: 'object',
-		required: ['name'],
-		properties: { name: { type: 'string' }, notes: { type: 'string', format: 'markdown', 'x-body': true } },
+	ids: { from: '{{ name | slug }}' },
+	storage: { shape: 'folder', entry: 'company.md', suffix: 'company', format: 'md' },
+	fields: {
+		name: { type: 'string', required: true },
+		notes: { type: 'markdown', body: true },
 	},
 };
 
 // The CHILD: a dated, path-shaped id (`2026/10/kickoff`), the shape a real meetings collection has,
 // so the test proves the id survives placement with its slashes intact.
 const MEETINGS = {
-	id: { generate: '{{ when }}/{{ name | slug }}' },
-	storage: { suffix: 'meeting', under: { field: 'company', path: 'meetings' } },
-	schema: {
-		type: 'object',
-		required: ['name', 'when'],
-		properties: {
-			name: { type: 'string' },
-			when: { type: 'string' },
-			company: { type: 'string', 'x-reference': 'companies' },
-			notes: { type: 'string', format: 'markdown', 'x-body': true },
-		},
+	ids: { from: '{{ when }}/{{ name | slug }}' },
+	storage: { suffix: 'meeting', under: { parent: 'company', subfolder: 'meetings' } },
+	fields: {
+		name: { type: 'string', required: true },
+		when: { type: 'string', required: true },
+		company: { type: 'companies' },
+		notes: { type: 'markdown', body: true },
 	},
 };
 
 // A third collection that points AT meetings — the inbound reference a move must leave intact.
 const TASKS = {
-	id: { generate: '{{ name | slug }}' },
+	ids: { from: '{{ name | slug }}' },
 	storage: { suffix: 'task' },
-	schema: {
-		type: 'object',
-		required: ['name'],
-		properties: { name: { type: 'string' }, meeting: { type: 'string', 'x-reference': 'meetings' } },
+	fields: {
+		name: { type: 'string', required: true },
+		meeting: { type: 'meetings' },
 	},
 };
 
@@ -78,8 +73,9 @@ describe('declaring storage.under', () => {
 	test('compiles, derives the parent collection, and the compiled descriptor passes check', () => {
 		const ws = placed();
 		const d = ws.store.descriptor('meetings');
-		assert.deepEqual(d.storage.under, { field: 'company', path: 'meetings', collection: 'companies' });
-		assert.equal(d.storage.path, 'data/meetings', 'the fallback root is still the ordinary one');
+		assert.deepEqual(storageOf(d).under, { parent: 'company', subfolder: 'meetings', collection: 'companies', id: 'independent' });
+		assert.equal(d.compiled.under_collection, 'companies');
+		assert.equal(storageOf(d).path, 'data/meetings', 'the fallback root is still the ordinary one');
 		// ⚠ The 0.25.0 lesson: a descriptor shape compile accepts must ALSO pass the meta-schema `check`
 		// validates compiled descriptors against. Walk the validator, not only the generator.
 		const res = ws.dt('check');
@@ -90,20 +86,20 @@ describe('declaring storage.under', () => {
 		const ws = workspace({ compile: false });
 		writeCollection(ws.root, 'companies', { ...COMPANIES, ...parentPatch });
 		writeCollection(ws.root, 'tasks', patch.extra?.tasks ?? TASKS);
-		writeCollection(ws.root, 'meetings', { ...MEETINGS, storage: { ...MEETINGS.storage, ...patch.storage }, schema: patch.schema ?? MEETINGS.schema });
+		writeCollection(ws.root, 'meetings', { ...MEETINGS, storage: { ...MEETINGS.storage, ...patch.storage }, fields: patch.fields ?? MEETINGS.fields });
 		for (const [name, d] of Object.entries(patch.extra ?? {})) writeCollection(ws.root, name, d);
 		return compileError(ws.ws);
 	};
 
-	test('the field must be a single-target scalar reference', () => {
-		assert.match(refused({ storage: { under: { field: 'name', path: 'meetings' } } }), /under\.field "name".*not a reference/s);
-		assert.match(refused({ storage: { under: { field: 'nope', path: 'meetings' } } }), /under\.field "nope".*no such field/s);
-		const union = structuredClone(MEETINGS.schema);
-		union.properties.company['x-reference'] = ['companies', 'tasks'];
-		assert.match(refused({ storage: {}, schema: union }), /under\.field "company".*exactly one collection/s);
-		const list = structuredClone(MEETINGS.schema);
-		list.properties.company = { type: 'array', items: { type: 'string', 'x-reference': 'companies' } };
-		assert.match(refused({ storage: {}, schema: list }), /under\.field "company".*scalar/s);
+	test('the parent must be a single-target scalar reference', () => {
+		assert.match(refused({ storage: { under: { parent: 'name', subfolder: 'meetings' } } }), /under\.parent "name" must be a scalar reference to exactly one collection/);
+		assert.match(refused({ storage: { under: { parent: 'nope', subfolder: 'meetings' } } }), /under\.parent names "nope", which is not a scalar reference field/);
+		const union = structuredClone(MEETINGS.fields);
+		union.company.type = ['companies', 'tasks'];
+		assert.match(refused({ storage: {}, fields: union }), /under\.parent "company" must be a scalar reference to exactly one collection/);
+		const list = structuredClone(MEETINGS.fields);
+		list.company = { type: 'companies', many: true };
+		assert.match(refused({ storage: {}, fields: list }), /under\.parent names "company", which is not a scalar reference field/);
 	});
 
 	test('the parent must be a folder-shape collection', () => {
@@ -111,27 +107,27 @@ describe('declaring storage.under', () => {
 	});
 
 	test('the child must be a file-shape text record', () => {
-		assert.match(refused({ storage: { codec: 'file' } }), /codec: file/);
+		assert.match(refused({ storage: { format: 'binary' } }), /format: binary/);
 		assert.match(refused({ storage: { shape: 'folder', entry: 'meeting.md' } }), /shape: folder/);
 	});
 
-	test('the path is a safe relative subfolder and never the parent entry', () => {
-		assert.match(refused({ storage: { under: { field: 'company', path: '../meetings' } } }), /under\.path/);
-		assert.match(refused({ storage: { under: { field: 'company', path: '/meetings' } } }), /under\.path/);
-		assert.match(refused({ storage: { under: { field: 'company', path: 'company.md' } } }), /entry file/);
-		assert.match(refused({ storage: { under: { field: 'company' } } }), /under\.path/);
-		assert.match(refused({ storage: { under: { field: 'company', path: 'meetings', mode: 'x' } } }), /unknown key/);
+	test('the subfolder is a safe relative path and never the parent entry', () => {
+		assert.match(refused({ storage: { under: { parent: 'company', subfolder: '../meetings' } } }), /under\.subfolder/);
+		assert.match(refused({ storage: { under: { parent: 'company', subfolder: '/meetings' } } }), /under\.subfolder/);
+		assert.match(refused({ storage: { under: { parent: 'company', subfolder: 'company.md' } } }), /entry file/);
+		assert.match(refused({ storage: { under: { parent: 'company' } } }), /`storage\.under` needs both `parent`.*and `subfolder`/);
+		assert.match(refused({ storage: { under: { parent: 'company', subfolder: 'meetings', mode: 'x' } } }), /unknown key `storage\.under\.mode`/);
 	});
 
 	test('one level only: a placed collection cannot itself be a parent, and siblings cannot share a path', () => {
 		const NESTED = {
-			id: { generate: '{{ name | slug }}' },
-			storage: { suffix: 'note', under: { field: 'meeting', path: 'notes' } },
-			schema: { type: 'object', required: ['name'], properties: { name: { type: 'string' }, meeting: { type: 'string', 'x-reference': 'meetings' } } },
+			ids: { from: '{{ name | slug }}' },
+			storage: { suffix: 'note', under: { parent: 'meeting', subfolder: 'notes' } },
+			fields: { name: { type: 'string', required: true }, meeting: { type: 'meetings' } },
 		};
 		assert.match(refused({ storage: {}, extra: { notes: NESTED } }), /"meetings" is itself stored under/);
-		const SIBLING = { ...TASKS, storage: { suffix: 'task', under: { field: 'company', path: 'meetings' } } };
-		SIBLING.schema = { ...TASKS.schema, properties: { ...TASKS.schema.properties, company: { type: 'string', 'x-reference': 'companies' } } };
+		const SIBLING = { ...TASKS, storage: { suffix: 'task', under: { parent: 'company', subfolder: 'meetings' } } };
+		SIBLING.fields = { ...TASKS.fields, company: { type: 'companies' } };
 		assert.match(refused({ storage: {}, extra: { tasks: SIBLING } }), /both store records under companies\/<id>\/meetings/);
 	});
 });
@@ -370,13 +366,13 @@ describe('dt relocate', () => {
 });
 
 describe('with a generated mirror on the parent', () => {
-	// the vault shape: `companies.meetings` is GENERATED from `meetings.company`, so the mirror has to
-	// follow a move exactly as it follows any other change to the owning side
-	const MIRRORED = structuredClone(MEETINGS);
-	MIRRORED.schema.properties.company['x-inverse'] = 'meetings';
+	// `companies.meetings` is GENERATED from `meetings.company`, so the mirror has to follow a move
+	// exactly as it follows any other change to the owning side
+	const MIRRORING = structuredClone(COMPANIES);
+	MIRRORING.fields = { name: COMPANIES.fields.name, meetings: { type: 'meetings', many: true, mirror_of: 'company' }, notes: COMPANIES.fields.notes };
 
 	test('the mirror detaches from the old parent and attaches to the new one in the same write', () => {
-		const ws = workspace({ collections: { companies: COMPANIES, meetings: MIRRORED } });
+		const ws = workspace({ collections: { companies: MIRRORING, meetings: MEETINGS } });
 		ws.store.add('companies', { name: 'Northwind' });
 		ws.store.add('companies', { name: 'Harbor' });
 		ws.store.add('meetings', { name: 'Kickoff', when: '2026/10', company: 'companies/northwind' });
@@ -461,7 +457,7 @@ describe('R3 — dropping or changing `under` cannot strand the records it place
 	test('changing under.path is refused the same way; --to-root moves everything to the fallback root, ids intact', () => {
 		const ws = seeded();
 		assert.equal(ws.dt('commit', '-m', 'seed').code, 0);
-		assert.match(recompileWith(ws, { suffix: 'meeting', under: { field: 'company', path: 'calls' } }), /--to-root/);
+		assert.match(recompileWith(ws, { suffix: 'meeting', under: { parent: 'company', subfolder: 'calls' } }), /--to-root/);
 		const dry = ws.dt('relocate', 'meetings', '--to-root', '--dry-run');
 		assert.equal(dry.code, 0, dry.stderr);
 		assert.match(dry.stdout, /2 move\(s\) planned/);
@@ -470,7 +466,7 @@ describe('R3 — dropping or changing `under` cannot strand the records it place
 		assert.deepEqual(tree(ws.root, 'data/meetings'), ['data/meetings/2026/10/kickoff.meeting.md', 'data/meetings/2026/10/offsite.meeting.md', 'data/meetings/2026/10/review.meeting.md']);
 		assert.equal(fs.existsSync(path.join(ws.root, 'data/companies/northwind/meetings')), false);
 		// now the transition compiles, and under the new path check reports the fallback records as misplaced until relocate runs
-		assert.equal(recompileWith(ws, { suffix: 'meeting', under: { field: 'company', path: 'calls' } }), null);
+		assert.equal(recompileWith(ws, { suffix: 'meeting', under: { parent: 'company', subfolder: 'calls' } }), null);
 		const s2 = new (require('../../src/store.js').Store)(ws.ws);
 		assert.equal(s2.ids('meetings').size, 3);
 		assert.equal(ws.dt('commit', '-m', 'flattened').code, 0);
