@@ -2,18 +2,23 @@
 // app, the REST layer). One read model, so no surface re-derives a label, a column list or a
 // read-only rule from a descriptor on its own.
 //
-// It reads ONLY the compiled v2 shape: the authored keys (`title`, `record_title`, `internal`,
-// `storage.suffix`, `display`), `compiled.defaults` for what compile supplied, `compiled.runtime`,
-// and `compiled.fields` — the resolved field list, the three injected fields included. Every key it
-// emits is a name from the design's display-contract table, one word per meaning;
+// It reads a compiled descriptor ONLY through `src/descriptor.js` — the accessors resolve what the
+// author wrote over what compile supplied (`displayOf`, `titleOf`, `recordTitleOf`, `storageOf`) and
+// hand over the resolved field list, the three injected fields included (`fieldsOf`). Nothing here
+// names a `compiled` key, so the contract cannot drift from what the store and check read. Every key
+// it emits is a name from the design's display-contract table, one word per meaning;
 // `test/unit/presentation-contract.test.js` lists them and fails on any other.
 //
 //   { collections: [CollectionRow], fields: { <collection>: [FieldRow] }, relations: [RelationRow] }
 //
 // Pure: no fs, no git, no workspace.
-import { SCALAR_TYPES, enumValues, enumChoices, titleOf } from './fields.js';
+import { enumValues, enumChoices, titleOf as fieldTitle } from './fields.js';
+import {
+	fieldsOf, displayOf as resolvedDisplayOf, titleOf, recordTitleOf, storageOf, positionFieldOf, bodyFieldOf,
+	requiredOf, targetsOf, mirrorOf, isRuntime, isInternal,
+} from './descriptor.js';
 
-/** The design's default layouts, used where `compiled.defaults.display` does not state them. */
+/** The design's default layouts, used where the resolved `display` (`displayOf`) does not state them. */
 const DEFAULT_LIST_LAYOUT = 'table';
 const DEFAULT_RECORD_LAYOUT = 'page';
 
@@ -30,7 +35,11 @@ export function presentation(descriptors) {
 	const all = [...descriptors.values()];
 	// an owner field "has a relation" when some collection mirrors it — the far side names it
 	const mirrored = new Set();
-	for (const d of all) for (const f of Object.values(fieldsOf(d))) if (f.mirror_of !== undefined) mirrored.add(`${f.type}\0${f.mirror_of}`);
+	for (const d of all) {
+		for (const f of Object.values(fieldsOf(d))) {
+			if (mirrorOf(f) !== undefined) for (const t of collectionTargets(f)) mirrored.add(`${t}\0${mirrorOf(f)}`);
+		}
+	}
 	const collections = [];
 	const fields = {};
 	const relations = [];
@@ -38,19 +47,21 @@ export function presentation(descriptors) {
 	for (const d of all.sort((a, b) => order(a) - order(b))) {
 		const declared = fieldsOf(d);
 		const { form } = displayOf(d);
+		const required = new Set(requiredOf(d));
+		const body = bodyFieldOf(d);
 		collections.push(collectionRow(d, declared));
 		// the section a field is drawn in: its own `form_section`, else the authored section listing it
 		const sectionOf = new Map((form.sections ?? []).flatMap((s) => s.fields.map((n) => [n, s.title])).reverse());
 		fields[d.name] = Object.entries(declared).map(([name, f]) => {
-			const row = { collection: d.name, ...fieldRow(name, f, d.compiled.defaults.fields?.[name]) };
+			const row = { collection: d.name, ...fieldRow(name, f, { required: required.has(name), body: name === body }) };
 			const section = f.display?.form_section ?? sectionOf.get(name);
 			if (section !== undefined && !f.deprecated) row.form_section = section;
 			return row;
 		});
 		for (const [name, f] of Object.entries(declared)) {
-			const mirror = f.mirror_of !== undefined;
+			const mirror = mirrorOf(f) !== undefined;
 			const kind = mirror || !mirrored.has(`${d.name}\0${name}`) ? undefined : f.many ? 'm2m' : f.unique ? 'o2o' : 'm2o';
-			for (const target of collectionTargets(f.type)) {
+			for (const target of collectionTargets(f)) {
 				relations.push({ collection: d.name, field: name, related_collection: target, list: f.many === true, ...pick({ kind, mirror: mirror || undefined }, ['kind', 'mirror']) });
 			}
 		}
@@ -58,11 +69,8 @@ export function presentation(descriptors) {
 	return { collections, fields, relations };
 }
 
-/** `compiled.fields` — none for a descriptor compile did not resolve, which is no v2 descriptor */
-const fieldsOf = (d) => d.compiled?.fields ?? {};
-
-/** the authored `display` with its four sub-blocks present */
-const displayOf = (d) => ({ nav: {}, list: {}, record: {}, form: {}, ...d.display });
+/** the resolved `display` — authored over compile's defaults — with its four sub-blocks present */
+const displayOf = (d) => ({ nav: {}, list: {}, record: {}, form: {}, ...resolvedDisplayOf(d) });
 
 /** the keys of `src` that are defined, in `keys` order */
 function pick(src, keys) {
@@ -72,16 +80,14 @@ function pick(src, keys) {
 }
 
 function collectionRow(d, declared) {
-	const { defaults = {}, runtime } = d.compiled ?? {};
 	const { nav, list, record, form } = displayOf(d);
-	const dflt = { list: {}, record: {}, ...defaults.display };
 	const drawn = (n) => declared[n] && !declared[n].deprecated; // a deprecated field is drawn nowhere
-	const row = {
+	return {
 		collection: d.name,
-		title: d.title ?? defaults.title,
+		title: titleOf(d),
 		nav: pick(nav, ['icon', 'order', 'section']),
-		list: { layout: list.layout ?? dflt.list.layout ?? DEFAULT_LIST_LAYOUT, ...pick({ ...list, columns: list.columns?.filter(drawn) }, ['columns', 'sort', 'options']) },
-		record: { layout: record.layout ?? dflt.record.layout ?? DEFAULT_RECORD_LAYOUT, ...pick(record, ['subtitle', 'badge', 'color_by']) },
+		list: { layout: list.layout ?? DEFAULT_LIST_LAYOUT, ...pick({ ...list, columns: list.columns?.filter(drawn) }, ['columns', 'sort', 'options']) },
+		record: { layout: record.layout ?? DEFAULT_RECORD_LAYOUT, ...pick(record, ['subtitle', 'badge', 'color_by']) },
 		// each authored section, plus the fields naming it through `display.form_section`, in field order
 		form: {
 			sections: (form.sections ?? []).map((s) => ({
@@ -89,33 +95,31 @@ function collectionRow(d, declared) {
 				fields: [...s.fields, ...Object.keys(declared).filter((n) => declared[n].display?.form_section === s.title && !s.fields.includes(n))].filter(drawn),
 			})),
 		},
-		...pick({
-			position_field: Object.keys(declared).find((k) => declared[k].type === 'position'),
-			record_title: d.record_title ?? defaults.record_title,
-		}, ['position_field', 'record_title']),
-		record_type: d.storage?.suffix ?? defaults.storage?.suffix ?? d.name,
-		runtime: runtime === true,
-		internal: d.internal === true,
+		...pick({ position_field: positionFieldOf(d), record_title: recordTitleOf(d) }, ['position_field', 'record_title']),
+		record_type: storageOf(d).suffix ?? d.name,
+		runtime: isRuntime(d),
+		internal: isInternal(d),
 	};
-	return row;
 }
 
 /** The named collections a reference field points at; none for a non-reference and for `reference`
- *  (polymorphic: any collection, so no relation row). */
-function collectionTargets(type) {
-	if (Array.isArray(type)) return type;
-	return type === 'reference' || SCALAR_TYPES.includes(type) ? [] : [type];
+ *  (`'*'`, polymorphic: any collection, so no relation row). */
+function collectionTargets(f) {
+	const t = targetsOf(f);
+	return Array.isArray(t) ? t : [];
 }
 
-/** One field as surfaces draw it. `defaults` is the field's entry in `compiled.defaults.fields`. */
-function fieldRow(name, f, defaults = {}) {
+/** One field as surfaces draw it. `required` and `body` are the collection's answers
+ *  (`requiredOf`, `bodyFieldOf`); an object's sub-field, which no collection accessor covers, says
+ *  its own. The title is the resolved one — compile wrote its default onto the field. */
+function fieldRow(name, f, { required = f.required === true, body = f.body === true } = {}) {
 	const display = f.display ?? {};
 	// Three engine-held kinds of read-only: a mirror the owner's write maintains, a stored value only
 	// the engine writes (`created`), a value computed on read. Every writer is refused, so no surface
 	// offers a control. `display.editable` locks only the UI and lets the CLI and syncs through.
-	const kind = f.mirror_of !== undefined ? 'mirror' : f.derived ? 'derived' : f.virtual ? 'virtual' : undefined;
-	const reference = f.type === 'reference' || collectionTargets(f.type).length > 0;
-	const role = f.body ? 'body' : kind === 'mirror' ? 'mirror' : !reference ? undefined : f.many ? 'reference_many' : 'reference';
+	const kind = mirrorOf(f) !== undefined ? 'mirror' : f.derived ? 'derived' : f.virtual ? 'virtual' : undefined;
+	const reference = targetsOf(f) !== null;
+	const role = body ? 'body' : kind === 'mirror' ? 'mirror' : !reference ? undefined : f.many ? 'reference_many' : 'reference';
 	// a deprecated field still validates and is drawn nowhere
 	const hidden = f.deprecated ? ['list', 'form', 'record'] : INJECTED_HIDDEN[name]?.(f) ?? display.hidden;
 	const options = componentOptions(f);
@@ -123,16 +127,16 @@ function fieldRow(name, f, defaults = {}) {
 		field: name,
 		// the authored type name; a reference travels as a string, and its `role` says it is one
 		type: WIRE_TYPES.has(f.type) ? f.type : 'string',
-		title: f.title ?? defaults.title ?? titleOf(name),
+		title: f.title ?? fieldTitle(name),
 		...pick({ description: f.description || undefined }, ['description']),
-		required: f.required === true,
+		required,
 		...pick({ many: f.many || undefined, kind }, ['many', 'kind']),
 		editable: kind ? false : display.editable ?? true,
 		...pick({ hidden: hidden?.length ? [...hidden] : undefined, role }, ['hidden', 'role']),
 		...pick({ ...display, editor_options: options, viewer_options: options }, ['editor', 'editor_options', 'viewer', 'viewer_options']),
-		...pick(f, ['mirror_of', 'on_delete']),
+		...pick({ mirror_of: mirrorOf(f), on_delete: f.on_delete }, ['mirror_of', 'on_delete']),
 		...pick({ unique: f.unique || undefined }, ['unique']),
-		nullable: f.required !== true,
+		nullable: !required,
 		...pick(f, ['default']),
 		...pick(display, ['unit', 'unit_field', 'direction', 'width', 'placeholder']),
 		...pick({ deprecated: f.deprecated || undefined, sensitive: f.sensitive || undefined }, ['deprecated', 'sensitive']),
