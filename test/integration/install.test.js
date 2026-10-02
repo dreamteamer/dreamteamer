@@ -160,6 +160,90 @@ describe('observeState narrows git modules to the MISSING clones', () => {
 	});
 });
 
+// A CHANGED REF MOVES THE CLONE. Before, an existing clone kept whatever it had checked out, so a
+// lockfile edit compiled stale module content with nothing said. The remote is a local bare repo
+// (no network): `main` at a second commit, tag `v1` at the first.
+describe('dt install re-points a git_modules clone whose ref differs', () => {
+	function withClone(ref) {
+		const w = workspace();
+		const remote = path.join(w.root, '.remotes', 'widgets.git');
+		const work = path.join(w.root, '.remotes', 'work');
+		fs.mkdirSync(path.dirname(remote), { recursive: true });
+		git(w.root, ['init', '--quiet', '--bare', '-b', 'main', remote]);
+		git(w.root, ['clone', '--quiet', remote, work]);
+		fs.writeFileSync(path.join(work, 'package.json'), JSON.stringify({ name: 'widgets', version: '0.0.1', dreamteamer: {} }));
+		git(work, ['add', 'package.json']); git(work, ['commit', '-qm', 'one']); git(work, ['tag', 'v1']);
+		fs.writeFileSync(path.join(work, 'README.md'), 'two\n');
+		git(work, ['add', 'README.md']); git(work, ['commit', '-qm', 'two']);
+		git(work, ['push', '--quiet', '--tags', 'origin', 'main']);
+		const clone = path.join(w.root, 'git_modules', 'widgets');
+		git(w.root, ['clone', '--quiet', remote, clone]);
+		const pkgFile = path.join(w.root, 'package.json');
+		const pkg = JSON.parse(fs.readFileSync(pkgFile, 'utf8'));
+		pkg.dreamteamer.git_modules = { widgets: { url: `file://${remote}`, ref } };
+		fs.writeFileSync(pkgFile, JSON.stringify(pkg, null, '\t') + '\n');
+		w.ws.pkg.dreamteamer.git_modules = pkg.dreamteamer.git_modules; // what observeState reads
+		const sha = (rev) => git(clone, ['rev-parse', rev]);
+		return { ...w, clone, sha, one: sha('v1'), two: sha('main') };
+	}
+
+	test('a clean clone on main is moved to the declared tag, and the next run has nothing to do', () => {
+		const w = withClone('v1');
+		assert.deepEqual(observeState(w.ws).gitModules, ['widgets']);
+		const res = dt(w.root, 'install');
+		assert.equal(res.code, 0, res.stdout + res.stderr);
+		assert.match(res.stdout, /▶ git modules: restore or re-point widgets/);
+		assert.ok(res.stdout.includes(`git_modules/widgets: ${w.two.slice(0, 7)} → v1 (${w.one.slice(0, 7)})`), res.stdout);
+		assert.equal(w.sha('HEAD'), w.one);
+		const again = dt(w.root, 'install');
+		assert.equal(again.code, 0, again.stdout + again.stderr);
+		assert.match(again.stdout, /git modules: nothing to restore/);
+		assert.equal(w.sha('HEAD'), w.one);
+	});
+
+	test('a clone detached at a tag is moved to the declared branch', () => {
+		const w = withClone('main');
+		git(w.clone, ['checkout', '--quiet', '--detach', 'v1']);
+		const res = dt(w.root, 'install');
+		assert.equal(res.code, 0, res.stdout + res.stderr);
+		assert.ok(res.stdout.includes(`git_modules/widgets: ${w.one.slice(0, 7)} → main (${w.two.slice(0, 7)})`), res.stdout);
+		assert.equal(git(w.clone, ['symbolic-ref', '--short', 'HEAD']), 'main');
+	});
+
+	test('a dirty clone is refused by name and left where it is', () => {
+		const w = withClone('v1');
+		fs.writeFileSync(path.join(w.clone, 'scratch.txt'), 'local work\n');
+		const res = dt(w.root, 'install');
+		assert.equal(res.code, 1, res.stdout + res.stderr);
+		assert.match(res.stderr, /git_modules\/widgets: not on v1, and it has uncommitted changes — commit or stash them/);
+		assert.match(res.stderr, /nothing was moved/);
+		assert.equal(w.sha('HEAD'), w.two);
+		assert.ok(fs.existsSync(path.join(w.clone, 'scratch.txt')));
+	});
+
+	test('a clone holding commits on no remote is refused, and they are kept', () => {
+		const w = withClone('v1');
+		fs.writeFileSync(path.join(w.clone, 'local.txt'), 'local\n');
+		git(w.clone, ['add', 'local.txt']); git(w.clone, ['commit', '-qm', 'local']);
+		const mine = w.sha('HEAD');
+		const res = dt(w.root, 'install');
+		assert.equal(res.code, 1, res.stdout + res.stderr);
+		assert.match(res.stderr, /git_modules\/widgets: not on v1, and it holds 1 commit\(s\) on no remote — push them/);
+		assert.equal(w.sha('HEAD'), mine);
+	});
+
+	test('a clone already on its ref is a no-op: not planned, not fetched, not moved', () => {
+		const w = withClone('main');
+		assert.deepEqual(observeState(w.ws).gitModules, []);
+		const res = dt(w.root, 'install');
+		assert.equal(res.code, 0, res.stdout + res.stderr);
+		assert.match(res.stdout, /git modules: nothing to restore/);
+		assert.doesNotMatch(res.stdout, /→ main/);
+		assert.equal(w.sha('HEAD'), w.two);
+		assert.ok(!fs.existsSync(path.join(w.clone, '.git', 'FETCH_HEAD')), 'a settled clone was fetched');
+	});
+});
+
 // ⚠ A LOCAL ASSET DECLARATION IS NOT A LICENCE TO TOUCH THE REST OF THE DISK: `placeLink` writes
 // wherever the rel points, so a rel that climbs out has to be refused before the board prints it.
 describe('a local asset may not escape the workspace root', () => {

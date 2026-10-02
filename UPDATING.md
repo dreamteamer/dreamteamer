@@ -69,9 +69,12 @@ read a v1 one. So, in this order:
 1. `npm install dreamteamer@^0.33.0`, and confirm with `npx dreamteamer --version`.
 2. Move every module to its v2 release.
    - **npm:** bump the dependency and `npm install`.
-   - **`git_modules/`:** change the ref, then remove the clone and install again —
-     `rm -rf git_modules/<name> && npx dreamteamer install`. An existing clone keeps the checkout it
-     has, and compiling stale module content against this engine is where most first refusals come from.
+   - **`git_modules/`:** change the ref in `dreamteamer.git_modules.<name>.ref`, then
+     `npx dreamteamer install`. A clone whose checkout is not the declared ref (a branch, tag or sha) is
+     fetched and moved, one line each: `git_modules/<name>: <old sha> → <ref> (<new sha>)`. A clone
+     with uncommitted changes, or with commits on no remote, is refused by name and left as it is —
+     commit, stash or push there first. Compiling stale module content against this engine is where
+     most first refusals come from, so read that line before section 3.
 3. Do not compile yet. Your own v1 sources are refused until section 3.
 
 ### 3. Convert your own sources

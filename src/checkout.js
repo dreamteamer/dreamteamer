@@ -5,7 +5,7 @@ import fs, { realpathSync } from 'node:fs';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { staleness, compile, discoverModules } from './compile.js';
-import { install as restoreGitModules } from './init.js';
+import { install as restoreGitModules, offRef } from './init.js';
 
 export const defaultGit = (args, cwd) => {
 	try {
@@ -76,10 +76,10 @@ export function planInstall(state, opts = {}) {
 		else if (!a.presentInPrimary) steps.push({ id, label: `${a.rel}: absent in the primary — skipped (the doctor reports the capability degraded)`, state: 'skip' });
 		else steps.push({ id, label: `${a.rel}: link → ${c.primary}/${a.rel}`, state: 'todo' });
 	}
-	// gitModules carries the declared clones that are MISSING on this checkout, not every declared
-	// one — the observer narrows it, which is what makes an empty array mean "nothing to restore"
+	// gitModules carries the declared clones that are MISSING on this checkout or off their declared
+	// ref, not every declared one — the observer narrows it, which is what makes an empty array mean "nothing to restore"
 	// rather than "none declared", and what lets a settled checkout plan with nothing todo.
-	steps.push({ id: 'git_modules', label: state.gitModules.length ? `git modules: restore ${state.gitModules.join(', ')}` : 'git modules: nothing to restore', state: state.gitModules.length ? 'todo' : 'skip' });
+	steps.push({ id: 'git_modules', label: state.gitModules.length ? `git modules: restore or re-point ${state.gitModules.join(', ')}` : 'git modules: nothing to restore', state: state.gitModules.length ? 'todo' : 'skip' });
 	steps.push({ id: 'compile', label: state.stale ? 'compile: runtime missing or stale' : 'compile: fresh', state: state.stale ? 'todo' : 'already' });
 	steps.push(state.postinstall
 		? { id: 'postinstall', label: `postinstall: ${state.postinstall}`, state: 'todo' }
@@ -135,10 +135,11 @@ export function observeState(ws) {
 		missingDeps: declaredDeps(ws).filter((d) => !resolves(here(path.join('node_modules', d)))),
 		hasEnv: resolves(here('.env')), envIsLink: isLink(here('.env')), primaryHasEnv: resolves(there('.env')),
 		localAssets: declaredLocalAssets(ws).map((a) => ({ ...a, presentHere: resolves(here(a.rel)), isLinkHere: isLink(here(a.rel)), presentInPrimary: resolves(there(a.rel)) })),
-		// ⚠ THE MISSING clones, not every declared one. A settled worktree would otherwise print
-		// `▶ git modules: restore <names>` for ever, and this is the step whose result nobody looks
-		// at — so the narrowing here is what makes the empty case mean "nothing to restore".
-		gitModules: Object.keys(ws.pkg.dreamteamer?.git_modules ?? {}).filter((n) => !resolves(here(path.join('git_modules', n)))),
+		// ⚠ THE MISSING clones and the ones off their declared ref, not every declared one. A settled
+		// worktree would otherwise print `▶ git modules: …` for ever, and this is the step whose result
+		// nobody looks at — so the narrowing here is what makes the empty case mean "nothing to do".
+		gitModules: Object.entries(ws.pkg.dreamteamer?.git_modules ?? {})
+			.filter(([n, m]) => !resolves(here(path.join('git_modules', n))) || offRef(here(path.join('git_modules', n)), m?.ref ?? 'main')).map(([n]) => n),
 		stale: !s.compiled || s.stale.length > 0,
 		postinstall: ws.pkg.dreamteamer?.postinstall ?? null,
 	};
