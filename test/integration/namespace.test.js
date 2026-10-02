@@ -8,20 +8,18 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { workspace, writeCollection, simpleCollection, compileError, tree, readFile } from '../helpers/ws.js';
+import { storageOf, isRuntime, titleOf } from '../../src/descriptor.js';
+import { load } from '../../src/yaml.js';
 
 const DOCTORS = simpleCollection({ storage: { suffix: 'doctor' } });
 const VISITS = simpleCollection({
 	storage: { suffix: 'visit' },
-	id: { generate: '{{ date }}--{{ name | slug }}' },
-	schema: {
-		type: 'object',
-		required: ['name', 'date'],
-		properties: {
-			name: { type: 'string' },
-			date: { type: 'string', format: 'date' },
-			doctor: { type: 'string', 'x-reference': 'health/doctors' },
-			notes: { type: 'string', 'x-body': true },
-		},
+	ids: { from: '{{ date }}--{{ name | slug }}' },
+	fields: {
+		name: { type: 'string', required: true },
+		date: { type: 'date', required: true },
+		doctor: { type: 'health/doctors' },
+		notes: { type: 'markdown', body: true },
 	},
 });
 
@@ -58,8 +56,8 @@ describe('a namespaced collection on disk', () => {
 	test('storage.path is derived from the namespace without being authored', () => {
 		const ws = nsWorkspace();
 		const d = ws.store.descriptor('health/doctors');
-		assert.equal(d.storage.path, 'data/health/doctors');
-		assert.equal(d.storage.base, 'workspace');
+		assert.equal(storageOf(d).path, 'data/health/doctors');
+		assert.equal(isRuntime(d), false, 'a namespaced collection holds workspace data, never build output');
 	});
 
 	test('an authored storage.path still wins', () => {
@@ -69,16 +67,16 @@ describe('a namespaced collection on disk', () => {
 				'health/doctors': simpleCollection({ storage: { suffix: 'doctor', path: 'vault/clinicians' } }),
 			},
 		});
-		assert.equal(ws.store.descriptor('health/doctors').storage.path, 'vault/clinicians');
+		assert.equal(storageOf(ws.store.descriptor('health/doctors')).path, 'vault/clinicians');
 	});
 
 	test('a data-path workspace nests the namespace under it', () => {
 		const ws = workspace({
 			namespaces: ['health'],
-			pkg: { 'data-path': 'vault' },
+			pkg: { data_path: 'vault' },
 			collections: { 'health/doctors': DOCTORS },
 		});
-		assert.equal(ws.store.descriptor('health/doctors').storage.path, 'vault/health/doctors');
+		assert.equal(storageOf(ws.store.descriptor('health/doctors')).path, 'vault/health/doctors');
 	});
 });
 
@@ -133,9 +131,10 @@ describe('references across namespaces', () => {
 				doctors: DOCTORS,
 				linker: simpleCollection({
 					storage: { suffix: 'link' },
-					schema: {
-						type: 'object', required: ['name'],
-						properties: { name: { type: 'string' }, doctor: { type: 'string', 'x-reference': '*' } },
+					fields: {
+						name: { type: 'string', required: true },
+						doctor: { type: 'reference' },
+						notes: { type: 'markdown', body: true },
 					},
 				}),
 			},
@@ -192,8 +191,8 @@ describe('the default namespace is transparent', () => {
 	test('an unprefixed collection keeps its path and its reference shape', () => {
 		const plain = workspace({ collections: { doctors: DOCTORS } });
 		const withNs = workspace({ namespaces: ['health'], collections: { doctors: DOCTORS } });
-		assert.equal(plain.store.descriptor('doctors').storage.path, 'data/doctors');
-		assert.equal(withNs.store.descriptor('doctors').storage.path, 'data/doctors');
+		assert.equal(storageOf(plain.store.descriptor('doctors')).path, 'data/doctors');
+		assert.equal(storageOf(withNs.store.descriptor('doctors')).path, 'data/doctors');
 		withNs.store.add('doctors', { name: 'Dana Levi' });
 		assert.ok(readFile(withNs.root, 'data/doctors/dana-levi.doctor.md'));
 	});
@@ -204,17 +203,19 @@ describe('the default namespace is transparent', () => {
 			collections: {
 				meetings: simpleCollection({
 					storage: { suffix: 'meeting' },
-					id: { generate: '{{ date }}/{{ name | slug }}' },
-					schema: {
-						type: 'object', required: ['name', 'date'],
-						properties: { name: { type: 'string' }, date: { type: 'string' } },
+					ids: { from: '{{ date }}/{{ name | slug }}' },
+					fields: {
+						name: { type: 'string', required: true },
+						date: { type: 'string', required: true },
+						notes: { type: 'markdown', body: true },
 					},
 				}),
 				notes2: simpleCollection({
 					storage: { suffix: 'note' },
-					schema: {
-						type: 'object', required: ['name'],
-						properties: { name: { type: 'string' }, about: { type: 'string', 'x-reference': 'meetings' } },
+					fields: {
+						name: { type: 'string', required: true },
+						about: { type: 'meetings' },
+						notes: { type: 'markdown', body: true },
 					},
 				}),
 			},
@@ -298,8 +299,8 @@ describe('nested namespaces', () => {
 				'work/invoices': simpleCollection({ storage: { suffix: 'invoice' } }),
 			},
 		});
-		assert.equal(ws.store.descriptor('work/clients/acme').storage.path, 'data/work/clients/acme');
-		assert.equal(ws.store.descriptor('work/invoices').storage.path, 'data/work/invoices');
+		assert.equal(storageOf(ws.store.descriptor('work/clients/acme')).path, 'data/work/clients/acme');
+		assert.equal(storageOf(ws.store.descriptor('work/invoices')).path, 'data/work/invoices');
 		ws.store.add('work/clients/acme', { name: 'Contract' });
 		assert.ok(readFile(ws.root, 'data/work/clients/acme/contract.doc.md'));
 	});
@@ -339,15 +340,12 @@ describe('the derived title drops the namespace', () => {
 	// it twice on one screen ("Health > Health Doctors"). Workspaces had worked around it by authoring
 	// a title on every namespaced collection, which is the tell: a derivation nobody can use is not a
 	// default. A namespace is the FOLDER a collection sits in, not part of what it is called.
-	const titleOf = (ws, name) => {
-		const yaml = readFile(ws.root, `.dreamteamer/collections/${name}.collection.yaml`);
-		return /^title: (.*)$/m.exec(yaml)?.[1];
-	};
+	const compiledTitle = (ws, name) => titleOf(load(readFile(ws.root, `.dreamteamer/collections/${name}.collection.yaml`)));
 
 	test('a namespaced collection derives its BARE name', () => {
 		const ws = nsWorkspace();
-		assert.equal(titleOf(ws, 'health/doctors'), 'Doctors');
-		assert.equal(titleOf(ws, 'finance/invoices'), 'Invoices');
+		assert.equal(compiledTitle(ws, 'health/doctors'), 'Doctors');
+		assert.equal(compiledTitle(ws, 'finance/invoices'), 'Invoices');
 	});
 
 	test('a nested namespace drops the whole declared prefix, not one segment', () => {
@@ -355,28 +353,28 @@ describe('the derived title drops the namespace', () => {
 			namespaces: ['work', 'work/clients'],
 			collections: { 'work/clients/acme-docs': DOCTORS },
 		});
-		assert.equal(titleOf(ws, 'work/clients/acme-docs'), 'Acme Docs');
+		assert.equal(compiledTitle(ws, 'work/clients/acme-docs'), 'Acme Docs');
 	});
 
 	test('an authored title still wins', () => {
 		const ws = nsWorkspace({
 			collections: { 'health/doctors': { ...DOCTORS, title: 'Practitioners' } },
 		});
-		assert.equal(titleOf(ws, 'health/doctors'), 'Practitioners');
+		assert.equal(compiledTitle(ws, 'health/doctors'), 'Practitioners');
 	});
 
 	test('a default-namespace collection is unchanged', () => {
 		const ws = workspace({ collections: { doctors: DOCTORS } });
-		assert.equal(titleOf(ws, 'doctors'), 'Doctors');
+		assert.equal(compiledTitle(ws, 'doctors'), 'Doctors');
 	});
 
 	// An UNDECLARED prefix is not a namespace, so there is nothing to strip — and a collection whose
 	// name genuinely carries a slash keeps all of it rather than losing half its label.
 	test('an undeclared prefix keeps the whole name in the label', () => {
 		const ws = workspace({ namespaces: ['health'], collections: { 'health/doctors': DOCTORS } });
-		assert.equal(titleOf(ws, 'health/doctors'), 'Doctors');
+		assert.equal(compiledTitle(ws, 'health/doctors'), 'Doctors');
 		const none = workspace({ collections: { doctors: DOCTORS } });
-		assert.equal(titleOf(none, 'doctors'), 'Doctors');
+		assert.equal(compiledTitle(none, 'doctors'), 'Doctors');
 	});
 });
 
