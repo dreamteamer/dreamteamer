@@ -34,7 +34,7 @@ function asGitModule(ws, id) {
 	// the lockfile entry a real git module carries, so `install`/`status` know about it
 	const pkgFile = path.join(ws.root, 'package.json');
 	const pkg = JSON.parse(fs.readFileSync(pkgFile, 'utf8'));
-	pkg.dreamteamer['git-modules'] = { ...pkg.dreamteamer['git-modules'], [id]: { url: `file://${to}`, ref: 'main' } };
+	pkg.dreamteamer.git_modules = { ...pkg.dreamteamer.git_modules, [id]: { url: `file://${to}`, ref: 'main' } };
 	fs.writeFileSync(pkgFile, JSON.stringify(pkg, null, '\t') + '\n');
 	// ⚠ THE FOLDER MOVED OUT OF `modules/`, so the workspace repo still has it in its index. Commit
 	// the removal, or the very next `git add -- modules/…` pathspec is a deleted-but-staged tree.
@@ -56,7 +56,7 @@ describe('a schema write into a git-shape module', () => {
 
 		// the field is on disk, in the clone
 		assert.equal(
-			load(readFile(ws.root, 'git_modules/hr/collections/hr/positions.collection.yaml')).schema.properties.grade.type,
+			load(readFile(ws.root, 'git_modules/hr/collections/hr/positions.collection.yaml')).fields.grade.type,
 			'integer',
 		);
 		// and COMMITTED there, not in the workspace
@@ -148,7 +148,7 @@ describe('a schema write into a git-shape module', () => {
 		assert.equal(readFile(ws.root, 'modules/default/collections/hr/positions.collection.yaml'), null,
 			'no overlay was invented in the workspace module');
 		assert.equal(
-			load(readFile(ws.root, 'git_modules/hr/collections/positions.collection.yaml')).schema.properties.grade.type,
+			load(readFile(ws.root, 'git_modules/hr/collections/positions.collection.yaml')).fields.grade.type,
 			'integer',
 		);
 	});
@@ -172,5 +172,23 @@ describe('a schema write into a git-shape module', () => {
 			'the source is byte-for-byte what it was',
 		);
 		assert.equal(ws.dt('check').code, 0);
+	});
+});
+
+// The gate compile regenerates the root harness files (CLAUDE.md, AGENTS.md, GEMINI.md). They are
+// build output and gitignored (test/integration/harness-order.test.js), so a schema write's commit
+// pathspec must never name them: `git add` on an ignored path is a hard error, and it would fail the
+// write it was only regenerating for.
+describe('a schema write never hands a gitignored harness file to git add', () => {
+	test('the write commits, and the ignored root files stay out of it', () => {
+		const ws = twoModuleWorkspace();
+		assert.ok(fs.existsSync(path.join(ws.root, '.claude/skills')), 'the fixture writes the ignored dir');
+		assert.equal(ws.git(['check-ignore', '.claude/skills']).trim(), '.claude/skills');
+		assert.equal(ws.git(['check-ignore', 'CLAUDE.md']).trim(), 'CLAUDE.md', 'the root harness file is ignored');
+		const res = ws.dt('set', 'collections/people', 'description=Still a person.');
+		assert.equal(res.code, 0, `an ignored path in the pathspec would have failed this: ${res.stderr}`);
+		assert.match(readFile(ws.root, 'CLAUDE.md'), /Still a person\./, 'the gate compile regenerated it');
+		assert.doesNotMatch(ws.git(['show', '--stat', '--oneline', 'HEAD']), /CLAUDE\.md|AGENTS\.md|GEMINI\.md/);
+		assert.equal(ws.git(['status', '--porcelain', '--', 'modules']), '', 'the source change is committed');
 	});
 });
