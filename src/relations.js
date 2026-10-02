@@ -1,7 +1,6 @@
-// Relations, decoded ONCE. A relation is one owner field carrying `x-inverse` in the compiled
-// runtime — compile is the only producer of that shape (both source spellings normalize to it),
-// so check, the store's mirror maintenance, `dt relations`, rebuild and presentation all read
-// through here and can never disagree about what a relation is.
+// Relations, decoded ONCE. A relation is a mirror field (`mirror_of: <owner field>`) in the compiled
+// runtime, so check, the store's mirror maintenance, `dt relations`, rebuild and presentation all
+// read through here and can never disagree about what a relation is.
 import { fieldsOf, targetsOf } from './descriptor.js';
 
 export function relationsOf(descriptors) {

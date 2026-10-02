@@ -135,7 +135,7 @@ export class Store {
 	 *  Runs INSIDE withWriteLock, after the owner file is on disk. Nothing is validated here: an attach
 	 *  was proved to exist by `checkRefs` before the lock, and a detach is removal, which cannot dangle.
 	 *
-	 *  ⚠ ALL-OR-NOTHING, by its own hand. The one refusal it can raise (x-unique) is discoverable only
+	 *  ⚠ ALL-OR-NOTHING, by its own hand. The one refusal it can raise (a unique owner) is discoverable only
 	 *  ON a target, i.e. partway through a loop that may already have rewritten other targets — so a
 	 *  throw undoes its own work before it propagates, and the caller is left with exactly one thing to
 	 *  roll back: the owner write.
@@ -159,7 +159,7 @@ export class Store {
 		const toArr = (v) => (v == null ? [] : Array.isArray(v) ? v : [v]);
 		try {
 			// EVERY row whose owner is this collection, never the first match: a union FK
-			// (`x-reference: [a, b]`) decodes to one relation row PER TARGET, all sharing one owner
+			// (`type: [a, b]`) decodes to one relation row PER TARGET, all sharing one owner
 			// field, and each row maintains only the refs naming its own target — which is what the
 			// `parsed.collection` guard in `touch` enforces. Finding one row would maintain one member
 			// of the union and silently leave the others stale.

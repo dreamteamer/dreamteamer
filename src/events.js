@@ -95,7 +95,7 @@ function parseNameStatus(out, prefix, descriptors, repo) {
 }
 
 /** map a workspace-relative path to {collection, id} via storage.path longest-prefix
- *  match + suffix/codec (file shape) or entry (folder shape). non-records → null. */
+ *  match + suffix/format (file shape) or entry (folder shape). non-records → null. */
 export function pathToRecord(descriptors, relPath) {
 	let best = null;
 	for (const d of descriptors.values()) {

@@ -2549,7 +2549,7 @@ const ENTITY_SHAPE = {
 
 /** The shape of one kind — the table above, else DERIVED from the compiled descriptor, which is how
  *  a kind an extension contributes (`proofs`) gets `rm · rename · set` without this file naming it:
- *  `storage.suffix` + the codec's extension, one file per id. */
+ *  `storage.suffix` + the format's extension, one file per id. */
 function entityShape(ws, kind) {
 	if (ENTITY_SHAPE[kind]) return ENTITY_SHAPE[kind];
 	const d = loadDescriptors(ws.root).get(kind);

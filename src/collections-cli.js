@@ -157,7 +157,7 @@ export function collectionCommand(ws, collection, verb, args) {
 				return 0;
 			}
 			if (flags.from) throw new Error(`--from imports a file as a record, and "${collection}" is not a \`format: binary\` collection`);
-			// ONE bare positional is the record's title — the field `title_template` names — so
+			// ONE bare positional is the record's title — the field `record_title` opens with — so
 			// `dt add task "call the bank"` reads as a sentence. Two positionals is a mistake (a flag
 			// value that lost its flag), and so is giving the title twice; both are refused by name.
 			if (pos.length > 1) throw new Error(`dt add ${collection} takes ONE positional (the title) and flags for the rest — got ${pos.length}: ${pos.map((p) => `"${p}"`).join(' ')}`);
@@ -196,7 +196,7 @@ export function collectionCommand(ws, collection, verb, args) {
 		}
 		// Manual ordering. ONE record is written per move — that is the entire feature; a dense
 		// integer would renumber everything below the insertion point and bury the change. The field is
-		// named by the descriptor (`sort_field`), never here, so a workspace may call it anything.
+		// the descriptor's `type: position` field, never named here, so a workspace may call it anything.
 		case 'reorder': {
 			const field = positionFieldOf(d);
 			if (!field) throw new Error(`collection "${collection}" has no \`type: position\` field — add one to its descriptor before ordering it by hand.`);
@@ -516,7 +516,7 @@ function metaCollectionsSet(ws, store, flags, pos) {
  * collection. §7's other half: `module=` is the move between modules, `order` is the position in
  * the nav, and giving one verb both meanings is what made "move a collection" ambiguous.
  *
- * ⚠ `order` is a NUMBER on the descriptor, not a fractional index — unlike a record's `sort_field`,
+ * ⚠ `order` is a NUMBER on the descriptor, not a fractional index — unlike a record's position field,
  * which uses one because a record collection has thousands of rows and a dense integer would
  * renumber everything below the insertion point. A workspace has tens of collections and their
  * `order` values are hand-authored and readable (10, 40, 140), so a midpoint is the right shape:
@@ -693,7 +693,7 @@ function metaRemoveField(ws, store, collection, flags) {
 }
 
 /** An IDENTITY entity kind — a compiled source file per id (skills, agents, commands, bindings,
- *  collection-templates, and any kind an extension contributes). Derived from the runtime rather than
+ *  mixins, and any kind an extension contributes). Derived from the runtime rather than
  *  listed, so a contributed kind gets `set · rm · rename` without core knowing its name; `collections`,
  *  `ui-views` and `modules` have verbs of their own. */
 const OWN_VERBS = new Set(['collections', 'ui-views', 'modules']);
@@ -803,7 +803,7 @@ function metaRenameValue(ws, store, collection, flags, pos) {
  * runtime can tell a list key from a scalar one. Without this set the comma spelling every other
  * verb accepts for an array (`--tags a,b`) stored the literal string `"title,status"`, which the
  * surface reads with `Array.isArray` and therefore ignores: a view that looked configured, drew
- * the descriptor's `list_fields` instead, and reported nothing anywhere.
+ * the descriptor's `display.list.columns` instead, and reported nothing anywhere.
  *
  * `columns` is honoured by every list layout; `ref_fields` and `value_fields` are the diagram's
  * link-by pickers. `arrangement` is deliberately ABSENT — its elements are objects, so the JSON

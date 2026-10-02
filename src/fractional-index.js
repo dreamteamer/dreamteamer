@@ -1,5 +1,5 @@
 // Manual ordering keys. Named for the ALGORITHM: the FIELD is named per collection via
-// `sort_field`, and nothing here may assume what it is called.
+// its `type: position` field, and nothing here may assume what it is called.
 //
 // ⚠ THE ALPHABET IS LOAD-BEARING. `compareValues` (temporal.js) ends in `localeCompare`, which is
 // locale-aware, so the library's DEFAULT base-62 keys mis-sort here: prepending three times gives

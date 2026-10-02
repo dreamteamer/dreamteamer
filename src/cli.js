@@ -655,7 +655,7 @@ export async function run(argv) {
 					console.error('✖ `dt setup` is gone — `dt doctor` shows what works on this machine, each fix on its row');
 					process.exit(2);
 				}
-				console.error(`✖ unknown verb "${cmd}" — dreamteamer is verb-first since 0.12.0: dt <verb> [<target>]`);
+				console.error(`✖ unknown verb "${cmd}" — the verb comes first: dt <verb> [<target>]`);
 				emit(USAGE, 2);
 				process.exit(1);
 		}

@@ -1,5 +1,5 @@
 // dreamteamer check — validate every record against the compiled descriptors.
-// report-only: JSON Schema (ajv), id patterns, x-reference resolution, stray files, plus any
+// report-only: JSON Schema (ajv), id patterns, reference resolution, stray files, plus any
 // `extra` violations a caller gathered (extension checks), reported after the schema's.
 // NEVER modifies a file. returns the exit code.
 import fs from 'node:fs';
@@ -109,7 +109,7 @@ export function check({ root }, { extra = [] } = {}) {
 			for (const f of walk(dir)) {
 				const id = idFromRecordPath(d, path.relative(dir, f));
 				if (id === null) { strays.push({ collection: name, file: rel(f) }); continue; }
-				// One id is one file. Under a fixed-extension codec this cannot happen; under `file` it
+				// One id is one file. Under a fixed-extension format this cannot happen; under `binary` it
 				// can, and picking one silently is how a replaced logo keeps rendering as its predecessor.
 				if (ids.has(id)) {
 					violations.push({ file: rel(f), msg: `collection "${name}" holds the id "${id}" twice — ${rel(ids.get(id))} and ${rel(f)}. Remove one.` });
@@ -212,7 +212,7 @@ export function check({ root }, { extra = [] } = {}) {
 		const owners = [...(parsed.get(relation.owner) ?? [])].map(([id, fields]) => ({ id, fields }));
 		const exp = expectedMirrors(relation, owners);
 
-		// x-unique: the FK is one-to-one, so two owners naming one target is a conflict the mirror
+		// a unique owner reference is one-to-one, so two owners naming one target is a conflict the mirror
 		// physically cannot represent (it is a scalar) — reported on the SECOND claimant, where the
 		// edit that has to change is.
 		if (relation.unique) {
@@ -260,7 +260,7 @@ export function check({ root }, { extra = [] } = {}) {
 				softRefs.set(coll, (softRefs.get(coll) ?? 0) + 1);
 				return;
 			}
-			// A SOFT field (`x-reference-soft`) is a declaration, not a resolved link — see ref.js.
+			// A SOFT reference (`soft: true`) names its target collection, and a missing record is tolerated.
 			if (soft) return;
 			return flag(file, `${fieldPath.join('.')}: reference "${value}" targets unknown collection "${coll}"`);
 		}

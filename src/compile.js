@@ -848,7 +848,7 @@ export function compile(ws) {
 			// POINTER that the procedure exists, never its arguments — those stay in the skill.
 			...(binEntries(source.root).length ? { bin: binEntries(source.root) } : {}),
 			...(mpkg.owns_data === true ? { owns_data: true } : {}),
-			// Declared module names become record IDS here, because that is what an x-reference
+			// Declared module names become record IDS here, because that is what a reference
 			// resolves against. An undeclared/unknown name would dangle, and `check` would say so —
 			// but compile has already failed on that case (the acyclicity pass resolves every one).
 			// ⚠ A reference VALUE is `<collection>/<id>`, never a bare id — `check` rejects the bare

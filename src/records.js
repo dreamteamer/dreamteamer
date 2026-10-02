@@ -15,9 +15,9 @@ export function parseRecord(file, d, bodyField) {
 }
 
 export function parseRecordText(text, d, bodyField) {
-	const codec = storageOf(d).format;
-	if (codec === 'yaml') return load(text) ?? {};
-	if (codec === 'json') return JSON.parse(text);
+	const format = storageOf(d).format;
+	if (format === 'yaml') return load(text) ?? {};
+	if (format === 'json') return JSON.parse(text);
 	let fields = {};
 	let body = text;
 	const m = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(text);
@@ -63,7 +63,7 @@ export const MAX_RECORD_BYTES = 204800;
  *  `relPath` is relative to the collection's data directory.
  *
  *  THE ONLY PLACE a filename becomes an id. store, check and events each carried their own copy of
- *  `endsWith('.' + suffix + EXT[codec])`, which is three places to update and two to forget.
+ *  `endsWith('.' + suffix + EXT[format])`, which is three places to update and two to forget.
  *
  *  `format: binary` records are opaque bytes whose extension is whatever was imported, so their tail is
  *  `.<suffix>.<ONE extension segment>` — one, because `x.asset.tar.gz` in the folder is an archive
