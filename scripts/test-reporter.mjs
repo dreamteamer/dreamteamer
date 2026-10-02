@@ -10,6 +10,7 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { inspect } from 'node:util';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const FAILED_FILE = join(ROOT, 'test', '.tmp', 'last-failed.json');
@@ -63,7 +64,9 @@ export default async function* reporter(source) {
 		const cause = err?.cause ?? err;
 		yield `${RED}✖ ${f.name}${OFF}\n`;
 		yield `${DIM}  ${f.file ?? ''}${f.line ? `:${f.line}` : ''}${OFF}\n`;
-		const message = cause?.message ?? String(cause ?? 'unknown failure');
+		// inspect, not String: a rejected value may be an object with no prototype, and String() on it
+		// throws inside the reporter, which kills the whole run with no summary.
+		const message = typeof cause?.message === 'string' ? cause.message : inspect(cause ?? 'unknown failure');
 		yield `${message.split('\n').map((l) => `  ${l}`).join('\n')}\n`;
 		// An assertion failure carries the two values; a thrown Error carries a stack instead. The
 		// typeof guard is load-bearing: node:test sometimes reports a bare STRING cause ("test failed",
