@@ -16,50 +16,30 @@ import fs from 'node:fs';
 import { workspace, simpleCollection, readFile } from '../helpers/ws.js';
 
 // The same four-collection cast as relations-compile.test.js — one anchor plus the three
-// cardinalities: many-to-one (recordings), one-to-one (summaries, via x-unique) and many-to-many
+// cardinalities: many-to-one (recordings), one-to-one (summaries, via unique) and many-to-many
 // (analyses). Copied rather than shared: test files run in separate processes, and a fixture module
 // imported by two of them is read twice anyway, so the sharing would buy nothing and cost the
 // ability to read either file on its own.
-const MEETINGS = simpleCollection({ storage: { suffix: 'meeting' } });
-
-const RECORDINGS = simpleCollection({
-	storage: { suffix: 'recording' },
-	schema: {
-		type: 'object',
-		required: ['name'],
-		properties: {
-			name: { type: 'string' },
-			notes: { type: 'string', format: 'markdown', 'x-body': true }, // analyses mirror onto this
-			meeting: { type: 'string', 'x-reference': 'meetings', 'x-inverse': 'recordings' },
-		},
-	},
+//
+// A relation is declared once, on the MIRROR, so the anchor carries one mirror per owner it is
+// installed beside — `meetings(...)` picks them, because a mirror whose owner is absent names a
+// collection that does not exist.
+const coll = (suffix, fields = {}) => simpleCollection({
+	storage: { suffix },
+	fields: { name: { type: 'string', required: true }, ...fields, notes: { type: 'markdown', body: true } },
 });
-
-const SUMMARIES = simpleCollection({
-	storage: { suffix: 'summary' },
-	schema: {
-		type: 'object',
-		required: ['name'],
-		properties: {
-			name: { type: 'string' },
-			meeting: { type: 'string', 'x-reference': 'meetings', 'x-unique': true, 'x-inverse': 'summary' },
-		},
-	},
-});
-
-const ANALYSES = simpleCollection({
-	storage: { suffix: 'analysis' },
-	schema: {
-		type: 'object',
-		required: ['name'],
-		properties: {
-			name: { type: 'string' },
-			// authored on the PROPERTY: normalizeRelationKeywords hoists it onto `items`, which is
-			// where every relation consumer reads it from
-			meetings: { type: 'array', 'x-inverse': 'analyses', items: { type: 'string', 'x-reference': 'meetings' } },
-		},
-	},
-});
+const MIRRORS = {
+	recordings: { type: 'recordings', many: true, mirror_of: 'meeting' },
+	summary: { type: 'summaries', mirror_of: 'meeting' },
+	analyses: { type: 'analyses', many: true, mirror_of: 'meetings' },
+};
+const meetings = (...mirrors) => coll('meeting', Object.fromEntries(mirrors.map((m) => [m, MIRRORS[m]])));
+const MEETINGS = meetings('recordings', 'summary', 'analyses');
+const RECORDINGS = coll('recording', { meeting: { type: 'meetings' } });
+const SUMMARIES = coll('summary', { meeting: { type: 'meetings', unique: true } });
+const ANALYSES = coll('analysis', { meetings: { type: 'meetings', many: true } });
+/** analyses whose meetings reference is cleared, not refused, when a meeting is removed */
+const SET_NULL_ANALYSES = coll('analysis', { meetings: { type: 'meetings', many: true, on_delete: 'set-null' } });
 
 const relWorkspace = (extra = {}) => workspace({
 	collections: { meetings: MEETINGS, recordings: RECORDINGS, summaries: SUMMARIES, analyses: ANALYSES },
@@ -126,7 +106,7 @@ describe('the store maintains mirrors', () => {
 	test('the owner and the mirror land in ONE commit', () => {
 		// The whole point of maintaining mirrors in the store rather than in a later sweep: two files
 		// change, and a reader of the history must never see a commit where only one of them did.
-		const ws = relWorkspace({ pkg: { 'auto-commit': true } });
+		const ws = relWorkspace({ pkg: { auto_commit: true } });
 		ws.dt('add', 'meetings', '--name', 'Standup');
 		assert.equal(ws.dt('add', 'recordings', '--name', 'Cut', '--meeting', 'meetings/standup').code, 0);
 		const files = ws.git(['show', '--name-only', '--pretty=format:', 'HEAD']).split('\n').filter(Boolean).sort();
@@ -175,26 +155,37 @@ describe('the store maintains mirrors', () => {
 	});
 
 	test('a unique FK refuses a second owner naming the taken target', () => {
+		// `unique` is a value constraint on the owner's field, so the genuine second claimant is refused
+		// before anything is written — naming the record that already holds the value
 		const ws = relWorkspace();
 		ws.dt('add', 'meetings', '--name', 'Standup');
 		ws.dt('add', 'summaries', '--name', 'One', '--meeting', 'meetings/standup');
 		const res = ws.dt('add', 'summaries', '--name', 'Two', '--meeting', 'meetings/standup');
 		assert.equal(res.code, 1);
-		assert.match(res.stderr, /already has a summary \(summaries\/one\)/);
+		assert.match(res.stderr, /meeting: "meetings\/standup" is already taken by summaries\/one \(unique\)/);
+		assert.equal(readFile(ws.root, 'data/summaries/two.summary.md'), null);
 	});
+
+	/** Plant a claim on a meeting's scalar `summary` mirror that no summary owns — a hand-edit, or one
+	 *  side of a merge. The owner-side `unique` check cannot see it (no owner holds the value), so the
+	 *  conflict is only discoverable on the TARGET, read after the owner has been written. */
+	const plantStaleSummary = (ws, meeting) => {
+		const f = `${ws.root}/data/meetings/${meeting}.meeting.md`;
+		fs.writeFileSync(f, fs.readFileSync(f, 'utf8').replace(/^---\n/, '---\nsummary: summaries/old\n'));
+	};
 
 	test('the refused duplicate leaves NOTHING behind', () => {
 		// The rollback assertion, and the reason the mirror pass runs inside the write lock with the
-		// owner file restorable: the conflict is only discoverable on the TARGET, which is read after
-		// the owner has been written. "nothing was written" has to survive that ordering.
+		// owner file restorable. "nothing was written" has to survive that ordering.
 		const ws = relWorkspace();
 		ws.dt('add', 'meetings', '--name', 'Standup');
-		ws.dt('add', 'summaries', '--name', 'One', '--meeting', 'meetings/standup');
+		plantStaleSummary(ws, 'standup');
 		const before = readFile(ws.root, 'data/meetings/standup.meeting.md');
-		assert.equal(ws.dt('add', 'summaries', '--name', 'Two', '--meeting', 'meetings/standup').code, 1);
+		const res = ws.dt('add', 'summaries', '--name', 'Two', '--meeting', 'meetings/standup');
+		assert.equal(res.code, 1);
+		assert.match(res.stderr, /already has a summary \(summaries\/old\)/);
 		assert.equal(readFile(ws.root, 'data/summaries/two.summary.md'), null);
 		assert.equal(readFile(ws.root, 'data/meetings/standup.meeting.md'), before);
-		assert.equal(ws.dt('check').code, 0);
 	});
 
 	test('a refused set leaves the owner at its previous value', () => {
@@ -204,13 +195,17 @@ describe('the store maintains mirrors', () => {
 		const ws = relWorkspace();
 		ws.dt('add', 'meetings', '--name', 'One');
 		ws.dt('add', 'meetings', '--name', 'Two');
-		ws.dt('add', 'summaries', '--name', 'First', '--meeting', 'meetings/one');
 		ws.dt('add', 'summaries', '--name', 'Second', '--meeting', 'meetings/two');
+		plantStaleSummary(ws, 'one');
 		const res = ws.dt('set', 'summaries/second', 'meeting=meetings/one');
 		assert.equal(res.code, 1);
+		assert.match(res.stderr, /already has a summary \(summaries\/old\)/);
 		assert.match(readFile(ws.root, 'data/summaries/second.summary.md'), /meeting: meetings\/two/);
 		assert.match(readFile(ws.root, 'data/meetings/two.meeting.md'), /summary: summaries\/second/);
-		assert.equal(ws.dt('check').code, 0);
+		// the only finding left is the planted claim — the refused write moved nothing
+		const check = ws.dt('check');
+		assert.match(check.stdout, /one\.meeting\.md/);
+		assert.doesNotMatch(check.stdout, /two\.meeting\.md|second\.summary\.md/);
 	});
 });
 
@@ -222,7 +217,7 @@ describe('mirror maintenance holds at the edges', () => {
 		// maintenance. It reached disk through its own atomicWrite and skipped the pass entirely,
 		// which left BOTH targets stale: the old one never got the link back, the new one kept a link
 		// the owner no longer claims.
-		const ws = relWorkspace({ pkg: { 'auto-commit': true } });
+		const ws = relWorkspace({ pkg: { auto_commit: true } });
 		ws.dt('add', 'meetings', '--name', 'One');
 		ws.dt('add', 'meetings', '--name', 'Two');
 		ws.dt('add', 'recordings', '--name', 'Cap', '--meeting', 'meetings/one');
@@ -276,17 +271,14 @@ describe('mirror maintenance holds at the edges', () => {
 // TOP directory, and a record written into an existing `data/people/core/` moves neither that mtime
 // nor HEAD. So the entry cached during a refused write survives the rollback — deterministically.
 const PEOPLE = {
-	id: { generate: '{{ team }}/{{ name | slug }}' },
+	ids: { from: '{{ team }}/{{ name | slug }}' },
 	storage: { suffix: 'person' },
-	schema: {
-		type: 'object',
-		required: ['name', 'team'],
-		properties: {
-			name: { type: 'string' },
-			team: { type: 'string' },
-			notes: { type: 'string', format: 'markdown', 'x-body': true }, // a mirror target needs one
-			mentor: { type: 'string', 'x-reference': 'people', 'x-unique': true, 'x-inverse': 'mentee' },
-		},
+	fields: {
+		name: { type: 'string', required: true },
+		team: { type: 'string', required: true },
+		mentor: { type: 'people', unique: true },
+		mentee: { type: 'people', mirror_of: 'mentor' },
+		notes: { type: 'markdown', body: true }, // a mirror target needs one
 	},
 };
 
@@ -296,10 +288,13 @@ describe('a refused write leaves no trace in memory either', () => {
 		// disk and a fresh Store agrees, but THIS Store still lists the id — so the next write's
 		// checkRefs sees a record that does not exist and lands a dangling reference from a verb that
 		// reported success.
+		// The refusal has to come from the MIRROR pass, after the owner is on disk: a stale claim on
+		// the target that no owner holds, which the owner-side `unique` check cannot see.
 		const ws = workspace({ collections: { people: PEOPLE } });
 		ws.store.add('people', { name: 'Ada', team: 'core' });
-		ws.store.add('people', { name: 'Bo', team: 'core', mentor: 'people/core/ada' });
-		assert.throws(() => ws.store.add('people', { name: 'Cy', team: 'core', mentor: 'people/core/ada' }), /already has a mentee/);
+		const ada = `${ws.root}/data/people/core/ada.person.md`;
+		fs.writeFileSync(ada, fs.readFileSync(ada, 'utf8').replace(/^---\n/, '---\nmentee: people/core/gone\n'));
+		assert.throws(() => ws.store.add('people', { name: 'Cy', team: 'core', mentor: 'people/core/ada' }), /already has a mentee \(people\/core\/gone\)/);
 		assert.equal(readFile(ws.root, 'data/people/core/cy.person.md'), null); // the disk is right
 		assert.equal(ws.store.ids('people').has('core/cy'), false); // …and so must the memo be
 	});
@@ -312,7 +307,7 @@ describe('a refused write leaves no trace in memory either', () => {
 // written itself, and the only way out was `--force`, which leaves the mirror dangling.
 //
 // So `rm` splits inbound references in three: MINE (mirror entries my FKs put on their targets —
-// detached), THEIRS UNDER A RULE (an owner's FK pointing at me, resolved by `x-on-delete`) and
+// detached), THEIRS UNDER A RULE (an owner's FK pointing at me, resolved by `on_delete`) and
 // THEIRS (everything else — still refused). Each case below is one of the three, and every one of
 // them closes on `dt check`, because a removal that leaves a stale mirror behind is indistinguishable
 // from one that never maintained mirrors at all.
@@ -331,7 +326,7 @@ describe('rm and relations', () => {
 	});
 
 	test('removing a target with restrict owners refuses, naming them', () => {
-		// The other direction, and the default: recordings.meeting has no `x-on-delete`, so it is
+		// The other direction, and the default: recordings.meeting has no `on_delete`, so it is
 		// `restrict` — the owner's foreign key is real data and only its author can decide what it
 		// should say instead.
 		const ws = relWorkspace();
@@ -347,9 +342,7 @@ describe('rm and relations', () => {
 	});
 
 	test('set-null clears the FK on owners when the target goes', () => {
-		const SN = structuredClone(ANALYSES);
-		SN.schema.properties.meetings.items['x-on-delete'] = 'set-null';
-		const ws = workspace({ collections: { meetings: MEETINGS, analyses: SN } });
+		const ws = workspace({ collections: { meetings: meetings('analyses'), analyses: SET_NULL_ANALYSES } });
 		ws.dt('add', 'meetings', '--name', 'One');
 		ws.dt('add', 'meetings', '--name', 'Two');
 		ws.dt('add', 'analyses', '--name', 'Arc', '--meetings', 'meetings/one,meetings/two');
@@ -366,9 +359,7 @@ describe('rm and relations', () => {
 		// Three elements rather than two, and the one removed is in the MIDDLE: a set-null that
 		// replaces the array wholesale, or clears the key because one member matched, passes the
 		// two-element case by accident.
-		const SN = structuredClone(ANALYSES);
-		SN.schema.properties.meetings.items['x-on-delete'] = 'set-null';
-		const ws = workspace({ collections: { meetings: MEETINGS, analyses: SN } });
+		const ws = workspace({ collections: { meetings: meetings('analyses'), analyses: SET_NULL_ANALYSES } });
 		for (const n of ['One', 'Two', 'Three']) ws.dt('add', 'meetings', '--name', n);
 		ws.dt('add', 'analyses', '--name', 'Arc', '--meetings', 'meetings/one,meetings/two,meetings/three');
 		assert.equal(ws.dt('rm', 'meetings/two').code, 0);
@@ -384,9 +375,8 @@ describe('rm and relations', () => {
 		// `meeting:` with nothing after it is not a cleared reference, it is `null` — which ajv reads
 		// as a type error the next time anything writes the record. Absent is the only correct shape,
 		// and it is the same rule the mirror side already follows.
-		const SR = structuredClone(RECORDINGS);
-		SR.schema.properties.meeting['x-on-delete'] = 'set-null';
-		const ws = workspace({ collections: { meetings: MEETINGS, recordings: SR } });
+		const SR = coll('recording', { meeting: { type: 'meetings', on_delete: 'set-null' } });
+		const ws = workspace({ collections: { meetings: meetings('recordings'), recordings: SR } });
 		ws.dt('add', 'meetings', '--name', 'Standup');
 		ws.dt('add', 'recordings', '--name', 'Cap', '--meeting', 'meetings/standup');
 		assert.equal(ws.dt('rm', 'meetings/standup').code, 0);
@@ -413,9 +403,7 @@ describe('rm and relations', () => {
 	test('the whole removal is ONE commit — the record and every reference the engine moved', () => {
 		// Same bargain as add/set: a history where the target is gone but its owners still name it is
 		// a commit that never held a consistent workspace.
-		const SN = structuredClone(ANALYSES);
-		SN.schema.properties.meetings.items['x-on-delete'] = 'set-null';
-		const ws = workspace({ collections: { meetings: MEETINGS, analyses: SN }, pkg: { 'auto-commit': true } });
+		const ws = workspace({ collections: { meetings: meetings('analyses'), analyses: SET_NULL_ANALYSES }, pkg: { auto_commit: true } });
 		ws.dt('add', 'meetings', '--name', 'One');
 		ws.dt('add', 'analyses', '--name', 'Arc', '--meetings', 'meetings/one');
 		assert.equal(ws.dt('rm', 'meetings/one').code, 0);
@@ -431,16 +419,10 @@ describe('rm holds at the edges', () => {
 	// one detaches a mirror) and is the TARGET of a set-null FK on analyses (so removing one clears
 	// an owner's field). One `rm`, three mutations, which is what makes the failure case below worth
 	// writing at all: two of the three land before the one that throws.
-	const CAP_ANALYSES = simpleCollection({
-		storage: { suffix: 'analysis' },
-		schema: {
-			type: 'object',
-			required: ['name'],
-			properties: {
-				name: { type: 'string' },
-				recordings: { type: 'array', 'x-inverse': 'analyses', 'x-on-delete': 'set-null', items: { type: 'string', 'x-reference': 'recordings' } },
-			},
-		},
+	const CAP_ANALYSES = coll('analysis', { recordings: { type: 'recordings', many: true, on_delete: 'set-null' } });
+	const CAP_RECORDINGS = coll('recording', {
+		meeting: { type: 'meetings' },
+		analyses: { type: 'analyses', many: true, mirror_of: 'recordings' },
 	});
 
 	test('a delete that FAILS puts the mirror and the set-null owner back', () => {
@@ -454,7 +436,7 @@ describe('rm holds at the edges', () => {
 		// In-process through the Store, because half of what has to be restored is IN MEMORY: the id
 		// memo is dropped on the way in and repopulated mid-write, and a rollback that leaves it saying
 		// the wrong thing is a dangling reference from the NEXT write, not this one.
-		const ws = workspace({ collections: { meetings: MEETINGS, recordings: RECORDINGS, analyses: CAP_ANALYSES } });
+		const ws = workspace({ collections: { meetings: meetings('recordings'), recordings: CAP_RECORDINGS, analyses: CAP_ANALYSES } });
 		ws.store.add('meetings', { name: 'Standup' });
 		ws.store.add('recordings', { name: 'Cap', meeting: 'meetings/standup' });
 		ws.store.add('recordings', { name: 'Other' });
@@ -489,10 +471,7 @@ describe('rm holds at the edges', () => {
 		// record whose FK is about to be cleared could carry a second, unmanaged reference in its body
 		// and have it excluded along with the first. Nothing would ever report it: `check` reads
 		// frontmatter, never prose.
-		const SN = structuredClone(ANALYSES);
-		SN.schema.properties.meetings.items['x-on-delete'] = 'set-null';
-		SN.schema.properties.notes = { type: 'string', 'x-body': true };
-		const ws = workspace({ collections: { meetings: MEETINGS, analyses: SN } });
+		const ws = workspace({ collections: { meetings: meetings('analyses'), analyses: SET_NULL_ANALYSES } });
 		ws.dt('add', 'meetings', '--name', 'One');
 		ws.dt('add', 'analyses', '--name', 'Arc', '--meetings', 'meetings/one');
 		const f = `${ws.root}/data/analyses/arc.analysis.md`;
@@ -509,11 +488,7 @@ describe('rm holds at the edges', () => {
 	test('a mirror target that ALSO names the owner in prose still refuses', () => {
 		// The same narrowing on the other exclusion. One occurrence in that file is the engine's own
 		// bookkeeping and is not a reason to refuse; two means one of them is somebody's writing.
-		const M = simpleCollection({
-			storage: { suffix: 'meeting' },
-			schema: { type: 'object', required: ['name'], properties: { name: { type: 'string' }, notes: { type: 'string', 'x-body': true } } },
-		});
-		const ws = workspace({ collections: { meetings: M, recordings: RECORDINGS } });
+		const ws = workspace({ collections: { meetings: meetings('recordings'), recordings: RECORDINGS } });
 		ws.dt('add', 'meetings', '--name', 'Standup');
 		ws.dt('add', 'recordings', '--name', 'Cap', '--meeting', 'meetings/standup');
 		const f = `${ws.root}/data/meetings/standup.meeting.md`;
@@ -534,10 +509,7 @@ describe('rm holds at the edges', () => {
 // different places: one from parsed FIELDS, one from the file's raw BYTES.
 describe('the exclusion arithmetic survives a bare foreign key', () => {
 	const bareWorkspace = () => {
-		const SN = structuredClone(ANALYSES);
-		SN.schema.properties.meetings.items['x-on-delete'] = 'set-null';
-		SN.schema.properties.notes = { type: 'string', 'x-body': true };
-		const ws = workspace({ collections: { meetings: MEETINGS, analyses: SN } });
+		const ws = workspace({ collections: { meetings: meetings('analyses'), analyses: SET_NULL_ANALYSES } });
 		ws.dt('add', 'meetings', '--name', 'One');
 		ws.dt('add', 'analyses', '--name', 'Arc', '--meetings', 'meetings/one');
 		return ws;
@@ -569,7 +541,7 @@ describe('the exclusion arithmetic survives a bare foreign key', () => {
 	test('a BARE set-null FK on its own still clears, without refusing', () => {
 		// The other half, and the reason the fix cannot simply be "count bare values as text": a record
 		// whose ONLY reference is the bare FK contains no literal `meetings/one` at all, so the scan
-		// never names it — and clearing it is exactly what `x-on-delete: set-null` asks for.
+		// never names it — and clearing it is exactly what `on_delete: set-null` asks for.
 		const ws = bareWorkspace();
 		unqualify(ws);
 		const res = ws.dt('rm', 'meetings/one');
@@ -622,16 +594,19 @@ describe('a refusal caused by a mirror names the command that repairs it', () =>
 		assert.equal(after.code, 0, after.stderr);
 	});
 
-	test('an x-unique collision says a stale claim is rebuildable', () => {
+	test('a unique collision says a stale claim is rebuildable', () => {
 		// Two owners for one one-to-one target. The refusal is correct either way — the mirror is a
 		// scalar and cannot hold two — but the CAUSE splits: a genuine second claimant is the caller's
 		// to resolve, while a claim left behind by a hand-edit or an older engine is mechanical.
+		// The genuine second claimant is refused by the owner's `unique` (above); what reaches the
+		// mirror pass is a claim no owner holds, planted by hand.
 		const ws = relWorkspace();
 		ws.dt('add', 'meetings', '--name', 'Kickoff');
-		ws.dt('add', 'summaries', '--name', 'S1', '--meeting', 'meetings/kickoff');
+		const f = `${ws.root}/data/meetings/kickoff.meeting.md`;
+		fs.writeFileSync(f, fs.readFileSync(f, 'utf8').replace(/^---\n/, '---\nsummary: summaries/s1\n'));
 		const res = ws.dt('add', 'summaries', '--name', 'S2', '--meeting', 'meetings/kickoff');
 		assert.equal(res.code, 1);
-		assert.match(res.stderr, /x-unique/);
+		assert.match(res.stderr, /already has a summary \(summaries\/s1\) — the reference is unique/);
 		assert.match(res.stderr, /relations rebuild meetings/);
 	});
 
