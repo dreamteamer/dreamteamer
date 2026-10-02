@@ -19,9 +19,9 @@ import { runHarnessAdapters, renderContributions, BEGIN, END, INSTRUCTIONS_BEGIN
 import { ensureEditorRecommendation, ensureEnvExample, ensureGitignored } from './workspace.js';
 import { satisfies } from './semver.js';
 import { parseEnvValues } from './env-vars.js';
-import { DERIVED_KINDS, readManifest, runtimeDir, engineId, engineVersion, loadDescriptors as loadCompiledDescriptors } from './runtime.js';
-import { excludedFromKind, disablesPackage, isPackageEntry } from './extensions.js';
-import { compileCollections, v1Refusal, CONVERTER } from './compile-collections.js';
+import { DERIVED_KINDS, readManifest, runtimeDir, engineId, engineVersion, loadDescriptors as loadCompiledDescriptors, STALE_RUNTIME } from './runtime.js';
+import { excludedFromKind, disablesPackage, isPackageEntry, MANIFEST_KEYS, v1ManifestRefusal } from './extensions.js';
+import { compileCollections, v1Refusal } from './compile-collections.js';
 import { storageOf, fieldsOf, displayOf, targetsOf } from './descriptor.js';
 export { engineId, engineVersion, readManifest };
 
@@ -56,8 +56,7 @@ export function titleCase(id) {
 
 /** The source kinds the compiler itself stages. An installed extension may add more
  *  (`sourceKinds`, src/extensions.js) — every enumeration below reads `kindsOf(ws)`, never this alone. */
-/** The keys a package.json `dreamteamer` block may carry — the workspace's and a module's alike. */
-export const MANIFEST_KEYS = ['title', 'description', 'workspace_module', 'data_path', 'namespaces', 'vars', 'env', 'auto_commit', 'harnesses', 'git_modules', 'disable', 'local_assets', 'postinstall', 'gitignore_runtime_folder', 'repos_path', 'dependencies', 'peer_collections', 'owns_data', 'engine', 'extension', 'ignore'];
+export { MANIFEST_KEYS } from './extensions.js';
 
 export const KINDS = ['collections', 'skills', 'agents', 'commands', 'command-bindings', 'ui-views', 'mixins'];
 const FOLDER_KINDS = new Set(['skills']); // folder-shape entities: copy the whole record folder
@@ -362,8 +361,8 @@ export function compile(ws) {
 	const refuseUnknownKeys = (block, where) => {
 		const bad = Object.keys(block ?? {}).filter((k) => !MANIFEST_KEYS.includes(k));
 		// a kebab-case spelling of a key this engine reads is the v1 manifest: the converter rewrites it
-		const v1 = bad.filter((k) => k === 'peerDependencies' || MANIFEST_KEYS.includes(k.replace(/-/g, '_')));
-		if (v1.length) fail(`${where}: the dreamteamer block is in the v1 spelling (${v1.join(', ')}).\n  convert the workspace once: ${CONVERTER}\n  then dt compile and dt check — UPDATING.md has the walk.`);
+		const v1 = v1ManifestRefusal(block, where);
+		if (v1) fail(v1);
 		if (bad.length) fail(`${where}: unknown dreamteamer key(s) ${bad.join(', ')} — the keys are ${MANIFEST_KEYS.join(' · ')}`);
 	};
 	refuseUnknownKeys(config, 'package.json');
@@ -1219,15 +1218,17 @@ export function warnIfStale(root) {
  * `relocate`. Adding `under` moves nothing out of sight and is not refused.
  */
 function refusePlacementTransitions(root, compiledColls) {
-	const previous = loadCompiledDescriptors(root);
+	// a runtime an older engine wrote has no `compiled` blocks to compare against; the converter carries
+	// placement over unchanged, so there is no transition to refuse
+	let previous;
+	try { previous = loadCompiledDescriptors(root); } catch (e) { if (e.message === STALE_RUNTIME) return; throw e; }
 	if (!previous) return;
 	for (const [name, c] of compiledColls) {
 		const prev = previous.get(name);
-		if (!prev?.compiled) continue; // a runtime compiled from v1 sources: placement carried over by the converter unchanged
 		const was = storageOf(prev).under;
 		if (!was?.collection || !was.subfolder) continue;
 		const parent = previous.get(was.collection);
-		if (!parent?.compiled) continue;
+		if (!parent) continue;
 		const now = c.storage.under ? { ...c.storage.under, collection: c.compiled.under_collection } : null;
 		const newParentPath = now ? compiledColls.get(now.collection)?.storage.path : null;
 		const parentPath = storageOf(parent).path;

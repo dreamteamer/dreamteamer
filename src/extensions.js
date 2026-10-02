@@ -30,6 +30,25 @@ import { pathToFileURL } from 'node:url';
 import { satisfies } from './semver.js';
 import { engineVersion } from './runtime.js';
 
+/** The keys a package.json `dreamteamer` block may carry — the workspace's and a module's alike. */
+export const MANIFEST_KEYS = ['title', 'description', 'workspace_module', 'data_path', 'namespaces', 'vars', 'env', 'auto_commit', 'harnesses', 'git_modules', 'disable', 'local_assets', 'postinstall', 'gitignore_runtime_folder', 'repos_path', 'dependencies', 'peer_collections', 'owns_data', 'engine', 'extension', 'ignore'];
+/** The one command that converts a workspace to descriptor format v2. */
+export const CONVERTER = 'node node_modules/dreamteamer/scripts/migrate-descriptors-v2.mjs --root .';
+
+/**
+ * The refusal for a `dreamteamer` block in the v1 spelling — a kebab-case spelling of a key this
+ * engine reads, or a bare `disable` entry — or null. Asked BEFORE any extension code loads, because
+ * a v1 `disable` names its module in a spelling this engine does not honour, and the module it meant
+ * to switch off would otherwise load and fail first.
+ */
+export function v1ManifestRefusal(block, where) {
+	const keys = Object.keys(block ?? {}).filter((k) => k === 'peerDependencies' || (k.includes('-') && MANIFEST_KEYS.includes(k.replace(/-/g, '_'))));
+	const bare = (Array.isArray(block?.disable) ? block.disable : []).filter((d) => typeof d === 'string' && !d.includes('/'));
+	if (!keys.length && !bare.length) return null;
+	const what = [...keys, ...bare.map((d) => `disable "${d}"`)].join(', ');
+	return `${where}: the dreamteamer block is in the v1 spelling (${what}).\n  convert the workspace once: ${CONVERTER}\n  then dt compile and dt check — UPDATING.md has the walk.`;
+}
+
 export const EXTENSION_API = 1;
 
 const CONTRIBUTION_KEYS = new Set(['commands', 'sourceKinds', 'analyze', 'harnesses', 'orientation', 'hooks', 'check', 'doctor']);
@@ -98,6 +117,8 @@ export const isPackageEntry = (d) => typeof d === 'string' && d.startsWith('modu
  * harness ids.
  */
 export async function loadExtensions(ws, api, reserved = {}) {
+	const v1 = v1ManifestRefusal(ws.pkg?.dreamteamer, 'package.json');
+	if (v1) throw new Error(v1);
 	const loaded = [];
 	const owner = { command: new Map(), kind: new Map(), harness: new Map() };
 	for (const r of reserved.verbs ?? []) owner.command.set(r, 'the engine');

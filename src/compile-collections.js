@@ -20,7 +20,8 @@ import { defaultStoragePath, baseNameOf, singular, inflects, namespaceOf, storag
 import { subpathProblem } from './placement.js';
 import { patternRe } from './records.js';
 
-export const CONVERTER = 'node node_modules/dreamteamer/scripts/migrate-descriptors-v2.mjs --root .';
+import { CONVERTER } from './extensions.js';
+export { CONVERTER };
 
 /** The one refusal for a workspace that still holds v1 sources, listing every file. */
 export function v1Refusal(files) {

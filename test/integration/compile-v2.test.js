@@ -176,6 +176,19 @@ describe('a v2 descriptor is refused, with the fix in the message', () => {
 		assert.match(err, /migrate-descriptors-v2\.mjs --root \./);
 		assert.match(err, /UPDATING\.md/);
 	});
+	test('a runtime an older engine wrote is replaced, not refused', () => {
+		const w = workspace({ compile: false });
+		writeCollection(w.root, 'notes', { ids: { from: '{{ name | slug }}' }, fields: { name: { type: 'string', required: true }, body: { type: 'markdown', body: true } } });
+		compileQuietly(w.ws);
+		// what 0.32 left on disk: the descriptor with no compiled block
+		const file = path.join(w.root, '.dreamteamer', 'collections', 'notes.collection.yaml');
+		const old = load(fs.readFileSync(file, 'utf8'));
+		delete old.compiled;
+		fs.writeFileSync(file, dump(old));
+		const r = dt(w.root, 'compile');
+		assert.equal(r.code, 0, r.stderr);
+		assert.ok(load(fs.readFileSync(file, 'utf8')).compiled, 'the new runtime carries its compiled block');
+	});
 	test('a v1-spelled package.json block names the converter, not a list of unknown keys', () => {
 		const w = workspace({ compile: false, pkg: { 'data-path': 'data' } });
 		const err = compileError(w.ws);

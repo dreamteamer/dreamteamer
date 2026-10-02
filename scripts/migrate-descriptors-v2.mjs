@@ -31,7 +31,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseDocument, isMap, isSeq, isScalar, isPair, Scalar, visit } from 'yaml';
 import { singular } from '../src/namespace.js';
-import { MANIFEST_KEYS } from '../src/compile.js';
+import { MANIFEST_KEYS } from '../src/extensions.js';
 import { V2_KEYS as V2_ORDER } from '../src/descriptor-v2.js';
 import { execFileSync } from 'node:child_process';
 
@@ -709,6 +709,16 @@ export function migrate(root, { dryRun = false, log = console.log } = {}) {
 	const generated = HARNESS_FILES.filter((f) => !handWritten.includes(f));
 	const toIgnore = generated.map((f) => `/${f}`).filter((l) => !ignoreLines.has(l));
 	plan.ignored = toIgnore.length;
+	// a `collection-templates/` folder is a kind the engine no longer knows, and compile refuses it:
+	// one holding nothing but folder litter goes, whichever run emptied it; one still holding files is named
+	const litterOnly = [];
+	for (const r of roots) {
+		const dir = path.join(r, 'collection-templates');
+		if (!fs.existsSync(dir)) continue;
+		const left = [...walk(dir)].filter((f) => !LITTER.has(path.basename(f)) && texts.get(f) !== null);
+		if (!left.length) litterOnly.push(dir);
+		else plan.warnings.push(`${at(dir)} still holds ${left.map(at).join(', ')} — compile refuses the folder; move or delete what is left`);
+	}
 	log(`${dryRun ? 'plan' : 'migrated'}: descriptors ${plan.descriptors} · fields ${plan.fields} · relations folded ${plan.folded} · enums merged ${plan.enums} · mixins ${plan.mixins} · views folded ${plan.viewsFolded} · views converted ${plan.viewsConverted} · bindings converted ${plan.bindings} · packages ${plan.packages} · instructions renamed ${plan.instructions} · harness files ignored ${plan.ignored}`);
 	for (const w of plan.warnings) log(`⚠ ${w}`);
 	for (const u of plan.unfolded) log(`⚠ ${u}`);
@@ -716,29 +726,32 @@ export function migrate(root, { dryRun = false, log = console.log } = {}) {
 	if (tracked.length) log(`then stop tracking the generated harness files: git rm --cached ${tracked.join(' ')}`);
 	if (!dryRun) {
 		if (plan.instructions) {
-			// through a temporary name: on a case-insensitive filesystem the two spellings are one path
-			const tmp = path.join(root, `.dreamteamer.md.${process.pid}`);
-			fs.renameSync(path.join(root, 'dreamteamer.md'), tmp);
-			fs.renameSync(tmp, path.join(root, 'DREAMTEAMER.md'));
+			// a tracked file moves through `git mv`, so the index follows a rename that only changes case —
+			// on a case-insensitive filesystem git sees no change otherwise; an untracked one goes through a
+			// temporary name, because there the two spellings are one path
+			if (trackedFiles(root, ['dreamteamer.md']).length) execFileSync('git', ['mv', 'dreamteamer.md', 'DREAMTEAMER.md'], { cwd: root, stdio: 'ignore', timeout: 10_000 });
+			else {
+				const tmp = path.join(root, `.dreamteamer.md.${process.pid}`);
+				fs.renameSync(path.join(root, 'dreamteamer.md'), tmp);
+				fs.renameSync(tmp, path.join(root, 'DREAMTEAMER.md'));
+			}
 		}
 		if (toIgnore.length) fs.writeFileSync(ignoreFile, `${ignoreText}${ignoreText && !ignoreText.endsWith('\n') ? '\n' : ''}# harness files compile generates\n${toIgnore.join('\n')}\n`);
 		for (const [file, text] of texts) {
-			if (text === null) {
-				fs.rmSync(file, { force: true });
-				// an emptied `collection-templates/` is a folder of a kind the engine no longer knows
-				const dir = path.dirname(file);
-				if (path.basename(dir) === 'collection-templates' && fs.existsSync(dir) && !fs.readdirSync(dir).length) fs.rmdirSync(dir);
-				continue;
-			}
+			if (text === null) { fs.rmSync(file, { force: true }); continue; }
 			if (fs.existsSync(file) && fs.readFileSync(file, 'utf8') === text) continue;
 			fs.mkdirSync(path.dirname(file), { recursive: true });
 			fs.writeFileSync(file, text);
 		}
+		for (const dir of litterOnly) fs.rmSync(dir, { recursive: true, force: true });
 	}
 	return plan;
 }
 
 const packageName = (dir) => { try { return JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8')).name; } catch { return null; } };
+
+/** Files an OS or an editor drops into a folder, never written by an author. */
+const LITTER = new Set(['.DS_Store', 'Thumbs.db', 'desktop.ini']);
 
 /** The harness files compile writes at the workspace root. */
 const HARNESS_FILES = ['CLAUDE.md', 'AGENTS.md', 'GEMINI.md', 'NOTEBOOKLM.md'];

@@ -99,11 +99,11 @@ migrated: descriptors 89 · fields 1271 · relations folded 34 · enums merged 1
 | `fields` | field definitions inside them |
 | `relations folded` | relations rewritten to the one spelling: a `mirror_of` field on the target. A mirror on another module's collection goes into an overlay of it in the owner's module |
 | `enums merged` | an `enum` and its `x-choices` merged into one enum map |
-| `mixins` | `collection-templates/<id>.collection-template.yaml` moved to `mixins/<id>.mixin.yaml` (a package's npm `files` gains `mixins`) |
+| `mixins` | `collection-templates/<id>.collection-template.yaml` moved to `mixins/<id>.mixin.yaml` (a package's npm `files` gains `mixins`); a `collection-templates/` folder left holding nothing but OS litter is removed |
 | `views folded` | `default: true` views folded into their collection's `display` (a filtered one cannot fold, and is converted as a named view) |
 | `views converted` · `bindings converted` | ui-views and command-bindings rewritten to v2 keys |
 | `packages` | `package.json` `dreamteamer` blocks moved to snake_case, `disable` entries to `modules/<id>` or `<kind>/<id>` |
-| `instructions renamed` | `dreamteamer.md` renamed `DREAMTEAMER.md` |
+| `instructions renamed` | `dreamteamer.md` renamed `DREAMTEAMER.md`, through `git mv` when it is tracked, so the index follows a rename that only changes case |
 | `harness files ignored` | root `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `NOTEBOOKLM.md` added to `.gitignore` |
 
 It never touches `data/`, `node_modules/` or `git_modules/`, and it edits each YAML document in place, so

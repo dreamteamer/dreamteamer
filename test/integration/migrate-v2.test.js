@@ -164,6 +164,22 @@ test('run through a symlinked engine folder, it still converts', () => {
 	}
 });
 
+test('an emptied collection-templates folder goes, whichever run emptied it, and compile accepts the tree', () => {
+	const w = v1Workspace();
+	assert.equal(run(w.root).status, 0);
+	// an earlier run moved the templates; the OS left its litter behind
+	fs.mkdirSync(path.join(w.root, MOD, 'collection-templates'), { recursive: true });
+	fs.writeFileSync(path.join(w.root, MOD, 'collection-templates', '.DS_Store'), 'x');
+	const r = run(w.root);
+	assert.equal(r.status, 0, r.stderr);
+	assert.ok(!exists(w.root, `${MOD}/collection-templates`), 'a folder of litter is removed');
+	assert.equal(compiles(w), null);
+	fs.mkdirSync(path.join(w.root, MOD, 'collection-templates'), { recursive: true });
+	fs.writeFileSync(path.join(w.root, MOD, 'collection-templates', 'notes.txt'), 'kept');
+	assert.match(run(w.root).stdout, /collection-templates still holds .*notes\.txt — compile refuses the folder/);
+	assert.ok(exists(w.root, `${MOD}/collection-templates/notes.txt`), 'a real file is never deleted');
+});
+
 test('a default view of an engine collection folds into an overlay that needs no dependency', () => {
 	const w = v1Workspace();
 	write(w.root, `${MOD}/ui-views/repos.ui-view.yaml`, 'path: /repos\ntarget: list\ncollection: collections/repos\nlayout: table\ndefault: true\noptions:\n  columns: [name, path]\n');
@@ -201,6 +217,7 @@ test('dreamteamer.md becomes DREAMTEAMER.md, and the generated harness files are
 	const names = fs.readdirSync(w.root);
 	assert.ok(names.includes('DREAMTEAMER.md') && !names.includes('dreamteamer.md'), names.join(' '));
 	assert.equal(read(w.root, 'DREAMTEAMER.md'), '# House rules\n\nEvery visit names its doctor.\n');
+	assert.deepEqual(w.git(['ls-files', '--', 'DREAMTEAMER.md', 'dreamteamer.md']).trim().split('\n'), ['DREAMTEAMER.md'], 'the index follows the rename, on any filesystem');
 	const lines = read(w.root, '.gitignore').split('\n');
 	for (const f of ['/CLAUDE.md', '/NOTEBOOKLM.md']) assert.ok(lines.includes(f), `${f} is ignored`);
 	for (const f of ['/AGENTS.md', '/GEMINI.md']) assert.ok(!lines.includes(f), `${f}: a harness file with text of its own is never ignored`);

@@ -273,6 +273,14 @@ describe('the loader refuses what it cannot honour — at open, by name', () => 
 		assert.match(r.stderr, /✖ extension late-kit needs engine ">=99\.0\.0" — this is [\d.]+, so it is not loaded/);
 	});
 
+	test('a v1 disable entry is the v1 refusal, before any extension code loads', async () => {
+		// the bare name is the v1 spelling of modules/probe-kit: honoured by nothing, so the module it
+		// meant to switch off would load and fail on its own dependencies first
+		const ws = workspace({ compile: false, pkg: { disable: ['probe-kit'] } });
+		install(ws.root);
+		await assert.rejects(openWorkspace(ws.root), /package\.json: the dreamteamer block is in the v1 spelling \(disable "probe-kit"\)[\s\S]*migrate-descriptors-v2\.mjs/);
+	});
+
 	test('a DISABLED extension is not loaded, and a transitive one never is', async () => {
 		const ws = workspace({ compile: false, pkg: { disable: ['modules/probe-kit'] } });
 		install(ws.root);
