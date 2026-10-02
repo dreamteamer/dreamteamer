@@ -89,7 +89,7 @@ export function collectionCommand(ws, collection, verb, args) {
 	if (collection === 'collections' && verb === 'rename') return metaCollectionsRename(ws, store, flags, pos);
 	if (collection === 'collections' && verb === 'set') return metaCollectionsSet(ws, store, flags, pos);
 	if (collection === 'collections' && verb === 'get' && flags.module !== undefined) return metaCollectionsGet(ws, store, flags, pos);
-	if (collection === 'collections' && verb === 'move') return metaCollectionsMove(ws, store, flags, pos);
+	if (collection === 'collections' && verb === 'reorder') return metaCollectionsMove(ws, store, flags, pos);
 	if (collection === 'commands' && verb === 'for') return metaCommandsFor(ws, store, flags, pos);
 	if (collection === 'ui-views' && ['add', 'set', 'rm'].includes(verb)) return metaUiView(ws, store, verb, flags, pos);
 	if (collection === 'modules' && verb === 'add') return metaModulesAdd(ws, store, flags);
@@ -195,7 +195,7 @@ export function collectionCommand(ws, collection, verb, args) {
 		// Manual ordering. ONE record is written per move — that is the entire feature; a dense
 		// integer would renumber everything below the insertion point and bury the change. The field is
 		// named by the descriptor (`sort_field`), never here, so a workspace may call it anything.
-		case 'move': {
+		case 'reorder': {
 			const field = positionFieldOf(d);
 			if (!field) throw new Error(`collection "${collection}" has no \`type: position\` field — add one to its descriptor before ordering it by hand.`);
 
@@ -534,7 +534,7 @@ function metaCollectionsMove(ws, store, flags, pos) {
 	} else if (flags.bottom) {
 		next = rows.length ? rows[rows.length - 1].order + 10 : 10;
 	} else {
-		if (!anchorId) throw new Error(`dt move collections/${name} needs --after <c> | --before <c> | --top | --bottom`);
+		if (!anchorId) throw new Error(`dt reorder collections/${name} needs --after <c> | --before <c> | --top | --bottom`);
 		const i = rows.findIndex((r) => r.id === anchorId);
 		if (i < 0) throw new Error(`"${anchorId}" has no \`order\` to sit beside — set one first (dreamteamer set collections/${anchorId} order=<n>), or use --top/--bottom.`);
 		const anchorOrder = rows[i].order;
@@ -1263,7 +1263,7 @@ const NAV_MOVE = ['json', 'after', 'before', 'top', 'bottom'];
 
 export const VERB_FLAGS = {
 	list: ['json', 'filter', 'where', 'sort'], get: JSON_ONLY, add: ['json', 'id', 'from', 'force'], set: JSON_ONLY,
-	rm: FORCE_RM, rename: JSON_ONLY, move: [...NAV_MOVE, 'init'], values: ['json', 'limit'],
+	rm: FORCE_RM, rename: JSON_ONLY, reorder: [...NAV_MOVE, 'init'], values: ['json', 'limit'],
 	history: JSON_ONLY, diff: ['json', 'hash'], revert: ['json', 'hash'],
 	ensure: ['json', 'all'], for: ['json', 'ids'], relations: JSON_ONLY, rebuild: ['json', 'drop'],
 	'add-field': FIELD_FLAGS, 'set-field': FIELD_FLAGS,
@@ -1271,7 +1271,7 @@ export const VERB_FLAGS = {
 	'rename-field': ['json', 'module', 'name', 'field', 'to', 'dry-run'],
 	'collections:add': ['json', 'module', 'name', 'namespace', 'template', 'description', 'suffix', 'id-shape'],
 	'collections:get': ['json', 'module'], 'collections:set': ['json', 'module', 'dry-run'],
-	'collections:rm': FORCE_RM, 'collections:rename': ['json', 'namespace', 'dry-run'], 'collections:move': NAV_MOVE,
+	'collections:rm': FORCE_RM, 'collections:rename': ['json', 'namespace', 'dry-run'], 'collections:reorder': NAV_MOVE,
 	'modules:add': ['json', 'name', 'description', 'namespace'], 'modules:rename': JSON_ONLY, 'modules:rm': FORCE_RM,
 	'modules:set': ['json', 'description', 'namespaces', 'dependencies', 'peer_collections'],
 	// the identity kinds: `add` scaffolds, `rm`/`rename` fall through to the generic rows, and `set`
