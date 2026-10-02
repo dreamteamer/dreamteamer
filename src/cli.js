@@ -260,7 +260,7 @@ const FIELD_VERBS = ['add-field', 'set-field', 'rm-field', 'rename-field'];
 export const GLOBAL_FLAGS = ['vault'];
 
 export const WORKSPACE_FLAGS = {
-	init: ['name', 'data-path', 'harnesses', 'workspace-module'], update: [],
+	init: ['name', 'data_path', 'harnesses', 'workspace_module'], update: [],
 	install: ['clone', 'dry-run', 'json', 'link-env', 'all', 'hook', 'print-adapters'],
 	compile: ['watch'], check: [], status: [], doctor: ['strict', 'json'],
 	changes: ['since', 'json'], commit: ['dry-run', 'json'], relocate: ['dry-run', 'json', 'to-root'],

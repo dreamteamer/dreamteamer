@@ -122,7 +122,9 @@ export function runHarnessAdapters({ root, entries, harnesses, prevManifest, sou
 		}
 		summary.push(`claude-code → .claude (${n} files)`);
 	}
-	block('CLAUDE.md', on('claude-code') ? orient('claude-code') : null);
+	// the root harness files open with the generated block — the facts first, every rule after
+	const rootBlock = (file, content) => { writeBlock(root, file, content, { top: true }); if (content != null) blocks.push(file); };
+	rootBlock('CLAUDE.md', on('claude-code') ? orient('claude-code') : null);
 
 	// ---- shared cross-agent skills mirror (.agents/skills) — codex/pi discover it,
 	// cursor/gemini blocks point at it. written once no matter how many harnesses use it.
@@ -139,12 +141,12 @@ export function runHarnessAdapters({ root, entries, harnesses, prevManifest, sou
 	}
 
 	// ---- codex + pi: both read root AGENTS.md; one block serves both ----------------
-	block('AGENTS.md', on('codex') || on('pi') ? orient('agents-md') : null);
+	rootBlock('AGENTS.md', on('codex') || on('pi') ? orient('agents-md') : null);
 	if (on('codex')) summary.push('codex → AGENTS.md block');
 	if (on('pi')) summary.push('pi → AGENTS.md block + .agents/skills');
 
 	// ---- gemini-cli: GEMINI.md is its context file -----------------------------------
-	block('GEMINI.md', on('gemini-cli') ? orient('gemini') : null);
+	rootBlock('GEMINI.md', on('gemini-cli') ? orient('gemini') : null);
 	if (on('gemini-cli')) summary.push('gemini-cli → GEMINI.md block');
 
 	// ---- the operator's own rules, one source, every harness -------------------------
@@ -164,7 +166,7 @@ export function runHarnessAdapters({ root, entries, harnesses, prevManifest, sou
 	// block, everywhere.
 	const instructions = entries.get('instructions.md')?.bytes?.toString('utf8').trimEnd() || null;
 	const instructionsBlock = (file, enabled) =>
-		writeBlock(root, file, enabled ? instructions : null, { begin: INSTRUCTIONS_BEGIN, end: INSTRUCTIONS_END, above: BEGIN });
+		writeBlock(root, file, enabled ? instructions : null, { begin: INSTRUCTIONS_BEGIN, end: INSTRUCTIONS_END, below: END });
 	instructionsBlock('CLAUDE.md', on('claude-code'));
 	instructionsBlock('AGENTS.md', on('codex') || on('pi'));
 	instructionsBlock('GEMINI.md', on('gemini-cli'));
@@ -174,7 +176,7 @@ export function runHarnessAdapters({ root, entries, harnesses, prevManifest, sou
 		// ⚠ `.mdc` is written WHOLE by `write()`, not through `writeBlock`, so removal is automatic: a
 		// compile with no dreamteamer.md simply rewrites the file without the part.
 		const instructionsPart = instructions ? `${INSTRUCTIONS_BEGIN}\n${instructions}\n${INSTRUCTIONS_END}\n\n` : '';
-		const mdc = `---\ndescription: dreamteamer workspace orientation (generated)\nalwaysApply: true\n---\n\n${instructionsPart}${orient('cursor')}\n\n${STAMP}\n`;
+		const mdc = `---\ndescription: dreamteamer workspace orientation (generated)\nalwaysApply: true\n---\n\n${orient('cursor')}\n\n${instructionsPart}${STAMP}\n`;
 		write('.cursor/rules/dreamteamer.mdc', Buffer.from(mdc));
 		summary.push('cursor → .cursor/rules/dreamteamer.mdc');
 	}
@@ -363,6 +365,18 @@ function collectionsSection(index, modules, workspaceModule, verbs) {
 		'default (a defaulted one is filled in for you), closed enums with their size, one example.',
 	];
 	const data = index.filter((c) => !c.systemGroup);
+	// SYSTEM COLLECTIONS FIRST, and `collections` — the schema every other collection is written in —
+	// before them all: a session reading cold meets the schema of schemas before any domain
+	const sys = index.filter((c) => c.systemGroup).sort((a, b) => (b.name === 'collections') - (a.name === 'collections') || a.name.localeCompare(b.name));
+	if (sys.length) {
+		const system = sys.filter((c) => c.generated).map((c) => c.name);
+		const kept = sys.filter((c) => !c.generated).map((c) => c.name);
+		lines.push('', `**System collections** — the SAME verbs (add · set · rm · rename · list · get), plus \`dt add-field\`/\`set-field\`/\`rm-field\`/\`rename-field <collection>\`. A system write COMMITS ITSELF, in the repo holding the source; a record write does not (\`dt commit\` publishes).${system.length ? ` Never hand-edit \`.dreamteamer/\` — it is build output: ${system.join(' · ')}.` : ''}${kept.length ? ` Records you edit like any other: ${kept.join(' · ')}.` : ''}`);
+		for (const c of sys) {
+			lines.push(`- ${c.name}${c.description ? ` — ${c.description}` : ''}`);
+			if (c.useWhen) lines.push(`    use when: ${c.useWhen}`);
+		}
+	}
 	const isWs = (m) => m.path === `modules/${workspaceModule}/`;
 	const groups = modules
 		.filter((m) => { const own = index.filter((c) => c.module === m.id); return own.some((c) => !c.systemGroup) || (!own.length && (m.skills.length || m.commands.length || m.bin.length || verbs.get(m.id)?.length)); })
@@ -377,20 +391,6 @@ function collectionsSection(index, modules, workspaceModule, verbs) {
 			if (c.useWhen) lines.push(`    use when: ${c.useWhen}`);
 			if (c.write) lines.push(`    write: ${c.write}`);
 		}
-	}
-	const sys = index.filter((c) => c.systemGroup);
-	const system = sys.filter((c) => c.generated).map((c) => c.name);
-	const kept = sys.filter((c) => !c.generated).map((c) => c.name);
-	// ⚠ THIS LINE IS THE FIRST THING A SESSION READS about the system collections, and until 0.19.0
-	// it said "schema-ops only", which named an internal module and a grammar that no longer exists.
-	// It now names the VERBS and the one policy difference, because an agent that knows the verbs
-	// exist still has to be told that these commit and records do not. And it is PARTITIONED on
-	// `generated`, not `systemGroup`: the partition only answers the grouping question, so a system
-	// collection whose records are real files (`repos`) gets its own trailing clause instead of being
-	// told "it is build output" — a sentence that was false of it and is false of the next data-backed
-	// system collection too, since the split is derived rather than naming one.
-	if (sys.length) {
-		lines.push('', `- system collections — the SAME verbs (add · set · rm · rename · list · get), plus \`dt add-field\`/\`set-field\`/\`rm-field\`/\`rename-field <collection>\`. A system write COMMITS ITSELF, in the repo holding the source; a record write does not (\`dt commit\` publishes).${system.length ? ` Never hand-edit \`.dreamteamer/\` — it is build output: ${system.join(' · ')}.` : ''}${kept.length ? ` Machinery whose records are real files you edit like any other: ${kept.join(' · ')}.` : ''}`);
 	}
 	return lines;
 }
@@ -538,7 +538,7 @@ function orientationBlock(flavor, skillsIndex, sourceLayout = 'flat', namespaces
 
 // managed block in a USER-OWNED root file. content=null removes the block; a file left
 // empty (or whitespace) after removal is deleted — we created it, we clean it up.
-function writeBlock(root, filename, content, { begin = BEGIN, end = END, above } = {}) {
+function writeBlock(root, filename, content, { begin = BEGIN, end = END, below, top = false } = {}) {
 	const file = path.join(root, filename);
 	const exists = fs.existsSync(file);
 	if (content == null) {
@@ -558,12 +558,24 @@ function writeBlock(root, filename, content, { begin = BEGIN, end = END, above }
 	// A function replacement is taken literally, which is what "verbatim" has to mean.
 	const insert = (replacement) => () => replacement;
 	let text = exists ? fs.readFileSync(file, 'utf8') : '';
+	if (top) {
+		if (text.includes(begin)) text = text.replace(new RegExp(`\\n?\\n?${escapeRe(begin)}[\\s\\S]*?${escapeRe(end)}\\n?`), '\n');
+		const rest = text.replace(/^\s+/, '');
+		fs.writeFileSync(file, `${block}\n${rest ? `\n${rest}` : ''}`);
+		return;
+	}
+	if (below) {
+		// ⚠ ORDER IS THE CONTRACT: the generated facts first, the operator's rules AFTER the facts they
+		// qualify. Wherever an older compile put this block, it is lifted out and set below `below`.
+		if (text.includes(begin)) text = text.replace(new RegExp(`\\n?\\n?${escapeRe(begin)}[\\s\\S]*?${escapeRe(end)}\\n?`), '\n');
+		if (text.includes(below)) {
+			text = text.replace(below, insert(`${below}\n\n${block}`));
+			fs.writeFileSync(file, text.replace(/^\n+/, ''));
+			return;
+		}
+	}
 	if (text.includes(begin)) {
 		text = text.replace(new RegExp(`${escapeRe(begin)}[\\s\\S]*?${escapeRe(end)}`), insert(block));
-	} else if (above && text.includes(above)) {
-		// ⚠ ORDER IS THE CONTRACT, not a preference. The rules must be read BEFORE the schema
-		// orientation, and a harness that truncates a long context file truncates the tail.
-		text = text.replace(above, insert(`${block}\n\n${above}`));
 	} else {
 		text = (text.trimEnd() + '\n\n' + block + '\n').replace(/^\n+/, '');
 	}

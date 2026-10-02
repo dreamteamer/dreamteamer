@@ -37,6 +37,7 @@ export function shapeErrors(doc) {
 		else {
 			for (const k of Object.keys(u)) if (!['parent', 'subfolder', 'id'].includes(k)) errors.push(`unknown key \`storage.under.${k}\` — under takes parent · subfolder · id`);
 			if (!u.parent || !u.subfolder) errors.push('`storage.under` needs both `parent` (a reference field of this collection) and `subfolder`');
+			if (u.id !== undefined && !['independent', 'nested'].includes(u.id)) errors.push('`storage.under.id` is independent (the id survives a move) or nested (the id begins with the parent\'s)');
 		}
 	}
 	if (doc.ids !== undefined) {

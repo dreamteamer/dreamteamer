@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { workspace, writeCollection, compileError, dt, ENGINE_ROOT, WS_MODULE } from '../helpers/ws.js';
+import { workspace, writeCollection, dt, ENGINE_ROOT, WS_MODULE } from '../helpers/ws.js';
 import { load, dump } from '../../src/yaml.js';
 
 const SCRIPT = path.join(ENGINE_ROOT, 'scripts', 'migrate-descriptors-v2.mjs');
@@ -67,10 +67,17 @@ function v1Workspace() {
 	write(w.root, 'data/companies/northwind/company.md', '---\nname: Northwind\ncontacts:\n  - contacts/ada\n---\n');
 	write(w.root, 'data/contacts/ada.contact.md', '---\nname: Ada\ncompany: companies/northwind\nstage: client\n---\n');
 	write(w.root, 'data/companies/northwind/meetings/2026-10-01--kickoff.meeting.md', '---\nname: Kickoff\nwhen: 2026-10-01\nstatus: held\ncompany: companies/northwind\n---\n');
+	// the manifest as the previous release wrote it: hyphenated keys, a disable naming its module
+	const pkg = JSON.parse(read(w.root, 'package.json'));
+	pkg.dreamteamer = Object.fromEntries(Object.entries(pkg.dreamteamer).map(([k, v]) => [k.replace(/_/g, '-'), v]));
+	pkg.dreamteamer.disable = ['default/meeting-page'];
+	write(w.root, 'package.json', JSON.stringify(pkg, null, '\t') + '\n');
 	w.git(['add', '-A']);
 	w.git(['commit', '-qm', 'fixture: a v1 workspace']);
 	return w;
 }
+/** Compile from disk, as a person would — the fixture handle carries the package.json it was made with. */
+const compiles = (w) => { const r = dt(w.root, 'compile'); return r.code === 0 ? null : r.stdout + r.stderr; };
 const dataBytes = (root) => fs.readdirSync(path.join(root, 'data'), { recursive: true }).sort().map((f) => [f, fs.statSync(path.join(root, 'data', f)).isFile() ? read(root, path.join('data', f)) : null]);
 
 test('--dry-run prints the plan and writes nothing', () => {
@@ -94,7 +101,7 @@ test('a converted v1 workspace compiles, checks clean, and keeps its records and
 	assert.ok(exists(w.root, `${MOD}/mixins/kit-provenance.mixin.yaml`));
 	assert.ok(!exists(w.root, `${MOD}/collection-templates/kit-provenance.collection-template.yaml`));
 	assert.equal(load(read(w.root, `${MOD}/collections/meetings.collection.yaml`)).record_title, '{{ name }} — {{ when }}');
-	assert.equal(compileError(w.ws), null);
+	assert.equal(compiles(w), null);
 	const check = dt(w.root, 'check');
 	assert.equal(check.code, 0, check.stdout + check.stderr);
 	const company = JSON.parse(dt(w.root, 'get', 'companies/northwind', '--json').stdout);
@@ -128,7 +135,7 @@ test('every default view folds by scope, and every option key is rewritten', () 
 	assert.deepEqual(load(binding), { command: 'commands/summarize', collection: 'collections/meetings', scope: 'record', available_when: { status: { _eq: 'held' } }, done_when: { summarised: { _eq: true } } });
 	assert.match(binding, /# once held\nscope: record/);
 	// the compiled views are what a surface draws
-	assert.equal(compileError(w.ws), null);
+	assert.equal(compiles(w), null);
 	assert.equal(load(read(w.root, '.dreamteamer/ui-views/meetings-board.ui-view.yaml')).compiled.display.list.layout, 'kanban');
 });
 
@@ -138,6 +145,9 @@ test('the package.json block goes snake_case', () => {
 	const block = JSON.parse(read(w.root, 'package.json')).dreamteamer;
 	assert.ok(Object.keys(block).every((k) => !k.includes('-')), Object.keys(block).join(', '));
 	assert.equal(block.workspace_module, 'default');
+	assert.deepEqual(block.disable, ['ui-views/meeting-page'], 'a <module>/<entity> disable is <kind>/<entity>, the kind found from the source file');
+	assert.equal(compiles(w), null, 'compile accepts the converted manifest');
+	assert.ok(!exists(w.root, '.dreamteamer/ui-views/meeting-page.ui-view.yaml'), 'and the disable still disables');
 });
 
 test('run through a symlinked engine folder, it still converts', () => {
@@ -152,4 +162,30 @@ test('run through a symlinked engine folder, it still converts', () => {
 	} finally {
 		fs.rmSync(path.dirname(link), { recursive: true, force: true });
 	}
+});
+
+test('dreamteamer.md becomes DREAMTEAMER.md, and the generated harness files are ignored', () => {
+	const w = v1Workspace();
+	write(w.root, 'dreamteamer.md', '# House rules\n\nEvery visit names its doctor.\n');
+	write(w.root, 'CLAUDE.md', 'generated\n');
+	const ignore = read(w.root, '.gitignore').split('\n').filter((l) => !['/CLAUDE.md', '/AGENTS.md', '/GEMINI.md', '/NOTEBOOKLM.md'].includes(l.trim())).join('\n');
+	write(w.root, '.gitignore', ignore);
+	w.git(['add', '-f', 'dreamteamer.md', 'CLAUDE.md', '.gitignore']);
+	w.git(['commit', '-qm', 'fixture: instructions and a tracked harness file']);
+
+	const plan = run(w.root, '--dry-run');
+	assert.match(plan.stdout, /instructions renamed 1 · harness files ignored 4/);
+	assert.ok(fs.readdirSync(w.root).includes('dreamteamer.md'), 'a dry run renames nothing');
+
+	const r = run(w.root);
+	assert.equal(r.status, 0, r.stderr);
+	assert.match(r.stdout, /instructions renamed 1 · harness files ignored 4/);
+	assert.match(r.stdout, /git rm --cached CLAUDE\.md/);
+	const names = fs.readdirSync(w.root);
+	assert.ok(names.includes('DREAMTEAMER.md') && !names.includes('dreamteamer.md'), names.join(' '));
+	assert.equal(read(w.root, 'DREAMTEAMER.md'), '# House rules\n\nEvery visit names its doctor.\n');
+	const lines = read(w.root, '.gitignore').split('\n');
+	for (const f of ['/CLAUDE.md', '/AGENTS.md', '/GEMINI.md', '/NOTEBOOKLM.md']) assert.ok(lines.includes(f), `${f} is ignored`);
+	assert.equal(compiles(w), null, 'compile reads DREAMTEAMER.md and accepts the converted manifest');
+	assert.match(run(w.root).stdout, /instructions renamed 0 · harness files ignored 0/, 'idempotent');
 });

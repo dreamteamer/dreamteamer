@@ -1131,7 +1131,7 @@ export function removeFieldPlan(store, collection, fieldName) {
  *  layout that module already uses and falls back to flat, so a `collections add` never splits a
  *  half-moved module across both. */
 export function workspaceSystemDir(ws, kind) {
-	const wm = ws.pkg.dreamteamer?.['workspace-module'];
+	const wm = ws.pkg.dreamteamer?.workspace_module;
 	return kindDir(wm ? path.join(ws.root, 'modules', wm) : ws.root, kind);
 }
 

@@ -12,7 +12,9 @@
 //     view file is deleted;
 //   - every `*.command-binding.yaml`: `scope`, `available_when`, `done_when`;
 //   - the `dreamteamer` block of every package.json: snake_case keys, `peer_collections`, and
-//     `disable` entries as `<kind>/<id>`.
+//     `disable` entries as `modules/<module>` or `<kind>/<id>`;
+//   - the workspace's `dreamteamer.md`, which is named `DREAMTEAMER.md`, and its .gitignore, which
+//     gains the generated harness files (it prints the `git rm --cached` for any git still tracks).
 // Skill, agent and command frontmatter keeps its keys, so it is not touched.
 // What it never touches: anything under `data/`, `node_modules/` or `git_modules/` (somebody else's
 // sources — convert those in their own repo), and the bytes of any record.
@@ -28,6 +30,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseDocument, isMap, isSeq, isScalar, isPair, Scalar, visit } from 'yaml';
+import { singular } from '../src/namespace.js';
+import { MANIFEST_KEYS } from '../src/compile.js';
+import { execFileSync } from 'node:child_process';
 
 const STRINGIFY = { lineWidth: 0, flowCollectionPadding: false };
 const V2_ORDER = ['name', 'title', 'singular', 'record_title', 'description', 'use_when', 'internal', 'sensitive', 'storage', 'ids', 'mixins', 'overlay', 'fields', 'constraints', 'display'];
@@ -45,13 +50,11 @@ const keyOf = (pair) => String(isScalar(pair.key) ? pair.key.value : pair.key);
 const pairOf = (map, k) => map?.items?.find((p) => keyOf(p) === k);
 const toJS = (node) => (node && typeof node.toJSON === 'function' ? node.toJSON() : node);
 
-/** The singular of a bare collection name — the engine's inflection, restated so this script needs
- *  nothing but `yaml`. Only used to decide whether an authored suffix is the default. */
-function singular(name) {
-	if (/ies$/.test(name)) return name.replace(/ies$/, 'y');
-	if (/(ss|sh|ch|x|z)es$/.test(name)) return name.replace(/es$/, '');
-	if (/s$/.test(name) && !/ss$/.test(name)) return name.replace(/s$/, '');
-	return name;
+/** The suffix a v1 engine derived for an unauthored `storage.suffix` — what every existing record's
+ *  filename carries. The converter writes it explicitly wherever v2's inflector would derive another,
+ *  so no record is renamed by an upgrade. */
+function v1Suffix(name) {
+	return name.endsWith('ies') ? name.slice(0, -3) + 'y' : name.endsWith('s') ? name.slice(0, -1) : name;
 }
 
 /**
@@ -201,15 +204,16 @@ export function convertCollection(text, ctx = {}) {
 	if (v1.title_template !== undefined) { value.record_title = v1.title_template; renamed.record_title = 'title_template'; }
 	if (v1.group === 'system') { value.internal = true; renamed.internal = 'group'; }
 	// storage
-	if (v1.storage) {
-		const s = v1.storage;
+	{
+		const s = v1.storage ?? {};
 		const st = {};
 		if (s.path !== undefined) st.path = s.path;
 		if (s.codec !== undefined) st.format = s.codec === 'file' ? 'binary' : s.codec;
 		if (s.shape !== undefined && s.shape !== 'file') st.shape = s.shape;
 		if (s.entry !== undefined) st.entry = s.entry;
 		const bare = ctx.bareName ?? String(v1.name ?? '').split('/').pop();
-		if (s.suffix !== undefined && s.suffix !== singular(bare)) st.suffix = s.suffix;
+		const onDisk = s.suffix ?? v1Suffix(bare);
+		if (onDisk !== singular(bare)) st.suffix = onDisk;
 		if (s.under) st.under = { parent: s.under.field, subfolder: s.under.path };
 		if (s.max_bytes !== undefined) st.max_bytes = s.max_bytes;
 		if (s.extensions !== undefined) st.accept = s.extensions;
@@ -459,9 +463,10 @@ export function convertBinding(text) {
 
 /**
  * A package.json's TEXT with its `dreamteamer` block in v2: snake_case keys, `peer_collections`, and
- * every `<module>/<entity>` disable entry as `<kind>/<entity>`. `kindsOf(module, entity)` answers
+ * `disable` in the record grammar — a whole module (a bare name or `@scope/name`) as
+ * `modules/<it>`, a `<module>/<entity>` as `<kind>/<entity>`. `kindsOf(module, entity)` answers
  * which kinds a module ships that entity in — [] when it does not, null when the module is unknown.
- * A whole-package entry (a bare name or `@scope/name`) is left as written. Null when nothing changes.
+ * A key the engine does not read is reported, since compile refuses it. Null text when nothing changes.
  */
 export function convertPackage(text, kindsOf) {
 	const pkg = JSON.parse(text);
@@ -473,9 +478,11 @@ export function convertPackage(text, kindsOf) {
 		const key = k === 'peerDependencies' || k === 'peer-dependencies' ? 'peer_collections' : k.replace(/-/g, '_');
 		out[key] = key === 'peer_collections' && Array.isArray(v) ? v.map((c) => String(c).replace(/^collections\//, '')) : v;
 	}
+	for (const k of Object.keys(out)) if (!MANIFEST_KEYS.includes(k)) warnings.push(`dreamteamer.${k} is not a key the engine reads, and compile refuses it — the keys are ${MANIFEST_KEYS.join(' · ')}`);
 	if (Array.isArray(out.disable)) {
 		out.disable = out.disable.flatMap((d) => {
-			if (typeof d !== 'string' || !d.includes('/') || /^@[^/]+\/[^/]+$/.test(d)) return [d];
+			if (typeof d !== 'string') return [d];
+			if (!d.includes('/') || /^@[^/]+\/[^/]+$/.test(d)) return [`modules/${d}`];
 			const segs = d.split('/');
 			const mod = d.startsWith('@') ? segs.slice(0, 2).join('/') : segs[0];
 			const id = segs.slice(d.startsWith('@') ? 2 : 1).join('/');
@@ -506,11 +513,12 @@ function entityKinds(moduleRoot, id) {
 	return [...new Set(kinds)];
 }
 
-/** Every module this workspace can see, by package name → its root. */
+/** Every module this workspace can see, by package name → the roots carrying that name (the
+ *  workspace's own package may share its module's name). */
 function moduleRootsByName(root) {
 	const out = new Map();
 	const add = (dir) => {
-		try { const name = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8')).name; if (name) out.set(name, dir); } catch { /* not a module */ }
+		try { const name = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8')).name; if (name) out.set(name, [...(out.get(name) ?? []), dir]); } catch { /* not a module */ }
 	};
 	for (const base of ['modules', 'git_modules']) {
 		const at = path.join(root, base);
@@ -524,8 +532,8 @@ function moduleRootsByName(root) {
 	try {
 		const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
 		for (const dep of Object.keys({ ...pkg.dependencies, ...pkg.devDependencies })) add(path.join(root, 'node_modules', dep));
-		if (pkg.name) out.set(pkg.name, root);
 	} catch { /* no package.json is caught by the CLI */ }
+	add(root);
 	return out;
 }
 
@@ -550,7 +558,7 @@ function sourceRoots(root) {
 }
 
 export function migrate(root, { dryRun = false, log = console.log } = {}) {
-	const plan = { descriptors: 0, fields: 0, folded: 0, enums: 0, mixins: 0, viewsFolded: 0, viewsConverted: 0, bindings: 0, packages: 0, warnings: [], unfolded: [] };
+	const plan = { descriptors: 0, fields: 0, folded: 0, enums: 0, mixins: 0, viewsFolded: 0, viewsConverted: 0, bindings: 0, packages: 0, instructions: 0, ignored: 0, warnings: [], unfolded: [] };
 	const texts = new Map(); // file -> new text (null: removed)
 	const byName = new Map(); // collection name -> file of its BASE descriptor
 	const moduleOf = new Map(); // descriptor file -> the module root it sits in
@@ -656,7 +664,7 @@ export function migrate(root, { dryRun = false, log = console.log } = {}) {
 	}
 	// package.json blocks: the workspace's and each module's own
 	const modules = moduleRootsByName(root);
-	const kindsOf = (mod, id) => (modules.has(mod) ? entityKinds(modules.get(mod), id) : null);
+	const kindsOf = (mod, id) => (modules.has(mod) ? [...new Set(modules.get(mod).flatMap((dir) => entityKinds(dir, id)))] : null);
 	for (const r of roots) {
 		const file = path.join(r, 'package.json');
 		if (!fs.existsSync(file)) continue;
@@ -667,10 +675,29 @@ export function migrate(root, { dryRun = false, log = console.log } = {}) {
 		texts.set(file, res.text);
 		plan.packages++;
 	}
-	log(`${dryRun ? 'plan' : 'migrated'}: descriptors ${plan.descriptors} · fields ${plan.fields} · relations folded ${plan.folded} · enums merged ${plan.enums} · mixins ${plan.mixins} · views folded ${plan.viewsFolded} · views converted ${plan.viewsConverted} · bindings converted ${plan.bindings} · packages ${plan.packages}`);
+	// the hand-written instructions file is DREAMTEAMER.md; the generated harness files are build output
+	const names = fs.readdirSync(root);
+	const renameInstructions = names.includes('dreamteamer.md');
+	if (renameInstructions && names.includes('DREAMTEAMER.md')) plan.warnings.push('dreamteamer.md and DREAMTEAMER.md both exist — merge them into DREAMTEAMER.md by hand');
+	plan.instructions = renameInstructions && !names.includes('DREAMTEAMER.md') ? 1 : 0;
+	const ignoreFile = path.join(root, '.gitignore');
+	const ignoreText = fs.existsSync(ignoreFile) ? fs.readFileSync(ignoreFile, 'utf8') : '';
+	const ignoreLines = new Set(ignoreText.split(/\r?\n/).map((l) => l.trim()));
+	const toIgnore = HARNESS_FILES.map((f) => `/${f}`).filter((l) => !ignoreLines.has(l));
+	plan.ignored = toIgnore.length;
+	log(`${dryRun ? 'plan' : 'migrated'}: descriptors ${plan.descriptors} · fields ${plan.fields} · relations folded ${plan.folded} · enums merged ${plan.enums} · mixins ${plan.mixins} · views folded ${plan.viewsFolded} · views converted ${plan.viewsConverted} · bindings converted ${plan.bindings} · packages ${plan.packages} · instructions renamed ${plan.instructions} · harness files ignored ${plan.ignored}`);
 	for (const w of plan.warnings) log(`⚠ ${w}`);
 	for (const u of plan.unfolded) log(`⚠ ${u}`);
+	const tracked = trackedFiles(root, HARNESS_FILES);
+	if (tracked.length) log(`then stop tracking the generated harness files: git rm --cached ${tracked.join(' ')}`);
 	if (!dryRun) {
+		if (plan.instructions) {
+			// through a temporary name: on a case-insensitive filesystem the two spellings are one path
+			const tmp = path.join(root, `.dreamteamer.md.${process.pid}`);
+			fs.renameSync(path.join(root, 'dreamteamer.md'), tmp);
+			fs.renameSync(tmp, path.join(root, 'DREAMTEAMER.md'));
+		}
+		if (toIgnore.length) fs.writeFileSync(ignoreFile, `${ignoreText}${ignoreText && !ignoreText.endsWith('\n') ? '\n' : ''}# harness files compile generates\n${toIgnore.join('\n')}\n`);
 		for (const [file, text] of texts) {
 			if (text === null) {
 				fs.rmSync(file, { force: true });
@@ -688,6 +715,14 @@ export function migrate(root, { dryRun = false, log = console.log } = {}) {
 }
 
 const packageName = (dir) => { try { return JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8')).name; } catch { return null; } };
+
+/** The harness files compile writes at the workspace root. */
+const HARNESS_FILES = ['CLAUDE.md', 'AGENTS.md', 'GEMINI.md', 'NOTEBOOKLM.md'];
+
+/** Which of `files` git tracks in `root` — [] when it is not a repository or git is not there. */
+function trackedFiles(root, files) {
+	try { return execFileSync('git', ['ls-files', '--', ...files], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 10_000 }).split('\n').filter(Boolean); } catch { return []; }
+}
 
 /** The overlay of `collection` in module root `r` — its existing source, or a fresh one. */
 function overlayFile(r, collection, texts) {

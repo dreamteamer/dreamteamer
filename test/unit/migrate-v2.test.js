@@ -233,9 +233,15 @@ describe('convertPackage', () => {
 		const pkg = JSON.parse(text);
 		assert.deepEqual(Object.keys(pkg.dreamteamer), ['workspace_module', 'data_path', 'git_modules', 'auto_commit', 'owns_data', 'peer_collections', 'disable']);
 		assert.deepEqual(pkg.dreamteamer.peer_collections, ['billing/claims', 'people']);
-		assert.deepEqual(pkg.dreamteamer.disable, ['skills/triage', 'ui-views/board', 'commands/board', 'clinic/ghost', '@acme/views', 'solo', 'skills/already']);
+		assert.deepEqual(pkg.dreamteamer.disable, ['skills/triage', 'ui-views/board', 'commands/board', 'clinic/ghost', 'modules/@acme/views', 'modules/solo', 'skills/already']);
 		assert.match(warnings.join('\n'), /disable "clinic\/ghost": module clinic ships no "ghost"/);
+		assert.doesNotMatch(warnings.join('\n'), /is not a key the engine reads/);
 		assert.match(text, /^\{\n  "name"/, 'the indentation is kept');
 		assert.equal(convertPackage(text, kindsOf).text, null, 'idempotent');
+	});
+	test('a key the engine does not read is reported, since compile refuses it', () => {
+		const { warnings } = convertPackage(JSON.stringify({ dreamteamer: { 'repos-path': 'r', studio: {} } }), kindsOf);
+		assert.match(warnings.join('\n'), /dreamteamer\.studio is not a key the engine reads/);
+		assert.equal(warnings.length, 1, 'repos_path is one');
 	});
 });
