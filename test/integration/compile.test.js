@@ -705,16 +705,19 @@ describe('a mirror onto a peer collection', () => {
 		assert.equal(ws.dt('relations').stdout.includes('posts.comments'), false, 'an inert relation lists no mirror');
 	});
 
-	test('a mirror onto a collection the module neither depends on nor peers is refused, naming both remedies', () => {
-		// a core collection passes the reference contract undeclared, so the mirror gate is what stops it
+	test('a mirror onto an ENGINE collection needs no declaration — the engine is every module\'s', () => {
+		// a reference to a core collection passes the reference contract undeclared, and so does an
+		// overlay of one; a module that is not the engine still needs one (compile-v2.test.js)
 		const ws = workspace({ compile: false });
 		mod(ws.root, 'blog', {}, {
 			comments: desc('comments', '  repo:\n    type: repos\n'),
 			'repos-mirror': mirrorOverlay('repos', 'comments', 'comments', 'repo'),
 		});
 		const c = dt(ws.root, 'compile');
-		assert.equal(c.code, 1);
-		assert.match(c.stderr, /an overlay of "repos", but module "blog" neither depends on "dreamteamer" nor declares "repos" in peer_collections/);
+		assert.equal(c.code, 0, c.stderr);
+		const repos = load(readFile(ws.root, '.dreamteamer/collections/repos.collection.yaml'));
+		assert.equal(repos.compiled.fields.comments.mirror_of, 'repo');
+		assert.ok(repos.compiled.overlaid_by.includes('blog'));
 	});
 });
 

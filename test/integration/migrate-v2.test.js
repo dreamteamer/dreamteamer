@@ -164,6 +164,18 @@ test('run through a symlinked engine folder, it still converts', () => {
 	}
 });
 
+test('a default view of an engine collection folds into an overlay that needs no dependency', () => {
+	const w = v1Workspace();
+	write(w.root, `${MOD}/ui-views/repos.ui-view.yaml`, 'path: /repos\ntarget: list\ncollection: collections/repos\nlayout: table\ndefault: true\noptions:\n  columns: [name, path]\n');
+	const r = run(w.root);
+	assert.equal(r.status, 0, r.stderr);
+	const overlay = load(read(w.root, `${MOD}/collections/repos.collection.yaml`));
+	assert.equal(overlay.overlay, true);
+	assert.deepEqual(overlay.display.list.columns, ['name', 'path']);
+	assert.doesNotMatch(r.stdout, /overlay of repos .* needs/, 'the engine is every module\'s, so no dependency is owed');
+	assert.equal(compiles(w), null);
+});
+
 test('dreamteamer.md becomes DREAMTEAMER.md, and the generated harness files are ignored', () => {
 	const w = v1Workspace();
 	write(w.root, 'dreamteamer.md', '# House rules\n\nEvery visit names its doctor.\n');

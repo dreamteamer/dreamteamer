@@ -142,7 +142,6 @@ describe('compile refuses malformed relations', () => {
 		const USES = coll('use', { skill: { type: 'skills' } });
 		const SKILLS = { overlay: true, fields: { used_by: { type: 'uses', many: true, mirror_of: 'skill' } } };
 		const w = workspace({ compile: false, collections: { uses: USES, skills: SKILLS } });
-		patchModulePkg(w.root, WS_MODULE, { dependencies: ['dreamteamer'] }); // an overlay of an engine collection depends on the engine
 		assert.match(compileError(w.ws), /field "used_by" is a mirror, but skills's records are compiled sources/);
 	});
 

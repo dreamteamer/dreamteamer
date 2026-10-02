@@ -102,7 +102,8 @@ export function compileCollections(ctx) {
 		const base = bases[0];
 		owners.set(name, base.moduleName);
 		for (const o of overlays) {
-			if (o.moduleName === base.moduleName) continue;
+			// the engine's collections are every module's, as a reference to one needs no declaration
+			if (o.moduleName === base.moduleName || base.moduleName === engineName) continue;
 			const depends = (moduleDeps.get(o.moduleName) ?? []).includes(base.moduleName);
 			const peer = (modulePeers.get(o.moduleName) ?? []).includes(name);
 			if (!depends && !peer) fail(`${o.src.path}: an overlay of "${name}", but module "${o.moduleName}" neither depends on "${base.moduleName}" nor declares "${name}" in peer_collections — an overlay cannot compile without its base.`);

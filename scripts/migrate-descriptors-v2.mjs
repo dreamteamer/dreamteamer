@@ -648,7 +648,7 @@ export function migrate(root, { dryRun = false, log = console.log } = {}) {
 			if (dest !== base) {
 				const owner = base ? packageName(moduleOf.get(base)) : null;
 				const deps = (() => { try { return JSON.parse(current(path.join(r, 'package.json'))).dreamteamer?.dependencies ?? []; } catch { return []; } })();
-				if (!owner || !deps.includes(owner)) plan.warnings.push(`${at(file)}: folded into an overlay of ${collection} (${at(dest)}) — an overlay needs ${owner ? `"${owner}"` : `the module that owns ${collection}`} in this module's \`dreamteamer.dependencies\``);
+				if (!(owner === null && ENGINE_COLLECTIONS.has(collection)) && (!owner || !deps.includes(owner))) plan.warnings.push(`${at(file)}: folded into an overlay of ${collection} (${at(dest)}) — an overlay needs ${owner ? `"${owner}"` : `the module that owns ${collection}`} in this module's \`dreamteamer.dependencies\``);
 			}
 			try { texts.set(dest, foldDisplay(current(dest), res.fold)); } catch (e) { throw new Error(`${at(dest)} (view ${path.basename(file)}): ${e.message}`); }
 			texts.set(file, null);
@@ -726,6 +726,10 @@ const packageName = (dir) => { try { return JSON.parse(fs.readFileSync(path.join
 
 /** The harness files compile writes at the workspace root. */
 const HARNESS_FILES = ['CLAUDE.md', 'AGENTS.md', 'GEMINI.md', 'NOTEBOOKLM.md'];
+/** The engine's own collections: any module may overlay one without declaring a dependency. */
+const ENGINE_COLLECTIONS = (() => {
+	try { return new Set(fs.readdirSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'collections')).filter((f) => f.endsWith('.collection.yaml')).map((f) => f.replace(/\.collection\.yaml$/, ''))); } catch { return new Set(); }
+})();
 
 /** Which of `files` git tracks in `root` — [] when it is not a repository or git is not there. */
 function trackedFiles(root, files) {
