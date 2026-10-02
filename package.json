@@ -55,7 +55,8 @@
 		"commands",
 		"command-bindings",
 		"ui-views",
-		"collection-templates"
+		"collection-templates",
+		"scripts/migrate-descriptors-v2.mjs"
 	],
 	"dependencies": {
 		"ajv": "^8.17.1",
