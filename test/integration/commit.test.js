@@ -15,24 +15,22 @@ import fs from 'node:fs';
 import { workspace, simpleCollection } from '../helpers/ws.js';
 
 const CONTACTS = {
-	id: { generate: '{{ name | slug }}' },
+	ids: { from: '{{ name | slug }}' },
 	storage: { suffix: 'contact' },
-	schema: {
-		type: 'object',
-		required: ['name'],
-		properties: { name: { type: 'string' }, email: { type: 'string' } },
+	fields: {
+		name: { type: 'string', required: true },
+		email: { type: 'string' },
 	},
 };
 
 // A namespaced collection with a path-shaped id: `finance/transactions/2026/03/coffee` is the
 // reference no first-slash split can read, and the reason commit must go through splitRef.
 const TRANSACTIONS = {
-	id: { generate: '{{ month }}/{{ label | slug }}' },
+	ids: { from: '{{ month }}/{{ label | slug }}' },
 	storage: { suffix: 'txn' },
-	schema: {
-		type: 'object',
-		required: ['label', 'month'],
-		properties: { label: { type: 'string' }, month: { type: 'string' } },
+	fields: {
+		label: { type: 'string', required: true },
+		month: { type: 'string', required: true },
 	},
 };
 
@@ -202,16 +200,23 @@ describe('a hand-edited record is still publishable — the sampler is untouched
 // auto-commit off (the default since 2026-08-03) a record-scoped publish would commit the owner and
 // leave the mirror pending, so HEAD carries half a pair and `dt check` at HEAD is red. The pair is
 // the unit; the bystander is still not.
-const MEETINGS = simpleCollection({ storage: { suffix: 'meeting' } });
+// The relation is declared once, on the MIRROR: `meetings.recordings` mirrors `recordings.meeting`.
+// `mirrors` adds further mirror fields to the meeting, before its body.
+const meetings = (mirrors = {}) => simpleCollection({
+	storage: { suffix: 'meeting' },
+	fields: {
+		name: { type: 'string', required: true },
+		recordings: { type: 'recordings', many: true, mirror_of: 'meeting' },
+		...mirrors,
+		notes: { type: 'markdown', body: true },
+	},
+});
+const MEETINGS = meetings();
 const RECORDINGS = simpleCollection({
 	storage: { suffix: 'recording' },
-	schema: {
-		type: 'object',
-		required: ['name'],
-		properties: {
-			name: { type: 'string' },
-			meeting: { type: 'string', 'x-reference': 'meetings', 'x-inverse': 'recordings' },
-		},
+	fields: {
+		name: { type: 'string', required: true },
+		meeting: { type: 'meetings' },
 	},
 });
 
@@ -432,22 +437,20 @@ describe('two sessions writing edges into ONE partner file', () => {
 // was invisible and the commit published the partner carrying a reference to it. HEAD then holds a
 // dangling reference and a stale mirror — `dt check` red, on a verb whose whole job is to refuse
 // exactly this.
+// a UNIQUE owner, so its mirror on the meeting is scalar
 const SUMMARIES = simpleCollection({
 	storage: { suffix: 'summary' },
-	schema: {
-		type: 'object',
-		required: ['name'],
-		properties: {
-			name: { type: 'string' },
-			meeting: { type: 'string', 'x-reference': 'meetings', 'x-inverse': 'summary', 'x-unique': true },
-		},
+	fields: {
+		name: { type: 'string', required: true },
+		meeting: { type: 'meetings', unique: true },
 	},
 });
+const MEETINGS_WITH_SUMMARY = meetings({ summary: { type: 'summaries', mirror_of: 'meeting' } });
 
 describe('a stranger on the far side of the swept partner', () => {
 	/** Standup + Cap published and UNLINKED — every test below forms the edge itself. */
 	function trio() {
-		const ws = workspace({ collections: { meetings: MEETINGS, recordings: RECORDINGS, summaries: SUMMARIES } });
+		const ws = workspace({ collections: { meetings: MEETINGS_WITH_SUMMARY, recordings: RECORDINGS, summaries: SUMMARIES } });
 		assert.equal(ws.dt('add', 'meetings', '--name', 'Standup').code, 0);
 		assert.equal(ws.dt('add', 'recordings', '--name', 'Cap').code, 0);
 		assert.equal(ws.dt('commit').code, 0);
@@ -616,17 +619,21 @@ describe('the whole-collection form warns about the partner it leaves behind', (
 		// promise one. Computing the closure here would mean asking planSweep for strangers instead of
 		// throwing on them — a redesign of the entanglement guard — so the honest fix is to state the
 		// second step, and the refusal already names exactly what to add.
-		const TOPICS = simpleCollection({ storage: { suffix: 'topic' } });
+		const TOPICS = simpleCollection({
+			storage: { suffix: 'topic' },
+			fields: {
+				name: { type: 'string', required: true },
+				recordings: { type: 'recordings', many: true, mirror_of: 'topic' },
+				notes: { type: 'markdown', body: true },
+			},
+		});
 		const R = simpleCollection({
 			storage: { suffix: 'recording' },
-			schema: {
-				type: 'object', required: ['name'],
-				properties: {
-					name: { type: 'string' },
-					notes: { type: 'string', format: 'markdown', 'x-body': true },
-					meeting: { type: 'string', 'x-reference': 'meetings', 'x-inverse': 'recordings' },
-					topic: { type: 'string', 'x-reference': 'topics', 'x-inverse': 'recordings' },
-				},
+			fields: {
+				name: { type: 'string', required: true },
+				meeting: { type: 'meetings' },
+				topic: { type: 'topics' },
+				notes: { type: 'markdown', body: true },
 			},
 		});
 		const ws = workspace({ collections: { meetings: MEETINGS, topics: TOPICS, recordings: R } });
