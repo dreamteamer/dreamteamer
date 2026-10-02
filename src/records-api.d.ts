@@ -144,7 +144,55 @@ export function namespaces(root: string): string[];
 
 // ---- read models ---------------------------------------------------------------------------------------
 
-export function presentation(descriptors: Descriptors): { collections: any[]; fields: Record<string, any[]>; relations: any[]; [k: string]: unknown };
+/** The display contract (descriptor v2, design §4.3): what every surface draws from. */
+export interface PresentationChoice { label: string; value: string; description?: string; icon?: string; color?: string; background?: string }
+export interface PresentationComponentOptions { choices?: PresentationChoice[]; fields?: PresentationField[]; item_title?: string; [option: string]: unknown }
+export interface PresentationField {
+	collection?: string;
+	field: string;
+	type: 'string' | 'markdown' | 'integer' | 'number' | 'boolean' | 'date' | 'datetime' | 'url' | 'email' | 'object' | 'map' | 'position';
+	many?: true;
+	title: string;
+	description?: string;
+	required: boolean;
+	kind?: 'derived' | 'virtual' | 'mirror';
+	editable: boolean | 'create';
+	hidden?: Array<'list' | 'form' | 'record'>;
+	role?: 'body' | 'reference' | 'reference_many' | 'mirror';
+	editor?: string;
+	editor_options?: PresentationComponentOptions;
+	viewer?: string;
+	viewer_options?: PresentationComponentOptions;
+	mirror_of?: string;
+	on_delete?: string;
+	unique?: true;
+	nullable: boolean;
+	default?: unknown;
+	unit?: string;
+	unit_field?: string;
+	direction?: 'ltr' | 'rtl';
+	width?: number;
+	placeholder?: string;
+	form_section?: string;
+	deprecated?: true;
+	sensitive?: true;
+}
+export interface PresentationCollection {
+	collection: string;
+	title: string;
+	nav: { icon?: string; order?: number; section?: string };
+	list: { layout: string; columns?: string[]; sort?: string; options?: Record<string, unknown> };
+	record: { layout: string; subtitle?: string; badge?: string; color_by?: string };
+	form: { sections: Array<{ title: string; fields: string[] }> };
+	position_field?: string;
+	record_title?: string;
+	record_type: string;
+	runtime: boolean;
+	internal: boolean;
+}
+export interface PresentationRelation { collection: string; field: string; related_collection: string; list: boolean; kind?: 'm2o' | 'o2o' | 'm2m'; mirror?: true }
+export interface Presentation { collections: PresentationCollection[]; fields: Record<string, PresentationField[]>; relations: PresentationRelation[] }
+export function presentation(descriptors: Descriptors): Presentation;
 export function commandsFor(store: Store, collection: string, ids?: string[]): { commands: any[] };
 export function recordResolver(store: Store): (ref: string) => Fields | null;
 
