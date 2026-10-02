@@ -16,6 +16,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { twoModuleWorkspace, bareWorkspace, writeModule, patchModulePkg, readFile } from '../helpers/ws.js';
 import { load } from '../../src/yaml.js';
+import { storageOf } from '../../src/descriptor.js';
 
 const manifest = (ws) => load(readFile(ws.root, '.dreamteamer/manifest.yaml'));
 
@@ -161,7 +162,7 @@ describe('namespace inference from --module', () => {
 		assert.equal(res.code, 0, res.stdout + res.stderr);
 		assert.match(res.stdout, /✔ hr\/grades \(namespace inferred from module hr\)/);
 		assert.ok(readFile(ws.root, 'modules/hr/collections/hr/grades.collection.yaml'));
-		assert.equal(load(readFile(ws.root, '.dreamteamer/collections/hr/grades.collection.yaml')).storage.path, 'data/hr/grades');
+		assert.equal(storageOf(load(readFile(ws.root, '.dreamteamer/collections/hr/grades.collection.yaml'))).path, 'data/hr/grades');
 	});
 
 	test('a declared prefix already in --name is never doubled', () => {

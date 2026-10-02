@@ -178,7 +178,7 @@ export function compileCollections(ctx) {
 		const ns = namespaceOf(name, namespaces);
 		const nsOwner = ns ? nsOwners.get(ns) : null;
 		if (nsOwner && !groupModules.includes(nsOwner) && !groupModules.some((m) => (moduleDeps.get(m) ?? []).includes(nsOwner))) {
-			fail(`collection "${name}" sits in namespace "${ns}", which module ${moduleId(nsOwner)} declares — ${groupModules.map(moduleId).join('/')} neither owns it nor depends on it.`);
+			fail(`collection "${name}" sits in namespace "${ns}", which module ${moduleId(nsOwner)} declares — ${groupModules.map(moduleId).join('/')} neither owns it nor depends on it.\n  dt set modules/${moduleId(groupModules[0])} dependencies=modules/${moduleId(nsOwner)}`);
 		}
 		for (const m of groupModules) {
 			if (!moduleColls.has(m)) moduleColls.set(m, new Set());

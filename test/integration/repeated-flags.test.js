@@ -171,15 +171,16 @@ describe('a schema verb takes ONE value per flag', () => {
 		assert.match(res.stderr, /--name was given 2 times/);
 	});
 
-	test('and a repeated --options, whose list spelling is the comma', () => {
+	test('and a repeated --enum, whose list spelling is the comma', () => {
 		const ws = schema();
-		const res = ws.dt('add-field', 'notes', '--name', 'kind', '--type', 'enum', '--options', 'a,b', '--options', 'c');
+		const res = ws.dt('add-field', 'notes', '--name', 'kind', '--type', 'string', '--enum', 'a,b', '--enum', 'c');
 		assert.equal(res.code, 1);
-		assert.match(res.stderr, /--options was given 2 times/);
+		assert.match(res.stderr, /--enum was given 2 times/);
 	});
 
 	test('one value per flag is of course still fine', () => {
 		const ws = schema();
-		assert.equal(ws.dt('add-field', 'notes', '--name', 'kind', '--type', 'enum', '--options', 'a,b').code, 0);
+		const res = ws.dt('add-field', 'notes', '--name', 'kind', '--type', 'string', '--enum', 'a,b');
+		assert.equal(res.code, 0, res.stderr);
 	});
 });

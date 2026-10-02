@@ -127,7 +127,7 @@ describe('the HEAD memo is dropped by whatever moves HEAD', () => {
 	test('a schema op, which commits its sources whatever auto-commit says', () => {
 		const ws = base();
 		ws.store.gitHead(); // seed the memo with the pre-op sha
-		quietly(() => addField(ws.ws, ws.store, 'items', { name: 'colour', prop: { type: 'string' } }));
+		quietly(() => addField(ws.ws, ws.store, 'items', { name: 'colour', field: { type: 'string' } }));
 		assert.equal(ws.store.gitHead(), git(ws.root, ['rev-parse', 'HEAD']));
 	});
 });

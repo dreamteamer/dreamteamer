@@ -82,6 +82,7 @@ export function resolveFields(authored, ctx) {
 				? `field "${name}": a union names collections, and ${JSON.stringify(prop.type)} is not all collections`
 				: `field "${name}": unknown type "${prop.type}" — one of ${SCALAR_TYPES.join(' ')} or a collection name`);
 		}
+		if (Array.isArray(prop.type) && !prop.type.length) errors.push(`field "${name}": an empty union references nothing — a union names at least one collection`);
 		if (Array.isArray(prop.type)) for (const t of prop.type) if (!types.has(t)) errors.push(`field "${name}": union member "${t}" is not a collection`);
 		if (prop.type === 'object' && !prop.fields) errors.push(`field "${name}": type object needs \`fields\``);
 		if (prop.fields && prop.type !== 'object') errors.push(`field "${name}": \`fields\` belongs to type object`);
