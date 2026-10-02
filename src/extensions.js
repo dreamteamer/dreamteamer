@@ -85,12 +85,12 @@ export function declaredExtensions(ws) {
  */
 export function disablesPackage(disable, name) {
 	const id = String(name).replace(/^@[^/]+\//, '');
-	return (disable ?? []).some((d) => typeof d === 'string' && (d === name || d === id));
+	return (disable ?? []).some((d) => isPackageEntry(d) && [name, id].includes(d.slice('modules/'.length)));
 }
 
-/** Is a `dreamteamer.disable` entry a whole-package name rather than `<module>/<entity>`? A bare
- *  word, or a scoped npm name (`@scope/name` — one slash, leading `@`). */
-export const isPackageEntry = (d) => typeof d === 'string' && (!d.includes('/') || /^@[^/]+\/[^/]+$/.test(d));
+/** Is a `dreamteamer.disable` entry a whole module — `modules/<id or package name>` — rather than an
+ *  entity, `<kind>/<id>`? The record grammar either way: a module is a record of `modules`. */
+export const isPackageEntry = (d) => typeof d === 'string' && d.startsWith('modules/');
 
 /**
  * Import and activate every declared extension against `api`, and check the contributions cannot

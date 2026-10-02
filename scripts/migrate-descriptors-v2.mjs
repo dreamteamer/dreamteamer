@@ -18,6 +18,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseDocument, isMap, isSeq, isScalar, isPair } from 'yaml';
+import { singular } from '../src/namespace.js';
 
 const STRINGIFY = { lineWidth: 0, flowCollectionPadding: false };
 const V2_ORDER = ['name', 'title', 'singular', 'record_title', 'description', 'use_when', 'internal', 'sensitive', 'storage', 'ids', 'mixins', 'overlay', 'fields', 'constraints', 'display'];
@@ -28,13 +29,11 @@ const keyOf = (pair) => String(isScalar(pair.key) ? pair.key.value : pair.key);
 const pairOf = (map, k) => map?.items?.find((p) => keyOf(p) === k);
 const toJS = (node) => (node && typeof node.toJSON === 'function' ? node.toJSON() : node);
 
-/** The singular of a bare collection name — the engine's inflection, restated so this script needs
- *  nothing but `yaml`. Only used to decide whether an authored suffix is the default. */
-function singular(name) {
-	if (/ies$/.test(name)) return name.replace(/ies$/, 'y');
-	if (/(ss|sh|ch|x|z)es$/.test(name)) return name.replace(/es$/, '');
-	if (/s$/.test(name) && !/ss$/.test(name)) return name.replace(/s$/, '');
-	return name;
+/** The suffix a v1 engine derived for an unauthored `storage.suffix` — what every existing record's
+ *  filename carries. The converter writes it explicitly wherever v2's inflector would derive another,
+ *  so no record is renamed by an upgrade. */
+function v1Suffix(name) {
+	return name.endsWith('ies') ? name.slice(0, -3) + 'y' : name.endsWith('s') ? name.slice(0, -1) : name;
 }
 
 /**
@@ -158,15 +157,16 @@ export function convertCollection(text, ctx = {}) {
 	if (v1.title_template !== undefined) { value.record_title = v1.title_template; renamed.record_title = 'title_template'; }
 	if (v1.group === 'system') { value.internal = true; renamed.internal = 'group'; }
 	// storage
-	if (v1.storage) {
-		const s = v1.storage;
+	{
+		const s = v1.storage ?? {};
 		const st = {};
 		if (s.path !== undefined) st.path = s.path;
 		if (s.codec !== undefined) st.format = s.codec === 'file' ? 'binary' : s.codec;
 		if (s.shape !== undefined && s.shape !== 'file') st.shape = s.shape;
 		if (s.entry !== undefined) st.entry = s.entry;
 		const bare = ctx.bareName ?? String(v1.name ?? '').split('/').pop();
-		if (s.suffix !== undefined && s.suffix !== singular(bare)) st.suffix = s.suffix;
+		const onDisk = s.suffix ?? v1Suffix(bare);
+		if (onDisk !== singular(bare)) st.suffix = onDisk;
 		if (s.under) st.under = { parent: s.under.field, subfolder: s.under.path };
 		if (s.max_bytes !== undefined) st.max_bytes = s.max_bytes;
 		if (s.extensions !== undefined) st.accept = s.extensions;

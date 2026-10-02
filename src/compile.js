@@ -56,6 +56,9 @@ export function titleCase(id) {
 
 /** The source kinds the compiler itself stages. An installed extension may add more
  *  (`sourceKinds`, src/extensions.js) — every enumeration below reads `kindsOf(ws)`, never this alone. */
+/** The keys a package.json `dreamteamer` block may carry — the workspace's and a module's alike. */
+export const MANIFEST_KEYS = ['title', 'description', 'workspace_module', 'data_path', 'namespaces', 'vars', 'env', 'auto_commit', 'harnesses', 'git_modules', 'disable', 'local_assets', 'postinstall', 'gitignore_runtime_folder', 'repos_path', 'dependencies', 'peer_collections', 'owns_data', 'engine', 'extension', 'ignore'];
+
 export const KINDS = ['collections', 'skills', 'agents', 'commands', 'command-bindings', 'ui-views', 'mixins'];
 const FOLDER_KINDS = new Set(['skills']); // folder-shape entities: copy the whole record folder
 
@@ -245,16 +248,16 @@ function dataOwningModules(sources, fail, rel) {
 	for (const s of sources) {
 		let mpkg;
 		try { mpkg = JSON.parse(fs.readFileSync(path.join(s.root, 'package.json'), 'utf8')); } catch { continue; }
-		const flag = mpkg.dreamteamer?.['owns-data'];
+		const flag = mpkg.dreamteamer?.owns_data;
 		if (flag === undefined || flag === false) continue;
-		if (flag !== true) fail(`module "${s.name}": "owns-data" must be true or false (got ${JSON.stringify(flag)})`);
+		if (flag !== true) fail(`module "${s.name}": "owns_data" must be true or false (got ${JSON.stringify(flag)})`);
 		// Decided from the CHANNEL, never by asking git — compile shells out to git nowhere and
 		// must keep working in a freshly-`init`ed directory that is not a repo yet.
 		if (s.channel === 'npm') {
-			fail(`module "${s.name}" sets owns-data, but it is installed under node_modules/ — that path is never committed, so its records could not be saved. Vendor it into modules/ or install it as a git module.`);
+			fail(`module "${s.name}" sets owns_data, but it is installed under node_modules/ — that path is never committed, so its records could not be saved. Vendor it into modules/ or install it as a git module.`);
 		}
 		if (s.channel === 'git' && !fs.existsSync(path.join(s.root, '.git'))) {
-			fail(`module "${s.name}" sets owns-data, but ${rel(s.root)} is not a git clone — git_modules/ is gitignored by the workspace, so its records could never be committed.`);
+			fail(`module "${s.name}" sets owns_data, but ${rel(s.root)} is not a git clone — git_modules/ is gitignored by the workspace, so its records could never be committed.`);
 		}
 		owners.set(s.name, { root: s.root, channel: s.channel });
 	}
@@ -324,7 +327,7 @@ export function compile(ws) {
 	// workspace module under modules/ (config `workspace-module` — "the workspace is itself a
 	// module", made literal). when the key is set the root is NOT read, so the two layouts can
 	// never fork — and a stray source folder up there is a loud error rather than a silent drop.
-	if (!config['workspace-module']) {
+	if (!config.workspace_module) {
 		sources.push({ name: pkg.name, root, channel: 'inline' });
 	} else {
 		const strays = [];
@@ -334,7 +337,7 @@ export function compile(ws) {
 			if (fs.existsSync(dir) && [...walk(dir)].length) strays.push(`${kind}/`);
 		}
 		if (strays.length) {
-			fail(`the workspace root contains sources (${strays.join(', ')}) but workspace-module="${config['workspace-module']}" is set — they would be silently ignored.\n  move them into modules/${config['workspace-module']}/ (decision 22).`);
+			fail(`the workspace root contains sources (${strays.join(', ')}) but workspace_module="${config.workspace_module}" is set — they would be silently ignored.\n  move them into modules/${config.workspace_module}/ (decision 22).`);
 		}
 	}
 
@@ -366,9 +369,17 @@ export function compile(ws) {
 	const modulePeers = new Map(); // module name -> [collection names]  — SOFT, cannot cycle
 	const moduleNamespaces = new Map(); // module name -> [namespaces it DECLARES] (§8, option A)
 	const moduleLocalAssets = []; // {rel, owner, base} — validated with the workspace's own, below
+	// the package.json `dreamteamer` block is a closed set of snake_case keys, the workspace's and
+	// every module's alike — a key outside it is a typo or a spelling this engine does not read
+	const refuseUnknownKeys = (block, where) => {
+		const bad = Object.keys(block ?? {}).filter((k) => !MANIFEST_KEYS.includes(k));
+		if (bad.length) fail(`${where}: unknown dreamteamer key(s) ${bad.join(', ')} — the keys are ${MANIFEST_KEYS.join(' · ')}`);
+	};
+	refuseUnknownKeys(config, 'package.json');
 	for (const source of sources) {
 		let mpkg;
 		try { mpkg = JSON.parse(fs.readFileSync(path.join(source.root, 'package.json'), 'utf8')); } catch { continue; }
+		if (source.root !== root && mpkg.dreamteamer) refuseUnknownKeys(mpkg.dreamteamer, rel(path.join(source.root, 'package.json')));
 		const ignore = mpkg.dreamteamer?.ignore;
 		if (ignore !== undefined) {
 			if (!Array.isArray(ignore)) fail(`module "${source.name}": "ignore" must be a list of folder names (got ${JSON.stringify(ignore)})`);
@@ -376,7 +387,7 @@ export function compile(ws) {
 		}
 		// npm's TERMINOLOGY, deliberately not npm's namespace: these live under `dreamteamer` so
 		// npm's own resolver never tries to fetch an inline or git-channel module.
-		for (const [key, sink] of [['dependencies', moduleDeps], ['peerDependencies', modulePeers]]) {
+		for (const [key, sink] of [['dependencies', moduleDeps], ['peer_collections', modulePeers]]) {
 			const decl = mpkg.dreamteamer?.[key];
 			if (decl === undefined) continue;
 			if (!Array.isArray(decl) || decl.some((v) => typeof v !== 'string')) {
@@ -418,7 +429,7 @@ export function compile(ws) {
 		// package.json IS `config` — reading it here too would report every workspace-level
 		// declaration twice, under the wrong owner.
 		if (source.root !== root) {
-			for (const rel of mpkg.dreamteamer?.['local-assets'] ?? []) moduleLocalAssets.push({ rel, owner: source.name, base: source.root });
+			for (const rel of mpkg.dreamteamer?.local_assets ?? []) moduleLocalAssets.push({ rel, owner: source.name, base: source.root });
 		}
 	}
 	// `dreamteamer.vars` is the WORKSPACE's own declaration (root package.json, not a module's): the
@@ -483,21 +494,21 @@ export function compile(ws) {
 	// outside the root must not wait for the compiler to be run.)
 	const ENGINE_OWNED = new Set(['.env', 'node_modules', '.dreamteamer', '.git']);
 	const gitQ = (args) => { try { execFileSync('git', args, { cwd: root, stdio: 'ignore' }); return true; } catch { return false; } };
-	for (const a of [...(config['local-assets'] ?? []).map((rel) => ({ rel, owner: 'workspace', base: root })), ...moduleLocalAssets]) {
+	for (const a of [...(config.local_assets ?? []).map((rel) => ({ rel, owner: 'workspace', base: root })), ...moduleLocalAssets]) {
 		const abs = path.resolve(a.base, a.rel), rel = path.relative(root, abs);
-		if (a.owner !== 'workspace' && path.relative(a.base, abs).startsWith('..')) fail(`local-assets: "${a.rel}" (module ${a.owner}) escapes its module with .. — declare it at the workspace level instead`);
+		if (a.owner !== 'workspace' && path.relative(a.base, abs).startsWith('..')) fail(`local_assets: "${a.rel}" (module ${a.owner}) escapes its module with .. — declare it at the workspace level instead`);
 		// The workspace-level twin, and it earns its own line: a rel that climbs out of the ROOT
 		// otherwise reached the gitignore check below, which cannot see a path outside the repo and
 		// so told the operator to ignore something git will never match. `checkout.js` refuses the
 		// same shape when the plan is built.
-		if (rel.startsWith('..')) fail(`local-assets: "${a.rel}" escapes the workspace root with .. — a local asset must be a path INSIDE the workspace`);
-		if (ENGINE_OWNED.has(rel.split(path.sep)[0])) fail(`local-assets: "${rel}" is engine-owned — install links .env and installs node_modules itself; never declare them`);
-		if (gitQ(['ls-files', '--error-unmatch', rel])) fail(`local-assets: "${rel}" is tracked — a tracked path needs no link and a link would shadow it`);
+		if (rel.startsWith('..')) fail(`local_assets: "${a.rel}" escapes the workspace root with .. — a local asset must be a path INSIDE the workspace`);
+		if (ENGINE_OWNED.has(rel.split(path.sep)[0])) fail(`local_assets: "${rel}" is engine-owned — install links .env and installs node_modules itself; never declare them`);
+		if (gitQ(['ls-files', '--error-unmatch', rel])) fail(`local_assets: "${rel}" is tracked — a tracked path needs no link and a link would shadow it`);
 		// ⚠ WITHOUT a trailing slash, and the message has to say so: a dir-only pattern (`.profiles/`)
 		// matches neither a symlink nor a path that does not exist yet (measured, git 2.50) — and a
 		// shared asset is exactly those two shapes, a symlink in every non-primary checkout and
 		// absent before the first install.
-		if (!gitQ(['check-ignore', '-q', rel])) fail(`local-assets: "${rel}" is not gitignored — add it to .gitignore WITHOUT a trailing slash (a worktree holds it as a symlink, and a dir-only pattern ignores neither a symlink nor an absent path); a shared asset must never be committed`);
+		if (!gitQ(['check-ignore', '-q', rel])) fail(`local_assets: "${rel}" is not gitignored — add it to .gitignore WITHOUT a trailing slash (a worktree holds it as a symlink, and a dir-only pattern ignores neither a symlink nor an absent path); a shared asset must never be committed`);
 	}
 	if (config.postinstall != null && typeof config.postinstall !== 'string') fail('dreamteamer.postinstall must be a single shell string');
 
@@ -523,7 +534,7 @@ export function compile(ws) {
 			if (state.get(mod) === 'done') return;
 			if (state.get(mod) === 'open') {
 				const ring = [...trail.slice(trail.indexOf(mod)), mod];
-				fail(`cyclic module dependencies: ${ring.join(' → ')}\n  a reference to a CONCEPT another module owns belongs in dreamteamer.peerDependencies (a collection name), which cannot cycle.`);
+				fail(`cyclic module dependencies: ${ring.join(' → ')}\n  a reference to a CONCEPT another module owns belongs in dreamteamer.peer_collections (a collection name), which cannot cycle.`);
 			}
 			state.set(mod, 'open');
 			for (const dep of moduleDeps.get(mod) ?? []) visit(dep, [...trail, mod]);
@@ -598,7 +609,8 @@ export function compile(ws) {
 				if (name.startsWith('.')) continue;
 				if (excludedFromKind(contributed, kind, name)) continue;
 				const entityId = name.replace(/\.[^.]+\.(yaml|md|json)$/, '');
-				if (disabled.has(`${source.name}/${entityId}`)) { disabledHits.add(`${source.name}/${entityId}`); continue; }
+				// an entity entry is `<kind>/<id>` — a record reference — and names that entity in any module
+				if (disabled.has(`${kind}/${entityId}`)) { disabledHits.add(`${kind}/${entityId}`); continue; }
 				const srcPath = path.join(srcDir, name);
 				const isDir = fs.statSync(srcPath).isDirectory();
 				if (kind === 'collections' && !isDir) {
@@ -767,7 +779,7 @@ export function compile(ws) {
 	// compiler materializes, plus `repos` (because `install repos/<id>` clones them).
 	const CORE_COLLECTIONS = new Set([...kinds, ...DERIVED_KINDS, 'repos']);
 	const engineName = engineId().replace(/@[^@]*$/, '');
-	const wsDir = config['workspace-module'];
+	const wsDir = config.workspace_module;
 	const wsModuleName = wsDir
 		? sources.find((s) => rel(s.root) === path.join('modules', wsDir))?.name
 		: pkg.name;
@@ -775,7 +787,7 @@ export function compile(ws) {
 		groups: descriptorGroups, mixins: mixinDocs, namespaces, nsOwners,
 		runtimeKinds: new Set([...kinds, ...DERIVED_KINDS]), core: CORE_COLLECTIONS,
 		moduleDeps, modulePeers, channelOf, wsModuleName, engineName, dataOwners,
-		repoOf: (moduleRoot) => repoRootOf(moduleRoot, root), rel, dataPath: config['data-path'] ?? 'data',
+		repoOf: (moduleRoot) => repoRootOf(moduleRoot, root), rel, dataPath: config.data_path ?? 'data',
 		moduleId, fail, warn: (m) => console.warn(m),
 	});
 	refusePlacementTransitions(root, compiledColls);
@@ -837,7 +849,7 @@ export function compile(ws) {
 			// script did not, so a session planned `dt add` writes the tooling forbids. This is the
 			// POINTER that the procedure exists, never its arguments — those stay in the skill.
 			...(binEntries(source.root).length ? { bin: binEntries(source.root) } : {}),
-			...(mpkg['owns-data'] === true ? { owns_data: true } : {}),
+			...(mpkg.owns_data === true ? { owns_data: true } : {}),
 			// Declared module names become record IDS here, because that is what an x-reference
 			// resolves against. An undeclared/unknown name would dangle, and `check` would say so —
 			// but compile has already failed on that case (the acyclicity pass resolves every one).
@@ -1047,7 +1059,7 @@ export function compile(ws) {
 	const anyFlat = sources.some((s) => kinds.some((k) => fs.existsSync(path.join(s.root, k))));
 	const anyNested = sources.some((s) => kinds.some((k) => fs.existsSync(path.join(s.root, 'system', k))));
 	const sourceLayout = anyFlat && anyNested ? 'mixed' : anyNested ? 'nested' : 'flat';
-	const { outputs: adapterOutputs, blocks: adapterBlocks, summary: harnessSummary } = runHarnessAdapters({ root, entries, harnesses, prevManifest, sourceLayout, namespaces, version: engineVer, workspaceModule: config['workspace-module'] ?? '', extensions, kinds: contributed.map((k) => k.kind), contributions });
+	const { outputs: adapterOutputs, blocks: adapterBlocks, summary: harnessSummary } = runHarnessAdapters({ root, entries, harnesses, prevManifest, sourceLayout, namespaces, version: engineVer, workspaceModule: config.workspace_module ?? '', extensions, kinds: contributed.map((k) => k.kind), contributions });
 
 	// ---- provenance manifest ------------------------------------------------------
 	const manifest = {
@@ -1101,8 +1113,8 @@ export function compile(ws) {
 	fs.writeFileSync(path.join(RUNTIME, 'manifest.yaml'), dump(manifest));
 
 	const summary = kinds.filter((k) => counts[k]).map((k) => `${counts[k]} ${k}${k === 'collections' && mergedCount ? ` (${mergedCount} merged)` : ''}`).join(', ');
-	const sourceLabel = config['workspace-module']
-		? `${sources.length} module(s) (workspace-module: ${config['workspace-module']})`
+	const sourceLabel = config.workspace_module
+		? `${sources.length} module(s) (workspace_module: ${config.workspace_module})`
 		: `${sources.length - 1} module(s) + workspace`;
 	console.log(`✔ compiled ${summary || 'nothing'} from ${sourceLabel} → .dreamteamer`);
 	for (const line of harnessSummary) console.log(`✔ harness ${line}`);
@@ -1148,7 +1160,7 @@ export function staleness(root) {
 	}
 	let pkg = {};
 	try { pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')); } catch { /* no pkg */ }
-	const wm = pkg.dreamteamer?.['workspace-module'];
+	const wm = pkg.dreamteamer?.workspace_module;
 	const found = discoverModules(root, pkg);
 	// ⚠ A DISABLED ENTITY IS NOT A NEW ONE, AND THIS IS THE DIFFERENCE BETWEEN A WARNING AND A LIE.
 	// `compile` skips every source named by an ENTITY-LEVEL `dreamteamer.disable` entry
@@ -1190,7 +1202,7 @@ export function staleness(root) {
 				if (moduleName) {
 					const relEntity = kind === 'collections' ? rel : rel.split('/')[0];
 					const entityId = relEntity.replace(/\.[^.]+\.(yaml|md|json)$/, '');
-					if (disabledEntities.has(`${moduleName}/${entityId}`)) continue;
+					if (disabledEntities.has(`${kind}/${entityId}`)) continue;
 				}
 				const relPath = path.relative(root, f);
 				if (!known.has(relPath)) stale.push(`${relPath} (new, uncompiled)`);
