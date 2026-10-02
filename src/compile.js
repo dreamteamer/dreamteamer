@@ -22,7 +22,7 @@ import { parseEnvValues } from './env-vars.js';
 import { DERIVED_KINDS, readManifest, runtimeDir, engineId, engineVersion, loadDescriptors as loadCompiledDescriptors } from './runtime.js';
 import { excludedFromKind, disablesPackage, isPackageEntry } from './extensions.js';
 import { compileCollections, v1Refusal, CONVERTER } from './compile-collections.js';
-import { storageOf, fieldsOf, displayOf } from './descriptor.js';
+import { storageOf, fieldsOf, displayOf, targetsOf } from './descriptor.js';
 export { engineId, engineVersion, readManifest };
 
 /**
@@ -937,7 +937,8 @@ export function compile(ws) {
 		const file = e.sources[0].path;
 		const view = loadSource(e.bytes.toString('utf8'), file);
 		const d = view?.collection ? collectionOf(view.collection) : null;
-		const { errors, warnings, v1 } = viewErrors(view, { file, fields: fieldsKnown(d), lenient: lenientFor(file) });
+		const groupFields = (f) => { const t = d && f ? targetsOf(fieldsOf(d)[f]) : null; return Array.isArray(t) && t.length === 1 ? fieldsKnown(collectionOf(`collections/${t[0]}`)) : undefined; };
+		const { errors, warnings, v1 } = viewErrors(view, { file, fields: fieldsKnown(d), groupFields, lenient: lenientFor(file) });
 		if (v1) { v1Sources.push(file); continue; }
 		if (errors.length) fail(errors.join('\n  '));
 		for (const w of warnings) console.warn(`⚠ ${w}`);

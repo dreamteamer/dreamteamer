@@ -191,3 +191,21 @@ describe('a v2 command-binding', () => {
 		assert.match(warnings.join('\n'), /available_when is read by nothing — a collection-scope binding evaluates no record/);
 	});
 });
+
+describe('a group template renders over the record the rows are grouped by', () => {
+	const DOCTORS = { description: 'A doctor.', ids: { from: '{{ name | slug }}' }, fields: { name: { type: 'string', required: true }, ward: { type: 'string' }, notes: { type: 'markdown', body: true } } };
+	const withDoctor = { ...VISITS, fields: { ...VISITS.fields, doctor: { type: 'health/doctors' } } };
+	const byDoctor = (summary) => ({ route: '/health/visits/by-doctor', scope: 'collection', collection: 'collections/health/visits',
+		display: { list: { layout: 'gantt', options: { start: 'date', end: 'date', group_by: 'doctor', group_title: '{{ name }}', group_summary: summary, bar_title: '{{ reason }}' } } } });
+	const build = (summary) => {
+		const w = clinic({ views: { 'by-doctor': byDoctor(summary) }, visits: withDoctor });
+		writeCollection(w.root, 'health/doctors', DOCTORS);
+		return w;
+	};
+	test("the grouped-by collection's fields compile, though the view's own collection lacks them", () => {
+		assert.equal(compileQuietly(build('{{ ward }}').ws).code, 0);
+	});
+	test('a field neither collection has still fails, naming the position', () => {
+		assert.match(compileError(build('{{ shift }}').ws), /display\.list\.options\.group_summary: "\{\{ shift \}\}" is not a field/);
+	});
+});

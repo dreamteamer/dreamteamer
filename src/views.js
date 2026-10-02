@@ -30,6 +30,7 @@ export const VIEW_DISPLAY = {
 /** Layout options that take a FIELD, named for the role it plays; and the ones that take a template. */
 export const FIELD_OPTIONS = ['color_by', 'group_by', 'lanes_by', 'start', 'end', 'lat', 'lng'];
 export const TEMPLATE_OPTIONS = ['card_title', 'bar_title', 'group_title', 'group_summary'];
+const GROUP_TEMPLATES = ['group_title', 'group_summary'];
 
 /** The keys a command-binding carries. */
 export const BINDING_KEYS = ['command', 'collection', 'scope', 'available_when', 'done_when', 'description'];
@@ -52,7 +53,7 @@ const BUILTIN_FIELDS = ['id', 'created', 'last_modified'];
  *   lenient — the view's module declares a peer collection that is not installed
  * @returns {{ errors: string[], warnings: string[], v1?: true }} each naming its position
  */
-export function viewErrors(view, { file, fields, lenient = false }) {
+export function viewErrors(view, { file, fields, groupFields, lenient = false }) {
 	if (!isMap(view)) return { errors: [`${file}: a ui-view is a mapping`], warnings: [] };
 	if (V1_VIEW_KEYS.some((k) => k in view) && !('route' in view || 'scope' in view || 'display' in view)) return { v1: true, errors: [], warnings: [] };
 	const errors = [];
@@ -77,16 +78,16 @@ export function viewErrors(view, { file, fields, lenient = false }) {
 		}
 	}
 	const warnings = [];
-	if (view.display !== undefined) displayErrors(view.display, { fields, collection: view.collection, errors, names, warnings, file });
+	if (view.display !== undefined) displayErrors(view.display, { fields, groupFields, collection: view.collection, errors, names, warnings, file });
 	return lenient ? { errors, warnings: [...warnings, ...names] } : { errors: [...errors, ...names], warnings };
 }
 
-function displayErrors(display, { fields, collection, errors, names: dangling, warnings, file }) {
+function displayErrors(display, { fields, groupFields, collection, errors, names: dangling, warnings, file }) {
 	const err = (m) => errors.push(`${file}: ${m}`);
 	if (!isMap(display)) return err('`display` is a mapping of nav · list · record · form');
 	const names = fields ? [...Object.keys(fields), ...BUILTIN_FIELDS] : null;
 	const field = (pos, f) => { if (names && !names.includes(String(f).replace(/^-/, ''))) dangling.push(`${file}: ${pos} names "${f}", which is not a field of ${collection}`); };
-	const template = (tpl, position) => { for (const e of validateTemplate(tpl, { position, fields: names })) (/is not a field/.test(e) ? dangling : errors).push(`${file}: ${e}`); };
+	const template = (tpl, position, over = names) => { for (const e of validateTemplate(tpl, { position, fields: over })) (/is not a field/.test(e) ? dangling : errors).push(`${file}: ${e}`); };
 	for (const [b, v] of Object.entries(display)) {
 		if (!VIEW_DISPLAY[b]) { err(`unknown key \`display.${b}\` — display has ${Object.keys(VIEW_DISPLAY).join(' · ')}`); continue; }
 		if (!isMap(v)) { err(`\`display.${b}\` is a mapping`); continue; }
@@ -108,7 +109,15 @@ function displayErrors(display, { fields, collection, errors, names: dangling, w
 				else if (VIEW_KEYS.includes(k)) warnings.push(`${file}: display.${b}.options.${k} is read by nothing — \`${k}\` is a key of the view itself, at the top`);
 			}
 			for (const k of FIELD_OPTIONS) if (v.options[k] !== undefined) field(`display.${b}.options.${k}`, v.options[k]);
-			for (const k of TEMPLATE_OPTIONS) if (v.options[k] !== undefined && names) template(v.options[k], `display.${b}.options.${k}`);
+			for (const k of TEMPLATE_OPTIONS) {
+				if (v.options[k] === undefined || !names) continue;
+				// a group's title and summary render over the record the rows are grouped BY — the target of
+				// a reference group_by — so they are checked against that collection, or not at all
+				if (GROUP_TEMPLATES.includes(k)) {
+					const over = groupFields?.(v.options.group_by);
+					if (over) template(v.options[k], `display.${b}.options.${k}`, [...Object.keys(over), ...BUILTIN_FIELDS]);
+				} else template(v.options[k], `display.${b}.options.${k}`);
+			}
 		}
 	}
 }
