@@ -683,10 +683,13 @@ export function migrate(root, { dryRun = false, log = console.log } = {}) {
 	const ignoreFile = path.join(root, '.gitignore');
 	const ignoreText = fs.existsSync(ignoreFile) ? fs.readFileSync(ignoreFile, 'utf8') : '';
 	const ignoreLines = new Set(ignoreText.split(/\r?\n/).map((l) => l.trim()));
-	// a root harness file is compile's only when it carries the generated block; one without it is
-	// hand-written, stays tracked, and is named
-	const handWritten = HARNESS_FILES.filter((f) => names.includes(f) && !fs.readFileSync(path.join(root, f), 'utf8').includes('dreamteamer:begin'));
-	for (const f of handWritten) plan.warnings.push(`${f} carries no generated block, so it stays tracked and is not ignored — if compile should own it, move its text into DREAMTEAMER.md`);
+	// a root harness file is compile's only when everything in it is a generated block; one with text
+	// of its own outside the blocks is hand-written, stays tracked, and is named — ignoring it would
+	// drop that text from every fresh clone
+	const ownText = (f) => fs.readFileSync(path.join(root, f), 'utf8')
+		.replace(/<!-- dreamteamer:(instructions:)?begin[^>]*-->[\s\S]*?<!-- dreamteamer:(instructions:)?end -->/g, '').trim();
+	const handWritten = HARNESS_FILES.filter((f) => names.includes(f) && ownText(f) !== '');
+	for (const f of handWritten) plan.warnings.push(`${f} carries text outside the generated block, so it stays tracked and is not ignored — move that text into DREAMTEAMER.md, then run this again to hand ${f} to compile`);
 	const generated = HARNESS_FILES.filter((f) => !handWritten.includes(f));
 	const toIgnore = generated.map((f) => `/${f}`).filter((l) => !ignoreLines.has(l));
 	plan.ignored = toIgnore.length;

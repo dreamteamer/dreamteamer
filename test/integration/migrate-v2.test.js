@@ -169,26 +169,29 @@ test('dreamteamer.md becomes DREAMTEAMER.md, and the generated harness files are
 	write(w.root, 'dreamteamer.md', '# House rules\n\nEvery visit names its doctor.\n');
 	write(w.root, 'CLAUDE.md', '<!-- dreamteamer:begin -->\ngenerated\n<!-- dreamteamer:end -->\n');
 	write(w.root, 'AGENTS.md', '# House rules for another tool, written by hand\n');
+	// rules written by hand ABOVE a generated block are the operator's too: ignoring the file loses them
+	write(w.root, 'GEMINI.md', 'Always measure.\n\n<!-- dreamteamer:begin (generated) -->\nx\n<!-- dreamteamer:end -->\n');
 	const ignore = read(w.root, '.gitignore').split('\n').filter((l) => !['/CLAUDE.md', '/AGENTS.md', '/GEMINI.md', '/NOTEBOOKLM.md'].includes(l.trim())).join('\n');
 	write(w.root, '.gitignore', ignore);
-	w.git(['add', '-f', 'dreamteamer.md', 'CLAUDE.md', 'AGENTS.md', '.gitignore']);
+	w.git(['add', '-f', 'dreamteamer.md', 'CLAUDE.md', 'AGENTS.md', 'GEMINI.md', '.gitignore']);
 	w.git(['commit', '-qm', 'fixture: instructions and a tracked harness file']);
 
 	const plan = run(w.root, '--dry-run');
-	assert.match(plan.stdout, /instructions renamed 1 · harness files ignored 3/);
+	assert.match(plan.stdout, /instructions renamed 1 · harness files ignored 2/);
 	assert.ok(fs.readdirSync(w.root).includes('dreamteamer.md'), 'a dry run renames nothing');
 
 	const r = run(w.root);
 	assert.equal(r.status, 0, r.stderr);
-	assert.match(r.stdout, /instructions renamed 1 · harness files ignored 3/);
+	assert.match(r.stdout, /instructions renamed 1 · harness files ignored 2/);
+	assert.match(r.stdout, /GEMINI\.md carries text outside the generated block/);
 	assert.match(r.stdout, /git rm --cached CLAUDE\.md$/m, 'only the generated file is untracked');
-	assert.match(r.stdout, /AGENTS\.md carries no generated block, so it stays tracked/);
+	assert.match(r.stdout, /AGENTS\.md carries text outside the generated block, so it stays tracked/);
 	const names = fs.readdirSync(w.root);
 	assert.ok(names.includes('DREAMTEAMER.md') && !names.includes('dreamteamer.md'), names.join(' '));
 	assert.equal(read(w.root, 'DREAMTEAMER.md'), '# House rules\n\nEvery visit names its doctor.\n');
 	const lines = read(w.root, '.gitignore').split('\n');
-	for (const f of ['/CLAUDE.md', '/GEMINI.md', '/NOTEBOOKLM.md']) assert.ok(lines.includes(f), `${f} is ignored`);
-	assert.ok(!lines.includes('/AGENTS.md'), 'a hand-written harness file is never ignored');
+	for (const f of ['/CLAUDE.md', '/NOTEBOOKLM.md']) assert.ok(lines.includes(f), `${f} is ignored`);
+	for (const f of ['/AGENTS.md', '/GEMINI.md']) assert.ok(!lines.includes(f), `${f}: a harness file with text of its own is never ignored`);
 	assert.equal(compiles(w), null, 'compile reads DREAMTEAMER.md and accepts the converted manifest');
 	assert.match(run(w.root).stdout, /instructions renamed 0 · harness files ignored 0/, 'idempotent');
 });
