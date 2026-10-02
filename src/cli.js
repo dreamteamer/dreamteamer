@@ -55,10 +55,10 @@ the longest DECLARED collection prefix, so finance/transactions/2026/03/coffee i
   get    <collection>/<id> [--json]
   add    <collection> ["<title>"] --<field> <value> … [--id <explicit-id>]
                                               (ONE bare positional fills the collection's title
-                                               field — the one its title_template names — so
+                                               field — the one its record_title opens with — so
                                                dt add task "call the bank" is
                                                dt add tasks --name "call the bank".
-                                               a codec-file collection takes --from <path>
+                                               a format: binary collection takes --from <path>
                                                instead — the file IS the record, fields derive;
                                                --force replaces an existing file record.
                                                A repeated --<field> is one ELEMENT of an array
@@ -100,7 +100,7 @@ the longest DECLARED collection prefix, so finance/transactions/2026/03/coffee i
                                                field prints one item per line)
 
 system verbs — the SAME verbs, on the entities the compiler materializes (modules, collections,
-skills, agents, commands, command-bindings, ui-views, collection-templates, and any kind an
+skills, agents, commands, command-bindings, ui-views, mixins, and any kind an
 installed extension adds). ⚠ ONE
 difference in POLICY, not in spelling: a SYSTEM write commits itself, because an uncompilable or
 unpublished schema is not a state a workspace should sit in; a RECORD write does not — \`commit\`
