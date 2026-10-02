@@ -69,8 +69,8 @@ the longest DECLARED collection prefix, so finance/transactions/2026/03/coffee i
   rm     <collection>/<id> [--force]
   rename <collection>/<id> <new-id>           (rewrites all inbound refs in one WRITE —
                                                commit publishes the set together)
-  move   <collection>/<id> --after|--before <id> | --top | --bottom
-  move   <collection> --init                  (place every record that has no sort value yet)
+  reorder <collection>/<id> --after|--before <id> | --top | --bottom
+  reorder <collection> --init                 (place every record that has no position yet — the collection's \`type: position\` field)
   values <collection> <field> [--limit n]     (the vocabulary a field actually uses —
                                                what a filter/validator offers as choices)
   history <collection>/<id> [--json]          (git revisions of this record, newest first)
@@ -134,7 +134,7 @@ commits there.
   rm     <system>/<id> [--force] [--dry-run]
   rename <system>/<id> <new-id>               (a collection's rename moves its records, re-suffixes
                                                the files and rewrites every inbound ref, ONE commit)
-  move   <system>/<id> --after|--before <id>  (nav ordering — it writes \`order\`)
+  reorder <system>/<id> --after|--before <id> (nav ordering — it writes \`display.nav.order\`)
   get    collections/<c> [--module <m>]       (--module prints ONE module's source contribution
                                                rather than the merged descriptor)
   list   modules | collections | skills | …   (id · location · path · namespaces · package name)
@@ -237,7 +237,7 @@ const ROWS_SHOWN = 20;
 
 const REF_VERBS = new Set(['get', 'set', 'rm', 'rename', 'history', 'diff', 'revert']);
 const COLLECTION_VERBS = new Set(['list', 'add', 'values']);
-const EITHER_VERBS = new Set(['move', 'next']);
+const EITHER_VERBS = new Set(['reorder', 'next']);
 
 // FIELD VERBS. Their <target> is a collection and everything else is flags, which is the one shape
 // that differs from the record verbs — so they get their own case arm rather than being folded into
@@ -271,7 +271,7 @@ export const WORKSPACE_FLAGS = {
  *  would turn a loud translation into a different command. */
 export const CORE_VERBS = [
 	'init', 'install', 'update', 'compile', 'check', 'doctor', 'status', 'changes', 'commit', 'help', 'version', '--version', '-v',
-	'list', 'add', 'values', 'get', 'set', 'rm', 'rename', 'history', 'diff', 'revert', 'move', 'next',
+	'list', 'add', 'values', 'get', 'set', 'rm', 'rename', 'history', 'diff', 'revert', 'reorder', 'next',
 	'add-field', 'set-field', 'rm-field', 'rename-field', 'relations', 'resolve', 'relocate',
 	'schema', 'ensure', 'update-field', 'remove-field', 'commands',
 ];
@@ -548,7 +548,7 @@ export async function run(argv) {
 				process.exit(0);
 			case 'list': case 'add': case 'values':
 			case 'get': case 'set': case 'rm': case 'rename': case 'history': case 'diff': case 'revert':
-			case 'move': case 'next': {
+			case 'reorder': case 'next': {
 				warnIfStale(ws.root);
 				process.exit(dispatchRecordVerb(ws, cmd, rest));
 			}
@@ -692,12 +692,12 @@ function dispatchRecordVerb(ws, verb, args) {
 	// EITHER_VERBS from here: a bare collection is legal for both — `move <collection> --init`,
 	// `next <collection>`.
 	if (descriptors.has(canonical)) {
-		return verb === 'move'
-			? collectionCommand(ws, canonical, 'move', rest)
+		return verb === 'reorder'
+			? collectionCommand(ws, canonical, 'reorder', rest)
 			: collectionCommand(ws, 'commands', 'for', [canonical, ...rest]);
 	}
 	const { collection, id } = splitRef(descriptors, target);
-	if (verb === 'move') return collectionCommand(ws, collection, 'move', [id, ...rest]);
+	if (verb === 'reorder') return collectionCommand(ws, collection, 'reorder', [id, ...rest]);
 	// `commands for <c>/<id>` split its own target at the FIRST slash, which cannot name a
 	// namespaced collection. splitRef can, so the id is handed over as `--ids` — the same
 	// `commandsFor(store, collection, ids)` call, reached without re-encoding the reference.

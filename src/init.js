@@ -25,6 +25,10 @@ git_modules/
 .claude/
 .agents/
 .cursor/
+/CLAUDE.md
+/AGENTS.md
+/GEMINI.md
+/NOTEBOOKLM.md
 .env
 media/
 .screenshots/
