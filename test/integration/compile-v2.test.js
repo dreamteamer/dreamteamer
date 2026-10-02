@@ -329,12 +329,14 @@ describe('the transitional cut: field verbs and the display contract', () => {
 		compileQuietly(w.ws);
 		const p = presentation(loadDescriptors(w.root));
 		const row = (c, f) => p.fields[c].find((r) => r.field === f);
-		assert.equal(row('health/visits', 'created').meta.readonly, true);
-		assert.equal(row('health/visits', 'reason').meta.readonly, undefined);
+		assert.equal(row('health/visits', 'created').kind, 'derived');
+		assert.equal(row('health/visits', 'created').editable, false);
+		assert.equal(row('health/visits', 'reason').kind, undefined);
+		assert.equal(row('health/visits', 'reason').editable, true);
 		const locked = clinic({ visits: { ...VISITS, fields: { ...VISITS.fields, summary_url: { type: 'url', display: { editable: false } } } } });
 		compileQuietly(locked.ws);
 		const q = presentation(loadDescriptors(locked.root));
-		assert.equal(q.fields['health/visits'].find((r) => r.field === 'summary_url').meta.readonly, true);
+		assert.equal(q.fields['health/visits'].find((r) => r.field === 'summary_url').editable, false);
 	});
 });
 
