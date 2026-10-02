@@ -1,6 +1,6 @@
-// Tier 2 — `codec: file`: a record whose bytes ARE the file.
+// Tier 2 — `format: binary`: a record whose bytes ARE the file.
 //
-// The thing under test is a boundary, not a format. Every other codec answers "what fields does this
+// The thing under test is a boundary, not a format. Every other format answers "what fields does this
 // text carry"; this one answers "which file is this record, and what may it be". So the assertions
 // cluster on the edges where an opaque record differs from a parsed one: the extension is not
 // derivable from the id, there is nothing to validate, `set` has no meaning, and a folder full of
@@ -18,8 +18,9 @@ const checkOut = (ws) => { const r = ws.dt('check'); return r.stdout + r.stderr;
 
 const FILES = {
 	description: 'Opaque files, one per record.',
-	storage: { path: 'data/files', codec: 'file', shape: 'file', suffix: 'bin', max_bytes: 1024, extensions: ['svg', 'png'] },
-	id: { pattern: '^[a-z0-9][a-z0-9/._-]*$' },
+	storage: { path: 'data/files', format: 'binary', shape: 'file', suffix: 'bin', max_bytes: 1024, accept: ['svg', 'png'] },
+	ids: { pattern: '^[a-z0-9][a-z0-9/._-]*$' },
+	fields: {},
 };
 
 const base = (extra = {}) => workspace({ collections: { files: FILES, ...extra } });
@@ -135,7 +136,7 @@ describe('add --from', () => {
 	});
 
 	test('--from on a NON-file collection is refused rather than silently ignored', () => {
-		const ws = workspace({ collections: { files: FILES, notes: { id: { generate: '{{ name | slug }}' }, schema: { type: 'object', required: ['name'], properties: { name: { type: 'string' } } } } } });
+		const ws = workspace({ collections: { files: FILES, notes: { ids: { from: '{{ name | slug }}' }, fields: { name: { type: 'string', required: true } } } } });
 		assert.match(ws.dt('add', 'notes', '--name', 'x', '--from', source('e.svg', '<svg/>')).stderr, /--from/);
 	});
 });
@@ -175,8 +176,8 @@ describe('the other verbs', () => {
 			collections: {
 				files: FILES,
 				companies: {
-					id: { generate: '{{ name | slug }}' },
-					schema: { type: 'object', required: ['name'], properties: { name: { type: 'string' }, logo: { type: 'string', 'x-reference': 'files' } } },
+					ids: { from: '{{ name | slug }}' },
+					fields: { name: { type: 'string', required: true }, logo: { type: 'files' } },
 				},
 			},
 		});
@@ -197,7 +198,7 @@ describe('rename-collection', () => {
 	test('re-suffixes opaque records without touching their extensions', () => {
 		// `suffix: pic` is `singular('pics')`, which is what makes the rename re-derive it as `photo`.
 		// (Not `images`: that is a shipped system collection since 0.29.0, and the rename refuses it.)
-		const ws = workspace({ collections: { pics: { description: 'x', storage: { codec: 'file', suffix: 'pic' }, id: { pattern: '^[a-z/-]+$' } } } });
+		const ws = workspace({ collections: { pics: { description: 'x', storage: { format: 'binary', suffix: 'pic' }, ids: { pattern: '^[a-z/-]+$' }, fields: {} } } });
 		ws.dt('add', 'pics', 'a/star', '--from', source('x.svg', '<svg/>'));
 		ws.dt('add', 'pics', 'a/acme', '--from', source('y.png', 'p'));
 		const res = ws.dt('rename', 'collections/pics', 'photos');
@@ -209,17 +210,17 @@ describe('rename-collection', () => {
 });
 
 describe('compile', () => {
-	test('refuses folder shape — a file codec is one file', () => {
+	test('refuses folder shape — a binary record is one file', () => {
 		const ws = workspace({ compile: false, collections: { files: FILES } });
-		writeCollection(ws.root, 'bad', { storage: { path: 'data/bad', codec: 'file', shape: 'folder', suffix: 'b', entry: 'MAIN' } });
-		assert.match(compileError(ws.ws) ?? '', /one file/);
+		writeCollection(ws.root, 'bad', { storage: { path: 'data/bad', format: 'binary', shape: 'folder', suffix: 'b', entry: 'MAIN' }, fields: {} });
+		assert.match(compileError(ws.ws) ?? '', /`format: binary` — one file per record, not a folder; drop `shape: folder`/);
 	});
 
-	test('warns that a declared schema is ignored', () => {
+	test('warns that a declared field is ignored', () => {
 		const ws = workspace({ compile: false, collections: { files: FILES } });
 		writeCollection(ws.root, 'schemad', {
-			storage: { path: 'data/schemad', codec: 'file', shape: 'file', suffix: 's' },
-			schema: { type: 'object', properties: { a: { type: 'string' } } },
+			storage: { path: 'data/schemad', format: 'binary', shape: 'file', suffix: 's' },
+			fields: { a: { type: 'string' } },
 		});
 		assert.match(compileQuietly(ws.ws).warnings.join('\n'), /ignored/);
 	});
