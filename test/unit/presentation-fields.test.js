@@ -1,6 +1,6 @@
 // Tier 1 — what the display contract SAYS about each collection and field, read from the compiled v2
-// shape alone (`compiled.fields`, `compiled.defaults`, `display`, the authored keys). The clinic
-// fixture is the design's worked example in compiled form.
+// shape alone, through the `src/descriptor.js` accessors (authored keys over `compiled.defaults`,
+// `compiled.fields`). The clinic fixture is the design's worked example in compiled form.
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { presentation } from '../../src/presentation.js';
@@ -180,9 +180,51 @@ describe('only the v2 shape is read', () => {
 		const row = q.collections[0];
 		assert.deepEqual(row.nav, {}, 'icon and order are display.nav keys');
 		assert.deepEqual(row.list, { layout: 'table' }, 'list_fields is not a column list');
-		assert.equal(row.record_title, undefined, 'title_template is not record_title');
+		assert.equal(row.record_title, '{{ id }}', 'title_template is not record_title — the accessor\'s default stands');
 		assert.equal(row.position_field, undefined, 'sort_field is not a position field');
 		assert.equal(row.runtime, false, 'storage.base is not compiled.runtime');
 		assert.equal(row.internal, false, 'group: system is not internal');
+	});
+});
+
+describe('the contract reads through src/descriptor.js, so compile\'s defaults count wherever the author was silent', () => {
+	// Nothing authored but the name: every collection-level value below can only have come from
+	// `compiled.defaults`, resolved by the same accessors the store and check use.
+	const bare = compiledCollection('health/rooms', {
+		defaults: {
+			title: 'Rooms',
+			record_title: '{{ label }}',
+			storage: { path: 'data/health/rooms', format: 'md', shape: 'file', suffix: 'room' },
+			display: { nav: { icon: 'home', order: 5 }, list: { layout: 'cards', columns: ['label'] }, record: { layout: 'panel', badge: 'label' } },
+		},
+		fields: { label: { type: 'string', required: true, title: 'Label' } },
+	});
+	const row = presentation(new Map([[bare.name, bare]])).collections[0];
+
+	test('title, record_title and record_type come from the defaults (titleOf, recordTitleOf, storageOf)', () => {
+		assert.equal(row.title, 'Rooms');
+		assert.equal(row.record_title, '{{ label }}');
+		assert.equal(row.record_type, 'room');
+	});
+
+	test('a display default compile supplied is drawn like an authored one (displayOf)', () => {
+		assert.deepEqual(row.nav, { icon: 'home', order: 5 });
+		assert.deepEqual(row.list, { layout: 'cards', columns: ['label'] });
+		assert.deepEqual(row.record, { layout: 'panel', badge: 'label' });
+	});
+
+	test('an authored display key wins over the default under it', () => {
+		const authored = structuredClone(bare);
+		authored.display = { nav: { icon: 'door' }, list: { layout: 'table' } };
+		const r = presentation(new Map([[authored.name, authored]])).collections[0];
+		assert.deepEqual(r.nav, { icon: 'door', order: 5 });
+		assert.deepEqual(r.list, { layout: 'table', columns: ['label'] });
+	});
+
+	test('with no title in either place the collection is titled by its name, and the record by its id', () => {
+		const none = compiledCollection('health/beds', { defaults: { title: undefined } });
+		const r = presentation(new Map([[none.name, none]])).collections[0];
+		assert.equal(r.title, 'health/beds');
+		assert.equal(r.record_title, '{{ id }}');
 	});
 });
