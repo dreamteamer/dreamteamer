@@ -11,17 +11,19 @@ import path from 'node:path';
 import { workspace, writeCollection, simpleCollection, compileError, compileQuietly, readFile, tree, dt, git, patchModulePkg, WS_MODULE, twoModuleWorkspace, writeModule } from '../helpers/ws.js';
 import { load, dump } from '../../src/yaml.js';
 import { staleness } from '../../src/compile.js';
+import { storageOf, isRuntime, titleOf, recordTitleOf, moduleOf, fieldsOf, unresolvedPeersOf } from '../../src/descriptor.js';
 
 const uncompiled = (opts) => workspace({ ...opts, compile: false });
 const dtCheck = (root) => dt(root, 'check');
 
 describe('the runtime artifact', () => {
-	test('storage.base is written, not left to a path test', () => {
+	test('whether records are build output is written by compile, not left to a path test', () => {
 		const ws = workspace({ collections: { widgets: simpleCollection({ storage: { suffix: 'widget' } }) } });
-		assert.equal(ws.store.descriptor('widgets').storage.base, 'workspace');
+		assert.equal(ws.store.descriptor('widgets').compiled.runtime, false);
+		assert.equal(storageOf(ws.store.descriptor('widgets')).runtime, false);
 		// a compiled-source collection: its records live in the gitignored runtime
-		assert.equal(ws.store.descriptor('collections').storage.base, 'runtime');
-		assert.equal(ws.store.descriptor('skills').storage.base, 'runtime');
+		assert.equal(isRuntime(ws.store.descriptor('collections')), true);
+		assert.equal(isRuntime(ws.store.descriptor('skills')), true);
 	});
 
 	test('the manifest records provenance and the declared namespaces', () => {
@@ -39,79 +41,83 @@ describe('the runtime artifact', () => {
 		assert.deepEqual(ws.store.namespaces, []);
 	});
 
-	test('titles and title_template are resolved by compile so no surface re-derives them', () => {
+	test('the title, the record title and the owning module are resolved by compile so no surface re-derives them', () => {
 		const ws = workspace({ collections: { 'widget-parts': simpleCollection({ storage: { suffix: 'part' } }) } });
 		const d = ws.store.descriptor('widget-parts');
-		assert.equal(d.title, 'Widget Parts');
-		assert.equal(d.title_template, '{{ name }}');
-		assert.equal(d.owner, `modules/${WS_MODULE}`);
+		assert.equal(d.compiled.defaults.title, 'Widget Parts');
+		assert.equal(titleOf(d), 'Widget Parts');
+		assert.equal(d.compiled.defaults.record_title, '{{ name }}');
+		assert.equal(recordTitleOf(d), '{{ name }}');
+		assert.equal(moduleOf(d), WS_MODULE);
 	});
 });
 
-describe('extends — overlaying another module\'s collection', () => {
+describe('overlay — a second source of one collection', () => {
 	test('an overlay adds fields and keeps the base owner and storage', () => {
 		const ws = uncompiled({ collections: { widgets: simpleCollection({ storage: { suffix: 'widget' } }) } });
 		// a SECOND descriptor for the same name, declaring the overlay
-		writeCollection(ws.root, 'widgets-overlay', {});
 		fs.writeFileSync(
 			path.join(ws.root, 'modules', WS_MODULE, 'collections', 'widgets-overlay.collection.yaml'),
-			`name: widgets\nextends: ${WS_MODULE}/widgets\nschema:\n  properties:\n    urgent: { type: boolean, default: false }\n`,
+			'name: widgets\noverlay: true\nfields:\n  urgent:\n    type: boolean\n    default: false\n',
 		);
 		compileQuietly(ws.ws);
 		const d = load(readFile(ws.root, '.dreamteamer/collections/widgets.collection.yaml'));
-		assert.equal(d.schema.properties.urgent.type, 'boolean');
-		assert.equal(d.schema.properties.name.type, 'string', 'the base field survives');
-		assert.equal(d.storage.suffix, 'widget', 'storage comes from the base');
+		assert.equal(fieldsOf(d).urgent.type, 'boolean');
+		assert.equal(fieldsOf(d).name.type, 'string', 'the base field survives');
+		assert.equal(storageOf(d).suffix, 'widget', 'storage comes from the base');
+		assert.equal(moduleOf(d), WS_MODULE, 'the base owner is kept');
+		assert.equal(d.overlay, undefined, 'the merged descriptor is not itself an overlay');
 	});
 
-	test('two same-name descriptors with no extends is a hard error naming both', () => {
+	test('two same-name descriptors with no overlay is a hard error naming both', () => {
 		const ws = uncompiled({ collections: { widgets: simpleCollection({ storage: { suffix: 'widget' } }) } });
 		fs.writeFileSync(
 			path.join(ws.root, 'modules', WS_MODULE, 'collections', 'dupe.collection.yaml'),
-			'name: widgets\nschema:\n  type: object\n  properties: { name: { type: string } }\n',
+			'name: widgets\nfields:\n  name:\n    type: string\n',
 		);
 		const err = compileError(ws.ws);
 		assert.match(err, /name collision on collection "widgets"/);
-		assert.match(err, /must declare 'extends: <module>/);
-	});
-
-	test('an extends that does not name the real base is refused', () => {
-		const ws = uncompiled({ collections: { widgets: simpleCollection({ storage: { suffix: 'widget' } }) } });
-		fs.writeFileSync(
-			path.join(ws.root, 'modules', WS_MODULE, 'collections', 'bad-overlay.collection.yaml'),
-			'name: widgets\nextends: someone-else/widgets\nschema:\n  properties: { urgent: { type: boolean } }\n',
-		);
-		assert.match(compileError(ws.ws), /does not name the base/);
+		assert.match(err, /widgets\.collection\.yaml/);
+		assert.match(err, /dupe\.collection\.yaml/);
+		assert.match(err, /must declare `overlay: true`/);
 	});
 
 	test('a descriptor group that is ALL overlays has no base and is refused', () => {
 		const ws = uncompiled();
 		fs.writeFileSync(
 			path.join(ws.root, 'modules', WS_MODULE, 'collections', 'orphan.collection.yaml'),
-			'name: orphans\nextends: nobody/orphans\nschema:\n  properties: { x: { type: string } }\n',
+			'name: orphans\noverlay: true\nfields:\n  x:\n    type: string\n',
 		);
-		assert.match(compileError(ws.ws), /no base found/);
+		const err = compileError(ws.ws);
+		assert.match(err, /no base found/);
+		assert.match(err, /peer_collections/, 'and names the remedy');
 	});
 });
 
 describe('descriptor validation', () => {
-	test('a descriptor without name or schema is refused', () => {
+	test('a descriptor without a name is refused, naming the file', () => {
 		const ws = uncompiled();
-		fs.writeFileSync(path.join(ws.root, 'modules', WS_MODULE, 'collections', 'broken.collection.yaml'), 'description: nope\n');
-		assert.match(compileError(ws.ws), /needs 'name' and 'schema'/);
+		fs.writeFileSync(path.join(ws.root, 'modules', WS_MODULE, 'collections', 'broken.collection.yaml'), 'description: nope\nfields:\n  title:\n    type: string\n');
+		assert.match(compileError(ws.ws), /modules\/default\/collections\/broken\.collection\.yaml: descriptor needs 'name'/);
 	});
 
-	test('a malformed JSON Schema is refused at compile, not at the first write', () => {
+	test('a field that is not a map is refused at compile, not at the first write', () => {
 		const ws = uncompiled();
-		writeCollection(ws.root, 'broken', { schema: { type: 'object', properties: { name: 'not-an-object' } } });
-		assert.match(compileError(ws.ws), /not a valid JSON Schema/);
+		writeCollection(ws.root, 'broken', { fields: { name: 'not-an-object' } });
+		assert.match(compileError(ws.ws), /collection "broken"[^\n]*:\n {2}field "name" must be a map/);
+	});
+
+	test('constraints that make no valid JSON Schema are refused at compile, not at the first write', () => {
+		const ws = uncompiled();
+		writeCollection(ws.root, 'broken', simpleCollection({ constraints: [{ minLength: 'not-a-number' }] }));
+		assert.match(compileError(ws.ws), /collection "broken": its fields and constraints do not make a valid JSON Schema/);
 	});
 
 	// Without this gate `patternRe` throws a raw "Invalid regular expression" from inside store.add.
-	test('a malformed id.pattern is refused at compile', () => {
+	test('a malformed ids.pattern is refused at compile', () => {
 		const ws = uncompiled();
-		writeCollection(ws.root, 'broken', simpleCollection({ storage: { suffix: 'b' }, id: { generate: '{{ name | slug }}', pattern: '([' } }));
-		assert.match(compileError(ws.ws), /id\.pattern is not a valid regular expression/);
+		writeCollection(ws.root, 'broken', simpleCollection({ storage: { suffix: 'b' }, ids: { from: '{{ name | slug }}', pattern: '([' } }));
+		assert.match(compileError(ws.ws), /collection "broken": ids\.pattern is not a valid regular expression/);
 	});
 
 	// A ui-view's filter narrows what the operator SEES, so a typo'd operator is worse than an error:
@@ -183,7 +189,7 @@ describe('descriptor validation', () => {
 
 	// The DIVISION OF LABOUR, worth pinning because it looks like a gap and is not: compile validates a
 	// value if and only if the engine INTERPRETS it (filter operators — see the comment above the
-	// ui-view loop in compile.js), while a dangling REFERENCE is `check`'s job via `x-reference`. So a
+	// ui-view loop in compile.js), while a dangling REFERENCE is `check`'s job via the reference field. So a
 	// ui-view naming a collection that does not exist compiles clean and `check` reports it precisely.
 	// Not silence — a later, more specific error.
 	test('a ui-view naming an unknown collection compiles, and CHECK reports it', () => {
@@ -218,7 +224,7 @@ describe('disable', () => {
 		const ws = uncompiled({ collections: { widgets: simpleCollection({ storage: { suffix: 'widget' } }) } });
 		const pkgFile = path.join(ws.root, 'package.json');
 		const pkg = JSON.parse(readFile(ws.root, 'package.json'));
-		pkg.dreamteamer.disable = [`${WS_MODULE}/widgets`];
+		pkg.dreamteamer.disable = ['collections/widgets'];
 		fs.writeFileSync(pkgFile, JSON.stringify(pkg, null, '\t'));
 		compileQuietly({ root: ws.root, pkg });
 		assert.equal(readFile(ws.root, '.dreamteamer/collections/widgets.collection.yaml'), null);
@@ -240,7 +246,7 @@ describe('disable', () => {
 			'path: /board\ntarget: list\ncollection: collections/widgets\nlayout: table\n');
 		const pkgFile = path.join(ws.root, 'package.json');
 		const pkg = JSON.parse(readFile(ws.root, 'package.json'));
-		pkg.dreamteamer.disable = [`${WS_MODULE}/board`];
+		pkg.dreamteamer.disable = ['ui-views/board'];
 		fs.writeFileSync(pkgFile, JSON.stringify(pkg, null, '\t'));
 		compileQuietly({ root: ws.root, pkg });
 
@@ -265,7 +271,7 @@ describe('disable', () => {
 		fs.mkdirSync(path.join(dir, 'references'), { recursive: true });
 		fs.writeFileSync(path.join(dir, 'references', 'more.md'), '# more\n');   // a nested file, too
 		const pkg = JSON.parse(readFile(ws.root, 'package.json'));
-		pkg.dreamteamer.disable = [`${WS_MODULE}/doing-a-thing`];
+		pkg.dreamteamer.disable = ['skills/doing-a-thing'];
 		fs.writeFileSync(path.join(ws.root, 'package.json'), JSON.stringify(pkg, null, '\t'));
 		compileQuietly({ root: ws.root, pkg });
 		assert.deepEqual(staleness(ws.root).stale, [],
@@ -275,14 +281,14 @@ describe('disable', () => {
 	});
 
 	test('a disabled NAMESPACED collection is not reported stale either', () => {
-		// The id carries a namespace segment, so the disable entry is `<module>/<ns>/<name>` and the
+		// The id carries a namespace segment, so the disable entry is `collections/<ns>/<name>` and the
 		// staleness scan has to derive the id from the whole relative path, exactly as compile does.
 		const ws = uncompiled({
 			namespaces: ['health'],
 			collections: { 'health/doctors': simpleCollection({ storage: { suffix: 'doctor' } }) },
 		});
 		const pkg = JSON.parse(readFile(ws.root, 'package.json'));
-		pkg.dreamteamer.disable = [`${WS_MODULE}/health/doctors`];
+		pkg.dreamteamer.disable = ['collections/health/doctors'];
 		fs.writeFileSync(path.join(ws.root, 'package.json'), JSON.stringify(pkg, null, '\t'));
 		compileQuietly({ root: ws.root, pkg });
 		assert.deepEqual(staleness(ws.root).stale, []);
@@ -308,28 +314,29 @@ describe('disable', () => {
 			collections: { 'health/doctors': simpleCollection({ storage: { suffix: 'doctor' } }) },
 		});
 		const pkg = JSON.parse(readFile(ws.root, 'package.json'));
-		pkg.dreamteamer.disable = [`${WS_MODULE}/health/doctors`];
+		pkg.dreamteamer.disable = ['collections/health/doctors'];
 		fs.writeFileSync(path.join(ws.root, 'package.json'), JSON.stringify(pkg, null, '\t'));
 		compileQuietly({ root: ws.root, pkg });
 		assert.equal(readFile(ws.root, '.dreamteamer/collections/health/doctors.collection.yaml'), null);
 	});
 });
 
-// ⚠ 0.25.0 TAUGHT `generateId` THE LIST AND FORGOT TO TELL `check`. The meta-descriptor still
-// declared `id.generate` as `type: string`, so a collection using the ordered form compiled fine and
-// then failed validation with "must be string" — the feature was unusable in exactly the workspaces
-// it was written for, and it SHIPPED that way. It was missed because the release was smoked with
-// `dt add` against string templates; nothing ran `check` over a descriptor that used a list.
+// ⚠ `ids.from` IS A TEMPLATE OR AN ORDERED LIST, AND `check` VALIDATES THE COMPILED DESCRIPTOR
+// AGAINST THE `collections` META-DESCRIPTOR. A meta-descriptor declaring only the string form lets a
+// collection using the list compile and then fail `check` with "must be string" — unusable in exactly
+// the workspaces that need it, and invisible to a smoke that only runs `dt add` against a string.
 //
-// The second trap is in the fix: `check` runs ajv with `coerceTypes: 'array'`, which unwraps a
-// one-element list into a string — so a `oneOf` [string, array] matches BOTH branches for
-// `['{{ name | slug }}']` and rejects it for matching more than one. It has to be `anyOf`.
-describe('id.generate as an ordered list survives check', () => {
-	const withGenerate = (generate) => {
+// The second trap: `check` runs ajv with `coerceTypes: 'array'`, which unwraps a one-element list
+// into a string — so a `oneOf` [string, array] matches BOTH branches for `['{{ name | slug }}']` and
+// rejects it for matching more than one. It has to be `anyOf`.
+describe('ids.from as an ordered list survives check', () => {
+	const withGenerate = (from) => {
 		const ws = uncompiled({ collections: { widgets: simpleCollection({ storage: { suffix: 'widget' } }) } });
 		const f = path.join(ws.root, 'modules', WS_MODULE, 'collections', 'widgets.collection.yaml');
 		const y = load(fs.readFileSync(f, 'utf8'));
-		y.id = { generate };
+		y.ids = { from };
+		// the first arm's input: optional, so a record without it falls through to the next arm
+		y.fields = { code: { type: 'string' }, ...y.fields };
 		fs.writeFileSync(f, dump(y));
 		const pkg = JSON.parse(readFile(ws.root, 'package.json'));
 		compileQuietly({ root: ws.root, pkg });
@@ -403,7 +410,7 @@ describe('the pre-flatten layout still compiles', () => {
 		fs.rmSync(path.join(ws.root, 'modules', WS_MODULE, 'collections'), { recursive: true, force: true });
 		fs.writeFileSync(
 			path.join(nested, 'legacy.collection.yaml'),
-			'name: legacy\nstorage: { suffix: legacy }\nid: { generate: "{{ name | slug }}" }\nschema:\n  type: object\n  required: [name]\n  properties: { name: { type: string } }\n',
+			'name: legacy\nstorage:\n  suffix: legacy\nids:\n  from: "{{ name | slug }}"\nfields:\n  name:\n    type: string\n    required: true\n',
 		);
 		assert.equal(compileError(ws.ws), null);
 		assert.ok(readFile(ws.root, '.dreamteamer/collections/legacy.collection.yaml'));
@@ -461,17 +468,18 @@ describe('the harness orientation block', () => {
 // collapsed, `use_when` rendered only when authored, and BYTE-STABILITY across compiles — that last
 // one because this block lands in three COMMITTED root files, where churn is somebody else's merge.
 describe('the orientation block names the workspace', () => {
-	test('every non-system collection appears; system ones group into one line', () => {
+	test('every non-system collection appears under its module; system ones only under the system heading', () => {
 		const ws = workspace({ collections: { widgets: simpleCollection({ description: 'a widget', storage: { suffix: 'widget' } }) } });
 		const block = readFile(ws.root, 'CLAUDE.md');
 		assert.match(block, /^- widgets — a widget$/m);
-		// ⚠ ASSERTED ON THE TWO FACTS, not on the sentence byte-for-byte. This line lands in three
-		// COMMITTED root files in every consuming workspace, so pinning its wording makes a reword
-		// somebody else's merge conflict — and the wording changed in 0.19.0 for exactly that reason.
-		assert.match(block, /system collections — the SAME verbs/);
+		// ⚠ ASSERTED ON THE TWO FACTS, not on the sentence byte-for-byte: pinning the wording of a
+		// generated line makes every reword a fixture edit.
+		assert.match(block, /System collections\*\* — the SAME verbs/);
 		assert.match(block, /A system write COMMITS ITSELF/);
 		assert.doesNotMatch(block, /schema-ops only/);
-		assert.doesNotMatch(block, /^- collections —/m, 'a system collection must not get its own line');
+		// the order inside the block is harness-order.test.js's; here, only that no module group lists one
+		const modules = block.slice(block.indexOf('**Default**'));
+		assert.doesNotMatch(modules, /^- (collections|skills|mixins|modules|repos) —/m, 'a system collection is never listed as a domain one');
 	});
 
 	test('use_when renders as an indented clause, and its absence renders nothing', () => {
@@ -505,51 +513,51 @@ describe('the orientation block names the workspace', () => {
 		const ws = workspace();
 		const block = /<!-- dreamteamer:begin[\s\S]*?dreamteamer:end -->/.exec(readFile(ws.root, 'CLAUDE.md'))[0];
 		const n = block.split('\n').length;
-		// 32 → 34 on 2026-09-05: the two `write:` lines for `notes` (required title) and `repos`
-		// (required name · url; visibility enum(2)) — the clause that keeps a first write from bouncing.
-		// 34 → 36 the same day: two header lines stating that line's convention (required = required
-		// WITHOUT a default), because a blind reader took it for the descriptor's `required:` list.
-		// 36 → 30 on 2026-09-19: the block began reading `group: system`, which `repos` already
-		// carried, so its three-line domain entry AND the engine's whole **System** module heading
-		// left the block — `repos` now costs one name on the system-collections line instead. This
-		// number went DOWN; lower it rather than leaving slack, or the budget stops measuring anything.
-		assert.ok(n <= 30, `virgin orientation block is ${n} lines, budget 30`);
+		// What the budget holds: the header, the system collections (each with its sentence and its
+		// `use when`, the schema of schemas first), the workspace module with the starter `notes`, and
+		// the two engine mixins. Lower it when the block shrinks rather than leaving slack, or the
+		// budget stops measuring anything.
+		assert.ok(n <= 46, `virgin orientation block is ${n} lines, budget 46`);
 	});
 });
 
 // ---------------------------------------------------------------------------------------------
-// peerDependencies — a reference to a collection NOTHING installed provides.
+// peer_collections — a reference to a collection NOTHING installed provides.
 //
 // This is the state a recipes module is opened in on its own, and it has to pass BOTH gates. It
 // did not: compile stamped `unresolved_peers` onto every collection in the module and the
 // `collections` meta-descriptor did not declare it, so `check` flagged compile's own output as an
 // unknown field; and the generated module record's `peer_dependencies` was validated as a hard
-// reference, so the absent peer dangled. There was no state in which an optional cross-module
-// reference passed — dropping the declaration made compile fail instead, naming peerDependencies
-// as the remedy.
-describe('peerDependencies — an optional cross-module reference', () => {
+// reference, so the absent peer dangled. Each gate has to excuse exactly the declared peer.
+describe('peer_collections — an optional cross-module reference', () => {
+	/** A v2 descriptor with a required `title`, a body, and `extra` fields between them. */
+	const peerDesc = (name, description, suffix, extra = '') => `name: ${name}\ndescription: ${description}\n`
+		+ `storage:\n  path: data/${name}\n  format: md\n  shape: file\n  suffix: ${suffix}\n`
+		+ 'ids:\n  from: "{{ title | slug }}"\n'
+		+ 'fields:\n  title:\n    type: string\n    required: true\n'
+		+ extra
+		+ '  body:\n    type: markdown\n    body: true\n';
 	/** A module `blog` declaring `posts` as a peer: `comments` references it, `authors` does not. */
-	const withPeerModule = (opts = {}) => {
+	const withPeerModule = (opts = {}, commentsExtra = '') => {
 		const ws = workspace(opts);
 		const mod = path.join(ws.root, 'modules', 'blog');
 		fs.mkdirSync(path.join(mod, 'collections'), { recursive: true });
 		fs.writeFileSync(path.join(mod, 'package.json'), JSON.stringify({
-			name: 'blog', private: true, version: '0.0.1', dreamteamer: { peerDependencies: ['posts'] },
+			name: 'blog', private: true, version: '0.0.1', dreamteamer: { peer_collections: ['posts'] },
 		}));
 		fs.writeFileSync(path.join(mod, 'collections', 'comments.collection.yaml'),
-			'name: comments\ndescription: A comment on a post.\n'
-			+ 'storage: { path: data/comments, codec: md, shape: file, suffix: comment }\n'
-			+ 'id: { generate: "{{ title | slug }}" }\n'
-			+ 'schema:\n  type: object\n  required: [title]\n  properties:\n'
-			+ '    title: { type: string }\n    post: { type: string, x-reference: posts }\n'
-			+ '    body: { type: string, format: markdown, x-body: true }\n');
+			peerDesc('comments', 'A comment on a post.', 'comment', '  post:\n    type: posts\n' + commentsExtra));
 		fs.writeFileSync(path.join(mod, 'collections', 'authors.collection.yaml'),
-			'name: authors\ndescription: Someone who writes.\n'
-			+ 'storage: { path: data/authors, codec: md, shape: file, suffix: author }\n'
-			+ 'id: { generate: "{{ name | slug }}" }\n'
-			+ 'schema:\n  type: object\n  required: [name]\n  properties:\n'
-			+ '    name: { type: string }\n    body: { type: string, format: markdown, x-body: true }\n');
+			peerDesc('authors', 'Someone who writes.', 'author').replace('{{ title | slug }}', '{{ name | slug }}').replace('  title:\n', '  name:\n'));
 		return ws;
+	};
+	/** `blogbase` installs `posts`, so the peer is no longer absent. */
+	const installPosts = (root) => {
+		const base = path.join(root, 'modules', 'blogbase');
+		fs.mkdirSync(path.join(base, 'collections'), { recursive: true });
+		fs.writeFileSync(path.join(base, 'package.json'),
+			JSON.stringify({ name: 'blogbase', private: true, version: '0.0.1', dreamteamer: {} }));
+		fs.writeFileSync(path.join(base, 'collections', 'posts.collection.yaml'), peerDesc('posts', 'A post.', 'post'));
 	};
 
 	test('compiles clean AND checks clean — the whole point of declaring a peer', () => {
@@ -585,11 +593,9 @@ describe('peerDependencies — an optional cross-module reference', () => {
 	});
 
 	test('a collection NOBODY declared as a peer is still refused at write time', () => {
-		const ws = withPeerModule();
 		// a WILDCARD field, so the target list cannot be what refuses `ghosts/x` — the excuse is
 		// scoped to the peers this collection declares, and must widen nothing else.
-		const src = path.join(ws.root, 'modules', 'blog', 'collections', 'comments.collection.yaml');
-		fs.appendFileSync(src, "    mentions: { type: string, x-reference: '*' }\n");
+		const ws = withPeerModule({}, '  mentions:\n    type: reference\n');
 		assert.equal(ws.dt('compile').code, 0);
 		assert.equal(ws.dt('add', 'comments', '--title', 'First', '--mentions', 'posts/x').code, 0,
 			'the declared peer is still excused through a wildcard field');
@@ -600,16 +606,7 @@ describe('peerDependencies — an optional cross-module reference', () => {
 
 	test('with the peer INSTALLED the store refuses a dangling ref again', () => {
 		const ws = withPeerModule();
-		const base = path.join(ws.root, 'modules', 'blogbase');
-		fs.mkdirSync(path.join(base, 'collections'), { recursive: true });
-		fs.writeFileSync(path.join(base, 'package.json'),
-			JSON.stringify({ name: 'blogbase', private: true, version: '0.0.1', dreamteamer: {} }));
-		fs.writeFileSync(path.join(base, 'collections', 'posts.collection.yaml'),
-			'name: posts\ndescription: A post.\n'
-			+ 'storage: { path: data/posts, codec: md, shape: file, suffix: post }\n'
-			+ 'id: { generate: "{{ title | slug }}" }\n'
-			+ 'schema:\n  type: object\n  required: [title]\n  properties:\n'
-			+ '    title: { type: string }\n    body: { type: string, format: markdown, x-body: true }\n');
+		installPosts(ws.root);
 		assert.equal(ws.dt('compile').code, 0);
 		const res = ws.dt('add', 'comments', '--title', 'First', '--post', 'posts/nope');
 		assert.equal(res.code, 1);
@@ -621,8 +618,8 @@ describe('peerDependencies — an optional cross-module reference', () => {
 		assert.equal(ws.dt('compile').code, 0);
 		const comments = load(readFile(ws.root, '.dreamteamer/collections/comments.collection.yaml'));
 		const authors = load(readFile(ws.root, '.dreamteamer/collections/authors.collection.yaml'));
-		assert.deepEqual(comments.unresolved_peers, ['posts']);
-		assert.equal(authors.unresolved_peers, undefined,
+		assert.deepEqual(unresolvedPeersOf(comments), ['posts']);
+		assert.deepEqual(unresolvedPeersOf(authors), [],
 			'a collection that references no peer must not carry the excuse for one');
 	});
 
@@ -635,19 +632,10 @@ describe('peerDependencies — an optional cross-module reference', () => {
 
 	test('with the peer PRESENT the reference is hard again — a dangling target is flagged', () => {
 		const ws = withPeerModule();
-		const base = path.join(ws.root, 'modules', 'blogbase');
-		fs.mkdirSync(path.join(base, 'collections'), { recursive: true });
-		fs.writeFileSync(path.join(base, 'package.json'),
-			JSON.stringify({ name: 'blogbase', private: true, version: '0.0.1', dreamteamer: {} }));
-		fs.writeFileSync(path.join(base, 'collections', 'posts.collection.yaml'),
-			'name: posts\ndescription: A post.\n'
-			+ 'storage: { path: data/posts, codec: md, shape: file, suffix: post }\n'
-			+ 'id: { generate: "{{ title | slug }}" }\n'
-			+ 'schema:\n  type: object\n  required: [title]\n  properties:\n'
-			+ '    title: { type: string }\n    body: { type: string, format: markdown, x-body: true }\n');
+		installPosts(ws.root);
 		assert.equal(ws.dt('compile').code, 0);
-		assert.equal(load(readFile(ws.root, '.dreamteamer/collections/comments.collection.yaml')).unresolved_peers,
-			undefined, 'nothing to excuse once the peer is installed');
+		assert.deepEqual(unresolvedPeersOf(load(readFile(ws.root, '.dreamteamer/collections/comments.collection.yaml'))),
+			[], 'nothing to excuse once the peer is installed');
 
 		// hand-written, because the STORE refuses a dangling ref at write time — this is check's half
 		fs.mkdirSync(path.join(ws.root, 'data', 'comments'), { recursive: true });
@@ -660,24 +648,31 @@ describe('peerDependencies — an optional cross-module reference', () => {
 });
 
 // ---------------------------------------------------------------------------------------------
-// A relation whose target is a declared PEER: the mirror is stamped when the peer is installed and
-// the relation is inert when it is not — no hard dependency either way.
-describe('x-inverse onto a peer collection', () => {
-	const mod = (root, name, dtKey, coll, body) => {
+// A relation whose target is a declared PEER: the mirror is declared by an OVERLAY of the peer in the
+// owner's module, applied when the peer is installed and inert when it is not — no hard dependency
+// either way.
+describe('a mirror onto a peer collection', () => {
+	const mod = (root, name, dtKey, files) => {
 		const dir = path.join(root, 'modules', name);
 		fs.mkdirSync(path.join(dir, 'collections'), { recursive: true });
 		fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name, private: true, version: '0.0.1', dreamteamer: dtKey }));
-		fs.writeFileSync(path.join(dir, 'collections', `${coll}.collection.yaml`), body);
+		for (const [coll, body] of Object.entries(files)) fs.writeFileSync(path.join(dir, 'collections', `${coll}.collection.yaml`), body);
 	};
 	const desc = (name, extra = '') => `name: ${name}\ndescription: A ${name} record.\n`
-		+ `id: { generate: "{{ title | slug }}" }\n`
-		+ 'schema:\n  type: object\n  required: [title]\n  properties:\n'
-		+ `    title: { type: string }\n    body: { type: string, format: markdown, x-body: true }\n${extra}`;
-	/** `blog` owns comments, whose `post` mirrors onto `posts`; `blogbase` owns posts when installed. */
+		+ 'ids:\n  from: "{{ title | slug }}"\n'
+		+ 'fields:\n  title:\n    type: string\n    required: true\n'
+		+ `${extra}  body:\n    type: markdown\n    body: true\n`;
+	/** An overlay of `target` adding the many mirror `field` of `owner.ref`. */
+	const mirrorOverlay = (target, field, owner, ref) =>
+		`name: ${target}\noverlay: true\nfields:\n  ${field}:\n    type: ${owner}\n    many: true\n    mirror_of: ${ref}\n`;
+	/** `blog` owns comments, whose `post` is mirrored onto `posts` by blog's overlay; `blogbase` owns posts when installed. */
 	const blog = ({ withBase, peers = ['posts'] }) => {
 		const ws = workspace({ compile: false });
-		mod(ws.root, 'blog', { peerDependencies: peers }, 'comments', desc('comments', '    post: { type: string, x-reference: posts, x-inverse: comments }\n'));
-		if (withBase) mod(ws.root, 'blogbase', {}, 'posts', desc('posts'));
+		mod(ws.root, 'blog', { peer_collections: peers }, {
+			comments: desc('comments', '  post:\n    type: posts\n'),
+			'posts-mirror': mirrorOverlay('posts', 'comments', 'comments', 'post'),
+		});
+		if (withBase) mod(ws.root, 'blogbase', {}, { posts: desc('posts') });
 		return { ...ws, dt: (...a) => dt(ws.root, ...a) };
 	};
 
@@ -685,9 +680,12 @@ describe('x-inverse onto a peer collection', () => {
 		const ws = blog({ withBase: true });
 		const c = ws.dt('compile');
 		assert.equal(c.code, 0, c.stdout + c.stderr);
-		const mirror = load(readFile(ws.root, '.dreamteamer/collections/posts.collection.yaml')).schema.properties.comments;
-		assert.equal(mirror.readOnly, true);
-		assert.equal(mirror.items['x-inverse-of'], 'comments.post');
+		const posts = load(readFile(ws.root, '.dreamteamer/collections/posts.collection.yaml'));
+		assert.deepEqual(posts.compiled.mirrors, ['comments']);
+		assert.equal(fieldsOf(posts).comments.mirror_of, 'post');
+		assert.equal(fieldsOf(posts).comments.type, 'comments');
+		assert.deepEqual(posts.compiled.overlaid_by, ['blog']);
+		assert.ok(ws.dt('relations').stdout.includes('posts.comments'), 'an applied relation lists its mirror');
 		assert.equal(ws.dt('add', 'posts', '--title', 'Hello').code, 0);
 		const add = ws.dt('add', 'comments', '--title', 'First', '--post', 'posts/hello');
 		assert.equal(add.code, 0, add.stdout + add.stderr);
@@ -709,10 +707,13 @@ describe('x-inverse onto a peer collection', () => {
 	test('a mirror onto a collection the module neither depends on nor peers is refused, naming both remedies', () => {
 		// a core collection passes the reference contract undeclared, so the mirror gate is what stops it
 		const ws = workspace({ compile: false });
-		mod(ws.root, 'blog', {}, 'comments', desc('comments', '    repo: { type: string, x-reference: repos, x-inverse: comments }\n'));
+		mod(ws.root, 'blog', {}, {
+			comments: desc('comments', '  repo:\n    type: repos\n'),
+			'repos-mirror': mirrorOverlay('repos', 'comments', 'comments', 'repo'),
+		});
 		const c = dt(ws.root, 'compile');
 		assert.equal(c.code, 1);
-		assert.match(c.stderr, /stamps a field onto repos \(module dreamteamer\) — declare "repos" in dreamteamer\.peerDependencies \(or "dreamteamer" in dreamteamer\.dependencies\)/);
+		assert.match(c.stderr, /an overlay of "repos", but module "blog" neither depends on "dreamteamer" nor declares "repos" in peer_collections/);
 	});
 });
 
@@ -730,14 +731,19 @@ describe('a command-binding gated on a peer collection', () => {
 		fs.writeFileSync(path.join(docs, 'command-bindings', 'summarize--meetings.command-binding.yaml'),
 			'command: commands/summarize\ncollection: collections/meetings\ntarget: record\ncan-enter:\n  recordings:\n    transcription:\n      _nempty: true\n');
 		if (withRecordings) {
-			writeModule(ws.root, 'rec', { dependencies: ['meet'], collections: { recordings: simpleCollection({
-				storage: { suffix: 'recording' },
-				schema: { type: 'object', required: ['name'], properties: {
-					name: { type: 'string' },
-					transcription: { type: 'string' },
-					meeting: { type: 'string', 'x-reference': 'meetings', 'x-inverse': 'recordings' },
-				} },
-			}) } });
+			// the mirror the binding hops through is stamped onto meetings by rec's overlay
+			writeModule(ws.root, 'rec', { dependencies: ['meet'], collections: {
+				recordings: simpleCollection({
+					storage: { suffix: 'recording' },
+					fields: {
+						name: { type: 'string', required: true },
+						transcription: { type: 'string' },
+						meeting: { type: 'meetings' },
+						notes: { type: 'markdown', body: true },
+					},
+				}),
+				meetings: { overlay: true, fields: { recordings: { type: 'recordings', many: true, mirror_of: 'meeting' } } },
+			} });
 		}
 		return ws;
 	};
@@ -806,36 +812,38 @@ describe('a module whose engine floor is unmet', () => {
 
 // ---------------------------------------------------------------------------------------------
 // A descriptor with no `storage.suffix` used to write every record as `<id>.undefined.md` —
-// silent at compile, at `add` and at `check`, and on a `codec: file` collection every later verb
+// silent at compile, at `add` and at `check`, and on a `format: binary` collection every later verb
 // then died inside `idFromRecordPath` on `undefined.replace`. compile DERIVES it instead, which is
 // the rule `rename-collection` already assumes when it asks whether a suffix was derived.
 describe('storage.suffix is derived, never left undefined', () => {
 	test('a descriptor with a storage block but no suffix gets the singular of its name', () => {
 		const ws = workspace({ collections: {
-			widgets: simpleCollection({ storage: { path: 'data/widgets', codec: 'md', shape: 'file' } }),
+			widgets: simpleCollection({ storage: { path: 'data/widgets', format: 'md', shape: 'file' } }),
 		} });
-		assert.equal(ws.store.descriptor('widgets').storage.suffix, 'widget');
+		assert.equal(ws.store.descriptor('widgets').compiled.defaults.storage.suffix, 'widget', 'recorded as a default, not as authored');
+		assert.equal(storageOf(ws.store.descriptor('widgets')).suffix, 'widget');
 		assert.equal(ws.dt('add', 'widgets', '--name', 'Sprocket').code, 0);
 		assert.ok(readFile(ws.root, 'data/widgets/sprocket.widget.md'), 'the file carries the derived suffix');
 	});
 
 	test('a descriptor with NO storage block at all takes the same path', () => {
 		const ws = workspace({ collections: { gadgets: simpleCollection() } });
-		assert.equal(ws.store.descriptor('gadgets').storage.suffix, 'gadget');
+		assert.equal(storageOf(ws.store.descriptor('gadgets')).suffix, 'gadget');
 		assert.equal(ws.dt('add', 'gadgets', '--name', 'Doohickey').code, 0);
 		assert.ok(readFile(ws.root, 'data/gadgets/doohickey.gadget.md'));
 	});
 
 	test('a namespaced collection derives from the BARE name, not the qualified one', () => {
 		const ws = workspace({ namespaces: ['shop'], collections: { 'shop/trolleys': simpleCollection() } });
-		assert.equal(ws.store.descriptor('shop/trolleys').storage.suffix, 'trolley');
+		assert.equal(storageOf(ws.store.descriptor('shop/trolleys')).suffix, 'trolley');
 		assert.equal(ws.dt('add', 'shop/trolleys', '--name', 'Big One').code, 0);
 		assert.ok(readFile(ws.root, 'data/shop/trolleys/big-one.trolley.md'));
 	});
 
 	test('an AUTHORED suffix always wins', () => {
 		const ws = workspace({ collections: { widgets: simpleCollection({ storage: { suffix: 'thing' } }) } });
-		assert.equal(ws.store.descriptor('widgets').storage.suffix, 'thing');
+		assert.equal(storageOf(ws.store.descriptor('widgets')).suffix, 'thing');
+		assert.equal(ws.store.descriptor('widgets').compiled.defaults.storage?.suffix, undefined, 'no default where one was authored');
 	});
 
 	test('no record anywhere is written as <id>.undefined.<ext>', () => {
@@ -881,7 +889,7 @@ describe('an empty collection source', () => {
 		['ui-views', 'blank.ui-view.yaml'],
 		['commands', 'blank.command.md'],
 		['command-bindings', 'blank.command-binding.yaml'],
-		['collection-templates', 'blank.collection-template.yaml'],
+		['mixins', 'blank.mixin.yaml'],
 		['agents', 'blank.agent.md'],
 	]) {
 		test(`a 0-byte ${kind} source is refused by NAME, not by check one gate later`, () => {
@@ -918,7 +926,7 @@ describe('a malformed source names itself', () => {
 	test('a tab-indented collection descriptor puts the path in the message', () => {
 		const ws = uncompiled();
 		fs.writeFileSync(path.join(ws.root, 'modules', WS_MODULE, 'collections', 'tabbed.collection.yaml'),
-			'name: tabbed\nschema:\n\ttype: object\n');
+			'name: tabbed\nfields:\n\tname: { type: string }\n');
 		const err = compileError(ws.ws);
 		assert.ok(err, 'a malformed descriptor must fail the compile');
 		assert.match(err, /tabbed\.collection\.yaml/, 'the error names the file');
@@ -1014,9 +1022,9 @@ describe('the orientation block is grouped by module', () => {
 		assert.ok(dflt < widgets && widgets < core, 'a workspace collection sits under the workspace module');
 		assert.ok(core < people && people < hr, "core's collection sits under core");
 		assert.ok(hr < positions, "hr's namespaced collection sits under hr");
-		// the module that ships the system collections is still ONE line at the end, never a group of eight
-		assert.doesNotMatch(block, /^- collections —/m);
-		assert.ok(at(/^- system collections — /m) > positions);
+		// the system collections are their own section ahead of every module, never a module group
+		assert.ok(at(/^\*\*System collections\*\* — /m) < dflt);
+		assert.doesNotMatch(block.slice(dflt), /^- collections —/m);
 	});
 
 	test("a module's skills and commands ride on the line under its heading; a module shipping none has no such line", () => {
@@ -1064,37 +1072,34 @@ describe('the orientation block is grouped by module', () => {
 		assert.match(blockOf(ws), /^\*\*Core\*\* \(`core` · modules\/core\)$/m, 'the bare heading the warning is about');
 	});
 
-	test('a collection-template with no description is warned about by name — it renders bare', () => {
+	test('a mixin with no description is warned about by name — it renders bare', () => {
 		const ws = uncompiled();
-		fs.mkdirSync(path.join(ws.root, 'modules', WS_MODULE, 'collection-templates'), { recursive: true });
-		fs.writeFileSync(path.join(ws.root, 'modules', WS_MODULE, 'collection-templates', 'bare.collection-template.yaml'),
-			'name: bare\ntemplate:\n  schema:\n    type: object\n    properties:\n      tags: { type: array, items: { type: string } }\n');
+		fs.mkdirSync(path.join(ws.root, 'modules', WS_MODULE, 'mixins'), { recursive: true });
+		fs.writeFileSync(path.join(ws.root, 'modules', WS_MODULE, 'mixins', 'bare.mixin.yaml'),
+			'name: bare\nfields:\n  tags:\n    type: string\n    many: true\n');
 		const { code, warnings } = compileQuietly(ws.ws);
 		assert.equal(code, 0);
-		assert.ok(warnings.some((w) => w.includes('collection-template bare has no description')), warnings.join('\n'));
 		assert.match(blockOf(ws), /^- bare$/m);
+		assert.ok(warnings.some((w) => w.includes('mixin bare has no description')), warnings.join('\n'));
 	});
 
-	test("the engine's own two templates carry a sentence — nothing shipped renders bare", () => {
+	test("the engine's own two mixins carry a sentence — nothing shipped renders bare", () => {
 		const block = blockOf(workspace());
 		assert.match(block, /^- docs — /m);
 		assert.match(block, /^- entity — /m);
 	});
 
-	// `repos` left the domain listing on 2026-09-19 (harnesses.js reads `d.group === 'system'`, which
-	// `repos` already carried), so it no longer renders with its own `use when` clause — it is a name on the
-	// system-collections line instead. The use_when text itself is not lost; it still compiles onto
-	// the descriptor for a reader who opens it directly.
-	test("the engine's own data collection keeps its use when on the compiled descriptor, even though the block no longer renders it", () => {
+	// `repos` is an engine collection marked `internal: true`, so it renders in the system section —
+	// with its `use when`, which compile carries onto the descriptor — and never as a domain line.
+	test("the engine's own data collection renders its use when in the system section, never as a domain collection", () => {
 		const ws = workspace();
-		// Widened from a `... \n {4}use when:` match: that regex only catches repos rendering WITH a
-		// use-when clause at this exact indent — repos rendering as a bare domain line (no clause, a
-		// different dash, different indent) would still pass. `system-flag.test.js` already asserts
-		// the general "never a domain line" case broadly; this mirrors that here rather than trusting
-		// cross-file layering alone.
-		assert.doesNotMatch(blockOf(ws), /^- repos — /m, 'repos must not render as a domain collection at all');
+		const block = blockOf(ws);
+		const dflt = block.indexOf('**Default**');
+		assert.ok(dflt > 0, block);
+		assert.match(block.slice(0, dflt), /^- repos — [^\n]*\n {4}use when: [^\n]*`path`/m, 'repos and its use when sit with the system collections');
+		assert.doesNotMatch(block.slice(dflt), /^- repos — /m, 'repos must not render as a domain collection at all');
 		const d = load(readFile(ws.root, '.dreamteamer/collections/repos.collection.yaml'));
-		assert.match(d.use_when, /`path`/, 'the use_when text survives compile, it is just not surfaced in the block');
+		assert.match(d.use_when, /`path`/, 'the use_when text is on the compiled descriptor');
 	});
 
 	test("a module's bin/ renders as its runnable entry points — the pointer that the procedure is a script here", () => {
@@ -1114,13 +1119,13 @@ describe('the orientation block is grouped by module', () => {
 	test('what can REFUSE a write renders as one line — required fields without a default, closed enums with their size, the first example', () => {
 		const ws = workspace({ collections: { widgets: simpleCollection({
 			description: 'a widget', storage: { suffix: 'widget' },
-			schema: { type: 'object', required: ['name', 'kind', 'stage'], properties: {
-				name: { type: 'string' },
-				kind: { type: 'string', enum: Array.from({ length: 40 }, (_, i) => `k${i}`) },
-				stage: { type: 'string', enum: ['draft', 'done'], default: 'draft' },
-				tags: { type: 'array', items: { type: 'string' }, examples: ['area:finance', 'local-first'] },
-				notes: { type: 'string', format: 'markdown', 'x-body': true },
-			} },
+			fields: {
+				name: { type: 'string', required: true },
+				kind: { type: 'string', required: true, enum: Array.from({ length: 40 }, (_, i) => `k${i}`) },
+				stage: { type: 'string', required: true, enum: ['draft', 'done'], default: 'draft' },
+				tags: { type: 'string', many: true, examples: ['area:finance', 'local-first'] },
+				notes: { type: 'markdown', body: true },
+			},
 		}) } });
 		const block = blockOf(ws);
 		assert.match(block, /^- widgets — a widget\n {4}write: required name · kind; kind enum\(40\) · stage enum\(2\); e\.g\. tags='area:finance'$/m,
@@ -1131,17 +1136,17 @@ describe('the orientation block is grouped by module', () => {
 	test('an id-template input with no default is listed as required; with a list, only what every template names', () => {
 		const ws = workspace({ collections: {
 			meetings: simpleCollection({ description: 'a meeting', storage: { suffix: 'meeting' },
-				id: { generate: '{{ starts | date }}--{{ room }}--{{ name | slug }}--{{ seq }}' },
-				schema: { type: 'object', required: ['name'], properties: {
-					name: { type: 'string' }, starts: { type: 'string', format: 'date-time' }, room: { type: 'string', default: 'main' },
-					notes: { type: 'string', format: 'markdown', 'x-body': true },
-				} } }),
+				ids: { from: '{{ starts | date }}--{{ room }}--{{ name | slug }}--{{ seq }}' },
+				fields: {
+					name: { type: 'string', required: true }, starts: { type: 'datetime' }, room: { type: 'string', default: 'main' },
+					notes: { type: 'markdown', body: true },
+				} }),
 			risks: simpleCollection({ description: 'a risk', storage: { suffix: 'risk' },
-				id: { generate: ['{{ code }}--{{ area }}', '{{ area }}--{{ name | slug }}'] },
-				schema: { type: 'object', properties: {
+				ids: { from: ['{{ code }}--{{ area }}', '{{ area }}--{{ name | slug }}'] },
+				fields: {
 					name: { type: 'string' }, code: { type: 'string' }, area: { type: 'string' },
-					notes: { type: 'string', format: 'markdown', 'x-body': true },
-				} } }),
+					notes: { type: 'markdown', body: true },
+				} }),
 		} });
 		const block = blockOf(ws);
 		assert.match(block, /^- meetings — a meeting\n {4}write: required name · starts$/m, 'a defaulted input and created/now/seq never refuse');
@@ -1151,8 +1156,8 @@ describe('the orientation block is grouped by module', () => {
 
 	test('a collection nothing can refuse renders no write line', () => {
 		const ws = workspace({ collections: { widgets: simpleCollection({
-			description: 'a widget', storage: { suffix: 'widget' }, id: { generate: '{{ created | date }}-{{ seq }}' },
-			schema: { type: 'object', properties: { name: { type: 'string' }, notes: { type: 'string', format: 'markdown', 'x-body': true } } },
+			description: 'a widget', storage: { suffix: 'widget' }, ids: { from: '{{ created | date }}-{{ seq }}' },
+			fields: { name: { type: 'string' }, notes: { type: 'markdown', body: true } },
 		}) } });
 		assert.doesNotMatch(blockOf(ws), /^- widgets — a widget\n {4}write:/m);
 	});
@@ -1177,30 +1182,30 @@ describe('the orientation block is grouped by module', () => {
 		const ws = workspace({ collections: { widgets: simpleCollection({
 			description: 'a widget',
 			storage: { suffix: 'widget' },
-			schema: { type: 'object', required: ['name'], properties: {
-				name: { type: 'string' },
-				tags: { type: 'array', items: { type: 'string' }, examples: ['stage:draft', 'source:import'] },
-				notes: { type: 'string', format: 'markdown', 'x-body': true },
-			} },
+			fields: {
+				name: { type: 'string', required: true },
+				tags: { type: 'string', many: true, examples: ['stage:draft', 'source:import'] },
+				notes: { type: 'markdown', body: true },
+			},
 		}) } });
-		assert.deepEqual(ws.store.descriptor('widgets').schema.properties.tags.examples, ['stage:draft', 'source:import']);
+		assert.deepEqual(fieldsOf(ws.store.descriptor('widgets')).tags.examples, ['stage:draft', 'source:import']);
 		const res = ws.dt('add', 'widgets', '--name', 'w', '--tags', 'stage:draft');
 		assert.equal(res.code, 0, `an annotation never gates a write: ${res.stderr}`);
 	});
 });
 
-describe('local-assets and postinstall are validated at compile', () => {
+describe('local_assets and postinstall are validated at compile', () => {
 	test('a tracked path is refused', () => {
 		// ⚠ `workspace()` compiles at construction unless `compile: false` — a refused declaration would throw inside the fixture builder;
 		// and compile takes the inner `{root, pkg}` (`ws.ws`), exactly as the collision test above does.
-		const ws = workspace({ compile: false, pkg: { 'local-assets': ['README.md'] } });
+		const ws = workspace({ compile: false, pkg: { local_assets: ['README.md'] } });
 		fs.writeFileSync(path.join(ws.root, 'README.md'), '# x\n'); git(ws.root, ['add', 'README.md']); git(ws.root, ['commit', '-qm', 'readme']);
-		assert.match(compileError(ws.ws), /local-assets.*README\.md.*tracked/);
+		assert.match(compileError(ws.ws), /local_assets.*README\.md.*tracked/);
 	});
 
 	test('an un-ignored path is refused, an ignored one accepted', () => {
-		const ws = workspace({ compile: false, pkg: { 'local-assets': ['.profiles'] } });
-		assert.match(compileError(ws.ws), /local-assets.*\.profiles.*not gitignored/);
+		const ws = workspace({ compile: false, pkg: { local_assets: ['.profiles'] } });
+		assert.match(compileError(ws.ws), /local_assets.*\.profiles.*not gitignored/);
 		// ⚠ NO trailing slash: a dir-only pattern (`.profiles/`) matches neither a SYMLINK nor a path that does not exist yet
 		// (measured, git 2.50) — and in a worktree the asset IS a symlink. The compile error names this.
 		fs.appendFileSync(path.join(ws.root, '.gitignore'), '.profiles\n');
@@ -1211,14 +1216,14 @@ describe('local-assets and postinstall are validated at compile', () => {
 
 	test('the engine-owned paths are refused by name', () => {
 		for (const bad of ['.env', 'node_modules', '.dreamteamer', '.git']) {
-			const ws = workspace({ compile: false, pkg: { 'local-assets': [bad] } });
-			assert.match(compileError(ws.ws), new RegExp(`local-assets.*${bad.replace('.', '\\.')}.*engine`));
+			const ws = workspace({ compile: false, pkg: { local_assets: [bad] } });
+			assert.match(compileError(ws.ws), new RegExp(`local_assets.*${bad.replace('.', '\\.')}.*engine`));
 		}
 	});
 
 	test('a module-level entry escaping the module is refused', () => {
-		const ws = twoModuleWorkspace(); patchModulePkg(ws.root, 'core', { 'local-assets': ['../outside'] });
-		assert.match(compileError(ws.ws), /local-assets.*\.\..*escapes/);
+		const ws = twoModuleWorkspace(); patchModulePkg(ws.root, 'core', { local_assets: ['../outside'] });
+		assert.match(compileError(ws.ws), /local_assets.*\.\..*escapes/);
 	});
 
 	// ⚠ A NON-STRING `postinstall` IS THE ONE DECLARATION THE INSTALLER HANDS TO A SHELL. Both
@@ -1235,8 +1240,8 @@ describe('local-assets and postinstall are validated at compile', () => {
 	// repo, so a root-relative climb-out reached that branch and was reported as "not gitignored" —
 	// a correct refusal carrying advice the operator could not act on.
 	test('a workspace-level entry escaping the root is refused as an escape, not as un-ignored', () => {
-		const ws = workspace({ compile: false, pkg: { 'local-assets': ['../outside'] } });
-		assert.match(compileError(ws.ws), /local-assets: "\.\.\/outside" escapes the workspace root/);
+		const ws = workspace({ compile: false, pkg: { local_assets: ['../outside'] } });
+		assert.match(compileError(ws.ws), /local_assets: "\.\.\/outside" escapes the workspace root/);
 	});
 });
 
