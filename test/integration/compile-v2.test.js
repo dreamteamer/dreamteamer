@@ -310,18 +310,7 @@ describe('created for a record that predates the stamp', () => {
 	});
 });
 
-describe('the transitional cut: field verbs and the display contract', () => {
-	test('a field verb on a v2 source is refused by name, and the file is untouched', () => {
-		const w = clinic();
-		compileQuietly(w.ws);
-		const file = path.join(w.root, 'modules', WS_MODULE, 'collections', 'health', 'visits.collection.yaml');
-		const before = fs.readFileSync(file, 'utf8');
-		const r = dt(w.root, 'add-field', 'health/visits', '--name', 'room', '--type', 'string');
-		assert.notEqual(r.code, 0);
-		assert.match(r.stderr, /visits\.collection\.yaml is a descriptor format v2 source — `.*` writes the v1 shape and cannot edit it yet/);
-		assert.equal(fs.readFileSync(file, 'utf8'), before);
-	});
-
+describe('the display contract', () => {
 	test('created and an editable:false field are readonly in the display contract', async () => {
 		const { presentation } = await import('../../src/presentation.js');
 		const { loadDescriptors } = await import('../../src/runtime.js');

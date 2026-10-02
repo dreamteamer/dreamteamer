@@ -1115,8 +1115,7 @@ export function compile(ws) {
 		// overlays of a peer nobody installed: compiled into nothing, still sources — staleness knows them
 		...(inertSources.length ? { inert: inertSources } : {}),
 		'adapter-outputs': adapterOutputs.sort(),
-		// the root files whose managed BLOCK this compile rewrote — never pruned, but committed with a
-		// schema write so the block and the schema it names land together (schema-ops.regeneratedOutputs)
+		// the root files whose managed BLOCK this compile rewrote — never pruned
 		'adapter-blocks': adapterBlocks.sort(),
 		entries: Object.fromEntries(
 			[...entries].map(([rt, e]) => [rt, { sources: e.sources, hash: sha256(e.bytes) }]) // sources: [{path, hash}] — per-SOURCE hashes power staleness

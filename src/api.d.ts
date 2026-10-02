@@ -101,8 +101,9 @@ export const MANAGED_BLOCKS: readonly { id: 'orientation' | 'instructions'; begi
 type SchemaOp = (ws: Workspace, store: Store, ...args: any[]) => any;
 export const createCollection: SchemaOp, removeCollection: SchemaOp, renameCollection: SchemaOp, moveCollection: SchemaOp, setCollectionScalars: SchemaOp;
 export const addField: SchemaOp, updateField: SchemaOp, removeField: SchemaOp, removeFieldPlan: SchemaOp, renameField: SchemaOp, renameFieldPlan: SchemaOp;
-export function fieldDef(store: Store, flags: Record<string, unknown>, collection: string): any;
-export function statedKeywords(flags: Record<string, unknown>): any;
+export const renameValue: SchemaOp, renameValuePlan: SchemaOp;
+/** One v2 field from the field-verb flag vocabulary, applied over `previous` (the field as its source declares it). */
+export function fieldFromFlags(store: Store, flags: Record<string, unknown>, previous?: Record<string, unknown>): Record<string, unknown>;
 export const saveUiView: SchemaOp, removeUiView: SchemaOp;
 export const createModule: SchemaOp, setModule: SchemaOp, renameModule: SchemaOp, removeModule: SchemaOp;
 export const createSkill: SchemaOp, refuseHandAuthored: SchemaOp, removeEntity: SchemaOp, renameEntity: SchemaOp, setEntityFrontmatter: SchemaOp;

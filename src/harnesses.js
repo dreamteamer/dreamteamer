@@ -77,8 +77,7 @@ export function runHarnessAdapters({ root, entries, harnesses, prevManifest, sou
 	// ⚠ SEPARATE from `outputs`: these are USER-OWNED root files carrying a managed block, and the
 	// prune loop below DELETES anything in a previous manifest's `adapter-outputs` that this compile
 	// did not produce — listing CLAUDE.md there would delete the operator's own instructions the day
-	// a harness is switched off. They are reported so a schema write can COMMIT the regenerated block
-	// beside the source it changed (schema-ops.regeneratedOutputs), which is the only other reader.
+	// a harness is switched off. They are reported in the manifest and never pruned.
 	const blocks = [];
 	const summary = [];
 	const rel = (p) => path.relative(root, p);
@@ -158,8 +157,8 @@ export function runHarnessAdapters({ root, entries, harnesses, prevManifest, sou
 	// deletes its dreamteamer.md — `instructions` is null in that case and the same branch runs.
 	//
 	// ⚠ NOT through the local `block()` helper: that pushes the filename onto `blocks`, and these
-	// three files are already on it from their orientation calls above — pushing twice would hand
-	// git the same pathspec twice (schema-ops.regeneratedOutputs is the reader).
+	// three files are already on it from their orientation calls above — pushing twice would list
+	// one file twice in the manifest.
 	// ⚠ `|| null`, NOT `?? null`. `.trimEnd()` on a whitespace-only source yields `''`, which is not
 	// nullish — so the three Markdown files got an empty BEGIN/END pair while the cursor rule, which
 	// tests the string for truthiness below, omitted the part entirely. An empty source means no
