@@ -99,44 +99,48 @@ and nothing is silently dropped.
 `modules/<module>/command-bindings/<command>--<collection>.command-binding.yaml` — an m2m record:
 
 ```yaml
+# modules/clinic/command-bindings/transcribe-visit--health-visit-recordings.command-binding.yaml
 command: commands/transcribe-visit
 collection: collections/health/visit-recordings
-target: record                      # or `collection` for commands that need no record
-can-enter: { recording_file: { _nempty: true } }
-can-exit:  { transcript: { _nempty: true } }
+scope: record                       # the default; `collection` for commands that need no record
+available_when:
+  recording_file:
+    _nempty: true
+done_when:
+  transcript:
+    _nempty: true
 description: audio present, not yet transcribed
 ```
 
-What a binding buys: `dt next <collection>[/<id>] [--ids a,b] [--json]` answers "what can I do
-with this record right now"; the studio draws the same answer as buttons; and the orientation block
-renders every binding with its gates **literally** (`/transcribe-visit (enter: recording_file set ·
-exit: transcript set)`) — so the gate you write is also documentation every session reads without
-loading anything.
+The keys are closed: `command`, `collection`, `scope`, `available_when`, `done_when`,
+`description`. What a binding buys: `dt next <collection>[/<id>] [--ids a,b] [--json]` answers
+"what can I do with this record right now"; a surface draws the same answer as buttons; and the
+orientation block renders every binding with its gates **literally** (`/transcribe-visit
+(available when: recording_file set · done when: transcript set)`) — so the gate you write is also
+documentation every session reads without loading anything.
 
 Each record gets one of three states, evaluated in this order:
 
 | state | meaning | evaluation |
 |---|---|---|
-| `done` | the command's post-condition already holds | `can-exit` passes — **checked first**, so a record satisfying both gates reads done, not available |
-| `available` | ready to run | `can-enter` passes (or no `can-enter`), and `can-exit` doesn't |
-| `not-applicable` | not this record's moment | `can-enter` fails, or the record doesn't resolve |
+| `done` | the command's post-condition already holds | `done_when` passes — **checked first**, so a record satisfying both gates reads done, not available |
+| `available` | ready to run | `available_when` passes (or there is none), and `done_when` doesn't |
+| `not-applicable` | not this record's moment | `available_when` fails, or the record doesn't resolve |
 
 Done renders **completed** — a check mark, not a bare grey mystery button: the operator sees work
-that happened, and the button is not offered to run again. `target: collection` bindings evaluate
-no record: always runnable, and the invocation
-carries the collection name — so a command bound to several collections knows where to write.
+that happened, and the button is not offered to run again. `scope: collection` bindings evaluate
+no record: always runnable, and the invocation carries the collection name — so a command bound to
+several collections knows where to write.
 
-Compile holds the referential ground: a binding naming an unknown command or collection **fails
-compile**; an unknown filter operator in a gate **fails compile** (never silently narrows at
-runtime); a `can-enter`/`can-exit` on a `target: collection` binding warns — there is no record to
-evaluate it against.
+Compile holds the referential ground: a binding naming an unknown command or collection, an
+unknown filter operator, an unknown value token (anything but `$today` and `$now`) or a field the
+collection lacks **fails compile** — never a gate that silently never opens. A gate on a
+`scope: collection` binding warns: there is no record to evaluate it against.
 
 ## designing the gates
 
 The design principle behind all of it: **the record's own fields are the progress marker.** No run
-records, no job table — a workflow-run layer existed, was gate-tested through full lifecycles, and
-was removed after measurement showed real work never used it. The gates only work if the fields
-they read stay honest:
+records, no job table. The gates only work if the fields they read stay honest:
 
 - **Pick the provenance signal, not the content signal.** "Is it transcribed?" is
   `transcription._nempty` — the provenance object — NOT `transcript._nempty`: a body can be filled
@@ -144,14 +148,15 @@ they read stay honest:
 - **Filters reach one hop OUTBOUND**: `{ recording: { transcript: { _nempty: true } } }` resolves
   the ref and evaluates the sub-condition on the target; array refs use any-match semantics. A
   dangling ref, an unknown collection or a non-ref value **narrows, never widens** — a broken gate
-  makes the command unavailable, not accidentally available.
+  makes the command unavailable, not accidentally available. `$today` makes a date gate move on
+  its own: `{ follow_up: { _lte: $today } }` is available from the day it falls due.
 - ⚠ **Inbound refs are unsupported** — "a summary referencing this record exists" is inexpressible
   as a filter over the record itself. Two honest answers: give the relation a **generated mirror**
   (`data-modeling.md` Part VI), which turns the inbound fact into a local field —
   `{ summary: { _nempty: true } }` works the moment `summary` is a mirror — or ship the binding
-  without a `can-exit` and accept that it never shows done. What is not honest is a proxy field a
+  without a `done_when` and accept that it never shows done. What is not honest is a proxy field a
   human must remember to set.
-- **A `can-exit` and a proof's `count` (a proofs extension) answer different questions — put
+- **A `done_when` and a proof's `count` (a proofs extension) answer different questions — put
   each expectation on its own side.** A gate is a filter over ONE record, evaluated on every render of `dt next` and every board
   the studio draws, so it can only ever read that record's own fields (plus one outbound hop) — which
   is exactly the gap the bullet above names: "a summary referencing this record exists" is
@@ -170,17 +175,26 @@ they read stay honest:
 
 ## the chain — multi-step processes
 
-There is no workflow kind, deliberately (the digest carries the story). A multi-step process is a
-**chain of commands wired by shared fields: step N's `can-exit` is step N+1's `can-enter`.**
+There is no workflow kind, deliberately. A multi-step process is a **chain of commands wired by
+shared fields: step N's `done_when` is step N+1's `available_when`.**
 
 ```yaml
-# step 1 — transcribe--visit-recordings.command-binding.yaml
-can-enter: { recording_file: { _nempty: true } }
-can-exit:  { transcript: { _nempty: true } }
+# step 1 — transcribe-visit--health-visit-recordings.command-binding.yaml
+available_when:
+  recording_file:
+    _nempty: true
+done_when:
+  transcript:
+    _nempty: true
 
-# step 2 — summarize--visits.command-binding.yaml   (gates one hop through the ref)
-can-enter: { recordings: { transcript: { _nempty: true } } }
-can-exit:  { summary: { _nempty: true } }            # a generated mirror — the inbound fact, made local
+# step 2 — summarize-visit--health-visits.command-binding.yaml   (gates one hop through the ref)
+available_when:
+  recordings:
+    transcript:
+      _nempty: true
+done_when:
+  summary:                  # a generated mirror — the inbound fact, made local
+    _nempty: true
 ```
 
 The queue advances itself: completing step 1 is what makes step 2 available, with no state machine
@@ -198,6 +212,6 @@ others in order; the bindings still show per-step truth.
 | a command for something a skill should auto-trigger | commands fire only when remembered |
 | a record command that takes exactly one ref | multi-select invocations carry several; loop in the body |
 | gating on the content field instead of the provenance field | a hand-filled body reads done with nothing verified |
-| a `can-exit` over an inbound ref | unsupported — use a mirror field, or ship without `can-exit` and say so |
-| a `can-exit` on a `target: collection` binding | there is no record to evaluate; compile warns |
+| a `done_when` over an inbound ref | unsupported — use a mirror field, or ship without `done_when` and say so |
+| a gate on a `scope: collection` binding | there is no record to evaluate; compile warns |
 | a destructive command the model may invoke | set `disable-model-invocation` — some verbs are human-only |

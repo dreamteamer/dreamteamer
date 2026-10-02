@@ -19,10 +19,6 @@ Every rule below is that asymmetry applied.
 | how do I put it to the operator | the proposal |
 | nothing exists anywhere | build it — in the module that owns the concept (`data-modeling.md` Part III), after proposing (Part II §7) |
 
-This replaced a standalone `discovering-new-capabilities` skill on 2026-07-31, whose premise — "find
-and propose an **installable** module" — had been reversed: domain modules are no longer packages you
-install. The looking still matters; the taking changed shape.
-
 ## why looking wins
 
 - **A duplicate is worse than a gap.** Two collections holding one concept under two names split
@@ -41,7 +37,7 @@ install. The looking still matters; the taking changed shape.
 | # | look at | how, concretely | what you get |
 |---|---|---|---|
 | 1 | **this workspace's own modules** | the orientation block's MODULES AND THEIR COLLECTIONS list is already in your context — find the module whose sentence owns the concept, then reread its collections with the concept's *synonyms* in mind, `use when` clauses included; then read the candidate's DESCRIPTOR, not its records; `dt help` shows the verbs and `dt next <collection>` the bound ones; the module's skills line names the techniques | the thing may already exist under a name you didn't guess. This is where misses actually happen, because it is the place you assume you already know |
-| 2 | **a recipes repo — where this workspace's own CLAUDE.md names one** (reference modules maintained to be **copied and adapted**) | read that repo's own instructions first; they ARE the adoption procedure. no recipes repo declared → skip this row | a working module with its reasoning attached — descriptors, skills, and the trap notes that each cost someone a day |
+| 2 | **a recipes repo — where this workspace's own instructions (`DREAMTEAMER.md`) name one** (reference modules maintained to be **copied and adapted**) | read that repo's own instructions first; they ARE the adoption procedure. no recipes repo declared → skip this row | a working module with its reasoning attached — descriptors, skills, and the trap notes that each cost someone a day |
 | 3 | **a sibling workspace — where the operator has named one** | read-only; grep its `modules/` for the concept. none named → skip | another vault may have solved it concretely. That is a *reference*, not a source — it holds real personal data, so read the shape, never lift the content |
 | 4 | **the engine's own surface** | `dt help` — the complete verb surface, system and field verbs included; read it rather than recalling it | the capability may already be a verb (`relations rebuild`, `resolve`, `install repos/<id>`) rather than a missing module |
 

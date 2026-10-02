@@ -31,9 +31,11 @@ npx dreamteamer check       # should report 0 violations over the starter collec
 
 `init` writes the `dreamteamer` block into `package.json` (the workspace manifest —
 `collections.md`), a workspace module at `modules/default/` with a starter `notes` collection,
-and `.env.example`. `compile` is what makes it real: the runtime under `.dreamteamer/`, the
-harness folders, and the orientation block every future agent session reads — which is how the
-next session finds this skill without being told.
+`.env.example`, and a `.gitignore` covering the build output. `compile` is what makes it real: the
+runtime under `.dreamteamer/`, the harness folders, and the root `CLAUDE.md`/`AGENTS.md`/`GEMINI.md`
+whose orientation block every future agent session reads — which is how the next session finds
+this skill without being told. Those three files are compiled, never committed; the workspace's
+own rules go in `DREAMTEAMER.md`, which compile copies into them.
 
 ## git, in plain words
 
@@ -108,7 +110,7 @@ prefers. Nothing about the code moves; `check` and `compile` read only what desc
 | modeling the whole domain up front | one collection used tomorrow beats five perfect ones — widening is always safe later (`data-modeling.md` Part IX) |
 | test data in the seed records | real records are what catch the model's mistakes |
 | skipping git as "too technical" | one local command, no account — and it is the history, the undo and the publish step |
-| inventing ids by hand | `id.generate` owns identity — pass `--id` only when the operator named one |
+| inventing ids by hand | `ids.from` owns identity — pass `--id` only when the operator named one |
 | hand-writing the first descriptor | `dt add collections` is compile-gated and publishes itself; hand-written sources owe `dt compile` |
 | rewriting existing files to fit a guessed schema | describe reality, compile, `check` — then decide which violations are worth fixing in the data |
 | waiting for a UI before starting | the CLI and the records are the complete system; any surface renders them later, unchanged |

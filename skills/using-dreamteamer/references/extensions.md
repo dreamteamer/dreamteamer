@@ -4,7 +4,7 @@ Core is records plus the workspace compiler. Anything with a lifecycle of its ow
 Docker host, a behaviour-test runner, an exporter to one vendor — is an **extension**: code the engine
 calls, which a workspace has when it wants that capability and does without otherwise.
 
-The verbs that left core in 0.31.0 live in packages: `prove` in `@dreamteamer/proofs`, `land` and
+The verbs core does not ship live in packages: `prove` in `@dreamteamer/proofs`, `land` and
 `worktree` in `@dreamteamer/worktrees`, `serve` in `@dreamteamer/http`, `notebooklm` in
 `@dreamteamer/notebooklm`, and the container verbs in the global `dt-docker` bin. Typed without the
 package, each exits 2 and prints its install line.

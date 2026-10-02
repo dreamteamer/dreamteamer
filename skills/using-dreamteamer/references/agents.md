@@ -70,7 +70,7 @@ a *feature* — independence, enforcement, parallelism — rather than an overhe
 | `model` | no | override (`sonnet`, `opus`, …); omit to inherit the session's |
 | `skills` | no | qualified `skills/<id>` refs, verified at compile — loaded before the agent acts |
 
-The body is the `instructions` field (`x-body: true`) and becomes the subagent's system prompt.
+The body is the `instructions` field (`body: true`) and becomes the subagent's system prompt.
 
 ## the description — written for the dispatcher
 

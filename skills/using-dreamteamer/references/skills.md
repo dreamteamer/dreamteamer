@@ -32,7 +32,8 @@ duplicate beside it is worse than the gap.
 
 - **One-off fixes** — just do them. A narrative of how you solved something once is a story, not a
   skill; keep the *technique* if it generalizes, drop the episode.
-- **Workspace conventions** — `CLAUDE.md` is loaded always and needs no trigger; a convention in a
+- **Workspace conventions** — `DREAMTEAMER.md` is compiled into every harness's instruction file,
+  loaded always, and needs no trigger; a convention in a
   skill is a convention a session might not load.
 - **Anything a validator can enforce** — automate it and save prose for judgment calls. A regex in
   `check` never gets skimmed past; a sentence does.
@@ -44,9 +45,9 @@ duplicate beside it is worse than the gap.
 
 How a skill is found differs by harness, and both routes run through the same line. claude-code
 discovers skills natively — the harness reads each description and offers the skill when it
-matches. Every other harness gets the descriptions compiled into the committed orientation block
+matches. Every other harness gets the descriptions compiled into the generated orientation block
 (`AGENTS.md`, `GEMINI.md`, `.cursor/rules/…`) as a trigger index. Two consequences: the description
-travels into committed files (one line, third person, nothing sensitive), and it is the **only**
+travels into every harness file (one line, third person, nothing sensitive), and it is the **only**
 thing any session sees before deciding to load.
 
 So the description states **when to load** — symptoms, situations, verbs — and never what the skill
