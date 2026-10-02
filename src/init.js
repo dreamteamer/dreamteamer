@@ -180,10 +180,7 @@ export function install({ root, pkg }) {
 		const { url, ref = 'main' } = map[name];
 		const dest = path.join(root, 'git_modules', name);
 		if (fs.existsSync(dest)) {
-			const head = tryGit(dest, ['rev-parse', '--abbrev-ref', 'HEAD']);
-			const dirty = tryGit(dest, ['status', '--porcelain']);
-			if (head !== ref) console.warn(`⚠ git_modules/${name}: HEAD is ${head}, lockfile says ${ref} — not touching it${dirty ? ' (dirty)' : ''}`);
-			else console.log(`✔ git_modules/${name} present (${ref})`);
+			if (!repoint(dest, name, ref)) unreachable.push(name);
 			continue;
 		}
 		console.log(`… cloning ${url} → git_modules/${name} (${ref})`);
@@ -201,9 +198,9 @@ export function install({ root, pkg }) {
 		}
 		buildClone(dest, name);
 	}
-	// non-zero, because the workspace is NOT what the lockfile describes: modules are missing and
-	// `check` will report references into them as unknown collections.
-	if (unreachable.length) console.error(`✖ ${unreachable.length} module(s) could not be cloned: ${unreachable.join(', ')}`);
+	// non-zero, because the workspace is NOT what the lockfile describes: modules are missing or off
+	// their ref, and `check` will report references into them as unknown collections.
+	if (unreachable.length) console.error(`✖ ${unreachable.length} module(s) are not what the lockfile declares: ${unreachable.join(', ')}`);
 	return unreachable.length ? 1 : 0;
 }
 
@@ -252,8 +249,43 @@ function buildClone(dest, name) {
 	if (r.status !== 0) console.warn(`⚠ npm install failed in git_modules/${name} (exit ${r.status ?? r.error?.message}) — clone may be unbuilt; fix and re-run npm install there`);
 }
 
-function tryGit(cwd, args) {
-	try { return execFileSync('git', args, { cwd, stdio: QUIET }).toString().trim() || null; } catch { return null; }
+function tryGit(cwd, args, timeout = 30_000) {
+	try { return execFileSync('git', args, { cwd, stdio: QUIET, timeout }).toString().trim() || null; } catch { return null; }
+}
+
+const ran = (cwd, args, timeout) => { try { execFileSync('git', args, { cwd, stdio: QUIET, timeout }); return true; } catch { return false; } };
+const commitOf = (dest, rev) => tryGit(dest, ['rev-parse', '--verify', '--quiet', `${rev}^{commit}`]);
+
+/** Is this clone somewhere other than its declared ref? A branch ref is met by being ON the branch —
+ *  moving it forward is `dt update`'s job; a tag or a sha by HEAD being that commit. Answered from
+ *  what the clone already knows, so a settled clone costs no fetch. A folder that is not itself a
+ *  clone is never re-pointed: git would walk up and act on the workspace repo. */
+export function offRef(dest, ref) {
+	if (!fs.existsSync(path.join(dest, '.git'))) return false;
+	if (tryGit(dest, ['symbolic-ref', '--quiet', '--short', 'HEAD']) === ref) return false;
+	const branch = ['refs/heads/', 'refs/remotes/origin/'].some((p) => tryGit(dest, ['rev-parse', '--verify', '--quiet', p + ref]));
+	return branch || !commitOf(dest, ref) || commitOf(dest, ref) !== commitOf(dest, 'HEAD');
+}
+
+/** Move a clone to its declared ref, or refuse and change nothing. Returns false on a refusal. */
+function repoint(dest, name, ref) {
+	const at = `git_modules/${name}`;
+	if (!offRef(dest, ref)) { console.log(`✔ ${at} present (${ref})`); return true; }
+	const refuse = (why) => { console.error(`✖ ${at}: not on ${ref}, and ${why} — nothing was moved`); return false; };
+	if (tryGit(dest, ['status', '--porcelain'])) return refuse(`it has uncommitted changes — commit or stash them in ${at}, then re-run dt install`);
+	const mine = ['HEAD', ...(commitOf(dest, `refs/heads/${ref}`) ? [`refs/heads/${ref}`] : [])];
+	const local = Number(tryGit(dest, ['rev-list', '--count', ...mine, '--not', '--remotes', '--tags']) ?? 0);
+	if (local) return refuse(`it holds ${local} commit(s) on no remote — push them from ${at} (or drop them), then re-run dt install`);
+	const before = commitOf(dest, 'HEAD')?.slice(0, 7);
+	if (!ran(dest, ['fetch', '--quiet', '--tags', 'origin'], 120_000)) return refuse('fetching origin failed');
+	if (!offRef(dest, ref)) { console.log(`✔ ${at} present (${ref})`); return true; }
+	const branch = commitOf(dest, `refs/remotes/origin/${ref}`);
+	if (!branch && !commitOf(dest, ref)) return refuse(`origin has no branch, tag or commit "${ref}" — fix dreamteamer.git_modules.${name}.ref`);
+	const to = branch ? ['-B', ref, `origin/${ref}`] : commitOf(dest, `refs/heads/${ref}`) ? [ref] : ['--detach', ref];
+	if (!ran(dest, ['checkout', '--quiet', ...to], 60_000)) return refuse('the checkout failed');
+	console.log(`✔ ${at}: ${before} → ${ref} (${commitOf(dest, 'HEAD').slice(0, 7)})`);
+	buildClone(dest, name);
+	return true;
 }
 
 function appendMissing(file, block) {

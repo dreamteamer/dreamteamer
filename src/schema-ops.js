@@ -7,8 +7,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { load, dump, writeSource, renameKeys, commentCount } from './yaml.js';
-import { compile, kindDir, KINDS, repoRootOf } from './compile.js';
+import { load, dump, writeSource, renameKeys, commentCount, formatSource } from './yaml.js';
+import { compile, kindDir, KINDS, repoRootOf, discoverModules } from './compile.js';
+import { V2_KEYS, isV2 } from './descriptor-v2.js';
+import { v1Refusal } from './compile-collections.js';
 import { readManifest, loadDescriptors } from './runtime.js';
 import { normalizeNamespaces, namespaceOf, baseNameOf, qualify, defaultStoragePath, singular } from './namespace.js';
 import { fieldsOf, targetsOf, storageOf, isRuntime, bodyFieldOf, moduleOf } from './descriptor.js';
@@ -194,6 +196,43 @@ export function gatedTreeOp(ws, store, { subject, paths, mutate, undo }) {
 		}
 		return out;
 	});
+}
+
+/**
+ * `dt fmt [<collection>]` — rewrite descriptor and mixin sources in block style with their top-level
+ * keys in canonical order (`formatSource`). One collection's sources, or every inline source.
+ *
+ * A source under `git_modules/` or `node_modules/` belongs to another repo and is only counted: it
+ * is formatted there. A v1 source is refused, every one listed, before anything is written. The
+ * write goes through `writeGated` — comment guard, compile gate, one commit per repo.
+ * @returns {{ changed: string[], unchanged: number, skipped: string[], commits?: object[] }}
+ */
+export function formatDescriptors(ws, { collection = null, dryRun = false } = {}) {
+	const roots = [{ root: ws.root, channel: 'inline' }, ...discoverModules(ws.root, ws.pkg).modules];
+	const rel = (f) => path.relative(ws.root, f);
+	const sources = [], skipped = [];
+	for (const { root, channel } of roots) {
+		for (const [kind, suffix] of [['collections', '.collection.yaml'], ['mixins', '.mixin.yaml']]) {
+			const dir = kindDir(root, kind);
+			if ((collection && kind === 'mixins') || !fs.existsSync(dir)) continue;
+			for (const file of [...walk(dir)].filter((f) => f.endsWith(suffix))) {
+				const text = fs.readFileSync(file, 'utf8');
+				let doc;
+				try { doc = load(text); } catch (e) { throw new Error(`${rel(file)}: ${e.message.split('\n')[0]} — fix the YAML, then re-run dt fmt`); }
+				if (collection && doc?.name !== collection) continue;
+				(channel === 'inline' ? sources : skipped).push({ file, text, doc, kind });
+			}
+		}
+	}
+	if (collection && !sources.length && !skipped.length) throw new Error(`no source declares collection "${collection}" — dt list collections names them`);
+	const v1 = sources.filter((s) => s.kind === 'collections' && !isV2(s.doc)).map((s) => rel(s.file));
+	if (v1.length) throw new Error(v1Refusal(v1.sort()));
+	const edits = sources.map((s) => ({ ...s, out: formatSource(s.text, V2_KEYS) })).filter((s) => s.out !== s.text);
+	const result = { changed: edits.map((s) => rel(s.file)), unchanged: sources.length - edits.length, skipped: skipped.map((s) => rel(s.file)) };
+	if (dryRun || !edits.length) return result;
+	const out = writeGated(ws, new Store(ws), edits.map((s) => s.file), `dreamteamer: fmt ${edits.length} descriptor source(s)`,
+		() => { for (const s of edits) fs.writeFileSync(s.file, s.out); });
+	return { ...result, commits: out.commits };
 }
 
 // ---- modules ---------------------------------------------------------------------------------
