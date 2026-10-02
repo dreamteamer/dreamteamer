@@ -318,6 +318,12 @@ function placement(out, fail) {
 			}
 		}
 		claims.set(parentName, [...siblings, { path: under.subfolder, name }]);
+		// nested ids begin with the parent's id, so every id template must open with it
+		if (under.id === 'nested') {
+			const from = [c.doc.ids?.from ?? []].flat();
+			const lead = new RegExp(`^\\{\\{\\s*${under.parent}\\s*\\|\\s*basename\\s*\\}\\}/`);
+			if (!from.length || from.some((t) => !lead.test(String(t)))) fail(`${where}.id is nested, so every ids.from template must open with \`{{ ${under.parent} | basename }}/\` — the id begins with the parent's id`);
+		}
 		c.compiled.under_collection = parentName;
 	}
 }

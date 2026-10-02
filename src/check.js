@@ -177,6 +177,9 @@ export function check({ root }, { extra = [] } = {}) {
 				const wellFormed = raw == null || raw === '' || parseRef(raw, namespaces);
 				const want = ownerIdOf(fields, under, (v) => parseRef(v, namespaces));
 				const got = observed.get(name).get(id);
+				if (under.id === 'nested' && want && id.split('/')[0] !== want) {
+					flag(file, `id "${id}" begins with "${id.split('/')[0]}" but ${under.parent} is ${under.collection}/${want} — a nested id begins with its parent's. Rename it: dreamteamer rename ${name}/${id} ${want}/${id.slice(id.indexOf('/') + 1)}`);
+				}
 				if (wellFormed && want !== got) {
 					const where = got ? `under ${under.collection}/${got}` : `in its own root (${storageOf(d).path})`;
 					const should = want ? `${under.parent} is ${under.collection}/${want}` : `${under.parent} is empty`;
