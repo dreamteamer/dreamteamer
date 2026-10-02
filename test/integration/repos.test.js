@@ -34,7 +34,7 @@ describe('repoPath renders the template a record holds', () => {
 
 	test('the repos-path base takes a template too', () => {
 		const ws = withVars(['REPOS_FOLDER'], { REPOS_FOLDER: '/opt/checkouts' });
-		ws.ws.pkg.dreamteamer['repos-path'] = '${env:REPOS_FOLDER}';
+		ws.ws.pkg.dreamteamer.repos_path = '${env:REPOS_FOLDER}';
 		assert.equal(repoPath(ws.ws, { name: 'acme', identity: 'me' }), '/opt/checkouts/me/acme');
 	});
 

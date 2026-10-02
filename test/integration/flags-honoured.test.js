@@ -152,20 +152,20 @@ describe('an unknown flag is refused on every verb that has a closed vocabulary'
 		['add ui-views', ['add', 'ui-views', '--route', '/zz', '--scope', 'collection', 'display.list.layout=table']],
 		['add <record>', ['add', 'people', '--name', 'Grace']],
 		['set <record>', ['set', 'people/ada-byron', 'badge=x']],
-		['set collections', ['set', 'collections/people', 'icon=person']],
+		['set collections', ['set', 'collections/people', 'display.nav.icon=person']],
 		['set modules', ['set', 'modules/core', 'description=x']],
 		['rm <record>', ['rm', 'people/ada-byron', '--force']],
 		['rm collections', ['rm', 'collections/teams', '--force']],
 		['rm modules', ['rm', 'modules/hr', '--force']],
 		['rename <record>', ['rename', 'people/ada-byron', 'ada']],
 		['rename collections', ['rename', 'collections/teams', 'crews']],
-		['move collections', ['move', 'collections/teams', '--top']],
+		['reorder collections', ['reorder', 'collections/teams', '--top']],
 		['get', ['get', 'people/ada-byron']],
 		['values', ['values', 'people', 'name']],
 		['history', ['history', 'people/ada-byron']],
 		['diff', ['diff', 'people/ada-byron']],
 		['add-field', ['add-field', 'people', '--name', 'zz', '--type', 'string']],
-		['set-field', ['set-field', 'people', '--name', 'badge', '--type', 'text']],
+		['set-field', ['set-field', 'people', '--name', 'badge', '--type', 'markdown']],
 		['rm-field', ['rm-field', 'people', '--name', 'badge']],
 		['rename-field', ['rename-field', 'people', '--name', 'badge', '--to', 'pass']],
 		['relations', ['relations', 'people']],
@@ -185,19 +185,18 @@ describe('an unknown flag is refused on every verb that has a closed vocabulary'
 		const w = twoModuleWorkspace();
 		const res = w.dt(
 			'add-field', 'people',
-			'--name', 'team', '--type', 'teams', '--many', '--inverse', 'members',
-			'--inverse-description', 'Who is on it.', '--description', 'The team.',
+			'--name', 'team', '--type', 'teams', '--many', '--description', 'The team.',
 			'--on-delete', 'set-null', '--required', 'false',
 		);
 		assert.equal(res.code, 0, res.stderr);
-		const res2 = w.dt('add-field', 'people', '--name', 'grade', '--type', 'enum', '--options', 'a,b', '--default-value', 'a');
+		const res2 = w.dt('add-field', 'people', '--name', 'grade', '--type', 'string', '--enum', 'a,b', '--default-value', 'a');
 		assert.equal(res2.code, 0, res2.stderr);
-		// `--unique` and `--mirror-of` are RELATION keywords, so they belong on a reference type. The
-		// point here is that the PARSER lets them through, not that a scalar accepts them.
-		const res3 = w.dt('add-field', 'teams', '--name', 'lead', '--type', 'people', '--unique', '--inverse', 'leads');
-		assert.doesNotMatch(res3.stderr, /unknown flag/);
-		const res4 = w.dt('add-field', 'tasks', '--name', 'crew', '--type', 'teams', '--mirror-of', 'teams.tasks');
-		assert.doesNotMatch(res4.stderr, /unknown flag/);
+		// `--unique` and `--mirror-of` are RELATION keywords: a unique scalar reference, then the scalar
+		// mirror declared on its target.
+		const res3 = w.dt('add-field', 'teams', '--name', 'lead', '--type', 'people', '--unique');
+		assert.equal(res3.code, 0, res3.stderr);
+		const res4 = w.dt('add-field', 'people', '--name', 'leads', '--type', 'teams', '--mirror-of', 'lead');
+		assert.equal(res4.code, 0, res4.stderr);
 	});
 });
 
@@ -273,9 +272,9 @@ describe('add modules --namespace declares the namespace IN THE MODULE (§6.2, �
 describe('a system `set` that changes nothing says so instead of leaking a git failure', () => {
 	test('set collections/<c> to the value it already has exits 0', () => {
 		const ws = twoModuleWorkspace();
-		assert.equal(ws.dt('set', 'collections/people', 'icon=person').code, 0);
+		assert.equal(ws.dt('set', 'collections/people', 'display.nav.icon=person').code, 0);
 
-		const res = ws.dt('set', 'collections/people', 'icon=person');
+		const res = ws.dt('set', 'collections/people', 'display.nav.icon=person');
 		assert.equal(res.code, 0, res.stderr);
 		assert.match(res.stdout, /nothing to do/);
 		assert.doesNotMatch(res.stderr, /git commit failed/);
@@ -294,7 +293,7 @@ describe('a system `set` that changes nothing says so instead of leaking a git f
 describe('a write into a node_modules-owned collection is refused where it is refused everywhere else', () => {
 	test('set collections/<c> names npm install rather than a compile that will never help', () => {
 		const ws = twoModuleWorkspace();
-		const res = ws.dt('set', 'collections/repos', 'icon=folder');
+		const res = ws.dt('set', 'collections/repos', 'display.nav.icon=folder');
 		assert.equal(res.code, 1, res.stdout);
 		assert.match(res.stderr, /node_modules/);
 		assert.match(res.stderr, /npm install/);
@@ -343,13 +342,9 @@ describe('the flag tables and `dt help` do not drift apart', () => {
 	// than as verb options, plus `--version`, which `run()` answers before any dispatch.
 	const OPEN_HALF = ['collection', 'route', 'scope', 'version'];
 	// Accepted and NOT in `dt help` — every one a real documentation gap, listed so it is a decision
-	// rather than a silence. `--field` and `--default` are undocumented ALIASES of `--name` and
-	// `--default-value`; the two remaining `init` flags and the three `modules set` keys are
-	// documented in their positional `k=v` spelling only.
-	// `harnesses` came OFF this list when `notebooklm` was added: the harness set is now a choice an
-	// operator makes rather than a default nobody changes, so `dt help` names the values.
-	// `target` is add-field's reference target, documented by no line of its own.
-	const UNDOCUMENTED = ['field', 'default', 'data-path', 'workspace-module', 'dependencies', 'namespaces', 'peerDependencies', 'target'];
+	// rather than a silence. `--default` is an undocumented ALIAS of `--default-value`; the `init`
+	// flags and the `modules set` keys are documented in their positional `k=v` spelling only.
+	const UNDOCUMENTED = ['default', 'data_path', 'workspace_module', 'dependencies', 'namespaces', 'peer_collections'];
 
 	test('every flag `dt help` documents is accepted by some verb', () => {
 		const stray = [...documented].filter((f) => !accepted.has(f) && !OPEN_HALF.includes(f)).sort();
