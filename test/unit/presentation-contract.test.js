@@ -107,3 +107,23 @@ describe('the display contract carries only the §4.3 names', () => {
 		}
 	});
 });
+
+describe('the template grammar is public', () => {
+	test('api.js exports the one parser, validator and renderer', async () => {
+		const api = await import('../../src/api.js');
+		const template = await import('../../src/template.js');
+		for (const name of ['parseTemplate', 'validateTemplate', 'renderDisplay']) assert.equal(api[name], template[name], name);
+	});
+
+	test('a surface renders the contract\'s record_title and subtitle with it', async () => {
+		const { renderDisplay } = await import('../../src/api.js');
+		const p = presentation(clinic());
+		const visits = p.collections.find((c) => c.collection === 'health/visits');
+		const record = { id: 'v1', reason: 'Headache', date: '2026-03-04', patient: 'health/patients/dana-oren', kind: 'intake' };
+		assert.equal(renderDisplay(visits.record_title, record), 'Headache · 2026-03-04');
+		const patients = p.collections.find((c) => c.collection === 'health/patients');
+		const resolve = (ref) => renderDisplay(patients.record_title, { name: ref === 'health/patients/dana-oren' ? 'Dana Oren' : '?' });
+		const isReference = (f) => p.fields['health/visits'].find((r) => r.field === f)?.role === 'reference';
+		assert.equal(renderDisplay(visits.record.subtitle, record, { resolve, isReference }), 'Dana Oren · intake');
+	});
+});
