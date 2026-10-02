@@ -9,7 +9,7 @@ import { load, dump } from './yaml.js';
 import { slug } from './template.js';
 import { walk } from './records.js';
 import { placedRecords } from './placement.js';
-import { unknownOperators } from './filter.js';
+import { unknownOperators, unknownTokens, VALUE_TOKENS } from './filter.js';
 import {
 	normalizeNamespaces, namespaceProblems, unqualifiedProblems, defaultStoragePath, storageOverlaps,
 	baseNameOf, singular, namespaceOf } from './namespace.js';
@@ -945,6 +945,8 @@ export function compile(ws) {
 		// fail at compile, not silently at render (review finding 5)
 		const badOps = view?.filter ? [...unknownOperators(view.filter)] : [];
 		if (badOps.length) fail(`${rt}: unknown filter operator(s) ${badOps.join(', ')}`);
+		const badTokens = view?.filter ? [...unknownTokens(view.filter)] : [];
+		if (badTokens.length) fail(`${rt}: filter holds unknown value token(s) ${badTokens.join(', ')} — the tokens are ${VALUE_TOKENS.join(' and ')}`);
 		// `@me` died with the `users` collection in 0.8.0. It expanded to `users/<slug>`, so on this
 		// engine it can only ever match nothing — and a filter that narrows to zero rows is the exact
 		// silent failure this block exists to prevent. Refuse it by name, with the fix.
@@ -985,6 +987,8 @@ export function compile(ws) {
 		for (const key of ['can-enter', 'can-exit']) {
 			const badBindOps = b?.[key] ? [...unknownOperators(b[key])] : [];
 			if (badBindOps.length) fail(`${rt}: ${key} has unknown filter operator(s) ${badBindOps.join(', ')}`);
+			const badBindTokens = b?.[key] ? [...unknownTokens(b[key])] : [];
+			if (badBindTokens.length) fail(`${rt}: ${key} holds unknown value token(s) ${badBindTokens.join(', ')} — the tokens are ${VALUE_TOKENS.join(' and ')}`);
 			if (b?.[key] && b?.target === 'collection') console.warn(`⚠ ${rt}: ${key} is ignored — target=collection bindings evaluate no record`);
 		}
 	}
