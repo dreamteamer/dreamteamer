@@ -105,19 +105,33 @@ export function baseNameOf(qualified, namespaces) {
 }
 
 /**
- * A collection name in the singular — what one RECORD of it is called. `doctors` → `doctor`,
- * `stories` → `story`, `finance` → `financ`… which is why this is only ever applied to a name the
- * author can override.
+ * A collection name in the singular — what one RECORD of it is called: `doctors` → `doctor`,
+ * `stories` → `story`, `boxes` → `box`, `analyses` → `analysis`, `series` → `series`. Only the last
+ * hyphenated word inflects (`meta-analyses` → `meta-analysis`). A name that is not a plural comes back
+ * unchanged, which is what `inflects` reports, so compile can say so.
  *
- * It lives here beside `baseNameOf` because three subsystems have to agree on it and they sit in
- * different layers: `compile` derives an absent `storage.suffix` from it, `collections add` writes
- * the same value into a new descriptor, and `rename-collection` asks `oldSuffix === singular(oldBase)`
- * to decide whether a suffix was DERIVED and may be re-derived. Two spellings of this rule would make
- * that last question answer wrong on the exact records it is protecting.
+ * Shared by three subsystems in different layers — compile derives an absent `singular` and
+ * `storage.suffix` from it, `collections add` writes it into a new descriptor, `rename-collection`
+ * asks whether a suffix was derived — so there is exactly one spelling of the rule.
  */
+const INVARIANT = new Set(['series', 'species', 'news']);
 export function singular(name) {
-	return name.endsWith('ies') ? name.slice(0, -3) + 'y' : name.endsWith('s') ? name.slice(0, -1) : name;
+	const i = name.lastIndexOf('-');
+	const head = name.slice(0, i + 1), w = name.slice(i + 1);
+	return head + singularWord(w);
 }
+function singularWord(w) {
+	if (INVARIANT.has(w)) return w;
+	if (/yses$/.test(w)) return w.replace(/yses$/, 'ysis');
+	if (/[^aeiou]ies$/.test(w)) return w.replace(/ies$/, 'y');
+	if (/(sses|shes|ches|xes|zes)$/.test(w)) return w.replace(/es$/, '');
+	if (/uses$/.test(w)) return w.replace(/es$/, '');
+	if (/ss$/.test(w)) return w;
+	if (/s$/.test(w)) return w.slice(0, -1);
+	return w;
+}
+/** Whether `singular(name)` found a plural to inflect. */
+export const inflects = (name) => singular(name) !== name || INVARIANT.has(name.slice(name.lastIndexOf('-') + 1));
 
 /**
  * A collection name carrying a slash whose prefix is NOT declared, which is the silent-failure this

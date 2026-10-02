@@ -16,7 +16,7 @@ import addFormats from 'ajv-formats';
 import { shapeErrors, mergeMixins, mergeOverlays, nameErrors, isV2 } from './descriptor-v2.js';
 import { resolveFields, toJsonSchema } from './fields.js';
 import { targetsOf } from './descriptor.js';
-import { defaultStoragePath, baseNameOf, singular, namespaceOf, storageOverlaps } from './namespace.js';
+import { defaultStoragePath, baseNameOf, singular, inflects, namespaceOf, storageOverlaps } from './namespace.js';
 import { subpathProblem } from './placement.js';
 import { patternRe } from './records.js';
 
@@ -202,6 +202,7 @@ export function compileCollections(ctx) {
 		const singularWord = authored.singular ?? (ns ? `${ns}/${singular(bare)}` : singular(name));
 		if (typeof singularWord !== 'string' || !singularWord.trim()) fail(`collection "${name}": \`singular\` must be a non-empty string`);
 		wordEntries.push({ name, word: singularWord });
+		if (authored.singular === undefined && !inflects(bare)) warn(`⚠ collection ${name}: "${bare}" is not a plural the inflector knows, so its singular is the name itself — set \`singular\` if \`dt add\` should take another word`);
 		const probe = ['title', 'name', 'subject'].find((f) => resolved[f] && !resolved[f].virtual);
 		const recordTitle = authored.record_title ?? `{{ ${probe ?? 'id'} }}`;
 
