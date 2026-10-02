@@ -11,6 +11,7 @@
 // table's rows are keyed by, and `many`, which the table omits but a surface cannot draw a list
 // without (the wire type is the ITEM's type).
 import { test, describe } from 'node:test';
+import fs from 'node:fs';
 import assert from 'node:assert/strict';
 import { presentation } from '../../src/presentation.js';
 import { clinic } from '../helpers/clinic-compiled.js';
@@ -126,4 +127,28 @@ describe('the template grammar is public', () => {
 		const isReference = (f) => p.fields['health/visits'].find((r) => r.field === f)?.role === 'reference';
 		assert.equal(renderDisplay(visits.record.subtitle, record, { resolve, isReference }), 'Dana Oren · intake');
 	});
+});
+
+// The typings a TypeScript consumer compiles against name exactly the contract's keys. A key added to
+// the contract and not to records-api.d.ts would type-check as absent in every surface.
+describe('records-api.d.ts types the same contract', () => {
+	const dts = fs.readFileSync(new URL('../../src/records-api.d.ts', import.meta.url), 'utf8');
+	/** The top-level member names of one exported interface (nested object types are not descended). */
+	const keysOf = (iface) => {
+		const start = dts.indexOf(`export interface ${iface} {`);
+		assert.notEqual(start, -1, `records-api.d.ts declares no ${iface}`);
+		let depth = 0, i = dts.indexOf('{', start), body = '';
+		for (; i < dts.length; i++) {
+			const ch = dts[i];
+			if (ch === '{') { depth++; if (depth === 1) continue; }
+			if (ch === '}') { depth--; if (depth === 0) break; }
+			body += depth === 1 ? ch : ' ';
+		}
+		return [...body.matchAll(/(?:^|[;\s])([a-z_]+)\??:/g)].map((m) => m[1]);
+	};
+	for (const [iface, group] of [['PresentationCollection', 'collection'], ['PresentationField', 'field'], ['PresentationChoice', 'choice'], ['PresentationRelation', 'relation']]) {
+		test(`${iface} declares exactly the ${group} keys`, () => {
+			assert.deepEqual([...new Set(keysOf(iface))].sort(), [...CONTRACT[group]].sort());
+		});
+	}
 });
