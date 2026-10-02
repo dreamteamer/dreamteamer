@@ -245,3 +245,19 @@ describe('convertPackage', () => {
 		assert.equal(warnings.length, 1, 'repos_path is one');
 	});
 });
+
+describe('a field the descriptor redeclares from its template', () => {
+	const PROV = { confidence: { mixin: 'provenance', field: { type: 'string', enum: ['low', 'high'], default: 'low', description: 'How much to trust it.' } } };
+	const src = (extra) => `name: tasks\ntemplates: [collection-templates/provenance]\nschema:\n  properties:\n    name: { type: string }\n    confidence:\n      type: string\n      enum: [low, high]\n      default: low\n${extra}`;
+	test('the same shape is dropped, and a description of its own is printed rather than lost', () => {
+		const res = convertCollection(src('      description: How sure the extractor was.\n'), { mixinFieldDefs: PROV });
+		const out = parseDocument(res.text).toJSON();
+		assert.deepEqual(Object.keys(out.fields), ['name']);
+		assert.ok(res.warnings.some((w) => /confidence: also declared by mixin provenance — dropped here.*"How sure the extractor was\."/.test(w)), res.warnings.join('\n'));
+	});
+	test('a different shape is kept and named, for the author to settle', () => {
+		const res = convertCollection(src('      x-unique: true\n'), { mixinFieldDefs: PROV });
+		assert.ok("confidence" in parseDocument(res.text).toJSON().fields);
+		assert.ok(res.warnings.some((w) => /confidence: also declared by mixin provenance with a different shape/.test(w)), res.warnings.join('\n'));
+	});
+});

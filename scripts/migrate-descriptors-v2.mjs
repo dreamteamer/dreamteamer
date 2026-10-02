@@ -236,6 +236,17 @@ export function convertCollection(text, ctx = {}) {
 		fields[k] = field;
 		stats.fields++;
 	}
+	// v1 let a descriptor redeclare a template's field; v2 has one source per field. The same shape
+	// is the mixin's field, so the redeclaration goes (its own description is printed, not lost); a
+	// different shape is the author's call
+	const shape = (f) => JSON.stringify(Object.fromEntries(Object.entries(f ?? {}).filter(([k]) => k !== 'description' && k !== 'title').sort(([a], [b]) => a.localeCompare(b))));
+	for (const [k, { mixin, field: mf }] of Object.entries(ctx.mixinFieldDefs ?? {})) {
+		if (!fields[k]) continue;
+		if (shape(fields[k]) !== shape(mf)) { warnings.push(`${k}: also declared by mixin ${mixin} with a different shape — compile refuses a field from two sources; rename this one, or drop it and adjust the mixin`); continue; }
+		if (fields[k].description !== undefined && fields[k].description !== mf.description) warnings.push(`${k}: also declared by mixin ${mixin} — dropped here, so its description is the mixin's; this collection's was: "${fields[k].description}"`);
+		delete fields[k];
+		stats.fields--;
+	}
 	if (v1.sort_field !== undefined && fields[v1.sort_field]) {
 		if (['string'].includes(fields[v1.sort_field].type)) fields[v1.sort_field].type = 'position';
 		else (value.display ??= {}).list = { ...(value.display?.list ?? {}), sort: v1.sort_field };
@@ -262,6 +273,7 @@ export function convertCollection(text, ctx = {}) {
 	if (schemaPair) {
 		schemaPair.key = doc.createNode('fields');
 		if (propsNode) {
+			propsNode.items = propsNode.items.filter((pair) => fields[keyOf(pair)] !== undefined);
 			schemaPair.value = propsNode;
 			for (const pair of propsNode.items) {
 				const k = keyOf(pair);
@@ -567,6 +579,7 @@ export function migrate(root, { dryRun = false, log = console.log } = {}) {
 	const current = (file) => (texts.has(file) ? texts.get(file) : fs.readFileSync(file, 'utf8'));
 	// templates first: a mixin's field types are what a converted record_title may open with
 	const mixinTypes = new Map(); // mixin id -> { field: type }
+	const mixinDefs = new Map(); // mixin id -> { field: its v2 definition }
 	for (const r of roots) {
 		for (const file of walk(path.join(r, 'collection-templates'))) {
 			if (!file.endsWith('.collection-template.yaml')) continue;
@@ -577,6 +590,7 @@ export function migrate(root, { dryRun = false, log = console.log } = {}) {
 			texts.set(dest, text);
 			texts.set(file, null);
 			mixinTypes.set(id, Object.fromEntries(Object.entries(parseDocument(text).toJSON()?.fields ?? {}).map(([k, f]) => [k, f?.type])));
+			mixinDefs.set(id, parseDocument(text).toJSON()?.fields ?? {});
 			plan.mixins++;
 			// a module published from npm ships only what its `files` names — the mixins must travel
 			const pkgFile = path.join(r, 'package.json');
@@ -597,9 +611,11 @@ export function migrate(root, { dryRun = false, log = console.log } = {}) {
 			if (parsed.errors.length) throw new Error(`${at(file)}: ${parsed.errors[0].message.split('\n')[0]}`);
 			const v1 = parsed.toJSON() ?? {};
 			const name = v1.name;
-			const mixinFields = Object.assign({}, ...(Array.isArray(v1.templates) ? v1.templates : []).map((t) => mixinTypes.get(String(t).replace(/^collection-templates\//, '')) ?? {}));
+			const ids = (Array.isArray(v1.templates) ? v1.templates : []).map((t) => String(t).replace(/^collection-templates\//, ''));
+			const mixinFields = Object.assign({}, ...ids.map((t) => mixinTypes.get(t) ?? {}));
+			const mixinFieldDefs = Object.assign({}, ...ids.map((t) => Object.fromEntries(Object.entries(mixinDefs.get(t) ?? {}).map(([k, f]) => [k, { mixin: t, field: f }]))));
 			let res;
-			try { res = convertCollection(text, { bareName: String(name ?? '').split('/').pop(), mixinFields }); } catch (e) { throw new Error(`${at(file)}: ${e.message}`); }
+			try { res = convertCollection(text, { bareName: String(name ?? '').split('/').pop(), mixinFields, mixinFieldDefs }); } catch (e) { throw new Error(`${at(file)}: ${e.message}`); }
 			for (const w of res.warnings) plan.warnings.push(`${at(file)}: ${w}`);
 			moduleOf.set(file, r);
 			if (name && !('overlay' in v1) && !('extends' in v1)) byName.set(name, file);
