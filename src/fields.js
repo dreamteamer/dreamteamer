@@ -93,8 +93,9 @@ export function resolveFields(authored, ctx) {
 			if (prop.type !== 'string') errors.push(`field "${name}": \`enum\` belongs to type string (there is no type enum)`);
 			const values = enumValues(prop.enum);
 			if (!values) errors.push(`field "${name}": \`enum\` is a list of values or a map of value → { label, description, icon, color, background }`);
-			// a WARNING: renaming a value is a record change (`dt rename-value`), which a compile must not force
-			else for (const v of values) if (!/^[a-z0-9][a-z0-9-]*$/.test(String(v))) warnings.push(`field "${name}": enum value "${v}" is not kebab-case — values are kebab-case, and the label belongs in the enum map (dt rename-value renames one)`);
+			// a WARNING: renaming a value is a record change (`dt rename-value`), which a compile must not force.
+			// A passthrough field's values are spelled by something outside the workspace (a folder name).
+			else if (!prop.passthrough) for (const v of values) if (!/^[a-z0-9][a-z0-9-]*$/.test(String(v))) warnings.push(`field "${name}": enum value "${v}" is not kebab-case — values are kebab-case, and the label belongs in the enum map (dt rename-value renames one)`);
 		}
 		if (prop.mirror_of !== undefined) {
 			if (!targets || targets[0] === '*' || targets.length !== 1) errors.push(`field "${name}": \`mirror_of\` needs a type naming exactly one collection`);

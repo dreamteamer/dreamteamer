@@ -40,6 +40,7 @@ fields:
     type: string
     required: true
     enum: [modules, git_modules, node_modules, root]
+    passthrough: true
     description: >-
       Where this module's sources sit — the folder name, so `dt status` needs no legend. `root` is the
       classic layout, where the workspace's own sources live at its root rather than under `modules/<id>/`.

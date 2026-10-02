@@ -522,15 +522,15 @@ export class Store {
 	}
 
 	/**
-	 * descriptor v2: a record's `created`, READ — never written — when the record predates the stamp.
+	 * A record's `created`, READ — never written — when the record predates the stamp.
 	 * The stamp wins. Without one: the id's own date when the collection's ids are made from
 	 * `created` (that date is what the stamp would have said), else the first commit holding the file,
-	 * following renames, which also covers a binary record with no frontmatter. Undefined for a v1
-	 * collection, and for a record no commit holds yet.
+	 * following renames, which also covers a binary record with no frontmatter. Undefined for a
+	 * collection without a `created` field (a runtime kind), and for a record no commit holds yet.
 	 */
 	createdOf(collection, id, fields, file) {
 		const d = this.descriptor(collection);
-		if (!d.compiled?.fields?.created) return undefined;
+		if (!fieldsOf(d).created) return undefined;
 		if (fields?.created) return fields.created;
 		const from = [idsOf(d).from ?? []].flat();
 		if (/^\{\{\s*created\b/.test(String(from[0] ?? ''))) {

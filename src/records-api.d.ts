@@ -62,6 +62,8 @@ export class Store {
 	ids(collection: string): Map<string, string>;
 	read(collection: string, id: string): { fields: Fields; file: string };
 	readAll(collection: string): Iterable<{ id: string; fields: Fields; file: string }>;
+	/** A record's `created`: the stamp when present, else the date its id was made from, else the first commit holding the file. Undefined when the collection has no `created` field or no commit holds the file. */
+	createdOf(collection: string, id: string, fields: Fields, file: string): string | undefined;
 	add(collection: string, fields: Fields, opts?: { id?: string }): { id: string; file: string; idFallback?: unknown };
 	addFile(collection: string, id: string, from: string, opts?: { force?: boolean }): { id: string; file: string };
 	set(collection: string, id: string, changes: Fields): unknown;

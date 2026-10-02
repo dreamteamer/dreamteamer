@@ -90,6 +90,7 @@ describe('keys', () => {
 		const r = resolve({ k: { type: 'string', enum: ['CRM'] } });
 		assert.deepEqual(r.errors, []);
 		assert.match(r.warnings[0], /not kebab-case/);
+		assert.deepEqual(resolve({ k: { type: 'string', enum: ['node_modules'], passthrough: true } }).warnings, [], 'a passthrough value keeps its outside spelling');
 		assert.match(resolve({ k: { type: 'integer', enum: [1] } }).errors[0], /belongs to type string/);
 	});
 
