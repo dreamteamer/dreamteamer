@@ -452,11 +452,11 @@ describe('collections: add scaffolds v2, set writes v2 keys', () => {
 		refused(w.dt('set', 'collections/health/doctors', 'icon=x'), /"icon" is not a settable key of a collection/);
 	});
 
-	test('move collections --after writes display.nav.order', () => {
+	test('reorder collections --after writes display.nav.order', () => {
 		const w = clinic({ records: false });
 		ok(w.dt('set', 'collections/health/doctors', 'display.nav.order=10'));
 		ok(w.dt('set', 'collections/health/patients', 'display.nav.order=20'));
-		ok(w.dt('move', 'collections/health/visits', '--after', 'health/doctors'));
+		ok(w.dt('reorder', 'collections/health/visits', '--after', 'health/doctors'));
 		assert.equal(w.doc(VISITS_FILE).display.nav.order, 15);
 		assert.match(w.text(VISITS_FILE), /^# A visit is the EVENT/m);
 	});

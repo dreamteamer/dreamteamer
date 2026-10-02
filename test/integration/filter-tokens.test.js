@@ -29,6 +29,6 @@ test('a view filter with an unknown token fails compile', () => {
 	writeCollection(w.root, 'visits', VISITS);
 	const dir = path.join(w.root, 'modules', WS_MODULE, 'ui-views');
 	fs.mkdirSync(dir, { recursive: true });
-	fs.writeFileSync(path.join(dir, 'today.ui-view.yaml'), dump({ path: '/visits/today', target: 'list', collection: 'collections/visits', layout: 'table', filter: { day: { _eq: '$yesterday' } } }));
+	fs.writeFileSync(path.join(dir, 'today.ui-view.yaml'), dump({ route: '/visits/today', scope: 'collection', collection: 'collections/visits', filter: { day: { _eq: '$yesterday' } } }));
 	assert.match(compileError(w.ws), /filter holds unknown value token\(s\) \$yesterday/);
 });
