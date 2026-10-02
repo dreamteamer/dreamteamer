@@ -55,6 +55,9 @@ export const engineRoot = path.dirname(path.dirname(engineBin));
 
 // ---- values the workspace half adds ---------------------------------------------------------------
 export { envContext, renderTemplate, parseEnvValues } from './env-vars.js';
+// the one template grammar (`{{ field | filter:arg }}`): what a surface renders `record_title`,
+// `display.record.subtitle`, `card_title` and `item_title` with, so no surface keeps a second parser
+export { parseTemplate, validateTemplate, renderDisplay } from './template.js';
 export { satisfies } from './semver.js';
 
 // ---- the compiler, schema and module operations ---------------------------------------------------
