@@ -18,7 +18,7 @@ import { Store } from '../../src/store.js';
 import { addField } from '../../src/schema-ops.js';
 
 /** Path-shaped ids, so the index has nested folders to get the order wrong in. */
-const ITEMS = simpleCollection({ id: { pattern: '^[a-z0-9][a-z0-9/._-]*$' } });
+const ITEMS = simpleCollection({ ids: { pattern: '^[a-z0-9][a-z0-9/._-]*$' } });
 
 const base = (pkg) => workspace({ collections: { items: ITEMS }, pkg });
 

@@ -3,17 +3,19 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { relationsOf, expectedMirrors } from '../../src/relations.js';
 
+// compiled descriptors: a relation is declared once, on the mirror (`mirror_of`), and the owner's
+// reference carries the cardinality (`many`, `unique`) and `on_delete`
+const compiled = (name, fields) => ({ name, compiled: { fields } });
 const D = new Map([
-	['meetings', { name: 'meetings', schema: { properties: { name: { type: 'string' } } } }],
-	['recordings', { name: 'recordings', schema: { properties: {
-		meeting: { type: 'string', 'x-reference': 'meetings', 'x-inverse': 'recordings' },
-	} } }],
-	['summaries', { name: 'summaries', schema: { properties: {
-		meeting: { type: 'string', 'x-reference': 'meetings', 'x-unique': true, 'x-inverse': 'summary' },
-	} } }],
-	['analyses', { name: 'analyses', schema: { properties: {
-		meetings: { type: 'array', items: { type: 'string', 'x-reference': 'meetings', 'x-inverse': 'analyses', 'x-on-delete': 'set-null' } },
-	} } }],
+	['meetings', compiled('meetings', {
+		name: { type: 'string' },
+		recordings: { type: 'recordings', many: true, mirror_of: 'meeting' },
+		summary: { type: 'summaries', mirror_of: 'meeting' },
+		analyses: { type: 'analyses', many: true, mirror_of: 'meetings' },
+	})],
+	['recordings', compiled('recordings', { meeting: { type: 'meetings' } })],
+	['summaries', compiled('summaries', { meeting: { type: 'meetings', unique: true } })],
+	['analyses', compiled('analyses', { meetings: { type: 'meetings', many: true, on_delete: 'set-null' } })],
 ]);
 
 test('relationsOf decodes kind, cardinality and on-delete from the holder', () => {

@@ -191,16 +191,15 @@ export function writeCollection(root, name, descriptor) {
 /** A minimal valid descriptor, so a test only states the part it is about.
  *
  *  `notes` is here because it is what a real collection has and a relation TARGET must have: compile
- *  refuses to stamp a mirror onto a `codec: md` collection that declares no `x-body`, since a mirror
- *  write would rebuild the file from its parsed fields and drop any prose the record holds. A
- *  fixture without one could not be linked at all. */
+ *  refuses a mirror on a `format: md` collection that declares no body field, since a mirror write
+ *  would rebuild the file from its parsed fields and drop any prose the record holds. A fixture
+ *  without one could not be linked at all. */
 export function simpleCollection(extra = {}) {
 	return {
-		id: { generate: '{{ name | slug }}' },
-		schema: {
-			type: 'object',
-			required: ['name'],
-			properties: { name: { type: 'string' }, notes: { type: 'string', format: 'markdown', 'x-body': true } },
+		ids: { from: '{{ name | slug }}' },
+		fields: {
+			name: { type: 'string', required: true },
+			notes: { type: 'markdown', body: true },
 		},
 		...extra,
 	};
@@ -285,7 +284,7 @@ export function writeModule(root, id, opts = {}) {
 	if (opts.ownsData) dt.owns_data = true;
 	fs.writeFileSync(
 		path.join(modRoot, 'package.json'),
-		JSON.stringify({ name: id, private: true, version: '0.0.1', files: ['collections', 'skills', 'agents', 'commands', 'command-bindings', 'ui-views', 'collection-templates'], dreamteamer: dt }, null, '\t') + '\n',
+		JSON.stringify({ name: id, private: true, version: '0.0.1', files: ['collections', 'skills', 'agents', 'commands', 'command-bindings', 'ui-views', 'mixins'], dreamteamer: dt }, null, '\t') + '\n',
 	);
 	for (const [name, descriptor] of Object.entries(opts.collections ?? {})) {
 		const file = path.join(modRoot, 'collections', `${name}.collection.yaml`);
@@ -319,61 +318,42 @@ export function patchModulePkg(root, id, patch) {
  */
 export const CORE_COLLECTIONS = {
 	people: {
-		id: { generate: '{{ name | slug }}' },
-		storage: { suffix: 'person' },
 		description: 'A person this workspace knows about.',
-		schema: {
-			type: 'object',
-			required: ['name'],
-			properties: {
-				name: { type: 'string' },
-				employer: { type: 'string' },
-				notes: { type: 'string', format: 'markdown', 'x-body': true },
-			},
+		storage: { suffix: 'person' },
+		ids: { from: '{{ name | slug }}' },
+		fields: {
+			name: { type: 'string', required: true },
+			employer: { type: 'string' },
+			notes: { type: 'markdown', body: true },
 		},
 	},
 	teams: {
-		id: { generate: '{{ name | slug }}' },
-		storage: { suffix: 'team' },
 		description: 'A group of people with a shared remit.',
-		schema: {
-			type: 'object',
-			required: ['name'],
-			properties: {
-				name: { type: 'string' },
-				notes: { type: 'string', format: 'markdown', 'x-body': true },
-			},
+		ids: { from: '{{ name | slug }}' },
+		fields: {
+			name: { type: 'string', required: true },
+			notes: { type: 'markdown', body: true },
 		},
 	},
 	tasks: {
-		id: { generate: '{{ name | slug }}' },
-		storage: { suffix: 'task' },
 		description: 'One concrete commitment.',
-		schema: {
-			type: 'object',
-			required: ['name'],
-			properties: {
-				name: { type: 'string' },
-				owner: { type: 'string', 'x-reference': 'people' },
-				notes: { type: 'string', format: 'markdown', 'x-body': true },
-			},
+		ids: { from: '{{ name | slug }}' },
+		fields: {
+			name: { type: 'string', required: true },
+			owner: { type: 'people' },
+			notes: { type: 'markdown', body: true },
 		},
 	},
 };
 
 export const HR_COLLECTIONS = {
 	'hr/positions': {
-		id: { generate: '{{ name | slug }}' },
-		storage: { suffix: 'position' },
 		description: 'An open or filled role.',
-		schema: {
-			type: 'object',
-			required: ['name'],
-			properties: {
-				name: { type: 'string' },
-				holder: { type: 'string', 'x-reference': 'people' },
-				notes: { type: 'string', format: 'markdown', 'x-body': true },
-			},
+		ids: { from: '{{ name | slug }}' },
+		fields: {
+			name: { type: 'string', required: true },
+			holder: { type: 'people' },
+			notes: { type: 'markdown', body: true },
 		},
 	},
 };
