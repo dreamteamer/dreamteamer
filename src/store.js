@@ -537,7 +537,7 @@ export class Store {
 			const day = /(\d{4}-\d{2}-\d{2})/.exec(id)?.[1];
 			if (day) return normalizeTemporal(day, 'date-time');
 		}
-		return this.addedDates(collection).get(path.relative(this.root, file));
+		return this.addedDates(collection).get(path.relative(this.root, file).split(path.sep).join('/'));
 	}
 
 	/**
@@ -549,15 +549,23 @@ export class Store {
 		this._addedDates ??= new Map();
 		if (this._addedDates.has(collection)) return this._addedDates.get(collection);
 		const dates = new Map();
+		const s = storageOf(this.descriptor(collection));
+		const repo = path.resolve(this.root, s.repo ?? '.');
+		const inRepo = (p) => path.relative(repo, path.resolve(this.root, p)).split(path.sep).join('/');
+		// every place a record of this collection can sit: its own folder, and — when it is stored under a
+		// parent — each parent record's subfolder, so a move between the two is seen as the rename it is
+		const where = [inRepo(s.path)];
+		if (s.under?.collection && s.under.subfolder) where.push(`:(glob)${inRepo(storageOf(this.descriptor(s.under.collection)).path)}/**/${s.under.subfolder}/**`);
 		try {
-			const out = execFileSync('git', ['log', '--reverse', '-M', '--diff-filter=AR', '--name-status', '--format=%x01%aI', '--', storageOf(this.descriptor(collection)).path],
-				{ cwd: this.root, stdio: ['ignore', 'pipe', 'ignore'], timeout: 60_000, maxBuffer: 256 * 1024 * 1024 }).toString();
+			const out = execFileSync('git', ['log', '--reverse', '-M', '--diff-filter=AR', '--name-status', '--format=%x01%aI', '--', ...where],
+				{ cwd: repo, stdio: ['ignore', 'pipe', 'ignore'], timeout: 60_000, maxBuffer: 256 * 1024 * 1024 }).toString();
+			const key = (p) => path.relative(this.root, path.join(repo, p)).split(path.sep).join('/');
 			let at;
 			for (const line of out.split('\n')) {
 				if (line.startsWith('\x01')) { at = line.slice(1); continue; }
 				const [status, a, b] = line.split('\t');
-				if (status === 'A' && !dates.has(a)) dates.set(a, at);
-				else if (status?.startsWith('R') && b) { dates.set(b, dates.get(a) ?? at); dates.delete(a); }
+				if (status === 'A' && !dates.has(key(a))) dates.set(key(a), at);
+				else if (status?.startsWith('R') && b) { dates.set(key(b), dates.get(key(a)) ?? at); dates.delete(key(a)); }
 			}
 		} catch { /* no git, or no history yet: every date stays unknown */ }
 		this._addedDates.set(collection, dates);

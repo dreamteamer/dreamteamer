@@ -72,3 +72,40 @@ describe('nested ids', () => {
 		assert.equal(dt(w.root, 'set', 'lab-results/2026-01-02--alt', 'person=people/lin').code, 0, 'a set moves it, id unchanged');
 	});
 });
+
+describe('created dates for records stored under a parent', () => {
+	const PARENTS = { description: 'A parent.', storage: { shape: 'folder', entry: 'parent.md' }, ids: { from: '{{ name | slug }}' }, fields: { name: { type: 'string', required: true }, notes: { type: 'markdown', body: true } } };
+	const CHILDREN = { description: 'A child.', singular: 'child', storage: { suffix: 'child', under: { parent: 'parent', subfolder: 'children' } }, ids: { from: '{{ name | slug }}' }, fields: { name: { type: 'string', required: true }, parent: { type: 'parents' }, notes: { type: 'markdown', body: true } } };
+	const unstamp = (file) => fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace(/^created: .*\n/m, ''));
+	test('a pre-stamp placed record, a fallback-root record and a relocated one keep their first commit date', async () => {
+		const w = workspace({ compile: false });
+		writeCollection(w.root, 'parents', PARENTS);
+		writeCollection(w.root, 'children', CHILDREN);
+		compileQuietly(w.ws);
+		assert.equal(dt(w.root, 'add', 'parents', '--name', 'Alpha').code, 0);
+		assert.equal(dt(w.root, 'add', 'children', '--name', 'Placed', '--parent', 'parents/alpha').code, 0);
+		assert.equal(dt(w.root, 'add', 'children', '--name', 'Loose').code, 0);
+		assert.equal(dt(w.root, 'add', 'children', '--name', 'Moved').code, 0);
+		const placed = path.join(w.root, 'data', 'parents', 'alpha', 'children', 'placed.child.md');
+		const loose = path.join(w.root, 'data', 'children', 'loose.child.md');
+		const moved = path.join(w.root, 'data', 'children', 'moved.child.md');
+		for (const f of [placed, loose, moved]) { assert.ok(fs.existsSync(f), f); unstamp(f); }
+		w.git(['add', 'data']);
+		w.git(['commit', '-qm', 'pre-stamp records', '--date=2020-01-02T10:00:00+00:00']);
+		// the relocation: a parent set by hand, then the record moved where its descriptor puts it
+		fs.writeFileSync(moved, fs.readFileSync(moved, 'utf8').replace(/^name: Moved$/m, 'name: Moved\nparent: parents/alpha'));
+		w.git(['commit', '-qam', 'parent set', '--date=2020-06-01T10:00:00+00:00']);
+		const rel = dt(w.root, 'relocate', 'children/moved');
+		assert.equal(rel.code, 0, rel.stdout + rel.stderr);
+		w.git(['add', '-A', 'data']);
+		w.git(['commit', '-qm', 'relocate', '--date=2021-03-04T10:00:00+00:00']);
+		const { Store } = await import('../../src/store.js');
+		const store = new Store(w.ws);
+		for (const id of ['placed', 'loose', 'moved']) {
+			const { fields, file } = store.read('children', id);
+			assert.equal(fields.created, undefined, `${id} predates the stamp`);
+			assert.match(store.createdOf('children', id, fields, file) ?? '', /^2020-01-02T10:00:00/, `${id}: the first commit date`);
+		}
+		assert.ok(fs.existsSync(path.join(w.root, 'data', 'parents', 'alpha', 'children', 'moved.child.md')), 'the relocated record sits under its parent');
+	});
+});
