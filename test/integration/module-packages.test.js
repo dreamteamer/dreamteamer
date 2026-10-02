@@ -1,5 +1,5 @@
 // A PACKAGE OF MODULES: one npm dependency (or one git clone) whose root carries `modules/` delivers
-// several modules at once, and a bare `dreamteamer.disable` entry drops whole ones — the
+// several modules at once, and a `modules/<id>` entry in `dreamteamer.disable` drops whole ones — the
 // cherry-pick. Before this, one dependency was exactly one module, so a family of related modules
 // meant a repo (and an install) per module, or a root that tried to be all of them at once.
 import { test, describe } from 'node:test';
@@ -89,27 +89,27 @@ describe('a dependency whose root carries modules/ is a package of modules', () 
 	});
 });
 
-describe('a bare dreamteamer.disable entry drops a whole module', () => {
+describe('a modules/<id> dreamteamer.disable entry drops a whole module', () => {
 	test('the disabled module is neither discovered nor compiled, and the entry counts as matched', () => {
-		const ws = withNpmBundle(['crates', 'lanes'], ['lanes']);
+		const ws = withNpmBundle(['crates', 'lanes'], ['modules/lanes']);
 		const { modules, disabledModules } = discoverModules(ws.root, ws.pkg);
 		assert.deepEqual(modules.map((m) => m.name).filter((n) => n === 'lanes'), []);
-		assert.deepEqual(disabledModules, ['lanes']);
+		assert.deepEqual(disabledModules, ['modules/lanes']);
 		const { code, warnings } = compileQuietly(ws);
 		assert.equal(code, 0);
 		const compiled = compiledCollections(ws.root);
 		assert.ok(compiled.includes('crates') && !compiled.includes('lanes'), compiled.join(', '));
-		assert.ok(!warnings.some((w) => w.includes('"lanes" matched nothing')), warnings.join('\n'));
+		assert.ok(!warnings.some((w) => w.includes('"modules/lanes" matched nothing')), warnings.join('\n'));
 	});
 
-	test('a bare entry that names no module still warns, exactly like an entity entry that matches nothing', () => {
-		const ws = withNpmBundle(['crates'], ['ghost']);
+	test('a modules/<id> entry that names no module still warns, exactly like an entity entry that matches nothing', () => {
+		const ws = withNpmBundle(['crates'], ['modules/ghost']);
 		const { warnings } = compileQuietly(ws);
-		assert.ok(warnings.some((w) => w.includes('dreamteamer.disable entry "ghost" matched nothing')), warnings.join('\n'));
+		assert.ok(warnings.some((w) => w.includes('dreamteamer.disable entry "modules/ghost" matched nothing')), warnings.join('\n'));
 	});
 
 	test('disabling a module another one depends on fails loudly, naming what is present', () => {
-		const ws = withNpmBundle(['crates', 'lanes'], ['crates']);
+		const ws = withNpmBundle(['crates', 'lanes'], ['modules/crates']);
 		const lanesPkg = path.join(ws.root, 'node_modules', '@acme', 'pack', 'modules', 'lanes', 'package.json');
 		const p = JSON.parse(fs.readFileSync(lanesPkg, 'utf8'));
 		p.dreamteamer.dependencies = ['crates'];
