@@ -12,19 +12,15 @@ import { workspace, twoModuleWorkspace, simpleCollection, tree, readFile, git, E
 import { Store } from '../../src/store.js';
 
 const TASKS = {
-	id: { generate: '{{ title | slug }}', pattern: '^[a-z0-9-]+$' },
+	ids: { from: '{{ title | slug }}', pattern: '^[a-z0-9-]+$' },
 	storage: { suffix: 'task' },
-	schema: {
-		type: 'object',
-		required: ['title', 'status'],
-		properties: {
-			title: { type: 'string' },
-			status: { type: 'string', enum: ['todo', 'doing', 'done'], default: 'todo' },
-			due: { type: 'string', format: 'date' },
-			owner: { type: 'string', 'x-reference': 'people' },
-			tags: { type: 'array', items: { type: 'string' } },
-			body: { type: 'string', format: 'markdown', 'x-body': true },
-		},
+	fields: {
+		title: { type: 'string', required: true },
+		status: { type: 'string', required: true, enum: ['todo', 'doing', 'done'], default: 'todo' },
+		due: { type: 'date' },
+		owner: { type: 'people' },
+		tags: { type: 'string', many: true },
+		body: { type: 'markdown', body: true },
 	},
 };
 const PEOPLE = simpleCollection({ storage: { suffix: 'person' } });
@@ -75,7 +71,7 @@ describe('hard validation — nothing was written', () => {
 		['a bad enum value', { title: 'T', status: 'nope' }, /not in enum/],
 		['a missing required field', { status: 'todo' }, /required/],
 		['a dangling reference', { title: 'T', owner: 'people/ghost' }, /dangling reference/],
-		// `owner` is single-target (x-reference: 'people'), so a bare id like 'ghost' is now
+		// `owner` is single-target (type: people), so a bare id like 'ghost' is now
 		// qualified to 'people/ghost' on input (task 8) and fails as a dangling reference, not as
 		// malformed syntax — that path is covered in ref-unions.test.js. An empty string is the one
 		// value qualifyBareRefs leaves untouched, so it still reaches checkRefs raw and unparseable.
@@ -343,11 +339,11 @@ describe('nested ids', () => {
 		const ws = workspace({
 			collections: {
 				meetings: {
-					id: { generate: '{{ date }}/{{ title | slug }}' },
+					ids: { from: '{{ date }}/{{ title | slug }}' },
 					storage: { suffix: 'meeting' },
-					schema: {
-						type: 'object', required: ['title', 'date'],
-						properties: { title: { type: 'string' }, date: { type: 'string' } },
+					fields: {
+						title: { type: 'string', required: true },
+						date: { type: 'string', required: true },
 					},
 				},
 			},
@@ -475,11 +471,12 @@ describe('a date-derived id does not depend on the machine zone', () => {
 		const ids = ['UTC', 'Pacific/Kiritimati'].map((tz) => {
 			const ws = workspace({ collections: { meetings: simpleCollection({
 				storage: { suffix: 'meeting' },
-				id: { generate: '{{ starts | date:YYYY-MM-DD--HH-mm }}--{{ name | slug }}' },
-				schema: { type: 'object', required: ['name', 'starts'], properties: {
-					name: { type: 'string' }, starts: { type: 'string', format: 'date-time' },
-					notes: { type: 'string', format: 'markdown', 'x-body': true },
-				} },
+				ids: { from: '{{ starts | date:YYYY-MM-DD--HH-mm }}--{{ name | slug }}' },
+				fields: {
+					name: { type: 'string', required: true },
+					starts: { type: 'datetime', required: true },
+					notes: { type: 'markdown', body: true },
+				},
 			}) } });
 			const res = spawnSync(process.execPath, [path.join(ENGINE_ROOT, 'bin', 'dreamteamer.js'), 'add', 'meetings', '--name', 'Kickoff', '--starts', '2026-07-28T23:30:00+03:00'],
 				{ cwd: ws.root, env: { ...process.env, TZ: tz }, encoding: 'utf8', timeout: SPAWN_TIMEOUT_MS, killSignal: 'SIGKILL' });
@@ -495,10 +492,11 @@ describe('dt list --sort on an enum field follows the declared order', () => {
 	test('draft → active → done, not alphabetical', () => {
 		const ws = workspace({ collections: { tasks: simpleCollection({
 			storage: { suffix: 'task' },
-			schema: { type: 'object', required: ['name'], properties: {
-				name: { type: 'string' }, status: { type: 'string', enum: ['draft', 'active', 'done'] },
-				notes: { type: 'string', format: 'markdown', 'x-body': true },
-			} },
+			fields: {
+				name: { type: 'string', required: true },
+				status: { type: 'string', enum: ['draft', 'active', 'done'] },
+				notes: { type: 'markdown', body: true },
+			},
 		}) } });
 		for (const [name, status] of [['Ship', 'done'], ['Plan', 'draft'], ['Build', 'active']]) assert.equal(ws.dt('add', 'tasks', '--name', name, '--status', status).code, 0);
 		const order = (sort) => JSON.parse(ws.dt('list', 'tasks', '--sort', sort, '--json').stdout).map((r) => r.status);
