@@ -23,11 +23,12 @@ the verbs and flags are `dt help`'s job; what to know *about* them:
   in one `--where`** — its operator grammar is enumerated in `dt help`, and it is
   the same one views and gates use — e.g.
   `dt list health/prescriptions --where '{"_and":[{"patient":{"_eq":"health/patients/dana-levi"}},{"status":{"_eq":"active"}}]}'`.
-  ⚠ an unknown field or a dangling ref **narrows to nothing** rather than erroring — filter field
-  names deserve the same care as code.
-- ⚠ **there is no `@me` and no `users` collection** (both removed in 0.8.0). when a person is
-  needed, read `git config user.name`; filter on a person only when this workspace ships its own
-  collection of people.
+  `$today` and `$now` are the two value tokens (`{"date":{"_lte":"$today"}}`); any other `$word`
+  is refused. `--filter` and `--sort` refuse a field the collection lacks, but inside `--where`
+  ⚠ an unknown field or a dangling ref **narrows to nothing** rather than erroring.
+- ⚠ **there is no `@me` and no `users` collection.** when a person is needed, read
+  `git config user.name`; filter on a person only when this workspace ships its own collection of
+  people.
 - `dt values <collection> <field>` is a field's *actual* vocabulary — what a proposal, a filter
   or a validator should offer as choices.
 - `--json` works on every record and reporting verb (`resolve` excepted) — use it whenever
@@ -38,29 +39,35 @@ the verbs and flags are `dt help`'s job; what to know *about* them:
 ## writing through the CLI
 
 - **validation is hard and includes unknown fields.** a typo'd key (`--assinee`), a dangling ref,
-  a bad enum value (the error echoes what it got), an id missing `id.pattern` — rejected with
+  a bad enum value (the error echoes what it got), an id missing `ids.pattern` — rejected with
   nothing written. a rejected write leaves no partial state.
 - **a write puts the record on disk; `dt commit` publishes it** — committing is workspace policy
-  (`auto-commit` in `package.json`, default off), never part of the write.
-- `set <collection>/<id> <field>=` with an empty value **removes** the field; the `x-body` field is
+  (`auto_commit` in `package.json`, default off), never part of the write.
+- `set <collection>/<id> <field>=` with an empty value **removes** the field; the body field is
   set like any other field.
+- **some fields refuse every writer**, naming why: a generated mirror (set the owner's field
+  instead), `created` (the engine stamps it at add), and `id` / `last_modified` (computed on read).
+  a `unique` value another record holds is refused too, naming that record.
 - an **array field** takes a comma-separated value (`--tags a,b`, `tags=a,b`) — or the flag/pair
   **repeated**, one element per sighting (`--tags a --tags b`), which is how a value that itself
-  contains a comma gets written. ⚠ repeating a **scalar** field is refused, naming it: it used to
-  keep the last value silently, so the first one never reached disk.
+  contains a comma gets written. ⚠ repeating a **scalar** field is refused, naming it.
 - ids generate from the record's own creation-time values — pass `--id` only when the operator
-  named one.
+  named one, or when the generated id collides (the refusal names the record holding it).
+- a `type: position` field is the collection's manual order: `dt reorder <collection>/<id>
+  --after|--before <id> | --top | --bottom`, never a hand-set value.
 
 ## before writing anything
 
-read the compiled descriptor: `.dreamteamer/collections/<collection>.collection.yaml`. it defines
-`storage` (path/codec/shape/suffix), `id` (`generate` template + `pattern`), and `schema` (JSON
-Schema; the `x-` keywords carry the domain semantics — `x-reference`, `x-body`, `x-inverse`). it
-also carries `title` (what to call the collection) and `title_template` (how to label one record).
+read the compiled descriptor: `.dreamteamer/collections/<collection>.collection.yaml`. it holds
+what the author wrote — `fields` (each with its `type`, `required`, `enum`, `description`…),
+`storage`, `ids` (`from` + `pattern`), `record_title`, `display` — and a `compiled:` block with
+what compile decided: `defaults` (every value it supplied), `fields` (resolved, the injected `id`,
+`created` and `last_modified` included) and `json_schema` (what the validator runs). the field
+vocabulary is `collections.md`.
 
-the schema is the CONTRACT, and it is required to be sufficient: each field's `description`
-carries its conventions, an `examples:` annotation (standard JSON Schema — compile passes it
-through to the compiled descriptor) carries a canonical value where the shape is non-obvious, and
+the descriptor is the CONTRACT, and it is required to be sufficient: each field's `description`
+carries its conventions, an `examples:` list carries a canonical value where the shape is
+non-obvious, and
 `dt values` shows a vocabulary's real spread. so **with a sufficient schema, do not open sibling
 records for shape** — the descriptor answers faster than a peek, the validator rejects a wrong
 write before disk, and a sibling is a bet on whichever record you grabbed being representative
@@ -83,13 +90,14 @@ the same breath, so the next writer needs no peek. then:
 - put the file where the id says: the id IS its path inside `storage.path`, minus suffix and
   extension (folder-shape records are a folder named `<id>` holding the descriptor's `entry`).
   the id template is evaluated ONCE, at creation, and never re-derived — a later edit to a field
-  it named does not move the record — and the result must satisfy `id.pattern`.
+  it named does not move the record — and the result must satisfy `ids.pattern`.
 - **materialize defaults explicitly** — write `status: todo` even though it's the schema default;
-  a file should be legible without its schema.
+  a file should be legible without its schema. leave `created` out: a hand-written record reads
+  it from the commit that added the file (or from its id, when `ids.from` names `created`).
 - `dt check` is the only validation a hand-write gets. run it before you commit.
 
-example — `data/tasks/2026-07-25--fix-login-flow.task.md` (`md` codec: frontmatter holds the
-fields, the body is the single `x-body: true` field):
+example — `data/tasks/2026-07-25--fix-login-flow.task.md` (`format: md`: frontmatter holds the
+fields, the body is the single `body: true` field):
 
 ```markdown
 ---
@@ -103,8 +111,8 @@ Users report the login button does nothing on mobile.
 
 ## namespaced collections
 
-a collection may be scoped under a namespace declared in the workspace `package.json`
-(`dreamteamer.namespaces`). working with its records is unchanged except that the QUALIFIED name
+a collection may be scoped under a namespace its module declares (`dreamteamer.namespaces` in
+the module's `package.json`). working with its records is unchanged except that the QUALIFIED name
 is the collection's name everywhere: `health/doctors/dana-levi` is the collection `health/doctors`
 and the id `dana-levi` — a reference splits at the end of the **declared** prefix, never at the
 first slash. the default namespace has no prefix (`tasks/kickoff`, exactly as always), and an
@@ -114,7 +122,9 @@ undeclared prefix reads as a nested id and dangles — `dt check` says so. decla
 ## records stored under another record — the folder follows the owner
 
 a collection may declare `storage.under` (`collections.md`): a meeting with a `company` lives in
-that company's folder, one without stays in `data/meetings/`. working with it is unchanged in
+that company's folder, one without stays in `data/meetings/`. with `under.id: nested` the id
+begins with the parent's and changing the parent is a `dt rename`, not a `dt set`; the rest of
+this section is the default, independent id. working with it is unchanged in
 every way that names a record — `list` is the whole collection, `get`/`set`/`rm`/`rename` take
 `meetings/<id>` wherever the file sits, references never carry a folder — and different in one:
 **the owner field moves the file.** `dt set meetings/<id> company=companies/harbor` relocates the
@@ -130,9 +140,8 @@ the declaration is removed or its path changed: `dt relocate <collection> --to-r
 
 ## two-way relations — the mirror is generated, and read-only
 
-a reference field may declare `x-inverse`: compile GENERATES the field it names on the TARGET
-collection, and the store maintains that value in the same write as every change to the owning
-side. so **never set or hand-edit a mirror** — `dt set` refuses it, and a hand-edit is what
+a field on the TARGET collection may declare `mirror_of: <owner field>`: it is GENERATED, and
+the store maintains its value in the same write as every change to the owning side. so **never set or hand-edit a mirror** — `dt set` refuses it, and a hand-edit is what
 `check` reports as `<field>: stale`; write the owning side's reference and the mirror follows.
 `dt relations` lists every pair (owner.field → target.mirror, cardinality, on-delete) and
 `dt relations rebuild <collection>` recomputes mirror values from the owning side — the repair
@@ -158,8 +167,8 @@ source_file: ${env:FILES_FOLDER}/2026/q3.pdf
 - **an attached FILE follows the filing convention**: a files folder is named after the
   collection or field that indexes it, and the path below it is the record id —
   `${env:FILES_FOLDER}/visit-recordings/<record id>.m4a` needs no lookup table. a collection
-  whose records ARE files (`codec: file` — icons, images) is written with
-  `dt add <collection> --from <path>`, never with field flags: the fields derive from the file.
+  whose records ARE files (`format: binary` — icons, images) is written with
+  `dt add <collection> <id> --from <path>`, never with field flags: the fields derive from the file.
 - ⚠ **templates are ordinary data — write them literally.** `get`, `list`, `check` and every
   harness read the template verbatim; nothing substitutes until resolve is called.
 
@@ -167,7 +176,7 @@ source_file: ${env:FILES_FOLDER}/2026/q3.pdf
 
 - **commit when a logical change is complete.** an uncommitted write is invisible to `dt changes` and to every
   other CLONE — while a session SHARING this tree sees it immediately, which is why the sweep
-  rules below exist — `auto-commit` off makes the commit a deliberate act, not a
+  rules below exist — `auto_commit` off makes the commit a deliberate act, not a
   forbidden one, and publishing what the operator asked you to write needs scope, not permission.
   `dt status` says what is pending.
 - **records are `dt commit`'s to publish; sources are git's.** a module source change (a
@@ -189,7 +198,7 @@ source_file: ${env:FILES_FOLDER}/2026/q3.pdf
   own owner is dirty from someone else: scope to the pair rather than publish half of anyone's
   work. the COLLECTION form publishes exactly what it names and prints the partners it left
   pending — HEAD then fails `dt check` until they land.
-- **one commit per REPO.** a module can own its records (`owns-data` in its package.json), and
+- **one commit per REPO.** a module can own its records (`owns_data` in its package.json), and
   git has no cross-repo commit — a rename whose inbound refs live in another repo is TWO commits;
   `dt commit` prints both.
 - when git is used directly (hand-edited markdown bodies), stage the specific files — never
@@ -216,7 +225,7 @@ every inbound reference; `dt rename` moves the file and rewrites
 every inbound ref in the same WRITE — `dt commit` then publishes the whole rename together (the
 entanglement guard prints the set to name). **never
 delete a referenced record** — `rm` refuses while anything points at it, unless that field
-declares `x-on-delete: set-null`, which clears it instead; retarget first. **a changed title
+declares `on_delete: set-null`, which clears it instead; retarget first. **a changed title
 never changes the id.** **one logical change, one commit** — a bulk import is ONE change, not
 two hundred.
 
@@ -231,7 +240,7 @@ two hundred.
 | `--force` to get past an `rm` refusal | it leaves inbound refs dangling — retarget them first (unless the refusal named a *prose* mention, which isn't a real reference) |
 | omitting schema defaults from a hand-written file | the file stops being legible without the schema |
 | unquoted `due: 2026-07-28` in hand-written YAML | dreamteamer parses CORE_SCHEMA so it stays a string *here*, but a default-schema YAML reader turns it into a timestamp — quote dates |
-| setting a generated mirror | refused by `set`; a hand-edit goes stale — write the owning side |
+| setting a generated mirror, or `created` | refused by `set`; a hand-edit of a mirror goes stale — write the owning side |
 | CLI-editing a skill / agent / command / collection | system sources — edit the module file, then `dt compile` |
 | resolving a template by hand | `dt resolve` is the only substitution point |
 

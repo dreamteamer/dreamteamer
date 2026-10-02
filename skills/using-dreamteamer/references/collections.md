@@ -5,367 +5,462 @@ One descriptor file: `modules/<module>/collections/<name>.collection.yaml`. The 
 
 Two references divide this territory: the *judgment* — grain, relations, enums vs vocabularies,
 what deserves to be a collection at all — lives in `data-modeling.md`; the **mechanics** live
-here. You are here either authoring a descriptor or staring at a compile message, and the
-reference is organized for both:
+here. The meta-descriptor `.dreamteamer/collections/collections.collection.yaml` states every key
+in one line each; this reference says how they behave:
 
 | the question | read |
 |---|---|
-| what compile actually does to my source | the pipeline |
+| what a descriptor holds — keys, types, ids, display | the descriptor · fields · ids and templates · display |
+| what compile does to my source, and what a message means | the pipeline · the message catalog |
 | create or change shape with the CLI | the system and field verbs |
-| a brand-new module for a domain | declaring a module |
-| a prefix / a folder per domain | namespaces |
-| the same field set on several collections | `templates:` |
-| adding fields to another module's collection | `extends:` |
-| a reference into another module | the reference contract |
-| a data folder that already exists | registering an existing folder |
-| changing shape with records present | evolving a schema |
-| what a compile message means | the message catalog |
+| a module, the `package.json` block, a namespace | declaring a module · the workspace manifest · namespaces |
+| records inside their parent's folder | relationship-based storage |
+| shared fields, another module's collection, a cross-module reference | mixins · overlays · the reference contract |
+| a data folder that already exists, or shape changing under records | registering an existing folder · evolving a schema |
+
+## the descriptor
+
+```yaml
+# modules/default/collections/people.collection.yaml
+name: people
+singular: person                 # the inflector leaves `people` as it is; `dt add person …` reads better
+description: A person this workspace deals with — never the organisation, which is `companies`.
+use_when: a person is named in a meeting, an email or a document — find or create them here first
+storage:
+  suffix: person                 # <id>.person.md
+fields:
+  name:
+    type: string
+    required: true
+    description: Full name, as they write it.
+  email:
+    type: email
+    unique: true
+    description: Where to write to them. Unique — two records with one address are one person.
+  notes:
+    type: markdown
+    body: true
+    description: Anything worth knowing, as prose.
+```
+
+The top-level keys, closed (any other is a compile error naming the list):
+
+| key | contract |
+|---|---|
+| `name` | the id; equals the filename; carries the namespace (`health/visits`) |
+| `title` | the human label; default the title-cased bare name |
+| `singular` | the word the CLI also accepts (`dt add person`); default the inflected bare name, namespace kept. Compile warns when the inflector cannot singularise the name, and refuses two collections answering to one word |
+| `record_title` | how one record is labelled wherever it is referenced — a template; default the first of `title` · `name` · `subject`, else `{{ id }}`. Its first token must be a `string` or `markdown` field: it is what `dt add <collection> "<title>"` fills |
+| `description` · `use_when` | what one record IS (naming the neighbour it is not) · the situations that bring a session here. Both feed the orientation block (`data-modeling.md` §18) |
+| `internal` | workspace plumbing, left out of the domain listing — the engine's collections and the workspace module's only |
+| `sensitive` | records never leave through an export; the same key on a field keeps one field back |
+| `storage` | `path` (default `data/<name>`) · `format: md \| yaml \| json \| binary` (default `md`) · `shape: file \| folder` · `entry` (folder shape: the file that IS the record) · `suffix` (default the inflected bare name — an authored `singular` does not change it) · `under` (below) · `max_bytes` · `accept` (binary only) |
+| `ids` | `from` and `pattern` — ids and templates, below |
+| `mixins` · `overlay` | below |
+| `fields` | the fields, in form order. **Required to be present** — it is what marks a descriptor; a `format: binary` collection writes `fields: {}` |
+| `constraints` | a list of JSON Schema combinators for a rule across fields. Every property named must be a field, and an `if` must name `required` or it passes vacuously on a record lacking the field |
+| `display` | nav · list · record · form, below |
+
+## fields
+
+| `type` | stores | notes |
+|---|---|---|
+| `string` · `markdown` | text | `markdown` with `body: true` is the record's prose, one per collection, kept last |
+| `boolean` · `integer` · `number` | as named | |
+| `date` · `datetime` | `2026-10-02` · an instant with its offset | the CLI stamps the local offset on `"2026-10-02 12:00"` |
+| `url` · `email` | text, format-checked | |
+| `<collection>` | a reference, `<collection>/<id>` | the foreign key |
+| `[a, b]` | a reference to one of several | the stored prefix disambiguates |
+| `reference` | a reference to any collection | existence checked only; no mirror; warns outside the workspace module |
+| `object` | a nested map, with `fields:` | with `many: true`, rows labelled by `item_title` |
+| `map` | key → value, typed by `values:` | `values` omitted: an open map |
+| `position` | the manual-order key `dt reorder` writes | one per collection, never `many` |
+
+`many: true` makes a list of any type but `position`; constraints on a `many` field (`pattern`, `minimum`,
+`maxLength`…) apply to each item. A collection may not be named after a type.
+
+The field keys, closed — the order a field is best written in:
+
+| key | contract |
+|---|---|
+| `type` · `title` | the type above · the label, default the title-cased name |
+| `required` · `many` · `default` | as named; a default is filled in at `dt add` |
+| `enum` | a list, or a map of value → `{ label, description, icon, color, background }`; on `type: string` only. Map order is band order. A value that is not kebab-case warns (`dt rename-value` renames one) |
+| `unique` | no two records hold the same value, on any scalar field — enforced at write and by `check`, both claimants named; absent never claims |
+| `mirror_of` | this field is the generated, read-only mirror of the named field on the `type` collection — the one relation spelling (`data-modeling.md` Part VI) |
+| `on_delete` | `restrict` (the default on every reference) or `set-null`, refused on a required reference |
+| `soft` | a reference whose target record — or collection — may not exist yet; `check` tolerates the miss, the stored value must still name an allowed collection |
+| `sensitive` · `deprecated` | never exported · still validates, drawn nowhere, `dt add` warns on it |
+| `body` | the prose field, `type: markdown` |
+| `derived` · `virtual` | engine marks: stored but written only by the engine (`created`) · never stored (`id`, `last_modified`, a binary record's `ext` and `bytes`). A write naming either is refused |
+| `passthrough` | the name keeps a harness's own spelling (`argument-hint`); without it a name that is not snake_case warns |
+| `fields` · `values` · `item_title` | for `object`, `map`, rows of a `many` object |
+| `examples` · `pattern` · `minimum` · `maximum` · `minItems` · `maxItems` · `minLength` · `maxLength` · `const` | passed to the validator; the first `examples` value is rendered into the orientation block's `write:` line |
+| `display` | `editable` (`true` · `false` · `create`) · `hidden` (any of `list` · `form` · `record`) · `form_section` · `placeholder` · `unit` (`currency` · `percent` · `bytes` · a literal) · `unit_field` · `direction` · `width` · `viewer` · `editor` · `options` |
+| `description` | what the value MEANS — the tooltip and the agent's guidance |
+
+`display.editable: false` locks the surface and lets the CLI and syncs through; `mirror_of`,
+`derived` and `virtual` refuse every writer. A required field with no default that is hidden from
+the form or not editable is a compile error — nothing could create a record.
+
+Every collection also carries three **injected** fields, never authored: `id` (virtual, the path),
+`last_modified` (virtual, from git) and `created` — stamped into the frontmatter by `dt add`,
+before the id is made, so `ids.from` may name it. A record written before the stamp existed reads
+`created` from its id's date when `ids.from` names `created`, else from the commit that added the
+file. A runtime kind (skills, agents…) has no `created`: compile writes those records.
+
+## ids and templates
+
+```yaml
+ids:
+  from: '{{ date | date:YYYY/MM }}/{{ date | date }}--{{ patient | basename }}'
+  pattern: '^\d{4}/\d{2}/\d{4}-\d{2}-\d{2}--[a-z0-9-]+$'
+```
+
+- **`from`** is a template, or an ordered list of them: the first whose fields are all present
+  wins, so `['{{ code }}', '{{ name | slug }}']` reads "the code, else the slugged name". Without
+  `ids`, ids come from `{{ name | slug }}` — a collection with no `name` field declares `from`.
+- **A collision at `dt add` is refused by name**; `--id` is the escape, for an id the operator chose.
+- **`pattern`** must admit everything `from` produces, `/` included when the id shards.
+- **The grammar is one, everywhere** — `ids.from`, `record_title`, `item_title`,
+  `display.record.subtitle` and the layout options that take a template: `{{ field }}`,
+  `{{ field | filter }}`, `{{ field | filter:arg }}`. A field is a declared one or `id` ·
+  `created` · `last_modified`; `{{ seq }}` (a running number, `| pad:3`) exists only in an id.
+  Filters: `date[:fmt]` · `datetime` · `slug` · `pad:n` · `basename` — nothing else. An unknown
+  filter or field is a compile error naming the position.
+- **A reference renders differently by position**: in an id, as the id it holds (`basename` takes
+  the last segment); in a display template, through the target's `record_title`.
+- **`slug` of a name with no Latin letters** falls back to a short hash; the write succeeds and says
+  so. Give such a collection a Latin field to slug, or pass `--id`.
+
+## display — the collection's default view
+
+```yaml
+display:
+  nav:
+    icon: pulse
+    order: 20
+    section: care                 # a free partition of the nav
+  list:
+    layout: table                 # the default; a surface's registered layout id
+    columns: [reason, patient, date, status]
+    sort: -date
+    options:
+      page_size: 50               # the layout's own keys
+  record:
+    layout: page                  # the default
+    subtitle: '{{ patient }} · {{ kind }}'
+    badge: status                 # drawn as a chip in the header
+    color_by: kind                # a field whose enum map's colours tint rows and chips
+  form:
+    sections:
+      - title: Visit
+        fields: [reason, patient, date, status]
+```
+
+This block IS what a bare collection route renders and what `dt list` prints as columns. A
+ui-view carries the same block and changes only what it states (`ui-views.md`). Every field it
+names must exist — columns, sort, badge, color_by, sections — or compile names the position.
+Layout options that take a field are named for the role (`group_by`, `lanes_by`, `color_by`,
+`start`, `end`, `lat`, `lng`); those taking a template end in what they label (`card_title`,
+`bar_title`, `group_title`, `group_summary`). Both kinds are checked; any other option key rides
+through to the surface unchecked.
 
 ## the pipeline — what compile does to a descriptor
 
-The compiled descriptor is not a copy of your source; it is the source **resolved**. Knowing the
-order explains most "why does the compiled file say that" questions:
+The compiled file is the authored keys, resolved, plus one `compiled:` block holding everything
+compile decided. The order explains most "why does the compiled file say that" questions:
 
-1. **`templates:` merge in** — fields inserted *before* the `x-body` property, descriptor winning
-   on any key it declares.
-2. **`extends:` overlays merge onto the base** — properties per-property, `required` unioned,
-   other keys extender-wins.
-3. **Storage resolves** — `storage.path` defaults to `data/<name>` (namespace-nested);
-   `storage.base` is derived (`runtime` iff the path IS one of the entity-kind folders — never
-   author that); an `owns-data` module's path gets prefixed with the module root and its git repo
-   recorded as `storage.repo`.
-4. **`codec: file` collections get their derived schema** (`ext`, `bytes`) — an authored schema
-   there is warned about and replaced; the bytes are the whole record.
-5. **Validation, per collection** — still inside the merge loop, before any relation exists: the
-   merged schema must itself compile as JSON Schema; `id.pattern` must be a valid regex;
-   `sort_field` must name a real field; every `x-reference` target is checked against the module
-   graph (below); at most one `x-body`.
-6. **Relations materialize** — `x-inverse-of` folds onto the owner, mirrors are stamped
-   (`readOnly`, `x-inverse-of`, `uniqueItems` on arrays), cardinality closes, and the
-   relation-specific refusals fire here. The semantics are `data-modeling.md` Part VI; the point
-   here is that this runs across ALL descriptors at once, because a relation spans two files.
-7. **Labels derive** — after relations, so generated mirrors get titles too: `title` (title-cased
-   bare name, namespace stripped), `title_template` (the `title`/`name`/`subject` probe, else
-   `{{ id }}` — which is a smell, see `data-modeling.md` Part VII §31), and a `title` per field.
-   Authored values always win; derivation never overwrites.
-8. **Bytes dump** to `.dreamteamer/collections/<name>.collection.yaml`, with per-source hashes in
-   the manifest — which is what lets `dt status` say precisely which source went stale.
+1. **Mixins merge in**, in list order — fields before the body field; `storage`, `ids` and
+   `display` key by key where the descriptor is silent; `constraints` concatenate.
+2. **Overlays merge onto the base** — new fields before the body, a field the base has merged key
+   by key, every other key overlay-wins (`display` per sub-block).
+3. **Names are checked** — every field `display`, `ids.from`, `storage.under.parent` and every
+   template names; unknown keys in the closed blocks.
+4. **Storage and fields resolve** — the storage defaults (an `owns_data` module's path prefixed
+   with its root); a `format: binary` collection gets `ext` and `bytes` and may declare nothing
+   else; titles, `on_delete`, the injected fields; then the validator's JSON Schema, which must
+   itself compile, and `ids.pattern`, which must be a valid regex.
+5. **The reference contract**, then **relations** — every `mirror_of` checked against its owner
+   across ALL descriptors at once, because a relation spans two files — then placement.
+6. **Bytes dump** to `.dreamteamer/collections/<name>.collection.yaml`. `compiled` holds `defaults`
+   (every value compile supplied), `module`, `repo`, `runtime`, `under_collection`, `mirrors`,
+   `overlaid_by`, `unresolved_peers`, `fields` (resolved) and `json_schema`.
 
-Consequence: **read the compiled file to know what IS; edit the source to change it.** They
-differ by design, and diffing them is often the fastest way to see what compile decided for you.
+**Read the compiled file to know what IS; edit the source to change it.** `compiled.defaults` is
+the diff between what you wrote and what holds.
 
 ## the system and field verbs — writes through a compile gate
 
-The one sanctioned way to write schema without hand-editing. Every verb round-trips through a
-**compile gate**, so a change that would not compile is rejected before it lands — and unlike a
-record write, a schema verb **commits its source write itself**, because an uncompilable or
-unpublished schema is not a state the workspace should sit in. The verbs and every flag live in
-`dt help` under "system verbs" and "field verbs" — read that, not prose. What help cannot tell you:
+The sanctioned way to write schema without hand-editing. Every verb round-trips through a
+**compile gate**, so a change that would not compile is rolled back — and unlike a record write, a
+schema verb **commits its source write itself**. The verbs and flags are `dt help` under "system
+verbs" and "field verbs". What help cannot tell you:
 
-- **The field verbs write the WORKSPACE module.** On a collection another module owns, `add-field`
-  and `set-field` author an `extends:` overlay in the workspace module — which compiles only
-  if the workspace module declares the owning module in `dreamteamer.dependencies` (the extends
-  gate exempts nobody). `rm-field` has no overlay form at all — an overlay cannot remove an
-  inherited field, so it refuses a module-shipped field by name. So on a module-owned collection:
-  declare the dependency and let `add-field`/`set-field` write the overlay (the change stays
-  workspace-local), or **edit the owning module's descriptor by hand** and compile (the change
-  ships with the module) — the only exit for a removal. Pick by who should own the field —
-  `data-modeling.md` Part III.
-- **`--type <collection>` beats the type sugar, always.** A type that names a collection in the
-  runtime is a reference to it, whatever `string`/`enum`/`date`/`tags`/… would otherwise mean — so
-  in a workspace that ships a `tags` collection, `--type tags` points at it and the relation flags
-  work on it. Only a stated `--type` resolves this way; omitting it still means a plain string.
-- `rm-field` on a populated field **clears the values in the same write and reports the
-  count** — a leftover key would make every later write to those records fail as unknown. It also
-  prunes the field out of **the same descriptor's `list_fields` and `sort_field`** (that is the
-  field's own presentation, and a dangling `sort_field` is a compile error), and **warns, by id,**
-  about any ui-view whose `options.columns` still names it — a different source, so it is named
-  rather than edited.
-- **`add-field` inserts before the `x-body` field**, on the same rule as a `templates:` merge
-  below: property order is form order, and a record's body belongs last. `set-field` never
-  reorders — an existing field keeps the place its author gave it.
-- **`dt rename collections/<old> <new>`** moves the descriptor **in the module that ships it**
-  (its guard is against writes an `npm install` would erase, not against modules), plus the
-  records, the filenames and every inbound reference — `x-reference` targets in other descriptors
-  and ui-views included — in ONE commit. It refuses: a runtime source, an **overlaid** collection
-  (the overlay's `extends` names the old id), a collection shipped from `node_modules/`, a taken
-  name, and an undeclared target namespace; a refusal leaves nothing half-moved. It deliberately
-  does NOT overrule two authored choices: a hand-set `storage.path` (records stay put, and it
-  says so) and a `storage.suffix` that is not the singular of the old name.
-- An **empty value removes** in dotted `set-view` writes just as it does in `dt set` — so a
-  setting whose meaningful value IS empty (`options.sort: ''`, see `ui-views.md`) is written
-  QUOTED, which is what says "the empty string is the value": `'options.sort=""'`.
+- **The field verbs write the OWNING module's descriptor** — the source that declares the
+  collection, wherever it sits. `--module <m>` names another module, and the field then lands in an
+  `overlay: true` descriptor there, which compiles only when `m` depends on the owner or names the
+  collection in `peer_collections`; the refusal prints the `dt set modules/<m> dependencies=…` that
+  fixes it. A module installed from `node_modules/` is read-only — overlay it.
+- **`--type <collection>` is a reference**; `--many`, `--enum a,b`, `--mirror-of <field>` (the
+  mirror of the `--type` collection's `<field>`) and `--soft` spell the keys above. `add-field`
+  inserts before the body field; `set-field` never reorders.
+- **`rm-field` clears the values in the same write and reports the count**, prunes the field from
+  its own columns, sort, badge and sections, and **refuses while another position names it** — a
+  view, a binding, a template — listing each one.
+- **`rename-field`** rewrites the key in every record and every position that names it — templates,
+  `ids.from`, `display`, constraints, `storage.under.parent`, a mirror's `mirror_of`, views and
+  bindings — in ONE commit. **`rename-value`** does the same for one enum value.
+- **`dt rename collections/<old> <new>`** moves the descriptor and its overlays, plus the
+  records, the filenames and every inbound reference, in ONE commit. It refuses a runtime source,
+  a placed collection (`relocate --to-root` first), an overlay that sets `storage`, one shipped
+  from `node_modules/`, a taken name and an undeclared target namespace. It keeps a hand-set
+  `storage.path` (records stay put, and it says so) and an authored `storage.suffix`.
+- **An empty value removes** in dotted writes (`dt set ui-views/<id> display.list.sort=`); a
+  setting whose meaningful value IS empty is written QUOTED: `'display.list.sort=""'`. A value
+  holding `{{ }}` is quoted the same way.
 
 ## declaring a module
 
-A module is a folder under `modules/<name>/` whose `package.json` carries **a `dreamteamer` key —
-`"dreamteamer": {}` is enough** — plus the kind folders it ships (`collections/`, `skills/`, …).
-Without that key the folder is **silently ignored** by discovery; with an unknown kind folder
-inside, compile errors. The module's `name` in package.json is its identity in `owner`,
-`extends:` and dependency declarations. What belongs in a module vs the workspace module is
-judgment — `data-modeling.md` Part III §8.
+A module is a folder under `modules/<id>/` whose `package.json` carries **a `dreamteamer` key —
+`"dreamteamer": {}` is enough** — plus the kind folders it ships (`collections/`, `skills/`,
+`agents/`, `commands/`, `command-bindings/`, `ui-views/`, `mixins/`). Without the key the folder is
+**silently ignored**; an unknown folder inside is a compile error unless `dreamteamer.ignore`
+lists it. What belongs in a module is judgment — `data-modeling.md` Part III §8. A module's
+`dreamteamer` block reads, for example, `{ "description": "…", "namespaces": ["billing"],
+"dependencies": ["clinic"] }`.
+
+| module key | what it holds |
+|---|---|
+| `title` · `description` | what to call the module · what the AREA is for — it heads the module's group in the orientation block |
+| `namespaces` | the namespaces this module owns |
+| `dependencies` | modules this one cannot compile without — an overlay needs its base. Acyclic |
+| `peer_collections` | collections this module references but does not own, which may be absent |
+| `owns_data` | its records live in its own clone, not the workspace's `data/` |
+| `engine` | the engine range it needs; outside it, the module is refused whole |
+| `env` · `vars` | the `.env` keys it needs · the `${env:…}` names its records use (the workspace must allow each) |
+| `extension` · `ignore` · `local_assets` | an extension entry (`extensions.md`) · folders that are not kinds · gitignored files a worktree links |
 
 ## the workspace manifest — the `dreamteamer` block in `package.json`
 
-The workspace-level switches the engine reads live in one place. The keys, and where each is
-explained:
+Keys are snake_case and closed: compile refuses an unknown one, naming the list. `dt init` writes
+`workspace_module`, `data_path`, `harnesses`, `git_modules`, `disable` and `gitignore_runtime_folder`.
 
-| key | what it holds | detail |
-|---|---|---|
-| `workspace-module` | which module under `modules/` is the workspace's own | SKILL.md, the contract |
-| `data-path` | where records live, workspace-relative (default `data`) | — |
-| `namespaces` | the declared namespace prefixes | namespaces, below |
-| `vars` | the `.env` keys records may reference as `${env:KEY}` | records.md, templates |
-| `auto-commit` | whether a record write also commits (default off) | records.md, committing |
-| `harnesses` | which coding-agent adapters compile writes (`claude-code`, `codex`, …) | — |
-| `git-modules` | the lockfile map `dt install` restores | — |
-| `disable` | identity entities to drop from the compile, as `<module>/<entity>` | — |
+| key | what it holds |
+|---|---|
+| `workspace_module` | which module under `modules/` is the workspace's own |
+| `data_path` | where records live, workspace-relative |
+| `namespaces` | namespaces declared at the workspace level (a module's own declaration is the one that travels) |
+| `vars` | the `.env` keys records may reference as `${env:KEY}` (`records.md`) |
+| `auto_commit` | whether a record write also commits (default off) |
+| `harnesses` | which coding-agent adapters compile writes |
+| `git_modules` | the lockfile map `dt install` restores into `git_modules/` |
+| `disable` | what to drop from the compile: `modules/<id>` (a whole module, its code included) or `<kind>/<id>` (one entity) |
+| `local_assets` · `postinstall` · `repos_path` · `gitignore_runtime_folder` | links a worktree gets · a script `dt install` runs · where `repos` records materialise · whether `.dreamteamer/` is gitignored |
 
-A MODULE's own `package.json` carries the `dreamteamer` key that makes it discoverable (declaring
-a module, above) plus `dreamteamer.dependencies` / `peerDependencies` when it reaches across the
-module graph (the reference contract, below).
+The workspace's own instructions live in **`DREAMTEAMER.md`** at the root. Compile writes
+`CLAUDE.md`, `AGENTS.md` and `GEMINI.md`: the generated orientation block first, then that file's
+text, each in its own managed block. They are gitignored, so text written into them reaches no
+other clone — edit `DREAMTEAMER.md`.
 
 ## namespaces — scoping a collection under a folder
-
-A collection name may carry a slash-delimited namespace, and it becomes real directory nesting:
 
 | declare in the OWNING MODULE's `package.json` | create it | lands in | referenced as |
 |---|---|---|---|
 | `"dreamteamer": {"namespaces": ["health"]}` | `dt add collections --name doctors --module clinic` | `data/health/doctors/` | `health/doctors/dana-levi` |
 
-A module declaring exactly ONE namespace **infers** it, and the resolved name is always echoed
-(`✔ health/doctors (namespace inferred from module clinic)`). Two or more declared and it refuses
-to guess: `--namespace health`. `--namespace ''` means no namespace. `--namespace x` where nobody
-declares `x` writes the declaration into the target module — which is what travels when the module
-is copied.
+A module declaring exactly ONE namespace **infers** it, and the resolved name is echoed. Two or more
+and it refuses to guess: `--namespace health`. `--namespace ''` means none.
 
-- **The default namespace is the empty prefix.** `tasks` stays `data/tasks/` and `tasks/kickoff`,
-  so common entities need no prefix and adopting namespaces migrates nothing. `default` is
-  RESERVED — there is never a second spelling for one collection.
-- ⚠ **The namespace MUST be declared before the collection compiles.** An id is also a slash path
-  (`meetings/2026/07/kickoff`), so `a/b/c` is ambiguous without the declared set; an undeclared
-  prefix is a compile error rather than a reference that silently names a different collection.
-- **A MODULE declares the namespaces it owns** — `"dreamteamer": { "namespaces": ["hr"] }` in its
-  own `package.json`, and the workspace's effective set is the **union** with its own
-  `dreamteamer.namespaces`. This reversed in 0.19.0. The old rule ("the workspace only, never a
-  module") had a real reason — a module that can declare a namespace can rename where another
-  module's records live — but it made decision 130's own acceptance test, *"a module compiles alone
-  in a bare workspace"*, unpassable for any namespaced module: the consuming workspace had to edit
-  its manifest first, which is exactly the coupling that rule forbids.
-  - **One owner per namespace.** Two modules declaring it is a compile error naming both.
-  - **Using another module's namespace requires the dependency** — shipping `hr/<c>` while only
-    `hr` declares `hr` means listing `hr` in your `dreamteamer.dependencies`. Without this rule the
-    union would let you squat in another module's namespace silently.
-  - **A workspace-level declaration a module also declares is a WARNING**, not an error, and
-    `dt set modules/<m> namespaces=<ns>` removes the redundant workspace entry in the same write.
-  - **The set is a function of the INSTALLED MODULE SET.** Removing or disabling a namespace-owning
-    module re-splits every reference into it; `check` reports the dangle, and the compile error says
-    the namespace was declared by a module you just removed. `default` stays reserved.
-- `--namespace health --name doctors` and `--name health/doctors` are the same thing. The
-  descriptor lands at `collections/health/doctors.collection.yaml` — `collections/` is enumerated
-  recursively, so the source tree mirrors the runtime — and the `suffix` comes off the bare name
-  (`<id>.doctor.md`).
-- `x-reference: health/doctors`, `disable: "<module>/health/doctors"` and every record verb take
-  the QUALIFIED name — it is the collection's identity everywhere. Only its *label* drops the
-  prefix: the derived `title` comes from the bare name, because every surface already draws the
-  namespace as a folder around it.
-- Nested namespaces work (`work/clients`); the longest declared prefix wins.
-- ⚠ **No collection may store records inside another's folder** — a namespace folder cannot
-  itself be a collection root. Compile refuses it, because the outer collection would index the
-  inner one's records as its own. The one DECLARED exception is the next section: a collection
-  stored under the records of a folder-shape parent, where compile knows exactly which files
-  belong to whom.
+- **The default namespace is the empty prefix** — `tasks` stays `data/tasks/` and `tasks/kickoff`.
+  `default` is RESERVED, so there is never a second spelling for one collection.
+- ⚠ **A namespace must be declared before its collection compiles.** An id is also a slash path, so
+  `a/b/c` is ambiguous without the declared set; an undeclared prefix is a compile error.
+- **One owner per namespace** — two modules declaring it is a compile error naming both — and
+  **using another module's namespace requires that module in `dependencies`**. The workspace's set
+  is the union of every module's plus its own, so it follows the INSTALLED modules: removing a
+  namespace-owning module re-splits every reference into it, and compile names the namespace.
+- The descriptor lands at `collections/health/doctors.collection.yaml`; `type: health/doctors`,
+  `disable: [collections/health/doctors]` and every record verb take the QUALIFIED name. Only the
+  derived `title` drops the prefix. Nested namespaces work; the longest declared prefix wins.
+- ⚠ **No collection may store records inside another's folder.** The one declared exception is
+  the next section, where compile knows which files belong to whom.
 
 ## relationship-based storage — records beside the record they belong to
 
-A collection can keep each record INSIDE the folder of the record it belongs to, so a company's
-folder holds the company's meetings and a browse of `data/companies/northwind/` shows the whole
-account. It is declared on the CHILD's `storage`, in one line, and changes nothing about what the
-collection IS:
+A collection can keep each record INSIDE the folder of its parent record, so a browse of
+`data/companies/northwind/` shows the whole account. It is declared on the CHILD:
+
+```yaml
+# the parent, companies.collection.yaml — one folder per record
+storage:
+  shape: folder
+  entry: company.md
+```
 
 ```yaml
 # modules/default/collections/meetings.collection.yaml
-storage: { path: data/meetings, suffix: meeting, under: { field: company, path: meetings } }
+name: meetings
+description: One calendar meeting — the event, never the company or the people in it.
+use_when: anything with a date and attendees
+storage:
+  under:
+    parent: company
+    subfolder: meetings
+ids:
+  from: '{{ date | date:YYYY/MM }}/{{ name | slug }}'
+  pattern: '^\d{4}/\d{2}/[a-z0-9-]+$'
+fields:
+  name:
+    type: string
+    required: true
+    description: The calendar title.
+  date:
+    type: date
+    required: true
+    description: The day it happens.
+  company:
+    type: companies
+    description: The account it belongs to — also which folder holds the file. Empty keeps it in data/meetings/.
 ```
 
 ```text
-data/companies/northwind/company.md                            ← the parent: shape: folder, entry: company.md
+data/companies/northwind/company.md                            ← the parent: shape folder, entry company.md
 data/companies/northwind/meetings/2026/10/kickoff.meeting.md   ← meetings/2026/10/kickoff, company: companies/northwind
 data/meetings/2026/10/offsite.meeting.md                       ← meetings/2026/10/offsite, no company: the FALLBACK root
 ```
 
-- **Still one logical collection.** `dt list meetings` is the union across every company folder
-  and the fallback root, ordered by id; `dt get meetings/2026/10/kickoff` finds the file wherever it
-  sits; a reference is `meetings/<id>` everywhere. Nothing is spelled per company — no descriptor,
-  no skill, no view.
-- **The id is independent of placement.** `dt set meetings/<id> company=companies/harbor` MOVES
-  the file into Harbor's folder and changes nothing else: not the id, not one inbound reference.
-  Clearing the field moves it back to the fallback root. An id is unique across every root, and a
-  second file claiming one is a `check` violation and a write refusal, never last-one-wins.
-- **`field`** is a scalar `x-reference` to exactly ONE collection (a list has no single folder; a
-  union has no single parent). **`path`** is a relative folder inside each parent record's folder.
-  compile derives `under.collection` from the field; nothing else is authored.
-- **The parent must be `shape: folder`** (`storage: { shape: folder, entry: company.md }`) — only
-  a folder can hold anything beside the record. A file-shape collection that should become a
-  parent changes its descriptor to folder shape, and `dt relocate <collection>` then moves each
-  `<id>.<suffix>.md` into `<id>/<entry>` with its id unchanged (`check` names them until it runs).
-- **One level.** A placed collection cannot itself be a parent; the child is a text record
-  (`md` · `yaml` · `json`, file shape) — an opaque or folder-shape child is refused for now. Two
-  children of one parent need two different paths, and a path never equals the parent's entry.
-- **The field is the owner; the folder is observed placement.** A file found under the wrong
-  company — moved by hand, or sitting in the fallback root from before the declaration existed — is
+- **Still one collection.** `dt list meetings` is the union of every company folder and the
+  fallback root; `dt get meetings/2026/10/kickoff` finds the file wherever it sits; a reference is
+  `meetings/<id>` everywhere.
+- **The id is independent of placement** (`under.id: independent`, the default).
+  `dt set meetings/<id> company=companies/harbor` MOVES the file and changes nothing else; clearing
+  the field moves it back. An id is unique across every root.
+- **`under.id: nested`** makes the id BEGIN with the parent's id, for a collection whose identity
+  already leads with it — lab values per patient. Every `ids.from` must open with
+  `{{ <parent> | basename }}/`; the file drops that segment because the folder carries it
+  (`health/lab-values/dana-levi/2026-07-02--ldl` lives at
+  `data/health/patients/dana-levi/labs/2026-07-02--ldl.lab-value.yaml`). A change of parent is a
+  `dt rename`, never a `dt set`.
+- **`parent`** is a scalar reference to exactly ONE collection, which must be `shape: folder`.
+  **`subfolder`** is a relative folder inside each parent record's folder, never its `entry`.
+- **One level.** A placed collection cannot itself be a parent, and the child is a text record in
+  file shape. Two children of one parent need two subfolders.
+- **The field is the owner; the folder is observed placement.** A file under the wrong parent is
   `placed under … but <field> is …` in `check`, which changes nothing. `dt relocate <collection>`
-  (or `<collection>/<id>`, `--dry-run` first) moves files to where the compiled descriptor puts
-  them and refuses a source with unpublished changes or an occupied destination. Editing some OTHER
-  field never relocates as a side effect; nothing ever infers an owner from where a file was found.
-- **A parent with records inside its folder cannot be removed** — not with `--force` either;
-  reassign or clear their owner first. Renaming the parent carries the folder with everything in
-  it and rewrites the children's owner field; their ids do not change.
-- **Adopting it on existing data is three explicit steps**, each reviewable: make the parent folder
-  shape and `relocate` it; add `under` to the child and compile (no file moves at compile — `check`
-  reports every mismatch); `relocate` the child, `--dry-run` first. `dt commit` stages a moved
-  record's old and new path together; `dt revert` of an owner change moves the file back.
-- **Removing or changing `under` is the same walk backwards, and compile holds the door.** While
-  records still sit inside parent folders, a compile that drops the declaration, changes its
-  `path`, or moves the PARENT collection's `storage.path` is REFUSED — the new descriptor would stop
-  every reader seeing them. The order is
-  `dt relocate <collection> --to-root` (every placed record back into the collection's own folder,
-  ids unchanged, under the still-current declaration) → edit the descriptor → compile → `dt relocate
-  <collection>` to place them under the new path. The same order renames a placed collection.
-- **`relocate` refuses before it moves anything**: a dangling or malformed owner field (fix the
-  field first — it never makes a folder for a parent that does not exist), an occupied destination,
-  a source with unpublished changes, or a destination behind a symlink. One problem refuses the
-  whole plan; `--dry-run` reports it.
-- **Inside a parent's folder, only real entries count.** A symlink at a child root, on the way to
-  one, or anywhere beneath one — a folder or a file — is never written through and never read as a
-  record; `check` names it. The collection's own roots (`data/`, `storage.path`) are not subject to
-  this; the rule is about what a record folder may contain.
-- **When NOT to use it.** A record several parents share equally, a record whose owner is usually
-  unknown, or a collection nobody browses as a folder — keep conventional storage and a plain
-  reference. Folder grouping is a browsing convenience, never a permission boundary.
+  (or `<collection>/<id>`, `--dry-run` first) moves files to where the field puts them, and
+  refuses whole on a dangling owner, an occupied destination, an unpublished source or a symlink.
+- **A parent with records inside its folder cannot be removed** — not with `--force` either.
+  Renaming it carries the folder and rewrites the children's owner field.
+- **Adopting it on existing data**: make the parent folder shape and `relocate` it; add `under`
+  to the child and compile (nothing moves at compile — `check` reports each mismatch); `relocate`
+  the child. **Removing or changing it** is the walk backwards — `dt relocate <collection>
+  --to-root`, edit, compile, `dt relocate <collection>` — and compile refuses the edit while records
+  would be stranded inside parent folders.
+- **When NOT to use it**: a record several parents share equally, an owner usually unknown, a
+  collection nobody browses as a folder. It organises files; it grants nothing.
 
-## `templates:` — a live shared field set
+## mixins — a live shared field set
 
 ```yaml
-name: meetings
-templates: [collection-templates/provenance]   # merged at compile, every time
+# modules/clinic/mixins/clinic-provenance.mixin.yaml
+name: clinic-provenance
+description: Who made the record, from what, and how much to trust it.
+use_when: every clinic collection an agent may write — list it rather than restating the three fields
+fields:
+  author:
+    type: string
+    description: Which agent made this record. Absent when a person wrote it.
+  source:
+    type: string
+    description: Where the information came from.
+  confidence:
+    type: string
+    default: normal
+    enum: [low, normal, high]
+    description: How much to trust this record. When low, say why in `source`.
 ```
 
-- **`templates:` is not `extends:`.** `extends: <module>/<collection>` means "this descriptor
-  *overlays* another module's collection of the same name". `templates:` pulls in a field set and
-  says nothing about module layering. A descriptor may use both.
-- **Precedence is template < base < overlay** — a descriptor always wins on a key it declares, so
-  a collection can tighten a templated field (add an enum, change a default) without touching the
-  template.
-- **The template is a declared SOURCE of every consumer**, so editing it marks them stale and
-  `dt status` names them. Without that, the edit would apply to nothing and warn about nothing.
-- **Template properties insert before the `x-body` field** — property order is form order, and a
-  record's body belongs last. Template `required` entries union in; other template keys apply
-  only where the descriptor is silent.
-- ⚠ **A `templates:` ref must resolve inside the module that ships the descriptor**, or that
-  module cannot be installed or copied on its own. This is the single most expensive mistake in
-  the project's history: an extracted module whose every descriptor referenced a template living
-  in the *consuming* workspace could not compile into a bare workspace at all, and nobody noticed
-  for months. A collection-template id is an *identity* entity, so two modules cannot both ship
-  `provenance` — scope the id per module (`crm-provenance`).
-- `--template X` at creation copies the fields in once. `templates:` is the live version; prefer
-  it for anything you will want to change in one place later.
+A collection lists it: `mixins: [clinic-provenance]`. A mixin is a partial descriptor — `fields`,
+and `storage`, `ids`, `display`, `constraints` where it says so — merged at every compile (the
+pipeline, step 1), and a declared SOURCE of each consumer, so editing it marks them stale.
 
-## `extends:` — overlaying another module's collection
+- **A descriptor cannot redeclare a mixin's field** — one source per field, a compile error naming
+  both. Tighten by writing the field in the descriptor and not listing the mixin, or by a second,
+  narrower mixin.
+- ⚠ **A mixin id is global, so list only mixins your own module ships** (or the engine's): a
+  collection listing another module's mixin cannot be copied or installed without it, and compile
+  will not tell you. Scope the id per module (`clinic-provenance`, not `provenance`). The engine ships two every workspace has: `docs` (title · tags · content, a dated
+  id) and `entity` (name · tags · notes, a slug id). `dt add collections --mixins docs` lists one.
+
+## overlays — adding fields to another module's collection
 
 ```yaml
-name: tasks
-extends: '@dreamteamer/dreamteamer/tasks'
-schema:
-  properties:
-    urgent: { type: boolean, default: false }
+# modules/billing/collections/health/visits.collection.yaml
+name: health/visits
+overlay: true
+fields:
+  claim:
+    type: billing/claims
+    mirror_of: visit
+    description: The claim this visit was billed under. Set `visit` on the claim.
 ```
 
-Compile merges `schema.properties` per-property, unions `required`, and takes `storage`/`id` from
-the base unless the overlay explicitly declares them. Two modules extending the same base are
-applied in module-discovery order and the last wins on any shared key — so keep extenders
-**disjoint** and never rely on the collision. Two same-name descriptors where neither declares
-`extends` is a compile error; so is an `extends` value that does not name the actual base.
+The base is the one source of `health/visits` without `overlay: true`; two bases are a name
+collision. An overlay **compiles only when its module depends on the base's module, or names the
+collection in `peer_collections`** — then it applies while the collection is installed and is
+inert while it is not. The workspace module gets no exemption. Overlays from two modules apply in
+discovery order; keep them **disjoint**. ⚠ **An overlay can add or tighten fields, never remove
+one** — fix the base when the shape is wrong for the module rather than for this workspace.
 
-Two gates around it:
-
-- **An overlay must declare the base's module in `dreamteamer.dependencies`** — `extends` is the
-  hardest dependency there is (the overlay does not compile at all without its base), so compile
-  refuses the undeclared case. The workspace module gets **no exemption here** (unlike the
-  mirror-stamp and wildcard gates, which do exempt it) — this is exactly the refusal you meet
-  when a field verb targets a module-owned collection (the field verbs, above).
-- ⚠ **An overlay can add fields but cannot remove an inherited one.** If the shape is wrong for
-  the module rather than just for this workspace, fix the base.
-
-## `x-choices` — what an enum VALUE looks like
-
-An enum value carries a label and nothing else by default: a surface gets `{ text, value }` and
-draws the value. `x-choices` is an OPTIONAL sparse map, keyed by the value, that gives a surface
-more to draw with — a board grouping by the field, a dropdown in a form, anything reading
-`edit_options.choices`.
+## enum maps — what a VALUE looks like
 
 ```yaml
-lane:
+kind:
   type: string
-  enum: [alpha, bravo, charlie]
-  x-choices:
-    alpha:
-      label: Alpha team          # what a surface shows; the stored VALUE is still `alpha`
-      description: the one that ships
-      icon: rocket               # a codicon name …
-      color: charts.blue         # a theme colour id — the accent
-      background: charts.blue    #   … and the fill
-    bravo:
-      icon: assets/icons/lucide/anchor   # … OR a reference to a `codec: file` record
+  default: follow-up
+  enum:
+    intake:
+      label: Intake            # what a surface shows; the stored value is still `intake`
+      icon: person-add
+      color: charts.blue       # a theme colour id, never a hex
+    follow-up:
+      label: Follow-up
+    urgent: {}
 ```
 
-- **Sparse and additive.** Decorate one value, or none. A value with no entry projects exactly as it
-  did before this keyword existed, so adding it changes nothing that already works.
-- **`enum` still owns the value set AND its order.** A map key cannot add, remove or reorder a
-  value — which matters, because a grouped view takes its band order from the enum.
-- **Five keys, and only five** — `label` · `description` · `icon` · `color` · `background`, each an
-  optional string. Anything else in an entry is dropped: the projection copies by name, so a
-  descriptor cannot inject keys into a contract every surface reads.
-- **`label` becomes `text`.** So a workspace can relabel a value without touching the value, and no
-  stored record moves.
-- **`icon` is a codicon name or a reference to a record of a `codec: file` collection.** A codicon
-  name never contains a slash and a record reference always does, so the surface decides which
-  without a second keyword.
-- **Colours are theme colour ids, not hex.** A hex is authored against one theme and wrong in the
-  other.
-- **Both mistakes warn rather than fail** — a key that is not one of the enum's values, and the
-  keyword on a field with no enum. See the message catalog below.
+A list (`enum: [a, b]`) and a map hold the same value set; the map adds, per value, any of
+`label` · `description` · `icon` · `color` · `background`, each a string — anything else is dropped,
+so a descriptor cannot inject keys into the contract every surface reads. **Map order is band
+order**: a board grouped by the field draws its lanes in it. `icon` names an icon in the surface's
+set, or is a reference to a record of a binary collection (a reference always holds a slash).
 
-## the reference contract — `x-reference` across the module graph
+## the reference contract — references across the module graph
 
-Every `x-reference` target must be one of: a **core** collection (the entity kinds plus `repos`)
-· a collection **owned by this module** (or a module contributing to this descriptor) · owned by
-a module named in **`dreamteamer.dependencies`** · or named in **`dreamteamer.peerDependencies`**
-as a collection. Anything else fails compile, with the fix in the message.
+Every reference target must be one of: an **engine** collection (the entity kinds plus `repos`) ·
+a collection **owned by this module** · owned by a module in **`dependencies`** · or named in
+**`peer_collections`** — or, for the workspace module, any installed collection. It is judged per
+source: the module whose descriptor or overlay declares the field — or lists the mixin carrying it
+— is the one that declares the target. Anything else fails compile with the fix in the message.
 
-The two declaration kinds are different on purpose. `dependencies` names MODULES, is hard (the
-target must be installed), and must be acyclic — compile prints the ring when it isn't.
-`peerDependencies` names COLLECTIONS and exists precisely for the ring case: two modules that
-each reference a concept the other owns would be an unbreakable cycle as module deps, and are two
-independent peer declarations instead. A peer that no installed module provides is recorded on
-the compiled descriptor as `unresolved_peers`, so `check` can excuse its dangling references
-without learning what a module is.
+`dependencies` names MODULES, is hard and must be acyclic — compile prints the ring.
+`peer_collections` names COLLECTIONS and exists for the ring case: two modules referencing each
+other's concepts are two peer declarations instead. A peer nothing installed provides compiles,
+is recorded in `compiled.unresolved_peers`, and `check` warns once with the count of references it
+cannot resolve rather than failing them.
 
-`x-reference: '*'` (the open-world evidence field) is warned about outside the workspace module —
-an unverifiable cross-module surface — and tolerated inside it, because the workspace is the
-orchestrating parent. A cross-module `x-inverse` needs the target declared as a peer (or its
-module as a dependency): the mirror is stamped when the target is installed, and the relation is
-inert when it is not.
+`type: reference` (any collection) is warned about outside the workspace module — an unverifiable
+cross-module surface — and accepted inside it. A `soft: true` reference names its collections and
+tolerates a missing record — for a value that is a declaration ("referred by Dr. X") rather than a
+link the workspace already holds.
 
 ## registering an existing data folder
 
-1. Sample the files: derive `suffix`/`codec` from the filenames (`<id>.<suffix>.<ext>`) and the
-   id `pattern` from the id shapes actually present.
-2. Collect frontmatter keys across files → `properties`; infer types from values. Values shaped
-   `<collection>/<id>` are `x-reference` fields. No frontmatter at all → `required: []` with a
-   comment saying why.
-3. Point `storage.path` at the folder — an authored path always wins over the derived default;
-   this is the first-class case it exists for.
+1. Sample the files: derive `storage.suffix` and `format` from the filenames (`<id>.<suffix>.<ext>`)
+   and `ids.pattern` from the id shapes actually present.
+2. Collect frontmatter keys across files → `fields`; infer types from values. Values shaped
+   `<collection>/<id>` are reference fields. No frontmatter at all → `fields` with only the body.
+3. Point `storage.path` at the folder — an authored path always wins over the default.
 4. **Never edit the records to fit an inferred schema.** Describe reality, compile, run `check`,
    then decide which violations are worth fixing in the data.
 
@@ -373,65 +468,63 @@ inert when it is not.
 
 Widening (a new optional field, a new enum value) is always safe; narrowing (a new required
 field, a removed enum value) needs the data cleaned FIRST — measure, clean, *then* narrow, or
-every later `check` drowns in the flood. The judgment lives in `data-modeling.md` Part IX; the
-mechanical fact that lives here: **there is no `dt migrate`.** A record-based migration mechanism
-shipped once and was removed having never been used — every real schema change went around it as
-a **one-shot script you write, run once and commit with the records it rewrote**. Say in the
-commit message what it did; that message is the only ledger.
+every later `check` drowns. The judgment is `data-modeling.md` Part IX; the mechanics: renames are
+verbs (`rename`, `rename-field`, `rename-value`), and any other shape change across records is a
+**one-shot script you write, run once and commit with the records it rewrote** — there is no
+migration framework. Say in the commit message what it did; that message is the ledger.
 
-## the message catalog — what compile is telling you
+## the message catalog — what compile and check are telling you
 
-Compile fails closed and names its reasons; this is the translation table for the ones a
-collection author actually meets. (⚠ = warning: it compiled, and you should still act.)
+Compile fails closed and names its reasons. (⚠ = warning: it compiled, and you should still act.)
 
 | the message says | it means | the move |
 |---|---|---|
-| `name collision on <kind> "<id>"` | two modules ship the same identity entity — never merged or shadowed | rename yours, or `dreamteamer.disable` one |
-| `every descriptor declares 'extends' — no base found` | an overlay whose base is not installed | install or name the base |
-| `extends "…" does not name the base` | the value must be `<module>/<collection>` of the actual base | fix the ref |
-| `… does not declare '<module>' in dreamteamer.dependencies` | the extends gate — including a field verb's auto-overlay on a module-owned collection | declare the dependency, or edit the owning module's descriptor instead |
-| `has folder(s) that are not a known kind` | a typo'd kind, or a kind the engine dropped | fix the name, or declare `dreamteamer.ignore` |
-| ⚠ `both <kind>/ and system/<kind>/ exist` | a half-moved module — the flat copy wins, the nested one is NOT compiled | finish the move |
-| `schema is not a valid JSON Schema` | a malformed property — usually a string where an object belongs | fix the property it names |
-| `id.pattern is not a valid regular expression` | the typo would otherwise detonate inside a write | fix the pattern |
-| `sort_field "…" is not a field of its schema` | dragging would silently write to a field no reader sorts by | point it at a real field |
-| `field "…" uses x-display` | renamed keyword | delete it (a reference inherits the target's `title_template`) or use `x-title-template` |
-| `N fields declare x-body` | a record has ONE body — the text after the frontmatter | keep one |
-| `references "X", which … neither owns nor declares` | the reference contract | add the dependency or the peer, as the message says |
-| `cyclic module dependencies: a → b → a` | concept-level links declared as module deps | the collection belongs in `peerDependencies` |
-| ⚠ `module X reads ${env:NAME} — add it to the workspace's dreamteamer.vars` | the module's `dreamteamer.vars` requests a var the workspace has not allowed; `.env.example` lists it | add the name to the workspace's `dreamteamer.vars` — a module request never widens what `dt resolve` renders |
-| ✖ `module X needs engine ">=…" — … none of its content is compiled` | the module's `dreamteamer.engine` excludes this engine; it is refused whole, code included, and a module depending on it fails compile | upgrade dreamteamer, or disable the module |
-| `group: system is reserved for the engine's collections and the workspace module's` | a module put its own collection in the machinery partition, which hides it from the orientation listing | drop `group: system` |
-| relation refusals (`stamps a mirror onto…`, `declared on both sides…`) | the relation rules | `data-modeling.md` Part VI |
-| ⚠ `x-unique on "f" is inert` | a relation keyword with no relation — nothing enforces it | declare the inverse, or drop it |
-| ⚠ `x-choices on "f" has an entry for "k"` | it decorates enum VALUES and `k` is not one — a typo, or a value since removed | fix the spelling, or drop the entry |
-| ⚠ `x-choices on "f" is inert` | the keyword on a field that declares no enum — nothing reads it | give the field an enum, or drop the keyword |
-| ⚠ `collection … has no description` | it renders as a bare name in the orientation block every session loads | write the sentence (`data-modeling.md` §18) |
-| ⚠ `module "…" contributed no recognised sources` | its folders match no kind and it ships no UI bundle | usually a layout or naming mistake |
-| ⚠ `module X: <channel> copy shadows <channel> copy` | the same module delivered twice — the more local wins (npm-link semantics) | intended for dev; otherwise remove one |
+| `source(s) are in the v1 descriptor format` | a source in the format this engine does not read | run the converter it names; `UPDATING.md` has the walk |
+| `unknown key … — a descriptor's keys are …` (or a field's, a storage's, a display's) | the closed lists | fix the key; the message lists the legal ones |
+| `name collision on collection "<c>"` | two bases — a second source must be an overlay | `overlay: true`, or rename |
+| `name collision on <kind> "<id>"` | two modules ship one entity — never merged | rename yours, or add `<kind>/<id>` to `dreamteamer.disable` |
+| `every source declares overlay: true — no base found` | the base's module is not installed | install it, or declare the collection in `peer_collections` |
+| `an overlay of "<c>", but module "<m>" neither depends on … nor declares …` | the overlay gate, the field verbs' `--module` included | `dt set modules/<m> dependencies=modules/<owner>` |
+| `references "X", which module … neither owns nor declares` | the reference contract | add the dependency or the peer, as printed |
+| `cyclic module dependencies: a → b → a` | concept links declared as module deps | move one to `peer_collections` |
+| `has folder(s) that are not a known kind` | a typo'd kind, or a package folder | fix the name, or list it in `dreamteamer.ignore` |
+| `display.list.columns names "x", which is not a field` (or sort, badge, sections…) | a name that does not exist | fix it — the message names the position |
+| `record_title opens with "<f>", a <type> field` | `dt add "<title>"` fills the first token | open it with a string field |
+| `is a SCALAR mirror, so <owner>.<f> must be a unique scalar reference` | one-to-one needs `unique: true` on the foreign key | declare it, or make the mirror `many` |
+| `is a mirror, but <c> declares no body field` (or is binary, runtime, another repo) | the target cannot hold a generated field | add a body field, or drop the mirror |
+| `every ids.from template must open with {{ <parent> \| basename }}/` | `under.id: nested` | lead the id with the parent |
+| `internal: true is reserved` | a module put a domain collection in the plumbing partition | drop the line |
+| `module X needs engine "…"` | its `engine` range excludes this engine; refused whole | upgrade dreamteamer, or disable it |
+| ⚠ `"<name>" is not a plural the inflector knows` | `singular` falls back to the name | set `singular` (and `storage.suffix`) if `dt add` should take another word |
+| ⚠ `field "<f>": names are snake_case` · `enum value "<v>" is not kebab-case` | a convention, not a rule — a rename is a record change | `dt rename-field` · `dt rename-value` when you choose |
+| ⚠ `is type: reference outside the workspace module` | an unverifiable cross-module surface | name the collections it may target |
+| ⚠ `has no description` · `use_when restates its description` | the orientation block renders a bare name, or the same words twice | write the sentence (`data-modeling.md` §18) |
+| ⚠ `module X reads ${env:NAME} — add it to the workspace's dreamteamer.vars` | a module requests a var the workspace has not allowed | add the name to `dreamteamer.vars` |
+| ⚠ `module X: <channel> copy shadows <channel> copy` | one module delivered twice — the more local wins | intended for dev; otherwise remove one |
 
-`check` has its own recurring messages, worth the same translation:
+`check` reports, and never modifies:
 
 | check reports | it means | the move |
 |---|---|---|
-| `<field>: stale` on a mirror | the generated mirror fell behind its owner — usually a hand-edited mirror | `dt relations rebuild <collection>` |
-| a dangling reference | the target id does not resolve — a deleted or hand-renamed record, or a typo | fix the ref, restore the target, or `dt rename` properly |
-| an `x-unique` collision, both claimants named | two records claim the same one-per-subject reference | decide which is real; retarget the other |
-| a FLOOD of enum/required violations right after a schema change | the schema narrowed before the data was cleaned | widen back, clean, then narrow (evolving, above) |
+| `<field>: stale — run: dreamteamer relations rebuild <c>` | a mirror fell behind its owner — usually a hand edit | run it |
+| `dangling reference "…" — no such record` | a deleted or hand-renamed target, or a typo | fix the ref, restore the target, or `dt rename` properly |
+| `<field>: "<v>" is already taken by <c>/<id> (unique)` | two records claim one unique value | decide which is real; change the other |
+| `placed under … but <field> is …` | a file in the wrong parent folder | `dt relocate <c>/<id>` |
+| ⚠ `peer collection "<c>" is declared but not installed` | references into an absent peer, counted | expected when the module runs alone |
+| a FLOOD of enum or required violations right after a schema change | the schema narrowed before the data was cleaned | widen back, clean, then narrow |
 
 *(one failure has no message: a module folder whose `package.json` lacks a `dreamteamer` key is
-silently not discovered — see declaring a module.)*
+silently not discovered.)*
 
 ## common mistakes
 
 | mistake | reality |
 |---|---|
-| editing the compiled descriptor to change shape | `.dreamteamer/` is generated — edit the module source and compile |
-| tightening `required` before cleaning the data | check floods; widen, rewrite the data, then narrow |
-| a second same-name descriptor without `extends` | compile error by design |
-| a plain string where a ref belongs | use `x-reference` so `check` and `rename` can follow it |
-| a `templates:` ref pointing at another module | that module can no longer be copied or installed alone |
-| a field verb aimed at a module-owned collection, retried verbatim | add-field/set-field write a workspace overlay behind a dependency gate — declare the dependency or edit the owning module; rm-field refuses outright (edit the module) |
-| authoring `storage.path` under an entity-kind name | it compiles as a runtime collection and becomes unwritable |
-| hand-editing schema when a schema verb could express it | the verbs are compile-gated and commit their write; a hand edit can land uncompilable and sit unpublished |
+| editing the compiled descriptor | `.dreamteamer/` is generated — edit the module source and compile |
+| a second same-name descriptor without `overlay: true` | a name collision, by design |
+| a plain string where a reference belongs | `type: <collection>` lets `check` and `rename` follow it |
+| a `mixins:` id another module ships | that module can no longer be copied or installed alone |
+| a `--module` field verb retried verbatim after the overlay refusal | declare the dependency it prints, or let the verb write the owning module |
+| authored `singular` expecting the filenames to follow | `storage.suffix` is separate — set both |
+| `storage.path` under an entity-kind name | it compiles as a runtime collection and becomes unwritable |
 | ignoring a ⚠ because compile said ✔ | every warning above is a defect with a deferred bill |

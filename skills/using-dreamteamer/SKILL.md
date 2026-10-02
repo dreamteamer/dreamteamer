@@ -25,7 +25,8 @@ unsure which skill owns the job in front of you.
 |---|---|---|
 | schemas (read) | `.dreamteamer/collections/*.collection.yaml` | the single source of truth for what exists and its shape. **never edit under `.dreamteamer/`** — generated and gitignored |
 | provenance | `.dreamteamer/manifest.yaml` | which module shipped which entry |
-| sources (write) | `modules/<module>/<kind>/` — **including the workspace's own**, the `dreamteamer.workspace-module` named in `package.json` | a source folder at the workspace ROOT is a compile error (whenever `workspace-module` is set — every `dt init` workspace); same-name collisions across modules too. after ANY source change: `dt compile` |
+| sources (write) | `modules/<module>/<kind>/` — **including the workspace's own**, the `dreamteamer.workspace_module` named in `package.json` | a source folder at the workspace ROOT is a compile error (whenever `workspace_module` is set — every `dt init` workspace); same-name collisions across modules too. after ANY source change: `dt compile` |
+| instructions (write) | `DREAMTEAMER.md` at the root | compiled into `CLAUDE.md`, `AGENTS.md` and `GEMINI.md` below the generated block; those three are gitignored, so a rule written into them reaches no clone |
 | records (write) | `data/…`, per each descriptor's `storage.path` | the CLI writes them validated; hand-edits are legal and owe `dt check` |
 
 - a record is a `<id>.<suffix>.<ext>` file (or a folder, for folder-shape collections). **the id
@@ -38,9 +39,10 @@ unsure which skill owns the job in front of you.
   and never a file path.
 
 **lifecycle:** `dt init` writes a new workspace's skeleton (it never compiles). a FRESH CLONE owes
-`dt install` (restores `git_modules/`) then `dt compile` before anything reads — `.dreamteamer/`
-and the harness folders are gitignored build output, so a clone has no runtime until compile
-writes one — and `.env` is per-machine (declared keys: `references/records.md`). `dt status` says
+`dt install` (restores `git_modules/`) then `dt compile` before anything reads — `.dreamteamer/`,
+the harness folders and the root `CLAUDE.md`/`AGENTS.md`/`GEMINI.md` are gitignored build output,
+so a clone has no runtime and no orientation until compile writes them — and `.env` is
+per-machine (declared keys: `references/records.md`). `dt status` says
 whether the runtime is fresh. the workspace's own switches live in `package.json`'s `dreamteamer`
 block (`references/collections.md`, the workspace manifest) — and the guided path from nothing,
 or from existing data, is `references/getting-started.md`.
@@ -68,9 +70,9 @@ dispatch, so it cannot drift):
 - fields (sources, through the compile gate) — `add-field` `set-field` `rm-field` `rename-field` `rename-value` (system entities — modules, collections, skills, ui-views… — take the RECORD verbs above)
 - workspace — `init` `install` `update` `compile` `check` `doctor` `status` `changes` `help`
 - an EXTENSION (a workspace module or a dependency declaring `dreamteamer.extension`) adds verbs of
-  its own, and `dt help` lists them under its name; each ships the skill that teaches it. A verb that
-  answers "left core in 0.31.0" (`dt prove` · `dt land` · `dt worktree` · `dt serve` · `dt notebooklm` · the Docker
-  host) has no published extension yet — see `references/extensions.md`.
+  its own, and `dt help` lists them under its name; each ships the skill that teaches it. A verb core
+  does not know (`dt prove` · `dt land` · `dt worktree` · `dt serve` · `dt notebooklm`) belongs to an
+  extension — see `references/extensions.md`.
 
 don't learn syntax from prose, this skill included: prose drifts, and `help` ships in
 the same file as the dispatch it documents. run it once before your first write of a session.
@@ -107,7 +109,7 @@ Load by the map; nothing here is loaded "just in case".
 | read, create, update, rename, delete, commit — or UNDO — a record | `references/records.md` |
 | "what changed while I was away" | `references/changes.md` |
 | the workspace seems unable to do something — a new kind of thing, a missing capability, "don't we already have this?" | `references/before-you-build.md` (look first); a new model then continues `references/data-modeling.md` (decide) → `references/collections.md` (write it) |
-| a collection or field, mechanically — the descriptor, the system and field verbs, `templates:`/`extends:`, a compile or check message | `references/collections.md` |
+| a collection or field, mechanically — the descriptor and its field vocabulary, ids, `display`, the system and field verbs, mixins and overlays, the `package.json` block, a compile or check message | `references/collections.md` |
 | "keep a company's meetings in the company's folder" — records stored beside the record they belong to, a `placed … but` check report, `dt relocate` | `references/collections.md` (declaring it) · `references/records.md` (working with it) |
 | knowledge a session should find on its own | `references/skills.md` |
 | "let me type one word and have this done" | `references/commands.md` |
@@ -131,14 +133,14 @@ three act-two tie-breakers, because they are the ones that go wrong:
 
 domain work — meetings, patients, invoices, whatever this workspace is about — is owned by the
 **module** that ships those collections; read that module's own skills. core knows entity kinds
-and `repos`, and deliberately nothing else. workspace-level rules live in `CLAUDE.md`, and a
+and `repos`, and deliberately nothing else. workspace-level rules live in `DREAMTEAMER.md`, and a
 workspace's decision log (where one exists) wins over older documents.
 
 ## system entities take the RECORD verbs
 
-Modules, collections, skills, agents, commands, command-bindings, ui-views, collection-templates
-— and any kind an installed extension contributes — are collections in the runtime, and since
-0.19.0 the ordinary verbs write them:
+Modules, collections, skills, agents, commands, command-bindings, ui-views, mixins — and any kind
+an installed extension contributes — are collections in the runtime, and the ordinary verbs write
+them:
 
 ```
 dt add modules --name core --description "The shared nouns."
@@ -150,11 +152,9 @@ dt set modules/hr namespaces=hr dependencies=modules/core
 dt rm modules/hr --force                     # --dry-run first; it prints its plan
 ```
 
-⚠ **`add` scaffolds skills only.** Agents, commands, bindings, templates and contributed kinds are
-hand-authored — `dt add agents` is refused, naming the file to write. Every other verb works on them.
-
-`dt schema <op>` is **gone** since 0.19.0 and fails with the translation printed. `UPDATING.md` has
-the complete mapping table.
+⚠ **`add` scaffolds modules, collections, skills and ui-views.** Agents, commands, bindings,
+mixins and contributed kinds are hand-authored — `dt add agents` is refused, naming the file to
+write. Every other verb works on them.
 
 ⚠ **ONE difference, and it is POLICY rather than spelling: a SYSTEM write commits itself; a RECORD
 write does not.** An uncompilable or unpublished schema is not a state a workspace should sit in, so
@@ -183,9 +183,10 @@ unmeasured (where a number genuinely cannot be known before the run, the plan sa
    source is rejected and the previous runtime stands; check reports and never modifies.
 5. **a running session does not see new sources.** a new skill, command or agent is live in the
    operator's NEXT session — say so rather than letting them wonder.
-6. **never edit generated output.** `.dreamteamer/`, `.claude/`, `.agents/`, `.cursor/` are
-   overwritten and pruned on the next compile — if you found the thing to change there, you are
-   in the wrong file.
+6. **never edit generated output.** `.dreamteamer/`, `.claude/`, `.agents/`, `.cursor/` and the
+   blocks in the root `CLAUDE.md`/`AGENTS.md`/`GEMINI.md` are rewritten on the next compile — and
+   those root files are gitignored, so nothing written in them reaches a clone. if you found the
+   thing to change there, you are in the wrong file.
 7. **the CLI refuses system-stored records on purpose** (`dt set skills/<id>` — no): edit the
    module source and compile. the SYSTEM verbs are the sanctioned exception — they write
    sources *through* a compile gate, so an uncompilable source can never land.
@@ -208,7 +209,8 @@ unmeasured (where a number genuinely cannot be known before the run, the plan sa
 | changing a source and not compiling | the CLI, `check` and every harness still read the stale runtime |
 | hand-writing a record the CLI could add | skips validation, id generation and defaults |
 | bare refs (`ada`, `data/contacts/x.contact.md`) | refs are `<collection>/<id>`; anything else fails check |
-| assuming a write was committed | it was not (unless `auto-commit` is on) — `dt status` shows pending |
+| assuming a write was committed | it was not (unless `auto_commit` is on) — `dt status` shows pending |
+| editing `CLAUDE.md` for a workspace rule | it is compiled output — the rule goes in `DREAMTEAMER.md` |
 | learning flags from prose or memory | `dt help` is the surface; prose carries judgment only |
 | a new module folder compile ignores | its `package.json` needs a `dreamteamer` key |
 | `git add -A` in a shared tree | steals another session's uncommitted work, invisibly |
