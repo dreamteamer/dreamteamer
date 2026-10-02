@@ -314,6 +314,28 @@ describe('created for a record that predates the stamp', () => {
 		assert.match(got.created, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$/);
 		assert.equal(fs.readFileSync(file, 'utf8'), before, 'reading never writes');
 	});
+
+	test('a renamed file keeps the date it first entered history, read once for the whole collection', async () => {
+		const w = workspace({ compile: false });
+		writeCollection(w.root, 'notes', { ids: { from: '{{ name | slug }}' }, fields: { name: { type: 'string', required: true }, body: { type: 'markdown', body: true } } });
+		compileQuietly(w.ws);
+		const dir = path.join(w.root, 'data', 'notes');
+		fs.mkdirSync(dir, { recursive: true });
+		fs.writeFileSync(path.join(dir, 'first.note.md'), '---\nname: First\n---\n');
+		fs.writeFileSync(path.join(dir, 'second.note.md'), '---\nname: Second\n---\n');
+		w.git(['add', 'data/notes']);
+		w.git(['commit', '-qm', 'two notes', '--date=2020-01-02T10:00:00+00:00']);
+		w.git(['mv', 'data/notes/first.note.md', 'data/notes/renamed.note.md']);
+		w.git(['commit', '-qm', 'rename', '--date=2021-03-04T10:00:00+00:00']);
+		const { Store } = await import('../../src/store.js');
+		const store = new Store(w.ws);
+		const dates = store.addedDates('notes');
+		assert.match(dates.get('data/notes/renamed.note.md'), /^2020-01-02T10:00:00/, 'the rename keeps the add date');
+		assert.match(dates.get('data/notes/second.note.md'), /^2020-01-02T10:00:00/);
+		assert.equal(dates.has('data/notes/first.note.md'), false);
+		assert.equal(store.addedDates('notes'), dates, 'one read per collection, cached');
+		assert.match(JSON.parse(dt(w.root, 'get', 'notes/renamed', '--json').stdout).created, /^2020-01-02T10:00:00/);
+	});
 });
 
 describe('the display contract', () => {

@@ -537,10 +537,31 @@ export class Store {
 			const day = /(\d{4}-\d{2}-\d{2})/.exec(id)?.[1];
 			if (day) return normalizeTemporal(day, 'date-time');
 		}
+		return this.addedDates(collection).get(path.relative(this.root, file));
+	}
+
+	/**
+	 * When each file of a collection first entered history, following renames — ONE `git log` for the
+	 * whole collection, cached for this Store, so a list can answer `created` for every row.
+	 * @returns {Map<string, string>} root-relative path -> ISO date of the commit that added it
+	 */
+	addedDates(collection) {
+		this._addedDates ??= new Map();
+		if (this._addedDates.has(collection)) return this._addedDates.get(collection);
+		const dates = new Map();
 		try {
-			const out = execFileSync('git', ['log', '--follow', '--diff-filter=A', '--format=%aI', '--', path.relative(this.root, file)], { cwd: this.root, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim().split('\n').filter(Boolean);
-			return out.length ? out[out.length - 1] : undefined;
-		} catch { return undefined; }
+			const out = execFileSync('git', ['log', '--reverse', '-M', '--diff-filter=AR', '--name-status', '--format=%x01%aI', '--', storageOf(this.descriptor(collection)).path],
+				{ cwd: this.root, stdio: ['ignore', 'pipe', 'ignore'], timeout: 60_000, maxBuffer: 256 * 1024 * 1024 }).toString();
+			let at;
+			for (const line of out.split('\n')) {
+				if (line.startsWith('\x01')) { at = line.slice(1); continue; }
+				const [status, a, b] = line.split('\t');
+				if (status === 'A' && !dates.has(a)) dates.set(a, at);
+				else if (status?.startsWith('R') && b) { dates.set(b, dates.get(a) ?? at); dates.delete(a); }
+			}
+		} catch { /* no git, or no history yet: every date stays unknown */ }
+		this._addedDates.set(collection, dates);
+		return dates;
 	}
 
 	// list-path reader: ONE directory walk for the whole collection (review finding 2:
