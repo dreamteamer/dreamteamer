@@ -36,31 +36,23 @@ media/
 // output, which reads as a broken install. One starter collection answers both. `notes` is
 // deliberately the most generic thing a workspace can hold.
 const STARTER_COLLECTION = `name: notes
+record_title: '{{ title }}'
 description: A dated note — the starter collection init seeds, to rename or replace with what this workspace actually keeps.
-storage:
-  path: data/notes
-  codec: md
-  shape: file
-  suffix: note
-id:
-  generate: '{{ created | date }}--{{ title | slug }}'
+ids:
+  from: '{{ created | date }}--{{ title | slug }}'
   pattern: ^\\d{4}-\\d{2}-\\d{2}--[a-z0-9-]+$
-schema:
-  type: object
-  required:
-    - title
-  properties:
-    title:
-      type: string
-      description: What this note is called.
-    body:
-      type: string
-      format: markdown
-      x-body: true
-      description: The note itself.
-icon: sticky_note_2
-title: Notes
-title_template: '{{ title }}'
+fields:
+  title:
+    type: string
+    required: true
+    description: What this note is called.
+  body:
+    type: markdown
+    body: true
+    description: The note itself.
+display:
+  nav:
+    icon: sticky_note_2
 `;
 
 const ENV_EXAMPLE = `# secrets for skills and modules go here (copy to .env; .env is never committed).

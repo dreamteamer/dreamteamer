@@ -106,7 +106,7 @@ describe('a v2 ui-view', () => {
 	test('a v1 view is refused with the converter command and UPDATING.md', () => {
 		const w = clinic({ views: { old: 'path: /old\ntarget: list\ncollection: collections/health/visits\nlayout: table\n' } });
 		const err = compileError(w.ws);
-		assert.match(err, /old\.ui-view\.yaml is in descriptor format v1/);
+		assert.match(err, /in the v1 descriptor format[^]*- modules\/default\/ui-views\/old\.ui-view\.yaml/);
 		assert.match(err, /node node_modules\/dreamteamer\/scripts\/migrate-descriptors-v2\.mjs --root \./);
 		assert.match(err, /UPDATING\.md/);
 	});
@@ -170,7 +170,9 @@ describe('a v2 command-binding', () => {
 
 	test('a v1 binding is refused with the converter command', () => {
 		const w = clinic({ bindings: { 'prescribe--visits': 'command: commands/prescribe\ncollection: collections/health/visits\ntarget: record\ncan-enter:\n  status:\n    _eq: seen\n' } });
-		assert.match(compileError(w.ws), /prescribe--visits\.command-binding\.yaml is in descriptor format v1\. Convert the workspace with `node node_modules\/dreamteamer\/scripts\/migrate-descriptors-v2\.mjs --root \.`/);
+		const err = compileError(w.ws);
+		assert.match(err, /in the v1 descriptor format[^]*- modules\/default\/command-bindings\/prescribe--visits\.command-binding\.yaml/);
+		assert.match(err, /node node_modules\/dreamteamer\/scripts\/migrate-descriptors-v2\.mjs --root \./);
 	});
 
 	test('a condition naming a field the collection lacks fails compile naming it', () => {

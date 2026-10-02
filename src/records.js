@@ -3,18 +3,19 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { load } from './yaml.js';
+import { storageOf, storedFieldsOf } from './descriptor.js';
 
 export function parseRecord(file, d, bodyField) {
 	// An opaque record IS its bytes: there is nothing to parse, and reading a PNG as utf8 would
 	// corrupt it on the way back out. What a reader gets instead is derived from the file itself.
-	if ((d.storage.codec ?? 'md') === 'file') {
+	if (storageOf(d).format === 'binary') {
 		return { ext: path.extname(file).slice(1).toLowerCase(), bytes: fs.statSync(file).size };
 	}
 	return parseRecordText(fs.readFileSync(file, 'utf8'), d, bodyField);
 }
 
 export function parseRecordText(text, d, bodyField) {
-	const codec = d.storage.codec ?? 'md';
+	const codec = storageOf(d).format;
 	if (codec === 'yaml') return load(text) ?? {};
 	if (codec === 'json') return JSON.parse(text);
 	let fields = {};
@@ -41,9 +42,9 @@ export function fmtAjvError(e, fields) {
 	return `field ${fieldPath || '(root)'}: ${JSON.stringify(value) ?? ''} ${e.message}`.trim();
 }
 
-// unknown keys relative to a schema that declares properties (typo detector)
-export function unknownFields(schema, fields) {
-	const props = schema?.properties ?? {};
+// keys a record carries that its collection does not store (typo detector)
+export function unknownFields(d, fields) {
+	const props = storedFieldsOf(d);
 	if (!Object.keys(props).length) return [];
 	return Object.keys(fields).filter((k) => !(k in props));
 }
@@ -52,7 +53,7 @@ export function unknownFields(schema, fields) {
 
 export const EXT = { md: '.md', yaml: '.yaml', json: '.json' };
 
-/** How big a `codec: file` record may be before `check` says something, when its collection does not
+/** How big a `format: binary` record may be before `check` says something, when its collection does not
  *  say otherwise. 200 KB fits an icon, a logo, a small illustration or a compressed photo, and does
  *  not fit the video someone will one day try to make a record. */
 export const MAX_RECORD_BYTES = 204800;
@@ -63,17 +64,17 @@ export const MAX_RECORD_BYTES = 204800;
  *  THE ONLY PLACE a filename becomes an id. store, check and events each carried their own copy of
  *  `endsWith('.' + suffix + EXT[codec])`, which is three places to update and two to forget.
  *
- *  `codec: file` records are opaque bytes whose extension is whatever was imported, so their tail is
+ *  `format: binary` records are opaque bytes whose extension is whatever was imported, so their tail is
  *  `.<suffix>.<ONE extension segment>` — one, because `x.asset.tar.gz` in the folder is an archive
  *  someone dropped there, and calling it a record would hide it from `check`'s stray report. */
 export function idFromRecordPath(d, relPath) {
-	const suffix = d.storage.suffix;
-	if ((d.storage.codec ?? 'md') === 'file') {
+	const { suffix, format } = storageOf(d);
+	if (format === 'binary') {
 		const lit = suffix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 		const m = new RegExp(`^(.+)\\.${lit}\\.[A-Za-z0-9]+$`).exec(relPath);
 		return m ? m[1] : null;
 	}
-	const tail = `.${suffix}${EXT[d.storage.codec ?? 'md']}`;
+	const tail = `.${suffix}${EXT[format]}`;
 	return relPath.endsWith(tail) ? relPath.slice(0, -tail.length) : null;
 }
 

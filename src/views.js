@@ -35,10 +35,8 @@ export const TEMPLATE_OPTIONS = ['card_title', 'bar_title', 'group_title', 'grou
 export const BINDING_KEYS = ['command', 'collection', 'scope', 'available_when', 'done_when', 'description'];
 export const BINDING_SCOPES = ['record', 'collection'];
 
-/** The one message every v1 source gets: the converter, and where the change is described. */
-export const convertHint = (file) => `${file} is in descriptor format v1. Convert the workspace with \`node node_modules/dreamteamer/scripts/migrate-descriptors-v2.mjs --root .\` — UPDATING.md describes every change.`;
-
-// what marks a source as written in the format before this one: only ever used to send it to the converter
+// what marks a source as written in the format before this one: only ever used to send it to the
+// converter, which compile names once for every such file (`v1: true` on the result)
 const V1_VIEW_KEYS = ['path', 'target', 'layout', 'options', 'nav'];
 const V1_BINDING_KEYS = ['target', 'can-enter', 'can-exit'];
 
@@ -52,11 +50,11 @@ const BUILTIN_FIELDS = ['id', 'created', 'last_modified'];
  *   fields  — the named collection's resolved fields, or undefined when it is not known here (an
  *             unknown collection is `check`'s to report, through the reference)
  *   lenient — the view's module declares a peer collection that is not installed
- * @returns {{ errors: string[], warnings: string[] }} each naming its position
+ * @returns {{ errors: string[], warnings: string[], v1?: true }} each naming its position
  */
 export function viewErrors(view, { file, fields, lenient = false }) {
 	if (!isMap(view)) return { errors: [`${file}: a ui-view is a mapping`], warnings: [] };
-	if (V1_VIEW_KEYS.some((k) => k in view) && !('route' in view || 'scope' in view || 'display' in view)) return { errors: [convertHint(file)], warnings: [] };
+	if (V1_VIEW_KEYS.some((k) => k in view) && !('route' in view || 'scope' in view || 'display' in view)) return { v1: true, errors: [], warnings: [] };
 	const errors = [];
 	const names = [];
 	const at = (msg) => errors.push(`${file}: ${msg}`);
@@ -115,11 +113,11 @@ function displayErrors(display, { fields, collection, errors, names: dangling, w
 
 /**
  * Validate one command-binding.
- * @returns {{ errors: string[], warnings: string[] }}
+ * @returns {{ errors: string[], warnings: string[], v1?: true }}
  */
 export function bindingErrors(b, { file, fields, lenient = false }) {
 	if (!isMap(b)) return { errors: [`${file}: a command-binding is a mapping`], warnings: [] };
-	if (V1_BINDING_KEYS.some((k) => k in b)) return { errors: [convertHint(file)], warnings: [] };
+	if (V1_BINDING_KEYS.some((k) => k in b)) return { v1: true, errors: [], warnings: [] };
 	const errors = [];
 	const warnings = [];
 	for (const k of Object.keys(b)) if (!BINDING_KEYS.includes(k)) errors.push(`${file}: unknown key \`${k}\` — a command-binding's keys are ${BINDING_KEYS.join(' · ')}`);

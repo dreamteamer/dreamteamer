@@ -3,13 +3,13 @@
 // A child collection declares, on its own `storage` block, which scalar reference field names its
 // parent and where inside the parent's folder its records go:
 //
-//     storage: { path: data/meetings, under: { field: company, path: meetings } }
+//     storage: { under: { parent: company, subfolder: meetings } }
 //
 // so a meeting whose `company` is `companies/northwind` lives at
 // `data/companies/northwind/meetings/<id>.meeting.md`, and one with no company stays in the
 // collection's own root (`data/meetings/`). The parent must be a folder-shape collection, because
-// only a folder can hold anything beside the record itself. compile derives `under.collection`
-// from the field's `x-reference`, so the record layer never reads a schema to find the parent.
+// only a folder can hold anything beside the record itself. compile records the parent collection,
+// so the record layer never reads a field's type to find it.
 //
 // Three invariants every reader and writer here holds:
 //   - ONE logical collection. Listing walks the fallback root and every parent's child folder;
@@ -27,14 +27,15 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { walk, idFromRecordPath } from './records.js';
+import { storageOf } from './descriptor.js';
 
-/** The compiled `storage.under` of a descriptor, or null for conventional storage. */
+/** A descriptor's resolved `storage.under` — `{ parent, subfolder, collection, id }` — or null. */
 export function placementOf(d) {
-	return d?.storage?.under ?? null;
+	return d ? storageOf(d).under ?? null : null;
 }
 
 /**
- * Why `p` is not an acceptable `under.path`, as a sentence — or null. A relative subfolder of the
+ * Why `p` is not an acceptable `under.subfolder`, as a sentence — or null. A relative subfolder of the
  * parent record's folder: no absolute path, no traversal, no empty segment, no backslash (the same
  * alphabet `assertSafeId` holds ids to, because this path is joined onto the filesystem too).
  */
@@ -60,7 +61,7 @@ export function parentFolders(parentDir) {
 
 /** The folder a placed record of `d` lives in when its owner is `parentId` — or the fallback root. */
 export function placedRoot(under, fallbackDir, parentDir, parentId) {
-	return parentId ? path.join(parentDir, parentId, under.path) : fallbackDir;
+	return parentId ? path.join(parentDir, parentId, under.subfolder) : fallbackDir;
 }
 
 /** Every record file of `d` under ONE root, as `{ id, file, root, parentId }`. A placed root (one with
@@ -95,7 +96,7 @@ export function* placedRecords(d, fallbackDir, parentDir, onLink = null) {
 	const under = placementOf(d);
 	yield* rootRecords(d, fallbackDir, null);
 	for (const [pid, folder] of parentFolders(parentDir)) {
-		const root = path.join(folder, under.path);
+		const root = path.join(folder, under.subfolder);
 		// a child root reached through a symlink is not read: whatever it points at is not this
 		// parent's folder (see symlinkBelow) — `check` names it, the store simply does not see it
 		if (symlinkBelow(parentDir, root)) continue;
@@ -107,7 +108,7 @@ export function* placedRecords(d, fallbackDir, parentDir, onLink = null) {
 export function symlinkedChildRoots(under, parentDir) {
 	const out = [];
 	for (const [, folder] of parentFolders(parentDir)) {
-		const link = symlinkBelow(parentDir, path.join(folder, under.path));
+		const link = symlinkBelow(parentDir, path.join(folder, under.subfolder));
 		if (link) out.push(link);
 	}
 	return out;
@@ -119,7 +120,7 @@ export function symlinkedChildRoots(under, parentDir) {
  * collection is not an owner either — the reference check reports it; placement does not guess.
  */
 export function ownerIdOf(fields, under, parseRef) {
-	const v = fields?.[under.field];
+	const v = fields?.[under.parent];
 	if (typeof v !== 'string' || v === '') return null;
 	const p = parseRef(v);
 	return p && p.collection === under.collection ? p.id : null;
@@ -140,12 +141,12 @@ export function placementOfFile(under, file, fallbackDir, parentDir) {
 	const rel = inside(parentDir);
 	if (!rel) return null;
 	const parentId = rel.split(path.sep)[0];
-	return { root: path.join(parentDir, parentId, under.path), parentId };
+	return { root: path.join(parentDir, parentId, under.subfolder), parentId };
 }
 
 /**
  * Map a path INSIDE a folder-shape parent's directory to the placed child record it holds, if any.
- * `rest` is the path relative to the parent collection's `storage.path` (`<parentId>/<under.path>/…`).
+ * `rest` is the path relative to the parent collection's `storage.path` (`<parentId>/<under.subfolder>/…`).
  * Shared by `events.pathToRecord` (git paths → records) and nothing else re-derives it.
  */
 export function placedChildAt(descriptors, parentName, rest) {
@@ -155,7 +156,7 @@ export function placedChildAt(descriptors, parentName, rest) {
 	for (const c of descriptors.values()) {
 		const under = placementOf(c);
 		if (under?.collection !== parentName) continue;
-		const pre = `${under.path}/`;
+		const pre = `${under.subfolder}/`;
 		if (!sub.startsWith(pre)) continue;
 		const id = idFromRecordPath(c, sub.slice(pre.length));
 		if (id !== null) return { collection: c.name, id };
@@ -166,7 +167,7 @@ export function placedChildAt(descriptors, parentName, rest) {
 /**
  * The first SYMLINK on the way from `base` (exclusive) down to `target` (inclusive), or null.
  *
- * ⚠ Lexical validation of `under.path` does not establish containment: a symlink dropped at
+ * ⚠ Lexical validation of `under.subfolder` does not establish containment: a symlink dropped at
  * `data/companies/acme/meetings` points every "placed" write at wherever it likes, and a walk reads
  * whatever sits there as records. So a placed record is written and read only through REAL
  * directories below the parent collection's root — every existing component is `lstat`ed, and the

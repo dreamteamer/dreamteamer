@@ -13,11 +13,11 @@ import { parseRecord, parseRecordText, patternRe, fmtAjvError, unknownFields, wa
 import { normalizeRecord, normalizeTemporal } from './temporal.js';
 import { NO_RUNTIME, sourceHint, loadDescriptors, runtimeDir, namespaces as compiledNamespaces, sourceRoots as compiledSourceRoots } from './runtime.js';
 import { parseRef } from './namespace.js';
-import { refTargetsOf, refIsSoft } from './ref.js';
 import { relationsOf } from './relations.js';
 import { placementOf, placedRecords, rootRecords, placedRoot, placementOfFile, ownerIdOf, symlinkBelow, dirTreeStamps } from './placement.js';
 import { pathToRecord } from './events.js';
 
+import { storageOf, fieldsOf, targetsOf, isSoft, jsonSchemaOf, unresolvedPeersOf, bodyFieldOf, idsOf } from './descriptor.js';
 // git calls whose failure we CATCH must not print git's own error: execFileSync forwards the
 // child's stderr to ours unless told otherwise, so a handled "not a git repository" still
 // reached the user's terminal. stdout stays piped because we read it.
@@ -55,7 +55,7 @@ export class Store {
 	// entities are edited as SOURCES + compile — refuse politely.
 	writableDescriptor(collection) {
 		const d = this.descriptor(collection);
-		if (d.storage.base === 'runtime') {
+		if (storageOf(d).runtime) {
 			// Two different runtime shapes, and pointing at the wrong one is worse than saying
 			// nothing: a STAGED kind (skills, commands, ui-views…) really does have a source file
 			// under `modules/<module>/<kind>/`, while a PROJECTED one (modules) has no such folder
@@ -75,7 +75,7 @@ export class Store {
 	// set-null falls back to restrict) rather than refusing a request.
 	canRewrite(collection) {
 		const d = this.descriptors.get(collection);
-		return !!d && d.storage.base !== 'runtime' && (d.storage.codec ?? 'md') !== 'file';
+		return !!d && !storageOf(d).runtime && storageOf(d).format !== 'binary';
 	}
 
 	// Relations, decoded ONCE per Store — the same reasoning as `namespaces` in the constructor: this
@@ -180,7 +180,7 @@ export class Store {
 					// `serialize` has no branch for it, so this line would replace an SVG with frontmatter.
 					// BAIL rather than throw — an unwritten mirror is a `check` violation someone can act
 					// on; overwritten bytes are simply gone.
-					if ((td.storage.codec ?? 'md') === 'file') return;
+					if (storageOf(td).format === 'binary') return;
 					// A DETACH can name a target that is already gone: the owner outlived it (a `--force`
 					// rm), and its FK is the dangling reference `check` reports. There is no mirror left
 					// to edit and `read` would throw, turning someone else's stale data into a refusal of
@@ -210,7 +210,7 @@ export class Store {
 						// second claimant. Refusing here rather than overwriting is what keeps the owning
 						// side the truth: the alternative silently unlinks whoever got there first.
 						if (f[rel.mirror] && f[rel.mirror] !== self) {
-							throw new Error(`${rel.field}: ${rel.target}/${tid} already has a ${rel.mirror} (${f[rel.mirror]}) — x-unique — nothing was written.\n  if that claim is STALE, dreamteamer relations rebuild ${rel.target} recomputes it from the owning side.`);
+							throw new Error(`${rel.field}: ${rel.target}/${tid} already has a ${rel.mirror} (${f[rel.mirror]}) — the reference is unique — nothing was written.\n  if that claim is STALE, dreamteamer relations rebuild ${rel.target} recomputes it from the owning side.`);
 						}
 						f[rel.mirror] = self;
 					} else {
@@ -234,7 +234,7 @@ export class Store {
 	 *  the FALLBACK root — where a record with no owner lives — and not an enumeration of where its
 	 *  records are: that is `ids()`, and the directories git has to be asked about are `recordDirs`. */
 	dir(d) {
-		return path.join(d.storage.base === 'runtime' ? this.runtime : this.root, d.storage.path);
+		return path.join(storageOf(d).runtime ? this.runtime : this.root, storageOf(d).path);
 	}
 
 	/** The parent collection's folder, for a collection stored under one. */
@@ -253,15 +253,15 @@ export class Store {
 	 *  caller that has no fields (a bare id) must go through the index instead (recordRoot). */
 	filePath(d, id, ext, fields) {
 		assertSafeId(id); // never fs-join an id that can climb out of the collection
-		if (d.storage.shape === 'folder') {
-			if (!d.storage.entry) throw new Error(`collection "${d.name}" is folder-shape but declares no storage.entry`);
-			return path.join(this.dir(d), id, d.storage.entry);
+		if (storageOf(d).shape === 'folder') {
+			if (!storageOf(d).entry) throw new Error(`collection "${d.name}" is folder-shape but declares no storage.entry`);
+			return path.join(this.dir(d), id, storageOf(d).entry);
 		}
-		if ((d.storage.codec ?? 'md') === 'file') {
+		if (storageOf(d).format === 'binary') {
 			// An opaque record's extension is not derivable from its id. A caller that WRITES says what
 			// it is; a caller that reads goes through the id index instead (recordRoot, below).
 			if (!ext) throw new Error(`collection "${d.name}" is \`codec: file\` — its path needs the file's extension`);
-			return path.join(this.dir(d), `${id}.${d.storage.suffix}.${ext}`);
+			return path.join(this.dir(d), `${id}.${storageOf(d).suffix}.${ext}`);
 		}
 		return path.join(this.rootFor(d, fields), recordFileName(d, id));
 	}
@@ -287,11 +287,11 @@ export class Store {
 	// the on-disk unit of a record: its folder for folder shapes, its file otherwise
 	recordRoot(d, id) {
 		assertSafeId(id);
-		if (d.storage.shape === 'folder') return path.join(this.dir(d), id);
+		if (storageOf(d).shape === 'folder') return path.join(this.dir(d), id);
 		// Only the index knows an opaque record's extension, so the on-disk unit is looked up rather
 		// than derived. An unknown id is the caller's error either way — `read` says so first. The same
 		// goes for a placed record: which parent folder it sits in is a fact about the file, not the id.
-		if ((d.storage.codec ?? 'md') === 'file' || placementOf(d)) {
+		if (storageOf(d).format === 'binary' || placementOf(d)) {
 			const file = this.ids(d.name).get(id);
 			if (!file) throw new Error(`${d.name}/${id}: no such record`);
 			return file;
@@ -418,11 +418,11 @@ export class Store {
 
 	_walkIds(d, dir) {
 		const ids = new Map();
-		if (d.storage.shape === 'folder') {
+		if (storageOf(d).shape === 'folder') {
 			if (!fs.existsSync(dir)) return ids;
 			for (const e of fs.readdirSync(dir).sort()) {
 				if (e.startsWith('.')) continue;
-				const main = path.join(dir, e, d.storage.entry ?? 'SKILL.md');
+				const main = path.join(dir, e, storageOf(d).entry ?? 'SKILL.md');
 				if (fs.existsSync(main)) ids.set(e, main);
 			}
 			return ids;
@@ -452,11 +452,11 @@ export class Store {
 	 *  stored under it — the reason `rm` and `rename` on a parent have to look inside the folder. */
 	placedChildrenIn(d, unit) {
 		const out = [];
-		if (d.storage.shape !== 'folder') return out;
+		if (storageOf(d).shape !== 'folder') return out;
 		for (const c of this.descriptors.values()) {
 			const under = placementOf(c);
 			if (under?.collection !== d.name) continue;
-			const n = [...rootRecords(c, path.join(unit, under.path))].length;
+			const n = [...rootRecords(c, path.join(unit, under.subfolder))].length;
 			if (n) out.push({ collection: c.name, under, count: n });
 		}
 		return out;
@@ -524,7 +524,7 @@ export class Store {
 		const d = this.descriptor(collection);
 		if (!d.compiled?.fields?.created) return undefined;
 		if (fields?.created) return fields.created;
-		const from = [d.id?.generate ?? []].flat();
+		const from = [idsOf(d).from ?? []].flat();
 		if (/^\{\{\s*created\b/.test(String(from[0] ?? ''))) {
 			const day = /(\d{4}-\d{2}-\d{2})/.exec(id)?.[1];
 			if (day) return normalizeTemporal(day, 'date-time');
@@ -600,7 +600,7 @@ export class Store {
 			this.commit([target, ...(unmove ? [file] : []), ...mirrors.files], `dreamteamer: ${collection} revert ${id} to ${String(hash).slice(0, 7)}`, () => {
 				mirrors.undo();
 				undo();
-			}, d.storage.repo ?? '.');
+			}, storageOf(d).repo);
 			return { id, reverted: true, hash, file: target };
 		});
 	}
@@ -651,15 +651,15 @@ export class Store {
 				// The OWNER is validated before any destination is computed (R5): a folder is never made
 				// for a parent that does not exist, and a value that is not a reference to the parent
 				// collection is a field to fix, not a place to move to. Either stops the whole plan.
-				const raw = fields[under.field];
+				const raw = fields[under.parent];
 				const parentId = ownerIdOf(fields, under, parse);
-				if (raw != null && raw !== '' && !parentId) { problems.push(`${collection}/${id}: ${under.field} is "${raw}", not a reference to ${under.collection} — fix the field first`); continue; }
-				if (parentId && !this.ids(under.collection).has(parentId)) { problems.push(`${collection}/${id}: ${under.field} is ${raw} — no such record; fix the field first (dreamteamer check names it)`); continue; }
+				if (raw != null && raw !== '' && !parentId) { problems.push(`${collection}/${id}: ${under.parent} is "${raw}", not a reference to ${under.collection} — fix the field first`); continue; }
+				if (parentId && !this.ids(under.collection).has(parentId)) { problems.push(`${collection}/${id}: ${under.parent} is ${raw} — no such record; fix the field first (dreamteamer check names it)`); continue; }
 				const to = this.filePath(d, id, undefined, fields);
 				if (to !== file) plan(id, file, to, 'placement');
 			}
 		}
-		if (d.storage.shape === 'folder' && fs.existsSync(this.dir(d))) {
+		if (storageOf(d).shape === 'folder' && fs.existsSync(this.dir(d))) {
 			// legacy file-shape records sit at the TOP of the folder — a folder id is one segment
 			const asFile = { ...d, storage: { ...d.storage, shape: 'file' } };
 			for (const name of fs.readdirSync(this.dir(d)).sort()) {
@@ -667,7 +667,7 @@ export class Store {
 				if (name.startsWith('.') || fs.statSync(p).isDirectory()) continue;
 				const id = idFromRecordPath(asFile, name);
 				if (id === null || (wanted && !wanted.has(id))) continue;
-				plan(id, p, path.join(this.dir(d), id, d.storage.entry), 'shape');
+				plan(id, p, path.join(this.dir(d), id, storageOf(d).entry), 'shape');
 			}
 		}
 		return { collection, moves, problems };
@@ -688,7 +688,7 @@ export class Store {
 		// of it reports the problem rather than the empty success it would otherwise read as
 		if (planned.problems.length && !dryRun) throw new Error(`relocate refused:\n  ${planned.problems.join('\n  ')}\nnothing was moved.`);
 		if (dryRun || !planned.moves.length) return { ...planned, applied: false };
-		const cwd = path.resolve(this.root, d.storage.repo ?? '.');
+		const cwd = path.resolve(this.root, storageOf(d).repo);
 		const sources = planned.moves.map((m) => path.relative(cwd, m.from));
 		let dirty = '';
 		try { dirty = execFileSync('git', ['status', '--porcelain', '--', ...sources], { cwd, stdio: QUIET }).toString().trim(); } catch { /* not a git repo — nothing to protect */ }
@@ -705,7 +705,7 @@ export class Store {
 				throw e;
 			}
 			const files = planned.moves.flatMap((m) => [m.from, m.to]);
-			this.commit(files, `dreamteamer: ${collection} relocate ${planned.moves.length} record(s)${toRoot ? ' to root' : ''}`, rollback, d.storage.repo ?? '.');
+			this.commit(files, `dreamteamer: ${collection} relocate ${planned.moves.length} record(s)${toRoot ? ' to root' : ''}`, rollback, storageOf(d).repo);
 			return { ...planned, applied: true };
 		});
 	}
@@ -714,22 +714,22 @@ export class Store {
 
 	validate(d, fields, { skipRefs = false } = {}) {
 		// hard at the tools includes UNKNOWN fields: a typo'd key must never land on disk
-		const unknown = unknownFields(d.schema, fields);
+		const unknown = unknownFields(d, fields);
 		if (unknown.length) throw new Error(`unknown field(s) for this collection: ${unknown.join(', ')} — nothing was written.`);
 		// BEFORE ajv, and deliberately inside validate() rather than in each verb: this is the one
 		// choke point add/set/revert all pass through, so `--starts "2026-07-28 12:00"` from a CLI
 		// session and a `datetime-local` widget's `2026-07-28T12:00` reach disk as the same
 		// canonical, offset-carrying value. ajv's `date-time` accepts exactly one spelling; without
 		// this every human-shaped input is a validation error (see src/temporal.js).
-		normalizeRecord(d.schema, fields);
-		// qualifyBareRefs must ALSO run before ajv.compile(d.schema) below, for the same "one choke
+		normalizeRecord(jsonSchemaOf(d), fields);
+		// qualifyBareRefs must ALSO run before the validator below, for the same "one choke
 		// point" reason but a different consequence: `validate(fields)` is what triggers useDefaults,
 		// materializing any schema `default:` onto `fields` for the first time — a bare value sitting
 		// in a single-target ref field's `default:` is never seen by qualifyBareRefs and would reach
 		// checkRefs unqualified, failing as malformed rather than as the dangling reference it should
 		// read as. In practice no shipped descriptor defaults a ref field, so this is latent, not hit.
 		this.qualifyBareRefs(d, fields);
-		const validate = this.ajv.compile(d.schema); // useDefaults mutates: defaults materialize
+		const validate = this.ajv.compile(jsonSchemaOf(d)); // useDefaults mutates: defaults materialize
 		if (!validate(fields)) {
 			const msgs = validate.errors.map((e) => '  ' + fmtAjvError(e, fields));
 			// The remedy line, when the cause is a generated mirror — see mirrorRemedy below.
@@ -754,8 +754,8 @@ export class Store {
 	// (path-shaped ids) parses as a ref and is not qualified; the checkRefs error then names the
 	// misread collection.
 	qualifyBareRefs(d, fields) {
-		for (const [key, s] of Object.entries(d.schema.properties ?? {})) {
-			const targets = refTargetsOf(s);
+		for (const [key, f] of Object.entries(fieldsOf(d))) {
+			const targets = targetsOf(f);
 			if (!targets || targets === '*' || targets.length !== 1) continue;
 			const raw = fields[key];
 			if (raw == null) continue;
@@ -768,8 +768,8 @@ export class Store {
 	}
 
 	checkRefs(d, fields, prefix = []) {
-		for (const [key, s] of Object.entries(d.schema.properties ?? {})) {
-			const targets = refTargetsOf(s);
+		for (const [key, f] of Object.entries(fieldsOf(d))) {
+			const targets = targetsOf(f);
 			if (!targets) continue;
 			const raw = fields[key];
 			if (raw == null) continue;
@@ -789,7 +789,7 @@ export class Store {
 				// (see ref.js). Honoured HERE as well as in `check` on purpose: the two paths reaching
 				// different verdicts on identical bytes is the divergence this validator was aligned
 				// with `check` to prevent in the first place.
-				const soft = refIsSoft(s);
+				const soft = isSoft(f);
 				if (!this.descriptors.has(coll)) {
 					// A collection the owning module DECLARED as a peer and nothing installed provides is
 					// the normal state of a module opened on its own. `check` excuses it via the same
@@ -797,7 +797,7 @@ export class Store {
 					// module could VALIDATE records it could not WRITE, and the workaround was to hand-edit
 					// the file the store exists to write. Same semantics as a soft ref ("resolve if present,
 					// ignore if absent"); the collection is absent, so the value passes through unresolved.
-					if (d.unresolved_peers?.includes(coll)) continue;
+					if (unresolvedPeersOf(d).includes(coll)) continue;
 					if (soft) continue;
 					throw new Error(`${key}: reference "${value}" targets unknown collection "${coll}" — nothing was written.`);
 				}
@@ -827,11 +827,11 @@ export class Store {
 		// happen is that nobody is told.
 		let idFallback = null;
 		const id = explicitId ?? generateId(
-			d.id?.generate ?? '{{ name | slug }}', fields, this.ids(collection).keys(),
+			idsOf(d).from ?? '{{ name | slug }}', fields, this.ids(collection).keys(),
 			{ onFallback: (f) => { idFallback = f; } },
 		);
-		if (d.id?.pattern && !patternRe(d.id.pattern).test(id)) {
-			throw new Error(`id "${id}" does not match pattern ${d.id.pattern} — nothing was written.`);
+		if (idsOf(d).pattern && !patternRe(idsOf(d).pattern).test(id)) {
+			throw new Error(`id "${id}" does not match pattern ${idsOf(d).pattern} — nothing was written.`);
 		}
 		// The fields decide the folder for a placed collection (rootFor), and existence is asked of the
 		// INDEX, not of one path: the same id already sitting under another parent is the duplicate
@@ -873,7 +873,7 @@ export class Store {
 				fs.rmSync(file, { force: true });
 				this._pruneAround(d, file);
 				this._idsCache.delete(collection); // same phantom as the catch above — see the note there
-			}, d.storage.repo ?? '.');
+			}, storageOf(d).repo);
 			// LAST, after the commit: the key it is re-stated under carries the sha, and `commit` moves it
 			this._indexAdd(collection, memo, id, file);
 			return { id, file, idFallback, ...(deprecated.length && { deprecated }) };
@@ -885,17 +885,17 @@ export class Store {
 	 *  lines and nothing else. */
 	addFile(collection, id, srcPath, { force = false } = {}) {
 		const d = this.writableDescriptor(collection);
-		if ((d.storage.codec ?? 'md') !== 'file') throw new Error(`"${collection}" is not a \`codec: file\` collection — add its records with --<field> values, not --from`);
+		if (storageOf(d).format !== 'binary') throw new Error(`"${collection}" is not a \`codec: file\` collection — add its records with --<field> values, not --from`);
 		assertSafeId(id);
-		if (d.id?.pattern && !patternRe(d.id.pattern).test(id)) {
-			throw new Error(`id "${id}" does not match pattern ${d.id.pattern} — nothing was written.`);
+		if (idsOf(d).pattern && !patternRe(idsOf(d).pattern).test(id)) {
+			throw new Error(`id "${id}" does not match pattern ${idsOf(d).pattern} — nothing was written.`);
 		}
 		const ext = path.extname(srcPath).slice(1).toLowerCase();
 		if (!ext) throw new Error(`${srcPath} has no extension — a file record is named by one. Nothing was written.`);
-		const allowed = d.storage.extensions;
+		const allowed = storageOf(d).accept;
 		if (allowed && !allowed.includes(ext)) throw new Error(`"${collection}" does not accept .${ext} — its declared extensions are ${allowed.join(', ')}. Nothing was written.`);
 		const size = fs.statSync(srcPath).size;
-		const max = d.storage.max_bytes ?? MAX_RECORD_BYTES;
+		const max = storageOf(d).max_bytes ?? MAX_RECORD_BYTES;
 		if (size > max) throw new Error(`${srcPath} is ${size} bytes, over "${collection}"'s max_bytes of ${max} — a record is a small file. Nothing was written.`);
 		const existing = this.ids(collection).get(id);
 		if (existing && !force) throw new Error(`${collection}/${id} already exists — pass --force to replace it. Nothing was written.`);
@@ -909,7 +909,7 @@ export class Store {
 			const restore = snapshot([file, ...(stale ? [stale] : [])]);
 			if (stale) fs.rmSync(stale, { force: true });
 			fs.copyFileSync(srcPath, file);
-			this.commit([file, ...(stale ? [stale] : [])], `dreamteamer: ${collection} add ${id}`, restore, d.storage.repo ?? '.');
+			this.commit([file, ...(stale ? [stale] : [])], `dreamteamer: ${collection} add ${id}`, restore, storageOf(d).repo);
 			return { id, file };
 		});
 	}
@@ -919,7 +919,7 @@ export class Store {
 		this.refuseMirrorWrites(collection, id, Object.keys(changes));
 		this.refuseEngineWrites(d, Object.keys(changes));
 		this.assertUnambiguous(collection, id);
-		if ((d.storage.codec ?? 'md') === 'file') {
+		if (storageOf(d).format === 'binary') {
 			throw new Error(`${collection}/${id} is a file record — its fields are derived from the file, so there is nothing to set. Replace it with \`dreamteamer add ${collection} ${id} --from <path> --force\`.`);
 		}
 		const { fields, file } = this.read(collection, id);
@@ -967,7 +967,7 @@ export class Store {
 			this.commit([target, ...(unmove ? [file] : []), ...mirrors.files], `dreamteamer: ${collection} set ${id}`, () => {
 				mirrors.undo();
 				undo();
-			}, d.storage.repo ?? '.');
+			}, storageOf(d).repo);
 			return { id, file: target };
 		});
 	}
@@ -978,11 +978,11 @@ export class Store {
 	 *  path→record rule `commit` and `changes` use. */
 	pathAt(d, id, hash) {
 		if (!placementOf(d)) return null;
-		const cwd = path.resolve(this.root, d.storage.repo ?? '.');
+		const cwd = path.resolve(this.root, storageOf(d).repo);
 		const dirs = this.recordDirs(d).map((p) => path.relative(cwd, p));
 		let out = '';
 		try { out = execFileSync('git', ['ls-tree', '-r', '--name-only', hash, '--', ...dirs], { cwd, stdio: QUIET }).toString(); } catch { return null; }
-		const prefix = (d.storage.repo ?? '.') === '.' ? '' : `${d.storage.repo}/`;
+		const prefix = (storageOf(d).repo) === '.' ? '' : `${storageOf(d).repo}/`;
 		for (const p of out.split('\n').filter(Boolean)) {
 			const rec = pathToRecord(this.descriptors, prefix + p);
 			if (rec && rec.collection === d.name && rec.id === id) return p;
@@ -1045,7 +1045,7 @@ export class Store {
 		// force here: reassign them (or clear their owner) first, and the deletion is then an ordinary one.
 		const held = this.placedChildrenIn(d, unit);
 		if (held.length) {
-			const lines = held.map((h) => `  ${h.count} ${h.collection} record(s) under ${h.under.path}/ — dreamteamer set ${h.collection}/<id> ${h.under.field}=<another ${collection}> (or ${h.under.field}= to clear)`);
+			const lines = held.map((h) => `  ${h.count} ${h.collection} record(s) under ${h.under.subfolder}/ — dreamteamer set ${h.collection}/<id> ${h.under.parent}=<another ${collection}> (or ${h.under.parent}= to clear)`);
 			throw new Error(`${self} holds records of other collections inside its folder:\n${lines.join('\n')}\nmove them first, then remove the ${collection}. nothing was removed.`);
 		}
 		// the existence check, and the FKs whose mirrors are detached below. Qualified on a COPY for the
@@ -1068,7 +1068,7 @@ export class Store {
 		const restrictHits = [];
 		for (const rel of this.relations()) {
 			if (rel.target !== collection) continue;
-			const targets = refTargetsOf(this.descriptor(rel.owner).schema?.properties?.[rel.field]);
+			const targets = targetsOf(fieldsOf(this.descriptor(rel.owner))[rel.field]);
 			const bare = Array.isArray(targets) && targets.length === 1;
 			// An owner the store cannot REWRITE cannot be set to null — and the honest fallback is
 			// `restrict`, not silence: refusing is a sentence someone can act on, a skipped set-null is a
@@ -1191,7 +1191,7 @@ export class Store {
 			// ONE commit, the record and every reference the engine moved with it: a commit where the
 			// target is gone but its owners still name it is a history that never held a consistent
 			// workspace.
-			this.commit([unit, ...mirrors.files, ...nullFiles], `dreamteamer: ${collection} rm ${id}`, rollback, d.storage.repo ?? '.');
+			this.commit([unit, ...mirrors.files, ...nullFiles], `dreamteamer: ${collection} rm ${id}`, rollback, storageOf(d).repo);
 			return { id, inboundIgnored: force ? inbound.length + extraRestrict.length : 0 };
 		});
 	}
@@ -1201,8 +1201,8 @@ export class Store {
 		this.assertUnambiguous(collection, oldId);
 		this.read(collection, oldId); // existence check
 		if (oldId === newId) return { id: newId, rewrites: 0 };
-		if (d.id?.pattern && !patternRe(d.id.pattern).test(newId)) {
-			throw new Error(`id "${newId}" does not match pattern ${d.id.pattern} — nothing was renamed.`);
+		if (idsOf(d).pattern && !patternRe(idsOf(d).pattern).test(newId)) {
+			throw new Error(`id "${newId}" does not match pattern ${idsOf(d).pattern} — nothing was renamed.`);
 		}
 		const oldUnit = this.recordRoot(d, oldId); // folder-shape: move the WHOLE folder
 		this._assertContained(d, oldUnit);
@@ -1227,7 +1227,7 @@ export class Store {
 				pruneEmptyDirs(path.dirname(newUnit), this.rootOfFile(d, newUnit));
 				this._dropPlacedUnder(collection);
 				restore();
-			}, d.storage.repo ?? '.');
+			}, storageOf(d).repo);
 			// each entry names the PAIR it came from, because a batch has more than one — see rewriteRefsBatch
 			for (const s of skipped) {
 				console.warn(`⚠ ${path.relative(this.root, s.file)}: ${s.count} raw-prose occurrence(s) of ${s.oldRef} left untouched — only [[wikilinks]] are maintained in bodies (decision 7)`);
@@ -1270,9 +1270,9 @@ export class Store {
 		const seen = new Set();
 		for (const d of this.descriptors.values()) {
 			// for runtime-based collections, inbound-ref surgery targets SOURCES, not the runtime
-			const roots = d.storage.base === 'runtime' ? this.sourceRoots() : [this.root];
+			const roots = storageOf(d).runtime ? this.sourceRoots() : [this.root];
 			for (const srcRoot of roots) {
-				const dir = path.join(srcRoot, d.storage.path);
+				const dir = path.join(srcRoot, storageOf(d).path);
 				if (!fs.existsSync(dir)) continue;
 				for (const f of walk(dir)) {
 					const key = path.resolve(f);
@@ -1574,22 +1574,18 @@ function beforeInWalk(a, b) {
  * one command that repairs it is the difference between a wall and a step.
  */
 export function mirrorRemedy(d, fieldNames) {
-	const mirrors = [...new Set(fieldNames)].filter((f) => {
-		const p = f && d.schema?.properties?.[f];
-		const h = (p?.items && typeof p.items === 'object') ? p.items : p;
-		return h?.['x-inverse-of'] !== undefined;
-	});
+	const mirrors = [...new Set(fieldNames)].filter((f) => f && fieldsOf(d)[f]?.mirror_of !== undefined);
 	if (!mirrors.length) return '';
 	return `\n  ${mirrors.join(', ')}: a GENERATED mirror — its value is derived from the owning side, not yours to set. Repair it with: dreamteamer relations rebuild ${d.name}`;
 }
 
 export function bodyField(d) {
-	return Object.entries(d.schema.properties ?? {}).find(([, s]) => s?.['x-body'])?.[0];
+	return bodyFieldOf(d);
 }
 
 /** `<id>.<suffix>.<ext>` — the filename of a text record, wherever its root is. */
 function recordFileName(d, id) {
-	return `${id}.${d.storage.suffix}${EXT[d.storage.codec ?? 'md']}`;
+	return `${id}.${storageOf(d).suffix}${EXT[storageOf(d).format]}`;
 }
 
 
@@ -1608,7 +1604,7 @@ function pruneEmptyDirs(dir, stopAt) {
 }
 
 export function serialize(d, fields, previousText) {
-	const codec = d.storage.codec ?? 'md';
+	const codec = storageOf(d).format;
 	if (codec === 'json') return JSON.stringify(fields, null, 2) + '\n';
 	if (codec === 'yaml') return dump(fields);
 	const bf = bodyField(d);

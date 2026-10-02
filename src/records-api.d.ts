@@ -3,17 +3,41 @@
 // record's fields, a descriptor's schema) are typed loosely on purpose: they are the workspace's.
 
 export type Fields = Record<string, unknown>;
+/** One resolved field, in the descriptor's own vocabulary (see src/fields.js). */
+export type Field = {
+	type: string | string[];
+	title?: string; description?: string; required?: boolean; many?: boolean; default?: unknown;
+	enum?: unknown[] | Record<string, { label?: string; description?: string; icon?: string; color?: string; background?: string }>;
+	unique?: boolean; mirror_of?: string; on_delete?: 'restrict' | 'set-null'; soft?: boolean; sensitive?: boolean;
+	body?: boolean; derived?: boolean; virtual?: boolean; deprecated?: boolean;
+	fields?: Record<string, Field>; values?: string | Field; item_title?: string;
+	display?: Record<string, unknown>;
+	[k: string]: unknown;
+};
+/** A compiled descriptor: the authored v2 keys plus what compile decided. Read it through the accessors. */
 export type Descriptor = {
 	name: string;
 	title?: string;
 	singular?: string;
+	record_title?: string;
 	description?: string;
 	use_when?: string;
-	module?: string;
-	storage: { path: string; base: 'workspace' | 'runtime'; codec?: 'md' | 'yaml' | 'json' | 'file'; shape?: 'file' | 'folder'; suffix?: string; repo?: string; [k: string]: unknown };
-	schema: { type?: string; required?: string[]; properties?: Record<string, any>; [k: string]: unknown };
+	internal?: boolean;
+	sensitive?: boolean;
+	storage?: { path?: string; format?: 'md' | 'yaml' | 'json' | 'binary'; shape?: 'file' | 'folder'; entry?: string; suffix?: string; under?: { parent: string; subfolder: string; id?: 'independent' | 'nested' }; max_bytes?: number; accept?: string[] };
+	ids?: { from?: string | string[]; pattern?: string };
+	constraints?: unknown[];
+	display?: Record<string, Record<string, unknown>>;
+	compiled: {
+		defaults: Record<string, unknown>;
+		module: string; repo: string; runtime: boolean; under_collection?: string;
+		mirrors: string[]; overlaid_by: string[]; unresolved_peers: string[];
+		fields: Record<string, Field>;
+		json_schema: Record<string, unknown>;
+	};
 	[k: string]: unknown;
 };
+export type Storage = { path: string; format: 'md' | 'yaml' | 'json' | 'binary'; shape: 'file' | 'folder'; suffix: string; repo: string; runtime: boolean; entry?: string; max_bytes?: number; accept?: string[]; under?: { parent: string; subfolder: string; collection: string; id: 'independent' | 'nested' } };
 export type Descriptors = Map<string, Descriptor>;
 export type Manifest = { compiled: string; host: string; engine: string; namespaces: string[]; modules: { name: string; location: string; channel: string; root: string }[]; ui: string[]; 'adapter-outputs': string[]; 'adapter-blocks': string[]; extensions?: { name: string; version: string }[]; 'source-kinds'?: { kind: string; exclude: string[]; extension: string }[]; entries: Record<string, { sources: { path: string; hash: string }[]; hash: string }>; [k: string]: unknown };
 
@@ -72,7 +96,7 @@ export function matchesFilter(row: Fields, filter: unknown, resolve?: unknown): 
 export function unknownOperators(filter: unknown): Set<string>;
 export function looseEq(a: unknown, b: unknown): boolean;
 export const KNOWN_OPERATORS: ReadonlySet<string>;
-export function sortRows<T>(rows: T[], sort: string | null | undefined, schema?: Descriptor['schema']): T[];
+export function sortRows<T>(rows: T[], sort: string | null | undefined, jsonSchema?: Record<string, unknown>): T[];
 export function compareValues(a: unknown, b: unknown): number;
 export function distinctValues(store: Store, collection: string, field: string, opts?: { limit?: number }): any;
 export function keyBetween(a: string | null, b: string | null): string;
@@ -81,7 +105,30 @@ export function parseRef(ref: string, namespaces: string[]): { collection: strin
 export function normalizeNamespaces(list: unknown): string[];
 export function splitRef(descriptors: Descriptors, ref: string): { collection: string; id: string };
 export function canonicalCollection(descriptors: Descriptors, word: string): string | null;
-export function refTargetsOf(prop: unknown): string[];
+// ---- descriptor accessors (src/descriptor.js) — the one way to ask a compiled descriptor -----------
+export function fieldsOf(d: Descriptor): Record<string, Field>;
+export function storedFieldsOf(d: Descriptor): Record<string, Field>;
+export function jsonSchemaOf(d: Descriptor): Record<string, unknown>;
+export function bodyFieldOf(d: Descriptor): string | undefined;
+export function positionFieldOf(d: Descriptor): string | undefined;
+export function requiredOf(d: Descriptor): string[];
+export function targetsOf(field: Field | undefined): null | '*' | string[];
+export function isSoft(field: Field | undefined): boolean;
+export function mirrorOf(field: Field | undefined): string | undefined;
+export function titleOf(d: Descriptor): string;
+export function singularOf(d: Descriptor): string | undefined;
+export function recordTitleOf(d: Descriptor): string;
+export function idsOf(d: Descriptor): { from?: string | string[]; pattern?: string };
+export function storageOf(d: Descriptor): Storage;
+export function isRuntime(d: Descriptor): boolean;
+export function isInternal(d: Descriptor): boolean;
+export function isSensitive(d: Descriptor): boolean;
+export function isBinary(d: Descriptor): boolean;
+export function displayOf(d: Descriptor): Record<string, Record<string, unknown>>;
+export function moduleOf(d: Descriptor): string;
+export function overlaidByOf(d: Descriptor): string[];
+export function unresolvedPeersOf(d: Descriptor): string[];
+export function mirrorsOf(d: Descriptor): string[];
 export function slug(s: string): string;
 export function slugOrHash(s: string): string;
 export function loadYaml(text: string): any;

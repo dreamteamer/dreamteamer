@@ -9,6 +9,7 @@ import { parseRecordText } from './records.js';
 import { relationsOf } from './relations.js';
 import { splitRef, canonicalCollection } from './ref.js';
 
+import { storageOf } from './descriptor.js';
 // git calls whose failure we CATCH must not print git's own error: execFileSync forwards the
 // child's stderr to ours unless told otherwise, so a handled "not a git repository" still
 // reached the user's terminal. stdout stays piped because we read it.
@@ -320,13 +321,13 @@ function partnersLeftPending(reader, published) {
 function scopeByRepo(descriptors, only) {
 	const byRepo = new Map();
 	for (const d of descriptors.values()) {
-		const p = d.storage?.path;
+		const p = storageOf(d).path;
 		// `storage.base`, not a `system/` prefix: after the flatten a runtime collection's path is a
 		// bare kind name (`skills`), so the old test admitted all seven — and this list becomes a
 		// `git add` pathspec, which fails outright on a path the workspace root does not have.
-		if (!p || d.storage.base === 'runtime') continue;
+		if (!p || storageOf(d).runtime) continue;
 		if (only.length && !only.includes(d.name)) continue;
-		const repo = d.storage.repo ?? '.';
+		const repo = storageOf(d).repo;
 		if (!byRepo.has(repo)) byRepo.set(repo, []);
 		byRepo.get(repo).push(p);
 		// A collection stored UNDER another keeps most of its files inside the parent's folder, so
@@ -334,8 +335,8 @@ function scopeByRepo(descriptors, only) {
 		// the rest as "nothing pending" — the one report that looks like success. The parent's path
 		// joins the pathspec; pathToRecord then attributes each file to the collection it belongs to,
 		// and the row filter in commitPlan keeps the parent's own records out of a scoped commit.
-		const parent = d.storage.under && descriptors.get(d.storage.under.collection);
-		if (parent?.storage?.path && !byRepo.get(repo).includes(parent.storage.path)) byRepo.get(repo).push(parent.storage.path);
+		const parent = storageOf(d).under && descriptors.get(storageOf(d).under.collection);
+		if (storageOf(parent).path && !byRepo.get(repo).includes(storageOf(parent).path)) byRepo.get(repo).push(storageOf(parent).path);
 	}
 	return byRepo;
 }
@@ -391,7 +392,7 @@ function sample(root, repo, dirs, descriptors) {
 		// the one thing that cannot be done to it. The status letter still decides; the descriptor
 		// only says what the letter is called here.
 		let verb = VERB[status] ?? 'set';
-		if (verb === 'set' && (descriptors.get(rec.collection)?.storage?.codec ?? 'md') === 'file') verb = 'replace';
+		if (verb === 'set' && storageOf(descriptors.get(rec.collection)).format === 'binary') verb = 'replace';
 		rows.push({ repoRel, fromRel, ...rec, verb });
 	}
 	return { cwd, rows };

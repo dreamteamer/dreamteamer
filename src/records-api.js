@@ -28,7 +28,8 @@ export { sortRows, compareValues } from './temporal.js';
 export { distinctValues } from './field-values.js';
 export { keyBetween, placementKey } from './fractional-index.js';
 export { parseRef, normalizeNamespaces } from './namespace.js';
-export { splitRef, canonicalCollection, refTargetsOf } from './ref.js';
+export { splitRef, canonicalCollection } from './ref.js';
+export * from './descriptor.js';
 export { slug, slugOrHash } from './template.js';
 export { load as loadYaml, dump as dumpYaml } from './yaml.js';
 

@@ -1,0 +1,21 @@
+name: docs
+description: >-
+  title / content / tags, under a dated id (`2026-07-23--<title>`) — the shape of a thing that
+  HAPPENED or was written on a day: a note, a report, a meeting write-up. For a thing that IS, use `entity`.
+use_when: a collection holds documents written on a day — list this mixin rather than restating the fields and the dated id
+ids:
+  from: '{{ created | date }}--{{ title | slug }}'
+  pattern: '^\d{4}-\d{2}-\d{2}--[a-z0-9-]+$'
+fields:
+  title:
+    type: string
+    required: true
+  tags:
+    type: string
+    many: true
+  content:
+    type: markdown
+    body: true
+display:
+  list:
+    columns: [title, tags]

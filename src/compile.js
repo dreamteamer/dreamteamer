@@ -5,15 +5,11 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import Ajv from 'ajv';
-import addFormats from 'ajv-formats';
 import { load, dump } from './yaml.js';
 import { slug } from './template.js';
-import { walk, patternRe } from './records.js';
-import { refTargetsOf } from './ref.js';
-import { subpathProblem, placedRecords } from './placement.js';
+import { walk } from './records.js';
+import { placedRecords } from './placement.js';
 import { viewErrors, viewDisplay, bindingErrors } from './views.js';
-import { fieldsOf, displayOf } from './descriptor.js';
 import {
 	normalizeNamespaces, namespaceProblems, unqualifiedProblems, defaultStoragePath, storageOverlaps,
 	baseNameOf, singular, namespaceOf } from './namespace.js';
@@ -25,7 +21,8 @@ import { satisfies } from './semver.js';
 import { parseEnvValues } from './env-vars.js';
 import { DERIVED_KINDS, readManifest, runtimeDir, engineId, engineVersion, loadDescriptors as loadCompiledDescriptors } from './runtime.js';
 import { excludedFromKind, disablesPackage, isPackageEntry } from './extensions.js';
-import { isV2, shapeErrors, mergeMixins, nameErrors, toInternal, compiledBlock, mergeOverlays } from './descriptor-v2.js';
+import { compileCollections, v1Refusal } from './compile-collections.js';
+import { storageOf, fieldsOf, displayOf } from './descriptor.js';
 export { engineId, engineVersion, readManifest };
 
 /**
@@ -48,442 +45,18 @@ export function titleCase(id) {
 		.join(' ');
 }
 
-/**
- * Every `x-display` left in a schema, as `[fieldPath, template, referenceTarget|null]`.
- *
- * The keyword was renamed to `x-title-template` and mostly DELETED — its value is inherited from
- * the target collection's `title_template`. There is deliberately no alias: real workspaces pin
- * this engine by SHA, so nothing breaks until someone bumps a pin, and that person needs a message
- * rather than silence. JSON Schema IGNORES unknown keywords, so the alternative to failing here is
- * a label that quietly stops working and regresses to a raw id.
- */
-function staleDisplayKeywords(schema, prefix = '') {
-	const out = [];
-	for (const [key, prop] of Object.entries(schema?.properties ?? {})) {
-		if (!prop || typeof prop !== 'object') continue;
-		const at = `${prefix}${key}`;
-		if ('x-display' in prop) out.push([at, prop['x-display'], prop['x-reference'] ?? null]);
-		if (prop.items && typeof prop.items === 'object' && 'x-display' in prop.items) {
-			out.push([at, prop.items['x-display'], prop.items['x-reference'] ?? null]);
-		}
-		if (prop.properties) out.push(...staleDisplayKeywords(prop, `${at}.`));
-		if (prop.items?.properties) out.push(...staleDisplayKeywords(prop.items, `${at}[].`));
-	}
-	return out;
-}
 
-/**
- * Every `x-reference` in a schema, as `[fieldPath, target]` — the same traversal check.js uses to
- * resolve refs in records, here to verify the SHAPE against the module dependency graph. Nested
- * objects and array items both carry the keyword, so both are walked. `target` is the RAW keyword
- * value — a string, or a list of strings for the union form — unvalidated; the caller checks shape.
- */
-function refTargets(schema, prefix = '') {
-	const out = [];
-	for (const [key, prop] of Object.entries(schema?.properties ?? {})) {
-		if (!prop || typeof prop !== 'object') continue;
-		const at = `${prefix}${key}`;
-		if (prop['x-reference']) out.push([at, prop['x-reference']]);
-		if (prop.items && typeof prop.items === 'object' && prop.items['x-reference']) out.push([`${at}[]`, prop.items['x-reference']]);
-		if (prop.properties) out.push(...refTargets(prop, `${at}.`));
-		if (prop.items?.properties) out.push(...refTargets(prop.items, `${at}[].`));
-	}
-	return out;
-}
 
-/**
- * Hoist per-relation keywords onto the node that CARRIES `x-reference` — `items` for array fields.
- * Both places were historically tolerated and check.js read `s['x-inverse'] ?? s.items['x-inverse']`,
- * a two-place read every future consumer would have had to copy. After this, every runtime consumer
- * reads exactly one place. Conflicting duplicates fail loudly: silently preferring one is how a
- * hand-authored value gets shadowed with no error anywhere.
- */
-function normalizeRelationKeywords(schema, name, prefix = '') {
-	for (const [key, prop] of Object.entries(schema?.properties ?? {})) {
-		if (!prop || typeof prop !== 'object') continue;
-		const at = `${prefix}${key}`;
-		if (prop.items && typeof prop.items === 'object' && prop.items['x-reference']) {
-			// every per-relation keyword, not just `x-inverse` — `x-unique` decides the mirror's
-			// cardinality, `x-on-delete` its removal rule and `x-inverse-of` names the owner from the
-			// other spelling, so all four have to reach the same node the relation is read from.
-			for (const kw of ['x-inverse', 'x-title-template', 'x-unique', 'x-on-delete', 'x-inverse-of', 'x-reference-soft']) {
-				if (!(kw in prop)) continue;
-				if (kw in prop.items && prop.items[kw] !== prop[kw]) {
-					fail(`collection "${name}": field "${at}" declares conflicting ${kw} on the property and its items — keep one.`);
-				}
-				prop.items[kw] = prop[kw];
-				delete prop[kw];
-			}
-		}
-		if (prop.properties) normalizeRelationKeywords(prop, name, `${at}.`);
-		if (prop.items?.properties) normalizeRelationKeywords(prop.items, name, `${at}[].`);
-	}
-}
 
-/** The properties a `codec: md` record's PROSE lands in — `x-body`, of which there may be at most
- *  one. `store.js`'s `bodyField(d)` is the record-layer spelling of the same question, and it takes
- *  the FIRST such property; compile is what guarantees there is never a second, and it needs the
- *  answer before a Store exists. Every place compile asks it reads through here. */
-function bodyKeys(schema) {
-	return Object.entries(schema?.properties ?? {}).filter(([, s]) => s?.['x-body'] === true).map(([k]) => k);
-}
 
-/** Fold the mirror-authoring side of a relation into its OWNER: cardinality closes backwards, the
- *  authored description rides along on the owner's `x-inverse`, and the field itself goes — pass 2
- *  puts a generated one back under the same key, which is also what keeps field ORDER identical
- *  across spellings (a surviving key would keep its authored position; a deleted one is appended).
- *  Both legacy spellings land here, and that is WHY they compile to identical bytes: one code path,
- *  not two that have to be kept in step by hand. */
-function foldMirrorSide(d, name, field, prop, oHolder, of) {
-	// cardinality closes backwards: a scalar mirror means the FK is unique
-	if (prop.type !== 'array') oHolder['x-unique'] = true;
-	else if (oHolder['x-unique'] === true) fail(`collection "${name}": field "${field}" is an array mirror of the unique FK "${of}" — one of the two is wrong.`);
-	// the owner's own object-form description survives only where the folded side has none: prose
-	// describing the MIRROR was written on the mirror, so it is the more specific of the two.
-	const own = oHolder['x-inverse'];
-	const description = typeof prop.description === 'string' ? prop.description : (typeof own === 'object' ? own?.description : undefined);
-	oHolder['x-inverse'] = description === undefined ? field : { field, description };
-	delete d.schema.properties[field];
-}
 
-/** Two source spellings, one compiled pair. Spelling B (`x-inverse-of` on the non-owning side)
- *  is rewritten onto the owner as `x-inverse`; then every owner `x-inverse` stamps a generated
- *  readOnly mirror on its target. Runs over ALL merged descriptors because a relation spans two. */
-function materializeRelations(mergedGroups, ctx) {
-	const byName = new Map([...mergedGroups].map(([n, g]) => [n, g.merged]));
-	// ---- pass 1: spelling B → canonical A on the owner --------------------------------
-	for (const [name, d] of byName) {
-		for (const [field, prop] of Object.entries(d.schema?.properties ?? {})) {
-			if (!prop || typeof prop !== 'object') continue;
-			const holder = (prop.items && typeof prop.items === 'object') ? prop.items : prop;
-			const of = holder['x-inverse-of'];
-			if (!of) continue;
-			const dot = of.lastIndexOf('.'); // collection names contain '/', so split at the LAST dot
-			if (dot < 1) fail(`collection "${name}": field "${field}" has x-inverse-of "${of}" — expected <collection>.<field>.`);
-			const ownerName = of.slice(0, dot), ownerField = of.slice(dot + 1);
-			const owner = byName.get(ownerName);
-			const oProp = owner?.schema?.properties?.[ownerField];
-			// The two halves of "<collection>.<field>" fail differently, and saying "no such field"
-			// for a mistyped COLLECTION sends the reader to inspect a field that is spelled correctly.
-			if (!owner) fail(`collection "${name}": field "${field}" declares x-inverse-of "${of}" — there is no collection "${ownerName}" (have: ${[...byName.keys()].sort().join(', ')}).`);
-			if (!oProp) fail(`collection "${name}": field "${field}" declares x-inverse-of "${of}", but ${ownerName} has no field "${ownerField}".`);
-			const oHolder = (oProp.items && typeof oProp.items === 'object') ? oProp.items : oProp;
-			const oTargets = refTargets(owner.schema).find(([at]) => at === ownerField || at === `${ownerField}[]`);
-			const targetList = oTargets ? (Array.isArray(oTargets[1]) ? oTargets[1] : [oTargets[1]]) : [];
-			if (!targetList.includes(name)) fail(`collection "${name}": x-inverse-of "${of}" — that field does not reference ${name}.`);
-			const existing = oHolder['x-inverse'];
-			const existingName = existing && (typeof existing === 'string' ? existing : existing.field);
-			if (existingName && existingName !== field) fail(`relation ${of}: declared on both sides and they disagree ("${existingName}" vs "${field}") — keep one.`);
-			if (existingName) console.warn(`⚠ relation ${of}: declared on both sides — keep one (x-inverse on the owner, or x-inverse-of on ${name}.${field}).`);
-			// the authored spelling-B field is replaced by the generated mirror in pass 2
-			foldMirrorSide(d, name, field, prop, oHolder, of);
-		}
-	}
-	// ---- pass 1b: the legacy MUTUAL spelling — both sides declaring x-inverse at each other ----
-	// ONE edge described twice, not two edges. It is the shape 0.14's docs taught, and real
-	// workspaces still carry it; read as two relations, each side's mirror lands on the other's
-	// authored field and compile dies on a collision the author cannot act on — while the design doc
-	// promises the legacy shape keeps compiling for one minor. So collapse it here, warn ONCE per
-	// pair, and hand pass 2 exactly what the single-sided spelling would have handed it.
-	// EVERY source a collection is compiled from, not `sources[0]`. A collection assembled from a base
-	// plus an `extends:` overlay (or a `templates:` field set) has several descriptor files, and the
-	// field this warning tells you to delete may be authored in ANY of them — naming the first is a
-	// guess, and following a wrong guess means editing a file that does not contain the field,
-	// changing nothing, and finding the same warning still there next compile. So list them all and
-	// let the author look: two paths to check beats one that is confidently wrong.
-	const srcsOf = (n) => {
-		const paths = [...new Set((mergedGroups.get(n)?.sources ?? []).map((s) => s?.path).filter(Boolean))];
-		if (paths.length === 0) return n;
-		return paths.length === 1 ? paths[0] : `one of ${paths.join(', ')}`;
-	};
-	for (const [name, d] of byName) {
-		for (const [field, prop] of Object.entries(d.schema?.properties ?? {})) {
-			// `field in properties` re-checked because a MUTUAL SELF-REFERENCE (companies.parent ⟷
-			// companies.subsidiaries) folds one of the two fields away while this snapshot is still
-			// being walked — without it the pair would be collapsed a second time, from the other end,
-			// and the surviving owner would be folded into the field it just replaced.
-			if (!prop || typeof prop !== 'object' || !(field in d.schema.properties)) continue;
-			const holder = (prop.items && typeof prop.items === 'object') ? prop.items : prop;
-			const inv = holder['x-inverse'];
-			if (!inv) continue;
-			const mirror = typeof inv === 'string' ? inv : inv.field;
-			const target = holder['x-reference'];
-			// a wildcard or union target is left alone: "which of these collections is the pair with"
-			// has no answer here, and pass 2 already speaks for those shapes.
-			if (typeof target !== 'string' || target === '*') continue;
-			const other = byName.get(target)?.schema?.properties?.[mirror];
-			if (!other || typeof other !== 'object' || (target === name && mirror === field)) continue;
-			const oHolder = (other.items && typeof other.items === 'object') ? other.items : other;
-			const oInv = oHolder['x-inverse'];
-			// MUTUAL iff each side's x-inverse names the other's FIELD and its x-reference names the
-			// other's COLLECTION. Anything short of that is two relations that merely meet, and the
-			// collision error in pass 2 is the right answer for those.
-			if (!oInv || (typeof oInv === 'string' ? oInv : oInv.field) !== field || oHolder['x-reference'] !== name) continue;
-			// WHO OWNS: the SCALAR side, because that is where the foreign key physically lives — which
-			// resolves every pair a real workspace has been found to carry. The symmetric shapes have no
-			// such answer, so they fall to a rule that at least cannot move under re-ordered discovery:
-			// x-unique first (a 1:1 written twice), then the qualified field name.
-			const here = `${name}.${field}`, there = `${target}.${mirror}`;
-			let ownsHere, why;
-			if ((prop.type === 'array') !== (other.type === 'array')) { ownsHere = prop.type !== 'array'; why = 'the scalar side is where the foreign key lives'; }
-			else if ((holder['x-unique'] === true) !== (oHolder['x-unique'] === true)) { ownsHere = holder['x-unique'] === true; why = 'it declares x-unique'; }
-			else { ownsHere = here < there; why = 'both sides are the same shape, so the name decides'; }
-			const owns = ownsHere ? here : there, folded = ownsHere ? there : here;
-			const ownsColl = ownsHere ? name : target, foldedColl = ownsHere ? target : name;
-			console.warn(`⚠ relation ${owns} ⟷ ${folded}: declared on BOTH sides with x-inverse — that is ONE relation, not two. ${owns} owns it (${why}), so ${folded} is now GENERATED: delete that field from whichever descriptor of ${foldedColl} declares it (${srcsOf(foldedColl)}) and keep the x-inverse on ${owns} (${srcsOf(ownsColl)}). Its description is kept; every other keyword on it is DROPPED.`);
-			if (ownsHere) foldMirrorSide(byName.get(target), target, mirror, other, holder, here);
-			else foldMirrorSide(d, name, field, prop, oHolder, there);
-		}
-	}
-	// ---- pass 2: every owner x-inverse stamps the mirror ------------------------------
-	for (const [name, d] of byName) {
-		for (const [field, prop] of Object.entries(d.schema?.properties ?? {})) {
-			if (!prop || typeof prop !== 'object') continue;
-			const holder = (prop.items && typeof prop.items === 'object') ? prop.items : prop;
-			const inv = holder['x-inverse'];
-			if (!inv) continue;
-			const mirrorName = typeof inv === 'string' ? inv : inv.field;
-			const raw = holder['x-reference'];
-			if (raw === '*' || raw == null) fail(`collection "${name}": field "${field}" declares x-inverse on x-reference '*' — a wildcard has no target to stamp.`);
-			if (holder['x-on-delete'] !== undefined && !['restrict', 'set-null'].includes(holder['x-on-delete'])) {
-				fail(`collection "${name}": field "${field}" x-on-delete must be restrict or set-null.`);
-			}
-			if (holder['x-on-delete'] === 'set-null' && (d.schema.required ?? []).includes(field)) {
-				fail(`collection "${name}": field "${field}" is required — x-on-delete: set-null would produce an invalid record. Use restrict, or drop required.`);
-			}
-			// THE SAME HOLE, one shape along: a LIST with a floor. `rm` clears set-null by removing the
-			// one entry that named the deleted record, and takes the key with it when that was the last
-			// — so `minItems: 1` is safe (absent and empty read alike to every reader) and anything
-			// higher is not. Measured on `minItems: 2` with two values: `dt rm meetings/kickoff` printed
-			// ✔ removed, and `dt check` then reported `must NOT have fewer than 2 items` on a record
-			// nobody had touched. `rm` does not validate the owners it rewrites — deliberately, since
-			// its job is to honour a policy the descriptor already declared — so the contradiction has
-			// to be refused where the descriptor is read.
-			if (holder['x-on-delete'] === 'set-null' && prop.type === 'array' && (prop.minItems ?? 0) > 1) {
-				fail(`collection "${name}": field "${field}" declares minItems: ${prop.minItems} — x-on-delete: set-null removes ONE entry per deleted record, so it would leave a list shorter than its own minimum and no write would be validating it. Use restrict, or drop minItems.`);
-			}
-			// x-unique on a LIST is a keyword no component can honour, and all of them read it
-			// differently: relationsOf calls the pair `m2m` while stampMirror generates the SCALAR
-			// mirror x-unique implies, so `dt relations` prints m2m beside a scalar; check tests
-			// uniqueness only for a scalar FK, so it never fires; and the store enforces it at write
-			// time regardless. Three components disagreeing about one descriptor is a descriptor error.
-			if (prop.type === 'array' && holder['x-unique'] === true) {
-				fail(`collection "${name}": field "${field}" is a list, and x-unique means the foreign key is one-to-one — the two cannot both be true. Drop x-unique, or make the field a single reference.`);
-			}
-			holder['x-inverse'] = mirrorName; // canonical string form in the compiled output
-			for (const target of Array.isArray(raw) ? raw : [raw]) {
-				// ⚠ `x-inverse-description` wins over the object form's `description`, because it is the
-				// flag `--inverse-description` writes and the object form has no CLI spelling at all.
-				// It is an AUTHORED description of a GENERATED field — the one field in this engine
-				// that could never have an explanation, since the owning side's `--description`
-				// describes the foreign key, which is the other direction.
-				stampMirror(byName, ctx, name, field, prop, holder, mirrorName, target,
-					holder['x-inverse-description'] ?? (typeof inv === 'object' ? inv.description : undefined));
-			}
-		}
-	}
-}
 
-function stampMirror(byName, ctx, ownerName, field, prop, holder, mirrorName, target, description) {
-	const t = byName.get(target);
-	if (!t) return; // an uninstalled peer: the relation is inert until the target is installed
-	// cross-module gate: the owning module stamps a field onto the target, so it must depend on the
-	// target's module or declare the target collection a peer. Same repo only.
-	const ownerModule = ctx.moduleOf(ownerName), targetModule = ctx.moduleOf(target);
-	if (ownerModule !== targetModule && ownerModule !== ctx.wsModuleName) {
-		const deps = ctx.moduleDeps.get(ownerModule) ?? [];
-		const peers = ctx.modulePeers.get(ownerModule) ?? [];
-		if (!deps.includes(targetModule) && !peers.includes(target)) {
-			fail(`collection "${ownerName}": x-inverse on "${field}" stamps a field onto ${target} (module ${targetModule}) — declare "${target}" in dreamteamer.peerDependencies (or "${targetModule}" in dreamteamer.dependencies), or leave the link one-way.`);
-		}
-	}
-	if ((byName.get(ownerName).storage?.repo ?? '.') !== (t.storage?.repo ?? '.')) {
-		fail(`collection "${ownerName}": x-inverse on "${field}" crosses storage.repo — one commit cannot span two repos. Leave the link one-way.`);
-	}
-	// ---- can the target HOLD a mirror at all? -----------------------------------------
-	// A mirror is a field the store writes onto the target record, so a target with nowhere to put a
-	// field is not a link to degrade — it is a descriptor asking for something that cannot exist.
-	// Both of these were found by pointing a relation at one and watching the store do damage, and
-	// both are refused here rather than patched there: a guard in the store leaves the workspace
-	// permanently `stale` with no way to fix it, because the mirror can never be written.
-	if ((t.storage?.codec ?? 'md') === 'file') {
-		fail(`collection "${ownerName}": x-inverse on "${field}" stamps a mirror onto ${target}, whose records ARE files (codec: file) — the bytes are the whole record, there is no frontmatter to hold a generated field. Leave the link one-way.`);
-	}
-	if (t.storage?.base === 'runtime') {
-		fail(`collection "${ownerName}": x-inverse on "${field}" stamps a mirror onto ${target}, whose records are compiled sources — the store would write into .dreamteamer/, which the next compile overwrites. Leave the link one-way.`);
-	}
-	// The THIRD such shape, and the quietest: a `codec: md` record's BODY lives after the
-	// frontmatter, and `serialize` carries it only where the descriptor declares an `x-body` field.
-	// `dt add collections` with no template declares none — so prose in such a record is
-	// invisible to the parser, and a mirror write rebuilds the file from its parsed fields alone,
-	// WITHOUT the body. That write lands on the far side of somebody else's `dt add`, in a collection
-	// they never named, and `check` is silent either side of it. Refused here for the same reason as
-	// the two above: a guard in the store would leave the workspace permanently `stale` instead,
-	// because the mirror could never be written.
-	if ((t.storage?.codec ?? 'md') === 'md' && !bodyKeys(t.schema).length) {
-		// ⚠ THE REMEDY IS QUOTED, because for one minor it was UNREACHABLE. This said "declare an
-		// x-body field" while `add-field` had no flag that marks one — so the only way to
-		// follow the instruction was to hand-edit a descriptor the verb owns. `--body` exists now,
-		// and a message that names a fix has to name the command that performs it.
-		fail(`collection "${ownerName}": x-inverse on "${field}" stamps a mirror onto ${target}, whose descriptor declares no x-body — a record there cannot round-trip a body through a mirror write, so the store would silently erase any prose it holds. Declare one:\n  dreamteamer add-field ${target} --name notes --type markdown --body\n…or leave the link one-way.`);
-	}
-	const unique = holder['x-unique'] === true;
-	const inverseOf = `${ownerName}.${field}`;
-	// A mirror is readOnly, so `required` naming one describes a record nobody can write — the
-	// engine forbids setting the field and validation forbids omitting it. Same shape as the
-	// `x-on-delete: set-null` + required guard on the owning side, and it covers BOTH spellings:
-	// spelling B's authored field is deleted in pass 1 and regenerated here under the same key, so
-	// `required` still names it either way.
-	if ((t.schema.required ?? []).includes(mirrorName)) {
-		fail(`collection "${target}": field "${mirrorName}" is required, but ${inverseOf} generates it as a readOnly mirror — drop it from required, or drop the x-inverse on ${inverseOf}.`);
-	}
-	const generated = unique
-		? { type: 'string', 'x-reference': ownerName, readOnly: true, 'x-inverse-of': inverseOf }
-		// `uniqueItems` on the GENERATED array only — an authored reference array is the author's to
-		// shape. The store writes a set here and expectedMirrors computes one, so a duplicate in a
-		// mirror is never a value the engine produced: it arrived by hand, and saying "duplicate
-		// items" is a truer report than the "stale" the relation pass would otherwise print.
-		: { type: 'array', items: { type: 'string', 'x-reference': ownerName, 'x-inverse-of': inverseOf }, readOnly: true, uniqueItems: true };
-	generated.description = description ?? `Generated from ${inverseOf} — set that field.`;
-	const existing = t.schema.properties?.[mirrorName];
-	if (existing) {
-		// the legacy both-sides shape: an authored field that matches what we'd generate is a
-		// warning for one minor; a real mismatch is an error.
-		const e = (existing.items && typeof existing.items === 'object') ? existing.items : existing;
-		// FIRST, distinguish a hand-authored field from ANOTHER RELATION'S MIRROR. Pass 1 deletes
-		// every authored `x-inverse-of` field, so anything still carrying one at stamp time was
-		// generated by an earlier stampMirror call. Two relations stamping one name is not a
-		// duplicate declaration of one relation — it is two relations sharing one slot, and because
-		// both mirrors have the identical shape (an array of refs to the same owner) the sameShape
-		// guard below waves it through. The result is unfixable rather than merely wrong: check
-		// computes an expectation per relation, so the target gets two contradictory `stale`
-		// violations that no value satisfies and no rebuild can repair. Refuse it at compile.
-		const generatedBy = e['x-inverse-of'];
-		if (generatedBy && generatedBy !== inverseOf) {
-			fail(`collection "${target}": both ${generatedBy} and ${inverseOf} generate a mirror named "${mirrorName}" — one field cannot hold two relations. Give one of them a different x-inverse name.`);
-		}
-		// ITEMS TYPE IS PART OF THE SHAPE. Comparing only the outer `type` let an authored
-		// `array of object` pass as "the same shape" as an array of reference strings, and the
-		// generated mirror then silently replaced a field of a genuinely different kind.
-		const sameShape = (existing.type === generated.type)
-			&& ((e['x-reference'] ?? null) === ownerName)
-			&& (generated.type !== 'array' || (existing.items?.type ?? null) === generated.items.type);
-		if (!sameShape) fail(`collection "${target}": field "${mirrorName}" collides with the mirror generated from ${inverseOf} — rename one.`);
-		// EXACTLY TWO authored keywords survive, and the warning says so rather than offering a fix
-		// that cannot be performed: `x-inverse`'s object form carries `field` and `description` only,
-		// so "move its extras into x-inverse" was advice with nowhere to move them to.
-		//
-		// It says DECLARES, not "generates": what the author has to act on is that the same relation
-		// is stated twice — by hand here, and by x-inverse there — and the generation is only the
-		// consequence. "generates it" described the engine's behaviour and left the duplicate
-		// declaration — the actual defect, and the only thing they can delete — unnamed.
-		console.warn(`⚠ collection ${target}: field "${mirrorName}" is hand-authored but ${inverseOf} declares it — delete the authored field. Its description and x-title-template are kept; every other keyword on it is DROPPED.`);
-		generated.description = existing.description ?? generated.description;
-		// on the node it was authored on — post-hoist that is the holder, `items` for an array
-		const gHolder = (generated.items && typeof generated.items === 'object') ? generated.items : generated;
-		if (e['x-title-template'] !== undefined) gHolder['x-title-template'] = e['x-title-template'];
-	}
-	t.schema.properties = { ...t.schema.properties, [mirrorName]: generated };
-}
 
-/**
- * `storage.under` — RELATIONSHIP-BASED STORAGE, validated and derived (see src/placement.js for the
- * contract the record layer holds). Authored as `{ field, path }` on the CHILD; compiled with the
- * parent `collection` stamped on, read off the field's `x-reference`, so Store, check and events
- * never open a schema to find the parent.
- *
- * Authored on the child rather than on the parent's inverse field on purpose: the parent's side of
- * the relation is a GENERATED mirror (or absent — no inverse is required), and `storage` is the
- * block that already answers "where do THIS collection's records live". One authored spelling, one
- * compiled spelling, no second copy.
- *
- * Every refusal below is a shape the record layer could not make safe at runtime: a list owner has
- * no single folder, a file-shape parent has no folder at all, an opaque or folder-shape child needs
- * code the store does not carry yet, a second level of nesting has no reader, and two children on
- * one path would index each other's files. Compile is where a descriptor is read, so compile says no.
- */
-function resolvePlacement(byName) {
-	const claims = new Map(); // parent collection -> [{ path, name }]
-	for (const [name, d] of byName) {
-		const under = d.storage?.under;
-		if (under === undefined) continue;
-		const where = `collection "${name}": storage.under`;
-		if (!under || typeof under !== 'object' || Array.isArray(under)) fail(`${where} must be an object { field: <reference field>, path: <folder inside the parent record> }`);
-		const unknown = Object.keys(under).filter((k) => k !== 'field' && k !== 'path');
-		if (unknown.length) fail(`${where} has unknown key(s) ${unknown.join(', ')} — it takes \`field\` and \`path\`, nothing else`);
-		if (typeof under.field !== 'string' || !under.field) fail(`${where}.field must name the scalar reference field that holds the parent`);
-		const bad = subpathProblem(under.path);
-		if (bad) fail(`${where}.path ${bad}`);
-		// the CHILD's own shape first: an opaque collection has no authored fields at all (compile
-		// replaces its schema with the derived ones), so judged later this would read as "no such field"
-		if ((d.storage.codec ?? 'md') === 'file') fail(`${where}: this collection is codec: file — an opaque record is not placed under a parent yet; keep it in its own folder`);
-		if ((d.storage.shape ?? 'file') === 'folder') fail(`${where}: this collection is shape: folder — a folder record is not placed under a parent yet; keep it in its own folder`);
-		const prop = d.schema?.properties?.[under.field];
-		if (!prop || typeof prop !== 'object') fail(`${where}.field "${under.field}" — no such field in ${name}'s schema`);
-		if (prop.type === 'array' || prop.items) fail(`${where}.field "${under.field}" is a list — a record lives in ONE place, so its owner is a scalar reference`);
-		const targets = refTargetsOf(prop);
-		if (!targets) fail(`${where}.field "${under.field}" is not a reference — the owner field needs \`x-reference: <parent collection>\``);
-		if (targets === '*' || targets.length !== 1) fail(`${where}.field "${under.field}" must reference exactly one collection — a record can live under one kind of parent`);
-		const parentName = targets[0];
-		const parent = byName.get(parentName);
-		if (!parent) fail(`${where}: parent collection "${parentName}" is not installed — a record cannot live inside a folder nothing provides`);
-		// nesting before shape: a placed collection is file-shape by the rule two lines up, so judged
-		// the other way round every nesting attempt would be told to make its parent a folder
-		if (parent.storage?.under !== undefined) fail(`${where}: "${parentName}" is itself stored under another collection — one level is supported; a placed collection cannot be a parent`);
-		if ((parent.storage?.shape ?? 'file') !== 'folder') fail(`${where}: "${parentName}" is not shape: folder — a record can only live INSIDE a parent that is a folder (storage: { shape: folder, entry: <file> } on ${parentName})`);
-		if ((parent.storage?.repo ?? '.') !== (d.storage?.repo ?? '.')) fail(`${where}: "${parentName}" lives in another git repo (storage.repo) — a record and the folder it sits in must share one`);
-		const entry = parent.storage.entry;
-		if (entry && under.path.split('/')[0] === entry) fail(`${where}.path "${under.path}" collides with ${parentName}'s entry file "${entry}" — pick a folder name`);
-		const siblings = claims.get(parentName) ?? [];
-		for (const s of siblings) {
-			if (s.path === under.path || s.path.startsWith(under.path + '/') || under.path.startsWith(s.path + '/')) {
-				fail(`collections "${s.name}" and "${name}" both store records under ${parentName}/<id>/${s.path === under.path ? s.path : `${s.path} · ${under.path}`} — one would index the other's files; give each its own folder`);
-			}
-		}
-		claims.set(parentName, [...siblings, { path: under.path, name }]);
-		d.storage.under = { field: under.field, path: under.path, collection: parentName };
-	}
-}
 
-/**
- * A `storage.under` that is REMOVED or CHANGED while records still sit under the old declaration is
- * refused (R3). The compiled descriptor is the only thing that knows where those records are: the
- * moment it is rewritten, listing, check and relocate all read the new layout, the old child folders
- * fall out of every walk, and a workspace with records on disk reports ✔ 0 violations over fewer
- * records than it holds — the quietest data loss there is. So the runtime about to be replaced is
- * read first, and a transition with records in the way names the two-step that is safe:
- * `relocate --to-root` under the OLD declaration (ids unchanged), then compile, then `relocate`.
- * Adding `under` to a conventional collection moves nothing out of sight and is not refused.
- */
-function refusePlacementTransitions(root, byName) {
-	const previous = loadCompiledDescriptors(root);
-	if (!previous) return;
-	for (const [name, d] of byName) {
-		const prev = previous.get(name);
-		const was = prev?.storage?.under;
-		if (!was?.collection || !was.path) continue;
-		const now = d.storage?.under ?? null;
-		const parent = previous.get(was.collection);
-		if (!parent?.storage?.path || !prev.storage?.path) continue;
-		// The EFFECTIVE root, not only the annotation: the parent collection's own `storage.path` is
-		// part of where every child record is, so moving the parent's folder in its descriptor strands
-		// the children exactly as dropping `under` does (R3b).
-		const newParentPath = now ? byName.get(now.collection)?.storage?.path : null;
-		const same = now && now.collection === was.collection && now.path === was.path && newParentPath === parent.storage.path;
-		if (same) continue;
-		let n = 0;
-		for (const r of placedRecords(prev, path.join(root, prev.storage.path), path.join(root, parent.storage.path))) if (r.parentId !== null) n++;
-		if (!n) continue;
-		const what = !now ? 'storage.under was removed'
-			: now.collection !== was.collection || now.path !== was.path ? `storage.under changed (${was.path} → ${now.path})`
-			: `${was.collection}'s storage.path changed (${parent.storage.path} → ${newParentPath})`;
-		fail(`collection "${name}": ${what}, but ${n} ${name} record(s) still sit inside ${was.collection} folders (${parent.storage.path}/<id>/${was.path}/) — compiling would stop every reader seeing them. First move them out under the CURRENT declaration: dreamteamer relocate ${name} --to-root (to ${prev.storage.path}, ids unchanged), then compile${now ? `, then dreamteamer relocate ${name} to place them again` : ''}.`);
-	}
-}
 
 /** The source kinds the compiler itself stages. An installed extension may add more
  *  (`sourceKinds`, src/extensions.js) — every enumeration below reads `kindsOf(ws)`, never this alone. */
-export const KINDS = ['collections', 'skills', 'agents', 'commands', 'command-bindings', 'ui-views', 'collection-templates', 'mixins'];
+export const KINDS = ['collections', 'skills', 'agents', 'commands', 'command-bindings', 'ui-views', 'mixins'];
 const FOLDER_KINDS = new Set(['skills']); // folder-shape entities: copy the whole record folder
 
 /** Every contributed kind of the workspace's loaded extensions, as `{ kind, exclude, extension }`. */
@@ -1029,29 +602,20 @@ export function compile(ws) {
 				const srcPath = path.join(srcDir, name);
 				const isDir = fs.statSync(srcPath).isDirectory();
 				if (kind === 'collections' && !isDir) {
-					// descriptors merge via 'extends' — collect per collection name
+					// a base and its overlays merge — collect per collection name
 					const bytes = fs.readFileSync(srcPath);
 					// A `touch`ed file on the way to writing one is the ordinary way to arrive here. The
 					// descriptor keeps its own wording — it is the one kind that can say what is missing.
 					if (bytes.toString('utf8').trim() === '') {
-						fail(`${rel(srcPath)}: collection source is empty — a descriptor needs at least 'name' and 'schema' (or 'extends'). Delete the file, or write one.`);
+						fail(`${rel(srcPath)}: collection source is empty — a descriptor needs at least 'name' and 'fields'. Delete the file, or write one.`);
 					}
 					const doc = loadSource(bytes.toString('utf8'), rel(srcPath));
 					// a scalar or a list parses fine and then reads as undefined on every key below
 					if (doc == null || typeof doc !== 'object' || Array.isArray(doc)) {
-						fail(`${rel(srcPath)}: collection source is not a mapping — a descriptor needs at least 'name' and 'schema' (or 'extends').`);
+						fail(`${rel(srcPath)}: collection source is not a mapping — a descriptor needs at least 'name' and 'fields'.`);
 					}
-					// `codec: file` records are opaque bytes: there are no fields, so there is no schema to
-					// require and none to honour. Every other codec parses text into fields and must declare
-					// what they are.
-					// descriptor format v2 is recognised by its `fields` block and validated whole in the v2
-					// pass below, once every collection name is known — a type may name any of them
-					const v2 = isV2(doc);
-					const opaque = doc.storage?.codec === 'file' || doc.storage?.format === 'binary';
-					if (v2 && !doc.name) fail(`${rel(srcPath)}: descriptor needs 'name'`);
-					if (!v2 && (!doc.name || (!doc.schema && !doc.extends && !opaque))) fail(`${rel(srcPath)}: descriptor needs 'name' and 'schema' (or 'extends')`);
-					if (opaque && (doc.storage.shape ?? 'file') === 'folder') fail(`${rel(srcPath)}: collection "${doc.name}" is \`codec: file\` — that is one file per record, not a folder; drop \`shape: folder\``);
-					if (!v2 && opaque && Object.keys(doc.schema?.properties ?? {}).length) console.warn(`⚠ collection ${doc.name}: \`schema\` is ignored under \`codec: file\` — an opaque record's fields are derived (ext, bytes)`);
+					// a v1 source is refused with every other one, in one message (compile-collections.js)
+					if (!doc.name) fail(`${rel(srcPath)}: descriptor needs 'name'`);
 					if (!descriptorGroups.has(doc.name)) descriptorGroups.set(doc.name, []);
 					descriptorGroups.get(doc.name).push({ src: { path: rel(srcPath), hash: sha256(bytes) }, doc, moduleName: source.name });
 					contributedBy.add(source.name);
@@ -1131,23 +695,6 @@ export function compile(ws) {
 		console.warn(`⚠ module "${source.name}" (${rel(source.root)}) contributed no recognised sources — its folder names must match a known kind (${kinds.join(', ')}) or it must ship a UI bundle at ui/app.js`);
 	}
 
-	// ---- collection-templates, for `templates:` merging ----------------------------
-	// A template is a live, shared field set — not the copy-once scaffold `collections add
-	// --template` used to stamp out. A descriptor declaring `templates: [collection-templates/x]`
-	// gets x's `template:` merged in BEFORE base/extender discrimination, with precedence
-	// template < base < overlay. (The key is `templates:`, not `extends:` — `extends:` already
-	// means "this descriptor overlays another module's collection of the same name".)
-	const templateDocs = new Map();     // id -> { template, src }
-	for (const [rt, entry] of entries) {
-		const m = /^collection-templates\/(.+)\.collection-template\.yaml$/.exec(rt);
-		if (!m) continue;
-		const doc = loadSource(entry.bytes.toString('utf8'), entry.sources[0].path);
-		templateDocs.set(m[1], { template: doc?.template ?? {}, src: entry.sources[0] });
-		// The orientation block lists every template by its own sentence (harnesses.templatesSection);
-		// the engine's two shipped ones rendered as bare names for a month before anyone noticed.
-		if (!String(doc?.description ?? '').trim()) console.warn(`⚠ collection-template ${m[1]} has no description — it renders as a bare name in the orientation block every session loads`);
-	}
-
 	// ---- mixins (descriptor v2): partial descriptors merged into the collections that list them ----
 	const mixinDocs = new Map(); // id -> doc (with `src` for staleness)
 	for (const [rt, entry] of entries) {
@@ -1215,509 +762,28 @@ export function compile(ws) {
 			: p);
 	}
 
-	// ---- descriptor format v2: validate, merge mixins and overlays, translate ---------------
-	// Every collection name is known here, so a `type:` naming a collection can be told from a typo.
-	// Each v2 source is validated alone (shape), merged with its mixins, and the whole group — base
-	// and overlays — is merged in v2 space once to check every name it mentions and to resolve the
-	// fields `compiled.fields` will carry. Then each source is translated into the internal shape the
-	// rest of this function reads, and an overlay gains the `extends` that shape expects.
-	const v2Of = new Map(); // collection name -> { resolved, defaults, constraints, display, authored }
-	{
-		const typeNames = new Set([...collectionNames, ...kinds, ...DERIVED_KINDS, 'repos']);
-		const allPeers = new Set([...modulePeers.values()].flat());
-		for (const [name, group] of descriptorGroups) {
-			const v2 = group.filter((g) => isV2(g.doc));
-			if (!v2.length) continue;
-			if (v2.length !== group.length) {
-				fail(`collection "${name}" mixes descriptor formats — ${group.filter((g) => !isV2(g.doc)).map((g) => g.src.path).join(', ')} ${group.length - v2.length === 1 ? 'is' : 'are'} still v1. Run the migration.`);
-			}
-			const bases = group.filter((g) => !g.doc.overlay);
-			// An overlay of a collection its module declares as a PEER applies while that collection is
-			// installed and is skipped while it is not — the same contract the v1 owner-side inverse had
-			// ("stamped onto the target only when it is installed").
-			if (bases.length === 0 && group.every((g) => (modulePeers.get(g.moduleName) ?? []).includes(name))) { descriptorGroups.delete(name); continue; }
-			if (bases.length === 0) fail(`collection "${name}": every source declares \`overlay: true\` — no base found (${group.map((g) => g.src.path).join(', ')}). Install the module that owns it, or declare "${name}" in this module's peer collections so the overlay applies only while it is installed.`);
-			if (bases.length > 1) fail(`name collision on collection "${name}"\n${bases.map((b) => `    - ${b.src.path}`).join('\n')}\n  a second source of one collection must declare \`overlay: true\`.`);
-			const mixed = new Map();
-			for (const g of group) {
-				const shape = shapeErrors(g.doc);
-				if (shape.length) fail(`${g.src.path}:\n  ${shape.join('\n  ')}`);
-				const { doc, errors, used } = mergeMixins(g.doc, mixinDocs);
-				if (errors.length) fail(`${g.src.path}:\n  ${errors.join('\n  ')}`);
-				g.mixinSources = used.map((id) => mixinDocs.get(id).src);
-				mixed.set(g, doc);
-			}
-			const overlays = group.filter((g) => g.doc.overlay);
-			const authored = mergeOverlays(mixed.get(bases[0]), overlays.map((g) => mixed.get(g)));
-			const names = nameErrors(authored);
-			if (names.length) fail(`collection "${name}" (${group.map((g) => g.src.path).join(', ')}):\n  ${names.join('\n  ')}`);
-			const runtime = [...kinds, ...DERIVED_KINDS].includes(String(authored.storage?.path ?? ''));
-			const whole = toInternal(authored, { collections: typeNames, peers: allPeers, runtime });
-			if (whole.errors.length) fail(`collection "${name}" (${group.map((g) => g.src.path).join(', ')}):\n  ${whole.errors.join('\n  ')}`);
-			for (const w of whole.warnings) console.warn(`⚠ collection ${name}: ${w}`);
-			for (const g of group) {
-				const { internal, errors } = toInternal(mixed.get(g), { collections: typeNames, peers: allPeers, runtime });
-				if (errors.length) fail(`${g.src.path}:\n  ${errors.join('\n  ')}`);
-				if (g.doc.overlay) internal.extends = `${bases[0].moduleName}/${name}`;
-				g.doc = internal;
-				g.v2 = true;
-			}
-			v2Of.set(name, { resolved: whole.resolved, defaults: whole.defaults, constraints: authored.constraints ?? [], display: authored.display, authored });
-		}
-	}
-
-	// ---- who owns which collection, and which module IS the workspace ----------------
-	// Needed before the resolution loop so each descriptor can be validated against the graph as it
-	// is merged. The owner is the group member that does NOT declare `extends`; a group with two of
-	// those is a name collision, and the loop below raises it properly — this pass only maps.
-	// A module's record id: the npm scope stripped, so `@dreamteamer/crm` reads as `crm` — which is
-	// what every message in this engine already calls it. Defined above the namespace pass (see
-	// `const moduleId` there), because a namespace error has to name the module by the id the fix is
-	// typed with.
-	const collOwner = new Map(); // collection name -> owning module name
-	const moduleColls = new Map(); // module name -> Set(collection names it contributed to)
-	for (const [name, group] of descriptorGroups) {
-		const base = group.find((g) => !g.doc.extends);
-		if (base) collOwner.set(name, base.moduleName);
-	}
-	// The engine's own nine collections are an implicit dependency of every module: the entity kinds
-	// the compiler materializes, plus `repos` (because `repos ensure` clones them). Requiring every
-	// module to declare a dependency on the host it cannot run without would be ceremony, not
-	// verification. ⚠ `users` was in this set until 0.8.0 — a module still declaring
-	// `x-reference: users` now FAILS here, which is the intended loud outcome rather than a ref
-	// pointing at a collection nothing provides.
+	// ---- collections: descriptor format v2, the only format read ---------------------------
+	// The engine's own collections are an implicit dependency of every module: the entity kinds the
+	// compiler materializes, plus `repos` (because `install repos/<id>` clones them).
 	const CORE_COLLECTIONS = new Set([...kinds, ...DERIVED_KINDS, 'repos']);
 	const engineName = engineId().replace(/@[^@]*$/, '');
 	const wsDir = config['workspace-module'];
 	const wsModuleName = wsDir
 		? sources.find((s) => rel(s.root) === path.join('modules', wsDir))?.name
 		: pkg.name;
-
-	// ---- resolve descriptor groups (templates + extends merge) ---------------------
-	counts.collections = 0;
-	let mergedCount = 0;
-	let templatedCount = 0;
-	const storageEntries = []; // {name, path, base} per collection — checked for overlap after the loop
-	const wordEntries = [];    // {name, word: singular} per collection — checked for collisions after the loop
-	// Merged descriptors are held, NOT dumped, until every one of them exists: a relation spans two
-	// collections, and the second is not merged yet when the first is reached. So this loop resolves
-	// and validates each descriptor on its own, `materializeRelations` runs over the whole set, and
-	// only the loop after that derives labels and writes bytes.
-	const mergedGroups = new Map(); // collection name -> {merged, sources}
-	for (const [name, group] of descriptorGroups) {
-		// a template's bytes feed the compiled descriptor, so it MUST be one of that descriptor's
-		// declared sources — otherwise editing the template leaves every consumer silently stale
-		// and `warnIfStale` has nothing to compare against.
-		const templateSources = [];
-		for (const g of group) {
-			const decl = g.doc.templates;
-			if (decl === undefined) continue;
-			if (!Array.isArray(decl)) fail(`${g.src.path}: 'templates' must be a list of collection-templates/<id> refs`);
-			for (const ref of decl) {
-				const id = String(ref).replace(/^collection-templates\//, '');
-				const t = templateDocs.get(id);
-				if (!t) fail(`${g.src.path}: templates references "${ref}" — no such collection-template (have: ${[...templateDocs.keys()].join(', ') || 'none'})`);
-				g.doc = applyTemplate(g.doc, t.template);
-				templateSources.push(t.src);
-				templatedCount++;
-			}
-			delete g.doc.templates;
-		}
-
-		const bases = group.filter((g) => !g.doc.extends);
-		const extenders = group.filter((g) => g.doc.extends);
-		if (bases.length === 0) fail(`collection "${name}": every descriptor declares 'extends' — no base found (${group.map((g) => g.src.path).join(', ')})`);
-		if (bases.length > 1) fail(`name collision on collection "${name}"\n${bases.map((b) => `    - ${b.src.path}`).join('\n')}\n  same-name descriptors must declare 'extends: <module>/<collection>'.`);
-		const base = bases[0];
-		let merged = structuredClone(base.doc);
-		for (const ext of extenders) {
-			const expected = `${base.moduleName}/${name}`;
-			if (ext.doc.extends !== expected) {
-				fail(`${ext.src.path}: extends "${ext.doc.extends}" does not name the base "${expected}"`);
-			}
-			// `extends` is the hardest dependency there is — the extender does not compile at all
-			// without the base (see the "no base found" failure above), so it must say so.
-			// a v2 overlay of a collection its module declares as a PEER is soft by construction (it is
-			// skipped while the base is absent, above), so the peer declaration is the dependency it needs
-			const peerOverlay = ext.v2 && (modulePeers.get(ext.moduleName) ?? []).includes(name);
-			if (ext.moduleName !== base.moduleName && !peerOverlay && !(moduleDeps.get(ext.moduleName) ?? []).includes(base.moduleName)) {
-				fail(`${ext.src.path}: extends "${expected}" but module "${ext.moduleName}" does not declare "${base.moduleName}" in dreamteamer.dependencies — an overlay cannot compile without its base.`);
-			}
-			merged = mergeDescriptor(merged, ext.doc);
-		}
-		delete merged.extends;
-		// ---- resolved storage: the path, the owning repo, and which root it hangs off ---
-		// The three facts the record layer needs stated as DATA, so it never has to re-derive
-		// them from the shape of a path (see runtime.js). `storage.path` stays root-relative;
-		// `storage.repo` is read by the git layer alone; `storage.base` says WHICH root — and
-		// this is the only place that decides it.
-		//
-		// A runtime-based collection's storage path IS a kind folder (`skills`), so an exact KINDS
-		// match is the test. It used to be a `system/` prefix check, which the flatten silently
-		// inverted: every one of the seven would have compiled as `base: workspace`, resolved under
-		// the workspace root, read as zero records, and become writable through the store.
-		merged.storage ??= {};
-		// A DRIVER collection (0.24–0.30: `containers`, `images`) was answered by Docker, never by files.
-		// Compiled as an ordinary collection it would become a writable folder of fake host records.
-		if (merged.storage.driver !== undefined) fail(`collection "${name}": storage.driver is gone since 0.31.0 — a container is not a record, and the Docker host left core. Delete the descriptor (${group.map((g) => g.src.path).join(', ')}).`);
-		const owned = dataOwners.get(storageOwnerOf(group, base));
-		// A namespaced collection's folder IS its namespace, nested: `health/doctors` →
-		// `data/health/doctors`. Derived rather than required so a descriptor never has to repeat its
-		// own name in a path, and so moving a collection between namespaces is a one-line edit.
-		// An authored `storage.path` still wins — registering an existing folder is a first-class case
-		// (skills/using-dreamteamer/references/collections.md).
-		merged.storage.path ??= defaultStoragePath(name, namespaces, config['data-path'] ?? 'data');
-		// The middle segment of every record filename, `<id>.<suffix>.<ext>`. DERIVED here, exactly as
-		// `path` is above, so the runtime always carries an explicit one.
-		//
-		// ⚠ Absent, it was interpolated raw and every record landed as `<id>.undefined.md` — silent at
-		// compile, at `add` and at `check`, because `idFromRecordPath` reads the same undefined back
-		// and the round trip agrees with itself. On a `codec: file` collection it is not even silent
-		// for long: the next verb dies inside that function on `undefined.replace`.
-		//
-		// The rule is the singular of the BARE name (`health/doctors` records are `<id>.doctor.md`,
-		// not `<id>.health/doctor.md`) — the same rule `collections add` writes into a new descriptor,
-		// and the one `rename-collection` already ASSUMES when it tests `oldSuffix === singular(oldBase)`
-		// to decide whether a suffix may be re-derived. Deriving here makes that assumption true rather
-		// than coincidental. Kinder than refusing, and no existing workspace changes: a descriptor that
-		// authors a suffix keeps it, and one that does not was writing `.undefined.` files.
-		merged.storage.suffix ??= singular(baseNameOf(name, namespaces));
-		const storagePath = String(merged.storage.path ?? '');
-		const systemKinds = [...kinds, ...DERIVED_KINDS];
-		const isSystem = systemKinds.includes(storagePath) || systemKinds.includes(storagePath.replace(/^system\//, ''));
-		merged.storage.base = isSystem ? 'runtime' : 'workspace';
-		if (owned && !isSystem) {
-			const modRel = rel(owned.root);
-			merged.storage.path = modRel ? `${modRel}/${merged.storage.path}` : merged.storage.path;
-			merged.storage.repo = repoRootOf(owned.root, root);
-		} else {
-			merged.storage.repo = '.';
-		}
-		storageEntries.push({ name, path: merged.storage.path, base: merged.storage.base });
-		// An opaque record has no AUTHORED schema, but it does have fields — derived ones. Stating them
-		// here rather than special-casing every reader is what keeps `codec: file` a codec instead of a
-		// feature: ajv, the field list, `dt values`, the form and the diagram all carry on unchanged,
-		// and what they read is true. Any authored schema was warned about and is replaced.
-		if ((merged.storage.codec ?? 'md') === 'file') {
-			merged.schema = {
-				type: 'object',
-				properties: {
-					ext: { type: 'string', description: "The file's extension, lowercase and without the dot. Derived from the file — never written." },
-					bytes: { type: 'integer', description: "The file's size in bytes. Derived from the file — never written." },
-				},
-			};
-		}
-		for (const [at, tpl, target] of staleDisplayKeywords(merged.schema)) {
-			const fix = target
-				? `either DELETE it (a reference to "${target}" now inherits that collection's \`title_template\`) or rename it to \`x-title-template\` if this field really needs its own`
-				: 'rename it to `x-title-template`';
-			fail(`collection "${name}": field "${at}" uses \`x-display: ${tpl}\` — that keyword was renamed; ${fix}. (${group.map((g) => g.src.path).join(', ')})`);
-		}
-		// the merged schema must itself be a compilable JSON Schema — a malformed property
-		// (e.g. a string where an object belongs) used to pass compile and detonate at the
-		// first record validation. caught HERE so the schema-ops dry-run gate is airtight.
-		try {
-			descriptorAjv().compile(structuredClone(merged.schema));
-		} catch (e) {
-			fail(`collection "${name}": schema is not a valid JSON Schema — ${e.message} (${group.map((g) => g.src.path).join(', ')})`);
-		}
-		// Same reasoning one line up, for the OTHER regex a descriptor carries. `patternRe` throws on a
-		// malformed pattern, and it is called from `store.add` and from `check` — so without this gate a
-		// typo'd `id.pattern` surfaces as a raw "Invalid regular expression" from inside a write instead
-		// of as a compile error naming the descriptor.
-		if (merged.id?.pattern !== undefined) {
-			if (typeof merged.id.pattern !== 'string') fail(`collection "${name}": id.pattern must be a string (got ${JSON.stringify(merged.id.pattern)})`);
-			try { patternRe(merged.id.pattern); } catch (e) {
-				fail(`collection "${name}": id.pattern is not a valid regular expression — ${e.message} (${group.map((g) => g.src.path).join(', ')})`);
-			}
-		}
-		// `sort_field` names a field of this collection's OWN schema. Without this gate a typo
-		// surfaces as "dragging does nothing" while the drag handle is still offered — a silent lie,
-		// and the ordering it writes would land in a field no reader sorts by.
-		if (merged.sort_field !== undefined) {
-			if (typeof merged.sort_field !== 'string') fail(`collection "${name}": sort_field must be a string (got ${JSON.stringify(merged.sort_field)})`);
-			if (!(merged.schema?.properties ?? {})[merged.sort_field]) {
-				fail(`collection "${name}": sort_field "${merged.sort_field}" is not a field of its schema — declare it, or point sort_field at one that exists (${group.map((g) => g.src.path).join(', ')}).`);
-			}
-		}
-		// ---- the reference contract: every target is owned, depended on, or declared a peer ----
-		// Attribution is unioned across the whole group rather than taken from the base, because the
-		// merge keeps no per-field provenance — an overlay that adds a ref field would otherwise be
-		// judged against the BASE module's declarations, which it never wrote.
-		const groupModules = [...new Set(group.map((g) => g.moduleName))];
-		// WHO OWNS the concept — the module whose source is the base, not the ones overlaying it.
-		// An overlay adds fields to somebody else's collection (a workspace module adding its own
-		// `tags` to the `crm` module's `contacts`);
-		// it does not take the concept over. Measured 2026-08-11: letting the overlay win moves
-		// `contacts` and `meetings` out of CRM, and a CRM without contacts reads as broken.
-		//
-		// ⚠ This is NOT the `module` provenance field an outside review rejected this morning. That
-		// one duplicated `group:` while claiming to name every contributor, and got the merged case
-		// wrong by taking the first source. This names ONE thing — the owner — for which the base
-		// IS the answer, and it exists to REPLACE `group:` as the workspace's partition rather than
-		// to sit beside it.
-		// ---- provenance as DATA: the owner, and every module overlaying it ----------------------
-		// `module` is the BARE ID — the identity the operator types (`--module core`, `modules/core`,
-		// a `dependencies` value), so a reader never has to strip a prefix to use it. `owner` keeps
-		// its `modules/<id>` reference form for ONE release, because the extension's nav groups by it
-		// (§10's compat-read precedent); it is removed in the release after this one.
-		const ownerId = moduleId(base?.moduleName ?? groupModules[0]);
-		// the system partition is the engine's machinery and the workspace's own; a module's collection
-		// is a domain, and `group: system` would drop it from the orientation listing
-		if (merged.group === 'system' && ![engineName, wsModuleName].includes(base?.moduleName)) {
-			fail(`collection "${name}": group: system is reserved for the engine's collections and the workspace module's — module ${ownerId} ships a domain collection. Drop it (${group.map((g) => g.src.path).join(', ')}).`);
-		}
-		merged.module = ownerId;
-		merged.owner = `modules/${ownerId}`;
-		// ⚠ ABSENT rather than empty when there are none. An empty list is a statement nobody made,
-		// and `overlays: []` on 70 descriptors is noise a reader has to learn to ignore.
-		const overlayIds = extenders.map((e) => moduleId(e.moduleName)).filter((m) => m !== ownerId).sort();
-		if (overlayIds.length) merged.overlays = overlayIds;
-		// ---- using another module's NAMESPACE requires the dependency (§8) ----------------------
-		// The union would otherwise let module B ship `hr/people` while only A declares `hr` — B
-		// squatting in A's namespace, silently. (Before the union, B alone failed loudly with
-		// "namespace hr is not declared", which was accidentally the safer outcome.) The rule is the
-		// one `extends` already has, for the same reason: B does not compile without A's declaration,
-		// so it must say so.
-		const collNs = namespaceOf(name, namespaces);
-		const nsOwnerName = collNs ? nsOwners.get(collNs) : null;
-		if (nsOwnerName && !groupModules.includes(nsOwnerName)
-			&& !groupModules.some((m) => (moduleDeps.get(m) ?? []).includes(nsOwnerName))) {
-			fail(`collection "${name}" sits in namespace "${collNs}", which module ${moduleId(nsOwnerName)} declares — ${groupModules.map(moduleId).join('/')} neither owns it nor depends on it.\n  dt set modules/${moduleId(groupModules[0])} dependencies=modules/${moduleId(nsOwnerName)}`);
-		}
-		// EVERY contributing module, not just the base — a collection merged from `crm` and the
-		// workspace module that overlays it belongs
-		// to both, and saying otherwise is what made a flat "which module owns this" field wrong.
-		for (const m of groupModules) {
-			if (!moduleColls.has(m)) moduleColls.set(m, new Set());
-			moduleColls.get(m).add(name);
-		}
-		const declaredDeps = new Set(groupModules.flatMap((m) => moduleDeps.get(m) ?? []));
-		const declaredPeers = new Set(groupModules.flatMap((m) => modulePeers.get(m) ?? []));
-		const owns = (t) => groupModules.includes(collOwner.get(t));
-		// what THIS collection actually points at — see `unresolved_peers` below
-		const referenced = new Set();
-		normalizeRelationKeywords(merged.schema, name);
-		for (const [at, raw] of refTargets(merged.schema)) {
-			if (raw === '*') {
-				// The workspace module is the orchestrating parent and may reference anything —
-				// including modules that do not exist yet, which is what `tasks.item` means.
-				// Anywhere else a wildcard is a cross-module surface no declaration can cover — and
-				// it is the MODULE AUTHOR's to cover, so the warning is raised only where the author
-				// is: a module in this tree (inline). A module installed from npm or a clone is
-				// somebody else's source; warning its consumers about it on every compile told a
-				// first-run operator four things they could not fix (2026-09-24). The module's own
-				// CI, compiling it alone, still sees them.
-				const authoredHere = groupModules.some((m) => (channelOf.get(m) ?? 'inline') === 'inline');
-				if (!groupModules.includes(wsModuleName) && authoredHere) {
-					console.warn(`⚠ collection ${name}: field "${at}" uses x-reference: '*' outside the workspace module — an unverifiable cross-module surface; name the collections it may target`);
-				}
-				continue;
-			}
-			// `x-reference` accepts a scalar or a LIST of targets (the union) — run the identical
-			// per-target contract check over every member.
-			const targets = Array.isArray(raw) ? raw : [raw];
-			// scalar-or-list: the list is the union form. '*' may not appear INSIDE a list — the
-			// wildcard is a scalar-only sentinel, and a union that includes "anything" is not a union.
-			if (targets.length === 0 || targets.some((t) => typeof t !== 'string' || t === '' || t === '*')) {
-				fail(`collection "${name}": field "${at}" has an invalid x-reference ${JSON.stringify(raw)} — expected a collection name, a non-empty list of collection names, or '*'.`);
-			}
-			for (const target of targets) {
-				referenced.add(target);
-				if (CORE_COLLECTIONS.has(target) || owns(target)) continue;
-				const owner = collOwner.get(target);
-				if (owner && declaredDeps.has(owner)) continue;
-				if (declaredPeers.has(target)) continue;
-				// ⚠ A LOCKFILE ENTRY WITH NO CLONE IS AN UNINSTALLED WORKSPACE, not a broken
-				// reference. A fresh `git clone` of a vault has `git-modules` declared and
-				// `git_modules/` empty (it is gitignored), so the FIRST compile anyone runs on a new
-				// machine fails here — and telling them to edit peerDependencies sends them to change
-				// a declaration that is already correct.
-				const uninstalled = Object.keys(config['git-modules'] ?? {})
-					.filter((n) => !fs.existsSync(path.join(root, 'git_modules', n)));
-				const fix = owner
-					? `add "${owner}" to dreamteamer.dependencies, or "${target}" to dreamteamer.peerDependencies if the module should work without it`
-					: uninstalled.length
-						? `run \`dreamteamer install\` first — dreamteamer.git-modules declares ${uninstalled.join(', ')} and ${uninstalled.length === 1 ? 'that clone is' : 'those clones are'} not on disk yet (git_modules/ is gitignored, so a fresh clone of this workspace always starts here)`
-						: `add "${target}" to dreamteamer.peerDependencies — no installed module provides it`;
-				fail(`collection "${name}": field "${at}" references "${target}", which ${groupModules.join('/')} neither owns nor declares.\n  ${fix}.`);
-			}
-		}
-		// Declared peers that nothing provides, stated as DATA on the descriptor so `check` can
-		// excuse their references without learning what a module is (the `storage.base` precedent —
-		// check.js is in the record layer and must not know modules exist).
-		//
-		// ⚠ Only the peers THIS collection references. It used to be every peer the module declared,
-		// stamped onto every collection in it — which made the field a module-level fact wearing a
-		// collection-level key, and handed a collection that references nothing an excuse it can
-		// never legitimately use. A peer declared for one collection would then have silently excused
-		// a typo'd reference in a sibling.
-		const unresolved = [...declaredPeers].filter((p) => referenced.has(p) && !collOwner.has(p)).sort();
-		if (unresolved.length) merged.unresolved_peers = unresolved;
-
-		// ONE BODY PER COLLECTION. A record's prose is the text after the frontmatter — there is only
-		// one of it — so a second `x-body` is a descriptor asking for something the file format cannot
-		// hold. Nothing refused it before, and the consequence was silent rather than loud: every
-		// reader picks the FIRST such property (store.js `bodyField`, check.js, applyTemplate above),
-		// so the second field simply never receives the body, and `serialize` then writes the prose
-		// back under the first key — moving the record's content to a different field on its next
-		// write. Refused here, where both spellings (authored, or `--body` twice) arrive.
-		const bodies = bodyKeys(merged.schema);
-		if (bodies.length > 1) {
-			fail(`collection "${name}": ${bodies.length} fields declare x-body (${bodies.join(', ')}) — a record has ONE body, the text after its frontmatter. Keep one and drop x-body from the rest.`);
-		}
-
-		mergedGroups.set(name, { merged, sources: [...group.map((g) => g.src), ...templateSources, ...group.flatMap((g) => g.mixinSources ?? [])] });
-		if (extenders.length) mergedCount++;
-	}
-
-	// ---- relations: one compiled shape from either source spelling -------------------
-	// Between the per-collection loop and the dump, because it is the first moment every descriptor
-	// exists and the last moment before bytes are fixed — a relation writes to a collection OTHER
-	// than the one that declares it, so no per-collection pass can express it.
-	materializeRelations(mergedGroups, {
-		moduleDeps, modulePeers, wsModuleName,
-		moduleOf: (n) => collOwner.get(n),
+	const { compiled: compiledColls, inert: inertSources, moduleColls } = compileCollections({
+		groups: descriptorGroups, mixins: mixinDocs, namespaces, nsOwners,
+		runtimeKinds: new Set([...kinds, ...DERIVED_KINDS]), core: CORE_COLLECTIONS,
+		moduleDeps, modulePeers, channelOf, wsModuleName, engineName, dataOwners,
+		repoOf: (moduleRoot) => repoRootOf(moduleRoot, root), rel, dataPath: config['data-path'] ?? 'data',
+		moduleId, fail, warn: (m) => console.warn(m),
 	});
-	// ---- placement: a collection stored UNDER another ---------------------------------
-	// Here for the same reason relations are: `storage.under` names a field of this collection AND
-	// the shape of ANOTHER collection, so it can only be judged once every descriptor exists.
-	resolvePlacement(new Map([...mergedGroups].map(([n, g]) => [n, g.merged])));
-	refusePlacementTransitions(root, new Map([...mergedGroups].map(([n, g]) => [n, g.merged])));
-
-	// ---- resolved labels, then bytes -------------------------------------------------
-	// A second loop rather than a tail of the first: generated mirror fields do not exist until the
-	// pass above has run, and a field with no `title` renders as a raw key in every surface that
-	// draws one.
-	for (const [name, { merged, sources: descriptorSources }] of mergedGroups) {
-		// ---- resolved labels: what to CALL this collection, its records and its fields --------
-		// Written into the artifact next to `storage.base` and for the same reason: the nav, the
-		// browse page, the CLI and the extension then read ONE field instead of each carrying its
-		// own title-caser. Authored values always win — `??=` never overwrites. After the ajv gate
-		// on purpose: a malformed property must fail as a bad schema, not as a TypeError here.
-		// ⚠ From the BARE name, not the qualified one. A namespace is the FOLDER a collection sits in,
-		// not part of what it is called — every surface that draws the namespace as a folder was
-		// otherwise saying it twice on one screen ("R&D > Rnd Prototypes", "Family > Health >
-		// Health Documents"). Workspaces had already worked around it by hand-authoring a title on
-		// every namespaced collection, which is the tell: a derivation nobody can use is not a
-		// default. `baseNameOf` resolves against the DECLARED list, so an undeclared prefix — which
-		// is not a namespace — keeps its whole name in the label.
-		merged.title ??= titleCase(baseNameOf(name, namespaces));
-		const labelProps = merged.schema?.properties ?? {};
-		// how a RECORD of this collection is labelled — the probe presentation.js has always used
-		// for `meta.title_field`, promoted to an authorable field. Reference fields pointing here
-		// inherit it (presentation.js), which is what replaces 51 hand-written `x-display` lines.
-		merged.title_template ??= `{{ ${['title', 'name', 'subject'].find((f) => f in labelProps) ?? 'id'} }}`;
-		// The word the CLI accepts beside the name (`dt add task …`). DERIVED by the same inflection
-		// the storage suffix already uses, with the namespace kept (`rnd/projects` → `rnd/project`),
-		// so the two never disagree; AUTHORED where inflection is wrong (`people` → `person`).
-		// Collisions are refused after the loop, once every descriptor has one.
-		if (merged.singular !== undefined && (typeof merged.singular !== 'string' || !merged.singular.trim())) fail(`collection "${name}": \`singular\` must be a non-empty string`);
-		if (merged.singular === undefined) {
-			const ns = namespaceOf(name, namespaces);
-			merged.singular = ns ? `${ns}/${singular(baseNameOf(name, namespaces))}` : singular(name);
-		}
-		wordEntries.push({ name, word: merged.singular });
-		for (const [fieldName, prop] of Object.entries(labelProps)) {
-			if (!prop || typeof prop !== 'object' || Array.isArray(prop)) continue;
-			prop.title ??= titleCase(fieldName);
-			// `x-unique` MEANS SOMETHING ONLY ON A RELATION, and everywhere else it is silently inert.
-			// It is not a JSON Schema keyword, so ajv ignores it; `relationsOf` decodes a relation from
-			// `x-inverse`, so with no mirror there is no relation row — and therefore no constraint in
-			// `check` (which tests uniqueness per relation) and none at write time (the store enforces
-			// it while maintaining a mirror). A descriptor asking for a one-to-one and getting nothing
-			// at all, with nothing to read. ⚠ A WARNING, not a failure: it breaks nothing today, and a
-			// workspace already carrying one must not be stopped from compiling by a diagnosis of it.
-			// Read AFTER materializeRelations, so a folded spelling-B field is already gone and a
-			// generated mirror (which never carries x-unique) cannot trip it.
-			const h = (prop.items && typeof prop.items === 'object') ? prop.items : prop;
-			if (h['x-unique'] === true && h['x-inverse'] === undefined && h['x-inverse-of'] === undefined) {
-				console.warn(`⚠ collection ${name}: x-unique on "${fieldName}" is inert — it is a RELATION keyword, enforced only while the store maintains a mirror, and this field declares no x-inverse. Nothing constrains the value. Declare the relation (dreamteamer set-field ${name} --name ${fieldName} --inverse) or drop x-unique.`);
-			}
-			// `x-choices` decorates ENUM VALUES (presentation.js#choiceRow, 0.21.0), and both ways of
-			// getting it wrong are SILENT: a key that is not a value decorates nothing, and the keyword
-			// on a non-enum field is read by no one at all. Either way the author sees no error and no
-			// decoration — on a surface they are probably not looking at while editing the descriptor.
-			// ⚠ WARNINGS, not failures, for the same reason as x-unique directly above: neither breaks
-			// anything today, and a descriptor mid-edit must stay compilable.
-			const choices = h['x-choices'];
-			if (choices && typeof choices === 'object' && !Array.isArray(choices)) {
-				const values = Array.isArray(h.enum) ? h.enum.map(String) : null;
-				if (!values) {
-					console.warn(`⚠ collection ${name}: x-choices on "${fieldName}" is inert — it decorates the values of an enum, and this field declares no enum. Nothing reads it.`);
-				} else {
-					// Named per offending key rather than "some keys are wrong", and the legal values are
-					// quoted so the fix needs no second lookup — the same shape as every other warning here.
-					for (const k of Object.keys(choices)) {
-						if (!values.includes(k)) console.warn(`⚠ collection ${name}: x-choices on "${fieldName}" has an entry for "${k}", which is not one of its enum values (${values.join(', ')}) — it decorates nothing. Fix the spelling, or drop the entry.`);
-					}
-				}
-			}
-		}
-		const rt = path.join('collections', `${name}.collection.yaml`);
-		const v2 = v2Of.get(name);
-		if (v2) {
-			// descriptor v2: the authored display and the `compiled` block ride beside the internal keys
-			// until every consumer reads `compiled.fields`; collection-level defaults are recorded apart
-			if (v2.display) merged.display = v2.display;
-			// the internal shape always carried an explicit codec and shape; readers outside the engine
-			// (the extension) may not default them
-			merged.storage.codec ??= 'md';
-			merged.storage.shape ??= 'file';
-			const a = v2.authored;
-			const defaults = {};
-			if (a.title === undefined) defaults.title = merged.title;
-			if (a.singular === undefined) defaults.singular = merged.singular;
-			if (a.record_title === undefined) defaults.record_title = merged.title_template;
-			const sd = {};
-			if (a.storage?.path === undefined) sd.path = merged.storage.path;
-			if (a.storage?.format === undefined) sd.format = merged.storage.codec === 'file' ? 'binary' : (merged.storage.codec ?? 'md');
-			if (a.storage?.shape === undefined) sd.shape = merged.storage.shape ?? 'file';
-			if (a.storage?.suffix === undefined) sd.suffix = merged.storage.suffix;
-			defaults.storage = sd;
-			const block = compiledBlock({ resolved: v2.resolved, defaults: v2.defaults, constraints: v2.constraints, collections: new Set(mergedGroups.keys()), merged });
-			merged.compiled = { ...block, defaults: { ...defaults, ...block.defaults } };
-		}
-		entries.set(rt, { sources: descriptorSources, bytes: Buffer.from(dump(merged)) });
-		// A descriptor with no `description:` renders in the orientation block as a bare NAME — an
-		// agent learns the noun exists and nothing about when it is the right one. Derived pressure
-		// rather than a heroic backfill pass, and the same shape as the per-missing-env-key warning:
-		// non-blocking, named per offender, so the gap converges instead of being rediscovered.
-		//
-		// No equivalent warning for `use_when`, though the field is WANTED on most collections
-		// (data-modeling §18: a description says what a record IS, `use_when` says which situations
-		// should lead a session here). A warning cannot tell a considered omission from a forgotten
-		// one, and a manufactured restatement of the description is worse than an absent clause.
-		if (merged.storage.base !== 'runtime' && !String(merged.description ?? '').trim()) {
-			console.warn(`⚠ collection ${name} has no description — it renders as a bare name in the orientation block every session loads`);
-		}
-		// A `use_when` that restates the description costs every session tokens and dilutes the clauses
-		// that carry signal (data-modeling §18); a reader catches it, nothing else did. Word overlap is
-		// the mechanical proxy: the clauses that earned their place in a blind evaluation encoded an
-		// ORDER or a REFUSAL, and shared few content words with their description.
-		if (merged.use_when && paraphrases(merged.description, merged.use_when)) {
-			console.warn(`⚠ collection ${name}: use_when restates its description — name the SITUATION that brings a session here (search here first · capture here when), not the noun again`);
-		}
+	refusePlacementTransitions(root, compiledColls);
+	counts.collections = 0;
+	const mergedCount = [...compiledColls.values()].filter((c) => c.compiled.overlaid_by.length).length;
+	for (const [name, c] of compiledColls) {
+		entries.set(path.join('collections', `${name}.collection.yaml`), { sources: c.sources, bytes: Buffer.from(dump(c.doc, { noRefs: true })) });
 		counts.collections++;
-	}
-
-	// ---- no collection may sit inside another's folder -------------------------------
-	// Checked HERE because it is the first moment every path is resolved (namespace nesting, the
-	// `owns-data` module prefix and any authored override all already applied). See
-	// namespace.storageOverlaps for what this silently did before it was checked.
-	for (const p of storageOverlaps(storageEntries)) fail(p);
-	// Two collections that answer to one word would make `dt add <word>` a coin toss, so the set of
-	// words — every name and every singular — must be injective. Refused with both names, because
-	// the fix is an authored `singular:` on one of them and the author needs to know which two.
-	{
-		const owners = new Map(); // word -> name
-		for (const { name } of wordEntries) owners.set(name, name);
-		for (const { name, word } of wordEntries) {
-			if (word === name) continue;
-			const other = owners.get(word);
-			if (other && other !== name) fail(`collections "${name}" and "${other}" both answer to the word "${word}" (a name or a singular) — author \`singular:\` on one of them so \`dt add ${word}\` names exactly one collection`);
-			owners.set(word, name);
-		}
 	}
 
 	// ---- modules, projected ---------------------------------------------------------
@@ -1846,19 +912,20 @@ export function compile(ws) {
 		const e = name && entries.get(path.join('collections', `${name}.collection.yaml`));
 		return e ? load(e.bytes.toString('utf8')) : null;
 	};
-	// a collection compiled without the v2 block has no resolved fields to check names against
-	const fieldsKnown = (d) => (d?.compiled?.fields ? fieldsOf(d) : undefined);
+	const fieldsKnown = (d) => (d ? fieldsOf(d) : undefined);
 	// a module declaring a peer that is not installed may name a field that peer's overlay adds
 	const lenientFor = (file) => {
 		const owner = sources.map((s) => ({ s, at: rel(s.root) })).filter(({ at }) => !at || file.startsWith(`${at}/`)).sort((a, b) => b.at.length - a.at.length)[0]?.s;
 		return (modulePeers.get(owner?.name) ?? []).some((p) => !descriptorGroups.has(p));
 	};
+	const v1Sources = [];
 	for (const [rt, e] of entries) {
 		if (!rt.startsWith('ui-views/')) continue;
 		const file = e.sources[0].path;
 		const view = loadSource(e.bytes.toString('utf8'), file);
 		const d = view?.collection ? collectionOf(view.collection) : null;
-		const { errors, warnings } = viewErrors(view, { file, fields: fieldsKnown(d), lenient: lenientFor(file) });
+		const { errors, warnings, v1 } = viewErrors(view, { file, fields: fieldsKnown(d), lenient: lenientFor(file) });
+		if (v1) { v1Sources.push(file); continue; }
 		if (errors.length) fail(errors.join('\n  '));
 		for (const w of warnings) console.warn(`⚠ ${w}`);
 		const text = e.bytes.toString('utf8');
@@ -1869,6 +936,7 @@ export function compile(ws) {
 		if (!rt.startsWith('command-bindings/')) continue;
 		const file = e.sources[0].path;
 		const b = loadSource(e.bytes.toString('utf8'), file);
+		if (bindingErrors(b, { file }).v1) { v1Sources.push(file); continue; }
 		const cmd = String(b?.command ?? '').replace(/^commands\//, '');
 		if (!cmd || !commandIds.has(cmd)) fail(`${rt}: references unknown command "${b?.command ?? ''}"`);
 		const coll = String(b?.collection ?? '').replace(/^collections\//, '');
@@ -1877,6 +945,7 @@ export function compile(ws) {
 		if (errors.length) fail(errors.join('\n  '));
 		for (const w of warnings) console.warn(`⚠ ${w}`);
 	}
+	if (v1Sources.length) fail(v1Refusal(v1Sources.sort()));
 
 	// ---- extension analysis ------------------------------------------------------------
 	// After the whole compile is assembled and BEFORE any output is replaced: an extension that owns a
@@ -1992,6 +1061,8 @@ export function compile(ws) {
 		ui: uiModules.sort(),
 		// modules refused for their engine floor — staleness does not report their files as new
 		...(refused.size ? { refused: [...refused].map(([name, engine]) => ({ name, engine })) } : {}),
+		// overlays of a peer nobody installed: compiled into nothing, still sources — staleness knows them
+		...(inertSources.length ? { inert: inertSources } : {}),
 		'adapter-outputs': adapterOutputs.sort(),
 		// the root files whose managed BLOCK this compile rewrote — never pruned, but committed with a
 		// schema write so the block and the schema it names land together (schema-ops.regeneratedOutputs)
@@ -2039,7 +1110,15 @@ export function staleness(root) {
 	}
 	// new source files not present in the manifest — scan winning module roots across
 	// ALL channels (shadowed copies were not compiled, so their files are not "new")
-	const known = new Set(Object.values(manifest.entries ?? {}).flatMap((e) => e.sources.map((s) => (typeof s === 'string' ? s : s.path))));
+	const known = new Set([
+		...Object.values(manifest.entries ?? {}).flatMap((e) => e.sources.map((s) => (typeof s === 'string' ? s : s.path))),
+		...(manifest.inert ?? []).map((s) => s.path),
+	]);
+	for (const src of manifest.inert ?? []) {
+		const p = path.join(root, src.path);
+		if (!fs.existsSync(p)) stale.push(`${src.path} (removed)`);
+		else if (sha256(fs.readFileSync(p)) !== src.hash) stale.push(`${src.path} (changed)`);
+	}
 	let pkg = {};
 	try { pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')); } catch { /* no pkg */ }
 	const wm = pkg.dreamteamer?.['workspace-module'];
@@ -2110,82 +1189,46 @@ export function warnIfStale(root) {
 }
 
 
-// `templates:` merge — the DESCRIPTOR always wins, and its own key order is preserved (unlike
-// mergeDescriptor, whose extender wins). Two properties of this that matter:
-//
-//   - the descriptor keeps `extends` and `name`: losing `extends` would silently demote an overlay
-//     to a second base and collide with the real one.
-//   - template-added properties are inserted BEFORE the x-body property, not appended after it.
-//     Property order is form order in the studio, and the record's body belongs last — metadata
-//     about a record should not render below the record's content.
-function applyTemplate(doc, tpl) {
-	const out = structuredClone(doc);
-	for (const [k, v] of Object.entries(tpl)) {
-		if (k === 'schema') continue;
-		if (out[k] === undefined) out[k] = structuredClone(v);
-	}
-	if (!tpl.schema) return out;
-	out.schema ??= { type: 'object' };
-	for (const [sk, sv] of Object.entries(tpl.schema)) {
-		if (sk === 'properties') {
-			const own = out.schema.properties ?? {};
-			const add = Object.entries(sv).filter(([pk]) => own[pk] === undefined);
-			const bodyKey = bodyKeys({ properties: own })[0];
-			const merged = {};
-			for (const [pk, pv] of Object.entries(own)) {
-				if (pk === bodyKey) for (const [ak, av] of add) merged[ak] = structuredClone(av);
-				merged[pk] = pv;
-			}
-			if (!bodyKey) for (const [ak, av] of add) merged[ak] = structuredClone(av);
-			out.schema.properties = merged;
-		} else if (sk === 'required') {
-			out.schema.required = [...new Set([...(out.schema.required ?? []), ...sv])];
-		} else if (out.schema[sk] === undefined) out.schema[sk] = sv;
-	}
-	return out;
-}
 
-/** Which module supplied the descriptor's WINNING storage block. mergeDescriptor lets an
- *  extender win on any non-schema key (`else out[k] = v`), so "storage comes from the base" is
- *  the default, not a guarantee — an overlay that declares its own storage overrides it, and
- *  ownership must follow the block that actually survived. */
-function storageOwnerOf(group, base) {
-	let owner = base.moduleName;
-	for (const g of group) if (g.doc.extends && g.doc.storage) owner = g.moduleName;
-	return owner;
-}
 
-// extends merge: schema.properties merge per-property, required unions, other
-// keys extender-wins; storage/id come from the base unless explicitly overridden.
-function mergeDescriptor(base, ext) {
-	const out = structuredClone(base);
-	for (const [k, v] of Object.entries(ext)) {
-		if (k === 'extends' || k === 'name') continue;
-		if (k === 'schema') {
-			out.schema ??= { type: 'object', properties: {} };
-			for (const [sk, sv] of Object.entries(v)) {
-				if (sk === 'properties') out.schema.properties = { ...out.schema.properties, ...sv };
-				else if (sk === 'required') out.schema.required = [...new Set([...(out.schema.required ?? []), ...sv])];
-				else out.schema[sk] = sv;
-			}
-		} else out[k] = v;
+
+/**
+ * A `storage.under` that is REMOVED or CHANGED while records still sit under the old declaration is
+ * refused. The compiled descriptor is the only thing that knows where those records are: the moment it
+ * is rewritten, listing, check and relocate all read the new layout and the old child folders fall out
+ * of every walk. So the runtime about to be replaced is read first, and a transition with records in
+ * the way names the safe order: `relocate --to-root` under the OLD declaration, then compile, then
+ * `relocate`. Adding `under` moves nothing out of sight and is not refused.
+ */
+function refusePlacementTransitions(root, compiledColls) {
+	const previous = loadCompiledDescriptors(root);
+	if (!previous) return;
+	for (const [name, c] of compiledColls) {
+		const prev = previous.get(name);
+		if (!prev?.compiled) continue; // a runtime compiled from v1 sources: placement carried over by the converter unchanged
+		const was = storageOf(prev).under;
+		if (!was?.collection || !was.subfolder) continue;
+		const parent = previous.get(was.collection);
+		if (!parent?.compiled) continue;
+		const now = c.storage.under ? { ...c.storage.under, collection: c.compiled.under_collection } : null;
+		const newParentPath = now ? compiledColls.get(now.collection)?.storage.path : null;
+		const parentPath = storageOf(parent).path;
+		const same = now && now.collection === was.collection && now.subfolder === was.subfolder && newParentPath === parentPath;
+		if (same) continue;
+		let n = 0;
+		for (const r of placedRecords(prev, path.join(root, storageOf(prev).path), path.join(root, parentPath))) if (r.parentId !== null) n++;
+		if (!n) continue;
+		const what = !now ? 'storage.under was removed'
+			: now.collection !== was.collection || now.subfolder !== was.subfolder ? `storage.under changed (${was.subfolder} → ${now.subfolder})`
+			: `${was.collection}'s storage.path changed (${parentPath} → ${newParentPath})`;
+		fail(`collection "${name}": ${what}, but ${n} ${name} record(s) still sit inside ${was.collection} folders (${parentPath}/<id>/${was.subfolder}/) — compiling would stop every reader seeing them. First move them out under the CURRENT declaration: dreamteamer relocate ${name} --to-root, then compile${now ? `, then dreamteamer relocate ${name} to place them again` : ''}.`);
 	}
-	return out;
 }
 
 // a bad source THROWS (review finding 8: process.exit killed --watch on the first typo
 // and made server-triggered recompiles impossible). the CLI boundary prints and exits.
 export class CompileError extends Error {}
 
-let _descriptorAjv = null;
-function descriptorAjv() {
-	if (!_descriptorAjv) {
-		_descriptorAjv = new Ajv({ allErrors: true, strict: false });
-		addFormats(_descriptorAjv);
-		_descriptorAjv.addFormat('markdown', true);
-	}
-	return _descriptorAjv;
-}
 
 // ⚠ A MANAGED MARKER INSIDE `dreamteamer.md` IS A REFUSAL, not something to escape around.
 // The file is rendered VERBATIM into a managed block, and `writeBlock` finds that block by the FIRST

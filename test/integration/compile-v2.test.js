@@ -141,10 +141,9 @@ describe('a v2 descriptor is refused, with the fix in the message', () => {
 		assert.ok(err, 'expected a compile error');
 		assert.match(err, re);
 	};
-	test('a v1 key in a v2 file names its replacement', () => {
-		refuse({ list_fields: ['reason'] }, /`list_fields` is a v1 key — use `display.list.columns`/);
-		refuse({ templates: ['x'] }, /`templates` is a v1 key — use `mixins`/);
-		refuse({ storage: { codec: 'md' } }, /`storage.codec` is a v1 key — use `format`/);
+	test('a key outside the v2 shape is unknown, naming the keys there are', () => {
+		refuse({ list_fields: ['reason'] }, /unknown key `list_fields` — a descriptor's keys are name · title/);
+		refuse({ storage: { codec: 'md' } }, /unknown key `storage.codec` — storage keys are path · format/);
 	});
 	test('an unknown filter in a template names the position', () => {
 		refuse({ record_title: '{{ reason | title }}' }, /record_title: unknown filter "title"/);
@@ -167,11 +166,15 @@ describe('a v2 descriptor is refused, with the fix in the message', () => {
 	test('a type naming no collection', () => {
 		refuse({ fields: { ...VISITS.fields, nurse: { type: 'health/nurses' } } }, /unknown type "health\/nurses"/);
 	});
-	test('a source mixing v1 and v2 in one collection', () => {
+	test('a v1 source is refused with the one message naming the converter', () => {
 		const w = clinic({
 			extra: (root) => writeModule(root, 'billing', { dependencies: [WS_MODULE], collections: { 'health/visits': { extends: `${WS_MODULE}/health/visits`, schema: { properties: { claim: { type: 'string' } } } } } }),
 		});
-		assert.match(compileError(w.ws), /mixes descriptor formats/);
+		const err = compileError(w.ws);
+		assert.match(err, /1 source\(s\) are in the v1 descriptor format, which this engine no longer reads/);
+		assert.match(err, /modules\/billing\/collections\/health\/visits\.collection\.yaml/);
+		assert.match(err, /migrate-descriptors-v2\.mjs --root \./);
+		assert.match(err, /UPDATING\.md/);
 	});
 });
 
@@ -191,7 +194,7 @@ describe('an overlay from another module', () => {
 		const w = clinic({
 			extra: (root) => writeModule(root, 'billing', { collections: { 'health/visits': { overlay: true, fields: { claim_ref: { type: 'string' } } } } }),
 		});
-		assert.match(compileError(w.ws), /does not declare "default" in dreamteamer.dependencies/);
+		assert.match(compileError(w.ws), /module "billing" neither depends on "default" nor declares "health\/visits" in peer_collections/);
 	});
 });
 
