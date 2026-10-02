@@ -2463,7 +2463,7 @@ export function removeUiView(ws, store, id) {
 	// ALLOWING a save to the same file would be an asymmetry with nothing behind it.
 	const { file: dest, shipped } = uiViewSourceFile(ws, id);
 	if (shipped && /(^|\/)node_modules\//.test(shipped))
-		throw new Error(`ui-view "${id}" is shipped by an installed package (${shipped}) — removing the file would be undone by the next npm install.\n  disable it instead: add "<module>/${id}" to dreamteamer.disable in package.json.`);
+		throw new Error(`ui-view "${id}" is shipped by an installed package (${shipped}) — removing the file would be undone by the next npm install.\n  disable it instead: add "ui-views/${id}" to dreamteamer.disable in package.json.`);
 	if (!fs.existsSync(dest)) throw new Error(`ui-view "${id}" does not exist`);
 	const gate = writeGated(ws, store, [dest], `dreamteamer: ui-views rm ${id}`, () => fs.rmSync(dest), undefined, { commentsMayDecrease: true });
 	return { removed: id, commits: gate.commits };
