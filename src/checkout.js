@@ -79,7 +79,7 @@ export function planInstall(state, opts = {}) {
 	// gitModules carries the declared clones that are MISSING on this checkout, not every declared
 	// one — the observer narrows it, which is what makes an empty array mean "nothing to restore"
 	// rather than "none declared", and what lets a settled checkout plan with nothing todo.
-	steps.push({ id: 'git-modules', label: state.gitModules.length ? `git modules: restore ${state.gitModules.join(', ')}` : 'git modules: nothing to restore', state: state.gitModules.length ? 'todo' : 'skip' });
+	steps.push({ id: 'git_modules', label: state.gitModules.length ? `git modules: restore ${state.gitModules.join(', ')}` : 'git modules: nothing to restore', state: state.gitModules.length ? 'todo' : 'skip' });
 	steps.push({ id: 'compile', label: state.stale ? 'compile: runtime missing or stale' : 'compile: fresh', state: state.stale ? 'todo' : 'already' });
 	steps.push(state.postinstall
 		? { id: 'postinstall', label: `postinstall: ${state.postinstall}`, state: 'todo' }
@@ -105,21 +105,21 @@ export function declaredLocalAssets(ws) {
 	const seen = new Map(); // rel → {rel, module}
 	const add = (raw, module) => {
 		// ⚠ A REL MAY NOT CLIMB OUT OF THE WORKSPACE. `placeLink` writes wherever the rel points, so
-		// `local-assets: ['../../x']` in a careless module declaration would drop a symlink beside
+		// `local_assets: ['../../x']` in a careless module declaration would drop a symlink beside
 		// the workspace with nothing consulted. Refused when the plan is BUILT, so the board never
 		// prints a step it must not run. (Task 4 teaches compile the same rule; a runtime that
 		// writes outside the root should not wait for the compiler to be run.)
 		const rel = path.normalize(raw);
 		if (path.isAbsolute(rel) || rel === '..' || rel.startsWith(`..${path.sep}`)) {
-			throw new Error(`local-assets: "${raw}"${module ? ` (declared by module ${module})` : ''} resolves outside the workspace root — a local asset must be a path INSIDE the workspace`);
+			throw new Error(`local_assets: "${raw}"${module ? ` (declared by module ${module})` : ''} resolves outside the workspace root — a local asset must be a path INSIDE the workspace`);
 		}
 		if (!seen.has(rel)) seen.set(rel, { rel, module });
 	};
-	for (const rel of ws.pkg.dreamteamer?.['local-assets'] ?? []) add(rel, null);
+	for (const rel of ws.pkg.dreamteamer?.local_assets ?? []) add(rel, null);
 	for (const m of discoverModules(ws.root, ws.pkg).modules) {
 		let mp = {};
 		try { mp = JSON.parse(fs.readFileSync(path.join(m.root, 'package.json'), 'utf8')); } catch { /* no package.json */ }
-		for (const rel of mp.dreamteamer?.['local-assets'] ?? []) add(path.relative(ws.root, path.join(m.root, rel)), m.name);
+		for (const rel of mp.dreamteamer?.local_assets ?? []) add(path.relative(ws.root, path.join(m.root, rel)), m.name);
 	}
 	return [...seen.values()];
 }
@@ -138,7 +138,7 @@ export function observeState(ws) {
 		// ⚠ THE MISSING clones, not every declared one. A settled worktree would otherwise print
 		// `▶ git modules: restore <names>` for ever, and this is the step whose result nobody looks
 		// at — so the narrowing here is what makes the empty case mean "nothing to restore".
-		gitModules: Object.keys(ws.pkg.dreamteamer?.['git-modules'] ?? {}).filter((n) => !resolves(here(path.join('git_modules', n)))),
+		gitModules: Object.keys(ws.pkg.dreamteamer?.git_modules ?? {}).filter((n) => !resolves(here(path.join('git_modules', n)))),
 		stale: !s.compiled || s.stale.length > 0,
 		postinstall: ws.pkg.dreamteamer?.postinstall ?? null,
 	};
@@ -259,7 +259,7 @@ const RUN = {
 	}),
 	env: guard('.env', (ws, st) => placeLink(path.join(st.checkout.primary, '.env'), path.join(ws.root, '.env'))),
 	asset: guard('asset', (ws, st, rel) => placeLink(path.join(st.checkout.primary, rel), path.join(ws.root, rel))),
-	'git-modules': guard('git modules', (ws) => restoreGitModules(ws)),
+	'git_modules': guard('git modules', (ws) => restoreGitModules(ws)),
 	compile: guard('compile', (ws) => compile(ws)),  // `ws` is REOPENED first — see applyInstall
 	postinstall: guard('postinstall', (ws, st, rel, stdio) => spawnSync(st.postinstall, { cwd: ws.root, shell: true, stdio, env: { ...childEnv(), DT_PRIMARY: st.checkout.primary } }).status ?? 1),
 };

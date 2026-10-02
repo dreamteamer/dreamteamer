@@ -77,6 +77,15 @@ export const engineRoot: string;
 export function envContext(ws: Workspace): unknown;
 export function renderTemplate(template: string, ctx: unknown): string;
 export function parseEnvValues(text: string): Map<string, string>;
+
+/** One part of a parsed template: literal text, or a token naming a field and its filters. */
+export type TemplatePart = { text: string } | { field: string; filters: { name: string; arg?: string }[] };
+/** Split a `{{ field | filter:arg }}` template into literal text and tokens. Throws on a non-string. */
+export function parseTemplate(tpl: string): TemplatePart[];
+/** The errors a template has in one position (empty when valid), each naming the position. */
+export function validateTemplate(tpl: string, ctx: { position: string; fields: Iterable<string>; id?: boolean }): string[];
+/** Render a display template against one record; a reference value renders through `resolve`. */
+export function renderDisplay(tpl: string, record: Record<string, unknown>, opts?: { resolve?: (ref: string) => string | undefined; isReference?: (field: string) => boolean }): string;
 export function satisfies(version: string, range: string): boolean | null;
 
 // ---- the compiler, schema and module operations --------------------------------------------------

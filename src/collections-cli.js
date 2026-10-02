@@ -591,7 +591,7 @@ function metaCollectionsRename(ws, store, flags, pos) {
 		// stated gap: the plan line has a fixed shape precisely so a reader never has to guess whether
 		// a term is zero or unmeasured.
 		return dryRunPlan(`rename collections/${oldName} ${newName}`, { records, descriptors: 1 }, [
-			`records  ${storageOf(d).path} → ${defaultStoragePath(newName, store.namespaces, ws.pkg.dreamteamer?.['data-path'] ?? 'data')}`,
+			`records  ${storageOf(d).path} → ${defaultStoragePath(newName, store.namespaces, ws.pkg.dreamteamer?.data_path ?? 'data')}`,
 			'refs are counted only by the real run — the rewrite is what discovers them',
 		]);
 	}
@@ -1255,7 +1255,7 @@ export const VERB_FLAGS = {
 	'collections:get': ['json', 'module'], 'collections:set': ['json', 'module', 'dry-run'],
 	'collections:rm': FORCE_RM, 'collections:rename': ['json', 'namespace', 'dry-run'], 'collections:move': NAV_MOVE,
 	'modules:add': ['json', 'name', 'description', 'namespace'], 'modules:rename': JSON_ONLY, 'modules:rm': FORCE_RM,
-	'modules:set': ['json', 'description', 'namespaces', 'dependencies', 'peerDependencies'],
+	'modules:set': ['json', 'description', 'namespaces', 'dependencies', 'peer_collections'],
 	// the identity kinds: `add` scaffolds, `rm`/`rename` fall through to the generic rows, and `set`
 	// is deliberately UNCHECKED — a skill's frontmatter is an open document (`allowed-tools`, `model`,
 	// whatever a harness reads), so there is no closed set to check it against.

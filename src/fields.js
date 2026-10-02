@@ -16,7 +16,7 @@ export const SCALAR_TYPES = ['string', 'markdown', 'boolean', 'integer', 'number
 
 /** The closed set of keys a field may carry. Anything else is a compile error naming the key. */
 export const FIELD_KEYS = new Set([
-	'type', 'title', 'required', 'many', 'default', 'enum', 'unique', 'mirror_of', 'on_delete', 'sensitive',
+	'type', 'title', 'required', 'many', 'default', 'enum', 'unique', 'mirror_of', 'on_delete', 'soft', 'sensitive',
 	'body', 'derived', 'virtual', 'deprecated', 'passthrough', 'fields', 'values', 'item_title',
 	'examples', 'pattern', 'minimum', 'maximum', 'minItems', 'maxItems', 'minLength', 'maxLength', 'const',
 	'display', 'description',
@@ -30,9 +30,9 @@ const PASS_THROUGH = ['default', 'examples', 'pattern', 'minimum', 'maximum', 'm
 
 /** The three fields every collection has. `created` is stored (engine-written); the other two are computed on read. */
 export const INJECTED_FIELDS = {
-	id: { type: 'string', virtual: true, description: 'The record\'s path inside its collection.' },
-	created: { type: 'datetime', derived: true, description: 'When the record was first written. Stamped by the engine at add; read from the id\'s date or the first commit for a record written before it existed.' },
-	last_modified: { type: 'datetime', virtual: true, description: 'When the record was last committed, from git.' },
+	id: { type: 'string', title: 'Id', virtual: true, description: 'The record\'s path inside its collection.' },
+	created: { type: 'datetime', title: 'Created', derived: true, description: 'When the record was first written. Stamped by the engine at add; read from the id\'s date or the first commit for a record written before it existed.' },
+	last_modified: { type: 'datetime', title: 'Last modified', virtual: true, description: 'When the record was last committed, from git.' },
 };
 
 /** Is `type` a reference to one or more collections, given the names that exist? */
@@ -104,6 +104,13 @@ export function resolveFields(authored, ctx) {
 			if (!targets) errors.push(`field "${name}": \`on_delete\` belongs to a reference`);
 			if (!['restrict', 'set-null'].includes(prop.on_delete)) errors.push(`field "${name}": on_delete is restrict or set-null`);
 			if (prop.on_delete === 'set-null' && prop.required) errors.push(`field "${name}": on_delete: set-null on a required reference would produce an invalid record`);
+		}
+		// a SOFT reference still names what it may point at, but a missing collection or record is
+		// tolerated — for a value that is a declaration rather than a resolved link
+		if (prop.soft !== undefined) {
+			if (prop.soft !== true) errors.push(`field "${name}": \`soft\` is true or absent`);
+			if (!targets) errors.push(`field "${name}": \`soft\` belongs to a reference`);
+			if (prop.mirror_of !== undefined) errors.push(`field "${name}": a mirror is maintained by the engine, so it cannot be soft`);
 		}
 		if (prop.unique && prop.many) errors.push(`field "${name}": \`unique\` is a value constraint on a scalar field`);
 		if (prop.derived && prop.virtual) errors.push(`field "${name}": derived (stored, engine-written) and virtual (never stored) exclude each other`);

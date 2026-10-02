@@ -59,6 +59,14 @@ export function parentFolders(parentDir) {
 	return out;
 }
 
+/** `storage.under.id: nested` — the id BEGINS with the parent's id, and the file drops that segment
+ *  because the parent's folder already carries it. Changing the parent is a rename. */
+export const isNested = (under) => under?.id === 'nested';
+/** The parent id a NESTED id begins with. */
+export const parentOfNestedId = (id) => String(id).split('/')[0];
+/** A nested id without its leading parent segment — the path inside the parent's subfolder. */
+export const localOfNestedId = (id) => String(id).slice(String(id).indexOf('/') + 1);
+
 /** The folder a placed record of `d` lives in when its owner is `parentId` — or the fallback root. */
 export function placedRoot(under, fallbackDir, parentDir, parentId) {
 	return parentId ? path.join(parentDir, parentId, under.subfolder) : fallbackDir;
@@ -69,9 +77,10 @@ export function placedRoot(under, fallbackDir, parentDir, parentId) {
  *  skipped and reported to `onLink` (R2b); the collection's own root keeps the ordinary walk. */
 export function* rootRecords(d, root, parentId = null, onLink = null) {
 	if (!fs.existsSync(root)) return;
+	const nested = parentId !== null && isNested(placementOf(d));
 	for (const f of parentId === null ? walk(root) : walkReal(root, onLink)) {
-		const id = idFromRecordPath(d, path.relative(root, f));
-		if (id !== null) yield { id, file: f, root, parentId };
+		const local = idFromRecordPath(d, path.relative(root, f));
+		if (local !== null) yield { id: nested ? `${parentId}/${local}` : local, file: f, root, parentId };
 	}
 }
 

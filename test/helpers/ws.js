@@ -281,8 +281,8 @@ export function writeModule(root, id, opts = {}) {
 	if (opts.description) dt.description = opts.description;
 	if (opts.namespaces) dt.namespaces = opts.namespaces;
 	if (opts.dependencies) dt.dependencies = opts.dependencies;
-	if (opts.peerDependencies) dt.peerDependencies = opts.peerDependencies;
-	if (opts.ownsData) dt['owns-data'] = true;
+	if (opts.peerDependencies) dt.peer_collections = opts.peerDependencies;
+	if (opts.ownsData) dt.owns_data = true;
 	fs.writeFileSync(
 		path.join(modRoot, 'package.json'),
 		JSON.stringify({ name: id, private: true, version: '0.0.1', files: ['collections', 'skills', 'agents', 'commands', 'command-bindings', 'ui-views', 'collection-templates'], dreamteamer: dt }, null, '\t') + '\n',

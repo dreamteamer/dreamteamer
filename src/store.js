@@ -14,7 +14,7 @@ import { normalizeRecord, normalizeTemporal } from './temporal.js';
 import { NO_RUNTIME, sourceHint, loadDescriptors, runtimeDir, namespaces as compiledNamespaces, sourceRoots as compiledSourceRoots } from './runtime.js';
 import { parseRef } from './namespace.js';
 import { relationsOf } from './relations.js';
-import { placementOf, placedRecords, rootRecords, placedRoot, placementOfFile, ownerIdOf, symlinkBelow, dirTreeStamps } from './placement.js';
+import { placementOf, placedRecords, rootRecords, placedRoot, placementOfFile, ownerIdOf, symlinkBelow, dirTreeStamps, isNested, parentOfNestedId, localOfNestedId } from './placement.js';
 import { pathToRecord } from './events.js';
 
 import { storageOf, fieldsOf, targetsOf, isSoft, jsonSchemaOf, unresolvedPeersOf, bodyFieldOf, idsOf } from './descriptor.js';
@@ -30,7 +30,7 @@ export class Store {
 		// Committing is POLICY, not durability — a write is on disk either way. Default OFF:
 		// `dt commit` is what publishes. `"auto-commit": true` restores the old behaviour of one
 		// commit per mutation.
-		this.autoCommit = (pkg ?? readPkg(root)).dreamteamer?.['auto-commit'] === true;
+		this.autoCommit = (pkg ?? readPkg(root)).dreamteamer?.auto_commit === true;
 		this.ajv = new Ajv({ allErrors: true, strict: false, useDefaults: true, coerceTypes: 'array' });
 		addFormats(this.ajv);
 		this.ajv.addFormat('markdown', true);
@@ -262,6 +262,14 @@ export class Store {
 			// it is; a caller that reads goes through the id index instead (recordRoot, below).
 			if (!ext) throw new Error(`collection "${d.name}" is \`codec: file\` — its path needs the file's extension`);
 			return path.join(this.dir(d), `${id}.${storageOf(d).suffix}.${ext}`);
+		}
+		const under = placementOf(d);
+		if (isNested(under) && fields) {
+			const parentId = ownerIdOf(fields, under, (v) => parseRef(v, this.namespaces));
+			if (parentId) {
+				if (parentOfNestedId(id) !== parentId || !id.includes('/')) throw new Error(`${d.name}/${id}: the id must begin with its ${under.parent}'s id ("${parentId}/…") — ids of ${d.name} are nested under their parent. nothing was written.`);
+				return path.join(this.rootFor(d, fields), recordFileName(d, localOfNestedId(id)));
+			}
 		}
 		return path.join(this.rootFor(d, fields), recordFileName(d, id));
 	}
@@ -923,6 +931,10 @@ export class Store {
 			throw new Error(`${collection}/${id} is a file record — its fields are derived from the file, so there is nothing to set. Replace it with \`dreamteamer add ${collection} ${id} --from <path> --force\`.`);
 		}
 		const { fields, file } = this.read(collection, id);
+		const nestedUnder = placementOf(d);
+		if (isNested(nestedUnder) && Object.hasOwn(changes, nestedUnder.parent) && changes[nestedUnder.parent] !== fields[nestedUnder.parent]) {
+			throw new Error(`${collection}/${id}: ids of ${collection} begin with their ${nestedUnder.parent}'s id, so changing ${nestedUnder.parent} changes the id — rename it instead: dreamteamer rename ${collection}/${id} <new parent id>/${localOfNestedId(id)}. nothing was written.`);
+		}
 		const previous = fs.readFileSync(file, 'utf8');
 		const next = { ...fields, ...changes };
 		for (const [k, v] of Object.entries(changes)) if (v === null || v === '') delete next[k];
@@ -1206,8 +1218,17 @@ export class Store {
 		}
 		const oldUnit = this.recordRoot(d, oldId); // folder-shape: move the WHOLE folder
 		this._assertContained(d, oldUnit);
-		// a placed record keeps the folder it is in: a rename changes the id, never the owner
-		const newUnit = placementOf(d) ? path.join(this.rootOfFile(d, oldUnit), recordFileName(d, newId)) : this.recordRoot(d, newId);
+		// a placed record keeps the folder it is in: a rename changes the id, never the owner — except a
+		// NESTED one, whose id begins with its parent's: renaming it to another parent moves it there
+		const under = placementOf(d);
+		const nested = isNested(under);
+		const newParent = nested ? parentOfNestedId(newId) : null;
+		const parentChanged = nested && newParent !== parentOfNestedId(oldId);
+		if (nested && !newId.includes('/')) throw new Error(`${collection}/${newId}: ids of ${collection} begin with their ${under.parent}'s id — nothing was renamed.`);
+		if (parentChanged && !this.ids(under.collection).has(newParent)) throw new Error(`${collection}/${newId}: there is no ${under.collection}/${newParent} to move it under — nothing was renamed.`);
+		const newUnit = nested
+			? path.join(placedRoot(under, this.dir(d), this.parentDir(d), newParent), recordFileName(d, localOfNestedId(newId)))
+			: placementOf(d) ? path.join(this.rootOfFile(d, oldUnit), recordFileName(d, newId)) : this.recordRoot(d, newId);
 		this._assertContained(d, newUnit);
 		if (fs.existsSync(newUnit) || (placementOf(d) && this.ids(collection).has(newId))) throw new Error(`${collection}/${newId} already exists — nothing was renamed.`);
 		return this.withWriteLock(() => {
@@ -1216,7 +1237,14 @@ export class Store {
 			// their ids do not, and their id memos are stale the moment the folder is
 			this._dropPlacedUnder(collection);
 			fs.mkdirSync(path.dirname(newUnit), { recursive: true });
+			const oldBytes = parentChanged ? fs.readFileSync(oldUnit, 'utf8') : null;
 			fs.renameSync(oldUnit, newUnit);
+			// the owner field follows the id's new first segment, in the same write
+			if (parentChanged) {
+				const f = parseRecordText(oldBytes, d, bodyField(d));
+				f[under.parent] = `${under.collection}/${newParent}`;
+				atomicWrite(newUnit, serialize(d, f, oldBytes));
+			}
 			pruneEmptyDirs(path.dirname(oldUnit), this.rootOfFile(d, oldUnit)); // cross-partition renames leave empty date dirs
 			// rewrite inbound references (frontmatter/structured always; prose only via wikilinks). It
 			// snapshots what it writes as it writes it — see rewriteRefs for why the caller cannot.
@@ -1224,6 +1252,7 @@ export class Store {
 			this.commit([oldUnit, newUnit, ...touched], `dreamteamer: ${collection} rename ${oldId} → ${newId}`, () => {
 				fs.mkdirSync(path.dirname(oldUnit), { recursive: true });
 				fs.renameSync(newUnit, oldUnit);
+				if (oldBytes !== null) atomicWrite(oldUnit, oldBytes);
 				pruneEmptyDirs(path.dirname(newUnit), this.rootOfFile(d, newUnit));
 				this._dropPlacedUnder(collection);
 				restore();

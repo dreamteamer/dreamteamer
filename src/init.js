@@ -62,7 +62,7 @@ const ENV_EXAMPLE = `# secrets for skills and modules go here (copy to .env; .en
 export function init({ flags = {} } = {}) {
 	const root = process.cwd();
 	const name = flags.name ?? path.basename(root);
-	const dataPath = flags['data-path'] ?? 'data';
+	const dataPath = flags.data_path ?? 'data';
 	// EVERY known harness by default, and this is the operator's explicit call over the architecture
 	// review's dissent — recorded, not elided: it writes AGENTS.md, GEMINI.md and .cursor/rules/ into
 	// every new workspace, which is real clutter. The decision stands on the ASYMMETRY. A missing
@@ -79,9 +79,9 @@ export function init({ flags = {} } = {}) {
 	const pkgPath = path.join(root, 'package.json');
 	const pkg = fs.existsSync(pkgPath) ? JSON.parse(fs.readFileSync(pkgPath, 'utf8')) : { name, private: true, version: '0.0.1' };
 	pkg.dreamteamer = {
-		'data-path': dataPath,
+		'data_path': dataPath,
 		harnesses,
-		'gitignore-runtime-folder': true,
+		gitignore_runtime_folder: true,
 		// The workspace's own sources live in `modules/default/`, and the folder is named for its ROLE,
 		// not for the vault. It used to be named after the workspace, and that name went stale TWICE in
 		// one repo (decision 213, reversed by 224) — each rename rewriting every path that RESOLVES
@@ -92,15 +92,15 @@ export function init({ flags = {} } = {}) {
 		// owns the DEFAULT-namespace collections, and the default namespace is the empty prefix. The one
 		// misreading it invites — `default/tasks` — is a compile error whose message states the rule.
 		// Override with `--workspace-module <name>` if a workspace wants its own spelling.
-		'workspace-module': flags['workspace-module'] ?? 'default',
-		'git-modules': {},
+		'workspace_module': flags.workspace_module ?? 'default',
+		'git_modules': {},
 		disable: [],
 		...pkg.dreamteamer,
 	};
 	fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, '\t') + '\n');
 
 	// folder skeleton — the workspace's own sources are an inline module, kinds FLAT at its root
-	const wm = pkg.dreamteamer['workspace-module'];
+	const wm = pkg.dreamteamer.workspace_module;
 	const systemRoot = wm ? path.join(root, 'modules', wm) : root;
 	for (const kind of SKELETON_KINDS) fs.mkdirSync(path.join(systemRoot, kind), { recursive: true });
 	if (wm) {
@@ -167,9 +167,9 @@ export function init({ flags = {} } = {}) {
 
 // dreamteamer install — restore git_modules/ working clones from the committed lockfile map
 export function install({ root, pkg }) {
-	const map = pkg.dreamteamer?.['git-modules'] ?? {};
+	const map = pkg.dreamteamer?.git_modules ?? {};
 	const names = Object.keys(map);
-	if (!names.length) { console.log('✔ no git-modules declared — nothing to restore'); return 0; }
+	if (!names.length) { console.log('✔ no git_modules declared — nothing to restore'); return 0; }
 	fs.mkdirSync(path.join(root, 'git_modules'), { recursive: true });
 	const unreachable = [];
 	for (const name of names) {
@@ -207,10 +207,10 @@ export function install({ root, pkg }) {
 // (ff-only on its recorded ref) and rebuild it. dirty clones are skipped, never touched.
 // the caller (cli) runs compile afterwards — a pulled module may change sources.
 export function update({ root, pkg }, only) {
-	const map = pkg.dreamteamer?.['git-modules'] ?? {};
-	if (only && !map[only]) throw new Error(`"${only}" is not in dreamteamer.git-modules (known: ${Object.keys(map).join(', ') || 'none'})`);
+	const map = pkg.dreamteamer?.git_modules ?? {};
+	if (only && !map[only]) throw new Error(`"${only}" is not in dreamteamer.git_modules (known: ${Object.keys(map).join(', ') || 'none'})`);
 	const names = only ? [only] : Object.keys(map);
-	if (!names.length) { console.log('✔ no git-modules declared — nothing to update'); return 0; }
+	if (!names.length) { console.log('✔ no git_modules declared — nothing to update'); return 0; }
 	for (const name of names) {
 		const { ref = 'main' } = map[name];
 		const dest = path.join(root, 'git_modules', name);
@@ -271,12 +271,12 @@ export function installClone(ws, url, name) {
 	const ref = tryGit(dest, ['rev-parse', '--abbrev-ref', 'HEAD']) ?? 'main';
 	const pkgPath = path.join(ws.root, 'package.json');
 	const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
-	pkg.dreamteamer['git-modules'] = { ...pkg.dreamteamer['git-modules'], [name]: { url, ref } };
+	pkg.dreamteamer.git_modules = { ...pkg.dreamteamer.git_modules, [name]: { url, ref } };
 	fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, '\t') + '\n');
 	execFileSync('git', ['add', 'package.json'], { cwd: ws.root });
 	execFileSync('git', ['commit', '--quiet', '-m', `dreamteamer: install ${name} (git module)`, '--', 'package.json'], { cwd: ws.root });
 	console.log(`✔ git_modules/${name} (ref ${ref})`);
-	console.log('✔ package.json dreamteamer.git-modules updated');
+	console.log('✔ package.json dreamteamer.git_modules updated');
 	return 0;
 }
 
@@ -312,7 +312,7 @@ const relPath = (root, p) => path.relative(root, p) || '.';
 export function repoPath(ws, fields) {
 	const ctx = envContext(ws);
 	if (fields.path) return path.resolve(ws.root, renderTemplate(fields.path, ctx));
-	const base = renderTemplate(ws.pkg.dreamteamer?.['repos-path'] ?? 'projects', ctx);
+	const base = renderTemplate(ws.pkg.dreamteamer?.repos_path ?? 'projects', ctx);
 	const tail = fields.identity ? path.join(fields.identity, fields.name) : fields.name;
 	return path.resolve(ws.root, base, tail);
 }

@@ -149,6 +149,12 @@ describe('keys', () => {
 		assert.match(resolve({ f: { type: 'string', display: { searchable: true } } }).errors[0], /display has unknown key/);
 	});
 
+	test('soft belongs to a reference and never to a mirror', () => {
+		assert.deepEqual(resolve({ r: { type: ['health/referrals', 'health/lab-orders'], many: true, soft: true } }).errors, []);
+		assert.match(resolve({ r: { type: 'string', soft: true } }).errors[0], /`soft` belongs to a reference/);
+		assert.match(resolve({ v: { type: 'health/doctors', many: true, mirror_of: 'x', soft: true } }).errors.join(), /cannot be soft/);
+	});
+
 	test('derived and virtual exclude each other', () => {
 		assert.match(resolve({ f: { type: 'string', derived: true, virtual: true } }).errors[0], /exclude each other/);
 	});
