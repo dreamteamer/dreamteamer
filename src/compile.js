@@ -886,7 +886,7 @@ export function compile(ws) {
 	// about. The runtime copy is never read by anything; the manifest ENTRY is the whole point.
 	// uppercase, like the harness files it feeds; the readdir — not existsSync — because on a
 	// case-insensitive filesystem `dreamteamer.md` and `DREAMTEAMER.md` are one path
-	if (fs.readdirSync(root).includes('dreamteamer.md')) fail(`dreamteamer.md is named DREAMTEAMER.md now — rename it (git mv dreamteamer.md DREAMTEAMER.md; on a case-insensitive filesystem go through a temporary name), then compile.`);
+	if (fs.readdirSync(root).includes('dreamteamer.md')) fail(`the instructions source is DREAMTEAMER.md, and dreamteamer.md is not read — rename it (git mv dreamteamer.md DREAMTEAMER.md; on a case-insensitive filesystem go through a temporary name), then compile.`);
 	const instructionsPath = path.join(root, INSTRUCTIONS_SOURCE);
 	if (fs.existsSync(instructionsPath)) {
 		const bytes = fs.readFileSync(instructionsPath);

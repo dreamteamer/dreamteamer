@@ -15,24 +15,24 @@ const RULES = '## house rules\n\n1. Never `git add -A`.\n2. Quote a result from 
 
 function withInstructions(text = RULES) {
 	const ws = workspace();
-	fs.writeFileSync(path.join(ws.root, 'dreamteamer.md'), text);
+	fs.writeFileSync(path.join(ws.root, 'DREAMTEAMER.md'), text);
 	compileQuietly(ws.ws);
 	return ws;
 }
 
-describe('dreamteamer.md is a compile source', () => {
+describe('DREAMTEAMER.md is a compile source', () => {
 	test('editing it makes the workspace stale', () => {
 		const ws = withInstructions();
 		assert.equal(staleness(ws.root).stale.length, 0, 'clean right after a compile');
-		fs.writeFileSync(path.join(ws.root, 'dreamteamer.md'), RULES + '\n3. A third rule.\n');
+		fs.writeFileSync(path.join(ws.root, 'DREAMTEAMER.md'), RULES + '\n3. A third rule.\n');
 		const s = staleness(ws.root);
-		assert.ok(s.stale.some((x) => x.includes('dreamteamer.md')), `edit must be seen — got ${JSON.stringify(s.stale)}`);
+		assert.ok(s.stale.some((x) => x.includes('DREAMTEAMER.md')), `edit must be seen — got ${JSON.stringify(s.stale)}`);
 	});
 
 	test('a workspace without one compiles clean and reports nothing new', () => {
 		const ws = workspace();
 		assert.equal(staleness(ws.root).stale.length, 0);
-		assert.equal(readFile(ws.root, 'dreamteamer.md'), null);
+		assert.equal(readFile(ws.root, 'DREAMTEAMER.md'), null);
 	});
 
 	// ⚠ CREATING it is the moment that matters, and it was the one the scan missed. The manifest-source
@@ -42,8 +42,8 @@ describe('dreamteamer.md is a compile source', () => {
 	test('CREATING it is reported as a new, uncompiled source', () => {
 		const ws = workspace();
 		assert.equal(staleness(ws.root).stale.length, 0, 'clean right after a compile');
-		fs.writeFileSync(path.join(ws.root, 'dreamteamer.md'), RULES);
-		assert.deepEqual(staleness(ws.root).stale, ['dreamteamer.md (new, uncompiled)']);
+		fs.writeFileSync(path.join(ws.root, 'DREAMTEAMER.md'), RULES);
+		assert.deepEqual(staleness(ws.root).stale, ['DREAMTEAMER.md (new, uncompiled)']);
 		compileQuietly(ws.ws);
 		assert.equal(staleness(ws.root).stale.length, 0, 'and compiling clears it');
 	});
@@ -61,7 +61,7 @@ describe('the instructions block reaches every harness', () => {
 		assert.equal(bodies[0].trim(), RULES.trim(), 'and it must be the source, verbatim');
 	});
 
-	test('it sits ABOVE the orientation block', () => {
+	test('it sits BELOW the orientation block', () => {
 		const ws = withInstructions();
 		for (const f of HARNESSES) {
 			const text = readFile(ws.root, f);
@@ -71,7 +71,7 @@ describe('the instructions block reaches every harness', () => {
 			const orientation = text.indexOf('<!-- dreamteamer:begin');
 			assert.ok(at >= 0, `${f} has no instructions block`);
 			assert.ok(orientation >= 0, `${f} has no orientation block`);
-			assert.ok(at < orientation, `${f}: instructions must precede the orientation block`);
+			assert.ok(orientation < at, `${f}: the orientation block comes first, the instructions after it`);
 		}
 	});
 
@@ -89,7 +89,7 @@ describe('the instructions block reaches every harness', () => {
 		const ws = withInstructions();
 		// The block has to BE there before its removal can mean anything.
 		for (const f of HARNESSES) assert.match(readFile(ws.root, f) ?? '', /dreamteamer:instructions:begin/, `${f} never had a block to remove`);
-		fs.rmSync(path.join(ws.root, 'dreamteamer.md'));
+		fs.rmSync(path.join(ws.root, 'DREAMTEAMER.md'));
 		compileQuietly(ws.ws);
 		for (const f of HARNESSES) {
 			assert.doesNotMatch(readFile(ws.root, f) ?? '', /dreamteamer:instructions/, `${f} kept a stale block`);
@@ -126,7 +126,7 @@ describe('the rules are rendered byte-for-byte', () => {
 describe('a managed marker in the source is refused', () => {
 	const compiledWith = (text) => {
 		const ws = workspace();
-		fs.writeFileSync(path.join(ws.root, 'dreamteamer.md'), text);
+		fs.writeFileSync(path.join(ws.root, 'DREAMTEAMER.md'), text);
 		return { ws, err: compileError(ws.ws) };
 	};
 
@@ -137,7 +137,7 @@ describe('a managed marker in the source is refused', () => {
 	test('quoting the orientation markers fails, naming the marker and the line', () => {
 		const { err } = compiledWith(`## house rules\n\n1. Never edit inside ${'<!-- dreamteamer:begin (generated — do not edit inside this block) -->'}.\n`);
 		assert.ok(err, 'compile must refuse');
-		assert.match(err, /dreamteamer\.md:3:/, 'the offending line must be named');
+		assert.match(err, /DREAMTEAMER\.md:3:/, 'the offending line must be named');
 		assert.match(err, /dreamteamer:begin/, 'and the marker it found');
 		assert.match(err, /Describe the block instead of quoting its marker/);
 	});
@@ -145,7 +145,7 @@ describe('a managed marker in the source is refused', () => {
 	test('quoting the orientation END marker fails too', () => {
 		const { err } = compiledWith(`1. A rule.\n2. The block closes with ${'<!-- dreamteamer:end -->'}.\n`);
 		assert.ok(err, 'compile must refuse');
-		assert.match(err, /dreamteamer\.md:2:/);
+		assert.match(err, /DREAMTEAMER\.md:2:/);
 	});
 
 	// Before the guard: the block was closed at the quoted copy and a SECOND end line appended, so
@@ -154,14 +154,14 @@ describe('a managed marker in the source is refused', () => {
 	test('quoting the instructions end marker fails, naming the marker and the line', () => {
 		const { err } = compiledWith(`## house rules\n\n1. A rule.\n2. It ends at ${'<!-- dreamteamer:instructions:end -->'}.\n`);
 		assert.ok(err, 'compile must refuse');
-		assert.match(err, /dreamteamer\.md:4:/);
+		assert.match(err, /DREAMTEAMER\.md:4:/);
 		assert.match(err, /dreamteamer:instructions:end/);
 	});
 
 	test('quoting the instructions BEGIN marker fails too', () => {
 		const { err } = compiledWith(`1. It opens at ${'<!-- dreamteamer:instructions:begin -->'}.\n`);
 		assert.ok(err, 'compile must refuse');
-		assert.match(err, /dreamteamer\.md:1:/);
+		assert.match(err, /DREAMTEAMER\.md:1:/);
 	});
 
 	// ⚠ THE GUARD MUST NOT BE OVER-BROAD. Writing a rule ABOUT the generated block is the whole point
@@ -169,7 +169,7 @@ describe('a managed marker in the source is refused', () => {
 	test('prose that merely mentions the block compiles, and the block is stable across compiles', () => {
 		const prose = '## house rules\n\n1. Never edit inside the generated dreamteamer block.\n2. `dreamteamer:begin` marks where it starts.\n';
 		const ws = workspace();
-		fs.writeFileSync(path.join(ws.root, 'dreamteamer.md'), prose);
+		fs.writeFileSync(path.join(ws.root, 'DREAMTEAMER.md'), prose);
 		assert.equal(compileError(ws.ws), null, 'describing the block must be allowed');
 		const first = readFile(ws.root, 'CLAUDE.md');
 		assert.match(first, /Never edit inside the generated dreamteamer block/);
@@ -182,9 +182,9 @@ describe('a managed marker in the source is refused', () => {
 // `.trimEnd()` on a whitespace-only source yields `''` — not nullish, so `?? null` let it through and
 // the three Markdown files got an empty BEGIN/END pair while the cursor rule omitted the part.
 describe('an empty source renders no block anywhere', () => {
-	test('a whitespace-only dreamteamer.md is treated as no instructions at all', () => {
+	test('a whitespace-only DREAMTEAMER.md is treated as no instructions at all', () => {
 		const ws = workspace();
-		fs.writeFileSync(path.join(ws.root, 'dreamteamer.md'), '   \n\n\t\n');
+		fs.writeFileSync(path.join(ws.root, 'DREAMTEAMER.md'), '   \n\n\t\n');
 		compileQuietly(ws.ws);
 		for (const f of ['CLAUDE.md', 'AGENTS.md', 'GEMINI.md', '.cursor/rules/dreamteamer.mdc']) {
 			assert.doesNotMatch(readFile(ws.root, f) ?? '', /dreamteamer:instructions/, `${f} carries an empty block`);
