@@ -21,7 +21,7 @@ import { KINDS } from './compile.js';
 import { history, historyDiff } from './history.js';
 import { commandsFor, recordResolver } from './record-commands.js';
 import { distinctValues } from './field-values.js';
-import { matchesFilter } from './filter.js';
+import { matchesFilter, unknownTokens, VALUE_TOKENS } from './filter.js';
 import { baseNameOf, defaultStoragePath } from './namespace.js';
 import { sortRows } from './temporal.js';
 import { keyBetween, placementKey } from './fractional-index.js';
@@ -1186,6 +1186,8 @@ function narrowRows(store, d, collection, flags) {
 	// for the same reason: `--where 'name _eq Ada'` yaml-parses to a STRING, and matchesFilter
 	// then matched every row.
 	if (whereJson && (typeof where !== 'object' || where === null)) throw new Error(`--where takes ONE filter OBJECT and got a ${where === null ? 'null' : typeof where}: ${whereJson}\n  a condition is {"<field>":{"_eq":"<value>"}} — the shorthand for one equality is --filter <field>=<value>`);
+	const badTokens = where ? [...unknownTokens(where)] : [];
+	if (badTokens.length) throw new Error(`--where holds unknown value token(s) ${badTokens.join(', ')} — the tokens are ${VALUE_TOKENS.join(' and ')}; any other value is a literal without a leading $`);
 	const sort = oneValue(flags, 'sort');
 	const vocab = ['id', ...Object.keys(fieldsOf(d))];
 	const stray = [...filters.map(([k]) => k), ...(sort ? [String(sort).replace(/^-/, '')] : [])].find((f) => !vocab.includes(f));
