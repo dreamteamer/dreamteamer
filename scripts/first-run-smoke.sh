@@ -28,8 +28,9 @@ npx dreamteamer check
 
 # ---- the shapes that broke on Windows: a mixin, a skill with a nested file, an id with a `/` ----
 # Compile used to key its runtime entries with `path.join`, so on Windows no mixin was found
-# ("mixin … does not exist (have: none)") and the collections and skills indexes rendered empty;
-# record ids were read back as `2026-01-02\x`. Each line below fails on that build.
+# ("mixin … does not exist (have: none)"), the skills indexes rendered empty and no skill file was
+# mirrored; source paths were stored with `\`, so a module listed none of its skills; record ids
+# were read back as `2026-01-02\x`. Each check below failed on that build.
 cat > modules/default/collections/memos.collection.yaml <<'YAML'
 name: memos
 description: A smoke collection — a mixin's fields under an id with a folder in it.
@@ -53,6 +54,7 @@ npx dreamteamer compile
 grep -q '^- memos — ' CLAUDE.md || { echo "✖ memos missing from the CLAUDE.md collections index"; exit 1; }
 grep -q 'smoke-skill' CLAUDE.md || { echo "✖ smoke-skill missing from the CLAUDE.md skills index"; exit 1; }
 test -f .claude/skills/smoke-skill/references/more.md || { echo "✖ nested skill file not mirrored"; exit 1; }
+npx dreamteamer status | grep -q 'is fresh' || { echo "✖ status does not call a just-compiled workspace fresh"; npx dreamteamer status; exit 1; }
 npx dreamteamer add memos --name "First memo"
 ID=$(npx dreamteamer list memos --json | node -e 'let s="";process.stdin.on("data",(c)=>s+=c).on("end",()=>{const r=JSON.parse(s);console.log((r.records??r)[0].id)})')
 case "$ID" in

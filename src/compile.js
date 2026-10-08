@@ -251,6 +251,9 @@ function dataOwningModules(sources, fail, rel) {
 	return owners;
 }
 
+/** A relative path spelled with `/` on every OS — Windows' `path.relative` and `path.join` use `\`. */
+const toPosix = (p) => p.split(path.sep).join('/');
+
 /** The git repo that will hold a module's records: nearest `.git` at or above the module root,
  *  as a workspace-relative path (`.` = the workspace itself). `.git` may be a FILE — worktrees
  *  and submodules write a pointer file rather than a directory — so existsSync, not isDirectory. */
@@ -258,7 +261,7 @@ export function repoRootOf(moduleRoot, wsRoot) {
 	const stop = path.resolve(wsRoot);
 	let dir = path.resolve(moduleRoot);
 	while (dir.startsWith(stop)) {
-		if (fs.existsSync(path.join(dir, '.git'))) return path.relative(stop, dir) || '.';
+		if (fs.existsSync(path.join(dir, '.git'))) return toPosix(path.relative(stop, dir)) || '.';
 		if (dir === stop) break;
 		dir = path.dirname(dir);
 	}
@@ -280,7 +283,9 @@ export function compile(ws) {
 	const prevManifest = readManifest(root);
 	const config = pkg.dreamteamer ?? {};
 	const harnesses = config.harnesses ?? ['claude-code'];
-	const rel = (p) => path.relative(root, p);
+	// workspace-relative and POSIX on every OS: these paths are stored (manifest sources, module
+	// records, storage paths) and compared with `/`-joined prefixes — see addEntry
+	const rel = (p) => toPosix(path.relative(root, p));
 
 	/** ⚠ YAML, WITH THE FILE IN THE MESSAGE. js-yaml reports `line:column` and a snippet and never a
 	 *  path, so one stray tab in a workspace of a hundred sources was an mtime bisect. Every parse of
@@ -549,7 +554,7 @@ export function compile(ws) {
 	// `path.join` spells it with `\` on Windows, where no mixin loaded and the collections and skills
 	// indexes came out empty.
 	function addEntry(runtimePath, srcPath) {
-		runtimePath = runtimePath.split(path.sep).join('/');
+		runtimePath = toPosix(runtimePath);
 		if (entries.has(runtimePath)) {
 			const [, kind, entity] = /^([^/]+)\/([^/]+)/.exec(runtimePath) ?? [];
 			const entityId = (entity ?? '').replace(/\.[^.]+\.(yaml|md|json)$/, '');
@@ -777,7 +782,7 @@ export function compile(ws) {
 	const engineName = engineId().replace(/@[^@]*$/, '');
 	const wsDir = config.workspace_module;
 	const wsModuleName = wsDir
-		? sources.find((s) => rel(s.root) === path.join('modules', wsDir))?.name
+		? sources.find((s) => rel(s.root) === path.posix.join('modules', wsDir))?.name
 		: pkg.name;
 	// a declared git module whose clone is absent is an UNINSTALLED workspace (a fresh clone), so a
 	// collection error there is named with the install, not left reading as a broken reference
@@ -1187,7 +1192,7 @@ export function staleness(root) {
 					const entityId = relEntity.replace(/\.[^.]+\.(yaml|md|json)$/, '');
 					if (disabledEntities.has(`${kind}/${entityId}`)) continue;
 				}
-				const relPath = path.relative(root, f);
+				const relPath = toPosix(path.relative(root, f));
 				if (!known.has(relPath)) stale.push(`${relPath} (new, uncompiled)`);
 			}
 		}
