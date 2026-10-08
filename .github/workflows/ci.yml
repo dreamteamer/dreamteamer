@@ -38,31 +38,35 @@ jobs:
       - name: cli loads
         run: node bin/dreamteamer.js --version
 
-      # The first sixty seconds of a new user's life. The suite above covers behaviour; this
-      # covers DISTRIBUTION, which no test can: it installs the packed tarball exactly as a
-      # stranger would and drives it end to end.
-      #
-      # It installs the PACKED TARBALL rather than the source tree on purpose — that is
-      # exactly what a user gets from npm, so a missing entry in files[] fails CI instead
-      # of failing a stranger.
+      # The first sixty seconds of a new user's life, against the packed tarball (the script says why).
       - name: first-run smoke
-        run: |
-          set -euo pipefail
-          PKG=$(npm pack --silent | tail -1)
-          PKG_PATH="$PWD/$PKG"
-          D=$(mktemp -d)
-          cd "$D"
-          git init -q
-          git config user.email ci@example.com
-          git config user.name CI
-          npm init -y >/dev/null
-          npm install --silent "$PKG_PATH"
-          npx dreamteamer init
-          npx dreamteamer compile
-          npx dreamteamer check
-          # ⚠ VERB-FIRST since 0.12.0. This step kept the collection-first spelling and CI has been
-          # red on every push since 0.12.1 (2026-08-22) — six releases — because `release` is a
-          # separate workflow and it was green. Verified against the packed tarball, not assumed.
-          npx dreamteamer add notes --title "smoke"
-          npx dreamteamer list notes
-          npx dreamteamer check
+        run: bash scripts/first-run-smoke.sh
+
+  # The suite runs on Linux only; Windows gets the first-run smoke, which drives compile, check, add,
+  # list and get through the paths that broke there (runtime keys and record ids spelled with `\`).
+  windows:
+    runs-on: windows-latest
+    name: windows · first-run
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: cli loads
+        run: node bin/dreamteamer.js --version
+
+      - name: first-run smoke
+        shell: bash
+        run: bash scripts/first-run-smoke.sh
+
+      # Discovery only: what else the suite says about Windows. Not a gate.
+      - name: suite (informational)
+        continue-on-error: true
+        timeout-minutes: 12
+        run: npm test
