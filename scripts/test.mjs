@@ -26,7 +26,7 @@ import { readdirSync, existsSync, rmSync, readFileSync, writeFileSync, mkdirSync
 import { resolve, dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { selectTests } from './test-select.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -115,7 +115,8 @@ if (needsLock && !flag('no-lock')) {
 	sweepLeakedFixtures();
 }
 
-const reporter = flag('verbose') ? 'spec' : join(ROOT, 'scripts', 'test-reporter.mjs');
+// a URL, not a path: on Windows an absolute path is not a module specifier ('d:' reads as a scheme)
+const reporter = flag('verbose') ? 'spec' : pathToFileURL(join(ROOT, 'scripts', 'test-reporter.mjs')).href;
 // A FILE that hangs is a FAILURE, never a wait. `--test-timeout` bounds each top-level test, and
 // with files on the command line a top-level test IS a file — so this is a per-file cap. Ten
 // minutes: measured 2026-09-24, the slowest file alone is prove at 75 s, land 53 s, commit 43 s,
