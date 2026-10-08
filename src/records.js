@@ -67,8 +67,12 @@ export const MAX_RECORD_BYTES = 204800;
  *
  *  `format: binary` records are opaque bytes whose extension is whatever was imported, so their tail is
  *  `.<suffix>.<ONE extension segment>` — one, because `x.asset.tar.gz` in the folder is an archive
- *  someone dropped there, and calling it a record would hide it from `check`'s stray report. */
+ *  someone dropped there, and calling it a record would hide it from `check`'s stray report.
+ *
+ *  An id is a POSIX path on every OS: callers hand in `path.relative` output, which on Windows is
+ *  `2026\10\x.note.md` — an id no reference, pattern or `dt get` would ever match. */
 export function idFromRecordPath(d, relPath) {
+	relPath = relPath.split(path.sep).join('/');
 	const { suffix, format } = storageOf(d);
 	if (format === 'binary') {
 		const lit = suffix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

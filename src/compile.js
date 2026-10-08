@@ -544,7 +544,12 @@ export function compile(ws) {
 	/** collection descriptors collected per name, a base and its overlays: name -> [{src, doc, moduleName}] */
 	const descriptorGroups = new Map();
 
+	// ⚠ A runtime key is a POSIX path on every OS. Every reader of `entries` — the mixin, skill,
+	// command and ui-view passes below, the harness adapters, extensions — matches it with `/`, and
+	// `path.join` spells it with `\` on Windows, where no mixin loaded and the collections and skills
+	// indexes came out empty.
 	function addEntry(runtimePath, srcPath) {
+		runtimePath = runtimePath.split(path.sep).join('/');
 		if (entries.has(runtimePath)) {
 			const [, kind, entity] = /^([^/]+)\/([^/]+)/.exec(runtimePath) ?? [];
 			const entityId = (entity ?? '').replace(/\.[^.]+\.(yaml|md|json)$/, '');
@@ -791,7 +796,7 @@ export function compile(ws) {
 	counts.collections = 0;
 	const mergedCount = [...compiledColls.values()].filter((c) => c.compiled.overlaid_by.length).length;
 	for (const [name, c] of compiledColls) {
-		entries.set(path.join('collections', `${name}.collection.yaml`), { sources: c.sources, bytes: Buffer.from(dump(c.doc, { noRefs: true })) });
+		entries.set(path.posix.join('collections', `${name}.collection.yaml`), { sources: c.sources, bytes: Buffer.from(dump(c.doc, { noRefs: true })) });
 		counts.collections++;
 	}
 
@@ -868,7 +873,7 @@ export function compile(ws) {
 		// stale immediately after a clean compile — the one signal that has to stay trustworthy.
 		const pkgPath = path.join(source.root, 'package.json');
 		const pkgBytes = fs.existsSync(pkgPath) ? fs.readFileSync(pkgPath) : bytes;
-		entries.set(path.join('modules', `${id}.module.yaml`), {
+		entries.set(path.posix.join('modules', `${id}.module.yaml`), {
 			sources: [{ path: rel(pkgPath), hash: sha256(pkgBytes) }],
 			bytes,
 		});
@@ -921,7 +926,7 @@ export function compile(ws) {
 	// `compiled.display`: its display merged over its collection's.
 	const collectionOf = (ref) => {
 		const name = String(ref ?? '').replace(/^collections\//, '');
-		const e = name && entries.get(path.join('collections', `${name}.collection.yaml`));
+		const e = name && entries.get(path.posix.join('collections', `${name}.collection.yaml`));
 		return e ? load(e.bytes.toString('utf8')) : null;
 	};
 	const fieldsKnown = (d) => (d ? fieldsOf(d) : undefined);
