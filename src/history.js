@@ -24,10 +24,10 @@ const FORMAT = '%H%x00%an%x00%aI%x00%s';
  * genuinely changes when any of them does, so all of them are followed.
  */
 function trackedPaths(store, file) {
-	const rel = path.relative(store.root, file);
-	if (!rel.startsWith(RUNTIME_DIR + path.sep)) return [rel];
+	const rel = path.relative(store.root, file).split(path.sep).join('/'); // git pathspecs take `/` on every OS
+	if (!rel.startsWith(`${RUNTIME_DIR}/`)) return [rel];
 	try {
-		const key = rel.split(path.sep).slice(1).join('/'); // drop the `.dreamteamer/` prefix
+		const key = rel.split('/').slice(1).join('/'); // drop the `.dreamteamer/` prefix
 		const sources = readManifest(store.root)?.entries?.[key]?.sources ?? [];
 		const paths = sources.map((s) => (typeof s === 'string' ? s : s?.path)).filter(Boolean);
 		return paths.length ? paths : [rel];

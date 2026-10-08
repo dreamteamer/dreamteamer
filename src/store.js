@@ -589,7 +589,8 @@ export class Store {
 		const { fields: currentFields, file } = this.read(collection, id);
 		// A placed record may have sat in ANOTHER parent's folder at `hash` — the move is what is being
 		// reverted — so the historical path is looked up in that commit's tree, not assumed to be today's.
-		const relPath = this.pathAt(d, id, hash) ?? path.relative(this.root, file);
+		// `<rev>:<path>` takes `/` on every OS — Windows' path.relative spells it with `\`
+		const relPath = this.pathAt(d, id, hash) ?? path.relative(this.root, file).split(path.sep).join('/');
 		let previousContent;
 		try {
 			previousContent = execFileSync('git', ['show', `${hash}:${relPath}`], { cwd: this.root, stdio: QUIET }).toString();
