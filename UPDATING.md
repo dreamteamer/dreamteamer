@@ -20,6 +20,23 @@ npx dreamteamer check
 
 ---
 
+## 0.33.1 — Windows: compile, check and record ids
+
+Nothing to do but `dt compile`. On Windows, 0.33.0 joined compile's runtime keys and stored paths with
+`\`, while everything that reads them matches `/`:
+
+- any workspace whose collections list a mixin failed to compile — `mixin "…" does not exist (have: none)`;
+- no skill file was mirrored into `.claude/skills`, and the collections and skills indexes in the
+  harness blocks rendered empty;
+- an id with a folder in it (`2026-10-08/x`) read back with a `\`;
+- `dt revert` reported `no content at <sha>` and changed nothing.
+
+All four use `/` on every OS now. A runtime compiled by 0.33.0 on Windows reads as stale until the
+next compile. CI runs the first-run smoke on `windows-latest`; the rest of the suite does not pass
+there yet (`dt install`'s npm step among it), so Linux, macOS or WSL remain the tested hosts.
+
+---
+
 ## 0.33.0 — descriptor format v2, and module seams
 
 **Collection descriptors have one format now, v2, and this engine reads nothing else.** A descriptor is
