@@ -11,7 +11,7 @@ import { validateTemplate } from './template.js';
 /** The top-level keys a v2 descriptor may carry, in canonical order. */
 export const V2_KEYS = ['name', 'title', 'singular', 'record_title', 'description', 'use_when', 'internal', 'sensitive', 'storage', 'ids', 'mixins', 'overlay', 'fields', 'constraints', 'display'];
 
-const STORAGE_KEYS = ['path', 'format', 'shape', 'entry', 'suffix', 'under', 'max_bytes', 'accept'];
+const STORAGE_KEYS = ['path', 'format', 'shape', 'entry', 'suffix', 'under', 'max_bytes', 'accept', 'owner'];
 const DISPLAY_BLOCKS = { nav: ['icon', 'order', 'section'], list: ['layout', 'columns', 'sort', 'options'], record: ['layout', 'subtitle', 'badge', 'color_by', 'options'], form: ['sections'] };
 
 export const isV2 = (doc) => !!doc && typeof doc === 'object' && !Array.isArray(doc) && 'fields' in doc;
@@ -31,6 +31,7 @@ export function shapeErrors(doc) {
 	}
 	if (s.format !== undefined && !['md', 'yaml', 'json', 'binary'].includes(s.format)) errors.push('`storage.format` is md · yaml · json · binary');
 	if (s.shape !== undefined && !['file', 'folder'].includes(s.shape)) errors.push('`storage.shape` is file · folder');
+	if (s.owner !== undefined && !['module', 'workspace'].includes(s.owner)) errors.push('`storage.owner` is module · workspace — whose repo holds the records: the shipping module\'s clone, or this workspace (the default)');
 	if (s.under !== undefined) {
 		const u = s.under;
 		if (!u || typeof u !== 'object') errors.push('`storage.under` is { parent, subfolder }');

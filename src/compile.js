@@ -228,8 +228,18 @@ export function discoverModules(root, pkg) {
 // workspace's data/. The descriptor still says `data/<collection>`; compile is what turns
 // that into a path, so the module never names its host.
 
-/** modules that own their data, by module name → {root, channel}. Validates the flag and the
- *  channel: records that could never be committed are a compile ERROR, not a silent zero. */
+/** Why a module's clone could NOT hold records, or null when it can. Decided from the CHANNEL, never
+ *  by asking git — compile shells out to git nowhere and must keep working in a freshly-`init`ed
+ *  directory that is not a repo yet. Asked by the module flag and by a descriptor's `storage.owner`
+ *  alike, so an npm module shipping an owned collection fails the same way. */
+export function unownableBecause(source, rel) {
+	if (source.channel === 'npm') return `module "${source.name}" is installed under node_modules/ — that path is never committed, so its records could not be saved. Vendor it into modules/ or install it as a git module.`;
+	if (source.channel === 'git' && !fs.existsSync(path.join(source.root, '.git'))) return `${rel(source.root)} is not a git clone — git_modules/ is gitignored by the workspace, so its records could never be committed.`;
+	return null;
+}
+
+/** modules whose collections default to `storage.owner: module` (`owns_data: true`), by module
+ *  name → {root, channel}. Records that could never be committed are a compile ERROR, not a silent zero. */
 function dataOwningModules(sources, fail, rel) {
 	const owners = new Map();
 	for (const s of sources) {
@@ -238,14 +248,8 @@ function dataOwningModules(sources, fail, rel) {
 		const flag = mpkg.dreamteamer?.owns_data;
 		if (flag === undefined || flag === false) continue;
 		if (flag !== true) fail(`module "${s.name}": "owns_data" must be true or false (got ${JSON.stringify(flag)})`);
-		// Decided from the CHANNEL, never by asking git — compile shells out to git nowhere and
-		// must keep working in a freshly-`init`ed directory that is not a repo yet.
-		if (s.channel === 'npm') {
-			fail(`module "${s.name}" sets owns_data, but it is installed under node_modules/ — that path is never committed, so its records could not be saved. Vendor it into modules/ or install it as a git module.`);
-		}
-		if (s.channel === 'git' && !fs.existsSync(path.join(s.root, '.git'))) {
-			fail(`module "${s.name}" sets owns_data, but ${rel(s.root)} is not a git clone — git_modules/ is gitignored by the workspace, so its records could never be committed.`);
-		}
+		const why = unownableBecause(s, rel);
+		if (why) fail(`module "${s.name}" sets owns_data, but ${why}`);
 		owners.set(s.name, { root: s.root, channel: s.channel });
 	}
 	return owners;
@@ -794,6 +798,7 @@ export function compile(ws) {
 		groups: descriptorGroups, mixins: mixinDocs, namespaces, nsOwners,
 		runtimeKinds: new Set([...kinds, ...DERIVED_KINDS]), core: CORE_COLLECTIONS,
 		moduleDeps, modulePeers, channelOf, wsModuleName, engineName, dataOwners,
+		moduleSources: new Map(sources.map((s) => [s.name, s])), unownableBecause,
 		repoOf: (moduleRoot) => repoRootOf(moduleRoot, root), rel, dataPath: config.data_path ?? 'data',
 		moduleId, fail: collectionsFail, warn: (m) => console.warn(m),
 	});

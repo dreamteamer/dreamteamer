@@ -427,11 +427,13 @@ export function removeModule(ws, store, id, { force = false, dryRun = false } = 
 	if (ws.pkg.dreamteamer?.workspace_module === id) {
 		throw new Error(`module "${id}" IS this workspace's own module (dreamteamer.workspace_module) — removing it would leave the workspace with no sources of its own. Point workspace_module at another module first.`);
 	}
-	if (fields.owns_data === true) {
-		throw new Error(`module "${id}" sets owns_data, so its records live INSIDE ${fields.path}/data — removing the module would delete them, which this verb never does. Drop owns_data and move the records out first.`);
-	}
-
 	const shipped = (fields.collections ?? []).map((r) => String(r).replace(/^collections\//, '')).sort();
+	// A collection the module OWNS (`owns_data`, or its own `storage.owner: module`) keeps its records
+	// inside the module folder, so removing the sources would take the records with them.
+	const inside = shipped.filter((c) => store.descriptors.has(c) && `${storageOf(store.descriptor(c)).path}/`.startsWith(`${fields.path}/`) && store.ids(c).size > 0);
+	if (inside.length) {
+		throw new Error(`module "${id}" keeps the records of ${inside.join(', ')} INSIDE ${fields.path}/data — removing the module would delete them, which this verb never does. Move the records out first (drop owns_data, or the collection's storage.owner).`);
+	}
 	const withRecords = shipped.filter((c) => store.descriptors.has(c) && store.ids(c).size > 0);
 	// A `dependencies` entry naming this module in ANOTHER module fails the gate compile ("depends
 	// on X, which is not installed"), so it goes in the SAME write — otherwise --force is a verb that

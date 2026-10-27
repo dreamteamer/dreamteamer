@@ -43,7 +43,7 @@ fields:
     description: Records never leave the workspace through an export.
   storage:
     type: map
-    description: Where records live — path, format (md · yaml · json · binary), shape (file · folder), entry, suffix, under { parent, subfolder }, max_bytes, accept.
+    description: Where records live — path, format (md · yaml · json · binary), shape (file · folder), entry, suffix, under { parent, subfolder }, max_bytes, accept, owner (module · workspace — whose repo holds the records).
   ids:
     type: map
     description: How a record's id is made — `from` (a template, or an ordered list of them) and `pattern`.

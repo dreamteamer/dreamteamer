@@ -61,7 +61,9 @@ const titleCase = (id) => String(id).split(/[_\-\s/]+/).filter(Boolean).map((w) 
  * @param {Map<string,string>} ctx.channelOf                     module name -> inline | git | npm
  * @param {string} ctx.wsModuleName
  * @param {string} ctx.engineName
- * @param {Map<string,{root}>} ctx.dataOwners                    owns-data modules
+ * @param {Map<string,{root}>} ctx.dataOwners                    owns-data modules — every collection defaults to `storage.owner: module`
+ * @param {Map<string,{name,root,channel}>} ctx.moduleSources   every module source, for a descriptor that names `storage.owner: module`
+ * @param {(source: object, rel: Function) => string|null} ctx.unownableBecause  why a module's clone cannot hold records, or null
  * @param {(moduleRoot: string) => string} ctx.repoOf            workspace-relative git repo of a module root
  * @param {(p: string) => string} ctx.rel
  * @param {string} ctx.dataPath
@@ -71,7 +73,7 @@ const titleCase = (id) => String(id).split(/[_\-\s/]+/).filter(Boolean).map((w) 
  * @returns {{ compiled: Map<string, {doc, sources}>, inert: {path, hash}[], moduleColls: Map<string, Set<string>> }}
  */
 export function compileCollections(ctx) {
-	const { groups, mixins, namespaces, nsOwners, runtimeKinds, core, moduleDeps, modulePeers, channelOf, wsModuleName, engineName, dataOwners, repoOf, dataPath, moduleId, fail, warn } = ctx;
+	const { groups, mixins, namespaces, nsOwners, runtimeKinds, core, moduleDeps, modulePeers, channelOf, wsModuleName, engineName, dataOwners, moduleSources, unownableBecause, repoOf, dataPath, moduleId, fail, warn } = ctx;
 
 	// ---- v1 is refused, every file at once --------------------------------------------------
 	const v1 = [];
@@ -119,6 +121,9 @@ export function compileCollections(ctx) {
 			mixinSrcs.push(...used.map((id) => mixins.get(id).src));
 			mixed.set(g, doc);
 		}
+		// Which REPO holds the records is the base's to say: an overlay that moved them would make one
+		// workspace's copy drift from the list every other workspace shares.
+		for (const o of overlays) if (mixed.get(o)?.storage?.owner !== undefined) fail(`${o.src.path}: an overlay may not set storage.owner — which repo holds "${name}"'s records is declared by its base (${base.src.path})`);
 		const authored = mergeOverlays(mixed.get(base), overlays.map((g) => mixed.get(g)));
 		const names = nameErrors(authored);
 		if (names.length) fail(`collection "${name}" (${where}):\n  ${names.join('\n  ')}`);
@@ -131,14 +136,18 @@ export function compileCollections(ctx) {
 	for (const [name, s] of staged) {
 		const { authored, group, base, overlays, where } = s;
 		const a = authored.storage ?? {};
-		const owned = dataOwners.get(base.moduleName);
+		// `storage.owner` on the descriptor wins; `owns_data: true` on the module only moves the default.
+		const owner = a.owner ?? (dataOwners.has(base.moduleName) ? 'module' : 'workspace');
 		let storagePath = a.path ?? defaultStoragePath(name, namespaces, dataPath);
 		const runtime = runtimeKinds.has(storagePath);
 		let repo = '.';
-		if (owned && !runtime) {
-			const modRel = ctx.rel(owned.root);
+		if (owner === 'module' && !runtime) {
+			const source = moduleSources.get(base.moduleName);
+			const why = unownableBecause(source, ctx.rel);
+			if (why) fail(`collection "${name}" sets storage.owner: module, but ${why} (${where})`);
+			const modRel = ctx.rel(source.root);
 			if (modRel) storagePath = `${modRel}/${storagePath}`;
-			repo = repoOf(owned.root);
+			repo = repoOf(source.root);
 		}
 		const bare = baseNameOf(name, namespaces);
 		const sdefaults = {};

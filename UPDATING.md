@@ -20,6 +20,18 @@ npx dreamteamer check
 
 ---
 
+## 0.34.0 — `storage.owner`: a collection's records in the module's clone
+
+Nothing to do but `dt compile`. New, additive: a descriptor's storage block may name whose repo holds
+the records — `owner: module` keeps them beside the module's sources and commits them to the
+module's clone; `owner: workspace` (the default) keeps them in the workspace's `data/`. A module's
+`owns_data: true` keeps its meaning and now only moves the default, so one module can ship a shared
+list (`people`, `owner: module`) beside per-workspace working sets (`tasks`, the default). An overlay
+may not set `storage.owner`, and `dt rm modules/<m>` refuses while an owned collection has records
+inside the module folder — it used to refuse on the flag alone, records or not.
+
+---
+
 ## 0.33.1 — Windows: compile, check and record ids
 
 Nothing to do but `dt compile`. On Windows, 0.33.0 joined compile's runtime keys and stored paths with

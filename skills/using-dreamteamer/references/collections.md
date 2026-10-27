@@ -54,7 +54,7 @@ The top-level keys, closed (any other is a compile error naming the list):
 | `description` · `use_when` | what one record IS (naming the neighbour it is not) · the situations that bring a session here. Both feed the orientation block (`data-modeling.md` §18) |
 | `internal` | workspace plumbing, left out of the domain listing — the engine's collections and the workspace module's only |
 | `sensitive` | records never leave through an export; the same key on a field keeps one field back |
-| `storage` | `path` (default `data/<name>`) · `format: md \| yaml \| json \| binary` (default `md`) · `shape: file \| folder` · `entry` (folder shape: the file that IS the record) · `suffix` (default the inflected bare name — an authored `singular` does not change it) · `under` (below) · `max_bytes` · `accept` (binary only) |
+| `storage` | `path` (default `data/<name>`) · `format: md \| yaml \| json \| binary` (default `md`) · `shape: file \| folder` · `entry` (folder shape: the file that IS the record) · `suffix` (default the inflected bare name — an authored `singular` does not change it) · `under` (below) · `max_bytes` · `accept` (binary only) · `owner: module \| workspace` (whose REPO holds the records — the shipping module's clone, or this workspace, the default; below) |
 | `ids` | `from` and `pattern` — ids and templates, below |
 | `mixins` · `overlay` | below |
 | `fields` | the fields, in form order. **Required to be present** — it is what marks a descriptor; a `format: binary` collection writes `fields: {}` |
@@ -177,8 +177,8 @@ compile decided. The order explains most "why does the compiled file say that" q
    by key, every other key overlay-wins (`display` per sub-block).
 3. **Names are checked** — every field `display`, `ids.from`, `storage.under.parent` and every
    template names; unknown keys in the closed blocks.
-4. **Storage and fields resolve** — the storage defaults (an `owns_data` module's path prefixed
-   with its root); a `format: binary` collection gets `ext` and `bytes` and may declare nothing
+4. **Storage and fields resolve** — the storage defaults (a module-owned collection's path prefixed
+   with the module's root); a `format: binary` collection gets `ext` and `bytes` and may declare nothing
    else; titles, `on_delete`, the injected fields; then the validator's JSON Schema, which must
    itself compile, and `ids.pattern`, which must be a valid regex.
 5. **The reference contract**, then **relations** — every `mirror_of` checked against its owner
@@ -241,7 +241,7 @@ lists it. What belongs in a module is judgment — `data-modeling.md` Part III �
 | `namespaces` | the namespaces this module owns |
 | `dependencies` | modules this one cannot compile without — an overlay needs its base. Acyclic |
 | `peer_collections` | collections this module references but does not own, which may be absent |
-| `owns_data` | its records live in its own clone, not the workspace's `data/` |
+| `owns_data` | every collection it ships defaults to `storage.owner: module` — its records live in its own clone, not the workspace's `data/`; one descriptor opts out with `storage.owner: workspace` |
 | `engine` | the engine range it needs; outside it, the module is refused whole |
 | `env` · `vars` | the `.env` keys it needs · the `${env:…}` names its records use (the workspace must allow each) |
 | `extension` · `ignore` · `local_assets` | an extension entry (`extensions.md`) · folders that are not kinds · gitignored files a worktree links |
@@ -364,6 +364,34 @@ data/meetings/2026/10/offsite.meeting.md                       ← meetings/2026
   would be stranded inside parent folders.
 - **When NOT to use it**: a record several parents share equally, an owner usually unknown, a
   collection nobody browses as a folder. It organises files; it grants nothing.
+
+## module-owned collections — records that live in the module's clone
+
+A module usually ships SHAPE and the workspace holds the records. A collection can instead keep its
+records beside the module's sources, so every workspace that installs the module shares ONE list:
+
+```yaml
+# git_modules/org/collections/people.collection.yaml
+name: people
+storage:
+  owner: module          # records at git_modules/org/data/people/, committed to the module's repo
+```
+
+- **`owner: module`** roots the collection at `<module root>/data/<collection>` and sets its repo to
+  the module's clone: a write there commits in that repo (`ahead 1 — push when ready`), and
+  `dt commit` publishes each side of a cross-repo write in its own repo. The module must be a
+  committable clone — a module under `node_modules/`, or a `git_modules/` folder with no `.git`,
+  is a compile error naming the fix.
+- **`owner: workspace`** is the default. **`owns_data: true` on the module** only changes the
+  default for the collections it ships, so one module can carry a shared `people` beside a
+  per-workspace `tasks`: flag nothing and mark `people`, or flag the module and mark `tasks`
+  `owner: workspace`.
+- **An overlay may not set `storage.owner`** — which repo holds a collection is the base's to say,
+  or one workspace's copy would drift from the list every other workspace shares.
+- A record in the workspace may reference an owned record like any other (`assignee: people/<id>`);
+  `check` validates across the two repos. Editing an owned record in one workspace reaches the
+  others on push and `dt update`.
+- `dt rm modules/<m>` refuses while an owned collection still has records inside the module folder.
 
 ## mixins — a live shared field set
 
