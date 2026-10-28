@@ -238,4 +238,23 @@ describe('record layers — the verbs an operator runs across one (0.36.0)', () 
 		assert.equal(cli.events[0].path, 'git_modules/project-a/data/tasks/fix-login.task.md');
 	});
 
+	test('dt commit over three repos when the second refuses: the first is reported, the second reset, the third named as pending', () => {
+		const { w, org, layer } = layered();
+		compileQuietly(w.ws);
+		assert.equal(dt(w.root, 'add', 'tasks', '--name', 'Write the brief').code, 0);            // workspace
+		assert.equal(dt(w.root, 'add', 'people', '--name', 'Mallory Quinn').code, 0);            // git_modules/org
+		assert.equal(dt(w.root, 'set', 'tasks/fix-login', 'name=Fix the login flow').code, 0);   // git_modules/project-a
+		fs.mkdirSync(path.join(org, '.git', 'hooks'), { recursive: true });
+		fs.writeFileSync(path.join(org, '.git', 'hooks', 'pre-commit'), '#!/bin/sh\necho refused-by-hook >&2\nexit 1\n', { mode: 0o755 });
+		const res = dt(w.root, 'commit', '-m', 'three');
+		assert.equal(res.code, 1);
+		assert.match(res.stdout, /✔ workspace [0-9a-f]{7} — three/, 'the commit that landed is reported');
+		assert.match(res.stderr, /✖ git_modules\/org: .*1 record\(s\) left uncommitted/, 'the failing repo is named');
+		assert.match(res.stdout + res.stderr, /git_modules\/project-a: 1 record\(s\) left pending/, 'the repo never reached is named');
+		assert.match(git(w.root, ['log', '-1', '--format=%s']), /^three$/);
+		assert.equal(git(org, ['status', '--porcelain']), '?? data/people/mallory-quinn.person.md', 'the failing repo has nothing staged');
+		assert.match(git(layer, ['status', '--porcelain']), /^ ?M data\/tasks\/fix-login\.task\.md$/, 'the third repo is untouched: modified, nothing staged');
+		assert.match(git(layer, ['log', '-1', '--format=%s']), /^project-a$/);
+	});
+
 });

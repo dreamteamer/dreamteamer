@@ -441,6 +441,8 @@ export async function run(argv) {
 				if (!results.length) { console.log('nothing pending'); process.exit(0); }
 				for (const r of results) {
 					if (r.blocked) { console.error(`✖ ${r.repo}: ${r.blocked} — ${r.rows.length} record(s) left uncommitted`); continue; }
+					if (r.failed) { console.error(`✖ ${r.repo}: ${r.failed} — ${r.rows.length} record(s) left uncommitted, nothing staged`); continue; }
+					if (r.pending) { console.error(`⚠ ${r.repo}: ${r.rows.length} record(s) left pending — ${r.pending}; run dreamteamer commit again once it is fixed`); continue; }
 					if (r.warning) console.warn(`⚠ ${r.repo}: ${r.warning}`);
 					console.log(`✔ ${r.repo === '.' ? 'workspace' : r.repo}${r.sha ? ` ${r.sha}` : ' (dry run)'} — ${r.subject}`);
 					for (const row of r.rows.slice(0, ROWS_SHOWN)) console.log(`    ${row.verb} ${row.collection}/${row.id}`);
@@ -474,7 +476,7 @@ export async function run(argv) {
 						console.warn('    (if that refuses as entangled, the refusal names the other pending records — add them to the same command)');
 					}
 				}
-				process.exit(results.some((r) => r.blocked) ? 1 : 0);
+				process.exit(results.some((r) => r.blocked || r.failed) ? 1 : 0);
 			}
 			case 'status': {
 				const s = staleness(ws.root);

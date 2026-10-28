@@ -21,6 +21,10 @@ const QUIET = ['ignore', 'pipe', 'ignore'];
 // moved. So the one call that writes to stdin spells its stdio out itself rather than reusing QUIET.
 const QUIET_IN = ['pipe', 'pipe', 'ignore'];
 
+// The two calls that MAKE the commit keep git's stderr, piped: a refusing hook says why on it, and
+// that line is the whole report when the commit fails — so it is read, not inherited or dropped.
+const QUIET_ERR = ['ignore', 'pipe', 'pipe'];
+
 // One batch is one buffer, and execFileSync's default ceiling is 1 MiB — less than a collection's
 // worth of pre-images. 64 MiB is ~40,000 record files at the size a text record actually runs to,
 // and going over it is not a failure: the batch returns nothing and every row falls back to its own
@@ -496,6 +500,13 @@ function commitPlan(store, { only = [], message, dryRun = false } = {}) {
 	const reader = edgeReader(store, rels, sampled);
 	const sweep = targets.scoped ? planSweep(targets, reader) : new Set();
 	const results = [];
+	// ⚠ ONE COMMIT PER REPO, AND NOT ATOMIC ACROSS THEM — git has no transaction spanning clones.
+	// What the verb owes instead is an honest report: a repo whose commit fails has its index reset
+	// (as the store's own auto-commit does) and is named, the repos before it keep their commits and
+	// stay in the report, and the repos after it are NOT attempted and are named as left pending.
+	// Before this, a refusing hook in the second of three repos left the first commit standing, the
+	// second repo's index staged, the third untouched, and printed nothing at all.
+	let failed = null;
 	for (const { repo, cwd, rows: all } of sampled) {
 		// The SAMPLER is deliberately left alone — it is what makes a hand-edited record
 		// indistinguishable from one the store wrote. Narrowing happens HERE, on the sampled rows, so
@@ -516,6 +527,7 @@ function commitPlan(store, { only = [], message, dryRun = false } = {}) {
 		const leftPending = targets.whole.size ? partnersLeftPending(reader, published) : [];
 		const warning = detached(cwd) ? 'HEAD is detached — this commit will be reachable only by sha' : null;
 		const subject = message ?? composeSubject(rows);
+		if (failed) { results.push({ repo, rows, pending: `not attempted, ${failed} failed first` }); continue; }
 		if (!dryRun) {
 			const paths = rows.map((r) => r.repoRel);
 			// A rename only reports as `R` once it is STAGED, so its old path is in neither the
@@ -525,8 +537,17 @@ function commitPlan(store, { only = [], message, dryRun = false } = {}) {
 			// `--all` here is PATHSPEC-SCOPED — "including deletions of these named files", not
 			// "everything in the tree" (the unscoped form CLAUDE.md rule 6 forbids). Same shape
 			// store.js has always used.
-			execFileSync('git', ['add', '--all', '--', ...paths], { cwd });
-			execFileSync('git', ['commit', '--quiet', '-m', subject, '--', ...paths, ...alreadyStaged], { cwd });
+			try {
+				execFileSync('git', ['add', '--all', '--', ...paths], { cwd, stdio: QUIET_ERR });
+				execFileSync('git', ['commit', '--quiet', '-m', subject, '--', ...paths, ...alreadyStaged], { cwd, stdio: QUIET_ERR });
+			} catch (e) {
+				try { execFileSync('git', ['reset', '--quiet', '--', ...paths], { cwd, stdio: QUIET }); } catch { /* nothing staged */ }
+				store.headMoved(); // a commit that threw may still have moved HEAD — see store.gitHead
+				failed = repo === '.' ? 'workspace' : repo;
+				const why = (e.stderr?.toString().trim().split('\n')[0]) || e.message.split('\n')[0];
+				results.push({ repo, rows, failed: `git commit failed — ${why}` });
+				continue;
+			}
 			store.headMoved(); // the verb that exists to move HEAD — see store.gitHead
 		}
 		const sha = dryRun ? null : execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd }).toString().trim();
