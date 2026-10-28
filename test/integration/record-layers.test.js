@@ -257,4 +257,52 @@ describe('record layers — the verbs an operator runs across one (0.36.0)', () 
 		assert.match(git(layer, ['log', '-1', '--format=%s']), /^project-a$/);
 	});
 
+	test('the read verbs span the layer: list, --where, get, status', () => {
+		const { w } = layered();
+		compileQuietly(w.ws);
+		assert.equal(dt(w.root, 'add', 'tasks', '--name', 'Write the brief').code, 0);
+		assert.equal(dt(w.root, 'list', 'tasks').stdout.trim(), 'write-the-brief\nfix-login');
+		assert.equal(dt(w.root, 'list', 'tasks', '--where', '{"name":{"_contains":"login"}}').stdout.trim(), 'fix-login');
+		const get = dt(w.root, 'get', 'tasks/fix-login');
+		assert.equal(get.code, 0, get.stderr);
+		assert.match(get.stdout, /name: Fix login/);
+		assert.match(dt(w.root, 'status').stdout, /layers:\n\s+project-a\s+git_modules @ [0-9a-f]{7} · records: tasks, projects/);
+	});
+
+	test('dt commit <collection>/<id> on a layer record commits in the layer only; dt commit <collection> publishes one commit per repo', () => {
+		const a = layered();
+		compileQuietly(a.w.ws);
+		assert.equal(dt(a.w.root, 'set', 'tasks/fix-login', 'name=Fix the login flow').code, 0);
+		assert.equal(dt(a.w.root, 'add', 'tasks', '--name', 'Write the brief').code, 0);
+		const one = dt(a.w.root, 'commit', 'tasks/fix-login', '-m', 'one');
+		assert.equal(one.code, 0, one.stderr);
+		assert.match(one.stdout, /✔ git_modules\/project-a [0-9a-f]{7} — one\n\s+set tasks\/fix-login/);
+		assert.doesNotMatch(one.stdout, /workspace/);
+		assert.match(git(a.layer, ['log', '-1', '--format=%s']), /^one$/);
+		assert.match(git(a.w.root, ['status', '--porcelain', '-uall', 'data']), /\?\? data\/tasks\/write-the-brief\.task\.md/, "the workspace's own record is left pending");
+
+		const b = layered();
+		compileQuietly(b.w.ws);
+		assert.equal(dt(b.w.root, 'set', 'tasks/fix-login', 'name=Fix the login flow').code, 0);
+		assert.equal(dt(b.w.root, 'add', 'tasks', '--name', 'Write the brief').code, 0);
+		const both = dt(b.w.root, 'commit', 'tasks', '-m', 'all tasks');
+		assert.equal(both.code, 0, both.stderr);
+		assert.match(both.stdout, /✔ workspace [0-9a-f]{7} — all tasks\n\s+add tasks\/write-the-brief/);
+		assert.match(both.stdout, /✔ git_modules\/project-a [0-9a-f]{7} — all tasks\n\s+set tasks\/fix-login/);
+		assert.equal(git(b.w.root, ['status', '--porcelain', 'data']), '');
+		assert.equal(git(b.layer, ['status', '--porcelain', 'data']), '');
+	});
+
+	test('rm of a layer record lands in the layer: file gone, its project mirror detached there, one commit in the layer, the workspace untouched', () => {
+		const { w, layer } = layered({ pkg: { auto_commit: true } });
+		compileQuietly(w.ws);
+		const store = new Store(w.ws);
+		store.rm('tasks', 'fix-login');
+		assert.equal(fs.existsSync(path.join(layer, 'data', 'tasks', 'fix-login.task.md')), false);
+		assert.doesNotMatch(readFile(w.root, 'git_modules/project-a/data/projects/alpha.project.md'), /tasks\/fix-login/, 'the mirror in the layer lost its entry');
+		assert.match(git(layer, ['log', '-1', '--format=%s']), /tasks rm fix-login/);
+		assert.equal(git(layer, ['status', '--porcelain']), '', 'the layer repo is clean');
+		assert.equal(git(w.root, ['status', '--porcelain', 'data']), '', 'the workspace repo is untouched');
+		assert.equal(dt(w.root, 'check').code, 0);
+	});
 });

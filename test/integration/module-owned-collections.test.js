@@ -12,6 +12,7 @@ import path from 'node:path';
 import { workspace, writeModule, writeCollection, patchModulePkg, compileQuietly, compileError, readFile, git, dt } from '../helpers/ws.js';
 import { Store } from '../../src/store.js';
 import { storageOf } from '../../src/descriptor.js';
+import { history } from '../../src/history.js';
 
 const PEOPLE = 'name: people\nstorage:\n  suffix: person\n  owner: module\nids:\n  from: "{{ name | slug }}"\nfields:\n  name:\n    type: string\n    required: true\n';
 const TASKS = 'name: tasks\nstorage:\n  suffix: task\nids:\n  from: "{{ name | slug }}"\nfields:\n  name:\n    type: string\n    required: true\n  assignee:\n    type: people\n';
@@ -81,7 +82,15 @@ describe('storage.owner: module — one collection in the module clone, its sibl
 		patchModulePkg(w.root, 'default', { dependencies: ['clinic'] });
 		writeCollection(w.root, 'people', { overlay: true, storage: { owner: 'workspace' }, fields: {} });
 		const pkg = JSON.parse(readFile(w.root, 'package.json'));
-		assert.match(compileError({ root: w.root, pkg }), /storage\.owner/);
+		// the SPECIFIC refusal: on an engine that did not know the key, /storage\.owner/ matched the
+		// unknown-key error and this test passed without the guard existing
+		assert.match(compileError({ root: w.root, pkg }), /an overlay may not set storage\.owner — which repo holds "people"'s records is declared by its base/);
+	});
+
+	test('a mirror may not span two repos: people (owner: module) mirroring tasks.assignee is refused', () => {
+		const { w } = withGitModule({ people: PEOPLE + '  tasks:\n    type: tasks\n    many: true\n    mirror_of: assignee\n  notes:\n    type: markdown\n    body: true\n' });
+		const pkg = JSON.parse(readFile(w.root, 'package.json'));
+		assert.match(compileError({ root: w.root, pkg }), /collection "people": field "tasks" mirrors tasks\.assignee across two git repos/);
 	});
 
 	test('with auto-commit on, renaming an owned record a workspace record names commits once per repo', () => {
@@ -106,6 +115,28 @@ describe('storage.owner: module — one collection in the module clone, its sibl
 		assert.match(git(w.root, ['log', '-1', '--name-only', '--format=']), /^data\/tasks\/call-the-lab\.task\.md$/m);
 		assert.equal(git(mod, ['status', '--porcelain']), '');
 		assert.equal(git(w.root, ['status', '--porcelain', 'data']), '');
+	});
+
+	test('history and revert of an owned record run git in the module clone', () => {
+		const { w, mod } = withGitModule();
+		compileQuietly(w.ws);
+		const store = new Store(w.ws);
+		store.add('people', { name: 'Dana Levi' });
+		assert.equal(dt(w.root, 'commit', '-m', 'add dana').code, 0);
+		const first = git(mod, ['rev-parse', 'HEAD']);
+		const log = history(store, 'people', 'dana-levi');
+		assert.equal(log.length, 1);
+		assert.equal(log[0].hash, first);
+		assert.equal(log[0].subject, 'add dana');
+		store.set('people', 'dana-levi', { name: 'Dana L' });
+		assert.equal(dt(w.root, 'commit', '-m', 'edit dana').code, 0);
+		assert.equal(history(store, 'people', 'dana-levi').length, 2);
+		const res = store.revert('people', 'dana-levi', first);
+		assert.equal(res.reverted, true);
+		assert.match(readFile(w.root, 'git_modules/clinic/data/people/dana-levi.person.md'), /name: Dana Levi\n/);
+		const cli = dt(w.root, 'history', 'people/dana-levi');
+		assert.equal(cli.code, 0, cli.stderr);
+		assert.match(cli.stdout, /edit dana/);
 	});
 
 	test('a module whose records could never be committed is refused', () => {
