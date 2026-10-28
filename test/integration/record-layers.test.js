@@ -20,6 +20,10 @@ const TASKS = 'name: tasks\nstorage:\n  suffix: task\nids:\n  from: "{{ name | s
 
 function commitAll(dir, msg) {
 	git(dir, ['init', '-q']);
+	// a LOCAL identity, as the base fixture carries: the store commits in this clone with the process
+	// env, which on a CI runner has no git identity at all — the helper's own GIT_AUTHOR_* never reach it
+	git(dir, ['config', 'user.email', 'test@example.invalid']);
+	git(dir, ['config', 'user.name', 'dreamteamer test']);
 	git(dir, ['add', '-A']);
 	git(dir, ['commit', '-qm', msg]);
 }
