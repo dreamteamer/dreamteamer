@@ -10,15 +10,18 @@ import { storageOf } from './descriptor.js';
 /** Record events between two points, across EVERY repo that holds records. `from` is a sha or a
  *  date — a sha is meaningless in another repo, so it is resolved to its commit DATE and each
  *  repo then resolves that date to its own sha. Still cursor-less and stores nothing, so it can
- *  be run twice with no consequence. */
+ *  be run twice with no consequence. Every ROOT of a collection is sampled — the write root and
+ *  each record layer's — and an event carries the repo it was read from; sampling the write root
+ *  alone answered `events: []` for a commit made in a layer's clone. */
 export function deriveEvents(root, descriptors, from, to = 'HEAD') {
 	const byRepo = new Map();
 	for (const d of descriptors.values()) {
-		const p = storageOf(d).path;
-		if (!p || storageOf(d).runtime) continue; // runtime entities aren't item events
-		const repo = storageOf(d).repo;
-		if (!byRepo.has(repo)) byRepo.set(repo, []);
-		byRepo.get(repo).push(p);
+		if (storageOf(d).runtime) continue; // runtime entities aren't item events
+		for (const { path: p, repo } of storageOf(d).roots) {
+			if (!p) continue;
+			if (!byRepo.has(repo)) byRepo.set(repo, []);
+			if (!byRepo.get(repo).includes(p)) byRepo.get(repo).push(p);
+		}
 	}
 	const when = asDate(root, from);
 	const events = [];

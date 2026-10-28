@@ -91,7 +91,8 @@ export function commitPending(store: Store, opts?: { only?: string[]; message?: 
 export function composeSubject(rows: unknown[]): string;
 export function history(store: Store, collection: string, id: string): { hash: string; date: string; author: string; subject: string }[];
 export function historyDiff(store: Store, collection: string, id: string, hash?: string): { hash: string; path: string; diff: string };
-export function deriveEvents(root: string, descriptors: Descriptors, since: string, head?: string): { type: string; collection: string; id: string }[];
+/** Every root of every collection is sampled — the write root and each record layer's clone. `since` is a sha or a date; a sha is resolved to its commit date in the workspace and each repo resolves that date to its own sha. `repo` is the workspace-relative repo the event was read from ('.' = the workspace). */
+export function deriveEvents(root: string, descriptors: Descriptors, since: string, head?: string): { type: 'item-added' | 'item-updated' | 'item-removed'; collection: string; id: string; path: string; repo: string }[];
 export function relationsOf(descriptors: Descriptors): any[];
 
 // ---- values, references and queries ------------------------------------------------------------------

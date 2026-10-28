@@ -13,6 +13,7 @@ import { workspace, writeModule, compileQuietly, compileError, readFile, git, dt
 import { Store } from '../../src/store.js';
 import { storageOf } from '../../src/descriptor.js';
 import { history } from '../../src/history.js';
+import { deriveEvents } from '../../src/events.js';
 
 const PEOPLE = 'name: people\nstorage:\n  suffix: person\n  owner: module\nids:\n  from: "{{ name | slug }}"\nfields:\n  name:\n    type: string\n    required: true\n  notes:\n    type: markdown\n    body: true\n';
 const PROJECTS = 'name: projects\nstorage:\n  suffix: project\nids:\n  from: "{{ name | slug }}"\nfields:\n  name:\n    type: string\n    required: true\n  tasks:\n    type: tasks\n    many: true\n    mirror_of: project\n  notes:\n    type: markdown\n    body: true\n';
@@ -198,6 +199,13 @@ describe('a layer contributes records, never sources', () => {
 	});
 });
 
+/** Wait for the wall clock to tick over a second. `dt changes` resolves a sha to its commit DATE and
+ *  each repo resolves that date to its own sha with `--before`, which is inclusive at second
+ *  precision — so a commit made in the SAME second as the baseline reads as part of it. */
+function nextSecond() {
+	const start = Math.floor(Date.now() / 1000);
+	while (Math.floor(Date.now() / 1000) === start) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20);
+}
 
 describe('record layers — the verbs an operator runs across one (0.36.0)', () => {
 	test('a workspace-own record of a layered collection renames in the write root — store and CLI', () => {
@@ -213,6 +221,21 @@ describe('record layers — the verbs an operator runs across one (0.36.0)', () 
 		assert.equal(cli.code, 0, cli.stderr);
 		assert.deepEqual(fs.readdirSync(path.join(w.root, 'data', 'tasks')), ['the-brief.task.md']);
 		assert.equal(dt(w.root, 'check').code, 0);
+	});
+
+	test('dt changes sees a commit made in a layer repo, attributed to that repo', () => {
+		const { w, layer } = layered({ pkg: { auto_commit: true } });
+		compileQuietly(w.ws);
+		const since = git(w.root, ['rev-parse', 'HEAD']);
+		nextSecond();
+		const store = new Store(w.ws);
+		store.set('tasks', 'fix-login', { name: 'Fix the login flow' });
+		assert.match(git(layer, ['log', '-1', '--format=%s']), /tasks set fix-login/, 'the edit committed in the layer');
+		const events = deriveEvents(w.root, store.descriptors, since);
+		assert.deepEqual(events.map((e) => [e.type, e.collection, e.id, e.repo]), [['item-updated', 'tasks', 'fix-login', 'git_modules/project-a']]);
+		const cli = JSON.parse(dt(w.root, 'changes', '--since', since, '--json').stdout);
+		assert.equal(cli.events.length, 1);
+		assert.equal(cli.events[0].path, 'git_modules/project-a/data/tasks/fix-login.task.md');
 	});
 
 });
