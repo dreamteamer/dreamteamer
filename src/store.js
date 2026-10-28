@@ -1617,8 +1617,12 @@ export class Store {
 		// layer belongs to that layer's clone, so the files are grouped by the longest known repo that
 		// holds each. A failure in a later group leaves an earlier group's commit standing — the same
 		// per-repo truth `dt commit` prints, stated here rather than pretended away.
+		// ⚠ A file under NO known clone is the workspace's — never the caller's repo. The fallback used
+		// to be `repo`, so renaming a module-owned record that a workspace record named sent the
+		// workspace's rewritten `data/tasks/…` to `git add` inside the module clone as `../../data/…`,
+		// which git refuses, and the rename rolled back every time auto-commit was on.
 		const repos = (this._repos ??= [...new Set([...this.descriptors.values()].flatMap((d) => storageOf(d).roots.map((r) => r.repo)))].filter((r) => r !== '.').sort((a, b) => b.length - a.length));
-		const repoOf = (f) => { const rel = path.relative(this.root, f).split(path.sep).join('/'); return repos.find((r) => rel.startsWith(`${r}/`)) ?? repo; };
+		const repoOf = (f) => { const rel = path.relative(this.root, f).split(path.sep).join('/'); return [...repos, repo].find((r) => r !== '.' && rel.startsWith(`${r}/`)) ?? '.'; };
 		const groups = new Map();
 		for (const f of files) { const r = repoOf(f); if (!groups.has(r)) groups.set(r, []); groups.get(r).push(f); }
 		for (const [r, group] of groups) this._commitIn(path.resolve(this.root, r), group, subject, undo);

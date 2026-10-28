@@ -84,6 +84,30 @@ describe('storage.owner: module — one collection in the module clone, its sibl
 		assert.match(compileError({ root: w.root, pkg }), /storage\.owner/);
 	});
 
+	test('with auto-commit on, renaming an owned record a workspace record names commits once per repo', () => {
+		const { w, mod } = withGitModule();
+		const pkgPath = path.join(w.root, 'package.json');
+		const pkg = JSON.parse(readFile(w.root, 'package.json'));
+		pkg.dreamteamer.auto_commit = true;
+		fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, '\t') + '\n');
+		w.ws.pkg = pkg;
+		compileQuietly(w.ws);
+		const store = new Store(w.ws);
+		store.add('people', { name: 'Dana Levi' });
+		store.add('tasks', { name: 'Call the lab', assignee: 'people/dana-levi' });
+		const modBefore = git(mod, ['rev-list', '--count', 'HEAD']);
+		const wsBefore = git(w.root, ['rev-list', '--count', 'HEAD']);
+		const res = store.rename('people', 'dana-levi', 'dana-l');
+		assert.equal(res.rewrites, 1);
+		assert.ok(readFile(w.root, 'git_modules/clinic/data/people/dana-l.person.md'));
+		assert.match(readFile(w.root, 'data/tasks/call-the-lab.task.md'), /assignee: people\/dana-l\n/);
+		assert.equal(Number(git(mod, ['rev-list', '--count', 'HEAD'])), Number(modBefore) + 1, 'the module clone gained one commit');
+		assert.equal(Number(git(w.root, ['rev-list', '--count', 'HEAD'])), Number(wsBefore) + 1, 'the workspace gained one commit');
+		assert.match(git(w.root, ['log', '-1', '--name-only', '--format=']), /^data\/tasks\/call-the-lab\.task\.md$/m);
+		assert.equal(git(mod, ['status', '--porcelain']), '');
+		assert.equal(git(w.root, ['status', '--porcelain', 'data']), '');
+	});
+
 	test('a module whose records could never be committed is refused', () => {
 		const { w } = withGitModule({ init: false });
 		const pkg = JSON.parse(readFile(w.root, 'package.json'));
