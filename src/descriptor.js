@@ -57,6 +57,9 @@ export function storageOf(d) {
 		repo: block(d).repo ?? '.',
 		runtime: block(d).runtime === true,
 	};
+	// write root first, then each record layer (a clone whose listed collections are read here)
+	out.layers = (block(d).layers ?? []).map((l) => ({ name: l.name, path: l.path, repo: l.repo }));
+	out.roots = [{ path: out.path, repo: out.repo }, ...out.layers.map((l) => ({ path: l.path, repo: l.repo, layer: l.name }))];
 	if (a.entry !== undefined) out.entry = a.entry;
 	if (a.max_bytes !== undefined) out.max_bytes = a.max_bytes;
 	if (a.accept !== undefined) out.accept = a.accept;

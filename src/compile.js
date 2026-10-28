@@ -172,6 +172,9 @@ export function discoverModules(root, pkg) {
 	// caller (compile, status, install) sees the same set.
 	const disable = pkg?.dreamteamer?.disable ?? [];
 	const disabledHits = new Set();
+	// A clone whose manifest entry lists `records` is a RECORD LAYER — another workspace's data read
+	// here — never a module: its own modules/ would otherwise unpack as a bundle and collide with ours.
+	const layers = new Set(layerEntries(pkg).map((l) => l.name));
 	// the same rule the extension loader applies (full package name, or its scope-stripped id), so a
 	// disabled package loses its content AND its code together
 	const disabled = (name) => {
@@ -214,7 +217,15 @@ export function discoverModules(root, pkg) {
 		tryAdd(name, srcRoot, channel);
 	};
 	scanDir(path.join(root, 'modules'), 'inline', false);
-	scanDir(path.join(root, 'git_modules'), 'git', true);
+	const gitDir = path.join(root, 'git_modules');
+	if (fs.existsSync(gitDir)) {
+		for (const name of fs.readdirSync(gitDir).sort()) {
+			if (layers.has(name)) continue;
+			const srcRoot = path.join(gitDir, name);
+			const mpkg = readPkg(srcRoot);
+			if (mpkg) tryAddOrUnpack(mpkg.name ?? name, srcRoot, 'git');
+		}
+	}
 	for (const dep of Object.keys({ ...pkg.dependencies, ...pkg.devDependencies }).sort()) {
 		const srcRoot = path.join(root, 'node_modules', dep);
 		const mpkg = readPkg(srcRoot);
@@ -257,6 +268,33 @@ function dataOwningModules(sources, fail, rel) {
 
 /** A relative path spelled with `/` on every OS — Windows' `path.relative` and `path.join` use `\`. */
 const toPosix = (p) => p.split(path.sep).join('/');
+
+// ---- record layers ----------------------------------------------------------------
+// A `git_modules` entry carrying `records: [<collection>…]` is another WORKSPACE cloned here for its
+// records: each listed collection reads that clone's data folder as a root below this workspace's
+// own. The clone contributes no sources — its shapes are the modules both workspaces install.
+
+/** The declared layers, validated: `{ name, records }` per entry. `records` is a non-empty list of
+ *  collection names; which collections exist is compile-collections' question. */
+export function layerEntries(pkg) {
+	const out = [];
+	for (const [name, entry] of Object.entries(pkg?.dreamteamer?.git_modules ?? {})) {
+		if (!entry || entry.records === undefined) continue;
+		const r = entry.records;
+		if (!Array.isArray(r) || !r.length || r.some((c) => typeof c !== 'string' || !c.trim())) {
+			throw new Error(`git_modules.${name}.records must be a non-empty list of collection names (got ${JSON.stringify(r)})`);
+		}
+		out.push({ name, records: r });
+	}
+	return out;
+}
+
+/** A layer's data folder, from the clone's own manifest (its `data_path`), default `data`. The clone
+ *  may be absent — a fresh checkout before `dreamteamer install` — and then the default stands. */
+function layerDataPath(root, name) {
+	try { return JSON.parse(fs.readFileSync(path.join(root, 'git_modules', name, 'package.json'), 'utf8')).dreamteamer?.data_path ?? 'data'; }
+	catch { return 'data'; }
+}
 
 /** The git repo that will hold a module's records: nearest `.git` at or above the module root,
  *  as a workspace-relative path (`.` = the workspace itself). `.git` may be a FILE — worktrees
@@ -543,6 +581,9 @@ export function compile(ws) {
 	}
 
 	const dataOwners = dataOwningModules(sources, fail, rel);
+	let layers;
+	try { layers = layerEntries(pkg).map((l) => ({ ...l, root: path.posix.join('git_modules', l.name), dataPath: layerDataPath(root, l.name) })); }
+	catch (e) { fail(e.message); }
 
 	const disabled = new Set(config.disable ?? []);
 	const disabledHits = new Set(disabledModules); // bare entries were applied at discovery
@@ -798,7 +839,7 @@ export function compile(ws) {
 		groups: descriptorGroups, mixins: mixinDocs, namespaces, nsOwners,
 		runtimeKinds: new Set([...kinds, ...DERIVED_KINDS]), core: CORE_COLLECTIONS,
 		moduleDeps, modulePeers, channelOf, wsModuleName, engineName, dataOwners,
-		moduleSources: new Map(sources.map((s) => [s.name, s])), unownableBecause,
+		moduleSources: new Map(sources.map((s) => [s.name, s])), unownableBecause, layers,
 		repoOf: (moduleRoot) => repoRootOf(moduleRoot, root), rel, dataPath: config.data_path ?? 'data',
 		moduleId, fail: collectionsFail, warn: (m) => console.warn(m),
 	});

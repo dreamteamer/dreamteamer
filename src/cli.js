@@ -514,6 +514,16 @@ export async function run(argv) {
 					if (sh) line += ` — shadows ${CHANNEL_LABEL[sh.loser]} copy`;
 					console.log(line);
 				}
+				// record layers: other workspaces cloned here for their records (dreamteamer.git_modules.<name>.records)
+				const layers = Object.entries(ws.pkg.dreamteamer?.git_modules ?? {}).filter(([, e]) => e?.records !== undefined);
+				if (layers.length) {
+					console.log('layers:');
+					for (const [name, e] of layers) {
+						const dir = path.join(ws.root, 'git_modules', name);
+						const ref = fs.existsSync(dir) ? tryGit(dir, ['rev-parse', '--short', 'HEAD']) : null;
+						console.log(`  ${name.padEnd(20)} ${ref ? `git_modules @ ${ref}${tryGit(dir, ['status', '--porcelain']) ? ' (dirty)' : ''}` : 'not installed — dreamteamer install'} · records: ${e.records.join(', ')}`);
+					}
+				}
 				// ⚠ WHICH CHECKOUT AM I. Everything `install` decides turns on this, and a linked
 				// worktree is indistinguishable from the primary by eye — so it is stated. Wrapped like
 				// every other block below: `status` is the command run when things are already wrong.

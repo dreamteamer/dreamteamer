@@ -259,7 +259,7 @@ Keys are snake_case and closed: compile refuses an unknown one, naming the list.
 | `vars` | the `.env` keys records may reference as `${env:KEY}` (`records.md`) |
 | `auto_commit` | whether a record write also commits (default off) |
 | `harnesses` | which coding-agent adapters compile writes |
-| `git_modules` | the lockfile map `dt install` restores into `git_modules/` |
+| `git_modules` | the lockfile map `dt install` restores into `git_modules/` — `{ url, ref }` per clone; an entry that also lists `records: [<collection>…]` is a RECORD LAYER (below), not a module |
 | `disable` | what to drop from the compile: `modules/<id>` (a whole module, its code included) or `<kind>/<id>` (one entity) |
 | `local_assets` · `postinstall` · `repos_path` · `gitignore_runtime_folder` | links a worktree gets · a script `dt install` runs · where `repos` records materialise · whether `.dreamteamer/` is gitignored |
 
@@ -392,6 +392,46 @@ storage:
   `check` validates across the two repos. Editing an owned record in one workspace reaches the
   others on push and `dt update`.
 - `dt rm modules/<m>` refuses while an owned collection still has records inside the module folder.
+
+## record layers — another workspace's records, read here
+
+Several workspaces install one module for their shared shapes — an HQ and the projects it oversees
+all take `tasks` from the same package — while each keeps its own task RECORDS in its own repo. The
+HQ reads the projects' records by cloning each project under `git_modules/` and naming, in the
+entry, which collections that clone contributes:
+
+```json
+"git_modules": {
+  "org":              { "url": "…", "ref": "main" },
+  "project-alpha":   { "url": "…", "ref": "main", "records": ["tasks", "sessions", "projects"] }
+}
+```
+
+- **A clone with `records` is a layer, never a module.** Its own `modules/` is not unpacked and it
+  is not an extension; the shapes are the modules both workspaces install. Its nested
+  `git_modules/` are never read.
+- **Each listed collection gains the clone's data folder as a read root below the workspace's
+  own** — the compiled descriptor states them as `compiled.layers`, and `storageOf(d).roots` is the
+  write root first, then each layer. `dt list`, `get`, `check`, the inbound-reference guard of `rm`
+  and reference resolution read the union. An id two roots hold is a `check` violation naming both
+  files, and a write to it is refused until one is removed; the first root in order answers reads
+  meanwhile, never silently.
+- **A new record goes to the write root** (`storage.path` — this workspace, or the owning module's
+  clone for `storage.owner: module`). **An edit or removal of a layer's record lands in place** and
+  commits in the layer's repo; `dt commit` samples every layer and publishes one commit per repo.
+  `rename` and `relocate` refuse a layer's record: those are done in the layer's own workspace.
+- **A layer's records are validated against THIS workspace's shape**, and their findings print under
+  a `layer <name>` heading rather than as this workspace's data — a value the project's own overlay
+  allows is the two workspaces having drifted, which is worth seeing and not worth hiding.
+- **A mirror is kept only between records of one repo.** A task here naming a project a layer holds
+  writes no mirror into the layer, and `check` expects none; the project's own `tasks` mirror on that
+  record lists only its own tasks.
+- **What may be listed:** a collection stored in this workspace. Not a `storage.owner: module`
+  collection (one shared list is read from the module's clone already), not a placed one
+  (`storage.under`), not a compiled source. A name no collection here answers to is a compile error.
+- **A layer whose clone is absent** — a fresh checkout before `dreamteamer install` — compiles; `check`
+  says its records are unread. `dt status` lists layers after modules; `dt update` pulls them like any
+  clone, and a long-lived store re-indexes when a pull lands files.
 
 ## mixins — a live shared field set
 

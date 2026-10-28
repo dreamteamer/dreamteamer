@@ -97,16 +97,18 @@ function parseNameStatus(out, prefix, descriptors, repo) {
 /** map a workspace-relative path to {collection, id} via storage.path longest-prefix
  *  match + suffix/format (file shape) or entry (folder shape). non-records → null. */
 export function pathToRecord(descriptors, relPath) {
-	let best = null;
+	let best = null; // { d, base } — the longest root, across the write root and every record layer
 	for (const d of descriptors.values()) {
-		const base = storageOf(d).path;
-		if (!base || storageOf(d).runtime) continue; // runtime entities aren't item events
-		if (!relPath.startsWith(base + '/')) continue;
-		if (best && base.length <= storageOf(best).path.length) continue;
-		best = d;
+		if (storageOf(d).runtime) continue; // runtime entities aren't item events
+		for (const { path: base } of storageOf(d).roots) {
+			if (!base || !relPath.startsWith(base + '/')) continue;
+			if (best && base.length <= best.base.length) continue;
+			best = { d, base };
+		}
 	}
 	if (!best) return null;
-	const rest = relPath.slice(storageOf(best).path.length + 1);
+	const rest = relPath.slice(best.base.length + 1);
+	best = best.d;
 	if (storageOf(best).shape === 'folder') {
 		const entry = storageOf(best).entry ?? 'SKILL.md';
 		// `<id>/<entry>` is the parent's own record; anything deeper may be a record of a collection

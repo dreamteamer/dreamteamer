@@ -141,7 +141,7 @@ export class Store {
 	 *  roll back: the owner write.
 	 *
 	 *  @returns {{files: string[], undo: () => void}} */
-	applyMirrorEdits(d, id, before, after) {
+	applyMirrorEdits(d, id, before, after, ownerFile = null) {
 		const self = `${d.name}/${id}`;
 		// ⚠ `before` comes straight off DISK while `after` has been through validate(), which qualifies
 		// bare refs — so diffing them as written strings read `meeting: standup` (hand-edited, or
@@ -157,6 +157,13 @@ export class Store {
 		// second call replay the writes forwards rather than unwind them.
 		const rollback = () => { for (const u of [...undos].reverse()) u(); };
 		const toArr = (v) => (v == null ? [] : Array.isArray(v) ? v : [v]);
+		// A mirror is kept between records of ONE repo. An owner in this workspace naming a target a
+		// layer holds would write into the layer's clone a link that does not exist when that clone is
+		// opened as its own workspace — its `check` would strip it, ours would put it back. So the edit
+		// below skips a target in another repo, and `check` expects mirrors per repo for the same reason.
+		// `ownerFile` comes from the caller, which just wrote or read it — asking the index here would
+		// re-walk the collection on every write, the quadratic shape `_indexAdd` exists to prevent.
+		const ownerRepo = this.repoOfFile(d, ownerFile ?? this.ids(d.name).get(id) ?? this.dir(d));
 		try {
 			// EVERY row whose owner is this collection, never the first match: a union FK
 			// (`type: [a, b]`) decodes to one relation row PER TARGET, all sharing one owner
@@ -187,6 +194,7 @@ export class Store {
 					// this write. An attach never lands here missing — checkRefs proved it before the lock.
 					if (!this.ids(rel.target).has(parsed.id)) return;
 					const { fields, file } = this.read(rel.target, parsed.id);
+					if (this.repoOfFile(td, file) !== ownerRepo) return; // another repo: no mirror (see above)
 					const previous = fs.readFileSync(file, 'utf8');
 					fn(fields, parsed.id);
 					atomicWrite(file, serialize(td, fields));
@@ -245,8 +253,28 @@ export class Store {
 	/** Every directory a record of `d` can sit in: its own root, plus the parent collection's root when
 	 *  it is stored under one. What `commit` scopes `git status` to and what a surface asks git about. */
 	recordDirs(d) {
-		return placementOf(d) ? [this.dir(d), this.parentDir(d)] : [this.dir(d)];
+		const own = placementOf(d) ? [this.dir(d), this.parentDir(d)] : [this.dir(d)];
+		return [...own, ...this.rootsOf(d).slice(1).map((r) => r.abs)];
 	}
+
+	/** Every root a record of `d` can be READ from, write root first, then each record layer — another
+	 *  workspace cloned under git_modules/ whose manifest entry lists this collection. */
+	rootsOf(d) {
+		return storageOf(d).roots.map((r) => ({ ...r, abs: path.join(storageOf(d).runtime ? this.runtime : this.root, r.path) }));
+	}
+
+	/** Does a record layer contribute to `d`? Such a collection is indexed across every root. */
+	layered(d) { return storageOf(d).layers.length > 0; }
+
+	/** The layer an existing file of `d` was read from — `{ layer, path, repo, abs }` — or null for a
+	 *  file in the write root. What decides which repo an edit of it commits to. */
+	layerOfFile(d, file) {
+		const abs = path.resolve(file);
+		return this.rootsOf(d).slice(1).find((r) => abs.startsWith(path.resolve(r.abs) + path.sep)) ?? null;
+	}
+
+	/** The git repo that owns a file of `d`, workspace-relative: a layer's when a layer holds it. */
+	repoOfFile(d, file) { return this.layerOfFile(d, file)?.repo ?? storageOf(d).repo; }
 
 	/** The file a record of `d` with these `fields` belongs at. For a placed collection the owner
 	 *  field decides the root — the parent's folder, or the fallback root when it is empty — so a
@@ -295,6 +323,12 @@ export class Store {
 	// the on-disk unit of a record: its folder for folder shapes, its file otherwise
 	recordRoot(d, id) {
 		assertSafeId(id);
+		if (this.layered(d)) {
+			// a record a layer holds is wherever the index found it — its folder for a folder shape
+			const file = this.ids(d.name).get(id);
+			if (!file) throw new Error(`${d.name}/${id}: no such record`);
+			return storageOf(d).shape === 'folder' ? path.dirname(file) : file;
+		}
 		if (storageOf(d).shape === 'folder') return path.join(this.dir(d), id);
 		// Only the index knows an opaque record's extension, so the on-disk unit is looked up rather
 		// than derived. An unknown id is the caller's error either way — `read` says so first. The same
@@ -366,13 +400,14 @@ export class Store {
 	 *  place records can be, and nothing under the fallback root moves when one appears. */
 	_idsKey(d) {
 		const stamp = (p) => { try { return String(fs.statSync(p).mtimeMs); } catch { return '-'; } };
-		if (!placementOf(d)) return `${this.gitHead()}:${stamp(this.dir(d))}`;
+		if (!placementOf(d) && !this.layered(d)) return `${this.gitHead()}:${stamp(this.dir(d))}`;
 		// A placed collection's records sit three levels down in folders this process did not create,
 		// and another writer (an agent, the editor, a hand) adds or removes one without touching a
 		// root's own mtime — so a root-mtime key served a long-lived Store a stale index (R4). Every
 		// DIRECTORY in every root is stamped instead: O(directories), which is small, and a new or
-		// vanished folder changes the string as surely as a changed one.
-		const dirs = [this.dir(d), this.parentDir(d)];
+		// vanished folder changes the string as surely as a changed one. A LAYER is the same shape:
+		// `dt update` pulls files into it without moving this workspace's HEAD or any root's mtime.
+		const dirs = this.recordDirs(d);
 		return `${this.gitHead()}:${dirs.map(dirTreeStamps).join('|')}`;
 	}
 
@@ -410,6 +445,7 @@ export class Store {
 		// disk — either way a walk is the current answer and this has nothing to add to it.
 		if (!memo || this._idsCache.has(collection)) return;
 		const d = this.descriptor(collection);
+		if (this.layered(d)) return; // ordered by root, then by walk — the next ids() rebuilds it across every root
 		const dir = this.dir(d);
 		// a placed collection's order is by ID (see _walkIds), so the insertion point is too
 		const byId = !!placementOf(d);
@@ -426,13 +462,22 @@ export class Store {
 
 	_walkIds(d, dir) {
 		const ids = new Map();
-		if (storageOf(d).shape === 'folder') {
-			if (!fs.existsSync(dir)) return ids;
-			for (const e of fs.readdirSync(dir).sort()) {
-				if (e.startsWith('.')) continue;
-				const main = path.join(dir, e, storageOf(d).entry ?? 'SKILL.md');
-				if (fs.existsSync(main)) ids.set(e, main);
+		if (this.layered(d)) {
+			// Across every root, write root first. FIRST claimant wins and the rest are left for `check`
+			// to report — the same rule placement follows, for the same reason: a `get` that answered
+			// from whichever layer sorted later would make the answer depend on the clone order.
+			const dupes = new Map();
+			for (const root of this.rootsOf(d)) {
+				for (const [id, f] of this._walkRoot(d, root.abs)) {
+					if (!ids.has(id)) { ids.set(id, f); continue; }
+					dupes.set(id, [...(dupes.get(id) ?? [ids.get(id)]), f]);
+				}
 			}
+			this._duplicates.set(d.name, dupes);
+			return ids;
+		}
+		if (storageOf(d).shape === 'folder') {
+			for (const [id, f] of this._walkRoot(d, dir)) ids.set(id, f);
 			return ids;
 		}
 		if (placementOf(d)) {
@@ -449,11 +494,26 @@ export class Store {
 			this._duplicates.set(d.name, dupes);
 			return new Map([...ids].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
 		}
-		for (const f of walk(dir)) {
-			const id = idFromRecordPath(d, path.relative(dir, f));
-			if (id !== null) ids.set(id, f);
-		}
+		for (const [id, f] of this._walkRoot(d, dir)) ids.set(id, f);
 		return ids;
+	}
+
+	/** The records of `d` under ONE root — `[id, file]` pairs, in walk order. A folder-shape record is
+	 *  its entry file; anything else is a file whose name parses as a record of `d`. */
+	*_walkRoot(d, root) {
+		if (!fs.existsSync(root)) return;
+		if (storageOf(d).shape === 'folder') {
+			for (const e of fs.readdirSync(root).sort()) {
+				if (e.startsWith('.')) continue;
+				const main = path.join(root, e, storageOf(d).entry ?? 'SKILL.md');
+				if (fs.existsSync(main)) yield [e, main];
+			}
+			return;
+		}
+		for (const f of walk(root)) {
+			const id = idFromRecordPath(d, path.relative(root, f));
+			if (id !== null) yield [id, f];
+		}
 	}
 
 	/** The parent record folders of a folder-shape collection that hold records of a collection
@@ -550,24 +610,27 @@ export class Store {
 		if (this._addedDates.has(collection)) return this._addedDates.get(collection);
 		const dates = new Map();
 		const s = storageOf(this.descriptor(collection));
-		const repo = path.resolve(this.root, s.repo ?? '.');
-		const inRepo = (p) => path.relative(repo, path.resolve(this.root, p)).split(path.sep).join('/');
-		// every place a record of this collection can sit: its own folder, and — when it is stored under a
-		// parent — each parent record's subfolder, so a move between the two is seen as the rename it is
-		const where = [inRepo(s.path)];
-		if (s.under?.collection && s.under.subfolder) where.push(`:(glob)${inRepo(storageOf(this.descriptor(s.under.collection)).path)}/**/${s.under.subfolder}/**`);
-		try {
-			const out = execFileSync('git', ['log', '--reverse', '-M', '--diff-filter=AR', '--name-status', '--format=%x01%aI', '--', ...where],
-				{ cwd: repo, stdio: ['ignore', 'pipe', 'ignore'], timeout: 60_000, maxBuffer: 256 * 1024 * 1024 }).toString();
-			const key = (p) => path.relative(this.root, path.join(repo, p)).split(path.sep).join('/');
-			let at;
-			for (const line of out.split('\n')) {
-				if (line.startsWith('\x01')) { at = gitDateToStamp(line.slice(1)); continue; }
-				const [status, a, b] = line.split('\t');
-				if (status === 'A' && !dates.has(key(a))) dates.set(key(a), at);
-				else if (status?.startsWith('R') && b) { dates.set(key(b), dates.get(key(a)) ?? at); dates.delete(key(a)); }
-			}
-		} catch { /* no git, or no history yet: every date stays unknown */ }
+		// one `git log` per REPO a root sits in — the write root's, and each record layer's clone
+		for (const root of s.roots) {
+			const repo = path.resolve(this.root, root.repo ?? '.');
+			const inRepo = (p) => path.relative(repo, path.resolve(this.root, p)).split(path.sep).join('/');
+			// every place a record of this collection can sit: its own folder, and — when it is stored under a
+			// parent — each parent record's subfolder, so a move between the two is seen as the rename it is
+			const where = [inRepo(root.path)];
+			if (!root.layer && s.under?.collection && s.under.subfolder) where.push(`:(glob)${inRepo(storageOf(this.descriptor(s.under.collection)).path)}/**/${s.under.subfolder}/**`);
+			try {
+				const out = execFileSync('git', ['log', '--reverse', '-M', '--diff-filter=AR', '--name-status', '--format=%x01%aI', '--', ...where],
+					{ cwd: repo, stdio: ['ignore', 'pipe', 'ignore'], timeout: 60_000, maxBuffer: 256 * 1024 * 1024 }).toString();
+				const key = (p) => path.relative(this.root, path.join(repo, p)).split(path.sep).join('/');
+				let at;
+				for (const line of out.split('\n')) {
+					if (line.startsWith('\x01')) { at = gitDateToStamp(line.slice(1)); continue; }
+					const [status, a, b] = line.split('\t');
+					if (status === 'A' && !dates.has(key(a))) dates.set(key(a), at);
+					else if (status?.startsWith('R') && b) { dates.set(key(b), dates.get(key(a)) ?? at); dates.delete(key(a)); }
+				}
+			} catch { /* no git, or no history yet: every date stays unknown */ }
+		}
 		this._addedDates.set(collection, dates);
 		return dates;
 	}
@@ -590,10 +653,12 @@ export class Store {
 		// A placed record may have sat in ANOTHER parent's folder at `hash` — the move is what is being
 		// reverted — so the historical path is looked up in that commit's tree, not assumed to be today's.
 		// `<rev>:<path>` takes `/` on every OS — Windows' path.relative spells it with `\`
-		const relPath = this.pathAt(d, id, hash) ?? path.relative(this.root, file).split(path.sep).join('/');
+		// in the repo that holds the FILE — a layer record's history is in the layer's clone
+		const fileRepo = path.resolve(this.root, this.repoOfFile(d, file));
+		const relPath = this.pathAt(d, id, hash) ?? path.relative(fileRepo, file).split(path.sep).join('/');
 		let previousContent;
 		try {
-			previousContent = execFileSync('git', ['show', `${hash}:${relPath}`], { cwd: this.root, stdio: QUIET }).toString();
+			previousContent = execFileSync('git', ['show', `${hash}:${relPath}`], { cwd: fileRepo, stdio: QUIET }).toString();
 		} catch {
 			throw new Error(`${collection}/${id}: no content at ${hash} for ${relPath} — nothing was reverted.`);
 		}
@@ -630,7 +695,7 @@ export class Store {
 			// abandoned one kept a link the owner no longer claims. Same ordering as `add`, see there.
 			let mirrors;
 			try {
-				mirrors = this.applyMirrorEdits(d, id, currentFields, restored);
+				mirrors = this.applyMirrorEdits(d, id, currentFields, restored, file);
 			} catch (e) {
 				undo();
 				throw e;
@@ -638,7 +703,7 @@ export class Store {
 			this.commit([target, ...(unmove ? [file] : []), ...mirrors.files], `dreamteamer: ${collection} revert ${id} to ${String(hash).slice(0, 7)}`, () => {
 				mirrors.undo();
 				undo();
-			}, storageOf(d).repo);
+			}, this.repoOfFile(d, file));
 			return { id, reverted: true, hash, file: target };
 		});
 	}
@@ -876,7 +941,7 @@ export class Store {
 		// `check` would report, and refusing it here is what keeps the id unique across every root.
 		const file = this.filePath(d, id, undefined, fields);
 		this._assertContained(d, file);
-		if (fs.existsSync(file) || (placementOf(d) && this.ids(collection).has(id))) throw new Error(`${collection}/${id} already exists — nothing was written.`);
+		if (fs.existsSync(file) || ((placementOf(d) || this.layered(d)) && this.ids(collection).has(id))) throw new Error(`${collection}/${id} already exists — nothing was written.`);
 		return this.withWriteLock(() => {
 			// captured before the invalidation and handed back, one entry richer, on the success path
 			// below — see _indexAdd for why an add that throws it away is the expensive shape.
@@ -891,7 +956,7 @@ export class Store {
 			// twice to save one `rmSync`, and two copies of it is how the two would drift apart.
 			let mirrors;
 			try {
-				mirrors = this.applyMirrorEdits(d, id, null, fields);
+				mirrors = this.applyMirrorEdits(d, id, null, fields, file);
 			} catch (e) {
 				fs.rmSync(file, { force: true });
 				this._pruneAround(d, file);
@@ -1001,7 +1066,7 @@ export class Store {
 			// attaches to the new one, in this same write. Same ordering as `add` — see the note there.
 			let mirrors;
 			try {
-				mirrors = this.applyMirrorEdits(d, id, fields, next);
+				mirrors = this.applyMirrorEdits(d, id, fields, next, file);
 			} catch (e) {
 				undo();
 				throw e;
@@ -1010,7 +1075,7 @@ export class Store {
 			this.commit([target, ...(unmove ? [file] : []), ...mirrors.files], `dreamteamer: ${collection} set ${id}`, () => {
 				mirrors.undo();
 				undo();
-			}, storageOf(d).repo);
+			}, this.repoOfFile(d, file));
 			return { id, file: target };
 		});
 	}
@@ -1038,7 +1103,7 @@ export class Store {
 	 *  the exact ambiguity `check` reports, made worse under a verb that printed ✔. */
 	assertUnambiguous(collection, id) {
 		const d = this.descriptor(collection);
-		if (!placementOf(d)) return;
+		if (!placementOf(d) && !this.layered(d)) return;
 		this.ids(collection); // ensures the duplicate memo is current
 		const dupes = this._duplicates.get(collection)?.get(id);
 		if (dupes) throw new Error(`${collection}/${id} is held by ${dupes.length} files — ${dupes.map((f) => path.relative(this.root, f)).join(' and ')}. Remove one before writing to it (dreamteamer check names them). nothing was written.`);
@@ -1184,7 +1249,7 @@ export class Store {
 			dropMemos();
 			// MIRRORS FIRST, then the owners, then the delete. The mirror pass reads its targets through
 			// `ids()`, and a self-referencing relation has to still see the record it is detaching from.
-			const mirrors = this.applyMirrorEdits(d, id, own, null);
+			const mirrors = this.applyMirrorEdits(d, id, own, null, unit);
 			const nullFiles = [];
 			const nullUndos = [];
 			// ONE rollback for all three mutations, used by the catch below AND handed to `commit`.
@@ -1234,7 +1299,7 @@ export class Store {
 			// ONE commit, the record and every reference the engine moved with it: a commit where the
 			// target is gone but its owners still name it is a history that never held a consistent
 			// workspace.
-			this.commit([unit, ...mirrors.files, ...nullFiles], `dreamteamer: ${collection} rm ${id}`, rollback, storageOf(d).repo);
+			this.commit([unit, ...mirrors.files, ...nullFiles], `dreamteamer: ${collection} rm ${id}`, rollback, this.repoOfFile(d, unit));
 			return { id, inboundIgnored: force ? inbound.length + extraRestrict.length : 0 };
 		});
 	}
@@ -1249,6 +1314,11 @@ export class Store {
 		}
 		const oldUnit = this.recordRoot(d, oldId); // folder-shape: move the WHOLE folder
 		this._assertContained(d, oldUnit);
+		// A rename rewrites every inbound reference — in THIS workspace. The layer's own workspace holds
+		// references this one cannot see, and a unit moved out of the layer would land in our root
+		// across two repos. Both are the layer's business.
+		const inLayer = this.layerOfFile(d, oldUnit);
+		if (inLayer) throw new Error(`${collection}/${oldId} is held by layer ${inLayer.layer} (${inLayer.path}) — a layer's record is renamed in its own workspace, never from here. nothing was renamed.`);
 		// a placed record keeps the folder it is in: a rename changes the id, never the owner — except a
 		// NESTED one, whose id begins with its parent's: renaming it to another parent moves it there
 		const under = placementOf(d);
@@ -1330,9 +1400,9 @@ export class Store {
 		const seen = new Set();
 		for (const d of this.descriptors.values()) {
 			// for runtime-based collections, inbound-ref surgery targets SOURCES, not the runtime
-			const roots = storageOf(d).runtime ? this.sourceRoots() : [this.root];
-			for (const srcRoot of roots) {
-				const dir = path.join(srcRoot, storageOf(d).path);
+			// a layer's records name records of this workspace too, so a removal or a rename must see them
+			const dirs = storageOf(d).runtime ? this.sourceRoots().map((r) => path.join(r, storageOf(d).path)) : this.rootsOf(d).map((r) => r.abs);
+			for (const dir of dirs) {
 				if (!fs.existsSync(dir)) continue;
 				for (const f of walk(dir)) {
 					const key = path.resolve(f);
@@ -1533,7 +1603,18 @@ export class Store {
 	 *  `repo` is the workspace-relative root of the git repo that owns them ('.' = workspace). */
 	commit(files, subject, undo, repo = '.') {
 		if (!this.autoCommit) return;
-		const cwd = path.resolve(this.root, repo);
+		// ONE COMMIT PER REPO. The record's own repo is `repo`; a file a rename rewrote in a record
+		// layer belongs to that layer's clone, so the files are grouped by the longest known repo that
+		// holds each. A failure in a later group leaves an earlier group's commit standing — the same
+		// per-repo truth `dt commit` prints, stated here rather than pretended away.
+		const repos = (this._repos ??= [...new Set([...this.descriptors.values()].flatMap((d) => storageOf(d).roots.map((r) => r.repo)))].filter((r) => r !== '.').sort((a, b) => b.length - a.length));
+		const repoOf = (f) => { const rel = path.relative(this.root, f).split(path.sep).join('/'); return repos.find((r) => rel.startsWith(`${r}/`)) ?? repo; };
+		const groups = new Map();
+		for (const f of files) { const r = repoOf(f); if (!groups.has(r)) groups.set(r, []); groups.get(r).push(f); }
+		for (const [r, group] of groups) this._commitIn(path.resolve(this.root, r), group, subject, undo);
+	}
+
+	_commitIn(cwd, files, subject, undo) {
 		const rel = files.map((f) => path.relative(cwd, f));
 		try {
 			// QUIET, per the rule at the top of this file: a failure we CATCH must not also print git's

@@ -199,7 +199,8 @@ source_file: ${env:FILES_FOLDER}/2026/q3.pdf
   work. the COLLECTION form publishes exactly what it names and prints the partners it left
   pending — HEAD then fails `dt check` until they land.
 - **one commit per REPO.** a module can own a collection's records (`storage.owner: module` on the
-  descriptor, or `owns_data` in its package.json for all of them), and
+  descriptor, or `owns_data` in its package.json for all of them), a record layer's records commit
+  in the layer's clone, and
   git has no cross-repo commit — a rename whose inbound refs live in another repo is TWO commits;
   `dt commit` prints both.
 - when git is used directly (hand-edited markdown bodies), stage the specific files — never

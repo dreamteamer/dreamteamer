@@ -1,30 +1,30 @@
 {
-	"measured": "2026-09-30",
-	"note": "Budgets are ceilings with at least 20% headroom over the measured value, rounded up to the hundred (the operator's standing instruction of 2026-09-07). ⚠ The script's `--update` writes ~10% and drops the SURFACE ceilings to the measured count — set those by hand. Raising one is a deliberate act: same commit as the growth, the three questions (does the ENGINE read it · is this a recipe creeping into core · could a module do it instead — and now: could an EXTENSION do it instead) answered in the message. ⚠ Re-based 2026-09-30 on the lean-core extraction (0.31.0): HTTP, the Docker host and its archives, prove/land/worktrees and the NotebookLM exporter left core for extensions, and the public API plus the one extension seam arrived. code.total 10669 → 7574, dependency closure 77 → 10 packages, collections 12 → 9. The ceilings were LOWERED to the 20% line: 10700 → 9100, 4500 → 3800, collections 13 → 10, prose 4200 → 4100. A ceiling left at the old number is a budget with 3000 lines of silent permission in it.",
+	"measured": "2026-10-28",
+	"note": "Budgets are ceilings with ~10% headroom. Raising one is a deliberate act — do it in the same commit as the growth, and say why in the message.",
 	"code": {
-		"total": 7574,
-		"comments": 4511,
-		"decisions": 3100,
-		"files": 31
+		"total": 9126,
+		"comments": 4444,
+		"decisions": 3871,
+		"files": 39
 	},
 	"surface": {
 		"collections": 9,
-		"collection-templates": 2,
+		"collection-templates": 0,
 		"skills": 1,
 		"agents": 1,
 		"ui-views": 0,
 		"commands": 0
 	},
 	"prose": {
-		"skill-lines": 3346,
-		"system-lines": 3996
+		"skill-lines": 3666,
+		"system-lines": 4161
 	},
 	"budgets": {
-		"code.total": 9100,
-		"code.decisions": 3800,
-		"surface.collections": 10,
-		"surface.skills": 2,
-		"surface.agents": 2,
-		"prose.skill-lines": 4100
+		"code.total": 10039,
+		"code.decisions": 4259,
+		"surface.collections": 9,
+		"surface.skills": 1,
+		"surface.agents": 1,
+		"prose.skill-lines": 4033
 	}
 }

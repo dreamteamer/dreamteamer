@@ -998,9 +998,20 @@ function relationsRebuild(store, flags, pos) {
 	// store's own `applyMirrorEdits` re-walks the owners per write, which is right for one edit and
 	// quadratic for a whole collection — so rebuild does not build on it.
 	const unreadableOwners = [];
+	// PER REPO, like check.js and the store: an owner in another repo (a record layer, or this
+	// workspace against a module-owned target) implies no mirror on a target it cannot be committed with
+	const perRepo = (r) => {
+		const groups = new Map();
+		for (const o of parseEach(store, r.owner, (f) => unreadableOwners.push(rel(store.root, f)))) {
+			const repo = store.repoOfFile(store.descriptor(r.owner), o.file);
+			if (!groups.has(repo)) groups.set(repo, []);
+			groups.get(repo).push(o);
+		}
+		return new Map([...groups].map(([repo, os]) => [repo, expectedMirrors(r, os)]));
+	};
 	const expected = store.relations()
 		.filter((r) => r.target === collection)
-		.map((r) => ({ r, exp: expectedMirrors(r, parseEach(store, r.owner, (f) => unreadableOwners.push(rel(store.root, f)))) }));
+		.map((r) => ({ r, exp: perRepo(r) }));
 	// An owner that will not parse takes its edges with it — and rebuild would then DELETE the mirror
 	// values those edges justify. Refuse while nothing has been written yet; a skip here is data loss,
 	// unlike a skip on the target side below, which only leaves a record unrepaired.
@@ -1015,7 +1026,7 @@ function relationsRebuild(store, flags, pos) {
 		for (const { id, file, fields } of parseEach(store, collection, (f) => console.warn(`⚠ ${rel(store.root, f)}: parse error, skipped — \`dreamteamer check\` reports it`))) {
 			let changed = false;
 			for (const { r, exp } of expected) {
-				const want = exp.get(id);
+				const want = exp.get(store.repoOfFile(d, file))?.get(id);
 				const have = fields[r.mirror];
 				// ⚠ COERCE THE WAY AJV DOES. `check` validates with `coerceTypes: 'array'`, which mutates
 				// the record in place BEFORE its relation pass — so it compares a coerced value while this

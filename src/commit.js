@@ -330,6 +330,12 @@ function scopeByRepo(descriptors, only) {
 		const repo = storageOf(d).repo;
 		if (!byRepo.has(repo)) byRepo.set(repo, []);
 		byRepo.get(repo).push(p);
+		// a record layer's root is watched in the LAYER's repo — an edit of one of its records is
+		// published there, and skipping it is the "nothing pending" that looks like success
+		for (const r of storageOf(d).roots.slice(1)) {
+			if (!byRepo.has(r.repo)) byRepo.set(r.repo, []);
+			if (!byRepo.get(r.repo).includes(r.path)) byRepo.get(r.repo).push(r.path);
+		}
 		// A collection stored UNDER another keeps most of its files inside the parent's folder, so
 		// scoping `git status` to its own path alone would sample only the fallback root and report
 		// the rest as "nothing pending" — the one report that looks like success. The parent's path

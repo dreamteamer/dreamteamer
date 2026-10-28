@@ -64,6 +64,7 @@ const titleCase = (id) => String(id).split(/[_\-\s/]+/).filter(Boolean).map((w) 
  * @param {Map<string,{root}>} ctx.dataOwners                    owns-data modules — every collection defaults to `storage.owner: module`
  * @param {Map<string,{name,root,channel}>} ctx.moduleSources   every module source, for a descriptor that names `storage.owner: module`
  * @param {(source: object, rel: Function) => string|null} ctx.unownableBecause  why a module's clone cannot hold records, or null
+ * @param {{name,root,dataPath,records:string[]}[]} ctx.layers  record layers — clones whose listed collections are read here
  * @param {(moduleRoot: string) => string} ctx.repoOf            workspace-relative git repo of a module root
  * @param {(p: string) => string} ctx.rel
  * @param {string} ctx.dataPath
@@ -73,7 +74,7 @@ const titleCase = (id) => String(id).split(/[_\-\s/]+/).filter(Boolean).map((w) 
  * @returns {{ compiled: Map<string, {doc, sources}>, inert: {path, hash}[], moduleColls: Map<string, Set<string>> }}
  */
 export function compileCollections(ctx) {
-	const { groups, mixins, namespaces, nsOwners, runtimeKinds, core, moduleDeps, modulePeers, channelOf, wsModuleName, engineName, dataOwners, moduleSources, unownableBecause, repoOf, dataPath, moduleId, fail, warn } = ctx;
+	const { groups, mixins, namespaces, nsOwners, runtimeKinds, core, moduleDeps, modulePeers, channelOf, wsModuleName, engineName, dataOwners, moduleSources, unownableBecause, layers = [], repoOf, dataPath, moduleId, fail, warn } = ctx;
 
 	// ---- v1 is refused, every file at once --------------------------------------------------
 	const v1 = [];
@@ -158,6 +159,14 @@ export function compileCollections(ctx) {
 		const format = a.format ?? 'md';
 		if (format === 'binary' && (a.shape ?? 'file') === 'folder') fail(`collection "${name}" is \`format: binary\` — one file per record, not a folder; drop \`shape: folder\` (${where})`);
 		storageEntries.push({ name, path: storagePath, base: runtime ? 'runtime' : 'workspace' });
+		// ---- record layers: the listed clones' data folders, read BELOW the write root ----
+		const collLayers = [];
+		for (const l of layers) {
+			if (!l.records.includes(name)) continue;
+			const why = runtime ? 'is a compiled source' : owner === 'module' ? `is \`storage.owner: module\` — one shared list read from the module's clone, which a layer would duplicate` : a.under ? 'is stored under another collection (storage.under) — a placed collection is not layered' : null;
+			if (why) fail(`git_modules.${l.name}.records names "${name}", which ${why}`);
+			collLayers.push({ name: l.name, path: `${l.root}/${a.path ?? defaultStoragePath(name, namespaces, l.dataPath)}`, repo: l.root });
+		}
 
 		// an opaque record's fields are the ones derived from the file itself
 		const fields = { ...(authored.fields ?? {}) };
@@ -263,12 +272,16 @@ export function compileCollections(ctx) {
 				unresolved_peers: unresolved,
 				fields: resolved,
 				json_schema: jsonSchema,
+				...(collLayers.length ? { layers: collLayers } : {}),
 			},
 			storage: { path: storagePath, format, shape: a.shape ?? 'file', entry: a.entry, under: a.under, repo, runtime },
 		});
 	}
 
 	for (const p of storageOverlaps(storageEntries)) fail(p);
+	for (const l of layers) {
+		for (const c of l.records) if (!staged.has(c)) fail(`git_modules.${l.name}.records names "${c}", which is not a collection here (have: ${[...staged.keys()].sort().join(', ')})`);
+	}
 	{
 		const words = new Map();
 		for (const { name } of wordEntries) words.set(name, name);

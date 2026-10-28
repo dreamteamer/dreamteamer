@@ -23,9 +23,9 @@ const FORMAT = '%H%x00%an%x00%aI%x00%s';
  * A layered record (a workspace module overriding a module-shipped one) has SEVERAL sources and
  * genuinely changes when any of them does, so all of them are followed.
  */
-function trackedPaths(store, file) {
+function trackedPaths(store, file, cwd) {
 	const rel = path.relative(store.root, file).split(path.sep).join('/'); // git pathspecs take `/` on every OS
-	if (!rel.startsWith(`${RUNTIME_DIR}/`)) return [rel];
+	if (!rel.startsWith(`${RUNTIME_DIR}/`)) return [path.relative(cwd, file).split(path.sep).join('/')];
 	try {
 		const key = rel.split('/').slice(1).join('/'); // drop the `.dreamteamer/` prefix
 		const sources = readManifest(store.root)?.entries?.[key]?.sources ?? [];
@@ -40,11 +40,15 @@ function trackedPaths(store, file) {
  * `git log` for a record, newest first. `--follow` (so a rename keeps its past) only applies to a
  * single pathspec — git rejects it outright with several — so a layered record trades it away.
  */
+/** The repo a record's file is committed in: a module-owned or layer record's past is in that clone. */
+const repoOf = (store, descriptor, file) => path.resolve(store.root, store.repoOfFile(descriptor, file));
+
 export function history(store, collection, id) {
-	const { file } = store.read(collection, id);
-	const paths = trackedPaths(store, file);
+	const { file, descriptor } = store.read(collection, id);
+	const cwd = repoOf(store, descriptor, file);
+	const paths = trackedPaths(store, file, cwd);
 	const follow = paths.length === 1 ? ['--follow'] : [];
-	const out = execFileSync('git', ['log', ...follow, `--format=${FORMAT}`, '--', ...paths], { cwd: store.root }).toString();
+	const out = execFileSync('git', ['log', ...follow, `--format=${FORMAT}`, '--', ...paths], { cwd }).toString();
 	return out
 		.trim()
 		.split('\n')
@@ -57,8 +61,9 @@ export function history(store, collection, id) {
 
 /** The patch one revision applied to this record. `hash~1` means the ROOT commit has no diff. */
 export function historyDiff(store, collection, id, hash = 'HEAD') {
-	const { file } = store.read(collection, id);
-	const paths = trackedPaths(store, file);
-	const diff = execFileSync('git', ['diff', `${hash}~1`, hash, '--', ...paths], { cwd: store.root }).toString();
+	const { file, descriptor } = store.read(collection, id);
+	const cwd = repoOf(store, descriptor, file);
+	const paths = trackedPaths(store, file, cwd);
+	const diff = execFileSync('git', ['diff', `${hash}~1`, hash, '--', ...paths], { cwd }).toString();
 	return { hash, path: paths.join(', '), diff };
 }

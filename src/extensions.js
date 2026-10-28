@@ -80,7 +80,9 @@ export function declaredExtensions(ws) {
 	try { inline = fs.readdirSync(path.join(ws.root, 'modules')).sort(); } catch { /* no modules/ */ }
 	for (const id of inline) consider(path.join(ws.root, 'modules', id), id);
 	const listed = (dir) => { try { return fs.readdirSync(dir).sort(); } catch { return []; } };
+	const layers = new Set(Object.entries(ws.pkg?.dreamteamer?.git_modules ?? {}).filter(([, e]) => e?.records !== undefined).map(([n]) => n));
 	for (const clone of listed(path.join(ws.root, 'git_modules'))) {
+		if (layers.has(clone)) continue; // a record layer: another workspace's data, never its code
 		const root = path.join(ws.root, 'git_modules', clone);
 		let rootName = clone;
 		try { rootName = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).name ?? clone; } catch { /* no manifest */ }

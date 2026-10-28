@@ -54,7 +54,7 @@ describe('descriptor accessors', () => {
 		assert.deepEqual(D.idsOf(visits), { from: '{{ date }}--{{ patient | basename }}' });
 	});
 	test('storage resolved, under carries the parent collection', () => {
-		assert.deepEqual(D.storageOf(visits), { path: 'data/health/visits', format: 'md', shape: 'file', suffix: 'visit', repo: '.', runtime: false, under: { parent: 'patient', subfolder: 'visits', collection: 'health/patients', id: 'independent' } });
+		assert.deepEqual(D.storageOf(visits), { path: 'data/health/visits', format: 'md', shape: 'file', suffix: 'visit', repo: '.', runtime: false, layers: [], roots: [{ path: 'data/health/visits', repo: '.' }], under: { parent: 'patient', subfolder: 'visits', collection: 'health/patients', id: 'independent' } });
 		assert.equal(D.isRuntime(visits), false);
 		assert.equal(D.isBinary(visits), false);
 	});

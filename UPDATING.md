@@ -20,15 +20,27 @@ npx dreamteamer check
 
 ---
 
-## 0.34.0 — `storage.owner`: a collection's records in the module's clone
+## 0.35.0 — `storage.owner`, and record layers
 
-Nothing to do but `dt compile`. New, additive: a descriptor's storage block may name whose repo holds
-the records — `owner: module` keeps them beside the module's sources and commits them to the
-module's clone; `owner: workspace` (the default) keeps them in the workspace's `data/`. A module's
-`owns_data: true` keeps its meaning and now only moves the default, so one module can ship a shared
-list (`people`, `owner: module`) beside per-workspace working sets (`tasks`, the default). An overlay
-may not set `storage.owner`, and `dt rm modules/<m>` refuses while an owned collection has records
-inside the module folder — it used to refuse on the flag alone, records or not.
+Nothing to do but `dt compile`. Two additive pieces, both about records living in more than one repo:
+
+- **`storage.owner`** — a descriptor's storage block may name whose repo holds the records:
+  `owner: module` keeps them beside the module's sources and commits them to the module's clone;
+  `owner: workspace` (the default) keeps them in the workspace's `data/`. A module's `owns_data: true`
+  keeps its meaning and now only moves the default, so one module can ship a shared list (`people`,
+  `owner: module`) beside per-workspace working sets (`tasks`, the default). An overlay may not set
+  it, and `dt rm modules/<m>` refuses on records actually inside the module folder rather than on the
+  flag alone.
+- **Record layers** — a `git_modules` entry that lists `records: [<collection>…]` is another
+  workspace cloned for its records: each listed collection reads that clone's data folder as a root
+  below this workspace's own. Reads are the union; a new record goes to the write root; an edit of a
+  layer's record lands in place and commits in the layer's repo; an id two roots hold is a `check`
+  violation; a layer's findings print under their own heading; mirrors are kept per repo. Such a clone
+  is not unpacked as a bundle of modules, which is the one behaviour change — a clone carrying a
+  workspace manifest was a bundle before, and still is unless its entry lists `records`.
+
+`history` and `revert` on a module-owned record now run git in the module's clone; both returned
+nothing for such a record before.
 
 ---
 
