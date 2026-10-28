@@ -27,6 +27,10 @@ function withGitModule({ pkg = {}, people = PEOPLE, tasks = TASKS, init = true }
 	fs.writeFileSync(path.join(mod, 'collections', 'tasks.collection.yaml'), tasks);
 	if (init) {
 		git(mod, ['init', '-q']);
+		// a LOCAL identity, as the layer fixture carries: the store commits in this clone with the
+		// process env, which on a CI runner has no git identity — the helper's GIT_AUTHOR_* never reach it
+		git(mod, ['config', 'user.email', 'test@example.invalid']);
+		git(mod, ['config', 'user.name', 'dreamteamer test']);
 		git(mod, ['add', '-A']);
 		git(mod, ['commit', '-qm', 'clinic']);
 	}
