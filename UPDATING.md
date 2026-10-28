@@ -20,6 +20,34 @@ npx dreamteamer check
 
 ---
 
+## 0.36.0 — record layers and `storage.owner`: four defects, and `dt commit` reports every repo
+
+Nothing to do but `dt compile`. Four defects in what 0.35.0 shipped, each now covered by a test that
+failed against it:
+
+- **`dt rename` of a workspace-own record in a layered collection** threw `no such record` on the NEW
+  id — the destination was looked up in the index, where a record that does not exist yet is not.
+  Every rename of a top record failed the moment any layer listed the collection, clone on disk or
+  not. The same lookup broke `dt rename` of a `format: binary` record in every workspace; both derive
+  the destination now, and an opaque record keeps its extension.
+- **Renaming a module-owned record that a workspace record names rolled back under `auto_commit`** —
+  the rewritten workspace file was staged inside the module's clone as `../../data/…`. A file under no
+  known clone now commits in the workspace, so the rename lands one commit per repo.
+- **`dt changes` reported nothing for a commit made in a layer's clone.** `deriveEvents` now samples
+  every root of every collection, and each event carries `repo` (`'.'` for the workspace) and `path`,
+  both of which it always had at runtime and the typing now declares. The signature is unchanged:
+  `--since` is still one sha or date, resolved to a commit date in the workspace and from there to each
+  repo's own sha.
+- **`dt commit` across several repos, when a later one refuses** (a hook, say): the earlier commit
+  stood, the failing repo's index was left staged, nothing was printed, exit 1. There is still one
+  commit per repo and no transaction across them — what changed is the report. The failing repo's index
+  is reset and the failure names the hook's first line; the commits that landed are printed; the repos
+  after it are NOT attempted and are reported as left pending, to be published by running `dt commit`
+  again once the failure is fixed. The `--json` result gains `failed` and `pending` rows beside
+  `blocked`.
+
+---
+
 ## 0.35.0 — `storage.owner`, and record layers
 
 Nothing to do but `dt compile`. Two additive pieces, both about records living in more than one repo:
