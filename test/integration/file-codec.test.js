@@ -130,6 +130,17 @@ describe('add --from', () => {
 		assert.deepEqual([...ws.store.ids('files').keys()], []);
 	});
 
+	test('rename keeps the bytes and the extension — the destination is derived from the current file, never looked up', () => {
+		const ws = base();
+		const png = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+		ws.dt('add', 'files', 'logos/acme', '--from', source('x.png', png));
+		const r = ws.dt('rename', 'files/logos/acme', 'logos/acme-corp');
+		assert.equal(r.code, 0, r.stderr);
+		assert.deepEqual([...fs.readFileSync(path.join(ws.root, 'data/files/logos/acme-corp.bin.png'))], [...png]);
+		assert.ok(!fs.existsSync(path.join(ws.root, 'data/files/logos/acme.bin.png')), 'the old file is gone');
+		assert.deepEqual([...ws.store.ids('files').keys()], ['logos/acme-corp']);
+	});
+
 	test('add without --from on a file collection names the flag', () => {
 		const ws = base();
 		assert.match(ws.dt('add', 'files', 'a/x').stderr, /--from/);

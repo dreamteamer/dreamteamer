@@ -1327,9 +1327,19 @@ export class Store {
 		const parentChanged = nested && newParent !== parentOfNestedId(oldId);
 		if (nested && !newId.includes('/')) throw new Error(`${collection}/${newId}: ids of ${collection} begin with their ${under.parent}'s id — nothing was renamed.`);
 		if (parentChanged && !this.ids(under.collection).has(newParent)) throw new Error(`${collection}/${newId}: there is no ${under.collection}/${newParent} to move it under — nothing was renamed.`);
+		// ⚠ The destination is DERIVED, never looked up: recordRoot answers for a record that EXISTS —
+		// from the index for a layered collection and for an opaque one — so asking it for the new id
+		// threw "no such record" on every rename of a workspace-own record once any layer contributed
+		// to the collection (clone on disk or not), and on every rename of a `format: binary` record.
+		// The record is in the write root (a layer's was refused above), so its new unit is the write
+		// root's: the folder for a folder shape, the file otherwise — keeping the extension an opaque
+		// record carries, which only its current file name knows.
 		const newUnit = nested
 			? path.join(placedRoot(under, this.dir(d), this.parentDir(d), newParent), recordFileName(d, localOfNestedId(newId)))
-			: placementOf(d) ? path.join(this.rootOfFile(d, oldUnit), recordFileName(d, newId)) : this.recordRoot(d, newId);
+			: placementOf(d) ? path.join(this.rootOfFile(d, oldUnit), recordFileName(d, newId))
+			: storageOf(d).shape === 'folder' ? path.join(this.dir(d), newId)
+			: storageOf(d).format === 'binary' ? path.join(this.dir(d), `${newId}.${storageOf(d).suffix}${path.extname(oldUnit)}`)
+			: path.join(this.dir(d), recordFileName(d, newId));
 		this._assertContained(d, newUnit);
 		if (fs.existsSync(newUnit) || (placementOf(d) && this.ids(collection).has(newId))) throw new Error(`${collection}/${newId} already exists — nothing was renamed.`);
 		return this.withWriteLock(() => {

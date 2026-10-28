@@ -197,3 +197,22 @@ describe('a layer contributes records, never sources', () => {
 		assert.match(compileError({ root: b.w.root, pkg: b.pkg }), /people.*owner: module/);
 	});
 });
+
+
+describe('record layers — the verbs an operator runs across one (0.36.0)', () => {
+	test('a workspace-own record of a layered collection renames in the write root — store and CLI', () => {
+		const { w } = layered();
+		compileQuietly(w.ws);
+		const store = new Store(w.ws);
+		store.add('tasks', { name: 'Write the brief' });
+		const res = store.rename('tasks', 'write-the-brief', 'write-brief');
+		assert.equal(res.id, 'write-brief');
+		assert.ok(fs.existsSync(path.join(w.root, 'data', 'tasks', 'write-brief.task.md')), 'the new file is in the write root');
+		assert.equal(fs.existsSync(path.join(w.root, 'data', 'tasks', 'write-the-brief.task.md')), false, 'the old file is gone');
+		const cli = dt(w.root, 'rename', 'tasks/write-brief', 'the-brief');
+		assert.equal(cli.code, 0, cli.stderr);
+		assert.deepEqual(fs.readdirSync(path.join(w.root, 'data', 'tasks')), ['the-brief.task.md']);
+		assert.equal(dt(w.root, 'check').code, 0);
+	});
+
+});
