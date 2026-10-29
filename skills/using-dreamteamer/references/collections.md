@@ -259,7 +259,7 @@ Keys are snake_case and closed: compile refuses an unknown one, naming the list.
 | `vars` | the `.env` keys records may reference as `${env:KEY}` (`records.md`) |
 | `auto_commit` | whether a record write also commits (default off) |
 | `harnesses` | which coding-agent adapters compile writes |
-| `git_modules` | the lockfile map `dt install` restores into `git_modules/` — `{ url, ref }` per clone; an entry that also lists `records: [<collection>…]` is a RECORD LAYER (below), not a module |
+| `git_modules` | the lockfile map `dt install` restores into `git_modules/` — `{ url, ref }` per clone; an entry that also lists `records: [<collection>…]` is a RECORD LAYER (below), not a bundle — `module: true` adds its one workspace module |
 | `disable` | what to drop from the compile: `modules/<id>` (a whole module, its code included) or `<kind>/<id>` (one entity) |
 | `local_assets` · `postinstall` · `repos_path` · `gitignore_runtime_folder` | links a worktree gets · a script `dt install` runs · where `repos` records materialise · whether `.dreamteamer/` is gitignored |
 
@@ -403,13 +403,23 @@ entry, which collections that clone contributes:
 ```json
 "git_modules": {
   "org":              { "url": "…", "ref": "main" },
-  "project-alpha":   { "url": "…", "ref": "main", "records": ["tasks", "sessions", "projects"] }
+  "project-alpha":   { "url": "…", "ref": "main", "records": ["tasks", "sessions", "projects"], "module": true }
 }
 ```
 
-- **A clone with `records` is a layer, never a module.** Its own `modules/` is not unpacked and it
+- **A clone with `records` is a layer, never a bundle.** Its own `modules/` is not unpacked and it
   is not an extension; the shapes are the modules both workspaces install. Its nested
   `git_modules/` are never read.
+- **`module: true` also compiles the clone's WORKSPACE module** — `modules/<workspace_module>`, as
+  the clone's own package.json names it — as a module source here, the way a bundle's module
+  compiles: its agents, skills, commands, command-bindings, ui-views, mixins and collections, with a
+  `modules/<id>` record whose `path` is inside the clone. That is how a project's own agent becomes
+  dispatchable from the workspace that oversees it. Only that one module, only its sources (an
+  extension entry in it is not loaded), and the records half is unchanged. Compile refuses, naming
+  the entry: a clone with no `workspace_module`; a module whose id is `default` (the role name every
+  workspace's own module carries — name the project's module after the project); an id another
+  module here already holds; and `module: true` on an entry without `records`, which is a bundle
+  already. `dt status` adds `· module <id>` to the layer's line.
 - **Each listed collection gains the clone's data folder as a read root below the workspace's
   own** — the compiled descriptor states them as `compiled.layers`, and `storageOf(d).roots` is the
   write root first, then each layer. `dt list`, `get`, `check`, the inbound-reference guard of `rm`

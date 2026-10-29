@@ -152,6 +152,9 @@ const sha256 = (buf) => 'sha256:' + createHash('sha256').update(buf).digest('hex
 // on purpose: renaming a symbol under src/ is a cross-repo change, and this one buys nothing.)
 export const CHANNEL_LABEL = { inline: 'modules', git: 'git_modules', npm: 'node_modules' };
 
+/** A module's record id: its package name with the npm scope stripped, so `@dreamteamer/crm` is `crm`. */
+export const moduleIdOf = (n) => slug(String(n).replace(/^@[^/]+\//, ''));
+
 /** A module's `location` — the folder its sources sit in. `root` is the classic layout, where the
  *  workspace's own sources are at its root rather than under `modules/<id>/`; discovery reports that
  *  as the `inline` channel with `root === '.'`, which is the one case the label table cannot see. */
@@ -173,8 +176,10 @@ export function discoverModules(root, pkg) {
 	const disable = pkg?.dreamteamer?.disable ?? [];
 	const disabledHits = new Set();
 	// A clone whose manifest entry lists `records` is a RECORD LAYER — another workspace's data read
-	// here — never a module: its own modules/ would otherwise unpack as a bundle and collide with ours.
-	const layers = new Set(layerEntries(pkg).map((l) => l.name));
+	// here — never a bundle: its own modules/ would otherwise unpack and collide with ours. With
+	// `module: true` its ONE workspace module is a source too (below).
+	const layerList = layerEntries(pkg);
+	const layers = new Set(layerList.map((l) => l.name));
 	// the same rule the extension loader applies (full package name, or its scope-stripped id), so a
 	// disabled package loses its content AND its code together
 	const disabled = (name) => {
@@ -231,7 +236,25 @@ export function discoverModules(root, pkg) {
 		const mpkg = readPkg(srcRoot);
 		if (mpkg) tryAddOrUnpack(mpkg.name ?? dep, srcRoot, 'npm');
 	}
-	return { modules: [...byName.values()], shadows, disabledModules: [...disabledHits] };
+	// A layer with `module: true` contributes the clone's WORKSPACE module — `modules/<workspace_module>`
+	// as its own manifest names it — as a git-channel source, the way a bundle contributes its modules.
+	// Kept out of `byName` on purpose: a name another channel holds must be REFUSED, never shadowed, and
+	// compile does that, naming the entry. A clone not on disk contributes nothing, like any layer.
+	const layerModules = [];
+	const layerRefusals = [];
+	for (const l of layerList) {
+		const clone = path.join(gitDir, l.name);
+		if (!l.module || !fs.existsSync(clone)) continue;
+		const wm = readPkg(clone)?.dreamteamer?.workspace_module;
+		const srcRoot = wm ? path.join(clone, 'modules', wm) : null;
+		const mpkg = srcRoot ? readPkg(srcRoot) : null;
+		if (!mpkg) {
+			layerRefusals.push(`git_modules.${l.name}.module: ${wm ? `the clone names workspace_module "${wm}", but modules/${wm}/ holds no module package.json` : 'the clone names no dreamteamer.workspace_module'} — there is no module to contribute. Drop \`module\`, or give the clone a workspace module.`);
+		} else if (!disabled(mpkg.name ?? wm)) {
+			layerModules.push({ name: mpkg.name ?? wm, root: srcRoot, channel: 'git', layer: l.name });
+		}
+	}
+	return { modules: [...byName.values(), ...layerModules], shadows, disabledModules: [...disabledHits], layerRefusals };
 }
 
 // ---- module-owned data ----------------------------------------------------------
@@ -274,17 +297,22 @@ const toPosix = (p) => p.split(path.sep).join('/');
 // records: each listed collection reads that clone's data folder as a root below this workspace's
 // own. The clone contributes no sources — its shapes are the modules both workspaces install.
 
-/** The declared layers, validated: `{ name, records }` per entry. `records` is a non-empty list of
- *  collection names; which collections exist is compile-collections' question. */
+/** The declared layers, validated: `{ name, records, module }` per entry. `records` is a non-empty list
+ *  of collection names; which collections exist is compile-collections' question. `module: true` also
+ *  compiles the clone's workspace module (discoverModules), and is refused on an entry with no `records`. */
 export function layerEntries(pkg) {
 	const out = [];
 	for (const [name, entry] of Object.entries(pkg?.dreamteamer?.git_modules ?? {})) {
+		if (entry?.module !== undefined && typeof entry.module !== 'boolean') throw new Error(`git_modules.${name}.module must be true or false (got ${JSON.stringify(entry.module)})`);
+		if (entry?.module === true && entry.records === undefined) {
+			throw new Error(`git_modules.${name}.module: true without \`records\` — an entry without records is already a bundle: every module under its modules/ compiles. Drop \`module\`, or list the collections it layers.`);
+		}
 		if (!entry || entry.records === undefined) continue;
 		const r = entry.records;
 		if (!Array.isArray(r) || !r.length || r.some((c) => typeof c !== 'string' || !c.trim())) {
 			throw new Error(`git_modules.${name}.records must be a non-empty list of collection names (got ${JSON.stringify(r)})`);
 		}
-		out.push({ name, records: r });
+		out.push({ name, records: r, module: entry.module === true });
 	}
 	return out;
 }
@@ -354,7 +382,8 @@ export function compile(ws) {
 	};
 
 	// ---- discover sources: channel modules then the workspace's own -----------------
-	const { modules: discovered, shadows, disabledModules } = discoverModules(root, pkg);
+	const { modules: discovered, shadows, disabledModules, layerRefusals } = discoverModules(root, pkg);
+	for (const r of layerRefusals) fail(r);
 	for (const s of shadows) console.warn(shadowWarning(s));
 	const sources = [...discovered];
 	// workspace-owned sources: either at the root (classic layout) or in the designated
@@ -393,7 +422,16 @@ export function compile(ws) {
 	// A module's record id: the npm scope stripped, so `@dreamteamer/crm` reads as `crm` — which is
 	// what every message in this engine already calls it. Defined HERE, above the namespace pass,
 	// because a namespace error has to name the module by the id the fix is typed with.
-	const moduleId = (n) => slug(String(n).replace(/^@[^/]+\//, ''));
+	const moduleId = moduleIdOf;
+	// A layer's workspace module (`module: true`) must answer to an id of its own: `default` is the ROLE
+	// every workspace's own module carries, and an id another module holds would merge two modules' records.
+	for (const s of sources.filter((x) => x.layer)) {
+		const at = `git_modules.${s.layer}.module`;
+		const id = moduleId(s.name);
+		if (id === 'default') fail(`${at}: the clone's workspace module is "default" — the role name every workspace's own module carries, so it cannot be told apart from this one's. Name the project's module after the project (its workspace_module, and the folder under modules/).`);
+		const other = sources.find((o) => o !== s && moduleId(o.name) === id);
+		if (other) fail(`${at}: the clone's workspace module "${id}" collides with module "${other.name}" at ${rel(other.root) || '.'} — a module id names one module. Rename one of them.`);
+	}
 	const channelOf = new Map(sources.map((s) => [s.name, s.channel]));
 	const declaredEnv = new Map(); // env key -> [module names]
 	const requestedVars = new Map(); // var a module READS through ${env:…} -> [module names]

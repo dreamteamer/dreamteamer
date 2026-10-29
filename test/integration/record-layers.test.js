@@ -30,7 +30,7 @@ function commitAll(dir, msg) {
 }
 
 /** The shared-shape module `org` (a git module) and one project workspace clone `project-a` (a layer). */
-function layered({ records = ['tasks', 'projects'], pkg = {}, layerFiles = {}, clone = true } = {}) {
+function layered({ records = ['tasks', 'projects'], pkg = {}, layerFiles = {}, clone = true, entry = {}, layerModule = 'default' } = {}) {
 	const w = workspace({ compile: false, pkg });
 	const org = path.join(w.root, 'git_modules', 'org');
 	fs.mkdirSync(path.join(org, 'collections'), { recursive: true });
@@ -44,11 +44,16 @@ function layered({ records = ['tasks', 'projects'], pkg = {}, layerFiles = {}, c
 
 	const layer = path.join(w.root, 'git_modules', 'project-a');
 	if (clone) {
-		// a WORKSPACE: its own manifest, its own default module (which must not be unpacked here), its own data
-		fs.mkdirSync(path.join(layer, 'modules', 'default', 'collections'), { recursive: true });
-		fs.writeFileSync(path.join(layer, 'package.json'), JSON.stringify({ name: 'project-a', private: true, dreamteamer: { workspace_module: 'default', data_path: 'data', git_modules: { org: { url: 'x', ref: 'main' } } } }, null, '\t'));
-		fs.writeFileSync(path.join(layer, 'modules', 'default', 'package.json'), JSON.stringify({ name: 'default', dreamteamer: {} }, null, '\t'));
-		fs.writeFileSync(path.join(layer, 'modules', 'default', 'collections', 'secrets.collection.yaml'), 'name: secrets\nfields:\n  name:\n    type: string\n');
+		// a WORKSPACE: its own manifest, its own workspace module (unpacked here only with `module: true`),
+		// its own data. `layerModule: null` is a clone whose manifest names no workspace module.
+		const wm = layerModule ?? 'default';
+		const mod = path.join(layer, 'modules', wm);
+		fs.mkdirSync(path.join(mod, 'collections'), { recursive: true });
+		fs.writeFileSync(path.join(layer, 'package.json'), JSON.stringify({ name: 'project-a', private: true, dreamteamer: { ...(layerModule ? { workspace_module: layerModule } : {}), data_path: 'data', git_modules: { org: { url: 'x', ref: 'main' } } } }, null, '\t'));
+		fs.writeFileSync(path.join(mod, 'package.json'), JSON.stringify({ name: wm, description: "The project's own module.", dreamteamer: {} }, null, '\t'));
+		fs.writeFileSync(path.join(mod, 'collections', 'secrets.collection.yaml'), 'name: secrets\nfields:\n  name:\n    type: string\n');
+		fs.mkdirSync(path.join(mod, 'agents'), { recursive: true });
+		fs.writeFileSync(path.join(mod, 'agents', 'project-runner.agent.md'), '---\nname: project-runner\ndescription: runs this project\'s checks\ntools: [Read, Bash]\n---\nrun the checks.\n');
 		const files = {
 			'data/tasks/fix-login.task.md': '---\nname: Fix login\nproject: projects/alpha\nassignee: people/dana-levi\n---\n',
 			'data/projects/alpha.project.md': '---\nname: Alpha\ntasks:\n  - tasks/fix-login\n---\n',
@@ -64,7 +69,7 @@ function layered({ records = ['tasks', 'projects'], pkg = {}, layerFiles = {}, c
 
 	const pkgPath = path.join(w.root, 'package.json');
 	const manifest = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
-	manifest.dreamteamer.git_modules = { org: { url: 'x', ref: 'main' }, 'project-a': { url: 'x', ref: 'main', records } };
+	manifest.dreamteamer.git_modules = { org: { url: 'x', ref: 'main' }, 'project-a': { url: 'x', ref: 'main', ...(records ? { records } : {}), ...entry } };
 	fs.writeFileSync(pkgPath, JSON.stringify(manifest, null, '\t') + '\n');
 	git(w.root, ['add', '-A']);
 	git(w.root, ['commit', '-qm', 'manifest']);
@@ -84,6 +89,7 @@ describe('a layer contributes records, never sources', () => {
 		]);
 		assert.equal(storageOf(store.descriptor('people')).roots.length, 1, 'an unlisted collection has no layer');
 		assert.equal(store.descriptors.has('secrets'), false, "the layer's own module is not compiled");
+		assert.equal(fs.existsSync(path.join(w.root, '.dreamteamer', 'agents', 'project-runner.agent.md')), false, "nor is its agent");
 		assert.doesNotMatch(String(out), /shadows/, 'no shadow warning either');
 	});
 
@@ -304,5 +310,61 @@ describe('record layers — the verbs an operator runs across one (0.36.0)', () 
 		assert.equal(git(layer, ['status', '--porcelain']), '', 'the layer repo is clean');
 		assert.equal(git(w.root, ['status', '--porcelain', 'data']), '', 'the workspace repo is untouched');
 		assert.equal(dt(w.root, 'check').code, 0);
+	});
+});
+
+describe('a layer may also contribute its workspace module — `module: true` (0.37.0)', () => {
+	const agent = (w) => path.join(w.root, '.dreamteamer', 'agents', 'project-runner.agent.md');
+
+	test("with module: true the clone's workspace module compiles — its agent and collection land, it is a modules record, and its records still read as a layer", () => {
+		const { w } = layered({ layerModule: 'project-a', entry: { module: true } });
+		compileQuietly(w.ws);
+		assert.ok(fs.existsSync(agent(w)), "the layer's agent compiles into .dreamteamer/agents/");
+		const store = new Store(w.ws);
+		assert.ok(store.descriptors.has('secrets'), "the layer module's collection compiles too");
+		const rec = readFile(w.root, '.dreamteamer/modules/project-a.module.yaml');
+		assert.ok(rec, 'the module is projected as modules/project-a');
+		assert.match(rec, /location: git_modules/);
+		assert.match(rec, /path: git_modules\/project-a\/modules\/project-a/);
+		assert.deepEqual(storageOf(store.descriptor('tasks')).roots.map((r) => r.path), ['data/tasks', 'git_modules/project-a/data/tasks'], 'the records half is unchanged');
+		assert.deepEqual([...store.ids('tasks').keys()], ['fix-login']);
+		assert.equal(dt(w.root, 'check').code, 0);
+	});
+
+	test('without module: true a named workspace module is still not compiled', () => {
+		const { w } = layered({ layerModule: 'project-a' });
+		compileQuietly(w.ws);
+		assert.equal(fs.existsSync(agent(w)), false);
+		assert.equal(readFile(w.root, '.dreamteamer/modules/project-a.module.yaml'), null);
+	});
+
+	const refusal = (opts) => { const { w, pkg } = layered(opts); return compileError({ root: w.root, pkg }) ?? ''; };
+
+	test('refused, naming the entry: a clone whose manifest names no workspace_module', () => {
+		assert.match(refusal({ layerModule: null, entry: { module: true } }), /git_modules\.project-a\.module: the clone names no dreamteamer\.workspace_module/);
+	});
+
+	test('refused, naming the entry: a workspace module whose id is default', () => {
+		assert.match(refusal({ entry: { module: true } }), /git_modules\.project-a\.module: the clone's workspace module is "default"/);
+	});
+
+	test('refused, naming the entry: a workspace module whose id another module holds', () => {
+		assert.match(refusal({ layerModule: 'org', entry: { module: true } }), /git_modules\.project-a\.module: the clone's workspace module "org" collides with module "org" at git_modules\/org/);
+	});
+
+	test('refused, naming the entry: module: true without records — a plain entry is already a bundle', () => {
+		assert.match(refusal({ records: null, layerModule: 'project-a', entry: { module: true } }), /git_modules\.project-a\.module: true without `records` — an entry without records is already a bundle/);
+	});
+
+	test('refused, naming the entry: module that is not a boolean', () => {
+		assert.match(refusal({ layerModule: 'project-a', entry: { module: 'yes' } }), /git_modules\.project-a\.module must be true or false/);
+	});
+
+	test('dt status names the module on the layer line and lists it with the modules', () => {
+		const { w } = layered({ layerModule: 'project-a', entry: { module: true } });
+		compileQuietly(w.ws);
+		const out = dt(w.root, 'status').stdout;
+		assert.match(out, /layers:\n\s+project-a\s+git_modules @ [0-9a-f]{7} · records: tasks, projects · module project-a\n/);
+		assert.match(out, /modules:[\s\S]*\n\s+project-a\s+git_modules @ [0-9a-f]{7}/);
 	});
 });

@@ -94,7 +94,7 @@ export function satisfies(version: string, range: string): boolean | null;
 export function compile(ws: Workspace): 0;
 export function staleness(root: string): { compiled: boolean; stale: string[]; manifest?: Manifest; message?: string };
 export function warnIfStale(root: string): ReturnType<typeof staleness>;
-export function discoverModules(root: string, pkg: Workspace['pkg']): { modules: { name: string; root: string; channel: string }[]; shadows: unknown[]; disabledModules: string[] };
+export function discoverModules(root: string, pkg: Workspace['pkg']): { modules: { name: string; root: string; channel: string; layer?: string }[]; shadows: unknown[]; disabledModules: string[]; layerRefusals: string[] };
 export class CompileError extends Error {}
 export const KINDS: readonly string[];
 export const MANAGED_BLOCKS: readonly { id: 'orientation' | 'instructions'; begin: string; end: string }[];
