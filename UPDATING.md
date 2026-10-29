@@ -20,6 +20,27 @@ npx dreamteamer check
 
 ---
 
+## 0.37.0 — a record layer may also contribute its workspace module
+
+Nothing to do but `dt compile`. One additive key on a record-layer entry:
+
+- **`module: true`** beside `records` compiles the clone's workspace module —
+  `modules/<workspace_module>`, as the clone's own package.json names it — as a module source of this
+  workspace, the way a bundle's module compiles: agents, skills, commands, command-bindings, ui-views,
+  mixins and collections, with a `modules/<id>` record whose `path` points inside the clone. A
+  project's own agent is then dispatchable from the workspace that reads the project as a layer.
+  The records half is unchanged, the clone's nested `git_modules/` are still never read, and an
+  extension entry in that module is not loaded.
+- **Compile refuses, naming the entry,** a clone that names no `workspace_module`, a module whose id
+  is `default` (name the project's module after the project), an id another module here already
+  holds, and `module: true` on an entry with no `records` — such an entry is already a bundle.
+- **`dt status`** adds `· module <id>` to the layer's line, and the module is listed with the others.
+
+`discoverModules` (public API) returns `layerRefusals` beside `modules`, and a module it found this
+way carries `layer: <entry name>`.
+
+---
+
 ## 0.36.0 — record layers and `storage.owner`: four defects, and `dt commit` reports every repo
 
 Nothing to do but `dt compile`. Four defects in what 0.35.0 shipped, each now covered by a test that
