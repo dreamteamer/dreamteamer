@@ -48,7 +48,14 @@ export function git(root, args) {
  *  lacking a local git identity survived a fix to add one. */
 function baseKey() {
 	const h = createHash('sha256');
-	h.update(fs.readFileSync(path.join(ENGINE_ROOT, 'src', 'init.js')));
+	// every engine source, not only init.js: init writes the base through its imports (workspace.js's
+	// `.vscode/extensions.json` went stale in a cached base when only init.js was hashed), and a
+	// rebuild costs one `dt init`
+	const src = path.join(ENGINE_ROOT, 'src');
+	for (const f of fs.readdirSync(src, { recursive: true }).filter((f) => f.endsWith('.js')).sort()) {
+		h.update(f);
+		h.update(fs.readFileSync(path.join(src, f)));
+	}
 	h.update(fs.readFileSync(fileURLToPath(import.meta.url)));
 	for (const f of fs.readdirSync(path.join(ENGINE_ROOT, 'collections')).sort()) {
 		h.update(f);
