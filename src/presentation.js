@@ -94,8 +94,12 @@ function collectionRow(d, declared) {
 			sections: [...(form.sections ?? []).map((s) => s.title), ...Object.values(declared).map((f) => f.display?.form_section)]
 				.filter((t, i, all) => t !== undefined && all.indexOf(t) === i)
 				.map((title) => {
-					const authored = (form.sections ?? []).find((s) => s.title === title)?.fields ?? [];
-					return { title, fields: [...authored, ...Object.keys(declared).filter((n) => declared[n].display?.form_section === title && !authored.includes(n))].filter(drawn) };
+					const section = (form.sections ?? []).find((s) => s.title === title);
+					const authored = section?.fields ?? [];
+					const fields = [...authored, ...Object.keys(declared).filter((n) => declared[n].display?.form_section === title && !authored.includes(n))].filter(drawn);
+					// `collapsed: true` — drawn shut, after every other field, until opened: what a person
+					// rarely reads and an agent writes (a provenance block). Absent unless authored.
+					return { title, fields, ...(section?.collapsed === true ? { collapsed: true } : {}) };
 				}),
 		},
 		...pick({ position_field: positionFieldOf(d), record_title: recordTitleOf(d) }, ['position_field', 'record_title']),

@@ -188,7 +188,8 @@ export interface PresentationCollection {
 	nav: { icon?: string; order?: number; section?: string };
 	list: { layout: string; columns?: string[]; sort?: string; options?: Record<string, unknown> };
 	record: { layout: string; subtitle?: string; badge?: string; color_by?: string; options?: Record<string, unknown> };
-	form: { sections: Array<{ title: string; fields: string[] }> };
+	/** `collapsed`: the section is drawn shut, after every other field, until a person opens it */
+	form: { sections: Array<{ title: string; fields: string[]; collapsed?: true }> };
 	position_field?: string;
 	record_title?: string;
 	record_type: string;
