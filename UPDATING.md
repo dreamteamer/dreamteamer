@@ -20,6 +20,21 @@ npx dreamteamer check
 
 ---
 
+## 0.38.0 — a command folder is a namespace
+
+Nothing to do but `dt compile`, unless a module keeps a command in a subfolder of `commands/` — it
+never did by any documented convention, but if one does, its id changes:
+
+- **`commands/rnd/design.command.md` has the id `rnd/design`** (its frontmatter `name` must say the
+  same), compiles to `.claude/commands/rnd/design.md`, and is typed **`/rnd:design`** — the spelling
+  the orientation block, the bindings section, the commands index and `dt next` now all use. A
+  binding names it `commands/rnd/design`. One folder deep by convention: a family of commands shipped
+  by one module takes its id as the folder, so the family reads as one group in the picker.
+- A command at the top of `commands/` is unchanged: `commands/find.command.md` is still `find`,
+  `/find`, `commands/find`.
+
+---
+
 ## 0.37.0 — a record layer may also contribute its workspace module
 
 Nothing to do but `dt compile`. One additive key on a record-layer entry:
