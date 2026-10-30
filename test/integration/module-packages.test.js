@@ -118,3 +118,38 @@ describe('a modules/<id> dreamteamer.disable entry drops a whole module', () => 
 		assert.ok(err && /depends on "crates", which is not installed/.test(err), err);
 	});
 });
+
+// An npm-installed module's data/ is read by nothing — no root points into node_modules/, because
+// records there could never be committed. It used to compile ✔ and the shipped records silently never
+// appeared. Invented package and record names only.
+describe('an npm module shipping data/ is warned about, naming the package and the folder', () => {
+	function withShippedData({ ignore } = {}) {
+		const { root, ws } = workspace({ compile: false });
+		const pkgPath = path.join(root, 'package.json');
+		const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+		pkg.dependencies = { ...pkg.dependencies, '@acme/leads': '0.0.1' };
+		fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, '\t') + '\n');
+		ws.pkg = pkg;
+		const dir = path.join(root, 'node_modules', '@acme', 'leads');
+		fs.mkdirSync(path.join(dir, 'collections'), { recursive: true });
+		fs.mkdirSync(path.join(dir, 'data', 'leads'), { recursive: true });
+		fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: '@acme/leads', version: '0.0.1', dreamteamer: { description: 'leads', ...(ignore ? { ignore } : {}) } }));
+		fs.writeFileSync(path.join(dir, 'collections', 'leads.collection.yaml'), dump({ name: 'leads', ...simpleCollection() }));
+		fs.writeFileSync(path.join(dir, 'data', 'leads', 'shipped-lead.lead.md'), '---\nname: Shipped lead\n---\n');
+		return ws;
+	}
+
+	test('compile warns, naming the package and its data folder — and still compiles', () => {
+		const { code, warnings } = compileQuietly(withShippedData());
+		assert.equal(code, 0);
+		const hit = warnings.find((w) => w.includes('nothing reads it'));
+		assert.ok(hit, `no warning about the shipped data/ — got:\n${warnings.join('\n')}`);
+		assert.match(hit, /module @acme\/leads ships node_modules\/@acme\/leads\/data\/ and nothing reads it/);
+		assert.match(hit, /"ignore": \["data"\]/, 'the warning names the opt-out for a module whose own script reads the folder');
+	});
+
+	test('a module declaring "ignore": ["data"] — its own script reads the folder — is not warned about', () => {
+		const { warnings } = compileQuietly(withShippedData({ ignore: ['data'] }));
+		assert.equal(warnings.find((w) => w.includes('nothing reads it')), undefined);
+	});
+});

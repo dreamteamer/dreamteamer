@@ -796,6 +796,19 @@ export function compile(ws) {
 		console.warn(`⚠ module "${source.name}" (${rel(source.root)}) contributed no recognised sources — its folder names must match a known kind (${kinds.join(', ')}) or it must ship a UI bundle at ui/app.js`);
 	}
 
+	// An npm-installed module's `data/` is read by NOTHING: no root points into node_modules/, because
+	// records there could never be committed (owns_data and `storage.owner: module` are refused for npm
+	// above). A package shipping one — seed records, a stale copy — compiled ✔ and its records silently
+	// never appeared. Say so, naming the package and the folder. A module whose OWN script reads the
+	// folder (a workflow installer copying templates out of it) declares it: `"ignore": ["data"]`.
+	for (const source of sources) {
+		if (source.channel !== 'npm' || (moduleIgnores.get(source.name) ?? []).includes('data')) continue;
+		const data = path.join(source.root, 'data');
+		let holds = false;
+		try { holds = fs.readdirSync(data, { recursive: true, withFileTypes: true }).some((e) => e.isFile()); } catch { /* no data/ */ }
+		if (holds) console.warn(`⚠ module ${source.name} ships ${rel(data)}/ and nothing reads it — a module installed from npm cannot hold records (node_modules/ is never committed), so no collection reads that folder. Vendor the module into modules/ or install it as a git module to keep records in it; if one of its own scripts reads the folder, declare "dreamteamer": { "ignore": ["data"] } in its package.json.`);
+	}
+
 	// ---- mixins (descriptor v2): partial descriptors merged into the collections that list them ----
 	const mixinDocs = new Map(); // id -> doc (with `src` for staleness)
 	for (const [rt, entry] of entries) {
