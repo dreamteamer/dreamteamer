@@ -46,6 +46,12 @@ what the operator types. Compile copies the file **verbatim** to `.claude/comman
 straight to the harness untouched. Harnesses without native command discovery get a
 `/<name> — description` index in their orientation block instead.
 
+**A folder is a namespace.** `commands/rnd/design.command.md` has the id `rnd/design` (its `name`
+is `rnd/design` too), compiles to `.claude/commands/rnd/design.md`, and is typed `/rnd:design` —
+the spelling the orientation block, the bindings section and `dt next` all use. A binding names it
+`commands/rnd/design`. One folder deep; a family of commands shipped by one module takes its id as
+the folder, so eight lifecycle commands read as one family in the picker.
+
 ```markdown
 ---
 name: process-inbox

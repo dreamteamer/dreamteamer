@@ -1055,6 +1055,26 @@ describe('the orientation block is grouped by module', () => {
 		assert.match(block, /^\*\*Core\*\* [^\n]*\n- people/m, 'core ships neither, so its collections follow directly');
 	});
 
+	test('a command in a folder is namespaced: its id keeps the folder, and every surface types it with a colon', () => {
+		const ws = twoModuleWorkspace({ compile: false });
+		fs.mkdirSync(path.join(ws.root, 'modules/hr/commands/hr'), { recursive: true });
+		fs.mkdirSync(path.join(ws.root, 'modules/hr/command-bindings'), { recursive: true });
+		fs.writeFileSync(path.join(ws.root, 'modules/hr/commands/hr/open-role.command.md'), '---\nname: hr/open-role\ndescription: Open a role.\n---\nOpen it.\n');
+		fs.writeFileSync(path.join(ws.root, 'modules/hr/command-bindings/open-role--positions.command-binding.yaml'),
+			'command: commands/hr/open-role\ncollection: collections/hr/positions\nscope: record\ndescription: open it\n');
+		assert.equal(compileQuietly(ws.ws).code, 0);
+		// claude-code reads .claude/commands/<folder>/<name>.md as /<folder>:<name>
+		assert.ok(fs.existsSync(path.join(ws.root, '.claude/commands/hr/open-role.md')), 'the folder is written through');
+		const block = blockOf(ws);
+		assert.match(block, /commands: \/hr:open-role/, 'the module line types it with a colon');
+		assert.match(block, /- hr\/positions — \/hr:open-role/, 'the bindings section types it with a colon');
+		assert.equal(dt(ws.root, 'add', 'hr/positions', '--name', 'Clerk').code, 0);
+		const next = JSON.parse(dt(ws.root, 'next', 'hr/positions/clerk', '--json').stdout).commands[0];
+		assert.equal(next.name, 'hr/open-role');
+		assert.equal(next.invocation, '/hr:open-role hr/positions/clerk');
+		assert.equal(dtCheck(ws.root).code, 0, 'a namespaced command is a valid system record');
+	});
+
 	test('a skills-only module is a group of its own — a domain with techniques and no nouns', () => {
 		const ws = uncompiled();
 		writeModule(ws.root, 'toolbelt', { description: 'Techniques, no nouns.' });

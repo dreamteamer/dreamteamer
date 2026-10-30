@@ -11,6 +11,7 @@
 // .cursor) are gitignored and pruned by stamp. removing a harness from config removes its
 // block/file on the next compile.
 import fs from 'node:fs';
+import { slash } from './namespace.js';
 import path from 'node:path';
 import { load, dump } from './yaml.js';
 
@@ -115,7 +116,8 @@ export function runHarnessAdapters({ root, entries, harnesses, prevManifest, sou
 				write(path.join('.claude/agents', path.basename(rt).replace(/\.agent\.md$/, '.md')), stampMd(transformAgent(e.bytes)));
 				n++;
 			} else if (rt.startsWith('commands/')) {
-				write(path.join('.claude/commands', path.basename(rt).replace(/\.command\.md$/, '.md')), stampMd(e.bytes));
+				// the folder is the namespace: commands/rnd/design.command.md → .claude/commands/rnd/design.md → /rnd:design
+				write(path.join('.claude/commands', rt.slice('commands/'.length).replace(/\.command\.md$/, '.md')), stampMd(e.bytes));
 				n++;
 			}
 		}
@@ -307,7 +309,7 @@ function buildModulesIndex(entries) {
 		if (!kind) continue;
 		const src = e.sources?.[0]?.path ?? '';
 		const owner = mods.find((mod) => src.startsWith(mod.path));
-		if (owner) owner[kind].push(kind === 'skills' ? rt.split('/')[1] : path.basename(rt).replace(/\.command\.md$/, ''));
+		if (owner) owner[kind].push(kind === 'skills' ? rt.split('/')[1] : rt.slice('commands/'.length).replace(/\.command\.md$/, ''));
 	}
 	for (const mod of mods) { mod.skills.sort(); mod.commands.sort(); }
 	return mods;
@@ -383,7 +385,7 @@ function collectionsSection(index, modules, workspaceModule, verbs) {
 	for (const m of groups) {
 		const where = [`\`${m.id}\``, m.path ? m.path.replace(/\/$/, '') : 'the workspace root', ...(m.namespaces.length ? [`namespaces: ${m.namespaces.join(' · ')}`] : [])];
 		lines.push('', `**${m.title}** (${where.join(' · ')})${m.description ? ` — ${m.description}` : ''}`);
-		const ships = [...(m.skills.length ? [`skills: ${m.skills.join(' · ')}`] : []), ...(m.commands.length ? [`commands: ${m.commands.map((c) => `/${c}`).join(' · ')}`] : []), ...(m.bin.length ? [`runs: ${m.bin.join(' · ')}`] : []), ...(verbs.get(m.id)?.length ? [`verbs: ${verbs.get(m.id).map((v) => `dt ${v}`).join(' · ')}`] : [])];
+		const ships = [...(m.skills.length ? [`skills: ${m.skills.join(' · ')}`] : []), ...(m.commands.length ? [`commands: ${m.commands.map((c) => slash(c)).join(' · ')}`] : []), ...(m.bin.length ? [`runs: ${m.bin.join(' · ')}`] : []), ...(verbs.get(m.id)?.length ? [`verbs: ${verbs.get(m.id).map((v) => `dt ${v}`).join(' · ')}`] : [])];
 		if (ships.length) lines.push(`  ${ships.join(' · ')}`);
 		for (const c of data.filter((c) => c.module === m.id)) {
 			lines.push(`- ${c.name}${c.description ? ` — ${c.description}` : ''}`);
@@ -470,7 +472,7 @@ function bindingsSection(entries) {
 		if (!coll || !cmd) continue;
 		const gate = [renderGate('available when', d.available_when), renderGate('done when', d.done_when)].filter(Boolean).join(' · ');
 		if (!byCollection.has(coll)) byCollection.set(coll, []);
-		byCollection.get(coll).push(`/${cmd}${gate ? ` (${gate})` : ''}`);
+		byCollection.get(coll).push(`${slash(cmd)}${gate ? ` (${gate})` : ''}`);
 	}
 	if (!byCollection.size) return [];
 	const lines = ['', 'VERBS BOUND TO COLLECTIONS (`dt next <collection>[/<id>]` answers per record):'];
@@ -538,7 +540,7 @@ function orientationBlock(flavor, skillsIndex, sourceLayout = 'flat', namespaces
 			'',
 			'agent personas live at `.dreamteamer/agents/*.agent.md`; commands at',
 			'`.dreamteamer/commands/`, invoked as `/<name>` by the harness:',
-			...buildCommandsIndex(entries).map((c) => `- \`/${c.id}\` — ${c.desc}`),
+			...buildCommandsIndex(entries).map((c) => `- \`${slash(c.id)}\` — ${c.desc}`),
 		);
 	}
 	return lines.join('\n');

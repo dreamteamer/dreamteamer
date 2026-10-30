@@ -5,7 +5,7 @@
 // ref traversal (tier 1). serves `dreamteamer commands for`, GET /api/commands/:name,
 // and (through the extension's api.ts port) the studio's Commands tab.
 import { matchesFilter } from './filter.js';
-import { parseRef } from './namespace.js';
+import { parseRef, slash } from './namespace.js';
 
 // memoized `<collection>/<id>` → parsed fields (or null) for ONE evaluation pass:
 // overlapping refs across a 50-record selection parse once, and filter.js stays
@@ -66,7 +66,7 @@ export function commandsFor(store, collection, ids = []) {
 			scope: b.scope ?? 'record',
 		};
 		if (row.scope === 'collection') {
-			rows.push({ ...row, invocation: `/${cmd.name} ${collection}` });
+			rows.push({ ...row, invocation: `${slash(cmd.name)} ${collection}` });
 			continue;
 		}
 		const states = {};
@@ -85,7 +85,7 @@ export function commandsFor(store, collection, ids = []) {
 			states,
 			eligible,
 			done: ids.filter((id) => states[id] === 'done'),
-			invocation: eligible.length ? `/${cmd.name} ${eligible.map((id) => `${collection}/${id}`).join(' ')}` : null,
+			invocation: eligible.length ? `${slash(cmd.name)} ${eligible.map((id) => `${collection}/${id}`).join(' ')}` : null,
 		});
 	}
 	// record commands first (the headline on a record page), then collection commands; name-sorted within

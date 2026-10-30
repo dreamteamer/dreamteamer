@@ -1038,7 +1038,9 @@ export function compile(ws) {
 		const text = e.bytes.toString('utf8');
 		e.bytes = Buffer.from(`${text}${text.endsWith('\n') ? '' : '\n'}${dump({ compiled: { display: viewDisplay(d ? displayOf(d) : {}, view) } })}`);
 	}
-	const commandIds = new Set([...entries.keys()].filter((k) => k.startsWith('commands/')).map((k) => path.basename(k).replace(/\.command\.md$/, '')));
+	// a command's id is its path under commands/, folders included: `commands/rnd/design.command.md` is
+	// `rnd/design`, typed as `/rnd:design` — the folder is the namespace, as claude-code already reads it
+	const commandIds = new Set([...entries.keys()].filter((k) => k.startsWith('commands/')).map((k) => k.slice('commands/'.length).replace(/\.command\.md$/, '')));
 	for (const [rt, e] of entries) {
 		if (!rt.startsWith('command-bindings/')) continue;
 		const file = e.sources[0].path;
