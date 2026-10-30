@@ -20,6 +20,36 @@ npx dreamteamer check
 
 ---
 
+## 0.40.0 — where a record lives, collapsed form sections, an unread `data/` warned about
+
+Nothing to do but `dt compile`. Everything here is additive; one new compile warning may appear.
+
+- **`dt get --json` and every `dt list --json` row carry `$file` and `$repo`**: the
+  workspace-relative file the record was read from and the repo that commits it (`.` for the
+  workspace, `git_modules/<clone>` for a record layer). A record in an env-pointed folder outside
+  every repo answers its absolute file and `$repo: null`. The keys are `$`-prefixed so they never
+  overwrite a field a collection authors as `file` or `repo`; a script that already reads those
+  outputs is unaffected unless it rejects unknown keys.
+- **`dt set` / `dt rm` name the repo they wrote to** when it is not the workspace's own:
+  `✔ <ws> · updated in git_modules/<clone>`, or `— outside every git repo here, never committed`
+  for an env-pointed record. A write in the workspace's own repo prints as before.
+- **`display.form.sections[].collapsed: true`** draws a form section shut, after every other
+  field. Absent unless authored; compile refuses a non-boolean, naming the section. An engine before
+  0.40.0 ignores the key and draws the section open, so a module may author it before its consumers
+  upgrade.
+- **`compile` warns when an npm-installed module ships a `data/` folder nothing reads.** An npm
+  module cannot hold records, so such a folder's records never appeared, silently. The warning names
+  the package and the folder and the two remedies (vendor it, or install it as a git module). If the
+  module's OWN script reads that folder (an installer copying templates out of it), declare
+  `"ignore": ["data"]` in its `dreamteamer` block and the warning goes away. The official modules
+  that do this declare it from their next patch release.
+- **`init` and `compile` recommend `Anthropic.claude-code`** beside the studio extension in
+  `.vscode/extensions.json`. An id already named anywhere in the file counts as present, so one you
+  listed under `unwantedRecommendations` is never added back; a jsonc file missing one is left alone
+  with a warning naming it.
+
+---
+
 ## 0.39.0 — an env-pointed `storage.path`: a collection kept in a per-machine folder
 
 Nothing to do but `dt compile`, unless a descriptor already carries a `${…}` template in
