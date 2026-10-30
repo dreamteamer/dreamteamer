@@ -158,6 +158,9 @@ display:
         fields: [reason, patient, date, status]
 ```
 
+A section may say `collapsed: true`: a surface draws it shut, after every other field, until it is
+opened — for what a person rarely reads and an agent writes (a provenance block).
+
 This block IS what a bare collection route renders and what `dt list` prints as columns. A
 ui-view carries the same block and changes only what it states (`ui-views.md`). Every field it
 names must exist — columns, sort, badge, color_by, sections — or compile names the position.

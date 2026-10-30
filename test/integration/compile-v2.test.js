@@ -155,6 +155,9 @@ describe('a v2 descriptor is refused, with the fix in the message', () => {
 	test('a column naming no field', () => {
 		refuse({ display: { list: { columns: ['nope'] } } }, /display.list.columns names "nope"/);
 	});
+	test('a section whose collapsed is not a boolean', () => {
+		refuse({ display: { ...VISITS.display, form: { sections: [{ title: 'Provenance', fields: ['author'], collapsed: 'yes' }] } } }, /display.form.sections "Provenance" has collapsed: "yes" — it is true or false/);
+	});
 	test('a field hidden from the form but listed in a section', () => {
 		refuse({
 			fields: { ...VISITS.fields, paid: { type: 'boolean', default: false, display: { hidden: ['form'] } } },
@@ -400,6 +403,19 @@ describe('created for a record that predates the stamp', () => {
 });
 
 describe('the display contract', () => {
+	test('a form section authored collapsed: true carries it to the display contract — compile and check both accept it; an open section carries no key', async () => {
+		const { presentation } = await import('../../src/presentation.js');
+		const { loadDescriptors } = await import('../../src/runtime.js');
+		const sections = [{ title: 'Visit', fields: ['reason', 'patient', 'doctor', 'date', 'kind', 'status'] }, { title: 'Provenance', fields: ['author', 'confidence'], collapsed: true }];
+		const w = clinic({ visits: { ...VISITS, display: { ...VISITS.display, form: { sections } } } });
+		assert.equal(compileError(w.ws), null);
+		assert.equal(dt(w.root, 'check').code, 0, 'check accepts the authored key too');
+		const row = presentation(loadDescriptors(w.root)).collections.find((c) => c.collection === 'health/visits');
+		assert.deepEqual(row.form.sections, [
+			{ title: 'Visit', fields: ['reason', 'patient', 'doctor', 'date', 'kind', 'status'] },
+			{ title: 'Provenance', fields: ['author', 'confidence'], collapsed: true },
+		]);
+	});
 	test('created and an editable:false field are readonly in the display contract', async () => {
 		const { presentation } = await import('../../src/presentation.js');
 		const { loadDescriptors } = await import('../../src/runtime.js');

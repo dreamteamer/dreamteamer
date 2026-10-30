@@ -114,6 +114,7 @@ export function nameErrors(doc) {
 	const sectioned = new Set();
 	for (const [i, s] of (d.form?.sections ?? []).entries()) {
 		if (!s?.title) errors.push(`display.form.sections[${i}] has no title`);
+		if (s?.collapsed !== undefined && typeof s.collapsed !== 'boolean') errors.push(`display.form.sections "${s?.title ?? i}" has collapsed: ${JSON.stringify(s.collapsed)} — it is true or false`);
 		for (const f of s?.fields ?? []) {
 			if (!has(f)) errors.push(`display.form.sections "${s?.title ?? i}" names "${f}", which is not a field`);
 			else if (fields[f]?.display?.hidden?.includes('form')) errors.push(`display.form.sections "${s?.title ?? i}" lists "${f}", which is hidden from the form`);
