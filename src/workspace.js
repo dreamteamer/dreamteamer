@@ -50,31 +50,37 @@ export function nestedAsModule(outer, inner) {
 		.some((seg) => MODULE_SEGMENTS.has(seg));
 }
 
-/** The VS Code-family extension for this workspace, as the editor learns of it: a recommendation
+/** The VS Code-family extensions for this workspace, as the editor learns of them: recommendations
  *  in `.vscode/extensions.json`, which VS Code, Cursor and code-server all read on open and offer to
- *  install. Written by `init` and kept current by `compile`, because a compiled workspace that never
- *  names its editor left a first-run agent searching a registry for the id (measured 2026-09-24:
+ *  install. The studio extension, and beside it Claude Code, the agent a workspace's harness files are
+ *  compiled for. Written by `init` and kept current by `compile`, because a compiled workspace that
+ *  never names its editor left a first-run agent searching a registry for the id (measured 2026-09-24:
  *  three install attempts, two of them into a directory the running editor did not read). An
- *  existing file is MERGED, never replaced: a file the operator authored (comments included) is left
- *  alone whenever it already names the extension; one that does not is re-read as JSON and gains the
- *  id, and one that is neither is left with a warning rather than clobbered. */
+ *  existing file is MERGED, never replaced: an id the file already names anywhere — recommended, or
+ *  listed under `unwantedRecommendations` by an operator who declined it — counts as present, in any
+ *  case (extension ids are case-insensitive); a file naming them all is left byte-for-byte alone; one
+ *  missing some is re-read as JSON and gains them, and one that is not plain JSON is left with a
+ *  warning rather than clobbered. */
 export const EDITOR_EXTENSION_ID = 'dreamteamer.dreamteamer-vscode';
+export const EDITOR_RECOMMENDATIONS = [EDITOR_EXTENSION_ID, 'Anthropic.claude-code'];
 export function ensureEditorRecommendation(root, warn = console.warn) {
 	const file = path.join(root, '.vscode', 'extensions.json');
 	if (!fs.existsSync(file)) {
 		fs.mkdirSync(path.dirname(file), { recursive: true });
-		fs.writeFileSync(file, JSON.stringify({ recommendations: [EDITOR_EXTENSION_ID] }, null, '\t') + '\n');
+		fs.writeFileSync(file, JSON.stringify({ recommendations: EDITOR_RECOMMENDATIONS }, null, '\t') + '\n');
 		return 'written';
 	}
 	const text = fs.readFileSync(file, 'utf8');
-	if (text.includes(EDITOR_EXTENSION_ID)) return 'present';
+	const missing = EDITOR_RECOMMENDATIONS.filter((id) => !text.toLowerCase().includes(id.toLowerCase()));
+	if (!missing.length) return 'present';
+	const ids = missing.join(', ');
 	let parsed;
 	try { parsed = JSON.parse(text); } catch {
-		warn(`⚠ .vscode/extensions.json does not recommend ${EDITOR_EXTENSION_ID} and is not plain JSON, so it was left alone — add the id to its "recommendations" by hand`);
+		warn(`⚠ .vscode/extensions.json does not recommend ${ids} and is not plain JSON, so it was left alone — add ${missing.length > 1 ? 'the ids' : 'the id'} to its "recommendations" by hand`);
 		return 'left';
 	}
-	if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) { warn(`⚠ .vscode/extensions.json is not an object — left alone; add ${EDITOR_EXTENSION_ID} to "recommendations" by hand`); return 'left'; }
-	parsed.recommendations = [...(Array.isArray(parsed.recommendations) ? parsed.recommendations : []), EDITOR_EXTENSION_ID];
+	if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) { warn(`⚠ .vscode/extensions.json is not an object — left alone; add ${ids} to "recommendations" by hand`); return 'left'; }
+	parsed.recommendations = [...(Array.isArray(parsed.recommendations) ? parsed.recommendations : []), ...missing];
 	fs.writeFileSync(file, JSON.stringify(parsed, null, '\t') + '\n');
 	return 'merged';
 }

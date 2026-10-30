@@ -9,16 +9,18 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { twoModuleWorkspace, readFile, patchModulePkg } from '../helpers/ws.js';
 import { load, dump } from '../../src/yaml.js';
-import { ensureEditorRecommendation, ensureEnvExample, EDITOR_EXTENSION_ID } from '../../src/workspace.js';
+import { ensureEditorRecommendation, ensureEnvExample, EDITOR_EXTENSION_ID, EDITOR_RECOMMENDATIONS } from '../../src/workspace.js';
 
 const ID = 'dreamteamer.dreamteamer-vscode';
+const AGENT = 'Anthropic.claude-code';
+const BOTH = [ID, AGENT];
 
 describe('the editor is named to the editor — .vscode/extensions.json', () => {
 	test('init writes the recommendation, and compile keeps it (the fixture was made by init)', () => {
 		const ws = twoModuleWorkspace();
 		const file = path.join(ws.root, '.vscode', 'extensions.json');
 		assert.ok(fs.existsSync(file), 'init wrote no .vscode/extensions.json');
-		assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')).recommendations, [ID]);
+		assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')).recommendations, BOTH);
 		fs.rmSync(path.join(ws.root, '.vscode'), { recursive: true });
 		assert.equal(ws.dt('compile').code, 0);
 		assert.ok(fs.existsSync(file), 'compile did not restore the recommendation');
@@ -30,16 +32,29 @@ describe('the editor is named to the editor — .vscode/extensions.json', () => 
 		fs.writeFileSync(file, JSON.stringify({ recommendations: ['esbenp.prettier-vscode'], unwantedRecommendations: ['x.y'] }) + '\n');
 		assert.equal(ensureEditorRecommendation(ws.root), 'merged');
 		const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
-		assert.deepEqual(parsed.recommendations, ['esbenp.prettier-vscode', ID]);
+		assert.deepEqual(parsed.recommendations, ['esbenp.prettier-vscode', ...BOTH]);
 		assert.deepEqual(parsed.unwantedRecommendations, ['x.y']);
 		assert.equal(ensureEditorRecommendation(ws.root), 'present');
-		assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')).recommendations, ['esbenp.prettier-vscode', ID], 'the id was added twice');
+		assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')).recommendations, ['esbenp.prettier-vscode', ...BOTH], 'an id was added twice');
+	});
+
+	test('a file that names only the dreamteamer extension gains Claude Code; the id matches in any case, and an unwanted one is never re-added', () => {
+		const ws = twoModuleWorkspace();
+		const file = path.join(ws.root, '.vscode', 'extensions.json');
+		fs.writeFileSync(file, JSON.stringify({ recommendations: [ID] }) + '\n');
+		assert.equal(ensureEditorRecommendation(ws.root), 'merged');
+		assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')).recommendations, BOTH);
+		fs.writeFileSync(file, JSON.stringify({ recommendations: [ID, 'anthropic.claude-code'] }) + '\n');
+		assert.equal(ensureEditorRecommendation(ws.root), 'present', 'extension ids are case-insensitive');
+		fs.writeFileSync(file, JSON.stringify({ recommendations: [ID], unwantedRecommendations: [AGENT] }) + '\n');
+		assert.equal(ensureEditorRecommendation(ws.root), 'present', 'an operator who declined Claude Code is not overruled on every compile');
+		assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')).recommendations, [ID]);
 	});
 
 	test('a commented (jsonc) file that already names the id is left byte-for-byte alone; one that does not is left with a warning', () => {
 		const ws = twoModuleWorkspace();
 		const file = path.join(ws.root, '.vscode', 'extensions.json');
-		const jsonc = `{\n\t// the studio extension\n\t"recommendations": ["${ID}"]\n}\n`;
+		const jsonc = `{\n\t// the studio extension\n\t"recommendations": ["${ID}", "${AGENT}"]\n}\n`;
 		fs.writeFileSync(file, jsonc);
 		assert.equal(ensureEditorRecommendation(ws.root), 'present');
 		assert.equal(fs.readFileSync(file, 'utf8'), jsonc);
@@ -47,7 +62,9 @@ describe('the editor is named to the editor — .vscode/extensions.json', () => 
 		const warnings = [];
 		assert.equal(ensureEditorRecommendation(ws.root, (m) => warnings.push(m)), 'left');
 		assert.match(warnings[0], /not plain JSON, so it was left alone/);
+		assert.match(warnings[0], /Anthropic\.claude-code/);
 		assert.equal(EDITOR_EXTENSION_ID, ID);
+		assert.deepEqual(EDITOR_RECOMMENDATIONS, BOTH);
 	});
 });
 

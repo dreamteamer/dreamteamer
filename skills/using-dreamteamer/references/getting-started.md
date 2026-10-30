@@ -119,9 +119,10 @@ prefers. Nothing about the code moves; `check` and `compile` read only what desc
 
 The VS Code-family extension is **`dreamteamer.dreamteamer-vscode`** (Marketplace and Open VSX). It
 loads the engine the workspace pins, so the editor, the CLI and an agent session run the same code.
-`init` writes `.vscode/extensions.json` recommending it and `compile` keeps that file current, so a
-VS Code, Cursor or code-server window opened on the workspace offers to install it — that prompt is
-the intended path. From a terminal:
+`init` writes `.vscode/extensions.json` recommending it, with Claude Code (`Anthropic.claude-code`)
+beside it, and `compile` keeps that file current, so a VS Code, Cursor or code-server window opened on
+the workspace offers to install both — that prompt is the intended path. An id listed under
+`unwantedRecommendations` is never added back. From a terminal:
 
 ```bash
 code --install-extension dreamteamer.dreamteamer-vscode            # VS Code (on some machines `code` is Cursor)
