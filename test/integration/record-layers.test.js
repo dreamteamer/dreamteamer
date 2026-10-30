@@ -104,6 +104,42 @@ describe('a layer contributes records, never sources', () => {
 		assert.equal(dt(w.root, 'check').code, 0);
 	});
 
+	test('get --json and list --json say where each record is read from and which repo commits it', () => {
+		const { w } = layered();
+		compileQuietly(w.ws);
+		assert.equal(dt(w.root, 'add', 'tasks', '--name', 'Write the brief').code, 0);
+		const got = (ref) => JSON.parse(dt(w.root, 'get', ref, '--json').stdout);
+		const layer = got('tasks/fix-login');
+		assert.equal(layer.$repo, 'git_modules/project-a');
+		assert.equal(layer.$file, 'git_modules/project-a/data/tasks/fix-login.task.md');
+		assert.equal(layer.name, 'Fix login', 'the record fields are still all there');
+		const own = got('tasks/write-the-brief');
+		assert.equal(own.$repo, '.');
+		assert.equal(own.$file, 'data/tasks/write-the-brief.task.md');
+		const shared = got('people/dana-levi');
+		assert.equal(shared.$repo, 'git_modules/org', "a module-owned list's record commits in the module's clone");
+		assert.equal(shared.$file, 'git_modules/org/data/people/dana-levi.person.md');
+		const rows = JSON.parse(dt(w.root, 'list', 'tasks', '--json').stdout);
+		assert.deepEqual(rows.map((r) => [r.id, r.$repo, r.$file]), [
+			['write-the-brief', '.', 'data/tasks/write-the-brief.task.md'],
+			['fix-login', 'git_modules/project-a', 'git_modules/project-a/data/tasks/fix-login.task.md'],
+		]);
+	});
+
+	test('a write on a layer record names the repo it landed in; one in the workspace does not', () => {
+		const { w } = layered();
+		compileQuietly(w.ws);
+		assert.equal(dt(w.root, 'add', 'tasks', '--name', 'Write the brief').code, 0);
+		const layerSet = dt(w.root, 'set', 'tasks/fix-login', 'name=Fix the login flow');
+		assert.equal(layerSet.code, 0, layerSet.stderr);
+		assert.match(layerSet.stdout, /updated in git_modules\/project-a$/m);
+		const ownSet = dt(w.root, 'set', 'tasks/write-the-brief', 'name=Write the short brief');
+		assert.match(ownSet.stdout, /updated$/m);
+		assert.doesNotMatch(ownSet.stdout, / in /);
+		const json = JSON.parse(dt(w.root, 'set', 'tasks/fix-login', 'name=Fix login', '--json').stdout);
+		assert.equal(json.$repo, 'git_modules/project-a');
+	});
+
 	test('a new record goes to the write root; an id a layer holds is refused', () => {
 		const { w } = layered();
 		compileQuietly(w.ws);

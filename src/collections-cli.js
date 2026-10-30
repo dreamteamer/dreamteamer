@@ -129,8 +129,10 @@ export function collectionCommand(ws, collection, verb, args) {
 
 	switch (verb) {
 		case 'list': {
-			const { rows, narrowed } = narrowRows(store, d, collection, flags);
-			if (flags.json) { emit(JSON.stringify(rows, null, 2)); return 0; }
+			const { rows, narrowed, files } = narrowRows(store, d, collection, flags);
+			// each row says where it is read from and which repo commits it — `$`-keys, because a
+			// collection may author a field called `file` or `repo` (an issue tracker's `repo` is one)
+			if (flags.json) { emit(JSON.stringify(rows.map((r) => ({ ...r, ...whereKeys(store.locationOf(d, files.get(r.id))) })), null, 2)); return 0; }
 			const cols = listColumns(d);
 			for (const r of rows) console.log(cols.map((c) => fmtCell(r[c])).join('  '));
 			if (!rows.length) console.log(`(no ${collection}${narrowed ? ' matching' : ''})`);
@@ -142,7 +144,7 @@ export function collectionCommand(ws, collection, verb, args) {
 			// descriptor v2: a record older than the `created` stamp still answers it — read, never written
 			const created = store.createdOf(collection, id, fields, file);
 			if (created !== undefined && fields.created === undefined) fields.created = created;
-			if (flags.json) { emit(JSON.stringify({ ...fields, id }, null, 2)); return 0; }
+			if (flags.json) { emit(JSON.stringify({ ...fields, id, ...whereKeys(store.locationOf(d, file)) }, null, 2)); return 0; }
 			console.log(dump(fields).trimEnd());
 			return 0;
 		}
@@ -190,8 +192,9 @@ export function collectionCommand(ws, collection, verb, args) {
 			const changes = coerceArrays(d, pairs(pos.slice(1)));
 			Object.assign(changes, coerceArrays(d, stripMeta(flags)));
 			if (!Object.keys(changes).length) throw new Error('nothing to set — pass key=value pairs or --key value flags');
+			const where = store.ids(collection).has(id) ? store.locate(collection, id) : null; // a missing id is store.set's to refuse
 			store.set(collection, id, changes);
-			flags.json ? emit(JSON.stringify({ id })) : console.log(`✔ ${at}updated`);
+			flags.json ? emit(JSON.stringify({ id, ...(where ? whereKeys(where) : {}) })) : console.log(`✔ ${at}updated${landedIn(where)}`);
 			return 0;
 		}
 		// Manual ordering. ONE record is written per move — that is the entire feature; a dense
@@ -231,8 +234,9 @@ export function collectionCommand(ws, collection, verb, args) {
 		case 'rm': {
 			const id = need(pos, 0, 'id');
 			if (flags['dry-run']) return dryRunPlan(`rm ${collection}/${id}`, { records: store.ids(collection).has(id) ? 1 : 0, refs: store.findInboundRefs(`${collection}/${id}`).length });
+			const where = store.ids(collection).has(id) ? store.locate(collection, id) : null; // a missing id is store.rm's to refuse
 			const { inboundIgnored } = store.rm(collection, id, { force: !!flags.force });
-			flags.json ? emit(JSON.stringify({ id, removed: true, inboundIgnored })) : console.log(`✔ ${at}removed${inboundIgnored ? ` (${inboundIgnored} inbound reference(s) left dangling — run \`dreamteamer check\`)` : ''}`);
+			flags.json ? emit(JSON.stringify({ id, removed: true, inboundIgnored })) : console.log(`✔ ${at}removed${landedIn(where)}${inboundIgnored ? ` (${inboundIgnored} inbound reference(s) left dangling — run \`dreamteamer check\`)` : ''}`);
 			return 0;
 		}
 		case 'rename': {
@@ -1211,17 +1215,32 @@ function narrowRows(store, d, collection, flags) {
 	const resolve = where ? recordResolver(store) : null;
 	const bf = bodyField(d);
 	const rows = [];
-	for (const { id, fields } of store.readAll(collection)) { // ONE walk, not one per record
+	const files = new Map();
+	for (const { id, fields, file } of store.readAll(collection)) { // ONE walk, not one per record
 		if (!filters.every(([k, v]) => String(fields[k] ?? '') === String(v))) continue;
 		if (where && !matchesFilter({ ...fields, id }, where, resolve)) continue;
 		if (bf) delete fields[bf]; // bodies don't belong in listings
 		rows.push({ ...fields, id }); // record id WINS over any schema field named "id"
+		files.set(id, file);
 	}
 	// sorting was studio-only until now: the browse table ordered records and no CLI
 	// invocation could. Same `sortRows` the server and api.ts call, so `--sort -starts`
 	// orders date-times by INSTANT across mixed offsets rather than by string.
 	if (sort) sortRows(rows, sort, jsonSchemaOf(d));
-	return { rows, narrowed: !!(filters.length || where) };
+	return { rows, narrowed: !!(filters.length || where), files };
+}
+
+/** A record's location as `--json` carries it: `$file` and `$repo` (null = outside every repo here). */
+const whereKeys = ({ file, repo }) => ({ $file: file, $repo: repo });
+
+/** What a write on an EXISTING record adds to its `✔` line: nothing in the workspace's own repo; the
+ *  repo when it is another clone (a layer, a module's list); and that it is never committed when the
+ *  root is outside every repo here. The workspace name alone used to be printed wherever it landed. */
+function landedIn(where) {
+	if (!where) return '';
+	const { repo } = where;
+	if (repo === null) return ' — outside every git repo here, never committed';
+	return repo === '.' ? '' : ` in ${repo}`;
 }
 
 /** `id` first, then the descriptor's own columns — the shape every text listing prints. */

@@ -60,6 +60,15 @@ describe('an env-pointed storage.path renders per machine', () => {
 		assert.equal(got.code, 0, got.stderr);
 		assert.match(got.stdout, /first thought/);
 
+		// where it is read from: the rendered folder, and NO repo — it is never committed
+		const located = JSON.parse(run('get', 'notes/first-thought', '--json').stdout);
+		assert.equal(located.$file, expected);
+		assert.equal(located.$repo, null);
+		assert.deepEqual(JSON.parse(run('list', 'notes', '--json').stdout).map((r) => r.$repo), [null]);
+		const set = run('set', 'notes/first-thought', 'name=first thought, edited');
+		assert.equal(set.code, 0, set.stderr);
+		assert.match(set.stdout, /updated — outside every git repo here, never committed/);
+
 		const checked = run('check');
 		assert.equal(checked.code, 0, `${checked.stdout}\n${checked.stderr}`);
 		assert.match(checked.stdout, /0 violations/);

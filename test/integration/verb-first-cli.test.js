@@ -61,7 +61,8 @@ describe('record verbs — dt <verb> <target>', () => {
 		assert.equal(res.code, 0, res.stderr);
 		const { created, ...rest } = JSON.parse(res.stdout);
 		assert.match(created, /^\d{4}-\d{2}-\d{2}T/, 'the store stamps `created` on add');
-		assert.deepEqual(rest, { name: 'Jane', id: 'jane' });
+		// …plus where it is read from and the repo that commits it ($-keys: a field may be called `repo`)
+		assert.deepEqual(rest, { name: 'Jane', id: 'jane', $file: 'data/contacts/jane.contact.md', $repo: '.' });
 	});
 
 	test('set takes a reference, then key=value pairs', () => {

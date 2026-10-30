@@ -61,6 +61,9 @@ export class Store {
 	/** id → record file, across every folder the collection's records sit in */
 	ids(collection: string): Map<string, string>;
 	read(collection: string, id: string): { fields: Fields; file: string };
+	/** Where a record is read from: `file` workspace-relative (absolute for a root outside every repo
+	 *  here) and `repo`, the workspace-relative repo root that commits it — null when none does. */
+	locate(collection: string, id: string): { file: string; repo: string | null };
 	readAll(collection: string): Iterable<{ id: string; fields: Fields; file: string }>;
 	/** A record's `created`: the stamp when present, else the date its id was made from, else the first commit holding the file. Undefined when the collection has no `created` field or no commit holds the file. */
 	createdOf(collection: string, id: string, fields: Fields, file: string): string | undefined;

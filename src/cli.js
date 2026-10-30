@@ -54,7 +54,9 @@ the longest DECLARED collection prefix, so finance/transactions/2026/03/coffee i
                                                case-insensitive variants; date-times sort and
                                                compare as instants, across offsets; an enum
                                                sorts in its declared order)
-  get    <collection>/<id> [--json]
+  get    <collection>/<id> [--json]           (--json, and each list --json row, adds $file and
+                                               $repo: where the record is read from and the repo
+                                               that commits it — null outside every repo here)
   add    <collection> ["<title>"] --<field> <value> … [--id <explicit-id>]
                                               (ONE bare positional fills the collection's title
                                                field — the one its record_title opens with — so

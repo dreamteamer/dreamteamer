@@ -287,6 +287,22 @@ export class Store {
 	/** The git repo that owns a file of `d`, workspace-relative: a layer's when a layer holds it. */
 	repoOfFile(d, file) { return this.layerOfFile(d, file)?.repo ?? storageOf(d).repo; }
 
+	/** WHERE a record is read from, and which repo commits it — what `dt get --json` and `dt list
+	 *  --json` say as `$file` and `$repo`. `file` is workspace-relative, `repo` the workspace-relative
+	 *  repo root (`.`, `git_modules/<clone>`); a collection kept outside every repo here (an
+	 *  env-pointed root) answers its absolute file and `repo: null` — it is never committed. */
+	locate(collection, id) {
+		const file = this.ids(collection).get(id);
+		if (!file) throw new Error(`${collection}/${id}: no such record`);
+		return this.locationOf(this.descriptor(collection), file);
+	}
+
+	/** `locate` for a file already in hand — one row of a listing, without a second index lookup. */
+	locationOf(d, file) {
+		if (storageOf(d).external) return { file: path.resolve(file), repo: null };
+		return { file: path.relative(this.root, file).split(path.sep).join('/'), repo: this.repoOfFile(d, file) };
+	}
+
 	/** The file a record of `d` with these `fields` belongs at. For a placed collection the owner
 	 *  field decides the root — the parent's folder, or the fallback root when it is empty — so a
 	 *  caller that has no fields (a bare id) must go through the index instead (recordRoot). */
