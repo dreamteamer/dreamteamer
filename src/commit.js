@@ -489,6 +489,11 @@ function commitPlan(store, { only = [], message, dryRun = false } = {}) {
 	// repo's rows before it can tell a renamed record from a concurrent deletion.
 	const sampled = [];
 	for (const [repo, dirs] of byRepo) {
+		// A declared record layer not cloned yet — a fresh checkout before `dt install` — has nothing
+		// pending by construction. Spawning git in a folder that does not exist threw ENOENT out of
+		// the WHOLE verb, so not one record of this workspace could be published; check and status
+		// already say the layer is not installed.
+		if (repo !== '.' && !fs.existsSync(path.resolve(store.root, repo))) continue;
 		const { cwd, rows } = sample(store.root, repo, dirs, store.descriptors);
 		sampled.push({ repo, cwd, rows });
 	}

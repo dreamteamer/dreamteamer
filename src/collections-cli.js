@@ -26,7 +26,7 @@ import { baseNameOf, defaultStoragePath } from './namespace.js';
 import { sortRows } from './temporal.js';
 import { keyBetween, placementKey } from './fractional-index.js';
 import { ensureRepo, ensureAllRepos } from './init.js';
-import { expectedMirrors } from './relations.js';
+import { expectedMirrors, ownersReadIn } from './relations.js';
 import { parseRecord } from './records.js';
 
 import { storageOf, jsonSchemaOf, recordTitleOf, positionFieldOf, fieldsOf, displayOf, storedFieldsOf, targetsOf } from './descriptor.js';
@@ -1025,8 +1025,12 @@ function relationsRebuild(store, flags, pos) {
 	store.withWriteLock(() => {
 		for (const { id, file, fields } of parseEach(store, collection, (f) => console.warn(`⚠ ${rel(store.root, f)}: parse error, skipped — \`dreamteamer check\` reports it`))) {
 			let changed = false;
+			const repo = store.repoOfFile(d, file);
 			for (const { r, exp } of expected) {
-				const want = exp.get(store.repoOfFile(d, file))?.get(id);
+				// a layer's mirror justified by owners this workspace does not read from that layer is
+				// left exactly as the layer wrote it — rebuilding it from here deleted it (ownersReadIn)
+				if (store.layerOfFile(d, file) && !ownersReadIn(store.descriptor(r.owner), repo)) continue;
+				const want = exp.get(repo)?.get(id);
 				const have = fields[r.mirror];
 				// ⚠ COERCE THE WAY AJV DOES. `check` validates with `coerceTypes: 'array'`, which mutates
 				// the record in place BEFORE its relation pass — so it compares a coerced value while this

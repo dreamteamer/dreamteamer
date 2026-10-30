@@ -197,6 +197,44 @@ describe('a layer contributes records, never sources', () => {
 		assert.match(res.stdout, /layer project-a.*not installed/);
 	});
 
+	test('a declared layer whose clone is absent does not break dt commit: the dry run and a scoped commit of a workspace record both publish', () => {
+		const { w } = layered({ clone: false });
+		compileQuietly(w.ws);
+		new Store(w.ws).add('tasks', { name: 'Write the brief' });
+		const dry = dt(w.root, 'commit', '--dry-run');
+		assert.equal(dry.code, 0, dry.stdout + dry.stderr);
+		assert.match(dry.stdout, /add tasks\/write-the-brief/);
+		const res = dt(w.root, 'commit', 'tasks/write-the-brief');
+		assert.equal(res.code, 0, res.stdout + res.stderr);
+		assert.equal(git(w.root, ['status', '--porcelain', 'data']), '', 'the record was published');
+	});
+
+	test("a mirror a layer holds, whose OWNERS this workspace does not read from that layer, is the layer's to judge: check is clean and rebuild leaves the clone untouched", () => {
+		// projects is layered, tasks is not: alpha's `tasks: [tasks/fix-login]` is right in project-a's
+		// own repo, and this workspace cannot see the owner that justifies it
+		const { w, layer } = layered({ records: ['projects'] });
+		compileQuietly(w.ws);
+		const file = 'git_modules/project-a/data/projects/alpha.project.md';
+		const before = readFile(w.root, file);
+		const res = dt(w.root, 'check');
+		assert.equal(res.code, 0, res.stdout + res.stderr);
+		const rebuilt = dt(w.root, 'relations', 'rebuild', 'projects');
+		assert.equal(rebuilt.code, 0, rebuilt.stdout + rebuilt.stderr);
+		assert.equal(readFile(w.root, file), before, 'rebuild wrote nothing into the layer clone');
+		assert.equal(git(layer, ['status', '--porcelain']), '', 'the layer repo is clean');
+	});
+
+	test('a mirror in a layer whose owners ARE read from that layer is still judged: a stale one is reported, and rebuilt in place', () => {
+		const { w } = layered({ layerFiles: { 'data/projects/alpha.project.md': '---\nname: Alpha\n---\n' } });
+		compileQuietly(w.ws);
+		const res = dt(w.root, 'check');
+		assert.equal(res.code, 1, res.stdout + res.stderr);
+		assert.match(res.stdout, /tasks: stale/);
+		assert.equal(dt(w.root, 'relations', 'rebuild', 'projects').code, 0);
+		assert.match(readFile(w.root, 'git_modules/project-a/data/projects/alpha.project.md'), /tasks\/fix-login/);
+		assert.equal(dt(w.root, 'check').code, 0);
+	});
+
 	test('records must name collections the layer can contribute', () => {
 		const a = layered({ records: ['tasks', 'nosuch'] });
 		assert.match(compileError({ root: a.w.root, pkg: a.pkg }), /"nosuch"/);

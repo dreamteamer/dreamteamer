@@ -9,7 +9,7 @@ import addFormats from 'ajv-formats';
 import { parseRecord, patternRe, fmtAjvError, unknownFields, walk, idFromRecordPath, MAX_RECORD_BYTES } from './records.js';
 import { NO_RUNTIME, loadDescriptors, runtimeDir, namespaces as compiledNamespaces } from './runtime.js';
 import { parseRef } from './namespace.js';
-import { relationsOf, expectedMirrors } from './relations.js';
+import { relationsOf, expectedMirrors, ownersReadIn } from './relations.js';
 import { placementOf, placedRecords, ownerIdOf, symlinkedChildRoots } from './placement.js';
 
 import { storageOf, jsonSchemaOf, fieldsOf, unresolvedPeersOf, bodyFieldOf, targetsOf, isSoft, idsOf } from './descriptor.js';
@@ -184,6 +184,10 @@ export function check({ root }, { extra = [] } = {}) {
 				flag(file, `unknown field "${k}" (not in the ${name} schema)`);
 			}
 			for (const [fieldPath, target, soft] of refFields) {
+				// a layer's MIRROR whose owners this workspace does not read from that layer names
+				// records of the layer's repo — not dangling, only out of sight (see ownersReadIn)
+				if (fileLayer.has(file) && fieldPath.length === 1 && fieldsOf(d)[fieldPath[0]]?.mirror_of !== undefined
+					&& Array.isArray(target) && descriptors.has(target[0]) && !ownersReadIn(descriptors.get(target[0]), fileRepo.get(file))) continue;
 				for (const value of valuesAt(fields, fieldPath)) {
 					checkRef(file, fieldPath, value, target, softTargets, soft);
 				}
@@ -256,7 +260,10 @@ export function check({ root }, { extra = [] } = {}) {
 			}
 		}
 
+		const ownerD = descriptors.get(relation.owner);
 		for (const [id, fields] of parsed.get(relation.target) ?? []) {
+			const tfile = index.get(relation.target).get(id);
+			if (fileLayer.has(tfile) && !ownersReadIn(ownerD, fileRepo.get(tfile))) continue; // the layer's own check judges it
 			const actual = fields?.[relation.mirror];
 			const expected = expByRepo.get(fileRepo.get(index.get(relation.target).get(id)))?.get(id);
 			// a unique relation mirrors to a scalar, everything else to a sorted array — compare in

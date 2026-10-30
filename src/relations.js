@@ -1,7 +1,7 @@
 // Relations, decoded ONCE. A relation is a mirror field (`mirror_of: <owner field>`) in the compiled
 // runtime, so check, the store's mirror maintenance, `dt relations`, rebuild and presentation all
 // read through here and can never disagree about what a relation is.
-import { fieldsOf, targetsOf } from './descriptor.js';
+import { fieldsOf, targetsOf, storageOf } from './descriptor.js';
 
 export function relationsOf(descriptors) {
 	const out = [];
@@ -27,6 +27,15 @@ export function relationsOf(descriptors) {
 		}
 	}
 	return out;
+}
+
+/** Can this workspace JUDGE a mirror held in `repo`? A mirror is kept between records of one repo, so
+ *  its truth is the owners in THAT repo — which a reader here sees only when it reads the owner
+ *  collection from that repo too. A record layer that contributes `projects` but not `tasks` holds
+ *  mirrors justified by tasks this workspace never reads: judged from here they all look stale, and
+ *  `relations rebuild` once deleted them inside the layer's clone. Those are the layer's own check's. */
+export function ownersReadIn(ownerDescriptor, repo) {
+	return storageOf(ownerDescriptor).roots.some((r) => r.repo === repo);
 }
 
 /** What each target record's mirror SHOULD hold, computed from the owning side.
