@@ -330,6 +330,9 @@ function scopeByRepo(descriptors, only) {
 		// bare kind name (`skills`), so the old test admitted all seven — and this list becomes a
 		// `git add` pathspec, which fails outright on a path the workspace root does not have.
 		if (!p || storageOf(d).runtime) continue;
+		// an env-pointed root outside the workspace is outside every repo here (commitPlan says so),
+		// and one that did not render has no folder to sample
+		if (storageOf(d).external || storageOf(d).unavailable) continue;
 		if (only.length && !only.includes(d.name)) continue;
 		const repo = storageOf(d).repo;
 		if (!byRepo.has(repo)) byRepo.set(repo, []);
@@ -552,6 +555,15 @@ function commitPlan(store, { only = [], message, dryRun = false } = {}) {
 		}
 		const sha = dryRun ? null : execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd }).toString().trim();
 		results.push({ repo, rows, subject, sha, warning, leftPending });
+	}
+	// An env-pointed collection whose folder is outside the workspace has no repo here to publish to:
+	// its records are kept on this machine and never committed, BY DESIGN. Said in the report — for a
+	// collection named as a target, or holding records when nothing was named — rather than passed
+	// off as "nothing pending", the one report that looks like success.
+	for (const d of store.descriptors.values()) {
+		if (!storageOf(d).external) continue;
+		if (targets.scoped ? !targets.scope.includes(d.name) : store.ids(d.name).size === 0) continue;
+		results.push({ repo: storageOf(d).path, rows: [], outside: d.name, template: d.storage.path });
 	}
 	return results;
 }

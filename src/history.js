@@ -8,6 +8,13 @@
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { RUNTIME_DIR, readManifest } from './runtime.js';
+import { storageOf } from './descriptor.js';
+
+/** A record under an env-pointed root outside the workspace has no repo here, so no past: said in
+ *  one sentence rather than as git's "outside repository". */
+function assertInRepo(descriptor, collection, id) {
+	if (storageOf(descriptor).external) throw new Error(`${collection}/${id} is kept under ${storageOf(descriptor).path}, outside every git repo here — it has no history`);
+}
 
 const FORMAT = '%H%x00%an%x00%aI%x00%s';
 
@@ -45,6 +52,7 @@ const repoOf = (store, descriptor, file) => path.resolve(store.root, store.repoO
 
 export function history(store, collection, id) {
 	const { file, descriptor } = store.read(collection, id);
+	assertInRepo(descriptor, collection, id);
 	const cwd = repoOf(store, descriptor, file);
 	const paths = trackedPaths(store, file, cwd);
 	const follow = paths.length === 1 ? ['--follow'] : [];
@@ -62,6 +70,7 @@ export function history(store, collection, id) {
 /** The patch one revision applied to this record. `hash~1` means the ROOT commit has no diff. */
 export function historyDiff(store, collection, id, hash = 'HEAD') {
 	const { file, descriptor } = store.read(collection, id);
+	assertInRepo(descriptor, collection, id);
 	const cwd = repoOf(store, descriptor, file);
 	const paths = trackedPaths(store, file, cwd);
 	const diff = execFileSync('git', ['diff', `${hash}~1`, hash, '--', ...paths], { cwd }).toString();

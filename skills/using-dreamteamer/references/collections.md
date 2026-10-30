@@ -291,6 +291,26 @@ and it refuses to guess: `--namespace health`. `--namespace ''` means none.
 - ⚠ **No collection may store records inside another's folder.** The one declared exception is
   the next section, where compile knows which files belong to whom.
 
+## an env-pointed root — records in a per-machine folder
+
+`storage.path` may be a template: `${env:NAME}/<subpath>`, `${userHome}/…` or
+`${workspaceFolder}/…`. Compile renders it per machine — the same renderer `dt resolve` uses, against
+the workspace `.env` — so a collection whose records should never land in a shared tree (one
+person's working trace, a cache of local readings) lives in a folder of this machine's choosing.
+Ids and references are unchanged; `add`, `list`, `get`, `check`, `relations` and `commit` read the
+rendered folder; `dt status` names it under `storage:`. Three rules follow from "per machine":
+
+- **An unset or empty var refuses, loudly, and never creates a literal folder.** Compile warns,
+  naming the collection and the var; every record verb on the collection then refuses with the same
+  names until the var is set and the workspace recompiled. `check` says once that the collection is
+  not read here and stays green, as it does for an uninstalled record layer.
+- **A folder outside the workspace is outside every git repo here.** `dt commit` reports it on its
+  own line and never commits it — the records are kept, by design, on this machine only. A path
+  that renders inside the workspace is an ordinary root, committed like any other.
+- **Declare the var** in the shipping module's `dreamteamer.vars` (or the workspace's), so
+  `.env.example` names it; one declared nowhere warns at compile and still renders. It combines with
+  neither `storage.owner: module` nor `storage.under`, and a record layer may not list it.
+
 ## relationship-based storage — records beside the record they belong to
 
 A collection can keep each record INSIDE the folder of its parent record, so a browse of

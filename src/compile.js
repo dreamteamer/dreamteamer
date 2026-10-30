@@ -518,9 +518,16 @@ export function compile(ws) {
 	for (const [k, mods] of requestedVars) {
 		if (!declaredVars.includes(k)) for (const mod of mods) console.warn(`⚠ module ${mod} reads \${env:${k}} — add it to the workspace's dreamteamer.vars`);
 	}
+	// ⚠ THE ONE PARSE of .env, shared with the collections pass: an env-pointed `storage.path`
+	// renders against exactly the values the warnings below name keys from. Values never reach any
+	// output or the manifest; a rendered storage path is the one thing a value becomes, and it lands
+	// only in the gitignored runtime. `declared` is the workspace's own list plus every module's
+	// request — the descriptor that names a var is the request to render it (compile-collections).
+	const envPath = path.join(root, '.env');
+	const parsedEnv = parseEnvValues(fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf8') : '');
+	const storageVars = { env: parsedEnv, workspaceFolder: root, declared: new Set([...declaredVars, ...requestedVars.keys()]) };
 	if (declaredEnv.size || declaredVars.length) {
 		// .env is parsed for KEY names ONLY — values never reach any output or the manifest
-		const envPath = path.join(root, '.env');
 		if (!fs.existsSync(envPath)) {
 			if (declaredEnv.size) console.warn(`⚠ no .env — modules declare env keys: ${[...declaredEnv.keys()].join(', ')} (see .env.example)`);
 			if (declaredVars.length) console.warn(`⚠ no .env — dreamteamer.vars declares ${declaredVars.join(', ')}, so no \${env:…} template can render here (see .env.example)`);
@@ -535,7 +542,6 @@ export function compile(ws) {
 			// A key present with an EMPTY (or whitespace-only) value is treated as absent, same as
 			// resolve's renderTemplate — `FILES_FOLDER=` must warn here exactly as `FILES_FOLDER`
 			// missing entirely would, or compile says nothing and resolve fails on the same line.
-			const parsedEnv = parseEnvValues(fs.readFileSync(envPath, 'utf8'));
 			const present = new Set([...parsedEnv].filter(([, v]) => v.trim() !== '').map(([k]) => k));
 			for (const [k, mods] of declaredEnv) {
 				if (present.has(k)) continue;
@@ -878,7 +884,7 @@ export function compile(ws) {
 		runtimeKinds: new Set([...kinds, ...DERIVED_KINDS]), core: CORE_COLLECTIONS,
 		moduleDeps, modulePeers, channelOf, wsModuleName, engineName, dataOwners,
 		moduleSources: new Map(sources.map((s) => [s.name, s])), unownableBecause, layers,
-		repoOf: (moduleRoot) => repoRootOf(moduleRoot, root), rel, dataPath: config.data_path ?? 'data',
+		repoOf: (moduleRoot) => repoRootOf(moduleRoot, root), rel, dataPath: config.data_path ?? 'data', vars: storageVars,
 		moduleId, fail: collectionsFail, warn: (m) => console.warn(m),
 	});
 	refusePlacementTransitions(root, compiledColls);

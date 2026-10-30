@@ -1647,7 +1647,7 @@ export function removeCollection(ws, store, name, { force = false } = {}) {
 	}
 	const dest = path.join(ws.root, base);
 	const storage = storageOf(d);
-	const dataDir = path.join(ws.root, storage.path);
+	const dataDir = path.resolve(ws.root, storage.path); // resolve: an env-pointed root is absolute
 	// the index, not only the folder: a collection stored UNDER another keeps most of its records
 	// inside the parent's folders, where a readdir of its own root sees nothing
 	const hasRecords = store.ids(name).size > 0 || (fs.existsSync(dataDir) && fs.readdirSync(dataDir).some((e) => !e.startsWith('.')));

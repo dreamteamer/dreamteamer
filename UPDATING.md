@@ -20,6 +20,40 @@ npx dreamteamer check
 
 ---
 
+## 0.39.0 — an env-pointed `storage.path`: a collection kept in a per-machine folder
+
+Nothing to do but `dt compile`, unless a descriptor already carries a `${…}` template in
+`storage.path` — which until now compiled and then wrote into a literal folder named
+`${env:NAME}` inside the workspace, every verb reporting ✔. That is the defect this fixes, and such
+a folder is now yours to move: its files are nobody's records any more.
+
+- **`storage.path: ${env:NAME}/<subpath>`** (also `${userHome}/…` and `${workspaceFolder}/…`) is
+  rendered by `compile`, per machine, through the one renderer `dt resolve` uses, against the
+  workspace's `.env`. `add`, `list`, `get`, `check`, `relations` and `commit` read the rendered
+  folder; the record's id and reference are unchanged. A path that renders inside the workspace is
+  an ordinary root; one that renders outside is **outside every git repo here**.
+- **An unset or empty var is a loud refusal, never a literal folder.** `compile` warns, naming the
+  collection and the var, and stamps the collection unavailable on this machine; every record verb
+  on it then refuses with the same two names. `check` says once that the collection is not read here
+  (and does not flag references into it) and stays green — a per-machine folder being absent on
+  another machine is its normal state, exactly as an uninstalled record layer is.
+- **`dt commit` never fails on such records and never commits them.** A collection whose folder is
+  outside the workspace is reported on its own line — `· <collection>: <folder> is outside every git
+  repo here … never committed` — when it is named as a target, or holds records in an unscoped
+  commit. `dt history`, `dt diff` and `dt revert` on such a record say the same in one sentence.
+- **`dt status` gains a `storage:` block**, one line per env-pointed collection: the rendered folder
+  beside its template, or `✖` and why it cannot render.
+- **Declare the var.** A module that ships such a collection lists the var in its own
+  `dreamteamer.vars` (the workspace's list also counts); a var declared nowhere warns at compile,
+  naming the collection and the var, and still renders. It combines with neither
+  `storage.owner: module` nor `storage.under`, and a record layer may not list the collection —
+  each a compile refusal naming the collection.
+
+`storageOf(d)` (public API) gains `external` and `unavailable`; the compiled block carries the same
+two keys.
+
+---
+
 ## 0.38.0 — a command folder is a namespace
 
 Nothing to do but `dt compile`, unless a module keeps a command in a subfolder of `commands/` — it

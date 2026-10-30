@@ -17,6 +17,7 @@ export function deriveEvents(root, descriptors, from, to = 'HEAD') {
 	const byRepo = new Map();
 	for (const d of descriptors.values()) {
 		if (storageOf(d).runtime) continue; // runtime entities aren't item events
+		if (storageOf(d).external || storageOf(d).unavailable) continue; // an env-pointed root: no repo here holds its history
 		for (const { path: p, repo } of storageOf(d).roots) {
 			if (!p) continue;
 			if (!byRepo.has(repo)) byRepo.set(repo, []);
@@ -103,6 +104,7 @@ export function pathToRecord(descriptors, relPath) {
 	let best = null; // { d, base } — the longest root, across the write root and every record layer
 	for (const d of descriptors.values()) {
 		if (storageOf(d).runtime) continue; // runtime entities aren't item events
+		if (storageOf(d).unavailable) continue; // its path is still the template — a literal `${env:…}/` folder is nobody's record
 		for (const { path: base } of storageOf(d).roots) {
 			if (!base || !relPath.startsWith(base + '/')) continue;
 			if (best && base.length <= best.base.length) continue;

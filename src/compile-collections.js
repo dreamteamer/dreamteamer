@@ -19,6 +19,7 @@ import { targetsOf } from './descriptor.js';
 import { defaultStoragePath, baseNameOf, singular, inflects, namespaceOf, storageOverlaps } from './namespace.js';
 import { subpathProblem } from './placement.js';
 import { patternRe } from './records.js';
+import { renderTemplate } from './env-vars.js';
 
 import { CONVERTER } from './extensions.js';
 export { CONVERTER };
@@ -68,13 +69,14 @@ const titleCase = (id) => String(id).split(/[_\-\s/]+/).filter(Boolean).map((w) 
  * @param {(moduleRoot: string) => string} ctx.repoOf            workspace-relative git repo of a module root
  * @param {(p: string) => string} ctx.rel
  * @param {string} ctx.dataPath
+ * @param {{env: Map<string,string>, workspaceFolder: string, declared: Set<string>}} ctx.vars  what an env-pointed `storage.path` renders against: this machine's .env values, the root, and every declared var
  * @param {(n: string) => string} ctx.moduleId
  * @param {(msg: string) => never} ctx.fail
  * @param {(msg: string) => void} ctx.warn
  * @returns {{ compiled: Map<string, {doc, sources}>, inert: {path, hash}[], moduleColls: Map<string, Set<string>> }}
  */
 export function compileCollections(ctx) {
-	const { groups, mixins, namespaces, nsOwners, runtimeKinds, core, moduleDeps, modulePeers, channelOf, wsModuleName, engineName, dataOwners, moduleSources, unownableBecause, layers = [], repoOf, dataPath, moduleId, fail, warn } = ctx;
+	const { groups, mixins, namespaces, nsOwners, runtimeKinds, core, moduleDeps, modulePeers, channelOf, wsModuleName, engineName, dataOwners, moduleSources, unownableBecause, layers = [], repoOf, dataPath, vars, moduleId, fail, warn } = ctx;
 
 	// ---- v1 is refused, every file at once --------------------------------------------------
 	const v1 = [];
@@ -150,6 +152,44 @@ export function compileCollections(ctx) {
 			if (modRel) storagePath = `${modRel}/${storagePath}`;
 			repo = repoOf(source.root);
 		}
+		// ---- an env-pointed root: `storage.path: ${env:NAME}/…` is rendered HERE, per machine ----
+		// The one renderer (`dt resolve`'s), never a second. ⚠ A template left unrendered compiled and
+		// wrote into a literal `${env:NAME}/` folder inside the workspace, every verb reporting ✔ — so a
+		// template that cannot render is stamped `unavailable` and every record verb refuses, and one
+		// that renders outside the workspace is stamped `external`: its folder is outside every repo
+		// here, which `dt commit` and `dt status` say rather than fail on.
+		let external = false;
+		let unavailable = null;
+		const pointed = typeof a.path === 'string' && a.path.includes('${');
+		if (pointed) {
+			const at = `collection "${name}": storage.path "${a.path}"`;
+			if (owner === 'module') fail(`${at} is a template, so the records live in a per-machine folder — not in a module's clone; drop storage.owner: module (${where})`);
+			if (a.under) fail(`${at} is a template, but a placed collection keeps its records inside its parent's folders — drop storage.under or the template (${where})`);
+			const keys = [...a.path.matchAll(/\$\{env:([A-Za-z0-9_]*)\}/g)].map((m) => m[1]).filter(Boolean);
+			// Declared by the workspace or REQUESTED by a module (its `dreamteamer.vars`): the descriptor
+			// itself is the explicit request to render, so an undeclared var warns the way an undeclared
+			// request does — and renders — rather than refusing a module that forgot to list it.
+			const declared = new Set(vars.declared);
+			for (const k of keys) {
+				if (declared.has(k)) continue;
+				warn(`⚠ collection ${name}: storage.path reads \${env:${k}}, which no dreamteamer.vars declares — add it to module ${moduleId(base.moduleName)}'s dreamteamer.vars (or the workspace's) so .env.example names it`);
+				declared.add(k);
+			}
+			let rendered = null;
+			try { rendered = renderTemplate(a.path, { env: vars.env, workspaceFolder: vars.workspaceFolder, declared: [...declared] }); }
+			catch (e) {
+				unavailable = e.message;
+				warn(`⚠ collection ${name}: storage.path ${a.path} cannot render on this machine — ${e.message}. Its records are unreachable here, and every record verb on ${name} refuses until ${keys.join(', ') || 'it'} is set in .env`);
+			}
+			if (rendered !== null) {
+				if (rendered.includes('${')) fail(`${at} still holds "\${…}" after rendering — a storage path renders \${env:NAME}, \${workspaceFolder} and \${userHome}, nothing else (${where})`);
+				const abs = path.resolve(vars.workspaceFolder, rendered);
+				const inside = path.relative(vars.workspaceFolder, abs);
+				if (inside === '') fail(`${at} renders to the workspace root itself — point it at a folder (${where})`);
+				if (inside.startsWith('..') || path.isAbsolute(inside)) { storagePath = abs; external = true; }
+				else storagePath = inside.split(path.sep).join('/'); // inside the workspace: an ordinary root
+			}
+		}
 		const bare = baseNameOf(name, namespaces);
 		const sdefaults = {};
 		if (a.path === undefined || storagePath !== a.path) sdefaults.path = storagePath;
@@ -163,7 +203,7 @@ export function compileCollections(ctx) {
 		const collLayers = [];
 		for (const l of layers) {
 			if (!l.records.includes(name)) continue;
-			const why = runtime ? 'is a compiled source' : owner === 'module' ? `is \`storage.owner: module\` — one shared list read from the module's clone, which a layer would duplicate` : a.under ? 'is stored under another collection (storage.under) — a placed collection is not layered' : null;
+			const why = runtime ? 'is a compiled source' : owner === 'module' ? `is \`storage.owner: module\` — one shared list read from the module's clone, which a layer would duplicate` : a.under ? 'is stored under another collection (storage.under) — a placed collection is not layered' : pointed ? 'is env-pointed (its storage.path is a template) — its records are per machine, not a clone\'s' : null;
 			if (why) fail(`git_modules.${l.name}.records names "${name}", which ${why}`);
 			collLayers.push({ name: l.name, path: `${l.root}/${a.path ?? defaultStoragePath(name, namespaces, l.dataPath)}`, repo: l.root });
 		}
@@ -273,6 +313,8 @@ export function compileCollections(ctx) {
 				fields: resolved,
 				json_schema: jsonSchema,
 				...(collLayers.length ? { layers: collLayers } : {}),
+				...(external ? { external: true } : {}),
+				...(unavailable ? { unavailable } : {}),
 			},
 			storage: { path: storagePath, format, shape: a.shape ?? 'file', entry: a.entry, under: a.under, repo, runtime },
 		});

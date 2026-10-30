@@ -42,7 +42,7 @@ export function check({ root }, { extra = [] } = {}) {
 	// declared here rather than beside the validation pass: indexing can itself produce a
 	// finding (an unreachable data root, below) before a single record is read.
 	const violations = [];
-	const dirOf = (d) => path.join(storageOf(d).runtime ? RUNTIME : root, storageOf(d).path);
+	const dirOf = (d) => path.resolve(storageOf(d).runtime ? RUNTIME : root, storageOf(d).path); // resolve: an env-pointed root is absolute
 	// per indexed file: the repo that holds it (mirrors are expected per repo) and the record layer it
 	// came from, if any (its findings are reported under the layer, not as this workspace's data)
 	const fileRepo = new Map();
@@ -61,6 +61,13 @@ export function check({ root }, { extra = [] } = {}) {
 			if (layer) fileLayer.set(f, layer);
 			return true;
 		};
+		// An env-pointed root this machine cannot render is the normal state of a per-machine
+		// collection elsewhere — said once, like an absent layer, and not read: a literal `${env:…}`
+		// folder is never looked at, and a reference into the collection is not a finding here.
+		if (storageOf(d).unavailable) {
+			layerNotes.set(`collection:${name}`, `⚠ collection ${name}: ${storageOf(d).unavailable} — its records are not read on this machine, and references into it are not checked`);
+			continue;
+		}
 		// runtime-based (knowhow/meta) collections are read from the COMPILED runtime —
 		// their sources may live in any module; .dreamteamer is the merged read surface
 		const dir = dirOf(d);
@@ -288,6 +295,7 @@ export function check({ root }, { extra = [] } = {}) {
 		}
 		if (!index.get(coll).has(id)) {
 			if (soft) return; // resolve if present, ignore if absent
+			if (storageOf(descriptors.get(coll)).unavailable) return; // the collection is unread here, not empty
 			return flag(file, `${fieldPath.join('.')}: dangling reference "${value}" — no such record`);
 		}
 	}

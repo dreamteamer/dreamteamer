@@ -242,7 +242,17 @@ export class Store {
 	 *  the FALLBACK root — where a record with no owner lives — and not an enumeration of where its
 	 *  records are: that is `ids()`, and the directories git has to be asked about are `recordDirs`. */
 	dir(d) {
-		return path.join(storageOf(d).runtime ? this.runtime : this.root, storageOf(d).path);
+		return path.resolve(storageOf(d).runtime ? this.runtime : this.root, this.rootPath(d));
+	}
+
+	/** The write root's path as compile resolved it — absolute for an env-pointed root outside the
+	 *  workspace, which is why every root is `path.resolve`d and never `path.join`ed. ⚠ An env-pointed
+	 *  root that could NOT render on this machine refuses HERE, at the first verb that would touch it:
+	 *  the alternative was reading and writing a literal `${env:NAME}/` folder with every verb saying ✔. */
+	rootPath(d) {
+		const s = storageOf(d);
+		if (s.unavailable) throw new Error(`collection "${d.name}" keeps its records at ${s.path}, which cannot render on this machine — ${s.unavailable}. Set it in .env and run dreamteamer compile; nothing was read or written.`);
+		return s.path;
 	}
 
 	/** The parent collection's folder, for a collection stored under one. */
@@ -260,7 +270,8 @@ export class Store {
 	/** Every root a record of `d` can be READ from, write root first, then each record layer — another
 	 *  workspace cloned under git_modules/ whose manifest entry lists this collection. */
 	rootsOf(d) {
-		return storageOf(d).roots.map((r) => ({ ...r, abs: path.join(storageOf(d).runtime ? this.runtime : this.root, r.path) }));
+		this.rootPath(d); // the refusal, before any root is resolved
+		return storageOf(d).roots.map((r) => ({ ...r, abs: path.resolve(storageOf(d).runtime ? this.runtime : this.root, r.path) }));
 	}
 
 	/** Does a record layer contribute to `d`? Such a collection is indexed across every root. */
@@ -592,6 +603,7 @@ export class Store {
 		const d = this.descriptor(collection);
 		if (!fieldsOf(d).created) return undefined;
 		if (fields?.created) return fields.created;
+		if (storageOf(d).external) return undefined; // outside every repo here: no commit ever held it
 		const from = [idsOf(d).from ?? []].flat();
 		if (/^\{\{\s*created\b/.test(String(from[0] ?? ''))) {
 			const day = /(\d{4}-\d{2}-\d{2})/.exec(id)?.[1];
@@ -650,6 +662,7 @@ export class Store {
 		const d = this.writableDescriptor(collection);
 		this.assertUnambiguous(collection, id);
 		const { fields: currentFields, file } = this.read(collection, id);
+		if (storageOf(d).external) throw new Error(`${collection}/${id} is kept under ${storageOf(d).path}, outside every git repo here — there is no revision to revert to. nothing was reverted.`);
 		// A placed record may have sat in ANOTHER parent's folder at `hash` — the move is what is being
 		// reverted — so the historical path is looked up in that commit's tree, not assumed to be today's.
 		// `<rev>:<path>` takes `/` on every OS — Windows' path.relative spells it with `\`
@@ -1409,6 +1422,7 @@ export class Store {
 	*recordFiles() {
 		const seen = new Set();
 		for (const d of this.descriptors.values()) {
+			if (storageOf(d).unavailable) continue; // an env-pointed root this machine cannot render: nothing to walk
 			// for runtime-based collections, inbound-ref surgery targets SOURCES, not the runtime
 			// a layer's records name records of this workspace too, so a removal or a rename must see them
 			const dirs = storageOf(d).runtime ? this.sourceRoots().map((r) => path.join(r, storageOf(d).path)) : this.rootsOf(d).map((r) => r.abs);
@@ -1613,6 +1627,11 @@ export class Store {
 	 *  `repo` is the workspace-relative root of the git repo that owns them ('.' = workspace). */
 	commit(files, subject, undo, repo = '.') {
 		if (!this.autoCommit) return;
+		// A file under an env-pointed root outside the workspace is outside every repo here BY DESIGN
+		// — never handed to git, which would refuse it and roll the write back.
+		const outside = (this._outside ??= [...this.descriptors.values()].filter((d) => storageOf(d).external).map((d) => path.resolve(this.root, storageOf(d).path) + path.sep));
+		files = files.filter((f) => !outside.some((o) => path.resolve(f).startsWith(o)));
+		if (!files.length) return;
 		// ONE COMMIT PER REPO. The record's own repo is `repo`; a file a rename rewrote in a record
 		// layer belongs to that layer's clone, so the files are grouped by the longest known repo that
 		// holds each. A failure in a later group leaves an earlier group's commit standing — the same

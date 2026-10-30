@@ -26,6 +26,7 @@ import { Store } from './store.js';
 import { splitRef, canonicalCollection } from './ref.js';
 import { envContext, renderTemplate } from './env-vars.js';
 import { doctorBoard, renderBoard } from './doctor.js';
+import { storageOf } from './descriptor.js';
 
 // git calls whose failure we CATCH must not print git's own error: execFileSync forwards the
 // child's stderr to ours unless told otherwise, so a handled "not a git repository" still
@@ -438,8 +439,10 @@ export async function run(argv) {
 				const only = rest.filter((a, i) => !a.startsWith('-') && (mi === -1 || i !== mi + 1));
 				const results = commitPending(store, { only, message, dryRun: rest.includes('--dry-run') });
 				if (rest.includes('--json')) { emit(JSON.stringify(results, null, 2)); process.exit(0); }
-				if (!results.length) { console.log('nothing pending'); process.exit(0); }
+				if (!results.some((r) => !r.outside)) console.log('nothing pending');
 				for (const r of results) {
+					// an env-pointed collection's folder is outside every repo here: kept, never committed, said
+					if (r.outside) { console.log(`· ${r.outside}: ${r.repo} is outside every git repo here (storage.path ${r.template}) — its records are kept on this machine, never committed`); continue; }
 					if (r.blocked) { console.error(`✖ ${r.repo}: ${r.blocked} — ${r.rows.length} record(s) left uncommitted`); continue; }
 					if (r.failed) { console.error(`✖ ${r.repo}: ${r.failed} — ${r.rows.length} record(s) left uncommitted, nothing staged`); continue; }
 					if (r.pending) { console.error(`⚠ ${r.repo}: ${r.rows.length} record(s) left pending — ${r.pending}; run dreamteamer commit again once it is fixed`); continue; }
@@ -527,6 +530,19 @@ export async function run(argv) {
 						console.log(`  ${name.padEnd(20)} ${ref ? `git_modules @ ${ref}${tryGit(dir, ['status', '--porcelain']) ? ' (dirty)' : ''}` : 'not installed — dreamteamer install'} · records: ${e.records.join(', ')}${e.module === true ? ` · module ${mod ? moduleIdOf(mod.name) : '-'}` : ''}`);
 					}
 				}
+				// env-pointed roots (`storage.path: ${env:NAME}/…`), rendered per machine by compile: the
+				// folder a record of each lands in on THIS machine, or why it cannot. Wrapped like the
+				// blocks below — status is the command run when things are already wrong.
+				try {
+					const pointed = [...new Store(ws).descriptors.values()].filter((d) => typeof d.storage?.path === 'string' && d.storage.path.includes('${'));
+					if (pointed.length) {
+						console.log('storage:');
+						for (const d of pointed) {
+							const st = storageOf(d);
+							console.log(`  ${d.name.padEnd(20)} ${st.unavailable ? `✖ ${d.storage.path} — ${st.unavailable}` : `${st.path} (${d.storage.path})${st.external ? ' — outside every repo here, never committed' : ''}`}`);
+						}
+					}
+				} catch { /* no runtime yet — status must still print */ }
 				// ⚠ WHICH CHECKOUT AM I. Everything `install` decides turns on this, and a linked
 				// worktree is indistinguishable from the primary by eye — so it is stated. Wrapped like
 				// every other block below: `status` is the command run when things are already wrong.

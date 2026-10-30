@@ -56,6 +56,12 @@ export function storageOf(d) {
 		suffix: a.suffix ?? s.suffix,
 		repo: block(d).repo ?? '.',
 		runtime: block(d).runtime === true,
+		// An env-pointed root (`storage.path: ${env:NAME}/…`), rendered by compile for THIS machine.
+		// `external`: the rendered folder is outside the workspace, so no repo here publishes it.
+		// `unavailable`: it could not render (the var is unset or empty) and this says why — `path` is
+		// then still the template, and a reader refuses or skips rather than touching a literal folder.
+		external: block(d).external === true,
+		unavailable: block(d).unavailable ?? null,
 	};
 	// write root first, then each record layer (a clone whose listed collections are read here)
 	out.layers = (block(d).layers ?? []).map((l) => ({ name: l.name, path: l.path, repo: l.repo }));
