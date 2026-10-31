@@ -193,7 +193,8 @@ describe('the rule a session follows — in the skill, and one sentence in the h
 			'[contacts/sam-diaz](data/contacts/sam-diaz.contact.md)', // a record is a link to its file
 			'meetings/kickoff (deleted)',                   // a deleted record is its ref, unlinked
 			'nothing written, nothing appended',
-			'only YOUR writes',
+			'measured, not attributed',                     // review r1-03: the verb cannot say whose; rows left out are counted, never dropped silently
+			'pending rows left out',
 		]) assert.ok(body.includes(must), `the section says ${must}`);
 	});
 

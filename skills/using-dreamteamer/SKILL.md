@@ -122,8 +122,12 @@ records — contacts: 1 created, 2 updated · issues (project-a): 1 created · m
   relative to the workspace root (a layer's record too) so the editor opens it. a deleted record has
   no file: write its ref with `(deleted)`, unlinked. past twenty records, say `+ N more` and
   point at `dt changes --json`.
-- **only YOUR writes.** the uncommitted state is shared: another session's pending records show in
-  `dt changes` too. leave out a row you did not write, and recount line one when you do.
+- **measured, not attributed.** `dt changes` measures the shared state exactly but cannot say
+  whose: another session's pending records show too. a turn that committed by id reports
+  `dt commit`'s block unchanged — that IS this turn's writes, measured. otherwise report
+  `dt changes` whole; when you leave out rows that were pending before your first write, append
+  `(N pending rows left out — not this turn's)` and never drop a row silently. line one is verbatim
+  when every row is yours.
 - **nothing written, nothing appended** — no empty report, no "no records changed" line. a system
   write (`dt add-field` …) is reported the same way under its collection.
 

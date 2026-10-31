@@ -597,8 +597,8 @@ export async function run(argv) {
 						for (const r of repos) if (!r.present) console.log(`  absent: ${r.id} → ${r.path}${r.unresolved ? ` — ${r.unresolved}` : ` (dreamteamer install repos/${r.id})`}`);
 					}
 				} catch { /* no repos descriptor compiled — nothing to report */ }
-				// Uncommitted records are invisible to `dt changes` (it diffs commits), so the
-				// count belongs here — otherwise deferred work accumulates silently.
+				// `dt changes` lists the uncommitted records one by one (0.42.0); status keeps the
+				// COUNT per repo, so deferred work is visible at a glance here too.
 				try {
 					const pending = commitPending(new Store(ws), { dryRun: true });
 					const total = pending.reduce((n, r) => n + r.rows.length, 0);
