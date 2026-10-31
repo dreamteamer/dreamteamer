@@ -62,9 +62,11 @@ export function resolveFields(authored, ctx) {
 	const known = new Set(Object.keys(authored ?? {}));
 	const fields = {};
 	// `created` is STAMPED by the store, which a kind whose records compile writes never goes through;
-	// a compiled source is never layered, so it has nothing to yield to and no `stub` either
+	// `stub` exists only where a record can yield — a collection that can never be a layer root (a
+	// compiled source, module-owned, placed, env-pointed: ctx.unlayerable) has nothing to yield to
 	for (const [k, v] of Object.entries(INJECTED_FIELDS)) {
-		if ((k === 'created' || k === 'stub') && ctx.runtime) continue;
+		if (k === 'created' && ctx.runtime) continue;
+		if (k === 'stub' && (ctx.runtime || ctx.unlayerable)) continue;
 		if (known.has(k)) errors.push(`field "${k}" is injected by the engine and cannot be authored`);
 		fields[k] = { ...v };
 	}

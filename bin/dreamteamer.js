@@ -29,10 +29,13 @@ const self = fileURLToPath(import.meta.url);
 // resolves to `git_modules/<name>` — the precedent is `npm -w <name-or-path>`. The target is PINNED
 // for this process only: a clone under git_modules/ is otherwise climbed out of by discovery, which
 // would run the verb in the workspace AROUND it — a write landing in the reader and printing ✔.
-const flagAt = process.argv.findIndex((a, i) => i >= 2 && (a === '--workspace' || a === '-w' || a === '--vault'));
+// `--workspace=<x>` (npm's spelling too) is the same flag in one argument.
+const flagAt = process.argv.findIndex((a, i) => i >= 2 && /^(--workspace|-w|--vault)(=|$)/.test(a));
 if (flagAt !== -1) {
-	const flag = process.argv[flagAt] === '--vault' ? '--vault' : '--workspace';
-	const target = process.argv[flagAt + 1];
+	const [flagWord, inline] = process.argv[flagAt].split(/=(.*)/s);
+	const flag = flagWord === '--vault' ? '--vault' : '--workspace';
+	const joined = inline !== undefined;
+	const target = joined ? inline : process.argv[flagAt + 1];
 	if (!target || target.startsWith('-')) {
 		console.error(flag === '--vault'
 			? '\u2716 --vault needs a path to a workspace, e.g. `--vault ../another-workspace`'
@@ -59,7 +62,7 @@ if (flagAt !== -1) {
 	// an extension spawning dt — and a dt run inside the clone by any of them answered from the layer
 	// alone instead of the reader's union.
 	globalThis[Symbol.for('dreamteamer.workspace')] = process.cwd(); // the physical path, as discovery will see it
-	process.argv.splice(flagAt, 2);
+	process.argv.splice(flagAt, joined ? 1 : 2);
 }
 
 const devBin = findDevClone(process.cwd());

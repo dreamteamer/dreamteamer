@@ -704,5 +704,13 @@ describe('review round 1 (0.41.0)', () => {
 		assert.equal(store.locate('tasks', 'fix-login').file, 'git_modules/project-a/data/tasks/fix-login.task.md');
 		assert.deepEqual(store.shadowedStubs('tasks', 'fix-login').map((f) => path.relative(w.root, f)), ['data/tasks/fix-login.task.md']);
 	});
+
+	test('stub is injected only into collections that can be layered: a module-owned one has no stub field', () => {
+		const { w } = layered();
+		compileQuietly(w.ws);
+		const store = new Store(w.ws);
+		assert.ok(store.descriptor('tasks').compiled.fields.stub, 'a layerable collection carries it');
+		assert.equal(store.descriptor('people').compiled.fields.stub, undefined, '`storage.owner: module` can never be a layer root');
+	});
 });
 

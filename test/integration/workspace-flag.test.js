@@ -130,5 +130,10 @@ describe('-w / --workspace targets a declared layer by NAME or a workspace by PA
 		assert.deepEqual(inClone({ DREAMTEAMER_WORKSPACE: fs.realpathSync(clone) }), ['flywheel', 'gearbox'], 'an inherited or hand-set variable changes nothing');
 	});
 
+	test('--workspace=<x> is honoured exactly like --workspace <x>', () => {
+		const { hq, clone } = hqWithLayer();
+		const res = dt(hq.root, 'add', 'widgets', '--name', 'Gearbox', '--workspace=project-a');
+		assert.equal(res.code, 0, res.stderr);
+		assert.ok(fs.existsSync(inLayer(clone)));
+	});
 });
-

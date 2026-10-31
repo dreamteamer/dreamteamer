@@ -47,11 +47,14 @@ declare a field called `stub`, or type `--vault`.
   is clean with an `ℹ` counting the shadowed stubs. Two real records are still a violation. Stubs
   only: the first root answers. `dt add` of an id only stubs hold is allowed and prints
   `shadows N stubs (<layer>…)`; `dt rm` of the answering record says which stub now shows;
-  `dt get --json` carries `$stub` and `$shadows`. ⚠ **`stub` is now an engine-owned field on every
-  collection**, like `created` — a module that declares its own `stub` field fails to compile, naming
-  it. Rename that field (`dt rename-field`) before upgrading.
-- **`--workspace <name|path>` (`-w`) replaces `--vault`.** It accepts a record layer's git_modules
-  name as well as a path: `dt add tasks "…" -w project-alpha` lands the record in the layer and prints
+  `dt get --json` carries `$stub` and `$shadows`. `dt rm` of the record that answers over a stub is
+  not refused for the references the stub keeps resolving. ⚠ **`stub` is now an engine-owned field
+  on every collection that can be layered**, like `created` (not on module-owned, placed or
+  env-pointed collections, which can never yield) — a module that declares its own `stub` field fails
+  to compile, naming it. Rename that field (`dt rename-field`) before upgrading.
+- **`--workspace <name|path>` (`-w`, also `--workspace=<x>`) replaces `--vault`.** It accepts a
+  record layer's git_modules name as well as a path — a bundle's name, or a path that is not a
+  workspace root, is refused naming why: `dt add tasks "…" -w project-alpha` lands the record in the layer and prints
   `✔ project-alpha · data/tasks/…`. An undeclared name is refused with the declared list. `--vault`
   still works, silently, for this minor and is dropped in the next. ⚠ A path INTO `git_modules/`
   (`--vault git_modules/<clone>`) used to run the verb in the workspace AROUND the clone — a write

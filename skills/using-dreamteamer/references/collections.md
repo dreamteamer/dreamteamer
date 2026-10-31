@@ -461,10 +461,11 @@ HQ reads the projects' records by cloning each project under `git_modules/`:
   non-stub plus any stubs of one id: the non-stub answers, in whichever root it sits (either
   direction), and `check` is clean with an `ℹ` counting the shadowed stubs. Two non-stubs are still
   the violation above; stubs only, the first root answers. `stub` is an engine-owned field on every
-  collection (hidden from lists and forms; a module may not declare one), and a stub still carries
+  collection that can be layered (hidden from lists and forms; a module may not declare one), and a stub still carries
   its collection's required fields. `dt set` writes the answering record in its own repo; `dt add`
   of an id only stubs hold is allowed and prints `shadows N stubs (<layer>…)` — that is how a stub
-  is promoted; `dt rm` of the answering record says which stub now shows. `dt get --json` carries
+  is promoted; `dt rm` of the answering record says which stub now shows, and is not refused for
+  references the stub keeps resolving. `dt get --json` carries
   `$stub: true` on a stub and `$shadows: [<file>…]` on a record that answers over stubs. A shadowed
   stub is still an owner in its own repo, so the mirrors it justifies there are expected by `check`
   and kept by `relations rebuild`. Only ids more than one root claims have their files read.
