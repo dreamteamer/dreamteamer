@@ -202,7 +202,7 @@ describe('json_schema.properties is exactly the stored fields', () => {
 		const stored = Object.entries(fields).filter(([, f]) => !f.virtual).map(([k]) => k);
 		assert.deepEqual(Object.keys(toJsonSchema(fields, { collections }).properties), stored);
 		assert.ok(!stored.includes('id') && !stored.includes('last_modified'));
-		assert.equal(Object.keys(INJECTED_FIELDS).length, 3);
+		assert.deepEqual(Object.keys(INJECTED_FIELDS), ['id', 'created', 'last_modified', 'stub']);
 	});
 
 	test('constraints concatenate under allOf, copied, never aliased', () => {

@@ -241,7 +241,7 @@ describe('an overlay from another module', () => {
 		assert.equal(d.compiled.fields.rating.maximum, 5, 'the refining overlay wins');
 		assert.equal(d.compiled.fields.rating.type, 'integer', 'what it does not restate is kept');
 		assert.deepEqual(d.compiled.fields.rating.display, { unit: 'points', width: 'narrow' });
-		assert.deepEqual(Object.keys(d.compiled.fields).filter((k) => !['id', 'created', 'last_modified'].includes(k)), ['name', 'rating', 'notes']);
+		assert.deepEqual(Object.keys(d.compiled.fields).filter((k) => !['id', 'created', 'last_modified', 'stub'].includes(k)), ['name', 'rating', 'notes']);
 		assert.notEqual(dt(w.root, 'add', 'things', '--name', 'Example', '--rating', '9').code, 0, 'rating 9 is above the refined maximum');
 		assert.equal(dt(w.root, 'add', 'things', '--name', 'Fine', '--rating', '4').code, 0);
 	});

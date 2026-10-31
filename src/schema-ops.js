@@ -14,7 +14,7 @@ import { v1Refusal } from './compile-collections.js';
 import { readManifest, loadDescriptors } from './runtime.js';
 import { normalizeNamespaces, namespaceOf, baseNameOf, qualify, defaultStoragePath, singular } from './namespace.js';
 import { fieldsOf, targetsOf, storageOf, isRuntime, bodyFieldOf, moduleOf } from './descriptor.js';
-import { SCALAR_TYPES, enumValues } from './fields.js';
+import { SCALAR_TYPES, enumValues, INJECTED_FIELDS } from './fields.js';
 import { FIELD_OPTIONS, TEMPLATE_OPTIONS } from './views.js';
 
 // Same rule as store.js: a git failure we CATCH must not also print git's own error on top of the
@@ -2145,8 +2145,8 @@ function pruneEmpty(dir, stopAt) {
 /** The order a field's keys are written in (§3.4.1): facts about the data, `display`, then what it means. */
 const FIELD_KEY_ORDER = ['type', 'title', 'required', 'many', 'default', 'enum', 'unique', 'mirror_of', 'on_delete', 'soft', 'sensitive', 'body', 'derived', 'virtual', 'deprecated', 'passthrough', 'fields', 'values', 'item_title', 'examples', 'pattern', 'minimum', 'maximum', 'minItems', 'maxItems', 'minLength', 'maxLength', 'const', 'display', 'description'];
 
-/** The three fields compile injects into every collection — no source declares one. */
-const INJECTED = new Set(['id', 'created', 'last_modified']);
+/** The fields compile injects into every collection — no source declares one. */
+const INJECTED = new Set(Object.keys(INJECTED_FIELDS));
 
 /** `--type`: a built-in type, a collection, `a,b` for a union of collections, or `reference`. A
  *  collection may not be named after a built-in type (compile refuses it), so the two never collide. */

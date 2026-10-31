@@ -521,3 +521,136 @@ describe('layer data is inherent: a clone that names its workspace_module is a l
 		assert.match(dt(w.root, 'status').stdout, /layers:\n\s+project-a\s+git_modules @ [0-9a-f]{7} · records: projects, tasks\n/);
 	});
 });
+
+/** One more workspace clone under git_modules/, read as an inherent layer (it names its workspace
+ *  module), holding `files`. */
+function addLayer(w, name, files) {
+	const dir = path.join(w.root, 'git_modules', name);
+	fs.mkdirSync(dir, { recursive: true });
+	fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name, private: true, dreamteamer: { workspace_module: name } }, null, '\t'));
+	for (const [rel, body] of Object.entries(files)) {
+		fs.mkdirSync(path.join(dir, path.dirname(rel)), { recursive: true });
+		fs.writeFileSync(path.join(dir, rel), body);
+	}
+	commitAll(dir, name);
+	const pkgPath = path.join(w.root, 'package.json');
+	const manifest = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+	manifest.dreamteamer.git_modules[name] = { url: 'x', ref: 'main' };
+	fs.writeFileSync(pkgPath, JSON.stringify(manifest, null, '\t') + '\n');
+	w.ws.pkg = manifest;
+	return dir;
+}
+
+const STUB_TASK = '---\nname: Fix login (placeholder)\nproject: projects/alpha\nstub: true\n---\n';
+const REAL_TASK = '---\nname: Fix login (the real one)\nproject: projects/alpha\n---\n';
+const writeTop = (w, rel, body) => { fs.mkdirSync(path.dirname(path.join(w.root, rel)), { recursive: true }); fs.writeFileSync(path.join(w.root, rel), body); };
+const getJson = (w, ref) => JSON.parse(dt(w.root, 'get', ref, '--json').stdout);
+
+describe('record-level stubs: a record carrying `stub: true` yields to any non-stub of its id, in any root (0.41.0)', () => {
+	test('a stub in the LAYER yields to a non-stub in the top: get answers the top, check is clean and counts the shadowed stub', () => {
+		const { w } = layered({ layerFiles: { 'data/tasks/fix-login.task.md': STUB_TASK } });
+		writeTop(w, 'data/tasks/fix-login.task.md', REAL_TASK);
+		compileQuietly(w.ws);
+		const got = getJson(w, 'tasks/fix-login');
+		assert.equal(got.name, 'Fix login (the real one)');
+		assert.equal(got.$file, 'data/tasks/fix-login.task.md');
+		assert.deepEqual(got.$shadows, ['git_modules/project-a/data/tasks/fix-login.task.md']);
+		assert.equal(got.$stub, undefined);
+		const res = dt(w.root, 'check');
+		assert.equal(res.code, 0, res.stdout + res.stderr);
+		assert.match(res.stdout, /ℹ 1 stub record shadowed by a real record of its id/);
+		// the shadowed stub is still an OWNER in its own repo: the layer's alpha lists it, check expects
+		// that, and rebuild must not strip it
+		const alpha = readFile(w.root, 'git_modules/project-a/data/projects/alpha.project.md');
+		assert.match(alpha, /tasks\/fix-login/);
+		assert.equal(dt(w.root, 'relations', 'rebuild', 'projects').code, 0);
+		assert.equal(readFile(w.root, 'git_modules/project-a/data/projects/alpha.project.md'), alpha, 'rebuild left the stub-justified mirror alone');
+	});
+
+	test('a stub in the TOP yields to a non-stub in a layer — direction does not matter', () => {
+		const { w } = layered({ layerFiles: { 'data/tasks/fix-login.task.md': REAL_TASK } });
+		writeTop(w, 'data/tasks/fix-login.task.md', STUB_TASK);
+		compileQuietly(w.ws);
+		const got = getJson(w, 'tasks/fix-login');
+		assert.equal(got.$file, 'git_modules/project-a/data/tasks/fix-login.task.md');
+		assert.deepEqual(got.$shadows, ['data/tasks/fix-login.task.md']);
+		assert.equal(dt(w.root, 'check').code, 0);
+		// a write goes to the winner, in its own repo — the stub is never the target
+		const set = dt(w.root, 'set', 'tasks/fix-login', 'name=Fix login, edited');
+		assert.equal(set.code, 0, set.stderr);
+		assert.match(set.stdout, /updated in git_modules\/project-a$/m);
+		assert.match(readFile(w.root, 'git_modules/project-a/data/tasks/fix-login.task.md'), /Fix login, edited/);
+		assert.equal(readFile(w.root, 'data/tasks/fix-login.task.md'), STUB_TASK, 'the stub is untouched');
+	});
+
+	test('across two layers: a stub in the first yields to a non-stub in the second', () => {
+		const { w } = layered({ layerFiles: { 'data/tasks/fix-login.task.md': STUB_TASK } });
+		addLayer(w, 'project-b', { 'data/tasks/fix-login.task.md': REAL_TASK });
+		compileQuietly(w.ws);
+		const got = getJson(w, 'tasks/fix-login');
+		assert.equal(got.$file, 'git_modules/project-b/data/tasks/fix-login.task.md');
+		assert.equal(got.name, 'Fix login (the real one)');
+		assert.deepEqual(dt(w.root, 'list', 'tasks').stdout.trim().split('\n'), ['fix-login'], 'one id, listed once');
+		const res = dt(w.root, 'check');
+		assert.equal(res.code, 0, res.stdout + res.stderr);
+	});
+
+	test('two non-stubs are still a violation, whatever stubs sit beside them, and a write is refused', () => {
+		const { w } = layered(); // the layer's fix-login is a real record
+		writeTop(w, 'data/tasks/fix-login.task.md', REAL_TASK);
+		addLayer(w, 'project-b', { 'data/tasks/fix-login.task.md': STUB_TASK });
+		compileQuietly(w.ws);
+		const res = dt(w.root, 'check');
+		assert.equal(res.code, 1);
+		assert.match(res.stdout, /holds the id "fix-login" twice — data\/tasks\/fix-login\.task\.md and git_modules\/project-a\/data\/tasks\/fix-login\.task\.md/);
+		assert.doesNotMatch(res.stdout, /project-b\/data\/tasks\/fix-login\.task\.md\. Remove one/, 'the stub is not one of the conflicting claimants');
+		assert.throws(() => new Store(w.ws).set('tasks', 'fix-login', { name: 'x' }), /held by 2 files/);
+	});
+
+	test('stubs only: the first root answers, check is clean, and the stub is marked $stub', () => {
+		const { w } = layered({ layerFiles: { 'data/tasks/fix-login.task.md': STUB_TASK } });
+		writeTop(w, 'data/tasks/fix-login.task.md', '---\nname: Fix login (top placeholder)\nstub: true\n---\n');
+		compileQuietly(w.ws);
+		const got = getJson(w, 'tasks/fix-login');
+		assert.equal(got.$file, 'data/tasks/fix-login.task.md');
+		assert.equal(got.$stub, true);
+		const res = dt(w.root, 'check');
+		assert.equal(res.code, 0, res.stdout + res.stderr);
+	});
+
+	test('add where only stubs hold the id is allowed — it promotes the stub — and says what it shadows', () => {
+		const { w } = layered({ layerFiles: { 'data/tasks/fix-login.task.md': STUB_TASK } });
+		compileQuietly(w.ws);
+		const res = dt(w.root, 'add', 'tasks', '--name', 'Fix login');
+		assert.equal(res.code, 0, res.stderr);
+		assert.match(res.stdout, /✔ .*data\/tasks\/fix-login\.task\.md/);
+		assert.match(res.stdout, /shadows 1 stub \(project-a\)/);
+		assert.equal(getJson(w, 'tasks/fix-login').$file, 'data/tasks/fix-login.task.md');
+		assert.equal(dt(w.root, 'check').code, 0);
+		// a real record still refuses a second real one
+		assert.match(dt(w.root, 'add', 'tasks', '--name', 'Fix login').stderr, /already exists/);
+	});
+
+	test('rm of the winner says which stub now shows, and the stub answers', () => {
+		const { w } = layered({ layerFiles: { 'data/tasks/fix-login.task.md': STUB_TASK } });
+		writeTop(w, 'data/tasks/fix-login.task.md', REAL_TASK);
+		compileQuietly(w.ws);
+		const res = dt(w.root, 'rm', 'tasks/fix-login');
+		assert.equal(res.code, 0, res.stderr);
+		assert.match(res.stdout, /stub in layer project-a now shows \(git_modules\/project-a\/data\/tasks\/fix-login\.task\.md\)/);
+		const got = getJson(w, 'tasks/fix-login');
+		assert.equal(got.$file, 'git_modules/project-a/data/tasks/fix-login.task.md');
+		assert.equal(got.$stub, true);
+	});
+
+	test('`stub` is engine-owned: every collection has it, and a module may not author it', () => {
+		const { w } = layered();
+		compileQuietly(w.ws);
+		const f = new Store(w.ws).descriptor('tasks').compiled.fields.stub;
+		assert.equal(f.type, 'boolean');
+		assert.deepEqual(f.display.hidden, ['list', 'form']);
+		const { w: w2, pkg } = layered();
+		fs.writeFileSync(path.join(w2.root, 'git_modules', 'org', 'collections', 'tasks.collection.yaml'), TASKS + '  stub:\n    type: boolean\n');
+		assert.match(compileError({ root: w2.root, pkg }) ?? '', /field "stub" is injected by the engine and cannot be authored/);
+	});
+});

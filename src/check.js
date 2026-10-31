@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import Ajv from 'ajv';
 import addFormats from 'ajv-formats';
-import { parseRecord, patternRe, fmtAjvError, unknownFields, walk, idFromRecordPath, MAX_RECORD_BYTES } from './records.js';
+import { parseRecord, patternRe, fmtAjvError, unknownFields, walk, idFromRecordPath, MAX_RECORD_BYTES, isStubRecord, resolveClaims } from './records.js';
 import { NO_RUNTIME, loadDescriptors, runtimeDir, namespaces as compiledNamespaces } from './runtime.js';
 import { parseRef } from './namespace.js';
 import { relationsOf, expectedMirrors, ownersReadIn } from './relations.js';
@@ -48,6 +48,7 @@ export function check({ root }, { extra = [] } = {}) {
 	const fileRepo = new Map();
 	const fileLayer = new Map();
 	const layerNotes = new Map(); // layer name -> note, printed once
+	const shadowedStubs = []; // { name, id, f, repo, layer } — a placeholder another root's real record answers for
 	for (const [name, d] of descriptors) {
 		const ids = new Map();
 		index.set(name, ids);
@@ -101,8 +102,11 @@ export function check({ root }, { extra = [] } = {}) {
 			}
 			continue;
 		}
-		// every root: the write root, then each record layer — first claimant keeps the id, exactly as
-		// the store indexes, and a later claimant is the duplicate reported above
+		// every root: the write root, then each record layer. Claimants are GATHERED first and then
+		// resolved exactly as the store indexes (records.js resolveClaims): a stub yields to a non-stub
+		// wherever it sits, and only a second non-stub is the duplicate reported above.
+		const offers = new Map(); // id -> [{ f, repo, layer }], root order
+		const offer = (id, f, repo, layer) => { const o = offers.get(id); if (o) o.push({ f, repo, layer }); else offers.set(id, [{ f, repo, layer }]); };
 		for (const r of storageOf(d).roots) {
 			const rootDir = r.layer ? path.join(root, r.path) : dir;
 			if (!fs.existsSync(rootDir)) {
@@ -125,29 +129,36 @@ export function check({ root }, { extra = [] } = {}) {
 						continue;
 					}
 					const main = path.join(p, storageOf(d).entry ?? 'SKILL.md');
-					if (fs.existsSync(main)) claim(entry, main, r.repo, r.layer);
+					if (fs.existsSync(main)) offer(entry, main, r.repo, r.layer);
 					else strays.push({ collection: name, file: rel(p), note: `missing entry file ${storageOf(d).entry}` });
 				}
 				continue;
 			}
-			const opaque = storageOf(d).format === 'binary';
-			const allowed = storageOf(d).accept;                  // undefined = any
-			const max = storageOf(d).max_bytes ?? MAX_RECORD_BYTES;
 			for (const f of walk(rootDir)) {
 				const id = idFromRecordPath(d, path.relative(rootDir, f));
 				if (id === null) { strays.push({ collection: name, file: rel(f) }); continue; }
 				// One id is one file. Under a fixed-extension format this cannot happen within one root;
 				// under `binary` it can, and across roots it is a layer and this workspace disagreeing.
-				if (!claim(id, f, r.repo, r.layer)) continue;
-				if (!opaque) continue;
-				const ext = path.extname(f).slice(1).toLowerCase();
-				if (allowed && !allowed.includes(ext)) {
-					violations.push({ file: rel(f), layer: r.layer, msg: `collection "${name}" does not accept .${ext} — its declared extensions are ${allowed.join(', ')}` });
-				}
-				const size = fs.statSync(f).size;
-				if (size > max) {
-					violations.push({ file: rel(f), layer: r.layer, msg: `is ${size} bytes, over collection "${name}"'s max_bytes of ${max} — a record is a small file; a big one belongs outside the vault` });
-				}
+				offer(id, f, r.repo, r.layer);
+			}
+		}
+		const opaque = storageOf(d).format === 'binary';
+		const allowed = storageOf(d).accept;                  // undefined = any
+		const max = storageOf(d).max_bytes ?? MAX_RECORD_BYTES;
+		for (const [id, list] of offers) {
+			const { winner, conflicts, shadowed } = resolveClaims(list, (c) => isStubRecord(c.f, d));
+			claim(id, winner.f, winner.repo, winner.layer);
+			for (const c of conflicts.slice(1)) claim(id, c.f, c.repo, c.layer); // reported as the duplicate
+			for (const c of shadowed) shadowedStubs.push({ name, id, ...c });
+			if (!opaque) continue;
+			const f = winner.f;
+			const ext = path.extname(f).slice(1).toLowerCase();
+			if (allowed && !allowed.includes(ext)) {
+				violations.push({ file: rel(f), layer: winner.layer, msg: `collection "${name}" does not accept .${ext} — its declared extensions are ${allowed.join(', ')}` });
+			}
+			const size = fs.statSync(f).size;
+			if (size > max) {
+				violations.push({ file: rel(f), layer: winner.layer, msg: `is ${size} bytes, over collection "${name}"'s max_bytes of ${max} — a record is a small file; a big one belongs outside the vault` });
 			}
 		}
 	}
@@ -236,13 +247,16 @@ export function check({ root }, { extra = [] } = {}) {
 	// therefore mechanical (`relations rebuild`), which is what the message says, rather than a
 	// judgement call about which side is right.
 	for (const relation of relationsOf(descriptors)) {
-		const owners = [...(parsed.get(relation.owner) ?? [])].map(([id, fields]) => ({ id, fields }));
+		const owners = [...(parsed.get(relation.owner) ?? [])].map(([id, fields]) => ({ id, fields, repo: fileRepo.get(index.get(relation.owner).get(id)) }));
 		// PER REPO: a mirror is kept only between records of one repo (store.js applyMirrorEdits), so
 		// the expectation on a target is computed from the owners in ITS repo — an owner in this
-		// workspace naming a target a layer holds is not a link the layer's own check could see.
-		const repoOfOwner = (id) => fileRepo.get(index.get(relation.owner).get(id));
+		// workspace naming a target a layer holds is not a link the layer's own check could see. A
+		// shadowed STUB is still an owner in its own repo: the mirrors it justifies there are expected.
+		const stubOwners = shadowedStubs.filter((s) => s.name === relation.owner).flatMap((s) => {
+			try { return [{ id: s.id, fields: parseRecord(s.f, descriptors.get(s.name), bodyFieldOf(descriptors.get(s.name))), repo: s.repo }]; } catch { return []; }
+		});
 		const byRepo = new Map();
-		for (const o of owners) { const r = repoOfOwner(o.id); if (!byRepo.has(r)) byRepo.set(r, []); byRepo.get(r).push(o); }
+		for (const o of [...owners, ...stubOwners]) { if (!byRepo.has(o.repo)) byRepo.set(o.repo, []); byRepo.get(o.repo).push(o); }
 		const expByRepo = new Map([...byRepo].map(([r, os]) => [r, expectedMirrors(relation, os)]));
 
 		// a unique owner reference is one-to-one, so two owners naming one target is a conflict the mirror
@@ -318,6 +332,7 @@ export function check({ root }, { extra = [] } = {}) {
 	for (const [coll, n] of [...softRefs].sort()) {
 		console.log(`⚠ peer collection "${coll}" is declared but not installed — ${n} reference${n === 1 ? '' : 's'} unresolvable`);
 	}
+	if (shadowedStubs.length) console.log(`ℹ ${shadowedStubs.length} stub record${shadowedStubs.length === 1 ? '' : 's'} shadowed by a real record of ${shadowedStubs.length === 1 ? 'its' : 'their'} id`);
 	if (violations.length === 0) {
 		console.log(`✔ 0 violations (${[...index.values()].reduce((n, m) => n + m.size, 0)} records across ${descriptors.size} collections)`);
 		return 0;

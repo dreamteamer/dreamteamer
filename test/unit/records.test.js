@@ -5,7 +5,7 @@
 // inside it. Every shape that could climb out is enumerated here.
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { assertSafeId, parseRecordText, patternRe, unknownFields, EXT, idFromRecordPath } from '../../src/records.js';
+import { assertSafeId, parseRecordText, patternRe, unknownFields, EXT, idFromRecordPath, resolveClaims } from '../../src/records.js';
 
 const md = { storage: { format: 'md' } };
 
@@ -140,5 +140,22 @@ describe('idFromRecordPath', () => {
 		const dotty = { storage: { suffix: 'a.b', format: 'binary' } };
 		assert.equal(idFromRecordPath(dotty, 'x.a.b.svg'), 'x');
 		assert.equal(idFromRecordPath(dotty, 'x.axb.svg'), null);
+	});
+});
+
+describe('resolveClaims — which claimant answers an id (stubs, 0.41.0)', () => {
+	const stubs = new Set(['b-stub', 'c-stub']);
+	const isStub = (f) => stubs.has(f);
+	test('one claimant answers alone', () => {
+		assert.deepEqual(resolveClaims(['a'], isStub), { winner: 'a', conflicts: [], shadowed: [] });
+	});
+	test('one non-stub wins wherever it sits; every stub is shadowed', () => {
+		assert.deepEqual(resolveClaims(['b-stub', 'a', 'c-stub'], isStub), { winner: 'a', conflicts: [], shadowed: ['b-stub', 'c-stub'] });
+	});
+	test('two non-stubs conflict, the first answers, the stub is neither', () => {
+		assert.deepEqual(resolveClaims(['b-stub', 'a', 'd'], isStub), { winner: 'a', conflicts: ['a', 'd'], shadowed: ['b-stub'] });
+	});
+	test('stubs only: the first root answers', () => {
+		assert.deepEqual(resolveClaims(['c-stub', 'b-stub'], isStub), { winner: 'c-stub', conflicts: [], shadowed: ['b-stub'] });
 	});
 });

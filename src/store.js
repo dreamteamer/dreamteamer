@@ -9,7 +9,7 @@ import Ajv from 'ajv';
 import addFormats from 'ajv-formats';
 import { dump, writeSource } from './yaml.js';
 import { generateId } from './template.js';
-import { parseRecord, parseRecordText, patternRe, fmtAjvError, unknownFields, walk, EXT, assertSafeId, idFromRecordPath, MAX_RECORD_BYTES } from './records.js';
+import { parseRecord, parseRecordText, patternRe, fmtAjvError, unknownFields, walk, EXT, assertSafeId, idFromRecordPath, MAX_RECORD_BYTES, isStubRecord, resolveClaims } from './records.js';
 import { normalizeRecord, normalizeTemporal } from './temporal.js';
 import { NO_RUNTIME, sourceHint, loadDescriptors, runtimeDir, namespaces as compiledNamespaces, sourceRoots as compiledSourceRoots } from './runtime.js';
 import { parseRef } from './namespace.js';
@@ -36,6 +36,7 @@ export class Store {
 		this.ajv.addFormat('markdown', true);
 		this._idsCache = new Map(); // collection -> { key, ids } (see ids())
 		this._duplicates = new Map(); // placed collection -> id -> [files], refreshed by every walk (see assertUnambiguous)
+		this._stubs = new Map();      // layered collection -> id -> [stub files the answering record shadows]
 		this._head = undefined;     // memoized `git rev-parse HEAD` (see gitHead())
 		const descriptors = loadDescriptors(root);
 		if (!descriptors) throw new Error(NO_RUNTIME);
@@ -493,14 +494,28 @@ export class Store {
 			// Across every root, write root first. FIRST claimant wins and the rest are left for `check`
 			// to report — the same rule placement follows, for the same reason: a `get` that answered
 			// from whichever layer sorted later would make the answer depend on the clone order.
-			const dupes = new Map();
+			//
+			// A STUB yields (records.js resolveClaims): an id two roots claim has its claimants' frontmatter
+			// read — only those files, never the whole index — and a non-stub answers wherever it sits.
+			// Only two non-stubs are the duplicate that refuses a write.
+			const claims = new Map();
 			for (const root of this.rootsOf(d)) {
 				for (const [id, f] of this._walkRoot(d, root.abs)) {
-					if (!ids.has(id)) { ids.set(id, f); continue; }
-					dupes.set(id, [...(dupes.get(id) ?? [ids.get(id)]), f]);
+					const c = claims.get(id);
+					if (c) c.push(f); else claims.set(id, [f]);
 				}
 			}
+			const dupes = new Map();
+			const stubs = new Map();
+			for (const [id, files] of claims) {
+				if (files.length === 1) { ids.set(id, files[0]); continue; }
+				const { winner, conflicts, shadowed } = resolveClaims(files, (f) => isStubRecord(f, d));
+				ids.set(id, winner);
+				if (conflicts.length) dupes.set(id, conflicts);
+				if (shadowed.length) stubs.set(id, shadowed);
+			}
 			this._duplicates.set(d.name, dupes);
+			this._stubs.set(d.name, stubs);
 			return ids;
 		}
 		if (storageOf(d).shape === 'folder') {
@@ -970,7 +985,9 @@ export class Store {
 		// `check` would report, and refusing it here is what keeps the id unique across every root.
 		const file = this.filePath(d, id, undefined, fields);
 		this._assertContained(d, file);
-		if (fs.existsSync(file) || ((placementOf(d) || this.layered(d)) && this.ids(collection).has(id))) throw new Error(`${collection}/${id} already exists — nothing was written.`);
+		// An id held ONLY by stubs in other roots is free: this write promotes it, and says so (`shadows`).
+		const shadows = this.layered(d) && !fs.existsSync(file) && this.ids(collection).has(id) ? this._stubOnlyClaims(d, id) : [];
+		if (fs.existsSync(file) || ((placementOf(d) || this.layered(d)) && this.ids(collection).has(id) && !shadows.length)) throw new Error(`${collection}/${id} already exists — nothing was written.`);
 		return this.withWriteLock(() => {
 			// captured before the invalidation and handed back, one entry richer, on the success path
 			// below — see _indexAdd for why an add that throws it away is the expensive shape.
@@ -1008,7 +1025,7 @@ export class Store {
 			}, storageOf(d).repo);
 			// LAST, after the commit: the key it is re-stated under carries the sha, and `commit` moves it
 			this._indexAdd(collection, memo, id, file);
-			return { id, file, idFallback, ...(deprecated.length && { deprecated }) };
+			return { id, file, idFallback, ...(deprecated.length && { deprecated }), ...(shadows.length && { shadows }) };
 		});
 	}
 
@@ -1125,6 +1142,26 @@ export class Store {
 			if (rec && rec.collection === d.name && rec.id === id) return p;
 		}
 		return null;
+	}
+
+	/** Every file claiming `id` when ALL of them are stubs, else `[]` — the case where `add` may promote. */
+	_stubOnlyClaims(d, id) {
+		const files = [this.ids(d.name).get(id), ...this.shadowedStubs(d.name, id)];
+		return files.every((f) => isStubRecord(f, d)) ? files : [];
+	}
+
+	/** The stub files an id's answering record shadows, in root order — `[]` for an id only one root
+	 *  claims. What `dt get --json` reports as `$shadows`, and what `rm` of the winner leaves showing. */
+	shadowedStubs(collection, id) {
+		this.ids(collection); // ensures the memo is current
+		return this._stubs.get(collection)?.get(id) ?? [];
+	}
+
+	/** Every shadowed stub of a collection, `{ id, file }` — a stub is a real OWNER in its own repo, so
+	 *  the mirrors it justifies there are still expected (check, relations rebuild). */
+	*shadowedStubRecords(collection) {
+		this.ids(collection);
+		for (const [id, files] of this._stubs.get(collection) ?? []) for (const file of files) yield { id, file };
 	}
 
 	/** Refuse to WRITE to an id that two files claim. The index keeps the first claimant so reads

@@ -28,11 +28,14 @@ export const DISPLAY_KEYS = new Set(['editable', 'hidden', 'form_section', 'plac
 /** JSON Schema keywords copied onto the emitted property unchanged. */
 const PASS_THROUGH = ['default', 'examples', 'pattern', 'minimum', 'maximum', 'minItems', 'maxItems', 'minLength', 'maxLength', 'const'];
 
-/** The three fields every collection has. `created` is stored (engine-written); the other two are computed on read. */
+/** The fields every collection has. `created` is stored (engine-written); `id` and `last_modified` are
+ *  computed on read; `stub` is stored and written by hand — the engine only READS it, to decide which
+ *  of several roots answers an id (records.js `resolveClaims`). */
 export const INJECTED_FIELDS = {
 	id: { type: 'string', title: 'Id', virtual: true, description: 'The record\'s path inside its collection.' },
 	created: { type: 'datetime', title: 'Created', derived: true, description: 'When the record was first written. Stamped by the engine at add; read from the id\'s date or the first commit for a record written before it existed.' },
 	last_modified: { type: 'datetime', title: 'Last modified', virtual: true, description: 'When the record was last committed, from git.' },
+	stub: { type: 'boolean', title: 'Stub', display: { hidden: ['list', 'form'] }, description: 'A placeholder: it yields to a real record of the same id in any other root (a record layer, or the workspace reading this one), and answers only where none exists.' },
 };
 
 /** Is `type` a reference to one or more collections, given the names that exist? */
@@ -58,9 +61,10 @@ export function resolveFields(authored, ctx) {
 	const defaults = {};
 	const known = new Set(Object.keys(authored ?? {}));
 	const fields = {};
-	// `created` is STAMPED by the store, which a kind whose records compile writes never goes through
+	// `created` is STAMPED by the store, which a kind whose records compile writes never goes through;
+	// a compiled source is never layered, so it has nothing to yield to and no `stub` either
 	for (const [k, v] of Object.entries(INJECTED_FIELDS)) {
-		if (k === 'created' && ctx.runtime) continue;
+		if ((k === 'created' || k === 'stub') && ctx.runtime) continue;
 		if (known.has(k)) errors.push(`field "${k}" is injected by the engine and cannot be authored`);
 		fields[k] = { ...v };
 	}
