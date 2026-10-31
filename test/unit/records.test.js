@@ -115,10 +115,10 @@ describe('idFromRecordPath', () => {
 	const mdCodec = { storage: { suffix: 'contact', format: 'md' } };
 
 	test('fixed-extension formats match their one extension, at any depth', () => {
-		assert.equal(idFromRecordPath(mdCodec, 'adi-moshe.contact.md'), 'adi-moshe');
-		assert.equal(idFromRecordPath(mdCodec, '2026/07/adi.contact.md'), '2026/07/adi');
-		assert.equal(idFromRecordPath(mdCodec, 'adi-moshe.contact.yaml'), null);
-		assert.equal(idFromRecordPath(mdCodec, 'adi-moshe.md'), null);
+		assert.equal(idFromRecordPath(mdCodec, 'sam-diaz.contact.md'), 'sam-diaz');
+		assert.equal(idFromRecordPath(mdCodec, '2026/07/sam.contact.md'), '2026/07/sam');
+		assert.equal(idFromRecordPath(mdCodec, 'sam-diaz.contact.yaml'), null);
+		assert.equal(idFromRecordPath(mdCodec, 'sam-diaz.md'), null);
 	});
 
 	test('the binary format takes ONE extension segment, whatever it is', () => {
