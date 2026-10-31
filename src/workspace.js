@@ -49,7 +49,7 @@ export function findWorkspace(start = process.cwd()) {
 /** The declared record layers, validated: `{ name, records, module }` per entry. WHAT THE CLONE IS
  *  decides it, not the reader's key (0.41.0): a clone whose own manifest names `workspace_module` is a
  *  workspace, so its data is a layer for every collection both have (`records: null`); a clone that
- *  names none is a bundle and is not listed here. `records:` still makes an entry a layer and NARROWS
+ *  names none is a bundle and is not listed here; a clone not on disk is listed (not installed). `records:` still makes an entry a layer and NARROWS
  *  it to the listed collections; `module: true` declares one too (and is refused downstream when the
  *  clone has no workspace module to contribute). `root` absent reads only the declarations. */
 export function layerEntries(pkg, root = null) {
@@ -60,7 +60,13 @@ export function layerEntries(pkg, root = null) {
 		if (r !== undefined && (!Array.isArray(r) || !r.length || r.some((c) => typeof c !== 'string' || !c.trim()))) {
 			throw new Error(`git_modules.${name}.records must be a non-empty list of collection names (got ${JSON.stringify(r)})`);
 		}
-		if (r === undefined && entry?.module !== true && !(root && cloneWorkspaceModule(path.join(root, 'git_modules', name)))) continue;
+		// a clone ON DISK that names no workspace module is a bundle. One NOT on disk cannot say what it is,
+		// and is read as a layer that is not installed — announced by compile, check and status — rather
+		// than vanishing: reading a project is the default since 0.41.0, and silence is how an absent
+		// layer passed for an empty one.
+		const clone = root ? path.join(root, 'git_modules', name) : null;
+		if (r === undefined && entry?.module !== true && clone && fs.existsSync(clone) && !cloneWorkspaceModule(clone)) continue;
+		if (r === undefined && entry?.module !== true && !clone) continue;
 		out.push({ name, records: r ?? null, module: entry?.module === true });
 	}
 	return out;

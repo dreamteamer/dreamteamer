@@ -614,6 +614,7 @@ export function compile(ws) {
 	let layers;
 	try { layers = layerEntries(pkg, root).map((l) => ({ ...l, root: path.posix.join('git_modules', l.name), dataPath: layerDataPath(root, l.name) })); }
 	catch (e) { fail(e.message); }
+	for (const l of layers) if (!fs.existsSync(path.join(root, l.root))) console.warn(`⚠ layer ${l.name} (${l.root}) is not installed — its records are not read; run dreamteamer install`);
 
 	const disabled = new Set(config.disable ?? []);
 	const disabledHits = new Set(disabledModules); // bare entries were applied at discovery

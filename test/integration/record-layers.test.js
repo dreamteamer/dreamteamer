@@ -654,3 +654,15 @@ describe('record-level stubs: a record carrying `stub: true` yields to any non-s
 		assert.match(compileError({ root: w2.root, pkg }) ?? '', /field "stub" is injected by the engine and cannot be authored/);
 	});
 });
+
+describe('review round 1 (0.41.0)', () => {
+	test('a layer declared WITHOUT records: whose clone is absent is announced by compile, check and status', () => {
+		const { w } = layered({ records: null, clone: false });
+		const out = compileQuietly(w.ws);
+		assert.match(out.warnings.join('\n'), /⚠ layer project-a \(git_modules\/project-a\) is not installed — its records are not read; run dreamteamer install/);
+		const res = dt(w.root, 'check');
+		assert.equal(res.code, 0, res.stdout + res.stderr);
+		assert.match(res.stdout, /layer project-a.*not installed/);
+		assert.match(dt(w.root, 'status').stdout, /layers:\n\s+project-a\s+not installed — dreamteamer install/);
+	});
+});
