@@ -20,6 +20,47 @@ npx dreamteamer check
 
 ---
 
+## 0.41.0 — a project layer reads by what it is, stub records yield, and `-w` names a layer
+
+Nothing to do but `dt compile` for most workspaces. Three things to know if you read record layers,
+declare a field called `stub`, or type `--vault`.
+
+- **A `git_modules` clone that names its `workspace_module` is a record layer without `records:`.**
+  What the clone IS decides it now: its own package.json naming `dreamteamer.workspace_module`
+  makes it a workspace, so every collection both workspaces have reads its data folder. A clone that
+  names none is a bundle, unchanged. **`records:` is optional and still narrows** — an existing list
+  keeps working exactly as before, and can be deleted when you want every collection read.
+  `module: true` no longer needs `records:` (it is refused, naming the entry, when the clone has no
+  workspace module). After the upgrade, expect at compile:
+  - an `ℹ layer <name>: <collection> is not read from the layer — …` line for a collection that
+    cannot layer (module-owned, placed, env-pointed) when the clone holds files for it — skipped,
+    never a failure, where naming it in `records:` stays a compile error;
+  - a `⚠ layer <name>: git_modules/<name>/data/<folder>/ holds N files and no collection here reads
+    it` warning for a project folder whose collection this workspace does not install. Install the
+    module to read them, or list the collections you do want in `records:`.
+  - ⚠ **a clone you used as a BUNDLE whose package.json happens to name a `workspace_module`** is
+    now read as a layer, and its `modules/` stop compiling. Remove the key from the clone, or point
+    the entry at the modules you want another way. `dt status` lists, per layer, the collections
+    FOUND in it.
+- **`stub: true` on a record makes it yield.** One real record plus any stubs of the same id: the
+  real one answers wherever it sits — this workspace or a layer, either direction — and `dt check`
+  is clean with an `ℹ` counting the shadowed stubs. Two real records are still a violation. Stubs
+  only: the first root answers. `dt add` of an id only stubs hold is allowed and prints
+  `shadows N stubs (<layer>…)`; `dt rm` of the answering record says which stub now shows;
+  `dt get --json` carries `$stub` and `$shadows`. ⚠ **`stub` is now an engine-owned field on every
+  collection**, like `created` — a module that declares its own `stub` field fails to compile, naming
+  it. Rename that field (`dt rename-field`) before upgrading.
+- **`--workspace <name|path>` (`-w`) replaces `--vault`.** It accepts a record layer's git_modules
+  name as well as a path: `dt add tasks "…" -w project-alpha` lands the record in the layer and prints
+  `✔ project-alpha · data/tasks/…`. An undeclared name is refused with the declared list. `--vault`
+  still works, silently, for this minor and is dropped in the next. ⚠ A path INTO `git_modules/`
+  (`--vault git_modules/<clone>`) used to run the verb in the workspace AROUND the clone — a write
+  meant for the layer landed in the reader. It now runs in the clone. ⚠ The flag is consumed before
+  any verb sees it, so a collection field named `workspace` can no longer be given as
+  `--workspace <value>` on `dt add` — use `dt set <ref> workspace=<value>` for it.
+
+---
+
 ## 0.40.0 — where a record lives, collapsed form sections, an unread `data/` warned about
 
 Nothing to do but `dt compile`. Everything here is additive; one new compile warning may appear.
