@@ -675,4 +675,21 @@ describe('review round 1 (0.41.0)', () => {
 		assert.match(res.stdout, /✖ data\/tasks\/fix-login\.task\.md\n[\s\S]*name/);
 		assert.match(res.stdout, /unknown field "lane"/);
 	});
+
+	test('rm of the record that answers over a stub is not refused for references the stub keeps resolving, and never calls them dangling', () => {
+		const { w } = layered({ layerFiles: {
+			'data/projects/beta.project.md': '---\nname: Beta\nstub: true\ntasks:\n  - tasks/ship\n---\n',
+			'data/tasks/ship.task.md': '---\nname: Ship\nproject: projects/beta\n---\n',
+		} });
+		writeTop(w, 'data/projects/beta.project.md', '---\nname: Beta\n---\n');
+		compileQuietly(w.ws);
+		assert.equal(dt(w.root, 'check').code, 0);
+		const res = dt(w.root, 'rm', 'projects/beta');
+		assert.equal(res.code, 0, res.stderr);
+		assert.doesNotMatch(res.stdout, /dangling/);
+		assert.match(res.stdout, /1 inbound reference\(s\) now resolve to the stub; stub in layer project-a now shows \(git_modules\/project-a\/data\/projects\/beta\.project\.md\)/);
+		assert.match(readFile(w.root, 'git_modules/project-a/data/tasks/ship.task.md'), /project: projects\/beta/, 'the reference is untouched');
+		assert.equal(dt(w.root, 'check').code, 0);
+	});
 });
+

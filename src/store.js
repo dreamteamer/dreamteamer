@@ -1255,6 +1255,13 @@ export class Store {
 			}
 		}
 
+		// ---- an id a STUB keeps answering does not go away -----------------------------------
+		// Removing the record that answers over a stub leaves the id resolving — to the stub. So every
+		// reference to it still resolves: nothing is refused for them, nothing is set to null, and
+		// nothing is reported dangling. (Its own mirror entries are still detached below.)
+		const keepsResolving = this.shadowedStubs(collection, id).length > 0;
+		if (keepsResolving) setNullEdits.length = 0;
+
 		// ---- what the text scan finds that is NOT the engine's own bookkeeping -------------
 		// The scan is per FILE, and one file can name this record TWICE — a mirror the engine wrote, and
 		// a wikilink somebody typed in the same record's body. So excluding a file WHOLESALE is wrong:
@@ -1299,7 +1306,7 @@ export class Store {
 		// shape, which is what this sentence has always said. What the scan misses (a bare FK, or an
 		// owner file excluded because it also holds a mirror of ours) is named as record + field.
 		const extraRestrict = restrictHits.filter((h) => !inbound.includes(h.file));
-		if ((inbound.length || extraRestrict.length) && !force) {
+		if ((inbound.length || extraRestrict.length) && !force && !keepsResolving) {
 			const all = [...inbound, ...extraRestrict.map((h) => `${h.file} (${h.ref}.${h.field})`)];
 			throw new Error(`${self} is referenced by:\n${all.map((f) => `  ${f}`).join('\n')}\nfix the references or pass --force. nothing was removed.`);
 		}
@@ -1366,7 +1373,8 @@ export class Store {
 			// target is gone but its owners still name it is a history that never held a consistent
 			// workspace.
 			this.commit([unit, ...mirrors.files, ...nullFiles], `dreamteamer: ${collection} rm ${id}`, rollback, this.repoOfFile(d, unit));
-			return { id, inboundIgnored: force ? inbound.length + extraRestrict.length : 0 };
+			const inboundCount = inbound.length + extraRestrict.length;
+			return { id, inboundIgnored: force && !keepsResolving ? inboundCount : 0, ...(keepsResolving ? { inboundResolveToStub: inboundCount } : {}) };
 		});
 	}
 

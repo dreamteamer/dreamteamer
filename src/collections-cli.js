@@ -239,11 +239,11 @@ export function collectionCommand(ws, collection, verb, args) {
 			const id = need(pos, 0, 'id');
 			if (flags['dry-run']) return dryRunPlan(`rm ${collection}/${id}`, { records: store.ids(collection).has(id) ? 1 : 0, refs: store.findInboundRefs(`${collection}/${id}`).length });
 			const where = store.ids(collection).has(id) ? store.locate(collection, id) : null; // a missing id is store.rm's to refuse
-			const { inboundIgnored } = store.rm(collection, id, { force: !!flags.force });
+			const { inboundIgnored, inboundResolveToStub } = store.rm(collection, id, { force: !!flags.force });
 			// the id does not vanish when a stub was shadowed by what was just removed — say which now answers
 			const next = store.ids(collection).get(id);
 			const showing = next ? store.layerOfFile(d, next) : null;
-			const nowShows = next ? `; stub ${showing ? `in layer ${showing.layer}` : 'in this workspace'} now shows (${store.locationOf(d, next).file})` : '';
+			const nowShows = next ? `${inboundResolveToStub ? ` — ${inboundResolveToStub} inbound reference(s) now resolve to the stub` : ''}; stub ${showing ? `in layer ${showing.layer}` : 'in this workspace'} now shows (${store.locationOf(d, next).file})` : '';
 			flags.json ? emit(JSON.stringify({ id, removed: true, inboundIgnored, ...(next ? { $now: store.locationOf(d, next).file } : {}) })) : console.log(`✔ ${at}removed${landedIn(where)}${inboundIgnored ? ` (${inboundIgnored} inbound reference(s) left dangling — run \`dreamteamer check\`)` : ''}${nowShows}`);
 			return 0;
 		}
