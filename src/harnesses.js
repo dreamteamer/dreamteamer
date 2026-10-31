@@ -511,6 +511,9 @@ function orientationBlock(flavor, skillsIndex, sourceLayout = 'flat', namespaces
 		'files; ids are paths; references are `<collection>/<id>`. run `dreamteamer check` (`npm run',
 		'check`) after bulk edits; run `dreamteamer compile` (`npm run compile`) after changing any',
 		'source or installing modules.',
+		// the record report (0.42.0): the RULE is here because this block is in every turn and the reply
+		// that owes it may be forty turns past the skill's loading; the FORMAT lives in the skill only
+		'a reply that wrote records ends with the record report `dt changes` prints — the format is in the skill.',
 	];
 	// an installed extension's own paragraph — how an optional tool tells every session it exists
 	for (const p of extra.paragraphs) lines.push(p.trim());

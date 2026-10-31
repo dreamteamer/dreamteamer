@@ -20,8 +20,8 @@ import { collectionCommand, emit, relationsCommand, reportCommits } from './coll
 import { formatDescriptors } from './schema-ops.js';
 import { init, installClone, update, listRepos } from './init.js';
 import { installCommand, describeCheckout } from './checkout.js';
-import { deriveEvents } from './events.js';
-import { commitPending } from './commit.js';
+import { foldChanges, groupChanges, reportLine } from './events.js';
+import { commitPending, recordChanges, rowChanges } from './commit.js';
 import { Store } from './store.js';
 import { splitRef, canonicalCollection } from './ref.js';
 import { envContext, renderTemplate } from './env-vars.js';
@@ -233,13 +233,17 @@ workspace verbs:
               anything is UNAVAILABLE [--json]
   status      workspace status: compiled runtime freshness, per-module channel/ref, staleness
 
-  changes     what changed in every repo that holds records, as record events
-              [--since <sha|YYYY-MM-DD>] (default: HEAD~1 — the last commit's own changes) [--json]
+  changes     the records created / updated / deleted in every repo that holds records — the
+              workspace and each record layer — grouped by collection, each with its path, layer
+              and whether it is committed. Its first line is the report a reply ends with
+              [--since <sha|YYYY-MM-DD>] (default: HEAD — what is written but not committed;
+              a sha or date adds the commits since then, e.g. --since HEAD~1) [--json]
   commit      publish records already written to disk: samples git status over every
               collection's record dirs, one commit PER REPO, subject composed from the
               status letters. Scope it with any number of targets, each either a whole
               <collection> or one <collection>/<id> — the record form is what keeps a
-              concurrent session's pending records out of your commit.
+              concurrent session's pending records out of your commit. Ends with the same
+              record report \`changes\` prints, for what it published.
               [<collection>|<collection>/<id> …] [-m <subject>] [--dry-run] [--json]
   help        this text
 
@@ -302,6 +306,21 @@ const VERB_PACKAGES = {
 	serve: '@dreamteamer/http', notebooklm: '@dreamteamer/notebooklm',
 };
 const DOCKER_VERBS = new Set(['start', 'stop', 'open', 'export', 'import']);
+
+/** The record-change report: the report line, then one row per record — its change, ref, workspace
+ *  path (what a reply links to), committed or not, and the layer it landed in — capped like every
+ *  other listing here. `dt changes` and `dt commit` print it identically, so what a session copies
+ *  into its reply does not depend on which of the two it ran. */
+function printChanges(changes) {
+	const groups = groupChanges(changes);
+	console.log(reportLine(groups));
+	const rows = groups.flatMap((g) => g.records);
+	for (const c of rows.slice(0, ROWS_SHOWN)) {
+		const state = c.committed ? `committed${c.sha ? ` ${c.sha}` : ''}` : 'uncommitted';
+		console.log(`  ${c.change.padEnd(7)}  ${c.ref}  ${c.path}  · ${state}${c.layer ? ` · layer ${c.layer}` : ''}`);
+	}
+	if (rows.length > ROWS_SHOWN) console.log(`  + ${rows.length - ROWS_SHOWN} more — --json lists every record`);
+}
 
 export async function run(argv) {
 	const [cmd, ...rest] = argv;
@@ -412,25 +431,23 @@ export async function run(argv) {
 			// record events from git history was the genuinely used half (catch-up — "what happened
 			// while I was away"), while creating run records from triggers was not. Read-only by
 			// construction: no cursor to advance, nothing to store, so it is safe to run twice.
+			// Since 0.42.0 its default is the UNCOMMITTED state (`HEAD`), because the question a
+			// session asks after a write is "what did I just change" — and its first line is the
+			// report line the skill tells a session to end its reply with.
 			case 'changes': {
 				warnIfStale(ws.root);
 				const si = rest.indexOf('--since');
-				const since = si > -1 ? rest[si + 1] : 'HEAD~1';
-				const store = new Store(ws);
-				const events = deriveEvents(ws.root, store.descriptors, since, 'HEAD');
-				if (rest.includes('--json')) { emit(JSON.stringify({ since, head: 'HEAD', events }, null, 2)); process.exit(0); }
+				if (si > -1 && (!rest[si + 1] || rest[si + 1].startsWith('-'))) throw new Error('--since needs a commit or a date: dt changes --since <sha|YYYY-MM-DD> (bare `dt changes` is the uncommitted state)');
+				const since = si > -1 ? rest[si + 1] : 'HEAD';
+				const events = recordChanges(new Store(ws), { since });
+				if (rest.includes('--json')) {
+					emit(JSON.stringify({ since, head: 'HEAD', events, collections: groupChanges(events).map(({ records, ...g }) => g) }, null, 2));
+					process.exit(0);
+				}
 				if (!events.length) { console.log(`✔ no record changes since ${since}`); process.exit(0); }
-				const byCollection = new Map();
-				for (const e of events) {
-					if (!byCollection.has(e.collection)) byCollection.set(e.collection, []);
-					byCollection.get(e.collection).push(e);
-				}
-				console.log(`${events.length} record change(s) since ${since}:`);
-				for (const [c, list] of [...byCollection].sort()) {
-					const n = (t) => list.filter((e) => e.type === t).length;
-					console.log(`  ${c}: ${n('item-added')} added, ${n('item-updated')} updated, ${n('item-removed')} removed`);
-					for (const e of list) console.log(`    ${e.type.replace('item-', '').padEnd(7)} ${c}/${e.id}`);
-				}
+				printChanges(events);
+				const open = events.filter((e) => !e.committed).length;
+				console.log(`${events.length} record change(s) since ${since} — ${open ? `${open} uncommitted` : 'all committed'}`);
 				process.exit(0);
 			}
 			// the other half of `auto-commit: false` — record writes land on disk uncommitted, and
@@ -447,6 +464,7 @@ export async function run(argv) {
 				const results = commitPending(store, { only, message, dryRun: rest.includes('--dry-run') });
 				if (rest.includes('--json')) { emit(JSON.stringify(results, null, 2)); process.exit(0); }
 				if (!results.some((r) => !r.outside)) console.log('nothing pending');
+				const published = [];
 				for (const r of results) {
 					// an env-pointed collection's folder is outside every repo here: kept, never committed, said
 					if (r.outside) { console.log(`· ${r.outside}: ${r.repo} is outside every git repo here (storage.path ${r.template}) — its records are kept on this machine, never committed`); continue; }
@@ -455,8 +473,8 @@ export async function run(argv) {
 					if (r.pending) { console.error(`⚠ ${r.repo}: ${r.rows.length} record(s) left pending — ${r.pending}; run dreamteamer commit again once it is fixed`); continue; }
 					if (r.warning) console.warn(`⚠ ${r.repo}: ${r.warning}`);
 					console.log(`✔ ${r.repo === '.' ? 'workspace' : r.repo}${r.sha ? ` ${r.sha}` : ' (dry run)'} — ${r.subject}`);
-					for (const row of r.rows.slice(0, ROWS_SHOWN)) console.log(`    ${row.verb} ${row.collection}/${row.id}`);
-					if (r.rows.length > ROWS_SHOWN) console.log(`    + ${r.rows.length - ROWS_SHOWN} more`);
+					// what this repo published, for the ONE report block printed after every repo
+					for (const c of rowChanges(store.descriptors, r.repo, r.rows)) published.push({ ...c, sha: r.sha });
 					// Half a pair was published — name the records that finish it. `dt commit
 					// <collection>` publishes exactly that collection by design, so this is an honest
 					// report of what it left behind, not a failure: HEAD fails `check` until they land.
@@ -486,6 +504,8 @@ export async function run(argv) {
 						console.warn('    (if that refuses as entangled, the refusal names the other pending records — add them to the same command)');
 					}
 				}
+				// the same block `dt changes` prints, for what was published — a dry run's rows are uncommitted
+				if (published.length) printChanges(foldChanges(published.filter((c) => c.sha), published.filter((c) => !c.sha)));
 				process.exit(results.some((r) => r.blocked || r.failed) ? 1 : 0);
 			}
 			case 'status': {

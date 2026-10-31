@@ -393,7 +393,7 @@ describe('commit and changes', () => {
 		assert.equal(res.code, 0, res.stdout + res.stderr);
 		assert.equal(ws.git(['status', '--porcelain', 'data']), '');
 
-		const changes = JSON.parse(ws.dt('changes', '--json').stdout);
+		const changes = JSON.parse(ws.dt('changes', '--since', 'HEAD~1', '--json').stdout);
 		assert.ok(changes.events.some((e) => e.collection === 'tasks' && e.id === 't'));
 	});
 

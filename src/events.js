@@ -134,3 +134,68 @@ export function eventCommit(root, fromSha, toSha, relPath) {
 		.toString().trim();
 	return out || toSha;
 }
+
+// ── the record-change report (0.42.0) ────────────────────────────────────────────────────────────
+// What `dt changes` and `dt commit` print, and what a session appends to its reply after a write.
+// A change is `{ collection, id, ref, path, repo, layer, change }` with `change` one of the three
+// words the report uses; `deriveEvents`' `item-*` types are the same three facts, older spelling.
+export const CHANGE_OF = { 'item-added': 'created', 'item-updated': 'updated', 'item-removed': 'deleted' };
+export const TYPE_OF = { created: 'item-added', updated: 'item-updated', deleted: 'item-removed' };
+
+/** `before` (the committed half, oldest first) folded with `after` (the pending half) — one entry per
+ *  record per repo, `committed` true when no pending part is left. Inside one half a ref can appear
+ *  twice only as a MOVE (a relocate, a placed record re-parented: deleted at one path, created at
+ *  another), which is one update at the live path. Across the halves the net change wins: created
+ *  then deleted never existed at either end and is dropped; created then edited is still created;
+ *  deleted then re-created is an update. The SAME ref in two repos is two records — a layer's copy
+ *  is not the workspace's. */
+export function foldChanges(before, after) {
+	const key = (c) => `${c.repo}\0${c.ref}`;
+	const half = (list) => {
+		const m = new Map();
+		for (const c of list) {
+			const had = m.get(key(c));
+			m.set(key(c), had ? { ...(c.change === 'deleted' ? had : c), change: 'updated' } : c);
+		}
+		return m;
+	};
+	const out = new Map();
+	for (const [k, c] of half(before)) out.set(k, { ...c, committed: true });
+	for (const [k, c] of half(after)) {
+		const was = out.get(k)?.change;
+		const change = !was ? c.change
+			: was === 'created' ? (c.change === 'deleted' ? null : 'created')
+			: was === 'deleted' && c.change === 'created' ? 'updated' : c.change;
+		if (change) out.set(k, { ...c, change, committed: false });
+		else out.delete(k);
+	}
+	const order = (c) => [c.collection, c.layer ?? '', c.id];
+	return [...out.values()].sort((a, b) => {
+		const [x, y] = [order(a), order(b)];
+		for (let i = 0; i < x.length; i++) if (x[i] !== y[i]) return x[i] < y[i] ? -1 : 1;
+		return 0;
+	});
+}
+
+/** One group per collection AND layer, in the order `foldChanges` sorted them: a collection changed
+ *  both here and in a layer is two entries, so the line never hides which repo a write landed in. */
+export function groupChanges(changes) {
+	const groups = new Map();
+	for (const c of changes) {
+		const k = `${c.collection}\0${c.layer ?? ''}`;
+		if (!groups.has(k)) groups.set(k, { collection: c.collection, layer: c.layer ?? null, created: 0, updated: 0, deleted: 0, records: [] });
+		const g = groups.get(k);
+		g[c.change]++;
+		g.records.push(c);
+	}
+	return [...groups.values()];
+}
+
+/** `records — contacts: 1 created, 2 updated · issues (project-a): 1 created` — the report's first
+ *  line, the one the skill tells a session to end its reply with. Empty when nothing changed: the
+ *  rule is that nothing written appends nothing. */
+export function reportLine(groups) {
+	if (!groups.length) return '';
+	const counts = (g) => ['created', 'updated', 'deleted'].filter((w) => g[w]).map((w) => `${g[w]} ${w}`).join(', ');
+	return `records — ${groups.map((g) => `${g.collection}${g.layer ? ` (${g.layer})` : ''}: ${counts(g)}`).join(' · ')}`;
+}

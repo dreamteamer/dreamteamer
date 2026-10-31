@@ -99,6 +99,34 @@ the primary workspace's, whoever shipped the skill you are reading.
   the wrong workspace passes validation, because the collection usually exists in both, so that line
   is what distinguishes them.
 
+## a reply that wrote records ends with the record report
+
+a write prints one `✔` line into a tool result the operator does not read. so any reply that
+follows a write — a record verb, `dt commit`, a system verb, a script that called them, a
+hand-edited record — ENDS with the record report, and nothing written, nothing appended.
+
+**measure it, never recall it.** run `dt changes` before replying: it lists what is written and
+not committed, in this workspace and every record layer it reads. if you committed during the turn,
+`dt changes --since <the sha HEAD had before your first write>` (or fold what `dt commit` printed —
+the same block). the report, for a turn that added a contact, set two, removed a meeting and added
+an issue with `-w project-a`:
+
+```
+records — contacts: 1 created, 2 updated · issues (project-a): 1 created · meetings: 1 deleted
+[contacts/sam-diaz](data/contacts/sam-diaz.contact.md) (created) · [contacts/dana-oren](data/contacts/dana-oren.contact.md) (updated) · [contacts/harbor-mutual-desk](data/contacts/harbor-mutual-desk.contact.md) (updated) · [issues/login-times-out](git_modules/project-a/data/issues/login-times-out.issue.md) (created) · meetings/kickoff (deleted)
+```
+
+- **line one is `dt changes`'s first line, verbatim**: one entry per collection touched, counts per
+  verb; a write into a record layer shows as `<collection> (<layer>)`.
+- **then every record as a link** — `[<ref>](<path>)`, the path column `dt changes` prints, which is
+  relative to the workspace root (a layer's record too) so the editor opens it. a deleted record has
+  no file: write its ref with `(deleted)`, unlinked. past twenty records, say `+ N more` and
+  point at `dt changes --json`.
+- **only YOUR writes.** the uncommitted state is shared: another session's pending records show in
+  `dt changes` too. leave out a row you did not write, and recount line one when you do.
+- **nothing written, nothing appended** — no empty report, no "no records changed" line. a system
+  write (`dt add-field` …) is reported the same way under its collection.
+
 ## two acts, one map
 
 Act one is **working with data** — the records themselves. Act two is **modeling the workspace**
@@ -109,7 +137,7 @@ Load by the map; nothing here is loaded "just in case".
 |---|---|
 | a brand-new or empty workspace, dreamteamer over an existing pile of files, "help me set this up" | `references/getting-started.md` |
 | read, create, update, rename, delete, commit — or UNDO — a record | `references/records.md` |
-| "what changed while I was away" | `references/changes.md` |
+| "what changed while I was away", what this turn changed, the record report | `references/changes.md` |
 | the workspace seems unable to do something — a new kind of thing, a missing capability, "don't we already have this?" | `references/before-you-build.md` (look first); a new model then continues `references/data-modeling.md` (decide) → `references/collections.md` (write it) |
 | a collection or field, mechanically — the descriptor and its field vocabulary, ids, `display`, the system and field verbs, mixins and overlays, the `package.json` block, a compile or check message | `references/collections.md` |
 | "keep a company's meetings in the company's folder" — records stored beside the record they belong to, a `placed … but` check report, `dt relocate` | `references/collections.md` (declaring it) · `references/records.md` (working with it) |
