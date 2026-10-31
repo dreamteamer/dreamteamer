@@ -665,4 +665,14 @@ describe('review round 1 (0.41.0)', () => {
 		assert.match(res.stdout, /layer project-a.*not installed/);
 		assert.match(dt(w.root, 'status').stdout, /layers:\n\s+project-a\s+not installed — dreamteamer install/);
 	});
+
+	test("the reader's check validates a stub it holds even while a layer's real record answers the id", () => {
+		const { w } = layered({ layerFiles: { 'data/tasks/fix-login.task.md': REAL_TASK } });
+		writeTop(w, 'data/tasks/fix-login.task.md', '---\nstub: true\nlane: mobile\n---\n'); // no name (required), an unknown field
+		compileQuietly(w.ws);
+		const res = dt(w.root, 'check');
+		assert.equal(res.code, 1, res.stdout);
+		assert.match(res.stdout, /✖ data\/tasks\/fix-login\.task\.md\n[\s\S]*name/);
+		assert.match(res.stdout, /unknown field "lane"/);
+	});
 });

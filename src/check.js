@@ -177,7 +177,12 @@ export function check({ root }, { extra = [] } = {}) {
 		const bodyField = bodyFieldOf(d);
 		parsed.set(name, new Map());
 
-		for (const [id, file] of index.get(name)) {
+		// a stub THIS workspace holds is validated here even while a layer's record answers its id: no
+		// other workspace reads that file, and it must stand on its own the moment the layer's record goes.
+		// (A layer's shadowed stub is its own workspace's to validate.)
+		const ownStubs = shadowedStubs.filter((x) => x.name === name && !x.layer).map((x) => [x.id, x.f, true]);
+		for (const [id, file, shadow] of [...[...index.get(name)].map(([i, f]) => [i, f, false]), ...ownStubs]) {
+			if (shadow) fileRepo.set(file, storageOf(d).repo);
 			if (idsOf(d).pattern && !patternRe(idsOf(d).pattern).test(id)) {
 				flag(file, `id "${id}" does not match pattern ${idsOf(d).pattern}`);
 			}
@@ -224,7 +229,7 @@ export function check({ root }, { extra = [] } = {}) {
 					flag(file, `placed ${where} but ${should} — the file is not where its owner puts it. Run: dreamteamer relocate ${name}/${id}`);
 				}
 			}
-			parsed.get(name).set(id, fields);
+			if (!shadow) parsed.get(name).set(id, fields);
 		}
 		// descriptor v2: `unique: true` on a scalar field — the second record holding a value is the
 		// one reported, naming the first. Null and absent never claim.
