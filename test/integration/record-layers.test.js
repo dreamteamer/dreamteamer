@@ -691,5 +691,18 @@ describe('review round 1 (0.41.0)', () => {
 		assert.match(readFile(w.root, 'git_modules/project-a/data/tasks/ship.task.md'), /project: projects\/beta/, 'the reference is untouched');
 		assert.equal(dt(w.root, 'check').code, 0);
 	});
+
+	test('a long-lived Store notices a stub: flag flipped in place and answers the new winner', () => {
+		const { w } = layered({ layerFiles: { 'data/tasks/fix-login.task.md': STUB_TASK } });
+		writeTop(w, 'data/tasks/fix-login.task.md', REAL_TASK);
+		compileQuietly(w.ws);
+		const store = new Store(w.ws);
+		assert.equal(store.locate('tasks', 'fix-login').file, 'data/tasks/fix-login.task.md');
+		// the editor's shape: both files rewritten in place — no folder moves, HEAD does not move
+		fs.writeFileSync(path.join(w.root, 'data/tasks/fix-login.task.md'), STUB_TASK);
+		fs.writeFileSync(path.join(w.root, 'git_modules/project-a/data/tasks/fix-login.task.md'), REAL_TASK);
+		assert.equal(store.locate('tasks', 'fix-login').file, 'git_modules/project-a/data/tasks/fix-login.task.md');
+		assert.deepEqual(store.shadowedStubs('tasks', 'fix-login').map((f) => path.relative(w.root, f)), ['data/tasks/fix-login.task.md']);
+	});
 });
 

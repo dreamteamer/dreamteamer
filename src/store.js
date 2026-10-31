@@ -37,6 +37,7 @@ export class Store {
 		this._idsCache = new Map(); // collection -> { key, ids } (see ids())
 		this._duplicates = new Map(); // placed collection -> id -> [files], refreshed by every walk (see assertUnambiguous)
 		this._stubs = new Map();      // layered collection -> id -> [stub files the answering record shadows]
+		this._claimFiles = new Map(); // layered collection -> every file of a contested id at the last walk (see _claimStamps)
 		this._head = undefined;     // memoized `git rev-parse HEAD` (see gitHead())
 		const descriptors = loadDescriptors(root);
 		if (!descriptors) throw new Error(NO_RUNTIME);
@@ -418,8 +419,20 @@ export class Store {
 		const hit = this._idsCache.get(collection);
 		if (hit?.key === key) return hit.ids;
 		const ids = this._walkIds(d, dir);
-		this._idsCache.set(collection, { key, ids });
+		// the folder half as measured BEFORE the walk (a change during it invalidates the next read), the
+		// claimant half AFTER it — the walk is what decides which files are contested
+		this._idsCache.set(collection, { key: key.replace(/\|claims:.*$/, '') + this._claimStamps(d), ids });
 		return ids;
+	}
+
+	/** Which file answers a contested id depends on file CONTENT (`stub: true`), which an in-place edit
+	 *  changes without moving any folder or HEAD — so the files of every id more than one root claimed at
+	 *  the last walk are stamped too (mtime and size). Empty for an uncontested collection. */
+	_claimStamps(d) {
+		const files = this._claimFiles.get(d.name);
+		if (!files?.length) return '';
+		const st = (f) => { try { const s = fs.statSync(f); return `${s.mtimeMs}:${s.size}`; } catch { return '-'; } };
+		return `|claims:${files.map(st).join(',')}`;
 	}
 
 	/** The validity key `ids()` compares against, as its own method because `add` restates it AFTER
@@ -436,7 +449,7 @@ export class Store {
 		// vanished folder changes the string as surely as a changed one. A LAYER is the same shape:
 		// `dt update` pulls files into it without moving this workspace's HEAD or any root's mtime.
 		const dirs = this.recordDirs(d);
-		return `${this.gitHead()}:${dirs.map(dirTreeStamps).join('|')}`;
+		return `${this.gitHead()}:${dirs.map(dirTreeStamps).join('|')}${this._claimStamps(d)}`;
 	}
 
 	/** Refuse a placed write whose path crosses a symlink inside the parent collection's root — a link
@@ -516,6 +529,7 @@ export class Store {
 			}
 			this._duplicates.set(d.name, dupes);
 			this._stubs.set(d.name, stubs);
+			this._claimFiles.set(d.name, [...claims.values()].filter((f) => f.length > 1).flat());
 			return ids;
 		}
 		if (storageOf(d).shape === 'folder') {
