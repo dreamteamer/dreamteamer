@@ -35,7 +35,7 @@ export async function openWorkspace(start = process.cwd()) {
 	return ws;
 }
 export { findWorkspace };
-export { EXTENSION_API, declaredExtensions } from './extensions.js';
+export { EXTENSION_API, declaredExtensions, contributedNotes } from './extensions.js';
 
 /** What every extension's `check` reports on `ws`, as `check(ws, { extra })` takes it — attributed to
  *  the extension, a throw being a violation. `dt check` and an in-process caller get one verdict. */

@@ -50,6 +50,7 @@ never disagree with the one the operator ran. It returns a contribution; every k
 | `hooks` | `{ <ClaudeHookEvent>: '<dt verb args>' }` | merged into `dt install --print-adapters` |
 | `check` | `({ root, ws, dt }) → [{ file, message }]` | `dt check` reports each as a violation after the schema's, attributed to the extension; a throw is a violation too |
 | `doctor` | `({ root, ws, dt }) → [{ label, state: ok\|warn\|bad, detail?, fix? }]` | `dt doctor` renders the rows as one capability named after the extension: READY, DEGRADED (a warn) or UNAVAILABLE (a bad), each fix on its row |
+| `next` | `({ root, ws, collection, ids }) → [{ id, text }]`, synchronous | `dt next <ref>` prints each line under the bound commands (`--json`: `notes`, attributed); a throw is one failure line, never a failed `dt next`. `contributedNotes(ws, collection, ids)` is the same call for a surface |
 
 The `draft` is data only: the staged entries, the final merged descriptors, the modules, declared var
 and env key NAMES, and the previous manifest. No writer, no Store, no environment values — an analysis

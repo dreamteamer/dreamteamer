@@ -21,6 +21,7 @@
 //   hooks       { <ClaudeHookEvent>: '<dt verb args>' }     rendered by `dt install --print-adapters`
 //   check       ({ root, ws, dt }) → [{ file, message }]   cross-record rules `dt check` reports after the schema's
 //   doctor      ({ root, ws, dt }) → [{ label, state, detail?, fix? }]   rows `dt doctor` renders as one capability
+//   next        ({ root, ws, collection, ids }) → [{ id, text }]   a line about a record `dt next` prints (sync)
 //
 // Two contributions claiming the same verb, kind or harness is a refusal — there is no "last one
 // wins", because the loser would be an extension the operator installed that silently does nothing.
@@ -52,7 +53,7 @@ export function v1ManifestRefusal(block, where) {
 
 export const EXTENSION_API = 1;
 
-const CONTRIBUTION_KEYS = new Set(['commands', 'sourceKinds', 'analyze', 'harnesses', 'orientation', 'hooks', 'check', 'doctor']);
+const CONTRIBUTION_KEYS = new Set(['commands', 'sourceKinds', 'analyze', 'harnesses', 'orientation', 'hooks', 'check', 'doctor', 'next']);
 
 /** The modules that declare an extension entry: the workspace's own `modules/<id>/` first, then each
  *  clone under `git_modules/` (the clone's root, then the modules it bundles under `modules/`), then its
@@ -151,10 +152,30 @@ export async function loadExtensions(ws, api, reserved = {}) {
 		const sourceKinds = (c.sourceKinds ?? []).map((k) => normalizeKind(ext.name, k));
 		for (const k of sourceKinds) claim('kind', k.kind, ext.name);
 		for (const id of Object.keys(c.harnesses ?? {})) claim('harness', id, ext.name);
-		for (const fn of ['analyze', 'check', 'doctor']) if (c[fn] !== undefined && typeof c[fn] !== 'function') throw new Error(`extension ${ext.name}: ${fn} must be a function`);
-		loaded.push({ name: ext.name, version: ext.version, commands, sourceKinds, analyze: c.analyze ?? null, harnesses: c.harnesses ?? {}, orientation: c.orientation ?? null, hooks: c.hooks ?? {}, check: c.check ?? null, doctor: c.doctor ?? null });
+		for (const fn of ['analyze', 'check', 'doctor', 'next']) if (c[fn] !== undefined && typeof c[fn] !== 'function') throw new Error(`extension ${ext.name}: ${fn} must be a function`);
+		loaded.push({ name: ext.name, version: ext.version, commands, sourceKinds, analyze: c.analyze ?? null, harnesses: c.harnesses ?? {}, orientation: c.orientation ?? null, hooks: c.hooks ?? {}, check: c.check ?? null, doctor: c.doctor ?? null, next: c.next ?? null });
 	}
 	return loaded;
+}
+
+/**
+ * What every extension's `next` says about the records `ids` of `collection` — the lines `dt next`
+ * prints under the bound commands, and the editor draws on a row and a page. SYNCHRONOUS, like the
+ * store it reads: `dt next` is a sync verb. A line about an id that was not asked about, or one with no
+ * text, is dropped; a throw is ONE line attributed to the extension (`error: true`), never a failed
+ * `dt next` — what a record can do next does not depend on an optional tool being healthy.
+ */
+export function contributedNotes(ws, collection, ids = []) {
+	const out = [];
+	const asked = new Set(ids);
+	for (const e of (ws.extensions ?? []).filter((x) => x.next)) {
+		try {
+			for (const n of e.next({ root: ws.root, ws, collection, ids: [...ids] }) ?? []) {
+				if (asked.has(n?.id) && typeof n.text === 'string' && n.text.trim()) out.push({ id: n.id, text: n.text.trim(), by: e.name });
+			}
+		} catch (err) { out.push({ id: null, text: `next failed — ${String(err?.message ?? err).split('\n')[0]}`, by: e.name, error: true }); }
+	}
+	return out;
 }
 
 /** A contributed source kind: a plain folder name, and excluded subtrees that stay RELATIVE to it. */
