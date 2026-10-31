@@ -31,7 +31,9 @@ declare a field called `stub`, or type `--vault`.
   names none is a bundle, unchanged. **`records:` is optional and still narrows** — an existing list
   keeps working exactly as before, and can be deleted when you want every collection read.
   `module: true` no longer needs `records:` (it is refused, naming the entry, when the clone has no
-  workspace module). After the upgrade, expect at compile:
+  workspace module). A declared clone that is NOT on disk cannot say what it is, so it is read as a
+  layer not installed: compile warns `⚠ layer <name> (git_modules/<name>) is not installed`, and
+  `dt check` and `dt status` say so too. After the upgrade, expect at compile:
   - an `ℹ layer <name>: <collection> is not read from the layer — …` line for a collection that
     cannot layer (module-owned, placed, env-pointed) when the clone holds files for it — skipped,
     never a failure, where naming it in `records:` stays a compile error;
