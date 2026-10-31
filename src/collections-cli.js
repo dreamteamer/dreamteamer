@@ -9,7 +9,7 @@ import { Store, bodyField, serialize, atomicWrite } from './store.js';
 import { load, dump } from './yaml.js';
 import { slug } from './template.js';
 import {
-	createCollection, removeCollection, renameCollection, addField, updateField, removeField, fieldFromFlags, saveUiView, removeUiView,
+	createCollection, removeCollection, renameCollection, addField, updateField, removeField, fieldFromFlags, saveUiView, removeUiView, moveUiView,
 	// was copy-pasted here, and the copy went stale the moment the source layout gained a second
 	// spelling — one implementation, two callers
 	workspaceSystemDir,
@@ -905,6 +905,24 @@ function metaUiView(ws, store, verb, flags, pos) {
 	// that shadows it, which is the same thing saving one in the UI does.
 	let view = {};
 	let id = oneValue(flags, 'id');
+	// `module=` on a set is the MOVE, spelled as it is for a collection (`dt set collections/<c>
+	// module=<m>`): a value being written, not the `--module` selector `add` takes.
+	const moveArg = verb === 'set' ? pos.slice(1).find((p) => p.startsWith('module=')) : undefined;
+	if (moveArg) {
+		const viewId = id ?? need(pos, 0, 'ui-view id');
+		const moveTo = moveArg.slice('module='.length);
+		const others = [...pos.slice(1).filter((p) => p !== moveArg && p.includes('=')), ...Object.keys(flags).filter((k) => !VIEW_META_FLAGS.has(k) && k !== 'dry-run')];
+		if (others.length) throw new Error(`module= moves the view to another module; the other keys rewrite it. Run them as two commands: dreamteamer set ui-views/${viewId} module=${moveTo}, then dreamteamer set ui-views/${viewId} ${others.join(' ')}`);
+		const out = moveUiView(ws, store, viewId, moveTo, { dryRun: !!flags['dry-run'] });
+		if (flags.json) { emit(JSON.stringify(out)); return 0; }
+		if (out.dryRun) return dryRunPlan(`set ui-views/${viewId} module=${moveTo}`, { descriptors: 1 }, [`view source  ${out.from} → ${out.to} (${out.file})`]);
+		if (!out.moved) { console.log(`✔ ui-views/${viewId} — already in ${out.to}, nothing to do`); return 0; }
+		console.log(`✔ ui-views/${viewId}: ${out.from} → ${out.to} (${out.file})`);
+		console.log('✔ compiled — the move is live');
+		reportCommits(out.commits);
+		return 0;
+	}
+	if (flags['dry-run']) throw new Error('--dry-run plans a move (module=<m>); a key write has no plan to show — run it without the flag');
 	if (verb === 'set') {
 		id ??= need(pos, 0, 'ui-view id');
 		const { fields } = store.read('ui-views', id);
@@ -1297,7 +1315,7 @@ export const VERB_FLAGS = {
 	// is deliberately UNCHECKED — a skill's frontmatter is an open document (`allowed-tools`, `model`,
 	// whatever a harness reads), so there is no closed set to check it against.
 	'skills:add': ['json', 'module', 'name', 'description'],
-	'ui-views:add': ['json', 'module', 'id', 'force'], 'ui-views:set': ['json', 'module', 'id', 'force'], 'ui-views:rm': FORCE_RM,
+	'ui-views:add': ['json', 'module', 'id', 'force'], 'ui-views:set': ['json', 'module', 'id', 'force', 'dry-run'], 'ui-views:rm': FORCE_RM,
 };
 
 /** Edit distance, capped — enough to turn `--fliter` into "did you mean --filter?", and to refuse to

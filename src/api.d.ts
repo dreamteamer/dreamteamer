@@ -104,7 +104,7 @@ export const addField: SchemaOp, updateField: SchemaOp, removeField: SchemaOp, r
 export const renameValue: SchemaOp, renameValuePlan: SchemaOp;
 /** One v2 field from the field-verb flag vocabulary, applied over `previous` (the field as its source declares it). */
 export function fieldFromFlags(store: Store, flags: Record<string, unknown>, previous?: Record<string, unknown>): Record<string, unknown>;
-export const saveUiView: SchemaOp, removeUiView: SchemaOp;
+export const saveUiView: SchemaOp, removeUiView: SchemaOp, moveUiView: SchemaOp;
 export const createModule: SchemaOp, setModule: SchemaOp, renameModule: SchemaOp, removeModule: SchemaOp;
 export const createSkill: SchemaOp, refuseHandAuthored: SchemaOp, removeEntity: SchemaOp, renameEntity: SchemaOp, setEntityFrontmatter: SchemaOp;
 export function init(opts?: { flags?: Record<string, string> }): 0;

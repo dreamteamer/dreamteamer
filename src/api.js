@@ -66,7 +66,7 @@ export { MANAGED_BLOCKS } from './harnesses.js';
 export {
 	createCollection, removeCollection, renameCollection, moveCollection, setCollectionScalars,
 	addField, updateField, removeField, removeFieldPlan, renameField, renameFieldPlan, renameValue, renameValuePlan, fieldFromFlags,
-	saveUiView, removeUiView,
+	saveUiView, removeUiView, moveUiView,
 	createModule, setModule, renameModule, removeModule,
 	createSkill, refuseHandAuthored, removeEntity, renameEntity, setEntityFrontmatter,
 } from './schema-ops.js';

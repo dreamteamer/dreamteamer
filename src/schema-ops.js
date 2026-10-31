@@ -11,11 +11,11 @@ import { load, dump, writeSource, renameKeys, commentCount, formatSource } from 
 import { compile, kindDir, KINDS, repoRootOf, discoverModules } from './compile.js';
 import { V2_KEYS, isV2 } from './descriptor-v2.js';
 import { v1Refusal } from './compile-collections.js';
-import { readManifest, loadDescriptors } from './runtime.js';
+import { readManifest, loadDescriptors, engineId } from './runtime.js';
 import { normalizeNamespaces, namespaceOf, baseNameOf, qualify, defaultStoragePath, singular } from './namespace.js';
 import { fieldsOf, targetsOf, storageOf, isRuntime, bodyFieldOf, moduleOf } from './descriptor.js';
 import { SCALAR_TYPES, enumValues } from './fields.js';
-import { FIELD_OPTIONS, TEMPLATE_OPTIONS } from './views.js';
+import { FIELD_OPTIONS, TEMPLATE_OPTIONS, viewOverlayOf } from './views.js';
 
 // Same rule as store.js: a git failure we CATCH must not also print git's own error on top of the
 // clean message we throw. stdout stays piped because some callers read it.
@@ -849,7 +849,12 @@ export function setCollectionScalars(ws, store, name, changes, { moduleId } = {}
 	// silently win over the owner's choice.
 	const owned = baseDescriptorSource(ws, name).base;
 	if (owned && IN_NODE_MODULES(owned)) {
-		throw new Error(`"${name}" ships from node_modules (${owned}) — a write there is erased by the next \`npm install\`, and a collection-level key belongs to the module that owns it. Add "collections/${name}" to dreamteamer.disable and declare your own instead.`);
+		// How the collection is DRAWN is the one collection-level thing a workspace may change about a
+		// package's collection — compile already merges an overlay's `display` per sub-block — so a
+		// display write becomes that overlay. Every other key belongs to the module that owns it.
+		const notDisplay = Object.keys(changes).filter((k) => !k.startsWith('display.'));
+		if (!notDisplay.length) return setCollectionDisplayOverlay(ws, store, name, changes, owned);
+		throw new Error(`"${name}" ships from node_modules (${owned}) — a write there is erased by the next \`npm install\`, and a collection-level key (${notDisplay.join(', ')}) belongs to the module that owns it. Its display.* keys can be changed from here (they are written as an overlay in the workspace module); for the rest, add "collections/${name}" to dreamteamer.disable and declare your own instead.`);
 	}
 	const { file } = collectionSourceFile(ws, store, name, moduleId, { subject: name });
 	if (!fs.existsSync(file)) throw new Error(`${path.relative(ws.root, file)} is not on disk — run \`dreamteamer compile\` and re-run.`);
@@ -866,6 +871,62 @@ export function setCollectionScalars(ws, store, name, changes, { moduleId } = {}
 		fs.writeFileSync(file, writeSource(previousText, doc));
 	});
 	return { name, file, changed, commits: gate.commits, unchanged: gate.unchanged };
+}
+
+/**
+ * A package collection's DISPLAY, changed from the workspace: the `display.*` keys that differ from the
+ * package's own source, written into the workspace module's overlay of it (created, updated, or removed
+ * when nothing differs any more). A cleared key falls back to the package's value — an overlay can
+ * refine a block and cannot delete from it. `options` is written WHOLE when any option differs:
+ * compile merges `display.<block>` one key deep, so a lone option would drop every option the package
+ * sets beside it.
+ */
+function setCollectionDisplayOverlay(ws, store, name, changes, owned) {
+	const { file } = collectionSourceFile(ws, store, name, undefined, { subject: name });
+	const base = load(fs.readFileSync(path.join(ws.root, owned), 'utf8')) ?? {};
+	const existed = fs.existsSync(file);
+	const previousText = existed ? fs.readFileSync(file, 'utf8') : null;
+	// `fields: {}` is what makes a source v2 at all (`isV2`), the same scaffold add-field writes
+	const doc = existed ? load(previousText) : { name, overlay: true, fields: {} };
+	const at = (o, dotted) => dotted.split('.').reduce((n, k) => (n && typeof n === 'object' ? n[k] : undefined), o);
+	const same = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+	const changed = [];
+	for (const [k, raw] of Object.entries(changes)) {
+		const clear = raw === '' || raw === null;
+		const opt = /^(display\.[^.]+\.options)\.(.+)$/.exec(k);
+		if (opt) {
+			const options = structuredClone(at(doc, opt[1]) ?? at(base, opt[1]) ?? {});
+			if (clear) delete options[opt[2]];
+			else options[opt[2]] = settableOf(k)(raw);
+			if (same(options, at(base, opt[1]))) deletePath(doc, opt[1]);
+			else setPath(doc, opt[1], options);
+		} else {
+			const value = clear ? undefined : settableOf(k)(raw);
+			if (clear || same(value, at(base, k))) deletePath(doc, k);
+			else setPath(doc, k, value);
+		}
+		changed.push(k);
+	}
+	const empty = Object.keys(doc).every((k) => ['name', 'overlay'].includes(k) || (k === 'fields' && !Object.keys(doc.fields ?? {}).length));
+	if (empty && !existed) return { name, file, changed, overlay: true, unchanged: true };
+	// compile refuses an overlay whose module neither depends on the base's module nor lists the
+	// collection in `peer_collections`. The PEER declaration is the one that fits a display overlay —
+	// it applies while the package is installed and is inert once it is not — so it is written for the
+	// person in the same gated write, rather than handed back as compile's remedy to type.
+	const wmPkg = path.join(ws.pkg.dreamteamer?.workspace_module ? path.join(ws.root, 'modules', ws.pkg.dreamteamer.workspace_module) : ws.root, 'package.json');
+	const owner = moduleRows(store).filter((r) => owned.startsWith(`${r.fields.path}/`)).sort((a, b) => b.fields.path.length - a.fields.path.length)[0];
+	const declared = (JSON.parse(fs.readFileSync(wmPkg, 'utf8')).dreamteamer ?? {});
+	const ownerPkg = owner ? packageNameOf(store, owner.id) : null;
+	// the engine's own collections are every module's to overlay (compile asks nothing of those)
+	const needsPeer = !empty && ownerPkg !== engineId().replace(/@[^@]*$/, '') && !(declared.peer_collections ?? []).includes(name)
+		&& !(ownerPkg && (declared.dependencies ?? []).includes(ownerPkg));
+	const gate = writeGated(ws, store, needsPeer ? [file, wmPkg] : [file], `dreamteamer: collections set ${name} ${Object.keys(changes).join(' ')} (overlay)`, () => {
+		if (empty) return fs.rmSync(file);
+		fs.mkdirSync(path.dirname(file), { recursive: true });
+		fs.writeFileSync(file, writeSource(previousText, doc));
+		if (needsPeer) editModulePkg(wmPkg, (dt) => { dt.peer_collections = [...(dt.peer_collections ?? []), name]; });
+	}, undefined, { commentsMayDecrease: true });
+	return { name, file, changed, overlay: true, removed: empty || undefined, peer: needsPeer || undefined, commits: gate.commits, unchanged: gate.unchanged };
 }
 
 // ---- the positions that name a field, and a value ----------------------------------------------
@@ -2549,14 +2610,21 @@ export function saveUiView(ws, store, { id, view, moduleId }) {
 	// would later object to. An explicit target module resolves the destination; without one the
 	// manifest answers (an existing view is edited where it lives), and the workspace module is the
 	// fallback for a new one.
-	const { file: dest, shipped } = moduleId
-		? { file: path.join(kindDir(path.join(ws.root, moduleRecord(store, moduleId).fields.path), 'ui-views'), `${id}.ui-view.yaml`), shipped: null }
+	const target = moduleId ? moduleRecord(store, moduleId) : null;
+	if (target && IN_NODE_MODULES(target.fields.path)) {
+		throw new Error(`module "${moduleId}" ships from node_modules (${target.fields.path}) — a write there is erased by the next npm install.\n  pick a module whose sources are in this workspace (the workspace module is the default).`);
+	}
+	const { file: dest, shipped } = target
+		? { file: path.join(kindDir(path.join(ws.root, target.fields.path), 'ui-views'), `${id}.ui-view.yaml`), shipped: null }
 		: uiViewSourceFile(ws, id);
-	if (shipped && /(^|\/)node_modules\//.test(shipped))
-		throw new Error(`ui-view "${id}" is shipped by an installed package (${shipped}) — a write there is erased by the next npm install.\n  save it under a different name, or disable it (dreamteamer.disable) and re-create it.`);
-	const existed = fs.existsSync(dest);
 	// `compiled` is compile's: a view read back from the runtime carries it, and a source never does
-	view = Object.fromEntries(Object.entries(view).filter(([k]) => k !== 'compiled'));
+	view = Object.fromEntries(Object.entries(view).filter(([k]) => k !== 'compiled' && k !== 'overlay'));
+	// A view an installed package ships is never written where npm would erase it, and never refused
+	// either: the save becomes an OVERLAY in the workspace module carrying only what differs from the
+	// package's source, which compile merges onto it (`overlay: true`, compile.js). A changed column
+	// list is a few lines, and every later fix the package ships still reaches the rest of the view.
+	if (shipped && IN_NODE_MODULES(shipped)) return saveUiViewOverlay(ws, store, id, view, shipped);
+	const existed = fs.existsSync(dest);
 	// A module source is where this project writes down WHY a view exists; `dump` cannot keep that.
 	const previous = existed ? fs.readFileSync(dest, 'utf8') : null;
 	// ⚠ opted OUT of the comment invariant, on the same rule `rm-field` is: this write REPLACES
@@ -2568,6 +2636,66 @@ export function saveUiView(ws, store, { id, view, moduleId }) {
 		fs.writeFileSync(dest, writeSource(previous, view));
 	}, undefined, { commentsMayDecrease: true });
 	return { id, file: dest, updated: existed, commits: gate.commits, unchanged: gate.unchanged };
+}
+
+/** The save of a package's view: the workspace module's overlay, rewritten from the package source
+ *  each time (never stacked on the previous overlay), and removed when the view equals the package's. */
+function saveUiViewOverlay(ws, store, id, view, shipped) {
+	const dest = path.join(workspaceSystemDir(ws, 'ui-views'), `${id}.ui-view.yaml`);
+	const existed = fs.existsSync(dest);
+	const delta = viewOverlayOf(load(fs.readFileSync(path.join(ws.root, shipped), 'utf8')) ?? {}, view);
+	const out = { id, file: dest, overlay: true, overlays: shipped };
+	if (!Object.keys(delta).length && !existed) return { ...out, updated: false, unchanged: true };
+	const previous = existed ? fs.readFileSync(dest, 'utf8') : null;
+	const gate = writeGated(ws, store, [dest], `dreamteamer: ui-views overlay ${id}`, () => {
+		if (!Object.keys(delta).length) return fs.rmSync(dest);
+		fs.mkdirSync(path.dirname(dest), { recursive: true });
+		fs.writeFileSync(dest, writeSource(previous, { overlay: true, ...delta }));
+	}, undefined, { commentsMayDecrease: true });
+	return { ...out, updated: existed, removed: !Object.keys(delta).length || undefined, commits: gate.commits, unchanged: gate.unchanged };
+}
+
+/**
+ * `dt set ui-views/<id> module=<m>` — MOVE a view's source to another module, the way `moveCollection`
+ * moves a descriptor: the same bytes at the new path (a view's comments are its module's reasoning),
+ * the old file gone, one compile gate, one commit per repo it touches — so a move into a linked
+ * clone's module commits there, ready to publish with that module.
+ */
+export function moveUiView(ws, store, id, toModule, { dryRun = false } = {}) {
+	const { shipped } = uiViewSourceFile(ws, id);
+	if (!shipped) throw new Error(`ui-view "${id}" does not exist`);
+	if (IN_NODE_MODULES(shipped)) {
+		throw new Error(`ui-view "${id}" is shipped by an installed package (${shipped}) — it moves with its package, not from here.\n  save it under a new name, then move that one.`);
+	}
+	const to = moduleRecord(store, toModule); // throws with the known-module list
+	if (IN_NODE_MODULES(to.fields.path)) {
+		throw new Error(`module "${toModule}" ships from node_modules (${to.fields.path}) — a write there is erased by the next npm install.\n  pick a module whose sources are in this workspace.`);
+	}
+	const owner = moduleRows(store).filter((r) => shipped.startsWith(`${r.fields.path}/`)).sort((a, b) => b.fields.path.length - a.fields.path.length)[0];
+	const src = path.join(ws.root, shipped);
+	const dest = path.join(kindDir(path.join(ws.root, to.fields.path), 'ui-views'), `${id}.ui-view.yaml`);
+	const plan = { id, from: owner?.id ?? null, to: toModule, file: path.relative(ws.root, dest) };
+	if (path.resolve(dest) === path.resolve(src)) return { ...plan, moved: false };
+	if (fs.existsSync(dest)) throw new Error(`${plan.file} already exists — move or remove it first; nothing was moved`);
+	if (dryRun) return { ...plan, moved: false, dryRun: true };
+	const bytes = fs.readFileSync(src);
+	let moved = false;
+	const out = gatedTreeOp(ws, store, {
+		subject: `dreamteamer: ui-views set ${id} module=${toModule}`,
+		paths: [shipped, plan.file],
+		mutate: () => {
+			fs.mkdirSync(path.dirname(dest), { recursive: true });
+			fs.writeFileSync(dest, bytes);
+			fs.rmSync(src);
+			moved = true;
+		},
+		undo: () => {
+			if (moved && fs.existsSync(dest)) fs.rmSync(dest);
+			fs.mkdirSync(path.dirname(src), { recursive: true });
+			fs.writeFileSync(src, bytes);
+		},
+	});
+	return { ...plan, moved: true, commits: out.commits };
 }
 
 export function removeUiView(ws, store, id) {

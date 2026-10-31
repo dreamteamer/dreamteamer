@@ -131,13 +131,12 @@ describe('a view shipped by an INSTALLED package', () => {
 		return ws;
 	}
 
-	test('is refused with a message that names npm install', () => {
+	test('is never written there: the save becomes an overlay in the workspace module (ui-view-overlays.test.js)', () => {
 		const ws = withInstalledView();
-		assert.throws(
-			() => saveUiView(ws.ws, ws.store, { id: 'acme-doctors', view: VIEW }),
-			/erased by the next npm install/,
-		);
-		// and the package source is untouched — a refusal that half-wrote would be worse than none
+		const res = saveUiView(ws.ws, ws.store, { id: 'acme-doctors', view: { ...VIEW, route: '/acme/doctors' } });
+		assert.equal(res.overlay, true);
+		assert.deepEqual(load(readFile(ws.root, 'modules/default/ui-views/acme-doctors.ui-view.yaml')), { overlay: true, display: { list: { layout: 'cards' } } });
+		// and the package source is untouched — npm would erase anything written there
 		assert.equal(load(readFile(ws.root, 'node_modules/@acme/views/ui-views/acme-doctors.ui-view.yaml')).display.list.layout, 'table');
 	});
 

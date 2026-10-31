@@ -160,6 +160,20 @@ so a view saved from the CLI and one saved from a surface land on the **same rec
 - **An empty value REMOVES the key**, so the setting whose meaningful value IS empty is written
   QUOTED: `'display.list.sort=""'`. A value holding a template is quoted the same way:
   `'display.list.options.card_title="{{ name }}"'`.
+- **`dt set ui-views/<id> module=<m>` MOVES the view** to another module's `ui-views/` (bytes and
+  comments kept, one compile gate, one commit per repo — a linked clone's module commits there).
+  `--dry-run` shows the plan. A package's view never moves; save it under a new name and move that.
+
+## a package's view, changed from here — `overlay: true`
+
+A view an installed package ships is never written in `node_modules/`. A source in the workspace
+module with the SAME id and `overlay: true` is merged onto it at compile: deep, the overlay wins at a
+leaf, a list is replaced whole, `null` removes a key the package sets. The compiled view names
+`compiled.module` and `compiled.overlaid_by`. `dt set` on a package's view writes exactly that
+overlay — only what differs from the package — and setting it back removes it. A same-id view
+WITHOUT the flag is still a name collision. The same holds one level up: `dt set collections/<c>
+display.…` on a package's collection writes its `display` keys into a workspace overlay (with
+`peer_collections` declared for you), never into the package.
 
 ## common mistakes
 
