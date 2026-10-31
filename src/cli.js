@@ -14,7 +14,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import * as api from './api.js';
 import { openWorkspace } from './api.js';
-import { compile, staleness, warnIfStale, discoverModules, CHANNEL_LABEL, locationOf, kindsOf, moduleIdOf } from './compile.js';
+import { compile, staleness, warnIfStale, discoverModules, CHANNEL_LABEL, locationOf, kindsOf, moduleIdOf, layerEntries } from './compile.js';
 import { check } from './check.js';
 import { collectionCommand, emit, relationsCommand, reportCommits } from './collections-cli.js';
 import { formatDescriptors } from './schema-ops.js';
@@ -521,15 +521,20 @@ export async function run(argv) {
 					if (sh) line += ` — shadows ${CHANNEL_LABEL[sh.loser]} copy`;
 					console.log(line);
 				}
-				// record layers: other workspaces cloned here for their records (dreamteamer.git_modules.<name>.records)
-				const layers = Object.entries(ws.pkg.dreamteamer?.git_modules ?? {}).filter(([, e]) => e?.records !== undefined);
+				// record layers: other workspaces cloned here for their records. The collections listed are
+				// the ones FOUND — compiled with this layer as a root and holding a folder in the clone —
+				// never the declared `records:`, which narrows and may name a folder that does not exist.
+				const layers = layerEntries(ws.pkg, ws.root);
 				if (layers.length) {
 					console.log('layers:');
-					for (const [name, e] of layers) {
-						const dir = path.join(ws.root, 'git_modules', name);
+					let descriptors = [];
+					try { descriptors = [...new Store(ws).descriptors.values()]; } catch { /* no runtime yet */ }
+					for (const l of layers) {
+						const dir = path.join(ws.root, 'git_modules', l.name);
 						const ref = fs.existsSync(dir) ? tryGit(dir, ['rev-parse', '--short', 'HEAD']) : null;
-						const mod = e.module === true ? modules.find((m) => m.layer === name) : null;
-						console.log(`  ${name.padEnd(20)} ${ref ? `git_modules @ ${ref}${tryGit(dir, ['status', '--porcelain']) ? ' (dirty)' : ''}` : 'not installed — dreamteamer install'} · records: ${e.records.join(', ')}${e.module === true ? ` · module ${mod ? moduleIdOf(mod.name) : '-'}` : ''}`);
+						const mod = l.module ? modules.find((m) => m.layer === l.name) : null;
+						const found = descriptors.filter((d) => storageOf(d).roots.some((r) => r.layer === l.name && fs.existsSync(path.join(ws.root, r.path)))).map((d) => d.name).sort();
+						console.log(`  ${l.name.padEnd(20)} ${ref ? `git_modules @ ${ref}${tryGit(dir, ['status', '--porcelain']) ? ' (dirty)' : ''}` : 'not installed — dreamteamer install'} · records: ${found.join(', ') || '(none found)'}${l.module ? ` · module ${mod ? moduleIdOf(mod.name) : '-'}` : ''}`);
 					}
 				}
 				// env-pointed roots (`storage.path: ${env:NAME}/…`), rendered per machine by compile: the

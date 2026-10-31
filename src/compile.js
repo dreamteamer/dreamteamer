@@ -16,7 +16,7 @@ import {
 // circular on paper in earlier versions — safe: both sides only
 // call at run time, same pattern as store.js ↔ compile.js.
 import { runHarnessAdapters, renderContributions, BEGIN, END, INSTRUCTIONS_BEGIN, INSTRUCTIONS_END } from './harnesses.js';
-import { ensureEditorRecommendation, ensureEnvExample, ensureGitignored } from './workspace.js';
+import { ensureEditorRecommendation, ensureEnvExample, ensureGitignored, layerEntries } from './workspace.js';
 import { satisfies } from './semver.js';
 import { parseEnvValues } from './env-vars.js';
 import { DERIVED_KINDS, readManifest, runtimeDir, engineId, engineVersion, loadDescriptors as loadCompiledDescriptors, STALE_RUNTIME } from './runtime.js';
@@ -175,10 +175,11 @@ export function discoverModules(root, pkg) {
 	// caller (compile, status, install) sees the same set.
 	const disable = pkg?.dreamteamer?.disable ?? [];
 	const disabledHits = new Set();
-	// A clone whose manifest entry lists `records` is a RECORD LAYER — another workspace's data read
-	// here — never a bundle: its own modules/ would otherwise unpack and collide with ours. With
-	// `module: true` its ONE workspace module is a source too (below).
-	const layerList = layerEntries(pkg);
+	// A clone that is a WORKSPACE (its own manifest names `workspace_module`), or whose entry lists
+	// `records`, is a RECORD LAYER — another workspace's data read here — never a bundle: its own
+	// modules/ would otherwise unpack and collide with ours. With `module: true` its ONE workspace
+	// module is a source too (below).
+	const layerList = layerEntries(pkg, root);
 	const layers = new Set(layerList.map((l) => l.name));
 	// the same rule the extension loader applies (full package name, or its scope-stripped id), so a
 	// disabled package loses its content AND its code together
@@ -293,29 +294,14 @@ function dataOwningModules(sources, fail, rel) {
 const toPosix = (p) => p.split(path.sep).join('/');
 
 // ---- record layers ----------------------------------------------------------------
-// A `git_modules` entry carrying `records: [<collection>…]` is another WORKSPACE cloned here for its
-// records: each listed collection reads that clone's data folder as a root below this workspace's
-// own. The clone contributes no sources — its shapes are the modules both workspaces install.
+// A `git_modules` clone that is itself a WORKSPACE (its manifest names `workspace_module`) — or an
+// entry that lists `records:` — is a record layer: every collection both have reads that clone's data
+// folder as a root below this workspace's own, `records:` narrowing the set when present. The clone
+// contributes no sources — its shapes are the modules both workspaces install.
 
-/** The declared layers, validated: `{ name, records, module }` per entry. `records` is a non-empty list
- *  of collection names; which collections exist is compile-collections' question. `module: true` also
- *  compiles the clone's workspace module (discoverModules), and is refused on an entry with no `records`. */
-export function layerEntries(pkg) {
-	const out = [];
-	for (const [name, entry] of Object.entries(pkg?.dreamteamer?.git_modules ?? {})) {
-		if (entry?.module !== undefined && typeof entry.module !== 'boolean') throw new Error(`git_modules.${name}.module must be true or false (got ${JSON.stringify(entry.module)})`);
-		if (entry?.module === true && entry.records === undefined) {
-			throw new Error(`git_modules.${name}.module: true without \`records\` — an entry without records is already a bundle: every module under its modules/ compiles. Drop \`module\`, or list the collections it layers.`);
-		}
-		if (!entry || entry.records === undefined) continue;
-		const r = entry.records;
-		if (!Array.isArray(r) || !r.length || r.some((c) => typeof c !== 'string' || !c.trim())) {
-			throw new Error(`git_modules.${name}.records must be a non-empty list of collection names (got ${JSON.stringify(r)})`);
-		}
-		out.push({ name, records: r, module: entry.module === true });
-	}
-	return out;
-}
+// `layerEntries` lives in workspace.js — compile, status and the extension loader all ask it, and the
+// loader cannot import this file (compile imports the loader). Re-exported under its old address.
+export { layerEntries };
 
 /** A layer's data folder, from the clone's own manifest (its `data_path`), default `data`. The clone
  *  may be absent — a fresh checkout before `dreamteamer install` — and then the default stands. */
@@ -626,7 +612,7 @@ export function compile(ws) {
 
 	const dataOwners = dataOwningModules(sources, fail, rel);
 	let layers;
-	try { layers = layerEntries(pkg).map((l) => ({ ...l, root: path.posix.join('git_modules', l.name), dataPath: layerDataPath(root, l.name) })); }
+	try { layers = layerEntries(pkg, root).map((l) => ({ ...l, root: path.posix.join('git_modules', l.name), dataPath: layerDataPath(root, l.name) })); }
 	catch (e) { fail(e.message); }
 
 	const disabled = new Set(config.disable ?? []);
@@ -897,7 +883,7 @@ export function compile(ws) {
 		runtimeKinds: new Set([...kinds, ...DERIVED_KINDS]), core: CORE_COLLECTIONS,
 		moduleDeps, modulePeers, channelOf, wsModuleName, engineName, dataOwners,
 		moduleSources: new Map(sources.map((s) => [s.name, s])), unownableBecause, layers,
-		repoOf: (moduleRoot) => repoRootOf(moduleRoot, root), rel, dataPath: config.data_path ?? 'data', vars: storageVars,
+		repoOf: (moduleRoot) => repoRootOf(moduleRoot, root), rel, root, dataPath: config.data_path ?? 'data', vars: storageVars,
 		moduleId, fail: collectionsFail, warn: (m) => console.warn(m),
 	});
 	refusePlacementTransitions(root, compiledColls);

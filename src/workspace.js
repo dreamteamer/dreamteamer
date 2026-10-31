@@ -42,6 +42,32 @@ export function findWorkspace(start = process.cwd()) {
 	return found;
 }
 
+/** The declared record layers, validated: `{ name, records, module }` per entry. WHAT THE CLONE IS
+ *  decides it, not the reader's key (0.41.0): a clone whose own manifest names `workspace_module` is a
+ *  workspace, so its data is a layer for every collection both have (`records: null`); a clone that
+ *  names none is a bundle and is not listed here. `records:` still makes an entry a layer and NARROWS
+ *  it to the listed collections; `module: true` declares one too (and is refused downstream when the
+ *  clone has no workspace module to contribute). `root` absent reads only the declarations. */
+export function layerEntries(pkg, root = null) {
+	const out = [];
+	for (const [name, entry] of Object.entries(pkg?.dreamteamer?.git_modules ?? {})) {
+		if (entry?.module !== undefined && typeof entry.module !== 'boolean') throw new Error(`git_modules.${name}.module must be true or false (got ${JSON.stringify(entry.module)})`);
+		const r = entry?.records;
+		if (r !== undefined && (!Array.isArray(r) || !r.length || r.some((c) => typeof c !== 'string' || !c.trim()))) {
+			throw new Error(`git_modules.${name}.records must be a non-empty list of collection names (got ${JSON.stringify(r)})`);
+		}
+		if (r === undefined && entry?.module !== true && !(root && cloneWorkspaceModule(path.join(root, 'git_modules', name)))) continue;
+		out.push({ name, records: r ?? null, module: entry?.module === true });
+	}
+	return out;
+}
+
+/** The `workspace_module` a directory's own manifest names, or null — what makes a clone a workspace. */
+export function cloneWorkspaceModule(dir) {
+	try { return JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8')).dreamteamer?.workspace_module || null; }
+	catch { return null; }
+}
+
 /** Is `inner` reached from `outer` by descending through a module folder? */
 export function nestedAsModule(outer, inner) {
 	return path

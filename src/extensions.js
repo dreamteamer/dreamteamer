@@ -29,6 +29,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { satisfies } from './semver.js';
 import { engineVersion } from './runtime.js';
+import { layerEntries } from './workspace.js';
 
 /** The keys a package.json `dreamteamer` block may carry — the workspace's and a module's alike. */
 export const MANIFEST_KEYS = ['title', 'description', 'workspace_module', 'data_path', 'namespaces', 'vars', 'env', 'auto_commit', 'harnesses', 'git_modules', 'disable', 'local_assets', 'postinstall', 'gitignore_runtime_folder', 'repos_path', 'dependencies', 'peer_collections', 'owns_data', 'engine', 'extension', 'ignore'];
@@ -80,7 +81,7 @@ export function declaredExtensions(ws) {
 	try { inline = fs.readdirSync(path.join(ws.root, 'modules')).sort(); } catch { /* no modules/ */ }
 	for (const id of inline) consider(path.join(ws.root, 'modules', id), id);
 	const listed = (dir) => { try { return fs.readdirSync(dir).sort(); } catch { return []; } };
-	const layers = new Set(Object.entries(ws.pkg?.dreamteamer?.git_modules ?? {}).filter(([, e]) => e?.records !== undefined).map(([n]) => n));
+	const layers = new Set(layerEntries(ws.pkg, ws.root).map((l) => l.name));
 	for (const clone of listed(path.join(ws.root, 'git_modules'))) {
 		if (layers.has(clone)) continue; // a record layer: another workspace's data, never its code
 		const root = path.join(ws.root, 'git_modules', clone);

@@ -346,7 +346,7 @@ describe('record layers — the verbs an operator runs across one (0.36.0)', () 
 		const get = dt(w.root, 'get', 'tasks/fix-login');
 		assert.equal(get.code, 0, get.stderr);
 		assert.match(get.stdout, /name: Fix login/);
-		assert.match(dt(w.root, 'status').stdout, /layers:\n\s+project-a\s+git_modules @ [0-9a-f]{7} · records: tasks, projects/);
+		assert.match(dt(w.root, 'status').stdout, /layers:\n\s+project-a\s+git_modules @ [0-9a-f]{7} · records: projects, tasks/);
 	});
 
 	test('dt commit <collection>/<id> on a layer record commits in the layer only; dt commit <collection> publishes one commit per repo', () => {
@@ -426,8 +426,16 @@ describe('a layer may also contribute its workspace module — `module: true` (0
 		assert.match(refusal({ layerModule: 'org', entry: { module: true } }), /git_modules\.project-a\.module: the clone's workspace module "org" collides with module "org" at git_modules\/org/);
 	});
 
-	test('refused, naming the entry: module: true without records — a plain entry is already a bundle', () => {
-		assert.match(refusal({ records: null, layerModule: 'project-a', entry: { module: true } }), /git_modules\.project-a\.module: true without `records` — an entry without records is already a bundle/);
+	test('module: true without records on a WORKSPACE clone (0.41.0): the module compiles and every collection both have is layered', () => {
+		const { w } = layered({ records: null, layerModule: 'project-a', entry: { module: true } });
+		compileQuietly(w.ws);
+		assert.ok(fs.existsSync(agent(w)), "the layer's agent compiles");
+		const store = new Store(w.ws);
+		assert.deepEqual(storageOf(store.descriptor('tasks')).roots.map((r) => r.path), ['data/tasks', 'git_modules/project-a/data/tasks']);
+	});
+
+	test('refused, naming the entry: module: true without records on a clone whose manifest names no workspace_module', () => {
+		assert.match(refusal({ records: null, layerModule: null, entry: { module: true } }), /git_modules\.project-a\.module: the clone names no dreamteamer\.workspace_module/);
 	});
 
 	test('refused, naming the entry: module that is not a boolean', () => {
@@ -438,7 +446,78 @@ describe('a layer may also contribute its workspace module — `module: true` (0
 		const { w } = layered({ layerModule: 'project-a', entry: { module: true } });
 		compileQuietly(w.ws);
 		const out = dt(w.root, 'status').stdout;
-		assert.match(out, /layers:\n\s+project-a\s+git_modules @ [0-9a-f]{7} · records: tasks, projects · module project-a\n/);
+		assert.match(out, /layers:\n\s+project-a\s+git_modules @ [0-9a-f]{7} · records: projects, tasks · module project-a\n/);
 		assert.match(out, /modules:[\s\S]*\n\s+project-a\s+git_modules @ [0-9a-f]{7}/);
+	});
+});
+
+describe('layer data is inherent: a clone that names its workspace_module is a layer without `records:` (0.41.0)', () => {
+	test('a layer with no records: list reads every collection both have; its sources are still not compiled', () => {
+		const { w } = layered({ records: null });
+		const out = compileQuietly(w.ws);
+		const store = new Store(w.ws);
+		assert.deepEqual(storageOf(store.descriptor('tasks')).roots.map((r) => r.path), ['data/tasks', 'git_modules/project-a/data/tasks']);
+		assert.deepEqual(storageOf(store.descriptor('projects')).roots.map((r) => r.path), ['data/projects', 'git_modules/project-a/data/projects']);
+		assert.deepEqual([...store.ids('tasks').keys()], ['fix-login'], 'the layer record is read');
+		assert.equal(store.descriptors.has('secrets'), false, "the layer's own module is not compiled — it is a workspace, not a bundle");
+		assert.equal(fs.existsSync(path.join(w.root, '.dreamteamer', 'agents', 'project-runner.agent.md')), false);
+		assert.doesNotMatch(out.warnings.join('\n'), /shadows/);
+		const res = dt(w.root, 'check');
+		assert.equal(res.code, 0, res.stdout + res.stderr);
+	});
+
+	test('a collection that cannot layer is skipped with an ℹ naming it and why, never a failure', () => {
+		const { w } = layered({ records: null });
+		const out = compileQuietly(w.ws); // people is `storage.owner: module`, and the layer holds data/people/
+		assert.match(out.warnings.join('\n'), /ℹ layer project-a: people is not read from the layer — it is `storage\.owner: module`.*1 file in git_modules\/project-a\/data\/people/);
+		const store = new Store(w.ws);
+		assert.equal(storageOf(store.descriptor('people')).roots.length, 1);
+		assert.equal(store.ids('people').has('mallory'), false);
+	});
+
+	test('a clone whose manifest names no workspace_module is still a bundle: its modules unpack, its data is not read', () => {
+		const { w } = layered({
+			records: null, layerModule: null,
+			layerFiles: {
+				'modules/widgets-kit/package.json': JSON.stringify({ name: 'widgets-kit', dreamteamer: {} }),
+				'modules/widgets-kit/collections/widgets.collection.yaml': 'name: widgets\nids:\n  from: "{{ name | slug }}"\nfields:\n  name:\n    type: string\n    required: true\n',
+			},
+		});
+		compileQuietly(w.ws);
+		const store = new Store(w.ws);
+		assert.ok(store.descriptors.has('widgets'), "the bundle's module compiles");
+		assert.equal(storageOf(store.descriptor('tasks')).roots.length, 1, 'and its data is not layered');
+	});
+
+	test('a layer data folder for a collection this workspace does not have warns by name and file count, and compile succeeds', () => {
+		const { w } = layered({
+			records: null,
+			layerFiles: {
+				'data/gadgets/one.gadget.md': '---\nname: One\n---\n',
+				'data/gadgets/two.gadget.md': '---\nname: Two\n---\n',
+				'data/ops/runbooks/restart.runbook.md': '---\nname: Restart\n---\n',
+			},
+		});
+		const out = compileQuietly(w.ws);
+		assert.equal(out.code, 0);
+		const warnings = out.warnings.join('\n');
+		assert.match(warnings, /⚠ layer project-a: git_modules\/project-a\/data\/gadgets\/ holds 2 files and no collection here reads it/);
+		assert.match(warnings, /⚠ layer project-a: git_modules\/project-a\/data\/ops\/ holds 1 file and no collection here reads it/);
+		assert.doesNotMatch(warnings, /data\/tasks\/ holds/, 'a folder a collection reads is never named');
+	});
+
+	test('records: present still NARROWS: only the listed collections are layered, and an excluded folder of a collection this workspace has is not warned about', () => {
+		const { w } = layered({ records: ['tasks'] });
+		const out = compileQuietly(w.ws);
+		const store = new Store(w.ws);
+		assert.equal(storageOf(store.descriptor('tasks')).roots.length, 2);
+		assert.equal(storageOf(store.descriptor('projects')).roots.length, 1, 'projects is narrowed out');
+		assert.doesNotMatch(out.warnings.join('\n'), /data\/projects\/ holds/);
+	});
+
+	test('dt status prints the collections FOUND in the layer, not a declared list', () => {
+		const { w } = layered({ records: null });
+		compileQuietly(w.ws);
+		assert.match(dt(w.root, 'status').stdout, /layers:\n\s+project-a\s+git_modules @ [0-9a-f]{7} · records: projects, tasks\n/);
 	});
 });
