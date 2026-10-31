@@ -55,7 +55,10 @@ declare a field called `stub`, or type `--vault`.
   `✔ project-alpha · data/tasks/…`. An undeclared name is refused with the declared list. `--vault`
   still works, silently, for this minor and is dropped in the next. ⚠ A path INTO `git_modules/`
   (`--vault git_modules/<clone>`) used to run the verb in the workspace AROUND the clone — a write
-  meant for the layer landed in the reader. It now runs in the clone. ⚠ The flag is consumed before
+  meant for the layer landed in the reader. It now runs in the clone. The flag reaches that one
+  command: it is not passed on through the environment, so a process the command starts (a git hook,
+  an extension spawning `dt`) resolves its own workspace from its own directory — inside a layer
+  clone, a bare `dt` answers the reading workspace's union, as before. ⚠ The flag is consumed before
   any verb sees it, so a collection field named `workspace` can no longer be given as
   `--workspace <value>` on `dt add` — use `dt set <ref> workspace=<value>` for it.
 

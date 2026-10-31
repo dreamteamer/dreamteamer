@@ -13,7 +13,8 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { workspace, simpleCollection, compileQuietly, dt, dtIn, git } from '../helpers/ws.js';
+import { spawnSync } from 'node:child_process';
+import { workspace, simpleCollection, compileQuietly, dt, dtIn, git, ENGINE_ROOT } from '../helpers/ws.js';
 
 /** An HQ workspace and one project WORKSPACE cloned under its git_modules/ — a full, compiled workspace
  *  of its own (its manifest names `workspace_module`, so the HQ reads it as a layer). Both carry `widgets`. */
@@ -119,4 +120,15 @@ describe('-w / --workspace targets a declared layer by NAME or a workspace by PA
 		assert.ok(!fs.existsSync(inHq(hq)));
 		assert.match(dt(hq.root, 'list', 'widgets', '-w', 'nope').stderr, /\(declared layers: project-a\)/);
 	});
+
+	test('the -w pin never reaches another process: inside a layer clone, dt answers the reader\'s union whatever the environment holds', () => {
+		const { hq, clone } = hqWithLayer();
+		assert.equal(dt(hq.root, 'add', 'widgets', '--name', 'Gearbox', '-w', 'project-a').code, 0);
+		assert.equal(dt(hq.root, 'add', 'widgets', '--name', 'Flywheel').code, 0);
+		const inClone = (env) => spawnSync(process.execPath, [path.join(ENGINE_ROOT, 'bin', 'dreamteamer.js'), 'list', 'widgets'], { cwd: path.join(clone, 'data'), env: { ...process.env, ...env }, encoding: 'utf8' }).stdout.trim().split('\n').sort();
+		assert.deepEqual(inClone({}), ['flywheel', 'gearbox'], "a bare dt inside the clone is the reader's union");
+		assert.deepEqual(inClone({ DREAMTEAMER_WORKSPACE: fs.realpathSync(clone) }), ['flywheel', 'gearbox'], 'an inherited or hand-set variable changes nothing');
+	});
+
 });
+

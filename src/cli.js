@@ -40,7 +40,8 @@ export const USAGE = `usage: dreamteamer <verb> [<target>] [flags]
                    run the verb in another workspace: a record layer this workspace declares, by
                    its git_modules name, or any workspace by path. A path resolves from the
                    directory you typed it in; every other path in the command resolves inside the
-                   target. The working directory is unchanged.
+                   target. The working directory is unchanged, and the flag reaches this command
+                   only: a process it starts resolves its own workspace from its own directory.
   --vault <path>   deprecated — the old spelling of --workspace, still honoured.
 
 record verbs (hard validation — invalid writes are rejected before disk).

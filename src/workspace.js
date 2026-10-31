@@ -36,10 +36,10 @@ export function findWorkspace(start = process.cwd()) {
 	// as something OTHER than a module.
 	let found = candidates[0];
 	for (const higher of candidates.slice(1)) {
-		// a workspace named with `--workspace` (bin/dreamteamer.js pins it) is never climbed out of, even
-		// when it is a clone under another workspace's git_modules/ — that is exactly the case it names.
-		// Only a candidate EQUAL to the pin stops the climb, so a child process elsewhere ignores it.
-		if (found.root === process.env.DREAMTEAMER_WORKSPACE) break;
+		// a workspace named with `--workspace` (bin/dreamteamer.js pins it, for THIS process only — never
+		// in the environment, so no child inherits it) is never climbed out of, even when it is a clone
+		// under another workspace's git_modules/ — that is exactly the case it names.
+		if (found.root === globalThis[Symbol.for('dreamteamer.workspace')]) break;
 		if (!nestedAsModule(higher.root, found.root)) break;
 		found = higher;
 	}

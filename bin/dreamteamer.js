@@ -27,7 +27,7 @@ const self = fileURLToPath(import.meta.url);
 // relative path in the command then resolves against the target — the rule a `cd` would give. A NAME
 // with no such directory is a record layer this workspace DECLARES (`dreamteamer.git_modules`), and
 // resolves to `git_modules/<name>` — the precedent is `npm -w <name-or-path>`. The target is PINNED
-// (DREAMTEAMER_WORKSPACE): a clone under git_modules/ is otherwise climbed out of by discovery, which
+// for this process only: a clone under git_modules/ is otherwise climbed out of by discovery, which
 // would run the verb in the workspace AROUND it — a write landing in the reader and printing ✔.
 const flagAt = process.argv.findIndex((a, i) => i >= 2 && (a === '--workspace' || a === '-w' || a === '--vault'));
 if (flagAt !== -1) {
@@ -54,7 +54,11 @@ if (flagAt !== -1) {
 	// would be pinned, discovery would climb out of it, and the verb would run in the workspace around it
 	if (!isWorkspaceDir(resolved)) refuse(`${resolved} is not a workspace (no package.json with a "dreamteamer" section)`);
 	process.chdir(resolved);
-	process.env.DREAMTEAMER_WORKSPACE = process.cwd(); // the physical path, as discovery will see it
+	// PROCESS-LOCAL, never an environment variable: the one reader that needs it is the dev-clone
+	// re-exec below, an `import()` into this same process. An env var reached every child — git hooks,
+	// an extension spawning dt — and a dt run inside the clone by any of them answered from the layer
+	// alone instead of the reader's union.
+	globalThis[Symbol.for('dreamteamer.workspace')] = process.cwd(); // the physical path, as discovery will see it
 	process.argv.splice(flagAt, 2);
 }
 
@@ -102,7 +106,7 @@ function findWorkspaceRoot(start) {
 	if (!candidates.length) return null;
 	let workspace = candidates[0];
 	for (const higher of candidates.slice(1)) {
-		if (workspace === process.env.DREAMTEAMER_WORKSPACE) break; // an explicitly targeted workspace is never climbed out of
+		if (workspace === globalThis[Symbol.for('dreamteamer.workspace')]) break; // an explicitly targeted workspace is never climbed out of
 		const viaModule = path.relative(higher, workspace).split(path.sep).some((seg) => MODULE_SEGMENTS.has(seg));
 		if (!viaModule) break;
 		workspace = higher;
