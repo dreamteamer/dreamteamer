@@ -91,9 +91,10 @@ the primary workspace's, whoever shipped the skill you are reading.
 
 - **start a session in the workspace it is about.** it is the only thing that loads that workspace's
   instructions, and it settles name collisions in its favour.
-- **to touch another workspace from here, `--vault <path>` — not `cd`.** the flag resolves the
-  target's schema, validates and commits there, and leaves the working directory alone; a `cd`
-  outlives the command.
+- **to touch another workspace from here, `-w <name|path>` (`--workspace`) — not `cd`.** a record
+  layer is named by its git_modules name (`-w project-alpha`), any other workspace by path. the flag
+  resolves the target's schema, validates and commits there, and leaves the working directory alone;
+  a `cd` outlives the command. (`--vault <path>` is the deprecated spelling.)
 - **every record write prints the workspace it landed in** — `✔ <workspace> · <path>`. a write to
   the wrong workspace passes validation, because the collection usually exists in both, so that line
   is what distinguishes them.

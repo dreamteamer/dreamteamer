@@ -36,9 +36,12 @@ const QUIET = ['ignore', 'pipe', 'ignore'];
 
 export const USAGE = `usage: dreamteamer <verb> [<target>] [flags]
 
-  --vault <path>   run against another workspace. The path resolves from the directory you typed it
-                   in; every other path in the command resolves inside the target. The working
-                   directory is unchanged.
+  --workspace, -w <name|path>
+                   run the verb in another workspace: a record layer this workspace declares, by
+                   its git_modules name, or any workspace by path. A path resolves from the
+                   directory you typed it in; every other path in the command resolves inside the
+                   target. The working directory is unchanged.
+  --vault <path>   deprecated — the old spelling of --workspace, still honoured.
 
 record verbs (hard validation — invalid writes are rejected before disk).
 A <target> is either a collection name or a <collection>/<id> reference; the reference splits at
@@ -268,10 +271,11 @@ const FIELD_VERBS = ['add-field', 'set-field', 'rm-field', 'rename-field', 'rena
 //
 // ⚠ Listing one here EXEMPTS it from the "documented flags are accepted by some verb" guard, which
 // exists because 0.19.0 shipped a flag that was documented and silently swallowed. The exemption is
-// only safe while the behaviour is pinned somewhere else: `--vault` is covered end-to-end in
-// test/integration/cross-workspace-targeting.test.js. A global flag with no such file is the exact
-// defect that guard was written to catch \u2014 add the coverage, not the entry.
-export const GLOBAL_FLAGS = ['vault'];
+// only safe while the behaviour is pinned somewhere else: `--workspace` / `-w` is covered end-to-end in
+// test/integration/workspace-flag.test.js and `--vault` in cross-workspace-targeting.test.js. A global
+// flag with no such file is the exact defect that guard was written to catch \u2014 add the coverage,
+// not the entry.
+export const GLOBAL_FLAGS = ['workspace', 'vault'];
 
 export const WORKSPACE_FLAGS = {
 	init: ['name', 'data_path', 'harnesses', 'workspace_module'], update: [],
