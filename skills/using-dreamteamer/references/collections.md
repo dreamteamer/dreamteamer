@@ -246,6 +246,7 @@ lists it. What belongs in a module is judgment — `data-modeling.md` Part III �
 | `peer_collections` | collections this module references but does not own, which may be absent |
 | `owns_data` | every collection it ships defaults to `storage.owner: module` — its records live in its own clone, not the workspace's `data/`; one descriptor opts out with `storage.owner: workspace` |
 | `engine` | the engine range it needs; outside it, the module is refused whole |
+| (npm's own peer-dependency ranges, top level — never in this block) | a version floor on another module: a present module outside the range fails compile, naming both versions and the fix |
 | `env` · `vars` | the `.env` keys it needs · the `${env:…}` names its records use (the workspace must allow each) |
 | `extension` · `ignore` · `local_assets` | an extension entry (`extensions.md`) · folders that are not kinds · gitignored files a worktree links |
 
