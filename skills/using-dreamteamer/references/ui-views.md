@@ -171,9 +171,15 @@ module with the SAME id and `overlay: true` is merged onto it at compile: deep, 
 leaf, a list is replaced whole, `null` removes a key the package sets. The compiled view names
 `compiled.module` and `compiled.overlaid_by`. `dt set` on a package's view writes exactly that
 overlay — only what differs from the package — and setting it back removes it. A same-id view
-WITHOUT the flag is still a name collision. The same holds one level up: `dt set collections/<c>
-display.…` on a package's collection writes its `display` keys into a workspace overlay (with
-`peer_collections` declared for you), never into the package.
+WITHOUT the flag is still a name collision.
+
+A COLLECTION overlay merges by a different, shallower rule — know which one you are writing: its
+`display` is merged ONE key deep (`display.list` keeps the package's keys and takes yours, but a
+`display.list.options` you write replaces the package's `options` whole), a list replaces whole, and
+`null` is a value, not a removal — nothing can be deleted from the package's display. `dt set
+collections/<c> display.…` on a package's collection writes the keys that differ into such an overlay
+in the workspace module (writing `options` whole when one option changes, so none is dropped), says
+when it also declares `<c>` in that module's `peer_collections`, and never writes the package.
 
 ## common mistakes
 

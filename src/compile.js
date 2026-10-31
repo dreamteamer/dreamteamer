@@ -638,7 +638,9 @@ export function compile(ws) {
 	const viewOverlays = [];
 	const isViewOverlay = (srcPath) => {
 		const text = fs.readFileSync(srcPath, 'utf8');
-		return /^overlay:\s*true\s*$/m.test(text) && loadSource(text, rel(srcPath))?.overlay === true;
+		// the regex is only a cheap pre-filter, so it must not be stricter than YAML: a trailing comment
+		// or space on the flag line still carries the flag (the parsed value is what decides)
+		return /^overlay:\s*true\b/m.test(text) && loadSource(text, rel(srcPath))?.overlay === true;
 	};
 	const counts = {};
 	/** collection descriptors collected per name, a base and its overlays: name -> [{src, doc, moduleName}] */

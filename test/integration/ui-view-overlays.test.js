@@ -98,6 +98,14 @@ describe('compile merges a ui-view overlay onto the package view', () => {
 		assert.deepEqual(entry.sources.map((s) => s.path), [PKG_VIEW_FILE, OVERLAY_FILE], 'both sources are provenance, so either changing makes the runtime stale');
 	});
 
+	test('the flag line may carry a comment — the parsed flag decides, not the line\'s spelling', () => {
+		const ws = withPackage();
+		fs.mkdirSync(path.join(ws.root, 'modules/default/ui-views'), { recursive: true });
+		fs.writeFileSync(path.join(ws.root, OVERLAY_FILE), `overlay: true   # the clinic wants a status column\n${dump({ display: { list: { columns: ['name', 'status'] } } })}`);
+		assert.equal(compileQuietly(ws.ws).code, 0);
+		assert.deepEqual(compiledView(ws).display.list.columns, ['name', 'status']);
+	});
+
 	test('a view WITHOUT overlay: true and the same id is still the collision', () => {
 		const ws = withPackage();
 		writeOverlay(ws, { ...PKG_VIEW, route: '/mine' });
@@ -218,6 +226,7 @@ describe('a package collection\'s DEFAULT display, changed from the workspace', 
 		const ws = withPackage();
 		const res = setCollectionScalars(ws.ws, ws.store, 'doctors', { 'display.list.columns': 'name,status', 'display.list.sort': 'name' });
 		assert.equal(res.overlay, true);
+		assert.deepEqual(res.peer, { collection: 'doctors', module: 'default' }, 'the result names the declaration it wrote');
 		assert.equal(path.relative(ws.root, res.file), OVERLAY);
 		const doc = load(readFile(ws.root, OVERLAY));
 		assert.equal(doc.overlay, true);
@@ -249,10 +258,14 @@ describe('a package collection\'s DEFAULT display, changed from the workspace', 
 		assert.throws(() => setCollectionScalars(ws.ws, ws.store, 'doctors', { description: 'mine' }), /display\.\* keys can be changed from here/);
 	});
 
-	test('the CLI spelling', () => {
+	test('the CLI spelling — and its result line says the peer declaration it wrote', () => {
 		const ws = withPackage();
 		const res = ws.dt('set', 'collections/doctors', 'display.list.columns=name,status');
 		assert.equal(res.code, 0, res.stderr);
 		assert.ok(readFile(ws.root, OVERLAY));
+		assert.match(res.stdout, /display\.list\.columns, and declared doctors as a peer collection of default/);
+		const again = ws.dt('set', 'collections/doctors', 'display.list.columns=name,city,status');
+		assert.equal(again.code, 0, again.stderr);
+		assert.doesNotMatch(again.stdout, /declared/, 'once declared, a later save writes no declaration and claims none');
 	});
 });

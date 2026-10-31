@@ -509,7 +509,7 @@ function metaCollectionsSet(ws, store, flags, pos) {
 	const out = setCollectionScalars(ws, store, name, changes, { moduleId: undefined });
 	if (flags.json) { emit(JSON.stringify(out)); return 0; }
 	if (out.unchanged) return alreadyThat(`collections/${name} ${out.changed.join(', ')}`);
-	console.log(`✔ ${rel(ws.root, out.file)} — ${out.changed.join(', ')}`);
+	console.log(`✔ ${rel(ws.root, out.file)} — ${out.changed.join(', ')}${out.peer ? `, and declared ${out.peer.collection} as a peer collection of ${out.peer.module}` : ''}`);
 	console.log('✔ compiled — the descriptor is up to date');
 	reportCommits(out.commits);
 	return 0;

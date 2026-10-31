@@ -926,7 +926,9 @@ function setCollectionDisplayOverlay(ws, store, name, changes, owned) {
 		fs.writeFileSync(file, writeSource(previousText, doc));
 		if (needsPeer) editModulePkg(wmPkg, (dt) => { dt.peer_collections = [...(dt.peer_collections ?? []), name]; });
 	}, undefined, { commentsMayDecrease: true });
-	return { name, file, changed, overlay: true, removed: empty || undefined, peer: needsPeer || undefined, commits: gate.commits, unchanged: gate.unchanged };
+	// the declaration is a write to the module's manifest, so the result names it for every surface to say
+	const peer = needsPeer ? { collection: name, module: ws.pkg.dreamteamer?.workspace_module ?? ws.pkg.name } : undefined;
+	return { name, file, changed, overlay: true, removed: empty || undefined, peer, commits: gate.commits, unchanged: gate.unchanged };
 }
 
 // ---- the positions that name a field, and a value ----------------------------------------------
