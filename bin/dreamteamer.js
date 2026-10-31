@@ -39,22 +39,20 @@ if (flagAt !== -1) {
 			: '\u2716 --workspace needs a layer name or a path, e.g. `-w project-alpha` or `-w ../another-workspace`');
 		process.exit(1);
 	}
+	const refuse = (why) => { console.error(`\u2716 ${flag} ${target} \u2014 ${why}`); process.exit(1); };
 	let resolved = path.resolve(process.cwd(), target);
 	if (!fs.existsSync(resolved)) {
+		// a NAME: only a record layer this workspace declares — a bundle is modules, not a workspace
 		const here = findWorkspaceRoot(process.cwd());
-		let declared = [];
-		try { declared = Object.keys(JSON.parse(fs.readFileSync(path.join(here, 'package.json'), 'utf8')).dreamteamer?.git_modules ?? {}); } catch { /* no workspace here */ }
-		if (here && declared.includes(target) && !/[\\/]/.test(target)) {
-			resolved = path.join(here, 'git_modules', target);
-			if (!fs.existsSync(resolved)) {
-				console.error(`\u2716 ${flag} ${target} \u2014 the layer is declared but not installed (${resolved}); run dreamteamer install`);
-				process.exit(1);
-			}
-		} else {
-			console.error(`\u2716 ${flag} ${target} \u2014 no such directory, and no layer of that name is declared here (declared: ${declared.join(', ') || 'none'})`);
-			process.exit(1);
-		}
+		const layers = here ? declaredLayers(here) : new Map();
+		if (/[\\/]/.test(target) || !layers.has(target)) refuse(`no such directory, and no layer of that name is declared here (declared layers: ${[...layers].filter(([, k]) => k === 'layer').map(([n]) => n).join(', ') || 'none'})`);
+		resolved = path.join(here, 'git_modules', target);
+		if (layers.get(target) === 'bundle') refuse(`git_modules/${target} is a bundle (its package.json names no workspace_module), not a workspace — there is nothing to run a verb in`);
+		if (!fs.existsSync(resolved)) refuse(`the layer is declared but not installed (${resolved}); run dreamteamer install`);
 	}
+	// the TARGET must be a workspace root: a plain folder (one that merely shares a layer's name, say)
+	// would be pinned, discovery would climb out of it, and the verb would run in the workspace around it
+	if (!isWorkspaceDir(resolved)) refuse(`${resolved} is not a workspace (no package.json with a "dreamteamer" section)`);
 	process.chdir(resolved);
 	process.env.DREAMTEAMER_WORKSPACE = process.cwd(); // the physical path, as discovery will see it
 	process.argv.splice(flagAt, 2);
@@ -110,6 +108,29 @@ function findWorkspaceRoot(start) {
 		workspace = higher;
 	}
 	return workspace;
+}
+
+/** Does a directory's package.json carry a `dreamteamer` section — is it a workspace (or module) root? */
+function isWorkspaceDir(dir) {
+	try { return 'dreamteamer' in JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8')); } catch { return false; }
+}
+
+/** The git_modules entries a workspace declares, name -> 'layer' | 'bundle' — the rule of
+ *  src/workspace.js layerEntries, restated because this file runs before any src/ is chosen: `records`
+ *  or `module: true` declares a layer, a clone on disk is a layer when its manifest names
+ *  `workspace_module`, and one not on disk is a layer not installed. */
+function declaredLayers(root) {
+	const out = new Map();
+	let entries = {};
+	try { entries = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).dreamteamer?.git_modules ?? {}; } catch { /* none */ }
+	for (const [name, e] of Object.entries(entries)) {
+		const clone = path.join(root, 'git_modules', name);
+		let wm = null;
+		try { wm = JSON.parse(fs.readFileSync(path.join(clone, 'package.json'), 'utf8')).dreamteamer?.workspace_module ?? null; } catch { /* absent */ }
+		const layer = e?.records !== undefined || e?.module === true || !fs.existsSync(clone) || !!wm;
+		out.set(name, layer ? 'layer' : 'bundle');
+	}
+	return out;
 }
 
 function findDevClone(start) {

@@ -76,7 +76,7 @@ describe('-w / --workspace targets a declared layer by NAME or a workspace by PA
 		const { hq } = hqWithLayer();
 		const res = dt(hq.root, 'add', 'widgets', '--name', 'Gearbox', '-w', 'project-z');
 		assert.notEqual(res.code, 0);
-		assert.match(res.stderr, /--workspace project-z — no such directory, and no layer of that name is declared here \(declared: project-a\)/);
+		assert.match(res.stderr, /--workspace project-z — no such directory, and no layer of that name is declared here \(declared layers: project-a\)/);
 		assert.ok(!fs.existsSync(inHq(hq)), 'nothing was written');
 		const bare = dt(hq.root, 'list', 'widgets', '-w');
 		assert.notEqual(bare.code, 0);
@@ -95,5 +95,28 @@ describe('-w / --workspace targets a declared layer by NAME or a workspace by PA
 		const out = dt(path.dirname(path.dirname(hqWithLayer().hq.root)), 'help').stdout;
 		assert.match(out, /--workspace, -w <name\|path>/);
 		assert.match(out, /--vault <path>\s+deprecated/);
+	});
+
+	test('a target that is not a workspace root is refused: a plain folder named like the layer, or a declared BUNDLE; the unknown-name list names layers only', () => {
+		const { hq, clone } = hqWithLayer();
+		// a plain folder in the cwd that happens to carry the layer's name
+		fs.mkdirSync(path.join(hq.root, 'sub', 'project-a'), { recursive: true });
+		const plain = dtIn(path.join(hq.root, 'sub'), 'add', 'widgets', '--name', 'Gearbox', '-w', 'project-a');
+		assert.notEqual(plain.code, 0);
+		assert.match(plain.stderr, /--workspace project-a — .*sub\/project-a is not a workspace \(no package\.json with a "dreamteamer" section\)/);
+		assert.ok(!fs.existsSync(inHq(hq)) && !fs.existsSync(inLayer(clone)), 'nothing was written anywhere');
+		// a declared bundle: a clone whose manifest names no workspace_module
+		const bun = path.join(hq.root, 'git_modules', 'kit');
+		fs.mkdirSync(bun, { recursive: true });
+		fs.writeFileSync(path.join(bun, 'package.json'), JSON.stringify({ name: 'kit', dreamteamer: {} }));
+		const pkgPath = path.join(hq.root, 'package.json');
+		const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+		pkg.dreamteamer.git_modules.kit = { url: 'x', ref: 'main' };
+		fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, '\t') + '\n');
+		const bundled = dt(hq.root, 'add', 'widgets', '--name', 'Gearbox', '-w', 'kit');
+		assert.notEqual(bundled.code, 0);
+		assert.match(bundled.stderr, /--workspace kit — git_modules\/kit is a bundle \(its package\.json names no workspace_module\), not a workspace/);
+		assert.ok(!fs.existsSync(inHq(hq)));
+		assert.match(dt(hq.root, 'list', 'widgets', '-w', 'nope').stderr, /\(declared layers: project-a\)/);
 	});
 });
