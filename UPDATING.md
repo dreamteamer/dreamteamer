@@ -50,6 +50,28 @@ default changed — read the first bullet if a script of yours runs bare `dt cha
 
 ---
 
+## Unreleased — a module's peerDependencies floor on another module is checked at compile
+
+Nothing to do for most workspaces. A module may now state the lowest version of another module it
+needs — or that it breaks below — as a top-level npm `peerDependencies` range in its package.json
+(npm's own field; never inside `dreamteamer`, where `peerDependencies` is the retired spelling of
+`peer_collections`). npm already refuses such an install; compile now refuses it too, on every
+channel — a `git_modules` clone, a copy under `modules/`, or an npm install that went around the
+peer check (`--legacy-peer-deps`, `--force`):
+
+```
+✖ compile error: module "@acme/planner" 0.4.1 needs "@acme/people" >=0.2.0 (its peerDependencies) — this workspace has 0.1.1, from node_modules.
+  fix: npm install "@acme/people@>=0.2.0"
+```
+
+Compile fails closed, so the previous runtime stands until the sibling is upgraded. Only a module
+this workspace actually has is checked: an absent one is `dreamteamer.dependencies`' business, and an
+entry naming a plain npm package is ignored. A range the built-in checker cannot read (`||`, a
+hyphen or a two-sided range) is warned and not verified, exactly like `dreamteamer.engine`. An engine
+before this one ignores the field, so a module never needs a higher engine floor to declare one.
+
+---
+
 ## 0.41.0 — a project layer reads by what it is, stub records yield, and `-w` names a layer
 
 Nothing to do but `dt compile` for most workspaces. Three things to know if you read record layers,

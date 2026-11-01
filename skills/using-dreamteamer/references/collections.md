@@ -249,6 +249,10 @@ lists it. What belongs in a module is judgment — `data-modeling.md` Part III �
 | `env` · `vars` | the `.env` keys it needs · the `${env:…}` names its records use (the workspace must allow each) |
 | `extension` · `ignore` · `local_assets` | an extension entry (`extensions.md`) · folders that are not kinds · gitignored files a worktree links |
 
+A version floor on another module is not a key of this block: it is npm's own peer-dependency range,
+at the top level of the module's package.json. A present module outside the range fails compile,
+naming both versions and the fix.
+
 ## the workspace manifest — the `dreamteamer` block in `package.json`
 
 Keys are snake_case and closed: compile refuses an unknown one, naming the list. `dt init` writes

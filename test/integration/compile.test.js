@@ -787,6 +787,72 @@ describe('a command-binding gated on a peer collection', () => {
 });
 
 // ---------------------------------------------------------------------------------------------
+// A module's npm `peerDependencies` range on ANOTHER MODULE is a version floor. npm refuses the install
+// below it; compile refuses it on every channel npm never saw (a git_modules clone, an inline copy, an
+// install that went around the peer check), naming both versions and the fix. An absent sibling is
+// `dreamteamer.dependencies`' business, not the floor's.
+describe('a peerDependencies floor on another module', () => {
+	/** A module `id` at `version`, with npm `peerDependencies` (top level) — on the inline channel, or
+	 *  under node_modules declared as a dependency, or inside a git_modules bundle. */
+	const mod = (root, id, version, { peers, channel = 'inline' } = {}) => {
+		const dir = channel === 'npm' ? path.join(root, 'node_modules', id)
+			: channel === 'git' ? path.join(root, 'git_modules', 'family', 'modules', id)
+			: path.join(root, 'modules', id);
+		fs.mkdirSync(path.join(dir, 'collections'), { recursive: true });
+		fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: id, version, ...(peers ? { peerDependencies: peers } : {}), dreamteamer: {} }, null, '\t'));
+		fs.writeFileSync(path.join(dir, 'collections', `${id}-rows.collection.yaml`), dump({ name: `${id}-rows`, ...simpleCollection({ storage: { suffix: `${id}-row` } }) }));
+		if (channel === 'npm') {
+			const f = path.join(root, 'package.json');
+			const pkg = JSON.parse(fs.readFileSync(f, 'utf8'));
+			pkg.dependencies = { ...pkg.dependencies, [id]: version };
+			fs.writeFileSync(f, JSON.stringify(pkg, null, '\t') + '\n');
+		}
+		if (channel === 'git') fs.writeFileSync(path.join(root, 'git_modules', 'family', 'package.json'), JSON.stringify({ name: 'family', version: '0.0.1', dreamteamer: {} }));
+	};
+
+	test('a present sibling below the floor is refused, naming both versions, where it came from and the fix', () => {
+		const { root } = workspace({ compile: false });
+		mod(root, 'planner', '0.4.1', { peers: { people: '>=0.2.0' } });
+		mod(root, 'people', '0.1.1', { channel: 'npm' });
+		const c = dt(root, 'compile');
+		assert.equal(c.code, 1, c.stderr);
+		assert.ok(c.stderr.includes('module "planner" 0.4.1 needs "people" >=0.2.0 (its peerDependencies) — this workspace has 0.1.1, from node_modules'), c.stderr);
+		assert.ok(c.stderr.includes('fix: npm install "people@>=0.2.0"'), c.stderr);
+		assert.equal(readFile(root, '.dreamteamer/collections/planner-rows.collection.yaml'), null, 'compile fails closed');
+	});
+
+	test('every miss is named in one refusal, and a copy outside node_modules is named as the copy to bring up', () => {
+		const { root } = workspace({ compile: false });
+		mod(root, 'planner', '0.4.1', { peers: { people: '>=0.2.0' } });
+		mod(root, 'people', '0.1.1', { channel: 'git', peers: { planner: '>=0.5.0' } });
+		const c = dt(root, 'compile');
+		assert.equal(c.code, 1, c.stderr);
+		assert.ok(c.stderr.includes('this workspace has 0.1.1, from git_modules'), c.stderr);
+		assert.ok(c.stderr.includes(`fix: bring ${path.join('git_modules', 'family', 'modules', 'people')} to a version in >=0.2.0`), c.stderr);
+		assert.ok(c.stderr.includes('module "people" 0.1.1 needs "planner" >=0.5.0 (its peerDependencies) — this workspace has 0.4.1, from modules'), c.stderr);
+	});
+
+	test('a met floor, an absent sibling and a plain npm package compile as before', () => {
+		const { root } = workspace({ compile: false });
+		mod(root, 'planner', '0.4.1', { peers: { people: '^0.2.0', ledger: '>=1.0.0', react: '>=18.0.0' } });
+		mod(root, 'people', '0.2.3', { channel: 'npm' });
+		const c = dt(root, 'compile');
+		assert.equal(c.code, 0, c.stderr);
+		assert.doesNotMatch(c.stderr, /peerDependencies/);
+		assert.ok(readFile(root, '.dreamteamer/collections/planner-rows.collection.yaml'));
+	});
+
+	test('a range the checker cannot read is warned and not verified, never refused', () => {
+		const { root } = workspace({ compile: false });
+		mod(root, 'planner', '0.4.1', { peers: { people: '>=0.2.0 <0.3.0' } });
+		mod(root, 'people', '0.1.1');
+		const c = dt(root, 'compile');
+		assert.equal(c.code, 0, c.stderr);
+		assert.ok(c.stderr.includes('⚠ module planner: peerDependencies range ">=0.2.0 <0.3.0" for "people" (0.1.1) not understood by the built-in checker (see src/semver.js) — not verified'), c.stderr);
+	});
+});
+
+// ---------------------------------------------------------------------------------------------
 // A module whose `dreamteamer.engine` excludes the running engine is refused whole.
 describe('a module whose engine floor is unmet', () => {
 	const future = (root) => {

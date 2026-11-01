@@ -426,6 +426,8 @@ export function compile(ws) {
 	const moduleDeps = new Map();  // module name -> [module names]      — HARD, must be acyclic
 	const modulePeers = new Map(); // module name -> [collection names]  — SOFT, cannot cycle
 	const moduleNamespaces = new Map(); // module name -> [namespaces it DECLARES] (§8, option A)
+	const moduleVersions = new Map(); // module name -> its package.json version
+	const moduleFloors = new Map();   // module name -> npm `peerDependencies` — a version floor on a sibling module
 	const moduleLocalAssets = []; // {rel, owner, base} — validated with the workspace's own, below
 	// the package.json `dreamteamer` block is a closed set of snake_case keys, the workspace's and
 	// every module's alike — a key outside it is a typo or a spelling this engine does not read
@@ -466,6 +468,10 @@ export function compile(ws) {
 				fail(`module "${source.name}": dreamteamer.namespaces must be a list of namespace names (got ${JSON.stringify(ns)})`);
 			}
 			moduleNamespaces.set(source.name, ns);
+		}
+		if (source.root !== root) {
+			moduleVersions.set(source.name, mpkg.version);
+			if (mpkg.peerDependencies && typeof mpkg.peerDependencies === 'object') moduleFloors.set(source.name, mpkg.peerDependencies);
 		}
 		const range = mpkg.dreamteamer?.engine;
 		if (range && satisfies(engineVer, range) === null) console.warn(`⚠ module ${source.name}: engine range "${range}" not understood by the built-in checker (see src/semver.js) — not verified`);
@@ -593,6 +599,21 @@ export function compile(ws) {
 				fail(`module "${mod}" depends on "${dep}", which is not installed — modules present: ${[...moduleNames].sort().join(', ')}`);
 			}
 		}
+	}
+	// npm's `peerDependencies` naming ANOTHER discovered module is a VERSION FLOOR: npm refuses the install
+	// below it, and this refuses the channels npm never saw — a git_modules clone, an inline copy, an
+	// install that went around the peer check. An absent sibling is `dependencies`' business, not this one's.
+	{
+		const byName = new Map(sources.map((s) => [s.name, s]));
+		const misses = [];
+		for (const [mod, floors] of moduleFloors) for (const [dep, range] of Object.entries(floors)) {
+			const sib = byName.get(dep), have = moduleVersions.get(dep);
+			if (!sib || dep === mod) continue;
+			const ok = satisfies(have, range);
+			if (ok === null) console.warn(`⚠ module ${mod}: peerDependencies range "${range}" for "${dep}" (${have ?? 'no version'}) not understood by the built-in checker (see src/semver.js) — not verified`);
+			else if (!ok) misses.push(`module "${mod}" ${moduleVersions.get(mod)} needs "${dep}" ${range} (its peerDependencies) — this workspace has ${have}, from ${CHANNEL_LABEL[sib.channel]}.\n  fix: ${sib.channel === 'npm' ? `npm install "${dep}@${range}"` : `bring ${rel(sib.root)} to a version in ${range}`}`);
+		}
+		if (misses.length) fail(misses.join('\n'));
 	}
 	// DFS with an explicit path so the error can print the ring rather than just naming one module
 	{
