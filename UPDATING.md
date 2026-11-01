@@ -91,6 +91,21 @@ and a page. The first consumer is `@dreamteamer/core`'s live sessions: *in sessi
 
 ---
 
+## Unreleased — overlay a package's view or default display; move a view between modules
+
+Nothing to do but `dt compile`. Two refusals became writes:
+
+- **Saving a ui-view an installed package ships** (`dt set ui-views/<id> …`, or Save in a surface)
+  no longer refuses: it writes an `overlay: true` source of that id in the workspace module carrying
+  only what differs, and compile merges it onto the package's view (deep; `null` removes a key).
+- **`dt set collections/<c> display.…` on a package's collection** no longer refuses: the display
+  keys that differ land in a workspace overlay, and `<c>` is added to the workspace module's
+  `peer_collections`. Any other collection-level key is still the owning module's.
+- **`dt set ui-views/<id> module=<m>`** moves a view's source into another module (new; `moveUiView`
+  in the public API).
+
+---
+
 ## 0.41.0 — a project layer reads by what it is, stub records yield, and `-w` names a layer
 
 Nothing to do but `dt compile` for most workspaces. Three things to know if you read record layers,

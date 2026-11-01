@@ -293,7 +293,8 @@ describe('a system `set` that changes nothing says so instead of leaking a git f
 describe('a write into a node_modules-owned collection is refused where it is refused everywhere else', () => {
 	test('set collections/<c> names npm install rather than a compile that will never help', () => {
 		const ws = twoModuleWorkspace();
-		const res = ws.dt('set', 'collections/repos', 'display.nav.icon=folder');
+		// a display.* key is the exception — it becomes a workspace overlay (ui-view-overlays.test.js)
+		const res = ws.dt('set', 'collections/repos', 'description=Ours now');
 		assert.equal(res.code, 1, res.stdout);
 		assert.match(res.stderr, /node_modules/);
 		assert.match(res.stderr, /npm install/);

@@ -160,6 +160,26 @@ so a view saved from the CLI and one saved from a surface land on the **same rec
 - **An empty value REMOVES the key**, so the setting whose meaningful value IS empty is written
   QUOTED: `'display.list.sort=""'`. A value holding a template is quoted the same way:
   `'display.list.options.card_title="{{ name }}"'`.
+- **`dt set ui-views/<id> module=<m>` MOVES the view** to another module's `ui-views/` (bytes and
+  comments kept, one compile gate, one commit per repo — a linked clone's module commits there).
+  `--dry-run` shows the plan. A package's view never moves; save it under a new name and move that.
+
+## a package's view, changed from here — `overlay: true`
+
+A view an installed package ships is never written in `node_modules/`. A source in the workspace
+module with the SAME id and `overlay: true` is merged onto it at compile: deep, the overlay wins at a
+leaf, a list is replaced whole, `null` removes a key the package sets. The compiled view names
+`compiled.module` and `compiled.overlaid_by`. `dt set` on a package's view writes exactly that
+overlay — only what differs from the package — and setting it back removes it. A same-id view
+WITHOUT the flag is still a name collision.
+
+A COLLECTION overlay merges by a different, shallower rule — know which one you are writing: its
+`display` is merged ONE key deep (`display.list` keeps the package's keys and takes yours, but a
+`display.list.options` you write replaces the package's `options` whole), a list replaces whole, and
+`null` is a value, not a removal — nothing can be deleted from the package's display. `dt set
+collections/<c> display.…` on a package's collection writes the keys that differ into such an overlay
+in the workspace module (writing `options` whole when one option changes, so none is dropped), says
+when it also declares `<c>` in that module's `peer_collections`, and never writes the package.
 
 ## common mistakes
 

@@ -9,7 +9,7 @@ import { load, dump } from './yaml.js';
 import { slug } from './template.js';
 import { walk } from './records.js';
 import { placedRecords } from './placement.js';
-import { viewErrors, viewDisplay, bindingErrors } from './views.js';
+import { viewErrors, viewDisplay, bindingErrors, overlayView } from './views.js';
 import {
 	normalizeNamespaces, namespaceProblems, unqualifiedProblems, defaultStoragePath, storageOverlaps,
 	baseNameOf, singular, namespaceOf } from './namespace.js';
@@ -642,6 +642,14 @@ export function compile(ws) {
 
 	/** entries: runtime-relative path -> { sources: [workspace-relative], bytes } */
 	const entries = new Map();
+	/** ui-view sources carrying `overlay: true` — merged onto their base after discovery */
+	const viewOverlays = [];
+	const isViewOverlay = (srcPath) => {
+		const text = fs.readFileSync(srcPath, 'utf8');
+		// the regex is only a cheap pre-filter, so it must not be stricter than YAML: a trailing comment
+		// or space on the flag line still carries the flag (the parsed value is what decides)
+		return /^overlay:\s*true\b/m.test(text) && loadSource(text, rel(srcPath))?.overlay === true;
+	};
 	const counts = {};
 	/** collection descriptors collected per name, a base and its overlays: name -> [{src, doc, moduleName}] */
 	const descriptorGroups = new Map();
@@ -739,6 +747,13 @@ export function compile(ws) {
 					counts[kind]++;
 				} else if (!isDir) {
 					refuseEmptySource(srcPath);
+					// a view OVERLAY is merged onto the view it names once every source is in (below), so
+					// discovery order between the two modules never decides which is the base
+					if (kind === 'ui-views' && isViewOverlay(srcPath)) {
+						viewOverlays.push({ runtimePath: toPosix(path.join(kind, name)), srcPath, moduleName: source.name });
+						contributedBy.add(source.name);
+						continue;
+					}
 					addEntry(path.join(kind, name), srcPath);
 					contributedBy.add(source.name);
 					counts[kind]++;
@@ -753,6 +768,26 @@ export function compile(ws) {
 				}
 			}
 		}
+	}
+
+	// ---- ui-view overlays: a same-id view carrying `overlay: true` MERGES onto the shipped one --------
+	// The way a collection overlay refines a descriptor it does not own, so a workspace changes a
+	// package's view in the few lines that differ instead of copying it (and losing every later fix
+	// the package ships). DEEP, overlay wins at the leaves, a list is replaced whole, and `null`
+	// REMOVES the key — the one spelling an overlay has for "the package sets this; I do not". A
+	// view without the flag and the same id is still the collision `addEntry` names.
+	const ownerOf = (file) => sources.map((s) => ({ s, at: rel(s.root) })).filter(({ at }) => !at || file.startsWith(`${at}/`)).sort((a, b) => b.at.length - a.at.length)[0]?.s;
+	for (const o of viewOverlays) {
+		const e = entries.get(o.runtimePath);
+		const id = path.posix.basename(o.runtimePath).replace(/\.ui-view\.yaml$/, '');
+		if (!e) fail(`${rel(o.srcPath)}: an overlay of ui-view "${id}" (overlay: true), but no module ships a view "${id}" — drop \`overlay: true\` to make it a view of its own, or install the module that ships it.`);
+		const bytes = fs.readFileSync(o.srcPath);
+		const { overlay: _flag, ...ov } = loadSource(bytes.toString('utf8'), rel(o.srcPath)) ?? {};
+		const merged = overlayView(loadSource(e.bytes.toString('utf8'), e.sources[0].path) ?? {}, ov);
+		e.bytes = Buffer.from(dump(merged));
+		e.sources.push({ path: rel(o.srcPath), hash: sha256(bytes) });
+		e.module ??= moduleId(ownerOf(e.sources[0].path)?.name ?? '');
+		(e.overlaidBy ??= []).push(moduleId(o.moduleName));
 	}
 
 	// ---- stage module UI bundles ---------------------------------------------------
@@ -1063,7 +1098,8 @@ export function compile(ws) {
 		if (errors.length) fail(errors.join('\n  '));
 		for (const w of warnings) console.warn(`⚠ ${w}`);
 		const text = e.bytes.toString('utf8');
-		e.bytes = Buffer.from(`${text}${text.endsWith('\n') ? '' : '\n'}${dump({ compiled: { display: viewDisplay(d ? displayOf(d) : {}, view) } })}`);
+		const provenance = e.overlaidBy ? { module: e.module, overlaid_by: e.overlaidBy } : {};
+		e.bytes = Buffer.from(`${text}${text.endsWith('\n') ? '' : '\n'}${dump({ compiled: { display: viewDisplay(d ? displayOf(d) : {}, view), ...provenance } })}`);
 	}
 	// a command's id is its path under commands/, folders included: `commands/rnd/design.command.md` is
 	// `rnd/design`, typed as `/rnd:design` — the folder is the namespace, as claude-code already reads it
