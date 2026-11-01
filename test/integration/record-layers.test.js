@@ -734,6 +734,8 @@ const front = (w, rel) => load(/^---\n([\s\S]*?)\n---/.exec(readFile(w.root, rel
 const CALLS = 'name: calls\nstorage:\n  suffix: call\nids:\n  from: "{{ name | slug }}"\nfields:\n  name:\n    type: string\n    required: true\n  by:\n    type: string\n    enum: [person, agent, unknown]\n    required: true\n  why:\n    type: string\n  source:\n    type: string\n  status:\n    type: string\n    enum: [open, done]\n    default: open\n  notes:\n    type: markdown\n    body: true\nconstraints:\n  - if: {required: [by], properties: {by: {enum: [person, agent]}}}\n    then: {required: [why]}\n  - if: {required: [by], properties: {by: {const: unknown}}}\n    then: {required: [source]}\n';
 const MEMOS = 'name: memos\nstorage:\n  suffix: memo\nfields:\n  name:\n    type: string\n    required: true\n';
 const PICS = 'name: pics\nstorage:\n  suffix: pic\n  format: binary\nfields: {}\n';
+// projects with one defaulted field (cr-dt-003 only): a stub carries the schema's default, never the layer's value
+const PROJECTS_D = PROJECTS.replace('  notes:\n', '  status:\n    type: string\n    enum: [a, b]\n    default: a\n  notes:\n');
 /** layered() plus the shared collections the cr-dt-003 tests need — compiled from org, layered from
  *  project-a where `records` names them (memos is layerable but read from no layer). */
 function standalone({ layerFiles = {}, records = ['tasks', 'projects', 'codes', 'calls', 'pics'] } = {}) {
@@ -743,7 +745,7 @@ function standalone({ layerFiles = {}, records = ['tasks', 'projects', 'codes', 
 		'data/pics/p1.pic.png': 'not really a png',
 		...layerFiles,
 	} });
-	for (const [n, y] of [['codes', CODES], ['calls', CALLS], ['memos', MEMOS], ['pics', PICS]]) fs.writeFileSync(path.join(out.org, 'collections', `${n}.collection.yaml`), y);
+	for (const [n, y] of [['projects', PROJECTS_D], ['codes', CODES], ['calls', CALLS], ['memos', MEMOS], ['pics', PICS]]) fs.writeFileSync(path.join(out.org, 'collections', `${n}.collection.yaml`), y);
 	return out;
 }
 
@@ -840,9 +842,12 @@ describe("a workspace's own records resolve standalone (cr-dt-003)", () => {
 		assert.equal(res.code, 0, res.stderr);
 		assert.deepEqual(JSON.parse(res.stdout), { id: 'alpha', path: 'data/projects/alpha.project.md', $stubOf: 'git_modules/project-a/data/projects/alpha.project.md', copied: ['name'] });
 		const alpha = front(w, 'data/projects/alpha.project.md');
-		assert.deepEqual(Object.keys(alpha).filter((k) => k !== 'created').sort(), ['name', 'stub', 'tasks']);
+		assert.deepEqual(Object.keys(alpha).filter((k) => k !== 'created').sort(), ['name', 'status', 'stub', 'tasks']);
+		assert.equal(alpha.status, 'a', "the schema's default");
 		assert.deepEqual(alpha.tasks, ['tasks/t-one']);
-		assert.equal(getJson(w, 'projects/alpha').$file, 'git_modules/project-a/data/projects/alpha.project.md');
+		const got = getJson(w, 'projects/alpha');
+		assert.equal(got.$file, 'git_modules/project-a/data/projects/alpha.project.md', "the layer's record still answers");
+		assert.deepEqual(got.$shadows, ['data/projects/alpha.project.md'], 'and names the stub it shadows');
 
 		const call = dt(w.root, 'stub', 'calls/c1', '--source', 'mine');
 		assert.equal(call.code, 0, call.stderr);
@@ -859,13 +864,16 @@ describe("a workspace's own records resolve standalone (cr-dt-003)", () => {
 		assert.equal(dt(w.root, 'check').code, 0);
 	});
 
-	test('dt stub refuses a mirror field given as a flag, and writes nothing', () => {
+	test('dt stub refuses a mirror field given as a flag, and writes nothing; a field flag is written', () => {
 		const { w } = standalone();
 		compileQuietly(w.ws);
 		const res = dt(w.root, 'stub', 'projects/alpha', '--tasks', 'tasks/fix-login');
 		assert.equal(res.code, 1);
 		assert.match(res.stderr, /tasks is generated from tasks\.project/);
 		assert.ok(!fs.existsSync(path.join(w.root, 'data/projects/alpha.project.md')));
+		const flagged = dt(w.root, 'stub', 'projects/alpha', '--status', 'b');
+		assert.equal(flagged.code, 0, flagged.stderr);
+		assert.equal(front(w, 'data/projects/alpha.project.md').status, 'b', 'a field flag is written over the default');
 	});
 
 	// T5 (rnd/tests/dreamteamer/cr-dt-003-t5)
