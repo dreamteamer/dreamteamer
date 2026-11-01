@@ -20,7 +20,12 @@ npx dreamteamer check
 
 ---
 
-## 0.42.0 — `dt changes` reports what this turn changed, and every reply that wrote records ends with it
+## 0.42.0 — `dt changes` reports what this turn changed, a module's floor on another is checked at compile, an extension speaks in `dt next`, and a package's view can be overlaid
+
+Nothing to do but `dt compile` for most workspaces. Read the first section if a script of yours runs
+bare `dt changes`, the second if a module of yours declares npm `peerDependencies`.
+
+### `dt changes` reports what this turn changed, and every reply that wrote records ends with it
 
 Nothing to do but `dt compile` (it writes one new sentence into the harness block). One verb's
 default changed — read the first bullet if a script of yours runs bare `dt changes`.
@@ -48,9 +53,7 @@ default changed — read the first bullet if a script of yours runs bare `dt cha
   writes, and nothing when nothing was written. The compiled `CLAUDE.md` / `AGENTS.md` /
   `GEMINI.md` block repeats the rule in one sentence and points at the skill for the format.
 
----
-
-## Unreleased — a module's peerDependencies floor on another module is checked at compile
+### a module's peerDependencies floor on another module is checked at compile
 
 Nothing to do for most workspaces. A module may now state the lowest version of another module it
 needs — or that it breaks below — as a top-level npm `peerDependencies` range in its package.json
@@ -70,10 +73,6 @@ entry naming a plain npm package is ignored. A range the built-in checker cannot
 hyphen or a two-sided range) is warned and not verified, exactly like `dreamteamer.engine`. An engine
 before this one ignores the field, so a module never needs a higher engine floor to declare one.
 
----
-
-## Unreleased
-
 ### an extension can say a line about a record in `dt next`
 
 Nothing to do. Extensions gain one contribution key, `next: ({ root, ws, collection, ids }) → [{ id, text }]`
@@ -89,9 +88,7 @@ and a page. The first consumer is `@dreamteamer/core`'s live sessions: *in sessi
   engine refuses an unknown contribution key. Feature-detect it: contribute `next` only when
   `dt.contributedNotes` exists.
 
----
-
-## Unreleased — overlay a package's view or default display; move a view between modules
+### overlay a package's view or default display; move a view between modules
 
 Nothing to do but `dt compile`. Two refusals became writes:
 
