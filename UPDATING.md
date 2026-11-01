@@ -72,6 +72,25 @@ before this one ignores the field, so a module never needs a higher engine floor
 
 ---
 
+## Unreleased
+
+### an extension can say a line about a record in `dt next`
+
+Nothing to do. Extensions gain one contribution key, `next: ({ root, ws, collection, ids }) → [{ id, text }]`
+(synchronous). `dt next <collection>/<id>` prints each line under the bound commands — `● <ref> — <text>
+(<extension>)` — and `--json` carries them as `notes: [{ id, text, by }]`, an empty list when nothing is said.
+A `next` that throws is one `✖ <extension>: next failed — …` line and `dt next` still exits 0. The public
+API exports `contributedNotes(ws, collection, ids)`, the one implementation the editor will call for a row
+and a page. The first consumer is `@dreamteamer/core`'s live sessions: *in session by <agent> since <time>*.
+
+- **A script that parses `dt next --json`** sees one more top-level key, `notes`. The existing keys are
+  unchanged.
+- **An extension built for this engine that returns `next` does not load on an older one** — an older
+  engine refuses an unknown contribution key. Feature-detect it: contribute `next` only when
+  `dt.contributedNotes` exists.
+
+---
+
 ## 0.41.0 — a project layer reads by what it is, stub records yield, and `-w` names a layer
 
 Nothing to do but `dt compile` for most workspaces. Three things to know if you read record layers,

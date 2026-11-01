@@ -28,6 +28,8 @@ export interface Contribution {
 	check?(ctx: ExtensionContext): { file?: string; message: string }[] | void | Promise<{ file?: string; message: string }[] | void>;
 	/** machine checks: `dt doctor` renders the rows as one capability named after the extension */
 	doctor?(ctx: ExtensionContext): DoctorRow[] | void | Promise<DoctorRow[] | void>;
+	/** a line about a record's state that `dt next` prints under the bound commands — synchronous */
+	next?(ctx: { root: string; ws: Workspace; collection: string; ids: string[] }): { id: string; text: string }[] | void;
 }
 export interface DoctorRow { label: string; state: 'ok' | 'warn' | 'bad'; detail?: string; fix?: string }
 export interface ExtensionContext { root: string; ws: Workspace; dt: typeof import('./api.js') }
@@ -43,6 +45,7 @@ export interface LoadedExtension {
 	hooks: Record<string, string>;
 	check: Contribution['check'] | null;
 	doctor: Contribution['doctor'] | null;
+	next: Contribution['next'] | null;
 }
 export type Entry = { sources: { path: string; hash: string }[]; bytes: Buffer };
 export interface CompileDraft {
@@ -70,6 +73,8 @@ export function openWorkspace(start?: string): Promise<Workspace & { extensions:
 export function findWorkspace(start?: string): Workspace;
 /** every extension's `check` contribution on `ws`, in the shape `check(ws, { extra })` takes */
 export function contributedViolations(ws: Workspace): Promise<{ file: string; msg: string }[]>;
+/** every extension's `next` lines about `ids` of `collection` — what `dt next` prints; a throw is one `error: true` line */
+export function contributedNotes(ws: Workspace, collection: string, ids?: string[]): { id: string | null; text: string; by: string; error?: true }[];
 export function declaredExtensions(ws: Workspace): { name: string; version: string; dir: string; entry: string }[];
 export const engineBin: string;
 export const engineRoot: string;

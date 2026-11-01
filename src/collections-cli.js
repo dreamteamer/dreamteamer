@@ -20,6 +20,7 @@ import {
 import { KINDS } from './compile.js';
 import { history, historyDiff } from './history.js';
 import { commandsFor, recordResolver } from './record-commands.js';
+import { contributedNotes } from './extensions.js';
 import { distinctValues } from './field-values.js';
 import { matchesFilter, unknownTokens, VALUE_TOKENS } from './filter.js';
 import { baseNameOf, defaultStoragePath } from './namespace.js';
@@ -316,13 +317,17 @@ function metaCommandsFor(ws, store, flags, pos) {
 	const collection = need(pos, 0, 'collection');
 	const ids = (oneValue(flags, 'ids') ?? '').split(',').map((s) => s.trim()).filter(Boolean);
 	const out = commandsFor(store, collection, ids);
-	if (flags.json) { emit(JSON.stringify(out, null, 2)); return 0; }
-	if (!out.commands.length) { console.log(`(no commands bound to ${collection})`); return 0; }
+	// what an installed extension says about these records (a session holding one, say) — after the
+	// commands, because the commands are the answer and a note is context for it
+	const notes = contributedNotes(ws, collection, ids);
+	if (flags.json) { emit(JSON.stringify({ ...out, notes }, null, 2)); return 0; }
+	if (!out.commands.length) console.log(`(no commands bound to ${collection})`);
 	for (const c of out.commands) {
 		if (c.scope === 'collection') { console.log(`${c.name}  [collection]  ${c.invocation}`); continue; }
 		const counts = ids.length ? `  ${c.eligible.length}/${ids.length} eligible${c.done.length ? `, ${c.done.length} done` : ''}` : '  (no ids given)';
 		console.log(`${c.name}  [record]${counts}${c.invocation ? `\n  ${c.invocation}` : ''}`);
 	}
+	for (const n of notes) console.log(n.error ? `✖ ${n.by}: ${n.text}` : `● ${collection}/${n.id} — ${n.text} (${n.by})`);
 	return 0;
 }
 
