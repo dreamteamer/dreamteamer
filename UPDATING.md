@@ -20,7 +20,7 @@ npx dreamteamer check
 
 ---
 
-## Next — a workspace's own records resolve standalone
+## 0.44.0 — a workspace's own records resolve standalone
 
 Nothing to do but `dt compile`. Read this if your workspace reads record layers, or is read as one.
 
