@@ -174,7 +174,7 @@ source_file: ${env:FILES_FOLDER}/2026/q3.pdf
 
 ## committing — publishing what you wrote
 
-- **commit when a logical change is complete.** an uncommitted write is invisible to `dt changes` and to every
+- **commit when a logical change is complete.** an uncommitted write is what a bare `dt changes` lists, and it is invisible to every
   other CLONE — while a session SHARING this tree sees it immediately, which is why the sweep
   rules below exist — `auto_commit` off makes the commit a deliberate act, not a
   forbidden one, and publishing what the operator asked you to write needs scope, not permission.

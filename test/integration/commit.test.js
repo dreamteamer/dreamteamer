@@ -70,7 +70,7 @@ describe('dt commit <collection>/<id> — one record, by reference', () => {
 		const ws = seeded();
 		const res = ws.dt('commit', 'contacts/jane');
 		assert.equal(res.code, 0, res.stderr);
-		assert.match(res.stdout, /add contacts\/jane/);
+		assert.match(res.stdout, /^ {2}created {2}contacts\/jane {2}data\/contacts\/jane\.contact\.md {2}· committed [0-9a-f]{7}$/m);
 		assert.doesNotMatch(res.stdout, /contacts\/john/);
 
 		assert.equal(dirty(ws, 'data/contacts/jane.contact.md'), false, 'jane must be committed');
@@ -191,7 +191,7 @@ describe('a hand-edited record is still publishable — the sampler is untouched
 		fs.appendFileSync(`${ws.root}/${rel}`, '\nhand-written prose.\n');
 		const res = ws.dt('commit', 'contacts/jane');
 		assert.equal(res.code, 0, res.stderr);
-		assert.match(res.stdout, /set contacts\/jane/);
+		assert.match(res.stdout, /^ {2}updated {2}contacts\/jane {2}data\/contacts\/jane\.contact\.md {2}· committed [0-9a-f]{7}$/m);
 		assert.equal(dirty(ws, rel), false);
 	});
 });

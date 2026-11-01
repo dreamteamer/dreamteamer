@@ -239,7 +239,7 @@ describe('a layer contributes records, never sources', () => {
 		new Store(w.ws).add('tasks', { name: 'Write the brief' });
 		const dry = dt(w.root, 'commit', '--dry-run');
 		assert.equal(dry.code, 0, dry.stdout + dry.stderr);
-		assert.match(dry.stdout, /add tasks\/write-the-brief/);
+		assert.match(dry.stdout, /^ {2}created {2}tasks\/write-the-brief {2}data\/tasks\/write-the-brief\.task\.md {2}· uncommitted$/m);
 		const res = dt(w.root, 'commit', 'tasks/write-the-brief');
 		assert.equal(res.code, 0, res.stdout + res.stderr);
 		assert.equal(git(w.root, ['status', '--porcelain', 'data']), '', 'the record was published');
@@ -356,7 +356,9 @@ describe('record layers — the verbs an operator runs across one (0.36.0)', () 
 		assert.equal(dt(a.w.root, 'add', 'tasks', '--name', 'Write the brief').code, 0);
 		const one = dt(a.w.root, 'commit', 'tasks/fix-login', '-m', 'one');
 		assert.equal(one.code, 0, one.stderr);
-		assert.match(one.stdout, /✔ git_modules\/project-a [0-9a-f]{7} — one\n\s+set tasks\/fix-login/);
+		const oneSha = /✔ git_modules\/project-a ([0-9a-f]{7}) — one$/m.exec(one.stdout)?.[1];
+		assert.ok(oneSha, one.stdout);
+		assert.match(one.stdout, new RegExp(`^ {2}updated {2}tasks/fix-login {2}git_modules/project-a/data/tasks/fix-login\\.task\\.md {2}· committed ${oneSha} · layer project-a$`, 'm'));
 		assert.doesNotMatch(one.stdout, /workspace/);
 		assert.match(git(a.layer, ['log', '-1', '--format=%s']), /^one$/);
 		assert.match(git(a.w.root, ['status', '--porcelain', '-uall', 'data']), /\?\? data\/tasks\/write-the-brief\.task\.md/, "the workspace's own record is left pending");
@@ -367,8 +369,11 @@ describe('record layers — the verbs an operator runs across one (0.36.0)', () 
 		assert.equal(dt(b.w.root, 'add', 'tasks', '--name', 'Write the brief').code, 0);
 		const both = dt(b.w.root, 'commit', 'tasks', '-m', 'all tasks');
 		assert.equal(both.code, 0, both.stderr);
-		assert.match(both.stdout, /✔ workspace [0-9a-f]{7} — all tasks\n\s+add tasks\/write-the-brief/);
-		assert.match(both.stdout, /✔ git_modules\/project-a [0-9a-f]{7} — all tasks\n\s+set tasks\/fix-login/);
+		const wsSha = /✔ workspace ([0-9a-f]{7}) — all tasks$/m.exec(both.stdout)?.[1];
+		const layerSha = /✔ git_modules\/project-a ([0-9a-f]{7}) — all tasks$/m.exec(both.stdout)?.[1];
+		assert.ok(wsSha && layerSha, both.stdout);
+		assert.match(both.stdout, new RegExp(`^ {2}created {2}tasks/write-the-brief {2}data/tasks/write-the-brief\\.task\\.md {2}· committed ${wsSha}$`, 'm'));
+		assert.match(both.stdout, new RegExp(`^ {2}updated {2}tasks/fix-login {2}git_modules/project-a/data/tasks/fix-login\\.task\\.md {2}· committed ${layerSha} · layer project-a$`, 'm'));
 		assert.equal(git(b.w.root, ['status', '--porcelain', 'data']), '');
 		assert.equal(git(b.layer, ['status', '--porcelain', 'data']), '');
 	});

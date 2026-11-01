@@ -530,8 +530,9 @@ describe('the orientation block names the workspace', () => {
 		// What the budget holds: the header, the system collections (each with its sentence and its
 		// `use when`, the schema of schemas first), the workspace module with the starter `notes`, and
 		// the two engine mixins. Lower it when the block shrinks rather than leaving slack, or the
-		// budget stops measuring anything.
-		assert.ok(n <= 48, `virgin orientation block is ${n} lines, budget 48`);
+		// budget stops measuring anything. 48 → 49 in 0.42.0: the one-sentence record-report rule, which
+		// is in the block because it must fire on every reply that wrote records (the skill keeps the format).
+		assert.ok(n <= 49, `virgin orientation block is ${n} lines, budget 49`);
 	});
 });
 

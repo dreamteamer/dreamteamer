@@ -20,6 +20,36 @@ npx dreamteamer check
 
 ---
 
+## 0.42.0 — `dt changes` reports what this turn changed, and every reply that wrote records ends with it
+
+Nothing to do but `dt compile` (it writes one new sentence into the harness block). One verb's
+default changed — read the first bullet if a script of yours runs bare `dt changes`.
+
+- **`dt changes` now answers "what did I just change".** Bare `dt changes` is the UNCOMMITTED state —
+  every repo that holds records (the workspace, each record layer, a module's own clone), each
+  against its own HEAD — where it used to be the last commit's own changes. ⚠ **The old default is
+  `dt changes --since HEAD~1`.** `--since <sha|YYYY-MM-DD>` keeps its grammar and now folds the
+  uncommitted state into the commits since then, per record (created then deleted inside the window
+  is not reported; a record moved inside one repo is one update). Each record carries `change`
+  (`created` / `updated` / `deleted`), `ref`, the workspace-relative `path`, `repo`, the record
+  `layer` it was read from and `committed`; the human output opens with the report line
+  (`records — contacts: 1 created, 2 updated · issues (project-a): 1 created`), then one row per
+  record, then the count. `--json` is `{ since, head, events, collections }` and every 0.41.0 key of
+  an event (`type`, `collection`, `id`, `path`, `repo`) is still there. `--since` with no value is
+  refused. `-w <layer>` runs it in the layer, as for every verb.
+- **`dt commit` ends with the same block for what it published** — the report line and one row per
+  record with `· committed <sha>` (`· uncommitted` on `--dry-run`). It replaces the
+  `    <verb> <collection>/<id>` rows that followed each repo's `✔` line; the `✔` lines are
+  unchanged, and so is `dt commit --json`.
+- **The `using-dreamteamer` skill carries the rule**: a reply that follows a write ends with the
+  record report — measured with `dt changes` (or `--since <the sha before the first write>` when the
+  turn committed), line one verbatim, every record as a markdown link to its workspace-relative path,
+  a deleted record as its ref, a layer write as `<collection> (<layer>)`, only the session's own
+  writes, and nothing when nothing was written. The compiled `CLAUDE.md` / `AGENTS.md` /
+  `GEMINI.md` block repeats the rule in one sentence and points at the skill for the format.
+
+---
+
 ## 0.41.0 — a project layer reads by what it is, stub records yield, and `-w` names a layer
 
 Nothing to do but `dt compile` for most workspaces. Three things to know if you read record layers,

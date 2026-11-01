@@ -4,7 +4,7 @@
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { pathToRecord } from './events.js';
+import { pathToRecord, deriveEvents, foldChanges, CHANGE_OF, TYPE_OF } from './events.js';
 import { parseRecordText } from './records.js';
 import { relationsOf } from './relations.js';
 import { splitRef, canonicalCollection } from './ref.js';
@@ -571,4 +571,41 @@ function commitPlan(store, { only = [], message, dryRun = false } = {}) {
 		results.push({ repo: storageOf(d).path, rows: [], outside: d.name, template: d.storage.path });
 	}
 	return results;
+}
+
+/** The record layer a repo is, by name — what a descriptor's root carries — or null for the workspace
+ *  and for a module's clone that merely holds its own records. */
+function layerOf(descriptors, repo) {
+	for (const d of descriptors.values()) for (const r of storageOf(d).roots) if (r.repo === repo && r.layer) return r.layer;
+	return null;
+}
+
+/** One sampled repo's rows (the sampler above: `dt commit`, `dt status`) as report changes. A staged
+ *  rename is two records — the id IS the path — so the old id is read back off the old path. */
+export function rowChanges(descriptors, repo, rows) {
+	const prefix = repo === '.' ? '' : `${repo}/`;
+	const layer = layerOf(descriptors, repo);
+	const of = (rec, rel, change) => ({ collection: rec.collection, id: rec.id, ref: `${rec.collection}/${rec.id}`, path: prefix + rel, repo, layer, change });
+	const out = [];
+	for (const r of rows) {
+		out.push(of(r, r.repoRel, r.verb === 'add' || r.verb === 'rename' ? 'created' : r.verb === 'rm' ? 'deleted' : 'updated'));
+		const old = r.verb === 'rename' && r.fromRel ? pathToRecord(descriptors, prefix + r.fromRel) : null;
+		if (old) out.push(of(old, r.fromRel, 'deleted'));
+	}
+	return out;
+}
+
+/** `dt changes`: the records changed since `since`, across every repo that holds records. `HEAD` (the
+ *  default) is the UNCOMMITTED state, each repo against its own HEAD — sampled by the same dry run
+ *  `dt status` counts with, so the two can never disagree. Any other `since` (a sha or a date) adds
+ *  the commits since then, read by `deriveEvents`, and folds the two per record. Stateless: no mark
+ *  file and no cursor, so it is free to run twice and cannot drift from git. */
+export function recordChanges(store, { since = 'HEAD' } = {}) {
+	const pending = [];
+	for (const r of commitPending(store, { dryRun: true })) if (!r.outside) pending.push(...rowChanges(store.descriptors, r.repo, r.rows));
+	const committed = since === 'HEAD' ? [] : deriveEvents(store.root, store.descriptors, since).map((e) => ({
+		collection: e.collection, id: e.id, ref: `${e.collection}/${e.id}`, path: e.path, repo: e.repo, layer: layerOf(store.descriptors, e.repo), change: CHANGE_OF[e.type],
+	}));
+	// `type` is the 0.41.0 spelling of `change`, kept so a reader of the old JSON keeps working
+	return foldChanges(committed, pending).map((c) => ({ ...c, type: TYPE_OF[c.change] }));
 }

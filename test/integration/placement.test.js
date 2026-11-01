@@ -268,7 +268,7 @@ describe('git sees the right record', () => {
 	test('dt changes maps a file inside a company folder to the meeting, and the entry file to the company', () => {
 		const ws = seeded();
 		assert.equal(ws.dt('commit', '-m', 'seed').code, 0);
-		const events = JSON.parse(ws.dt('changes', '--json').stdout).events;
+		const events = JSON.parse(ws.dt('changes', '--since', 'HEAD~1', '--json').stdout).events;
 		const kickoff = events.find((e) => e.collection === 'meetings' && e.id === '2026/10/kickoff');
 		assert.ok(kickoff, JSON.stringify(events));
 		assert.equal(kickoff.path, KICKOFF);

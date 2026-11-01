@@ -315,7 +315,7 @@ describe('dt changes sees namespaced records', () => {
 		ws.store.add('health/doctors', { name: 'Dana Levi' });
 		assert.equal(ws.dt('commit', '-m', 'add').code, 0);
 
-		const out = JSON.parse(ws.dt('changes', '--json').stdout);
+		const out = JSON.parse(ws.dt('changes', '--since', 'HEAD~1', '--json').stdout);
 		const hit = out.events.find((e) => e.collection === 'health/doctors');
 		assert.ok(hit, `expected a health/doctors event, got ${JSON.stringify(out.events)}`);
 		assert.equal(hit.id, 'dana-levi');
