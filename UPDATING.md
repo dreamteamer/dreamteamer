@@ -20,7 +20,7 @@ npx dreamteamer check
 
 ---
 
-## Unreleased — an extension's check may warn
+## 0.43.0 — an extension's check may warn
 
 Nothing to do. An extension whose `check` contribution returns an item with `warning: true`
 (`{ file, message, warning: true }`) now has it printed as a warning — `⚠ <file> — <message>
