@@ -234,7 +234,9 @@ workspace verbs:
   compile     materialize modules + workspace sources into .dreamteamer (+ harness adapters)
               [--watch] recompile on source changes
   check       validate every record against the compiled descriptors (report-only), then every
-              installed extension's own checks
+              installed extension's own checks. A reference this workspace's own records reach only
+              through a record layer is a ⚠ line (a reader without that layer sees it dangle)
+              [--strict-export] makes each one, and each stale own stub, a violation
   doctor      what works on this machine — the engine, then each extension's checks — as one board:
               READY / DEGRADED / UNAVAILABLE, each fix on its row. Exit 0 [--strict] exit 1 when
               anything is UNAVAILABLE [--json]
@@ -292,7 +294,7 @@ export const GLOBAL_FLAGS = ['workspace', 'vault'];
 export const WORKSPACE_FLAGS = {
 	init: ['name', 'data_path', 'harnesses', 'workspace_module'], update: [],
 	install: ['clone', 'dry-run', 'json', 'link-env', 'all', 'hook', 'print-adapters'],
-	compile: ['watch'], check: [], status: [], doctor: ['strict', 'json'],
+	compile: ['watch'], check: ['strict-export'], status: [], doctor: ['strict', 'json'],
 	changes: ['since', 'json'], commit: ['dry-run', 'json'], fmt: ['dry-run'], relocate: ['dry-run', 'json', 'to-root'],
 };
 
@@ -427,7 +429,7 @@ export async function run(argv) {
 				return;
 			}
 			case 'check':
-				process.exit(check(ws, { extra: warnIfStale(ws.root).compiled ? await api.contributedViolations(ws) : [] }));
+				process.exit(check(ws, { extra: warnIfStale(ws.root).compiled ? await api.contributedViolations(ws) : [], strictExport: rest.includes('--strict-export') }));
 			case 'doctor': {
 				const caps = await doctorBoard(ws, api);
 				if (rest.includes('--json')) emit(JSON.stringify({ capabilities: caps }, null, 2));

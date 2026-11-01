@@ -9,6 +9,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import { workspace, writeModule, compileQuietly, compileError, readFile, git, dt } from '../helpers/ws.js';
 import { Store } from '../../src/store.js';
 import { storageOf } from '../../src/descriptor.js';
@@ -565,6 +566,13 @@ describe('record-level stubs: a record carrying `stub: true` yields to any non-s
 		const res = dt(w.root, 'check');
 		assert.equal(res.code, 0, res.stdout + res.stderr);
 		assert.match(res.stdout, /ℹ 1 stub record shadowed by a real record of its id/);
+		// T9 (rnd/tests/dreamteamer/cr-dt-003-t9): the host's real record wins and is never layer-only; the
+		// one ⚠ is the top task's projects/alpha, which only the layer holds
+		const only = res.stdout.split('\n').filter((l) => l.includes('resolves only through'));
+		assert.equal(only.length, 1, res.stdout);
+		assert.match(only[0], /^⚠ projects\/alpha resolves only through layer project-a/);
+		assert.match(only[0], /named by 1 record here \(tasks\/fix-login\)/, 'the top\'s real fix-login is the REFERRER');
+		assert.deepEqual(res.stdout.split('\n').filter((l) => /^(⚠|✖) [^ ]*tasks\/fix-login/.test(l)), [], 'and never the subject of a line: the host\'s real record wins');
 		// the shadowed stub is still an OWNER in its own repo: the layer's alpha lists it, check expects
 		// that, and rebuild must not strip it
 		const alpha = readFile(w.root, 'git_modules/project-a/data/projects/alpha.project.md');
@@ -731,15 +739,15 @@ const topTask = (w, slug, project) => writeTop(w, `data/tasks/${slug}.task.md`, 
 const front = (w, rel) => load(/^---\n([\s\S]*?)\n---/.exec(readFile(w.root, rel))[1]);
 /** layered() plus the shared `codes` collection (compiled from org, layered from project-a). */
 // calls: a defaulted field and two conditional branches, the shape of a decision record
-const CALLS = 'name: calls\nstorage:\n  suffix: call\nids:\n  from: "{{ name | slug }}"\nfields:\n  name:\n    type: string\n    required: true\n  by:\n    type: string\n    enum: [person, agent, unknown]\n    required: true\n  why:\n    type: string\n  source:\n    type: string\n  status:\n    type: string\n    enum: [open, done]\n    default: open\n  notes:\n    type: markdown\n    body: true\nconstraints:\n  - if: {required: [by], properties: {by: {enum: [person, agent]}}}\n    then: {required: [why]}\n  - if: {required: [by], properties: {by: {const: unknown}}}\n    then: {required: [source]}\n';
+const CALLS = 'name: calls\nstorage:\n  suffix: call\nids:\n  from: "{{ name | slug }}"\nfields:\n  name:\n    type: string\n    required: true\n  by:\n    type: string\n    enum: [person, agent, unknown]\n    required: true\n  why:\n    type: string\n  source:\n    type: string\n  status:\n    type: string\n    enum: [open, done]\n    default: open\n  about:\n    type: projects\n    soft: true\n  pic:\n    type: pics\n  notes:\n    type: markdown\n    body: true\nconstraints:\n  - if: {required: [by], properties: {by: {enum: [person, agent]}}}\n    then: {required: [why]}\n  - if: {required: [by], properties: {by: {const: unknown}}}\n    then: {required: [source]}\n';
 const MEMOS = 'name: memos\nstorage:\n  suffix: memo\nfields:\n  name:\n    type: string\n    required: true\n';
 const PICS = 'name: pics\nstorage:\n  suffix: pic\n  format: binary\nfields: {}\n';
 // projects with one defaulted field (cr-dt-003 only): a stub carries the schema's default, never the layer's value
 const PROJECTS_D = PROJECTS.replace('  notes:\n', '  status:\n    type: string\n    enum: [a, b]\n    default: a\n  notes:\n');
 /** layered() plus the shared collections the cr-dt-003 tests need — compiled from org, layered from
  *  project-a where `records` names them (memos is layerable but read from no layer). */
-function standalone({ layerFiles = {}, records = ['tasks', 'projects', 'codes', 'calls', 'pics'] } = {}) {
-	const out = layered({ records, layerFiles: {
+function standalone({ layerFiles = {}, records = ['tasks', 'projects', 'codes', 'calls', 'pics'], pkg = {} } = {}) {
+	const out = layered({ records, pkg, layerFiles: {
 		'data/codes/k1.code.md': '---\nname: k1\nkey: K1\n---\n', 'data/codes/k2.code.md': '---\nname: k2\nkey: K2\n---\n',
 		'data/calls/c1.call.md': '---\nname: C1\nby: agent\nwhy: because\nsource: somewhere private\nstatus: done\n---\nA body nobody else should read.\n',
 		'data/pics/p1.pic.png': 'not really a png',
@@ -768,6 +776,8 @@ describe("a workspace's own records resolve standalone (cr-dt-003)", () => {
 		assert.equal(getJson(w, 'projects/alpha').$file, 'git_modules/project-a/data/projects/alpha.project.md', 'the layer\'s real record still answers');
 		const check = dt(w.root, 'check');
 		assert.equal(check.code, 0, check.stdout + check.stderr);
+		const strict = dt(w.root, 'check', '--strict-export');
+		assert.equal(strict.code, 0, strict.stdout + strict.stderr);
 	});
 
 	test('a stubs-only promotion gets its incoming mirrors too', () => {
@@ -807,10 +817,13 @@ describe("a workspace's own records resolve standalone (cr-dt-003)", () => {
 		git(w.root, ['commit', '-qm', 'stub']);
 		const sha = git(w.root, ['rev-parse', 'HEAD']);
 
+		const strictOk = () => { const r = dt(w.root, 'check', '--strict-export'); assert.equal(r.code, 0, r.stdout + r.stderr); };
 		assert.equal(dt(w.root, 'add', 'tasks', '--name', 't-three', '--project', 'projects/alpha').code, 0);
 		assert.deepEqual(front(w, 'data/projects/alpha.project.md').tasks, ['tasks/t-one', 'tasks/t-three']);
+		strictOk();
 		assert.equal(dt(w.root, 'set', 'tasks/t-one', 'project=projects/beta').code, 0);
 		assert.deepEqual(front(w, 'data/projects/alpha.project.md').tasks, ['tasks/t-three']);
+		strictOk();
 		assert.deepEqual(front(w, 'data/projects/beta.project.md').tasks, ['tasks/t-one']);
 		const rev = dt(w.root, 'revert', 'tasks/t-one', '--hash', sha);
 		assert.equal(rev.code, 0, rev.stderr);
@@ -818,6 +831,8 @@ describe("a workspace's own records resolve standalone (cr-dt-003)", () => {
 		assert.equal(readFile(layer, 'data/projects/alpha.project.md'), layerAlpha, "the layer's real alpha never gained a top owner");
 		const check = dt(w.root, 'check');
 		assert.equal(check.code, 0, check.stdout + check.stderr);
+		const strict = dt(w.root, 'check', '--strict-export');
+		assert.equal(strict.code, 0, strict.stdout + strict.stderr);
 	});
 
 	// T11 (rnd/tests/dreamteamer/cr-dt-003-t11)
@@ -831,6 +846,7 @@ describe("a workspace's own records resolve standalone (cr-dt-003)", () => {
 		assert.equal(rm.code, 0, rm.stdout + rm.stderr);
 		assert.deepEqual(front(w, 'data/projects/alpha.project.md').tasks, ['tasks/t-one']);
 		assert.equal(dt(w.root, 'check').code, 0);
+		assert.equal(dt(w.root, 'check', '--strict-export').code, 0);
 	});
 
 	// T4 (rnd/tests/dreamteamer/cr-dt-003-t4)
@@ -906,5 +922,149 @@ describe("a workspace's own records resolve standalone (cr-dt-003)", () => {
 		const people = dt(w.root, 'stub', 'people/dana-levi');
 		assert.equal(people.code, 1);
 		assert.match(people.stderr, /people cannot carry a stub/);
+	});
+	// T1 (rnd/tests/dreamteamer/cr-dt-003-t1)
+	test('check names a target its own records reach only through a layer — one line, its referrers, the fix — and exits 0', () => {
+		const { w } = standalone();
+		topTask(w, 't-one', 'projects/alpha');
+		topTask(w, 't-two', 'projects/alpha');
+		compileQuietly(w.ws);
+		const res = dt(w.root, 'check');
+		assert.equal(res.code, 0, res.stdout + res.stderr);
+		const lines = res.stdout.split('\n').filter((l) => l.includes('projects/alpha'));
+		assert.equal(lines.length, 1, res.stdout);
+		assert.match(lines[0], /^⚠ projects\/alpha resolves only through layer project-a — named by 2 records here .* dt stub projects\/alpha$/);
+		assert.match(lines[0], /\(tasks\/t-one, tasks\/t-two\)/);
+	});
+
+	test('at most three referrers are named, then +N more', () => {
+		const { w } = standalone();
+		for (const t of ['t1', 't2', 't3', 't4', 't5']) topTask(w, t, 'projects/alpha');
+		compileQuietly(w.ws);
+		assert.match(dt(w.root, 'check').stdout, /named by 5 records here \(tasks\/t1, tasks\/t2, tasks\/t3, \+2 more\)/);
+	});
+
+	// T2 (rnd/tests/dreamteamer/cr-dt-003-t2)
+	test('the layer-only pass names nothing else: soft, mirror, held here, stubbed here, a layer\'s own, an unlayerable referrer, no layers', () => {
+		const annexDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'dt-annex-')));
+		process.on('exit', () => fs.rmSync(annexDir, { recursive: true, force: true }));
+		const { w, org } = standalone({ pkg: { vars: ['JOTS_ANNEX'] }, layerFiles: {
+			'data/projects/gamma.project.md': '---\nname: Gamma\nstub: true\n---\n',
+			'data/projects/delta.project.md': '---\nname: Delta\n---\n',
+		} });
+		fs.writeFileSync(path.join(w.root, '.env'), `JOTS_ANNEX=${annexDir}\n`);
+		// unlayerable referrers (D11): a module-owned collection and an env-pointed one, each naming projects/alpha
+		fs.writeFileSync(path.join(org, 'collections', 'briefs.collection.yaml'), 'name: briefs\nstorage:\n  suffix: brief\n  owner: module\nfields:\n  name:\n    type: string\n    required: true\n  project:\n    type: projects\n');
+		writeTop({ root: org }, 'data/briefs/b1.brief.md', '---\nname: B1\nproject: projects/alpha\n---\n');
+		fs.writeFileSync(path.join(org, 'collections', 'jots.collection.yaml'), 'name: jots\nstorage:\n  path: ${env:JOTS_ANNEX}/jots\n  suffix: jot\nfields:\n  name:\n    type: string\n    required: true\n  project:\n    type: projects\n');
+		writeTop({ root: annexDir }, 'jots/j1.jot.md', '---\nname: J1\nproject: projects/alpha\n---\n');
+		writeTop(w, 'data/calls/soft.call.md', '---\nname: Soft\nby: person\nwhy: w\nabout: projects/alpha\n---\n'); // soft: true
+		writeTop(w, 'data/projects/beta.project.md', '---\nname: Beta\ntasks:\n  - tasks/fix-login\n---\n'); // a mirror naming a layer-only task
+		writeTop(w, 'data/projects/gamma.project.md', '---\nname: Gamma\n---\n'); // held here, over the layer's stub
+		writeTop(w, 'data/projects/delta.project.md', '---\nname: Delta\nstub: true\ntasks:\n  - tasks/to-delta\n---\n'); // a stub here the layer shadows
+		topTask(w, 'to-gamma', 'projects/gamma');
+		topTask(w, 'to-delta', 'projects/delta');
+		compileQuietly(w.ws);
+		assert.equal(dt(w.root, 'get', 'jots/j1').code, 0, 'the env-pointed referrer is actually read');
+		assert.equal(dt(w.root, 'get', 'briefs/b1').code, 0, 'the module-owned referrer is actually read');
+		const out = dt(w.root, 'check').stdout;
+		assert.deepEqual(out.split('\n').filter((l) => l.includes('resolves only through')), [], out);
+
+		const plain = workspace({ collections: { projects: { fields: { name: { type: 'string', required: true } } }, tasks: { fields: { name: { type: 'string', required: true }, project: { type: 'projects' } } } },
+			records: { projects: [{ name: 'Alpha' }], tasks: [{ name: 'T', project: 'projects/alpha' }] } });
+		const res = dt(plain.root, 'check');
+		assert.equal(res.code, 0);
+		assert.match(res.stdout, /^✔ 0 violations \(\d+ records across \d+ collections\)\n$/, 'a workspace with no layers prints exactly what it printed before');
+		assert.equal(dt(plain.root, 'check', '--strict-export').stdout, res.stdout);
+	});
+
+	// T2b (rnd/tests/dreamteamer/cr-dt-003-t2b)
+	test("a binary target's line names the fix in this workspace and never dt stub; --strict-export counts it", () => {
+		const { w } = standalone();
+		writeTop(w, 'data/calls/c2.call.md', '---\nname: C2\nby: person\nwhy: w\npic: pics/p1\n---\n');
+		compileQuietly(w.ws);
+		assert.equal(dt(w.root, 'get', 'pics/p1').code, 0);
+		const res = dt(w.root, 'check');
+		assert.equal(res.code, 0, res.stdout);
+		const line = res.stdout.split('\n').find((l) => l.startsWith('⚠ pics/p1'));
+		assert.ok(line, res.stdout);
+		assert.match(line, /resolves only through layer project-a/);
+		assert.match(line, /cannot be a stub/);
+		assert.match(line, /dt set calls\/c2 pic=/);
+		assert.doesNotMatch(line, /dt stub/);
+		const strict = dt(w.root, 'check', '--strict-export');
+		assert.equal(strict.code, 1, strict.stdout);
+		assert.match(strict.stdout, /✖ data\/calls\/c2\.call\.md\n\s+pic: "pics\/p1" resolves only through layer project-a/);
+	});
+
+	// T3 (rnd/tests/dreamteamer/cr-dt-003-t3)
+	test('--strict-export makes a layer-only reference a violation of its referrer until dt stub', () => {
+		const { w } = standalone();
+		topTask(w, 't-one', 'projects/alpha');
+		compileQuietly(w.ws);
+		const before = dt(w.root, 'check', '--strict-export');
+		assert.equal(before.code, 1, before.stdout);
+		assert.match(before.stdout, /✖ data\/tasks\/t-one\.task\.md\n\s+project: "projects\/alpha" resolves only through layer project-a — .*dt stub projects\/alpha/);
+		assert.doesNotMatch(before.stdout, /^⚠ projects\/alpha/m, 'a violation instead of the ⚠ line, not beside it');
+		assert.equal(dt(w.root, 'stub', 'projects/alpha').code, 0);
+		const after = dt(w.root, 'check', '--strict-export');
+		assert.equal(after.code, 0, after.stdout);
+	});
+
+	// T6 (rnd/tests/dreamteamer/cr-dt-003-t6)
+	test("a reader of this workspace that does not read its layer stops seeing the dangle after dt stub here", () => {
+		const { w, org } = standalone();
+		topTask(w, 't-one', 'projects/alpha');
+		compileQuietly(w.ws);
+		// R reads W (its tasks and projects) and W's shapes from org — never W's layer project-a
+		const r = workspace({ compile: false });
+		fs.cpSync(org, path.join(r.root, 'git_modules', 'org'), { recursive: true });
+		const asLayer = path.join(r.root, 'git_modules', 'w');
+		const exportW = () => {
+			fs.rmSync(asLayer, { recursive: true, force: true });
+			fs.mkdirSync(asLayer, { recursive: true });
+			fs.cpSync(path.join(w.root, 'package.json'), path.join(asLayer, 'package.json'));
+			fs.cpSync(path.join(w.root, 'data'), path.join(asLayer, 'data'), { recursive: true });
+			commitAll(asLayer, 'w');
+		};
+		exportW();
+		const pkgPath = path.join(r.root, 'package.json');
+		const manifest = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+		manifest.dreamteamer.git_modules = { org: { url: 'x', ref: 'main' }, w: { url: 'x', ref: 'main', records: ['tasks', 'projects'] } };
+		fs.writeFileSync(pkgPath, JSON.stringify(manifest, null, '\t') + '\n');
+		r.ws.pkg = manifest;
+		compileQuietly(r.ws);
+		const dangling = dt(r.root, 'check');
+		assert.equal(dangling.code, 1, dangling.stdout);
+		assert.match(dangling.stdout, /✖ layer w/);
+		assert.match(dangling.stdout, /dangling reference "projects\/alpha"/);
+
+		assert.equal(dt(w.root, 'stub', 'projects/alpha').code, 0);
+		exportW();
+		const clean = dt(r.root, 'check');
+		assert.equal(clean.code, 0, clean.stdout);
+		assert.doesNotMatch(clean.stdout, /projects\/alpha/);
+	});
+
+	// T7 (rnd/tests/dreamteamer/cr-dt-003-t7)
+	test('a stale own stub is named, counted under --strict-export, and fixed by relations rebuild', () => {
+		const { w } = standalone();
+		topTask(w, 't-one', 'projects/alpha');
+		writeTop(w, 'data/projects/alpha.project.md', '---\nname: Alpha\nstub: true\n---\n'); // by hand, without its tasks mirror
+		compileQuietly(w.ws);
+		const res = dt(w.root, 'check');
+		assert.equal(res.code, 0, res.stdout);
+		const lines = res.stdout.split('\n').filter((l) => l.includes('data/projects/alpha.project.md'));
+		assert.equal(lines.length, 1, res.stdout);
+		assert.match(lines[0], /^⚠ data\/projects\/alpha\.project\.md is a stub a layer shadows, and its tasks mirror is stale .*dt relations rebuild projects$/);
+		assert.doesNotMatch(res.stdout, /resolves only through/, 'the stub here is a claimant: alpha is not layer-only');
+		assert.equal(dt(w.root, 'check', '--strict-export').code, 1);
+		const rebuilt = dt(w.root, 'relations', 'rebuild', 'projects');
+		assert.equal(rebuilt.code, 0, rebuilt.stderr);
+		assert.deepEqual(front(w, 'data/projects/alpha.project.md').tasks, ['tasks/t-one']);
+		assert.match(readFile(w.root, 'git_modules/project-a/data/projects/alpha.project.md'), /tasks:\n  - tasks\/fix-login\n/, "the layer's record is untouched");
+		const after = dt(w.root, 'check', '--strict-export');
+		assert.equal(after.code, 0, after.stdout);
+		assert.doesNotMatch(after.stdout, /alpha\.project\.md/);
 	});
 });

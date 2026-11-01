@@ -1081,7 +1081,9 @@ function relationsRebuild(store, flags, pos) {
 	// The write lock, like every other write verb: several agents work in one tree, and a concurrent
 	// `dt set` landing mid-sweep would be clobbered back to the pre-set mirror value.
 	store.withWriteLock(() => {
-		for (const { id, file, fields } of parseEach(store, collection, (f) => console.warn(`⚠ ${rel(store.root, f)}: parse error, skipped — \`dreamteamer check\` reports it`))) {
+		// own shadowed stubs too (cr-dt-003): alone, in a reader without the layer, their mirrors are read
+		for (const { id, file, fields } of parseEach(store, collection, (f) => console.warn(`⚠ ${rel(store.root, f)}: parse error, skipped — \`dreamteamer check\` reports it`), { withStubs: true })) {
+			if (store.layerOfFile(d, file) && store.ids(collection).get(id) !== file) continue; // a layer's stub is its own repo's
 			let changed = false;
 			const repo = store.repoOfFile(d, file);
 			for (const { r, exp } of expected) {

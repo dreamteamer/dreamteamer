@@ -1,7 +1,9 @@
 // dreamteamer check — validate every record against the compiled descriptors.
 // report-only: JSON Schema (ajv), id patterns, reference resolution, stray files, plus any
 // `extra` violations a caller gathered (extension checks), reported after the schema's — an item marked
-// `warning` is printed as a warning and never counted.
+// `warning` is printed as a warning and never counted. Under `strictExport` a reference this workspace's
+// own records reach only through a layer, and an own stub whose mirror only the layer keeps true, are
+// violations rather than ⚠ lines: a workspace reading this one without its layers would see them break.
 // NEVER modifies a file. returns the exit code.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -14,7 +16,7 @@ import { relationsOf, expectedMirrors, ownersReadIn } from './relations.js';
 import { placementOf, placedRecords, ownerIdOf, symlinkedChildRoots } from './placement.js';
 
 import { storageOf, jsonSchemaOf, fieldsOf, unresolvedPeersOf, bodyFieldOf, targetsOf, isSoft, idsOf } from './descriptor.js';
-export function check({ root }, { extra = [] } = {}) {
+export function check({ root }, { extra = [], strictExport = false } = {}) {
 	const RUNTIME = runtimeDir(root);
 	const rel = (p) => path.relative(root, p);
 
@@ -169,6 +171,12 @@ export function check({ root }, { extra = [] } = {}) {
 
 	// parsed fields, kept for the relations pass below (parse each record exactly once)
 	const parsed = new Map();
+	// cr-dt-003: what a reader of this workspace (without its layers) would see break — a target only a
+	// layer answers and no root here claims, even as a stub; and an own stub whose mirror is stale
+	const heldHere = new Set(shadowedStubs.filter((s) => !s.layer).map((s) => `${s.name}/${s.id}`));
+	const layerOnly = new Map(); // target -> { layer, binary, refs: [{ file, field, value, referrer }] }
+	const ownStubFields = new Map();
+	const staleStubs = [];
 	const softRefs = new Map(); // absent-but-declared peer collection -> how many refs point at it
 
 	for (const [name, d] of descriptors) {
@@ -182,6 +190,8 @@ export function check({ root }, { extra = [] } = {}) {
 		// other workspace reads that file, and it must stand on its own the moment the layer's record goes.
 		// (A layer's shadowed stub is its own workspace's to validate.)
 		const ownStubs = shadowedStubs.filter((x) => x.name === name && !x.layer).map((x) => [x.id, x.f, true]);
+		// only a referrer a reader can read counts: its collection can be layered at all (D11)
+		const exportable = Boolean(fieldsOf(d).stub);
 		for (const [id, file, shadow] of [...[...index.get(name)].map(([i, f]) => [i, f, false]), ...ownStubs]) {
 			if (shadow) fileRepo.set(file, storageOf(d).repo);
 			if (idsOf(d).pattern && !patternRe(idsOf(d).pattern).test(id)) {
@@ -205,8 +215,9 @@ export function check({ root }, { extra = [] } = {}) {
 				// records of the layer's repo — not dangling, only out of sight (see ownersReadIn)
 				if (fileLayer.has(file) && fieldPath.length === 1 && fieldsOf(d)[fieldPath[0]]?.mirror_of !== undefined
 					&& Array.isArray(target) && descriptors.has(target[0]) && !ownersReadIn(descriptors.get(target[0]), fileRepo.get(file))) continue;
+				const counted = exportable && !fileLayer.has(file) && !(fieldPath.length === 1 && fieldsOf(d)[fieldPath[0]]?.mirror_of !== undefined);
 				for (const value of valuesAt(fields, fieldPath)) {
-					checkRef(file, fieldPath, value, target, softTargets, soft);
+					checkRef(file, fieldPath, value, target, softTargets, soft, counted ? `${name}/${id}` : null);
 				}
 			}
 			// ---- placement: the FIELD is the intended owner, the FOLDER is observed placement ---
@@ -231,6 +242,7 @@ export function check({ root }, { extra = [] } = {}) {
 				}
 			}
 			if (!shadow) parsed.get(name).set(id, fields);
+			else ownStubFields.set(`${name}/${id}`, fields);
 		}
 		// descriptor v2: `unique: true` on a scalar field — the second record holding a value is the
 		// one reported, naming the first. Null and absent never claim.
@@ -284,18 +296,17 @@ export function check({ root }, { extra = [] } = {}) {
 		for (const [id, fields] of parsed.get(relation.target) ?? []) {
 			const tfile = index.get(relation.target).get(id);
 			if (fileLayer.has(tfile) && !ownersReadIn(ownerD, fileRepo.get(tfile))) continue; // the layer's own check judges it
-			const actual = fields?.[relation.mirror];
 			const expected = expByRepo.get(fileRepo.get(index.get(relation.target).get(id)))?.get(id);
-			// a unique relation mirrors to a scalar, everything else to a sorted array — compare in
-			// the shape the mirror is actually written in (absent and empty are the same reading).
-			const same = relation.unique
-				? (actual ?? null) === (expected ?? null)
-				: JSON.stringify([...(actual ?? [])].sort()) === JSON.stringify(expected ?? []);
-			if (!same) flag(index.get(relation.target).get(id), `${relation.mirror}: stale — run: dreamteamer relations rebuild ${relation.target}`);
+			if (!sameMirror(relation, fields?.[relation.mirror], expected)) flag(index.get(relation.target).get(id), `${relation.mirror}: stale — run: dreamteamer relations rebuild ${relation.target}`);
+		}
+		// an own stub a layer shadows: its mirror is what THIS repo's owners imply (D6) — alone, it is read
+		for (const s of shadowedStubs) {
+			const fields = !s.layer && s.name === relation.target && ownStubFields.get(`${s.name}/${s.id}`);
+			if (fields && !sameMirror(relation, fields[relation.mirror], expByRepo.get(s.repo)?.get(s.id))) staleStubs.push({ file: rel(s.f), relation });
 		}
 	}
 
-	function checkRef(file, fieldPath, value, targets, softTargets, soft = false) {
+	function checkRef(file, fieldPath, value, targets, softTargets, soft = false, referrer = null) {
 		if (typeof value !== 'string') return;
 		if (value.startsWith('@')) return; // runtime tokens (@me, @initiator) are legal
 		// The SAME parser the store writes through (src/namespace.js) — `check` disagreeing with the
@@ -325,6 +336,11 @@ export function check({ root }, { extra = [] } = {}) {
 			if (storageOf(descriptors.get(coll)).unavailable) return; // the collection is unread here, not empty
 			return flag(file, `${fieldPath.join('.')}: dangling reference "${value}" — no such record`);
 		}
+		const at = index.get(coll).get(id);
+		if (!referrer || soft || !fileLayer.has(at) || heldHere.has(`${coll}/${id}`)) return;
+		const key = `${coll}/${id}`;
+		if (!layerOnly.has(key)) layerOnly.set(key, { layer: fileLayer.get(at), binary: storageOf(descriptors.get(coll)).format === 'binary', refs: [] });
+		layerOnly.get(key).refs.push({ file, field: fieldPath.join('.'), value, referrer });
 	}
 
 	// ---- report ----------------------------------------------------------------------
@@ -335,6 +351,20 @@ export function check({ root }, { extra = [] } = {}) {
 		console.log(`⚠ ${s.file} — unrecognized file in ${s.collection} folder${s.note ? ` (${s.note})` : ''}`);
 	}
 	for (const note of layerNotes.values()) console.log(note);
+	const upTo3 = (xs) => (xs.length > 3 ? [...xs.slice(0, 3), `+${xs.length - 3} more`] : xs).join(', ');
+	for (const [target, { layer, binary, refs }] of [...layerOnly].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
+		const fix = (r) => (binary
+			? `a file record cannot be a stub: clear or repoint the field here (dt set ${r.referrer} ${r.field}=), hold the file in this workspace instead of the layer, or make the field soft: true`
+			: `a workspace reading this one sees it dangle. dt stub ${target}`);
+		if (strictExport) { for (const r of refs) violations.push({ file: rel(r.file), msg: `${r.field}: "${r.value}" resolves only through layer ${layer} — ${fix(r)}` }); continue; }
+		const who = [...new Set(refs.map((r) => r.referrer))];
+		const named = binary ? upTo3(refs.map((r) => `${r.referrer}.${r.field}`)) : `${who.length} record${who.length === 1 ? '' : 's'} here (${upTo3(who)})`;
+		console.log(`⚠ ${target} resolves only through layer ${layer} — named by ${named}; ${fix(refs[0])}`);
+	}
+	for (const { file, relation: { mirror, target } } of staleStubs) {
+		if (strictExport) violations.push({ file, msg: `${mirror}: stale — a stub a layer shadows, and alone it would fail check. run: dreamteamer relations rebuild ${target}` });
+		else console.log(`⚠ ${file} is a stub a layer shadows, and its ${mirror} mirror is stale — alone it would fail check. dt relations rebuild ${target}`);
+	}
 	// Warned, never silent: the references are real and currently resolve to nothing. This is the
 	// expected reading when a module is opened without the workspace that provides the concept.
 	for (const [coll, n] of [...softRefs].sort()) {
@@ -369,6 +399,14 @@ export function check({ root }, { extra = [] } = {}) {
 	return 1;
 }
 
+
+// a unique relation mirrors to a scalar, everything else to a sorted array — compare in the shape the
+// mirror is actually written in (absent and empty are the same reading)
+function sameMirror(relation, actual, expected) {
+	return relation.unique
+		? (actual ?? null) === (expected ?? null)
+		: JSON.stringify([...(actual ?? [])].sort()) === JSON.stringify(expected ?? []);
+}
 
 // collect [fieldPath, targets, soft] for every reference field, nested object fields included, where
 // `targets` is '*' or the list of collections it may target and `soft` says whether an absent target
