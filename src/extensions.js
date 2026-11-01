@@ -19,7 +19,8 @@
 //   harnesses   { <id>: (ctx) → { blocks: {file: text}, summary } }   a harness adapter
 //   orientation string                                      one paragraph appended to the orientation block
 //   hooks       { <ClaudeHookEvent>: '<dt verb args>' }     rendered by `dt install --print-adapters`
-//   check       ({ root, ws, dt }) → [{ file, message }]   cross-record rules `dt check` reports after the schema's
+//   check       ({ root, ws, dt }) → [{ file, message, warning? }]   cross-record rules `dt check` reports after
+//               the schema's; `warning: true` prints a warning that does not count (`dt.CHECK_WARNINGS` says so)
 //   doctor      ({ root, ws, dt }) → [{ label, state, detail?, fix? }]   rows `dt doctor` renders as one capability
 //   next        ({ root, ws, collection, ids }) → [{ id, text }]   a line about a record `dt next` prints (sync)
 //

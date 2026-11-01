@@ -72,7 +72,9 @@ export const EXTENSION_API: 1;
 export function openWorkspace(start?: string): Promise<Workspace & { extensions: LoadedExtension[] }>;
 export function findWorkspace(start?: string): Workspace;
 /** every extension's `check` contribution on `ws`, in the shape `check(ws, { extra })` takes */
-export function contributedViolations(ws: Workspace): Promise<{ file: string; msg: string }[]>;
+export function contributedViolations(ws: Workspace): Promise<{ file: string; msg: string; warning?: true }[]>;
+/** `true`: an extension check's `{ file, message, warning: true }` is printed and never counted. */
+export const CHECK_WARNINGS: true;
 /** every extension's `next` lines about `ids` of `collection` — what `dt next` prints; a throw is one `error: true` line */
 export function contributedNotes(ws: Workspace, collection: string, ids?: string[]): { id: string | null; text: string; by: string; error?: true }[];
 export function declaredExtensions(ws: Workspace): { name: string; version: string; dir: string; entry: string }[];

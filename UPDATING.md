@@ -20,6 +20,21 @@ npx dreamteamer check
 
 ---
 
+## Unreleased — an extension's check may warn
+
+Nothing to do. An extension whose `check` contribution returns an item with `warning: true`
+(`{ file, message, warning: true }`) now has it printed as a warning — `⚠ <file> — <message>
+(<extension>)`, after the schema's own notes — and **not counted**: a workspace with warnings and no
+violations still prints `✔ 0 violations` and exits 0. An item without the mark is a violation, as
+before. `contributedViolations(ws)` carries the mark through, so an editor that hands the list to
+`check(ws, { extra })` reaches the same verdict as `dt check`.
+
+For extension authors: the engine exports `CHECK_WARNINGS = true`, and the `dt` handed to `activate`
+and to `check` carries it. On an engine without it, a warning item would be counted as a violation,
+so return warnings only when `dt.CHECK_WARNINGS === true`.
+
+---
+
 ## 0.42.0 — `dt changes` reports what this turn changed, a module's floor on another is checked at compile, an extension speaks in `dt next`, and a package's view can be overlaid
 
 Nothing to do but `dt compile` for most workspaces. Read the first section if a script of yours runs

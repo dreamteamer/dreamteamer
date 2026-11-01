@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { workspace, readFile, git, dt, compileQuietly, compileError, WS_MODULE } from '../helpers/ws.js';
 import { dump } from '../../src/yaml.js';
-import { openWorkspace, contributedViolations, check } from '../../src/api.js';
+import { openWorkspace, contributedViolations, check, CHECK_WARNINGS } from '../../src/api.js';
 
 const PROBES = {
 	name: 'probes',
@@ -588,6 +588,61 @@ export default function activate() {
 		const ws = workspace({ compile: false });
 		install(ws.root, { name: 'rule-kit', descriptor: null, entry: 'export default () => ({ check: true });' });
 		await assert.rejects(openWorkspace(ws.root), /extension rule-kit: check must be a function/);
+	});
+
+	// A WARNING is a disagreement worth seeing that must not turn a workspace red — the case a rule
+	// meets the day it ships, over records written before it existed. `warning: true` on an item.
+	const WARNER = (withViolation = false) => `
+export default function activate() {
+	return {
+		check({ ws, dt }) {
+			const n = [...new dt.Store(ws).readAll('notes')].length;
+			if (!n) return [];
+			const out = [{ file: 'data/notes', message: n + ' note(s) with no index', warning: true }];
+			if (${withViolation}) out.push({ file: 'data/notes', message: 'one rule broken' });
+			return out;
+		},
+	};
+}
+`;
+
+	test('a warning prints a warning line and leaves the exit code at 0', () => {
+		const ws = withChecker(WARNER());
+		assert.equal(dt(ws.root, 'add', 'notes', '--name', 'First').code, 0);
+		const r = dt(ws.root, 'check');
+		assert.equal(r.code, 0, r.stdout + r.stderr);
+		assert.match(r.stdout, /⚠ data\/notes — 1 note\(s\) with no index \(rule-kit\)\n/);
+		assert.match(r.stdout, /✔ 0 violations/);
+		assert.doesNotMatch(r.stdout, /✖/);
+	});
+
+	test('a warning beside a violation: exit 1, both printed, only the violation counted', () => {
+		const ws = withChecker(WARNER(true));
+		assert.equal(dt(ws.root, 'add', 'notes', '--name', 'First').code, 0);
+		const r = dt(ws.root, 'check');
+		assert.equal(r.code, 1, r.stdout + r.stderr);
+		assert.match(r.stdout, /⚠ data\/notes — 1 note\(s\) with no index \(rule-kit\)/);
+		assert.match(r.stdout, /✖ data\/notes\n {4}one rule broken \(rule-kit\)\n1 violation\./);
+	});
+
+	test('in process: contributedViolations carries warning: true, and check returns 0 on warnings alone', async () => {
+		const ws = withChecker(WARNER());
+		assert.equal(dt(ws.root, 'add', 'notes', '--name', 'First').code, 0);
+		const h = await openWorkspace(ws.root);
+		const extra = await contributedViolations(h);
+		assert.deepEqual(extra, [{ file: 'data/notes', msg: '1 note(s) with no index (rule-kit)', warning: true }]);
+		const lines = [];
+		const log = console.log;
+		console.log = (l) => lines.push(l);
+		try { assert.equal(check(h, { extra }), 0); } finally { console.log = log; }
+		assert.ok(lines.includes('⚠ data/notes — 1 note(s) with no index (rule-kit)'), lines.join('\n'));
+	});
+
+	test('a module can tell the channel exists: CHECK_WARNINGS on the public API, and on the dt it is handed', () => {
+		assert.equal(CHECK_WARNINGS, true);
+		const ws = withChecker(`export default () => ({ check({ dt }) { return dt.CHECK_WARNINGS === true ? [] : [{ file: 'x', message: 'no flag' }]; } });`);
+		const r = dt(ws.root, 'check');
+		assert.equal(r.code, 0, r.stdout + r.stderr);
 	});
 });
 

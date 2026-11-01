@@ -36,14 +36,19 @@ export async function openWorkspace(start = process.cwd()) {
 }
 export { findWorkspace };
 export { EXTENSION_API, declaredExtensions, contributedNotes } from './extensions.js';
+/** An extension's `check` may return `{ file, message, warning: true }`: printed as a warning, never a
+ *  violation. A module reads this flag to know the engine it runs on has the channel — on one without
+ *  it, a warning item would be counted as a violation. */
+export const CHECK_WARNINGS = true;
 
 /** What every extension's `check` reports on `ws`, as `check(ws, { extra })` takes it — attributed to
- *  the extension, a throw being a violation. `dt check` and an in-process caller get one verdict. */
+ *  the extension, a throw being a violation. `dt check` and an in-process caller get one verdict. An
+ *  item the extension marked `warning: true` keeps the mark: `check` prints it and does not count it. */
 export async function contributedViolations(ws) {
 	const out = [];
 	for (const e of (ws.extensions ?? []).filter((x) => x.check)) {
 		try {
-			for (const v of (await e.check({ root: ws.root, ws, dt: self })) ?? []) out.push({ file: v.file ?? e.name, msg: `${v.message} (${e.name})` });
+			for (const v of (await e.check({ root: ws.root, ws, dt: self })) ?? []) out.push({ file: v.file ?? e.name, msg: `${v.message} (${e.name})`, ...(v.warning === true ? { warning: true } : {}) });
 		} catch (err) { out.push({ file: e.name, msg: `check failed — ${err.message}` }); }
 	}
 	return out;

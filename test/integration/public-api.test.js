@@ -73,6 +73,7 @@ describe('dreamteamer (the public API)', () => {
 					else if (type === 'string') assert.equal(typeof v, 'string', name);
 					else if (/^'.*'$/.test(type)) assert.equal(v, type.slice(1, -1), name);
 					else if (/^\d+$/.test(type)) assert.equal(v, Number(type), name);
+					else if (type === 'true' || type === 'false') assert.equal(v, type === 'true', name);
 					else if (type === 'SchemaOp') assert.equal(typeof v, 'function', name);
 					else assert.fail(`${file}: ${name}: no shape rule for the declared type "${type}" — add one here`);
 				}

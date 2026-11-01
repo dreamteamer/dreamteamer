@@ -1,6 +1,7 @@
 // dreamteamer check — validate every record against the compiled descriptors.
 // report-only: JSON Schema (ajv), id patterns, reference resolution, stray files, plus any
-// `extra` violations a caller gathered (extension checks), reported after the schema's.
+// `extra` violations a caller gathered (extension checks), reported after the schema's — an item marked
+// `warning` is printed as a warning and never counted.
 // NEVER modifies a file. returns the exit code.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -327,7 +328,9 @@ export function check({ root }, { extra = [] } = {}) {
 	}
 
 	// ---- report ----------------------------------------------------------------------
-	violations.push(...extra);
+	// an extension's warning is printed and never counted: a disagreement worth seeing that must not turn
+	// the workspace red (src/api.js contributedViolations carries the mark)
+	violations.push(...extra.filter((v) => !v.warning));
 	for (const s of strays) {
 		console.log(`⚠ ${s.file} — unrecognized file in ${s.collection} folder${s.note ? ` (${s.note})` : ''}`);
 	}
@@ -337,6 +340,7 @@ export function check({ root }, { extra = [] } = {}) {
 	for (const [coll, n] of [...softRefs].sort()) {
 		console.log(`⚠ peer collection "${coll}" is declared but not installed — ${n} reference${n === 1 ? '' : 's'} unresolvable`);
 	}
+	for (const w of extra.filter((v) => v.warning)) console.log(`⚠ ${w.file} — ${w.msg}`);
 	if (shadowedStubs.length) console.log(`ℹ ${shadowedStubs.length} stub record${shadowedStubs.length === 1 ? '' : 's'} shadowed by a real record of ${shadowedStubs.length === 1 ? 'its' : 'their'} id`);
 	if (violations.length === 0) {
 		console.log(`✔ 0 violations (${[...index.values()].reduce((n, m) => n + m.size, 0)} records across ${descriptors.size} collections)`);
