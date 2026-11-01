@@ -14,6 +14,7 @@ import { Store } from '../../src/store.js';
 import { storageOf } from '../../src/descriptor.js';
 import { history } from '../../src/history.js';
 import { deriveEvents } from '../../src/events.js';
+import { load } from '../../src/yaml.js';
 
 const PEOPLE = 'name: people\nstorage:\n  suffix: person\n  owner: module\nids:\n  from: "{{ name | slug }}"\nfields:\n  name:\n    type: string\n    required: true\n  notes:\n    type: markdown\n    body: true\n';
 const PROJECTS = 'name: projects\nstorage:\n  suffix: project\nids:\n  from: "{{ name | slug }}"\nfields:\n  name:\n    type: string\n    required: true\n  tasks:\n    type: tasks\n    many: true\n    mirror_of: project\n  notes:\n    type: markdown\n    body: true\n';
@@ -719,3 +720,103 @@ describe('review round 1 (0.41.0)', () => {
 	});
 });
 
+
+// ---- a workspace's own records resolve standalone (cr-dt-003) ---------------------------------------
+// A workspace read as a layer is read WITHOUT its own layers, so every record of its own must resolve
+// inside it. A stub is how it does that for an id only one of its layers holds — and a stub is a record
+// of this workspace like any other: written with its mirrors, kept current by every owner write.
+
+const CODES = 'name: codes\nstorage:\n  suffix: code\nids:\n  from: "{{ name | slug }}"\nfields:\n  name:\n    type: string\n    required: true\n  key:\n    type: string\n    required: true\n    unique: true\n';
+const topTask = (w, slug, project) => writeTop(w, `data/tasks/${slug}.task.md`, `---\nname: ${slug}\nproject: ${project}\n---\n`);
+const front = (w, rel) => load(/^---\n([\s\S]*?)\n---/.exec(readFile(w.root, rel))[1]);
+/** layered() plus the shared `codes` collection (compiled from org, layered from project-a). */
+function standalone({ layerFiles = {}, records = ['tasks', 'projects', 'codes'] } = {}) {
+	const out = layered({ records, layerFiles: { 'data/codes/k1.code.md': '---\nname: k1\nkey: K1\n---\n', 'data/codes/k2.code.md': '---\nname: k2\nkey: K2\n---\n', ...layerFiles } });
+	fs.writeFileSync(path.join(out.org, 'collections', 'codes.collection.yaml'), CODES);
+	return out;
+}
+
+describe("a workspace's own records resolve standalone (cr-dt-003)", () => {
+	// T8 (rnd/tests/dreamteamer/cr-dt-003-t8)
+	test('add --stub true over a layer-held id writes the stub WITH its incoming mirrors; without stub: true it is still refused', () => {
+		const { w } = standalone();
+		topTask(w, 't-one', 'projects/alpha');
+		topTask(w, 't-two', 'projects/alpha');
+		writeTop(w, 'data/tasks/fix-login.task.md', STUB_TASK); // a top STUB owner naming alpha — the layer holds the real fix-login
+		compileQuietly(w.ws);
+		const refused = dt(w.root, 'add', 'projects', '--id', 'alpha', '--name', 'Alpha');
+		assert.equal(refused.code, 1);
+		assert.match(refused.stderr, /projects\/alpha already exists/);
+		const res = dt(w.root, 'add', 'projects', '--id', 'alpha', '--name', 'Alpha', '--stub', 'true');
+		assert.equal(res.code, 0, res.stderr);
+		const stub = front(w, 'data/projects/alpha.project.md');
+		assert.equal(stub.stub, true);
+		assert.deepEqual(stub.tasks, ['tasks/fix-login', 'tasks/t-one', 'tasks/t-two'], 'every owner in the write root, the shadowed stub owner included');
+		assert.equal(getJson(w, 'projects/alpha').$file, 'git_modules/project-a/data/projects/alpha.project.md', 'the layer\'s real record still answers');
+		const check = dt(w.root, 'check');
+		assert.equal(check.code, 0, check.stdout + check.stderr);
+	});
+
+	test('a stubs-only promotion gets its incoming mirrors too', () => {
+		const { w } = standalone({ layerFiles: { 'data/projects/alpha.project.md': '---\nname: Alpha\nstub: true\ntasks:\n  - tasks/fix-login\n---\n' } });
+		topTask(w, 't-one', 'projects/alpha');
+		compileQuietly(w.ws);
+		const res = dt(w.root, 'add', 'projects', '--id', 'alpha', '--name', 'Alpha');
+		assert.equal(res.code, 0, res.stderr);
+		assert.deepEqual(front(w, 'data/projects/alpha.project.md').tasks, ['tasks/t-one']);
+		assert.equal(dt(w.root, 'check').code, 0);
+	});
+
+	// T4b, the store half (rnd/tests/dreamteamer/cr-dt-003-t4b)
+	test('a required unique field does not refuse a stub of the same id — by explicit and by generated id — and still refuses another id', () => {
+		const { w } = standalone();
+		compileQuietly(w.ws);
+		const k1 = dt(w.root, 'add', 'codes', '--id', 'k1', '--name', 'k1', '--key', 'K1', '--stub', 'true');
+		assert.equal(k1.code, 0, k1.stderr);
+		const k2 = dt(w.root, 'add', 'codes', '--name', 'k2', '--key', 'K2', '--stub', 'true');
+		assert.equal(k2.code, 0, k2.stderr);
+		assert.ok(fs.existsSync(path.join(w.root, 'data/codes/k2.code.md')));
+		const dup = dt(w.root, 'add', 'codes', '--id', 'k3', '--name', 'k3', '--key', 'K1');
+		assert.equal(dup.code, 1);
+		assert.match(dup.stderr, /key: "K1" is already taken by codes\/k1/);
+		assert.equal(dt(w.root, 'check').code, 0);
+	});
+
+	// T10 (rnd/tests/dreamteamer/cr-dt-003-t10)
+	test("an owner add, set and revert after the stub keep the stub's mirror current; the layer's record is untouched", () => {
+		const { w, layer } = standalone();
+		topTask(w, 't-one', 'projects/alpha');
+		writeTop(w, 'data/projects/beta.project.md', '---\nname: Beta\n---\n');
+		compileQuietly(w.ws);
+		assert.equal(dt(w.root, 'add', 'projects', '--id', 'alpha', '--name', 'Alpha', '--stub', 'true').code, 0);
+		const layerAlpha = readFile(layer, 'data/projects/alpha.project.md');
+		git(w.root, ['add', '-A']);
+		git(w.root, ['commit', '-qm', 'stub']);
+		const sha = git(w.root, ['rev-parse', 'HEAD']);
+
+		assert.equal(dt(w.root, 'add', 'tasks', '--name', 't-three', '--project', 'projects/alpha').code, 0);
+		assert.deepEqual(front(w, 'data/projects/alpha.project.md').tasks, ['tasks/t-one', 'tasks/t-three']);
+		assert.equal(dt(w.root, 'set', 'tasks/t-one', 'project=projects/beta').code, 0);
+		assert.deepEqual(front(w, 'data/projects/alpha.project.md').tasks, ['tasks/t-three']);
+		assert.deepEqual(front(w, 'data/projects/beta.project.md').tasks, ['tasks/t-one']);
+		const rev = dt(w.root, 'revert', 'tasks/t-one', '--hash', sha);
+		assert.equal(rev.code, 0, rev.stderr);
+		assert.deepEqual(front(w, 'data/projects/alpha.project.md').tasks, ['tasks/t-one', 'tasks/t-three']);
+		assert.equal(readFile(layer, 'data/projects/alpha.project.md'), layerAlpha, "the layer's real alpha never gained a top owner");
+		const check = dt(w.root, 'check');
+		assert.equal(check.code, 0, check.stdout + check.stderr);
+	});
+
+	// T11 (rnd/tests/dreamteamer/cr-dt-003-t11)
+	test("rm of an owner whose stub mirror is current is not refused, and the stub drops it", () => {
+		const { w } = standalone();
+		topTask(w, 't-one', 'projects/alpha');
+		topTask(w, 't-two', 'projects/alpha');
+		compileQuietly(w.ws);
+		assert.equal(dt(w.root, 'add', 'projects', '--id', 'alpha', '--name', 'Alpha', '--stub', 'true').code, 0);
+		const rm = dt(w.root, 'rm', 'tasks/t-two');
+		assert.equal(rm.code, 0, rm.stdout + rm.stderr);
+		assert.deepEqual(front(w, 'data/projects/alpha.project.md').tasks, ['tasks/t-one']);
+		assert.equal(dt(w.root, 'check').code, 0);
+	});
+});

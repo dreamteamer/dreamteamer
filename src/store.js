@@ -13,7 +13,7 @@ import { parseRecord, parseRecordText, patternRe, fmtAjvError, unknownFields, wa
 import { normalizeRecord, normalizeTemporal } from './temporal.js';
 import { NO_RUNTIME, sourceHint, loadDescriptors, runtimeDir, namespaces as compiledNamespaces, sourceRoots as compiledSourceRoots } from './runtime.js';
 import { parseRef } from './namespace.js';
-import { relationsOf } from './relations.js';
+import { relationsOf, expectedMirrors } from './relations.js';
 import { placementOf, placedRecords, rootRecords, placedRoot, placementOfFile, ownerIdOf, symlinkBelow, dirTreeStamps, isNested, parentOfNestedId, localOfNestedId } from './placement.js';
 import { pathToRecord } from './events.js';
 
@@ -195,8 +195,11 @@ export class Store {
 					// to edit and `read` would throw, turning someone else's stale data into a refusal of
 					// this write. An attach never lands here missing — checkRefs proved it before the lock.
 					if (!this.ids(rel.target).has(parsed.id)) return;
-					const { fields, file } = this.read(rel.target, parsed.id);
-					if (this.repoOfFile(td, file) !== ownerRepo) return; // another repo: no mirror (see above)
+					// another repo answers: no mirror there (see above) — but this repo's own STUB of the id,
+					// if it keeps one, is a record of this repo and its mirror is kept like any other
+					const file = this.mirrorFileFor(rel.target, parsed.id, ownerRepo);
+					if (!file) return;
+					const fields = parseRecord(file, td, bodyField(td));
 					const previous = fs.readFileSync(file, 'utf8');
 					fn(fields, parsed.id);
 					atomicWrite(file, serialize(td, fields));
@@ -278,6 +281,36 @@ export class Store {
 
 	/** Does a record layer contribute to `d`? Such a collection is indexed across every root. */
 	layered(d) { return storageOf(d).layers.length > 0; }
+
+	/** The file an owner in `ownerRepo` keeps the mirror of `collection/id` in: the record that answers
+	 *  the id when it sits in that repo, else that repo's own shadowed STUB of the id, else null (the id
+	 *  is another repo's, and mirrors stay per repo). The one place the choice is made — the mirror
+	 *  pass writes it and rm's guard credits it, so the two cannot disagree. */
+	mirrorFileFor(collection, id, ownerRepo) {
+		const d = this.descriptor(collection);
+		const answering = this.ids(collection).get(id);
+		if (!answering) return null;
+		if (this.repoOfFile(d, answering) === ownerRepo) return answering;
+		return this.shadowedStubs(collection, id).find((f) => this.repoOfFile(d, f) === ownerRepo) ?? null;
+	}
+
+	/** What a record written over an id another root already answers is owed by the owners of ITS repo:
+	 *  every incoming mirror, computed as `relations rebuild` and `check` compute it — the repo's
+	 *  answering owners plus its shadowed stub owners. Nothing attached to an id this repo did not hold,
+	 *  so no owner write ever wrote these. */
+	incomingMirrors(d, id, repo) {
+		const out = {};
+		for (const rel of this.relations()) {
+			if (rel.target !== d.name) continue;
+			const od = this.descriptor(rel.owner);
+			if (storageOf(od).unavailable) continue; // an owner collection this machine cannot read holds no owners here
+			const rows = [...this.ids(rel.owner)].map(([oid, file]) => ({ id: oid, file })).concat([...this.shadowedStubRecords(rel.owner)]);
+			const owners = rows.filter((r) => this.repoOfFile(od, r.file) === repo).map((r) => ({ id: r.id, fields: parseRecord(r.file, od, bodyField(od)) }));
+			const v = expectedMirrors(rel, owners).get(id);
+			if (v !== undefined) out[rel.mirror] = v;
+		}
+		return out;
+	}
 
 	/** The layer an existing file of `d` was read from — `{ layer, path, repo, abs }` — or null for a
 	 *  file in the write root. What decides which repo an edit of it commits to. */
@@ -978,7 +1011,6 @@ export class Store {
 		if (d.compiled?.fields?.created) fields.created = nowStamp();
 		const deprecated = Object.keys(fields).filter((k) => d.compiled?.fields?.[k]?.deprecated);
 		this.validate(d, fields);
-		this.refuseDuplicateValues(d, collection, null, fields, Object.keys(fields));
 		// the KEYS, not a copy of them: `generateId` iterates this once and only for a `{{ seq }}`
 		// template, so materializing the whole id list was an O(N) allocation per add that almost
 		// every collection threw away unread.
@@ -994,14 +1026,21 @@ export class Store {
 		if (idsOf(d).pattern && !patternRe(idsOf(d).pattern).test(id)) {
 			throw new Error(`id "${id}" does not match pattern ${idsOf(d).pattern} — nothing was written.`);
 		}
+		// after the id is known: another root's record OF THIS ID does not take a unique value from it
+		this.refuseDuplicateValues(d, collection, id, fields, Object.keys(fields));
 		// The fields decide the folder for a placed collection (rootFor), and existence is asked of the
 		// INDEX, not of one path: the same id already sitting under another parent is the duplicate
 		// `check` would report, and refusing it here is what keeps the id unique across every root.
 		const file = this.filePath(d, id, undefined, fields);
 		this._assertContained(d, file);
 		// An id held ONLY by stubs in other roots is free: this write promotes it, and says so (`shadows`).
-		const shadows = this.layered(d) && !fs.existsSync(file) && this.ids(collection).has(id) ? this._stubOnlyClaims(d, id) : [];
-		if (fs.existsSync(file) || ((placementOf(d) || this.layered(d)) && this.ids(collection).has(id) && !shadows.length)) throw new Error(`${collection}/${id} already exists — nothing was written.`);
+		// CONTESTED: another root already claims the id and this one holds no file of it. A stub may be
+		// written there — it yields to the record that answers (cr-dt-003) — and so may a record that
+		// promotes stubs-only claims; either way it is owed the incoming mirrors no owner write could make.
+		const contested = this.layered(d) && !fs.existsSync(file) && this.ids(collection).has(id);
+		const shadows = contested ? this._stubOnlyClaims(d, id) : [];
+		if (fs.existsSync(file) || ((placementOf(d) || this.layered(d)) && this.ids(collection).has(id) && !shadows.length && !(contested && fields.stub === true))) throw new Error(`${collection}/${id} already exists — nothing was written.`);
+		if (contested) Object.assign(fields, this.incomingMirrors(d, id, storageOf(d).repo));
 		return this.withWriteLock(() => {
 			// captured before the invalidation and handed back, one entry richer, on the success path
 			// below — see _indexAdd for why an add that throws it away is the expensive shape.
@@ -1296,7 +1335,7 @@ export class Store {
 			for (const v of toArr(own[rel.field])) {
 				const p = parseRef(v, this.namespaces);
 				if (!p || p.collection !== rel.target) continue; // malformed, or another union member
-				const f = this.ids(rel.target).get(p.id);
+				const f = this.mirrorFileFor(rel.target, p.id, this.repoOfFile(d, unit));
 				if (f) plan(f, 1); // the one mirror entry naming this record, which the detach removes
 			}
 		}
