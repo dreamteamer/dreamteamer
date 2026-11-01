@@ -54,6 +54,16 @@ export function resolveClaims(claims, isStub) {
 	return { winner: real[0], conflicts: real.length > 1 ? real : [], shadowed: claims.filter((_, i) => stub[i]) };
 }
 
+/** The fields a stub of a record must carry to validate on its own (cr-dt-003): the schema's root
+ *  `required`, plus each `allOf` branch's `then.required` whose `if` holds for this record (`holds`
+ *  evaluates a subschema against it), kept to the keys the record carries. Nothing optional and nothing
+ *  a branch that does not apply requires — a stub is read by every workspace that reads this one. */
+export function stubFields(schema, fields, holds) {
+	const keys = new Set(schema?.required ?? []);
+	for (const b of schema?.allOf ?? []) if (b?.then?.required && (b.if === undefined || holds(b.if))) for (const k of b.then.required) keys.add(k);
+	return [...keys].filter((k) => fields[k] !== undefined);
+}
+
 // id patterns may use unicode property escapes — compile with the u flag
 export function patternRe(pattern) {
 	try { return new RegExp(pattern, 'u'); } catch { return new RegExp(pattern); }

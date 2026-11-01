@@ -440,7 +440,7 @@ describe('workspace verbs keep their spellings', () => {
 			// succeeds — never with "unknown verb", which is the only failure this asserts against.
 			assert.doesNotMatch(res.stderr + res.stdout, new RegExp(`unknown verb "${verb}"`), `help documents \`${verb}\` but the dispatch does not know it`);
 		}
-		for (const verb of ['add', 'set', 'rm', 'rename', 'list', 'get', 'reorder', 'values', 'history', 'diff', 'revert', 'next', 'relations', 'resolve', 'add-field', 'set-field', 'rm-field', 'rename-field', 'init', 'install', 'update', 'compile', 'check', 'status', 'changes', 'commit', 'help']) {
+		for (const verb of ['add', 'set', 'rm', 'rename', 'list', 'get', 'stub', 'reorder', 'values', 'history', 'diff', 'revert', 'next', 'relations', 'resolve', 'add-field', 'set-field', 'rm-field', 'rename-field', 'init', 'install', 'update', 'compile', 'check', 'status', 'changes', 'commit', 'help']) {
 			assert.ok(documented.has(verb), `\`${verb}\` dispatches but help does not document it`);
 		}
 	});

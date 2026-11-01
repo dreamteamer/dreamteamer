@@ -730,9 +730,20 @@ const CODES = 'name: codes\nstorage:\n  suffix: code\nids:\n  from: "{{ name | s
 const topTask = (w, slug, project) => writeTop(w, `data/tasks/${slug}.task.md`, `---\nname: ${slug}\nproject: ${project}\n---\n`);
 const front = (w, rel) => load(/^---\n([\s\S]*?)\n---/.exec(readFile(w.root, rel))[1]);
 /** layered() plus the shared `codes` collection (compiled from org, layered from project-a). */
-function standalone({ layerFiles = {}, records = ['tasks', 'projects', 'codes'] } = {}) {
-	const out = layered({ records, layerFiles: { 'data/codes/k1.code.md': '---\nname: k1\nkey: K1\n---\n', 'data/codes/k2.code.md': '---\nname: k2\nkey: K2\n---\n', ...layerFiles } });
-	fs.writeFileSync(path.join(out.org, 'collections', 'codes.collection.yaml'), CODES);
+// calls: a defaulted field and two conditional branches, the shape of a decision record
+const CALLS = 'name: calls\nstorage:\n  suffix: call\nids:\n  from: "{{ name | slug }}"\nfields:\n  name:\n    type: string\n    required: true\n  by:\n    type: string\n    enum: [person, agent, unknown]\n    required: true\n  why:\n    type: string\n  source:\n    type: string\n  status:\n    type: string\n    enum: [open, done]\n    default: open\n  notes:\n    type: markdown\n    body: true\nconstraints:\n  - if: {required: [by], properties: {by: {enum: [person, agent]}}}\n    then: {required: [why]}\n  - if: {required: [by], properties: {by: {const: unknown}}}\n    then: {required: [source]}\n';
+const MEMOS = 'name: memos\nstorage:\n  suffix: memo\nfields:\n  name:\n    type: string\n    required: true\n';
+const PICS = 'name: pics\nstorage:\n  suffix: pic\n  format: binary\nfields: {}\n';
+/** layered() plus the shared collections the cr-dt-003 tests need — compiled from org, layered from
+ *  project-a where `records` names them (memos is layerable but read from no layer). */
+function standalone({ layerFiles = {}, records = ['tasks', 'projects', 'codes', 'calls', 'pics'] } = {}) {
+	const out = layered({ records, layerFiles: {
+		'data/codes/k1.code.md': '---\nname: k1\nkey: K1\n---\n', 'data/codes/k2.code.md': '---\nname: k2\nkey: K2\n---\n',
+		'data/calls/c1.call.md': '---\nname: C1\nby: agent\nwhy: because\nsource: somewhere private\nstatus: done\n---\nA body nobody else should read.\n',
+		'data/pics/p1.pic.png': 'not really a png',
+		...layerFiles,
+	} });
+	for (const [n, y] of [['codes', CODES], ['calls', CALLS], ['memos', MEMOS], ['pics', PICS]]) fs.writeFileSync(path.join(out.org, 'collections', `${n}.collection.yaml`), y);
 	return out;
 }
 
@@ -818,5 +829,74 @@ describe("a workspace's own records resolve standalone (cr-dt-003)", () => {
 		assert.equal(rm.code, 0, rm.stdout + rm.stderr);
 		assert.deepEqual(front(w, 'data/projects/alpha.project.md').tasks, ['tasks/t-one']);
 		assert.equal(dt(w.root, 'check').code, 0);
+	});
+
+	// T4 (rnd/tests/dreamteamer/cr-dt-003-t4)
+	test('dt stub writes the applicable required fields, stub: true, defaults and incoming mirrors — never the body or an optional field', () => {
+		const { w } = standalone();
+		topTask(w, 't-one', 'projects/alpha');
+		compileQuietly(w.ws);
+		const res = dt(w.root, 'stub', 'projects/alpha', '--json');
+		assert.equal(res.code, 0, res.stderr);
+		assert.deepEqual(JSON.parse(res.stdout), { id: 'alpha', path: 'data/projects/alpha.project.md', $stubOf: 'git_modules/project-a/data/projects/alpha.project.md', copied: ['name'] });
+		const alpha = front(w, 'data/projects/alpha.project.md');
+		assert.deepEqual(Object.keys(alpha).filter((k) => k !== 'created').sort(), ['name', 'stub', 'tasks']);
+		assert.deepEqual(alpha.tasks, ['tasks/t-one']);
+		assert.equal(getJson(w, 'projects/alpha').$file, 'git_modules/project-a/data/projects/alpha.project.md');
+
+		const call = dt(w.root, 'stub', 'calls/c1', '--source', 'mine');
+		assert.equal(call.code, 0, call.stderr);
+		assert.match(call.stdout, /data\/calls\/c1\.call\.md — stub of calls\/c1 \(layer project-a answers it here\); copied: name, by, why$/m);
+		const c1 = front(w, 'data/calls/c1.call.md');
+		assert.deepEqual(Object.keys(c1).filter((k) => k !== 'created').sort(), ['by', 'name', 'source', 'status', 'stub', 'why']);
+		assert.equal(c1.source, 'mine', 'a field flag is written over the copy');
+		assert.equal(c1.status, 'open', "the schema's default, not the layer's value");
+		assert.doesNotMatch(readFile(w.root, 'data/calls/c1.call.md'), /nobody else/, 'never the body');
+
+		const mirror = dt(w.root, 'stub', 'codes/k1', '--json'); // T4b's dt stub half: a required unique field copies
+		assert.equal(mirror.code, 0, mirror.stderr);
+		assert.equal(front(w, 'data/codes/k1.code.md').key, 'K1');
+		assert.equal(dt(w.root, 'check').code, 0);
+	});
+
+	test('dt stub refuses a mirror field given as a flag, and writes nothing', () => {
+		const { w } = standalone();
+		compileQuietly(w.ws);
+		const res = dt(w.root, 'stub', 'projects/alpha', '--tasks', 'tasks/fix-login');
+		assert.equal(res.code, 1);
+		assert.match(res.stderr, /tasks is generated from tasks\.project/);
+		assert.ok(!fs.existsSync(path.join(w.root, 'data/projects/alpha.project.md')));
+	});
+
+	// T5 (rnd/tests/dreamteamer/cr-dt-003-t5)
+	test('dt stub refuses, writing nothing: held here already, held nowhere, no layer, a file record', () => {
+		const { w } = standalone();
+		compileQuietly(w.ws);
+		assert.equal(dt(w.root, 'stub', 'projects/alpha').code, 0);
+		const before = readFile(w.root, 'data/projects/alpha.project.md');
+		const again = dt(w.root, 'stub', 'projects/alpha');
+		assert.equal(again.code, 1);
+		assert.match(again.stderr, /projects\/alpha is already held by this workspace \(data\/projects\/alpha\.project\.md\) — nothing was written/);
+		assert.equal(readFile(w.root, 'data/projects/alpha.project.md'), before, 'byte-identical');
+
+		const none = dt(w.root, 'stub', 'projects/nope');
+		assert.equal(none.code, 1);
+		assert.match(none.stderr, /no layer holds projects\/nope — nothing to copy/);
+
+		const memo = dt(w.root, 'stub', 'memos/m1');
+		assert.equal(memo.code, 1);
+		assert.match(memo.stderr, /memos reads no record layer — a stub has nothing to yield to/);
+
+		const store = new Store(w.ws);
+		assert.ok(store.descriptor('pics').compiled.fields.stub, 'a binary collection that can be layered DOES carry the field');
+		const pic = dt(w.root, 'stub', 'pics/p1');
+		assert.equal(pic.code, 1);
+		assert.match(pic.stderr, /pics is format: binary — a file record cannot be a stub/);
+		assert.match(pic.stderr, /clear or repoint the referring field/i);
+		assert.ok(!fs.existsSync(path.join(w.root, 'data/pics')));
+
+		const people = dt(w.root, 'stub', 'people/dana-levi');
+		assert.equal(people.code, 1);
+		assert.match(people.stderr, /people cannot carry a stub/);
 	});
 });
