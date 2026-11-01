@@ -20,6 +20,30 @@ npx dreamteamer check
 
 ---
 
+## Next — a workspace's own records resolve standalone
+
+Nothing to do but `dt compile`. Read this if your workspace reads record layers, or is read as one.
+
+- **`dt check` may print new `⚠` lines in a workspace with layers.** `⚠ <target> resolves only
+  through layer <L> — named by N records here (…); a workspace reading this one sees it dangle. dt stub
+  <target>`: one of your records names a record only a layer holds, so a workspace that reads yours
+  without that layer sees a dangling reference. And `⚠ <file> is a stub a layer shadows, and its
+  <mirror> mirror is stale … dt relations rebuild <collection>`. Neither changes the exit code. A
+  workspace with no layers prints exactly what it printed before.
+- **`dt stub <collection>/<id>`** writes a stub of the layer's record into this workspace: the fields
+  its schema requires of that record, `stub: true`, and its incoming mirrors. It yields to the layer's
+  record wherever both are read. A `format: binary` record cannot be a stub; the warning names the
+  fix in the referring field.
+- **`dt check --strict-export`** turns both lines into violations (exit 1) — the gate for a
+  workspace other workspaces read. In-process: `check(ws, { strictExport: true })`.
+- **`dt add <collection> --id <id> --stub true` over an id a layer holds now writes** the stub, with
+  its incoming mirrors; it used to be refused `already exists`. Without `stub: true` it still is. A
+  `unique` field no longer counts the layer's record of the SAME id as taking its value.
+- **`dt relations rebuild <collection>`** now also writes the mirrors of this workspace's own stubs a
+  layer shadows, and an owner write (`add`, `set`, `rm`, `revert`) keeps them current.
+
+---
+
 ## 0.43.0 — an extension's check may warn
 
 Nothing to do. An extension whose `check` contribution returns an item with `warning: true`

@@ -473,6 +473,16 @@ HQ reads the projects' records by cloning each project under `git_modules/`:
   `$stub: true` on a stub and `$shadows: [<file>…]` on a record that answers over stubs. A shadowed
   stub is still an owner in its own repo, so the mirrors it justifies there are expected by `check`
   and kept by `relations rebuild`. Only ids more than one root claims have their files read.
+- **A workspace read as a layer stands alone** — it is read WITHOUT its own layers, so a hard
+  reference its own records make to a record only a layer answers dangles in every reader. `dt check`
+  names each such target once (`⚠ <target> resolves only through layer <L> — named by N records here
+  (…) … dt stub <target>`), and an own stub whose mirror only this repo's owners would keep true. `dt
+  stub <collection>/<id>` fixes the first: it writes a stub here with the fields the schema requires of
+  that record, `stub: true` and its incoming mirrors (never the body; `--<field> <value>` adds more),
+  and every later owner write keeps that mirror current; `dt relations rebuild` fixes the second.
+  `dt add … --stub true` over a layer-held id writes the same way. A `format: binary` target cannot be
+  a stub: its line names the fix in the referring field instead. `dt check --strict-export` makes both
+  violations — the gate for a workspace others read.
 - **A new record goes to the write root** (`storage.path` — this workspace, or the owning module's
   clone for `storage.owner: module`). **An edit or removal of a layer's record lands in place** and
   commits in the layer's repo; `dt commit` samples every layer and publishes one commit per repo.
