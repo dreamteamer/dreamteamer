@@ -119,12 +119,6 @@ function walkDescriptors(dir, out = []) {
 	return out;
 }
 
-/**
- * The workspace's declared namespaces, longest-first — the closed set every reference is split
- * against. Read off the MANIFEST rather than package.json so the record layer keeps its single
- * dependency on the compiled artifact (the `sourceRoots()` precedent), and so a runtime compiled
- * before namespaces existed answers `[]` instead of throwing.
- */
 /** What compile recorded for the exports manifest (cr-dt-004): this workspace's package name and data
  *  folder, and per layer `{ name, root, data, package, reads, narrowed }` — `layers: null` from a runtime
  *  older than them, which a caller reads as "nothing is known". */
@@ -133,6 +127,12 @@ export function exportsFacts(root) {
 	return { own: m?.package ?? null, data: m?.data_path ?? 'data', layers: m?.layers ?? null };
 }
 
+/**
+ * The workspace's declared namespaces, longest-first — the closed set every reference is split
+ * against. Read off the MANIFEST rather than package.json so the record layer keeps its single
+ * dependency on the compiled artifact (the `sourceRoots()` precedent), and so a runtime compiled
+ * before namespaces existed answers `[]` instead of throwing.
+ */
 export function namespaces(root) {
 	return normalizeNamespaces(readManifest(root)?.namespaces);
 }

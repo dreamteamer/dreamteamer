@@ -97,6 +97,7 @@ function copyInto(r, w, records) {
 	r.ws.pkg = manifest;
 	compileQuietly(r.ws);
 }
+const head = (dir) => git(dir, ['rev-parse', 'HEAD']).trim();
 const manifestOf = (dir) => JSON.parse(fs.readFileSync(path.join(dir, MANIFEST), 'utf8')).references;
 // a manifest as `dt exports` (or the migration) would have written it
 const handManifest = (dir, refs) => fs.writeFileSync(path.join(dir, MANIFEST), serializeExports(refs));
@@ -384,6 +385,35 @@ describe('dt exports (cr-dt-004)', () => {
 		} finally { git(w.root, ['worktree', 'remove', '--force', wt]); }
 	});
 
+	// code review round 1, cherry-pick-case-missing
+	test('during a cherry-pick the manifest is written and not committed', () => {
+		const w = withLayer();
+		git(w.root, ['checkout', '-q', '-b', 'side']);
+		write(w.root, { 'c.txt': 'side\n' }); git(w.root, ['add', 'c.txt']); git(w.root, ['commit', '-qm', 'side']);
+		git(w.root, ['checkout', '-q', '-']);
+		write(w.root, { 'c.txt': 'main\n' }); git(w.root, ['add', 'c.txt']); git(w.root, ['commit', '-qm', 'main']);
+		try { git(w.root, ['cherry-pick', 'side']); } catch { /* the conflict is the point */ }
+		assert.ok(fs.existsSync(path.join(w.root, '.git', 'CHERRY_PICK_HEAD')));
+		const before = head(w.root);
+		const res = dt(w.root, 'exports');
+		assert.equal(res.code, 0, res.stderr);
+		assert.match(res.stdout, /a cherry-pick is in progress — the manifest is written/);
+		assert.ok(fs.existsSync(path.join(w.root, MANIFEST)));
+		assert.equal(head(w.root), before);
+	});
+
+	test('an emptied manifest git never tracked is deleted, and nothing is committed', () => {
+		const w = withLayer();
+		handManifest(w.root, { people: { gone: { label: 'G', from: 'far' } } });
+		fs.rmSync(path.join(w.root, 'data/tasks/t1.task.md'));
+		git(w.root, ['commit', '-qam', 'drop t1']);
+		const before = head(w.root);
+		const res = dt(w.root, 'exports');
+		assert.equal(res.code, 0, res.stderr);
+		assert.equal(fs.existsSync(path.join(w.root, MANIFEST)), false);
+		assert.equal(head(w.root), before);
+	});
+
 	test('consistency: check names a manifest stale exactly when dt exports --dry-run reports a non-add change', () => {
 		const w = withLayer();
 		const kinds = () => JSON.parse(dt(w.root, 'exports', '--dry-run', '--json').stdout).manifests[0].changes.map((c) => c.kind);
@@ -427,8 +457,7 @@ describe('dt get on an external id (cr-dt-004)', () => {
 
 describe('scripts/migrate-stubs.mjs (cr-dt-004)', () => {
 	const STUB = (name, extra = '') => `---\nname: ${name}\nstub: true\n${extra}---\nA body only the stub carried.\n`;
-	const head = (dir) => git(dir, ['rev-parse', 'HEAD']).trim();
-	const migrateIn = async (root, opts) => (await import('../../scripts/migrate-stubs.mjs')).migrate(root, { ...opts, log: () => {} });
+		const migrateIn = async (root, opts) => (await import('../../scripts/migrate-stubs.mjs')).migrate(root, { ...opts, log: () => {} });
 
 	// T11 (rnd/tests/dreamteamer/cr-dt-004-t6)
 	test('dry run writes nothing; the run turns upward, downward and unreferenced stubs into entries or deletions, one commit per repo, every check clean', async () => {
@@ -457,6 +486,26 @@ describe('scripts/migrate-stubs.mjs (cr-dt-004)', () => {
 		fs.cpSync(path.join(wd, 'data'), path.join(wAlone.root, 'data'), { recursive: true });
 		fs.cpSync(path.join(wd, MANIFEST), path.join(wAlone.root, MANIFEST));
 		assert.equal(dt(wAlone.root, 'check').code, 0, 'the migrated layer checks clean alone');
+	});
+
+	// code review round 1, migrate-git-add-absent-manifest
+	test('a repo whose stubs are all unreferenced migrates to deletions in one commit, with no manifest', async () => {
+		const w = ws({ pkg: 'w-pkg', files: { 'data/people/idle.person.md': STUB('Idle') } });
+		const before = head(w.root);
+		await migrateIn(w.root, {});
+		assert.equal(fs.existsSync(path.join(w.root, MANIFEST)), false);
+		assert.equal(git(w.root, ['rev-parse', 'HEAD~1']).trim(), before);
+		assert.match(git(w.root, ['show', '--name-status', '--format=', 'HEAD']), /^D\tdata\/people\/idle\.person\.md$/m);
+		assert.equal(git(w.root, ['status', '--porcelain', '--', 'data']).trim(), '');
+	});
+
+	// code review round 1, stub-regex-crosses-frontmatter
+	test('a record whose BODY quotes a stub is not a stub and is never deleted', async () => {
+		const quoting = '---\nname: Quote\n---\nAn old placeholder looked like:\n\nstub: true\n---\n';
+		const w = ws({ pkg: 'w-pkg', files: { 'data/people/quote.person.md': quoting } });
+		const report = await migrateIn(w.root, {});
+		assert.deepEqual(report, []);
+		assert.equal(readFile(w.root, 'data/people/quote.person.md'), quoting);
 	});
 
 	// T19, the script half (rnd/tests/dreamteamer/cr-dt-004-t6)

@@ -21,7 +21,8 @@ import { storageOf, bodyFieldOf, recordTitleOf } from '../src/descriptor.js';
 import { EXPORTS_FILE, readExports, serializeExports, exportsContext, outsideRefs } from '../src/exports.js';
 import { planExports } from '../src/exports-cli.js';
 
-const isStubText = (text) => /^---\n[\s\S]*?^stub:\s*true\s*$[\s\S]*?^---$/m.test(text);
+// `stub: true` in the FRONTMATTER only — a body quoting a stub is a real record
+const isStubText = (text) => /^stub:\s*true\s*$/m.test(/^---\n([\s\S]*?)\n---(?:\n|$)/.exec(text)?.[1] ?? '');
 const title = (d, fields, id) => String(fields[/\{\{\s*([A-Za-z_][\w]*)/.exec(recordTitleOf(d))?.[1]] ?? id);
 
 /** Every record file of `repo` (null: the workspace), per collection: `[{ d, id, file, stub }]`. */
@@ -77,8 +78,10 @@ export function migrate(root, { layers = false, dryRun = false, log = console.lo
 		fs.writeFileSync(path.join(dir, EXPORTS_FILE), serializeExports(entries) ?? '{}\n');
 		const plan = planExports(new Store({ root, pkg }), repo); // as dt exports would, on the migrated tree
 		if (plan.text === null) fs.rmSync(plan.file, { force: true }); else fs.writeFileSync(plan.file, plan.text);
-		const paths = [EXPORTS_FILE, ...stubs.map((s) => path.relative(dir, s.file))];
 		const git = (args) => execFileSync('git', args, { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'] }).toString().trim();
+		// the manifest only when there is one or git tracks one: all-unreferenced stubs leave none to add
+		const tracked = git(['ls-files', '--', EXPORTS_FILE]) !== '';
+		const paths = [...(tracked || fs.existsSync(path.join(dir, EXPORTS_FILE)) ? [EXPORTS_FILE] : []), ...stubs.map((s) => path.relative(dir, s.file))];
 		git(['add', '-A', '--', ...paths]);
 		git(['commit', '--only', '-q', '-m', `dreamteamer: migrate ${stubs.length} stub record(s) to ${EXPORTS_FILE}`, '--', ...paths]);
 		log(`    ✔ committed ${git(['rev-parse', '--short', 'HEAD'])}`);

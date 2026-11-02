@@ -60,8 +60,10 @@ export function runExports(store, { layers = [], dryRun = false, json = false } 
 					try { return execFileSync('git', args, { cwd: plan.dir, stdio: ['ignore', 'pipe', 'pipe'] }).toString().trim(); }
 					catch (e) { throw new Error(`git ${args[0]} in ${path.relative(store.root, plan.dir) || '.'} failed: ${String(e.stderr || e.message).trim()}`); }
 				};
-				git(['add', '--', EXPORTS_FILE]);
-				// back to what HEAD already holds (a hand edit undone): nothing to commit
+				// an emptied manifest git never tracked: nothing to add, nothing to commit
+				// an emptied manifest is un-staged with --ignore-unmatch: one git never tracked leaves nothing to commit
+				git(plan.text === null ? ['rm', '--cached', '-q', '--ignore-unmatch', '--', EXPORTS_FILE] : ['add', '--', EXPORTS_FILE]);
+				// back to what HEAD already holds (a hand edit undone), or never tracked: nothing to commit
 				let same = false;
 				try { execFileSync('git', ['diff', '--cached', '--quiet', 'HEAD', '--', EXPORTS_FILE], { cwd: plan.dir, stdio: 'ignore' }); same = true; } catch { /* differs, or no HEAD yet */ }
 				if (!same) {
