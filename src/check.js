@@ -2,14 +2,13 @@
 // report-only: JSON Schema (ajv), id patterns, reference resolution, stray files, plus any
 // `extra` violations a caller gathered (extension checks), reported after the schema's — an item marked
 // `warning` is printed as a warning and never counted. Under `strictExport` a reference this workspace's
-// own records reach only through a layer, and an own stub whose mirror only the layer keeps true, are
-// violations rather than ⚠ lines: a workspace reading this one without its layers would see them break.
+// own records reach only through a layer is a violation rather than a ⚠ line: a workspace reading this one without its layers would see them break.
 // NEVER modifies a file. returns the exit code.
 import fs from 'node:fs';
 import path from 'node:path';
 import Ajv from 'ajv';
 import addFormats from 'ajv-formats';
-import { parseRecord, patternRe, fmtAjvError, unknownFields, walk, idFromRecordPath, MAX_RECORD_BYTES, isStubRecord, resolveClaims } from './records.js';
+import { parseRecord, patternRe, fmtAjvError, unknownFields, walk, idFromRecordPath, MAX_RECORD_BYTES } from './records.js';
 import { NO_RUNTIME, loadDescriptors, runtimeDir, namespaces as compiledNamespaces } from './runtime.js';
 import { parseRef } from './namespace.js';
 import { relationsOf, expectedMirrors, ownersReadIn } from './relations.js';
@@ -51,7 +50,6 @@ export function check({ root }, { extra = [], strictExport = false } = {}) {
 	const fileRepo = new Map();
 	const fileLayer = new Map();
 	const layerNotes = new Map(); // layer name -> note, printed once
-	const shadowedStubs = []; // { name, id, f, repo, layer } — a placeholder another root's real record answers for
 	for (const [name, d] of descriptors) {
 		const ids = new Map();
 		index.set(name, ids);
@@ -105,9 +103,8 @@ export function check({ root }, { extra = [], strictExport = false } = {}) {
 			}
 			continue;
 		}
-		// every root: the write root, then each record layer. Claimants are GATHERED first and then
-		// resolved exactly as the store indexes (records.js resolveClaims): a stub yields to a non-stub
-		// wherever it sits, and only a second non-stub is the duplicate reported above.
+		// every root: the write root, then each record layer. Claimants are GATHERED first, in root order:
+		// the first answers, exactly as the store indexes, and every other is the duplicate reported above.
 		const offers = new Map(); // id -> [{ f, repo, layer }], root order
 		const offer = (id, f, repo, layer) => { const o = offers.get(id); if (o) o.push({ f, repo, layer }); else offers.set(id, [{ f, repo, layer }]); };
 		for (const r of storageOf(d).roots) {
@@ -149,10 +146,8 @@ export function check({ root }, { extra = [], strictExport = false } = {}) {
 		const allowed = storageOf(d).accept;                  // undefined = any
 		const max = storageOf(d).max_bytes ?? MAX_RECORD_BYTES;
 		for (const [id, list] of offers) {
-			const { winner, conflicts, shadowed } = resolveClaims(list, (c) => isStubRecord(c.f, d));
-			claim(id, winner.f, winner.repo, winner.layer);
-			for (const c of conflicts.slice(1)) claim(id, c.f, c.repo, c.layer); // reported as the duplicate
-			for (const c of shadowed) shadowedStubs.push({ name, id, ...c });
+			const [winner] = list;
+			for (const c of list) claim(id, c.f, c.repo, c.layer); // the second and later are reported as duplicates
 			if (!opaque) continue;
 			const f = winner.f;
 			const ext = path.extname(f).slice(1).toLowerCase();
@@ -172,11 +167,8 @@ export function check({ root }, { extra = [], strictExport = false } = {}) {
 	// parsed fields, kept for the relations pass below (parse each record exactly once)
 	const parsed = new Map();
 	// cr-dt-003: what a reader of this workspace (without its layers) would see break — a target only a
-	// layer answers and no root here claims, even as a stub; and an own stub whose mirror is stale
-	const heldHere = new Set(shadowedStubs.filter((s) => !s.layer).map((s) => `${s.name}/${s.id}`));
+	// layer answers
 	const layerOnly = new Map(); // target -> { layer, binary, refs: [{ file, field, value, referrer }] }
-	const ownStubFields = new Map();
-	const staleStubs = [];
 	const softRefs = new Map(); // absent-but-declared peer collection -> how many refs point at it
 
 	for (const [name, d] of descriptors) {
@@ -186,14 +178,9 @@ export function check({ root }, { extra = [], strictExport = false } = {}) {
 		const bodyField = bodyFieldOf(d);
 		parsed.set(name, new Map());
 
-		// a stub THIS workspace holds is validated here even while a layer's record answers its id: no
-		// other workspace reads that file, and it must stand on its own the moment the layer's record goes.
-		// (A layer's shadowed stub is its own workspace's to validate.)
-		const ownStubs = shadowedStubs.filter((x) => x.name === name && !x.layer).map((x) => [x.id, x.f, true]);
 		// only a referrer a reader can read counts: its collection can be layered at all (D11)
-		const exportable = Boolean(fieldsOf(d).stub);
-		for (const [id, file, shadow] of [...[...index.get(name)].map(([i, f]) => [i, f, false]), ...ownStubs]) {
-			if (shadow) fileRepo.set(file, storageOf(d).repo);
+		const exportable = d.compiled?.layerable === true;
+		for (const [id, file] of index.get(name)) {
 			if (idsOf(d).pattern && !patternRe(idsOf(d).pattern).test(id)) {
 				flag(file, `id "${id}" does not match pattern ${idsOf(d).pattern}`);
 			}
@@ -241,8 +228,7 @@ export function check({ root }, { extra = [], strictExport = false } = {}) {
 					flag(file, `placed ${where} but ${should} — the file is not where its owner puts it. Run: dreamteamer relocate ${name}/${id}`);
 				}
 			}
-			if (!shadow) parsed.get(name).set(id, fields);
-			else ownStubFields.set(`${name}/${id}`, fields);
+			parsed.get(name).set(id, fields);
 		}
 		// descriptor v2: `unique: true` on a scalar field — the second record holding a value is the
 		// one reported, naming the first. Null and absent never claim.
@@ -268,13 +254,9 @@ export function check({ root }, { extra = [], strictExport = false } = {}) {
 		const owners = [...(parsed.get(relation.owner) ?? [])].map(([id, fields]) => ({ id, fields, repo: fileRepo.get(index.get(relation.owner).get(id)) }));
 		// PER REPO: a mirror is kept only between records of one repo (store.js applyMirrorEdits), so
 		// the expectation on a target is computed from the owners in ITS repo — an owner in this
-		// workspace naming a target a layer holds is not a link the layer's own check could see. A
-		// shadowed STUB is still an owner in its own repo: the mirrors it justifies there are expected.
-		const stubOwners = shadowedStubs.filter((s) => s.name === relation.owner).flatMap((s) => {
-			try { return [{ id: s.id, fields: parseRecord(s.f, descriptors.get(s.name), bodyFieldOf(descriptors.get(s.name))), repo: s.repo }]; } catch { return []; }
-		});
+		// workspace naming a target a layer holds is not a link the layer's own check could see.
 		const byRepo = new Map();
-		for (const o of [...owners, ...stubOwners]) { if (!byRepo.has(o.repo)) byRepo.set(o.repo, []); byRepo.get(o.repo).push(o); }
+		for (const o of owners) { if (!byRepo.has(o.repo)) byRepo.set(o.repo, []); byRepo.get(o.repo).push(o); }
 		const expByRepo = new Map([...byRepo].map(([r, os]) => [r, expectedMirrors(relation, os)]));
 
 		// a unique owner reference is one-to-one, so two owners naming one target is a conflict the mirror
@@ -298,11 +280,6 @@ export function check({ root }, { extra = [], strictExport = false } = {}) {
 			if (fileLayer.has(tfile) && !ownersReadIn(ownerD, fileRepo.get(tfile))) continue; // the layer's own check judges it
 			const expected = expByRepo.get(fileRepo.get(index.get(relation.target).get(id)))?.get(id);
 			if (!sameMirror(relation, fields?.[relation.mirror], expected)) flag(index.get(relation.target).get(id), `${relation.mirror}: stale — run: dreamteamer relations rebuild ${relation.target}`);
-		}
-		// an own stub a layer shadows: its mirror is what THIS repo's owners imply (D6) — alone, it is read
-		for (const s of shadowedStubs) {
-			const fields = !s.layer && s.name === relation.target && ownStubFields.get(`${s.name}/${s.id}`);
-			if (fields && !sameMirror(relation, fields[relation.mirror], expByRepo.get(s.repo)?.get(s.id))) staleStubs.push({ file: rel(s.f), relation });
 		}
 	}
 
@@ -337,7 +314,7 @@ export function check({ root }, { extra = [], strictExport = false } = {}) {
 			return flag(file, `${fieldPath.join('.')}: dangling reference "${value}" — no such record`);
 		}
 		const at = index.get(coll).get(id);
-		if (!referrer || soft || !fileLayer.has(at) || heldHere.has(`${coll}/${id}`)) return;
+		if (!referrer || soft || !fileLayer.has(at)) return;
 		const key = `${coll}/${id}`;
 		if (!layerOnly.has(key)) layerOnly.set(key, { layer: fileLayer.get(at), binary: storageOf(descriptors.get(coll)).format === 'binary', refs: [] });
 		layerOnly.get(key).refs.push({ file, field: fieldPath.join('.'), value, referrer });
@@ -353,17 +330,11 @@ export function check({ root }, { extra = [], strictExport = false } = {}) {
 	for (const note of layerNotes.values()) console.log(note);
 	const upTo3 = (xs) => (xs.length > 3 ? [...xs.slice(0, 3), `+${xs.length - 3} more`] : xs).join(', ');
 	for (const [target, { layer, binary, refs }] of [...layerOnly].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
-		const fix = (r) => (binary
-			? `a file record cannot be a stub: clear or repoint the field here (dt set ${r.referrer} ${r.field}=), hold the file in this workspace instead of the layer, or make the field soft: true`
-			: `a workspace reading this one sees it dangle. dt stub ${target}`);
+		const fix = () => 'a workspace reading this one sees it dangle';
 		if (strictExport) { for (const r of refs) violations.push({ file: rel(r.file), msg: `${r.field}: "${r.value}" resolves only through layer ${layer} — ${fix(r)}` }); continue; }
 		const who = [...new Set(refs.map((r) => r.referrer))];
-		const named = binary ? upTo3(refs.map((r) => `${r.referrer}.${r.field}`)) : `${who.length} record${who.length === 1 ? '' : 's'} here (${upTo3(who)})`;
+		const named = `${who.length} record${who.length === 1 ? '' : 's'} here (${upTo3(who)})`;
 		console.log(`⚠ ${target} resolves only through layer ${layer} — named by ${named}; ${fix(refs[0])}`);
-	}
-	for (const { file, relation: { mirror, target } } of staleStubs) {
-		if (strictExport) violations.push({ file, msg: `${mirror}: stale — a stub a layer shadows, and alone it would fail check. run: dreamteamer relations rebuild ${target}` });
-		else console.log(`⚠ ${file} is a stub a layer shadows, and its ${mirror} mirror is stale — alone it would fail check. dt relations rebuild ${target}`);
 	}
 	// Warned, never silent: the references are real and currently resolve to nothing. This is the
 	// expected reading when a module is opened without the workspace that provides the concept.
@@ -371,7 +342,6 @@ export function check({ root }, { extra = [], strictExport = false } = {}) {
 		console.log(`⚠ peer collection "${coll}" is declared but not installed — ${n} reference${n === 1 ? '' : 's'} unresolvable`);
 	}
 	for (const w of extra.filter((v) => v.warning)) console.log(`⚠ ${w.file} — ${w.msg}`);
-	if (shadowedStubs.length) console.log(`ℹ ${shadowedStubs.length} stub record${shadowedStubs.length === 1 ? '' : 's'} shadowed by a real record of ${shadowedStubs.length === 1 ? 'its' : 'their'} id`);
 	if (violations.length === 0) {
 		console.log(`✔ 0 violations (${[...index.values()].reduce((n, m) => n + m.size, 0)} records across ${descriptors.size} collections)`);
 		return 0;

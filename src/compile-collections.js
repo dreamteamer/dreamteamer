@@ -229,7 +229,9 @@ export function compileCollections(ctx) {
 			fields.ext ??= { type: 'string', virtual: true, description: "The file's extension, lowercase and without the dot. Read from the file." };
 			fields.bytes ??= { type: 'integer', virtual: true, description: "The file's size in bytes. Read from the file." };
 		}
-		const { fields: resolved, errors, warnings, defaults: fieldDefaults } = resolveFields(fields, { name, collections: typeNames, peers: allPeers, runtime, unlayerable: owner === 'module' || !!a.under || !!pointed });
+		const { fields: resolved, errors, warnings, defaults: fieldDefaults } = resolveFields(fields, { name, collections: typeNames, peers: allPeers, runtime });
+		// a collection a reader can read from a layer: what `check` counts a referrer by (cr-dt-004)
+		const layerable = !runtime && owner !== 'module' && !a.under && !pointed;
 		if (errors.length) fail(`collection "${name}" (${where}):\n  ${errors.join('\n  ')}`);
 		for (const w of warnings) warn(`⚠ collection ${name}: ${w}`);
 		const constraints = authored.constraints ?? [];
@@ -326,6 +328,7 @@ export function compileCollections(ctx) {
 				fields: resolved,
 				json_schema: jsonSchema,
 				...(collLayers.length ? { layers: collLayers } : {}),
+				...(layerable ? { layerable: true } : {}),
 				...(external ? { external: true } : {}),
 				...(unavailable ? { unavailable } : {}),
 			},

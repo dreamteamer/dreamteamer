@@ -61,13 +61,6 @@ the longest DECLARED collection prefix, so finance/transactions/2026/03/coffee i
   get    <collection>/<id> [--json]           (--json, and each list --json row, adds $file and
                                                $repo: where the record is read from and the repo
                                                that commits it — null outside every repo here)
-  stub   <collection>/<id> [--<field> <value> …] [--json]
-                                              (a placeholder of a record only a layer holds, in
-                                               THIS workspace: the fields its schema requires,
-                                               stub: true and its mirrors — never the body. It
-                                               yields to the layer's record wherever both are read,
-                                               and answers where the layer is not — so this
-                                               workspace, read as a layer, stands alone)
   add    <collection> ["<title>"] --<field> <value> … [--id <explicit-id>]
                                               (ONE bare positional fills the collection's title
                                                field — the one its record_title opens with — so
@@ -236,7 +229,7 @@ workspace verbs:
   check       validate every record against the compiled descriptors (report-only), then every
               installed extension's own checks. A reference this workspace's own records reach only
               through a record layer is a ⚠ line (a reader without that layer sees it dangle)
-              [--strict-export] makes each one, and each stale own stub, a violation
+              [--strict-export] makes each one a violation
   doctor      what works on this machine — the engine, then each extension's checks — as one board:
               READY / DEGRADED / UNAVAILABLE, each fix on its row. Exit 0 [--strict] exit 1 when
               anything is UNAVAILABLE [--json]
@@ -266,7 +259,7 @@ extension verbs — an extension (a workspace module, or a dependency, whose pac
 // caps one of its lists and not the next reads as a bug in whichever list ran long.
 const ROWS_SHOWN = 20;
 
-const REF_VERBS = new Set(['get', 'stub', 'set', 'rm', 'rename', 'history', 'diff', 'revert']);
+const REF_VERBS = new Set(['get', 'set', 'rm', 'rename', 'history', 'diff', 'revert']);
 const COLLECTION_VERBS = new Set(['list', 'add', 'values']);
 const EITHER_VERBS = new Set(['reorder', 'next']);
 
@@ -303,7 +296,7 @@ export const WORKSPACE_FLAGS = {
  *  would turn a loud translation into a different command. */
 export const CORE_VERBS = [
 	'init', 'install', 'update', 'compile', 'check', 'doctor', 'status', 'changes', 'commit', 'help', 'version', '--version', '-v',
-	'list', 'add', 'values', 'get', 'stub', 'set', 'rm', 'rename', 'history', 'diff', 'revert', 'reorder', 'next',
+	'list', 'add', 'values', 'get', 'set', 'rm', 'rename', 'history', 'diff', 'revert', 'reorder', 'next',
 	'add-field', 'set-field', 'rm-field', 'rename-field', 'rename-value', 'relations', 'resolve', 'relocate', 'fmt',
 	'schema', 'ensure', 'update-field', 'remove-field', 'commands',
 ];
@@ -628,7 +621,7 @@ export async function run(argv) {
 				emit(USAGE);
 				process.exit(0);
 			case 'list': case 'add': case 'values':
-			case 'get': case 'stub': case 'set': case 'rm': case 'rename': case 'history': case 'diff': case 'revert':
+			case 'get': case 'set': case 'rm': case 'rename': case 'history': case 'diff': case 'revert':
 			case 'reorder': case 'next': {
 				warnIfStale(ws.root);
 				process.exit(dispatchRecordVerb(ws, cmd, rest));

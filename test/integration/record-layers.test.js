@@ -548,126 +548,10 @@ function addLayer(w, name, files) {
 	return dir;
 }
 
-const STUB_TASK = '---\nname: Fix login (placeholder)\nproject: projects/alpha\nstub: true\n---\n';
+const STUB_TASK = '---\nname: Fix login (placeholder)\nproject: projects/alpha\nstub: true\n---\n'; // the 0.41.0–0.44.x shape, now an ordinary record
 const REAL_TASK = '---\nname: Fix login (the real one)\nproject: projects/alpha\n---\n';
 const writeTop = (w, rel, body) => { fs.mkdirSync(path.dirname(path.join(w.root, rel)), { recursive: true }); fs.writeFileSync(path.join(w.root, rel), body); };
 const getJson = (w, ref) => JSON.parse(dt(w.root, 'get', ref, '--json').stdout);
-
-describe('record-level stubs: a record carrying `stub: true` yields to any non-stub of its id, in any root (0.41.0)', () => {
-	test('a stub in the LAYER yields to a non-stub in the top: get answers the top, check is clean and counts the shadowed stub', () => {
-		const { w } = layered({ layerFiles: { 'data/tasks/fix-login.task.md': STUB_TASK } });
-		writeTop(w, 'data/tasks/fix-login.task.md', REAL_TASK);
-		compileQuietly(w.ws);
-		const got = getJson(w, 'tasks/fix-login');
-		assert.equal(got.name, 'Fix login (the real one)');
-		assert.equal(got.$file, 'data/tasks/fix-login.task.md');
-		assert.deepEqual(got.$shadows, ['git_modules/project-a/data/tasks/fix-login.task.md']);
-		assert.equal(got.$stub, undefined);
-		const res = dt(w.root, 'check');
-		assert.equal(res.code, 0, res.stdout + res.stderr);
-		assert.match(res.stdout, /ℹ 1 stub record shadowed by a real record of its id/);
-		// T9 (rnd/tests/dreamteamer/cr-dt-003-t9): the host's real record wins and is never layer-only; the
-		// one ⚠ is the top task's projects/alpha, which only the layer holds
-		const only = res.stdout.split('\n').filter((l) => l.includes('resolves only through'));
-		assert.equal(only.length, 1, res.stdout);
-		assert.match(only[0], /^⚠ projects\/alpha resolves only through layer project-a/);
-		assert.match(only[0], /named by 1 record here \(tasks\/fix-login\)/, 'the top\'s real fix-login is the REFERRER');
-		assert.deepEqual(res.stdout.split('\n').filter((l) => /^(⚠|✖) [^ ]*tasks\/fix-login/.test(l)), [], 'and never the subject of a line: the host\'s real record wins');
-		// the shadowed stub is still an OWNER in its own repo: the layer's alpha lists it, check expects
-		// that, and rebuild must not strip it
-		const alpha = readFile(w.root, 'git_modules/project-a/data/projects/alpha.project.md');
-		assert.match(alpha, /tasks\/fix-login/);
-		assert.equal(dt(w.root, 'relations', 'rebuild', 'projects').code, 0);
-		assert.equal(readFile(w.root, 'git_modules/project-a/data/projects/alpha.project.md'), alpha, 'rebuild left the stub-justified mirror alone');
-	});
-
-	test('a stub in the TOP yields to a non-stub in a layer — direction does not matter', () => {
-		const { w } = layered({ layerFiles: { 'data/tasks/fix-login.task.md': REAL_TASK } });
-		writeTop(w, 'data/tasks/fix-login.task.md', STUB_TASK);
-		compileQuietly(w.ws);
-		const got = getJson(w, 'tasks/fix-login');
-		assert.equal(got.$file, 'git_modules/project-a/data/tasks/fix-login.task.md');
-		assert.deepEqual(got.$shadows, ['data/tasks/fix-login.task.md']);
-		assert.equal(dt(w.root, 'check').code, 0);
-		// a write goes to the winner, in its own repo — the stub is never the target
-		const set = dt(w.root, 'set', 'tasks/fix-login', 'name=Fix login, edited');
-		assert.equal(set.code, 0, set.stderr);
-		assert.match(set.stdout, /updated in git_modules\/project-a$/m);
-		assert.match(readFile(w.root, 'git_modules/project-a/data/tasks/fix-login.task.md'), /Fix login, edited/);
-		assert.equal(readFile(w.root, 'data/tasks/fix-login.task.md'), STUB_TASK, 'the stub is untouched');
-	});
-
-	test('across two layers: a stub in the first yields to a non-stub in the second', () => {
-		const { w } = layered({ layerFiles: { 'data/tasks/fix-login.task.md': STUB_TASK } });
-		addLayer(w, 'project-b', { 'data/tasks/fix-login.task.md': REAL_TASK });
-		compileQuietly(w.ws);
-		const got = getJson(w, 'tasks/fix-login');
-		assert.equal(got.$file, 'git_modules/project-b/data/tasks/fix-login.task.md');
-		assert.equal(got.name, 'Fix login (the real one)');
-		assert.deepEqual(dt(w.root, 'list', 'tasks').stdout.trim().split('\n'), ['fix-login'], 'one id, listed once');
-		const res = dt(w.root, 'check');
-		assert.equal(res.code, 0, res.stdout + res.stderr);
-	});
-
-	test('two non-stubs are still a violation, whatever stubs sit beside them, and a write is refused', () => {
-		const { w } = layered(); // the layer's fix-login is a real record
-		writeTop(w, 'data/tasks/fix-login.task.md', REAL_TASK);
-		addLayer(w, 'project-b', { 'data/tasks/fix-login.task.md': STUB_TASK });
-		compileQuietly(w.ws);
-		const res = dt(w.root, 'check');
-		assert.equal(res.code, 1);
-		assert.match(res.stdout, /holds the id "fix-login" twice — data\/tasks\/fix-login\.task\.md and git_modules\/project-a\/data\/tasks\/fix-login\.task\.md/);
-		assert.doesNotMatch(res.stdout, /project-b\/data\/tasks\/fix-login\.task\.md\. Remove one/, 'the stub is not one of the conflicting claimants');
-		assert.throws(() => new Store(w.ws).set('tasks', 'fix-login', { name: 'x' }), /held by 2 files/);
-	});
-
-	test('stubs only: the first root answers, check is clean, and the stub is marked $stub', () => {
-		const { w } = layered({ layerFiles: { 'data/tasks/fix-login.task.md': STUB_TASK } });
-		writeTop(w, 'data/tasks/fix-login.task.md', '---\nname: Fix login (top placeholder)\nstub: true\n---\n');
-		compileQuietly(w.ws);
-		const got = getJson(w, 'tasks/fix-login');
-		assert.equal(got.$file, 'data/tasks/fix-login.task.md');
-		assert.equal(got.$stub, true);
-		const res = dt(w.root, 'check');
-		assert.equal(res.code, 0, res.stdout + res.stderr);
-	});
-
-	test('add where only stubs hold the id is allowed — it promotes the stub — and says what it shadows', () => {
-		const { w } = layered({ layerFiles: { 'data/tasks/fix-login.task.md': STUB_TASK } });
-		compileQuietly(w.ws);
-		const res = dt(w.root, 'add', 'tasks', '--name', 'Fix login');
-		assert.equal(res.code, 0, res.stderr);
-		assert.match(res.stdout, /✔ .*data\/tasks\/fix-login\.task\.md/);
-		assert.match(res.stdout, /shadows 1 stub \(project-a\)/);
-		assert.equal(getJson(w, 'tasks/fix-login').$file, 'data/tasks/fix-login.task.md');
-		assert.equal(dt(w.root, 'check').code, 0);
-		// a real record still refuses a second real one
-		assert.match(dt(w.root, 'add', 'tasks', '--name', 'Fix login').stderr, /already exists/);
-	});
-
-	test('rm of the winner says which stub now shows, and the stub answers', () => {
-		const { w } = layered({ layerFiles: { 'data/tasks/fix-login.task.md': STUB_TASK } });
-		writeTop(w, 'data/tasks/fix-login.task.md', REAL_TASK);
-		compileQuietly(w.ws);
-		const res = dt(w.root, 'rm', 'tasks/fix-login');
-		assert.equal(res.code, 0, res.stderr);
-		assert.match(res.stdout, /stub in layer project-a now shows \(git_modules\/project-a\/data\/tasks\/fix-login\.task\.md\)/);
-		const got = getJson(w, 'tasks/fix-login');
-		assert.equal(got.$file, 'git_modules/project-a/data/tasks/fix-login.task.md');
-		assert.equal(got.$stub, true);
-	});
-
-	test('`stub` is engine-owned: every collection has it, and a module may not author it', () => {
-		const { w } = layered();
-		compileQuietly(w.ws);
-		const f = new Store(w.ws).descriptor('tasks').compiled.fields.stub;
-		assert.equal(f.type, 'boolean');
-		assert.deepEqual(f.display.hidden, ['list', 'form']);
-		const { w: w2, pkg } = layered();
-		fs.writeFileSync(path.join(w2.root, 'git_modules', 'org', 'collections', 'tasks.collection.yaml'), TASKS + '  stub:\n    type: boolean\n');
-		assert.match(compileError({ root: w2.root, pkg }) ?? '', /field "stub" is injected by the engine and cannot be authored/);
-	});
-});
 
 describe('review round 1 (0.41.0)', () => {
 	test('a layer declared WITHOUT records: whose clone is absent is announced by compile, check and status', () => {
@@ -680,52 +564,6 @@ describe('review round 1 (0.41.0)', () => {
 		assert.match(dt(w.root, 'status').stdout, /layers:\n\s+project-a\s+not installed — dreamteamer install/);
 	});
 
-	test("the reader's check validates a stub it holds even while a layer's real record answers the id", () => {
-		const { w } = layered({ layerFiles: { 'data/tasks/fix-login.task.md': REAL_TASK } });
-		writeTop(w, 'data/tasks/fix-login.task.md', '---\nstub: true\nlane: mobile\n---\n'); // no name (required), an unknown field
-		compileQuietly(w.ws);
-		const res = dt(w.root, 'check');
-		assert.equal(res.code, 1, res.stdout);
-		assert.match(res.stdout, /✖ data\/tasks\/fix-login\.task\.md\n[\s\S]*name/);
-		assert.match(res.stdout, /unknown field "lane"/);
-	});
-
-	test('rm of the record that answers over a stub is not refused for references the stub keeps resolving, and never calls them dangling', () => {
-		const { w } = layered({ layerFiles: {
-			'data/projects/beta.project.md': '---\nname: Beta\nstub: true\ntasks:\n  - tasks/ship\n---\n',
-			'data/tasks/ship.task.md': '---\nname: Ship\nproject: projects/beta\n---\n',
-		} });
-		writeTop(w, 'data/projects/beta.project.md', '---\nname: Beta\n---\n');
-		compileQuietly(w.ws);
-		assert.equal(dt(w.root, 'check').code, 0);
-		const res = dt(w.root, 'rm', 'projects/beta');
-		assert.equal(res.code, 0, res.stderr);
-		assert.doesNotMatch(res.stdout, /dangling/);
-		assert.match(res.stdout, /1 inbound reference\(s\) now resolve to the stub; stub in layer project-a now shows \(git_modules\/project-a\/data\/projects\/beta\.project\.md\)/);
-		assert.match(readFile(w.root, 'git_modules/project-a/data/tasks/ship.task.md'), /project: projects\/beta/, 'the reference is untouched');
-		assert.equal(dt(w.root, 'check').code, 0);
-	});
-
-	test('a long-lived Store notices a stub: flag flipped in place and answers the new winner', () => {
-		const { w } = layered({ layerFiles: { 'data/tasks/fix-login.task.md': STUB_TASK } });
-		writeTop(w, 'data/tasks/fix-login.task.md', REAL_TASK);
-		compileQuietly(w.ws);
-		const store = new Store(w.ws);
-		assert.equal(store.locate('tasks', 'fix-login').file, 'data/tasks/fix-login.task.md');
-		// the editor's shape: both files rewritten in place — no folder moves, HEAD does not move
-		fs.writeFileSync(path.join(w.root, 'data/tasks/fix-login.task.md'), STUB_TASK);
-		fs.writeFileSync(path.join(w.root, 'git_modules/project-a/data/tasks/fix-login.task.md'), REAL_TASK);
-		assert.equal(store.locate('tasks', 'fix-login').file, 'git_modules/project-a/data/tasks/fix-login.task.md');
-		assert.deepEqual(store.shadowedStubs('tasks', 'fix-login').map((f) => path.relative(w.root, f)), ['data/tasks/fix-login.task.md']);
-	});
-
-	test('stub is injected only into collections that can be layered: a module-owned one has no stub field', () => {
-		const { w } = layered();
-		compileQuietly(w.ws);
-		const store = new Store(w.ws);
-		assert.ok(store.descriptor('tasks').compiled.fields.stub, 'a layerable collection carries it');
-		assert.equal(store.descriptor('people').compiled.fields.stub, undefined, '`storage.owner: module` can never be a layer root');
-	});
 });
 
 
@@ -758,171 +596,6 @@ function standalone({ layerFiles = {}, records = ['tasks', 'projects', 'codes', 
 }
 
 describe("a workspace's own records resolve standalone (cr-dt-003)", () => {
-	// T8 (rnd/tests/dreamteamer/cr-dt-003-t8)
-	test('add --stub true over a layer-held id writes the stub WITH its incoming mirrors; without stub: true it is still refused', () => {
-		const { w } = standalone();
-		topTask(w, 't-one', 'projects/alpha');
-		topTask(w, 't-two', 'projects/alpha');
-		writeTop(w, 'data/tasks/fix-login.task.md', STUB_TASK); // a top STUB owner naming alpha — the layer holds the real fix-login
-		compileQuietly(w.ws);
-		const refused = dt(w.root, 'add', 'projects', '--id', 'alpha', '--name', 'Alpha');
-		assert.equal(refused.code, 1);
-		assert.match(refused.stderr, /projects\/alpha already exists/);
-		const res = dt(w.root, 'add', 'projects', '--id', 'alpha', '--name', 'Alpha', '--stub', 'true');
-		assert.equal(res.code, 0, res.stderr);
-		const stub = front(w, 'data/projects/alpha.project.md');
-		assert.equal(stub.stub, true);
-		assert.deepEqual(stub.tasks, ['tasks/fix-login', 'tasks/t-one', 'tasks/t-two'], 'every owner in the write root, the shadowed stub owner included');
-		assert.equal(getJson(w, 'projects/alpha').$file, 'git_modules/project-a/data/projects/alpha.project.md', 'the layer\'s real record still answers');
-		const check = dt(w.root, 'check');
-		assert.equal(check.code, 0, check.stdout + check.stderr);
-		const strict = dt(w.root, 'check', '--strict-export');
-		assert.equal(strict.code, 0, strict.stdout + strict.stderr);
-	});
-
-	test('a stubs-only promotion gets its incoming mirrors too', () => {
-		const { w } = standalone({ layerFiles: { 'data/projects/alpha.project.md': '---\nname: Alpha\nstub: true\ntasks:\n  - tasks/fix-login\n---\n' } });
-		topTask(w, 't-one', 'projects/alpha');
-		compileQuietly(w.ws);
-		const res = dt(w.root, 'add', 'projects', '--id', 'alpha', '--name', 'Alpha');
-		assert.equal(res.code, 0, res.stderr);
-		assert.deepEqual(front(w, 'data/projects/alpha.project.md').tasks, ['tasks/t-one']);
-		assert.equal(dt(w.root, 'check').code, 0);
-	});
-
-	// T4b, the store half (rnd/tests/dreamteamer/cr-dt-003-t4b)
-	test('a required unique field does not refuse a stub of the same id — by explicit and by generated id — and still refuses another id', () => {
-		const { w } = standalone();
-		compileQuietly(w.ws);
-		const k1 = dt(w.root, 'add', 'codes', '--id', 'k1', '--name', 'k1', '--key', 'K1', '--stub', 'true');
-		assert.equal(k1.code, 0, k1.stderr);
-		const k2 = dt(w.root, 'add', 'codes', '--name', 'k2', '--key', 'K2', '--stub', 'true');
-		assert.equal(k2.code, 0, k2.stderr);
-		assert.ok(fs.existsSync(path.join(w.root, 'data/codes/k2.code.md')));
-		const dup = dt(w.root, 'add', 'codes', '--id', 'k3', '--name', 'k3', '--key', 'K1');
-		assert.equal(dup.code, 1);
-		assert.match(dup.stderr, /key: "K1" is already taken by codes\/k1/);
-		assert.equal(dt(w.root, 'check').code, 0);
-	});
-
-	// T10 (rnd/tests/dreamteamer/cr-dt-003-t10)
-	test("an owner add, set and revert after the stub keep the stub's mirror current; the layer's record is untouched", () => {
-		const { w, layer } = standalone();
-		topTask(w, 't-one', 'projects/alpha');
-		writeTop(w, 'data/projects/beta.project.md', '---\nname: Beta\n---\n');
-		compileQuietly(w.ws);
-		assert.equal(dt(w.root, 'add', 'projects', '--id', 'alpha', '--name', 'Alpha', '--stub', 'true').code, 0);
-		const layerAlpha = readFile(layer, 'data/projects/alpha.project.md');
-		git(w.root, ['add', '-A']);
-		git(w.root, ['commit', '-qm', 'stub']);
-		const sha = git(w.root, ['rev-parse', 'HEAD']);
-
-		const strictOk = () => { const r = dt(w.root, 'check', '--strict-export'); assert.equal(r.code, 0, r.stdout + r.stderr); };
-		assert.equal(dt(w.root, 'add', 'tasks', '--name', 't-three', '--project', 'projects/alpha').code, 0);
-		assert.deepEqual(front(w, 'data/projects/alpha.project.md').tasks, ['tasks/t-one', 'tasks/t-three']);
-		strictOk();
-		assert.equal(dt(w.root, 'set', 'tasks/t-one', 'project=projects/beta').code, 0);
-		assert.deepEqual(front(w, 'data/projects/alpha.project.md').tasks, ['tasks/t-three']);
-		strictOk();
-		assert.deepEqual(front(w, 'data/projects/beta.project.md').tasks, ['tasks/t-one']);
-		const rev = dt(w.root, 'revert', 'tasks/t-one', '--hash', sha);
-		assert.equal(rev.code, 0, rev.stderr);
-		assert.deepEqual(front(w, 'data/projects/alpha.project.md').tasks, ['tasks/t-one', 'tasks/t-three']);
-		assert.equal(readFile(layer, 'data/projects/alpha.project.md'), layerAlpha, "the layer's real alpha never gained a top owner");
-		const check = dt(w.root, 'check');
-		assert.equal(check.code, 0, check.stdout + check.stderr);
-		const strict = dt(w.root, 'check', '--strict-export');
-		assert.equal(strict.code, 0, strict.stdout + strict.stderr);
-	});
-
-	// T11 (rnd/tests/dreamteamer/cr-dt-003-t11)
-	test("rm of an owner whose stub mirror is current is not refused, and the stub drops it", () => {
-		const { w } = standalone();
-		topTask(w, 't-one', 'projects/alpha');
-		topTask(w, 't-two', 'projects/alpha');
-		compileQuietly(w.ws);
-		assert.equal(dt(w.root, 'add', 'projects', '--id', 'alpha', '--name', 'Alpha', '--stub', 'true').code, 0);
-		const rm = dt(w.root, 'rm', 'tasks/t-two');
-		assert.equal(rm.code, 0, rm.stdout + rm.stderr);
-		assert.deepEqual(front(w, 'data/projects/alpha.project.md').tasks, ['tasks/t-one']);
-		assert.equal(dt(w.root, 'check').code, 0);
-		assert.equal(dt(w.root, 'check', '--strict-export').code, 0);
-	});
-
-	// T4 (rnd/tests/dreamteamer/cr-dt-003-t4)
-	test('dt stub writes the applicable required fields, stub: true, defaults and incoming mirrors — never the body or an optional field', () => {
-		const { w } = standalone();
-		topTask(w, 't-one', 'projects/alpha');
-		compileQuietly(w.ws);
-		const res = dt(w.root, 'stub', 'projects/alpha', '--json');
-		assert.equal(res.code, 0, res.stderr);
-		assert.deepEqual(JSON.parse(res.stdout), { id: 'alpha', path: 'data/projects/alpha.project.md', $stubOf: 'git_modules/project-a/data/projects/alpha.project.md', copied: ['name'] });
-		const alpha = front(w, 'data/projects/alpha.project.md');
-		assert.deepEqual(Object.keys(alpha).filter((k) => k !== 'created').sort(), ['name', 'status', 'stub', 'tasks']);
-		assert.equal(alpha.status, 'a', "the schema's default");
-		assert.deepEqual(alpha.tasks, ['tasks/t-one']);
-		const got = getJson(w, 'projects/alpha');
-		assert.equal(got.$file, 'git_modules/project-a/data/projects/alpha.project.md', "the layer's record still answers");
-		assert.deepEqual(got.$shadows, ['data/projects/alpha.project.md'], 'and names the stub it shadows');
-
-		const call = dt(w.root, 'stub', 'calls/c1', '--source', 'mine');
-		assert.equal(call.code, 0, call.stderr);
-		assert.match(call.stdout, /data\/calls\/c1\.call\.md — stub of calls\/c1 \(layer project-a answers it here\); copied: name, by, why$/m);
-		const c1 = front(w, 'data/calls/c1.call.md');
-		assert.deepEqual(Object.keys(c1).filter((k) => k !== 'created').sort(), ['by', 'name', 'source', 'status', 'stub', 'why']);
-		assert.equal(c1.source, 'mine', 'a field flag is written over the copy');
-		assert.equal(c1.status, 'open', "the schema's default, not the layer's value");
-		assert.doesNotMatch(readFile(w.root, 'data/calls/c1.call.md'), /nobody else/, 'never the body');
-
-		const mirror = dt(w.root, 'stub', 'codes/k1', '--json'); // T4b's dt stub half: a required unique field copies
-		assert.equal(mirror.code, 0, mirror.stderr);
-		assert.equal(front(w, 'data/codes/k1.code.md').key, 'K1');
-		assert.equal(dt(w.root, 'check').code, 0);
-	});
-
-	test('dt stub refuses a mirror field given as a flag, and writes nothing; a field flag is written', () => {
-		const { w } = standalone();
-		compileQuietly(w.ws);
-		const res = dt(w.root, 'stub', 'projects/alpha', '--tasks', 'tasks/fix-login');
-		assert.equal(res.code, 1);
-		assert.match(res.stderr, /tasks is generated from tasks\.project/);
-		assert.ok(!fs.existsSync(path.join(w.root, 'data/projects/alpha.project.md')));
-		const flagged = dt(w.root, 'stub', 'projects/alpha', '--status', 'b');
-		assert.equal(flagged.code, 0, flagged.stderr);
-		assert.equal(front(w, 'data/projects/alpha.project.md').status, 'b', 'a field flag is written over the default');
-	});
-
-	// T5 (rnd/tests/dreamteamer/cr-dt-003-t5)
-	test('dt stub refuses, writing nothing: held here already, held nowhere, no layer, a file record', () => {
-		const { w } = standalone();
-		compileQuietly(w.ws);
-		assert.equal(dt(w.root, 'stub', 'projects/alpha').code, 0);
-		const before = readFile(w.root, 'data/projects/alpha.project.md');
-		const again = dt(w.root, 'stub', 'projects/alpha');
-		assert.equal(again.code, 1);
-		assert.match(again.stderr, /projects\/alpha is already held by this workspace \(data\/projects\/alpha\.project\.md\) — nothing was written/);
-		assert.equal(readFile(w.root, 'data/projects/alpha.project.md'), before, 'byte-identical');
-
-		const none = dt(w.root, 'stub', 'projects/nope');
-		assert.equal(none.code, 1);
-		assert.match(none.stderr, /no layer holds projects\/nope — nothing to copy/);
-
-		const memo = dt(w.root, 'stub', 'memos/m1');
-		assert.equal(memo.code, 1);
-		assert.match(memo.stderr, /memos reads no record layer — a stub has nothing to yield to/);
-
-		const store = new Store(w.ws);
-		assert.ok(store.descriptor('pics').compiled.fields.stub, 'a binary collection that can be layered DOES carry the field');
-		const pic = dt(w.root, 'stub', 'pics/p1');
-		assert.equal(pic.code, 1);
-		assert.match(pic.stderr, /pics is format: binary — a file record cannot be a stub/);
-		assert.match(pic.stderr, /clear or repoint the referring field/i);
-		assert.ok(!fs.existsSync(path.join(w.root, 'data/pics')));
-
-		const people = dt(w.root, 'stub', 'people/dana-levi');
-		assert.equal(people.code, 1);
-		assert.match(people.stderr, /people cannot carry a stub/);
-	});
 	// T1 (rnd/tests/dreamteamer/cr-dt-003-t1)
 	test('check names a target its own records reach only through a layer — one line, its referrers, the fix — and exits 0', () => {
 		const { w } = standalone();
@@ -933,7 +606,7 @@ describe("a workspace's own records resolve standalone (cr-dt-003)", () => {
 		assert.equal(res.code, 0, res.stdout + res.stderr);
 		const lines = res.stdout.split('\n').filter((l) => l.includes('projects/alpha'));
 		assert.equal(lines.length, 1, res.stdout);
-		assert.match(lines[0], /^⚠ projects\/alpha resolves only through layer project-a — named by 2 records here .* dt stub projects\/alpha$/);
+		assert.match(lines[0], /^⚠ projects\/alpha resolves only through layer project-a — named by 2 records here .* a workspace reading this one sees it dangle$/);
 		assert.match(lines[0], /\(tasks\/t-one, tasks\/t-two\)/);
 	});
 
@@ -945,13 +618,10 @@ describe("a workspace's own records resolve standalone (cr-dt-003)", () => {
 	});
 
 	// T2 (rnd/tests/dreamteamer/cr-dt-003-t2)
-	test('the layer-only pass names nothing else: soft, mirror, held here, stubbed here, a layer\'s own, an unlayerable referrer, no layers', () => {
+	test('the layer-only pass names nothing else: soft, mirror, a layer\'s own, an unlayerable referrer, no layers', () => {
 		const annexDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'dt-annex-')));
 		process.on('exit', () => fs.rmSync(annexDir, { recursive: true, force: true }));
-		const { w, org } = standalone({ pkg: { vars: ['JOTS_ANNEX'] }, layerFiles: {
-			'data/projects/gamma.project.md': '---\nname: Gamma\nstub: true\n---\n',
-			'data/projects/delta.project.md': '---\nname: Delta\n---\n',
-		} });
+		const { w, org } = standalone({ pkg: { vars: ['JOTS_ANNEX'] } });
 		fs.writeFileSync(path.join(w.root, '.env'), `JOTS_ANNEX=${annexDir}\n`);
 		// unlayerable referrers (D11): a module-owned collection and an env-pointed one, each naming projects/alpha
 		fs.writeFileSync(path.join(org, 'collections', 'briefs.collection.yaml'), 'name: briefs\nstorage:\n  suffix: brief\n  owner: module\nfields:\n  name:\n    type: string\n    required: true\n  project:\n    type: projects\n');
@@ -960,10 +630,6 @@ describe("a workspace's own records resolve standalone (cr-dt-003)", () => {
 		writeTop({ root: annexDir }, 'jots/j1.jot.md', '---\nname: J1\nproject: projects/alpha\n---\n');
 		writeTop(w, 'data/calls/soft.call.md', '---\nname: Soft\nby: person\nwhy: w\nabout: projects/alpha\n---\n'); // soft: true
 		writeTop(w, 'data/projects/beta.project.md', '---\nname: Beta\ntasks:\n  - tasks/fix-login\n---\n'); // a mirror naming a layer-only task
-		writeTop(w, 'data/projects/gamma.project.md', '---\nname: Gamma\n---\n'); // held here, over the layer's stub
-		writeTop(w, 'data/projects/delta.project.md', '---\nname: Delta\nstub: true\ntasks:\n  - tasks/to-delta\n---\n'); // a stub here the layer shadows
-		topTask(w, 'to-gamma', 'projects/gamma');
-		topTask(w, 'to-delta', 'projects/delta');
 		compileQuietly(w.ws);
 		assert.equal(dt(w.root, 'get', 'jots/j1').code, 0, 'the env-pointed referrer is actually read');
 		assert.equal(dt(w.root, 'get', 'briefs/b1').code, 0, 'the module-owned referrer is actually read');
@@ -978,93 +644,62 @@ describe("a workspace's own records resolve standalone (cr-dt-003)", () => {
 		assert.equal(dt(plain.root, 'check', '--strict-export').stdout, res.stdout);
 	});
 
-	// T2b (rnd/tests/dreamteamer/cr-dt-003-t2b)
-	test("a binary target's line names the fix in this workspace and never dt stub; --strict-export counts it", () => {
-		const { w } = standalone();
-		writeTop(w, 'data/calls/c2.call.md', '---\nname: C2\nby: person\nwhy: w\npic: pics/p1\n---\n');
+});
+
+// ---- cr-dt-004: stub records are removed (0.45.0) ---------------------------------------------------
+// A `stub: true` record no longer yields: the field is gone from every schema, and a file carrying it is
+// an ordinary record with an undeclared field — beside a layer's record of its id, the duplicate it is.
+describe('stub records are removed (cr-dt-004)', () => {
+	// T1 (rnd/tests/dreamteamer/cr-dt-004-t1)
+	test('no compiled descriptor carries a stub field, and a record with stub: true is an unknown field', () => {
+		const { w } = layered();
+		writeTop(w, 'data/tasks/solo.task.md', '---\nname: Solo\nstub: true\n---\n');
 		compileQuietly(w.ws);
-		assert.equal(dt(w.root, 'get', 'pics/p1').code, 0);
+		const store = new Store(w.ws);
+		for (const name of store.descriptors.keys()) {
+			const d = store.descriptor(name);
+			assert.equal(d.compiled?.fields?.stub, undefined, `${name} compiles a stub field`);
+			assert.equal(d.compiled?.json_schema?.properties?.stub, undefined, `${name}'s JSON Schema names stub`);
+		}
 		const res = dt(w.root, 'check');
-		assert.equal(res.code, 0, res.stdout);
-		const line = res.stdout.split('\n').find((l) => l.startsWith('⚠ pics/p1'));
-		assert.ok(line, res.stdout);
-		assert.match(line, /resolves only through layer project-a/);
-		assert.match(line, /cannot be a stub/);
-		assert.match(line, /dt set calls\/c2 pic=/);
-		assert.doesNotMatch(line, /dt stub/);
-		const strict = dt(w.root, 'check', '--strict-export');
-		assert.equal(strict.code, 1, strict.stdout);
-		assert.match(strict.stdout, /✖ data\/calls\/c2\.call\.md\n\s+pic: "pics\/p1" resolves only through layer project-a/);
+		assert.equal(res.code, 1, res.stdout);
+		assert.match(res.stdout, /✖ data\/tasks\/solo\.task\.md\n\s+unknown field "stub"/);
 	});
 
-	// T3 (rnd/tests/dreamteamer/cr-dt-003-t3)
-	test('--strict-export makes a layer-only reference a violation of its referrer until dt stub', () => {
-		const { w } = standalone();
-		topTask(w, 't-one', 'projects/alpha');
+	// T8 (rnd/tests/dreamteamer/cr-dt-004-t5)
+	test('a write-root file carrying stub: true beside a layer\'s record is a duplicate: set and rm refuse naming both, the layer file untouched', () => {
+		const { w } = layered();
+		writeTop(w, 'data/tasks/fix-login.task.md', STUB_TASK);
 		compileQuietly(w.ws);
-		const before = dt(w.root, 'check', '--strict-export');
-		assert.equal(before.code, 1, before.stdout);
-		assert.match(before.stdout, /✖ data\/tasks\/t-one\.task\.md\n\s+project: "projects\/alpha" resolves only through layer project-a — .*dt stub projects\/alpha/);
-		assert.doesNotMatch(before.stdout, /^⚠ projects\/alpha/m, 'a violation instead of the ⚠ line, not beside it');
-		assert.equal(dt(w.root, 'stub', 'projects/alpha').code, 0);
-		const after = dt(w.root, 'check', '--strict-export');
-		assert.equal(after.code, 0, after.stdout);
+		const before = readFile(w.root, 'git_modules/project-a/data/tasks/fix-login.task.md');
+		for (const args of [['set', 'tasks/fix-login', 'name=Renamed'], ['rm', 'tasks/fix-login', '--force']]) {
+			const res = dt(w.root, ...args);
+			assert.equal(res.code, 1, `${args[0]}: ${res.stdout}${res.stderr}`);
+			assert.match(res.stderr, /held by 2 files — data\/tasks\/fix-login\.task\.md and git_modules\/project-a\/data\/tasks\/fix-login\.task\.md/);
+		}
+		assert.equal(readFile(w.root, 'git_modules/project-a/data/tasks/fix-login.task.md'), before);
+		assert.equal(readFile(w.root, 'data/tasks/fix-login.task.md'), STUB_TASK);
 	});
 
-	// T6 (rnd/tests/dreamteamer/cr-dt-003-t6)
-	test("a reader of this workspace that does not read its layer stops seeing the dangle after dt stub here", () => {
-		const { w, org } = standalone();
-		topTask(w, 't-one', 'projects/alpha');
+	test('regression pin: two real records refuse the same way; an id only a layer holds is a layer write', () => {
+		const { w } = layered();
+		writeTop(w, 'data/tasks/fix-login.task.md', REAL_TASK);
 		compileQuietly(w.ws);
-		// R reads W (its tasks and projects) and W's shapes from org — never W's layer project-a
-		const r = workspace({ compile: false });
-		fs.cpSync(org, path.join(r.root, 'git_modules', 'org'), { recursive: true });
-		const asLayer = path.join(r.root, 'git_modules', 'w');
-		const exportW = () => {
-			fs.rmSync(asLayer, { recursive: true, force: true });
-			fs.mkdirSync(asLayer, { recursive: true });
-			fs.cpSync(path.join(w.root, 'package.json'), path.join(asLayer, 'package.json'));
-			fs.cpSync(path.join(w.root, 'data'), path.join(asLayer, 'data'), { recursive: true });
-			commitAll(asLayer, 'w');
-		};
-		exportW();
-		const pkgPath = path.join(r.root, 'package.json');
-		const manifest = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
-		manifest.dreamteamer.git_modules = { org: { url: 'x', ref: 'main' }, w: { url: 'x', ref: 'main', records: ['tasks', 'projects'] } };
-		fs.writeFileSync(pkgPath, JSON.stringify(manifest, null, '\t') + '\n');
-		r.ws.pkg = manifest;
-		compileQuietly(r.ws);
-		const dangling = dt(r.root, 'check');
-		assert.equal(dangling.code, 1, dangling.stdout);
-		assert.match(dangling.stdout, /✖ layer w/);
-		assert.match(dangling.stdout, /dangling reference "projects\/alpha"/);
-
-		assert.equal(dt(w.root, 'stub', 'projects/alpha').code, 0);
-		exportW();
-		const clean = dt(r.root, 'check');
-		assert.equal(clean.code, 0, clean.stdout);
-		assert.doesNotMatch(clean.stdout, /projects\/alpha/);
+		const res = dt(w.root, 'set', 'tasks/fix-login', 'name=Renamed');
+		assert.equal(res.code, 1);
+		assert.match(res.stderr, /held by 2 files/);
+		const own = dt(w.root, 'set', 'projects/alpha', 'name=Alpha Two');
+		assert.equal(own.code, 0, own.stderr);
+		assert.match(readFile(w.root, 'git_modules/project-a/data/projects/alpha.project.md'), /name: Alpha Two/);
 	});
 
-	// T7 (rnd/tests/dreamteamer/cr-dt-003-t7)
-	test('a stale own stub is named, counted under --strict-export, and fixed by relations rebuild', () => {
-		const { w } = standalone();
-		topTask(w, 't-one', 'projects/alpha');
-		writeTop(w, 'data/projects/alpha.project.md', '---\nname: Alpha\nstub: true\n---\n'); // by hand, without its tasks mirror
+	// T12
+	test('dt has no stub verb', () => {
+		const { w } = layered();
 		compileQuietly(w.ws);
-		const res = dt(w.root, 'check');
-		assert.equal(res.code, 0, res.stdout);
-		const lines = res.stdout.split('\n').filter((l) => l.includes('data/projects/alpha.project.md'));
-		assert.equal(lines.length, 1, res.stdout);
-		assert.match(lines[0], /^⚠ data\/projects\/alpha\.project\.md is a stub a layer shadows, and its tasks mirror is stale .*dt relations rebuild projects$/);
-		assert.doesNotMatch(res.stdout, /resolves only through/, 'the stub here is a claimant: alpha is not layer-only');
-		assert.equal(dt(w.root, 'check', '--strict-export').code, 1);
-		const rebuilt = dt(w.root, 'relations', 'rebuild', 'projects');
-		assert.equal(rebuilt.code, 0, rebuilt.stderr);
-		assert.deepEqual(front(w, 'data/projects/alpha.project.md').tasks, ['tasks/t-one']);
-		assert.match(readFile(w.root, 'git_modules/project-a/data/projects/alpha.project.md'), /tasks:\n  - tasks\/fix-login\n/, "the layer's record is untouched");
-		const after = dt(w.root, 'check', '--strict-export');
-		assert.equal(after.code, 0, after.stdout);
-		assert.doesNotMatch(after.stdout, /alpha\.project\.md/);
+		assert.doesNotMatch(dt(w.root, 'help').stdout, /^\s+stub\s/m);
+		const res = dt(w.root, 'stub', 'projects/alpha');
+		assert.notEqual(res.code, 0);
+		assert.equal(fs.existsSync(`${w.root}/data/projects/alpha.project.md`), false);
 	});
 });

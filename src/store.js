@@ -9,7 +9,7 @@ import Ajv from 'ajv';
 import addFormats from 'ajv-formats';
 import { dump, writeSource } from './yaml.js';
 import { generateId } from './template.js';
-import { parseRecord, parseRecordText, patternRe, fmtAjvError, unknownFields, walk, EXT, assertSafeId, idFromRecordPath, MAX_RECORD_BYTES, isStubRecord, resolveClaims } from './records.js';
+import { parseRecord, parseRecordText, patternRe, fmtAjvError, unknownFields, walk, EXT, assertSafeId, idFromRecordPath, MAX_RECORD_BYTES } from './records.js';
 import { normalizeRecord, normalizeTemporal } from './temporal.js';
 import { NO_RUNTIME, sourceHint, loadDescriptors, runtimeDir, namespaces as compiledNamespaces, sourceRoots as compiledSourceRoots } from './runtime.js';
 import { parseRef } from './namespace.js';
@@ -37,8 +37,6 @@ export class Store {
 		this.ajv.addFormat('markdown', true);
 		this._idsCache = new Map(); // collection -> { key, ids } (see ids())
 		this._duplicates = new Map(); // placed collection -> id -> [files], refreshed by every walk (see assertUnambiguous)
-		this._stubs = new Map();      // layered collection -> id -> [stub files the answering record shadows]
-		this._claimFiles = new Map(); // layered collection -> every file of a contested id at the last walk (see _claimStamps)
 		this._head = undefined;     // memoized `git rev-parse HEAD` (see gitHead())
 		const descriptors = loadDescriptors(root);
 		if (!descriptors) throw new Error(NO_RUNTIME);
@@ -196,8 +194,7 @@ export class Store {
 					// to edit and `read` would throw, turning someone else's stale data into a refusal of
 					// this write. An attach never lands here missing — checkRefs proved it before the lock.
 					if (!this.ids(rel.target).has(parsed.id)) return;
-					// another repo answers: no mirror there (see above) — but this repo's own STUB of the id,
-					// if it keeps one, is a record of this repo and its mirror is kept like any other
+					// another repo answers: no mirror there (see above) — mirrors stay per repo
 					const file = this.mirrorFileFor(rel.target, parsed.id, ownerRepo);
 					if (!file) return;
 					const fields = parseRecord(file, td, bodyField(td));
@@ -284,33 +281,14 @@ export class Store {
 	layered(d) { return storageOf(d).layers.length > 0; }
 
 	/** The file an owner in `ownerRepo` keeps the mirror of `collection/id` in: the record that answers
-	 *  the id when it sits in that repo, else that repo's own shadowed STUB of the id, else null (the id
-	 *  is another repo's, and mirrors stay per repo). The one place the choice is made — the mirror
+	 *  the id when it sits in that repo, else null (the id is another repo's, and mirrors stay per repo). The one place the choice is made — the mirror
 	 *  pass writes it and rm's guard credits it, so the two cannot disagree. */
 	mirrorFileFor(collection, id, ownerRepo) {
 		const d = this.descriptor(collection);
 		const answering = this.ids(collection).get(id);
 		if (!answering) return null;
 		if (this.repoOfFile(d, answering) === ownerRepo) return answering;
-		return this.shadowedStubs(collection, id).find((f) => this.repoOfFile(d, f) === ownerRepo) ?? null;
-	}
-
-	/** What a record written over an id another root already answers is owed by the owners of ITS repo:
-	 *  every incoming mirror, computed as `relations rebuild` and `check` compute it — the repo's
-	 *  answering owners plus its shadowed stub owners. Nothing attached to an id this repo did not hold,
-	 *  so no owner write ever wrote these. */
-	incomingMirrors(d, id, repo) {
-		const out = {};
-		for (const rel of this.relations()) {
-			if (rel.target !== d.name) continue;
-			const od = this.descriptor(rel.owner);
-			if (storageOf(od).unavailable) continue; // an owner collection this machine cannot read holds no owners here
-			const rows = [...this.ids(rel.owner)].map(([oid, file]) => ({ id: oid, file })).concat([...this.shadowedStubRecords(rel.owner)]);
-			const owners = rows.filter((r) => this.repoOfFile(od, r.file) === repo).map((r) => ({ id: r.id, fields: parseRecord(r.file, od, bodyField(od)) }));
-			const v = expectedMirrors(rel, owners).get(id);
-			if (v !== undefined) out[rel.mirror] = v;
-		}
-		return out;
+		return null;
 	}
 
 	/** The layer an existing file of `d` was read from — `{ layer, path, repo, abs }` — or null for a
@@ -453,20 +431,8 @@ export class Store {
 		const hit = this._idsCache.get(collection);
 		if (hit?.key === key) return hit.ids;
 		const ids = this._walkIds(d, dir);
-		// the folder half as measured BEFORE the walk (a change during it invalidates the next read), the
-		// claimant half AFTER it — the walk is what decides which files are contested
-		this._idsCache.set(collection, { key: key.replace(/\|claims:.*$/, '') + this._claimStamps(d), ids });
+		this._idsCache.set(collection, { key, ids });
 		return ids;
-	}
-
-	/** Which file answers a contested id depends on file CONTENT (`stub: true`), which an in-place edit
-	 *  changes without moving any folder or HEAD — so the files of every id more than one root claimed at
-	 *  the last walk are stamped too (mtime and size). Empty for an uncontested collection. */
-	_claimStamps(d) {
-		const files = this._claimFiles.get(d.name);
-		if (!files?.length) return '';
-		const st = (f) => { try { const s = fs.statSync(f); return `${s.mtimeMs}:${s.size}`; } catch { return '-'; } };
-		return `|claims:${files.map(st).join(',')}`;
 	}
 
 	/** The validity key `ids()` compares against, as its own method because `add` restates it AFTER
@@ -483,7 +449,7 @@ export class Store {
 		// vanished folder changes the string as surely as a changed one. A LAYER is the same shape:
 		// `dt update` pulls files into it without moving this workspace's HEAD or any root's mtime.
 		const dirs = this.recordDirs(d);
-		return `${this.gitHead()}:${dirs.map(dirTreeStamps).join('|')}${this._claimStamps(d)}`;
+		return `${this.gitHead()}:${dirs.map(dirTreeStamps).join('|')}`;
 	}
 
 	/** Refuse a placed write whose path crosses a symlink inside the parent collection's root — a link
@@ -541,10 +507,6 @@ export class Store {
 			// Across every root, write root first. FIRST claimant wins and the rest are left for `check`
 			// to report — the same rule placement follows, for the same reason: a `get` that answered
 			// from whichever layer sorted later would make the answer depend on the clone order.
-			//
-			// A STUB yields (records.js resolveClaims): an id two roots claim has its claimants' frontmatter
-			// read — only those files, never the whole index — and a non-stub answers wherever it sits.
-			// Only two non-stubs are the duplicate that refuses a write.
 			const claims = new Map();
 			for (const root of this.rootsOf(d)) {
 				for (const [id, f] of this._walkRoot(d, root.abs)) {
@@ -553,17 +515,11 @@ export class Store {
 				}
 			}
 			const dupes = new Map();
-			const stubs = new Map();
 			for (const [id, files] of claims) {
-				if (files.length === 1) { ids.set(id, files[0]); continue; }
-				const { winner, conflicts, shadowed } = resolveClaims(files, (f) => isStubRecord(f, d));
-				ids.set(id, winner);
-				if (conflicts.length) dupes.set(id, conflicts);
-				if (shadowed.length) stubs.set(id, shadowed);
+				ids.set(id, files[0]);
+				if (files.length > 1) dupes.set(id, files);
 			}
 			this._duplicates.set(d.name, dupes);
-			this._stubs.set(d.name, stubs);
-			this._claimFiles.set(d.name, [...claims.values()].filter((f) => f.length > 1).flat());
 			return ids;
 		}
 		if (storageOf(d).shape === 'folder') {
@@ -1035,14 +991,7 @@ export class Store {
 		// `check` would report, and refusing it here is what keeps the id unique across every root.
 		const file = this.filePath(d, id, undefined, fields);
 		this._assertContained(d, file);
-		// An id held ONLY by stubs in other roots is free: this write promotes it, and says so (`shadows`).
-		// CONTESTED: another root already claims the id and this one holds no file of it. A stub may be
-		// written there — it yields to the record that answers (cr-dt-003) — and so may a record that
-		// promotes stubs-only claims; either way it is owed the incoming mirrors no owner write could make.
-		const contested = this.layered(d) && !fs.existsSync(file) && this.ids(collection).has(id);
-		const shadows = contested ? this._stubOnlyClaims(d, id) : [];
-		if (fs.existsSync(file) || ((placementOf(d) || this.layered(d)) && this.ids(collection).has(id) && !shadows.length && !(contested && fields.stub === true))) throw new Error(`${collection}/${id} already exists — nothing was written.`);
-		if (contested) Object.assign(fields, this.incomingMirrors(d, id, storageOf(d).repo));
+		if (fs.existsSync(file) || ((placementOf(d) || this.layered(d)) && this.ids(collection).has(id))) throw new Error(`${collection}/${id} already exists — nothing was written.`);
 		return this.withWriteLock(() => {
 			// captured before the invalidation and handed back, one entry richer, on the success path
 			// below — see _indexAdd for why an add that throws it away is the expensive shape.
@@ -1080,7 +1029,7 @@ export class Store {
 			}, storageOf(d).repo);
 			// LAST, after the commit: the key it is re-stated under carries the sha, and `commit` moves it
 			this._indexAdd(collection, memo, id, file);
-			return { id, file, idFallback, ...(deprecated.length && { deprecated }), ...(shadows.length && { shadows }) };
+			return { id, file, idFallback, ...(deprecated.length && { deprecated }) };
 		});
 	}
 
@@ -1199,26 +1148,6 @@ export class Store {
 		return null;
 	}
 
-	/** Every file claiming `id` when ALL of them are stubs, else `[]` — the case where `add` may promote. */
-	_stubOnlyClaims(d, id) {
-		const files = [this.ids(d.name).get(id), ...this.shadowedStubs(d.name, id)];
-		return files.every((f) => isStubRecord(f, d)) ? files : [];
-	}
-
-	/** The stub files an id's answering record shadows, in root order — `[]` for an id only one root
-	 *  claims. What `dt get --json` reports as `$shadows`, and what `rm` of the winner leaves showing. */
-	shadowedStubs(collection, id) {
-		this.ids(collection); // ensures the memo is current
-		return this._stubs.get(collection)?.get(id) ?? [];
-	}
-
-	/** Every shadowed stub of a collection, `{ id, file }` — a stub is a real OWNER in its own repo, so
-	 *  the mirrors it justifies there are still expected (check, relations rebuild). */
-	*shadowedStubRecords(collection) {
-		this.ids(collection);
-		for (const [id, files] of this._stubs.get(collection) ?? []) for (const file of files) yield { id, file };
-	}
-
 	/** Refuse to WRITE to an id that two files claim. The index keeps the first claimant so reads
 	 *  still answer, but a write would land on one copy and leave the other saying something else —
 	 *  the exact ambiguity `check` reports, made worse under a verb that printed ✔. */
@@ -1310,13 +1239,6 @@ export class Store {
 			}
 		}
 
-		// ---- an id a STUB keeps answering does not go away -----------------------------------
-		// Removing the record that answers over a stub leaves the id resolving — to the stub. So every
-		// reference to it still resolves: nothing is refused for them, nothing is set to null, and
-		// nothing is reported dangling. (Its own mirror entries are still detached below.)
-		const keepsResolving = this.shadowedStubs(collection, id).length > 0;
-		if (keepsResolving) setNullEdits.length = 0;
-
 		// ---- what the text scan finds that is NOT the engine's own bookkeeping -------------
 		// The scan is per FILE, and one file can name this record TWICE — a mirror the engine wrote, and
 		// a wikilink somebody typed in the same record's body. So excluding a file WHOLESALE is wrong:
@@ -1361,7 +1283,7 @@ export class Store {
 		// shape, which is what this sentence has always said. What the scan misses (a bare FK, or an
 		// owner file excluded because it also holds a mirror of ours) is named as record + field.
 		const extraRestrict = restrictHits.filter((h) => !inbound.includes(h.file));
-		if ((inbound.length || extraRestrict.length) && !force && !keepsResolving) {
+		if ((inbound.length || extraRestrict.length) && !force) {
 			const all = [...inbound, ...extraRestrict.map((h) => `${h.file} (${h.ref}.${h.field})`)];
 			throw new Error(`${self} is referenced by:\n${all.map((f) => `  ${f}`).join('\n')}\nfix the references or pass --force. nothing was removed.`);
 		}
@@ -1429,7 +1351,7 @@ export class Store {
 			// workspace.
 			this.commit([unit, ...mirrors.files, ...nullFiles], `dreamteamer: ${collection} rm ${id}`, rollback, this.repoOfFile(d, unit));
 			const inboundCount = inbound.length + extraRestrict.length;
-			return { id, inboundIgnored: force && !keepsResolving ? inboundCount : 0, ...(keepsResolving ? { inboundResolveToStub: inboundCount } : {}) };
+			return { id, inboundIgnored: force ? inboundCount : 0 };
 		});
 	}
 

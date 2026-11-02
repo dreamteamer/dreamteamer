@@ -28,7 +28,7 @@ import { sortRows } from './temporal.js';
 import { keyBetween, placementKey } from './fractional-index.js';
 import { ensureRepo, ensureAllRepos } from './init.js';
 import { expectedMirrors, ownersReadIn } from './relations.js';
-import { parseRecord, stubFields } from './records.js';
+import { parseRecord } from './records.js';
 
 import { storageOf, jsonSchemaOf, recordTitleOf, positionFieldOf, fieldsOf, displayOf, storedFieldsOf, targetsOf } from './descriptor.js';
 /**
@@ -145,33 +145,8 @@ export function collectionCommand(ws, collection, verb, args) {
 			// descriptor v2: a record older than the `created` stamp still answers it — read, never written
 			const created = store.createdOf(collection, id, fields, file);
 			if (created !== undefined && fields.created === undefined) fields.created = created;
-			// stubs (0.41.0): `$stub` on a placeholder, `$shadows` on whatever answers over placeholders
-			const shadows = store.shadowedStubs(collection, id).map((f) => store.locationOf(d, f).file);
-			if (flags.json) { emit(JSON.stringify({ ...fields, id, ...whereKeys(store.locationOf(d, file)), ...(fields.stub === true ? { $stub: true } : {}), ...(shadows.length ? { $shadows: shadows } : {}) }, null, 2)); return 0; }
+			if (flags.json) { emit(JSON.stringify({ ...fields, id, ...whereKeys(store.locationOf(d, file)) }, null, 2)); return 0; }
 			console.log(dump(fields).trimEnd());
-			return 0;
-		}
-		case 'stub': {
-			// A placeholder of a record only another root holds (cr-dt-003): what its schema requires and
-			// nothing more, written through add — which yields it to that record and gives it its mirrors.
-			const id = need(pos, 0, 'id');
-			const ref = `${collection}/${id}`;
-			if (storageOf(d).format === 'binary') throw new Error(`${collection} is format: binary — a file record cannot be a stub (no frontmatter to carry stub: true). Clear or repoint the referring field in this workspace (dt set <referrer> <field>=), hold the file here instead of in the layer, or make the field soft: true — nothing was written.`);
-			if (!fieldsOf(d).stub) throw new Error(`${collection} cannot carry a stub — it is never read as a layer (runtime, module-owned, placed or env-pointed) — nothing was written.`);
-			if (!store.layered(d)) throw new Error(`${collection} reads no record layer — a stub has nothing to yield to; nothing was written.`);
-			const claims = store.ids(collection).has(id) ? [store.ids(collection).get(id), ...store.shadowedStubs(collection, id)] : [];
-			const own = claims.find((f) => !store.layerOfFile(d, f));
-			if (own) throw new Error(`${ref} is already held by this workspace (${rel(ws.root, own)}) — nothing was written.`);
-			if (!claims.length) throw new Error(`no layer holds ${ref} — nothing to copy.`);
-			const { fields: answer, file: from } = store.read(collection, id);
-			const engineOwned = (k) => k === 'stub' || fieldsOf(d)[k]?.mirror_of !== undefined || d.compiled?.fields?.[k]?.derived || d.compiled?.fields?.[k]?.virtual;
-			const candidate = Object.fromEntries(Object.entries(answer).filter(([k]) => !engineOwned(k)));
-			const copied = stubFields(jsonSchemaOf(d), candidate, (s) => store.ajv.compile(s)(structuredClone(candidate)));
-			const { file } = store.add(collection, { ...Object.fromEntries(copied.map((k) => [k, answer[k]])), ...coerceArrays(d, stripMeta(flags)), stub: true }, { id });
-			const stubOf = store.locationOf(d, from).file;
-			flags.json
-				? emit(JSON.stringify({ id, path: rel(ws.root, file), $stubOf: stubOf, copied }))
-				: console.log(`✔ ${at}${rel(ws.root, file)} — stub of ${ref} (layer ${store.layerOfFile(d, from)?.layer} answers it here); copied: ${copied.join(', ')}`);
 			return 0;
 		}
 		case 'add': {
@@ -196,13 +171,11 @@ export function collectionCommand(ws, collection, verb, args) {
 				flags[titleField] = pos[0];
 			}
 			const fields = coerceArrays(d, stripMeta(flags));
-			const { id, file, idFallback, deprecated, shadows } = store.add(collection, fields, { id: flags.id });
+			const { id, file, idFallback, deprecated } = store.add(collection, fields, { id: flags.id });
 			for (const k of deprecated ?? []) console.warn(`⚠ ${k} is deprecated on ${collection} — it still validates, and nothing draws it. Check the collection's description for what replaced it.`);
-			// promoting a stub is a choice the operator should see made: name every placeholder it now covers
-			const covers = (shadows ?? []).map((f) => store.layerOfFile(d, f)?.layer ?? 'this workspace');
 			flags.json
-				? emit(JSON.stringify({ id, path: rel(ws.root, file), ...(idFallback ? { idFallback } : {}), ...(shadows?.length ? { $shadows: shadows.map((f) => store.locationOf(d, f).file) } : {}) }))
-				: console.log(`✔ ${at}${rel(ws.root, file)}${covers.length ? ` — shadows ${covers.length} stub${covers.length === 1 ? '' : 's'} (${covers.join(', ')})` : ''}`);
+				? emit(JSON.stringify({ id, path: rel(ws.root, file), ...(idFallback ? { idFallback } : {}) }))
+				: console.log(`✔ ${at}${rel(ws.root, file)}`);
 			// ⚠ SAY IT, EVERY TIME. The id was derived from a hash because the value it is generated
 			// from carries no a-z0-9 — the write succeeded and the record is fine, but the id is
 			// unreadable and unguessable, and nobody finds that out until they try to type it. By
@@ -263,12 +236,8 @@ export function collectionCommand(ws, collection, verb, args) {
 			const id = need(pos, 0, 'id');
 			if (flags['dry-run']) return dryRunPlan(`rm ${collection}/${id}`, { records: store.ids(collection).has(id) ? 1 : 0, refs: store.findInboundRefs(`${collection}/${id}`).length });
 			const where = store.ids(collection).has(id) ? store.locate(collection, id) : null; // a missing id is store.rm's to refuse
-			const { inboundIgnored, inboundResolveToStub } = store.rm(collection, id, { force: !!flags.force });
-			// the id does not vanish when a stub was shadowed by what was just removed — say which now answers
-			const next = store.ids(collection).get(id);
-			const showing = next ? store.layerOfFile(d, next) : null;
-			const nowShows = next ? `${inboundResolveToStub ? ` — ${inboundResolveToStub} inbound reference(s) now resolve to the stub` : ''}; stub ${showing ? `in layer ${showing.layer}` : 'in this workspace'} now shows (${store.locationOf(d, next).file})` : '';
-			flags.json ? emit(JSON.stringify({ id, removed: true, inboundIgnored, ...(next ? { $now: store.locationOf(d, next).file } : {}) })) : console.log(`✔ ${at}removed${landedIn(where)}${inboundIgnored ? ` (${inboundIgnored} inbound reference(s) left dangling — run \`dreamteamer check\`)` : ''}${nowShows}`);
+			const { inboundIgnored } = store.rm(collection, id, { force: !!flags.force });
+			flags.json ? emit(JSON.stringify({ id, removed: true, inboundIgnored })) : console.log(`✔ ${at}removed${landedIn(where)}${inboundIgnored ? ` (${inboundIgnored} inbound reference(s) left dangling — run \`dreamteamer check\`)` : ''}`);
 			return 0;
 		}
 		case 'rename': {
@@ -1060,7 +1029,7 @@ function relationsRebuild(store, flags, pos) {
 	// workspace against a module-owned target) implies no mirror on a target it cannot be committed with
 	const perRepo = (r) => {
 		const groups = new Map();
-		for (const o of parseEach(store, r.owner, (f) => unreadableOwners.push(rel(store.root, f)), { withStubs: true })) {
+		for (const o of parseEach(store, r.owner, (f) => unreadableOwners.push(rel(store.root, f)))) {
 			const repo = store.repoOfFile(store.descriptor(r.owner), o.file);
 			if (!groups.has(repo)) groups.set(repo, []);
 			groups.get(repo).push(o);
@@ -1081,9 +1050,7 @@ function relationsRebuild(store, flags, pos) {
 	// The write lock, like every other write verb: several agents work in one tree, and a concurrent
 	// `dt set` landing mid-sweep would be clobbered back to the pre-set mirror value.
 	store.withWriteLock(() => {
-		// own shadowed stubs too (cr-dt-003): alone, in a reader without the layer, their mirrors are read
-		for (const { id, file, fields } of parseEach(store, collection, (f) => console.warn(`⚠ ${rel(store.root, f)}: parse error, skipped — \`dreamteamer check\` reports it`), { withStubs: true })) {
-			if (store.layerOfFile(d, file) && store.ids(collection).get(id) !== file) continue; // a layer's stub is its own repo's
+		for (const { id, file, fields } of parseEach(store, collection, (f) => console.warn(`⚠ ${rel(store.root, f)}: parse error, skipped — \`dreamteamer check\` reports it`))) {
 			let changed = false;
 			const repo = store.repoOfFile(d, file);
 			for (const { r, exp } of expected) {
@@ -1126,13 +1093,10 @@ function relationsRebuild(store, flags, pos) {
  *  mid-walk cannot be resumed past — and rebuild is the one reader that has already written by the
  *  time a later record blows up, so an abort leaves a partial sweep behind an error naming no file
  *  at all. Here the bad record is handed to `onError` and skipped, and the walk finishes. */
-function* parseEach(store, collection, onError, { withStubs = false } = {}) {
+function* parseEach(store, collection, onError) {
 	const d = store.descriptor(collection);
 	const bf = bodyField(d);
-	// `withStubs`: a shadowed stub still OWNS references in its own repo, and the mirrors it justifies
-	// there are not this workspace's to delete
 	const rows = [...store.ids(collection)].map(([id, file]) => ({ id, file }));
-	if (withStubs) rows.push(...store.shadowedStubRecords(collection));
 	for (const { id, file } of rows) {
 		let fields;
 		try {
@@ -1340,7 +1304,7 @@ const FORCE_RM = ['json', 'force', 'dry-run'];
 const NAV_MOVE = ['json', 'after', 'before', 'top', 'bottom'];
 
 export const VERB_FLAGS = {
-	list: ['json', 'filter', 'where', 'sort'], get: JSON_ONLY, stub: JSON_ONLY, add: ['json', 'id', 'from', 'force'], set: JSON_ONLY,
+	list: ['json', 'filter', 'where', 'sort'], get: JSON_ONLY, add: ['json', 'id', 'from', 'force'], set: JSON_ONLY,
 	rm: FORCE_RM, rename: JSON_ONLY, reorder: [...NAV_MOVE, 'init'], values: ['json', 'limit'],
 	history: JSON_ONLY, diff: ['json', 'hash'], revert: ['json', 'hash'],
 	ensure: ['json', 'all'], for: ['json', 'ids'], relations: JSON_ONLY, rebuild: ['json', 'drop'],
@@ -1388,7 +1352,7 @@ export function refuseUnknownFlags(store, collection, verb, flags) {
 	// ⚠ NO DESCRIPTOR MEANS NO OPEN HALF — offering "plus any field of X" for a thing with no fields
 	// would read as though the refused flag were merely misspelled.
 	const openOf = !d ? null
-		: !system ? (['list', 'add', 'set', 'stub'].includes(verb) ? `field of ${collection}` : null)
+		: !system ? (['list', 'add', 'set'].includes(verb) ? `field of ${collection}` : null)
 		: (collection === 'ui-views' && verb !== 'rm') || (isEntityKind(store, collection) && verb === 'set') ? `declared key of ${collection}` : null;
 	const open = openOf ? Object.keys(storedFieldsOf(d)) : [];
 	const allowed = new Set([...known, ...open]);

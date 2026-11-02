@@ -66,7 +66,7 @@ dispatch, so it cannot drift):
 
 - a collection may be spelled in the SINGULAR on any of these (`dt add task "call the bank"` — one bare positional is the title); references inside records still spell the full name
 - read & measure — `list` `get` `values` `history` `diff` `next` `relations` `resolve`
-- write & publish — `add` `stub` `set` `rm` `rename` `reorder` `revert` `commit` `relocate`
+- write & publish — `add` `set` `rm` `rename` `reorder` `revert` `commit` `relocate`
 - fields (sources, through the compile gate) — `add-field` `set-field` `rm-field` `rename-field` `rename-value` (system entities — modules, collections, skills, ui-views… — take the RECORD verbs above)
 - workspace — `init` `install` `update` `compile` `check` `doctor` `status` `changes` `help`
 - format descriptor sources (opt-in; block style, canonical key order, through the compile gate) — `fmt`

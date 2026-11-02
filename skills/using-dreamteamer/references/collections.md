@@ -460,29 +460,23 @@ HQ reads the projects' records by cloning each project under `git_modules/`:
   and reference resolution read the union. An id two roots hold is a `check` violation naming both
   files, and a write to it is refused until one is removed; the first root in order answers reads
   meanwhile, never silently.
-- **A record carrying `stub: true` YIELDS (0.41.0).** A stub is a thin placeholder a workspace keeps
-  so its own references resolve standalone — a project's copy of a person the HQ holds in full. One
-  non-stub plus any stubs of one id: the non-stub answers, in whichever root it sits (either
-  direction), and `check` is clean with an `ℹ` counting the shadowed stubs. Two non-stubs are still
-  the violation above; stubs only, the first root answers. `stub` is an engine-owned field on every
-  collection that can be layered (hidden from lists and forms; a module may not declare one), and a stub still carries
-  its collection's required fields. `dt set` writes the answering record in its own repo; `dt add`
-  of an id only stubs hold is allowed and prints `shadows N stubs (<layer>…)` — that is how a stub
-  is promoted; `dt rm` of the answering record says which stub now shows, and is not refused for
-  references the stub keeps resolving. `dt get --json` carries
-  `$stub: true` on a stub and `$shadows: [<file>…]` on a record that answers over stubs. A shadowed
-  stub is still an owner in its own repo, so the mirrors it justifies there are expected by `check`
-  and kept by `relations rebuild`. Only ids more than one root claims have their files read.
-- **A workspace read as a layer stands alone** — it is read WITHOUT its own layers, so a hard
-  reference its own records make to a record only a layer answers dangles in every reader. `dt check`
-  names each such target once (`⚠ <target> resolves only through layer <L> — named by N records here
-  (…) … dt stub <target>`), and an own stub whose mirror only this repo's owners would keep true. `dt
-  stub <collection>/<id>` fixes the first: it writes a stub here with the fields the schema requires of
-  that record, `stub: true` and its incoming mirrors (never the body; `--<field> <value>` adds more),
-  and every later owner write keeps that mirror current; `dt relations rebuild` fixes the second.
-  `dt add … --stub true` over a layer-held id writes the same way. A `format: binary` target cannot be
-  a stub: its line names the fix in the referring field instead. `dt check --strict-export` makes both
-  violations — the gate for a workspace others read.
+- **A workspace read as a layer stands alone, and `dreamteamer-exports.json` is how (0.45.0).** A
+  reader reads a layer WITHOUT that layer's own layers, so a reference a repo's records make to an id no
+  file of the repo holds — a person the reading HQ keeps, a record only the repo's own layer holds —
+  needs proof the id exists elsewhere. `dt exports` writes it: one generated, committed file at the
+  repo root listing, per such id, its display name and the package name of the workspace holding it
+  (ids and names only; never written by hand). `dt check` reads the manifest of the repo the referring
+  record sits in — never a layer's layers — and names a reference no root answers **external**, not
+  dangling, when the manifest lists it and its holder is not read here; where the holder IS read and
+  lacks the id, the reference is dangling. The live record always wins where it is read. A reference
+  this workspace's own records reach only through a layer, unlisted, is a `⚠ … dt exports` line, a
+  manifest `dt exports` would change or drop an entry of is named stale, and `dt check
+  --strict-export` makes both violations — the gate for a workspace others read. `dt exports --layer
+  <name>` writes a layer's manifest from this workspace's view (how a reader records the upward ids a
+  layer cannot see), and `dt get <ref> [--referrer <ref>]` names an external id. A conflicted manifest:
+  keep the union of both sides' lines, then `dt exports`. Stub records (0.41.0–0.44.x) are gone:
+  `node node_modules/dreamteamer/scripts/migrate-stubs.mjs --root . [--layers] [--dry-run]` turns each
+  into a manifest entry.
 - **A new record goes to the write root** (`storage.path` — this workspace, or the owning module's
   clone for `storage.owner: module`). **An edit or removal of a layer's record lands in place** and
   commits in the layer's repo; `dt commit` samples every layer and publishes one commit per repo.

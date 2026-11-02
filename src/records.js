@@ -29,41 +29,6 @@ export function parseRecordText(text, d, bodyField) {
 	return fields;
 }
 
-// ---- stubs: a record that yields its id (0.41.0) --------------------------------------
-// A record carrying `stub: true` is a placeholder — a thin copy a workspace keeps so its own references
-// resolve standalone — and it YIELDS to any non-stub of the same id in any other root. The store and
-// `check` both decide which file answers an id through `resolveClaims`, so they cannot disagree.
-
-/** Does a record file carry `stub: true`? Read only for an id more than one root claims — never for the
- *  whole index. A file record (`format: binary`) has no fields and is never a stub; one that will not
- *  parse is not a stub either, and `check` reports the parse error on its own. */
-export function isStubRecord(file, d) {
-	if (storageOf(d).format === 'binary') return false;
-	try { return parseRecordText(fs.readFileSync(file, 'utf8'), d).stub === true; } catch { return false; }
-}
-
-/** Which of an id's claimants answers, in root order. One non-stub wins wherever it sits and every stub
- *  is `shadowed`; two or more non-stubs are `conflicts` (the first answers, exactly as before stubs
- *  existed); stubs only — the first root answers and the rest are shadowed. A stub only ever weakens
- *  its own claim, so nothing a layer writes can displace a non-stub. */
-export function resolveClaims(claims, isStub) {
-	if (claims.length < 2) return { winner: claims[0], conflicts: [], shadowed: [] };
-	const stub = claims.map(isStub);
-	const real = claims.filter((_, i) => !stub[i]);
-	if (!real.length) return { winner: claims[0], conflicts: [], shadowed: claims.slice(1) };
-	return { winner: real[0], conflicts: real.length > 1 ? real : [], shadowed: claims.filter((_, i) => stub[i]) };
-}
-
-/** The fields a stub of a record must carry to validate on its own (cr-dt-003): the schema's root
- *  `required`, plus each `allOf` branch's `then.required` whose `if` holds for this record (`holds`
- *  evaluates a subschema against it), kept to the keys the record carries. Nothing optional and nothing
- *  a branch that does not apply requires — a stub is read by every workspace that reads this one. */
-export function stubFields(schema, fields, holds) {
-	const keys = new Set(schema?.required ?? []);
-	for (const b of schema?.allOf ?? []) if (b?.then?.required && (b.if === undefined || holds(b.if))) for (const k of b.then.required) keys.add(k);
-	return [...keys].filter((k) => fields[k] !== undefined);
-}
-
 // id patterns may use unicode property escapes — compile with the u flag
 export function patternRe(pattern) {
 	try { return new RegExp(pattern, 'u'); } catch { return new RegExp(pattern); }
