@@ -20,6 +20,22 @@ npx dreamteamer check
 
 ---
 
+## 0.44.1 — a revision is a commit id or HEAD
+
+A security fix. Upgrade now if you run `dt serve` (`@dreamteamer/http`) or the editor, which hand a
+revision from a request to the engine. There is nothing else to do.
+
+- **`dt diff --hash`, `dt revert --hash`, `historyDiff` and `store.revert` take a commit hash (4 to 40
+  hex digits) or `HEAD`, and refuse anything else** with `"<value>" is not a commit id — give a commit
+  hash (4 to 40 hex digits) or HEAD`, before git runs. Before 0.44.1 the string reached git as given,
+  and git reads a revision that starts with a dash as an option — some of which write files. A branch
+  or tag name, `HEAD^` and `HEAD~1` are now refused here too: take the hash from `dt history`.
+- **`dt changes --since` and `deriveEvents` keep `HEAD~<n>` and a date** besides a hash and `HEAD`;
+  anything else is refused with the existing `--since "<value>" is neither a date (YYYY-MM-DD) nor a
+  commit` sentence. `deriveEvents`' second argument takes a hash or `HEAD`.
+- Every git call that carries one of these revisions puts `--end-of-options` before it, which needs
+  **git 2.24 or newer** (2019).
+
 ## 0.44.0 — a workspace's own records resolve standalone
 
 Nothing to do but `dt compile`. Read this if your workspace reads record layers, or is read as one.
