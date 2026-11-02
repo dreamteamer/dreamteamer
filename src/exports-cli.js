@@ -18,8 +18,10 @@ export function planExports(store, repo) {
 	const ctx = exportsContext({ root: store.root, descriptors: store.descriptors, own: facts.own, layers: facts.layers, dataPath: facts.data });
 	const readableD = (d) => d && !storageOf(d).runtime && !storageOf(d).unavailable;
 	const readable = [...store.descriptors.values()].filter(readableD);
-	// an unparseable record (a conflict mid-merge) is check's to report — skipped here, never fatal
-	const fieldsAt = (d, file) => { try { return parseRecord(file, d, bodyFieldOf(d)); } catch { return null; } };
+	// an unparseable record (a conflict mid-merge) is check's to report — skipped here, never fatal; while
+	// one is unread, nothing it might name is dropped as unreferenced (the repo is not read completely)
+	let unparsed = false;
+	const fieldsAt = (d, file) => { try { return parseRecord(file, d, bodyFieldOf(d)); } catch { unparsed = true; return null; } };
 	const repoOf = (c, id) => {
 		const d = store.descriptors.get(c);
 		const f = readableD(d) ? store.ids(c).get(id) : undefined;
@@ -38,7 +40,7 @@ export function planExports(store, repo) {
 	const dir = ctx.rootOf(repo);
 	const current = readExports(dir); // throws on an unparseable file, naming it — never overwritten
 	const outside = outsideRefs({ records, held, resolve, namespaces: store.namespaces });
-	const { next, changes } = regenerate({ current: current ?? {}, outside, ctx, repo, held });
+	const { next, changes } = regenerate({ current: current ?? {}, outside, ctx: unparsed ? { ...ctx, complete: () => false } : ctx, repo, held });
 	return { dir, file: path.join(dir, EXPORTS_FILE), text: serializeExports(next), changes, entries: Object.values(next).reduce((n, m) => n + Object.keys(m).length, 0) };
 }
 

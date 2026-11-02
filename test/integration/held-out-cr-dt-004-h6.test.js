@@ -69,9 +69,9 @@ test('h6 3: the same inside a linked worktree (.git is a file)', () => {
 test('h6 4: mid-cherry-pick the manifest is written, nothing committed, the cherry-pick state kept', () => {
 	const w = fresh();
 	git(w.root, ['checkout', '-q', '-b', 'side']);
-	write(w.root, { 'data/memos/ann.memo.md': rec({ name: 'side-ann', about: 'people/ann' }) }); git(w.root, ['commit', '-qam', 'side']);
+	write(w.root, { 'unrelated.memo.md': 'side\n', 'data/memos/zz.memo.md': rec({ name: 'side-zz' }) }); git(w.root, ['add', '-A']); git(w.root, ['commit', '-qm', 'side']);
 	git(w.root, ['checkout', '-q', '-']);
-	write(w.root, { 'data/memos/ann.memo.md': rec({ name: 'main-ann', about: 'people/ann' }) }); git(w.root, ['commit', '-qam', 'main']);
+	write(w.root, { 'unrelated.memo.md': 'main\n', 'data/memos/zz.memo.md': rec({ name: 'main-zz' }) }); git(w.root, ['add', '-A']); git(w.root, ['commit', '-qm', 'main']);
 	try { git(w.root, ['cherry-pick', 'side']); } catch { /* conflict */ }
 	write(path.join(w.root, 'git_modules', 'l'), L({ dan: 'Dan Renamed' }));
 	const h = head(w.root);
@@ -81,6 +81,7 @@ test('h6 4: mid-cherry-pick the manifest is written, nothing committed, the cher
 	assert.doesNotMatch(res.stdout + res.stderr, /fatal/);
 	assert.equal(head(w.root), h); assert.ok(exists(w.root, 'CHERRY_PICK_HEAD'));
 	assert.equal(manifest(w.root).people.dan.label, 'Dan Renamed');
+	assert.deepEqual(Object.keys(manifest(w.root).people).sort(), ['ann', 'dan'], 'nothing dropped while a record is conflicted');
 });
 
 test('h6 5: another session\'s staged path and a dirty package.json stay out of the commit', () => {

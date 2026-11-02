@@ -300,6 +300,16 @@ describe('dt exports (cr-dt-004)', () => {
 		assert.match(dt(holder.root, 'exports', '--layer', 'w').stdout, /exports manifest current/);
 	});
 
+	// test review round 1, f1: a conflicted referrer never costs its entry
+	test('while the only record naming an id does not parse, dt exports does not drop its entry', () => {
+		const w = withLayer();
+		assert.equal(dt(w.root, 'exports').code, 0);
+		fs.writeFileSync(path.join(w.root, 'data/tasks/t1.task.md'), '---\n<<<<<<< ours\nname: t1\nassignee: people/eli\n=======\nname: t1b\nassignee: people/eli\n>>>>>>> theirs\n---\n');
+		const res = dt(w.root, 'exports', '--dry-run', '--json');
+		assert.equal(res.code, 0, res.stderr);
+		assert.deepEqual(JSON.parse(res.stdout).manifests[0].changes, []);
+	});
+
 	// T15 (rnd/tests/dreamteamer/cr-dt-004-t4)
 	test('two holders of one id: each context keeps the other\'s entry — a fixpoint, never stale', () => {
 		const w = withLayer();
