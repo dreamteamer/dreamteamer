@@ -7,6 +7,7 @@ import { idFromRecordPath } from './records.js';
 import { placedChildAt } from './placement.js';
 
 import { storageOf } from './descriptor.js';
+import { commitArg } from './history.js';
 /** Record events between two points, across EVERY repo that holds records. `from` is a sha or a
  *  date — a sha is meaningless in another repo, so it is resolved to its commit DATE and each
  *  repo then resolves that date to its own sha. Still cursor-less and stores nothing, so it can
@@ -14,6 +15,7 @@ import { storageOf } from './descriptor.js';
  *  each record layer's — and an event carries the repo it was read from; sampling the write root
  *  alone answered `events: []` for a commit made in a layer's clone. */
 export function deriveEvents(root, descriptors, from, to = 'HEAD') {
+	commitArg(to);
 	const byRepo = new Map();
 	for (const d of descriptors.values()) {
 		if (storageOf(d).runtime) continue; // runtime entities aren't item events
@@ -38,7 +40,7 @@ export function deriveEvents(root, descriptors, from, to = 'HEAD') {
 		let out = '';
 		try {
 			out = execFileSync(
-				'git', ['diff', '--name-status', '-z', `${fromSha}..${to}`, '--', ...relDirs],
+				'git', ['diff', '--name-status', '-z', '--end-of-options', `${fromSha}..${to}`, '--', ...relDirs],
 				{ cwd },
 			).toString();
 		} catch { continue; }
@@ -59,7 +61,8 @@ function asDate(root, from) {
 	if (/^\d{4}-\d{2}-\d{2}$/.test(from)) return `${from}T00:00:00`;
 	if (/^\d{4}-\d{2}-\d{2}/.test(from)) return from;
 	try {
-		return execFileSync('git', ['show', '-s', '--format=%cI', from], { cwd: root, stdio: ['ignore', 'pipe', 'ignore'] })
+		commitArg(from, true); // inside the try: a refused revision answers the sentence below
+		return execFileSync('git', ['show', '-s', '--format=%cI', '--end-of-options', from], { cwd: root, stdio: ['ignore', 'pipe', 'ignore'] })
 			.toString().trim();
 	} catch {
 		throw new Error(`--since "${from}" is neither a date (YYYY-MM-DD) nor a commit in this workspace`);

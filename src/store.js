@@ -16,6 +16,7 @@ import { parseRef } from './namespace.js';
 import { relationsOf, expectedMirrors } from './relations.js';
 import { placementOf, placedRecords, rootRecords, placedRoot, placementOfFile, ownerIdOf, symlinkBelow, dirTreeStamps, isNested, parentOfNestedId, localOfNestedId } from './placement.js';
 import { pathToRecord } from './events.js';
+import { commitArg } from './history.js';
 
 import { storageOf, fieldsOf, targetsOf, isSoft, jsonSchemaOf, unresolvedPeersOf, bodyFieldOf, idsOf } from './descriptor.js';
 // git calls whose failure we CATCH must not print git's own error: execFileSync forwards the
@@ -737,6 +738,7 @@ export class Store {
 
 	// restore a record to its content at `hash` — validated like any other write, one commit.
 	revert(collection, id, hash) {
+		commitArg(hash);
 		const d = this.writableDescriptor(collection);
 		this.assertUnambiguous(collection, id);
 		const { fields: currentFields, file } = this.read(collection, id);
@@ -749,7 +751,7 @@ export class Store {
 		const relPath = this.pathAt(d, id, hash) ?? path.relative(fileRepo, file).split(path.sep).join('/');
 		let previousContent;
 		try {
-			previousContent = execFileSync('git', ['show', `${hash}:${relPath}`], { cwd: fileRepo, stdio: QUIET }).toString();
+			previousContent = execFileSync('git', ['show', '--end-of-options', `${hash}:${relPath}`], { cwd: fileRepo, stdio: QUIET }).toString();
 		} catch {
 			throw new Error(`${collection}/${id}: no content at ${hash} for ${relPath} — nothing was reverted.`);
 		}
@@ -1188,7 +1190,7 @@ export class Store {
 		const cwd = path.resolve(this.root, storageOf(d).repo);
 		const dirs = this.recordDirs(d).map((p) => path.relative(cwd, p));
 		let out = '';
-		try { out = execFileSync('git', ['ls-tree', '-r', '--name-only', hash, '--', ...dirs], { cwd, stdio: QUIET }).toString(); } catch { return null; }
+		try { out = execFileSync('git', ['ls-tree', '-r', '--name-only', '--end-of-options', hash, '--', ...dirs], { cwd, stdio: QUIET }).toString(); } catch { return null; }
 		const prefix = (storageOf(d).repo) === '.' ? '' : `${storageOf(d).repo}/`;
 		for (const p of out.split('\n').filter(Boolean)) {
 			const rec = pathToRecord(this.descriptors, prefix + p);
