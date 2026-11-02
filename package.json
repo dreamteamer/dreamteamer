@@ -56,7 +56,8 @@
 		"command-bindings",
 		"ui-views",
 		"mixins",
-		"scripts/migrate-descriptors-v2.mjs"
+		"scripts/migrate-descriptors-v2.mjs",
+		"scripts/migrate-stubs.mjs"
 	],
 	"dependencies": {
 		"ajv": "^8.17.1",

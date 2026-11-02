@@ -424,3 +424,51 @@ describe('dt get on an external id (cr-dt-004)', () => {
 		assert.equal(new Store(holder.ws).external('people', 'dana', { referrer: 'tasks/t1' }), null, 'held here: live wins');
 	});
 });
+
+describe('scripts/migrate-stubs.mjs (cr-dt-004)', () => {
+	const STUB = (name, extra = '') => `---\nname: ${name}\nstub: true\n${extra}---\nA body only the stub carried.\n`;
+	const head = (dir) => git(dir, ['rev-parse', 'HEAD']).trim();
+	const migrateIn = async (root, opts) => (await import('../../scripts/migrate-stubs.mjs')).migrate(root, { ...opts, log: () => {} });
+
+	// T11 (rnd/tests/dreamteamer/cr-dt-004-t6)
+	test('dry run writes nothing; the run turns upward, downward and unreferenced stubs into entries or deletions, one commit per repo, every check clean', async () => {
+		const w = ws({ pkg: 'w-pkg', files: { 'data/tasks/t1.task.md': task('t1', { assignee: 'people/ann' }), 'data/tasks/t2.task.md': task('t2', { assignee: 'people/far' }),
+			'data/people/ann.person.md': STUB('Ann (stub)'), 'data/people/far.person.md': STUB('Far (stub)'), 'data/people/idle.person.md': STUB('Idle') } });
+		const r = ws({ pkg: 'r-pkg', files: { 'data/people/ann.person.md': person('Ann'), 'data/tasks/r1.task.md': task('r1', { assignee: 'people/eli' }), 'data/people/eli.person.md': STUB('Eli (stub)') },
+			layers: { l: { pkg: 'l-pkg', files: { 'data/people/eli.person.md': person('Eli') } } } });
+		copyInto(r, w);
+		const heads = [head(r.root), head(path.join(r.root, 'git_modules', 'w'))];
+		const dry = await migrateIn(r.root, { layers: true, dryRun: true });
+		assert.equal(dry.length, 2);
+		assert.deepEqual([head(r.root), head(path.join(r.root, 'git_modules', 'w'))], heads);
+		assert.equal(git(r.root, ['status', '--porcelain', '--', 'data']).trim(), '', 'the dry run wrote nothing');
+		await migrateIn(r.root, { layers: true });
+		const wd = path.join(r.root, 'git_modules', 'w');
+		assert.deepEqual(manifestOf(r.root), { people: { eli: { label: 'Eli', from: 'l-pkg' } } }, 'downward: the live record\'s label and holder');
+		assert.deepEqual(manifestOf(wd), { people: { ann: { label: 'Ann', from: 'r-pkg' }, far: { label: 'Far (stub)' } } }, 'upward from the reader; a stub nobody can see keeps its title and no holder; the unreferenced one has no entry');
+		for (const dir of [r.root, wd]) {
+			assert.equal(git(dir, ['rev-parse', 'HEAD~1']).trim(), heads[dir === r.root ? 0 : 1], 'one commit per repo');
+			assert.equal(execGrep(dir), '', 'no file carries stub: true');
+		}
+		assert.doesNotMatch(readFile(wd, MANIFEST), /body only the stub/);
+		const check = dt(r.root, 'check');
+		assert.equal(check.code, 0, check.stdout);
+		const wAlone = ws({ pkg: 'w-pkg' });
+		fs.cpSync(path.join(wd, 'data'), path.join(wAlone.root, 'data'), { recursive: true });
+		fs.cpSync(path.join(wd, MANIFEST), path.join(wAlone.root, MANIFEST));
+		assert.equal(dt(wAlone.root, 'check').code, 0, 'the migrated layer checks clean alone');
+	});
+
+	// T19, the script half (rnd/tests/dreamteamer/cr-dt-004-t6)
+	test('a stub whose repo this workspace does not read completely is never deleted without an entry', async () => {
+		const w = ws({ pkg: 'w-pkg', files: { 'data/briefs/b1.brief.md': '---\nname: B1\nlead: people/bonly\n---\n', 'data/people/bonly.person.md': STUB('Bonly') } });
+		const r = ws({ pkg: 'r-pkg' });
+		copyInto(r, w);
+		await migrateIn(r.root, { layers: true });
+		assert.deepEqual(manifestOf(path.join(r.root, 'git_modules', 'w')), { people: { bonly: { label: 'Bonly' } } });
+	});
+});
+
+function execGrep(dir) {
+	try { return git(dir, ['grep', '-l', '^stub: true', '--', 'data']).trim(); } catch { return ''; }
+}

@@ -36,6 +36,41 @@ revision from a request to the engine. There is nothing else to do.
 - Every git call that carries one of these revisions puts `--end-of-options` before it, which needs
   **git 2.24 or newer** (2019).
 
+## 0.45.0 — cross-repo references without stub records: `dreamteamer-exports.json`
+
+⚠ **Stub records are removed.** A record carrying `stub: true` (0.41.0–0.44.x) no longer yields: the
+field is gone from every schema, so such a file fails `dt check` with `unknown field "stub"`, and beside a
+real record of its id it is the duplicate both name. `dt stub` and `dt add --stub true` are gone. If your
+repos hold stubs, do this in one sitting:
+
+```bash
+npm install dreamteamer@0.45.0        # in EVERY repo that holds stubs and every workspace that reads one
+npx dreamteamer compile
+node node_modules/dreamteamer/scripts/migrate-stubs.mjs --root . --layers --dry-run   # read it
+node node_modules/dreamteamer/scripts/migrate-stubs.mjs --root . --layers             # one commit per repo
+npx dreamteamer check                 # here, in each migrated repo alone, and in each of their readers
+```
+
+Run it from the workspace that READS the most of them (`--layers` covers its installed layers): an entry
+then gets the live label and holder of the record it stood for. A repo nobody else reads runs it in itself.
+
+- **`dreamteamer-exports.json`** at a repo root lists each id that repo's own records name and no file of
+  it holds — its display name and the package name of the workspace holding it; ids and names only. It is
+  generated and committed by **`dt exports`** (`--layer <name>` writes a layer's from this workspace's view,
+  `--dry-run`, `--json`); never edit it by hand.
+- **`dt check`** reads the manifest of the repo the referring record sits in — never a layer's layers. A
+  reference no root answers is **external** (an `ℹ` line) when the manifest lists it and its holder is not
+  read here, and dangling when the holder IS read and lacks it. The live record wins wherever it is read.
+  The layer-only `⚠` line now ends `dt exports`; a manifest `dt exports` would change or drop an entry of
+  is named stale; `--strict-export` makes both violations for this workspace.
+- **`dt get <ref> [--referrer <ref>]`** on an external id exits 1 naming its label and holder (`--json`:
+  `$external`); in-process, `store.external(collection, id, { referrer })`.
+- **A conflicted manifest:** keep the union of both sides' entry lines, then `dt exports`. During a merge
+  `dt exports` writes the file and leaves the commit to you.
+- `dt get --json` no longer carries `$stub` / `$shadows`, and `dt add --json` no longer carries `$shadows`.
+
+---
+
 ## 0.44.0 — a workspace's own records resolve standalone
 
 Nothing to do but `dt compile`. Read this if your workspace reads record layers, or is read as one.
