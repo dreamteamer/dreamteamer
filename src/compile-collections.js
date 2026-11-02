@@ -88,7 +88,7 @@ export function compileCollections(ctx) {
 	const allPeers = new Set([...modulePeers.values()].flat());
 	const out = new Map();
 	const layerClaims = new Map(); // layer name -> clone folders some collection here accounts for
-	const layerReads = new Map(); // layer name -> clone folders some collection here READS (cr-dt-004)
+	const layerReads = new Map(); // layer name -> clone folders some collection here READS (cr-dt-004); compiled sources never sit in a layer's data
 	const inert = [];
 	const moduleColls = new Map();
 	const owners = new Map(); // collection -> owning module name
@@ -213,6 +213,7 @@ export function compileCollections(ctx) {
 			const why = runtime ? 'is a compiled source' : owner === 'module' ? `is \`storage.owner: module\` — one shared list read from the module's clone, which a layer would duplicate` : a.under ? 'is stored under another collection (storage.under) — a placed collection is not layered' : pointed ? 'is env-pointed (its storage.path is a template) — its records are per machine, not a clone\'s' : null;
 			if (why && l.records) fail(`git_modules.${l.name}.records names "${name}", which ${why}`);
 			if (why) {
+				if (!runtime) l.skipsSome = true; // a reader that skips one of the layer's collections never reads it completely (cr-dt-004); compiled sources never sit in a layer's data
 				// an INHERENT layer reads every collection both have, so one that cannot layer is skipped —
 				// said only when the clone actually holds records there, so a quiet compile stays quiet
 				const n = fileCount(path.join(root, at));
@@ -232,7 +233,7 @@ export function compileCollections(ctx) {
 			fields.bytes ??= { type: 'integer', virtual: true, description: "The file's size in bytes. Read from the file." };
 		}
 		const { fields: resolved, errors, warnings, defaults: fieldDefaults } = resolveFields(fields, { name, collections: typeNames, peers: allPeers, runtime });
-		// a collection a reader can read from a layer: what `check` counts a referrer by (cr-dt-004)
+		// a collection a reader can read from a layer: what `check` counts a referrer by (cr-dt-004); compiled sources never sit in a layer's data
 		const layerable = !runtime && owner !== 'module' && !a.under && !pointed;
 		if (errors.length) fail(`collection "${name}" (${where}):\n  ${errors.join('\n  ')}`);
 		for (const w of warnings) warn(`⚠ collection ${name}: ${w}`);

@@ -16,20 +16,23 @@ import { EXPORTS_FILE, readExports, serializeExports, exportsContext, outsideRef
 export function planExports(store, repo) {
 	const facts = exportsFacts(store.root);
 	const ctx = exportsContext({ root: store.root, descriptors: store.descriptors, own: facts.own, layers: facts.layers, dataPath: facts.data });
-	const readable = [...store.descriptors.values()].filter((d) => !storageOf(d).runtime && !storageOf(d).unavailable);
+	const readableD = (d) => d && !storageOf(d).runtime && !storageOf(d).unavailable;
+	const readable = [...store.descriptors.values()].filter(readableD);
+	// an unparseable record (a conflict mid-merge) is check's to report — skipped here, never fatal
+	const fieldsAt = (d, file) => { try { return parseRecord(file, d, bodyFieldOf(d)); } catch { return null; } };
 	const repoOf = (c, id) => {
 		const d = store.descriptors.get(c);
-		const f = d && !storageOf(d).runtime && !storageOf(d).unavailable ? store.ids(c).get(id) : undefined;
+		const f = readableD(d) ? store.ids(c).get(id) : undefined;
 		return f ? store.layerOfFile(d, f)?.layer ?? null : undefined;
 	};
 	const titled = (d, id, file) => {
 		if (storageOf(d).format === 'binary') return id;
 		const t = /\{\{\s*([A-Za-z_][\w]*)/.exec(recordTitleOf(d))?.[1];
-		return String(parseRecord(file, d, bodyFieldOf(d))[t] ?? id);
+		return String(fieldsAt(d, file)?.[t] ?? id);
 	};
 	const records = readable.flatMap((d) => [...store.ids(d.name)]
 		.filter(([id]) => repoOf(d.name, id) === repo && storageOf(d).format !== 'binary')
-		.map(([id, file]) => ({ collection: d.name, id, descriptor: d, fields: parseRecord(file, d, bodyFieldOf(d)) })));
+		.map(([id, file]) => ({ collection: d.name, id, descriptor: d, fields: fieldsAt(d, file) })).filter((r) => r.fields));
 	const resolve = (c, id) => (repoOf(c, id) === undefined ? null : { label: titled(store.descriptors.get(c), id, store.ids(c).get(id)), from: ctx.packageOf(repoOf(c, id)) });
 	const held = (c, id) => repoOf(c, id) === repo;
 	const dir = ctx.rootOf(repo);

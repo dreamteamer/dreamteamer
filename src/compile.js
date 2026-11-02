@@ -1231,7 +1231,7 @@ export function compile(ws) {
 		// it and whether `records:` narrows it — completeness itself is judged at run time, on the disk.
 		package: pkg.name ?? null,
 		data_path: config.data_path ?? 'data',
-		layers: layers.map((l) => ({ name: l.name, root: l.root, data: path.posix.join(l.root, l.dataPath), package: pkgNameAt(path.join(root, l.root)), reads: layerReads.get(l.name) ?? [], narrowed: !!l.records })),
+		layers: layers.map((l) => ({ name: l.name, root: l.root, data: path.posix.join(l.root, l.dataPath), package: pkgNameAt(path.join(root, l.root)), reads: layerReads.get(l.name) ?? [], narrowed: !!l.records || !!l.skipsSome })),
 		// The extensions this runtime was compiled WITH, and the source kinds they staged — so the next
 		// compile can prune a kind whose extension is gone, and `staleness` can walk a contributed kind
 		// without loading any extension code.

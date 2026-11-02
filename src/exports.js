@@ -80,7 +80,7 @@ export function exportsContext({ root, descriptors, own, layers, dataPath = 'dat
 		});
 	};
 	const complete = (layer) => {
-		if (layer) { const l = facts.get(layer); return !!l && !l.narrowed && fs.existsSync(path.join(root, l.root)) && readsAll(root, l.data, l.reads); }
+		if (layer) { const l = facts.get(layer); return !!l && !l.narrowed && readsAll(root, l.data, l.reads); }
 		const reads = [];
 		for (const d of descriptors.values()) {
 			if (storageOf(d).unavailable) return false;

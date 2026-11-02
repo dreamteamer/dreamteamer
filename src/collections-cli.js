@@ -142,7 +142,7 @@ export function collectionCommand(ws, collection, verb, args) {
 		case 'get': {
 			const id = need(pos, 0, 'id');
 			// an id no root holds that an exports manifest vouches for (cr-dt-004): named, and still exit 1
-			const ext = !store.ids(collection).has(id) && store.external(collection, id, { referrer: flags.referrer });
+			const ext = store.external(collection, id, { referrer: flags.referrer });
 			if (ext) {
 				if (flags.json) emit(JSON.stringify({ $external: { collection, id, ...ext } }, null, 2));
 				console.error(`${collection}/${id} is not held here — external: "${ext.label}", held by ${ext.from ?? 'a workspace the manifest does not name'} (${ext.manifest})`);

@@ -31,12 +31,13 @@ const person = (name) => `---\nname: ${name}\n---\n`;
 const task = (name, fields = {}) => `---\nname: ${name}\n${Object.entries(fields).map(([k, v]) => `${k}: ${v}`).join('\n')}\n---\n`;
 
 /** The shapes every workspace here reads: a bundle clone `org`. */
-function shapes(root) {
+function shapes(root, briefs = false) {
 	const org = path.join(root, 'git_modules', 'org');
 	write(org, {
 		'package.json': JSON.stringify({ name: 'org', version: '1.0.0', dreamteamer: {} }),
 		'collections/people.collection.yaml': PEOPLE, 'collections/projects.collection.yaml': PROJECTS,
-		'collections/tasks.collection.yaml': TASKS, 'collections/pics.collection.yaml': PICS, 'collections/briefs.collection.yaml': BRIEFS,
+		'collections/tasks.collection.yaml': TASKS, 'collections/pics.collection.yaml': PICS,
+		...(briefs ? { 'collections/briefs.collection.yaml': BRIEFS } : {}),
 	});
 	commitAll(org, 'org');
 }
@@ -54,9 +55,9 @@ function clone(root, key, { pkg = key, files = {} } = {}) {
 }
 
 /** A workspace named `pkg` holding `files`, reading `layers` ({ key: { pkg, files, records } }). */
-function ws({ pkg = 'w-pkg', files = {}, layers = {} } = {}) {
+function ws({ pkg = 'w-pkg', files = {}, layers = {}, briefs = false } = {}) {
 	const w = workspace({ compile: false });
-	shapes(w.root);
+	shapes(w.root, briefs);
 	const entries = { org: { url: 'x', ref: 'main' } };
 	for (const [key, l] of Object.entries(layers)) {
 		clone(w.root, key, l);
@@ -75,8 +76,8 @@ function ws({ pkg = 'w-pkg', files = {}, layers = {} } = {}) {
 }
 
 /** R reading `w` as layer `w` (its committed records and manifest, never its layers). */
-function readerOf(w, { pkg = 'r-pkg', files = {}, records } = {}) {
-	const r = ws({ pkg, files, layers: {} });
+function readerOf(w, { pkg = 'r-pkg', files = {}, records, briefs = false } = {}) {
+	const r = ws({ pkg, files, layers: {}, briefs });
 	copyInto(r, w, records);
 	return r;
 }
@@ -341,9 +342,9 @@ describe('dt exports (cr-dt-004)', () => {
 
 	// T19 (rnd/tests/dreamteamer/cr-dt-004-t4)
 	test('a collection compiled-skipped for the layer, or a folder appearing after compile, makes it incomplete: nothing dropped', () => {
-		const w = ws({ files: { 'data/briefs/b1.brief.md': '---\nname: B1\nlead: people/x\n---\n', 'data/projects/p.project.md': '---\nname: P\n---\n' } });
+		const w = ws({ briefs: true, files: { 'data/briefs/b1.brief.md': '---\nname: B1\nlead: people/x\n---\n', 'data/projects/p.project.md': '---\nname: P\n---\n' } });
 		handManifest(w.root, { people: { x: { label: 'X', from: 'far' } } });
-		const r = readerOf(w);
+		const r = readerOf(w, { briefs: true });
 		assert.doesNotMatch(dt(r.root, 'check').stdout, /stale/, 'briefs is module-owned: never read from w');
 		const r2 = readerOf(ws({ files: { 'data/projects/p.project.md': '---\nname: P\n---\n' } }));
 		handManifest(path.join(r2.root, 'git_modules', 'w'), { people: { x: { label: 'X', from: 'far' } } });
@@ -510,8 +511,8 @@ describe('scripts/migrate-stubs.mjs (cr-dt-004)', () => {
 
 	// T19, the script half (rnd/tests/dreamteamer/cr-dt-004-t6)
 	test('a stub whose repo this workspace does not read completely is never deleted without an entry', async () => {
-		const w = ws({ pkg: 'w-pkg', files: { 'data/briefs/b1.brief.md': '---\nname: B1\nlead: people/bonly\n---\n', 'data/people/bonly.person.md': STUB('Bonly') } });
-		const r = ws({ pkg: 'r-pkg' });
+		const w = ws({ pkg: 'w-pkg', briefs: true, files: { 'data/briefs/b1.brief.md': '---\nname: B1\nlead: people/bonly\n---\n', 'data/people/bonly.person.md': STUB('Bonly') } });
+		const r = ws({ pkg: 'r-pkg', briefs: true });
 		copyInto(r, w);
 		await migrateIn(r.root, { layers: true });
 		assert.deepEqual(manifestOf(path.join(r.root, 'git_modules', 'w')), { people: { bonly: { label: 'Bonly' } } });
