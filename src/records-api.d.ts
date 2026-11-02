@@ -60,6 +60,9 @@ export class Store {
 	recordDirs(d: Descriptor): string[];
 	/** id → record file, across every folder the collection's records sit in */
 	ids(collection: string): Map<string, string>;
+	/** An id no root here holds that an exports manifest vouches for — the referring record's repo's when
+	 *  `referrer` names it, else this workspace's — answered only where `check` says external (cr-dt-004). */
+	external(collection: string, id: string, opts?: { referrer?: string }): { label: string; from?: string; manifest: string } | null;
 	read(collection: string, id: string): { fields: Fields; file: string };
 	/** Where a record is read from: `file` workspace-relative (absolute for a root outside every repo
 	 *  here) and `repo`, the workspace-relative repo root that commits it — null when none does. */

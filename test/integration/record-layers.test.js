@@ -606,7 +606,7 @@ describe("a workspace's own records resolve standalone (cr-dt-003)", () => {
 		assert.equal(res.code, 0, res.stdout + res.stderr);
 		const lines = res.stdout.split('\n').filter((l) => l.includes('projects/alpha'));
 		assert.equal(lines.length, 1, res.stdout);
-		assert.match(lines[0], /^⚠ projects\/alpha resolves only through layer project-a — named by 2 records here .* a workspace reading this one sees it dangle$/);
+		assert.match(lines[0], /^⚠ projects\/alpha resolves only through layer project-a — named by 2 records here .* a workspace reading this one sees it dangle. dt exports$/);
 		assert.match(lines[0], /\(tasks\/t-one, tasks\/t-two\)/);
 	});
 

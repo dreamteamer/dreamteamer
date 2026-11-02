@@ -141,6 +141,13 @@ export function collectionCommand(ws, collection, verb, args) {
 		}
 		case 'get': {
 			const id = need(pos, 0, 'id');
+			// an id no root holds that an exports manifest vouches for (cr-dt-004): named, and still exit 1
+			const ext = !store.ids(collection).has(id) && store.external(collection, id, { referrer: flags.referrer });
+			if (ext) {
+				if (flags.json) emit(JSON.stringify({ $external: { collection, id, ...ext } }, null, 2));
+				console.error(`${collection}/${id} is not held here — external: "${ext.label}", held by ${ext.from ?? 'a workspace the manifest does not name'} (${ext.manifest})`);
+				return 1;
+			}
 			const { fields, file } = store.read(collection, id);
 			// descriptor v2: a record older than the `created` stamp still answers it — read, never written
 			const created = store.createdOf(collection, id, fields, file);
@@ -1304,7 +1311,7 @@ const FORCE_RM = ['json', 'force', 'dry-run'];
 const NAV_MOVE = ['json', 'after', 'before', 'top', 'bottom'];
 
 export const VERB_FLAGS = {
-	list: ['json', 'filter', 'where', 'sort'], get: JSON_ONLY, add: ['json', 'id', 'from', 'force'], set: JSON_ONLY,
+	list: ['json', 'filter', 'where', 'sort'], get: ['json', 'referrer'], add: ['json', 'id', 'from', 'force'], set: JSON_ONLY,
 	rm: FORCE_RM, rename: JSON_ONLY, reorder: [...NAV_MOVE, 'init'], values: ['json', 'limit'],
 	history: JSON_ONLY, diff: ['json', 'hash'], revert: ['json', 'hash'],
 	ensure: ['json', 'all'], for: ['json', 'ids'], relations: JSON_ONLY, rebuild: ['json', 'drop'],

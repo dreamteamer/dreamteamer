@@ -26,13 +26,13 @@ const SRC = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'src');
 
 const LAYERS = {
 	// records over git — must not know that modules, channels or `extends` exist
-	record: ['store', 'records', 'temporal', 'fractional-index', 'filter', 'field-values', 'commit', 'events', 'history', 'template', 'yaml', 'workspace', 'check', 'namespace', 'ref', 'relations', 'env-vars', 'placement', 'fields', 'descriptor'],
+	record: ['store', 'records', 'temporal', 'fractional-index', 'filter', 'field-values', 'commit', 'events', 'history', 'template', 'yaml', 'workspace', 'check', 'namespace', 'ref', 'relations', 'env-vars', 'placement', 'fields', 'descriptor', 'exports'],
 	// the compiled artifact both halves share
 	boundary: ['runtime'],
 	// the workspace compiler and the harness surface
 	workspace: ['compile', 'compile-collections', 'descriptor-v2', 'views', 'harnesses', 'schema-ops', 'init', 'record-commands', 'semver', 'checkout', 'extensions', 'doctor'],
 	// entry points; span both halves by definition (the CLI, the public API, the descriptor→UI read model)
-	surface: ['cli', 'collections-cli', 'presentation', 'api', 'records-api'],
+	surface: ['cli', 'collections-cli', 'presentation', 'api', 'records-api', 'exports-cli'],
 };
 
 // who may import whom. `record` and `boundary` are the constrained half; surfaces are free.

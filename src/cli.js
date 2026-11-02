@@ -9,6 +9,7 @@
 //
 // This file TRANSLATES; it does not implement. Every record and schema verb lands on
 // `collectionCommand(ws, collection, verb, args)`, whose signature is unchanged.
+import { runExports } from './exports-cli.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -61,6 +62,8 @@ the longest DECLARED collection prefix, so finance/transactions/2026/03/coffee i
   get    <collection>/<id> [--json]           (--json, and each list --json row, adds $file and
                                                $repo: where the record is read from and the repo
                                                that commits it — null outside every repo here)
+                                              [--referrer <collection>/<id>] an id no root holds is
+                                               named from the referrer's repo's exports manifest
   add    <collection> ["<title>"] --<field> <value> … [--id <explicit-id>]
                                               (ONE bare positional fills the collection's title
                                                field — the one its record_title opens with — so
@@ -229,7 +232,12 @@ workspace verbs:
   check       validate every record against the compiled descriptors (report-only), then every
               installed extension's own checks. A reference this workspace's own records reach only
               through a record layer is a ⚠ line (a reader without that layer sees it dangle)
-              [--strict-export] makes each one a violation
+              through a record layer is a ⚠ line until its exports manifest lists it; a reference no root
+              answers is external when the referring repo's manifest vouches for it
+              [--strict-export] makes each unlisted one, and a stale manifest, a violation
+  exports     write this workspace's dreamteamer-exports.json — each id its records name that no file
+              here holds, with its label and the workspace holding it — and commit that one file
+              [--layer <name>] that layer's, from this workspace's view  [--dry-run] [--json]
   doctor      what works on this machine — the engine, then each extension's checks — as one board:
               READY / DEGRADED / UNAVAILABLE, each fix on its row. Exit 0 [--strict] exit 1 when
               anything is UNAVAILABLE [--json]
@@ -287,7 +295,7 @@ export const GLOBAL_FLAGS = ['workspace', 'vault'];
 export const WORKSPACE_FLAGS = {
 	init: ['name', 'data_path', 'harnesses', 'workspace_module'], update: [],
 	install: ['clone', 'dry-run', 'json', 'link-env', 'all', 'hook', 'print-adapters'],
-	compile: ['watch'], check: ['strict-export'], status: [], doctor: ['strict', 'json'],
+	compile: ['watch'], check: ['strict-export'], exports: ['layer', 'dry-run', 'json'], status: [], doctor: ['strict', 'json'],
 	changes: ['since', 'json'], commit: ['dry-run', 'json'], fmt: ['dry-run'], relocate: ['dry-run', 'json', 'to-root'],
 };
 
@@ -295,7 +303,7 @@ export const WORKSPACE_FLAGS = {
  *  spellings are in it too: they answer with their replacement, and an extension taking one over
  *  would turn a loud translation into a different command. */
 export const CORE_VERBS = [
-	'init', 'install', 'update', 'compile', 'check', 'doctor', 'status', 'changes', 'commit', 'help', 'version', '--version', '-v',
+	'init', 'install', 'update', 'compile', 'check', 'exports', 'doctor', 'status', 'changes', 'commit', 'help', 'version', '--version', '-v',
 	'list', 'add', 'values', 'get', 'set', 'rm', 'rename', 'history', 'diff', 'revert', 'reorder', 'next',
 	'add-field', 'set-field', 'rm-field', 'rename-field', 'rename-value', 'relations', 'resolve', 'relocate', 'fmt',
 	'schema', 'ensure', 'update-field', 'remove-field', 'commands',
@@ -423,6 +431,10 @@ export async function run(argv) {
 			}
 			case 'check':
 				process.exit(check(ws, { extra: warnIfStale(ws.root).compiled ? await api.contributedViolations(ws) : [], strictExport: rest.includes('--strict-export') }));
+			case 'exports': {
+				const layers = rest.flatMap((a, i) => (a === '--layer' ? [rest[i + 1]] : a.startsWith('--layer=') ? [a.slice(8)] : [])).filter(Boolean);
+				process.exit(runExports(new Store(ws), { layers, dryRun: rest.includes('--dry-run'), json: rest.includes('--json') }));
+			}
 			case 'doctor': {
 				const caps = await doctorBoard(ws, api);
 				if (rest.includes('--json')) emit(JSON.stringify({ capabilities: caps }, null, 2));

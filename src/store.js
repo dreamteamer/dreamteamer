@@ -11,7 +11,8 @@ import { dump, writeSource } from './yaml.js';
 import { generateId } from './template.js';
 import { parseRecord, parseRecordText, patternRe, fmtAjvError, unknownFields, walk, EXT, assertSafeId, idFromRecordPath, MAX_RECORD_BYTES } from './records.js';
 import { normalizeRecord, normalizeTemporal } from './temporal.js';
-import { NO_RUNTIME, sourceHint, loadDescriptors, runtimeDir, namespaces as compiledNamespaces, sourceRoots as compiledSourceRoots } from './runtime.js';
+import { NO_RUNTIME, sourceHint, loadDescriptors, runtimeDir, namespaces as compiledNamespaces, sourceRoots as compiledSourceRoots, exportsFacts } from './runtime.js';
+import { EXPORTS_FILE, readExports, exportsContext, sees } from './exports.js';
 import { parseRef } from './namespace.js';
 import { relationsOf, expectedMirrors } from './relations.js';
 import { placementOf, placedRecords, rootRecords, placedRoot, placementOfFile, ownerIdOf, symlinkBelow, dirTreeStamps, isNested, parentOfNestedId, localOfNestedId } from './placement.js';
@@ -618,6 +619,27 @@ export class Store {
 		const root = where?.root ?? this.dir(d);
 		pruneEmptyDirs(path.dirname(file), root);
 		if (where?.parentId) pruneEmptyDirs(root, path.join(this.parentDir(d), where.parentId));
+	}
+
+	/** An id no root here holds that an exports manifest vouches for (cr-dt-004): `{ label, from?, manifest }`,
+	 *  or null. The manifest is the referring record's repo's — `referrer` (`<collection>/<id>`), else this
+	 *  workspace's — and it answers only where its holder is not read here: exactly where `check` says
+	 *  external. A referrer this workspace does not read is refused, naming it. */
+	external(collection, id, { referrer } = {}) {
+		if (this.ids(collection).has(id)) return null;
+		let repo = null;
+		if (referrer) {
+			const r = parseRef(referrer, this.namespaces);
+			const rd = r && this.descriptors.get(r.collection);
+			const f = rd && this.ids(r.collection).get(r.id);
+			if (!f) throw new Error(`${referrer}: no such record here — a referrer is a record this workspace reads`);
+			repo = this.layerOfFile(rd, f)?.layer ?? null;
+		}
+		const facts = exportsFacts(this.root);
+		const ctx = exportsContext({ root: this.root, descriptors: this.descriptors, own: facts.own, layers: facts.layers, dataPath: facts.data });
+		const e = readExports(ctx.rootOf(repo))?.[collection]?.[id];
+		if (!e || sees(e, collection, ctx)) return null;
+		return { label: e.label, ...(e.from ? { from: e.from } : {}), manifest: path.relative(this.root, path.join(ctx.rootOf(repo), EXPORTS_FILE)) };
 	}
 
 	read(collection, id) {

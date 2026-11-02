@@ -328,6 +328,11 @@ export function shadowWarning({ name, winner, loser }) {
 	return `⚠ module ${name}: ${CHANNEL_LABEL[winner]} copy shadows ${CHANNEL_LABEL[loser]} copy`;
 }
 
+/** The `name` in a folder's package.json, or null — an absent clone or an unreadable file is unknown. */
+function pkgNameAt(dir) {
+	try { return JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8')).name ?? null; } catch { return null; }
+}
+
 export function compile(ws) {
 	const { root, pkg } = ws;
 	const extensions = ws.extensions ?? [];
@@ -935,7 +940,7 @@ export function compile(ws) {
 	const collectionsFail = (msg) => fail(uninstalled.length
 		? `${msg}\n  run \`dreamteamer install\` first — dreamteamer.git_modules declares ${uninstalled.join(', ')}, and no clone of ${uninstalled.length === 1 ? 'it' : 'them'} is on disk yet`
 		: msg);
-	const { compiled: compiledColls, inert: inertSources, moduleColls } = compileCollections({
+	const { compiled: compiledColls, inert: inertSources, moduleColls, layerReads } = compileCollections({
 		groups: descriptorGroups, mixins: mixinDocs, namespaces, nsOwners,
 		runtimeKinds: new Set([...kinds, ...DERIVED_KINDS]), core: CORE_COLLECTIONS,
 		moduleDeps, modulePeers, channelOf, wsModuleName, engineName, dataOwners,
@@ -1221,6 +1226,12 @@ export function compile(ws) {
 		// `storage.base` is a field instead of a path test. An older runtime has no key here, which
 		// reads as "no namespaces", which is exactly right for a workspace that never declared any.
 		namespaces,
+		// What the record layer needs to judge an exports manifest (cr-dt-004) without reading package.json:
+		// this workspace's package name, and per layer its package name, data folder, the folders read from
+		// it and whether `records:` narrows it — completeness itself is judged at run time, on the disk.
+		package: pkg.name ?? null,
+		data_path: config.data_path ?? 'data',
+		layers: layers.map((l) => ({ name: l.name, root: l.root, data: path.posix.join(l.root, l.dataPath), package: pkgNameAt(path.join(root, l.root)), reads: layerReads.get(l.name) ?? [], narrowed: !!l.records })),
 		// The extensions this runtime was compiled WITH, and the source kinds they staged — so the next
 		// compile can prune a kind whose extension is gone, and `staleness` can walk a contributed kind
 		// without loading any extension code.

@@ -356,7 +356,7 @@ function scopeByRepo(descriptors, only) {
 
 /** In-progress merge/rebase/cherry-pick makes a commit's meaning ambiguous. Ordinary dirtiness
  *  is NOT a refusal condition — committing dirty records is this verb's entire job. */
-function inProgress(cwd) {
+export function inProgress(cwd) {
 	let gitDir;
 	try { gitDir = execFileSync('git', ['rev-parse', '--absolute-git-dir'], { cwd, stdio: QUIET }).toString().trim(); }
 	catch { return 'not a git repository'; }

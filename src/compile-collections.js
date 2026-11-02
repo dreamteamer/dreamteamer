@@ -88,6 +88,7 @@ export function compileCollections(ctx) {
 	const allPeers = new Set([...modulePeers.values()].flat());
 	const out = new Map();
 	const layerClaims = new Map(); // layer name -> clone folders some collection here accounts for
+	const layerReads = new Map(); // layer name -> clone folders some collection here READS (cr-dt-004)
 	const inert = [];
 	const moduleColls = new Map();
 	const owners = new Map(); // collection -> owning module name
@@ -219,6 +220,7 @@ export function compileCollections(ctx) {
 				continue;
 			}
 			collLayers.push({ name: l.name, path: at, repo: l.root });
+			(layerReads.get(l.name) ?? layerReads.set(l.name, []).get(l.name)).push(at);
 		}
 
 		// an opaque record's fields are the ones derived from the file itself
@@ -361,7 +363,7 @@ export function compileCollections(ctx) {
 	placement(out, fail);
 
 	for (const [, c] of out) c.doc = { ...c.doc, compiled: c.compiled };
-	return { compiled: out, inert, moduleColls };
+	return { compiled: out, inert, moduleColls, layerReads };
 }
 
 /**

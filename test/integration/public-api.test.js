@@ -170,3 +170,10 @@ describe('dt init commits only what it wrote', () => {
 		assert.match(status, /^\?\? loose\.txt$/m);
 	});
 });
+
+test('Store.external is implemented and typed (cr-dt-004)', async () => {
+	const { Store } = await import('../../src/records-api.js');
+	assert.equal(typeof Store.prototype.external, 'function');
+	const dts = fs.readFileSync(new URL('../../src/records-api.d.ts', import.meta.url), 'utf8');
+	assert.match(dts, /\texternal\(collection: string, id: string, opts\?: \{ referrer\?: string \}\): \{ label: string; from\?: string; manifest: string \} \| null;/);
+});

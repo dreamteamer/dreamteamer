@@ -9,12 +9,13 @@ import path from 'node:path';
 import Ajv from 'ajv';
 import addFormats from 'ajv-formats';
 import { parseRecord, patternRe, fmtAjvError, unknownFields, walk, idFromRecordPath, MAX_RECORD_BYTES } from './records.js';
-import { NO_RUNTIME, loadDescriptors, runtimeDir, namespaces as compiledNamespaces } from './runtime.js';
+import { NO_RUNTIME, loadDescriptors, runtimeDir, namespaces as compiledNamespaces, exportsFacts } from './runtime.js';
 import { parseRef } from './namespace.js';
 import { relationsOf, expectedMirrors, ownersReadIn } from './relations.js';
+import { collectRefFields, valuesAt, EXPORTS_FILE, readExports, exportsContext, sees, outsideRefs, regenerate, isStale } from './exports.js';
 import { placementOf, placedRecords, ownerIdOf, symlinkedChildRoots } from './placement.js';
 
-import { storageOf, jsonSchemaOf, fieldsOf, unresolvedPeersOf, bodyFieldOf, targetsOf, isSoft, idsOf } from './descriptor.js';
+import { storageOf, jsonSchemaOf, fieldsOf, unresolvedPeersOf, bodyFieldOf, idsOf, recordTitleOf } from './descriptor.js';
 export function check({ root }, { extra = [], strictExport = false } = {}) {
 	const RUNTIME = runtimeDir(root);
 	const rel = (p) => path.relative(root, p);
@@ -170,6 +171,15 @@ export function check({ root }, { extra = [], strictExport = false } = {}) {
 	// layer answers
 	const layerOnly = new Map(); // target -> { layer, binary, refs: [{ file, field, value, referrer }] }
 	const softRefs = new Map(); // absent-but-declared peer collection -> how many refs point at it
+	// cr-dt-004: each repo's exports manifest (the write root is `null`), and the references it vouches for
+	const facts = exportsFacts(root);
+	const ctx = exportsContext({ root, descriptors, own: facts.own, layers: facts.layers, dataPath: facts.data });
+	const manifests = new Map();
+	for (const repo of [null, ...(facts.layers ?? []).map((l) => l.name)]) {
+		try { const m = readExports(ctx.rootOf(repo)); if (m) manifests.set(repo, m); }
+		catch (e) { violations.push({ file: rel(path.join(ctx.rootOf(repo), EXPORTS_FILE)), layer: repo ?? undefined, msg: e.message }); }
+	}
+	const external = new Map(); // repo -> { refs, targets: Set }
 
 	for (const [name, d] of descriptors) {
 		const validate = ajv.compile(jsonSchemaOf(d));
@@ -311,10 +321,18 @@ export function check({ root }, { extra = [], strictExport = false } = {}) {
 		if (!index.get(coll).has(id)) {
 			if (soft) return; // resolve if present, ignore if absent
 			if (storageOf(descriptors.get(coll)).unavailable) return; // the collection is unread here, not empty
-			return flag(file, `${fieldPath.join('.')}: dangling reference "${value}" — no such record`);
+			// listed by the referring record's OWN repo, its holder not read here: external (cr-dt-004)
+			const repo = fileLayer.get(file) ?? null;
+			const e = manifests.get(repo)?.[coll]?.[id];
+			if (e && !sees(e, coll, ctx)) {
+				const x = external.get(repo) ?? external.set(repo, { refs: 0, targets: new Set() }).get(repo);
+				x.refs++; x.targets.add(`${coll}/${id}`);
+				return;
+			}
+			return flag(file, `${fieldPath.join('.')}: dangling reference "${value}" — no such record${e ? ` (its holder ${e.from} is read here and does not have it)` : ''}`);
 		}
 		const at = index.get(coll).get(id);
-		if (!referrer || soft || !fileLayer.has(at)) return;
+		if (!referrer || soft || !fileLayer.has(at) || manifests.get(null)?.[coll]?.[id]) return;
 		const key = `${coll}/${id}`;
 		if (!layerOnly.has(key)) layerOnly.set(key, { layer: fileLayer.get(at), binary: storageOf(descriptors.get(coll)).format === 'binary', refs: [] });
 		layerOnly.get(key).refs.push({ file, field: fieldPath.join('.'), value, referrer });
@@ -329,8 +347,28 @@ export function check({ root }, { extra = [], strictExport = false } = {}) {
 	}
 	for (const note of layerNotes.values()) console.log(note);
 	const upTo3 = (xs) => (xs.length > 3 ? [...xs.slice(0, 3), `+${xs.length - 3} more`] : xs).join(', ');
+	for (const [repo, { refs, targets }] of external) {
+		console.log(`ℹ ${repo ? `layer ${repo}: ` : ''}${refs} reference${refs === 1 ? '' : 's'} to ${targets.size} record${targets.size === 1 ? '' : 's'} outside ${repo ? 'it' : 'this workspace'}, vouched for by its exports manifest (${upTo3([...targets].sort())})`);
+	}
+	// a manifest is stale exactly when `dt exports` here would change or drop one of its entries
+	for (const [repo, current] of manifests) {
+		const repoOf = (c, id) => { const f = index.get(c)?.get(id); return f ? fileLayer.get(f) ?? null : undefined; };
+		const records = [...parsed].flatMap(([c, m]) => [...m].filter(([id]) => repoOf(c, id) === repo).map(([id, fields]) => ({ collection: c, id, fields, descriptor: descriptors.get(c) })));
+		const resolve = (c, id) => {
+			if (repoOf(c, id) === undefined) return null;
+			const t = /\{\{\s*([A-Za-z_][\w]*)/.exec(recordTitleOf(descriptors.get(c)))?.[1];
+			return { label: String(parsed.get(c)?.get(id)?.[t] ?? id), from: ctx.packageOf(repoOf(c, id)) };
+		};
+		const outside = outsideRefs({ records, held: (c, id) => repoOf(c, id) === repo, resolve, namespaces });
+		const { changes } = regenerate({ current, outside, ctx, repo, held: (c, id) => repoOf(c, id) === repo });
+		if (!isStale(changes)) continue;
+		const stale = changes.filter((x) => x.kind !== 'add');
+		const msg = `stale — ${upTo3(stale.map((x) => `${x.ref} (${x.kind}: ${x.why})`))}. dt exports${repo ? ` --layer ${repo}` : ''}`;
+		if (strictExport && !repo) violations.push({ file: rel(path.join(root, EXPORTS_FILE)), msg });
+		else console.log(`⚠ ${rel(path.join(ctx.rootOf(repo), EXPORTS_FILE))} is ${msg}`);
+	}
 	for (const [target, { layer, binary, refs }] of [...layerOnly].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
-		const fix = () => 'a workspace reading this one sees it dangle';
+		const fix = () => 'a workspace reading this one sees it dangle. dt exports';
 		if (strictExport) { for (const r of refs) violations.push({ file: rel(r.file), msg: `${r.field}: "${r.value}" resolves only through layer ${layer} — ${fix(r)}` }); continue; }
 		const who = [...new Set(refs.map((r) => r.referrer))];
 		const named = `${who.length} record${who.length === 1 ? '' : 's'} here (${upTo3(who)})`;
@@ -377,30 +415,3 @@ function sameMirror(relation, actual, expected) {
 		? (actual ?? null) === (expected ?? null)
 		: JSON.stringify([...(actual ?? [])].sort()) === JSON.stringify(expected ?? []);
 }
-
-// collect [fieldPath, targets, soft] for every reference field, nested object fields included, where
-// `targets` is '*' or the list of collections it may target and `soft` says whether an absent target
-// is a finding. Relations are NOT read here — they are decoded once, by src/relations.js.
-function collectRefFields(fields, prefix = []) {
-	const out = [];
-	for (const [key, f] of Object.entries(fields ?? {})) {
-		if (!f || typeof f !== 'object') continue;
-		const p = [...prefix, key];
-		const targets = targetsOf(f);
-		if (targets) out.push([p, targets, isSoft(f)]);
-		if (f.type === 'object' && f.fields) out.push(...collectRefFields(f.fields, p));
-	}
-	return out;
-}
-
-// yield all leaf values at a field path (flattening arrays)
-function* valuesAt(obj, fieldPath) {
-	let vals = [obj];
-	for (const key of fieldPath) {
-		vals = vals
-			.flatMap((v) => (Array.isArray(v) ? v : [v]))
-			.flatMap((v) => (v && typeof v === 'object' ? [v[key]] : []));
-	}
-	for (const v of vals.flat(Infinity)) if (v != null) yield v;
-}
-
