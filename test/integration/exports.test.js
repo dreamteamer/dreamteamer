@@ -376,6 +376,8 @@ describe('dt exports (cr-dt-004)', () => {
 
 	test('during a merge in a linked worktree the manifest is written and not committed', () => {
 		const w = withLayer();
+		// the fixture's own branch, never a literal: a runner whose git defaults to `master` (CI) has no `main`
+		const base = git(w.root, ['branch', '--show-current']);
 		git(w.root, ['branch', 'side']);
 		const wt = path.join(path.dirname(w.root), `${path.basename(w.root)}-wt`);
 		git(w.root, ['worktree', 'add', '-q', wt, 'side']);
@@ -385,7 +387,7 @@ describe('dt exports (cr-dt-004)', () => {
 			fs.writeFileSync(path.join(wt, 'side.txt'), 'side\n');
 			git(wt, ['add', 'side.txt']); git(wt, ['commit', '-qm', 'side']);
 			write(w.root, { 'main.txt': 'main\n' }); git(w.root, ['add', 'main.txt']); git(w.root, ['commit', '-qm', 'main']);
-			git(wt, ['merge', '--no-commit', '--no-ff', '-q', 'main']);
+			git(wt, ['merge', '--no-commit', '--no-ff', '-q', base]);
 			compileQuietly({ root: wt, pkg: w.ws.pkg });
 			const head = git(wt, ['rev-parse', 'HEAD']).trim();
 			const res = dt(wt, 'exports');
