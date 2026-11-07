@@ -200,6 +200,11 @@ export function install({ root, pkg }) {
 		for (const t of [...top, ...under]) {
 			done.add(t.by ? `${t.by}/${t.name}` : t.name);
 			fs.mkdirSync(path.dirname(t.dest), { recursive: true });
+			// ⚠ A LINK IS NOT A CLONE. A declarer that agreed with the top at the first install was given a
+			// link; once its declaration diverges its copy is nested HERE, and the link standing where the
+			// nested clone goes must be replaced — never re-pointed through, which would move the shared
+			// top-level clone every other reader sits on (the first review of 0.46.0, finding eng-01).
+			if (t.by && isLink(t.dest)) fs.unlinkSync(t.dest);
 			if (fs.existsSync(t.dest)) { if (!repoint(t.dest, path.relative(path.join(root, 'git_modules'), t.dest), t.ref)) unreachable.push(t.name); continue; }
 			clone(t.url, t.ref, t.dest, t.name, t.note);
 			if (t.by) excludeIn(path.join(root, t.by), `git_modules/${t.name}`);
@@ -221,7 +226,8 @@ export function install({ root, pkg }) {
  *  explicit on disk, resolved by a tool that knows nothing of dreamteamer. A clone of its own standing there
  *  may hold work: left as it is, and said — `dt status` draws it too. */
 function linkLayer(root, by, name) {
-	const at = path.join(root, by, 'git_modules', name), want = path.join('..', '..', name);
+	// relative from wherever the declarer sits — a nested copy's own needs link from two levels deeper
+	const at = path.join(root, by, 'git_modules', name), want = path.relative(path.dirname(at), path.join(root, 'git_modules', name));
 	let st = null;
 	try { st = fs.lstatSync(at); } catch { /* nothing there */ }
 	if (st && !st.isSymbolicLink()) { console.log(`… ${by}/git_modules/${name} is a clone of its own — left as it is`); return; }
@@ -291,6 +297,7 @@ function tryGit(cwd, args, timeout = 30_000) {
 	try { return execFileSync('git', args, { cwd, stdio: QUIET, timeout }).toString().trim() || null; } catch { return null; }
 }
 
+const isLink = (p) => { try { return fs.lstatSync(p).isSymbolicLink(); } catch { return false; } };
 const ran = (cwd, args, timeout) => { try { execFileSync('git', args, { cwd, stdio: QUIET, timeout }); return true; } catch { return false; } };
 const commitOf = (dest, rev) => tryGit(dest, ['rev-parse', '--verify', '--quiet', `${rev}^{commit}`]);
 
@@ -299,7 +306,7 @@ const commitOf = (dest, rev) => tryGit(dest, ['rev-parse', '--verify', '--quiet'
  *  what the clone already knows, so a settled clone costs no fetch. A folder that is not itself a
  *  clone is never re-pointed: git would walk up and act on the workspace repo. */
 export function offRef(dest, ref) {
-	if (!fs.existsSync(path.join(dest, '.git'))) return false;
+	if (isLink(dest) || !fs.existsSync(path.join(dest, '.git'))) return false; // never judged, never moved, through a link
 	if (tryGit(dest, ['symbolic-ref', '--quiet', '--short', 'HEAD']) === ref) return false;
 	const branch = ['refs/heads/', 'refs/remotes/origin/'].some((p) => tryGit(dest, ['rev-parse', '--verify', '--quiet', p + ref]));
 	return branch || !commitOf(dest, ref) || commitOf(dest, ref) !== commitOf(dest, 'HEAD');

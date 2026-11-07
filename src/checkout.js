@@ -144,7 +144,8 @@ export function observeState(ws) {
 		// the first install only this workspace's own are visible.
 		gitModules: [...new Set([
 			...[...declaredGitModules(ws.pkg, ws.root).map].filter(([n, m]) => !resolves(here(path.join('git_modules', n))) || offRef(here(path.join('git_modules', n)), m.ref) || m.declarers.some((by) => by && !resolves(here(path.join(by, 'git_modules', n))))).map(([n]) => n),
-			...declaredGitModules(ws.pkg, ws.root).nested.filter((c) => !resolves(here(path.join(c.by, 'git_modules', c.name))) || offRef(here(path.join(c.by, 'git_modules', c.name)), c.ref)).map((c) => c.name),
+			// a nested copy that is still a LINK (laid while the declarer agreed with the top) is work to do
+			...declaredGitModules(ws.pkg, ws.root).nested.filter((c) => isLink(here(path.join(c.by, 'git_modules', c.name))) || !resolves(here(path.join(c.by, 'git_modules', c.name))) || offRef(here(path.join(c.by, 'git_modules', c.name)), c.ref)).map((c) => c.name),
 		])],
 		stale: !s.compiled || s.stale.length > 0,
 		postinstall: ws.pkg.dreamteamer?.postinstall ?? null,
@@ -275,12 +276,15 @@ const RUN = {
  *  any step errored — one failure never abandons the rest, because a checkout half-made-ready with
  *  a named failure is more useful than one that stopped at the first thing it could not do. */
 export async function applyInstall(ws, state, steps, { dryRun = false, log = console.log, stdio = 'inherit', npm = resolveNpm(), open = null } = {}) {
-	let failed = 0, installed = false;
+	let failed = 0, installed = false, restored = false;
 	for (const s of steps) {
 		// ⚠ NEW PACKAGES ARE NEW SOURCES. The plan judged the runtime fresh BEFORE npm put a module (or an
 		// extension) into node_modules, so a compiled workspace that just gained a dependency kept the
 		// old runtime at exit 0. Once dependencies were installed, the compile runs whatever the plan said.
-		if (s.id === 'compile' && installed && s.state === 'already') Object.assign(s, { label: 'compile: dependencies were just installed', state: 'todo' });
+		// ⚠ A RESTORED LAYER IS A NEW INPUT TOO: compile bakes a layer's package name and data path into the
+		// runtime, and staleness hashes sources only — so a layer the git_modules step just cloned left
+		// `✔ compile: fresh` and a runtime that did not know it (the first review of 0.46.0, finding eng-03).
+		if (s.id === 'compile' && (installed || restored) && s.state === 'already') Object.assign(s, { label: installed ? 'compile: dependencies were just installed' : 'compile: git modules were just restored', state: 'todo' });
 		const glyph = s.state === 'todo' ? '▶' : s.state === 'already' ? '✔' : '—';
 		log(`${glyph} ${s.label}${s.why ? `\n    ${s.why}` : ''}`);
 		if (s.state !== 'todo' || dryRun) continue;
@@ -295,6 +299,7 @@ export async function applyInstall(ws, state, steps, { dryRun = false, log = con
 		const code = RUN[kind](ws, state, rel, stdio, npm);
 		if (code !== 0) { failed++; log(`✖ ${s.id} failed (exit ${code})`); }
 		else if (kind === 'dependencies') installed = true;
+		else if (kind === 'git_modules') restored = true;
 	}
 	return failed ? 1 : 0;
 }

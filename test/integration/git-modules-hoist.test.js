@@ -262,3 +262,60 @@ describe('declaredGitModules reads the declarations, then what each clone on dis
 		assert.equal(layerEntries(c.hq.ws.pkg, c.hq.root).find((l) => l.name === 'org').module, false);
 	});
 });
+
+// ---- 0.46.1: what the first architecture review of 0.46.0 found in the nesting and linking paths ----
+describe('0.46.1 — a link is never mistaken for a clone, a link resolves at any depth, compile follows a restored layer', () => {
+	test('a declarer whose declaration diverges AFTER the first install gets its own nested clone; the shared top clone is never re-pointed through the link', () => {
+		const c = cast();
+		assert.equal(dt(c.hq.root, 'install').code, 0);
+		assert.ok(isLinkTo(c.at('git_modules', 'project-b', 'git_modules', 'org'), path.join('..', '..', 'org')));
+		amend(c.hq, c.b, 'project-b', (work) => {
+			const pkgFile = path.join(work, 'package.json');
+			const pkg = JSON.parse(fs.readFileSync(pkgFile, 'utf8'));
+			pkg.dreamteamer.git_modules.org.ref = 'v1';
+			fs.writeFileSync(pkgFile, JSON.stringify(pkg, null, '\t') + '\n');
+		});
+		assert.equal(dt(c.hq.root, 'update', 'project-b').code, 0, 'project-b pulls its new declaration');
+		const res = dt(c.hq.root, 'install');
+		assert.equal(res.code, 0, res.stdout + res.stderr);
+		assert.equal(git(c.at('git_modules', 'org'), ['rev-parse', 'HEAD']), c.org.head, 'the top clone stays on the branch project-a and the HQ read');
+		assert.ok(isClone(c.at('git_modules', 'project-b', 'git_modules', 'org')), 'project-b now has a clone of its own where the link was');
+		assert.equal(git(c.at('git_modules', 'project-b', 'git_modules', 'org'), ['rev-parse', 'HEAD']), c.org.v1);
+		assert.match(res.stdout, /— nested: git_modules\/org is /);
+		assert.deepEqual(observeState(c.hq.ws).gitModules, [], 'settled');
+		assert.match(dt(c.hq.root, 'install').stdout, /git modules: nothing to restore/);
+	});
+
+	test('a need declared by a NESTED copy is linked at the right depth: the link resolves to the top-level clone', () => {
+		const c = cast();
+		const other = remote(c.hq, 'other-org', { pkgName: ORG_PKG, gitModules: { people: { url: c.people.url, ref: c.people.ref, records: ['notes'] } }, files: { 'data/notes/2026-01-01--welcome.note.md': note('Welcome, elsewhere'), 'dreamteamer-exports.json': manifest(PEOPLE_PKG, { notes: ['2026-01-05--team'] }) } });
+		amend(c.hq, c.b, 'project-b', (work) => {
+			const pkgFile = path.join(work, 'package.json');
+			const pkg = JSON.parse(fs.readFileSync(pkgFile, 'utf8'));
+			pkg.dreamteamer.git_modules.org.url = other.url;
+			fs.writeFileSync(pkgFile, JSON.stringify(pkg, null, '\t') + '\n');
+		});
+		const res = dt(c.hq.root, 'install');
+		assert.equal(res.code, 0, res.stdout + res.stderr);
+		const nested = c.at('git_modules', 'project-b', 'git_modules', 'org');
+		assert.ok(isClone(nested), 'project-b\'s org is nested');
+		assert.ok(isClone(c.at('git_modules', 'people')), 'the nested copy\'s need is hoisted to the top');
+		const link = path.join(nested, 'git_modules', 'people');
+		assert.ok(fs.lstatSync(link).isSymbolicLink());
+		assert.ok(fs.existsSync(link), `the link resolves (target ${fs.readlinkSync(link)})`);
+		assert.equal(fs.realpathSync(link), fs.realpathSync(c.at('git_modules', 'people')));
+		assert.deepEqual(observeState(c.hq.ws).gitModules, [], 'settled');
+		assert.match(dt(c.hq.root, 'install').stdout, /git modules: nothing to restore/);
+	});
+
+	test('compile is re-run after the git modules step restores a layer, so the runtime knows the layer\'s package', () => {
+		const c = cast();
+		assert.equal(dt(c.hq.root, 'compile').code, 0, 'compiled while its layers are not installed');
+		const res = dt(c.hq.root, 'install');
+		assert.equal(res.code, 0, res.stdout + res.stderr);
+		assert.match(res.stdout, /▶ compile: git modules were just restored/);
+		assert.doesNotMatch(res.stdout, /✔ compile: fresh/);
+		const manifest = fs.readFileSync(c.at('.dreamteamer', 'manifest.yaml'), 'utf8');
+		assert.match(manifest, new RegExp(`package: '?${ORG_PKG}'?`), 'the hoisted org layer is compiled in with its package name');
+	});
+});

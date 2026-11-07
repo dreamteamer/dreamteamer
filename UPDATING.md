@@ -20,6 +20,25 @@ npx dreamteamer check
 
 ---
 
+## 0.46.1 — three install defects the first review of 0.46.0 found
+
+Nothing to do but `dt install`. Upgrade if you read a clone whose own declarations can change under you.
+
+- **A link is never mistaken for a clone.** A clone that agreed with the top at its first install and was
+  given a link, then changed its declaration (another ref or url), had its need resolved as nested — and
+  `install` re-pointed the shared top-level clone THROUGH the link, moving what every other reader sat on,
+  and the board flipped it between refs on every run. Now the link is replaced by the nested clone, and
+  `offRef` never judges or moves anything through a link.
+- **A link resolves at any depth.** A need declared by a nested copy was linked as `../../<name>` from two
+  levels deeper and dangled; the board reported it missing for ever. The link is now relative to wherever
+  the declarer sits.
+- **Compile follows a restored layer.** `dt install` judged `compile` before the git modules step ran, so a
+  layer it had just cloned left `✔ compile: fresh` and a runtime that did not know the layer's package or
+  data path. The board now runs `compile: git modules were just restored` after that step, as it already
+  did after `dependencies`.
+
+---
+
 ## 0.46.0 — what a clone NEEDS is installed from the enclosing workspace, the npm way
 
 Nothing to do but `dt install`. Read this if a clone under your `git_modules/` is a workspace whose records
