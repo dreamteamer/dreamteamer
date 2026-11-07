@@ -21,6 +21,8 @@ import { collectionCommand, emit, relationsCommand, reportCommits } from './coll
 import { formatDescriptors } from './schema-ops.js';
 import { init, installClone, update, listRepos } from './init.js';
 import { installCommand, describeCheckout } from './checkout.js';
+import { declaredGitModules } from './workspace.js';
+const isOwnClone = (p) => { try { return !fs.lstatSync(p).isSymbolicLink() && fs.existsSync(path.join(p, '.git')); } catch { return false; } };
 import { foldChanges, groupChanges, reportLine } from './events.js';
 import { commitPending, recordChanges, rowChanges } from './commit.js';
 import { Store } from './store.js';
@@ -568,12 +570,22 @@ export async function run(argv) {
 					console.log('layers:');
 					let descriptors = [];
 					try { descriptors = [...new Store(ws).descriptors.values()]; } catch { /* no runtime yet */ }
+					// a layer a clone needed says so (`via`); one this workspace's declaration overrides says whom; a
+					// copy nested under a clone, or a clone of its own where a link would be, is drawn under its clone
+					const declared = declaredGitModules(ws.pkg, ws.root);
+					const under = (by) => [
+						...declared.nested.filter((c) => c.by === by).map((c) => { const d = path.join(ws.root, by, 'git_modules', c.name); return `    ↳ ${c.name} nested @ ${tryGit(d, ['rev-parse', '--short', 'HEAD']) ?? '?'} — ${c.url} (${c.ref}); git_modules/${c.name} is ${c.top.url} (${c.top.ref})`; }),
+						...[...declared.map].filter(([n, m]) => m.declarers.includes(by) && isOwnClone(path.join(ws.root, by, 'git_modules', n))).map(([n]) => `    ↳ ${n} its own clone @ ${tryGit(path.join(ws.root, by, 'git_modules', n), ['rev-parse', '--short', 'HEAD']) ?? '?'}, not a link to git_modules/${n}`),
+					];
 					for (const l of layers) {
+						const over = declared.mismatches.filter((m) => m.name === l.name);
+						const asked = over.length ? ` · overrides ${over.map((m) => `${m.by} (${m.what} ${m.theirs})`).join(', ')}` : l.via.length ? ` · via ${l.via.join(', ')}` : '';
 						const dir = path.join(ws.root, 'git_modules', l.name);
 						const ref = fs.existsSync(dir) ? tryGit(dir, ['rev-parse', '--short', 'HEAD']) : null;
 						const mod = l.module ? modules.find((m) => m.layer === l.name) : null;
 						const found = descriptors.filter((d) => storageOf(d).roots.some((r) => r.layer === l.name && fs.existsSync(path.join(ws.root, r.path)))).map((d) => d.name).sort();
-						console.log(`  ${l.name.padEnd(20)} ${ref ? `git_modules @ ${ref}${tryGit(dir, ['status', '--porcelain']) ? ' (dirty)' : ''}` : 'not installed — dreamteamer install'} · records: ${found.join(', ') || '(none found)'}${l.module ? ` · module ${mod ? moduleIdOf(mod.name) : '-'}` : ''}`);
+						console.log(`  ${l.name.padEnd(20)} ${ref ? `git_modules @ ${ref}${tryGit(dir, ['status', '--porcelain']) ? ' (dirty)' : ''}` : 'not installed — dreamteamer install'} · records: ${found.join(', ') || '(none found)'}${l.module ? ` · module ${mod ? moduleIdOf(mod.name) : '-'}` : ''}${asked}`);
+						for (const line of under(`git_modules/${l.name}`)) console.log(line);
 					}
 				}
 				// env-pointed roots (`storage.path: ${env:NAME}/…`), rendered per machine by compile: the

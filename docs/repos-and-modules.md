@@ -18,6 +18,12 @@ dreamteamer install --clone <url> [name]     # add one
 dreamteamer update                           # pull clones forward (ff-only on the lockfile ref)
 ```
 
+What a clone NEEDS is installed from here too (0.46.0), the npm way: the entries of its `git_modules`
+that provide a holder its committed `dreamteamer-exports.json` names — its dependencies, never the rest of
+its list — each cloned once at the top-level `git_modules/<name>` and linked under the clone, so a project
+attached as a record layer need not be redeclared by every workspace that reads it. Your declaration
+overrides a clone's; a disagreement between clones nests a second copy; nothing is refused.
+
 ## Attached repos are data
 
 **Attached repos** are `repos` records under `data/repos/`. They contribute NOTHING to the workspace —

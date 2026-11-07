@@ -266,7 +266,7 @@ Keys are snake_case and closed: compile refuses an unknown one, naming the list.
 | `vars` | the `.env` keys records may reference as `${env:KEY}` (`records.md`) |
 | `auto_commit` | whether a record write also commits (default off) |
 | `harnesses` | which coding-agent adapters compile writes |
-| `git_modules` | the lockfile map `dt install` restores into `git_modules/` — `{ url, ref }` per clone; a clone whose own package.json names `workspace_module` is a RECORD LAYER (below), not a bundle, and `records: [<collection>…]` narrows it (or makes any clone a layer) — `module: true` adds its one workspace module |
+| `git_modules` | the lockfile map `dt install` restores into `git_modules/` — `{ url, ref }` per clone; a clone whose own package.json names `workspace_module` is a RECORD LAYER (below), not a bundle, and `records: [<collection>…]` narrows it (or makes any clone a layer) — `module: true` adds its one workspace module; what a clone NEEDS (the holders its `dreamteamer-exports.json` names) is installed here too, once at the top and linked under the clone (0.46.0) |
 | `disable` | what to drop from the compile: `modules/<id>` (a whole module, its code included) or `<kind>/<id>` (one entity) |
 | `local_assets` · `postinstall` · `repos_path` · `gitignore_runtime_folder` | links a worktree gets · a script `dt install` runs · where `repos` records materialise · whether `.dreamteamer/` is gitignored |
 
@@ -444,7 +444,13 @@ HQ reads the projects' records by cloning each project under `git_modules/`:
   count, never a failure.
 - **A layer is never a bundle.** Its own `modules/` is not unpacked and it
   is not an extension; the shapes are the modules both workspaces install. Its nested
-  `git_modules/` are never read.
+  `git_modules/` contribute no sources either — but what it NEEDS is installed here (0.46.0), the
+  npm way: the entries of its `git_modules` that provide a package its committed
+  `dreamteamer-exports.json` names as a holder, and only those. `dt install` clones each once at this
+  workspace's `git_modules/<name>` and links `<clone>/git_modules/<name>` to it; their records are read
+  here with the union of every declarer's `records` list, and `dt status` says `· via git_modules/<clone>`.
+  Your own declaration overrides a clone's (said in status); two clones that disagree get the second
+  copy nested under its declarer; nothing is refused.
 - **`module: true` also compiles the clone's WORKSPACE module** — `modules/<workspace_module>`, as
   the clone's own package.json names it — as a module source here, the way a bundle's module
   compiles: its agents, skills, commands, command-bindings, ui-views, mixins and collections, with a

@@ -6,6 +6,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { staleness, compile, discoverModules } from './compile.js';
 import { install as restoreGitModules, offRef } from './init.js';
+import { declaredGitModules } from './workspace.js';
 
 export const defaultGit = (args, cwd) => {
 	try {
@@ -138,8 +139,13 @@ export function observeState(ws) {
 		// ⚠ THE MISSING clones and the ones off their declared ref, not every declared one. A settled
 		// worktree would otherwise print `▶ git modules: …` for ever, and this is the step whose result
 		// nobody looks at — so the narrowing here is what makes the empty case mean "nothing to do".
-		gitModules: Object.entries(ws.pkg.dreamteamer?.git_modules ?? {})
-			.filter(([n, m]) => !resolves(here(path.join('git_modules', n))) || offRef(here(path.join('git_modules', n)), m?.ref ?? 'main')).map(([n]) => n),
+		// … and the ones a clone on disk NEEDS (`declaredGitModules`): missing, off their ref, nothing yet under
+		// a declarer (a clone of its own there is satisfied), or a nested copy missing or off its ref. Before
+		// the first install only this workspace's own are visible.
+		gitModules: [...new Set([
+			...[...declaredGitModules(ws.pkg, ws.root).map].filter(([n, m]) => !resolves(here(path.join('git_modules', n))) || offRef(here(path.join('git_modules', n)), m.ref) || m.declarers.some((by) => by && !resolves(here(path.join(by, 'git_modules', n))))).map(([n]) => n),
+			...declaredGitModules(ws.pkg, ws.root).nested.filter((c) => !resolves(here(path.join(c.by, 'git_modules', c.name))) || offRef(here(path.join(c.by, 'git_modules', c.name)), c.ref)).map((c) => c.name),
+		])],
 		stale: !s.compiled || s.stale.length > 0,
 		postinstall: ws.pkg.dreamteamer?.postinstall ?? null,
 	};

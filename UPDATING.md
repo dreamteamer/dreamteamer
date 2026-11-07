@@ -20,6 +20,41 @@ npx dreamteamer check
 
 ---
 
+## 0.46.0 — what a clone NEEDS is installed from the enclosing workspace, the npm way
+
+Nothing to do but `dt install`. Read this if a clone under your `git_modules/` is a workspace whose records
+reference another layer — a project attached as a record layer that names the org's people layer.
+
+- **A clone's needs are its committed `dreamteamer-exports.json`** (0.45.0): the packages it names as holding
+  ids its records reference. Those are its `dependencies`; everything else in its `git_modules` is its
+  `devDependencies`, which `dt install` never installs for you — a nested workspace that reads a whole
+  organisation does not make you read it. A clone with no manifest needs nothing. A need is matched to the
+  clone's `git_modules` entry whose name is the package name, scoped or not (`@northwind/org` → `org`); one
+  no entry provides is said: `⚠ git_modules/<clone>: dreamteamer-exports.json names <package>, which no
+  git_modules entry of the clone provides`. To make a project's needs installable, run `dt exports` in it
+  (or `dt exports --layer <clone>` from a workspace that reads it) and commit the file.
+- **Each need is cloned ONCE at your `git_modules/<name>`** and `<clone>/git_modules/<name>` becomes a symlink
+  to it (`../../<name>`), excluded in the clone's `.git/info/exclude` when its `.gitignore` does not already
+  cover `git_modules/`; `dt -w <clone> status` lists the layer installed and the clone's own compile finds it.
+  Needs are transitive. The install line says for whom: `… cloning <url> → git_modules/<name> (<ref>) — for
+  git_modules/<clone>, …`, and `dt status` ends the layer's line with `· via git_modules/<clone>, …`. The
+  hoisted layer is READ here, with the union of every declarer's `records` list; a nested `module: true` is
+  not hoisted.
+- **Your declaration overrides a clone's**, ref and url alike (npm `overrides`): install warns
+  `⚠ git_modules/<name>: this workspace's declaration overrides git_modules/<clone> (ref <theirs>), …` and
+  `dt status` ends the line with `· overrides …`. Two clones that disagree with each other while you say
+  nothing: the first is hoisted and the second gets its own copy NESTED under it,
+  `git_modules/<clone>/git_modules/<name>`, as npm nests a second version — `… cloning … — nested:
+  git_modules/<name> is <url> (<ref>)`, and under the clone's status line `↳ <name> nested @ <sha> — …`.
+  Nothing is refused. A clone of its own already standing where a link would go is left as it is and drawn
+  as `↳ <name> its own clone @ <sha>, not a link to git_modules/<name>`.
+- **`dt update` pulls a hoisted clone forward too** (not a nested copy — update that one in place). A
+  workspace cloned on its own is unchanged: it is the root, and installs everything it declares.
+- In-process: `declaredGitModules(pkg, root)` in `workspace.js` — `{ map, nested, mismatches, unmet }` — is
+  the one resolution `install`, `update`, `layerEntries` and the install board read.
+
+---
+
 ## 0.44.1 — a revision is a commit id or HEAD
 
 A security fix. Upgrade now if you run `dt serve` (`@dreamteamer/http`) or the editor, which hand a

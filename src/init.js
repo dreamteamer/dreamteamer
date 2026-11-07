@@ -8,7 +8,7 @@ import { discoverModules, KINDS } from './compile.js';
 import { KNOWN_HARNESSES } from './harnesses.js';
 import { Store } from './store.js';
 import { envContext, renderTemplate } from './env-vars.js';
-import { ensureEditorRecommendation } from './workspace.js';
+import { declaredGitModules, ensureEditorRecommendation } from './workspace.js';
 
 // git calls whose failure we CATCH must not print git's own error: execFileSync forwards the
 // child's stderr to ours unless told otherwise, so a handled "not a git repository" still
@@ -169,21 +169,15 @@ export function init({ flags = {} } = {}) {
 	return 0;
 }
 
-// dreamteamer install — restore git_modules/ working clones from the committed lockfile map
+// dreamteamer install — restore git_modules/ working clones from the committed lockfile map, and what each
+// restored clone NEEDS in turn (`declaredGitModules`, the npm model): a layer a clone's manifest names is
+// cloned ONCE at the top level and linked under the clone — or, where it disagrees with what the top holds,
+// cloned under the clone itself — to a fixpoint, since a clone just restored may need more. Never refuses.
 export function install({ root, pkg }) {
-	const map = pkg.dreamteamer?.git_modules ?? {};
-	const names = Object.keys(map);
-	if (!names.length) { console.log('✔ no git_modules declared — nothing to restore'); return 0; }
-	fs.mkdirSync(path.join(root, 'git_modules'), { recursive: true });
-	const unreachable = [];
-	for (const name of names) {
-		const { url, ref = 'main' } = map[name];
-		const dest = path.join(root, 'git_modules', name);
-		if (fs.existsSync(dest)) {
-			if (!repoint(dest, name, ref)) unreachable.push(name);
-			continue;
-		}
-		console.log(`… cloning ${url} → git_modules/${name} (${ref})`);
+	const unreachable = [], done = new Set();
+	let declared;
+	const clone = (url, ref, dest, name, note) => {
+		console.log(`… cloning ${url} → ${path.relative(root, dest)} (${ref})${note}`);
 		try {
 			execFileSync('git', ['clone', '--branch', ref, url, dest], { stdio: 'inherit' });
 		} catch {
@@ -193,27 +187,71 @@ export function install({ root, pkg }) {
 			// half-restored workspace and named only the first failure.
 			fs.rmSync(dest, { recursive: true, force: true }); // git leaves the partial dir behind
 			unreachable.push(name);
-			console.warn(`⚠ git_modules/${name}: clone failed — skipped (${url})`);
-			continue;
+			console.warn(`⚠ ${path.relative(root, dest)}: clone failed — skipped (${url})`);
+			return;
 		}
 		buildClone(dest, name);
+	};
+	for (;;) {
+		declared = declaredGitModules(pkg, root);
+		const top = [...declared.map].filter(([n]) => !done.has(n)).map(([name, e]) => ({ ...e, name, dest: path.join(root, 'git_modules', name), note: e.declarers.some(Boolean) ? ` — for ${e.declarers.filter(Boolean).join(', ')}` : '' }));
+		const under = declared.nested.filter((n) => !done.has(`${n.by}/${n.name}`)).map((n) => ({ ...n, dest: path.join(root, n.by, 'git_modules', n.name), note: ` — nested: git_modules/${n.name} is ${n.top.url} (${n.top.ref})` }));
+		if (!top.length && !under.length) break;
+		for (const t of [...top, ...under]) {
+			done.add(t.by ? `${t.by}/${t.name}` : t.name);
+			fs.mkdirSync(path.dirname(t.dest), { recursive: true });
+			if (fs.existsSync(t.dest)) { if (!repoint(t.dest, path.relative(path.join(root, 'git_modules'), t.dest), t.ref)) unreachable.push(t.name); continue; }
+			clone(t.url, t.ref, t.dest, t.name, t.note);
+			if (t.by) excludeIn(path.join(root, t.by), `git_modules/${t.name}`);
+		}
 	}
+	if (!done.size) { console.log('✔ no git_modules declared — nothing to restore'); return 0; }
+	for (const [name, { declarers }] of declared.map) for (const by of declarers) if (by && !unreachable.includes(name)) linkLayer(root, by, name);
+	for (const [name, list] of declared.mismatches.reduce((g, m) => g.set(m.name, [...(g.get(m.name) ?? []), m]), new Map())) { // Map.groupBy is Node 21+
+		console.warn(`⚠ git_modules/${name}: this workspace's declaration overrides ${list.map((m) => `${m.by} (${m.what} ${m.theirs})`).join(', ')}`);
+	}
+	for (const u of declared.unmet) console.warn(`⚠ ${u.by}: dreamteamer-exports.json names ${u.holder}, which no git_modules entry of the clone provides`);
 	// non-zero, because the workspace is NOT what the lockfile describes: modules are missing or off
 	// their ref, and `check` will report references into them as unknown collections.
 	if (unreachable.length) console.error(`✖ ${unreachable.length} module(s) are not what the lockfile declares: ${unreachable.join(', ')}`);
 	return unreachable.length ? 1 : 0;
 }
 
+/** The link a declarer finds its layer through — `<by>/git_modules/<name> -> ../../<name>`, the pnpm shape:
+ *  explicit on disk, resolved by a tool that knows nothing of dreamteamer. A clone of its own standing there
+ *  may hold work: left as it is, and said — `dt status` draws it too. */
+function linkLayer(root, by, name) {
+	const at = path.join(root, by, 'git_modules', name), want = path.join('..', '..', name);
+	let st = null;
+	try { st = fs.lstatSync(at); } catch { /* nothing there */ }
+	if (st && !st.isSymbolicLink()) { console.log(`… ${by}/git_modules/${name} is a clone of its own — left as it is`); return; }
+	if (st && fs.readlinkSync(at) === want) return;
+	if (st) fs.unlinkSync(at);
+	fs.mkdirSync(path.dirname(at), { recursive: true });
+	fs.symlinkSync(want, at);
+	excludeIn(path.join(root, by), `git_modules/${name}`);
+	console.log(`✔ ${by}/git_modules/${name} → git_modules/${name}`);
+}
+
+/** Ignore `rel` in a clone's own `.git/info/exclude` when its .gitignore does not already cover it — never
+ *  in a tracked file, which would dirty the clone. */
+function excludeIn(clone, rel) {
+	if (ran(clone, ['check-ignore', '-q', rel])) return;
+	const exclude = path.resolve(clone, tryGit(clone, ['rev-parse', '--git-path', 'info/exclude']) ?? path.join('.git', 'info', 'exclude'));
+	fs.mkdirSync(path.dirname(exclude), { recursive: true });
+	appendMissing(exclude, rel);
+}
+
 // dreamteamer update [<name>] — pull each lockfile-declared git_modules clone forward
 // (ff-only on its recorded ref) and rebuild it. dirty clones are skipped, never touched.
 // the caller (cli) runs compile afterwards — a pulled module may change sources.
 export function update({ root, pkg }, only) {
-	const map = pkg.dreamteamer?.git_modules ?? {};
+	const map = Object.fromEntries(declaredGitModules(pkg, root).map); // a hoisted layer is pulled forward too
 	if (only && !map[only]) throw new Error(`"${only}" is not in dreamteamer.git_modules (known: ${Object.keys(map).join(', ') || 'none'})`);
 	const names = only ? [only] : Object.keys(map);
 	if (!names.length) { console.log('✔ no git_modules declared — nothing to update'); return 0; }
 	for (const name of names) {
-		const { ref = 'main' } = map[name];
+		const { ref } = map[name];
 		const dest = path.join(root, 'git_modules', name);
 		if (!fs.existsSync(dest)) { console.warn(`⚠ git_modules/${name} missing — run \`dreamteamer install\` first; skipped`); continue; }
 		if (tryGit(dest, ['status', '--porcelain'])) { console.warn(`⚠ git_modules/${name} is dirty — skipped (commit or stash there, then re-run)`); continue; }
