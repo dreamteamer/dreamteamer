@@ -29,6 +29,7 @@ import { Store } from './store.js';
 import { splitRef, canonicalCollection } from './ref.js';
 import { envContext, renderTemplate } from './env-vars.js';
 import { doctorBoard, renderBoard } from './doctor.js';
+import { setupCommand } from './setup.js';
 import { storageOf } from './descriptor.js';
 
 // git calls whose failure we CATCH must not print git's own error: execFileSync forwards the
@@ -305,6 +306,7 @@ export const WORKSPACE_FLAGS = {
 	init: ['name', 'data_path', 'harnesses', 'workspace_module', 'ready'], update: [],
 	install: ['clone', 'dry-run', 'json', 'link-env', 'all', 'hook', 'print-adapters'],
 	compile: ['watch'], check: ['strict-export'], exports: ['layer', 'dry-run', 'json'], status: [], doctor: ['strict', 'json'],
+	setup: ['input', 'allow', 'authorize', 'verify', 'skip', 'no-input', 'json'],
 	changes: ['since', 'json'], commit: ['dry-run', 'json'], fmt: ['dry-run'], relocate: ['dry-run', 'json', 'to-root'],
 };
 
@@ -312,7 +314,7 @@ export const WORKSPACE_FLAGS = {
  *  spellings are in it too: they answer with their replacement, and an extension taking one over
  *  would turn a loud translation into a different command. */
 export const CORE_VERBS = [
-	'init', 'install', 'update', 'compile', 'check', 'exports', 'doctor', 'status', 'changes', 'commit', 'help', 'version', '--version', '-v',
+	'init', 'install', 'update', 'compile', 'check', 'exports', 'doctor', 'status', 'setup', 'changes', 'commit', 'help', 'version', '--version', '-v',
 	'list', 'add', 'values', 'get', 'set', 'rm', 'rename', 'history', 'diff', 'revert', 'reorder', 'next',
 	'add-field', 'set-field', 'rm-field', 'rename-field', 'rename-value', 'relations', 'resolve', 'relocate', 'fmt',
 	'schema', 'ensure', 'update-field', 'remove-field', 'commands',
@@ -445,6 +447,10 @@ export async function run(argv) {
 				const layers = rest.flatMap((a, i) => (a === '--layer' ? [rest[i + 1]] : a.startsWith('--layer=') ? [a.slice(8)] : [])).filter(Boolean);
 				process.exit(runExports(new Store(ws), { layers, dryRun: rest.includes('--dry-run'), json: rest.includes('--json') }));
 			}
+			// `dt setup [<unit>] …` — the generic driver of the units installed modules declare (src/setup.js):
+			// inputs, consent per effect, inspect → plan → apply, the receipt. The engine names no module.
+			case 'setup':
+				process.exit(await setupCommand(ws, rest, { api }));
 			case 'doctor': {
 				const caps = await doctorBoard(ws, api);
 				if (rest.includes('--json')) emit(JSON.stringify({ capabilities: caps }, null, 2));
@@ -762,10 +768,6 @@ export async function run(argv) {
 				}
 				if (DOCKER_VERBS.has(cmd)) {
 					console.error(`✖ \`dt ${cmd}\` is not a workspace verb — containers are managed by dt-docker:\n    npm i -g @dreamteamer/docker-workspaces\n    dt-docker ${cmd} container <name>`);
-					process.exit(2);
-				}
-				if (cmd === 'setup') {
-					console.error('✖ `dt setup` is gone — `dt doctor` shows what works on this machine, each fix on its row');
 					process.exit(2);
 				}
 				console.error(`✖ unknown verb "${cmd}" — the verb comes first: dt <verb> [<target>]`);

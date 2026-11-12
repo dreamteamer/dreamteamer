@@ -117,9 +117,10 @@ describe('an extension\'s command runs in-process, handed THIS workspace and THI
 			assert.equal(r.code, 2, verb);
 			assert.match(r.stderr, new RegExp(`npm i -g @dreamteamer/docker-workspaces\\n {4}dt-docker ${verb} container <name>`));
 		}
+		// `dt setup` is a core verb again (the generic driver of setup units); with none installed it says so, exit 0
 		const setup = ws.dt('setup');
-		assert.equal(setup.code, 2);
-		assert.match(setup.stderr, /`dt setup` is gone — `dt doctor` shows what works on this machine/);
+		assert.equal(setup.code, 0, setup.stderr);
+		assert.match(setup.stdout, /no installed module declares setup/);
 	});
 });
 

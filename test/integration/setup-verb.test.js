@@ -1,0 +1,118 @@
+// `dt setup` through the real binary, against the synthetic provider: inputs, consent per effect,
+// apply, receipt, skip, exit codes — every state of the design's status table reached and asserted.
+import { test, describe } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { workspace, withProbeSetup, ENGINE_ROOT, readFile, git } from '../helpers/ws.js';
+
+const BIN = path.join(ENGINE_ROOT, 'bin', 'dreamteamer.js');
+/** The CLI with a controlled environment: no TTY (stdio piped), HOME in the fixture, PROBE_* as given. */
+const run = (root, args, env = {}) => {
+	const home = path.join(root, '.home');
+	fs.mkdirSync(home, { recursive: true });
+	const r = spawnSync(process.execPath, [BIN, ...args], { cwd: root, encoding: 'utf8', timeout: 60_000, killSignal: 'SIGKILL', env: { PATH: process.env.PATH, HOME: home, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@example.invalid', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@example.invalid', ...env } });
+	return { code: r.status, stdout: r.stdout ?? '', stderr: r.stderr ?? '', home };
+};
+const probed = () => { const ws = workspace({ compile: false }); withProbeSetup(ws.root); git(ws.root, ['add', '-A']); git(ws.root, ['commit', '-qm', 'fixture: probe']); return ws; };
+
+describe('dt setup probe — the synthetic unit through every state', () => {
+	test('inputs given: the safe action runs, consequential ones are pending, exit 0', () => {
+		const ws = probed();
+		const r = run(ws.root, ['setup', 'probe', '--input', 'label=demo']);
+		assert.equal(r.code, 0, r.stderr + r.stdout);
+		assert.match(r.stdout, /— probe: configured/);
+		assert.match(r.stdout, /✔ make-home — wrote \.env/);
+		assert.match(r.stdout, /… fetch \(needs --allow download\)/);
+		assert.match(r.stdout, /… tune \(needs --allow machine\)/);
+		assert.match(r.stdout, /… sign-in \(the owner's step: dt setup <unit> --authorize\)/);
+		assert.match(r.stdout, /… verify \(run with --verify\)/);
+		// a path input is expanded by the engine before the unit sees it, so .env carries the real path
+		assert.equal(readFile(ws.root, '.env').split('\n')[0], `PROBE_HOME=${path.join(r.home, '.cache', 'probe')}`);
+		assert.match(readFile(ws.root, '.env'), /^PROBE_LABEL=demo$/m);
+		// the home came from the default, expanded under the fixture's HOME
+		assert.ok(fs.existsSync(path.join(r.home, '.cache', 'probe')), 'default home created');
+		// a second identical run applies nothing and changes nothing
+		const before = readFile(ws.root, '.env');
+		const again = run(ws.root, ['setup', 'probe', '--input', 'label=demo']);
+		assert.equal(again.code, 0);
+		assert.doesNotMatch(again.stdout, /✔ make-home/);
+		assert.equal(readFile(ws.root, '.env'), before);
+	});
+
+	test('--allow per effect applies download and machine; --verify writes the receipt and the line reads ready · verified', () => {
+		const ws = probed();
+		// the token file is an optional secret-path input read from the environment; present, never opened
+		const tok = path.join(ws.root, 'tok'); fs.writeFileSync(tok, 'secret');
+		const withTok = { PROBE_TOKEN_PATH: tok };
+		const r = run(ws.root, ['setup', 'probe', '--input', 'label=demo', '--input', 'home=' + path.join(ws.root, 'phome'), '--allow', 'download', '--allow', 'machine'], withTok);
+		assert.equal(r.code, 0, r.stderr);
+		assert.ok(fs.existsSync(path.join(ws.root, 'phome', 'weights.txt')));
+		assert.ok(fs.existsSync(path.join(ws.root, 'phome', 'tuned')));
+		assert.match(r.stdout, /— probe: configured — live check unverified/);
+		const v = run(ws.root, ['setup', 'probe', '--input', 'label=demo', '--input', 'home=' + path.join(ws.root, 'phome'), '--verify', '--allow', 'machine'], withTok);
+		assert.equal(v.code, 0, v.stderr);
+		assert.match(v.stdout, /✔ probe: ready · verified \d{4}-\d{2}-\d{2}/);
+		assert.ok(fs.existsSync(path.join(ws.root, '.dreamteamer', 'setup', 'probe', 'verify.json')));
+		// the receipt lives with the runtime: gitignored, never committed
+		assert.equal(git(ws.root, ['status', '--porcelain', '--', '.dreamteamer']), '');
+		// a verify without its machine consent stays pending
+		fs.rmSync(path.join(ws.root, '.dreamteamer', 'setup'), { recursive: true });
+		const w = run(ws.root, ['setup', 'probe', '--input', 'label=demo', '--input', 'home=' + path.join(ws.root, 'phome'), '--verify'], withTok);
+		assert.match(w.stdout, /… verify \(needs --allow machine\)/);
+	});
+
+	test('--authorize without a terminal is a usage refusal, exit 2', () => {
+		const ws = probed();
+		const r = run(ws.root, ['setup', 'probe', '--authorize']);
+		assert.equal(r.code, 2);
+		assert.match(r.stderr, /--authorize needs a terminal/);
+	});
+
+	test('--skip records the skip in package.json and commits it; the line reads skipped; running setup again clears it', () => {
+		const ws = probed();
+		const r = run(ws.root, ['setup', 'probe', '--skip']);
+		assert.equal(r.code, 0, r.stderr);
+		assert.deepEqual(JSON.parse(readFile(ws.root, 'package.json')).dreamteamer.setup, { skipped: ['probe'] });
+		assert.match(git(ws.root, ['log', '-1', '--pretty=%s']), /dreamteamer: skip setup of probe/);
+		assert.equal(git(ws.root, ['status', '--porcelain']), '');
+		const s = run(ws.root, ['setup', '--no-input']);
+		assert.match(s.stdout, /— probe: skipped/);
+		const back = run(ws.root, ['setup', 'probe', '--input', 'label=x', '--no-input']);
+		assert.match(back.stdout, /✔ probe: no longer skipped/);
+		assert.equal(JSON.parse(readFile(ws.root, 'package.json')).dreamteamer.setup, undefined);
+	});
+
+	test('a required input with no value and no TTY: exit 3, JSON names it, home still filled from its default', () => {
+		const ws = probed();
+		const r = run(ws.root, ['setup', 'probe', '--json']);
+		assert.equal(r.code, 3, r.stderr);
+		const out = JSON.parse(r.stdout);
+		assert.equal(out.workspace.root, ws.root);
+		assert.deepEqual(out.units[0].needs, ['label']);
+		assert.equal(out.units[0].state, 'configured');
+		// make-home needs the label, so it is pending, not applied
+		assert.deepEqual(out.units[0].applied, []);
+		assert.ok(out.units[0].pending.some((p) => p.id === 'make-home' && p.why === 'needs input'));
+	});
+
+	test('a provider that throws in apply: the unit reads blocked with the error redacted, exit 0', () => {
+		const ws = probed();
+		const r = run(ws.root, ['setup', 'probe', '--input', 'label=demo'], { PROBE_THROW: 'apply' });
+		assert.equal(r.code, 0, r.stderr);
+		assert.match(r.stdout, /✖ probe: blocked/);
+		assert.match(r.stdout, /✖ make-home — probe exploded: token=\[redacted\]/);
+		assert.doesNotMatch(r.stdout, /hunter2/);
+	});
+
+	test('zero checks is no evidence; an unknown unit, a bad --allow and a bad --input are usage refusals', () => {
+		const ws = probed();
+		const e = run(ws.root, ['setup', 'probe', '--input', 'label=demo', '--json'], { PROBE_EMPTY: '1' });
+		assert.equal(JSON.parse(e.stdout).units[0].state, 'no-evidence');
+		assert.equal(run(ws.root, ['setup', 'nope']).code, 2);
+		assert.match(run(ws.root, ['setup', 'nope']).stderr, /no setup unit "nope" — installed units: probe/);
+		assert.match(run(ws.root, ['setup', 'probe', '--allow', 'account']).stderr, /--allow takes one of download, network, machine/);
+		assert.match(run(ws.root, ['setup', 'probe', '--input', 'nope=1']).stderr, /--input nope= names no input of probe/);
+	});
+});
