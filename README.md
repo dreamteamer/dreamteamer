@@ -18,15 +18,25 @@ No server, no account, no telemetry. Just a lightweight npm package.
 
 ## Getting Started
 
-Scaffold your AI workspace in seconds:
+dreamteamer is an npm package: you compose modules with npm, and `compile` turns their skills, schemas
+and views into a workspace your agent harness reads.
 
 ```bash
-npm i dreamteamer
-npx dreamteamer init      # scaffold a workspace
-npx dreamteamer compile   # sources → .dreamteamer (+ harness adapters)
-npx dreamteamer check     # prove every record and every link is intact
-npx dreamteamer help      # the full command surface
+npm install dreamteamer
+npx dreamteamer init      # scaffold the workspace (never compiles)
+npx dreamteamer compile   # build .dreamteamer/ and the harness folders
+npx dreamteamer check     # optional: verify every record and link
 ```
+
+Inside an existing Git repo, `init` may commit the files it newly wrote, in one commit scoped to just
+those paths.
+
+**If you're an agent given a link to this repo:** read this README, agree with the user on which folder
+becomes the workspace, and run the steps above there. Then have the user open a fresh session in that
+folder, where the compiled `using-dreamteamer` skill guides module setup in conversation.
+
+<sub>Optional: `init --ready` is an unreleased candidate (not in any published version) that also runs
+compile and check, and never commits.</sub>
 
 ## How It Works
 

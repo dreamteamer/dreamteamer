@@ -20,7 +20,7 @@ import { check } from './check.js';
 import { collectionCommand, emit, relationsCommand, reportCommits } from './collections-cli.js';
 import { formatDescriptors } from './schema-ops.js';
 import { init, installClone, update, listRepos } from './init.js';
-import { installCommand, describeCheckout } from './checkout.js';
+import { installCommand, describeCheckout, bootstrap } from './checkout.js';
 import { declaredGitModules } from './workspace.js';
 const isOwnClone = (p) => { try { return !fs.lstatSync(p).isSymbolicLink() && fs.existsSync(path.join(p, '.git')); } catch { return false; } };
 import { foldChanges, groupChanges, reportLine } from './events.js';
@@ -211,6 +211,13 @@ Every verb that MOVES records or CLEARS values takes --dry-run and prints its pl
 workspace verbs:
   init        write the workspace skeleton into the current directory (never compiles)
               [--harnesses claude-code,codex,pi,gemini-cli,cursor]
+              --ready <version>  the one-command bootstrap: pins this exact engine version as a local
+              dependency (npm, with every declared package), writes the skeleton, compiles and checks.
+              Never commits, never runs git init. Refused before any write: another engine version
+              declared, locked or installed (never upgraded), a path it writes that links out of
+              the folder, or any folder link inside compile's output. Re-run it to resume — a
+              repeat changes nothing. From an empty folder:
+              npx dreamteamer@<version> init --ready <version>
   --version   print the engine version (works anywhere)
   install     make THIS checkout ready — the engine, .env (linked from the primary when this is a
               worktree), declared local assets, git modules, compile, and a declared postinstall.
@@ -295,7 +302,7 @@ const FIELD_VERBS = ['add-field', 'set-field', 'rm-field', 'rename-field', 'rena
 export const GLOBAL_FLAGS = ['workspace', 'vault'];
 
 export const WORKSPACE_FLAGS = {
-	init: ['name', 'data_path', 'harnesses', 'workspace_module'], update: [],
+	init: ['name', 'data_path', 'harnesses', 'workspace_module', 'ready'], update: [],
 	install: ['clone', 'dry-run', 'json', 'link-env', 'all', 'hook', 'print-adapters'],
 	compile: ['watch'], check: ['strict-export'], exports: ['layer', 'dry-run', 'json'], status: [], doctor: ['strict', 'json'],
 	changes: ['since', 'json'], commit: ['dry-run', 'json'], fmt: ['dry-run'], relocate: ['dry-run', 'json', 'to-root'],
@@ -350,7 +357,8 @@ export async function run(argv) {
 		if (cmd === 'init') {
 			// init runs BEFORE a workspace exists — no findWorkspace
 			const flags = {};
-			for (let i = 0; i < rest.length; i++) if (rest[i].startsWith('--')) flags[rest[i].slice(2)] = rest[i + 1];
+			for (let i = 0; i < rest.length; i++) if (rest[i].startsWith('--')) { const [k, v] = rest[i].slice(2).split(/=(.*)/s); flags[k] = v ?? rest[i + 1]; }
+			if ('ready' in flags) process.exit(await bootstrap(flags, { open: openWorkspace, verify: async (ws) => check(ws, { extra: await api.contributedViolations(ws) }) }));
 			process.exit(init({ flags }));
 		}
 		if (!cmd || cmd === 'help') {

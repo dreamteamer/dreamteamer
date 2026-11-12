@@ -1,6 +1,6 @@
 ---
 name: using-dreamteamer
-description: always load first in a dreamteamer workspace — reading, writing and committing records, and changing what the workspace keeps or does (collections and fields, skills, commands, agents, ui-views, component code). Also when deciding which of those a request should become, when a compile or check error names a source file, or when a request names a new kind of thing to keep. Also for a brand-new or just-installed workspace, or dreamteamer over existing data.
+description: always load first in a dreamteamer workspace — reading, writing and committing records, and changing what the workspace keeps or does (collections and fields, skills, commands, agents, ui-views, component code). Also when deciding which of those a request should become, when a compile or check error names a source file, or when a request names a new kind of thing to keep. Also for a brand-new or just-installed workspace, dreamteamer over existing data, or "help me set this up" — making the installed modules work on this machine.
 ---
 
 # using dreamteamer
@@ -45,7 +45,8 @@ so a clone has no runtime and no orientation until compile writes them — and `
 per-machine (declared keys: `references/records.md`). `dt status` says
 whether the runtime is fresh. the workspace's own switches live in `package.json`'s `dreamteamer`
 block (`references/collections.md`, the workspace manifest) — and the guided path from nothing,
-or from existing data, is `references/getting-started.md`.
+or from existing data, is `references/getting-started.md`. making the installed modules work on this
+machine — and the one-command bootstrap, `dt init --ready <version>` — is `references/setup.md`.
 
 ## the CLI is the front door
 
@@ -139,7 +140,8 @@ Load by the map; nothing here is loaded "just in case".
 
 | the job | load |
 |---|---|
-| a brand-new or empty workspace, dreamteamer over an existing pile of files, "help me set this up" | `references/getting-started.md` |
+| a brand-new or empty workspace, dreamteamer over an existing pile of files | `references/getting-started.md` |
+| "help me set this up", "finish setup", "add / connect / repair <capability>", "what works here?" — a module's `SETUP.md`, doctor-only modules, an honest readiness report | `references/setup.md` |
 | read, create, update, rename, delete, commit — or UNDO — a record | `references/records.md` |
 | "what changed while I was away", what this turn changed, the record report | `references/changes.md` |
 | the workspace seems unable to do something — a new kind of thing, a missing capability, "don't we already have this?" | `references/before-you-build.md` (look first); a new model then continues `references/data-modeling.md` (decide) → `references/collections.md` (write it) |

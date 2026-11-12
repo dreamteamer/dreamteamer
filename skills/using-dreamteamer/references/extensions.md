@@ -52,6 +52,10 @@ never disagree with the one the operator ran. It returns a contribution; every k
 | `doctor` | `({ root, ws, dt }) → [{ label, state: ok\|warn\|bad, detail?, fix? }]` | `dt doctor` renders the rows as one capability named after the extension: READY, DEGRADED (a warn) or UNAVAILABLE (a bad), each fix on its row |
 | `next` | `({ root, ws, collection, ids }) → [{ id, text }]`, synchronous | `dt next <ref>` prints each line under the bound commands (`--json`: `notes`, attributed); a throw is one failure line, never a failed `dt next`. `contributedNotes(ws, collection, ids)` is the same call for a surface |
 
+A module that needs per-machine setup (an account, a download, a local tool) ships it as prose an
+agent follows: `SETUP.md` at its module root, in npm `files`, naming its own commands as exact argv — a
+`dt` verb it contributes or a script it ships — not a contribution key. `setup.md` is how a session finds and follows it; `doctor` stays its read-only check.
+
 The `draft` is data only: the staged entries, the final merged descriptors, the modules, declared var
 and env key NAMES, and the previous manifest. No writer, no Store, no environment values — an analysis
 that needs one is a command, not an analysis.

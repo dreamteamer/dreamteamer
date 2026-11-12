@@ -5,8 +5,10 @@ import fs, { realpathSync } from 'node:fs';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { staleness, compile, discoverModules } from './compile.js';
-import { install as restoreGitModules, offRef } from './init.js';
+import { init, initFootprint, seedBlock, install as restoreGitModules, offRef } from './init.js';
 import { declaredGitModules } from './workspace.js';
+import { engineVersion, readManifest, RUNTIME_DIR } from './runtime.js';
+import { satisfies } from './semver.js';
 
 export const defaultGit = (args, cwd) => {
 	try {
@@ -450,4 +452,162 @@ export async function installCommand(ws, rest, { open } = {}) {
 		log(`\nthis is linked worktree ${path.basename(ws.root)} of ${state.checkout.primary}; before you finish, dt commit your records here — they are invisible from the primary until you do.`);
 	}
 	return code;
+}
+
+// ---- `dt init --ready <version>` — one command from a folder to a compiled, checked workspace ------
+
+const EXACT = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/;
+const readJson = (f) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return null; } };
+
+/** Where a write to `p` actually lands: every component resolved in order, a link's target spliced in
+ *  and resolved in turn — so a link whose leaf does not exist yet is still followed through each link
+ *  among its ancestors, and `..` means the parent of what was REACHED, never the lexical parent. A
+ *  missing component ends resolution (nothing below it can be a link). Null past 40 links: a loop. */
+function landing(p) {
+	const pending = p.split(path.sep);
+	let at = path.parse(p).root, hops = 0;
+	while (pending.length) {
+		const seg = pending.shift();
+		if (!seg || seg === '.') continue;
+		if (seg === '..') { at = path.dirname(at); continue; }
+		const next = path.join(at, seg);
+		let st = null;
+		try { st = fs.lstatSync(next); } catch { /* absent: created where it is named */ }
+		if (!st?.isSymbolicLink()) { at = next; continue; }
+		if (++hops > 40) return null;
+		const to = fs.readlinkSync(next);
+		pending.unshift(...to.split(path.sep));
+		if (path.isAbsolute(to)) at = path.parse(to).root;
+	}
+	return at;
+}
+
+/** Would a write to `rel` (root-relative, unnormalised — `a/../b` resolves through `a`) land outside `root`? */
+export function escapes(root, rel) {
+	const base = fs.realpathSync(root), to = landing(`${base}${path.sep}${rel}`);
+	if (to === null) return true;
+	const r = path.relative(base, to);
+	return r.startsWith('..') || path.isAbsolute(r);
+}
+
+/** The links under `rel` (lstat, never descending through one) — compile writes and prunes whole
+ *  trees there, so a link anywhere below is a place it writes through. */
+function linksUnder(root, rel, out = []) {
+	let entries = [];
+	try { entries = fs.readdirSync(path.join(root, rel), { withFileTypes: true }); } catch { return out; }
+	for (const e of entries) {
+		const r = path.join(rel, e.name);
+		if (e.isSymbolicLink()) out.push(r);
+		else if (e.isDirectory()) linksUnder(root, r, out);
+	}
+	return out;
+}
+
+// compile's built-in outputs: the runtime and the harness trees it writes AND prunes (harnesses.js)
+const OUTPUT_TREES = [RUNTIME_DIR, '.claude/skills', '.claude/agents', '.claude/commands', '.agents/skills', '.cursor/rules'];
+
+/** Every DIRECTORY link at or under an output tree — the tree's own root included — wherever it points.
+ *  ⚠ FAIL CLOSED, not "follow and judge": a link to a folder INSIDE the workspace is harmless as a path
+ *  and still hides what is below it (`linksUnder` never descends through a link), so a file link in the
+ *  aliased folder carried compile's write outside (third review). Compile makes none of these itself. */
+function aliasedOutputDirs(root) {
+	const isDirLink = (rel) => { try { return fs.lstatSync(path.join(root, rel)).isSymbolicLink() && fs.statSync(path.join(root, rel)).isDirectory(); } catch { return false; } };
+	return OUTPUT_TREES.flatMap((t) => [t, ...linksUnder(root, t)]).filter(isDirLink);
+}
+
+/** Every path `init --ready` may write, as init and compile will compute them — the effective block,
+ *  the built-in output trees with every link inside them, the managed-block files the last compile
+ *  recorded, and any top-level file-position link (a contributed harness writes its block at the root).
+ *  `.env` is exempt: never written here, and a worktree's is a link to its primary by design. A folder
+ *  link in an output tree never reaches here — `aliasedOutputDirs` refuses it first. NOT covered: a
+ *  nested file a newly installed extension's harness writes that no earlier compile recorded. */
+function writeFootprint(root, block, flags) {
+	let prev = {};
+	try { prev = readManifest(root) ?? {}; } catch { /* unreadable: the walk below still judges .dreamteamer/ */ }
+	const top = fs.readdirSync(root, { withFileTypes: true }).filter((e) => e.isSymbolicLink() && e.name !== '.env')
+		.filter((e) => { try { return !fs.statSync(path.join(root, e.name)).isDirectory(); } catch { return true; } }).map((e) => e.name);
+	return [...new Set([...initFootprint(block, flags), 'package-lock.json', 'node_modules',
+		'CLAUDE.md', 'AGENTS.md', 'GEMINI.md', ...(prev['adapter-blocks'] ?? []), ...(prev['adapter-outputs'] ?? []),
+		...OUTPUT_TREES, ...OUTPUT_TREES.flatMap((t) => linksUnder(root, t)), ...top].map(String))];
+}
+
+/** The bootstrap an agent runs for a person: the pinned engine as a local dependency, the skeleton,
+ *  compile, check. Legacy `init` is untouched — this is the opt-in mode, and it differs in four ways:
+ *
+ *  - **The version is EXPLICIT and must be the running engine's.** `npx dreamteamer init` runs whatever
+ *    npx resolved; the pin named in the command is what makes the code that runs the code that is pinned.
+ *  - **It never commits.** Legacy init commits its scoped files; a bootstrap in someone's dirty repo
+ *    must not author a commit they did not ask for. Nor does it `git init`, add a remote or touch an account.
+ *  - **An engine already chosen is the workspace's choice** — a declaration, lockfile entry or installed
+ *    copy of another version is a refusal before anything is written, never an upgrade; so is any path it
+ *    writes resolving outside the folder.
+ *  - **Every step observes first**, so a repeat changes nothing and an interrupted run resumes by
+ *    running the same command; a failure stops the steps after it, which all depend on it.
+ *
+ *  `open` must activate extensions (a preset's npm install brings them); `verify(ws)` is `dt check`'s
+ *  exit code. `npm` arrives as an argument for the reason `RUN.dependencies` gives. */
+export async function bootstrap(flags, { root = process.cwd(), open, verify, npm = resolveNpm(), stdio = 'inherit', log = console.log } = {}) {
+	const want = flags.ready, have = engineVersion();
+	if (typeof want !== 'string' || !EXACT.test(want)) throw new Error(`--ready needs the exact engine version to pin, e.g. \`dt init --ready ${have}\` — a range or "latest" is not a pin`);
+	if (want !== have) throw new Error(`--ready ${want}, but this is dreamteamer ${have} — run that version itself: npx dreamteamer@${want} init --ready ${want}`);
+	const pkgPath = path.join(root, 'package.json');
+	const pkg = fs.existsSync(pkgPath) ? readJson(pkgPath) : {};
+	if (!pkg || typeof pkg !== 'object') throw new Error('package.json is not a JSON object — nothing was written');
+	// ⚠ EVERY PATH THIS RUN WRITES IS JUDGED BEFORE THE FIRST WRITE. init and compile write through
+	// whatever stands at a path, so a `.gitignore` (or `.claude/skills`, or `modules/`) linked out of the
+	// folder would have been rewritten wherever it points, and the run would have said ✔. The block is
+	// init's OWN merge (`seedBlock`): a safe flag can never hide an unsafe stored value.
+	const block = seedBlock(flags, pkg.dreamteamer);
+	for (const k of ['workspace_module', 'data_path']) {
+		if (block[k] != null && block[k] !== false && typeof block[k] !== 'string') throw new Error(`dreamteamer.${k} must be a path (got ${JSON.stringify(block[k])}) — nothing was written`);
+	}
+	const aliased = aliasedOutputDirs(root);
+	if (aliased.length) throw new Error(`${aliased.join(', ')}: a folder link inside compile's output — compile writes through it, so nothing was written. Replace it with a real folder (or remove it; compile regenerates what it holds)`);
+	const out = writeFootprint(root, block, flags).filter((rel) => escapes(root, rel));
+	if (out.length) throw new Error(`${out.join(', ')} ${out.length > 1 ? 'resolve' : 'resolves'} outside this workspace — init --ready writes there, so nothing was written. Replace the link (or the configured path) with one inside the folder`);
+
+	// ⚠ THE DECLARATION, THE LOCKFILE AND THE INSTALLED COPY ARE JUDGED EACH ON ITS OWN. Reading only the
+	// installed copy let a package.json still declaring an older engine pass — the next clone installs that one.
+	const specs = [...new Set(['dependencies', 'devDependencies'].map((k) => pkg[k]?.dreamteamer).filter(Boolean))];
+	const locked = readJson(path.join(root, 'package-lock.json'))?.packages?.['node_modules/dreamteamer']?.version ?? null;
+	const installed = () => readJson(path.join(root, 'node_modules', 'dreamteamer', 'package.json'))?.version ?? null;
+	const upgrade = `init --ready never changes an existing engine — bootstrap with the one it names, or upgrade on purpose: npm install --save-exact dreamteamer@${want}, then UPDATING.md`;
+	if (specs.length > 1) throw new Error(`package.json declares dreamteamer twice, differently (${specs.join(' and ')}) — keep one declaration`);
+	if (specs[0] && (EXACT.test(specs[0]) ? specs[0] !== want : satisfies(want, specs[0]) === false)) throw new Error(`package.json declares dreamteamer "${specs[0]}", which ${want} is not — ${upgrade}`);
+	if (locked && locked !== want) throw new Error(`package-lock.json locks dreamteamer ${locked}, not ${want} — ${upgrade}`);
+	if (installed() && installed() !== want) throw new Error(`node_modules holds dreamteamer ${installed()}, not ${want} — ${upgrade}`);
+	const fail = (why) => { log(`✖ ${why}\n  the steps after this one did not run — fix it, then run the same command again: every step re-checks what is already done`); return 1; };
+
+	init({ flags, root, commit: false });
+	log('✔ skeleton: the package.json dreamteamer block, the workspace module, .gitignore, .env.example — kept where present');
+	// EVERY declared package, not just the engine: a preset whose npm install was interrupted holds the
+	// engine and lacks the modules it selected, and compile then succeeds without them (`planInstall`'s lesson).
+	const now = () => readJson(pkgPath) ?? {};
+	const missing = () => Object.keys({ ...now().dependencies, ...now().devDependencies }).sort().filter((d) => !fs.existsSync(path.join(root, 'node_modules', d, 'package.json')));
+	const declared = !!(now().dependencies?.dreamteamer ?? now().devDependencies?.dreamteamer);
+	let fresh = false;
+	if (declared && !missing().length) log(`✔ dependencies: dreamteamer@${want} and every declared package installed`);
+	else {
+		// declared is a preset (or a resumed run): its lockfile and its whole module selection are restored
+		const args = declared ? ['install', '--no-audit', '--no-fund'] : ['install', '--save-exact', '--no-audit', '--no-fund', `dreamteamer@${want}`];
+		log(`▶ dependencies: npm ${args.join(' ')}${missing().length ? ` — missing ${missing().join(', ')}` : ''} — downloads packages and runs their npm lifecycle scripts`);
+		if (!npm) return fail('cannot install — node found, npm not on PATH');
+		const r = spawnSync(npm, args, { cwd: root, stdio, env: childEnv(), timeout: 600_000 });
+		if (r.status !== 0) return fail(`npm exited ${r.status ?? r.error?.message}`);
+		if (missing().length) return fail(`npm finished, but ${missing().join(', ')} ${missing().length > 1 ? 'are' : 'is'} still not installed`);
+		if (installed() !== want) return fail(`npm finished, but node_modules/dreamteamer is ${installed() ?? 'missing'}, not ${want}`);
+		fresh = true;
+	}
+	let ws;
+	try {
+		ws = await open(root);
+		const s = staleness(root);
+		if (fresh || !s.compiled || s.stale.length) { log('▶ compile'); compile(ws); } else log('✔ compile: fresh');
+	} catch (e) { return fail(`compile: ${e.message.split('\n')[0]}`); }
+	if (await verify(ws)) return fail('check: the violations above');
+	log(spawnSync('git', ['rev-parse', '--git-dir'], { cwd: root, stdio: 'ignore' }).status === 0
+		? '— git: nothing was committed — `git status` shows what init wrote; commit it when you choose'
+		: '— git: not a repository, and none was made — `git init` (local, no account) turns on history and `dt commit`');
+	log(`\nready: dreamteamer@${want}, compiled and checked. To set up what this workspace does, read .dreamteamer/skills/using-dreamteamer/references/setup.md — a harness that loads skills only at session start finds it in the next session.`);
+	return 0;
 }

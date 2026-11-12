@@ -17,7 +17,10 @@ that reads the compiled runtime can render the same workspace later, unchanged.
 | dreamteamer joins a repo that also holds code | the skeleton, then path C |
 | "do I need git? a server? an account?" | git, in plain words |
 
-## the skeleton — five commands, one minute
+## the skeleton — one command, or five
+
+`npx dreamteamer@<version> init --ready <version>` does all of it but `git init` in one step, and
+never commits — what it changes and how it resumes is `setup.md` §0. The same, by hand:
 
 ```bash
 npm init -y                 # only if there is no package.json yet

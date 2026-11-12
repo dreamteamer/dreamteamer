@@ -20,6 +20,27 @@ npx dreamteamer check
 
 ---
 
+## Unreleased — `dt init --ready <version>`, and a setup reference (CR-dt-005, Stage A)
+
+Nothing to do but `dt compile`. Nothing an existing workspace does changes.
+
+- **`dt init --ready <version>` is a new, opt-in mode of `init`**: from an empty folder,
+  `npx dreamteamer@<version> init --ready <version>` installs that exact engine as a local dependency
+  (and every package the workspace already declares), writes the skeleton, compiles and checks. It never
+  commits, never runs `git init`, and refuses — before writing anything — a version other than the
+  running engine's, an engine of another version already declared, locked or installed, any path it or
+  compile writes that links out of the folder, and any folder link inside compile's output trees (even
+  one pointing inside — it can hide a link below it). One gap is stated rather than closed: a nested file
+  a newly installed extension's harness writes, which no earlier compile recorded, is not judged.
+  Re-running it resumes; a repeat changes nothing.
+- **Plain `dt init` is unchanged**, except that it no longer rewrites a `package.json` whose
+  `dreamteamer` block already holds every key it seeds — so a re-run leaves the file's formatting alone.
+- **A module's setup instructions are a `SETUP.md` at its module root** (list it in npm `files`). This
+  is a convention, not a contract: the engine reads nothing new, and `dt doctor` is the API 1 board as it
+  was. The skill's new `references/setup.md` is how an agent finds and follows it.
+
+---
+
 ## 0.46.1 — three install defects the first review of 0.46.0 found
 
 Nothing to do but `dt install`. Upgrade if you read a clone whose own declarations can change under you.
