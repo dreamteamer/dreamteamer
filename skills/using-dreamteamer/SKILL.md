@@ -46,7 +46,7 @@ per-machine (declared keys: `references/records.md`). `dt status` says
 whether the runtime is fresh. the workspace's own switches live in `package.json`'s `dreamteamer`
 block (`references/collections.md`, the workspace manifest) — and the guided path from nothing,
 or from existing data, is `references/getting-started.md`. making the installed modules work on this
-machine — and the one-command bootstrap, `dt init --ready <version>` — is `references/setup.md`.
+machine — and the one-command bootstrap, `dt init` — is `references/setup.md`.
 
 ## the CLI is the front door
 
@@ -141,7 +141,7 @@ Load by the map; nothing here is loaded "just in case".
 | the job | load |
 |---|---|
 | a brand-new or empty workspace, dreamteamer over an existing pile of files | `references/getting-started.md` |
-| "help me set this up", "finish setup", "add / connect / repair <capability>", "what works here?" — a module's `SETUP.md`, doctor-only modules, an honest readiness report | `references/setup.md` |
+| "help me set this up", "finish setup", "add meetings", "install a module", "connect my account / calendar", "something stopped working", "what works here?", "add / connect / repair <capability>" — `dt install`, `dt setup`, `dt status`: a module's setup unit, inputs and consent, an honest readiness report | `references/setup.md` |
 | read, create, update, rename, delete, commit — or UNDO — a record | `references/records.md` |
 | "what changed while I was away", what this turn changed, the record report | `references/changes.md` |
 | the workspace seems unable to do something — a new kind of thing, a missing capability, "don't we already have this?" | `references/before-you-build.md` (look first); a new model then continues `references/data-modeling.md` (decide) → `references/collections.md` (write it) |

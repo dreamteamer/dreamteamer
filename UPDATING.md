@@ -20,26 +20,36 @@ npx dreamteamer check
 
 ---
 
-## Unreleased — `dt init --ready <version>`, and a setup reference (CR-dt-005, Stage A)
+## Unreleased (0.47.0) — the CLI-first module lifecycle (CR-dt-006)
 
-Nothing to do but `dt compile`. Nothing an existing workspace does changes.
+Nothing to do but `dt compile`. Nothing an existing workspace's records do changes. What changes is
+how a workspace is MADE and how a module is ADDED:
 
-- **`dt init --ready <version>` is a new, opt-in mode of `init`**: from an empty folder,
-  `npx dreamteamer@<version> init --ready <version>` installs that exact engine as a local dependency
-  (and every package the workspace already declares), writes the skeleton, compiles and checks. It never
-  commits, never runs `git init`, and refuses — before writing anything — a version other than the
-  running engine's, an engine of another version already declared, locked or installed, any path it or
-  compile writes that links out of the folder, and any folder link inside compile's output trees (even
-  one pointing inside — it can hide a link below it). One gap is stated rather than closed: a nested file
-  a newly installed extension's harness writes, which no earlier compile recorded, is not judged.
-  Re-running it resumes; a repeat changes nothing.
-- **Plain `dt init` is unchanged**, except that it no longer rewrites a `package.json` whose
-  `dreamteamer` block already holds every key it seeds — so a re-run leaves the file's formatting alone.
-- **A module's setup instructions are a `SETUP.md` at its module root** (list it in npm `files`). This
-  is a convention, not a contract: the engine reads nothing new, and `dt doctor` is the API 1 board as it
-  was. The skill's new `references/setup.md` is how an agent finds and follows it.
-
----
+- **`dt init` does it all.** From an empty folder: pins the running engine exactly, writes the
+  skeleton, installs, compiles, checks, runs the safe part of any declared module's setup, turns the
+  folder into a git repository (when it is not one) and makes one commit scoped to what it wrote.
+  Inside an existing repository: the same scoped commit, your staged work untouched. `--no-git`,
+  `--git <remote-url>` (adds `origin`, never pushes), `--no-compile`, `--from <dir>` (a folder of
+  tarballs for an offline preset). It still refuses, before writing anything, a path that links out of
+  the folder and an engine of another version declared, locked or installed. **`init --ready` is gone**
+  — it was never published; plain `init` is what it did, plus git.
+- **`dt install <spec…>` brings a module in**: a name, `name@version`, `./file.tgz`, `./folder` (a
+  development link), a git URL. It installs the module and every module its `dreamteamer.dependencies`
+  names, refuses before npm writes anything (a package with no `dreamteamer` key, an engine floor this
+  engine does not meet, a ring, a version installed differently, a package an installed one already
+  `provides`), pins exact versions, compiles (a refusal restores `package.json`, the lockfile and
+  `node_modules`), runs the module's safe setup and commits `package.json`, `package-lock.json` and
+  what setup wrote. `--from <dir>` resolves names from a folder of tarballs. npm 7 or later.
+- **A module declares its setup as units** — the `setup` key of its extension contribution:
+  `[{ id, version: 1, inputs, inspect, plan, apply }]`. The engine drives every unit the same way and
+  never learns a module's name. `dreamteamer.provides` on a composed package lists what it composes.
+- **`dt setup [<unit>]`** resumes, repairs, verifies (`--verify`) and signs in (`--authorize`, in a
+  terminal); inputs come from `--input id=value`, the environment, the declared default, or a terminal
+  prompt; downloads, network and machine changes ask y/n or run under `--allow <kind>`; `--skip` records
+  a skip in `package.json`. The old "`dt setup` is gone" refusal is gone.
+- **`dt status` has a setup section** — one honest line per unit: `ready` (and `verified <date>` when a
+  live check wrote its receipt), `configured` with what is still unverified, `skipped`, `blocked`, `no
+  setup`. `dt doctor` renders a unit's checks as rows; `blocked` is bad, so `--strict` fails on it.
 
 ## 0.46.1 — three install defects the first review of 0.46.0 found
 

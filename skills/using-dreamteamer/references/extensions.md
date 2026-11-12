@@ -52,9 +52,13 @@ never disagree with the one the operator ran. It returns a contribution; every k
 | `doctor` | `({ root, ws, dt }) → [{ label, state: ok\|warn\|bad, detail?, fix? }]` | `dt doctor` renders the rows as one capability named after the extension: READY, DEGRADED (a warn) or UNAVAILABLE (a bad), each fix on its row |
 | `next` | `({ root, ws, collection, ids }) → [{ id, text }]`, synchronous | `dt next <ref>` prints each line under the bound commands (`--json`: `notes`, attributed); a throw is one failure line, never a failed `dt next`. `contributedNotes(ws, collection, ids)` is the same call for a surface |
 
-A module that needs per-machine setup (an account, a download, a local tool) ships it as prose an
-agent follows: `SETUP.md` at its module root, in npm `files`, naming its own commands as exact argv — a
-`dt` verb it contributes or a script it ships — not a contribution key. `setup.md` is how a session finds and follows it; `doctor` stays its read-only check.
+A module that needs per-machine setup (an account, a download, a local tool) declares it as a
+**setup unit** — the `setup` contribution key: `[{ id, version: 1, inputs: [{ id, kind: 'string'|'path'|'rows'|'secret-path', env?, required?, default?, prompt?, rows? }], inspect(ctx) → { checks }, plan(ctx, inputs) → { checks, actions: [{ id, title, effects: [{ kind, detail }], preview?, expect?, runBy?, kind? }], needs }, apply(ctx, action, inputs) → { ok, changed, message? } }]`.
+A unit is addressed by its `id` wherever it is installed (alone, or composed into a bigger package); the engine validates the shape at
+load, refuses two packages claiming one id, and drives every unit through `dt install`, `dt setup` and `dt status` without
+knowing the module (`setup.md`). `doctor` renders a unit's checks as rows. An input's `env` must also be declared in the
+package's `dreamteamer.env` or `vars`. A composed package lists what it composes in `dreamteamer.provides`, so `dt install`
+refuses a duplicate in both directions.
 
 The `draft` is data only: the staged entries, the final merged descriptors, the modules, declared var
 and env key NAMES, and the previous manifest. No writer, no Store, no environment values — an analysis

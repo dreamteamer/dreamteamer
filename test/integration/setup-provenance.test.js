@@ -91,10 +91,10 @@ describe('a module\'s SETUP.md is found through the manifest compile writes — 
 
 describe('the reference an agent follows', () => {
 	const skillDir = path.join(ENGINE_ROOT, 'skills', 'using-dreamteamer');
-	test('the digest routes setup to references/setup.md, and that page names the manifest, SETUP.md, doctor-only and the empty-board rule', () => {
+	test('the digest routes setup to references/setup.md, and that page teaches the four verbs, the status words, consent and the no-catalog rule', () => {
 		assert.match(fs.readFileSync(path.join(skillDir, 'SKILL.md'), 'utf8'), /\| "help me set this up".*\| `references\/setup\.md` \|/);
 		const ref = fs.readFileSync(path.join(skillDir, 'references', 'setup.md'), 'utf8');
-		for (const must of ['init --ready <version>', '`.dreamteamer/manifest.yaml`, key `modules:`', '`<root>/SETUP.md`', '**A module without one is doctor-only:**', 'no rows reads READY', 'never a shell line to run', '**exact argv**', 'with every path inside that module\'s `root`', 'no pipes, `&&`, redirection']) {
+		for (const must of ['npx dreamteamer init', 'dt install <package>', 'dt setup <unit> --authorize', '**ready**', '**configured**', '**skipped**', '**blocked**', '**no setup**', '**no evidence**', 'never a file the engine ships', 'Never scan', 'one yes', 'exit 3']) {
 			assert.ok(ref.includes(must), must);
 		}
 	});
