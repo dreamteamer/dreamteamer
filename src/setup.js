@@ -239,6 +239,11 @@ export function setSkipped(ws, unitId, on) {
 
 // ---- the verb -----------------------------------------------------------------------------------
 
+/** The terminal's prompt and y/n, on one readline — `dt setup` and `dt install` share it. */
+export function ttyIO() {
+	const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+	return { prompt: ttyPrompt(rl), ask: ttyAsk(rl), close: () => rl.close() };
+}
 const ttyPrompt = (rl) => async (input, def) => {
 	const hint = def !== undefined ? ` [${def}]` : input.required ? ' (required)' : ' (enter to skip)';
 	const answer = (await rl.question(`${input.prompt ?? input.title ?? input.id}${hint}: `)).trim();
@@ -276,9 +281,9 @@ export async function setupCommand(ws, argv, { processEnv = process.env, tty = !
 	if (target && skippedUnits(ws).includes(target)) { setSkipped(ws, target, false); log(`✔ ${target}: no longer skipped`); }
 	const skipped = new Set(skippedUnits(ws));
 	const run = chosen.filter((u) => !skipped.has(u.id));
-	const rl = tty && !noInput && !io ? readline.createInterface({ input: process.stdin, output: process.stdout }) : null;
-	const prompt = io?.prompt ?? (rl ? ttyPrompt(rl) : null);
-	const ask = io?.ask ?? (rl ? ttyAsk(rl) : null);
+	const term = tty && !noInput && !io ? ttyIO() : null;
+	const prompt = io?.prompt ?? term?.prompt ?? null;
+	const ask = io?.ask ?? term?.ask ?? null;
 	let code = EXIT.done;
 	const results = [];
 	try {
@@ -294,7 +299,7 @@ export async function setupCommand(ws, argv, { processEnv = process.env, tty = !
 	} catch (e) {
 		if (e instanceof SetupUsage) { console.error(`✖ ${e.message}`); return EXIT.usage; }
 		throw e;
-	} finally { rl?.close(); }
+	} finally { term?.close(); }
 	if (json) { log(JSON.stringify({ workspace: { root: ws.root, name: ws.pkg?.name ?? null }, units: results }, null, 2)); return code; }
 	for (const r of results) {
 		const verified = r.verified ? ` · verified ${r.verified}` : '';

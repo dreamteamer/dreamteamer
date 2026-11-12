@@ -30,6 +30,7 @@ import { splitRef, canonicalCollection } from './ref.js';
 import { envContext, renderTemplate } from './env-vars.js';
 import { doctorBoard, renderBoard } from './doctor.js';
 import { setupCommand, statusLines, renderStatusLines } from './setup.js';
+import { installModules } from './install-modules.js';
 import { storageOf } from './descriptor.js';
 
 // git calls whose failure we CATCH must not print git's own error: execFileSync forwards the
@@ -251,6 +252,16 @@ workspace verbs:
   doctor      what works on this machine — the engine, then each extension's checks — as one board:
               READY / DEGRADED / UNAVAILABLE, each fix on its row. Exit 0 [--strict] exit 1 when
               anything is UNAVAILABLE [--json]
+  setup       [<unit>] drive the setup a module declares — resume, repair, verify, sign in. The
+              engine names no module: a unit is what an installed package contributes (dt status
+              lists them). Inputs: [--input <id>=<value>]… (or <unit>.<id>=; then the environment,
+              then the declared default; a terminal asks for what is still missing, [--no-input]
+              never asks → exit 3 with the ids). Effects: workspace-file writes run; download,
+              network and machine ask y/n in a terminal or run under [--allow <kind>]…; an account
+              step (sign-in, consent) runs only under [--authorize], in a terminal. [--verify] runs
+              the unit's live check and writes its receipt. [--skip] records the skip in
+              package.json (dt setup <unit> clears it). [--json] the result as data.
+              Exit 0 done (pending steps printed) · 1 failed · 2 usage · 3 a required input missing
   status      workspace status: compiled runtime freshness, per-module channel/ref, staleness
 
   changes     the records created / updated / deleted in every repo that holds records — the
@@ -304,7 +315,7 @@ export const GLOBAL_FLAGS = ['workspace', 'vault'];
 
 export const WORKSPACE_FLAGS = {
 	init: ['name', 'data_path', 'harnesses', 'workspace_module', 'ready'], update: [],
-	install: ['clone', 'dry-run', 'json', 'link-env', 'all', 'hook', 'print-adapters'],
+	install: ['clone', 'dry-run', 'json', 'link-env', 'all', 'hook', 'print-adapters', 'from', 'input', 'allow', 'no-input', 'no-commit'],
 	compile: ['watch'], check: ['strict-export'], exports: ['layer', 'dry-run', 'json'], status: ['json'], doctor: ['strict', 'json'],
 	setup: ['input', 'allow', 'authorize', 'verify', 'skip', 'no-input', 'json'],
 	changes: ['since', 'json'], commit: ['dry-run', 'json'], fmt: ['dry-run'], relocate: ['dry-run', 'json', 'to-root'],
@@ -410,8 +421,12 @@ export async function run(argv) {
 					const args = target === 'repos' ? given : [target.slice('repos/'.length), ...given];
 					process.exit(collectionCommand(ws, 'repos', 'ensure', args));
 				}
-				if (target) {
-					throw new Error(`dt install takes no target "${target}" — \`dt install\` makes THIS checkout ready, and \`dt install repos/${target}\` materializes an attached repo`);
+				// THE SPEC FORM (src/install-modules.js): any positional that is not `repos…` is an npm spec —
+				// a name, name@version, ./file.tgz, ./folder, a git URL — and `--from` resolves names from a
+				// folder of tarballs. The flags are its own; the checkout form's are refused on it below.
+				if (target || given.includes('--from')) {
+					refuse('dt install <spec…>', ['--from', '--input', '--allow', '--no-input', '--no-commit', '--json']);
+					process.exit(await installModules(ws, rest, { open: openWorkspace, verify: async (w) => check(w, { extra: await api.contributedViolations(w) }) }));
 				}
 				// ⚠ TWO MORE FORMS, EACH ITS OWN VOCABULARY. `--hook` reads a JSON payload off stdin
 				// and installs the checkout that payload names; `--print-adapters` installs nothing
@@ -568,6 +583,8 @@ export async function run(argv) {
 					// §10: the folder name IS the label. `hr  git_modules @ 3f2a1c (dirty)` needs no
 					// legend, and `[inline]` needed one every single time.
 					let line = `  ${m.name.padEnd(20)} ${locationOf(m, ws.root)}`;
+					// a development link (a folder spec): never pinned, skipped by update
+					try { if (m.channel === 'npm' && fs.lstatSync(path.join(ws.root, 'node_modules', m.name)).isSymbolicLink() && m.name !== 'dreamteamer') line += ' (linked)'; } catch { /* not under node_modules */ }
 					if (m.channel === 'git') {
 						const ref = tryGit(m.root, ['rev-parse', '--short', 'HEAD']);
 						const dirty = tryGit(m.root, ['status', '--porcelain']);

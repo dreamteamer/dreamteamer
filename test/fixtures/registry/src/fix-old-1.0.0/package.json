@@ -1,0 +1,12 @@
+{
+	"name": "@fix/old",
+	"version": "1.0.0",
+	"description": "@fix/old 1.0.0",
+	"files": [
+		"collections"
+	],
+	"dreamteamer": {
+		"description": "@fix/old \u2014 a synthetic module for install tests.",
+		"engine": ">=99.0.0"
+	}
+}

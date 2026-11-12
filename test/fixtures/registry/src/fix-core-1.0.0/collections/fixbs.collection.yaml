@@ -1,0 +1,13 @@
+name: fixbs
+description: A fixbs record.
+storage:
+  path: fixbs
+  format: md
+  shape: file
+  suffix: fixb
+ids:
+  from: '{{ title | slug }}'
+fields:
+  title:
+    type: string
+    required: true

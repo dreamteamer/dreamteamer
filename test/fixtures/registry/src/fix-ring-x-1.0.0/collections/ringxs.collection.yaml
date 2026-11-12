@@ -1,0 +1,13 @@
+name: ringxs
+description: A ringxs record.
+storage:
+  path: ringxs
+  format: md
+  shape: file
+  suffix: ringx
+ids:
+  from: '{{ title | slug }}'
+fields:
+  title:
+    type: string
+    required: true

@@ -1,0 +1,14 @@
+{
+	"name": "@fix/ring-y",
+	"version": "1.0.0",
+	"description": "@fix/ring-y 1.0.0",
+	"files": [
+		"collections"
+	],
+	"dreamteamer": {
+		"description": "@fix/ring-y \u2014 a synthetic module for install tests.",
+		"dependencies": [
+			"@fix/ring-x"
+		]
+	}
+}

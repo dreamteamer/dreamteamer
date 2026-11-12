@@ -1,0 +1,13 @@
+name: olds
+description: A olds record.
+storage:
+  path: olds
+  format: md
+  shape: file
+  suffix: old
+ids:
+  from: '{{ title | slug }}'
+fields:
+  title:
+    type: string
+    required: true
