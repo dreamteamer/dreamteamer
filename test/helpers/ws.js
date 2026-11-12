@@ -463,3 +463,22 @@ export function bareWorkspace(sourceRoot, moduleId) {
 		git: (a) => git(root, a),
 	};
 }
+
+/** Install one of the engine's own fixture packages (test/fixtures/<id>) into a workspace's
+ *  node_modules under its package name and declare it, the way npm would have. Returns the dir. */
+export function installFixture(root, id) {
+	const src = path.join(ENGINE_ROOT, 'test', 'fixtures', id);
+	const name = JSON.parse(fs.readFileSync(path.join(src, 'package.json'), 'utf8')).name;
+	const dest = path.join(root, 'node_modules', name);
+	fs.mkdirSync(path.dirname(dest), { recursive: true });
+	fs.cpSync(src, dest, { recursive: true });
+	const pkgFile = path.join(root, 'package.json');
+	const pkg = JSON.parse(fs.readFileSync(pkgFile, 'utf8'));
+	pkg.dependencies = { ...pkg.dependencies, [name]: '1.0.0' };
+	fs.writeFileSync(pkgFile, JSON.stringify(pkg, null, '\t') + '\n');
+	return dest;
+}
+/** The synthetic setup provider (`@probe/setup`, unit `probe`) — see test/fixtures/probe-setup/entry.js. */
+export const withProbeSetup = (root) => installFixture(root, 'probe-setup');
+/** The colliding plain module (`@probe/collide`, a `notes` collection) — a compile refusal on install. */
+export const withProbeCollide = (root) => installFixture(root, 'probe-collide');

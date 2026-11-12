@@ -5,7 +5,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { workspace, readFile, git, dt, compileQuietly, compileError, WS_MODULE } from '../helpers/ws.js';
+import { workspace, readFile, git, dt, compileQuietly, compileError, WS_MODULE, withProbeSetup, withProbeCollide } from '../helpers/ws.js';
 import { dump } from '../../src/yaml.js';
 import { openWorkspace, contributedViolations, check, CHECK_WARNINGS } from '../../src/api.js';
 
@@ -275,6 +275,22 @@ describe('the loader refuses what it cannot honour — at open, by name', () => 
 		const c = workspace({ compile: false });
 		install(c.root, { entry: 'export default () => ({});', descriptor: null });
 		assert.deepEqual((await openWorkspace(c.root)).extensions.find((e) => e.name === 'probe-kit').setup, []);
+	});
+
+	test('the synthetic provider loads as one unit with four inputs; the colliding module compiles only alone', async () => {
+		const a = workspace({ compile: false });
+		withProbeSetup(a.root);
+		const ws = await openWorkspace(a.root);
+		const unit = ws.extensions.find((e) => e.name === '@probe/setup').setup[0];
+		assert.equal(unit.id, 'probe');
+		assert.deepEqual(unit.inputs.map((i) => i.id), ['home', 'label', 'token', 'rows']);
+		assert.deepEqual(unit.inspect({ root: a.root, env: {}, receiptDir: path.join(a.root, '.dreamteamer', 'setup', 'probe') }).checks.map((c) => [c.id, c.status]),
+			[['probe.home', 'missing'], ['probe.token', 'missing'], ['probe.weights', 'missing'], ['probe.tuned', 'missing'], ['probe.live', 'unverified']]);
+		assert.deepEqual(unit.inspect({ root: a.root, env: { PROBE_EMPTY: '1' } }).checks, []);
+		const b = workspace({ compile: false });
+		withProbeCollide(b.root);
+		// reopened: the fixture's handle predates the dependency the helper just declared
+		assert.match(compileError(await openWorkspace(b.root)), /name collision on collection "notes"/);
 	});
 
 	test('an unknown contribution key, an entry that will not load, a newer API', async () => {

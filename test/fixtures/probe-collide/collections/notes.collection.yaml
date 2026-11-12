@@ -1,0 +1,13 @@
+name: notes
+description: A note — the same name the init skeleton's starter collection uses, so compile refuses the pair.
+storage:
+  path: notes
+  format: md
+  shape: file
+  suffix: note
+ids:
+  from: '{{ title | slug }}'
+fields:
+  title:
+    type: string
+    required: true
