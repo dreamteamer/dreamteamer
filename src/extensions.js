@@ -23,6 +23,8 @@
 //               the schema's; `warning: true` prints a warning that does not count (`dt.CHECK_WARNINGS` says so)
 //   doctor      ({ root, ws, dt }) → [{ label, state, detail?, fix? }]   rows `dt doctor` renders as one capability
 //   next        ({ root, ws, collection, ids }) → [{ id, text }]   a line about a record `dt next` prints (sync)
+//   setup       [{ id, version: 1, inputs, inspect, plan, apply }]   setup UNITS `dt install`, `dt setup` and `dt status`
+//               drive without knowing the module (src/setup-contract.js is the shape, src/setup.js the runner)
 //
 // Two contributions claiming the same verb, kind or harness is a refusal — there is no "last one
 // wins", because the loser would be an extension the operator installed that silently does nothing.
@@ -32,6 +34,7 @@ import { pathToFileURL } from 'node:url';
 import { satisfies } from './semver.js';
 import { engineVersion } from './runtime.js';
 import { layerEntries } from './workspace.js';
+import { validateSetup } from './setup-contract.js';
 
 /** The keys a package.json `dreamteamer` block may carry — the workspace's and a module's alike. */
 export const MANIFEST_KEYS = ['title', 'description', 'workspace_module', 'data_path', 'namespaces', 'vars', 'env', 'auto_commit', 'harnesses', 'git_modules', 'disable', 'local_assets', 'postinstall', 'gitignore_runtime_folder', 'repos_path', 'dependencies', 'peer_collections', 'owns_data', 'engine', 'extension', 'ignore'];
@@ -54,7 +57,7 @@ export function v1ManifestRefusal(block, where) {
 
 export const EXTENSION_API = 1;
 
-const CONTRIBUTION_KEYS = new Set(['commands', 'sourceKinds', 'analyze', 'harnesses', 'orientation', 'hooks', 'check', 'doctor', 'next']);
+const CONTRIBUTION_KEYS = new Set(['commands', 'sourceKinds', 'analyze', 'harnesses', 'orientation', 'hooks', 'check', 'doctor', 'next', 'setup']);
 
 /** The modules that declare an extension entry: the workspace's own `modules/<id>/` first, then each
  *  clone under `git_modules/` (the clone's root, then the modules it bundles under `modules/`), then its
@@ -77,7 +80,7 @@ export function declaredExtensions(ws) {
 		// a module whose engine floor is unmet is refused whole, its code with its content
 		const range = pkg.dreamteamer.engine;
 		if (range && satisfies(engineVersion(), range) === false) return void console.warn(`✖ extension ${name} needs engine "${range}" — this is ${engineVersion()}, so it is not loaded`);
-		out.push({ name, version: pkg.version ?? '0.0.0', dir, entry: path.join(dir, entry) });
+		out.push({ name, version: pkg.version ?? '0.0.0', dir, entry: path.join(dir, entry), env: pkg.dreamteamer.env ?? [], vars: pkg.dreamteamer.vars ?? [] });
 	};
 	let inline = [];
 	try { inline = fs.readdirSync(path.join(ws.root, 'modules')).sort(); } catch { /* no modules/ */ }
@@ -125,13 +128,15 @@ export async function loadExtensions(ws, api, reserved = {}) {
 	const v1 = v1ManifestRefusal(ws.pkg?.dreamteamer, 'package.json');
 	if (v1) throw new Error(v1);
 	const loaded = [];
-	const owner = { command: new Map(), kind: new Map(), harness: new Map() };
+	const owner = { command: new Map(), kind: new Map(), harness: new Map(), unit: new Map() };
 	for (const r of reserved.verbs ?? []) owner.command.set(r, 'the engine');
 	for (const r of reserved.kinds ?? []) owner.kind.set(r, 'the engine');
 	for (const r of reserved.harnesses ?? []) owner.harness.set(r, 'the engine');
 	const claim = (what, key, by) => {
 		const prev = owner[what].get(key);
-		if (prev) throw new Error(`extension ${by} contributes the ${what} "${key}", which ${prev} already owns — uninstall one, or switch it off: add "modules/${by}" to dreamteamer.disable in package.json`);
+		if (prev) throw new Error(what === 'unit'
+			? `setup unit "${key}" is contributed by ${by} and ${prev} — uninstall one, or switch it off: add "modules/${by}" to dreamteamer.disable in package.json`
+			: `extension ${by} contributes the ${what} "${key}", which ${prev} already owns — uninstall one, or switch it off: add "modules/${by}" to dreamteamer.disable in package.json`);
 		owner[what].set(key, by);
 	};
 	for (const ext of declaredExtensions(ws)) {
@@ -154,7 +159,12 @@ export async function loadExtensions(ws, api, reserved = {}) {
 		for (const k of sourceKinds) claim('kind', k.kind, ext.name);
 		for (const id of Object.keys(c.harnesses ?? {})) claim('harness', id, ext.name);
 		for (const fn of ['analyze', 'check', 'doctor', 'next']) if (c[fn] !== undefined && typeof c[fn] !== 'function') throw new Error(`extension ${ext.name}: ${fn} must be a function`);
-		loaded.push({ name: ext.name, version: ext.version, commands, sourceKinds, analyze: c.analyze ?? null, harnesses: c.harnesses ?? {}, orientation: c.orientation ?? null, hooks: c.hooks ?? {}, check: c.check ?? null, doctor: c.doctor ?? null, next: c.next ?? null });
+		// setup units: validated here so an uncompilable declaration never reaches `dt install`; a unit id is
+		// claimed like a verb, because two packages answering `dt setup <id>` is the same silent loser
+		const setup = validateSetup(ext.name, c.setup, { env: ext.env, vars: ext.vars });
+		if (setup.errors.length) throw new Error(setup.errors.join('\n'));
+		for (const u of setup.units) claim('unit', u.id, ext.name);
+		loaded.push({ name: ext.name, version: ext.version, dir: ext.dir, commands, sourceKinds, analyze: c.analyze ?? null, harnesses: c.harnesses ?? {}, orientation: c.orientation ?? null, hooks: c.hooks ?? {}, check: c.check ?? null, doctor: c.doctor ?? null, next: c.next ?? null, setup: setup.units });
 	}
 	return loaded;
 }

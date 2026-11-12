@@ -251,6 +251,32 @@ describe('the loader refuses what it cannot honour — at open, by name', () => 
 		await assert.rejects(openWorkspace(ws.root), /kit-b contributes the kind "gizmos", which kit-a already owns — uninstall one, or switch it off: add "modules\/kit-b" to dreamteamer\.disable/);
 	});
 
+	test('a setup unit is loaded with its defaults, and two packages claiming one unit id refuse', async () => {
+		const UNIT = (id) => `export default () => ({ setup: [{ id: '${id}', version: 1, inputs: [{ id: 'home', kind: 'path', env: 'KIT_HOME' }], inspect: () => ({ checks: [] }), plan: () => ({ checks: [], actions: [], needs: [] }), apply: () => ({ ok: true, changed: [] }) }] });`;
+		const a = workspace({ compile: false });
+		const dir = install(a.root, { name: 'kit-a', entry: UNIT('tune'), descriptor: null });
+		// the input names an env key the package does not declare — refused at load, naming the key
+		await assert.rejects(openWorkspace(a.root), /unit tune: input home names env KIT_HOME, which the package does not declare in dreamteamer\.env or vars/);
+		const pkg = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8'));
+		pkg.dreamteamer.vars = ['KIT_HOME'];
+		fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify(pkg));
+		const ws = await openWorkspace(a.root);
+		const ext = ws.extensions.find((e) => e.name === 'kit-a');
+		assert.equal(ext.setup.length, 1);
+		assert.equal(ext.setup[0].module, 'kit-a');
+		assert.deepEqual(ext.setup[0].inputs.map((i) => [i.id, i.kind, i.env, i.required]), [['home', 'path', 'KIT_HOME', false]]);
+		// a second package with the same unit id is the same silent loser as two verbs
+		const b = install(a.root, { name: 'kit-b', entry: UNIT('tune'), descriptor: null });
+		const pkgB = JSON.parse(fs.readFileSync(path.join(b, 'package.json'), 'utf8'));
+		pkgB.dreamteamer.vars = ['KIT_HOME'];
+		fs.writeFileSync(path.join(b, 'package.json'), JSON.stringify(pkgB));
+		await assert.rejects(openWorkspace(a.root), /setup unit "tune" is contributed by kit-b and kit-a — uninstall one, or switch it off/);
+		// an extension without the key is unchanged: an empty unit list
+		const c = workspace({ compile: false });
+		install(c.root, { entry: 'export default () => ({});', descriptor: null });
+		assert.deepEqual((await openWorkspace(c.root)).extensions.find((e) => e.name === 'probe-kit').setup, []);
+	});
+
 	test('an unknown contribution key, an entry that will not load, a newer API', async () => {
 		const a = workspace({ compile: false });
 		install(a.root, { entry: 'export default () => ({ comands: {} });' });
