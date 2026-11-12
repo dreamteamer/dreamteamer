@@ -30,7 +30,8 @@ function offline() {
 	const pkg = JSON.parse(fs.readFileSync(pkgFile, 'utf8'));
 	pkg.dependencies = { ...pkg.dependencies, dreamteamer: `file:${ENGINE_ROOT}` };
 	fs.writeFileSync(pkgFile, JSON.stringify(pkg, null, '\t') + '\n');
-	git(ws.root, ['add', '-A']); git(ws.root, ['commit', '-qm', 'fixture: offline engine']);
+	git(ws.root, ['add', '-A']);
+	if (git(ws.root, ['status', '--porcelain'])) git(ws.root, ['commit', '-qm', 'fixture: offline engine']);
 	return ws;
 }
 const installed = (root, name) => { try { return JSON.parse(fs.readFileSync(path.join(root, 'node_modules', name, 'package.json'), 'utf8')).version; } catch { return null; } };

@@ -192,9 +192,11 @@ const gitStatus = (root, rel) => { try { return execFileSync('git', ['status', '
  * `dt install <spec…> [--from <dir>] [--input k=v]… [--allow <kind>]… [--no-input] [--no-commit] [--json]`
  * `hooks.afterNpm` is a test seam the CLI never sets (an interruption between npm and compile).
  */
-export async function installModules(ws, argv, { open, npm = resolveNpm(), verify = null, hooks = {}, log = console.log, processEnv = process.env, tty = !!(process.stdin.isTTY && process.stdout.isTTY), io = null } = {}) {
+export async function installModules(ws, argv, { open, npm = resolveNpm(), verify = null, hooks = {}, log: logOut = console.log, processEnv = process.env, tty = !!(process.stdin.isTTY && process.stdout.isTTY), io = null } = {}) {
 	if (typeof open !== 'function') throw new Error('installModules: opts.open (an extension-activating opener) is required');
 	const json = argv.includes('--json');
+	// with --json, stdout is the payload and nothing else: every line of chatter goes to stderr
+	const log = json ? console.error : logOut;
 	const noInput = json || argv.includes('--no-input');
 	const noCommit = argv.includes('--no-commit');
 	const fromAt = argv.indexOf('--from');
@@ -261,7 +263,10 @@ export async function installModules(ws, argv, { open, npm = resolveNpm(), verif
 		return EXIT.failed;
 	}
 	if (verify) {
-		const bad = await verify(fresh);
+		const stdout = console.log;
+		if (json) console.log = console.error;
+		let bad;
+		try { bad = await verify(fresh); } finally { console.log = stdout; }
 		if (bad) log('⚠ check reported violations (above) — the install stands; fix the records, or the module\'s rules');
 	}
 
@@ -296,7 +301,7 @@ export async function installModules(ws, argv, { open, npm = resolveNpm(), verif
 		if (gitOk(ws.root, ['add', '--', ...paths]) && gitOk(ws.root, ['commit', '--quiet', '-m', `dreamteamer: install ${names.join(', ')}`, '--', ...paths])) committed = paths;
 	}
 
-	if (json) { log(JSON.stringify({ workspace: { root: ws.root }, installed: names, already: plan.already, committed, units: results }, null, 2)); return code; }
+	if (json) { logOut(JSON.stringify({ workspace: { root: ws.root }, installed: names, already: plan.already, committed, units: results }, null, 2)); return code; }
 	log(`✔ installed ${names.join(', ')} — compiled${committed ? `, committed (${committed.join(', ')})` : noCommit ? ', not committed (--no-commit)' : ', not committed (not a git repository)'}`);
 	for (const r of results) {
 		const verified = r.verified ? ` · verified ${r.verified}` : '';
