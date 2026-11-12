@@ -18,25 +18,72 @@ No server, no account, no telemetry. Just a lightweight npm package.
 
 ## Getting Started
 
-dreamteamer is an npm package: you compose modules with npm, and `compile` turns their skills, schemas
-and views into a workspace your agent harness reads.
+dreamteamer is a **context package manager**: modules are npm packages that carry collections, skills,
+commands and agents, and the engine compiles whatever you install into a workspace your agent harness
+reads. Node.js 20+ and npm 7+ are the only prerequisites.
 
 ```bash
-npm install dreamteamer
-npx dreamteamer init      # scaffold the workspace (never compiles)
-npx dreamteamer compile   # build .dreamteamer/ and the harness folders
-npx dreamteamer check     # optional: verify every record and link
+mkdir my-workspace && cd my-workspace
+npx dreamteamer init                      # pin the engine, scaffold, compile, check, git init, commit
+npx dreamteamer install @dreamteamer/tasks @dreamteamer/contacts
+npx dreamteamer status                    # what is installed, what is set up, what to do next
 ```
 
-Inside an existing Git repo, `init` may commit the files it newly wrote, in one commit scoped to just
-those paths.
+Every line exits 0 and can be run again: a repeat changes nothing. `init` turns the folder into a git
+repository and commits what it wrote (`--no-git` to skip, `--git <remote-url>` to add an origin without
+pushing); inside an existing repository it only adds a commit scoped to its own files and leaves your
+staged work alone. `install` takes any npm spec — a name, `name@version`, a `./file.tgz`, a `./folder`
+(a development link), a `github:owner/repo#ref:path` — installs the module **and every module it
+declares it needs**, pins exact versions, compiles, runs the module's safe setup, and commits. Without a
+version you get the latest release that fits your engine.
 
 **If you're an agent given a link to this repo:** read this README, agree with the user on which folder
 becomes the workspace, and run the steps above there. Then have the user open a fresh session in that
-folder, where the compiled `using-dreamteamer` skill guides module setup in conversation.
+folder, where the compiled `using-dreamteamer` skill continues in conversation with the same commands.
 
-<sub>Optional: `init --ready` is an unreleased candidate (not in any published version) that also runs
-compile and check, and never commits.</sub>
+## Modules and setup
+
+A module that needs something from you — a folder, an account, a download — ships its own setup, and
+the engine drives it through one contract: it never knows the module by name. `install` asks for missing
+inputs in the terminal, or takes them as flags in a script; anything that downloads, reaches the network
+or changes the machine waits for your `--allow`; signing in to an account is always your own step.
+
+```bash
+npx dreamteamer install @dreamteamer/meetings \
+    --input 'calendar=me@example.com|mixed|me@example.com'          # merged into .env, never committed
+npx dreamteamer install @dreamteamer/recordings \
+    --input files_folder=~/hq-files --allow download --allow machine   # transcription models and venv
+npx dreamteamer install @dreamteamer/google-workspace --allow machine
+#   → google-workspace: configured. To connect the account (opens a browser):
+npx dreamteamer setup google-workspace --authorize
+npx dreamteamer status
+#   setup
+#     tasks             ready
+#     meetings          configured   1 calendar · account access unverified → dt setup meetings --verify --authorize
+#     recordings        configured   models on disk, never ran → dt setup recordings --verify --allow machine
+#     google-workspace  ready · verified 2026-11-13
+```
+
+`status` is read-only and honest: `ready` means a check actually passed on this machine (and `verified`
+names the date a live check did), `configured` means the inputs are in place and says what is still
+unverified, `skipped` means you declined it (`dt setup <module> --skip`) and how to come back,
+`blocked` names the one thing in the way. `dt doctor` is the same evidence as rows, `--json` and
+`--strict` for scripts. `dt setup <module>` resumes, repairs, verifies (`--verify`) or signs in
+(`--authorize`); `dt update [<module>[@version] | --engine]` moves a pin forward, never on its own.
+
+A personal HQ is a preset, not a platform: `npx dreamteamer install @dreamteamer/core` brings the
+composed set in one line — and installing one of the modules core already provides is refused with the
+reason.
+
+| module | what it keeps | setup |
+|---|---|---|
+| `@dreamteamer/core` | every core noun from one install — users, companies, contacts, engagements, tasks, projects, meetings, recordings, files, assets, workflows | the setup of each module it composes |
+| `@dreamteamer/tasks` · `users` · `projects` · `companies` · `contacts` · `engagements` · `assets` · `workflows` · `routines` · `knowledge` | records and the skills that work them | none |
+| `@dreamteamer/meetings` | calendar meetings as records | which calendars count as work |
+| `@dreamteamer/recordings` | audio and offline transcripts | models, venv, a files folder |
+| `@dreamteamer/google-workspace` | one Google account through a local bridge | credentials store, sign-in |
+| `@dreamteamer/files` · `search` · `wikis` · `notebooklm` · `perspective` · `git-identities` | mounted folders, local search, wikis, NotebookLM, a person's past work, git identities | a folder, a tool on PATH, a token or a login |
+| `@dreamteamer/http` · `web` · `code` · `docker-workspaces` · `worktrees` · `proofs` · `rnd` | a REST api, the UI in a browser, an editor, containers, worktrees, behaviour proofs, the R&D lifecycle | a port, or none |
 
 ## How It Works
 
