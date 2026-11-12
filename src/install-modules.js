@@ -133,9 +133,14 @@ export function resolveClosure(specs, { installed, from = null, npm = resolveNpm
 	const list = [];
 	const already = [];
 	const seen = new Map(); // name → entry
+	// a package an INSTALLED one already provides: present for the walk (never resolved again), and refused
+	// the moment it is asked for by name — before any of its dependencies are looked up anywhere
+	const providedBy = (name) => [...installed].find(([, i]) => (i.manifest?.dreamteamer?.provides ?? []).includes(name))?.[0] ?? null;
 	const judge = (entry, askedAs) => {
 		const m = entry.manifest;
 		if (!m.dreamteamer || typeof m.dreamteamer !== 'object') throw refuse(`${m.name}@${m.version} is not a dreamteamer module (no dreamteamer key in its package.json)`);
+		const provider = providedBy(m.name);
+		if (provider) throw refuse(`${provider} already provides ${m.name} — it is installed; nothing to add`);
 		const range = m.dreamteamer.engine;
 		if (range && satisfies(engine, range) === false) throw refuse(`${m.name}@${m.version} needs engine "${range}" — this is ${engine}; choose a version: dt install ${m.name}@<version>`);
 		const here = installed.get(m.name);
@@ -143,6 +148,8 @@ export function resolveClosure(specs, { installed, from = null, npm = resolveNpm
 		if (here && here.version && here.version !== m.version && askedAs === 'spec') throw refuse(`${m.name} is installed at ${here.version}, not ${m.version} — move it on purpose: dt update ${m.name}@${m.version}`);
 	};
 	const walk = (spec, stack, askedAs) => {
+		// asked for by name and already provided: refuse by name, without reading any manifest
+		if (askedAs === 'spec' && !isPathSpec(spec, cwd)) { const p = providedBy(splitSpec(spec).name); if (p) throw refuse(`${p} already provides ${splitSpec(spec).name} — it is installed; nothing to add`); }
 		const entry = readSpecManifest(spec, { from, index, npm, cwd });
 		const name = entry.manifest.name;
 		if (stack.includes(name)) throw refuse(`ring in dreamteamer.dependencies: ${[...stack.slice(stack.indexOf(name)), name].join(' → ')}`);
@@ -152,7 +159,7 @@ export function resolveClosure(specs, { installed, from = null, npm = resolveNpm
 		if (here && here.version === entry.manifest.version) { already.push(name); seen.set(name, entry); return; }
 		seen.set(name, entry);
 		for (const dep of entry.manifest.dreamteamer.dependencies ?? []) {
-			if (installed.has(dep) && !stack.includes(dep)) continue; // present: its own closure was judged when it came in
+			if ((installed.has(dep) || providedBy(dep)) && !stack.includes(dep)) continue; // present (or composed in): its own closure was judged when it came in
 			walk(dep, [...stack, name], 'dependency');
 		}
 		list.push(entry);
@@ -162,7 +169,6 @@ export function resolveClosure(specs, { installed, from = null, npm = resolveNpm
 	const names = new Set(list.map((e) => e.manifest.name));
 	for (const e of list) {
 		const name = e.manifest.name;
-		for (const [iname, i] of installed) if ((i.manifest?.dreamteamer?.provides ?? []).includes(name)) throw refuse(`${iname} already provides ${name} — it is installed; nothing to add`);
 		for (const p of e.manifest.dreamteamer.provides ?? []) {
 			if (installed.has(p)) throw refuse(`${name} provides ${p}, which is installed — remove ${p} first (npm uninstall ${p}, then dt compile), or keep the small modules`);
 			if (names.has(p)) throw refuse(`${name} provides ${p} — install one or the other, not both in one call`);

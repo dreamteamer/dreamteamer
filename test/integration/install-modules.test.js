@@ -68,6 +68,13 @@ describe('dt install <spec> — closure, compile, safe setup, scoped commit', ()
 		assert.equal(r.code, 1);
 		assert.match(r.stderr, /@fix\/core already provides @fix\/(a|b)/);
 		assert.equal(treeHash(a.root), h);
+		// the refusal comes by NAME, before any dependency is looked up: a folder holding only core and a
+		// (no b) still names core rather than complaining that b is missing
+		const only = fs.mkdtempSync(path.join(os.tmpdir(), 'dt-only-'));
+		for (const f of fs.readdirSync(REG).filter((n) => /^fix-(core|a)-/.test(n))) fs.copyFileSync(path.join(REG, f), path.join(only, f));
+		const byName = run(a.root, ['install', '@fix/a', '--from', only]);
+		assert.equal(byName.code, 1);
+		assert.match(byName.stderr, /@fix\/core already provides @fix\/a/);
 		const b = offline();
 		assert.equal(run(b.root, ['install', '@fix/a', '--from', REG]).code, 0);
 		const hb = treeHash(b.root);
