@@ -235,6 +235,16 @@ workspace verbs:
   install     repos/<id> | repos --all [--json]
               materialize an attached repo's working tree ON DEMAND — never as part of making a
               checkout ready; --all is the explicit opt-in, e.g. before going offline
+  install     <spec>… [--from <dir>]          bring a MODULE in: a name, name@version, ./file.tgz,
+              ./folder (a development link) or a git URL — installs it and every module its
+              dreamteamer.dependencies names (refusing, before npm writes anything, a package with
+              no dreamteamer key, an engine floor this engine does not meet, a ring, a version
+              installed differently, and a package an installed one already provides), pins exact
+              versions, compiles, runs the safe part of the module's setup and commits package.json,
+              package-lock.json and what setup wrote. Without a version: npm's latest. --from
+              resolves names from a folder of tarballs (offline). Setup flags as for \`setup\`:
+              [--input <id>=<value>]… [--allow <kind>]… [--no-input]; [--no-commit] [--json]
+              Exit 0 done · 1 refused or failed (nothing half-written) · 2 usage · 3 input missing
   install     --clone <url> [name]            attach a git module to this workspace
   update      pull git_modules clones forward (ff-only on the lockfile ref), rebuild,
               then compile; [<name>] updates just one. dirty clones are skipped
@@ -425,6 +435,10 @@ export async function run(argv) {
 				// a name, name@version, ./file.tgz, ./folder, a git URL — and `--from` resolves names from a
 				// folder of tarballs. The flags are its own; the checkout form's are refused on it below.
 				if (target || given.includes('--from')) {
+					// the muscle memory `dt ensure <id>` taught: a bare repo id is named with its spelling, never sent to npm
+					let repoIds = [];
+					try { repoIds = listRepos(ws).map((r) => r.id); } catch { /* no repos descriptor */ }
+					if (target && repoIds.includes(target)) throw new Error(`"${target}" is an attached repo, not an npm spec — \`dt install repos/${target}\` materializes it`);
 					refuse('dt install <spec…>', ['--from', '--input', '--allow', '--no-input', '--no-commit', '--json']);
 					process.exit(await installModules(ws, rest, { open: openWorkspace, verify: async (w) => check(w, { extra: await api.contributedViolations(w) }) }));
 				}
