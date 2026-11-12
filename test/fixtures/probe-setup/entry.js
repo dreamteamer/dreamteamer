@@ -2,6 +2,7 @@
 // engine ever drives looks like from the engine's side: inputs of every kind, checks in every status,
 // actions carrying every effect kind, a receipt-writing verify, and switches that make it misbehave.
 //   PROBE_THROW=apply   apply() throws (with a secret in the message, which must be redacted)
+//   PROBE_THROW=inspect inspect() throws (one bad doctor row, a blocked status line)
 //   PROBE_EMPTY=1       inspect() returns zero checks (the "no evidence" line)
 import fs from 'node:fs';
 import os from 'node:os';
@@ -21,6 +22,7 @@ const readEnv = (ctx) => (exists(envFile(ctx)) ? fs.readFileSync(envFile(ctx), '
 const receiptFile = (ctx) => path.join(ctx.receiptDir, 'verify.json');
 
 function inspect(ctx) {
+	if (ctx.env?.PROBE_THROW === 'inspect') throw new Error('probe inspect exploded: secret=hunter2');
 	if (ctx.env?.PROBE_EMPTY) return { checks: [] };
 	const home = homeOf(ctx);
 	const token = ctx.env?.PROBE_TOKEN_PATH;

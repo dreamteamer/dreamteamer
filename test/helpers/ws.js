@@ -14,6 +14,8 @@ import { execFileSync, spawnSync } from 'node:child_process';
 // of hanging the whole suite — which is what a silent Docker socket did on 2026-09-24.
 export const SPAWN_TIMEOUT_MS = 60_000;
 import fs from 'node:fs';
+import * as nodeCrypto from 'node:crypto';
+const cryptoModule = () => nodeCrypto;
 import os from 'node:os';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
@@ -482,3 +484,21 @@ export function installFixture(root, id) {
 export const withProbeSetup = (root) => installFixture(root, 'probe-setup');
 /** The colliding plain module (`@probe/collide`, a `notes` collection) — a compile refusal on install. */
 export const withProbeCollide = (root) => installFixture(root, 'probe-collide');
+
+/** A hash of every file under `root` (path, mode and bytes; `.git` excluded) — the read-only proof:
+ *  equal before and after a verb means the verb wrote nothing. */
+export function treeHash(root) {
+	const { createHash } = cryptoModule();
+	const h = createHash('sha256');
+	const walk = (dir) => {
+		for (const e of fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+			if (e.name === '.git') continue;
+			const p = path.join(dir, e.name);
+			if (e.isSymbolicLink()) { h.update(`L ${path.relative(root, p)} ${fs.readlinkSync(p)}\n`); continue; }
+			if (e.isDirectory()) { walk(p); continue; }
+			h.update(`F ${path.relative(root, p)} ${fs.statSync(p).mode}\n`); h.update(fs.readFileSync(p));
+		}
+	};
+	walk(root);
+	return h.digest('hex');
+}

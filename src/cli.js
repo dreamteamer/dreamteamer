@@ -29,7 +29,7 @@ import { Store } from './store.js';
 import { splitRef, canonicalCollection } from './ref.js';
 import { envContext, renderTemplate } from './env-vars.js';
 import { doctorBoard, renderBoard } from './doctor.js';
-import { setupCommand } from './setup.js';
+import { setupCommand, statusLines, renderStatusLines } from './setup.js';
 import { storageOf } from './descriptor.js';
 
 // git calls whose failure we CATCH must not print git's own error: execFileSync forwards the
@@ -305,7 +305,7 @@ export const GLOBAL_FLAGS = ['workspace', 'vault'];
 export const WORKSPACE_FLAGS = {
 	init: ['name', 'data_path', 'harnesses', 'workspace_module', 'ready'], update: [],
 	install: ['clone', 'dry-run', 'json', 'link-env', 'all', 'hook', 'print-adapters'],
-	compile: ['watch'], check: ['strict-export'], exports: ['layer', 'dry-run', 'json'], status: [], doctor: ['strict', 'json'],
+	compile: ['watch'], check: ['strict-export'], exports: ['layer', 'dry-run', 'json'], status: ['json'], doctor: ['strict', 'json'],
 	setup: ['input', 'allow', 'authorize', 'verify', 'skip', 'no-input', 'json'],
 	changes: ['since', 'json'], commit: ['dry-run', 'json'], fmt: ['dry-run'], relocate: ['dry-run', 'json', 'to-root'],
 };
@@ -544,6 +544,11 @@ export async function run(argv) {
 					console.log(`✖ ${s.message}`);
 					process.exit(1);
 				}
+				if (rest.includes('--json')) {
+					const { modules: mods } = discoverModules(ws.root, ws.pkg);
+					emit(JSON.stringify({ compiled: s.manifest.compiled, stale: s.stale, modules: mods.map((m) => ({ name: m.name, location: locationOf(m, ws.root) })), setup: statusLines(ws) }, null, 2));
+					process.exit(0);
+				}
 				console.log(`compiled: ${s.manifest.compiled}`);
 				// THE EDITOR, from the marker the extension writes on activation (`.dreamteamer/editor.json`).
 				// Without it an agent working inside the editor could not tell whether the extension was
@@ -647,6 +652,9 @@ export async function run(argv) {
 						for (const r of pending) console.log(`  ${r.repo === '.' ? 'workspace' : r.repo}: ${r.rows.length}`);
 					}
 				} catch { /* no runtime yet, or not a git repo — status must still print */ }
+				// the SETUP section (src/setup.js): one line per unit the installed modules declare, folded
+				// from each unit's own inspect — read-only, and never from a stored success flag
+				try { for (const line of renderStatusLines(statusLines(ws))) console.log(line); } catch (e) { console.log(`setup: could not be read — ${e.message.split('\n')[0]}`); }
 				if (s.stale.length) {
 					for (const line of s.stale) console.log(`  stale: ${line}`);
 					console.log(`✖ .dreamteamer is stale (${s.stale.length}) — run \`dreamteamer compile\``);

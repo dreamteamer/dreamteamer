@@ -164,7 +164,7 @@ export async function loadExtensions(ws, api, reserved = {}) {
 		const setup = validateSetup(ext.name, c.setup, { env: ext.env, vars: ext.vars });
 		if (setup.errors.length) throw new Error(setup.errors.join('\n'));
 		for (const u of setup.units) claim('unit', u.id, ext.name);
-		loaded.push({ name: ext.name, version: ext.version, dir: ext.dir, commands, sourceKinds, analyze: c.analyze ?? null, harnesses: c.harnesses ?? {}, orientation: c.orientation ?? null, hooks: c.hooks ?? {}, check: c.check ?? null, doctor: c.doctor ?? null, next: c.next ?? null, setup: setup.units });
+		loaded.push({ name: ext.name, version: ext.version, dir: ext.dir, env: ext.env, vars: ext.vars, commands, sourceKinds, analyze: c.analyze ?? null, harnesses: c.harnesses ?? {}, orientation: c.orientation ?? null, hooks: c.hooks ?? {}, check: c.check ?? null, doctor: c.doctor ?? null, next: c.next ?? null, setup: setup.units });
 	}
 	return loaded;
 }
