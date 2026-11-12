@@ -118,27 +118,25 @@ function buildBase(dir) {
 	// self-contained, and it survives the per-test `cpSync` because .git comes along with it.
 	git(dir, ['config', 'user.email', 'test@example.invalid']);
 	git(dir, ['config', 'user.name', 'dreamteamer test']);
+	// THE ENGINE AS AN INSTALLED MODULE, declared and linked BEFORE init runs — `dt init` now installs
+	// the engine when it is missing (npm, the network), compiles and commits; with the engine already
+	// declared (a `file:` spec, which the exact-version check lets through) and present as a link, init
+	// runs no npm at all and the fixture stays offline. Without the engine the fixture would have no
+	// `collections`, `ui-views`, `repos` or `modules` collection: those are sources the engine
+	// CONTRIBUTES rather than things init writes, and a workspace that lacks them is not the one anybody
+	// runs. A symlink and the npm channel, because that is how a real workspace gets it, and pointing at
+	// the checkout under test means the fixture can never compile a DIFFERENT engine's descriptors.
+	fs.mkdirSync(path.join(dir, 'node_modules'), { recursive: true });
+	fs.symlinkSync(ENGINE_ROOT, path.join(dir, 'node_modules', 'dreamteamer'), 'dir');
+	const pkgFile = path.join(dir, 'package.json');
+	fs.writeFileSync(pkgFile, JSON.stringify({ name: path.basename(dir), private: true, version: '0.0.1', dependencies: { dreamteamer: `file:${ENGINE_ROOT}` } }, null, '\t') + '\n');
 	// through the real binary, because "what a user gets from `dreamteamer init`" is the thing
 	// every tier-2 test is implicitly asserting against
 	const res = spawnSync(process.execPath, [BIN, 'init'], { cwd: dir, env: GIT_ENV, encoding: 'utf8', timeout: SPAWN_TIMEOUT_MS, killSignal: 'SIGKILL' });
 	if (res.status !== 0) throw new Error(`fixture init failed:\n${res.stdout}\n${res.stderr}`);
-	// THE ENGINE AS AN INSTALLED MODULE — without this the fixture has no `collections`, `ui-views`,
-	// `repos` or `modules` collection, because those are sources the engine CONTRIBUTES rather than
-	// things init writes. A tier-2 workspace that lacks them is not the workspace anybody runs: the
-	// first thing it fails to reproduce is `store.writableDescriptor` refusing a compiled source.
-	//
-	// A symlink, and the npm channel, because that is how a real workspace gets it (`npm i
-	// dreamteamer` + a `dependencies` entry, which discoverModules requires). Pointing at the
-	// checkout under test also means the fixture can never compile a DIFFERENT engine's descriptors
-	// than the one the assertions run against.
-	fs.mkdirSync(path.join(dir, 'node_modules'), { recursive: true });
-	fs.symlinkSync(ENGINE_ROOT, path.join(dir, 'node_modules', 'dreamteamer'), 'dir');
-	const pkgFile = path.join(dir, 'package.json');
-	const pkg = JSON.parse(fs.readFileSync(pkgFile, 'utf8'));
-	pkg.dependencies = { ...pkg.dependencies, dreamteamer: '*' };
-	fs.writeFileSync(pkgFile, JSON.stringify(pkg, null, '\t') + '\n');
+	// init committed its own files; anything left (none, today) is swept into a second fixture commit
 	git(dir, ['add', '-A']);
-	git(dir, ['commit', '-qm', 'fixture: init']);
+	if (git(dir, ['status', '--porcelain'])) git(dir, ['commit', '-qm', 'fixture: init']);
 }
 
 const created = [];
@@ -176,7 +174,8 @@ export function workspace(opts = {}) {
 	}
 
 	const ws = { root, pkg };
-	if (opts.compile === false) return { root, ws, git: (a) => git(root, a) };
+	// an UNcompiled workspace: the base fixture was compiled by init, so the runtime goes
+	if (opts.compile === false) { fs.rmSync(path.join(root, '.dreamteamer'), { recursive: true, force: true }); return { root, ws, git: (a) => git(root, a) }; }
 
 	const out = compileQuietly(ws);
 	const store = new Store(ws);

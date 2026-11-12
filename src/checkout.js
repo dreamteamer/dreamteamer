@@ -454,7 +454,7 @@ export async function installCommand(ws, rest, { open } = {}) {
 	return code;
 }
 
-// ---- `dt init --ready <version>` — one command from a folder to a compiled, checked workspace ------
+// ---- `dt init` — one command from a folder to a compiled, checked, committed workspace ------------
 
 const EXACT = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/;
 const readJson = (f) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return null; } };
@@ -531,25 +531,25 @@ function writeFootprint(root, block, flags) {
 		...OUTPUT_TREES, ...OUTPUT_TREES.flatMap((t) => linksUnder(root, t)), ...top].map(String))];
 }
 
-/** The bootstrap an agent runs for a person: the pinned engine as a local dependency, the skeleton,
- *  compile, check. Legacy `init` is untouched — this is the opt-in mode, and it differs in four ways:
+/**
+ * `dt init [--no-git] [--git <url>] [--no-compile] [--from <dir>] [--input k=v]… [--allow <kind>]… [--no-input]`
+ * — from a folder (empty, or a cloned preset, or an existing repo) to a workspace that is pinned to the
+ * RUNNING engine, compiled, checked, set up as far as its modules' safe actions go, and committed.
  *
- *  - **The version is EXPLICIT and must be the running engine's.** `npx dreamteamer init` runs whatever
- *    npx resolved; the pin named in the command is what makes the code that runs the code that is pinned.
- *  - **It never commits.** Legacy init commits its scoped files; a bootstrap in someone's dirty repo
- *    must not author a commit they did not ask for. Nor does it `git init`, add a remote or touch an account.
- *  - **An engine already chosen is the workspace's choice** — a declaration, lockfile entry or installed
- *    copy of another version is a refusal before anything is written, never an upgrade; so is any path it
- *    writes resolving outside the folder.
- *  - **Every step observes first**, so a repeat changes nothing and an interrupted run resumes by
- *    running the same command; a failure stops the steps after it, which all depend on it.
- *
- *  `open` must activate extensions (a preset's npm install brings them); `verify(ws)` is `dt check`'s
- *  exit code. `npm` arrives as an argument for the reason `RUN.dependencies` gives. */
-export async function bootstrap(flags, { root = process.cwd(), open, verify, npm = resolveNpm(), stdio = 'inherit', log = console.log } = {}) {
-	const want = flags.ready, have = engineVersion();
-	if (typeof want !== 'string' || !EXACT.test(want)) throw new Error(`--ready needs the exact engine version to pin, e.g. \`dt init --ready ${have}\` — a range or "latest" is not a pin`);
-	if (want !== have) throw new Error(`--ready ${want}, but this is dreamteamer ${have} — run that version itself: npx dreamteamer@${want} init --ready ${want}`);
+ *  - every path it or compile writes is judged BEFORE the first write (links out of the folder, aliased
+ *    output trees, a configured path climbing out), as `init --ready` did
+ *  - an engine of another version — declared, locked or installed — is the workspace's choice: refused,
+ *    never upgraded (`dt update --engine` is the deliberate move)
+ *  - npm runs once: `--save-exact dreamteamer@<this version>` from nothing, or a plain `install` that
+ *    restores a preset's lockfile and every module it selected; with `--from <dir>` a missing declared
+ *    package comes from that folder of tarballs (`npm install --no-save`), so package.json is untouched
+ *  - git: no repository → `git init` and one commit of what init wrote; inside one → the same scoped
+ *    commit, the operator's staged work untouched; `--no-git` or no git on PATH → written, not committed,
+ *    and the last line says so; `--git <url>` adds `origin` and never pushes
+ *  - re-running changes nothing: every step re-checks what is already done
+ */
+export async function initCommand(flags, { root = process.cwd(), open, verify, npm = resolveNpm(), stdio = 'inherit', log = console.log, processEnv = process.env, tty = !!(process.stdin.isTTY && process.stdout.isTTY), argv = [] } = {}) {
+	const want = engineVersion();
 	const pkgPath = path.join(root, 'package.json');
 	const pkg = fs.existsSync(pkgPath) ? readJson(pkgPath) : {};
 	if (!pkg || typeof pkg !== 'object') throw new Error('package.json is not a JSON object — nothing was written');
@@ -564,18 +564,19 @@ export async function bootstrap(flags, { root = process.cwd(), open, verify, npm
 	const aliased = aliasedOutputDirs(root);
 	if (aliased.length) throw new Error(`${aliased.join(', ')}: a folder link inside compile's output — compile writes through it, so nothing was written. Replace it with a real folder (or remove it; compile regenerates what it holds)`);
 	const out = writeFootprint(root, block, flags).filter((rel) => escapes(root, rel));
-	if (out.length) throw new Error(`${out.join(', ')} ${out.length > 1 ? 'resolve' : 'resolves'} outside this workspace — init --ready writes there, so nothing was written. Replace the link (or the configured path) with one inside the folder`);
+	if (out.length) throw new Error(`${out.join(', ')} ${out.length > 1 ? 'resolve' : 'resolves'} outside this workspace — init writes there, so nothing was written. Replace the link (or the configured path) with one inside the folder`);
 
 	// ⚠ THE DECLARATION, THE LOCKFILE AND THE INSTALLED COPY ARE JUDGED EACH ON ITS OWN. Reading only the
 	// installed copy let a package.json still declaring an older engine pass — the next clone installs that one.
 	const specs = [...new Set(['dependencies', 'devDependencies'].map((k) => pkg[k]?.dreamteamer).filter(Boolean))];
 	const locked = readJson(path.join(root, 'package-lock.json'))?.packages?.['node_modules/dreamteamer']?.version ?? null;
 	const installed = () => readJson(path.join(root, 'node_modules', 'dreamteamer', 'package.json'))?.version ?? null;
-	const upgrade = `init --ready never changes an existing engine — bootstrap with the one it names, or upgrade on purpose: npm install --save-exact dreamteamer@${want}, then UPDATING.md`;
+	const upgrade = `init never changes an existing engine — run that version itself (npx dreamteamer@<version> init), or upgrade on purpose: dt update --engine`;
 	if (specs.length > 1) throw new Error(`package.json declares dreamteamer twice, differently (${specs.join(' and ')}) — keep one declaration`);
 	if (specs[0] && (EXACT.test(specs[0]) ? specs[0] !== want : satisfies(want, specs[0]) === false)) throw new Error(`package.json declares dreamteamer "${specs[0]}", which ${want} is not — ${upgrade}`);
 	if (locked && locked !== want) throw new Error(`package-lock.json locks dreamteamer ${locked}, not ${want} — ${upgrade}`);
 	if (installed() && installed() !== want) throw new Error(`node_modules holds dreamteamer ${installed()}, not ${want} — ${upgrade}`);
+	const fromDir = flags.from ? path.resolve(root, flags.from) : null;
 	const fail = (why) => { log(`✖ ${why}\n  the steps after this one did not run — fix it, then run the same command again: every step re-checks what is already done`); return 1; };
 
 	init({ flags, root, commit: false });
@@ -588,26 +589,88 @@ export async function bootstrap(flags, { root = process.cwd(), open, verify, npm
 	let fresh = false;
 	if (declared && !missing().length) log(`✔ dependencies: dreamteamer@${want} and every declared package installed`);
 	else {
-		// declared is a preset (or a resumed run): its lockfile and its whole module selection are restored
-		const args = declared ? ['install', '--no-audit', '--no-fund'] : ['install', '--save-exact', '--no-audit', '--no-fund', `dreamteamer@${want}`];
-		log(`▶ dependencies: npm ${args.join(' ')}${missing().length ? ` — missing ${missing().join(', ')}` : ''} — downloads packages and runs their npm lifecycle scripts`);
 		if (!npm) return fail('cannot install — node found, npm not on PATH');
+		let args;
+		if (fromDir) {
+			// offline: every missing declared package (the engine too, from nothing) comes from the folder
+			const { indexFolder } = await import('./install-modules.js');
+			let index;
+			try { index = indexFolder(fromDir); } catch (e) { return fail(e.message); }
+			const need = declared ? missing() : ['dreamteamer', ...missing()];
+			const files = [];
+			for (const n of need) {
+				const hit = n === 'dreamteamer' ? (index.get('dreamteamer') ?? []).find((c) => c.version === want) : (index.get(n) ?? [])[0];
+				if (!hit) return fail(`--from ${fromDir}: no ${n === 'dreamteamer' ? `dreamteamer@${want}` : n} in it — nothing was installed`);
+				files.push(hit.file);
+			}
+			args = declared ? ['install', '--no-save', '--no-audit', '--no-fund', ...files] : ['install', '--save-exact', '--no-audit', '--no-fund', ...files];
+		} else args = declared ? ['install', '--no-audit', '--no-fund'] : ['install', '--save-exact', '--no-audit', '--no-fund', `dreamteamer@${want}`];
+		log(`▶ dependencies: npm ${args.join(' ')}${missing().length ? ` — missing ${missing().join(', ')}` : ''} — downloads packages and runs their npm lifecycle scripts`);
 		const r = spawnSync(npm, args, { cwd: root, stdio, env: childEnv(), timeout: 600_000 });
 		if (r.status !== 0) return fail(`npm exited ${r.status ?? r.error?.message}`);
 		if (missing().length) return fail(`npm finished, but ${missing().join(', ')} ${missing().length > 1 ? 'are' : 'is'} still not installed`);
 		if (installed() !== want) return fail(`npm finished, but node_modules/dreamteamer is ${installed() ?? 'missing'}, not ${want}`);
 		fresh = true;
 	}
-	let ws;
-	try {
-		ws = await open(root);
-		const s = staleness(root);
-		if (fresh || !s.compiled || s.stale.length) { log('▶ compile'); compile(ws); } else log('✔ compile: fresh');
-	} catch (e) { return fail(`compile: ${e.message.split('\n')[0]}`); }
-	if (await verify(ws)) return fail('check: the violations above');
-	log(spawnSync('git', ['rev-parse', '--git-dir'], { cwd: root, stdio: 'ignore' }).status === 0
-		? '— git: nothing was committed — `git status` shows what init wrote; commit it when you choose'
-		: '— git: not a repository, and none was made — `git init` (local, no account) turns on history and `dt commit`');
-	log(`\nready: dreamteamer@${want}, compiled and checked. To set up what this workspace does, read .dreamteamer/skills/using-dreamteamer/references/setup.md — a harness that loads skills only at session start finds it in the next session.`);
-	return 0;
+	let ws = null;
+	let code = 0;
+	if (flags['no-compile']) log('— compile: skipped (--no-compile) — run dt compile before a session reads this workspace');
+	else {
+		try {
+			ws = await open(root);
+			const s = staleness(root);
+			if (fresh || !s.compiled || s.stale.length) { log('▶ compile'); compile(ws); } else log('✔ compile: fresh');
+		} catch (e) { return fail(`compile: ${e.message.split('\n')[0]}`); }
+		if (await verify(ws)) return fail('check: the violations above');
+		// a preset's modules: the safe part of every unit's setup, exactly as `dt install` runs it
+		const { units, runUnit, fillInputs, parseInputFlags, parseAllow, skippedUnits, fold, SetupUsage, ttyIO, unitEnv } = await import('./setup.js');
+		const skipped = new Set(skippedUnits(ws));
+		const all = units(ws).filter((u) => !skipped.has(u.id));
+		if (all.length) {
+			const noInput = !!flags['no-input'];
+			const term = tty && !noInput ? ttyIO() : null;
+			try {
+				const filled = await fillInputs(all, { flags: parseInputFlags(argv), env: unitEnv(ws, processEnv), tty, noInput, prompt: term?.prompt ?? null });
+				const allow = parseAllow(argv);
+				for (const u of all) {
+					const r = await runUnit(ws, u, { inputs: filled.inputs.get(u.id) ?? {}, allow, tty, ask: term?.ask ?? null, processEnv });
+					const miss = filled.missing.filter((m) => m.unit === u.id).map((m) => m.id);
+					const f = fold(r.checks, {});
+					log(`${f.state === 'ready' ? '✔' : '—'} ${u.id}: ${f.state}${f.detail ? ` — ${f.detail}` : ''}`);
+					for (const a of r.applied) log(`    ✔ ${a.id}${a.message ? ` — ${a.message}` : ''}`);
+					for (const x of r.failed) log(`    ✖ ${x.id} — ${x.message}`);
+					for (const pnd of r.pending) log(`    … ${pnd.id} (${pnd.why})`);
+					if (miss.length) { log(`    needs input: ${miss.join(', ')} — dt setup ${u.id} --input ${miss[0]}=<value>`); code = 3; }
+				}
+			} catch (e) {
+				if (e instanceof SetupUsage) return fail(e.message);
+				throw e;
+			} finally { term?.close(); }
+		}
+	}
+	// git — a repository, a remote, one scoped commit; never the operator's own staged work
+	const hasGit = spawnSync('git', ['--version'], { stdio: 'ignore' }).status === 0;
+	const isRepo = () => hasGit && spawnSync('git', ['rev-parse', '--git-dir'], { cwd: root, stdio: 'ignore' }).status === 0;
+	if (flags['no-git']) log('— git: skipped (--no-git) — `git status` shows what init wrote');
+	else if (!hasGit) log('— git: not on PATH — nothing was committed; `git status` shows what init wrote once it is');
+	else {
+		if (!isRepo()) { spawnSync('git', ['init', '--quiet'], { cwd: root, stdio: 'ignore' }); log('✔ git: repository created (local, no account)'); }
+		if (flags.git) {
+			const has = spawnSync('git', ['remote', 'get-url', 'origin'], { cwd: root, stdio: 'ignore' }).status === 0;
+			if (!has) { spawnSync('git', ['remote', 'add', 'origin', flags.git], { cwd: root, stdio: 'ignore' }); log(`✔ git: origin → ${flags.git} (never pushed)`); } else log('✔ git: origin already set — left as it is');
+		}
+		const wm = now().dreamteamer?.workspace_module;
+		const paths = ['package.json', 'package-lock.json', '.gitignore', '.env.example', '.vscode/extensions.json', ...(wm ? [`modules/${wm}/package.json`, `modules/${wm}/collections/notes.collection.yaml`] : ['collections/notes.collection.yaml'])].filter((rel) => fs.existsSync(path.join(root, rel)));
+		const r = spawnSync('git', ['add', '--', ...paths], { cwd: root, stdio: 'ignore' });
+		const c = r.status === 0 ? spawnSync('git', ['commit', '--quiet', '-m', `dreamteamer: init workspace ${now().name ?? path.basename(root)}`, '--', ...paths], { cwd: root, encoding: 'utf8' }) : r;
+		if (c.status === 0) log(`✔ git: committed ${paths.join(', ')}`);
+		else if (/nothing to commit|no changes added/.test(`${c.stdout ?? ''}${c.stderr ?? ''}`)) log('✔ git: nothing new to commit');
+		else log(`⚠ git: commit did not happen (${(c.stderr ?? '').trim().split('\n')[0] || `exit ${c.status}`}) — \`git status\` shows what init wrote`);
+	}
+	if (ws) {
+		const { statusLines, renderStatusLines } = await import('./setup.js');
+		try { for (const line of renderStatusLines(statusLines(ws, { processEnv }))) log(line); } catch { /* status is a courtesy here */ }
+	}
+	log(`\nready: dreamteamer@${want}${flags['no-compile'] ? ' (not compiled)' : ', compiled and checked'}. Next: dt install <package> adds a module; dt status says what works here.`);
+	return code;
 }

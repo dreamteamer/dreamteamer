@@ -20,7 +20,7 @@ import { check } from './check.js';
 import { collectionCommand, emit, relationsCommand, reportCommits } from './collections-cli.js';
 import { formatDescriptors } from './schema-ops.js';
 import { init, installClone, update, listRepos } from './init.js';
-import { installCommand, describeCheckout, bootstrap } from './checkout.js';
+import { installCommand, describeCheckout, initCommand } from './checkout.js';
 import { declaredGitModules } from './workspace.js';
 const isOwnClone = (p) => { try { return !fs.lstatSync(p).isSymbolicLink() && fs.existsSync(path.join(p, '.git')); } catch { return false; } };
 import { foldChanges, groupChanges, reportLine } from './events.js';
@@ -31,6 +31,7 @@ import { envContext, renderTemplate } from './env-vars.js';
 import { doctorBoard, renderBoard } from './doctor.js';
 import { setupCommand, statusLines, renderStatusLines } from './setup.js';
 import { installModules } from './install-modules.js';
+import { updateModules, parseUpdateArgs } from './update.js';
 import { storageOf } from './descriptor.js';
 
 // git calls whose failure we CATCH must not print git's own error: execFileSync forwards the
@@ -211,15 +212,17 @@ Every verb that MOVES records or CLEARS values takes --dry-run and prints its pl
     records N · refs M · descriptors K · values cleared V
 
 workspace verbs:
-  init        write the workspace skeleton into the current directory (never compiles)
-              [--harnesses claude-code,codex,pi,gemini-cli,cursor]
-              --ready <version>  the one-command bootstrap: pins this exact engine version as a local
-              dependency (npm, with every declared package), writes the skeleton, compiles and checks.
-              Never commits, never runs git init. Refused before any write: another engine version
-              declared, locked or installed (never upgraded), a path it writes that links out of
-              the folder, or any folder link inside compile's output. Re-run it to resume — a
-              repeat changes nothing. From an empty folder:
-              npx dreamteamer@<version> init --ready <version>
+  init        from a folder to a workspace in ONE command: pins the engine that runs it (exactly),
+              writes the skeleton, installs, compiles, checks, runs the safe part of any declared
+              module's setup, makes the folder a git repository when it is not one and commits what
+              it wrote (inside a repository: the same scoped commit, your staged work untouched).
+              Refused before any write: an engine of another version declared, locked or installed
+              (never upgraded — dt update --engine), and a path it writes that links out of the
+              folder. Re-run it to resume — a repeat changes nothing.
+              [--no-git] [--git <remote-url>] (adds origin, never pushes) [--no-compile]
+              [--from <dir>] (a preset's missing packages from a folder of tarballs, offline)
+              [--input <id>=<value>]… [--allow <kind>]… [--no-input] (a preset's setup, as \`setup\`)
+              [--harnesses claude-code,codex,pi,gemini-cli,cursor] [--workspace_module <name>]
   --version   print the engine version (works anywhere)
   install     make THIS checkout ready — the engine, .env (linked from the primary when this is a
               worktree), declared local assets, git modules, compile, and a declared postinstall.
@@ -246,6 +249,10 @@ workspace verbs:
               [--input <id>=<value>]… [--allow <kind>]… [--no-input]; [--no-commit] [--json]
               Exit 0 done · 1 refused or failed (nothing half-written) · 2 usage · 3 input missing
   install     --clone <url> [name]            attach a git module to this workspace
+  update      <name>[@<version>] | --engine   move ONE npm pin forward on purpose: to the latest
+              release (or the named version), re-pinned exactly, closure-checked as install is,
+              compiled, committed. A downgrade needs [--allow downgrade]; a development link is
+              skipped and named; [--from <dir>] resolves from a folder of tarballs; [--no-commit]
   update      pull git_modules clones forward (ff-only on the lockfile ref), rebuild,
               then compile; [<name>] updates just one. dirty clones are skipped
   compile     materialize modules + workspace sources into .dreamteamer (+ harness adapters)
@@ -324,7 +331,7 @@ const FIELD_VERBS = ['add-field', 'set-field', 'rm-field', 'rename-field', 'rena
 export const GLOBAL_FLAGS = ['workspace', 'vault'];
 
 export const WORKSPACE_FLAGS = {
-	init: ['name', 'data_path', 'harnesses', 'workspace_module', 'ready'], update: [],
+	init: ['name', 'data_path', 'harnesses', 'workspace_module', 'no-git', 'git', 'no-compile', 'from', 'input', 'allow', 'no-input'], update: ['engine', 'allow', 'from', 'no-commit'],
 	install: ['clone', 'dry-run', 'json', 'link-env', 'all', 'hook', 'print-adapters', 'from', 'input', 'allow', 'no-input', 'no-commit'],
 	compile: ['watch'], check: ['strict-export'], exports: ['layer', 'dry-run', 'json'], status: ['json'], doctor: ['strict', 'json'],
 	setup: ['input', 'allow', 'authorize', 'verify', 'skip', 'no-input', 'json'],
@@ -381,8 +388,9 @@ export async function run(argv) {
 			// init runs BEFORE a workspace exists — no findWorkspace
 			const flags = {};
 			for (let i = 0; i < rest.length; i++) if (rest[i].startsWith('--')) { const [k, v] = rest[i].slice(2).split(/=(.*)/s); flags[k] = v ?? rest[i + 1]; }
-			if ('ready' in flags) process.exit(await bootstrap(flags, { open: openWorkspace, verify: async (ws) => check(ws, { extra: await api.contributedViolations(ws) }) }));
-			process.exit(init({ flags }));
+			// boolean flags take no value: a following positional is not theirs
+			for (const b of ['no-git', 'no-compile', 'no-input']) if (b in flags) flags[b] = true;
+			process.exit(await initCommand(flags, { open: openWorkspace, argv: rest, verify: async (ws) => check(ws, { extra: await api.contributedViolations(ws) }) }));
 		}
 		if (!cmd || cmd === 'help') {
 			// `help` works OUTSIDE a workspace too — a person who just ran `npm i -g dreamteamer` on a
@@ -459,7 +467,12 @@ export async function run(argv) {
 				process.exit(await installCommand(ws, rest, { open: openWorkspace }));
 			}
 			case 'update': {
-				const code = update(ws, rest.find((a) => !a.startsWith('--')));
+				// an npm module or the engine moves through src/update.js; a git module (or no target) keeps
+				// the fast-forward path below
+				const u = parseUpdateArgs(rest);
+				const gitMods = Object.fromEntries(declaredGitModules(ws.pkg, ws.root).map);
+				if (u.engine || (u.name && !gitMods[u.name])) process.exit(await updateModules(ws, u, { open: openWorkspace }));
+				const code = update(ws, u.name);
 				compile(ws); // pulled modules may carry new sources — prints its own summary
 				process.exit(code);
 			}
