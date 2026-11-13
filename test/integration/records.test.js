@@ -3,504 +3,568 @@
 // The invariant every one of these asserts is "nothing was written": a rejected write must leave NO
 // partial state. That is the promise the whole hard-validation design rests on, and it is the one that
 // is cheapest to break by accident.
-import { test, describe } from 'node:test';
-import assert from 'node:assert/strict';
-import fs from 'node:fs';
-import path from 'node:path';
-import { spawnSync } from 'node:child_process';
-import { workspace, twoModuleWorkspace, simpleCollection, tree, readFile, git, ENGINE_ROOT, SPAWN_TIMEOUT_MS } from '../helpers/ws.js';
-import { Store } from '../../src/store.ts';
+import { test, describe } from "node:test"
+import assert from "node:assert/strict"
+import fs from "node:fs"
+import path from "node:path"
+import { spawnSync } from "node:child_process"
+import {
+  workspace,
+  twoModuleWorkspace,
+  simpleCollection,
+  tree,
+  readFile,
+  git,
+  ENGINE_ROOT,
+  SPAWN_TIMEOUT_MS,
+} from "../helpers/ws.js"
+import { Store } from "../../src/store.ts"
 
 const TASKS = {
-	ids: { from: '{{ title | slug }}', pattern: '^[a-z0-9-]+$' },
-	storage: { suffix: 'task' },
-	fields: {
-		title: { type: 'string', required: true },
-		status: { type: 'string', required: true, enum: ['todo', 'doing', 'done'], default: 'todo' },
-		due: { type: 'date' },
-		owner: { type: 'people' },
-		tags: { type: 'string', many: true },
-		body: { type: 'markdown', body: true },
-	},
-};
-const PEOPLE = simpleCollection({ storage: { suffix: 'person' } });
+  ids: { from: "{{ title | slug }}", pattern: "^[a-z0-9-]+$" },
+  storage: { suffix: "task" },
+  fields: {
+    title: { type: "string", required: true },
+    status: { type: "string", required: true, enum: ["todo", "doing", "done"], default: "todo" },
+    due: { type: "date" },
+    owner: { type: "people" },
+    tags: { type: "string", many: true },
+    body: { type: "markdown", body: true },
+  },
+}
+const PEOPLE = simpleCollection({ storage: { suffix: "person" } })
 
-const base = (extra = {}) => workspace({ collections: { tasks: TASKS, people: PEOPLE, ...extra } });
+const base = (extra = {}) => workspace({ collections: { tasks: TASKS, people: PEOPLE, ...extra } })
 
 /** Run `fn` with console.warn captured — a warning IS the result when a verb declines to guess. */
 function quietly(fn) {
-	const warnings = [];
-	const warn = console.warn;
-	console.warn = (...a) => warnings.push(a.join(' '));
-	try { return { out: fn(), warnings }; } finally { console.warn = warn; }
+  const warnings = []
+  const warn = console.warn
+  console.warn = (...a) => warnings.push(a.join(" "))
+  try {
+    return { out: fn(), warnings }
+  } finally {
+    console.warn = warn
+  }
 }
 
-describe('add', () => {
-	test('generates the id, materializes defaults and writes the file', () => {
-		const ws = base();
-		const { id } = ws.store.add('tasks', { title: 'Fix Login' });
-		assert.equal(id, 'fix-login');
-		const { fields } = ws.store.read('tasks', id);
-		assert.equal(fields.status, 'todo', 'the schema default must materialize');
-		assert.ok(readFile(ws.root, 'data/tasks/fix-login.task.md'));
-	});
+describe("add", () => {
+  test("generates the id, materializes defaults and writes the file", () => {
+    const ws = base()
+    const { id } = ws.store.add("tasks", { title: "Fix Login" })
+    assert.equal(id, "fix-login")
+    const { fields } = ws.store.read("tasks", id)
+    assert.equal(fields.status, "todo", "the schema default must materialize")
+    assert.ok(readFile(ws.root, "data/tasks/fix-login.task.md"))
+  })
 
-	test('an explicit --id wins over the template', () => {
-		const ws = base();
-		assert.equal(ws.store.add('tasks', { title: 'Fix Login' }, { id: 'custom' }).id, 'custom');
-	});
+  test("an explicit --id wins over the template", () => {
+    const ws = base()
+    assert.equal(ws.store.add("tasks", { title: "Fix Login" }, { id: "custom" }).id, "custom")
+  })
 
-	test('a body field becomes the markdown body, not frontmatter', () => {
-		const ws = base();
-		ws.store.add('tasks', { title: 'T', body: 'the prose' });
-		const text = readFile(ws.root, 'data/tasks/t.task.md');
-		assert.match(text, /^---\n[\s\S]*\n---\nthe prose\n$/);
-		assert.doesNotMatch(text, /body:/);
-	});
+  test("a body field becomes the markdown body, not frontmatter", () => {
+    const ws = base()
+    ws.store.add("tasks", { title: "T", body: "the prose" })
+    const text = readFile(ws.root, "data/tasks/t.task.md")
+    assert.match(text, /^---\n[\s\S]*\n---\nthe prose\n$/)
+    assert.doesNotMatch(text, /body:/)
+  })
 
-	test('a duplicate id is refused', () => {
-		const ws = base();
-		ws.store.add('tasks', { title: 'T' });
-		assert.throws(() => ws.store.add('tasks', { title: 'T' }), /already exists/);
-	});
-});
+  test("a duplicate id is refused", () => {
+    const ws = base()
+    ws.store.add("tasks", { title: "T" })
+    assert.throws(() => ws.store.add("tasks", { title: "T" }), /already exists/)
+  })
+})
 
-describe('hard validation — nothing was written', () => {
-	const cases = [
-		['an unknown field', { title: 'T', assinee: 'x' }, /unknown field\(s\).*assinee/],
-		['a bad enum value', { title: 'T', status: 'nope' }, /not in enum/],
-		['a missing required field', { status: 'todo' }, /required/],
-		['a dangling reference', { title: 'T', owner: 'people/ghost' }, /dangling reference/],
-		// `owner` is single-target (type: people), so a bare id like 'ghost' is now
-		// qualified to 'people/ghost' on input (task 8) and fails as a dangling reference, not as
-		// malformed syntax — that path is covered in ref-unions.test.js. An empty string is the one
-		// value qualifyBareRefs leaves untouched, so it still reaches checkRefs raw and unparseable.
-		['a malformed reference', { title: 'T', owner: '' }, /is not <collection>\/<id>/],
-		['a reference to the wrong collection', { title: 'T', owner: 'tasks/x' }, /must target collection "people"/],
-	];
+describe("hard validation — nothing was written", () => {
+  const cases = [
+    ["an unknown field", { title: "T", assinee: "x" }, /unknown field\(s\).*assinee/],
+    ["a bad enum value", { title: "T", status: "nope" }, /not in enum/],
+    ["a missing required field", { status: "todo" }, /required/],
+    ["a dangling reference", { title: "T", owner: "people/ghost" }, /dangling reference/],
+    // `owner` is single-target (type: people), so a bare id like 'ghost' is now
+    // qualified to 'people/ghost' on input (task 8) and fails as a dangling reference, not as
+    // malformed syntax — that path is covered in ref-unions.test.js. An empty string is the one
+    // value qualifyBareRefs leaves untouched, so it still reaches checkRefs raw and unparseable.
+    ["a malformed reference", { title: "T", owner: "" }, /is not <collection>\/<id>/],
+    ["a reference to the wrong collection", { title: "T", owner: "tasks/x" }, /must target collection "people"/],
+  ]
 
-	for (const [label, fields, re] of cases) {
-		test(`${label} is rejected and leaves no file`, () => {
-			const ws = base();
-			assert.throws(() => ws.store.add('tasks', fields), re);
-			assert.deepEqual(tree(ws.root, 'data/tasks'), []);
-		});
-	}
+  for (const [label, fields, re] of cases) {
+    test(`${label} is rejected and leaves no file`, () => {
+      const ws = base()
+      assert.throws(() => ws.store.add("tasks", fields), re)
+      assert.deepEqual(tree(ws.root, "data/tasks"), [])
+    })
+  }
 
-	test('an id that misses id.pattern is rejected', () => {
-		const ws = base();
-		assert.throws(() => ws.store.add('tasks', { title: 'T' }, { id: 'Not Legal' }), /does not match pattern/);
-		assert.deepEqual(tree(ws.root, 'data/tasks'), []);
-	});
+  test("an id that misses id.pattern is rejected", () => {
+    const ws = base()
+    assert.throws(() => ws.store.add("tasks", { title: "T" }, { id: "Not Legal" }), /does not match pattern/)
+    assert.deepEqual(tree(ws.root, "data/tasks"), [])
+  })
 
-	// review finding 1: an escaping `--id` wrote a record OUTSIDE the repo and orphaned others inside
-	// it. Two independent gates catch it — `id.pattern` (when the descriptor declares one) and
-	// `assertSafeId` (always) — so both are exercised.
-	test('an escaping id is refused by id.pattern when one is declared', () => {
-		const ws = base();
-		assert.throws(() => ws.store.add('tasks', { title: 'T' }, { id: '../../escaped' }), /does not match pattern/);
-		assert.equal(readFile(ws.root, '../escaped.task.md'), null);
-	});
+  // review finding 1: an escaping `--id` wrote a record OUTSIDE the repo and orphaned others inside
+  // it. Two independent gates catch it — `id.pattern` (when the descriptor declares one) and
+  // `assertSafeId` (always) — so both are exercised.
+  test("an escaping id is refused by id.pattern when one is declared", () => {
+    const ws = base()
+    assert.throws(() => ws.store.add("tasks", { title: "T" }, { id: "../../escaped" }), /does not match pattern/)
+    assert.equal(readFile(ws.root, "../escaped.task.md"), null)
+  })
 
-	test('an escaping id is refused by assertSafeId even with NO pattern declared', () => {
-		const ws = workspace({ collections: { loose: simpleCollection({ storage: { suffix: 'loose' } }) } });
-		assert.throws(() => ws.store.add('loose', { name: 'T' }, { id: '../../escaped' }), /invalid id/);
-		assert.equal(readFile(ws.root, '../escaped.loose.md'), null);
-		assert.equal(readFile(ws.root, '../../escaped.loose.md'), null);
-	});
-});
+  test("an escaping id is refused by assertSafeId even with NO pattern declared", () => {
+    const ws = workspace({ collections: { loose: simpleCollection({ storage: { suffix: "loose" } }) } })
+    assert.throws(() => ws.store.add("loose", { name: "T" }, { id: "../../escaped" }), /invalid id/)
+    assert.equal(readFile(ws.root, "../escaped.loose.md"), null)
+    assert.equal(readFile(ws.root, "../../escaped.loose.md"), null)
+  })
+})
 
-describe('set', () => {
-	test('merges changes and keeps the rest', () => {
-		const ws = base();
-		ws.store.add('tasks', { title: 'T', due: '2026-07-28' });
-		ws.store.set('tasks', 't', { status: 'doing' });
-		const { fields } = ws.store.read('tasks', 't');
-		assert.equal(fields.status, 'doing');
-		assert.equal(fields.due, '2026-07-28');
-	});
+describe("set", () => {
+  test("merges changes and keeps the rest", () => {
+    const ws = base()
+    ws.store.add("tasks", { title: "T", due: "2026-07-28" })
+    ws.store.set("tasks", "t", { status: "doing" })
+    const { fields } = ws.store.read("tasks", "t")
+    assert.equal(fields.status, "doing")
+    assert.equal(fields.due, "2026-07-28")
+  })
 
-	test('an empty value REMOVES the field', () => {
-		const ws = base();
-		ws.store.add('tasks', { title: 'T', due: '2026-07-28' });
-		ws.store.set('tasks', 't', { due: '' });
-		assert.equal(ws.store.read('tasks', 't').fields.due, undefined);
-	});
+  test("an empty value REMOVES the field", () => {
+    const ws = base()
+    ws.store.add("tasks", { title: "T", due: "2026-07-28" })
+    ws.store.set("tasks", "t", { due: "" })
+    assert.equal(ws.store.read("tasks", "t").fields.due, undefined)
+  })
 
-	test('an invalid change leaves the file byte-identical', () => {
-		const ws = base();
-		ws.store.add('tasks', { title: 'T' });
-		const before = readFile(ws.root, 'data/tasks/t.task.md');
-		assert.throws(() => ws.store.set('tasks', 't', { status: 'nope' }), /not in enum/);
-		assert.equal(readFile(ws.root, 'data/tasks/t.task.md'), before);
-	});
-});
+  test("an invalid change leaves the file byte-identical", () => {
+    const ws = base()
+    ws.store.add("tasks", { title: "T" })
+    const before = readFile(ws.root, "data/tasks/t.task.md")
+    assert.throws(() => ws.store.set("tasks", "t", { status: "nope" }), /not in enum/)
+    assert.equal(readFile(ws.root, "data/tasks/t.task.md"), before)
+  })
+})
 
-describe('rm', () => {
-	test('refuses while an inbound reference exists, and --force overrides', () => {
-		const ws = base();
-		ws.store.add('people', { name: 'Ada' });
-		ws.store.add('tasks', { title: 'T', owner: 'people/ada' });
-		assert.throws(() => ws.store.rm('people', 'ada'), /is referenced by/);
-		assert.ok(readFile(ws.root, 'data/people/ada.person.md'));
+describe("rm", () => {
+  test("refuses while an inbound reference exists, and --force overrides", () => {
+    const ws = base()
+    ws.store.add("people", { name: "Ada" })
+    ws.store.add("tasks", { title: "T", owner: "people/ada" })
+    assert.throws(() => ws.store.rm("people", "ada"), /is referenced by/)
+    assert.ok(readFile(ws.root, "data/people/ada.person.md"))
 
-		ws.store.rm('people', 'ada', { force: true });
-		assert.equal(readFile(ws.root, 'data/people/ada.person.md'), null);
-	});
+    ws.store.rm("people", "ada", { force: true })
+    assert.equal(readFile(ws.root, "data/people/ada.person.md"), null)
+  })
 
-	test('an unreferenced record removes cleanly', () => {
-		const ws = base();
-		ws.store.add('tasks', { title: 'T' });
-		ws.store.rm('tasks', 't');
-		assert.deepEqual(tree(ws.root, 'data/tasks'), []);
-	});
-});
+  test("an unreferenced record removes cleanly", () => {
+    const ws = base()
+    ws.store.add("tasks", { title: "T" })
+    ws.store.rm("tasks", "t")
+    assert.deepEqual(tree(ws.root, "data/tasks"), [])
+  })
+})
 
-describe('rename', () => {
-	test('moves the file and rewrites inbound frontmatter references in one go', () => {
-		const ws = base();
-		ws.store.add('people', { name: 'Ada' });
-		ws.store.add('tasks', { title: 'T', owner: 'people/ada' });
+describe("rename", () => {
+  test("moves the file and rewrites inbound frontmatter references in one go", () => {
+    const ws = base()
+    ws.store.add("people", { name: "Ada" })
+    ws.store.add("tasks", { title: "T", owner: "people/ada" })
 
-		const out = ws.store.rename('people', 'ada', 'ada-l');
-		assert.equal(out.rewrites, 1);
-		assert.equal(ws.store.read('tasks', 't').fields.owner, 'people/ada-l');
-		assert.equal(readFile(ws.root, 'data/people/ada.person.md'), null);
-	});
+    const out = ws.store.rename("people", "ada", "ada-l")
+    assert.equal(out.rewrites, 1)
+    assert.equal(ws.store.read("tasks", "t").fields.owner, "people/ada-l")
+    assert.equal(readFile(ws.root, "data/people/ada.person.md"), null)
+  })
 
-	// decision 7: prose is rewritten ONLY inside wikilinks, because raw-text replacement corrupted
-	// look-alike URLs. A raw prose mention is counted and reported, never touched.
-	test('a [[wikilink]] in a body is rewritten but a raw prose mention is not', () => {
-		const ws = base();
-		ws.store.add('people', { name: 'Ada' });
-		ws.store.add('tasks', { title: 'T', body: 'see [[people/ada]] and people/ada raw' });
-		ws.store.rename('people', 'ada', 'ada-l');
-		const body = readFile(ws.root, 'data/tasks/t.task.md');
-		assert.match(body, /\[\[people\/ada-l\]\]/);
-		assert.match(body, /people\/ada raw/, 'the raw prose mention must be left alone');
-	});
+  // decision 7: prose is rewritten ONLY inside wikilinks, because raw-text replacement corrupted
+  // look-alike URLs. A raw prose mention is counted and reported, never touched.
+  test("a [[wikilink]] in a body is rewritten but a raw prose mention is not", () => {
+    const ws = base()
+    ws.store.add("people", { name: "Ada" })
+    ws.store.add("tasks", { title: "T", body: "see [[people/ada]] and people/ada raw" })
+    ws.store.rename("people", "ada", "ada-l")
+    const body = readFile(ws.root, "data/tasks/t.task.md")
+    assert.match(body, /\[\[people\/ada-l\]\]/)
+    assert.match(body, /people\/ada raw/, "the raw prose mention must be left alone")
+  })
 
-	// A body says `[[ada]]`, not `[[people/ada]]`, more often than not — it is what every wikilink
-	// editor writes and what a person types. Rename used to move the record, rewrite the qualified
-	// links, and leave those dangling with NO warning: the skipped-prose counter matches the
-	// QUALIFIED form too, so a bare link was not even reported as skipped.
-	test('a bare [[basename]] wikilink follows the rename when the basename is unambiguous', () => {
-		const ws = base();
-		ws.store.add('people', { name: 'Ada' });
-		ws.store.add('tasks', { title: 'T', body: 'see [[ada]] and [[ada|Ada L]] and [[people/ada]]' });
-		ws.store.rename('people', 'ada', 'ada-l');
-		const body = readFile(ws.root, 'data/tasks/t.task.md');
-		assert.match(body, /\[\[ada-l\]\]/);
-		assert.match(body, /\[\[ada-l\|Ada L\]\]/, 'the |label form must keep its label');
-		assert.match(body, /\[\[people\/ada-l\]\]/, 'the qualified form is unaffected');
-		assert.doesNotMatch(body, /\[\[ada[\]|]/);
-	});
+  // A body says `[[ada]]`, not `[[people/ada]]`, more often than not — it is what every wikilink
+  // editor writes and what a person types. Rename used to move the record, rewrite the qualified
+  // links, and leave those dangling with NO warning: the skipped-prose counter matches the
+  // QUALIFIED form too, so a bare link was not even reported as skipped.
+  test("a bare [[basename]] wikilink follows the rename when the basename is unambiguous", () => {
+    const ws = base()
+    ws.store.add("people", { name: "Ada" })
+    ws.store.add("tasks", { title: "T", body: "see [[ada]] and [[ada|Ada L]] and [[people/ada]]" })
+    ws.store.rename("people", "ada", "ada-l")
+    const body = readFile(ws.root, "data/tasks/t.task.md")
+    assert.match(body, /\[\[ada-l\]\]/)
+    assert.match(body, /\[\[ada-l\|Ada L\]\]/, "the |label form must keep its label")
+    assert.match(body, /\[\[people\/ada-l\]\]/, "the qualified form is unaffected")
+    assert.doesNotMatch(body, /\[\[ada[\]|]/)
+  })
 
-	test('an ambiguous basename is left alone and REPORTED, never guessed', () => {
-		const ws = base();
-		ws.store.add('people', { name: 'Ada' });
-		ws.store.add('tasks', { title: 'Ada' }); // tasks/ada — now "ada" names two records
-		ws.store.add('tasks', { title: 'T', body: 'see [[ada]]' });
-		const { out, warnings } = quietly(() => ws.store.rename('people', 'ada', 'ada-l'));
-		assert.equal(out.ambiguous, 1, 'the untouched link must be counted, not silently dropped');
-		assert.match(readFile(ws.root, 'data/tasks/t.task.md'), /\[\[ada\]\]/);
-		assert.ok(warnings.some((w) => w.includes('data/tasks/t.task.md') && w.includes('tasks/ada')),
-			`no warning named the file and the other claimant: ${warnings.join(' | ')}`);
-	});
+  test("an ambiguous basename is left alone and REPORTED, never guessed", () => {
+    const ws = base()
+    ws.store.add("people", { name: "Ada" })
+    ws.store.add("tasks", { title: "Ada" }) // tasks/ada — now "ada" names two records
+    ws.store.add("tasks", { title: "T", body: "see [[ada]]" })
+    const { out, warnings } = quietly(() => ws.store.rename("people", "ada", "ada-l"))
+    assert.equal(out.ambiguous, 1, "the untouched link must be counted, not silently dropped")
+    assert.match(readFile(ws.root, "data/tasks/t.task.md"), /\[\[ada\]\]/)
+    assert.ok(
+      warnings.some(w => w.includes("data/tasks/t.task.md") && w.includes("tasks/ada")),
+      `no warning named the file and the other claimant: ${warnings.join(" | ")}`
+    )
+  })
 
-	test('a rename that keeps the basename runs no bare pass at all', () => {
-		// the shape `collections rename` takes: the id is untouched, only its collection moves, so a
-		// bare `[[ada]]` still names exactly what it named before.
-		const ws = base();
-		ws.store.add('people', { name: 'Ada' });
-		ws.store.add('tasks', { title: 'T', body: 'see [[ada]]' });
-		const { ambiguous } = ws.store.rewriteRefs('people/ada', 'folk/ada');
-		assert.deepEqual(ambiguous, []);
-		assert.match(readFile(ws.root, 'data/tasks/t.task.md'), /\[\[ada\]\]/);
-	});
+  test("a rename that keeps the basename runs no bare pass at all", () => {
+    // the shape `collections rename` takes: the id is untouched, only its collection moves, so a
+    // bare `[[ada]]` still names exactly what it named before.
+    const ws = base()
+    ws.store.add("people", { name: "Ada" })
+    ws.store.add("tasks", { title: "T", body: "see [[ada]]" })
+    const { ambiguous } = ws.store.rewriteRefs("people/ada", "folk/ada")
+    assert.deepEqual(ambiguous, [])
+    assert.match(readFile(ws.root, "data/tasks/t.task.md"), /\[\[ada\]\]/)
+  })
 
-	test('renaming to an existing id is refused', () => {
-		const ws = base();
-		ws.store.add('tasks', { title: 'A' });
-		ws.store.add('tasks', { title: 'B' });
-		assert.throws(() => ws.store.rename('tasks', 'a', 'b'), /already exists/);
-	});
-});
+  test("renaming to an existing id is refused", () => {
+    const ws = base()
+    ws.store.add("tasks", { title: "A" })
+    ws.store.add("tasks", { title: "B" })
+    assert.throws(() => ws.store.rename("tasks", "a", "b"), /already exists/)
+  })
+})
 
-describe('list — sort and filter', () => {
-	const seeded = () => {
-		const ws = base();
-		ws.store.add('tasks', { title: 'A', status: 'todo', due: '2026-07-03' });
-		ws.store.add('tasks', { title: 'B', status: 'done', due: '2026-07-01' });
-		ws.store.add('tasks', { title: 'C', status: 'todo', due: '2026-07-02' });
-		return ws;
-	};
+describe("list — sort and filter", () => {
+  const seeded = () => {
+    const ws = base()
+    ws.store.add("tasks", { title: "A", status: "todo", due: "2026-07-03" })
+    ws.store.add("tasks", { title: "B", status: "done", due: "2026-07-01" })
+    ws.store.add("tasks", { title: "C", status: "todo", due: "2026-07-02" })
+    return ws
+  }
 
-	test('--sort orders by a field, and a leading minus reverses', () => {
-		const ws = seeded();
-		const asc = JSON.parse(ws.dt('list', 'tasks', '--sort', 'due', '--json').stdout);
-		assert.deepEqual(asc.map((r) => r.id), ['b', 'c', 'a']);
-		const desc = JSON.parse(ws.dt('list', 'tasks', '--sort', '-due', '--json').stdout);
-		assert.deepEqual(desc.map((r) => r.id), ['a', 'c', 'b']);
-	});
+  test("--sort orders by a field, and a leading minus reverses", () => {
+    const ws = seeded()
+    const asc = JSON.parse(ws.dt("list", "tasks", "--sort", "due", "--json").stdout)
+    assert.deepEqual(
+      asc.map(r => r.id),
+      ["b", "c", "a"]
+    )
+    const desc = JSON.parse(ws.dt("list", "tasks", "--sort", "-due", "--json").stdout)
+    assert.deepEqual(
+      desc.map(r => r.id),
+      ["a", "c", "b"]
+    )
+  })
 
-	test('--where takes the studio operator set', () => {
-		const ws = seeded();
-		const res = ws.dt('list', 'tasks', '--where', '{"status":{"_eq":"todo"}}', '--json');
-		assert.equal(res.code, 0, res.stderr);
-		assert.deepEqual(JSON.parse(res.stdout).map((r) => r.id).sort(), ['a', 'c']);
-	});
+  test("--where takes the studio operator set", () => {
+    const ws = seeded()
+    const res = ws.dt("list", "tasks", "--where", '{"status":{"_eq":"todo"}}', "--json")
+    assert.equal(res.code, 0, res.stderr)
+    assert.deepEqual(
+      JSON.parse(res.stdout)
+        .map(r => r.id)
+        .sort(),
+      ["a", "c"]
+    )
+  })
 
-	test('--where with a date range compares as instants', () => {
-		const ws = seeded();
-		const res = ws.dt('list', 'tasks', '--where', '{"due":{"_gte":"2026-07-02"}}', '--json');
-		assert.deepEqual(JSON.parse(res.stdout).map((r) => r.id).sort(), ['a', 'c']);
-	});
+  test("--where with a date range compares as instants", () => {
+    const ws = seeded()
+    const res = ws.dt("list", "tasks", "--where", '{"due":{"_gte":"2026-07-02"}}', "--json")
+    assert.deepEqual(
+      JSON.parse(res.stdout)
+        .map(r => r.id)
+        .sort(),
+      ["a", "c"]
+    )
+  })
 
-	// An ENUM already declares the vocabulary, so that is what a filter dropdown should offer — offering
-	// only the values currently present would hide a legal choice nobody has used yet.
-	test('values on an enum field reports the declared vocabulary', () => {
-		const ws = seeded();
-		const res = ws.dt('values', 'tasks', 'status', '--json');
-		assert.equal(res.code, 0, res.stderr);
-		const out = JSON.parse(res.stdout);
-		assert.equal(out.collection, 'tasks');
-		assert.equal(out.field, 'status');
-		assert.equal(out.source, 'enum');
-		assert.deepEqual(out.values.map((v) => v.value).sort(), ['doing', 'done', 'todo']);
-	});
+  // An ENUM already declares the vocabulary, so that is what a filter dropdown should offer — offering
+  // only the values currently present would hide a legal choice nobody has used yet.
+  test("values on an enum field reports the declared vocabulary", () => {
+    const ws = seeded()
+    const res = ws.dt("values", "tasks", "status", "--json")
+    assert.equal(res.code, 0, res.stderr)
+    const out = JSON.parse(res.stdout)
+    assert.equal(out.collection, "tasks")
+    assert.equal(out.field, "status")
+    assert.equal(out.source, "enum")
+    assert.deepEqual(out.values.map(v => v.value).sort(), ["doing", "done", "todo"])
+  })
 
-	test('values on a free field reports what the DATA uses, with counts', () => {
-		const ws = seeded();
-		ws.store.add('tasks', { title: 'D', due: '2026-07-03' }); // a duplicate of A's due date
-		const out = JSON.parse(ws.dt('values', 'tasks', 'due', '--json').stdout);
-		assert.equal(out.source, 'data');
-		assert.deepEqual(out.values.map((v) => v.value).sort(), ['2026-07-01', '2026-07-02', '2026-07-03']);
-		assert.equal(out.values.find((v) => v.value === '2026-07-03').count, 2);
-	});
-});
+  test("values on a free field reports what the DATA uses, with counts", () => {
+    const ws = seeded()
+    ws.store.add("tasks", { title: "D", due: "2026-07-03" }) // a duplicate of A's due date
+    const out = JSON.parse(ws.dt("values", "tasks", "due", "--json").stdout)
+    assert.equal(out.source, "data")
+    assert.deepEqual(out.values.map(v => v.value).sort(), ["2026-07-01", "2026-07-02", "2026-07-03"])
+    assert.equal(out.values.find(v => v.value === "2026-07-03").count, 2)
+  })
+})
 
-describe('history, diff and revert', () => {
-	test('history lists revisions newest-first and revert restores content', () => {
-		const ws = base();
-		ws.store.add('tasks', { title: 'T' });
-		ws.git(['add', '-A']);
-		ws.git(['commit', '-qm', 'add t']);
-		const firstSha = ws.git(['rev-parse', 'HEAD']);
+describe("history, diff and revert", () => {
+  test("history lists revisions newest-first and revert restores content", () => {
+    const ws = base()
+    ws.store.add("tasks", { title: "T" })
+    ws.git(["add", "-A"])
+    ws.git(["commit", "-qm", "add t"])
+    const firstSha = ws.git(["rev-parse", "HEAD"])
 
-		ws.store.set('tasks', 't', { status: 'done' });
-		ws.git(['add', '-A']);
-		ws.git(['commit', '-qm', 'set t']);
+    ws.store.set("tasks", "t", { status: "done" })
+    ws.git(["add", "-A"])
+    ws.git(["commit", "-qm", "set t"])
 
-		const hist = JSON.parse(ws.dt('history', 'tasks/t', '--json').stdout);
-		assert.ok(hist.length >= 2, 'both commits should appear');
+    const hist = JSON.parse(ws.dt("history", "tasks/t", "--json").stdout)
+    assert.ok(hist.length >= 2, "both commits should appear")
 
-		assert.equal(ws.store.read('tasks', 't').fields.status, 'done');
-		ws.store.revert('tasks', 't', firstSha);
-		assert.equal(ws.store.read('tasks', 't').fields.status, 'todo');
-	});
+    assert.equal(ws.store.read("tasks", "t").fields.status, "done")
+    ws.store.revert("tasks", "t", firstSha)
+    assert.equal(ws.store.read("tasks", "t").fields.status, "todo")
+  })
 
-	// Tightened from a two-alternative regex that would have passed on either message: assert the exact
-	// sentence AND that the file is byte-identical afterwards, which is the claim that matters.
-	test('revert against a sha with no content for the record refuses, and changes nothing', () => {
-		const ws = base();
-		ws.store.add('tasks', { title: 'T' });
-		const before = readFile(ws.root, 'data/tasks/t.task.md');
-		assert.throws(
-			() => ws.store.revert('tasks', 't', 'HEAD'),
-			/no content at HEAD for data\/tasks\/t\.task\.md — nothing was reverted\./,
-		);
-		assert.equal(readFile(ws.root, 'data/tasks/t.task.md'), before);
-	});
+  // Tightened from a two-alternative regex that would have passed on either message: assert the exact
+  // sentence AND that the file is byte-identical afterwards, which is the claim that matters.
+  test("revert against a sha with no content for the record refuses, and changes nothing", () => {
+    const ws = base()
+    ws.store.add("tasks", { title: "T" })
+    const before = readFile(ws.root, "data/tasks/t.task.md")
+    assert.throws(
+      () => ws.store.revert("tasks", "t", "HEAD"),
+      /no content at HEAD for data\/tasks\/t\.task\.md — nothing was reverted\./
+    )
+    assert.equal(readFile(ws.root, "data/tasks/t.task.md"), before)
+  })
 
-	test('revert to the CURRENT content is a reported no-op, not a write', () => {
-		const ws = base();
-		ws.store.add('tasks', { title: 'T' });
-		ws.git(['add', '-A']);
-		ws.git(['commit', '-qm', 'add t']);
-		const sha = ws.git(['rev-parse', 'HEAD']);
-		const out = ws.store.revert('tasks', 't', sha);
-		assert.deepEqual(out, { id: 't', reverted: false });
-	});
+  test("revert to the CURRENT content is a reported no-op, not a write", () => {
+    const ws = base()
+    ws.store.add("tasks", { title: "T" })
+    ws.git(["add", "-A"])
+    ws.git(["commit", "-qm", "add t"])
+    const sha = ws.git(["rev-parse", "HEAD"])
+    const out = ws.store.revert("tasks", "t", sha)
+    assert.deepEqual(out, { id: "t", reverted: false })
+  })
 
-	test('diff prints the patch one revision applied', () => {
-		const ws = base();
-		ws.store.add('tasks', { title: 'T' });
-		ws.git(['add', '-A']);
-		ws.git(['commit', '-qm', 'add t']);
-		const res = ws.dt('diff', 'tasks/t');
-		assert.equal(res.code, 0, res.stderr);
-		assert.match(res.stdout, /title: T|\+\+\+/);
-	});
-});
+  test("diff prints the patch one revision applied", () => {
+    const ws = base()
+    ws.store.add("tasks", { title: "T" })
+    ws.git(["add", "-A"])
+    ws.git(["commit", "-qm", "add t"])
+    const res = ws.dt("diff", "tasks/t")
+    assert.equal(res.code, 0, res.stderr)
+    assert.match(res.stdout, /title: T|\+\+\+/)
+  })
+})
 
-describe('nested ids', () => {
-	test('a multi-segment id round-trips through add, get and rm', () => {
-		const ws = workspace({
-			collections: {
-				meetings: {
-					ids: { from: '{{ date }}/{{ title | slug }}' },
-					storage: { suffix: 'meeting' },
-					fields: {
-						title: { type: 'string', required: true },
-						date: { type: 'string', required: true },
-					},
-				},
-			},
-		});
-		const { id } = ws.store.add('meetings', { title: 'Kickoff', date: '2026/07' });
-		assert.equal(id, '2026/07/kickoff');
-		assert.ok(readFile(ws.root, 'data/meetings/2026/07/kickoff.meeting.md'));
-		assert.equal(ws.store.read('meetings', id).fields.title, 'Kickoff');
+describe("nested ids", () => {
+  test("a multi-segment id round-trips through add, get and rm", () => {
+    const ws = workspace({
+      collections: {
+        meetings: {
+          ids: { from: "{{ date }}/{{ title | slug }}" },
+          storage: { suffix: "meeting" },
+          fields: {
+            title: { type: "string", required: true },
+            date: { type: "string", required: true },
+          },
+        },
+      },
+    })
+    const { id } = ws.store.add("meetings", { title: "Kickoff", date: "2026/07" })
+    assert.equal(id, "2026/07/kickoff")
+    assert.ok(readFile(ws.root, "data/meetings/2026/07/kickoff.meeting.md"))
+    assert.equal(ws.store.read("meetings", id).fields.title, "Kickoff")
 
-		ws.store.rm('meetings', id);
-		// the now-empty date folders are pruned rather than left behind
-		assert.deepEqual(tree(ws.root, 'data/meetings'), []);
-	});
-});
+    ws.store.rm("meetings", id)
+    // the now-empty date folders are pruned rather than left behind
+    assert.deepEqual(tree(ws.root, "data/meetings"), [])
+  })
+})
 
-describe('system-stored collections are read-only through the store', () => {
-	test('writing one refuses and says where to edit instead', () => {
-		const ws = base();
-		assert.throws(() => ws.store.add('collections', { name: 'x' }), /are compiled sources — edit/);
-	});
+describe("system-stored collections are read-only through the store", () => {
+  test("writing one refuses and says where to edit instead", () => {
+    const ws = base()
+    assert.throws(() => ws.store.add("collections", { name: "x" }), /are compiled sources — edit/)
+  })
 
-	// ⚠ THIS TEST USED TO ASSERT "THE CLI REFUSES TOO", and that is deliberately no longer true:
-	// since 0.19.0 a system collection takes the record verbs, and `dt set collections/<c> icon=…`
-	// is a legitimate source write through the compile gate (§4). What STAYS is the STORE's own
-	// refusal above — dispatch is at the SURFACE and the store is the belt for the mirror pass and
-	// for `revert` (decision 14 affirmed, not reversed). So this asserts both halves of the new
-	// line: the surface routes a settable scalar to the source, and a key no system verb owns is
-	// still refused rather than written.
-	test('the CLI routes it to the SOURCE instead, and still refuses a key no system verb owns', () => {
-		const ws = base();
-		const ok = ws.dt('set', 'collections/tasks', 'display.nav.icon=star');
-		assert.equal(ok.code, 0, ok.stdout + ok.stderr);
-		assert.match(readFile(ws.root, 'modules/default/collections/tasks.collection.yaml'), /icon: star/);
-		const refused = ws.dt('set', 'collections/tasks', 'schema=nope');
-		assert.equal(refused.code, 1);
-		assert.match(refused.stderr, /"schema" is not a settable key of a collection/);
-	});
-});
+  // ⚠ THIS TEST USED TO ASSERT "THE CLI REFUSES TOO", and that is deliberately no longer true:
+  // since 0.19.0 a system collection takes the record verbs, and `dt set collections/<c> icon=…`
+  // is a legitimate source write through the compile gate (§4). What STAYS is the STORE's own
+  // refusal above — dispatch is at the SURFACE and the store is the belt for the mirror pass and
+  // for `revert` (decision 14 affirmed, not reversed). So this asserts both halves of the new
+  // line: the surface routes a settable scalar to the source, and a key no system verb owns is
+  // still refused rather than written.
+  test("the CLI routes it to the SOURCE instead, and still refuses a key no system verb owns", () => {
+    const ws = base()
+    const ok = ws.dt("set", "collections/tasks", "display.nav.icon=star")
+    assert.equal(ok.code, 0, ok.stdout + ok.stderr)
+    assert.match(readFile(ws.root, "modules/default/collections/tasks.collection.yaml"), /icon: star/)
+    const refused = ws.dt("set", "collections/tasks", "schema=nope")
+    assert.equal(refused.code, 1)
+    assert.match(refused.stderr, /"schema" is not a settable key of a collection/)
+  })
+})
 
-describe('commit and changes', () => {
-	test('commit publishes pending writes and changes reports them', () => {
-		const ws = base();
-		ws.store.add('tasks', { title: 'T' });
-		assert.notEqual(ws.git(['status', '--porcelain', 'data']), '');
+describe("commit and changes", () => {
+  test("commit publishes pending writes and changes reports them", () => {
+    const ws = base()
+    ws.store.add("tasks", { title: "T" })
+    assert.notEqual(ws.git(["status", "--porcelain", "data"]), "")
 
-		const res = ws.dt('commit', '-m', 'publish');
-		assert.equal(res.code, 0, res.stdout + res.stderr);
-		assert.equal(ws.git(['status', '--porcelain', 'data']), '');
+    const res = ws.dt("commit", "-m", "publish")
+    assert.equal(res.code, 0, res.stdout + res.stderr)
+    assert.equal(ws.git(["status", "--porcelain", "data"]), "")
 
-		const changes = JSON.parse(ws.dt('changes', '--since', 'HEAD~1', '--json').stdout);
-		assert.ok(changes.events.some((e) => e.collection === 'tasks' && e.id === 't'));
-	});
+    const changes = JSON.parse(ws.dt("changes", "--since", "HEAD~1", "--json").stdout)
+    assert.ok(changes.events.some(e => e.collection === "tasks" && e.id === "t"))
+  })
 
-	test('--dry-run changes nothing', () => {
-		const ws = base();
-		ws.store.add('tasks', { title: 'T' });
-		const before = ws.git(['rev-parse', 'HEAD']);
-		assert.equal(ws.dt('commit', '--dry-run').code, 0);
-		assert.equal(ws.git(['rev-parse', 'HEAD']), before);
-		assert.notEqual(ws.git(['status', '--porcelain', 'data']), '');
-	});
+  test("--dry-run changes nothing", () => {
+    const ws = base()
+    ws.store.add("tasks", { title: "T" })
+    const before = ws.git(["rev-parse", "HEAD"])
+    assert.equal(ws.dt("commit", "--dry-run").code, 0)
+    assert.equal(ws.git(["rev-parse", "HEAD"]), before)
+    assert.notEqual(ws.git(["status", "--porcelain", "data"]), "")
+  })
 
-	test('nothing pending is reported, not invented', () => {
-		const ws = base();
-		ws.git(['add', '-A']);
-		ws.git(['commit', '-qm', 'clean']);
-		assert.match(ws.dt('commit').stdout, /nothing pending/);
-	});
-});
+  test("nothing pending is reported, not invented", () => {
+    const ws = base()
+    ws.git(["add", "-A"])
+    ws.git(["commit", "-qm", "clean"])
+    assert.match(ws.dt("commit").stdout, /nothing pending/)
+  })
+})
 
-describe('the id index key', () => {
-	test('HEAD is read ONCE per store, and a write that publishes nothing keeps it', () => {
-		// ⚠ THE MEMO IS NOT A MICRO-OPTIMISATION. `ids()` asks `gitHead()` on every call, hit or miss,
-		// and a `git rev-parse` is ~10ms of process spawn — so a one-hop relational filter, which
-		// resolves one referenced record per row through the id index, paid one subprocess PER ROW.
-		// `npm run perf` reproduces it: 2.39s → 0.08s over 200 rows.
-		const ws = workspace({ collections: { widgets: simpleCollection({ storage: { suffix: 'widget' } }) } });
-		const store = new Store(ws.ws);
-		const memo = store.gitHead();
-		assert.equal(memo, git(ws.root, ['rev-parse', 'HEAD']));
+describe("the id index key", () => {
+  test("HEAD is read ONCE per store, and a write that publishes nothing keeps it", () => {
+    // ⚠ THE MEMO IS NOT A MICRO-OPTIMISATION. `ids()` asks `gitHead()` on every call, hit or miss,
+    // and a `git rev-parse` is ~10ms of process spawn — so a one-hop relational filter, which
+    // resolves one referenced record per row through the id index, paid one subprocess PER ROW.
+    // `npm run perf` reproduces it: 2.39s → 0.08s over 200 rows.
+    const ws = workspace({ collections: { widgets: simpleCollection({ storage: { suffix: "widget" } }) } })
+    const store = new Store(ws.ws)
+    const memo = store.gitHead()
+    assert.equal(memo, git(ws.root, ["rev-parse", "HEAD"]))
 
-		// MEMOIZED: HEAD moves out of band (not through this store) and gitHead does NOT go and look.
-		// Without the memo this assertion is the one that fails — which is what makes it the test.
-		git(ws.root, ['commit', '--allow-empty', '-qm', 'another process published something']);
-		assert.notEqual(git(ws.root, ['rev-parse', 'HEAD']), memo);
-		assert.equal(store.gitHead(), memo, 'a per-call rev-parse would have seen the new sha');
+    // MEMOIZED: HEAD moves out of band (not through this store) and gitHead does NOT go and look.
+    // Without the memo this assertion is the one that fails — which is what makes it the test.
+    git(ws.root, ["commit", "--allow-empty", "-qm", "another process published something"])
+    assert.notEqual(git(ws.root, ["rev-parse", "HEAD"]), memo)
+    assert.equal(store.gitHead(), memo, "a per-call rev-parse would have seen the new sha")
 
-		// AND NOT DROPPED BY A WRITE THAT PUBLISHED NOTHING. `auto-commit` is off by default, so this
-		// add moves no sha — the memo used to be dropped by the write LOCK regardless, buying the next
-		// `ids()` a ~10ms subprocess to re-read a value that had not changed. It is dropped by whatever
-		// runs `git commit` instead (store.headMoved); test/integration/store-index.test.js holds both
-		// halves of that. The index is right either way, because a write now MAINTAINS it.
-		store.add('widgets', { name: 'One' });
-		assert.equal(store.gitHead(), memo, 'a write that committed nothing dropped the HEAD memo');
-		assert.ok(store.ids('widgets').has('one'));
-	});
-});
+    // AND NOT DROPPED BY A WRITE THAT PUBLISHED NOTHING. `auto-commit` is off by default, so this
+    // add moves no sha — the memo used to be dropped by the write LOCK regardless, buying the next
+    // `ids()` a ~10ms subprocess to re-read a value that had not changed. It is dropped by whatever
+    // runs `git commit` instead (store.headMoved); test/integration/store-index.test.js holds both
+    // halves of that. The index is right either way, because a write now MAINTAINS it.
+    store.add("widgets", { name: "One" })
+    assert.equal(store.gitHead(), memo, "a write that committed nothing dropped the HEAD memo")
+    assert.ok(store.ids("widgets").has("one"))
+  })
+})
 
-describe('a one-field set produces a one-field diff', () => {
-	test('unchanged front-matter bytes are RESTORED, not re-emitted', () => {
-		const ws = twoModuleWorkspace();
-		ws.dt('add', 'people', '--name', 'Dana Levi');
-		const file = path.join(ws.root, 'data/people/dana-levi.person.md');
-		// hand-author the record the way a human does: a quoted scalar and a comment. `employer` is
-		// already declared by the fixture's `people`, so nothing has to be added first.
-		fs.writeFileSync(file, '---\nname: "Dana Levi"\n# reached via Acme\nemployer: Acme\n---\n\nMet at Acme.\n');
-		ws.git(['add', '--', 'data/people/dana-levi.person.md']);
-		ws.git(['commit', '-qm', 'hand-authored record']);
+describe("a one-field set produces a one-field diff", () => {
+  test("unchanged front-matter bytes are RESTORED, not re-emitted", () => {
+    const ws = twoModuleWorkspace()
+    ws.dt("add", "people", "--name", "Dana Levi")
+    const file = path.join(ws.root, "data/people/dana-levi.person.md")
+    // hand-author the record the way a human does: a quoted scalar and a comment. `employer` is
+    // already declared by the fixture's `people`, so nothing has to be added first.
+    fs.writeFileSync(file, '---\nname: "Dana Levi"\n# reached via Acme\nemployer: Acme\n---\n\nMet at Acme.\n')
+    ws.git(["add", "--", "data/people/dana-levi.person.md"])
+    ws.git(["commit", "-qm", "hand-authored record"])
 
-		assert.equal(ws.dt('set', 'people/dana-levi', 'employer=Globex').code, 0);
-		const diff = ws.git(['diff', '--unified=0', '--', 'data/people/dana-levi.person.md']);
-		const changed = diff.split('\n').filter((l) => /^[+-][^+-]/.test(l));
-		assert.deepEqual(changed, ['-employer: Acme', '+employer: Globex'],
-			'exactly one field moved, so exactly one line moved');
-		assert.match(readFile(ws.root, 'data/people/dana-levi.person.md'), /name: "Dana Levi"/, 'the quoting survives');
-		assert.match(readFile(ws.root, 'data/people/dana-levi.person.md'), /# reached via Acme/, 'the comment survives');
-		assert.match(readFile(ws.root, 'data/people/dana-levi.person.md'), /Met at Acme\./, 'the body survives');
-	});
-});
+    assert.equal(ws.dt("set", "people/dana-levi", "employer=Globex").code, 0)
+    const diff = ws.git(["diff", "--unified=0", "--", "data/people/dana-levi.person.md"])
+    const changed = diff.split("\n").filter(l => /^[+-][^+-]/.test(l))
+    assert.deepEqual(
+      changed,
+      ["-employer: Acme", "+employer: Globex"],
+      "exactly one field moved, so exactly one line moved"
+    )
+    assert.match(readFile(ws.root, "data/people/dana-levi.person.md"), /name: "Dana Levi"/, "the quoting survives")
+    assert.match(readFile(ws.root, "data/people/dana-levi.person.md"), /# reached via Acme/, "the comment survives")
+    assert.match(readFile(ws.root, "data/people/dana-levi.person.md"), /Met at Acme\./, "the body survives")
+  })
+})
 
 // An id derived from a date-time renders in the value's own offset, so the same `dt add` gives the
 // same id on a UTC cloud machine and on a laptop fourteen hours ahead of it.
-describe('a date-derived id does not depend on the machine zone', () => {
-	test('dt add under TZ=UTC and TZ=Pacific/Kiritimati writes the same id', () => {
-		const ids = ['UTC', 'Pacific/Kiritimati'].map((tz) => {
-			const ws = workspace({ collections: { meetings: simpleCollection({
-				storage: { suffix: 'meeting' },
-				ids: { from: '{{ starts | date:YYYY-MM-DD--HH-mm }}--{{ name | slug }}' },
-				fields: {
-					name: { type: 'string', required: true },
-					starts: { type: 'datetime', required: true },
-					notes: { type: 'markdown', body: true },
-				},
-			}) } });
-			const res = spawnSync(process.execPath, [path.join(ENGINE_ROOT, 'bin', 'dreamteamer.js'), 'add', 'meetings', '--name', 'Kickoff', '--starts', '2026-07-28T23:30:00+03:00'],
-				{ cwd: ws.root, env: { ...process.env, TZ: tz }, encoding: 'utf8', timeout: SPAWN_TIMEOUT_MS, killSignal: 'SIGKILL' });
-			assert.equal(res.status, 0, res.stderr);
-			return tree(ws.root, 'data/meetings');
-		});
-		assert.deepEqual(ids[0], ['data/meetings/2026-07-28--23-30--kickoff.meeting.md']);
-		assert.deepEqual(ids[1], ids[0]);
-	});
-});
+describe("a date-derived id does not depend on the machine zone", () => {
+  test("dt add under TZ=UTC and TZ=Pacific/Kiritimati writes the same id", () => {
+    const ids = ["UTC", "Pacific/Kiritimati"].map(tz => {
+      const ws = workspace({
+        collections: {
+          meetings: simpleCollection({
+            storage: { suffix: "meeting" },
+            ids: { from: "{{ starts | date:YYYY-MM-DD--HH-mm }}--{{ name | slug }}" },
+            fields: {
+              name: { type: "string", required: true },
+              starts: { type: "datetime", required: true },
+              notes: { type: "markdown", body: true },
+            },
+          }),
+        },
+      })
+      const res = spawnSync(
+        process.execPath,
+        [
+          path.join(ENGINE_ROOT, "bin", "dreamteamer.js"),
+          "add",
+          "meetings",
+          "--name",
+          "Kickoff",
+          "--starts",
+          "2026-07-28T23:30:00+03:00",
+        ],
+        {
+          cwd: ws.root,
+          env: { ...process.env, TZ: tz },
+          encoding: "utf8",
+          timeout: SPAWN_TIMEOUT_MS,
+          killSignal: "SIGKILL",
+        }
+      )
+      assert.equal(res.status, 0, res.stderr)
+      return tree(ws.root, "data/meetings")
+    })
+    assert.deepEqual(ids[0], ["data/meetings/2026-07-28--23-30--kickoff.meeting.md"])
+    assert.deepEqual(ids[1], ids[0])
+  })
+})
 
-describe('dt list --sort on an enum field follows the declared order', () => {
-	test('draft → active → done, not alphabetical', () => {
-		const ws = workspace({ collections: { tasks: simpleCollection({
-			storage: { suffix: 'task' },
-			fields: {
-				name: { type: 'string', required: true },
-				status: { type: 'string', enum: ['draft', 'active', 'done'] },
-				notes: { type: 'markdown', body: true },
-			},
-		}) } });
-		for (const [name, status] of [['Ship', 'done'], ['Plan', 'draft'], ['Build', 'active']]) assert.equal(ws.dt('add', 'tasks', '--name', name, '--status', status).code, 0);
-		const order = (sort) => JSON.parse(ws.dt('list', 'tasks', '--sort', sort, '--json').stdout).map((r) => r.status);
-		assert.deepEqual(order('status'), ['draft', 'active', 'done']);
-		assert.deepEqual(order('-status'), ['done', 'active', 'draft']);
-	});
-});
+describe("dt list --sort on an enum field follows the declared order", () => {
+  test("draft → active → done, not alphabetical", () => {
+    const ws = workspace({
+      collections: {
+        tasks: simpleCollection({
+          storage: { suffix: "task" },
+          fields: {
+            name: { type: "string", required: true },
+            status: { type: "string", enum: ["draft", "active", "done"] },
+            notes: { type: "markdown", body: true },
+          },
+        }),
+      },
+    })
+    for (const [name, status] of [
+      ["Ship", "done"],
+      ["Plan", "draft"],
+      ["Build", "active"],
+    ])
+      assert.equal(ws.dt("add", "tasks", "--name", name, "--status", status).code, 0)
+    const order = sort => JSON.parse(ws.dt("list", "tasks", "--sort", sort, "--json").stdout).map(r => r.status)
+    assert.deepEqual(order("status"), ["draft", "active", "done"])
+    assert.deepEqual(order("-status"), ["done", "active", "draft"])
+  })
+})

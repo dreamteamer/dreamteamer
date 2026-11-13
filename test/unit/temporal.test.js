@@ -5,111 +5,136 @@
 // INSTANTS, and a `localeCompare` puts `…T12:00+03:00` after `…T11:00+01:00` — the earlier moment.
 // That regression is cheap to reintroduce and invisible until someone notices a board sorted wrong,
 // so it gets a test that fails loudly.
-import { test, describe } from 'node:test';
-import assert from 'node:assert/strict';
-import { parseTemporal, normalizeTemporal, normalizeRecord, compareValues, sortRows } from '../../src/temporal.ts';
+import { test, describe } from "node:test"
+import assert from "node:assert/strict"
+import { parseTemporal, normalizeTemporal, normalizeRecord, compareValues, sortRows } from "../../src/temporal.ts"
 
-describe('normalizeTemporal', () => {
-	test('a human date-time gets the local offset stamped on, not folded to Z', () => {
-		const out = normalizeTemporal('2026-07-28 12:00', 'date-time');
-		assert.match(out, /^2026-07-28T12:00:00[+-]\d{2}:\d{2}$|^2026-07-28T12:00:00Z$/);
-		// the wall-clock time the operator typed must survive verbatim
-		assert.ok(out.startsWith('2026-07-28T12:00:00'));
-	});
+describe("normalizeTemporal", () => {
+  test("a human date-time gets the local offset stamped on, not folded to Z", () => {
+    const out = normalizeTemporal("2026-07-28 12:00", "date-time")
+    assert.match(out, /^2026-07-28T12:00:00[+-]\d{2}:\d{2}$|^2026-07-28T12:00:00Z$/)
+    // the wall-clock time the operator typed must survive verbatim
+    assert.ok(out.startsWith("2026-07-28T12:00:00"))
+  })
 
-	test('accepts the datetime-local widget spelling and the CLI spelling identically', () => {
-		assert.equal(normalizeTemporal('2026-07-28T12:00', 'date-time'), normalizeTemporal('2026-07-28 12:00', 'date-time'));
-	});
+  test("accepts the datetime-local widget spelling and the CLI spelling identically", () => {
+    assert.equal(normalizeTemporal("2026-07-28T12:00", "date-time"), normalizeTemporal("2026-07-28 12:00", "date-time"))
+  })
 
-	test('an explicit offset is preserved exactly', () => {
-		assert.equal(normalizeTemporal('2026-07-28T12:00:00+03:00', 'date-time'), '2026-07-28T12:00:00+03:00');
-	});
+  test("an explicit offset is preserved exactly", () => {
+    assert.equal(normalizeTemporal("2026-07-28T12:00:00+03:00", "date-time"), "2026-07-28T12:00:00+03:00")
+  })
 
-	test('a plain date stays a plain date', () => {
-		assert.equal(normalizeTemporal('2026-07-28', 'date'), '2026-07-28');
-	});
+  test("a plain date stays a plain date", () => {
+    assert.equal(normalizeTemporal("2026-07-28", "date"), "2026-07-28")
+  })
 
-	test('unparseable input is returned untouched for the validator to reject', () => {
-		assert.equal(normalizeTemporal('not a date', 'date-time'), 'not a date');
-	});
-});
+  test("unparseable input is returned untouched for the validator to reject", () => {
+    assert.equal(normalizeTemporal("not a date", "date-time"), "not a date")
+  })
+})
 
-describe('compareValues — instants, never strings', () => {
-	// THE regression test. Lexically '2026-07-28T12:00:00+03:00' > '2026-07-28T11:00:00+01:00',
-	// but 12:00+03:00 is 09:00Z and 11:00+01:00 is 10:00Z, so the first is EARLIER.
-	test('offsets are resolved before comparing', () => {
-		const later = '2026-07-28T11:00:00+01:00';   // 10:00Z
-		const earlier = '2026-07-28T12:00:00+03:00'; // 09:00Z
-		assert.ok(compareValues(earlier, later) < 0, 'the +03:00 value is the earlier instant');
-		assert.ok(compareValues(later, earlier) > 0);
-		assert.ok(later.localeCompare(earlier) < 0, 'a string compare gets this backwards — hence the test');
-	});
+describe("compareValues — instants, never strings", () => {
+  // THE regression test. Lexically '2026-07-28T12:00:00+03:00' > '2026-07-28T11:00:00+01:00',
+  // but 12:00+03:00 is 09:00Z and 11:00+01:00 is 10:00Z, so the first is EARLIER.
+  test("offsets are resolved before comparing", () => {
+    const later = "2026-07-28T11:00:00+01:00" // 10:00Z
+    const earlier = "2026-07-28T12:00:00+03:00" // 09:00Z
+    assert.ok(compareValues(earlier, later) < 0, "the +03:00 value is the earlier instant")
+    assert.ok(compareValues(later, earlier) > 0)
+    assert.ok(later.localeCompare(earlier) < 0, "a string compare gets this backwards — hence the test")
+  })
 
-	test('equal instants in different offsets compare equal', () => {
-		assert.equal(compareValues('2026-07-28T12:00:00+03:00', '2026-07-28T09:00:00Z'), 0);
-	});
+  test("equal instants in different offsets compare equal", () => {
+    assert.equal(compareValues("2026-07-28T12:00:00+03:00", "2026-07-28T09:00:00Z"), 0)
+  })
 
-	test('non-temporal values still order sensibly', () => {
-		assert.ok(compareValues('apple', 'banana') < 0);
-		assert.ok(compareValues(2, 10) < 0);
-	});
-});
+  test("non-temporal values still order sensibly", () => {
+    assert.ok(compareValues("apple", "banana") < 0)
+    assert.ok(compareValues(2, 10) < 0)
+  })
+})
 
-describe('sortRows', () => {
-	const rows = () => [
-		{ id: 'b', starts: '2026-07-28T11:00:00+01:00' }, // 10:00Z
-		{ id: 'a', starts: '2026-07-28T12:00:00+03:00' }, // 09:00Z
-		{ id: 'c', starts: '2026-07-28T12:00:00Z' },      // 12:00Z
-	];
+describe("sortRows", () => {
+  const rows = () => [
+    { id: "b", starts: "2026-07-28T11:00:00+01:00" }, // 10:00Z
+    { id: "a", starts: "2026-07-28T12:00:00+03:00" }, // 09:00Z
+    { id: "c", starts: "2026-07-28T12:00:00Z" }, // 12:00Z
+  ]
 
-	test('ascending is by instant', () => {
-		assert.deepEqual(sortRows(rows(), 'starts').map((r) => r.id), ['a', 'b', 'c']);
-	});
+  test("ascending is by instant", () => {
+    assert.deepEqual(
+      sortRows(rows(), "starts").map(r => r.id),
+      ["a", "b", "c"]
+    )
+  })
 
-	test('a leading minus reverses', () => {
-		assert.deepEqual(sortRows(rows(), '-starts').map((r) => r.id), ['c', 'b', 'a']);
-	});
+  test("a leading minus reverses", () => {
+    assert.deepEqual(
+      sortRows(rows(), "-starts").map(r => r.id),
+      ["c", "b", "a"]
+    )
+  })
 
-	test('no sort key leaves the order alone', () => {
-		assert.deepEqual(sortRows(rows(), undefined).map((r) => r.id), ['b', 'a', 'c']);
-	});
+  test("no sort key leaves the order alone", () => {
+    assert.deepEqual(
+      sortRows(rows(), undefined).map(r => r.id),
+      ["b", "a", "c"]
+    )
+  })
 
-	test('given the schema, an enum sorts by declared order — blanks first, unknown values last', () => {
-		const schema = { properties: { status: { type: 'string', enum: ['draft', 'active', 'done'] } } };
-		const tasks = () => [{ id: 1, status: 'done' }, { id: 2, status: 'active' }, { id: 3, status: 'zombie' }, { id: 4 }, { id: 5, status: 'draft' }];
-		assert.deepEqual(sortRows(tasks(), 'status', schema).map((r) => r.id), [4, 5, 2, 1, 3]);
-		assert.deepEqual(sortRows(tasks(), '-status', schema).map((r) => r.id), [3, 1, 2, 5, 4]);
-		assert.deepEqual(sortRows(tasks(), 'status').map((r) => r.id), [4, 2, 1, 5, 3], 'without the schema it stays alphabetical');
-	});
-});
+  test("given the schema, an enum sorts by declared order — blanks first, unknown values last", () => {
+    const schema = { properties: { status: { type: "string", enum: ["draft", "active", "done"] } } }
+    const tasks = () => [
+      { id: 1, status: "done" },
+      { id: 2, status: "active" },
+      { id: 3, status: "zombie" },
+      { id: 4 },
+      { id: 5, status: "draft" },
+    ]
+    assert.deepEqual(
+      sortRows(tasks(), "status", schema).map(r => r.id),
+      [4, 5, 2, 1, 3]
+    )
+    assert.deepEqual(
+      sortRows(tasks(), "-status", schema).map(r => r.id),
+      [3, 1, 2, 5, 4]
+    )
+    assert.deepEqual(
+      sortRows(tasks(), "status").map(r => r.id),
+      [4, 2, 1, 5, 3],
+      "without the schema it stays alphabetical"
+    )
+  })
+})
 
-describe('normalizeRecord', () => {
-	test('normalizes only the fields the schema calls temporal', () => {
-		const schema = {
-			type: 'object',
-			properties: {
-				starts: { type: 'string', format: 'date-time' },
-				due: { type: 'string', format: 'date' },
-				note: { type: 'string' },
-			},
-		};
-		const fields = { starts: '2026-07-28 12:00', due: '2026-07-28', note: '2026-07-28 12:00' };
-		normalizeRecord(schema, fields);
-		assert.ok(fields.starts.includes('T12:00:00'));
-		assert.equal(fields.due, '2026-07-28');
-		assert.equal(fields.note, '2026-07-28 12:00', 'a plain string field is never rewritten');
-	});
-});
+describe("normalizeRecord", () => {
+  test("normalizes only the fields the schema calls temporal", () => {
+    const schema = {
+      type: "object",
+      properties: {
+        starts: { type: "string", format: "date-time" },
+        due: { type: "string", format: "date" },
+        note: { type: "string" },
+      },
+    }
+    const fields = { starts: "2026-07-28 12:00", due: "2026-07-28", note: "2026-07-28 12:00" }
+    normalizeRecord(schema, fields)
+    assert.ok(fields.starts.includes("T12:00:00"))
+    assert.equal(fields.due, "2026-07-28")
+    assert.equal(fields.note, "2026-07-28 12:00", "a plain string field is never rewritten")
+  })
+})
 
-describe('parseTemporal', () => {
-	test('returns a comparable instant for the shapes records actually carry', () => {
-		for (const v of ['2026-07-28', '2026-07-28T12:00', '2026-07-28T12:00:00Z', '2026-07-28T12:00:00+03:00']) {
-			assert.equal(typeof parseTemporal(v), 'number', `${v} should parse`);
-			assert.ok(Number.isFinite(parseTemporal(v)));
-		}
-	});
+describe("parseTemporal", () => {
+  test("returns a comparable instant for the shapes records actually carry", () => {
+    for (const v of ["2026-07-28", "2026-07-28T12:00", "2026-07-28T12:00:00Z", "2026-07-28T12:00:00+03:00"]) {
+      assert.equal(typeof parseTemporal(v), "number", `${v} should parse`)
+      assert.ok(Number.isFinite(parseTemporal(v)))
+    }
+  })
 
-	test('returns null for things that are not dates', () => {
-		for (const v of ['hello', '', null, undefined, {}]) assert.equal(parseTemporal(v), null);
-	});
-});
+  test("returns null for things that are not dates", () => {
+    for (const v of ["hello", "", null, undefined, {}]) assert.equal(parseTemporal(v), null)
+  })
+})

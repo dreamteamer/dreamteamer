@@ -21,22 +21,23 @@
 // `2026-07-28T12:00`. Both become the canonical form before validation, so the CLI and the studio
 // accept the same input — the engine/UI parity test applied to a data format.
 
-const DATE_ONLY = /^(\d{4})-(\d{2})-(\d{2})$/;
-const DATE_TIME = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?(?:\.(\d{1,3})\d*)?\s*(Z|[+-]\d{2}:?\d{2})?$/i;
+const DATE_ONLY = /^(\d{4})-(\d{2})-(\d{2})$/
+const DATE_TIME =
+  /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?(?:\.(\d{1,3})\d*)?\s*(Z|[+-]\d{2}:?\d{2})?$/i
 
 /** `+03:00` for the machine's local offset AT that wall clock — DST-correct, unlike a bare "now" offset. */
 function localOffsetAt(y, mo, d, h, mi, s) {
-	const mins = -new Date(y, mo - 1, d, h, mi, s).getTimezoneOffset();
-	const sign = mins < 0 ? '-' : '+';
-	const abs = Math.abs(mins);
-	return `${sign}${String(Math.floor(abs / 60)).padStart(2, '0')}:${String(abs % 60).padStart(2, '0')}`;
+  const mins = -new Date(y, mo - 1, d, h, mi, s).getTimezoneOffset()
+  const sign = mins < 0 ? "-" : "+"
+  const abs = Math.abs(mins)
+  return `${sign}${String(Math.floor(abs / 60)).padStart(2, "0")}:${String(abs % 60).padStart(2, "0")}`
 }
 
 /** `+0300` / `+03:00` / `z` → `+03:00` / `Z`. One spelling on disk keeps diffs quiet. */
 function canonicalZone(zone) {
-	if (!zone) return null;
-	if (/^z$/i.test(zone)) return 'Z';
-	return zone.length === 5 ? `${zone.slice(0, 3)}:${zone.slice(3)}` : zone;
+  if (!zone) return null
+  if (/^z$/i.test(zone)) return "Z"
+  return zone.length === 5 ? `${zone.slice(0, 3)}:${zone.slice(3)}` : zone
 }
 
 /**
@@ -48,20 +49,28 @@ function canonicalZone(zone) {
  * means, and the normalizer stamps an explicit offset on it before it ever reaches disk.
  */
 export function parseTemporal(value) {
-	if (typeof value !== 'string' || value === '') return null;
+  if (typeof value !== "string" || value === "") return null
 
-	const d = DATE_ONLY.exec(value);
-	if (d) return Date.UTC(Number(d[1]), Number(d[2]) - 1, Number(d[3]));
+  const d = DATE_ONLY.exec(value)
+  if (d) return Date.UTC(Number(d[1]), Number(d[2]) - 1, Number(d[3]))
 
-	const m = DATE_TIME.exec(value);
-	if (!m) return null;
-	const [, y, mo, day, h, mi, s = '0', ms = '0', zone] = m;
-	const z = canonicalZone(zone);
-	if (!z) {
-		return new Date(Number(y), Number(mo) - 1, Number(day), Number(h), Number(mi), Number(s), Number(ms.padEnd(3, '0'))).getTime();
-	}
-	const t = Date.parse(`${y}-${mo}-${day}T${h}:${mi}:${s.padStart(2, '0')}.${ms.padEnd(3, '0')}${z}`);
-	return Number.isNaN(t) ? null : t;
+  const m = DATE_TIME.exec(value)
+  if (!m) return null
+  const [, y, mo, day, h, mi, s = "0", ms = "0", zone] = m
+  const z = canonicalZone(zone)
+  if (!z) {
+    return new Date(
+      Number(y),
+      Number(mo) - 1,
+      Number(day),
+      Number(h),
+      Number(mi),
+      Number(s),
+      Number(ms.padEnd(3, "0"))
+    ).getTime()
+  }
+  const t = Date.parse(`${y}-${mo}-${day}T${h}:${mi}:${s.padStart(2, "0")}.${ms.padEnd(3, "0")}${z}`)
+  return Number.isNaN(t) ? null : t
 }
 
 /**
@@ -74,24 +83,24 @@ export function parseTemporal(value) {
  * "2026-07-28T23:00+03:00" is a meeting on the 28th to everyone who cares about it.
  */
 export function normalizeTemporal(value, format) {
-	if (typeof value !== 'string' || value === '') return value;
+  if (typeof value !== "string" || value === "") return value
 
-	if (format === 'date') {
-		const m = DATE_TIME.exec(value);
-		return m ? `${m[1]}-${m[2]}-${m[3]}` : value;
-	}
+  if (format === "date") {
+    const m = DATE_TIME.exec(value)
+    return m ? `${m[1]}-${m[2]}-${m[3]}` : value
+  }
 
-	if (format !== 'date-time') return value;
+  if (format !== "date-time") return value
 
-	const d = DATE_ONLY.exec(value);
-	if (d) return `${value}T00:00:00${localOffsetAt(Number(d[1]), Number(d[2]), Number(d[3]), 0, 0, 0)}`;
+  const d = DATE_ONLY.exec(value)
+  if (d) return `${value}T00:00:00${localOffsetAt(Number(d[1]), Number(d[2]), Number(d[3]), 0, 0, 0)}`
 
-	const m = DATE_TIME.exec(value);
-	if (!m) return value;
-	const [, y, mo, day, h, mi, s = '00', , zone] = m;
-	const sec = String(s).padStart(2, '0');
-	const z = canonicalZone(zone) ?? localOffsetAt(Number(y), Number(mo), Number(day), Number(h), Number(mi), Number(sec));
-	return `${y}-${mo}-${day}T${h}:${mi}:${sec}${z}`;
+  const m = DATE_TIME.exec(value)
+  if (!m) return value
+  const [, y, mo, day, h, mi, s = "00", , zone] = m
+  const sec = String(s).padStart(2, "0")
+  const z = canonicalZone(zone) ?? localOffsetAt(Number(y), Number(mo), Number(day), Number(h), Number(mi), Number(sec))
+  return `${y}-${mo}-${day}T${h}:${mi}:${sec}${z}`
 }
 
 /**
@@ -99,25 +108,33 @@ export function normalizeTemporal(value, format) {
  * declared date/date-time fields are touched — a plain string that happens to look like a date
  * stays exactly as the author typed it. Recurses through object properties and array items.
  */
-export function normalizeRecord(schema, fields) {
-	if (!schema || fields === null || typeof fields !== 'object') return fields;
-	for (const [key, prop] of Object.entries<any>(schema.properties ?? {})) {
-		const value = fields[key];
-		if (value === undefined || value === null) continue;
-		if (prop?.format === 'date' || prop?.format === 'date-time') {
-			fields[key] = normalizeTemporal(value, prop.format);
-		} else if (prop?.type === 'object') {
-			normalizeRecord(prop, value);
-		} else if (prop?.type === 'array' && Array.isArray(value)) {
-			const items = prop.items;
-			if (items?.format === 'date' || items?.format === 'date-time') {
-				fields[key] = value.map((v) => normalizeTemporal(v, items.format));
-			} else if (items?.type === 'object') {
-				for (const row of value) normalizeRecord(items, row);
-			}
-		}
-	}
-	return fields;
+/** The slice of a JSON schema the temporal readers walk. */
+type SchemaProp = {
+  type?: string | string[]
+  format?: string
+  properties?: Record<string, SchemaProp>
+  items?: SchemaProp
+  enum?: unknown[]
+}
+export function normalizeRecord(schema: SchemaProp | null | undefined, fields) {
+  if (!schema || fields === null || typeof fields !== "object") return fields
+  for (const [key, prop] of Object.entries(schema.properties ?? {})) {
+    const value = fields[key]
+    if (value === undefined || value === null) continue
+    if (prop?.format === "date" || prop?.format === "date-time") {
+      fields[key] = normalizeTemporal(value, prop.format)
+    } else if (prop?.type === "object") {
+      normalizeRecord(prop, value)
+    } else if (prop?.type === "array" && Array.isArray(value)) {
+      const items = prop.items
+      if (items?.format === "date" || items?.format === "date-time") {
+        fields[key] = value.map(v => normalizeTemporal(v, items.format))
+      } else if (items?.type === "object") {
+        for (const row of value) normalizeRecord(items, row)
+      }
+    }
+  }
+  return fields
 }
 
 /**
@@ -128,30 +145,31 @@ export function normalizeRecord(schema, fields) {
  * as "zero" and slot it between real numbers instead of grouping the blanks together.
  */
 export function compareValues(a: unknown, b: unknown): number {
-	const ta = parseTemporal(a);
-	const tb = parseTemporal(b);
-	if (ta !== null && tb !== null) return ta - tb;
+  const ta = parseTemporal(a)
+  const tb = parseTemporal(b)
+  if (ta !== null && tb !== null) return ta - tb
 
-	if (a !== '' && b !== '' && a != null && b != null) {
-		const na = Number(a);
-		const nb = Number(b);
-		if (!Number.isNaN(na) && !Number.isNaN(nb)) return na - nb;
-	}
-	return String(a ?? '').localeCompare(String(b ?? ''));
+  if (a !== "" && b !== "" && a != null && b != null) {
+    const na = Number(a)
+    const nb = Number(b)
+    if (!Number.isNaN(na) && !Number.isNaN(nb)) return na - nb
+  }
+  return String(a ?? "").localeCompare(String(b ?? ""))
 }
 
 /** `?sort=field` / `?sort=-field`, ordered with `compareValues`. Mutates and returns `rows`. Given the
  *  collection's `schema`, an enum field sorts by its DECLARED order (draft → active → done), blanks
  *  first and values outside the enum after it. */
 export function sortRows<T>(rows: T[], sort: string | null | undefined, schema?: Record<string, unknown>): T[] {
-	if (!sort) return rows;
-	const desc = String(sort).startsWith('-');
-	const key = desc ? String(sort).slice(1) : String(sort);
-	const prop = (schema as any)?.properties?.[key];
-	const order = prop?.enum ?? prop?.items?.enum;
-	const rank = (v) => (v == null || v === '' ? -1 : order.includes(v) ? order.indexOf(v) : order.length);
-	const cmp = Array.isArray(order)
-		? (a: any, b: any) => (rank(a[key]) - rank(b[key])) || compareValues(a[key] ?? '', b[key] ?? '')
-		: (a: any, b: any) => compareValues(a[key] ?? '', b[key] ?? '');
-	return rows.sort((a, b) => cmp(a, b) * (desc ? -1 : 1));
+  if (!sort) return rows
+  const desc = String(sort).startsWith("-")
+  const key = desc ? String(sort).slice(1) : String(sort)
+  const prop = (schema as SchemaProp | undefined)?.properties?.[key]
+  const order = prop?.enum ?? prop?.items?.enum
+  const rank = v => (v == null || v === "" ? -1 : order.includes(v) ? order.indexOf(v) : order.length)
+  const at = (r: T) => (r as Record<string, unknown>)[key]
+  const cmp = Array.isArray(order)
+    ? (a: T, b: T) => rank(at(a)) - rank(at(b)) || compareValues(at(a) ?? "", at(b) ?? "")
+    : (a: T, b: T) => compareValues(at(a) ?? "", at(b) ?? "")
+  return rows.sort((a, b) => cmp(a, b) * (desc ? -1 : 1))
 }

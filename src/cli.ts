@@ -9,36 +9,52 @@
 //
 // This file TRANSLATES; it does not implement. Every record and schema verb lands on
 // `collectionCommand(ws, collection, verb, args)`, whose signature is unchanged.
-import { runExports } from './exports-cli.ts';
-import fs from 'node:fs';
-import path from 'node:path';
-import { execFileSync, type StdioOptions } from 'node:child_process';
-import * as api from './api.ts';
-import { openWorkspace } from './api.ts';
-import { compile, staleness, warnIfStale, discoverModules, CHANNEL_LABEL, locationOf, kindsOf, moduleIdOf, layerEntries } from './compile.ts';
-import { check } from './check.ts';
-import { collectionCommand, emit, relationsCommand, reportCommits } from './collections-cli.ts';
-import { formatDescriptors } from './schema-ops.ts';
-import { init, installClone, update, listRepos } from './init.ts';
-import { installCommand, describeCheckout, initCommand } from './checkout.ts';
-import { declaredGitModules } from './workspace.ts';
-const isOwnClone = (p) => { try { return !fs.lstatSync(p).isSymbolicLink() && fs.existsSync(path.join(p, '.git')); } catch { return false; } };
-import { foldChanges, groupChanges, reportLine } from './events.ts';
-import { commitPending, recordChanges, rowChanges } from './commit.ts';
-import { Store } from './store.ts';
-import { splitRef, canonicalCollection } from './ref.ts';
-import { envContext, renderTemplate } from './env-vars.ts';
-import { doctorBoard, renderBoard } from './doctor.ts';
-import { setupCommand, statusLines, renderStatusLines } from './setup.ts';
-import { installModules } from './install-modules.ts';
-import { updateModules, parseUpdateArgs } from './update.ts';
-import { storageOf } from './descriptor.ts';
+import { runExports } from "./exports-cli.ts"
+import fs from "node:fs"
+import path from "node:path"
+import { execFileSync, type StdioOptions } from "node:child_process"
+import * as api from "./api.ts"
+import { openWorkspace } from "./api.ts"
+import {
+  compile,
+  staleness,
+  warnIfStale,
+  discoverModules,
+  CHANNEL_LABEL,
+  locationOf,
+  kindsOf,
+  moduleIdOf,
+  layerEntries,
+} from "./compile.ts"
+import { check } from "./check.ts"
+import { collectionCommand, emit, relationsCommand, reportCommits } from "./collections-cli.ts"
+import { formatDescriptors } from "./schema-ops.ts"
+import { installClone, update, listRepos } from "./init.ts"
+import { installCommand, describeCheckout, initCommand } from "./checkout.ts"
+import { declaredGitModules } from "./workspace.ts"
+const isOwnClone = p => {
+  try {
+    return !fs.lstatSync(p).isSymbolicLink() && fs.existsSync(path.join(p, ".git"))
+  } catch {
+    return false
+  }
+}
+import { foldChanges, groupChanges, reportLine } from "./events.ts"
+import { commitPending, recordChanges, rowChanges } from "./commit.ts"
+import { Store } from "./store.ts"
+import { splitRef, canonicalCollection } from "./ref.ts"
+import { envContext, renderTemplate } from "./env-vars.ts"
+import { doctorBoard, renderBoard } from "./doctor.ts"
+import { setupCommand, statusLines, renderStatusLines } from "./setup.ts"
+import { installModules } from "./install-modules.ts"
+import { updateModules, parseUpdateArgs } from "./update.ts"
+import { storageOf } from "./descriptor.ts"
+import type { Workspace } from "./types.ts"
 
 // git calls whose failure we CATCH must not print git's own error: execFileSync forwards the
 // child's stderr to ours unless told otherwise, so a handled "not a git repository" still
 // reached the user's terminal. stdout stays piped because we read it.
-const QUIET: StdioOptions = ['ignore', 'pipe', 'ignore'];
-
+const QUIET: StdioOptions = ["ignore", "pipe", "ignore"]
 
 export const USAGE = `usage: dreamteamer <verb> [<target>] [flags]
 
@@ -297,23 +313,21 @@ workspace verbs:
 
 extension verbs — an extension (a workspace module, or a dependency, whose package.json declares
 \`dreamteamer.extension\`) adds its own verbs, listed below when this workspace has any.
-`;
+`
 
 // Record verbs, split by what their <target> means. `move` and `next` are in NEITHER set: both
 // accept either shape, and which one it is has to be decided against the declared collections.
 // How many rows a per-record listing prints before it summarises. ONE number, because a report that
 // caps one of its lists and not the next reads as a bug in whichever list ran long.
-const ROWS_SHOWN = 20;
+const ROWS_SHOWN = 20
 
-const REF_VERBS = new Set(['get', 'set', 'rm', 'rename', 'history', 'diff', 'revert']);
-const COLLECTION_VERBS = new Set(['list', 'add', 'values']);
-const EITHER_VERBS = new Set(['reorder', 'next']);
+const REF_VERBS = new Set(["get", "set", "rm", "rename", "history", "diff", "revert"])
+const COLLECTION_VERBS = new Set(["list", "add", "values"])
 
-// FIELD VERBS. Their <target> is a collection and everything else is flags, which is the one shape
+// FIELD VERBS (add-field, set-field, rm-field, rename-field, rename-value). Their <target> is a collection and everything else is flags, which is the one shape
 // that differs from the record verbs — so they get their own case arm rather than being folded into
 // `dispatchRecordVerb`. There is no `schema <op>` table any more: system entities take the record
 // verbs, and `collectionCommand`'s interceptors are the whole dispatch (§4).
-const FIELD_VERBS = ['add-field', 'set-field', 'rm-field', 'rename-field', 'rename-value'];
 
 // WORKSPACE VERBS take a closed set of options, and nothing downstream of here would notice a
 // misspelling — `dt commit --dryrun` COMMITTED, because `rest.includes('--dry-run')` is false for a
@@ -328,567 +342,882 @@ const FIELD_VERBS = ['add-field', 'set-field', 'rm-field', 'rename-field', 'rena
 // test/integration/workspace-flag.test.js and `--vault` in cross-workspace-targeting.test.js. A global
 // flag with no such file is the exact defect that guard was written to catch \u2014 add the coverage,
 // not the entry.
-export const GLOBAL_FLAGS = ['workspace', 'vault'];
+export const GLOBAL_FLAGS = ["workspace", "vault"]
 
 export const WORKSPACE_FLAGS = {
-	init: ['name', 'data_path', 'harnesses', 'workspace_module', 'no-git', 'git', 'no-compile', 'from', 'input', 'allow', 'no-input'], update: ['engine', 'allow', 'from', 'no-commit'],
-	install: ['clone', 'dry-run', 'json', 'link-env', 'all', 'hook', 'print-adapters', 'from', 'input', 'allow', 'no-input', 'no-commit'],
-	compile: ['watch'], check: ['strict-export'], exports: ['layer', 'dry-run', 'json'], status: ['json'], doctor: ['strict', 'json'],
-	setup: ['input', 'allow', 'authorize', 'verify', 'skip', 'no-input', 'json'],
-	changes: ['since', 'json'], commit: ['dry-run', 'json'], fmt: ['dry-run'], relocate: ['dry-run', 'json', 'to-root'],
-};
+  init: [
+    "name",
+    "data_path",
+    "harnesses",
+    "workspace_module",
+    "no-git",
+    "git",
+    "no-compile",
+    "from",
+    "input",
+    "allow",
+    "no-input",
+  ],
+  update: ["engine", "allow", "from", "no-commit"],
+  install: [
+    "clone",
+    "dry-run",
+    "json",
+    "link-env",
+    "all",
+    "hook",
+    "print-adapters",
+    "from",
+    "input",
+    "allow",
+    "no-input",
+    "no-commit",
+  ],
+  compile: ["watch"],
+  check: ["strict-export"],
+  exports: ["layer", "dry-run", "json"],
+  status: ["json"],
+  doctor: ["strict", "json"],
+  setup: ["input", "allow", "authorize", "verify", "skip", "no-input", "json"],
+  changes: ["since", "json"],
+  commit: ["dry-run", "json"],
+  fmt: ["dry-run"],
+  relocate: ["dry-run", "json", "to-root"],
+}
 
 /** Every verb this CLI answers itself — the set an extension's `commands` may not claim. The retired
  *  spellings are in it too: they answer with their replacement, and an extension taking one over
  *  would turn a loud translation into a different command. */
 export const CORE_VERBS = [
-	'init', 'install', 'update', 'compile', 'check', 'exports', 'doctor', 'status', 'setup', 'changes', 'commit', 'help', 'version', '--version', '-v',
-	'list', 'add', 'values', 'get', 'set', 'rm', 'rename', 'history', 'diff', 'revert', 'reorder', 'next',
-	'add-field', 'set-field', 'rm-field', 'rename-field', 'rename-value', 'relations', 'resolve', 'relocate', 'fmt',
-	'schema', 'ensure', 'update-field', 'remove-field', 'commands',
-];
+  "init",
+  "install",
+  "update",
+  "compile",
+  "check",
+  "exports",
+  "doctor",
+  "status",
+  "setup",
+  "changes",
+  "commit",
+  "help",
+  "version",
+  "--version",
+  "-v",
+  "list",
+  "add",
+  "values",
+  "get",
+  "set",
+  "rm",
+  "rename",
+  "history",
+  "diff",
+  "revert",
+  "reorder",
+  "next",
+  "add-field",
+  "set-field",
+  "rm-field",
+  "rename-field",
+  "rename-value",
+  "relations",
+  "resolve",
+  "relocate",
+  "fmt",
+  "schema",
+  "ensure",
+  "update-field",
+  "remove-field",
+  "commands",
+]
 
 /** Verbs an extension answers, and the package it ships in — typed without it, the verb prints the
  *  install line. The container verbs belong to the global `dt-docker` bin, which needs no workspace. */
 const VERB_PACKAGES = {
-	prove: '@dreamteamer/proofs', land: '@dreamteamer/worktrees', worktree: '@dreamteamer/worktrees',
-	serve: '@dreamteamer/http', notebooklm: '@dreamteamer/notebooklm',
-};
-const DOCKER_VERBS = new Set(['start', 'stop', 'open', 'export', 'import']);
+  prove: "@dreamteamer/proofs",
+  land: "@dreamteamer/worktrees",
+  worktree: "@dreamteamer/worktrees",
+  serve: "@dreamteamer/http",
+  notebooklm: "@dreamteamer/notebooklm",
+}
+const DOCKER_VERBS = new Set(["start", "stop", "open", "export", "import"])
 
 /** The record-change report: the report line, then one row per record — its change, ref, workspace
  *  path (what a reply links to), committed or not, and the layer it landed in — capped like every
  *  other listing here. `dt changes` and `dt commit` print it identically, so what a session copies
  *  into its reply does not depend on which of the two it ran. */
 function printChanges(changes) {
-	const groups = groupChanges(changes);
-	console.log(reportLine(groups));
-	const rows = groups.flatMap((g) => g.records);
-	for (const c of rows.slice(0, ROWS_SHOWN)) {
-		const state = c.committed ? `committed${c.sha ? ` ${c.sha}` : ''}` : 'uncommitted';
-		console.log(`  ${c.change.padEnd(7)}  ${c.ref}  ${c.path}  · ${state}${c.layer ? ` · layer ${c.layer}` : ''}`);
-	}
-	if (rows.length > ROWS_SHOWN) console.log(`  + ${rows.length - ROWS_SHOWN} more — --json lists every record`);
+  const groups = groupChanges(changes)
+  console.log(reportLine(groups))
+  const rows = groups.flatMap(g => g.records)
+  for (const c of rows.slice(0, ROWS_SHOWN)) {
+    const state = c.committed ? `committed${c.sha ? ` ${c.sha}` : ""}` : "uncommitted"
+    console.log(`  ${c.change.padEnd(7)}  ${c.ref}  ${c.path}  · ${state}${c.layer ? ` · layer ${c.layer}` : ""}`)
+  }
+  if (rows.length > ROWS_SHOWN) console.log(`  + ${rows.length - ROWS_SHOWN} more — --json lists every record`)
 }
 
 export async function run(argv) {
-	const [cmd, ...rest] = argv;
-	try {
-		if (cmd in WORKSPACE_FLAGS) {
-			const bad = rest.filter((a) => a.startsWith('--')).map((a) => a.slice(2).split('=')[0]).find((f) => !WORKSPACE_FLAGS[cmd].includes(f));
-			if (bad) throw new Error(`unknown flag "--${bad}" on \`dt ${cmd}\`\n  known: ${WORKSPACE_FLAGS[cmd].map((f) => `--${f}`).join(', ') || '(none — this verb takes no flags)'}`);
-		}
-		if (cmd === '--version' || cmd === '-v' || cmd === 'version') {
-			// works OUTSIDE a workspace — the post-install "did it land?" affordance
-			const p = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
-			console.log(`${p.name}@${p.version}`);
-			process.exit(0);
-		}
-		if (cmd === 'init') {
-			// init runs BEFORE a workspace exists — no findWorkspace
-			const flags = {};
-			for (let i = 0; i < rest.length; i++) if (rest[i].startsWith('--')) { const [k, v] = rest[i].slice(2).split(/=(.*)/s); flags[k] = v ?? rest[i + 1]; }
-			// boolean flags take no value: a following positional is not theirs
-			for (const b of ['no-git', 'no-compile', 'no-input']) if (b in flags) flags[b] = true;
-			process.exit(await initCommand(flags, { open: openWorkspace, argv: rest, verify: async (ws) => check(ws, { extra: await api.contributedViolations(ws) }) }));
-		}
-		if (!cmd || cmd === 'help') {
-			// `help` works OUTSIDE a workspace too — a person who just ran `npm i -g dreamteamer` on a
-			// bare machine has nothing else to read. Inside one, each installed extension's own usage
-			// follows the engine's.
-			let ws = null;
-			try { ws = await openWorkspace(); } catch { /* no workspace, or an extension that will not load — plain help */ }
-			emit(USAGE + extensionUsage(ws));
-			process.exit(0);
-		}
-		let ws;
-		try { ws = await openWorkspace(); } catch (e) {
-			// `status` is read-only and always answers: a runtime whose extensions refuse to load (two
-			// packages claiming one unit, a bad declaration) is reported as the status, exit 0
-			if (cmd === 'status') {
-				console.log(`✖ extensions did not load — ${String(e.message).split('\n')[0]}`);
-				console.log('  the setup section cannot be read until that is fixed; records and the compiled runtime are untouched');
-				process.exit(0);
-			}
-			throw e;
-		}
-		// An EXTENSION'S VERB runs in-process, handed this workspace — the same engine instance, the
-		// same loaded extensions. Its exit code is the process's.
-		const ext = ws.extensions.find((e) => cmd in e.commands);
-		if (ext) process.exit((await ext.commands[cmd].run(ws, rest)) ?? 0);
-		switch (cmd) {
-			// ONE verb makes a thing present and ready: this checkout, or an attached repo's
-			// working tree. `ensure` was the second spelling of the same idea and is retired in the
-			// `default` arm below — no alias, per the 0.12.0 policy.
-			//
-			// ⚠ THREE FORMS, ONE FLAG TABLE — so each form REFUSES the other's vocabulary itself.
-			// `WORKSPACE_FLAGS.install` can only say which flags the verb has; it cannot know that
-			// `--dry-run` is meaningless once a target is named. Forwarding just the flags a form
-			// understands DROPS the rest in silence, and that is not a cosmetic loss:
-			// `dt install repos/x --dry-run` materialized the repo for real, driven past a flag
-			// whose entire meaning is "do nothing". A bare positional had the same shape of bug —
-			// `dt install <repo-id>`, the muscle memory `dt ensure <id>` taught for nine releases,
-			// matched neither branch, so the target was ignored and a whole checkout install ran.
-			// Same policy as the retired verbs below: a stale invocation fails loudly.
-			case 'install': {
-				const given = rest.filter((a) => a.startsWith('--'));
-				const refuse = (form, allowed) => {
-					const stray = given.filter((f) => !allowed.includes(f));
-					if (!stray.length) return;
-					throw new Error(`${stray.join(' ')} ${stray.length > 1 ? 'are not flags' : 'is not a flag'} of \`${form}\` — that form takes ${allowed.join(' ')}`);
-				};
-				const ci = rest.indexOf('--clone');
-				if (ci > -1) {
-					refuse('dt install --clone <url> [name]', ['--clone']);
-					process.exit(installClone(ws, rest[ci + 1], rest[ci + 2]));
-				}
-				const target = rest.find((a) => !a.startsWith('--'));
-				if (target === 'repos' || target?.startsWith('repos/')) {
-					refuse(`dt install ${target}`, ['--all', '--json']);
-					warnIfStale(ws.root);
-					const args = target === 'repos' ? given : [target.slice('repos/'.length), ...given];
-					process.exit(collectionCommand(ws, 'repos', 'ensure', args));
-				}
-				// THE SPEC FORM (src/install-modules.js): any positional that is not `repos…` is an npm spec —
-				// a name, name@version, ./file.tgz, ./folder, a git URL — and `--from` resolves names from a
-				// folder of tarballs. The flags are its own; the checkout form's are refused on it below.
-				if (target || given.includes('--from')) {
-					// the muscle memory `dt ensure <id>` taught: a bare repo id is named with its spelling, never sent to npm
-					let repoIds = [];
-					try { repoIds = listRepos(ws).map((r) => r.id); } catch { /* no repos descriptor */ }
-					if (target && repoIds.includes(target)) throw new Error(`"${target}" is an attached repo, not an npm spec — \`dt install repos/${target}\` materializes it`);
-					refuse('dt install <spec…>', ['--from', '--input', '--allow', '--no-input', '--no-commit', '--json']);
-					process.exit(await installModules(ws, rest, { open: openWorkspace, verify: async (w) => check(w, { extra: await api.contributedViolations(w) }) }));
-				}
-				// ⚠ TWO MORE FORMS, EACH ITS OWN VOCABULARY. `--hook` reads a JSON payload off stdin
-				// and installs the checkout that payload names; `--print-adapters` installs nothing
-				// at all. Folding either into `dt install`'s flag list would let `--hook --dry-run`
-				// through as a plan of a checkout nobody named, and `--print-adapters --link-env`
-				// as a symlink placed by a verb whose whole job is to print.
-				if (given.includes('--hook')) {
-					refuse('dt install --hook', ['--hook']);
-					process.exit(await installCommand(ws, rest, { open: openWorkspace }));
-				}
-				if (given.includes('--print-adapters')) {
-					refuse('dt install --print-adapters', ['--print-adapters']);
-					process.exit(await installCommand(ws, rest, { open: openWorkspace }));
-				}
-				refuse('dt install', ['--dry-run', '--json', '--link-env']);
-				process.exit(await installCommand(ws, rest, { open: openWorkspace }));
-			}
-			case 'update': {
-				// an npm module or the engine moves through src/update.js; a git module (or no target) keeps
-				// the fast-forward path below
-				const u = parseUpdateArgs(rest);
-				const gitMods = Object.fromEntries(declaredGitModules(ws.pkg, ws.root).map);
-				if (u.engine || (u.name && !gitMods[u.name])) process.exit(await updateModules(ws, u, { open: openWorkspace }));
-				const code = update(ws, u.name);
-				compile(ws); // pulled modules may carry new sources — prints its own summary
-				process.exit(code);
-			}
-			case 'compile': {
-				const code = compile(ws);
-				if (!rest.includes('--watch')) process.exit(code);
-				console.log('… watching sources (modules/*, git_modules/*, and the workspace root) — ctrl-c to stop');
-				watchAndRecompile(ws);
-				return;
-			}
-			case 'check':
-				process.exit(check(ws, { extra: warnIfStale(ws.root).compiled ? await api.contributedViolations(ws) : [], strictExport: rest.includes('--strict-export') }));
-			case 'exports': {
-				const layers = rest.flatMap((a, i) => (a === '--layer' ? [rest[i + 1]] : a.startsWith('--layer=') ? [a.slice(8)] : [])).filter(Boolean);
-				process.exit(runExports(new Store(ws), { layers, dryRun: rest.includes('--dry-run'), json: rest.includes('--json') }));
-			}
-			// `dt setup [<unit>] …` — the generic driver of the units installed modules declare (src/setup.js):
-			// inputs, consent per effect, inspect → plan → apply, the receipt. The engine names no module.
-			case 'setup':
-				process.exit(await setupCommand(ws, rest, { api }));
-			case 'doctor': {
-				const caps = await doctorBoard(ws, api);
-				if (rest.includes('--json')) emit(JSON.stringify({ workspace: { root: ws.root, name: ws.pkg?.name ?? null }, capabilities: caps }, null, 2));
-				else console.log(renderBoard(caps));
-				process.exit(rest.includes('--strict') && caps.some((c) => c.verdict === 'UNAVAILABLE') ? 1 : 0);
-			}
-			// `changes` is what survives of the trigger/run subsystem removed 2026-07-31: deriving
-			// record events from git history was the genuinely used half (catch-up — "what happened
-			// while I was away"), while creating run records from triggers was not. Read-only by
-			// construction: no cursor to advance, nothing to store, so it is safe to run twice.
-			// Since 0.42.0 its default is the UNCOMMITTED state (`HEAD`), because the question a
-			// session asks after a write is "what did I just change" — and its first line is the
-			// report line the skill tells a session to end its reply with.
-			case 'changes': {
-				warnIfStale(ws.root);
-				const si = rest.indexOf('--since');
-				if (si > -1 && (!rest[si + 1] || rest[si + 1].startsWith('-'))) throw new Error('--since needs a commit or a date: dt changes --since <sha|YYYY-MM-DD> (bare `dt changes` is the uncommitted state)');
-				const since = si > -1 ? rest[si + 1] : 'HEAD';
-				const events = recordChanges(new Store(ws), { since });
-				if (rest.includes('--json')) {
-					emit(JSON.stringify({ since, head: 'HEAD', events, collections: groupChanges(events).map(({ records, ...g }) => g) }, null, 2));
-					process.exit(0);
-				}
-				if (!events.length) { console.log(`✔ no record changes since ${since}`); process.exit(0); }
-				printChanges(events);
-				const open = events.filter((e) => !e.committed).length;
-				console.log(`${events.length} record change(s) since ${since} — ${open ? `${open} uncommitted` : 'all committed'}`);
-				process.exit(0);
-			}
-			// the other half of `auto-commit: false` — record writes land on disk uncommitted, and
-			// this publishes them. No pending file: the set is sampled from `git status`, so a
-			// hand-edited record is indistinguishable from one the store wrote, which is the point.
-			case 'commit': {
-				const store = new Store(ws);
-				const mi = rest.indexOf('-m');
-				const message = mi > -1 ? rest[mi + 1] : undefined;
-				// bare args are TARGETS — a whole collection or a `<collection>/<id>` reference,
-				// told apart in commit.js against the declared collections — minus the token `-m`
-				// consumed as its subject
-				const only = rest.filter((a, i) => !a.startsWith('-') && (mi === -1 || i !== mi + 1));
-				const results = commitPending(store, { only, message, dryRun: rest.includes('--dry-run') });
-				if (rest.includes('--json')) { emit(JSON.stringify(results, null, 2)); process.exit(0); }
-				if (!results.some((r) => !r.outside)) console.log('nothing pending');
-				const published = [];
-				for (const r of results) {
-					// an env-pointed collection's folder is outside every repo here: kept, never committed, said
-					if (r.outside) { console.log(`· ${r.outside}: ${r.repo} is outside every git repo here (storage.path ${r.template}) — its records are kept on this machine, never committed`); continue; }
-					if (r.blocked) { console.error(`✖ ${r.repo}: ${r.blocked} — ${r.rows.length} record(s) left uncommitted`); continue; }
-					if (r.failed) { console.error(`✖ ${r.repo}: ${r.failed} — ${r.rows.length} record(s) left uncommitted, nothing staged`); continue; }
-					if (r.pending) { console.error(`⚠ ${r.repo}: ${r.rows.length} record(s) left pending — ${r.pending}; run dreamteamer commit again once it is fixed`); continue; }
-					if (r.warning) console.warn(`⚠ ${r.repo}: ${r.warning}`);
-					console.log(`✔ ${r.repo === '.' ? 'workspace' : r.repo}${r.sha ? ` ${r.sha}` : ' (dry run)'} — ${r.subject}`);
-					// what this repo published, for the ONE report block printed after every repo
-					for (const c of rowChanges(store.descriptors, r.repo, r.rows)) published.push({ ...c, sha: r.sha });
-					// Half a pair was published — name the records that finish it. `dt commit
-					// <collection>` publishes exactly that collection by design, so this is an honest
-					// report of what it left behind, not a failure: HEAD fails `check` until they land.
-					if (r.leftPending?.length) {
-						const n = r.leftPending.length;
-						console.warn(`⚠ ${n} relation partner(s) left pending — HEAD fails \`dreamteamer check\` until they are published:`);
-						// CAPPED at the same ROWS_SHOWN as the rows above — this line was the one
-						// unbounded list in the report, and 25 leftovers printed 25 refs on one line.
-						// ⚠ But a truncated COMMAND is not a command, so the overflow is not "+ N more"
-						// and nothing else: it names the collection-scoped form that does converge, and
-						// what that costs (it sweeps whatever another session left pending there, which
-						// is exactly why the record form is the default).
-						console.warn(`    dreamteamer commit ${r.leftPending.slice(0, ROWS_SHOWN).join(' ')}`);
-						if (n > ROWS_SHOWN) {
-							const colls = [...new Set(r.leftPending.map((ref) => splitRef(store.descriptors, ref).collection))].sort();
-							console.warn(`    + ${n - ROWS_SHOWN} more — or ${colls.map((c) => `dreamteamer commit ${c}`).join(' && ')}, which also publishes anything another session left pending there`);
-						}
-						// ⚠ AND IT CAN TAKE TWO COMMANDS, so say so rather than promise one. The command
-						// above is planned by the same sweep every scoped commit runs, and a named
-						// partner whose OTHER edge moved against a record this list does not carry is
-						// refused as entangled — measured: `dt commit meetings` left one partner pending,
-						// the printed `dt commit recordings/cap-zero` was refused over a second recording
-						// sharing its topic, and the refusal named the pair that converges. Computing
-						// that closure here would mean asking planSweep for strangers instead of
-						// throwing on them, which is a redesign of the guard; naming the second step is
-						// the honest half-measure.
-						console.warn('    (if that refuses as entangled, the refusal names the other pending records — add them to the same command)');
-					}
-				}
-				// the same block `dt changes` prints, for what was published — a dry run's rows are uncommitted
-				if (published.length) printChanges(foldChanges(published.filter((c) => c.sha), published.filter((c) => !c.sha)));
-				process.exit(results.some((r) => r.blocked || r.failed) ? 1 : 0);
-			}
-			case 'status': {
-				const s = staleness(ws.root);
-				if (!s.compiled) {
-					console.log(`✖ ${s.message}`);
-					process.exit(1);
-				}
-				if (rest.includes('--json')) {
-					const { modules: mods } = discoverModules(ws.root, ws.pkg);
-					emit(JSON.stringify({ workspace: { root: ws.root, name: ws.pkg?.name ?? null }, compiled: s.manifest.compiled, stale: s.stale, modules: mods.map((m) => ({ name: m.name, location: locationOf(m, ws.root) })), setup: statusLines(ws) }, null, 2));
-					process.exit(0);
-				}
-				console.log(`compiled: ${s.manifest.compiled}`);
-				// THE EDITOR, from the marker the extension writes on activation (`.dreamteamer/editor.json`).
-				// Without it an agent working inside the editor could not tell whether the extension was
-				// installed, active, or refusing the engine — the operator had to report "no icon".
-				try {
-					const marker = path.join(ws.root, '.dreamteamer', 'editor.json');
-					if (fs.existsSync(marker)) {
-						const e = JSON.parse(fs.readFileSync(marker, 'utf8'));
-						console.log(`editor: ${e.extension ?? 'dreamteamer-vscode'} ${e.version ?? '?'} · ${e.state ?? 'active'} ${e.activated ?? ''} · engine ${e.engine ?? '?'}${e.host ? ` · ${e.host}` : ''}`);
-					} else console.log('editor: not detected — the extension dreamteamer.dreamteamer-vscode writes .dreamteamer/editor.json when it activates on this workspace');
-				} catch { console.log('editor: marker unreadable — .dreamteamer/editor.json is not JSON'); }
-				// provenance is LIVE discovery (not the manifest) — shows what the next compile would use
-				const { modules, shadows } = discoverModules(ws.root, ws.pkg);
-				const shadowed = new Map(shadows.map((sh) => [sh.name, sh]));
-				console.log('modules:');
-				for (const m of modules) {
-					// §10: the folder name IS the label. `hr  git_modules @ 3f2a1c (dirty)` needs no
-					// legend, and `[inline]` needed one every single time.
-					let line = `  ${m.name.padEnd(20)} ${locationOf(m, ws.root)}`;
-					// a development link (a folder spec): never pinned, skipped by update
-					try { if (m.channel === 'npm' && fs.lstatSync(path.join(ws.root, 'node_modules', m.name)).isSymbolicLink() && m.name !== 'dreamteamer') line += ' (linked)'; } catch { /* not under node_modules */ }
-					if (m.channel === 'git') {
-						const ref = tryGit(m.root, ['rev-parse', '--short', 'HEAD']);
-						const dirty = tryGit(m.root, ['status', '--porcelain']);
-						// ⚠ A SCHEMA WRITE NOW COMMITS HERE (§9), so a clone can be ahead of its remote
-						// with work the operator does not know they are holding. `status` is the command
-						// they run when something feels wrong, so it is where the count belongs.
-						const ahead = tryGit(m.root, ['rev-list', '--count', 'HEAD', '--not', '--remotes']);
-						line += ` @ ${ref ?? '?'}${dirty ? ' (dirty)' : ''}${Number(ahead) > 0 ? ` — ahead ${ahead}, push when ready` : ''}`;
-					}
-					const sh = shadowed.get(m.name);
-					if (sh) line += ` — shadows ${CHANNEL_LABEL[sh.loser]} copy`;
-					console.log(line);
-				}
-				// record layers: other workspaces cloned here for their records. The collections listed are
-				// the ones FOUND — compiled with this layer as a root and holding a folder in the clone —
-				// never the declared `records:`, which narrows and may name a folder that does not exist.
-				const layers = layerEntries(ws.pkg, ws.root);
-				if (layers.length) {
-					console.log('layers:');
-					let descriptors = [];
-					try { descriptors = [...new Store(ws).descriptors.values()]; } catch { /* no runtime yet */ }
-					// a layer a clone needed says so (`via`); one this workspace's declaration overrides says whom; a
-					// copy nested under a clone, or a clone of its own where a link would be, is drawn under its clone
-					const declared = declaredGitModules(ws.pkg, ws.root);
-					const under = (by) => [
-						...declared.nested.filter((c) => c.by === by).map((c) => { const d = path.join(ws.root, by, 'git_modules', c.name); return `    ↳ ${c.name} nested @ ${tryGit(d, ['rev-parse', '--short', 'HEAD']) ?? '?'} — ${c.url} (${c.ref}); git_modules/${c.name} is ${c.top.url} (${c.top.ref})`; }),
-						...[...declared.map].filter(([n, m]) => m.declarers.includes(by) && isOwnClone(path.join(ws.root, by, 'git_modules', n))).map(([n]) => `    ↳ ${n} its own clone @ ${tryGit(path.join(ws.root, by, 'git_modules', n), ['rev-parse', '--short', 'HEAD']) ?? '?'}, not a link to git_modules/${n}`),
-					];
-					for (const l of layers) {
-						const over = declared.mismatches.filter((m) => m.name === l.name);
-						const asked = over.length ? ` · overrides ${over.map((m) => `${m.by} (${m.what} ${m.theirs})`).join(', ')}` : l.via.length ? ` · via ${l.via.join(', ')}` : '';
-						const dir = path.join(ws.root, 'git_modules', l.name);
-						const ref = fs.existsSync(dir) ? tryGit(dir, ['rev-parse', '--short', 'HEAD']) : null;
-						const mod = l.module ? modules.find((m) => m.layer === l.name) : null;
-						const found = descriptors.filter((d) => storageOf(d).roots.some((r) => r.layer === l.name && fs.existsSync(path.join(ws.root, r.path)))).map((d) => d.name).sort();
-						console.log(`  ${l.name.padEnd(20)} ${ref ? `git_modules @ ${ref}${tryGit(dir, ['status', '--porcelain']) ? ' (dirty)' : ''}` : 'not installed — dreamteamer install'} · records: ${found.join(', ') || '(none found)'}${l.module ? ` · module ${mod ? moduleIdOf(mod.name) : '-'}` : ''}${asked}`);
-						for (const line of under(`git_modules/${l.name}`)) console.log(line);
-					}
-				}
-				// env-pointed roots (`storage.path: ${env:NAME}/…`), rendered per machine by compile: the
-				// folder a record of each lands in on THIS machine, or why it cannot. Wrapped like the
-				// blocks below — status is the command run when things are already wrong.
-				try {
-					const pointed = [...new Store(ws).descriptors.values()].filter((d) => typeof d.storage?.path === 'string' && d.storage.path.includes('${'));
-					if (pointed.length) {
-						console.log('storage:');
-						for (const d of pointed) {
-							const st = storageOf(d);
-							console.log(`  ${d.name.padEnd(20)} ${st.unavailable ? `✖ ${d.storage.path} — ${st.unavailable}` : `${st.path} (${d.storage.path})${st.external ? ' — outside every repo here, never committed' : ''}`}`);
-						}
-					}
-				} catch { /* no runtime yet — status must still print */ }
-				// ⚠ WHICH CHECKOUT AM I. Everything `install` decides turns on this, and a linked
-				// worktree is indistinguishable from the primary by eye — so it is stated. Wrapped like
-				// every other block below: `status` is the command run when things are already wrong.
-				try {
-					const co = describeCheckout(ws.root);
-					console.log(`checkout: ${co.kind === 'primary' ? 'primary' : `linked worktree of ${co.primary}`}`);
-				} catch { /* not a git checkout */ }
-				if (ws.extensions.length) console.log(`extensions: ${ws.extensions.map((e) => `${e.name}@${e.version}`).join(' · ')}`);
-				console.log(`entries:  ${Object.keys(s.manifest.entries).length}`);
-				// repos materialize LAZILY, so presence is REPORTED here rather than stored on the
-				// record. Wrapped: an older workspace may predate the repos descriptor, and status
-				// must never crash — it is the command you run when things are already wrong.
-				try {
-					const repos = listRepos(ws);
-					if (repos.length) {
-						const here = repos.filter((r) => r.present).length;
-						console.log(`repos:    ${here}/${repos.length} materialized`);
-						// an UNRESOLVED path is not the same absence as a repo simply not cloned yet, and
-						// `dreamteamer install repos/<id>` is not the fix for it — say which one this is.
-						for (const r of repos) if (!r.present) console.log(`  absent: ${r.id} → ${r.path}${r.unresolved ? ` — ${r.unresolved}` : ` (dreamteamer install repos/${r.id})`}`);
-					}
-				} catch { /* no repos descriptor compiled — nothing to report */ }
-				// `dt changes` lists the uncommitted records one by one (0.42.0); status keeps the
-				// COUNT per repo, so deferred work is visible at a glance here too.
-				try {
-					const pending = commitPending(new Store(ws), { dryRun: true });
-					const total = pending.reduce((n, r) => n + r.rows.length, 0);
-					if (total) {
-						console.log(`\npending: ${total} record(s) written but not committed — run \`dreamteamer commit\``);
-						for (const r of pending) console.log(`  ${r.repo === '.' ? 'workspace' : r.repo}: ${r.rows.length}`);
-					}
-				} catch { /* no runtime yet, or not a git repo — status must still print */ }
-				// the SETUP section (src/setup.js): one line per unit the installed modules declare, folded
-				// from each unit's own inspect — read-only, and never from a stored success flag
-				try { for (const line of renderStatusLines(statusLines(ws))) console.log(line); } catch (e) { console.log(`setup: could not be read — ${e.message.split('\n')[0]}`); }
-				if (s.stale.length) {
-					for (const line of s.stale) console.log(`  stale: ${line}`);
-					console.log(`✖ .dreamteamer is stale (${s.stale.length}) — run \`dreamteamer compile\``);
-					process.exit(1);
-				}
-				console.log('✔ .dreamteamer is fresh');
-				process.exit(0);
-			}
-			case 'help':
-				emit(USAGE);
-				process.exit(0);
-			case 'list': case 'add': case 'values':
-			case 'get': case 'set': case 'rm': case 'rename': case 'history': case 'diff': case 'revert':
-			case 'reorder': case 'next': {
-				warnIfStale(ws.root);
-				process.exit(dispatchRecordVerb(ws, cmd, rest));
-			}
-			// The verb `check`'s stale-mirror message names. It reads the compiled relations, and
-			// rebuild WRITES records, so both want the same staleness warning every record verb gets.
-			// FIELD VERBS — see FIELD_VERBS. Their <target> is a collection and everything else is
-			// flags, so they are their own case rather than being folded into `dispatchRecordVerb`.
-			//
-			// ⚠ THE RETIRED SPELLINGS ARE GONE, not aliased. The 0.12.0 policy: a stale invocation
-			// must fail loudly, because a half-working grammar teaches the wrong shape without ever
-			// saying so. The `default` arm below names each one — `schema`, `ensure`, `update-field`,
-			// `remove-field`, `commands` — and carries its replacement.
-			case 'add-field': case 'set-field': case 'rm-field': case 'rename-field': case 'rename-value': {
-				warnIfStale(ws.root);
-				const [target, ...flagArgs] = rest;
-				if (!target || target.startsWith('--')) {
-					throw new Error(`dt ${cmd} needs a collection: dreamteamer ${cmd} <collection> --name <field> …`);
-				}
-				// the singular is legal here too: `dt add-field task --name due …`
-				process.exit(collectionCommand(ws, canonicalCollection(new Store(ws).descriptors, target) ?? target, cmd, flagArgs));
-			}
-			case 'relations':
-				warnIfStale(ws.root);
-				process.exit(relationsCommand(ws, rest));
-			case 'relocate': {
-				warnIfStale(ws.root);
-				const store = new Store(ws);
-				const target = rest.find((a) => !a.startsWith('--'));
-				if (!target) throw new Error('dt relocate needs a target: dreamteamer relocate <collection> | <collection>/<id> [--dry-run]');
-				// a collection, or one record of it — the either-shape every other target has
-				const asCollection = canonicalCollection(store.descriptors, target);
-				const { collection, id } = asCollection ? { collection: asCollection, id: null } : splitRef(store.descriptors, target);
-				const out = store.relocate(collection, { only: id ? [id] : null, dryRun: rest.includes('--dry-run'), toRoot: rest.includes('--to-root') });
-				if (rest.includes('--json')) { emit(JSON.stringify(out, null, 2)); process.exit(out.problems.length ? 1 : 0); }
-				const rel = (p) => path.relative(ws.root, p);
-				for (const m of out.moves) console.log(`${out.applied ? '✔' : '→'} ${collection}/${m.id}  ${rel(m.from)} → ${rel(m.to)}`);
-				for (const p of out.problems) console.error(`✖ ${p}`);
-				if (!out.moves.length && !out.problems.length) console.log(`nothing to relocate — every ${collection} record is where its descriptor puts it`);
-				else if (!out.applied && !out.problems.length) console.log(`${out.moves.length} move(s) planned (dry run) — nothing was moved`);
-				else if (out.applied) console.log(`${out.moves.length} record(s) relocated — ids and references unchanged; \`dreamteamer commit ${collection}\` publishes the moves`);
-				process.exit(out.problems.length ? 1 : 0);
-			}
-			case 'resolve':
-				process.exit(resolveVariables(ws, rest));
-			case 'fmt': {
-				const target = rest.find((a) => !a.startsWith('--'));
-				let collection = target ?? null;
-				try { if (target) collection = canonicalCollection(new Store(ws).descriptors, target) ?? target; } catch { /* no runtime: the name as typed */ }
-				const dryRun = rest.includes('--dry-run');
-				const out: Record<string, any> = formatDescriptors(ws, { collection, dryRun });
-				for (const f of out.changed) console.log(`${dryRun ? '→' : '✔'} ${f}`);
-				const under = (dir) => out.skipped.filter((f) => f.startsWith(`${dir}/`)).length;
-				if (out.skipped.length) console.log(`— skipped ${under('git_modules')} source(s) under git_modules/ and ${under('node_modules')} under node_modules/ — format those in their own repo`);
-				console.log(`${out.changed.length} source(s) ${dryRun ? 'would change (dry run — nothing was written)' : 'formatted'}, ${out.unchanged} already canonical`);
-				reportCommits(out.commits);
-				process.exit(0);
-			}
-			default:
-				// ⚠ NAMED, not just unknown. Every doc, skill and downstream script spelled these
-				// `dt schema <op>` for seven releases, so the failure has to carry the translation —
-				// an "unknown verb" alone sends the reader to `help` to guess which of thirty verbs
-				// replaced the one they typed. No alias layer and no deprecation window: 0.12.0's
-				// policy, and the reason it is the right one is that `dt contacts list` failing
-				// loudly is what taught the verb-first grammar in one command.
-				//
-				// ⚠ ONE EXIT CODE FOR ALL OF THEM: 2, the usage code. "You typed a verb that is
-				// gone" is one answer, so a script (and an operator) asks it once rather than
-				// learning which retirement exits 1 and which exits 2.
-				if (cmd === 'schema') {
-					console.error('✖ unknown verb "schema" — schema verbs are gone since 0.19.0. System entities take the RECORD verbs now:');
-					console.error('    dt add collections --name <c> [--module <m>] · dt rm collections/<c> · dt rename collections/<old> <new>');
-					console.error('    dt set collections/<c> module=<m> | <scalar>=<v>   · dt get collections/<c> [--module <m>]');
-					console.error('    dt add-field <c> … · dt set-field <c> … · dt rm-field <c> … · dt rename-field <c> --name <f> --to <g>');
-					console.error('    dt add|set|rm|rename modules/<id> …               · dt add|set|rm|rename ui-views/<id> …');
-					console.error('  the full mapping table is in UPDATING.md (0.18.0 → 0.19.0), and `dt help` has the current spellings.');
-					process.exit(2);
-				}
-				if (cmd === 'ensure') {
-					console.error('✖ unknown verb "ensure" — gone since 0.22.0 (decision 309: install is the one verb that makes a thing present and ready):');
-					console.error('    dt install                 this checkout — engine, .env, local assets, git modules, compile, postinstall');
-					console.error('    dt install repos/<id>      materialize one attached repo · dt install repos --all');
-					process.exit(2);
-				}
-				// The change verbs spell one way. `add · set · rm · rename` are the record verbs, so
-				// `update-field`/`remove-field` were a second spelling for one action inside one
-				// grammar — the field verbs now say `add-field · set-field · rm-field · rename-field`.
-				if (cmd === 'update-field' || cmd === 'remove-field') {
-					const to = cmd === 'update-field' ? 'set-field' : 'rm-field';
-					console.error(`✖ unknown verb "${cmd}" — gone since 0.22.0 (decision 309: a field verb spells its action the way the record verbs do):`);
-					console.error(`    dt ${to} <collection> --name <field> …`);
-					console.error('    the field verbs are: dt add-field · dt set-field · dt rm-field · dt rename-field');
-					process.exit(2);
-				}
-				// `dt commands <ref>` and `dt list commands` were one word for two things — the read
-				// verb and the system entity. `next` also says what it answers.
-				if (cmd === 'commands') {
-					console.error('✖ unknown verb "commands" — gone since 0.22.0 (decision 309: it collided with the `commands` ENTITY, which `dt list commands` reads):');
-					console.error('    dt next <collection>[/<id>]   which bound commands apply to this record, and in which state');
-					console.error('    dt list commands              the command entities this workspace ships');
-					process.exit(2);
-				}
-				if (VERB_PACKAGES[cmd]) {
-					console.error(`✖ \`dt ${cmd}\` comes from an extension this workspace does not have — install it as a dependency:\n    npm i ${VERB_PACKAGES[cmd]}`);
-					process.exit(2);
-				}
-				if (DOCKER_VERBS.has(cmd)) {
-					console.error(`✖ \`dt ${cmd}\` is not a workspace verb — containers are managed by dt-docker:\n    npm i -g @dreamteamer/docker-workspaces\n    dt-docker ${cmd} container <name>`);
-					process.exit(2);
-				}
-				console.error(`✖ unknown verb "${cmd}" — the verb comes first: dt <verb> [<target>]`);
-				emit(USAGE, 2);
-				process.exit(1);
-		}
-	} catch (e) {
-		console.error(`✖ ${e.message}`);
-		// ⚠ AND ON STDOUT UNDER `--hook`, because that is the whole reason the shim exists.
-		// `bin/dt-hook.sh` fails onto stdout with a comment saying why: a hook's stdout is added to
-		// the session's context and its stderr is nobody's problem. Every success path here already
-		// prints to stdout; every FAILURE went to stderr alone, so a mis-wired hook, a bad payload, a
-		// TTY invocation or a refusal was invisible to exactly the reader the shim was built for.
-		if (process.argv.includes('--hook')) console.log(`✖ ${e.message}`);
-		process.exit(1);
-	}
+  const [cmd, ...rest] = argv
+  try {
+    if (cmd in WORKSPACE_FLAGS) {
+      const bad = rest
+        .filter(a => a.startsWith("--"))
+        .map(a => a.slice(2).split("=")[0])
+        .find(f => !WORKSPACE_FLAGS[cmd].includes(f))
+      if (bad)
+        throw new Error(
+          `unknown flag "--${bad}" on \`dt ${cmd}\`\n  known: ${WORKSPACE_FLAGS[cmd].map(f => `--${f}`).join(", ") || "(none — this verb takes no flags)"}`
+        )
+    }
+    if (cmd === "--version" || cmd === "-v" || cmd === "version") {
+      // works OUTSIDE a workspace — the post-install "did it land?" affordance
+      const p = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8"))
+      console.log(`${p.name}@${p.version}`)
+      process.exit(0)
+    }
+    if (cmd === "init") {
+      // init runs BEFORE a workspace exists — no findWorkspace
+      const flags = {}
+      for (let i = 0; i < rest.length; i++)
+        if (rest[i].startsWith("--")) {
+          const [k, v] = rest[i].slice(2).split(/=(.*)/s)
+          flags[k] = v ?? rest[i + 1]
+        }
+      // boolean flags take no value: a following positional is not theirs
+      for (const b of ["no-git", "no-compile", "no-input"]) if (b in flags) flags[b] = true
+      process.exit(
+        await initCommand(flags, {
+          open: openWorkspace,
+          argv: rest,
+          verify: async ws => check(ws, { extra: await api.contributedViolations(ws) }),
+        })
+      )
+    }
+    if (!cmd || cmd === "help") {
+      // `help` works OUTSIDE a workspace too — a person who just ran `npm i -g dreamteamer` on a
+      // bare machine has nothing else to read. Inside one, each installed extension's own usage
+      // follows the engine's.
+      let ws = null
+      try {
+        ws = await openWorkspace()
+      } catch {
+        /* no workspace, or an extension that will not load — plain help */
+      }
+      emit(USAGE + extensionUsage(ws))
+      process.exit(0)
+    }
+    let ws
+    try {
+      ws = await openWorkspace()
+    } catch (e) {
+      // `status` is read-only and always answers: a runtime whose extensions refuse to load (two
+      // packages claiming one unit, a bad declaration) is reported as the status, exit 0
+      if (cmd === "status") {
+        console.log(`✖ extensions did not load — ${String(e.message).split("\n")[0]}`)
+        console.log(
+          "  the setup section cannot be read until that is fixed; records and the compiled runtime are untouched"
+        )
+        process.exit(0)
+      }
+      throw e
+    }
+    // An EXTENSION'S VERB runs in-process, handed this workspace — the same engine instance, the
+    // same loaded extensions. Its exit code is the process's.
+    const ext = ws.extensions.find(e => cmd in e.commands)
+    if (ext) process.exit((await ext.commands[cmd].run(ws, rest)) ?? 0)
+    switch (cmd) {
+      // ONE verb makes a thing present and ready: this checkout, or an attached repo's
+      // working tree. `ensure` was the second spelling of the same idea and is retired in the
+      // `default` arm below — no alias, per the 0.12.0 policy.
+      //
+      // ⚠ THREE FORMS, ONE FLAG TABLE — so each form REFUSES the other's vocabulary itself.
+      // `WORKSPACE_FLAGS.install` can only say which flags the verb has; it cannot know that
+      // `--dry-run` is meaningless once a target is named. Forwarding just the flags a form
+      // understands DROPS the rest in silence, and that is not a cosmetic loss:
+      // `dt install repos/x --dry-run` materialized the repo for real, driven past a flag
+      // whose entire meaning is "do nothing". A bare positional had the same shape of bug —
+      // `dt install <repo-id>`, the muscle memory `dt ensure <id>` taught for nine releases,
+      // matched neither branch, so the target was ignored and a whole checkout install ran.
+      // Same policy as the retired verbs below: a stale invocation fails loudly.
+      case "install": {
+        const given = rest.filter(a => a.startsWith("--"))
+        const refuse = (form, allowed) => {
+          const stray = given.filter(f => !allowed.includes(f))
+          if (!stray.length) return
+          throw new Error(
+            `${stray.join(" ")} ${stray.length > 1 ? "are not flags" : "is not a flag"} of \`${form}\` — that form takes ${allowed.join(" ")}`
+          )
+        }
+        const ci = rest.indexOf("--clone")
+        if (ci > -1) {
+          refuse("dt install --clone <url> [name]", ["--clone"])
+          process.exit(installClone(ws, rest[ci + 1], rest[ci + 2]))
+        }
+        const target = rest.find(a => !a.startsWith("--"))
+        if (target === "repos" || target?.startsWith("repos/")) {
+          refuse(`dt install ${target}`, ["--all", "--json"])
+          warnIfStale(ws.root)
+          const args = target === "repos" ? given : [target.slice("repos/".length), ...given]
+          process.exit(collectionCommand(ws, "repos", "ensure", args))
+        }
+        // THE SPEC FORM (src/install-modules.js): any positional that is not `repos…` is an npm spec —
+        // a name, name@version, ./file.tgz, ./folder, a git URL — and `--from` resolves names from a
+        // folder of tarballs. The flags are its own; the checkout form's are refused on it below.
+        if (target || given.includes("--from")) {
+          // the muscle memory `dt ensure <id>` taught: a bare repo id is named with its spelling, never sent to npm
+          let repoIds = []
+          try {
+            repoIds = listRepos(ws).map(r => r.id)
+          } catch {
+            /* no repos descriptor */
+          }
+          if (target && repoIds.includes(target))
+            throw new Error(
+              `"${target}" is an attached repo, not an npm spec — \`dt install repos/${target}\` materializes it`
+            )
+          refuse("dt install <spec…>", ["--from", "--input", "--allow", "--no-input", "--no-commit", "--json"])
+          process.exit(
+            await installModules(ws, rest, {
+              open: openWorkspace,
+              verify: async w => check(w, { extra: await api.contributedViolations(w) }),
+            })
+          )
+        }
+        // ⚠ TWO MORE FORMS, EACH ITS OWN VOCABULARY. `--hook` reads a JSON payload off stdin
+        // and installs the checkout that payload names; `--print-adapters` installs nothing
+        // at all. Folding either into `dt install`'s flag list would let `--hook --dry-run`
+        // through as a plan of a checkout nobody named, and `--print-adapters --link-env`
+        // as a symlink placed by a verb whose whole job is to print.
+        if (given.includes("--hook")) {
+          refuse("dt install --hook", ["--hook"])
+          process.exit(await installCommand(ws, rest, { open: openWorkspace }))
+        }
+        if (given.includes("--print-adapters")) {
+          refuse("dt install --print-adapters", ["--print-adapters"])
+          process.exit(await installCommand(ws, rest, { open: openWorkspace }))
+        }
+        refuse("dt install", ["--dry-run", "--json", "--link-env"])
+        return process.exit(await installCommand(ws, rest, { open: openWorkspace }))
+      }
+      case "update": {
+        // an npm module or the engine moves through src/update.js; a git module (or no target) keeps
+        // the fast-forward path below
+        const u = parseUpdateArgs(rest)
+        const gitMods = Object.fromEntries(declaredGitModules(ws.pkg, ws.root).map)
+        if (u.engine || (u.name && !gitMods[u.name])) process.exit(await updateModules(ws, u, { open: openWorkspace }))
+        const code = update(ws, u.name)
+        compile(ws) // pulled modules may carry new sources — prints its own summary
+        return process.exit(code)
+      }
+      case "compile": {
+        const code = compile(ws)
+        if (!rest.includes("--watch")) process.exit(code)
+        console.log("… watching sources (modules/*, git_modules/*, and the workspace root) — ctrl-c to stop")
+        watchAndRecompile(ws)
+        return
+      }
+      case "check":
+        return process.exit(
+          check(ws, {
+            extra: warnIfStale(ws.root).compiled ? await api.contributedViolations(ws) : [],
+            strictExport: rest.includes("--strict-export"),
+          })
+        )
+      case "exports": {
+        const layers = rest
+          .flatMap((a, i) => (a === "--layer" ? [rest[i + 1]] : a.startsWith("--layer=") ? [a.slice(8)] : []))
+          .filter(Boolean)
+        return process.exit(
+          runExports(new Store(ws), { layers, dryRun: rest.includes("--dry-run"), json: rest.includes("--json") })
+        )
+      }
+      // `dt setup [<unit>] …` — the generic driver of the units installed modules declare (src/setup.js):
+      // inputs, consent per effect, inspect → plan → apply, the receipt. The engine names no module.
+      case "setup":
+        return process.exit(await setupCommand(ws, rest, { api }))
+      case "doctor": {
+        const caps = await doctorBoard(ws, api)
+        if (rest.includes("--json"))
+          emit(
+            JSON.stringify({ workspace: { root: ws.root, name: ws.pkg?.name ?? null }, capabilities: caps }, null, 2)
+          )
+        else console.log(renderBoard(caps))
+        return process.exit(rest.includes("--strict") && caps.some(c => c.verdict === "UNAVAILABLE") ? 1 : 0)
+      }
+      // `changes` is what survives of the trigger/run subsystem removed 2026-07-31: deriving
+      // record events from git history was the genuinely used half (catch-up — "what happened
+      // while I was away"), while creating run records from triggers was not. Read-only by
+      // construction: no cursor to advance, nothing to store, so it is safe to run twice.
+      // Since 0.42.0 its default is the UNCOMMITTED state (`HEAD`), because the question a
+      // session asks after a write is "what did I just change" — and its first line is the
+      // report line the skill tells a session to end its reply with.
+      case "changes": {
+        warnIfStale(ws.root)
+        const si = rest.indexOf("--since")
+        if (si > -1 && (!rest[si + 1] || rest[si + 1].startsWith("-")))
+          throw new Error(
+            "--since needs a commit or a date: dt changes --since <sha|YYYY-MM-DD> (bare `dt changes` is the uncommitted state)"
+          )
+        const since = si > -1 ? rest[si + 1] : "HEAD"
+        const events = recordChanges(new Store(ws), { since })
+        if (rest.includes("--json")) {
+          emit(
+            JSON.stringify(
+              { since, head: "HEAD", events, collections: groupChanges(events).map(({ records, ...g }) => g) },
+              null,
+              2
+            )
+          )
+          process.exit(0)
+        }
+        if (!events.length) {
+          console.log(`✔ no record changes since ${since}`)
+          process.exit(0)
+        }
+        printChanges(events)
+        const open = events.filter(e => !e.committed).length
+        console.log(
+          `${events.length} record change(s) since ${since} — ${open ? `${open} uncommitted` : "all committed"}`
+        )
+        return process.exit(0)
+      }
+      // the other half of `auto-commit: false` — record writes land on disk uncommitted, and
+      // this publishes them. No pending file: the set is sampled from `git status`, so a
+      // hand-edited record is indistinguishable from one the store wrote, which is the point.
+      case "commit": {
+        const store = new Store(ws)
+        const mi = rest.indexOf("-m")
+        const message = mi > -1 ? rest[mi + 1] : undefined
+        // bare args are TARGETS — a whole collection or a `<collection>/<id>` reference,
+        // told apart in commit.js against the declared collections — minus the token `-m`
+        // consumed as its subject
+        const only = rest.filter((a, i) => !a.startsWith("-") && (mi === -1 || i !== mi + 1))
+        const results = commitPending(store, { only, message, dryRun: rest.includes("--dry-run") })
+        if (rest.includes("--json")) {
+          emit(JSON.stringify(results, null, 2))
+          process.exit(0)
+        }
+        if (!results.some(r => !r.outside)) console.log("nothing pending")
+        const published = []
+        for (const r of results) {
+          // an env-pointed collection's folder is outside every repo here: kept, never committed, said
+          if (r.outside) {
+            console.log(
+              `· ${r.outside}: ${r.repo} is outside every git repo here (storage.path ${r.template}) — its records are kept on this machine, never committed`
+            )
+            continue
+          }
+          if (r.blocked) {
+            console.error(`✖ ${r.repo}: ${r.blocked} — ${r.rows.length} record(s) left uncommitted`)
+            continue
+          }
+          if (r.failed) {
+            console.error(`✖ ${r.repo}: ${r.failed} — ${r.rows.length} record(s) left uncommitted, nothing staged`)
+            continue
+          }
+          if (r.pending) {
+            console.error(
+              `⚠ ${r.repo}: ${r.rows.length} record(s) left pending — ${r.pending}; run dreamteamer commit again once it is fixed`
+            )
+            continue
+          }
+          if (r.warning) console.warn(`⚠ ${r.repo}: ${r.warning}`)
+          console.log(`✔ ${r.repo === "." ? "workspace" : r.repo}${r.sha ? ` ${r.sha}` : " (dry run)"} — ${r.subject}`)
+          // what this repo published, for the ONE report block printed after every repo
+          for (const c of rowChanges(store.descriptors, r.repo, r.rows)) published.push({ ...c, sha: r.sha })
+          // Half a pair was published — name the records that finish it. `dt commit
+          // <collection>` publishes exactly that collection by design, so this is an honest
+          // report of what it left behind, not a failure: HEAD fails `check` until they land.
+          if (r.leftPending?.length) {
+            const n = r.leftPending.length
+            console.warn(
+              `⚠ ${n} relation partner(s) left pending — HEAD fails \`dreamteamer check\` until they are published:`
+            )
+            // CAPPED at the same ROWS_SHOWN as the rows above — this line was the one
+            // unbounded list in the report, and 25 leftovers printed 25 refs on one line.
+            // ⚠ But a truncated COMMAND is not a command, so the overflow is not "+ N more"
+            // and nothing else: it names the collection-scoped form that does converge, and
+            // what that costs (it sweeps whatever another session left pending there, which
+            // is exactly why the record form is the default).
+            console.warn(`    dreamteamer commit ${r.leftPending.slice(0, ROWS_SHOWN).join(" ")}`)
+            if (n > ROWS_SHOWN) {
+              const colls = [...new Set(r.leftPending.map(ref => splitRef(store.descriptors, ref).collection))].sort()
+              console.warn(
+                `    + ${n - ROWS_SHOWN} more — or ${colls.map(c => `dreamteamer commit ${c}`).join(" && ")}, which also publishes anything another session left pending there`
+              )
+            }
+            // ⚠ AND IT CAN TAKE TWO COMMANDS, so say so rather than promise one. The command
+            // above is planned by the same sweep every scoped commit runs, and a named
+            // partner whose OTHER edge moved against a record this list does not carry is
+            // refused as entangled — measured: `dt commit meetings` left one partner pending,
+            // the printed `dt commit recordings/cap-zero` was refused over a second recording
+            // sharing its topic, and the refusal named the pair that converges. Computing
+            // that closure here would mean asking planSweep for strangers instead of
+            // throwing on them, which is a redesign of the guard; naming the second step is
+            // the honest half-measure.
+            console.warn(
+              "    (if that refuses as entangled, the refusal names the other pending records — add them to the same command)"
+            )
+          }
+        }
+        // the same block `dt changes` prints, for what was published — a dry run's rows are uncommitted
+        if (published.length)
+          printChanges(
+            foldChanges(
+              published.filter(c => c.sha),
+              published.filter(c => !c.sha)
+            )
+          )
+        return process.exit(results.some(r => r.blocked || r.failed) ? 1 : 0)
+      }
+      case "status": {
+        const s = staleness(ws.root)
+        if (!s.compiled) {
+          console.log(`✖ ${s.message}`)
+          process.exit(1)
+        }
+        if (rest.includes("--json")) {
+          const { modules: mods } = discoverModules(ws.root, ws.pkg)
+          emit(
+            JSON.stringify(
+              {
+                workspace: { root: ws.root, name: ws.pkg?.name ?? null },
+                compiled: s.manifest.compiled,
+                stale: s.stale,
+                modules: mods.map(m => ({ name: m.name, location: locationOf(m, ws.root) })),
+                setup: statusLines(ws),
+              },
+              null,
+              2
+            )
+          )
+          process.exit(0)
+        }
+        console.log(`compiled: ${s.manifest.compiled}`)
+        // THE EDITOR, from the marker the extension writes on activation (`.dreamteamer/editor.json`).
+        // Without it an agent working inside the editor could not tell whether the extension was
+        // installed, active, or refusing the engine — the operator had to report "no icon".
+        try {
+          const marker = path.join(ws.root, ".dreamteamer", "editor.json")
+          if (fs.existsSync(marker)) {
+            const e = JSON.parse(fs.readFileSync(marker, "utf8"))
+            console.log(
+              `editor: ${e.extension ?? "dreamteamer-vscode"} ${e.version ?? "?"} · ${e.state ?? "active"} ${e.activated ?? ""} · engine ${e.engine ?? "?"}${e.host ? ` · ${e.host}` : ""}`
+            )
+          } else
+            console.log(
+              "editor: not detected — the extension dreamteamer.dreamteamer-vscode writes .dreamteamer/editor.json when it activates on this workspace"
+            )
+        } catch {
+          console.log("editor: marker unreadable — .dreamteamer/editor.json is not JSON")
+        }
+        // provenance is LIVE discovery (not the manifest) — shows what the next compile would use
+        const { modules, shadows } = discoverModules(ws.root, ws.pkg)
+        const shadowed = new Map(shadows.map(sh => [sh.name, sh]))
+        console.log("modules:")
+        for (const m of modules) {
+          // §10: the folder name IS the label. `hr  git_modules @ 3f2a1c (dirty)` needs no
+          // legend, and `[inline]` needed one every single time.
+          let line = `  ${m.name.padEnd(20)} ${locationOf(m, ws.root)}`
+          // a development link (a folder spec): never pinned, skipped by update
+          try {
+            if (
+              m.channel === "npm" &&
+              fs.lstatSync(path.join(ws.root, "node_modules", m.name)).isSymbolicLink() &&
+              m.name !== "dreamteamer"
+            )
+              line += " (linked)"
+          } catch {
+            /* not under node_modules */
+          }
+          if (m.channel === "git") {
+            const ref = tryGit(m.root, ["rev-parse", "--short", "HEAD"])
+            const dirty = tryGit(m.root, ["status", "--porcelain"])
+            // ⚠ A SCHEMA WRITE NOW COMMITS HERE (§9), so a clone can be ahead of its remote
+            // with work the operator does not know they are holding. `status` is the command
+            // they run when something feels wrong, so it is where the count belongs.
+            const ahead = tryGit(m.root, ["rev-list", "--count", "HEAD", "--not", "--remotes"])
+            line += ` @ ${ref ?? "?"}${dirty ? " (dirty)" : ""}${Number(ahead) > 0 ? ` — ahead ${ahead}, push when ready` : ""}`
+          }
+          const sh = shadowed.get(m.name)
+          if (sh) line += ` — shadows ${CHANNEL_LABEL[sh.loser]} copy`
+          console.log(line)
+        }
+        // record layers: other workspaces cloned here for their records. The collections listed are
+        // the ones FOUND — compiled with this layer as a root and holding a folder in the clone —
+        // never the declared `records:`, which narrows and may name a folder that does not exist.
+        const layers = layerEntries(ws.pkg, ws.root)
+        if (layers.length) {
+          console.log("layers:")
+          let descriptors = []
+          try {
+            descriptors = [...new Store(ws).descriptors.values()]
+          } catch {
+            /* no runtime yet */
+          }
+          // a layer a clone needed says so (`via`); one this workspace's declaration overrides says whom; a
+          // copy nested under a clone, or a clone of its own where a link would be, is drawn under its clone
+          const declared = declaredGitModules(ws.pkg, ws.root)
+          const under = by => [
+            ...declared.nested
+              .filter(c => c.by === by)
+              .map(c => {
+                const d = path.join(ws.root, by, "git_modules", c.name)
+                return `    ↳ ${c.name} nested @ ${tryGit(d, ["rev-parse", "--short", "HEAD"]) ?? "?"} — ${c.url} (${c.ref}); git_modules/${c.name} is ${c.top.url} (${c.top.ref})`
+              }),
+            ...[...declared.map]
+              .filter(([n, m]) => m.declarers.includes(by) && isOwnClone(path.join(ws.root, by, "git_modules", n)))
+              .map(
+                ([n]) =>
+                  `    ↳ ${n} its own clone @ ${tryGit(path.join(ws.root, by, "git_modules", n), ["rev-parse", "--short", "HEAD"]) ?? "?"}, not a link to git_modules/${n}`
+              ),
+          ]
+          for (const l of layers) {
+            const over = declared.mismatches.filter(m => m.name === l.name)
+            const asked = over.length
+              ? ` · overrides ${over.map(m => `${m.by} (${m.what} ${m.theirs})`).join(", ")}`
+              : l.via.length
+                ? ` · via ${l.via.join(", ")}`
+                : ""
+            const dir = path.join(ws.root, "git_modules", l.name)
+            const ref = fs.existsSync(dir) ? tryGit(dir, ["rev-parse", "--short", "HEAD"]) : null
+            const mod = l.module ? modules.find(m => m.layer === l.name) : null
+            const found = descriptors
+              .filter(d =>
+                storageOf(d).roots.some(r => r.layer === l.name && fs.existsSync(path.join(ws.root, r.path)))
+              )
+              .map(d => d.name)
+              .sort()
+            console.log(
+              `  ${l.name.padEnd(20)} ${ref ? `git_modules @ ${ref}${tryGit(dir, ["status", "--porcelain"]) ? " (dirty)" : ""}` : "not installed — dreamteamer install"} · records: ${found.join(", ") || "(none found)"}${l.module ? ` · module ${mod ? moduleIdOf(mod.name) : "-"}` : ""}${asked}`
+            )
+            for (const line of under(`git_modules/${l.name}`)) console.log(line)
+          }
+        }
+        // env-pointed roots (`storage.path: ${env:NAME}/…`), rendered per machine by compile: the
+        // folder a record of each lands in on THIS machine, or why it cannot. Wrapped like the
+        // blocks below — status is the command run when things are already wrong.
+        try {
+          const pointed = [...new Store(ws).descriptors.values()].filter(
+            d => typeof d.storage?.path === "string" && d.storage.path.includes("${")
+          )
+          if (pointed.length) {
+            console.log("storage:")
+            for (const d of pointed) {
+              const st = storageOf(d)
+              console.log(
+                `  ${d.name.padEnd(20)} ${st.unavailable ? `✖ ${d.storage.path} — ${st.unavailable}` : `${st.path} (${d.storage.path})${st.external ? " — outside every repo here, never committed" : ""}`}`
+              )
+            }
+          }
+        } catch {
+          /* no runtime yet — status must still print */
+        }
+        // ⚠ WHICH CHECKOUT AM I. Everything `install` decides turns on this, and a linked
+        // worktree is indistinguishable from the primary by eye — so it is stated. Wrapped like
+        // every other block below: `status` is the command run when things are already wrong.
+        try {
+          const co = describeCheckout(ws.root)
+          console.log(`checkout: ${co.kind === "primary" ? "primary" : `linked worktree of ${co.primary}`}`)
+        } catch {
+          /* not a git checkout */
+        }
+        if (ws.extensions.length)
+          console.log(`extensions: ${ws.extensions.map(e => `${e.name}@${e.version}`).join(" · ")}`)
+        console.log(`entries:  ${Object.keys(s.manifest.entries).length}`)
+        // repos materialize LAZILY, so presence is REPORTED here rather than stored on the
+        // record. Wrapped: an older workspace may predate the repos descriptor, and status
+        // must never crash — it is the command you run when things are already wrong.
+        try {
+          const repos = listRepos(ws)
+          if (repos.length) {
+            const here = repos.filter(r => r.present).length
+            console.log(`repos:    ${here}/${repos.length} materialized`)
+            // an UNRESOLVED path is not the same absence as a repo simply not cloned yet, and
+            // `dreamteamer install repos/<id>` is not the fix for it — say which one this is.
+            for (const r of repos)
+              if (!r.present)
+                console.log(
+                  `  absent: ${r.id} → ${r.path}${r.unresolved ? ` — ${r.unresolved}` : ` (dreamteamer install repos/${r.id})`}`
+                )
+          }
+        } catch {
+          /* no repos descriptor compiled — nothing to report */
+        }
+        // `dt changes` lists the uncommitted records one by one (0.42.0); status keeps the
+        // COUNT per repo, so deferred work is visible at a glance here too.
+        try {
+          const pending = commitPending(new Store(ws), { dryRun: true })
+          const total = pending.reduce((n, r) => n + r.rows.length, 0)
+          if (total) {
+            console.log(`\npending: ${total} record(s) written but not committed — run \`dreamteamer commit\``)
+            for (const r of pending) console.log(`  ${r.repo === "." ? "workspace" : r.repo}: ${r.rows.length}`)
+          }
+        } catch {
+          /* no runtime yet, or not a git repo — status must still print */
+        }
+        // the SETUP section (src/setup.js): one line per unit the installed modules declare, folded
+        // from each unit's own inspect — read-only, and never from a stored success flag
+        try {
+          for (const line of renderStatusLines(statusLines(ws))) console.log(line)
+        } catch (e) {
+          console.log(`setup: could not be read — ${e.message.split("\n")[0]}`)
+        }
+        if (s.stale.length) {
+          for (const line of s.stale) console.log(`  stale: ${line}`)
+          console.log(`✖ .dreamteamer is stale (${s.stale.length}) — run \`dreamteamer compile\``)
+          process.exit(1)
+        }
+        console.log("✔ .dreamteamer is fresh")
+        return process.exit(0)
+      }
+      case "help":
+        emit(USAGE)
+        return process.exit(0)
+      case "list":
+      case "add":
+      case "values":
+      case "get":
+      case "set":
+      case "rm":
+      case "rename":
+      case "history":
+      case "diff":
+      case "revert":
+      case "reorder":
+      case "next": {
+        warnIfStale(ws.root)
+        return process.exit(dispatchRecordVerb(ws, cmd, rest))
+      }
+      // The verb `check`'s stale-mirror message names. It reads the compiled relations, and
+      // rebuild WRITES records, so both want the same staleness warning every record verb gets.
+      // FIELD VERBS — see the note beside REF_VERBS at the top of this file. Their <target> is a collection and everything else is
+      // flags, so they are their own case rather than being folded into `dispatchRecordVerb`.
+      //
+      // ⚠ THE RETIRED SPELLINGS ARE GONE, not aliased. The 0.12.0 policy: a stale invocation
+      // must fail loudly, because a half-working grammar teaches the wrong shape without ever
+      // saying so. The `default` arm below names each one — `schema`, `ensure`, `update-field`,
+      // `remove-field`, `commands` — and carries its replacement.
+      case "add-field":
+      case "set-field":
+      case "rm-field":
+      case "rename-field":
+      case "rename-value": {
+        warnIfStale(ws.root)
+        const [target, ...flagArgs] = rest
+        if (!target || target.startsWith("--")) {
+          throw new Error(`dt ${cmd} needs a collection: dreamteamer ${cmd} <collection> --name <field> …`)
+        }
+        // the singular is legal here too: `dt add-field task --name due …`
+        return process.exit(
+          collectionCommand(ws, canonicalCollection(new Store(ws).descriptors, target) ?? target, cmd, flagArgs)
+        )
+      }
+      case "relations":
+        warnIfStale(ws.root)
+        return process.exit(relationsCommand(ws, rest))
+      case "relocate": {
+        warnIfStale(ws.root)
+        const store = new Store(ws)
+        const target = rest.find(a => !a.startsWith("--"))
+        if (!target)
+          throw new Error(
+            "dt relocate needs a target: dreamteamer relocate <collection> | <collection>/<id> [--dry-run]"
+          )
+        // a collection, or one record of it — the either-shape every other target has
+        const asCollection = canonicalCollection(store.descriptors, target)
+        const { collection, id } = asCollection
+          ? { collection: asCollection, id: null }
+          : splitRef(store.descriptors, target)
+        const out = store.relocate(collection, {
+          only: id ? [id] : null,
+          dryRun: rest.includes("--dry-run"),
+          toRoot: rest.includes("--to-root"),
+        })
+        if (rest.includes("--json")) {
+          emit(JSON.stringify(out, null, 2))
+          process.exit(out.problems.length ? 1 : 0)
+        }
+        const rel = p => path.relative(ws.root, p)
+        for (const m of out.moves)
+          console.log(`${out.applied ? "✔" : "→"} ${collection}/${m.id}  ${rel(m.from)} → ${rel(m.to)}`)
+        for (const p of out.problems) console.error(`✖ ${p}`)
+        if (!out.moves.length && !out.problems.length)
+          console.log(`nothing to relocate — every ${collection} record is where its descriptor puts it`)
+        else if (!out.applied && !out.problems.length)
+          console.log(`${out.moves.length} move(s) planned (dry run) — nothing was moved`)
+        else if (out.applied)
+          console.log(
+            `${out.moves.length} record(s) relocated — ids and references unchanged; \`dreamteamer commit ${collection}\` publishes the moves`
+          )
+        return process.exit(out.problems.length ? 1 : 0)
+      }
+      case "resolve":
+        return process.exit(resolveVariables(ws, rest))
+      case "fmt": {
+        const target = rest.find(a => !a.startsWith("--"))
+        let collection = target ?? null
+        try {
+          if (target) collection = canonicalCollection(new Store(ws).descriptors, target) ?? target
+        } catch {
+          /* no runtime: the name as typed */
+        }
+        const dryRun = rest.includes("--dry-run")
+        const out = formatDescriptors(ws, { collection, dryRun })
+        for (const f of out.changed) console.log(`${dryRun ? "→" : "✔"} ${f}`)
+        const under = dir => out.skipped.filter(f => f.startsWith(`${dir}/`)).length
+        if (out.skipped.length)
+          console.log(
+            `— skipped ${under("git_modules")} source(s) under git_modules/ and ${under("node_modules")} under node_modules/ — format those in their own repo`
+          )
+        console.log(
+          `${out.changed.length} source(s) ${dryRun ? "would change (dry run — nothing was written)" : "formatted"}, ${out.unchanged} already canonical`
+        )
+        reportCommits(out.commits)
+        return process.exit(0)
+      }
+      default:
+        // ⚠ NAMED, not just unknown. Every doc, skill and downstream script spelled these
+        // `dt schema <op>` for seven releases, so the failure has to carry the translation —
+        // an "unknown verb" alone sends the reader to `help` to guess which of thirty verbs
+        // replaced the one they typed. No alias layer and no deprecation window: 0.12.0's
+        // policy, and the reason it is the right one is that `dt contacts list` failing
+        // loudly is what taught the verb-first grammar in one command.
+        //
+        // ⚠ ONE EXIT CODE FOR ALL OF THEM: 2, the usage code. "You typed a verb that is
+        // gone" is one answer, so a script (and an operator) asks it once rather than
+        // learning which retirement exits 1 and which exits 2.
+        if (cmd === "schema") {
+          console.error(
+            '✖ unknown verb "schema" — schema verbs are gone since 0.19.0. System entities take the RECORD verbs now:'
+          )
+          console.error(
+            "    dt add collections --name <c> [--module <m>] · dt rm collections/<c> · dt rename collections/<old> <new>"
+          )
+          console.error(
+            "    dt set collections/<c> module=<m> | <scalar>=<v>   · dt get collections/<c> [--module <m>]"
+          )
+          console.error(
+            "    dt add-field <c> … · dt set-field <c> … · dt rm-field <c> … · dt rename-field <c> --name <f> --to <g>"
+          )
+          console.error("    dt add|set|rm|rename modules/<id> …               · dt add|set|rm|rename ui-views/<id> …")
+          console.error(
+            "  the full mapping table is in UPDATING.md (0.18.0 → 0.19.0), and `dt help` has the current spellings."
+          )
+          process.exit(2)
+        }
+        if (cmd === "ensure") {
+          console.error(
+            '✖ unknown verb "ensure" — gone since 0.22.0 (decision 309: install is the one verb that makes a thing present and ready):'
+          )
+          console.error(
+            "    dt install                 this checkout — engine, .env, local assets, git modules, compile, postinstall"
+          )
+          console.error("    dt install repos/<id>      materialize one attached repo · dt install repos --all")
+          process.exit(2)
+        }
+        // The change verbs spell one way. `add · set · rm · rename` are the record verbs, so
+        // `update-field`/`remove-field` were a second spelling for one action inside one
+        // grammar — the field verbs now say `add-field · set-field · rm-field · rename-field`.
+        if (cmd === "update-field" || cmd === "remove-field") {
+          const to = cmd === "update-field" ? "set-field" : "rm-field"
+          console.error(
+            `✖ unknown verb "${cmd}" — gone since 0.22.0 (decision 309: a field verb spells its action the way the record verbs do):`
+          )
+          console.error(`    dt ${to} <collection> --name <field> …`)
+          console.error("    the field verbs are: dt add-field · dt set-field · dt rm-field · dt rename-field")
+          process.exit(2)
+        }
+        // `dt commands <ref>` and `dt list commands` were one word for two things — the read
+        // verb and the system entity. `next` also says what it answers.
+        if (cmd === "commands") {
+          console.error(
+            '✖ unknown verb "commands" — gone since 0.22.0 (decision 309: it collided with the `commands` ENTITY, which `dt list commands` reads):'
+          )
+          console.error(
+            "    dt next <collection>[/<id>]   which bound commands apply to this record, and in which state"
+          )
+          console.error("    dt list commands              the command entities this workspace ships")
+          process.exit(2)
+        }
+        if (VERB_PACKAGES[cmd]) {
+          console.error(
+            `✖ \`dt ${cmd}\` comes from an extension this workspace does not have — install it as a dependency:\n    npm i ${VERB_PACKAGES[cmd]}`
+          )
+          process.exit(2)
+        }
+        if (DOCKER_VERBS.has(cmd)) {
+          console.error(
+            `✖ \`dt ${cmd}\` is not a workspace verb — containers are managed by dt-docker:\n    npm i -g @dreamteamer/docker-workspaces\n    dt-docker ${cmd} container <name>`
+          )
+          process.exit(2)
+        }
+        console.error(`✖ unknown verb "${cmd}" — the verb comes first: dt <verb> [<target>]`)
+        emit(USAGE, 2)
+        process.exit(1)
+    }
+  } catch (e) {
+    console.error(`✖ ${e.message}`)
+    // ⚠ AND ON STDOUT UNDER `--hook`, because that is the whole reason the shim exists.
+    // `bin/dt-hook.sh` fails onto stdout with a comment saying why: a hook's stdout is added to
+    // the session's context and its stderr is nobody's problem. Every success path here already
+    // prints to stdout; every FAILURE went to stderr alone, so a mis-wired hook, a bad payload, a
+    // TTY invocation or a refusal was invisible to exactly the reader the shim was built for.
+    if (process.argv.includes("--hook")) console.log(`✖ ${e.message}`)
+    process.exit(1)
+  }
 }
 
 /** Each installed extension's usage block, headed by its package — '' outside a workspace. */
-function extensionUsage(ws) {
-	const blocks = (ws?.extensions ?? []).filter((e) => Object.keys(e.commands).length).map((e) =>
-		`\n${e.name}@${e.version}:\n${Object.entries(e.commands).map(([verb, c]: [string, any]) => (c.usage ?? `  ${verb}`).replace(/\s+$/, '')).join('\n')}`);
-	return blocks.length ? `\ninstalled extensions:${blocks.join('\n')}` : '';
+function extensionUsage(ws: Workspace | null) {
+  const blocks = (ws?.extensions ?? [])
+    .filter(e => Object.keys(e.commands).length)
+    .map(
+      e =>
+        `\n${e.name}@${e.version}:\n${Object.entries(e.commands)
+          .map(([verb, c]) => (c.usage ?? `  ${verb}`).replace(/\s+$/, ""))
+          .join("\n")}`
+    )
+  return blocks.length ? `\ninstalled extensions:${blocks.join("\n")}` : ""
 }
 
 /** Translate `dt <verb> <target> …` into the noun-verb call the implementation layer takes. */
 function dispatchRecordVerb(ws, verb, args) {
-	const [target, ...rest] = args;
-	if (!target) throw new Error(`dt ${verb} needs a target — see \`dreamteamer help\``);
-	// A flag in the target slot is a word-order mistake, not a collection: without this,
-	// `dt list --json contacts` reported `unknown collection "--json"` and dumped every name.
-	if (target.startsWith('--')) throw new Error(`dt ${verb} takes its target BEFORE the flags: dreamteamer ${verb} <target> ${target} …`);
-	// A collection may be named by its declared name OR its singular (`dt add task …`); the
-	// canonical name is what every layer below sees. An unknown word passes through unchanged so
-	// the store's own "unknown collection" sentence, which lists what exists, is the one printed.
-	const { descriptors } = new Store(ws);
-	const canonical = canonicalCollection(descriptors, target) ?? target;
-	if (COLLECTION_VERBS.has(verb)) return collectionCommand(ws, canonical, verb, rest);
-	if (REF_VERBS.has(verb)) {
-		const { collection, id } = splitRef(descriptors, target);
-		return collectionCommand(ws, collection, verb, [id, ...rest]);
-	}
-	// EITHER_VERBS from here: a bare collection is legal for both — `move <collection> --init`,
-	// `next <collection>`.
-	if (descriptors.has(canonical)) {
-		return verb === 'reorder'
-			? collectionCommand(ws, canonical, 'reorder', rest)
-			: collectionCommand(ws, 'commands', 'for', [canonical, ...rest]);
-	}
-	const { collection, id } = splitRef(descriptors, target);
-	if (verb === 'reorder') return collectionCommand(ws, collection, 'reorder', [id, ...rest]);
-	// `commands for <c>/<id>` split its own target at the FIRST slash, which cannot name a
-	// namespaced collection. splitRef can, so the id is handed over as `--ids` — the same
-	// `commandsFor(store, collection, ids)` call, reached without re-encoding the reference.
-	// An explicit `--ids` from the caller still wins — by NOT injecting ours, not by ordering. It
-	// used to rely on "last flag parsed wins", which stopped being true when a repeated flag started
-	// promoting to an array instead of overwriting: the pair would now be refused as a double.
-	const ours = rest.some((a) => a === '--ids' || a.startsWith('--ids=')) ? [] : ['--ids', id];
-	return collectionCommand(ws, 'commands', 'for', [collection, ...ours, ...rest]);
+  const [target, ...rest] = args
+  if (!target) throw new Error(`dt ${verb} needs a target — see \`dreamteamer help\``)
+  // A flag in the target slot is a word-order mistake, not a collection: without this,
+  // `dt list --json contacts` reported `unknown collection "--json"` and dumped every name.
+  if (target.startsWith("--"))
+    throw new Error(`dt ${verb} takes its target BEFORE the flags: dreamteamer ${verb} <target> ${target} …`)
+  // A collection may be named by its declared name OR its singular (`dt add task …`); the
+  // canonical name is what every layer below sees. An unknown word passes through unchanged so
+  // the store's own "unknown collection" sentence, which lists what exists, is the one printed.
+  const { descriptors } = new Store(ws)
+  const canonical = canonicalCollection(descriptors, target) ?? target
+  if (COLLECTION_VERBS.has(verb)) return collectionCommand(ws, canonical, verb, rest)
+  if (REF_VERBS.has(verb)) {
+    const { collection, id } = splitRef(descriptors, target)
+    return collectionCommand(ws, collection, verb, [id, ...rest])
+  }
+  // the verbs that take EITHER (`reorder`, `next`) from here: a bare collection is legal for both — `move <collection> --init`,
+  // `next <collection>`.
+  if (descriptors.has(canonical)) {
+    return verb === "reorder"
+      ? collectionCommand(ws, canonical, "reorder", rest)
+      : collectionCommand(ws, "commands", "for", [canonical, ...rest])
+  }
+  const { collection, id } = splitRef(descriptors, target)
+  if (verb === "reorder") return collectionCommand(ws, collection, "reorder", [id, ...rest])
+  // `commands for <c>/<id>` split its own target at the FIRST slash, which cannot name a
+  // namespaced collection. splitRef can, so the id is handed over as `--ids` — the same
+  // `commandsFor(store, collection, ids)` call, reached without re-encoding the reference.
+  // An explicit `--ids` from the caller still wins — by NOT injecting ours, not by ordering. It
+  // used to rely on "last flag parsed wins", which stopped being true when a repeated flag started
+  // promoting to an array instead of overwriting: the pair would now be refused as a double.
+  const ours = rest.some(a => a === "--ids" || a.startsWith("--ids=")) ? [] : ["--ids", id]
+  return collectionCommand(ws, "commands", "for", [collection, ...ours, ...rest])
 }
 
 /**
@@ -906,63 +1235,84 @@ function dispatchRecordVerb(ws, verb, args) {
  * against — which keeps `dt resolve '${env:K}'` working before the first compile.
  */
 function resolveVariables(ws, args) {
-	const [target, field] = args;
-	if (!target) throw new Error("dt resolve takes a string template or a <collection>/<id> and a field: dreamteamer resolve '${env:FILES_FOLDER}/x'");
-	// resolve has no flags, so a flag-shaped target is a mistake — and the one that costs is
-	// `dt resolve --help`, which would otherwise print `--help` back and exit 0.
-	if (target.startsWith('--')) throw new Error(`dt resolve takes a string or a <collection>/<id>, not a flag ("${target}") — see \`dreamteamer help\``);
-	const ctx = envContext(ws);
+  const [target, field] = args
+  if (!target)
+    throw new Error(
+      "dt resolve takes a string template or a <collection>/<id> and a field: dreamteamer resolve '${env:FILES_FOLDER}/x'"
+    )
+  // resolve has no flags, so a flag-shaped target is a mistake — and the one that costs is
+  // `dt resolve --help`, which would otherwise print `--help` back and exit 0.
+  if (target.startsWith("--"))
+    throw new Error(
+      `dt resolve takes a string or a <collection>/<id>, not a flag ("${target}") — see \`dreamteamer help\``
+    )
+  const ctx = envContext(ws)
 
-	let ref = null;
-	let store = null;
-	if (!target.includes('${')) {
-		try {
-			store = new Store(ws);
-			ref = splitRef(store.descriptors, target);
-		} catch { ref = null; }
-	}
-	// An argument nobody reads is a silent wrong answer: `dt resolve docs/q3 source_file garbage`
-	// exited 0 on the field it happened to recognise.
-	const takes = ref ? 2 : 1;
-	if (args.length > takes) {
-		throw new Error(`dt resolve takes ${takes === 1 ? 'one string template' : 'a reference and ONE field'} — ${args.length - takes} extra argument(s): ${args.slice(takes).join(' ')}`);
-	}
-	if (!ref) {
-		console.log(renderTemplate(target, ctx));
-		return 0;
-	}
-	if (!field) throw new Error(`dt resolve ${target} needs a field name: dreamteamer resolve ${target} <field>`);
-	const { fields } = store.read(ref.collection, ref.id);
-	const value = fields[field];
-	if (value === undefined) throw new Error(`${target} has no field "${field}"`);
-	// RENDER EVERY ITEM BEFORE PRINTING ANY. An array prints one item per line so the output pipes
-	// into a shell loop unchanged — and a loop that does not check $? cannot tell a truncated list
-	// from a short one, so a failure on item n must not leave items 1..n-1 on stdout. Anything that
-	// is not text is refused rather than stringified: a number cannot hold a template.
-	const items = Array.isArray(value) ? value : [value];
-	const bad = items.findIndex((v) => typeof v !== 'string'); // index, not the value: an item may be null
-	if (bad > -1) throw new Error(`${target} field "${field}" holds a ${typeof items[bad]} — resolve renders text (a string, or a list of them)`);
-	const rendered = items.map((v) => renderTemplate(v, ctx));
-	if (rendered.length) console.log(rendered.join('\n'));
-	return 0;
+  let ref = null
+  let store = null
+  if (!target.includes("${")) {
+    try {
+      store = new Store(ws)
+      ref = splitRef(store.descriptors, target)
+    } catch {
+      ref = null
+    }
+  }
+  // An argument nobody reads is a silent wrong answer: `dt resolve docs/q3 source_file garbage`
+  // exited 0 on the field it happened to recognise.
+  const takes = ref ? 2 : 1
+  if (args.length > takes) {
+    throw new Error(
+      `dt resolve takes ${takes === 1 ? "one string template" : "a reference and ONE field"} — ${args.length - takes} extra argument(s): ${args.slice(takes).join(" ")}`
+    )
+  }
+  if (!ref) {
+    console.log(renderTemplate(target, ctx))
+    return 0
+  }
+  if (!field) throw new Error(`dt resolve ${target} needs a field name: dreamteamer resolve ${target} <field>`)
+  const { fields } = store.read(ref.collection, ref.id)
+  const value = fields[field]
+  if (value === undefined) throw new Error(`${target} has no field "${field}"`)
+  // RENDER EVERY ITEM BEFORE PRINTING ANY. An array prints one item per line so the output pipes
+  // into a shell loop unchanged — and a loop that does not check $? cannot tell a truncated list
+  // from a short one, so a failure on item n must not leave items 1..n-1 on stdout. Anything that
+  // is not text is refused rather than stringified: a number cannot hold a template.
+  const items = Array.isArray(value) ? value : [value]
+  const bad = items.findIndex(v => typeof v !== "string") // index, not the value: an item may be null
+  if (bad > -1)
+    throw new Error(
+      `${target} field "${field}" holds a ${typeof items[bad]} — resolve renders text (a string, or a list of them)`
+    )
+  const rendered = items.map(v => renderTemplate(v, ctx))
+  if (rendered.length) console.log(rendered.join("\n"))
+  return 0
 }
 
 function tryGit(cwd, args) {
-	try { return execFileSync('git', args, { cwd, stdio: QUIET }).toString().trim() || null; } catch { return null; }
+  try {
+    return execFileSync("git", args, { cwd, stdio: QUIET }).toString().trim() || null
+  } catch {
+    return null
+  }
 }
 
 function watchAndRecompile(ws) {
-	let timer = null;
-	const trigger = (_, file) => {
-		if (file && /^\./.test(String(file))) return;
-		clearTimeout(timer);
-		timer = setTimeout(() => {
-			try { compile(ws); } catch (e) { console.error(`✖ ${e.message}`); }
-		}, 200);
-	};
-	// 'system' plus the flat kinds: the classic layout can put sources at the workspace root under
-	// either spelling, and a watcher that misses one makes --watch quietly stop recompiling.
-	for (const dir of ['system', ...kindsOf(ws), 'modules', 'git_modules'].map((d) => path.join(ws.root, d))) {
-		if (fs.existsSync(dir)) fs.watch(dir, { recursive: true }, trigger);
-	}
+  let timer = null
+  const trigger = (_, file) => {
+    if (file && /^\./.test(String(file))) return
+    clearTimeout(timer)
+    timer = setTimeout(() => {
+      try {
+        compile(ws)
+      } catch (e) {
+        console.error(`✖ ${e.message}`)
+      }
+    }, 200)
+  }
+  // 'system' plus the flat kinds: the classic layout can put sources at the workspace root under
+  // either spelling, and a watcher that misses one makes --watch quietly stop recompiling.
+  for (const dir of ["system", ...kindsOf(ws), "modules", "git_modules"].map(d => path.join(ws.root, d))) {
+    if (fs.existsSync(dir)) fs.watch(dir, { recursive: true }, trigger)
+  }
 }

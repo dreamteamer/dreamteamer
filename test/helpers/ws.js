@@ -8,38 +8,39 @@
 //
 // Everything here is deliberately synchronous. These are file and git operations in a throwaway
 // directory; async would buy nothing and make every test body noisier.
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync, spawnSync } from "node:child_process"
 
 // Every CLI spawn is bounded. A hung `dt` then fails ITS test (status null, error ETIMEDOUT) instead
 // of hanging the whole suite — which is what a silent Docker socket did on 2026-09-24.
-export const SPAWN_TIMEOUT_MS = 60_000;
-import fs from 'node:fs';
-import * as nodeCrypto from 'node:crypto';
-const cryptoModule = () => nodeCrypto;
-import os from 'node:os';
-import path from 'node:path';
-import { createHash } from 'node:crypto';
-import { fileURLToPath } from 'node:url';
-import { compile } from '../../src/compile.ts';
-import { Store } from '../../src/store.ts';
-import { dump } from '../../src/yaml.ts';
+export const SPAWN_TIMEOUT_MS = 60_000
+import fs from "node:fs"
+import * as nodeCrypto from "node:crypto"
+const cryptoModule = () => nodeCrypto
+import path from "node:path"
+import { createHash } from "node:crypto"
+import { fileURLToPath } from "node:url"
+import { compile } from "../../src/compile.ts"
+import { Store } from "../../src/store.ts"
+import { dump } from "../../src/yaml.ts"
 
-export const ENGINE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const TMP = path.join(ENGINE_ROOT, 'test', '.tmp');
-const BIN = path.join(ENGINE_ROOT, 'bin', 'dreamteamer.js');
+export const ENGINE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..")
+const TMP = path.join(ENGINE_ROOT, "test", ".tmp")
+const BIN = path.join(ENGINE_ROOT, "bin", "dreamteamer.js")
 
 // A committer identity the container may not have configured. Passed as env rather than written into
 // the fixture's git config so the fixture stays a plain clone of the base.
 const GIT_ENV = {
-	...process.env,
-	GIT_AUTHOR_NAME: 'dreamteamer test',
-	GIT_AUTHOR_EMAIL: 'test@example.invalid',
-	GIT_COMMITTER_NAME: 'dreamteamer test',
-	GIT_COMMITTER_EMAIL: 'test@example.invalid',
-};
+  ...process.env,
+  GIT_AUTHOR_NAME: "dreamteamer test",
+  GIT_AUTHOR_EMAIL: "test@example.invalid",
+  GIT_COMMITTER_NAME: "dreamteamer test",
+  GIT_COMMITTER_EMAIL: "test@example.invalid",
+}
 
 export function git(root, args) {
-	return execFileSync('git', args, { cwd: root, env: GIT_ENV, stdio: ['ignore', 'pipe', 'pipe'] }).toString().trim();
+  return execFileSync("git", args, { cwd: root, env: GIT_ENV, stdio: ["ignore", "pipe", "pipe"] })
+    .toString()
+    .trim()
 }
 
 /** What the cached base depends on. A miss rebuilds; a hit is a directory copy.
@@ -49,21 +50,24 @@ export function git(root, args) {
  *  is built left every developer with a stale one that no key invalidated — which is how a fixture
  *  lacking a local git identity survived a fix to add one. */
 function baseKey() {
-	const h = createHash('sha256');
-	// every engine source, not only init.js: init writes the base through its imports (workspace.js's
-	// `.vscode/extensions.json` went stale in a cached base when only init.js was hashed), and a
-	// rebuild costs one `dt init`
-	const src = path.join(ENGINE_ROOT, 'src');
-	for (const f of fs.readdirSync(src, { recursive: true }).filter((f) => f.endsWith('.js')).sort()) {
-		h.update(f);
-		h.update(fs.readFileSync(path.join(src, f)));
-	}
-	h.update(fs.readFileSync(fileURLToPath(import.meta.url)));
-	for (const f of fs.readdirSync(path.join(ENGINE_ROOT, 'collections')).sort()) {
-		h.update(f);
-		h.update(fs.readFileSync(path.join(ENGINE_ROOT, 'collections', f)));
-	}
-	return h.digest('hex').slice(0, 12);
+  const h = createHash("sha256")
+  // every engine source, not only init.js: init writes the base through its imports (workspace.js's
+  // `.vscode/extensions.json` went stale in a cached base when only init.js was hashed), and a
+  // rebuild costs one `dt init`
+  const src = path.join(ENGINE_ROOT, "src")
+  for (const f of fs
+    .readdirSync(src, { recursive: true })
+    .filter(f => f.endsWith(".js"))
+    .sort()) {
+    h.update(f)
+    h.update(fs.readFileSync(path.join(src, f)))
+  }
+  h.update(fs.readFileSync(fileURLToPath(import.meta.url)))
+  for (const f of fs.readdirSync(path.join(ENGINE_ROOT, "collections")).sort()) {
+    h.update(f)
+    h.update(fs.readFileSync(path.join(ENGINE_ROOT, "collections", f)))
+  }
+  return h.digest("hex").slice(0, 12)
 }
 
 // `dreamteamer init` names the workspace module for its ROLE, not for the directory it runs in, so
@@ -71,79 +75,97 @@ function baseKey() {
 // is why `writeCollection` can hardcode it. It used to be named after the directory, and the fixture
 // had to be built inside a folder literally called `ws` to keep that hardcoding honest; that
 // coupling is gone.
-export const WS_MODULE = 'default';
+export const WS_MODULE = "default"
 
-let cachedBase;
+let cachedBase
 function baseWorkspace() {
-	if (cachedBase) return cachedBase;
-	fs.mkdirSync(TMP, { recursive: true }); // first run, or after `npm test -- --clean`
-	const holder = path.join(TMP, `base-${baseKey()}`);
-	const stamp = path.join(holder, 'ready'); // OUTSIDE the copied tree, so it never lands in a fixture
-	if (!fs.existsSync(stamp)) {
-		// ⚠ BUILD IN A STAGING DIR AND RENAME IT INTO PLACE. Test files run in separate PROCESSES and
-		// concurrently, so an in-process memo guards nothing and an `existsSync(stamp)` check is not
-		// atomic: every worker raced to build the same base and all but one died on EEXIST creating the
-		// symlink. `rename` IS atomic, so the loser simply discovers a finished base and uses it — and
-		// because the stamp lives inside the staged tree, a half-built base can never be observed.
-		const staging = fs.mkdtempSync(path.join(TMP, 'staging-'));
-		buildBase(path.join(staging, WS_MODULE));
-		fs.writeFileSync(path.join(staging, 'ready'), baseKey());
-		try {
-			fs.renameSync(staging, holder);
-		} catch (e) {
-			// ENOTEMPTY / EEXIST / EPERM all mean "another worker got there first", which is a success
-			if (!['ENOTEMPTY', 'EEXIST', 'EPERM'].includes(e.code)) throw e;
-			fs.rmSync(staging, { recursive: true, force: true });
-		}
-	}
-	cachedBase = path.join(holder, WS_MODULE);
-	return cachedBase;
+  if (cachedBase) return cachedBase
+  fs.mkdirSync(TMP, { recursive: true }) // first run, or after `npm test -- --clean`
+  const holder = path.join(TMP, `base-${baseKey()}`)
+  const stamp = path.join(holder, "ready") // OUTSIDE the copied tree, so it never lands in a fixture
+  if (!fs.existsSync(stamp)) {
+    // ⚠ BUILD IN A STAGING DIR AND RENAME IT INTO PLACE. Test files run in separate PROCESSES and
+    // concurrently, so an in-process memo guards nothing and an `existsSync(stamp)` check is not
+    // atomic: every worker raced to build the same base and all but one died on EEXIST creating the
+    // symlink. `rename` IS atomic, so the loser simply discovers a finished base and uses it — and
+    // because the stamp lives inside the staged tree, a half-built base can never be observed.
+    const staging = fs.mkdtempSync(path.join(TMP, "staging-"))
+    buildBase(path.join(staging, WS_MODULE))
+    fs.writeFileSync(path.join(staging, "ready"), baseKey())
+    try {
+      fs.renameSync(staging, holder)
+    } catch (e) {
+      // ENOTEMPTY / EEXIST / EPERM all mean "another worker got there first", which is a success
+      if (!["ENOTEMPTY", "EEXIST", "EPERM"].includes(e.code)) throw e
+      fs.rmSync(staging, { recursive: true, force: true })
+    }
+  }
+  cachedBase = path.join(holder, WS_MODULE)
+  return cachedBase
 }
 
 function buildBase(dir) {
-	fs.mkdirSync(dir, { recursive: true });
-	// ⚠ `git init` FIRST, before `dreamteamer init`. `init` commits what it writes, and git walks
-	// UPWARD to find a repo — so with no repo here it committed the whole fixture into the engine's
-	// own history (three stray "dreamteamer: init workspace" commits, found only because .gitignore
-	// failed to ignore an already-tracked path). Making the fixture a repo of its own first is what
-	// contains it.
-	git(dir, ['init', '-q']);
-	// ⚠ A LOCAL IDENTITY, in the fixture's own .git/config, not just in GIT_ENV.
-	//
-	// `store.commit` runs git with no `env` option, so it inherits the TEST PROCESS's environment — which
-	// does not carry the GIT_AUTHOR_*/GIT_COMMITTER_* vars `git()` passes to its own subprocesses. That
-	// made every commit through the store depend on an ambient global identity: present on a developer
-	// machine, absent on a CI runner. The whole suite passed locally and `auto-commit` tests failed in CI
-	// with git's "please tell me who you are". Writing it into the repo config makes the fixture
-	// self-contained, and it survives the per-test `cpSync` because .git comes along with it.
-	git(dir, ['config', 'user.email', 'test@example.invalid']);
-	git(dir, ['config', 'user.name', 'dreamteamer test']);
-	// THE ENGINE AS AN INSTALLED MODULE, declared and linked BEFORE init runs — `dt init` now installs
-	// the engine when it is missing (npm, the network), compiles and commits; with the engine already
-	// declared (a `file:` spec, which the exact-version check lets through) and present as a link, init
-	// runs no npm at all and the fixture stays offline. Without the engine the fixture would have no
-	// `collections`, `ui-views`, `repos` or `modules` collection: those are sources the engine
-	// CONTRIBUTES rather than things init writes, and a workspace that lacks them is not the one anybody
-	// runs. A symlink and the npm channel, because that is how a real workspace gets it, and pointing at
-	// the checkout under test means the fixture can never compile a DIFFERENT engine's descriptors.
-	fs.mkdirSync(path.join(dir, 'node_modules'), { recursive: true });
-	fs.symlinkSync(ENGINE_ROOT, path.join(dir, 'node_modules', 'dreamteamer'), 'dir');
-	const pkgFile = path.join(dir, 'package.json');
-	fs.writeFileSync(pkgFile, JSON.stringify({ name: path.basename(dir), private: true, version: '0.0.1', dependencies: { dreamteamer: `file:${ENGINE_ROOT}` } }, null, '\t') + '\n');
-	// through the real binary, because "what a user gets from `dreamteamer init`" is the thing
-	// every tier-2 test is implicitly asserting against
-	const res = spawnSync(process.execPath, [BIN, 'init'], { cwd: dir, env: GIT_ENV, encoding: 'utf8', timeout: SPAWN_TIMEOUT_MS, killSignal: 'SIGKILL' });
-	if (res.status !== 0) throw new Error(`fixture init failed:\n${res.stdout}\n${res.stderr}`);
-	// init committed its own files; anything left (none, today) is swept into a second fixture commit
-	git(dir, ['add', '-A']);
-	if (git(dir, ['status', '--porcelain'])) git(dir, ['commit', '-qm', 'fixture: init']);
+  fs.mkdirSync(dir, { recursive: true })
+  // ⚠ `git init` FIRST, before `dreamteamer init`. `init` commits what it writes, and git walks
+  // UPWARD to find a repo — so with no repo here it committed the whole fixture into the engine's
+  // own history (three stray "dreamteamer: init workspace" commits, found only because .gitignore
+  // failed to ignore an already-tracked path). Making the fixture a repo of its own first is what
+  // contains it.
+  git(dir, ["init", "-q"])
+  // ⚠ A LOCAL IDENTITY, in the fixture's own .git/config, not just in GIT_ENV.
+  //
+  // `store.commit` runs git with no `env` option, so it inherits the TEST PROCESS's environment — which
+  // does not carry the GIT_AUTHOR_*/GIT_COMMITTER_* vars `git()` passes to its own subprocesses. That
+  // made every commit through the store depend on an ambient global identity: present on a developer
+  // machine, absent on a CI runner. The whole suite passed locally and `auto-commit` tests failed in CI
+  // with git's "please tell me who you are". Writing it into the repo config makes the fixture
+  // self-contained, and it survives the per-test `cpSync` because .git comes along with it.
+  git(dir, ["config", "user.email", "test@example.invalid"])
+  git(dir, ["config", "user.name", "dreamteamer test"])
+  // THE ENGINE AS AN INSTALLED MODULE, declared and linked BEFORE init runs — `dt init` now installs
+  // the engine when it is missing (npm, the network), compiles and commits; with the engine already
+  // declared (a `file:` spec, which the exact-version check lets through) and present as a link, init
+  // runs no npm at all and the fixture stays offline. Without the engine the fixture would have no
+  // `collections`, `ui-views`, `repos` or `modules` collection: those are sources the engine
+  // CONTRIBUTES rather than things init writes, and a workspace that lacks them is not the one anybody
+  // runs. A symlink and the npm channel, because that is how a real workspace gets it, and pointing at
+  // the checkout under test means the fixture can never compile a DIFFERENT engine's descriptors.
+  fs.mkdirSync(path.join(dir, "node_modules"), { recursive: true })
+  fs.symlinkSync(ENGINE_ROOT, path.join(dir, "node_modules", "dreamteamer"), "dir")
+  const pkgFile = path.join(dir, "package.json")
+  fs.writeFileSync(
+    pkgFile,
+    JSON.stringify(
+      {
+        name: path.basename(dir),
+        private: true,
+        version: "0.0.1",
+        dependencies: { dreamteamer: `file:${ENGINE_ROOT}` },
+      },
+      null,
+      "\t"
+    ) + "\n"
+  )
+  // through the real binary, because "what a user gets from `dreamteamer init`" is the thing
+  // every tier-2 test is implicitly asserting against
+  const res = spawnSync(process.execPath, [BIN, "init"], {
+    cwd: dir,
+    env: GIT_ENV,
+    encoding: "utf8",
+    timeout: SPAWN_TIMEOUT_MS,
+    killSignal: "SIGKILL",
+  })
+  if (res.status !== 0) throw new Error(`fixture init failed:\n${res.stdout}\n${res.stderr}`)
+  // init committed its own files; anything left (none, today) is swept into a second fixture commit
+  git(dir, ["add", "-A"])
+  if (git(dir, ["status", "--porcelain"])) git(dir, ["commit", "-qm", "fixture: init"])
 }
 
-const created = [];
-process.on('exit', () => {
-	if (process.env.DT_KEEP_FIXTURES) return; // debugging affordance: inspect the failing workspace
-	for (const d of created) fs.rmSync(d, { recursive: true, force: true });
-});
+const created = []
+process.on("exit", () => {
+  if (process.env.DT_KEEP_FIXTURES) return // debugging affordance: inspect the failing workspace
+  for (const d of created) fs.rmSync(d, { recursive: true, force: true })
+})
 
 /**
  * A fresh compiled workspace.
@@ -156,33 +178,36 @@ process.on('exit', () => {
  * @param {boolean}  [opts.compile]      set false to get an UNcompiled workspace (compile-error tests)
  */
 export function workspace(opts = {}) {
-	const base = baseWorkspace();
-	const root = fs.mkdtempSync(path.join(TMP, 'ws-'));
-	created.push(root);
-	// dereference:false keeps `node_modules/dreamteamer` a LINK — dereferencing would copy the whole
-	// engine checkout (node_modules included) into every fixture and make the suite unusably slow.
-	fs.cpSync(base, root, { recursive: true, dereference: false, verbatimSymlinks: true });
+  const base = baseWorkspace()
+  const root = fs.mkdtempSync(path.join(TMP, "ws-"))
+  created.push(root)
+  // dereference:false keeps `node_modules/dreamteamer` a LINK — dereferencing would copy the whole
+  // engine checkout (node_modules included) into every fixture and make the suite unusably slow.
+  fs.cpSync(base, root, { recursive: true, dereference: false, verbatimSymlinks: true })
 
-	const pkgPath = path.join(root, 'package.json');
-	const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
-	if (opts.namespaces) pkg.dreamteamer.namespaces = opts.namespaces;
-	Object.assign(pkg.dreamteamer, opts.pkg ?? {});
-	fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, '\t') + '\n');
+  const pkgPath = path.join(root, "package.json")
+  const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8"))
+  if (opts.namespaces) pkg.dreamteamer.namespaces = opts.namespaces
+  Object.assign(pkg.dreamteamer, opts.pkg ?? {})
+  fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, "\t") + "\n")
 
-	for (const [name, descriptor] of Object.entries(opts.collections ?? {})) {
-		writeCollection(root, name, descriptor);
-	}
+  for (const [name, descriptor] of Object.entries(opts.collections ?? {})) {
+    writeCollection(root, name, descriptor)
+  }
 
-	const ws = { root, pkg };
-	// an UNcompiled workspace: the base fixture was compiled by init, so the runtime goes
-	if (opts.compile === false) { fs.rmSync(path.join(root, '.dreamteamer'), { recursive: true, force: true }); return { root, ws, git: (a) => git(root, a) }; }
+  const ws = { root, pkg }
+  // an UNcompiled workspace: the base fixture was compiled by init, so the runtime goes
+  if (opts.compile === false) {
+    fs.rmSync(path.join(root, ".dreamteamer"), { recursive: true, force: true })
+    return { root, ws, git: a => git(root, a) }
+  }
 
-	const out = compileQuietly(ws);
-	const store = new Store(ws);
-	for (const [collection, rows] of Object.entries(opts.records ?? {})) {
-		for (const fields of rows) store.add(collection, { ...fields });
-	}
-	return { root, ws, store, out, git: (a) => git(root, a), dt: (...a) => dt(root, ...a) };
+  const out = compileQuietly(ws)
+  const store = new Store(ws)
+  for (const [collection, rows] of Object.entries(opts.records ?? {})) {
+    for (const fields of rows) store.add(collection, { ...fields })
+  }
+  return { root, ws, store, out, git: a => git(root, a), dt: (...a) => dt(root, ...a) }
 }
 
 /**
@@ -190,10 +215,10 @@ export function workspace(opts = {}) {
  * would use: `collections/health/doctors.collection.yaml`, mirroring the runtime layout.
  */
 export function writeCollection(root, name, descriptor) {
-	const file = path.join(root, 'modules', WS_MODULE, 'collections', `${name}.collection.yaml`);
-	fs.mkdirSync(path.dirname(file), { recursive: true });
-	fs.writeFileSync(file, dump({ name, ...descriptor }));
-	return file;
+  const file = path.join(root, "modules", WS_MODULE, "collections", `${name}.collection.yaml`)
+  fs.mkdirSync(path.dirname(file), { recursive: true })
+  fs.writeFileSync(file, dump({ name, ...descriptor }))
+  return file
 }
 
 /** A minimal valid descriptor, so a test only states the part it is about.
@@ -203,47 +228,53 @@ export function writeCollection(root, name, descriptor) {
  *  would rebuild the file from its parsed fields and drop any prose the record holds. A fixture
  *  without one could not be linked at all. */
 export function simpleCollection(extra = {}) {
-	return {
-		ids: { from: '{{ name | slug }}' },
-		fields: {
-			name: { type: 'string', required: true },
-			notes: { type: 'markdown', body: true },
-		},
-		...extra,
-	};
+  return {
+    ids: { from: "{{ name | slug }}" },
+    fields: {
+      name: { type: "string", required: true },
+      notes: { type: "markdown", body: true },
+    },
+    ...extra,
+  }
 }
 
 /** compile(), with its chatter captured instead of printed. Returns {code, stdout, warnings}. */
 export function compileQuietly(ws) {
-	const stdout = [];
-	const warnings = [];
-	const log = console.log;
-	const warn = console.warn;
-	console.log = (...a) => stdout.push(a.join(' '));
-	console.warn = (...a) => warnings.push(a.join(' '));
-	try {
-		const code = compile(ws);
-		return { code, stdout, warnings };
-	} finally {
-		console.log = log;
-		console.warn = warn;
-	}
+  const stdout = []
+  const warnings = []
+  const log = console.log
+  const warn = console.warn
+  console.log = (...a) => stdout.push(a.join(" "))
+  console.warn = (...a) => warnings.push(a.join(" "))
+  try {
+    const code = compile(ws)
+    return { code, stdout, warnings }
+  } finally {
+    console.log = log
+    console.warn = warn
+  }
 }
 
 /** The compile error message for a workspace expected NOT to compile, or null if it compiled. */
 export function compileError(ws) {
-	try {
-		compileQuietly(ws);
-		return null;
-	} catch (e) {
-		return e.message;
-	}
+  try {
+    compileQuietly(ws)
+    return null
+  } catch (e) {
+    return e.message
+  }
 }
 
 /** Run the real CLI in a workspace. Returns {code, stdout, stderr} — never throws on a non-zero exit. */
 export function dt(root, ...args) {
-	const res = spawnSync(process.execPath, [BIN, ...args], { cwd: root, env: GIT_ENV, encoding: 'utf8', timeout: SPAWN_TIMEOUT_MS, killSignal: 'SIGKILL' });
-	return { code: res.status, stdout: res.stdout ?? '', stderr: res.stderr ?? '' };
+  const res = spawnSync(process.execPath, [BIN, ...args], {
+    cwd: root,
+    env: GIT_ENV,
+    encoding: "utf8",
+    timeout: SPAWN_TIMEOUT_MS,
+    killSignal: "SIGKILL",
+  })
+  return { code: res.status, stdout: res.stdout ?? "", stderr: res.stderr ?? "" }
 }
 
 /**
@@ -256,21 +287,38 @@ export function dt(root, ...args) {
  * is an ordinary place to stand.
  */
 export function dtIn(cwd, ...args) {
-	const res = spawnSync(process.execPath, [BIN, ...args], { cwd, env: GIT_ENV, encoding: 'utf8', timeout: SPAWN_TIMEOUT_MS, killSignal: 'SIGKILL' });
-	return { code: res.status, stdout: res.stdout ?? '', stderr: res.stderr ?? '' };
+  const res = spawnSync(process.execPath, [BIN, ...args], {
+    cwd,
+    env: GIT_ENV,
+    encoding: "utf8",
+    timeout: SPAWN_TIMEOUT_MS,
+    killSignal: "SIGKILL",
+  })
+  return { code: res.status, stdout: res.stdout ?? "", stderr: res.stderr ?? "" }
 }
 
 /** Run the real CLI with a JSON payload on STDIN — what a harness hook does, and the ONLY way to
  *  reach `--hook`. `spawnSync`'s `input:` closes the pipe at EOF, which is what `readFileSync(0)`
  *  on the other side is waiting for; a `dt()` run inherits the runner's stdin and would hang. */
 export function dtStdin(root, stdin, ...args) {
-	const res = spawnSync(process.execPath, [BIN, ...args], { cwd: root, env: GIT_ENV, encoding: 'utf8', input: stdin, timeout: SPAWN_TIMEOUT_MS, killSignal: 'SIGKILL' });
-	return { code: res.status, stdout: res.stdout ?? '', stderr: res.stderr ?? '' };
+  const res = spawnSync(process.execPath, [BIN, ...args], {
+    cwd: root,
+    env: GIT_ENV,
+    encoding: "utf8",
+    input: stdin,
+    timeout: SPAWN_TIMEOUT_MS,
+    killSignal: "SIGKILL",
+  })
+  return { code: res.status, stdout: res.stdout ?? "", stderr: res.stderr ?? "" }
 }
 
 /** Read a file in a workspace as text, or null. */
 export function readFile(root, rel) {
-	try { return fs.readFileSync(path.join(root, rel), 'utf8'); } catch { return null; }
+  try {
+    return fs.readFileSync(path.join(root, rel), "utf8")
+  } catch {
+    return null
+  }
 }
 
 /**
@@ -282,33 +330,43 @@ export function readFile(root, rel) {
  * `schema-ops` derives the path from the collection's own name.
  */
 export function writeModule(root, id, opts = {}) {
-	const modRoot = path.join(root, 'modules', id);
-	fs.mkdirSync(path.join(modRoot, 'collections'), { recursive: true });
-	const dt = {};
-	if (opts.description) dt.description = opts.description;
-	if (opts.namespaces) dt.namespaces = opts.namespaces;
-	if (opts.dependencies) dt.dependencies = opts.dependencies;
-	if (opts.peerDependencies) dt.peer_collections = opts.peerDependencies;
-	if (opts.ownsData) dt.owns_data = true;
-	fs.writeFileSync(
-		path.join(modRoot, 'package.json'),
-		JSON.stringify({ name: id, private: true, version: '0.0.1', files: ['collections', 'skills', 'agents', 'commands', 'command-bindings', 'ui-views', 'mixins'], dreamteamer: dt }, null, '\t') + '\n',
-	);
-	for (const [name, descriptor] of Object.entries(opts.collections ?? {})) {
-		const file = path.join(modRoot, 'collections', `${name}.collection.yaml`);
-		fs.mkdirSync(path.dirname(file), { recursive: true });
-		fs.writeFileSync(file, dump({ name, ...descriptor }));
-	}
-	return modRoot;
+  const modRoot = path.join(root, "modules", id)
+  fs.mkdirSync(path.join(modRoot, "collections"), { recursive: true })
+  const dt = {}
+  if (opts.description) dt.description = opts.description
+  if (opts.namespaces) dt.namespaces = opts.namespaces
+  if (opts.dependencies) dt.dependencies = opts.dependencies
+  if (opts.peerDependencies) dt.peer_collections = opts.peerDependencies
+  if (opts.ownsData) dt.owns_data = true
+  fs.writeFileSync(
+    path.join(modRoot, "package.json"),
+    JSON.stringify(
+      {
+        name: id,
+        private: true,
+        version: "0.0.1",
+        files: ["collections", "skills", "agents", "commands", "command-bindings", "ui-views", "mixins"],
+        dreamteamer: dt,
+      },
+      null,
+      "\t"
+    ) + "\n"
+  )
+  for (const [name, descriptor] of Object.entries(opts.collections ?? {})) {
+    const file = path.join(modRoot, "collections", `${name}.collection.yaml`)
+    fs.mkdirSync(path.dirname(file), { recursive: true })
+    fs.writeFileSync(file, dump({ name, ...descriptor }))
+  }
+  return modRoot
 }
 
 /** A `dreamteamer.<key>` edit on one module's package.json, for a fixture that needs to declare a
  *  dependency after the module already exists. */
 export function patchModulePkg(root, id, patch) {
-	const file = path.join(root, 'modules', id, 'package.json');
-	const pkg = JSON.parse(fs.readFileSync(file, 'utf8'));
-	pkg.dreamteamer = { ...pkg.dreamteamer, ...patch };
-	fs.writeFileSync(file, JSON.stringify(pkg, null, '\t') + '\n');
+  const file = path.join(root, "modules", id, "package.json")
+  const pkg = JSON.parse(fs.readFileSync(file, "utf8"))
+  pkg.dreamteamer = { ...pkg.dreamteamer, ...patch }
+  fs.writeFileSync(file, JSON.stringify(pkg, null, "\t") + "\n")
 }
 
 /**
@@ -325,109 +383,109 @@ export function patchModulePkg(root, id, patch) {
  * Invented names throughout: this engine is published and the vault it is dogfooded on is not.
  */
 export const CORE_COLLECTIONS = {
-	people: {
-		description: 'A person this workspace knows about.',
-		storage: { suffix: 'person' },
-		ids: { from: '{{ name | slug }}' },
-		fields: {
-			name: { type: 'string', required: true },
-			employer: { type: 'string' },
-			notes: { type: 'markdown', body: true },
-		},
-	},
-	teams: {
-		description: 'A group of people with a shared remit.',
-		ids: { from: '{{ name | slug }}' },
-		fields: {
-			name: { type: 'string', required: true },
-			notes: { type: 'markdown', body: true },
-		},
-	},
-	tasks: {
-		description: 'One concrete commitment.',
-		ids: { from: '{{ name | slug }}' },
-		fields: {
-			name: { type: 'string', required: true },
-			owner: { type: 'people' },
-			notes: { type: 'markdown', body: true },
-		},
-	},
-};
+  people: {
+    description: "A person this workspace knows about.",
+    storage: { suffix: "person" },
+    ids: { from: "{{ name | slug }}" },
+    fields: {
+      name: { type: "string", required: true },
+      employer: { type: "string" },
+      notes: { type: "markdown", body: true },
+    },
+  },
+  teams: {
+    description: "A group of people with a shared remit.",
+    ids: { from: "{{ name | slug }}" },
+    fields: {
+      name: { type: "string", required: true },
+      notes: { type: "markdown", body: true },
+    },
+  },
+  tasks: {
+    description: "One concrete commitment.",
+    ids: { from: "{{ name | slug }}" },
+    fields: {
+      name: { type: "string", required: true },
+      owner: { type: "people" },
+      notes: { type: "markdown", body: true },
+    },
+  },
+}
 
 export const HR_COLLECTIONS = {
-	'hr/positions': {
-		description: 'An open or filled role.',
-		ids: { from: '{{ name | slug }}' },
-		fields: {
-			name: { type: 'string', required: true },
-			holder: { type: 'people' },
-			notes: { type: 'markdown', body: true },
-		},
-	},
-};
+  "hr/positions": {
+    description: "An open or filled role.",
+    ids: { from: "{{ name | slug }}" },
+    fields: {
+      name: { type: "string", required: true },
+      holder: { type: "people" },
+      notes: { type: "markdown", body: true },
+    },
+  },
+}
 
 export function twoModuleWorkspace(opts = {}) {
-	const base = baseWorkspace();
-	const root = fs.mkdtempSync(path.join(TMP, 'ws2-'));
-	created.push(root);
-	fs.cpSync(base, root, { recursive: true, dereference: false, verbatimSymlinks: true });
+  const base = baseWorkspace()
+  const root = fs.mkdtempSync(path.join(TMP, "ws2-"))
+  created.push(root)
+  fs.cpSync(base, root, { recursive: true, dereference: false, verbatimSymlinks: true })
 
-	writeModule(root, 'core', { description: 'The shared nouns.', collections: CORE_COLLECTIONS });
-	writeModule(root, 'hr', {
-		description: 'Roles and headcount.',
-		// §8: THE MODULE declares the namespace it owns, so `modules/hr` can be copied alone into a
-		// bare workspace and compile — decision 130's gate, which was unpassable while namespaces
-		// were workspace-only.
-		namespaces: ['hr'],
-		peerDependencies: ['people'],
-		collections: HR_COLLECTIONS,
-	});
+  writeModule(root, "core", { description: "The shared nouns.", collections: CORE_COLLECTIONS })
+  writeModule(root, "hr", {
+    description: "Roles and headcount.",
+    // §8: THE MODULE declares the namespace it owns, so `modules/hr` can be copied alone into a
+    // bare workspace and compile — decision 130's gate, which was unpassable while namespaces
+    // were workspace-only.
+    namespaces: ["hr"],
+    peerDependencies: ["people"],
+    collections: HR_COLLECTIONS,
+  })
 
-	const pkgPath = path.join(root, 'package.json');
-	const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
-	// The workspace declares NOTHING by default now. A test that wants the duplicate-declaration
-	// warning passes `namespaces` explicitly.
-	if (opts.namespaces) pkg.dreamteamer.namespaces = opts.namespaces;
-	else delete pkg.dreamteamer.namespaces;
-	Object.assign(pkg.dreamteamer, opts.pkg ?? {});
-	fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, '\t') + '\n');
+  const pkgPath = path.join(root, "package.json")
+  const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8"))
+  // The workspace declares NOTHING by default now. A test that wants the duplicate-declaration
+  // warning passes `namespaces` explicitly.
+  if (opts.namespaces) pkg.dreamteamer.namespaces = opts.namespaces
+  else delete pkg.dreamteamer.namespaces
+  Object.assign(pkg.dreamteamer, opts.pkg ?? {})
+  fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, "\t") + "\n")
 
-	for (const [name, descriptor] of Object.entries(opts.collections ?? {})) {
-		writeCollection(root, name, descriptor);
-	}
+  for (const [name, descriptor] of Object.entries(opts.collections ?? {})) {
+    writeCollection(root, name, descriptor)
+  }
 
-	// ⚠ COMMIT THE MODULES, as `buildBase` commits the base. A real workspace's module sources are in
-	// git, and a source write is gated by `git add -- <path>` — which FAILS OUTRIGHT on a pathspec
-	// that is neither on disk nor in the index. So an UNcommitted descriptor made `rm-collection` roll
-	// back on a file git simply did not care about, and the fixture, not the verb, was the liar.
-	git(root, ['add', '--', 'modules', 'package.json']);
-	git(root, ['commit', '-qm', 'fixture: two modules']);
+  // ⚠ COMMIT THE MODULES, as `buildBase` commits the base. A real workspace's module sources are in
+  // git, and a source write is gated by `git add -- <path>` — which FAILS OUTRIGHT on a pathspec
+  // that is neither on disk nor in the index. So an UNcommitted descriptor made `rm-collection` roll
+  // back on a file git simply did not care about, and the fixture, not the verb, was the liar.
+  git(root, ["add", "--", "modules", "package.json"])
+  git(root, ["commit", "-qm", "fixture: two modules"])
 
-	const ws = { root, pkg };
-	if (opts.compile === false) return { root, ws, git: (a) => git(root, a), dt: (...a) => dt(root, ...a) };
-	const out = compileQuietly(ws);
-	const store = new Store(ws);
-	for (const [collection, rows] of Object.entries(opts.records ?? {})) {
-		for (const fields of rows) store.add(collection, { ...fields });
-	}
-	return { root, ws, store, out, git: (a) => git(root, a), dt: (...a) => dt(root, ...a) };
+  const ws = { root, pkg }
+  if (opts.compile === false) return { root, ws, git: a => git(root, a), dt: (...a) => dt(root, ...a) }
+  const out = compileQuietly(ws)
+  const store = new Store(ws)
+  for (const [collection, rows] of Object.entries(opts.records ?? {})) {
+    for (const fields of rows) store.add(collection, { ...fields })
+  }
+  return { root, ws, store, out, git: a => git(root, a), dt: (...a) => dt(root, ...a) }
 }
 
 /** Every workspace-relative file path under a directory, sorted — for asserting on layout. */
-export function tree(root, rel = '.') {
-	const start = path.join(root, rel);
-	if (!fs.existsSync(start)) return [];
-	const out = [];
-	const walk = (dir) => {
-		for (const e of fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
-			if (e.name.startsWith('.')) continue;
-			const p = path.join(dir, e.name);
-			if (e.isDirectory()) walk(p);
-			else out.push(path.relative(root, p).split(path.sep).join('/'));
-		}
-	};
-	walk(start);
-	return out;
+export function tree(root, rel = ".") {
+  const start = path.join(root, rel)
+  if (!fs.existsSync(start)) return []
+  const out = []
+  const walk = dir => {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+      if (e.name.startsWith(".")) continue
+      const p = path.join(dir, e.name)
+      if (e.isDirectory()) walk(p)
+      else out.push(path.relative(root, p).split(path.sep).join("/"))
+    }
+  }
+  walk(start)
+  return out
 }
 
 /**
@@ -444,60 +502,67 @@ export function tree(root, rel = '.') {
  * so copying is what a consumer actually does.
  */
 export function bareWorkspace(sourceRoot, moduleId) {
-	const base = baseWorkspace();
-	const root = fs.mkdtempSync(path.join(TMP, 'bare-'));
-	created.push(root);
-	fs.cpSync(base, root, { recursive: true, dereference: false, verbatimSymlinks: true });
-	// A virgin workspace declares NOTHING: no namespaces, no dependencies, no disable entries. That
-	// is the whole point — anything the module needs, the module has to carry.
-	const pkgPath = path.join(root, 'package.json');
-	const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
-	delete pkg.dreamteamer.namespaces;
-	fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, '\t') + '\n');
-	fs.cpSync(path.join(sourceRoot, 'modules', moduleId), path.join(root, 'modules', moduleId), { recursive: true });
-	git(root, ['add', '--', 'modules', 'package.json']);
-	git(root, ['commit', '-qm', `fixture: ${moduleId} alone`]);
-	return {
-		root,
-		ws: { root, pkg },
-		dt: (...a) => dt(root, ...a),
-		git: (a) => git(root, a),
-	};
+  const base = baseWorkspace()
+  const root = fs.mkdtempSync(path.join(TMP, "bare-"))
+  created.push(root)
+  fs.cpSync(base, root, { recursive: true, dereference: false, verbatimSymlinks: true })
+  // A virgin workspace declares NOTHING: no namespaces, no dependencies, no disable entries. That
+  // is the whole point — anything the module needs, the module has to carry.
+  const pkgPath = path.join(root, "package.json")
+  const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8"))
+  delete pkg.dreamteamer.namespaces
+  fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, "\t") + "\n")
+  fs.cpSync(path.join(sourceRoot, "modules", moduleId), path.join(root, "modules", moduleId), { recursive: true })
+  git(root, ["add", "--", "modules", "package.json"])
+  git(root, ["commit", "-qm", `fixture: ${moduleId} alone`])
+  return {
+    root,
+    ws: { root, pkg },
+    dt: (...a) => dt(root, ...a),
+    git: a => git(root, a),
+  }
 }
 
 /** Install one of the engine's own fixture packages (test/fixtures/<id>) into a workspace's
  *  node_modules under its package name and declare it, the way npm would have. Returns the dir. */
 export function installFixture(root, id) {
-	const src = path.join(ENGINE_ROOT, 'test', 'fixtures', id);
-	const name = JSON.parse(fs.readFileSync(path.join(src, 'package.json'), 'utf8')).name;
-	const dest = path.join(root, 'node_modules', name);
-	fs.mkdirSync(path.dirname(dest), { recursive: true });
-	fs.cpSync(src, dest, { recursive: true });
-	const pkgFile = path.join(root, 'package.json');
-	const pkg = JSON.parse(fs.readFileSync(pkgFile, 'utf8'));
-	pkg.dependencies = { ...pkg.dependencies, [name]: '1.0.0' };
-	fs.writeFileSync(pkgFile, JSON.stringify(pkg, null, '\t') + '\n');
-	return dest;
+  const src = path.join(ENGINE_ROOT, "test", "fixtures", id)
+  const name = JSON.parse(fs.readFileSync(path.join(src, "package.json"), "utf8")).name
+  const dest = path.join(root, "node_modules", name)
+  fs.mkdirSync(path.dirname(dest), { recursive: true })
+  fs.cpSync(src, dest, { recursive: true })
+  const pkgFile = path.join(root, "package.json")
+  const pkg = JSON.parse(fs.readFileSync(pkgFile, "utf8"))
+  pkg.dependencies = { ...pkg.dependencies, [name]: "1.0.0" }
+  fs.writeFileSync(pkgFile, JSON.stringify(pkg, null, "\t") + "\n")
+  return dest
 }
 /** The synthetic setup provider (`@probe/setup`, unit `probe`) — see test/fixtures/probe-setup/entry.js. */
-export const withProbeSetup = (root) => installFixture(root, 'probe-setup');
+export const withProbeSetup = root => installFixture(root, "probe-setup")
 /** The colliding plain module (`@probe/collide`, a `notes` collection) — a compile refusal on install. */
-export const withProbeCollide = (root) => installFixture(root, 'probe-collide');
+export const withProbeCollide = root => installFixture(root, "probe-collide")
 
 /** A hash of every file under `root` (path, mode and bytes; `.git` excluded) — the read-only proof:
  *  equal before and after a verb means the verb wrote nothing. */
 export function treeHash(root) {
-	const { createHash } = cryptoModule();
-	const h = createHash('sha256');
-	const walk = (dir) => {
-		for (const e of fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
-			if (e.name === '.git') continue;
-			const p = path.join(dir, e.name);
-			if (e.isSymbolicLink()) { h.update(`L ${path.relative(root, p)} ${fs.readlinkSync(p)}\n`); continue; }
-			if (e.isDirectory()) { walk(p); continue; }
-			h.update(`F ${path.relative(root, p)} ${fs.statSync(p).mode}\n`); h.update(fs.readFileSync(p));
-		}
-	};
-	walk(root);
-	return h.digest('hex');
+  const { createHash } = cryptoModule()
+  const h = createHash("sha256")
+  const walk = dir => {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+      if (e.name === ".git") continue
+      const p = path.join(dir, e.name)
+      if (e.isSymbolicLink()) {
+        h.update(`L ${path.relative(root, p)} ${fs.readlinkSync(p)}\n`)
+        continue
+      }
+      if (e.isDirectory()) {
+        walk(p)
+        continue
+      }
+      h.update(`F ${path.relative(root, p)} ${fs.statSync(p).mode}\n`)
+      h.update(fs.readFileSync(p))
+    }
+  }
+  walk(root)
+  return h.digest("hex")
 }

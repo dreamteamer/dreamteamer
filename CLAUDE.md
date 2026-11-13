@@ -22,6 +22,18 @@ its declarations generated from `src/types.ts` and the signatures) that is the O
 So only ERASABLE syntax (`erasableSyntaxOnly`): no `enum`, no `namespace`, no constructor parameter
 properties; type-only imports are `import type`. `npm run typecheck` is part of `verify`.
 
+**Lint and format are part of `verify`.** `npm run lint` is ESLint with the recommended rules of ESLint
+and typescript-eslint, no exceptions beyond the `_`-prefix and rest-sibling conventions — no `any`
+anywhere (a shape the engine does not constrain is `unknown`, a `Record<string, unknown>`, or a named
+type in `src/types.ts`; parsed YAML is `load<T>()` with the shape the caller expects). `npm run format`
+is Prettier with `.prettierrc`, over code only (`.prettierignore` keeps YAML, Markdown and JSON byte-for-
+byte — they are engine input). That is also why TypeScript is 6.0, not the native 7: typescript-eslint
+needs the compiler's JavaScript API, which 7 does not have. ⚠ A test or script that reads SOURCE AS TEXT
+must not depend on formatting: match either quote, and normalise whitespace (`revision-args`), or a
+reformat leaves the pattern matching nothing and the check passing — `layers` refuses a scan that finds
+almost no import edges for exactly that reason. `code.total` is counted on formatted source: the
+reformat alone multiplied it by 1.499, and the budget was scaled by the same factor (metrics.json says so).
+
 `scripts/*.ts` are TypeScript too and run the same way (`node scripts/test.ts`), with one exception:
 **the build runs through `tsx`** (`npm run build` / `prepack`), because CI's Node 20 job packs the
 tarball on Node 20, which cannot strip types. The two migrations users run from the package

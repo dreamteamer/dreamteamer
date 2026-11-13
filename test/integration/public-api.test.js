@@ -1,163 +1,256 @@
 // The PUBLIC API is a contract with other repos, so it is pinned three ways: the runtime export list
 // equals the typed declaration, importing it has no side effect, and an INSTALLED copy exposes it
 // while hiding `dist/*` — a source-tree import passing proves nothing about what npm ships.
-import { test, describe } from 'node:test';
-import assert from 'node:assert/strict';
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
-import { spawnSync, execFileSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
-import { workspace, git, ENGINE_ROOT } from '../helpers/ws.js';
-import { resolveNpm, childEnv } from '../../src/checkout.ts';
-import { typeOnly } from '../../scripts/import-edges.ts';
-import { checkContract } from '../../scripts/contract.ts';
+import { test, describe } from "node:test"
+import assert from "node:assert/strict"
+import fs from "node:fs"
+import os from "node:os"
+import path from "node:path"
+import { spawnSync, execFileSync } from "node:child_process"
+import { fileURLToPath } from "node:url"
+import { workspace, git, ENGINE_ROOT } from "../helpers/ws.js"
+import { resolveNpm, childEnv } from "../../src/checkout.ts"
+import { typeOnly } from "../../scripts/import-edges.ts"
+import { checkContract } from "../../scripts/contract.ts"
 
 /** The static import closure of one src/ module: every src file reached, and every bare specifier. */
 function closure(entry) {
-	const files = new Set(), bare = new Set();
-	const visit = (f) => {
-		if (files.has(f)) return;
-		files.add(f);
-		const body = fs.readFileSync(path.join(ENGINE_ROOT, 'src', f), 'utf8');
-		for (const m of body.matchAll(/(?:^|\n)\s*(?:import|export)[\s\S]*?from\s+'([^']+)'|import\(\s*'([^']+)'/g)) {
-			if (typeOnly(body, m)) continue; // erased at run time — loads nothing in the browser
-			const spec = m[1] ?? m[2];
-			if (spec.startsWith('./')) visit(spec.slice(2)); else bare.add(spec);
-		}
-	};
-	visit(entry);
-	return { files, bare };
+  const files = new Set(),
+    bare = new Set()
+  const visit = f => {
+    if (files.has(f)) return
+    files.add(f)
+    const body = fs.readFileSync(path.join(ENGINE_ROOT, "src", f), "utf8")
+    for (const m of body.matchAll(
+      /(?:^|\n)\s*(?:import|export)[\s\S]*?from\s+['"]([^'"]+)['"]|import\(\s*['"]([^'"]+)['"]/g
+    )) {
+      if (typeOnly(body, m)) continue // erased at run time — loads nothing in the browser
+      const spec = m[1] ?? m[2]
+      if (spec.startsWith("./")) visit(spec.slice(2))
+      else bare.add(spec)
+    }
+  }
+  visit(entry)
+  return { files, bare }
 }
 
-describe('dreamteamer (the public API)', () => {
-	// The declarations are GENERATED from the source (dist/*.d.ts), so a declared name the runtime does not
-	// export, or a declared array that is a Set at run time (review F8 — strict TypeScript accepted
-	// `.includes('_eq')` and it threw), can no longer be written. What can still go wrong is PRECISION: a
-	// signature drifting to `any`, which every consumer then compiles against silently. test/types/consumer.ts
-	// is the contract — what the editor, the mobile app and an extension rely on, `@ts-expect-error` lines
-	// that fail once a signature loosens, and a ratchet that no public function takes or returns `any`.
-	test('the declarations generated from src/ keep the consumer contract, under strict', () => {
-		const { ok, output } = checkContract();
-		assert.ok(ok, `test/types/consumer.ts no longer compiles against the generated declarations:\n${output}`);
-	});
+describe("dreamteamer (the public API)", () => {
+  // The declarations are GENERATED from the source (dist/*.d.ts), so a declared name the runtime does not
+  // export, or a declared array that is a Set at run time (review F8 — strict TypeScript accepted
+  // `.includes('_eq')` and it threw), can no longer be written. What can still go wrong is PRECISION: a
+  // signature drifting to `any`, which every consumer then compiles against silently. test/types/consumer.ts
+  // is the contract — what the editor, the mobile app and an extension rely on, `@ts-expect-error` lines
+  // that fail once a signature loosens, and a ratchet that no public function takes or returns `any`.
+  test("the declarations generated from src/ keep the consumer contract, under strict", () => {
+    const { ok, output } = checkContract()
+    assert.ok(ok, `test/types/consumer.ts no longer compiles against the generated declarations:\n${output}`)
+  })
 
-	test('KNOWN_OPERATORS is a Set at run time, as its declaration says', async () => {
-		const { KNOWN_OPERATORS } = await import('../../src/records-api.ts');
-		assert.ok(KNOWN_OPERATORS instanceof Set);
-		assert.equal(KNOWN_OPERATORS.has('_eq'), true);
-	});
+  test("KNOWN_OPERATORS is a Set at run time, as its declaration says", async () => {
+    const { KNOWN_OPERATORS } = await import("../../src/records-api.ts")
+    assert.ok(KNOWN_OPERATORS instanceof Set)
+    assert.equal(KNOWN_OPERATORS.has("_eq"), true)
+  })
 
-	// ⚠ THE BROWSER CONSTRAINT. The mobile app runs `dreamteamer/records` in a browser with shims for
-	// exactly three node builtins. A record-half import that reached the compiler, the extension
-	// loader or the CLI would pull `node:url`/`node:crypto`/`node:os` in at import time and the app
-	// would die on load — the one failure its own tests cannot see until a bundle is built.
-	test('dreamteamer/records reaches only the record half and three node builtins', () => {
-		const { files, bare } = closure('records-api.ts');
-		for (const f of ['compile.ts', 'cli.ts', 'extensions.ts', 'checkout.ts', 'init.ts', 'harnesses.ts', 'schema-ops.ts', 'api.ts', 'env-vars.ts']) {
-			assert.ok(!files.has(f), `records-api.ts reaches ${f}`);
-		}
-		const builtins = [...bare].filter((b) => b.startsWith('node:')).sort();
-		assert.deepEqual(builtins, ['node:child_process', 'node:fs', 'node:path']);
-	});
+  // ⚠ THE BROWSER CONSTRAINT. The mobile app runs `dreamteamer/records` in a browser with shims for
+  // exactly three node builtins. A record-half import that reached the compiler, the extension
+  // loader or the CLI would pull `node:url`/`node:crypto`/`node:os` in at import time and the app
+  // would die on load — the one failure its own tests cannot see until a bundle is built.
+  test("dreamteamer/records reaches only the record half and three node builtins", () => {
+    const { files, bare } = closure("records-api.ts")
+    for (const f of [
+      "compile.ts",
+      "cli.ts",
+      "extensions.ts",
+      "checkout.ts",
+      "init.ts",
+      "harnesses.ts",
+      "schema-ops.ts",
+      "api.ts",
+      "env-vars.ts",
+    ]) {
+      assert.ok(!files.has(f), `records-api.ts reaches ${f}`)
+    }
+    const builtins = [...bare].filter(b => b.startsWith("node:")).sort()
+    assert.deepEqual(builtins, ["node:child_process", "node:fs", "node:path"])
+  })
 
-	test('importing it prints nothing, writes nothing, and binds nothing', () => {
-		const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'dt-api-'));
-		const url = new URL('../../src/api.ts', import.meta.url).href;
-		const r = spawnSync(process.execPath, ['--input-type=module', '-e', `await import(${JSON.stringify(url)}); console.log('HANDLES', process._getActiveHandles().length)`], { cwd, encoding: 'utf8', timeout: 30_000 });
-		assert.equal(r.status, 0, r.stderr);
-		assert.equal(r.stderr, '');
-		assert.equal(r.stdout.trim(), 'HANDLES 0');
-		assert.deepEqual(fs.readdirSync(cwd), [], 'importing the API wrote into the cwd');
-	});
+  test("importing it prints nothing, writes nothing, and binds nothing", () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "dt-api-"))
+    const url = new URL("../../src/api.ts", import.meta.url).href
+    const r = spawnSync(
+      process.execPath,
+      [
+        "--input-type=module",
+        "-e",
+        `await import(${JSON.stringify(url)}); console.log('HANDLES', process._getActiveHandles().length)`,
+      ],
+      { cwd, encoding: "utf8", timeout: 30_000 }
+    )
+    assert.equal(r.status, 0, r.stderr)
+    assert.equal(r.stderr, "")
+    assert.equal(r.stdout.trim(), "HANDLES 0")
+    assert.deepEqual(fs.readdirSync(cwd), [], "importing the API wrote into the cwd")
+  })
 
-	test('openWorkspace returns the handle with its (empty) extensions, and changes no cwd', async () => {
-		const { openWorkspace } = await import('../../src/api.ts');
-		const ws = workspace();
-		const before = process.cwd();
-		const handle = await openWorkspace(ws.root);
-		assert.equal(handle.root, ws.root);
-		assert.deepEqual(handle.extensions, []);
-		assert.equal(process.cwd(), before);
-	});
-});
+  test("openWorkspace returns the handle with its (empty) extensions, and changes no cwd", async () => {
+    const { openWorkspace } = await import("../../src/api.ts")
+    const ws = workspace()
+    const before = process.cwd()
+    const handle = await openWorkspace(ws.root)
+    assert.equal(handle.root, ws.root)
+    assert.deepEqual(handle.extensions, [])
+    assert.equal(process.cwd(), before)
+  })
+})
 
-describe('the INSTALLED package', () => {
-	test('`import "dreamteamer"` resolves to the API, and `dreamteamer/dist/*` is not reachable', () => {
-		const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dt-pack-'));
-		// pack exactly what `files` publishes, then install that tarball — never the source tree
-		// npm resolved the way `dt install` resolves it — beside the running node first, PATH second — and
-		// a failure reported with npm's own words: the review saw this step fail in a copied tree with
-		// nothing but "Command failed" to go on.
-		const npm = resolveNpm();
-		assert.ok(npm, 'no npm beside this node or on PATH — the packed-install check cannot run');
-		const pack = spawnSync(npm, ['pack', '--silent', '--pack-destination', dir], { cwd: ENGINE_ROOT, encoding: 'utf8', timeout: 120_000, env: childEnv() });
-		assert.equal(pack.status, 0, `npm pack failed (status ${pack.status}${pack.error ? `, ${pack.error.message}` : ''}):\n${pack.stderr}${pack.stdout}`);
-		const tgz = pack.stdout.trim().split('\n').pop();
-		fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'consumer', private: true, type: 'module' }));
-		const inst = spawnSync(npm, ['install', '--no-audit', '--no-fund', '--prefer-offline', path.join(dir, tgz)], { cwd: dir, encoding: 'utf8', timeout: 300_000 });
-		assert.equal(inst.status, 0, `npm install of the tarball failed (status ${inst.status}${inst.error ? `, ${inst.error.message}` : ''}):\n${inst.stderr}`);
-		// the core install is LEAN: no HTTP framework, no optional tool
-		const installed = fs.readdirSync(path.join(dir, 'node_modules'));
-		assert.ok(!installed.includes('express'), 'express is still in the core dependency tree');
-		const pub = spawnSync(process.execPath, ['-e', "import('dreamteamer').then((m) => console.log(m.apiVersion, typeof m.openWorkspace, typeof m.Store))"], { cwd: dir, encoding: 'utf8', timeout: 30_000 });
-		assert.equal(pub.stdout.trim(), '1 function function', pub.stderr);
-		const rec = spawnSync(process.execPath, ['-e', "import('dreamteamer/records').then((m) => console.log(m.apiVersion, typeof m.Store, typeof m.openWorkspace))"], { cwd: dir, encoding: 'utf8', timeout: 30_000 });
-		assert.equal(rec.stdout.trim(), '1 function undefined', rec.stderr);
-		const deep = spawnSync(process.execPath, ['-e', "import('dreamteamer/dist/store.js').then(() => console.log('REACHED'), (e) => console.log(e.code))"], { cwd: dir, encoding: 'utf8', timeout: 30_000 });
-		assert.equal(deep.stdout.trim(), 'ERR_PACKAGE_PATH_NOT_EXPORTED');
-		// and the extracted tools are NOT in the tarball
-		const listing = execFileSync('tar', ['-tzf', path.join(dir, tgz)], { encoding: 'utf8' });
-		for (const gone of ['dist/server.js', 'dist/prove.js', 'dist/land.js', 'dist/containers.js', 'dist/container-archive.js', 'dist/export-notebooklm.js']) {
-			assert.ok(!listing.includes(`package/${gone}`), `${gone} is still published`);
-		}
-		assert.ok(listing.includes('package/dist/api.d.ts') && listing.includes('package/dist/records-api.d.ts'), 'the type declarations are not published');
-		// the PUBLISHED declarations, not just the ones src/ emits: every file they reference shipped, and
-		// the consumer contract compiles against exactly what npm installed
-		const shipped = checkContract(path.join(dir, 'node_modules', 'dreamteamer', 'dist'));
-		assert.ok(shipped.ok, `the packed declarations break the consumer contract:\n${shipped.output}`);
-		// the npm package is the BUILD: no TypeScript source (Node refuses to strip types under
-		// node_modules), and every relative import rewritten to the .js file that sits beside it
-		assert.ok(!/package\/src\//.test(listing), 'src/ is published — the package must run from dist/');
-		const built = fs.readFileSync(path.join(dir, 'node_modules', 'dreamteamer', 'dist', 'api.js'), 'utf8');
-		assert.ok(!/from '\.\/[\w-]+\.ts'/.test(built), 'dist/api.js still imports a .ts file');
-		for (const f of ['api.d.ts', 'records-api.d.ts', 'types.d.ts', 'store.d.ts']) {
-			const d = fs.readFileSync(path.join(dir, 'node_modules', 'dreamteamer', 'dist', f), 'utf8');
-			assert.ok(!/(?:from\s+|import\(\s*)'\.\/[\w-]+\.ts'/.test(d), `dist/${f} still names a .ts file — an older TypeScript cannot resolve it`);
-		}
-		const cli = spawnSync(process.execPath, [path.join(dir, 'node_modules', 'dreamteamer', 'bin', 'dreamteamer.js'), '--version'], { cwd: dir, encoding: 'utf8', timeout: 30_000 });
-		assert.equal(cli.status, 0, cli.stderr);
-	});
-});
+describe("the INSTALLED package", () => {
+  test('`import "dreamteamer"` resolves to the API, and `dreamteamer/dist/*` is not reachable', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dt-pack-"))
+    // pack exactly what `files` publishes, then install that tarball — never the source tree
+    // npm resolved the way `dt install` resolves it — beside the running node first, PATH second — and
+    // a failure reported with npm's own words: the review saw this step fail in a copied tree with
+    // nothing but "Command failed" to go on.
+    const npm = resolveNpm()
+    assert.ok(npm, "no npm beside this node or on PATH — the packed-install check cannot run")
+    const pack = spawnSync(npm, ["pack", "--silent", "--pack-destination", dir], {
+      cwd: ENGINE_ROOT,
+      encoding: "utf8",
+      timeout: 120_000,
+      env: childEnv(),
+    })
+    assert.equal(
+      pack.status,
+      0,
+      `npm pack failed (status ${pack.status}${pack.error ? `, ${pack.error.message}` : ""}):\n${pack.stderr}${pack.stdout}`
+    )
+    const tgz = pack.stdout.trim().split("\n").pop()
+    fs.writeFileSync(
+      path.join(dir, "package.json"),
+      JSON.stringify({ name: "consumer", private: true, type: "module" })
+    )
+    const inst = spawnSync(npm, ["install", "--no-audit", "--no-fund", "--prefer-offline", path.join(dir, tgz)], {
+      cwd: dir,
+      encoding: "utf8",
+      timeout: 300_000,
+    })
+    assert.equal(
+      inst.status,
+      0,
+      `npm install of the tarball failed (status ${inst.status}${inst.error ? `, ${inst.error.message}` : ""}):\n${inst.stderr}`
+    )
+    // the core install is LEAN: no HTTP framework, no optional tool
+    const installed = fs.readdirSync(path.join(dir, "node_modules"))
+    assert.ok(!installed.includes("express"), "express is still in the core dependency tree")
+    const pub = spawnSync(
+      process.execPath,
+      ["-e", "import('dreamteamer').then((m) => console.log(m.apiVersion, typeof m.openWorkspace, typeof m.Store))"],
+      { cwd: dir, encoding: "utf8", timeout: 30_000 }
+    )
+    assert.equal(pub.stdout.trim(), "1 function function", pub.stderr)
+    const rec = spawnSync(
+      process.execPath,
+      [
+        "-e",
+        "import('dreamteamer/records').then((m) => console.log(m.apiVersion, typeof m.Store, typeof m.openWorkspace))",
+      ],
+      { cwd: dir, encoding: "utf8", timeout: 30_000 }
+    )
+    assert.equal(rec.stdout.trim(), "1 function undefined", rec.stderr)
+    const deep = spawnSync(
+      process.execPath,
+      ["-e", "import('dreamteamer/dist/store.js').then(() => console.log('REACHED'), (e) => console.log(e.code))"],
+      { cwd: dir, encoding: "utf8", timeout: 30_000 }
+    )
+    assert.equal(deep.stdout.trim(), "ERR_PACKAGE_PATH_NOT_EXPORTED")
+    // and the extracted tools are NOT in the tarball
+    const listing = execFileSync("tar", ["-tzf", path.join(dir, tgz)], { encoding: "utf8" })
+    for (const gone of [
+      "dist/server.js",
+      "dist/prove.js",
+      "dist/land.js",
+      "dist/containers.js",
+      "dist/container-archive.js",
+      "dist/export-notebooklm.js",
+    ]) {
+      assert.ok(!listing.includes(`package/${gone}`), `${gone} is still published`)
+    }
+    assert.ok(
+      listing.includes("package/dist/api.d.ts") && listing.includes("package/dist/records-api.d.ts"),
+      "the type declarations are not published"
+    )
+    // the PUBLISHED declarations, not just the ones src/ emits: every file they reference shipped, and
+    // the consumer contract compiles against exactly what npm installed
+    const shipped = checkContract(path.join(dir, "node_modules", "dreamteamer", "dist"))
+    assert.ok(shipped.ok, `the packed declarations break the consumer contract:\n${shipped.output}`)
+    // the npm package is the BUILD: no TypeScript source (Node refuses to strip types under
+    // node_modules), and every relative import rewritten to the .js file that sits beside it
+    assert.ok(!/package\/src\//.test(listing), "src/ is published — the package must run from dist/")
+    const built = fs.readFileSync(path.join(dir, "node_modules", "dreamteamer", "dist", "api.js"), "utf8")
+    assert.ok(!/from '\.\/[\w-]+\.ts'/.test(built), "dist/api.js still imports a .ts file")
+    for (const f of ["api.d.ts", "records-api.d.ts", "types.d.ts", "store.d.ts"]) {
+      const d = fs.readFileSync(path.join(dir, "node_modules", "dreamteamer", "dist", f), "utf8")
+      assert.ok(
+        !/(?:from\s+|import\(\s*)'\.\/[\w-]+\.ts'/.test(d),
+        `dist/${f} still names a .ts file — an older TypeScript cannot resolve it`
+      )
+    }
+    const cli = spawnSync(
+      process.execPath,
+      [path.join(dir, "node_modules", "dreamteamer", "bin", "dreamteamer.js"), "--version"],
+      { cwd: dir, encoding: "utf8", timeout: 30_000 }
+    )
+    assert.equal(cli.status, 0, cli.stderr)
+  })
+})
 
-describe('dt init commits only what it wrote', () => {
-	test('unrelated staged and unstaged work in an existing repo is left exactly as it was', () => {
-		const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dt-init-'));
-		git(dir, ['init', '-q']);
-		git(dir, ['config', 'user.email', 'test@example.invalid']); git(dir, ['config', 'user.name', 'dreamteamer test']);
-		fs.writeFileSync(path.join(dir, 'staged.txt'), 'mine, staged\n');
-		fs.writeFileSync(path.join(dir, 'loose.txt'), 'mine, untracked\n');
-		git(dir, ['add', 'staged.txt']);
-		// the engine declared (a file: spec) and linked before init, so init installs nothing from a registry
-		const engineRoot = fileURLToPath(new URL('../..', import.meta.url));
-		fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'existing', private: true, dependencies: { dreamteamer: `file:${engineRoot}` } }, null, '\t') + '\n');
-		fs.mkdirSync(path.join(dir, 'node_modules'));
-		fs.symlinkSync(engineRoot.replace(/\/$/, ''), path.join(dir, 'node_modules', 'dreamteamer'), 'dir');
-		const bin = fileURLToPath(new URL('../../bin/dreamteamer.js', import.meta.url));
-		const r = spawnSync(process.execPath, [bin, 'init'], { cwd: dir, encoding: 'utf8', timeout: 60_000, env: { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@example.invalid', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@example.invalid' } });
-		assert.equal(r.status, 0, r.stderr);
-		const committed = git(dir, ['show', '--name-only', '--format=', 'HEAD']).split('\n').filter(Boolean);
-		assert.ok(committed.includes('package.json') && committed.includes('.gitignore'), committed.join(', '));
-		assert.ok(!committed.includes('staged.txt'), 'init swept an unrelated STAGED file into its commit');
-		assert.ok(!committed.includes('loose.txt'), 'init swept an unrelated untracked file into its commit');
-		const status = git(dir, ['status', '--porcelain']);
-		assert.match(status, /^A {2}staged\.txt$/m, 'the operator\'s staged file is no longer staged');
-		assert.match(status, /^\?\? loose\.txt$/m);
-	});
-});
+describe("dt init commits only what it wrote", () => {
+  test("unrelated staged and unstaged work in an existing repo is left exactly as it was", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dt-init-"))
+    git(dir, ["init", "-q"])
+    git(dir, ["config", "user.email", "test@example.invalid"])
+    git(dir, ["config", "user.name", "dreamteamer test"])
+    fs.writeFileSync(path.join(dir, "staged.txt"), "mine, staged\n")
+    fs.writeFileSync(path.join(dir, "loose.txt"), "mine, untracked\n")
+    git(dir, ["add", "staged.txt"])
+    // the engine declared (a file: spec) and linked before init, so init installs nothing from a registry
+    const engineRoot = fileURLToPath(new URL("../..", import.meta.url))
+    fs.writeFileSync(
+      path.join(dir, "package.json"),
+      JSON.stringify(
+        { name: "existing", private: true, dependencies: { dreamteamer: `file:${engineRoot}` } },
+        null,
+        "\t"
+      ) + "\n"
+    )
+    fs.mkdirSync(path.join(dir, "node_modules"))
+    fs.symlinkSync(engineRoot.replace(/\/$/, ""), path.join(dir, "node_modules", "dreamteamer"), "dir")
+    const bin = fileURLToPath(new URL("../../bin/dreamteamer.js", import.meta.url))
+    const r = spawnSync(process.execPath, [bin, "init"], {
+      cwd: dir,
+      encoding: "utf8",
+      timeout: 60_000,
+      env: {
+        ...process.env,
+        GIT_AUTHOR_NAME: "t",
+        GIT_AUTHOR_EMAIL: "t@example.invalid",
+        GIT_COMMITTER_NAME: "t",
+        GIT_COMMITTER_EMAIL: "t@example.invalid",
+      },
+    })
+    assert.equal(r.status, 0, r.stderr)
+    const committed = git(dir, ["show", "--name-only", "--format=", "HEAD"]).split("\n").filter(Boolean)
+    assert.ok(committed.includes("package.json") && committed.includes(".gitignore"), committed.join(", "))
+    assert.ok(!committed.includes("staged.txt"), "init swept an unrelated STAGED file into its commit")
+    assert.ok(!committed.includes("loose.txt"), "init swept an unrelated untracked file into its commit")
+    const status = git(dir, ["status", "--porcelain"])
+    assert.match(status, /^A {2}staged\.txt$/m, "the operator's staged file is no longer staged")
+    assert.match(status, /^\?\? loose\.txt$/m)
+  })
+})
 
 // its TYPE is pinned by test/types/consumer.ts, which the contract test above compiles
-test('Store.external is implemented (cr-dt-004)', async () => {
-	const { Store } = await import('../../src/records-api.ts');
-	assert.equal(typeof Store.prototype.external, 'function');
-});
+test("Store.external is implemented (cr-dt-004)", async () => {
+  const { Store } = await import("../../src/records-api.ts")
+  assert.equal(typeof Store.prototype.external, "function")
+})

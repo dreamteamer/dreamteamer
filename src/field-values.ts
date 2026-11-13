@@ -10,13 +10,13 @@
 // The data already knows. This derives the vocabulary from the records themselves, so every
 // low-cardinality field becomes selectable with no schema change and no risk of `check` failing
 // on a value that predates an enum someone added later.
-import { bodyField } from './store.ts';
-import { fieldsOf } from './descriptor.ts';
-import { enumValues } from './fields.ts';
-import type { Store } from './store.ts';
+import { bodyField } from "./store.ts"
+import { fieldsOf } from "./descriptor.ts"
+import { enumValues } from "./fields.ts"
+import type { Store } from "./store.ts"
 
 /** Above this many distinct values a dropdown stops being a dropdown — report and stop counting. */
-export const DEFAULT_LIMIT = 50;
+export const DEFAULT_LIMIT = 50
 
 /**
  * `{ collection, field, values: [{value, count}], total, truncated }` — most-used first, then
@@ -29,43 +29,56 @@ export const DEFAULT_LIMIT = 50;
  * Bodies are skipped outright — a markdown body has one distinct value per record and counting
  * them is pure waste. Objects are skipped too: there is no sane dropdown entry for a subtree.
  */
-export function distinctValues(store: Store, collection: string, field: string, { limit = DEFAULT_LIMIT }: { limit?: number } = {}) {
-	const d = store.descriptor(collection);
-	const prop = fieldsOf(d)[field];
-	if (!prop && field !== 'id') {
-		throw new Error(`unknown field "${field}" on ${collection} (known: ${Object.keys(fieldsOf(d)).join(', ')})`);
-	}
-	if (prop?.body) return { collection, field, values: [], total: 0, truncated: false, skipped: 'body' };
-	if (prop?.type === 'object' || prop?.type === 'map') return { collection, field, values: [], total: 0, truncated: false, skipped: 'object' };
+export function distinctValues(
+  store: Store,
+  collection: string,
+  field: string,
+  { limit = DEFAULT_LIMIT }: { limit?: number } = {}
+) {
+  const d = store.descriptor(collection)
+  const prop = fieldsOf(d)[field]
+  if (!prop && field !== "id") {
+    throw new Error(`unknown field "${field}" on ${collection} (known: ${Object.keys(fieldsOf(d)).join(", ")})`)
+  }
+  if (prop?.body) return { collection, field, values: [], total: 0, truncated: false, skipped: "body" }
+  if (prop?.type === "object" || prop?.type === "map")
+    return { collection, field, values: [], total: 0, truncated: false, skipped: "object" }
 
-	// An enum already IS the vocabulary — hand it back verbatim (counts omitted: the schema's
-	// answer must not shrink just because no record happens to use a legal value yet).
-	const declared = prop?.enum === undefined ? undefined : enumValues(prop.enum);
-	if (Array.isArray(declared) && declared.length) {
-		return { collection, field, values: declared.map((value) => ({ value, count: null })), total: declared.length, truncated: false, source: 'enum' };
-	}
+  // An enum already IS the vocabulary — hand it back verbatim (counts omitted: the schema's
+  // answer must not shrink just because no record happens to use a legal value yet).
+  const declared = prop?.enum === undefined ? undefined : enumValues(prop.enum)
+  if (Array.isArray(declared) && declared.length) {
+    return {
+      collection,
+      field,
+      values: declared.map(value => ({ value, count: null })),
+      total: declared.length,
+      truncated: false,
+      source: "enum",
+    }
+  }
 
-	const bf = bodyField(d);
-	const counts = new Map();
-	for (const { id, fields } of store.readAll(collection)) {
-		const raw = field === 'id' ? id : fields[field];
-		if (raw == null || raw === '' || (bf && field === bf)) continue;
-		for (const v of Array.isArray(raw) ? raw : [raw]) {
-			if (v == null || v === '' || typeof v === 'object') continue;
-			counts.set(v, (counts.get(v) ?? 0) + 1);
-		}
-	}
+  const bf = bodyField(d)
+  const counts = new Map()
+  for (const { id, fields } of store.readAll(collection)) {
+    const raw = field === "id" ? id : fields[field]
+    if (raw == null || raw === "" || (bf && field === bf)) continue
+    for (const v of Array.isArray(raw) ? raw : [raw]) {
+      if (v == null || v === "" || typeof v === "object") continue
+      counts.set(v, (counts.get(v) ?? 0) + 1)
+    }
+  }
 
-	const sorted = [...counts.entries()]
-		.sort((a, b) => b[1] - a[1] || String(a[0]).localeCompare(String(b[0])))
-		.map(([value, count]) => ({ value, count }));
+  const sorted = [...counts.entries()]
+    .sort((a, b) => b[1] - a[1] || String(a[0]).localeCompare(String(b[0])))
+    .map(([value, count]) => ({ value, count }))
 
-	return {
-		collection,
-		field,
-		values: sorted.slice(0, limit),
-		total: sorted.length,
-		truncated: sorted.length > limit,
-		source: 'data',
-	};
+  return {
+    collection,
+    field,
+    values: sorted.slice(0, limit),
+    total: sorted.length,
+    truncated: sorted.length > limit,
+    source: "data",
+  }
 }

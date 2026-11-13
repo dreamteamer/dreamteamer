@@ -4,9 +4,9 @@
 // source has: a file header, a comment above a NESTED property, an inline flow sequence, an inline
 // flow mapping, a trailing comment (single- and multi-line), and a hand-folded block scalar. Every
 // one of those was destroyed or reflowed by the `load` → mutate → `dump` path this replaces.
-import { test, describe } from 'node:test';
-import assert from 'node:assert/strict';
-import { load, dump, writeSource, renameKeys, commentCount, formatSource } from '../../src/yaml.ts';
+import { test, describe } from "node:test"
+import assert from "node:assert/strict"
+import { load, dump, writeSource, renameKeys, commentCount, formatSource } from "../../src/yaml.ts"
 
 /** A descriptor carrying every construct the old write path damaged. */
 const DESCRIPTOR = `# THINGS — this header is why the collection exists, and it is the whole reason
@@ -35,17 +35,20 @@ schema:
       type: string
       format: markdown
       x-body: true
-`;
+`
 
-const linesOf = (t) => t.split('\n');
+const linesOf = t => t.split("\n")
 /** The lines present in `a` and absent from `b` — what a write LOST. */
-const lost = (a, b) => { const s = new Set(linesOf(b)); return linesOf(a).filter((l) => !s.has(l)); };
-const gained = (a, b) => lost(b, a);
+const lost = (a, b) => {
+  const s = new Set(linesOf(b))
+  return linesOf(a).filter(l => !s.has(l))
+}
+const gained = (a, b) => lost(b, a)
 
-describe('writeSource — parse semantics match the CORE schema `load` uses', () => {
-	// src/yaml.ts exists so an unquoted date stays a string. The round-trip writer parses with the
-	// `yaml` package instead of js-yaml, so the two MUST agree or a rewrite would retype a value.
-	const CASES = `date: 2026-08-12
+describe("writeSource — parse semantics match the CORE schema `load` uses", () => {
+  // src/yaml.ts exists so an unquoted date stays a string. The round-trip writer parses with the
+  // `yaml` package instead of js-yaml, so the two MUST agree or a rewrite would retype a value.
+  const CASES = `date: 2026-08-12
 starts: 2026-08-12T09:00:00
 version: 1.2.3
 nope: no
@@ -54,107 +57,136 @@ on_: on
 id: 42
 ratio: 1.5
 quoted: '2026-08-12'
-`;
-	test('both parsers agree on every value the engine cares about', () => {
-		const viaLoad = load(CASES);
-		// writeSource with an unchanged value must not alter a single byte — which is only true if its
-		// own parse produced exactly the same values
-		assert.equal(writeSource(CASES, viaLoad), CASES);
-	});
+`
+  test("both parsers agree on every value the engine cares about", () => {
+    const viaLoad = load(CASES)
+    // writeSource with an unchanged value must not alter a single byte — which is only true if its
+    // own parse produced exactly the same values
+    assert.equal(writeSource(CASES, viaLoad), CASES)
+  })
 
-	test('an unquoted date, timestamp and version stay STRINGS', () => {
-		const v = load(CASES);
-		for (const k of ['date', 'starts', 'version', 'nope', 'yes_', 'on_', 'quoted']) {
-			assert.equal(typeof v[k], 'string', `${k} parsed as ${typeof v[k]}, not a string`);
-		}
-		assert.equal(typeof v.id, 'number');
-		assert.equal(typeof v.ratio, 'number');
-	});
-});
+  test("an unquoted date, timestamp and version stay STRINGS", () => {
+    const v = load(CASES)
+    for (const k of ["date", "starts", "version", "nope", "yes_", "on_", "quoted"]) {
+      assert.equal(typeof v[k], "string", `${k} parsed as ${typeof v[k]}, not a string`)
+    }
+    assert.equal(typeof v.id, "number")
+    assert.equal(typeof v.ratio, "number")
+  })
+})
 
-describe('writeSource — an unchanged value is byte-identical', () => {
-	test('a no-op write returns the source unaltered', () => {
-		assert.equal(writeSource(DESCRIPTOR, load(DESCRIPTOR)), DESCRIPTOR);
-	});
+describe("writeSource — an unchanged value is byte-identical", () => {
+  test("a no-op write returns the source unaltered", () => {
+    assert.equal(writeSource(DESCRIPTOR, load(DESCRIPTOR)), DESCRIPTOR)
+  })
 
-	test('a null previousText dumps, exactly as a brand-new file always did', () => {
-		const v = { name: 'things', order: 1 };
-		assert.equal(writeSource(null, v), dump(v));
-	});
-});
+  test("a null previousText dumps, exactly as a brand-new file always did", () => {
+    const v = { name: "things", order: 1 }
+    assert.equal(writeSource(null, v), dump(v))
+  })
+})
 
-describe('writeSource — a mutation changes ONLY what it mutates', () => {
-	test('adding a field leaves every other byte alone', () => {
-		const out = writeSource(DESCRIPTOR, (() => {
-			const d = load(DESCRIPTOR);
-			// insert before the x-body field, as upsertField does
-			const props = {};
-			for (const [k, v] of Object.entries(d.schema.properties)) {
-				if (k === 'body') props.tags = { type: 'array', items: { type: 'string' } };
-				props[k] = v;
-			}
-			d.schema.properties = props;
-			return d;
-		})());
-		assert.deepEqual(lost(DESCRIPTOR, out), [], 'a line was lost that the mutation never named');
-		assert.deepEqual(gained(DESCRIPTOR, out), ['    tags:', '      type: array', '      items:', '        type: string']);
-	});
+describe("writeSource — a mutation changes ONLY what it mutates", () => {
+  test("adding a field leaves every other byte alone", () => {
+    const out = writeSource(
+      DESCRIPTOR,
+      (() => {
+        const d = load(DESCRIPTOR)
+        // insert before the x-body field, as upsertField does
+        const props = {}
+        for (const [k, v] of Object.entries(d.schema.properties)) {
+          if (k === "body") props.tags = { type: "array", items: { type: "string" } }
+          props[k] = v
+        }
+        d.schema.properties = props
+        return d
+      })()
+    )
+    assert.deepEqual(lost(DESCRIPTOR, out), [], "a line was lost that the mutation never named")
+    assert.deepEqual(gained(DESCRIPTOR, out), [
+      "    tags:",
+      "      type: array",
+      "      items:",
+      "        type: string",
+    ])
+  })
 
-	test('add then remove is byte-identical — the net-zero probe that found the original bug', () => {
-		const added = writeSource(DESCRIPTOR, (() => {
-			const d = load(DESCRIPTOR);
-			d.schema.properties = { tags: { type: 'array' }, ...d.schema.properties };
-			return d;
-		})());
-		assert.notEqual(added, DESCRIPTOR);
-		const back = writeSource(added, (() => {
-			const d = load(added);
-			delete d.schema.properties.tags;
-			return d;
-		})());
-		assert.equal(back, DESCRIPTOR);
-	});
+  test("add then remove is byte-identical — the net-zero probe that found the original bug", () => {
+    const added = writeSource(
+      DESCRIPTOR,
+      (() => {
+        const d = load(DESCRIPTOR)
+        d.schema.properties = { tags: { type: "array" }, ...d.schema.properties }
+        return d
+      })()
+    )
+    assert.notEqual(added, DESCRIPTOR)
+    const back = writeSource(
+      added,
+      (() => {
+        const d = load(added)
+        delete d.schema.properties.tags
+        return d
+      })()
+    )
+    assert.equal(back, DESCRIPTOR)
+  })
 
-	test('a NESTED comment survives — the limit the textual workaround could not pass', () => {
-		const out = writeSource(DESCRIPTOR, (() => {
-			const d = load(DESCRIPTOR);
-			d.schema.properties.status = { type: 'string' };
-			return d;
-		})());
-		assert.match(out, /# the importer keys on this/);
-		assert.match(out, /# spelled the way the upstream spells it/);
-		assert.equal(commentCount(out), commentCount(DESCRIPTOR));
-	});
+  test("a NESTED comment survives — the limit the textual workaround could not pass", () => {
+    const out = writeSource(
+      DESCRIPTOR,
+      (() => {
+        const d = load(DESCRIPTOR)
+        d.schema.properties.status = { type: "string" }
+        return d
+      })()
+    )
+    assert.match(out, /# the importer keys on this/)
+    assert.match(out, /# spelled the way the upstream spells it/)
+    assert.equal(commentCount(out), commentCount(DESCRIPTOR))
+  })
 
-	test('the file header, the flow forms and the hand-folded scalar all survive an edit', () => {
-		const out = writeSource(DESCRIPTOR, (() => {
-			const d = load(DESCRIPTOR);
-			d.order = 16;
-			return d;
-		})());
-		assert.match(out, /^# THINGS — this header is why the collection exists/);
-		assert.match(out, /^templates: \[provenance\]$/m, 'an inline flow sequence was expanded');
-		assert.match(out, /^storage: \{ path: data\/things, suffix: thing \}$/m, 'an inline flow mapping was expanded');
-		assert.match(out, /^ {8}The id the upstream system knows this by, hand-wrapped at a width the$/m, 'a hand-folded scalar was re-wrapped');
-		assert.match(out, /^icon: star {12}# not `lightbulb`/m, 'a trailing comment lost its alignment');
-		assert.match(out, /^ {22}# identical icons in one nav/m, 'a multi-line trailing comment lost a line');
-		// the value changed, so its line is re-emitted and the comment's hand-alignment goes with it —
-		// the ONE line the edit named, and nothing else in the file
-		assert.deepEqual(gained(DESCRIPTOR, out), ['order: 16 # immediately after summaries (14) — it is the layer above it']);
-	});
+  test("the file header, the flow forms and the hand-folded scalar all survive an edit", () => {
+    const out = writeSource(
+      DESCRIPTOR,
+      (() => {
+        const d = load(DESCRIPTOR)
+        d.order = 16
+        return d
+      })()
+    )
+    assert.match(out, /^# THINGS — this header is why the collection exists/)
+    assert.match(out, /^templates: \[provenance\]$/m, "an inline flow sequence was expanded")
+    assert.match(out, /^storage: \{ path: data\/things, suffix: thing \}$/m, "an inline flow mapping was expanded")
+    assert.match(
+      out,
+      /^ {8}The id the upstream system knows this by, hand-wrapped at a width the$/m,
+      "a hand-folded scalar was re-wrapped"
+    )
+    assert.match(out, /^icon: star {12}# not `lightbulb`/m, "a trailing comment lost its alignment")
+    assert.match(out, /^ {22}# identical icons in one nav/m, "a multi-line trailing comment lost a line")
+    // the value changed, so its line is re-emitted and the comment's hand-alignment goes with it —
+    // the ONE line the edit named, and nothing else in the file
+    assert.deepEqual(gained(DESCRIPTOR, out), [
+      "order: 16 # immediately after summaries (14) — it is the layer above it",
+    ])
+  })
 
-	test('a scalar deep inside the schema changes on its own line only', () => {
-		const out = writeSource(DESCRIPTOR, (() => {
-			const d = load(DESCRIPTOR);
-			d.schema.properties.name.type = 'integer';
-			return d;
-		})());
-		assert.deepEqual(lost(DESCRIPTOR, out), []);
-		assert.deepEqual(gained(DESCRIPTOR, out), ['      type: integer']);
-	});
+  test("a scalar deep inside the schema changes on its own line only", () => {
+    const out = writeSource(
+      DESCRIPTOR,
+      (() => {
+        const d = load(DESCRIPTOR)
+        d.schema.properties.name.type = "integer"
+        return d
+      })()
+    )
+    assert.deepEqual(lost(DESCRIPTOR, out), [])
+    assert.deepEqual(gained(DESCRIPTOR, out), ["      type: integer"])
+  })
 
-	test('an x-reference retarget rewrites the reference and nothing else', () => {
-		const src = `# why this collection points where it does
+  test("an x-reference retarget rewrites the reference and nothing else", () => {
+    const src = `# why this collection points where it does
 name: visits
 schema:
   properties:
@@ -163,161 +195,183 @@ schema:
       x-reference: doctors
     others: { type: array, items: { type: string, x-reference: doctors } }
     tags: [a, b]
-`;
-		const out = writeSource(src, (() => {
-			const d = load(src);
-			d.schema.properties.doctor['x-reference'] = 'health/doctors';
-			d.schema.properties.others.items['x-reference'] = 'health/doctors';
-			return d;
-		})());
-		assert.match(out, /^# why this collection points where it does$/m);
-		assert.match(out, /^ {6}x-reference: health\/doctors$/m);
-		// the inline flow form is the one the old textual retarget failed on
-		assert.match(out, /^ {4}others: \{type: array, items: \{type: string, x-reference: health\/doctors\}\}$/m);
-		assert.match(out, /^ {4}tags: \[a, b\]$/m);
-		assert.equal(load(out).schema.properties.others.items['x-reference'], 'health/doctors');
-	});
+`
+    const out = writeSource(
+      src,
+      (() => {
+        const d = load(src)
+        d.schema.properties.doctor["x-reference"] = "health/doctors"
+        d.schema.properties.others.items["x-reference"] = "health/doctors"
+        return d
+      })()
+    )
+    assert.match(out, /^# why this collection points where it does$/m)
+    assert.match(out, /^ {6}x-reference: health\/doctors$/m)
+    // the inline flow form is the one the old textual retarget failed on
+    assert.match(out, /^ {4}others: \{type: array, items: \{type: string, x-reference: health\/doctors\}\}$/m)
+    assert.match(out, /^ {4}tags: \[a, b\]$/m)
+    assert.equal(load(out).schema.properties.others.items["x-reference"], "health/doctors")
+  })
 
-	test('a list loses one entry without disturbing the rest of the file', () => {
-		const out = writeSource(DESCRIPTOR, (() => {
-			const d = load(DESCRIPTOR);
-			d.list_fields = ['name'];
-			return d;
-		})());
-		assert.deepEqual(gained(DESCRIPTOR, out), ['list_fields: [name]']); // unpadded, as every flow sequence in a real corpus is
-	});
-});
+  test("a list loses one entry without disturbing the rest of the file", () => {
+    const out = writeSource(
+      DESCRIPTOR,
+      (() => {
+        const d = load(DESCRIPTOR)
+        d.list_fields = ["name"]
+        return d
+      })()
+    )
+    assert.deepEqual(gained(DESCRIPTOR, out), ["list_fields: [name]"]) // unpadded, as every flow sequence in a real corpus is
+  })
+})
 
-describe('writeSource — a comment in a LIST stays on the item it explains', () => {
-	// ⚠ Index-matching a sequence hands a comment to whatever slides into that slot. Dropping the
-	// first entry of `required: [name, vendor_code]` moved "name is required because…" on top of
-	// `vendor_code` — an explanation attached to something it does not explain, which is worse than
-	// losing it. Items are matched by VALUE first for exactly this reason.
-	const LIST = `required:
+describe("writeSource — a comment in a LIST stays on the item it explains", () => {
+  // ⚠ Index-matching a sequence hands a comment to whatever slides into that slot. Dropping the
+  // first entry of `required: [name, vendor_code]` moved "name is required because…" on top of
+  // `vendor_code` — an explanation attached to something it does not explain, which is worse than
+  // losing it. Items are matched by VALUE first for exactly this reason.
+  const LIST = `required:
   # explains the list as a whole — the parser attaches a first-position comment to the SEQUENCE
   - name
   # explains vendor_code specifically
   - vendor_code
   - colour
-`;
+`
 
-	test('removing a commented entry takes its comment with it', () => {
-		const v = load(LIST);
-		v.required = ['name', 'colour'];
-		const out = writeSource(LIST, v);
-		assert.doesNotMatch(out, /explains vendor_code specifically/);
-		assert.match(out, /# explains the list as a whole/, 'the sequence-level comment is not the item\'s');
-		assert.deepEqual(load(out).required, ['name', 'colour']);
-	});
+  test("removing a commented entry takes its comment with it", () => {
+    const v = load(LIST)
+    v.required = ["name", "colour"]
+    const out = writeSource(LIST, v)
+    assert.doesNotMatch(out, /explains vendor_code specifically/)
+    assert.match(out, /# explains the list as a whole/, "the sequence-level comment is not the item's")
+    assert.deepEqual(load(out).required, ["name", "colour"])
+  })
 
-	test('inserting an entry does not shift any comment onto a different item', () => {
-		const v = load(LIST);
-		v.required = ['name', 'shape', 'vendor_code', 'colour'];
-		const out = writeSource(LIST, v);
-		assert.match(out, /# explains vendor_code specifically\n {2}- vendor_code/, 'the comment followed its item past the insertion');
-	});
+  test("inserting an entry does not shift any comment onto a different item", () => {
+    const v = load(LIST)
+    v.required = ["name", "shape", "vendor_code", "colour"]
+    const out = writeSource(LIST, v)
+    assert.match(
+      out,
+      /# explains vendor_code specifically\n {2}- vendor_code/,
+      "the comment followed its item past the insertion"
+    )
+  })
 
-	test('an in-place edit KEEPS the comment on that position — the retarget case', () => {
-		const src = `about:
+  test("an in-place edit KEEPS the comment on that position — the retarget case", () => {
+    const src = `about:
   x-reference:
     # the clinic side of the join
     - doctors
     - clients
-`;
-		const v = load(src);
-		v.about['x-reference'] = ['health/doctors', 'clients'];
-		const out = writeSource(src, v);
-		assert.match(out, /# the clinic side of the join\n {4}- health\/doctors/);
-	});
-});
+`
+    const v = load(src)
+    v.about["x-reference"] = ["health/doctors", "clients"]
+    const out = writeSource(src, v)
+    assert.match(out, /# the clinic side of the join\n {4}- health\/doctors/)
+  })
+})
 
-describe('writeSource — it fails closed rather than writing something wrong', () => {
-	test('the value written is always exactly the value asked for', () => {
-		const v = load(DESCRIPTOR);
-		v.schema.properties.external_id.description = 'a short one now';
-		v.storage.suffix = 'item';
-		v.templates = ['provenance', 'docs'];
-		assert.deepEqual(load(writeSource(DESCRIPTOR, v)), v);
-	});
+describe("writeSource — it fails closed rather than writing something wrong", () => {
+  test("the value written is always exactly the value asked for", () => {
+    const v = load(DESCRIPTOR)
+    v.schema.properties.external_id.description = "a short one now"
+    v.storage.suffix = "item"
+    v.templates = ["provenance", "docs"]
+    assert.deepEqual(load(writeSource(DESCRIPTOR, v)), v)
+  })
 
-	test('a whole subtree replaced by a different shape still round-trips its value', () => {
-		const v = load(DESCRIPTOR);
-		v.storage = 'not-a-map-any-more';
-		assert.equal(load(writeSource(DESCRIPTOR, v)).storage, 'not-a-map-any-more');
-	});
-});
+  test("a whole subtree replaced by a different shape still round-trips its value", () => {
+    const v = load(DESCRIPTOR)
+    v.storage = "not-a-map-any-more"
+    assert.equal(load(writeSource(DESCRIPTOR, v)).storage, "not-a-map-any-more")
+  })
+})
 
-describe('commentCount', () => {
-	test('counts comment lines wherever they are indented', () => {
-		assert.equal(commentCount(DESCRIPTOR), 5);
-		assert.equal(commentCount('a: 1\n'), 0);
-		assert.equal(commentCount('a: 1 # trailing does not count as its own line\n'), 0);
-	});
-});
+describe("commentCount", () => {
+  test("counts comment lines wherever they are indented", () => {
+    assert.equal(commentCount(DESCRIPTOR), 5)
+    assert.equal(commentCount("a: 1\n"), 0)
+    assert.equal(commentCount("a: 1 # trailing does not count as its own line\n"), 0)
+  })
+})
 
-describe('renameKeys — a key renamed in the bytes keeps its pair', () => {
-	const SRC = [
-		'fields:',
-		'  status:',
-		'    type: string',
-		'    # the comment INSIDE the pair being renamed',
-		'    enum: [booked, seen]',
-		'  date: { type: date }',
-		'constraints:',
-		'  - if:',
-		'      properties:',
-		"        'status': { const: seen }",
-		'',
-	].join('\n');
+describe("renameKeys — a key renamed in the bytes keeps its pair", () => {
+  const SRC = [
+    "fields:",
+    "  status:",
+    "    type: string",
+    "    # the comment INSIDE the pair being renamed",
+    "    enum: [booked, seen]",
+    "  date: { type: date }",
+    "constraints:",
+    "  - if:",
+    "      properties:",
+    "        'status': { const: seen }",
+    "",
+  ].join("\n")
 
-	test('a nested key, a key under a list, and a quoted key, each renamed in place', () => {
-		const out = renameKeys(SRC, [
-			{ path: ['fields', 'status'], to: 'state' },
-			{ path: ['constraints', 0, 'if', 'properties', 'status'], to: 'state' },
-		]);
-		assert.equal(out, SRC.replace('  status:', '  state:').replace("'status':", "'state':"));
-	});
+  test("a nested key, a key under a list, and a quoted key, each renamed in place", () => {
+    const out = renameKeys(SRC, [
+      { path: ["fields", "status"], to: "state" },
+      { path: ["constraints", 0, "if", "properties", "status"], to: "state" },
+    ])
+    assert.equal(out, SRC.replace("  status:", "  state:").replace("'status':", "'state':"))
+  })
 
-	test('then writeSource keeps the comment the pair carried, which a value-level rename loses', () => {
-		const value = load(SRC);
-		value.fields = { state: value.fields.status, date: value.fields.date };
-		assert.ok(commentCount(writeSource(SRC, value)) < commentCount(SRC), 'without renameKeys the pair is replaced and its comment goes');
-		const kept = writeSource(renameKeys(SRC, [{ path: ['fields', 'status'], to: 'state' }]), value);
-		assert.equal(commentCount(kept), commentCount(SRC));
-		assert.deepEqual(load(kept), value);
-	});
+  test("then writeSource keeps the comment the pair carried, which a value-level rename loses", () => {
+    const value = load(SRC)
+    value.fields = { state: value.fields.status, date: value.fields.date }
+    assert.ok(
+      commentCount(writeSource(SRC, value)) < commentCount(SRC),
+      "without renameKeys the pair is replaced and its comment goes"
+    )
+    const kept = writeSource(renameKeys(SRC, [{ path: ["fields", "status"], to: "state" }]), value)
+    assert.equal(commentCount(kept), commentCount(SRC))
+    assert.deepEqual(load(kept), value)
+  })
 
-	test('a path naming no key is skipped', () => {
-		assert.equal(renameKeys(SRC, [{ path: ['fields', 'nope'], to: 'x' }, { path: ['missing', 'a'], to: 'b' }]), SRC);
-	});
-});
+  test("a path naming no key is skipped", () => {
+    assert.equal(
+      renameKeys(SRC, [
+        { path: ["fields", "nope"], to: "x" },
+        { path: ["missing", "a"], to: "b" },
+      ]),
+      SRC
+    )
+  })
+})
 
 // `formatSource` is `dt fmt`'s pure half: the flow forms block style replaces, and the two things it
 // must leave alone — a flow sequence of scalars, and a file header that a moving key could carry off.
-describe('formatSource', () => {
-	const ORDER = ['name', 'storage', 'fields', 'constraints'];
-	const SRC = `# header\n\nfields: { b: { type: string }, a: { type: string, enum: [x, y] } }\nconstraints:\n  - { if: { required: [a] }, then: { required: [b] } }\nstorage: { path: data/t }\nname: t\n`;
-	test('flow mappings and flow sequences holding one become block; a scalar flow sequence stays', () => {
-		const out = formatSource(SRC, ORDER);
-		assert.deepEqual(load(out), load(SRC));
-		assert.doesNotMatch(out, /\{/);
-		assert.match(out, /enum: \[x, y\]/);
-		assert.match(out, /^ {2}- if:\n/m);
-		assert.deepEqual(Object.keys(load(out)), ORDER);
-		assert.deepEqual(Object.keys(load(out).fields), ['b', 'a']);
-	});
-	test('the file header stays on top, and a second pass is the identity', () => {
-		const out = formatSource(SRC, ORDER);
-		assert.ok(out.startsWith('# header\n\nname: t\n'), out);
-		assert.equal(formatSource(out, ORDER), out);
-	});
-});
+describe("formatSource", () => {
+  const ORDER = ["name", "storage", "fields", "constraints"]
+  const SRC = `# header\n\nfields: { b: { type: string }, a: { type: string, enum: [x, y] } }\nconstraints:\n  - { if: { required: [a] }, then: { required: [b] } }\nstorage: { path: data/t }\nname: t\n`
+  test("flow mappings and flow sequences holding one become block; a scalar flow sequence stays", () => {
+    const out = formatSource(SRC, ORDER)
+    assert.deepEqual(load(out), load(SRC))
+    assert.doesNotMatch(out, /\{/)
+    assert.match(out, /enum: \[x, y\]/)
+    assert.match(out, /^ {2}- if:\n/m)
+    assert.deepEqual(Object.keys(load(out)), ORDER)
+    assert.deepEqual(Object.keys(load(out).fields), ["b", "a"])
+  })
+  test("the file header stays on top, and a second pass is the identity", () => {
+    const out = formatSource(SRC, ORDER)
+    assert.ok(out.startsWith("# header\n\nname: t\n"), out)
+    assert.equal(formatSource(out, ORDER), out)
+  })
+})
 
-describe('writeSource — an empty flow map is a placeholder', () => {
-	test('filling `fields: {}` writes block style; a flow map that already holds keys keeps its style', () => {
-		const filled = writeSource('name: staff\nfields: {}\n', { name: 'staff', fields: { role: { type: 'string' } } });
-		assert.equal(filled, 'name: staff\nfields:\n  role:\n    type: string\n');
-		const kept = writeSource('name: staff\nstorage: { suffix: s }\n', { name: 'staff', storage: { suffix: 's', path: 'x' } });
-		assert.match(kept, /storage: \{/);
-	});
-});
+describe("writeSource — an empty flow map is a placeholder", () => {
+  test("filling `fields: {}` writes block style; a flow map that already holds keys keeps its style", () => {
+    const filled = writeSource("name: staff\nfields: {}\n", { name: "staff", fields: { role: { type: "string" } } })
+    assert.equal(filled, "name: staff\nfields:\n  role:\n    type: string\n")
+    const kept = writeSource("name: staff\nstorage: { suffix: s }\n", {
+      name: "staff",
+      storage: { suffix: "s", path: "x" },
+    })
+    assert.match(kept, /storage: \{/)
+  })
+})
