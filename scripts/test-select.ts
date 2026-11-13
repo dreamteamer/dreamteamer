@@ -1,7 +1,7 @@
 // Which tier-2 files a working-tree change should run — the selection behind `npm run verify:fast`.
 //
 // Pure: it takes the changed paths and the test files' sources and returns a decision, so the rule is
-// testable without git (test/unit/test-select.test.js). The git glue lives in scripts/test.mjs.
+// testable without git (test/unit/test-select.test.js). The git glue lives in scripts/test.ts.
 //
 // WHY A HEURISTIC AND NOT AN IMPORT GRAPH: every tier-2 file drives the real CLI binary, and the CLI
 // imports all of src/ — an import graph would select every file for every change, which is the full

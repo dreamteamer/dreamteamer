@@ -56,9 +56,7 @@
 		"commands",
 		"command-bindings",
 		"ui-views",
-		"mixins",
-		"scripts/migrate-descriptors-v2.mjs",
-		"scripts/migrate-stubs.mjs"
+		"mixins"
 	],
 	"dependencies": {
 		"ajv": "^8.17.1",
@@ -71,22 +69,23 @@
 		"title": "System"
 	},
 	"scripts": {
-		"build": "node scripts/build.mjs",
-		"prepack": "node scripts/build.mjs",
+		"build": "tsx scripts/build.ts",
+		"prepack": "tsx scripts/build.ts",
 		"typecheck": "tsc -p tsconfig.json",
-		"contract": "node scripts/contract.mjs",
-		"test": "node scripts/test.mjs",
-		"test:unit": "node scripts/test.mjs --unit",
-		"test:watch": "node --watch scripts/test.mjs --unit",
+		"contract": "node scripts/contract.ts",
+		"test": "node scripts/test.ts",
+		"test:unit": "node scripts/test.ts --unit",
+		"test:watch": "node --watch scripts/test.ts --unit",
 		"perf": "node test/perf/run.mjs",
-		"metrics": "node scripts/metrics.mjs",
-		"metrics:check": "node scripts/metrics.mjs --check",
-		"layers": "node scripts/layers.mjs",
-		"verify": "node scripts/layers.mjs && node scripts/metrics.mjs --check && tsc -p tsconfig.json && node scripts/test.mjs",
-		"verify:fast": "node scripts/layers.mjs && node scripts/metrics.mjs --check && tsc -p tsconfig.json && node scripts/test.mjs --changed"
+		"metrics": "node scripts/metrics.ts",
+		"metrics:check": "node scripts/metrics.ts --check",
+		"layers": "node scripts/layers.ts",
+		"verify": "node scripts/layers.ts && node scripts/metrics.ts --check && tsc -p tsconfig.json && node scripts/test.ts",
+		"verify:fast": "node scripts/layers.ts && node scripts/metrics.ts --check && tsc -p tsconfig.json && node scripts/test.ts --changed"
 	},
 	"devDependencies": {
 		"@types/node": "^22.20.5",
+		"tsx": "^4.23.15",
 		"typescript": "^7.0.2"
 	}
 }

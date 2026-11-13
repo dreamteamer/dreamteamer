@@ -177,7 +177,7 @@ describe('a v2 descriptor is refused, with the fix in the message', () => {
 		const err = compileError(w.ws);
 		assert.match(err, /1 source\(s\) are in the v1 descriptor format, which this engine no longer reads/);
 		assert.match(err, /modules\/billing\/collections\/health\/visits\.collection\.yaml/);
-		assert.match(err, /migrate-descriptors-v2\.mjs --root \./);
+		assert.match(err, /node_modules\/dreamteamer\/dist\/scripts\/migrate-descriptors-v2\.js --root \./);
 		assert.match(err, /UPDATING\.md/);
 	});
 	test('a runtime an older engine wrote is replaced, not refused', () => {
@@ -197,7 +197,7 @@ describe('a v2 descriptor is refused, with the fix in the message', () => {
 		const w = workspace({ compile: false, pkg: { 'data-path': 'data' } });
 		const err = compileError(w.ws);
 		assert.match(err, /package\.json: the dreamteamer block is in the v1 spelling \(data-path\)/);
-		assert.match(err, /migrate-descriptors-v2\.mjs --root \./);
+		assert.match(err, /node_modules\/dreamteamer\/dist\/scripts\/migrate-descriptors-v2\.js --root \./);
 	});
 });
 

@@ -40,7 +40,7 @@ import type { Workspace, LoadedExtension } from './types.ts';
 /** The keys a package.json `dreamteamer` block may carry — the workspace's and a module's alike. */
 export const MANIFEST_KEYS = ['title', 'description', 'workspace_module', 'data_path', 'namespaces', 'vars', 'env', 'auto_commit', 'harnesses', 'git_modules', 'disable', 'local_assets', 'postinstall', 'gitignore_runtime_folder', 'repos_path', 'dependencies', 'peer_collections', 'owns_data', 'engine', 'extension', 'ignore', 'provides', 'setup'];
 /** The one command that converts a workspace to descriptor format v2. */
-export const CONVERTER = 'node node_modules/dreamteamer/scripts/migrate-descriptors-v2.mjs --root .';
+export const CONVERTER = 'node node_modules/dreamteamer/dist/scripts/migrate-descriptors-v2.js --root .';
 
 /**
  * The refusal for a `dreamteamer` block in the v1 spelling — a kebab-case spelling of a key this

@@ -520,7 +520,7 @@ describe('the orientation block names the workspace', () => {
 		assert.ok(warnings.some((w) => w.includes('collection widgets has no description')), warnings.join('\n'));
 	});
 
-	// The budget scripts/metrics.mjs cannot hold: it measures the ENGINE repo, and this block is
+	// The budget scripts/metrics.ts cannot hold: it measures the ENGINE repo, and this block is
 	// generated per WORKSPACE. Raising this is a deliberate act — do it in the same commit as the
 	// growth and say why, exactly like metrics.json.
 	test('a workspace that has added nothing gets a SMALL block', () => {

@@ -2,9 +2,9 @@
 // Size and complexity of the engine, measured so "keep core lean" can be a number instead of a
 // feeling.
 //
-//   node scripts/metrics.mjs            report
-//   node scripts/metrics.mjs --check    report + exit 1 if anything grew past its budget
-//   node scripts/metrics.mjs --update   rewrite metrics.json from reality (the deliberate act)
+//   node scripts/metrics.ts            report
+//   node scripts/metrics.ts --check    report + exit 1 if anything grew past its budget
+//   node scripts/metrics.ts --update   rewrite metrics.json from reality (the deliberate act)
 //
 // WHY A BUDGET AND NOT JUST A REPORT: every addition to core arrives with a good local reason, and
 // nothing ever argues for removal. A budget makes growth cost a conversation. `--check` failing is
@@ -123,7 +123,7 @@ if (base?.budgets) {
 	const flat = (o, pre = '') => Object.entries(o).flatMap(([k, v]) =>
 		typeof v === 'object' ? flat(v, `${pre}${k}.`) : [[`${pre}${k}`, v]]);
 	const cur = Object.fromEntries(flat(now));
-	for (const [key, budget] of Object.entries(base.budgets)) {
+	for (const [key, budget] of Object.entries<number>(base.budgets)) {
 		const v = cur[key];
 		if (v === undefined) continue;
 		const over = v > budget;
@@ -137,7 +137,7 @@ if (base?.budgets) {
 		console.log(`      Test: does the ENGINE read it? (the three questions are in CLAUDE.md)`);
 		console.log(`    · Could it live in a module instead, and be copied by whoever wants it?`);
 		console.log(`    · If it genuinely belongs here, raise the budget IN THE SAME COMMIT`);
-		console.log(`      (\`node scripts/metrics.mjs --update\`) so the growth is a recorded decision.`);
+		console.log(`      (\`node scripts/metrics.ts --update\`) so the growth is a recorded decision.`);
 	}
 }
 

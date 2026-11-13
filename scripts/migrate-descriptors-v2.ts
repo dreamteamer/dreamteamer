@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // migrate-descriptors-v2 — rewrite a workspace's v1 descriptor sources in descriptor format v2.
 //
-//   node node_modules/dreamteamer/scripts/migrate-descriptors-v2.mjs [--root <workspace>] [--dry-run]
+//   node node_modules/dreamteamer/dist/scripts/migrate-descriptors-v2.js [--root <workspace>] [--dry-run]
 //
 // What it rewrites, under the workspace's own sources (`modules/*/` and a classic root layout):
 //   - every `*.collection.yaml`, and every `*.collection-template.yaml`, which becomes `mixins/<id>.mixin.yaml`;
@@ -29,14 +29,14 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parseDocument, isMap, isSeq, isScalar, isPair, Scalar, visit } from 'yaml';
+import { parseDocument, isMap, isSeq, isScalar, isPair, Scalar, visit, type YAMLMap } from 'yaml';
 import { execFileSync } from 'node:child_process';
-// Shipped in the npm package (dist/, no src/) and run from a checkout (src/, maybe no dist/) — the
-// rule of bin/dreamteamer.js: the source when it is present.
-const engine = (name) => import(new URL(fs.existsSync(new URL('../src/store.ts', import.meta.url)) ? `../src/${name}.ts` : `../dist/${name}.js`, import.meta.url).href);
-const { singular } = await engine('namespace');
-const { MANIFEST_KEYS } = await engine('extensions');
-const { V2_KEYS: V2_ORDER } = await engine('descriptor-v2');
+// Run from a checkout (scripts/x.ts beside src/) and from the npm package (built to dist/scripts/x.js,
+// one level under the engine's dist/*.js) — the rule of bin/dreamteamer.js: the source when present.
+const engine = <M>(name: string): Promise<M> => import(new URL(fs.existsSync(new URL('../src/store.ts', import.meta.url)) ? `../src/${name}.ts` : `../${name}.js`, import.meta.url).href);
+const { singular } = await engine<typeof import('../src/namespace.ts')>('namespace');
+const { MANIFEST_KEYS } = await engine<typeof import('../src/extensions.ts')>('extensions');
+const { V2_KEYS: V2_ORDER } = await engine<typeof import('../src/descriptor-v2.ts')>('descriptor-v2');
 
 const STRINGIFY = { lineWidth: 0, flowCollectionPadding: false };
 const FIELD_ORDER = ['type', 'title', 'required', 'many', 'default', 'enum', 'unique', 'mirror_of', 'on_delete', 'soft', 'sensitive', 'body', 'derived', 'virtual', 'deprecated', 'passthrough', 'fields', 'values', 'item_title', 'examples', 'pattern', 'minimum', 'maximum', 'minItems', 'maxItems', 'minLength', 'maxLength', 'const', 'display', 'description'];
@@ -119,7 +119,7 @@ export function convertField(p, { required = false } = {}) {
 	const warnings = [];
 	const many = p.type === 'array';
 	const holder = many && p.items && typeof p.items === 'object' ? p.items : p;
-	const out = {};
+	const out: Record<string, any> = {};
 	// a SOFT reference must target a named collection while a missing record is tolerated — `soft: true`.
 	// One kind stays a plain string: a soft reference into `collections`, whose value names a
 	// collection (a peer that may not be installed), not a record of one
@@ -193,7 +193,7 @@ export function convertField(p, { required = false } = {}) {
  * @param {string} text
  * @param {{ bareName?: string }} [ctx]   the name without its namespace, for the suffix default
  */
-export function convertCollection(text, ctx = {}) {
+export function convertCollection(text, ctx: Record<string, any> = {}) {
 	const doc = parseDocument(text, { keepSourceTokens: false });
 	const top = doc.contents;
 	if (!isMap(top)) return { text: null, folds: [], warnings: ['not a mapping — left alone'] };
@@ -201,15 +201,15 @@ export function convertCollection(text, ctx = {}) {
 	if ('fields' in v1) return { text: null, folds: [], warnings: [] };
 	const warnings = [];
 	const folds = [];
-	const value = {};
-	const renamed = {};
+	const value: Record<string, any> = {};
+	const renamed: Record<string, any> = {};
 	for (const k of ['name', 'title', 'singular', 'description', 'use_when', 'sensitive']) if (v1[k] !== undefined) value[k] = v1[k];
 	if (v1.title_template !== undefined) { value.record_title = v1.title_template; renamed.record_title = 'title_template'; }
 	if (v1.group === 'system') { value.internal = true; renamed.internal = 'group'; }
 	// storage
 	{
 		const s = v1.storage ?? {};
-		const st = {};
+		const st: Record<string, any> = {};
 		if (s.path !== undefined) st.path = s.path;
 		if (s.codec !== undefined) st.format = s.codec === 'file' ? 'binary' : s.codec;
 		if (s.shape !== undefined && s.shape !== 'file') st.shape = s.shape;
@@ -229,7 +229,7 @@ export function convertCollection(text, ctx = {}) {
 	const schemaPair = pairOf(top, 'schema');
 	const propsNode = schemaPair && isMap(schemaPair.value) ? pairOf(schemaPair.value, 'properties')?.value : null;
 	const required = new Set(v1.schema?.required ?? []);
-	const fields = {};
+	const fields: Record<string, any> = {};
 	let stats = { fields: 0, enums: 0 };
 	for (const [k, p] of Object.entries(v1.schema?.properties ?? {})) {
 		const { field, fold, warnings: w } = convertField(p, { required: required.has(k) });
@@ -243,7 +243,7 @@ export function convertCollection(text, ctx = {}) {
 	// is the mixin's field, so the redeclaration goes (its own description is printed, not lost); a
 	// different shape is the author's call
 	const shape = (f) => JSON.stringify(Object.fromEntries(Object.entries(f ?? {}).filter(([k]) => k !== 'description' && k !== 'title').sort(([a], [b]) => a.localeCompare(b))));
-	for (const [k, { mixin, field: mf }] of Object.entries(ctx.mixinFieldDefs ?? {})) {
+	for (const [k, { mixin, field: mf }] of Object.entries<any>(ctx.mixinFieldDefs ?? {})) {
 		if (!fields[k]) continue;
 		if (shape(fields[k]) !== shape(mf)) { warnings.push(`${k}: also declared by mixin ${mixin} with a different shape — compile refuses a field from two sources; rename this one, or drop it and adjust the mixin`); continue; }
 		if (fields[k].description !== undefined && fields[k].description !== mf.description) warnings.push(`${k}: also declared by mixin ${mixin} — dropped here, so its description is the mixin's; this collection's was: "${fields[k].description}"`);
@@ -265,7 +265,7 @@ export function convertCollection(text, ctx = {}) {
 	}
 	if (v1.schema?.allOf) value.constraints = v1.schema.allOf;
 	// display
-	const nav = {};
+	const nav: Record<string, any> = {};
 	if (v1.icon !== undefined) nav.icon = v1.icon;
 	if (v1.order !== undefined) nav.order = v1.order;
 	if (v1.group !== undefined && v1.group !== 'system') nav.section = v1.group;
@@ -302,10 +302,10 @@ export function convertTemplate(text, id) {
 	const v1 = parseDocument(text).toJSON() ?? {};
 	const t = v1.template ?? {};
 	const req = new Set(t.schema?.required ?? []);
-	const mixin = { name: id, ...(v1.description !== undefined && { description: v1.description }) };
+	const mixin: Record<string, any> = { name: id, ...(v1.description !== undefined && { description: v1.description }) };
 	if (t.storage) {
 		const s = t.storage;
-		const st = {};
+		const st: Record<string, any> = {};
 		if (s.path !== undefined) st.path = s.path;
 		if (s.codec !== undefined) st.format = s.codec === 'file' ? 'binary' : s.codec;
 		if (s.shape !== undefined && s.shape !== 'file') st.shape = s.shape;
@@ -316,7 +316,7 @@ export function convertTemplate(text, id) {
 	if (t.list_fields) mixin.display = { list: { columns: t.list_fields.map((c) => (c === 'last-modified' ? 'last_modified' : c)) } };
 	const doc = parseDocument(text);
 	const out = parseDocument('{}');
-	out.contents = out.createNode(mixin);
+	out.contents = out.createNode(mixin) as typeof out.contents;
 	out.commentBefore = doc.commentBefore;
 	return toText(out);
 }
@@ -359,7 +359,7 @@ const scalarKey = (pair, k) => { if (isScalar(pair.key)) pair.key.value = k; els
  */
 export function convertView(text) {
 	const doc = parseDocument(text);
-	const top = doc.contents;
+	const top = doc.contents as YAMLMap;
 	if (!isMap(top)) return null;
 	const v1 = top.toJSON() ?? {};
 	if ('route' in v1 || 'scope' in v1 || 'display' in v1) return null;
@@ -408,7 +408,7 @@ export function convertView(text) {
 		const nav = toJS(navPair?.value) ?? {};
 		if (nav.title !== undefined) warnings.push(`nav.label "${nav.title}" is dropped — a collection's nav entry reads its \`title\``);
 		// the view's header, and any comment on a key that does not survive, reads above the folded block
-		const comment = [doc.commentBefore, ...top.items.map((p) => p.key?.commentBefore), defaultPair?.key?.commentBefore].filter(Boolean).join('\n') || undefined;
+		const comment = [doc.commentBefore, ...top.items.map((p: any) => p.key?.commentBefore), defaultPair?.key?.commentBefore].filter(Boolean).join('\n') || undefined;
 		return {
 			fold: { collection: String(v1.collection ?? '').replace(/^collections\//, ''), block, node: sub, nav: { ...(nav.icon !== undefined && { icon: nav.icon }), ...(nav.order !== undefined && { order: nav.order }) }, comment },
 			warnings, options: renamedOptions,
@@ -436,7 +436,7 @@ export function convertView(text) {
  *  stays above it, and the view's own header lands above the block. */
 export function foldDisplay(text, { block, node, nav = {}, comment }) {
 	const doc = parseDocument(text);
-	const top = doc.contents;
+	const top = doc.contents as YAMLMap;
 	let display = pairOf(top, 'display');
 	if (!display) { display = doc.createPair('display', {}); top.items.push(display); }
 	if (!isMap(display.value)) display.value = doc.createNode({});
@@ -488,7 +488,7 @@ export function convertPackage(text, kindsOf) {
 	const block = pkg.dreamteamer;
 	if (!block || typeof block !== 'object') return { text: null, warnings: [] };
 	const warnings = [];
-	const out = {};
+	const out: Record<string, any> = {};
 	for (const [k, v] of Object.entries(block)) {
 		const key = k === 'peerDependencies' || k === 'peer-dependencies' ? 'peer_collections' : k.replace(/-/g, '_');
 		out[key] = key === 'peer_collections' && Array.isArray(v) ? v.map((c) => String(c).replace(/^collections\//, '')) : v;
@@ -573,7 +573,7 @@ function sourceRoots(root) {
 }
 
 export function migrate(root, { dryRun = false, log = console.log } = {}) {
-	const plan = { descriptors: 0, fields: 0, folded: 0, enums: 0, mixins: 0, viewsFolded: 0, viewsConverted: 0, bindings: 0, packages: 0, instructions: 0, ignored: 0, warnings: [], unfolded: [] };
+	const plan: Record<string, any> = { descriptors: 0, fields: 0, folded: 0, enums: 0, mixins: 0, viewsFolded: 0, viewsConverted: 0, bindings: 0, packages: 0, instructions: 0, ignored: 0, warnings: [], unfolded: [] };
 	const texts = new Map(); // file -> new text (null: removed)
 	const byName = new Map(); // collection name -> file of its BASE descriptor
 	const moduleOf = new Map(); // descriptor file -> the module root it sits in
@@ -592,7 +592,7 @@ export function migrate(root, { dryRun = false, log = console.log } = {}) {
 			try { text = convertTemplate(fs.readFileSync(file, 'utf8'), id); } catch (e) { throw new Error(`${at(file)}: ${e.message}`); }
 			texts.set(dest, text);
 			texts.set(file, null);
-			mixinTypes.set(id, Object.fromEntries(Object.entries(parseDocument(text).toJSON()?.fields ?? {}).map(([k, f]) => [k, f?.type])));
+			mixinTypes.set(id, Object.fromEntries(Object.entries(parseDocument(text).toJSON()?.fields ?? {}).map(([k, f]: [string, any]) => [k, f?.type])));
 			mixinDefs.set(id, parseDocument(text).toJSON()?.fields ?? {});
 			plan.mixins++;
 			// a module published from npm ships only what its `files` names — the mixins must travel

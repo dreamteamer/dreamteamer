@@ -18,6 +18,6 @@
 		"noEmit": true,
 		"skipLibCheck": true
 	},
-	"include": ["src/**/*.ts", "bin/**/*.js"],
+	"include": ["src/**/*.ts", "bin/**/*.js", "scripts/**/*.ts"],
 	"exclude": ["src/**/*.d.ts"]
 }

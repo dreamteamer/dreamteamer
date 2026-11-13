@@ -20,6 +20,25 @@ npx dreamteamer check
 
 ---
 
+## Unreleased — the engine is TypeScript
+
+Nothing to do but `dt compile` for a workspace that installs the engine from npm: the package is the
+compiled `dist/`, and it still runs on Node 20. Two things move:
+
+- **The migration scripts moved to `dist/scripts/`, as `.js`.** The commands in older sections below
+  name `node_modules/dreamteamer/scripts/*.mjs`, which no longer exists from this release on. Run them as:
+
+  ```bash
+  node node_modules/dreamteamer/dist/scripts/migrate-descriptors-v2.js --root . [--dry-run]
+  node node_modules/dreamteamer/dist/scripts/migrate-stubs.js --root . [--layers] [--dry-run]
+  ```
+
+- **A `git_modules/dreamteamer` dev clone needs Node 22.18 or newer.** A clone is a source checkout,
+  and it runs its TypeScript directly through Node's own type stripping — no build step. On an older
+  Node, `dt` says so and exits; upgrade Node, or install the engine from npm instead of cloning it.
+
+---
+
 ## 0.47.0 — the CLI-first module lifecycle (CR-dt-006)
 
 Nothing to do but `dt compile`. Nothing an existing workspace's records do changes. What changes is

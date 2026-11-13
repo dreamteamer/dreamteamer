@@ -1,8 +1,8 @@
-// Tier 1 — the v1 → v2 descriptor converter's pure half (scripts/migrate-descriptors-v2.mjs).
+// Tier 1 — the v1 → v2 descriptor converter's pure half (scripts/migrate-descriptors-v2.ts).
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseDocument } from 'yaml';
-import { convertField, convertCollection, convertTemplate, addMirrorField, recordTitle, convertView, foldDisplay, convertBinding, convertPackage } from '../../scripts/migrate-descriptors-v2.mjs';
+import { convertField, convertCollection, convertTemplate, addMirrorField, recordTitle, convertView, foldDisplay, convertBinding, convertPackage } from '../../scripts/migrate-descriptors-v2.ts';
 
 const js = (text) => parseDocument(text).toJSON();
 

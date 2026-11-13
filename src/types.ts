@@ -6,7 +6,7 @@
 // are typed loosely on purpose: they are the workspace's.
 //
 // Types only — every import here is `import type`, erased by construction, so this file is no runtime
-// edge of any layer (scripts/layers.mjs skips type-only edges).
+// edge of any layer (scripts/layers.ts skips type-only edges).
 import type { Store } from './store.ts';
 
 export type Fields = Record<string, unknown>;

@@ -27,7 +27,7 @@ import { resolve, dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { selectTests } from './test-select.mjs';
+import { selectTests } from './test-select.ts';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
@@ -46,7 +46,7 @@ if (flag('clean')) {
 }
 
 const TMP = join(ROOT, 'test', '.tmp');
-// Written by scripts/test-reporter.mjs after every run: the files whose last run failed.
+// Written by scripts/test-reporter.ts after every run: the files whose last run failed.
 const FAILED_FILE = join(TMP, 'last-failed.json');
 const readFailed = () => { try { return JSON.parse(readFileSync(FAILED_FILE, 'utf8')); } catch { return []; } };
 
@@ -116,7 +116,7 @@ if (needsLock && !flag('no-lock')) {
 }
 
 // a URL, not a path: on Windows an absolute path is not a module specifier ('d:' reads as a scheme)
-const reporter = flag('verbose') ? 'spec' : pathToFileURL(join(ROOT, 'scripts', 'test-reporter.mjs')).href;
+const reporter = flag('verbose') ? 'spec' : pathToFileURL(join(ROOT, 'scripts', 'test-reporter.ts')).href;
 // A FILE that hangs is a FAILURE, never a wait. `--test-timeout` bounds each top-level test, and
 // with files on the command line a top-level test IS a file — so this is a per-file cap. Ten
 // minutes: measured 2026-09-24, the slowest file alone is prove at 75 s, land 53 s, commit 43 s,

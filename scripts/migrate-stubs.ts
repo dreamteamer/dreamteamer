@@ -3,7 +3,7 @@
 // exports manifest, `dreamteamer-exports.json`, and delete the stub (cr-dt-004). Run it once per workspace
 // that holds or reads stubs, on engine 0.45.0, right after `dt compile`:
 //
-//   node node_modules/dreamteamer/scripts/migrate-stubs.mjs --root <workspace> [--layers] [--dry-run]
+//   node node_modules/dreamteamer/dist/scripts/migrate-stubs.js --root <workspace> [--layers] [--dry-run]
 //
 // --layers also migrates every installed record layer's stubs, from this workspace's view — so an entry
 // gets the live label and holder of a record this workspace reads. Per stub: an entry when a record of its
@@ -15,16 +15,16 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
-// This script ships in the npm package, which carries dist/ and no src/ — and runs from a checkout,
-// which has src/ and maybe no dist/. Same rule as bin/dreamteamer.js: the source when it is present.
+// Run from a checkout (scripts/x.ts beside src/) and from the npm package (built to dist/scripts/x.js,
+// one level under the engine's dist/*.js) — the rule of bin/dreamteamer.js: the source when present.
 const SOURCE = fs.existsSync(new URL('../src/store.ts', import.meta.url));
-const engine = (name) => import(new URL(SOURCE ? `../src/${name}.ts` : `../dist/${name}.js`, import.meta.url).href);
-const { Store } = await engine('store');
-const { parseRecord, idFromRecordPath, walk } = await engine('records');
-const { exportsFacts } = await engine('runtime');
-const { storageOf, bodyFieldOf, recordTitleOf } = await engine('descriptor');
-const { EXPORTS_FILE, readExports, serializeExports, exportsContext, outsideRefs } = await engine('exports');
-const { planExports } = await engine('exports-cli');
+const engine = <M>(name: string): Promise<M> => import(new URL(SOURCE ? `../src/${name}.ts` : `../${name}.js`, import.meta.url).href);
+const { Store } = await engine<typeof import('../src/store.ts')>('store');
+const { parseRecord, idFromRecordPath, walk } = await engine<typeof import('../src/records.ts')>('records');
+const { exportsFacts } = await engine<typeof import('../src/runtime.ts')>('runtime');
+const { storageOf, bodyFieldOf, recordTitleOf } = await engine<typeof import('../src/descriptor.ts')>('descriptor');
+const { EXPORTS_FILE, readExports, serializeExports, exportsContext, outsideRefs } = await engine<typeof import('../src/exports.ts')>('exports');
+const { planExports } = await engine<typeof import('../src/exports-cli.ts')>('exports-cli');
 
 // `stub: true` in the FRONTMATTER only — a body quoting a stub is a real record
 const isStubText = (text) => /^stub:\s*true\s*$/m.test(/^---\n([\s\S]*?)\n---(?:\n|$)/.exec(text)?.[1] ?? '');

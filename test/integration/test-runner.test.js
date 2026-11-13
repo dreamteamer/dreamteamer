@@ -1,4 +1,4 @@
-// The runner's memory and manners (scripts/test.mjs): a full pass is remembered for the exact working
+// The runner's memory and manners (scripts/test.ts): a full pass is remembered for the exact working
 // tree, `--failed` reruns only what failed, and a second suite queues behind the first instead of
 // halving both. Driven against a scratch repo carrying a copy of the three scripts and two trivial test
 // files, because running the real suite inside the real suite would be the very cost this removes.
@@ -13,7 +13,7 @@ import { ENGINE_ROOT, SPAWN_TIMEOUT_MS } from '../helpers/ws.js';
 function scratch() {
 	const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dt-runner-'));
 	fs.mkdirSync(path.join(root, 'scripts'));
-	for (const f of ['test.mjs', 'test-select.mjs', 'test-reporter.mjs']) fs.copyFileSync(path.join(ENGINE_ROOT, 'scripts', f), path.join(root, 'scripts', f));
+	for (const f of ['test.ts', 'test-select.ts', 'test-reporter.ts']) fs.copyFileSync(path.join(ENGINE_ROOT, 'scripts', f), path.join(root, 'scripts', f));
 	fs.mkdirSync(path.join(root, 'test', 'unit'), { recursive: true });
 	fs.mkdirSync(path.join(root, 'test', 'integration'), { recursive: true });
 	write(root, 'test/unit/a.test.js', "import { test } from 'node:test'; test('a', () => {});\n");
@@ -30,7 +30,7 @@ const env = (lockDir) => {
 	const { NODE_TEST_CONTEXT, ...rest } = process.env;
 	return { ...rest, DT_TEST_LOCK_DIR: lockDir, NO_COLOR: '1' };
 };
-const runner = ({ root, lockDir }, ...args) => spawnSync(process.execPath, ['scripts/test.mjs', ...args],
+const runner = ({ root, lockDir }, ...args) => spawnSync(process.execPath, ['scripts/test.ts', ...args],
 	{ cwd: root, env: env(lockDir), encoding: 'utf8', timeout: SPAWN_TIMEOUT_MS, killSignal: 'SIGKILL' });
 
 describe('a full pass is remembered for the exact working tree', () => {
@@ -91,7 +91,7 @@ describe('one tier-2 suite per machine', () => {
 		fs.mkdirSync(lock);
 		fs.writeFileSync(path.join(lock, 'owner.json'), JSON.stringify({ pid: process.pid, root: '/elsewhere', at: 'earlier' }));
 
-		const child = spawn(process.execPath, ['scripts/test.mjs'], { cwd: s.root, env: env(s.lockDir) });
+		const child = spawn(process.execPath, ['scripts/test.ts'], { cwd: s.root, env: env(s.lockDir) });
 		let out = '';
 		child.stdout.on('data', (d) => { out += d; });
 		let exited = false;

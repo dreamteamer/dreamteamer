@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseDocument } from 'yaml';
 import { singular, inflects } from '../../src/namespace.ts';
-import { convertCollection } from '../../scripts/migrate-descriptors-v2.mjs';
+import { convertCollection } from '../../scripts/migrate-descriptors-v2.ts';
 
 test('plurals inflect; non-plurals and invariants come back unchanged', () => {
 	const cases = { doctors: 'doctor', stories: 'story', companies: 'company', boxes: 'box', statuses: 'status', analyses: 'analysis', 'meta-analyses': 'meta-analysis', series: 'series', classes: 'class', queries: 'query', days: 'day', 'meeting-summaries': 'meeting-summary', 'agent-decision-log': 'agent-decision-log', finance: 'finance' };

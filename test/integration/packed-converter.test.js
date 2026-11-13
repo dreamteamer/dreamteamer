@@ -1,6 +1,6 @@
 // Tier 2 — the converter as a stranger gets it (review R5): pack the engine, install the tarball's bytes
 // into a workspace the way npm lays them out, and run the converter by the path its usage line gives,
-// `node node_modules/dreamteamer/scripts/migrate-descriptors-v2.mjs`, then compile with the PACKED engine.
+// `node node_modules/dreamteamer/dist/scripts/migrate-descriptors-v2.js`, then compile with the PACKED engine.
 // A file that exists only in a developer's checkout fails here.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -37,7 +37,7 @@ test('the packed engine ships the converter, and it converts a v1 workspace that
 			fs.symlinkSync(path.join(ENGINE_ROOT, 'node_modules', dep), path.join(nm, dep));
 		}
 
-		const conv = run(w.root, ['node_modules/dreamteamer/scripts/migrate-descriptors-v2.mjs', '--root', '.']);
+		const conv = run(w.root, ['node_modules/dreamteamer/dist/scripts/migrate-descriptors-v2.js', '--root', '.']);
 		assert.equal(conv.status, 0, conv.stderr);
 		assert.match(conv.stdout, /migrated: descriptors \d+/);
 		const src = load(fs.readFileSync(path.join(w.root, 'modules', WS_MODULE, 'collections', 'companies.collection.yaml'), 'utf8'));

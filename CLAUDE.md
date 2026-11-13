@@ -22,6 +22,12 @@ its declarations generated from `src/types.ts` and the signatures) that is the O
 So only ERASABLE syntax (`erasableSyntaxOnly`): no `enum`, no `namespace`, no constructor parameter
 properties; type-only imports are `import type`. `npm run typecheck` is part of `verify`.
 
+`scripts/*.ts` are TypeScript too and run the same way (`node scripts/test.ts`), with one exception:
+**the build runs through `tsx`** (`npm run build` / `prepack`), because CI's Node 20 job packs the
+tarball on Node 20, which cannot strip types. The two migrations users run from the package
+(`migrate-descriptors-v2`, `migrate-stubs`) are BUILT to `dist/scripts/*.js` — Node refuses to strip
+types under `node_modules` — so their published path is `node_modules/dreamteamer/dist/scripts/…`.
+
 **The declarations are GENERATED** (`dist/*.d.ts`, by the build) from the exported signatures and
 `src/types.ts`, which holds every shape the contract publishes. They used to be hand-written, and nothing
 held the code to them — `KNOWN_OPERATORS` was declared an array and was a Set (review F8). Generation

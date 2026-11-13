@@ -10,8 +10,8 @@ import { spawnSync, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { workspace, git, ENGINE_ROOT } from '../helpers/ws.js';
 import { resolveNpm, childEnv } from '../../src/checkout.ts';
-import { typeOnly } from '../../scripts/import-edges.mjs';
-import { checkContract } from '../../scripts/contract.mjs';
+import { typeOnly } from '../../scripts/import-edges.ts';
+import { checkContract } from '../../scripts/contract.ts';
 
 /** The static import closure of one src/ module: every src file reached, and every bare specifier. */
 function closure(entry) {

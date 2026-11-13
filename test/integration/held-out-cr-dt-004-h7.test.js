@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { mkws, copyInto, coll, rec, NAME, MANIFEST, manifest, head, count, dt, git } from './held-out-cr-dt-004-lib.js';
-import { migrate } from '../../scripts/migrate-stubs.mjs';
+import { migrate } from '../../scripts/migrate-stubs.ts';
 
 const BASE = {
 	people: coll('people', NAME), 'ns/things': coll('ns/things', NAME),

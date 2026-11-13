@@ -468,9 +468,9 @@ describe('dt get on an external id (cr-dt-004)', () => {
 	});
 });
 
-describe('scripts/migrate-stubs.mjs (cr-dt-004)', () => {
+describe('scripts/migrate-stubs.ts (cr-dt-004)', () => {
 	const STUB = (name, extra = '') => `---\nname: ${name}\nstub: true\n${extra}---\nA body only the stub carried.\n`;
-		const migrateIn = async (root, opts) => (await import('../../scripts/migrate-stubs.mjs')).migrate(root, { ...opts, log: () => {} });
+		const migrateIn = async (root, opts) => (await import('../../scripts/migrate-stubs.ts')).migrate(root, { ...opts, log: () => {} });
 
 	// T11 (rnd/tests/dreamteamer/cr-dt-004-t6)
 	test('dry run writes nothing; the run turns upward, downward and unreferenced stubs into entries or deletions, one commit per repo, every check clean', async () => {

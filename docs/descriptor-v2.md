@@ -22,7 +22,7 @@ compile naming the migration.
 | 11 | CLI: `reorder` (was `move`), `fmt`, positional guard, `list` columns from `display.list`, help text | `src/collections-cli.js`, `src/cli.js` | `test/integration/verb-first-cli.test.js` extended; a positional key-and-flag check of help |
 | 12 | schema-ops: field verbs write `fields`; `--enum`, `--many`, `--mirror-of <field>`, `--unique`, `--mixins`, `--id-from`, `--route`, `--scope`; `rename-field` reach; `rename-value` | `src/schema-ops.js` | `test/integration/schema-ops-v2.test.js` |
 | 13 | docs: `using-dreamteamer` references (collections, data-modeling, ui-views, commands), the glossary, `UPDATING.md` v2 section | `skills/`, `UPDATING.md` | the skill-references test; no v1 key in the references |
-| 14 | the migration script, AST-editing, comment-preserving, idempotent, never opens `data/` | `scripts/migrate-descriptors-v2.mjs` | `test/integration/migrate-v2.test.js` on a v1 fixture |
+| 14 | the migration script, AST-editing, comment-preserving, idempotent, never opens `data/` | `scripts/migrate-descriptors-v2.ts` | `test/integration/migrate-v2.test.js` on a v1 fixture |
 | 15 | metrics re-based with the three questions answered; `npm run verify` exit code quoted; the walk of §10's dev-host flow against the extension (separate repo) | `metrics.json` | — |
 
 Rules that bind every slice: no vault name, no real record, no personal data in a fixture, a comment or a message

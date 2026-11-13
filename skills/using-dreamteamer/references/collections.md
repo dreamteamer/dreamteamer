@@ -481,7 +481,7 @@ HQ reads the projects' records by cloning each project under `git_modules/`:
   <name>` writes a layer's manifest from this workspace's view (how a reader records the upward ids a
   layer cannot see), and `dt get <ref> [--referrer <ref>]` names an external id. A conflicted manifest:
   keep the union of both sides' lines, then `dt exports`. Stub records (0.41.0–0.44.x) are gone:
-  `node node_modules/dreamteamer/scripts/migrate-stubs.mjs --root . [--layers] [--dry-run]` turns each
+  `node node_modules/dreamteamer/dist/scripts/migrate-stubs.js --root . [--layers] [--dry-run]` turns each
   into a manifest entry.
 - **A new record goes to the write root** (`storage.path` — this workspace, or the owning module's
   clone for `storage.owner: module`). **An edit or removal of a layer's record lands in place** and

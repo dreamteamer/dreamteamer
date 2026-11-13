@@ -3,8 +3,8 @@
 // GENERATES, installed the way a consumer sees them (node_modules/dreamteamer, resolved through the
 // package `exports`). Exit 0 when the published types keep every promise the consumer makes.
 //
-//   node scripts/contract.mjs              emit the declarations from src/ into a temp dir, then check
-//   node scripts/contract.mjs <dir>        check an existing declarations dir (dist/, say)
+//   node scripts/contract.ts              emit the declarations from src/ into a temp dir, then check
+//   node scripts/contract.ts <dir>        check an existing declarations dir (dist/, say)
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';

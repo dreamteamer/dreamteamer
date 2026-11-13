@@ -1,9 +1,9 @@
-// The --changed selection behind `npm run verify:fast` (scripts/test-select.mjs). Each rule here is a
+// The --changed selection behind `npm run verify:fast` (scripts/test-select.ts). Each rule here is a
 // promise about which tier-2 files a working-tree change runs — and the smoke fallback is the promise
 // that a src/ edit never quietly runs tier 1 alone.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { selectTests, SMOKE } from '../../scripts/test-select.mjs';
+import { selectTests, SMOKE } from '../../scripts/test-select.ts';
 
 const I = (name) => `test/integration/${name}.test.js`;
 const suite = new Map([

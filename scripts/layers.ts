@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // The engine has two halves, and the edge between them only goes one way.
 //
-//   node scripts/layers.mjs     report the graph; exit 1 on a violation
+//   node scripts/layers.ts     report the graph; exit 1 on a violation
 //
 // RECORD is schema-validated records over git: parse, validate, CRUD, refs, history, filters.
 // WORKSPACE is the compiler and the agent-harness surface: modules, `extends`, skills, adapters.
@@ -21,7 +21,7 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { resolve, dirname, join, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { typeOnly } from './import-edges.mjs';
+import { typeOnly } from './import-edges.ts';
 
 const SRC = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'src');
 

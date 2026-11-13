@@ -8,7 +8,7 @@
 //
 // ⚠ NOT ON `npm test` OR `npm run verify`, ever, and it PRINTS rather than ASSERTS. A timing is a
 // property of the machine that took it, so a perf run that gates a build fails on a loaded laptop
-// and teaches everyone to ignore red. Tiers 1-3 are in `scripts/test.mjs`; this is the fourth of the
+// and teaches everyone to ignore red. Tiers 1-3 are in `scripts/test.ts`; this is the fourth of the
 // same kind, and the same promise runs through all four: the default path stays fast enough to run
 // before every commit.
 //
