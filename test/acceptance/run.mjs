@@ -323,6 +323,46 @@ scenario('M10', 'a .env with a multi-line quoted neighbour: the env action adds 
 	ok(/^PROBE_LABEL=x$/m.test(after), 'the key was appended');
 });
 
+// ---- the issues' own reproductions, on the published modules (need their tarballs in --from; see README.md) ----
+const hasTgz = (f) => fs.existsSync(path.join(FROM, f));
+const sinceWhen = (need) => need.filter((f) => !hasTgz(f));
+
+const A14_NEEDS = ['dreamteamer-google-workspace-0.3.0.tgz'];
+if (sinceWhen(A14_NEEDS).length) console.log(`— A14 skipped: --from lacks ${sinceWhen(A14_NEEDS).join(', ')}`);
+else scenario('A14', 'dt doctor refuses a world-readable OAuth client file as dt status does: a ⚠ row with the chmod fix, never ✔; owner-only is fine', (ok) => {
+	const root = fresh('a14'); dt(root, initArgs);
+	const store = path.join(HOME, 'a14-google-credentials');
+	const i = dt(root, ['install', '@dreamteamer/google-workspace', '--from', FROM, '--input', `credentials_dir=${store}`, '--allow', 'machine', '--no-input']);
+	ok([0, 3].includes(i.code), `install exit ${i.code}: ${i.stderr}${i.stdout.slice(-300)}`);
+	const client = path.join(HOME, 'a14-client_secret.json');
+	fs.writeFileSync(client, '{"installed":{"client_id":"x","client_secret":"y"}}');
+	const env = { GOOGLE_CLIENT_SECRET_PATH: client, WORKSPACE_MCP_CREDENTIALS_DIR: store };
+	fs.chmodSync(client, 0o644);
+	const d = dt(root, ['doctor'], env);
+	const s = dt(root, ['status'], env);
+	ok(/⚠ .*readable by other users — chmod 600/.test(d.stdout), `doctor names the refusal with the fix: ${d.stdout}`);
+	ok(!/✔ Credential placement/.test(d.stdout), 'doctor no longer reads Credential placement ✔ on a 644 client file');
+	ok(/google-workspace\s+(configured|blocked)/.test(s.stdout) || /readable by other users/.test(dt(root, ['status', '--json'], env).stdout), 'status refuses it too');
+	fs.chmodSync(client, 0o600);
+	const d2 = dt(root, ['doctor'], env);
+	ok(!/readable by other users/.test(d2.stdout), `owner-only: no refusal row: ${d2.stdout}`);
+});
+
+const A15_NEEDS = ['dreamteamer-meetings-0.2.0.tgz', 'dreamteamer-meetings-0.3.0.tgz'];
+if (sinceWhen(A15_NEEDS).length) console.log(`— A15 skipped: --from lacks ${sinceWhen(A15_NEEDS).join(', ')}`);
+else scenario('A15', 'dt update of meetings 0.2.0 → 0.3.0 runs the 0.3.0 unit: exit 0, never the old "needs input: calendar", one commit, a clean tree', (ok) => {
+	const root = fresh('a15'); dt(root, initArgs);
+	const i = dt(root, ['install', '@dreamteamer/meetings@0.2.0', '--from', FROM, '--no-input']);
+	ok([0, 3].includes(i.code), `install exit ${i.code}: ${i.stderr}${i.stdout.slice(-300)}`);
+	fs.appendFileSync(path.join(root, '.env'), 'WORK_CALENDARS="team@northwind.example | northwind | dana.o@northwind.example"\n');
+	const u = dt(root, ['update', '@dreamteamer/meetings', '--from', FROM]);
+	ok(u.code === 0, `update exit ${u.code}: ${u.stderr}${u.stdout.slice(-400)}`);
+	ok(!/needs input: calendar/.test(u.stdout), `the 0.2.0 unit did not run: ${u.stdout.slice(-400)}`);
+	ok(JSON.parse(fs.readFileSync(path.join(root, 'node_modules', '@dreamteamer', 'meetings', 'package.json'), 'utf8')).version === '0.3.0', 'meetings is 0.3.0');
+	ok(/^dreamteamer: update @dreamteamer\/meetings 0\.2\.0 → 0\.3\.0$/.test(git(root, ['log', '-1', '--pretty=%s'])), 'one update commit');
+	ok(git(root, ['status', '--porcelain']) === '', 'nothing left uncommitted');
+});
+
 const summary = { date: new Date().toISOString(), driver: DRIVER, from: FROM, engine: VERSION, withProbe, results };
 fs.writeFileSync(path.join(OUT, 'summary.json'), JSON.stringify(summary, null, 2) + '\n');
 const failed = results.filter((r) => !r.pass);
