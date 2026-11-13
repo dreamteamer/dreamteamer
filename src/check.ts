@@ -16,7 +16,7 @@ import { collectRefFields, valuesAt, EXPORTS_FILE, readExports, exportsContext, 
 import { placementOf, placedRecords, ownerIdOf, symlinkedChildRoots } from './placement.ts';
 
 import { storageOf, jsonSchemaOf, fieldsOf, unresolvedPeersOf, bodyFieldOf, idsOf, recordTitleOf } from './descriptor.ts';
-export function check({ root }, { extra = [], strictExport = false } = {}) {
+export function check({ root }: { root: string; pkg?: unknown }, { extra = [], strictExport = false }: { extra?: { file: string; msg: string; warning?: true }[]; strictExport?: boolean } = {}): 0 | 1 | 2 {
 	const RUNTIME = runtimeDir(root);
 	const rel = (p) => path.relative(root, p);
 
@@ -120,7 +120,7 @@ export function check({ root }, { extra = [], strictExport = false } = {}) {
 			if (shape === 'folder') {
 				// a FILE record at the root of a folder-shape collection is the state a collection is in
 				// right after its shape changed — named as such, with the verb that finishes the change
-				const asFile = { ...d, storage: { ...d.storage, shape: 'file' } };
+				const asFile = { ...d, storage: { ...d.storage, shape: 'file' as const } };
 				for (const entry of fs.readdirSync(rootDir).sort()) {
 					if (entry.startsWith('.')) continue;
 					const p = path.join(rootDir, entry);
@@ -189,7 +189,7 @@ export function check({ root }, { extra = [], strictExport = false } = {}) {
 		parsed.set(name, new Map());
 
 		// only a referrer a reader can read counts: its collection can be layered at all (D11)
-		const exportable = d.compiled?.layerable === true;
+		const exportable = (d.compiled as { layerable?: boolean })?.layerable === true;
 		for (const [id, file] of index.get(name)) {
 			if (idsOf(d).pattern && !patternRe(idsOf(d).pattern).test(id)) {
 				flag(file, `id "${id}" does not match pattern ${idsOf(d).pattern}`);

@@ -21,12 +21,13 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { resolve, dirname, join, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { typeOnly } from './import-edges.mjs';
 
 const SRC = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'src');
 
 const LAYERS = {
 	// records over git — must not know that modules, channels or `extends` exist
-	record: ['store', 'records', 'temporal', 'fractional-index', 'filter', 'field-values', 'commit', 'events', 'history', 'template', 'yaml', 'workspace', 'check', 'namespace', 'ref', 'relations', 'env-vars', 'placement', 'fields', 'descriptor', 'exports'],
+	record: ['store', 'records', 'temporal', 'fractional-index', 'filter', 'field-values', 'commit', 'events', 'history', 'template', 'yaml', 'workspace', 'check', 'namespace', 'ref', 'relations', 'env-vars', 'placement', 'fields', 'descriptor', 'exports', 'types'],
 	// the compiled artifact both halves share
 	boundary: ['runtime'],
 	// the workspace compiler and the harness surface
@@ -61,7 +62,12 @@ for (const f of files) {
 	// literal path — a lazy import is still an edge, and a scanner that skipped them passed a layering
 	// the code did not have. (An extension's entry is imported by a COMPUTED path, which names no file
 	// under src/ and so is not an edge this graph can have.)
+	//
+	// A TYPE-ONLY edge (`import type`, `export type`, `typeof import('./x.ts')`) is not one: under
+	// verbatimModuleSyntax it is erased by construction, so it can load nothing. That is what lets the
+	// contract's shapes live in one file (src/types.ts) that both halves name.
 	for (const m of body.matchAll(/(?:(?:^|\n)\s*(?:import|export)[\s\S]*?from\s+|import\(\s*)'\.\/([\w.-]+)\.ts'/g)) {
+		if (typeOnly(body, m)) continue;
 		const target = m[1];
 		const targetLayer = layerOf.get(target);
 		if (!targetLayer) continue; // the missing-assignment failure is already reported on that file

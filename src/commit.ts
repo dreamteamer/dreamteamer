@@ -10,6 +10,7 @@ import { relationsOf } from './relations.ts';
 import { splitRef, canonicalCollection } from './ref.ts';
 
 import { storageOf } from './descriptor.ts';
+import type { Store } from './store.ts';
 // git calls whose failure we CATCH must not print git's own error: execFileSync forwards the
 // child's stderr to ours unless told otherwise, so a handled "not a git repository" still
 // reached the user's terminal. stdout stays piped because we read it.
@@ -413,7 +414,7 @@ function sample(root, repo, dirs, descriptors) {
 
 /** One subject for one repo's rows. The git status letter IS the verb, which is why a
  *  single-record commit keeps exactly the subject it had when writes committed themselves. */
-export function composeSubject(rows) {
+export function composeSubject(rows: { verb: string; collection: string; id: string }[]): string {
 	if (rows.length === 1) return `dreamteamer: ${rows[0].collection} ${rows[0].verb} ${rows[0].id}`;
 	const collections = [...new Set(rows.map((r) => r.collection))].sort();
 	if (collections.length === 1) {
@@ -438,7 +439,9 @@ function assertResolvable(store, records, matched) {
 }
 
 type CommitOpts = { only?: string[]; message?: string; dryRun?: boolean };
-export function commitPending(store, opts: CommitOpts = {}) {
+/** One repo's part of a `dt commit`: committed (`sha`, null on a dry run), or `blocked` / `failed` / `pending`, or an env-pointed collection kept `outside` every repo. */
+export type CommitResult = { repo: string; rows: { verb: string; collection: string; id: string; repoRel: string; fromRel: string | null }[]; subject?: string; sha?: string | null; warning?: string | null; leftPending?: string[]; blocked?: string; failed?: string; pending?: string; outside?: string; template?: string };
+export function commitPending(store: Store, opts: CommitOpts = {}): CommitResult[] {
 	// ⚠ THE WHOLE VERB TAKES THE WRITE LOCK, PLANNING INCLUDED — not just the two git calls at the
 	// end. `dt commit` was the one write path that took no lock at all: it sampled `git status`,
 	// planned a sweep from what it saw, then ran `git add` and `git commit`. Two sessions doing that

@@ -12,7 +12,7 @@ const parse = (v) => {
 const cmp = (a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2];
 
 // true = in range, false = out of range, null = version or range not understood
-export function satisfies(version, range) {
+export function satisfies(version: string, range: string): boolean | null {
 	const v = parse(version);
 	if (!v) return null;
 	const r = String(range).trim();

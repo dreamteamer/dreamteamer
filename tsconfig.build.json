@@ -1,6 +1,7 @@
 {
 	// The npm package's dist/: src/*.ts → dist/*.js, one level under the package root like src/, so
-	// every `new URL('../package.json', import.meta.url)` resolves the same from either.
+	// every `new URL('../package.json', import.meta.url)` resolves the same from either. The
+	// declarations are generated beside each file — test/types/consumer.ts is the contract they keep.
 	"extends": "./tsconfig.json",
 	"compilerOptions": {
 		"noEmit": false,
@@ -8,7 +9,7 @@
 		"checkJs": false,
 		"rootDir": "src",
 		"outDir": "dist",
-		"declaration": false,
+		"declaration": true,
 		"sourceMap": false
 	},
 	"include": ["src/**/*.ts"],

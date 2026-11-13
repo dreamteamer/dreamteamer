@@ -35,6 +35,7 @@ import { satisfies } from './semver.ts';
 import { engineVersion } from './runtime.ts';
 import { layerEntries } from './workspace.ts';
 import { validateSetup } from './setup-contract.ts';
+import type { Workspace, LoadedExtension } from './types.ts';
 
 /** The keys a package.json `dreamteamer` block may carry — the workspace's and a module's alike. */
 export const MANIFEST_KEYS = ['title', 'description', 'workspace_module', 'data_path', 'namespaces', 'vars', 'env', 'auto_commit', 'harnesses', 'git_modules', 'disable', 'local_assets', 'postinstall', 'gitignore_runtime_folder', 'repos_path', 'dependencies', 'peer_collections', 'owns_data', 'engine', 'extension', 'ignore', 'provides', 'setup'];
@@ -55,7 +56,7 @@ export function v1ManifestRefusal(block, where) {
 	return `${where}: the dreamteamer block is in the v1 spelling (${what}).\n  convert the workspace once: ${CONVERTER}\n  then dt compile and dt check — UPDATING.md has the walk.`;
 }
 
-export const EXTENSION_API = 1;
+export const EXTENSION_API: 1 = 1;
 
 const CONTRIBUTION_KEYS = new Set(['commands', 'sourceKinds', 'analyze', 'harnesses', 'orientation', 'hooks', 'check', 'doctor', 'next', 'setup']);
 
@@ -65,7 +66,7 @@ const CONTRIBUTION_KEYS = new Set(['commands', 'sourceKinds', 'analyze', 'harnes
  *  like its `bin/`, so it needs no package and no npm — and it SHADOWS a dependency of the same name,
  *  the rule module content already follows. A module DISABLED by a bare `dreamteamer.disable` entry
  *  is not an extension either — disabling is how a workspace keeps a module and switches it off. */
-export function declaredExtensions(ws) {
+export function declaredExtensions(ws: Workspace): { name: string; version: string; dir: string; entry: string; env: string[]; vars: string[] }[] {
 	const disable = ws.pkg?.dreamteamer?.disable ?? [];
 	const out = [];
 	const seen = new Set();
@@ -124,7 +125,7 @@ export const isPackageEntry = (d) => typeof d === 'string' && d.startsWith('modu
  * collide with core or with each other. `reserved` is what core already owns: its verbs, kinds and
  * harness ids.
  */
-export async function loadExtensions(ws, api, reserved: { verbs?: string[]; kinds?: string[]; harnesses?: string[] } = {}) {
+export async function loadExtensions(ws: Workspace, api, reserved: { verbs?: string[]; kinds?: string[]; harnesses?: string[] } = {}): Promise<LoadedExtension[]> {
 	const v1 = v1ManifestRefusal(ws.pkg?.dreamteamer, 'package.json');
 	if (v1) throw new Error(v1);
 	const loaded = [];
@@ -185,12 +186,12 @@ export async function loadExtensions(ws, api, reserved: { verbs?: string[]; kind
  * text, is dropped; a throw is ONE line attributed to the extension (`error: true`), never a failed
  * `dt next` — what a record can do next does not depend on an optional tool being healthy.
  */
-export function contributedNotes(ws, collection, ids = []) {
+export function contributedNotes(ws: Workspace, collection: string, ids: string[] = []): { id: string | null; text: string; by: string; error?: true }[] {
 	const out = [];
 	const asked = new Set(ids);
 	for (const e of (ws.extensions ?? []).filter((x) => x.next)) {
 		try {
-			for (const n of e.next({ root: ws.root, ws, collection, ids: [...ids] }) ?? []) {
+			for (const n of (e.next({ root: ws.root, ws, collection, ids: [...ids] }) ?? []) as { id: string; text: string }[]) {
 				if (asked.has(n?.id) && typeof n.text === 'string' && n.text.trim()) out.push({ id: n.id, text: n.text.trim(), by: e.name });
 			}
 		} catch (err) { out.push({ id: null, text: `next failed — ${String(err?.message ?? err).split('\n')[0]}`, by: e.name, error: true }); }

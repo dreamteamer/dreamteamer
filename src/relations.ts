@@ -2,9 +2,12 @@
 // runtime, so check, the store's mirror maintenance, `dt relations`, rebuild and presentation all
 // read through here and can never disagree about what a relation is.
 import { fieldsOf, targetsOf, storageOf } from './descriptor.ts';
+import type { Descriptors } from './types.ts';
+/** One relation, keyed by its owner: `owner.field` references `target`, whose `mirror` field is the generated far side. */
+export type Relation = { owner: string; field: string; target: string; mirror: string; list: boolean; unique: boolean; onDelete: 'restrict' | 'set-null'; kind: 'm2o' | 'o2o' | 'm2m' };
 
-export function relationsOf(descriptors) {
-	const out = [];
+export function relationsOf(descriptors: Descriptors): Relation[] {
+	const out: Relation[] = [];
 	// A relation is declared once, on the MIRROR: a field `mirror_of: f` with `type: O` on collection T
 	// is the generated far side of O's reference `f`. The row is keyed by the owner, as every reader
 	// (the store's maintenance, check's expectations, `dt relations`) has always asked it.

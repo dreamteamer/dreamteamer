@@ -172,7 +172,7 @@ export function compileCollections(ctx) {
 			// Declared by the workspace or REQUESTED by a module (its `dreamteamer.vars`): the descriptor
 			// itself is the explicit request to render, so an undeclared var warns the way an undeclared
 			// request does — and renders — rather than refusing a module that forgot to list it.
-			const declared = new Set(vars.declared);
+			const declared = new Set<string>(vars.declared);
 			for (const k of keys) {
 				if (declared.has(k)) continue;
 				warn(`⚠ collection ${name}: storage.path reads \${env:${k}}, which no dreamteamer.vars declares — add it to module ${moduleId(base.moduleName)}'s dreamteamer.vars (or the workspace's) so .env.example names it`);

@@ -11,6 +11,7 @@ import path from 'node:path';
 import { walk } from './records.ts';
 import { parseRef } from './namespace.ts';
 import { storageOf, fieldsOf, targetsOf, isSoft } from './descriptor.ts';
+import type { Storage } from './types.ts';
 
 export const EXPORTS_FILE = 'dreamteamer-exports.json';
 
@@ -84,7 +85,7 @@ export function exportsContext({ root, descriptors, own, layers, dataPath = 'dat
 		const reads = [];
 		for (const d of descriptors.values()) {
 			if (storageOf(d).unavailable) return false;
-			if (storageOf(d).base !== 'runtime' && !path.isAbsolute(storageOf(d).path) && !storageOf(d).path.includes('${')) reads.push(storageOf(d).path);
+			if ((storageOf(d) as Storage & { base?: string }).base !== 'runtime' && !path.isAbsolute(storageOf(d).path) && !storageOf(d).path.includes('${')) reads.push(storageOf(d).path);
 		}
 		return readsAll(root, dataPath, reads);
 	};

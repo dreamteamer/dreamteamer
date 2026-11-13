@@ -11,6 +11,7 @@
 // `record_title` (so `{{ doctor }}` reads as the doctor's name). `validateTemplate` is what compile
 // runs on every template it finds, so an unknown filter or a field that does not exist is a compile
 // error naming the position rather than a blank label in a surface.
+import type { TemplatePart } from './types.ts';
 const SEQ = '__DT_SEQ__';
 
 /** Render ONE template, or throw if a field it names is missing. The list form loops over this. */
@@ -113,7 +114,7 @@ function fmtDate(v, fmt) {
 	return fmt.replace(/YYYY|MM|DD|HH|mm|ss/g, (t) => tokens[t]);
 }
 
-export function slug(s) {
+export function slug(s: string): string {
 	return s
 		.normalize('NFKD')
 		.replace(/[̀-ͯ]/g, '')
@@ -124,7 +125,7 @@ export function slug(s) {
 
 // non-latin titles (hebrew!) slug to "" — fall back to a short deterministic
 // hash of the original value so the id stays pattern-legal and stable
-export function slugOrHash(s) {
+export function slugOrHash(s: string): string {
 	const out = slug(s);
 	if (out) return out;
 	let h = 0;
@@ -139,9 +140,9 @@ export const BUILTINS = ['id', 'created', 'last_modified'];
 const TOKEN = /\{\{\s*([^}]+?)\s*\}\}/g;
 
 /** Split a template into literal text and tokens: `[{ text } | { field, filters: [{ name, arg }] }]`. */
-export function parseTemplate(tpl) {
+export function parseTemplate(tpl: string): TemplatePart[] {
 	if (typeof tpl !== 'string') throw new Error('a template is a string');
-	const parts = [];
+	const parts: TemplatePart[] = [];
 	let last = 0;
 	for (const m of tpl.matchAll(TOKEN)) {
 		if (m.index > last) parts.push({ text: tpl.slice(last, m.index) });
@@ -154,7 +155,7 @@ export function parseTemplate(tpl) {
 }
 
 /** The fields a template names, in order, built-ins included. */
-export const templateFields = (tpl) => parseTemplate(tpl).filter((p) => p.field).map((p) => p.field);
+export const templateFields = (tpl) => parseTemplate(tpl).filter((p: any) => p.field).map((p: any) => p.field);
 
 /**
  * Validate a template for one position. Returns a list of errors (empty when valid), each naming the
@@ -165,9 +166,9 @@ export const templateFields = (tpl) => parseTemplate(tpl).filter((p) => p.field)
  *   fields   — the field names the record declares
  *   id       — true for `id.from`, the one position where `seq` is legal
  */
-export function validateTemplate(tpl, { position, fields, id = false }) {
+export function validateTemplate(tpl: string, { position, fields, id = false }: { position: string; fields: Iterable<string>; id?: boolean }): string[] {
 	const errors = [];
-	let parts;
+	let parts: any[];
 	try { parts = parseTemplate(tpl); } catch (e) { return [`${position}: ${e.message}`]; }
 	const known = new Set([...fields, ...BUILTINS, ...(id ? ['seq', 'now'] : [])]);
 	if (!parts.some((p) => p.field)) errors.push(`${position}: "${tpl}" names no field — a template with no {{ … }} is a constant`);
@@ -188,10 +189,10 @@ export function validateTemplate(tpl, { position, fields, id = false }) {
  * @param {(ref: string) => string | undefined} [resolve]   reference → label
  * @param {(field: string) => boolean} [isReference]
  */
-export function renderDisplay(tpl, record, { resolve, isReference }: { resolve?: (ref: string) => string | undefined; isReference?: (field: string) => boolean } = {}) {
-	return parseTemplate(tpl).map((p) => {
+export function renderDisplay(tpl: string, record: Record<string, unknown>, { resolve, isReference }: { resolve?: (ref: string) => string | undefined; isReference?: (field: string) => boolean } = {}): string {
+	return parseTemplate(tpl).map((p: any) => {
 		if (!p.field) return p.text;
-		let value = record[p.field];
+		let value: any = record[p.field];
 		if (value === undefined || value === null || value === '') return '';
 		if (Array.isArray(value)) value = value.map((v) => (isReference?.(p.field) && resolve ? resolve(v) ?? v : v)).join(', ');
 		else if (isReference?.(p.field) && resolve) value = resolve(value) ?? value;

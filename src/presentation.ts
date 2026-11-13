@@ -17,6 +17,7 @@ import {
 	fieldsOf, displayOf as resolvedDisplayOf, titleOf, recordTitleOf, storageOf, positionFieldOf, bodyFieldOf,
 	requiredOf, targetsOf, mirrorOf, isRuntime, isInternal,
 } from './descriptor.ts';
+import type { Descriptors, Presentation } from './types.ts';
 
 /** The design's default layouts, used where the resolved `display` (`displayOf`) does not state them. */
 const DEFAULT_LIST_LAYOUT = 'table';
@@ -31,7 +32,7 @@ const WIRE_TYPES = new Set(['string', 'markdown', 'integer', 'number', 'boolean'
 const CHOICE_KEYS = ['description', 'icon', 'color', 'background'];
 
 /** the projection for every collection */
-export function presentation(descriptors) {
+export function presentation(descriptors: Descriptors): Presentation {
 	const all = [...descriptors.values()];
 	// an owner field "has a relation" when some collection mirrors it — the far side names it
 	const mirrored = new Set();

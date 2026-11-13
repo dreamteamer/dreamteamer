@@ -5,7 +5,8 @@
 // deleting one took `activate()` down before the tree view existed.
 //
 // Grouped by task. Each name is the ONE implementation of its operation; nothing here wraps or
-// re-implements. `api.d.ts` beside this file is the typed contract, and a test pins the two together.
+// re-implements. Its declarations are GENERATED (dist/api.d.ts) from these signatures and src/types.ts;
+// test/types/consumer.ts is the contract they are held to.
 //
 // Importing this module prints nothing, writes nothing, binds no port and touches no network.
 import path from 'node:path';
@@ -18,9 +19,13 @@ import { DERIVED_KINDS } from './runtime.ts';
 import { KNOWN_HARNESSES } from './harnesses.ts';
 import { CORE_VERBS } from './cli.ts';
 import { installCommand as installCheckout } from './checkout.ts';
+import type { Workspace, LoadedExtension, CheckItem } from './types.ts';
 
 // Everything the record half exports (the browser-safe entry, `dreamteamer/records`), then the rest.
 export * from './records-api.ts';
+export type {
+	Workspace, Contribution, CheckItem, DoctorRow, ExtensionContext, Activate, LoadedExtension, Entry, CompileDraft, HarnessContext, TemplatePart, SchemaOp,
+} from './types.ts';
 
 // ---- the workspace ------------------------------------------------------------------------------
 
@@ -29,8 +34,8 @@ export * from './records-api.ts';
  * The handle every other call takes: `{ root, pkg, extensions }`. Performs no compile, install,
  * network call or write, and never changes the process cwd.
  */
-export async function openWorkspace(start = process.cwd()) {
-	const ws = findWorkspace(start);
+export async function openWorkspace(start: string = process.cwd()): Promise<Workspace & { extensions: LoadedExtension[] }> {
+	const ws = findWorkspace(start) as Workspace & { extensions: LoadedExtension[] };
 	ws.extensions = await loadExtensions(ws, self, { verbs: CORE_VERBS, kinds: [...KINDS, ...DERIVED_KINDS], harnesses: KNOWN_HARNESSES });
 	return ws;
 }
@@ -39,16 +44,16 @@ export { EXTENSION_API, declaredExtensions, contributedNotes } from './extension
 /** An extension's `check` may return `{ file, message, warning: true }`: printed as a warning, never a
  *  violation. A module reads this flag to know the engine it runs on has the channel — on one without
  *  it, a warning item would be counted as a violation. */
-export const CHECK_WARNINGS = true;
+export const CHECK_WARNINGS: true = true;
 
 /** What every extension's `check` reports on `ws`, as `check(ws, { extra })` takes it — attributed to
  *  the extension, a throw being a violation. `dt check` and an in-process caller get one verdict. An
  *  item the extension marked `warning: true` keeps the mark: `check` prints it and does not count it. */
-export async function contributedViolations(ws) {
-	const out = [];
+export async function contributedViolations(ws: Workspace): Promise<{ file: string; msg: string; warning?: true }[]> {
+	const out: { file: string; msg: string; warning?: true }[] = [];
 	for (const e of (ws.extensions ?? []).filter((x) => x.check)) {
 		try {
-			for (const v of (await e.check({ root: ws.root, ws, dt: self })) ?? []) out.push({ file: v.file ?? e.name, msg: `${v.message} (${e.name})`, ...(v.warning === true ? { warning: true } : {}) });
+			for (const v of ((await e.check({ root: ws.root, ws, dt: self })) ?? []) as CheckItem[]) out.push({ file: v.file ?? e.name, msg: `${v.message} (${e.name})`, ...(v.warning === true ? { warning: true as const } : {}) });
 		} catch (err) { out.push({ file: e.name, msg: `check failed — ${err.message}` }); }
 	}
 	return out;
@@ -84,7 +89,7 @@ export { describeCheckout, resolveNpm, childEnv, readHookInput, readStdin } from
  *  `opts.open` — `openWorkspace` unless a caller injects another — so the extensions npm just
  *  installed take part in that compile. The one name here that supplies a default rather than
  *  re-exporting: the checkout layer cannot import the opener that activates extensions. */
-export const installCommand = (ws, argv, opts = {}) => installCheckout(ws, argv, { open: openWorkspace, ...opts });
+export const installCommand = (ws: Workspace, argv: string[], opts: { open?: (at: string) => Promise<Workspace> } = {}): Promise<number> => installCheckout(ws, argv, { open: openWorkspace, ...opts });
 
 // ---- CLI helpers an extension command reuses -----------------------------------------------------
 export { emit, parseArgs } from './collections-cli.ts';

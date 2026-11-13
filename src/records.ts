@@ -4,8 +4,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { load } from './yaml.ts';
 import { storageOf, storedFieldsOf, isBinary } from './descriptor.ts';
+import type { Descriptor, Fields } from './types.ts';
 
-export function parseRecord(file, d, bodyField) {
+export function parseRecord(file: string, d: Descriptor, bodyField?: string | null): Fields {
 	// An opaque record IS its bytes: there is nothing to parse, and reading a PNG as utf8 would
 	// corrupt it on the way back out. What a reader gets instead is derived from the file itself.
 	if (storageOf(d).format === 'binary') {
@@ -14,7 +15,7 @@ export function parseRecord(file, d, bodyField) {
 	return parseRecordText(fs.readFileSync(file, 'utf8'), d, bodyField);
 }
 
-export function parseRecordText(text, d, bodyField?) {
+export function parseRecordText(text: string, d: Descriptor, bodyField?: string | null): Fields {
 	const format = storageOf(d).format;
 	if (format === 'yaml') return load(text) ?? {};
 	if (format === 'json') return JSON.parse(text);
@@ -71,7 +72,7 @@ export const MAX_RECORD_BYTES = 204800;
  *
  *  An id is a POSIX path on every OS: callers hand in `path.relative` output, which on Windows is
  *  `2026\10\x.note.md` — an id no reference, pattern or `dt get` would ever match. */
-export function idFromRecordPath(d, relPath) {
+export function idFromRecordPath(d: Descriptor, relPath: string): string | null {
 	relPath = relPath.split(path.sep).join('/');
 	const { suffix, format } = storageOf(d);
 	if (format === 'binary') {

@@ -130,13 +130,14 @@ describe('the template grammar is public', () => {
 });
 
 // The typings a TypeScript consumer compiles against name exactly the contract's keys. A key added to
-// the contract and not to records-api.d.ts would type-check as absent in every surface.
-describe('records-api.d.ts types the same contract', () => {
-	const dts = fs.readFileSync(new URL('../../src/records-api.d.ts', import.meta.url), 'utf8');
+// the contract and not to src/types.ts (which the published declarations are generated from) would
+// type-check as absent in every surface.
+describe('src/types.ts types the same contract', () => {
+	const dts = fs.readFileSync(new URL('../../src/types.ts', import.meta.url), 'utf8');
 	/** The top-level member names of one exported interface (nested object types are not descended). */
 	const keysOf = (iface) => {
 		const start = dts.indexOf(`export interface ${iface} {`);
-		assert.notEqual(start, -1, `records-api.d.ts declares no ${iface}`);
+		assert.notEqual(start, -1, `src/types.ts declares no ${iface}`);
 		let depth = 0, i = dts.indexOf('{', start), body = '';
 		for (; i < dts.length; i++) {
 			const ch = dts[i];

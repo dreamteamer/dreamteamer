@@ -62,7 +62,7 @@ import { storageOf, jsonSchemaOf, recordTitleOf, positionFieldOf, fieldsOf, disp
  * at exit 0. Hence the `fd` argument: `help` writes through here now, and so does the USAGE echoed
  * on an unknown verb (fd 2, same failure mode).
  */
-export const emit = (s, fd = 1) => {
+export const emit = (s: string, fd: number = 1): void => {
   const buf = Buffer.from(s + '\n');
   let off = 0;
   while (off < buf.length) {
@@ -80,7 +80,7 @@ const LIST_META_FLAGS = new Set(['json', 'filter', 'where', 'sort']);
 
 export function collectionCommand(ws, collection, verb, args) {
 	const store = new Store(ws);
-	const { flags, pos } = parseArgs(args);
+	const { flags, pos }: { flags: Record<string, any>; pos: string[] } = parseArgs(args);
 	refuseUnknownFlags(store, collection, verb, flags);
 
 	// ---- system verbs: source writes, never the runtime ----------
@@ -178,7 +178,7 @@ export function collectionCommand(ws, collection, verb, args) {
 				flags[titleField] = pos[0];
 			}
 			const fields = coerceArrays(d, stripMeta(flags));
-			const { id, file, idFallback, deprecated } = store.add(collection, fields, { id: flags.id });
+			const { id, file, idFallback, deprecated } = store.add(collection, fields, { id: flags.id }) as ReturnType<Store['add']> & { idFallback: { id: string; field: string; value: unknown } | null };
 			for (const k of deprecated ?? []) console.warn(`⚠ ${k} is deprecated on ${collection} — it still validates, and nothing draws it. Check the collection's description for what replaced it.`);
 			flags.json
 				? emit(JSON.stringify({ id, path: rel(ws.root, file), ...(idFallback ? { idFallback } : {}) }))
@@ -982,7 +982,7 @@ function metaUiView(ws, store, verb, flags, pos) {
  */
 export function relationsCommand(ws, args) {
 	const store = new Store(ws);
-	const { flags, pos } = parseArgs(args);
+	const { flags, pos }: { flags: Record<string, any>; pos: string[] } = parseArgs(args);
 	const rebuilding = pos[0] === 'rebuild';
 	refuseUnknownFlags(store, (rebuilding ? pos[1] : pos[0]) ?? '', rebuilding ? 'rebuild' : 'relations', flags);
 	if (rebuilding) return relationsRebuild(store, flags, pos);
@@ -1129,7 +1129,7 @@ function* parseEach(store, collection, onError) {
  * conjunctive CONDITION (`--filter`, in list), or the flag holds one value and a repeat is a
  * MISTAKE (`oneValue`, and the view writer). Silence is not one of them.
  */
-export function parseArgs(args: string[]) {
+export function parseArgs(args: string[]): { flags: Record<string, string | boolean | string[]>; pos: string[] } {
 	const flags: Record<string, any> = {};
 	const pos = [];
 	const put = (k, v) => { flags[k] = k in flags ? [].concat(flags[k], v) : v; };

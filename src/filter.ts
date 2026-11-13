@@ -3,8 +3,9 @@
 // and saved views actually emit. evaluated server-side over parsed records.
 // negative operators deliberately reject null (SQL semantics).
 import { compareValues } from './temporal.ts';
+import type { Fields } from './types.ts';
 
-export function matchesFilter(record, filter, resolve) {
+export function matchesFilter(record: Fields, filter: unknown, resolve?: (ref: string) => Fields | null): boolean {
 	if (filter == null || typeof filter !== 'object') return true;
 	for (const [key, cond] of Object.entries<any>(filter)) {
 		if (key === '_and') { if (!cond.every((c) => matchesFilter(record, c, resolve))) return false; continue; }
@@ -74,7 +75,7 @@ function compare(op, v, operand) {
 	}
 }
 
-export const KNOWN_OPERATORS = new Set(['_eq', '_neq', '_ieq', '_nieq', '_lt', '_lte', '_gt', '_gte', '_in', '_nin', '_null', '_nnull', '_empty', '_nempty', '_contains', '_ncontains', '_icontains', '_starts_with', '_istarts_with', '_ends_with', '_iends_with', '_between', '_nbetween', '_regex', '_and', '_or']);
+export const KNOWN_OPERATORS: ReadonlySet<string> = new Set(['_eq', '_neq', '_ieq', '_nieq', '_lt', '_lte', '_gt', '_gte', '_in', '_nin', '_null', '_nnull', '_empty', '_nempty', '_contains', '_ncontains', '_icontains', '_starts_with', '_istarts_with', '_ends_with', '_iends_with', '_between', '_nbetween', '_regex', '_and', '_or']);
 
 const warned = new Set();
 function warnUnknownOp(op) {
@@ -85,7 +86,7 @@ function warnUnknownOp(op) {
 
 // walk a filter tree and return every operator key not in the known set — compile
 // validates ui-view filters with this so a typo'd operator fails loudly at compile time.
-export function unknownOperators(filter, found = new Set()) {
+export function unknownOperators(filter: unknown, found = new Set<string>()): Set<string> {
 	if (filter == null || typeof filter !== 'object') return found;
 	for (const [key, cond] of Object.entries(filter)) {
 		if (key === '_and' || key === '_or') {
@@ -146,7 +147,7 @@ export function unknownTokens(filter, found = new Set()) {
 // exported (through the public API) because a proof runner's enum validation has to compare the way THIS module compares: a proof's
 // `_eq: '5'` against a numeric enum member 5 is one filter at run time, and a strict `includes`
 // there refused a proof that works — worse than the silent pass it was written to prevent.
-export const looseEq = (v, o) => v === o || String(v) === String(o) || (typeof v === 'number' && Number(o) === v);
+export const looseEq = (v: unknown, o: unknown): boolean => v === o || String(v) === String(o) || (typeof v === 'number' && Number(o) === v);
 const toArray = (o) => (Array.isArray(o) ? o : String(o).split(',').map((x) => x.trim()));
 // ordering lives in temporal.js: a date-time carries its own local offset, so `_gt`/`_lt` have to
 // compare INSTANTS. String order would put `…T12:00+03:00` after `…T11:00+01:00`, which is the

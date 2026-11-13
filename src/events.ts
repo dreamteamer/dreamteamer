@@ -8,13 +8,14 @@ import { placedChildAt } from './placement.ts';
 
 import { storageOf } from './descriptor.ts';
 import { commitArg } from './history.ts';
+import type { Descriptors } from './types.ts';
 /** Record events between two points, across EVERY repo that holds records. `from` is a sha or a
  *  date — a sha is meaningless in another repo, so it is resolved to its commit DATE and each
  *  repo then resolves that date to its own sha. Still cursor-less and stores nothing, so it can
  *  be run twice with no consequence. Every ROOT of a collection is sampled — the write root and
  *  each record layer's — and an event carries the repo it was read from; sampling the write root
  *  alone answered `events: []` for a commit made in a layer's clone. */
-export function deriveEvents(root, descriptors, from, to = 'HEAD') {
+export function deriveEvents(root: string, descriptors: Descriptors, from: string, to = 'HEAD'): { type: 'item-added' | 'item-updated' | 'item-removed'; collection: string; id: string; path: string; repo: string }[] {
 	commitArg(to);
 	const byRepo = new Map();
 	for (const d of descriptors.values()) {

@@ -15,6 +15,7 @@ import path from 'node:path';
 import { load } from './yaml.ts';
 import { storageOf } from './descriptor.ts';
 import { normalizeNamespaces } from './namespace.ts';
+import type { Descriptor, Descriptors, Manifest } from './types.ts';
 
 export const RUNTIME_DIR = '.dreamteamer';
 
@@ -32,7 +33,7 @@ export const RUNTIME_DIR = '.dreamteamer';
  * manifest either way — and a failure to read it is `dreamteamer@unknown` rather than a throw,
  * because a version string is never worth crashing a compile or a proof over.
  */
-export function engineId() {
+export function engineId(): string {
 	try {
 		const p = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
 		return `${p.name}@${p.version}`;
@@ -40,7 +41,7 @@ export function engineId() {
 }
 
 /** Bare semver of the running engine — what the manifest's `engine` key and every ledger row carry. */
-export function engineVersion() {
+export function engineVersion(): string {
 	return engineId().split('@').pop();
 }
 
@@ -69,11 +70,11 @@ export function sourceHint(d) {
 /** One message, two callers with different manners: the store throws it, `check` prints it. */
 export const NO_RUNTIME = 'no compiled runtime — run `dreamteamer compile` first';
 
-export function runtimeDir(root) {
+export function runtimeDir(root: string): string {
 	return path.join(root, RUNTIME_DIR);
 }
 
-export function readManifest(root): { entries?: Record<string, any>; [k: string]: any } | null {
+export function readManifest(root: string): Manifest | null {
 	try { return load(fs.readFileSync(path.join(runtimeDir(root), 'manifest.yaml'), 'utf8')); } catch { return null; }
 }
 
@@ -91,10 +92,10 @@ export const STALE_RUNTIME = 'the compiled runtime predates descriptor format v2
  * The ONE place descriptors are read. A descriptor without its `compiled` block was written by an
  * engine that read v1 sources; it is refused with the one message that fixes it, rather than read.
  */
-export function loadDescriptors(root) {
+export function loadDescriptors(root: string): Descriptors | null {
 	const dir = runtimeKindDir(root, 'collections');
 	if (!fs.existsSync(dir)) return null;
-	const out = new Map();
+	const out: Descriptors = new Map();
 	// RECURSIVE, because a namespaced collection compiles to `collections/<ns>/<name>.collection.yaml`
 	// and this loop used to read exactly one directory level. ⚠ That was a SILENT failure, not an
 	// error: compile wrote the nested file and reported ✔, this returned a Map without it, and the
@@ -122,7 +123,7 @@ function walkDescriptors(dir, out = []) {
 /** What compile recorded for the exports manifest (cr-dt-004): this workspace's package name and data
  *  folder, and per layer `{ name, root, data, package, reads, narrowed }` — `layers: null` from a runtime
  *  older than them, which a caller reads as "nothing is known". */
-export function exportsFacts(root) {
+export function exportsFacts(root: string): { own: string | null; data: string; layers: { name: string; root: string; data: string; package: string | null; reads: string[]; narrowed: boolean }[] | null } {
 	const m = readManifest(root);
 	return { own: m?.package ?? null, data: m?.data_path ?? 'data', layers: m?.layers ?? null };
 }
@@ -133,7 +134,7 @@ export function exportsFacts(root) {
  * dependency on the compiled artifact (the `sourceRoots()` precedent), and so a runtime compiled
  * before namespaces existed answers `[]` instead of throwing.
  */
-export function namespaces(root) {
+export function namespaces(root: string): string[] {
 	return normalizeNamespaces(readManifest(root)?.namespaces);
 }
 

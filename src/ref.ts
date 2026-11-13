@@ -1,4 +1,5 @@
 import { singularOf } from './descriptor.ts';
+import type { Descriptors } from './types.ts';
 // The words a collection answers to on the command line: its declared name and its `singular`
 // (compile stamps one on every descriptor — derived by inflection, authorable where inflection is
 // wrong — and refuses two collections whose words collide). `dt add task …` and `dt add tasks …`
@@ -14,7 +15,7 @@ function* words(descriptors) {
 }
 
 /** The declared collection a typed word names — the name itself or its singular — else null. */
-export function canonicalCollection(descriptors, word) {
+export function canonicalCollection(descriptors: Descriptors, word: string): string | null {
 	if (descriptors.has(word)) return word;
 	for (const [w, name] of words(descriptors)) if (w === word) return name;
 	return null;
@@ -23,7 +24,7 @@ export function canonicalCollection(descriptors, word) {
 // split "<collection>/<id>" against the DECLARED collections and their singulars — longest prefix
 // at a "/" boundary, because both collection names and ids may contain slashes (namespaces;
 // path-shaped ids). The collection returned is always the declared NAME, whichever word was typed.
-export function splitRef(descriptors, ref) {
+export function splitRef(descriptors: Descriptors, ref: string): { collection: string; id: string } {
 	let best = null;
 	let bestName = null;
 	for (const [w, name] of words(descriptors)) {

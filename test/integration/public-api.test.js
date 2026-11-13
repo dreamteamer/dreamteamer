@@ -10,21 +10,8 @@ import { spawnSync, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { workspace, git, ENGINE_ROOT } from '../helpers/ws.js';
 import { resolveNpm, childEnv } from '../../src/checkout.ts';
-
-const dts = (f) => fs.readFileSync(path.join(ENGINE_ROOT, 'src', f), 'utf8');
-
-/** Every runtime name a declaration file declares: `export function|const|class X`, and the comma
- *  lists. `api.d.ts` re-exports `records-api.d.ts`, so its set is the union. */
-function declared(file) {
-	const text = dts(file);
-	const names = new Set();
-	for (const m of text.matchAll(/^export (?:declare )?(?:function|class|const) ([A-Za-z_$][\w$]*)/gm)) names.add(m[1]);
-	for (const m of text.matchAll(/^export const ([^;]+);/gm)) {
-		for (const part of m[1].split(/,\s*/)) { const n = /^([A-Za-z_$][\w$]*)\s*:/.exec(part.trim()); if (n) names.add(n[1]); }
-	}
-	if (/^export \* from '\.\/records-api\.js';/m.test(text)) for (const n of declared('records-api.d.ts')) names.add(n);
-	return names;
-}
+import { typeOnly } from '../../scripts/import-edges.mjs';
+import { checkContract } from '../../scripts/contract.mjs';
 
 /** The static import closure of one src/ module: every src file reached, and every bare specifier. */
 function closure(entry) {
@@ -34,6 +21,7 @@ function closure(entry) {
 		files.add(f);
 		const body = fs.readFileSync(path.join(ENGINE_ROOT, 'src', f), 'utf8');
 		for (const m of body.matchAll(/(?:^|\n)\s*(?:import|export)[\s\S]*?from\s+'([^']+)'|import\(\s*'([^']+)'/g)) {
+			if (typeOnly(body, m)) continue; // erased at run time — loads nothing in the browser
 			const spec = m[1] ?? m[2];
 			if (spec.startsWith('./')) visit(spec.slice(2)); else bare.add(spec);
 		}
@@ -43,43 +31,20 @@ function closure(entry) {
 }
 
 describe('dreamteamer (the public API)', () => {
-	test('the runtime exports are exactly the declared ones — for both entries', async () => {
-		for (const [mod, file, floor] of [['../../src/api.ts', 'api.d.ts', 60], ['../../src/records-api.ts', 'records-api.d.ts', 30]]) {
-			const runtime = new Set(Object.keys(await import(mod)));
-			const types = declared(file);
-			assert.ok(types.size > floor, `the declaration parse found only ${types.size} names — the pattern no longer matches ${file}`);
-			assert.deepEqual([...runtime].filter((n) => !types.has(n)).sort(), [], `exported but not declared in ${file}`);
-			assert.deepEqual([...types].filter((n) => !runtime.has(n)).sort(), [], `declared in ${file} but not exported`);
-		}
+	// The declarations are GENERATED from the source (dist/*.d.ts), so a declared name the runtime does not
+	// export, or a declared array that is a Set at run time (review F8 — strict TypeScript accepted
+	// `.includes('_eq')` and it threw), can no longer be written. What can still go wrong is PRECISION: a
+	// signature drifting to `any`, which every consumer then compiles against silently. test/types/consumer.ts
+	// is the contract — what the editor, the mobile app and an extension rely on, `@ts-expect-error` lines
+	// that fail once a signature loosens, and a ratchet that no public function takes or returns `any`.
+	test('the declarations generated from src/ keep the consumer contract, under strict', () => {
+		const { ok, output } = checkContract();
+		assert.ok(ok, `test/types/consumer.ts no longer compiles against the generated declarations:\n${output}`);
 	});
 
-	// ⚠ NAMES ARE NOT ENOUGH — the SHAPE is the contract too. `KNOWN_OPERATORS` was declared an array
-	// while the runtime value is a Set, so strict TypeScript accepted `.includes('_eq')` and it threw
-	// at run time (review F8). Every declared value is checked against the kind its type names.
-	test('every declared export has the runtime SHAPE its type says', async () => {
-		for (const [mod, file] of [['../../src/api.ts', 'api.d.ts'], ['../../src/records-api.ts', 'records-api.d.ts']]) {
-			const api = await import(mod);
-			const text = dts(file);
-			for (const m of text.matchAll(/^export (?:declare )?(?:function|class) ([A-Za-z_$][\w$]*)/gm)) {
-				assert.equal(typeof api[m[1]], 'function', `${file}: ${m[1]} is declared a function/class, runtime is ${typeof api[m[1]]}`);
-			}
-			for (const m of text.matchAll(/^export const (.+);$/gm)) {
-				for (const part of m[1].split(/,\s*(?=[A-Za-z_$][\w$]*\s*:\s*[A-Z'\d(r])/)) {
-					const [, name, type] = /^([A-Za-z_$][\w$]*)\s*:\s*([\s\S]+)$/.exec(part.trim()) ?? [];
-					if (!name) continue;
-					const v = api[name];
-					if (/^ReadonlySet</.test(type)) assert.ok(v instanceof Set, `${name}: declared ReadonlySet, runtime is not a Set`);
-					else if (/^readonly .*\[\]$/.test(type)) assert.ok(Array.isArray(v), `${name}: declared an array, runtime is not one`);
-					else if (type === 'string') assert.equal(typeof v, 'string', name);
-					else if (/^'.*'$/.test(type)) assert.equal(v, type.slice(1, -1), name);
-					else if (/^\d+$/.test(type)) assert.equal(v, Number(type), name);
-					else if (type === 'true' || type === 'false') assert.equal(v, type === 'true', name);
-					else if (type === 'SchemaOp') assert.equal(typeof v, 'function', name);
-					else assert.fail(`${file}: ${name}: no shape rule for the declared type "${type}" — add one here`);
-				}
-			}
-		}
+	test('KNOWN_OPERATORS is a Set at run time, as its declaration says', async () => {
 		const { KNOWN_OPERATORS } = await import('../../src/records-api.ts');
+		assert.ok(KNOWN_OPERATORS instanceof Set);
 		assert.equal(KNOWN_OPERATORS.has('_eq'), true);
 	});
 
@@ -147,11 +112,19 @@ describe('the INSTALLED package', () => {
 			assert.ok(!listing.includes(`package/${gone}`), `${gone} is still published`);
 		}
 		assert.ok(listing.includes('package/dist/api.d.ts') && listing.includes('package/dist/records-api.d.ts'), 'the type declarations are not published');
+		// the PUBLISHED declarations, not just the ones src/ emits: every file they reference shipped, and
+		// the consumer contract compiles against exactly what npm installed
+		const shipped = checkContract(path.join(dir, 'node_modules', 'dreamteamer', 'dist'));
+		assert.ok(shipped.ok, `the packed declarations break the consumer contract:\n${shipped.output}`);
 		// the npm package is the BUILD: no TypeScript source (Node refuses to strip types under
 		// node_modules), and every relative import rewritten to the .js file that sits beside it
 		assert.ok(!/package\/src\//.test(listing), 'src/ is published — the package must run from dist/');
 		const built = fs.readFileSync(path.join(dir, 'node_modules', 'dreamteamer', 'dist', 'api.js'), 'utf8');
 		assert.ok(!/from '\.\/[\w-]+\.ts'/.test(built), 'dist/api.js still imports a .ts file');
+		for (const f of ['api.d.ts', 'records-api.d.ts', 'types.d.ts', 'store.d.ts']) {
+			const d = fs.readFileSync(path.join(dir, 'node_modules', 'dreamteamer', 'dist', f), 'utf8');
+			assert.ok(!/(?:from\s+|import\(\s*)'\.\/[\w-]+\.ts'/.test(d), `dist/${f} still names a .ts file — an older TypeScript cannot resolve it`);
+		}
 		const cli = spawnSync(process.execPath, [path.join(dir, 'node_modules', 'dreamteamer', 'bin', 'dreamteamer.js'), '--version'], { cwd: dir, encoding: 'utf8', timeout: 30_000 });
 		assert.equal(cli.status, 0, cli.stderr);
 	});
@@ -183,9 +156,8 @@ describe('dt init commits only what it wrote', () => {
 	});
 });
 
-test('Store.external is implemented and typed (cr-dt-004)', async () => {
+// its TYPE is pinned by test/types/consumer.ts, which the contract test above compiles
+test('Store.external is implemented (cr-dt-004)', async () => {
 	const { Store } = await import('../../src/records-api.ts');
 	assert.equal(typeof Store.prototype.external, 'function');
-	const dts = fs.readFileSync(new URL('../../src/records-api.d.ts', import.meta.url), 'utf8');
-	assert.match(dts, /\texternal\(collection: string, id: string, opts\?: \{ referrer\?: string \}\): \{ label: string; from\?: string; manifest: string \} \| null;/);
 });

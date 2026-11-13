@@ -6,12 +6,14 @@
 // and (through the extension's api.ts port) the studio's Commands tab.
 import { matchesFilter } from './filter.ts';
 import { parseRef, slash } from './namespace.ts';
+import type { Store } from './store.ts';
+import type { Fields } from './types.ts';
 
 // memoized `<collection>/<id>` → parsed fields (or null) for ONE evaluation pass:
 // overlapping refs across a 50-record selection parse once, and filter.js stays
 // pure — it never learns about the store, it just gets this callback.
-export function recordResolver(store) {
-	const memo = new Map();
+export function recordResolver(store: Store): (ref: string) => Fields | null {
+	const memo = new Map<string, Fields | null>();
 	return (ref) => {
 		if (memo.has(ref)) return memo.get(ref);
 		let target = null;
@@ -47,7 +49,7 @@ export function recordResolver(store) {
  * `invocation` covers the ELIGIBLE ids only, space-separated — a deliberate contract:
  * the UI shows it verbatim in an editable textarea, so nothing is silently dropped.
  */
-export function commandsFor(store, collection, ids = []) {
+export function commandsFor(store: Store, collection: string, ids: string[] = []): { collection: string; ids: string[]; commands: any[] } {
 	store.descriptor(collection); // unknown collection throws here, not deep inside a filter walk
 	const resolve = recordResolver(store);
 	const commands = new Map();

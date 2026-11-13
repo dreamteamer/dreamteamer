@@ -1,7 +1,7 @@
 # dreamteamer — the engine
 
 `dreamteamer`: workspace compiler, CLI, store, schema-ops — and a public API (`src/api.ts`,
-typed by `src/api.d.ts`) that is the ONLY importable surface. See `README.md` for the contract
+its declarations generated from `src/types.ts` and the signatures) that is the ONLY importable surface. See `README.md` for the contract
 (sources → `.dreamteamer/` → harness adapters; records are files; a write lands on disk and
 `dreamteamer commit` publishes it, one commit per repo; hard validation before disk).
 
@@ -20,9 +20,18 @@ typed by `src/api.d.ts`) that is the ONLY importable surface. See `README.md` fo
   the packed tarball, and the suite on 22/24.
 
 So only ERASABLE syntax (`erasableSyntaxOnly`): no `enum`, no `namespace`, no constructor parameter
-properties; type-only imports are `import type`. `npm run typecheck` is part of `verify`. The
-declarations stay the hand-written contract (`src/api.d.ts`, `src/records-api.d.ts`, copied into
-`dist/` by the build) — generated ones would only restate what the code happens to infer.
+properties; type-only imports are `import type`. `npm run typecheck` is part of `verify`.
+
+**The declarations are GENERATED** (`dist/*.d.ts`, by the build) from the exported signatures and
+`src/types.ts`, which holds every shape the contract publishes. They used to be hand-written, and nothing
+held the code to them — `KNOWN_OPERATORS` was declared an array and was a Set (review F8). Generation
+removes that drift and leaves one risk, PRECISION: a public signature sliding to `any`, which every
+consumer then compiles against without a word. So `test/types/consumer.ts` is the contract — a strict
+consumer of what the editor, the mobile app and extensions rely on, with `@ts-expect-error` lines that
+fail when a signature loosens and a ratchet that no public function takes or returns `any` outside a
+named list. `npm run contract` runs it; the public-API test runs it against `src/` AND the packed tarball.
+A type-only edge (`import type`, `typeof import(…)`) is erased by construction, so `layers` and the
+browser-closure test skip it — that is what lets both halves name `src/types.ts`.
 `bin/dreamteamer.js` stays JavaScript (type-checked via `checkJs`): it is what npm links and what the
 dev-clone probe looks for, and it runs before it knows which engine to load.
 
@@ -405,6 +414,6 @@ package `exports` makes `dist/*` unimportable. So:
 - **A file under `src/` may be split, renamed or deleted freely** as long as `src/api.ts` still
   exports the same names.
 - **Removing or renaming an export of `src/api.ts` IS the cross-repo change**, and needs the same
-  wave in every consumer. `test/integration/public-api.test.js` pins the runtime export list to
-  `src/api.d.ts`, and installs the packed tarball to prove the API resolves and `dist/*` does not.
+  wave in every consumer. `test/integration/public-api.test.js` holds the generated declarations to
+  `test/types/consumer.ts`, and installs the packed tarball to prove the API resolves and `dist/*` does not.
 - An addition to the API needs a consumer, like anything else in core.

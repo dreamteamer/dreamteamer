@@ -40,7 +40,7 @@ const SEGMENT = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
  * for the namespace `work`, making the collection `clients` and the id `acme` on a workspace where
  * `work/clients` is the namespace and the collection is something else entirely.
  */
-export function normalizeNamespaces(list) {
+export function normalizeNamespaces(list: unknown): string[] {
 	if (!Array.isArray(list)) return [];
 	const seen = new Set<string>();
 	for (const raw of list) {
@@ -156,7 +156,7 @@ export function unqualifiedProblems(collectionNames, namespaces) {
  * check, `check`'s report, the extension's go-to-definition — goes through here, so a namespace can
  * never mean one thing on write and another on read.
  */
-export function parseRef(ref, namespaces = []) {
+export function parseRef(ref: string, namespaces: string[] = []): { collection: string; id: string } | null {
 	if (typeof ref !== 'string' || !ref) return null;
 	for (const ns of namespaces) {
 		if (!ref.startsWith(ns + '/')) continue;

@@ -9,6 +9,7 @@ import { init, initFootprint, seedBlock, install as restoreGitModules, offRef } 
 import { declaredGitModules } from './workspace.ts';
 import { engineVersion, readManifest, RUNTIME_DIR } from './runtime.ts';
 import { satisfies } from './semver.ts';
+import type { Workspace } from './types.ts';
 
 export const defaultGit = (args, cwd) => {
 	try {
@@ -32,7 +33,7 @@ export const defaultGit = (args, cwd) => {
 const real = (p) => { try { return realpathSync(p); } catch { return p; } };
 
 /** Primary vs linked, derived from git — never configured. `primary` is the common dir's parent. */
-export function describeCheckout(rootArg, git = defaultGit) {
+export function describeCheckout(rootArg: string, git: (args: string[], cwd: string) => string = defaultGit): { root: string; kind: 'primary' | 'linked'; gitDir: string; commonDir: string; primary: string; insideRoot: boolean } {
 	const root = path.resolve(rootArg);
 	let gitDir, commonDir;
 	try {
@@ -205,7 +206,7 @@ const guard = (name, fn) => (...a) => {
  *  first would pick a stale global npm on a machine that has both, and find nothing on a machine
  *  reached through the shim. Returns null when neither resolves, which is a board line, not a throw.
  */
-export function resolveNpm(execPath = process.execPath, env = process.env) {
+export function resolveNpm(execPath: string = process.execPath, env: NodeJS.ProcessEnv = process.env): string | null {
 	const bin = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 	// ⚠ EXECUTABLE, not merely present. `resolves` is `existsSync`, which is true of a DIRECTORY
 	// called `npm` and of a file nobody may run — and this path is then spawned, so the difference
@@ -229,7 +230,7 @@ export function resolveNpm(execPath = process.execPath, env = process.env) {
  *  `env: node: No such file or directory` — the interpreter lookup, one level below the one the
  *  shim fixes. A declared `postinstall` has exactly the same problem for exactly the same reason,
  *  so both steps are handed the same environment. */
-export const childEnv = () => ({ ...process.env, PATH: [path.dirname(process.execPath), process.env.PATH ?? ''].filter(Boolean).join(path.delimiter) });
+export const childEnv = (): NodeJS.ProcessEnv => ({ ...process.env, PATH: [path.dirname(process.execPath), process.env.PATH ?? ''].filter(Boolean).join(path.delimiter) });
 
 // One executor per step id, keyed by the id's kind. None decides ANYTHING — whether a step runs at
 // all was settled by `planInstall`. `stdio` is the caller's, so a `--json` run can send a
@@ -321,7 +322,7 @@ export async function applyInstall(ws, state, steps, { dryRun = false, log = con
  *  there is nothing to read and nothing to search for. So the terminal case is refused BEFORE the
  *  read. `isTTY` is a parameter so the refusal can be tested without a pty. A closed or unreadable
  *  descriptor still comes back empty, and `readHookInput` names that one. */
-export function readStdin(isTTY = process.stdin.isTTY) {
+export function readStdin(isTTY: boolean = process.stdin.isTTY): string {
 	if (isTTY) throw new Error('--hook reads the harness\'s JSON on stdin — nothing is piped');
 	try { return fs.readFileSync(0, 'utf8'); } catch { return ''; }
 }
@@ -336,7 +337,7 @@ export function readStdin(isTTY = process.stdin.isTTY) {
  *  three do not name (`land` wants `worktree_path`), and because the KEYS are the whole diagnostic
  *  when a hook has been wired to the wrong event: a well-formed payload of the wrong shape is
  *  indistinguishable from a broken one until you can see what it did carry. */
-export function readHookInput(stdinText) {
+export function readHookInput(stdinText: string): { cwd: string | null; name: string | null; raw: Record<string, unknown> } {
 	let raw;
 	try { raw = JSON.parse(stdinText); } catch { throw new Error('hook input is not JSON'); }
 	if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('hook input is not JSON');
@@ -409,7 +410,7 @@ export function printAdapters(ws, { harnesses = ws.pkg.dreamteamer?.harnesses ??
  *  NOTHING else: the board goes to stderr (a human watching a piped run still wants it),
  *  console.log is pointed at stderr for the duration, and each subprocess is handed stderr for its
  *  own stdout. A `--json` that only parses on an already-settled checkout is not an interface. */
-export async function installCommand(ws, rest, { open }: { open?: any } = {}) {
+export async function installCommand(ws: Workspace, rest: string[], { open }: { open?: (at: string) => Promise<Workspace> } = {}): Promise<number> {
 	// ⚠ THE OPENER IS REQUIRED, and it must ACTIVATE extensions: the compile step reopens with it (see
 	// applyInstall), so a raw `findWorkspace` default compiled an extension's kind as an unknown folder.
 	// The public export (api.js) supplies `openWorkspace`; this layer cannot import it.

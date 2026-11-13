@@ -22,6 +22,7 @@ import { FIELD_OPTIONS, TEMPLATE_OPTIONS, viewOverlayOf } from './views.ts';
 const GIT_QUIET: StdioOptions = ['ignore', 'pipe', 'ignore'];
 import { walk, idFromRecordPath, parseRecord, EXT } from './records.ts';
 import { Store, serialize, atomicWrite } from './store.ts';
+import type { Descriptor, Field, Workspace } from './types.ts';
 
 // ---- the gate -------------------------------------------------------------------
 
@@ -297,7 +298,7 @@ function editWorkspacePkg(ws, mutate) {
 	return file;
 }
 
-export function createModule(ws, store, { name, description, namespace }) {
+export function createModule(ws: Workspace, store: Store, { name, description, namespace }) {
 	if (!name || name === true) throw new Error('missing module name — dreamteamer add modules --name <id>');
 	if (!MODULE_ID.test(name)) {
 		throw new Error(`invalid module id "${name}" — lowercase alphanumeric with single hyphens. It becomes a folder name, a package name and a record id at once, so there is only one spelling.`);
@@ -374,7 +375,7 @@ function moduleIdFromRef(ref, store) {
 	return packageNameOf(store, s.slice('modules/'.length));
 }
 
-export function setModule(ws, store, id, changes) {
+export function setModule(ws: Workspace, store: Store, id, changes) {
 	const rec = moduleRecord(store, id);
 	const unknown = Object.keys(changes).filter((k) => !(k in MODULE_SETTABLE));
 	if (unknown.length) {
@@ -416,7 +417,7 @@ export function setModule(ws, store, id, changes) {
 	return { id, file, changed, commits: gate.commits, unchanged: gate.unchanged };
 }
 
-export function removeModule(ws, store, id, { force = false, dryRun = false } = {}) {
+export function removeModule(ws: Workspace, store: Store, id, { force = false, dryRun = false } = {}) {
 	const { fields } = moduleRecord(store, id);
 	if (fields.location === 'node_modules') {
 		throw new Error(`module "${id}" is installed by npm (${fields.path}) — remove it from package.json dependencies and run \`npm install\`; a delete under node_modules/ is erased by the next install.`);
@@ -492,7 +493,7 @@ export function removeModule(ws, store, id, { force = false, dryRun = false } = 
 	return { removed: id, ...plan, commits: out.commits };
 }
 
-export function renameModule(ws, store, oldId, newId) {
+export function renameModule(ws: Workspace, store: Store, oldId, newId) {
 	if (!newId || newId === true) throw new Error('missing new module id — dreamteamer rename modules/<old> <new>');
 	if (oldId === newId) return { renamed: false, id: newId, files: [], rewrites: 0 };
 	if (!MODULE_ID.test(newId)) throw new Error(`invalid module id "${newId}" — lowercase alphanumeric with single hyphens.`);
@@ -663,7 +664,7 @@ function outboundTargets(d) {
 	return out;
 }
 
-export function moveCollection(ws, store, name, toModule, { dryRun = false } = {}) {
+export function moveCollection(ws: Workspace, store: Store, name, toModule, { dryRun = false } = {}) {
 	const d = store.descriptor(name); // throws with the known-collection list
 	if (isRuntime(d)) {
 		throw new Error(`"${name}" is a compiled source, not a data collection — it has no module to move it to.`);
@@ -824,7 +825,7 @@ function deletePath(obj, dotted) {
 	}
 }
 
-export function setCollectionScalars(ws, store, name, changes, { moduleId }: { moduleId?: string } = {}) {
+export function setCollectionScalars(ws: Workspace, store: Store, name, changes, { moduleId }: { moduleId?: string } = {}) {
 	const d = store.descriptor(name);
 	const unknown = Object.keys(changes).filter((k) => !settableOf(k));
 	if (unknown.length) {
@@ -1276,7 +1277,7 @@ function fieldRenameWalk(ws, store, collection, from, to, { records: withRecords
 	return { positions, edits, records };
 }
 
-export function renameFieldPlan(ws, store, collection, from, to) {
+export function renameFieldPlan(ws: Workspace, store: Store, collection, from, to) {
 	const d = store.descriptor(collection);
 	if (!fieldsOf(d)[from]) throw new Error(`no field "${from}" on ${collection}`);
 	const { positions, records } = fieldRenameWalk(ws, store, collection, from, to ?? `<new-name>`);
@@ -1286,7 +1287,7 @@ export function renameFieldPlan(ws, store, collection, from, to) {
 	};
 }
 
-export function renameField(ws, store, collection, from, to, { dryRun = false } = {}) {
+export function renameField(ws: Workspace, store: Store, collection, from, to, { dryRun = false } = {}) {
 	const d = store.descriptor(collection);
 	if (!to || to === true) throw new Error(`missing --to <new-name>: dreamteamer rename-field ${collection} --name ${from} --to <new-name>`);
 	if (from === to) return { renamed: false, collection, from, to };
@@ -1410,7 +1411,7 @@ function valueRenameTarget(store, collection, field, from, to) {
 	if (values.includes(to)) throw new Error(`"${to}" is already a value of ${collection}.${field} — merging two values is a record edit, not a rename`);
 }
 
-export function renameValuePlan(ws, store, collection, field, from, to) {
+export function renameValuePlan(ws: Workspace, store: Store, collection, field, from, to) {
 	valueRenameTarget(store, collection, field, from, to);
 	const { positions, records } = valueRenameWalk(ws, store, collection, field, from, to);
 	return {
@@ -1419,7 +1420,7 @@ export function renameValuePlan(ws, store, collection, field, from, to) {
 	};
 }
 
-export function renameValue(ws, store, collection, field, from, to, { dryRun = false } = {}) {
+export function renameValue(ws: Workspace, store: Store, collection, field, from, to, { dryRun = false } = {}) {
 	const plan = renameValuePlan(ws, store, collection, field, from, to);
 	if (dryRun) return { ...plan, renamed: false, dryRun: true };
 	refusePositions(`rename-value ${collection} ${field} ${from} → ${to}`, plan.positions);
@@ -1586,7 +1587,7 @@ export function collectionSourceFileFor(ws, store, collection, moduleId) {
 
 // ---- ops ------------------------------------------------------------------------
 
-export function createCollection(ws, store, { name, mixins, idFrom, namespace, moduleId, description, suffix }) {
+export function createCollection(ws: Workspace, store: Store, { name, mixins, idFrom, namespace, moduleId, description, suffix }) {
 	if (!name) throw new Error('missing collection name');
 	// §8. `--namespace health --name doctors` and `--name health/doctors` are the SAME collection,
 	// because the qualified name IS the identity everywhere else in the engine — and a module that
@@ -1691,7 +1692,7 @@ export function createCollection(ws, store, { name, mixins, idFrom, namespace, m
 	};
 }
 
-export function removeCollection(ws, store, name, { force = false } = {}) {
+export function removeCollection(ws: Workspace, store: Store, name, { force = false } = {}) {
 	const d = store.descriptor(name);
 	// The module that SHIPS it, not the workspace module. Refusing every module-shipped collection
 	// made this verb unusable for exactly the workspace it was built for: a vault's domain
@@ -1960,7 +1961,7 @@ export function renameCollection(ws, store, oldName, newName) {
 				// record's extension is its own, and a re-suffix must not rename it into another format.
 				const old = { storage: { ...storageOf(d), suffix: oldSuffix } };
 				for (const file of walk(newDir)) {
-					const id = idFromRecordPath(old, path.relative(newDir, file));
+					const id = idFromRecordPath(old as unknown as Descriptor, path.relative(newDir, file));
 					if (id === null) continue;
 					const to = path.join(newDir, `${id}.${newSuffix}${path.basename(file).slice(path.basename(id).length + oldSuffix.length + 1)}`);
 					fs.renameSync(file, to);
@@ -2259,8 +2260,8 @@ const optionList = (v) => (Array.isArray(v) ? v : String(v).split(',')).map((x) 
  *   --enum a,b   --default-value v   --mirror-of <field>   --on-delete restrict|set-null   --soft
  *   --sensitive   --body   --description "…"
  */
-export function fieldFromFlags(store, flags, previous: Record<string, any> = {}) {
-	const f = structuredClone(previous ?? {});
+export function fieldFromFlags(store: Store, flags: Record<string, unknown>, previous: Record<string, unknown> = {}): Record<string, unknown> {
+	const f = structuredClone(previous ?? {}) as Field & Record<string, any>;
 	const has = (k) => flags[k] !== undefined;
 	if (has('type')) f.type = parseType(store, flags.type);
 	f.type ??= 'string';
@@ -2393,7 +2394,7 @@ function declaringSource(ws, store, collection, fieldName, moduleId, verb) {
  *  on its own — every other key is inherited from the base. */
 const overrideSeed = (merged) => ({ type: merged.type, ...(merged.many && { many: true }) });
 
-export function addField(ws, store, collection, { name: fieldName, field, moduleId }) {
+export function addField(ws: Workspace, store: Store, collection, { name: fieldName, field, moduleId }) {
 	if (!fieldName || fieldName === true) throw new Error('missing --name <field>');
 	if (INJECTED.has(fieldName)) throw new Error(`"${fieldName}" is injected by the engine into every collection — pick another name`);
 	const merged = fieldsOf(store.descriptor(collection))[fieldName];
@@ -2415,7 +2416,7 @@ export function addField(ws, store, collection, { name: fieldName, field, module
  * Change one field. `flags` is the flag vocabulary (`fieldFromFlags`), applied over the field as its
  * source declares it; `field` is a whole v2 field from a surface, which replaces it.
  */
-export function updateField(ws, store, collection, fieldName, { flags = {}, field, moduleId }: { flags?: Record<string, any>, field?: any, moduleId?: string } = {}) {
+export function updateField(ws: Workspace, store: Store, collection, fieldName, { flags = {}, field, moduleId }: { flags?: Record<string, any>, field?: any, moduleId?: string } = {}) {
 	const target = declaringSource(ws, store, collection, fieldName, moduleId, 'set-field');
 	const authored = readYaml(target.file)?.fields?.[fieldName];
 	const previous = authored ?? overrideSeed(fieldsOf(store.descriptor(collection))[fieldName]);
@@ -2525,7 +2526,7 @@ function pruneFieldPresentation(doc, fieldName) {
 
 /** What `rm-field` would do, counted without writing: the values it clears, the presentation it
  *  prunes, and every position elsewhere that still names the field — which it refuses on. */
-export function removeFieldPlan(ws, store, collection, fieldName, { moduleId }: { moduleId?: string } = {}) {
+export function removeFieldPlan(ws: Workspace, store: Store, collection, fieldName, { moduleId }: { moduleId?: string } = {}) {
 	const { file } = declaringSource(ws, store, collection, fieldName, moduleId, 'rm-field');
 	const rel = path.relative(ws.root, file);
 	if (readYaml(file)?.fields?.[fieldName] === undefined) throw new Error(`${rel} does not declare ${collection}.${fieldName} — it is declared by ${declaringModules(ws, store, collection).join(', ')}; drop --module, or name the module whose source declares it`);
@@ -2550,7 +2551,7 @@ export function removeFieldPlan(ws, store, collection, fieldName, { moduleId }: 
 	};
 }
 
-export function removeField(ws, store, collection, fieldName, { moduleId, dryRun = false }: { moduleId?: string, dryRun?: boolean } = {}) {
+export function removeField(ws: Workspace, store: Store, collection, fieldName, { moduleId, dryRun = false }: { moduleId?: string, dryRun?: boolean } = {}) {
 	const plan = removeFieldPlan(ws, store, collection, fieldName, { moduleId });
 	if (dryRun) return { ...plan, dryRun: true };
 	// ⚠ A NAME ANOTHER POSITION STILL CARRIES IS REFUSED, not left dangling: compile validates every
@@ -2604,7 +2605,7 @@ function uiViewSourceFile(ws, id) {
 // saved views (M3): a studio-saved view IS a ui-view record — but ui-views are
 // system-stored (sources + compile), so the write goes through the same gate as any
 // other schema op. the studio "save view" button lands here.
-export function saveUiView(ws, store, { id, view, moduleId }) {
+export function saveUiView(ws: Workspace, store: Store, { id, view, moduleId }) {
 	if (!id || !/^[a-z0-9][a-z0-9-/]*$/.test(id)) throw new Error(`invalid ui-view id "${id}" — lowercase slug required`);
 	// §5: `add` on a system collection takes `--module`. It used to be dropped by the parser and then
 	// assigned into the VIEW as a field called `module` — `dt add ui-views … --module core` wrote
@@ -2663,7 +2664,7 @@ function saveUiViewOverlay(ws, store, id, view, shipped) {
  * the old file gone, one compile gate, one commit per repo it touches — so a move into a linked
  * clone's module commits there, ready to publish with that module.
  */
-export function moveUiView(ws, store, id, toModule, { dryRun = false } = {}) {
+export function moveUiView(ws: Workspace, store: Store, id, toModule, { dryRun = false } = {}) {
 	const { shipped } = uiViewSourceFile(ws, id);
 	if (!shipped) throw new Error(`ui-view "${id}" does not exist`);
 	if (IN_NODE_MODULES(shipped)) {
@@ -2700,7 +2701,7 @@ export function moveUiView(ws, store, id, toModule, { dryRun = false } = {}) {
 	return { ...plan, moved: true, commits: out.commits };
 }
 
-export function removeUiView(ws, store, id) {
+export function removeUiView(ws: Workspace, store: Store, id) {
 	// Same source resolution as the save above — an inline module's view is under this repo's git
 	// history like everything else, so deleting it is one revertable commit. Refusing it while
 	// ALLOWING a save to the same file would be an asymmetry with nothing behind it.
@@ -2765,7 +2766,7 @@ function refuseNpmEntity(kind, id, shipped) {
 
 const ENTITY_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
-export function createSkill(ws, store, { name, description, moduleId }) {
+export function createSkill(ws: Workspace, store: Store, { name, description, moduleId }) {
 	if (!name || name === true) throw new Error('missing skill name — dreamteamer add skills --name <id> --description "…"');
 	if (!ENTITY_ID.test(name)) throw new Error(`invalid skill id "${name}" — lowercase alphanumeric with single hyphens (it is a folder name and the frontmatter \`name\` at once).`);
 	if (typeof description !== 'string' || !description.trim()) {
@@ -2808,7 +2809,7 @@ export function createSkill(ws, store, { name, description, moduleId }) {
 
 /** `add` on a kind nobody can scaffold honestly — refused WITH THE PATH, because "hand-authored"
  *  without the filename is a refusal the reader has to go research. */
-export function refuseHandAuthored(ws, store, kind, id, moduleId) {
+export function refuseHandAuthored(ws: Workspace, store: Store, kind, id, moduleId) {
 	const shape = entityShape(ws, kind);
 	const root = moduleId ? moduleRecord(store, moduleId).fields.path : path.join('modules', ws.pkg.dreamteamer?.workspace_module ?? 'default');
 	const where = path.join(root, kind, `${id || '<id>'}${shape.suffix}`);
@@ -2816,7 +2817,7 @@ export function refuseHandAuthored(ws, store, kind, id, moduleId) {
 	throw new Error(`${/^[aeiou]/.test(one) ? 'an' : 'a'} ${one} is hand-authored — its whole value is what you write in it, and a scaffold would produce a file whose only content is that a verb made it.\n  write ${where}, then run \`dreamteamer compile\`.\n  edit an existing one with: dreamteamer set ${kind}/<id> <key>=<value>`);
 }
 
-export function removeEntity(ws, store, kind, id) {
+export function removeEntity(ws: Workspace, store: Store, kind, id) {
 	const { dir, shipped } = entitySource(ws, kind, id);
 	if (!shipped) throw new Error(`${kind.replace(/s$/, '')} "${id}" does not exist — dt list ${kind}`);
 	refuseNpmEntity(kind, id, shipped);
@@ -2840,7 +2841,7 @@ export function removeEntity(ws, store, kind, id) {
 	}
 }
 
-export function renameEntity(ws, store, kind, oldId, newId) {
+export function renameEntity(ws: Workspace, store: Store, kind, oldId, newId) {
 	if (!newId || newId === true) throw new Error(`missing new id — dreamteamer rename ${kind}/${oldId} <new-id>`);
 	if (oldId === newId) return { renamed: false, id: newId };
 	if (!ENTITY_ID.test(newId)) throw new Error(`invalid ${kind.replace(/s$/, '')} id "${newId}" — lowercase alphanumeric with single hyphens.`);
@@ -2875,7 +2876,7 @@ export function renameEntity(ws, store, kind, oldId, newId) {
 	return { renamed: true, id: newId, commits: out.commits };
 }
 
-export function setEntityFrontmatter(ws, store, kind, id, changes) {
+export function setEntityFrontmatter(ws: Workspace, store: Store, kind, id, changes) {
 	const shape = entityShape(ws, kind);
 	const { dir, file, shipped } = entitySource(ws, kind, id);
 	if (!shipped) throw new Error(`${kind.replace(/s$/, '')} "${id}" does not exist — dt list ${kind}`);

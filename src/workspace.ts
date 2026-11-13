@@ -11,13 +11,14 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { readExports } from './exports.ts';
+import type { Workspace } from './types.ts';
 
 // path segments that mean "the thing below me is a module of the thing above me", never a workspace
 const MODULE_SEGMENTS = new Set(['node_modules', 'git_modules', 'modules']);
 
-export function findWorkspace(start = process.cwd()) {
+export function findWorkspace(start = process.cwd()): Workspace {
 	let dir = path.resolve(start);
-	const candidates = []; // nearest → topmost
+	const candidates: Workspace[] = []; // nearest → topmost
 	while (true) {
 		const p = path.join(dir, 'package.json');
 		if (fs.existsSync(p)) {

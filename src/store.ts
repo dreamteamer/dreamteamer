@@ -20,26 +20,28 @@ import { pathToRecord } from './events.ts';
 import { commitArg } from './history.ts';
 
 import { storageOf, fieldsOf, targetsOf, isSoft, jsonSchemaOf, unresolvedPeersOf, bodyFieldOf, idsOf } from './descriptor.ts';
+import type { Descriptor, Descriptors, Fields } from './types.ts';
+/** What `relocatePlan` and `relocate` answer; `why` is `to-root` only for the internal `toRoot` reverse. */
+type RelocatePlan<W = 'placement' | 'shape'> = { collection: string; moves: { id: string; from: string; to: string; why: W }[]; problems: string[] };
 // git calls whose failure we CATCH must not print git's own error: execFileSync forwards the
 // child's stderr to ours unless told otherwise, so a handled "not a git repository" still
 // reached the user's terminal. stdout stays piped because we read it.
-export type Descriptor = Record<string, any>;
 const QUIET: StdioOptions = ['ignore', 'pipe', 'ignore'];
 
 export class Store {
-	root: string; runtime: string; autoCommit: boolean; ajv: InstanceType<typeof Ajv.default>; namespaces: string[];
-	descriptors: Map<string, Descriptor>;
+	root: string; runtime: string; autoCommit: boolean; private ajv: InstanceType<typeof Ajv.default>; namespaces: string[];
+	descriptors: Descriptors;
 	_idsCache: Map<string, { key: string; ids: Map<string, string> }>;
 	_duplicates: Map<string, Map<string, string[]>>;
 	_head: string | undefined; _lockPath: string; _outside: string[]; _repos: string[];
 	_relations: ReturnType<typeof relationsOf>; _addedDates: Map<string, Map<string, string>>;
-	constructor({ root, pkg }: { root: string; pkg?: Record<string, any> }) {
+	constructor({ root, pkg }: { root: string; pkg?: unknown }) {
 		this.root = root;
 		this.runtime = runtimeDir(root);
 		// Committing is POLICY, not durability — a write is on disk either way. Default OFF:
 		// `dt commit` is what publishes. `"auto-commit": true` restores the old behaviour of one
 		// commit per mutation.
-		this.autoCommit = (pkg ?? readPkg(root)).dreamteamer?.auto_commit === true;
+		this.autoCommit = ((pkg ?? readPkg(root)) as { dreamteamer?: { auto_commit?: unknown } }).dreamteamer?.auto_commit === true;
 		this.ajv = new (Ajv as unknown as typeof Ajv.default)({ allErrors: true, strict: false, useDefaults: true, coerceTypes: 'array' });
 		(addFormats as unknown as typeof addFormats.default)(this.ajv);
 		this.ajv.addFormat('markdown', true);
@@ -54,7 +56,7 @@ export class Store {
 		this.namespaces = compiledNamespaces(root) as string[];
 	}
 
-	descriptor(collection) {
+	descriptor(collection: string): Descriptor {
 		const d = this.descriptors.get(collection);
 		if (!d) throw new Error(`unknown collection "${collection}" (known: ${[...this.descriptors.keys()].join(', ')})`);
 		return d;
@@ -252,7 +254,7 @@ export class Store {
 	/** The collection's OWN folder. For a collection stored under another (`storage.under`) this is
 	 *  the FALLBACK root — where a record with no owner lives — and not an enumeration of where its
 	 *  records are: that is `ids()`, and the directories git has to be asked about are `recordDirs`. */
-	dir(d) {
+	dir(d: Descriptor): string {
 		return path.resolve(storageOf(d).runtime ? this.runtime : this.root, this.rootPath(d));
 	}
 
@@ -273,7 +275,7 @@ export class Store {
 
 	/** Every directory a record of `d` can sit in: its own root, plus the parent collection's root when
 	 *  it is stored under one. What `commit` scopes `git status` to and what a surface asks git about. */
-	recordDirs(d) {
+	recordDirs(d: Descriptor): string[] {
 		const own = placementOf(d) ? [this.dir(d), this.parentDir(d)] : [this.dir(d)];
 		return [...own, ...this.rootsOf(d).slice(1).map((r) => r.abs)];
 	}
@@ -313,7 +315,7 @@ export class Store {
 	 *  --json` say as `$file` and `$repo`. `file` is workspace-relative, `repo` the workspace-relative
 	 *  repo root (`.`, `git_modules/<clone>`); a collection kept outside every repo here (an
 	 *  env-pointed root) answers its absolute file and `repo: null` — it is never committed. */
-	locate(collection, id) {
+	locate(collection: string, id: string): { file: string; repo: string | null } {
 		const file = this.ids(collection).get(id);
 		if (!file) throw new Error(`${collection}/${id}: no such record`);
 		return this.locationOf(this.descriptor(collection), file);
@@ -426,7 +428,7 @@ export class Store {
 	 *  alive: `commit()` below, `commitPending`, and schema-ops' two source commits. See gitHead. */
 	headMoved() { this._head = undefined; }
 
-	ids(collection) {
+	ids(collection: string): Map<string, string> {
 		const d = this.descriptor(collection);
 		const dir = this.dir(d);
 		if (!this.recordDirs(d).some((p) => fs.existsSync(p))) return new Map();
@@ -632,7 +634,7 @@ export class Store {
 	 *  or null. The manifest is the referring record's repo's — `referrer` (`<collection>/<id>`), else this
 	 *  workspace's — and it answers only where its holder is not read here: exactly where `check` says
 	 *  external. A referrer this workspace does not read is refused, naming it. */
-	external(collection, id, { referrer }: { referrer?: string } = {}) {
+	external(collection: string, id: string, { referrer }: { referrer?: string } = {}): { label: string; from?: string; manifest: string } | null {
 		if (this.ids(collection).has(id)) return null;
 		let repo = null;
 		if (referrer) {
@@ -649,11 +651,11 @@ export class Store {
 		return { label: e.label, ...(e.from ? { from: e.from } : {}), manifest: path.relative(this.root, path.join(ctx.rootOf(repo), EXPORTS_FILE)) };
 	}
 
-	read(collection, id) {
+	read(collection: string, id: string): { fields: Fields; file: string } {
 		const d = this.descriptor(collection);
 		const file = this.ids(collection).get(id);
 		if (!file) throw new Error(`${collection}/${id}: no such record`);
-		return { fields: parseRecord(file, d, bodyField(d)), file, descriptor: d };
+		return { fields: parseRecord(file, d, bodyField(d)), file, descriptor: d } as { fields: Fields; file: string };
 	}
 
 	/**
@@ -663,10 +665,10 @@ export class Store {
 	 * following renames, which also covers a binary record with no frontmatter. Undefined for a
 	 * collection without a `created` field (a runtime kind), and for a record no commit holds yet.
 	 */
-	createdOf(collection, id, fields, file) {
+	createdOf(collection: string, id: string, fields: Fields, file: string): string | undefined {
 		const d = this.descriptor(collection);
 		if (!fieldsOf(d).created) return undefined;
-		if (fields?.created) return fields.created;
+		if (fields?.created) return fields.created as string;
 		if (storageOf(d).external) return undefined; // outside every repo here: no commit ever held it
 		const from = [idsOf(d).from ?? []].flat();
 		if (/^\{\{\s*created\b/.test(String(from[0] ?? ''))) {
@@ -681,7 +683,7 @@ export class Store {
 	 * whole collection, cached for this Store, so a list can answer `created` for every row.
 	 * @returns {Map<string, string>} root-relative path -> ISO date of the commit that added it
 	 */
-	addedDates(collection) {
+	addedDates(collection: string): Map<string, string> {
 		this._addedDates ??= new Map();
 		if (this._addedDates.has(collection)) return this._addedDates.get(collection);
 		const dates = new Map();
@@ -713,7 +715,7 @@ export class Store {
 
 	// list-path reader: ONE directory walk for the whole collection (review finding 2:
 	// per-id read() re-walked the dir — O(N²) lists, 46s at 3k records).
-	*readAll(collection) {
+	*readAll(collection: string): Generator<{ id: string; fields: Fields; file: string }> {
 		const d = this.descriptor(collection);
 		const bf = bodyField(d);
 		for (const [id, file] of this.ids(collection)) {
@@ -722,7 +724,7 @@ export class Store {
 	}
 
 	// restore a record to its content at `hash` — validated like any other write, one commit.
-	revert(collection, id, hash) {
+	revert(collection: string, id: string, hash: string): { id: string; reverted: boolean; hash?: string; file?: string } {
 		commitArg(hash);
 		const d = this.writableDescriptor(collection);
 		this.assertUnambiguous(collection, id);
@@ -801,7 +803,9 @@ export class Store {
 	 * A destination that already exists is a PROBLEM, never a silent overwrite: two files claiming one
 	 * id is exactly the ambiguity `check` reports, and resolving it is a decision, not a move.
 	 */
-	relocatePlan(collection, only = null, { toRoot = false } = {}) {
+	relocatePlan(collection: string, only?: string[] | null): RelocatePlan;
+	relocatePlan(collection: string, only: string[] | null, opts: { toRoot?: boolean }): RelocatePlan<'placement' | 'shape' | 'to-root'>;
+	relocatePlan(collection: string, only: string[] | null = null, { toRoot = false } = {}): RelocatePlan<'placement' | 'shape' | 'to-root'> {
 		const d = this.writableDescriptor(collection);
 		const moves = [];
 		const problems = [];
@@ -842,7 +846,7 @@ export class Store {
 		}
 		if (storageOf(d).shape === 'folder' && fs.existsSync(this.dir(d))) {
 			// legacy file-shape records sit at the TOP of the folder — a folder id is one segment
-			const asFile = { ...d, storage: { ...d.storage, shape: 'file' } };
+			const asFile = { ...d, storage: { ...d.storage, shape: 'file' as const } };
 			for (const name of fs.readdirSync(this.dir(d)).sort()) {
 				const p = path.join(this.dir(d), name);
 				if (name.startsWith('.') || fs.statSync(p).isDirectory()) continue;
@@ -862,7 +866,9 @@ export class Store {
 	 * is two changes under one subject, and the second hides the first). A second run after success
 	 * plans nothing and does nothing.
 	 */
-	relocate(collection, { only = null, dryRun = false, toRoot = false } = {}) {
+	relocate(collection: string, opts?: { only?: string[] | null; dryRun?: boolean }): RelocatePlan & { applied: boolean };
+	relocate(collection: string, opts: { only?: string[] | null; dryRun?: boolean; toRoot?: boolean }): RelocatePlan<'placement' | 'shape' | 'to-root'> & { applied: boolean };
+	relocate(collection: string, { only = null, dryRun = false, toRoot = false }: { only?: string[] | null; dryRun?: boolean; toRoot?: boolean } = {}): RelocatePlan<'placement' | 'shape' | 'to-root'> & { applied: boolean } {
 		const d = this.writableDescriptor(collection);
 		const planned = this.relocatePlan(collection, only, { toRoot });
 		// problems FIRST, moves or not: a plan with a dangling owner in it is refused whole, and a dry run
@@ -989,7 +995,7 @@ export class Store {
 
 	// ---- verbs -----------------------------------------------------------------
 
-	add(collection, fields, { id: explicitId }: { id?: string } = {}) {
+	add(collection: string, fields: Fields, { id: explicitId }: { id?: string } = {}): { id: string; file: string; idFallback: { field?: string; value: string; id: string } | null; deprecated?: string[] } {
 		const d = this.writableDescriptor(collection);
 		// before validate: a mirror value is refused on its own terms, not as a schema error
 		this.refuseMirrorWrites(collection, null, Object.keys(fields));
@@ -1065,7 +1071,7 @@ export class Store {
 	/** Import a file AS a record. There are no fields to validate and nothing to serialize, which is
 	 *  why this is a sibling of add() rather than a branch inside it — the two share their last three
 	 *  lines and nothing else. */
-	addFile(collection, id, srcPath, { force = false } = {}) {
+	addFile(collection: string, id: string, srcPath: string, { force = false } = {}): { id: string; file: string } {
 		const d = this.writableDescriptor(collection);
 		if (storageOf(d).format !== 'binary') throw new Error(`"${collection}" is not a \`format: binary\` collection — add its records with --<field> values, not --from`);
 		assertSafeId(id);
@@ -1096,7 +1102,7 @@ export class Store {
 		});
 	}
 
-	set(collection, id, changes) {
+	set(collection: string, id: string, changes: Fields): { id: string; file: string } {
 		const d = this.writableDescriptor(collection);
 		// first: on a file record every field is read from the file, so the answer is the replacement
 		if (storageOf(d).format === 'binary') {
@@ -1220,7 +1226,7 @@ export class Store {
 	 *  reference the scan finds. Still refused, still escapable with `--force`, which still reports how
 	 *  many references it left dangling.
 	 */
-	rm(collection, id, { force = false } = {}) {
+	rm(collection: string, id: string, { force = false } = {}): { id: string; inboundIgnored: number } {
 		const d = this.writableDescriptor(collection);
 		this.assertUnambiguous(collection, id);
 		const self = `${collection}/${id}`;
@@ -1348,12 +1354,12 @@ export class Store {
 					// re-read INSIDE the lock: the mirror pass above may have just rewritten this very file
 					// (two collections can point at each other), and `previous` has to be what is on disk
 					// NOW or the undo below would resurrect a mirror that was correctly detached.
-					const { fields: cur, descriptor: od } = this.read(rel.owner, oid);
+					const { fields: cur } = this.read(rel.owner, oid), od = this.descriptor(rel.owner);
 					const previous = fs.readFileSync(file, 'utf8');
 					if (Array.isArray(cur[rel.field])) {
-						cur[rel.field] = cur[rel.field].filter((v) => !isSelf(v, bare));
+						cur[rel.field] = (cur[rel.field] as unknown[]).filter((v) => !isSelf(v, bare));
 						// the last element takes the KEY with it — `[]` is derived state leaking into a source
-						if (!cur[rel.field].length) delete cur[rel.field];
+						if (!(cur[rel.field] as unknown[]).length) delete cur[rel.field];
 					} else {
 						delete cur[rel.field]; // `field: null` is not a cleared reference, it is a type error
 					}
@@ -1384,7 +1390,7 @@ export class Store {
 		});
 	}
 
-	rename(collection, oldId, newId) {
+	rename(collection: string, oldId: string, newId: string): { id: string; rewrites: number; touched?: number; skipped?: number; ambiguous?: number } {
 		const d = this.writableDescriptor(collection);
 		this.assertUnambiguous(collection, oldId);
 		this.read(collection, oldId); // existence check
@@ -1512,7 +1518,7 @@ export class Store {
 		return compiledSourceRoots(this.root);
 	}
 
-	findInboundRefs(ref) {
+	findInboundRefs(ref: string): string[] {
 		const re = this.refRegex(ref);
 		const hits = [];
 		for (const f of this.recordFiles()) {
@@ -1670,7 +1676,7 @@ export class Store {
 	// the lock guards CLI-beside-server cross-process races on .git/index.lock. a commit
 	// failure UNDOES the write, so "one mutation = one commit" fails CLOSED and
 	// "nothing was written" stays true.
-	withWriteLock(fn) {
+	withWriteLock<T>(fn: () => T): T {
 		const lock = this.writeLockPath();
 		fs.mkdirSync(path.dirname(lock), { recursive: true });
 		const deadline = Date.now() + 5000;
@@ -1820,7 +1826,7 @@ export function mirrorRemedy(d, fieldNames: string[]) {
 	return `\n  ${mirrors.join(', ')}: a GENERATED mirror — its value is derived from the owning side, not yours to set. Repair it with: dreamteamer relations rebuild ${d.name}`;
 }
 
-export function bodyField(d) {
+export function bodyField(d: Descriptor): string | undefined {
 	return bodyFieldOf(d);
 }
 
@@ -1844,7 +1850,7 @@ function pruneEmptyDirs(dir, stopAt) {
 	} catch { /* left in place */ }
 }
 
-export function serialize(d, fields, previousText?) {
+export function serialize(d: Descriptor, fields: Fields, previousText?: string): string {
 	const format = storageOf(d).format;
 	if (format === 'json') return JSON.stringify(fields, null, 2) + '\n';
 	if (format === 'yaml') return dump(fields);
@@ -1873,7 +1879,7 @@ function frontMatterOf(text) {
 	return /^---\r?\n([\s\S]*?)\r?\n---/.exec(String(text))?.[1] ?? null;
 }
 
-export function atomicWrite(file, content) {
+export function atomicWrite(file: string, content: string | Buffer): boolean {
 	if (fs.existsSync(file) && fs.readFileSync(file, 'utf8') === content) return false; // true no-op
 	const tmp = `${file}.tmp-${process.pid}`;
 	fs.writeFileSync(tmp, content);

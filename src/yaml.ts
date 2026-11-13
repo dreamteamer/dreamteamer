@@ -3,8 +3,8 @@
 import yaml from 'js-yaml';
 import { parseDocument, isMap, isSeq, isScalar, visit as visitYaml } from 'yaml';
 
-export const load = (text) => yaml.load(text, { schema: yaml.CORE_SCHEMA });
-export const dump = (obj, opts = {}) => yaml.dump(obj, { lineWidth: 120, ...opts });
+export const load = (text: string): any => yaml.load(text, { schema: yaml.CORE_SCHEMA });
+export const dump = (obj: unknown, opts: Record<string, unknown> = {}): string => yaml.dump(obj, { lineWidth: 120, ...opts });
 
 // ---- writing a source a HUMAN wrote ---------------------------------------------
 //

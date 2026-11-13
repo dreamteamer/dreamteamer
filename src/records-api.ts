@@ -9,6 +9,12 @@
 //
 // `dreamteamer` (src/api.ts) re-exports everything here, so a node consumer never needs two imports.
 
+// The contract's shapes (src/types.ts) — the record half's. `dreamteamer` adds the workspace half's.
+export type {
+	Fields, Field, Descriptor, Storage, Descriptors, Manifest,
+	Presentation, PresentationChoice, PresentationComponentOptions, PresentationField, PresentationCollection, PresentationRelation,
+} from './types.ts';
+
 /** Bumped on a breaking change to either public entry or to the extension contract. */
 export const apiVersion = 1;
 export { engineVersion, engineId } from './runtime.ts';
