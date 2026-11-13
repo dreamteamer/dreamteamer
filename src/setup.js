@@ -19,6 +19,7 @@ import { execFileSync } from 'node:child_process';
 import { CHECK_STATUSES } from './setup-contract.js';
 import { parseEnvValues } from './env-vars.js';
 import { RUNTIME_DIR } from './runtime.js';
+import { discoverModules } from './compile.js';
 
 export const EFFECTS_ALLOWED = ['download', 'network', 'machine'];
 export const EXIT = { done: 0, failed: 1, usage: 2, needsInput: 3 };
@@ -221,10 +222,18 @@ export function statusLines(ws, { processEnv = process.env } = {}) {
 			lines.push({ package: module, unit: u.id, grouped: us.length > 1, ...f, checks, next: nextCommand(u.id, f, checks) });
 		}
 	}
-	for (const e of ws.extensions ?? []) {
-		if (byModule.has(e.name)) continue;
-		const needs = [...(e.env ?? []), ...(e.vars ?? [])].filter((k) => env[k] === undefined || String(env[k]).trim() === '');
-		lines.push({ package: e.name, unit: null, state: 'no-setup', detail: needs.length ? `needs: ${needs.join(', ')}` : '', verified: null, checks: [], next: needs.length ? `set ${needs.join(', ')} in .env` : '' });
+	// every other installed module — an extension without a unit, or a plain module with no code at all —
+	// reads `no setup`, naming the declared env keys and vars nobody set; the engine and the workspace's own
+	// module are not modules anybody installs
+	const own = ws.pkg?.dreamteamer?.workspace_module ?? 'default';
+	for (const m of discoverModules(ws.root, ws.pkg).modules) {
+		let manifest = {};
+		try { manifest = JSON.parse(fs.readFileSync(path.join(m.root, 'package.json'), 'utf8')); } catch { /* no manifest */ }
+		const name = manifest.name ?? m.name;
+		if (name === 'dreamteamer' || m.name === own || byModule.has(name)) continue;
+		const dt = manifest.dreamteamer ?? {};
+		const needs = [...(dt.env ?? []), ...(dt.vars ?? [])].filter((k) => env[k] === undefined || String(env[k]).trim() === '');
+		lines.push({ package: name, unit: null, state: 'no-setup', detail: needs.length ? `needs: ${needs.join(', ')}` : '', verified: null, checks: [], next: needs.length ? `set ${needs.join(', ')} in .env` : '' });
 	}
 	return lines;
 }

@@ -71,6 +71,19 @@ describe('dt status — the setup section', () => {
 		assert.match(line(run(ws.root, ['status']).stdout, 'plain-kit'), /^  plain-kit\s+no setup\s*$/);
 		// its own doctor rows still render
 		assert.match(run(ws.root, ['doctor']).stdout, /plain-kit — READY\n {2}✔ kit/);
+		// a plain module — collections only, no code — reads no setup too; the workspace's own module and the engine do not appear
+		const plain = path.join(ws.root, 'node_modules', 'plain-data');
+		fs.mkdirSync(path.join(plain, 'collections'), { recursive: true });
+		fs.writeFileSync(path.join(plain, 'package.json'), JSON.stringify({ name: 'plain-data', version: '1.0.0', files: ['collections'], dreamteamer: { vars: ['DATA_ROOT'] } }));
+		fs.writeFileSync(path.join(plain, 'collections', 'things.collection.yaml'), 'name: things\ndescription: x\nstorage:\n  path: things\n  format: md\n  shape: file\n  suffix: thing\nids:\n  from: \'{{ title | slug }}\'\nfields:\n  title:\n    type: string\n');
+		const pkg2 = JSON.parse(fs.readFileSync(pkgFile, 'utf8'));
+		pkg2.dependencies = { ...pkg2.dependencies, 'plain-data': '1.0.0' };
+		fs.writeFileSync(pkgFile, JSON.stringify(pkg2, null, '\t') + '\n');
+		assert.equal(run(ws.root, ['compile']).code, 0);
+		const out = run(ws.root, ['status']).stdout;
+		assert.match(line(out, 'plain-data'), /^  plain-data\s+no setup\s+needs: DATA_ROOT/);
+		assert.equal(line(out, 'default'), '', 'the workspace module has no setup line');
+		assert.equal(line(out, 'dreamteamer'), '', 'the engine has no setup line');
 	});
 });
 
