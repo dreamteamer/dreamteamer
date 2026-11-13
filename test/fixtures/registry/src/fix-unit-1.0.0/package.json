@@ -1,0 +1,13 @@
+{
+	"name": "@fix/unit",
+	"version": "1.0.0",
+	"description": "@fix/unit 1.0.0",
+	"type": "module",
+	"files": [
+		"entry.js"
+	],
+	"dreamteamer": {
+		"description": "@fix/unit — a synthetic module whose setup unit differs between versions (dt update runs the new one).",
+		"extension": "./entry.js"
+	}
+}

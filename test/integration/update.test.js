@@ -45,6 +45,20 @@ describe('dt update — one pin forward, on purpose', () => {
 		assert.equal(treeHash(ws.root), h);
 	});
 
+	test('the setup half runs the version npm just installed, not the one this process imported (rnd/tests/dreamteamer/update-runs-new-unit)', () => {
+		const ws = offline();
+		const i = run(ws.root, ['install', '@fix/unit@1.0.0', '--from', REG]);
+		assert.equal(i.code, 0, i.stderr + i.stdout);   // an optional input: the unit's own needs, not exit 3
+		assert.match(i.stdout, /needs input: calendar/);
+		const r = run(ws.root, ['update', '@fix/unit', '--from', REG]);
+		assert.equal(r.code, 0, r.stderr + r.stdout);
+		assert.equal(installed(ws.root, '@fix/unit'), '1.1.0');
+		assert.doesNotMatch(r.stdout, /needs input: calendar/);
+		assert.match(r.stdout, /✔ unit: ready/);   // the 1.1.0 unit: nothing missing
+		assert.match(git(ws.root, ['log', '-1', '--pretty=%s']), /^dreamteamer: update @fix\/unit 1\.0\.0 → 1\.1\.0$/);
+		assert.equal(git(ws.root, ['status', '--porcelain']), '');
+	});
+
 	test('a downgrade is refused unless --allow downgrade; a named version within the folder is honoured', () => {
 		const ws = offline();
 		assert.equal(run(ws.root, ['install', '@fix/a', '--from', REG]).code, 0);

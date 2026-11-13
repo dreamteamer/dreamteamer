@@ -20,6 +20,16 @@ npx dreamteamer check
 
 ---
 
+## Unreleased — two setup fixes
+
+Nothing to do but `dt compile`.
+
+- **`dt doctor` refuses a secret-path file as `dt status` does.** A credential file that is missing,
+  not a file, or readable by other users is no longer handed to the module's checks; doctor shows it
+  as a warning row with the `chmod 600` fix, where it used to read ✔.
+- **`dt update` of a module runs the new version's setup unit.** The setup half now runs in a fresh
+  process after npm, so the 0.48.0 note below ("run `dt setup` once after an update") no longer applies.
+
 ## 0.48.0 — writing a module on the engine alone (CR-dt-007)
 
 Nothing to do but `dt compile`. Nothing an existing workspace's records do changes, and every module
