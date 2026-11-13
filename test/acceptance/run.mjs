@@ -138,7 +138,8 @@ scenario('A5', 'an install interrupted after npm finishes on re-run; a third run
 
 scenario('A6', 'a provider that throws leaves its unit blocked and the rest intact; a compile refusal restores the pre-image', (ok) => {
 	const root = fresh('a6'); dt(root, initArgs);
-	const r = dt(root, ['install', '@probe/setup', '--from', FROM, '--input', 'label=probe'], { PROBE_THROW: 'apply' });
+	// since 0.48.0 make-home is the engine's own .env write (cr-dt-007), so the first apply the probe runs is the consented download
+	const r = dt(root, ['install', '@probe/setup', '--from', FROM, '--input', 'label=probe', '--allow', 'download'], { PROBE_THROW: 'apply' });
 	ok(r.code === 1 && /✖ probe: blocked/.test(r.stdout) && /token=\[redacted\]/.test(r.stdout) && !/hunter2/.test(r.stdout), 'blocked, redacted, exit 1 (D57: a failed apply is a failure; the install itself stands)');
 	ok(dt(root, ['check']).code === 0, 'the workspace still checks');
 	const pkg = fs.readFileSync(path.join(root, 'package.json'), 'utf8'), lock = fs.readFileSync(path.join(root, 'package-lock.json'), 'utf8');
@@ -199,6 +200,125 @@ scenario('A13', 'an existing workspace with records, git identity, a remote and 
 	const subjects = git(root, ['log', '--format=%s']).split('\n');
 	ok(subjects.every((s) => /^dreamteamer: |^existing work$/.test(s)), `every commit is the engine's or the owner's: ${subjects.join(' | ')}`);
 	ok(!git(root, ['show', '--name-only', '--format=', 'HEAD~2..HEAD']).split('\n').includes('staged.txt'), 'no engine commit swept the staged file');
+});
+
+// ---- CR-dt-007: writing a module on the engine alone (M1–M10; the A-ids are CR-dt-006's) ----
+const npmRun = (cwd, args) => spawnSync('npm', args, { cwd, env: { ...process.env, ...ENV }, encoding: 'utf8', timeout: 300_000 });
+const gitIgnoreWithoutEnv = (root) => { const f = path.join(root, '.gitignore'); fs.writeFileSync(f, fs.readFileSync(f, 'utf8').split('\n').filter((l) => l.trim() !== '.env').join('\n')); spawnSync('git', ['add', '.gitignore'], { cwd: root, env: ENV }); spawnSync('git', ['commit', '-qm', 'unignore .env'], { cwd: root, env: ENV }); };
+const ALONE = path.join(ENGINE_ROOT, 'test', 'fixtures', 'alone');
+
+scenario('M1', 'an env action: the engine writes .env, blocked at exit 0 when git would commit it, failed at exit 1 when it moved, the value never printed, the fix line whole', (ok) => {
+	const SECRET = 'm1-value-never-printed';
+	const root = fresh('m1'); dt(root, initArgs);
+	const r = dt(root, ['install', '@probe/setup', '--from', FROM, '--input', `label=${SECRET}`, '--no-input']);
+	ok(r.code === 0, `install exit ${r.code}: ${r.stderr}`);
+	ok(/make-home — wrote \.env \(PROBE_HOME, PROBE_LABEL\)/.test(r.stdout), 'the engine wrote .env');
+	ok(new RegExp(`^PROBE_LABEL=${SECRET}$`, 'm').test(fs.readFileSync(path.join(root, '.env'), 'utf8')), 'the value is in .env');
+	const j = dt(root, ['setup', 'probe', '--input', `label=${SECRET}`, '--json']);
+	ok(![r.stdout, r.stderr, j.stdout, j.stderr].some((t) => t.includes(SECRET)), 'the value is in no output, --json included');
+	const s = dt(root, ['status'], { PROBE_HOME: root, PROBE_LABEL: '' }); ok(/dt setup probe --input label=<label>/.test(s.stdout), 'the fix line prints whole');
+	const b = fresh('m1b'); dt(b, initArgs); gitIgnoreWithoutEnv(b);
+	const rb = dt(b, ['install', '@probe/setup', '--from', FROM, '--input', 'label=x', '--no-input']);
+	ok(rb.code === 0 && /make-home \(blocked\) — git would commit \.env/.test(rb.stdout), `blocked at exit 0: ${rb.code} ${rb.stdout.slice(-300)}`);
+	ok(!fs.existsSync(path.join(b, '.env')), 'nothing written');
+	const c = fresh('m1c'); dt(c, initArgs); dt(c, ['install', '@probe/setup', '--from', FROM, '--no-input']);
+	const rc = dt(c, ['setup', 'probe', '--input', 'label=x'], { PROBE_TOUCH_ENV: '1' });
+	ok(rc.code === 1 && /\.env changed after the preview — nothing was written/.test(rc.stdout), `failed at exit 1: ${rc.code}`);
+});
+
+scenario('M2', 'dt add modules --extension --package scaffolds a module the gate passes: src in the tarball, the floor, every kind, a README, one commit', (ok) => {
+	const root = fresh('m2'); dt(root, initArgs);
+	const r = dt(root, ['add', 'modules', '--name', 'acme', '--extension', '--package', '@acme/acme']);
+	ok(r.code === 0, `add exit ${r.code}: ${r.stderr}`);
+	ok(git(root, ['show', '--name-only', '--format=', 'HEAD']).split('\n').sort().join(' ') === 'modules/acme/README.md modules/acme/package.json modules/acme/src/extension.js', 'one commit carries the three files');
+	const pkg = JSON.parse(fs.readFileSync(path.join(root, 'modules', 'acme', 'package.json'), 'utf8'));
+	ok(pkg.dreamteamer.engine === `>=${VERSION}` && pkg.devDependencies?.dreamteamer === VERSION && !pkg.dependencies && !pkg.private, 'floor = this engine, engine in devDependencies, publishable');
+	const dry = npmRun(path.join(root, 'modules', 'acme'), ['pack', '--dry-run', '--json']);
+	const files = JSON.parse(dry.stdout)[0].files.map((f) => f.path);
+	ok(files.includes('src/extension.js') && files.includes('README.md'), `the tarball: ${files.join(', ')}`);
+	ok(/dt install @acme\/acme/.test(fs.readFileSync(path.join(root, 'modules', 'acme', 'README.md'), 'utf8')), 'the README carries the install line');
+	const g = dt(root, ['check', 'modules/acme', '--alone']); ok(g.code === 0, `the gate: ${g.code} ${g.stderr}`);
+});
+
+scenario('M3', 'a module outside this checkout tests itself with node --test on dreamteamer/testing — on its devDependency engine, and with DT_ENGINE_DIR', (ok) => {
+	const mod = fresh('m3');
+	fs.writeFileSync(path.join(mod, 'package.json'), JSON.stringify({ name: '@m3/mod', version: '0.1.0', type: 'module', files: ['collections'], devDependencies: { dreamteamer: VERSION }, dreamteamer: { engine: `>=${VERSION}`, description: 'M3' } }, null, 2));
+	fs.mkdirSync(path.join(mod, 'collections')); fs.writeFileSync(path.join(mod, 'collections', 'things.collection.yaml'), 'name: things\ntitle: Things\ndescription: A thing.\nfields:\n  name:\n    type: string\n');
+	fs.mkdirSync(path.join(mod, 'node_modules')); fs.symlinkSync(ENGINE_ROOT, path.join(mod, 'node_modules', 'dreamteamer'), 'dir');
+	fs.mkdirSync(path.join(mod, 'test'));
+	fs.writeFileSync(path.join(mod, 'test', 'install.test.mjs'), "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\nimport { createWorkspace, install, run } from 'dreamteamer/testing';\ntest('installs and compiles', () => {\n  const ws = createWorkspace();\n  const r = install(ws, new URL('..', import.meta.url).pathname);\n  assert.equal(r.status, 0, r.stderr);\n  assert.match(run(ws, ['status']).stdout, /@m3\\/mod/);\n});\n");
+	const a = spawnSync(process.execPath, ['--test', 'test/install.test.mjs'], { cwd: mod, env: { ...process.env, ...ENV }, encoding: 'utf8', timeout: 400_000 });
+	ok(a.status === 0, `node --test: ${a.status} ${a.stdout.split('\n').filter((l) => /Error|assert|expected|actual/i.test(l)).slice(0, 8).join(' / ')}`);
+	const b = spawnSync(process.execPath, ['--test', 'test/install.test.mjs'], { cwd: mod, env: { ...process.env, ...ENV, DT_ENGINE_DIR: ENGINE_ROOT }, encoding: 'utf8', timeout: 400_000 });
+	ok(b.status === 0, `with DT_ENGINE_DIR: ${b.status} ${b.stdout.split('\n').filter((l) => /Error|assert|status|init/i.test(l)).slice(0, 8).join(' / ')}`);
+});
+
+scenario('M4', 'dt check modules/<id> --alone: publishable 0, needs an input 0, a missing dependency 1, a floor above 1, usage 2', (ok) => {
+	const root = fresh('m4'); dt(root, initArgs);
+	for (const d of fs.readdirSync(ALONE).filter((d) => d.startsWith('alone-'))) fs.cpSync(path.join(ALONE, d), path.join(root, 'modules', d), { recursive: true });
+	const want = { 'alone-ok': 0, 'alone-needs-input': 0, 'alone-missing-dep': 1, 'alone-floor-above': 1 };
+	for (const [id, code] of Object.entries(want)) { const r = dt(root, ['check', `modules/${id}`, '--alone']); ok(r.code === code, `${id}: exit ${r.code}, want ${code}: ${r.stderr.split('\n')[0]}`); }
+	ok(/dependency @alone\/nowhere is not installed here/.test(dt(root, ['check', 'modules/alone-missing-dep', '--alone']).stderr), 'the missing dependency is named');
+	ok(dt(root, ['check', 'modules/alone-ok']).code === 2 && dt(root, ['check', '--alone']).code === 2, 'the two usage shapes exit 2');
+});
+
+scenario('M5', 'an async inspect is refused at load by name; ctx.dt is the API under setup and doctor, null under install and status', (ok) => {
+	const root = fresh('m5'); dt(root, initArgs);
+	const m = path.join(root, 'modules', 'asyncy'); fs.mkdirSync(path.join(m, 'src'), { recursive: true });
+	fs.writeFileSync(path.join(m, 'package.json'), JSON.stringify({ name: 'asyncy', private: true, type: 'module', dreamteamer: { extension: './src/extension.js' } }));
+	fs.writeFileSync(path.join(m, 'src', 'extension.js'), "export default () => ({ setup: [{ id: 'asyncy', version: 1, inputs: [], inspect: async () => ({ checks: [] }), plan: () => ({ checks: [], actions: [], needs: [] }) }] });\n");
+	const s = dt(root, ['status']); ok(/inspect must be synchronous/.test(s.stdout + s.stderr), `refused by name: ${(s.stdout + s.stderr).slice(0, 300)}`);
+	fs.rmSync(m, { recursive: true, force: true });
+	const log = path.join(root, 'ctx.log'); const env = { PROBE_CTX_LOG: log };
+	dt(root, ['install', '@probe/setup', '--from', FROM, '--no-input'], env); dt(root, ['setup', 'probe', '--input', 'label=x'], env); dt(root, ['doctor'], env); dt(root, ['status'], env);
+	const seen = Object.fromEntries(fs.readFileSync(log, 'utf8').trim().split('\n').map((l) => l.split('=')));
+	ok(seen.setup === 'object' && seen.doctor === 'object' && seen.install === 'null' && seen.status === 'null', `ctx.dt per driver: ${JSON.stringify(seen)}`);
+});
+
+scenario('M6', 'dt check names dreamteamer under a module\'s dependencies; a dreamteamer peer floor\'s fix is dt update --engine', (ok) => {
+	const root = fresh('m6'); dt(root, initArgs);
+	const m = path.join(root, 'modules', 'deppy'); fs.mkdirSync(path.join(m, 'collections'), { recursive: true });
+	fs.writeFileSync(path.join(m, 'collections', 'deps.collection.yaml'), 'name: deps\ntitle: Deps\ndescription: A dep.\nfields:\n  name:\n    type: string\n');
+	fs.writeFileSync(path.join(m, 'package.json'), JSON.stringify({ name: 'deppy', private: true, dependencies: { dreamteamer: '^0.48.0' }, dreamteamer: {} }));
+	dt(root, ['compile']); const c = dt(root, ['check']);
+	ok(c.code === 1 && /deppy lists dreamteamer under dependencies/.test(c.stdout + c.stderr), `check names it: ${c.code}`);
+	fs.writeFileSync(path.join(m, 'package.json'), JSON.stringify({ name: 'deppy', private: true, peerDependencies: { dreamteamer: '>=99.0.0' }, dreamteamer: {} }));
+	const p = dt(root, ['compile']); ok(p.code !== 0 && /fix: dt update --engine/.test(p.stdout + p.stderr) && !/npm install "dreamteamer@/.test(p.stdout + p.stderr), 'the fix is dt update --engine');
+});
+
+scenario('M7', 'the writing-a-module page: every dt command in its shell blocks runs in a fresh workspace (install and publish excepted — they reach a registry)', (ok) => {
+	const page = fs.readFileSync(path.join(ENGINE_ROOT, 'skills', 'using-dreamteamer', 'references', 'writing-a-module.md'), 'utf8');
+	const lines = [...page.matchAll(/```bash\n([\s\S]*?)```/g)].flatMap((m) => m[1].split('\n')).map((l) => l.replace(/\s+#.*$/, '').trim()).filter((l) => /^dt /.test(l) && !/^dt (install|setup) /.test(l));
+	ok(lines.length >= 2, `the page names its commands: ${lines.join(' | ')}`);
+	const root = fresh('m7'); dt(root, initArgs);
+	for (const l of lines) for (const part of l.split(/\s*&&\s*/)) { const args = part.replace(/^dt /, '').match(/"[^"]*"|\S+/g).map((a) => a.replace(/^"|"$/g, '')); const r = dt(root, args); ok(r.code === 0, `${part} exit ${r.code}: ${r.stderr.split('\n')[0]}`); }
+});
+
+scenario('M8', 'two modules whose units write .env, installed in one dt install: both keys land, the second plan saw the first write', (ok) => {
+	const author = fresh('m8a'); dt(author, initArgs);
+	const from = fresh('m8-from');
+	for (const id of ['one', 'two']) { dt(author, ['add', 'modules', '--name', id, '--extension', '--package', `@m8/${id}`]); const r = npmRun(path.join(author, 'modules', id), ['pack', '--silent', '--pack-destination', from]); ok(r.status === 0, `pack ${id}`); }
+	const root = fresh('m8'); dt(root, initArgs);
+	const r = dt(root, ['install', '@m8/one', '@m8/two', '--from', from, '--input', 'one.token=a1', '--input', 'two.token=b2', '--no-input']);
+	ok(r.code === 0, `install exit ${r.code}: ${r.stderr}${r.stdout.slice(-300)}`);
+	const env = fs.readFileSync(path.join(root, '.env'), 'utf8');
+	ok(/^ONE_TOKEN=a1$/m.test(env) && /^TWO_TOKEN=b2$/m.test(env), `both keys: ${env}`);
+});
+
+scenario('M9', 'the engine\'s layers and size budgets hold', (ok) => {
+	ok(npmRun(ENGINE_ROOT, ['run', '--silent', 'layers']).status === 0, 'npm run layers');
+	ok(npmRun(ENGINE_ROOT, ['run', '--silent', 'metrics:check']).status === 0, 'npm run metrics:check');
+});
+
+scenario('M10', 'a .env with a multi-line quoted neighbour: the env action adds its keys and leaves the neighbour byte-identical', (ok) => {
+	const root = fresh('m10'); dt(root, initArgs);
+	const before = 'WORK_CALENDARS="\nprimary | northwind | dana.o@northwind.example\nteam | bright | sam.d@bright.example\n"\n';
+	fs.writeFileSync(path.join(root, '.env'), before);
+	const r = dt(root, ['install', '@probe/setup', '--from', FROM, '--input', 'label=x', '--no-input']);
+	ok(r.code === 0, `install exit ${r.code}: ${r.stderr}`);
+	const after = fs.readFileSync(path.join(root, '.env'), 'utf8');
+	ok(after.startsWith(before), 'the neighbour is untouched, byte for byte');
+	ok(/^PROBE_LABEL=x$/m.test(after), 'the key was appended');
 });
 
 const summary = { date: new Date().toISOString(), driver: DRIVER, from: FROM, engine: VERSION, withProbe, results };
