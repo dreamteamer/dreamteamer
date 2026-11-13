@@ -40,8 +40,6 @@ To expand the workspace with additional capabilities:
 I'm trying to do XXX - how can I leverage dreamteamer to help me accomplish this? What changes should I make to the workspace and what modules should I install or create? Walk me through the process step by step.
 ```
 
-To add 
-
 ### For agents (and code-savvy humans)
 
 #### Prerequisites
@@ -64,6 +62,11 @@ npx dreamteamer install @dreamteamer/tasks @dreamteamer/contacts
 
 npx dreamteamer status
 ```
+
+### For VSCode users
+
+Install the [dreamteamer VSCode extension](https://marketplace.visualstudio.com/items?itemName=dreamteamer.dreamteamer-vscode) and use the `Dreamteamer: Create Workspace` command to create a new workspace.
+
 ## Under the hood
 
 Warning: technical details ahead. Non technical users may safely skip this section.
@@ -80,34 +83,35 @@ The best way to gain a deeper understanding of dreamteamer is to read the [using
 
 Designed by coders, for both humans and AI agents, dreamteamer is built with decades of software engineering best practices in mind. 
 
-- **Engine design goals**
+- **Core engine design goals**
   - [x] **AI native** - built from the ground up with AI agents in mind 
   - [x] **Lean core** - minimal design, everything else is an optional add-on
   - [x] **Adaptive and extensible** - allow users to easily extend dreamteamer with their own modules and data models
-  - [x] **Standards-first approach** - markdown, frontmatter, AJV, and GIT are the foundation of dreamteamer 
-  - [x] **Harness-agnostic** - dreamteamer compiles agent instructions from a single source of truth into formats that can be used by any supported agent harness
-  - [x] **Complementary to existing AI agents** - dreamteamer is not meant to replace your AI agents, but to provide them with a well-defined data model and a set of tools to work with
+  - [x] **Standards-first approach** - markdown, frontmatter, AJV, and GIT are the foundation of dreamteamer.
   - [x] **Friendly for both agents and humans** - data and instructions are stored in plain text
-  - [x] **Self-documenting** - 
+  - [x] **Harness-agnostic** - compile agent instructions from a single source of truth into formats that can be used by any supported agent harness
 - **Context engineering principles**
-  - [x] **Schema-first**
-  - [x] **Relational**
-  - [x] **Schema-validated** - all data is validated against a schema with `npx dreamteamer compile`, errors are reported and corrected by the agents 
-  - [x] **Rich metadata**
-  - [x] **Modular**
-  - [x] **Layered**
-  - [x] **Persistent and durable**
-  - [x] **Non-destructive data authoring**
-  - [x] **Auditable**
+  - [x] **Schema-first** - treat context as data that conforms to a schema, and provide the schema to AI agents with every conversation.
+  - [x] **Relational** - allow easy expression of One-to-one, one-to-many, and many-to-many relationships between data entities.
+  - [x] **Schema-validated** - all data and relationships are validated against a schema with `npx dreamteamer compile`, errors are reported and corrected by the agents 
+  - [x] **Rich metadata** - annotate the data model with rich metadata about usage, relationships, validation, display, and more, to provide context and guidance to AI agents
+  - [x] **Modular** - allow users to group related data models and agents into modules that can be shared and reused
+  - [x] **Layered schemas** - allow user to override or extend collections and fields from imported modules
+  - [x] **Layered data** - allow users to import both schema-only modules and provide their own data, or import both modules with schema+data.
+  - [x] **Persistent and durable** - store all state in the package data folder
+  - [x] **Non-destructive data authoring** - commit and push every data state change with GIT, revert as needed.
+  - [x] **Auditable** - track all data state changes through GIT commit log.
+  - [x] **Versioned** - allow multiple versions of schemas and data, switch between versions at will
 - **Developer experience**
-  - [x] **Programmable**
-  - [x] **Extensible**
-  - [x] **Portable**
-  - [x] **Testable**
+  - [x] **CLI driven** - All functionality is exposed through a CLI
+  - [x] **Programmable** - import dreamteamer into your js/ts scripts, work with the same interface 
+  - [x] **AI primitives** - skills, agents, and commands are first class citizens in every engine module
+  - [x] **Extensible** - allow users to easily extend dreamteamer with their own modules and data models
+  - [x] **Portable** - sync changes through git, move between machines, and parallelize work across agents and harness instances
 - **User experience**
-  - [x] **Conversational**
-  - [x] **Presentational**
-  - [x] **Collaborative**
+  - [x] **Conversational** - all engine and installed modules functionality exposed through natural language commands 
+  - [x] **Presentational** - every data entity exposes display metadata in its schema, making it immediately presentable to arbitrary UI clients. [ui-views](collections/ui-views.collection.yaml) provide out-of-the-box configurable list and item views for every entity. The [dreamteamer-ui](https://github.com/dreamteamer/dreamteamer-modules/tree/main/modules/ui) package provides core set of UI elements. The [dreamteamer-vscode extension](https://marketplace.visualstudio.com/items?itemName=dreamteamer.dreamteamer-vscode) provides built views for vscode, and the [dreamteamer-web](https://github.com/dreamteamer/dreamteamer-web) module shows identical UI in agent desktop apps such as Claude Desktop and Codex.  
+  - [x] **Collaborative** - leverage GIT to collaborate on workspaces and share changes with other users, AI agents, or in parallel across multiple sessions and machines.
   
 ### Security considerations
 

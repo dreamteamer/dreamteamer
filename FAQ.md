@@ -17,19 +17,25 @@ No, you don't need to be a coder to use dreamteamer. It is designed to apply sof
 No, dreamteamer is not a coding agent. It works within your existing coding agent/s to provide a more streamlined and predictable agentic workflow.
 
 ### How does dreamteamer work?
+(content pending)
 
 ### How do I get started?
+(content pending)
 
 ### What are common use cases for dreamteamer?
+(content pending)
 
 ### How do I create a module?
+(content pending)
 
 ### Must I use GIT? Do I need to commit and push my data to a remote repository like GitHub?
+(content pending)
 
 ### Is my data safe? Does it stay private?
+(content pending)
 
 ### Why open source? How come it's free?
+(content pending)
 
 ### Can dreamteamer handle large scale engineering projects?
-
-### 
+(content pending)
