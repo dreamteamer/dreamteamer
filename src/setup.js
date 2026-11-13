@@ -16,7 +16,8 @@ import os from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline/promises';
 import { execFileSync } from 'node:child_process';
-import { CHECK_STATUSES } from './setup-contract.js';
+import { CHECK_STATUSES, isEnvAction, validateEnvAction } from './setup-contract.js';
+import { setEnvValues, fingerprint, leftoverTemps, gitExposure, writeEnvAtomic, EnvRefusal } from './env-write.js';
 import { parseEnvValues } from './env-vars.js';
 import { RUNTIME_DIR } from './runtime.js';
 import { discoverModules } from './compile.js';
@@ -170,17 +171,49 @@ export function fold(checks, { skipped = false } = {}) {
 	return { state: 'ready', detail: '', verified: dates.at(-1) ?? null };
 }
 
-/** A provider's error, with anything that looks like a value gone. Key names and shapes stay. */
+/** A provider's FAILURE text, with anything that looks like a value gone: a `key=value` (a `<placeholder>`
+ *  is not a value), a bearer token, an e-mail address, a home folder, a 32+-character token. Key names
+ *  and shapes stay. Applied to what a unit throws, a failed apply's message and an action's reason —
+ *  never to a check's fix or title, an action's title or a next-command line (D67). */
 export function redact(text) {
 	return String(text ?? '')
-		.replace(/\b(token|secret|password|passwd|api[_-]?key|key|client[_-]?secret|credential)=\S+/gi, '$1=[redacted]')
-		.replace(/\bBearer\s+\S+/g, 'Bearer [redacted]');
+		.replace(/\b(token|secret|password|passwd|api[_-]?key|key|client[_-]?secret|credential)=(?!<)\S+/gi, '$1=[redacted]')
+		.replace(/\bBearer\s+\S+/g, 'Bearer [redacted]')
+		.replace(/[^\s@"'<>()]+@[^\s@"'<>()]+\.[A-Za-z]{2,}/g, '<email>')
+		.replace(/(?:\/Users|\/home)\/[^\s/"']+/g, '~')
+		.replace(/[A-Za-z]:\\Users\\[^\s\\"']+/g, '~')
+		.replace(/\b[A-Za-z0-9_-]{32,}\b/g, '[redacted]');
+}
+
+/**
+ * Judge an env action when a plan is read — the driver's own verdict, from what it can see without
+ * writing (D61). Pure: handed the `.env` text, the leftover temps beside it, the git exposure verdict
+ * and the plan-time fingerprint (`expect`). Returns the action as the driver will treat it: `done`
+ * when every key already holds its value; `needs-input` for a value not yet known; `blocked` with the
+ * reason for anything the write would refuse; else the unit's own state (`ready` by default) with
+ * `expect` stamped and `effects` defaulted to the one workspace-files entry. A plain action is
+ * returned as is.
+ */
+export function judgeEnvAction(action, { declared, text, temps = [], exposure = { safe: true }, expect }) {
+	if (!isEnvAction(action)) return action;
+	const keys = Object.keys(action.env ?? {});
+	const effects = (action.effects ?? []).length ? action.effects : [{ kind: 'workspace-files', detail: `.env: ${keys.join(', ')}` }];
+	const out = { ...action, effects, runBy: action.runBy ?? 'engine' };
+	const v = validateEnvAction(action, declared);
+	if (!v.ok) return { ...out, state: v.state, reason: v.reason };
+	let changed;
+	try { ({ changed } = setEnvValues(text, action.env)); } catch (e) { return { ...out, state: 'blocked', reason: e instanceof EnvRefusal ? e.message : redact(e.message) }; }
+	if (!changed.length) return { ...out, state: 'done', reason: `${keys.join(', ')} already hold${keys.length === 1 ? 's' : ''} this value` };
+	if (temps.length) return { ...out, state: 'blocked', reason: `temporary files from an interrupted write sit beside .env (${temps.join(', ')}) — review and delete them first` };
+	if (!exposure.safe) return { ...out, state: 'blocked', reason: exposure.reason };
+	if (action.state && action.state !== 'ready' && action.state !== 'done') return { ...out, expect };
+	return { ...out, state: 'ready', expect };
 }
 
 // ---- the workspace side -----------------------------------------------------------------------
 
 /** Every setup unit the loaded extensions contribute, with its package. */
-export const units = (ws) => (ws.extensions ?? []).flatMap((e) => (e.setup ?? []).map((u) => ({ ...u, module: e.name, dir: e.dir })));
+export const units = (ws) => (ws.extensions ?? []).flatMap((e) => (e.setup ?? []).map((u) => ({ ...u, module: e.name, dir: e.dir, declared: new Set([...(e.env ?? []), ...(e.vars ?? [])]) })));
 export const skippedUnits = (ws) => ws.pkg?.dreamteamer?.setup?.skipped ?? [];
 export const receiptDir = (ws, unitId) => path.join(ws.root, RUNTIME_DIR, 'setup', unitId);
 
@@ -203,32 +236,56 @@ export async function runUnit(ws, unit, { inputs = {}, allow = new Set(), tty = 
 	const applied = [], failed = [];
 	let pending = [], needs = [];
 	const done = new Set(), refused = new Set();
+	// an env action is the engine's to perform (D61): judged when the plan is read against the file as
+	// it was when the plan ran (the fingerprint taken before `plan`, so a plan that touches .env itself
+	// makes the write refuse), then written by rename instead of handed to apply
+	const envFile = path.join(ws.root, '.env');
+	const envText = () => { try { return fs.readFileSync(envFile, 'utf8'); } catch { return ''; } };
+	const snapshot = () => { try { return fingerprint(envFile); } catch (e) { return e; } };
+	const judge = (actions, expect) => actions.map((a) => {
+		if (!isEnvAction(a)) return a;
+		if (expect instanceof Error) return judgeEnvAction({ ...a, state: 'blocked', reason: expect.message }, { declared: unit.declared ?? new Set(), text: '', expect: null });
+		return judgeEnvAction(a, { declared: unit.declared ?? new Set(), text: envText(), temps: leftoverTemps(envFile), exposure: gitExposure(ws.root, '.env'), expect });
+	});
+	const withReason = (a, extra) => ({ ...a, ...extra, ...(a.reason !== undefined ? { reason: redact(a.reason) } : {}) });
 	// the plan is asked again after every applied action: an action's preconditions are often what the
 	// previous one made (a venv before the download, a key in .env before the check that reads it), so
 	// one pass would leave them pending for a second call that a person should not have to make
 	for (let round = 0; round < 50; round++) {
 		let planned;
+		const expect = snapshot();
 		try { planned = (await unit.plan(ctx, inputs)) ?? {}; } catch (e) { return { checks: safeInspect(unit, ctx), applied, pending, failed: [...failed, { id: 'plan', message: redact(e.message) }], needs }; }
 		needs = planned.needs ?? [];
 		pending = [];
 		let next = null;
-		for (const action of planned.actions ?? []) {
+		for (const action of judge(planned.actions ?? [], expect)) {
 			if (done.has(action.id)) continue;
-			if (action.state && action.state !== 'ready') { if (action.state !== 'done') pending.push({ ...action, why: action.state === 'needs-input' ? 'needs input' : action.state }); else done.add(action.id); continue; }
-			if (refused.has(action.id)) { pending.push({ ...action, why: refused.get?.(action.id) ?? 'declined' }); continue; }
+			if (action.state && action.state !== 'ready') { if (action.state !== 'done') pending.push(withReason(action, { why: action.state === 'needs-input' ? 'needs input' : action.state })); else done.add(action.id); continue; }
+			if (refused.has(action.id)) { pending.push(withReason(action, { why: refused.get?.(action.id) ?? 'declined' })); continue; }
 			const isVerify = action.kind === 'verify';
-			if (isVerify && !verify) { pending.push({ ...action, why: 'run with --verify' }); continue; }
-			if ((action.runBy === 'owner' || (action.effects ?? []).some((e) => e.kind === 'account')) && !(authorize && tty)) { pending.push({ ...action, why: 'the owner\'s step: dt setup <unit> --authorize' }); continue; }
-			if (!next) next = action; else pending.push({ ...action, why: 'after the step before it' });
+			if (isVerify && !verify) { pending.push(withReason(action, { why: 'run with --verify' })); continue; }
+			if ((action.runBy === 'owner' || (action.effects ?? []).some((e) => e.kind === 'account')) && !(authorize && tty)) { pending.push(withReason(action, { why: 'the owner\'s step: dt setup <unit> --authorize' })); continue; }
+			if (!next) next = action; else pending.push(withReason(action, { why: 'after the step before it' }));
 		}
 		if (!next) break;
 		if (!(await consent(next, { allow, tty, ask, authorize }))) {
 			refused.add(next.id);
-			pending.push({ ...next, why: `needs --allow ${[...new Set((next.effects ?? []).map((e) => e.kind).filter((k) => k !== 'workspace-files'))].join(' --allow ')}` });
+			pending.push(withReason(next, { why: `needs --allow ${[...new Set((next.effects ?? []).map((e) => e.kind).filter((k) => k !== 'workspace-files'))].join(' --allow ')}` }));
 			// the actions queued behind it stay listed as they are; nothing else can run this round
 			continue;
 		}
 		done.add(next.id);
+		if (isEnvAction(next)) {
+			// the engine's own write: refused only when the file moved since the plan (or cannot be written)
+			try {
+				const { text, changed } = setEnvValues(envText(), next.env);
+				writeEnvAtomic(ws.root, text, next.expect);
+				applied.push({ id: next.id, changed: ['.env'], message: `wrote .env (${changed.join(', ')})` });
+				ctx.env = envFor();
+			} catch (e) { failed.push({ id: next.id, message: e instanceof EnvRefusal ? e.message : redact(e.message) }); }
+			continue;
+		}
+		if (typeof unit.apply !== 'function') { failed.push({ id: next.id, message: `unit ${unit.id}: action ${next.id} carries no env and the unit declares no apply` }); continue; }
 		try {
 			const r = (await unit.apply(ctx, next, inputs)) ?? { ok: false, message: 'apply returned nothing' };
 			if (r.ok) { applied.push({ id: next.id, changed: r.changed ?? [], message: r.message }); ctx.env = envFor(); }
@@ -238,13 +295,14 @@ export async function runUnit(ws, unit, { inputs = {}, allow = new Set(), tty = 
 	// the final word on what is still open comes from one more plan, so a declined action and the ones
 	// behind it read with their own states, never as "after the step before it"
 	try {
+		const expect = snapshot();
 		const last = (await unit.plan(ctx, inputs)) ?? {};
 		needs = last.needs ?? needs;
-		pending = (last.actions ?? []).filter((a) => !done.has(a.id) && a.state !== 'done').map((a) => {
-			if (a.state && a.state !== 'ready') return { ...a, why: a.state === 'needs-input' ? 'needs input' : a.state };
-			if (a.kind === 'verify' && !verify) return { ...a, why: 'run with --verify' };
-			if (a.runBy === 'owner' || (a.effects ?? []).some((e) => e.kind === 'account')) return { ...a, why: 'the owner\'s step: dt setup <unit> --authorize' };
-			return { ...a, why: `needs --allow ${[...new Set((a.effects ?? []).map((e) => e.kind).filter((k) => k !== 'workspace-files'))].join(' --allow ')}` };
+		pending = judge(last.actions ?? [], expect).filter((a) => !done.has(a.id) && a.state !== 'done').map((a) => {
+			if (a.state && a.state !== 'ready') return withReason(a, { why: a.state === 'needs-input' ? 'needs input' : a.state });
+			if (a.kind === 'verify' && !verify) return withReason(a, { why: 'run with --verify' });
+			if (a.runBy === 'owner' || (a.effects ?? []).some((e) => e.kind === 'account')) return withReason(a, { why: 'the owner\'s step: dt setup <unit> --authorize' });
+			return withReason(a, { why: `needs --allow ${[...new Set((a.effects ?? []).map((e) => e.kind).filter((k) => k !== 'workspace-files'))].join(' --allow ')}` });
 		});
 	} catch { /* the loop's own view stands */ }
 	return { checks: safeInspect(unit, ctx), applied, pending, failed, needs };
