@@ -17,17 +17,17 @@ that reads the compiled runtime can render the same workspace later, unchanged.
 | dreamteamer joins a repo that also holds code | the skeleton, then path C |
 | "do I need git? a server? an account?" | git, in plain words |
 
-## the skeleton — five commands, one minute
+## the skeleton — one command, or five
 
 ```bash
-npm init -y                 # only if there is no package.json yet
-npm install dreamteamer
-git init                    # strongly recommended, not required to start — see below. first,
-                            # so init can commit its own skeleton (it does, when git is there)
-npx dreamteamer init        # writes the workspace skeleton; never compiles
-npx dreamteamer compile     # materializes the runtime; writes the orientation block
-npx dreamteamer check       # should report 0 violations over the starter collection
+npx dreamteamer init        # pins the engine, writes the skeleton, compiles, checks, git init, one commit
 ```
+
+One command does all of it — what it changes, what it refuses and how it resumes is `setup.md` §0.
+`--no-git` keeps git out of it (see below for why you want it in); adding a module afterwards is
+`dt install <package>` (also `setup.md`). The same steps by hand, for a reader who wants to see them:
+`npm install dreamteamer` · `git init` · `npx dreamteamer init --no-compile` · `npx dreamteamer compile`
+· `npx dreamteamer check`.
 
 `init` writes the `dreamteamer` block into `package.json` (the workspace manifest —
 `collections.md`), a workspace module at `modules/default/` with a starter `notes` collection,

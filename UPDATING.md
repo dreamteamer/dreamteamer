@@ -20,6 +20,47 @@ npx dreamteamer check
 
 ---
 
+## 0.47.0 — the CLI-first module lifecycle (CR-dt-006)
+
+Nothing to do but `dt compile`. Nothing an existing workspace's records do changes. What changes is
+how a workspace is MADE and how a module is ADDED:
+
+- **`dt init` does it all.** From an empty folder: pins the running engine exactly, writes the
+  skeleton, installs, compiles, checks, runs the safe part of any declared module's setup, turns the
+  folder into a git repository (when it is not one) and makes one commit scoped to what it wrote.
+  Inside an existing repository: the same scoped commit, your staged work untouched. `--no-git`,
+  `--git <remote-url>` (adds `origin`, never pushes), `--no-compile`, `--from <dir>` (a folder of
+  tarballs for an offline preset). It still refuses, before writing anything, a path that links out of
+  the folder and an engine of another version declared, locked or installed. **`init --ready` is gone**
+  — it was never published; plain `init` is what it did, plus git.
+- **`dt install <spec…>` brings a module in**: a name, `name@version`, `./file.tgz`, `./folder` (a
+  development link), a git URL. It installs the module and every module its `dreamteamer.dependencies`
+  names, refuses before npm writes anything (a package with no `dreamteamer` key, an engine floor this
+  engine does not meet, a ring, a version installed differently, a package an installed one already
+  `provides`), pins exact versions, compiles (a refusal restores `package.json`, the lockfile and
+  `node_modules`), runs the module's safe setup and commits `package.json`, `package-lock.json` and
+  what setup wrote. `--from <dir>` resolves names from a folder of tarballs. npm 7 or later. Run again,
+  it finishes what an interrupted run left (a stale runtime, uncommitted files, a setup not run); a
+  mistyped `--input` is a warning after npm has written, never an abort.
+- **`dt update <name>[@version]`** is install one pin later: the whole resolved closure is installed
+  (a version that adds a `dreamteamer.dependencies` entry brings it in), compiled, its new units' safe
+  setup run, one commit. `--engine` moves the engine's own pin; a downgrade needs `--allow downgrade`.
+- **A module declares its setup as units** — the `setup` key of its extension contribution:
+  `[{ id, version: 1, inputs, inspect, plan, apply }]`. The engine drives every unit the same way and
+  never learns a module's name. `dreamteamer.provides` on a composed package lists what it composes.
+- **`dt setup [<unit>]`** resumes, repairs, verifies (`--verify`) and signs in (`--authorize`, in a
+  terminal); inputs come from `--input id=value`, the environment, the declared default, or a terminal
+  prompt; downloads, network and machine changes ask y/n or run under `--allow <kind>`; `--skip` records
+  a skip in `package.json`. The old "`dt setup` is gone" refusal is gone.
+- **Exit codes, for scripts:** every setup-driving verb exits 0 when done (pending consent and the owner's
+  steps are printed, not errors), **1 when a unit's apply failed** (its blocked line names it; an
+  install itself stands and is committed), 2 on usage, 3 when a required input is missing.
+- **Known, not in this release:** workspace search isolation (`@dreamteamer/search` still asks the
+  global qmd index and may return another workspace's results) ships with the portable-HQ change, not here.
+- **`dt status` has a setup section** — one honest line per unit: `ready` (and `verified <date>` when a
+  live check wrote its receipt), `configured` with what is still unverified, `skipped`, `blocked`, `no
+  setup`. `dt doctor` renders a unit's checks as rows; `blocked` is bad, so `--strict` fails on it.
+
 ## 0.46.1 — three install defects the first review of 0.46.0 found
 
 Nothing to do but `dt install`. Upgrade if you read a clone whose own declarations can change under you.

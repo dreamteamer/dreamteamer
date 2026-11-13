@@ -165,8 +165,13 @@ describe('dt init commits only what it wrote', () => {
 		fs.writeFileSync(path.join(dir, 'staged.txt'), 'mine, staged\n');
 		fs.writeFileSync(path.join(dir, 'loose.txt'), 'mine, untracked\n');
 		git(dir, ['add', 'staged.txt']);
+		// the engine declared (a file: spec) and linked before init, so init installs nothing from a registry
+		const engineRoot = fileURLToPath(new URL('../..', import.meta.url));
+		fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'existing', private: true, dependencies: { dreamteamer: `file:${engineRoot}` } }, null, '\t') + '\n');
+		fs.mkdirSync(path.join(dir, 'node_modules'));
+		fs.symlinkSync(engineRoot.replace(/\/$/, ''), path.join(dir, 'node_modules', 'dreamteamer'), 'dir');
 		const bin = fileURLToPath(new URL('../../bin/dreamteamer.js', import.meta.url));
-		const r = spawnSync(process.execPath, [bin, 'init'], { cwd: dir, encoding: 'utf8', timeout: 60_000 });
+		const r = spawnSync(process.execPath, [bin, 'init'], { cwd: dir, encoding: 'utf8', timeout: 60_000, env: { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@example.invalid', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@example.invalid' } });
 		assert.equal(r.status, 0, r.stderr);
 		const committed = git(dir, ['show', '--name-only', '--format=', 'HEAD']).split('\n').filter(Boolean);
 		assert.ok(committed.includes('package.json') && committed.includes('.gitignore'), committed.join(', '));

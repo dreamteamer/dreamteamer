@@ -1,6 +1,6 @@
 ---
 name: using-dreamteamer
-description: always load first in a dreamteamer workspace — reading, writing and committing records, and changing what the workspace keeps or does (collections and fields, skills, commands, agents, ui-views, component code). Also when deciding which of those a request should become, when a compile or check error names a source file, or when a request names a new kind of thing to keep. Also for a brand-new or just-installed workspace, or dreamteamer over existing data.
+description: always load first in a dreamteamer workspace — reading, writing and committing records, and changing what the workspace keeps or does (collections and fields, skills, commands, agents, ui-views, component code). Also when deciding which of those a request should become, when a compile or check error names a source file, or when a request names a new kind of thing to keep. Also for a brand-new or just-installed workspace, dreamteamer over existing data, or "help me set this up" — making the installed modules work on this machine.
 ---
 
 # using dreamteamer
@@ -45,7 +45,8 @@ so a clone has no runtime and no orientation until compile writes them — and `
 per-machine (declared keys: `references/records.md`). `dt status` says
 whether the runtime is fresh. the workspace's own switches live in `package.json`'s `dreamteamer`
 block (`references/collections.md`, the workspace manifest) — and the guided path from nothing,
-or from existing data, is `references/getting-started.md`.
+or from existing data, is `references/getting-started.md`. making the installed modules work on this
+machine — and the one-command bootstrap, `dt init` — is `references/setup.md`.
 
 ## the CLI is the front door
 
@@ -68,7 +69,7 @@ dispatch, so it cannot drift):
 - read & measure — `list` `get` `values` `history` `diff` `next` `relations` `resolve`
 - write & publish — `add` `set` `rm` `rename` `reorder` `revert` `commit` `relocate`
 - fields (sources, through the compile gate) — `add-field` `set-field` `rm-field` `rename-field` `rename-value` (system entities — modules, collections, skills, ui-views… — take the RECORD verbs above)
-- workspace — `init` `install` `update` `compile` `check` `exports` `doctor` `status` `changes` `help`
+- workspace — `init` `install` `update` `compile` `check` `exports` `doctor` `status` `setup` `changes` `help`
 - format descriptor sources (opt-in; block style, canonical key order, through the compile gate) — `fmt`
 - an EXTENSION (a workspace module or a dependency declaring `dreamteamer.extension`) adds verbs of
   its own, and `dt help` lists them under its name; each ships the skill that teaches it. A verb core
@@ -139,7 +140,8 @@ Load by the map; nothing here is loaded "just in case".
 
 | the job | load |
 |---|---|
-| a brand-new or empty workspace, dreamteamer over an existing pile of files, "help me set this up" | `references/getting-started.md` |
+| a brand-new or empty workspace, dreamteamer over an existing pile of files | `references/getting-started.md` |
+| "help me set this up", "finish setup", "add meetings", "install a module", "connect my account / calendar", "something stopped working", "what works here?", "add / connect / repair <capability>" — `dt install`, `dt setup`, `dt status`: a module's setup unit, inputs and consent, an honest readiness report | `references/setup.md` |
 | read, create, update, rename, delete, commit — or UNDO — a record | `references/records.md` |
 | "what changed while I was away", what this turn changed, the record report | `references/changes.md` |
 | the workspace seems unable to do something — a new kind of thing, a missing capability, "don't we already have this?" | `references/before-you-build.md` (look first); a new model then continues `references/data-modeling.md` (decide) → `references/collections.md` (write it) |

@@ -1,0 +1,13 @@
+name: fixds
+description: A fixd record.
+storage:
+  path: fixds
+  format: md
+  shape: file
+  suffix: fixd
+ids:
+  from: '{{ title | slug }}'
+fields:
+  title:
+    type: string
+    required: true

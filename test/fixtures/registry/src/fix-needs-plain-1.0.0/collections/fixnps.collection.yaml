@@ -1,0 +1,13 @@
+name: fixnps
+description: A fixnp record.
+storage:
+  path: fixnps
+  format: md
+  shape: file
+  suffix: fixnp
+ids:
+  from: '{{ title | slug }}'
+fields:
+  title:
+    type: string
+    required: true

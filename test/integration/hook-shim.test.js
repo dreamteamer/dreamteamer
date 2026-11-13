@@ -149,14 +149,19 @@ describe('bin/dt-hook.sh resolves node where a hook has no PATH', () => {
 
 		const dir = tmp();
 		spawnSync('git', ['init', '-q', dir], { encoding: 'utf8' });
-		const init = spawnSync(process.execPath, [path.join(ENGINE_ROOT, 'bin', 'dreamteamer.js'), 'init'], { cwd: dir, encoding: 'utf8' });
+		// the engine declared (a file: spec) and linked BEFORE init, so init runs no npm — the npm step
+		// under test is the one below, not a registry fetch of the published engine
+		fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'hooked', private: true, dependencies: { dreamteamer: `file:${ENGINE_ROOT}` } }, null, '\t') + '\n');
+		fs.mkdirSync(path.join(dir, 'node_modules'));
+		fs.symlinkSync(ENGINE_ROOT, path.join(dir, 'node_modules', 'dreamteamer'), 'dir');
+		const init = spawnSync(process.execPath, [path.join(ENGINE_ROOT, 'bin', 'dreamteamer.js'), 'init', '--no-git'], { cwd: dir, encoding: 'utf8', env: { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@example.invalid', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@example.invalid' } });
 		assert.equal(init.status, 0, init.stderr + init.stdout);
 		// a declared dependency that is not installed, so the npm step has work to do — a local
 		// `file:` package, so npm needs no registry
 		fs.mkdirSync(path.join(dir, 'vendor', 'tiny'), { recursive: true });
 		fs.writeFileSync(path.join(dir, 'vendor', 'tiny', 'package.json'), JSON.stringify({ name: 'tiny', version: '1.0.0' }));
 		const pkg = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8'));
-		pkg.dependencies = { tiny: 'file:./vendor/tiny' };
+		pkg.dependencies = { ...pkg.dependencies, tiny: 'file:./vendor/tiny' };
 		fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify(pkg, null, '\t') + '\n');
 
 		const r = spawnSync('env', ['-i', `PATH=${onlyPath}`, `HOME=${os.homedir()}`,

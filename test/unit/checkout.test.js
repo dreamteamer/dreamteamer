@@ -1,4 +1,5 @@
 import { test, describe } from 'node:test';
+import { escapes } from '../../src/checkout.ts';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -248,5 +249,19 @@ describe('the engine step says WHICH of node and npm is missing', () => {
 		const said = [];
 		assert.equal(await applyInstall({ root: '/nowhere' }, {}, step, { npm: null, dryRun: true, log: (l) => said.push(l) }), 0);
 		assert.ok(!said.some((l) => l.includes('cannot install')), said.join('\n'));
+	});
+});
+
+describe('escapes — the footprint walk follows every link out of the folder', () => {
+	test('a link whose NAME holds a backslash (legal on POSIX) is still a link: a target outside the folder escapes', { skip: process.platform === 'win32' }, () => {
+		const base = fs.mkdtempSync(path.join(os.tmpdir(), 'dt-esc-'));
+		const root = path.join(base, 'root'), outside = path.join(base, 'outside');
+		fs.mkdirSync(root); fs.mkdirSync(outside);
+		fs.symlinkSync(outside, path.join(root, 'a\\b'));
+		assert.equal(escapes(root, 'a\\b/x'), true, 'the backslash is part of the name, not a separator');
+		assert.equal(escapes(root, 'a\\b'), true);
+		fs.mkdirSync(path.join(root, 'inside'));
+		assert.equal(escapes(root, 'inside/x'), false);
+		fs.rmSync(base, { recursive: true, force: true });
 	});
 });

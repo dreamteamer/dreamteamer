@@ -63,10 +63,10 @@ const ENV_EXAMPLE = `# secrets for skills and modules go here (copy to .env; .en
 # modules declare the env keys they require in their package.json dreamteamer.env list.
 `;
 
-export function init({ flags = {} as Record<string, any> } = {}) {
-	const root = process.cwd();
-	const name = flags.name ?? path.basename(root);
-	const dataPath = flags.data_path ?? 'data';
+/** The `dreamteamer` block init leaves in package.json: its seeds, under whatever the EXISTING block
+ *  already says — the existing key always wins over a flag. One function, because `init --ready` must
+ *  judge exactly the paths init will write, and a second copy of this precedence is how it did not. */
+export function seedBlock(flags: Record<string, any> = {}, existing: Record<string, any> = {}) {
 	// EVERY known harness by default, and this is the operator's explicit call over the architecture
 	// review's dissent — recorded, not elided: it writes AGENTS.md, GEMINI.md and .cursor/rules/ into
 	// every new workspace, which is real clutter. The decision stands on the ASYMMETRY. A missing
@@ -78,12 +78,8 @@ export function init({ flags = {} as Record<string, any> } = {}) {
 	const harnesses = typeof flags.harnesses === 'string'
 		? flags.harnesses.split(',').map((s) => s.trim())
 		: [...KNOWN_HARNESSES];
-
-	// package.json: create or update — the single manifest
-	const pkgPath = path.join(root, 'package.json');
-	const pkg = fs.existsSync(pkgPath) ? JSON.parse(fs.readFileSync(pkgPath, 'utf8')) : { name, private: true, version: '0.0.1' };
-	pkg.dreamteamer = {
-		'data_path': dataPath,
+	return {
+		'data_path': flags.data_path ?? 'data',
 		harnesses,
 		gitignore_runtime_folder: true,
 		// The workspace's own sources live in `modules/default/`, and the folder is named for its ROLE,
@@ -99,9 +95,30 @@ export function init({ flags = {} as Record<string, any> } = {}) {
 		'workspace_module': flags.workspace_module ?? 'default',
 		'git_modules': {},
 		disable: [],
-		...pkg.dreamteamer,
+		...existing,
 	};
-	fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, '\t') + '\n');
+}
+
+/** Every path `init` writes or creates for this effective block, root-relative. ⚠ The data folder is
+ *  the FLAG's (or `data`), not the block's — what init has always created, so both are listed. */
+export function initFootprint(block, flags: Record<string, any> = {}) {
+	const wm = block.workspace_module, base = wm ? `modules/${wm}` : '.';
+	return ['package.json', '.gitignore', '.env.example', '.vscode/extensions.json', flags.data_path ?? 'data', block.data_path,
+		...SKELETON_KINDS.map((k) => `${base}/${k}`), ...(wm ? [`${base}/package.json`] : []), `${base}/collections/notes.collection.yaml`];
+}
+
+// `commit: false` is `init --ready`'s: a bootstrap writes and never commits (checkout.js `bootstrap`).
+export function init({ flags = {} as Record<string, any>, root = process.cwd(), commit = true } = {}) {
+	const name = flags.name ?? path.basename(root);
+	const dataPath = flags.data_path ?? 'data';
+	// package.json: create or update — the single manifest
+	const pkgPath = path.join(root, 'package.json');
+	const pkg = fs.existsSync(pkgPath) ? JSON.parse(fs.readFileSync(pkgPath, 'utf8')) : { name, private: true, version: '0.0.1' };
+	const existed = fs.existsSync(pkgPath), had = pkg.dreamteamer ?? {};
+	pkg.dreamteamer = seedBlock(flags, pkg.dreamteamer);
+	// an existing block already holding every seeded key is left BYTE-FOR-BYTE: re-running init (or a
+	// repeated `init --ready`) must not reformat the operator's file into a diff that changes nothing
+	if (!existed || Object.keys(pkg.dreamteamer).some((k) => !(k in had))) fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, '\t') + '\n');
 
 	// folder skeleton — the workspace's own sources are an inline module, kinds FLAT at its root
 	const wm = pkg.dreamteamer.workspace_module;
@@ -154,6 +171,7 @@ export function init({ flags = {} as Record<string, any> } = {}) {
 	// `git add --all`, which in an existing repo swept every unrelated staged and unstaged change into
 	// a commit titled "init workspace": the one write in this engine that was not pathspec-scoped.
 	// `commit -- <paths>` also leaves anything the operator had already staged exactly as it was.
+	if (!commit) return 0;
 	const written = ['package.json', '.gitignore', '.env.example', '.vscode/extensions.json',
 		...(wm ? [path.join('modules', wm, 'package.json')] : []), path.relative(root, starter)]
 		.filter((f) => fs.existsSync(path.join(root, f)));

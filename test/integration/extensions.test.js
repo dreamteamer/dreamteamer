@@ -5,7 +5,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { workspace, readFile, git, dt, compileQuietly, compileError, WS_MODULE } from '../helpers/ws.js';
+import { workspace, readFile, git, dt, compileQuietly, compileError, WS_MODULE, withProbeSetup, withProbeCollide } from '../helpers/ws.js';
 import { dump } from '../../src/yaml.ts';
 import { openWorkspace, contributedViolations, check, CHECK_WARNINGS } from '../../src/api.ts';
 
@@ -117,9 +117,10 @@ describe('an extension\'s command runs in-process, handed THIS workspace and THI
 			assert.equal(r.code, 2, verb);
 			assert.match(r.stderr, new RegExp(`npm i -g @dreamteamer/docker-workspaces\\n {4}dt-docker ${verb} container <name>`));
 		}
+		// `dt setup` is a core verb again (the generic driver of setup units); with none installed it says so, exit 0
 		const setup = ws.dt('setup');
-		assert.equal(setup.code, 2);
-		assert.match(setup.stderr, /`dt setup` is gone — `dt doctor` shows what works on this machine/);
+		assert.equal(setup.code, 0, setup.stderr);
+		assert.match(setup.stdout, /no installed module declares setup/);
 	});
 });
 
@@ -249,6 +250,57 @@ describe('the loader refuses what it cannot honour — at open, by name', () => 
 		install(ws.root, { name: 'kit-a', entry: "export default () => ({ sourceKinds: ['gizmos'] });", descriptor: null });
 		install(ws.root, { name: 'kit-b', entry: "export default () => ({ sourceKinds: ['gizmos'] });", descriptor: null });
 		await assert.rejects(openWorkspace(ws.root), /kit-b contributes the kind "gizmos", which kit-a already owns — uninstall one, or switch it off: add "modules\/kit-b" to dreamteamer\.disable/);
+	});
+
+	test('a setup unit is loaded with its defaults, and two packages claiming one unit id refuse', async () => {
+		const UNIT = (id) => `export default () => ({ setup: [{ id: '${id}', version: 1, inputs: [{ id: 'home', kind: 'path', env: 'KIT_HOME' }], inspect: () => ({ checks: [] }), plan: () => ({ checks: [], actions: [], needs: [] }), apply: () => ({ ok: true, changed: [] }) }] });`;
+		const a = workspace({ compile: false });
+		const dir = install(a.root, { name: 'kit-a', entry: UNIT('tune'), descriptor: null });
+		// the input names an env key the package does not declare — refused at load, naming the key
+		await assert.rejects(openWorkspace(a.root), /unit tune: input home names env KIT_HOME, which the package does not declare in dreamteamer\.env or vars/);
+		const pkg = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8'));
+		pkg.dreamteamer.vars = ['KIT_HOME'];
+		fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify(pkg));
+		const ws = await openWorkspace(a.root);
+		const ext = ws.extensions.find((e) => e.name === 'kit-a');
+		assert.equal(ext.setup.length, 1);
+		assert.equal(ext.setup[0].module, 'kit-a');
+		assert.deepEqual(ext.setup[0].inputs.map((i) => [i.id, i.kind, i.env, i.required]), [['home', 'path', 'KIT_HOME', false]]);
+		// a second package with the same unit id is the same silent loser as two verbs
+		const b = install(a.root, { name: 'kit-b', entry: UNIT('tune'), descriptor: null });
+		const pkgB = JSON.parse(fs.readFileSync(path.join(b, 'package.json'), 'utf8'));
+		pkgB.dreamteamer.vars = ['KIT_HOME'];
+		fs.writeFileSync(path.join(b, 'package.json'), JSON.stringify(pkgB));
+		await assert.rejects(openWorkspace(a.root), /setup unit "tune" is contributed by kit-b and kit-a — uninstall one, or switch it off/);
+		// two packages whose inputs share one env key with DIFFERENT kinds: refused naming the pair (D39)
+		const d = workspace({ compile: false });
+		const KIND = (id, kind) => `export default () => ({ setup: [{ id: '${id}', version: 1, inputs: [{ id: 'home', kind: '${kind}', env: 'KIT_HOME' }], inspect: () => ({ checks: [] }), plan: () => ({ checks: [], actions: [], needs: [] }), apply: () => ({ ok: true, changed: [] }) }] });`;
+		for (const [name, id, kind] of [['kit-p', 'one', 'path'], ['kit-q', 'two', 'string']]) {
+			const dd = install(d.root, { name, entry: KIND(id, kind), descriptor: null });
+			const pk = JSON.parse(fs.readFileSync(path.join(dd, 'package.json'), 'utf8')); pk.dreamteamer.vars = ['KIT_HOME']; fs.writeFileSync(path.join(dd, 'package.json'), JSON.stringify(pk));
+		}
+		await assert.rejects(openWorkspace(d.root), /KIT_HOME is declared as path by kit-p \(unit one, input home\) and as string by kit-q \(unit two, input home\) — one key, one kind/);
+		// an extension without the key is unchanged: an empty unit list
+		const c = workspace({ compile: false });
+		install(c.root, { entry: 'export default () => ({});', descriptor: null });
+		assert.deepEqual((await openWorkspace(c.root)).extensions.find((e) => e.name === 'probe-kit').setup, []);
+	});
+
+	test('the synthetic provider loads as one unit with four inputs; the colliding module compiles only alone', async () => {
+		const a = workspace({ compile: false });
+		withProbeSetup(a.root);
+		const ws = await openWorkspace(a.root);
+		const unit = ws.extensions.find((e) => e.name === '@probe/setup').setup[0];
+		assert.equal(unit.id, 'probe');
+		assert.deepEqual(unit.inputs.map((i) => i.id), ['home', 'label', 'token', 'rows']);
+		// PROBE_HOME points inside the fixture: the default (~/.cache/probe) could exist on the machine running this
+		assert.deepEqual(unit.inspect({ root: a.root, env: { PROBE_HOME: path.join(a.root, 'no-such-home') }, receiptDir: path.join(a.root, '.dreamteamer', 'setup', 'probe') }).checks.map((c) => [c.id, c.status]),
+			[['probe.home', 'missing'], ['probe.token', 'missing'], ['probe.weights', 'missing'], ['probe.tuned', 'missing'], ['probe.live', 'unverified']]);
+		assert.deepEqual(unit.inspect({ root: a.root, env: { PROBE_EMPTY: '1' } }).checks, []);
+		const b = workspace({ compile: false });
+		withProbeCollide(b.root);
+		// reopened: the fixture's handle predates the dependency the helper just declared
+		assert.match(compileError(await openWorkspace(b.root)), /name collision on collection "notes"/);
 	});
 
 	test('an unknown contribution key, an entry that will not load, a newer API', async () => {
