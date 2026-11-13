@@ -61,6 +61,7 @@ npx dreamteamer init
 npx dreamteamer install @dreamteamer/tasks @dreamteamer/contacts 
 
 npx dreamteamer status
+npx dreamteamer help    # every verb and flag
 ```
 
 ### For VSCode users
