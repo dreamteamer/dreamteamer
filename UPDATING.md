@@ -20,7 +20,7 @@ npx dreamteamer check
 
 ---
 
-## Unreleased (0.47.0) — the CLI-first module lifecycle (CR-dt-006)
+## 0.47.0 — the CLI-first module lifecycle (CR-dt-006)
 
 Nothing to do but `dt compile`. Nothing an existing workspace's records do changes. What changes is
 how a workspace is MADE and how a module is ADDED:
