@@ -1,9 +1,9 @@
 // Tier 1 — what the display contract SAYS about each collection and field, read from the compiled v2
-// shape alone, through the `src/descriptor.js` accessors (authored keys over `compiled.defaults`,
+// shape alone, through the `src/descriptor.ts` accessors (authored keys over `compiled.defaults`,
 // `compiled.fields`). The clinic fixture is the design's worked example in compiled form.
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { presentation } from '../../src/presentation.js';
+import { presentation } from '../../src/presentation.ts';
 import { clinic, compiledCollection } from '../helpers/clinic-compiled.js';
 
 const p = presentation(clinic());
@@ -187,7 +187,7 @@ describe('only the v2 shape is read', () => {
 	});
 });
 
-describe('the contract reads through src/descriptor.js, so compile\'s defaults count wherever the author was silent', () => {
+describe('the contract reads through src/descriptor.ts, so compile\'s defaults count wherever the author was silent', () => {
 	// Nothing authored but the name: every collection-level value below can only have come from
 	// `compiled.defaults`, resolved by the same accessors the store and check use.
 	const bare = compiledCollection('health/rooms', {

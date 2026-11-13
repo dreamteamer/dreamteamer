@@ -14,7 +14,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: [20, 22]
+        # a checkout runs src/*.ts through Node's own type stripping, which needs 22.18+; the
+        # PUBLISHED package is the build in dist/ and still runs on 20 — the node20 job proves that
+        node: [22, 24]
     name: node ${{ matrix.node }}
     steps:
       - uses: actions/checkout@v5
@@ -32,6 +34,9 @@ jobs:
       - name: size budgets
         run: npm run metrics:check
 
+      - name: types
+        run: npm run typecheck
+
       - name: tests
         run: npm test
 
@@ -39,6 +44,21 @@ jobs:
         run: node bin/dreamteamer.js --version
 
       # The first sixty seconds of a new user's life, against the packed tarball (the script says why).
+      - name: first-run smoke
+        run: bash scripts/first-run-smoke.sh
+
+  # The npm package is dist/ (built by prepack), and engines still says >=20. The source cannot run
+  # there (no type stripping), so node 20 is proven the way a stranger meets it: the packed tarball.
+  node20:
+    runs-on: ubuntu-latest
+    name: node 20 · packed
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
       - name: first-run smoke
         run: bash scripts/first-run-smoke.sh
 

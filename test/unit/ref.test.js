@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { splitRef } from '../../src/ref.js';
+import { splitRef } from '../../src/ref.ts';
 
 const descriptors = new Map([
 	['contacts', {}], ['finance/transactions', {}], ['finance/transaction-tags', {}], ['repos', {}],

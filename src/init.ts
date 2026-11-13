@@ -1,0 +1,455 @@
+// dreamteamer init — write the workspace skeleton into the current directory.
+// non-interactive: flags override sensible defaults (RAD phase; prompts later).
+// never compiles — compile is always explicit.
+import { execFileSync, spawnSync, type StdioOptions } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
+import { discoverModules, KINDS } from './compile.ts';
+import { KNOWN_HARNESSES } from './harnesses.ts';
+import { Store } from './store.ts';
+import { envContext, renderTemplate } from './env-vars.ts';
+import { declaredGitModules, ensureEditorRecommendation } from './workspace.ts';
+
+// git calls whose failure we CATCH must not print git's own error: execFileSync forwards the
+// child's stderr to ours unless told otherwise, so a handled "not a git repository" still
+// reached the user's terminal. stdout stays piped because we read it.
+const QUIET: StdioOptions = ['ignore', 'pipe', 'ignore'];
+
+
+const SKELETON_KINDS = ['collections', 'skills', 'agents', 'commands', 'ui-views'];
+
+const GITIGNORE = `node_modules/
+git_modules/
+.worktrees/
+.dreamteamer/
+.claude/
+.agents/
+.cursor/
+/CLAUDE.md
+/AGENTS.md
+/GEMINI.md
+/NOTEBOOKLM.md
+.env
+media/
+.screenshots/
+.cache/
+`;
+
+// A brand-new workspace with no collections gives a user nothing to run, and makes `compile` warn
+// that the module `init` just created "contributed no recognised sources" — a warning about its own
+// output, which reads as a broken install. One starter collection answers both. `notes` is
+// deliberately the most generic thing a workspace can hold.
+const STARTER_COLLECTION = `name: notes
+record_title: '{{ title }}'
+description: A dated note — the starter collection init seeds, to rename or replace with what this workspace actually keeps.
+ids:
+  from: '{{ created | date }}--{{ title | slug }}'
+  pattern: ^\\d{4}-\\d{2}-\\d{2}--[a-z0-9-]+$
+fields:
+  title:
+    type: string
+    required: true
+    description: What this note is called.
+  body:
+    type: markdown
+    body: true
+    description: The note itself.
+display:
+  nav:
+    icon: sticky_note_2
+`;
+
+const ENV_EXAMPLE = `# secrets for skills and modules go here (copy to .env; .env is never committed).
+# modules declare the env keys they require in their package.json dreamteamer.env list.
+`;
+
+export function init({ flags = {} as Record<string, any> } = {}) {
+	const root = process.cwd();
+	const name = flags.name ?? path.basename(root);
+	const dataPath = flags.data_path ?? 'data';
+	// EVERY known harness by default, and this is the operator's explicit call over the architecture
+	// review's dissent — recorded, not elided: it writes AGENTS.md, GEMINI.md and .cursor/rules/ into
+	// every new workspace, which is real clutter. The decision stands on the ASYMMETRY. A missing
+	// adapter fails SILENTLY: the session opens, the agent reads no orientation block, and it models
+	// the workspace by guessing — which is indistinguishable from the engine working. A spare adapter
+	// is an empty file the operator deletes in one command. One of those two failures is recoverable.
+	// `--harnesses claude-code` still narrows it, and an EXISTING workspace is untouched: the
+	// `harnesses` key already exists and wins over the seed.
+	const harnesses = typeof flags.harnesses === 'string'
+		? flags.harnesses.split(',').map((s) => s.trim())
+		: [...KNOWN_HARNESSES];
+
+	// package.json: create or update — the single manifest
+	const pkgPath = path.join(root, 'package.json');
+	const pkg = fs.existsSync(pkgPath) ? JSON.parse(fs.readFileSync(pkgPath, 'utf8')) : { name, private: true, version: '0.0.1' };
+	pkg.dreamteamer = {
+		'data_path': dataPath,
+		harnesses,
+		gitignore_runtime_folder: true,
+		// The workspace's own sources live in `modules/default/`, and the folder is named for its ROLE,
+		// not for the vault. It used to be named after the workspace, and that name went stale TWICE in
+		// one repo (decision 213, reversed by 224) — each rename rewriting every path that RESOLVES
+		// while the historical documents deliberately kept the old spelling, so the old `modules/<vault>`
+		// was correct in prose and a bug in a path. A role name cannot go stale.
+		//
+		// `default` is deliberately the same word `RESERVED_NAMESPACES` holds (namespace.js): this module
+		// owns the DEFAULT-namespace collections, and the default namespace is the empty prefix. The one
+		// misreading it invites — `default/tasks` — is a compile error whose message states the rule.
+		// Override with `--workspace-module <name>` if a workspace wants its own spelling.
+		'workspace_module': flags.workspace_module ?? 'default',
+		'git_modules': {},
+		disable: [],
+		...pkg.dreamteamer,
+	};
+	fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, '\t') + '\n');
+
+	// folder skeleton — the workspace's own sources are an inline module, kinds FLAT at its root
+	const wm = pkg.dreamteamer.workspace_module;
+	const systemRoot = wm ? path.join(root, 'modules', wm) : root;
+	for (const kind of SKELETON_KINDS) fs.mkdirSync(path.join(systemRoot, kind), { recursive: true });
+	if (wm) {
+		const modulePkg = path.join(systemRoot, 'package.json');
+		if (!fs.existsSync(modulePkg)) {
+			// `files` is the npm publish surface: every kind a module can ship, since a new one here
+			// is an engine change that would otherwise silently stop being packaged.
+			// `description` is npm's own key and the one compile falls back to for the module's sentence
+			// — the line that heads this module's group in the orientation block. Seeded so a fresh
+			// workspace does not open with a warning about the module init just made; the operator
+			// replaces it with what THIS workspace is for.
+			fs.writeFileSync(modulePkg, JSON.stringify({ name: wm, private: true, version: '0.0.1', description: "This workspace's own collections, skills and commands.", files: [...KINDS], dreamteamer: {} }, null, '\t') + '\n');
+		}
+	}
+	// one starter collection, so `compile` has something to report instead of warning about the
+	// empty module it just made, and so a fresh workspace has something to run.
+	const starter = path.join(systemRoot, 'collections', 'notes.collection.yaml');
+	if (!fs.existsSync(starter)) fs.writeFileSync(starter, STARTER_COLLECTION);
+	fs.mkdirSync(path.join(root, dataPath), { recursive: true });
+	// NO `state/` is created. It was decision-4's home for operational records — runs, triggers,
+	// registries, cursors — and every one of those seven collections has since been deleted. When a
+	// real operational-data need finally arrived (cached provider readings) it went to a gitignored
+	// `.cache/*.jsonl` instead, because thousands of append-only readings are the wrong shape for
+	// records at all. So `state/` is a working facility with no users, and seeding an empty folder
+	// for it is the "capability that needs a record before it exists" smell. The MECHANISM is kept —
+	// `storage.path: state/<name>` still compiles, writes, lists and checks — so a workspace that
+	// wants a second root has one; the engine just stops advertising a fork nobody has taken.
+
+	// NO user record is seeded, and there is no `users` collection — both removed from core in 0.8.0.
+	// It failed the "does the ENGINE read it?" test on a circular justification: `users` was core
+	// because `@me` resolved against it, and `@me` existed because `users` was core. Nothing else in
+	// the compiler, the store or `check` ever read a user record. One record per workspace, whose only
+	// job was to restate `git config user.name` in a file that then had to AGREE with it — and when it
+	// disagreed the symptom was an empty inbox with no error (decision 99b), a trap that now cannot
+	// happen because there is nothing to disagree with.
+	//
+	// A workspace that needs people as records ships its own collection (a module's `contacts` already
+	// does), and reads the operator from git where it needs one. `teams` went the same way 2026-07-31.
+
+	// .gitignore + .env.example (append-if-missing, never clobber) + the editor recommendation, so
+	// the first window opened on this workspace offers the extension instead of leaving it to be found
+	appendMissing(path.join(root, '.gitignore'), GITIGNORE);
+	ensureEditorRecommendation(root);
+	if (!fs.existsSync(path.join(root, '.env.example'))) fs.writeFileSync(path.join(root, '.env.example'), ENV_EXAMPLE);
+
+	// one init commit (if we're in a git repo) — of the files init WROTE, and nothing else. It used to
+	// `git add --all`, which in an existing repo swept every unrelated staged and unstaged change into
+	// a commit titled "init workspace": the one write in this engine that was not pathspec-scoped.
+	// `commit -- <paths>` also leaves anything the operator had already staged exactly as it was.
+	const written = ['package.json', '.gitignore', '.env.example', '.vscode/extensions.json',
+		...(wm ? [path.join('modules', wm, 'package.json')] : []), path.relative(root, starter)]
+		.filter((f) => fs.existsSync(path.join(root, f)));
+	try {
+		// stdio ignored on purpose: this whole block is best-effort, and execFileSync forwards the
+		// child's stderr to ours by default — so a plain `dreamteamer init` in a non-git folder
+		// printed git's raw "fatal: not a git repository" above our own handled warning.
+		execFileSync('git', ['add', '--', ...written], { cwd: root, stdio: 'ignore' });
+		execFileSync('git', ['commit', '--quiet', '-m', `dreamteamer: init workspace ${name}`, '--', ...written], { cwd: root, stdio: 'ignore' });
+	} catch { console.warn('⚠ not a git repo (or nothing to commit) — init files written, no commit'); }
+
+	console.log(`✔ workspace ${name} initialized — run \`dreamteamer compile\` to materialize the runtime`);
+	return 0;
+}
+
+// dreamteamer install — restore git_modules/ working clones from the committed lockfile map, and what each
+// restored clone NEEDS in turn (`declaredGitModules`, the npm model): a layer a clone's manifest names is
+// cloned ONCE at the top level and linked under the clone — or, where it disagrees with what the top holds,
+// cloned under the clone itself — to a fixpoint, since a clone just restored may need more. Never refuses.
+export function install({ root, pkg }) {
+	const unreachable = [], done = new Set();
+	let declared;
+	const clone = (url, ref, dest, name, note) => {
+		console.log(`… cloning ${url} → ${path.relative(root, dest)} (${ref})${note}`);
+		try {
+			execFileSync('git', ['clone', '--branch', ref, url, dest], { stdio: 'inherit' });
+		} catch {
+			// one unreachable clone must not abandon the rest. the lockfile is a map of PRIVATE
+			// repos as often as public ones, so "the current credentials cannot see this one" is
+			// ordinary — a fresh machine, a collaborator, a cloud sandbox. aborting there left a
+			// half-restored workspace and named only the first failure.
+			fs.rmSync(dest, { recursive: true, force: true }); // git leaves the partial dir behind
+			unreachable.push(name);
+			console.warn(`⚠ ${path.relative(root, dest)}: clone failed — skipped (${url})`);
+			return;
+		}
+		buildClone(dest, name);
+	};
+	for (;;) {
+		declared = declaredGitModules(pkg, root);
+		const top = [...declared.map].filter(([n]) => !done.has(n)).map(([name, e]) => ({ ...e, name, dest: path.join(root, 'git_modules', name), note: e.declarers.some(Boolean) ? ` — for ${e.declarers.filter(Boolean).join(', ')}` : '' }));
+		const under = declared.nested.filter((n) => !done.has(`${n.by}/${n.name}`)).map((n) => ({ ...n, dest: path.join(root, n.by, 'git_modules', n.name), note: ` — nested: git_modules/${n.name} is ${n.top.url} (${n.top.ref})` }));
+		if (!top.length && !under.length) break;
+		for (const t of [...top, ...under]) {
+			done.add(t.by ? `${t.by}/${t.name}` : t.name);
+			fs.mkdirSync(path.dirname(t.dest), { recursive: true });
+			// ⚠ A LINK IS NOT A CLONE. A declarer that agreed with the top at the first install was given a
+			// link; once its declaration diverges its copy is nested HERE, and the link standing where the
+			// nested clone goes must be replaced — never re-pointed through, which would move the shared
+			// top-level clone every other reader sits on (the first review of 0.46.0, finding eng-01).
+			if (t.by && isLink(t.dest)) fs.unlinkSync(t.dest);
+			if (fs.existsSync(t.dest)) { if (!repoint(t.dest, path.relative(path.join(root, 'git_modules'), t.dest), t.ref)) unreachable.push(t.name); continue; }
+			clone(t.url, t.ref, t.dest, t.name, t.note);
+			if (t.by) excludeIn(path.join(root, t.by), `git_modules/${t.name}`);
+		}
+	}
+	if (!done.size) { console.log('✔ no git_modules declared — nothing to restore'); return 0; }
+	for (const [name, { declarers }] of declared.map) for (const by of declarers) if (by && !unreachable.includes(name)) linkLayer(root, by, name);
+	for (const [name, list] of declared.mismatches.reduce((g, m) => g.set(m.name, [...(g.get(m.name) ?? []), m]), new Map())) { // Map.groupBy is Node 21+
+		console.warn(`⚠ git_modules/${name}: this workspace's declaration overrides ${list.map((m) => `${m.by} (${m.what} ${m.theirs})`).join(', ')}`);
+	}
+	for (const u of declared.unmet) console.warn(`⚠ ${u.by}: dreamteamer-exports.json names ${u.holder}, which no git_modules entry of the clone provides`);
+	// non-zero, because the workspace is NOT what the lockfile describes: modules are missing or off
+	// their ref, and `check` will report references into them as unknown collections.
+	if (unreachable.length) console.error(`✖ ${unreachable.length} module(s) are not what the lockfile declares: ${unreachable.join(', ')}`);
+	return unreachable.length ? 1 : 0;
+}
+
+/** The link a declarer finds its layer through — `<by>/git_modules/<name> -> ../../<name>`, the pnpm shape:
+ *  explicit on disk, resolved by a tool that knows nothing of dreamteamer. A clone of its own standing there
+ *  may hold work: left as it is, and said — `dt status` draws it too. */
+function linkLayer(root, by, name) {
+	// relative from wherever the declarer sits — a nested copy's own needs link from two levels deeper
+	const at = path.join(root, by, 'git_modules', name), want = path.relative(path.dirname(at), path.join(root, 'git_modules', name));
+	let st = null;
+	try { st = fs.lstatSync(at); } catch { /* nothing there */ }
+	if (st && !st.isSymbolicLink()) { console.log(`… ${by}/git_modules/${name} is a clone of its own — left as it is`); return; }
+	if (st && fs.readlinkSync(at) === want) return;
+	if (st) fs.unlinkSync(at);
+	fs.mkdirSync(path.dirname(at), { recursive: true });
+	fs.symlinkSync(want, at);
+	excludeIn(path.join(root, by), `git_modules/${name}`);
+	console.log(`✔ ${by}/git_modules/${name} → git_modules/${name}`);
+}
+
+/** Ignore `rel` in a clone's own `.git/info/exclude` when its .gitignore does not already cover it — never
+ *  in a tracked file, which would dirty the clone. */
+function excludeIn(clone, rel) {
+	if (ran(clone, ['check-ignore', '-q', rel])) return;
+	const exclude = path.resolve(clone, tryGit(clone, ['rev-parse', '--git-path', 'info/exclude']) ?? path.join('.git', 'info', 'exclude'));
+	fs.mkdirSync(path.dirname(exclude), { recursive: true });
+	appendMissing(exclude, rel);
+}
+
+// dreamteamer update [<name>] — pull each lockfile-declared git_modules clone forward
+// (ff-only on its recorded ref) and rebuild it. dirty clones are skipped, never touched.
+// the caller (cli) runs compile afterwards — a pulled module may change sources.
+export function update({ root, pkg }, only) {
+	const map = Object.fromEntries(declaredGitModules(pkg, root).map); // a hoisted layer is pulled forward too
+	if (only && !map[only]) throw new Error(`"${only}" is not in dreamteamer.git_modules (known: ${Object.keys(map).join(', ') || 'none'})`);
+	const names = only ? [only] : Object.keys(map);
+	if (!names.length) { console.log('✔ no git_modules declared — nothing to update'); return 0; }
+	for (const name of names) {
+		const { ref } = map[name];
+		const dest = path.join(root, 'git_modules', name);
+		if (!fs.existsSync(dest)) { console.warn(`⚠ git_modules/${name} missing — run \`dreamteamer install\` first; skipped`); continue; }
+		if (tryGit(dest, ['status', '--porcelain'])) { console.warn(`⚠ git_modules/${name} is dirty — skipped (commit or stash there, then re-run)`); continue; }
+		const before = tryGit(dest, ['rev-parse', '--short', 'HEAD']);
+		try {
+			execFileSync('git', ['pull', '--ff-only', 'origin', ref], { cwd: dest, stdio: 'inherit' });
+		} catch {
+			console.warn(`⚠ git_modules/${name}: ff-only pull of origin/${ref} failed (diverged?) — left at ${before}`);
+			continue;
+		}
+		const after = tryGit(dest, ['rev-parse', '--short', 'HEAD']);
+		if (before === after) { console.log(`✔ git_modules/${name} already up to date (${after})`); continue; }
+		buildClone(dest, name); // deps/dist may have moved with the pull
+		console.log(`✔ git_modules/${name} ${before} → ${after}`);
+	}
+	// dev-clone semantics: these clones SHADOW any node_modules copy of the same module —
+	// what just updated is what runs. npm-channel modules are updated via npm, not here.
+	console.log('… git_modules clones shadow node_modules copies — the updated clones win');
+	for (const m of discoverModules(root, pkg).modules) {
+		if (m.channel === 'npm') console.log(`… npm-channel module ${m.name} is not managed here — \`npm update ${m.name}\` to pull it forward`);
+	}
+	return 0;
+}
+
+// a fresh clone with deps or a prepare/build script needs `npm install` to be usable
+// (deps land; `prepare` runs on install and builds dist). failure warns, never crashes.
+function buildClone(dest, name) {
+	let cp;
+	try { cp = JSON.parse(fs.readFileSync(path.join(dest, 'package.json'), 'utf8')); } catch { return; }
+	if (!cp.dependencies && !cp.scripts?.prepare && !cp.scripts?.build) return;
+	console.log(`… npm install in git_modules/${name}`);
+	const r = spawnSync('npm', ['install', '--no-fund', '--no-audit'], { cwd: dest, stdio: 'inherit' });
+	if (r.status !== 0) console.warn(`⚠ npm install failed in git_modules/${name} (exit ${r.status ?? r.error?.message}) — clone may be unbuilt; fix and re-run npm install there`);
+}
+
+function tryGit(cwd, args, timeout = 30_000) {
+	try { return execFileSync('git', args, { cwd, stdio: QUIET, timeout }).toString().trim() || null; } catch { return null; }
+}
+
+const isLink = (p) => { try { return fs.lstatSync(p).isSymbolicLink(); } catch { return false; } };
+const ran = (cwd, args, timeout?: number) => { try { execFileSync('git', args, { cwd, stdio: QUIET, timeout }); return true; } catch { return false; } };
+const commitOf = (dest, rev) => tryGit(dest, ['rev-parse', '--verify', '--quiet', `${rev}^{commit}`]);
+
+/** Is this clone somewhere other than its declared ref? A branch ref is met by being ON the branch —
+ *  moving it forward is `dt update`'s job; a tag or a sha by HEAD being that commit. Answered from
+ *  what the clone already knows, so a settled clone costs no fetch. A folder that is not itself a
+ *  clone is never re-pointed: git would walk up and act on the workspace repo. */
+export function offRef(dest, ref) {
+	if (isLink(dest) || !fs.existsSync(path.join(dest, '.git'))) return false; // never judged, never moved, through a link
+	if (tryGit(dest, ['symbolic-ref', '--quiet', '--short', 'HEAD']) === ref) return false;
+	const branch = ['refs/heads/', 'refs/remotes/origin/'].some((p) => tryGit(dest, ['rev-parse', '--verify', '--quiet', p + ref]));
+	return branch || !commitOf(dest, ref) || commitOf(dest, ref) !== commitOf(dest, 'HEAD');
+}
+
+/** Move a clone to its declared ref, or refuse and change nothing. Returns false on a refusal. */
+function repoint(dest, name, ref) {
+	const at = `git_modules/${name}`;
+	if (!offRef(dest, ref)) { console.log(`✔ ${at} present (${ref})`); return true; }
+	const refuse = (why) => { console.error(`✖ ${at}: not on ${ref}, and ${why} — nothing was moved`); return false; };
+	if (tryGit(dest, ['status', '--porcelain'])) return refuse(`it has uncommitted changes — commit or stash them in ${at}, then re-run dt install`);
+	const mine = ['HEAD', ...(commitOf(dest, `refs/heads/${ref}`) ? [`refs/heads/${ref}`] : [])];
+	const local = Number(tryGit(dest, ['rev-list', '--count', ...mine, '--not', '--remotes', '--tags']) ?? 0);
+	if (local) return refuse(`it holds ${local} commit(s) on no remote — push them from ${at} (or drop them), then re-run dt install`);
+	const before = commitOf(dest, 'HEAD')?.slice(0, 7);
+	if (!ran(dest, ['fetch', '--quiet', '--tags', 'origin'], 120_000)) return refuse('fetching origin failed');
+	if (!offRef(dest, ref)) { console.log(`✔ ${at} present (${ref})`); return true; }
+	const branch = commitOf(dest, `refs/remotes/origin/${ref}`);
+	if (!branch && !commitOf(dest, ref)) return refuse(`origin has no branch, tag or commit "${ref}" — fix dreamteamer.git_modules.${name}.ref`);
+	const to = branch ? ['-B', ref, `origin/${ref}`] : commitOf(dest, `refs/heads/${ref}`) ? [ref] : ['--detach', ref];
+	if (!ran(dest, ['checkout', '--quiet', ...to], 60_000)) return refuse('the checkout failed');
+	console.log(`✔ ${at}: ${before} → ${ref} (${commitOf(dest, 'HEAD').slice(0, 7)})`);
+	buildClone(dest, name);
+	return true;
+}
+
+function appendMissing(file, block) {
+	const existing = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
+	const missing = block.split('\n').filter((l) => l && !existing.split('\n').includes(l));
+	if (missing.length) fs.writeFileSync(file, (existing ? existing.trimEnd() + '\n' : '') + missing.join('\n') + '\n');
+}
+
+// dreamteamer install --clone <url> [name] — clone a module for development AND
+// record it in the committed lockfile map (story 5.3)
+export function installClone(ws, url, name) {
+	if (!url) throw new Error('usage: dreamteamer install --clone <git-url> [name]');
+	name = name && !name.startsWith('--') ? name : path.basename(url, '.git');
+	const dest = path.join(ws.root, 'git_modules', name);
+	if (fs.existsSync(dest)) throw new Error(`git_modules/${name} already exists`);
+	fs.mkdirSync(path.join(ws.root, 'git_modules'), { recursive: true });
+	execFileSync('git', ['clone', url, dest], { stdio: 'inherit' });
+	buildClone(dest, name);
+	const ref = tryGit(dest, ['rev-parse', '--abbrev-ref', 'HEAD']) ?? 'main';
+	const pkgPath = path.join(ws.root, 'package.json');
+	const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+	pkg.dreamteamer.git_modules = { ...pkg.dreamteamer.git_modules, [name]: { url, ref } };
+	fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, '\t') + '\n');
+	execFileSync('git', ['add', 'package.json'], { cwd: ws.root });
+	execFileSync('git', ['commit', '--quiet', '-m', `dreamteamer: install ${name} (git module)`, '--', 'package.json'], { cwd: ws.root });
+	console.log(`✔ git_modules/${name} (ref ${ref})`);
+	console.log('✔ package.json dreamteamer.git_modules updated');
+	return 0;
+}
+
+// ---- attached repos: `repos` records, materialized ON DEMAND ------------------------------
+// A `repos` record declares a related git repo and NOTHING about the schema — the other half of
+// what git_modules fuses together. Modules stay in package.json because compile can't read records
+// until they're restored (no .dreamteamer → no schemas → no readable records); attached repos have
+// no such constraint, so they get to be data.
+
+const relPath = (root, p) => path.relative(root, p) || '.';
+
+/**
+ * Where a declared repo's working tree lives. Materializes nothing, so callers can ask without
+ * cloning (that is how `status` reports presence).
+ *
+ * The engine deliberately does NOT know what `identity` means: a workspace may use it to select a
+ * `~/.gitconfig` includeIf folder so the clone commits as the right git user, but that resolution
+ * happens entirely outside the engine. Here it is just a path segment.
+ *
+ * ⚠ `path` AND `repos-path` ARE TEMPLATES, rendered here. They were joined onto the workspace root
+ * as literal text, so the one thing an attached repo most often IS — a checkout somewhere else on
+ * this machine, named by an `.env` key because the place differs per machine — was inexpressible.
+ * `--path '${env:REPOS_FOLDER}/acme'` did not fail; `ensure` cloned into a directory whose name was
+ * the eleven characters `${env:REPOS_FOLDER}`, inside the workspace. The record still carries the
+ * template verbatim, as every record does; this is the read side rendering it at the point of need,
+ * against the same context `dt resolve` builds. `path.resolve`, not `join`, because an absolute
+ * rendering has to escape the workspace while a plain relative override still anchors to it.
+ *
+ * It THROWS on an undeclared or valueless var, which is `renderTemplate`'s contract and the right
+ * one here: a repo path this machine cannot state is not a repo path to guess at. `listRepos`
+ * catches per record so one such repo cannot take a whole listing down with it.
+ */
+export function repoPath(ws, fields) {
+	const ctx = envContext(ws);
+	if (fields.path) return path.resolve(ws.root, renderTemplate(fields.path, ctx));
+	const base = renderTemplate(ws.pkg.dreamteamer?.repos_path ?? 'projects', ctx);
+	const tail = fields.identity ? path.join(fields.identity, fields.name) : fields.name;
+	return path.resolve(ws.root, base, tail);
+}
+
+/**
+ * dreamteamer repos ensure <id> — materialize ONE declared repo, idempotently.
+ * Cheap as a stat when already present, so callers never branch on presence themselves.
+ */
+export function ensureRepo(ws, id) {
+	const { fields } = new Store(ws).read('repos', id);
+	return materializeRepo(ws, id, fields);
+}
+
+/** dreamteamer repos ensure --all — explicit opt-in (going offline, grepping across all of them). */
+export function ensureAllRepos(ws) {
+	const out = [];
+	for (const { id, fields } of new Store(ws).readAll('repos')) out.push(materializeRepo(ws, id, fields));
+	return out;
+}
+
+/**
+ * Declared repos and whether each is on disk. Presence is OBSERVED, never stored on the record —
+ * with lazy materialization "is it here?" is the first question anyone asks, and a stored answer
+ * would be wrong the moment someone deletes a folder.
+ */
+export function listRepos(ws) {
+	const out = [];
+	for (const { id, fields } of new Store(ws).readAll('repos')) {
+		// A path this machine cannot render is ONE unusable repo, not an unusable listing: `status`
+		// asks this for every record, and a workspace cloned onto a machine that lacks one `.env` key
+		// would otherwise report nothing about any of them. Say which, and why.
+		let dest;
+		try { dest = repoPath(ws, fields); }
+		catch (e) { out.push({ id, path: fields.path ?? fields.name, present: false, unresolved: e.message }); continue; }
+		out.push({ id, path: relPath(ws.root, dest), present: fs.existsSync(dest) });
+	}
+	return out;
+}
+
+function materializeRepo(ws, id, fields) {
+	const dest = repoPath(ws, fields);
+	const ref = fields.ref ?? 'main';
+	const rp = relPath(ws.root, dest);
+	if (fs.existsSync(dest)) {
+		// same contract as install(): warn on drift, never force-sync, never touch a dirty tree
+		const head = tryGit(dest, ['rev-parse', '--abbrev-ref', 'HEAD']);
+		const dirty = tryGit(dest, ['status', '--porcelain']);
+		if (head && head !== ref) {
+			console.warn(`⚠ ${rp}: HEAD is ${head}, record says ${ref} — not touching it${dirty ? ' (dirty)' : ''}`);
+		}
+		return { id, path: rp, present: true, cloned: false, ref: head ?? ref };
+	}
+	fs.mkdirSync(path.dirname(dest), { recursive: true });
+	console.log(`… cloning ${fields.url} → ${rp} (${ref})`);
+	execFileSync('git', ['clone', '--branch', ref, fields.url, dest], { stdio: 'inherit' });
+	// NO buildClone() here, unlike install(): a prototype or app repo is not an npm module and
+	// must never have `npm install` run in it as a side effect of being materialized.
+	return { id, path: rp, present: true, cloned: true, ref };
+}

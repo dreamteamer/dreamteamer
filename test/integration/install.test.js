@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { workspace, git, dt, dtStdin } from '../helpers/ws.js';
-import { observeState } from '../../src/checkout.js';
+import { observeState } from '../../src/checkout.ts';
 
 /** A linked worktree of a fixture workspace. Two things the fixture does NOT do for you and a
  *  worktree exposes: `workspace({pkg})` patches package.json WITHOUT committing it, and a worktree

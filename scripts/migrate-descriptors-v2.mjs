@@ -30,10 +30,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseDocument, isMap, isSeq, isScalar, isPair, Scalar, visit } from 'yaml';
-import { singular } from '../src/namespace.js';
-import { MANIFEST_KEYS } from '../src/extensions.js';
-import { V2_KEYS as V2_ORDER } from '../src/descriptor-v2.js';
 import { execFileSync } from 'node:child_process';
+// Shipped in the npm package (dist/, no src/) and run from a checkout (src/, maybe no dist/) — the
+// rule of bin/dreamteamer.js: the source when it is present.
+const engine = (name) => import(new URL(fs.existsSync(new URL('../src/store.ts', import.meta.url)) ? `../src/${name}.ts` : `../dist/${name}.js`, import.meta.url).href);
+const { singular } = await engine('namespace');
+const { MANIFEST_KEYS } = await engine('extensions');
+const { V2_KEYS: V2_ORDER } = await engine('descriptor-v2');
 
 const STRINGIFY = { lineWidth: 0, flowCollectionPadding: false };
 const FIELD_ORDER = ['type', 'title', 'required', 'many', 'default', 'enum', 'unique', 'mirror_of', 'on_delete', 'soft', 'sensitive', 'body', 'derived', 'virtual', 'deprecated', 'passthrough', 'fields', 'values', 'item_title', 'examples', 'pattern', 'minimum', 'maximum', 'minItems', 'maxItems', 'minLength', 'maxLength', 'const', 'display', 'description'];

@@ -8,8 +8,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { twoModuleWorkspace, readFile, patchModulePkg } from '../helpers/ws.js';
-import { load, dump } from '../../src/yaml.js';
-import { ensureEditorRecommendation, ensureEnvExample, EDITOR_EXTENSION_ID, EDITOR_RECOMMENDATIONS } from '../../src/workspace.js';
+import { load, dump } from '../../src/yaml.ts';
+import { ensureEditorRecommendation, ensureEnvExample, EDITOR_EXTENSION_ID, EDITOR_RECOMMENDATIONS } from '../../src/workspace.ts';
 
 const ID = 'dreamteamer.dreamteamer-vscode';
 const AGENT = 'Anthropic.claude-code';

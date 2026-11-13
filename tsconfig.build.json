@@ -1,0 +1,16 @@
+{
+	// The npm package's dist/: src/*.ts → dist/*.js, one level under the package root like src/, so
+	// every `new URL('../package.json', import.meta.url)` resolves the same from either.
+	"extends": "./tsconfig.json",
+	"compilerOptions": {
+		"noEmit": false,
+		"allowJs": false,
+		"checkJs": false,
+		"rootDir": "src",
+		"outDir": "dist",
+		"declaration": false,
+		"sourceMap": false
+	},
+	"include": ["src/**/*.ts"],
+	"exclude": ["src/**/*.d.ts"]
+}

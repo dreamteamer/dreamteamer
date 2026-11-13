@@ -13,7 +13,7 @@
 import { test, describe } from 'node:test';
 import fs from 'node:fs';
 import assert from 'node:assert/strict';
-import { presentation } from '../../src/presentation.js';
+import { presentation } from '../../src/presentation.ts';
 import { clinic } from '../helpers/clinic-compiled.js';
 
 const CONTRACT = {
@@ -111,13 +111,13 @@ describe('the display contract carries only the §4.3 names', () => {
 
 describe('the template grammar is public', () => {
 	test('api.js exports the one parser, validator and renderer', async () => {
-		const api = await import('../../src/api.js');
-		const template = await import('../../src/template.js');
+		const api = await import('../../src/api.ts');
+		const template = await import('../../src/template.ts');
 		for (const name of ['parseTemplate', 'validateTemplate', 'renderDisplay']) assert.equal(api[name], template[name], name);
 	});
 
 	test('a surface renders the contract\'s record_title and subtitle with it', async () => {
-		const { renderDisplay } = await import('../../src/api.js');
+		const { renderDisplay } = await import('../../src/api.ts');
 		const p = presentation(clinic());
 		const visits = p.collections.find((c) => c.collection === 'health/visits');
 		const record = { id: 'v1', reason: 'Headache', date: '2026-03-04', patient: 'health/patients/dana-oren', kind: 'intake' };

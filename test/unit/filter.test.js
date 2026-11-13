@@ -6,7 +6,7 @@
 // module has, so it is the first thing asserted.
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { matchesFilter, unknownOperators, unknownTokens, tokenValue, VALUE_TOKENS, KNOWN_OPERATORS } from '../../src/filter.js';
+import { matchesFilter, unknownOperators, unknownTokens, tokenValue, VALUE_TOKENS, KNOWN_OPERATORS } from '../../src/filter.ts';
 
 const row = { title: 'Fix login', status: 'todo', tags: ['ui', 'bug'], due: '2026-07-28', assignee: null, count: 3 };
 

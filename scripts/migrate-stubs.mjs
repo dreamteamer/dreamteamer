@@ -14,12 +14,17 @@
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { Store } from '../src/store.js';
-import { parseRecord, idFromRecordPath, walk } from '../src/records.js';
-import { exportsFacts } from '../src/runtime.js';
-import { storageOf, bodyFieldOf, recordTitleOf } from '../src/descriptor.js';
-import { EXPORTS_FILE, readExports, serializeExports, exportsContext, outsideRefs } from '../src/exports.js';
-import { planExports } from '../src/exports-cli.js';
+
+// This script ships in the npm package, which carries dist/ and no src/ — and runs from a checkout,
+// which has src/ and maybe no dist/. Same rule as bin/dreamteamer.js: the source when it is present.
+const SOURCE = fs.existsSync(new URL('../src/store.ts', import.meta.url));
+const engine = (name) => import(new URL(SOURCE ? `../src/${name}.ts` : `../dist/${name}.js`, import.meta.url).href);
+const { Store } = await engine('store');
+const { parseRecord, idFromRecordPath, walk } = await engine('records');
+const { exportsFacts } = await engine('runtime');
+const { storageOf, bodyFieldOf, recordTitleOf } = await engine('descriptor');
+const { EXPORTS_FILE, readExports, serializeExports, exportsContext, outsideRefs } = await engine('exports');
+const { planExports } = await engine('exports-cli');
 
 // `stub: true` in the FRONTMATTER only — a body quoting a stub is a real record
 const isStubText = (text) => /^stub:\s*true\s*$/m.test(/^---\n([\s\S]*?)\n---(?:\n|$)/.exec(text)?.[1] ?? '');

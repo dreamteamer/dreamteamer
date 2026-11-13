@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { mkws, coll, rec, NAME, MANIFEST, manifest, head, dt, git, write, compileQuietly } from './held-out-cr-dt-004-lib.js';
-import { serializeExports } from '../../src/exports.js';
+import { serializeExports } from '../../src/exports.ts';
 
 const COLLS = { people: coll('people', NAME), memos: coll('memos', { ...NAME, about: { type: 'people' } }) };
 const L = (labels = {}) => Object.fromEntries(['ann', 'dan', 'eve', 'zoe'].map((p) => [`data/people/${p}.person.md`, rec({ name: labels[p] ?? p.toUpperCase() })]));

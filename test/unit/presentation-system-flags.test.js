@@ -11,7 +11,7 @@
 // in for the other.
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { presentation } from '../../src/presentation.js';
+import { presentation } from '../../src/presentation.ts';
 import { compiledCollection } from '../helpers/clinic-compiled.js';
 
 const rowFor = (d) => presentation(new Map([[d.name, d]])).collections.find((c) => c.collection === d.name);

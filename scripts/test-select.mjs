@@ -5,7 +5,7 @@
 //
 // WHY A HEURISTIC AND NOT AN IMPORT GRAPH: every tier-2 file drives the real CLI binary, and the CLI
 // imports all of src/ — an import graph would select every file for every change, which is the full
-// run this exists to avoid. So a file is chosen by NAME (src/store.js → relations-store, store-index)
+// run this exists to avoid. So a file is chosen by NAME (src/store.ts → relations-store, store-index)
 // or by MENTION (a test that imports or names the changed file). That is a guess about relevance,
 // which is why this tier is never the gate: `npm run verify` runs everything, once, before a commit.
 import { basename } from 'node:path';

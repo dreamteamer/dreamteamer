@@ -1,9 +1,30 @@
 # dreamteamer — the engine
 
-`dreamteamer`: workspace compiler, CLI, store, schema-ops — and a public API (`src/api.js`,
+`dreamteamer`: workspace compiler, CLI, store, schema-ops — and a public API (`src/api.ts`,
 typed by `src/api.d.ts`) that is the ONLY importable surface. See `README.md` for the contract
 (sources → `.dreamteamer/` → harness adapters; records are files; a write lands on disk and
 `dreamteamer commit` publishes it, one commit per repo; hard validation before disk).
+
+## IMPORTANT — the engine is TypeScript, and a checkout RUNS it unbuilt
+
+`src/*.ts` is the source, and its relative imports name the `.ts` file (`./store.ts`). Two ways it runs:
+
+- **A checkout runs the source directly** — `bin/dreamteamer.js` imports `src/cli.ts` and Node strips
+  the types (22.18+). This is what keeps a `git_modules/dreamteamer` dev clone working: it is a git
+  clone with no build, and a gitignored `dist/` would have been absent in a fresh clone and silently
+  STALE in an old one. Source wins whenever `src/` exists, so a `dist/` left by `npm pack` is never run.
+- **The npm package is `dist/`** — `npm run build` (run by `prepack`) emits it with tsc, rewriting
+  `.ts` imports to `.js`. Node refuses to strip types under `node_modules`, so `src/` is not published.
+  `dist/` sits one level under the root like `src/`, so `new URL('../package.json', import.meta.url)`
+  means the same from both. `engines` stays `>=20` because it describes `dist/`; CI proves 20 against
+  the packed tarball, and the suite on 22/24.
+
+So only ERASABLE syntax (`erasableSyntaxOnly`): no `enum`, no `namespace`, no constructor parameter
+properties; type-only imports are `import type`. `npm run typecheck` is part of `verify`. The
+declarations stay the hand-written contract (`src/api.d.ts`, `src/records-api.d.ts`, copied into
+`dist/` by the build) — generated ones would only restate what the code happens to infer.
+`bin/dreamteamer.js` stays JavaScript (type-checked via `checkJs`): it is what npm links and what the
+dev-clone probe looks for, and it runs before it knows which engine to load.
 
 ## IMPORTANT — core is records + the compiler; everything else is an EXTENSION
 
@@ -373,17 +394,17 @@ When you add an engine capability, the CLI verb is part of the change, not a fol
 add an extension gesture, the verb must already exist. A route in the HTTP extension or the editor's
 `api.ts` with no CLI equivalent is a gap — re-derive this table rather than trusting it.
 
-## ⚠ The PUBLIC API is the cross-repo contract — `src/api.js`
+## ⚠ The PUBLIC API is the cross-repo contract — `src/api.ts`
 
 Until 0.31.0 the editor imported fifteen internal files by path in a non-tolerant `Promise.all`, so
 deleting or renaming ANY `src/` file threw out of `activate()` before the tree view existed (the
 2026-07-31 `sync.js` incident, whose symptom named the one thing that was fine). Now every consumer —
-the editor, the mobile app, every extension — reaches the engine through `src/api.js` only, and
-package `exports` makes `src/*` unimportable. So:
+the editor, the mobile app, every extension — reaches the engine through `src/api.ts` (published as `dist/api.js`) only, and
+package `exports` makes `dist/*` unimportable. So:
 
-- **A file under `src/` may be split, renamed or deleted freely** as long as `src/api.js` still
+- **A file under `src/` may be split, renamed or deleted freely** as long as `src/api.ts` still
   exports the same names.
-- **Removing or renaming an export of `src/api.js` IS the cross-repo change**, and needs the same
+- **Removing or renaming an export of `src/api.ts` IS the cross-repo change**, and needs the same
   wave in every consumer. `test/integration/public-api.test.js` pins the runtime export list to
-  `src/api.d.ts`, and installs the packed tarball to prove the API resolves and `src/*` does not.
+  `src/api.d.ts`, and installs the packed tarball to prove the API resolves and `dist/*` does not.
 - An addition to the API needs a consumer, like anything else in core.

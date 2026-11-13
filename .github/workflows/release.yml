@@ -125,6 +125,9 @@ jobs:
       - name: size budgets
         run: npm run metrics:check
 
+      - name: types
+        run: npm run typecheck
+
       # A release must not be able to ship what CI would have rejected.
       - name: tests
         run: npm test

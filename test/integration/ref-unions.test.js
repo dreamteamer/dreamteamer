@@ -7,8 +7,8 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { workspace, simpleCollection, compileError, readFile } from '../helpers/ws.js';
-import { presentation } from '../../src/presentation.js';
-import { renderDisplay } from '../../src/template.js';
+import { presentation } from '../../src/presentation.ts';
+import { renderDisplay } from '../../src/template.ts';
 
 /** A collection with `name`, the given fields, and a body. */
 const coll = (suffix, fields = {}, extra = {}) => simpleCollection({

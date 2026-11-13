@@ -15,8 +15,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { workspace, git, dt, simpleCollection } from '../helpers/ws.js';
-import { declaredGitModules, layerEntries } from '../../src/workspace.js';
-import { observeState } from '../../src/checkout.js';
+import { declaredGitModules, layerEntries } from '../../src/workspace.ts';
+import { observeState } from '../../src/checkout.ts';
 
 const ORG_PKG = '@northwind/org', PEOPLE_PKG = 'people';
 const manifest = (from, ids = { notes: ['2026-01-01--welcome'] }) => JSON.stringify({ dreamteamer_exports: 1, references: Object.fromEntries(Object.entries(ids).map(([c, list]) => [c, Object.fromEntries(list.map((id) => [id, { label: id, from }]))])) }, null, '\t') + '\n';

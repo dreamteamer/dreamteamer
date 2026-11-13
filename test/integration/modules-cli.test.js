@@ -13,7 +13,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { twoModuleWorkspace, readFile } from '../helpers/ws.js';
-import { load, dump } from '../../src/yaml.js';
+import { load, dump } from '../../src/yaml.ts';
 
 const modulePkg = (ws, id) => JSON.parse(readFile(ws.root, `modules/${id}/package.json`));
 

@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseDocument } from 'yaml';
-import { singular, inflects } from '../../src/namespace.js';
+import { singular, inflects } from '../../src/namespace.ts';
 import { convertCollection } from '../../scripts/migrate-descriptors-v2.mjs';
 
 test('plurals inflect; non-plurals and invariants come back unchanged', () => {

@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { workspace, readFile, compileQuietly, compileError } from '../helpers/ws.js';
-import { staleness } from '../../src/compile.js';
+import { staleness } from '../../src/compile.ts';
 
 const RULES = '## house rules\n\n1. Never `git add -A`.\n2. Quote a result from the running system.\n';
 

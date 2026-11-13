@@ -7,7 +7,7 @@
 // so it gets a test that fails loudly.
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseTemporal, normalizeTemporal, normalizeRecord, compareValues, sortRows } from '../../src/temporal.js';
+import { parseTemporal, normalizeTemporal, normalizeRecord, compareValues, sortRows } from '../../src/temporal.ts';
 
 describe('normalizeTemporal', () => {
 	test('a human date-time gets the local offset stamped on, not folded to Z', () => {

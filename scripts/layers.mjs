@@ -46,35 +46,35 @@ const ALLOWED = {
 const layerOf = new Map();
 for (const [layer, mods] of Object.entries(LAYERS)) for (const m of mods) layerOf.set(m, layer);
 
-const files = readdirSync(SRC).filter((f) => f.endsWith('.js')).sort();
+const files = readdirSync(SRC).filter((f) => f.endsWith('.ts') && !f.endsWith('.d.ts')).sort();
 const problems = [];
 
 for (const f of files) {
-	const mod = basename(f, '.js');
+	const mod = basename(f, '.ts');
 	const layer = layerOf.get(mod);
 	if (!layer) {
 		problems.push(`src/${f} is not assigned to a layer — add it to LAYERS in ${basename(fileURLToPath(import.meta.url))} and say which half it belongs to`);
 		continue;
 	}
 	const body = readFileSync(join(SRC, f), 'utf8');
-	// static `import … from './x.js'` / `export … from './x.js'`, AND a dynamic `import('./x.js')` with a
+	// static `import … from './x.ts'` / `export … from './x.ts'`, AND a dynamic `import('./x.ts')` with a
 	// literal path — a lazy import is still an edge, and a scanner that skipped them passed a layering
 	// the code did not have. (An extension's entry is imported by a COMPUTED path, which names no file
 	// under src/ and so is not an edge this graph can have.)
-	for (const m of body.matchAll(/(?:(?:^|\n)\s*(?:import|export)[\s\S]*?from\s+|import\(\s*)'\.\/([\w.-]+)\.js'/g)) {
+	for (const m of body.matchAll(/(?:(?:^|\n)\s*(?:import|export)[\s\S]*?from\s+|import\(\s*)'\.\/([\w.-]+)\.ts'/g)) {
 		const target = m[1];
 		const targetLayer = layerOf.get(target);
 		if (!targetLayer) continue; // the missing-assignment failure is already reported on that file
 		if (!ALLOWED[layer].has(targetLayer)) {
-			problems.push(`src/${f} (${layer}) imports src/${target}.js (${targetLayer}) — ${layer} may only import ${[...ALLOWED[layer]].join(', ')}`);
+			problems.push(`src/${f} (${layer}) imports src/${target}.ts (${targetLayer}) — ${layer} may only import ${[...ALLOWED[layer]].join(', ')}`);
 		}
 	}
 }
 
 for (const [layer, mods] of Object.entries(LAYERS)) {
-	const missing = mods.filter((m) => !files.includes(`${m}.js`));
-	if (missing.length) problems.push(`LAYERS.${layer} names ${missing.map((m) => `${m}.js`).join(', ')}, which no longer exist under src/ — drop them`);
-	console.log(`${layer.padEnd(9)} ${mods.filter((m) => files.includes(`${m}.js`)).sort().join(' ')}`);
+	const missing = mods.filter((m) => !files.includes(`${m}.ts`));
+	if (missing.length) problems.push(`LAYERS.${layer} names ${missing.map((m) => `${m}.ts`).join(', ')}, which no longer exist under src/ — drop them`);
+	console.log(`${layer.padEnd(9)} ${mods.filter((m) => files.includes(`${m}.ts`)).sort().join(' ')}`);
 }
 
 if (problems.length) {

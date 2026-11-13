@@ -7,8 +7,8 @@ import assert from 'node:assert';
 import fs from 'node:fs';
 import path from 'node:path';
 import { workspace, compileQuietly, compileError, simpleCollection, writeModule } from '../helpers/ws.js';
-import { discoverModules } from '../../src/compile.js';
-import { dump } from '../../src/yaml.js';
+import { discoverModules } from '../../src/compile.ts';
+import { dump } from '../../src/yaml.ts';
 
 /** A bundle at `dir`: a root package.json carrying the `dreamteamer` marker and `modules/<m>/` each
  *  shipping one collection named after the module. */

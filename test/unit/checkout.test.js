@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { describeCheckout, defaultGit, planInstall, readHookInput, readStdin, resolveNpm, applyInstall } from '../../src/checkout.js';
+import { describeCheckout, defaultGit, planInstall, readHookInput, readStdin, resolveNpm, applyInstall } from '../../src/checkout.ts';
 
 const fakeGit = (answers) => (args) => answers[args.join(' ')] ?? '';
 

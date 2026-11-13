@@ -1,11 +1,11 @@
-// Tier 1 — the descriptor v2 field vocabulary (src/fields.js).
+// Tier 1 — the descriptor v2 field vocabulary (src/fields.ts).
 //
 // The load-bearing property is the last describe: the validator's schema carries exactly the stored
 // fields, type-mapped, and nothing else. If the two ever disagree, a record the surfaces accept is one
 // the store refuses (or the reverse), which is the defect this split exists to make impossible.
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { resolveFields, toJsonSchema, enumValues, enumChoices, referenceTargets, INJECTED_FIELDS, SCALAR_TYPES } from '../../src/fields.js';
+import { resolveFields, toJsonSchema, enumValues, enumChoices, referenceTargets, INJECTED_FIELDS, SCALAR_TYPES } from '../../src/fields.ts';
 
 const collections = new Set(['health/patients', 'health/doctors', 'health/prescriptions', 'health/referrals', 'health/lab-orders']);
 const resolve = (fields) => resolveFields(fields, { name: 'health/visits', collections });

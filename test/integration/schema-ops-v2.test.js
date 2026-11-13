@@ -11,7 +11,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { workspace, writeCollection, writeModule, compileQuietly, dt, git, readFile, WS_MODULE } from '../helpers/ws.js';
-import { load, dump, commentCount } from '../../src/yaml.js';
+import { load, dump, commentCount } from '../../src/yaml.ts';
 
 const MOD = `modules/${WS_MODULE}`;
 const VISITS_FILE = `${MOD}/collections/health/visits.collection.yaml`;

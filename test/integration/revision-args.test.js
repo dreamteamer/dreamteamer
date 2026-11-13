@@ -10,8 +10,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { workspace, simpleCollection, readFile, ENGINE_ROOT } from '../helpers/ws.js';
-import { historyDiff } from '../../src/history.js';
-import { deriveEvents } from '../../src/events.js';
+import { historyDiff } from '../../src/history.ts';
+import { deriveEvents } from '../../src/events.ts';
 
 const TASKS = simpleCollection({ storage: { suffix: 'task' } });
 const NOT_A_COMMIT = /is not a commit id/;
@@ -110,11 +110,11 @@ describe('a revision handed to git is a commit id or HEAD', () => {
 	test('sec01-eng-t5: each git argv that carries a caller revision puts --end-of-options before it', () => {
 		const src = (f) => fs.readFileSync(path.join(ENGINE_ROOT, 'src', f), 'utf8');
 		const argvs = [
-			['history.js', /\['diff', '--end-of-options', `\$\{hash\}~1`, hash, '--'/],
-			['store.js', /\['show', '--end-of-options', `\$\{hash\}:\$\{relPath\}`\]/],
-			['store.js', /\['ls-tree', '-r', '--name-only', '--end-of-options', hash, '--'/],
-			['events.js', /\['show', '-s', '--format=%cI', '--end-of-options', from\]/],
-			['events.js', /\['diff', '--name-status', '-z', '--end-of-options', `\$\{fromSha\}\.\.\$\{to\}`, '--'/],
+			['history.ts', /\['diff', '--end-of-options', `\$\{hash\}~1`, hash, '--'/],
+			['store.ts', /\['show', '--end-of-options', `\$\{hash\}:\$\{relPath\}`\]/],
+			['store.ts', /\['ls-tree', '-r', '--name-only', '--end-of-options', hash, '--'/],
+			['events.ts', /\['show', '-s', '--format=%cI', '--end-of-options', from\]/],
+			['events.ts', /\['diff', '--name-status', '-z', '--end-of-options', `\$\{fromSha\}\.\.\$\{to\}`, '--'/],
 		];
 		for (const [file, re] of argvs) assert.match(src(file), re, `${file}: ${re}`);
 	});

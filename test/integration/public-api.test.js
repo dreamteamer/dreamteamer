@@ -1,6 +1,6 @@
 // The PUBLIC API is a contract with other repos, so it is pinned three ways: the runtime export list
 // equals the typed declaration, importing it has no side effect, and an INSTALLED copy exposes it
-// while hiding `src/*` — a source-tree import passing proves nothing about what npm ships.
+// while hiding `dist/*` — a source-tree import passing proves nothing about what npm ships.
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -9,7 +9,7 @@ import path from 'node:path';
 import { spawnSync, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { workspace, git, ENGINE_ROOT } from '../helpers/ws.js';
-import { resolveNpm, childEnv } from '../../src/checkout.js';
+import { resolveNpm, childEnv } from '../../src/checkout.ts';
 
 const dts = (f) => fs.readFileSync(path.join(ENGINE_ROOT, 'src', f), 'utf8');
 
@@ -44,7 +44,7 @@ function closure(entry) {
 
 describe('dreamteamer (the public API)', () => {
 	test('the runtime exports are exactly the declared ones — for both entries', async () => {
-		for (const [mod, file, floor] of [['../../src/api.js', 'api.d.ts', 60], ['../../src/records-api.js', 'records-api.d.ts', 30]]) {
+		for (const [mod, file, floor] of [['../../src/api.ts', 'api.d.ts', 60], ['../../src/records-api.ts', 'records-api.d.ts', 30]]) {
 			const runtime = new Set(Object.keys(await import(mod)));
 			const types = declared(file);
 			assert.ok(types.size > floor, `the declaration parse found only ${types.size} names — the pattern no longer matches ${file}`);
@@ -57,7 +57,7 @@ describe('dreamteamer (the public API)', () => {
 	// while the runtime value is a Set, so strict TypeScript accepted `.includes('_eq')` and it threw
 	// at run time (review F8). Every declared value is checked against the kind its type names.
 	test('every declared export has the runtime SHAPE its type says', async () => {
-		for (const [mod, file] of [['../../src/api.js', 'api.d.ts'], ['../../src/records-api.js', 'records-api.d.ts']]) {
+		for (const [mod, file] of [['../../src/api.ts', 'api.d.ts'], ['../../src/records-api.ts', 'records-api.d.ts']]) {
 			const api = await import(mod);
 			const text = dts(file);
 			for (const m of text.matchAll(/^export (?:declare )?(?:function|class) ([A-Za-z_$][\w$]*)/gm)) {
@@ -79,7 +79,7 @@ describe('dreamteamer (the public API)', () => {
 				}
 			}
 		}
-		const { KNOWN_OPERATORS } = await import('../../src/records-api.js');
+		const { KNOWN_OPERATORS } = await import('../../src/records-api.ts');
 		assert.equal(KNOWN_OPERATORS.has('_eq'), true);
 	});
 
@@ -88,9 +88,9 @@ describe('dreamteamer (the public API)', () => {
 	// loader or the CLI would pull `node:url`/`node:crypto`/`node:os` in at import time and the app
 	// would die on load — the one failure its own tests cannot see until a bundle is built.
 	test('dreamteamer/records reaches only the record half and three node builtins', () => {
-		const { files, bare } = closure('records-api.js');
-		for (const f of ['compile.js', 'cli.js', 'extensions.js', 'checkout.js', 'init.js', 'harnesses.js', 'schema-ops.js', 'api.js', 'env-vars.js']) {
-			assert.ok(!files.has(f), `records-api.js reaches ${f}`);
+		const { files, bare } = closure('records-api.ts');
+		for (const f of ['compile.ts', 'cli.ts', 'extensions.ts', 'checkout.ts', 'init.ts', 'harnesses.ts', 'schema-ops.ts', 'api.ts', 'env-vars.ts']) {
+			assert.ok(!files.has(f), `records-api.ts reaches ${f}`);
 		}
 		const builtins = [...bare].filter((b) => b.startsWith('node:')).sort();
 		assert.deepEqual(builtins, ['node:child_process', 'node:fs', 'node:path']);
@@ -98,7 +98,7 @@ describe('dreamteamer (the public API)', () => {
 
 	test('importing it prints nothing, writes nothing, and binds nothing', () => {
 		const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'dt-api-'));
-		const url = new URL('../../src/api.js', import.meta.url).href;
+		const url = new URL('../../src/api.ts', import.meta.url).href;
 		const r = spawnSync(process.execPath, ['--input-type=module', '-e', `await import(${JSON.stringify(url)}); console.log('HANDLES', process._getActiveHandles().length)`], { cwd, encoding: 'utf8', timeout: 30_000 });
 		assert.equal(r.status, 0, r.stderr);
 		assert.equal(r.stderr, '');
@@ -107,7 +107,7 @@ describe('dreamteamer (the public API)', () => {
 	});
 
 	test('openWorkspace returns the handle with its (empty) extensions, and changes no cwd', async () => {
-		const { openWorkspace } = await import('../../src/api.js');
+		const { openWorkspace } = await import('../../src/api.ts');
 		const ws = workspace();
 		const before = process.cwd();
 		const handle = await openWorkspace(ws.root);
@@ -118,7 +118,7 @@ describe('dreamteamer (the public API)', () => {
 });
 
 describe('the INSTALLED package', () => {
-	test('`import "dreamteamer"` resolves to the API, and `dreamteamer/src/*` is not reachable', () => {
+	test('`import "dreamteamer"` resolves to the API, and `dreamteamer/dist/*` is not reachable', () => {
 		const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dt-pack-'));
 		// pack exactly what `files` publishes, then install that tarball — never the source tree
 		// npm resolved the way `dt install` resolves it — beside the running node first, PATH second — and
@@ -139,14 +139,21 @@ describe('the INSTALLED package', () => {
 		assert.equal(pub.stdout.trim(), '1 function function', pub.stderr);
 		const rec = spawnSync(process.execPath, ['-e', "import('dreamteamer/records').then((m) => console.log(m.apiVersion, typeof m.Store, typeof m.openWorkspace))"], { cwd: dir, encoding: 'utf8', timeout: 30_000 });
 		assert.equal(rec.stdout.trim(), '1 function undefined', rec.stderr);
-		const deep = spawnSync(process.execPath, ['-e', "import('dreamteamer/src/store.js').then(() => console.log('REACHED'), (e) => console.log(e.code))"], { cwd: dir, encoding: 'utf8', timeout: 30_000 });
+		const deep = spawnSync(process.execPath, ['-e', "import('dreamteamer/dist/store.js').then(() => console.log('REACHED'), (e) => console.log(e.code))"], { cwd: dir, encoding: 'utf8', timeout: 30_000 });
 		assert.equal(deep.stdout.trim(), 'ERR_PACKAGE_PATH_NOT_EXPORTED');
 		// and the extracted tools are NOT in the tarball
 		const listing = execFileSync('tar', ['-tzf', path.join(dir, tgz)], { encoding: 'utf8' });
-		for (const gone of ['src/server.js', 'src/prove.js', 'src/land.js', 'src/containers.js', 'src/container-archive.js', 'src/export-notebooklm.js']) {
+		for (const gone of ['dist/server.js', 'dist/prove.js', 'dist/land.js', 'dist/containers.js', 'dist/container-archive.js', 'dist/export-notebooklm.js']) {
 			assert.ok(!listing.includes(`package/${gone}`), `${gone} is still published`);
 		}
-		assert.ok(listing.includes('package/src/api.d.ts') && listing.includes('package/src/records-api.d.ts'), 'the type declarations are not published');
+		assert.ok(listing.includes('package/dist/api.d.ts') && listing.includes('package/dist/records-api.d.ts'), 'the type declarations are not published');
+		// the npm package is the BUILD: no TypeScript source (Node refuses to strip types under
+		// node_modules), and every relative import rewritten to the .js file that sits beside it
+		assert.ok(!/package\/src\//.test(listing), 'src/ is published — the package must run from dist/');
+		const built = fs.readFileSync(path.join(dir, 'node_modules', 'dreamteamer', 'dist', 'api.js'), 'utf8');
+		assert.ok(!/from '\.\/[\w-]+\.ts'/.test(built), 'dist/api.js still imports a .ts file');
+		const cli = spawnSync(process.execPath, [path.join(dir, 'node_modules', 'dreamteamer', 'bin', 'dreamteamer.js'), '--version'], { cwd: dir, encoding: 'utf8', timeout: 30_000 });
+		assert.equal(cli.status, 0, cli.stderr);
 	});
 });
 
@@ -172,7 +179,7 @@ describe('dt init commits only what it wrote', () => {
 });
 
 test('Store.external is implemented and typed (cr-dt-004)', async () => {
-	const { Store } = await import('../../src/records-api.js');
+	const { Store } = await import('../../src/records-api.ts');
 	assert.equal(typeof Store.prototype.external, 'function');
 	const dts = fs.readFileSync(new URL('../../src/records-api.d.ts', import.meta.url), 'utf8');
 	assert.match(dts, /\texternal\(collection: string, id: string, opts\?: \{ referrer\?: string \}\): \{ label: string; from\?: string; manifest: string \} \| null;/);

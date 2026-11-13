@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { workspace, twoModuleWorkspace, simpleCollection, tree, readFile, git, ENGINE_ROOT, SPAWN_TIMEOUT_MS } from '../helpers/ws.js';
-import { Store } from '../../src/store.js';
+import { Store } from '../../src/store.ts';
 
 const TASKS = {
 	ids: { from: '{{ title | slug }}', pattern: '^[a-z0-9-]+$' },

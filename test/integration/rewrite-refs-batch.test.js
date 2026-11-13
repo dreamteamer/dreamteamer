@@ -12,8 +12,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { workspace, simpleCollection, readFile, tree } from '../helpers/ws.js';
-import { renameCollection } from '../../src/schema-ops.js';
-import { load } from '../../src/yaml.js';
+import { renameCollection } from '../../src/schema-ops.ts';
+import { load } from '../../src/yaml.ts';
 
 const bodied = (fields) => simpleCollection({
 	fields: { name: { type: 'string', required: true }, ...fields, notes: { type: 'markdown', body: true } },

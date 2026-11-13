@@ -6,7 +6,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { MANIFEST_KEYS } from '../../src/extensions.js';
+import { MANIFEST_KEYS } from '../../src/extensions.ts';
 
 const text = fs.readFileSync(fileURLToPath(new URL('../../skills/using-dreamteamer/references/collections.md', import.meta.url)), 'utf8');
 

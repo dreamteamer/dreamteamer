@@ -35,6 +35,9 @@ const NOT_FOUND = '✖ dreamteamer hook: node not found — set DREAMTEAMER_NODE
 // is machine-dependent — and asserting the failure unconditionally would be a test that passes for
 // the wrong reason on a Homebrew box. Read them, then assert whichever outcome is correct.
 const ABSOLUTE_FALLBACKS = ['/opt/homebrew/bin/node', '/usr/local/bin/node'].filter((p) => fs.existsSync(p));
+// This checkout runs src/*.ts unbuilt, so a fallback node too old to strip types is RESOLVED correctly
+// and then refused by bin/dreamteamer.js with its own line — still proof the shim found that node.
+const FALLBACK_STRIPS = ABSOLUTE_FALLBACKS.length > 0 && spawnSync(ABSOLUTE_FALLBACKS[0], ['-p', '!!process.features.typescript'], { encoding: 'utf8' }).stdout.trim() === 'true';
 // A node on the bare PATH this file grants would win at `command -v`, before either later step is
 // reached — so the steps below it cannot be observed on such a machine.
 const ON_BARE_PATH = fs.existsSync('/usr/bin/node') || fs.existsSync('/bin/node');
@@ -101,6 +104,11 @@ describe('bin/dt-hook.sh resolves node where a hook has no PATH', () => {
 		if (ABSOLUTE_FALLBACKS.length) {
 			// This machine HAS node at an absolute fallback, so resolving is the correct answer and
 			// the failure line is unreachable here. The literal is still pinned below.
+			if (!FALLBACK_STRIPS) {
+				assert.equal(r.code, 1);
+				assert.match(r.stderr, /is a source checkout .* needs Node 22\.18 or newer/);
+				return;
+			}
 			assert.equal(r.code, 0, r.stderr);
 			assert.equal(r.stdout.trim(), `dreamteamer@${VERSION}`);
 			return;

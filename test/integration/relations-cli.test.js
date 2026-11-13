@@ -14,7 +14,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { workspace, simpleCollection, readFile, writeCollection, compileQuietly, dt as runDt, WS_MODULE } from '../helpers/ws.js';
-import { load } from '../../src/yaml.js';
+import { load } from '../../src/yaml.ts';
 
 // The same four-collection cast as relations-store.test.js — one anchor plus the three
 // cardinalities: many-to-one (recordings), one-to-one (summaries, via unique) and many-to-many

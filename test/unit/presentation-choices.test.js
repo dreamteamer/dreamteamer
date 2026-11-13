@@ -11,7 +11,7 @@
 // `viewer_options.choices`), beside any authored `display.options`.
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { presentation } from '../../src/presentation.js';
+import { presentation } from '../../src/presentation.ts';
 import { compiledCollection } from '../helpers/clinic-compiled.js';
 
 /** One collection whose `lane` field carries `field` — compiled v2 shape. */

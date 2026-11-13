@@ -9,7 +9,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { workspace, writeCollection, ENGINE_ROOT, WS_MODULE } from '../helpers/ws.js';
-import { load } from '../../src/yaml.js';
+import { load } from '../../src/yaml.ts';
 
 const run = (cwd, args) => spawnSync(process.execPath, args, { cwd, encoding: 'utf8', timeout: 60_000 });
 

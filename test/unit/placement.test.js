@@ -4,9 +4,9 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { subpathProblem, placedRoot, placementOfFile, placedChildAt, ownerIdOf } from '../../src/placement.js';
-import { pathToRecord } from '../../src/events.js';
-import { parseRef } from '../../src/namespace.js';
+import { subpathProblem, placedRoot, placementOfFile, placedChildAt, ownerIdOf } from '../../src/placement.ts';
+import { pathToRecord } from '../../src/events.ts';
+import { parseRef } from '../../src/namespace.ts';
 
 // the RESOLVED placement (`storageOf(d).under`): the authored parent field and subfolder, plus the
 // parent collection compile records in `compiled.under_collection`

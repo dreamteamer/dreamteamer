@@ -76,8 +76,24 @@ if (devBin && realpath(devBin) !== realpath(self)) {
 	console.error(`… running the git_modules/dreamteamer dev clone (shadows the installed engine)`);
 	await import(pathToFileURL(devBin).href);
 } else {
-	const { run } = await import('../src/cli.js');
+	const { run } = await import(engineEntry('cli'));
 	run(process.argv.slice(2));
+}
+
+/** Which build of this engine runs: the SOURCE when this is a checkout (src/ is never published), the
+ *  compiled dist/ when it is the npm package. Source wins whenever it is present — a dist/ left behind
+ *  by `npm pack` in a checkout is a stale build, and running it would ignore every edit since, silently.
+ *  A git_modules/dreamteamer dev clone is a checkout with no dist/ at all, which is why the source has
+ *  to be runnable as-is: Node strips the types (22.18+), nothing is built. */
+function engineEntry(name) {
+	const src = new URL(`../src/${name}.ts`, import.meta.url);
+	if (!fs.existsSync(src)) return new URL(`../dist/${name}.js`, import.meta.url).href;
+	// @ts-ignore — process.features.typescript is newer than the @types/node floor
+	if (!process.features.typescript) {
+		console.error(`✖ this dreamteamer is a source checkout (${fileURLToPath(new URL('..', import.meta.url))}) and runs its TypeScript directly, which needs Node 22.18 or newer (this is ${process.version})`);
+		process.exit(1);
+	}
+	return src.href;
 }
 
 /** Canonical on-disk identity of a path — symlinks followed, falling back to the literal path. */
@@ -89,7 +105,7 @@ function realpath(p) {
 	}
 }
 
-// same workspace rule as src/workspace.js (nearest package.json with a `dreamteamer` key, climbing
+// same workspace rule as src/workspace.ts (nearest package.json with a `dreamteamer` key, climbing
 // out only of module nesting), duplicated here because the dev clone must be found BEFORE choosing
 // which src/ to load. Keep the two in step — they must never disagree about which workspace this is.
 function findWorkspaceRoot(start) {
@@ -123,7 +139,7 @@ function isWorkspaceDir(dir) {
 }
 
 /** The git_modules entries a workspace declares, name -> 'layer' | 'bundle' — the rule of
- *  src/workspace.js layerEntries, restated because this file runs before any src/ is chosen: `records`
+ *  src/workspace.ts layerEntries, restated because this file runs before any src/ is chosen: `records`
  *  or `module: true` declares a layer, a clone on disk is a layer when its manifest names
  *  `workspace_module`, and one not on disk is a layer not installed. */
 function declaredLayers(root) {

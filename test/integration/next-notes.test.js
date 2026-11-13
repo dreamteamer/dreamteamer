@@ -10,8 +10,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { workspace, simpleCollection, dt, compileQuietly, WS_MODULE } from '../helpers/ws.js';
-import { Store } from '../../src/store.js';
-import { openWorkspace, contributedNotes } from '../../src/api.js';
+import { Store } from '../../src/store.ts';
+import { openWorkspace, contributedNotes } from '../../src/api.ts';
 
 /** A workspace module carrying an extension whose `next` is `body` (a function expression's text). */
 function withNoter(body) {
