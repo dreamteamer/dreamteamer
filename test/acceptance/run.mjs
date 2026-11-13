@@ -342,7 +342,8 @@ else scenario('A14', 'dt doctor refuses a world-readable OAuth client file as dt
 	const s = dt(root, ['status'], env);
 	ok(/⚠ .*readable by other users — chmod 600/.test(d.stdout), `doctor names the refusal with the fix: ${d.stdout}`);
 	ok(!/✔ Credential placement/.test(d.stdout), 'doctor no longer reads Credential placement ✔ on a 644 client file');
-	ok(/google-workspace\s+(configured|blocked)/.test(s.stdout) || /readable by other users/.test(dt(root, ['status', '--json'], env).stdout), 'status refuses it too');
+	ok(s.code === 0, `status exit ${s.code}`);
+	ok(/readable by other users — chmod 600/.test(dt(root, ['status', '--json'], env).stdout), 'status names the same refusal');
 	fs.chmodSync(client, 0o600);
 	const d2 = dt(root, ['doctor'], env);
 	ok(!/readable by other users/.test(d2.stdout), `owner-only: no refusal row: ${d2.stdout}`);
