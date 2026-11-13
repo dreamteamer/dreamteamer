@@ -10,6 +10,7 @@
 //   PROBE_NOAPPLY=1     the unit is declared without apply (read at load)
 //   PROBE_EXTRA=1       plan() adds a non-env action `extra` (fails by name on an apply-less unit)
 //   PROBE_CTX_LOG=<f>   inspect() appends `<verb>=<typeof ctx.dt>` to the file, for the ctx table
+//   PROBE_NOTE=1        make-home carries a reason, which the engine prints after the write
 // Since 0.48.0 make-home is an ENV ACTION: the unit names the keys and values, the engine writes .env.
 import fs from 'node:fs';
 import os from 'node:os';
@@ -55,7 +56,7 @@ function plan(ctx, inputs = {}) {
 	const needs = inputs.label === undefined ? ['label'] : [];
 	const actions = [
 		// the env action: keys and values; state, done-ness, consent and the write are the engine's
-		{ id: 'make-home', title: 'write PROBE_HOME and PROBE_LABEL into .env', env: { PROBE_HOME: inputs.home ?? ctx.env?.PROBE_HOME ?? '~/.cache/probe', PROBE_LABEL: inputs.label }, state: needs.length ? 'needs-input' : 'ready' },
+		{ id: 'make-home', title: 'write PROBE_HOME and PROBE_LABEL into .env', env: { PROBE_HOME: inputs.home ?? ctx.env?.PROBE_HOME ?? '~/.cache/probe', PROBE_LABEL: inputs.label }, state: needs.length ? 'needs-input' : 'ready', ...(ctx.env?.PROBE_NOTE ? { reason: 'row input 2 skipped: not a row' } : {}) },
 		...(ctx.env?.PROBE_EXTRA ? [{ id: 'extra', title: 'an action with no env', effects: [{ kind: 'workspace-files', detail: 'nothing' }], runBy: 'engine', state: 'ready' }] : []),
 		{ id: 'fetch', title: 'download the weights', effects: [{ kind: 'download', detail: `${home}/weights.txt (synthetic, 12 bytes)` }], runBy: 'engine', ...(ctx.env?.PROBE_BLOCK ? { state: 'blocked', reason: 'the weights server is down (simulated)' } : { state: status['probe.weights'] === 'configured' ? 'done' : 'ready' }) },
 		{ id: 'tune', title: 'tune the machine', effects: [{ kind: 'machine', detail: `${home}/tuned` }], runBy: 'engine', state: status['probe.tuned'] === 'configured' ? 'done' : 'ready' },

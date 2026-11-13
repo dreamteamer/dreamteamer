@@ -51,6 +51,13 @@ describe('an env action, performed by the engine', () => {
 		assert.match(s.stdout, /dt setup probe --input label=<label>/);
 	});
 
+	test('a ready env action\'s reason is printed after the write — the unit says what it left out', () => {
+		const ws = probed();
+		const r = run(ws.root, ['setup', 'probe', '--input', 'label=demo'], { PROBE_NOTE: '1' });
+		assert.equal(r.code, 0, r.stderr + r.stdout);
+		assert.match(r.stdout, /✔ make-home — wrote \.env \(PROBE_HOME, PROBE_LABEL\) — row input 2 skipped: not a row/);
+	});
+
 	test('git would commit .env: blocked at plan time, exit 0, nothing written', () => {
 		const ws = probed();
 		fs.writeFileSync(path.join(ws.root, '.gitignore'), readFile(ws.root, '.gitignore').replace(/^\.env\n/m, ''));

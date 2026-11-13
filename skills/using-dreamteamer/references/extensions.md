@@ -68,7 +68,8 @@ Since 0.48.0:
   `needs-input` for an `undefined` value, `blocked` (nothing written, exit 0) for an undeclared key, a non-string value, a
   key assigned twice, a value holding `"`, `$`, a backtick or a carriage return (or a backslash that would need quoting —
   a Windows path is written unquoted), a `.env` that starts with a byte-order mark, a leftover temp file or a `.env` git
-  would commit; at write time a `.env` that changed after the plan is a failure (exit 1). `.env` is the only file the engine
+  would commit; at write time a `.env` that changed after the plan is a failure (exit 1). A ready env action's `reason`
+  is the unit's note on what it wrote or left out, printed after the write (redacted). `.env` is the only file the engine
   writes for a unit; anything else is an `apply` action with its effects.
 - **`apply` is optional** — a non-env action from a unit without one fails by name. **`inspect` must be synchronous** — an
   `async` one is refused at load, and a plain one that returns a Promise reads `blocked` naming the fix (`dt status`

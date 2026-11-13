@@ -290,7 +290,9 @@ export async function runUnit(ws, unit, { inputs = {}, allow = new Set(), tty = 
 			try {
 				const { text, changed } = setEnvValues(envText(), next.env);
 				writeEnvAtomic(ws.root, text, next.expect);
-				applied.push({ id: next.id, changed: ['.env'], message: `wrote .env (${changed.join(', ')})` });
+				// a ready env action's reason is the unit's note on what it wrote or left out (a malformed row it
+				// skipped); printed after the write, redacted like every reason (D67)
+				applied.push({ id: next.id, changed: ['.env'], message: `wrote .env (${changed.join(', ')})${next.reason ? ` — ${redact(next.reason)}` : ''}` });
 				ctx.env = envFor();
 			} catch (e) { failed.push({ id: next.id, message: e instanceof EnvRefusal ? e.message : redact(e.message) }); }
 			continue;
