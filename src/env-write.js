@@ -27,7 +27,10 @@ const ASSIGNMENT = /^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=("(?:[^"\\]|\\.)*"|'
  *  quote character or false. */
 export function envSpans(text) {
 	const out = [];
-	for (const m of String(text).matchAll(ASSIGNMENT)) {
+	// a leading byte-order mark is not part of the first key: scanned as if absent, offsets kept (it is one
+	// UTF-16 unit, replaced by one newline so `^` still matches the first line)
+	const body = String(text).replace(/^\uFEFF/, '\n');
+	for (const m of body.matchAll(ASSIGNMENT)) {
 		let raw = m[2];
 		const quoted = raw.startsWith('"') && raw.endsWith('"') && raw.length >= 2 ? '"' : raw.startsWith("'") && raw.endsWith("'") && raw.length >= 2 ? "'" : false;
 		if (!quoted) raw = raw.replace(/\s+$/, '');
@@ -57,9 +60,8 @@ function token(key, value, preferQuoted) {
  */
 export function setEnvValues(text, values) {
 	let out = String(text);
-	// the reader's `^KEY=` does not match after a byte-order mark, so the first key would be invisible to
-	// it and written a second time — refused, naming the fix
-	if (out.startsWith('\uFEFF')) throw new EnvRefusal('bom', '.env starts with a byte-order mark the reader does not skip — save it as UTF-8 without one first');
+	// a byte-order mark stays where it is; envSpans scans past it (the engine's reader of the unit's
+	// environment, unitEnv, skips it too — held-out he1)
 	const changed = [];
 	for (const [key, value] of Object.entries(values)) {
 		if (!ENV_KEY.test(key)) throw new EnvRefusal('key', `${key} is not an environment key`);

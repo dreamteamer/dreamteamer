@@ -92,8 +92,10 @@ describe('setEnvValues — replace in place, append when absent, keep every othe
 		const byHand = 'K=say "hi"\n';
 		assert.deepEqual(setEnvValues(byHand, { K: 'say "hi"' }), { text: byHand, changed: [] });
 	});
-	test('a .env that starts with a byte-order mark is refused: the reader cannot see its first key', () => {
-		assert.throws(() => setEnvValues('\uFEFFK=old\n', { K: 'new' }), (e) => e instanceof EnvRefusal && e.code === 'bom' && /byte-order mark/.test(e.message));
+	test('a .env that starts with a byte-order mark: the mark is kept, the first key replaced in place, a new key appended', () => {
+		assert.deepEqual(setEnvValues('\uFEFFK=old\nA=1\n', { K: 'new' }), { text: '\uFEFFK=new\nA=1\n', changed: ['K'] });
+		assert.deepEqual(setEnvValues('\uFEFFA="x\nK=inside\n"\n', { K: 'real' }), { text: '\uFEFFA="x\nK=inside\n"\nK=real\n', changed: ['K'] }, 'a K inside A\'s quoted value is not an assignment');
+		assert.deepEqual(setEnvValues('\uFEFFK=same\n', { K: 'same' }).changed, []);
 	});
 	test('a value a shell sourcing .env would expand or split is refused: $, a backtick, a carriage return', () => {
 		for (const v of ['$HOME/x', 'a`id`b', 'a\rb']) assert.throws(() => setEnvValues('', { K: v }), (e) => e instanceof EnvRefusal && e.code === 'value', JSON.stringify(v));

@@ -354,7 +354,9 @@ export function createModule(ws, store, { name, description, namespace, extensio
 
 	const out = gatedTreeOp(ws, store, {
 		subject: `dreamteamer: modules add ${name}`,
-		paths: [path.relative(ws.root, pkgFile), ...Object.keys(written).map((f) => path.relative(ws.root, path.join(root, f)))],
+		// compile regenerates .env.example from the declared keys, so a module that declares one (--extension)
+		// changes it — it rides in the same commit rather than being left modified outside it
+		paths: [path.relative(ws.root, pkgFile), ...Object.keys(written).map((f) => path.relative(ws.root, path.join(root, f))), ...(extension && fs.existsSync(path.join(ws.root, '.env.example')) ? ['.env.example'] : [])],
 		mutate: () => {
 			// ⚠ SCAFFOLD EVERY KIND FOLDER. Not decoration: it is what makes the module's shape
 			// self-documenting the moment it exists, and compile's "contributed no recognised sources"

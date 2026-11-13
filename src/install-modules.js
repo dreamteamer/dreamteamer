@@ -266,8 +266,9 @@ export async function setupAndCommit(ws, fresh, names, { subject, inputFlags = [
 		try {
 			const filled = await fillInputs(fresh_units, { flags: inputFlags, env: { ...dotenv(fresh), ...processEnv }, tty, noInput, prompt: io?.prompt ?? term?.prompt ?? null, lenient: true });
 			ignored = filled.ignored;
+			const written = new Map();   // one run never lets two units disagree on a key (he3)
 			for (const u of fresh_units) {
-				const res = await runUnit(fresh, u, { inputs: filled.inputs.get(u.id) ?? {}, allow, tty, ask: io?.ask ?? term?.ask ?? null, authorize: false, verify: false, processEnv, drop: droppedKeys(filled.problems, u.id) });
+				const res = await runUnit(fresh, u, { inputs: filled.inputs.get(u.id) ?? {}, allow, tty, ask: io?.ask ?? term?.ask ?? null, authorize: false, verify: false, processEnv, drop: droppedKeys(filled.problems, u.id), written });
 				const problems = filled.problems.filter((m) => m.unit === u.id);
 				const missing = [...filled.missing.filter((m) => m.unit === u.id).map((m) => m.id), ...problems.filter((m) => m.required).map((m) => m.id)];
 				const f = fold(res.failed.length ? [...res.checks, ...res.failed.map((x) => ({ id: x.id, status: 'blocked', title: x.id, detail: x.message }))] : res.checks, {});

@@ -20,7 +20,8 @@ describe('dt add modules — a publishable scaffold', () => {
 		assert.equal(r.code, 0, r.stdout + r.stderr);
 		for (const f of ['package.json', 'README.md', 'src/extension.js', 'test/module.test.mjs']) assert.ok(fs.existsSync(path.join(ws.root, 'modules/acme', f)), f);
 		assert.match(r.stdout, /package\.json · README\.md · test\/module\.test\.mjs · src\/extension\.js/);
-		const stat = git(ws.root, ['show', '--name-only', '--pretty=', 'HEAD']).split('\n').filter(Boolean).sort();
+		assert.equal(git(ws.root, ['status', '--porcelain']), '', 'nothing the scaffold changed is left outside its commit (.env.example included)');
+		const stat = git(ws.root, ['show', '--name-only', '--pretty=', 'HEAD']).split('\n').filter(Boolean).filter((f) => f !== '.env.example').sort();
 		assert.deepEqual(stat, ['modules/acme/README.md', 'modules/acme/package.json', 'modules/acme/src/extension.js', 'modules/acme/test/module.test.mjs']);
 		const pkg = pkgOf(ws, 'acme');
 		assert.equal(pkg.name, '@acme/acme');

@@ -58,6 +58,34 @@ describe('an env action, performed by the engine', () => {
 		assert.match(r.stdout, /✔ make-home — wrote \.env \(PROBE_HOME, PROBE_LABEL\) — row input 2 skipped: not a row/);
 	});
 
+	test('held-out he1: a .env with a byte-order mark — the unit sees the first key, the write keeps the mark', () => {
+		const ws = probed();
+		fs.writeFileSync(path.join(ws.root, '.env'), '\uFEFFPROBE_LABEL=first\nOTHER=1\n');
+		const s = run(ws.root, ['status', '--json']);
+		assert.doesNotMatch(s.stdout, /PROBE_LABEL is unset/, 'the reader the unit sees skips the mark');
+		const r = run(ws.root, ['setup', 'probe', '--input', 'label=second']);
+		assert.equal(r.code, 0, r.stderr + r.stdout);
+		assert.equal(readFile(ws.root, '.env').slice(0, 1), '\uFEFF');
+		assert.match(readFile(ws.root, '.env'), /^\uFEFFPROBE_LABEL=second$/m);
+	});
+
+	test('held-out he3: two units that name one key with different values in one run — the second is blocked naming the first, the first value stands', () => {
+		const ws = workspace({ compile: false });
+		for (const [id, value] of [['alpha', 'from-alpha'], ['beta', 'from-beta']]) {
+			const dir = path.join(ws.root, 'modules', id);
+			fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
+			fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: id, private: true, type: 'module', dreamteamer: { extension: './src/extension.js', vars: ['SHARED_KEY'] } }));
+			fs.writeFileSync(path.join(dir, 'src', 'extension.js'), `export default () => ({ setup: [{ id: '${id}', version: 1, inputs: [], inspect: () => ({ checks: [{ id: '${id}.k', status: 'configured', title: 'k' }] }), plan: () => ({ checks: [], actions: [{ id: 'set', title: 'write SHARED_KEY', env: { SHARED_KEY: '${value}' } }], needs: [] }) }] });\n`);
+		}
+		git(ws.root, ['add', '-A']); git(ws.root, ['commit', '-qm', 'two units']);
+		assert.equal(run(ws.root, ['compile']).code, 0);
+		const r = run(ws.root, ['setup']);
+		assert.equal(r.code, 0, r.stderr + r.stdout);
+		assert.match(r.stdout, /✔ set — wrote \.env \(SHARED_KEY\)/);
+		assert.match(r.stdout, /… set \(blocked\) — SHARED_KEY was written by unit alpha in this run with another value — two units disagree on it/);
+		assert.match(readFile(ws.root, '.env'), /^SHARED_KEY=from-alpha$/m);
+	});
+
 	test('git would commit .env: blocked at plan time, exit 0, nothing written', () => {
 		const ws = probed();
 		fs.writeFileSync(path.join(ws.root, '.gitignore'), readFile(ws.root, '.gitignore').replace(/^\.env\n/m, ''));

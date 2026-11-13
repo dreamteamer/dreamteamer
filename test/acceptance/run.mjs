@@ -230,7 +230,8 @@ scenario('M2', 'dt add modules --extension --package scaffolds a module the gate
 	const root = fresh('m2'); dt(root, initArgs);
 	const r = dt(root, ['add', 'modules', '--name', 'acme', '--extension', '--package', '@acme/acme']);
 	ok(r.code === 0, `add exit ${r.code}: ${r.stderr}`);
-	ok(git(root, ['show', '--name-only', '--format=', 'HEAD']).split('\n').sort().join(' ') === 'modules/acme/README.md modules/acme/package.json modules/acme/src/extension.js modules/acme/test/module.test.mjs', 'one commit carries the four files');
+	ok(git(root, ['show', '--name-only', '--format=', 'HEAD']).split('\n').filter((f) => f !== '.env.example').sort().join(' ') === 'modules/acme/README.md modules/acme/package.json modules/acme/src/extension.js modules/acme/test/module.test.mjs', 'one commit carries the four files (and .env.example, which compile regenerates)');
+	ok(git(root, ['status', '--porcelain']) === '', 'nothing left outside the commit');
 	ok(npmRun(path.join(root, 'modules', 'acme'), ['test']).status === 0, 'the scaffolded test passes under npm test');
 	const pkg = JSON.parse(fs.readFileSync(path.join(root, 'modules', 'acme', 'package.json'), 'utf8'));
 	ok(pkg.dreamteamer.engine === `>=${VERSION}` && pkg.devDependencies?.dreamteamer === VERSION && !pkg.dependencies && !pkg.private, 'floor = this engine, engine in devDependencies, publishable');

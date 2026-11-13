@@ -39,6 +39,14 @@ describe('judgeEnvAction — state and reason from what the driver can see witho
 		assert.match(judge(action({ PROBE_HOME: '/h' }), { exposure: { safe: false, reason: 'git would commit .env — add it to .gitignore first' } }).reason, /git would commit/);
 		assert.match(judge(action({ PROBE_HOME: '/h' }), { temps: ['.env.setup-1.tmp'] }).reason, /\.env\.setup-1\.tmp/);
 	});
+	test('held-out he3: a key another unit wrote in this run, with another value, is blocked naming that unit', () => {
+		const written = new Map([['PROBE_LABEL', { unit: 'other', value: 'theirs' }]]);
+		const j = judge(action({ PROBE_LABEL: 'mine' }), { written, unit: 'probe' });
+		assert.equal(j.state, 'blocked');
+		assert.match(j.reason, /PROBE_LABEL was written by unit other in this run with another value — two units disagree on it; set it by hand/);
+		assert.equal(judge(action({ PROBE_LABEL: 'theirs' }), { written, unit: 'probe', text: 'PROBE_LABEL=theirs\n' }).state, 'done', 'agreeing is fine');
+		assert.equal(judge(action({ PROBE_LABEL: 'mine' }), { written: new Map([['PROBE_LABEL', { unit: 'probe', value: 'x' }]]), unit: 'probe' }).state, 'ready', 'its own earlier write is not a conflict');
+	});
 	test('the unit\'s own blocked state and reason stand when the shape is fine', () => {
 		const j = judge(action({ PROBE_HOME: '/h' }, { state: 'blocked', reason: 'the folder is on a read-only volume' }));
 		assert.equal(j.state, 'blocked');
@@ -87,6 +95,13 @@ describe('redact — failure text only, the kit\'s rules folded in (D62, D67)', 
 		assert.equal(redact('primary_key=id monkey=banana'), 'primary_key=id monkey=banana');
 		assert.equal(redact('ACME_TOKEN=abc'), 'ACME_TOKEN=[redacted]');
 		assert.equal(redact('key=abc'), 'key=[redacted]');
+	});
+	test('held-out he5: a 32+ run of capitals and digits (a base32 seed) and of lower-case letters alone are redacted; an env key name with underscores and a kebab id stay', () => {
+		assert.equal(redact('seed ' + 'JBSWY3DPEHPK3PXP'.repeat(2)), 'seed [redacted]');
+		assert.equal(redact('got ' + 'B'.repeat(40)), 'got [redacted]');
+		assert.equal(redact('got ' + 'abcdefgh'.repeat(5)), 'got [redacted]');
+		assert.equal(redact('WORKSPACE_MCP_CREDENTIALS_DIR_AND_SOME_MORE is unset'), 'WORKSPACE_MCP_CREDENTIALS_DIR_AND_SOME_MORE is unset');
+		assert.equal(redact('see module-authoring-on-the-engine-alone-and-more'), 'see module-authoring-on-the-engine-alone-and-more');
 	});
 	test('a mixed-case token with digits is still redacted', () => {
 		assert.equal(redact('got Ab3' + 'xY9'.repeat(11)), 'got [redacted]');

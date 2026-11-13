@@ -188,9 +188,10 @@ export function redact(text) {
 		// /home/ segment inside an http URL, not the shared folder
 		.replace(/(?<=^|[\s"'=(:`,]|file:\/\/)\/(?:Users|home)\/(?!Shared\b)[^\s/"'`,]+/g, '~')
 		.replace(/(?<=^|[\s"'=(:`,])[A-Za-z]:\\Users\\[^\s\\"'`,]+/g, '~')
-		// a long token: 32+ characters of [A-Za-z0-9_-] — except an env key name (upper case), a dated or
-		// kebab id (a `--`, or lower-case words without digits)
-		.replace(/\b[A-Za-z0-9_-]{32,}\b/g, (m) => (/^[A-Z0-9_]+$/.test(m) || m.includes('--') || /^[a-z-]+$/.test(m) ? m : '[redacted]'));
+		// a long token: 32+ characters of [A-Za-z0-9_-] — except an env key name (capitals in `_`-joined parts),
+		// a dated id (a `--`) or a kebab id (three or more lower-case `-`-joined words, none over 16); a base32
+		// seed, a one-case run or a prefixed token (xoxb-…) is a token
+		.replace(/\b[A-Za-z0-9_-]{32,}\b/g, (m) => (/^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+$/.test(m) || m.includes('--') || (/^[a-z0-9]+(?:-[a-z0-9]+){2,}$/.test(m) && m.split('-').every((p) => p.length <= 16)) ? m : '[redacted]'));
 }
 
 /**
@@ -202,7 +203,7 @@ export function redact(text) {
  * `expect` stamped and `effects` defaulted to the one workspace-files entry. A plain action is
  * returned as is.
  */
-export function judgeEnvAction(action, { declared, text, temps = [], exposure = { safe: true }, expect }) {
+export function judgeEnvAction(action, { declared, text, temps = [], exposure = { safe: true }, expect, written = new Map(), unit = null }) {
 	if (!isEnvAction(action)) return action;
 	const keys = Object.keys(action.env ?? {});
 	const effects = (action.effects ?? []).length ? action.effects : [{ kind: 'workspace-files', detail: `.env: ${keys.join(', ')}` }];
@@ -212,6 +213,10 @@ export function judgeEnvAction(action, { declared, text, temps = [], exposure = 
 	let changed;
 	try { ({ changed } = setEnvValues(text, action.env)); } catch (e) { return { ...out, state: 'blocked', reason: e instanceof EnvRefusal ? e.message : redact(e.message) }; }
 	if (!changed.length) return { ...out, state: 'done', reason: `${keys.join(', ')} already hold${keys.length === 1 ? 's' : ''} this value` };
+	// two units sharing a key is allowed (one input, D39); two units writing DIFFERENT values to it in one run
+	// is not — the last write would win silently and the first unit would read a value it never wrote (he3)
+	const clash = changed.find((k) => written.has(k) && written.get(k).unit !== unit && written.get(k).value !== action.env[k]);
+	if (clash) return { ...out, state: 'blocked', reason: `${clash} was written by unit ${written.get(clash).unit} in this run with another value — two units disagree on it; set it by hand` };
 	if (temps.length) return { ...out, state: 'blocked', reason: `temporary files from an interrupted write sit beside .env (${temps.join(', ')}) — review and delete them first` };
 	if (!exposure.safe) return { ...out, state: 'blocked', reason: exposure.reason };
 	if (action.state && action.state !== 'ready' && action.state !== 'done') return { ...out, expect };
@@ -228,13 +233,15 @@ export const receiptDir = (ws, unitId) => path.join(ws.root, RUNTIME_DIR, 'setup
 /** The environment a unit sees: the process's, with the workspace `.env` filling what it lacks. */
 export function unitEnv(ws, processEnv = process.env) {
 	const file = path.join(ws.root, '.env');
-	const dotenv = fs.existsSync(file) ? parseEnvValues(fs.readFileSync(file, 'utf8')) : new Map();
+	// a leading byte-order mark would hide the first key from the reader (`^KEY=`) and let a key inside
+	// another key's quoted value read as an assignment (held-out he1) — skipped here, the workspace side
+	const dotenv = fs.existsSync(file) ? parseEnvValues(fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, '')) : new Map();
 	return { ...Object.fromEntries(dotenv), ...processEnv };
 }
 
 /** Run one unit: inspect → plan(inputs) → apply what is consented → inspect. Never throws for a
  *  provider's fault: a throwing apply is one failed action, redacted, and the unit reads blocked. */
-export async function runUnit(ws, unit, { inputs = {}, allow = new Set(), tty = false, ask = null, authorize = false, verify = false, processEnv = process.env, api = null, drop = [] } = {}) {
+export async function runUnit(ws, unit, { inputs = {}, allow = new Set(), tty = false, ask = null, authorize = false, verify = false, processEnv = process.env, api = null, drop = [], written = new Map() } = {}) {
 	// the env is re-read after every applied action: a safe action's whole point is often to write the
 	// key the next inspect reads (`PROBE_HOME=` into .env), and a stale copy would report it missing.
 	// `drop` names the keys whose value the engine refused (a secret-path that is missing or not
@@ -253,7 +260,7 @@ export async function runUnit(ws, unit, { inputs = {}, allow = new Set(), tty = 
 	const judge = (actions, expect) => actions.map((a) => {
 		if (!isEnvAction(a)) return a;
 		if (expect instanceof Error) return judgeEnvAction({ ...a, state: 'blocked', reason: expect.message }, { declared: unit.declared ?? new Set(), text: '', expect: null });
-		return judgeEnvAction(a, { declared: unit.declared ?? new Set(), text: envText(), temps: leftoverTemps(envFile), exposure: gitExposure(ws.root, '.env'), expect });
+		return judgeEnvAction(a, { declared: unit.declared ?? new Set(), text: envText(), temps: leftoverTemps(envFile), exposure: gitExposure(ws.root, '.env'), expect, written, unit: unit.id });
 	});
 	// what is listed as pending is printed (and under --json, whole): an env action is listed by the KEYS it
 	// would write, never its values; a reason is failure text, redacted (D67)
@@ -290,6 +297,7 @@ export async function runUnit(ws, unit, { inputs = {}, allow = new Set(), tty = 
 			try {
 				const { text, changed } = setEnvValues(envText(), next.env);
 				writeEnvAtomic(ws.root, text, next.expect);
+				for (const k of changed) written.set(k, { unit: unit.id, value: next.env[k] });
 				// a ready env action's reason is the unit's note on what it wrote or left out (a malformed row it
 				// skipped); printed after the write, redacted like every reason (D67)
 				applied.push({ id: next.id, changed: ['.env'], message: `wrote .env (${changed.join(', ')})${next.reason ? ` — ${redact(next.reason)}` : ''}` });
@@ -468,8 +476,9 @@ export async function setupCommand(ws, argv, { processEnv = process.env, tty = !
 	const results = [];
 	try {
 		const filled = await fillInputs(run, { flags: inputFlags, env, tty, noInput, prompt });
+		const written = new Map();   // the keys this run's env actions wrote, by unit — one run never lets two units disagree on a key
 		for (const u of run) {
-			const r = await runUnit(ws, u, { inputs: filled.inputs.get(u.id) ?? {}, allow, tty, ask, authorize: flags.authorize, verify: flags.verify, processEnv, api, drop: droppedKeys(filled.problems, u.id) });
+			const r = await runUnit(ws, u, { inputs: filled.inputs.get(u.id) ?? {}, allow, tty, ask, authorize: flags.authorize, verify: flags.verify, processEnv, api, drop: droppedKeys(filled.problems, u.id), written });
 			const problems = filled.problems.filter((m) => m.unit === u.id);
 			const missing = [...filled.missing.filter((m) => m.unit === u.id).map((m) => m.id), ...problems.filter((m) => m.required).map((m) => m.id)];
 			const f = fold(r.failed.length ? [...r.checks, ...r.failed.map((x) => ({ id: x.id, status: 'blocked', title: x.id, detail: x.message }))] : r.checks, {});
