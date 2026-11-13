@@ -466,7 +466,9 @@ const readJson = (f) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); }
 function landing(p) {
 	// the root (`/`, or `C:\` on Windows — never a segment to join, which made every path land at `C:\C:\…`)
 	// is the starting point; the segments after it are walked, either separator accepted
-	const segments = (q) => q.slice(path.parse(q).root.length).split(/[\\/]/);
+	// the separator is the platform's ONLY: a backslash is a legal character in a POSIX name, and a link named
+	// `a\\b` that points out of the folder must be followed as one segment, never read as `a/b`; Windows takes both
+	const segments = (q) => q.slice(path.parse(q).root.length).split(process.platform === 'win32' ? /[\\/]/ : path.sep);
 	const pending = segments(p);
 	let at = path.parse(p).root, hops = 0;
 	while (pending.length) {
