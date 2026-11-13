@@ -39,7 +39,12 @@ how a workspace is MADE and how a module is ADDED:
   engine does not meet, a ring, a version installed differently, a package an installed one already
   `provides`), pins exact versions, compiles (a refusal restores `package.json`, the lockfile and
   `node_modules`), runs the module's safe setup and commits `package.json`, `package-lock.json` and
-  what setup wrote. `--from <dir>` resolves names from a folder of tarballs. npm 7 or later.
+  what setup wrote. `--from <dir>` resolves names from a folder of tarballs. npm 7 or later. Run again,
+  it finishes what an interrupted run left (a stale runtime, uncommitted files, a setup not run); a
+  mistyped `--input` is a warning after npm has written, never an abort.
+- **`dt update <name>[@version]`** is install one pin later: the whole resolved closure is installed
+  (a version that adds a `dreamteamer.dependencies` entry brings it in), compiled, its new units' safe
+  setup run, one commit. `--engine` moves the engine's own pin; a downgrade needs `--allow downgrade`.
 - **A module declares its setup as units** — the `setup` key of its extension contribution:
   `[{ id, version: 1, inputs, inspect, plan, apply }]`. The engine drives every unit the same way and
   never learns a module's name. `dreamteamer.provides` on a composed package lists what it composes.

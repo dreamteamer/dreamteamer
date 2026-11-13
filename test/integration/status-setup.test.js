@@ -51,6 +51,8 @@ describe('dt status — the setup section', () => {
 		// --json carries the same lines as data
 		const j = JSON.parse(run(ws.root, ['status', '--json'], { PROBE_TOKEN_PATH: tok }).stdout);
 		assert.equal(j.setup.find((l) => l.unit === 'probe').state, 'skipped');
+		assert.equal(j.workspace.root, fs.realpathSync(ws.root), 'every JSON result names workspace.root');
+		assert.equal(JSON.parse(run(ws.root, ['doctor', '--json'], { PROBE_TOKEN_PATH: tok }).stdout).workspace.root, fs.realpathSync(ws.root));
 	});
 
 	test('a package with no unit reads no setup — and names its unset declared vars', () => {

@@ -95,9 +95,14 @@ dt setup <unit> --skip                            # declined for now, recorded i
   `dt setup <unit> --authorize` opens the browser and waits; hand it over. Secrets stay in `.env` or
   the store the unit names — never in a reply, a record or git.
 - **A missing required input** is exit 3 with the ids named (`--input <id>=…` fills it); a pending
-  effect or sign-in is exit 0 with the next command printed — not an error.
+  effect or sign-in is exit 0 with the next command printed — not an error. `dt setup` refuses a
+  mistyped `--input`, two values for one shared key, or a `secret-path` whose file is missing or not
+  owner-only (`chmod 600`) with exit 2 before any unit runs; `dt install` — npm has already written by
+  then — warns `⚠ … ignored`, names what is still needed, and commits anyway.
 - After each action, inspect again (`dt status`). Interrupted? Run the same command again; never
-  repeat an action on the assumption it did not happen.
+  repeat an action on the assumption it did not happen. `dt install <same spec>` finishes whatever an
+  earlier run left — a stale runtime, npm's files uncommitted, a setup not run — and with inputs given
+  runs the installed module's setup; clean and with nothing given it says `nothing to do`.
 
 ## 4. report — the status words, and the evidence for each
 

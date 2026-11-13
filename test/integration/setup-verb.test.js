@@ -63,6 +63,30 @@ describe('dt setup probe — the synthetic unit through every state', () => {
 		assert.match(w.stdout, /… verify \(needs --allow machine\)/);
 	});
 
+	test('--authorize takes one unit: with none named it is a usage refusal, exit 2, before the terminal is asked for', () => {
+		const ws = probed();
+		const r = run(ws.root, ['setup', '--authorize']);
+		assert.equal(r.code, 2);
+		assert.match(r.stderr, /--authorize takes one unit: dt setup <unit> --authorize/);
+	});
+
+	test('a secret-path input must exist and be owner-only: a missing file and a world-readable one are refused naming the path, before any unit runs', { skip: process.platform === 'win32' }, () => {
+		const ws = probed();
+		const missing = run(ws.root, ['setup', 'probe', '--input', 'label=demo', '--input', `token=${path.join(ws.root, 'no-such-token')}`, '--no-input']);
+		assert.equal(missing.code, 2, missing.stdout);
+		assert.match(missing.stderr, /--input token=.*no-such-token: no such file/);
+		const tok = path.join(ws.root, '..', `tok-${path.basename(ws.root)}`);
+		fs.writeFileSync(tok, 'x', { mode: 0o644 }); fs.chmodSync(tok, 0o644);
+		const open = run(ws.root, ['setup', 'probe', '--input', 'label=demo', '--input', `token=${tok}`, '--no-input']);
+		assert.equal(open.code, 2, open.stdout);
+		assert.match(open.stderr, /readable by other users — chmod 600/);
+		assert.ok(!fs.existsSync(path.join(ws.root, '.env')), 'nothing ran');
+		fs.chmodSync(tok, 0o600);
+		const ok = run(ws.root, ['setup', 'probe', '--input', 'label=demo', '--input', `token=${tok}`, '--no-input']);
+		assert.equal(ok.code, 0, ok.stderr + ok.stdout);
+		fs.rmSync(tok, { force: true });
+	});
+
 	test('--authorize without a terminal is a usage refusal, exit 2', () => {
 		const ws = probed();
 		const r = run(ws.root, ['setup', 'probe', '--authorize']);

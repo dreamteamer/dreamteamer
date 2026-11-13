@@ -162,6 +162,39 @@ describe('dt install <spec> — closure, compile, safe setup, scoped commit', ()
 		assert.match(errors.join('\n'), /dt install needs npm >=7 \(this is 6\.14\.18\)/);
 	});
 
+	test('interrupted after compile, before the commit: the next run commits what is pending and runs the setup; a third changes nothing', () => {
+		const ws = offline();
+		assert.equal(run(ws.root, ['install', '@fix/b', '--from', REG]).code, 0);
+		// the state a kill, a Ctrl-D at a prompt or a usage error leaves: compiled, npm's two files modified, no commit
+		git(ws.root, ['reset', '-q', '--mixed', 'HEAD~1']);
+		assert.match(git(ws.root, ['status', '--porcelain']), /package\.json/);
+		const r = run(ws.root, ['install', '@fix/b', '--from', REG]);
+		assert.equal(r.code, 0, r.stderr + r.stdout);
+		assert.match(r.stdout, /already installed: @fix\/b — .*committed/);
+		assert.equal(git(ws.root, ['status', '--porcelain']), '', 'the pending files were committed');
+		assert.equal(lastCommit(ws.root).subject, 'dreamteamer: install @fix/b');
+		const before = treeHash(ws.root);
+		const third = run(ws.root, ['install', '@fix/b', '--from', REG]);
+		assert.equal(third.code, 0);
+		assert.match(third.stdout, /nothing to do/);
+		assert.equal(treeHash(ws.root), before);
+	});
+
+	test('a mistyped --input is ignored with a warning, never an abort after npm: the install is committed and names what is still needed; the corrected re-run runs the setup', () => {
+		const ws = offline();
+		const r = run(ws.root, ['install', '@probe/setup', '--from', REG, '--input', 'lable=demo', '--no-input']);
+		assert.equal(r.code, 3, r.stderr + r.stdout);
+		assert.match(r.stdout + r.stderr, /⚠ --input lable= names no input of probe — ignored/);
+		assert.match(r.stdout, /needs input: label/);
+		assert.equal(git(ws.root, ['status', '--porcelain']), '', 'committed despite the typo');
+		assert.equal(lastCommit(ws.root).subject, 'dreamteamer: install @probe/setup');
+		const again = run(ws.root, ['install', '@probe/setup', '--from', REG, '--input', 'label=demo', '--no-input']);
+		assert.equal(again.code, 0, again.stderr + again.stdout);
+		assert.match(again.stdout, /✔ make-home — wrote \.env/);
+		assert.match(readFile(ws.root, '.env'), /^PROBE_LABEL=demo$/m);
+		assert.equal(git(ws.root, ['status', '--porcelain']), '');
+	});
+
 	test('interrupted after npm, before compile: the next run finishes and a third changes nothing', async () => {
 		const ws = offline();
 		const handle = await openWorkspace(ws.root);

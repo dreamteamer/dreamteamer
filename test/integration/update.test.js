@@ -69,6 +69,22 @@ describe('dt update — one pin forward, on purpose', () => {
 		assert.match(n.stderr, /@fix\/a is not installed — dt install @fix\/a/);
 	});
 
+	test('a version that adds a dreamteamer.dependencies entry brings the dependency in: closure installed, compiled, committed in one go', () => {
+		const ws = offline();
+		assert.equal(run(ws.root, ['install', '@fix/d@1.0.0', '--from', REG]).code, 0);
+		assert.equal(installed(ws.root, '@fix/c'), null, 'not there yet');
+		const r = run(ws.root, ['update', '@fix/d', '--from', REG]);
+		assert.equal(r.code, 0, r.stderr + r.stdout);
+		assert.equal(installed(ws.root, '@fix/d'), '2.0.0');
+		assert.equal(installed(ws.root, '@fix/c'), '1.0.0', 'the new dependency came with it');
+		assert.ok(fs.existsSync(path.join(ws.root, '.dreamteamer', 'collections', 'fixcs.collection.yaml')), 'compiled with it');
+		assert.match(git(ws.root, ['log', '-1', '--pretty=%s']), /^dreamteamer: update @fix\/d 1\.0\.0 → 2\.0\.0$/);
+		assert.equal(git(ws.root, ['status', '--porcelain']), '', 'nothing half-written');
+		const h = treeHash(ws.root);
+		assert.equal(run(ws.root, ['update', '@fix/d', '--from', REG]).code, 0);
+		assert.equal(treeHash(ws.root), h);
+	});
+
 	test('--engine: already at this version is nothing to do; a linked engine is skipped', () => {
 		const ws = offline();
 		// the fixture's engine is a file: link to this checkout — a development link, by its own rule

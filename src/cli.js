@@ -278,7 +278,7 @@ workspace verbs:
               step (sign-in, consent) runs only under [--authorize], in a terminal. [--verify] runs
               the unit's live check and writes its receipt. [--skip] records the skip in
               package.json (dt setup <unit> clears it). [--json] the result as data.
-              Exit 0 done (pending steps printed) · 1 failed · 2 usage · 3 a required input missing
+              Exit 0 done (pending and blocked steps printed) · 2 usage · 3 a required input missing
   status      workspace status: compiled runtime freshness, per-module channel/ref, staleness
 
   changes     the records created / updated / deleted in every repo that holds records — the
@@ -495,7 +495,7 @@ export async function run(argv) {
 				process.exit(await setupCommand(ws, rest, { api }));
 			case 'doctor': {
 				const caps = await doctorBoard(ws, api);
-				if (rest.includes('--json')) emit(JSON.stringify({ capabilities: caps }, null, 2));
+				if (rest.includes('--json')) emit(JSON.stringify({ workspace: { root: ws.root, name: ws.pkg?.name ?? null }, capabilities: caps }, null, 2));
 				else console.log(renderBoard(caps));
 				process.exit(rest.includes('--strict') && caps.some((c) => c.verdict === 'UNAVAILABLE') ? 1 : 0);
 			}
@@ -588,7 +588,7 @@ export async function run(argv) {
 				}
 				if (rest.includes('--json')) {
 					const { modules: mods } = discoverModules(ws.root, ws.pkg);
-					emit(JSON.stringify({ compiled: s.manifest.compiled, stale: s.stale, modules: mods.map((m) => ({ name: m.name, location: locationOf(m, ws.root) })), setup: statusLines(ws) }, null, 2));
+					emit(JSON.stringify({ workspace: { root: ws.root, name: ws.pkg?.name ?? null }, compiled: s.manifest.compiled, stale: s.stale, modules: mods.map((m) => ({ name: m.name, location: locationOf(m, ws.root) })), setup: statusLines(ws) }, null, 2));
 					process.exit(0);
 				}
 				console.log(`compiled: ${s.manifest.compiled}`);

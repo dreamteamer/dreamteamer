@@ -623,7 +623,7 @@ export async function initCommand(flags, { root = process.cwd(), open, verify, n
 		} catch (e) { return fail(`compile: ${e.message.split('\n')[0]}`); }
 		if (await verify(ws)) return fail('check: the violations above');
 		// a preset's modules: the safe part of every unit's setup, exactly as `dt install` runs it
-		const { units, runUnit, fillInputs, parseInputFlags, parseAllow, skippedUnits, fold, SetupUsage, ttyIO, unitEnv } = await import('./setup.js');
+		const { units, runUnit, fillInputs, parseInputFlags, parseAllow, skippedUnits, fold, SetupUsage, ttyIO, unitEnv, EXIT } = await import('./setup.js');
 		const skipped = new Set(skippedUnits(ws));
 		const all = units(ws).filter((u) => !skipped.has(u.id));
 		if (all.length) {
@@ -643,7 +643,7 @@ export async function initCommand(flags, { root = process.cwd(), open, verify, n
 					if (miss.length) { log(`    needs input: ${miss.join(', ')} — dt setup ${u.id} --input ${miss[0]}=<value>`); code = 3; }
 				}
 			} catch (e) {
-				if (e instanceof SetupUsage) return fail(e.message);
+				if (e instanceof SetupUsage) { fail(e.message); return EXIT.usage; }
 				throw e;
 			} finally { term?.close(); }
 		}

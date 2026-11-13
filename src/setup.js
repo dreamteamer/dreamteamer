@@ -58,31 +58,59 @@ const usage = (m) => new SetupUsage(m);
 
 const expandHome = (p, home) => (typeof p === 'string' && (p === '~' || p.startsWith('~/')) ? path.join(home, p.slice(1)) : p);
 
+/** A secret-path input's file: it must exist, be a file, and (posix) be readable by its owner only. The engine never reads it. */
+function secretPathProblem(value) {
+	let st;
+	try { st = fs.statSync(value); } catch { return `${value}: no such file`; }
+	if (!st.isFile()) return `${value}: not a file`;
+	if (process.platform !== 'win32' && (st.mode & 0o077)) return `${value} is readable by other users — chmod 600 ${value}`;
+	return null;
+}
+const flagText = (f) => `--input ${f.unit ? `${f.unit}.` : ''}${f.id}=`;
+
 /**
- * Fill every unit's inputs. Returns `inputs` (unit id → { inputId: value }) and `missing` (required
- * inputs with no value from any source). `prompt(input, default)` is called only in a TTY, only for
- * what is still missing, and only when `noInput` is false.
+ * Fill every unit's inputs. Returns `inputs` (unit id → { inputId: value }), `missing` (required
+ * inputs with no value from any source), `ignored` and `problems`. `prompt(input, default)` is called
+ * only in a TTY, only for what is still missing, and only when `noInput` is false. Strict (the default)
+ * throws a usage error for a flag naming no input, two values for one shared key, or a secret-path
+ * that does not exist or is not owner-only — nothing has run yet. `lenient` (install, where npm has
+ * already written) keeps going: the unknown flag is listed in `ignored`, the bad value in `problems`
+ * with the input left unfilled, so the install still commits and the line says what is still needed.
  */
-export async function fillInputs(units, { flags = [], env = {}, tty = false, noInput = false, prompt = null, home = os.homedir() } = {}) {
+export async function fillInputs(units, { flags = [], env = {}, tty = false, noInput = false, prompt = null, home = os.homedir(), lenient = false } = {}) {
 	const inputs = new Map(units.map((u) => [u.id, {}]));
-	const missing = [];
+	const missing = [], ignored = [], problems = [];
+	const refuse = (text, problem = null) => { if (!lenient) throw usage(text); if (problem) problems.push(problem); else ignored.push(text); };
 	// a bare --input id= is unambiguous when every unit declaring that id names the same env key
 	const byId = new Map();
 	for (const u of units) for (const i of u.inputs) (byId.get(i.id) ?? byId.set(i.id, []).get(i.id)).push({ unit: u.id, env: i.env ?? null });
 	const valueOf = (u, i, f) => (f.unit ? f.unit === u.id && f.id === i.id : f.id === i.id && (byId.get(i.id).every((d) => d.env === (i.env ?? null) && (d.env !== null || d.unit === u.id))));
+	const live = [];
 	for (const f of flags) {
 		const owners = byId.get(f.id) ?? [];
-		if (f.unit && !units.some((u) => u.id === f.unit && u.inputs.some((i) => i.id === f.id))) throw usage(`--input ${f.unit}.${f.id}= names no input of ${f.unit}`);
-		if (!f.unit && !owners.length) throw usage(`--input ${f.id}= names no input of ${units.map((u) => u.id).join(', ') || 'any unit'}`);
-		if (!f.unit && owners.length > 1 && !(owners.every((o) => o.env !== null && o.env === owners[0].env))) throw usage(`--input ${f.id}= is ambiguous: ${owners.map((o) => `${o.unit}.${f.id}`).join(', ')} — say which with unit.id=`);
+		if (f.unit && !units.some((u) => u.id === f.unit && u.inputs.some((i) => i.id === f.id))) { refuse(`${flagText(f)} names no input of ${f.unit}`); continue; }
+		if (!f.unit && !owners.length) { refuse(`${flagText(f)} names no input of ${units.map((u) => u.id).join(', ') || 'any unit'}`); continue; }
+		if (!f.unit && owners.length > 1 && !(owners.every((o) => o.env !== null && o.env === owners[0].env))) { refuse(`${flagText(f)} is ambiguous: ${owners.map((o) => `${o.unit}.${f.id}`).join(', ')} — say which with unit.id=`); continue; }
+		live.push(f);
 	}
-	// an env key shared by several inputs is one input: a flag for any of them fills all of them (D39)
-	const envValues = new Map();
-	for (const u of units) for (const i of u.inputs) for (const f of flags) if (i.env && valueOf(u, i, f)) envValues.set(i.env, f.value);
+	// an env key shared by several inputs is one input: a flag for any of them fills all of them, and two
+	// different values for it in one call are a refusal naming both (D39)
+	const envValues = new Map(), envFlag = new Map(), conflicted = new Set();
+	for (const u of units) for (const i of u.inputs) for (const f of live) {
+		if (!i.env || !valueOf(u, i, f)) continue;
+		if (envValues.has(i.env) && envValues.get(i.env) !== f.value && envFlag.get(i.env) !== f) {
+			const first = envFlag.get(i.env);
+			refuse(`${flagText(first)} and ${flagText(f)} name one key, ${i.env}, with different values — give one`, { unit: u.id, id: i.id, reason: `${flagText(first)} and ${flagText(f)} name one key, ${i.env}, with different values — give one` });
+			conflicted.add(i.env);
+			continue;
+		}
+		if (!envValues.has(i.env)) { envValues.set(i.env, f.value); envFlag.set(i.env, f); }
+	}
 	for (const u of units) {
 		for (const i of u.inputs) {
+			if (i.env && conflicted.has(i.env)) continue;
 			let value;
-			const given = flags.filter((f) => valueOf(u, i, f)).map((f) => f.value);
+			const given = live.filter((f) => valueOf(u, i, f)).map((f) => f.value);
 			if (i.kind === 'rows') {
 				if (given.length) value = given;
 			} else if (given.length) value = given.at(-1);
@@ -95,10 +123,15 @@ export async function fillInputs(units, { flags = [], env = {}, tty = false, noI
 			}
 			if (value === undefined) { if (i.required) missing.push({ unit: u.id, id: i.id }); continue; }
 			if (i.kind === 'path' || i.kind === 'secret-path') value = expandHome(value, home);
+			if (i.kind === 'secret-path' && given.length) {
+				// checked only for a value this call gave: one the environment holds is the unit's to judge
+				const problem = secretPathProblem(value);
+				if (problem) { refuse(`--input ${i.id}=${problem}`, { unit: u.id, id: i.id, reason: problem }); continue; }
+			}
 			inputs.get(u.id)[i.id] = value;
 		}
 	}
-	return { inputs, missing };
+	return { inputs, missing, ignored, problems };
 }
 
 /** May this action run now? `ask(action)` is the y/n in a TTY; `allow` the --allow kinds. */
@@ -298,7 +331,7 @@ const ttyAsk = (rl) => async (action, kinds) => {
 
 /**
  * `dt setup [<unit>] [--input k=v]… [--allow <kind>]… [--authorize] [--verify] [--skip] [--no-input] [--json]`
- * Exit: 0 done (pending steps printed), 1 a unit failed its own apply, 2 usage, 3 a required input missing.
+ * Exit: 0 done (pending and blocked steps printed — a unit's own failure is its blocked line, never a crash), 2 usage, 3 a required input missing.
  */
 export async function setupCommand(ws, argv, { processEnv = process.env, tty = !!(process.stdin.isTTY && process.stdout.isTTY), log = console.log, api = null, io = null } = {}) {
 	const env = unitEnv(ws, processEnv);
@@ -312,6 +345,7 @@ export async function setupCommand(ws, argv, { processEnv = process.env, tty = !
 	const chosen = target ? all.filter((u) => u.id === target) : all;
 	if (target && !chosen.length) { console.error(`✖ no setup unit "${target}" — installed units: ${all.map((u) => u.id).join(', ') || '(none)'}`); return EXIT.usage; }
 	if (!all.length) { log('— no installed module declares setup — `dt status` lists what is installed, `dt install <package>` adds a module'); return EXIT.done; }
+	if (flags.authorize && !target) { console.error('✖ --authorize takes one unit: dt setup <unit> --authorize'); return EXIT.usage; }
 	if (flags.authorize && !tty) { console.error('✖ --authorize needs a terminal: the owner signs in; a script cannot'); return EXIT.usage; }
 	if (flags.skip) {
 		if (!target) { console.error('✖ --skip takes one unit: dt setup <unit> --skip'); return EXIT.usage; }

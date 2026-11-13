@@ -1,0 +1,13 @@
+name: fixcs
+description: A fixc record.
+storage:
+  path: fixcs
+  format: md
+  shape: file
+  suffix: fixc
+ids:
+  from: '{{ title | slug }}'
+fields:
+  title:
+    type: string
+    required: true

@@ -14,6 +14,7 @@ import zlib from 'node:zlib';
 import { spawnSync, execFileSync } from 'node:child_process';
 import { satisfies } from './semver.js';
 import { engineVersion } from './runtime.js';
+import { parseEnvValues } from './env-vars.js';
 import { compile, discoverModules, staleness } from './compile.js';
 import { resolveNpm, childEnv } from './checkout.js';
 import { units, runUnit, fillInputs, parseInputFlags, parseAllow, skippedUnits, fold, SetupUsage, EXIT, ttyIO } from './setup.js';
@@ -190,9 +191,101 @@ export function npmFloor(npm = resolveNpm()) {
 // ---- the verb -----------------------------------------------------------------------------------
 
 const gitOk = (root, args) => { try { execFileSync('git', args, { cwd: root, stdio: 'ignore' }); return true; } catch { return false; } };
-const ignored = (root, rel) => gitOk(root, ['check-ignore', '-q', '--', rel]);
+const gitIgnored = (root, rel) => gitOk(root, ['check-ignore', '-q', '--', rel]);
 /** `git status --porcelain` of one path: '' when clean (modified AND untracked both count as dirty). */
 const gitStatus = (root, rel) => { try { return execFileSync('git', ['status', '--porcelain', '--', rel], { cwd: root, encoding: 'utf8' }).trim(); } catch { return ''; } };
+
+// ---- steps 2–4 and 5–6, shared with `dt update` (install one pin later) ----------------------------
+
+/**
+ * Steps 2–4: npm on the resolved list (the two files it rewrites copied aside), verify every package
+ * resolves at the version asked for, compile (a refusal restores the pre-image and prunes). Returns
+ * `{ fresh }`, or `{ code }`.
+ */
+export async function npmAndCompile(ws, list, { npm = resolveNpm(), open, json = false, log = console.log, hooks = {}, what = 'install' } = {}) {
+	const names = list.map((e) => e.manifest.name);
+	const pkgFile = path.join(ws.root, 'package.json'), lockFile = path.join(ws.root, 'package-lock.json');
+	const before = { pkg: fs.readFileSync(pkgFile, 'utf8'), lock: fs.existsSync(lockFile) ? fs.readFileSync(lockFile, 'utf8') : null };
+	const args = ['install', '--save-exact', '--no-audit', '--no-fund', ...list.map((e) => e.spec)];
+	log(`▶ npm ${args.join(' ')}`);
+	const r = spawnSync(npm, args, { cwd: ws.root, stdio: json ? ['ignore', 2, 2] : 'inherit', env: childEnv(), timeout: 600_000 });
+	if (r.status !== 0) { console.error(`✖ npm exited ${r.status ?? r.error?.message} — package.json and package-lock.json may have changed; run the same command again to resume`); return { code: EXIT.failed }; }
+	if (hooks.afterNpm) hooks.afterNpm();
+	// 3. verify every package in the list resolves, at the version asked for (a folder link at whatever it holds)
+	const versionOf = (n) => { try { return JSON.parse(fs.readFileSync(path.join(ws.root, 'node_modules', n, 'package.json'), 'utf8')).version ?? null; } catch { return null; } };
+	const still = list.filter((e) => { const v = versionOf(e.manifest.name); return v === null || (e.kind !== 'folder' && v !== e.manifest.version); }).map((e) => e.manifest.name);
+	if (still.length) { console.error(`✖ npm exited 0, but ${still.join(', ')} still do${still.length === 1 ? 'es' : ''} not resolve in node_modules at the version asked for`); return { code: EXIT.failed }; }
+	// 4. compile — a refusal restores the pre-image and prunes
+	try {
+		const fresh = await open(ws.root);
+		const stdout = console.log;
+		if (json) console.log = console.error;
+		try { compile(fresh); } finally { console.log = stdout; }
+		return { fresh };
+	} catch (e) {
+		fs.writeFileSync(pkgFile, before.pkg);
+		if (before.lock !== null) fs.writeFileSync(lockFile, before.lock); else fs.rmSync(lockFile, { force: true });
+		// the packages this call added go, then npm prunes to the restored lockfile; an emptied scope folder goes too
+		for (const n of names) {
+			fs.rmSync(path.join(ws.root, 'node_modules', n), { recursive: true, force: true });
+			const scope = path.dirname(path.join(ws.root, 'node_modules', n));
+			try { if (n.startsWith('@') && fs.readdirSync(scope).length === 0) fs.rmdirSync(scope); } catch { /* not empty, or gone */ }
+		}
+		spawnSync(npm, ['install', '--no-audit', '--no-fund'], { cwd: ws.root, stdio: 'ignore', env: childEnv(), timeout: 600_000 });
+		console.error(`✖ ${what} refused: ${e.message.split('\n')[0]}\n  package.json, package-lock.json and node_modules are as before the call`);
+		return { code: EXIT.failed };
+	}
+}
+
+/**
+ * Steps 5–6: the safe part of the named packages' units (inputs filled leniently — npm has written,
+ * so a mistyped --input is a named warning, never an abort), then one scoped commit: the two files
+ * npm rewrites, .env.example if compile touched it, and every path an applied action reported that
+ * git does not ignore. Returns `{ code, results, committed, ignored }`.
+ */
+export async function setupAndCommit(ws, fresh, names, { subject, inputFlags = [], allow = new Set(), tty = false, noInput = true, io = null, processEnv = process.env, noCommit = false } = {}) {
+	const skipped = new Set(skippedUnits(fresh));
+	const fresh_units = units(fresh).filter((u) => names.includes(u.module) && !skipped.has(u.id));
+	let code = EXIT.done;
+	const results = [];
+	let ignored = [];
+	if (fresh_units.length) {
+		const term = tty && !noInput && !io ? ttyIO() : null;
+		try {
+			const filled = await fillInputs(fresh_units, { flags: inputFlags, env: { ...dotenv(fresh), ...processEnv }, tty, noInput, prompt: io?.prompt ?? term?.prompt ?? null, lenient: true });
+			ignored = filled.ignored;
+			for (const u of fresh_units) {
+				const res = await runUnit(fresh, u, { inputs: filled.inputs.get(u.id) ?? {}, allow, tty, ask: io?.ask ?? term?.ask ?? null, authorize: false, verify: false, processEnv });
+				const problems = filled.problems.filter((m) => m.unit === u.id);
+				const missing = [...filled.missing.filter((m) => m.unit === u.id).map((m) => m.id), ...problems.map((m) => m.id)];
+				const f = fold(res.failed.length ? [...res.checks, ...res.failed.map((x) => ({ id: x.id, status: 'blocked', title: x.id, detail: x.message }))] : res.checks, {});
+				results.push({ id: u.id, module: u.module, ...f, applied: res.applied, pending: res.pending, failed: res.failed, problems, needs: [...new Set([...missing, ...res.needs])] });
+				if (missing.length) code = Math.max(code, EXIT.needsInput);
+			}
+		} finally { term?.close(); }
+	}
+	let committed = null;
+	if (!noCommit && gitOk(ws.root, ['rev-parse', '--git-dir'])) {
+		const changed = results.flatMap((r) => r.applied.flatMap((a) => a.changed ?? [])).map((p) => path.relative(ws.root, path.resolve(ws.root, p))).filter((rel) => rel && !rel.startsWith('..') && !path.isAbsolute(rel) && fs.existsSync(path.join(ws.root, rel)) && !gitIgnored(ws.root, rel));
+		const paths = [...new Set(['package.json', 'package-lock.json', '.env.example', ...changed])].filter((rel) => fs.existsSync(path.join(ws.root, rel)));
+		if (gitOk(ws.root, ['add', '--', ...paths]) && gitOk(ws.root, ['commit', '--quiet', '-m', subject, '--', ...paths])) committed = paths;
+	}
+	return { code, results, committed, ignored };
+}
+
+/** The unit lines a verb prints after setupAndCommit, one block per unit. */
+export function printUnitResults(results, ignored, log) {
+	for (const text of ignored) log(`⚠ ${text} — ignored`);
+	for (const r of results) {
+		const verified = r.verified ? ` · verified ${r.verified}` : '';
+		log(`${r.state === 'ready' ? '✔' : r.state === 'blocked' ? '✖' : '—'} ${r.id}: ${r.state}${verified}${r.detail ? ` — ${r.detail}` : ''}`);
+		for (const a of r.applied) log(`    ✔ ${a.id}${a.message ? ` — ${a.message}` : ''}`);
+		for (const f of r.failed) log(`    ✖ ${f.id} — ${f.message}`);
+		for (const p of r.problems ?? []) log(`    ✖ ${p.id} — ${p.reason}`);
+		for (const p of r.pending) log(`    … ${p.id} (${p.why})`);
+		if (r.needs.length) log(`    needs input: ${r.needs.join(', ')} — dt setup ${r.id} --input ${r.needs[0]}=<value>`);
+	}
+}
 
 /**
  * `dt install <spec…> [--from <dir>] [--input k=v]… [--allow <kind>]… [--no-input] [--no-commit] [--json]`
@@ -221,53 +314,36 @@ export async function installModules(ws, argv, { open, npm = resolveNpm(), verif
 	const installed = installedModules(ws);
 	let plan;
 	try { plan = resolveClosure(specs, { installed, from, npm, cwd: ws.root }); } catch (e) { if (e instanceof InstallRefusal) { console.error(`✖ ${e.message}`); return EXIT.failed; } throw e; }
+	const setupOpts = { inputFlags, allow, tty, noInput, io, processEnv, noCommit };
 	if (!plan.list.length) {
-		// everything is here — but an interrupted earlier run may have left npm's work uncompiled and
-		// uncommitted, so resuming means finishing those two steps, never re-running npm
+		// everything is here — but an earlier run cut off anywhere after npm (a kill, a Ctrl-D at a prompt,
+		// a refused input) may have left the runtime stale, npm's files uncommitted or the setup unrun;
+		// resuming means finishing those steps, never re-running npm. Clean, compiled and no inputs
+		// given is nothing to do; inputs given go to the installed units' setup.
+		const names = plan.already;
 		const s = staleness(ws.root);
-		if (s.compiled && !s.stale.length) { log(`✔ already installed: ${plan.already.join(', ')} — nothing to do`); return EXIT.done; }
-		try { const fresh = await open(ws.root); compile(fresh); } catch (e) { console.error(`✖ compile: ${e.message.split('\n')[0]}`); return EXIT.failed; }
-		const dirty = ['package.json', 'package-lock.json'].filter((rel) => fs.existsSync(path.join(ws.root, rel)) && gitStatus(ws.root, rel) !== '');
-		if (!noCommit && dirty.length && gitOk(ws.root, ['rev-parse', '--git-dir'])) gitOk(ws.root, ['add', '--', ...dirty]) && gitOk(ws.root, ['commit', '--quiet', '-m', `dreamteamer: install ${plan.already.join(', ')}`, '--', ...dirty]);
-		log(`✔ already installed: ${plan.already.join(', ')} — the runtime was stale, so it was compiled${dirty.length ? ' and the pending npm changes committed' : ''}`);
-		return EXIT.done;
+		const stale = !s.compiled || s.stale.length > 0;
+		const pending = ['package.json', 'package-lock.json', '.env.example'].filter((rel) => fs.existsSync(path.join(ws.root, rel)) && gitStatus(ws.root, rel) !== '');
+		if (!stale && !pending.length && !inputFlags.length) { log(`✔ already installed: ${names.join(', ')} — nothing to do`); return EXIT.done; }
+		let fresh;
+		try {
+			fresh = await open(ws.root);
+			if (stale) { const stdout = console.log; if (json) console.log = console.error; try { compile(fresh); } finally { console.log = stdout; } }
+		} catch (e) { console.error(`✖ compile: ${e.message.split('\n')[0]}`); return EXIT.failed; }
+		const out = await setupAndCommit(ws, fresh, names, { subject: `dreamteamer: install ${names.join(', ')}`, ...setupOpts });
+		const did = [stale ? 'the stale runtime was compiled' : null, out.committed ? `the pending changes were committed (${out.committed.join(', ')})` : null, out.results.length ? 'the setup ran' : null].filter(Boolean);
+		if (json) { logOut(JSON.stringify({ workspace: { root: ws.root }, installed: [], already: names, committed: out.committed, units: out.results }, null, 2)); return out.code; }
+		log(`✔ already installed: ${names.join(', ')} — ${did.join('; ') || 'nothing to do'}`);
+		printUnitResults(out.results, out.ignored, log);
+		return out.code;
 	}
 	const names = plan.list.map((e) => e.manifest.name);
 	log(`▶ install: ${plan.list.map((e) => `${e.manifest.name}@${e.manifest.version}${e.kind === 'folder' ? ' (linked)' : ''}`).join(', ')}${plan.already.length ? ` — already here: ${plan.already.join(', ')}` : ''}`);
 
-	// 2. npm, with the two files it rewrites copied aside
-	const pkgFile = path.join(ws.root, 'package.json'), lockFile = path.join(ws.root, 'package-lock.json');
-	const before = { pkg: fs.readFileSync(pkgFile, 'utf8'), lock: fs.existsSync(lockFile) ? fs.readFileSync(lockFile, 'utf8') : null };
-	const args = ['install', '--save-exact', '--no-audit', '--no-fund', ...plan.list.map((e) => e.spec)];
-	log(`▶ npm ${args.join(' ')}`);
-	const r = spawnSync(npm, args, { cwd: ws.root, stdio: json ? ['ignore', 2, 2] : 'inherit', env: childEnv(), timeout: 600_000 });
-	if (r.status !== 0) { console.error(`✖ npm exited ${r.status ?? r.error?.message} — package.json and package-lock.json may have changed; run the same command again to resume`); return EXIT.failed; }
-	if (hooks.afterNpm) hooks.afterNpm();
-
-	// 3. verify every package in the list resolves
-	const still = names.filter((n) => !fs.existsSync(path.join(ws.root, 'node_modules', n, 'package.json')));
-	if (still.length) { console.error(`✖ npm exited 0, but ${still.join(', ')} still do${still.length === 1 ? 'es' : ''} not resolve in node_modules`); return EXIT.failed; }
-
-	// 4. compile, check — a refusal restores the pre-image and prunes
-	let fresh;
-	try {
-		fresh = await open(ws.root);
-		const stdout = console.log;
-		if (json) console.log = console.error;
-		try { compile(fresh); } finally { console.log = stdout; }
-	} catch (e) {
-		fs.writeFileSync(pkgFile, before.pkg);
-		if (before.lock !== null) fs.writeFileSync(lockFile, before.lock); else fs.rmSync(lockFile, { force: true });
-		// the packages this call added go, then npm prunes to the restored lockfile; an emptied scope folder goes too
-		for (const n of names) {
-			fs.rmSync(path.join(ws.root, 'node_modules', n), { recursive: true, force: true });
-			const scope = path.dirname(path.join(ws.root, 'node_modules', n));
-			try { if (n.startsWith('@') && fs.readdirSync(scope).length === 0) fs.rmdirSync(scope); } catch { /* not empty, or gone */ }
-		}
-		spawnSync(npm, ['install', '--no-audit', '--no-fund'], { cwd: ws.root, stdio: 'ignore', env: childEnv(), timeout: 600_000 });
-		console.error(`✖ install refused: ${e.message.split('\n')[0]}\n  package.json, package-lock.json and node_modules are as before the call`);
-		return EXIT.failed;
-	}
+	// 2–4. npm, verify, compile (a refusal restores the pre-image)
+	const step = await npmAndCompile(ws, plan.list, { npm, open, json, log, hooks, what: 'install' });
+	if (step.code !== undefined) return step.code;
+	const fresh = step.fresh;
 	if (verify) {
 		const stdout = console.log;
 		if (json) console.log = console.error;
@@ -276,54 +352,15 @@ export async function installModules(ws, argv, { open, npm = resolveNpm(), verif
 		if (bad) log('⚠ check reported violations (above) — the install stands; fix the records, or the module\'s rules');
 	}
 
-	// 5. the safe part of the new units' setup
-	const skipped = new Set(skippedUnits(fresh));
-	const fresh_units = units(fresh).filter((u) => names.includes(u.module) && !skipped.has(u.id));
-	let code = EXIT.done;
-	const results = [];
-	if (fresh_units.length) {
-		const term = tty && !noInput && !io ? ttyIO() : null;
-		try {
-			const filled = await fillInputs(fresh_units, { flags: inputFlags, env: { ...dotenv(fresh), ...processEnv }, tty, noInput, prompt: io?.prompt ?? term?.prompt ?? null });
-			for (const u of fresh_units) {
-				const res = await runUnit(fresh, u, { inputs: filled.inputs.get(u.id) ?? {}, allow, tty, ask: io?.ask ?? term?.ask ?? null, authorize: false, verify: false, processEnv });
-				const missing = filled.missing.filter((m) => m.unit === u.id).map((m) => m.id);
-				const f = fold(res.failed.length ? [...res.checks, ...res.failed.map((x) => ({ id: x.id, status: 'blocked', title: x.id, detail: x.message }))] : res.checks, {});
-				results.push({ id: u.id, module: u.module, ...f, applied: res.applied, pending: res.pending, failed: res.failed, needs: [...new Set([...missing, ...res.needs])] });
-				if (missing.length) code = Math.max(code, EXIT.needsInput);
-			}
-		} catch (e) {
-			if (e instanceof SetupUsage) { console.error(`✖ ${e.message}`); return EXIT.usage; }
-			throw e;
-		} finally { term?.close(); }
-	}
-
-	// 6. one scoped commit: the two files npm rewrote, .env.example if compile touched it, and every
-	//    path an applied action reported that git does not ignore
-	let committed = null;
-	if (!noCommit && gitOk(ws.root, ['rev-parse', '--git-dir'])) {
-		const changed = results.flatMap((r) => r.applied.flatMap((a) => a.changed ?? [])).map((p) => path.relative(ws.root, path.resolve(ws.root, p))).filter((rel) => rel && !rel.startsWith('..') && !path.isAbsolute(rel) && fs.existsSync(path.join(ws.root, rel)) && !ignored(ws.root, rel));
-		const paths = [...new Set(['package.json', 'package-lock.json', '.env.example', ...changed])].filter((rel) => fs.existsSync(path.join(ws.root, rel)));
-		if (gitOk(ws.root, ['add', '--', ...paths]) && gitOk(ws.root, ['commit', '--quiet', '-m', `dreamteamer: install ${names.join(', ')}`, '--', ...paths])) committed = paths;
-	}
-
-	if (json) { logOut(JSON.stringify({ workspace: { root: ws.root }, installed: names, already: plan.already, committed, units: results }, null, 2)); return code; }
-	log(`✔ installed ${names.join(', ')} — compiled${committed ? `, committed (${committed.join(', ')})` : noCommit ? ', not committed (--no-commit)' : ', not committed (not a git repository)'}`);
-	for (const r of results) {
-		const verified = r.verified ? ` · verified ${r.verified}` : '';
-		log(`${r.state === 'ready' ? '✔' : r.state === 'blocked' ? '✖' : '—'} ${r.id}: ${r.state}${verified}${r.detail ? ` — ${r.detail}` : ''}`);
-		for (const a of r.applied) log(`    ✔ ${a.id}${a.message ? ` — ${a.message}` : ''}`);
-		for (const f of r.failed) log(`    ✖ ${f.id} — ${f.message}`);
-		for (const p of r.pending) log(`    … ${p.id} (${p.why})`);
-		if (r.needs.length) log(`    needs input: ${r.needs.join(', ')} — dt setup ${r.id} --input ${r.needs[0]}=<value>`);
-	}
-	return code;
+	// 5–6. the safe part of the new units' setup, one scoped commit
+	const out = await setupAndCommit(ws, fresh, names, { subject: `dreamteamer: install ${names.join(', ')}`, ...setupOpts });
+	if (json) { logOut(JSON.stringify({ workspace: { root: ws.root }, installed: names, already: plan.already, committed: out.committed, units: out.results }, null, 2)); return out.code; }
+	log(`✔ installed ${names.join(', ')} — compiled${out.committed ? `, committed (${out.committed.join(', ')})` : noCommit ? ', not committed (--no-commit)' : ', not committed (not a git repository)'}`);
+	printUnitResults(out.results, out.ignored, log);
+	return out.code;
 }
 
 const dotenv = (ws) => {
 	const file = path.join(ws.root, '.env');
-	if (!fs.existsSync(file)) return {};
-	const out = {};
-	for (const line of fs.readFileSync(file, 'utf8').split('\n')) { const m = /^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=(.*)$/.exec(line); if (m) out[m[1]] = m[2].replace(/^"(.*)"$/, '$1').replace(/^'(.*)'$/, '$1'); }
-	return out;
+	return fs.existsSync(file) ? Object.fromEntries(parseEnvValues(fs.readFileSync(file, 'utf8'))) : {};
 };

@@ -1,0 +1,14 @@
+{
+	"name": "@fix/d",
+	"version": "2.0.0",
+	"description": "@fix/d 2.0.0",
+	"files": [
+		"collections"
+	],
+	"dreamteamer": {
+		"description": "@fix/d \u2014 a synthetic module for install and update tests.",
+		"dependencies": [
+			"@fix/c"
+		]
+	}
+}
