@@ -31,8 +31,9 @@ const sha = (f) => createHash('sha256').update(fs.readFileSync(f)).digest('hex')
 fs.writeFileSync(path.join(OUT, 'SHA256SUMS'), tgzs().sort().map((f) => `${sha(path.join(FROM, f))}  ${f}`).join('\n') + '\n');
 
 // ---- the sandbox: a temp HOME, the stand-ins first on PATH, git identity, npm fenced ----
-const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'dt-acceptance-'));
-const HOME = path.join(SANDBOX, 'home'); fs.mkdirSync(HOME);
+const SANDBOX = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'dt-acceptance-')));
+// realpath: google-workspace refuses a credential store whose path passes through a symlink, and macOS's tmp does
+const HOME = fs.realpathSync((() => { const h = path.join(SANDBOX, 'home'); fs.mkdirSync(h); return h; })());
 const ENV = { PATH: `${path.join(HERE, 'bin')}:${process.env.PATH}`, HOME, GIT_AUTHOR_NAME: 'acceptance', GIT_AUTHOR_EMAIL: 'acceptance@example.invalid', GIT_COMMITTER_NAME: 'acceptance', GIT_COMMITTER_EMAIL: 'acceptance@example.invalid', GIT_CEILING_DIRECTORIES: os.tmpdir(), npm_config_cache: path.join(SANDBOX, 'npm-cache'), npm_config_update_notifier: 'false', npm_config_audit: 'false', npm_config_fund: 'false' };
 // ⚠ npm's registry is NOT fenced here: the engine tarball's own dependencies (ajv, js-yaml, …) come from
 // it — public packages, the same ones a person's npm fetches. Every MODULE comes from the --from folder;
@@ -82,7 +83,9 @@ scenario('A1', 'empty folder → init → install → status, every line exit 0,
 
 scenario('A2', 'core then tasks, and tasks then core, refused before npm naming the pair', (ok) => {
 	const core = withProbe ? '@fix/core' : '@dreamteamer/core', small = withProbe ? '@fix/a' : '@dreamteamer/tasks';
-	const a = fresh('a2a'); dt(a, initArgs); ok(dt(a, ['install', core, '--from', FROM]).code === 0, 'core installs');
+	// the real core composes recordings, whose files_folder is required with no default: without a terminal the
+	// install exits 3 (needs input) unless the folder is given — so it is, as a script would
+	const a = fresh('a2a'); dt(a, initArgs); ok(dt(a, ['install', core, '--from', FROM, '--input', `files_folder=${path.join(HOME, 'hq-files')}`]).code === 0, 'core installs');
 	const h = treeHash(a); const r = dt(a, ['install', small, '--from', FROM]);
 	ok(r.code === 1 && /already provides/.test(r.stderr), `refused naming core: ${r.stderr}`); ok(treeHash(a) === h, 'nothing written');
 	const b = fresh('a2b'); dt(b, initArgs); ok(dt(b, ['install', small, '--from', FROM]).code === 0, 'small installs');
