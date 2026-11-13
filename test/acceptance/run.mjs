@@ -139,7 +139,7 @@ scenario('A5', 'an install interrupted after npm finishes on re-run; a third run
 scenario('A6', 'a provider that throws leaves its unit blocked and the rest intact; a compile refusal restores the pre-image', (ok) => {
 	const root = fresh('a6'); dt(root, initArgs);
 	const r = dt(root, ['install', '@probe/setup', '--from', FROM, '--input', 'label=probe'], { PROBE_THROW: 'apply' });
-	ok(r.code === 0 && /✖ probe: blocked/.test(r.stdout) && /token=\[redacted\]/.test(r.stdout) && !/hunter2/.test(r.stdout), 'blocked, redacted, exit 0');
+	ok(r.code === 1 && /✖ probe: blocked/.test(r.stdout) && /token=\[redacted\]/.test(r.stdout) && !/hunter2/.test(r.stdout), 'blocked, redacted, exit 1 (D57: a failed apply is a failure; the install itself stands)');
 	ok(dt(root, ['check']).code === 0, 'the workspace still checks');
 	const pkg = fs.readFileSync(path.join(root, 'package.json'), 'utf8'), lock = fs.readFileSync(path.join(root, 'package-lock.json'), 'utf8');
 	const mods = fs.readdirSync(path.join(root, 'node_modules')).sort().join(',');

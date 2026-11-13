@@ -655,6 +655,7 @@ export async function initCommand(flags, { root = process.cwd(), open, verify, n
 					log(`${f.state === 'ready' ? '✔' : '—'} ${u.id}: ${f.state}${f.detail ? ` — ${f.detail}` : ''}`);
 					for (const a of r.applied) log(`    ✔ ${a.id}${a.message ? ` — ${a.message}` : ''}`);
 					for (const x of r.failed) log(`    ✖ ${x.id} — ${x.message}`);
+					if (r.failed.length && code === 0) code = 1;   // D57: a failed apply is a failure; the workspace itself stands
 					for (const x of problems) log(`    ✖ ${x.id} — ${x.reason}`);
 					for (const pnd of r.pending) log(`    … ${pnd.id} (${pnd.why})${pnd.reason ? ` — ${pnd.reason}` : ''}`);
 					if (miss.length) { log(`    needs input: ${miss.join(', ')} — dt setup ${u.id} --input ${miss[0]}=<value>`); code = 3; }

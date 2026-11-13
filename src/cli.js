@@ -278,7 +278,7 @@ workspace verbs:
               step (sign-in, consent) runs only under [--authorize], in a terminal. [--verify] runs
               the unit's live check and writes its receipt. [--skip] records the skip in
               package.json (dt setup <unit> clears it). [--json] the result as data.
-              Exit 0 done (pending and blocked steps printed) · 2 usage · 3 a required input missing
+              Exit 0 done (pending and blocked steps printed) · 1 a unit's apply failed · 2 usage · 3 a required input missing
   status      workspace status: compiled runtime freshness, per-module channel/ref, staleness
 
   changes     the records created / updated / deleted in every repo that holds records — the

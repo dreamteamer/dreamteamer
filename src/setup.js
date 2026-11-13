@@ -359,7 +359,7 @@ const ttyAsk = (rl) => async (action, kinds) => {
 
 /**
  * `dt setup [<unit>] [--input k=v]… [--allow <kind>]… [--authorize] [--verify] [--skip] [--no-input] [--json]`
- * Exit: 0 done (pending and blocked steps printed — a unit's own failure is its blocked line, never a crash), 2 usage, 3 a required input missing.
+ * Exit: 0 done (pending and blocked steps printed), 1 a unit's apply failed (its blocked line names it — never a crash; D57), 2 usage, 3 a required input missing.
  */
 export async function setupCommand(ws, argv, { processEnv = process.env, tty = !!(process.stdin.isTTY && process.stdout.isTTY), log = console.log, api = null, io = null } = {}) {
 	const env = unitEnv(ws, processEnv);
@@ -398,6 +398,7 @@ export async function setupCommand(ws, argv, { processEnv = process.env, tty = !
 			const f = fold(r.failed.length ? [...r.checks, ...r.failed.map((x) => ({ id: x.id, status: 'blocked', title: x.id, detail: x.message }))] : r.checks, {});
 			results.push({ id: u.id, module: u.module, ...f, checks: r.checks, applied: r.applied, pending: r.pending, failed: r.failed, problems, needs: [...new Set([...missing, ...r.needs])] });
 			if (missing.length) code = Math.max(code, EXIT.needsInput);
+			else if (r.failed.length && code === EXIT.done) code = EXIT.failed;   // D57: an apply that failed is a failure, never a 0
 		}
 		for (const u of chosen.filter((x) => skipped.has(x.id))) results.push({ id: u.id, module: u.module, ...fold([], { skipped: true }), checks: [], applied: [], pending: [], failed: [], needs: [] });
 	} catch (e) {

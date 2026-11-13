@@ -160,10 +160,10 @@ describe('dt setup probe — the synthetic unit through every state', () => {
 		assert.ok(out.units[0].pending.some((p) => p.id === 'make-home' && p.why === 'needs input'));
 	});
 
-	test('a provider that throws in apply: the unit reads blocked with the error redacted, exit 0', () => {
+	test('a provider that throws in apply: the unit reads blocked with the error redacted, exit 1 (D57: a failed apply is a failure)', () => {
 		const ws = probed();
 		const r = run(ws.root, ['setup', 'probe', '--input', 'label=demo'], { PROBE_THROW: 'apply' });
-		assert.equal(r.code, 0, r.stderr);
+		assert.equal(r.code, 1, r.stderr);
 		assert.match(r.stdout, /✖ probe: blocked/);
 		assert.match(r.stdout, /✖ make-home — probe exploded: token=\[redacted\]/);
 		assert.doesNotMatch(r.stdout, /hunter2/);

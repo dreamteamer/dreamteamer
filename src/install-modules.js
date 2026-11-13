@@ -273,6 +273,7 @@ export async function setupAndCommit(ws, fresh, names, { subject, inputFlags = [
 				const f = fold(res.failed.length ? [...res.checks, ...res.failed.map((x) => ({ id: x.id, status: 'blocked', title: x.id, detail: x.message }))] : res.checks, {});
 				results.push({ id: u.id, module: u.module, ...f, applied: res.applied, pending: res.pending, failed: res.failed, problems, needs: [...new Set([...missing, ...res.needs])] });
 				if (missing.length) code = Math.max(code, EXIT.needsInput);
+				else if (res.failed.length && code === EXIT.done) code = EXIT.failed;   // D57: a failed apply is a failure; the install itself stands and is committed
 			}
 		} finally { term?.close(); }
 	}

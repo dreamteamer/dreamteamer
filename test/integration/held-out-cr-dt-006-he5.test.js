@@ -13,7 +13,7 @@ test('he5: an orphan receipt is never evidence — no ready · verified, no cras
 	installPackage(root, path.join(ENGINE_ROOT, 'test', 'fixtures', 'probe-setup'));
 	assert.equal(dt(root, ['compile']).code, 0);
 	const home = folder('probe-home');
-	const tok = path.join(folder('tok'), 'token'); fs.writeFileSync(tok, 'x');
+	const tok = path.join(folder('tok'), 'token'); fs.writeFileSync(tok, 'x', { mode: 0o600 }); fs.chmodSync(tok, 0o600);   // owner-only: the engine refuses a secret-path others can read (D56; amended 2026-11-13 by the operator's decision)
 	const env = { PROBE_TOKEN_PATH: tok };
 	const v = dt(root, ['setup', 'probe', '--input', 'label=x', '--input', `home=${home}`, '--verify', '--allow', 'machine', '--allow', 'download'], env);
 	assert.equal(v.code, 0, v.stderr + v.stdout);

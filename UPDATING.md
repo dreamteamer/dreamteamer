@@ -52,6 +52,11 @@ how a workspace is MADE and how a module is ADDED:
   terminal); inputs come from `--input id=value`, the environment, the declared default, or a terminal
   prompt; downloads, network and machine changes ask y/n or run under `--allow <kind>`; `--skip` records
   a skip in `package.json`. The old "`dt setup` is gone" refusal is gone.
+- **Exit codes, for scripts:** every setup-driving verb exits 0 when done (pending consent and the owner's
+  steps are printed, not errors), **1 when a unit's apply failed** (its blocked line names it; an
+  install itself stands and is committed), 2 on usage, 3 when a required input is missing.
+- **Known, not in this release:** workspace search isolation (`@dreamteamer/search` still asks the
+  global qmd index and may return another workspace's results) ships with the portable-HQ change, not here.
 - **`dt status` has a setup section** — one honest line per unit: `ready` (and `verified <date>` when a
   live check wrote its receipt), `configured` with what is still unverified, `skipped`, `blocked`, `no
   setup`. `dt doctor` renders a unit's checks as rows; `blocked` is bad, so `--strict` fails on it.
