@@ -61,6 +61,18 @@ describe('an env action, performed by the engine', () => {
 		assert.ok(!fs.existsSync(path.join(ws.root, '.env')), 'nothing written');
 	});
 
+	test('a pending env action never carries its values: --json lists the keys it would write, not what', () => {
+		const ws = probed();
+		fs.writeFileSync(path.join(ws.root, '.gitignore'), readFile(ws.root, '.gitignore').replace(/^\.env\n/m, ''));
+		git(ws.root, ['add', '-A']); git(ws.root, ['commit', '-qm', 'unignore .env']);
+		const r = run(ws.root, ['setup', 'probe', '--input', `label=${SECRET}`, '--json']);
+		assert.equal(r.code, 0, r.stderr);
+		assert.ok(!r.stdout.includes(SECRET), 'the value is not in --json');
+		const pending = JSON.parse(r.stdout).units[0].pending.find((p) => p.id === 'make-home');
+		assert.equal(pending.state, 'blocked');
+		assert.deepEqual(pending.env, ['PROBE_HOME', 'PROBE_LABEL']);
+	});
+
 	test('.env moved between the plan and the write: failed, exit 1 (D57)', () => {
 		const ws = probed();
 		const r = run(ws.root, ['setup', 'probe', '--input', 'label=demo'], { PROBE_TOUCH_ENV: '1' });

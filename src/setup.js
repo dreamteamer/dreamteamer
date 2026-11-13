@@ -247,7 +247,9 @@ export async function runUnit(ws, unit, { inputs = {}, allow = new Set(), tty = 
 		if (expect instanceof Error) return judgeEnvAction({ ...a, state: 'blocked', reason: expect.message }, { declared: unit.declared ?? new Set(), text: '', expect: null });
 		return judgeEnvAction(a, { declared: unit.declared ?? new Set(), text: envText(), temps: leftoverTemps(envFile), exposure: gitExposure(ws.root, '.env'), expect });
 	});
-	const withReason = (a, extra) => ({ ...a, ...extra, ...(a.reason !== undefined ? { reason: redact(a.reason) } : {}) });
+	// what is listed as pending is printed (and under --json, whole): an env action is listed by the KEYS it
+	// would write, never its values; a reason is failure text, redacted (D67)
+	const withReason = (a, extra) => ({ ...a, ...extra, ...(isEnvAction(a) ? { env: Object.keys(a.env ?? {}) } : {}), ...(a.reason !== undefined ? { reason: redact(a.reason) } : {}) });
 	// the plan is asked again after every applied action: an action's preconditions are often what the
 	// previous one made (a venv before the download, a key in .env before the check that reads it), so
 	// one pass would leave them pending for a second call that a person should not have to make
