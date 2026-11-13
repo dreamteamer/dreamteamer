@@ -62,11 +62,12 @@ export default function activate(dt) {
 ```
 
 - **`inspect` is synchronous and read-only** — `dt status` calls it without awaiting; an `async`
-  inspect is refused at load.
+  inspect is refused at load, one that returns a Promise reads `blocked`.
 - **An `env` action is the engine's to perform.** Name the keys and values; the engine writes `.env`:
   inside the workspace only, every other line kept, refused (`blocked`, nothing written) when git would
-  commit `.env`, when a key is assigned twice or a value holds a `"`, and refused (`failed`, exit 1)
-  when `.env` changed after the plan. The value is never printed. A value not yet known
+  commit `.env`, when a key is assigned twice, or a value holds `"`, `$`, a backtick or a carriage return
+  (a shell sourcing `.env` would read it differently), and refused (`failed`, exit 1) when `.env`
+  changed after the plan. A value already in the file is `done`, however it got there. The value is never printed. A value not yet known
   (`undefined`) makes the action `needs-input`; a key already holding its value makes it `done`.
   Every key must be in `dreamteamer.env` or `vars`.
 - **`.env` is the only file the engine writes for a unit** (0.48.0). Anything else your unit makes —

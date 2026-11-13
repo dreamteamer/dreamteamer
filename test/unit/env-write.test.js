@@ -89,12 +89,16 @@ describe('setEnvValues — replace in place, append when absent, keep every othe
 		assert.throws(() => setEnvValues('', { K: 'a\\\nb' }), (e) => e instanceof EnvRefusal && e.code === 'value');
 	});
 	test('a value the file already holds is done, whatever it holds — set by hand is never refused afterwards', () => {
-		assert.deepEqual(setEnvValues('K="say "hi""\n', { K: 'say "hi"' }).changed.length >= 0, true);
 		const byHand = 'K=say "hi"\n';
 		assert.deepEqual(setEnvValues(byHand, { K: 'say "hi"' }), { text: byHand, changed: [] });
 	});
 	test('a .env that starts with a byte-order mark is refused: the reader cannot see its first key', () => {
 		assert.throws(() => setEnvValues('\uFEFFK=old\n', { K: 'new' }), (e) => e instanceof EnvRefusal && e.code === 'bom' && /byte-order mark/.test(e.message));
+	});
+	test('a value a shell sourcing .env would expand or split is refused: $, a backtick, a carriage return', () => {
+		for (const v of ['$HOME/x', 'a`id`b', 'a\rb']) assert.throws(() => setEnvValues('', { K: v }), (e) => e instanceof EnvRefusal && e.code === 'value', JSON.stringify(v));
+		// already in the file (set by hand): done, never refused
+		assert.deepEqual(setEnvValues('K=$HOME/x\n', { K: '$HOME/x' }).changed, []);
 	});
 	test('a value holding a double quote is refused by code — the reader does not unescape', () => {
 		assert.throws(() => setEnvValues('', { K: 'say "hi"' }), (e) => e instanceof EnvRefusal && e.code === 'value' && /K: a value with characters this action does not write/.test(e.message));

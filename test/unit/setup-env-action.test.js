@@ -70,12 +70,23 @@ describe('redact — failure text only, the kit\'s rules folded in (D62, D67)', 
 		const keep = [
 			'WORKSPACE_MCP_CREDENTIALS_DIR_AND_SOME_MORE is unset',
 			'see 2026-11-13--cr-dt-007-code-review-of-module-authoring-engine',
-			'commit 2cd0d168cb34ad02edd0dcbd8a9ad652bde49e89',
 			'https://example.invalid/home/docs/x',
 			'git@github.com:northwind/portal.git',
 			'wrote /Users/Shared/cache',
 		];
 		for (const t of keep) assert.equal(redact(t), t, t);
+	});
+	test('round 2: a home path in a file URL, in backticks, second in a comma list — gone; a single-case long token — gone', () => {
+		assert.equal(redact('see file:///Users/dana/x'), 'see file://~/x');
+		assert.equal(redact('in `/home/dana/y`'), 'in `~/y`');
+		assert.equal(redact('a,/Users/dana/z'), 'a,~/z');
+		assert.equal(redact('key ' + 'a1'.repeat(20)), 'key [redacted]');
+		assert.equal(redact('xoxb-' + '1234567890'.repeat(4)), '[redacted]');
+	});
+	test('round 2: primary_key= and monkey= are not secrets; ACME_KEY= is not taken for one either, ACME_TOKEN= is', () => {
+		assert.equal(redact('primary_key=id monkey=banana'), 'primary_key=id monkey=banana');
+		assert.equal(redact('ACME_TOKEN=abc'), 'ACME_TOKEN=[redacted]');
+		assert.equal(redact('key=abc'), 'key=[redacted]');
 	});
 	test('a mixed-case token with digits is still redacted', () => {
 		assert.equal(redact('got Ab3' + 'xY9'.repeat(11)), 'got [redacted]');

@@ -69,7 +69,9 @@ export function setEnvValues(text, values) {
 		// a value the file already holds is done, whatever it holds: one a person set by hand after a refusal
 		// is never refused again
 		if (found.length === 1 && found[0].value === value) continue;
-		if (/["\0]/.test(value)) throw new EnvRefusal('value', `${key}: a value with characters this action does not write — set it by hand`);
+		// a `"` the reader does not unescape; `$`, a backtick or a carriage return a shell that sources .env
+		// would expand or split; NUL — refused, so what is written reads back as written everywhere
+		if (/["$`\r\0]/.test(value)) throw new EnvRefusal('value', `${key}: a value with characters this action does not write — set it by hand`);
 		if (found.length === 1) {
 			const s = found[0];
 			out = out.slice(0, s.start) + token(key, value, s.quoted === '"') + out.slice(s.end);
