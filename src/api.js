@@ -12,8 +12,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as self from './api.js';
 import { findWorkspace } from './workspace.js';
-import { loadExtensions } from './extensions.js';
-import { KINDS } from './compile.js';
+import { loadExtensions, manifestViolations } from './extensions.js';
+import fs from 'node:fs';
+import { KINDS, discoverModules } from './compile.js';
 import { DERIVED_KINDS } from './runtime.js';
 import { KNOWN_HARNESSES } from './harnesses.js';
 import { CORE_VERBS } from './cli.js';
@@ -46,6 +47,17 @@ export const CHECK_WARNINGS = true;
  *  item the extension marked `warning: true` keeps the mark: `check` prints it and does not count it. */
 export async function contributedViolations(ws) {
 	const out = [];
+	// every discovered module's manifest, held to the dependency rule — the workspace's own root and the
+	// engine are not modules anybody installs
+	try {
+		for (const m of discoverModules(ws.root, ws.pkg).modules) {
+			if (path.resolve(m.root) === path.resolve(ws.root)) continue;
+			let pkg;
+			try { pkg = JSON.parse(fs.readFileSync(path.join(m.root, 'package.json'), 'utf8')); } catch { continue; }
+			if (pkg.name === 'dreamteamer') continue;
+			for (const v of manifestViolations(pkg, path.relative(ws.root, path.join(m.root, 'package.json')))) out.push({ file: v.file, msg: v.message });
+		}
+	} catch { /* discovery failing is compile's to report */ }
 	for (const e of (ws.extensions ?? []).filter((x) => x.check)) {
 		try {
 			for (const v of (await e.check({ root: ws.root, ws, dt: self })) ?? []) out.push({ file: v.file ?? e.name, msg: `${v.message} (${e.name})`, ...(v.warning === true ? { warning: true } : {}) });
