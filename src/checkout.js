@@ -658,6 +658,7 @@ export async function initCommand(flags, { root = process.cwd(), open, verify, n
 					for (const x of problems) log(`    ✖ ${x.id} — ${x.reason}`);
 					for (const pnd of r.pending) log(`    … ${pnd.id} (${pnd.why})${pnd.reason ? ` — ${pnd.reason}` : ''}`);
 					if (miss.length) { log(`    needs input: ${miss.join(', ')} — dt setup ${u.id} --input ${miss[0]}=<value>`); code = 3; }
+					if (r.pending.some((p) => p.runBy === 'owner' || (p.effects ?? []).some((e) => e.kind === 'account'))) log(`    the owner's step (opens a browser): dt setup ${u.id}${miss.map((n) => ` --input ${n}=<value>`).join('')} --authorize`);
 				}
 			} catch (e) {
 				if (e instanceof SetupUsage) { fail(e.message); return EXIT.usage; }

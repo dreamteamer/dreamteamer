@@ -296,8 +296,11 @@ export function printUnitResults(results, ignored, log) {
 		for (const p of r.problems ?? []) log(`    ✖ ${p.id} — ${p.reason}`);
 		for (const p of r.pending) log(`    … ${p.id} (${p.why})${p.reason ? ` — ${p.reason}` : ''}`);
 		if (r.needs.length) log(`    needs input: ${r.needs.join(', ')} — dt setup ${r.id} --input ${r.needs[0]}=<value>`);
+		if (ownerStepPending(r)) log(`    the owner's step (opens a browser): dt setup ${r.id}${r.needs.map((n) => ` --input ${n}=<value>`).join('')} --authorize`);
 	}
 }
+/** Whether a unit still has a step only the owner runs — a sign-in, a consent — pending. */
+export const ownerStepPending = (r) => (r.pending ?? []).some((p) => p.runBy === 'owner' || (p.effects ?? []).some((e) => e.kind === 'account'));
 
 /**
  * `dt install <spec…> [--from <dir>] [--input k=v]… [--allow <kind>]… [--no-input] [--no-commit] [--json]`

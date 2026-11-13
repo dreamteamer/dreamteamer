@@ -413,6 +413,7 @@ export async function setupCommand(ws, argv, { processEnv = process.env, tty = !
 		for (const p of r.problems ?? []) log(`    ✖ ${p.id} — ${p.reason}`);
 		for (const p of r.pending) log(`    … ${p.id} (${p.why})${p.reason ? ` — ${p.reason}` : ''}`);
 		if (r.needs.length) log(`    needs input: ${r.needs.join(', ')} — --input ${r.needs[0]}=<value>`);
+		if (!flags.authorize && (r.pending ?? []).some((p) => p.runBy === 'owner' || (p.effects ?? []).some((e) => e.kind === 'account'))) log(`    the owner's step (opens a browser): dt setup ${r.id}${r.needs.map((n) => ` --input ${n}=<value>`).join('')} --authorize`);
 	}
 	return code;
 }

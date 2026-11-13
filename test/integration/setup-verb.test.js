@@ -70,6 +70,13 @@ describe('dt setup probe — the synthetic unit through every state', () => {
 		assert.doesNotMatch(r.stderr, /different values/);
 	});
 
+	test('a unit with the owner\'s step pending prints the command that runs it, --authorize included (hm7)', () => {
+		const ws = probed();
+		const r = run(ws.root, ['setup', 'probe', '--input', 'label=demo', '--no-input']);
+		assert.equal(r.code, 0, r.stderr);
+		assert.match(r.stdout, /the owner's step \(opens a browser\): dt setup probe --authorize/);
+	});
+
 	test('a blocked action carries the module\'s reason on the text line, not only in --json', () => {
 		const ws = probed();
 		const r = run(ws.root, ['setup', 'probe', '--input', 'label=demo', '--no-input'], { PROBE_BLOCK: '1' });
