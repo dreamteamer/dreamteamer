@@ -20,7 +20,7 @@ import { check } from './check.js';
 import { collectionCommand, emit, relationsCommand, reportCommits } from './collections-cli.js';
 import { formatDescriptors } from './schema-ops.js';
 import { init, installClone, update, listRepos } from './init.js';
-import { installCommand, describeCheckout } from './checkout.js';
+import { installCommand, describeCheckout, initCommand } from './checkout.js';
 import { declaredGitModules } from './workspace.js';
 const isOwnClone = (p) => { try { return !fs.lstatSync(p).isSymbolicLink() && fs.existsSync(path.join(p, '.git')); } catch { return false; } };
 import { foldChanges, groupChanges, reportLine } from './events.js';
@@ -29,6 +29,9 @@ import { Store } from './store.js';
 import { splitRef, canonicalCollection } from './ref.js';
 import { envContext, renderTemplate } from './env-vars.js';
 import { doctorBoard, renderBoard } from './doctor.js';
+import { setupCommand, statusLines, renderStatusLines } from './setup.js';
+import { installModules } from './install-modules.js';
+import { updateModules, parseUpdateArgs } from './update.js';
 import { storageOf } from './descriptor.js';
 
 // git calls whose failure we CATCH must not print git's own error: execFileSync forwards the
@@ -209,8 +212,17 @@ Every verb that MOVES records or CLEARS values takes --dry-run and prints its pl
     records N · refs M · descriptors K · values cleared V
 
 workspace verbs:
-  init        write the workspace skeleton into the current directory (never compiles)
-              [--harnesses claude-code,codex,pi,gemini-cli,cursor]
+  init        from a folder to a workspace in ONE command: pins the engine that runs it (exactly),
+              writes the skeleton, installs, compiles, checks, runs the safe part of any declared
+              module's setup, makes the folder a git repository when it is not one and commits what
+              it wrote (inside a repository: the same scoped commit, your staged work untouched).
+              Refused before any write: an engine of another version declared, locked or installed
+              (never upgraded — dt update --engine), and a path it writes that links out of the
+              folder. Re-run it to resume — a repeat changes nothing.
+              [--no-git] [--git <remote-url>] (adds origin, never pushes) [--no-compile]
+              [--from <dir>] (a preset's missing packages from a folder of tarballs, offline)
+              [--input <id>=<value>]… [--allow <kind>]… [--no-input] (a preset's setup, as \`setup\`)
+              [--harnesses claude-code,codex,pi,gemini-cli,cursor] [--workspace_module <name>]
   --version   print the engine version (works anywhere)
   install     make THIS checkout ready — the engine, .env (linked from the primary when this is a
               worktree), declared local assets, git modules, compile, and a declared postinstall.
@@ -226,7 +238,21 @@ workspace verbs:
   install     repos/<id> | repos --all [--json]
               materialize an attached repo's working tree ON DEMAND — never as part of making a
               checkout ready; --all is the explicit opt-in, e.g. before going offline
+  install     <spec>… [--from <dir>]          bring a MODULE in: a name, name@version, ./file.tgz,
+              ./folder (a development link) or a git URL — installs it and every module its
+              dreamteamer.dependencies names (refusing, before npm writes anything, a package with
+              no dreamteamer key, an engine floor this engine does not meet, a ring, a version
+              installed differently, and a package an installed one already provides), pins exact
+              versions, compiles, runs the safe part of the module's setup and commits package.json,
+              package-lock.json and what setup wrote. Without a version: npm's latest. --from
+              resolves names from a folder of tarballs (offline). Setup flags as for \`setup\`:
+              [--input <id>=<value>]… [--allow <kind>]… [--no-input]; [--no-commit] [--json]
+              Exit 0 done · 1 refused or failed (nothing half-written) · 2 usage · 3 input missing
   install     --clone <url> [name]            attach a git module to this workspace
+  update      <name>[@<version>] | --engine   move ONE npm pin forward on purpose: to the latest
+              release (or the named version), re-pinned exactly, closure-checked as install is,
+              compiled, committed. A downgrade needs [--allow downgrade]; a development link is
+              skipped and named; [--from <dir>] resolves from a folder of tarballs; [--no-commit]
   update      pull git_modules clones forward (ff-only on the lockfile ref), rebuild,
               then compile; [<name>] updates just one. dirty clones are skipped
   compile     materialize modules + workspace sources into .dreamteamer (+ harness adapters)
@@ -243,6 +269,16 @@ workspace verbs:
   doctor      what works on this machine — the engine, then each extension's checks — as one board:
               READY / DEGRADED / UNAVAILABLE, each fix on its row. Exit 0 [--strict] exit 1 when
               anything is UNAVAILABLE [--json]
+  setup       [<unit>] drive the setup a module declares — resume, repair, verify, sign in. The
+              engine names no module: a unit is what an installed package contributes (dt status
+              lists them). Inputs: [--input <id>=<value>]… (or <unit>.<id>=; then the environment,
+              then the declared default; a terminal asks for what is still missing, [--no-input]
+              never asks → exit 3 with the ids). Effects: workspace-file writes run; download,
+              network and machine ask y/n in a terminal or run under [--allow <kind>]…; an account
+              step (sign-in, consent) runs only under [--authorize], in a terminal. [--verify] runs
+              the unit's live check and writes its receipt. [--skip] records the skip in
+              package.json (dt setup <unit> clears it). [--json] the result as data.
+              Exit 0 done (pending and blocked steps printed) · 1 a unit's apply failed · 2 usage · 3 a required input missing
   status      workspace status: compiled runtime freshness, per-module channel/ref, staleness
 
   changes     the records created / updated / deleted in every repo that holds records — the
@@ -295,9 +331,10 @@ const FIELD_VERBS = ['add-field', 'set-field', 'rm-field', 'rename-field', 'rena
 export const GLOBAL_FLAGS = ['workspace', 'vault'];
 
 export const WORKSPACE_FLAGS = {
-	init: ['name', 'data_path', 'harnesses', 'workspace_module'], update: [],
-	install: ['clone', 'dry-run', 'json', 'link-env', 'all', 'hook', 'print-adapters'],
-	compile: ['watch'], check: ['strict-export'], exports: ['layer', 'dry-run', 'json'], status: [], doctor: ['strict', 'json'],
+	init: ['name', 'data_path', 'harnesses', 'workspace_module', 'no-git', 'git', 'no-compile', 'from', 'input', 'allow', 'no-input'], update: ['engine', 'allow', 'from', 'no-commit'],
+	install: ['clone', 'dry-run', 'json', 'link-env', 'all', 'hook', 'print-adapters', 'from', 'input', 'allow', 'no-input', 'no-commit'],
+	compile: ['watch'], check: ['strict-export'], exports: ['layer', 'dry-run', 'json'], status: ['json'], doctor: ['strict', 'json'],
+	setup: ['input', 'allow', 'authorize', 'verify', 'skip', 'no-input', 'json'],
 	changes: ['since', 'json'], commit: ['dry-run', 'json'], fmt: ['dry-run'], relocate: ['dry-run', 'json', 'to-root'],
 };
 
@@ -305,7 +342,7 @@ export const WORKSPACE_FLAGS = {
  *  spellings are in it too: they answer with their replacement, and an extension taking one over
  *  would turn a loud translation into a different command. */
 export const CORE_VERBS = [
-	'init', 'install', 'update', 'compile', 'check', 'exports', 'doctor', 'status', 'changes', 'commit', 'help', 'version', '--version', '-v',
+	'init', 'install', 'update', 'compile', 'check', 'exports', 'doctor', 'status', 'setup', 'changes', 'commit', 'help', 'version', '--version', '-v',
 	'list', 'add', 'values', 'get', 'set', 'rm', 'rename', 'history', 'diff', 'revert', 'reorder', 'next',
 	'add-field', 'set-field', 'rm-field', 'rename-field', 'rename-value', 'relations', 'resolve', 'relocate', 'fmt',
 	'schema', 'ensure', 'update-field', 'remove-field', 'commands',
@@ -350,8 +387,10 @@ export async function run(argv) {
 		if (cmd === 'init') {
 			// init runs BEFORE a workspace exists — no findWorkspace
 			const flags = {};
-			for (let i = 0; i < rest.length; i++) if (rest[i].startsWith('--')) flags[rest[i].slice(2)] = rest[i + 1];
-			process.exit(init({ flags }));
+			for (let i = 0; i < rest.length; i++) if (rest[i].startsWith('--')) { const [k, v] = rest[i].slice(2).split(/=(.*)/s); flags[k] = v ?? rest[i + 1]; }
+			// boolean flags take no value: a following positional is not theirs
+			for (const b of ['no-git', 'no-compile', 'no-input']) if (b in flags) flags[b] = true;
+			process.exit(await initCommand(flags, { open: openWorkspace, argv: rest, verify: async (ws) => check(ws, { extra: await api.contributedViolations(ws) }) }));
 		}
 		if (!cmd || cmd === 'help') {
 			// `help` works OUTSIDE a workspace too — a person who just ran `npm i -g dreamteamer` on a
@@ -362,7 +401,17 @@ export async function run(argv) {
 			emit(USAGE + extensionUsage(ws));
 			process.exit(0);
 		}
-		const ws = await openWorkspace();
+		let ws;
+		try { ws = await openWorkspace(); } catch (e) {
+			// `status` is read-only and always answers: a runtime whose extensions refuse to load (two
+			// packages claiming one unit, a bad declaration) is reported as the status, exit 0
+			if (cmd === 'status') {
+				console.log(`✖ extensions did not load — ${String(e.message).split('\n')[0]}`);
+				console.log('  the setup section cannot be read until that is fixed; records and the compiled runtime are untouched');
+				process.exit(0);
+			}
+			throw e;
+		}
 		// An EXTENSION'S VERB runs in-process, handed this workspace — the same engine instance, the
 		// same loaded extensions. Its exit code is the process's.
 		const ext = ws.extensions.find((e) => cmd in e.commands);
@@ -400,8 +449,16 @@ export async function run(argv) {
 					const args = target === 'repos' ? given : [target.slice('repos/'.length), ...given];
 					process.exit(collectionCommand(ws, 'repos', 'ensure', args));
 				}
-				if (target) {
-					throw new Error(`dt install takes no target "${target}" — \`dt install\` makes THIS checkout ready, and \`dt install repos/${target}\` materializes an attached repo`);
+				// THE SPEC FORM (src/install-modules.js): any positional that is not `repos…` is an npm spec —
+				// a name, name@version, ./file.tgz, ./folder, a git URL — and `--from` resolves names from a
+				// folder of tarballs. The flags are its own; the checkout form's are refused on it below.
+				if (target || given.includes('--from')) {
+					// the muscle memory `dt ensure <id>` taught: a bare repo id is named with its spelling, never sent to npm
+					let repoIds = [];
+					try { repoIds = listRepos(ws).map((r) => r.id); } catch { /* no repos descriptor */ }
+					if (target && repoIds.includes(target)) throw new Error(`"${target}" is an attached repo, not an npm spec — \`dt install repos/${target}\` materializes it`);
+					refuse('dt install <spec…>', ['--from', '--input', '--allow', '--no-input', '--no-commit', '--json']);
+					process.exit(await installModules(ws, rest, { open: openWorkspace, verify: async (w) => check(w, { extra: await api.contributedViolations(w) }) }));
 				}
 				// ⚠ TWO MORE FORMS, EACH ITS OWN VOCABULARY. `--hook` reads a JSON payload off stdin
 				// and installs the checkout that payload names; `--print-adapters` installs nothing
@@ -420,7 +477,12 @@ export async function run(argv) {
 				process.exit(await installCommand(ws, rest, { open: openWorkspace }));
 			}
 			case 'update': {
-				const code = update(ws, rest.find((a) => !a.startsWith('--')));
+				// an npm module or the engine moves through src/update.js; a git module (or no target) keeps
+				// the fast-forward path below
+				const u = parseUpdateArgs(rest);
+				const gitMods = Object.fromEntries(declaredGitModules(ws.pkg, ws.root).map);
+				if (u.engine || (u.name && !gitMods[u.name])) process.exit(await updateModules(ws, u, { open: openWorkspace }));
+				const code = update(ws, u.name);
 				compile(ws); // pulled modules may carry new sources — prints its own summary
 				process.exit(code);
 			}
@@ -437,9 +499,13 @@ export async function run(argv) {
 				const layers = rest.flatMap((a, i) => (a === '--layer' ? [rest[i + 1]] : a.startsWith('--layer=') ? [a.slice(8)] : [])).filter(Boolean);
 				process.exit(runExports(new Store(ws), { layers, dryRun: rest.includes('--dry-run'), json: rest.includes('--json') }));
 			}
+			// `dt setup [<unit>] …` — the generic driver of the units installed modules declare (src/setup.js):
+			// inputs, consent per effect, inspect → plan → apply, the receipt. The engine names no module.
+			case 'setup':
+				process.exit(await setupCommand(ws, rest, { api }));
 			case 'doctor': {
 				const caps = await doctorBoard(ws, api);
-				if (rest.includes('--json')) emit(JSON.stringify({ capabilities: caps }, null, 2));
+				if (rest.includes('--json')) emit(JSON.stringify({ workspace: { root: ws.root, name: ws.pkg?.name ?? null }, capabilities: caps }, null, 2));
 				else console.log(renderBoard(caps));
 				process.exit(rest.includes('--strict') && caps.some((c) => c.verdict === 'UNAVAILABLE') ? 1 : 0);
 			}
@@ -530,6 +596,11 @@ export async function run(argv) {
 					console.log(`✖ ${s.message}`);
 					process.exit(1);
 				}
+				if (rest.includes('--json')) {
+					const { modules: mods } = discoverModules(ws.root, ws.pkg);
+					emit(JSON.stringify({ workspace: { root: ws.root, name: ws.pkg?.name ?? null }, compiled: s.manifest.compiled, stale: s.stale, modules: mods.map((m) => ({ name: m.name, location: locationOf(m, ws.root) })), setup: statusLines(ws) }, null, 2));
+					process.exit(0);
+				}
 				console.log(`compiled: ${s.manifest.compiled}`);
 				// THE EDITOR, from the marker the extension writes on activation (`.dreamteamer/editor.json`).
 				// Without it an agent working inside the editor could not tell whether the extension was
@@ -549,6 +620,8 @@ export async function run(argv) {
 					// §10: the folder name IS the label. `hr  git_modules @ 3f2a1c (dirty)` needs no
 					// legend, and `[inline]` needed one every single time.
 					let line = `  ${m.name.padEnd(20)} ${locationOf(m, ws.root)}`;
+					// a development link (a folder spec): never pinned, skipped by update
+					try { if (m.channel === 'npm' && fs.lstatSync(path.join(ws.root, 'node_modules', m.name)).isSymbolicLink() && m.name !== 'dreamteamer') line += ' (linked)'; } catch { /* not under node_modules */ }
 					if (m.channel === 'git') {
 						const ref = tryGit(m.root, ['rev-parse', '--short', 'HEAD']);
 						const dirty = tryGit(m.root, ['status', '--porcelain']);
@@ -633,6 +706,9 @@ export async function run(argv) {
 						for (const r of pending) console.log(`  ${r.repo === '.' ? 'workspace' : r.repo}: ${r.rows.length}`);
 					}
 				} catch { /* no runtime yet, or not a git repo — status must still print */ }
+				// the SETUP section (src/setup.js): one line per unit the installed modules declare, folded
+				// from each unit's own inspect — read-only, and never from a stored success flag
+				try { for (const line of renderStatusLines(statusLines(ws))) console.log(line); } catch (e) { console.log(`setup: could not be read — ${e.message.split('\n')[0]}`); }
 				if (s.stale.length) {
 					for (const line of s.stale) console.log(`  stale: ${line}`);
 					console.log(`✖ .dreamteamer is stale (${s.stale.length}) — run \`dreamteamer compile\``);
@@ -754,10 +830,6 @@ export async function run(argv) {
 				}
 				if (DOCKER_VERBS.has(cmd)) {
 					console.error(`✖ \`dt ${cmd}\` is not a workspace verb — containers are managed by dt-docker:\n    npm i -g @dreamteamer/docker-workspaces\n    dt-docker ${cmd} container <name>`);
-					process.exit(2);
-				}
-				if (cmd === 'setup') {
-					console.error('✖ `dt setup` is gone — `dt doctor` shows what works on this machine, each fix on its row');
 					process.exit(2);
 				}
 				console.error(`✖ unknown verb "${cmd}" — the verb comes first: dt <verb> [<target>]`);

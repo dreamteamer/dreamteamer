@@ -1,0 +1,14 @@
+{
+	"name": "@fix/needs-plain",
+	"version": "1.0.0",
+	"description": "@fix/needs-plain 1.0.0",
+	"files": [
+		"collections"
+	],
+	"dreamteamer": {
+		"description": "depends on a package that is not a module",
+		"dependencies": [
+			"plain"
+		]
+	}
+}

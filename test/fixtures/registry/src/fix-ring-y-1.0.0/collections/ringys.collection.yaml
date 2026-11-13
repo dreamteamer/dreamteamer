@@ -1,0 +1,13 @@
+name: ringys
+description: A ringys record.
+storage:
+  path: ringys
+  format: md
+  shape: file
+  suffix: ringy
+ids:
+  from: '{{ title | slug }}'
+fields:
+  title:
+    type: string
+    required: true

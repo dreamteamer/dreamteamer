@@ -281,13 +281,14 @@ describe('dt install refuses what a form cannot honour', () => {
 		assert.equal(r.code, 1);
 		assert.match(r.stderr, /--all is not a flag of `dt install`/);
 	});
-	// The muscle memory the retired `dt ensure <id>` taught: without this, the target is ignored
-	// and a whole checkout install runs instead, reporting success for something else.
-	test('a bare positional is refused and named with the repos spelling', () => {
-		const ws = workspace();
+	// The muscle memory the retired `dt ensure <id>` taught: a bare positional is an npm spec since
+	// the spec form of install exists, EXCEPT the id of an attached repo, which is named with its
+	// spelling rather than sent to a registry.
+	test('a bare positional that is an attached repo id is refused and named with the repos spelling', () => {
+		const ws = workspace({ records: { repos: [{ name: 'widgets', path: '${workspaceFolder}/../widgets', url: 'https://example.invalid/widgets.git' }] } });
 		const r = dt(ws.root, 'install', 'widgets');
 		assert.equal(r.code, 1, `the target was silently ignored:\n${r.stdout}`);
-		assert.match(r.stderr, /takes no target "widgets"/);
+		assert.match(r.stderr, /"widgets" is an attached repo, not an npm spec — `dt install repos\/widgets` materializes it/);
 		assert.match(r.stderr, /dt install repos\/widgets/);
 	});
 });

@@ -1,0 +1,13 @@
+#!/bin/sh
+# A stand-in for uv in acceptance: no network, no venv — it creates what the recordings unit checks for.
+home="${UV_PROJECT_ENVIRONMENT:-$TRANSCRIPTION_HOME/venv}"
+case "$1" in
+  --version) echo "uv 0.0.0-acceptance"; exit 0 ;;
+  sync) mkdir -p "$home/bin" && : > "$home/bin/python" && chmod +x "$home/bin/python"; exit 0 ;;
+  run) root="${TRANSCRIPTION_HOME:-$HOME/.cache/dreamteamer/transcription}"
+       case "$*" in
+         *setup*) mkdir -p "$root/models/whisper-ct2" "$root/models/diarization" && : > "$root/models/whisper-ct2/model.bin" && : > "$root/models/diarization/segmentation.onnx" && : > "$root/models/diarization/embedding.onnx"; exit 0 ;;
+         *) echo "testing one two three, this is a dreamteamer check"; exit 0 ;;
+       esac ;;
+  *) exit 0 ;;
+esac

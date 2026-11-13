@@ -1,0 +1,9 @@
+{
+	"name": "@probe/collide",
+	"version": "1.0.0",
+	"description": "A plain module whose notes collection collides with the skeleton's starter \u2014 a compile refusal on install.",
+	"dreamteamer": {},
+	"files": [
+		"collections"
+	]
+}

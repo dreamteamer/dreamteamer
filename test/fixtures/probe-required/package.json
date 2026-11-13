@@ -1,0 +1,8 @@
+{
+	"name": "@probe/required",
+	"version": "1.0.0",
+	"description": "A synthetic module whose one unit REQUIRES a secret-path input — init and install must report an invalid one.",
+	"main": "entry.js",
+	"dreamteamer": { "extension": "entry.js", "env": ["PROBEREQ_TOKEN_PATH"] },
+	"files": ["entry.js"]
+}

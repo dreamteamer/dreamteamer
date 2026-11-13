@@ -14,6 +14,8 @@ import { execFileSync, spawnSync } from 'node:child_process';
 // of hanging the whole suite — which is what a silent Docker socket did on 2026-09-24.
 export const SPAWN_TIMEOUT_MS = 60_000;
 import fs from 'node:fs';
+import * as nodeCrypto from 'node:crypto';
+const cryptoModule = () => nodeCrypto;
 import os from 'node:os';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
@@ -116,27 +118,25 @@ function buildBase(dir) {
 	// self-contained, and it survives the per-test `cpSync` because .git comes along with it.
 	git(dir, ['config', 'user.email', 'test@example.invalid']);
 	git(dir, ['config', 'user.name', 'dreamteamer test']);
+	// THE ENGINE AS AN INSTALLED MODULE, declared and linked BEFORE init runs — `dt init` now installs
+	// the engine when it is missing (npm, the network), compiles and commits; with the engine already
+	// declared (a `file:` spec, which the exact-version check lets through) and present as a link, init
+	// runs no npm at all and the fixture stays offline. Without the engine the fixture would have no
+	// `collections`, `ui-views`, `repos` or `modules` collection: those are sources the engine
+	// CONTRIBUTES rather than things init writes, and a workspace that lacks them is not the one anybody
+	// runs. A symlink and the npm channel, because that is how a real workspace gets it, and pointing at
+	// the checkout under test means the fixture can never compile a DIFFERENT engine's descriptors.
+	fs.mkdirSync(path.join(dir, 'node_modules'), { recursive: true });
+	fs.symlinkSync(ENGINE_ROOT, path.join(dir, 'node_modules', 'dreamteamer'), 'dir');
+	const pkgFile = path.join(dir, 'package.json');
+	fs.writeFileSync(pkgFile, JSON.stringify({ name: path.basename(dir), private: true, version: '0.0.1', dependencies: { dreamteamer: `file:${ENGINE_ROOT}` } }, null, '\t') + '\n');
 	// through the real binary, because "what a user gets from `dreamteamer init`" is the thing
 	// every tier-2 test is implicitly asserting against
 	const res = spawnSync(process.execPath, [BIN, 'init'], { cwd: dir, env: GIT_ENV, encoding: 'utf8', timeout: SPAWN_TIMEOUT_MS, killSignal: 'SIGKILL' });
 	if (res.status !== 0) throw new Error(`fixture init failed:\n${res.stdout}\n${res.stderr}`);
-	// THE ENGINE AS AN INSTALLED MODULE — without this the fixture has no `collections`, `ui-views`,
-	// `repos` or `modules` collection, because those are sources the engine CONTRIBUTES rather than
-	// things init writes. A tier-2 workspace that lacks them is not the workspace anybody runs: the
-	// first thing it fails to reproduce is `store.writableDescriptor` refusing a compiled source.
-	//
-	// A symlink, and the npm channel, because that is how a real workspace gets it (`npm i
-	// dreamteamer` + a `dependencies` entry, which discoverModules requires). Pointing at the
-	// checkout under test also means the fixture can never compile a DIFFERENT engine's descriptors
-	// than the one the assertions run against.
-	fs.mkdirSync(path.join(dir, 'node_modules'), { recursive: true });
-	fs.symlinkSync(ENGINE_ROOT, path.join(dir, 'node_modules', 'dreamteamer'), 'dir');
-	const pkgFile = path.join(dir, 'package.json');
-	const pkg = JSON.parse(fs.readFileSync(pkgFile, 'utf8'));
-	pkg.dependencies = { ...pkg.dependencies, dreamteamer: '*' };
-	fs.writeFileSync(pkgFile, JSON.stringify(pkg, null, '\t') + '\n');
+	// init committed its own files; anything left (none, today) is swept into a second fixture commit
 	git(dir, ['add', '-A']);
-	git(dir, ['commit', '-qm', 'fixture: init']);
+	if (git(dir, ['status', '--porcelain'])) git(dir, ['commit', '-qm', 'fixture: init']);
 }
 
 const created = [];
@@ -174,7 +174,8 @@ export function workspace(opts = {}) {
 	}
 
 	const ws = { root, pkg };
-	if (opts.compile === false) return { root, ws, git: (a) => git(root, a) };
+	// an UNcompiled workspace: the base fixture was compiled by init, so the runtime goes
+	if (opts.compile === false) { fs.rmSync(path.join(root, '.dreamteamer'), { recursive: true, force: true }); return { root, ws, git: (a) => git(root, a) }; }
 
 	const out = compileQuietly(ws);
 	const store = new Store(ws);
@@ -462,4 +463,41 @@ export function bareWorkspace(sourceRoot, moduleId) {
 		dt: (...a) => dt(root, ...a),
 		git: (a) => git(root, a),
 	};
+}
+
+/** Install one of the engine's own fixture packages (test/fixtures/<id>) into a workspace's
+ *  node_modules under its package name and declare it, the way npm would have. Returns the dir. */
+export function installFixture(root, id) {
+	const src = path.join(ENGINE_ROOT, 'test', 'fixtures', id);
+	const name = JSON.parse(fs.readFileSync(path.join(src, 'package.json'), 'utf8')).name;
+	const dest = path.join(root, 'node_modules', name);
+	fs.mkdirSync(path.dirname(dest), { recursive: true });
+	fs.cpSync(src, dest, { recursive: true });
+	const pkgFile = path.join(root, 'package.json');
+	const pkg = JSON.parse(fs.readFileSync(pkgFile, 'utf8'));
+	pkg.dependencies = { ...pkg.dependencies, [name]: '1.0.0' };
+	fs.writeFileSync(pkgFile, JSON.stringify(pkg, null, '\t') + '\n');
+	return dest;
+}
+/** The synthetic setup provider (`@probe/setup`, unit `probe`) — see test/fixtures/probe-setup/entry.js. */
+export const withProbeSetup = (root) => installFixture(root, 'probe-setup');
+/** The colliding plain module (`@probe/collide`, a `notes` collection) — a compile refusal on install. */
+export const withProbeCollide = (root) => installFixture(root, 'probe-collide');
+
+/** A hash of every file under `root` (path, mode and bytes; `.git` excluded) — the read-only proof:
+ *  equal before and after a verb means the verb wrote nothing. */
+export function treeHash(root) {
+	const { createHash } = cryptoModule();
+	const h = createHash('sha256');
+	const walk = (dir) => {
+		for (const e of fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+			if (e.name === '.git') continue;
+			const p = path.join(dir, e.name);
+			if (e.isSymbolicLink()) { h.update(`L ${path.relative(root, p)} ${fs.readlinkSync(p)}\n`); continue; }
+			if (e.isDirectory()) { walk(p); continue; }
+			h.update(`F ${path.relative(root, p)} ${fs.statSync(p).mode}\n`); h.update(fs.readFileSync(p));
+		}
+	};
+	walk(root);
+	return h.digest('hex');
 }

@@ -305,16 +305,16 @@ describe('the store and check read compiled.fields', () => {
 
 	test('a unique value is refused at write and named by check', () => {
 		const w = ready();
-		const dup = dt(w.root, 'add', 'health/patients', '--name', 'Dan Levy', '--national_id', '123456789');
+		const dup = dt(w.root, 'add', 'health/patients', '--name', 'Pat Example', '--national_id', '123456789');
 		assert.notEqual(dup.code, 0);
 		assert.match(dup.stderr, /national_id: "123456789" is already taken by health\/patients\/dana-levi \(unique\)/);
 		// a hand-edited duplicate reaches disk; check is where it is reported
-		dt(w.root, 'add', 'health/patients', '--name', 'Dan Levy', '--national_id', '987654321');
-		const f = path.join(w.root, 'data', 'health', 'patients', 'dan-levy', 'patient.md');
+		dt(w.root, 'add', 'health/patients', '--name', 'Pat Example', '--national_id', '987654321');
+		const f = path.join(w.root, 'data', 'health', 'patients', 'pat-example', 'patient.md');
 		fs.writeFileSync(f, fs.readFileSync(f, 'utf8').replace('987654321', '123456789'));
 		const check = dt(w.root, 'check');
 		assert.notEqual(check.code, 0);
-		assert.match(check.stdout + check.stderr, /national_id: "123456789" is already taken by health\/patients\/(dana-levi|dan-levy) \(unique\)/);
+		assert.match(check.stdout + check.stderr, /national_id: "123456789" is already taken by health\/patients\/(dana-levi|pat-example) \(unique\)/);
 	});
 
 	test('a deprecated field still validates and warns on add', () => {
