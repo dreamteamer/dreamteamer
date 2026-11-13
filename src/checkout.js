@@ -464,7 +464,10 @@ const readJson = (f) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); }
  *  among its ancestors, and `..` means the parent of what was REACHED, never the lexical parent. A
  *  missing component ends resolution (nothing below it can be a link). Null past 40 links: a loop. */
 function landing(p) {
-	const pending = p.split(path.sep);
+	// the root (`/`, or `C:\` on Windows — never a segment to join, which made every path land at `C:\C:\…`)
+	// is the starting point; the segments after it are walked, either separator accepted
+	const segments = (q) => q.slice(path.parse(q).root.length).split(/[\\/]/);
+	const pending = segments(p);
 	let at = path.parse(p).root, hops = 0;
 	while (pending.length) {
 		const seg = pending.shift();
@@ -476,7 +479,7 @@ function landing(p) {
 		if (!st?.isSymbolicLink()) { at = next; continue; }
 		if (++hops > 40) return null;
 		const to = fs.readlinkSync(next);
-		pending.unshift(...to.split(path.sep));
+		pending.unshift(...segments(to));
 		if (path.isAbsolute(to)) at = path.parse(to).root;
 	}
 	return at;
@@ -484,9 +487,13 @@ function landing(p) {
 
 /** Would a write to `rel` (root-relative, unnormalised — `a/../b` resolves through `a`) land outside `root`? */
 export function escapes(root, rel) {
-	const base = fs.realpathSync(root), to = landing(`${base}${path.sep}${rel}`);
+	// the native realpath: on Windows the JS one leaves an 8.3 short name (RUNNER~1) that the walk below
+	// expands, and the two spellings of one folder would read as different places; case is folded there too
+	const canon = (q) => { try { return fs.realpathSync.native(q); } catch { return fs.realpathSync(q); } };
+	const fold = (q) => (process.platform === 'win32' ? q.toLowerCase() : q);
+	const base = canon(root), to = landing(`${base}${path.sep}${rel}`);
 	if (to === null) return true;
-	const r = path.relative(base, to);
+	const r = path.relative(fold(base), fold(to));
 	return r.startsWith('..') || path.isAbsolute(r);
 }
 
