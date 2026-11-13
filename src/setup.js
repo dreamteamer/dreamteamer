@@ -131,8 +131,8 @@ export async function fillInputs(units, { flags = [], env = {}, tty = false, noI
 				// a flag's bad value is the caller's to fix (usage, strict); one the environment or a default holds
 				// is reported on the unit's line and left unfilled, whoever runs
 				const problem = secretPathProblem(value);
-				if (problem && given.length) { refuse(`--input ${i.id}=${problem}`, { unit: u.id, id: i.id, reason: problem }); continue; }
-				if (problem) { problems.push({ unit: u.id, id: i.id, reason: problem }); continue; }
+				if (problem && given.length) { refuse(`--input ${i.id}=${problem}`, { unit: u.id, id: i.id, reason: problem, required: true }); continue; }
+				if (problem) { problems.push({ unit: u.id, id: i.id, reason: problem, required: !!i.required }); continue; }
 			}
 			inputs.get(u.id)[i.id] = value;
 		}
@@ -376,9 +376,10 @@ export async function setupCommand(ws, argv, { processEnv = process.env, tty = !
 		const filled = await fillInputs(run, { flags: inputFlags, env, tty, noInput, prompt });
 		for (const u of run) {
 			const r = await runUnit(ws, u, { inputs: filled.inputs.get(u.id) ?? {}, allow, tty, ask, authorize: flags.authorize, verify: flags.verify, processEnv, api });
-			const missing = filled.missing.filter((m) => m.unit === u.id).map((m) => m.id);
+			const problems = filled.problems.filter((m) => m.unit === u.id);
+			const missing = [...filled.missing.filter((m) => m.unit === u.id).map((m) => m.id), ...problems.filter((m) => m.required).map((m) => m.id)];
 			const f = fold(r.failed.length ? [...r.checks, ...r.failed.map((x) => ({ id: x.id, status: 'blocked', title: x.id, detail: x.message }))] : r.checks, {});
-			results.push({ id: u.id, module: u.module, ...f, checks: r.checks, applied: r.applied, pending: r.pending, failed: r.failed, needs: [...new Set([...missing, ...r.needs])] });
+			results.push({ id: u.id, module: u.module, ...f, checks: r.checks, applied: r.applied, pending: r.pending, failed: r.failed, problems, needs: [...new Set([...missing, ...r.needs])] });
 			if (missing.length) code = Math.max(code, EXIT.needsInput);
 		}
 		for (const u of chosen.filter((x) => skipped.has(x.id))) results.push({ id: u.id, module: u.module, ...fold([], { skipped: true }), checks: [], applied: [], pending: [], failed: [], needs: [] });
@@ -392,6 +393,7 @@ export async function setupCommand(ws, argv, { processEnv = process.env, tty = !
 		log(`${r.state === 'ready' ? '✔' : r.state === 'blocked' ? '✖' : '—'} ${r.id}: ${r.state}${verified}${r.detail ? ` — ${r.detail}` : ''}`);
 		for (const a of r.applied) log(`    ✔ ${a.id}${a.message ? ` — ${a.message}` : ''}`);
 		for (const f of r.failed) log(`    ✖ ${f.id} — ${f.message}`);
+		for (const p of r.problems ?? []) log(`    ✖ ${p.id} — ${p.reason}`);
 		for (const p of r.pending) log(`    … ${p.id} (${p.why})${p.reason ? ` — ${p.reason}` : ''}`);
 		if (r.needs.length) log(`    needs input: ${r.needs.join(', ')} — --input ${r.needs[0]}=<value>`);
 	}

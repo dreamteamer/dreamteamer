@@ -101,6 +101,17 @@ describe('dt setup probe — the synthetic unit through every state', () => {
 		fs.rmSync(tok, { force: true });
 	});
 
+	test('an optional secret-path the environment holds at 0644 is reported on the line and left unfilled — exit 0, nothing crashes', { skip: process.platform === 'win32' }, () => {
+		const ws = probed();
+		const tok = path.join(ws.root, '..', `envtok-${path.basename(ws.root)}`);
+		fs.writeFileSync(tok, 'x', { mode: 0o644 }); fs.chmodSync(tok, 0o644);
+		const r = run(ws.root, ['setup', 'probe', '--input', 'label=demo', '--no-input'], { PROBE_TOKEN_PATH: tok });
+		assert.equal(r.code, 0, r.stderr + r.stdout);
+		assert.match(r.stdout, /✖ token — .*readable by other users — chmod 600/);
+		assert.doesNotMatch(r.stdout, /needs input: token/);
+		fs.rmSync(tok, { force: true });
+	});
+
 	test('--authorize without a terminal is a usage refusal, exit 2', () => {
 		const ws = probed();
 		const r = run(ws.root, ['setup', 'probe', '--authorize']);

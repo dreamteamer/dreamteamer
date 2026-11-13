@@ -109,7 +109,7 @@ scenario('A3', 'a required input missing without a TTY: exit 3 and JSON names it
 
 scenario('A4', 'download waits for --allow, then configured; --verify writes the receipt and status reads ready · verified', (ok) => {
 	const root = fresh('a4'); dt(root, initArgs);
-	const tok = path.join(HOME, 'probe-token'); fs.writeFileSync(tok, 'x');
+	const tok = path.join(HOME, 'probe-token'); fs.writeFileSync(tok, 'x', { mode: 0o600 }); fs.chmodSync(tok, 0o600);   // a secret-path must be owner-only
 	const env = { PROBE_TOKEN_PATH: tok };
 	const home = path.join(HOME, 'a4-probe');
 	const r = dt(root, ['install', '@probe/setup', '--from', FROM, '--input', 'label=probe', '--input', `home=${home}`], env);

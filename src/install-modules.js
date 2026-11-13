@@ -257,7 +257,7 @@ export async function setupAndCommit(ws, fresh, names, { subject, inputFlags = [
 			for (const u of fresh_units) {
 				const res = await runUnit(fresh, u, { inputs: filled.inputs.get(u.id) ?? {}, allow, tty, ask: io?.ask ?? term?.ask ?? null, authorize: false, verify: false, processEnv });
 				const problems = filled.problems.filter((m) => m.unit === u.id);
-				const missing = [...filled.missing.filter((m) => m.unit === u.id).map((m) => m.id), ...problems.map((m) => m.id)];
+				const missing = [...filled.missing.filter((m) => m.unit === u.id).map((m) => m.id), ...problems.filter((m) => m.required).map((m) => m.id)];
 				const f = fold(res.failed.length ? [...res.checks, ...res.failed.map((x) => ({ id: x.id, status: 'blocked', title: x.id, detail: x.message }))] : res.checks, {});
 				results.push({ id: u.id, module: u.module, ...f, applied: res.applied, pending: res.pending, failed: res.failed, problems, needs: [...new Set([...missing, ...res.needs])] });
 				if (missing.length) code = Math.max(code, EXIT.needsInput);
