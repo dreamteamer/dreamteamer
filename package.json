@@ -40,6 +40,10 @@
 			"types": "./src/records-api.d.ts",
 			"default": "./src/records-api.js"
 		},
+		"./testing": {
+			"types": "./src/testing.d.ts",
+			"default": "./src/testing.js"
+		},
 		"./package.json": "./package.json"
 	},
 	"bin": {
