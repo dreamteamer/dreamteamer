@@ -51,6 +51,14 @@ describe('dt status — the setup section', () => {
 		// --json carries the same lines as data
 		const j = JSON.parse(run(ws.root, ['status', '--json'], { PROBE_TOKEN_PATH: tok }).stdout);
 		assert.equal(j.setup.find((l) => l.unit === 'probe').state, 'skipped');
+		// a skip entry no installed package provides is not silent: one line names it and how to clear it
+		const pkgFile = path.join(ws.root, 'package.json');
+		const pkg = JSON.parse(fs.readFileSync(pkgFile, 'utf8'));
+		pkg.dreamteamer.setup = { skipped: ['probe', 'ghost'] };
+		fs.writeFileSync(pkgFile, JSON.stringify(pkg, null, '\t') + '\n');
+		const g = run(ws.root, ['status'], { PROBE_TOKEN_PATH: tok });
+		assert.match(line(g.stdout, 'ghost'), /^  ghost\s+skipped\s+no installed package provides it/);
+		assert.equal(JSON.parse(run(ws.root, ['status', '--json'], { PROBE_TOKEN_PATH: tok }).stdout).setup.find((l) => l.unit === 'ghost').state, 'skipped');
 		assert.equal(j.workspace.root, fs.realpathSync(ws.root), 'every JSON result names workspace.root');
 		assert.equal(JSON.parse(run(ws.root, ['doctor', '--json'], { PROBE_TOKEN_PATH: tok }).stdout).workspace.root, fs.realpathSync(ws.root));
 	});

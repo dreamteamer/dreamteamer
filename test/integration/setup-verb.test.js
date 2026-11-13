@@ -63,6 +63,13 @@ describe('dt setup probe — the synthetic unit through every state', () => {
 		assert.match(w.stdout, /… verify \(needs --allow machine\)/);
 	});
 
+	test('two rows for a rows input in one call are both taken (US-006-3), exit 0', () => {
+		const ws = probed();
+		const r = run(ws.root, ['setup', 'probe', '--input', 'label=demo', '--input', 'rows=a|1', '--input', 'rows=b|2', '--no-input', '--json']);
+		assert.equal(r.code, 0, r.stderr + r.stdout);
+		assert.doesNotMatch(r.stderr, /different values/);
+	});
+
 	test('a blocked action carries the module\'s reason on the text line, not only in --json', () => {
 		const ws = probed();
 		const r = run(ws.root, ['setup', 'probe', '--input', 'label=demo', '--no-input'], { PROBE_BLOCK: '1' });

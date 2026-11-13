@@ -104,6 +104,20 @@ describe('fillInputs — precedence and sharing', () => {
 		assert.deepEqual(r.inputs.get('a'), { home: '/d' }); assert.deepEqual(r.inputs.get('b'), { home: '/d' });
 		assert.deepEqual(r.missing, []);
 	});
+	test('a rows input is repeatable: two --input rows in one call are two rows, never a two-values refusal', async () => {
+		const u = unit('meetings', [{ id: 'calendar', kind: 'rows', env: 'WORK_CALENDARS' }]);
+		const r = await fillInputs([u], { flags: [{ unit: null, id: 'calendar', value: 'a | mixed | me@example.invalid' }, { unit: null, id: 'calendar', value: 'b | mixed | me@example.invalid' }], env: {}, tty: false });
+		assert.deepEqual(r.inputs.get('meetings'), { calendar: ['a | mixed | me@example.invalid', 'b | mixed | me@example.invalid'] });
+		assert.deepEqual(r.problems, []);
+	});
+	test('a secret-path from the environment is checked too: a world-readable file is a problem on the line, never filled, never a crash', async () => {
+		const u = unit('probe', [{ id: 'token', kind: 'secret-path', env: 'PROBE_TOKEN_PATH' }]);
+		const tok = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'dt-tok-')), 'token');
+		fs.writeFileSync(tok, 'x', { mode: 0o644 }); fs.chmodSync(tok, 0o644);
+		const r = await fillInputs([u], { flags: [], env: { PROBE_TOKEN_PATH: tok }, tty: false });
+		assert.deepEqual(r.inputs.get('probe'), {});
+		assert.equal(r.problems.length, 1); assert.match(r.problems[0].reason, /readable by other users — chmod 600/);
+	});
 	test('two inputs naming one env key are one input (D39); a bare id across units with different env is ambiguous', async () => {
 		const files = unit('files', [{ id: 'files_folder', kind: 'path', env: 'FILES_FOLDER' }]);
 		const rec = unit('recordings', [{ id: 'files_folder', kind: 'path', env: 'FILES_FOLDER' }, { id: 'port', kind: 'string' }]);

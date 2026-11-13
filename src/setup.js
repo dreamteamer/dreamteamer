@@ -97,7 +97,7 @@ export async function fillInputs(units, { flags = [], env = {}, tty = false, noI
 	// different values for it in one call are a refusal naming both (D39)
 	const envValues = new Map(), envFlag = new Map(), conflicted = new Set();
 	for (const u of units) for (const i of u.inputs) for (const f of live) {
-		if (!i.env || !valueOf(u, i, f)) continue;
+		if (!i.env || i.kind === 'rows' || !valueOf(u, i, f)) continue;   // a rows input is repeatable: every flag is one more row
 		if (envValues.has(i.env) && envValues.get(i.env) !== f.value && envFlag.get(i.env) !== f) {
 			const first = envFlag.get(i.env);
 			refuse(`${flagText(first)} and ${flagText(f)} name one key, ${i.env}, with different values — give one`, { unit: u.id, id: i.id, reason: `${flagText(first)} and ${flagText(f)} name one key, ${i.env}, with different values — give one` });
@@ -127,10 +127,12 @@ export async function fillInputs(units, { flags = [], env = {}, tty = false, noI
 			}
 			if (value === undefined) { if (i.required) missing.push({ unit: u.id, id: i.id }); continue; }
 			if (i.kind === 'path' || i.kind === 'secret-path') value = expandHome(value, home);
-			if (i.kind === 'secret-path' && given.length) {
-				// checked only for a value this call gave: one the environment holds is the unit's to judge
+			if (i.kind === 'secret-path') {
+				// a flag's bad value is the caller's to fix (usage, strict); one the environment or a default holds
+				// is reported on the unit's line and left unfilled, whoever runs
 				const problem = secretPathProblem(value);
-				if (problem) { refuse(`--input ${i.id}=${problem}`, { unit: u.id, id: i.id, reason: problem }); continue; }
+				if (problem && given.length) { refuse(`--input ${i.id}=${problem}`, { unit: u.id, id: i.id, reason: problem }); continue; }
+				if (problem) { problems.push({ unit: u.id, id: i.id, reason: problem }); continue; }
 			}
 			inputs.get(u.id)[i.id] = value;
 		}
@@ -259,6 +261,9 @@ export function statusLines(ws, { processEnv = process.env } = {}) {
 			lines.push({ package: module, unit: u.id, grouped: us.length > 1, ...f, checks, next: nextCommand(u.id, f, checks) });
 		}
 	}
+	// a skip entry no installed package provides is not silent: one line names it and how to clear it
+	const provided = new Set([...byModule.values()].flat().map((u) => u.id));
+	for (const id of skipped) if (!provided.has(id)) lines.push({ package: null, unit: id, grouped: false, state: 'skipped', detail: 'no installed package provides it', verified: null, checks: [], next: `remove "${id}" from dreamteamer.setup.skipped in package.json` });
 	// every other installed module — an extension without a unit, or a plain module with no code at all —
 	// reads `no setup`, naming the declared env keys and vars nobody set; the engine and the workspace's own
 	// module are not modules anybody installs
