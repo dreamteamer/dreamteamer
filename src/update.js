@@ -86,7 +86,7 @@ function setupInChild(root, names, { subject, processEnv, noCommit }) {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dt-update-'));
 	const out = path.join(dir, 'result.json');
 	try {
-		const r = spawnSync(process.execPath, [CHILD, JSON.stringify({ root, names, subject, noCommit, out })], { cwd: root, stdio: ['ignore', 'inherit', 'inherit'], env: processEnv, timeout: 600_000 });
+		const r = spawnSync(process.execPath, [CHILD, JSON.stringify({ root, names, subject, noCommit, out })], { cwd: root, stdio: ['ignore', 'inherit', 'inherit'], env: processEnv });
 		if (r.status !== 0) return null;
 		try { return JSON.parse(fs.readFileSync(out, 'utf8')); } catch { return null; }
 	} finally { fs.rmSync(dir, { recursive: true, force: true }); }

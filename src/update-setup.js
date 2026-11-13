@@ -10,6 +10,12 @@ import { openWorkspace } from './api.js';
 import { setupAndCommit } from './install-modules.js';
 
 const { root, names, subject, noCommit, out } = JSON.parse(process.argv[2]);
-const ws = await openWorkspace(root);
-const r = await setupAndCommit(ws, ws, names, { subject, noCommit, processEnv: process.env });
-fs.writeFileSync(out, JSON.stringify(r));
+try {
+	const ws = await openWorkspace(root);
+	const r = await setupAndCommit(ws, ws, names, { subject, noCommit, processEnv: process.env });
+	fs.writeFileSync(out, JSON.stringify(r));
+} catch (e) {
+	// one line, as the CLI reports a failure — never Node's trace; the parent names how to finish
+	console.error(`✖ ${String(e?.message ?? e).split('\n')[0]}`);
+	process.exitCode = 1;
+}
