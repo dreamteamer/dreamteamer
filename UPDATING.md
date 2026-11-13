@@ -20,6 +20,30 @@ npx dreamteamer check
 
 ---
 
+## 0.48.0 — writing a module on the engine alone (CR-dt-007)
+
+Nothing to do but `dt compile`. Nothing an existing workspace's records do changes, and every module
+written for 0.47.0 keeps working unchanged. New, for module authors:
+
+- **An `env` action** — `env: { KEY: value }` on a setup action — is written into `.env` by the engine
+  (confined, fingerprint-checked, never printed). `apply` is optional; `inspect` must be synchronous
+  (an `async` one is refused at load). A unit that uses `env` floors on `>=0.48.0`.
+- **`dreamteamer/testing`** — `createWorkspace`, `pack`, `install`, `run`, `engineMeets`, `ENGINE` — a
+  module's own suite on the real engine with `node --test`.
+- **`dt check modules/<id> --alone`** — packed, installed into a fresh workspace with only its declared
+  dependencies, compiled, checked: exit 0 means publishable.
+- **`dt add modules --extension --package <npm name>`** scaffolds a publishable module: the floor, the
+  `files` list, a README, an extension entry with one setup unit. Every new module now also gets
+  `type: module`, `dreamteamer.engine` and a README.
+- **`dt check`** names a module that lists `dreamteamer` under `dependencies`; a `peerDependencies`
+  floor on the engine prints `dt update --engine`, never `npm install dreamteamer@…`.
+- **Redaction** of a unit's failure text also strips e-mail addresses, home folders and long tokens,
+  and no longer touches a `<placeholder>` or a check's fix line.
+
+`references/writing-a-module.md` is the whole path.
+
+---
+
 ## 0.47.0 — the CLI-first module lifecycle (CR-dt-006)
 
 Nothing to do but `dt compile`. Nothing an existing workspace's records do changes. What changes is
