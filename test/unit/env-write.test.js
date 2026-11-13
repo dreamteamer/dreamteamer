@@ -81,6 +81,21 @@ describe('setEnvValues — replace in place, append when absent, keep every othe
 	test('a key assigned twice is refused by code', () => {
 		assert.throws(() => setEnvValues('K=1\nK=2\n', { K: '3' }), (e) => e instanceof EnvRefusal && e.code === 'twice' && /K is assigned more than once in \.env/.test(e.message));
 	});
+	test('a backslash: written unquoted when nothing else needs quoting (a Windows path), refused when it would have to be quoted', () => {
+		const { text } = setEnvValues('A=1\n', { K: 'C:\\Users\\x' });
+		assert.equal(parseEnvValues(text).get('K'), 'C:\\Users\\x');
+		assert.equal(parseEnvValues(text).get('A'), '1');
+		assert.throws(() => setEnvValues('A=1\nB=2\n', { K: 'two words\\' }), (e) => e instanceof EnvRefusal && e.code === 'value');
+		assert.throws(() => setEnvValues('', { K: 'a\\\nb' }), (e) => e instanceof EnvRefusal && e.code === 'value');
+	});
+	test('a value the file already holds is done, whatever it holds — set by hand is never refused afterwards', () => {
+		assert.deepEqual(setEnvValues('K="say "hi""\n', { K: 'say "hi"' }).changed.length >= 0, true);
+		const byHand = 'K=say "hi"\n';
+		assert.deepEqual(setEnvValues(byHand, { K: 'say "hi"' }), { text: byHand, changed: [] });
+	});
+	test('a .env that starts with a byte-order mark is refused: the reader cannot see its first key', () => {
+		assert.throws(() => setEnvValues('\uFEFFK=old\n', { K: 'new' }), (e) => e instanceof EnvRefusal && e.code === 'bom' && /byte-order mark/.test(e.message));
+	});
 	test('a value holding a double quote is refused by code — the reader does not unescape', () => {
 		assert.throws(() => setEnvValues('', { K: 'say "hi"' }), (e) => e instanceof EnvRefusal && e.code === 'value' && /K: a value with characters this action does not write/.test(e.message));
 	});

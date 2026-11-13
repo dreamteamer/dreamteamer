@@ -177,12 +177,16 @@ export function fold(checks, { skipped = false } = {}) {
  *  never to a check's fix or title, an action's title or a next-command line (D67). */
 export function redact(text) {
 	return String(text ?? '')
-		.replace(/\b(token|secret|password|passwd|api[_-]?key|key|client[_-]?secret|credential)=(?!<)\S+/gi, '$1=[redacted]')
+		// a key=value whose key ends in a secret word, prefixed or not (ACME_TOKEN=…, token=…); a <placeholder> is not a value
+		.replace(/\b([A-Za-z0-9_]*?(?:token|secret|password|passwd|api[_-]?key|key|client[_-]?secret|credential))=(?!<)\S+/gi, '$1=[redacted]')
 		.replace(/\bBearer\s+\S+/g, 'Bearer [redacted]')
-		.replace(/[^\s@"'<>()]+@[^\s@"'<>()]+\.[A-Za-z]{2,}/g, '<email>')
-		.replace(/(?:\/Users|\/home)\/[^\s/"']+/g, '~')
-		.replace(/[A-Za-z]:\\Users\\[^\s\\"']+/g, '~')
-		.replace(/\b[A-Za-z0-9_-]{32,}\b/g, '[redacted]');
+		// an e-mail address — but not the `git@host` of an ssh remote
+		.replace(/[^\s@"'<>():]+@[^\s@"'<>():/]+\.[A-Za-z]{2,}/g, (m) => (m.startsWith('git@') ? m : '<email>'))
+		// a home folder, where a path starts — not a /home/ segment inside a URL, not the shared folder
+		.replace(/(^|[\s"'=(:])\/(?:Users|home)\/(?!Shared\b)[^\s/"']+/g, '$1~')
+		.replace(/(^|[\s"'=(:])[A-Za-z]:\\Users\\[^\s\\"']+/g, '$1~')
+		// a long token mixes lower case, upper case and digits; an env key, a dated id and a sha do not
+		.replace(/\b(?=[A-Za-z0-9_-]*[a-z])(?=[A-Za-z0-9_-]*[A-Z])(?=[A-Za-z0-9_-]*\d)[A-Za-z0-9_-]{32,}\b/g, '[redacted]');
 }
 
 /**
@@ -310,8 +314,15 @@ export async function runUnit(ws, unit, { inputs = {}, allow = new Set(), tty = 
 	return { checks: safeInspect(unit, ctx), applied, pending, failed, needs };
 }
 
-function safeInspect(unit, ctx) {
-	try { const r = unit.inspect(ctx); return Array.isArray(r?.checks) ? r.checks : []; } catch (e) { return [{ id: `${unit.id}.inspect`, status: 'blocked', title: 'inspect', detail: redact(e.message) }]; }
+/** A unit's checks, never a throw: a thrown error is one blocked row, redacted; an inspect that hands back a
+ *  Promise (a plain function wrapping an async body — the load-time rule only sees an AsyncFunction) is a
+ *  blocked row naming the fix, never "no evidence". `dt doctor` reads through it too. */
+export function safeInspect(unit, ctx) {
+	try {
+		const r = unit.inspect(ctx);
+		if (typeof r?.then === 'function') { r.then(null, () => {}); return [{ id: `${unit.id}.inspect`, status: 'blocked', title: 'inspect', detail: 'inspect returned a Promise — dt status reads it without awaiting; make it synchronous' }]; }
+		return Array.isArray(r?.checks) ? r.checks : [];
+	} catch (e) { return [{ id: `${unit.id}.inspect`, status: 'blocked', title: 'inspect', detail: redact(e.message) }]; }
 }
 
 /** The setup section of `dt status`: one entry per unit, then one per package with no unit. */

@@ -3,7 +3,7 @@
 // the leftover temps, never a path.
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { judgeEnvAction, redact } from '../../src/setup.js';
+import { judgeEnvAction, redact, safeInspect } from '../../src/setup.js';
 
 const declared = new Set(['PROBE_HOME', 'PROBE_LABEL']);
 const action = (env, extra = {}) => ({ id: 'make-home', title: 'write .env', env, ...extra });
@@ -62,10 +62,33 @@ describe('redact — failure text only, the kit\'s rules folded in (D62, D67)', 
 		assert.equal(redact('signed in as dana.o@northwind.example'), 'signed in as <email>');
 		assert.equal(redact('wrote /Users/dana/.config/x and /home/dana/y'), 'wrote ~/.config/x and ~/y');
 		assert.equal(redact('C:\\Users\\dana\\x'), '~\\x');
-		assert.equal(redact('got ' + 'a'.repeat(40)), 'got [redacted]');
+	});
+	test('a prefixed key=value is a value too: ACME_TOKEN=… is redacted', () => {
+		assert.equal(redact('ACME_TOKEN=abc123 and DB_PASSWORD=x'), 'ACME_TOKEN=[redacted] and DB_PASSWORD=[redacted]');
+	});
+	test('legitimate text stays: a long env key name, a long dated id, a sha, a /home/ URL segment, a git remote, /Users/Shared', () => {
+		const keep = [
+			'WORKSPACE_MCP_CREDENTIALS_DIR_AND_SOME_MORE is unset',
+			'see 2026-11-13--cr-dt-007-code-review-of-module-authoring-engine',
+			'commit 2cd0d168cb34ad02edd0dcbd8a9ad652bde49e89',
+			'https://example.invalid/home/docs/x',
+			'git@github.com:northwind/portal.git',
+			'wrote /Users/Shared/cache',
+		];
+		for (const t of keep) assert.equal(redact(t), t, t);
+	});
+	test('a mixed-case token with digits is still redacted', () => {
+		assert.equal(redact('got Ab3' + 'xY9'.repeat(11)), 'got [redacted]');
 	});
 	test('a 31-character token, a dated id and a sha prefix stay', () => {
 		const dated = '2026-11-13--cr-dt-007-he5';
 		assert.equal(redact(`see ${dated} and ${'b'.repeat(31)}`), `see ${dated} and ${'b'.repeat(31)}`);
+	});
+});
+
+describe('an inspect that returns a Promise — a plain function hiding an async body', () => {
+	test('reads blocked with the reason, never "no evidence"', () => {
+		const unit = { id: 'acme', inspect: () => Promise.resolve({ checks: [] }) };
+		assert.deepEqual(safeInspect(unit, {}), [{ id: 'acme.inspect', status: 'blocked', title: 'inspect', detail: 'inspect returned a Promise — dt status reads it without awaiting; make it synchronous' }]);
 	});
 });

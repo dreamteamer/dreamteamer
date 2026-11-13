@@ -22,7 +22,7 @@ import { FIELD_OPTIONS, TEMPLATE_OPTIONS, viewOverlayOf } from './views.js';
 const GIT_QUIET = ['ignore', 'pipe', 'ignore'];
 import { walk, idFromRecordPath, parseRecord, EXT } from './records.js';
 import { Store, serialize, atomicWrite } from './store.js';
-import { readmeText, extensionText, scaffoldKey } from './scaffold-templates.js';
+import { readmeText, extensionText, testText, scaffoldKey } from './scaffold-templates.js';
 
 // ---- the gate -------------------------------------------------------------------
 
@@ -305,6 +305,11 @@ export function createModule(ws, store, { name, description, namespace, extensio
 	if (!name || name === true) throw new Error('missing module name — dreamteamer add modules --name <id>');
 	if (pkgName === true) throw new Error('--package takes the npm name: dreamteamer add modules --name <id> --package @scope/<id>');
 	if (pkgName && (pkgName.length > 214 || !NPM_NAME.test(pkgName))) throw new Error(`"${pkgName}" is not an npm package name — lowercase, URL-safe, optionally @scope/name`);
+	if (extension && !/^[a-z]/.test(name)) throw new Error(`--extension needs a module id that starts with a letter — "${name}" becomes the setup unit's id and its env key (${scaffoldKey(name)}), and both must start with one`);
+	if (pkgName) {
+		const holder = discoverModules(ws.root, ws.pkg).modules.find((m) => { try { return JSON.parse(fs.readFileSync(path.join(m.root, 'package.json'), 'utf8')).name === pkgName; } catch { return false; } });
+		if (holder) throw new Error(`${pkgName} is already the package name of ${path.relative(ws.root, holder.root) || holder.root} — two modules under one name would shadow each other; pick another --package`);
+	}
 	if (!MODULE_ID.test(name)) {
 		throw new Error(`invalid module id "${name}" — lowercase alphanumeric with single hyphens. It becomes a folder name, a package name and a record id at once, so there is only one spelling.`);
 	}
@@ -342,10 +347,10 @@ export function createModule(ws, store, { name, description, namespace, extensio
 	// `--package` makes it publishable: its npm name (the module id stays the folder), a first version,
 	// and the engine as a devDependency for its own tests — never `dependencies`, which would nest a second engine (D66)
 	const mpkg = pkgName
-		? { name: pkgName, version: '0.1.0', type: 'module', files, devDependencies: { dreamteamer: ENGINE_VERSION }, dreamteamer: dt }
-		: { name, private: true, version: '0.0.1', type: 'module', files, dreamteamer: dt };
+		? { name: pkgName, version: '0.1.0', type: 'module', files, scripts: { test: 'node --test' }, devDependencies: { dreamteamer: ENGINE_VERSION }, dreamteamer: dt }
+		: { name, private: true, version: '0.0.1', type: 'module', files, scripts: { test: 'node --test' }, dreamteamer: dt };
 	const pkgFile = path.join(root, 'package.json');
-	const written = { 'README.md': readmeText({ id: name, pkgName: mpkg.name, description, extension }), ...(extension ? { 'src/extension.js': extensionText({ id: name }) } : {}) };
+	const written = { 'README.md': readmeText({ id: name, pkgName: mpkg.name, description, extension }), 'test/module.test.mjs': testText({ id: name }), ...(extension ? { 'src/extension.js': extensionText({ id: name }) } : {}) };
 
 	const out = gatedTreeOp(ws, store, {
 		subject: `dreamteamer: modules add ${name}`,

@@ -18,10 +18,10 @@ describe('dt add modules — a publishable scaffold', () => {
 		const ws = twoModuleWorkspace();
 		const r = ws.dt('add', 'modules', '--name', 'acme', '--extension', '--package', '@acme/acme', '--description', 'Acme records.');
 		assert.equal(r.code, 0, r.stdout + r.stderr);
-		for (const f of ['package.json', 'README.md', 'src/extension.js']) assert.ok(fs.existsSync(path.join(ws.root, 'modules/acme', f)), f);
-		assert.match(r.stdout, /package\.json · README\.md · src\/extension\.js/);
+		for (const f of ['package.json', 'README.md', 'src/extension.js', 'test/module.test.mjs']) assert.ok(fs.existsSync(path.join(ws.root, 'modules/acme', f)), f);
+		assert.match(r.stdout, /package\.json · README\.md · test\/module\.test\.mjs · src\/extension\.js/);
 		const stat = git(ws.root, ['show', '--name-only', '--pretty=', 'HEAD']).split('\n').filter(Boolean).sort();
-		assert.deepEqual(stat, ['modules/acme/README.md', 'modules/acme/package.json', 'modules/acme/src/extension.js']);
+		assert.deepEqual(stat, ['modules/acme/README.md', 'modules/acme/package.json', 'modules/acme/src/extension.js', 'modules/acme/test/module.test.mjs']);
 		const pkg = pkgOf(ws, 'acme');
 		assert.equal(pkg.name, '@acme/acme');
 		assert.equal(pkg.version, '0.1.0');
@@ -33,6 +33,7 @@ describe('dt add modules — a publishable scaffold', () => {
 		assert.deepEqual(pkg.dreamteamer.env, ['ACME_TOKEN']);
 		assert.equal(pkg.dreamteamer.description, 'Acme records.');
 		assert.equal(pkg.devDependencies.dreamteamer, VERSION);
+		assert.equal(pkg.scripts.test, 'node --test', 'the README says npm test — there is a test script to run');
 		assert.equal(pkg.dependencies, undefined, 'never a dependencies entry on the engine');
 		assert.match(readFile(ws.root, 'modules/acme/README.md'), /dt install @acme\/acme/);
 		// the tarball carries the entry and the README
@@ -44,9 +45,11 @@ describe('dt add modules — a publishable scaffold', () => {
 		assert.equal(ws.dt('compile').code, 0);
 		const s = ws.dt('status');
 		assert.match(s.stdout, /acme\s+configured\s+ACME_TOKEN missing\s+→ dt setup acme --input token=<token>/);
-		// and the gate passes before the author writes a line
+		// and the gate passes before the author writes a line, and so does the scaffolded test
 		const gate = ws.dt('check', 'modules/acme', '--alone');
 		assert.equal(gate.code, 0, gate.stdout + gate.stderr);
+		const t = spawnSync(resolveNpm(), ['test'], { cwd: path.join(ws.root, 'modules/acme'), encoding: 'utf8', env: childEnv(), timeout: 300_000 });
+		assert.equal(t.status, 0, t.stdout + t.stderr);
 	});
 
 	test('no flags: today\'s scaffold plus type, the floor, the files list and a README', () => {
@@ -70,5 +73,22 @@ describe('dt add modules — a publishable scaffold', () => {
 		assert.notEqual(bad.code, 0);
 		assert.match(bad.stderr, /"Not A Name" is not an npm package name/);
 		assert.ok(!fs.existsSync(path.join(ws.root, 'modules/other')));
+	});
+
+	test('--extension on an id that starts with a digit is refused before anything is written: it becomes a unit id and an env key', () => {
+		const ws = twoModuleWorkspace();
+		const r = ws.dt('add', 'modules', '--name', '3d', '--extension');
+		assert.notEqual(r.code, 0);
+		assert.match(r.stderr, /--extension needs a module id that starts with a letter/);
+		assert.ok(!fs.existsSync(path.join(ws.root, 'modules/3d')));
+	});
+
+	test('--package naming a package another module of this workspace already is: refused, naming it', () => {
+		const ws = twoModuleWorkspace();
+		assert.equal(ws.dt('add', 'modules', '--name', 'first', '--package', '@acme/thing').code, 0);
+		const r = ws.dt('add', 'modules', '--name', 'second', '--package', '@acme/thing');
+		assert.notEqual(r.code, 0);
+		assert.match(r.stderr, /@acme\/thing is already the package name of modules\/first/);
+		assert.ok(!fs.existsSync(path.join(ws.root, 'modules/second')));
 	});
 });

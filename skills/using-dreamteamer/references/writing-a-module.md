@@ -19,6 +19,7 @@ That writes, and commits in one scoped commit:
   against.
 - `modules/acme/src/extension.js` — `activate(dt)` returning one setup unit (below).
 - `modules/acme/README.md` — the install line and the develop/test/gate loop.
+- `modules/acme/test/module.test.mjs` — one test on `dreamteamer/testing`, run by `npm test`.
 - every kind folder (`collections/`, `skills/`, …) for the content you add.
 
 Without `--package` the module stays private (folder = package name = id); without `--extension` there
@@ -84,11 +85,12 @@ export default function activate(dt) {
 ```js
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { fileURLToPath } from 'node:url';
 import { createWorkspace, install, run } from 'dreamteamer/testing';
 
 test('installs, and asks for its token', () => {
-  const ws = createWorkspace();                                  // dt init on the engine running this test
-  const r = install(ws, new URL('..', import.meta.url).pathname); // packed with npm pack, then dt install
+  const ws = createWorkspace();                                       // dt init on the engine running this test
+  const r = install(ws, fileURLToPath(new URL('..', import.meta.url))); // packed with npm pack, then dt install
   assert.equal(r.status, 3);                                     // 3: a required input is still missing
   assert.match(run(ws, ['status']).stdout, /acme\s+configured\s+ACME_TOKEN missing/);
 });
@@ -110,7 +112,9 @@ Packs the module, installs it into a fresh workspace on this engine with only it
 its setup line. **Exit 0 is publishable** — including a unit still waiting for an input a stranger
 will give. Exit 1 names what is wrong (a dependency not held here, a floor above this engine, a
 `files` list missing the entry, a compile or check error); 2 is usage. `--keep` leaves the temp
-workspace. It does not run your `npm test` — run both.
+workspace. It does not run your `npm test` — run both. It packs with `--ignore-scripts` (it runs none of
+your code); `pack()` in your own tests runs your `prepack`. A module that builds in `prepack` ships its
+built files in `files`, or the gate judges the unbuilt package.
 
 ## 6. publish
 
