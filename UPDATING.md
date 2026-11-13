@@ -20,7 +20,7 @@ npx dreamteamer check
 
 ---
 
-## Unreleased — two setup fixes
+## 0.48.1 — two setup fixes, and the README rewrite
 
 Nothing to do but `dt compile`.
 
@@ -29,6 +29,7 @@ Nothing to do but `dt compile`.
   as a warning row with the `chmod 600` fix, where it used to read ✔.
 - **`dt update` of a module runs the new version's setup unit.** The setup half now runs in a fresh
   process after npm, so the 0.48.0 note below ("run `dt setup` once after an update") no longer applies.
+- **Docs:** the README is rewritten; FAQ.md is new, and EXTENDING.md carries "Writing a module".
 
 ## 0.48.0 — writing a module on the engine alone (CR-dt-007)
 
