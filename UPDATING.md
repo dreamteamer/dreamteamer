@@ -42,6 +42,9 @@ written for 0.47.0 keeps working unchanged. New, for module authors:
 
 `references/writing-a-module.md` is the whole path.
 
+Known: `dt update` of a module runs the version it replaces for the setup half (the extension was loaded
+before npm installed the new one) — run `dt setup` once after an update to see the new unit's view.
+
 ---
 
 ## 0.47.0 — the CLI-first module lifecycle (CR-dt-006)
