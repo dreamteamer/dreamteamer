@@ -1,11 +1,11 @@
 {
-	"measured": "2026-11-12",
+	"measured": "2026-11-13",
 	"note": "Budgets are ceilings with ~10% headroom. Raising one is a deliberate act — do it in the same commit as the growth, and say why in the message.",
 	"code": {
-		"total": 10886,
-		"comments": 5022,
-		"decisions": 4891,
-		"files": 45
+		"total": 17113,
+		"comments": 5217,
+		"decisions": 5036,
+		"files": 46
 	},
 	"surface": {
 		"collections": 9,
@@ -20,11 +20,12 @@
 		"system-lines": 4418
 	},
 	"budgets": {
-		"code.total": 11975,
+		"code.total": 17949,
 		"code.decisions": 5381,
 		"surface.collections": 9,
 		"surface.skills": 1,
 		"surface.agents": 1,
 		"prose.skill-lines": 4316
-	}
+	},
+	"formatting": "code.total is counted on Prettier-formatted source (.prettierrc) since 2026-11-13: the reformat alone multiplied it by 1.499 (11251 -> 16863 on identical code), so the budget was scaled by that factor (11975 -> 17949) and keeps the same headroom. No other budget moved."
 }

@@ -1,7 +1,7 @@
 {
 	"name": "dreamteamer",
 	"version": "0.47.0",
-	"description": "A workspace compiler for coding agents \u2014 schema-validated records as plain files over git, compiled into every harness",
+	"description": "A workspace compiler for coding agents — schema-validated records as plain files over git, compiled into every harness",
 	"license": "Apache-2.0",
 	"author": "Gilad Khen <giladkhen@gmail.com>",
 	"homepage": "https://github.com/dreamteamer/dreamteamer#readme",
@@ -29,16 +29,16 @@
 		"node": ">=20",
 		"npm": ">=7"
 	},
-	"main": "./src/api.js",
-	"types": "./src/api.d.ts",
+	"main": "./dist/api.js",
+	"types": "./dist/api.d.ts",
 	"exports": {
 		".": {
-			"types": "./src/api.d.ts",
-			"default": "./src/api.js"
+			"types": "./dist/api.d.ts",
+			"default": "./dist/api.js"
 		},
 		"./records": {
-			"types": "./src/records-api.d.ts",
-			"default": "./src/records-api.js"
+			"types": "./dist/records-api.d.ts",
+			"default": "./dist/records-api.js"
 		},
 		"./package.json": "./package.json"
 	},
@@ -49,16 +49,14 @@
 	"files": [
 		"NOTICE",
 		"bin",
-		"src",
+		"dist",
 		"collections",
 		"skills",
 		"agents",
 		"commands",
 		"command-bindings",
 		"ui-views",
-		"mixins",
-		"scripts/migrate-descriptors-v2.mjs",
-		"scripts/migrate-stubs.mjs"
+		"mixins"
 	],
 	"dependencies": {
 		"ajv": "^8.17.1",
@@ -71,14 +69,31 @@
 		"title": "System"
 	},
 	"scripts": {
-		"test": "node scripts/test.mjs",
-		"test:unit": "node scripts/test.mjs --unit",
-		"test:watch": "node --watch scripts/test.mjs --unit",
+		"build": "tsx scripts/build.ts",
+		"prepack": "tsx scripts/build.ts",
+		"typecheck": "tsc -p tsconfig.json",
+		"contract": "node scripts/contract.ts",
+		"lint": "eslint --flag unstable_native_nodejs_ts_config .",
+		"format": "prettier --write .",
+		"format:check": "prettier --check .",
+		"test": "node scripts/test.ts",
+		"test:unit": "node scripts/test.ts --unit",
+		"test:watch": "node --watch scripts/test.ts --unit",
 		"perf": "node test/perf/run.mjs",
-		"metrics": "node scripts/metrics.mjs",
-		"metrics:check": "node scripts/metrics.mjs --check",
-		"layers": "node scripts/layers.mjs",
-		"verify": "node scripts/layers.mjs && node scripts/metrics.mjs --check && node scripts/test.mjs",
-		"verify:fast": "node scripts/layers.mjs && node scripts/metrics.mjs --check && node scripts/test.mjs --changed"
+		"metrics": "node scripts/metrics.ts",
+		"metrics:check": "node scripts/metrics.ts --check",
+		"layers": "node scripts/layers.ts",
+		"verify": "node scripts/layers.ts && node scripts/metrics.ts --check && tsc -p tsconfig.json && npm run lint && npm run format:check && node scripts/test.ts",
+		"verify:fast": "node scripts/layers.ts && node scripts/metrics.ts --check && tsc -p tsconfig.json && npm run lint && npm run format:check && node scripts/test.ts --changed"
+	},
+	"devDependencies": {
+		"@eslint/js": "^10.0.1",
+		"@types/node": "^22.20.5",
+		"eslint": "^10.14.0",
+		"globals": "^17.14.0",
+		"prettier": "^3.10.1",
+		"tsx": "^4.23.15",
+		"typescript": "^6.0.3",
+		"typescript-eslint": "^8.72.2"
 	}
 }

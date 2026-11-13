@@ -1,0 +1,23 @@
+{
+	// Type-checks the engine without emitting: `npm run typecheck`. The build is tsconfig.build.json.
+	"compilerOptions": {
+		"target": "es2023",
+		"module": "nodenext",
+		"moduleResolution": "nodenext",
+		"lib": ["es2023"],
+		"types": ["node"],
+		// A source checkout RUNS src/*.ts through Node's own type stripping (bin/dreamteamer.js), so
+		// only erasable syntax is allowed and imports name the .ts file. The build rewrites them to .js.
+		"erasableSyntaxOnly": true,
+		"verbatimModuleSyntax": true,
+		"allowImportingTsExtensions": true,
+		"rewriteRelativeImportExtensions": true,
+		"allowJs": true,
+		"checkJs": true,
+		"strict": false,
+		"noEmit": true,
+		"skipLibCheck": true
+	},
+	"include": ["src/**/*.ts", "bin/**/*.js", "scripts/**/*.ts"],
+	"exclude": ["src/**/*.d.ts"]
+}

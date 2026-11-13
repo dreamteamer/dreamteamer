@@ -5,443 +5,503 @@
 // whose boundary is a loud failure rather than a guess. The old noun-first spelling
 // (`dt contacts list`) must be an error, not a synonym — a half-working grammar is worse than a
 // broken one, because it teaches the wrong shape without ever saying so.
-import { test, describe } from 'node:test';
-import assert from 'node:assert/strict';
-import fs from 'node:fs';
-import { workspace, simpleCollection, readFile } from '../helpers/ws.js';
+import { test, describe } from "node:test"
+import assert from "node:assert/strict"
+import fs from "node:fs"
+import { workspace, simpleCollection, readFile } from "../helpers/ws.js"
 
 const CONTACTS = {
-	ids: { from: '{{ name | slug }}' },
-	storage: { suffix: 'contact' },
-	fields: {
-		name: { type: 'string', required: true },
-		email: { type: 'string' },
-		position: { type: 'string' },
-	},
-};
+  ids: { from: "{{ name | slug }}" },
+  storage: { suffix: "contact" },
+  fields: {
+    name: { type: "string", required: true },
+    email: { type: "string" },
+    position: { type: "string" },
+  },
+}
 
 // A path-shaped id AND a namespaced collection, together: `finance/transactions/2026/03/coffee` is
 // the reference that no first-slash split can read, and it is the reason splitRef exists.
 const TRANSACTIONS = {
-	ids: { from: '{{ month }}/{{ label | slug }}' },
-	storage: { suffix: 'txn' },
-	fields: {
-		label: { type: 'string', required: true },
-		month: { type: 'string', required: true },
-		position: { type: 'position' },
-	},
-};
+  ids: { from: "{{ month }}/{{ label | slug }}" },
+  storage: { suffix: "txn" },
+  fields: {
+    label: { type: "string", required: true },
+    month: { type: "string", required: true },
+    position: { type: "position" },
+  },
+}
 
-const base = () => workspace({ collections: { contacts: CONTACTS } });
-const nsBase = () => workspace({
-	namespaces: ['finance'],
-	collections: { contacts: CONTACTS, 'finance/transactions': TRANSACTIONS },
-});
+const base = () => workspace({ collections: { contacts: CONTACTS } })
+const nsBase = () =>
+  workspace({
+    namespaces: ["finance"],
+    collections: { contacts: CONTACTS, "finance/transactions": TRANSACTIONS },
+  })
 
-describe('record verbs — dt <verb> <target>', () => {
-	test('add takes the collection as its target', () => {
-		const ws = base();
-		const res = ws.dt('add', 'contacts', '--name', 'Jane');
-		assert.equal(res.code, 0, res.stderr);
-		assert.ok(readFile(ws.root, 'data/contacts/jane.contact.md'), 'the record must be on disk');
-	});
+describe("record verbs — dt <verb> <target>", () => {
+  test("add takes the collection as its target", () => {
+    const ws = base()
+    const res = ws.dt("add", "contacts", "--name", "Jane")
+    assert.equal(res.code, 0, res.stderr)
+    assert.ok(readFile(ws.root, "data/contacts/jane.contact.md"), "the record must be on disk")
+  })
 
-	test('list takes the collection as its target', () => {
-		const ws = base();
-		assert.equal(ws.dt('add', 'contacts', '--name', 'Jane').code, 0);
-		const res = ws.dt('list', 'contacts', '--json');
-		assert.equal(res.code, 0, res.stderr);
-		assert.deepEqual(JSON.parse(res.stdout).map((r) => r.id), ['jane']);
-	});
+  test("list takes the collection as its target", () => {
+    const ws = base()
+    assert.equal(ws.dt("add", "contacts", "--name", "Jane").code, 0)
+    const res = ws.dt("list", "contacts", "--json")
+    assert.equal(res.code, 0, res.stderr)
+    assert.deepEqual(
+      JSON.parse(res.stdout).map(r => r.id),
+      ["jane"]
+    )
+  })
 
-	test('get takes a <collection>/<id> reference', () => {
-		const ws = base();
-		ws.dt('add', 'contacts', '--name', 'Jane');
-		const res = ws.dt('get', 'contacts/jane', '--json');
-		assert.equal(res.code, 0, res.stderr);
-		const { created, ...rest } = JSON.parse(res.stdout);
-		assert.match(created, /^\d{4}-\d{2}-\d{2}T/, 'the store stamps `created` on add');
-		// …plus where it is read from and the repo that commits it ($-keys: a field may be called `repo`)
-		assert.deepEqual(rest, { name: 'Jane', id: 'jane', $file: 'data/contacts/jane.contact.md', $repo: '.' });
-	});
+  test("get takes a <collection>/<id> reference", () => {
+    const ws = base()
+    ws.dt("add", "contacts", "--name", "Jane")
+    const res = ws.dt("get", "contacts/jane", "--json")
+    assert.equal(res.code, 0, res.stderr)
+    const { created, ...rest } = JSON.parse(res.stdout)
+    assert.match(created, /^\d{4}-\d{2}-\d{2}T/, "the store stamps `created` on add")
+    // …plus where it is read from and the repo that commits it ($-keys: a field may be called `repo`)
+    assert.deepEqual(rest, { name: "Jane", id: "jane", $file: "data/contacts/jane.contact.md", $repo: "." })
+  })
 
-	test('set takes a reference, then key=value pairs', () => {
-		const ws = base();
-		ws.dt('add', 'contacts', '--name', 'Jane');
-		const res = ws.dt('set', 'contacts/jane', 'email=e@x.com');
-		assert.equal(res.code, 0, res.stderr);
-		assert.equal(JSON.parse(ws.dt('get', 'contacts/jane', '--json').stdout).email, 'e@x.com');
-	});
+  test("set takes a reference, then key=value pairs", () => {
+    const ws = base()
+    ws.dt("add", "contacts", "--name", "Jane")
+    const res = ws.dt("set", "contacts/jane", "email=e@x.com")
+    assert.equal(res.code, 0, res.stderr)
+    assert.equal(JSON.parse(ws.dt("get", "contacts/jane", "--json").stdout).email, "e@x.com")
+  })
 
-	test('a namespaced collection with a path-shaped id resolves as one reference', () => {
-		const ws = nsBase();
-		assert.equal(ws.dt('add', 'finance/transactions', '--label', 'Coffee', '--month', '2026/03').code, 0);
-		const res = ws.dt('get', 'finance/transactions/2026/03/coffee', '--json');
-		assert.equal(res.code, 0, res.stderr);
-		assert.equal(JSON.parse(res.stdout).label, 'Coffee');
-	});
+  test("a namespaced collection with a path-shaped id resolves as one reference", () => {
+    const ws = nsBase()
+    assert.equal(ws.dt("add", "finance/transactions", "--label", "Coffee", "--month", "2026/03").code, 0)
+    const res = ws.dt("get", "finance/transactions/2026/03/coffee", "--json")
+    assert.equal(res.code, 0, res.stderr)
+    assert.equal(JSON.parse(res.stdout).label, "Coffee")
+  })
 
-	test('values takes the collection, then the field', () => {
-		const ws = base();
-		ws.dt('add', 'contacts', '--name', 'Jane', '--position', 'CTO');
-		const res = ws.dt('values', 'contacts', 'position', '--json');
-		assert.equal(res.code, 0, res.stderr);
-		assert.deepEqual(JSON.parse(res.stdout).values.map((v) => v.value), ['CTO']);
-	});
+  test("values takes the collection, then the field", () => {
+    const ws = base()
+    ws.dt("add", "contacts", "--name", "Jane", "--position", "CTO")
+    const res = ws.dt("values", "contacts", "position", "--json")
+    assert.equal(res.code, 0, res.stderr)
+    assert.deepEqual(
+      JSON.parse(res.stdout).values.map(v => v.value),
+      ["CTO"]
+    )
+  })
 
-	test('rename takes the reference and the new id', () => {
-		const ws = base();
-		ws.dt('add', 'contacts', '--name', 'Jane');
-		const res = ws.dt('rename', 'contacts/jane', 'jane-doe');
-		assert.equal(res.code, 0, res.stderr);
-		assert.ok(readFile(ws.root, 'data/contacts/jane-doe.contact.md'));
-		assert.equal(readFile(ws.root, 'data/contacts/jane.contact.md'), null);
-	});
+  test("rename takes the reference and the new id", () => {
+    const ws = base()
+    ws.dt("add", "contacts", "--name", "Jane")
+    const res = ws.dt("rename", "contacts/jane", "jane-doe")
+    assert.equal(res.code, 0, res.stderr)
+    assert.ok(readFile(ws.root, "data/contacts/jane-doe.contact.md"))
+    assert.equal(readFile(ws.root, "data/contacts/jane.contact.md"), null)
+  })
 
-	test('rm takes a reference', () => {
-		const ws = base();
-		ws.dt('add', 'contacts', '--name', 'Jane');
-		assert.equal(ws.dt('rm', 'contacts/jane').code, 0);
-		assert.equal(readFile(ws.root, 'data/contacts/jane.contact.md'), null);
-	});
+  test("rm takes a reference", () => {
+    const ws = base()
+    ws.dt("add", "contacts", "--name", "Jane")
+    assert.equal(ws.dt("rm", "contacts/jane").code, 0)
+    assert.equal(readFile(ws.root, "data/contacts/jane.contact.md"), null)
+  })
 
-	test('history takes a reference and reports the commits', () => {
-		const ws = base();
-		ws.dt('add', 'contacts', '--name', 'Jane');
-		ws.git(['add', '-A']);
-		ws.git(['commit', '-qm', 'add jane']);
-		const res = ws.dt('history', 'contacts/jane', '--json');
-		assert.equal(res.code, 0, res.stderr);
-		assert.ok(JSON.parse(res.stdout).length >= 1, 'the commit must appear');
-	});
+  test("history takes a reference and reports the commits", () => {
+    const ws = base()
+    ws.dt("add", "contacts", "--name", "Jane")
+    ws.git(["add", "-A"])
+    ws.git(["commit", "-qm", "add jane"])
+    const res = ws.dt("history", "contacts/jane", "--json")
+    assert.equal(res.code, 0, res.stderr)
+    assert.ok(JSON.parse(res.stdout).length >= 1, "the commit must appear")
+  })
 
-	// `reorder` is the one record verb whose target is EITHER shape: a reference to place one record,
-	// or a bare collection to place all of them with --init.
-	test('reorder takes a reference, and --init takes the bare collection', () => {
-		const ws = workspace({
-			collections: {
-				ordered: simpleCollection({ storage: { suffix: 'ord' }, fields: {
-					name: { type: 'string', required: true },
-					position: { type: 'position' },
-					notes: { type: 'markdown', body: true },
-				} }),
-			},
-		});
-		ws.dt('add', 'ordered', '--name', 'Alpha');
-		ws.dt('add', 'ordered', '--name', 'Bravo');
-		assert.equal(ws.dt('reorder', 'ordered', '--init').code, 0);
-		const res = ws.dt('reorder', 'ordered/bravo', '--top');
-		assert.equal(res.code, 0, res.stderr);
-		const ids = JSON.parse(ws.dt('list', 'ordered', '--sort', 'position', '--json').stdout).map((r) => r.id);
-		assert.deepEqual(ids, ['bravo', 'alpha']);
-	});
+  // `reorder` is the one record verb whose target is EITHER shape: a reference to place one record,
+  // or a bare collection to place all of them with --init.
+  test("reorder takes a reference, and --init takes the bare collection", () => {
+    const ws = workspace({
+      collections: {
+        ordered: simpleCollection({
+          storage: { suffix: "ord" },
+          fields: {
+            name: { type: "string", required: true },
+            position: { type: "position" },
+            notes: { type: "markdown", body: true },
+          },
+        }),
+      },
+    })
+    ws.dt("add", "ordered", "--name", "Alpha")
+    ws.dt("add", "ordered", "--name", "Bravo")
+    assert.equal(ws.dt("reorder", "ordered", "--init").code, 0)
+    const res = ws.dt("reorder", "ordered/bravo", "--top")
+    assert.equal(res.code, 0, res.stderr)
+    const ids = JSON.parse(ws.dt("list", "ordered", "--sort", "position", "--json").stdout).map(r => r.id)
+    assert.deepEqual(ids, ["bravo", "alpha"])
+  })
 
-	test('a reference naming no known collection reports splitRef\'s error', () => {
-		const ws = base();
-		const res = ws.dt('get', 'nope/x');
-		assert.equal(res.code, 1);
-		assert.match(res.stderr, /unknown collection in reference "nope\/x"/);
-	});
+  test("a reference naming no known collection reports splitRef's error", () => {
+    const ws = base()
+    const res = ws.dt("get", "nope/x")
+    assert.equal(res.code, 1)
+    assert.match(res.stderr, /unknown collection in reference "nope\/x"/)
+  })
 
-	test('a flag in the target slot is a word-order error, not a collection', () => {
-		const ws = base();
-		const res = ws.dt('list', '--json', 'contacts');
-		assert.equal(res.code, 1);
-		assert.match(res.stderr, /takes its target BEFORE the flags/);
-	});
+  test("a flag in the target slot is a word-order error, not a collection", () => {
+    const ws = base()
+    const res = ws.dt("list", "--json", "contacts")
+    assert.equal(res.code, 1)
+    assert.match(res.stderr, /takes its target BEFORE the flags/)
+  })
 
-	test('a record verb with no target says so', () => {
-		const ws = base();
-		const res = ws.dt('get');
-		assert.equal(res.code, 1);
-		assert.match(res.stderr, /needs a target/);
-	});
-});
+  test("a record verb with no target says so", () => {
+    const ws = base()
+    const res = ws.dt("get")
+    assert.equal(res.code, 1)
+    assert.match(res.stderr, /needs a target/)
+  })
+})
 
 // The fixture above exists so that a NAMESPACED collection is exercised by every target shape, not
 // just by `get`. It is not decoration: the read verb (`next`, spelled `commands` before 0.22.0) was
 // broken for every namespaced target in both shapes while `get` passed, because the two resolve the
 // reference in different places.
-describe('a namespaced collection, through every target shape', () => {
-	const seeded = () => {
-		const ws = nsBase();
-		assert.equal(ws.dt('add', 'finance/transactions', '--label', 'Coffee', '--month', '2026/03').code, 0);
-		assert.equal(ws.dt('add', 'finance/transactions', '--label', 'Rent', '--month', '2026/03').code, 0);
-		return ws;
-	};
+describe("a namespaced collection, through every target shape", () => {
+  const seeded = () => {
+    const ws = nsBase()
+    assert.equal(ws.dt("add", "finance/transactions", "--label", "Coffee", "--month", "2026/03").code, 0)
+    assert.equal(ws.dt("add", "finance/transactions", "--label", "Rent", "--month", "2026/03").code, 0)
+    return ws
+  }
 
-	test('next takes the namespaced collection', () => {
-		const ws = seeded();
-		const res = ws.dt('next', 'finance/transactions', '--json');
-		assert.equal(res.code, 0, res.stderr);
-		assert.equal(JSON.parse(res.stdout).collection, 'finance/transactions');
-	});
+  test("next takes the namespaced collection", () => {
+    const ws = seeded()
+    const res = ws.dt("next", "finance/transactions", "--json")
+    assert.equal(res.code, 0, res.stderr)
+    assert.equal(JSON.parse(res.stdout).collection, "finance/transactions")
+  })
 
-	test('next takes a namespaced reference with a path-shaped id', () => {
-		const ws = seeded();
-		const res = ws.dt('next', 'finance/transactions/2026/03/coffee', '--json');
-		assert.equal(res.code, 0, res.stderr);
-		assert.equal(JSON.parse(res.stdout).collection, 'finance/transactions');
-	});
+  test("next takes a namespaced reference with a path-shaped id", () => {
+    const ws = seeded()
+    const res = ws.dt("next", "finance/transactions/2026/03/coffee", "--json")
+    assert.equal(res.code, 0, res.stderr)
+    assert.equal(JSON.parse(res.stdout).collection, "finance/transactions")
+  })
 
-	test('values takes the namespaced collection', () => {
-		const ws = seeded();
-		const res = ws.dt('values', 'finance/transactions', 'month', '--json');
-		assert.equal(res.code, 0, res.stderr);
-		assert.deepEqual(JSON.parse(res.stdout).values.map((v) => v.value), ['2026/03']);
-	});
+  test("values takes the namespaced collection", () => {
+    const ws = seeded()
+    const res = ws.dt("values", "finance/transactions", "month", "--json")
+    assert.equal(res.code, 0, res.stderr)
+    assert.deepEqual(
+      JSON.parse(res.stdout).values.map(v => v.value),
+      ["2026/03"]
+    )
+  })
 
-	test('reorder --init takes the namespaced collection, and a reference places one record', () => {
-		const ws = seeded();
-		const init = ws.dt('reorder', 'finance/transactions', '--init');
-		assert.equal(init.code, 0, init.stderr);
-		const top = ws.dt('reorder', 'finance/transactions/2026/03/rent', '--top');
-		assert.equal(top.code, 0, top.stderr);
-		const ids = JSON.parse(ws.dt('list', 'finance/transactions', '--sort', 'position', '--json').stdout)
-			.map((r) => r.id);
-		assert.deepEqual(ids, ['2026/03/rent', '2026/03/coffee']);
-	});
+  test("reorder --init takes the namespaced collection, and a reference places one record", () => {
+    const ws = seeded()
+    const init = ws.dt("reorder", "finance/transactions", "--init")
+    assert.equal(init.code, 0, init.stderr)
+    const top = ws.dt("reorder", "finance/transactions/2026/03/rent", "--top")
+    assert.equal(top.code, 0, top.stderr)
+    const ids = JSON.parse(ws.dt("list", "finance/transactions", "--sort", "position", "--json").stdout).map(r => r.id)
+    assert.deepEqual(ids, ["2026/03/rent", "2026/03/coffee"])
+  })
 
-	test('rename takes a namespaced reference and a path-shaped new id', () => {
-		const ws = seeded();
-		const res = ws.dt('rename', 'finance/transactions/2026/03/coffee', '2026/04/coffee');
-		assert.equal(res.code, 0, res.stderr);
-		assert.ok(readFile(ws.root, 'data/finance/transactions/2026/04/coffee.txn.md'));
-		assert.equal(readFile(ws.root, 'data/finance/transactions/2026/03/coffee.txn.md'), null);
-		assert.equal(ws.dt('check').code, 0);
-	});
-});
+  test("rename takes a namespaced reference and a path-shaped new id", () => {
+    const ws = seeded()
+    const res = ws.dt("rename", "finance/transactions/2026/03/coffee", "2026/04/coffee")
+    assert.equal(res.code, 0, res.stderr)
+    assert.ok(readFile(ws.root, "data/finance/transactions/2026/04/coffee.txn.md"))
+    assert.equal(readFile(ws.root, "data/finance/transactions/2026/03/coffee.txn.md"), null)
+    assert.equal(ws.dt("check").code, 0)
+  })
+})
 
-describe('next and install repos absorb their old noun', () => {
-	test('next takes the collection or a record reference', () => {
-		const ws = base();
-		ws.dt('add', 'contacts', '--name', 'Jane');
-		const c = ws.dt('next', 'contacts', '--json');
-		assert.equal(c.code, 0, c.stderr);
-		assert.equal(JSON.parse(c.stdout).collection, 'contacts');
-		const r = ws.dt('next', 'contacts/jane', '--json');
-		assert.equal(r.code, 0, r.stderr);
-		assert.equal(JSON.parse(r.stdout).collection, 'contacts');
-	});
+describe("next and install repos absorb their old noun", () => {
+  test("next takes the collection or a record reference", () => {
+    const ws = base()
+    ws.dt("add", "contacts", "--name", "Jane")
+    const c = ws.dt("next", "contacts", "--json")
+    assert.equal(c.code, 0, c.stderr)
+    assert.equal(JSON.parse(c.stdout).collection, "contacts")
+    const r = ws.dt("next", "contacts/jane", "--json")
+    assert.equal(r.code, 0, r.stderr)
+    assert.equal(JSON.parse(r.stdout).collection, "contacts")
+  })
 
-	test('install repos --all is a no-op report when no repos are declared', () => {
-		const ws = base();
-		const res = ws.dt('install', 'repos', '--all');
-		assert.equal(res.code, 0, res.stderr);
-		assert.match(res.stdout, /no repos declared/);
-	});
-});
+  test("install repos --all is a no-op report when no repos are declared", () => {
+    const ws = base()
+    const res = ws.dt("install", "repos", "--all")
+    assert.equal(res.code, 0, res.stderr)
+    assert.match(res.stdout, /no repos declared/)
+  })
+})
 
-describe('system verbs — the SAME verbs, on the entities the compiler materializes', () => {
-	test('add collections writes the descriptor', () => {
-		const ws = base();
-		const res = ws.dt('add', 'collections', '--name', 'widgets');
-		assert.equal(res.code, 0, res.stderr);
-		assert.ok(readFile(ws.root, '.dreamteamer/collections/widgets.collection.yaml'));
-	});
+describe("system verbs — the SAME verbs, on the entities the compiler materializes", () => {
+  test("add collections writes the descriptor", () => {
+    const ws = base()
+    const res = ws.dt("add", "collections", "--name", "widgets")
+    assert.equal(res.code, 0, res.stderr)
+    assert.ok(readFile(ws.root, ".dreamteamer/collections/widgets.collection.yaml"))
+  })
 
-	test('the field verbs take the collection as a positional', () => {
-		const ws = base();
-		const add = ws.dt('add-field', 'contacts', '--name', 'phone', '--type', 'string');
-		assert.equal(add.code, 0, add.stderr);
-		assert.match(readFile(ws.root, '.dreamteamer/collections/contacts.collection.yaml'), /phone/);
+  test("the field verbs take the collection as a positional", () => {
+    const ws = base()
+    const add = ws.dt("add-field", "contacts", "--name", "phone", "--type", "string")
+    assert.equal(add.code, 0, add.stderr)
+    assert.match(readFile(ws.root, ".dreamteamer/collections/contacts.collection.yaml"), /phone/)
 
-		const rm = ws.dt('rm-field', 'contacts', '--name', 'phone');
-		assert.equal(rm.code, 0, rm.stderr);
-		assert.doesNotMatch(readFile(ws.root, '.dreamteamer/collections/contacts.collection.yaml'), /phone/);
-	});
+    const rm = ws.dt("rm-field", "contacts", "--name", "phone")
+    assert.equal(rm.code, 0, rm.stderr)
+    assert.doesNotMatch(readFile(ws.root, ".dreamteamer/collections/contacts.collection.yaml"), /phone/)
+  })
 
-	test('set-field retypes it', () => {
-		const ws = base();
-		assert.equal(ws.dt('add-field', 'contacts', '--name', 'tier', '--type', 'string').code, 0);
-		const res = ws.dt('set-field', 'contacts', '--name', 'tier', '--type', 'string', '--enum', 'a,b');
-		assert.equal(res.code, 0, res.stderr);
-		assert.match(readFile(ws.root, '.dreamteamer/collections/contacts.collection.yaml'), /enum/);
-	});
+  test("set-field retypes it", () => {
+    const ws = base()
+    assert.equal(ws.dt("add-field", "contacts", "--name", "tier", "--type", "string").code, 0)
+    const res = ws.dt("set-field", "contacts", "--name", "tier", "--type", "string", "--enum", "a,b")
+    assert.equal(res.code, 0, res.stderr)
+    assert.match(readFile(ws.root, ".dreamteamer/collections/contacts.collection.yaml"), /enum/)
+  })
 
-	test('rename collections/<old> <new> moves the descriptor and the records', () => {
-		const ws = base();
-		ws.dt('add', 'contacts', '--name', 'Jane');
-		const res = ws.dt('rename', 'collections/contacts', 'people');
-		assert.equal(res.code, 0, res.stderr);
-		// `.contact.md` is exactly what `contacts` DERIVES, so the rename re-suffixes it too
-		assert.ok(readFile(ws.root, 'data/people/jane.people.md'));
-		assert.equal(ws.dt('check').code, 0);
-	});
+  test("rename collections/<old> <new> moves the descriptor and the records", () => {
+    const ws = base()
+    ws.dt("add", "contacts", "--name", "Jane")
+    const res = ws.dt("rename", "collections/contacts", "people")
+    assert.equal(res.code, 0, res.stderr)
+    // `.contact.md` is exactly what `contacts` DERIVES, so the rename re-suffixes it too
+    assert.ok(readFile(ws.root, "data/people/jane.people.md"))
+    assert.equal(ws.dt("check").code, 0)
+  })
 
-	test('rm collections/<name> drops it, and --force is needed once it has records', () => {
-		const ws = base();
-		assert.equal(ws.dt('add', 'collections', '--name', 'widgets').code, 0);
-		assert.equal(ws.dt('add', 'widgets', '--name', 'A').code, 0);
-		const refused = ws.dt('rm', 'collections/widgets');
-		assert.equal(refused.code, 1);
-		assert.equal(ws.dt('rm', 'collections/widgets', '--force').code, 0);
-	});
+  test("rm collections/<name> drops it, and --force is needed once it has records", () => {
+    const ws = base()
+    assert.equal(ws.dt("add", "collections", "--name", "widgets").code, 0)
+    assert.equal(ws.dt("add", "widgets", "--name", "A").code, 0)
+    const refused = ws.dt("rm", "collections/widgets")
+    assert.equal(refused.code, 1)
+    assert.equal(ws.dt("rm", "collections/widgets", "--force").code, 0)
+  })
 
-	test('ui-views take add / set / rm under the same verbs', () => {
-		const ws = base();
-		const add = ws.dt('add', 'ui-views', '--route', '/recent', '--scope', 'collection',
-			'--collection', 'collections/contacts', 'display.list.layout=table');
-		assert.equal(add.code, 0, add.stderr);
-		assert.equal(ws.dt('set', 'ui-views/recent', 'display.list.sort=-name').code, 0);
-		assert.equal(ws.dt('rm', 'ui-views/recent').code, 0);
-	});
+  test("ui-views take add / set / rm under the same verbs", () => {
+    const ws = base()
+    const add = ws.dt(
+      "add",
+      "ui-views",
+      "--route",
+      "/recent",
+      "--scope",
+      "collection",
+      "--collection",
+      "collections/contacts",
+      "display.list.layout=table"
+    )
+    assert.equal(add.code, 0, add.stderr)
+    assert.equal(ws.dt("set", "ui-views/recent", "display.list.sort=-name").code, 0)
+    assert.equal(ws.dt("rm", "ui-views/recent").code, 0)
+  })
 
-	test('rename-field is a verb of its own', () => {
-		const ws = base();
-		assert.equal(ws.dt('add-field', 'contacts', '--name', 'tier', '--type', 'string').code, 0);
-		assert.equal(ws.dt('rename-field', 'contacts', '--name', 'tier', '--to', 'band').code, 0);
-		assert.match(readFile(ws.root, '.dreamteamer/collections/contacts.collection.yaml'), /band/);
-	});
+  test("rename-field is a verb of its own", () => {
+    const ws = base()
+    assert.equal(ws.dt("add-field", "contacts", "--name", "tier", "--type", "string").code, 0)
+    assert.equal(ws.dt("rename-field", "contacts", "--name", "tier", "--to", "band").code, 0)
+    assert.match(readFile(ws.root, ".dreamteamer/collections/contacts.collection.yaml"), /band/)
+  })
 
-	// ⚠ THE BREAKING CHANGE, and it must fail with the TRANSLATION. Every doc, skill and downstream
-	// script spelled these `dt schema <op>` for seven releases — the same shape `dt contacts list`
-	// had before 0.12.0, and the same policy applies: no alias layer, no deprecation window.
-	//
-	// This REPLACES `test('an unknown schema sub-verb is refused')`, which asserted
-	// `unknown schema operation "nonsense"` — a message the flip deletes. That test deliberately
-	// pinned the old grammar, so it is gone rather than rewritten.
-	test('dt schema is gone and the error carries the new spellings', () => {
-		const ws = base();
-		const res = ws.dt('schema', 'add-collection', '--name', 'widgets');
-		assert.equal(res.code, 2);
-		assert.match(res.stderr, /unknown verb "schema"/);
-		assert.match(res.stderr, /schema verbs are gone since 0\.19\.0/);
-		assert.match(res.stderr, /dt add collections/);
-		assert.match(res.stderr, /dt add-field <c>/);
-		assert.match(res.stderr, /UPDATING\.md/);
-	});
+  // ⚠ THE BREAKING CHANGE, and it must fail with the TRANSLATION. Every doc, skill and downstream
+  // script spelled these `dt schema <op>` for seven releases — the same shape `dt contacts list`
+  // had before 0.12.0, and the same policy applies: no alias layer, no deprecation window.
+  //
+  // This REPLACES `test('an unknown schema sub-verb is refused')`, which asserted
+  // `unknown schema operation "nonsense"` — a message the flip deletes. That test deliberately
+  // pinned the old grammar, so it is gone rather than rewritten.
+  test("dt schema is gone and the error carries the new spellings", () => {
+    const ws = base()
+    const res = ws.dt("schema", "add-collection", "--name", "widgets")
+    assert.equal(res.code, 2)
+    assert.match(res.stderr, /unknown verb "schema"/)
+    assert.match(res.stderr, /schema verbs are gone since 0\.19\.0/)
+    assert.match(res.stderr, /dt add collections/)
+    assert.match(res.stderr, /dt add-field <c>/)
+    assert.match(res.stderr, /UPDATING\.md/)
+  })
 
-	// ⚠ FOUR RETIRED SPELLINGS, ONE EXIT CODE. The 0.12.0 policy is that a stale invocation fails
-	// LOUDLY and by name — never as an alias, and never as a bare "unknown verb" that sends the
-	// reader back to `help` to guess which of thirty verbs replaced the one they typed. The exit
-	// code is the same 2 for all of them, `schema` included, so a script can ask "did I type a verb
-	// that is gone?" with one number rather than two.
-	//
-	// It also fails if a rename is HALF done: an old spelling that still dispatches answers 0 or 1
-	// with its own complaint, not 2 with the translation.
-	test('every retired verb spelling refuses by name, at exit 2, with the translation', () => {
-		const ws = base();
-		const named = {
-			'update-field': /dt set-field/,
-			'remove-field': /dt rm-field/,
-			commands: /dt next/,
-			ensure: /dt install/,
-			schema: /dt add-field <c>/,
-		};
-		for (const [old, replacement] of Object.entries(named)) {
-			const r = ws.dt(old);
-			assert.equal(r.code, 2, `dt ${old} exited ${r.code}, not 2:\n${r.stderr}${r.stdout}`);
-			assert.match(r.stderr, new RegExp(`unknown verb "${old}"`), `dt ${old} did not name the verb`);
-			assert.match(r.stderr, /gone since 0\.\d+\.\d+/, `dt ${old} did not say when it went`);
-			assert.match(r.stderr, replacement, `dt ${old} did not carry its replacement`);
-		}
-	});
+  // ⚠ FOUR RETIRED SPELLINGS, ONE EXIT CODE. The 0.12.0 policy is that a stale invocation fails
+  // LOUDLY and by name — never as an alias, and never as a bare "unknown verb" that sends the
+  // reader back to `help` to guess which of thirty verbs replaced the one they typed. The exit
+  // code is the same 2 for all of them, `schema` included, so a script can ask "did I type a verb
+  // that is gone?" with one number rather than two.
+  //
+  // It also fails if a rename is HALF done: an old spelling that still dispatches answers 0 or 1
+  // with its own complaint, not 2 with the translation.
+  test("every retired verb spelling refuses by name, at exit 2, with the translation", () => {
+    const ws = base()
+    const named = {
+      "update-field": /dt set-field/,
+      "remove-field": /dt rm-field/,
+      commands: /dt next/,
+      ensure: /dt install/,
+      schema: /dt add-field <c>/,
+    }
+    for (const [old, replacement] of Object.entries(named)) {
+      const r = ws.dt(old)
+      assert.equal(r.code, 2, `dt ${old} exited ${r.code}, not 2:\n${r.stderr}${r.stdout}`)
+      assert.match(r.stderr, new RegExp(`unknown verb "${old}"`), `dt ${old} did not name the verb`)
+      assert.match(r.stderr, /gone since 0\.\d+\.\d+/, `dt ${old} did not say when it went`)
+      assert.match(r.stderr, replacement, `dt ${old} did not carry its replacement`)
+    }
+  })
 
-	// ⚠ THE OTHER HALF OF THE COLLISION, and without it the rename is only half pinned. `commands`
-	// was one word for two things: the read verb AND the system ENTITY. Retiring the verb is
-	// worthless if the entity went with it — so this asserts the noun still answers, on the same
-	// spelling it always had, beside the refusal that says where the verb went.
-	test('`commands` survives as the ENTITY the retired verb collided with', () => {
-		const ws = base();
-		const l = ws.dt('list', 'commands');
-		assert.equal(l.code, 0, `dt list commands broke with the verb:\n${l.stderr}`);
-		const j = ws.dt('list', 'commands', '--json');
-		assert.equal(j.code, 0, j.stderr);
-		assert.ok(Array.isArray(JSON.parse(j.stdout)), 'dt list commands --json must answer a list');
-		// ⚠ AND THE EXIT 0 ABOVE HAS TO MEAN "RESOLVED". A `list` that answered 0 for any word would
-		// pass the two assertions above while proving nothing, so the negative control rides along:
-		// an undeclared name is refused in the SAME fixture.
-		assert.equal(ws.dt('list', 'nonesuch').code, 1, 'list answers 0 for a collection that does not exist — the assertions above are vacuous');
-	});
-});
+  // ⚠ THE OTHER HALF OF THE COLLISION, and without it the rename is only half pinned. `commands`
+  // was one word for two things: the read verb AND the system ENTITY. Retiring the verb is
+  // worthless if the entity went with it — so this asserts the noun still answers, on the same
+  // spelling it always had, beside the refusal that says where the verb went.
+  test("`commands` survives as the ENTITY the retired verb collided with", () => {
+    const ws = base()
+    const l = ws.dt("list", "commands")
+    assert.equal(l.code, 0, `dt list commands broke with the verb:\n${l.stderr}`)
+    const j = ws.dt("list", "commands", "--json")
+    assert.equal(j.code, 0, j.stderr)
+    assert.ok(Array.isArray(JSON.parse(j.stdout)), "dt list commands --json must answer a list")
+    // ⚠ AND THE EXIT 0 ABOVE HAS TO MEAN "RESOLVED". A `list` that answered 0 for any word would
+    // pass the two assertions above while proving nothing, so the negative control rides along:
+    // an undeclared name is refused in the SAME fixture.
+    assert.equal(
+      ws.dt("list", "nonesuch").code,
+      1,
+      "list answers 0 for a collection that does not exist — the assertions above are vacuous"
+    )
+  })
+})
 
-describe('the verb set is closed', () => {
-	// THE breaking change. `dt contacts list` used to work, and every doc and skill in every
-	// downstream vault spelled it that way — so it must fail with the word "verb" in it, not
-	// dispatch to a collection called "contacts".
-	test('the old noun-first grammar fails loudly', () => {
-		const ws = base();
-		const res = ws.dt('contacts', 'list');
-		assert.equal(res.code, 1);
-		assert.match(res.stderr, /unknown verb "contacts"/);
-	});
+describe("the verb set is closed", () => {
+  // THE breaking change. `dt contacts list` used to work, and every doc and skill in every
+  // downstream vault spelled it that way — so it must fail with the word "verb" in it, not
+  // dispatch to a collection called "contacts".
+  test("the old noun-first grammar fails loudly", () => {
+    const ws = base()
+    const res = ws.dt("contacts", "list")
+    assert.equal(res.code, 1)
+    assert.match(res.stderr, /unknown verb "contacts"/)
+  })
 
-	test('a nonsense verb prints the usage and exits 1', () => {
-		const ws = base();
-		const res = ws.dt('nonsense');
-		assert.equal(res.code, 1);
-		assert.match(res.stderr + res.stdout, /unknown verb "nonsense"/);
-		assert.match(res.stderr + res.stdout, /usage: dreamteamer <verb>/);
-	});
+  test("a nonsense verb prints the usage and exits 1", () => {
+    const ws = base()
+    const res = ws.dt("nonsense")
+    assert.equal(res.code, 1)
+    assert.match(res.stderr + res.stdout, /unknown verb "nonsense"/)
+    assert.match(res.stderr + res.stdout, /usage: dreamteamer <verb>/)
+  })
 
-	test('no arguments at all is the usage, and a success', () => {
-		const ws = base();
-		const res = ws.dt();
-		assert.equal(res.code, 0, res.stderr);
-		assert.match(res.stdout, /usage: dreamteamer <verb>/);
-	});
+  test("no arguments at all is the usage, and a success", () => {
+    const ws = base()
+    const res = ws.dt()
+    assert.equal(res.code, 0, res.stderr)
+    assert.match(res.stdout, /usage: dreamteamer <verb>/)
+  })
 
-	// resolve is the verb that could not exist under the noun-first grammar — it takes a bare
-	// string. What it RENDERS is `resolve.test.js`; this asserts only that the word dispatches.
-	test('resolve is a real verb and takes a bare string', () => {
-		const ws = base();
-		const res = ws.dt('resolve', '${workspaceFolder}/media');
-		assert.equal(res.code, 0, res.stderr);
-		assert.equal(res.stdout.trim(), `${fs.realpathSync(ws.root)}/media`);
-	});
-});
+  // resolve is the verb that could not exist under the noun-first grammar — it takes a bare
+  // string. What it RENDERS is `resolve.test.js`; this asserts only that the word dispatches.
+  test("resolve is a real verb and takes a bare string", () => {
+    const ws = base()
+    const res = ws.dt("resolve", "${workspaceFolder}/media")
+    assert.equal(res.code, 0, res.stderr)
+    assert.equal(res.stdout.trim(), `${fs.realpathSync(ws.root)}/media`)
+  })
+})
 
-describe('workspace verbs keep their spellings', () => {
-	test('check, status and compile still answer', () => {
-		const ws = base();
-		assert.equal(ws.dt('check').code, 0);
-		assert.match(ws.dt('status').stdout, /is fresh/);
-		assert.equal(ws.dt('compile').code, 0);
-	});
+describe("workspace verbs keep their spellings", () => {
+  test("check, status and compile still answer", () => {
+    const ws = base()
+    assert.equal(ws.dt("check").code, 0)
+    assert.match(ws.dt("status").stdout, /is fresh/)
+    assert.equal(ws.dt("compile").code, 0)
+  })
 
-	// THE VERB LIST IS PINNED TO THE DISPATCH. `help` is the single source with it, so this test is
-	// what makes the two unable to drift — and it is updated in the SAME commit as the flip, because
-	// a help text describing a grammar the dispatch no longer has is worse than no help text.
-	test('help prints the four verb groups, and states the commit policy once', () => {
-		const ws = base();
-		const res = ws.dt('help');
-		assert.equal(res.code, 0);
-		assert.match(res.stdout, /record verbs/);
-		assert.match(res.stdout, /system verbs/);
-		assert.match(res.stdout, /field verbs/);
-		assert.match(res.stdout, /workspace verbs/);
-		assert.doesNotMatch(res.stdout, /schema verbs \(write SOURCES/);
-		assert.match(res.stdout, /a SYSTEM write commits itself/);
-		assert.match(res.stdout, /a RECORD write does not/);
-	});
+  // THE VERB LIST IS PINNED TO THE DISPATCH. `help` is the single source with it, so this test is
+  // what makes the two unable to drift — and it is updated in the SAME commit as the flip, because
+  // a help text describing a grammar the dispatch no longer has is worse than no help text.
+  test("help prints the four verb groups, and states the commit policy once", () => {
+    const ws = base()
+    const res = ws.dt("help")
+    assert.equal(res.code, 0)
+    assert.match(res.stdout, /record verbs/)
+    assert.match(res.stdout, /system verbs/)
+    assert.match(res.stdout, /field verbs/)
+    assert.match(res.stdout, /workspace verbs/)
+    assert.doesNotMatch(res.stdout, /schema verbs \(write SOURCES/)
+    assert.match(res.stdout, /a SYSTEM write commits itself/)
+    assert.match(res.stdout, /a RECORD write does not/)
+  })
 
-	// Every verb `help` documents must DISPATCH, and every verb that dispatches must be documented.
-	// Derived from the text rather than hand-listed, so adding a verb to one and not the other fails
-	// here instead of at the first person who reads the wrong one.
-	test('every verb named in help dispatches, and no verb dispatches undocumented', () => {
-		const ws = base();
-		const help = ws.dt('help').stdout;
-		const documented = new Set();
-		for (const m of help.matchAll(/^ {2}([a-z][a-z-]*)\s/gm)) documented.add(m[1]);
-		// ⚠ A PIN THAT MATCHES NOTHING PASSES VACUOUSLY, which is the one outcome to avoid.
-		assert.ok(documented.size >= 25, `help yielded only ${documented.size} verb names — the extraction pattern no longer matches USAGE`);
-		// ⚠ A VERB THAT SERVES IS EXCLUDED FROM THE EXECUTION HALF, AND ONLY FROM IT. It binds a port and
-		// never returns, so `dt(verb)` — a spawnSync — waits forever. This hung a release for six hours
-		// when `start` was a core verb: the suite passed on a developer machine because something already
-		// held the port, and hung on a CI runner where it was free. The server is an extension now
-		// (`dt serve`, @dreamteamer/http) and this fixture installs none — but the guard stays, because
-		// the day a test fixture does install one this loop would run it.
-		const SERVES_FOREVER = new Set(['start', 'serve']);
-		for (const verb of documented) {
-			if (SERVES_FOREVER.has(verb)) continue;
-			const res = ws.dt(verb);
-			// A documented verb answers with its OWN complaint (a missing target, a missing flag) or
-			// succeeds — never with "unknown verb", which is the only failure this asserts against.
-			assert.doesNotMatch(res.stderr + res.stdout, new RegExp(`unknown verb "${verb}"`), `help documents \`${verb}\` but the dispatch does not know it`);
-		}
-		for (const verb of ['add', 'set', 'rm', 'rename', 'list', 'get', 'reorder', 'values', 'history', 'diff', 'revert', 'next', 'relations', 'resolve', 'add-field', 'set-field', 'rm-field', 'rename-field', 'init', 'install', 'update', 'compile', 'check', 'status', 'changes', 'commit', 'help']) {
-			assert.ok(documented.has(verb), `\`${verb}\` dispatches but help does not document it`);
-		}
-	});
-});
+  // Every verb `help` documents must DISPATCH, and every verb that dispatches must be documented.
+  // Derived from the text rather than hand-listed, so adding a verb to one and not the other fails
+  // here instead of at the first person who reads the wrong one.
+  test("every verb named in help dispatches, and no verb dispatches undocumented", () => {
+    const ws = base()
+    const help = ws.dt("help").stdout
+    const documented = new Set()
+    for (const m of help.matchAll(/^ {2}([a-z][a-z-]*)\s/gm)) documented.add(m[1])
+    // ⚠ A PIN THAT MATCHES NOTHING PASSES VACUOUSLY, which is the one outcome to avoid.
+    assert.ok(
+      documented.size >= 25,
+      `help yielded only ${documented.size} verb names — the extraction pattern no longer matches USAGE`
+    )
+    // ⚠ A VERB THAT SERVES IS EXCLUDED FROM THE EXECUTION HALF, AND ONLY FROM IT. It binds a port and
+    // never returns, so `dt(verb)` — a spawnSync — waits forever. This hung a release for six hours
+    // when `start` was a core verb: the suite passed on a developer machine because something already
+    // held the port, and hung on a CI runner where it was free. The server is an extension now
+    // (`dt serve`, @dreamteamer/http) and this fixture installs none — but the guard stays, because
+    // the day a test fixture does install one this loop would run it.
+    const SERVES_FOREVER = new Set(["start", "serve"])
+    for (const verb of documented) {
+      if (SERVES_FOREVER.has(verb)) continue
+      const res = ws.dt(verb)
+      // A documented verb answers with its OWN complaint (a missing target, a missing flag) or
+      // succeeds — never with "unknown verb", which is the only failure this asserts against.
+      assert.doesNotMatch(
+        res.stderr + res.stdout,
+        new RegExp(`unknown verb "${verb}"`),
+        `help documents \`${verb}\` but the dispatch does not know it`
+      )
+    }
+    for (const verb of [
+      "add",
+      "set",
+      "rm",
+      "rename",
+      "list",
+      "get",
+      "reorder",
+      "values",
+      "history",
+      "diff",
+      "revert",
+      "next",
+      "relations",
+      "resolve",
+      "add-field",
+      "set-field",
+      "rm-field",
+      "rename-field",
+      "init",
+      "install",
+      "update",
+      "compile",
+      "check",
+      "status",
+      "changes",
+      "commit",
+      "help",
+    ]) {
+      assert.ok(documented.has(verb), `\`${verb}\` dispatches but help does not document it`)
+    }
+  })
+})

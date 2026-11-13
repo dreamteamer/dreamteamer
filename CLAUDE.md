@@ -1,9 +1,57 @@
 # dreamteamer — the engine
 
-`dreamteamer`: workspace compiler, CLI, store, schema-ops — and a public API (`src/api.js`,
-typed by `src/api.d.ts`) that is the ONLY importable surface. See `README.md` for the contract
+`dreamteamer`: workspace compiler, CLI, store, schema-ops — and a public API (`src/api.ts`,
+its declarations generated from `src/types.ts` and the signatures) that is the ONLY importable surface. See `README.md` for the contract
 (sources → `.dreamteamer/` → harness adapters; records are files; a write lands on disk and
 `dreamteamer commit` publishes it, one commit per repo; hard validation before disk).
+
+## IMPORTANT — the engine is TypeScript, and a checkout RUNS it unbuilt
+
+`src/*.ts` is the source, and its relative imports name the `.ts` file (`./store.ts`). Two ways it runs:
+
+- **A checkout runs the source directly** — `bin/dreamteamer.js` imports `src/cli.ts` and Node strips
+  the types (22.18+). This is what keeps a `git_modules/dreamteamer` dev clone working: it is a git
+  clone with no build, and a gitignored `dist/` would have been absent in a fresh clone and silently
+  STALE in an old one. Source wins whenever `src/` exists, so a `dist/` left by `npm pack` is never run.
+- **The npm package is `dist/`** — `npm run build` (run by `prepack`) emits it with tsc, rewriting
+  `.ts` imports to `.js`. Node refuses to strip types under `node_modules`, so `src/` is not published.
+  `dist/` sits one level under the root like `src/`, so `new URL('../package.json', import.meta.url)`
+  means the same from both. `engines` stays `>=20` because it describes `dist/`; CI proves 20 against
+  the packed tarball, and the suite on 22/24.
+
+So only ERASABLE syntax (`erasableSyntaxOnly`): no `enum`, no `namespace`, no constructor parameter
+properties; type-only imports are `import type`. `npm run typecheck` is part of `verify`.
+
+**Lint and format are part of `verify`.** `npm run lint` is ESLint with the recommended rules of ESLint
+and typescript-eslint, no exceptions beyond the `_`-prefix and rest-sibling conventions — no `any`
+anywhere (a shape the engine does not constrain is `unknown`, a `Record<string, unknown>`, or a named
+type in `src/types.ts`; parsed YAML is `load<T>()` with the shape the caller expects). `npm run format`
+is Prettier with `.prettierrc`, over code only (`.prettierignore` keeps YAML, Markdown and JSON byte-for-
+byte — they are engine input). That is also why TypeScript is 6.0, not the native 7: typescript-eslint
+needs the compiler's JavaScript API, which 7 does not have. ⚠ A test or script that reads SOURCE AS TEXT
+must not depend on formatting: match either quote, and normalise whitespace (`revision-args`), or a
+reformat leaves the pattern matching nothing and the check passing — `layers` refuses a scan that finds
+almost no import edges for exactly that reason. `code.total` is counted on formatted source: the
+reformat alone multiplied it by 1.499, and the budget was scaled by the same factor (metrics.json says so).
+
+`scripts/*.ts` are TypeScript too and run the same way (`node scripts/test.ts`), with one exception:
+**the build runs through `tsx`** (`npm run build` / `prepack`), because CI's Node 20 job packs the
+tarball on Node 20, which cannot strip types. The two migrations users run from the package
+(`migrate-descriptors-v2`, `migrate-stubs`) are BUILT to `dist/scripts/*.js` — Node refuses to strip
+types under `node_modules` — so their published path is `node_modules/dreamteamer/dist/scripts/…`.
+
+**The declarations are GENERATED** (`dist/*.d.ts`, by the build) from the exported signatures and
+`src/types.ts`, which holds every shape the contract publishes. They used to be hand-written, and nothing
+held the code to them — `KNOWN_OPERATORS` was declared an array and was a Set (review F8). Generation
+removes that drift and leaves one risk, PRECISION: a public signature sliding to `any`, which every
+consumer then compiles against without a word. So `test/types/consumer.ts` is the contract — a strict
+consumer of what the editor, the mobile app and extensions rely on, with `@ts-expect-error` lines that
+fail when a signature loosens and a ratchet that no public function takes or returns `any` outside a
+named list. `npm run contract` runs it; the public-API test runs it against `src/` AND the packed tarball.
+A type-only edge (`import type`, `typeof import(…)`) is erased by construction, so `layers` and the
+browser-closure test skip it — that is what lets both halves name `src/types.ts`.
+`bin/dreamteamer.js` stays JavaScript (type-checked via `checkJs`): it is what npm links and what the
+dev-clone probe looks for, and it runs before it knows which engine to load.
 
 ## IMPORTANT — core is records + the compiler; everything else is an EXTENSION
 
@@ -373,17 +421,17 @@ When you add an engine capability, the CLI verb is part of the change, not a fol
 add an extension gesture, the verb must already exist. A route in the HTTP extension or the editor's
 `api.ts` with no CLI equivalent is a gap — re-derive this table rather than trusting it.
 
-## ⚠ The PUBLIC API is the cross-repo contract — `src/api.js`
+## ⚠ The PUBLIC API is the cross-repo contract — `src/api.ts`
 
 Until 0.31.0 the editor imported fifteen internal files by path in a non-tolerant `Promise.all`, so
 deleting or renaming ANY `src/` file threw out of `activate()` before the tree view existed (the
 2026-07-31 `sync.js` incident, whose symptom named the one thing that was fine). Now every consumer —
-the editor, the mobile app, every extension — reaches the engine through `src/api.js` only, and
-package `exports` makes `src/*` unimportable. So:
+the editor, the mobile app, every extension — reaches the engine through `src/api.ts` (published as `dist/api.js`) only, and
+package `exports` makes `dist/*` unimportable. So:
 
-- **A file under `src/` may be split, renamed or deleted freely** as long as `src/api.js` still
+- **A file under `src/` may be split, renamed or deleted freely** as long as `src/api.ts` still
   exports the same names.
-- **Removing or renaming an export of `src/api.js` IS the cross-repo change**, and needs the same
-  wave in every consumer. `test/integration/public-api.test.js` pins the runtime export list to
-  `src/api.d.ts`, and installs the packed tarball to prove the API resolves and `src/*` does not.
+- **Removing or renaming an export of `src/api.ts` IS the cross-repo change**, and needs the same
+  wave in every consumer. `test/integration/public-api.test.js` holds the generated declarations to
+  `test/types/consumer.ts`, and installs the packed tarball to prove the API resolves and `dist/*` does not.
 - An addition to the API needs a consumer, like anything else in core.

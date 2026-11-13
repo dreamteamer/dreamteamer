@@ -3,142 +3,146 @@
 // `assertSafeId` gets the most attention because it is a SECURITY boundary, not a validation nicety:
 // review finding 1 was an escaping `--id` that wrote a record outside the repo and orphaned others
 // inside it. Every shape that could climb out is enumerated here.
-import { test, describe } from 'node:test';
-import assert from 'node:assert/strict';
-import { assertSafeId, parseRecordText, patternRe, unknownFields, EXT, idFromRecordPath } from '../../src/records.js';
+import { test, describe } from "node:test"
+import assert from "node:assert/strict"
+import { assertSafeId, parseRecordText, patternRe, unknownFields, EXT, idFromRecordPath } from "../../src/records.ts"
 
-const md = { storage: { format: 'md' } };
+const md = { storage: { format: "md" } }
 
-describe('assertSafeId', () => {
-	test('accepts a plain id and a nested path id', () => {
-		for (const id of ['ada', '2026-07-28--fix-login', '2026/07/kickoff', 'a-b_c.d']) {
-			assert.doesNotThrow(() => assertSafeId(id), `${id} should be allowed`);
-		}
-	});
+describe("assertSafeId", () => {
+  test("accepts a plain id and a nested path id", () => {
+    for (const id of ["ada", "2026-07-28--fix-login", "2026/07/kickoff", "a-b_c.d"]) {
+      assert.doesNotThrow(() => assertSafeId(id), `${id} should be allowed`)
+    }
+  })
 
-	test('refuses traversal, absolute paths and backslashes', () => {
-		for (const id of ['../escape', 'a/../../b', '/etc/passwd', 'a\\b', './x', 'a//b', '..', '.']) {
-			assert.throws(() => assertSafeId(id), /invalid id/, `${id} must be refused`);
-		}
-	});
+  test("refuses traversal, absolute paths and backslashes", () => {
+    for (const id of ["../escape", "a/../../b", "/etc/passwd", "a\\b", "./x", "a//b", "..", "."]) {
+      assert.throws(() => assertSafeId(id), /invalid id/, `${id} must be refused`)
+    }
+  })
 
-	test('refuses empties and non-strings', () => {
-		for (const id of ['', null, undefined, 42, {}, []]) assert.throws(() => assertSafeId(id), /invalid id/);
-	});
-});
+  test("refuses empties and non-strings", () => {
+    for (const id of ["", null, undefined, 42, {}, []]) assert.throws(() => assertSafeId(id), /invalid id/)
+  })
+})
 
-describe('parseRecordText', () => {
-	test('splits frontmatter from the body and assigns the body field', () => {
-		const fields = parseRecordText('---\ntitle: Kickoff\n---\nAda walked through it.\n', md, 'body');
-		assert.equal(fields.title, 'Kickoff');
-		assert.equal(fields.body.trim(), 'Ada walked through it.');
-	});
+describe("parseRecordText", () => {
+  test("splits frontmatter from the body and assigns the body field", () => {
+    const fields = parseRecordText("---\ntitle: Kickoff\n---\nAda walked through it.\n", md, "body")
+    assert.equal(fields.title, "Kickoff")
+    assert.equal(fields.body.trim(), "Ada walked through it.")
+  })
 
-	test('a frontmatter-less file is all body', () => {
-		const fields = parseRecordText('just prose\n', md, 'body');
-		assert.equal(fields.body.trim(), 'just prose');
-	});
+  test("a frontmatter-less file is all body", () => {
+    const fields = parseRecordText("just prose\n", md, "body")
+    assert.equal(fields.body.trim(), "just prose")
+  })
 
-	test('an empty body does not create the body field', () => {
-		const fields = parseRecordText('---\ntitle: T\n---\n', md, 'body');
-		assert.equal(fields.body, undefined);
-	});
+  test("an empty body does not create the body field", () => {
+    const fields = parseRecordText("---\ntitle: T\n---\n", md, "body")
+    assert.equal(fields.body, undefined)
+  })
 
-	test('no body field declared means the body is dropped', () => {
-		const fields = parseRecordText('---\ntitle: T\n---\nprose\n', md, undefined);
-		assert.deepEqual(fields, { title: 'T' });
-	});
+  test("no body field declared means the body is dropped", () => {
+    const fields = parseRecordText("---\ntitle: T\n---\nprose\n", md, undefined)
+    assert.deepEqual(fields, { title: "T" })
+  })
 
-	test('CRLF frontmatter parses', () => {
-		assert.equal(parseRecordText('---\r\ntitle: T\r\n---\r\nbody\r\n', md, 'body').title, 'T');
-	});
+  test("CRLF frontmatter parses", () => {
+    assert.equal(parseRecordText("---\r\ntitle: T\r\n---\r\nbody\r\n", md, "body").title, "T")
+  })
 
-	// CLAUDE.md: dreamteamer parses with CORE_SCHEMA so an unquoted date stays a STRING here, even
-	// though a default-schema YAML reader would turn it into a timestamp.
-	test('an unquoted date stays a string', () => {
-		const fields = parseRecordText('---\ndue: 2026-07-28\n---\n', md, 'body');
-		assert.equal(typeof fields.due, 'string');
-		assert.equal(fields.due, '2026-07-28');
-	});
+  // CLAUDE.md: dreamteamer parses with CORE_SCHEMA so an unquoted date stays a STRING here, even
+  // though a default-schema YAML reader would turn it into a timestamp.
+  test("an unquoted date stays a string", () => {
+    const fields = parseRecordText("---\ndue: 2026-07-28\n---\n", md, "body")
+    assert.equal(typeof fields.due, "string")
+    assert.equal(fields.due, "2026-07-28")
+  })
 
-	test('yaml and json formats parse whole-file', () => {
-		assert.equal(parseRecordText('name: Ada\n', { storage: { format: 'yaml' } }).name, 'Ada');
-		assert.equal(parseRecordText('{"name":"Ada"}', { storage: { format: 'json' } }).name, 'Ada');
-	});
-});
+  test("yaml and json formats parse whole-file", () => {
+    assert.equal(parseRecordText("name: Ada\n", { storage: { format: "yaml" } }).name, "Ada")
+    assert.equal(parseRecordText('{"name":"Ada"}', { storage: { format: "json" } }).name, "Ada")
+  })
+})
 
-describe('unknownFields — the typo detector', () => {
-	// a compiled descriptor: what a record stores is its non-virtual resolved fields
-	const d = { compiled: { fields: { id: { type: 'string', virtual: true }, title: { type: 'string' }, status: { type: 'string' } } } };
+describe("unknownFields — the typo detector", () => {
+  // a compiled descriptor: what a record stores is its non-virtual resolved fields
+  const d = {
+    compiled: {
+      fields: { id: { type: "string", virtual: true }, title: { type: "string" }, status: { type: "string" } },
+    },
+  }
 
-	test('names keys the schema does not declare', () => {
-		assert.deepEqual(unknownFields(d, { title: 'T', assinee: 'x' }), ['assinee']);
-	});
+  test("names keys the schema does not declare", () => {
+    assert.deepEqual(unknownFields(d, { title: "T", assinee: "x" }), ["assinee"])
+  })
 
-	test('a clean record has none', () => {
-		assert.deepEqual(unknownFields(d, { title: 'T', status: 'todo' }), []);
-	});
+  test("a clean record has none", () => {
+    assert.deepEqual(unknownFields(d, { title: "T", status: "todo" }), [])
+  })
 
-	test('a virtual field is not stored, so a record carrying it is told so', () => {
-		assert.deepEqual(unknownFields(d, { title: 'T', id: 'x' }), ['id']);
-	});
+  test("a virtual field is not stored, so a record carrying it is told so", () => {
+    assert.deepEqual(unknownFields(d, { title: "T", id: "x" }), ["id"])
+  })
 
-	// A descriptor that declares nothing cannot distinguish a typo from a field, so it must not guess.
-	test('a descriptor with no fields accepts anything', () => {
-		assert.deepEqual(unknownFields({}, { anything: 1 }), []);
-	});
-});
+  // A descriptor that declares nothing cannot distinguish a typo from a field, so it must not guess.
+  test("a descriptor with no fields accepts anything", () => {
+    assert.deepEqual(unknownFields({}, { anything: 1 }), [])
+  })
+})
 
-describe('patternRe', () => {
-	test('compiles with the unicode flag so property escapes work', () => {
-		assert.ok(patternRe('^[a-z0-9-]+$').test('fix-login'));
-		assert.ok(patternRe('^\\p{Letter}+$', 'u').test('\u05E9\u05DC\u05D5\u05DD'));
-	});
+describe("patternRe", () => {
+  test("compiles with the unicode flag so property escapes work", () => {
+    assert.ok(patternRe("^[a-z0-9-]+$").test("fix-login"))
+    assert.ok(patternRe("^\\p{Letter}+$", "u").test("\u05E9\u05DC\u05D5\u05DD"))
+  })
 
-	// A malformed pattern throws here rather than silently matching nothing — and compile refuses one
-	// up front (test/integration/compile.test.js) so a descriptor can never carry it into a write path.
-	test('a malformed pattern throws rather than matching everything', () => {
-		assert.throws(() => patternRe('(['), /Invalid regular expression/);
-	});
-});
+  // A malformed pattern throws here rather than silently matching nothing — and compile refuses one
+  // up front (test/integration/compile.test.js) so a descriptor can never carry it into a write path.
+  test("a malformed pattern throws rather than matching everything", () => {
+    assert.throws(() => patternRe("(["), /Invalid regular expression/)
+  })
+})
 
-describe('EXT', () => {
-	// `binary` is deliberately absent: an opaque record's extension is whatever was imported, so it has
-	// no fixed tail. idFromRecordPath is where that format's filenames are understood.
-	test('maps every format that HAS one extension', () => {
-		assert.deepEqual(EXT, { md: '.md', yaml: '.yaml', json: '.json' });
-	});
-});
+describe("EXT", () => {
+  // `binary` is deliberately absent: an opaque record's extension is whatever was imported, so it has
+  // no fixed tail. idFromRecordPath is where that format's filenames are understood.
+  test("maps every format that HAS one extension", () => {
+    assert.deepEqual(EXT, { md: ".md", yaml: ".yaml", json: ".json" })
+  })
+})
 
-describe('idFromRecordPath', () => {
-	const fileCodec = { storage: { suffix: 'asset', format: 'binary' } };
-	const mdCodec = { storage: { suffix: 'contact', format: 'md' } };
+describe("idFromRecordPath", () => {
+  const fileCodec = { storage: { suffix: "asset", format: "binary" } }
+  const mdCodec = { storage: { suffix: "contact", format: "md" } }
 
-	test('fixed-extension formats match their one extension, at any depth', () => {
-		assert.equal(idFromRecordPath(mdCodec, 'dana-oren.contact.md'), 'dana-oren');
-		assert.equal(idFromRecordPath(mdCodec, '2026/07/dana.contact.md'), '2026/07/dana');
-		assert.equal(idFromRecordPath(mdCodec, 'dana-oren.contact.yaml'), null);
-		assert.equal(idFromRecordPath(mdCodec, 'dana-oren.md'), null);
-	});
+  test("fixed-extension formats match their one extension, at any depth", () => {
+    assert.equal(idFromRecordPath(mdCodec, "dana-oren.contact.md"), "dana-oren")
+    assert.equal(idFromRecordPath(mdCodec, "2026/07/dana.contact.md"), "2026/07/dana")
+    assert.equal(idFromRecordPath(mdCodec, "dana-oren.contact.yaml"), null)
+    assert.equal(idFromRecordPath(mdCodec, "dana-oren.md"), null)
+  })
 
-	test('the binary format takes ONE extension segment, whatever it is', () => {
-		assert.equal(idFromRecordPath(fileCodec, 'icons/lucide/hotel.asset.svg'), 'icons/lucide/hotel');
-		assert.equal(idFromRecordPath(fileCodec, 'logos/monday.asset.png'), 'logos/monday');
-		assert.equal(idFromRecordPath(fileCodec, 'a.asset.JPEG'), 'a');
-	});
+  test("the binary format takes ONE extension segment, whatever it is", () => {
+    assert.equal(idFromRecordPath(fileCodec, "icons/lucide/hotel.asset.svg"), "icons/lucide/hotel")
+    assert.equal(idFromRecordPath(fileCodec, "logos/monday.asset.png"), "logos/monday")
+    assert.equal(idFromRecordPath(fileCodec, "a.asset.JPEG"), "a")
+  })
 
-	// An archive or a dotfile dropped into the folder must stay a stray rather than becoming a
-	// record with a two-part extension — `check` is the only thing that will ever mention it.
-	test('two extension segments, no extension, or the wrong suffix are not records', () => {
-		assert.equal(idFromRecordPath(fileCodec, 'x.asset.tar.gz'), null);
-		assert.equal(idFromRecordPath(fileCodec, 'x.asset'), null);
-		assert.equal(idFromRecordPath(fileCodec, 'x.other.svg'), null);
-		assert.equal(idFromRecordPath(fileCodec, '.asset.svg'), null);
-	});
+  // An archive or a dotfile dropped into the folder must stay a stray rather than becoming a
+  // record with a two-part extension — `check` is the only thing that will ever mention it.
+  test("two extension segments, no extension, or the wrong suffix are not records", () => {
+    assert.equal(idFromRecordPath(fileCodec, "x.asset.tar.gz"), null)
+    assert.equal(idFromRecordPath(fileCodec, "x.asset"), null)
+    assert.equal(idFromRecordPath(fileCodec, "x.other.svg"), null)
+    assert.equal(idFromRecordPath(fileCodec, ".asset.svg"), null)
+  })
 
-	test('a suffix carrying regex metacharacters is matched literally', () => {
-		const dotty = { storage: { suffix: 'a.b', format: 'binary' } };
-		assert.equal(idFromRecordPath(dotty, 'x.a.b.svg'), 'x');
-		assert.equal(idFromRecordPath(dotty, 'x.axb.svg'), null);
-	});
-});
+  test("a suffix carrying regex metacharacters is matched literally", () => {
+    const dotty = { storage: { suffix: "a.b", format: "binary" } }
+    assert.equal(idFromRecordPath(dotty, "x.a.b.svg"), "x")
+    assert.equal(idFromRecordPath(dotty, "x.axb.svg"), null)
+  })
+})

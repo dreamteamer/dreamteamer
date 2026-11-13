@@ -1,0 +1,570 @@
+// dreamteamer check — validate every record against the compiled descriptors.
+// report-only: JSON Schema (ajv), id patterns, reference resolution, stray files, plus any
+// `extra` violations a caller gathered (extension checks), reported after the schema's — an item marked
+// `warning` is printed as a warning and never counted. Under `strictExport` a reference this workspace's
+// own records reach only through a layer is a violation rather than a ⚠ line: a workspace reading this one without its layers would see them break.
+// NEVER modifies a file. returns the exit code.
+import fs from "node:fs"
+import path from "node:path"
+import Ajv from "ajv"
+import addFormats from "ajv-formats"
+import {
+  parseRecord,
+  patternRe,
+  fmtAjvError,
+  unknownFields,
+  walk,
+  idFromRecordPath,
+  MAX_RECORD_BYTES,
+} from "./records.ts"
+import { NO_RUNTIME, loadDescriptors, runtimeDir, namespaces as compiledNamespaces, exportsFacts } from "./runtime.ts"
+import { parseRef } from "./namespace.ts"
+import { relationsOf, expectedMirrors, ownersReadIn } from "./relations.ts"
+import {
+  collectRefFields,
+  valuesAt,
+  EXPORTS_FILE,
+  readExports,
+  exportsContext,
+  sees,
+  outsideRefs,
+  regenerate,
+  isStale,
+} from "./exports.ts"
+import { placementOf, placedRecords, ownerIdOf, symlinkedChildRoots } from "./placement.ts"
+
+import {
+  storageOf,
+  jsonSchemaOf,
+  fieldsOf,
+  unresolvedPeersOf,
+  bodyFieldOf,
+  idsOf,
+  recordTitleOf,
+} from "./descriptor.ts"
+export function check(
+  { root }: { root: string; pkg?: unknown },
+  {
+    extra = [],
+    strictExport = false,
+  }: { extra?: { file: string; msg: string; warning?: true }[]; strictExport?: boolean } = {}
+): 0 | 1 | 2 {
+  const RUNTIME = runtimeDir(root)
+  const rel = p => path.relative(root, p)
+
+  // useDefaults matches the STORE's validator (review finding 11: the two paths could
+  // reach different verdicts on identical bytes). check never writes — the defaults
+  // materialize into the in-memory copy only.
+  const ajv = new (Ajv as unknown as typeof Ajv.default)({
+    allErrors: true,
+    strict: false,
+    useDefaults: true,
+    coerceTypes: "array",
+  })
+  ;(addFormats as unknown as typeof addFormats.default)(ajv)
+  ajv.addFormat("markdown", true) // rich-text marker, not a syntax to validate
+
+  // ---- load compiled descriptors ------------------------------------------------
+  const descriptors = loadDescriptors(root)
+  if (!descriptors) {
+    console.error(`✖ ${NO_RUNTIME}`)
+    return 2
+  }
+  // Off the manifest, like the descriptors themselves — `check` is in the record layer and must not
+  // learn what a workspace package.json is (see the split in CLAUDE.md).
+  const namespaces = compiledNamespaces(root)
+
+  // ---- index all records: collection -> Map<id, filePath> ------------------------
+  const index = new Map()
+  // placed collections only: id -> the parent id its file was FOUND under (null = the fallback root)
+  const observed = new Map()
+  const strays = []
+  // declared here rather than beside the validation pass: indexing can itself produce a
+  // finding (an unreachable data root, below) before a single record is read.
+  const violations = []
+  const dirOf = d => path.resolve(storageOf(d).runtime ? RUNTIME : root, storageOf(d).path) // resolve: an env-pointed root is absolute
+  // per indexed file: the repo that holds it (mirrors are expected per repo) and the record layer it
+  // came from, if any (its findings are reported under the layer, not as this workspace's data)
+  const fileRepo = new Map()
+  const fileLayer = new Map()
+  const layerNotes = new Map() // layer name -> note, printed once
+  for (const [name, d] of descriptors) {
+    const ids = new Map()
+    index.set(name, ids)
+    const claim = (id, f, repo, layer?) => {
+      if (ids.has(id)) {
+        violations.push({
+          file: rel(f),
+          layer,
+          msg: `collection "${name}" holds the id "${id}" twice — ${rel(ids.get(id))} and ${rel(f)}. Remove one.`,
+        })
+        return false
+      }
+      ids.set(id, f)
+      fileRepo.set(f, repo)
+      if (layer) fileLayer.set(f, layer)
+      return true
+    }
+    // An env-pointed root this machine cannot render is the normal state of a per-machine
+    // collection elsewhere — said once, like an absent layer, and not read: a literal `${env:…}`
+    // folder is never looked at, and a reference into the collection is not a finding here.
+    if (storageOf(d).unavailable) {
+      layerNotes.set(
+        `collection:${name}`,
+        `⚠ collection ${name}: ${storageOf(d).unavailable} — its records are not read on this machine, and references into it are not checked`
+      )
+      continue
+    }
+    // runtime-based (knowhow/meta) collections are read from the COMPILED runtime —
+    // their sources may live in any module; .dreamteamer is the merged read surface
+    const dir = dirOf(d)
+    // An unreachable data ROOT is a finding, not a skip: a collection whose module clone is
+    // missing otherwise reports zero records and a clean check — a silent success. An EMPTY
+    // directory stays fine (a module with no records yet is normal); only a missing owning
+    // repo counts.
+    const repoRoot = path.resolve(root, storageOf(d).repo)
+    if (!fs.existsSync(dir) && storageOf(d).repo !== "." && !fs.existsSync(repoRoot)) {
+      violations.push({
+        file: storageOf(d).path,
+        msg: `collection "${name}" is owned by ${storageOf(d).repo}, which is not present — every record in it is unreadable`,
+      })
+      continue
+    }
+    const under = placementOf(d)
+    if (under) {
+      // ONE logical collection across the fallback root and every parent folder — the same walk
+      // the store indexes with (src/placement.ts), so the two cannot disagree about which files
+      // are records. The first file to claim an id keeps it; every later one is a violation,
+      // because a `get` that silently answered from whichever folder sorted later is the
+      // failure this report exists to make visible.
+      const seen = new Map()
+      observed.set(name, seen)
+      const parentDir = dirOf(descriptors.get(under.collection))
+      // a child root that is (or sits behind) a symlink is not read — whatever it points at is not
+      // this parent's folder — and it is named here rather than silently skipped
+      for (const link of symlinkedChildRoots(under, parentDir)) {
+        violations.push({
+          file: rel(link),
+          msg: `is a symlink — ${name} records are read only from real folders inside ${under.collection} records; whatever this points at is not indexed. Replace it with a real folder.`,
+        })
+      }
+      const onLink = p =>
+        violations.push({
+          file: rel(p),
+          msg: `is a symlink inside a ${under.collection} record's folder — nothing behind it is read as a ${name} record, and nothing is written through it. Replace it with a real folder or file.`,
+        })
+      for (const r of placedRecords(d, dir, parentDir, onLink)) {
+        if (claim(r.id, r.file, storageOf(d).repo)) seen.set(r.id, r.parentId)
+      }
+      continue
+    }
+    // every root: the write root, then each record layer. Claimants are GATHERED first, in root order:
+    // the first answers, exactly as the store indexes, and every other is the duplicate reported above.
+    const offers = new Map() // id -> [{ f, repo, layer }], root order
+    const offer = (id, f, repo, layer) => {
+      const o = offers.get(id)
+      if (o) o.push({ f, repo, layer })
+      else offers.set(id, [{ f, repo, layer }])
+    }
+    for (const r of storageOf(d).roots) {
+      const rootDir = r.layer ? path.join(root, r.path) : dir
+      if (!fs.existsSync(rootDir)) {
+        // a layer whose CLONE is absent is a fresh checkout before `dreamteamer install` — its records
+        // are unread, and that is said once rather than passed off as an empty layer
+        if (r.layer && !fs.existsSync(path.join(root, r.repo)))
+          layerNotes.set(
+            r.layer,
+            `⚠ layer ${r.layer} (${r.repo}) is not installed — its records are not read; run dreamteamer install`
+          )
+        continue
+      }
+      const shape = storageOf(d).shape ?? "file"
+      if (shape === "folder") {
+        // a FILE record at the root of a folder-shape collection is the state a collection is in
+        // right after its shape changed — named as such, with the verb that finishes the change
+        const asFile = { ...d, storage: { ...d.storage, shape: "file" as const } }
+        for (const entry of fs.readdirSync(rootDir).sort()) {
+          if (entry.startsWith(".")) continue
+          const p = path.join(rootDir, entry)
+          if (!fs.statSync(p).isDirectory()) {
+            const legacy = idFromRecordPath(asFile, entry) !== null
+            strays.push({
+              collection: name,
+              file: rel(p),
+              note: legacy
+                ? `a file-shape record in a folder-shape collection — dreamteamer relocate ${name} moves it to ${entry.split(".")[0]}/${storageOf(d).entry}`
+                : undefined,
+            })
+            continue
+          }
+          const main = path.join(p, storageOf(d).entry ?? "SKILL.md")
+          if (fs.existsSync(main)) offer(entry, main, r.repo, r.layer)
+          else strays.push({ collection: name, file: rel(p), note: `missing entry file ${storageOf(d).entry}` })
+        }
+        continue
+      }
+      for (const f of walk(rootDir)) {
+        const id = idFromRecordPath(d, path.relative(rootDir, f))
+        if (id === null) {
+          strays.push({ collection: name, file: rel(f) })
+          continue
+        }
+        // One id is one file. Under a fixed-extension format this cannot happen within one root;
+        // under `binary` it can, and across roots it is a layer and this workspace disagreeing.
+        offer(id, f, r.repo, r.layer)
+      }
+    }
+    const opaque = storageOf(d).format === "binary"
+    const allowed = storageOf(d).accept // undefined = any
+    const max = storageOf(d).max_bytes ?? MAX_RECORD_BYTES
+    for (const [id, list] of offers) {
+      const [winner] = list
+      for (const c of list) claim(id, c.f, c.repo, c.layer) // the second and later are reported as duplicates
+      if (!opaque) continue
+      const f = winner.f
+      const ext = path.extname(f).slice(1).toLowerCase()
+      if (allowed && !allowed.includes(ext)) {
+        violations.push({
+          file: rel(f),
+          layer: winner.layer,
+          msg: `collection "${name}" does not accept .${ext} — its declared extensions are ${allowed.join(", ")}`,
+        })
+      }
+      const size = fs.statSync(f).size
+      if (size > max) {
+        violations.push({
+          file: rel(f),
+          layer: winner.layer,
+          msg: `is ${size} bytes, over collection "${name}"'s max_bytes of ${max} — a record is a small file; a big one belongs outside the vault`,
+        })
+      }
+    }
+  }
+
+  // ---- validate each record -------------------------------------------------------
+  const flag = (file, msg) => violations.push({ file: rel(file), layer: fileLayer.get(file), msg })
+
+  // parsed fields, kept for the relations pass below (parse each record exactly once)
+  const parsed = new Map()
+  // cr-dt-003: what a reader of this workspace (without its layers) would see break — a target only a
+  // layer answers
+  const layerOnly = new Map() // target -> { layer, binary, refs: [{ file, field, value, referrer }] }
+  const softRefs = new Map() // absent-but-declared peer collection -> how many refs point at it
+  // cr-dt-004: each repo's exports manifest (the write root is `null`), and the references it vouches for
+  const facts = exportsFacts(root)
+  const ctx = exportsContext({ root, descriptors, own: facts.own, layers: facts.layers, dataPath: facts.data })
+  const manifests = new Map()
+  for (const repo of [null, ...(facts.layers ?? []).map(l => l.name)]) {
+    try {
+      const m = readExports(ctx.rootOf(repo))
+      if (m) manifests.set(repo, m)
+    } catch (e) {
+      violations.push({
+        file: rel(path.join(ctx.rootOf(repo), EXPORTS_FILE)),
+        layer: repo ?? undefined,
+        msg: e.message,
+      })
+    }
+  }
+  const external = new Map() // repo -> { refs, targets: Set }
+
+  for (const [name, d] of descriptors) {
+    const validate = ajv.compile(jsonSchemaOf(d))
+    const refFields = collectRefFields(fieldsOf(d))
+    const softTargets = unresolvedPeersOf(d).length ? new Set(unresolvedPeersOf(d)) : null
+    const bodyField = bodyFieldOf(d)
+    parsed.set(name, new Map())
+
+    // only a referrer a reader can read counts: its collection can be layered at all (D11)
+    const exportable = (d.compiled as { layerable?: boolean })?.layerable === true
+    for (const [id, file] of index.get(name)) {
+      if (idsOf(d).pattern && !patternRe(idsOf(d).pattern).test(id)) {
+        flag(file, `id "${id}" does not match pattern ${idsOf(d).pattern}`)
+      }
+      let fields
+      try {
+        fields = parseRecord(file, d, bodyField)
+      } catch (e) {
+        flag(file, `parse error: ${e.message}`)
+        continue
+      }
+      if (!validate(fields)) {
+        for (const err of validate.errors) flag(file, fmtAjvError(err, fields))
+      }
+      for (const k of unknownFields(d, fields)) {
+        flag(file, `unknown field "${k}" (not in the ${name} schema)`)
+      }
+      for (const [fieldPath, target, soft] of refFields) {
+        // a layer's MIRROR whose owners this workspace does not read from that layer names
+        // records of the layer's repo — not dangling, only out of sight (see ownersReadIn)
+        if (
+          fileLayer.has(file) &&
+          fieldPath.length === 1 &&
+          fieldsOf(d)[fieldPath[0]]?.mirror_of !== undefined &&
+          Array.isArray(target) &&
+          descriptors.has(target[0]) &&
+          !ownersReadIn(descriptors.get(target[0]), fileRepo.get(file))
+        )
+          continue
+        const counted =
+          exportable &&
+          !fileLayer.has(file) &&
+          !(fieldPath.length === 1 && fieldsOf(d)[fieldPath[0]]?.mirror_of !== undefined)
+        for (const value of valuesAt(fields, fieldPath)) {
+          checkRef(file, fieldPath, value, target, softTargets, soft, counted ? `${name}/${id}` : null)
+        }
+      }
+      // ---- placement: the FIELD is the intended owner, the FOLDER is observed placement ---
+      // Reported, never repaired: a record found under the wrong company is either a hand move
+      // (the field is right, run relocate) or a hand edit of the field (the folder is right, set
+      // it back) and only a person knows which. A malformed owner value is skipped here — the
+      // reference check above has already named it, and "placed under X but owner is empty"
+      // on top of that would be a second report of one typo.
+      const under = placementOf(d)
+      if (under) {
+        const raw = fields[under.parent]
+        const wellFormed = raw == null || raw === "" || parseRef(raw, namespaces)
+        const want = ownerIdOf(fields, under, v => parseRef(v, namespaces))
+        const got = observed.get(name).get(id)
+        if (under.id === "nested" && want && id.split("/")[0] !== want) {
+          flag(
+            file,
+            `id "${id}" begins with "${id.split("/")[0]}" but ${under.parent} is ${under.collection}/${want} — a nested id begins with its parent's. Rename it: dreamteamer rename ${name}/${id} ${want}/${id.slice(id.indexOf("/") + 1)}`
+          )
+        }
+        if (wellFormed && want !== got) {
+          const where = got ? `under ${under.collection}/${got}` : `in its own root (${storageOf(d).path})`
+          const should = want ? `${under.parent} is ${under.collection}/${want}` : `${under.parent} is empty`
+          flag(
+            file,
+            `placed ${where} but ${should} — the file is not where its owner puts it. Run: dreamteamer relocate ${name}/${id}`
+          )
+        }
+      }
+      parsed.get(name).set(id, fields)
+    }
+    // descriptor v2: `unique: true` on a scalar field — the second record holding a value is the
+    // one reported, naming the first. Null and absent never claim.
+    for (const [field, f] of Object.entries(d.compiled?.fields ?? {})) {
+      if (!f.unique || f.many) continue
+      const seen = new Map()
+      for (const [id, fields] of parsed.get(name)) {
+        const v = fields[field]
+        if (v === undefined || v === null || v === "") continue
+        if (seen.has(v))
+          flag(index.get(name).get(id), `${field}: "${v}" is already taken by ${name}/${seen.get(v)} (unique)`)
+        else seen.set(v, id)
+      }
+    }
+  }
+
+  // ---- relations: mirrors are DERIVED state ------------------------------------------
+  // The owning side's foreign key is the truth; the mirror on the target is a cache of it, kept by
+  // the store. So this is not a "do both sides agree" test between two equal authorities — check
+  // recomputes what the owners imply and reports any mirror that has fallen behind. The fix is
+  // therefore mechanical (`relations rebuild`), which is what the message says, rather than a
+  // judgement call about which side is right.
+  for (const relation of relationsOf(descriptors)) {
+    const owners = [...(parsed.get(relation.owner) ?? [])].map(([id, fields]) => ({
+      id,
+      fields,
+      repo: fileRepo.get(index.get(relation.owner).get(id)),
+    }))
+    // PER REPO: a mirror is kept only between records of one repo (store.js applyMirrorEdits), so
+    // the expectation on a target is computed from the owners in ITS repo — an owner in this
+    // workspace naming a target a layer holds is not a link the layer's own check could see.
+    const byRepo = new Map()
+    for (const o of owners) {
+      if (!byRepo.has(o.repo)) byRepo.set(o.repo, [])
+      byRepo.get(o.repo).push(o)
+    }
+    const expByRepo = new Map([...byRepo].map(([r, os]) => [r, expectedMirrors(relation, os)]))
+
+    // a unique owner reference is one-to-one, so two owners naming one target is a conflict the mirror
+    // physically cannot represent (it is a scalar) — reported on the SECOND claimant, where the
+    // edit that has to change is.
+    if (relation.unique) {
+      const seen = new Map()
+      for (const { id, fields } of owners) {
+        const v = fields?.[relation.field]
+        // a union FK yields one relation row per target collection; without this filter each
+        // row would re-flag the same duplicate once per member.
+        if (typeof v !== "string" || !v.startsWith(`${relation.target}/`)) continue
+        if (seen.has(v))
+          flag(
+            index.get(relation.owner).get(id),
+            `${relation.field}: "${v}" is already taken by ${relation.owner}/${seen.get(v)} (unique)`
+          )
+        else seen.set(v, id)
+      }
+    }
+
+    const ownerD = descriptors.get(relation.owner)
+    for (const [id, fields] of parsed.get(relation.target) ?? []) {
+      const tfile = index.get(relation.target).get(id)
+      if (fileLayer.has(tfile) && !ownersReadIn(ownerD, fileRepo.get(tfile))) continue // the layer's own check judges it
+      const expected = expByRepo.get(fileRepo.get(index.get(relation.target).get(id)))?.get(id)
+      if (!sameMirror(relation, fields?.[relation.mirror], expected))
+        flag(
+          index.get(relation.target).get(id),
+          `${relation.mirror}: stale — run: dreamteamer relations rebuild ${relation.target}`
+        )
+    }
+  }
+
+  function checkRef(file, fieldPath, value, targets, softTargets, soft = false, referrer = null) {
+    if (typeof value !== "string") return
+    if (value.startsWith("@")) return // runtime tokens (@me, @initiator) are legal
+    // The SAME parser the store writes through (src/namespace.ts) — `check` disagreeing with the
+    // write path about where a namespace ends would flag valid records and pass invalid ones.
+    const ref = parseRef(value, namespaces)
+    if (!ref) return flag(file, `${fieldPath.join(".")}: reference "${value}" is not <collection>/<id>`)
+    const { collection: coll, id } = ref
+    if (targets !== "*" && !targets.includes(coll)) {
+      const want = targets.length === 1 ? `collection "${targets[0]}"` : `one of: ${targets.join(", ")}`
+      return flag(file, `${fieldPath.join(".")}: reference "${value}" should target ${want}`)
+    }
+    if (!descriptors.has(coll)) {
+      // A collection the owning module DECLARED as a peer and nothing installed provides is the
+      // normal state of a module opened on its own — the reference is unresolvable, not wrong.
+      // `unresolved_peers` is stamped by compile so this layer never has to know what a module
+      // is (see the record/workspace split in CLAUDE.md).
+      if (softTargets?.has(coll)) {
+        softRefs.set(coll, (softRefs.get(coll) ?? 0) + 1)
+        return
+      }
+      // A SOFT reference (`soft: true`) names its target collection, and a missing record is tolerated.
+      if (soft) return
+      return flag(file, `${fieldPath.join(".")}: reference "${value}" targets unknown collection "${coll}"`)
+    }
+    if (!index.get(coll).has(id)) {
+      if (soft) return // resolve if present, ignore if absent
+      if (storageOf(descriptors.get(coll)).unavailable) return // the collection is unread here, not empty
+      // listed by the referring record's OWN repo, its holder not read here: external (cr-dt-004)
+      const repo = fileLayer.get(file) ?? null
+      const e = manifests.get(repo)?.[coll]?.[id]
+      if (e && !sees(e, coll, ctx)) {
+        const x = external.get(repo) ?? external.set(repo, { refs: 0, targets: new Set() }).get(repo)
+        x.refs++
+        x.targets.add(`${coll}/${id}`)
+        return
+      }
+      return flag(
+        file,
+        `${fieldPath.join(".")}: dangling reference "${value}" — no such record${e ? ` (its holder ${e.from} is read here and does not have it)` : ""}`
+      )
+    }
+    const at = index.get(coll).get(id)
+    if (!referrer || soft || !fileLayer.has(at) || manifests.get(null)?.[coll]?.[id]) return
+    const key = `${coll}/${id}`
+    if (!layerOnly.has(key))
+      layerOnly.set(key, {
+        layer: fileLayer.get(at),
+        binary: storageOf(descriptors.get(coll)).format === "binary",
+        refs: [],
+      })
+    layerOnly.get(key).refs.push({ file, field: fieldPath.join("."), value, referrer })
+  }
+
+  // ---- report ----------------------------------------------------------------------
+  // an extension's warning is printed and never counted: a disagreement worth seeing that must not turn
+  // the workspace red (src/api.ts contributedViolations carries the mark)
+  violations.push(...extra.filter(v => !v.warning))
+  for (const s of strays) {
+    console.log(`⚠ ${s.file} — unrecognized file in ${s.collection} folder${s.note ? ` (${s.note})` : ""}`)
+  }
+  for (const note of layerNotes.values()) console.log(note)
+  const upTo3 = xs => (xs.length > 3 ? [...xs.slice(0, 3), `+${xs.length - 3} more`] : xs).join(", ")
+  for (const [repo, { refs, targets }] of external) {
+    console.log(
+      `ℹ ${repo ? `layer ${repo}: ` : ""}${refs} reference${refs === 1 ? "" : "s"} to ${targets.size} record${targets.size === 1 ? "" : "s"} outside ${repo ? "it" : "this workspace"}, vouched for by its exports manifest (${upTo3([...targets].sort())})`
+    )
+  }
+  // a manifest is stale exactly when `dt exports` here would change or drop one of its entries
+  for (const [repo, current] of manifests) {
+    const repoOf = (c, id) => {
+      const f = index.get(c)?.get(id)
+      return f ? (fileLayer.get(f) ?? null) : undefined
+    }
+    const records = [...parsed].flatMap(([c, m]) =>
+      [...m]
+        .filter(([id]) => repoOf(c, id) === repo)
+        .map(([id, fields]) => ({ collection: c, id, fields, descriptor: descriptors.get(c) }))
+    )
+    const resolve = (c, id) => {
+      if (repoOf(c, id) === undefined) return null
+      const t = /\{\{\s*([A-Za-z_][\w]*)/.exec(recordTitleOf(descriptors.get(c)))?.[1]
+      return { label: String(parsed.get(c)?.get(id)?.[t] ?? id), from: ctx.packageOf(repoOf(c, id)) }
+    }
+    const outside = outsideRefs({ records, held: (c, id) => repoOf(c, id) === repo, resolve, namespaces })
+    const { changes } = regenerate({ current, outside, ctx, repo, held: (c, id) => repoOf(c, id) === repo })
+    if (!isStale(changes)) continue
+    const stale = changes.filter(x => x.kind !== "add")
+    const msg = `stale — ${upTo3(stale.map(x => `${x.ref} (${x.kind}: ${x.why})`))}. dt exports${repo ? ` --layer ${repo}` : ""}`
+    if (strictExport && !repo) violations.push({ file: rel(path.join(root, EXPORTS_FILE)), msg })
+    else console.log(`⚠ ${rel(path.join(ctx.rootOf(repo), EXPORTS_FILE))} is ${msg}`)
+  }
+  for (const [target, { layer, refs }] of [...layerOnly].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
+    const fix = () => "a workspace reading this one sees it dangle. dt exports"
+    if (strictExport) {
+      for (const r of refs)
+        violations.push({
+          file: rel(r.file),
+          msg: `${r.field}: "${r.value}" resolves only through layer ${layer} — ${fix()}`,
+        })
+      continue
+    }
+    const who = [...new Set(refs.map(r => r.referrer))]
+    const named = `${who.length} record${who.length === 1 ? "" : "s"} here (${upTo3(who)})`
+    console.log(`⚠ ${target} resolves only through layer ${layer} — named by ${named}; ${fix()}`)
+  }
+  // Warned, never silent: the references are real and currently resolve to nothing. This is the
+  // expected reading when a module is opened without the workspace that provides the concept.
+  for (const [coll, n] of [...softRefs].sort()) {
+    console.log(
+      `⚠ peer collection "${coll}" is declared but not installed — ${n} reference${n === 1 ? "" : "s"} unresolvable`
+    )
+  }
+  for (const w of extra.filter(v => v.warning)) console.log(`⚠ ${w.file} — ${w.msg}`)
+  if (violations.length === 0) {
+    console.log(
+      `✔ 0 violations (${[...index.values()].reduce((n, m) => n + m.size, 0)} records across ${descriptors.size} collections)`
+    )
+    return 0
+  }
+  // this workspace's own findings first, then each record layer's under its own heading: a layer's
+  // record is validated against THIS workspace's shape, and a value its own overlay allows is a
+  // finding about the two having drifted, not a defect in our data
+  const own = violations.filter(v => !v.layer)
+  const layers = new Map()
+  for (const v of violations)
+    if (v.layer) {
+      if (!layers.has(v.layer)) layers.set(v.layer, [])
+      layers.get(v.layer).push(v)
+    }
+  const print = list => {
+    let last = null
+    for (const v of list) {
+      if (v.file !== last) console.log(`✖ ${v.file}`)
+      console.log(`    ${v.msg}`)
+      last = v.file
+    }
+  }
+  print(own)
+  for (const [layer, list] of layers) {
+    console.log(
+      `✖ layer ${layer}: ${list.length} violation${list.length === 1 ? "" : "s"} against this workspace's shape`
+    )
+    print(list)
+  }
+  console.log(`${violations.length} violation${violations.length === 1 ? "" : "s"}. files were NOT modified.`)
+  return 1
+}
+
+// a unique relation mirrors to a scalar, everything else to a sorted array — compare in the shape the
+// mirror is actually written in (absent and empty are the same reading)
+function sameMirror(relation, actual, expected) {
+  return relation.unique
+    ? (actual ?? null) === (expected ?? null)
+    : JSON.stringify([...(actual ?? [])].sort()) === JSON.stringify(expected ?? [])
+}

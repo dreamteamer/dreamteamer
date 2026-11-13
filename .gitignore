@@ -17,3 +17,6 @@ node_modules/
 test/.tmp/
 # tier-4 perf fixtures: generated per run by `npm run perf`, never committed
 test/.perf/
+
+# the npm build (src/*.ts → dist/*.js), made by `npm run build` / prepack — a checkout runs src/ directly
+dist/

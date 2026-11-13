@@ -4,488 +4,708 @@
 // `health/patients` (folder records), `health/doctors`, `health/visits` stored under its patient,
 // a mixin, and an overlay from a second module adding a cross-module mirror. Invented names only —
 // this engine is published.
-import { test, describe } from 'node:test';
-import assert from 'node:assert/strict';
-import fs from 'node:fs';
-import { execFileSync } from 'node:child_process';
-import path from 'node:path';
-import { workspace, writeCollection, writeModule, compileError, compileQuietly, dt, WS_MODULE } from '../helpers/ws.js';
-import { load, dump } from '../../src/yaml.js';
+import { test, describe } from "node:test"
+import assert from "node:assert/strict"
+import fs from "node:fs"
+import { execFileSync } from "node:child_process"
+import path from "node:path"
+import { workspace, writeCollection, writeModule, compileError, compileQuietly, dt, WS_MODULE } from "../helpers/ws.js"
+import { load, dump } from "../../src/yaml.ts"
 
 const PATIENTS = {
-	description: 'A person under this clinic\'s care.',
-	storage: { shape: 'folder', entry: 'patient.md' },
-	ids: { from: '{{ name | slug }}' },
-	fields: {
-		name: { type: 'string', required: true },
-		national_id: { type: 'string', unique: true, pattern: '^\\d{9}$', display: { editable: 'create' } },
-		visits: { type: 'health/visits', many: true, mirror_of: 'patient', description: 'Every visit. Set `patient` on the visit.' },
-		notes: { type: 'markdown', body: true },
-	},
-};
+  description: "A person under this clinic's care.",
+  storage: { shape: "folder", entry: "patient.md" },
+  ids: { from: "{{ name | slug }}" },
+  fields: {
+    name: { type: "string", required: true },
+    national_id: { type: "string", unique: true, pattern: "^\\d{9}$", display: { editable: "create" } },
+    visits: {
+      type: "health/visits",
+      many: true,
+      mirror_of: "patient",
+      description: "Every visit. Set `patient` on the visit.",
+    },
+    notes: { type: "markdown", body: true },
+  },
+}
 const DOCTORS = {
-	description: 'A doctor.',
-	ids: { from: '{{ name | slug }}' },
-	fields: { name: { type: 'string', required: true }, notes: { type: 'markdown', body: true } },
-};
+  description: "A doctor.",
+  ids: { from: "{{ name | slug }}" },
+  fields: { name: { type: "string", required: true }, notes: { type: "markdown", body: true } },
+}
 const VISITS = {
-	description: 'One consultation between a patient and a doctor.',
-	record_title: '{{ reason }} · {{ date }}',
-	storage: { under: { parent: 'patient', subfolder: 'visits' } },
-	ids: { from: '{{ date | date }}--{{ patient | basename }}--{{ doctor | basename }}', pattern: '^\\d{4}-\\d{2}-\\d{2}--[a-z0-9-]+--[a-z0-9-]+$' },
-	mixins: ['clinic-provenance'],
-	fields: {
-		reason: { type: 'string', required: true, title: 'Reason for visit' },
-		patient: { type: 'health/patients', required: true },
-		doctor: { type: 'health/doctors', required: true },
-		date: { type: 'date', required: true },
-		kind: { type: 'string', default: 'follow-up', enum: { intake: { label: 'Intake', color: 'charts.blue' }, 'follow-up': { label: 'Follow-up' } } },
-		status: { type: 'string', default: 'booked', enum: ['booked', 'seen', 'cancelled'] },
-		duration_min: { type: 'integer', minimum: 5, display: { unit: 'min' } },
-		paid: { type: 'boolean', default: false },
-		measurements: { type: 'object', many: true, item_title: '{{ analyte }}', fields: { analyte: { type: 'string', required: true }, value: { type: 'number' } } },
-		codes: { type: 'map', values: 'string' },
-		evidence: { type: 'reference', many: true },
-		position: { type: 'position' },
-		consultation_notes: { type: 'markdown', body: true },
-	},
-	constraints: [
-		{ if: { required: ['status'], properties: { status: { const: 'seen' } } }, then: { required: ['duration_min'] } },
-	],
-	display: {
-		nav: { icon: 'pulse', order: 20, section: 'care' },
-		list: { columns: ['reason', 'patient', 'date', 'status'], sort: '-date' },
-		record: { subtitle: '{{ patient }} · {{ kind }}', badge: 'status', color_by: 'kind' },
-		form: { sections: [{ title: 'Visit', fields: ['reason', 'patient', 'doctor', 'date', 'kind', 'status'] }] },
-	},
-};
+  description: "One consultation between a patient and a doctor.",
+  record_title: "{{ reason }} · {{ date }}",
+  storage: { under: { parent: "patient", subfolder: "visits" } },
+  ids: {
+    from: "{{ date | date }}--{{ patient | basename }}--{{ doctor | basename }}",
+    pattern: "^\\d{4}-\\d{2}-\\d{2}--[a-z0-9-]+--[a-z0-9-]+$",
+  },
+  mixins: ["clinic-provenance"],
+  fields: {
+    reason: { type: "string", required: true, title: "Reason for visit" },
+    patient: { type: "health/patients", required: true },
+    doctor: { type: "health/doctors", required: true },
+    date: { type: "date", required: true },
+    kind: {
+      type: "string",
+      default: "follow-up",
+      enum: { intake: { label: "Intake", color: "charts.blue" }, "follow-up": { label: "Follow-up" } },
+    },
+    status: { type: "string", default: "booked", enum: ["booked", "seen", "cancelled"] },
+    duration_min: { type: "integer", minimum: 5, display: { unit: "min" } },
+    paid: { type: "boolean", default: false },
+    measurements: {
+      type: "object",
+      many: true,
+      item_title: "{{ analyte }}",
+      fields: { analyte: { type: "string", required: true }, value: { type: "number" } },
+    },
+    codes: { type: "map", values: "string" },
+    evidence: { type: "reference", many: true },
+    position: { type: "position" },
+    consultation_notes: { type: "markdown", body: true },
+  },
+  constraints: [
+    { if: { required: ["status"], properties: { status: { const: "seen" } } }, then: { required: ["duration_min"] } },
+  ],
+  display: {
+    nav: { icon: "pulse", order: 20, section: "care" },
+    list: { columns: ["reason", "patient", "date", "status"], sort: "-date" },
+    record: { subtitle: "{{ patient }} · {{ kind }}", badge: "status", color_by: "kind" },
+    form: { sections: [{ title: "Visit", fields: ["reason", "patient", "doctor", "date", "kind", "status"] }] },
+  },
+}
 const MIXIN = {
-	name: 'clinic-provenance',
-	description: 'Who made the record, and how much to trust it.',
-	use_when: 'every clinic collection an agent may write',
-	fields: { author: { type: 'string' }, confidence: { type: 'string', default: 'normal', enum: ['low', 'normal', 'high'] } },
-};
+  name: "clinic-provenance",
+  description: "Who made the record, and how much to trust it.",
+  use_when: "every clinic collection an agent may write",
+  fields: {
+    author: { type: "string" },
+    confidence: { type: "string", default: "normal", enum: ["low", "normal", "high"] },
+  },
+}
 
 function clinic({ visits = VISITS, extra } = {}) {
-	const w = workspace({ namespaces: ['health'], compile: false });
-	writeCollection(w.root, 'health/patients', PATIENTS);
-	writeCollection(w.root, 'health/doctors', DOCTORS);
-	writeCollection(w.root, 'health/visits', visits);
-	const mixins = path.join(w.root, 'modules', WS_MODULE, 'mixins');
-	fs.mkdirSync(mixins, { recursive: true });
-	fs.writeFileSync(path.join(mixins, 'clinic-provenance.mixin.yaml'), dump(MIXIN));
-	extra?.(w.root);
-	return w;
+  const w = workspace({ namespaces: ["health"], compile: false })
+  writeCollection(w.root, "health/patients", PATIENTS)
+  writeCollection(w.root, "health/doctors", DOCTORS)
+  writeCollection(w.root, "health/visits", visits)
+  const mixins = path.join(w.root, "modules", WS_MODULE, "mixins")
+  fs.mkdirSync(mixins, { recursive: true })
+  fs.writeFileSync(path.join(mixins, "clinic-provenance.mixin.yaml"), dump(MIXIN))
+  extra?.(w.root)
+  return w
 }
-const compiled = (root, name) => load(fs.readFileSync(path.join(root, '.dreamteamer', 'collections', `${name}.collection.yaml`), 'utf8'));
+const compiled = (root, name) =>
+  load(fs.readFileSync(path.join(root, ".dreamteamer", "collections", `${name}.collection.yaml`), "utf8"))
 
-describe('a v2 descriptor compiles', () => {
-	test('the clinic compiles and the visit carries a compiled block', () => {
-		const w = clinic();
-		assert.equal(compileError(w.ws), null);
-		const d = compiled(w.root, 'health/visits');
-		assert.ok(d.compiled, 'compiled block present');
-		assert.deepEqual(d.compiled.mirrors, []);
-		assert.equal(d.compiled.under_collection, 'health/patients');
-		assert.equal(d.compiled.runtime, false);
-		assert.deepEqual(Object.keys(d.compiled.fields).slice(0, 3), ['id', 'created', 'last_modified']);
-		// the mixin's fields land before the body
-		const keys = Object.keys(d.compiled.fields);
-		assert.ok(keys.indexOf('author') < keys.indexOf('consultation_notes'));
-		assert.ok(keys.indexOf('confidence') > keys.indexOf('position'));
-	});
+describe("a v2 descriptor compiles", () => {
+  test("the clinic compiles and the visit carries a compiled block", () => {
+    const w = clinic()
+    assert.equal(compileError(w.ws), null)
+    const d = compiled(w.root, "health/visits")
+    assert.ok(d.compiled, "compiled block present")
+    assert.deepEqual(d.compiled.mirrors, [])
+    assert.equal(d.compiled.under_collection, "health/patients")
+    assert.equal(d.compiled.runtime, false)
+    assert.deepEqual(Object.keys(d.compiled.fields).slice(0, 3), ["id", "created", "last_modified"])
+    // the mixin's fields land before the body
+    const keys = Object.keys(d.compiled.fields)
+    assert.ok(keys.indexOf("author") < keys.indexOf("consultation_notes"))
+    assert.ok(keys.indexOf("confidence") > keys.indexOf("position"))
+  })
 
-	test('json_schema.properties is exactly the stored fields, and carries no x- keyword', () => {
-		const w = clinic();
-		compileQuietly(w.ws);
-		const d = compiled(w.root, 'health/visits');
-		const stored = Object.entries(d.compiled.fields).filter(([, f]) => !f.virtual).map(([k]) => k);
-		assert.deepEqual(Object.keys(d.compiled.json_schema.properties), stored);
-		assert.doesNotMatch(JSON.stringify(d.compiled.json_schema), /"x-/);
-		assert.deepEqual(d.compiled.json_schema.required, ['reason', 'patient', 'doctor', 'date']);
-		assert.equal(d.compiled.json_schema.allOf.length, 1);
-		assert.deepEqual(d.compiled.json_schema.properties.position, { type: 'string', pattern: '^[a-z]+$' });
-	});
+  test("json_schema.properties is exactly the stored fields, and carries no x- keyword", () => {
+    const w = clinic()
+    compileQuietly(w.ws)
+    const d = compiled(w.root, "health/visits")
+    const stored = Object.entries(d.compiled.fields)
+      .filter(([, f]) => !f.virtual)
+      .map(([k]) => k)
+    assert.deepEqual(Object.keys(d.compiled.json_schema.properties), stored)
+    assert.doesNotMatch(JSON.stringify(d.compiled.json_schema), /"x-/)
+    assert.deepEqual(d.compiled.json_schema.required, ["reason", "patient", "doctor", "date"])
+    assert.equal(d.compiled.json_schema.allOf.length, 1)
+    assert.deepEqual(d.compiled.json_schema.properties.position, { type: "string", pattern: "^[a-z]+$" })
+  })
 
-	test('defaults are recorded apart: title, singular, storage, field titles and on_delete', () => {
-		const w = clinic();
-		compileQuietly(w.ws);
-		const d = compiled(w.root, 'health/visits');
-		assert.equal(d.compiled.defaults.title, 'Visits');
-		assert.equal(d.compiled.defaults.singular, 'health/visit');
-		assert.equal(d.compiled.defaults.record_title, undefined, 'record_title was authored');
-		assert.deepEqual(d.compiled.defaults.storage, { path: 'data/health/visits', format: 'md', shape: 'file', suffix: 'visit' });
-		assert.deepEqual(d.compiled.defaults.fields.doctor, { title: 'Doctor', on_delete: 'restrict' });
-		assert.equal(d.compiled.defaults.fields.reason, undefined, 'reason authored its title');
-	});
+  test("defaults are recorded apart: title, singular, storage, field titles and on_delete", () => {
+    const w = clinic()
+    compileQuietly(w.ws)
+    const d = compiled(w.root, "health/visits")
+    assert.equal(d.compiled.defaults.title, "Visits")
+    assert.equal(d.compiled.defaults.singular, "health/visit")
+    assert.equal(d.compiled.defaults.record_title, undefined, "record_title was authored")
+    assert.deepEqual(d.compiled.defaults.storage, {
+      path: "data/health/visits",
+      format: "md",
+      shape: "file",
+      suffix: "visit",
+    })
+    assert.deepEqual(d.compiled.defaults.fields.doctor, { title: "Doctor", on_delete: "restrict" })
+    assert.equal(d.compiled.defaults.fields.reason, undefined, "reason authored its title")
+  })
 
-	test('the patient mirror resolves and the display block rides along', () => {
-		const w = clinic();
-		compileQuietly(w.ws);
-		assert.deepEqual(compiled(w.root, 'health/patients').compiled.mirrors, ['visits']);
-		assert.equal(compiled(w.root, 'health/visits').display.record.badge, 'status');
-	});
+  test("the patient mirror resolves and the display block rides along", () => {
+    const w = clinic()
+    compileQuietly(w.ws)
+    assert.deepEqual(compiled(w.root, "health/patients").compiled.mirrors, ["visits"])
+    assert.equal(compiled(w.root, "health/visits").display.record.badge, "status")
+  })
 
-	test('the mixins meta-descriptor is itself v2 and compiles', () => {
-		const w = clinic();
-		compileQuietly(w.ws);
-		const m = compiled(w.root, 'mixins');
-		assert.equal(m.compiled.runtime, true);
-		assert.ok(m.compiled.fields.fields);
-	});
-});
+  test("the mixins meta-descriptor is itself v2 and compiles", () => {
+    const w = clinic()
+    compileQuietly(w.ws)
+    const m = compiled(w.root, "mixins")
+    assert.equal(m.compiled.runtime, true)
+    assert.ok(m.compiled.fields.fields)
+  })
+})
 
-describe('a v2 descriptor is refused, with the fix in the message', () => {
-	const refuse = (patch, re) => {
-		const w = clinic({ visits: { ...VISITS, ...patch } });
-		const err = compileError(w.ws);
-		assert.ok(err, 'expected a compile error');
-		assert.match(err, re);
-	};
-	test('a key outside the v2 shape is unknown, naming the keys there are', () => {
-		refuse({ list_fields: ['reason'] }, /unknown key `list_fields` — a descriptor's keys are name · title/);
-		refuse({ storage: { codec: 'md' } }, /unknown key `storage.codec` — storage keys are path · format/);
-	});
-	test('an unknown filter in a template names the position', () => {
-		refuse({ record_title: '{{ reason | title }}' }, /record_title: unknown filter "title"/);
-	});
-	test('record_title opening with a non-string field', () => {
-		refuse({ record_title: '{{ date }} · {{ reason }}' }, /record_title opens with "date", a date field/);
-	});
-	test('a column naming no field', () => {
-		refuse({ display: { list: { columns: ['nope'] } } }, /display.list.columns names "nope"/);
-	});
-	test('a section whose collapsed is not a boolean', () => {
-		refuse({ display: { ...VISITS.display, form: { sections: [{ title: 'Provenance', fields: ['author'], collapsed: 'yes' }] } } }, /display.form.sections "Provenance" has collapsed: "yes" — it is true or false/);
-	});
-	test('a field hidden from the form but listed in a section', () => {
-		refuse({
-			fields: { ...VISITS.fields, paid: { type: 'boolean', default: false, display: { hidden: ['form'] } } },
-			display: { form: { sections: [{ title: 'Billing', fields: ['paid'] }] } },
-		}, /lists "paid", which is hidden from the form/);
-	});
-	test('a mixin field colliding with an authored one', () => {
-		refuse({ fields: { ...VISITS.fields, author: { type: 'string' } } }, /field "author" is declared by the descriptor and by mixin "clinic-provenance"/);
-	});
-	test('a type naming no collection', () => {
-		refuse({ fields: { ...VISITS.fields, nurse: { type: 'health/nurses' } } }, /unknown type "health\/nurses"/);
-	});
-	test('a v1 source is refused with the one message naming the converter', () => {
-		const w = clinic({
-			extra: (root) => writeModule(root, 'billing', { dependencies: [WS_MODULE], collections: { 'health/visits': { extends: `${WS_MODULE}/health/visits`, schema: { properties: { claim: { type: 'string' } } } } } }),
-		});
-		const err = compileError(w.ws);
-		assert.match(err, /1 source\(s\) are in the v1 descriptor format, which this engine no longer reads/);
-		assert.match(err, /modules\/billing\/collections\/health\/visits\.collection\.yaml/);
-		assert.match(err, /migrate-descriptors-v2\.mjs --root \./);
-		assert.match(err, /UPDATING\.md/);
-	});
-	test('a runtime an older engine wrote is replaced, not refused', () => {
-		const w = workspace({ compile: false });
-		writeCollection(w.root, 'notes', { ids: { from: '{{ name | slug }}' }, fields: { name: { type: 'string', required: true }, body: { type: 'markdown', body: true } } });
-		compileQuietly(w.ws);
-		// what 0.32 left on disk: the descriptor with no compiled block
-		const file = path.join(w.root, '.dreamteamer', 'collections', 'notes.collection.yaml');
-		const old = load(fs.readFileSync(file, 'utf8'));
-		delete old.compiled;
-		fs.writeFileSync(file, dump(old));
-		const r = dt(w.root, 'compile');
-		assert.equal(r.code, 0, r.stderr);
-		assert.ok(load(fs.readFileSync(file, 'utf8')).compiled, 'the new runtime carries its compiled block');
-	});
-	test('a v1-spelled package.json block names the converter, not a list of unknown keys', () => {
-		const w = workspace({ compile: false, pkg: { 'data-path': 'data' } });
-		const err = compileError(w.ws);
-		assert.match(err, /package\.json: the dreamteamer block is in the v1 spelling \(data-path\)/);
-		assert.match(err, /migrate-descriptors-v2\.mjs --root \./);
-	});
-});
+describe("a v2 descriptor is refused, with the fix in the message", () => {
+  const refuse = (patch, re) => {
+    const w = clinic({ visits: { ...VISITS, ...patch } })
+    const err = compileError(w.ws)
+    assert.ok(err, "expected a compile error")
+    assert.match(err, re)
+  }
+  test("a key outside the v2 shape is unknown, naming the keys there are", () => {
+    refuse({ list_fields: ["reason"] }, /unknown key `list_fields` — a descriptor's keys are name · title/)
+    refuse({ storage: { codec: "md" } }, /unknown key `storage.codec` — storage keys are path · format/)
+  })
+  test("an unknown filter in a template names the position", () => {
+    refuse({ record_title: "{{ reason | title }}" }, /record_title: unknown filter "title"/)
+  })
+  test("record_title opening with a non-string field", () => {
+    refuse({ record_title: "{{ date }} · {{ reason }}" }, /record_title opens with "date", a date field/)
+  })
+  test("a column naming no field", () => {
+    refuse({ display: { list: { columns: ["nope"] } } }, /display.list.columns names "nope"/)
+  })
+  test("a section whose collapsed is not a boolean", () => {
+    refuse(
+      {
+        display: {
+          ...VISITS.display,
+          form: { sections: [{ title: "Provenance", fields: ["author"], collapsed: "yes" }] },
+        },
+      },
+      /display.form.sections "Provenance" has collapsed: "yes" — it is true or false/
+    )
+  })
+  test("a field hidden from the form but listed in a section", () => {
+    refuse(
+      {
+        fields: { ...VISITS.fields, paid: { type: "boolean", default: false, display: { hidden: ["form"] } } },
+        display: { form: { sections: [{ title: "Billing", fields: ["paid"] }] } },
+      },
+      /lists "paid", which is hidden from the form/
+    )
+  })
+  test("a mixin field colliding with an authored one", () => {
+    refuse(
+      { fields: { ...VISITS.fields, author: { type: "string" } } },
+      /field "author" is declared by the descriptor and by mixin "clinic-provenance"/
+    )
+  })
+  test("a type naming no collection", () => {
+    refuse({ fields: { ...VISITS.fields, nurse: { type: "health/nurses" } } }, /unknown type "health\/nurses"/)
+  })
+  test("a v1 source is refused with the one message naming the converter", () => {
+    const w = clinic({
+      extra: root =>
+        writeModule(root, "billing", {
+          dependencies: [WS_MODULE],
+          collections: {
+            "health/visits": {
+              extends: `${WS_MODULE}/health/visits`,
+              schema: { properties: { claim: { type: "string" } } },
+            },
+          },
+        }),
+    })
+    const err = compileError(w.ws)
+    assert.match(err, /1 source\(s\) are in the v1 descriptor format, which this engine no longer reads/)
+    assert.match(err, /modules\/billing\/collections\/health\/visits\.collection\.yaml/)
+    assert.match(err, /node_modules\/dreamteamer\/dist\/scripts\/migrate-descriptors-v2\.js --root \./)
+    assert.match(err, /UPDATING\.md/)
+  })
+  test("a runtime an older engine wrote is replaced, not refused", () => {
+    const w = workspace({ compile: false })
+    writeCollection(w.root, "notes", {
+      ids: { from: "{{ name | slug }}" },
+      fields: { name: { type: "string", required: true }, body: { type: "markdown", body: true } },
+    })
+    compileQuietly(w.ws)
+    // what 0.32 left on disk: the descriptor with no compiled block
+    const file = path.join(w.root, ".dreamteamer", "collections", "notes.collection.yaml")
+    const old = load(fs.readFileSync(file, "utf8"))
+    delete old.compiled
+    fs.writeFileSync(file, dump(old))
+    const r = dt(w.root, "compile")
+    assert.equal(r.code, 0, r.stderr)
+    assert.ok(load(fs.readFileSync(file, "utf8")).compiled, "the new runtime carries its compiled block")
+  })
+  test("a v1-spelled package.json block names the converter, not a list of unknown keys", () => {
+    const w = workspace({ compile: false, pkg: { "data-path": "data" } })
+    const err = compileError(w.ws)
+    assert.match(err, /package\.json: the dreamteamer block is in the v1 spelling \(data-path\)/)
+    assert.match(err, /node_modules\/dreamteamer\/dist\/scripts\/migrate-descriptors-v2\.js --root \./)
+  })
+})
 
-describe('a nested definition is validated before the runtime is replaced', () => {
-	test('a typo inside an object field fails compile, and the previous runtime stands', async () => {
-		const { Store } = await import('../../src/store.js');
-		const w = workspace({ compile: false });
-		const things = (code) => ({ ids: { from: '{{ name | slug }}' }, fields: { name: { type: 'string', required: true }, details: { type: 'object', fields: { code } }, notes: { type: 'markdown', body: true } } });
-		writeCollection(w.root, 'things', things({ type: 'string', pattern: '^[a-z]+$' }));
-		assert.equal(compileError(w.ws), null);
-		const file = path.join(w.root, '.dreamteamer', 'collections', 'things.collection.yaml');
-		const before = fs.readFileSync(file, 'utf8');
-		writeCollection(w.root, 'things', things({ type: 'string', patern: '^[a-z]+$' }));
-		assert.match(compileError(w.ws), /field "details\.code" has unknown key "patern"/);
-		assert.equal(fs.readFileSync(file, 'utf8'), before, 'the runtime is the last good compile');
-		const store = new Store(w.ws);
-		assert.throws(() => store.add('things', { name: 'One', details: { code: 'INVALID' } }), /details\.code.*pattern/, 'the rule the typo would have disabled still holds');
-		assert.doesNotThrow(() => store.add('things', { name: 'Two', details: { code: 'valid' } }));
-	});
-});
+describe("a nested definition is validated before the runtime is replaced", () => {
+  test("a typo inside an object field fails compile, and the previous runtime stands", async () => {
+    const { Store } = await import("../../src/store.ts")
+    const w = workspace({ compile: false })
+    const things = code => ({
+      ids: { from: "{{ name | slug }}" },
+      fields: {
+        name: { type: "string", required: true },
+        details: { type: "object", fields: { code } },
+        notes: { type: "markdown", body: true },
+      },
+    })
+    writeCollection(w.root, "things", things({ type: "string", pattern: "^[a-z]+$" }))
+    assert.equal(compileError(w.ws), null)
+    const file = path.join(w.root, ".dreamteamer", "collections", "things.collection.yaml")
+    const before = fs.readFileSync(file, "utf8")
+    writeCollection(w.root, "things", things({ type: "string", patern: "^[a-z]+$" }))
+    assert.match(compileError(w.ws), /field "details\.code" has unknown key "patern"/)
+    assert.equal(fs.readFileSync(file, "utf8"), before, "the runtime is the last good compile")
+    const store = new Store(w.ws)
+    assert.throws(
+      () => store.add("things", { name: "One", details: { code: "INVALID" } }),
+      /details\.code.*pattern/,
+      "the rule the typo would have disabled still holds"
+    )
+    assert.doesNotThrow(() => store.add("things", { name: "Two", details: { code: "valid" } }))
+  })
+})
 
-describe('an overlay from another module', () => {
-	test('adds a field and is listed in overlaid_by', () => {
-		const w = clinic({
-			extra: (root) => writeModule(root, 'billing', { dependencies: [WS_MODULE], collections: { 'health/visits': { overlay: true, fields: { claim_ref: { type: 'string', description: 'The insurer claim number.' } } } } }),
-		});
-		assert.equal(compileError(w.ws), null);
-		const d = compiled(w.root, 'health/visits');
-		assert.deepEqual(d.compiled.overlaid_by, ['billing']);
-		assert.ok(d.compiled.fields.claim_ref);
-		const keys = Object.keys(d.compiled.fields);
-		assert.ok(keys.indexOf('claim_ref') < keys.indexOf('consultation_notes'), 'the overlay field sits before the body');
-	});
-	test('a later overlay refines a field an earlier overlay introduced, display key by key', () => {
-		const w = workspace({ compile: false });
-		writeCollection(w.root, 'things', { ids: { from: '{{ name | slug }}' }, fields: { name: { type: 'string', required: true }, notes: { type: 'markdown', body: true } } });
-		writeModule(w.root, 'first', { dependencies: [WS_MODULE], collections: { things: { overlay: true, fields: { rating: { type: 'integer', maximum: 10, display: { unit: 'stars', width: 'narrow' } } } } } });
-		writeModule(w.root, 'last', { dependencies: [WS_MODULE, 'first'], collections: { things: { overlay: true, fields: { rating: { maximum: 5, display: { unit: 'points' } } } } } });
-		assert.equal(compileError(w.ws), null);
-		const d = compiled(w.root, 'things');
-		assert.equal(d.compiled.fields.rating.maximum, 5, 'the refining overlay wins');
-		assert.equal(d.compiled.fields.rating.type, 'integer', 'what it does not restate is kept');
-		assert.deepEqual(d.compiled.fields.rating.display, { unit: 'points', width: 'narrow' });
-		assert.deepEqual(Object.keys(d.compiled.fields).filter((k) => !['id', 'created', 'last_modified'].includes(k)), ['name', 'rating', 'notes']);
-		assert.notEqual(dt(w.root, 'add', 'things', '--name', 'Example', '--rating', '9').code, 0, 'rating 9 is above the refined maximum');
-		assert.equal(dt(w.root, 'add', 'things', '--name', 'Fine', '--rating', '4').code, 0);
-	});
-	test('without the dependency on the base module it is refused', () => {
-		const w = clinic({
-			extra: (root) => writeModule(root, 'billing', { collections: { 'health/visits': { overlay: true, fields: { claim_ref: { type: 'string' } } } } }),
-		});
-		assert.match(compileError(w.ws), /module "billing" neither depends on "default" nor declares "health\/visits" in peer_collections/);
-	});
-});
+describe("an overlay from another module", () => {
+  test("adds a field and is listed in overlaid_by", () => {
+    const w = clinic({
+      extra: root =>
+        writeModule(root, "billing", {
+          dependencies: [WS_MODULE],
+          collections: {
+            "health/visits": {
+              overlay: true,
+              fields: { claim_ref: { type: "string", description: "The insurer claim number." } },
+            },
+          },
+        }),
+    })
+    assert.equal(compileError(w.ws), null)
+    const d = compiled(w.root, "health/visits")
+    assert.deepEqual(d.compiled.overlaid_by, ["billing"])
+    assert.ok(d.compiled.fields.claim_ref)
+    const keys = Object.keys(d.compiled.fields)
+    assert.ok(keys.indexOf("claim_ref") < keys.indexOf("consultation_notes"), "the overlay field sits before the body")
+  })
+  test("a later overlay refines a field an earlier overlay introduced, display key by key", () => {
+    const w = workspace({ compile: false })
+    writeCollection(w.root, "things", {
+      ids: { from: "{{ name | slug }}" },
+      fields: { name: { type: "string", required: true }, notes: { type: "markdown", body: true } },
+    })
+    writeModule(w.root, "first", {
+      dependencies: [WS_MODULE],
+      collections: {
+        things: {
+          overlay: true,
+          fields: { rating: { type: "integer", maximum: 10, display: { unit: "stars", width: "narrow" } } },
+        },
+      },
+    })
+    writeModule(w.root, "last", {
+      dependencies: [WS_MODULE, "first"],
+      collections: { things: { overlay: true, fields: { rating: { maximum: 5, display: { unit: "points" } } } } },
+    })
+    assert.equal(compileError(w.ws), null)
+    const d = compiled(w.root, "things")
+    assert.equal(d.compiled.fields.rating.maximum, 5, "the refining overlay wins")
+    assert.equal(d.compiled.fields.rating.type, "integer", "what it does not restate is kept")
+    assert.deepEqual(d.compiled.fields.rating.display, { unit: "points", width: "narrow" })
+    assert.deepEqual(
+      Object.keys(d.compiled.fields).filter(k => !["id", "created", "last_modified"].includes(k)),
+      ["name", "rating", "notes"]
+    )
+    assert.notEqual(
+      dt(w.root, "add", "things", "--name", "Example", "--rating", "9").code,
+      0,
+      "rating 9 is above the refined maximum"
+    )
+    assert.equal(dt(w.root, "add", "things", "--name", "Fine", "--rating", "4").code, 0)
+  })
+  test("without the dependency on the base module it is refused", () => {
+    const w = clinic({
+      extra: root =>
+        writeModule(root, "billing", {
+          collections: { "health/visits": { overlay: true, fields: { claim_ref: { type: "string" } } } },
+        }),
+    })
+    assert.match(
+      compileError(w.ws),
+      /module "billing" neither depends on "default" nor declares "health\/visits" in peer_collections/
+    )
+  })
+})
 
-describe('records against a v2 collection', () => {
-	test('add, list and check through the real CLI', () => {
-		const w = clinic();
-		compileQuietly(w.ws);
-		assert.equal(dt(w.root, 'add', 'health/doctors', '--name', 'Dr Cohen').code, 0);
-		assert.equal(dt(w.root, 'add', 'health/patients', '--name', 'Dana Levi').code, 0);
-		const add = dt(w.root, 'add', 'health/visit', 'Checkup', '--patient', 'health/patients/dana-levi', '--doctor', 'health/doctors/dr-cohen', '--date', '2026-03-04', '--status', 'booked');
-		assert.equal(add.code, 0, add.stderr);
-		assert.ok(fs.existsSync(path.join(w.root, 'data', 'health', 'patients', 'dana-levi', 'visits', '2026-03-04--dana-levi--dr-cohen.visit.md')), 'stored under its patient');
-		const bad = dt(w.root, 'add', 'health/visit', 'Seen', '--patient', 'health/patients/dana-levi', '--doctor', 'health/doctors/dr-cohen', '--date', '2026-03-05', '--status', 'seen');
-		assert.notEqual(bad.code, 0, 'a seen visit without duration_min violates the constraint');
-		const check = dt(w.root, 'check');
-		assert.equal(check.code, 0, check.stdout + check.stderr);
-	});
-});
+describe("records against a v2 collection", () => {
+  test("add, list and check through the real CLI", () => {
+    const w = clinic()
+    compileQuietly(w.ws)
+    assert.equal(dt(w.root, "add", "health/doctors", "--name", "Dr Cohen").code, 0)
+    assert.equal(dt(w.root, "add", "health/patients", "--name", "Dana Levi").code, 0)
+    const add = dt(
+      w.root,
+      "add",
+      "health/visit",
+      "Checkup",
+      "--patient",
+      "health/patients/dana-levi",
+      "--doctor",
+      "health/doctors/dr-cohen",
+      "--date",
+      "2026-03-04",
+      "--status",
+      "booked"
+    )
+    assert.equal(add.code, 0, add.stderr)
+    assert.ok(
+      fs.existsSync(
+        path.join(
+          w.root,
+          "data",
+          "health",
+          "patients",
+          "dana-levi",
+          "visits",
+          "2026-03-04--dana-levi--dr-cohen.visit.md"
+        )
+      ),
+      "stored under its patient"
+    )
+    const bad = dt(
+      w.root,
+      "add",
+      "health/visit",
+      "Seen",
+      "--patient",
+      "health/patients/dana-levi",
+      "--doctor",
+      "health/doctors/dr-cohen",
+      "--date",
+      "2026-03-05",
+      "--status",
+      "seen"
+    )
+    assert.notEqual(bad.code, 0, "a seen visit without duration_min violates the constraint")
+    const check = dt(w.root, "check")
+    assert.equal(check.code, 0, check.stdout + check.stderr)
+  })
+})
 
-describe('the store and check read compiled.fields', () => {
-	const ready = (visits = VISITS) => {
-		const w = clinic({ visits });
-		compileQuietly(w.ws);
-		dt(w.root, 'add', 'health/doctors', '--name', 'Dr Cohen');
-		dt(w.root, 'add', 'health/patients', '--name', 'Dana Levi', '--national_id', '123456789');
-		return w;
-	};
-	const visit = (w, ...extra) => dt(w.root, 'add', 'health/visit', 'Checkup', '--patient', 'health/patients/dana-levi', '--doctor', 'health/doctors/dr-cohen', '--date', '2026-03-04', ...extra);
+describe("the store and check read compiled.fields", () => {
+  const ready = (visits = VISITS) => {
+    const w = clinic({ visits })
+    compileQuietly(w.ws)
+    dt(w.root, "add", "health/doctors", "--name", "Dr Cohen")
+    dt(w.root, "add", "health/patients", "--name", "Dana Levi", "--national_id", "123456789")
+    return w
+  }
+  const visit = (w, ...extra) =>
+    dt(
+      w.root,
+      "add",
+      "health/visit",
+      "Checkup",
+      "--patient",
+      "health/patients/dana-levi",
+      "--doctor",
+      "health/doctors/dr-cohen",
+      "--date",
+      "2026-03-04",
+      ...extra
+    )
 
-	test('created is stamped at add with a local offset, and refused from a writer', () => {
-		const w = ready();
-		assert.equal(visit(w).code, 0);
-		const text = fs.readFileSync(path.join(w.root, 'data', 'health', 'patients', 'dana-levi', 'visits', '2026-03-04--dana-levi--dr-cohen.visit.md'), 'utf8');
-		assert.match(text, /^created: '?\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}'?$/m);
-		const forged = visit(w, '--created', '2020-01-01T00:00:00Z', '--id', 'forged');
-		assert.notEqual(forged.code, 0);
-		assert.match(forged.stderr, /created is written by the engine/);
-		const set = dt(w.root, 'set', 'health/visits/2026-03-04--dana-levi--dr-cohen', 'created=2020-01-01T00:00:00Z');
-		assert.notEqual(set.code, 0);
-		assert.match(set.stderr, /created is written by the engine/);
-	});
+  test("created is stamped at add with a local offset, and refused from a writer", () => {
+    const w = ready()
+    assert.equal(visit(w).code, 0)
+    const text = fs.readFileSync(
+      path.join(
+        w.root,
+        "data",
+        "health",
+        "patients",
+        "dana-levi",
+        "visits",
+        "2026-03-04--dana-levi--dr-cohen.visit.md"
+      ),
+      "utf8"
+    )
+    assert.match(text, /^created: '?\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}'?$/m)
+    const forged = visit(w, "--created", "2020-01-01T00:00:00Z", "--id", "forged")
+    assert.notEqual(forged.code, 0)
+    assert.match(forged.stderr, /created is written by the engine/)
+    const set = dt(w.root, "set", "health/visits/2026-03-04--dana-levi--dr-cohen", "created=2020-01-01T00:00:00Z")
+    assert.notEqual(set.code, 0)
+    assert.match(set.stderr, /created is written by the engine/)
+  })
 
-	test('ids.from naming created reads the stamp', () => {
-		const w = workspace({ compile: false });
-		writeCollection(w.root, 'notes', { ids: { from: '{{ created | date }}--{{ name | slug }}' }, fields: { name: { type: 'string', required: true }, body: { type: 'markdown', body: true } } });
-		compileQuietly(w.ws);
-		const add = dt(w.root, 'add', 'note', 'First', '--json');
-		assert.equal(add.code, 0, add.stderr);
-		const today = new Date();
-		const p = (n) => String(n).padStart(2, '0');
-		assert.equal(JSON.parse(add.stdout).id, `${today.getFullYear()}-${p(today.getMonth() + 1)}-${p(today.getDate())}--first`);
-	});
+  test("ids.from naming created reads the stamp", () => {
+    const w = workspace({ compile: false })
+    writeCollection(w.root, "notes", {
+      ids: { from: "{{ created | date }}--{{ name | slug }}" },
+      fields: { name: { type: "string", required: true }, body: { type: "markdown", body: true } },
+    })
+    compileQuietly(w.ws)
+    const add = dt(w.root, "add", "note", "First", "--json")
+    assert.equal(add.code, 0, add.stderr)
+    const today = new Date()
+    const p = n => String(n).padStart(2, "0")
+    assert.equal(
+      JSON.parse(add.stdout).id,
+      `${today.getFullYear()}-${p(today.getMonth() + 1)}-${p(today.getDate())}--first`
+    )
+  })
 
-	test('a unique value is refused at write and named by check', () => {
-		const w = ready();
-		const dup = dt(w.root, 'add', 'health/patients', '--name', 'Pat Example', '--national_id', '123456789');
-		assert.notEqual(dup.code, 0);
-		assert.match(dup.stderr, /national_id: "123456789" is already taken by health\/patients\/dana-levi \(unique\)/);
-		// a hand-edited duplicate reaches disk; check is where it is reported
-		dt(w.root, 'add', 'health/patients', '--name', 'Pat Example', '--national_id', '987654321');
-		const f = path.join(w.root, 'data', 'health', 'patients', 'pat-example', 'patient.md');
-		fs.writeFileSync(f, fs.readFileSync(f, 'utf8').replace('987654321', '123456789'));
-		const check = dt(w.root, 'check');
-		assert.notEqual(check.code, 0);
-		assert.match(check.stdout + check.stderr, /national_id: "123456789" is already taken by health\/patients\/(dana-levi|pat-example) \(unique\)/);
-	});
+  test("a unique value is refused at write and named by check", () => {
+    const w = ready()
+    const dup = dt(w.root, "add", "health/patients", "--name", "Pat Example", "--national_id", "123456789")
+    assert.notEqual(dup.code, 0)
+    assert.match(dup.stderr, /national_id: "123456789" is already taken by health\/patients\/dana-levi \(unique\)/)
+    // a hand-edited duplicate reaches disk; check is where it is reported
+    dt(w.root, "add", "health/patients", "--name", "Pat Example", "--national_id", "987654321")
+    const f = path.join(w.root, "data", "health", "patients", "pat-example", "patient.md")
+    fs.writeFileSync(f, fs.readFileSync(f, "utf8").replace("987654321", "123456789"))
+    const check = dt(w.root, "check")
+    assert.notEqual(check.code, 0)
+    assert.match(
+      check.stdout + check.stderr,
+      /national_id: "123456789" is already taken by health\/patients\/(dana-levi|pat-example) \(unique\)/
+    )
+  })
 
-	test('a deprecated field still validates and warns on add', () => {
-		const w = ready({ ...VISITS, fields: { ...VISITS.fields, legacy_code: { type: 'string', deprecated: true } } });
-		const add = visit(w, '--legacy_code', 'A1');
-		assert.equal(add.code, 0, add.stderr);
-		assert.match(add.stderr, /legacy_code is deprecated on health\/visits/);
-	});
-});
+  test("a deprecated field still validates and warns on add", () => {
+    const w = ready({ ...VISITS, fields: { ...VISITS.fields, legacy_code: { type: "string", deprecated: true } } })
+    const add = visit(w, "--legacy_code", "A1")
+    assert.equal(add.code, 0, add.stderr)
+    assert.match(add.stderr, /legacy_code is deprecated on health\/visits/)
+  })
+})
 
-describe('created for a record that predates the stamp', () => {
-	const unstamp = (file) => fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace(/^created: .*\n/m, ''));
+describe("created for a record that predates the stamp", () => {
+  const unstamp = file => fs.writeFileSync(file, fs.readFileSync(file, "utf8").replace(/^created: .*\n/m, ""))
 
-	test('read from the id when ids are made from created', () => {
-		const w = workspace({ compile: false });
-		writeCollection(w.root, 'notes', { ids: { from: '{{ created | date }}--{{ name | slug }}' }, fields: { name: { type: 'string', required: true }, body: { type: 'markdown', body: true } } });
-		compileQuietly(w.ws);
-		fs.mkdirSync(path.join(w.root, 'data', 'notes'), { recursive: true });
-		fs.writeFileSync(path.join(w.root, 'data', 'notes', '2024-05-06--old.note.md'), '---\nname: Old\n---\n');
-		const got = dt(w.root, 'get', 'notes/2024-05-06--old', '--json');
-		assert.equal(got.code, 0, got.stderr);
-		assert.match(JSON.parse(got.stdout).created, /^2024-05-06T00:00:00[+-]\d{2}:\d{2}$/);
-	});
+  test("read from the id when ids are made from created", () => {
+    const w = workspace({ compile: false })
+    writeCollection(w.root, "notes", {
+      ids: { from: "{{ created | date }}--{{ name | slug }}" },
+      fields: { name: { type: "string", required: true }, body: { type: "markdown", body: true } },
+    })
+    compileQuietly(w.ws)
+    fs.mkdirSync(path.join(w.root, "data", "notes"), { recursive: true })
+    fs.writeFileSync(path.join(w.root, "data", "notes", "2024-05-06--old.note.md"), "---\nname: Old\n---\n")
+    const got = dt(w.root, "get", "notes/2024-05-06--old", "--json")
+    assert.equal(got.code, 0, got.stderr)
+    assert.match(JSON.parse(got.stdout).created, /^2024-05-06T00:00:00[+-]\d{2}:\d{2}$/)
+  })
 
-	test('undefined while no commit holds the record', () => {
-		const w = workspace({ compile: false });
-		writeCollection(w.root, 'notes', { ids: { from: '{{ name | slug }}' }, fields: { name: { type: 'string', required: true }, body: { type: 'markdown', body: true } } });
-		compileQuietly(w.ws);
-		dt(w.root, 'add', 'note', 'Fresh');
-		const file = path.join(w.root, 'data', 'notes', 'fresh.note.md');
-		unstamp(file);
-		assert.equal(JSON.parse(dt(w.root, 'get', 'notes/fresh', '--json').stdout).created, undefined);
-	});
+  test("undefined while no commit holds the record", () => {
+    const w = workspace({ compile: false })
+    writeCollection(w.root, "notes", {
+      ids: { from: "{{ name | slug }}" },
+      fields: { name: { type: "string", required: true }, body: { type: "markdown", body: true } },
+    })
+    compileQuietly(w.ws)
+    dt(w.root, "add", "note", "Fresh")
+    const file = path.join(w.root, "data", "notes", "fresh.note.md")
+    unstamp(file)
+    assert.equal(JSON.parse(dt(w.root, "get", "notes/fresh", "--json").stdout).created, undefined)
+  })
 
-	test('a UTC author date reads in the offset spelling, never with a trailing Z', () => {
-		const w = workspace({ compile: false });
-		writeCollection(w.root, 'notes', { ids: { from: '{{ name | slug }}' }, fields: { name: { type: 'string', required: true }, body: { type: 'markdown', body: true } } });
-		compileQuietly(w.ws);
-		assert.equal(dt(w.root, 'add', 'note', 'Zulu').code, 0);
-		const file = path.join(w.root, 'data', 'notes', 'zulu.note.md');
-		unstamp(file);
-		// commit it with an explicitly UTC author date, the way a CI runner's clock does
-		const env = { ...process.env, GIT_AUTHOR_NAME: 'dreamteamer test', GIT_AUTHOR_EMAIL: 'test@example.invalid', GIT_COMMITTER_NAME: 'dreamteamer test', GIT_COMMITTER_EMAIL: 'test@example.invalid', GIT_AUTHOR_DATE: '2024-01-02T03:04:05Z', GIT_COMMITTER_DATE: '2024-01-02T03:04:05Z', TZ: 'UTC' };
-		execFileSync('git', ['add', 'data/notes/zulu.note.md'], { cwd: w.root, env, stdio: 'ignore' });
-		execFileSync('git', ['commit', '-q', '-m', 'zulu'], { cwd: w.root, env, stdio: 'ignore' });
-		const got = JSON.parse(dt(w.root, 'get', 'notes/zulu', '--json').stdout);
-		assert.equal(got.created, '2024-01-02T03:04:05+00:00');
-	});
+  test("a UTC author date reads in the offset spelling, never with a trailing Z", () => {
+    const w = workspace({ compile: false })
+    writeCollection(w.root, "notes", {
+      ids: { from: "{{ name | slug }}" },
+      fields: { name: { type: "string", required: true }, body: { type: "markdown", body: true } },
+    })
+    compileQuietly(w.ws)
+    assert.equal(dt(w.root, "add", "note", "Zulu").code, 0)
+    const file = path.join(w.root, "data", "notes", "zulu.note.md")
+    unstamp(file)
+    // commit it with an explicitly UTC author date, the way a CI runner's clock does
+    const env = {
+      ...process.env,
+      GIT_AUTHOR_NAME: "dreamteamer test",
+      GIT_AUTHOR_EMAIL: "test@example.invalid",
+      GIT_COMMITTER_NAME: "dreamteamer test",
+      GIT_COMMITTER_EMAIL: "test@example.invalid",
+      GIT_AUTHOR_DATE: "2024-01-02T03:04:05Z",
+      GIT_COMMITTER_DATE: "2024-01-02T03:04:05Z",
+      TZ: "UTC",
+    }
+    execFileSync("git", ["add", "data/notes/zulu.note.md"], { cwd: w.root, env, stdio: "ignore" })
+    execFileSync("git", ["commit", "-q", "-m", "zulu"], { cwd: w.root, env, stdio: "ignore" })
+    const got = JSON.parse(dt(w.root, "get", "notes/zulu", "--json").stdout)
+    assert.equal(got.created, "2024-01-02T03:04:05+00:00")
+  })
 
-	test('read from the first commit otherwise, and the file is not rewritten', () => {
-		const w = workspace({ compile: false });
-		writeCollection(w.root, 'notes', { ids: { from: '{{ name | slug }}' }, fields: { name: { type: 'string', required: true }, body: { type: 'markdown', body: true } } });
-		compileQuietly(w.ws);
-		assert.equal(dt(w.root, 'add', 'note', 'Kept').code, 0);
-		// a write does not commit; the fallback reads the FIRST COMMIT, so publish it first
-		assert.equal(dt(w.root, 'commit', 'notes/kept').code, 0);
-		const file = path.join(w.root, 'data', 'notes', 'kept.note.md');
-		unstamp(file);
-		const before = fs.readFileSync(file, 'utf8');
-		const got = JSON.parse(dt(w.root, 'get', 'notes/kept', '--json').stdout);
-		assert.match(got.created, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$/);
-		assert.equal(fs.readFileSync(file, 'utf8'), before, 'reading never writes');
-	});
+  test("read from the first commit otherwise, and the file is not rewritten", () => {
+    const w = workspace({ compile: false })
+    writeCollection(w.root, "notes", {
+      ids: { from: "{{ name | slug }}" },
+      fields: { name: { type: "string", required: true }, body: { type: "markdown", body: true } },
+    })
+    compileQuietly(w.ws)
+    assert.equal(dt(w.root, "add", "note", "Kept").code, 0)
+    // a write does not commit; the fallback reads the FIRST COMMIT, so publish it first
+    assert.equal(dt(w.root, "commit", "notes/kept").code, 0)
+    const file = path.join(w.root, "data", "notes", "kept.note.md")
+    unstamp(file)
+    const before = fs.readFileSync(file, "utf8")
+    const got = JSON.parse(dt(w.root, "get", "notes/kept", "--json").stdout)
+    assert.match(got.created, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$/)
+    assert.equal(fs.readFileSync(file, "utf8"), before, "reading never writes")
+  })
 
-	test('a renamed file keeps the date it first entered history, read once for the whole collection', async () => {
-		const w = workspace({ compile: false });
-		writeCollection(w.root, 'notes', { ids: { from: '{{ name | slug }}' }, fields: { name: { type: 'string', required: true }, body: { type: 'markdown', body: true } } });
-		compileQuietly(w.ws);
-		const dir = path.join(w.root, 'data', 'notes');
-		fs.mkdirSync(dir, { recursive: true });
-		fs.writeFileSync(path.join(dir, 'first.note.md'), '---\nname: First\n---\n');
-		fs.writeFileSync(path.join(dir, 'second.note.md'), '---\nname: Second\n---\n');
-		w.git(['add', 'data/notes']);
-		w.git(['commit', '-qm', 'two notes', '--date=2020-01-02T10:00:00+00:00']);
-		w.git(['mv', 'data/notes/first.note.md', 'data/notes/renamed.note.md']);
-		w.git(['commit', '-qm', 'rename', '--date=2021-03-04T10:00:00+00:00']);
-		const { Store } = await import('../../src/store.js');
-		const store = new Store(w.ws);
-		const dates = store.addedDates('notes');
-		assert.match(dates.get('data/notes/renamed.note.md'), /^2020-01-02T10:00:00/, 'the rename keeps the add date');
-		assert.match(dates.get('data/notes/second.note.md'), /^2020-01-02T10:00:00/);
-		assert.equal(dates.has('data/notes/first.note.md'), false);
-		assert.equal(store.addedDates('notes'), dates, 'one read per collection, cached');
-		assert.match(JSON.parse(dt(w.root, 'get', 'notes/renamed', '--json').stdout).created, /^2020-01-02T10:00:00/);
-	});
-});
+  test("a renamed file keeps the date it first entered history, read once for the whole collection", async () => {
+    const w = workspace({ compile: false })
+    writeCollection(w.root, "notes", {
+      ids: { from: "{{ name | slug }}" },
+      fields: { name: { type: "string", required: true }, body: { type: "markdown", body: true } },
+    })
+    compileQuietly(w.ws)
+    const dir = path.join(w.root, "data", "notes")
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(path.join(dir, "first.note.md"), "---\nname: First\n---\n")
+    fs.writeFileSync(path.join(dir, "second.note.md"), "---\nname: Second\n---\n")
+    w.git(["add", "data/notes"])
+    w.git(["commit", "-qm", "two notes", "--date=2020-01-02T10:00:00+00:00"])
+    w.git(["mv", "data/notes/first.note.md", "data/notes/renamed.note.md"])
+    w.git(["commit", "-qm", "rename", "--date=2021-03-04T10:00:00+00:00"])
+    const { Store } = await import("../../src/store.ts")
+    const store = new Store(w.ws)
+    const dates = store.addedDates("notes")
+    assert.match(dates.get("data/notes/renamed.note.md"), /^2020-01-02T10:00:00/, "the rename keeps the add date")
+    assert.match(dates.get("data/notes/second.note.md"), /^2020-01-02T10:00:00/)
+    assert.equal(dates.has("data/notes/first.note.md"), false)
+    assert.equal(store.addedDates("notes"), dates, "one read per collection, cached")
+    assert.match(JSON.parse(dt(w.root, "get", "notes/renamed", "--json").stdout).created, /^2020-01-02T10:00:00/)
+  })
+})
 
-describe('the display contract', () => {
-	test('a form section authored collapsed: true carries it to the display contract — compile and check both accept it; an open section carries no key', async () => {
-		const { presentation } = await import('../../src/presentation.js');
-		const { loadDescriptors } = await import('../../src/runtime.js');
-		const sections = [{ title: 'Visit', fields: ['reason', 'patient', 'doctor', 'date', 'kind', 'status'] }, { title: 'Provenance', fields: ['author', 'confidence'], collapsed: true }];
-		const w = clinic({ visits: { ...VISITS, display: { ...VISITS.display, form: { sections } } } });
-		assert.equal(compileError(w.ws), null);
-		assert.equal(dt(w.root, 'check').code, 0, 'check accepts the authored key too');
-		const row = presentation(loadDescriptors(w.root)).collections.find((c) => c.collection === 'health/visits');
-		assert.deepEqual(row.form.sections, [
-			{ title: 'Visit', fields: ['reason', 'patient', 'doctor', 'date', 'kind', 'status'] },
-			{ title: 'Provenance', fields: ['author', 'confidence'], collapsed: true },
-		]);
-	});
-	test('created and an editable:false field are readonly in the display contract', async () => {
-		const { presentation } = await import('../../src/presentation.js');
-		const { loadDescriptors } = await import('../../src/runtime.js');
-		const w = clinic();
-		compileQuietly(w.ws);
-		const p = presentation(loadDescriptors(w.root));
-		const row = (c, f) => p.fields[c].find((r) => r.field === f);
-		// `created` is engine-written: derived, so no surface offers a control
-		assert.equal(row('health/visits', 'created').kind, 'derived');
-		assert.equal(row('health/visits', 'created').editable, false);
-		assert.equal(row('health/visits', 'reason').kind, undefined);
-		assert.equal(row('health/visits', 'reason').editable, true);
-		const locked = clinic({ visits: { ...VISITS, fields: { ...VISITS.fields, summary_url: { type: 'url', display: { editable: false } } } } });
-		compileQuietly(locked.ws);
-		const q = presentation(loadDescriptors(locked.root));
-		// display.editable: false locks the UI only — it is not one of the engine-held kinds
-		const lockedRow = q.fields['health/visits'].find((r) => r.field === 'summary_url');
-		assert.equal(lockedRow.editable, false);
-		assert.equal(lockedRow.kind, undefined);
-	});
-});
+describe("the display contract", () => {
+  test("a form section authored collapsed: true carries it to the display contract — compile and check both accept it; an open section carries no key", async () => {
+    const { presentation } = await import("../../src/presentation.ts")
+    const { loadDescriptors } = await import("../../src/runtime.ts")
+    const sections = [
+      { title: "Visit", fields: ["reason", "patient", "doctor", "date", "kind", "status"] },
+      { title: "Provenance", fields: ["author", "confidence"], collapsed: true },
+    ]
+    const w = clinic({ visits: { ...VISITS, display: { ...VISITS.display, form: { sections } } } })
+    assert.equal(compileError(w.ws), null)
+    assert.equal(dt(w.root, "check").code, 0, "check accepts the authored key too")
+    const row = presentation(loadDescriptors(w.root)).collections.find(c => c.collection === "health/visits")
+    assert.deepEqual(row.form.sections, [
+      { title: "Visit", fields: ["reason", "patient", "doctor", "date", "kind", "status"] },
+      { title: "Provenance", fields: ["author", "confidence"], collapsed: true },
+    ])
+  })
+  test("created and an editable:false field are readonly in the display contract", async () => {
+    const { presentation } = await import("../../src/presentation.ts")
+    const { loadDescriptors } = await import("../../src/runtime.ts")
+    const w = clinic()
+    compileQuietly(w.ws)
+    const p = presentation(loadDescriptors(w.root))
+    const row = (c, f) => p.fields[c].find(r => r.field === f)
+    // `created` is engine-written: derived, so no surface offers a control
+    assert.equal(row("health/visits", "created").kind, "derived")
+    assert.equal(row("health/visits", "created").editable, false)
+    assert.equal(row("health/visits", "reason").kind, undefined)
+    assert.equal(row("health/visits", "reason").editable, true)
+    const locked = clinic({
+      visits: { ...VISITS, fields: { ...VISITS.fields, summary_url: { type: "url", display: { editable: false } } } },
+    })
+    compileQuietly(locked.ws)
+    const q = presentation(loadDescriptors(locked.root))
+    // display.editable: false locks the UI only — it is not one of the engine-held kinds
+    const lockedRow = q.fields["health/visits"].find(r => r.field === "summary_url")
+    assert.equal(lockedRow.editable, false)
+    assert.equal(lockedRow.kind, undefined)
+  })
+})
 
-describe('item constraints on a list reach the store and check (review R3)', () => {
-	const NOTES = {
-		description: 'A note.',
-		ids: { from: '{{ name | slug }}' },
-		fields: {
-			name: { type: 'string', required: true },
-			tags: { type: 'string', many: true, pattern: '^[a-z][a-z0-9-]*$' },
-			scores: { type: 'integer', many: true, minimum: 1, maximum: 5 },
-			codes: { type: 'string', many: true, minLength: 2, maxLength: 3 },
-			marks: { type: 'string', many: true, const: 'x' },
-			position: { type: 'position' },
-			body: { type: 'markdown', body: true },
-		},
-	};
-	const ready = () => {
-		const w = workspace({ compile: false });
-		writeCollection(w.root, 'notes', NOTES);
-		compileQuietly(w.ws);
-		return w;
-	};
-	const bad = [
-		['tags', 'INVALID', /tags/],
-		['scores', '9', /scores/],
-		['codes', 'abcdef', /codes/],
-		['marks', 'y', /marks/],
-		['position', '123!', /position/],
-	];
-	for (const [field, value, re] of bad) {
-		test(`store.add refuses ${field}=${value}`, () => {
-			const w = ready();
-			const r = dt(w.root, 'add', 'note', `Bad ${field}`, `--${field}`, value);
-			assert.notEqual(r.code, 0, `${field}=${value} was accepted`);
-			assert.match(r.stderr, re);
-		});
-	}
-	test('valid values pass add and check', () => {
-		const w = ready();
-		const r = dt(w.root, 'add', 'note', 'Good', '--tags', 'alpha', '--scores', '3', '--codes', 'ab', '--marks', 'x', '--position', 'm');
-		assert.equal(r.code, 0, r.stderr);
-		assert.equal(dt(w.root, 'check').code, 0);
-	});
-	test('check reports a hand-edited bad item and a bad position', () => {
-		const w = ready();
-		fs.mkdirSync(path.join(w.root, 'data', 'notes'), { recursive: true });
-		fs.writeFileSync(path.join(w.root, 'data', 'notes', 'hand.note.md'), "---\nname: Hand\ntags:\n  - INVALID\nposition: '123!'\n---\n");
-		const c = dt(w.root, 'check');
-		assert.notEqual(c.code, 0);
-		assert.match(c.stdout + c.stderr, /tags/);
-		assert.match(c.stdout + c.stderr, /position/);
-	});
-});
+describe("item constraints on a list reach the store and check (review R3)", () => {
+  const NOTES = {
+    description: "A note.",
+    ids: { from: "{{ name | slug }}" },
+    fields: {
+      name: { type: "string", required: true },
+      tags: { type: "string", many: true, pattern: "^[a-z][a-z0-9-]*$" },
+      scores: { type: "integer", many: true, minimum: 1, maximum: 5 },
+      codes: { type: "string", many: true, minLength: 2, maxLength: 3 },
+      marks: { type: "string", many: true, const: "x" },
+      position: { type: "position" },
+      body: { type: "markdown", body: true },
+    },
+  }
+  const ready = () => {
+    const w = workspace({ compile: false })
+    writeCollection(w.root, "notes", NOTES)
+    compileQuietly(w.ws)
+    return w
+  }
+  const bad = [
+    ["tags", "INVALID", /tags/],
+    ["scores", "9", /scores/],
+    ["codes", "abcdef", /codes/],
+    ["marks", "y", /marks/],
+    ["position", "123!", /position/],
+  ]
+  for (const [field, value, re] of bad) {
+    test(`store.add refuses ${field}=${value}`, () => {
+      const w = ready()
+      const r = dt(w.root, "add", "note", `Bad ${field}`, `--${field}`, value)
+      assert.notEqual(r.code, 0, `${field}=${value} was accepted`)
+      assert.match(r.stderr, re)
+    })
+  }
+  test("valid values pass add and check", () => {
+    const w = ready()
+    const r = dt(
+      w.root,
+      "add",
+      "note",
+      "Good",
+      "--tags",
+      "alpha",
+      "--scores",
+      "3",
+      "--codes",
+      "ab",
+      "--marks",
+      "x",
+      "--position",
+      "m"
+    )
+    assert.equal(r.code, 0, r.stderr)
+    assert.equal(dt(w.root, "check").code, 0)
+  })
+  test("check reports a hand-edited bad item and a bad position", () => {
+    const w = ready()
+    fs.mkdirSync(path.join(w.root, "data", "notes"), { recursive: true })
+    fs.writeFileSync(
+      path.join(w.root, "data", "notes", "hand.note.md"),
+      "---\nname: Hand\ntags:\n  - INVALID\nposition: '123!'\n---\n"
+    )
+    const c = dt(w.root, "check")
+    assert.notEqual(c.code, 0)
+    assert.match(c.stdout + c.stderr, /tags/)
+    assert.match(c.stdout + c.stderr, /position/)
+  })
+})
