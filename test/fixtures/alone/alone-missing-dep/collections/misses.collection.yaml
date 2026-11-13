@@ -1,0 +1,6 @@
+name: misses
+title: Misses
+description: A record.
+fields:
+  name:
+    type: string

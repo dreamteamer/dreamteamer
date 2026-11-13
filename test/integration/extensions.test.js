@@ -295,7 +295,7 @@ describe('the loader refuses what it cannot honour — at open, by name', () => 
 		assert.deepEqual(unit.inputs.map((i) => i.id), ['home', 'label', 'token', 'rows']);
 		// PROBE_HOME points inside the fixture: the default (~/.cache/probe) could exist on the machine running this
 		assert.deepEqual(unit.inspect({ root: a.root, env: { PROBE_HOME: path.join(a.root, 'no-such-home') }, receiptDir: path.join(a.root, '.dreamteamer', 'setup', 'probe') }).checks.map((c) => [c.id, c.status]),
-			[['probe.home', 'missing'], ['probe.token', 'missing'], ['probe.weights', 'missing'], ['probe.tuned', 'missing'], ['probe.live', 'unverified']]);
+			[['probe.home', 'missing'], ['probe.label', 'missing'], ['probe.token', 'missing'], ['probe.weights', 'missing'], ['probe.tuned', 'missing'], ['probe.live', 'unverified']]);
 		assert.deepEqual(unit.inspect({ root: a.root, env: { PROBE_EMPTY: '1' } }).checks, []);
 		const b = workspace({ compile: false });
 		withProbeCollide(b.root);

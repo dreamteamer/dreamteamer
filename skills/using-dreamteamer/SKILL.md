@@ -154,6 +154,7 @@ Load by the map; nothing here is loaded "just in case".
 | a route, a nav entry, a board / calendar / map over records | `references/ui-views.md` |
 | a rendering or editing behaviour nothing registered has | `references/ui-components.md` |
 | an optional tool — behaviour proofs, worktrees, a REST server, an exporter, a new harness — and whether to write one | `references/extensions.md` |
+| writing, testing and publishing a module of your own — `dt add modules --extension --package`, a setup unit, `dreamteamer/testing`, `dt check modules/<id> --alone` | `references/writing-a-module.md` |
 | other agent sessions are running on this machine — finding them, messaging one, coordinating several, and what may not cross between them | `references/sessions.md` |
 
 three act-two tie-breakers, because they are the ones that go wrong:

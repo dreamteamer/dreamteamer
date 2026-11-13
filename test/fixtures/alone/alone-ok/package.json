@@ -1,0 +1,1 @@
+{ "name": "alone-ok", "version": "1.0.0", "type": "module", "files": ["collections"], "dreamteamer": { "description": "Publishable, with an inline dependency.", "engine": ">=0.47.0", "dependencies": ["alone-base"] } }

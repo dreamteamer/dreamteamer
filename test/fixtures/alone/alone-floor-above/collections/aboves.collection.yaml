@@ -1,0 +1,6 @@
+name: aboves
+title: Aboves
+description: A record.
+fields:
+  name:
+    type: string

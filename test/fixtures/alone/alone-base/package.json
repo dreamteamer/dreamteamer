@@ -1,0 +1,1 @@
+{ "name": "alone-base", "version": "1.0.0", "type": "module", "files": ["collections"], "dreamteamer": { "description": "A base the ok fixture depends on.", "engine": ">=0.47.0" } }

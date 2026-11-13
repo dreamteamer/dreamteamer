@@ -9,7 +9,8 @@
 			"PROBE_TOKEN_PATH"
 		],
 		"vars": [
-			"PROBE_HOME"
+			"PROBE_HOME",
+			"PROBE_LABEL"
 		]
 	},
 	"files": [

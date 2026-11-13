@@ -1,0 +1,6 @@
+name: oks
+title: Oks
+description: An ok record.
+fields:
+  name:
+    type: string

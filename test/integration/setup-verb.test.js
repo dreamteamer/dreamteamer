@@ -31,8 +31,9 @@ describe('dt setup probe — the synthetic unit through every state', () => {
 		// a path input is expanded by the engine before the unit sees it, so .env carries the real path
 		assert.equal(readFile(ws.root, '.env').split('\n')[0], `PROBE_HOME=${path.join(r.home, '.cache', 'probe')}`);
 		assert.match(readFile(ws.root, '.env'), /^PROBE_LABEL=demo$/m);
-		// the home came from the default, expanded under the fixture's HOME
-		assert.ok(fs.existsSync(path.join(r.home, '.cache', 'probe')), 'default home created');
+		// make-home is an env action since 0.48.0 (cr-dt-007): the engine writes .env and nothing else —
+		// the home folder is made by the first action that puts something in it
+		assert.ok(!fs.existsSync(path.join(r.home, '.cache', 'probe')), 'an env action writes .env only');
 		// a second identical run applies nothing and changes nothing
 		const before = readFile(ws.root, '.env');
 		const again = run(ws.root, ['setup', 'probe', '--input', 'label=demo']);
@@ -162,10 +163,12 @@ describe('dt setup probe — the synthetic unit through every state', () => {
 
 	test('a provider that throws in apply: the unit reads blocked with the error redacted, exit 1 (D57: a failed apply is a failure)', () => {
 		const ws = probed();
-		const r = run(ws.root, ['setup', 'probe', '--input', 'label=demo'], { PROBE_THROW: 'apply' });
+		// make-home is the engine's own write now, so the first apply the unit runs is the consented download
+		const r = run(ws.root, ['setup', 'probe', '--input', 'label=demo', '--allow', 'download'], { PROBE_THROW: 'apply' });
 		assert.equal(r.code, 1, r.stderr);
 		assert.match(r.stdout, /✖ probe: blocked/);
-		assert.match(r.stdout, /✖ make-home — probe exploded: token=\[redacted\]/);
+		assert.match(r.stdout, /✔ make-home — wrote \.env/);
+		assert.match(r.stdout, /✖ fetch — probe exploded: token=\[redacted\]/);
 		assert.doesNotMatch(r.stdout, /hunter2/);
 	});
 

@@ -16,7 +16,8 @@ import os from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline/promises';
 import { execFileSync } from 'node:child_process';
-import { CHECK_STATUSES } from './setup-contract.js';
+import { CHECK_STATUSES, isEnvAction, validateEnvAction } from './setup-contract.js';
+import { setEnvValues, fingerprint, leftoverTemps, gitExposure, writeEnvAtomic, EnvRefusal } from './env-write.js';
 import { parseEnvValues } from './env-vars.js';
 import { RUNTIME_DIR } from './runtime.js';
 import { discoverModules } from './compile.js';
@@ -170,30 +171,77 @@ export function fold(checks, { skipped = false } = {}) {
 	return { state: 'ready', detail: '', verified: dates.at(-1) ?? null };
 }
 
-/** A provider's error, with anything that looks like a value gone. Key names and shapes stay. */
+/** A provider's FAILURE text, with anything that looks like a value gone: a `key=value` (a `<placeholder>`
+ *  is not a value), a bearer token, an e-mail address, a home folder, a 32+-character token. Key names
+ *  and shapes stay. Applied to what a unit throws, a failed apply's message and an action's reason —
+ *  never to a check's fix or title, an action's title or a next-command line (D67). */
 export function redact(text) {
 	return String(text ?? '')
-		.replace(/\b(token|secret|password|passwd|api[_-]?key|key|client[_-]?secret|credential)=\S+/gi, '$1=[redacted]')
-		.replace(/\bBearer\s+\S+/g, 'Bearer [redacted]');
+		// a key=value whose key is a secret word, alone or as the last part of a prefixed name (ACME_TOKEN=…);
+		// a bare `key=` counts, a prefixed `primary_key=` does not; a <placeholder> is not a value
+		.replace(/\b((?:[A-Za-z0-9]+[_-])*(?:token|secret|password|passwd|api[_-]?key|client[_-]?secret|credential))=(?!<)\S+/gi, '$1=[redacted]')
+		.replace(/(^|[^A-Za-z0-9_-])(key)=(?!<)\S+/gi, '$1$2=[redacted]')
+		.replace(/\bBearer\s+\S+/g, 'Bearer [redacted]')
+		// an e-mail address — but not the `git@host` of an ssh remote
+		.replace(/[^\s@"'<>():,`]+@[^\s@"'<>():,`/]+\.[A-Za-z]{2,}/g, (m) => (m.startsWith('git@') ? m : '<email>'))
+		// a home folder where a path starts (a file URL, quotes, backticks, a comma list included) — not a
+		// /home/ segment inside an http URL, not the shared folder
+		.replace(/(?<=^|[\s"'=(:`,]|file:\/\/)\/(?:Users|home)\/(?!Shared\b)[^\s/"'`,]+/g, '~')
+		.replace(/(?<=^|[\s"'=(:`,])[A-Za-z]:\\Users\\[^\s\\"'`,]+/g, '~')
+		// a long token: 32+ characters of [A-Za-z0-9_-] — except an env key name (capitals in `_`-joined parts),
+		// a dated id (a `--`) or a kebab id (three or more lower-case `-`-joined words, none over 16); a base32
+		// seed, a one-case run or a prefixed token (xoxb-…) is a token
+		.replace(/\b[A-Za-z0-9_-]{32,}\b/g, (m) => (/^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+$/.test(m) || m.includes('--') || (/^[a-z0-9]+(?:-[a-z0-9]+){2,}$/.test(m) && m.split('-').every((p) => p.length <= 16)) ? m : '[redacted]'));
+}
+
+/**
+ * Judge an env action when a plan is read — the driver's own verdict, from what it can see without
+ * writing (D61). Pure: handed the `.env` text, the leftover temps beside it, the git exposure verdict
+ * and the plan-time fingerprint (`expect`). Returns the action as the driver will treat it: `done`
+ * when every key already holds its value; `needs-input` for a value not yet known; `blocked` with the
+ * reason for anything the write would refuse; else the unit's own state (`ready` by default) with
+ * `expect` stamped and `effects` defaulted to the one workspace-files entry. A plain action is
+ * returned as is.
+ */
+export function judgeEnvAction(action, { declared, text, temps = [], exposure = { safe: true }, expect, written = new Map(), unit = null }) {
+	if (!isEnvAction(action)) return action;
+	const keys = Object.keys(action.env ?? {});
+	const effects = (action.effects ?? []).length ? action.effects : [{ kind: 'workspace-files', detail: `.env: ${keys.join(', ')}` }];
+	const out = { ...action, effects, runBy: action.runBy ?? 'engine' };
+	const v = validateEnvAction(action, declared);
+	if (!v.ok) return { ...out, state: v.state, reason: v.reason };
+	let changed;
+	try { ({ changed } = setEnvValues(text, action.env)); } catch (e) { return { ...out, state: 'blocked', reason: e instanceof EnvRefusal ? e.message : redact(e.message) }; }
+	if (!changed.length) return { ...out, state: 'done', reason: `${keys.join(', ')} already hold${keys.length === 1 ? 's' : ''} this value` };
+	// two units sharing a key is allowed (one input, D39); two units writing DIFFERENT values to it in one run
+	// is not — the last write would win silently and the first unit would read a value it never wrote (he3)
+	const clash = changed.find((k) => written.has(k) && written.get(k).unit !== unit && written.get(k).value !== action.env[k]);
+	if (clash) return { ...out, state: 'blocked', reason: `${clash} was written by unit ${written.get(clash).unit} in this run with another value — two units disagree on it; set it by hand` };
+	if (temps.length) return { ...out, state: 'blocked', reason: `temporary files from an interrupted write sit beside .env (${temps.join(', ')}) — review and delete them first` };
+	if (!exposure.safe) return { ...out, state: 'blocked', reason: exposure.reason };
+	if (action.state && action.state !== 'ready' && action.state !== 'done') return { ...out, expect };
+	return { ...out, state: 'ready', expect };
 }
 
 // ---- the workspace side -----------------------------------------------------------------------
 
 /** Every setup unit the loaded extensions contribute, with its package. */
-export const units = (ws) => (ws.extensions ?? []).flatMap((e) => (e.setup ?? []).map((u) => ({ ...u, module: e.name, dir: e.dir })));
+export const units = (ws) => (ws.extensions ?? []).flatMap((e) => (e.setup ?? []).map((u) => ({ ...u, module: e.name, dir: e.dir, declared: new Set([...(e.env ?? []), ...(e.vars ?? [])]) })));
 export const skippedUnits = (ws) => ws.pkg?.dreamteamer?.setup?.skipped ?? [];
 export const receiptDir = (ws, unitId) => path.join(ws.root, RUNTIME_DIR, 'setup', unitId);
 
 /** The environment a unit sees: the process's, with the workspace `.env` filling what it lacks. */
 export function unitEnv(ws, processEnv = process.env) {
 	const file = path.join(ws.root, '.env');
-	const dotenv = fs.existsSync(file) ? parseEnvValues(fs.readFileSync(file, 'utf8')) : new Map();
+	// a leading byte-order mark would hide the first key from the reader (`^KEY=`) and let a key inside
+	// another key's quoted value read as an assignment (held-out he1) — skipped here, the workspace side
+	const dotenv = fs.existsSync(file) ? parseEnvValues(fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, '')) : new Map();
 	return { ...Object.fromEntries(dotenv), ...processEnv };
 }
 
 /** Run one unit: inspect → plan(inputs) → apply what is consented → inspect. Never throws for a
  *  provider's fault: a throwing apply is one failed action, redacted, and the unit reads blocked. */
-export async function runUnit(ws, unit, { inputs = {}, allow = new Set(), tty = false, ask = null, authorize = false, verify = false, processEnv = process.env, api = null, drop = [] } = {}) {
+export async function runUnit(ws, unit, { inputs = {}, allow = new Set(), tty = false, ask = null, authorize = false, verify = false, processEnv = process.env, api = null, drop = [], written = new Map() } = {}) {
 	// the env is re-read after every applied action: a safe action's whole point is often to write the
 	// key the next inspect reads (`PROBE_HOME=` into .env), and a stale copy would report it missing.
 	// `drop` names the keys whose value the engine refused (a secret-path that is missing or not
@@ -203,32 +251,61 @@ export async function runUnit(ws, unit, { inputs = {}, allow = new Set(), tty = 
 	const applied = [], failed = [];
 	let pending = [], needs = [];
 	const done = new Set(), refused = new Set();
+	// an env action is the engine's to perform (D61): judged when the plan is read against the file as
+	// it was when the plan ran (the fingerprint taken before `plan`, so a plan that touches .env itself
+	// makes the write refuse), then written by rename instead of handed to apply
+	const envFile = path.join(ws.root, '.env');
+	const envText = () => { try { return fs.readFileSync(envFile, 'utf8'); } catch { return ''; } };
+	const snapshot = () => { try { return fingerprint(envFile); } catch (e) { return e; } };
+	const judge = (actions, expect) => actions.map((a) => {
+		if (!isEnvAction(a)) return a;
+		if (expect instanceof Error) return judgeEnvAction({ ...a, state: 'blocked', reason: expect.message }, { declared: unit.declared ?? new Set(), text: '', expect: null });
+		return judgeEnvAction(a, { declared: unit.declared ?? new Set(), text: envText(), temps: leftoverTemps(envFile), exposure: gitExposure(ws.root, '.env'), expect, written, unit: unit.id });
+	});
+	// what is listed as pending is printed (and under --json, whole): an env action is listed by the KEYS it
+	// would write, never its values; a reason is failure text, redacted (D67)
+	const withReason = (a, extra) => ({ ...a, ...extra, ...(isEnvAction(a) ? { env: Object.keys(a.env ?? {}) } : {}), ...(a.reason !== undefined ? { reason: redact(a.reason) } : {}) });
 	// the plan is asked again after every applied action: an action's preconditions are often what the
 	// previous one made (a venv before the download, a key in .env before the check that reads it), so
 	// one pass would leave them pending for a second call that a person should not have to make
 	for (let round = 0; round < 50; round++) {
 		let planned;
+		const expect = snapshot();
 		try { planned = (await unit.plan(ctx, inputs)) ?? {}; } catch (e) { return { checks: safeInspect(unit, ctx), applied, pending, failed: [...failed, { id: 'plan', message: redact(e.message) }], needs }; }
 		needs = planned.needs ?? [];
 		pending = [];
 		let next = null;
-		for (const action of planned.actions ?? []) {
+		for (const action of judge(planned.actions ?? [], expect)) {
 			if (done.has(action.id)) continue;
-			if (action.state && action.state !== 'ready') { if (action.state !== 'done') pending.push({ ...action, why: action.state === 'needs-input' ? 'needs input' : action.state }); else done.add(action.id); continue; }
-			if (refused.has(action.id)) { pending.push({ ...action, why: refused.get?.(action.id) ?? 'declined' }); continue; }
+			if (action.state && action.state !== 'ready') { if (action.state !== 'done') pending.push(withReason(action, { why: action.state === 'needs-input' ? 'needs input' : action.state })); else done.add(action.id); continue; }
+			if (refused.has(action.id)) { pending.push(withReason(action, { why: refused.get?.(action.id) ?? 'declined' })); continue; }
 			const isVerify = action.kind === 'verify';
-			if (isVerify && !verify) { pending.push({ ...action, why: 'run with --verify' }); continue; }
-			if ((action.runBy === 'owner' || (action.effects ?? []).some((e) => e.kind === 'account')) && !(authorize && tty)) { pending.push({ ...action, why: 'the owner\'s step: dt setup <unit> --authorize' }); continue; }
-			if (!next) next = action; else pending.push({ ...action, why: 'after the step before it' });
+			if (isVerify && !verify) { pending.push(withReason(action, { why: 'run with --verify' })); continue; }
+			if ((action.runBy === 'owner' || (action.effects ?? []).some((e) => e.kind === 'account')) && !(authorize && tty)) { pending.push(withReason(action, { why: 'the owner\'s step: dt setup <unit> --authorize' })); continue; }
+			if (!next) next = action; else pending.push(withReason(action, { why: 'after the step before it' }));
 		}
 		if (!next) break;
 		if (!(await consent(next, { allow, tty, ask, authorize }))) {
 			refused.add(next.id);
-			pending.push({ ...next, why: `needs --allow ${[...new Set((next.effects ?? []).map((e) => e.kind).filter((k) => k !== 'workspace-files'))].join(' --allow ')}` });
+			pending.push(withReason(next, { why: `needs --allow ${[...new Set((next.effects ?? []).map((e) => e.kind).filter((k) => k !== 'workspace-files'))].join(' --allow ')}` }));
 			// the actions queued behind it stay listed as they are; nothing else can run this round
 			continue;
 		}
 		done.add(next.id);
+		if (isEnvAction(next)) {
+			// the engine's own write: refused only when the file moved since the plan (or cannot be written)
+			try {
+				const { text, changed } = setEnvValues(envText(), next.env);
+				writeEnvAtomic(ws.root, text, next.expect);
+				for (const k of changed) written.set(k, { unit: unit.id, value: next.env[k] });
+				// a ready env action's reason is the unit's note on what it wrote or left out (a malformed row it
+				// skipped); printed after the write, redacted like every reason (D67)
+				applied.push({ id: next.id, changed: ['.env'], message: `wrote .env (${changed.join(', ')})${next.reason ? ` — ${redact(next.reason)}` : ''}` });
+				ctx.env = envFor();
+			} catch (e) { failed.push({ id: next.id, message: e instanceof EnvRefusal ? e.message : redact(e.message) }); }
+			continue;
+		}
+		if (typeof unit.apply !== 'function') { failed.push({ id: next.id, message: `unit ${unit.id}: action ${next.id} carries no env and the unit declares no apply` }); continue; }
 		try {
 			const r = (await unit.apply(ctx, next, inputs)) ?? { ok: false, message: 'apply returned nothing' };
 			if (r.ok) { applied.push({ id: next.id, changed: r.changed ?? [], message: r.message }); ctx.env = envFor(); }
@@ -238,20 +315,28 @@ export async function runUnit(ws, unit, { inputs = {}, allow = new Set(), tty = 
 	// the final word on what is still open comes from one more plan, so a declined action and the ones
 	// behind it read with their own states, never as "after the step before it"
 	try {
+		const expect = snapshot();
 		const last = (await unit.plan(ctx, inputs)) ?? {};
 		needs = last.needs ?? needs;
-		pending = (last.actions ?? []).filter((a) => !done.has(a.id) && a.state !== 'done').map((a) => {
-			if (a.state && a.state !== 'ready') return { ...a, why: a.state === 'needs-input' ? 'needs input' : a.state };
-			if (a.kind === 'verify' && !verify) return { ...a, why: 'run with --verify' };
-			if (a.runBy === 'owner' || (a.effects ?? []).some((e) => e.kind === 'account')) return { ...a, why: 'the owner\'s step: dt setup <unit> --authorize' };
-			return { ...a, why: `needs --allow ${[...new Set((a.effects ?? []).map((e) => e.kind).filter((k) => k !== 'workspace-files'))].join(' --allow ')}` };
+		pending = judge(last.actions ?? [], expect).filter((a) => !done.has(a.id) && a.state !== 'done').map((a) => {
+			if (a.state && a.state !== 'ready') return withReason(a, { why: a.state === 'needs-input' ? 'needs input' : a.state });
+			if (a.kind === 'verify' && !verify) return withReason(a, { why: 'run with --verify' });
+			if (a.runBy === 'owner' || (a.effects ?? []).some((e) => e.kind === 'account')) return withReason(a, { why: 'the owner\'s step: dt setup <unit> --authorize' });
+			return withReason(a, { why: `needs --allow ${[...new Set((a.effects ?? []).map((e) => e.kind).filter((k) => k !== 'workspace-files'))].join(' --allow ')}` });
 		});
 	} catch { /* the loop's own view stands */ }
 	return { checks: safeInspect(unit, ctx), applied, pending, failed, needs };
 }
 
-function safeInspect(unit, ctx) {
-	try { const r = unit.inspect(ctx); return Array.isArray(r?.checks) ? r.checks : []; } catch (e) { return [{ id: `${unit.id}.inspect`, status: 'blocked', title: 'inspect', detail: redact(e.message) }]; }
+/** A unit's checks, never a throw: a thrown error is one blocked row, redacted; an inspect that hands back a
+ *  Promise (a plain function wrapping an async body — the load-time rule only sees an AsyncFunction) is a
+ *  blocked row naming the fix, never "no evidence". `dt doctor` reads through it too. */
+export function safeInspect(unit, ctx) {
+	try {
+		const r = unit.inspect(ctx);
+		if (typeof r?.then === 'function') { r.then(null, () => {}); return [{ id: `${unit.id}.inspect`, status: 'blocked', title: 'inspect', detail: 'inspect returned a Promise — dt status reads it without awaiting; make it synchronous' }]; }
+		return Array.isArray(r?.checks) ? r.checks : [];
+	} catch (e) { return [{ id: `${unit.id}.inspect`, status: 'blocked', title: 'inspect', detail: redact(e.message) }]; }
 }
 
 /** The setup section of `dt status`: one entry per unit, then one per package with no unit. */
@@ -391,8 +476,9 @@ export async function setupCommand(ws, argv, { processEnv = process.env, tty = !
 	const results = [];
 	try {
 		const filled = await fillInputs(run, { flags: inputFlags, env, tty, noInput, prompt });
+		const written = new Map();   // the keys this run's env actions wrote, by unit — one run never lets two units disagree on a key
 		for (const u of run) {
-			const r = await runUnit(ws, u, { inputs: filled.inputs.get(u.id) ?? {}, allow, tty, ask, authorize: flags.authorize, verify: flags.verify, processEnv, api, drop: droppedKeys(filled.problems, u.id) });
+			const r = await runUnit(ws, u, { inputs: filled.inputs.get(u.id) ?? {}, allow, tty, ask, authorize: flags.authorize, verify: flags.verify, processEnv, api, drop: droppedKeys(filled.problems, u.id), written });
 			const problems = filled.problems.filter((m) => m.unit === u.id);
 			const missing = [...filled.missing.filter((m) => m.unit === u.id).map((m) => m.id), ...problems.filter((m) => m.required).map((m) => m.id)];
 			const f = fold(r.failed.length ? [...r.checks, ...r.failed.map((x) => ({ id: x.id, status: 'blocked', title: x.id, detail: x.message }))] : r.checks, {});

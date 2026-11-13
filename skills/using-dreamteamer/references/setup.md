@@ -113,8 +113,10 @@ holds — nothing else was committed).
 
 ## writing a unit (module authors)
 
-A module declares `setup: [{ id, version: 1, inputs, inspect, plan, apply }]` in its extension
-contribution — `references/extensions.md` has the shape. `inspect` is local and side-effect-free;
-`plan` names each action with its effects and a preview; `apply` performs one previewed action and
-refuses a stale preview. A verify action writes a dated receipt the next inspect reads. The engine
+A module declares `setup: [{ id, version: 1, inputs, inspect, plan, apply? }]` in its extension
+contribution — `references/extensions.md` has the shape, `references/writing-a-module.md` the whole
+path. `inspect` is local, side-effect-free and synchronous; `plan` names each action with its effects
+and a preview. An action carrying `env: { KEY: value }` is the engine's to perform — `.env` is the only
+file the engine writes for a unit; `apply` performs every other previewed action and refuses a stale
+preview. A verify action writes a dated receipt the next inspect reads. The engine
 never learns the module's name; `dt status` and `dt doctor` render whatever the unit reports.

@@ -656,8 +656,9 @@ export async function initCommand(flags, { root = process.cwd(), open, verify, n
 				const filled = await fillInputs(all, { flags: parseInputFlags(argv), env: unitEnv(ws, processEnv), tty, noInput, prompt: term?.prompt ?? null, lenient: true });
 				for (const text of filled.ignored) log(`⚠ ${text} — ignored`);
 				const allow = parseAllow(argv);
+				const written = new Map();   // one run never lets two units disagree on a key (he3)
 				for (const u of all) {
-					const r = await runUnit(ws, u, { inputs: filled.inputs.get(u.id) ?? {}, allow, tty, ask: term?.ask ?? null, processEnv, drop: droppedKeys(filled.problems, u.id) });
+					const r = await runUnit(ws, u, { inputs: filled.inputs.get(u.id) ?? {}, allow, tty, ask: term?.ask ?? null, processEnv, drop: droppedKeys(filled.problems, u.id), written });
 					const problems = filled.problems.filter((m) => m.unit === u.id);
 					const miss = [...filled.missing.filter((m) => m.unit === u.id).map((m) => m.id), ...problems.filter((m) => m.required).map((m) => m.id)];
 					const f = fold(r.checks, {});
