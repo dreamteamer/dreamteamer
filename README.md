@@ -1,143 +1,123 @@
 # dreamteamer
 
-**dreamteamer is a modular AI workspace builder.**
+dreamteamer is a lightweight, open source, cross-harness **context package manager** for humans and AI agents. All major AI coding agents are natively supported, including Claude Code, Codex, Cursor, Gemini, Pi and more.
 
-It gives your coding agents a structured, modular memory. Instead of hiding context in unmanaged prose, dreamteamer stores memory as **plain markdown files with a schema** directly in your git repo. Agents read it natively, and you can browse it as tables, boards, and forms.
+#### What is a context package manager and why do I need one?
 
-No server, no account, no telemetry. Just a lightweight npm package.
+A context package manager is a tool that helps you construct and maintain  agentic workspaces in a **modular, structured, and consistent** manner by treating context as source code, and applying software engineering best practices to your AI agents' working context. You need it because structured context dramatically improves the reasoning, consistency, and reliability of agents in scenarios with repeated tasks. Read our [FAQ](FAQ.md) for more details.
 
----
+dreamteamer ships with a base set of [modules](https://github.com/dreamteamer/dreamteamer-modules) for common use cases such as second brains and AI software factories, and you can easily extend existing modules or create your own through natural language conversation.  See [EXTENDING.md](EXTENDING.md) for more details on how to create your own modules.
 
-## Features
+## Getting started
 
-- **Structured Memory as Files**: A record is just a markdown file with YAML frontmatter. Your agent opens it like any other file.
-- **Strict Validation**: Schemas ensure your agents use agreed-upon terminology. Invalid links, wrong types, or unknown fields are rejected before they touch the disk.
-- **Agent Agnostic**: Author a skill or schema once, use it everywhere. Core compiles to Claude Code, Cursor, Gemini CLI, and more.
-- **NPM Modularity**: Distribute domain knowledge, skills, and agents using the npm ecosystem you already know. 
-- **Visual Editor**: The [VS Code extension](https://github.com/dreamteamer/dreamteamer-vscode) gives you a powerful UI (tables, boards, forms) over your plain text files.
+### For humans (non coders)
+In Claude Code (or any other agent harness), paste the following prompt, replacing `my-workspace` and `~/Documents` with your desired values:
 
-## Getting Started
+```markdown
+create a new folder names "my-workspace" under my "~/Documents" folder.
 
-dreamteamer is a **context package manager**: modules are npm packages that carry collections, skills,
-commands and agents, and the engine compiles whatever you install into a workspace your agent harness
-reads. Node.js 20+ and npm 7+ are the only prerequisites.
+Read the [dreamteamer README](https://github.com/dreamteamer/dreamteamer) and initialize a blank new private dreamteamer workspace in that folder. Ensure I have all the prerequisites to run dreamteamer on my machine.
+
+Read the [dreamteamer modules README](https://github.com/dreamteamer/dreamteamer-modules), then interview me for my goals and needs, and suggest an optimal set of packages that can help me accomplish them. Help me set up the packages properly, along with all the required dependencies and configurations.
+
+Verify that the workspace works by running `npx dreamteamer status` and making sure it reports everything as expected. 
+```
+Then start a new session in your newly created folder (some agents may already switch to it automatically). Continue your conversations with the agent in this folder as you would normally. You can start by asking:
+
+```
+I'm new to this workspace, explain in simple and concise terms what I can already do here.
+```
+
+To import any existing data into your newly created workspace:
+
+```markdown
+Help me import relevant data from my machine into this workspace. Ask me questions as needed to understand the data and how to import it, and let me know what permissions you need. 
+```
+
+To expand the workspace with additional capabilities: 
+
+```markdown
+I'm trying to do XXX - how can I leverage dreamteamer to help me accomplish this? What changes should I make to the workspace and what modules should I install or create? Walk me through the process step by step.
+```
+
+To add 
+
+### For agents (and code-savvy humans)
+
+#### Prerequisites
+```bash
+node -v # >=24.x.x
+npm -v # >=11.x.x
+git --version # >=2.39.x
+```
+
+Note: some modules may have additional prerequisites. The `npx dreamteamer install` command will ask you for permissions to install prerequisites as needed.
+
+#### Installation
 
 ```bash
 mkdir my-workspace && cd my-workspace
-npx dreamteamer init                      # pin the engine, scaffold, compile, check, git init, commit
-npx dreamteamer install @dreamteamer/tasks @dreamteamer/contacts
-npx dreamteamer status                    # what is installed, what is set up, what to do next
-```
+npx dreamteamer init
 
-Every line exits 0 and can be run again: a repeat changes nothing. `init` turns the folder into a git
-repository and commits what it wrote (`--no-git` to skip, `--git <remote-url>` to add an origin without
-pushing); inside an existing repository it only adds a commit scoped to its own files and leaves your
-staged work alone. `install` takes any npm spec — a name, `name@version`, a `./file.tgz`, a `./folder`
-(a development link), a `github:owner/repo#ref:path` — installs the module **and every module it
-declares it needs**, pins exact versions, compiles, runs the module's safe setup, and commits. Without a
-version you get the latest release that fits your engine.
+# optional - install some pre-built modules from https://github.com/dreamteamer/dreamteamer-modules
+npx dreamteamer install @dreamteamer/tasks @dreamteamer/contacts 
 
-**If you're an agent given a link to this repo:** read this README, agree with the user on which folder
-becomes the workspace, and run the steps above there. Then have the user open a fresh session in that
-folder, where the compiled `using-dreamteamer` skill continues in conversation with the same commands.
-
-## Modules and setup
-
-A module that needs something from you — a folder, an account, a download — ships its own setup, and
-the engine drives it through one contract: it never knows the module by name. `install` asks for missing
-inputs in the terminal, or takes them as flags in a script; anything that downloads, reaches the network
-or changes the machine waits for your `--allow`; signing in to an account is always your own step.
-
-```bash
-npx dreamteamer install @dreamteamer/meetings \
-    --input 'calendar=me@example.com|mixed|me@example.com'          # merged into .env, never committed
-npx dreamteamer install @dreamteamer/recordings \
-    --input files_folder=~/hq-files --allow download --allow machine   # transcription models and venv
-npx dreamteamer install @dreamteamer/google-workspace --allow machine
-#   → google-workspace: configured. To connect the account (opens a browser):
-npx dreamteamer setup google-workspace --authorize
 npx dreamteamer status
-#   setup
-#     tasks             ready
-#     meetings          configured   1 calendar · account access unverified → dt setup meetings --verify --authorize
-#     recordings        configured   models on disk, never ran → dt setup recordings --verify --allow machine
-#     google-workspace  ready · verified 2026-11-13
 ```
+## Under the hood
 
-`status` is read-only and honest: `ready` means a check actually passed on this machine (and `verified`
-names the date a live check did), `configured` means the inputs are in place and says what is still
-unverified, `skipped` means you declined it (`dt setup <module> --skip`) and how to come back,
-`blocked` names the one thing in the way. `dt doctor` is the same evidence as rows, `--json` and
-`--strict` for scripts. `dt setup <module>` resumes, repairs, verifies (`--verify`) or signs in
-(`--authorize`); `dt update [<module>[@version] | --engine]` moves a pin forward, never on its own.
+Warning: technical details ahead. Non technical users may safely skip this section.
 
-A personal HQ is a preset, not a platform: `npx dreamteamer install @dreamteamer/core` brings the
-composed set in one line — and installing one of the modules core already provides is refused with the
-reason.
+dreamteamer works by maintiaing a well-defined data model for your workspace, and injecting the model schema along with guided instructions on how to use it, into every conversation. This operates similarly to the way Claude code and other harnesses inject skill names and their descriptions. 
 
-| module | what it keeps | setup |
-|---|---|---|
-| `@dreamteamer/core` | every core noun from one install — users, companies, contacts, engagements, tasks, projects, meetings, recordings, files, assets, workflows | the setup of each module it composes |
-| `@dreamteamer/tasks` · `users` · `projects` · `companies` · `contacts` · `engagements` · `assets` · `workflows` · `routines` · `knowledge` | records and the skills that work them | none |
-| `@dreamteamer/meetings` | calendar meetings as records | which calendars count as work |
-| `@dreamteamer/recordings` | audio and offline transcripts | models, venv, a files folder |
-| `@dreamteamer/google-workspace` | one Google account through a local bridge | credentials store, sign-in |
-| `@dreamteamer/files` · `search` · `wikis` · `notebooklm` · `perspective` · `git-identities` | mounted folders, local search, wikis, NotebookLM, a person's past work, git identities | a folder, a tool on PATH, a token or a login |
-| `@dreamteamer/http` · `web` · `code` · `docker-workspaces` · `worktrees` · `proofs` · `rnd` | a REST api, the UI in a browser, an editor, containers, worktrees, behaviour proofs, the R&D lifecycle | a port, or none |
+For example, say you maintain a [task list](https://github.com/dreamteamer/dreamteamer-modules/tree/main/modules/tasks). Now when you ask something like "create a task to buy milk", the agent runs a CLI command like `npx dreamteamer add task --name "buy milk"` to compose a well structured task entry, instead of trying to guess what a `task` means in this context, how it looks like, and where to write it. This is the key driver for consistency and reliability of agents over time and across sessions.
 
-## How It Works
+On top of that, every dreamteamer workspace or package is also a [GIT repository](https://git-scm.com/book/en/v2/Getting-Started-What-is-Git%3F). The GIT log becomes your personal time machine - so you (and more importantly, your AI agents) can track how your workspace evolves, make changes in a granular manner, and revert to previous states if something goes wrong. You can also fork, clone, branch, and merge dreamteamer workspaces and the data stored inside them, creating infinite possibilities for exploration and collaboration.
 
-### 1. Define Records
-A record is a file inside your collection directory (e.g., `data/meetings/2026/07/kickoff.meeting.md`):
+The best way to gain a deeper understanding of dreamteamer is to read the [using-dreamteamer skill](skills/using-dreamteamer/SKILL.md).
 
-```yaml
----
-title: Kickoff
-date: 2026-07-14
-attendees: [contacts/ada, contacts/lin]
-project: projects/apollo
----
-Ada walked through the constraints. Lin owns the spec by Friday.
-```
+### Key concepts and design philosophy
 
-### 2. Enforce Schemas
-Your agents read the file directly, but `dreamteamer check` ensures that every reference (like `contacts/ada`) actually resolves. **A schema is an agreement about what things are called.**
+Designed by coders, for both humans and AI agents, dreamteamer is built with decades of software engineering best practices in mind. 
 
-### 3. Share & Compose
-Because dreamteamer uses npm, you can install domain modules containing collections, skills, and agents. If a module doesn't perfectly fit your needs, you don't fork it—you adapt it locally by overriding just the schema fields you need to change.
+- **Engine design goals**
+  - [x] **AI native** - built from the ground up with AI agents in mind 
+  - [x] **Lean core** - minimal design, everything else is an optional add-on
+  - [x] **Adaptive and extensible** - allow users to easily extend dreamteamer with their own modules and data models
+  - [x] **Standards-first approach** - markdown, frontmatter, AJV, and GIT are the foundation of dreamteamer 
+  - [x] **Harness-agnostic** - dreamteamer compiles agent instructions from a single source of truth into formats that can be used by any supported agent harness
+  - [x] **Complementary to existing AI agents** - dreamteamer is not meant to replace your AI agents, but to provide them with a well-defined data model and a set of tools to work with
+  - [x] **Friendly for both agents and humans** - data and instructions are stored in plain text
+  - [x] **Self-documenting** - 
+- **Context engineering principles**
+  - [x] **Schema-first**
+  - [x] **Relational**
+  - [x] **Schema-validated** - all data is validated against a schema with `npx dreamteamer compile`, errors are reported and corrected by the agents 
+  - [x] **Rich metadata**
+  - [x] **Modular**
+  - [x] **Layered**
+  - [x] **Persistent and durable**
+  - [x] **Non-destructive data authoring**
+  - [x] **Auditable**
+- **Developer experience**
+  - [x] **Programmable**
+  - [x] **Extensible**
+  - [x] **Portable**
+  - [x] **Testable**
+- **User experience**
+  - [x] **Conversational**
+  - [x] **Presentational**
+  - [x] **Collaborative**
+  
+### Security considerations
 
-## Programmatic Usage
+When using dreamteamer, [standard AI agents security measures](https://code.claude.com/docs/en/security) apply. dreamteamer itself does not introduce new vulnerabilities, it allows you to do the same things you could already do with your AI agents, in a well-governed, auditable and consistent manner. You should continue to apply the same security considerations you would apply when using your AI agents. This includes never sharing credentials, tokens, API keys, or any other sensitive information with your agents, and always being mindful of the data you share with them. Private workspaces should be treated as such, and appropriate access controls should be put in place.
 
-Use dreamteamer in your own scripts or apps:
+When installing new modules, always vet them first, and make sure you trust the author, understand what they do and what permissions they require. The dreamteamer org curates a selection of high quality community modules that adhere to our coding standards. See the [modules repository](https://github.com/dreamteamer/dreamteamer-modules) for more details. Official modules include "dreamteamer" in their name, and are always served under the dreamteamer org github and npmjs namespace.
 
-```javascript
-import { openWorkspace, Store } from 'dreamteamer';
+Note: some modules may require elevated permissions or access to sensitive information (for example, access to arbitrary locations on your filesystem, cloud storage, APIs, etc.). Only grant such permissions after carefully vetting the module and making sure you understand and trust what it does. You should treat dreamteamer modules as you would treat any other code you run on your system, and apply the same security considerations.  
 
-const ws = await openWorkspace('.');        // no compile, no writes
-const store = new Store(ws);
-
-for (const { id, fields } of store.readAll('notes')) {
-  console.log(id, fields.title);
-}
-```
-
-## Extensions
-
-An extension adds verbs, source kinds or harnesses through one contract
-([`references/extensions.md`](skills/using-dreamteamer/references/extensions.md)). It can be a
-workspace module (`modules/<id>/package.json` declaring `dreamteamer.extension`) or an installed
-dependency.
-
-Behaviour proofs (`@dreamteamer/proofs`), worktrees (`@dreamteamer/worktrees`), the REST API
-(`@dreamteamer/http`) and the NotebookLM exporter (`@dreamteamer/notebooklm`) are extension packages;
-the local Docker host is the global `dt-docker` bin (`@dreamteamer/docker-workspaces`). A verb typed
-without its package prints the install line.
-
-## Agent-Native Documentation
-
-Because this is an agent-native tool, documentation is shipped as skills your agent loads on demand:
-- [`skills/using-dreamteamer`](skills/using-dreamteamer) — Core skill for working with records and modeling the workspace.
-- [`docs/`](docs/) — Deeper architectural context, upgrade guides, and rationale.
+If you've encountered a security issue or have any concerns, please report it through the appropriate channels - see [SECURITY.md](SECURITY.md) for more details on dreamteamer security practices.
 
 ## Contributing
 
@@ -147,4 +127,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 
 ## License
 
-[Apache-2.0](LICENSE) © 2026 Gilad Khen.
+[Apache-2.0](LICENSE) © 2026 Gilad Khen and the dreamteamer org.
