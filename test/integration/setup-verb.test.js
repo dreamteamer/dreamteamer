@@ -63,6 +63,13 @@ describe('dt setup probe — the synthetic unit through every state', () => {
 		assert.match(w.stdout, /… verify \(needs --allow machine\)/);
 	});
 
+	test('a blocked action carries the module\'s reason on the text line, not only in --json', () => {
+		const ws = probed();
+		const r = run(ws.root, ['setup', 'probe', '--input', 'label=demo', '--no-input'], { PROBE_BLOCK: '1' });
+		assert.equal(r.code, 0, r.stderr);
+		assert.match(r.stdout, /… fetch \(blocked\) — the weights server is down \(simulated\)/);
+	});
+
 	test('--authorize takes one unit: with none named it is a usage refusal, exit 2, before the terminal is asked for', () => {
 		const ws = probed();
 		const r = run(ws.root, ['setup', '--authorize']);
@@ -103,6 +110,10 @@ describe('dt setup probe — the synthetic unit through every state', () => {
 		assert.equal(git(ws.root, ['status', '--porcelain']), '');
 		const s = run(ws.root, ['setup', '--no-input']);
 		assert.match(s.stdout, /— probe: skipped/);
+		// the skip is a known manifest key: compile, status and install keep working with it in package.json
+		const c = run(ws.root, ['compile']);
+		assert.equal(c.code, 0, c.stderr + c.stdout);
+		assert.equal(run(ws.root, ['status']).code, 0);
 		const back = run(ws.root, ['setup', 'probe', '--input', 'label=x', '--no-input']);
 		assert.match(back.stdout, /✔ probe: no longer skipped/);
 		assert.equal(JSON.parse(readFile(ws.root, 'package.json')).dreamteamer.setup, undefined);

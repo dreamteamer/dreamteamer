@@ -97,6 +97,13 @@ describe('fillInputs — precedence and sharing', () => {
 		assert.deepEqual(r.inputs.get('probe'), {});
 		await assert.rejects(fillInputs([u], { flags: [{ unit: null, id: 'token', value: '/no/such/token' }], env: {}, tty: false }), /--input token=\/no\/such\/token: no such file/);
 	});
+	test('a default declared by one input fills every input sharing its env key — a required one on another unit included (D39)', async () => {
+		const a = unit('a', [{ id: 'home', kind: 'path', env: 'SHARED_HOME', default: '/d' }]);
+		const b = unit('b', [{ id: 'home', kind: 'path', env: 'SHARED_HOME', required: true }]);
+		const r = await fillInputs([a, b], { flags: [], env: {}, tty: false, home: '/home/x' });
+		assert.deepEqual(r.inputs.get('a'), { home: '/d' }); assert.deepEqual(r.inputs.get('b'), { home: '/d' });
+		assert.deepEqual(r.missing, []);
+	});
 	test('two inputs naming one env key are one input (D39); a bare id across units with different env is ambiguous', async () => {
 		const files = unit('files', [{ id: 'files_folder', kind: 'path', env: 'FILES_FOLDER' }]);
 		const rec = unit('recordings', [{ id: 'files_folder', kind: 'path', env: 'FILES_FOLDER' }, { id: 'port', kind: 'string' }]);

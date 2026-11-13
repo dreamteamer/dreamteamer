@@ -106,6 +106,9 @@ export async function fillInputs(units, { flags = [], env = {}, tty = false, noI
 		}
 		if (!envValues.has(i.env)) { envValues.set(i.env, f.value); envFlag.set(i.env, f); }
 	}
+	// a default declared by any input sharing the key is the key's default (D39: one key, one input)
+	const envDefaults = new Map();
+	for (const u of units) for (const i of u.inputs) if (i.env && i.default !== undefined && !envDefaults.has(i.env)) envDefaults.set(i.env, i.default);
 	for (const u of units) {
 		for (const i of u.inputs) {
 			if (i.env && conflicted.has(i.env)) continue;
@@ -117,6 +120,7 @@ export async function fillInputs(units, { flags = [], env = {}, tty = false, noI
 			else if (i.env && envValues.has(i.env)) value = envValues.get(i.env);
 			else if (i.env && env[i.env] !== undefined && String(env[i.env]).trim() !== '') value = String(env[i.env]);
 			else if (i.default !== undefined) value = i.default;
+			else if (i.env && envDefaults.has(i.env)) value = envDefaults.get(i.env);
 			if (value === undefined && tty && !noInput && prompt) {
 				const answer = await prompt(i, i.default);
 				if (answer !== undefined && answer !== null && String(answer).trim() !== '') value = i.kind === 'rows' ? [String(answer)] : String(answer);
@@ -318,14 +322,16 @@ export function ttyIO() {
 	const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 	return { prompt: ttyPrompt(rl), ask: ttyAsk(rl), close: () => rl.close() };
 }
+// an EOF (Ctrl-D) at a prompt is no answer — the input stays missing (exit 3), the action declined — never a crash
+const question = async (rl, text) => { try { return (await rl.question(text)).trim(); } catch { return ''; } };
 const ttyPrompt = (rl) => async (input, def) => {
 	const hint = def !== undefined ? ` [${def}]` : input.required ? ' (required)' : ' (enter to skip)';
-	const answer = (await rl.question(`${input.prompt ?? input.title ?? input.id}${hint}: `)).trim();
+	const answer = await question(rl, `${input.prompt ?? input.title ?? input.id}${hint}: `);
 	return answer === '' ? def : answer;
 };
 const ttyAsk = (rl) => async (action, kinds) => {
 	const effects = (action.effects ?? []).map((e) => `${e.kind}: ${e.detail}`).join('\n    ');
-	const answer = (await rl.question(`${action.title} — ${kinds.join(', ')}\n    ${effects}\n  run it? [y/N] `)).trim().toLowerCase();
+	const answer = (await question(rl, `${action.title} — ${kinds.join(', ')}\n    ${effects}\n  run it? [y/N] `)).toLowerCase();
 	return answer === 'y' || answer === 'yes';
 };
 
@@ -381,7 +387,7 @@ export async function setupCommand(ws, argv, { processEnv = process.env, tty = !
 		log(`${r.state === 'ready' ? '✔' : r.state === 'blocked' ? '✖' : '—'} ${r.id}: ${r.state}${verified}${r.detail ? ` — ${r.detail}` : ''}`);
 		for (const a of r.applied) log(`    ✔ ${a.id}${a.message ? ` — ${a.message}` : ''}`);
 		for (const f of r.failed) log(`    ✖ ${f.id} — ${f.message}`);
-		for (const p of r.pending) log(`    … ${p.id} (${p.why})`);
+		for (const p of r.pending) log(`    … ${p.id} (${p.why})${p.reason ? ` — ${p.reason}` : ''}`);
 		if (r.needs.length) log(`    needs input: ${r.needs.join(', ')} — --input ${r.needs[0]}=<value>`);
 	}
 	return code;

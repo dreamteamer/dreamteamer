@@ -19,7 +19,11 @@ let FROM = arg('from') ?? process.env.DT_CANDIDATES ?? null;
 // ---- the folder of tarballs: the fixtures, and the engine itself, when nobody handed one in ----
 import { buildRegistry } from '../fixtures/registry/build.mjs';
 if (!FROM) FROM = buildRegistry();
-FROM = path.resolve(FROM);
+// the folder handed in is read, never written: its tarballs are copied into a temp folder, and the
+// fixtures and (when absent) the engine are packed THERE
+const GIVEN = path.resolve(FROM);
+FROM = fs.mkdtempSync(path.join(os.tmpdir(), 'dt-acceptance-from-'));
+for (const f of fs.readdirSync(GIVEN).filter((f) => f.endsWith('.tgz'))) fs.copyFileSync(path.join(GIVEN, f), path.join(FROM, f));
 const tgzs = () => fs.readdirSync(FROM).filter((f) => f.endsWith('.tgz'));
 if (!tgzs().some((f) => f === `dreamteamer-${VERSION}.tgz`)) {
 	const r = spawnSync('npm', ['pack', ENGINE_ROOT, '--pack-destination', FROM, '--silent'], { encoding: 'utf8' });

@@ -579,6 +579,20 @@ export async function initCommand(flags, { root = process.cwd(), open, verify, n
 	const fromDir = flags.from ? path.resolve(root, flags.from) : null;
 	const fail = (why) => { log(`✖ ${why}\n  the steps after this one did not run — fix it, then run the same command again: every step re-checks what is already done`); return 1; };
 
+	// --from: every package this init will need is looked for in the folder BEFORE anything is written —
+	// a folder lacking one is refused with the folder untouched (no skeleton, no registry call)
+	if (fromDir) {
+		const { indexFolder } = await import('./install-modules.js');
+		let index;
+		try { index = indexFolder(fromDir); } catch (e) { return fail(e.message); }
+		const pkg0 = readJson(pkgPath) ?? {};
+		const declared0 = !!(pkg0.dependencies?.dreamteamer ?? pkg0.devDependencies?.dreamteamer);
+		const missing0 = Object.keys({ ...pkg0.dependencies, ...pkg0.devDependencies }).sort().filter((d) => !fs.existsSync(path.join(root, 'node_modules', d, 'package.json')));
+		for (const n of declared0 ? missing0 : ['dreamteamer', ...missing0]) {
+			const hit = n === 'dreamteamer' ? (index.get('dreamteamer') ?? []).find((c) => c.version === want) : (index.get(n) ?? [])[0];
+			if (!hit) return fail(`--from ${fromDir}: no ${n === 'dreamteamer' ? `dreamteamer@${want}` : n} in it — nothing was written`);
+		}
+	}
 	init({ flags, root, commit: false });
 	log('✔ skeleton: the package.json dreamteamer block, the workspace module, .gitignore, .env.example — kept where present');
 	// EVERY declared package, not just the engine: a preset whose npm install was interrupted holds the
@@ -639,7 +653,7 @@ export async function initCommand(flags, { root = process.cwd(), open, verify, n
 					log(`${f.state === 'ready' ? '✔' : '—'} ${u.id}: ${f.state}${f.detail ? ` — ${f.detail}` : ''}`);
 					for (const a of r.applied) log(`    ✔ ${a.id}${a.message ? ` — ${a.message}` : ''}`);
 					for (const x of r.failed) log(`    ✖ ${x.id} — ${x.message}`);
-					for (const pnd of r.pending) log(`    … ${pnd.id} (${pnd.why})`);
+					for (const pnd of r.pending) log(`    … ${pnd.id} (${pnd.why})${pnd.reason ? ` — ${pnd.reason}` : ''}`);
 					if (miss.length) { log(`    needs input: ${miss.join(', ')} — dt setup ${u.id} --input ${miss[0]}=<value>`); code = 3; }
 				}
 			} catch (e) {

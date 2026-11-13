@@ -3,6 +3,7 @@
 // actions carrying every effect kind, a receipt-writing verify, and switches that make it misbehave.
 //   PROBE_THROW=apply   apply() throws (with a secret in the message, which must be redacted)
 //   PROBE_THROW=inspect inspect() throws (one bad doctor row, a blocked status line)
+//   PROBE_BLOCK=1   the download is blocked, with a reason the line must carry
 //   PROBE_EMPTY=1       inspect() returns zero checks (the "no evidence" line)
 import fs from 'node:fs';
 import os from 'node:os';
@@ -47,7 +48,7 @@ function plan(ctx, inputs = {}) {
 	const envDone = Object.entries(wantEnv).every(([k, v]) => new RegExp(`^${k}=${v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'm').test(envText));
 	const actions = [
 		{ id: 'make-home', title: 'write PROBE_HOME and PROBE_LABEL into .env', effects: [{ kind: 'workspace-files', detail: '.env: PROBE_HOME and PROBE_LABEL only, other keys kept' }], preview: { file: '.env', set: wantEnv }, expect: sha(envText), runBy: 'engine', state: envDone ? 'done' : needs.length ? 'needs-input' : 'ready' },
-		{ id: 'fetch', title: 'download the weights', effects: [{ kind: 'download', detail: `${home}/weights.txt (synthetic, 12 bytes)` }], runBy: 'engine', state: status['probe.weights'] === 'configured' ? 'done' : 'ready' },
+		{ id: 'fetch', title: 'download the weights', effects: [{ kind: 'download', detail: `${home}/weights.txt (synthetic, 12 bytes)` }], runBy: 'engine', ...(ctx.env?.PROBE_BLOCK ? { state: 'blocked', reason: 'the weights server is down (simulated)' } : { state: status['probe.weights'] === 'configured' ? 'done' : 'ready' }) },
 		{ id: 'tune', title: 'tune the machine', effects: [{ kind: 'machine', detail: `${home}/tuned` }], runBy: 'engine', state: status['probe.tuned'] === 'configured' ? 'done' : 'ready' },
 		{ id: 'sign-in', title: 'sign in to the probe account', effects: [{ kind: 'account', detail: 'opens a browser (simulated)' }], runBy: 'owner', state: 'ready' },
 		{ id: 'verify', title: 'run the live check', kind: 'verify', effects: [{ kind: 'machine', detail: 'runs the probe once and writes the receipt' }], runBy: 'engine', state: status['probe.live'] === 'ready' ? 'done' : 'ready' },

@@ -137,9 +137,9 @@ export function resolveClosure(specs, { installed, from = null, npm = resolveNpm
 	// a package an INSTALLED one already provides: present for the walk (never resolved again), and refused
 	// the moment it is asked for by name — before any of its dependencies are looked up anywhere
 	const providedBy = (name) => [...installed].find(([, i]) => (i.manifest?.dreamteamer?.provides ?? []).includes(name))?.[0] ?? null;
-	const judge = (entry, askedAs) => {
+	const judge = (entry, askedAs, stack = []) => {
 		const m = entry.manifest;
-		if (!m.dreamteamer || typeof m.dreamteamer !== 'object') throw refuse(`${m.name}@${m.version} is not a dreamteamer module (no dreamteamer key in its package.json)`);
+		if (!m.dreamteamer || typeof m.dreamteamer !== 'object') throw refuse(`${m.name}@${m.version} is not a dreamteamer module (no dreamteamer key in its package.json)${stack.length ? ` — needed by ${stack.at(-1)}` : ''}`);
 		const provider = providedBy(m.name);
 		if (provider) throw refuse(`${provider} already provides ${m.name} — it is installed; nothing to add`);
 		const range = m.dreamteamer.engine;
@@ -155,7 +155,7 @@ export function resolveClosure(specs, { installed, from = null, npm = resolveNpm
 		const name = entry.manifest.name;
 		if (stack.includes(name)) throw refuse(`ring in dreamteamer.dependencies: ${[...stack.slice(stack.indexOf(name)), name].join(' → ')}`);
 		if (seen.has(name)) return;
-		judge(entry, askedAs);
+		judge(entry, askedAs, stack);
 		const here = installed.get(name);
 		if (here && here.version === entry.manifest.version) { already.push(name); seen.set(name, entry); return; }
 		seen.set(name, entry);
@@ -282,7 +282,7 @@ export function printUnitResults(results, ignored, log) {
 		for (const a of r.applied) log(`    ✔ ${a.id}${a.message ? ` — ${a.message}` : ''}`);
 		for (const f of r.failed) log(`    ✖ ${f.id} — ${f.message}`);
 		for (const p of r.problems ?? []) log(`    ✖ ${p.id} — ${p.reason}`);
-		for (const p of r.pending) log(`    … ${p.id} (${p.why})`);
+		for (const p of r.pending) log(`    … ${p.id} (${p.why})${p.reason ? ` — ${p.reason}` : ''}`);
 		if (r.needs.length) log(`    needs input: ${r.needs.join(', ')} — dt setup ${r.id} --input ${r.needs[0]}=<value>`);
 	}
 }

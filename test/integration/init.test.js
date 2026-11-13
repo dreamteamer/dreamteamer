@@ -108,6 +108,18 @@ function snapshot(root, dir = '', out = {}) {
 	return out;
 }
 
+describe('dt init --from — refused before any write when the folder lacks a package', () => {
+	test('an empty folder stays empty when the folder has no dreamteamer@<this version>', () => {
+		const root = folder();
+		const from = path.join(SANDBOX, `from-${++n}`); fs.mkdirSync(from);
+		fs.writeFileSync(path.join(from, 'README.txt'), 'no tarballs here\n');
+		const r = spawnSync(process.execPath, [BIN, 'init', '--from', from], { cwd: root, env: { PATH: process.env.PATH, HOME: SANDBOX, ...GIT_ENV }, encoding: 'utf8', timeout: SPAWN_TIMEOUT_MS, killSignal: 'SIGKILL' });
+		assert.equal(r.status, 1, r.stdout + r.stderr);
+		assert.match(r.stdout + r.stderr, /--from .*: no dreamteamer@/);
+		assert.deepEqual(fs.readdirSync(root), [], 'nothing was written — not even the skeleton');
+	});
+});
+
 describe('dt init — an empty folder to a pinned, compiled, checked, committed workspace', () => {
 	test('no package.json, no git: the running engine is pinned and installed HERE, compiled, checked, a repository made, one scoped commit', async () => {
 		const root = folder(), npm = fakeNpm();
@@ -220,7 +232,7 @@ describe('dt init — an empty folder to a pinned, compiled, checked, committed 
 		const w = withEngine(folder(), { dependencies: { dreamteamer: VERSION, '@fix/nope': '1.0.0' } });
 		const bad = dt(w, 'init', '--from', REG);
 		assert.equal(bad.code, 1);
-		assert.match(bad.stdout, /--from .* no @fix\/nope in it — nothing was installed/);
+		assert.match(bad.stdout, /--from .* no @fix\/nope in it — nothing was (installed|written)/);
 		assert.ok(!fs.existsSync(path.join(w, '.dreamteamer')));
 	});
 

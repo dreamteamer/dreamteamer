@@ -102,6 +102,14 @@ describe('dt install <spec> — closure, compile, safe setup, scoped commit', ()
 		assert.equal(treeHash(ws.root), h, 'nothing was written by any refusal');
 	});
 
+	test('a dependency that is not a module is refused naming BOTH: the package and the module that needs it', () => {
+		const ws = offline();
+		const r = run(ws.root, ['install', '@fix/needs-plain', '--from', REG]);
+		assert.equal(r.code, 1);
+		assert.match(r.stderr, /plain@1\.0\.0 is not a dreamteamer module .* — needed by @fix\/needs-plain/);
+		assert.equal(installed(ws.root, 'plain'), null); assert.equal(installed(ws.root, '@fix/needs-plain'), null);
+	});
+
 	test('a compile refusal restores package.json, the lockfile and node_modules, and says so', () => {
 		const ws = offline();
 		assert.equal(run(ws.root, ['install', '@fix/b', '--from', REG]).code, 0);
