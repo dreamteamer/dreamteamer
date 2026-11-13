@@ -44,7 +44,7 @@ function closure(entry) {
 
 describe('dreamteamer (the public API)', () => {
 	test('the runtime exports are exactly the declared ones — for both entries', async () => {
-		for (const [mod, file, floor] of [['../../src/api.js', 'api.d.ts', 60], ['../../src/records-api.js', 'records-api.d.ts', 30]]) {
+		for (const [mod, file, floor] of [['../../src/api.js', 'api.d.ts', 60], ['../../src/records-api.js', 'records-api.d.ts', 30], ['../../src/testing.js', 'testing.d.ts', 5]]) {
 			const runtime = new Set(Object.keys(await import(mod)));
 			const types = declared(file);
 			assert.ok(types.size > floor, `the declaration parse found only ${types.size} names — the pattern no longer matches ${file}`);
@@ -57,7 +57,7 @@ describe('dreamteamer (the public API)', () => {
 	// while the runtime value is a Set, so strict TypeScript accepted `.includes('_eq')` and it threw
 	// at run time (review F8). Every declared value is checked against the kind its type names.
 	test('every declared export has the runtime SHAPE its type says', async () => {
-		for (const [mod, file] of [['../../src/api.js', 'api.d.ts'], ['../../src/records-api.js', 'records-api.d.ts']]) {
+		for (const [mod, file] of [['../../src/api.js', 'api.d.ts'], ['../../src/records-api.js', 'records-api.d.ts'], ['../../src/testing.js', 'testing.d.ts']]) {
 			const api = await import(mod);
 			const text = dts(file);
 			for (const m of text.matchAll(/^export (?:declare )?(?:function|class) ([A-Za-z_$][\w$]*)/gm)) {
@@ -139,6 +139,8 @@ describe('the INSTALLED package', () => {
 		assert.equal(pub.stdout.trim(), '1 function function', pub.stderr);
 		const rec = spawnSync(process.execPath, ['-e', "import('dreamteamer/records').then((m) => console.log(m.apiVersion, typeof m.Store, typeof m.openWorkspace))"], { cwd: dir, encoding: 'utf8', timeout: 30_000 });
 		assert.equal(rec.stdout.trim(), '1 function undefined', rec.stderr);
+		const tst = spawnSync(process.execPath, ['-e', "import('dreamteamer/testing').then((m) => console.log(typeof m.createWorkspace, typeof m.install, typeof m.run, typeof m.pack, typeof m.engineMeets, m.ENGINE.endsWith('dreamteamer')))"], { cwd: dir, encoding: 'utf8', timeout: 30_000 });
+		assert.equal(tst.stdout.trim(), 'function function function function function true', tst.stderr);
 		const deep = spawnSync(process.execPath, ['-e', "import('dreamteamer/src/store.js').then(() => console.log('REACHED'), (e) => console.log(e.code))"], { cwd: dir, encoding: 'utf8', timeout: 30_000 });
 		assert.equal(deep.stdout.trim(), 'ERR_PACKAGE_PATH_NOT_EXPORTED');
 		// and the extracted tools are NOT in the tarball
@@ -146,7 +148,7 @@ describe('the INSTALLED package', () => {
 		for (const gone of ['src/server.js', 'src/prove.js', 'src/land.js', 'src/containers.js', 'src/container-archive.js', 'src/export-notebooklm.js']) {
 			assert.ok(!listing.includes(`package/${gone}`), `${gone} is still published`);
 		}
-		assert.ok(listing.includes('package/src/api.d.ts') && listing.includes('package/src/records-api.d.ts'), 'the type declarations are not published');
+		assert.ok(listing.includes('package/src/api.d.ts') && listing.includes('package/src/records-api.d.ts') && listing.includes('package/src/testing.d.ts'), 'the type declarations are not published');
 	});
 });
 

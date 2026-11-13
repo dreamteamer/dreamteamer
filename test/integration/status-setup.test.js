@@ -39,7 +39,7 @@ describe('dt status — the setup section', () => {
 		// nothing done yet: configured, with what is missing, pointing at dt setup
 		let s = run(ws.root, ['status']);
 		assert.equal(s.code, 0, s.stderr);
-		assert.match(line(s.stdout, 'probe'), /^  probe\s+configured\s+probe home missing · token file missing · weights missing · tuned missing · live check unverified\s+→ dt setup probe/);
+		assert.match(line(s.stdout, 'probe'), /^  probe\s+configured\s+probe home missing · label missing · token file missing · weights missing · tuned missing · live check unverified\s+→ dt setup probe/);
 		// no evidence is never ready
 		assert.match(line(run(ws.root, ['status'], { PROBE_EMPTY: '1' }).stdout, 'probe'), /no evidence/);
 		// after the safe part and the consequential effects: still configured until verified

@@ -60,6 +60,39 @@ knowing the module (`setup.md`). `doctor` renders a unit's checks as rows. An in
 package's `dreamteamer.env` or `vars`. A composed package lists what it composes in `dreamteamer.provides`, so `dt install`
 refuses a duplicate in both directions.
 
+Since 0.48.0:
+
+- **an `env` action** — `{ id, title, env: { KEY: value, … }, state? }` — is performed by the engine, not by `apply`: the
+  `.env` write, confined to the workspace, every other line kept, the value never printed. Judged when the plan is read:
+  `done` when every key holds its value (whatever it holds — a value set by hand is never refused afterwards),
+  `needs-input` for an `undefined` value, `blocked` (nothing written, exit 0) for an undeclared key, a non-string value, a
+  key assigned twice, a value holding `"`, `$`, a backtick or a carriage return (or a backslash that would need quoting —
+  a Windows path is written unquoted), a leftover temp file, a `.env` git would commit, or a key another unit wrote in the
+  same run with a different value (two units may share a key, never disagree on it); a leading byte-order mark is kept; at write time a `.env` that changed after the plan is a failure (exit 1). A ready env action's `reason`
+  is the unit's note on what it wrote or left out, printed after the write (redacted). `.env` is the only file the engine
+  writes for a unit; anything else is an `apply` action with its effects.
+- **`apply` is optional** — a non-env action from a unit without one fails by name. **`inspect` must be synchronous** — an
+  `async` one is refused at load, and a plain one that returns a Promise reads `blocked` naming the fix (`dt status`
+  reads it without awaiting).
+- **redaction** touches failure text only — what a unit throws, a failed `apply` message, an action's `reason`; a check's
+  `fix`, any `title` and the next command print whole.
+- **the engine is never a module's `dependencies`** — `dt check` names one that lists it (a second engine would nest);
+  `devDependencies` for the module's tests, an npm peer dependency optionally. `dreamteamer.engine` is the floor the engine reads.
+
+The `ctx` each driver hands a unit:
+
+| key | `dt setup` | `dt doctor` | `dt install` · `dt init` | `dt status` |
+|---|---|---|---|---|
+| `root`, `ws`, `env`, `receiptDir` | set | set | set | set |
+| `tty` | the terminal | false | the terminal | false |
+| `dt` | the engine's API | the engine's API | null | null |
+
+`inspect` and `plan` must not depend on `ctx.dt`; a machine step that wants the API runs under `dt setup`.
+
+Writing, testing and publishing a module end to end — the scaffold, `dreamteamer/testing`, `dt check modules/<id> --alone`
+— is `references/writing-a-module.md`. `dreamteamer/testing` and `dreamteamer/records` are 0.x exports: a breaking change
+lands in a minor, announced one release ahead in `UPDATING.md`.
+
 The `draft` is data only: the staged entries, the final merged descriptors, the modules, declared var
 and env key NAMES, and the previous manifest. No writer, no Store, no environment values — an analysis
 that needs one is a command, not an analysis.
