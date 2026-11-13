@@ -358,9 +358,11 @@ function metaModulesAdd(ws, store, flags) {
 		name: oneValue(flags, 'name'),
 		description: oneValue(flags, 'description'),
 		namespace: oneValue(flags, 'namespace'),
+		extension: flags.extension === true || flags.extension === 'true',
+		pkg: flags.package === undefined ? null : flags.package === true ? true : oneValue(flags, 'package'),
 	});
 	if (flags.json) { emit(JSON.stringify(out)); return 0; }
-	console.log(`✔ ${out.root}/ — package.json + ${KIND_COUNT} kind folder(s)`);
+	console.log(`✔ ${out.root}/ — ${out.files.join(' · ')} + ${KIND_COUNT} kind folder(s)`);
 	// §6.2 promises the namespace is DECLARED IN THE MODULE, and §8 makes every later
 	// `add collections --module <id>` infer it — so the declaration is echoed, because an inferred
 	// identity the operator did not type is one they must be able to read back.
@@ -1322,7 +1324,7 @@ export const VERB_FLAGS = {
 	'collections:add': ['json', 'module', 'name', 'namespace', 'mixins', 'id-from', 'description', 'suffix'],
 	'collections:get': ['json', 'module'], 'collections:set': ['json', 'module', 'dry-run'],
 	'collections:rm': FORCE_RM, 'collections:rename': ['json', 'namespace', 'dry-run'], 'collections:reorder': NAV_MOVE,
-	'modules:add': ['json', 'name', 'description', 'namespace'], 'modules:rename': JSON_ONLY, 'modules:rm': FORCE_RM,
+	'modules:add': ['json', 'name', 'description', 'namespace', 'extension', 'package'], 'modules:rename': JSON_ONLY, 'modules:rm': FORCE_RM,
 	'modules:set': ['json', 'description', 'namespaces', 'dependencies', 'peer_collections'],
 	// the identity kinds: `add` scaffolds, `rm`/`rename` fall through to the generic rows, and `set`
 	// is deliberately UNCHECKED — a skill's frontmatter is an open document (`allowed-tools`, `model`,
