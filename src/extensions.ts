@@ -84,7 +84,7 @@ export function v1ManifestRefusal(block, where) {
   return `${where}: the dreamteamer block is in the v1 spelling (${what}).\n  convert the workspace once: ${CONVERTER}\n  then dt compile and dt check — UPDATING.md has the walk.`
 }
 
-export const EXTENSION_API = 1 as const
+export const EXTENSION_API = 1
 
 const CONTRIBUTION_KEYS = new Set([
   "commands",
