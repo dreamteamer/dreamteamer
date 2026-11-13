@@ -7,7 +7,7 @@ import path from 'node:path';
 import { engineId, readManifest } from './runtime.js';
 import { satisfies } from './semver.js';
 import { MANAGED_BLOCKS } from './harnesses.js';
-import { units, unitEnv, receiptDir, redact, safeInspect } from './setup.js';
+import { units, unitEnv, unitEnvFor, receiptDir, redact, safeInspect } from './setup.js';
 
 const STATES = new Set(['ok', 'warn', 'bad']);
 const UNIT_STATE = { ready: 'ok', configured: 'ok', unverified: 'warn', missing: 'warn', blocked: 'bad' };
@@ -49,7 +49,9 @@ export async function doctorBoard(ws, dt) {
 	const env = unitEnv(ws);
 	for (const u of units(ws)) {
 		let checks;
-		checks = safeInspect(u, { root: ws.root, ws, dt, env, tty: false, receiptDir: receiptDir(ws, u.id) }).map((c) => (c.id === `${u.id}.inspect` ? { ...c, id: 'inspect', fix: `report it to ${u.module}` } : c));
+		// the rule status and setup apply: a refused secret-path is never handed to the unit, and is its own row
+		const { env: unitEnvHere, refused } = unitEnvFor(u, env);
+		checks = [...refused, ...safeInspect(u, { root: ws.root, ws, dt, env: unitEnvHere, tty: false, receiptDir: receiptDir(ws, u.id) })].map((c) => (c.id === `${u.id}.inspect` ? { ...c, id: 'inspect', fix: `report it to ${u.module}` } : c));
 		caps.push({ name: u.id, checks: checks.map((c) => ({ label: c.title ?? c.id, state: UNIT_STATE[c.status] ?? 'bad', detail: c.detail ?? (UNIT_STATE[c.status] ? '' : `unknown status ${JSON.stringify(c.status)}`), fix: c.fix })) });
 	}
 	for (const e of (ws.extensions ?? []).filter((x) => x.doctor)) {

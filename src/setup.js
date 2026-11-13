@@ -339,6 +339,23 @@ export function safeInspect(unit, ctx) {
 	} catch (e) { return [{ id: `${unit.id}.inspect`, status: 'blocked', title: 'inspect', detail: redact(e.message) }]; }
 }
 
+/**
+ * The environment one unit is handed by the read-only verbs (`dt status`, `dt doctor`) — the same rule
+ * setup applies: a secret-path the environment holds that is missing, not a file or (posix) readable by
+ * others is never handed to the unit, and is reported as its own `missing` row with the fix. Returns
+ * `{ env, refused }`; `env` is a copy.
+ */
+export function unitEnvFor(unit, env, home = os.homedir()) {
+	const out = { ...env };
+	const refused = [];
+	for (const i of unit.inputs ?? []) {
+		if (i.kind !== 'secret-path' || !i.env || out[i.env] === undefined || String(out[i.env]).trim() === '') continue;
+		const problem = secretPathProblem(expandHome(String(out[i.env]), home));
+		if (problem) { delete out[i.env]; refused.push({ id: `${unit.id}.${i.id}`, status: 'missing', title: i.title ?? i.id, detail: problem, fix: `dt setup ${unit.id} --input ${i.id}=<path>` }); }
+	}
+	return { env: out, refused };
+}
+
 /** The setup section of `dt status`: one entry per unit, then one per package with no unit. */
 export function statusLines(ws, { processEnv = process.env } = {}) {
 	const env = unitEnv(ws, processEnv);
@@ -348,15 +365,7 @@ export function statusLines(ws, { processEnv = process.env } = {}) {
 	for (const u of units(ws)) (byModule.get(u.module) ?? byModule.set(u.module, []).get(u.module)).push(u);
 	for (const [module, us] of byModule) {
 		for (const u of us) {
-			// the same rule as setup: a secret-path the environment holds that is missing or not owner-only is
-			// never handed to the unit — status shows it as its own missing row, with the fix
-			const unitEnvHere = { ...env };
-			const refused = [];
-			for (const i of u.inputs ?? []) {
-				if (i.kind !== 'secret-path' || !i.env || unitEnvHere[i.env] === undefined || String(unitEnvHere[i.env]).trim() === '') continue;
-				const problem = secretPathProblem(expandHome(String(unitEnvHere[i.env]), os.homedir()));
-				if (problem) { delete unitEnvHere[i.env]; refused.push({ id: `${u.id}.${i.id}`, status: 'missing', title: i.title ?? i.id, detail: problem, fix: `dt setup ${u.id} --input ${i.id}=<path>` }); }
-			}
+			const { env: unitEnvHere, refused } = unitEnvFor(u, env);
 			const ctx = { root: ws.root, ws, dt: null, env: unitEnvHere, tty: false, receiptDir: receiptDir(ws, u.id) };
 			const checks = [...refused, ...safeInspect(u, ctx)];
 			const f = fold(checks, { skipped: skipped.has(u.id) });

@@ -17,3 +17,6 @@ node_modules/
 test/.tmp/
 # tier-4 perf fixtures: generated per run by `npm run perf`, never committed
 test/.perf/
+
+# acceptance evidence (node test/acceptance/run.mjs without --out)
+test/acceptance/out/
