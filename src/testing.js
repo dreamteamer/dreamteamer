@@ -20,6 +20,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { satisfies } from './semver.js';
 import { resolveNpm, childEnv } from './checkout.js';
+import { engineRun, freshWorkspace } from './check-alone.js';
 
 /** The engine running this file: its package root. */
 export const ENGINE = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -37,21 +38,9 @@ function tempDir(prefix) {
 	return dir;
 }
 
-// a synthetic identity, so a commit the engine makes never depends on (or reveals) the machine's git config
-const IDENTITY = { GIT_AUTHOR_NAME: 'dreamteamer test', GIT_AUTHOR_EMAIL: 'test@example.invalid', GIT_COMMITTER_NAME: 'dreamteamer test', GIT_COMMITTER_EMAIL: 'test@example.invalid' };
-
-function spawnEngine(engine, cwd, args, { env = {}, timeoutMs = 60_000, input } = {}) {
-	const r = spawnSync(process.execPath, [path.join(engine, 'bin', 'dreamteamer.js'), ...args], {
-		cwd, encoding: 'utf8', timeout: timeoutMs, killSignal: 'SIGKILL',
-		env: { ...process.env, ...IDENTITY, NO_COLOR: '1', ...env },
-		...(input !== undefined ? { input } : { stdio: ['ignore', 'pipe', 'pipe'] }),
-	});
-	return { status: r.status, stdout: r.stdout ?? '', stderr: r.stderr ?? '' };
-}
-
 /** The CLI of the workspace's engine, in the workspace. */
 export function run(ws, args, opts = {}) {
-	return spawnEngine(ws.engine, ws.root, args, opts);
+	return engineRun(ws.engine, ws.root, args, { timeoutMs: 60_000, ...opts });
 }
 
 /**
@@ -62,12 +51,8 @@ export function run(ws, args, opts = {}) {
 export function createWorkspace({ engine } = {}) {
 	const eng = engine ?? (process.env.DT_ENGINE_DIR ? path.resolve(process.env.DT_ENGINE_DIR) : ENGINE);
 	const root = tempDir('ws');
-	fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: path.basename(root).toLowerCase(), private: true, dependencies: { dreamteamer: `file:${eng}` } }, null, '\t') + '\n');
-	fs.mkdirSync(path.join(root, 'node_modules'));
-	fs.symlinkSync(eng, path.join(root, 'node_modules', 'dreamteamer'), 'dir');
 	const ws = { root, engine: eng, dt: (args, opts) => run(ws, args, opts) };
-	const r = run(ws, ['init', '--no-input'], { timeoutMs: 180_000 });
-	if (r.status !== 0) throw new Error(`dt init failed (exit ${r.status}) in ${root}:\n${r.stderr || r.stdout}`);
+	freshWorkspace(root, eng);
 	return ws;
 }
 

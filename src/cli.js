@@ -14,7 +14,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import * as api from './api.js';
-import { openWorkspace } from './api.js';
+import { openWorkspace, findWorkspace } from './api.js';
+import { checkAlone } from './check-alone.js';
 import { compile, staleness, warnIfStale, discoverModules, CHANNEL_LABEL, locationOf, kindsOf, moduleIdOf, layerEntries } from './compile.js';
 import { check } from './check.js';
 import { collectionCommand, emit, relationsCommand, reportCommits } from './collections-cli.js';
@@ -333,7 +334,7 @@ export const GLOBAL_FLAGS = ['workspace', 'vault'];
 export const WORKSPACE_FLAGS = {
 	init: ['name', 'data_path', 'harnesses', 'workspace_module', 'no-git', 'git', 'no-compile', 'from', 'input', 'allow', 'no-input'], update: ['engine', 'allow', 'from', 'no-commit'],
 	install: ['clone', 'dry-run', 'json', 'link-env', 'all', 'hook', 'print-adapters', 'from', 'input', 'allow', 'no-input', 'no-commit'],
-	compile: ['watch'], check: ['strict-export'], exports: ['layer', 'dry-run', 'json'], status: ['json'], doctor: ['strict', 'json'],
+	compile: ['watch'], check: ['strict-export', 'alone', 'keep'], exports: ['layer', 'dry-run', 'json'], status: ['json'], doctor: ['strict', 'json'],
 	setup: ['input', 'allow', 'authorize', 'verify', 'skip', 'no-input', 'json'],
 	changes: ['since', 'json'], commit: ['dry-run', 'json'], fmt: ['dry-run'], relocate: ['dry-run', 'json', 'to-root'],
 };
@@ -400,6 +401,14 @@ export async function run(argv) {
 			try { ws = await openWorkspace(); } catch { /* no workspace, or an extension that will not load — plain help */ }
 			emit(USAGE + extensionUsage(ws));
 			process.exit(0);
+		}
+		// `dt check modules/<id> --alone` judges one inline module in a fresh workspace (src/check-alone.js) —
+		// dispatched before the host is opened, because the module's own problem (a missing dependency, a
+		// floor above this engine) would otherwise surface as the host's refusal instead of the gate's verdict
+		if (cmd === 'check') {
+			const target = rest.find((a) => !a.startsWith('--'));
+			if (rest.includes('--alone')) process.exit(checkAlone(findWorkspace(), { target, keep: rest.includes('--keep') }));
+			if (target) { console.error(`✖ check takes no target — did you mean --alone? (dt check ${target} --alone judges one inline module)`); process.exit(2); }
 		}
 		let ws;
 		try { ws = await openWorkspace(); } catch (e) {

@@ -1,0 +1,6 @@
+name: bases
+title: Bases
+description: A base record.
+fields:
+  name:
+    type: string
