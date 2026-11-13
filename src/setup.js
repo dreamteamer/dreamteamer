@@ -100,15 +100,17 @@ export async function fillInputs(units, { flags = [], env = {}, tty = false, noI
 		if (!i.env || i.kind === 'rows' || !valueOf(u, i, f)) continue;   // a rows input is repeatable: every flag is one more row
 		if (envValues.has(i.env) && envValues.get(i.env) !== f.value && envFlag.get(i.env) !== f) {
 			const first = envFlag.get(i.env);
-			refuse(`${flagText(first)} and ${flagText(f)} name one key, ${i.env}, with different values — give one`, { unit: u.id, id: i.id, reason: `${flagText(first)} and ${flagText(f)} name one key, ${i.env}, with different values — give one` });
+			refuse(`${flagText(first)} and ${flagText(f)} name one key, ${i.env}, with different values — give one`, { unit: u.id, id: i.id, reason: `${flagText(first)} and ${flagText(f)} name one key, ${i.env}, with different values — give one`, required: false, env: i.env });
 			conflicted.add(i.env);
 			continue;
 		}
 		if (!envValues.has(i.env)) { envValues.set(i.env, f.value); envFlag.set(i.env, f); }
 	}
-	// a default declared by any input sharing the key is the key's default (D39: one key, one input)
-	const envDefaults = new Map();
-	for (const u of units) for (const i of u.inputs) if (i.env && i.default !== undefined && !envDefaults.has(i.env)) envDefaults.set(i.env, i.default);
+	// a default declared by any input sharing the key is the key's default, and required is the OR of
+	// every declaration sharing it (D39: one key, one input)
+	const envDefaults = new Map(), envRequired = new Set();
+	for (const u of units) for (const i of u.inputs) if (i.env) { if (i.default !== undefined && !envDefaults.has(i.env)) envDefaults.set(i.env, i.default); if (i.required) envRequired.add(i.env); }
+	const isRequired = (i) => !!i.required || (!!i.env && envRequired.has(i.env));
 	for (const u of units) {
 		for (const i of u.inputs) {
 			if (i.env && conflicted.has(i.env)) continue;
@@ -125,20 +127,23 @@ export async function fillInputs(units, { flags = [], env = {}, tty = false, noI
 				const answer = await prompt(i, i.default);
 				if (answer !== undefined && answer !== null && String(answer).trim() !== '') value = i.kind === 'rows' ? [String(answer)] : String(answer);
 			}
-			if (value === undefined) { if (i.required) missing.push({ unit: u.id, id: i.id }); continue; }
+			if (value === undefined) { if (isRequired(i)) missing.push({ unit: u.id, id: i.id }); continue; }
 			if (i.kind === 'path' || i.kind === 'secret-path') value = expandHome(value, home);
 			if (i.kind === 'secret-path') {
 				// a flag's bad value is the caller's to fix (usage, strict); one the environment or a default holds
 				// is reported on the unit's line and left unfilled, whoever runs
 				const problem = secretPathProblem(value);
-				if (problem && given.length) { refuse(`--input ${i.id}=${problem}`, { unit: u.id, id: i.id, reason: problem, required: true }); continue; }
-				if (problem) { problems.push({ unit: u.id, id: i.id, reason: problem, required: !!i.required }); continue; }
+				if (problem && given.length) { refuse(`--input ${i.id}=${problem}`, { unit: u.id, id: i.id, reason: problem, required: true, env: i.env ?? null }); continue; }
+				if (problem) { problems.push({ unit: u.id, id: i.id, reason: problem, required: isRequired(i), env: i.env ?? null }); continue; }
 			}
 			inputs.get(u.id)[i.id] = value;
 		}
 	}
 	return { inputs, missing, ignored, problems };
 }
+
+/** The env keys a unit must not see: those whose value the engine refused for it. */
+export const droppedKeys = (problems, unitId) => [...new Set(problems.filter((p) => p.unit === unitId && p.env).map((p) => p.env))];
 
 /** May this action run now? `ask(action)` is the y/n in a TTY; `allow` the --allow kinds. */
 export async function consent(action, { allow = new Set(), tty = false, ask = null, authorize = false } = {}) {
@@ -188,10 +193,13 @@ export function unitEnv(ws, processEnv = process.env) {
 
 /** Run one unit: inspect → plan(inputs) → apply what is consented → inspect. Never throws for a
  *  provider's fault: a throwing apply is one failed action, redacted, and the unit reads blocked. */
-export async function runUnit(ws, unit, { inputs = {}, allow = new Set(), tty = false, ask = null, authorize = false, verify = false, processEnv = process.env, api = null } = {}) {
+export async function runUnit(ws, unit, { inputs = {}, allow = new Set(), tty = false, ask = null, authorize = false, verify = false, processEnv = process.env, api = null, drop = [] } = {}) {
 	// the env is re-read after every applied action: a safe action's whole point is often to write the
-	// key the next inspect reads (`PROBE_HOME=` into .env), and a stale copy would report it missing
-	const ctx = { root: ws.root, ws, dt: api, env: unitEnv(ws, processEnv), tty, receiptDir: receiptDir(ws, unit.id) };
+	// key the next inspect reads (`PROBE_HOME=` into .env), and a stale copy would report it missing.
+	// `drop` names the keys whose value the engine refused (a secret-path that is missing or not
+	// owner-only): the unit never sees them, so it can neither trust nor record them
+	const envFor = () => { const e = unitEnv(ws, processEnv); for (const k of drop) delete e[k]; return e; };
+	const ctx = { root: ws.root, ws, dt: api, env: envFor(), tty, receiptDir: receiptDir(ws, unit.id) };
 	const applied = [], failed = [];
 	let pending = [], needs = [];
 	const done = new Set(), refused = new Set();
@@ -223,7 +231,7 @@ export async function runUnit(ws, unit, { inputs = {}, allow = new Set(), tty = 
 		done.add(next.id);
 		try {
 			const r = (await unit.apply(ctx, next, inputs)) ?? { ok: false, message: 'apply returned nothing' };
-			if (r.ok) { applied.push({ id: next.id, changed: r.changed ?? [], message: r.message }); ctx.env = unitEnv(ws, processEnv); }
+			if (r.ok) { applied.push({ id: next.id, changed: r.changed ?? [], message: r.message }); ctx.env = envFor(); }
 			else failed.push({ id: next.id, message: redact(r.message ?? 'apply refused') });
 		} catch (e) { failed.push({ id: next.id, message: redact(e.message) }); }
 	}
@@ -255,8 +263,17 @@ export function statusLines(ws, { processEnv = process.env } = {}) {
 	for (const u of units(ws)) (byModule.get(u.module) ?? byModule.set(u.module, []).get(u.module)).push(u);
 	for (const [module, us] of byModule) {
 		for (const u of us) {
-			const ctx = { root: ws.root, ws, dt: null, env, tty: false, receiptDir: receiptDir(ws, u.id) };
-			const checks = safeInspect(u, ctx);
+			// the same rule as setup: a secret-path the environment holds that is missing or not owner-only is
+			// never handed to the unit — status shows it as its own missing row, with the fix
+			const unitEnvHere = { ...env };
+			const refused = [];
+			for (const i of u.inputs ?? []) {
+				if (i.kind !== 'secret-path' || !i.env || unitEnvHere[i.env] === undefined || String(unitEnvHere[i.env]).trim() === '') continue;
+				const problem = secretPathProblem(expandHome(String(unitEnvHere[i.env]), os.homedir()));
+				if (problem) { delete unitEnvHere[i.env]; refused.push({ id: `${u.id}.${i.id}`, status: 'missing', title: i.title ?? i.id, detail: problem, fix: `dt setup ${u.id} --input ${i.id}=<path>` }); }
+			}
+			const ctx = { root: ws.root, ws, dt: null, env: unitEnvHere, tty: false, receiptDir: receiptDir(ws, u.id) };
+			const checks = [...refused, ...safeInspect(u, ctx)];
 			const f = fold(checks, { skipped: skipped.has(u.id) });
 			lines.push({ package: module, unit: u.id, grouped: us.length > 1, ...f, checks, next: nextCommand(u.id, f, checks) });
 		}
@@ -375,7 +392,7 @@ export async function setupCommand(ws, argv, { processEnv = process.env, tty = !
 	try {
 		const filled = await fillInputs(run, { flags: inputFlags, env, tty, noInput, prompt });
 		for (const u of run) {
-			const r = await runUnit(ws, u, { inputs: filled.inputs.get(u.id) ?? {}, allow, tty, ask, authorize: flags.authorize, verify: flags.verify, processEnv, api });
+			const r = await runUnit(ws, u, { inputs: filled.inputs.get(u.id) ?? {}, allow, tty, ask, authorize: flags.authorize, verify: flags.verify, processEnv, api, drop: droppedKeys(filled.problems, u.id) });
 			const problems = filled.problems.filter((m) => m.unit === u.id);
 			const missing = [...filled.missing.filter((m) => m.unit === u.id).map((m) => m.id), ...problems.filter((m) => m.required).map((m) => m.id)];
 			const f = fold(r.failed.length ? [...r.checks, ...r.failed.map((x) => ({ id: x.id, status: 'blocked', title: x.id, detail: x.message }))] : r.checks, {});

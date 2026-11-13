@@ -110,6 +110,33 @@ describe('dt install <spec> — closure, compile, safe setup, scoped commit', ()
 		assert.equal(installed(ws.root, 'plain'), null); assert.equal(installed(ws.root, '@fix/needs-plain'), null);
 	});
 
+	test('two explicit specs of one module at different versions are refused before npm, naming both', () => {
+		const ws = offline();
+		const r = run(ws.root, ['install', '@fix/a@1.0.0', '@fix/a@1.1.0', '--from', REG]);
+		assert.equal(r.code, 1, r.stdout);
+		assert.match(r.stderr, /@fix\/a is asked for at 1\.0\.0 and at 1\.1\.0 — one version per call/);
+		assert.equal(installed(ws.root, '@fix/a'), null);
+		assert.equal(git(ws.root, ['status', '--porcelain']), '');
+	});
+
+	test('when the restoring npm itself fails after a compile refusal, the message says what is NOT restored instead of claiming the pre-image', async () => {
+		const ws = offline();
+		assert.equal(run(ws.root, ['install', '@fix/b', '--from', REG]).code, 0);
+		// a package whose compile will refuse (a collection colliding with the skeleton's), and an npm that fails on the restore
+		const handle = await openWorkspace(ws.root);
+		const calls = [];
+		const npm = (() => { const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dt-npm-')); const f = path.join(dir, 'npm'); fs.writeFileSync(f, `#!/usr/bin/env node\nconst { spawnSync } = require('child_process');\nconst args = process.argv.slice(2);\nif (args[0] === '--version') { console.log('11.0.0'); process.exit(0); }\nif (args.length === 3 && args[0] === 'install') process.exit(42);\nconst r = spawnSync('npm', args, { stdio: 'inherit' }); process.exit(r.status ?? 1);\n`, { mode: 0o755 }); return f; })();
+		const log = [];
+		const stderr = console.error; const err = []; console.error = (...a) => err.push(a.join(' '));
+		let code;
+		try { code = await installModules(handle, [path.join(REG, 'probe-collide-1.0.0.tgz')], { open: openWorkspace, npm, log: (l) => log.push(l) }); } finally { console.error = stderr; }
+		assert.equal(code, 1);
+		const text = err.join('\n');
+		assert.match(text, /install refused/);
+		assert.match(text, /restore FAILED \(npm exited 42\)/, 'the failed restore is named, not hidden');
+		assert.doesNotMatch(text, /are as before the call/);
+	});
+
 	test('a compile refusal restores package.json, the lockfile and node_modules, and says so', () => {
 		const ws = offline();
 		assert.equal(run(ws.root, ['install', '@fix/b', '--from', REG]).code, 0);

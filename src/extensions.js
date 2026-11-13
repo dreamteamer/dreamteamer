@@ -166,6 +166,15 @@ export async function loadExtensions(ws, api, reserved = {}) {
 		for (const u of setup.units) claim('unit', u.id, ext.name);
 		loaded.push({ name: ext.name, version: ext.version, dir: ext.dir, env: ext.env, vars: ext.vars, commands, sourceKinds, analyze: c.analyze ?? null, harnesses: c.harnesses ?? {}, orientation: c.orientation ?? null, hooks: c.hooks ?? {}, check: c.check ?? null, doctor: c.doctor ?? null, next: c.next ?? null, setup: setup.units });
 	}
+	// one env key, one kind (D39): two inputs — in one package or across packages — that name the same
+	// key with different kinds are refused here, naming the pair, before any setup runs on them
+	const keyKinds = new Map();
+	for (const ext of loaded) for (const u of ext.setup ?? []) for (const i of u.inputs ?? []) {
+		if (!i.env) continue;
+		const prev = keyKinds.get(i.env);
+		if (prev && prev.kind !== i.kind) throw new Error(`${i.env} is declared as ${prev.kind} by ${prev.by} (unit ${prev.unit}, input ${prev.input}) and as ${i.kind} by ${ext.name} (unit ${u.id}, input ${i.id}) — one key, one kind`);
+		if (!prev) keyKinds.set(i.env, { kind: i.kind, by: ext.name, unit: u.id, input: i.id });
+	}
 	return loaded;
 }
 

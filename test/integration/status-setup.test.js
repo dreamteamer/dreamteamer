@@ -28,7 +28,13 @@ const line = (out, unit) => (out.split('setup:\n')[1] ?? '').split('\n').find((l
 describe('dt status — the setup section', () => {
 	test('every state the probe can reach renders as the design\'s line, with the next command', () => {
 		const ws = probed();
-		const tok = path.join(ws.root, 'tok'); fs.writeFileSync(tok, 'x');
+		const tok = path.join(ws.root, 'tok'); fs.writeFileSync(tok, 'x', { mode: 0o600 }); fs.chmodSync(tok, 0o600);
+		// a world-readable token in the environment is refused by status exactly as setup refuses it: its own row, the fix
+		const loose = path.join(ws.root, 'loose-tok'); fs.writeFileSync(loose, 'x', { mode: 0o644 }); fs.chmodSync(loose, 0o644);
+		const refused = run(ws.root, ['status', '--json'], { PROBE_TOKEN_PATH: loose });
+		const probeLine = JSON.parse(refused.stdout).setup.find((l) => l.unit === 'probe');
+		assert.match(probeLine.checks.find((c) => c.id === 'probe.token').detail, /readable by other users — chmod 600/);
+		assert.match(probeLine.checks.find((c) => c.id === 'probe.token' && c.title === 'token file' && /unset/.test(c.detail)) ? 'unit saw unset' : 'unit saw it', /unit saw unset/);
 		const home = path.join(ws.root, 'phome');
 		// nothing done yet: configured, with what is missing, pointing at dt setup
 		let s = run(ws.root, ['status']);
@@ -123,5 +129,23 @@ describe('status and doctor are read-only and offline', () => {
 			const text = fs.readFileSync(path.join(ENGINE_ROOT, f), 'utf8');
 			assert.doesNotMatch(text, /from 'node:(http|https|dns|net)'/, f);
 		}
+	});
+});
+
+describe('dt status — read-only even when the runtime will not load', () => {
+	test('two packages claiming one unit id: status prints the refusal as its diagnosis and exits 0; doctor and setup still refuse', () => {
+		const ws = workspace({ compile: false });
+		withProbeSetup(ws.root);
+		// a second copy of the probe under another name claims the same unit id
+		const src = path.join(ws.root, 'node_modules', '@probe', 'setup');
+		const dup = path.join(ws.root, 'node_modules', '@probe', 'setup-twin');
+		fs.cpSync(src, dup, { recursive: true });
+		const pk = JSON.parse(fs.readFileSync(path.join(dup, 'package.json'), 'utf8')); pk.name = '@probe/setup-twin'; fs.writeFileSync(path.join(dup, 'package.json'), JSON.stringify(pk));
+		const pkg = JSON.parse(fs.readFileSync(path.join(ws.root, 'package.json'), 'utf8')); pkg.dependencies['@probe/setup-twin'] = '1.0.0'; fs.writeFileSync(path.join(ws.root, 'package.json'), JSON.stringify(pkg, null, '\t') + '\n');
+		const s = run(ws.root, ['status']);
+		assert.equal(s.code, 0, s.stderr);
+		assert.match(s.stdout, /setup unit "probe" is contributed by @probe\/setup(-twin)? and @probe\/setup(-twin)?/);
+		assert.match(s.stdout, /extensions did not load/);
+		assert.notEqual(run(ws.root, ['setup', 'probe']).code, 0);
 	});
 });

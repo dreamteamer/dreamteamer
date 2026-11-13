@@ -637,22 +637,25 @@ export async function initCommand(flags, { root = process.cwd(), open, verify, n
 		} catch (e) { return fail(`compile: ${e.message.split('\n')[0]}`); }
 		if (await verify(ws)) return fail('check: the violations above');
 		// a preset's modules: the safe part of every unit's setup, exactly as `dt install` runs it
-		const { units, runUnit, fillInputs, parseInputFlags, parseAllow, skippedUnits, fold, SetupUsage, ttyIO, unitEnv, EXIT } = await import('./setup.js');
+		const { units, runUnit, fillInputs, parseInputFlags, parseAllow, skippedUnits, fold, SetupUsage, ttyIO, unitEnv, EXIT, droppedKeys } = await import('./setup.js');
 		const skipped = new Set(skippedUnits(ws));
 		const all = units(ws).filter((u) => !skipped.has(u.id));
 		if (all.length) {
 			const noInput = !!flags['no-input'];
 			const term = tty && !noInput ? ttyIO() : null;
 			try {
-				const filled = await fillInputs(all, { flags: parseInputFlags(argv), env: unitEnv(ws, processEnv), tty, noInput, prompt: term?.prompt ?? null });
+				const filled = await fillInputs(all, { flags: parseInputFlags(argv), env: unitEnv(ws, processEnv), tty, noInput, prompt: term?.prompt ?? null, lenient: true });
+				for (const text of filled.ignored) log(`⚠ ${text} — ignored`);
 				const allow = parseAllow(argv);
 				for (const u of all) {
-					const r = await runUnit(ws, u, { inputs: filled.inputs.get(u.id) ?? {}, allow, tty, ask: term?.ask ?? null, processEnv });
-					const miss = filled.missing.filter((m) => m.unit === u.id).map((m) => m.id);
+					const r = await runUnit(ws, u, { inputs: filled.inputs.get(u.id) ?? {}, allow, tty, ask: term?.ask ?? null, processEnv, drop: droppedKeys(filled.problems, u.id) });
+					const problems = filled.problems.filter((m) => m.unit === u.id);
+					const miss = [...filled.missing.filter((m) => m.unit === u.id).map((m) => m.id), ...problems.filter((m) => m.required).map((m) => m.id)];
 					const f = fold(r.checks, {});
 					log(`${f.state === 'ready' ? '✔' : '—'} ${u.id}: ${f.state}${f.detail ? ` — ${f.detail}` : ''}`);
 					for (const a of r.applied) log(`    ✔ ${a.id}${a.message ? ` — ${a.message}` : ''}`);
 					for (const x of r.failed) log(`    ✖ ${x.id} — ${x.message}`);
+					for (const x of problems) log(`    ✖ ${x.id} — ${x.reason}`);
 					for (const pnd of r.pending) log(`    … ${pnd.id} (${pnd.why})${pnd.reason ? ` — ${pnd.reason}` : ''}`);
 					if (miss.length) { log(`    needs input: ${miss.join(', ')} — dt setup ${u.id} --input ${miss[0]}=<value>`); code = 3; }
 				}

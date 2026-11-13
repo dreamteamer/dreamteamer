@@ -104,6 +104,12 @@ describe('fillInputs — precedence and sharing', () => {
 		assert.deepEqual(r.inputs.get('a'), { home: '/d' }); assert.deepEqual(r.inputs.get('b'), { home: '/d' });
 		assert.deepEqual(r.missing, []);
 	});
+	test('required is the OR of every declaration sharing an env key (D39): with no value, both units miss it', async () => {
+		const a = unit('a', [{ id: 'home', kind: 'path', env: 'SHARED_HOME' }]);
+		const b = unit('b', [{ id: 'home', kind: 'path', env: 'SHARED_HOME', required: true }]);
+		const r = await fillInputs([a, b], { flags: [], env: {}, tty: false, home: '/home/x' });
+		assert.deepEqual(r.missing, [{ unit: 'a', id: 'home' }, { unit: 'b', id: 'home' }]);
+	});
 	test('a rows input is repeatable: two --input rows in one call are two rows, never a two-values refusal', async () => {
 		const u = unit('meetings', [{ id: 'calendar', kind: 'rows', env: 'WORK_CALENDARS' }]);
 		const r = await fillInputs([u], { flags: [{ unit: null, id: 'calendar', value: 'a | mixed | me@example.invalid' }, { unit: null, id: 'calendar', value: 'b | mixed | me@example.invalid' }], env: {}, tty: false });

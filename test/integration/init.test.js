@@ -108,6 +108,23 @@ function snapshot(root, dir = '', out = {}) {
 	return out;
 }
 
+describe('dt init — an invalid secret-path from the environment is reported', () => {
+	test('a required secret-path pointing at a missing file: the line names it, exit 3, nothing crashes', () => {
+		const root = folder();
+		const from = buildRegistry();
+		// the folder must hold the engine itself for an offline init
+		assert.equal(spawnSync('npm', ['pack', ENGINE_ROOT, '--pack-destination', from, '--silent'], { encoding: 'utf8', timeout: SPAWN_TIMEOUT_MS }).status, 0);
+		const r0 = spawnSync(process.execPath, [BIN, 'init', '--from', from], { cwd: root, env: { PATH: process.env.PATH, HOME: SANDBOX, ...GIT_ENV }, encoding: 'utf8', timeout: SPAWN_TIMEOUT_MS, killSignal: 'SIGKILL' });
+		assert.equal(r0.status, 0, r0.stdout + r0.stderr);
+		assert.equal(spawnSync(process.execPath, [BIN, 'install', path.join(ENGINE_ROOT, 'test', 'fixtures', 'probe-required'), '--no-input'], { cwd: root, env: { PATH: process.env.PATH, HOME: SANDBOX, ...GIT_ENV }, encoding: 'utf8', timeout: SPAWN_TIMEOUT_MS }).status, 3);
+		// the preset path: init again (a cloned preset) with the environment holding a bad required secret
+		const r = spawnSync(process.execPath, [BIN, 'init', '--from', from, '--no-input'], { cwd: root, env: { PATH: process.env.PATH, HOME: SANDBOX, PROBEREQ_TOKEN_PATH: path.join(root, 'no-such-token'), ...GIT_ENV }, encoding: 'utf8', timeout: SPAWN_TIMEOUT_MS, killSignal: 'SIGKILL' });
+		assert.equal(r.status, 3, r.stdout + r.stderr);
+		assert.match(r.stdout + r.stderr, /✖ token — .*no-such-token: no such file/);
+		assert.match(r.stdout + r.stderr, /needs input: token/);
+	});
+});
+
 describe('dt init --from — refused before any write when the folder lacks a package', () => {
 	test('an empty folder stays empty when the folder has no dreamteamer@<this version>', () => {
 		const root = folder();

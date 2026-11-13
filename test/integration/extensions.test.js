@@ -272,6 +272,14 @@ describe('the loader refuses what it cannot honour — at open, by name', () => 
 		pkgB.dreamteamer.vars = ['KIT_HOME'];
 		fs.writeFileSync(path.join(b, 'package.json'), JSON.stringify(pkgB));
 		await assert.rejects(openWorkspace(a.root), /setup unit "tune" is contributed by kit-b and kit-a — uninstall one, or switch it off/);
+		// two packages whose inputs share one env key with DIFFERENT kinds: refused naming the pair (D39)
+		const d = workspace({ compile: false });
+		const KIND = (id, kind) => `export default () => ({ setup: [{ id: '${id}', version: 1, inputs: [{ id: 'home', kind: '${kind}', env: 'KIT_HOME' }], inspect: () => ({ checks: [] }), plan: () => ({ checks: [], actions: [], needs: [] }), apply: () => ({ ok: true, changed: [] }) }] });`;
+		for (const [name, id, kind] of [['kit-p', 'one', 'path'], ['kit-q', 'two', 'string']]) {
+			const dd = install(d.root, { name, entry: KIND(id, kind), descriptor: null });
+			const pk = JSON.parse(fs.readFileSync(path.join(dd, 'package.json'), 'utf8')); pk.dreamteamer.vars = ['KIT_HOME']; fs.writeFileSync(path.join(dd, 'package.json'), JSON.stringify(pk));
+		}
+		await assert.rejects(openWorkspace(d.root), /KIT_HOME is declared as path by kit-p \(unit one, input home\) and as string by kit-q \(unit two, input home\) — one key, one kind/);
 		// an extension without the key is unchanged: an empty unit list
 		const c = workspace({ compile: false });
 		install(c.root, { entry: 'export default () => ({});', descriptor: null });

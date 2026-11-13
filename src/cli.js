@@ -401,7 +401,17 @@ export async function run(argv) {
 			emit(USAGE + extensionUsage(ws));
 			process.exit(0);
 		}
-		const ws = await openWorkspace();
+		let ws;
+		try { ws = await openWorkspace(); } catch (e) {
+			// `status` is read-only and always answers: a runtime whose extensions refuse to load (two
+			// packages claiming one unit, a bad declaration) is reported as the status, exit 0
+			if (cmd === 'status') {
+				console.log(`✖ extensions did not load — ${String(e.message).split('\n')[0]}`);
+				console.log('  the setup section cannot be read until that is fixed; records and the compiled runtime are untouched');
+				process.exit(0);
+			}
+			throw e;
+		}
 		// An EXTENSION'S VERB runs in-process, handed this workspace — the same engine instance, the
 		// same loaded extensions. Its exit code is the process's.
 		const ext = ws.extensions.find((e) => cmd in e.commands);

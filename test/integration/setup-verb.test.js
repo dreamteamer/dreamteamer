@@ -44,7 +44,7 @@ describe('dt setup probe — the synthetic unit through every state', () => {
 	test('--allow per effect applies download and machine; --verify writes the receipt and the line reads ready · verified', () => {
 		const ws = probed();
 		// the token file is an optional secret-path input read from the environment; present, never opened
-		const tok = path.join(ws.root, 'tok'); fs.writeFileSync(tok, 'secret');
+		const tok = path.join(ws.root, 'tok'); fs.writeFileSync(tok, 'secret', { mode: 0o600 }); fs.chmodSync(tok, 0o600);   // a secret-path the unit may see is owner-only
 		const withTok = { PROBE_TOKEN_PATH: tok };
 		const r = run(ws.root, ['setup', 'probe', '--input', 'label=demo', '--input', 'home=' + path.join(ws.root, 'phome'), '--allow', 'download', '--allow', 'machine'], withTok);
 		assert.equal(r.code, 0, r.stderr);
@@ -109,6 +109,9 @@ describe('dt setup probe — the synthetic unit through every state', () => {
 		assert.equal(r.code, 0, r.stderr + r.stdout);
 		assert.match(r.stdout, /✖ token — .*readable by other users — chmod 600/);
 		assert.doesNotMatch(r.stdout, /needs input: token/);
+		// the unit never sees the refused value: its own token row reads unset, not 'present'
+		const j = run(ws.root, ['setup', 'probe', '--input', 'label=demo', '--json'], { PROBE_TOKEN_PATH: tok });
+		assert.match(JSON.parse(j.stdout).units[0].checks.find((c) => c.id === 'probe.token').detail, /unset/);
 		fs.rmSync(tok, { force: true });
 	});
 
