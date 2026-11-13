@@ -152,22 +152,54 @@ export async function runUnit(ws, unit, { inputs = {}, allow = new Set(), tty = 
 	// the env is re-read after every applied action: a safe action's whole point is often to write the
 	// key the next inspect reads (`PROBE_HOME=` into .env), and a stale copy would report it missing
 	const ctx = { root: ws.root, ws, dt: api, env: unitEnv(ws, processEnv), tty, receiptDir: receiptDir(ws, unit.id) };
-	const applied = [], pending = [], failed = [];
-	let planned;
-	try { planned = (await unit.plan(ctx, inputs)) ?? {}; } catch (e) { return { checks: safeInspect(unit, ctx), applied, pending, failed: [{ id: 'plan', message: redact(e.message) }], needs: [] }; }
-	for (const action of planned.actions ?? []) {
-		if (action.state && action.state !== 'ready') { if (action.state !== 'done') pending.push({ ...action, why: action.state === 'needs-input' ? 'needs input' : action.state }); continue; }
-		const isVerify = action.kind === 'verify';
-		if (isVerify && !verify) { pending.push({ ...action, why: 'run with --verify' }); continue; }
-		if ((action.runBy === 'owner' || (action.effects ?? []).some((e) => e.kind === 'account')) && !(authorize && tty)) { pending.push({ ...action, why: 'the owner\'s step: dt setup <unit> --authorize' }); continue; }
-		if (!(await consent(action, { allow, tty, ask, authorize }))) { pending.push({ ...action, why: `needs --allow ${[...new Set((action.effects ?? []).map((e) => e.kind).filter((k) => k !== 'workspace-files'))].join(' --allow ')}` }); continue; }
+	const applied = [], failed = [];
+	let pending = [], needs = [];
+	const done = new Set(), refused = new Set();
+	// the plan is asked again after every applied action: an action's preconditions are often what the
+	// previous one made (a venv before the download, a key in .env before the check that reads it), so
+	// one pass would leave them pending for a second call that a person should not have to make
+	for (let round = 0; round < 50; round++) {
+		let planned;
+		try { planned = (await unit.plan(ctx, inputs)) ?? {}; } catch (e) { return { checks: safeInspect(unit, ctx), applied, pending, failed: [...failed, { id: 'plan', message: redact(e.message) }], needs }; }
+		needs = planned.needs ?? [];
+		pending = [];
+		let next = null;
+		for (const action of planned.actions ?? []) {
+			if (done.has(action.id)) continue;
+			if (action.state && action.state !== 'ready') { if (action.state !== 'done') pending.push({ ...action, why: action.state === 'needs-input' ? 'needs input' : action.state }); else done.add(action.id); continue; }
+			if (refused.has(action.id)) { pending.push({ ...action, why: refused.get?.(action.id) ?? 'declined' }); continue; }
+			const isVerify = action.kind === 'verify';
+			if (isVerify && !verify) { pending.push({ ...action, why: 'run with --verify' }); continue; }
+			if ((action.runBy === 'owner' || (action.effects ?? []).some((e) => e.kind === 'account')) && !(authorize && tty)) { pending.push({ ...action, why: 'the owner\'s step: dt setup <unit> --authorize' }); continue; }
+			if (!next) next = action; else pending.push({ ...action, why: 'after the step before it' });
+		}
+		if (!next) break;
+		if (!(await consent(next, { allow, tty, ask, authorize }))) {
+			refused.add(next.id);
+			pending.push({ ...next, why: `needs --allow ${[...new Set((next.effects ?? []).map((e) => e.kind).filter((k) => k !== 'workspace-files'))].join(' --allow ')}` });
+			// the actions queued behind it stay listed as they are; nothing else can run this round
+			continue;
+		}
+		done.add(next.id);
 		try {
-			const r = (await unit.apply(ctx, action, inputs)) ?? { ok: false, message: 'apply returned nothing' };
-			if (r.ok) { applied.push({ id: action.id, changed: r.changed ?? [], message: r.message }); ctx.env = unitEnv(ws, processEnv); }
-			else failed.push({ id: action.id, message: redact(r.message ?? 'apply refused') });
-		} catch (e) { failed.push({ id: action.id, message: redact(e.message) }); }
+			const r = (await unit.apply(ctx, next, inputs)) ?? { ok: false, message: 'apply returned nothing' };
+			if (r.ok) { applied.push({ id: next.id, changed: r.changed ?? [], message: r.message }); ctx.env = unitEnv(ws, processEnv); }
+			else failed.push({ id: next.id, message: redact(r.message ?? 'apply refused') });
+		} catch (e) { failed.push({ id: next.id, message: redact(e.message) }); }
 	}
-	return { checks: safeInspect(unit, ctx), applied, pending, failed, needs: planned.needs ?? [] };
+	// the final word on what is still open comes from one more plan, so a declined action and the ones
+	// behind it read with their own states, never as "after the step before it"
+	try {
+		const last = (await unit.plan(ctx, inputs)) ?? {};
+		needs = last.needs ?? needs;
+		pending = (last.actions ?? []).filter((a) => !done.has(a.id) && a.state !== 'done').map((a) => {
+			if (a.state && a.state !== 'ready') return { ...a, why: a.state === 'needs-input' ? 'needs input' : a.state };
+			if (a.kind === 'verify' && !verify) return { ...a, why: 'run with --verify' };
+			if (a.runBy === 'owner' || (a.effects ?? []).some((e) => e.kind === 'account')) return { ...a, why: 'the owner\'s step: dt setup <unit> --authorize' };
+			return { ...a, why: `needs --allow ${[...new Set((a.effects ?? []).map((e) => e.kind).filter((k) => k !== 'workspace-files'))].join(' --allow ')}` };
+		});
+	} catch { /* the loop's own view stands */ }
+	return { checks: safeInspect(unit, ctx), applied, pending, failed, needs };
 }
 
 function safeInspect(unit, ctx) {
