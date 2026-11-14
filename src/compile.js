@@ -1003,6 +1003,10 @@ export function compile(ws) {
 		if (clash && clash !== source.name) fail(`modules "${clash}" and "${source.name}" both resolve to the id "${id}" — rename one.`);
 		idByModule.set(id, source.name);
 	}
+	const presetProjection = (names) => {
+		const installed = names.filter((n) => sources.some((s) => s.name === n)).length;
+		return { preset: true, members: names.map((n) => `modules/${moduleId(n)}`), preset_summary: `preset · ${names.length} members · ${installed} installed` };
+	};
 	for (const source of sources) {
 		const id = moduleId(source.name);
 		let pkg = {};
@@ -1052,6 +1056,8 @@ export function compile(ws) {
 			...(moduleColls.get(source.name)?.size
 				? { collections: [...moduleColls.get(source.name)].sort().map((c) => `collections/${c}`) }
 				: {}),
+			// A MODULE PRESET (CR-dt-008): its members as references, and how many of them are here.
+			...(modulePresets.has(source.name) ? presetProjection(Object.keys(modulePresets.get(source.name))) : {}),
 		};
 		const bytes = Buffer.from(dump(record));
 		// ⚠ The source hash is the hash of the SOURCE FILE, not of the projected record. Hashing the

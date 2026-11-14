@@ -135,7 +135,9 @@ export function collectionCommand(ws, collection, verb, args) {
 			// collection may author a field called `file` or `repo` (an issue tracker's `repo` is one)
 			if (flags.json) { emit(JSON.stringify(rows.map((r) => ({ ...r, ...whereKeys(store.locationOf(d, files.get(r.id))) })), null, 2)); return 0; }
 			const cols = listColumns(d);
-			for (const r of rows) console.log(cols.map((c) => fmtCell(r[c])).join('  '));
+			// a module preset's row says so right after its id (CR-dt-008); every other row is unchanged
+			const rowCols = (r) => (collection === 'modules' && r.preset_summary ? ['id', 'preset_summary', ...cols.slice(1)] : cols);
+			for (const r of rows) console.log(rowCols(r).map((c) => fmtCell(r[c])).join('  '));
 			if (!rows.length) console.log(`(no ${collection}${narrowed ? ' matching' : ''})`);
 			return 0;
 		}
