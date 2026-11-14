@@ -37,8 +37,9 @@ describe("dt add modules", () => {
       "command-bindings",
       "ui-views",
       "mixins",
+      "README.md",
     ])
-    for (const kind of pkg.files) {
+    for (const kind of pkg.files.filter(f => f !== "README.md")) {
       assert.ok(fs.existsSync(path.join(ws.root, "modules/payroll", kind)), `${kind}/ is scaffolded`)
     }
     assert.match(res.stdout, /modules\/payroll/)

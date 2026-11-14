@@ -6,7 +6,9 @@
 // A module update is install's steps 2–6 on the whole resolved closure, so a version that adds a
 // dependency brings it in and a version that adds a setup unit runs its safe part.
 import fs from "node:fs"
+import os from "node:os"
 import path from "node:path"
+import { fileURLToPath } from "node:url"
 import { spawnSync, execFileSync } from "node:child_process"
 import { resolveNpm, childEnv } from "./checkout.ts"
 import {
@@ -17,7 +19,6 @@ import {
   InstallRefusal,
   npmFloor,
   npmAndCompile,
-  setupAndCommit,
   printUnitResults,
 } from "./install-modules.ts"
 import { EXIT } from "./setup.ts"
@@ -192,12 +193,45 @@ export async function updateModules(
   log(`▶ update: ${target} ${here.version} → ${next}${extra.length ? ` — with ${extra.join(", ")}` : ""}`)
   const step = await npmAndCompile(ws, plan.list, { npm, open, log, what: "update" })
   if (step.code !== undefined) return step.code
-  const out = await setupAndCommit(ws, step.fresh, names, { subject, processEnv, noCommit })
+  // the setup half in a fresh process: this one imported the version npm just replaced (ESM caches it)
+  const out = setupInChild(ws.root, names, { subject, processEnv, noCommit })
+  if (!out) {
+    console.error(
+      `✖ ${target} ${here.version} → ${next}: npm and compile ran, but the setup half did not finish — run dt install ${target} to finish it (it commits the re-pin and runs the setup)`
+    )
+    return EXIT.failed
+  }
   log(
     `✔ ${target} ${here.version} → ${next}${extra.length ? ` (with ${extra.join(", ")})` : ""} — compiled${out.committed ? `, committed (${out.committed.join(", ")})` : ", not committed"}`
   )
   printUnitResults(out.results, out.ignored, log)
   return out.code
+}
+
+// beside this file, in its own extension: update-setup.ts from a checkout, .js from dist/
+const CHILD = path.join(
+  path.dirname(fileURLToPath(import.meta.url)),
+  `update-setup${path.extname(fileURLToPath(import.meta.url))}`
+)
+/** Run setupAndCommit in update-setup; its result, or null when the child did not leave one. */
+function setupInChild(root, names, { subject, processEnv, noCommit }) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dt-update-"))
+  const out = path.join(dir, "result.json")
+  try {
+    const r = spawnSync(process.execPath, [CHILD, JSON.stringify({ root, names, subject, noCommit, out })], {
+      cwd: root,
+      stdio: ["ignore", "inherit", "inherit"],
+      env: processEnv,
+    })
+    if (r.status !== 0) return null
+    try {
+      return JSON.parse(fs.readFileSync(out, "utf8"))
+    } catch {
+      return null
+    }
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
 }
 
 /** The `dt update` argv: a target (`name`, `name@version`), `--engine`, `--allow downgrade`, `--from <dir>`, `--no-commit`. */

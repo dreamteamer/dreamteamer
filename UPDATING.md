@@ -37,6 +37,42 @@ compiled `dist/`, and it still runs on Node 20. Two things move:
   and it runs its TypeScript directly through Node's own type stripping — no build step. On an older
   Node, `dt` says so and exits; upgrade Node, or install the engine from npm instead of cloning it.
 
+## 0.48.1 — two setup fixes, and the README rewrite
+
+Nothing to do but `dt compile`.
+
+- **`dt doctor` refuses a secret-path file as `dt status` does.** A credential file that is missing,
+  not a file, or readable by other users is no longer handed to the module's checks; doctor shows it
+  as a warning row with the `chmod 600` fix, where it used to read ✔.
+- **`dt update` of a module runs the new version's setup unit.** The setup half now runs in a fresh
+  process after npm, so the 0.48.0 note below ("run `dt setup` once after an update") no longer applies.
+- **Docs:** the README is rewritten; FAQ.md is new, and EXTENDING.md carries "Writing a module".
+
+## 0.48.0 — writing a module on the engine alone (CR-dt-007)
+
+Nothing to do but `dt compile`. Nothing an existing workspace's records do changes, and every module
+written for 0.47.0 keeps working unchanged. New, for module authors:
+
+- **An `env` action** — `env: { KEY: value }` on a setup action — is written into `.env` by the engine
+  (confined, fingerprint-checked, never printed). `apply` is optional; `inspect` must be synchronous
+  (an `async` one is refused at load). A unit that uses `env` floors on `>=0.48.0`.
+- **`dreamteamer/testing`** — `createWorkspace`, `pack`, `install`, `run`, `engineMeets`, `ENGINE` — a
+  module's own suite on the real engine with `node --test`.
+- **`dt check modules/<id> --alone`** — packed, installed into a fresh workspace with only its declared
+  dependencies, compiled, checked: exit 0 means publishable.
+- **`dt add modules --extension --package <npm name>`** scaffolds a publishable module: the floor, the
+  `files` list, a README, an extension entry with one setup unit. Every new module now also gets
+  `type: module`, `dreamteamer.engine` and a README.
+- **`dt check`** names a module that lists `dreamteamer` under `dependencies`; a `peerDependencies`
+  floor on the engine prints `dt update --engine`, never `npm install dreamteamer@…`.
+- **Redaction** of a unit's failure text also strips e-mail addresses, home folders and long tokens,
+  and no longer touches a `<placeholder>` or a check's fix line.
+
+`references/writing-a-module.md` is the whole path.
+
+Known: `dt update` of a module runs the version it replaces for the setup half (the extension was loaded
+before npm installed the new one) — run `dt setup` once after an update to see the new unit's view.
+
 ---
 
 ## 0.47.0 — the CLI-first module lifecycle (CR-dt-006)

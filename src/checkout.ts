@@ -1045,6 +1045,7 @@ export async function initCommand(
         })
         for (const text of filled.ignored) log(`⚠ ${text} — ignored`)
         const allow = parseAllow(argv)
+        const written = new Map() // one run never lets two units disagree on a key (he3)
         for (const u of all) {
           const r = await runUnit(ws, u, {
             inputs: filled.inputs.get(u.id) ?? {},
@@ -1053,6 +1054,7 @@ export async function initCommand(
             ask: term?.ask ?? null,
             processEnv,
             drop: droppedKeys(filled.problems, u.id),
+            written,
           })
           const problems = filled.problems.filter(m => m.unit === u.id)
           const miss = [

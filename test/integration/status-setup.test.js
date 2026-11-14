@@ -66,7 +66,7 @@ describe("dt status — the setup section", () => {
     assert.equal(s.code, 0, s.stderr)
     assert.match(
       line(s.stdout, "probe"),
-      /^ {2}probe\s+configured\s+probe home missing · token file missing · weights missing · tuned missing · live check unverified\s+→ dt setup probe/
+      /^ {2}probe\s+configured\s+probe home missing · label missing · token file missing · weights missing · tuned missing · live check unverified\s+→ dt setup probe/
     )
     // no evidence is never ready
     assert.match(line(run(ws.root, ["status"], { PROBE_EMPTY: "1" }).stdout, "probe"), /no evidence/)
@@ -204,6 +204,53 @@ describe("dt doctor — a unit's checks as rows, blocked is bad", () => {
     assert.equal(b.code, 1)
     assert.match(b.stdout, /probe — UNAVAILABLE\n {2}✖ inspect/)
   })
+})
+
+describe("dt doctor — a refused secret-path is refused as status refuses it (rnd/tests/dreamteamer/doctor-secret-path-refused)", () => {
+  test(
+    "a world-readable token file is a warning row with the chmod fix, never ok; owner-only is ok",
+    { skip: process.platform === "win32" },
+    () => {
+      const ws = probed()
+      const loose = path.join(ws.root, "loose-tok")
+      fs.writeFileSync(loose, "x", { mode: 0o644 })
+      fs.chmodSync(loose, 0o644)
+      const rows = env => {
+        const r = run(ws.root, ["doctor", "--json"], env)
+        assert.equal(r.code, 0, r.stderr)
+        return JSON.parse(r.stdout)
+          .capabilities.find(c => c.name === "probe")
+          .checks.filter(k => k.label === "token file")
+      }
+      const bad = rows({ PROBE_TOKEN_PATH: loose })
+      assert.ok(bad.length >= 1, "the token file has a row")
+      assert.ok(
+        bad.every(k => k.state !== "ok"),
+        `no token-file row reads ok: ${JSON.stringify(bad)}`
+      )
+      const refusal = bad.find(k => /readable by other users — chmod 600/.test(k.detail))
+      assert.ok(refusal, `a row names the refusal: ${JSON.stringify(bad)}`)
+      assert.equal(refusal.state, "warn")
+      assert.equal(refusal.fix, "dt setup probe --input token=<path>")
+      assert.match(
+        run(ws.root, ["doctor"], { PROBE_TOKEN_PATH: loose }).stdout,
+        /⚠ token file {2}.*readable by other users — chmod 600/
+      )
+      // the same verdict status gives
+      const st = JSON.parse(run(ws.root, ["status", "--json"], { PROBE_TOKEN_PATH: loose }).stdout).setup.find(
+        l => l.unit === "probe"
+      )
+      assert.ok(st.checks.some(c => /readable by other users/.test(c.detail ?? "")))
+      // owner-only: the row is ok and nothing is refused
+      fs.chmodSync(loose, 0o600)
+      const good = rows({ PROBE_TOKEN_PATH: loose })
+      assert.ok(
+        good.some(k => k.state === "ok"),
+        JSON.stringify(good)
+      )
+      assert.ok(!good.some(k => /readable by other users/.test(k.detail ?? "")))
+    }
+  )
 })
 
 describe("status and doctor are read-only and offline", () => {

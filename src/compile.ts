@@ -785,7 +785,7 @@ export function compile(ws: Workspace): 0 {
           )
         else if (!ok)
           misses.push(
-            `module "${mod}" ${moduleVersions.get(mod)} needs "${dep}" ${range} (its peerDependencies) — this workspace has ${have}, from ${CHANNEL_LABEL[sib.channel]}.\n  fix: ${sib.channel === "npm" ? `npm install "${dep}@${range}"` : `bring ${rel(sib.root)} to a version in ${range}`}`
+            `module "${mod}" ${moduleVersions.get(mod)} needs "${dep}" ${range} (its peerDependencies) — this workspace has ${have}, from ${CHANNEL_LABEL[sib.channel]}.\n  fix: ${dep === "dreamteamer" ? `dt update --engine (the engine is the workspace's pin; init and install never change it)` : sib.channel === "npm" ? `npm install "${dep}@${range}"` : `bring ${rel(sib.root)} to a version in ${range}`}`
           )
       }
     if (misses.length) fail(misses.join("\n"))

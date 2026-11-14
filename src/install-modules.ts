@@ -485,6 +485,7 @@ export async function setupAndCommit(
         lenient: true,
       })
       ignored = filled.ignored
+      const written = new Map() // one run never lets two units disagree on a key (he3)
       for (const u of fresh_units) {
         const res = await runUnit(fresh, u, {
           inputs: filled.inputs.get(u.id) ?? {},
@@ -495,6 +496,7 @@ export async function setupAndCommit(
           verify: false,
           processEnv,
           drop: droppedKeys(filled.problems, u.id),
+          written,
         })
         const problems = filled.problems.filter(m => m.unit === u.id)
         const missing = [

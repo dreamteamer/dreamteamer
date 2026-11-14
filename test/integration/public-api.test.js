@@ -157,6 +157,15 @@ describe("the INSTALLED package", () => {
       { cwd: dir, encoding: "utf8", timeout: 30_000 }
     )
     assert.equal(rec.stdout.trim(), "1 function undefined", rec.stderr)
+    const tst = spawnSync(
+      process.execPath,
+      [
+        "-e",
+        "import('dreamteamer/testing').then((m) => console.log(typeof m.createWorkspace, typeof m.install, typeof m.run, typeof m.pack, typeof m.engineMeets, m.ENGINE.endsWith('dreamteamer')))",
+      ],
+      { cwd: dir, encoding: "utf8", timeout: 30_000 }
+    )
+    assert.equal(tst.stdout.trim(), "function function function function function true", tst.stderr)
     const deep = spawnSync(
       process.execPath,
       ["-e", "import('dreamteamer/dist/store.js').then(() => console.log('REACHED'), (e) => console.log(e.code))"],
@@ -176,7 +185,9 @@ describe("the INSTALLED package", () => {
       assert.ok(!listing.includes(`package/${gone}`), `${gone} is still published`)
     }
     assert.ok(
-      listing.includes("package/dist/api.d.ts") && listing.includes("package/dist/records-api.d.ts"),
+      listing.includes("package/dist/api.d.ts") &&
+        listing.includes("package/dist/records-api.d.ts") &&
+        listing.includes("package/dist/testing.d.ts"),
       "the type declarations are not published"
     )
     // the PUBLISHED declarations, not just the ones src/ emits: every file they reference shipped, and

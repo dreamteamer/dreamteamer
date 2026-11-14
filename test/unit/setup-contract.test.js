@@ -4,7 +4,7 @@
 // with their defaults filled or the refusals, each naming the unit and the field.
 import { test, describe } from "node:test"
 import assert from "node:assert/strict"
-import { validateSetup, SETUP_VERSION, INPUT_KINDS } from "../../src/setup-contract.ts"
+import { validateSetup, SETUP_VERSION, INPUT_KINDS, validateEnvAction, isEnvAction } from "../../src/setup-contract.ts"
 
 const fn = () => ({})
 const unit = (extra = {}) => ({ id: "probe", version: 1, inputs: [], inspect: fn, plan: fn, apply: fn, ...extra })
@@ -90,5 +90,78 @@ describe("validateSetup — refusals name the unit and the field", () => {
     assert.deepEqual(validateSetup("x", [unit({ inputs: [{ id: "My-Input", kind: "string" }] })], {}).errors, [
       'unit probe: an input id is a lowercase identifier (got "My-Input")',
     ])
+  })
+})
+
+// ---- 0.48.0: apply optional, inspect synchronous, the `env` action (cr-dt-007, D61) ----------------
+
+describe("validateSetup — apply is optional, inspect is synchronous", () => {
+  test("a unit with no apply validates; its apply is undefined on the loaded unit", () => {
+    const { units, errors } = validateSetup("x", [unit({ apply: undefined })], {})
+    assert.deepEqual(errors, [])
+    assert.equal(units[0].apply, undefined)
+  })
+  test("an apply that is present but not a function is refused", () => {
+    assert.deepEqual(validateSetup("x", [unit({ apply: 1 })], {}).errors, [
+      "unit probe: apply must be a function when present",
+    ])
+  })
+  test("an async inspect is refused by name — dt status reads it without awaiting", () => {
+    assert.deepEqual(validateSetup("x", [unit({ inspect: async () => ({ checks: [] }) })], {}).errors, [
+      "unit probe: inspect must be synchronous — dt status reads it without awaiting",
+    ])
+  })
+})
+
+describe("validateEnvAction — the shape of an env action, judged when a plan is read", () => {
+  const declared = new Set(["ACME_TOKEN", "ACME_HOME"])
+  test("a plain action is not an env action", () => {
+    assert.equal(isEnvAction({ id: "fetch" }), false)
+    assert.equal(isEnvAction({ id: "set", env: { ACME_TOKEN: "x" } }), true)
+  })
+  test("string values for declared keys are ok", () => {
+    assert.deepEqual(validateEnvAction({ id: "set", env: { ACME_TOKEN: "abc", ACME_HOME: "/x" } }, declared), {
+      ok: true,
+    })
+  })
+  test("an undefined or null value means the action needs input", () => {
+    assert.deepEqual(validateEnvAction({ id: "set", env: { ACME_TOKEN: undefined } }, declared), {
+      ok: false,
+      state: "needs-input",
+      reason: "ACME_TOKEN has no value yet",
+    })
+    assert.deepEqual(validateEnvAction({ id: "set", env: { ACME_TOKEN: null } }, declared), {
+      ok: false,
+      state: "needs-input",
+      reason: "ACME_TOKEN has no value yet",
+    })
+  })
+  test("a non-string value is refused naming the key", () => {
+    assert.deepEqual(validateEnvAction({ id: "set", env: { ACME_TOKEN: 42 } }, declared), {
+      ok: false,
+      state: "blocked",
+      reason: "ACME_TOKEN: a value that is not a string",
+    })
+  })
+  test("an undeclared key is refused naming the key", () => {
+    assert.deepEqual(validateEnvAction({ id: "set", env: { OTHER: "x" } }, declared), {
+      ok: false,
+      state: "blocked",
+      reason: "OTHER is not declared by the package (dreamteamer.env or vars)",
+    })
+  })
+  test("a key that is not an environment key is refused", () => {
+    assert.deepEqual(validateEnvAction({ id: "set", env: { "acme-token": "x" } }, declared), {
+      ok: false,
+      state: "blocked",
+      reason: "acme-token is not an environment key",
+    })
+  })
+  test("env that is not an object is refused", () => {
+    assert.deepEqual(validateEnvAction({ id: "set", env: "ACME_TOKEN=x" }, declared), {
+      ok: false,
+      state: "blocked",
+      reason: "env must be an object of KEY → value",
+    })
   })
 })

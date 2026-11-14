@@ -13,13 +13,14 @@ import path from "node:path"
 import { fileURLToPath } from "node:url"
 import * as self from "./api.ts"
 import { findWorkspace } from "./workspace.ts"
-import { loadExtensions } from "./extensions.ts"
-import { KINDS } from "./compile.ts"
+import { loadExtensions, manifestViolations } from "./extensions.ts"
+import fs from "node:fs"
+import { KINDS, discoverModules } from "./compile.ts"
 import { DERIVED_KINDS } from "./runtime.ts"
 import { KNOWN_HARNESSES } from "./harnesses.ts"
 import { CORE_VERBS } from "./cli.ts"
 import { installCommand as installCheckout } from "./checkout.ts"
-import type { Workspace, LoadedExtension, CheckItem } from "./types.ts"
+import type { Workspace, LoadedExtension, CheckItem, PackageJson } from "./types.ts"
 
 // Everything the record half exports (the browser-safe entry, `dreamteamer/records`), then the rest.
 export * from "./records-api.ts"
@@ -72,6 +73,24 @@ export const CHECK_WARNINGS = true
  *  item the extension marked `warning: true` keeps the mark: `check` prints it and does not count it. */
 export async function contributedViolations(ws: Workspace): Promise<{ file: string; msg: string; warning?: true }[]> {
   const out: { file: string; msg: string; warning?: true }[] = []
+  // every discovered module's manifest, held to the dependency rule — the workspace's own root and the
+  // engine are not modules anybody installs
+  try {
+    for (const m of discoverModules(ws.root, ws.pkg).modules) {
+      if (path.resolve(m.root) === path.resolve(ws.root)) continue
+      let pkg: PackageJson
+      try {
+        pkg = JSON.parse(fs.readFileSync(path.join(m.root, "package.json"), "utf8")) as PackageJson
+      } catch {
+        continue
+      }
+      if (pkg.name === "dreamteamer") continue
+      for (const v of manifestViolations(pkg, path.relative(ws.root, path.join(m.root, "package.json"))))
+        out.push({ file: v.file, msg: v.message })
+    }
+  } catch {
+    /* discovery failing is compile's to report */
+  }
   for (const e of (ws.extensions ?? []).filter(x => x.check)) {
     try {
       for (const v of ((await e.check({ root: ws.root, ws, dt: self })) ?? []) as CheckItem[])

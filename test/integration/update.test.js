@@ -66,6 +66,46 @@ describe("dt update — one pin forward, on purpose", () => {
     assert.equal(treeHash(ws.root), h)
   })
 
+  test("the setup half runs the version npm just installed, not the one this process imported (rnd/tests/dreamteamer/update-runs-new-unit)", () => {
+    const ws = offline()
+    const i = run(ws.root, ["install", "@fix/unit@1.0.0", "--from", REG])
+    assert.equal(i.code, 0, i.stderr + i.stdout) // an optional input: the unit's own needs, not exit 3
+    assert.match(i.stdout, /needs input: calendar/)
+    const r = run(ws.root, ["update", "@fix/unit", "--from", REG])
+    assert.equal(r.code, 0, r.stderr + r.stdout)
+    assert.equal(installed(ws.root, "@fix/unit"), "1.1.0")
+    assert.doesNotMatch(r.stdout, /needs input: calendar/)
+    assert.match(r.stdout, /✔ unit: ready/) // the 1.1.0 unit: nothing missing
+    assert.match(git(ws.root, ["log", "-1", "--pretty=%s"]), /^dreamteamer: update @fix\/unit 1\.0\.0 → 1\.1\.0$/)
+    assert.equal(git(ws.root, ["status", "--porcelain"]), "")
+  })
+
+  test("a new version whose setup half cannot load: exit 1, one ✖ line naming dt install, never Node's trace", () => {
+    const ws = offline()
+    assert.equal(run(ws.root, ["install", "@fix/unit@1.0.0", "--from", REG]).code, 0)
+    // a folder of tarballs that also holds a 1.2.0 whose entry throws when it is imported
+    const from = fs.mkdtempSync(path.join(os.tmpdir(), "dt-broken-"))
+    for (const f of fs.readdirSync(REG)) fs.copyFileSync(path.join(REG, f), path.join(from, f))
+    const src = fs.mkdtempSync(path.join(os.tmpdir(), "dt-broken-src-"))
+    fs.cpSync(path.join(ENGINE_ROOT, "test", "fixtures", "registry", "src", "fix-unit-1.1.0"), src, { recursive: true })
+    const pj = JSON.parse(fs.readFileSync(path.join(src, "package.json"), "utf8"))
+    pj.version = "1.2.0"
+    fs.writeFileSync(path.join(src, "package.json"), JSON.stringify(pj, null, "\t"))
+    fs.writeFileSync(
+      path.join(src, "entry.js"),
+      'throw new Error("unit 1.2.0 is broken");\nexport default () => ({});\n'
+    )
+    assert.equal(
+      spawnSync("npm", ["pack", src, "--pack-destination", from, "--silent"], { encoding: "utf8" }).status,
+      0
+    )
+    const r = run(ws.root, ["update", "@fix/unit", "--from", from])
+    assert.equal(r.code, 1, r.stderr + r.stdout)
+    assert.match(r.stderr, /✖ .*dt install @fix\/unit/)
+    assert.doesNotMatch(r.stderr, /^\s+at /m, "no stack frames")
+    assert.doesNotMatch(r.stderr, /Node\.js v\d/, "no Node version banner")
+  })
+
   test("a downgrade is refused unless --allow downgrade; a named version within the folder is honoured", () => {
     const ws = offline()
     assert.equal(run(ws.root, ["install", "@fix/a", "--from", REG]).code, 0)

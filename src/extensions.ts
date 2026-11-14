@@ -35,7 +35,7 @@ import { satisfies } from "./semver.ts"
 import { engineVersion } from "./runtime.ts"
 import { layerEntries } from "./workspace.ts"
 import { validateSetup } from "./setup-contract.ts"
-import type { Workspace, LoadedExtension, Contribution } from "./types.ts"
+import type { Workspace, LoadedExtension, Contribution, PackageJson } from "./types.ts"
 
 /** The keys a package.json `dreamteamer` block may carry — the workspace's and a module's alike. */
 export const MANIFEST_KEYS = [
@@ -85,6 +85,25 @@ export function v1ManifestRefusal(block, where) {
 }
 
 export const EXTENSION_API = 1
+
+/** What `dt check` holds every discovered package's manifest to, beyond the `dreamteamer` block: the
+ *  engine never under `dependencies` — npm nests a second engine there whenever the pin differs from the
+ *  workspace's, and a module reaching that copy disagrees with the engine the operator ran (D66).
+ *  `devDependencies` (a module's own tests) and `peerDependencies` are the two places it belongs. */
+export function manifestViolations(
+  pkg: PackageJson | null | undefined,
+  file: string
+): { file: string; message: string }[] {
+  if (pkg?.dependencies && typeof pkg.dependencies === "object" && "dreamteamer" in pkg.dependencies) {
+    return [
+      {
+        file,
+        message: `${pkg.name ?? file} lists dreamteamer under dependencies — a second engine would be installed beside this one; move it to devDependencies or peerDependencies`,
+      },
+    ]
+  }
+  return []
+}
 
 const CONTRIBUTION_KEYS = new Set([
   "commands",

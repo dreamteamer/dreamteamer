@@ -404,3 +404,26 @@ export interface HarnessContext {
 /** One part of a parsed template: literal text, or a token naming a field and its filters. */
 export type TemplatePart = { text: string } | { field: string; filters: { name: string; arg?: string }[] }
 export type SchemaOp = (ws: Workspace, store: Store, ...args: never[]) => unknown
+
+// ---- `dreamteamer/testing` — a module's own suite on the real engine (src/testing.ts) ----
+
+/** One engine run: its exit status (null when it was ended on `timeoutMs`), stdout and stderr. */
+export interface RunResult {
+  status: number | null
+  stdout: string
+  stderr: string
+}
+export interface RunOptions {
+  /** Laid over the process environment (and the synthetic git identity) for this run. */
+  env?: Record<string, string>
+  /** Ends the run by SIGKILL after this many milliseconds; `status` is then null. Default 60 000. */
+  timeoutMs?: number
+  /** Text handed to the run's stdin (a hook payload, a prompt's answer). */
+  input?: string
+}
+/** A workspace `createWorkspace` made: its root, the engine it runs on, and `run` bound to it. */
+export interface TestWorkspace {
+  root: string
+  engine: string
+  dt(args: string[], opts?: RunOptions): RunResult
+}

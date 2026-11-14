@@ -7,7 +7,7 @@ import path from "node:path"
 import { engineId, readManifest } from "./runtime.ts"
 import { satisfies } from "./semver.ts"
 import { MANAGED_BLOCKS } from "./harnesses.ts"
-import { units, unitEnv, receiptDir, redact } from "./setup.ts"
+import { units, unitEnv, unitEnvFor, receiptDir, safeInspect } from "./setup.ts"
 
 const STATES = new Set(["ok", "warn", "bad"])
 const UNIT_STATE = { ready: "ok", configured: "ok", unverified: "warn", missing: "warn", blocked: "bad" }
@@ -64,20 +64,12 @@ export async function doctorBoard(ws, dt) {
   // so `--strict` fails on what blocks and a never-verified capability reads degraded, never ready
   const env = unitEnv(ws)
   for (const u of units(ws)) {
-    let checks
-    try {
-      checks = u.inspect({ root: ws.root, ws, dt, env, tty: false, receiptDir: receiptDir(ws, u.id) })?.checks ?? []
-    } catch (err) {
-      checks = [
-        {
-          id: "inspect",
-          title: "inspect",
-          status: "blocked",
-          detail: redact(err.message),
-          fix: `report it to ${u.module}`,
-        },
-      ]
-    }
+    // the rule status and setup apply: a refused secret-path is never handed to the unit, and is its own row
+    const { env: unitEnvHere, refused } = unitEnvFor(u, env)
+    const checks = [
+      ...refused,
+      ...safeInspect(u, { root: ws.root, ws, dt, env: unitEnvHere, tty: false, receiptDir: receiptDir(ws, u.id) }),
+    ].map(c => (c.id === `${u.id}.inspect` ? { ...c, id: "inspect", fix: `report it to ${u.module}` } : c))
     caps.push({
       name: u.id,
       checks: checks.map(c => ({

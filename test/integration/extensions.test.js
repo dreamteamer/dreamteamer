@@ -381,6 +381,7 @@ describe("the loader refuses what it cannot honour — at open, by name", () => 
         .checks.map(c => [c.id, c.status]),
       [
         ["probe.home", "missing"],
+        ["probe.label", "missing"],
         ["probe.token", "missing"],
         ["probe.weights", "missing"],
         ["probe.tuned", "missing"],

@@ -63,11 +63,23 @@ export function validateSetup(name, value, { env = [], vars = [] } = {}) {
       continue
     }
     let bad = false
-    for (const f of ["inspect", "plan", "apply"])
+    for (const f of ["inspect", "plan"])
       if (typeof u[f] !== "function") {
         errors.push(`unit ${u.id}: ${f} must be a function`)
         bad = true
       }
+    // apply is optional since 0.48.0: a unit whose every action carries `env` needs none (the engine
+    // performs those); a non-env action from an apply-less unit fails at run time, named (src/setup.js)
+    if (u.apply !== undefined && typeof u.apply !== "function") {
+      errors.push(`unit ${u.id}: apply must be a function when present`)
+      bad = true
+    }
+    // `dt status` and `dt doctor` call inspect without awaiting, so an async one would read as "no
+    // evidence — never ready" with no error anywhere; refused here by name instead (review finding 5)
+    if (typeof u.inspect === "function" && u.inspect.constructor?.name === "AsyncFunction") {
+      errors.push(`unit ${u.id}: inspect must be synchronous — dt status reads it without awaiting`)
+      bad = true
+    }
     const inputs = []
     const rawInputs = u.inputs ?? []
     if (!Array.isArray(rawInputs)) {
@@ -140,4 +152,31 @@ export function validateSetup(name, value, { env = [], vars = [] } = {}) {
     })
   }
   return { units, errors }
+}
+
+/** Does this action ask the engine to write `.env`? (`env: { KEY: value, … }` on the action — D61.) */
+export const isEnvAction = action => !!action && typeof action === "object" && action.env !== undefined
+
+/**
+ * Judge an env action's shape when a plan is read. `declared` is the Set of env keys the package
+ * declares (`dreamteamer.env` ∪ `vars`). `{ ok: true }`, or `{ ok: false, state, reason }` where
+ * `state` is what the driver writes on the action: `needs-input` for a value not yet known
+ * (`undefined`/`null` — the shape a unit's plan has before its input arrives), `blocked` for anything
+ * the unit got wrong. Pure; the file-level refusals (git exposure, a key assigned twice, a quote in
+ * the value) are `src/env-write.js`'s, judged by the driver with the file in hand.
+ */
+export function validateEnvAction(action, declared) {
+  const env = action?.env
+  if (!env || typeof env !== "object" || Array.isArray(env))
+    return { ok: false, state: "blocked", reason: "env must be an object of KEY → value" }
+  for (const [key, value] of Object.entries(env)) {
+    if (!ENV_KEY.test(key)) return { ok: false, state: "blocked", reason: `${key} is not an environment key` }
+    if (!declared.has(key))
+      return { ok: false, state: "blocked", reason: `${key} is not declared by the package (dreamteamer.env or vars)` }
+    if (value === undefined || value === null)
+      return { ok: false, state: "needs-input", reason: `${key} has no value yet` }
+    if (typeof value !== "string")
+      return { ok: false, state: "blocked", reason: `${key}: a value that is not a string` }
+  }
+  return { ok: true }
 }

@@ -1,0 +1,1 @@
+{ "name": "alone-needs-input", "version": "1.0.0", "type": "module", "files": ["src"], "dreamteamer": { "description": "A unit with a required input.", "engine": ">=0.47.0", "extension": "./src/extension.js", "env": ["ALONE_TOKEN"] } }

@@ -3,12 +3,18 @@
 // actions carrying every effect kind, a receipt-writing verify, and switches that make it misbehave.
 //   PROBE_THROW=apply   apply() throws (with a secret in the message, which must be redacted)
 //   PROBE_THROW=inspect inspect() throws (one bad doctor row, a blocked status line)
-//   PROBE_BLOCK=1   the download is blocked, with a reason the line must carry
+//   PROBE_BLOCK=1       the download is blocked, with a reason the line must carry
 //   PROBE_EMPTY=1       inspect() returns zero checks (the "no evidence" line)
+//   PROBE_TOUCH_ENV=1   plan() appends a comment to .env — the file moves after the fingerprint the
+//                       engine took before plan, so the env action's write must refuse (cr-dt-007)
+//   PROBE_NOAPPLY=1     the unit is declared without apply (read at load)
+//   PROBE_EXTRA=1       plan() adds a non-env action `extra` (fails by name on an apply-less unit)
+//   PROBE_CTX_LOG=<f>   inspect() appends `<verb>=<typeof ctx.dt>` to the file, for the ctx table
+//   PROBE_NOTE=1        make-home carries a reason, which the engine prints after the write
+// Since 0.48.0 make-home is an ENV ACTION: the unit names the keys and values, the engine writes .env.
 import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
-import { createHash } from "node:crypto"
 
 export const apiVersion = 1
 
@@ -21,15 +27,18 @@ const exists = p => {
     return false
   }
 }
-const sha = text => createHash("sha256").update(text).digest("hex").slice(0, 16)
 
 /** The probe's home: the filled input first, else the environment the engine handed over, else the default. */
 const homeOf = (ctx, inputs = {}) => expand(inputs.home ?? ctx.env?.PROBE_HOME ?? "~/.cache/probe")
 const envFile = ctx => path.join(ctx.root, ".env")
-const readEnv = ctx => (exists(envFile(ctx)) ? fs.readFileSync(envFile(ctx), "utf8") : "")
 const receiptFile = ctx => path.join(ctx.receiptDir, "verify.json")
 
 function inspect(ctx) {
+  if (ctx.env?.PROBE_CTX_LOG) {
+    // which verb is running is not something a unit knows; the argv of the engine process says
+    const verb = process.argv.slice(2).find(a => !a.startsWith("-")) ?? "?"
+    fs.appendFileSync(ctx.env.PROBE_CTX_LOG, `${verb}=${ctx.dt === null ? "null" : typeof ctx.dt}\n`)
+  }
   if (ctx.env?.PROBE_THROW === "inspect") throw new Error("probe inspect exploded: secret=hunter2")
   if (ctx.env?.PROBE_EMPTY) return { checks: [] }
   const home = homeOf(ctx)
@@ -44,6 +53,13 @@ function inspect(ctx) {
         "probe home",
         exists(home) ? "the folder exists" : "no folder yet",
         "dt setup probe"
+      ),
+      row(
+        "probe.label",
+        !!ctx.env?.PROBE_LABEL,
+        "label",
+        ctx.env?.PROBE_LABEL ? "set" : "PROBE_LABEL is unset",
+        "dt setup probe --input label=<label>"
       ),
       row(
         "probe.token",
@@ -77,28 +93,31 @@ function inspect(ctx) {
 }
 
 function plan(ctx, inputs = {}) {
+  if (ctx.env?.PROBE_TOUCH_ENV) fs.appendFileSync(envFile(ctx), `# touched ${Date.now()}\n`)
   const { checks } = inspect(ctx)
   const home = homeOf(ctx, inputs)
   const status = Object.fromEntries(checks.map(c => [c.id, c.status]))
-  const envText = readEnv(ctx)
   const needs = inputs.label === undefined ? ["label"] : []
-  const wantEnv = {
-    PROBE_HOME: inputs.home ?? ctx.env?.PROBE_HOME ?? "~/.cache/probe",
-    PROBE_LABEL: inputs.label ?? "",
-  }
-  const envDone = Object.entries(wantEnv).every(([k, v]) =>
-    new RegExp(`^${k}=${v.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "m").test(envText)
-  )
   const actions = [
+    // the env action: keys and values; state, done-ness, consent and the write are the engine's
     {
       id: "make-home",
       title: "write PROBE_HOME and PROBE_LABEL into .env",
-      effects: [{ kind: "workspace-files", detail: ".env: PROBE_HOME and PROBE_LABEL only, other keys kept" }],
-      preview: { file: ".env", set: wantEnv },
-      expect: sha(envText),
-      runBy: "engine",
-      state: envDone ? "done" : needs.length ? "needs-input" : "ready",
+      env: { PROBE_HOME: inputs.home ?? ctx.env?.PROBE_HOME ?? "~/.cache/probe", PROBE_LABEL: inputs.label },
+      state: needs.length ? "needs-input" : "ready",
+      ...(ctx.env?.PROBE_NOTE ? { reason: "row input 2 skipped: not a row" } : {}),
     },
+    ...(ctx.env?.PROBE_EXTRA
+      ? [
+          {
+            id: "extra",
+            title: "an action with no env",
+            effects: [{ kind: "workspace-files", detail: "nothing" }],
+            runBy: "engine",
+            state: "ready",
+          },
+        ]
+      : []),
     {
       id: "fetch",
       title: "download the weights",
@@ -138,19 +157,6 @@ function apply(ctx, action, inputs = {}) {
   if (ctx.env?.PROBE_THROW === "apply") throw new Error("probe exploded: token=hunter2 at " + homeOf(ctx, inputs))
   const home = homeOf(ctx, inputs)
   switch (action.id) {
-    case "make-home": {
-      const text = readEnv(ctx)
-      if (sha(text) !== action.expect)
-        return { ok: false, changed: [], message: ".env changed since the plan — plan again" }
-      let out = text
-      for (const [k, v] of Object.entries(action.preview.set)) {
-        const re = new RegExp(`^${k}=.*$`, "m")
-        out = re.test(out) ? out.replace(re, `${k}=${v}`) : `${out}${out && !out.endsWith("\n") ? "\n" : ""}${k}=${v}\n`
-      }
-      fs.writeFileSync(envFile(ctx), out)
-      fs.mkdirSync(home, { recursive: true })
-      return { ok: true, changed: [".env"], message: "wrote .env" }
-    }
     case "fetch":
       fs.mkdirSync(home, { recursive: true })
       fs.writeFileSync(path.join(home, "weights.txt"), "synthetic\n")
@@ -187,7 +193,14 @@ export default function activate() {
             default: "~/.cache/probe",
             prompt: "Where should probe keep its files?",
           },
-          { id: "label", kind: "string", required: true, title: "label", prompt: "A label for this workspace" },
+          {
+            id: "label",
+            kind: "string",
+            env: "PROBE_LABEL",
+            required: true,
+            title: "label",
+            prompt: "A label for this workspace",
+          },
           {
             id: "token",
             kind: "secret-path",
@@ -199,7 +212,7 @@ export default function activate() {
         ],
         inspect,
         plan,
-        apply,
+        ...(process.env.PROBE_NOAPPLY ? {} : { apply }),
       },
     ],
   }

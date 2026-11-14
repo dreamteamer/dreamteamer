@@ -5,6 +5,7 @@
 // if one loosens, the expected error disappears and the unused directive fails the compile.
 import * as dt from "dreamteamer"
 import * as records from "dreamteamer/records"
+import * as testing from "dreamteamer/testing"
 import type {
   Descriptor,
   Fields,
@@ -64,6 +65,7 @@ type SchemaOps =
 type AllowedLoose = SchemaOps | "loadYaml" | "distinctValues"
 is<Equals<Exclude<Loose<typeof dt>, AllowedLoose>, never>>()
 is<Equals<Exclude<Loose<typeof records>, AllowedLoose>, never>>()
+is<Equals<Loose<typeof testing>, never>>()
 type StoreMethods =
   | "descriptor"
   | "dir"
@@ -153,4 +155,18 @@ const activate: Activate = api => {
 // @ts-expect-error — a doctor row's state is one of three
 const bad: Contribution = { doctor: () => [{ label: "x", state: "fine" }] }
 
-export { surface, activate, bad, ops, kinds }
+// ---- `dreamteamer/testing` — a module's own suite on the real engine -----------------------------
+const suite = (): void => {
+  const ws: testing.Workspace = testing.createWorkspace({ engine: testing.ENGINE })
+  const r: testing.Result = testing.install(ws, testing.pack("."), { timeoutMs: 1000, env: { K: "v" } })
+  accept<number | null>(r.status)
+  accept<string>(ws.dt(["status"], { input: "y\n" }).stdout)
+  accept<testing.Result>(testing.run(ws, ["check"]))
+  accept<boolean>(testing.engineMeets(">=0.48.0"))
+  // @ts-expect-error — a run's args are a list, never one string
+  testing.run(ws, "check")
+  // @ts-expect-error — an env value is a string
+  testing.run(ws, ["check"], { env: { K: 1 } })
+}
+
+export { surface, activate, bad, ops, kinds, suite }

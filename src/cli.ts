@@ -14,7 +14,8 @@ import fs from "node:fs"
 import path from "node:path"
 import { execFileSync, type StdioOptions } from "node:child_process"
 import * as api from "./api.ts"
-import { openWorkspace } from "./api.ts"
+import { openWorkspace, findWorkspace } from "./api.ts"
+import { checkAlone } from "./check-alone.ts"
 import {
   compile,
   staleness,
@@ -144,11 +145,13 @@ commits there.
                                                health/doctors; a module declaring exactly ONE
                                                namespace infers it, and the resolved name is echoed.
                                                --namespace '' means no namespace)
-  add    modules --name <id> [--description "…"] [--namespace <ns>]
-                                              (modules/<id>/ + every kind folder + package.json.
-                                               --namespace DECLARES it in the module (§8), so every
-                                               later \`add collections --module <id>\` infers it.
-                                               folder = package name = id, so a module never forks.
+  add    modules --name <id> [--description "…"] [--namespace <ns>] [--extension] [--package <npm name>]
+                                              (modules/<id>/ + every kind folder + package.json + README.md,
+                                               floored on this engine. --namespace DECLARES it in the module
+                                               (§8), so every later \`add collections --module <id>\` infers it.
+                                               --extension adds src/extension.js with a one-token setup unit;
+                                               --package names it for npm and makes it publishable — the
+                                               folder stays the id. Without it, folder = package name = id.
                                                the git shape is \`install --clone <url> [name]\`)
   add    skills --name <id> --description "…"  (skills/<id>/SKILL.md — --description is required,
                                                because an undescribed skill is undiscoverable)
@@ -279,6 +282,9 @@ workspace verbs:
               through a record layer is a ⚠ line until its exports manifest lists it; a reference no root
               answers is external when the referring repo's manifest vouches for it
               [--strict-export] makes each unlisted one, and a stale manifest, a violation
+              modules/<id> --alone: is that inline module publishable — packed, installed into a fresh
+              workspace on this engine with only its declared dependencies, compiled, checked; exit 0
+              publishable, 1 refused naming why, 2 usage [--keep] leaves the temp workspace
   exports     write this workspace's dreamteamer-exports.json — each id its records name that no file
               here holds, with its label and the workspace holding it — and commit that one file
               [--layer <name>] that layer's, from this workspace's view  [--dry-run] [--json]
@@ -374,7 +380,7 @@ export const WORKSPACE_FLAGS = {
     "no-commit",
   ],
   compile: ["watch"],
-  check: ["strict-export"],
+  check: ["strict-export", "alone", "keep"],
   exports: ["layer", "dry-run", "json"],
   status: ["json"],
   doctor: ["strict", "json"],
@@ -507,6 +513,19 @@ export async function run(argv) {
       }
       emit(USAGE + extensionUsage(ws))
       process.exit(0)
+    }
+    // `dt check modules/<id> --alone` judges one inline module in a fresh workspace (src/check-alone.ts) —
+    // dispatched before the host is opened, because the module's own problem (a missing dependency, a
+    // floor above this engine) would otherwise surface as the host's refusal instead of the gate's verdict
+    if (cmd === "check") {
+      const target = rest.find(a => !a.startsWith("--"))
+      if (rest.includes("--alone")) process.exit(checkAlone(findWorkspace(), { target, keep: rest.includes("--keep") }))
+      if (target) {
+        console.error(
+          `✖ check takes no target — did you mean --alone? (dt check ${target} --alone judges one inline module)`
+        )
+        process.exit(2)
+      }
     }
     let ws
     try {
