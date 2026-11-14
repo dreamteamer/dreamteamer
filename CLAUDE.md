@@ -313,23 +313,28 @@ its spec says. Walk the user's actual flow before calling a release good — and
 something, the suite was incomplete by definition, so the fix is two commits' worth of work: the
 behaviour, and the assertion that would have caught it.
 
-## IMPORTANT — the record/workspace split is enforced, and it is NOT two packages
+## IMPORTANT — the layout under `src/`, and what `npm run layers` holds
 
-The engine has two halves and the edge between them goes ONE way. `npm run layers` prints the graph
-and exits 1 on a violation — including on a file under `src/` that is not assigned to a layer, so
-adding one costs the same sentence of thought as adding a core collection.
+`npm run layers` reads a file's layer from its FOLDER and exits 1 on a violation, including a folder it
+does not know, so a new folder costs a sentence of thought:
 
-| layer | modules | rule |
+| folder | layer | may import |
 |---|---|---|
-| **record** | store · records · check · temporal · filter · field-values · commit · events · history · template · workspace · yaml · namespace | schema-validated records over git. **Must not know that modules, channels, `extends` or skills exist.** |
-| **boundary** | runtime | the compiled `.dreamteamer/` artifact — descriptors + manifest. The whole interface. |
-| **workspace** | compile · harnesses · schema-ops · init · checkout · extensions · doctor · record-commands · semver | the compiler, the agent-harness surface, and the extension loader. May import record. |
-| **surface** | cli · collections-cli · presentation · api | entry points; span both halves by definition. `api` is the public export surface. |
+| `src/record/`, `src/runtime/`, `src/workspace/` | shared — code two or more commands use | shared only |
+| `src/<command>/` | one command's own code | shared, and its own folder — never another command's |
+| `src/*.ts` | surface — entry points, and a verb's entry function when its command has no folder | anything |
 
-The seam was always real — the store has only ever read compiled descriptors, never a source. What
-it lacked was a direction: `store.js` and `history.js` imported `compile.js` to reach a manifest,
-which is a *file-format* dependency wearing a *module-system* import. Both now go through
-`runtime.js`. Two consequences to keep:
+⚠ **There is NO record → workspace direction any more** (removed on the `typescript` branch). It was a
+proxy for one real constraint and it drove folder layout instead of protecting it. The real
+constraint is the BROWSER-SAFE ENTRY: the mobile app runs `dreamteamer/records` (`src/records-api.ts`)
+in a browser with shims for exactly `node:fs`, `node:path` and `node:child_process`, so that entry's
+import closure must load no other node builtin — the compiler, the extension loader and install pull
+in `node:url`/`node:crypto`/`node:os`/`node:zlib` at import time, and the app would die on load while
+every Node-side test stays green. That is a property of the entry's CLOSURE, not of which folder a file
+sits in; `test/integration/public-api.test.js` asserts it. Decide where a file lives by who uses it.
+
+The runtime boundary is still real — the store reads compiled descriptors, never a source — and two
+consequences of it are worth keeping:
 
 - **`storage.base` (`workspace` | `runtime`) is written by compile and read by everything else.**
   It replaced `d.storage.path.startsWith('system/')`, which was re-derived in five places. compile

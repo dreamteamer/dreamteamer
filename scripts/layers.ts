@@ -1,27 +1,19 @@
 #!/usr/bin/env node
-// The engine has two halves, and the edge between them only goes one way.
+// Who may import whom under src/, by folder.
 //
 //   node scripts/layers.ts     report the graph; exit 1 on a violation
 //
-// RECORD is schema-validated records over git: parse, validate, CRUD, refs, history, filters.
-// WORKSPACE is the compiler and the agent-harness surface: modules, `extends`, skills, adapters.
-// The seam is BOUNDARY (`src/runtime/`) — the compiled `.dreamteamer/` artifact that one half writes
-// and the other reads.
-//
-// WHY THIS IS A SCRIPT AND NOT A COMMENT: the edge was already almost absent — two imports, both
-// reaching the compiler for a manifest read — and neither was there on purpose. An invariant nobody
-// can violate by accident is worth having; one held up by good intentions gets re-added by the next
-// person who needs a manifest in the store. This is deliberately NOT a package split: two packages
-// would buy a distribution nobody has asked for and charge it to the extension's engine loader
-// (decision 139). One repo, one enforced direction.
-//
 // A file's FOLDER is its layer, so a new file needs no registration:
 //
-//   src/record/      record      shared record code
-//   src/runtime/     boundary    the compiled artifact both halves read
-//   src/workspace/   workspace   shared workspace code
-//   src/<command>/   command     code only that command uses — never another command's
-//   src/*.ts         surface     entry points and the function each verb dispatches to
+//   src/record/, src/runtime/, src/workspace/   shared   code two or more commands use
+//   src/<command>/                              command  code only that command uses — never another command's
+//   src/*.ts                                    surface  entry points and the function each verb dispatches to
+//
+// Shared code imports only shared code; a command folder imports shared code and its own folder; a
+// surface imports anything. The three shared folders may import each other freely: the record/workspace
+// direction this script used to hold was a proxy for the browser-safe `dreamteamer/records` entry, and
+// it drove folder layout rather than protecting that entry — what the entry may load is a question of
+// its import closure, not of which folder a file sits in.
 //
 // An unclassified FOLDER under src/ is a failure, not a default: a new command folder is named in
 // COMMANDS below, which costs the same sentence of thought adding a core collection does.
@@ -33,25 +25,23 @@ import { typeOnly } from "./import-edges.ts"
 
 const SRC = resolve(dirname(fileURLToPath(import.meta.url)), "..", "src")
 
-const SHARED: Record<string, string> = { record: "record", runtime: "boundary", workspace: "workspace" }
+const SHARED = new Set(["record", "runtime", "workspace"])
 // the folders that hold one command's own code
 const COMMANDS = new Set(["changes", "check", "collections", "doctor", "exports", "fmt", "init", "install", "update"])
 
-// who may import whom. `record` and `boundary` are the constrained half; surfaces are free. A command
-// folder may also import its OWN folder, never another command's — checked below, not in this table.
+// who may import whom. A command folder may also import its OWN folder, never another command's —
+// checked below, not in this table.
 const ALLOWED: Record<string, Set<string>> = {
-  record: new Set(["record", "boundary"]),
-  boundary: new Set(["record", "boundary"]),
-  workspace: new Set(["record", "boundary", "workspace"]),
-  command: new Set(["record", "boundary", "workspace", "command"]),
-  surface: new Set(["record", "boundary", "workspace", "command", "surface"]),
+  shared: new Set(["shared"]),
+  command: new Set(["shared", "command"]),
+  surface: new Set(["shared", "command", "surface"]),
 }
 
 /** the layer of a module path ("record/Store"), or null for a folder nobody classified */
 const layerOf = (mod: string): string | null => {
   const dir = mod.includes("/") ? mod.split("/")[0] : null
   if (dir === null) return "surface"
-  if (dir in SHARED) return SHARED[dir]
+  if (SHARED.has(dir)) return "shared"
   return COMMANDS.has(dir) ? "command" : null
 }
 
@@ -79,7 +69,7 @@ for (const f of files) {
   //
   // A TYPE-ONLY edge (`import type`, `export type`, `typeof import('./x.ts')`) is not one: under
   // verbatimModuleSyntax it is erased by construction, so it can load nothing. That is what lets the
-  // contract's shapes live in one file (src/types.ts) that both halves name.
+  // contract's shapes live in one top-level file (src/types.ts) that shared code names.
   // `[^'"]*?`, not `[\s\S]*?`: an import clause holds no quote, so a match can never start at an EARLIER
   // import and run on into this one — which read `import fs from "node:fs"` as the head of the next
   // line's `import type`, and called a type-only edge a value edge.
@@ -127,4 +117,4 @@ if (problems.length) {
   for (const p of problems) console.error(`    ${p}`)
   process.exit(1)
 }
-console.log(`\n✔ ${files.length} modules, ${edges} import edges, no record → workspace imports`)
+console.log(`\n✔ ${files.length} modules, ${edges} import edges, every edge allowed`)

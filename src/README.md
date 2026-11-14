@@ -9,7 +9,7 @@ split into one file per export, placed by who uses it, so a section names the fi
   (`commitCommand`, `relocateCommand`, `resolveCommand`, `setupCommand`, `statusCommand`)
 - `src/<command>/` — that command's entry function (`install/installCommand.ts`) and the code only it uses
 - `src/record/`, `src/runtime/`, `src/workspace/` — code two or more commands share, by layer
-  (`npm run layers` holds the direction: record never imports workspace, a command folder never another's)
+  (`npm run layers`: shared code imports only shared code, a command folder never another command's)
 
 ## api
 
@@ -506,8 +506,7 @@ record-layer → compiler edge in the graph for what is really a file-format dep
 
 Everything the record layer actually wanted is already IN the compiled output: the merged
 descriptors, and (in the manifest) which directories hold the sources behind runtime-based
-records. So this module owns the runtime's shape, both halves import it, and `npm run layers`
-fails if the old edge comes back.
+records. So this module owns the runtime's shape, and both halves import it.
 
 ## scaffold-templates
 
