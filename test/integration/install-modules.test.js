@@ -35,6 +35,14 @@ function offline() {
 	return ws;
 }
 const installed = (root, name) => { try { return JSON.parse(fs.readFileSync(path.join(root, 'node_modules', name, 'package.json'), 'utf8')).version; } catch { return null; } };
+/** The version package.json pins `name` at: an exact version, or — offline, from --from — the version in
+ *  the one tarball a `file:` spec names (npm writes the tarball path, which is just as exact). */
+const pinOf = (root, name) => {
+	const spec = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).dependencies?.[name];
+	if (spec == null) return null;
+	const m = /^file:.*-(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)\.tgz$/.exec(spec);
+	return m ? m[1] : spec;
+};
 const lastCommit = (root) => ({ subject: git(root, ['log', '-1', '--pretty=%s']), files: git(root, ['show', '--name-only', '--pretty=', 'HEAD']).split('\n').filter(Boolean).sort() });
 
 describe('dt install <spec> — closure, compile, safe setup, scoped commit', () => {
@@ -60,36 +68,12 @@ describe('dt install <spec> — closure, compile, safe setup, scoped commit', ()
 		assert.equal(treeHash(ws.root), before);
 	});
 
-	test('a core and a module it provides are refused in both orders, before npm, with nothing written', () => {
-		const a = offline();
-		assert.equal(run(a.root, ['install', '@fix/core', '--from', REG]).code, 0);
-		const h = treeHash(a.root);
-		const r = run(a.root, ['install', '@fix/a', '--from', REG]);
-		assert.equal(r.code, 1);
-		assert.match(r.stderr, /@fix\/core already provides @fix\/(a|b)/);
-		assert.equal(treeHash(a.root), h);
-		// the refusal comes by NAME, before any dependency is looked up: a folder holding only core and a
-		// (no b) still names core rather than complaining that b is missing
-		const only = fs.mkdtempSync(path.join(os.tmpdir(), 'dt-only-'));
-		for (const f of fs.readdirSync(REG).filter((n) => /^fix-(core|a)-/.test(n))) fs.copyFileSync(path.join(REG, f), path.join(only, f));
-		const byName = run(a.root, ['install', '@fix/a', '--from', only]);
-		assert.equal(byName.code, 1);
-		assert.match(byName.stderr, /@fix\/core already provides @fix\/a/);
-		const b = offline();
-		assert.equal(run(b.root, ['install', '@fix/a', '--from', REG]).code, 0);
-		const hb = treeHash(b.root);
-		const rb = run(b.root, ['install', '@fix/core', '--from', REG]);
-		assert.equal(rb.code, 1);
-		assert.match(rb.stderr, /@fix\/core provides @fix\/a, which is installed/);
-		assert.equal(treeHash(b.root), hb);
-	});
-
 	test('a ring, an engine floor this engine does not meet, a package that is not a module, a name the folder lacks', () => {
 		const ws = offline();
 		const h = treeHash(ws.root);
 		const ring = run(ws.root, ['install', '@fix/ring-x', '--from', REG]);
 		assert.equal(ring.code, 1);
-		assert.match(ring.stderr, /ring in dreamteamer\.dependencies: @fix\/ring-x → @fix\/ring-y → @fix\/ring-x/);
+		assert.match(ring.stderr, /ring in dreamteamer\.dependencies or preset: @fix\/ring-x → @fix\/ring-y → @fix\/ring-x/);
 		const old = run(ws.root, ['install', '@fix/old', '--from', REG]);
 		assert.equal(old.code, 1);
 		assert.match(old.stderr, /@fix\/old@1\.0\.0 needs engine ">=99\.0\.0" — this is [\d.]+; choose a version: dt install @fix\/old@<version>/);
@@ -247,5 +231,35 @@ describe('dt install <spec> — closure, compile, safe setup, scoped commit', ()
 		const before = treeHash(ws.root);
 		assert.equal(run(ws.root, ['install', '@fix/b', '--from', REG]).code, 0);
 		assert.equal(treeHash(ws.root), before);
+	});
+});
+
+// rnd/tests/dreamteamer/install-preset — CR-dt-008: a module preset installs its members at their
+// pins, each member's own closure first, the preset itself last; a member installed at another
+// version is refused before npm, naming the move.
+describe('dt install <module preset> pins every member', () => {
+	test('the members and their closure pinned exactly, the preset last, one commit', () => {
+		const ws = offline();
+		const r = run(ws.root, ['install', '@fix/set@1.0.0', '--from', REG]);
+		assert.equal(r.code, 0, r.stderr + r.stdout);
+		for (const [name, v] of [['@fix/set', '1.0.0'], ['@fix/a', '1.0.0'], ['@fix/b', '1.0.0'], ['@fix/c', '1.0.0']]) {
+			assert.equal(pinOf(ws.root, name), v, `${name} pinned exactly`);
+			assert.equal(installed(ws.root, name), v, `${name} installed`);
+		}
+		const line = r.stdout.split('\n').find((l) => l.includes('install:'));
+		assert.ok(line, r.stdout);
+		assert.match(line, /@fix\/set@1\.0\.0$/, `the preset last: ${line}`);
+		const c = lastCommit(ws.root);
+		assert.ok(c.files.includes('package.json') && c.files.includes('package-lock.json'), c.files.join(','));
+	});
+
+	test('a member installed at another version is refused before npm, nothing written', () => {
+		const ws = offline();
+		assert.equal(run(ws.root, ['install', '@fix/a@1.1.0', '--from', REG]).code, 0);
+		const h = treeHash(ws.root);
+		const r = run(ws.root, ['install', '@fix/set@1.0.0', '--from', REG]);
+		assert.equal(r.code, 1, r.stdout);
+		assert.match(r.stderr, /@fix\/a is installed at 1\.1\.0, not 1\.0\.0/);
+		assert.equal(treeHash(ws.root), h);
 	});
 });

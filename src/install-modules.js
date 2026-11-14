@@ -123,63 +123,53 @@ export function installedModules(ws) {
 }
 
 /**
- * Resolve the specs and the closure of their `dreamteamer.dependencies`, and refuse — before npm
- * writes anything — a package that is not a module, an engine floor this engine does not meet, a
- * ring, a version already installed differently, and `provides` conflicts in both directions.
- * Returns the ordered install list (dependencies first) and the names already satisfied.
+ * Resolve the specs and the closure of their `dreamteamer.dependencies` and, for a MODULE PRESET, its
+ * members at their pins (`dreamteamer.preset`, CR-dt-008), and refuse — before npm writes anything — a
+ * package that is not a module, an engine floor this engine does not meet, a ring, and a version
+ * already installed differently. Returns the ordered install list (members and dependencies first,
+ * the preset itself after them) and the names already satisfied. `skipMembers` names members the
+ * walk leaves out (`dt update` passes the ones the operator removed on purpose).
  */
-export function resolveClosure(specs, { installed, from = null, npm = resolveNpm(), cwd = process.cwd(), engine = engineVersion() } = {}) {
+export function resolveClosure(specs, { installed, from = null, npm = resolveNpm(), cwd = process.cwd(), engine = engineVersion(), skipMembers = new Set() } = {}) {
 	const index = from ? indexFolder(from) : null;
 	const list = [];
 	const already = [];
 	const seen = new Map(); // name → entry
-	// a package an INSTALLED one already provides: present for the walk (never resolved again), and refused
-	// the moment it is asked for by name — before any of its dependencies are looked up anywhere
-	const providedBy = (name) => [...installed].find(([, i]) => (i.manifest?.dreamteamer?.provides ?? []).includes(name))?.[0] ?? null;
 	const judge = (entry, askedAs, stack = []) => {
 		const m = entry.manifest;
 		if (!m.dreamteamer || typeof m.dreamteamer !== 'object') throw refuse(`${m.name}@${m.version} is not a dreamteamer module (no dreamteamer key in its package.json)${stack.length ? ` — needed by ${stack.at(-1)}` : ''}`);
-		const provider = providedBy(m.name);
-		if (provider) throw refuse(`${provider} already provides ${m.name} — it is installed; nothing to add`);
 		const range = m.dreamteamer.engine;
 		if (range && satisfies(engine, range) === false) throw refuse(`${m.name}@${m.version} needs engine "${range}" — this is ${engine}; choose a version: dt install ${m.name}@<version>`);
 		const here = installed.get(m.name);
 		if (here?.linked) throw refuse(`${m.name} is a development link (not pinned) — remove the link to pin a version`);
-		if (here && here.version && here.version !== m.version && askedAs === 'spec') throw refuse(`${m.name} is installed at ${here.version}, not ${m.version} — move it on purpose: dt update ${m.name}@${m.version}`);
+		if (here && here.version && here.version !== m.version && (askedAs === 'spec' || askedAs === 'member')) throw refuse(`${m.name} is installed at ${here.version}, not ${m.version} — move it on purpose: dt update ${m.name}@${m.version}`);
 	};
 	const walk = (spec, stack, askedAs) => {
-		// asked for by name and already provided: refuse by name, without reading any manifest
-		if (askedAs === 'spec' && !isPathSpec(spec, cwd)) { const p = providedBy(splitSpec(spec).name); if (p) throw refuse(`${p} already provides ${splitSpec(spec).name} — it is installed; nothing to add`); }
 		const entry = readSpecManifest(spec, { from, index, npm, cwd });
 		const name = entry.manifest.name;
-		if (stack.includes(name)) throw refuse(`ring in dreamteamer.dependencies: ${[...stack.slice(stack.indexOf(name)), name].join(' → ')}`);
+		if (stack.includes(name)) throw refuse(`ring in dreamteamer.dependencies or preset: ${[...stack.slice(stack.indexOf(name)), name].join(' → ')}`);
 		if (seen.has(name)) {
 			// the same module asked for twice at different versions is a conflict, never a silent first-wins
 			const prev = seen.get(name).manifest.version;
-			if (askedAs === 'spec' && prev !== entry.manifest.version) throw refuse(`${name} is asked for at ${prev} and at ${entry.manifest.version} — one version per call`);
+			if ((askedAs === 'spec' || askedAs === 'member') && prev !== entry.manifest.version) throw refuse(`${name} is asked for at ${prev} and at ${entry.manifest.version} — one version per call`);
 			return;
 		}
 		judge(entry, askedAs, stack);
 		const here = installed.get(name);
 		if (here && here.version === entry.manifest.version) { already.push(name); seen.set(name, entry); return; }
 		seen.set(name, entry);
+		// a module preset's members first, each at its pin, a nested preset recursing the same way
+		for (const [member, version] of Object.entries(entry.manifest.dreamteamer.preset ?? {})) {
+			if (skipMembers.has(member)) continue;
+			walk(`${member}@${version}`, [...stack, name], 'member');
+		}
 		for (const dep of entry.manifest.dreamteamer.dependencies ?? []) {
-			if ((installed.has(dep) || providedBy(dep)) && !stack.includes(dep)) continue; // present (or composed in): its own closure was judged when it came in
+			if (installed.has(dep) && !stack.includes(dep)) continue; // present: its own closure was judged when it came in
 			walk(dep, [...stack, name], 'dependency');
 		}
 		list.push(entry);
 	};
 	for (const s of specs) walk(s, [], 'spec');
-	// provides, both ways — against what is installed and within the call itself
-	const names = new Set(list.map((e) => e.manifest.name));
-	for (const e of list) {
-		const name = e.manifest.name;
-		for (const p of e.manifest.dreamteamer.provides ?? []) {
-			if (installed.has(p)) throw refuse(`${name} provides ${p}, which is installed — remove ${p} first (npm uninstall ${p}, then dt compile), or keep the small modules`);
-			if (names.has(p)) throw refuse(`${name} provides ${p} — install one or the other, not both in one call`);
-		}
-		for (const o of list) if (o !== e && (o.manifest.dreamteamer.provides ?? []).includes(name)) throw refuse(`${o.manifest.name} provides ${name} — install one or the other, not both in one call`);
-	}
 	return { list, already };
 }
 
