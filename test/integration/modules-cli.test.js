@@ -5,7 +5,7 @@
 //
 // ⚠ The grammar needs no cli.js change. `add` is already a COLLECTION_VERB and `set`/`rm`/`rename`
 // are already REF_VERBS, so `dt add modules --name core` and `dt rm modules/core` already reach
-// `collectionCommand(ws, 'modules', <verb>, …)` — which today falls through to the generic record
+// `targetCommand(ws, 'modules', <verb>, …)` — which today falls through to the generic record
 // switch and is refused by the store ("records are compiled sources"). Intercepting at the top of
 // that function is the whole dispatch, exactly as §4 says.
 import { test, describe } from "node:test"

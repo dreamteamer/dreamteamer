@@ -80,13 +80,13 @@ about the wrong thing. It also meant no verb could ever be named without a noun 
 arguments that only the caller knew belonged together.
 
 This file TRANSLATES; it does not implement. Every record and schema verb lands on
-`collectionCommand(ws, collection, verb, args)`, whose signature is unchanged.
+`targetCommand(ws, collection, verb, args)`, whose signature is unchanged.
 
 ## collections
 
-Files: [records/collectionCommand.ts](records/collectionCommand.ts) · [lib/consts.ts](lib/consts.ts) · [lib/isEntityKind.ts](lib/isEntityKind.ts) · [lib/nearest.ts](lib/nearest.ts) · [lib/parseArgs.ts](lib/parseArgs.ts) · [lib/refuseUnknownFlags.ts](lib/refuseUnknownFlags.ts) · [lib/rel.ts](lib/rel.ts) · [record/emit.ts](record/emit.ts) · [relationsCommand.ts](relationsCommand.ts) · [workspace/reportCommits.ts](workspace/reportCommits.ts)
+Files: [targetCommand.ts](targetCommand.ts) · [records/recordsCommand.ts](records/recordsCommand.ts) · [collections/collectionsCommand.ts](collections/collectionsCommand.ts) · [modules/modulesCommand.ts](modules/modulesCommand.ts) · [ui-views/uiViewsCommand.ts](ui-views/uiViewsCommand.ts) · [entities/entitiesCommand.ts](entities/entitiesCommand.ts) · [repos/reposCommand.ts](repos/reposCommand.ts) · [records/nextCommand.ts](records/nextCommand.ts) · [lib/consts.ts](lib/consts.ts) · [lib/isEntityKind.ts](lib/isEntityKind.ts) · [lib/nearest.ts](lib/nearest.ts) · [lib/parseArgs.ts](lib/parseArgs.ts) · [lib/refuseUnknownFlags.ts](lib/refuseUnknownFlags.ts) · [lib/rel.ts](lib/rel.ts) · [record/emit.ts](record/emit.ts) · [relationsCommand.ts](relationsCommand.ts) · [workspace/reportCommits.ts](workspace/reportCommits.ts)
 
-The IMPLEMENTATION layer behind the verb-first CLI: `collectionCommand(ws, collection, verb, args)`
+The IMPLEMENTATION layer behind the verb-first CLI: `targetCommand(ws, collection, verb, args)` routes to each target's command
 is (collection, verb) shaped and stays that way — `cli.js` translates `dt <verb> <target>` onto it.
 So a spelling here (`collections add`, `<collection> add-field`, `commands for`, `repos ensure`) is
 an INTERNAL pair, not what the operator types; `dt add collections` is what they type.

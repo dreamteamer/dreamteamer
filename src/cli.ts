@@ -13,7 +13,7 @@ import { openWorkspace, findWorkspace } from "./api.ts"
 import { checkAlone } from "./check/checkAlone.ts"
 import { compile, warnIfStale, kindsOf } from "./workspace/compile.ts"
 import { check } from "./check/check.ts"
-import { collectionCommand } from "./records/collectionCommand.ts"
+import { targetCommand } from "./targetCommand.ts"
 import { emit } from "./record/emit.ts"
 import { relationsCommand } from "./relationsCommand.ts"
 import { initCommand } from "./init/initCommand.ts"
@@ -299,7 +299,7 @@ const COLLECTION_VERBS = new Set(["list", "add", "values"])
 // FIELD VERBS (add-field, set-field, rm-field, rename-field, rename-value). Their <target> is a collection and everything else is flags, which is the one shape
 // that differs from the record verbs — so they get their own case arm rather than being folded into
 // `dispatchRecordVerb`. There is no `schema <op>` table any more: system entities take the record
-// verbs, and `collectionCommand`'s interceptors are the whole dispatch (§4).
+// verbs, and `targetCommand`'s interceptors are the whole dispatch (§4).
 
 // WORKSPACE VERBS take a closed set of options, and nothing downstream of here would notice a
 // misspelling — `dt commit --dryrun` COMMITTED, because `rest.includes('--dry-run')` is false for a
@@ -509,7 +509,7 @@ export async function run(argv: string[]): Promise<void> {
           await installCommand(ws, rest, {
             open: openWorkspace,
             verify,
-            ensureRepos: args => collectionCommand(ws, "repos", "ensure", args),
+            ensureRepos: args => targetCommand(ws, "repos", "ensure", args),
           })
         )
       case "update":
@@ -587,7 +587,7 @@ export async function run(argv: string[]): Promise<void> {
         }
         // the singular is legal here too: `dt add-field task --name due …`
         return process.exit(
-          collectionCommand(ws, canonicalCollection(new Store(ws).descriptors, target) ?? target, cmd, flagArgs)
+          targetCommand(ws, canonicalCollection(new Store(ws).descriptors, target) ?? target, cmd, flagArgs)
         )
       }
       case "relations":
@@ -717,20 +717,20 @@ function dispatchRecordVerb(ws: Workspace, verb: string, args: string[]): number
   // the store's own "unknown collection" sentence, which lists what exists, is the one printed.
   const { descriptors } = new Store(ws)
   const canonical = canonicalCollection(descriptors, target) ?? target
-  if (COLLECTION_VERBS.has(verb)) return collectionCommand(ws, canonical, verb, rest)
+  if (COLLECTION_VERBS.has(verb)) return targetCommand(ws, canonical, verb, rest)
   if (REF_VERBS.has(verb)) {
     const { collection, id } = splitRef(descriptors, target)
-    return collectionCommand(ws, collection, verb, [id, ...rest])
+    return targetCommand(ws, collection, verb, [id, ...rest])
   }
   // the verbs that take EITHER (`reorder`, `next`) from here: a bare collection is legal for both — `move <collection> --init`,
   // `next <collection>`.
   if (descriptors.has(canonical)) {
     return verb === "reorder"
-      ? collectionCommand(ws, canonical, "reorder", rest)
-      : collectionCommand(ws, "commands", "for", [canonical, ...rest])
+      ? targetCommand(ws, canonical, "reorder", rest)
+      : targetCommand(ws, "commands", "for", [canonical, ...rest])
   }
   const { collection, id } = splitRef(descriptors, target)
-  if (verb === "reorder") return collectionCommand(ws, collection, "reorder", [id, ...rest])
+  if (verb === "reorder") return targetCommand(ws, collection, "reorder", [id, ...rest])
   // `commands for <c>/<id>` split its own target at the FIRST slash, which cannot name a
   // namespaced collection. splitRef can, so the id is handed over as `--ids` — the same
   // `commandsFor(store, collection, ids)` call, reached without re-encoding the reference.
@@ -738,7 +738,7 @@ function dispatchRecordVerb(ws: Workspace, verb: string, args: string[]): number
   // used to rely on "last flag parsed wins", which stopped being true when a repeated flag started
   // promoting to an array instead of overwriting: the pair would now be refused as a double.
   const ours = rest.some(a => a === "--ids" || a.startsWith("--ids=")) ? [] : ["--ids", id]
-  return collectionCommand(ws, "commands", "for", [collection, ...ours, ...rest])
+  return targetCommand(ws, "commands", "for", [collection, ...ours, ...rest])
 }
 
 function watchAndRecompile(ws: Workspace): void {

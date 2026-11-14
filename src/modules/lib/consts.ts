@@ -1,3 +1,4 @@
+import { KINDS } from "../../workspace/consts.ts"
 // ---- modules ---------------------------------------------------------------------------------
 // A module is THREE-SPELLED today: the package `name` (discovery, `dependencies`), the
 // folder (the `workspace_module` key), and the slugged scope-stripped record id. The RECORD ID is
@@ -9,3 +10,7 @@
 /** A module id: the same id-safe alphabet a namespace segment uses, because it becomes a folder
  *  name, a package name and a record id at once. */
 export const MODULE_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
+
+/** How many kind folders `add modules` scaffolds, for its own report. Read off the engine's own
+ *  KINDS so the sentence cannot go stale against the list it describes. */
+export const KIND_COUNT = KINDS.length

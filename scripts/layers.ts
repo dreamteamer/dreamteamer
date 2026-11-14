@@ -44,11 +44,6 @@ const COMMANDS = new Set([
   "update",
 ])
 
-// ⚠ THE ONE NAMED EXCEPTION, until it is split: records/collectionCommand.ts is the CLI translation for
-// every record, system and field verb, so it dispatches into collections/, modules/, ui-views/,
-// entities/ and repos/. Splitting it by target is the next step; this list empties when that lands.
-const DISPATCHERS = new Set(["records/collectionCommand"])
-
 // who may import whom. A command folder may also import its OWN folder, never another command's —
 // checked below, not in this table.
 const ALLOWED: Record<string, Set<string>> = {
@@ -105,12 +100,7 @@ for (const f of files) {
       problems.push(
         `src/${f} (${layer}) imports src/${target}.ts (${targetLayer}) — ${layer} may only import ${[...ALLOWED[layer]].join(", ")}`
       )
-    } else if (
-      layer === "command" &&
-      targetLayer === "command" &&
-      target.split("/")[0] !== mod.split("/")[0] &&
-      !DISPATCHERS.has(mod)
-    ) {
+    } else if (layer === "command" && targetLayer === "command" && target.split("/")[0] !== mod.split("/")[0]) {
       problems.push(
         `src/${f} imports src/${target}.ts — a command folder holds code only its own command uses; what two commands share belongs in src/lib (or src/record, src/runtime, src/workspace)`
       )

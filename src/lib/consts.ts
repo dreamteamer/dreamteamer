@@ -31,7 +31,7 @@ export const OWN_VERBS = new Set(["collections", "ui-views", "modules"])
 
 /**
  * THE ONE PLACE A FLAG NAME IS VALIDATED — every record, system and field verb goes through
- * `collectionCommand`, so the check lives beside the parser they share rather than being
+ * `targetCommand`, so the check lives beside the parser they share rather than being
  * re-invented per verb.
  *
  * ⚠ IT EXISTS BECAUSE THE PARSER USED TO SWALLOW EVERYTHING. `dt add modules --name hr --bogusflag x`
@@ -117,3 +117,8 @@ export const VERB_FLAGS: Record<string, string[]> = {
   "ui-views:set": ["json", "module", "id", "force", "dry-run"],
   "ui-views:rm": FORCE_RM,
 }
+
+// ⚠ `module` and `dry-run` are VERB OPTIONS on every verb that takes them, so they may never be
+// read as record field names. A collection wanting a field literally called `module` writes it as
+// `module=<v>` positionally, which `pairs()` reads and `stripMeta` never sees.
+export const META_FLAGS = new Set(["id", "json", "force", "filter", "module", "dry-run"])
