@@ -150,7 +150,7 @@ silently. Two edges:
 `dt add ui-views --route /people/recent --scope collection --collection collections/people
 display.list.layout=cards`, `dt set ui-views/<id> <dotted.key>=<value>`, `dt rm ui-views/<id>`
 — all through the compile gate, committing themselves. `add` derives the record id from `route`,
-so a view saved from the CLI and one saved from a surface land on the **same record**. Three edges:
+so a view saved from the CLI and one saved from a surface land on the **same record**. Four edges:
 
 - **`add` writes the workspace module** — right for an operator's own daily surface; a view that
   is part of a module's canonical shape belongs in that module's `ui-views/`, hand-written.
