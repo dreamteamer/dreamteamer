@@ -13,6 +13,7 @@ import { spawnSync, execFileSync } from 'node:child_process';
 import { resolveNpm, childEnv } from './checkout.js';
 import { readSpecManifest, resolveClosure, installedModules, compareVersions, InstallRefusal, npmFloor, npmAndCompile, printUnitResults } from './install-modules.js';
 import { EXIT } from './setup.js';
+import { moduleIdOf } from './compile.js';
 
 const gitOk = (root, args) => { try { execFileSync('git', args, { cwd: root, stdio: 'ignore' }); return true; } catch { return false; } };
 
@@ -61,12 +62,31 @@ export async function updateModules(ws, { name = null, version = null, engine = 
 	// being asked for), then install's steps 2–6 on the WHOLE resolved list: a version that adds a
 	// dreamteamer.dependencies entry brings the dependency in, compiled and committed with it, and a
 	// version that adds a setup unit runs its safe part
-	const others = new Map([...installed].filter(([n]) => n !== target));
+	//
+	// A MODULE PRESET (CR-dt-008): each installed member at another version than the new pin leaves the
+	// installed map too, so it is re-walked at that pin instead of refusing as "installed at another
+	// version"; a member the INSTALLED version listed and the operator uninstalled is skipped (removed
+	// on purpose); a member new to this version — and every member on a first expansion, when the
+	// installed version was no preset — is walked and installed.
+	const installedMap = here.manifest?.dreamteamer?.preset;
+	const newMap = entry.manifest.dreamteamer?.preset ?? {};
+	const moving = new Set(Object.entries(newMap).filter(([n, v]) => installed.has(n) && installed.get(n).version !== v).map(([n]) => n));
+	const skipMembers = new Set(Object.keys(newMap).filter((n) => !installed.has(n) && installedMap && n in installedMap));
+	const others = new Map([...installed].filter(([n]) => n !== target && !moving.has(n)));
 	let plan;
-	try { plan = resolveClosure([entry.spec], { installed: others, from, npm, cwd: ws.root }); } catch (e) { if (e instanceof InstallRefusal) { console.error(`✖ ${e.message}`); return EXIT.failed; } throw e; }
+	try { plan = resolveClosure([entry.spec], { installed: others, skipMembers, from, npm, cwd: ws.root }); } catch (e) { if (e instanceof InstallRefusal) { console.error(`✖ ${e.message}`); return EXIT.failed; } throw e; }
+	// a member moved below what is installed is a downgrade, said on purpose like the target's own
+	for (const e of plan.list) {
+		const n = e.manifest.name, was = installed.get(n)?.version;
+		if (n === target || !was || compareVersions(e.manifest.version, was) >= 0 || allow.has('downgrade')) continue;
+		console.error(`✖ ${n} ${was} → ${e.manifest.version} is a downgrade (module preset ${moduleIdOf(target)} names ${e.manifest.version}) — say so: dt update ${target}@${next} --allow downgrade`);
+		return EXIT.failed;
+	}
 	const names = plan.list.map((e) => e.manifest.name);
-	const extra = names.filter((n) => n !== target);
-	log(`▶ update: ${target} ${here.version} → ${next}${extra.length ? ` — with ${extra.join(', ')}` : ''}`);
+	const moved = plan.list.filter((e) => e.manifest.name !== target && installed.has(e.manifest.name)).map((e) => `${e.manifest.name} ${installed.get(e.manifest.name).version} → ${e.manifest.version}`);
+	const extra = names.filter((n) => n !== target && !installed.has(n));
+	const tail = `${moved.length ? ` — members: ${moved.join(', ')}` : ''}${extra.length ? ` — with ${extra.join(', ')}` : ''}`;
+	log(`▶ update: ${target} ${here.version} → ${next}${tail}`);
 	const step = await npmAndCompile(ws, plan.list, { npm, open, log, what: 'update' });
 	if (step.code !== undefined) return step.code;
 	// the setup half in a fresh process: this one imported the version npm just replaced (ESM caches it)
@@ -75,7 +95,7 @@ export async function updateModules(ws, { name = null, version = null, engine = 
 		console.error(`✖ ${target} ${here.version} → ${next}: npm and compile ran, but the setup half did not finish — run dt install ${target} to finish it (it commits the re-pin and runs the setup)`);
 		return EXIT.failed;
 	}
-	log(`✔ ${target} ${here.version} → ${next}${extra.length ? ` (with ${extra.join(', ')})` : ''} — compiled${out.committed ? `, committed (${out.committed.join(', ')})` : ', not committed'}`);
+	log(`✔ ${target} ${here.version} → ${next}${tail} — compiled${out.committed ? `, committed (${out.committed.join(', ')})` : ', not committed'}`);
 	printUnitResults(out.results, out.ignored, log);
 	return out.code;
 }

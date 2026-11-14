@@ -1,0 +1,13 @@
+name: fixsets
+description: A fixsets record.
+storage:
+  path: fixsets
+  format: md
+  shape: file
+  suffix: fixset
+ids:
+  from: '{{ title | slug }}'
+fields:
+  title:
+    type: string
+    required: true

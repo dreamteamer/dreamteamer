@@ -1,0 +1,17 @@
+{
+	"name": "@fix/set",
+	"version": "1.1.0",
+	"description": "@fix/set 1.1.0",
+	"files": [
+		"nav.yaml"
+	],
+	"dreamteamer": {
+		"description": "@fix/set — a synthetic module preset for install and update tests.",
+		"preset": {
+			"@fix/a": "1.1.0",
+			"@fix/c": "1.0.0",
+			"@fix/d": "1.0.0"
+		},
+		"nav": "nav.yaml"
+	}
+}
