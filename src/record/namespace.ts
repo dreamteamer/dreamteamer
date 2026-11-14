@@ -1,5 +1,5 @@
-import { singular } from "./singular.ts"
-import { INVARIANT } from "./consts.ts"
+import { singular } from "../lib/singular.ts"
+import { INVARIANT } from "../lib/consts.ts"
 
 /**
  * The declared namespace a qualified collection name sits in, or `''` for the default namespace.

@@ -1,6 +1,6 @@
 import { Store } from "./record/Store.ts"
-import { envContext } from "./record/envContext.ts"
-import { renderTemplate } from "./record/renderTemplate.ts"
+import { envContext } from "./workspace/envContext.ts"
+import { renderTemplate } from "./workspace/renderTemplate.ts"
 import { splitRef } from "./record/splitRef.ts"
 import type { Workspace } from "./types.ts"
 

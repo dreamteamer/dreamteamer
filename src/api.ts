@@ -1,7 +1,7 @@
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 import * as self from "./api.ts"
-import { findWorkspace } from "./record/findWorkspace.ts"
+import { findWorkspace } from "./workspace/findWorkspace.ts"
 import { loadExtensions } from "./workspace/loadExtensions.ts"
 import { manifestViolations } from "./workspace/manifestViolations.ts"
 import fs from "node:fs"
@@ -104,9 +104,9 @@ export const engineBin = fileURLToPath(new URL("../bin/dreamteamer.js", import.m
 export const engineRoot = path.dirname(path.dirname(engineBin))
 
 // ---- values the workspace half adds ---------------------------------------------------------------
-export { envContext } from "./record/envContext.ts"
-export { renderTemplate } from "./record/renderTemplate.ts"
-export { parseEnvValues } from "./record/parseEnvValues.ts"
+export { envContext } from "./workspace/envContext.ts"
+export { renderTemplate } from "./workspace/renderTemplate.ts"
+export { parseEnvValues } from "./workspace/parseEnvValues.ts"
 // the one template grammar (`{{ field | filter:arg }}`): what a surface renders `record_title`,
 // `display.record.subtitle`, `card_title` and `item_title` with, so no surface keeps a second parser
 export { parseTemplate } from "./record/parseTemplate.ts"
@@ -152,7 +152,7 @@ export { listRepos } from "./workspace/listRepos.ts"
 export { installClone } from "./install/installClone.ts"
 
 // ---- the checkout: which one this is, and how it becomes ready ---------------------------------
-export { describeCheckout } from "./workspace/describeCheckout.ts"
+export { describeCheckout } from "./lib/git/describeCheckout.ts"
 export { resolveNpm } from "./workspace/resolveNpm.ts"
 export { childEnv } from "./workspace/childEnv.ts"
 export { readHookInput } from "./install/readHookInput.ts"
@@ -169,5 +169,5 @@ export const installCommand = (
 ): Promise<number> => installCheckout(ws, argv, { open: openWorkspace, ...opts })
 
 // ---- CLI helpers an extension command reuses -----------------------------------------------------
-export { emit } from "./record/emit.ts"
+export { emit } from "./lib/emit.ts"
 export { parseArgs } from "./lib/parseArgs.ts"

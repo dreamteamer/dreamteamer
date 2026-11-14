@@ -1,5 +1,5 @@
 import { storageOf } from "./storageOf.ts"
-import { load } from "./yaml.ts"
+import { load } from "../lib/yaml.ts"
 import type { Descriptor, Fields } from "../types.ts"
 
 export function parseRecordText(text: string, d: Descriptor, bodyField?: string | null): Fields {

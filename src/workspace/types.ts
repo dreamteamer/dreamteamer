@@ -217,3 +217,9 @@ export type StatusLine = Folded & {
   checks: SetupCheck[]
   next: string
 }
+
+/** What `renderTemplate` renders AGAINST, for one workspace: the names `dreamteamer.vars` declares,
+ *  the values this machine's `.env` carries, and the root. One builder rather than three lines at
+ *  each call site — `dt resolve` and `repos ensure` disagreeing about which vars are declared would
+ *  be a path that renders in one verb and refuses in the other. */
+export type EnvContext = { env: Map<string, string>; workspaceFolder: string; declared: string[] }

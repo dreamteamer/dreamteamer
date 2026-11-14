@@ -1,6 +1,6 @@
 import yaml from "js-yaml"
 import type { Pair, Node } from "yaml"
-import { endOf } from "./lib/endOf.ts"
+import { endOf } from "./endOf.ts"
 
 /** Parse YAML. `T` is the shape the CALLER expects — YAML is untrusted input, so it is asserted here and
  *  validated where it is used (compile, check), never assumed checked by this call. */

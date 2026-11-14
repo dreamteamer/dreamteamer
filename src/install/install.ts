@@ -4,12 +4,12 @@ import fs from "node:fs"
 import { commitOf } from "./commitOf.ts"
 import { isLink } from "./isLink.ts"
 import { offRef } from "./offRef.ts"
-import { declaredGitModules } from "../record/declaredGitModules.ts"
+import { declaredGitModules } from "../workspace/declaredGitModules.ts"
 import type { Workspace } from "../types.ts"
 import { QUIET } from "../workspace/consts.ts"
 import { appendMissing } from "../workspace/appendMissing.ts"
 import { buildClone } from "../workspace/buildClone.ts"
-import { tryGit } from "../workspace/tryGit.ts"
+import { tryGit } from "../lib/git/tryGit.ts"
 
 // dreamteamer install — restore git_modules/ working clones from the committed lockfile map, and what each
 // restored clone NEEDS in turn (`declaredGitModules`, the npm model): a layer a clone's manifest names is

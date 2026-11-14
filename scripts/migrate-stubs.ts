@@ -23,7 +23,7 @@ const engine = <M>(name: string): Promise<M> =>
 const { Store } = await engine<typeof import("../src/record/Store.ts")>("record/Store")
 const { parseRecord } = await engine<typeof import("../src/record/records.ts")>("record/records")
 const { idFromRecordPath } = await engine<typeof import("../src/record/idFromRecordPath.ts")>("record/idFromRecordPath")
-const { walk } = await engine<typeof import("../src/record/walk.ts")>("record/walk")
+const { walk } = await engine<typeof import("../src/lib/walk.ts")>("lib/walk")
 const { exportsFacts } = await engine<typeof import("../src/runtime/exportsFacts.ts")>("runtime/exportsFacts")
 const { storageOf } = await engine<typeof import("../src/record/storageOf.ts")>("record/storageOf")
 const { bodyFieldOf, recordTitleOf } = await engine<typeof import("../src/record/descriptor.ts")>("record/descriptor")

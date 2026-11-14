@@ -2,7 +2,7 @@ import path from "node:path"
 import { parentFolders } from "./parentFolders.ts"
 import { placementOf } from "./placement.ts"
 import { rootRecords } from "./lib/rootRecords.ts"
-import { symlinkBelow } from "./symlinkBelow.ts"
+import { symlinkBelow } from "../lib/symlinkBelow.ts"
 import type { OnLink, PlacedRecord } from "./types.ts"
 import type { Descriptor } from "../types.ts"
 

@@ -2,7 +2,7 @@ import fs from "node:fs"
 import path from "node:path"
 import { commitOf } from "./commitOf.ts"
 import { isLink } from "./isLink.ts"
-import { tryGit } from "../workspace/tryGit.ts"
+import { tryGit } from "../lib/git/tryGit.ts"
 
 /** Is this clone somewhere other than its declared ref? A branch ref is met by being ON the branch —
  *  moving it forward is `dt update`'s job; a tag or a sha by HEAD being that commit. Answered from

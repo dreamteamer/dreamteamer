@@ -12,7 +12,7 @@ import { test, describe } from "node:test"
 import assert from "node:assert/strict"
 import fs from "node:fs"
 import { workspace, simpleCollection, compileError, readFile } from "../helpers/ws.js"
-import { load, dump } from "../../src/record/yaml.ts"
+import { load, dump } from "../../src/lib/yaml.ts"
 import { presentation } from "../../src/record/presentation.ts"
 import { loadDescriptors } from "../../src/runtime/loadDescriptors.ts"
 

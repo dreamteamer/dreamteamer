@@ -1,5 +1,5 @@
 import { parseDocument, isMap, type Pair, type Node } from "yaml"
-import { keyOf } from "../../record/yaml.ts"
+import { keyOf } from "../../lib/yaml.ts"
 
 /**
  * Rename mapping KEYS in place, in the bytes: each `{ path, to }` names a key by its path from the

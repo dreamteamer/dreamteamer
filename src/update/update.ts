@@ -1,11 +1,11 @@
 import path from "node:path"
 import fs from "node:fs"
 import { execFileSync } from "node:child_process"
-import { declaredGitModules } from "../record/declaredGitModules.ts"
+import { declaredGitModules } from "../workspace/declaredGitModules.ts"
 import type { Workspace } from "../types.ts"
 import { buildClone } from "../workspace/buildClone.ts"
 import { discoverModules } from "../workspace/discoverModules.ts"
-import { tryGit } from "../workspace/tryGit.ts"
+import { tryGit } from "../lib/git/tryGit.ts"
 
 // dreamteamer update [<name>] — pull each lockfile-declared git_modules clone forward
 // (ff-only on its recorded ref) and rebuild it. dirty clones are skipped, never touched.

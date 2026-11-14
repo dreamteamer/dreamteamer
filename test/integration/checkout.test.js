@@ -8,7 +8,7 @@ import assert from "node:assert/strict"
 import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
-import { describeCheckout } from "../../src/workspace/describeCheckout.ts"
+import { describeCheckout } from "../../src/lib/git/describeCheckout.ts"
 import { git } from "../helpers/ws.js"
 
 let base, ws, linked

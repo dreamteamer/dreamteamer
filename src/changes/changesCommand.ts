@@ -1,8 +1,8 @@
 import { recordChanges } from "./recordChanges.ts"
 import { Store } from "../record/Store.ts"
-import { emit } from "../record/emit.ts"
-import { groupChanges } from "../record/groupChanges.ts"
-import { printChanges } from "../record/printChanges.ts"
+import { emit } from "../lib/emit.ts"
+import { groupChanges } from "./groupChanges.ts"
+import { printChanges } from "./printChanges.ts"
 import type { Workspace } from "../types.ts"
 import { warnIfStale } from "../workspace/compile.ts"
 

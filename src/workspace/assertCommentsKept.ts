@@ -1,6 +1,6 @@
 import fs from "node:fs"
 import path from "node:path"
-import { commentCount } from "../record/yaml.ts"
+import { commentCount } from "../lib/yaml.ts"
 import type { Workspace } from "../types.ts"
 import type { Snapshot } from "./types.ts"
 

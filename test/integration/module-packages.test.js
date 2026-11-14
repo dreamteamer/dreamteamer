@@ -8,7 +8,7 @@ import fs from "node:fs"
 import path from "node:path"
 import { workspace, compileQuietly, compileError, simpleCollection, writeModule } from "../helpers/ws.js"
 import { discoverModules } from "../../src/workspace/discoverModules.ts"
-import { dump } from "../../src/record/yaml.ts"
+import { dump } from "../../src/lib/yaml.ts"
 
 /** A bundle at `dir`: a root package.json carrying the `dreamteamer` marker and `modules/<m>/` each
  *  shipping one collection named after the module. */

@@ -1,7 +1,7 @@
 import type { Workspace, Flags } from "../types.ts"
 import { ensureAllRepos, ensureRepo } from "./repos.ts"
 import { need } from "../lib/need.ts"
-import { emit } from "../record/emit.ts"
+import { emit } from "../lib/emit.ts"
 import { Store } from "../record/Store.ts"
 
 /**

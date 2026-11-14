@@ -2,7 +2,7 @@ import fs from "node:fs"
 import path from "node:path"
 import { normalizeNamespaces } from "../record/normalizeNamespaces.ts"
 import { storageOf } from "../record/storageOf.ts"
-import { load } from "../record/yaml.ts"
+import { load } from "../lib/yaml.ts"
 import type { Descriptor, Manifest } from "../types.ts"
 import { DERIVED_KINDS, RUNTIME_DIR } from "./consts.ts"
 

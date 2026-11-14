@@ -9,7 +9,7 @@ import assert from "node:assert/strict"
 import fs from "node:fs"
 import path from "node:path"
 import { twoModuleWorkspace, readFile } from "../helpers/ws.js"
-import { load, dump } from "../../src/record/yaml.ts"
+import { load, dump } from "../../src/lib/yaml.ts"
 import { singularOf } from "../../src/record/descriptor.ts"
 
 /** The singular a compiled descriptor answers to — authored, or derived into `compiled.defaults`. */

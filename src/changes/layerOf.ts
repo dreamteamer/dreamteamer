@@ -1,4 +1,4 @@
-import { storageOf } from "./storageOf.ts"
+import { storageOf } from "../record/storageOf.ts"
 import type { Descriptors } from "../types.ts"
 
 /** The record layer a repo is, by name — what a descriptor's root carries — or null for the workspace

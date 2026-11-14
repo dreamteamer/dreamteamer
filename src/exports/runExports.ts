@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process"
 import { planExports } from "./planExports.ts"
 import type { Store } from "../record/Store.ts"
 import { EXPORTS_FILE } from "../record/consts.ts"
-import { inProgress } from "../record/inProgress.ts"
+import { inProgress } from "../lib/git/inProgress.ts"
 import type { ExportChange } from "../record/types.ts"
 import { exportsFacts } from "../runtime/exportsFacts.ts"
 

@@ -1,36 +1,5 @@
 import type { Storage, TemplatePart } from "../types.ts"
 
-/** One pending record file `git status` reported, mapped back to its record. */
-export type Row = { verb: string; collection: string; id: string; repoRel: string; fromRel: string | null }
-
-/** What `renderTemplate` renders AGAINST, for one workspace: the names `dreamteamer.vars` declares,
- *  the values this machine's `.env` carries, and the root. One builder rather than three lines at
- *  each call site — `dt resolve` and `repos ensure` disagreeing about which vars are declared would
- *  be a path that renders in one verb and refuses in the other. */
-export type EnvContext = { env: Map<string, string>; workspaceFolder: string; declared: string[] }
-
-export type ChangeKind = "created" | "updated" | "deleted"
-
-/** One record's change, keyed by `ref` per `repo` — the shape `foldChanges` folds and `groupChanges` groups. */
-export type RecordChange = {
-  collection: string
-  id: string
-  ref: string
-  repo: string
-  change: ChangeKind
-  layer?: string | null
-  path?: string
-}
-
-export type ChangeGroup<T extends RecordChange = RecordChange> = {
-  collection: string
-  layer: string | null
-  created: number
-  updated: number
-  deleted: number
-  records: T[]
-}
-
 export type ExportEntry = { label: string; from?: string }
 
 /** A collection root as one context sees it: its layer (null: the write root), its package, whether it is on disk. */

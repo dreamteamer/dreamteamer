@@ -12,7 +12,7 @@ import path from "node:path"
 import { workspace, compileQuietly, readFile } from "../helpers/ws.js"
 import { saveUiView } from "../../src/ui-views/saveUiView.ts"
 import { removeUiView } from "../../src/ui-views/removeUiView.ts"
-import { load, dump } from "../../src/record/yaml.ts"
+import { load, dump } from "../../src/lib/yaml.ts"
 
 const DOCTORS = {
   description: "A doctor.",

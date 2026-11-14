@@ -1,7 +1,7 @@
 import path from "node:path"
 import fs from "node:fs"
 import { slash } from "../record/namespace.ts"
-import { dump, load } from "../record/yaml.ts"
+import { dump, load } from "../lib/yaml.ts"
 import type { Entry, LoadedExtension, Manifest } from "../types.ts"
 import { buildCollectionsIndex } from "./buildCollectionsIndex.ts"
 import { buildModulesIndex } from "./buildModulesIndex.ts"

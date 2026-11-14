@@ -1,6 +1,6 @@
 import { doctorBoard } from "./doctorBoard.ts"
 import { renderBoard } from "./renderBoard.ts"
-import { emit } from "../record/emit.ts"
+import { emit } from "../lib/emit.ts"
 import type { Workspace } from "../types.ts"
 
 export async function doctorCommand(ws: Workspace, rest: string[], dt: typeof import("../api.ts")): Promise<number> {

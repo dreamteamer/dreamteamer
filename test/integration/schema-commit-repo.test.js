@@ -11,7 +11,7 @@ import assert from "node:assert/strict"
 import fs from "node:fs"
 import path from "node:path"
 import { twoModuleWorkspace, git, readFile } from "../helpers/ws.js"
-import { load } from "../../src/record/yaml.ts"
+import { load } from "../../src/lib/yaml.ts"
 
 /**
  * Turn `modules/hr` into a GIT-SHAPE module: its own clone under `git_modules/`, with its own

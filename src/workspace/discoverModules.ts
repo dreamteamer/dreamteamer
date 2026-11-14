@@ -1,6 +1,6 @@
 import fs from "node:fs"
 import path from "node:path"
-import { layerEntries } from "../record/layerEntries.ts"
+import { layerEntries } from "./layerEntries.ts"
 import type { PackageJson, Workspace } from "../types.ts"
 import { disablesPackage, isPackageEntry } from "./extensions.ts"
 import type { ModuleSource } from "./types.ts"

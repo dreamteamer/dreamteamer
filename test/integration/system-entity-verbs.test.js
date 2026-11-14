@@ -14,7 +14,7 @@ import assert from "node:assert/strict"
 import fs from "node:fs"
 import path from "node:path"
 import { twoModuleWorkspace, readFile } from "../helpers/ws.js"
-import { load } from "../../src/record/yaml.ts"
+import { load } from "../../src/lib/yaml.ts"
 
 describe("skills — add scaffolds the minimum that compiles", () => {
   test("add skills --name --description writes SKILL.md with frontmatter and an empty body", () => {

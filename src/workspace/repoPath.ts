@@ -1,6 +1,6 @@
 import path from "node:path"
-import { envContext } from "../record/envContext.ts"
-import { renderTemplate } from "../record/renderTemplate.ts"
+import { envContext } from "./envContext.ts"
+import { renderTemplate } from "./renderTemplate.ts"
 import type { Workspace } from "../types.ts"
 import type { RepoFields } from "./types.ts"
 

@@ -1,7 +1,7 @@
 import path from "node:path"
 import { execFileSync } from "node:child_process"
 import type { EventType } from "./types.ts"
-import { commitArg } from "../record/commitArg.ts"
+import { commitArg } from "../lib/git/commitArg.ts"
 import { pathToRecord } from "../record/pathToRecord.ts"
 import { storageOf } from "../record/storageOf.ts"
 import type { Descriptors } from "../types.ts"

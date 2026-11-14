@@ -6,8 +6,8 @@
 // one of those was destroyed or reflowed by the `load` → mutate → `dump` path this replaces.
 import { test, describe } from "node:test"
 import assert from "node:assert/strict"
-import { load, dump, commentCount } from "../../src/record/yaml.ts"
-import { writeSource } from "../../src/record/writeSource.ts"
+import { load, dump, commentCount } from "../../src/lib/yaml.ts"
+import { writeSource } from "../../src/lib/writeSource.ts"
 import { renameKeys } from "../../src/collections/lib/renameKeys.ts"
 import { formatSource } from "../../src/fmt/formatSource.ts"
 

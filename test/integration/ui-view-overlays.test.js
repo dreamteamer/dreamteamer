@@ -16,7 +16,7 @@ import { setCollectionScalars } from "../../src/collections/setCollectionScalars
 import { overlayView } from "../../src/workspace/overlayView.ts"
 import { viewOverlayOf } from "../../src/ui-views/lib/viewOverlayOf.ts"
 import { Store } from "../../src/record/Store.ts"
-import { load, dump } from "../../src/record/yaml.ts"
+import { load, dump } from "../../src/lib/yaml.ts"
 
 const DOCTORS = {
   ids: { from: "{{ name | slug }}" },

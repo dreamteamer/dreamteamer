@@ -1,4 +1,4 @@
-import { execFileSync, spawnSync } from "node:child_process"
+import { spawnSync } from "node:child_process"
 import fs from "node:fs"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
@@ -15,15 +15,7 @@ import { resolveNpm } from "../workspace/resolveNpm.ts"
 import { EXIT } from "../workspace/consts.ts"
 import type { setupAndCommit } from "../workspace/setupAndCommit.ts"
 import { InstallRefusal, compareVersions } from "../workspace/versions.ts"
-
-const gitOk = (root: string, args: string[]): boolean => {
-  try {
-    execFileSync("git", args, { cwd: root, stdio: "ignore" })
-    return true
-  } catch {
-    return false
-  }
-}
+import { gitOk } from "../lib/git/gitOk.ts"
 
 /**
  * `updateModules(ws, { name, version, engine, allow, from }, { open, npm, log })` → exit code.

@@ -21,7 +21,7 @@ import { createHash } from "node:crypto"
 import { fileURLToPath } from "node:url"
 import { compile } from "../../src/workspace/compile.ts"
 import { Store } from "../../src/record/Store.ts"
-import { dump } from "../../src/record/yaml.ts"
+import { dump } from "../../src/lib/yaml.ts"
 
 export const ENGINE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..")
 const TMP = path.join(ENGINE_ROOT, "test", ".tmp")

@@ -1,5 +1,5 @@
-import { writeSource } from "../../record/writeSource.ts"
-import { load } from "../../record/yaml.ts"
+import { writeSource } from "../../lib/writeSource.ts"
+import { load } from "../../lib/yaml.ts"
 import type { SourceDoc } from "../../workspace/types.ts"
 
 /**

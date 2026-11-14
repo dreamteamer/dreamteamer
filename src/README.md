@@ -84,7 +84,7 @@ This file TRANSLATES; it does not implement. Every record and schema verb lands 
 
 ## collections
 
-Files: [targetCommand.ts](targetCommand.ts) · [records/recordsCommand.ts](records/recordsCommand.ts) · [collections/collectionsCommand.ts](collections/collectionsCommand.ts) · [modules/modulesCommand.ts](modules/modulesCommand.ts) · [ui-views/uiViewsCommand.ts](ui-views/uiViewsCommand.ts) · [entities/entitiesCommand.ts](entities/entitiesCommand.ts) · [repos/reposCommand.ts](repos/reposCommand.ts) · [records/nextCommand.ts](records/nextCommand.ts) · [lib/consts.ts](lib/consts.ts) · [lib/isEntityKind.ts](lib/isEntityKind.ts) · [lib/nearest.ts](lib/nearest.ts) · [lib/parseArgs.ts](lib/parseArgs.ts) · [lib/refuseUnknownFlags.ts](lib/refuseUnknownFlags.ts) · [lib/rel.ts](lib/rel.ts) · [record/emit.ts](record/emit.ts) · [relationsCommand.ts](relationsCommand.ts) · [workspace/reportCommits.ts](workspace/reportCommits.ts)
+Files: [targetCommand.ts](targetCommand.ts) · [records/recordsCommand.ts](records/recordsCommand.ts) · [collections/collectionsCommand.ts](collections/collectionsCommand.ts) · [modules/modulesCommand.ts](modules/modulesCommand.ts) · [ui-views/uiViewsCommand.ts](ui-views/uiViewsCommand.ts) · [entities/entitiesCommand.ts](entities/entitiesCommand.ts) · [repos/reposCommand.ts](repos/reposCommand.ts) · [records/nextCommand.ts](records/nextCommand.ts) · [lib/consts.ts](lib/consts.ts) · [lib/isEntityKind.ts](lib/isEntityKind.ts) · [lib/nearest.ts](lib/nearest.ts) · [lib/parseArgs.ts](lib/parseArgs.ts) · [lib/refuseUnknownFlags.ts](lib/refuseUnknownFlags.ts) · [lib/rel.ts](lib/rel.ts) · [lib/emit.ts](lib/emit.ts) · [relationsCommand.ts](relationsCommand.ts) · [workspace/reportCommits.ts](workspace/reportCommits.ts)
 
 The IMPLEMENTATION layer behind the verb-first CLI: `targetCommand(ws, collection, verb, args)` routes to each target's command
 is (collection, verb) shaped and stays that way — `cli.js` translates `dt <verb> <target>` onto it.
@@ -93,7 +93,7 @@ an INTERNAL pair, not what the operator types; `dt add collections` is what they
 
 ## commit
 
-Files: [changes/recordChanges.ts](changes/recordChanges.ts) · [record/consts.ts](record/consts.ts) · [record/commitPending.ts](record/commitPending.ts) · [record/composeSubject.ts](record/composeSubject.ts) · [record/inProgress.ts](record/inProgress.ts) · [record/layerOf.ts](record/layerOf.ts) · [record/rowChanges.ts](record/rowChanges.ts) · [record/types.ts](record/types.ts)
+Files: [changes/recordChanges.ts](changes/recordChanges.ts) · [record/consts.ts](record/consts.ts) · [changes/commitPending.ts](changes/commitPending.ts) · [changes/composeSubject.ts](changes/composeSubject.ts) · [lib/git/inProgress.ts](lib/git/inProgress.ts) · [changes/layerOf.ts](changes/layerOf.ts) · [changes/rowChanges.ts](changes/rowChanges.ts) · [record/types.ts](record/types.ts)
 
 dt commit — publish what is already on disk. Model: GIT IS THE JOURNAL. There is no pending
 file and no cursor; the set of things to commit is sampled from `git status` over the record
@@ -160,7 +160,7 @@ not ok carries its fix on the same line. No network call; exit 0 unless --strict
 
 ## env-vars
 
-Files: [record/envContext.ts](record/envContext.ts) · [record/parseEnvValues.ts](record/parseEnvValues.ts) · [record/renderTemplate.ts](record/renderTemplate.ts) · [record/types.ts](record/types.ts)
+Files: [workspace/envContext.ts](workspace/envContext.ts) · [workspace/parseEnvValues.ts](workspace/parseEnvValues.ts) · [workspace/renderTemplate.ts](workspace/renderTemplate.ts) · [record/types.ts](record/types.ts)
 
 ${env:KEY} / ${workspaceFolder} / ${userHome} — VS Code's variable grammar, three variables.
 Values render ONLY on explicit request (dt resolve); records are never auto-substituted.
@@ -189,7 +189,7 @@ and an I/O error as a write-time failure. Nothing here reads a value back to the
 
 ## events
 
-Files: [changes/consts.ts](changes/consts.ts) · [changes/deriveEvents.ts](changes/deriveEvents.ts) · [changes/types.ts](changes/types.ts) · [record/foldChanges.ts](record/foldChanges.ts) · [record/groupChanges.ts](record/groupChanges.ts) · [record/pathToRecord.ts](record/pathToRecord.ts) · [record/lib/reportLine.ts](record/lib/reportLine.ts) · [record/types.ts](record/types.ts)
+Files: [changes/consts.ts](changes/consts.ts) · [changes/deriveEvents.ts](changes/deriveEvents.ts) · [changes/types.ts](changes/types.ts) · [changes/foldChanges.ts](changes/foldChanges.ts) · [changes/groupChanges.ts](changes/groupChanges.ts) · [record/pathToRecord.ts](record/pathToRecord.ts) · [changes/lib/reportLine.ts](changes/lib/reportLine.ts) · [record/types.ts](record/types.ts)
 
 item events — DERIVED from git history, never observed live (the slice-5 contract in
 using-dreamteamer → references/changes.md): a closed laptop loses nothing, every evaluation is
@@ -336,7 +336,7 @@ block/file on the next compile.
 
 ## history
 
-Files: [records/history.ts](records/history.ts) · [records/historyDiff.ts](records/historyDiff.ts) · [records/lib/trackedPaths.ts](records/lib/trackedPaths.ts) · [record/commitArg.ts](record/commitArg.ts)
+Files: [records/history.ts](records/history.ts) · [records/historyDiff.ts](records/historyDiff.ts) · [records/lib/trackedPaths.ts](records/lib/trackedPaths.ts) · [lib/git/commitArg.ts](lib/git/commitArg.ts)
 
 per-record revision history, straight out of git.
 
@@ -370,7 +370,7 @@ src/checkout.ts and src/init.ts; this file is only the spec form.
 
 ## namespace
 
-Files: [collections/lib/qualify.ts](collections/lib/qualify.ts) · [record/namespace.ts](record/namespace.ts) · [workspace/namespaceProblems.ts](workspace/namespaceProblems.ts) · [record/normalizeNamespaces.ts](record/normalizeNamespaces.ts) · [record/parseRef.ts](record/parseRef.ts) · [record/singular.ts](record/singular.ts) · [workspace/storageOverlaps.ts](workspace/storageOverlaps.ts) · [workspace/unqualifiedProblems.ts](workspace/unqualifiedProblems.ts)
+Files: [collections/lib/qualify.ts](collections/lib/qualify.ts) · [record/namespace.ts](record/namespace.ts) · [workspace/namespaceProblems.ts](workspace/namespaceProblems.ts) · [record/normalizeNamespaces.ts](record/normalizeNamespaces.ts) · [record/parseRef.ts](record/parseRef.ts) · [lib/singular.ts](lib/singular.ts) · [workspace/storageOverlaps.ts](workspace/storageOverlaps.ts) · [workspace/unqualifiedProblems.ts](workspace/unqualifiedProblems.ts)
 
 NAMESPACES — how a collection name is scoped, and how a reference splits back apart.
 
@@ -403,7 +403,7 @@ file, so all of it is unit-testable without a workspace.
 
 ## placement
 
-Files: [check/symlinkedChildRoots.ts](check/symlinkedChildRoots.ts) · [record/lib/dirTreeStamps.ts](record/lib/dirTreeStamps.ts) · [record/ownerIdOf.ts](record/ownerIdOf.ts) · [record/parentFolders.ts](record/parentFolders.ts) · [record/lib/placedChildAt.ts](record/lib/placedChildAt.ts) · [record/placedRecords.ts](record/placedRecords.ts) · [record/placement.ts](record/placement.ts) · [record/lib/placementOfFile.ts](record/lib/placementOfFile.ts) · [record/lib/rootRecords.ts](record/lib/rootRecords.ts) · [workspace/subpathProblem.ts](workspace/subpathProblem.ts) · [record/symlinkBelow.ts](record/symlinkBelow.ts) · [record/types.ts](record/types.ts)
+Files: [check/symlinkedChildRoots.ts](check/symlinkedChildRoots.ts) · [record/lib/dirTreeStamps.ts](record/lib/dirTreeStamps.ts) · [record/ownerIdOf.ts](record/ownerIdOf.ts) · [record/parentFolders.ts](record/parentFolders.ts) · [record/lib/placedChildAt.ts](record/lib/placedChildAt.ts) · [record/placedRecords.ts](record/placedRecords.ts) · [record/placement.ts](record/placement.ts) · [record/lib/placementOfFile.ts](record/lib/placementOfFile.ts) · [record/lib/rootRecords.ts](record/lib/rootRecords.ts) · [workspace/subpathProblem.ts](workspace/subpathProblem.ts) · [lib/symlinkBelow.ts](lib/symlinkBelow.ts) · [record/types.ts](record/types.ts)
 
 RELATIONSHIP-BASED STORAGE — a record stored UNDER the record it belongs to.
 
@@ -479,7 +479,7 @@ import closure is pinned to those three builtins by test/integration/public-api.
 
 ## records
 
-Files: [record/idFromRecordPath.ts](record/idFromRecordPath.ts) · [record/parseRecordText.ts](record/parseRecordText.ts) · [record/records.ts](record/records.ts) · [record/walk.ts](record/walk.ts)
+Files: [record/idFromRecordPath.ts](record/idFromRecordPath.ts) · [record/parseRecordText.ts](record/parseRecordText.ts) · [record/records.ts](record/records.ts) · [lib/walk.ts](lib/walk.ts)
 
 shared record primitives — parsing, id patterns, error formatting — used by
 both the validating store (hard, write-time) and check (soft, report-only).
@@ -580,7 +580,7 @@ Pure functions first (tested without a workspace), then the runner and the verb.
 
 ## store
 
-Files: [record/Store.ts](record/Store.ts) · [record/atomicWrite.ts](record/atomicWrite.ts) · [record/bodyField.ts](record/bodyField.ts) · [record/lib/gitDateToStamp.ts](record/lib/gitDateToStamp.ts) · [record/serialize.ts](record/serialize.ts)
+Files: [record/Store.ts](record/Store.ts) · [lib/atomicWrite.ts](lib/atomicWrite.ts) · [record/bodyField.ts](record/bodyField.ts) · [record/lib/gitDateToStamp.ts](record/lib/gitDateToStamp.ts) · [record/serialize.ts](record/serialize.ts)
 
 the validating store — every tooling write goes through here:
 parse → coerce → defaults → validate (HARD: rejected before disk) →
@@ -680,7 +680,7 @@ file holds the outcome (its `code` is the update's); anything else means it does
 
 ## update
 
-Files: [update/parseUpdateArgs.ts](update/parseUpdateArgs.ts) · [update/updateModules.ts](update/updateModules.ts)
+Files: [lib/git/gitOk.ts](lib/git/gitOk.ts) · [update/parseUpdateArgs.ts](update/parseUpdateArgs.ts) · [update/updateModules.ts](update/updateModules.ts)
 
 `dt update <name>[@<version>] | --engine` — move ONE pin forward on purpose: an npm module to the
 latest release within its ranges (or to the named version), or the engine itself. Re-pinned
@@ -712,7 +712,7 @@ Pure: no fs, no git. Errors are returned, never thrown, so compile attributes ea
 
 ## workspace
 
-Files: [record/declaredGitModules.ts](record/declaredGitModules.ts) · [record/ensureEditorRecommendation.ts](record/ensureEditorRecommendation.ts) · [workspace/ensureEnvExample.ts](workspace/ensureEnvExample.ts) · [record/findWorkspace.ts](record/findWorkspace.ts) · [record/layerEntries.ts](record/layerEntries.ts) · [workspace/ensureGitignored.ts](workspace/ensureGitignored.ts)
+Files: [workspace/declaredGitModules.ts](workspace/declaredGitModules.ts) · [workspace/ensureEditorRecommendation.ts](workspace/ensureEditorRecommendation.ts) · [workspace/ensureEnvExample.ts](workspace/ensureEnvExample.ts) · [workspace/findWorkspace.ts](workspace/findWorkspace.ts) · [workspace/layerEntries.ts](workspace/layerEntries.ts) · [workspace/ensureGitignored.ts](workspace/ensureGitignored.ts)
 
 workspace discovery: the NEAREST package.json with a `dreamteamer` section wins, except when
 that candidate is only nested inside a higher one as a MODULE — modules are themselves
@@ -727,7 +727,7 @@ real workspace and now resolves as one.
 
 ## yaml
 
-Files: [collections/lib/renameKeys.ts](collections/lib/renameKeys.ts) · [fmt/formatSource.ts](fmt/formatSource.ts) · [record/emitDocument.ts](record/emitDocument.ts) · [record/lib/endOf.ts](record/lib/endOf.ts) · [record/writeSource.ts](record/writeSource.ts) · [record/yaml.ts](record/yaml.ts)
+Files: [collections/lib/renameKeys.ts](collections/lib/renameKeys.ts) · [fmt/formatSource.ts](fmt/formatSource.ts) · [lib/emitDocument.ts](lib/emitDocument.ts) · [lib/endOf.ts](lib/endOf.ts) · [lib/writeSource.ts](lib/writeSource.ts) · [lib/yaml.ts](lib/yaml.ts)
 
 contract rule: YAML is parsed with the CORE schema — unquoted dates stay strings,
 never timestamp objects. ALL dreamteamer tooling loads YAML through here.

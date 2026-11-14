@@ -3,7 +3,7 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
 import { parseDocument } from "yaml"
-import { singular } from "../../src/record/singular.ts"
+import { singular } from "../../src/lib/singular.ts"
 import { inflects } from "../../src/record/namespace.ts"
 import { convertCollection } from "../../scripts/migrate-descriptors-v2.ts"
 

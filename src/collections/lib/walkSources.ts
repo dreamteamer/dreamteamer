@@ -9,7 +9,7 @@ import type { At, SourceEdit, SourceVisitor } from "./types.ts"
 import type { Position } from "../../lib/types.ts"
 import { viewSources } from "./viewSources.ts"
 import type { Store } from "../../record/Store.ts"
-import { load } from "../../record/yaml.ts"
+import { load } from "../../lib/yaml.ts"
 import type { Workspace } from "../../types.ts"
 import type { SourceDoc } from "../../workspace/types.ts"
 

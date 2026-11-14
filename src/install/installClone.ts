@@ -3,7 +3,7 @@ import fs from "node:fs"
 import { execFileSync } from "node:child_process"
 import type { Workspace } from "../types.ts"
 import { buildClone } from "../workspace/buildClone.ts"
-import { tryGit } from "../workspace/tryGit.ts"
+import { tryGit } from "../lib/git/tryGit.ts"
 
 // dreamteamer install --clone <url> [name] — clone a module for development AND
 // record it in the committed lockfile map (story 5.3)

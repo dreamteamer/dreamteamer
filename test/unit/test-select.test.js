@@ -7,7 +7,7 @@ import { selectTests, SMOKE } from "../../scripts/test-select.ts"
 
 const I = name => `test/integration/${name}.test.js`
 const suite = new Map([
-  [I("compile"), "import { dump } from '../../src/record/yaml.ts';"],
+  [I("compile"), "import { dump } from '../../src/lib/yaml.ts';"],
   [I("records"), ""],
   [I("relations-store"), ""],
   [I("store-index"), ""],

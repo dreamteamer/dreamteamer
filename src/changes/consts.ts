@@ -1,5 +1,4 @@
-import { type EventType } from "./types.ts"
-import { type ChangeKind } from "../record/types.ts"
+import { type ChangeKind, type EventType } from "./types.ts"
 
 // ── the record-change report (0.42.0) ────────────────────────────────────────────────────────────
 // What `dt changes` and `dt commit` print, and what a session appends to its reply after a write.
@@ -16,3 +15,6 @@ export const TYPE_OF: Record<ChangeKind, EventType> = {
   updated: "item-updated",
   deleted: "item-removed",
 }
+
+/** How many rows a report prints before it summarises the rest. */
+export const ROWS_SHOWN = 20

@@ -1,6 +1,6 @@
 import { fieldsOf, isInternal, moduleOf } from "../record/descriptor.ts"
 import { storageOf } from "../record/storageOf.ts"
-import { load } from "../record/yaml.ts"
+import { load } from "../lib/yaml.ts"
 import type { Descriptor, Entry } from "../types.ts"
 import { flat } from "./harnessMarkers.ts"
 import type { CollectionRow } from "./types.ts"

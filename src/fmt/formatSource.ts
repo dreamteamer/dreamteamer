@@ -1,6 +1,6 @@
 import { type YAMLMap, type YAMLSeq, isMap, isSeq, type Node, visit as visitYaml, parseDocument, type Pair } from "yaml"
-import { emitDocument } from "../record/emitDocument.ts"
-import { keyOf } from "../record/yaml.ts"
+import { emitDocument } from "../lib/emitDocument.ts"
+import { keyOf } from "../lib/yaml.ts"
 
 /** A flow mapping, or a flow sequence holding a collection — the two flow forms block style replaces.
  *  A flow sequence of scalars (`enum: [open, done]`) is block style's own short form and stays. */

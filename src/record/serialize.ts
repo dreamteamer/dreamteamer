@@ -1,7 +1,7 @@
 import { bodyField } from "./bodyField.ts"
 import { storageOf } from "./storageOf.ts"
-import { writeSource } from "./writeSource.ts"
-import { dump } from "./yaml.ts"
+import { writeSource } from "../lib/writeSource.ts"
+import { dump } from "../lib/yaml.ts"
 import type { Descriptor, Fields } from "../types.ts"
 
 export function serialize(d: Descriptor, fields: Fields, previousText?: string): string {

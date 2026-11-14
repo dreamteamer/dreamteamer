@@ -2,7 +2,7 @@ import path from "node:path"
 import fs from "node:fs"
 import { storageOf } from "./storageOf.ts"
 import type { ContextRoot, ExportsContext } from "./types.ts"
-import { walk } from "./walk.ts"
+import { walk } from "../lib/walk.ts"
 import type { exportsFacts } from "../runtime/exportsFacts.ts"
 import type { Descriptors, Storage } from "../types.ts"
 

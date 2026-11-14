@@ -23,7 +23,7 @@ import {
   twoModuleWorkspace,
   writeModule,
 } from "../helpers/ws.js"
-import { load, dump } from "../../src/record/yaml.ts"
+import { load, dump } from "../../src/lib/yaml.ts"
 import { staleness } from "../../src/workspace/staleness.ts"
 import { storageOf } from "../../src/record/storageOf.ts"
 import {

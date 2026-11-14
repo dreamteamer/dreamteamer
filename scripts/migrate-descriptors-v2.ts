@@ -41,7 +41,7 @@ const engine = <M>(name: string): Promise<M> =>
     ).href
   )
 import type { AuthoredDescriptor, DisplayBlock, DreamteamerBlock, Field } from "../src/types.ts"
-const { singular } = await engine<typeof import("../src/record/singular.ts")>("record/singular")
+const { singular } = await engine<typeof import("../src/lib/singular.ts")>("lib/singular")
 const { MANIFEST_KEYS } = await engine<typeof import("../src/workspace/consts.ts")>("workspace/consts")
 const { V2_KEYS: V2_ORDER } = await engine<typeof import("../src/workspace/consts.ts")>("workspace/consts")
 

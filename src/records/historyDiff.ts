@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process"
 import { assertInRepo, repoOf } from "./history.ts"
 import { trackedPaths } from "./lib/trackedPaths.ts"
 import type { Store } from "../record/Store.ts"
-import { commitArg } from "../record/commitArg.ts"
+import { commitArg } from "../lib/git/commitArg.ts"
 
 /** The patch one revision applied to this record. `hash~1` means the ROOT commit has no diff. */
 export function historyDiff(

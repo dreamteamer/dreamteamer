@@ -1,7 +1,6 @@
-import { execFileSync } from "node:child_process"
 import path from "node:path"
 import fs from "node:fs"
-import { parseEnvValues } from "../record/parseEnvValues.ts"
+import { parseEnvValues } from "./parseEnvValues.ts"
 import type { Workspace } from "../types.ts"
 import { fillInputs } from "./fillInputs.ts"
 import { fold } from "./fold.ts"
@@ -11,17 +10,9 @@ import { EXIT } from "./consts.ts"
 import { ttyIO } from "./ttyIO.ts"
 import type { InputFlag, UnitResult } from "./types.ts"
 import { units } from "./units.ts"
+import { gitOk } from "../lib/git/gitOk.ts"
 
 // ---- the verb -----------------------------------------------------------------------------------
-
-const gitOk = (root: string, args: string[]): boolean => {
-  try {
-    execFileSync("git", args, { cwd: root, stdio: "ignore" })
-    return true
-  } catch {
-    return false
-  }
-}
 
 const gitIgnored = (root: string, rel: string): boolean => gitOk(root, ["check-ignore", "-q", "--", rel])
 

@@ -1,4 +1,4 @@
-import { load } from "../record/yaml.ts"
+import { load } from "../lib/yaml.ts"
 import type { Entry } from "../types.ts"
 import { flat } from "./harnessMarkers.ts"
 import type { EntryDoc, ModuleRow } from "./types.ts"

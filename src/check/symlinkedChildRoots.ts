@@ -1,6 +1,6 @@
 import path from "node:path"
 import { parentFolders } from "../record/parentFolders.ts"
-import { symlinkBelow } from "../record/symlinkBelow.ts"
+import { symlinkBelow } from "../lib/symlinkBelow.ts"
 import type { Under } from "../record/types.ts"
 
 /** The child roots under `parentDir` that are symlinks (or sit behind one), for `check` to report. */

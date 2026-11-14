@@ -10,7 +10,7 @@ import fs from "node:fs"
 import { execFileSync } from "node:child_process"
 import path from "node:path"
 import { workspace, writeCollection, writeModule, compileError, compileQuietly, dt, WS_MODULE } from "../helpers/ws.js"
-import { load, dump } from "../../src/record/yaml.ts"
+import { load, dump } from "../../src/lib/yaml.ts"
 
 const PATIENTS = {
   description: "A person under this clinic's care.",

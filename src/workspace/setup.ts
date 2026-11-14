@@ -1,6 +1,6 @@
 import path from "node:path"
 import fs from "node:fs"
-import { parseEnvValues } from "../record/parseEnvValues.ts"
+import { parseEnvValues } from "./parseEnvValues.ts"
 import { RUNTIME_DIR } from "../runtime/consts.ts"
 import type { Workspace } from "../types.ts"
 import type { InputProblem } from "./types.ts"

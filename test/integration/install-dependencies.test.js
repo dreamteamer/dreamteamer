@@ -14,7 +14,7 @@ import fs from "node:fs"
 import path from "node:path"
 import { spawnSync } from "node:child_process"
 import { workspace, readFile, git, ENGINE_ROOT, WS_MODULE } from "../helpers/ws.js"
-import { dump, load } from "../../src/record/yaml.ts"
+import { dump, load } from "../../src/lib/yaml.ts"
 import { isRuntime } from "../../src/record/descriptor.ts"
 
 /** A compiled descriptor's text, read as a runtime kind — its records are build output compile writes. */

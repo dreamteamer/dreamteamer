@@ -4,7 +4,7 @@ import { need } from "../lib/need.ts"
 import { oneValue } from "../lib/oneValue.ts"
 import { commandsFor } from "./commandsFor.ts"
 import { contributedNotes } from "./lib/contributedNotes.ts"
-import { emit } from "../record/emit.ts"
+import { emit } from "../lib/emit.ts"
 
 // Which bound commands apply, in which state (available / done / not-applicable). THE engine
 // surface behind the studio's Commands tab (engine/UI parity: the verb lands first, the button

@@ -1,6 +1,6 @@
 import fs from "node:fs"
 import type { Store } from "../../record/Store.ts"
-import { walk } from "../../record/walk.ts"
+import { walk } from "../../lib/walk.ts"
 import { kindDir } from "../../workspace/compile.ts"
 
 /** The ui-views and command-bindings of every source root, with the collection each one is over. */

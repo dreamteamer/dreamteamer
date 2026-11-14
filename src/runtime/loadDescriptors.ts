@@ -1,6 +1,6 @@
 import path from "node:path"
 import fs from "node:fs"
-import { load } from "../record/yaml.ts"
+import { load } from "../lib/yaml.ts"
 import { runtimeDir } from "./runtime.ts"
 import { STALE_RUNTIME } from "./consts.ts"
 import type { Descriptor, Descriptors } from "../types.ts"

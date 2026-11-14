@@ -1,5 +1,5 @@
 import { layerOf } from "./layerOf.ts"
-import { pathToRecord } from "./pathToRecord.ts"
+import { pathToRecord } from "../record/pathToRecord.ts"
 import type { RecordChange, Row } from "./types.ts"
 import type { Descriptors } from "../types.ts"
 

@@ -1,6 +1,6 @@
 import path from "node:path"
 import fs from "node:fs"
-import { walk } from "../record/walk.ts"
+import { walk } from "../lib/walk.ts"
 import { readManifest } from "../runtime/runtime.ts"
 import type { Manifest, PackageJson } from "../types.ts"
 import { KINDS } from "./consts.ts"

@@ -1,11 +1,11 @@
 import { CHANGE_OF, TYPE_OF } from "./consts.ts"
 import { deriveEvents } from "./deriveEvents.ts"
 import type { Store } from "../record/Store.ts"
-import { commitPending } from "../record/commitPending.ts"
-import { foldChanges } from "../record/foldChanges.ts"
-import { layerOf } from "../record/layerOf.ts"
-import { rowChanges } from "../record/rowChanges.ts"
-import type { RecordChange } from "../record/types.ts"
+import { commitPending } from "./commitPending.ts"
+import { foldChanges } from "./foldChanges.ts"
+import { layerOf } from "./layerOf.ts"
+import { rowChanges } from "./rowChanges.ts"
+import type { RecordChange } from "./types.ts"
 
 /** `dt changes`: the records changed since `since`, across every repo that holds records. `HEAD` (the
  *  default) is the UNCOMMITTED state, each repo against its own HEAD — sampled by the same dry run

@@ -1,6 +1,6 @@
 import path from "node:path"
 import fs from "node:fs"
-import { load } from "../record/yaml.ts"
+import { load } from "./yaml.ts"
 import { readManifest } from "../runtime/runtime.ts"
 import type { Workspace } from "../types.ts"
 import type { SourceDoc } from "../workspace/types.ts"

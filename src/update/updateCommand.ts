@@ -1,4 +1,4 @@
-import { declaredGitModules } from "../record/declaredGitModules.ts"
+import { declaredGitModules } from "../workspace/declaredGitModules.ts"
 import type { Workspace } from "../types.ts"
 import { parseUpdateArgs } from "./parseUpdateArgs.ts"
 import { update } from "./update.ts"
