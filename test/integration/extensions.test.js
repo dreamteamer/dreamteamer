@@ -110,7 +110,7 @@ describe('an extension\'s command runs in-process, handed THIS workspace and THI
 		for (const [verb, pkg] of [['prove', 'proofs'], ['land', 'worktrees'], ['worktree', 'worktrees'], ['serve', 'http'], ['notebooklm', 'notebooklm']]) {
 			const r = ws.dt(verb, 'x');
 			assert.equal(r.code, 2, verb);
-			assert.equal(r.stderr, `✖ \`dt ${verb}\` comes from an extension this workspace does not have — install it as a dependency:\n    npm i @dreamteamer/${pkg}\n`);
+			assert.equal(r.stderr, `✖ \`dt ${verb}\` comes from an extension this workspace does not have — install it:\n    dt install @dreamteamer/${pkg}\n`);
 		}
 		for (const verb of ['start', 'stop', 'open', 'export', 'import']) {
 			const r = ws.dt(verb, 'x');

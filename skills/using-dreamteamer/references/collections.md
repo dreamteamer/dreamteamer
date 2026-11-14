@@ -138,9 +138,7 @@ ids:
 ```yaml
 display:
   nav:
-    icon: pulse
-    order: 20
-    section: care                 # a free partition of the nav
+    icon: pulse                   # order and section are legal and ignored since 0.49 — nav.yaml places rows
   list:
     layout: table                 # the default; a surface's registered layout id
     columns: [reason, patient, date, status]
@@ -160,6 +158,10 @@ display:
 
 A section may say `collapsed: true`: a surface draws it shut, after every other field, until it is
 opened — for what a person rarely reads and an agent writes (a provenance block).
+
+Where a collection sits in the left nav is not the descriptor's to say: the workspace's `nav.yaml`
+places every row (`ui-views.md`), so `display.nav.order` and `display.nav.section` still compile and
+nothing reads them.
 
 This block IS what a bare collection route renders and what `dt list` prints as columns. A
 ui-view carries the same block and changes only what it states (`ui-views.md`). Every field it
@@ -248,8 +250,12 @@ lists it. What belongs in a module is judgment — `data-modeling.md` Part III �
 | `engine` | the engine range it needs; outside it, the module is refused whole |
 | `env` · `vars` | the `.env` keys it needs · the `${env:…}` names its records use (the workspace must allow each) |
 | `extension` · `ignore` · `local_assets` | an extension entry (`extensions.md`) · folders that are not kinds · gitignored files a worktree links |
+| `preset` | makes the package a **module preset**: `{ "<package>": "<exact version>" }`, the modules it installs. It ships no kind folders. `dt install` installs every member at its pin, `dt update` moves the installed ones and skips one you removed, `dt status` lists each member, and `dt list modules` shows `preset · N members · M installed` (0.49.0) |
+| `nav` | the package-relative path of its nav fragment, a `nav.yaml` that install and update merge into the workspace's own (`ui-views.md`). It may place only collections the module owns or overlays, or a preset's members' |
+| `provides` | legal and ignored since 0.49.0. A composed package listed its contents here before module presets replaced it |
 
-A version floor on another module is not a key of this block: it is npm's own peer-dependency range,
+A module's setup units are its extension's `setup` contribution (`extensions.md`), not a key of this
+block. A version floor on another module is not a key of this block either: it is npm's own peer-dependency range,
 at the top level of the module's package.json. A present module outside the range fails compile,
 naming both versions and the fix.
 
@@ -261,9 +267,12 @@ Keys are snake_case and closed: compile refuses an unknown one, naming the list.
 | key | what it holds |
 |---|---|
 | `workspace_module` | which module under `modules/` is the workspace's own |
+| `title` · `description` | what to call the workspace · what it is for |
 | `data_path` | where records live, workspace-relative |
 | `namespaces` | namespaces declared at the workspace level (a module's own declaration is the one that travels) |
 | `vars` | the `.env` keys records may reference as `${env:KEY}` (`records.md`) |
+| `env` | the `.env` keys the workspace itself needs, a bare name or `{ name, description, example }`. Compile names one missing from `.env` and lists each in `.env.example` |
+| `setup` | `{ "skipped": [<unit id>…] }`: the setup units `dt setup <unit> --skip` recorded as skipped (`setup.md`) |
 | `auto_commit` | whether a record write also commits (default off) |
 | `harnesses` | which coding-agent adapters compile writes |
 | `git_modules` | the lockfile map `dt install` restores into `git_modules/` — `{ url, ref }` per clone; a clone whose own package.json names `workspace_module` is a RECORD LAYER (below), not a bundle, and `records: [<collection>…]` narrows it (or makes any clone a layer) — `module: true` adds its one workspace module; what a clone NEEDS (the holders its `dreamteamer-exports.json` names) is installed here too, once at the top and linked under the clone (0.46.0) |

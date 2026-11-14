@@ -153,7 +153,7 @@ npx dreamteamer install @northwind/northwind
 
 ## Where a module lives, from local to shared
 
-A module can reach a workspace in five ways. Start at the top and move down only when you need to. The format is the same all the way, so moving is cheap.
+A module can reach a workspace in five ways, and a sixth installs several at once. Start at the top and move down only when you need to. The format is the same all the way, so moving is cheap.
 
 | | the sources sit in | how they get there | use it when |
 |---|---|---|---|
@@ -162,6 +162,7 @@ A module can reach a workspace in five ways. Start at the top and move down only
 | 3 | `git_modules/<name>/` | `install --clone <url>` | you share through a Git repository, without a registry |
 | 4 | `node_modules/`, from a file or a folder | `install ./x.tgz` or `install ./folder` | you try a module before it is published |
 | 5 | `node_modules/`, from npm | `install <name>` | it is a versioned release for anyone |
+| 6 | `node_modules/`, one folder per member | `install <preset>`, a **module preset**: a package listing member modules, each at an exact version (`dreamteamer.preset`) | a set of modules should install, update and report together |
 
 When the same module arrives twice, the more local copy wins: `modules/` over `git_modules/` over `node_modules/`. `compile` warns, and `status` shows which copy shadows which.
 

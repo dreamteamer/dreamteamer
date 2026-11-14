@@ -267,9 +267,10 @@ workspace verbs:
               [--watch] recompile on source changes
   check       validate every record against the compiled descriptors (report-only), then every
               installed extension's own checks. A reference this workspace's own records reach only
-              through a record layer is a ⚠ line (a reader without that layer sees it dangle)
-              through a record layer is a ⚠ line until its exports manifest lists it; a reference no root
-              answers is external when the referring repo's manifest vouches for it
+              through a record layer is a ⚠ line until its exports manifest lists it (a reader
+              without that layer sees it dangle); a reference no root answers is external when the
+              referring repo's manifest vouches for it. nav.yaml: a name that resolves to nothing or
+              is listed twice is a ⚠ line, never a violation
               [--strict-export] makes each unlisted one, and a stale manifest, a violation
               modules/<id> --alone: is that inline module publishable — packed, installed into a fresh
               workspace on this engine with only its declared dependencies, compiled, checked; exit 0
@@ -306,7 +307,7 @@ workspace verbs:
               [<collection>|<collection>/<id> …] [-m <subject>] [--dry-run] [--json]
   help        this text
 
-extension verbs — an extension (a workspace module, or a dependency, whose package.json declares
+extension verbs — an extension (a module that also ships code: its package.json declares
 \`dreamteamer.extension\`) adds its own verbs, listed below when this workspace has any.
 `;
 
@@ -854,7 +855,7 @@ export async function run(argv) {
 					process.exit(2);
 				}
 				if (VERB_PACKAGES[cmd]) {
-					console.error(`✖ \`dt ${cmd}\` comes from an extension this workspace does not have — install it as a dependency:\n    npm i ${VERB_PACKAGES[cmd]}`);
+					console.error(`✖ \`dt ${cmd}\` comes from an extension this workspace does not have — install it:\n    dt install ${VERB_PACKAGES[cmd]}`);
 					process.exit(2);
 				}
 				if (DOCKER_VERBS.has(cmd)) {
