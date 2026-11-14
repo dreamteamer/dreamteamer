@@ -1,7 +1,7 @@
 # Updating dreamteamer
 
 One section per release, newest first. Each says what you have to **do**, and most of the time the
-answer is nothing but `dt compile`.
+answer is nothing but `dt compile` (`dt` is `npx dreamteamer`).
 
 Two rules that hold for every version:
 
@@ -13,10 +13,12 @@ Two rules that hold for every version:
   cannot tell what the upgrade did.
 
 ```bash
-npm install dreamteamer@latest
-npx dreamteamer compile
+npx dreamteamer update --engine     # 0.47.0 and later: re-pins exactly, compiles, commits
 npx dreamteamer check
 ```
+
+From an engine older than 0.47.0, which has no `update --engine`: `npm install dreamteamer@latest`,
+then `npx dreamteamer compile` and `npx dreamteamer check`.
 
 ---
 
