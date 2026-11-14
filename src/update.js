@@ -14,7 +14,7 @@ import { resolveNpm, childEnv } from './checkout.js';
 import { readSpecManifest, resolveClosure, installedModules, compareVersions, InstallRefusal, npmFloor, npmAndCompile, printUnitResults } from './install-modules.js';
 import { EXIT } from './setup.js';
 import { moduleIdOf } from './compile.js';
-import { NAV_SETTINGS_LINE } from './nav-fragments.js';
+import { navGuard, NAV_SETTINGS_LINE, NAV_GUARD_LINE } from './nav-fragments.js';
 
 const gitOk = (root, args) => { try { execFileSync('git', args, { cwd: root, stdio: 'ignore' }); return true; } catch { return false; } };
 
@@ -69,6 +69,9 @@ export async function updateModules(ws, { name = null, version = null, engine = 
 	// version"; a member the INSTALLED version listed and the operator uninstalled is skipped (removed
 	// on purpose); a member new to this version — and every member on a first expansion, when the
 	// installed version was no preset — is walked and installed.
+	// the nav guard (cr-dt-008), for every module target, plain or preset — never the engine's: old nav
+	// settings and no nav.yaml refuse before npm unless --allow nav-reset
+	if (!allow.has('nav-reset') && navGuard(ws.root)) { console.error(`✖ ${NAV_GUARD_LINE}`); return EXIT.failed; }
 	const installedMap = here.manifest?.dreamteamer?.preset;
 	const newMap = entry.manifest.dreamteamer?.preset ?? {};
 	const moving = new Set(Object.entries(newMap).filter(([n, v]) => installed.has(n) && installed.get(n).version !== v).map(([n]) => n));
@@ -116,12 +119,12 @@ function setupInChild(root, names, { subject, processEnv, noCommit, nav = null }
 	} finally { fs.rmSync(dir, { recursive: true, force: true }); }
 }
 
-/** The `dt update` argv: a target (`name`, `name@version`), `--engine`, `--allow downgrade`, `--from <dir>`, `--no-commit`. */
+/** The `dt update` argv: a target (`name`, `name@version`), `--engine`, `--allow downgrade|nav-reset`, `--from <dir>`, `--no-commit`. */
 export function parseUpdateArgs(argv) {
 	const out = { name: null, version: null, engine: argv.includes('--engine'), allow: new Set(), from: null, noCommit: argv.includes('--no-commit') };
 	for (let i = 0; i < argv.length; i++) {
 		const a = argv[i];
-		if (a === '--allow') { const k = argv[++i]; if (k !== 'downgrade') throw new Error(`dt update --allow takes downgrade (got ${JSON.stringify(k)})`); out.allow.add(k); }
+		if (a === '--allow') { const k = argv[++i]; if (k !== 'downgrade' && k !== 'nav-reset') throw new Error(`dt update --allow takes downgrade or nav-reset (got ${JSON.stringify(k)})`); out.allow.add(k); }
 		else if (a === '--from') out.from = argv[++i] ?? null;
 		else if (!a.startsWith('--') && !['--allow', '--from'].includes(argv[i - 1])) {
 			const at = a.startsWith('@') ? a.indexOf('@', 1) : a.indexOf('@');

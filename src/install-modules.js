@@ -18,7 +18,7 @@ import { parseEnvValues } from './env-vars.js';
 import { compile, discoverModules, staleness, moduleIdOf } from './compile.js';
 import { resolveNpm, childEnv } from './checkout.js';
 import { units, runUnit, fillInputs, parseInputFlags, parseAllow, skippedUnits, fold, SetupUsage, EXIT, ttyIO, droppedKeys } from './setup.js';
-import { planNavFragments, NavFragmentRefusal, NAV_SETTINGS_LINE } from './nav-fragments.js';
+import { planNavFragments, navGuard, NavFragmentRefusal, NAV_SETTINGS_LINE, NAV_GUARD_LINE } from './nav-fragments.js';
 import { writeNavDoc, NavDocError } from './nav.js';
 
 /** Numeric major.minor.patch order; a prerelease sorts below its release. */
@@ -337,7 +337,9 @@ export async function installModules(ws, argv, { open, npm = resolveNpm(), verif
 	const specs = argv.filter((a, i) => !a.startsWith('--') && !valueFlags.has(argv[i - 1]));
 	if (!specs.length) { console.error('✖ dt install takes one or more specs: a name, name@version, ./file.tgz, ./folder or a git URL'); return EXIT.usage; }
 	let allow, inputFlags;
-	try { allow = parseAllow(argv); inputFlags = parseInputFlags(argv); } catch (e) { if (e instanceof SetupUsage) { console.error(`✖ ${e.message}`); return EXIT.usage; } throw e; }
+	try { allow = parseAllow(argv, { also: ['nav-reset'] }); inputFlags = parseInputFlags(argv); } catch (e) { if (e instanceof SetupUsage) { console.error(`✖ ${e.message}`); return EXIT.usage; } throw e; }
+	// `--allow nav-reset` is install's, never a setup unit's: taken out of the set the units see
+	const ignoreSettings = allow.delete('nav-reset');
 
 	const floor = npmFloor(npm);
 	if (floor) { console.error(`✖ ${floor}`); return EXIT.failed; }
@@ -346,7 +348,14 @@ export async function installModules(ws, argv, { open, npm = resolveNpm(), verif
 	const installed = installedModules(ws);
 	let plan;
 	try { plan = resolveClosure(specs, { installed, from, npm, cwd: ws.root }); } catch (e) { if (e instanceof InstallRefusal) { console.error(`✖ ${e.message}`); return EXIT.failed; } throw e; }
-	const ignoreSettings = false;
+	// the nav guard (cr-dt-008): a package that ships a nav fragment or is a module preset would redraw a
+	// tree that still draws by old nav settings — refused before npm until they are migrated, or until
+	// --allow nav-reset says to start from the fragments. A package with neither installs, and the merge
+	// says the settings are still there.
+	if (!ignoreSettings && plan.list.some((e) => e.manifest.dreamteamer?.nav || e.manifest.dreamteamer?.preset) && navGuard(ws.root)) {
+		console.error(`✖ ${NAV_GUARD_LINE}`);
+		return EXIT.failed;
+	}
 	const setupOpts = { inputFlags, allow, tty, noInput, io, processEnv, noCommit };
 	if (!plan.list.length) {
 		// everything is here — but an earlier run cut off anywhere after npm (a kill, a Ctrl-D at a prompt,

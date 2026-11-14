@@ -243,19 +243,24 @@ workspace verbs:
               checkout ready; --all is the explicit opt-in, e.g. before going offline
   install     <spec>… [--from <dir>]          bring a MODULE in: a name, name@version, ./file.tgz,
               ./folder (a development link) or a git URL — installs it and every module its
-              dreamteamer.dependencies names (refusing, before npm writes anything, a package with
-              no dreamteamer key, an engine floor this engine does not meet, a ring, a version
-              installed differently, and a package an installed one already provides), pins exact
-              versions, compiles, runs the safe part of the module's setup and commits package.json,
-              package-lock.json and what setup wrote. Without a version: npm's latest. --from
-              resolves names from a folder of tarballs (offline). Setup flags as for \`setup\`:
-              [--input <id>=<value>]… [--allow <kind>]… [--no-input]; [--no-commit] [--json]
+              dreamteamer.dependencies names, and a module preset's members at the versions it pins
+              (refusing, before npm writes anything, a package with no dreamteamer key, an engine
+              floor this engine does not meet, a ring, and a version installed differently), pins
+              exact versions, compiles, merges the shipped nav fragments into nav.yaml, runs the
+              safe part of the module's setup and commits package.json, package-lock.json, nav.yaml
+              and what setup wrote. Without a version: npm's latest. --from resolves names from a
+              folder of tarballs (offline). Old nav settings with no nav.yaml refuse a package that
+              ships a nav fragment until migrated; [--allow nav-reset] starts from the fragments.
+              Setup flags as for \`setup\`: [--input <id>=<value>]… [--allow <kind>]… [--no-input];
+              [--no-commit] [--json]
               Exit 0 done · 1 refused or failed (nothing half-written) · 2 usage · 3 input missing
   install     --clone <url> [name]            attach a git module to this workspace
   update      <name>[@<version>] | --engine   move ONE npm pin forward on purpose: to the latest
               release (or the named version), re-pinned exactly, closure-checked as install is,
-              compiled, committed. A downgrade needs [--allow downgrade]; a development link is
-              skipped and named; [--from <dir>] resolves from a folder of tarballs; [--no-commit]
+              compiled, committed; a module preset moves its installed members to its new pins.
+              A downgrade needs [--allow downgrade]; old nav settings with no nav.yaml refuse a
+              module update until migrated, or [--allow nav-reset]; a development link is skipped
+              and named; [--from <dir>] resolves from a folder of tarballs; [--no-commit]
   update      pull git_modules clones forward (ff-only on the lockfile ref), rebuild,
               then compile; [<name>] updates just one. dirty clones are skipped
   compile     materialize modules + workspace sources into .dreamteamer (+ harness adapters)
