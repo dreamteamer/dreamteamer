@@ -28,7 +28,7 @@ Nothing to do but `dt compile` — **unless your workspace still keeps its nav i
 (below). Records do not change, and a workspace on today's modules keeps compiling.
 
 - **`dreamteamer.preset` makes a package a module preset**: `{ "<package>": "<exact version>" }`, the
-  modules it installs, each pinned. A preset ships no kind folders. `dt install <preset>` installs every
+  modules it installs, each pinned. A preset ships no kind folders, no `modules/` and no UI bundle. `dt install <preset>` installs every
   member at its pin and the preset last, all exactly pinned. `dt update <preset>` moves the installed
   members to the new pins and installs a member new to that version. It never re-installs a member
   you removed, and a member moved down needs `--allow downgrade`. `dt status` (and `--json`) lists the
@@ -41,9 +41,16 @@ Nothing to do but `dt compile` — **unless your workspace still keeps its nav i
   and `dt update` compile, the fragments of what they installed are merged into the workspace's own
   `nav.yaml` (tracked, at the root) and committed with them. The merge only adds rows the file does not
   place yet. A fragment that places another module's collection refuses the call, with everything put
-  back. `dt check` warns on a `nav.yaml` name that resolves to nothing or is listed twice. A
+  back — the compiled runtime included. A `nav.yaml` that does not read refuses an install or update
+  that ships a fragment before npm writes; one that ships none never reads the file. `dt check` warns on a `nav.yaml` name that resolves to nothing or is listed twice. A
   collection's `display.nav.order` and `section` still compile and are ignored. The grammar is in
   `references/ui-views.md`.
+- **`dt check` warns about record files under `data/` that no collection reads** — a folder whose
+  collection left with a module (notebooks and wikis out of rnd) — naming the folder, its records and,
+  when a package in `node_modules` defines it, that package. A warning; the exit code is unchanged.
+- **`dt check modules/<id> --alone` judges what the tarball ships**: a source folder its `files` list
+  leaves out refuses it (on the module and on every dependency or member it packs), and a module preset
+  member nothing here holds is named with its pin.
 - **`dreamteamer.provides` is kept legal and ignored** through 0.49. Nothing reads it, and `dt install`
   no longer refuses "a package an installed one already provides".
 - **A workspace whose nav is in `.vscode/settings.json`** (`dreamteamer.navGroups`, `navOrder` or

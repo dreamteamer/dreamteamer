@@ -15,6 +15,7 @@ import { findWorkspace } from './workspace.js';
 import { loadExtensions, manifestViolations } from './extensions.js';
 import fs from 'node:fs';
 import { KINDS, discoverModules } from './compile.js';
+import { unreadDataWarnings } from './unread-data.js';
 import { DERIVED_KINDS } from './runtime.js';
 import { KNOWN_HARNESSES } from './harnesses.js';
 import { CORE_VERBS } from './cli.js';
@@ -58,6 +59,8 @@ export async function contributedViolations(ws) {
 			for (const v of manifestViolations(pkg, path.relative(ws.root, path.join(m.root, 'package.json')))) out.push({ file: v.file, msg: v.message });
 		}
 	} catch { /* discovery failing is compile's to report */ }
+	// record files under data/ no compiled collection reads — a collection that left with a module
+	try { out.push(...unreadDataWarnings(ws)); } catch { /* a warning pass never breaks check */ }
 	for (const e of (ws.extensions ?? []).filter((x) => x.check)) {
 		try {
 			for (const v of (await e.check({ root: ws.root, ws, dt: self })) ?? []) out.push({ file: v.file ?? e.name, msg: `${v.message} (${e.name})`, ...(v.warning === true ? { warning: true } : {}) });

@@ -75,6 +75,37 @@ describe('install and update merge the nav fragments', () => {
 		assert.equal(readFile(ws.root, 'package.json'), pkg);
 		assert.equal(readFile(ws.root, 'package-lock.json'), lock);
 		assert.equal(readFile(ws.root, 'nav.yaml'), null);
+		// the runtime too (acceptance line 8): the refused package's collection was compiled before the
+		// fragment was judged, and the restore recompiles — nothing of it stays live, nothing is stale
+		assert.equal(fs.existsSync(path.join(ws.root, '.dreamteamer', 'collections', 'fixbadnavs.collection.yaml')), false, 'fixbadnavs not left compiled');
+		assert.equal(fs.existsSync(path.join(ws.root, '.dreamteamer', 'collections', 'fixas.collection.yaml')), true, 'the pre-image runtime stands');
+		const add = run(ws.root, ['add', 'fixbadnavs', '--title', 'x']);
+		assert.notEqual(add.code, 0, `dt add into the refused collection: ${add.stdout}`);
+		assert.doesNotMatch(run(ws.root, ['status']).stdout + run(ws.root, ['status']).stderr, /stale/);
+	});
+	test('a malformed nav.yaml: a fragment-shipping install or update refuses before npm; a module with no fragment installs and never reads it', () => {
+		const ws = offline();
+		ok(run(ws.root, ['install', '@fix/set@1.0.0', '--from', REG]));
+		const bad = '- fixas\n- fixcs\n';
+		fs.writeFileSync(path.join(ws.root, 'nav.yaml'), bad);
+		git(ws.root, ['commit', '-qam', 'a malformed nav.yaml']);
+		const pkg = readFile(ws.root, 'package.json'), lock = readFile(ws.root, 'package-lock.json');
+		// update of the preset (it ships a fragment): refused before npm, naming nav.yaml
+		const u = run(ws.root, ['update', '@fix/set', '--from', REG]);
+		assert.equal(u.code, 1, u.stderr + u.stdout);
+		assert.match(u.stderr, /update refused: nav\.yaml is not a mapping/);
+		assert.doesNotMatch(u.stdout, /▶ npm/, 'refused before npm');
+		assert.equal(readFile(ws.root, 'package.json'), pkg);
+		assert.equal(readFile(ws.root, 'package-lock.json'), lock);
+		// install of a module with a fragment: the same, before npm
+		const i = run(ws.root, ['install', '@fix/ns', '--from', REG]);
+		assert.equal(i.code, 1, i.stderr + i.stdout);
+		assert.match(i.stderr, /install refused: nav\.yaml is not a mapping/);
+		assert.doesNotMatch(i.stdout, /▶ npm/, 'refused before npm');
+		assert.equal(readFile(ws.root, 'package.json'), pkg);
+		// a module with no fragment: merges nothing, installs, the file untouched
+		ok(run(ws.root, ['install', '@fix/d@1.0.0', '--from', REG]));
+		assert.equal(readFile(ws.root, 'nav.yaml'), bad);
 	});
 	test('a namespace entry from the module that declares the namespace', () => {
 		const ws = offline();

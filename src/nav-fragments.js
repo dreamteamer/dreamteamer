@@ -80,6 +80,21 @@ export function navGuard(root) {
 	return navSettings(root) ? NAV_GUARD_LINE : null;
 }
 
+/**
+ * The refusal install and update print before npm when the workspace's nav.yaml does not read, or null.
+ * Asked only when a package of the call ships a fragment (`shipsFragment`): a call that ships none merges
+ * nothing and never reads the file, so a malformed nav.yaml blocks only the installs that would merge into it.
+ */
+export function navDocGuard(root) {
+	try { readNavDoc(root); return null; } catch (e) {
+		if (e instanceof NavDocError) return e.message;
+		throw e;
+	}
+}
+
+/** Whether any package of a resolved list ships a nav fragment (`dreamteamer.nav`). */
+export const shipsFragment = (list) => list.some((e) => e.manifest?.dreamteamer?.nav);
+
 const readPkg = (dir) => { try { return JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8')); } catch { return null; } };
 
 /**
@@ -148,6 +163,8 @@ export function planNavFragments(ws, { names, ignoreSettings = false } = {}) {
 	if (!ignoreSettings && !fs.existsSync(path.join(ws.root, NAV_FILE)) && navSettings(ws.root)) {
 		return { doc: null, placed: [], changed: false, skipped: 'settings' };
 	}
+	// no fragment among the packages: nothing merges, and the workspace's nav.yaml is never read
+	if (!kept.length) return { doc: null, placed: [], changed: false };
 	const start = readNavDoc(ws.root) ?? { tree: [], hidden: [] };
 	let doc = start;
 	const placed = [];

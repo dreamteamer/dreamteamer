@@ -488,7 +488,9 @@ export function compile(ws) {
 				for (const [member, v] of Object.entries(preset)) {
 					if (typeof v !== 'string' || !EXACT.test(v)) fail(`module "${source.name}": dreamteamer.preset["${member}"] must be an exact version (got ${JSON.stringify(v)})`);
 				}
-				const shipped = [...KINDS, 'modules'].find((k) => fs.existsSync(k === 'modules' ? path.join(source.root, k) : kindDir(source.root, k)));
+				// every folder compile would read from a package: the kind folders (an extension's kinds
+				// too), a modules/ bundle, and a UI bundle (ui/, or its pre-archive name studio/)
+				const shipped = [...new Set([...KINDS, ...kinds]), 'modules', 'ui', 'studio'].find((k) => fs.existsSync(k === 'modules' || k === 'ui' || k === 'studio' ? path.join(source.root, k) : kindDir(source.root, k)));
 				if (shipped) fail(`module "${source.name}": a module preset lists modules; it ships none (found ${shipped}/)`);
 				modulePresets.set(source.name, preset);
 			}

@@ -30,7 +30,7 @@ const LAYERS = {
 	// the compiled artifact both halves share
 	boundary: ['runtime'],
 	// the workspace compiler and the harness surface
-	workspace: ['compile', 'compile-collections', 'descriptor-v2', 'views', 'harnesses', 'schema-ops', 'init', 'record-commands', 'semver', 'checkout', 'extensions', 'doctor', 'setup-contract', 'setup', 'env-write', 'check-alone', 'scaffold-templates', 'install-modules', 'update', 'nav-fragments'],
+	workspace: ['compile', 'compile-collections', 'descriptor-v2', 'views', 'harnesses', 'schema-ops', 'init', 'record-commands', 'semver', 'checkout', 'extensions', 'doctor', 'setup-contract', 'setup', 'env-write', 'check-alone', 'scaffold-templates', 'install-modules', 'update', 'nav-fragments', 'unread-data'],
 	// entry points; span both halves by definition (the CLI, the public API, the descriptor→UI read model)
 	surface: ['cli', 'collections-cli', 'presentation', 'api', 'records-api', 'exports-cli', 'testing', 'update-setup'],
 };

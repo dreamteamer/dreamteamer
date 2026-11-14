@@ -14,7 +14,7 @@ import { resolveNpm, childEnv } from './checkout.js';
 import { readSpecManifest, resolveClosure, installedModules, compareVersions, InstallRefusal, npmFloor, npmAndCompile, printUnitResults } from './install-modules.js';
 import { EXIT } from './setup.js';
 import { moduleIdOf } from './compile.js';
-import { navGuard, NAV_SETTINGS_LINE, NAV_GUARD_LINE } from './nav-fragments.js';
+import { navGuard, navDocGuard, shipsFragment, NAV_SETTINGS_LINE, NAV_GUARD_LINE } from './nav-fragments.js';
 
 const gitOk = (root, args) => { try { execFileSync('git', args, { cwd: root, stdio: 'ignore' }); return true; } catch { return false; } };
 
@@ -86,6 +86,9 @@ export async function updateModules(ws, { name = null, version = null, engine = 
 		console.error(`✖ ${n} ${was} → ${e.manifest.version} is a downgrade (module preset ${moduleIdOf(target)} names ${e.manifest.version}) — say so: dt update ${target}@${next} --allow downgrade`);
 		return EXIT.failed;
 	}
+	// a fragment merges into the workspace's nav.yaml: one that does not read refuses before npm writes
+	const navBad = shipsFragment(plan.list) ? navDocGuard(ws.root) : null;
+	if (navBad) { console.error(`✖ update refused: ${navBad} — dt check names what is wrong; fix it, then run this again`); return EXIT.failed; }
 	const names = plan.list.map((e) => e.manifest.name);
 	const moved = plan.list.filter((e) => e.manifest.name !== target && installed.has(e.manifest.name)).map((e) => `${e.manifest.name} ${installed.get(e.manifest.name).version} → ${e.manifest.version}`);
 	const extra = names.filter((n) => n !== target && !installed.has(n));
