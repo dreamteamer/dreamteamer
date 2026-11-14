@@ -364,7 +364,7 @@ export const CORE_VERBS = [
  *  install line. The container verbs belong to the global `dt-docker` bin, which needs no workspace. */
 const VERB_PACKAGES = {
 	prove: '@dreamteamer/proofs', land: '@dreamteamer/worktrees', worktree: '@dreamteamer/worktrees',
-	serve: '@dreamteamer/http', notebooklm: '@dreamteamer/notebooklm',
+	serve: '@dreamteamer/web', web: '@dreamteamer/web', notebooklm: '@dreamteamer/notebooklm',
 };
 const DOCKER_VERBS = new Set(['start', 'stop', 'open', 'export', 'import']);
 

@@ -63,7 +63,8 @@ Nothing to do but `dt compile` — **unless your workspace still keeps its nav i
 - **For hosts**: `readNavDoc`, `validateNavDoc`, `writeNavDoc` and `applyNavFragments` are on
   `import('dreamteamer')` (never `dreamteamer/records`).
 - **Messages**: `dt <verb>` for an extension verb this workspace lacks now says `dt install
-  @dreamteamer/<package>`, where it said `npm i`.
+  @dreamteamer/<package>`, where it said `npm i`. For `dt web` and `dt serve` that package is
+  `@dreamteamer/web`, which serves both now; `@dreamteamer/http` is deprecated.
 
 ## 0.48.1 — two setup fixes, and the README rewrite
 
