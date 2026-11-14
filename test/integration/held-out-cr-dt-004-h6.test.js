@@ -17,7 +17,7 @@ import {
   write,
   compileQuietly,
 } from "./held-out-cr-dt-004-lib.js"
-import { serializeExports } from "../../src/lib/exports.ts"
+import { serializeExports } from "../../src/exports/serializeExports.ts"
 
 const COLLS = { people: coll("people", NAME), memos: coll("memos", { ...NAME, about: { type: "people" } }) }
 const L = (labels = {}) =>

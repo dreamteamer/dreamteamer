@@ -5,15 +5,12 @@
 // the store refuses (or the reverse), which is the defect this split exists to make impossible.
 import { test, describe } from "node:test"
 import assert from "node:assert/strict"
-import {
-  resolveFields,
-  toJsonSchema,
-  enumValues,
-  enumChoices,
-  referenceTargets,
-  INJECTED_FIELDS,
-  SCALAR_TYPES,
-} from "../../src/lib/fields.ts"
+import { resolveFields } from "../../src/record/resolveFields.ts"
+import { toJsonSchema } from "../../src/record/toJsonSchema.ts"
+import { enumValues, referenceTargets } from "../../src/record/fields.ts"
+import { enumChoices } from "../../src/record/enumChoices.ts"
+import { INJECTED_FIELDS } from "../../src/record/INJECTED_FIELDS.ts"
+import { SCALAR_TYPES } from "../../src/record/SCALAR_TYPES.ts"
 
 const collections = new Set([
   "health/patients",

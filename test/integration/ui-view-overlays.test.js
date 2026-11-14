@@ -10,10 +10,13 @@ import assert from "node:assert/strict"
 import fs from "node:fs"
 import path from "node:path"
 import { workspace, compileQuietly, compileError, readFile, writeModule, dt } from "../helpers/ws.js"
-import { saveUiView, moveUiView, setCollectionScalars } from "../../src/collections/schema-ops.ts"
-import { overlayView, viewOverlayOf } from "../../src/lib/views.ts"
-import { Store } from "../../src/lib/store.ts"
-import { load, dump } from "../../src/lib/yaml.ts"
+import { saveUiView } from "../../src/collections/saveUiView.ts"
+import { moveUiView } from "../../src/collections/moveUiView.ts"
+import { setCollectionScalars } from "../../src/collections/setCollectionScalars.ts"
+import { overlayView } from "../../src/workspace/overlayView.ts"
+import { viewOverlayOf } from "../../src/collections/viewOverlayOf.ts"
+import { Store } from "../../src/record/Store.ts"
+import { load, dump } from "../../src/record/yaml.ts"
 
 const DOCTORS = {
   ids: { from: "{{ name | slug }}" },

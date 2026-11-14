@@ -22,7 +22,7 @@ import {
   dt as runDt,
   WS_MODULE,
 } from "../helpers/ws.js"
-import { load } from "../../src/lib/yaml.ts"
+import { load } from "../../src/record/yaml.ts"
 
 // The same four-collection cast as relations-store.test.js — one anchor plus the three
 // cardinalities: many-to-one (recordings), one-to-one (summaries, via unique) and many-to-many

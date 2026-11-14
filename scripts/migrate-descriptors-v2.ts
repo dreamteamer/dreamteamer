@@ -36,14 +36,14 @@ import { execFileSync } from "node:child_process"
 const engine = <M>(name: string): Promise<M> =>
   import(
     new URL(
-      fs.existsSync(new URL("../src/lib/store.ts", import.meta.url)) ? `../src/${name}.ts` : `../${name}.js`,
+      fs.existsSync(new URL("../src/api.ts", import.meta.url)) ? `../src/${name}.ts` : `../${name}.js`,
       import.meta.url
     ).href
   )
-import type { AuthoredDescriptor, DisplayBlock, DreamteamerBlock, Field } from "../src/lib/types.ts"
-const { singular } = await engine<typeof import("../src/lib/namespace.ts")>("lib/namespace")
-const { MANIFEST_KEYS } = await engine<typeof import("../src/lib/extensions.ts")>("lib/extensions")
-const { V2_KEYS: V2_ORDER } = await engine<typeof import("../src/lib/descriptor-v2.ts")>("lib/descriptor-v2")
+import type { AuthoredDescriptor, DisplayBlock, DreamteamerBlock, Field } from "../src/types.ts"
+const { singular } = await engine<typeof import("../src/record/singular.ts")>("record/singular")
+const { MANIFEST_KEYS } = await engine<typeof import("../src/workspace/MANIFEST_KEYS.ts")>("workspace/MANIFEST_KEYS")
+const { V2_KEYS: V2_ORDER } = await engine<typeof import("../src/workspace/V2_KEYS.ts")>("workspace/V2_KEYS")
 
 /** what convertCollection learns from the mixins converted before it */
 /** A v1 JSON-schema property, in the v1 vocabulary the converter reads — untrusted, as authored. */

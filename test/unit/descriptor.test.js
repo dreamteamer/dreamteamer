@@ -1,7 +1,12 @@
 // Tier 1 — the accessors every reader asks about a compiled descriptor (src/lib/descriptor.ts).
 import { test, describe } from "node:test"
 import assert from "node:assert/strict"
-import * as D from "../../src/lib/descriptor.ts"
+import * as accessors from "../../src/record/descriptor.ts"
+import { displayOf } from "../../src/record/displayOf.ts"
+import { storageOf } from "../../src/record/storageOf.ts"
+
+// the descriptor accessors, as one namespace the way the suite reads them
+const D = { ...accessors, displayOf, storageOf }
 
 const visits = {
   name: "health/visits",

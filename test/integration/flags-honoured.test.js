@@ -25,7 +25,8 @@ import assert from "node:assert/strict"
 import fs from "node:fs"
 import path from "node:path"
 import { twoModuleWorkspace, readFile, ENGINE_ROOT } from "../helpers/ws.js"
-import { FIELD_FLAGS, VERB_FLAGS } from "../../src/collections.ts"
+import { FIELD_FLAGS } from "../../src/collections/FIELD_FLAGS.ts"
+import { VERB_FLAGS } from "../../src/collections/VERB_FLAGS.ts"
 import { USAGE, WORKSPACE_FLAGS, GLOBAL_FLAGS } from "../../src/cli.ts"
 
 const exists = (root, rel) => fs.existsSync(path.join(root, rel))
@@ -239,7 +240,8 @@ describe("an unknown flag is refused on every verb that has a closed vocabulary"
 // one failure mode a refusal must not have — and the symptom would be a verb that stopped working
 // rather than one that reads a flag it should not.
 test("every flag schema-ops reads off a field verb is in the allowlist", () => {
-  const src = fs.readFileSync(path.join(ENGINE_ROOT, "src", "collections", "schema-ops.ts"), "utf8")
+  // the schema ops read a field verb's flags in ONE place, fieldFromFlags — every other op takes a field
+  const src = fs.readFileSync(path.join(ENGINE_ROOT, "src", "collections", "fieldFromFlags.ts"), "utf8")
   const read = new Set([...src.matchAll(/flags(?:\.([a-zA-Z][\w-]*)|\[['"]([\w-]+)['"]\])/g)].map(m => m[1] ?? m[2]))
   const missing = [...read].filter(f => !FIELD_FLAGS.includes(f)).sort()
   assert.deepEqual(missing, [], `schema-ops reads flags the CLI would now refuse: ${missing.join(", ")}`)

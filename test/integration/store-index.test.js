@@ -14,8 +14,8 @@ import assert from "node:assert/strict"
 import fs from "node:fs"
 import path from "node:path"
 import { workspace, simpleCollection, git } from "../helpers/ws.js"
-import { Store } from "../../src/lib/store.ts"
-import { addField } from "../../src/collections/schema-ops.ts"
+import { Store } from "../../src/record/Store.ts"
+import { addField } from "../../src/collections/addField.ts"
 
 /** Path-shaped ids, so the index has nested folders to get the order wrong in. */
 const ITEMS = simpleCollection({ ids: { pattern: "^[a-z0-9][a-z0-9/._-]*$" } })

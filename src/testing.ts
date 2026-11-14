@@ -3,10 +3,12 @@ import os from "node:os"
 import path from "node:path"
 import { spawnSync } from "node:child_process"
 import { fileURLToPath } from "node:url"
-import { satisfies } from "./lib/semver.ts"
-import { resolveNpm, childEnv } from "./lib/checkout.ts"
-import { engineRun, freshWorkspace } from "./check/alone.ts"
-import type { RunOptions, RunResult, TestWorkspace } from "./lib/types.ts"
+import { satisfies } from "./workspace/satisfies.ts"
+import { resolveNpm } from "./workspace/resolveNpm.ts"
+import { childEnv } from "./workspace/childEnv.ts"
+import { engineRun } from "./check/engineRun.ts"
+import { freshWorkspace } from "./check/freshWorkspace.ts"
+import type { RunOptions, RunResult, TestWorkspace } from "./types.ts"
 
 export type { RunOptions, RunResult as Result, TestWorkspace as Workspace }
 

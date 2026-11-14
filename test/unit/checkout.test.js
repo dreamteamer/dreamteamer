@@ -1,18 +1,16 @@
 import { test, describe } from "node:test"
-import { escapes } from "../../src/lib/checkout.ts"
+import { escapes } from "../../src/init/escapes.ts"
 import assert from "node:assert/strict"
 import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
-import {
-  describeCheckout,
-  defaultGit,
-  planInstall,
-  readHookInput,
-  readStdin,
-  resolveNpm,
-  applyInstall,
-} from "../../src/lib/checkout.ts"
+import { describeCheckout } from "../../src/workspace/describeCheckout.ts"
+import { defaultGit } from "../../src/workspace/defaultGit.ts"
+import { planInstall } from "../../src/install/planInstall.ts"
+import { readHookInput } from "../../src/install/readHookInput.ts"
+import { readStdin } from "../../src/install/readStdin.ts"
+import { resolveNpm } from "../../src/workspace/resolveNpm.ts"
+import { applyInstall } from "../../src/install/applyInstall.ts"
 
 const fakeGit = answers => args => answers[args.join(" ")] ?? ""
 

@@ -12,8 +12,8 @@ import assert from "node:assert/strict"
 import fs from "node:fs"
 import path from "node:path"
 import { workspace, simpleCollection, readFile, tree } from "../helpers/ws.js"
-import { renameCollection } from "../../src/collections/schema-ops.ts"
-import { load } from "../../src/lib/yaml.ts"
+import { renameCollection } from "../../src/collections/renameCollection.ts"
+import { load } from "../../src/record/yaml.ts"
 
 const bodied = fields =>
   simpleCollection({

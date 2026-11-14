@@ -3,7 +3,9 @@
 // pending half, the grouping by collection AND layer, and the one report line.
 import { test, describe } from "node:test"
 import assert from "node:assert/strict"
-import { foldChanges, groupChanges, reportLine } from "../../src/lib/events.ts"
+import { foldChanges } from "../../src/record/foldChanges.ts"
+import { groupChanges } from "../../src/record/groupChanges.ts"
+import { reportLine } from "../../src/record/reportLine.ts"
 
 const ch = (ref, change, extra = {}) => {
   const at = ref.indexOf("/")

@@ -374,10 +374,8 @@ scenario(
 
 scenario("A7", "a synthetic provider is driven with no engine edit", ok => {
   // the probe is a package in test/fixtures; the engine's src/ names no module — the proof is the grep
-  const src = fs
-    .readdirSync(path.join(ENGINE_ROOT, "src"))
-    .map(f => fs.readFileSync(path.join(ENGINE_ROOT, "src", f), "utf8"))
-    .join("\n")
+  const files = fs.readdirSync(path.join(ENGINE_ROOT, "src"), { recursive: true }).filter(f => f.endsWith(".ts"))
+  const src = files.map(f => fs.readFileSync(path.join(ENGINE_ROOT, "src", f), "utf8")).join("\n")
   ok(
     !/@probe\/|['"`]probe['"`]|google-workspace|@dreamteamer\/(meetings|recordings|google|tasks|contacts)/.test(src),
     "src/ names no module and not the probe"
@@ -407,10 +405,11 @@ scenario("A9", "status and doctor are read-only and offline in every state", ok 
     for (const a of [["status"], ["status", "--json"], ["doctor"], ["doctor", "--json"]]) dt(root, a, env)
     ok(treeHash(root) === before, `unchanged under ${JSON.stringify(env)}`)
   }
-  for (const f of ["setup.ts", "doctor.ts"])
+  // setup and doctor are spread over many files now — no engine file imports a network module at all
+  for (const f of fs.readdirSync(path.join(ENGINE_ROOT, "src"), { recursive: true }).filter(f => f.endsWith(".ts")))
     ok(
       !/from ['"]node:(http|https|dns|net)['"]/.test(fs.readFileSync(path.join(ENGINE_ROOT, "src", f), "utf8")),
-      `${f} imports no network module`
+      `src/${f} imports no network module`
     )
 })
 

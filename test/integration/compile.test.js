@@ -23,17 +23,17 @@ import {
   twoModuleWorkspace,
   writeModule,
 } from "../helpers/ws.js"
-import { load, dump } from "../../src/lib/yaml.ts"
-import { staleness } from "../../src/compile.ts"
+import { load, dump } from "../../src/record/yaml.ts"
+import { staleness } from "../../src/workspace/staleness.ts"
+import { storageOf } from "../../src/record/storageOf.ts"
 import {
-  storageOf,
   isRuntime,
   titleOf,
   recordTitleOf,
   moduleOf,
   fieldsOf,
   unresolvedPeersOf,
-} from "../../src/lib/descriptor.ts"
+} from "../../src/record/descriptor.ts"
 
 const uncompiled = opts => workspace({ ...opts, compile: false })
 const dtCheck = root => dt(root, "check")
@@ -1006,7 +1006,7 @@ describe("a peerDependencies floor on another module", () => {
     assert.equal(c.code, 0, c.stderr)
     assert.ok(
       c.stderr.includes(
-        '⚠ module planner: peerDependencies range ">=0.2.0 <0.3.0" for "people" (0.1.1) not understood by the built-in checker (see src/lib/semver.ts) — not verified'
+        '⚠ module planner: peerDependencies range ">=0.2.0 <0.3.0" for "people" (0.1.1) not understood by the built-in checker (see src/workspace/satisfies.ts) — not verified'
       ),
       c.stderr
     )

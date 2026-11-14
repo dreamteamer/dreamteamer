@@ -5,8 +5,12 @@
 // string, and an empty id would either throw or collide, so it falls back to a deterministic hash.
 import { test, describe } from "node:test"
 import assert from "node:assert/strict"
-import { generateId, slug, slugOrHash } from "../../src/lib/template.ts"
-import { parseTemplate, templateFields, validateTemplate, renderDisplay, FILTERS } from "../../src/lib/template.ts"
+import { generateId } from "../../src/record/generateId.ts"
+import { slug, slugOrHash } from "../../src/record/template.ts"
+import { parseTemplate } from "../../src/record/parseTemplate.ts"
+import { templateFields, FILTERS } from "../../src/record/template.ts"
+import { validateTemplate } from "../../src/record/validateTemplate.ts"
+import { renderDisplay } from "../../src/record/renderDisplay.ts"
 
 // ⚠ The non-latin fixtures below are written as \u escapes, NOT as literal characters. They are
 // the identical strings at runtime — this is purely so the leak scanner that guards this PUBLIC repo

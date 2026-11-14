@@ -6,7 +6,11 @@ import assert from "node:assert/strict"
 import path from "node:path"
 import os from "node:os"
 import fs from "node:fs"
-import { fold, fillInputs, parseInputFlags, consent, redact } from "../../src/setup.ts"
+import { fold } from "../../src/workspace/fold.ts"
+import { fillInputs } from "../../src/workspace/fillInputs.ts"
+import { parseInputFlags } from "../../src/workspace/parseInputFlags.ts"
+import { consent } from "../../src/workspace/consent.ts"
+import { redact } from "../../src/workspace/redact.ts"
 
 const c = (id, status, extra = {}) => ({ id, status, title: id, ...extra })
 

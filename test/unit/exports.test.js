@@ -3,7 +3,11 @@
 // exportsContext answers from the runtime and the disk, exercised by test/integration/exports.test.js.
 import { test, describe } from "node:test"
 import assert from "node:assert/strict"
-import { serializeExports, outsideRefs, regenerate, isStale, sees } from "../../src/lib/exports.ts"
+import { serializeExports } from "../../src/exports/serializeExports.ts"
+import { outsideRefs } from "../../src/record/outsideRefs.ts"
+import { regenerate } from "../../src/record/regenerate.ts"
+import { isStale } from "../../src/check/isStale.ts"
+import { sees } from "../../src/record/exports.ts"
 
 const ctx = ({ seen = [], complete = true } = {}) => ({
   rootsOf: () => seen.map(p => ({ package: p, present: true })),

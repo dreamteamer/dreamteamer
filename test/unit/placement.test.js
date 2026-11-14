@@ -4,9 +4,13 @@
 import { test, describe } from "node:test"
 import assert from "node:assert/strict"
 import path from "node:path"
-import { subpathProblem, placedRoot, placementOfFile, placedChildAt, ownerIdOf } from "../../src/lib/placement.ts"
-import { pathToRecord } from "../../src/lib/events.ts"
-import { parseRef } from "../../src/lib/namespace.ts"
+import { subpathProblem } from "../../src/record/subpathProblem.ts"
+import { placedRoot } from "../../src/record/placement.ts"
+import { placementOfFile } from "../../src/record/placementOfFile.ts"
+import { placedChildAt } from "../../src/record/placedChildAt.ts"
+import { ownerIdOf } from "../../src/record/ownerIdOf.ts"
+import { pathToRecord } from "../../src/record/pathToRecord.ts"
+import { parseRef } from "../../src/record/parseRef.ts"
 
 // the RESOLVED placement (`storageOf(d).under`): the authored parent field and subfolder, plus the
 // parent collection compile records in `compiled.under_collection`

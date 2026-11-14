@@ -14,7 +14,7 @@ import assert from "node:assert/strict"
 import fs from "node:fs"
 import path from "node:path"
 import { twoModuleWorkspace, readFile } from "../helpers/ws.js"
-import { load } from "../../src/lib/yaml.ts"
+import { load } from "../../src/record/yaml.ts"
 
 describe("skills — add scaffolds the minimum that compiles", () => {
   test("add skills --name --description writes SKILL.md with frontmatter and an empty body", () => {
@@ -194,8 +194,8 @@ describe("the two policies, spelled the same", () => {
 describe("the presentation contract does not call a writable system kind read-only", () => {
   test("a system collection is `runtime` and NOT collection-level readonly", async () => {
     const ws = twoModuleWorkspace()
-    const { Store } = await import("../../src/lib/store.ts")
-    const { presentation } = await import("../../src/lib/presentation.ts")
+    const { Store } = await import("../../src/record/Store.ts")
+    const { presentation } = await import("../../src/record/presentation.ts")
     const { collections } = presentation(new Store(ws.ws).descriptors)
 
     for (const name of ["skills", "collections", "modules", "ui-views"]) {
@@ -217,8 +217,8 @@ describe("the presentation contract does not call a writable system kind read-on
 
   test("and a plain data collection is neither", async () => {
     const ws = twoModuleWorkspace()
-    const { Store } = await import("../../src/lib/store.ts")
-    const { presentation } = await import("../../src/lib/presentation.ts")
+    const { Store } = await import("../../src/record/Store.ts")
+    const { presentation } = await import("../../src/record/presentation.ts")
     const { collections } = presentation(new Store(ws.ws).descriptors)
     const people = collections.find(c => c.collection === "people")
     assert.ok(people, "the fixture should ship a `people` collection")
@@ -238,8 +238,8 @@ describe("the presentation contract does not call a writable system kind read-on
   // collection because the two answers agree there. Here they disagree, so here it fails.
   test("`repos` is machinery that is NOT build output — the two answers disagree, and must", async () => {
     const ws = twoModuleWorkspace()
-    const { Store } = await import("../../src/lib/store.ts")
-    const { presentation } = await import("../../src/lib/presentation.ts")
+    const { Store } = await import("../../src/record/Store.ts")
+    const { presentation } = await import("../../src/record/presentation.ts")
     const { collections } = presentation(new Store(ws.ws).descriptors)
     const repos = collections.find(c => c.collection === "repos")
     assert.ok(repos, "`repos` is a core collection — it must reach the presentation contract")

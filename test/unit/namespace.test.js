@@ -5,18 +5,13 @@
 // change: which prefix wins, what a bare collection name means, and which spellings are refused.
 import { test, describe } from "node:test"
 import assert from "node:assert/strict"
-import {
-  normalizeNamespaces,
-  namespaceProblems,
-  unqualifiedProblems,
-  qualify,
-  namespaceOf,
-  baseNameOf,
-  parseRef,
-  defaultStoragePath,
-  storageOverlaps,
-  RESERVED_NAMESPACES,
-} from "../../src/lib/namespace.ts"
+import { normalizeNamespaces } from "../../src/record/normalizeNamespaces.ts"
+import { namespaceProblems } from "../../src/record/namespaceProblems.ts"
+import { unqualifiedProblems } from "../../src/record/unqualifiedProblems.ts"
+import { qualify } from "../../src/collections/qualify.ts"
+import { namespaceOf, baseNameOf, defaultStoragePath, RESERVED_NAMESPACES } from "../../src/record/namespace.ts"
+import { parseRef } from "../../src/record/parseRef.ts"
+import { storageOverlaps } from "../../src/record/storageOverlaps.ts"
 
 const NS = normalizeNamespaces(["health", "finance", "work/clients", "work"])
 

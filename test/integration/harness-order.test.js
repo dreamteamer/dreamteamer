@@ -7,7 +7,7 @@ import assert from "node:assert/strict"
 import fs from "node:fs"
 import path from "node:path"
 import { workspace, writeCollection, compileError, compileQuietly, git } from "../helpers/ws.js"
-import { BEGIN, END, INSTRUCTIONS_BEGIN } from "../../src/lib/harnesses.ts"
+import { BEGIN, END, INSTRUCTIONS_BEGIN } from "../../src/workspace/harnessMarkers.ts"
 
 const NOTE = {
   description: "A note.",

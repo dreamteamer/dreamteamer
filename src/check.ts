@@ -1,49 +1,33 @@
-import fs from "node:fs"
 import path from "node:path"
 import Ajv from "ajv"
 import addFormats from "ajv-formats"
-import {
-  parseRecord,
-  patternRe,
-  fmtAjvError,
-  unknownFields,
-  walk,
-  idFromRecordPath,
-  MAX_RECORD_BYTES,
-} from "./lib/records.ts"
-import {
-  NO_RUNTIME,
-  loadDescriptors,
-  runtimeDir,
-  namespaces as compiledNamespaces,
-  exportsFacts,
-} from "./lib/runtime.ts"
-import { parseRef } from "./lib/namespace.ts"
-import { relationsOf, expectedMirrors, ownersReadIn } from "./lib/relations.ts"
-import type { Relation } from "./lib/relations.ts"
-import type { Descriptor } from "./lib/types.ts"
-import {
-  collectRefFields,
-  valuesAt,
-  EXPORTS_FILE,
-  readExports,
-  exportsContext,
-  sees,
-  outsideRefs,
-  regenerate,
-  isStale,
-} from "./lib/exports.ts"
-import { placementOf, placedRecords, ownerIdOf, symlinkedChildRoots } from "./lib/placement.ts"
+import fs from "node:fs"
+import { isStale } from "./check/isStale.ts"
+import { symlinkedChildRoots } from "./check/symlinkedChildRoots.ts"
+import { collectRefFields } from "./record/collectRefFields.ts"
+import { bodyFieldOf, fieldsOf, idsOf, jsonSchemaOf, recordTitleOf, unresolvedPeersOf } from "./record/descriptor.ts"
+import { expectedMirrors } from "./record/expectedMirrors.ts"
+import { EXPORTS_FILE, sees, valuesAt } from "./record/exports.ts"
+import { exportsContext } from "./record/exportsContext.ts"
+import { idFromRecordPath } from "./record/idFromRecordPath.ts"
+import { outsideRefs } from "./record/outsideRefs.ts"
+import { ownerIdOf } from "./record/ownerIdOf.ts"
+import { ownersReadIn } from "./record/ownersReadIn.ts"
+import { parseRef } from "./record/parseRef.ts"
+import { placedRecords } from "./record/placedRecords.ts"
+import { placementOf } from "./record/placement.ts"
+import { readExports } from "./record/readExports.ts"
+import { MAX_RECORD_BYTES, fmtAjvError, parseRecord, patternRe, unknownFields } from "./record/records.ts"
+import { regenerate } from "./record/regenerate.ts"
+import { relationsOf } from "./record/relationsOf.ts"
+import { storageOf } from "./record/storageOf.ts"
+import type { Relation } from "./record/types.ts"
+import { walk } from "./record/walk.ts"
+import { exportsFacts } from "./runtime/exportsFacts.ts"
+import { loadDescriptors } from "./runtime/loadDescriptors.ts"
+import { NO_RUNTIME, namespaces as compiledNamespaces, runtimeDir } from "./runtime/runtime.ts"
+import type { Descriptor } from "./types.ts"
 
-import {
-  storageOf,
-  jsonSchemaOf,
-  fieldsOf,
-  unresolvedPeersOf,
-  bodyFieldOf,
-  idsOf,
-  recordTitleOf,
-} from "./lib/descriptor.ts"
 export function check(
   { root }: { root: string; pkg?: unknown },
   {

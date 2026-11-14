@@ -1,9 +1,18 @@
 # src/
 
-What each file of the engine is for, and why it is shaped the way it is. These notes were the
-header comments of the files themselves; they live here so the code opens on code.
+What each part of the engine is for, and why it is shaped the way it is. These notes were the header
+comments of the engine's modules; they live here so the code opens on code. Each module has since been
+split into one file per export, placed by who uses it, so a section names the files it now covers:
 
-## [api.ts](api.ts)
+- `src/*.ts` — the entry points (`cli`, `api`, `records-api`, `testing`, `update-setup`), the public
+  contract (`types.ts`), and the function each CLI verb dispatches to (`statusCommand`, `commitCommand` …)
+- `src/<command>/` — code only that command uses
+- `src/record/`, `src/runtime/`, `src/workspace/` — code two or more commands share, by layer
+  (`npm run layers` holds the direction: record never imports workspace, a command folder never another's)
+
+## api
+
+Files: [api.ts](api.ts)
 
 The PUBLIC API — `import … from 'dreamteamer'`. Everything a surface (the VS Code extension, the
 mobile app) or an extension (http, workflows, notebooklm) may call, and nothing else: package.json
@@ -17,7 +26,9 @@ test/types/consumer.ts is the contract they are held to.
 
 Importing this module prints nothing, writes nothing, binds no port and touches no network.
 
-## [check/alone.ts](check/alone.ts)
+## alone
+
+Files: [check/ENGINE.ts](check/ENGINE.ts) · [check/checkAlone.ts](check/checkAlone.ts) · [check/engineRun.ts](check/engineRun.ts) · [check/freshWorkspace.ts](check/freshWorkspace.ts)
 
 `dt check modules/<id> --alone` — is this inline module publishable? (cr-dt-007, G3, D63, D65)
 
@@ -36,7 +47,9 @@ script of the author's (D63: the author's `npm test` is the author's).
 Dispatched from src/cli.js before the host workspace is opened: a module whose dependency is
 missing would fail the HOST's compile, and the gate's whole point is to say so by name.
 
-## [check.ts](check.ts)
+## check
+
+Files: [check.ts](check.ts)
 
 dreamteamer check — validate every record against the compiled descriptors.
 report-only: JSON Schema (ajv), id patterns, reference resolution, stray files, plus any
@@ -45,12 +58,16 @@ report-only: JSON Schema (ajv), id patterns, reference resolution, stray files, 
 own records reach only through a layer is a violation rather than a ⚠ line: a workspace reading this one without its layers would see them break.
 NEVER modifies a file. returns the exit code.
 
-## [lib/checkout.ts](lib/checkout.ts)
+## checkout
+
+Files: [init/escapes.ts](init/escapes.ts) · [initCommand.ts](initCommand.ts) · [install/applyInstall.ts](install/applyInstall.ts) · [install/declaredDeps.ts](install/declaredDeps.ts) · [install/installCheckout.ts](install/installCheckout.ts) · [install/observeState.ts](install/observeState.ts) · [install/planInstall.ts](install/planInstall.ts) · [install/readHookInput.ts](install/readHookInput.ts) · [install/readStdin.ts](install/readStdin.ts) · [install/resolves.ts](install/resolves.ts) · [install/types.ts](install/types.ts) · [workspace/childEnv.ts](workspace/childEnv.ts) · and 3 more
 
 src/checkout.ts — which checkout am I, and how does it become ready.
 WORKSPACE layer: knows git and the compiler, never the harness.
 
-## [cli.ts](cli.ts)
+## cli
+
+Files: [cli.ts](cli.ts)
 
 dreamteamer CLI — VERB-FIRST: `dt <verb> [<target>]`, over the same primitives every surface uses.
 
@@ -64,20 +81,26 @@ arguments that only the caller knew belonged together.
 This file TRANSLATES; it does not implement. Every record and schema verb lands on
 `collectionCommand(ws, collection, verb, args)`, whose signature is unchanged.
 
-## [collections.ts](collections.ts)
+## collections
+
+Files: [collectionCommand.ts](collectionCommand.ts) · [collections/FIELD_FLAGS.ts](collections/FIELD_FLAGS.ts) · [collections/OWN_VERBS.ts](collections/OWN_VERBS.ts) · [collections/VERB_FLAGS.ts](collections/VERB_FLAGS.ts) · [collections/isEntityKind.ts](collections/isEntityKind.ts) · [collections/nearest.ts](collections/nearest.ts) · [collections/parseArgs.ts](collections/parseArgs.ts) · [collections/refuseUnknownFlags.ts](collections/refuseUnknownFlags.ts) · [collections/rel.ts](collections/rel.ts) · [record/emit.ts](record/emit.ts) · [relationsCommand.ts](relationsCommand.ts) · [workspace/reportCommits.ts](workspace/reportCommits.ts)
 
 The IMPLEMENTATION layer behind the verb-first CLI: `collectionCommand(ws, collection, verb, args)`
 is (collection, verb) shaped and stays that way — `cli.js` translates `dt <verb> <target>` onto it.
 So a spelling here (`collections add`, `<collection> add-field`, `commands for`, `repos ensure`) is
 an INTERNAL pair, not what the operator types; `dt add collections` is what they type.
 
-## [commit.ts](commit.ts)
+## commit
+
+Files: [changes/recordChanges.ts](changes/recordChanges.ts) · [record/QUIET.ts](record/QUIET.ts) · [record/commitPending.ts](record/commitPending.ts) · [record/composeSubject.ts](record/composeSubject.ts) · [record/inProgress.ts](record/inProgress.ts) · [record/layerOf.ts](record/layerOf.ts) · [record/rowChanges.ts](record/rowChanges.ts) · [record/types.ts](record/types.ts)
 
 dt commit — publish what is already on disk. Model: GIT IS THE JOURNAL. There is no pending
 file and no cursor; the set of things to commit is sampled from `git status` over the record
 directories of every collection, which means it cannot disagree with reality.
 
-## [lib/compile-collections.ts](lib/compile-collections.ts)
+## compile-collections
+
+Files: [workspace/compileCollections.ts](workspace/compileCollections.ts) · [workspace/types.ts](workspace/types.ts) · [workspace/v1Refusal.ts](workspace/v1Refusal.ts)
 
 Compiling collection descriptors — descriptor format v2, the only format the engine reads.
 
@@ -92,13 +115,17 @@ the `json_schema` the validator runs.
 A v1 source — a descriptor without `fields`, or a collection-template — is refused, all of them in
 one message naming the converter. Nothing here reads the v1 shape.
 
-## [compile.ts](compile.ts)
+## compile
+
+Files: [workspace/KINDS.ts](workspace/KINDS.ts) · [workspace/compile.ts](workspace/compile.ts) · [workspace/discoverModules.ts](workspace/discoverModules.ts) · [workspace/repoRootOf.ts](workspace/repoRootOf.ts) · [workspace/staleness.ts](workspace/staleness.ts)
 
 dreamteamer compile — materialize (modules × workspace sources) into .dreamteamer,
 the single runtime read surface: copies + provenance manifest, then harness adapters.
 explicit only; nothing rebuilds implicitly.
 
-## [lib/descriptor-v2.ts](lib/descriptor-v2.ts)
+## descriptor-v2
+
+Files: [workspace/V2_KEYS.ts](workspace/V2_KEYS.ts) · [workspace/isV2.ts](workspace/isV2.ts) · [workspace/mergeMixins.ts](workspace/mergeMixins.ts) · [workspace/mergeOverlays.ts](workspace/mergeOverlays.ts) · [workspace/nameErrors.ts](workspace/nameErrors.ts) · [workspace/shapeErrors.ts](workspace/shapeErrors.ts)
 
 The authored descriptor — validated, and merged with its mixins and overlays.
 
@@ -109,7 +136,9 @@ compile-collections.js resolves.
 
 Pure: no fs, no git. Errors are returned, never thrown, so compile attributes each to a file.
 
-## [lib/descriptor.ts](lib/descriptor.ts)
+## descriptor
+
+Files: [record/descriptor.ts](record/descriptor.ts) · [record/displayOf.ts](record/displayOf.ts) · [record/storageOf.ts](record/storageOf.ts)
 
 Accessors over a COMPILED descriptor — the one way any reader asks what a collection is.
 
@@ -119,14 +148,18 @@ A compiled descriptor is the authored v2 keys plus the `compiled` block compile 
 A reader never looks at the authored keys and the defaults separately, and never re-derives a fact
 compile already decided: it asks here. Pure — no fs, no git, no knowledge of modules.
 
-## [doctor.ts](doctor.ts)
+## doctor
+
+Files: [doctor/doctorBoard.ts](doctor/doctorBoard.ts) · [doctor/renderBoard.ts](doctor/renderBoard.ts) · [doctor/types.ts](doctor/types.ts)
 
 `dt doctor` — one board of what works in THIS environment: the engine's own rows, then each
 extension's `doctor` contribution as one capability. A capability is READY (every row ok),
 DEGRADED (a warning: the workspace still works) or UNAVAILABLE (a failure), and every row that is
 not ok carries its fix on the same line. No network call; exit 0 unless --strict finds a failure.
 
-## [lib/env-vars.ts](lib/env-vars.ts)
+## env-vars
+
+Files: [record/envContext.ts](record/envContext.ts) · [record/parseEnvValues.ts](record/parseEnvValues.ts) · [record/renderTemplate.ts](record/renderTemplate.ts) · [record/types.ts](record/types.ts)
 
 ${env:KEY} / ${workspaceFolder} / ${userHome} — VS Code's variable grammar, three variables.
 Values render ONLY on explicit request (dt resolve); records are never auto-substituted.
@@ -138,7 +171,9 @@ Two accepted non-goals, unchanged on purpose: `KEY =value` (space before `=`) do
 key pattern and is silently dropped, no diagnostic; an unquoted value keeps a trailing inline
 `# comment` as part of its text (quote it to strip one).
 
-## [setup/env-write.ts](setup/env-write.ts)
+## env-write
+
+Files: [workspace/env-write.ts](workspace/env-write.ts) · [workspace/envSpans.ts](workspace/envSpans.ts) · [workspace/fingerprint.ts](workspace/fingerprint.ts) · [workspace/gitExposure.ts](workspace/gitExposure.ts) · [workspace/leftoverTemps.ts](workspace/leftoverTemps.ts) · [workspace/setEnvValues.ts](workspace/setEnvValues.ts) · [workspace/writeEnvAtomic.ts](workspace/writeEnvAtomic.ts)
 
 The `.env` writer behind a unit's env action (cr-dt-007, D61): the engine performs the one write
 every module's setup used to carry its own copy of — a key's value span replaced in place or
@@ -151,21 +186,27 @@ Refusals are `EnvRefusal` with a `code`, so the driver (src/setup.js) can turn t
 before writing into a plan-time `blocked` and keep only `changed` (the file moved after the plan)
 and an I/O error as a write-time failure. Nothing here reads a value back to the caller.
 
-## [lib/events.ts](lib/events.ts)
+## events
+
+Files: [changes/changeKinds.ts](changes/changeKinds.ts) · [changes/deriveEvents.ts](changes/deriveEvents.ts) · [changes/types.ts](changes/types.ts) · [record/foldChanges.ts](record/foldChanges.ts) · [record/groupChanges.ts](record/groupChanges.ts) · [record/pathToRecord.ts](record/pathToRecord.ts) · [record/reportLine.ts](record/reportLine.ts) · [record/types.ts](record/types.ts)
 
 item events — DERIVED from git history, never observed live (the slice-5 contract in
 using-dreamteamer → references/changes.md): a closed laptop loses nothing, every evaluation is
 auditable and replayable forever. history IS the queue; there is no events file.
 
-## [exports.ts](exports.ts)
+## exports (the verb)
+
+Files: [exports/planExports.ts](exports/planExports.ts) · [runExports.ts](runExports.ts)
 
 dt exports [--layer <name> …] [--dry-run] [--json] — write a repo's exports manifest from this
 context (cr-dt-004). Bare: this workspace's own; --layer: that layer's, written into its clone — how a
 reader records the ids a layer names in the reader, which the layer alone cannot see. The rules are
-src/exports.ts `regenerate`, shared with `check`, so `check` names a manifest stale exactly when this
+src/record/regenerate.ts, shared with `check`, so `check` names a manifest stale exactly when this
 would change or drop one of its entries. Writes and commits ONE path, `dreamteamer-exports.json`.
 
-## [lib/exports.ts](lib/exports.ts)
+## exports (the manifest)
+
+Files: [check/isStale.ts](check/isStale.ts) · [exports/serializeExports.ts](exports/serializeExports.ts) · [record/collectRefFields.ts](record/collectRefFields.ts) · [record/exports.ts](record/exports.ts) · [record/exportsContext.ts](record/exportsContext.ts) · [record/outsideRefs.ts](record/outsideRefs.ts) · [record/readExports.ts](record/readExports.ts) · [record/regenerate.ts](record/regenerate.ts) · [record/types.ts](record/types.ts)
 
 The exports manifest (cr-dt-004) — `dreamteamer-exports.json` at a repo root: per id that repo's own
 records name and no file of the repo holds, a display label and the package name of the workspace that
@@ -176,7 +217,9 @@ Record layer: pure over the roots, descriptors and the facts compile recorded in
 reads package.json. One walk of a repo's references (`outsideRefs`) and one judgement (`regenerate`)
 serve `check`, `dt exports` and the migration script, so the three cannot disagree.
 
-## [lib/extensions.ts](lib/extensions.ts)
+## extensions
+
+Files: [collections/contributedNotes.ts](collections/contributedNotes.ts) · [workspace/MANIFEST_KEYS.ts](workspace/MANIFEST_KEYS.ts) · [workspace/declaredExtensions.ts](workspace/declaredExtensions.ts) · [workspace/extensions.ts](workspace/extensions.ts) · [workspace/loadExtensions.ts](workspace/loadExtensions.ts) · [workspace/manifestViolations.ts](workspace/manifestViolations.ts) · [workspace/v1ManifestRefusal.ts](workspace/v1ManifestRefusal.ts)
 
 Engine extensions — the ONE seam an optional tool plugs into.
 
@@ -209,7 +252,9 @@ It returns a contribution, every key optional:
 Two contributions claiming the same verb, kind or harness is a refusal — there is no "last one
 wins", because the loser would be an extension the operator installed that silently does nothing.
 
-## [lib/field-values.ts](lib/field-values.ts)
+## field-values
+
+Files: [collections/distinctValues.ts](collections/distinctValues.ts)
 
 distinct values actually present in a collection's field.
 
@@ -224,7 +269,9 @@ The data already knows. This derives the vocabulary from the records themselves,
 low-cardinality field becomes selectable with no schema change and no risk of `check` failing
 on a value that predates an enum someone added later.
 
-## [lib/fields.ts](lib/fields.ts)
+## fields
+
+Files: [record/INJECTED_FIELDS.ts](record/INJECTED_FIELDS.ts) · [record/SCALAR_TYPES.ts](record/SCALAR_TYPES.ts) · [record/enumChoices.ts](record/enumChoices.ts) · [record/fields.ts](record/fields.ts) · [record/resolveFields.ts](record/resolveFields.ts) · [record/toJsonSchema.ts](record/toJsonSchema.ts)
 
 The field vocabulary — dreamteamer's own, compiled to JSON Schema.
 
@@ -239,14 +286,18 @@ This module is pure: no fs, no git, no knowledge of modules. It is handed the se
 that exist so a `type: <collection>` can be told from a typo, and returns errors rather than throwing,
 so compile can attribute each one to a file.
 
-## [lib/filter.ts](lib/filter.ts)
+## filter
+
+Files: [collections/UNKNOWN_TOKEN.ts](collections/UNKNOWN_TOKEN.ts) · [collections/looseEq.ts](collections/looseEq.ts) · [collections/matchesFilter.ts](collections/matchesFilter.ts) · [collections/tokenValue.ts](collections/tokenValue.ts) · [record/KNOWN_OPERATORS.ts](record/KNOWN_OPERATORS.ts) · [record/filter.ts](record/filter.ts) · [record/unknownOperators.ts](record/unknownOperators.ts) · [record/unknownTokens.ts](record/unknownTokens.ts)
 
 record filtering — the operator set harvested from an earlier engine's
 query/compare.ts (Directus-style), trimmed to what the studio FilterBuilder
 and saved views actually emit. evaluated server-side over parsed records.
 negative operators deliberately reject null (SQL semantics).
 
-## [lib/fractional-index.ts](lib/fractional-index.ts)
+## fractional-index
+
+Files: [collections/keyBetween.ts](collections/keyBetween.ts) · [collections/placementKey.ts](collections/placementKey.ts)
 
 Manual ordering keys. Named for the ALGORITHM: the FIELD is named per collection via
 its `type: position` field, and nothing here may assume what it is called.
@@ -265,7 +316,9 @@ Why a dependency rather than 75 lines of our own: the naive midpoint (halve towa
 degenerates on APPEND, which is the commonest write — measured at 200-character keys after 1000
 appends. The library's integer-part-with-magnitude-head keeps that at 4.
 
-## [lib/harnesses.ts](lib/harnesses.ts)
+## harnesses
+
+Files: [doctor/MANAGED_BLOCKS.ts](doctor/MANAGED_BLOCKS.ts) · [workspace/buildCollectionsIndex.ts](workspace/buildCollectionsIndex.ts) · [workspace/buildModulesIndex.ts](workspace/buildModulesIndex.ts) · [workspace/harnessMarkers.ts](workspace/harnessMarkers.ts) · [workspace/renderContributions.ts](workspace/renderContributions.ts) · [workspace/runHarnessAdapters.ts](workspace/runHarnessAdapters.ts) · [workspace/types.ts](workspace/types.ts) · [workspace/writeLine.ts](workspace/writeLine.ts)
 
 harness adapters — one thin stage per harness, dispatched from compile over the same
 compiled entries. the superpowers lesson, kept deliberately: CONTENT NEVER FORKS PER
@@ -280,7 +333,9 @@ managed blocks live in USER-OWNED files (committed); generated dirs (.claude, .a
 .cursor) are gitignored and pruned by stamp. removing a harness from config removes its
 block/file on the next compile.
 
-## [lib/history.ts](lib/history.ts)
+## history
+
+Files: [collections/history.ts](collections/history.ts) · [collections/historyDiff.ts](collections/historyDiff.ts) · [collections/trackedPaths.ts](collections/trackedPaths.ts) · [record/commitArg.ts](record/commitArg.ts)
 
 per-record revision history, straight out of git.
 
@@ -290,13 +345,17 @@ copy-pasted into the VS Code extension's `src/api.ts`, with no CLI verb anywhere
 how this record changed" was a thing you could do by clicking and not by asking an agent. One
 implementation here, three callers (CLI, server, extension).
 
-## [init.ts](init.ts)
+## init
+
+Files: [collections/materializeRepo.ts](collections/materializeRepo.ts) · [collections/repos.ts](collections/repos.ts) · [init/SKELETON_KINDS.ts](init/SKELETON_KINDS.ts) · [init/init.ts](init/init.ts) · [init/initFootprint.ts](init/initFootprint.ts) · [init/seedBlock.ts](init/seedBlock.ts) · [install/commitOf.ts](install/commitOf.ts) · [install/install.ts](install/install.ts) · [install/installClone.ts](install/installClone.ts) · [install/isLink.ts](install/isLink.ts) · [install/offRef.ts](install/offRef.ts) · [update/update.ts](update/update.ts) · and 8 more
 
 dreamteamer init — write the workspace skeleton into the current directory.
 non-interactive: flags override sensible defaults (RAD phase; prompts later).
 never compiles — compile is always explicit.
 
-## [install.ts](install.ts)
+## install
+
+Files: [install/installModules.ts](install/installModules.ts) · [workspace/indexFolder.ts](workspace/indexFolder.ts) · [workspace/installedModules.ts](workspace/installedModules.ts) · [workspace/npmAndCompile.ts](workspace/npmAndCompile.ts) · [workspace/npmFloor.ts](workspace/npmFloor.ts) · [workspace/printUnitResults.ts](workspace/printUnitResults.ts) · [workspace/readSpecManifest.ts](workspace/readSpecManifest.ts) · [workspace/readTarballManifest.ts](workspace/readTarballManifest.ts) · [workspace/resolveClosure.ts](workspace/resolveClosure.ts) · [workspace/setupAndCommit.ts](workspace/setupAndCommit.ts) · [workspace/types.ts](workspace/types.ts) · [workspace/versions.ts](workspace/versions.ts)
 
 `dt install <spec…>` — bring a module into this workspace: resolve the closure and refuse early,
 npm install --save-exact, verify, compile (and restore on refusal), the safe part of the module's
@@ -308,7 +367,9 @@ in for the registry — the offline form candidates and acceptance use.
 The other `install` forms — make THIS checkout ready, `--clone`, `repos/<id>`, `--hook` — stay in
 src/checkout.ts and src/init.ts; this file is only the spec form.
 
-## [lib/namespace.ts](lib/namespace.ts)
+## namespace
+
+Files: [collections/qualify.ts](collections/qualify.ts) · [record/namespace.ts](record/namespace.ts) · [record/namespaceProblems.ts](record/namespaceProblems.ts) · [record/normalizeNamespaces.ts](record/normalizeNamespaces.ts) · [record/parseRef.ts](record/parseRef.ts) · [record/singular.ts](record/singular.ts) · [record/storageOverlaps.ts](record/storageOverlaps.ts) · [record/unqualifiedProblems.ts](record/unqualifiedProblems.ts)
 
 NAMESPACES — how a collection name is scoped, and how a reference splits back apart.
 
@@ -339,7 +400,9 @@ This module is deliberately PURE — the declared list arrives as an argument. c
 and writes it into the manifest; runtime.js hands it to the record layer. Nothing here reads a
 file, so all of it is unit-testable without a workspace.
 
-## [lib/placement.ts](lib/placement.ts)
+## placement
+
+Files: [check/symlinkedChildRoots.ts](check/symlinkedChildRoots.ts) · [record/dirTreeStamps.ts](record/dirTreeStamps.ts) · [record/ownerIdOf.ts](record/ownerIdOf.ts) · [record/parentFolders.ts](record/parentFolders.ts) · [record/placedChildAt.ts](record/placedChildAt.ts) · [record/placedRecords.ts](record/placedRecords.ts) · [record/placement.ts](record/placement.ts) · [record/placementOfFile.ts](record/placementOfFile.ts) · [record/rootRecords.ts](record/rootRecords.ts) · [record/subpathProblem.ts](record/subpathProblem.ts) · [record/symlinkBelow.ts](record/symlinkBelow.ts) · [record/types.ts](record/types.ts)
 
 RELATIONSHIP-BASED STORAGE — a record stored UNDER the record it belongs to.
 
@@ -368,7 +431,9 @@ This module is in the RECORD layer and reads compiled descriptors only: nothing 
 module, an overlay or a schema source is. Store and check both enumerate through it so they cannot
 disagree about which files are records.
 
-## [lib/presentation.ts](lib/presentation.ts)
+## presentation
+
+Files: [record/presentation.ts](record/presentation.ts)
 
 The display contract — compiled descriptors → what every surface draws (the extension, the mobile
 app, the REST layer). One read model, so no surface re-derives a label, a column list or a
@@ -385,7 +450,9 @@ it emits is a name from the design's display-contract table, one word per meanin
 
 Pure: no fs, no git, no workspace.
 
-## [lib/record-commands.ts](lib/record-commands.ts)
+## record-commands
+
+Files: [collections/commandsFor.ts](collections/commandsFor.ts) · [collections/recordResolver.ts](collections/recordResolver.ts)
 
 record⇄command evaluation — which bound commands apply to a record (or a list
 selection), and in which state. a binding is a `command-bindings` record: a m2m
@@ -394,7 +461,9 @@ evaluated with the SAME operator set as list-view filters plus one-hop outbound
 ref traversal (tier 1). serves `dreamteamer commands for`, GET /api/commands/:name,
 and (through the extension's api.ts port) the studio's Commands tab.
 
-## [records-api.ts](records-api.ts)
+## records-api
+
+Files: [records-api.ts](records-api.ts)
 
 The RECORD half of the public API — `import … from 'dreamteamer/records'`. Records over git and the
 read models a surface draws, and nothing that knows modules, harnesses, extensions or the CLI.
@@ -407,18 +476,24 @@ import closure is pinned to those three builtins by test/integration/public-api.
 
 `dreamteamer` (src/api.ts) re-exports everything here, so a node consumer never needs two imports.
 
-## [lib/records.ts](lib/records.ts)
+## records
+
+Files: [record/idFromRecordPath.ts](record/idFromRecordPath.ts) · [record/parseRecordText.ts](record/parseRecordText.ts) · [record/records.ts](record/records.ts) · [record/walk.ts](record/walk.ts)
 
 shared record primitives — parsing, id patterns, error formatting — used by
 both the validating store (hard, write-time) and check (soft, report-only).
 
-## [lib/relations.ts](lib/relations.ts)
+## relations
+
+Files: [record/expectedMirrors.ts](record/expectedMirrors.ts) · [record/ownersReadIn.ts](record/ownersReadIn.ts) · [record/relationsOf.ts](record/relationsOf.ts) · [record/types.ts](record/types.ts)
 
 Relations, decoded ONCE. A relation is a mirror field (`mirror_of: <owner field>`) in the compiled
 runtime, so check, the store's mirror maintenance, `dt relations`, rebuild and presentation all
 read through here and can never disagree about what a relation is.
 
-## [lib/runtime.ts](lib/runtime.ts)
+## runtime
+
+Files: [runtime/exportsFacts.ts](runtime/exportsFacts.ts) · [runtime/loadDescriptors.ts](runtime/loadDescriptors.ts) · [runtime/runtime.ts](runtime/runtime.ts) · [runtime/sourceRoots.ts](runtime/sourceRoots.ts)
 
 THE BOUNDARY — `.dreamteamer/` is the one artifact the two halves of this engine share.
 
@@ -433,13 +508,17 @@ descriptors, and (in the manifest) which directories hold the sources behind run
 records. So this module owns the runtime's shape, both halves import it, and `npm run layers`
 fails if the old edge comes back.
 
-## [collections/scaffold-templates.ts](collections/scaffold-templates.ts)
+## scaffold-templates
+
+Files: [collections/extensionText.ts](collections/extensionText.ts) · [collections/readmeText.ts](collections/readmeText.ts) · [collections/scaffoldKey.ts](collections/scaffoldKey.ts) · [collections/testText.ts](collections/testText.ts)
 
 The text `dt add modules` writes beside a new module's package.json (cr-dt-007, G4): a README with the
 install line, and — under `--extension` — an extension entry whose one setup unit asks for one token and
 lets the engine write it into .env (the env action, D61). Pure: strings in, strings out.
 
-## [collections/schema-ops.ts](collections/schema-ops.ts)
+## schema-ops
+
+Files: [collections/PARTIAL_OPS.ts](collections/PARTIAL_OPS.ts) · [collections/addField.ts](collections/addField.ts) · [collections/applyRewrites.ts](collections/applyRewrites.ts) · [collections/baseDescriptorSource.ts](collections/baseDescriptorSource.ts) · [collections/collectionSourceFile.ts](collections/collectionSourceFile.ts) · [collections/createCollection.ts](collections/createCollection.ts) · [collections/createModule.ts](collections/createModule.ts) · [collections/createSkill.ts](collections/createSkill.ts) · [collections/declaringSource.ts](collections/declaringSource.ts) · [collections/descriptorSources.ts](collections/descriptorSources.ts) · [collections/editWorkspacePkg.ts](collections/editWorkspacePkg.ts) · [collections/entitySource.ts](collections/entitySource.ts) · and 55 more
 
 schema operations — source-writing mutations shared by the CLI meta verbs and the
 server's schema endpoints. the contract (audit finding 11, clean-room bug 2): an op
@@ -448,7 +527,9 @@ uncompilable source can never land in history. the successful gate compile also
 leaves the runtime fresh, which kills the add-field-right-after-collections-add
 papercut (review finding 7): schema ops ARE explicit compiles.
 
-## [lib/semver.ts](lib/semver.ts)
+## semver
+
+Files: [workspace/satisfies.ts](workspace/satisfies.ts)
 
 tiny semver-range checker for engine-pin checks — deliberately NOT npm's semver.
 supported ranges: exact "1.2.3", "^1.2.3", "~1.2.3", ">=1.2.3", "*".
@@ -456,7 +537,9 @@ NOT supported (returns null, "can't tell"): "||" alternatives, hyphen ranges,
 x-ranges (1.2.x), combined comparators (">=1.0.0 <2.0.0"), <, <=, >,
 prerelease/build tags. callers treat null as "warn, don't guess".
 
-## [lib/setup-contract.ts](lib/setup-contract.ts)
+## setup-contract
+
+Files: [workspace/setup-contract.ts](workspace/setup-contract.ts) · [workspace/validateEnvAction.ts](workspace/validateEnvAction.ts) · [workspace/validateSetup.ts](workspace/validateSetup.ts)
 
 The `setup` contribution — extension API 1, setup version 1.
 
@@ -477,7 +560,9 @@ identical whether its module is installed alone or composed into a bigger packag
 This file is the validator and nothing else: pure, no fs, so the contract is testable without a
 workspace. `src/setup.ts` runs the units.
 
-## [setup.ts](setup.ts)
+## setup
+
+Files: [setupCommand.ts](setupCommand.ts) · [status/renderStatusLines.ts](status/renderStatusLines.ts) · [status/statusLines.ts](status/statusLines.ts) · [status/types.ts](status/types.ts) · [workspace/consent.ts](workspace/consent.ts) · [workspace/fillInputs.ts](workspace/fillInputs.ts) · [workspace/fold.ts](workspace/fold.ts) · [workspace/judgeEnvAction.ts](workspace/judgeEnvAction.ts) · [workspace/parseAllow.ts](workspace/parseAllow.ts) · [workspace/parseInputFlags.ts](workspace/parseInputFlags.ts) · [workspace/redact.ts](workspace/redact.ts) · [workspace/runUnit.ts](workspace/runUnit.ts) · and 7 more
 
 `dt setup` — and the setup half of `dt install` and `dt status`: the engine's generic driver for
 the units modules declare (src/setup-contract.ts). Nothing here knows a module: it fills inputs,
@@ -493,14 +578,18 @@ keeps a unit's receipts. The vocabulary is the design's (rnd/design-docs/2026-11
 
 Pure functions first (tested without a workspace), then the runner and the verb.
 
-## [lib/store.ts](lib/store.ts)
+## store
+
+Files: [record/Store.ts](record/Store.ts) · [record/atomicWrite.ts](record/atomicWrite.ts) · [record/bodyField.ts](record/bodyField.ts) · [record/gitDateToStamp.ts](record/gitDateToStamp.ts) · [record/serialize.ts](record/serialize.ts)
 
 the validating store — every tooling write goes through here:
 parse → coerce → defaults → validate (HARD: rejected before disk) →
 atomic write → one git commit. direct file edits stay first-class and are
 covered by `check` after the fact.
 
-## [lib/template.ts](lib/template.ts)
+## template
+
+Files: [record/applyFilter.ts](record/applyFilter.ts) · [record/fmtDate.ts](record/fmtDate.ts) · [record/generateId.ts](record/generateId.ts) · [record/parseTemplate.ts](record/parseTemplate.ts) · [record/renderDisplay.ts](record/renderDisplay.ts) · [record/template.ts](record/template.ts) · [record/types.ts](record/types.ts) · [record/validateTemplate.ts](record/validateTemplate.ts)
 
 The ONE template grammar — every `{{ … }}` string a descriptor carries is parsed, validated and
 rendered here: `id.from`, `record_title`, `item_title`, `display.record.subtitle`, and the layout
@@ -516,7 +605,9 @@ Two positions render differently, on purpose. In an ID a reference renders as th
 runs on every template it finds, so an unknown filter or a field that does not exist is a compile
 error naming the position rather than a blank label in a surface.
 
-## [lib/temporal.ts](lib/temporal.ts)
+## temporal
+
+Files: [collections/compareValues.ts](collections/compareValues.ts) · [collections/parseTemporal.ts](collections/parseTemporal.ts) · [collections/sortRows.ts](collections/sortRows.ts) · [record/normalizeRecord.ts](record/normalizeRecord.ts) · [record/normalizeTemporal.ts](record/normalizeTemporal.ts) · [record/temporal.ts](record/temporal.ts) · [record/types.ts](record/types.ts)
 
 temporal values — the `format: date` and `format: date-time` fields — normalized on WRITE and
 compared as INSTANTS, never as strings.
@@ -541,7 +632,9 @@ spelling, but humans type `2026-07-28 12:00` and `<input type="datetime-local">`
 `2026-07-28T12:00`. Both become the canonical form before validation, so the CLI and the studio
 accept the same input — the engine/UI parity test applied to a data format.
 
-## [testing.ts](testing.ts)
+## testing
+
+Files: [testing.ts](testing.ts)
 
 `dreamteamer/testing` — what a module's own test suite needs to test itself on the real engine,
 with nothing but `node --test` and this import (cr-dt-007, G2). Every helper spawns the engine the
@@ -559,7 +652,9 @@ Synchronous throughout, so a test reads top to bottom. Temp folders are removed 
 DT_KEEP_FIXTURES is set. Policy (D64): on 0.x a breaking change to this export lands in a minor,
 announced one release ahead in UPDATING.md.
 
-## [lib/types.ts](lib/types.ts)
+## types
+
+Files: [types.ts](types.ts)
 
 The PUBLIC CONTRACT's shapes — every type `dreamteamer` and `dreamteamer/records` publish. The
 declarations consumers compile against (dist/*.d.ts) are GENERATED from the source, so these are the
@@ -571,7 +666,9 @@ are typed loosely on purpose: they are the workspace's.
 Types only — every import here is `import type`, erased by construction, so this file is no runtime
 edge of any layer (scripts/layers.ts skips type-only edges).
 
-## [update/update-setup.ts](update/update-setup.ts)
+## update-setup
+
+Files: [update-setup.ts](update-setup.ts)
 
 The setup half of `dt update`, in a process of its own (rnd/issues …dt-update-runs-the-previous-version-s-setup-unit).
 The process that ran npm imported every extension when it opened the workspace, and ESM caches an
@@ -581,7 +678,9 @@ files), runs the named units' safe part and the one scoped commit, and writes th
 the file it is given — never to stdout, which a unit's own output may share. Exit 0 means the result
 file holds the outcome (its `code` is the update's); anything else means it does not.
 
-## [update.ts](update.ts)
+## update
+
+Files: [update/parseUpdateArgs.ts](update/parseUpdateArgs.ts) · [update/updateModules.ts](update/updateModules.ts)
 
 `dt update <name>[@<version>] | --engine` — move ONE pin forward on purpose: an npm module to the
 latest release within its ranges (or to the named version), or the engine itself. Re-pinned
@@ -591,7 +690,9 @@ here runs on its own, and `dt update` with no target keeps its meaning: git modu
 A module update is install's steps 2–6 on the whole resolved closure, so a version that adds a
 dependency brings it in and a version that adds a setup unit runs its safe part.
 
-## [lib/views.ts](lib/views.ts)
+## views
+
+Files: [collections/viewOverlayOf.ts](collections/viewOverlayOf.ts) · [workspace/bindingErrors.ts](workspace/bindingErrors.ts) · [workspace/filterFields.ts](workspace/filterFields.ts) · [workspace/overlayView.ts](workspace/overlayView.ts) · [workspace/types.ts](workspace/types.ts) · [workspace/viewDisplay.ts](workspace/viewDisplay.ts) · [workspace/viewErrors.ts](workspace/viewErrors.ts) · [workspace/views.ts](workspace/views.ts)
 
 ui-views and command-bindings — validated against the collection they name, and a view's display
 resolved over that collection's.
@@ -609,7 +710,9 @@ the condition then reads as not met, which is the peer contract.
 
 Pure: no fs, no git. Errors are returned, never thrown, so compile attributes each to a file.
 
-## [lib/workspace.ts](lib/workspace.ts)
+## workspace
+
+Files: [record/declaredGitModules.ts](record/declaredGitModules.ts) · [record/ensureEditorRecommendation.ts](record/ensureEditorRecommendation.ts) · [record/ensureEnvExample.ts](record/ensureEnvExample.ts) · [record/findWorkspace.ts](record/findWorkspace.ts) · [record/layerEntries.ts](record/layerEntries.ts) · [record/workspace.ts](record/workspace.ts)
 
 workspace discovery: the NEAREST package.json with a `dreamteamer` section wins, except when
 that candidate is only nested inside a higher one as a MODULE — modules are themselves
@@ -622,7 +725,9 @@ silently operated on the wrong repo — compile wrote the wrong runtime, check c
 records, all reporting success. `projects/` is not a module segment, so nesting there is a
 real workspace and now resolves as one.
 
-## [lib/yaml.ts](lib/yaml.ts)
+## yaml
+
+Files: [collections/renameKeys.ts](collections/renameKeys.ts) · [fmt/formatSource.ts](fmt/formatSource.ts) · [record/emitDocument.ts](record/emitDocument.ts) · [record/endOf.ts](record/endOf.ts) · [record/writeSource.ts](record/writeSource.ts) · [record/yaml.ts](record/yaml.ts)
 
 contract rule: YAML is parsed with the CORE schema — unquoted dates stay strings,
 never timestamp objects. ALL dreamteamer tooling loads YAML through here.

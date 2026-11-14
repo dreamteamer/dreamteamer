@@ -8,8 +8,9 @@ import assert from "node:assert/strict"
 import fs from "node:fs"
 import path from "node:path"
 import { workspace, simpleCollection, compileError, tree, readFile } from "../helpers/ws.js"
-import { storageOf, isRuntime, titleOf } from "../../src/lib/descriptor.ts"
-import { load } from "../../src/lib/yaml.ts"
+import { storageOf } from "../../src/record/storageOf.ts"
+import { isRuntime, titleOf } from "../../src/record/descriptor.ts"
+import { load } from "../../src/record/yaml.ts"
 
 const DOCTORS = simpleCollection({ storage: { suffix: "doctor" } })
 const VISITS = simpleCollection({

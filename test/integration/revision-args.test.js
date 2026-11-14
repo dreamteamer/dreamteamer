@@ -10,8 +10,8 @@ import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import { workspace, simpleCollection, readFile, ENGINE_ROOT } from "../helpers/ws.js"
-import { historyDiff } from "../../src/lib/history.ts"
-import { deriveEvents } from "../../src/lib/events.ts"
+import { historyDiff } from "../../src/collections/historyDiff.ts"
+import { deriveEvents } from "../../src/changes/deriveEvents.ts"
 
 const TASKS = simpleCollection({ storage: { suffix: "task" } })
 const NOT_A_COMMIT = /is not a commit id/
@@ -114,20 +114,23 @@ describe("a revision handed to git is a commit id or HEAD", () => {
   // options end. Read it from the source: every argv that carries a caller's revision says so.
   test("sec01-eng-t5: each git argv that carries a caller revision puts --end-of-options before it", () => {
     // one quote style and one space, so formatting (quotes, a wrapped argv, a trailing comma) cannot change what is read
-    const src = f =>
-      fs
-        .readFileSync(path.join(ENGINE_ROOT, "src", f), "utf8")
-        .replace(/"/g, "'")
-        .replace(/\s+/g, " ")
-        .replace(/\[ /g, "[")
-        .replace(/,? \]/g, "]")
+    // the WHOLE engine source, so a function moving to another file cannot leave its argv unread
+    const src = fs
+      .readdirSync(path.join(ENGINE_ROOT, "src"), { recursive: true })
+      .filter(f => f.endsWith(".ts"))
+      .map(f => fs.readFileSync(path.join(ENGINE_ROOT, "src", f), "utf8"))
+      .join("\n")
+      .replace(/"/g, "'")
+      .replace(/\s+/g, " ")
+      .replace(/\[ /g, "[")
+      .replace(/,? \]/g, "]")
     const argvs = [
-      ["history.ts", /\['diff', '--end-of-options', `\$\{hash\}~1`, hash, '--'/],
-      ["store.ts", /\['show', '--end-of-options', `\$\{hash\}:\$\{relPath\}`\]/],
-      ["store.ts", /\['ls-tree', '-r', '--name-only', '--end-of-options', hash, '--'/],
-      ["events.ts", /\['show', '-s', '--format=%cI', '--end-of-options', from\]/],
-      ["events.ts", /\['diff', '--name-status', '-z', '--end-of-options', `\$\{fromSha\}\.\.\$\{to\}`, '--'/],
+      ["history", /\['diff', '--end-of-options', `\$\{hash\}~1`, hash, '--'/],
+      ["Store.show", /\['show', '--end-of-options', `\$\{hash\}:\$\{relPath\}`\]/],
+      ["Store.ls-tree", /\['ls-tree', '-r', '--name-only', '--end-of-options', hash, '--'/],
+      ["events.show", /\['show', '-s', '--format=%cI', '--end-of-options', from\]/],
+      ["events.diff", /\['diff', '--name-status', '-z', '--end-of-options', `\$\{fromSha\}\.\.\$\{to\}`, '--'/],
     ]
-    for (const [file, re] of argvs) assert.match(src(file), re, `${file}: ${re}`)
+    for (const [what, re] of argvs) assert.match(src, re, `${what}: ${re}`)
   })
 })

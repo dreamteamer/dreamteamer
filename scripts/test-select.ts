@@ -5,7 +5,7 @@
 //
 // WHY A HEURISTIC AND NOT AN IMPORT GRAPH: every tier-2 file drives the real CLI binary, and the CLI
 // imports all of src/ — an import graph would select every file for every change, which is the full
-// run this exists to avoid. So a file is chosen by NAME (src/lib/store.ts → relations-store, store-index)
+// run this exists to avoid. So a file is chosen by NAME (src/record/Store.ts → relations-store, store-index)
 // or by MENTION (a test that imports or names the changed file). That is a guess about relevance,
 // which is why this tier is never the gate: `npm run verify` runs everything, once, before a commit.
 import { basename } from "node:path"
@@ -15,6 +15,9 @@ import { basename } from "node:path"
 export const SMOKE = ["test/integration/compile.test.js", "test/integration/records.test.js"]
 
 const stem = (p: string): string => basename(p).replace(/\.d\.ts$|\.test\.js$|\.[a-z]+$/, "")
+// an engine file is named after its export (`renameCollection.ts`, `Store.ts`) and a test in kebab case
+// (`rename-collection.test.js`, `store-index.test.js`), so a src name is compared in the test's spelling
+const kebab = (s: string): string => s.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase()
 
 // Root files every fixture workspace ALSO has. A test naming `package.json` means the fixture's,
 // so a mention says nothing about the engine's own copy — measured: these two names alone pulled 20
@@ -69,7 +72,7 @@ export function selectTests({
       if (p.startsWith("package")) unmatched.push(p)
       continue
     }
-    const s = stem(p)
+    const s = p.startsWith("src/") ? kebab(stem(p)) : stem(p)
     const base = basename(p)
     let hit = false
     for (const [file, src] of integration) {

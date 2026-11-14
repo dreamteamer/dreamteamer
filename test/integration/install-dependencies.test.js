@@ -14,8 +14,8 @@ import fs from "node:fs"
 import path from "node:path"
 import { spawnSync } from "node:child_process"
 import { workspace, readFile, git, ENGINE_ROOT, WS_MODULE } from "../helpers/ws.js"
-import { dump, load } from "../../src/lib/yaml.ts"
-import { isRuntime } from "../../src/lib/descriptor.ts"
+import { dump, load } from "../../src/record/yaml.ts"
+import { isRuntime } from "../../src/record/descriptor.ts"
 
 /** A compiled descriptor's text, read as a runtime kind — its records are build output compile writes. */
 const compiledAsRuntime = text => isRuntime(load(text ?? "") ?? {})
@@ -166,8 +166,8 @@ describe("dt install brings in what the workspace declares, and compiles WITH it
 
 describe("the PUBLIC installer compiles with the activated extensions by default (review R1)", () => {
   test("the checkout layer refuses to run without an opener, rather than defaulting to one that loads no extension", async () => {
-    const { installCommand } = await import("../../src/lib/checkout.ts")
-    await assert.rejects(installCommand({ root: "/nowhere", pkg: {} }, []), /opts\.open .* is required/)
+    const { installCheckout } = await import("../../src/install/installCheckout.ts")
+    await assert.rejects(installCheckout({ root: "/nowhere", pkg: {} }, []), /opts\.open .* is required/)
   })
 
   test("an extension installed BEFORE the call: its kind compiles, and the manifest names it", () => {

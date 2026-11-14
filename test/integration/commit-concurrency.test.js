@@ -20,7 +20,7 @@ import path from "node:path"
 import os from "node:os"
 import { execFile, execFileSync } from "node:child_process"
 import { workspace, simpleCollection } from "../helpers/ws.js"
-import { Store } from "../../src/lib/store.ts"
+import { Store } from "../../src/record/Store.ts"
 
 const CLI = path.resolve(import.meta.dirname, "../../bin/dreamteamer.js")
 

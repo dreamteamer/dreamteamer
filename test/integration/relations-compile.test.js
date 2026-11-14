@@ -12,9 +12,9 @@ import { test, describe } from "node:test"
 import assert from "node:assert/strict"
 import fs from "node:fs"
 import { workspace, simpleCollection, compileError, readFile } from "../helpers/ws.js"
-import { load, dump } from "../../src/lib/yaml.ts"
-import { presentation } from "../../src/lib/presentation.ts"
-import { loadDescriptors } from "../../src/lib/runtime.ts"
+import { load, dump } from "../../src/record/yaml.ts"
+import { presentation } from "../../src/record/presentation.ts"
+import { loadDescriptors } from "../../src/runtime/loadDescriptors.ts"
 
 /** A collection with `name`, the given fields, and the body a mirror target needs. */
 const coll = (suffix, fields = {}) =>

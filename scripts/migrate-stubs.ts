@@ -17,20 +17,26 @@ import path from "node:path"
 
 // Run from a checkout (scripts/x.ts beside src/) and from the npm package (built to dist/scripts/x.js,
 // one level under the engine's dist/*.js) — the rule of bin/dreamteamer.js: the source when present.
-const SOURCE = fs.existsSync(new URL("../src/lib/store.ts", import.meta.url))
+const SOURCE = fs.existsSync(new URL("../src/api.ts", import.meta.url))
 const engine = <M>(name: string): Promise<M> =>
   import(new URL(SOURCE ? `../src/${name}.ts` : `../${name}.js`, import.meta.url).href)
-const { Store } = await engine<typeof import("../src/lib/store.ts")>("lib/store")
-const { parseRecord, idFromRecordPath, walk } = await engine<typeof import("../src/lib/records.ts")>("lib/records")
-const { exportsFacts } = await engine<typeof import("../src/lib/runtime.ts")>("lib/runtime")
-const { storageOf, bodyFieldOf, recordTitleOf } =
-  await engine<typeof import("../src/lib/descriptor.ts")>("lib/descriptor")
-const { EXPORTS_FILE, readExports, serializeExports, exportsContext, outsideRefs } =
-  await engine<typeof import("../src/lib/exports.ts")>("lib/exports")
-const { planExports } = await engine<typeof import("../src/exports.ts")>("exports")
+const { Store } = await engine<typeof import("../src/record/Store.ts")>("record/Store")
+const { parseRecord } = await engine<typeof import("../src/record/records.ts")>("record/records")
+const { idFromRecordPath } = await engine<typeof import("../src/record/idFromRecordPath.ts")>("record/idFromRecordPath")
+const { walk } = await engine<typeof import("../src/record/walk.ts")>("record/walk")
+const { exportsFacts } = await engine<typeof import("../src/runtime/exportsFacts.ts")>("runtime/exportsFacts")
+const { storageOf } = await engine<typeof import("../src/record/storageOf.ts")>("record/storageOf")
+const { bodyFieldOf, recordTitleOf } = await engine<typeof import("../src/record/descriptor.ts")>("record/descriptor")
+const { EXPORTS_FILE } = await engine<typeof import("../src/record/exports.ts")>("record/exports")
+const { readExports } = await engine<typeof import("../src/record/readExports.ts")>("record/readExports")
+const { serializeExports } =
+  await engine<typeof import("../src/exports/serializeExports.ts")>("exports/serializeExports")
+const { exportsContext } = await engine<typeof import("../src/record/exportsContext.ts")>("record/exportsContext")
+const { outsideRefs } = await engine<typeof import("../src/record/outsideRefs.ts")>("record/outsideRefs")
+const { planExports } = await engine<typeof import("../src/exports/planExports.ts")>("exports/planExports")
 
 // `stub: true` in the FRONTMATTER only — a body quoting a stub is a real record
-type Descriptor = import("../src/lib/types.ts").Descriptor
+type Descriptor = import("../src/types.ts").Descriptor
 type StoreT = InstanceType<typeof Store>
 
 const isStubText = (text: string): boolean =>

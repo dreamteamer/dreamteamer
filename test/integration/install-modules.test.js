@@ -11,7 +11,7 @@ import { spawnSync } from "node:child_process"
 import { workspace, ENGINE_ROOT, git, treeHash, readFile } from "../helpers/ws.js"
 import { buildRegistry } from "../fixtures/registry/build.mjs"
 import { openWorkspace } from "../../src/api.ts"
-import { installModules } from "../../src/install.ts"
+import { installModules } from "../../src/install/installModules.ts"
 
 const BIN = path.join(ENGINE_ROOT, "bin", "dreamteamer.js")
 let REG

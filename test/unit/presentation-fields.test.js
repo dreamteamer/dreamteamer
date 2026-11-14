@@ -3,7 +3,7 @@
 // `compiled.fields`). The clinic fixture is the design's worked example in compiled form.
 import { test, describe } from "node:test"
 import assert from "node:assert/strict"
-import { presentation } from "../../src/lib/presentation.ts"
+import { presentation } from "../../src/record/presentation.ts"
 import { clinic, compiledCollection } from "../helpers/clinic-compiled.js"
 
 const p = presentation(clinic())

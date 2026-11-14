@@ -8,7 +8,7 @@ import fs from "node:fs"
 import path from "node:path"
 import { createHash } from "node:crypto"
 import { workspace, dt, compileQuietly, ENGINE_ROOT } from "../helpers/ws.js"
-import { readManifest } from "../../src/lib/runtime.ts"
+import { readManifest } from "../../src/runtime/runtime.ts"
 
 const SETUP = "# setup\n\nCommands: `dt fixture-kit verify` (synthetic).\n"
 const json = o => JSON.stringify(o, null, "\t") + "\n"

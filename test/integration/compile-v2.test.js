@@ -10,7 +10,7 @@ import fs from "node:fs"
 import { execFileSync } from "node:child_process"
 import path from "node:path"
 import { workspace, writeCollection, writeModule, compileError, compileQuietly, dt, WS_MODULE } from "../helpers/ws.js"
-import { load, dump } from "../../src/lib/yaml.ts"
+import { load, dump } from "../../src/record/yaml.ts"
 
 const PATIENTS = {
   description: "A person under this clinic's care.",
@@ -257,7 +257,7 @@ describe("a v2 descriptor is refused, with the fix in the message", () => {
 
 describe("a nested definition is validated before the runtime is replaced", () => {
   test("a typo inside an object field fails compile, and the previous runtime stands", async () => {
-    const { Store } = await import("../../src/lib/store.ts")
+    const { Store } = await import("../../src/record/Store.ts")
     const w = workspace({ compile: false })
     const things = code => ({
       ids: { from: "{{ name | slug }}" },
@@ -588,7 +588,7 @@ describe("created for a record that predates the stamp", () => {
     w.git(["commit", "-qm", "two notes", "--date=2020-01-02T10:00:00+00:00"])
     w.git(["mv", "data/notes/first.note.md", "data/notes/renamed.note.md"])
     w.git(["commit", "-qm", "rename", "--date=2021-03-04T10:00:00+00:00"])
-    const { Store } = await import("../../src/lib/store.ts")
+    const { Store } = await import("../../src/record/Store.ts")
     const store = new Store(w.ws)
     const dates = store.addedDates("notes")
     assert.match(dates.get("data/notes/renamed.note.md"), /^2020-01-02T10:00:00/, "the rename keeps the add date")
@@ -601,8 +601,8 @@ describe("created for a record that predates the stamp", () => {
 
 describe("the display contract", () => {
   test("a form section authored collapsed: true carries it to the display contract — compile and check both accept it; an open section carries no key", async () => {
-    const { presentation } = await import("../../src/lib/presentation.ts")
-    const { loadDescriptors } = await import("../../src/lib/runtime.ts")
+    const { presentation } = await import("../../src/record/presentation.ts")
+    const { loadDescriptors } = await import("../../src/runtime/loadDescriptors.ts")
     const sections = [
       { title: "Visit", fields: ["reason", "patient", "doctor", "date", "kind", "status"] },
       { title: "Provenance", fields: ["author", "confidence"], collapsed: true },
@@ -617,8 +617,8 @@ describe("the display contract", () => {
     ])
   })
   test("created and an editable:false field are readonly in the display contract", async () => {
-    const { presentation } = await import("../../src/lib/presentation.ts")
-    const { loadDescriptors } = await import("../../src/lib/runtime.ts")
+    const { presentation } = await import("../../src/record/presentation.ts")
+    const { loadDescriptors } = await import("../../src/runtime/loadDescriptors.ts")
     const w = clinic()
     compileQuietly(w.ws)
     const p = presentation(loadDescriptors(w.root))

@@ -9,8 +9,8 @@ import { test, describe } from "node:test"
 import fs from "node:fs"
 import path from "node:path"
 import assert from "node:assert/strict"
-import { load } from "../../src/lib/yaml.ts"
-import { storageOf } from "../../src/lib/descriptor.ts"
+import { load } from "../../src/record/yaml.ts"
+import { storageOf } from "../../src/record/storageOf.ts"
 import {
   workspace,
   readFile,

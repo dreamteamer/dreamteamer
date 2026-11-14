@@ -1,0 +1,233 @@
+import { execFileSync, spawnSync } from "node:child_process"
+import fs from "node:fs"
+import path from "node:path"
+import { fileURLToPath } from "node:url"
+import os from "node:os"
+import type { Workspace } from "../types.ts"
+import { childEnv } from "../workspace/childEnv.ts"
+import { installedModules } from "../workspace/installedModules.ts"
+import { npmAndCompile } from "../workspace/npmAndCompile.ts"
+import { npmFloor } from "../workspace/npmFloor.ts"
+import { printUnitResults } from "../workspace/printUnitResults.ts"
+import { readSpecManifest } from "../workspace/readSpecManifest.ts"
+import { resolveClosure } from "../workspace/resolveClosure.ts"
+import { resolveNpm } from "../workspace/resolveNpm.ts"
+import { EXIT } from "../workspace/setup.ts"
+import type { setupAndCommit } from "../workspace/setupAndCommit.ts"
+import { InstallRefusal, compareVersions } from "../workspace/versions.ts"
+
+const gitOk = (root: string, args: string[]): boolean => {
+  try {
+    execFileSync("git", args, { cwd: root, stdio: "ignore" })
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * `updateModules(ws, { name, version, engine, allow, from }, { open, npm, log })` → exit code.
+ * `name` is a package name (with `version` the exact version asked for, or null for latest);
+ * `engine: true` targets `dreamteamer` itself.
+ */
+export async function updateModules(
+  ws: Workspace,
+  {
+    name = null,
+    version = null,
+    engine = false,
+    allow = new Set(),
+    from = null,
+    noCommit = false,
+  }: {
+    name?: string | null
+    version?: string | null
+    engine?: boolean
+    allow?: Set<string>
+    from?: string | null
+    noCommit?: boolean
+  } = {},
+  {
+    open,
+    npm = resolveNpm(),
+    log = console.log,
+    processEnv = process.env,
+  }: {
+    open?: (at: string) => Promise<Workspace>
+    npm?: string | null
+    log?: (msg: string) => void
+    processEnv?: NodeJS.ProcessEnv
+  } = {}
+) {
+  if (typeof open !== "function") throw new Error("updateModules: opts.open is required")
+  const floor = npmFloor(npm)
+  if (floor) {
+    console.error(`✖ ${floor}`)
+    return EXIT.failed
+  }
+  const target = engine ? "dreamteamer" : name
+  const installed = installedModules(ws)
+  const here = engine
+    ? (() => {
+        try {
+          return {
+            name: "dreamteamer",
+            version: JSON.parse(
+              fs.readFileSync(path.join(ws.root, "node_modules", "dreamteamer", "package.json"), "utf8")
+            ).version,
+            linked: fs.lstatSync(path.join(ws.root, "node_modules", "dreamteamer")).isSymbolicLink(),
+          }
+        } catch {
+          return null
+        }
+      })()
+    : installed.get(target)
+  if (!here) {
+    console.error(`✖ ${target} is not installed — dt install ${target}`)
+    return EXIT.failed
+  }
+  if (here.linked) {
+    log(`— ${target}: a development link — skipped (not pinned; remove the link to pin a version)`)
+    return EXIT.done
+  }
+  let entry
+  try {
+    entry = readSpecManifest(version ? `${target}@${version}` : target, { from, npm, cwd: ws.root })
+  } catch (e) {
+    if (e instanceof InstallRefusal) {
+      console.error(`✖ ${e.message}`)
+      return EXIT.failed
+    }
+    throw e
+  }
+  const next = entry.manifest.version
+  if (next === here.version) {
+    log(`✔ ${target} is already ${next} — nothing to do`)
+    return EXIT.done
+  }
+  if (compareVersions(next, here.version) < 0 && !allow.has("downgrade")) {
+    console.error(
+      `✖ ${target} ${here.version} → ${next} is a downgrade — say so: dt update ${target}@${next} --allow downgrade`
+    )
+    return EXIT.failed
+  }
+  const subject = `dreamteamer: update ${target} ${here.version} → ${next}`
+  if (engine) {
+    // the engine itself: npm, then compile with the NEW engine — this process is the old one
+    log(`▶ update: ${target} ${here.version} → ${next}`)
+    const r = spawnSync(npm, ["install", "--save-exact", "--no-audit", "--no-fund", entry.spec], {
+      cwd: ws.root,
+      stdio: "inherit",
+      env: childEnv(),
+      timeout: 600_000,
+    })
+    if (r.status !== 0) {
+      console.error(`✖ npm exited ${r.status ?? r.error?.message} — run the same command again to resume`)
+      return EXIT.failed
+    }
+    let got = null
+    try {
+      got = JSON.parse(
+        fs.readFileSync(path.join(ws.root, "node_modules", "dreamteamer", "package.json"), "utf8")
+      ).version
+    } catch {
+      /* missing */
+    }
+    if (got !== next) {
+      console.error(`✖ npm exited 0, but node_modules/dreamteamer is ${got ?? "missing"}, not ${next}`)
+      return EXIT.failed
+    }
+    const c = spawnSync(
+      process.execPath,
+      [path.join(ws.root, "node_modules", "dreamteamer", "bin", "dreamteamer.js"), "compile"],
+      { cwd: ws.root, stdio: "inherit", env: childEnv(), timeout: 600_000 }
+    )
+    if (c.status !== 0) {
+      console.error(
+        `✖ compile with dreamteamer ${next} exited ${c.status} — the pin moved; fix what it reports, then dt compile`
+      )
+      return EXIT.failed
+    }
+    let committed = null
+    if (!noCommit && gitOk(ws.root, ["rev-parse", "--git-dir"])) {
+      const paths = ["package.json", "package-lock.json", ".env.example"].filter(rel =>
+        fs.existsSync(path.join(ws.root, rel))
+      )
+      if (
+        gitOk(ws.root, ["add", "--", ...paths]) &&
+        gitOk(ws.root, ["commit", "--quiet", "-m", subject, "--", ...paths])
+      )
+        committed = paths
+    }
+    log(
+      `✔ ${target} ${here.version} → ${next} — compiled${committed ? `, committed (${committed.join(", ")})` : ", not committed"}`
+    )
+    return EXIT.done
+  }
+  // a module: install one pin later — the closure check exactly as install step 1 (with the target
+  // itself out of the installed map, so "installed at another version" does not refuse the very move
+  // being asked for), then install's steps 2–6 on the WHOLE resolved list: a version that adds a
+  // dreamteamer.dependencies entry brings the dependency in, compiled and committed with it, and a
+  // version that adds a setup unit runs its safe part
+  const others = new Map([...installed].filter(([n]) => n !== target))
+  let plan
+  try {
+    plan = resolveClosure([entry.spec], { installed: others, from, npm, cwd: ws.root })
+  } catch (e) {
+    if (e instanceof InstallRefusal) {
+      console.error(`✖ ${e.message}`)
+      return EXIT.failed
+    }
+    throw e
+  }
+  const names = plan.list.map(e => e.manifest.name)
+  const extra = names.filter(n => n !== target)
+  log(`▶ update: ${target} ${here.version} → ${next}${extra.length ? ` — with ${extra.join(", ")}` : ""}`)
+  const step = await npmAndCompile(ws, plan.list, { npm, open, log, what: "update" })
+  if (step.code !== undefined) return step.code
+  // the setup half in a fresh process: this one imported the version npm just replaced (ESM caches it)
+  const out = setupInChild(ws.root, names, { subject, processEnv, noCommit })
+  if (!out) {
+    console.error(
+      `✖ ${target} ${here.version} → ${next}: npm and compile ran, but the setup half did not finish — run dt install ${target} to finish it (it commits the re-pin and runs the setup)`
+    )
+    return EXIT.failed
+  }
+  log(
+    `✔ ${target} ${here.version} → ${next}${extra.length ? ` (with ${extra.join(", ")})` : ""} — compiled${out.committed ? `, committed (${out.committed.join(", ")})` : ", not committed"}`
+  )
+  printUnitResults(out.results, out.ignored, log)
+  return out.code
+}
+
+// the entry at the top of src/, in this file's own extension: update-setup.ts from a checkout, .js from dist/
+const CHILD = path.join(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "..",
+  `update-setup${path.extname(fileURLToPath(import.meta.url))}`
+)
+
+/** Run setupAndCommit in update-setup; its result, or null when the child did not leave one. */
+function setupInChild(
+  root: string,
+  names: string[],
+  { subject, processEnv, noCommit }: { subject: string; processEnv: NodeJS.ProcessEnv; noCommit: boolean }
+): Awaited<ReturnType<typeof setupAndCommit>> | null {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dt-update-"))
+  const out = path.join(dir, "result.json")
+  try {
+    const r = spawnSync(process.execPath, [CHILD, JSON.stringify({ root, names, subject, noCommit, out })], {
+      cwd: root,
+      stdio: ["ignore", "inherit", "inherit"],
+      env: processEnv,
+    })
+    if (r.status !== 0) return null
+    try {
+      return JSON.parse(fs.readFileSync(out, "utf8"))
+    } catch {
+      return null
+    }
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+}

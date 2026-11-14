@@ -1,7 +1,8 @@
 // test/unit/relations.test.js — pure unit: plain descriptor objects, no workspace
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { relationsOf, expectedMirrors } from "../../src/lib/relations.ts"
+import { relationsOf } from "../../src/record/relationsOf.ts"
+import { expectedMirrors } from "../../src/record/expectedMirrors.ts"
 
 // compiled descriptors: a relation is declared once, on the mirror (`mirror_of`), and the owner's
 // reference carries the cardinality (`many`, `unique`) and `on_delete`

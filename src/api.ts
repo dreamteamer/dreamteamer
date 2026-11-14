@@ -1,15 +1,17 @@
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 import * as self from "./api.ts"
-import { findWorkspace } from "./lib/workspace.ts"
-import { loadExtensions, manifestViolations } from "./lib/extensions.ts"
+import { findWorkspace } from "./record/findWorkspace.ts"
+import { loadExtensions } from "./workspace/loadExtensions.ts"
+import { manifestViolations } from "./workspace/manifestViolations.ts"
 import fs from "node:fs"
-import { KINDS, discoverModules } from "./compile.ts"
-import { DERIVED_KINDS } from "./lib/runtime.ts"
-import { KNOWN_HARNESSES } from "./lib/harnesses.ts"
+import { KINDS } from "./workspace/KINDS.ts"
+import { discoverModules } from "./workspace/discoverModules.ts"
+import { DERIVED_KINDS } from "./runtime/runtime.ts"
+import { KNOWN_HARNESSES } from "./workspace/harnessMarkers.ts"
 import { CORE_VERBS } from "./cli.ts"
-import { installCommand as installCheckout } from "./lib/checkout.ts"
-import type { Workspace, LoadedExtension, CheckItem, PackageJson } from "./lib/types.ts"
+import { installCheckout } from "./install/installCheckout.ts"
+import type { Workspace, LoadedExtension, CheckItem, PackageJson } from "./types.ts"
 
 // Everything the record half exports (the browser-safe entry, `dreamteamer/records`), then the rest.
 export * from "./records-api.ts"
@@ -30,7 +32,7 @@ export type {
   HarnessContext,
   TemplatePart,
   SchemaOp,
-} from "./lib/types.ts"
+} from "./types.ts"
 
 // ---- the workspace ------------------------------------------------------------------------------
 
@@ -51,7 +53,9 @@ export async function openWorkspace(
   return ws
 }
 export { findWorkspace }
-export { EXTENSION_API, declaredExtensions, contributedNotes } from "./lib/extensions.ts"
+export { EXTENSION_API } from "./workspace/extensions.ts"
+export { declaredExtensions } from "./workspace/declaredExtensions.ts"
+export { contributedNotes } from "./collections/contributedNotes.ts"
 /** An extension's `check` may return `{ file, message, warning: true }`: printed as a warning, never a
  *  violation. A module reads this flag to know the engine it runs on has the channel — on one without
  *  it, a warning item would be counted as a violation. */
@@ -100,47 +104,59 @@ export const engineBin = fileURLToPath(new URL("../bin/dreamteamer.js", import.m
 export const engineRoot = path.dirname(path.dirname(engineBin))
 
 // ---- values the workspace half adds ---------------------------------------------------------------
-export { envContext, renderTemplate, parseEnvValues } from "./lib/env-vars.ts"
+export { envContext } from "./record/envContext.ts"
+export { renderTemplate } from "./record/renderTemplate.ts"
+export { parseEnvValues } from "./record/parseEnvValues.ts"
 // the one template grammar (`{{ field | filter:arg }}`): what a surface renders `record_title`,
 // `display.record.subtitle`, `card_title` and `item_title` with, so no surface keeps a second parser
-export { parseTemplate, validateTemplate, renderDisplay } from "./lib/template.ts"
-export { satisfies } from "./lib/semver.ts"
+export { parseTemplate } from "./record/parseTemplate.ts"
+export { validateTemplate } from "./record/validateTemplate.ts"
+export { renderDisplay } from "./record/renderDisplay.ts"
+export { satisfies } from "./workspace/satisfies.ts"
 
 // ---- the compiler, schema and module operations ---------------------------------------------------
-export { compile, staleness, warnIfStale, discoverModules, CompileError, KINDS } from "./compile.ts"
-export { MANAGED_BLOCKS } from "./lib/harnesses.ts"
-export {
-  createCollection,
-  removeCollection,
-  renameCollection,
-  moveCollection,
-  setCollectionScalars,
-  addField,
-  updateField,
-  removeField,
-  removeFieldPlan,
-  renameField,
-  renameFieldPlan,
-  renameValue,
-  renameValuePlan,
-  fieldFromFlags,
-  saveUiView,
-  removeUiView,
-  moveUiView,
-  createModule,
-  setModule,
-  renameModule,
-  removeModule,
-  createSkill,
-  refuseHandAuthored,
-  removeEntity,
-  renameEntity,
-  setEntityFrontmatter,
-} from "./collections/schema-ops.ts"
-export { init, ensureRepo, ensureAllRepos, listRepos, installClone } from "./init.ts"
+export { compile, warnIfStale, CompileError } from "./workspace/compile.ts"
+export { staleness } from "./workspace/staleness.ts"
+export { discoverModules } from "./workspace/discoverModules.ts"
+export { KINDS } from "./workspace/KINDS.ts"
+export { MANAGED_BLOCKS } from "./doctor/MANAGED_BLOCKS.ts"
+export { createCollection } from "./collections/createCollection.ts"
+export { removeCollection } from "./collections/removeCollection.ts"
+export { renameCollection } from "./collections/renameCollection.ts"
+export { moveCollection } from "./collections/moveCollection.ts"
+export { setCollectionScalars } from "./collections/setCollectionScalars.ts"
+export { addField } from "./collections/addField.ts"
+export { updateField } from "./collections/updateField.ts"
+export { removeField } from "./collections/removeField.ts"
+export { removeFieldPlan } from "./collections/removeFieldPlan.ts"
+export { renameField } from "./collections/renameField.ts"
+export { renameFieldPlan } from "./collections/renameFieldPlan.ts"
+export { renameValue } from "./collections/renameValue.ts"
+export { renameValuePlan } from "./collections/renameValuePlan.ts"
+export { fieldFromFlags } from "./collections/fieldFromFlags.ts"
+export { saveUiView } from "./collections/saveUiView.ts"
+export { removeUiView } from "./collections/removeUiView.ts"
+export { moveUiView } from "./collections/moveUiView.ts"
+export { createModule } from "./collections/createModule.ts"
+export { setModule } from "./collections/setModule.ts"
+export { renameModule } from "./collections/renameModule.ts"
+export { removeModule } from "./collections/removeModule.ts"
+export { createSkill } from "./collections/createSkill.ts"
+export { refuseHandAuthored } from "./collections/refuseHandAuthored.ts"
+export { removeEntity } from "./collections/removeEntity.ts"
+export { renameEntity } from "./collections/renameEntity.ts"
+export { setEntityFrontmatter } from "./collections/setEntityFrontmatter.ts"
+export { init } from "./init/init.ts"
+export { ensureRepo, ensureAllRepos } from "./collections/repos.ts"
+export { listRepos } from "./workspace/listRepos.ts"
+export { installClone } from "./install/installClone.ts"
 
 // ---- the checkout: which one this is, and how it becomes ready ---------------------------------
-export { describeCheckout, resolveNpm, childEnv, readHookInput, readStdin } from "./lib/checkout.ts"
+export { describeCheckout } from "./workspace/describeCheckout.ts"
+export { resolveNpm } from "./workspace/resolveNpm.ts"
+export { childEnv } from "./workspace/childEnv.ts"
+export { readHookInput } from "./install/readHookInput.ts"
+export { readStdin } from "./install/readStdin.ts"
 
 /** `dt install` on the checkout `ws`, as the CLI runs it. The compile step reopens the workspace with
  *  `opts.open` — `openWorkspace` unless a caller injects another — so the extensions npm just
@@ -153,4 +169,5 @@ export const installCommand = (
 ): Promise<number> => installCheckout(ws, argv, { open: openWorkspace, ...opts })
 
 // ---- CLI helpers an extension command reuses -----------------------------------------------------
-export { emit, parseArgs } from "./collections.ts"
+export { emit } from "./record/emit.ts"
+export { parseArgs } from "./collections/parseArgs.ts"
