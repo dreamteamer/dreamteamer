@@ -15,7 +15,7 @@ import { spawnSync, execFileSync } from 'node:child_process';
 import { satisfies, EXACT } from './semver.js';
 import { engineVersion } from './runtime.js';
 import { parseEnvValues } from './env-vars.js';
-import { compile, discoverModules, staleness } from './compile.js';
+import { compile, discoverModules, staleness, moduleIdOf } from './compile.js';
 import { resolveNpm, childEnv } from './checkout.js';
 import { units, runUnit, fillInputs, parseInputFlags, parseAllow, skippedUnits, fold, SetupUsage, EXIT, ttyIO, droppedKeys } from './setup.js';
 
@@ -118,6 +118,22 @@ export function installedModules(ws) {
 		let linked = false;
 		try { linked = fs.lstatSync(path.join(ws.root, 'node_modules', name)).isSymbolicLink(); } catch { /* not under node_modules */ }
 		out.set(name, { name, version: manifest.version ?? null, linked, manifest, channel: m.channel });
+	}
+	return out;
+}
+
+/**
+ * Every installed MODULE PRESET (CR-dt-008) and its members as the preset pins them against what is
+ * installed: `installed` is the member's installed version, or null when it is absent. `dt status`
+ * reads it (text and --json).
+ */
+export function presetMembers(ws) {
+	const mods = installedModules(ws);
+	const out = new Map();
+	for (const [name, m] of mods) {
+		const preset = m.manifest?.dreamteamer?.preset;
+		if (!preset || typeof preset !== 'object') continue;
+		out.set(name, { id: moduleIdOf(name), members: Object.entries(preset).map(([member, pinned]) => ({ name: member, pinned, installed: mods.get(member)?.version ?? null })) });
 	}
 	return out;
 }

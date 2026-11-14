@@ -31,7 +31,7 @@ import { splitRef, canonicalCollection } from './ref.js';
 import { envContext, renderTemplate } from './env-vars.js';
 import { doctorBoard, renderBoard } from './doctor.js';
 import { setupCommand, statusLines, renderStatusLines } from './setup.js';
-import { installModules } from './install-modules.js';
+import { installModules, presetMembers } from './install-modules.js';
 import { updateModules, parseUpdateArgs } from './update.js';
 import { storageOf } from './descriptor.js';
 
@@ -612,7 +612,9 @@ export async function run(argv) {
 				}
 				if (rest.includes('--json')) {
 					const { modules: mods } = discoverModules(ws.root, ws.pkg);
-					emit(JSON.stringify({ workspace: { root: ws.root, name: ws.pkg?.name ?? null }, compiled: s.manifest.compiled, stale: s.stale, modules: mods.map((m) => ({ name: m.name, location: locationOf(m, ws.root) })), setup: statusLines(ws) }, null, 2));
+					const presets = presetMembers(ws);
+					const modEntry = (m) => ({ name: m.name, location: locationOf(m, ws.root), ...(presets.has(m.name) ? { preset: true, members: presets.get(m.name).members } : {}) });
+					emit(JSON.stringify({ workspace: { root: ws.root, name: ws.pkg?.name ?? null }, compiled: s.manifest.compiled, stale: s.stale, modules: mods.map(modEntry), setup: statusLines(ws) }, null, 2));
 					process.exit(0);
 				}
 				console.log(`compiled: ${s.manifest.compiled}`);
@@ -629,6 +631,7 @@ export async function run(argv) {
 				// provenance is LIVE discovery (not the manifest) — shows what the next compile would use
 				const { modules, shadows } = discoverModules(ws.root, ws.pkg);
 				const shadowed = new Map(shadows.map((sh) => [sh.name, sh]));
+				const presets = presetMembers(ws);
 				console.log('modules:');
 				for (const m of modules) {
 					// §10: the folder name IS the label. `hr  git_modules @ 3f2a1c (dirty)` needs no
@@ -647,7 +650,14 @@ export async function run(argv) {
 					}
 					const sh = shadowed.get(m.name);
 					if (sh) line += ` — shadows ${CHANNEL_LABEL[sh.loser]} copy`;
+					// a MODULE PRESET (CR-dt-008): how many members are here, then each absent and each drifted one
+					const p = presets.get(m.name);
+					if (p) line += ` · preset · ${p.members.length} members · ${p.members.filter((x) => x.installed).length} installed`;
 					console.log(line);
+					if (p) {
+						for (const x of p.members) if (!x.installed) console.log(`    ${x.name}  not installed — dt install ${x.name}`);
+						for (const x of p.members) if (x.installed && x.installed !== x.pinned) console.log(`    ${x.name} ${x.installed} (preset ${p.id} names ${x.pinned})`);
+					}
 				}
 				// record layers: other workspaces cloned here for their records. The collections listed are
 				// the ones FOUND — compiled with this layer as a root and holding a folder in the clone —
