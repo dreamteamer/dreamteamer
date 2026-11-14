@@ -87,7 +87,9 @@ export function checkAlone(ws, { target, keep = false, log = console.log, error 
 		npmPack(npm, dir, from);
 		const deps = [];
 		const seen = new Set([pkg.name]);
-		const queue = [...(pkg.dreamteamer.dependencies ?? [])];
+		// a module preset's members are packed like dependencies (CR-dt-008): install walks them at their pins
+		const needs = (p) => [...(p.dreamteamer?.dependencies ?? []), ...Object.keys(p.dreamteamer?.preset ?? {})];
+		const queue = needs(pkg);
 		while (queue.length) {
 			const name = queue.shift();
 			if (seen.has(name)) continue;
@@ -96,7 +98,7 @@ export function checkAlone(ws, { target, keep = false, log = console.log, error 
 			if (!at) return refuse(`dependency ${name} is not installed here — install it, or drop it from dreamteamer.dependencies`);
 			npmPack(npm, at, from);
 			deps.push(name);
-			queue.push(...(readPkg(at).dreamteamer?.dependencies ?? []));
+			queue.push(...needs(readPkg(at)));
 		}
 		// a fresh workspace on this engine, the module installed the way a stranger installs it
 		const root = path.join(tmp, 'ws');

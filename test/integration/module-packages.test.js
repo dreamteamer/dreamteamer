@@ -116,6 +116,7 @@ describe('a modules/<id> dreamteamer.disable entry drops a whole module', () => 
 		fs.writeFileSync(lanesPkg, JSON.stringify(p));
 		const err = compileError(ws);
 		assert.ok(err && /depends on "crates", which is not installed/.test(err), err);
+		assert.ok(err.includes('\n  run: dt install crates'), `the refusal names the install: ${err}`);
 	});
 });
 
@@ -214,5 +215,29 @@ describe('a module preset: dreamteamer.preset and dreamteamer.nav in a package m
 		const { ws } = workspace({ compile: false, pkg: { preset: { '@acme/a': '1.0.0' } } });
 		const err = compileError(ws);
 		assert.ok(err && err.includes('package.json: dreamteamer.preset and dreamteamer.nav belong to a module package, not the workspace'), err);
+	});
+});
+
+// rnd/tests/dreamteamer/preset-reference-rights — CR-dt-008: a module that depends on a module preset
+// may reference the collections of the preset's members, as if it depended on each member.
+describe('reference rights reach through a module preset', () => {
+	function withPresetChain({ depend }) {
+		const { ws, root } = workspace({ compile: false });
+		writeModule(root, 'alpha', { description: 'Alpha.', collections: { alphas: simpleCollection() } });
+		const packRoot = path.join(root, 'modules', 'pack');
+		fs.mkdirSync(packRoot, { recursive: true });
+		fs.writeFileSync(path.join(packRoot, 'package.json'), JSON.stringify({ name: 'pack', private: true, version: '1.0.0', dreamteamer: { description: 'A set.', preset: { alpha: '1.0.0' } } }, null, '\t') + '\n');
+		writeModule(root, 'via', { description: 'Via.', ...(depend ? { dependencies: ['pack'] } : {}), collections: { vias: simpleCollection({ fields: { name: { type: 'string', required: true }, alpha: { type: 'alphas' } } }) } });
+		return ws;
+	}
+
+	test('a module depending on a preset references a member\'s collection: compiles', () => {
+		const { code } = compileQuietly(withPresetChain({ depend: true }));
+		assert.equal(code, 0);
+	});
+
+	test('the same module without the dependency: refused, neither owns nor declares', () => {
+		const err = compileError(withPresetChain({ depend: false }));
+		assert.ok(err && err.includes('neither owns nor declares'), err);
 	});
 });

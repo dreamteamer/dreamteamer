@@ -624,7 +624,7 @@ export function compile(ws) {
 			if (dep === mod) fail(`module "${mod}" declares itself as a dependency`);
 			if (refused.has(dep)) fail(`module "${mod}" depends on "${dep}", which needs engine "${refused.get(dep)}" — this is ${engineVer}. Upgrade dreamteamer, or disable both.`);
 			if (!moduleNames.has(dep)) {
-				fail(`module "${mod}" depends on "${dep}", which is not installed — modules present: ${[...moduleNames].sort().join(', ')}`);
+				fail(`module "${mod}" depends on "${dep}", which is not installed — modules present: ${[...moduleNames].sort().join(', ')}\n  run: dt install ${dep}`);
 			}
 		}
 	}
@@ -973,7 +973,7 @@ export function compile(ws) {
 	const { compiled: compiledColls, inert: inertSources, moduleColls, layerReads } = compileCollections({
 		groups: descriptorGroups, mixins: mixinDocs, namespaces, nsOwners,
 		runtimeKinds: new Set([...kinds, ...DERIVED_KINDS]), core: CORE_COLLECTIONS,
-		moduleDeps, modulePeers, channelOf, wsModuleName, engineName, dataOwners,
+		moduleDeps, modulePresets, modulePeers, channelOf, wsModuleName, engineName, dataOwners,
 		moduleSources: new Map(sources.map((s) => [s.name, s])), unownableBecause, layers,
 		repoOf: (moduleRoot) => repoRootOf(moduleRoot, root), rel, root, dataPath: config.data_path ?? 'data', vars: storageVars,
 		moduleId, fail: collectionsFail, warn: (m) => console.warn(m),
