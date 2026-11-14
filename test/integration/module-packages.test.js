@@ -116,6 +116,7 @@ describe('a modules/<id> dreamteamer.disable entry drops a whole module', () => 
 		fs.writeFileSync(lanesPkg, JSON.stringify(p));
 		const err = compileError(ws);
 		assert.ok(err && /depends on "crates", which is not installed/.test(err), err);
+		assert.ok(err.includes('\n  run: dt install crates'), `the refusal names the install: ${err}`);
 	});
 });
 
@@ -151,5 +152,92 @@ describe('an npm module shipping data/ is warned about, naming the package and t
 	test('a module declaring "ignore": ["data"] — its own script reads the folder — is not warned about', () => {
 		const { warnings } = compileQuietly(withShippedData({ ignore: ['data'] }));
 		assert.equal(warnings.find((w) => w.includes('nothing reads it')), undefined);
+	});
+});
+
+// rnd/tests/dreamteamer/preset-manifest — CR-dt-008: a MODULE PRESET is a package whose
+// `dreamteamer.preset` maps member module names to exact versions. It ships no sources; compile
+// validates the map, the `nav` key, and warns once per absent member. `provides` stays legal.
+/** The workspace with an npm dependency `@acme/set` whose `dreamteamer` block is `block`, plus the
+ *  named empty folders at its root. */
+function withNpmPreset(block, folders = []) {
+	const { root } = workspace({ compile: false });
+	const pkgPath = path.join(root, 'package.json');
+	const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+	pkg.dependencies = { ...pkg.dependencies, '@acme/set': '1.0.0' };
+	fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, '\t') + '\n');
+	const dir = path.join(root, 'node_modules', '@acme', 'set');
+	fs.mkdirSync(dir, { recursive: true });
+	fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: '@acme/set', version: '1.0.0', dreamteamer: block }, null, '\t'));
+	for (const f of folders) fs.mkdirSync(path.join(dir, f), { recursive: true });
+	return { root, pkg };
+}
+
+describe('a module preset: dreamteamer.preset and dreamteamer.nav in a package manifest', () => {
+	test('(a) a preset of an absent member compiles, warns once naming it, and is not "contributed no recognised sources"', () => {
+		const { code, warnings } = compileQuietly(withNpmPreset({ preset: { '@acme/a': '1.0.0' } }));
+		assert.equal(code, 0);
+		const hits = warnings.filter((w) => w.includes('⚠ module preset set names @acme/a 1.0.0, which is not installed — dt install @acme/a'));
+		assert.equal(hits.length, 1, warnings.join('\n'));
+		assert.ok(!warnings.some((w) => w.includes('contributed no recognised sources')), warnings.join('\n'));
+	});
+
+	test('(b) a preset shipping a kind folder is refused', () => {
+		const err = compileError(withNpmPreset({ preset: { '@acme/a': '1.0.0' } }, ['collections']));
+		assert.ok(err && err.includes('module "@acme/set": a module preset lists modules; it ships none (found collections/)'), err);
+	});
+
+	test('(c) a preset shipping modules/ is refused, never unpacked as a bundle', () => {
+		const err = compileError(withNpmPreset({ preset: { '@acme/a': '1.0.0' } }, ['modules']));
+		assert.ok(err && err.includes('found modules/'), err);
+	});
+
+	test('(d) a member version that is a range is refused', () => {
+		const err = compileError(withNpmPreset({ preset: { '@acme/a': '^1' } }));
+		assert.ok(err && err.includes('module "@acme/set": dreamteamer.preset["@acme/a"] must be an exact version (got "^1")'), err);
+	});
+
+	test('(e) a nav path outside the package is refused', () => {
+		for (const nav of ['../x.yaml', '/x.yaml']) {
+			const err = compileError(withNpmPreset({ preset: { '@acme/a': '1.0.0' }, nav }));
+			assert.ok(err && err.includes(`dreamteamer.nav must be a relative path inside the package (got "${nav}")`), `${nav}: ${err}`);
+		}
+	});
+
+	test('(f) a package carrying provides still compiles', () => {
+		const ws = withNpmPreset({ provides: ['@acme/a'] }, ['collections']);
+		fs.writeFileSync(path.join(ws.root, 'node_modules', '@acme', 'set', 'collections', 'sets.collection.yaml'), dump({ name: 'sets', ...simpleCollection() }));
+		const { code } = compileQuietly(ws);
+		assert.equal(code, 0);
+	});
+
+	test('(g) the workspace\'s own block may not carry preset or nav', () => {
+		const { ws } = workspace({ compile: false, pkg: { preset: { '@acme/a': '1.0.0' } } });
+		const err = compileError(ws);
+		assert.ok(err && err.includes('package.json: dreamteamer.preset and dreamteamer.nav belong to a module package, not the workspace'), err);
+	});
+});
+
+// rnd/tests/dreamteamer/preset-reference-rights — CR-dt-008: a module that depends on a module preset
+// may reference the collections of the preset's members, as if it depended on each member.
+describe('reference rights reach through a module preset', () => {
+	function withPresetChain({ depend }) {
+		const { ws, root } = workspace({ compile: false });
+		writeModule(root, 'alpha', { description: 'Alpha.', collections: { alphas: simpleCollection() } });
+		const packRoot = path.join(root, 'modules', 'pack');
+		fs.mkdirSync(packRoot, { recursive: true });
+		fs.writeFileSync(path.join(packRoot, 'package.json'), JSON.stringify({ name: 'pack', private: true, version: '1.0.0', dreamteamer: { description: 'A set.', preset: { alpha: '1.0.0' } } }, null, '\t') + '\n');
+		writeModule(root, 'via', { description: 'Via.', ...(depend ? { dependencies: ['pack'] } : {}), collections: { vias: simpleCollection({ fields: { name: { type: 'string', required: true }, alpha: { type: 'alphas' } } }) } });
+		return ws;
+	}
+
+	test('a module depending on a preset references a member\'s collection: compiles', () => {
+		const { code } = compileQuietly(withPresetChain({ depend: true }));
+		assert.equal(code, 0);
+	});
+
+	test('the same module without the dependency: refused, neither owns nor declares', () => {
+		const err = compileError(withPresetChain({ depend: false }));
+		assert.ok(err && err.includes('neither owns nor declares'), err);
 	});
 });

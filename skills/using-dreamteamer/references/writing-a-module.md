@@ -111,8 +111,9 @@ dt check modules/acme --alone
 Packs the module, installs it into a fresh workspace on this engine with only its declared
 `dreamteamer.dependencies` (packed from this workspace, never fetched), compiles, checks, and prints
 its setup line. **Exit 0 is publishable** — including a unit still waiting for an input a stranger
-will give. Exit 1 names what is wrong (a dependency not held here, a floor above this engine, a
-`files` list missing the entry, a compile or check error); 2 is usage. `--keep` leaves the temp
+will give. Exit 1 names what is wrong (a dependency not held here, a module preset member named with
+its pin, a floor above this engine, a `files` list that leaves out a source the module authors — a kind
+folder, its UI bundle, its nav fragment — a compile or check error); 2 is usage. `--keep` leaves the temp
 workspace. It does not run your `npm test` — run both. It packs with `--ignore-scripts` (it runs none of
 your code); `pack()` in your own tests runs your `prepack`. A module that builds in `prepack` ships its
 built files in `files`, or the gate judges the unbuilt package.

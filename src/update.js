@@ -13,6 +13,8 @@ import { spawnSync, execFileSync } from 'node:child_process';
 import { resolveNpm, childEnv } from './checkout.js';
 import { readSpecManifest, resolveClosure, installedModules, compareVersions, InstallRefusal, npmFloor, npmAndCompile, printUnitResults } from './install-modules.js';
 import { EXIT } from './setup.js';
+import { moduleIdOf } from './compile.js';
+import { navGuard, navDocGuard, shipsFragment, NAV_SETTINGS_LINE, NAV_GUARD_LINE } from './nav-fragments.js';
 
 const gitOk = (root, args) => { try { execFileSync('git', args, { cwd: root, stdio: 'ignore' }); return true; } catch { return false; } };
 
@@ -61,43 +63,71 @@ export async function updateModules(ws, { name = null, version = null, engine = 
 	// being asked for), then install's steps 2–6 on the WHOLE resolved list: a version that adds a
 	// dreamteamer.dependencies entry brings the dependency in, compiled and committed with it, and a
 	// version that adds a setup unit runs its safe part
-	const others = new Map([...installed].filter(([n]) => n !== target));
+	//
+	// A MODULE PRESET (CR-dt-008): each installed member at another version than the new pin leaves the
+	// installed map too, so it is re-walked at that pin instead of refusing as "installed at another
+	// version"; a member the INSTALLED version listed and the operator uninstalled is skipped (removed
+	// on purpose); a member new to this version — and every member on a first expansion, when the
+	// installed version was no preset — is walked and installed.
+	// the nav guard (cr-dt-008), for every module target, plain or preset — never the engine's: old nav
+	// settings and no nav.yaml refuse before npm unless --allow nav-reset
+	if (!allow.has('nav-reset') && navGuard(ws.root)) { console.error(`✖ ${NAV_GUARD_LINE}`); return EXIT.failed; }
+	const installedMap = here.manifest?.dreamteamer?.preset;
+	const newMap = entry.manifest.dreamteamer?.preset ?? {};
+	const moving = new Set(Object.entries(newMap).filter(([n, v]) => installed.has(n) && installed.get(n).version !== v).map(([n]) => n));
+	const skipMembers = new Set(Object.keys(newMap).filter((n) => !installed.has(n) && installedMap && n in installedMap));
+	const others = new Map([...installed].filter(([n]) => n !== target && !moving.has(n)));
 	let plan;
-	try { plan = resolveClosure([entry.spec], { installed: others, from, npm, cwd: ws.root }); } catch (e) { if (e instanceof InstallRefusal) { console.error(`✖ ${e.message}`); return EXIT.failed; } throw e; }
+	try { plan = resolveClosure([entry.spec], { installed: others, skipMembers, from, npm, cwd: ws.root }); } catch (e) { if (e instanceof InstallRefusal) { console.error(`✖ ${e.message}`); return EXIT.failed; } throw e; }
+	// a member moved below what is installed is a downgrade, said on purpose like the target's own
+	for (const e of plan.list) {
+		const n = e.manifest.name, was = installed.get(n)?.version;
+		if (n === target || !was || compareVersions(e.manifest.version, was) >= 0 || allow.has('downgrade')) continue;
+		console.error(`✖ ${n} ${was} → ${e.manifest.version} is a downgrade (module preset ${moduleIdOf(target)} names ${e.manifest.version}) — say so: dt update ${target}@${next} --allow downgrade`);
+		return EXIT.failed;
+	}
+	// a fragment merges into the workspace's nav.yaml: one that does not read refuses before npm writes
+	const navBad = shipsFragment(plan.list) ? navDocGuard(ws.root) : null;
+	if (navBad) { console.error(`✖ update refused: ${navBad} — dt check names what is wrong; fix it, then run this again`); return EXIT.failed; }
 	const names = plan.list.map((e) => e.manifest.name);
-	const extra = names.filter((n) => n !== target);
-	log(`▶ update: ${target} ${here.version} → ${next}${extra.length ? ` — with ${extra.join(', ')}` : ''}`);
-	const step = await npmAndCompile(ws, plan.list, { npm, open, log, what: 'update' });
+	const moved = plan.list.filter((e) => e.manifest.name !== target && installed.has(e.manifest.name)).map((e) => `${e.manifest.name} ${installed.get(e.manifest.name).version} → ${e.manifest.version}`);
+	const extra = names.filter((n) => n !== target && !installed.has(n));
+	const tail = `${moved.length ? ` — members: ${moved.join(', ')}` : ''}${extra.length ? ` — with ${extra.join(', ')}` : ''}`;
+	log(`▶ update: ${target} ${here.version} → ${next}${tail}`);
+	const step = await npmAndCompile(ws, plan.list, { npm, open, log, what: 'update', ignoreSettings: allow.has('nav-reset') });
 	if (step.code !== undefined) return step.code;
-	// the setup half in a fresh process: this one imported the version npm just replaced (ESM caches it)
-	const out = setupInChild(ws.root, names, { subject, processEnv, noCommit });
+	if (step.nav.skipped === 'settings') log(NAV_SETTINGS_LINE);
+	// the setup half in a fresh process: this one imported the version npm just replaced (ESM caches it).
+	// The nav merge already ran here, inside the restore; the child is handed the merged document and
+	// only writes it with the commit.
+	const out = setupInChild(ws.root, names, { subject, processEnv, noCommit, nav: step.nav });
 	if (!out) {
 		console.error(`✖ ${target} ${here.version} → ${next}: npm and compile ran, but the setup half did not finish — run dt install ${target} to finish it (it commits the re-pin and runs the setup)`);
 		return EXIT.failed;
 	}
-	log(`✔ ${target} ${here.version} → ${next}${extra.length ? ` (with ${extra.join(', ')})` : ''} — compiled${out.committed ? `, committed (${out.committed.join(', ')})` : ', not committed'}`);
+	log(`✔ ${target} ${here.version} → ${next}${tail} — compiled${out.committed ? `, committed (${out.committed.join(', ')})` : ', not committed'}`);
 	printUnitResults(out.results, out.ignored, log);
 	return out.code;
 }
 
 const CHILD = path.join(path.dirname(fileURLToPath(import.meta.url)), 'update-setup.js');
 /** Run setupAndCommit in src/update-setup.js; its result, or null when the child did not leave one. */
-function setupInChild(root, names, { subject, processEnv, noCommit }) {
+function setupInChild(root, names, { subject, processEnv, noCommit, nav = null }) {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dt-update-'));
 	const out = path.join(dir, 'result.json');
 	try {
-		const r = spawnSync(process.execPath, [CHILD, JSON.stringify({ root, names, subject, noCommit, out })], { cwd: root, stdio: ['ignore', 'inherit', 'inherit'], env: processEnv });
+		const r = spawnSync(process.execPath, [CHILD, JSON.stringify({ root, names, subject, noCommit, out, nav })], { cwd: root, stdio: ['ignore', 'inherit', 'inherit'], env: processEnv });
 		if (r.status !== 0) return null;
 		try { return JSON.parse(fs.readFileSync(out, 'utf8')); } catch { return null; }
 	} finally { fs.rmSync(dir, { recursive: true, force: true }); }
 }
 
-/** The `dt update` argv: a target (`name`, `name@version`), `--engine`, `--allow downgrade`, `--from <dir>`, `--no-commit`. */
+/** The `dt update` argv: a target (`name`, `name@version`), `--engine`, `--allow downgrade|nav-reset`, `--from <dir>`, `--no-commit`. */
 export function parseUpdateArgs(argv) {
 	const out = { name: null, version: null, engine: argv.includes('--engine'), allow: new Set(), from: null, noCommit: argv.includes('--no-commit') };
 	for (let i = 0; i < argv.length; i++) {
 		const a = argv[i];
-		if (a === '--allow') { const k = argv[++i]; if (k !== 'downgrade') throw new Error(`dt update --allow takes downgrade (got ${JSON.stringify(k)})`); out.allow.add(k); }
+		if (a === '--allow') { const k = argv[++i]; if (k !== 'downgrade' && k !== 'nav-reset') throw new Error(`dt update --allow takes downgrade or nav-reset (got ${JSON.stringify(k)})`); out.allow.add(k); }
 		else if (a === '--from') out.from = argv[++i] ?? null;
 		else if (!a.startsWith('--') && !['--allow', '--from'].includes(argv[i - 1])) {
 			const at = a.startsWith('@') ? a.indexOf('@', 1) : a.indexOf('@');

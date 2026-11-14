@@ -26,3 +26,12 @@ test('every key cell of the module-keys table names keys of the dreamteamer bloc
 		}
 	}
 });
+
+test('the module-keys table has a row for each key a module package carries (cr-dt-008: preset, nav; provides legal and ignored)', () => {
+	const lines = text.split('\n');
+	const head = lines.findIndex((l) => l.startsWith('| module key |'));
+	const keys = new Set();
+	for (let i = head + 2; i < lines.length && lines[i].startsWith('|'); i++) for (const k of lines[i].split('|')[1].split(' · ')) keys.add(k.trim().slice(1, -1));
+	for (const k of ['preset', 'nav', 'provides']) assert.ok(keys.has(k), `no row for \`${k}\``);
+	assert.match(text, /\| `provides` \|[^\n]*ignored/);
+});

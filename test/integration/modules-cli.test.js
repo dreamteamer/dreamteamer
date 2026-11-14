@@ -12,7 +12,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { twoModuleWorkspace, readFile } from '../helpers/ws.js';
+import { twoModuleWorkspace, readFile, workspace, writeModule, simpleCollection, dt } from '../helpers/ws.js';
 import { load, dump } from '../../src/yaml.js';
 
 const modulePkg = (ws, id) => JSON.parse(readFile(ws.root, `modules/${id}/package.json`));
@@ -293,5 +293,32 @@ describe('location — the folder the operator already knows (§10)', () => {
 		// a read path that goes through sourceRoots must not see zero modules
 		assert.equal(ws.dt('list', 'people').code, 0);
 		assert.equal(ws.dt('check').code, 0);
+	});
+});
+
+// rnd/tests/dreamteamer/preset-projection — CR-dt-008: a module preset is projected as modules/<id>
+// with `preset`, its `members` (soft: an absent member never dangles) and a one-line summary that
+// `dt list modules` prints after the id.
+describe('a module preset is projected as modules/<id>', () => {
+	test('preset, members and preset_summary on the record; the list row; check stays clean', () => {
+		const { root } = workspace({ compile: false });
+		writeModule(root, 'alpha', { description: 'Alpha.', collections: { alphas: simpleCollection() } });
+		const packRoot = path.join(root, 'modules', 'pack');
+		fs.mkdirSync(packRoot, { recursive: true });
+		fs.writeFileSync(path.join(packRoot, 'package.json'), JSON.stringify({ name: 'pack', private: true, version: '1.0.0', dreamteamer: { description: 'A set.', preset: { alpha: '1.0.0', gone: '1.0.0' } } }, null, '\t') + '\n');
+		const c = dt(root, 'compile');
+		assert.equal(c.code, 0, c.stdout + c.stderr);
+		const rec = JSON.parse(dt(root, 'get', 'modules/pack', '--json').stdout);
+		assert.equal(rec.preset, true);
+		assert.deepEqual(rec.members, ['modules/alpha', 'modules/gone']);
+		assert.equal(rec.preset_summary, 'preset · 2 members · 1 installed');
+		const alpha = JSON.parse(dt(root, 'get', 'modules/alpha', '--json').stdout);
+		assert.equal(alpha.preset, undefined, 'a plain module carries none of the preset fields');
+		assert.equal(alpha.preset_summary, undefined);
+		const list = dt(root, 'list', 'modules').stdout;
+		assert.match(list, /^pack\s+preset · 2 members · 1 installed\s+modules\s+modules\/pack/m);
+		assert.match(list, /^alpha\s+modules\s+modules\/alpha/m, 'a plain row prints exactly as before');
+		const chk = dt(root, 'check');
+		assert.equal(chk.code, 0, chk.stdout + chk.stderr);
 	});
 });

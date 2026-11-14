@@ -59,6 +59,8 @@ npx dreamteamer init
 
 # optional - install some pre-built modules from https://github.com/dreamteamer/dreamteamer-modules
 npx dreamteamer install @dreamteamer/tasks @dreamteamer/contacts
+# ...or a module preset: one name that installs a whole set, each module pinned
+npx dreamteamer install @dreamteamer/core
 
 npx dreamteamer status
 npx dreamteamer help    # every verb and flag

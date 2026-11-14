@@ -69,6 +69,17 @@ fields:
     type: collections
     many: true
     description: Collections this module contributed a source to. A collection merged from several modules appears under every one of them.
+  preset:
+    type: boolean
+    description: The package is a MODULE PRESET — `dreamteamer.preset` in its package.json, a list of member modules at exact versions. It ships no sources of its own; `dt install` pins its members and `dt update` moves them.
+  members:
+    type: modules
+    many: true
+    soft: true
+    description: The modules this preset pins — the keys of its `dreamteamer.preset`. Soft, because a member the operator uninstalled is absent on purpose and never dangles.
+  preset_summary:
+    type: string
+    description: '`preset · N members · M installed`, written at compile — the line `dt list modules` prints after the id.'
 display:
   nav:
     icon: deployed_code

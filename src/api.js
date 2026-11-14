@@ -15,6 +15,7 @@ import { findWorkspace } from './workspace.js';
 import { loadExtensions, manifestViolations } from './extensions.js';
 import fs from 'node:fs';
 import { KINDS, discoverModules } from './compile.js';
+import { unreadDataWarnings } from './unread-data.js';
 import { DERIVED_KINDS } from './runtime.js';
 import { KNOWN_HARNESSES } from './harnesses.js';
 import { CORE_VERBS } from './cli.js';
@@ -58,6 +59,8 @@ export async function contributedViolations(ws) {
 			for (const v of manifestViolations(pkg, path.relative(ws.root, path.join(m.root, 'package.json')))) out.push({ file: v.file, msg: v.message });
 		}
 	} catch { /* discovery failing is compile's to report */ }
+	// record files under data/ no compiled collection reads — a collection that left with a module
+	try { out.push(...unreadDataWarnings(ws)); } catch { /* a warning pass never breaks check */ }
 	for (const e of (ws.extensions ?? []).filter((x) => x.check)) {
 		try {
 			for (const v of (await e.check({ root: ws.root, ws, dt: self })) ?? []) out.push({ file: v.file ?? e.name, msg: `${v.message} (${e.name})`, ...(v.warning === true ? { warning: true } : {}) });
@@ -76,6 +79,10 @@ export { envContext, renderTemplate, parseEnvValues } from './env-vars.js';
 // `display.record.subtitle`, `card_title` and `item_title` with, so no surface keeps a second parser
 export { parseTemplate, validateTemplate, renderDisplay } from './template.js';
 export { satisfies } from './semver.js';
+// the nav document (cr-dt-008): nav.yaml read, checked and written, and the shipped fragments merged into it —
+// what every host (the editor, dt web) uses, so there is one grammar and one writer
+export { readNavDoc, validateNavDoc, writeNavDoc } from './nav.js';
+export { applyNavFragments } from './nav-fragments.js';
 
 // ---- the compiler, schema and module operations ---------------------------------------------------
 export { compile, staleness, warnIfStale, discoverModules, CompileError, KINDS } from './compile.js';
