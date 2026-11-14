@@ -17,7 +17,7 @@ import {
 // call at run time, same pattern as store.js ↔ compile.js.
 import { runHarnessAdapters, renderContributions, BEGIN, END, INSTRUCTIONS_BEGIN, INSTRUCTIONS_END } from './harnesses.js';
 import { ensureEditorRecommendation, ensureEnvExample, ensureGitignored, layerEntries } from './workspace.js';
-import { satisfies } from './semver.js';
+import { satisfies, EXACT } from './semver.js';
 import { parseEnvValues } from './env-vars.js';
 import { DERIVED_KINDS, readManifest, runtimeDir, engineId, engineVersion, loadDescriptors as loadCompiledDescriptors, STALE_RUNTIME } from './runtime.js';
 import { excludedFromKind, disablesPackage, isPackageEntry, MANIFEST_KEYS, v1ManifestRefusal } from './extensions.js';
@@ -218,8 +218,10 @@ export function discoverModules(root, pkg) {
 		// ⚠ THE PACKAGE FIRST: disabling a bundle disables every module in it. Only the children used to
 		// be checked, so `disable: ['@x/bundle']` stopped its code and compiled all of its content.
 		if (disabled(name)) return;
+		// A MODULE PRESET is never a bundle: it lists modules and ships none, so a `modules/` folder in
+		// one is the package pass's refusal to make, not a family to unpack.
 		const bundle = path.join(srcRoot, 'modules');
-		if (fs.existsSync(bundle) && fs.statSync(bundle).isDirectory()) { scanDir(bundle, channel, false); return; }
+		if (!readPkg(srcRoot)?.dreamteamer?.preset && fs.existsSync(bundle) && fs.statSync(bundle).isDirectory()) { scanDir(bundle, channel, false); return; }
 		tryAdd(name, srcRoot, channel);
 	};
 	scanDir(path.join(root, 'modules'), 'inline', false);
@@ -433,6 +435,7 @@ export function compile(ws) {
 	const moduleNamespaces = new Map(); // module name -> [namespaces it DECLARES] (§8, option A)
 	const moduleVersions = new Map(); // module name -> its package.json version
 	const moduleFloors = new Map();   // module name -> npm `peerDependencies` — a version floor on a sibling module
+	const modulePresets = new Map();  // module preset name -> { member name: exact version } (CR-dt-008)
 	const moduleLocalAssets = []; // {rel, owner, base} — validated with the workspace's own, below
 	// the package.json `dreamteamer` block is a closed set of snake_case keys, the workspace's and
 	// every module's alike — a key outside it is a typo or a spelling this engine does not read
@@ -444,6 +447,7 @@ export function compile(ws) {
 		if (bad.length) fail(`${where}: unknown dreamteamer key(s) ${bad.join(', ')} — the keys are ${MANIFEST_KEYS.join(' · ')}`);
 	};
 	refuseUnknownKeys(config, 'package.json');
+	if (config.preset !== undefined || config.nav !== undefined) fail('package.json: dreamteamer.preset and dreamteamer.nav belong to a module package, not the workspace');
 	for (const source of sources) {
 		let mpkg;
 		try { mpkg = JSON.parse(fs.readFileSync(path.join(source.root, 'package.json'), 'utf8')); } catch { continue; }
@@ -473,6 +477,25 @@ export function compile(ws) {
 				fail(`module "${source.name}": dreamteamer.namespaces must be a list of namespace names (got ${JSON.stringify(ns)})`);
 			}
 			moduleNamespaces.set(source.name, ns);
+		}
+		// A MODULE PRESET (CR-dt-008): `preset` maps member module names to EXACT versions — the set
+		// `dt install` pins and `dt update` moves. It lists modules and ships no sources of its own.
+		// `nav` names the package's nav fragment, a path inside the package.
+		if (source.root !== root) {
+			const preset = mpkg.dreamteamer?.preset;
+			if (preset !== undefined) {
+				if (!preset || typeof preset !== 'object' || Array.isArray(preset)) fail(`module "${source.name}": dreamteamer.preset must map module names to exact versions (got ${JSON.stringify(preset)})`);
+				for (const [member, v] of Object.entries(preset)) {
+					if (typeof v !== 'string' || !EXACT.test(v)) fail(`module "${source.name}": dreamteamer.preset["${member}"] must be an exact version (got ${JSON.stringify(v)})`);
+				}
+				const shipped = [...KINDS, 'modules'].find((k) => fs.existsSync(k === 'modules' ? path.join(source.root, k) : kindDir(source.root, k)));
+				if (shipped) fail(`module "${source.name}": a module preset lists modules; it ships none (found ${shipped}/)`);
+				modulePresets.set(source.name, preset);
+			}
+			const nav = mpkg.dreamteamer?.nav;
+			if (nav !== undefined && (typeof nav !== 'string' || !nav || path.isAbsolute(nav) || path.posix.isAbsolute(nav) || nav.split(/[\\/]/).includes('..'))) {
+				fail(`module "${source.name}": dreamteamer.nav must be a relative path inside the package (got ${JSON.stringify(nav)})`);
+			}
 		}
 		if (source.root !== root) {
 			moduleVersions.set(source.name, mpkg.version);
@@ -603,6 +626,13 @@ export function compile(ws) {
 			if (!moduleNames.has(dep)) {
 				fail(`module "${mod}" depends on "${dep}", which is not installed — modules present: ${[...moduleNames].sort().join(', ')}`);
 			}
+		}
+	}
+	// A module preset's absent member is a WARNING, never a failure: the preset is a list, and the
+	// operator may have uninstalled a member on purpose.
+	for (const [mod, members] of modulePresets) {
+		for (const [member, v] of Object.entries(members)) {
+			if (!moduleNames.has(member)) console.warn(`⚠ module preset ${moduleId(mod)} names ${member} ${v}, which is not installed — dt install ${member}`);
 		}
 	}
 	// npm's `peerDependencies` naming ANOTHER discovered module is a VERSION FLOOR: npm refuses the install
@@ -839,7 +869,7 @@ export function compile(ws) {
 	// is a genuine existence test on either spelling.
 	const extensionNames = new Set(extensions.map((e) => e.name));
 	for (const source of sources) {
-		if (contributedBy.has(source.name) || extensionNames.has(source.name)) continue;
+		if (contributedBy.has(source.name) || extensionNames.has(source.name) || modulePresets.has(source.name)) continue;
 		if (kinds.some((k) => fs.existsSync(kindDir(source.root, k)))) continue;
 		console.warn(`⚠ module "${source.name}" (${rel(source.root)}) contributed no recognised sources — its folder names must match a known kind (${kinds.join(', ')}) or it must ship a UI bundle at ui/app.js`);
 	}

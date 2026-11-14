@@ -12,14 +12,13 @@ import os from 'node:os';
 import path from 'node:path';
 import zlib from 'node:zlib';
 import { spawnSync, execFileSync } from 'node:child_process';
-import { satisfies } from './semver.js';
+import { satisfies, EXACT } from './semver.js';
 import { engineVersion } from './runtime.js';
 import { parseEnvValues } from './env-vars.js';
 import { compile, discoverModules, staleness } from './compile.js';
 import { resolveNpm, childEnv } from './checkout.js';
 import { units, runUnit, fillInputs, parseInputFlags, parseAllow, skippedUnits, fold, SetupUsage, EXIT, ttyIO, droppedKeys } from './setup.js';
 
-const EXACT = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/;
 /** Numeric major.minor.patch order; a prerelease sorts below its release. */
 export function compareVersions(a, b) {
 	const pa = String(a).split(/[-+]/)[0].split('.').map(Number), pb = String(b).split(/[-+]/)[0].split('.').map(Number);
