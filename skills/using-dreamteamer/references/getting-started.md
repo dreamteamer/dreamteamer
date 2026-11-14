@@ -1,7 +1,7 @@
 # getting started — from nothing, or from a pile, to a working workspace
 
-Three arrivals land here, and they end in the same place. **The empty folder**: someone ran
-`npm install dreamteamer` (or is about to) and has nothing else. **The existing pile**: a repo or
+Three arrivals land here, and they end in the same place. **The empty folder**: someone is about
+to run `npx dreamteamer init` and has nothing else. **The existing pile**: a repo or
 folder that already holds real files — notes, exports, spreadsheets — that should become records.
 **The operator who is technical enough to run npm and not much more** — for whom the git section
 below is written in plain words. The finish line for all three is identical: a compiled runtime,
@@ -23,7 +23,8 @@ that reads the compiled runtime can render the same workspace later, unchanged.
 npx dreamteamer init        # pins the engine, writes the skeleton, compiles, checks, git init, one commit
 ```
 
-One command does all of it — what it changes, what it refuses and how it resumes is `setup.md` §0.
+One command does all of it — what it changes, what it refuses and how it resumes is `setup.md` §0
+(`dt` below is `npx dreamteamer`).
 `--no-git` keeps git out of it (see below for why you want it in); adding a module afterwards is
 `dt install <package>` (also `setup.md`). The same steps by hand, for a reader who wants to see them:
 `npm install dreamteamer` · `git init` · `npx dreamteamer init --no-compile` · `npx dreamteamer compile`

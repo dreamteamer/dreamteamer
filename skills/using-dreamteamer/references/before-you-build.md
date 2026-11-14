@@ -37,8 +37,8 @@ Every rule below is that asymmetry applied.
 | # | look at | how, concretely | what you get |
 |---|---|---|---|
 | 1 | **this workspace's own modules** | the orientation block's MODULES AND THEIR COLLECTIONS list is already in your context — find the module whose sentence owns the concept, then reread its collections with the concept's *synonyms* in mind, `use when` clauses included; then read the candidate's DESCRIPTOR, not its records; `dt help` shows the verbs and `dt next <collection>` the bound ones; the module's skills line names the techniques | the thing may already exist under a name you didn't guess. This is where misses actually happen, because it is the place you assume you already know |
-| 2 | **a recipes repo — where this workspace's own instructions (`DREAMTEAMER.md`) name one** (reference modules maintained to be **copied and adapted**) | read that repo's own instructions first; they ARE the adoption procedure. no recipes repo declared → skip this row | a working module with its reasoning attached — descriptors, skills, and the trap notes that each cost someone a day |
-| 3 | **a sibling workspace — where the operator has named one** | read-only; grep its `modules/` for the concept. none named → skip | another vault may have solved it concretely. That is a *reference*, not a source — it holds real personal data, so read the shape, never lift the content |
+| 2 | **a module somebody already ships** — a published package, or a recipes repo where this workspace's own instructions (`DREAMTEAMER.md`) name one (reference modules maintained to be **copied and adapted**) | a package: what the operator names, or what `setup.md` §2 finds with their yes. a recipes repo: read its own instructions first; they ARE the adoption procedure. neither → skip this row | a working module with its reasoning attached — descriptors, skills, and the trap notes that each cost someone a day |
+| 3 | **a sibling workspace — where the operator has named one** | read-only; grep its `modules/` for the concept. none named → skip | another workspace may have solved it concretely. That is a *reference*, not a source — it holds real personal data, so read the shape, never lift the content |
 | 4 | **the engine's own surface** | `dt help` — the complete verb surface, system and field verbs included; read it rather than recalling it | the capability may already be a verb (`relations rebuild`, `resolve`, `install repos/<id>`) rather than a missing module |
 
 Only after all four: build it, in the module that owns the concept.
@@ -60,11 +60,12 @@ what you retrofit.
 
 ## what "found" actually means
 
-Rarely the exact thing. Four outcomes, each with its own move:
+Rarely the exact thing. Five outcomes, each with its own move:
 
 | what you found | the move |
 |---|---|
 | the exact capability, live in this workspace | use it — and if finding it took effort, fix the `description`/`use_when` that made it hard, in the same breath |
+| a published module covering it | propose `dt install <package>` (`setup.md` §2), naming what it adds and what `dreamteamer.disable` would switch off |
 | a recipe covering most of it | propose copy-and-adapt (below). Adoption is deletion |
 | a partial match — a collection that could grow a field, a skill that covers half the job | propose extending the existing thing, in the module that owns the concept. Growing a field on the right collection beats a new collection every time (`data-modeling.md` Part IX: additive first) |
 | a concrete solution in a sibling workspace | read it for shape and traps, rebuild clean with a synthetic cast — never lift records, names, or account details |
@@ -93,8 +94,9 @@ the copy is theirs to maintain, and nothing will later tell them it drifted from
 - **Copying a recipe in** — yours from that moment; drift from the original is silent by design.
 - **Creating a collection** — cheap to make, expensive to retire: records accumulate, references
   point at it, and deleting it later is a migration, not an undo.
-- **Installing anything** (`npm i`, `git_modules/`) for a domain module — recipes are copied, not
-  installed; importing one re-creates the fork the copy-and-adapt split exists to avoid.
+- **Installing a module** (`dt install <package>`) — its collections start holding records the
+  day it lands. A RECIPE is never installed (`npm i`, `git_modules/`): recipes are copied, and
+  importing one re-creates the fork the copy-and-adapt split exists to avoid.
 
 ## common mistakes
 
@@ -104,7 +106,7 @@ the copy is theirs to maintain, and nothing will later tell them it drifted from
 | searching only the literal word the operator used | the existing thing is usually filed under a synonym — search the concept, not the string |
 | `npm i` / `git_modules` a recipe module | recipes are copied, not installed — importing re-creates the fork the split exists to avoid |
 | copying a recipe in and keeping all of it | deleting what you won't use IS the adoption step |
-| lifting from another workspace under `projects/` | those hold real personal data; read for reference only |
+| lifting from a sibling workspace | it holds real personal data; read for reference only |
 | proposing without naming the setup cost | the `.env` keys and the accounts are the actual price |
 | installing or copying, then telling the operator | they decide what enters their workspace, before it enters |
 | finding it, using it, and leaving the bad description in place | the next session will miss it exactly as you just did |
