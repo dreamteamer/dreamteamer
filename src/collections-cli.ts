@@ -1,7 +1,3 @@
-// The IMPLEMENTATION layer behind the verb-first CLI: `collectionCommand(ws, collection, verb, args)`
-// is (collection, verb) shaped and stays that way — `cli.js` translates `dt <verb> <target>` onto it.
-// So a spelling here (`collections add`, `<collection> add-field`, `commands for`, `repos ensure`) is
-// an INTERNAL pair, not what the operator types; `dt add collections` is what they type.
 import fs from "node:fs"
 import { Store, bodyField, serialize, atomicWrite } from "./store.ts"
 import { load, dump } from "./yaml.ts"

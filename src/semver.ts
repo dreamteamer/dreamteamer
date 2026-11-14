@@ -1,9 +1,3 @@
-// tiny semver-range checker for engine-pin checks — deliberately NOT npm's semver.
-// supported ranges: exact "1.2.3", "^1.2.3", "~1.2.3", ">=1.2.3", "*".
-// NOT supported (returns null, "can't tell"): "||" alternatives, hyphen ranges,
-// x-ranges (1.2.x), combined comparators (">=1.0.0 <2.0.0"), <, <=, >,
-// prerelease/build tags. callers treat null as "warn, don't guess".
-
 const parse = (v: string): [number, number, number] | null => {
   const m = /^(\d+)\.(\d+)\.(\d+)$/.exec(String(v).trim())
   return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null

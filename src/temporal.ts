@@ -1,26 +1,3 @@
-// temporal values — the `format: date` and `format: date-time` fields — normalized on WRITE and
-// compared as INSTANTS, never as strings.
-//
-// Two decisions live here, and they are a pair:
-//
-// 1. A date-time keeps its LOCAL OFFSET (`2026-07-28T12:00:00+03:00`), it is not folded to Z.
-//    These records are markdown files a human reads and reviews in a git diff. A meeting at noon
-//    must say 12:00 in the file, not 09:00 with the reader expected to do timezone arithmetic in
-//    their head. The offset is what makes that wall-clock reading unambiguous rather than merely
-//    convenient — the value still denotes exactly one instant.
-//
-// 2. Because (1) means two correct values can carry different offsets, ordering CANNOT be a string
-//    compare. `compareValues` parses both sides to epoch ms first. Everything that orders records
-//    — `_lt`/`_gt`/`_lte`/`_gte`/`_between` in filter.js and the `?sort=` in server.js and the
-//    extension's api.ts — goes through it. Sorting temporals lexicographically is exactly the bug
-//    (1) would otherwise have introduced: `…T12:00:00+03:00` sorts after `…T11:00:00+01:00`
-//    (an EARLIER instant) on every naive comparison.
-//
-// The write-side normalizer is why the strictness is bearable: ajv's `date-time` accepts one
-// spelling, but humans type `2026-07-28 12:00` and `<input type="datetime-local">` emits
-// `2026-07-28T12:00`. Both become the canonical form before validation, so the CLI and the studio
-// accept the same input — the engine/UI parity test applied to a data format.
-
 const DATE_ONLY = /^(\d{4})-(\d{2})-(\d{2})$/
 const DATE_TIME =
   /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?(?:\.(\d{1,3})\d*)?\s*(Z|[+-]\d{2}:?\d{2})?$/i

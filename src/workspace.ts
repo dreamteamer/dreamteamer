@@ -1,13 +1,3 @@
-// workspace discovery: the NEAREST package.json with a `dreamteamer` section wins, except when
-// that candidate is only nested inside a higher one as a MODULE — modules are themselves
-// dreamteamer packages (fractal), so `git_modules/dreamteamer`, `node_modules/@dreamteamer/*` and
-// `modules/<workspace-module>` must all resolve outward to the workspace that contains them.
-// It used to be "topmost wins", which got the module cases right by accident and every genuinely
-// nested workspace wrong: a workspace living under another one's tree (a vault may keep per-identity
-// repos at projects/<identity>/<repo>/) resolved to the OUTER workspace, so every command
-// silently operated on the wrong repo — compile wrote the wrong runtime, check counted the wrong
-// records, all reporting success. `projects/` is not a module segment, so nesting there is a
-// real workspace and now resolves as one.
 import fs from "node:fs"
 import path from "node:path"
 import { readExports } from "./exports.ts"

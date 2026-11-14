@@ -1,18 +1,3 @@
-// `dreamteamer/testing` — what a module's own test suite needs to test itself on the real engine,
-// with nothing but `node --test` and this import (cr-dt-007, G2). Every helper spawns the engine the
-// way a consumer runs it: `init` in a fresh folder, `dt install` of the module packed with `npm pack`
-// (so the package's `files` list is what is tested), then `dt` verbs. Nothing imports src/ by path, and
-// the engine is THIS file's package — never a `dreamteamer` that happens to be on PATH.
-//
-//   createWorkspace({ engine? })  a fresh, committed workspace on the engine (DT_ENGINE_DIR wins when set)
-//   pack(moduleDir)               the tarball npm would publish
-//   install(ws, spec, opts?)      `dt install` of a name, a tarball, or a folder (packed first)
-//   run(ws, args, opts?)          the CLI in the workspace — { status, stdout, stderr }; status null on timeout
-//   engineMeets(range)            does the running engine satisfy a semver range
-//
-// Synchronous throughout, so a test reads top to bottom. Temp folders are removed at exit unless
-// DT_KEEP_FIXTURES is set. Policy (D64): on 0.x a breaking change to this export lands in a minor,
-// announced one release ahead in UPDATING.md.
 import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"

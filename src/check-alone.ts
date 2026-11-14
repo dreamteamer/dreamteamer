@@ -1,19 +1,3 @@
-// `dt check modules/<id> --alone` — is this inline module publishable? (cr-dt-007, G3, D63, D65)
-//
-// The gate does to a module what a stranger's workspace will: packs it with `npm pack` (so its `files`
-// list is what is judged), `init`s a fresh workspace on THIS engine, `dt install`s the tarball with only
-// the module's declared `dreamteamer.dependencies` (each packed from this workspace — `modules/` or
-// `node_modules` — never fetched, so the gate is offline), then compiles and checks it and prints the
-// module's setup line. It learns nothing about the module beyond its manifest, and it runs no package
-// script of the author's (D63: the author's `npm test` is the author's).
-//
-//   exit 0  publishable — including a unit that still needs an input a stranger supplies later (install 3)
-//   exit 1  refused, the first reason named: a dependency not held here, a floor above this engine, a
-//           refused install, a compile error, a check violation
-//   exit 2  usage
-//
-// Dispatched from src/cli.js before the host workspace is opened: a module whose dependency is
-// missing would fail the HOST's compile, and the gate's whole point is to say so by name.
 import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"

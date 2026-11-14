@@ -1,11 +1,3 @@
-// The authored descriptor — validated, and merged with its mixins and overlays.
-//
-// A descriptor is recognised by its `fields` block. It is validated here (closed top-level keys, the
-// storage, ids and display blocks, every template and every field name the descriptor mentions
-// outside `fields`), and its mixins and overlays are merged into ONE authored descriptor that
-// compile-collections.js resolves.
-//
-// Pure: no fs, no git. Errors are returned, never thrown, so compile attributes each to a file.
 import { validateTemplate } from "./template.ts"
 import type { AuthoredDescriptor, Field } from "./types.ts"
 

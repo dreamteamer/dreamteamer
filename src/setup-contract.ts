@@ -1,21 +1,3 @@
-// The `setup` contribution — extension API 1, setup version 1.
-//
-// A module that needs something from the person (a folder, a token, a download, a sign-in) declares
-// HOW through a list of units, and the engine drives every unit the same way: `dt install` fills the
-// unit's inputs and applies its safe actions, `dt setup` resumes and verifies, `dt status` folds its
-// checks into one line. The engine never learns a module's name — a unit is addressed by its `id`,
-// identical whether its module is installed alone or composed into a bigger package.
-//
-//   setup: [{
-//     id: 'meetings', version: 1,
-//     inputs: [{ id, title?, env?, kind: 'string'|'path'|'rows'|'secret-path', required?, default?, prompt?, rows?: { columns } }],
-//     inspect(ctx)                 → { checks: [{ id, status, title, detail?, fix?, evidence? }] }
-//     plan(ctx, inputs)            → { checks, actions: [{ id, title, effects: [{ kind, detail }], preview?, expect?, runBy?, kind? }], needs: [inputId] }
-//     apply(ctx, action, inputs)   → { ok, changed: [paths], message? }
-//   }]
-//
-// This file is the validator and nothing else: pure, no fs, so the contract is testable without a
-// workspace. `src/setup.ts` runs the units.
 import type { SetupAction, SetupInput, SetupInputKind, SetupUnit } from "./types.ts"
 
 /** A unit or input as a module wrote it — untrusted until each key is checked below. */

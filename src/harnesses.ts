@@ -1,15 +1,3 @@
-// harness adapters — one thin stage per harness, dispatched from compile over the same
-// compiled entries. the superpowers lesson, kept deliberately: CONTENT NEVER FORKS PER
-// HARNESS — skills copy verbatim (+stamp), every root file gets the same managed
-// orientation block; only the injection points differ per harness:
-//   claude-code → .claude/{skills,agents,commands} + CLAUDE.md block  (native everything)
-//   codex       → AGENTS.md block + .agents/skills mirror             (~/.codex reads AGENTS.md)
-//   pi          → AGENTS.md block + .agents/skills mirror             (pi auto-discovers .agents/skills)
-//   cursor      → .cursor/rules/dreamteamer.mdc + .agents/skills      (.mdc is cursor's native rule file)
-//   gemini-cli  → GEMINI.md block + .agents/skills mirror             (GEMINI.md is its context file)
-// managed blocks live in USER-OWNED files (committed); generated dirs (.claude, .agents,
-// .cursor) are gitignored and pruned by stamp. removing a harness from config removes its
-// block/file on the next compile.
 import fs from "node:fs"
 import { slash } from "./namespace.ts"
 import path from "node:path"

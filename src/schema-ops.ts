@@ -1,9 +1,3 @@
-// schema operations — source-writing mutations shared by the CLI meta verbs and the
-// server's schema endpoints. the contract (audit finding 11, clean-room bug 2): an op
-// writes sources, proves them with a REAL compile, and only then commits — an
-// uncompilable source can never land in history. the successful gate compile also
-// leaves the runtime fresh, which kills the add-field-right-after-collections-add
-// papercut (review finding 7): schema ops ARE explicit compiles.
 import fs from "node:fs"
 import path from "node:path"
 import { execFileSync, type StdioOptions } from "node:child_process"

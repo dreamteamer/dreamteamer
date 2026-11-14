@@ -1,9 +1,3 @@
-// dreamteamer check — validate every record against the compiled descriptors.
-// report-only: JSON Schema (ajv), id patterns, reference resolution, stray files, plus any
-// `extra` violations a caller gathered (extension checks), reported after the schema's — an item marked
-// `warning` is printed as a warning and never counted. Under `strictExport` a reference this workspace's
-// own records reach only through a layer is a violation rather than a ⚠ line: a workspace reading this one without its layers would see them break.
-// NEVER modifies a file. returns the exit code.
 import fs from "node:fs"
 import path from "node:path"
 import Ajv from "ajv"

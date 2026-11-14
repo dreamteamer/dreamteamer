@@ -1,16 +1,3 @@
-// `dt setup` — and the setup half of `dt install` and `dt status`: the engine's generic driver for
-// the units modules declare (src/setup-contract.ts). Nothing here knows a module: it fills inputs,
-// asks consent per effect, runs inspect → plan → apply → inspect, folds the checks into one line and
-// keeps a unit's receipts. The vocabulary is the design's (rnd/design-docs/2026-11-12--cli-first-module-lifecycle):
-//
-//   inputs    --input id=value (or unit.id=value) → the environment → the declared default → a TTY
-//             prompt for what is still missing → `needs`. Two inputs naming one env key are ONE input.
-//   consent   workspace-files never asks; download / network / machine ask y/n in a TTY or run under
-//             --allow <kind>; account runs only under `setup <unit> --authorize`, in a TTY.
-//   status    skipped · no-evidence · blocked · configured · ready [· verified <date>]
-//   receipts  .dreamteamer/setup/<unit>/ — per machine, gitignored with the runtime, never committed
-//
-// Pure functions first (tested without a workspace), then the runner and the verb.
 import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"

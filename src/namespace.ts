@@ -1,32 +1,3 @@
-// NAMESPACES — how a collection name is scoped, and how a reference splits back apart.
-//
-// A namespace is a slash-delimited prefix on a collection name: `health/doctors` is the collection
-// `doctors` in the namespace `health`, and its records live under `data/health/doctors/`. A
-// reference to one of those records is `health/doctors/dana-levi`.
-//
-// ⚠ THE WHOLE PROBLEM IN ONE LINE: an id is ALSO a slash-delimited path (`meetings/2026/07/kickoff`
-// is one collection and a three-segment id), so `a/b/c` is either collection `a` + id `b/c` or
-// collection `a/b` + id `c`, and nothing about the STRING says which.
-//
-// So namespaces are DECLARED, in the workspace package.json:
-//
-//     "dreamteamer": { "namespaces": ["health", "finance", "work/clients"] }
-//
-// and every split consults that closed set, longest match first. The alternative — inferring the
-// boundary from whichever collections happen to exist — was rejected: it makes the meaning of a
-// reference depend on the current descriptor set, so installing a module could silently re-point
-// references in records nobody edited. A declared list also turns the dangerous case (a namespace
-// whose name collides with a collection's) into a compile error instead of a longest-prefix win.
-//
-// The DEFAULT namespace is the empty prefix. `tasks/kickoff` is a reference into it, `data/tasks/`
-// is where it lives, and that is exactly what every workspace already has — which is why adopting
-// namespaces migrates nothing. `default` is reserved precisely so there is never a second spelling
-// for the same collection.
-//
-// This module is deliberately PURE — the declared list arrives as an argument. compile validates it
-// and writes it into the manifest; runtime.js hands it to the record layer. Nothing here reads a
-// file, so all of it is unit-testable without a workspace.
-
 /** Never a namespace: it would give the default namespace a second, prefixed spelling. */
 export const RESERVED_NAMESPACES = new Set(["default"])
 

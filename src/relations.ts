@@ -1,6 +1,3 @@
-// Relations, decoded ONCE. A relation is a mirror field (`mirror_of: <owner field>`) in the compiled
-// runtime, so check, the store's mirror maintenance, `dt relations`, rebuild and presentation all
-// read through here and can never disagree about what a relation is.
 import { fieldsOf, targetsOf, storageOf } from "./descriptor.ts"
 import type { Descriptor, Descriptors, Fields } from "./types.ts"
 /** One relation, keyed by its owner: `owner.field` references `target`, whose `mirror` field is the generated far side. */

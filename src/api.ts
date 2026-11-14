@@ -1,14 +1,3 @@
-// The PUBLIC API — `import … from 'dreamteamer'`. Everything a surface (the VS Code extension, the
-// mobile app) or an extension (http, workflows, notebooklm) may call, and nothing else: package.json
-// `exports` hides `src/*`, so an internal file can be split, renamed or deleted without a cross-repo
-// break. That break used to be the rule — the extension imported fifteen internal files by path, and
-// deleting one took `activate()` down before the tree view existed.
-//
-// Grouped by task. Each name is the ONE implementation of its operation; nothing here wraps or
-// re-implements. Its declarations are GENERATED (dist/api.d.ts) from these signatures and src/types.ts;
-// test/types/consumer.ts is the contract they are held to.
-//
-// Importing this module prints nothing, writes nothing, binds no port and touches no network.
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 import * as self from "./api.ts"

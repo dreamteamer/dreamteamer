@@ -1,14 +1,3 @@
-// The RECORD half of the public API — `import … from 'dreamteamer/records'`. Records over git and the
-// read models a surface draws, and nothing that knows modules, harnesses, extensions or the CLI.
-//
-// It exists as its own entry for ONE consumer with a hard constraint: the mobile app runs the Store
-// unmodified in a browser over a virtual filesystem, with shims for `node:fs`, `node:path` and
-// `node:child_process` and nothing else. The full API pulls in the compiler, the extension loader
-// and the CLI, which reach for `node:url`, `node:crypto` and `node:os` at import time. This file's
-// import closure is pinned to those three builtins by test/integration/public-api.test.js.
-//
-// `dreamteamer` (src/api.ts) re-exports everything here, so a node consumer never needs two imports.
-
 // The contract's shapes (src/types.ts) — the record half's. `dreamteamer` adds the workspace half's.
 export type {
   Fields,

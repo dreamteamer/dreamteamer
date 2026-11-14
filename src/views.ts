@@ -1,18 +1,3 @@
-// ui-views and command-bindings — validated against the collection they name, and a view's display
-// resolved over that collection's.
-//
-// A view is a named variant of a collection's default view: it carries the same `display` block a
-// collection does, and compile merges it over the collection's sub-block by sub-block, a key the
-// view sets winning. A binding joins a command to a collection and gates it on the record's own
-// fields (`available_when`, `done_when`). Both are checked here, in their own vocabulary, against
-// the fields of the collection they name, so a dangling name is a compile error naming the
-// position rather than a view that draws nothing or a gate that never opens.
-//
-// A name a module may legitimately not see yet — a field an overlay of an absent PEER collection
-// adds — is reported as a warning instead when the caller says the module declares an absent peer:
-// the condition then reads as not met, which is the peer contract.
-//
-// Pure: no fs, no git. Errors are returned, never thrown, so compile attributes each to a file.
 import { unknownOperators, unknownTokens, VALUE_TOKENS } from "./filter.ts"
 import { validateTemplate } from "./template.ts"
 import type { Field } from "./types.ts"

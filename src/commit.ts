@@ -1,6 +1,3 @@
-// dt commit — publish what is already on disk. Model: GIT IS THE JOURNAL. There is no pending
-// file and no cursor; the set of things to commit is sampled from `git status` over the record
-// directories of every collection, which means it cannot disagree with reality.
 import { execFileSync, type StdioOptions } from "node:child_process"
 import fs from "node:fs"
 import path from "node:path"

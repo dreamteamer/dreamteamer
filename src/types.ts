@@ -1,12 +1,3 @@
-// The PUBLIC CONTRACT's shapes — every type `dreamteamer` and `dreamteamer/records` publish. The
-// declarations consumers compile against (dist/*.d.ts) are GENERATED from the source, so these are the
-// types the exported functions are annotated with, and the code has to satisfy them: a declaration can
-// no longer say one thing while the runtime does another (KNOWN_OPERATORS was declared an array and was
-// a Set — review F8). Shapes the engine does not constrain (a record's fields, a descriptor's schema)
-// are typed loosely on purpose: they are the workspace's.
-//
-// Types only — every import here is `import type`, erased by construction, so this file is no runtime
-// edge of any layer (scripts/layers.ts skips type-only edges).
 import type { Store } from "./store.ts"
 
 export type Fields = Record<string, unknown>

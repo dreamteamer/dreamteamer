@@ -1,29 +1,3 @@
-// RELATIONSHIP-BASED STORAGE — a record stored UNDER the record it belongs to.
-//
-// A child collection declares, on its own `storage` block, which scalar reference field names its
-// parent and where inside the parent's folder its records go:
-//
-//     storage: { under: { parent: company, subfolder: meetings } }
-//
-// so a meeting whose `company` is `companies/northwind` lives at
-// `data/companies/northwind/meetings/<id>.meeting.md`, and one with no company stays in the
-// collection's own root (`data/meetings/`). The parent must be a folder-shape collection, because
-// only a folder can hold anything beside the record itself. compile records the parent collection,
-// so the record layer never reads a field's type to find it.
-//
-// Three invariants every reader and writer here holds:
-//   - ONE logical collection. Listing walks the fallback root and every parent's child folder;
-//     a reference is `<collection>/<id>` wherever the file sits. The id is the path inside
-//     WHICHEVER root the file is in, so moving a record between parents changes no id.
-//   - PLACEMENT FOLLOWS THE FIELD, never the other way round. The field is the intended owner and
-//     the folder is observed placement; `check` reports the two disagreeing and `relocate` reconciles
-//     them. Nothing ever infers an owner from where a file was found.
-//   - ONE LEVEL. A placed collection cannot itself be a parent — enough for company → meetings /
-//     contacts / projects, and the nesting a second level needs can be added when something wants it.
-//
-// This module is in the RECORD layer and reads compiled descriptors only: nothing here knows what a
-// module, an overlay or a schema source is. Store and check both enumerate through it so they cannot
-// disagree about which files are records.
 import fs from "node:fs"
 import path from "node:path"
 import { walk, idFromRecordPath } from "./records.ts"

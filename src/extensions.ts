@@ -1,33 +1,3 @@
-// Engine extensions — the ONE seam an optional tool plugs into.
-//
-// Core is records + the workspace compiler, and nothing that has a lifecycle of its own: an HTTP
-// server, a Docker host, a behaviour-test runner, an exporter to one vendor. Those ship as sibling
-// packages, and a workspace opts into one by DEPENDING on it — a direct dependency whose package.json
-// declares `"dreamteamer": { "extension": "./entry.js" }`. That is the whole declaration: npm already
-// put the code there on purpose, and a transitive package is never loaded however it advertises.
-//
-// The entry's default export is `activate(dt)` — `dt` is the RUNNING engine's public API (api.js), so
-// an extension never imports a second engine copy of its own and can never disagree with the one the
-// operator ran (the dev-clone shadow and `--vault` both pick the engine before this file loads).
-// A workspace's own `modules/<id>/` may declare the same key: its code is the operator's, so it
-// loads without a package — the way a workspace carries an extension nobody has published.
-// It returns a contribution, every key optional:
-//
-//   commands    { <verb>: { usage, run(ws, argv) } }       `dt <verb> …`, dispatched in-process
-//   sourceKinds [{ kind, exclude?: [subtree] }]             folders compile stages like a built-in kind
-//   analyze     (draft) → { errors?, warnings?, notes? }    judged after assembly, before any output
-//   harnesses   { <id>: (ctx) → { blocks: {file: text}, summary } }   a harness adapter
-//   orientation string                                      one paragraph appended to the orientation block
-//   hooks       { <ClaudeHookEvent>: '<dt verb args>' }     rendered by `dt install --print-adapters`
-//   check       ({ root, ws, dt }) → [{ file, message, warning? }]   cross-record rules `dt check` reports after
-//               the schema's; `warning: true` prints a warning that does not count (`dt.CHECK_WARNINGS` says so)
-//   doctor      ({ root, ws, dt }) → [{ label, state, detail?, fix? }]   rows `dt doctor` renders as one capability
-//   next        ({ root, ws, collection, ids }) → [{ id, text }]   a line about a record `dt next` prints (sync)
-//   setup       [{ id, version: 1, inputs, inspect, plan, apply }]   setup UNITS `dt install`, `dt setup` and `dt status`
-//               drive without knowing the module (src/setup-contract.js is the shape, src/setup.js the runner)
-//
-// Two contributions claiming the same verb, kind or harness is a refusal — there is no "last one
-// wins", because the loser would be an extension the operator installed that silently does nothing.
 import fs from "node:fs"
 import path from "node:path"
 import { pathToFileURL } from "node:url"

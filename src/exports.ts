@@ -1,11 +1,3 @@
-// The exports manifest (cr-dt-004) — `dreamteamer-exports.json` at a repo root: per id that repo's own
-// records name and no file of the repo holds, a display label and the package name of the workspace that
-// held it when the entry was written. A reader reads a layer WITHOUT that layer's own layers, so this is
-// the repo's proof that such an id exists elsewhere. Written only by `dt exports`; `check` reads it.
-//
-// Record layer: pure over the roots, descriptors and the facts compile recorded in the runtime — it never
-// reads package.json. One walk of a repo's references (`outsideRefs`) and one judgement (`regenerate`)
-// serve `check`, `dt exports` and the migration script, so the three cannot disagree.
 import fs from "node:fs"
 import path from "node:path"
 import { walk } from "./records.ts"

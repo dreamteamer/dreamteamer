@@ -1,13 +1,3 @@
-// The `.env` writer behind a unit's env action (cr-dt-007, D61): the engine performs the one write
-// every module's setup used to carry its own copy of — a key's value span replaced in place or
-// appended, every other byte kept, the file replaced whole by rename, and only while it still has
-// the fingerprint the plan saw. What is written reads back through `parseEnvValues` identically:
-// `envSpans` follows that reader's grammar (an unquoted value runs to end of line; a quoted one may
-// span lines), so this file is the writer half of one grammar, not a second grammar.
-//
-// Refusals are `EnvRefusal` with a `code`, so the driver (src/setup.js) can turn the ones it can see
-// before writing into a plan-time `blocked` and keep only `changed` (the file moved after the plan)
-// and an I/O error as a write-time failure. Nothing here reads a value back to the caller.
 import fs from "node:fs"
 import path from "node:path"
 import { createHash, randomBytes } from "node:crypto"

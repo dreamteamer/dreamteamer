@@ -1,16 +1,3 @@
-// The ONE template grammar — every `{{ … }}` string a descriptor carries is parsed, validated and
-// rendered here: `id.from`, `record_title`, `item_title`, `display.record.subtitle`, and the layout
-// options `card_title`, `group_title`, `group_summary`.
-//
-//   token    {{ field }} · {{ field | filter }} · {{ field | filter:arg | … }}
-//   field    a declared field, or a built-in: `id`, `created`, `last_modified` (and `seq` in an id)
-//   filters  date[:fmt] · datetime · slug · pad:n · basename — nothing else, in any position
-//
-// Two positions render differently, on purpose. In an ID a reference renders as the id it holds (so
-// `basename` is the useful filter); in a DISPLAY template it renders through the target record's own
-// `record_title` (so `{{ doctor }}` reads as the doctor's name). `validateTemplate` is what compile
-// runs on every template it finds, so an unknown filter or a field that does not exist is a compile
-// error naming the position rather than a blank label in a surface.
 import type { TemplatePart } from "./types.ts"
 const SEQ = "__DT_SEQ__"
 

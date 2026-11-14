@@ -1,8 +1,3 @@
-// dt exports [--layer <name> …] [--dry-run] [--json] — write a repo's exports manifest from this
-// context (cr-dt-004). Bare: this workspace's own; --layer: that layer's, written into its clone — how a
-// reader records the ids a layer names in the reader, which the layer alone cannot see. The rules are
-// src/exports.ts `regenerate`, shared with `check`, so `check` names a manifest stale exactly when this
-// would change or drop one of its entries. Writes and commits ONE path, `dreamteamer-exports.json`.
 import { execFileSync } from "node:child_process"
 import fs from "node:fs"
 import path from "node:path"

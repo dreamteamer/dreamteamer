@@ -1,5 +1,3 @@
-// shared record primitives — parsing, id patterns, error formatting — used by
-// both the validating store (hard, write-time) and check (soft, report-only).
 import fs from "node:fs"
 import path from "node:path"
 import { load } from "./yaml.ts"

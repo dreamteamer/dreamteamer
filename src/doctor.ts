@@ -1,7 +1,3 @@
-// `dt doctor` — one board of what works in THIS environment: the engine's own rows, then each
-// extension's `doctor` contribution as one capability. A capability is READY (every row ok),
-// DEGRADED (a warning: the workspace still works) or UNAVAILABLE (a failure), and every row that is
-// not ok carries its fix on the same line. No network call; exit 0 unless --strict finds a failure.
 import fs from "node:fs"
 import path from "node:path"
 import { engineId, readManifest } from "./runtime.ts"

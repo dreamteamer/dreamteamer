@@ -1,15 +1,3 @@
-// Compiling collection descriptors — descriptor format v2, the only format the engine reads.
-//
-// Input: every collection source a module ships, grouped by collection name, plus the mixins and the
-// module graph compile has already established. Output: one compiled descriptor per collection —
-// the authored keys (mixins and overlays merged in), and a `compiled` block holding everything
-// compile decided: the defaults it supplied, the module, the repo, whether the records are build
-// output, the parent a placed collection lives under, the mirrors, the overlaying modules, the peers
-// nothing installed provides, the resolved `fields` every reader asks through src/descriptor.ts, and
-// the `json_schema` the validator runs.
-//
-// A v1 source — a descriptor without `fields`, or a collection-template — is refused, all of them in
-// one message naming the converter. Nothing here reads the v1 shape.
 import fs from "node:fs"
 import path from "node:path"
 import Ajv from "ajv"

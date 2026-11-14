@@ -1,10 +1,3 @@
-// Accessors over a COMPILED descriptor — the one way any reader asks what a collection is.
-//
-// A compiled descriptor is the authored v2 keys plus the `compiled` block compile wrote: `defaults`
-// (what compile supplied because the author did not), `module`, `repo`, `runtime`, `under_collection`,
-// `mirrors`, `overlaid_by`, `unresolved_peers`, `fields` (resolved) and `json_schema` (the validator's).
-// A reader never looks at the authored keys and the defaults separately, and never re-derives a fact
-// compile already decided: it asks here. Pure — no fs, no git, no knowledge of modules.
 import { SCALAR_TYPES } from "./fields.ts"
 import type { Descriptor, DisplayBlock, Field, Storage } from "./types.ts"
 

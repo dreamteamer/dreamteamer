@@ -1,7 +1,3 @@
-// the validating store — every tooling write goes through here:
-// parse → coerce → defaults → validate (HARD: rejected before disk) →
-// atomic write → one git commit. direct file edits stay first-class and are
-// covered by `check` after the fact.
 import { execFileSync, type StdioOptions } from "node:child_process"
 import fs from "node:fs"
 import path from "node:path"

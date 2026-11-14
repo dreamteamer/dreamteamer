@@ -1,15 +1,3 @@
-// THE BOUNDARY — `.dreamteamer/` is the one artifact the two halves of this engine share.
-//
-// The workspace compiler WRITES it (compile.js: modules × sources → merged descriptors + manifest).
-// The record layer READS it, and reads nothing else: store.js has never needed to know that
-// modules, channels, `extends` or `templates` exist. That seam was already real — it just wasn't
-// enforceable, because reaching the compiled output meant importing compile.js, which put a
-// record-layer → compiler edge in the graph for what is really a file-format dependency.
-//
-// Everything the record layer actually wanted is already IN the compiled output: the merged
-// descriptors, and (in the manifest) which directories hold the sources behind runtime-based
-// records. So this module owns the runtime's shape, both halves import it, and `npm run layers`
-// fails if the old edge comes back.
 import fs from "node:fs"
 import path from "node:path"
 import { load } from "./yaml.ts"

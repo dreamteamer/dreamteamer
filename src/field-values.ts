@@ -1,15 +1,3 @@
-// distinct values actually present in a collection's field.
-//
-// Why this exists: a filter (or a command-binding validator) can only offer a dropdown when
-// something tells it the value set. `enum` in the descriptor does that — but most string fields
-// aren't enums and never will be. `meetings.status` and `meetings.visibility` are plain
-// `type: string`, so the filter builder correctly fell back to a free-text box and the operator
-// had to know the vocabulary by heart (operator 2026-07-28: "still no dropdown for many things,
-// visibility, status — why?").
-//
-// The data already knows. This derives the vocabulary from the records themselves, so every
-// low-cardinality field becomes selectable with no schema change and no risk of `check` failing
-// on a value that predates an enum someone added later.
 import { bodyField } from "./store.ts"
 import { fieldsOf } from "./descriptor.ts"
 import { enumValues } from "./fields.ts"

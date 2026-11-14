@@ -1,17 +1,3 @@
-// The display contract — compiled descriptors → what every surface draws (the extension, the mobile
-// app, the REST layer). One read model, so no surface re-derives a label, a column list or a
-// read-only rule from a descriptor on its own.
-//
-// It reads a compiled descriptor ONLY through `src/descriptor.ts` — the accessors resolve what the
-// author wrote over what compile supplied (`displayOf`, `titleOf`, `recordTitleOf`, `storageOf`) and
-// hand over the resolved field list, the three injected fields included (`fieldsOf`). Nothing here
-// names a `compiled` key, so the contract cannot drift from what the store and check read. Every key
-// it emits is a name from the design's display-contract table, one word per meaning;
-// `test/unit/presentation-contract.test.js` lists them and fails on any other.
-//
-//   { collections: [CollectionRow], fields: { <collection>: [FieldRow] }, relations: [RelationRow] }
-//
-// Pure: no fs, no git, no workspace.
 import { enumValues, enumChoices, titleOf as fieldTitle } from "./fields.ts"
 import {
   fieldsOf,

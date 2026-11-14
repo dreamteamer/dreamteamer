@@ -1,6 +1,3 @@
-// dreamteamer init — write the workspace skeleton into the current directory.
-// non-interactive: flags override sensible defaults (RAD phase; prompts later).
-// never compiles — compile is always explicit.
 import { execFileSync, spawnSync, type StdioOptions } from "node:child_process"
 import fs from "node:fs"
 import path from "node:path"

@@ -1,7 +1,3 @@
-// The text `dt add modules` writes beside a new module's package.json (cr-dt-007, G4): a README with the
-// install line, and — under `--extension` — an extension entry whose one setup unit asks for one token and
-// lets the engine write it into .env (the env action, D61). Pure: strings in, strings out.
-
 /** `acme-crm` → `ACME_CRM_TOKEN`: the one env key the scaffolded unit declares. */
 export const scaffoldKey = (id: string): string => `${id.toUpperCase().replace(/-/g, "_")}_TOKEN`
 

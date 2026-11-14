@@ -1,14 +1,3 @@
-// dreamteamer CLI — VERB-FIRST: `dt <verb> [<target>]`, over the same primitives every surface uses.
-//
-// The verb set is CLOSED. `run()` switches on it and anything unrecognised is an error, because the
-// predecessor grammar (`dt <collection> <verb>`) made the FALLBACK the collection path: a typo
-// dispatched to a collection lookup and answered "unknown collection", which is a true sentence
-// about the wrong thing. It also meant no verb could ever be named without a noun in front of it
-// — `dt resolve '<string>'` had nowhere to live — and a namespaced reference had to be typed as two
-// arguments that only the caller knew belonged together.
-//
-// This file TRANSLATES; it does not implement. Every record and schema verb lands on
-// `collectionCommand(ws, collection, verb, args)`, whose signature is unchanged.
 import { runExports } from "./exports-cli.ts"
 import fs from "node:fs"
 import path from "node:path"

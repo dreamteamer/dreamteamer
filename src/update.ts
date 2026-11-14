@@ -1,10 +1,3 @@
-// `dt update <name>[@<version>] | --engine` — move ONE pin forward on purpose: an npm module to the
-// latest release within its ranges (or to the named version), or the engine itself. Re-pinned
-// exactly, closure-checked exactly as `dt install` checks it, compiled, committed with install's
-// pathspec. A downgrade needs `--allow downgrade`; a development link is skipped and named. Nothing
-// here runs on its own, and `dt update` with no target keeps its meaning: git modules fast-forward.
-// A module update is install's steps 2–6 on the whole resolved closure, so a version that adds a
-// dependency brings it in and a version that adds a setup unit runs its safe part.
 import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"

@@ -1,15 +1,3 @@
-// The field vocabulary — dreamteamer's own, compiled to JSON Schema.
-//
-// An authored descriptor declares `fields` in the words a person uses (`type: datetime`, `required: true`,
-// `many: true`, `type: <collection>`); compile resolves them (defaults applied, mixins and overlays merged,
-// the three injected fields added) into `compiled.fields`, which every consumer reads, and emits
-// `compiled.json_schema`, which the validator alone reads. The two never carry the same fact in two
-// vocabularies: there is no `x-` keyword anywhere, and `json_schema.properties` is exactly the stored
-// (non-virtual) fields, type-mapped — `test/unit/fields.test.js` pins that equality.
-//
-// This module is pure: no fs, no git, no knowledge of modules. It is handed the set of collection names
-// that exist so a `type: <collection>` can be told from a typo, and returns errors rather than throwing,
-// so compile can attribute each one to a file.
 import type { Field } from "./types.ts"
 
 /** The authored types, in the order the help text lists them. A collection may not be named after one. */

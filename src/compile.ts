@@ -1,6 +1,3 @@
-// dreamteamer compile — materialize (modules × workspace sources) into .dreamteamer,
-// the single runtime read surface: copies + provenance manifest, then harness adapters.
-// explicit only; nothing rebuilds implicitly.
 import { execFileSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import fs from "node:fs"

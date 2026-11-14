@@ -1,12 +1,3 @@
-// `dt install <spec…>` — bring a module into this workspace: resolve the closure and refuse early,
-// npm install --save-exact, verify, compile (and restore on refusal), the safe part of the module's
-// setup, one scoped commit. The engine names no module and resolves no version itself: npm resolves
-// ranges, and the closure is the presence graph modules already declare (`dreamteamer.dependencies`,
-// the key compile enforces for cross-module references). A folder of tarballs (`--from <dir>`) stands
-// in for the registry — the offline form candidates and acceptance use.
-//
-// The other `install` forms — make THIS checkout ready, `--clone`, `repos/<id>`, `--hook` — stay in
-// src/checkout.ts and src/init.ts; this file is only the spec form.
 import fs from "node:fs"
 import path from "node:path"
 import zlib from "node:zlib"

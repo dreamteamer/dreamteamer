@@ -1,5 +1,3 @@
-// src/checkout.ts — which checkout am I, and how does it become ready.
-// WORKSPACE layer: knows git and the compiler, never the harness.
 import path from "node:path"
 import fs, { realpathSync } from "node:fs"
 import { execFileSync, spawnSync, type StdioOptions } from "node:child_process"

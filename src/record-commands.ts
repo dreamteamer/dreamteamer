@@ -1,9 +1,3 @@
-// record⇄command evaluation — which bound commands apply to a record (or a list
-// selection), and in which state. a binding is a `command-bindings` record: a m2m
-// join (command × collection) carrying `available_when` / `done_when` filter predicates,
-// evaluated with the SAME operator set as list-view filters plus one-hop outbound
-// ref traversal (tier 1). serves `dreamteamer commands for`, GET /api/commands/:name,
-// and (through the extension's api.ts port) the studio's Commands tab.
 import { matchesFilter } from "./filter.ts"
 import { parseRef, slash } from "./namespace.ts"
 import type { Store } from "./store.ts"

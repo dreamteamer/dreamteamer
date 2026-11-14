@@ -1,5 +1,3 @@
-// contract rule: YAML is parsed with the CORE schema — unquoted dates stay strings,
-// never timestamp objects. ALL dreamteamer tooling loads YAML through here.
 import yaml from "js-yaml"
 import { parseDocument, isMap, isSeq, isScalar, visit as visitYaml } from "yaml"
 import type { Document, Node, Pair, YAMLMap, YAMLSeq } from "yaml"

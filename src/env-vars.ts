@@ -1,12 +1,3 @@
-// ${env:KEY} / ${workspaceFolder} / ${userHome} — VS Code's variable grammar, three variables.
-// Values render ONLY on explicit request (dt resolve); records are never auto-substituted.
-// parseEnvValues reads .env TEXT only (never shell-evaluates). A QUOTED value (single or double)
-// may span multiple lines — the closing quote just has to end some later line, not the one it
-// opened on — because `[^"\\]`/`[^']` match newlines in JS regex same as any other character.
-// An UNQUOTED value is line-bound: it runs to end of line, so it can't span lines.
-// Two accepted non-goals, unchanged on purpose: `KEY =value` (space before `=`) doesn't match the
-// key pattern and is silently dropped, no diagnostic; an unquoted value keeps a trailing inline
-// `# comment` as part of its text (quote it to strip one).
 import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
