@@ -38,10 +38,10 @@ test("a file that names the changed path is selected — src, docs or descriptor
 })
 
 test("a src change nothing names runs the smoke pair, and says why", () => {
-  const r = run(["src/workspace/satisfies.ts"])
+  const r = run(["src/lib/npm/satisfies.ts"])
   assert.deepEqual(r.files, [...SMOKE].sort())
-  assert.deepEqual(r.unmatched, ["src/workspace/satisfies.ts"])
-  assert.match(r.reasons.get(SMOKE[0]), /nothing names src\/workspace\/satisfies\.ts/)
+  assert.deepEqual(r.unmatched, ["src/lib/npm/satisfies.ts"])
+  assert.match(r.reasons.get(SMOKE[0]), /nothing names src\/lib\/npm\/satisfies\.ts/)
 })
 
 test("a docs-only change nothing names runs no tier-2 file", () => {

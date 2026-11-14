@@ -7,7 +7,7 @@ import { declaredGitModules } from "../workspace/declaredGitModules.ts"
 import type { PackageJson, Workspace } from "../types.ts"
 import { describeCheckout } from "../lib/git/describeCheckout.ts"
 import { discoverModules } from "../workspace/discoverModules.ts"
-import { staleness } from "../workspace/staleness.ts"
+import { staleness } from "../compile/staleness.ts"
 
 const isLink = (p: string): boolean => {
   try {

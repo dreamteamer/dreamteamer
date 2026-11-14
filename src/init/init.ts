@@ -3,10 +3,10 @@ import fs from "node:fs"
 import { execFileSync } from "node:child_process"
 import { SKELETON_KINDS } from "./consts.ts"
 import { seedBlock } from "./seedBlock.ts"
-import { ensureEditorRecommendation } from "../workspace/ensureEditorRecommendation.ts"
+import { ensureEditorRecommendation } from "../compile/ensureEditorRecommendation.ts"
 import type { Flags } from "../types.ts"
-import { KINDS } from "../workspace/consts.ts"
-import { appendMissing } from "../workspace/appendMissing.ts"
+import { KINDS } from "../compile/consts.ts"
+import { appendMissing } from "../lib/appendMissing.ts"
 
 const GITIGNORE = `node_modules/
 git_modules/

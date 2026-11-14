@@ -3,7 +3,7 @@ import fs from "node:fs"
 import { execFileSync } from "node:child_process"
 import { declaredGitModules } from "../workspace/declaredGitModules.ts"
 import type { Workspace } from "../types.ts"
-import { buildClone } from "../workspace/buildClone.ts"
+import { buildClone } from "../install/buildClone.ts"
 import { discoverModules } from "../workspace/discoverModules.ts"
 import { tryGit } from "../lib/git/tryGit.ts"
 

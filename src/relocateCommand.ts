@@ -4,7 +4,7 @@ import { emit } from "./lib/emit.ts"
 import { canonicalCollection } from "./record/ref.ts"
 import { splitRef } from "./record/splitRef.ts"
 import type { Workspace } from "./types.ts"
-import { warnIfStale } from "./workspace/compile.ts"
+import { warnIfStale } from "./compile/compile.ts"
 
 export function relocateCommand(ws: Workspace, rest: string[]): number {
   warnIfStale(ws.root)

@@ -7,7 +7,7 @@ import type { Store } from "../store/Store.ts"
 import { writeSource } from "../lib/writeSource.ts"
 import { load } from "../lib/yaml.ts"
 import type { Workspace } from "../types.ts"
-import { kindDir } from "../workspace/compile.ts"
+import { kindDir } from "../compile/compile.ts"
 import type { SourceDoc } from "../workspace/types.ts"
 import { writeGated } from "../workspace/writeGated.ts"
 

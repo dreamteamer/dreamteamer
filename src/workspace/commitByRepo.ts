@@ -3,11 +3,11 @@ import fs from "node:fs"
 import { execFileSync } from "node:child_process"
 import type { Store } from "../store/Store.ts"
 import type { Workspace } from "../types.ts"
-import { GIT_QUIET } from "./consts.ts"
-import { aheadCount } from "./aheadCount.ts"
-import { isTracked } from "./isTracked.ts"
-import { repoRootOf } from "./repoRootOf.ts"
-import { shortHead } from "./shortHead.ts"
+import { QUIET } from "../lib/consts.ts"
+import { aheadCount } from "./lib/aheadCount.ts"
+import { isTracked } from "./lib/isTracked.ts"
+import { repoRootOf } from "../lib/git/repoRootOf.ts"
+import { shortHead } from "./lib/shortHead.ts"
 import type { RepoCommit } from "./types.ts"
 
 export function commitByRepo(ws: Workspace, store: Store, rels: string[], subject: string): RepoCommit[] {
@@ -28,15 +28,15 @@ export function commitByRepo(ws: Workspace, store: Store, rels: string[], subjec
   const out: RepoCommit[] = []
   try {
     for (const [repo, { root, paths }] of byRepo) {
-      execFileSync("git", ["add", "--all", "--", ...paths], { cwd: root, stdio: GIT_QUIET })
-      execFileSync("git", ["commit", "--quiet", "-m", subject, "--", ...paths], { cwd: root, stdio: GIT_QUIET })
+      execFileSync("git", ["add", "--all", "--", ...paths], { cwd: root, stdio: QUIET })
+      execFileSync("git", ["commit", "--quiet", "-m", subject, "--", ...paths], { cwd: root, stdio: QUIET })
       out.push({ repo, sha: shortHead(root), ahead: repo === "." ? null : aheadCount(root) })
     }
   } catch (e) {
     // unstage everything this call touched, in every repo, before handing the failure back
     for (const [, { root, paths }] of byRepo) {
       try {
-        execFileSync("git", ["reset", "--quiet", "--", ...paths], { cwd: root, stdio: GIT_QUIET })
+        execFileSync("git", ["reset", "--quiet", "--", ...paths], { cwd: root, stdio: QUIET })
       } catch {
         /* nothing staged */
       }

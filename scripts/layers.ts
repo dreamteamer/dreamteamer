@@ -5,12 +5,15 @@
 //
 // A file's FOLDER is its layer, so a new file needs no registration:
 //
-//   src/lib/, src/record/, src/runtime/, src/store/, src/workspace/   shared   code two or more commands use
-//   src/<command>/                              command  code only that command uses — never another command's
+//   src/compile/, src/extensions/, src/lib/, src/record/, src/runtime/, src/setup/, src/store/,
+//   src/workspace/                              shared   code two or more commands use
+//   src/<command>/                              command  one command's code, and what it owns that others use
 //   src/*.ts                                    surface  entry points and the function each verb dispatches to
 //
-// Shared code imports only shared code; a command folder imports shared code and its own folder; a
-// surface imports anything. The shared folders may import each other freely: the record/workspace
+// Shared code imports only shared code; a command folder imports shared code, its own folder, and
+// another command folder's ROOT files — what that command owns and others use (update installs one pin
+// later through install/resolveClosure.ts) — never another command's lib/, which is its private helpers.
+// A surface imports anything. The shared folders may import each other freely: the record/workspace
 // direction this script used to hold was a proxy for the browser-safe `dreamteamer/records` entry, and
 // it drove folder layout rather than protecting that entry — what the entry may load is a question of
 // its import closure, not of which folder a file sits in.
@@ -25,7 +28,7 @@ import { typeOnly } from "./import-edges.ts"
 
 const SRC = resolve(dirname(fileURLToPath(import.meta.url)), "..", "src")
 
-const SHARED = new Set(["lib", "record", "runtime", "store", "workspace"])
+const SHARED = new Set(["compile", "extensions", "lib", "record", "runtime", "setup", "store", "workspace"])
 // the folders that hold one command's own code
 const COMMANDS = new Set([
   "changes",
@@ -44,8 +47,8 @@ const COMMANDS = new Set([
   "update",
 ])
 
-// who may import whom. A command folder may also import its OWN folder, never another command's —
-// checked below, not in this table.
+// who may import whom. Between two command folders, only another command's root files — checked
+// below, not in this table.
 const ALLOWED: Record<string, Set<string>> = {
   shared: new Set(["shared"]),
   command: new Set(["shared", "command"]),
@@ -100,16 +103,21 @@ for (const f of files) {
       problems.push(
         `src/${f} (${layer}) imports src/${target}.ts (${targetLayer}) — ${layer} may only import ${[...ALLOWED[layer]].join(", ")}`
       )
-    } else if (layer === "command" && targetLayer === "command" && target.split("/")[0] !== mod.split("/")[0]) {
+    } else if (
+      layer === "command" &&
+      targetLayer === "command" &&
+      target.split("/")[0] !== mod.split("/")[0] &&
+      target.split("/")[1] === "lib"
+    ) {
       problems.push(
-        `src/${f} imports src/${target}.ts — a command folder holds code only its own command uses; what two commands share belongs in src/lib (or src/record, src/runtime, src/store, src/workspace)`
+        `src/${f} imports src/${target}.ts — another command's lib/ holds its private helpers; import that command's root files, or move what both use to src/lib`
       )
     }
   }
 }
 for (const d of unknownFolders)
   problems.push(
-    `src/${d}/ is not a known folder — a command's own folder is named in COMMANDS in ${basename(fileURLToPath(import.meta.url))}; shared code belongs in src/lib (or src/record, src/runtime, src/store, src/workspace)`
+    `src/${d}/ is not a known folder — a command's own folder is named in COMMANDS in ${basename(fileURLToPath(import.meta.url))}; shared code belongs in src/lib or one of the SHARED folders`
   )
 
 // ⚠ A SCANNER THAT READS NOTHING PASSES. A change of quote style or import syntax would leave the

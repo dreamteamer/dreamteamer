@@ -2,10 +2,10 @@ import fs from "node:fs"
 import path from "node:path"
 import { execFileSync } from "node:child_process"
 import type { Workspace } from "../types.ts"
-import { relPath } from "../workspace/relPath.ts"
-import { repoPath } from "../workspace/repoPath.ts"
+import { relPath } from "./lib/relPath.ts"
+import { repoPath } from "./lib/repoPath.ts"
 import { tryGit } from "../lib/git/tryGit.ts"
-import type { RepoFields } from "../workspace/types.ts"
+import type { RepoFields } from "./types.ts"
 
 export function materializeRepo(
   ws: Workspace,

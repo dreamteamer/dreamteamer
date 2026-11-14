@@ -13,7 +13,7 @@ import { workspace, compileQuietly, compileError, readFile, writeModule, dt } fr
 import { saveUiView } from "../../src/ui-views/saveUiView.ts"
 import { moveUiView } from "../../src/ui-views/moveUiView.ts"
 import { setCollectionScalars } from "../../src/collections/setCollectionScalars.ts"
-import { overlayView } from "../../src/workspace/overlayView.ts"
+import { overlayView } from "../../src/compile/lib/overlayView.ts"
 import { viewOverlayOf } from "../../src/ui-views/lib/viewOverlayOf.ts"
 import { Store } from "../../src/store/Store.ts"
 import { load, dump } from "../../src/lib/yaml.ts"

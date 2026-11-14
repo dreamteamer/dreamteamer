@@ -7,7 +7,7 @@ import { IN_NODE_MODULES } from "../lib/consts.ts"
 import type { Store } from "../store/Store.ts"
 import { fieldsOf, isRuntime, moduleOf, targetsOf } from "../record/descriptor.ts"
 import type { Descriptor, Field, Workspace } from "../types.ts"
-import { kindDir } from "../workspace/compile.ts"
+import { kindDir } from "../compile/compile.ts"
 import { moduleRows } from "../workspace/moduleRows.ts"
 
 // ---- moving a collection between modules -------------------------------------------------------

@@ -4,10 +4,10 @@
 // with their defaults filled or the refusals, each naming the unit and the field.
 import { test, describe } from "node:test"
 import assert from "node:assert/strict"
-import { validateSetup } from "../../src/workspace/validateSetup.ts"
-import { isEnvAction } from "../../src/workspace/setup-contract.ts"
-import { SETUP_VERSION, INPUT_KINDS } from "../../src/workspace/consts.ts"
-import { validateEnvAction } from "../../src/workspace/validateEnvAction.ts"
+import { validateSetup } from "../../src/extensions/lib/validateSetup.ts"
+import { isEnvAction } from "../../src/setup/lib/setup-contract.ts"
+import { SETUP_VERSION, INPUT_KINDS } from "../../src/extensions/lib/consts.ts"
+import { validateEnvAction } from "../../src/setup/lib/validateEnvAction.ts"
 
 const fn = () => ({})
 const unit = (extra = {}) => ({ id: "probe", version: 1, inputs: [], inspect: fn, plan: fn, apply: fn, ...extra })

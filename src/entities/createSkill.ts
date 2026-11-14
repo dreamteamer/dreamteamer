@@ -6,7 +6,7 @@ import { ENTITY_ID } from "./lib/consts.ts"
 import { IN_NODE_MODULES } from "../lib/consts.ts"
 import type { Store } from "../store/Store.ts"
 import type { Workspace } from "../types.ts"
-import { kindDir } from "../workspace/compile.ts"
+import { kindDir } from "../compile/compile.ts"
 
 export function createSkill(
   ws: Workspace,

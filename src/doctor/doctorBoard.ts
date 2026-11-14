@@ -4,11 +4,11 @@ import { MANAGED_BLOCKS } from "./consts.ts"
 import type { Capability } from "./types.ts"
 import { engineId, readManifest } from "../runtime/runtime.ts"
 import type { DoctorRow, SetupContext, Workspace } from "../types.ts"
-import { safeInspect } from "../workspace/safeInspect.ts"
-import { satisfies } from "../workspace/satisfies.ts"
-import { receiptDir, unitEnv } from "../workspace/setup.ts"
-import { unitEnvFor } from "../workspace/unitEnvFor.ts"
-import { units } from "../workspace/units.ts"
+import { safeInspect } from "../setup/safeInspect.ts"
+import { satisfies } from "../lib/npm/satisfies.ts"
+import { receiptDir, unitEnv } from "../setup/setup.ts"
+import { unitEnvFor } from "../setup/unitEnvFor.ts"
+import { units } from "../setup/units.ts"
 
 const STATES = new Set(["ok", "warn", "bad"])
 

@@ -4,7 +4,7 @@
 import { test, describe } from "node:test"
 import assert from "node:assert/strict"
 import path from "node:path"
-import { subpathProblem } from "../../src/workspace/subpathProblem.ts"
+import { subpathProblem } from "../../src/compile/lib/subpathProblem.ts"
 import { placedRoot } from "../../src/record/placement.ts"
 import { placementOfFile } from "../../src/store/lib/placementOfFile.ts"
 import { placedChildAt } from "../../src/record/lib/placedChildAt.ts"

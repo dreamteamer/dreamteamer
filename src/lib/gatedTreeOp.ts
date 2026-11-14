@@ -1,7 +1,7 @@
 import type { Store } from "../store/Store.ts"
 import type { Workspace } from "../types.ts"
 import { commitByRepo } from "../workspace/commitByRepo.ts"
-import { compile } from "../workspace/compile.ts"
+import { compile } from "../compile/compile.ts"
 import type { CommitError, RepoCommit } from "../workspace/types.ts"
 
 /**

@@ -1,4 +1,4 @@
-import { FIELD_OPTIONS, TEMPLATE_OPTIONS } from "../../workspace/consts.ts"
+import { FIELD_OPTIONS, TEMPLATE_OPTIONS } from "../../compile/consts.ts"
 import { INJECTED_FIELDS } from "../../record/consts.ts"
 
 // ---- the positions that name a field, and a value ----------------------------------------------

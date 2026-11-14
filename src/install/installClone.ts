@@ -2,7 +2,7 @@ import path from "node:path"
 import fs from "node:fs"
 import { execFileSync } from "node:child_process"
 import type { Workspace } from "../types.ts"
-import { buildClone } from "../workspace/buildClone.ts"
+import { buildClone } from "./buildClone.ts"
 import { tryGit } from "../lib/git/tryGit.ts"
 
 // dreamteamer install --clone <url> [name] — clone a module for development AND

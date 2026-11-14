@@ -3,7 +3,7 @@ import type { Workspace } from "../types.ts"
 import { parseUpdateArgs } from "./parseUpdateArgs.ts"
 import { update } from "./update.ts"
 import { updateModules } from "./updateModules.ts"
-import { compile } from "../workspace/compile.ts"
+import { compile } from "../compile/compile.ts"
 
 /** `open` is handed in by the CLI — an opener with the extensions activated — so this folder imports
  *  no entry point. */

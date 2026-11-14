@@ -6,8 +6,8 @@ import { ENGINE } from "./consts.ts"
 import { engineRun } from "./engineRun.ts"
 import { freshWorkspace } from "./freshWorkspace.ts"
 import type { PackageJson } from "../types.ts"
-import { childEnv } from "../workspace/childEnv.ts"
-import { resolveNpm } from "../workspace/resolveNpm.ts"
+import { childEnv } from "../lib/childEnv.ts"
+import { resolveNpm } from "../lib/npm/resolveNpm.ts"
 
 const readPkg = (dir: string): PackageJson => JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8"))
 

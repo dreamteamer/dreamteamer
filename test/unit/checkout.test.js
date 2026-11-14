@@ -9,7 +9,7 @@ import { defaultGit } from "../../src/lib/git/defaultGit.ts"
 import { planInstall } from "../../src/install/planInstall.ts"
 import { readHookInput } from "../../src/install/readHookInput.ts"
 import { readStdin } from "../../src/install/readStdin.ts"
-import { resolveNpm } from "../../src/workspace/resolveNpm.ts"
+import { resolveNpm } from "../../src/lib/npm/resolveNpm.ts"
 import { applyInstall } from "../../src/install/applyInstall.ts"
 
 const fakeGit = answers => args => answers[args.join(" ")] ?? ""

@@ -19,7 +19,7 @@ const cryptoModule = () => nodeCrypto
 import path from "node:path"
 import { createHash } from "node:crypto"
 import { fileURLToPath } from "node:url"
-import { compile } from "../../src/workspace/compile.ts"
+import { compile } from "../../src/compile/compile.ts"
 import { Store } from "../../src/store/Store.ts"
 import { dump } from "../../src/lib/yaml.ts"
 

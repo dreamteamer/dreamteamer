@@ -61,7 +61,7 @@ NEVER modifies a file. returns the exit code.
 
 ## checkout
 
-Files: [init/escapes.ts](init/escapes.ts) · [init/initCommand.ts](init/initCommand.ts) · [install/applyInstall.ts](install/applyInstall.ts) · [install/declaredDeps.ts](install/declaredDeps.ts) · [install/installCheckout.ts](install/installCheckout.ts) · [install/observeState.ts](install/observeState.ts) · [install/planInstall.ts](install/planInstall.ts) · [install/readHookInput.ts](install/readHookInput.ts) · [install/readStdin.ts](install/readStdin.ts) · [install/resolves.ts](install/resolves.ts) · [install/types.ts](install/types.ts) · [workspace/childEnv.ts](workspace/childEnv.ts) · and 3 more
+Files: [init/escapes.ts](init/escapes.ts) · [init/initCommand.ts](init/initCommand.ts) · [install/applyInstall.ts](install/applyInstall.ts) · [install/declaredDeps.ts](install/declaredDeps.ts) · [install/installCheckout.ts](install/installCheckout.ts) · [install/observeState.ts](install/observeState.ts) · [install/planInstall.ts](install/planInstall.ts) · [install/readHookInput.ts](install/readHookInput.ts) · [install/readStdin.ts](install/readStdin.ts) · [install/resolves.ts](install/resolves.ts) · [install/types.ts](install/types.ts) · [lib/childEnv.ts](lib/childEnv.ts) · and 3 more
 
 src/checkout.ts — which checkout am I, and how does it become ready.
 WORKSPACE layer: knows git and the compiler, never the harness.
@@ -101,7 +101,7 @@ directories of every collection, which means it cannot disagree with reality.
 
 ## compile-collections
 
-Files: [workspace/compileCollections.ts](workspace/compileCollections.ts) · [workspace/types.ts](workspace/types.ts) · [workspace/v1Refusal.ts](workspace/v1Refusal.ts)
+Files: [compile/lib/compileCollections.ts](compile/lib/compileCollections.ts) · [workspace/types.ts](workspace/types.ts) · [compile/v1Refusal.ts](compile/v1Refusal.ts)
 
 Compiling collection descriptors — descriptor format v2, the only format the engine reads.
 
@@ -118,7 +118,7 @@ one message naming the converter. Nothing here reads the v1 shape.
 
 ## compile
 
-Files: [workspace/consts.ts](workspace/consts.ts) · [workspace/compile.ts](workspace/compile.ts) · [workspace/discoverModules.ts](workspace/discoverModules.ts) · [workspace/repoRootOf.ts](workspace/repoRootOf.ts) · [workspace/staleness.ts](workspace/staleness.ts)
+Files: [compile/consts.ts](compile/consts.ts) · [compile/compile.ts](compile/compile.ts) · [workspace/discoverModules.ts](workspace/discoverModules.ts) · [lib/git/repoRootOf.ts](lib/git/repoRootOf.ts) · [compile/staleness.ts](compile/staleness.ts)
 
 dreamteamer compile — materialize (modules × workspace sources) into .dreamteamer,
 the single runtime read surface: copies + provenance manifest, then harness adapters.
@@ -126,7 +126,7 @@ explicit only; nothing rebuilds implicitly.
 
 ## descriptor-v2
 
-Files: [workspace/consts.ts](workspace/consts.ts) · [workspace/isV2.ts](workspace/isV2.ts) · [workspace/mergeMixins.ts](workspace/mergeMixins.ts) · [workspace/mergeOverlays.ts](workspace/mergeOverlays.ts) · [workspace/nameErrors.ts](workspace/nameErrors.ts) · [workspace/shapeErrors.ts](workspace/shapeErrors.ts)
+Files: [compile/consts.ts](compile/consts.ts) · [compile/isV2.ts](compile/isV2.ts) · [compile/lib/mergeMixins.ts](compile/lib/mergeMixins.ts) · [compile/lib/mergeOverlays.ts](compile/lib/mergeOverlays.ts) · [compile/lib/nameErrors.ts](compile/lib/nameErrors.ts) · [compile/lib/shapeErrors.ts](compile/lib/shapeErrors.ts)
 
 The authored descriptor — validated, and merged with its mixins and overlays.
 
@@ -174,7 +174,7 @@ key pattern and is silently dropped, no diagnostic; an unquoted value keeps a tr
 
 ## env-write
 
-Files: [workspace/env-write.ts](workspace/env-write.ts) · [workspace/envSpans.ts](workspace/envSpans.ts) · [workspace/fingerprint.ts](workspace/fingerprint.ts) · [workspace/gitExposure.ts](workspace/gitExposure.ts) · [workspace/leftoverTemps.ts](workspace/leftoverTemps.ts) · [workspace/setEnvValues.ts](workspace/setEnvValues.ts) · [workspace/writeEnvAtomic.ts](workspace/writeEnvAtomic.ts)
+Files: [setup/lib/env-write.ts](setup/lib/env-write.ts) · [setup/lib/envSpans.ts](setup/lib/envSpans.ts) · [setup/lib/fingerprint.ts](setup/lib/fingerprint.ts) · [setup/lib/gitExposure.ts](setup/lib/gitExposure.ts) · [setup/lib/leftoverTemps.ts](setup/lib/leftoverTemps.ts) · [setup/lib/setEnvValues.ts](setup/lib/setEnvValues.ts) · [setup/lib/writeEnvAtomic.ts](setup/lib/writeEnvAtomic.ts)
 
 The `.env` writer behind a unit's env action (cr-dt-007, D61): the engine performs the one write
 every module's setup used to carry its own copy of — a key's value span replaced in place or
@@ -220,7 +220,7 @@ serve `check`, `dt exports` and the migration script, so the three cannot disagr
 
 ## extensions
 
-Files: [records/lib/contributedNotes.ts](records/lib/contributedNotes.ts) · [workspace/consts.ts](workspace/consts.ts) · [workspace/declaredExtensions.ts](workspace/declaredExtensions.ts) · [workspace/extensions.ts](workspace/extensions.ts) · [workspace/loadExtensions.ts](workspace/loadExtensions.ts) · [workspace/manifestViolations.ts](workspace/manifestViolations.ts) · [workspace/v1ManifestRefusal.ts](workspace/v1ManifestRefusal.ts)
+Files: [records/lib/contributedNotes.ts](records/lib/contributedNotes.ts) · [extensions/consts.ts](extensions/consts.ts) · [extensions/declaredExtensions.ts](extensions/declaredExtensions.ts) · [extensions/extensions.ts](extensions/extensions.ts) · [extensions/loadExtensions.ts](extensions/loadExtensions.ts) · [extensions/manifestViolations.ts](extensions/manifestViolations.ts) · [compile/v1ManifestRefusal.ts](compile/v1ManifestRefusal.ts)
 
 Engine extensions — the ONE seam an optional tool plugs into.
 
@@ -272,7 +272,7 @@ on a value that predates an enum someone added later.
 
 ## fields
 
-Files: [record/consts.ts](record/consts.ts) · [record/lib/enumChoices.ts](record/lib/enumChoices.ts) · [record/fields.ts](record/fields.ts) · [workspace/resolveFields.ts](workspace/resolveFields.ts) · [workspace/toJsonSchema.ts](workspace/toJsonSchema.ts)
+Files: [record/consts.ts](record/consts.ts) · [record/lib/enumChoices.ts](record/lib/enumChoices.ts) · [record/fields.ts](record/fields.ts) · [compile/lib/resolveFields.ts](compile/lib/resolveFields.ts) · [compile/lib/toJsonSchema.ts](compile/lib/toJsonSchema.ts)
 
 The field vocabulary — dreamteamer's own, compiled to JSON Schema.
 
@@ -319,7 +319,7 @@ appends. The library's integer-part-with-magnitude-head keeps that at 4.
 
 ## harnesses
 
-Files: [doctor/consts.ts](doctor/consts.ts) · [workspace/buildCollectionsIndex.ts](workspace/buildCollectionsIndex.ts) · [workspace/buildModulesIndex.ts](workspace/buildModulesIndex.ts) · [workspace/harnessMarkers.ts](workspace/harnessMarkers.ts) · [workspace/renderContributions.ts](workspace/renderContributions.ts) · [workspace/runHarnessAdapters.ts](workspace/runHarnessAdapters.ts) · [workspace/types.ts](workspace/types.ts) · [workspace/writeLine.ts](workspace/writeLine.ts)
+Files: [doctor/consts.ts](doctor/consts.ts) · [compile/lib/buildCollectionsIndex.ts](compile/lib/buildCollectionsIndex.ts) · [compile/lib/buildModulesIndex.ts](compile/lib/buildModulesIndex.ts) · [compile/lib/harnessMarkers.ts](compile/lib/harnessMarkers.ts) · [compile/lib/renderContributions.ts](compile/lib/renderContributions.ts) · [compile/lib/runHarnessAdapters.ts](compile/lib/runHarnessAdapters.ts) · [workspace/types.ts](workspace/types.ts) · [compile/lib/writeLine.ts](compile/lib/writeLine.ts)
 
 harness adapters — one thin stage per harness, dispatched from compile over the same
 compiled entries. the superpowers lesson, kept deliberately: CONTENT NEVER FORKS PER
@@ -356,7 +356,7 @@ never compiles — compile is always explicit.
 
 ## install
 
-Files: [install/installModules.ts](install/installModules.ts) · [workspace/indexFolder.ts](workspace/indexFolder.ts) · [workspace/installedModules.ts](workspace/installedModules.ts) · [workspace/npmAndCompile.ts](workspace/npmAndCompile.ts) · [workspace/npmFloor.ts](workspace/npmFloor.ts) · [workspace/printUnitResults.ts](workspace/printUnitResults.ts) · [workspace/readSpecManifest.ts](workspace/readSpecManifest.ts) · [workspace/readTarballManifest.ts](workspace/readTarballManifest.ts) · [workspace/resolveClosure.ts](workspace/resolveClosure.ts) · [workspace/setupAndCommit.ts](workspace/setupAndCommit.ts) · [workspace/types.ts](workspace/types.ts) · [workspace/versions.ts](workspace/versions.ts)
+Files: [install/installModules.ts](install/installModules.ts) · [install/indexFolder.ts](install/indexFolder.ts) · [install/installedModules.ts](install/installedModules.ts) · [install/npmAndCompile.ts](install/npmAndCompile.ts) · [lib/npm/npmFloor.ts](lib/npm/npmFloor.ts) · [setup/printUnitResults.ts](setup/printUnitResults.ts) · [install/readSpecManifest.ts](install/readSpecManifest.ts) · [install/lib/readTarballManifest.ts](install/lib/readTarballManifest.ts) · [install/resolveClosure.ts](install/resolveClosure.ts) · [setup/setupAndCommit.ts](setup/setupAndCommit.ts) · [workspace/types.ts](workspace/types.ts) · [install/versions.ts](install/versions.ts)
 
 `dt install <spec…>` — bring a module into this workspace: resolve the closure and refuse early,
 npm install --save-exact, verify, compile (and restore on refusal), the safe part of the module's
@@ -370,7 +370,7 @@ src/checkout.ts and src/init.ts; this file is only the spec form.
 
 ## namespace
 
-Files: [collections/lib/qualify.ts](collections/lib/qualify.ts) · [record/namespace.ts](record/namespace.ts) · [workspace/namespaceProblems.ts](workspace/namespaceProblems.ts) · [record/normalizeNamespaces.ts](record/normalizeNamespaces.ts) · [record/parseRef.ts](record/parseRef.ts) · [lib/singular.ts](lib/singular.ts) · [workspace/storageOverlaps.ts](workspace/storageOverlaps.ts) · [workspace/unqualifiedProblems.ts](workspace/unqualifiedProblems.ts)
+Files: [collections/lib/qualify.ts](collections/lib/qualify.ts) · [record/namespace.ts](record/namespace.ts) · [compile/lib/namespaceProblems.ts](compile/lib/namespaceProblems.ts) · [record/normalizeNamespaces.ts](record/normalizeNamespaces.ts) · [record/parseRef.ts](record/parseRef.ts) · [lib/singular.ts](lib/singular.ts) · [compile/lib/storageOverlaps.ts](compile/lib/storageOverlaps.ts) · [compile/lib/unqualifiedProblems.ts](compile/lib/unqualifiedProblems.ts)
 
 NAMESPACES — how a collection name is scoped, and how a reference splits back apart.
 
@@ -403,7 +403,7 @@ file, so all of it is unit-testable without a workspace.
 
 ## placement
 
-Files: [check/symlinkedChildRoots.ts](check/symlinkedChildRoots.ts) · [store/lib/dirTreeStamps.ts](store/lib/dirTreeStamps.ts) · [record/ownerIdOf.ts](record/ownerIdOf.ts) · [record/parentFolders.ts](record/parentFolders.ts) · [record/lib/placedChildAt.ts](record/lib/placedChildAt.ts) · [record/placedRecords.ts](record/placedRecords.ts) · [record/placement.ts](record/placement.ts) · [store/lib/placementOfFile.ts](store/lib/placementOfFile.ts) · [record/lib/rootRecords.ts](record/lib/rootRecords.ts) · [workspace/subpathProblem.ts](workspace/subpathProblem.ts) · [lib/symlinkBelow.ts](lib/symlinkBelow.ts) · [record/types.ts](record/types.ts)
+Files: [check/symlinkedChildRoots.ts](check/symlinkedChildRoots.ts) · [store/lib/dirTreeStamps.ts](store/lib/dirTreeStamps.ts) · [record/ownerIdOf.ts](record/ownerIdOf.ts) · [record/parentFolders.ts](record/parentFolders.ts) · [record/lib/placedChildAt.ts](record/lib/placedChildAt.ts) · [record/placedRecords.ts](record/placedRecords.ts) · [record/placement.ts](record/placement.ts) · [store/lib/placementOfFile.ts](store/lib/placementOfFile.ts) · [record/lib/rootRecords.ts](record/lib/rootRecords.ts) · [compile/lib/subpathProblem.ts](compile/lib/subpathProblem.ts) · [lib/symlinkBelow.ts](lib/symlinkBelow.ts) · [record/types.ts](record/types.ts)
 
 RELATIONSHIP-BASED STORAGE — a record stored UNDER the record it belongs to.
 
@@ -529,7 +529,7 @@ papercut (review finding 7): schema ops ARE explicit compiles.
 
 ## semver
 
-Files: [workspace/satisfies.ts](workspace/satisfies.ts)
+Files: [lib/npm/satisfies.ts](lib/npm/satisfies.ts)
 
 tiny semver-range checker for engine-pin checks — deliberately NOT npm's semver.
 supported ranges: exact "1.2.3", "^1.2.3", "~1.2.3", ">=1.2.3", "*".
@@ -539,7 +539,7 @@ prerelease/build tags. callers treat null as "warn, don't guess".
 
 ## setup-contract
 
-Files: [workspace/setup-contract.ts](workspace/setup-contract.ts) · [workspace/validateEnvAction.ts](workspace/validateEnvAction.ts) · [workspace/validateSetup.ts](workspace/validateSetup.ts)
+Files: [setup/lib/setup-contract.ts](setup/lib/setup-contract.ts) · [setup/lib/validateEnvAction.ts](setup/lib/validateEnvAction.ts) · [extensions/lib/validateSetup.ts](extensions/lib/validateSetup.ts)
 
 The `setup` contribution — extension API 1, setup version 1.
 
@@ -562,7 +562,7 @@ workspace. `src/setup.ts` runs the units.
 
 ## setup
 
-Files: [setupCommand.ts](setupCommand.ts) · [workspace/renderStatusLines.ts](workspace/renderStatusLines.ts) · [workspace/statusLines.ts](workspace/statusLines.ts) · [workspace/types.ts](workspace/types.ts) · [workspace/consent.ts](workspace/consent.ts) · [workspace/fillInputs.ts](workspace/fillInputs.ts) · [workspace/fold.ts](workspace/fold.ts) · [workspace/judgeEnvAction.ts](workspace/judgeEnvAction.ts) · [workspace/parseAllow.ts](workspace/parseAllow.ts) · [workspace/parseInputFlags.ts](workspace/parseInputFlags.ts) · [workspace/redact.ts](workspace/redact.ts) · [workspace/runUnit.ts](workspace/runUnit.ts) · and 7 more
+Files: [setup/setupCommand.ts](setup/setupCommand.ts) · [setup/renderStatusLines.ts](setup/renderStatusLines.ts) · [setup/statusLines.ts](setup/statusLines.ts) · [workspace/types.ts](workspace/types.ts) · [setup/lib/consent.ts](setup/lib/consent.ts) · [setup/fillInputs.ts](setup/fillInputs.ts) · [setup/fold.ts](setup/fold.ts) · [setup/lib/judgeEnvAction.ts](setup/lib/judgeEnvAction.ts) · [setup/parseAllow.ts](setup/parseAllow.ts) · [setup/parseInputFlags.ts](setup/parseInputFlags.ts) · [setup/lib/redact.ts](setup/lib/redact.ts) · [setup/runUnit.ts](setup/runUnit.ts) · and 7 more
 
 `dt setup` — and the setup half of `dt install` and `dt status`: the engine's generic driver for
 the units modules declare (src/setup-contract.ts). Nothing here knows a module: it fills inputs,
@@ -692,7 +692,7 @@ dependency brings it in and a version that adds a setup unit runs its safe part.
 
 ## views
 
-Files: [ui-views/lib/viewOverlayOf.ts](ui-views/lib/viewOverlayOf.ts) · [workspace/bindingErrors.ts](workspace/bindingErrors.ts) · [workspace/filterFields.ts](workspace/filterFields.ts) · [workspace/overlayView.ts](workspace/overlayView.ts) · [workspace/types.ts](workspace/types.ts) · [workspace/viewDisplay.ts](workspace/viewDisplay.ts) · [workspace/viewErrors.ts](workspace/viewErrors.ts) · [workspace/views.ts](workspace/views.ts)
+Files: [ui-views/lib/viewOverlayOf.ts](ui-views/lib/viewOverlayOf.ts) · [compile/lib/bindingErrors.ts](compile/lib/bindingErrors.ts) · [compile/lib/filterFields.ts](compile/lib/filterFields.ts) · [compile/lib/overlayView.ts](compile/lib/overlayView.ts) · [workspace/types.ts](workspace/types.ts) · [compile/lib/viewDisplay.ts](compile/lib/viewDisplay.ts) · [compile/lib/viewErrors.ts](compile/lib/viewErrors.ts) · [compile/views.ts](compile/views.ts)
 
 ui-views and command-bindings — validated against the collection they name, and a view's display
 resolved over that collection's.
@@ -712,7 +712,7 @@ Pure: no fs, no git. Errors are returned, never thrown, so compile attributes ea
 
 ## workspace
 
-Files: [workspace/declaredGitModules.ts](workspace/declaredGitModules.ts) · [workspace/ensureEditorRecommendation.ts](workspace/ensureEditorRecommendation.ts) · [workspace/ensureEnvExample.ts](workspace/ensureEnvExample.ts) · [workspace/findWorkspace.ts](workspace/findWorkspace.ts) · [workspace/layerEntries.ts](workspace/layerEntries.ts) · [workspace/ensureGitignored.ts](workspace/ensureGitignored.ts)
+Files: [workspace/declaredGitModules.ts](workspace/declaredGitModules.ts) · [compile/ensureEditorRecommendation.ts](compile/ensureEditorRecommendation.ts) · [compile/lib/ensureEnvExample.ts](compile/lib/ensureEnvExample.ts) · [workspace/findWorkspace.ts](workspace/findWorkspace.ts) · [workspace/layerEntries.ts](workspace/layerEntries.ts) · [compile/lib/ensureGitignored.ts](compile/lib/ensureGitignored.ts)
 
 workspace discovery: the NEAREST package.json with a `dreamteamer` section wins, except when
 that candidate is only nested inside a higher one as a MODULE — modules are themselves

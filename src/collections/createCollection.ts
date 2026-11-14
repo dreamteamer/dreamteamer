@@ -11,7 +11,7 @@ import { normalizeNamespaces } from "../record/normalizeNamespaces.ts"
 import { singular } from "../lib/singular.ts"
 import { dump } from "../lib/yaml.ts"
 import type { AuthoredDescriptor, Workspace } from "../types.ts"
-import { kindDir } from "../workspace/compile.ts"
+import { kindDir } from "../compile/compile.ts"
 import { writeGated } from "../workspace/writeGated.ts"
 
 // ---- ops ------------------------------------------------------------------------

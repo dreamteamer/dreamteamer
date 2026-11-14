@@ -3,9 +3,9 @@
 // the leftover temps, never a path.
 import { test, describe } from "node:test"
 import assert from "node:assert/strict"
-import { judgeEnvAction } from "../../src/workspace/judgeEnvAction.ts"
-import { redact } from "../../src/workspace/redact.ts"
-import { safeInspect } from "../../src/workspace/safeInspect.ts"
+import { judgeEnvAction } from "../../src/setup/lib/judgeEnvAction.ts"
+import { redact } from "../../src/setup/lib/redact.ts"
+import { safeInspect } from "../../src/setup/safeInspect.ts"
 
 const declared = new Set(["PROBE_HOME", "PROBE_LABEL"])
 const action = (env, extra = {}) => ({ id: "make-home", title: "write .env", env, ...extra })

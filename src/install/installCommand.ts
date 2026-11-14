@@ -2,8 +2,8 @@ import { installCheckout } from "./installCheckout.ts"
 import { installClone } from "./installClone.ts"
 import { installModules } from "./installModules.ts"
 import type { Workspace } from "../types.ts"
-import { warnIfStale } from "../workspace/compile.ts"
-import { listRepos } from "../workspace/listRepos.ts"
+import { warnIfStale } from "../compile/compile.ts"
+import { listRepos } from "../repos/listRepos.ts"
 
 // ONE verb makes a thing present and ready: this checkout, or an attached repo's
 // working tree. `ensure` was the second spelling of the same idea and is retired in the

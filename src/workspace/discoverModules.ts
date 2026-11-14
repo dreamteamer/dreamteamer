@@ -2,7 +2,7 @@ import fs from "node:fs"
 import path from "node:path"
 import { layerEntries } from "./layerEntries.ts"
 import type { PackageJson, Workspace } from "../types.ts"
-import { disablesPackage, isPackageEntry } from "./extensions.ts"
+import { disablesPackage, isPackageEntry } from "../extensions/extensions.ts"
 import type { ModuleSource } from "./types.ts"
 
 // module discovery, three channels in precedence order: inline modules/* >

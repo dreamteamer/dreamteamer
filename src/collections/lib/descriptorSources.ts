@@ -2,7 +2,7 @@ import fs from "node:fs"
 import type { Store } from "../../store/Store.ts"
 import { walk } from "../../lib/walk.ts"
 import type { Workspace } from "../../types.ts"
-import { kindDir } from "../../workspace/compile.ts"
+import { kindDir } from "../../compile/compile.ts"
 
 /** Every workspace-owned descriptor source, recursively (namespaced descriptors are nested). */
 export function descriptorSources(ws: Workspace, store: Store): string[] {

@@ -182,3 +182,5 @@ export const QUIET: StdioOptions = ["ignore", "pipe", "ignore"]
  * asks whether a suffix was derived — so there is exactly one spelling of the rule.
  */
 export const INVARIANT = new Set(["series", "species", "news"])
+
+export const EXIT = { done: 0, failed: 1, usage: 2, needsInput: 3 }

@@ -9,7 +9,7 @@ import { testText } from "./lib/testText.ts"
 import type { Store } from "../store/Store.ts"
 import { normalizeNamespaces } from "../record/normalizeNamespaces.ts"
 import type { DreamteamerBlock, Workspace } from "../types.ts"
-import { KINDS } from "../workspace/consts.ts"
+import { KINDS } from "../compile/consts.ts"
 import { discoverModules } from "../workspace/discoverModules.ts"
 import { moduleRows } from "../workspace/moduleRows.ts"
 

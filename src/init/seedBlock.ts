@@ -1,5 +1,5 @@
 import type { DreamteamerBlock, Flags } from "../types.ts"
-import { KNOWN_HARNESSES } from "../workspace/consts.ts"
+import { KNOWN_HARNESSES } from "../compile/consts.ts"
 
 /** The `dreamteamer` block init leaves in package.json: its seeds, under whatever the EXISTING block
  *  already says — the existing key always wins over a flag. One function, because `init --ready` must

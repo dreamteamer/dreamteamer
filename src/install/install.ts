@@ -6,9 +6,9 @@ import { isLink } from "./isLink.ts"
 import { offRef } from "./offRef.ts"
 import { declaredGitModules } from "../workspace/declaredGitModules.ts"
 import type { Workspace } from "../types.ts"
-import { QUIET } from "../workspace/consts.ts"
-import { appendMissing } from "../workspace/appendMissing.ts"
-import { buildClone } from "../workspace/buildClone.ts"
+import { QUIET } from "../lib/consts.ts"
+import { appendMissing } from "../lib/appendMissing.ts"
+import { buildClone } from "./buildClone.ts"
 import { tryGit } from "../lib/git/tryGit.ts"
 
 // dreamteamer install — restore git_modules/ working clones from the committed lockfile map, and what each

@@ -6,9 +6,9 @@ import { install as restoreGitModules } from "./install.ts"
 import { resolves } from "./resolves.ts"
 import type { CheckoutState, InstallStep } from "./types.ts"
 import type { Workspace } from "../types.ts"
-import { childEnv } from "../workspace/childEnv.ts"
-import { compile } from "../workspace/compile.ts"
-import { resolveNpm } from "../workspace/resolveNpm.ts"
+import { childEnv } from "../lib/childEnv.ts"
+import { compile } from "../compile/compile.ts"
+import { resolveNpm } from "../lib/npm/resolveNpm.ts"
 
 type StepFn = (
   ws: Workspace,

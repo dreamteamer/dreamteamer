@@ -1,7 +1,7 @@
 import fs from "node:fs"
 import type { Store } from "../../store/Store.ts"
 import { walk } from "../../lib/walk.ts"
-import { kindDir } from "../../workspace/compile.ts"
+import { kindDir } from "../../compile/compile.ts"
 
 /** The ui-views and command-bindings of every source root, with the collection each one is over. */
 export function viewSources(store: Store): { file: string; kind: string }[] {

@@ -10,8 +10,8 @@ import assert from "node:assert/strict"
 import fs from "node:fs"
 import path from "node:path"
 import { workspace } from "../helpers/ws.js"
-import { repoPath } from "../../src/workspace/repoPath.ts"
-import { listRepos } from "../../src/workspace/listRepos.ts"
+import { repoPath } from "../../src/repos/lib/repoPath.ts"
+import { listRepos } from "../../src/repos/listRepos.ts"
 
 /** A workspace declaring `vars` and carrying a .env that sets them. */
 function withVars(vars, env = {}) {

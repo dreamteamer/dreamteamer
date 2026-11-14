@@ -4,7 +4,7 @@ import { declaringModules, moduleRecord, workspaceSystemDir } from "./schema-ops
 import { IN_NODE_MODULES } from "./consts.ts"
 import type { Store } from "../store/Store.ts"
 import type { Workspace } from "../types.ts"
-import { kindDir } from "../workspace/compile.ts"
+import { kindDir } from "../compile/compile.ts"
 
 /**
  * WHERE A FIELD VERB WRITES. The base descriptor's own file when this workspace may rewrite it; the

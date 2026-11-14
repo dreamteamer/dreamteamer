@@ -18,7 +18,7 @@ import { commentCount, load } from "../lib/yaml.ts"
 import { readManifest } from "../runtime/runtime.ts"
 import type { Descriptor, Field, PackageJson, Workspace } from "../types.ts"
 import { commitByRepo } from "../workspace/commitByRepo.ts"
-import { compile, kindDir } from "../workspace/compile.ts"
+import { compile, kindDir } from "../compile/compile.ts"
 import type { SourceDoc } from "../workspace/types.ts"
 
 /**

@@ -1,4 +1,4 @@
-import { isMap } from "../../workspace/views.ts"
+import { isMap } from "../../compile/views.ts"
 
 /** The smallest overlay turning `base` into `view` — `{}` when they agree. */
 export function viewOverlayOf(

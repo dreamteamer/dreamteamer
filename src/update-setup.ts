@@ -1,6 +1,6 @@
 import fs from "node:fs"
 import { openWorkspace } from "./api.ts"
-import { setupAndCommit } from "./workspace/setupAndCommit.ts"
+import { setupAndCommit } from "./setup/setupAndCommit.ts"
 
 const { root, names, subject, noCommit, out } = JSON.parse(process.argv[2])
 try {

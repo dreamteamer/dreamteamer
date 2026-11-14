@@ -1,4 +1,4 @@
-import { type StdioOptions, execFileSync } from "node:child_process"
+import { execFileSync } from "node:child_process"
 import Ajv from "ajv"
 import addFormats from "ajv-formats"
 import fs from "node:fs"
@@ -26,6 +26,7 @@ import { placementOfFile } from "./lib/placementOfFile.ts"
 import { readExports } from "../record/readExports.ts"
 import { assertSafeId, fmtAjvError, parseRecord, patternRe, unknownFields } from "../record/records.ts"
 import { EXT, MAX_RECORD_BYTES } from "../record/consts.ts"
+import { QUIET } from "../lib/consts.ts"
 import { relationsOf } from "../record/relationsOf.ts"
 import { rootRecords } from "../record/lib/rootRecords.ts"
 import { serialize } from "../record/serialize.ts"
@@ -61,11 +62,6 @@ type RelocatePlan<W = "placement" | "shape"> = {
   moves: { id: string; from: string; to: string; why: W }[]
   problems: string[]
 }
-
-// git calls whose failure we CATCH must not print git's own error: execFileSync forwards the
-// child's stderr to ours unless told otherwise, so a handled "not a git repository" still
-// reached the user's terminal. stdout stays piped because we read it.
-const QUIET: StdioOptions = ["ignore", "pipe", "ignore"]
 
 export class Store {
   root: string

@@ -1,7 +1,7 @@
 import fs from "node:fs"
 import type { Store } from "../../store/Store.ts"
 import { walk } from "../../lib/walk.ts"
-import { kindDir } from "../../workspace/compile.ts"
+import { kindDir } from "../../compile/compile.ts"
 
 /** Every mixin source, by id — a mixin is shared by every collection that lists it. */
 export function mixinSources(store: Store): { id: string; file: string }[] {
