@@ -16,7 +16,7 @@ package, each exits 2 and prints its install line.
 
 Two places, one declaration — a `package.json` carrying `"dreamteamer": { "extension": "./entry.js" }`:
 
-- **a workspace module**, `modules/<id>/package.json`. Its code is the workspace's own, like `bin/`,
+- **a module in the workspace**, `modules/<id>/package.json`. Its code is the workspace's own, like `bin/`,
   so it needs no package and no npm. This is how a workspace carries an extension nobody has
   published, and it shadows a dependency of the same name.
 - **a direct dependency.** npm put the code there on purpose; a transitive package is never loaded
@@ -26,7 +26,7 @@ A bare entry in `dreamteamer.disable` switches one off while leaving it in place
 claiming the same verb, source kind or harness is a refusal at load, naming both — never "last one
 wins".
 
-An extension is ALSO a content module (its `dreamteamer` key makes it one): its collections and skills
+An extension IS a module (its `dreamteamer` key makes it one): its collections and skills
 travel with its code, and compile discovers them like any other module's.
 
 ⚠ **Remove an extension and its kind goes with it.** A workspace holding `proofs/` folders with no
@@ -100,6 +100,7 @@ that needs one is a command, not an analysis.
 ## a module, or an extension?
 
 A **module** ships collections, skills, commands, agents, views and UI code — content. An
-**extension** ships code the engine calls. Reach for an extension only when the capability needs one
-of the contribution keys above; everything else is a module, and a module is copied and adapted per
-workspace rather than installed (`references/before-you-build.md`).
+**extension** is a module that also ships code the engine calls (`dreamteamer.extension`). Reach for
+an extension only when the capability needs one of the contribution keys above; everything else is a
+plain module — look for one before writing it (`references/before-you-build.md`), and bring a
+published one in with `dt install <package>` (`references/setup.md`).

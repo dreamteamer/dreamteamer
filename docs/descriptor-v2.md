@@ -1,5 +1,8 @@
 # descriptor format v2 — the engine plan
 
+**Shipped in 0.33.0** (`UPDATING.md` has the operator's walk). Kept as the build record; the reference
+for the format is `skills/using-dreamteamer/references/collections.md`.
+
 The design is an operator-side document ("Dreamteamer descriptor format v2 — one vocabulary, visible groups,
 authored apart from compiled", revision 4, 2026-10-02). This file is the engine's build order against it:
 one slice per row, each with the assertion that proves it, in dependency order. A slice is done when its
@@ -12,7 +15,7 @@ compile naming the migration.
 | 1 | one template grammar: parse · validate · render, five filters, built-ins `id` `created` `last_modified` (+ `seq` in id position) | `src/template.js` | `test/unit/template.test.js`: unknown filter / unknown field are errors naming the position; a reference token renders through a resolver in display position and as the id in id position; `generateId` unchanged |
 | 2 | the field vocabulary → resolved fields + JSON Schema | `src/fields.js` (new) | `test/unit/fields.test.js`: every type maps per the table; `required` folds; `many`; enum map → list; `position` is a string with `^[a-z]+$`; `object`/`map`; `derived`/`virtual`; mirrors read-only; constraints → `allOf`; closed key list; **`json_schema.properties` equals fields minus virtual** |
 | 3 | the nine meta-descriptors rewritten in v2 (`collection-templates` → `mixins`), each with `description` and `use_when`, no history | `collections/*.collection.yaml`, `src/init.js` | compile of the fixture workspace; a regex over every description for `\b20\d\d\b`, `\d+\.\d+\.\d+`, `decision \d+`, renamed, formerly, deprecated, rejected |
-| 4 | compile reads v2: `fields`, `mixins`, `overlay: true`, `display`, `constraints`, `storage.shape/format/under.parent/subfolder`, `id.from`; emits `compiled{defaults, module, repo, runtime, under_collection, mirrors, overlaid_by, unresolved_peers, fields, json_schema}`; relations by `mirror_of` only; `unique` required on a scalar-mirror FK; rule 6 name validation; template validation; `descriptor_format` gate; namespaced `singular` with the fixed inflector; a v1 key fails naming its v2 key | `src/compile.js` | `test/integration/compile-v2.test.js`: the clinic fixture compiles; every §10 "shape and compile" assertion |
+| 4 | compile reads v2: `fields`, `mixins`, `overlay: true`, `display`, `constraints`, `storage.shape/format/under.parent/subfolder`, `ids.from`; emits `compiled{defaults, module, repo, runtime, under_collection, mirrors, overlaid_by, unresolved_peers, fields, json_schema}`; relations by `mirror_of` only; `unique` required on a scalar-mirror FK; rule 6 name validation; template validation; `descriptor_format` gate; namespaced `singular` with the fixed inflector; a v1 key fails naming its v2 key | `src/compile.js` | `test/integration/compile-v2.test.js`: the clinic fixture compiles; every §10 "shape and compile" assertion |
 | 5 | records and store: validate against `compiled.json_schema`; `created` stamped at add, read lazily when absent; `derived`/`virtual` refuse writers; `editable` passes through; id collision named | `src/records.js`, `src/store.js` | `test/integration/store-v2.test.js` |
 | 6 | check: `unique` values, `deprecated` counts, mirror staleness via `compiled.fields` | `src/check.js` | `test/integration/check-v2.test.js` |
 | 7 | placement on `under.parent`/`subfolder`; relations on `mirror_of` | `src/placement.js`, `src/relations.js` | existing placement and relations suites, re-pointed |
@@ -25,6 +28,6 @@ compile naming the migration.
 | 14 | the migration script, AST-editing, comment-preserving, idempotent, never opens `data/` | `scripts/migrate-descriptors-v2.mjs` | `test/integration/migrate-v2.test.js` on a v1 fixture |
 | 15 | metrics re-based with the three questions answered; `npm run verify` exit code quoted; the walk of §10's dev-host flow against the extension (separate repo) | `metrics.json` | — |
 
-Rules that bind every slice: no vault name, no real record, no personal data in a fixture, a comment or a message
+Rules that bind every slice: no workspace name, no real record, no personal data in a fixture, a comment or a message
 (the fixtures use the synthetic clinic); every system write edits the YAML AST through `writeSource`; compile
 never writes a source.

@@ -1,7 +1,7 @@
 # setup — making what this workspace does work on THIS machine, in conversation
 
 "Help me set this up", "finish setup", "add meetings", "connect my account", "what works here?",
-"something stopped working". The person never learns a setup command: you run the same four verbs a
+"something stopped working". The person never learns a setup command: you run the same verbs a
 script would, in the language they are writing in, and the engine knows no module — every module's
 setup is a **unit** that module declares, and `dt install`, `dt setup` and `dt status` drive every
 unit the same way. This page is how to run them honestly.

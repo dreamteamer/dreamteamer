@@ -197,7 +197,7 @@ the diff between what you wrote and what holds.
 
 The sanctioned way to write schema without hand-editing. Every verb round-trips through a
 **compile gate**, so a change that would not compile is rolled back — and unlike a record write, a
-schema verb **commits its source write itself**. The verbs and flags are `dt help` under "system
+system or field verb **commits its source write itself**. The verbs and flags are `dt help` under "system
 verbs" and "field verbs". What help cannot tell you:
 
 - **The field verbs write the OWNING module's descriptor** — the source that declares the
@@ -497,7 +497,7 @@ HQ reads the projects' records by cloning each project under `git_modules/`:
   collection (one shared list is read from the module's clone already), not a placed one
   (`storage.under`), not an env-pointed one, not a compiled source. NAMING one of those in `records:`
   is a compile error, as is a name no collection here answers to.
-- **A layer whose clone is absent** — a fresh checkout before `dreamteamer install` — compiles; `check`
+- **A layer whose clone is absent** — a fresh checkout before `dt install` — compiles; `check`
   says its records are unread (only a `records:` or `module: true` entry is known to be a layer before
   its clone exists). `dt status` lists layers after modules with the collections FOUND in each;
   `dt update` pulls them like any clone, and a long-lived store re-indexes when a pull lands files.
@@ -636,7 +636,7 @@ Compile fails closed and names its reasons. (⚠ = warning: it compiled, and you
 | `is a mirror, but <c> declares no body field` (or is binary, runtime, another repo) | the target cannot hold a generated field | add a body field, or drop the mirror |
 | `every ids.from template must open with {{ <parent> \| basename }}/` | `under.id: nested` | lead the id with the parent |
 | `internal: true is reserved` | a module put a domain collection in the plumbing partition | drop the line |
-| `module X needs engine "…"` | its `engine` range excludes this engine; refused whole | upgrade dreamteamer, or disable it |
+| `module X needs engine "…"` | its `engine` range excludes this engine; refused whole | `dt update --engine`, or disable it |
 | ⚠ `"<name>" is not a plural the inflector knows` | `singular` falls back to the name | set `singular` (and `storage.suffix`) if `dt add` should take another word |
 | ⚠ `field "<f>": names are snake_case` · `enum value "<v>" is not kebab-case` | a convention, not a rule — a rename is a record change | `dt rename-field` · `dt rename-value` when you choose |
 | ⚠ `is type: reference outside the workspace module` | an unverifiable cross-module surface | name the collections it may target |

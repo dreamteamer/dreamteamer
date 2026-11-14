@@ -8,7 +8,7 @@ queue without any run records.
 What you write is consumed by three readers with different needs: the **operator** scanning the
 `/` picker, who sees the `description` and `argument-hint` and nothing else; the **session** that
 receives the body verbatim as its turn, and needs instructions, not documentation; and the
-**surfaces** that render bindings — `dt next <ref>`, the studio's Commands tab, and the
+**surfaces** that render bindings — `dt next <ref>`, the editor's Commands tab, and the
 orientation block, which prints every binding's gates so each new session knows the queue exists
 before any skill is loaded.
 
@@ -60,7 +60,8 @@ argument-hint: "[assignee]"
 ---
 load this workspace's tasks skill. list my open tasks
 (`npx dreamteamer list tasks --filter status=todo`), then walk them one at a
-time: restate it, ask me to keep / reassign / drop, apply the decision with `tasks set`.
+time: restate it, ask me to keep / reassign / drop, apply the decision with
+`npx dreamteamer set tasks/<id> …`.
 done when the list is empty or I say stop.
 ```
 
@@ -164,7 +165,7 @@ records, no job table. The gates only work if the fields they read stay honest:
   human must remember to set.
 - **A `done_when` and a proof's `count` (a proofs extension) answer different questions — put
   each expectation on its own side.** A gate is a filter over ONE record, evaluated on every render of `dt next` and every board
-  the studio draws, so it can only ever read that record's own fields (plus one outbound hop) — which
+  a surface draws, so it can only ever read that record's own fields (plus one outbound hop) — which
   is exactly the gap the bullet above names: "a summary referencing this record exists" is
   inexpressible there. A **proof** is evaluated on demand and is collection-scoped, so
   it says the thing a gate cannot: `{ collection: summaries, where: { about: { _eq: '{record}' } },

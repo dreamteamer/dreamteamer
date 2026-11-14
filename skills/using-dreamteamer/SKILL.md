@@ -38,8 +38,9 @@ unsure which skill owns the job in front of you.
 - **references are `<collection>/<id>`** strings — always qualified, greppable, never a bare name
   and never a file path.
 
-**lifecycle:** `dt init` writes a new workspace's skeleton (it never compiles). a FRESH CLONE owes
-`dt install` (restores `git_modules/`) then `dt compile` before anything reads — `.dreamteamer/`,
+**lifecycle:** `dt init` makes a new workspace in one command — skeleton, install, compile, check,
+one commit (`references/setup.md`). a FRESH CLONE owes `dt install` before anything reads: it makes
+the checkout ready (the engine, `git_modules/`, then compile) — `.dreamteamer/`,
 the harness folders and the root `CLAUDE.md`/`AGENTS.md`/`GEMINI.md` are gitignored build output,
 so a clone has no runtime and no orientation until compile writes them — and `.env` is
 per-machine (declared keys: `references/records.md`). `dt status` says
@@ -71,7 +72,7 @@ dispatch, so it cannot drift):
 - fields (sources, through the compile gate) — `add-field` `set-field` `rm-field` `rename-field` `rename-value` (system entities — modules, collections, skills, ui-views… — take the RECORD verbs above)
 - workspace — `init` `install` `update` `compile` `check` `exports` `doctor` `status` `setup` `changes` `help`
 - format descriptor sources (opt-in; block style, canonical key order, through the compile gate) — `fmt`
-- an EXTENSION (a workspace module or a dependency declaring `dreamteamer.extension`) adds verbs of
+- an EXTENSION (a module under `modules/` or a direct dependency, declaring `dreamteamer.extension`) adds verbs of
   its own, and `dt help` lists them under its name; each ships the skill that teaches it. A verb core
   does not know (`dt prove` · `dt land` · `dt worktree` · `dt serve` · `dt notebooklm`) belongs to an
   extension — see `references/extensions.md`.
@@ -224,9 +225,10 @@ unmeasured (where a number genuinely cannot be known before the run, the plan sa
    blocks in the root `CLAUDE.md`/`AGENTS.md`/`GEMINI.md` are rewritten on the next compile — and
    those root files are gitignored, so nothing written in them reaches a clone. if you found the
    thing to change there, you are in the wrong file.
-7. **the CLI refuses system-stored records on purpose** (`dt set skills/<id>` — no): edit the
-   module source and compile. the SYSTEM verbs are the sanctioned exception — they write
-   sources *through* a compile gate, so an uncompilable source can never land.
+7. **a system entity is a SOURCE, written two ways**: the system and field verbs, which write it
+   *through* a compile gate so an uncompilable source can never land — or an edit to the module
+   file, then `dt compile`. one shipped by an installed package is refused, naming the move
+   (disable it, or overlay it).
 8. **never duplicate a procedure across records.** a command body restating a skill, an agent
    inlining its skill's steps — two copies, and one drifts. reference the owner.
 9. **nothing module-shipped names a person, an account or a machine path.** per-install values

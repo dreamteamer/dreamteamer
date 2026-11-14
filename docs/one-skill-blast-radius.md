@@ -3,8 +3,11 @@
 Written alongside the change that folded `building-dreamteamer` into `using-dreamteamer`. Its job
 is to be honest about what breaks for a consumer on upgrade, what every consumer has to do, and
 which claims were *verified* on a live workspace rather than reasoned. The verification workspace:
-a synthetic clinic vault (5 collections, 1 namespace, 2 modules, ~40 records) compiled against
+a synthetic clinic workspace (5 collections, 1 namespace, 2 modules, ~40 records) compiled against
 both engine states.
+
+**A record of that release, not a reference.** It describes the engine at 0.16.0; where a later
+release changed a claim, the claim is marked.
 
 ## 1. Why
 
@@ -43,15 +46,17 @@ drifted. Worth knowing because the OLD prose said otherwise:
   0" is a defect and not a grammar).
 - **`options.sort: ''` cannot be written through `set ui-views/<id>`** (an empty dotted value
   removes the key) — hand-write it in the source. Verified live. ⚠ **No longer true**: a QUOTED
-  value says "the empty string IS the value" (`'options.sort=""'`), added after 0.16.1; a bare
-  `options.sort=` still removes.
+  value says "the empty string IS the value", added after 0.16.1, and a bare empty value still
+  removes. Since 0.33.0 the key is `display.list.sort` (`'display.list.sort=""'`).
 - **The kanban's grouping option is `group_by`** (snake_case, defaulting to the first enum
   field); an engine doc example previously spelled it `group-by`, which nothing reads.
 - **A module is discovered only if its `package.json` carries a `dreamteamer` key** — previously
   stated nowhere; a hand-created module folder without it is silently ignored.
 - **A field verb aimed at a module-owned collection** authors a workspace-module overlay and is
   refused by the extends dependency gate — declare the dependency or edit the owning module's
-  descriptor. The old prose described the refusal but not the ladder.
+  descriptor. The old prose described the refusal but not the ladder. ⚠ **No longer true**: a field
+  verb writes the OWNING module's descriptor, and an overlay is written only under `--module <m>`
+  (`extends` became `overlay: true` in 0.33.0).
 
 ## 4. What deliberately did NOT change
 

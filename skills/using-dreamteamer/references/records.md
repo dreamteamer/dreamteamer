@@ -11,8 +11,8 @@ especially when you catch yourself about to `mv` a record file, hand-write front
 memory, or set a field you haven't read in the descriptor.
 
 **not for:** schema changes (`collections.md`) — and system-stored records (skills, agents,
-commands, ui-views, collections) are *sources*: edit the file under the owning module and
-`dt compile`; the CLI refuses them on purpose.
+commands, ui-views, collections) are *sources*: written by the system and field verbs, or by
+editing the file under the owning module and `dt compile` — never under `.dreamteamer/`.
 
 ## reading and measuring
 
@@ -217,7 +217,7 @@ source_file: ${env:FILES_FOLDER}/2026/q3.pdf
 - a rename: `dt rename` back — inbound references are rewritten again, symmetrically.
 - a DELETED record: its id is gone, so the record verbs can no longer see it — restore the file
   with git (`git log -- <path>`, then `git checkout <sha> -- <path>`) and run `dt check`.
-- a schema verb: it committed its own source write — revert that commit with git, then
+- a system or field verb: it committed its own source write — revert that commit with git, then
   `dt compile`.
 
 ## the hard rules
@@ -243,7 +243,7 @@ two hundred.
 | omitting schema defaults from a hand-written file | the file stops being legible without the schema |
 | unquoted `due: 2026-07-28` in hand-written YAML | dreamteamer parses CORE_SCHEMA so it stays a string *here*, but a default-schema YAML reader turns it into a timestamp — quote dates |
 | setting a generated mirror, or `created` | refused by `set`; a hand-edit of a mirror goes stale — write the owning side |
-| CLI-editing a skill / agent / command / collection | system sources — edit the module file, then `dt compile` |
+| editing a skill / agent / command / collection under `.dreamteamer/` or a harness folder | generated — use the system verbs, or edit the module file, then `dt compile` |
 | resolving a template by hand | `dt resolve` is the only substitution point |
 
 ## red flags — stop
