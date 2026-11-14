@@ -46,6 +46,25 @@ const { MANIFEST_KEYS } = await engine<typeof import("../src/extensions.ts")>("e
 const { V2_KEYS: V2_ORDER } = await engine<typeof import("../src/descriptor-v2.ts")>("descriptor-v2")
 
 /** what convertCollection learns from the mixins converted before it */
+/** A v1 JSON-schema property, in the v1 vocabulary the converter reads — untrusted, as authored. */
+type V1Prop = {
+  type?: string
+  format?: string
+  items?: V1Prop
+  properties?: Record<string, V1Prop>
+  required?: string[]
+  additionalProperties?: V1Prop | boolean
+  enum?: unknown[]
+  "x-reference"?: string | string[]
+  "x-reference-soft"?: boolean
+  "x-choices"?: Record<string, Record<string, string>>
+  "x-inverse"?: string | { field?: string; description?: string }
+  [k: string]: unknown
+}
+type Doc = ReturnType<typeof parseDocument>
+/** A pair of a parsed document: a YAML key node and its value node; a mapping of such pairs. */
+type AnyPair = Pair<Node, Node>
+type YMap = YAMLMap<Node, Node>
 type ConvertCtx = {
   bareName?: string
   mixinFields?: Record<string, Field["type"]>
@@ -129,7 +148,7 @@ const PASS = [
 
 /** Block style is canonical: a flow MAPPING is accepted on input and never written (a comma ends a
  *  flow value). Flow sequences of scalars stay as written. */
-function toText(doc) {
+function toText(doc: Doc): string {
   visit(doc, {
     Map(_, n) {
       if (n.items.length) n.flow = false
@@ -138,14 +157,16 @@ function toText(doc) {
   return doc.toString(STRINGIFY)
 }
 
-const keyOf = pair => String(isScalar(pair.key) ? pair.key.value : pair.key)
-const pairOf = (map, k) => map?.items?.find(p => keyOf(p) === k)
-const toJS = node => (node && typeof node.toJSON === "function" ? node.toJSON() : node)
+const keyOf = (pair: Pair<unknown, unknown>): string => String(isScalar(pair.key) ? pair.key.value : pair.key)
+const pairOf = (map: unknown, k: string): AnyPair | undefined =>
+  (map as YAMLMap | null | undefined)?.items?.find(p => keyOf(p as AnyPair) === k) as AnyPair | undefined
+const toJS = (node: unknown): unknown =>
+  node && typeof (node as Node).toJSON === "function" ? (node as Node).toJSON() : node
 
 /** The suffix a v1 engine derived for an unauthored `storage.suffix` — what every existing record's
  *  filename carries. The converter writes it explicitly wherever v2's inflector would derive another,
  *  so no record is renamed by an upgrade. */
-function v1Suffix(name) {
+function v1Suffix(name: string): string {
   return name.endsWith("ies") ? name.slice(0, -3) + "y" : name.endsWith("s") ? name.slice(0, -1) : name
 }
 
@@ -156,8 +177,8 @@ function v1Suffix(name) {
  * @param {string} tpl
  * @param {Record<string, string>} types   field name → its v2 type
  */
-export function recordTitle(tpl, types) {
-  const isText = f => types[f] === "string" || types[f] === "markdown"
+export function recordTitle(tpl: string, types: Record<string, unknown>): string | null {
+  const isText = (f: string): boolean => types[f] === "string" || types[f] === "markdown"
   const parts = [...String(tpl).matchAll(/\{\{\s*([A-Za-z_][\w-]*)[^}]*\}\}/g)]
   if (!parts.length) return tpl
   const first = parts[0][1]
@@ -177,7 +198,13 @@ export function recordTitle(tpl, types) {
  * of every key whose value is unchanged and the key's comments wherever a key was renamed. `renamed`
  * maps a new key to the old key whose comments it inherits.
  */
-function rewriteMap(doc, map, value, order, renamed = {}) {
+function rewriteMap(
+  doc: Doc,
+  map: YAMLMap,
+  value: Record<string, unknown>,
+  order: string[],
+  renamed: Record<string, string> = {}
+): YAMLMap {
   const keys = Object.keys(value).sort((a, b) => rank(order, a) - rank(order, b))
   map.items = keys.map(k => {
     const old = pairOf(map, k) ?? pairOf(map, renamed[k])
@@ -185,20 +212,22 @@ function rewriteMap(doc, map, value, order, renamed = {}) {
     if (old && JSON.stringify(toJS(old.value)) === JSON.stringify(v) && keyOf(old) === k) return old
     const pair = doc.createPair(k, v)
     if (old) {
-      for (const c of ["commentBefore", "spaceBefore"]) if (old.key?.[c] !== undefined) pair.key[c] = old.key[c]
-      if (old.value?.comment !== undefined && isScalar(pair.value)) pair.value.comment = old.value.comment
+      const oldKey = old.key as Partial<Record<"commentBefore" | "spaceBefore", unknown>> | null
+      const newKey = pair.key as unknown as Record<"commentBefore" | "spaceBefore", unknown>
+      for (const c of ["commentBefore", "spaceBefore"] as const) if (oldKey?.[c] !== undefined) newKey[c] = oldKey[c]
+      if (old.value?.comment != null && isScalar(pair.value)) pair.value.comment = old.value.comment
       // a nested map that is merely re-keyed keeps its own node, comments and all
       if (isMap(old.value) && isMap(pair.value) && v && typeof v === "object" && !Array.isArray(v)) {
         pair.value = old.value
         // the new value is already in its canonical order (convertField sorts a field's keys)
-        rewriteMap(doc, old.value, v, Object.keys(v))
+        rewriteMap(doc, old.value, v as Record<string, unknown>, Object.keys(v))
       }
     }
     return pair
   })
   return map
 }
-const rank = (order, k) => {
+const rank = (order: string[], k: string): number => {
   const i = order.indexOf(k)
   return i === -1 ? order.length : i
 }
@@ -207,8 +236,11 @@ const rank = (order, k) => {
  * One v1 field definition (plain JS) → its v2 form, plus what the conversion needs to report.
  * @returns {{ field: object, fold?: { name, description?, unique } , warnings: string[] }}
  */
-export function convertField(p, { required = false } = {}) {
-  const warnings = []
+export function convertField(
+  p: V1Prop,
+  { required = false }: { required?: boolean } = {}
+): { field: Field; fold: Omit<Fold, "field" | "target" | "many"> | undefined; warnings: string[] } {
+  const warnings: string[] = []
   const many = p.type === "array"
   const holder = many && p.items && typeof p.items === "object" ? p.items : p
   const out = {} as Field // every branch below sets `type`
@@ -278,11 +310,11 @@ export function convertField(p, { required = false } = {}) {
   if (enumv !== undefined) {
     const choices = holder["x-choices"] ?? p["x-choices"]
     out.enum =
-      choices && typeof choices === "object" ? Object.fromEntries(enumv.map(v => [v, choices[v] ?? {}])) : enumv
+      choices && typeof choices === "object" ? Object.fromEntries(enumv.map(v => [v, choices[String(v)] ?? {}])) : enumv
   }
-  const pick = k => holder[k] ?? p[k]
+  const pick = (k: string): unknown => holder[k] ?? p[k]
   if (pick("x-unique") === true) out.unique = true
-  if (pick("x-on-delete") !== undefined) out.on_delete = pick("x-on-delete")
+  if (pick("x-on-delete") !== undefined) out.on_delete = pick("x-on-delete") as Field["on_delete"]
   // the body is prose — a v1 body declared as a bare string is the same text after the frontmatter
   if (pick("x-body") === true) {
     out.body = true
@@ -293,19 +325,22 @@ export function convertField(p, { required = false } = {}) {
   if (inverseOf !== undefined) out.mirror_of = String(inverseOf).slice(String(inverseOf).lastIndexOf(".") + 1)
   const tt = holder["x-title-template"]
   if (tt !== undefined) {
-    if (out.type === "object" && many) out.item_title = tt
+    if (out.type === "object" && many) out.item_title = tt as string
     else
       warnings.push("x-title-template on a reference is dropped — a reference is labelled by its target's record_title")
   }
   if (pick("x-display") !== undefined)
     warnings.push("x-display is dropped — a reference is labelled by its target's record_title")
-  let fold
+  let fold: Omit<Fold, "field" | "target" | "many"> | undefined
   const inv = pick("x-inverse")
   if (inv !== undefined) {
     // the object form names the mirror `field` — compile's own reading (materializeRelations)
-    const name = typeof inv === "object" ? inv.field : inv
-    const description = pick("x-inverse-description") ?? (typeof inv === "object" ? inv.description : undefined)
-    fold = { name, description, unique: out.unique === true }
+    const name = typeof inv === "object" ? (inv as { field?: string }).field : inv
+    const description =
+      pick("x-inverse-description") ??
+      (typeof inv === "object" ? (inv as { description?: string }).description : undefined)
+    // v1 wrote both as text; the folded mirror carries them verbatim
+    fold = { name: name as string, description: description as string | undefined, unique: out.unique === true }
   }
   // the same field, its keys in canonical order
   return {
@@ -325,14 +360,14 @@ export function convertField(p, { required = false } = {}) {
  * @param {string} text
  * @param {{ bareName?: string }} [ctx]   the name without its namespace, for the suffix default
  */
-export function convertCollection(text, ctx: ConvertCtx = {}) {
+export function convertCollection(text: string, ctx: ConvertCtx = {}) {
   const doc = parseDocument(text, { keepSourceTokens: false })
   const top = doc.contents
-  if (!isMap(top)) return { text: null, folds: [], warnings: ["not a mapping — left alone"] }
+  if (!isMap(top)) return { text: null as string | null, folds: [] as Fold[], warnings: ["not a mapping — left alone"] }
   const v1 = top.toJSON()
   if ("fields" in v1) return { text: null, folds: [], warnings: [] }
-  const warnings = []
-  const folds = []
+  const warnings: string[] = []
+  const folds: Fold[] = []
   const value: Partial<AuthoredDescriptor> = {}
   const renamed: Record<string, string> = {}
   for (const k of ["name", "title", "singular", "description", "use_when", "sensitive"])
@@ -373,7 +408,7 @@ export function convertCollection(text, ctx: ConvertCtx = {}) {
     renamed.ids = "id"
   }
   if (v1.templates) {
-    value.mixins = v1.templates.map(t => String(t).replace(/^collection-templates\//, ""))
+    value.mixins = v1.templates.map((t: unknown) => String(t).replace(/^collection-templates\//, ""))
     renamed.mixins = "templates"
   }
   if (v1.extends) {
@@ -382,12 +417,13 @@ export function convertCollection(text, ctx: ConvertCtx = {}) {
   }
   // fields — the properties map node is RE-KEYED, so every comment above a property travels with it
   const schemaPair = pairOf(top, "schema")
-  const propsNode = schemaPair && isMap(schemaPair.value) ? pairOf(schemaPair.value, "properties")?.value : null
+  const propsNode = (schemaPair && isMap(schemaPair.value) ? pairOf(schemaPair.value, "properties")?.value : null) as
+    YMap | null | undefined
   const required = new Set(v1.schema?.required ?? [])
   const fields: Record<string, Field> = {}
   const stats = { fields: 0, enums: 0 }
   for (const [k, p] of Object.entries(v1.schema?.properties ?? {})) {
-    const { field, fold, warnings: w } = convertField(p, { required: required.has(k) })
+    const { field, fold, warnings: w } = convertField(p as V1Prop, { required: required.has(k) })
     for (const x of w) warnings.push(`${k}: ${x}`)
     if (fold) folds.push({ field: k, target: field.type, many: field.many === true, ...fold })
     if (field.enum && !Array.isArray(field.enum)) stats.enums++
@@ -397,7 +433,7 @@ export function convertCollection(text, ctx: ConvertCtx = {}) {
   // v1 let a descriptor redeclare a template's field; v2 has one source per field. The same shape
   // is the mixin's field, so the redeclaration goes (its own description is printed, not lost); a
   // different shape is the author's call
-  const shape = f =>
+  const shape = (f: unknown): string =>
     JSON.stringify(
       Object.fromEntries(
         Object.entries(f ?? {})
@@ -446,7 +482,7 @@ export function convertCollection(text, ctx: ConvertCtx = {}) {
   if (v1.group !== undefined && v1.group !== "system") nav.section = v1.group
   const list = { ...(value.display?.list ?? {}) }
   if (v1.list_fields !== undefined)
-    list.columns = v1.list_fields.map(c => (c === "last-modified" ? "last_modified" : c))
+    list.columns = v1.list_fields.map((c: unknown) => (c === "last-modified" ? "last_modified" : c))
   if (Object.keys(nav).length || Object.keys(list).length)
     value.display = { ...(Object.keys(nav).length && { nav }), ...(Object.keys(list).length && { list }) }
   // rewrite in place: `fields` takes over the `schema` pair's position and comments
@@ -483,7 +519,7 @@ export function convertCollection(text, ctx: ConvertCtx = {}) {
 }
 
 /** A v1 collection-template's TEXT → the text of the equivalent mixin. */
-export function convertTemplate(text, id) {
+export function convertTemplate(text: string, id: string): string {
   const v1 = parseDocument(text).toJSON() ?? {}
   const t = v1.template ?? {}
   const req = new Set(t.schema?.required ?? [])
@@ -505,10 +541,15 @@ export function convertTemplate(text, id) {
       ...(t.id.pattern !== undefined && { pattern: t.id.pattern }),
     }
   mixin.fields = Object.fromEntries(
-    Object.entries(t.schema?.properties ?? {}).map(([k, p]) => [k, convertField(p, { required: req.has(k) }).field])
+    Object.entries(t.schema?.properties ?? {}).map(([k, p]) => [
+      k,
+      convertField(p as V1Prop, { required: req.has(k) }).field,
+    ])
   )
   if (t.list_fields)
-    mixin.display = { list: { columns: t.list_fields.map(c => (c === "last-modified" ? "last_modified" : c)) } }
+    mixin.display = {
+      list: { columns: t.list_fields.map((c: unknown) => (c === "last-modified" ? "last_modified" : c)) },
+    }
   const doc = parseDocument(text)
   const out = parseDocument("{}")
   out.contents = out.createNode(mixin) as typeof out.contents
@@ -517,13 +558,15 @@ export function convertTemplate(text, id) {
 }
 
 /** Insert a mirror field into a v2 descriptor's TEXT, before its body field. No-op when present. */
-export function addMirrorField(text, name, def) {
+export function addMirrorField(text: string, name: string, def: unknown): { text: string; added: boolean } {
   const doc = parseDocument(text)
   const fields = doc.contents && pairOf(doc.contents, "fields")?.value
   if (!isMap(fields)) return { text, added: false }
   if (pairOf(fields, name)) return { text, added: false }
   const pair = doc.createPair(name, def)
-  const bodyAt = fields.items.findIndex(p => isMap(p.value) && toJS(p.value)?.body === true)
+  const bodyAt = fields.items.findIndex(
+    p => isMap(p.value) && (toJS(p.value) as { body?: unknown } | null)?.body === true
+  )
   if (bodyAt === -1) fields.items.push(pair)
   else fields.items.splice(bodyAt, 0, pair)
   return { text: toText(doc), added: true }
@@ -532,10 +575,10 @@ export function addMirrorField(text, name, def) {
 // ---- ui-views and command-bindings ----------------------------------------------------------------
 
 const VIEW_ORDER = ["name", "title", "description", "route", "scope", "collection", "filter", "display"]
-const SCOPES = { list: "collection", item: "record", page: "page" }
+const SCOPES: Record<string, string> = { list: "collection", item: "record", page: "page" }
 /** Layout option keys whose name changes: a field option is named for the role the field plays, a
  *  template option for what it labels. `template` labels a card, or a bar on a gantt. */
-const OPTION_KEYS = {
+const OPTION_KEYS: Record<string, string> = {
   color_by_field: "color_by",
   group_rows_by_field: "group_by",
   group_columns_by_field: "lanes_by",
@@ -546,15 +589,16 @@ const OPTION_KEYS = {
   group_template: "group_title",
   group_summary_template: "group_summary",
 }
-const optionKey = (k, layout) =>
+const optionKey = (k: string, layout: unknown): string =>
   k === "template"
     ? layout === "gantt"
       ? "bar_title"
       : "card_title"
     : (OPTION_KEYS[k] ?? (/^[a-z][a-z0-9_]*_field$/.test(k) ? k.replace(/_field$/, "") : k))
-const injected = v => (typeof v === "string" ? v.replace(/^(-?)last-modified$/, "$1last_modified") : v)
+const injected = (v: unknown): unknown =>
+  typeof v === "string" ? v.replace(/^(-?)last-modified$/, "$1last_modified") : v
 
-const scalarKey = (pair, k) => {
+const scalarKey = <P extends Pair<unknown, unknown>>(pair: P, k: string): P => {
   if (isScalar(pair.key)) pair.key.value = k
   else pair.key = new Scalar(k)
   return pair
@@ -567,16 +611,16 @@ const scalarKey = (pair, k) => {
  * named view instead, with a warning.
  * @returns {null | { text?: string, fold?: { collection, block, value, nav, comment }, warnings: string[], options: number }}
  */
-export function convertView(text) {
+export function convertView(text: string) {
   const doc = parseDocument(text)
-  const top = doc.contents as YAMLMap
+  const top = doc.contents as YMap
   if (!isMap(top)) return null
   const v1 = top.toJSON() ?? {}
   if ("route" in v1 || "scope" in v1 || "display" in v1) return null
-  const warnings = []
+  const warnings: string[] = []
   const scope = SCOPES[v1.target] ?? v1.target
   const block = scope === "record" ? "record" : "list"
-  const take = k => {
+  const take = (k: string): AnyPair | undefined => {
     const p = pairOf(top, k)
     if (p) top.items.splice(top.items.indexOf(p), 1)
     return p
@@ -586,14 +630,14 @@ export function convertView(text) {
   if (v1.default === true && !fold)
     warnings.push("a default view with a filter cannot be its collection's display — converted as a named view")
   // the display sub-block: layout, columns and sort, then the remaining options with their keys renamed
-  const sub = doc.createNode({})
+  const sub = doc.createNode({}) as YMap
   const layoutPair = take("layout")
   const layout = v1.layout
   if (layoutPair && !(fold && layout === (block === "list" ? "table" : "page"))) sub.items.push(layoutPair)
   const optionsPair = take("options")
   let renamedOptions = 0
   if (optionsPair && isMap(optionsPair.value)) {
-    const opts = optionsPair.value
+    const opts = optionsPair.value as YMap
     // a comment above the first option belongs to that option, which may be about to move
     if (opts.commentBefore && opts.items[0]) {
       opts.items[0].key.commentBefore = [opts.commentBefore, opts.items[0].key.commentBefore].filter(Boolean).join("\n")
@@ -626,7 +670,7 @@ export function convertView(text) {
     navPair.value.flow = false
   }
   if (fold) {
-    const nav = toJS(navPair?.value) ?? {}
+    const nav = (toJS(navPair?.value) ?? {}) as Record<string, unknown>
     if (nav.title !== undefined)
       warnings.push(`nav.label "${nav.title}" is dropped — a collection's nav entry reads its \`title\``)
     // the view's header, and any comment on a key that does not survive, reads above the folded block
@@ -660,11 +704,11 @@ export function convertView(text) {
     scalarKey(targetPair, "scope")
     if (isScalar(targetPair.value)) targetPair.value.value = scope
   }
-  const display = doc.createNode({})
+  const display = doc.createNode({}) as YMap
   if (navPair) display.items.push(navPair)
   if (sub.items.length) display.items.push(doc.createPair(block, sub))
   if (display.items.length) {
-    const pair = doc.createPair("display", display)
+    const pair = doc.createPair("display", display) as AnyPair
     // the moved pairs carry their own comments; one above a dropped `default: false` reads on the block
     if (defaultPair?.key?.commentBefore) pair.key.commentBefore = defaultPair.key.commentBefore
     top.items.push(pair)
@@ -676,25 +720,35 @@ export function convertView(text) {
 /** Merge a folded default view into a v2 descriptor's TEXT: its sub-block keys win, and nav keys
  *  fill only where the descriptor has none. The view's pairs move whole, so a comment above a key
  *  stays above it, and the view's own header lands above the block. */
-export function foldDisplay(text, { block, node, nav = {}, comment }) {
+export function foldDisplay(
+  text: string,
+  {
+    block,
+    node,
+    nav = {},
+    comment,
+  }: { block: string; node?: YMap | null; nav?: Record<string, unknown>; comment?: string | null }
+): string {
   const doc = parseDocument(text)
-  const top = doc.contents as YAMLMap
+  const top = doc.contents as YMap
   let display = pairOf(top, "display")
   if (!display) {
-    display = doc.createPair("display", {})
+    display = doc.createPair("display", {}) as AnyPair
     top.items.push(display)
   }
   if (!isMap(display.value)) display.value = doc.createNode({})
-  display.value.flow = false
-  const ensure = k => {
-    let p = pairOf(display.value, k)
+  const shown = display.value as YMap
+  shown.flow = false
+  const ensure = (k: string): Pair<Node, YMap> => {
+    let p = pairOf(shown, k)
     if (!p) {
-      p = doc.createPair(k, {})
-      display.value.items.push(p)
+      p = doc.createPair(k, {}) as AnyPair
+      shown.items.push(p)
     }
     if (!isMap(p.value)) p.value = doc.createNode({})
-    p.value.flow = false
-    return p
+    const map = p.value as YMap
+    map.flow = false
+    return p as Pair<Node, YMap>
   }
   if (node?.items?.length) {
     const sub = ensure(block)
@@ -705,20 +759,20 @@ export function foldDisplay(text, { block, node, nav = {}, comment }) {
     }
     if (comment) sub.key.commentBefore = [sub.key.commentBefore, comment].filter(Boolean).join("\n")
   }
-  const navKeys = Object.entries(nav).filter(([k]) => !pairOf(pairOf(display.value, "nav")?.value, k))
+  const navKeys = Object.entries(nav).filter(([k]) => !pairOf(pairOf(shown, "nav")?.value, k))
   if (navKeys.length) {
     const n = ensure("nav")
-    for (const [k, v] of navKeys) n.value.items.push(doc.createPair(k, v))
+    for (const [k, v] of navKeys) n.value.items.push(doc.createPair(k, v) as AnyPair)
   }
-  display.value.items.sort(
+  shown.items.sort(
     (a, b) => rank(["nav", "list", "record", "form"], keyOf(a)) - rank(["nav", "list", "record", "form"], keyOf(b))
   )
   return toText(doc)
 }
 
-const BINDING_KEYS = { target: "scope", "can-enter": "available_when", "can-exit": "done_when" }
+const BINDING_KEYS: Record<string, string> = { target: "scope", "can-enter": "available_when", "can-exit": "done_when" }
 /** One v1 command-binding's TEXT → v2, keys renamed in place so every comment stays put. Null when v2. */
-export function convertBinding(text) {
+export function convertBinding(text: string): string | null {
   const doc = parseDocument(text)
   if (!isMap(doc.contents)) return null
   const hits = doc.contents.items.filter(p => BINDING_KEYS[keyOf(p)])
@@ -736,11 +790,14 @@ export function convertBinding(text) {
  * which kinds a module ships that entity in — [] when it does not, null when the module is unknown.
  * A key the engine does not read is reported, since compile refuses it. Null text when nothing changes.
  */
-export function convertPackage(text, kindsOf) {
+export function convertPackage(
+  text: string,
+  kindsOf: (mod: string, id: string) => string[] | null
+): { text: string | null; warnings: string[] } {
   const pkg = JSON.parse(text)
   const block = pkg.dreamteamer
   if (!block || typeof block !== "object") return { text: null, warnings: [] }
-  const warnings = []
+  const warnings: string[] = []
   const out: DreamteamerBlock = {}
   for (const [k, v] of Object.entries(block)) {
     const key = k === "peerDependencies" || k === "peer-dependencies" ? "peer_collections" : k.replace(/-/g, "_")
@@ -774,8 +831,8 @@ export function convertPackage(text, kindsOf) {
 }
 
 /** The kinds a module root ships one entity id in — the folders compile reads, either layout. */
-function entityKinds(moduleRoot, id) {
-  const kinds = []
+function entityKinds(moduleRoot: string, id: string): string[] {
+  const kinds: string[] = []
   for (const kind of [
     "collections",
     "skills",
@@ -810,9 +867,9 @@ function entityKinds(moduleRoot, id) {
 
 /** Every module this workspace can see, by package name → the roots carrying that name (the
  *  workspace's own package may share its module's name). */
-function moduleRootsByName(root) {
-  const out = new Map()
-  const add = dir => {
+function moduleRootsByName(root: string): Map<string, string[]> {
+  const out = new Map<string, string[]>()
+  const add = (dir: string): void => {
     try {
       const name = JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8")).name
       if (name) out.set(name, [...(out.get(name) ?? []), dir])
@@ -842,7 +899,7 @@ function moduleRootsByName(root) {
 
 // ---- the CLI ------------------------------------------------------------------------------------
 
-function* walk(dir) {
+function* walk(dir: string): Generator<string> {
   if (!fs.existsSync(dir)) return
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
     const p = path.join(dir, e.name)
@@ -852,8 +909,8 @@ function* walk(dir) {
 }
 
 /** Every source root a workspace AUTHORS: its modules, and the root itself for the classic layout. */
-function sourceRoots(root) {
-  const roots = []
+function sourceRoots(root: string): string[] {
+  const roots: string[] = []
   const mods = path.join(root, "modules")
   if (fs.existsSync(mods))
     for (const e of fs.readdirSync(mods, { withFileTypes: true }))
@@ -862,7 +919,10 @@ function sourceRoots(root) {
   return roots
 }
 
-export function migrate(root, { dryRun = false, log = console.log } = {}) {
+export function migrate(
+  root: string,
+  { dryRun = false, log = console.log }: { dryRun?: boolean; log?: (line: string) => void } = {}
+): Plan {
   const plan: Plan = {
     descriptors: 0,
     fields: 0,
@@ -882,11 +942,11 @@ export function migrate(root, { dryRun = false, log = console.log } = {}) {
   const byName = new Map() // collection name -> file of its BASE descriptor
   const moduleOf = new Map() // descriptor file -> the module root it sits in
   const roots = sourceRoots(root)
-  const at = file => path.relative(root, file)
-  const current = file => (texts.has(file) ? texts.get(file) : fs.readFileSync(file, "utf8"))
+  const at = (file: string): string => path.relative(root, file)
+  const current = (file: string): string => (texts.has(file) ? texts.get(file) : fs.readFileSync(file, "utf8"))
   // templates first: a mixin's field types are what a converted record_title may open with
-  const mixinTypes = new Map() // mixin id -> { field: type }
-  const mixinDefs = new Map() // mixin id -> { field: its v2 definition }
+  const mixinTypes = new Map<string, Record<string, Field["type"]>>() // mixin id -> { field: type }
+  const mixinDefs = new Map<string, Record<string, Field>>() // mixin id -> { field: its v2 definition }
   for (const r of roots) {
     for (const file of walk(path.join(r, "collection-templates"))) {
       if (!file.endsWith(".collection-template.yaml")) continue
@@ -927,7 +987,7 @@ export function migrate(root, { dryRun = false, log = console.log } = {}) {
       if (parsed.errors.length) throw new Error(`${at(file)}: ${parsed.errors[0].message.split("\n")[0]}`)
       const v1 = parsed.toJSON() ?? {}
       const name = v1.name
-      const ids = (Array.isArray(v1.templates) ? v1.templates : []).map(t =>
+      const ids: string[] = (Array.isArray(v1.templates) ? v1.templates : []).map((t: unknown) =>
         String(t).replace(/^collection-templates\//, "")
       )
       const mixinFields = Object.assign({}, ...ids.map(t => mixinTypes.get(t) ?? {}))
@@ -1051,7 +1111,7 @@ export function migrate(root, { dryRun = false, log = console.log } = {}) {
   }
   // package.json blocks: the workspace's and each module's own
   const modules = moduleRootsByName(root)
-  const kindsOf = (mod, id) =>
+  const kindsOf = (mod: string, id: string): string[] | null =>
     modules.has(mod) ? [...new Set(modules.get(mod).flatMap(dir => entityKinds(dir, id)))] : null
   for (const r of roots) {
     const file = path.join(r, "package.json")
@@ -1079,7 +1139,7 @@ export function migrate(root, { dryRun = false, log = console.log } = {}) {
   // a root harness file is compile's only when everything in it is a generated block; one with text
   // of its own outside the blocks is hand-written, stays tracked, and is named — ignoring it would
   // drop that text from every fresh clone
-  const ownText = f =>
+  const ownText = (f: string): string =>
     fs
       .readFileSync(path.join(root, f), "utf8")
       .replace(/<!-- dreamteamer:(instructions:)?begin[^>]*-->[\s\S]*?<!-- dreamteamer:(instructions:)?end -->/g, "")
@@ -1144,7 +1204,7 @@ export function migrate(root, { dryRun = false, log = console.log } = {}) {
   return plan
 }
 
-const packageName = dir => {
+const packageName = (dir: string): string | null => {
   try {
     return JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8")).name
   } catch {
@@ -1172,7 +1232,7 @@ const ENGINE_COLLECTIONS = (() => {
 })()
 
 /** Which of `files` git tracks in `root` — [] when it is not a repository or git is not there. */
-function trackedFiles(root, files) {
+function trackedFiles(root: string, files: string[]): string[] {
   try {
     return execFileSync("git", ["ls-files", "--", ...files], {
       cwd: root,
@@ -1188,7 +1248,7 @@ function trackedFiles(root, files) {
 }
 
 /** The overlay of `collection` in module root `r` — its existing source, or a fresh one. */
-function overlayFile(r, collection, texts) {
+function overlayFile(r: string, collection: string, texts: Map<string, string>): string {
   const dest = path.join(r, "collections", `${collection}.collection.yaml`)
   if (!texts.has(dest))
     texts.set(

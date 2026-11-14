@@ -28,9 +28,16 @@ import fs from "node:fs"
 import path from "node:path"
 import { walk, idFromRecordPath } from "./records.ts"
 import { storageOf } from "./descriptor.ts"
+import type { Descriptor, Descriptors, Fields, Storage } from "./types.ts"
+
+/** A collection's `storage.under`: the reference field naming its parent, and where inside the parent it lives. */
+export type Under = NonNullable<Storage["under"]>
+/** One record found under a root: its id, its file, the root it was read from, and the parent record it sits in. */
+export type PlacedRecord = { id: string; file: string; root: string; parentId: string | null }
+type OnLink = ((link: string) => void) | null
 
 /** A descriptor's resolved `storage.under` — `{ parent, subfolder, collection, id }` — or null. */
-export function placementOf(d) {
+export function placementOf(d: Descriptor | null | undefined): Under | null {
   return d ? (storageOf(d).under ?? null) : null
 }
 
@@ -39,7 +46,7 @@ export function placementOf(d) {
  * parent record's folder: no absolute path, no traversal, no empty segment, no backslash (the same
  * alphabet `assertSafeId` holds ids to, because this path is joined onto the filesystem too).
  */
-export function subpathProblem(p) {
+export function subpathProblem(p: unknown): string | null {
   if (typeof p !== "string" || p === "")
     return "must be a relative folder path inside the parent record's folder (e.g. `meetings`)"
   if (p.startsWith("/") || p.includes("\\"))
@@ -52,9 +59,9 @@ export function subpathProblem(p) {
 /** `[id, folder]` for every record folder in a folder-shape collection's directory, sorted by id.
  *  A folder without its entry file is still listed: records placed under it must stay discoverable
  *  (`check` reports the missing entry on the parent and the dangling owner on each child). */
-export function parentFolders(parentDir) {
+export function parentFolders(parentDir: string): [name: string, dir: string][] {
   if (!fs.existsSync(parentDir)) return []
-  const out = []
+  const out: [string, string][] = []
   for (const e of fs.readdirSync(parentDir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
     if (e.name.startsWith(".") || !e.isDirectory()) continue
     out.push([e.name, path.join(parentDir, e.name)])
@@ -64,21 +71,26 @@ export function parentFolders(parentDir) {
 
 /** `storage.under.id: nested` — the id BEGINS with the parent's id, and the file drops that segment
  *  because the parent's folder already carries it. Changing the parent is a rename. */
-export const isNested = under => under?.id === "nested"
+export const isNested = (under: Under | null | undefined): boolean => under?.id === "nested"
 /** The parent id a NESTED id begins with. */
-export const parentOfNestedId = id => String(id).split("/")[0]
+export const parentOfNestedId = (id: string): string => String(id).split("/")[0]
 /** A nested id without its leading parent segment — the path inside the parent's subfolder. */
-export const localOfNestedId = id => String(id).slice(String(id).indexOf("/") + 1)
+export const localOfNestedId = (id: string): string => String(id).slice(String(id).indexOf("/") + 1)
 
 /** The folder a placed record of `d` lives in when its owner is `parentId` — or the fallback root. */
-export function placedRoot(under, fallbackDir, parentDir, parentId) {
+export function placedRoot(under: Under, fallbackDir: string, parentDir: string, parentId: string | null): string {
   return parentId ? path.join(parentDir, parentId, under.subfolder) : fallbackDir
 }
 
 /** Every record file of `d` under ONE root, as `{ id, file, root, parentId }`. A placed root (one with
  *  a `parentId`) is walked through REAL entries only — a symlinked sub-folder or file inside it is
  *  skipped and reported to `onLink` (R2b); the collection's own root keeps the ordinary walk. */
-export function* rootRecords(d, root, parentId = null, onLink = null) {
+export function* rootRecords(
+  d: Descriptor,
+  root: string,
+  parentId: string | null = null,
+  onLink: OnLink = null
+): Generator<PlacedRecord> {
   if (!fs.existsSync(root)) return
   const nested = parentId !== null && isNested(placementOf(d))
   for (const f of parentId === null ? walk(root) : walkReal(root, onLink)) {
@@ -88,7 +100,7 @@ export function* rootRecords(d, root, parentId = null, onLink = null) {
 }
 
 /** `walk`, lstat-ing each entry: a symlink — to a folder or a file — is not followed. */
-function* walkReal(dir, onLink) {
+function* walkReal(dir: string, onLink: OnLink): Generator<string> {
   for (const name of fs.readdirSync(dir).sort()) {
     if (name.startsWith(".")) continue
     const p = path.join(dir, name)
@@ -107,7 +119,12 @@ function* walkReal(dir, onLink) {
  * parent folder's child root in parent-id order. Duplicates are NOT resolved here — a caller that
  * keeps a map keeps the first and reports the rest; last-one-wins is the one answer this must never give.
  */
-export function* placedRecords(d, fallbackDir, parentDir, onLink = null) {
+export function* placedRecords(
+  d: Descriptor,
+  fallbackDir: string,
+  parentDir: string,
+  onLink: OnLink = null
+): Generator<PlacedRecord> {
   const under = placementOf(d)
   yield* rootRecords(d, fallbackDir, null)
   for (const [pid, folder] of parentFolders(parentDir)) {
@@ -120,8 +137,8 @@ export function* placedRecords(d, fallbackDir, parentDir, onLink = null) {
 }
 
 /** The child roots under `parentDir` that are symlinks (or sit behind one), for `check` to report. */
-export function symlinkedChildRoots(under, parentDir) {
-  const out = []
+export function symlinkedChildRoots(under: Under, parentDir: string): string[] {
+  const out: string[] = []
   for (const [, folder] of parentFolders(parentDir)) {
     const link = symlinkBelow(parentDir, path.join(folder, under.subfolder))
     if (link) out.push(link)
@@ -134,7 +151,11 @@ export function symlinkedChildRoots(under, parentDir) {
  * in (bound to the workspace's namespaces) so this stays pure. A value that parses to some OTHER
  * collection is not an owner either — the reference check reports it; placement does not guess.
  */
-export function ownerIdOf(fields, under, parseRef) {
+export function ownerIdOf(
+  fields: Fields | null | undefined,
+  under: Under,
+  parseRef: (ref: string) => { collection: string; id: string } | null
+): string | null {
   const v = fields?.[under.parent]
   if (typeof v !== "string" || v === "") return null
   const p = parseRef(v)
@@ -147,8 +168,13 @@ export function ownerIdOf(fields, under, parseRef) {
  * `placedRoot`, used to prune the right directories after a move and to compare observed placement
  * with the owner the record declares.
  */
-export function placementOfFile(under, file, fallbackDir, parentDir) {
-  const inside = dir => {
+export function placementOfFile(
+  under: Under,
+  file: string,
+  fallbackDir: string,
+  parentDir: string
+): { root: string; parentId: string | null } | null {
+  const inside = (dir: string): string | null => {
     const r = path.relative(dir, file)
     return r && !r.startsWith("..") && !path.isAbsolute(r) ? r : null
   }
@@ -164,7 +190,11 @@ export function placementOfFile(under, file, fallbackDir, parentDir) {
  * `rest` is the path relative to the parent collection's `storage.path` (`<parentId>/<under.subfolder>/…`).
  * Shared by `events.pathToRecord` (git paths → records) and nothing else re-derives it.
  */
-export function placedChildAt(descriptors, parentName, rest) {
+export function placedChildAt(
+  descriptors: Descriptors,
+  parentName: string,
+  rest: string
+): { collection: string; id: string } | null {
   const slash = rest.indexOf("/")
   if (slash < 1) return null
   const sub = rest.slice(slash + 1)
@@ -191,7 +221,7 @@ export function placedChildAt(descriptors, parentName, rest) {
  * subject to this — a workspace may legitimately keep its data folder behind a link; the rule is
  * about what a RECORD FOLDER may contain.
  */
-export function symlinkBelow(base, target) {
+export function symlinkBelow(base: string, target: string): string | null {
   const rel = path.relative(base, target)
   if (!rel || rel.startsWith("..") || path.isAbsolute(rel)) return null
   let p = base
@@ -214,9 +244,9 @@ export function symlinkBelow(base, target) {
  * this costs O(directories), not O(records). What a placed collection's id memo is keyed on, because
  * a root directory's own mtime says nothing about a file dropped three levels down (R4).
  */
-export function dirTreeStamps(dir) {
-  const out = []
-  const visit = d => {
+export function dirTreeStamps(dir: string): string {
+  const out: string[] = []
+  const visit = (d: string): void => {
     let st
     try {
       st = fs.statSync(d)

@@ -40,8 +40,8 @@ import { selectTests } from "./test-select.ts"
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..")
 const args = process.argv.slice(2)
-const flag = name => args.some(a => a === `--${name}`)
-const value = name =>
+const flag = (name: string): boolean => args.some(a => a === `--${name}`)
+const value = (name: string): string | undefined =>
   args
     .find(a => a.startsWith(`--${name}=`))
     ?.split("=")
@@ -175,7 +175,7 @@ if (res.status === 0 && stampFile && workingTreeKey() === treeKey) {
 }
 process.exit(res.status ?? 1)
 
-function gitLines(args) {
+function gitLines(args: string[]): string[] {
   return execFileSync("git", args, { cwd: ROOT, encoding: "utf8", timeout: 30_000 }).split("\n").filter(Boolean)
 }
 

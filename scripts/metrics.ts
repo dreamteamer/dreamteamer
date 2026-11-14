@@ -24,7 +24,7 @@ const args = process.argv.slice(2)
 const CHECK = args.includes("--check")
 const UPDATE = args.includes("--update")
 
-function walk(dir, pred, out = []) {
+function walk(dir: string, pred: (p: string) => boolean, out: string[] = []): string[] {
   if (!existsSync(dir)) return out
   for (const name of readdirSync(dir)) {
     if (name.startsWith(".") || name === "node_modules") continue
@@ -38,7 +38,7 @@ function walk(dir, pred, out = []) {
 // Code lines = non-blank, non-comment. Comments are counted separately and on purpose: heavy
 // commenting is how this codebase records WHY, and penalising it would push the reasoning out of the
 // file and into a log nobody reads.
-function measureJs(file) {
+function measureJs(file: string): { code: number; comment: number; blank: number; decisions: number } {
   const lines = readFileSync(file, "utf8").split("\n")
   let code = 0,
     comment = 0,
@@ -99,8 +99,8 @@ const KIND_NAMES = [
   "ui-views",
   "collection-templates",
 ]
-const kindDir = kind => (existsSync(join(ROOT, kind)) ? join(ROOT, kind) : join(ROOT, "system", kind))
-const countIn = (kind, ext) => walk(kindDir(kind), p => p.endsWith(ext)).length
+const kindDir = (kind: string): string => (existsSync(join(ROOT, kind)) ? join(ROOT, kind) : join(ROOT, "system", kind))
+const countIn = (kind: string, ext: string): number => walk(kindDir(kind), p => p.endsWith(ext)).length
 const skillFiles = walk(kindDir("skills"), p => p.endsWith(".md"))
 const skillProse = skillFiles.reduce((n, f) => n + readFileSync(f, "utf8").split("\n").length, 0)
 const entryProse = KIND_NAMES.flatMap(k => walk(kindDir(k), p => p.endsWith(".md") || p.endsWith(".yaml"))).reduce(
@@ -125,8 +125,8 @@ const now = {
 
 const base = existsSync(BASELINE) ? JSON.parse(readFileSync(BASELINE, "utf8")) : null
 
-const pad = (s, n) => String(s).padEnd(n)
-const num = (s, n) => String(s).padStart(n)
+const pad = (s: unknown, n: number): string => String(s).padEnd(n)
+const num = (s: unknown, n: number): string => String(s).padStart(n)
 
 console.log(`\n  dreamteamer core — size & complexity\n`)
 console.log(
@@ -155,8 +155,10 @@ console.log(
 let failed = 0
 if (base?.budgets) {
   console.log(`\n  BUDGETS`)
-  const flat = (o, pre = "") =>
-    Object.entries(o).flatMap(([k, v]) => (typeof v === "object" ? flat(v, `${pre}${k}.`) : [[`${pre}${k}`, v]]))
+  const flat = (o: object, pre = ""): [string, number][] =>
+    Object.entries(o).flatMap(([k, v]): [string, number][] =>
+      typeof v === "object" ? flat(v, `${pre}${k}.`) : [[`${pre}${k}`, v as number]]
+    )
   const cur = Object.fromEntries(flat(now))
   for (const [key, budget] of Object.entries<number>(base.budgets)) {
     const v = cur[key]
@@ -179,8 +181,10 @@ if (base?.budgets) {
 }
 
 if (base && !UPDATE) {
-  const flat = (o, pre = "") =>
-    Object.entries(o).flatMap(([k, v]) => (typeof v === "object" ? flat(v, `${pre}${k}.`) : [[`${pre}${k}`, v]]))
+  const flat = (o: object, pre = ""): [string, number][] =>
+    Object.entries(o).flatMap(([k, v]): [string, number][] =>
+      typeof v === "object" ? flat(v, `${pre}${k}.`) : [[`${pre}${k}`, v as number]]
+    )
   const prev = Object.fromEntries(flat({ code: base.code, surface: base.surface, prose: base.prose }))
   const cur = Object.fromEntries(flat(now))
   const moved = Object.entries(cur).filter(([k, v]) => prev[k] !== undefined && prev[k] !== v)
@@ -196,7 +200,7 @@ if (base && !UPDATE) {
 if (UPDATE) {
   // Budgets are set at reality + headroom, not at reality: a budget equal to the current number
   // fails on the next honest refactor and trains people to run --update reflexively.
-  const head = n => Math.ceil(n * 1.1)
+  const head = (n: number): number => Math.ceil(n * 1.1)
   const out = {
     measured: new Date().toISOString().slice(0, 10),
     note: "Budgets are ceilings with ~10% headroom. Raising one is a deliberate act — do it in the same commit as the growth, and say why in the message.",

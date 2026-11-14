@@ -37,7 +37,7 @@ export function placementKey(
   collection = "<collection>"
 ): string {
   const placed = rows.filter(r => r.key && r.id !== id)
-  const at = t => {
+  const at = (t: string): number => {
     const i = placed.findIndex(r => r.id === t)
     if (i < 0)
       throw new Error(

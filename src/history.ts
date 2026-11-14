@@ -10,10 +10,11 @@ import path from "node:path"
 import { RUNTIME_DIR, readManifest } from "./runtime.ts"
 import { storageOf } from "./descriptor.ts"
 import type { Store } from "./store.ts"
+import type { Descriptor } from "./types.ts"
 
 /** A record under an env-pointed root outside the workspace has no repo here, so no past: said in
  *  one sentence rather than as git's "outside repository". */
-function assertInRepo(descriptor, collection, id) {
+function assertInRepo(descriptor: Descriptor, collection: string, id: string): void {
   if (storageOf(descriptor).external)
     throw new Error(
       `${collection}/${id} is kept under ${storageOf(descriptor).path}, outside every git repo here — it has no history`
@@ -28,7 +29,7 @@ const FORMAT = "%H%x00%an%x00%aI%x00%s"
  *  runs; the argv still puts it after `--end-of-options`. */
 const COMMIT = /^(?:HEAD|[0-9a-fA-F]{4,40})$/
 const RELATIVE = /^(?:HEAD(?:~\d+)?|[0-9a-fA-F]{4,40})$/
-export function commitArg(rev, relative = false) {
+export function commitArg(rev: unknown, relative = false): string {
   if (typeof rev !== "string" || !(relative ? RELATIVE : COMMIT).test(rev))
     throw new Error(`${JSON.stringify(rev)} is not a commit id — give a commit hash (4 to 40 hex digits) or HEAD`)
   return rev
@@ -46,13 +47,13 @@ export function commitArg(rev, relative = false) {
  * A layered record (a workspace module overriding a module-shipped one) has SEVERAL sources and
  * genuinely changes when any of them does, so all of them are followed.
  */
-function trackedPaths(store, file, cwd) {
+function trackedPaths(store: Store, file: string, cwd: string): string[] {
   const rel = path.relative(store.root, file).split(path.sep).join("/") // git pathspecs take `/` on every OS
   if (!rel.startsWith(`${RUNTIME_DIR}/`)) return [path.relative(cwd, file).split(path.sep).join("/")]
   try {
     const key = rel.split("/").slice(1).join("/") // drop the `.dreamteamer/` prefix
     const sources = readManifest(store.root)?.entries?.[key]?.sources ?? []
-    const paths = sources.map(s => (typeof s === "string" ? s : s?.path)).filter(Boolean)
+    const paths = sources.map((s: string | { path: string }) => (typeof s === "string" ? s : s?.path)).filter(Boolean)
     return paths.length ? paths : [rel]
   } catch {
     return [rel] // no manifest (never compiled) — nothing better to offer
@@ -64,7 +65,8 @@ function trackedPaths(store, file, cwd) {
  * single pathspec — git rejects it outright with several — so a layered record trades it away.
  */
 /** The repo a record's file is committed in: a module-owned or layer record's past is in that clone. */
-const repoOf = (store, descriptor, file) => path.resolve(store.root, store.repoOfFile(descriptor, file))
+const repoOf = (store: Store, descriptor: Descriptor, file: string): string =>
+  path.resolve(store.root, store.repoOfFile(descriptor, file))
 
 export function history(
   store: Store,

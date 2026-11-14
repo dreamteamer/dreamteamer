@@ -16,7 +16,12 @@ const SEQ = "__DT_SEQ__"
 
 /** Render ONE template, or throw if a field it names is missing. The list form loops over this. */
 type OnFallback = (e: { field: string; value: string; id: string }) => void
-export function generateId(tpl, fields, existingIds: Iterable<string> = [], opts: { onFallback?: OnFallback } = {}) {
+export function generateId(
+  tpl: string | string[],
+  fields: Record<string, unknown>,
+  existingIds: Iterable<string> = [],
+  opts: { onFallback?: OnFallback } = {}
+): string {
   // ⚠ AN ORDERED LIST IS "USE THIS, ELSE THAT" — the only way a descriptor can express a readable
   // latin handle WITHOUT forcing a required field onto every record. `id.generate` takes a string
   // or a list of them, and the FIRST template whose fields are all present wins; a template that
@@ -32,14 +37,15 @@ export function generateId(tpl, fields, existingIds: Iterable<string> = [], opts
         if (i === tpl.length - 1) throw e
       }
     }
+    throw new Error("id template list is empty — give at least one template (or pass an explicit id)")
   }
   const created = new Date()
   let sawSeq = false
   let seqPad = 0
 
-  const rendered = tpl.replace(/\{\{\s*([^}]+?)\s*\}\}/g, (_, expr) => {
+  const rendered = tpl.replace(/\{\{\s*([^}]+?)\s*\}\}/g, (_: string, expr: string) => {
     const [head, ...filters] = expr.split("|").map(s => s.trim())
-    let value
+    let value: unknown
     // `created` is a stored field the engine stamps at add (descriptor v2), so an id reads it from the
     // record when it is there; with no stamp yet (a dry render) it is now.
     if (head === "created") value = fields.created ?? created
@@ -77,7 +83,12 @@ export function generateId(tpl, fields, existingIds: Iterable<string> = [], opts
   return prefix + (seqPad ? n.padStart(seqPad, "0") : n) + suffix
 }
 
-function applyFilter(name, arg, value, ctx: { field?: string; onFallback?: OnFallback } = {}) {
+function applyFilter(
+  name: string,
+  arg: string | undefined,
+  value: unknown,
+  ctx: { field?: string; onFallback?: OnFallback } = {}
+): string {
   switch (name) {
     case "date":
       return fmtDate(value, arg || "YYYY-MM-DD")
@@ -107,18 +118,18 @@ function applyFilter(name, arg, value, ctx: { field?: string; onFallback?: OnFal
   }
 }
 
-const asDate = v => (v instanceof Date ? v : new Date(v))
+const asDate = (v: unknown): Date => (v instanceof Date ? v : new Date(v as string | number))
 
 // `date:HH-mm` on a date-time field is how an id embeds a start time. A date or date-time STRING
 // renders as written, in its own offset (`2026-07-28T23:30:00+03:00` is 23:30 on the 28th on every
 // machine), so an id is the same wherever it is generated. Only `created`/`now` read the machine's
 // zone. Tokens are replaced longest-first so `MM` (month) can't eat the `M` of a minute pattern.
 const WALL_CLOCK = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2}))?)?/
-function fmtDate(v, fmt) {
-  const pad = n => String(n).padStart(2, "0")
+function fmtDate(v: unknown, fmt: string): string {
+  const pad = (n: number): string => String(n).padStart(2, "0")
   const m = typeof v === "string" ? WALL_CLOCK.exec(v) : null
   const d = m ? null : asDate(v)
-  const tokens = m
+  const tokens: Record<string, string> = m
     ? { YYYY: m[1], MM: m[2], DD: m[3], HH: m[4] ?? "00", mm: m[5] ?? "00", ss: m[6] ?? "00" }
     : {
         YYYY: String(d.getFullYear()),
@@ -181,7 +192,7 @@ export function parseTemplate(tpl: string): TemplatePart[] {
 type FieldPart = Extract<TemplatePart, { field: string }>
 /** A part that names a field (a non-empty one — the test every reader here has always made). */
 const isField = (p: TemplatePart): p is FieldPart => "field" in p && !!p.field
-export const templateFields = tpl =>
+export const templateFields = (tpl: string): string[] =>
   parseTemplate(tpl)
     .filter(isField)
     .map(p => p.field)

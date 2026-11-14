@@ -11,15 +11,30 @@ import path from "node:path"
 import { walk } from "./records.ts"
 import { parseRef } from "./namespace.ts"
 import { storageOf, fieldsOf, targetsOf, isSoft } from "./descriptor.ts"
-import type { Field, Storage } from "./types.ts"
+import type { Descriptor, Descriptors, Field, Fields, Storage } from "./types.ts"
 import type { exportsFacts } from "./runtime.ts"
 type LayerFact = NonNullable<ReturnType<typeof exportsFacts>["layers"]>[number]
+type ExportEntry = { label: string; from?: string }
+/** A collection root as one context sees it: its layer (null: the write root), its package, whether it is on disk. */
+type ContextRoot = { layer: string | null; package: string | null; present: boolean }
+export type ExportsContext = {
+  own: string | null
+  rootsOf: (coll: string) => ContextRoot[]
+  complete: (layer: string | null) => boolean
+  packageOf: (layer: string | null) => string | null
+  rootOf: (layer: string | null) => string
+}
+export type OutsideRef = { collection: string; id: string; resolved: ExportEntry | null; referrers: string[] }
+export type ExportChange = { ref: string; kind: "drop" | "fill" | "refresh" | "add"; why: string }
 
 export const EXPORTS_FILE = "dreamteamer-exports.json"
 
 /** The manifest of the repo rooted at `dir` — `{ <collection>: { <id>: { label, from? } } }` — or null
  *  when it has none. An unparseable file throws, naming its path: it is never read as empty. */
-export function readExports(dir) {
+/** A repo's exports manifest: per collection, per id, its display label and the package that held it. */
+export type ExportRefs = Record<string, Record<string, { label: string; from?: string }>>
+
+export function readExports(dir: string): ExportRefs | null {
   const file = path.join(dir, EXPORTS_FILE)
   if (!fs.existsSync(file)) return null
   try {
@@ -34,12 +49,13 @@ export function readExports(dir) {
 
 /** The file's bytes: tab-indented, collections and ids sorted, one line per entry, nothing time- or
  *  version-dependent — so an unchanged manifest regenerates byte for byte. `null` for an empty one. */
-export function serializeExports(refs) {
+export function serializeExports(refs: ExportRefs): string | null {
   const colls = Object.keys(refs)
     .filter(c => Object.keys(refs[c]).length)
     .sort()
   if (!colls.length) return null
-  const entry = e => `{ "label": ${JSON.stringify(e.label)}${e.from ? `, "from": ${JSON.stringify(e.from)}` : ""} }`
+  const entry = (e: ExportEntry): string =>
+    `{ "label": ${JSON.stringify(e.label)}${e.from ? `, "from": ${JSON.stringify(e.from)}` : ""} }`
   const blocks = colls.map(
     c =>
       `\t\t${JSON.stringify(c)}: {\n${Object.keys(refs[c])
@@ -51,8 +67,11 @@ export function serializeExports(refs) {
 }
 
 /** Every hard-reference field of a descriptor's fields, nested ones included: `[path, targets, soft]`. */
-export function collectRefFields(fields: Record<string, Field>, prefix: string[] = []) {
-  const out = []
+export function collectRefFields(
+  fields: Record<string, Field>,
+  prefix: string[] = []
+): [path: string[], targets: "*" | string[], soft: boolean][] {
+  const out: ReturnType<typeof collectRefFields> = []
   for (const [key, f] of Object.entries(fields ?? {})) {
     if (!f || typeof f !== "object") continue
     const p = [...prefix, key]
@@ -64,16 +83,18 @@ export function collectRefFields(fields: Record<string, Field>, prefix: string[]
 }
 
 /** Every leaf value at a field path, arrays flattened. */
-export function* valuesAt(obj, fieldPath) {
-  let vals = [obj]
+export function* valuesAt(obj: unknown, fieldPath: string[]): Generator<unknown> {
+  let vals: unknown[] = [obj]
   for (const key of fieldPath)
-    vals = vals.flatMap(v => (Array.isArray(v) ? v : [v])).flatMap(v => (v && typeof v === "object" ? [v[key]] : []))
+    vals = vals
+      .flatMap(v => (Array.isArray(v) ? v : [v]))
+      .flatMap(v => (v && typeof v === "object" ? [(v as Record<string, unknown>)[key]] : []))
   for (const v of vals.flat(Infinity)) if (v != null) yield v
 }
 
 /** Is every file under `dataDir` inside one of the `reads` folders (paths relative to `root`)? Judged on
  *  the disk NOW, so a folder a pull added after compile makes the repo incomplete without a recompile. */
-function readsAll(root, dataDir, reads) {
+function readsAll(root: string, dataDir: string, reads: string[]): boolean {
   const abs = path.join(root, dataDir)
   if (!fs.existsSync(abs)) return true
   const prefixes = reads.map(r => path.join(root, r) + path.sep)
@@ -86,9 +107,21 @@ function readsAll(root, dataDir, reads) {
  * nothing is known, so no layer is complete and no layer holder is seen); `own` this workspace's package
  * name. A repo is named by its layer name, the write root by null.
  */
-export function exportsContext({ root, descriptors, own, layers, dataPath = "data" }) {
+export function exportsContext({
+  root,
+  descriptors,
+  own,
+  layers,
+  dataPath = "data",
+}: {
+  root: string
+  descriptors: Descriptors
+  own: string | null
+  layers: LayerFact[] | null
+  dataPath?: string
+}): ExportsContext {
   const facts = new Map<string, LayerFact>((layers ?? []).map(l => [l.name, l]))
-  const rootsOf = coll => {
+  const rootsOf = (coll: string): ContextRoot[] => {
     const d = descriptors.get(coll)
     if (!d) return []
     return storageOf(d).roots.map(r => {
@@ -100,12 +133,12 @@ export function exportsContext({ root, descriptors, own, layers, dataPath = "dat
       }
     })
   }
-  const complete = layer => {
+  const complete = (layer: string | null): boolean => {
     if (layer) {
       const l = facts.get(layer)
       return !!l && !l.narrowed && readsAll(root, l.data, l.reads)
     }
-    const reads = []
+    const reads: string[] = []
     for (const d of descriptors.values()) {
       if (storageOf(d).unavailable) return false
       if (
@@ -128,7 +161,7 @@ export function exportsContext({ root, descriptors, own, layers, dataPath = "dat
 
 /** Does this context read the entry's holder for its collection — a root of that collection, on disk,
  *  whose package is the entry's `from`? An entry with no holder is seen by no context. */
-export function sees(entry, coll, ctx) {
+export function sees(entry: ExportEntry | null | undefined, coll: string, ctx: ExportsContext): boolean {
   return !!entry?.from && ctx.rootsOf(coll).some(r => r.present && r.package === entry.from)
 }
 
@@ -138,8 +171,18 @@ export function sees(entry, coll, ctx) {
  * `held(coll, id)` says the repo holds it; `resolve(coll, id)` answers `{ label, from }` or null.
  * @returns {Map<string, { collection, id, resolved, referrers: string[] }>} keyed `<collection>/<id>`
  */
-export function outsideRefs({ records, held, resolve, namespaces }) {
-  const out = new Map()
+export function outsideRefs({
+  records,
+  held,
+  resolve,
+  namespaces,
+}: {
+  records: Iterable<{ collection: string; id: string; fields: Fields; descriptor: Descriptor }>
+  held: (coll: string, id: string) => boolean
+  resolve: (coll: string, id: string) => ExportEntry | null
+  namespaces: string[]
+}): Map<string, OutsideRef> {
+  const out = new Map<string, OutsideRef>()
   for (const { collection, id, fields, descriptor } of records) {
     for (const [fieldPath, targets, soft] of collectRefFields(fieldsOf(descriptor))) {
       if (soft || (fieldPath.length === 1 && fieldsOf(descriptor)[fieldPath[0]]?.mirror_of !== undefined)) continue
@@ -168,10 +211,22 @@ export function outsideRefs({ records, held, resolve, namespaces }) {
  * drop an entry for an id the repo now holds, one whose seen holder lost the id, and — only where this
  * context reads every record of the repo — one nothing references; keep everything else as written.
  */
-export function regenerate({ current, outside, ctx, repo, held }) {
-  const next = {}
-  const changes = []
-  const put = (c, id, e) => {
+export function regenerate({
+  current,
+  outside,
+  ctx,
+  repo,
+  held,
+}: {
+  current: ExportRefs | null
+  outside: Map<string, OutsideRef>
+  ctx: ExportsContext
+  repo: string | null
+  held: (coll: string, id: string) => boolean
+}): { next: ExportRefs; changes: ExportChange[] } {
+  const next: ExportRefs = {}
+  const changes: ExportChange[] = []
+  const put = (c: string, id: string, e: ExportEntry): void => {
     ;(next[c] ??= {})[id] = e
   }
   const complete = ctx.complete(repo)
@@ -216,4 +271,4 @@ export function regenerate({ current, outside, ctx, repo, held }) {
 }
 
 /** A manifest is stale exactly when `regenerate` would change or drop one of its existing entries. */
-export const isStale = changes => changes.some(c => c.kind !== "add")
+export const isStale = (changes: ExportChange[]): boolean => changes.some(c => c.kind !== "add")

@@ -21,7 +21,7 @@ export function matchesFilter(record: Fields, filter: unknown, resolve?: (ref: s
   return true
 }
 
-function matchesField(value, cond, resolve) {
+function matchesField(value: unknown, cond: unknown, resolve?: (ref: string) => Fields | null): boolean {
   if (cond === null || typeof cond !== "object" || Array.isArray(cond)) return compare("_eq", value, cond)
   for (const [op, operand] of Object.entries(cond)) {
     if (!op.startsWith("_")) {
@@ -31,7 +31,7 @@ function matchesField(value, cond, resolve) {
       // no resolver wired, a dangling ref, or a non-ref value NARROWS, never widens — same
       // fail-closed posture as unknown operators. inbound refs are tier 2 (not supported).
       if (!resolve) return false
-      const refs = (Array.isArray(value) ? value : [value]).filter(r => typeof r === "string")
+      const refs = (Array.isArray(value) ? value : [value]).filter((r): r is string => typeof r === "string")
       if (
         !refs.some(r => {
           const target = resolve(r)
@@ -46,18 +46,19 @@ function matchesField(value, cond, resolve) {
   return true
 }
 
-function compare(op, v, operand) {
+function compare(op: string, v: unknown, operand: unknown): boolean {
   const o = resolveTokens(operand)
   if (o === UNKNOWN_TOKEN) return false
-  const s = x => String(x ?? "")
+  const s = (x: unknown): string => String(x ?? "")
   const empty = v == null || v === "" || (Array.isArray(v) && v.length === 0)
   // array field values (tags, attendees): containment semantics for eq/contains
   const arr = Array.isArray(v)
+  const vs = v as unknown[] // read only where `arr` holds
   switch (op) {
     case "_eq":
-      return arr ? v.includes(o) : looseEq(v, o)
+      return arr ? vs.includes(o) : looseEq(v, o)
     case "_neq":
-      return v != null && !(arr ? v.includes(o) : looseEq(v, o))
+      return v != null && !(arr ? vs.includes(o) : looseEq(v, o))
     case "_ieq":
       return s(v).toLowerCase() === s(o).toLowerCase()
     case "_nieq":
@@ -71,9 +72,9 @@ function compare(op, v, operand) {
     case "_gte":
       return v != null && cmp(v, o) >= 0
     case "_in":
-      return toArray(o).some(x => (arr ? v.includes(x) : looseEq(v, x)))
+      return toArray(o).some(x => (arr ? vs.includes(x) : looseEq(v, x)))
     case "_nin":
-      return v != null && !toArray(o).some(x => (arr ? v.includes(x) : looseEq(v, x)))
+      return v != null && !toArray(o).some(x => (arr ? vs.includes(x) : looseEq(v, x)))
     case "_null":
       return o ? v == null : v != null
     case "_nnull":
@@ -83,12 +84,12 @@ function compare(op, v, operand) {
     case "_nempty":
       return o ? !empty : empty
     case "_contains":
-      return arr ? v.some(x => s(x).includes(s(o))) : s(v).includes(s(o))
+      return arr ? vs.some(x => s(x).includes(s(o))) : s(v).includes(s(o))
     case "_ncontains":
       return v != null && !s(v).includes(s(o))
     case "_icontains":
       return arr
-        ? v.some(x => s(x).toLowerCase().includes(s(o).toLowerCase()))
+        ? vs.some(x => s(x).toLowerCase().includes(s(o).toLowerCase()))
         : s(v).toLowerCase().includes(s(o).toLowerCase())
     case "_starts_with":
       return s(v).startsWith(s(o))
@@ -150,8 +151,8 @@ export const KNOWN_OPERATORS: ReadonlySet<string> = new Set([
   "_or",
 ])
 
-const warned = new Set()
-function warnUnknownOp(op) {
+const warned = new Set<string>()
+function warnUnknownOp(op: string): void {
   if (warned.has(op)) return
   warned.add(op)
   console.warn(
@@ -187,10 +188,10 @@ export function unknownOperators(filter: unknown, found = new Set<string>()): Se
 export const VALUE_TOKENS = ["$today", "$now"]
 const TOKEN = /^\$[A-Za-z_]\w*$/
 const UNKNOWN_TOKEN = Symbol("unknown token")
-const pad = n => String(n).padStart(2, "0")
+const pad = (n: number): string => String(n).padStart(2, "0")
 
 /** The value a token stands for at `at` (default: now), or undefined for a string that is not a token. */
-export function tokenValue(value, at = new Date()) {
+export function tokenValue(value: unknown, at: Date = new Date()): string | typeof UNKNOWN_TOKEN | undefined {
   if (typeof value !== "string" || !TOKEN.test(value)) return undefined
   const day = `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}`
   if (value === "$today") return day
@@ -202,7 +203,7 @@ export function tokenValue(value, at = new Date()) {
   return UNKNOWN_TOKEN
 }
 
-function resolveTokens(o) {
+function resolveTokens(o: unknown): unknown {
   if (Array.isArray(o)) {
     const out = o.map(x => tokenValue(x) ?? x)
     return out.includes(UNKNOWN_TOKEN) ? UNKNOWN_TOKEN : out
@@ -212,7 +213,7 @@ function resolveTokens(o) {
 
 /** Every `$token` value in a filter tree that is not one of VALUE_TOKENS — what compile and
  *  `--where` refuse. */
-export function unknownTokens(filter, found = new Set()) {
+export function unknownTokens(filter: unknown, found: Set<string> = new Set()): Set<string> {
   if (typeof filter === "string") {
     if (TOKEN.test(filter) && !VALUE_TOKENS.includes(filter)) found.add(filter)
     return found
@@ -227,7 +228,7 @@ export function unknownTokens(filter, found = new Set()) {
 // there refused a proof that works — worse than the silent pass it was written to prevent.
 export const looseEq = (v: unknown, o: unknown): boolean =>
   v === o || String(v) === String(o) || (typeof v === "number" && Number(o) === v)
-const toArray = o =>
+const toArray = (o: unknown): unknown[] =>
   Array.isArray(o)
     ? o
     : String(o)

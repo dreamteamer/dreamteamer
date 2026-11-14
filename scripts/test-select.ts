@@ -14,7 +14,7 @@ import { basename } from "node:path"
 // edit. compile and records are the two files that cross the most of the engine per second.
 export const SMOKE = ["test/integration/compile.test.js", "test/integration/records.test.js"]
 
-const stem = p => basename(p).replace(/\.d\.ts$|\.test\.js$|\.[a-z]+$/, "")
+const stem = (p: string): string => basename(p).replace(/\.d\.ts$|\.test\.js$|\.[a-z]+$/, "")
 
 // Root files every fixture workspace ALSO has. A test naming `package.json` means the fixture's,
 // so a mention says nothing about the engine's own copy — measured: these two names alone pulled 20
@@ -37,10 +37,18 @@ const FIXTURE_NAMES = new Set([
  * @param {string[]} [o.failed]      files that failed on their last run
  * @returns {{ files: string[], all: boolean, reasons: Map<string,string>, unmatched: string[] }}
  */
-export function selectTests({ changed, integration, failed = [] }) {
-  const reasons = new Map()
-  const unmatched = []
-  const pick = (file, why) => {
+export function selectTests({
+  changed,
+  integration,
+  failed = [],
+}: {
+  changed: string[]
+  integration: Map<string, string>
+  failed?: string[]
+}): { files: string[]; all: boolean; reasons: Map<string, string>; unmatched: string[] } {
+  const reasons = new Map<string, string>()
+  const unmatched: string[] = []
+  const pick = (file: string, why: string): void => {
     if (!reasons.has(file)) reasons.set(file, why)
   }
   const names = [...integration.keys()]

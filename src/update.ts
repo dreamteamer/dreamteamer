@@ -21,10 +21,11 @@ import {
   npmAndCompile,
   printUnitResults,
 } from "./install-modules.ts"
+import type { setupAndCommit } from "./install-modules.ts"
 import { EXIT } from "./setup.ts"
 import type { Workspace } from "./types.ts"
 
-const gitOk = (root, args) => {
+const gitOk = (root: string, args: string[]): boolean => {
   try {
     execFileSync("git", args, { cwd: root, stdio: "ignore" })
     return true
@@ -39,7 +40,7 @@ const gitOk = (root, args) => {
  * `engine: true` targets `dreamteamer` itself.
  */
 export async function updateModules(
-  ws,
+  ws: Workspace,
   {
     name = null,
     version = null,
@@ -214,7 +215,11 @@ const CHILD = path.join(
   `update-setup${path.extname(fileURLToPath(import.meta.url))}`
 )
 /** Run setupAndCommit in update-setup; its result, or null when the child did not leave one. */
-function setupInChild(root, names, { subject, processEnv, noCommit }) {
+function setupInChild(
+  root: string,
+  names: string[],
+  { subject, processEnv, noCommit }: { subject: string; processEnv: NodeJS.ProcessEnv; noCommit: boolean }
+): Awaited<ReturnType<typeof setupAndCommit>> | null {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dt-update-"))
   const out = path.join(dir, "result.json")
   try {
@@ -235,13 +240,13 @@ function setupInChild(root, names, { subject, processEnv, noCommit }) {
 }
 
 /** The `dt update` argv: a target (`name`, `name@version`), `--engine`, `--allow downgrade`, `--from <dir>`, `--no-commit`. */
-export function parseUpdateArgs(argv) {
+export function parseUpdateArgs(argv: string[]) {
   const out = {
-    name: null,
-    version: null,
+    name: null as string | null,
+    version: null as string | null,
     engine: argv.includes("--engine"),
     allow: new Set<string>(),
-    from: null,
+    from: null as string | null,
     noCommit: argv.includes("--no-commit"),
   }
   for (let i = 0; i < argv.length; i++) {

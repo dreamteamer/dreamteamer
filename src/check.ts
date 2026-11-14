@@ -20,6 +20,8 @@ import {
 import { NO_RUNTIME, loadDescriptors, runtimeDir, namespaces as compiledNamespaces, exportsFacts } from "./runtime.ts"
 import { parseRef } from "./namespace.ts"
 import { relationsOf, expectedMirrors, ownersReadIn } from "./relations.ts"
+import type { Relation } from "./relations.ts"
+import type { Descriptor } from "./types.ts"
 import {
   collectRefFields,
   valuesAt,
@@ -50,7 +52,7 @@ export function check(
   }: { extra?: { file: string; msg: string; warning?: true }[]; strictExport?: boolean } = {}
 ): 0 | 1 | 2 {
   const RUNTIME = runtimeDir(root)
-  const rel = p => path.relative(root, p)
+  const rel = (p: string): string => path.relative(root, p)
 
   // useDefaults matches the STORE's validator (review finding 11: the two paths could
   // reach different verdicts on identical bytes). check never writes — the defaults
@@ -81,17 +83,17 @@ export function check(
   const strays = []
   // declared here rather than beside the validation pass: indexing can itself produce a
   // finding (an unreachable data root, below) before a single record is read.
-  const violations = []
-  const dirOf = d => path.resolve(storageOf(d).runtime ? RUNTIME : root, storageOf(d).path) // resolve: an env-pointed root is absolute
+  const violations: { file: string; msg: string; layer?: string }[] = []
+  const dirOf = (d: Descriptor): string => path.resolve(storageOf(d).runtime ? RUNTIME : root, storageOf(d).path) // resolve: an env-pointed root is absolute
   // per indexed file: the repo that holds it (mirrors are expected per repo) and the record layer it
   // came from, if any (its findings are reported under the layer, not as this workspace's data)
-  const fileRepo = new Map()
-  const fileLayer = new Map()
+  const fileRepo = new Map<string, string>()
+  const fileLayer = new Map<string, string>()
   const layerNotes = new Map() // layer name -> note, printed once
   for (const [name, d] of descriptors) {
     const ids = new Map()
     index.set(name, ids)
-    const claim = (id, f, repo, layer?) => {
+    const claim = (id: string, f: string, repo: string, layer?: string): boolean => {
       if (ids.has(id)) {
         violations.push({
           file: rel(f),
@@ -148,11 +150,12 @@ export function check(
           msg: `is a symlink — ${name} records are read only from real folders inside ${under.collection} records; whatever this points at is not indexed. Replace it with a real folder.`,
         })
       }
-      const onLink = p =>
+      const onLink = (p: string): void => {
         violations.push({
           file: rel(p),
           msg: `is a symlink inside a ${under.collection} record's folder — nothing behind it is read as a ${name} record, and nothing is written through it. Replace it with a real folder or file.`,
         })
+      }
       for (const r of placedRecords(d, dir, parentDir, onLink)) {
         if (claim(r.id, r.file, storageOf(d).repo)) seen.set(r.id, r.parentId)
       }
@@ -161,7 +164,7 @@ export function check(
     // every root: the write root, then each record layer. Claimants are GATHERED first, in root order:
     // the first answers, exactly as the store indexes, and every other is the duplicate reported above.
     const offers = new Map() // id -> [{ f, repo, layer }], root order
-    const offer = (id, f, repo, layer) => {
+    const offer = (id: string, f: string, repo: string, layer: string | undefined): void => {
       const o = offers.get(id)
       if (o) o.push({ f, repo, layer })
       else offers.set(id, [{ f, repo, layer }])
@@ -242,13 +245,18 @@ export function check(
   }
 
   // ---- validate each record -------------------------------------------------------
-  const flag = (file, msg) => violations.push({ file: rel(file), layer: fileLayer.get(file), msg })
+  const flag = (file: string, msg: string): void => {
+    violations.push({ file: rel(file), layer: fileLayer.get(file), msg })
+  }
 
   // parsed fields, kept for the relations pass below (parse each record exactly once)
   const parsed = new Map()
   // cr-dt-003: what a reader of this workspace (without its layers) would see break — a target only a
   // layer answers
-  const layerOnly = new Map() // target -> { layer, binary, refs: [{ file, field, value, referrer }] }
+  const layerOnly = new Map<
+    string,
+    { layer: string; binary: boolean; refs: { file: string; field: string; value: string; referrer: string }[] }
+  >() // target -> { layer, binary, refs: [{ file, field, value, referrer }] }
   const softRefs = new Map() // absent-but-declared peer collection -> how many refs point at it
   // cr-dt-004: each repo's exports manifest (the write root is `null`), and the references it vouches for
   const facts = exportsFacts(root)
@@ -323,7 +331,7 @@ export function check(
       const under = placementOf(d)
       if (under) {
         const raw = fields[under.parent]
-        const wellFormed = raw == null || raw === "" || parseRef(raw, namespaces)
+        const wellFormed = raw == null || raw === "" || (typeof raw === "string" && parseRef(raw, namespaces))
         const want = ownerIdOf(fields, under, v => parseRef(v, namespaces))
         const got = observed.get(name).get(id)
         if (under.id === "nested" && want && id.split("/")[0] !== want) {
@@ -412,7 +420,15 @@ export function check(
     }
   }
 
-  function checkRef(file, fieldPath, value, targets, softTargets, soft = false, referrer = null) {
+  function checkRef(
+    file: string,
+    fieldPath: string[],
+    value: unknown,
+    targets: "*" | string[],
+    softTargets: Set<string> | null,
+    soft = false,
+    referrer: string | null = null
+  ): void {
     if (typeof value !== "string") return
     if (value.startsWith("@")) return // runtime tokens (@me, @initiator) are legal
     // The SAME parser the store writes through (src/namespace.ts) — `check` disagreeing with the
@@ -474,7 +490,8 @@ export function check(
     console.log(`⚠ ${s.file} — unrecognized file in ${s.collection} folder${s.note ? ` (${s.note})` : ""}`)
   }
   for (const note of layerNotes.values()) console.log(note)
-  const upTo3 = xs => (xs.length > 3 ? [...xs.slice(0, 3), `+${xs.length - 3} more`] : xs).join(", ")
+  const upTo3 = (xs: string[]): string =>
+    (xs.length > 3 ? [...xs.slice(0, 3), `+${xs.length - 3} more`] : xs).join(", ")
   for (const [repo, { refs, targets }] of external) {
     console.log(
       `ℹ ${repo ? `layer ${repo}: ` : ""}${refs} reference${refs === 1 ? "" : "s"} to ${targets.size} record${targets.size === 1 ? "" : "s"} outside ${repo ? "it" : "this workspace"}, vouched for by its exports manifest (${upTo3([...targets].sort())})`
@@ -482,7 +499,7 @@ export function check(
   }
   // a manifest is stale exactly when `dt exports` here would change or drop one of its entries
   for (const [repo, current] of manifests) {
-    const repoOf = (c, id) => {
+    const repoOf = (c: string, id: string): string | null | undefined => {
       const f = index.get(c)?.get(id)
       return f ? (fileLayer.get(f) ?? null) : undefined
     }
@@ -491,7 +508,7 @@ export function check(
         .filter(([id]) => repoOf(c, id) === repo)
         .map(([id, fields]) => ({ collection: c, id, fields, descriptor: descriptors.get(c) }))
     )
-    const resolve = (c, id) => {
+    const resolve = (c: string, id: string): { label: string; from?: string } | null => {
       if (repoOf(c, id) === undefined) return null
       const t = /\{\{\s*([A-Za-z_][\w]*)/.exec(recordTitleOf(descriptors.get(c)))?.[1]
       return { label: String(parsed.get(c)?.get(id)?.[t] ?? id), from: ctx.packageOf(repoOf(c, id)) }
@@ -536,13 +553,13 @@ export function check(
   // record is validated against THIS workspace's shape, and a value its own overlay allows is a
   // finding about the two having drifted, not a defect in our data
   const own = violations.filter(v => !v.layer)
-  const layers = new Map()
+  const layers = new Map<string, typeof violations>()
   for (const v of violations)
     if (v.layer) {
       if (!layers.has(v.layer)) layers.set(v.layer, [])
       layers.get(v.layer).push(v)
     }
-  const print = list => {
+  const print = (list: typeof violations): void => {
     let last = null
     for (const v of list) {
       if (v.file !== last) console.log(`✖ ${v.file}`)
@@ -563,8 +580,8 @@ export function check(
 
 // a unique relation mirrors to a scalar, everything else to a sorted array — compare in the shape the
 // mirror is actually written in (absent and empty are the same reading)
-function sameMirror(relation, actual, expected) {
+function sameMirror(relation: Relation, actual: unknown, expected: unknown): boolean {
   return relation.unique
     ? (actual ?? null) === (expected ?? null)
-    : JSON.stringify([...(actual ?? [])].sort()) === JSON.stringify(expected ?? [])
+    : JSON.stringify([...((actual as string[] | null | undefined) ?? [])].sort()) === JSON.stringify(expected ?? [])
 }

@@ -29,12 +29,17 @@ const { EXPORTS_FILE, readExports, serializeExports, exportsContext, outsideRefs
 const { planExports } = await engine<typeof import("../src/exports-cli.ts")>("exports-cli")
 
 // `stub: true` in the FRONTMATTER only — a body quoting a stub is a real record
-const isStubText = text => /^stub:\s*true\s*$/m.test(/^---\n([\s\S]*?)\n---(?:\n|$)/.exec(text)?.[1] ?? "")
-const title = (d, fields, id) => String(fields[/\{\{\s*([A-Za-z_][\w]*)/.exec(recordTitleOf(d))?.[1]] ?? id)
+type Descriptor = import("../src/types.ts").Descriptor
+type StoreT = InstanceType<typeof Store>
+
+const isStubText = (text: string): boolean =>
+  /^stub:\s*true\s*$/m.test(/^---\n([\s\S]*?)\n---(?:\n|$)/.exec(text)?.[1] ?? "")
+const title = (d: Descriptor, fields: Record<string, unknown>, id: string): string =>
+  String(fields[/\{\{\s*([A-Za-z_][\w]*)/.exec(recordTitleOf(d))?.[1]] ?? id)
 
 /** Every record file of `repo` (null: the workspace), per collection: `[{ d, id, file, stub }]`. */
-function filesOf(store, repo) {
-  const out = []
+function filesOf(store: StoreT, repo: string | null): { d: Descriptor; id: string; file: string; stub: boolean }[] {
+  const out: ReturnType<typeof filesOf> = []
   for (const d of store.descriptors.values()) {
     if (storageOf(d).runtime || storageOf(d).unavailable || storageOf(d).format === "binary") continue
     for (const r of store.rootsOf(d)) {
@@ -48,7 +53,14 @@ function filesOf(store, repo) {
   return out
 }
 
-export function migrate(root, { layers = false, dryRun = false, log = console.log } = {}) {
+export function migrate(
+  root: string,
+  {
+    layers = false,
+    dryRun = false,
+    log = console.log,
+  }: { layers?: boolean; dryRun?: boolean; log?: (line: string) => void } = {}
+) {
   const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"))
   const store = new Store({ root, pkg })
   const facts = exportsFacts(root)
@@ -113,7 +125,7 @@ export function migrate(root, { layers = false, dryRun = false, log = console.lo
     const plan = planExports(new Store({ root, pkg }), repo) // as dt exports would, on the migrated tree
     if (plan.text === null) fs.rmSync(plan.file, { force: true })
     else fs.writeFileSync(plan.file, plan.text)
-    const git = args =>
+    const git = (args: string[]): string =>
       execFileSync("git", args, { cwd: dir, stdio: ["ignore", "pipe", "pipe"] })
         .toString()
         .trim()

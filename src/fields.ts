@@ -112,7 +112,7 @@ export const INJECTED_FIELDS = {
 }
 
 /** Is `type` a reference to one or more collections, given the names that exist? */
-export function referenceTargets(type, collections) {
+export function referenceTargets(type: unknown, collections: Set<string>): string[] | null {
   if (type === "reference") return ["*"]
   if (Array.isArray(type)) return type
   if (typeof type === "string" && !SCALAR_TYPES.includes(type) && collections.has(type)) return [type]
@@ -128,12 +128,15 @@ export function referenceTargets(type, collections) {
  *   defaults — per field, the keys compile supplied (title today; on_delete on references)
  *   errors   — each naming the field and the key
  */
-export function resolveFields(authored, ctx) {
-  const errors = []
-  const warnings = []
-  const defaults = {}
+export function resolveFields(
+  authored: Record<string, Field> | null | undefined,
+  ctx: { name?: string; collections: Iterable<string>; peers?: Iterable<string>; runtime?: boolean }
+): { fields: Record<string, Field>; errors: string[]; warnings: string[]; defaults: Record<string, Partial<Field>> } {
+  const errors: string[] = []
+  const warnings: string[] = []
+  const defaults: Record<string, Partial<Field>> = {}
   const known = new Set(Object.keys(authored ?? {}))
-  const fields = {}
+  const fields: Record<string, Field> = {}
   // `created` is STAMPED by the store, which a kind whose records compile writes never goes through
   for (const [k, v] of Object.entries(INJECTED_FIELDS)) {
     if (k === "created" && ctx.runtime) continue
@@ -179,7 +182,17 @@ const RECORD_KEYS = ["body", "mirror_of", "unique", "derived", "virtual"]
  * object's `fields` and a map's `values` — under its full path (`details.code`). Pushes onto `errors`
  * and `warnings`; returns the field's reference targets (null when it references nothing).
  */
-function checkField(path, prop, { types, siblings, errors, warnings, top }) {
+function checkField(
+  path: string,
+  prop: Field,
+  {
+    types,
+    siblings,
+    errors,
+    warnings,
+    top,
+  }: { types: Set<string>; siblings: Record<string, Field>; errors: string[]; warnings: string[]; top: boolean }
+): string[] | null {
   const at = `field "${path}"`
   const name = path.split(".").pop()
   const targets = referenceTargets(prop.type, types)
@@ -197,7 +210,7 @@ function checkField(path, prop, { types, siblings, errors, warnings, top }) {
     if (!FIELD_KEYS.has(k))
       errors.push(`${at} has unknown key "${k}" — the closed list is: ${[...FIELD_KEYS].join(" ")}`)
   if (prop.type === undefined) errors.push(`${at} has no type`)
-  else if (!targets && !SCALAR_TYPES.includes(prop.type)) {
+  else if (!targets && !(SCALAR_TYPES as readonly unknown[]).includes(prop.type)) {
     errors.push(
       Array.isArray(prop.type)
         ? `${at}: a union names collections, and ${JSON.stringify(prop.type)} is not all collections`
@@ -257,15 +270,19 @@ function checkField(path, prop, { types, siblings, errors, warnings, top }) {
       if (!DISPLAY_KEYS.has(k))
         errors.push(`${at}: display has unknown key "${k}" — one of ${[...DISPLAY_KEYS].join(" ")}`)
     const { editable, hidden, unit_field } = prop.display
-    if (editable !== undefined && ![true, false, "create"].includes(editable))
+    if (editable !== undefined && !([true, false, "create"] as unknown[]).includes(editable))
       errors.push(`${at}: display.editable is true, false or create`)
     if (hidden !== undefined && (!Array.isArray(hidden) || hidden.some(h => !["list", "form", "record"].includes(h))))
       errors.push(`${at}: display.hidden lists list, form, record`)
-    if (prop.required && prop.default === undefined && (editable === false || hidden?.includes("form")))
+    if (
+      prop.required &&
+      prop.default === undefined &&
+      (editable === false || (Array.isArray(hidden) && hidden.includes("form")))
+    )
       errors.push(
         `${at}: required with no default, but hidden from the form or not editable — nothing could create a record`
       )
-    if (unit_field !== undefined && siblings?.[unit_field]?.type !== "string")
+    if (unit_field !== undefined && (typeof unit_field !== "string" || siblings?.[unit_field]?.type !== "string"))
       errors.push(`${at}: display.unit_field "${unit_field}" is not a string field`)
   }
   for (const [k, child] of Object.entries(
@@ -291,21 +308,21 @@ function checkField(path, prop, { types, siblings, errors, warnings, top }) {
 }
 
 /** The enum's value list, from a list or a map; null when it is neither. */
-export function enumValues(e) {
+export function enumValues(e: unknown): unknown[] | null {
   if (Array.isArray(e)) return e
   if (e && typeof e === "object") return Object.keys(e)
   return null
 }
 
 /** The enum's decoration per value — `{ value: { label, description, icon, color, background } }` — from a map; {} from a list. */
-export function enumChoices(e) {
+export function enumChoices(e: unknown): Record<string, Record<string, string>> {
   if (!e || Array.isArray(e) || typeof e !== "object") return {}
-  const out = {}
+  const out: Record<string, Record<string, string>> = {}
   for (const [v, row] of Object.entries(e)) {
     if (!row || typeof row !== "object") continue
-    const r = {}
+    const r: Record<string, string> = {}
     for (const k of ["label", "description", "icon", "color", "background"])
-      if (typeof row[k] === "string") r[k] = row[k]
+      if (typeof (row as Record<string, unknown>)[k] === "string") r[k] = (row as Record<string, string>)[k]
     out[v] = r
   }
   return out
@@ -313,7 +330,7 @@ export function enumChoices(e) {
 
 /** The default field label — the same rule compile's titleCase has always applied, so a surface
  *  draws a v2 field exactly as it drew the v1 one. */
-export function titleOf(name) {
+export function titleOf(name: unknown): string {
   return String(name)
     .split(/[_\-\s/]+/)
     .filter(Boolean)
@@ -329,8 +346,8 @@ export function toJsonSchema(
   fields: Record<string, Field>,
   { constraints = [], collections }: { constraints?: unknown[]; collections?: Set<string> } = {}
 ): Record<string, unknown> {
-  const properties = {}
-  const required = []
+  const properties: Record<string, unknown> = {}
+  const required: string[] = []
   for (const [name, f] of Object.entries(fields)) {
     if (f.virtual) continue
     properties[name] = propertySchema(f, collections)
@@ -342,7 +359,7 @@ export function toJsonSchema(
   return schema
 }
 
-function propertySchema(f: Field, collections) {
+function propertySchema(f: Field, collections: Set<string> | undefined): Record<string, unknown> {
   let s: Record<string, unknown> = scalarSchema(f, collections)
   for (const k of PASS_THROUGH) if (f[k] !== undefined && !(f.many && ["minItems", "maxItems"].includes(k))) s[k] = f[k]
   if (f.many) {
@@ -357,7 +374,7 @@ function propertySchema(f: Field, collections) {
   return s
 }
 
-function scalarSchema(f, collections) {
+function scalarSchema(f: Field, collections: Set<string> | undefined): Record<string, unknown> {
   const t = f.type
   if (referenceTargets(t, collections ?? new Set(Array.isArray(t) ? t : [t]))) return { type: "string" }
   switch (t) {
@@ -388,7 +405,9 @@ function scalarSchema(f, collections) {
         : { type: "object", additionalProperties: valueSchema(f.values, collections) }
     case "object": {
       const inner = toJsonSchema(
-        Object.fromEntries(Object.entries<Field>(f.fields ?? {}).map(([k, v]) => [k, { ...v, title: undefined }])),
+        Object.fromEntries(
+          Object.entries<Field>(f.fields ?? {}).map(([k, v]) => [k, { ...v, title: undefined as string | undefined }])
+        ),
         { collections }
       )
       return inner
@@ -398,7 +417,10 @@ function scalarSchema(f, collections) {
   }
 }
 
-function valueSchema(values, collections) {
+function valueSchema(
+  values: string | Field | undefined,
+  collections: Set<string> | undefined
+): Record<string, unknown> {
   if (typeof values === "string") return scalarSchema({ type: values }, collections)
   if (values && typeof values === "object") return propertySchema(values, collections)
   return {}

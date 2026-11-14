@@ -13,9 +13,10 @@ import { fileURLToPath } from "node:url"
 
 const root = fileURLToPath(new URL("..", import.meta.url))
 const tsc = path.join(root, "node_modules", ".bin", process.platform === "win32" ? "tsc.cmd" : "tsc")
-const run = (args, cwd) => spawnSync(tsc, args, { cwd, encoding: "utf8", shell: process.platform === "win32" })
+const run = (args: string[], cwd: string) =>
+  spawnSync(tsc, args, { cwd, encoding: "utf8", shell: process.platform === "win32" })
 
-export function checkContract(decls = null) {
+export function checkContract(decls: string | null = null): { ok: boolean; output: string } {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "dt-contract-"))
   try {
     if (!decls) {

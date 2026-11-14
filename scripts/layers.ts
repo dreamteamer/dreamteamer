@@ -80,7 +80,7 @@ const LAYERS = {
 }
 
 // who may import whom. `record` and `boundary` are the constrained half; surfaces are free.
-const ALLOWED = {
+const ALLOWED: Record<string, Set<string>> = {
   record: new Set(["record", "boundary"]),
   boundary: new Set(["record", "boundary"]),
   workspace: new Set(["record", "boundary", "workspace"]),

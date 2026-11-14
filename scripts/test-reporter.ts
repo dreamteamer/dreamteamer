@@ -20,12 +20,24 @@ const RED = "\x1b[31m"
 const DIM = "\x1b[2m"
 const OFF = "\x1b[0m"
 
-export default async function* reporter(source) {
+/** The slice of a node:test reporter event this reporter reads. */
+type EventData = {
+  file?: string
+  line?: number
+  name?: string
+  message?: string
+  skip?: unknown
+  todo?: unknown
+  details?: { type?: string; error?: unknown }
+}
+type ReporterEvent = { type: string; data?: EventData }
+
+export default async function* reporter(source: AsyncIterable<ReporterEvent>): AsyncGenerator<string> {
   let passed = 0
   let skipped = 0
-  const failures = []
-  let started
-  const ran = new Set()
+  const failures: EventData[] = []
+  let started: number | undefined
+  const ran = new Set<string>()
 
   for await (const event of source) {
     // `describe` blocks emit pass/fail events too; counting them would inflate the numbers and,
@@ -64,13 +76,16 @@ export default async function* reporter(source) {
   yield "\n\n"
 
   for (const f of failures) {
-    const err = f.details?.error
-    const cause = err?.cause ?? err
+    const err = f.details?.error as { cause?: unknown } | null | undefined
+    const cause: unknown = err?.cause ?? err
+    // an object cause may carry a message and the two values; a string cause (node:test sends one) carries neither
+    const c =
+      cause && typeof cause === "object" ? (cause as { message?: unknown; expected?: unknown; actual?: unknown }) : null
     yield `${RED}✖ ${f.name}${OFF}\n`
     yield `${DIM}  ${f.file ?? ""}${f.line ? `:${f.line}` : ""}${OFF}\n`
     // inspect, not String: a rejected value may be an object with no prototype, and String() on it
     // throws inside the reporter, which kills the whole run with no summary.
-    const message = typeof cause?.message === "string" ? cause.message : inspect(cause ?? "unknown failure")
+    const message = typeof c?.message === "string" ? c.message : inspect(cause ?? "unknown failure")
     yield `${message
       .split("\n")
       .map(l => `  ${l}`)
@@ -80,7 +95,7 @@ export default async function* reporter(source) {
     // e.g. when a file fails to load at all), and `'expected' in aString` throws — which crashed the
     // reporter and hid the real failure behind a TypeError from the reporter itself.
     if (cause && typeof cause === "object" && "expected" in cause && !message.includes("expected")) {
-      yield `${DIM}  expected: ${JSON.stringify(cause.expected)}\n  actual:   ${JSON.stringify(cause.actual)}${OFF}\n`
+      yield `${DIM}  expected: ${JSON.stringify(cause.expected)}\n  actual:   ${JSON.stringify((cause as { actual?: unknown }).actual)}${OFF}\n`
     }
     yield "\n"
   }
@@ -96,8 +111,8 @@ export default async function* reporter(source) {
 
 // What `npm test -- --failed` reruns, and what `--changed` always includes. A file leaves the list only
 // by RUNNING and passing — a narrower run that never touched it keeps it there.
-function rememberFailures(ran, failed) {
-  let prev = []
+function rememberFailures(ran: Set<string>, failed: Iterable<string>): void {
+  let prev: string[] = []
   try {
     prev = JSON.parse(readFileSync(FAILED_FILE, "utf8"))
   } catch {

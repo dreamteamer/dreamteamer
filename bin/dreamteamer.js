@@ -44,6 +44,7 @@ if (flagAt !== -1) {
     )
     process.exit(1)
   }
+  /** @param {string} why */
   const refuse = why => {
     console.error(`\u2716 ${flag} ${target} \u2014 ${why}`)
     process.exit(1)
@@ -78,7 +79,7 @@ if (flagAt !== -1) {
   // re-exec below, an `import()` into this same process. An env var reached every child — git hooks,
   // an extension spawning dt — and a dt run inside the clone by any of them answered from the layer
   // alone instead of the reader's union.
-  globalThis[Symbol.for("dreamteamer.workspace")] = process.cwd() // the physical path, as discovery will see it
+  pinned()[Symbol.for("dreamteamer.workspace")] = process.cwd() // the physical path, as discovery will see it
   process.argv.splice(flagAt, joined ? 1 : 2)
 }
 
@@ -102,6 +103,12 @@ if (devBin && realpath(devBin) !== realpath(self)) {
  *  by `npm pack` in a checkout is a stale build, and running it would ignore every edit since, silently.
  *  A git_modules/dreamteamer dev clone is a checkout with no dist/ at all, which is why the source has
  *  to be runnable as-is: Node strips the types (22.18+), nothing is built. */
+/** The process-wide registry the `--workspace` pin lives in (a symbol-keyed global, never the environment). */
+function pinned() {
+  return /** @type {Record<symbol, unknown>} */ (/** @type {unknown} */ (globalThis))
+}
+
+/** @param {string} name @returns {string} */
 function engineEntry(name) {
   const src = new URL(`../src/${name}.ts`, import.meta.url)
   if (!fs.existsSync(src)) return new URL(`../dist/${name}.js`, import.meta.url).href
@@ -116,6 +123,7 @@ function engineEntry(name) {
 }
 
 /** Canonical on-disk identity of a path — symlinks followed, falling back to the literal path. */
+/** @param {string} p @returns {string} */
 function realpath(p) {
   try {
     return fs.realpathSync(p)
@@ -127,6 +135,7 @@ function realpath(p) {
 // same workspace rule as src/workspace.ts (nearest package.json with a `dreamteamer` key, climbing
 // out only of module nesting), duplicated here because the dev clone must be found BEFORE choosing
 // which src/ to load. Keep the two in step — they must never disagree about which workspace this is.
+/** @param {string} start @returns {string | null} */
 function findWorkspaceRoot(start) {
   let dir = path.resolve(start)
   const candidates = [] // nearest → topmost
@@ -146,7 +155,7 @@ function findWorkspaceRoot(start) {
   if (!candidates.length) return null
   let workspace = candidates[0]
   for (const higher of candidates.slice(1)) {
-    if (workspace === globalThis[Symbol.for("dreamteamer.workspace")]) break // an explicitly targeted workspace is never climbed out of
+    if (workspace === pinned()[Symbol.for("dreamteamer.workspace")]) break // an explicitly targeted workspace is never climbed out of
     const viaModule = path
       .relative(higher, workspace)
       .split(path.sep)
@@ -158,6 +167,7 @@ function findWorkspaceRoot(start) {
 }
 
 /** Does a directory's package.json carry a `dreamteamer` section — is it a workspace (or module) root? */
+/** @param {string} dir @returns {boolean} */
 function isWorkspaceDir(dir) {
   try {
     return "dreamteamer" in JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8"))
@@ -170,8 +180,11 @@ function isWorkspaceDir(dir) {
  *  src/workspace.ts layerEntries, restated because this file runs before any src/ is chosen: `records`
  *  or `module: true` declares a layer, a clone on disk is a layer when its manifest names
  *  `workspace_module`, and one not on disk is a layer not installed. */
+/** @param {string} root @returns {Map<string, "layer" | "bundle">} */
 function declaredLayers(root) {
+  /** @type {Map<string, "layer" | "bundle">} */
   const out = new Map()
+  /** @type {Record<string, { records?: unknown; module?: unknown }>} */
   let entries = {}
   try {
     entries = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8")).dreamteamer?.git_modules ?? {}
@@ -192,6 +205,7 @@ function declaredLayers(root) {
   return out
 }
 
+/** @param {string} start @returns {string | null} */
 function findDevClone(start) {
   const workspace = findWorkspaceRoot(start)
   if (!workspace) return null

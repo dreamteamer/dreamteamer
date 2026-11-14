@@ -7,7 +7,7 @@
 //
 // Pure: no fs, no git. Errors are returned, never thrown, so compile attributes each to a file.
 import { validateTemplate } from "./template.ts"
-import type { Field } from "./types.ts"
+import type { AuthoredDescriptor, Field } from "./types.ts"
 
 /** The top-level keys a v2 descriptor may carry, in canonical order. */
 export const V2_KEYS = [
@@ -29,18 +29,19 @@ export const V2_KEYS = [
 ]
 
 const STORAGE_KEYS = ["path", "format", "shape", "entry", "suffix", "under", "max_bytes", "accept", "owner"]
-const DISPLAY_BLOCKS = {
+const DISPLAY_BLOCKS: Record<string, string[]> = {
   nav: ["icon", "order", "section"],
   list: ["layout", "columns", "sort", "options"],
   record: ["layout", "subtitle", "badge", "color_by", "options"],
   form: ["sections"],
 }
 
-export const isV2 = doc => !!doc && typeof doc === "object" && !Array.isArray(doc) && "fields" in doc
+export const isV2 = (doc: unknown): doc is AuthoredDescriptor =>
+  !!doc && typeof doc === "object" && !Array.isArray(doc) && "fields" in doc
 
 /** Shape errors that need no other descriptor: closed keys, v1 keys, storage, id, display layout. */
-export function shapeErrors(doc) {
-  const errors = []
+export function shapeErrors(doc: AuthoredDescriptor): string[] {
+  const errors: string[] = []
   for (const k of Object.keys(doc)) {
     if (V2_KEYS.includes(k)) continue
     errors.push(`unknown key \`${k}\` — a descriptor's keys are ${V2_KEYS.join(" · ")}`)
@@ -102,14 +103,17 @@ export function shapeErrors(doc) {
  * @param {Map<string, object>} mixins   id → mixin doc
  * @returns {{ doc: object, errors: string[], used: string[] }}
  */
-export function mergeMixins(doc, mixins) {
-  const errors = []
-  const used = []
+export function mergeMixins(
+  doc: AuthoredDescriptor,
+  mixins: Map<string, Partial<AuthoredDescriptor>>
+): { doc: AuthoredDescriptor; errors: string[]; used: string[] } {
+  const errors: string[] = []
+  const used: string[] = []
   const out = structuredClone(doc)
   const ids = doc.mixins ?? []
   if (!Array.isArray(ids)) return { doc: out, errors: ["`mixins` is a list of mixin ids"], used }
   const owned = new Map(Object.keys(doc.fields ?? {}).map(f => [f, "the descriptor"]))
-  const added = {}
+  const added: Record<string, Field> = {}
   const constraints = [...(doc.constraints ?? [])]
   for (const id of ids) {
     const m = mixins.get(id)
@@ -126,7 +130,7 @@ export function mergeMixins(doc, mixins) {
       owned.set(f, `mixin "${id}"`)
       added[f] = structuredClone(v)
     }
-    for (const k of ["storage", "ids"]) if (m[k]) out[k] = { ...structuredClone(m[k]), ...(out[k] ?? {}) }
+    for (const k of ["storage", "ids"] as const) if (m[k]) out[k] = { ...structuredClone(m[k]), ...(out[k] ?? {}) }
     if (m.display) {
       out.display ??= {}
       for (const [b, v] of Object.entries<Record<string, unknown>>(m.display))
@@ -151,11 +155,12 @@ export function mergeMixins(doc, mixins) {
  * Field names a descriptor mentions outside `fields` must exist (rule 6). Templates are parsed with
  * the one grammar. Returns errors naming each position.
  */
-export function nameErrors(doc) {
-  const errors = []
+export function nameErrors(doc: AuthoredDescriptor): string[] {
+  const errors: string[] = []
   const fields = doc.fields ?? {}
   const names = Object.keys(fields)
-  const has = f => f === "id" || f === "created" || f === "last_modified" || names.includes(f)
+  const has = (f: unknown): boolean =>
+    f === "id" || f === "created" || f === "last_modified" || names.includes(f as string)
   const d = doc.display ?? {}
   for (const c of d.list?.columns ?? [])
     if (!has(c)) errors.push(`display.list.columns names "${c}", which is not a field`)
@@ -188,7 +193,7 @@ export function nameErrors(doc) {
   if (doc.record_title !== undefined) {
     errors.push(...validateTemplate(doc.record_title, { position: "record_title", fields: names }))
     const first = /\{\{\s*([A-Za-z_]\w*)/.exec(doc.record_title)?.[1]
-    if (first && fields[first] && !["string", "markdown"].includes(fields[first].type))
+    if (first && fields[first] && !["string", "markdown"].includes(fields[first].type as string))
       errors.push(
         `record_title opens with "${first}", a ${fields[first].type} field — its first token is what \`dt add <collection> "<title>"\` fills, so it must be a string field`
       )
@@ -207,7 +212,7 @@ export function nameErrors(doc) {
 }
 
 /** A field refined by an overlay: the overlay's keys win, `display` merged key by key. */
-function refineField(f, by) {
+function refineField(f: Field, by: Partial<Field>): Field {
   const out = { ...f, ...by }
   if (f?.display && by?.display) out.display = { ...f.display, ...by.display }
   return out
@@ -215,12 +220,12 @@ function refineField(f, by) {
 
 /** A base and its overlays as ONE v2 descriptor: overlay fields inserted before the body,
  *  constraints concatenated, every other key overlay-wins key by key (display per sub-block). */
-export function mergeOverlays(base, overlays) {
+export function mergeOverlays(base: AuthoredDescriptor, overlays: Partial<AuthoredDescriptor>[]): AuthoredDescriptor {
   const out = structuredClone(base)
   for (const o of overlays) {
     // a field already present — from the base OR an earlier overlay — is refined in place, key by key
     // (its `display` too); a new one goes in before the body field
-    const own = Object.entries(out.fields ?? {}).map(([k, f]) => [
+    const own = Object.entries(out.fields ?? {}).map(([k, f]): [string, Field] => [
       k,
       k in (o.fields ?? {}) ? refineField(f, o.fields[k]) : f,
     ])

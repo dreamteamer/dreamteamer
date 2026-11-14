@@ -66,7 +66,7 @@ const ENV_EXAMPLE = `# secrets for skills and modules go here (copy to .env; .en
 /** The `dreamteamer` block init leaves in package.json: its seeds, under whatever the EXISTING block
  *  already says — the existing key always wins over a flag. One function, because `init --ready` must
  *  judge exactly the paths init will write, and a second copy of this precedence is how it did not. */
-export function seedBlock(flags: Flags = {}, existing: DreamteamerBlock = {}) {
+export function seedBlock(flags: Flags = {}, existing: DreamteamerBlock = {}): DreamteamerBlock {
   // EVERY known harness by default, and this is the operator's explicit call over the architecture
   // review's dissent — recorded, not elided: it writes AGENTS.md, GEMINI.md and .cursor/rules/ into
   // every new workspace, which is real clutter. The decision stands on the ASYMMETRY. A missing
@@ -78,7 +78,8 @@ export function seedBlock(flags: Flags = {}, existing: DreamteamerBlock = {}) {
   const harnesses =
     typeof flags.harnesses === "string" ? flags.harnesses.split(",").map(s => s.trim()) : [...KNOWN_HARNESSES]
   return {
-    data_path: flags.data_path ?? "data",
+    // a flag's value is a string unless it was given bare; `dt init` refuses a non-string path before writing (checkout)
+    data_path: (flags.data_path ?? "data") as string,
     harnesses,
     gitignore_runtime_folder: true,
     // The workspace's own sources live in `modules/default/`, and the folder is named for its ROLE,
@@ -91,7 +92,7 @@ export function seedBlock(flags: Flags = {}, existing: DreamteamerBlock = {}) {
     // owns the DEFAULT-namespace collections, and the default namespace is the empty prefix. The one
     // misreading it invites — `default/tasks` — is a compile error whose message states the rule.
     // Override with `--workspace-module <name>` if a workspace wants its own spelling.
-    workspace_module: flags.workspace_module ?? "default",
+    workspace_module: (flags.workspace_module ?? "default") as string,
     git_modules: {},
     disable: [],
     ...existing,
@@ -229,11 +230,11 @@ export function init({ flags = {} as Flags, root = process.cwd(), commit = true 
 // restored clone NEEDS in turn (`declaredGitModules`, the npm model): a layer a clone's manifest names is
 // cloned ONCE at the top level and linked under the clone — or, where it disagrees with what the top holds,
 // cloned under the clone itself — to a fixpoint, since a clone just restored may need more. Never refuses.
-export function install({ root, pkg }) {
-  const unreachable = [],
-    done = new Set()
-  let declared
-  const clone = (url, ref, dest, name, note) => {
+export function install({ root, pkg }: Pick<Workspace, "root" | "pkg">): number {
+  const unreachable: string[] = [],
+    done = new Set<string>()
+  let declared: ReturnType<typeof declaredGitModules>
+  const clone = (url: string, ref: string, dest: string, name: string, note: string): void => {
     console.log(`… cloning ${url} → ${path.relative(root, dest)} (${ref})${note}`)
     try {
       execFileSync("git", ["clone", "--branch", ref, url, dest], { stdio: "inherit" })
@@ -251,7 +252,9 @@ export function install({ root, pkg }) {
   }
   for (;;) {
     declared = declaredGitModules(pkg, root)
-    const top = [...declared.map]
+    /** a clone to make: a top-level one has no `by`; a nested one sits under its declarer */
+    type Task = { name: string; dest: string; note: string; url: string | undefined; ref: string; by?: string }
+    const top: Task[] = [...declared.map]
       .filter(([n]) => !done.has(n))
       .map(([name, e]) => ({
         ...e,
@@ -259,7 +262,7 @@ export function install({ root, pkg }) {
         dest: path.join(root, "git_modules", name),
         note: e.declarers.some(Boolean) ? ` — for ${e.declarers.filter(Boolean).join(", ")}` : "",
       }))
-    const under = declared.nested
+    const under: Task[] = declared.nested
       .filter(n => !done.has(`${n.by}/${n.name}`))
       .map(n => ({
         ...n,
@@ -291,7 +294,7 @@ export function install({ root, pkg }) {
     for (const by of declarers) if (by && !unreachable.includes(name)) linkLayer(root, by, name)
   for (const [name, list] of declared.mismatches.reduce(
     (g, m) => g.set(m.name, [...(g.get(m.name) ?? []), m]),
-    new Map()
+    new Map<string, typeof declared.mismatches>()
   )) {
     // Map.groupBy is Node 21+
     console.warn(
@@ -312,7 +315,7 @@ export function install({ root, pkg }) {
 /** The link a declarer finds its layer through — `<by>/git_modules/<name> -> ../../<name>`, the pnpm shape:
  *  explicit on disk, resolved by a tool that knows nothing of dreamteamer. A clone of its own standing there
  *  may hold work: left as it is, and said — `dt status` draws it too. */
-function linkLayer(root, by, name) {
+function linkLayer(root: string, by: string, name: string): void {
   // relative from wherever the declarer sits — a nested copy's own needs link from two levels deeper
   const at = path.join(root, by, "git_modules", name),
     want = path.relative(path.dirname(at), path.join(root, "git_modules", name))
@@ -336,7 +339,7 @@ function linkLayer(root, by, name) {
 
 /** Ignore `rel` in a clone's own `.git/info/exclude` when its .gitignore does not already cover it — never
  *  in a tracked file, which would dirty the clone. */
-function excludeIn(clone, rel) {
+function excludeIn(clone: string, rel: string): void {
   if (ran(clone, ["check-ignore", "-q", rel])) return
   const exclude = path.resolve(
     clone,
@@ -349,7 +352,7 @@ function excludeIn(clone, rel) {
 // dreamteamer update [<name>] — pull each lockfile-declared git_modules clone forward
 // (ff-only on its recorded ref) and rebuild it. dirty clones are skipped, never touched.
 // the caller (cli) runs compile afterwards — a pulled module may change sources.
-export function update({ root, pkg }, only) {
+export function update({ root, pkg }: Pick<Workspace, "root" | "pkg">, only?: string | null): number {
   const map = Object.fromEntries(declaredGitModules(pkg, root).map) // a hoisted layer is pulled forward too
   if (only && !map[only])
     throw new Error(`"${only}" is not in dreamteamer.git_modules (known: ${Object.keys(map).join(", ") || "none"})`)
@@ -396,7 +399,7 @@ export function update({ root, pkg }, only) {
 
 // a fresh clone with deps or a prepare/build script needs `npm install` to be usable
 // (deps land; `prepare` runs on install and builds dist). failure warns, never crashes.
-function buildClone(dest, name) {
+function buildClone(dest: string, name: string): void {
   let cp
   try {
     cp = JSON.parse(fs.readFileSync(path.join(dest, "package.json"), "utf8"))
@@ -412,7 +415,7 @@ function buildClone(dest, name) {
     )
 }
 
-function tryGit(cwd, args, timeout = 30_000) {
+function tryGit(cwd: string, args: string[], timeout = 30_000): string | null {
   try {
     return execFileSync("git", args, { cwd, stdio: QUIET, timeout }).toString().trim() || null
   } catch {
@@ -420,14 +423,14 @@ function tryGit(cwd, args, timeout = 30_000) {
   }
 }
 
-const isLink = p => {
+const isLink = (p: string): boolean => {
   try {
     return fs.lstatSync(p).isSymbolicLink()
   } catch {
     return false
   }
 }
-const ran = (cwd, args, timeout?: number) => {
+const ran = (cwd: string, args: string[], timeout?: number): boolean => {
   try {
     execFileSync("git", args, { cwd, stdio: QUIET, timeout })
     return true
@@ -435,13 +438,14 @@ const ran = (cwd, args, timeout?: number) => {
     return false
   }
 }
-const commitOf = (dest, rev) => tryGit(dest, ["rev-parse", "--verify", "--quiet", `${rev}^{commit}`])
+const commitOf = (dest: string, rev: string): string | null =>
+  tryGit(dest, ["rev-parse", "--verify", "--quiet", `${rev}^{commit}`])
 
 /** Is this clone somewhere other than its declared ref? A branch ref is met by being ON the branch —
  *  moving it forward is `dt update`'s job; a tag or a sha by HEAD being that commit. Answered from
  *  what the clone already knows, so a settled clone costs no fetch. A folder that is not itself a
  *  clone is never re-pointed: git would walk up and act on the workspace repo. */
-export function offRef(dest, ref) {
+export function offRef(dest: string, ref: string): boolean {
   if (isLink(dest) || !fs.existsSync(path.join(dest, ".git"))) return false // never judged, never moved, through a link
   if (tryGit(dest, ["symbolic-ref", "--quiet", "--short", "HEAD"]) === ref) return false
   const branch = ["refs/heads/", "refs/remotes/origin/"].some(p =>
@@ -451,13 +455,13 @@ export function offRef(dest, ref) {
 }
 
 /** Move a clone to its declared ref, or refuse and change nothing. Returns false on a refusal. */
-function repoint(dest, name, ref) {
+function repoint(dest: string, name: string, ref: string): boolean {
   const at = `git_modules/${name}`
   if (!offRef(dest, ref)) {
     console.log(`✔ ${at} present (${ref})`)
     return true
   }
-  const refuse = why => {
+  const refuse = (why: string): false => {
     console.error(`✖ ${at}: not on ${ref}, and ${why} — nothing was moved`)
     return false
   }
@@ -485,7 +489,7 @@ function repoint(dest, name, ref) {
   return true
 }
 
-function appendMissing(file, block) {
+function appendMissing(file: string, block: string): void {
   const existing = fs.existsSync(file) ? fs.readFileSync(file, "utf8") : ""
   const missing = block.split("\n").filter(l => l && !existing.split("\n").includes(l))
   if (missing.length) fs.writeFileSync(file, (existing ? existing.trimEnd() + "\n" : "") + missing.join("\n") + "\n")
@@ -521,7 +525,7 @@ export function installClone(ws: Workspace, url: string, name?: string): number 
 // until they're restored (no .dreamteamer → no schemas → no readable records); attached repos have
 // no such constraint, so they get to be data.
 
-const relPath = (root, p) => path.relative(root, p) || "."
+const relPath = (root: string, p: string): string => path.relative(root, p) || "."
 
 /**
  * Where a declared repo's working tree lives. Materializes nothing, so callers can ask without
@@ -544,7 +548,10 @@ const relPath = (root, p) => path.relative(root, p) || "."
  * one here: a repo path this machine cannot state is not a repo path to guess at. `listRepos`
  * catches per record so one such repo cannot take a whole listing down with it.
  */
-export function repoPath(ws, fields) {
+/** A `repos` record's fields: where it clones from, and where it goes (`path`, else `<repos_path>/[<identity>/]<name>`). */
+type RepoFields = { url?: string; ref?: string; path?: string; name?: string; identity?: string }
+
+export function repoPath(ws: Workspace, fields: RepoFields): string {
   const ctx = envContext(ws)
   if (fields.path) return path.resolve(ws.root, renderTemplate(fields.path, ctx))
   const base = renderTemplate(ws.pkg.dreamteamer?.repos_path ?? "projects", ctx)
@@ -558,13 +565,13 @@ export function repoPath(ws, fields) {
  */
 export function ensureRepo(ws: Workspace, id: string): { path: string; cloned: boolean } {
   const { fields } = new Store(ws).read("repos", id)
-  return materializeRepo(ws, id, fields)
+  return materializeRepo(ws, id, fields as RepoFields)
 }
 
 /** dreamteamer repos ensure --all — explicit opt-in (going offline, grepping across all of them). */
 export function ensureAllRepos(ws: Workspace): { path: string; cloned: boolean }[] {
-  const out = []
-  for (const { id, fields } of new Store(ws).readAll("repos")) out.push(materializeRepo(ws, id, fields))
+  const out: { path: string; cloned: boolean }[] = []
+  for (const { id, fields } of new Store(ws).readAll("repos")) out.push(materializeRepo(ws, id, fields as RepoFields))
   return out
 }
 
@@ -574,16 +581,17 @@ export function ensureAllRepos(ws: Workspace): { path: string; cloned: boolean }
  * would be wrong the moment someone deletes a folder.
  */
 export function listRepos(ws: Workspace): { id: string; path: string; present: boolean; unresolved?: string }[] {
-  const out = []
+  const out: ReturnType<typeof listRepos> = []
   for (const { id, fields } of new Store(ws).readAll("repos")) {
     // A path this machine cannot render is ONE unusable repo, not an unusable listing: `status`
     // asks this for every record, and a workspace cloned onto a machine that lacks one `.env` key
     // would otherwise report nothing about any of them. Say which, and why.
-    let dest
+    let dest: string
+    const f = fields as RepoFields
     try {
-      dest = repoPath(ws, fields)
+      dest = repoPath(ws, f)
     } catch (e) {
-      out.push({ id, path: fields.path ?? fields.name, present: false, unresolved: e.message })
+      out.push({ id, path: f.path ?? f.name, present: false, unresolved: e.message })
       continue
     }
     out.push({ id, path: relPath(ws.root, dest), present: fs.existsSync(dest) })
@@ -591,7 +599,11 @@ export function listRepos(ws: Workspace): { id: string; path: string; present: b
   return out
 }
 
-function materializeRepo(ws, id, fields) {
+function materializeRepo(
+  ws: Workspace,
+  id: string,
+  fields: RepoFields
+): { id: string; path: string; present: true; cloned: boolean; ref: string } {
   const dest = repoPath(ws, fields)
   const ref = fields.ref ?? "main"
   const rp = relPath(ws.root, dest)

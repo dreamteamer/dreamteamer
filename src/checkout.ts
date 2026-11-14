@@ -8,9 +8,21 @@ import { init, initFootprint, seedBlock, install as restoreGitModules, offRef } 
 import { declaredGitModules } from "./workspace.ts"
 import { engineVersion, readManifest, RUNTIME_DIR } from "./runtime.ts"
 import { satisfies } from "./semver.ts"
-import type { Workspace, PackageJson } from "./types.ts"
+import type { Workspace, PackageJson, Flags, LoadedExtension, DreamteamerBlock, Manifest } from "./types.ts"
 
-export const defaultGit = (args, cwd) => {
+/** One line of `dt install`'s board: `todo` runs, `already` is satisfied, `skip` is not this checkout's to do. */
+export type InstallStep = { id: string; label: string; state: "todo" | "already" | "skip"; why?: string }
+/** What `dt install` observed about this checkout before planning (`observeState`). */
+export type CheckoutState = ReturnType<typeof observeState>
+type StepFn = (
+  ws: Workspace,
+  st: CheckoutState,
+  rel: string | undefined,
+  stdio: StdioOptions,
+  npm: string | null
+) => number
+
+export const defaultGit = (args: string[], cwd: string): string => {
   try {
     return execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim()
   } catch (e) {
@@ -32,7 +44,7 @@ export const defaultGit = (args, cwd) => {
 // spelled the same way or a checkout reached through a symlink reads as outside its own primary
 // (macOS /tmp → /private/tmp is the everyday case). A unit test's git is a fake and its paths need
 // not exist, so a path that cannot be resolved on disk keeps the spelling it came with.
-const real = p => {
+const real = (p: string): string => {
   try {
     return realpathSync(p)
   } catch {
@@ -53,7 +65,7 @@ export function describeCheckout(
   insideRoot: boolean
 } {
   const root = path.resolve(rootArg)
-  let gitDir, commonDir
+  let gitDir: string, commonDir: string
   try {
     gitDir = git(["rev-parse", "--git-dir"], root)
     commonDir = git(["rev-parse", "--git-common-dir"], root)
@@ -62,7 +74,7 @@ export function describeCheckout(
       cause: e,
     })
   }
-  const abs = p => path.resolve(root, p)
+  const abs = (p: string): string => path.resolve(root, p)
   const linked = abs(gitDir) !== abs(commonDir)
   // The common dir's parent is the primary checkout whichever kind this is — and unlike `root` it
   // stays the primary when the caller hands us a SUBDIRECTORY of one.
@@ -81,9 +93,9 @@ export function describeCheckout(
 /** The install plan as DATA: every step names what it found and what it would do, so the same
  * decisions are testable without a disk and printable without being run. Task 3 observes the state
  * and executes the steps; nothing here touches fs or git. */
-export function planInstall(state, opts: { linkEnv?: boolean } = {}) {
+export function planInstall(state: CheckoutState, opts: { linkEnv?: boolean } = {}): InstallStep[] {
   const { checkout: c } = state
-  const steps = []
+  const steps: InstallStep[] = []
   // ⚠ EVERY declared direct dependency, not just the engine. A worktree whose engine is a mirrored dev
   // LINK used to read as ready while an installed extension was missing — so
   // npm never ran, and compile then refused the extension's source folder as an unknown kind.
@@ -157,8 +169,8 @@ export function planInstall(state, opts: { linkEnv?: boolean } = {}) {
 // and "this checkout has the file" disagree. Reading it as present would print `✔ linked to the
 // primary` over a file that cannot be opened — the board lying about the one step nobody eyeballs.
 // So: present means it RESOLVES, and a link counts as a link only when it resolves too.
-const resolves = p => fs.existsSync(p)
-const isLink = p => {
+const resolves = (p: string): boolean => fs.existsSync(p)
+const isLink = (p: string): boolean => {
   try {
     return fs.lstatSync(p).isSymbolicLink() && fs.existsSync(p)
   } catch {
@@ -170,9 +182,9 @@ const isLink = p => {
  *  DEDUPED by rel with the first declaration winning: a step's id is `asset:<rel>`, so two modules
  *  declaring the same path would plan two steps under one id and the second would be dropped
  *  silently by any id-keyed read of the board. */
-export function declaredLocalAssets(ws) {
-  const seen = new Map() // rel → {rel, module}
-  const add = (raw, module) => {
+export function declaredLocalAssets(ws: Workspace): { rel: string; module: string | null }[] {
+  const seen = new Map<string, { rel: string; module: string | null }>() // rel → {rel, module}
+  const add = (raw: string, module: string | null): void => {
     // ⚠ A REL MAY NOT CLIMB OUT OF THE WORKSPACE. `placeLink` writes wherever the rel points, so
     // `local_assets: ['../../x']` in a careless module declaration would drop a symlink beside
     // the workspace with nothing consulted. Refused when the plan is BUILT, so the board never
@@ -201,10 +213,10 @@ export function declaredLocalAssets(ws) {
 
 /** What is true of this checkout right now — the only function here that reads the disk, so
  *  `planInstall` stays pure and the whole board is decidable from this one object. */
-export function observeState(ws) {
+export function observeState(ws: Workspace) {
   const checkout = describeCheckout(ws.root)
-  const here = rel => path.join(ws.root, rel),
-    there = rel => path.join(checkout.primary, rel)
+  const here = (rel: string): string => path.join(ws.root, rel),
+    there = (rel: string): string => path.join(checkout.primary, rel)
   const s = staleness(ws.root)
   return {
     checkout,
@@ -253,10 +265,10 @@ export function observeState(ws) {
 /** Every top-level package in node_modules that is a SYMLINK (scoped ones included), as
  *  `[path, raw link target]` — declared or not: the engine a checkout was cut to test is often an
  *  undeclared link, and it is exactly the one npm's pruning would delete. */
-function linkedPackages(root) {
+function linkedPackages(root: string): [link: string, target: string][] {
   const nm = path.join(root, "node_modules")
-  const out = []
-  const scan = dir => {
+  const out: [string, string][] = []
+  const scan = (dir: string): void => {
     let names: string[]
     try {
       names = fs.readdirSync(dir)
@@ -281,11 +293,12 @@ function linkedPackages(root) {
 }
 
 /** The workspace's direct dependencies, sorted — what `npm install` is responsible for. */
-const declaredDeps = ws => Object.keys({ ...ws.pkg?.dependencies, ...ws.pkg?.devDependencies }).sort()
+const declaredDeps = (ws: Workspace): string[] =>
+  Object.keys({ ...ws.pkg?.dependencies, ...ws.pkg?.devDependencies }).sort()
 
 /** Place a symlink, replacing a dangling one. A step only reaches here because the observer read
  *  the path as absent, which a broken link is — so the leftover has to be cleared, never trusted. */
-function placeLink(target, at) {
+function placeLink(target: string, at: string): number {
   fs.mkdirSync(path.dirname(at), { recursive: true })
   try {
     if (fs.lstatSync(at).isSymbolicLink()) fs.unlinkSync(at)
@@ -302,7 +315,7 @@ function placeLink(target, at) {
  *  throws on everything from EACCES to a primary that vanished mid-run, so the guard is the rule
  *  here rather than the exception. */
 const guard =
-  (name, fn) =>
+  (name: string, fn: StepFn): StepFn =>
   (...a) => {
     try {
       return fn(...a) ?? 0
@@ -326,7 +339,7 @@ export function resolveNpm(execPath: string = process.execPath, env: NodeJS.Proc
   // called `npm` and of a file nobody may run — and this path is then spawned, so the difference
   // between "it is there" and "it can be executed" is the difference between a named board line
   // and an EACCES nobody planned for. A proof runner's `requires: { bin: … }` learned the same.
-  const runnable = p => {
+  const runnable = (p: string): boolean => {
     try {
       fs.accessSync(p, fs.constants.X_OK)
       return fs.statSync(p).isFile()
@@ -359,7 +372,7 @@ export const childEnv = (): NodeJS.ProcessEnv => ({
 // One executor per step id, keyed by the id's kind. None decides ANYTHING — whether a step runs at
 // all was settled by `planInstall`. `stdio` is the caller's, so a `--json` run can send a
 // subprocess's chatter to stderr and keep stdout for the payload.
-const RUN = {
+const RUN: Record<string, StepFn> = {
   // ⚠ `npm` ARRIVES AS AN ARGUMENT rather than being resolved here, and that is what makes the
   // refusal below testable at all: with the resolution inlined, deleting the guard left the suite
   // green, because no fixture can make npm unresolvable beside the node running the test.
@@ -429,11 +442,23 @@ const RUN = {
  *  any step errored — one failure never abandons the rest, because a checkout half-made-ready with
  *  a named failure is more useful than one that stopped at the first thing it could not do. */
 export async function applyInstall(
-  ws,
-  state,
-  steps,
-  { dryRun = false, log = console.log, stdio = "inherit" as StdioOptions, npm = resolveNpm(), open = null } = {}
-) {
+  ws: Workspace,
+  state: CheckoutState,
+  steps: InstallStep[],
+  {
+    dryRun = false,
+    log = console.log,
+    stdio = "inherit" as StdioOptions,
+    npm = resolveNpm(),
+    open = null,
+  }: {
+    dryRun?: boolean
+    log?: (line: string) => void
+    stdio?: StdioOptions
+    npm?: string | null
+    open?: ((at: string) => Promise<Workspace>) | null
+  } = {}
+): Promise<number> {
   let failed = 0,
     installed = false,
     restored = false
@@ -515,15 +540,15 @@ export function readHookInput(stdinText: string): {
   name: string | null
   raw: Record<string, unknown>
 } {
-  let raw
+  let raw: Record<string, unknown>
   try {
     raw = JSON.parse(stdinText)
   } catch {
     throw new Error("hook input is not JSON")
   }
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("hook input is not JSON")
-  const cwd = raw.cwd ?? raw.worktree_path ?? null
-  const name = raw.worktree_name ?? raw.name ?? null
+  const cwd = (raw.cwd ?? raw.worktree_path ?? null) as string | null
+  const name = (raw.worktree_name ?? raw.name ?? null) as string | null
   if (!cwd && !name) {
     throw new Error(
       `hook input carries neither a cwd nor a worktree_name — keys received: ${Object.keys(raw).join(", ") || "(none)"}`
@@ -537,7 +562,7 @@ export function readHookInput(stdinText: string): {
 // lifecycle belongs to a worktree extension). NO MATCHER on any of them (spec §13.9): bootstrap is
 // idempotent precisely so the session-start hook may fire on every event — `startup` alone would
 // silence it on resume, clear, compact and fork, which is most of what a long session actually does.
-const CLAUDE_HOOKS = { SessionStart: "install --hook" }
+const CLAUDE_HOOKS: Record<string, string> = { SessionStart: "install --hook" }
 
 /** Print the harness snippets for this workspace's declared harnesses.
  *
@@ -552,9 +577,12 @@ const CLAUDE_HOOKS = { SessionStart: "install --hook" }
  *  decision this engine has not made (spec §13.7). So this verb PRINTS — snippets on stdout, so the
  *  output can be piped, and everything else on stderr so it stays parseable. */
 export function printAdapters(
-  ws,
-  { harnesses = ws.pkg.dreamteamer?.harnesses ?? ["claude-code"], extensions = ws.extensions ?? [] } = {}
-) {
+  ws: Workspace,
+  {
+    harnesses = ws.pkg.dreamteamer?.harnesses ?? ["claude-code"],
+    extensions = ws.extensions ?? [],
+  }: { harnesses?: string[]; extensions?: LoadedExtension[] } = {}
+): number {
   // ⚠ AN EMPTY RENDER IS A REFUSAL, NOT A SUCCESS. The whole point of this verb is that its stdout
   // is redirected into a settings file — so printing nothing at exit 0 writes an EMPTY hooks.json
   // over whatever was there, silently, on the one workspace that never declared the harness.
@@ -570,8 +598,8 @@ export function printAdapters(
       console.error(`${h}: adapter not yet shipped (decision 315)`)
       continue
     }
-    const hooks = {}
-    const events = { ...CLAUDE_HOOKS }
+    const hooks: Record<string, unknown[]> = {}
+    const events: Record<string, string> = { ...CLAUDE_HOOKS }
     for (const e of extensions) {
       for (const [event, verb] of Object.entries(e.hooks ?? {})) {
         if (events[event])
@@ -636,8 +664,8 @@ export async function installCommand(
   const json = flags.has("--json")
   const state = observeState(ws)
   const steps = planInstall(state, { linkEnv: flags.has("--link-env") })
-  const board = []
-  const log = l => {
+  const board: string[] = []
+  const log = (l: string): void => {
     board.push(l)
     ;(json ? console.error : console.log)(l)
   }
@@ -648,7 +676,7 @@ export async function installCommand(
   )
   const stdout = console.log
   if (json) console.log = console.error // compile() and the git-modules restore report through it
-  let code
+  let code: number
   try {
     code = await applyInstall(ws, state, steps, {
       dryRun: flags.has("--dry-run"),
@@ -677,7 +705,8 @@ export async function installCommand(
 // ---- `dt init` — one command from a folder to a compiled, checked, committed workspace ------------
 
 const EXACT = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/
-const readJson = f => {
+/** A JSON file as `T` (the shape the caller reads), or null when it is absent or does not parse. */
+const readJson = <T = PackageJson>(f: string): T | null => {
   try {
     return JSON.parse(fs.readFileSync(f, "utf8"))
   } catch {
@@ -689,12 +718,13 @@ const readJson = f => {
  *  and resolved in turn — so a link whose leaf does not exist yet is still followed through each link
  *  among its ancestors, and `..` means the parent of what was REACHED, never the lexical parent. A
  *  missing component ends resolution (nothing below it can be a link). Null past 40 links: a loop. */
-function landing(p) {
+function landing(p: string): string | null {
   // the root (`/`, or `C:\` on Windows — never a segment to join, which made every path land at `C:\C:\…`)
   // is the starting point; the segments after it are walked, either separator accepted
   // the separator is the platform's ONLY: a backslash is a legal character in a POSIX name, and a link named
   // `a\\b` that points out of the folder must be followed as one segment, never read as `a/b`; Windows takes both
-  const segments = q => q.slice(path.parse(q).root.length).split(process.platform === "win32" ? /[\\/]/ : path.sep)
+  const segments = (q: string): string[] =>
+    q.slice(path.parse(q).root.length).split(process.platform === "win32" ? /[\\/]/ : path.sep)
   const pending = segments(p)
   let at = path.parse(p).root,
     hops = 0
@@ -706,7 +736,7 @@ function landing(p) {
       continue
     }
     const next = path.join(at, seg)
-    let st = null
+    let st: fs.Stats | null = null
     try {
       st = fs.lstatSync(next)
     } catch {
@@ -725,17 +755,17 @@ function landing(p) {
 }
 
 /** Would a write to `rel` (root-relative, unnormalised — `a/../b` resolves through `a`) land outside `root`? */
-export function escapes(root, rel) {
+export function escapes(root: string, rel: string): boolean {
   // the native realpath: on Windows the JS one leaves an 8.3 short name (RUNNER~1) that the walk below
   // expands, and the two spellings of one folder would read as different places; case is folded there too
-  const canon = q => {
+  const canon = (q: string): string => {
     try {
       return fs.realpathSync.native(q)
     } catch {
       return fs.realpathSync(q)
     }
   }
-  const fold = q => (process.platform === "win32" ? q.toLowerCase() : q)
+  const fold = (q: string): string => (process.platform === "win32" ? q.toLowerCase() : q)
   const base = canon(root),
     to = landing(`${base}${path.sep}${rel}`)
   if (to === null) return true
@@ -745,7 +775,7 @@ export function escapes(root, rel) {
 
 /** The links under `rel` (lstat, never descending through one) — compile writes and prunes whole
  *  trees there, so a link anywhere below is a place it writes through. */
-function linksUnder(root, rel, out = []) {
+function linksUnder(root: string, rel: string, out: string[] = []): string[] {
   let entries: fs.Dirent[]
   try {
     entries = fs.readdirSync(path.join(root, rel), { withFileTypes: true })
@@ -774,8 +804,8 @@ const OUTPUT_TREES = [
  *  ⚠ FAIL CLOSED, not "follow and judge": a link to a folder INSIDE the workspace is harmless as a path
  *  and still hides what is below it (`linksUnder` never descends through a link), so a file link in the
  *  aliased folder carried compile's write outside (third review). Compile makes none of these itself. */
-function aliasedOutputDirs(root) {
-  const isDirLink = rel => {
+function aliasedOutputDirs(root: string): string[] {
+  const isDirLink = (rel: string): boolean => {
     try {
       return fs.lstatSync(path.join(root, rel)).isSymbolicLink() && fs.statSync(path.join(root, rel)).isDirectory()
     } catch {
@@ -791,8 +821,8 @@ function aliasedOutputDirs(root) {
  *  `.env` is exempt: never written here, and a worktree's is a link to its primary by design. A folder
  *  link in an output tree never reaches here — `aliasedOutputDirs` refuses it first. NOT covered: a
  *  nested file a newly installed extension's harness writes that no earlier compile recorded. */
-function writeFootprint(root, block, flags) {
-  let prev = {}
+function writeFootprint(root: string, block: DreamteamerBlock, flags: Flags): string[] {
+  let prev: Partial<Manifest> = {}
   try {
     prev = readManifest(root) ?? {}
   } catch {
@@ -846,7 +876,7 @@ function writeFootprint(root, block, flags) {
  *  - re-running changes nothing: every step re-checks what is already done
  */
 export async function initCommand(
-  flags,
+  flags: Flags,
   {
     root = process.cwd(),
     open,
@@ -895,8 +925,13 @@ export async function initCommand(
 
   // ⚠ THE DECLARATION, THE LOCKFILE AND THE INSTALLED COPY ARE JUDGED EACH ON ITS OWN. Reading only the
   // installed copy let a package.json still declaring an older engine pass — the next clone installs that one.
-  const specs = [...new Set(["dependencies", "devDependencies"].map(k => pkg[k]?.dreamteamer).filter(Boolean))]
-  const locked = readJson(path.join(root, "package-lock.json"))?.packages?.["node_modules/dreamteamer"]?.version ?? null
+  const specs = [
+    ...new Set((["dependencies", "devDependencies"] as const).map(k => pkg[k]?.dreamteamer).filter(Boolean)),
+  ]
+  const locked =
+    readJson<{ packages?: Record<string, { version?: string }> }>(path.join(root, "package-lock.json"))?.packages?.[
+      "node_modules/dreamteamer"
+    ]?.version ?? null
   const installed = () => readJson(path.join(root, "node_modules", "dreamteamer", "package.json"))?.version ?? null
   const upgrade = `init never changes an existing engine — run that version itself (npx dreamteamer@<version> init), or upgrade on purpose: dt update --engine`
   if (specs.length > 1)
@@ -909,8 +944,8 @@ export async function initCommand(
     throw new Error(`package-lock.json locks dreamteamer ${locked}, not ${want} — ${upgrade}`)
   if (installed() && installed() !== want)
     throw new Error(`node_modules holds dreamteamer ${installed()}, not ${want} — ${upgrade}`)
-  const fromDir = flags.from ? path.resolve(root, flags.from) : null
-  const fail = why => {
+  const fromDir = flags.from ? path.resolve(root, flags.from as string) : null
+  const fail = (why: string): number => {
     log(
       `✖ ${why}\n  the steps after this one did not run — fix it, then run the same command again: every step re-checks what is already done`
     )
@@ -1102,7 +1137,7 @@ export async function initCommand(
     if (flags.git) {
       const has = spawnSync("git", ["remote", "get-url", "origin"], { cwd: root, stdio: "ignore" }).status === 0
       if (!has) {
-        spawnSync("git", ["remote", "add", "origin", flags.git], { cwd: root, stdio: "ignore" })
+        spawnSync("git", ["remote", "add", "origin", flags.git as string], { cwd: root, stdio: "ignore" })
         log(`✔ git: origin → ${flags.git} (never pushed)`)
       } else log("✔ git: origin already set — left as it is")
     }

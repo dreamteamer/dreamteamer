@@ -38,7 +38,9 @@ import { KINDS } from "./compile.ts"
 type KeysOf<U> = U extends unknown ? keyof U : never
 type Flat<U> = { [K in KeysOf<U>]?: U extends Partial<Record<K, infer V>> ? V : never }
 import { history, historyDiff } from "./history.ts"
-import type { Flags } from "./types.ts"
+import type { Descriptor, Field, Fields, Flags, Workspace } from "./types.ts"
+import type { RepoCommit } from "./schema-ops.ts"
+import type { Relation } from "./relations.ts"
 import { commandsFor, recordResolver } from "./record-commands.ts"
 import { contributedNotes } from "./extensions.ts"
 import { distinctValues } from "./field-values.ts"
@@ -107,7 +109,7 @@ export const emit = (s: string, fd: number = 1): void => {
 /** `list` flags that are options, not `field=value` shorthand filters. */
 const LIST_META_FLAGS = new Set(["json", "filter", "where", "sort"])
 
-export function collectionCommand(ws, collection, verb, args) {
+export function collectionCommand(ws: Workspace, collection: string, verb: string, args: string[]) {
   const store = new Store(ws)
   const { flags, pos } = parseArgs(args)
   refuseUnknownFlags(store, collection, verb, flags)
@@ -176,7 +178,7 @@ export function collectionCommand(ws, collection, verb, args) {
         return 0
       }
       const cols = listColumns(d)
-      for (const r of rows) console.log(cols.map(c => fmtCell(r[c])).join("  "))
+      for (const r of rows) console.log(cols.map(c => fmtCell((r as Record<string, unknown>)[c])).join("  "))
       if (!rows.length) console.log(`(no ${collection}${narrowed ? " matching" : ""})`)
       return 0
     }
@@ -287,8 +289,10 @@ export function collectionCommand(ws, collection, verb, args) {
       // Blanks sort FIRST (compareValues, via `?? ''`), so unplaced records surface at the top
       // rather than hiding at the bottom, and ties fall back to id order: `walk` reads name-sorted
       // and Array.sort is stable. That is the tiebreak two agents landing on the same key rely on.
-      const rows = []
-      for (const { id: rid, fields } of store.readAll(collection)) rows.push({ id: rid, key: fields[field] ?? "" })
+      // a position value is a key string (compile pins its pattern); `check` reports one that is not
+      const rows: { id: string; key: string }[] = []
+      for (const { id: rid, fields } of store.readAll(collection))
+        rows.push({ id: rid, key: (fields[field] ?? "") as string })
       sortRows(rows, "key", undefined)
 
       if (flags.init) {
@@ -428,7 +432,7 @@ export function collectionCommand(ws, collection, verb, args) {
 // `commands finance/transactions` asked for a collection called "finance" and every namespaced
 // target failed. `cli.js` owns reference resolution now (splitRef, longest declared prefix) and is
 // the only caller, so a second, weaker splitter here could only ever disagree with it.
-function metaCommandsFor(ws, store, flags, pos) {
+function metaCommandsFor(ws: Workspace, store: Store, flags: Flags, pos: string[]) {
   const collection = need(pos, 0, "collection")
   const ids = (oneValue(flags, "ids") ?? "")
     .split(",")
@@ -463,7 +467,7 @@ function metaCommandsFor(ws, store, flags, pos) {
  * immediately workable without pulling every attached repo (and one unreachable remote can only
  * fail the action you asked for, not the whole install).
  */
-function metaReposEnsure(ws, flags, pos) {
+function metaReposEnsure(ws: Workspace, flags: Flags, pos: string[]) {
   const results = flags.all ? ensureAllRepos(ws) : [ensureRepo(ws, need(pos, 0, "id"))]
   if (flags.json) {
     emit(JSON.stringify(results, null, 2))
@@ -480,7 +484,7 @@ function metaReposEnsure(ws, flags, pos) {
 // target module. §6.2.
 
 // `dreamteamer add modules --name core [--description "…"]`
-function metaModulesAdd(ws, store, flags) {
+function metaModulesAdd(ws: Workspace, store: Store, flags: Flags) {
   // ⚠ BEFORE the write, as `add collections` does it and for the same reason: naming the mistake
   // after the call lands a committed module and then exits 1.
   if (flags.namespace === true)
@@ -511,7 +515,7 @@ function metaModulesAdd(ws, store, flags) {
 }
 
 // `dreamteamer rm modules/core [--force] [--dry-run]`
-function metaModulesRm(ws, store, flags, pos) {
+function metaModulesRm(ws: Workspace, store: Store, flags: Flags, pos: string[]) {
   const id = need(pos, 0, "module id")
   const out: Flat<ReturnType<typeof removeModule>> = removeModule(ws, store, id, {
     force: !!flags.force,
@@ -536,7 +540,7 @@ function metaModulesRm(ws, store, flags, pos) {
 }
 
 // `dreamteamer rename modules/core shared`
-function metaModulesRename(ws, store, flags, pos) {
+function metaModulesRename(ws: Workspace, store: Store, flags: Flags, pos: string[]) {
   const oldId = need(pos, 0, "module id")
   const out = renameModule(ws, store, oldId, need(pos, 1, "new module id"))
   if (flags.json) {
@@ -555,7 +559,7 @@ function metaModulesRename(ws, store, flags, pos) {
 }
 
 // `dreamteamer set modules/hr description="…" dependencies=modules/core`
-function metaModulesSet(ws, store, flags, pos) {
+function metaModulesSet(ws: Workspace, store: Store, flags: Flags, pos: string[]) {
   const id = need(pos, 0, "module id")
   const changes = { ...pairs(pos.slice(1)), ...stripMeta(flags) }
   if (!Object.keys(changes).length)
@@ -612,7 +616,7 @@ function dryRunPlan(
  * The workspace gets no "ahead" count on purpose: pushing the workspace is a thing the operator
  * already thinks about, and a number beside it would read as a new obligation.
  */
-export function reportCommits(commits) {
+export function reportCommits(commits: RepoCommit[] | null | undefined): void {
   for (const c of commits ?? []) {
     if (c.repo === ".") {
       console.log(`✔ committed in the workspace${c.sha ? ` (${c.sha})` : ""}`)
@@ -624,7 +628,7 @@ export function reportCommits(commits) {
 }
 
 // `dreamteamer add collections --name research-docs --mixins docs --id-from '{{ created | date }}--{{ title | slug }}'`
-function metaCollectionsAdd(ws, store, flags) {
+function metaCollectionsAdd(ws: Workspace, store: Store, flags: Flags) {
   // ⚠ BEFORE the write, not after. `--namespace=` is the empty STRING (clear it); a bare
   // `--namespace` parses as `true`, which is a mistake worth naming — and naming it AFTER the call
   // lands a committed collection and then exits 1, which is the one report shape that lies twice.
@@ -634,7 +638,7 @@ function metaCollectionsAdd(ws, store, flags) {
     name: oneValue(flags, "name"),
     mixins: oneValue(flags, "mixins"),
     idFrom: oneValue(flags, "id-from"),
-    namespace: flags.namespace,
+    namespace: flags.namespace as string | undefined, // a bare flag was refused above; a repeat is the list compile names
     moduleId,
     description: oneValue(flags, "description"),
     suffix: oneValue(flags, "suffix"),
@@ -661,7 +665,7 @@ function metaCollectionsAdd(ws, store, flags) {
  * contract; a scalar rewrites one key in it. Bundling them would make one command that either
  * half-applies or has to be explained, and the operator gets no signal about which happened.
  */
-function metaCollectionsSet(ws, store, flags, pos) {
+function metaCollectionsSet(ws: Workspace, store: Store, flags: Flags, pos: string[]) {
   const name = need(pos, 0, "collection name")
   const positional = pairs(pos.slice(1))
   const changes = { ...positional, ...stripMeta(flags) }
@@ -728,7 +732,7 @@ function metaCollectionsSet(ws, store, flags, pos) {
  * `order` values are hand-authored and readable (10, 40, 140), so a midpoint is the right shape:
  * it writes ONE descriptor and keeps the numbers legible.
  */
-function metaCollectionsMove(ws, store, flags, pos) {
+function metaCollectionsMove(ws: Workspace, store: Store, flags: Flags, pos: string[]) {
   const name = need(pos, 0, "collection name")
   store.descriptor(name)
   const rows = [...store.descriptors]
@@ -779,7 +783,7 @@ function metaCollectionsMove(ws, store, flags, pos) {
  *  descriptor. The merged one is what `dt get collections/<c>` prints and what every reader uses;
  *  this is the only way to see what a given module actually wrote, which is the question an overlay
  *  makes unanswerable from the runtime alone. */
-function metaCollectionsGet(ws, store, flags, pos) {
+function metaCollectionsGet(ws: Workspace, store: Store, flags: Flags, pos: string[]) {
   const name = need(pos, 0, "collection name")
   const moduleId = oneValue(flags, "module")
   const { file } = collectionSourceFileFor(ws, store, name, moduleId)
@@ -792,7 +796,7 @@ function metaCollectionsGet(ws, store, flags, pos) {
 // `dreamteamer collections rename doctors health/doctors`, or `… doctors --namespace health`.
 // The whole point is that namespacing EXISTING data is one command instead of a six-step hand
 // migration whose last step (rewriting references) dangles everything when forgotten.
-function metaCollectionsRename(ws, store, flags, pos) {
+function metaCollectionsRename(ws: Workspace, store: Store, flags: Flags, pos: string[]) {
   const [oldName, explicitNew] = pos
   if (!oldName)
     throw new Error("usage: dreamteamer rename collections/<old> <new> | collections/<old> --namespace <ns>")
@@ -839,7 +843,7 @@ function metaCollectionsRename(ws, store, flags, pos) {
 
 // `dreamteamer collections rm widgets [--force]` — --force is required to drop a collection
 // that still has records (removeCollection refuses otherwise, and says so).
-function metaCollectionsRm(ws, store, flags, pos) {
+function metaCollectionsRm(ws: Workspace, store: Store, flags: Flags, pos: string[]) {
   const name = need(pos, 0, "collection name")
   if (flags["dry-run"])
     return dryRunPlan(`rm collections/${name}`, { records: store.ids(name).size, descriptors: 1 }, [
@@ -854,7 +858,7 @@ function metaCollectionsRm(ws, store, flags, pos) {
 }
 
 // `dreamteamer add-field health/visits --name kind --enum intake,follow-up --default-value follow-up`
-function metaAddField(ws, store, collection, flags) {
+function metaAddField(ws: Workspace, store: Store, collection: string, flags: Flags) {
   const field = fieldFromFlags(store, flags)
   const out = addField(ws, store, collection, {
     name: oneValue(flags, "name"),
@@ -871,7 +875,7 @@ function metaAddField(ws, store, collection, flags) {
 
 /** The idempotent answer, in `rename-collection`'s words — a command that asks for what is already
  *  there succeeded, and the operator needs to know which field it was talking about. */
-function alreadyThat(subject) {
+function alreadyThat(subject: string): number {
   console.log(`✔ ${subject} — already exactly that, nothing to do`)
   return 0
 }
@@ -879,7 +883,7 @@ function alreadyThat(subject) {
 /** A mirror is only correct for records written AFTER it existed: the far side's records already
  *  carrying a value are counted here, with the repair, because `check` flags every one of them the
  *  moment the field lands. */
-function reportMirror(store, collection, fieldName, field) {
+function reportMirror(store: Store, collection: string, fieldName: string, field: Field): void {
   if (!field?.mirror_of) return
   const t = targetsOf(field)
   const target = Array.isArray(t) ? t[0] : null
@@ -895,7 +899,7 @@ function reportMirror(store, collection, fieldName, field) {
 // `dreamteamer set-field tasks --name urgent --required false`
 // Same flag vocabulary as add-field (one `fieldFromFlags`), applied over the field as its source
 // declares it: a flag that is not passed leaves its key alone.
-function metaUpdateField(ws, store, collection, flags) {
+function metaUpdateField(ws: Workspace, store: Store, collection: string, flags: Flags) {
   const name = oneValue(flags, "name")
   if (!name) throw new Error("missing --name <field>")
   const out = updateField(ws, store, collection, name, { flags, moduleId: oneValue(flags, "module") })
@@ -909,12 +913,12 @@ function metaUpdateField(ws, store, collection, flags) {
 
 /** The positions a positional verb rewrites (or refuses on), one line each — what `--dry-run` is
  *  for: the operator reads WHERE before deciding. */
-function positionLines(positions) {
+function positionLines(positions: { rel: string; at: string; fixed: boolean; why?: string }[]): string[] {
   return positions.map(p => `${p.fixed ? "  " : "✖ "}${p.rel}  ${p.at}${p.fixed ? "" : ` — ${p.why}`}`)
 }
 
 // `dreamteamer rm-field tasks --name urgent`
-function metaRemoveField(ws, store, collection, flags) {
+function metaRemoveField(ws: Workspace, store: Store, collection: string, flags: Flags) {
   const name = oneValue(flags, "name")
   if (!name) throw new Error("missing --name <field>")
   const moduleId = oneValue(flags, "module")
@@ -947,11 +951,11 @@ function metaRemoveField(ws, store, collection, flags) {
  *  listed, so a contributed kind gets `set · rm · rename` without core knowing its name; `collections`,
  *  `ui-views` and `modules` have verbs of their own. */
 const OWN_VERBS = new Set(["collections", "ui-views", "modules"])
-const isEntityKind = (store, collection) =>
+const isEntityKind = (store: Store, collection: string): boolean =>
   storageOf(store?.descriptors.get(collection)).runtime && !OWN_VERBS.has(collection)
 const SCAFFOLDABLE = new Set(["skills"])
 
-function metaEntityVerb(ws, store, kind, verb, flags, pos) {
+function metaEntityVerb(ws: Workspace, store: Store, kind: string, verb: string, flags: Flags, pos: string[]) {
   const one = kind.replace(/s$/, "")
   if (verb === "add") {
     const name = oneValue(flags, "name")
@@ -1017,7 +1021,7 @@ function metaEntityVerb(ws, store, kind, verb, flags, pos) {
 }
 
 /** The path `revert`'s refusal names — where a human edits this compiled entity. */
-function sourceHintFor(store, collection) {
+function sourceHintFor(store: Store, collection: string) {
   // ⚠ `modules` is the one system collection that is PROJECTED rather than stored as a kind folder:
   // its source is each module's package.json. Deriving the hint from `storage.path` gave
   // `modules/*/modules/`, which `git ls-files` matches nothing at all — a correct refusal handing
@@ -1027,7 +1031,7 @@ function sourceHintFor(store, collection) {
 }
 
 // `dreamteamer rename-field people --name employer --to company`
-function metaRenameField(ws, store, collection, flags) {
+function metaRenameField(ws: Workspace, store: Store, collection: string, flags: Flags) {
   const from = oneValue(flags, "name")
   if (!from)
     throw new Error(`missing --name <field>: dreamteamer rename-field ${collection} --name <field> --to <new-name>`)
@@ -1058,7 +1062,7 @@ function metaRenameField(ws, store, collection, flags) {
 }
 
 // `dreamteamer rename-value health/visits status seen done`
-function metaRenameValue(ws, store, collection, flags, pos) {
+function metaRenameValue(ws: Workspace, store: Store, collection: string, flags: Flags, pos: string[]) {
   const [field, from, to] = pos
   if (!field || from === undefined || to === undefined || pos.length > 3)
     throw new Error(`usage: dreamteamer rename-value ${collection} <field> <old> <new> [--dry-run]`)
@@ -1106,7 +1110,7 @@ const VIEW_LIST_OPTIONS = new Set([
 /** `--filter '{"status":{"_eq":"seen"}}'` style flags, plus dotted `display.list.sort=-date` positionals. The
  *  KEY is passed because the value's shape depends on it: only the key says whether a comma is a
  *  separator or a character. */
-function parseViewValue(raw, key) {
+function parseViewValue(raw: string | boolean, key: string): unknown {
   if (typeof raw !== "string") return raw
   const t = raw.trim()
   if (t === "true") return true
@@ -1160,7 +1164,7 @@ function parseViewValue(raw, key) {
  * (`display.list.sort='""'`) is a value, empty or not. Without it the convention above has no exception
  * and `sort: ''` — which the surface needs to mean "unsorted" — is unwritable from the CLI.
  */
-function assignPath(target, dotted, value, explicit = false) {
+function assignPath(target: Record<string, unknown>, dotted: string, value: unknown, explicit = false): void {
   const keys = dotted.split(".")
   const leaf = keys[keys.length - 1]
   const unset = !explicit && (value === null || value === "")
@@ -1170,7 +1174,7 @@ function assignPath(target, dotted, value, explicit = false) {
       if (unset) return
       node[k] = {}
     }
-    node = node[k]
+    node = node[k] as Record<string, unknown>
   }
   if (unset) delete node[leaf]
   else node[leaf] = value
@@ -1178,7 +1182,7 @@ function assignPath(target, dotted, value, explicit = false) {
 
 /** One dotted `key=value` write into a view: the value grammar, plus the one signal `assignPath`
  *  cannot recover from the parsed value — whether the operator quoted it. */
-function assignViewValue(view, key, raw) {
+function assignViewValue(view: Record<string, unknown>, key: string, raw: string | boolean): void {
   assignPath(view, key, parseViewValue(raw, key), typeof raw === "string" && raw.trim().startsWith('"'))
 }
 
@@ -1187,7 +1191,7 @@ function assignViewValue(view, key, raw) {
 // `module: core` into the yaml as a field.
 const VIEW_META_FLAGS = new Set(["id", "json", "force", "module"])
 
-function metaUiView(ws, store, verb, flags, pos) {
+function metaUiView(ws: Workspace, store: Store, verb: string, flags: Flags, pos: string[]) {
   if (verb === "rm") {
     const viewId = need(pos, 0, "ui-view id")
     if (flags["dry-run"])
@@ -1297,7 +1301,7 @@ function metaUiView(ws, store, verb, flags, pos) {
  * check flags. That is why the staleness comparison below is character-for-character the one in
  * check.js — two spellings of "stale" would send the operator round a loop that never converges.
  */
-export function relationsCommand(ws, args) {
+export function relationsCommand(ws: Workspace, args: string[]) {
   const store = new Store(ws)
   const { flags, pos } = parseArgs(args)
   const rebuilding = pos[0] === "rebuild"
@@ -1327,13 +1331,13 @@ export function relationsCommand(ws, args) {
     r.kind,
     r.onDelete,
   ])
-  const width = i => Math.max(...cells.map(c => c[i].length))
+  const width = (i: number): number => Math.max(...cells.map(c => c[i].length))
   const [w0, w1, w2] = [width(0), width(1), width(2)]
   for (const c of cells) console.log(`${c[0].padEnd(w0)}  →  ${c[1].padEnd(w1)}  ${c[2].padEnd(w2)}  ${c[3]}`)
   return 0
 }
 
-function relationsRebuild(store, flags, pos) {
+function relationsRebuild(store: Store, flags: Flags, pos: string[]) {
   const collection = pos[1]
   if (!collection) throw new Error("usage: dreamteamer relations rebuild <collection> [--drop <field>]")
   const d = store.descriptor(collection)
@@ -1359,11 +1363,11 @@ function relationsRebuild(store, flags, pos) {
   // Expectations computed ONCE per relation, over a single pass of each owning collection. The
   // store's own `applyMirrorEdits` re-walks the owners per write, which is right for one edit and
   // quadratic for a whole collection — so rebuild does not build on it.
-  const unreadableOwners = []
+  const unreadableOwners: string[] = []
   // PER REPO, like check.js and the store: an owner in another repo (a record layer, or this
   // workspace against a module-owned target) implies no mirror on a target it cannot be committed with
-  const perRepo = r => {
-    const groups = new Map()
+  const perRepo = (r: Relation) => {
+    const groups = new Map<string, { id: string; fields: Fields }[]>()
     for (const o of parseEach(store, r.owner, f => unreadableOwners.push(rel(store.root, f)))) {
       const repo = store.repoOfFile(store.descriptor(r.owner), o.file)
       if (!groups.has(repo)) groups.set(repo, [])
@@ -1439,7 +1443,11 @@ function relationsRebuild(store, flags, pos) {
  *  mid-walk cannot be resumed past — and rebuild is the one reader that has already written by the
  *  time a later record blows up, so an abort leaves a partial sweep behind an error naming no file
  *  at all. Here the bad record is handed to `onError` and skipped, and the walk finishes. */
-function* parseEach(store, collection, onError) {
+function* parseEach(
+  store: Store,
+  collection: string,
+  onError: (file: string, e: Error) => void
+): Generator<{ id: string; file: string; fields: Fields }> {
   const d = store.descriptor(collection)
   const bf = bodyField(d)
   const rows = [...store.ids(collection)].map(([id, file]) => ({ id, file }))
@@ -1470,9 +1478,10 @@ function* parseEach(store, collection, onError) {
  */
 export function parseArgs(args: string[]): { flags: Record<string, string | boolean | string[]>; pos: string[] } {
   const flags: Flags = {}
-  const pos = []
-  const put = (k, v) => {
-    flags[k] = k in flags ? [].concat(flags[k], v) : v
+  const pos: string[] = []
+  const put = (k: string, v: string | true): void => {
+    // a repeat promotes to a list; a bare repeat keeps its `true` in the list, as it always has
+    flags[k] = k in flags ? (([] as unknown[]).concat(flags[k], v) as string[]) : v
   }
   for (let i = 0; i < args.length; i++) {
     const a = args[i]
@@ -1489,7 +1498,7 @@ export function parseArgs(args: string[]): { flags: Record<string, string | bool
 /** Read a flag that takes exactly ONE value. A repeat arrives as an array, and dropping it on the
  *  floor (`typeof v === 'string'` reads an array as absent) would answer the wrong question at exit
  *  0 — so it is named instead, with the line that was typed. */
-function oneValue(flags, key) {
+function oneValue(flags: Flags, key: string): string | undefined {
   const v = flags[key]
   if (Array.isArray(v)) {
     throw new Error(
@@ -1501,13 +1510,13 @@ function oneValue(flags, key) {
 
 /** `field=value` positionals, with the same promote-on-repeat rule the flags have. It was
  *  `Object.fromEntries`, which keeps the LAST pair — `dt set c/id tags=a tags=b` wrote `[b]`. */
-function pairs(list) {
+function pairs(list: string[]): Record<string, string | string[]> {
   const out: Record<string, string | string[]> = {}
   for (const p of list) {
     if (!p.includes("=")) continue
     const k = p.slice(0, p.indexOf("="))
     const v = p.slice(p.indexOf("=") + 1)
-    out[k] = k in out ? [].concat(out[k], v) : v
+    out[k] = k in out ? ([] as string[]).concat(out[k], v) : v
   }
   return out
 }
@@ -1516,11 +1525,11 @@ function pairs(list) {
 // read as record field names. A collection wanting a field literally called `module` writes it as
 // `module=<v>` positionally, which `pairs()` reads and `stripMeta` never sees.
 const META_FLAGS = new Set(["id", "json", "force", "filter", "module", "dry-run"])
-const stripMeta = flags => Object.fromEntries(Object.entries(flags).filter(([k]) => !META_FLAGS.has(k)))
+const stripMeta = (flags: Flags): Flags => Object.fromEntries(Object.entries(flags).filter(([k]) => !META_FLAGS.has(k)))
 
 // CLI values are strings; split comma-lists for array-typed fields (ajv coerces the rest)
-function coerceArrays(d, fields) {
-  const out = {}
+function coerceArrays(d: Descriptor, fields: Flags): Fields {
+  const out: Fields = {}
   for (const [k, v] of Object.entries(fields)) {
     const isList = fieldsOf(d)[k]?.many === true
     // An array here means the operator SPELLED the key twice (`--tags a --tags b`, or
@@ -1546,12 +1555,12 @@ function coerceArrays(d, fields) {
   return out
 }
 
-function need(pos, i, what) {
+function need(pos: string[], i: number, what: string): string {
   if (pos[i] === undefined) throw new Error(`missing <${what}>`)
   return pos[i]
 }
 
-const fmtCell = v => (v === undefined ? "-" : Array.isArray(v) ? v.join(",") : String(v))
+const fmtCell = (v: unknown): string => (v === undefined ? "-" : Array.isArray(v) ? v.join(",") : String(v))
 
 /**
  * The rows one `list` invocation actually wants — narrowed, ordered, bodies dropped.
@@ -1560,7 +1569,7 @@ const fmtCell = v => (v === undefined ? "-" : Array.isArray(v) ? v.join(",") : S
  * adds columns calls it rather than copying it — a second copy is how `--sort` ends up working on
  * one collection and not on another.
  */
-function narrowRows(store, d, collection, flags) {
+function narrowRows(store: Store, d: Descriptor, collection: string, flags: Flags) {
   // EVERY condition, ANDed — a repeated flag composes rather than replacing. `--filter a=1
   // --filter b=2` used to keep only `b=2` and return rows the caller had excluded, which is
   // the one failure a narrowing verb must not have: a listing that answers a question nobody
@@ -1625,12 +1634,12 @@ function narrowRows(store, d, collection, flags) {
 }
 
 /** A record's location as `--json` carries it: `$file` and `$repo` (null = outside every repo here). */
-const whereKeys = ({ file, repo }) => ({ $file: file, $repo: repo })
+const whereKeys = ({ file, repo }: { file: string; repo: string | null }) => ({ $file: file, $repo: repo })
 
 /** What a write on an EXISTING record adds to its `✔` line: nothing in the workspace's own repo; the
  *  repo when it is another clone (a layer, a module's list); and that it is never committed when the
  *  root is outside every repo here. The workspace name alone used to be printed wherever it landed. */
-function landedIn(where) {
+function landedIn(where: { file: string; repo: string | null }): string {
   if (!where) return ""
   const { repo } = where
   if (repo === null) return " — outside every git repo here, never committed"
@@ -1638,12 +1647,12 @@ function landedIn(where) {
 }
 
 /** `id` first, then the descriptor's own columns — the shape every text listing prints. */
-const listColumns = d => [
+const listColumns = (d: Descriptor): string[] => [
   "id",
   ...(displayOf(d).list?.columns ?? []).map(c => (c === "last_modified" ? "last-modified" : c)).filter(c => c !== "id"),
 ]
 
-function rel(root, p) {
+function rel(root: string, p: string): string {
   return p.startsWith(root) ? p.slice(root.length + 1) : p
 }
 
@@ -1693,7 +1702,7 @@ const JSON_ONLY = ["json"]
 const FORCE_RM = ["json", "force", "dry-run"]
 const NAV_MOVE = ["json", "after", "before", "top", "bottom"]
 
-export const VERB_FLAGS = {
+export const VERB_FLAGS: Record<string, string[]> = {
   list: ["json", "filter", "where", "sort"],
   get: ["json", "referrer"],
   add: ["json", "id", "from", "force"],
@@ -1735,8 +1744,8 @@ export const VERB_FLAGS = {
 
 /** Edit distance, capped — enough to turn `--fliter` into "did you mean --filter?", and to refuse to
  *  guess at anything further away than a typo. */
-function nearest(word, candidates) {
-  const distance = c => {
+function nearest(word: string, candidates: string[]): string | null {
+  const distance = (c: string): number => {
     let prev = [...Array(word.length + 1).keys()]
     for (let i = 1; i <= c.length; i++) {
       const row = [i]
@@ -1749,13 +1758,13 @@ function nearest(word, candidates) {
   const cap = Math.min(3, Math.ceil(word.length / 2))
   return (
     candidates
-      .map(c => [c, distance(c)])
+      .map((c): [string, number] => [c, distance(c)])
       .filter(([, n]) => n <= cap)
       .sort((a, b) => a[1] - b[1])[0]?.[0] ?? null
   )
 }
 
-export function refuseUnknownFlags(store, collection, verb, flags: Flags) {
+export function refuseUnknownFlags(store: Store, collection: string, verb: string, flags: Flags): void {
   // `store` may be null for an entity the store does not know — the refusal is still owed.
   const d = store?.descriptors.get(collection)
   const known =

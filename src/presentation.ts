@@ -27,7 +27,18 @@ import {
   isRuntime,
   isInternal,
 } from "./descriptor.ts"
-import type { Descriptor, Descriptors, DisplayBlock, Field, Presentation, PresentationChoice } from "./types.ts"
+import type {
+  Descriptor,
+  Descriptors,
+  DisplayBlock,
+  Field,
+  Presentation,
+  PresentationChoice,
+  PresentationCollection,
+  PresentationComponentOptions,
+  PresentationField,
+  PresentationRelation,
+} from "./types.ts"
 
 /** The design's default layouts, used where the resolved `display` (`displayOf`) does not state them. */
 const DEFAULT_LIST_LAYOUT = "table"
@@ -50,24 +61,26 @@ const WIRE_TYPES = new Set([
   "position",
 ])
 
+const isWireType = (t: unknown): t is PresentationField["type"] => typeof t === "string" && WIRE_TYPES.has(t)
+
 /** The keys an enum map entry may carry onto a choice row, copied by name: a descriptor is authored
  *  data, and spreading it would let a workspace inject keys into a contract every surface reads. */
-const CHOICE_KEYS = ["description", "icon", "color", "background"]
+const CHOICE_KEYS = ["description", "icon", "color", "background"] as const
 
 /** the projection for every collection */
 export function presentation(descriptors: Descriptors): Presentation {
   const all = [...descriptors.values()]
   // an owner field "has a relation" when some collection mirrors it — the far side names it
-  const mirrored = new Set()
+  const mirrored = new Set<string>()
   for (const d of all) {
     for (const f of Object.values(fieldsOf(d))) {
       if (mirrorOf(f) !== undefined) for (const t of collectionTargets(f)) mirrored.add(`${t}\0${mirrorOf(f)}`)
     }
   }
-  const collections = []
-  const fields = {}
-  const relations = []
-  const order = d => displayOf(d).nav.order ?? Infinity
+  const collections: PresentationCollection[] = []
+  const fields: Record<string, PresentationField[]> = {}
+  const relations: PresentationRelation[] = []
+  const order = (d: Descriptor): number => displayOf(d).nav.order ?? Infinity
   for (const d of all.sort((a, b) => order(a) - order(b))) {
     const declared = fieldsOf(d)
     const { form } = displayOf(d)
@@ -79,9 +92,12 @@ export function presentation(descriptors: Descriptors): Presentation {
       (form.sections ?? []).flatMap(s => s.fields.map((n): [string, string] => [n, s.title])).reverse()
     )
     fields[d.name] = Object.entries(declared).map(([name, f]) => {
-      const row = { collection: d.name, ...fieldRow(name, f, { required: required.has(name), body: name === body }) }
+      const row: PresentationField = {
+        collection: d.name,
+        ...fieldRow(name, f, { required: required.has(name), body: name === body }),
+      }
       const section = f.display?.form_section ?? sectionOf.get(name)
-      if (section !== undefined && !f.deprecated) row.form_section = section
+      if (section !== undefined && !f.deprecated) row.form_section = section as string
       return row
     })
     for (const [name, f] of Object.entries(declared)) {
@@ -111,15 +127,15 @@ const displayOf = (d: Descriptor): Required<Pick<DisplayBlock, "nav" | "list" | 
 })
 
 /** the keys of `src` that are defined, in `keys` order */
-function pick(src, keys) {
-  const out = {}
+function pick<T extends object, K extends keyof T>(src: T, keys: K[]): Partial<Pick<T, K>> {
+  const out: Partial<Pick<T, K>> = {}
   for (const k of keys) if (src[k] !== undefined) out[k] = src[k]
   return out
 }
 
-function collectionRow(d, declared) {
+function collectionRow(d: Descriptor, declared: Record<string, Field>): PresentationCollection {
   const { nav, list, record, form } = displayOf(d)
-  const drawn = n => declared[n] && !declared[n].deprecated // a deprecated field is drawn nowhere
+  const drawn = (n: string): boolean => declared[n] && !declared[n].deprecated // a deprecated field is drawn nowhere
   return {
     collection: d.name,
     title: titleOf(d),
@@ -161,7 +177,7 @@ function collectionRow(d, declared) {
 
 /** The named collections a reference field points at; none for a non-reference and for `reference`
  *  (`'*'`, polymorphic: any collection, so no relation row). */
-function collectionTargets(f) {
+function collectionTargets(f: Field): string[] {
   const t = targetsOf(f)
   return Array.isArray(t) ? t : []
 }
@@ -169,7 +185,11 @@ function collectionTargets(f) {
 /** One field as surfaces draw it. `required` and `body` are the collection's answers
  *  (`requiredOf`, `bodyFieldOf`); an object's sub-field, which no collection accessor covers, says
  *  its own. The title is the resolved one — compile wrote its default onto the field. */
-function fieldRow(name, f, { required = f.required === true, body = f.body === true } = {}) {
+function fieldRow(
+  name: string,
+  f: Field,
+  { required = f.required === true, body = f.body === true }: { required?: boolean; body?: boolean } = {}
+): PresentationField {
   const display = f.display ?? {}
   // Three engine-held kinds of read-only: a mirror the owner's write maintains, a stored value only
   // the engine writes (`created`), a value computed on read. Every writer is refused, so no surface
@@ -186,19 +206,21 @@ function fieldRow(name, f, { required = f.required === true, body = f.body === t
           ? "reference_many"
           : "reference"
   // a deprecated field still validates and is drawn nowhere
-  const hidden = f.deprecated ? ["list", "form", "record"] : (INJECTED_HIDDEN[name]?.(f) ?? display.hidden)
+  const hidden: PresentationField["hidden"] = f.deprecated
+    ? ["list", "form", "record"]
+    : (INJECTED_HIDDEN[name]?.(f) ?? display.hidden)
   const options = componentOptions(f)
   return {
     field: name,
     // the authored type name; a reference travels as a string, and its `role` says it is one
-    type: WIRE_TYPES.has(f.type) ? f.type : "string",
+    type: isWireType(f.type) ? f.type : "string",
     title: f.title ?? fieldTitle(name),
     ...pick({ description: f.description || undefined }, ["description"]),
     required,
     ...pick({ many: f.many || undefined, kind }, ["many", "kind"]),
     editable: kind ? false : (display.editable ?? true),
     ...pick({ hidden: hidden?.length ? [...hidden] : undefined, role }, ["hidden", "role"]),
-    ...pick({ ...display, editor_options: options, viewer_options: options }, [
+    ...pick({ editor: display.editor, viewer: display.viewer, editor_options: options, viewer_options: options }, [
       "editor",
       "editor_options",
       "viewer",
@@ -218,7 +240,7 @@ function fieldRow(name, f, { required = f.required === true, body = f.body === t
 
 /** Where the three injected fields are not drawn: `id` is the record's address, never a value to show
  *  or edit; `created` and `last_modified` are listable and never on the form. */
-const INJECTED_HIDDEN = {
+const INJECTED_HIDDEN: Record<string, (f: Field) => PresentationField["hidden"] | undefined> = {
   id: f => (f.virtual ? ["list", "form", "record"] : undefined),
   created: f => (f.derived ? ["form"] : undefined),
   last_modified: f => (f.virtual ? ["form"] : undefined),
@@ -226,12 +248,13 @@ const INJECTED_HIDDEN = {
 
 /** What a field's component needs beyond the field itself: the enum's choice rows, an object's
  *  sub-fields and row label, and the authored `display.options`. Undefined when there is none. */
-function componentOptions(f) {
+function componentOptions(f: Field): PresentationComponentOptions | undefined {
   const decoration = enumChoices(f.enum)
-  const out = {
+  const out: PresentationComponentOptions = {
     ...pick(
       {
-        choices: f.enum === undefined ? undefined : enumValues(f.enum).map(v => choiceRow(v, decoration[v])),
+        choices:
+          f.enum === undefined ? undefined : enumValues(f.enum).map(v => choiceRow(String(v), decoration[String(v)])),
         fields: f.type === "object" ? Object.entries(f.fields).map(([n, sub]) => fieldRow(n, sub)) : undefined,
         item_title: f.item_title,
       },
@@ -244,8 +267,8 @@ function componentOptions(f) {
 
 /** One choice row: the value, its label (the value itself when none is authored), and the decoration
  *  keys the enum map carries — copied by name, and only when they are non-empty strings. */
-function choiceRow(value, entry: { label?: string; [k: string]: unknown } = {}) {
+function choiceRow(value: string, entry: { label?: string; [k: string]: unknown } = {}) {
   const row: PresentationChoice = { label: String(entry.label ?? value), value }
-  for (const k of CHOICE_KEYS) if (typeof entry[k] === "string" && entry[k]) row[k] = entry[k]
+  for (const k of CHOICE_KEYS) if (typeof entry[k] === "string" && entry[k]) row[k] = entry[k] as string
   return row
 }

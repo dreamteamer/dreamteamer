@@ -8,15 +8,25 @@ import { engineId, readManifest } from "./runtime.ts"
 import { satisfies } from "./semver.ts"
 import { MANAGED_BLOCKS } from "./harnesses.ts"
 import { units, unitEnv, unitEnvFor, receiptDir, safeInspect } from "./setup.ts"
+import type { DoctorRow, SetupContext, Workspace } from "./types.ts"
 
 const STATES = new Set(["ok", "warn", "bad"])
-const UNIT_STATE = { ready: "ok", configured: "ok", unverified: "warn", missing: "warn", blocked: "bad" }
-const GLYPH = { ok: "✔", warn: "⚠", bad: "✖" }
+const UNIT_STATE: Record<string, DoctorRow["state"]> = {
+  ready: "ok",
+  configured: "ok",
+  unverified: "warn",
+  missing: "warn",
+  blocked: "bad",
+}
+const GLYPH: Record<DoctorRow["state"], string> = { ok: "✔", warn: "⚠", bad: "✖" }
 
-export const verdictOf = checks =>
+/** One capability on the board: its rows and the verdict they fold to. */
+export type Capability = { name: string; checks: DoctorRow[]; verdict?: "READY" | "DEGRADED" | "UNAVAILABLE" }
+
+export const verdictOf = (checks: DoctorRow[]): "READY" | "DEGRADED" | "UNAVAILABLE" =>
   checks.some(k => k.state === "bad") ? "UNAVAILABLE" : checks.some(k => k.state === "warn") ? "DEGRADED" : "READY"
 
-const hasBlock = file => {
+const hasBlock = (file: string): boolean => {
   try {
     const text = fs.readFileSync(file, "utf8")
     return MANAGED_BLOCKS.some(b => text.includes(b.begin))
@@ -26,10 +36,10 @@ const hasBlock = file => {
 }
 
 /** The engine's rows: its version, the Node it runs on, and the harness files the last compile wrote. */
-function engineChecks(root) {
+function engineChecks(root: string): DoctorRow[] {
   const need = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8")).engines?.node ?? ">=20"
   const node = process.versions.node
-  const checks = [
+  const checks: DoctorRow[] = [
     { label: "engine", state: "ok", detail: engineId() },
     satisfies(node, need) === false
       ? { label: "node", state: "bad", detail: `${node}, needs ${need}`, fix: `install Node.js ${need}` }
@@ -58,8 +68,8 @@ function engineChecks(root) {
 
 /** Every capability with its verdict. An extension's doctor that throws, or returns a row with an
  *  unknown state, reads as a failure of that extension rather than a crash. */
-export async function doctorBoard(ws, dt) {
-  const caps = [{ name: "engine", checks: engineChecks(ws.root) }]
+export async function doctorBoard(ws: Workspace, dt: SetupContext["dt"]): Promise<Capability[]> {
+  const caps: Capability[] = [{ name: "engine", checks: engineChecks(ws.root) }]
   // a setup unit's inspect, as rows: ready/configured → ok, unverified/missing → warn, blocked → bad —
   // so `--strict` fails on what blocks and a never-verified capability reads degraded, never ready
   const env = unitEnv(ws)
@@ -82,9 +92,9 @@ export async function doctorBoard(ws, dt) {
   }
   for (const e of (ws.extensions ?? []).filter(x => x.doctor)) {
     const name = e.name.replace(/^@[^/]+\//, "")
-    let checks
+    let checks: DoctorRow[]
     try {
-      checks = (await e.doctor({ root: ws.root, ws, dt })) ?? []
+      checks = ((await e.doctor({ root: ws.root, ws, dt })) as DoctorRow[] | null | undefined) ?? []
     } catch (err) {
       checks = [{ label: "doctor", state: "bad", detail: err.message, fix: `report it to ${e.name}` }]
     }
@@ -98,7 +108,7 @@ export async function doctorBoard(ws, dt) {
   return caps.map(c => ({ ...c, verdict: verdictOf(c.checks) }))
 }
 
-export function renderBoard(caps) {
+export function renderBoard(caps: Capability[]): string {
   return caps
     .flatMap(c => [
       `${c.name} — ${c.verdict}`,

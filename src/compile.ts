@@ -35,8 +35,21 @@ import {
 } from "./runtime.ts"
 import { excludedFromKind, disablesPackage, isPackageEntry, MANIFEST_KEYS, v1ManifestRefusal } from "./extensions.ts"
 import { compileCollections, v1Refusal } from "./compile-collections.ts"
+import type { CompileLayer, CompiledCollection, DescriptorSource, ModuleSource } from "./compile-collections.ts"
 import { storageOf, fieldsOf, displayOf, targetsOf } from "./descriptor.ts"
-import type { Descriptor, Workspace, Manifest, PackageJson } from "./types.ts"
+import type {
+  AuthoredDescriptor,
+  Descriptor,
+  DreamteamerBlock,
+  Entry,
+  Field,
+  Workspace,
+  Manifest,
+  PackageJson,
+  LoadedExtension,
+} from "./types.ts"
+/** One runtime file being compiled: its sources and bytes, and for a merged ui-view who overlaid it. */
+type CompileEntry = Entry & { module?: string; overlaidBy?: string[] }
 /** Any module source as parsed: the keys compile reads before it knows the kind, the rest open. */
 type SourceDoc = {
   name?: string
@@ -61,7 +74,7 @@ export { engineId, engineVersion, readManifest }
  * (`webview/src/lib/format-title.ts`, which cannot import node code) stays byte-compatible for the
  * only comparison that matters — the round-trip guard in schema-ops.js.
  */
-export function titleCase(id) {
+export function titleCase(id: string): string {
   return String(id)
     .split(/[_\-\s/]+/)
     .filter(Boolean)
@@ -85,9 +98,10 @@ export const KINDS: readonly string[] = [
 const FOLDER_KINDS = new Set(["skills"]) // folder-shape entities: copy the whole record folder
 
 /** Every contributed kind of the workspace's loaded extensions, as `{ kind, exclude, extension }`. */
-export const contributedKinds = ws => (ws.extensions ?? []).flatMap(e => e.sourceKinds ?? [])
+export const contributedKinds = (ws: Workspace): LoadedExtension["sourceKinds"] =>
+  (ws.extensions ?? []).flatMap(e => e.sourceKinds ?? [])
 /** Built-in kinds, then contributed ones. */
-export const kindsOf = ws => [...KINDS, ...contributedKinds(ws).map(k => k.kind)]
+export const kindsOf = (ws: Workspace): string[] => [...KINDS, ...contributedKinds(ws).map(k => k.kind)]
 // DERIVED_KINDS (projected, not staged) lives in runtime.js — the boundary both halves read. Not in
 // KINDS on purpose: a module folder named `modules/` would be nonsense, and `isSystem` below keys
 // off KINDS to decide `storage.base`, so a `modules` collection landing on `base: workspace` would
@@ -103,14 +117,14 @@ export const kindsOf = ws => [...KINDS, ...contributedKinds(ws).map(k => k.kind)
  * layout we want. `bothLayouts` reports the split case, which compile warns about — a module with
  * half its sources in each place compiles the flat half and silently drops the rest otherwise.
  */
-export function kindDir(root, kind) {
+export function kindDir(root: string, kind: string): string {
   const flat = path.join(root, kind)
   if (fs.existsSync(flat)) return flat
   const nested = path.join(root, "system", kind)
   return fs.existsSync(nested) ? nested : flat
 }
 
-function bothLayouts(root, kind) {
+function bothLayouts(root: string, kind: string): boolean {
   return fs.existsSync(path.join(root, kind)) && fs.existsSync(path.join(root, "system", kind))
 }
 
@@ -127,7 +141,7 @@ function bothLayouts(root, kind) {
  */
 /** `bin/*` files of a module root, module-relative and sorted — dotfiles and subfolders (lib/,
  *  parsers/) excluded. Empty when there is no bin/. */
-function binEntries(moduleRoot) {
+function binEntries(moduleRoot: string): string[] {
   const dir = path.join(moduleRoot, "bin")
   if (!fs.existsSync(dir)) return []
   return fs
@@ -169,10 +183,10 @@ const NON_SOURCE_DIRS = new Set([
  *  for one to be. Known kinds under `system/` keep compiling — the fallback is deliberate and stays
  *  (CLAUDE.md); only UNKNOWN folders become errors, and `dreamteamer.ignore` excuses them in both
  *  places with one entry. */
-function strayKindDirs(source, wsRoot, declaredIgnore, kinds) {
+function strayKindDirs(source: ModuleSource, wsRoot: string, declaredIgnore: string[], kinds: string[]): string[] {
   if (path.resolve(source.root) === path.resolve(wsRoot)) return []
   const allow = new Set([...kinds, ...NON_SOURCE_DIRS, ...declaredIgnore])
-  const dirsIn = (dir, prefix = "") =>
+  const dirsIn = (dir: string, prefix = ""): string[] =>
     (fs.existsSync(dir) ? fs.readdirSync(dir, { withFileTypes: true }) : [])
       .filter(e => e.isDirectory() && !e.name.startsWith(".") && !allow.has(e.name))
       .map(e => `${prefix}${e.name}`)
@@ -184,20 +198,20 @@ function strayKindDirs(source, wsRoot, declaredIgnore, kinds) {
   ].sort()
 }
 
-const sha256 = buf => "sha256:" + createHash("sha256").update(buf).digest("hex")
+const sha256 = (buf: Buffer | string): string => "sha256:" + createHash("sha256").update(buf).digest("hex")
 
 // channel -> the directory the operator knows it by (used in shadow warnings, and it IS the
 // `location` field's vocabulary — see collections/modules.collection.yaml. Keeping the export name
 // on purpose: renaming a symbol under src/ is a cross-repo change, and this one buys nothing.)
-export const CHANNEL_LABEL = { inline: "modules", git: "git_modules", npm: "node_modules" }
+export const CHANNEL_LABEL: Record<string, string> = { inline: "modules", git: "git_modules", npm: "node_modules" }
 
 /** A module's record id: its package name with the npm scope stripped, so `@dreamteamer/crm` is `crm`. */
-export const moduleIdOf = n => slug(String(n).replace(/^@[^/]+\//, ""))
+export const moduleIdOf = (n: string): string => slug(String(n).replace(/^@[^/]+\//, ""))
 
 /** A module's `location` — the folder its sources sit in. `root` is the classic layout, where the
  *  workspace's own sources are at its root rather than under `modules/<id>/`; discovery reports that
  *  as the `inline` channel with `root === '.'`, which is the one case the label table cannot see. */
-export const locationOf = (source, wsRoot) =>
+export const locationOf = (source: ModuleSource, wsRoot: string): string =>
   path.resolve(source.root) === path.resolve(wsRoot) ? "root" : (CHANNEL_LABEL[source.channel] ?? source.channel)
 
 // module discovery, three channels in precedence order: inline modules/* >
@@ -214,8 +228,8 @@ export function discoverModules(
   disabledModules: string[]
   layerRefusals: string[]
 } {
-  const byName = new Map() // name -> {name, root, channel}
-  const shadows = [] // {name, winner, loser} — channels
+  const byName = new Map<string, ModuleSource>() // name -> {name, root, channel}
+  const shadows: { name: string; winner: string; loser: string }[] = [] // {name, winner, loser} — channels
   // A BARE `dreamteamer.disable` entry names a whole module; `<module>/<entity>` names one entity and
   // is applied per source at compile time. The bare form is what lets a workspace take a PACKAGE of
   // modules and keep only the ones it wants — a disabled module is simply never discovered, so every
@@ -230,12 +244,12 @@ export function discoverModules(
   const layers = new Set(layerList.map(l => l.name))
   // the same rule the extension loader applies (full package name, or its scope-stripped id), so a
   // disabled package loses its content AND its code together
-  const disabled = name => {
+  const disabled = (name: string): boolean => {
     const hit = disable.find(d => isPackageEntry(d) && disablesPackage([d], name))
     if (hit) disabledHits.add(hit)
     return !!hit
   }
-  const tryAdd = (name, srcRoot, channel) => {
+  const tryAdd = (name: string, srcRoot: string, channel: string): void => {
     if (disabled(name)) return
     const existing = byName.get(name)
     if (existing) {
@@ -244,7 +258,7 @@ export function discoverModules(
     }
     byName.set(name, { name, root: srcRoot, channel })
   }
-  const readPkg = dir => {
+  const readPkg = (dir: string): PackageJson | null => {
     try {
       const mpkg = JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8"))
       return "dreamteamer" in mpkg ? mpkg : null
@@ -258,7 +272,7 @@ export function discoverModules(
   // Inline `modules/*` never nest: a `modules/` folder at an inline module root stays the
   // unknown-folder compile error it always was, because the workspace's own tree has no reason to
   // bundle.
-  const scanDir = (dir, channel, unpack) => {
+  const scanDir = (dir: string, channel: string, unpack: boolean): void => {
     if (!fs.existsSync(dir)) return
     for (const name of fs.readdirSync(dir).sort()) {
       const srcRoot = path.join(dir, name)
@@ -266,7 +280,7 @@ export function discoverModules(
       if (mpkg) (unpack ? tryAddOrUnpack : tryAdd)(mpkg.name ?? name, srcRoot, channel)
     }
   }
-  const tryAddOrUnpack = (name, srcRoot, channel) => {
+  const tryAddOrUnpack = (name: string, srcRoot: string, channel: string): void => {
     // ⚠ THE PACKAGE FIRST: disabling a bundle disables every module in it. Only the children used to
     // be checked, so `disable: ['@x/bundle']` stopped its code and compiled all of its content.
     if (disabled(name)) return
@@ -296,8 +310,8 @@ export function discoverModules(
   // as its own manifest names it — as a git-channel source, the way a bundle contributes its modules.
   // Kept out of `byName` on purpose: a name another channel holds must be REFUSED, never shadowed, and
   // compile does that, naming the entry. A clone not on disk contributes nothing, like any layer.
-  const layerModules = []
-  const layerRefusals = []
+  const layerModules: ModuleSource[] = []
+  const layerRefusals: string[] = []
   for (const l of layerList) {
     const clone = path.join(gitDir, l.name)
     if (!l.module || !fs.existsSync(clone)) continue
@@ -324,7 +338,7 @@ export function discoverModules(
  *  by asking git — compile shells out to git nowhere and must keep working in a freshly-`init`ed
  *  directory that is not a repo yet. Asked by the module flag and by a descriptor's `storage.owner`
  *  alike, so an npm module shipping an owned collection fails the same way. */
-export function unownableBecause(source, rel) {
+export function unownableBecause(source: ModuleSource, rel: (p: string) => string): string | null {
   if (source.channel === "npm")
     return `module "${source.name}" is installed under node_modules/ — that path is never committed, so its records could not be saved. Vendor it into modules/ or install it as a git module.`
   if (source.channel === "git" && !fs.existsSync(path.join(source.root, ".git")))
@@ -334,10 +348,14 @@ export function unownableBecause(source, rel) {
 
 /** modules whose collections default to `storage.owner: module` (`owns_data: true`), by module
  *  name → {root, channel}. Records that could never be committed are a compile ERROR, not a silent zero. */
-function dataOwningModules(sources, fail, rel) {
-  const owners = new Map()
+function dataOwningModules(
+  sources: ModuleSource[],
+  fail: (msg: string) => never,
+  rel: (p: string) => string
+): Map<string, { root: string; channel: string }> {
+  const owners = new Map<string, { root: string; channel: string }>()
   for (const s of sources) {
-    let mpkg
+    let mpkg: PackageJson
     try {
       mpkg = JSON.parse(fs.readFileSync(path.join(s.root, "package.json"), "utf8"))
     } catch {
@@ -354,7 +372,7 @@ function dataOwningModules(sources, fail, rel) {
 }
 
 /** A relative path spelled with `/` on every OS — Windows' `path.relative` and `path.join` use `\`. */
-const toPosix = p => p.split(path.sep).join("/")
+const toPosix = (p: string): string => p.split(path.sep).join("/")
 
 // ---- record layers ----------------------------------------------------------------
 // A `git_modules` clone that is itself a WORKSPACE (its manifest names `workspace_module`) — or an
@@ -368,7 +386,7 @@ export { layerEntries }
 
 /** A layer's data folder, from the clone's own manifest (its `data_path`), default `data`. The clone
  *  may be absent — a fresh checkout before `dreamteamer install` — and then the default stands. */
-function layerDataPath(root, name) {
+function layerDataPath(root: string, name: string): string {
   try {
     return (
       JSON.parse(fs.readFileSync(path.join(root, "git_modules", name, "package.json"), "utf8")).dreamteamer
@@ -382,7 +400,7 @@ function layerDataPath(root, name) {
 /** The git repo that will hold a module's records: nearest `.git` at or above the module root,
  *  as a workspace-relative path (`.` = the workspace itself). `.git` may be a FILE — worktrees
  *  and submodules write a pointer file rather than a directory — so existsSync, not isDirectory. */
-export function repoRootOf(moduleRoot, wsRoot) {
+export function repoRootOf(moduleRoot: string, wsRoot: string): string {
   const stop = path.resolve(wsRoot)
   let dir = path.resolve(moduleRoot)
   while (dir.startsWith(stop)) {
@@ -393,12 +411,12 @@ export function repoRootOf(moduleRoot, wsRoot) {
   return "."
 }
 
-export function shadowWarning({ name, winner, loser }) {
+export function shadowWarning({ name, winner, loser }: { name: string; winner: string; loser: string }): string {
   return `⚠ module ${name}: ${CHANNEL_LABEL[winner]} copy shadows ${CHANNEL_LABEL[loser]} copy`
 }
 
 /** The `name` in a folder's package.json, or null — an absent clone or an unreadable file is unknown. */
-function pkgNameAt(dir) {
+function pkgNameAt(dir: string): string | null {
   try {
     return JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8")).name ?? null
   } catch {
@@ -419,12 +437,12 @@ export function compile(ws: Workspace): 0 {
   const harnesses = config.harnesses ?? ["claude-code"]
   // workspace-relative and POSIX on every OS: these paths are stored (manifest sources, module
   // records, storage paths) and compared with `/`-joined prefixes — see addEntry
-  const rel = p => toPosix(path.relative(root, p))
+  const rel = (p: string): string => toPosix(path.relative(root, p))
 
   /** ⚠ YAML, WITH THE FILE IN THE MESSAGE. js-yaml reports `line:column` and a snippet and never a
    *  path, so one stray tab in a workspace of a hundred sources was an mtime bisect. Every parse of
    *  a MODULE SOURCE goes through here; the projected records compile dumps itself do not need it. */
-  const loadSource = (text, srcPath): SourceDoc | null => {
+  const loadSource = (text: string, srcPath: string): SourceDoc | null => {
     try {
       return load<SourceDoc | null>(text)
     } catch (e) {
@@ -439,7 +457,7 @@ export function compile(ws: Workspace): 0 {
    *  Refuse here, the last layer that still knows which module file the bytes came from.
    *  ⚠ ENTITY FILES ONLY. A skill is a FOLDER: its `SKILL.md` is the entity and is covered, while a
    *  placeholder under `references/` is the author's business, not the compiler's. */
-  const refuseEmptySource = srcPath => {
+  const refuseEmptySource = (srcPath: string): void => {
     if (fs.readFileSync(srcPath, "utf8").trim() === "") {
       fail(`${rel(srcPath)}: source is empty — there is nothing to compile. Delete the file, or write one.`)
     }
@@ -511,19 +529,19 @@ export function compile(ws: Workspace): 0 {
       )
   }
   const channelOf = new Map(sources.map(s => [s.name, s.channel]))
-  const declaredEnv = new Map() // env key -> [module names]
-  const requestedVars = new Map() // var a module READS through ${env:…} -> [module names]
-  const envMeta = new Map() // env key or var -> { description, example } — the first module to say wins
-  const moduleIgnores = new Map() // module name -> non-source folders it declares (strayKindDirs)
-  const moduleDeps = new Map() // module name -> [module names]      — HARD, must be acyclic
-  const modulePeers = new Map() // module name -> [collection names]  — SOFT, cannot cycle
-  const moduleNamespaces = new Map() // module name -> [namespaces it DECLARES] (§8, option A)
-  const moduleVersions = new Map() // module name -> its package.json version
-  const moduleFloors = new Map() // module name -> npm `peerDependencies` — a version floor on a sibling module
+  const declaredEnv = new Map<string, string[]>() // env key -> [module names]
+  const requestedVars = new Map<string, string[]>() // var a module READS through ${env:…} -> [module names]
+  const envMeta = new Map<string, { description?: string; example?: string }>() // env key or var -> { description, example } — the first module to say wins
+  const moduleIgnores = new Map<string, string[]>() // module name -> non-source folders it declares (strayKindDirs)
+  const moduleDeps = new Map<string, string[]>() // module name -> [module names]      — HARD, must be acyclic
+  const modulePeers = new Map<string, string[]>() // module name -> [collection names]  — SOFT, cannot cycle
+  const moduleNamespaces = new Map<string, string[]>() // module name -> [namespaces it DECLARES] (§8, option A)
+  const moduleVersions = new Map<string, string>() // module name -> its package.json version
+  const moduleFloors = new Map<string, Record<string, string>>() // module name -> npm `peerDependencies` — a version floor on a sibling module
   const moduleLocalAssets = [] // {rel, owner, base} — validated with the workspace's own, below
   // the package.json `dreamteamer` block is a closed set of snake_case keys, the workspace's and
   // every module's alike — a key outside it is a typo or a spelling this engine does not read
-  const refuseUnknownKeys = (block, where) => {
+  const refuseUnknownKeys = (block: DreamteamerBlock | null | undefined, where: string): void => {
     const bad = Object.keys(block ?? {}).filter(k => !MANIFEST_KEYS.includes(k))
     // a kebab-case spelling of a key this engine reads is the v1 manifest: the converter rewrites it
     const v1 = v1ManifestRefusal(block, where)
@@ -703,7 +721,7 @@ export function compile(ws: Workspace): 0 {
   // the escaping rel a second time when the plan is built — a runtime that writes a symlink
   // outside the root must not wait for the compiler to be run.)
   const ENGINE_OWNED = new Set([".env", "node_modules", ".dreamteamer", ".git"])
-  const gitQ = args => {
+  const gitQ = (args: string[]): boolean => {
     try {
       execFileSync("git", args, { cwd: root, stdio: "ignore" })
       return true
@@ -772,7 +790,7 @@ export function compile(ws: Workspace): 0 {
   // install that went around the peer check. An absent sibling is `dependencies`' business, not this one's.
   {
     const byName = new Map(sources.map(s => [s.name, s]))
-    const misses = []
+    const misses: string[] = []
     for (const [mod, floors] of moduleFloors)
       for (const [dep, range] of Object.entries(floors)) {
         const sib = byName.get(dep),
@@ -792,8 +810,8 @@ export function compile(ws: Workspace): 0 {
   }
   // DFS with an explicit path so the error can print the ring rather than just naming one module
   {
-    const state = new Map() // name -> 'open' | 'done'
-    const visit = (mod, trail) => {
+    const state = new Map<string, "open" | "done">() // name -> 'open' | 'done'
+    const visit = (mod: string, trail: string[]): void => {
       if (state.get(mod) === "done") return
       if (state.get(mod) === "open") {
         const ring = [...trail.slice(trail.indexOf(mod)), mod]
@@ -809,7 +827,7 @@ export function compile(ws: Workspace): 0 {
   }
 
   const dataOwners = dataOwningModules(sources, fail, rel)
-  let layers
+  let layers: CompileLayer[]
   try {
     layers = layerEntries(pkg, root).map(l => ({
       ...l,
@@ -827,10 +845,10 @@ export function compile(ws: Workspace): 0 {
   const disabledHits = new Set<unknown>(disabledModules) // bare entries were applied at discovery
 
   /** entries: runtime-relative path -> { sources: [workspace-relative], bytes } */
-  const entries = new Map()
+  const entries = new Map<string, CompileEntry>()
   /** ui-view sources carrying `overlay: true` — merged onto their base after discovery */
-  const viewOverlays = []
-  const isViewOverlay = srcPath => {
+  const viewOverlays: { srcPath: string; runtimePath: string; moduleName: string }[] = []
+  const isViewOverlay = (srcPath: string): boolean => {
     const text = fs.readFileSync(srcPath, "utf8")
     // the regex is only a cheap pre-filter, so it must not be stricter than YAML: a trailing comment
     // or space on the flag line still carries the flag (the parsed value is what decides)
@@ -838,13 +856,13 @@ export function compile(ws: Workspace): 0 {
   }
   const counts: Record<string, number> = {}
   /** collection descriptors collected per name, a base and its overlays: name -> [{src, doc, moduleName}] */
-  const descriptorGroups = new Map()
+  const descriptorGroups = new Map<string, DescriptorSource[]>()
 
   // ⚠ A runtime key is a POSIX path on every OS. Every reader of `entries` — the mixin, skill,
   // command and ui-view passes below, the harness adapters, extensions — matches it with `/`, and
   // `path.join` spells it with `\` on Windows, where no mixin loaded and the collections and skills
   // indexes came out empty.
-  function addEntry(runtimePath, srcPath) {
+  function addEntry(runtimePath: string, srcPath: string): void {
     runtimePath = toPosix(runtimePath)
     if (entries.has(runtimePath)) {
       const [, kind, entity] = /^([^/]+)\/([^/]+)/.exec(runtimePath) ?? []
@@ -932,7 +950,12 @@ export function compile(ws: Workspace): 0 {
           if (!descriptorGroups.has(doc.name)) descriptorGroups.set(doc.name, [])
           descriptorGroups
             .get(doc.name)
-            .push({ src: { path: rel(srcPath), hash: sha256(bytes) }, doc, moduleName: source.name })
+            // a mapping with a name — compile-collections validates the rest, every file at once
+            .push({
+              src: { path: rel(srcPath), hash: sha256(bytes) },
+              doc: doc as AuthoredDescriptor,
+              moduleName: source.name,
+            })
           contributedBy.add(source.name)
         } else if (FOLDER_KINDS.has(kind) && isDir) {
           // the folder's ENTITY file, not its payload — see refuseEmptySource
@@ -974,7 +997,7 @@ export function compile(ws: Workspace): 0 {
   // the package ships). DEEP, overlay wins at the leaves, a list is replaced whole, and `null`
   // REMOVES the key — the one spelling an overlay has for "the package sets this; I do not". A
   // view without the flag and the same id is still the collision `addEntry` names.
-  const ownerOf = file =>
+  const ownerOf = (file: string): ModuleSource | undefined =>
     sources
       .map(s => ({ s, at: rel(s.root) }))
       .filter(({ at }) => !at || file.startsWith(`${at}/`))
@@ -1163,7 +1186,7 @@ export function compile(ws: Workspace): 0 {
   const uninstalled = Object.keys(config.git_modules ?? {}).filter(
     n => !fs.existsSync(path.join(root, "git_modules", n))
   )
-  const collectionsFail = msg =>
+  const collectionsFail = (msg: string): never =>
     fail(
       uninstalled.length
         ? `${msg}\n  run \`dreamteamer install\` first — dreamteamer.git_modules declares ${uninstalled.join(", ")}, and no clone of ${uninstalled.length === 1 ? "it" : "them"} is on disk yet`
@@ -1346,28 +1369,29 @@ export function compile(ws: Workspace): 0 {
   // operators, field names and templates the engine does interpret, so a typo fails here rather than
   // as a view that draws nothing or a gate that never opens. A view's compiled file is its source plus
   // `compiled.display`: its display merged over its collection's.
-  const collectionOf = ref => {
+  const collectionOf = (ref: unknown): Descriptor | null => {
     const name = String(ref ?? "").replace(/^collections\//, "")
     const e = name && entries.get(path.posix.join("collections", `${name}.collection.yaml`))
     return e ? load<Descriptor>(e.bytes.toString("utf8")) : null
   }
-  const fieldsKnown = d => (d ? fieldsOf(d) : undefined)
+  const fieldsKnown = (d: Descriptor | null | undefined): Record<string, Field> | undefined =>
+    d ? fieldsOf(d) : undefined
   // a module declaring a peer that is not installed may name a field that peer's overlay adds
-  const lenientFor = file => {
+  const lenientFor = (file: string): boolean => {
     const owner = sources
       .map(s => ({ s, at: rel(s.root) }))
       .filter(({ at }) => !at || file.startsWith(`${at}/`))
       .sort((a, b) => b.at.length - a.at.length)[0]?.s
     return (modulePeers.get(owner?.name) ?? []).some(p => !descriptorGroups.has(p))
   }
-  const v1Sources = []
+  const v1Sources: string[] = []
   for (const [rt, e] of entries) {
     if (!rt.startsWith("ui-views/")) continue
     const file = e.sources[0].path
     const view = loadSource(e.bytes.toString("utf8"), file)
     const d = view?.collection ? collectionOf(view.collection) : null
-    const groupFields = f => {
-      const t = d && f ? targetsOf(fieldsOf(d)[f]) : null
+    const groupFields = (f: unknown): Record<string, Field> | undefined => {
+      const t = d && f ? targetsOf(fieldsOf(d)[f as string]) : null
       return Array.isArray(t) && t.length === 1 ? fieldsKnown(collectionOf(`collections/${t[0]}`)) : undefined
     }
     const { errors, warnings, v1 } = viewErrors(view, {
@@ -1613,7 +1637,7 @@ export function compile(ws: Workspace): 0 {
 /** What the PREVIOUS compile resolved, for the one message that needs to know a namespace has just
  *  disappeared rather than never existing. Read off the runtime on disk, which at this point in
  *  compile is still the old one. */
-function prevManifestNamespaces(root) {
+function prevManifestNamespaces(root: string): string[] {
   return normalizeNamespaces(readManifest(root)?.namespaces)
 }
 
@@ -1666,8 +1690,8 @@ export function staleness(root: string): { compiled: boolean; stale: string[]; m
   //
   // The root itself, when a workspace declares no `workspace-module`, is not a named module, so no
   // `<module>/<entity>` entry can address its sources — it is walked unfiltered, as before.
-  const disabledEntities = new Set(
-    (pkg.dreamteamer?.disable ?? []).filter(d => typeof d === "string" && !isPackageEntry(d))
+  const disabledEntities = new Set<string>(
+    (pkg.dreamteamer?.disable ?? []).filter((d): d is string => typeof d === "string" && !isPackageEntry(d))
   )
   const refused = new Set((manifest.refused ?? []).map(r => r.name))
   const roots = [
@@ -1731,7 +1755,7 @@ export function warnIfStale(root: string): ReturnType<typeof staleness> {
  * the way names the safe order: `relocate --to-root` under the OLD declaration, then compile, then
  * `relocate`. Adding `under` moves nothing out of sight and is not refused.
  */
-function refusePlacementTransitions(root, compiledColls) {
+function refusePlacementTransitions(root: string, compiledColls: Map<string, CompiledCollection>): void {
   // a runtime an older engine wrote has no `compiled` blocks to compare against; the converter carries
   // placement over unchanged, so there is no transition to refuse
   let previous
@@ -1799,7 +1823,7 @@ const MANAGED_MARKERS = [
   ["the instructions block", INSTRUCTIONS_END],
 ]
 
-function refuseManagedMarkers(text, srcPath) {
+function refuseManagedMarkers(text: string, srcPath: string): void {
   const lines = text.split("\n")
   for (const [i, line] of lines.entries()) {
     for (const [which, marker] of MANAGED_MARKERS) {

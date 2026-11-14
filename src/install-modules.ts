@@ -30,12 +30,25 @@ import {
   droppedKeys,
 } from "./setup.ts"
 import type { PackageJson, Workspace } from "./types.ts"
+import type { InputFlag, UnitResult } from "./setup.ts"
+
+/** A package spec read to its manifest: a local folder (linked), a tarball, or a registry version. */
+export type SpecEntry = { kind: "folder" | "tarball" | "registry"; spec: string; manifest: PackageJson }
+/** One installed module, by package name. */
+export type InstalledModule = {
+  name: string
+  version: string | null
+  linked: boolean
+  manifest: PackageJson
+  channel: string
+}
+type FolderIndex = Map<string, { version: string; file: string; manifest: PackageJson }[]>
 /** `hooks.afterNpm` is a test seam the CLI never sets: an interruption between npm and compile */
 type InstallHooks = { afterNpm?: () => void | Promise<void> }
 
 const EXACT = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/
 /** Numeric major.minor.patch order; a prerelease sorts below its release. */
-export function compareVersions(a, b) {
+export function compareVersions(a: string, b: string): number {
   const pa = String(a).split(/[-+]/)[0].split(".").map(Number),
     pb = String(b).split(/[-+]/)[0].split(".").map(Number)
   for (let i = 0; i < 3; i++) if ((pa[i] ?? 0) !== (pb[i] ?? 0)) return (pa[i] ?? 0) - (pb[i] ?? 0)
@@ -45,18 +58,18 @@ export const NPM_FLOOR = ">=7.0.0"
 
 export class InstallRefusal extends Error {
   code: number
-  constructor(m) {
+  constructor(m: string) {
     super(m)
     this.code = EXIT.failed
   }
 }
-const refuse = m => new InstallRefusal(m)
+const refuse = (m: string): InstallRefusal => new InstallRefusal(m)
 
 // ---- reading manifests ----------------------------------------------------------------------------
 
 /** `package/package.json` out of an npm tarball: gunzip, then walk the ustar headers (512-byte
  *  blocks; the size is octal at offset 124; a `./` prefix is tolerated). No dependency, no shell. */
-export function readTarballManifest(file) {
+export function readTarballManifest(file: string): PackageJson {
   const buf = zlib.gunzipSync(fs.readFileSync(file))
   let at = 0
   while (at + 512 <= buf.length) {
@@ -81,15 +94,15 @@ export function readTarballManifest(file) {
 
 /** Every tarball in a folder, indexed by package name, newest first (npm's own semver order via
  *  `satisfies`): file names are never parsed — `npm pack` writes `fix-a-1.0.0.tgz` for `@fix/a`. */
-export function indexFolder(dir) {
-  const index = new Map()
+export function indexFolder(dir: string): FolderIndex {
+  const index: FolderIndex = new Map()
   if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) throw refuse(`--from ${dir}: not a folder`)
   for (const f of fs
     .readdirSync(dir)
     .filter(n => n.endsWith(".tgz"))
     .sort()) {
     const file = path.join(dir, f)
-    let m
+    let m: PackageJson
     try {
       m = readTarballManifest(file)
     } catch {
@@ -102,11 +115,11 @@ export function indexFolder(dir) {
   return index
 }
 
-const splitSpec = spec => {
+const splitSpec = (spec: string): { name: string; version: string | null } => {
   const at = spec.startsWith("@") ? spec.indexOf("@", 1) : spec.indexOf("@")
   return at > 0 ? { name: spec.slice(0, at), version: spec.slice(at + 1) } : { name: spec, version: null }
 }
-const isPathSpec = (spec, cwd) =>
+const isPathSpec = (spec: string, cwd: string): boolean =>
   (spec.startsWith(".") || path.isAbsolute(spec) || spec.startsWith("file:")) &&
   fs.existsSync(path.resolve(cwd, spec.replace(/^file:/, "")))
 
@@ -115,7 +128,15 @@ const isPathSpec = (spec, cwd) =>
  * resolved from `--from`), `folder` (a development link), `registry` (a name, read with one
  * `npm view` — the only network call; `github:` and git URLs go the same way).
  */
-export function readSpecManifest(spec, { from = null, index = null, npm = resolveNpm(), cwd = process.cwd() } = {}) {
+export function readSpecManifest(
+  spec: string,
+  {
+    from = null,
+    index = null,
+    npm = resolveNpm(),
+    cwd = process.cwd(),
+  }: { from?: string | null; index?: FolderIndex | null; npm?: string | null; cwd?: string } = {}
+): SpecEntry {
   if (isPathSpec(spec, cwd)) {
     const abs = path.resolve(cwd, spec.replace(/^file:/, ""))
     if (fs.statSync(abs).isDirectory()) {
@@ -155,7 +176,7 @@ export function readSpecManifest(spec, { from = null, index = null, npm = resolv
           : ""
       }`
     )
-  let out
+  let out: PackageJson | PackageJson[]
   try {
     out = JSON.parse(r.stdout)
   } catch {
@@ -169,8 +190,8 @@ export function readSpecManifest(spec, { from = null, index = null, npm = resolv
 // ---- the closure --------------------------------------------------------------------------------
 
 /** The modules already here, by package name: version, whether it is a development link, its manifest. */
-export function installedModules(ws) {
-  const out = new Map()
+export function installedModules(ws: Workspace): Map<string, InstalledModule> {
+  const out = new Map<string, InstalledModule>()
   const { modules } = discoverModules(ws.root, ws.pkg)
   for (const m of modules) {
     let manifest: PackageJson = {}
@@ -198,7 +219,7 @@ export function installedModules(ws) {
  * Returns the ordered install list (dependencies first) and the names already satisfied.
  */
 export function resolveClosure(
-  specs,
+  specs: string[],
   {
     installed,
     from = null,
@@ -212,16 +233,16 @@ export function resolveClosure(
     cwd?: string
     engine?: string
   } = {}
-) {
+): { list: SpecEntry[]; already: string[] } {
   const index = from ? indexFolder(from) : null
-  const list = []
-  const already = []
-  const seen = new Map() // name → entry
+  const list: SpecEntry[] = []
+  const already: string[] = []
+  const seen = new Map<string, SpecEntry>() // name → entry
   // a package an INSTALLED one already provides: present for the walk (never resolved again), and refused
   // the moment it is asked for by name — before any of its dependencies are looked up anywhere
-  const providedBy = name =>
+  const providedBy = (name: string): string | null =>
     [...installed].find(([, i]) => (i.manifest?.dreamteamer?.provides ?? []).includes(name))?.[0] ?? null
-  const judge = (entry, askedAs, stack = []) => {
+  const judge = (entry: SpecEntry, askedAs: "spec" | "dependency", stack: string[] = []): void => {
     const m = entry.manifest
     if (!m.dreamteamer || typeof m.dreamteamer !== "object")
       throw refuse(
@@ -241,7 +262,7 @@ export function resolveClosure(
         `${m.name} is installed at ${here.version}, not ${m.version} — move it on purpose: dt update ${m.name}@${m.version}`
       )
   }
-  const walk = (spec, stack, askedAs) => {
+  const walk = (spec: string, stack: string[], askedAs: "spec" | "dependency"): void => {
     // asked for by name and already provided: refuse by name, without reading any manifest
     if (askedAs === "spec" && !isPathSpec(spec, cwd)) {
       const p = providedBy(splitSpec(spec).name)
@@ -292,7 +313,7 @@ export function resolveClosure(
 }
 
 /** The npm on PATH is at least NPM_FLOOR, or the refusal naming both. */
-export function npmFloor(npm = resolveNpm()) {
+export function npmFloor(npm: string | null = resolveNpm()): string | null {
   if (!npm) return "cannot install — node found, npm not on PATH"
   const r = spawnSync(npm, ["--version"], { encoding: "utf8", env: childEnv(), timeout: 30_000 })
   const v = (r.stdout ?? "").trim()
@@ -304,7 +325,7 @@ export function npmFloor(npm = resolveNpm()) {
 
 // ---- the verb -----------------------------------------------------------------------------------
 
-const gitOk = (root, args) => {
+const gitOk = (root: string, args: string[]): boolean => {
   try {
     execFileSync("git", args, { cwd: root, stdio: "ignore" })
     return true
@@ -312,9 +333,9 @@ const gitOk = (root, args) => {
     return false
   }
 }
-const gitIgnored = (root, rel) => gitOk(root, ["check-ignore", "-q", "--", rel])
+const gitIgnored = (root: string, rel: string): boolean => gitOk(root, ["check-ignore", "-q", "--", rel])
 /** `git status --porcelain` of one path: '' when clean (modified AND untracked both count as dirty). */
-const gitStatus = (root, rel) => {
+const gitStatus = (root: string, rel: string): string => {
   try {
     return execFileSync("git", ["status", "--porcelain", "--", rel], { cwd: root, encoding: "utf8" }).trim()
   } catch {
@@ -330,8 +351,8 @@ const gitStatus = (root, rel) => {
  * `{ fresh }`, or `{ code }`.
  */
 export async function npmAndCompile(
-  ws,
-  list,
+  ws: Workspace,
+  list: SpecEntry[],
   {
     npm = resolveNpm(),
     open,
@@ -347,11 +368,11 @@ export async function npmAndCompile(
     hooks?: InstallHooks
     what?: string
   } = {}
-) {
+): Promise<{ code: number; fresh?: undefined } | { code?: undefined; fresh: Workspace }> {
   const names = list.map(e => e.manifest.name)
   const pkgFile = path.join(ws.root, "package.json"),
     lockFile = path.join(ws.root, "package-lock.json")
-  const versionOf = n => {
+  const versionOf = (n: string): string | null => {
     try {
       return JSON.parse(fs.readFileSync(path.join(ws.root, "node_modules", n, "package.json"), "utf8")).version ?? null
     } catch {
@@ -445,9 +466,9 @@ export async function npmAndCompile(
  * git does not ignore. Returns `{ code, results, committed, ignored }`.
  */
 export async function setupAndCommit(
-  ws,
-  fresh,
-  names,
+  ws: Workspace,
+  fresh: Workspace,
+  names: string[],
   {
     subject,
     inputFlags = [],
@@ -459,7 +480,7 @@ export async function setupAndCommit(
     noCommit = false,
   }: {
     subject?: string
-    inputFlags?: string[]
+    inputFlags?: InputFlag[]
     allow?: Set<string>
     tty?: boolean
     noInput?: boolean
@@ -467,12 +488,12 @@ export async function setupAndCommit(
     processEnv?: NodeJS.ProcessEnv
     noCommit?: boolean
   } = {}
-) {
+): Promise<{ code: number; results: UnitResult[]; committed: string[] | null; ignored: string[] }> {
   const skipped = new Set(skippedUnits(fresh))
   const fresh_units = units(fresh).filter(u => names.includes(u.module) && !skipped.has(u.id))
-  let code = EXIT.done
-  const results = []
-  let ignored = []
+  let code: number = EXIT.done
+  const results: UnitResult[] = []
+  let ignored: string[] = []
   if (fresh_units.length) {
     const term = tty && !noInput && !io ? ttyIO() : null
     try {
@@ -485,7 +506,7 @@ export async function setupAndCommit(
         lenient: true,
       })
       ignored = filled.ignored
-      const written = new Map() // one run never lets two units disagree on a key (he3)
+      const written = new Map<string, { unit: string; value: unknown }>() // one run never lets two units disagree on a key (he3)
       for (const u of fresh_units) {
         const res = await runUnit(fresh, u, {
           inputs: filled.inputs.get(u.id) ?? {},
@@ -526,7 +547,7 @@ export async function setupAndCommit(
       term?.close()
     }
   }
-  let committed = null
+  let committed: string[] | null = null
   if (!noCommit && gitOk(ws.root, ["rev-parse", "--git-dir"])) {
     const changed = results
       .flatMap(r => r.applied.flatMap(a => a.changed ?? []))
@@ -549,7 +570,7 @@ export async function setupAndCommit(
 }
 
 /** The unit lines a verb prints after setupAndCommit, one block per unit. */
-export function printUnitResults(results, ignored, log) {
+export function printUnitResults(results: UnitResult[], ignored: string[], log: (line: string) => void): void {
   for (const text of ignored) log(`⚠ ${text} — ignored`)
   for (const r of results) {
     const verified = r.verified ? ` · verified ${r.verified}` : ""
@@ -568,7 +589,7 @@ export function printUnitResults(results, ignored, log) {
   }
 }
 /** Whether a unit still has a step only the owner runs — a sign-in, a consent — pending. */
-export const ownerStepPending = r =>
+export const ownerStepPending = (r: Pick<UnitResult, "pending">): boolean =>
   (r.pending ?? []).some(p => p.runBy === "owner" || (p.effects ?? []).some(e => e.kind === "account"))
 
 /**
@@ -576,8 +597,8 @@ export const ownerStepPending = r =>
  * `hooks.afterNpm` is a test seam the CLI never sets (an interruption between npm and compile).
  */
 export async function installModules(
-  ws,
-  argv,
+  ws: Workspace,
+  argv: string[],
   {
     open,
     npm = resolveNpm(),
@@ -597,7 +618,7 @@ export async function installModules(
     tty?: boolean
     io?: ReturnType<typeof ttyIO> | null
   } = {}
-) {
+): Promise<number> {
   if (typeof open !== "function")
     throw new Error("installModules: opts.open (an extension-activating opener) is required")
   const json = argv.includes("--json")
@@ -617,7 +638,7 @@ export async function installModules(
     console.error("✖ dt install takes one or more specs: a name, name@version, ./file.tgz, ./folder or a git URL")
     return EXIT.usage
   }
-  let allow, inputFlags
+  let allow: Set<string>, inputFlags: InputFlag[]
   try {
     allow = parseAllow(argv)
     inputFlags = parseInputFlags(argv)
@@ -637,7 +658,7 @@ export async function installModules(
 
   // 1. resolve and refuse early — nothing is written before step 2
   const installed = installedModules(ws)
-  let plan
+  let plan: ReturnType<typeof resolveClosure>
   try {
     plan = resolveClosure(specs, { installed, from, npm, cwd: ws.root })
   } catch (e) {
@@ -663,7 +684,7 @@ export async function installModules(
       log(`✔ already installed: ${names.join(", ")} — nothing to do`)
       return EXIT.done
     }
-    let fresh
+    let fresh: Workspace
     try {
       fresh = await open(ws.root)
       if (stale) {
@@ -751,7 +772,7 @@ export async function installModules(
   return out.code
 }
 
-const dotenv = ws => {
+const dotenv = (ws: Workspace): Record<string, string> => {
   const file = path.join(ws.root, ".env")
   return fs.existsSync(file) ? Object.fromEntries(parseEnvValues(fs.readFileSync(file, "utf8"))) : {}
 }

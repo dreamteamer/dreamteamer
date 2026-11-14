@@ -11,6 +11,24 @@ import { splitRef, canonicalCollection } from "./ref.ts"
 
 import { storageOf } from "./descriptor.ts"
 import type { Store } from "./store.ts"
+import type { Relation } from "./relations.ts"
+import type { RecordChange } from "./events.ts"
+import type { Descriptors } from "./types.ts"
+
+/** One pending record file `git status` reported, mapped back to its record. */
+type Row = { verb: string; collection: string; id: string; repoRel: string; fromRel: string | null }
+type SampledRow = Row & { cwd: string }
+type Side = "targets" | "owners"
+/** Reference values only: a non-string value names no record, so it can never match a pending row. */
+type Edges = Record<Side, Set<string>>
+/** A pending record's relation edges at HEAD (`was`) and on disk (`now`), and its HEAD text. */
+type State = { row: SampledRow | undefined; was: Edges; now: Edges; headText: string | null }
+type Targets = {
+  scoped: boolean
+  scope: string[]
+  whole: Set<string>
+  records: Map<string, { collection: string; id: string }>
+}
 // git calls whose failure we CATCH must not print git's own error: execFileSync forwards the
 // child's stderr to ours unless told otherwise, so a handled "not a git repository" still
 // reached the user's terminal. stdout stays piped because we read it.
@@ -31,7 +49,7 @@ const QUIET_ERR: StdioOptions = ["ignore", "pipe", "pipe"]
 // read, same answer and slower. So the number wants headroom, not precision.
 const MAX_PREIMAGE_BYTES = 64 * 1024 * 1024
 
-const VERB = { A: "add", M: "set", D: "rm", R: "rename", "?": "add" }
+const VERB: Record<string, string> = { A: "add", M: "set", D: "rm", R: "rename", "?": "add" }
 
 /** What the caller asked to publish. A target is EITHER a collection name or a `<collection>/<id>`
  *  reference — the same either-shape `move` and `next` accept, and after 0.12.0 the shape every
@@ -42,10 +60,10 @@ const VERB = { A: "add", M: "set", D: "rm", R: "rename", "?": "add" }
  *
  *  Returns `scope` (collections to sample, so the git pathspec stays as narrow as it was), `whole`
  *  (collections asked for entire) and `records` (ref → {collection, id}). */
-function parseTargets(descriptors, only) {
-  const scope = new Set()
-  const whole = new Set()
-  const records = new Map()
+function parseTargets(descriptors: Descriptors, only: string[]): Targets {
+  const scope = new Set<string>()
+  const whole = new Set<string>()
+  const records: Targets["records"] = new Map()
   for (const target of only) {
     const asCollection = canonicalCollection(descriptors, target)
     if (asCollection) {
@@ -60,16 +78,16 @@ function parseTargets(descriptors, only) {
   return { scoped: only.length > 0, scope: [...scope], whole, records }
 }
 
-const SIDES = ["targets", "owners"]
-const NO_EDGES = { targets: new Set(), owners: new Set() }
+const SIDES: Side[] = ["targets", "owners"]
+const NO_EDGES: Edges = { targets: new Set(), owners: new Set() }
 
 /** Relation FIELDS on `collection`, each tagged with which SIDE the record at the other end stands
  *  on and which collection it lives in. That side is the whole safety argument for the sweep below:
  *  a TARGET's mirror is bookkeeping the engine wrote BECAUSE OF this record's own write, so dragging
  *  any number of them into the commit is honest. An OWNER is somebody's record, whose existence this
  *  write does not imply — so dragging one in is rationed, and two is a refusal. */
-function relationEdges(rels, collection) {
-  const edges = []
+function relationEdges(rels: Relation[], collection: string): [field: string, side: Side, partner: string][] {
+  const edges: [string, Side, string][] = []
   for (const r of rels) {
     if (r.owner === collection) edges.push([r.field, "targets", r.target])
     if (r.target === collection) edges.push([r.mirror, "owners", r.owner])
@@ -78,9 +96,10 @@ function relationEdges(rels, collection) {
 }
 
 /** The refs a record names through its relation fields, split by side. */
-function edgesOf(fields, edges) {
-  const out = { targets: new Set(), owners: new Set() }
-  for (const [field, side] of edges) for (const v of [].concat(fields?.[field] ?? [])) out[side].add(v)
+function edgesOf(fields: Record<string, unknown> | null | undefined, edges: [string, Side, string][]): Edges {
+  const out: Edges = { targets: new Set(), owners: new Set() }
+  for (const [field, side] of edges)
+    for (const v of ([] as unknown[]).concat(fields?.[field] ?? [])) if (typeof v === "string") out[side].add(v)
   return out
 }
 
@@ -91,7 +110,7 @@ function edgesOf(fields, edges) {
  *  record hand-edited into broken frontmatter and published weeks ago must not take `dt commit`
  *  down — and it must not take it down only in the record-scoped form, which is the shape of bug
  *  nobody attributes correctly ("commit works, commit <record> dies with a bare YAML error"). */
-function readState(store, rels, row, head) {
+function readState(store: Store, rels: Relation[], row: SampledRow | undefined, head: () => string | null): State {
   const edges = row ? relationEdges(rels, row.collection) : []
   if (!edges.length) return { row, was: NO_EDGES, now: NO_EDGES, headText: null }
   // A THUNK, not a value: the short-circuit above is what makes a row in a collection with no
@@ -126,14 +145,14 @@ function readState(store, rels, row, head) {
  *  always parsed this way — so an opaque `format: binary` record reads the same on both sides. Such a
  *  record cannot carry a relation field at all, having no serialised fields for one to live in, so
  *  readState never reaches here for one. */
-function worktreeFields(store, row) {
+function worktreeFields(store: Store, row: SampledRow): Record<string, unknown> {
   const text = fs.readFileSync(path.resolve(row.cwd, row.repoRel), "utf8")
   return parseRecordText(text, store.descriptors.get(row.collection))
 }
 
 /** One row's bytes at HEAD, or null when HEAD does not have that path (untracked, or an empty repo:
  *  no pre-image, so no edges at HEAD). */
-function headText(row) {
+function headText(row: SampledRow): string | null {
   try {
     return execFileSync("git", ["show", `HEAD:${row.repoRel}`], { cwd: row.cwd, stdio: QUIET }).toString()
   } catch {
@@ -154,9 +173,9 @@ function headText(row) {
  *  order, or `<request> missing\n` for one git cannot resolve. The payload is sliced by the byte
  *  count git states rather than by scanning for a delimiter, because a record's body may hold
  *  anything at all — including a line that looks exactly like the next header. */
-function headTextsByPath(cwd, paths) {
-  const out = new Map()
-  let buf
+function headTextsByPath(cwd: string, paths: string[]): Map<string, string | null> {
+  const out = new Map<string, string | null>()
+  let buf: Buffer
   try {
     buf = execFileSync("git", ["cat-file", "--batch"], {
       cwd,
@@ -187,7 +206,7 @@ function headTextsByPath(cwd, paths) {
  *  either steals the other session's record or leaves a HEAD that fails `dt check`. Name all three
  *  parties — without the FILE the reader cannot see why two unrelated records are in one sentence,
  *  and without the other records they cannot type the command that fixes it. */
-function entangled(file, parties, command) {
+function entangled(file: string, parties: string[], command: string): Error {
   return new Error(
     `${file} holds relation changes from ${parties.join(" and ")}, and there is no commit that publishes one without the other. Name them together (dreamteamer commit ${command}) or wait for the other session to publish.`
   )
@@ -209,12 +228,12 @@ function entangled(file, parties, command) {
  *     batch of four is a subprocess too. Nothing else changes — the bytes are the same bytes,
  *     verified against `git show` byte for byte.
  */
-function edgeReader(store, rels, sampled) {
-  const rows = new Map()
+function edgeReader(store: Store, rels: Relation[], sampled: { cwd: string; rows: Row[] }[]) {
+  const rows = new Map<string, SampledRow>()
   for (const { cwd, rows: rs } of sampled) for (const r of rs) rows.set(`${r.collection}/${r.id}`, { ...r, cwd })
-  const cache = new Map()
-  const heads = new Map() // ref → pre-image text, filled by prefetch; anything absent reads on its own
-  const stateOf = ref => {
+  const cache = new Map<string, State>()
+  const heads = new Map<string, string | null>() // ref → pre-image text, filled by prefetch; anything absent reads on its own
+  const stateOf = (ref: string): State => {
     if (!cache.has(ref)) {
       const row = rows.get(ref)
       cache.set(
@@ -224,8 +243,8 @@ function edgeReader(store, rels, sampled) {
     }
     return cache.get(ref)
   }
-  const prefetch = refs => {
-    const byRepo = new Map()
+  const prefetch = (refs: string[]): void => {
+    const byRepo = new Map<string, string[]>()
     for (const ref of refs) {
       const row = rows.get(ref)
       // readState's own two short-circuits, applied BEFORE the batch is built rather than after:
@@ -245,7 +264,7 @@ function edgeReader(store, rels, sampled) {
       }
     }
   }
-  const moved = (ref, side) => {
+  const moved = (ref: string, side: Side): string[] => {
     const { was, now } = stateOf(ref)
     return [...was[side]].filter(v => !now[side].has(v)).concat([...now[side]].filter(v => !was[side].has(v)))
   }
@@ -259,14 +278,14 @@ function edgeReader(store, rels, sampled) {
  *  another session's prose, another field, another session's edge — is left exactly as pending as it
  *  was found. The first cut swept every ref in the named record's relation fields and reintroduced
  *  precisely the theft this file exists to prevent (CLAUDE.md rule 6). */
-function planSweep(targets, { rows, stateOf, moved }) {
+function planSweep(targets: Targets, { rows, stateOf, moved }: ReturnType<typeof edgeReader>): Set<string> {
   // `dt rename` leaves the old path DELETED and the new path UNTRACKED — neither staged, so git
   // reports no `R` (that only exists for a staged rename, which is why `fromRel` is null here) and
   // the two halves read as two unrelated records. They are ONE record: the id lives in the
   // FILENAME, so the new file's bytes ARE the old file's bytes at HEAD. That is git's own exact
   // rename heuristic, applied where git cannot see the pair. Getting it wrong means either leaving
   // half a rename at HEAD or refusing an ordinary rename as a concurrent-write conflict.
-  const sameRecord = (oldRef, newRef) => {
+  const sameRecord = (oldRef: string, newRef: string): boolean => {
     const o = stateOf(oldRef),
       n = stateOf(newRef)
     if (o.row?.verb !== "rm" || n.row?.verb !== "add" || o.row.collection !== n.row.collection) return false
@@ -280,7 +299,7 @@ function planSweep(targets, { rows, stateOf, moved }) {
   // A record's TARGETS are the partners its own write moved, so naming it asks for them. Its OWNERS
   // are not: a mirror is engine-owned state that ANOTHER session writes into, so an owner's edge
   // arriving in this file is that session's write, and it is inspected below rather than swept.
-  const sweep = new Set()
+  const sweep = new Set<string>()
   for (const ref of named) for (const t of moved(ref, "targets")) if (rows.has(t)) sweep.add(t)
   // Every file this commit will carry — the named records AND the partners they drag in — is
   // published WHOLE, edge changes and all. So the same test applies to both: an edge change to a
@@ -290,7 +309,7 @@ function planSweep(targets, { rows, stateOf, moved }) {
   // change had not touched an edge at all.
   const queue = [...named, ...sweep]
   for (let i = 0; i < queue.length; i++) {
-    const strangers = []
+    const strangers: string[] = []
     for (const side of SIDES)
       for (const v of moved(queue[i], side)) {
         if (!rows.has(v) || named.has(v) || sweep.has(v)) continue
@@ -346,10 +365,10 @@ function planSweep(targets, { rows, stateOf, moved }) {
  *  what dirtied N partners. Worse, it moves the cost onto the ORDINARY path: a dirty collection with
  *  no dirty partners at all, which has nothing to warn about, goes from 0.10s to 4.20s, since every
  *  row being published is then read to prove there was nothing to say. */
-function partnersLeftPending(reader, published) {
+function partnersLeftPending(reader: ReturnType<typeof edgeReader>, published: Set<string>): string[] {
   const pending = [...reader.rows.keys()].filter(ref => !published.has(ref))
   reader.prefetch(pending)
-  const left = new Set()
+  const left = new Set<string>()
   for (const ref of pending) {
     for (const side of SIDES) for (const v of reader.moved(ref, side)) if (published.has(v)) left.add(ref)
   }
@@ -359,8 +378,8 @@ function partnersLeftPending(reader, published) {
 /** Record directories to watch, grouped by owning repo. System-stored collections are excluded:
  *  they live in the gitignored runtime and their sources are module files — the same exclusion
  *  pathToRecord already applies. */
-function scopeByRepo(descriptors, only) {
-  const byRepo = new Map()
+function scopeByRepo(descriptors: Descriptors, only: string[]): Map<string, string[]> {
+  const byRepo = new Map<string, string[]>()
   for (const d of descriptors.values()) {
     const p = storageOf(d).path
     // `storage.base`, not a `system/` prefix: after the flatten a runtime collection's path is a
@@ -394,7 +413,7 @@ function scopeByRepo(descriptors, only) {
 
 /** In-progress merge/rebase/cherry-pick makes a commit's meaning ambiguous. Ordinary dirtiness
  *  is NOT a refusal condition — committing dirty records is this verb's entire job. */
-export function inProgress(cwd) {
+export function inProgress(cwd: string): string | null {
   let gitDir
   try {
     gitDir = execFileSync("git", ["rev-parse", "--absolute-git-dir"], { cwd, stdio: QUIET }).toString().trim()
@@ -415,7 +434,7 @@ export function inProgress(cwd) {
 
 /** A commit on a detached HEAD is reachable only by sha. Worth saying out loud before making one;
  *  not worth refusing over, since it is sometimes exactly what someone means to do. */
-function detached(cwd) {
+function detached(cwd: string): boolean {
   try {
     return execFileSync("git", ["symbolic-ref", "--quiet", "HEAD"], { cwd, stdio: QUIET }).toString().trim() === ""
   } catch {
@@ -427,7 +446,7 @@ function detached(cwd) {
  *  `git status` run in a module repo returns REPO-relative paths; pathToRecord takes
  *  WORKSPACE-relative ones, so every path is re-prefixed before matching. Skip this and every
  *  module-owned path maps to null — dt commit would commit nothing and report success. */
-function sample(root, repo, dirs, descriptors) {
+function sample(root: string, repo: string, dirs: string[], descriptors: Descriptors): { cwd: string; rows: Row[] } {
   const cwd = path.resolve(root, repo)
   const prefix = repo === "." ? "" : `${repo}/`
   const relDirs = dirs.map(d => (prefix && d.startsWith(prefix) ? d.slice(prefix.length) : d))
@@ -442,7 +461,7 @@ function sample(root, repo, dirs, descriptors) {
     stdio: QUIET,
   }).toString()
   const chunks = out.split("\0").filter(c => c.length > 0)
-  const rows = []
+  const rows: Row[] = []
   for (let i = 0; i < chunks.length; i++) {
     const status = chunks[i].slice(0, 2).trim()[0] ?? "M"
     const repoRel = chunks[i].slice(3)
@@ -470,7 +489,7 @@ export function composeSubject(rows: { verb: string; collection: string; id: str
   if (rows.length === 1) return `dreamteamer: ${rows[0].collection} ${rows[0].verb} ${rows[0].id}`
   const collections = [...new Set(rows.map(r => r.collection))].sort()
   if (collections.length === 1) {
-    const counts = {}
+    const counts: Record<string, number> = {}
     for (const r of rows) counts[r.verb] = (counts[r.verb] ?? 0) + 1
     const parts = Object.entries(counts)
       .map(([v, n]) => `${n} ${v}`)
@@ -485,7 +504,7 @@ export function composeSubject(rows: { verb: string; collection: string; id: str
  *  "nothing pending", the one report that looks like success. Only the store can tell them apart,
  *  and it is only asked in this branch: a pending DELETION matched a row above, so a record whose
  *  file is legitimately gone never reaches here. */
-function assertResolvable(store, records, matched) {
+function assertResolvable(store: Store, records: Targets["records"], matched: Set<string>): void {
   for (const [ref, { collection, id }] of records) {
     if (matched.has(ref) || store.ids(collection).has(id)) continue
     throw new Error(`${ref}: no such record — nothing pending under that reference`)
@@ -527,7 +546,7 @@ export function commitPending(store: Store, opts: CommitOpts = {}): CommitResult
   return store.withWriteLock(() => commitPlan(store, opts))
 }
 
-function commitPlan(store, { only = [], message, dryRun = false }: CommitOpts = {}) {
+function commitPlan(store: Store, { only = [], message, dryRun = false }: CommitOpts = {}): CommitResult[] {
   // Targets are resolved BEFORE anything is committed, so one bad target in a list of good ones
   // leaves the whole tree untouched rather than committing a prefix of what was asked for.
   const targets = parseTargets(store.descriptors, only)
@@ -536,8 +555,8 @@ function commitPlan(store, { only = [], message, dryRun = false }: CommitOpts = 
   // `dt check`. ⚠ The partner collections must join `targets.scope` BEFORE scopeByRepo: scope IS the
   // git pathspec, so a collection missing from it is never sampled and nothing later can reach it.
   const rels = targets.scoped ? relationsOf(store.descriptors) : []
-  const partners = new Set()
-  const hop = c => {
+  const partners = new Set<string>()
+  const hop = (c: string): void => {
     for (const [, , partner] of relationEdges(rels, c)) partners.add(partner)
   }
   for (const [, { collection }] of targets.records) hop(collection)
@@ -559,7 +578,7 @@ function commitPlan(store, { only = [], message, dryRun = false }: CommitOpts = 
   // unknown-reference test below can only be answered once every repo has been sampled — a record
   // lives in exactly one repo, and which one is not known in advance — and the sweep needs every
   // repo's rows before it can tell a renamed record from a concurrent deletion.
-  const sampled = []
+  const sampled: { repo: string; cwd: string; rows: Row[] }[] = []
   for (const [repo, dirs] of byRepo) {
     // A declared record layer not cloned yet — a fresh checkout before `dt install` — has nothing
     // pending by construction. Spawning git in a folder that does not exist threw ENOENT out of
@@ -569,7 +588,7 @@ function commitPlan(store, { only = [], message, dryRun = false }: CommitOpts = 
     const { cwd, rows } = sample(store.root, repo, dirs, store.descriptors)
     sampled.push({ repo, cwd, rows })
   }
-  const matched = new Set()
+  const matched = new Set<string>()
   for (const { rows } of sampled)
     for (const r of rows) {
       const ref = `${r.collection}/${r.id}`
@@ -579,15 +598,15 @@ function commitPlan(store, { only = [], message, dryRun = false }: CommitOpts = 
   // plan that looks like "nothing pending" — the one report that looks like success.
   assertResolvable(store, targets.records, matched)
   const reader = edgeReader(store, rels, sampled)
-  const sweep = targets.scoped ? planSweep(targets, reader) : new Set()
-  const results = []
+  const sweep = targets.scoped ? planSweep(targets, reader) : new Set<string>()
+  const results: CommitResult[] = []
   // ⚠ ONE COMMIT PER REPO, AND NOT ATOMIC ACROSS THEM — git has no transaction spanning clones.
   // What the verb owes instead is an honest report: a repo whose commit fails has its index reset
   // (as the store's own auto-commit does) and is named, the repos before it keep their commits and
   // stay in the report, and the repos after it are NOT attempted and are named as left pending.
   // Before this, a refusing hook in the second of three repos left the first commit standing, the
   // second repo's index staged, the third untouched, and printed nothing at all.
-  let failed = null
+  let failed: string | null = null
   for (const { repo, cwd, rows: all } of sampled) {
     // The SAMPLER is deliberately left alone — it is what makes a hand-edited record
     // indistinguishable from one the store wrote. Narrowing happens HERE, on the sampled rows, so
@@ -663,7 +682,7 @@ function commitPlan(store, { only = [], message, dryRun = false }: CommitOpts = 
 
 /** The record layer a repo is, by name — what a descriptor's root carries — or null for the workspace
  *  and for a module's clone that merely holds its own records. */
-function layerOf(descriptors, repo) {
+function layerOf(descriptors: Descriptors, repo: string): string | null {
   for (const d of descriptors.values())
     for (const r of storageOf(d).roots) if (r.repo === repo && r.layer) return r.layer
   return null
@@ -671,10 +690,10 @@ function layerOf(descriptors, repo) {
 
 /** One sampled repo's rows (the sampler above: `dt commit`, `dt status`) as report changes. A staged
  *  rename is two records — the id IS the path — so the old id is read back off the old path. */
-export function rowChanges(descriptors, repo, rows) {
+export function rowChanges(descriptors: Descriptors, repo: string, rows: Row[]): RecordChange[] {
   const prefix = repo === "." ? "" : `${repo}/`
   const layer = layerOf(descriptors, repo)
-  const of = (rec, rel, change) => ({
+  const of = (rec: { collection: string; id: string }, rel: string, change: RecordChange["change"]): RecordChange => ({
     collection: rec.collection,
     id: rec.id,
     ref: `${rec.collection}/${rec.id}`,
@@ -683,7 +702,7 @@ export function rowChanges(descriptors, repo, rows) {
     layer,
     change,
   })
-  const out = []
+  const out: RecordChange[] = []
   for (const r of rows) {
     out.push(
       of(r, r.repoRel, r.verb === "add" || r.verb === "rename" ? "created" : r.verb === "rm" ? "deleted" : "updated")
@@ -699,14 +718,14 @@ export function rowChanges(descriptors, repo, rows) {
  *  `dt status` counts with, so the two can never disagree. Any other `since` (a sha or a date) adds
  *  the commits since then, read by `deriveEvents`, and folds the two per record. Stateless: no mark
  *  file and no cursor, so it is free to run twice and cannot drift from git. */
-export function recordChanges(store, { since = "HEAD" } = {}) {
-  const pending = []
+export function recordChanges(store: Store, { since = "HEAD" }: { since?: string } = {}) {
+  const pending: RecordChange[] = []
   for (const r of commitPending(store, { dryRun: true }))
     if (!r.outside) pending.push(...rowChanges(store.descriptors, r.repo, r.rows))
   const committed =
     since === "HEAD"
       ? []
-      : deriveEvents(store.root, store.descriptors, since).map(e => ({
+      : deriveEvents(store.root, store.descriptors, since).map((e): RecordChange => ({
           collection: e.collection,
           id: e.id,
           ref: `${e.collection}/${e.id}`,

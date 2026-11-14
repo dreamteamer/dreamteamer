@@ -33,7 +33,7 @@ import { formatDescriptors } from "./schema-ops.ts"
 import { installClone, update, listRepos } from "./init.ts"
 import { installCommand, describeCheckout, initCommand } from "./checkout.ts"
 import { declaredGitModules } from "./workspace.ts"
-const isOwnClone = p => {
+const isOwnClone = (p: string): boolean => {
   try {
     return !fs.lstatSync(p).isSymbolicLink() && fs.existsSync(path.join(p, ".git"))
   } catch {
@@ -50,7 +50,8 @@ import { setupCommand, statusLines, renderStatusLines } from "./setup.ts"
 import { installModules } from "./install-modules.ts"
 import { updateModules, parseUpdateArgs } from "./update.ts"
 import { storageOf } from "./descriptor.ts"
-import type { Workspace } from "./types.ts"
+import type { Descriptor, Flags, Workspace } from "./types.ts"
+import type { RecordChange } from "./events.ts"
 
 // git calls whose failure we CATCH must not print git's own error: execFileSync forwards the
 // child's stderr to ours unless told otherwise, so a handled "not a git repository" still
@@ -350,7 +351,7 @@ const COLLECTION_VERBS = new Set(["list", "add", "values"])
 // not the entry.
 export const GLOBAL_FLAGS = ["workspace", "vault"]
 
-export const WORKSPACE_FLAGS = {
+export const WORKSPACE_FLAGS: Record<string, string[]> = {
   init: [
     "name",
     "data_path",
@@ -440,7 +441,7 @@ export const CORE_VERBS = [
 
 /** Verbs an extension answers, and the package it ships in — typed without it, the verb prints the
  *  install line. The container verbs belong to the global `dt-docker` bin, which needs no workspace. */
-const VERB_PACKAGES = {
+const VERB_PACKAGES: Record<string, string> = {
   prove: "@dreamteamer/proofs",
   land: "@dreamteamer/worktrees",
   worktree: "@dreamteamer/worktrees",
@@ -453,7 +454,7 @@ const DOCKER_VERBS = new Set(["start", "stop", "open", "export", "import"])
  *  path (what a reply links to), committed or not, and the layer it landed in — capped like every
  *  other listing here. `dt changes` and `dt commit` print it identically, so what a session copies
  *  into its reply does not depend on which of the two it ran. */
-function printChanges(changes) {
+function printChanges(changes: (RecordChange & { committed?: boolean; sha?: string | null })[]): void {
   const groups = groupChanges(changes)
   console.log(reportLine(groups))
   const rows = groups.flatMap(g => g.records)
@@ -464,7 +465,7 @@ function printChanges(changes) {
   if (rows.length > ROWS_SHOWN) console.log(`  + ${rows.length - ROWS_SHOWN} more — --json lists every record`)
 }
 
-export async function run(argv) {
+export async function run(argv: string[]): Promise<void> {
   const [cmd, ...rest] = argv
   try {
     if (cmd in WORKSPACE_FLAGS) {
@@ -485,7 +486,7 @@ export async function run(argv) {
     }
     if (cmd === "init") {
       // init runs BEFORE a workspace exists — no findWorkspace
-      const flags = {}
+      const flags: Flags = {}
       for (let i = 0; i < rest.length; i++)
         if (rest[i].startsWith("--")) {
           const [k, v] = rest[i].slice(2).split(/=(.*)/s)
@@ -545,7 +546,10 @@ export async function run(argv) {
     // An EXTENSION'S VERB runs in-process, handed this workspace — the same engine instance, the
     // same loaded extensions. Its exit code is the process's.
     const ext = ws.extensions.find(e => cmd in e.commands)
-    if (ext) process.exit((await ext.commands[cmd].run(ws, rest)) ?? 0)
+    if (ext) {
+      const code = await ext.commands[cmd].run(ws, rest)
+      process.exit(typeof code === "number" ? code : 0)
+    }
     switch (cmd) {
       // ONE verb makes a thing present and ready: this checkout, or an attached repo's
       // working tree. `ensure` was the second spelling of the same idea and is retired in the
@@ -562,7 +566,7 @@ export async function run(argv) {
       // Same policy as the retired verbs below: a stale invocation fails loudly.
       case "install": {
         const given = rest.filter(a => a.startsWith("--"))
-        const refuse = (form, allowed) => {
+        const refuse = (form: string, allowed: string[]): void => {
           const stray = given.filter(f => !allowed.includes(f))
           if (!stray.length) return
           throw new Error(
@@ -586,7 +590,7 @@ export async function run(argv) {
         // folder of tarballs. The flags are its own; the checkout form's are refused on it below.
         if (target || given.includes("--from")) {
           // the muscle memory `dt ensure <id>` taught: a bare repo id is named with its spelling, never sent to npm
-          let repoIds = []
+          let repoIds: string[] = []
           try {
             repoIds = listRepos(ws).map(r => r.id)
           } catch {
@@ -870,7 +874,7 @@ export async function run(argv) {
         const layers = layerEntries(ws.pkg, ws.root)
         if (layers.length) {
           console.log("layers:")
-          let descriptors = []
+          let descriptors: Descriptor[] = []
           try {
             descriptors = [...new Store(ws).descriptors.values()]
           } catch {
@@ -879,7 +883,7 @@ export async function run(argv) {
           // a layer a clone needed says so (`via`); one this workspace's declaration overrides says whom; a
           // copy nested under a clone, or a clone of its own where a link would be, is drawn under its clone
           const declared = declaredGitModules(ws.pkg, ws.root)
-          const under = by => [
+          const under = (by: string): string[] => [
             ...declared.nested
               .filter(c => c.by === by)
               .map(c => {
@@ -1059,7 +1063,7 @@ export async function run(argv) {
           emit(JSON.stringify(out, null, 2))
           process.exit(out.problems.length ? 1 : 0)
         }
-        const rel = p => path.relative(ws.root, p)
+        const rel = (p: string): string => path.relative(ws.root, p)
         for (const m of out.moves)
           console.log(`${out.applied ? "✔" : "→"} ${collection}/${m.id}  ${rel(m.from)} → ${rel(m.to)}`)
         for (const p of out.problems) console.error(`✖ ${p}`)
@@ -1086,7 +1090,7 @@ export async function run(argv) {
         const dryRun = rest.includes("--dry-run")
         const out = formatDescriptors(ws, { collection, dryRun })
         for (const f of out.changed) console.log(`${dryRun ? "→" : "✔"} ${f}`)
-        const under = dir => out.skipped.filter(f => f.startsWith(`${dir}/`)).length
+        const under = (dir: string): number => out.skipped.filter(f => f.startsWith(`${dir}/`)).length
         if (out.skipped.length)
           console.log(
             `— skipped ${under("git_modules")} source(s) under git_modules/ and ${under("node_modules")} under node_modules/ — format those in their own repo`
@@ -1203,7 +1207,7 @@ function extensionUsage(ws: Workspace | null) {
 }
 
 /** Translate `dt <verb> <target> …` into the noun-verb call the implementation layer takes. */
-function dispatchRecordVerb(ws, verb, args) {
+function dispatchRecordVerb(ws: Workspace, verb: string, args: string[]): number {
   const [target, ...rest] = args
   if (!target) throw new Error(`dt ${verb} needs a target — see \`dreamteamer help\``)
   // A flag in the target slot is a word-order mistake, not a collection: without this,
@@ -1253,7 +1257,7 @@ function dispatchRecordVerb(ws, verb, args) {
  * UNCOMPILED workspace every argument is a string, because there are no descriptors to split
  * against — which keeps `dt resolve '${env:K}'` working before the first compile.
  */
-function resolveVariables(ws, args) {
+function resolveVariables(ws: Workspace, args: string[]): number {
   const [target, field] = args
   if (!target)
     throw new Error(
@@ -1267,8 +1271,8 @@ function resolveVariables(ws, args) {
     )
   const ctx = envContext(ws)
 
-  let ref = null
-  let store = null
+  let ref: { collection: string; id: string } | null = null
+  let store: Store | null = null
   if (!target.includes("${")) {
     try {
       store = new Store(ws)
@@ -1308,7 +1312,7 @@ function resolveVariables(ws, args) {
   return 0
 }
 
-function tryGit(cwd, args) {
+function tryGit(cwd: string, args: string[]): string | null {
   try {
     return execFileSync("git", args, { cwd, stdio: QUIET }).toString().trim() || null
   } catch {
@@ -1316,9 +1320,9 @@ function tryGit(cwd, args) {
   }
 }
 
-function watchAndRecompile(ws) {
-  let timer = null
-  const trigger = (_, file) => {
+function watchAndRecompile(ws: Workspace): void {
+  let timer: ReturnType<typeof setTimeout> | null = null
+  const trigger = (_: unknown, file: string | Buffer | null): void => {
     if (file && /^\./.test(String(file))) return
     clearTimeout(timer)
     timer = setTimeout(() => {

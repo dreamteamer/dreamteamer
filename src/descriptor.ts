@@ -6,10 +6,10 @@
 // A reader never looks at the authored keys and the defaults separately, and never re-derives a fact
 // compile already decided: it asks here. Pure — no fs, no git, no knowledge of modules.
 import { SCALAR_TYPES } from "./fields.ts"
-import type { AuthoredDescriptor, Descriptor, DisplayBlock, Field, Storage } from "./types.ts"
+import type { Descriptor, DisplayBlock, Field, Storage } from "./types.ts"
 
 const block = (d: Descriptor): Partial<Descriptor["compiled"]> => d?.compiled ?? {}
-const defaults = (d: Descriptor): Partial<AuthoredDescriptor> => block(d).defaults ?? {}
+const defaults = (d: Descriptor): Descriptor["compiled"]["defaults"] => block(d).defaults ?? {}
 
 /** The resolved fields, injected ones included, in form order. */
 export const fieldsOf = (d: Descriptor): Record<string, Field> => block(d).fields ?? {}

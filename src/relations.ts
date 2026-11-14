@@ -2,7 +2,7 @@
 // runtime, so check, the store's mirror maintenance, `dt relations`, rebuild and presentation all
 // read through here and can never disagree about what a relation is.
 import { fieldsOf, targetsOf, storageOf } from "./descriptor.ts"
-import type { Descriptors } from "./types.ts"
+import type { Descriptor, Descriptors, Fields } from "./types.ts"
 /** One relation, keyed by its owner: `owner.field` references `target`, whose `mirror` field is the generated far side. */
 export type Relation = {
   owner: string
@@ -50,14 +50,17 @@ export function relationsOf(descriptors: Descriptors): Relation[] {
  *  collection from that repo too. A record layer that contributes `projects` but not `tasks` holds
  *  mirrors justified by tasks this workspace never reads: judged from here they all look stale, and
  *  `relations rebuild` once deleted them inside the layer's clone. Those are the layer's own check's. */
-export function ownersReadIn(ownerDescriptor, repo) {
+export function ownersReadIn(ownerDescriptor: Descriptor, repo: string): boolean {
   return storageOf(ownerDescriptor).roots.some(r => r.repo === repo)
 }
 
 /** What each target record's mirror SHOULD hold, computed from the owning side.
  *  Sorted arrays (ids are usually date-prefixed, so that reads chronological); a scalar for unique. */
-export function expectedMirrors(rel, ownerRecords) {
-  const exp = new Map()
+export function expectedMirrors(
+  rel: Relation,
+  ownerRecords: Iterable<{ id: string; fields?: Fields }>
+): Map<string, string | string[]> {
+  const exp = new Map<string, string | string[]>()
   for (const { id, fields } of ownerRecords) {
     const raw = fields?.[rel.field]
     const refs = raw == null ? [] : Array.isArray(raw) ? raw : [raw]
@@ -71,7 +74,7 @@ export function expectedMirrors(rel, ownerRecords) {
       // --meetings m1,m1` is accepted). Appending blind made this the ONE expectation nothing
       // else agreed with: check called the store's correct mirror stale, and the repair its
       // message names — `relations rebuild` — wrote the duplicate it was run to remove.
-      else exp.set(targetId, [...new Set([...(exp.get(targetId) ?? []), self])].sort())
+      else exp.set(targetId, [...new Set([...((exp.get(targetId) as string[] | undefined) ?? []), self])].sort())
     }
   }
   return exp

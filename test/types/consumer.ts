@@ -25,8 +25,10 @@ const is = <T extends true>(..._proof: T[]): void => {}
 /** compiles only when the value is assignable to T — the assertion a typed `const` used to make */
 const accept = <T>(_value: T): void => {}
 
-// ---- PRECISION RATCHET: no public function takes or returns `any`, except the names listed — each
-// one typed loosely by the contract itself. Shrink the list; never grow it without a reason.
+// ---- PRECISION RATCHET: no public function — and no Store method — takes or returns `any`. It held an
+// allow-list (the 25 schema ops, `loadYaml`, `distinctValues`) and a hand-picked subset of Store methods
+// until the engine was typed under `noImplicitAny`; both are gone, so a signature that loosens now fails
+// here whichever export it is. Never re-introduce a list without a reason written beside it.
 type Fn = (...a: never[]) => unknown
 type LooseFn<F> = F extends Fn
   ? IsAny<ReturnType<F>> extends true
@@ -36,57 +38,10 @@ type LooseFn<F> = F extends Fn
       : false
   : false
 type Loose<M> = { [K in keyof M]: LooseFn<M[K]> extends true ? K : never }[keyof M]
-type SchemaOps =
-  | "createCollection"
-  | "removeCollection"
-  | "renameCollection"
-  | "moveCollection"
-  | "setCollectionScalars"
-  | "addField"
-  | "updateField"
-  | "removeField"
-  | "removeFieldPlan"
-  | "renameField"
-  | "renameFieldPlan"
-  | "renameValue"
-  | "renameValuePlan"
-  | "saveUiView"
-  | "removeUiView"
-  | "moveUiView"
-  | "createModule"
-  | "setModule"
-  | "renameModule"
-  | "removeModule"
-  | "createSkill"
-  | "refuseHandAuthored"
-  | "removeEntity"
-  | "renameEntity"
-  | "setEntityFrontmatter"
-type AllowedLoose = SchemaOps | "loadYaml" | "distinctValues"
-is<Equals<Exclude<Loose<typeof dt>, AllowedLoose>, never>>()
-is<Equals<Exclude<Loose<typeof records>, AllowedLoose>, never>>()
+is<Equals<Loose<typeof dt>, never>>()
+is<Equals<Loose<typeof records>, never>>()
 is<Equals<Loose<typeof testing>, never>>()
-type StoreMethods =
-  | "descriptor"
-  | "dir"
-  | "recordDirs"
-  | "ids"
-  | "external"
-  | "read"
-  | "locate"
-  | "readAll"
-  | "createdOf"
-  | "addedDates"
-  | "add"
-  | "addFile"
-  | "set"
-  | "rm"
-  | "rename"
-  | "revert"
-  | "relocatePlan"
-  | "relocate"
-  | "findInboundRefs"
-is<Equals<Loose<Pick<dt.Store, StoreMethods>>, never>>()
+is<Equals<Loose<dt.Store>, never>>()
 
 // ---- the values and their kinds (F8: a declared array that is a Set at run time) ------------------
 is<Equals<typeof dt.apiVersion, 1>>()

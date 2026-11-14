@@ -20,7 +20,7 @@ import path from "node:path"
 import { spawnSync } from "node:child_process"
 import { fileURLToPath } from "node:url"
 import { resolveNpm, childEnv } from "./checkout.ts"
-import type { RunOptions, RunResult } from "./types.ts"
+import type { PackageJson, RunOptions, RunResult } from "./types.ts"
 
 const ENGINE = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
 const IDENTITY = {
@@ -74,10 +74,10 @@ export function freshWorkspace(root: string, engine: string = ENGINE): string {
   return root
 }
 
-const readPkg = dir => JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8"))
+const readPkg = (dir: string): PackageJson => JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8"))
 
 /** Where this workspace holds a package by name: an inline module whose package.json names it, or node_modules/<name>. */
-function locate(root, name) {
+function locate(root: string, name: string): string | null {
   const inline = path.join(root, "modules")
   if (fs.existsSync(inline))
     for (const d of fs.readdirSync(inline)) {
@@ -91,7 +91,7 @@ function locate(root, name) {
   return fs.existsSync(path.join(npm, "package.json")) ? fs.realpathSync(npm) : null
 }
 
-function npmPack(npm, dir, dest) {
+function npmPack(npm: string, dir: string, dest: string): string | undefined {
   const before = new Set(fs.readdirSync(dest))
   const r = spawnSync(npm, ["pack", "--silent", "--ignore-scripts", "--pack-destination", dest], {
     cwd: dir,
@@ -113,7 +113,7 @@ export function checkAlone(
     error = console.error,
   }: { target?: string; keep?: boolean; log?: (line: string) => void; error?: (line: string) => void } = {}
 ): number {
-  const usage = m => {
+  const usage = (m: string): number => {
     error(`✖ ${m}`)
     return 2
   }
@@ -141,7 +141,7 @@ export function checkAlone(
   }
 
   const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "dt-check-alone-")))
-  const refuse = why => {
+  const refuse = (why: string): number => {
     error(`✖ ${label}: ${why}`)
     if (keep) log(`  kept: ${path.join(tmp, "ws")}`)
     else fs.rmSync(tmp, { recursive: true, force: true })
@@ -152,7 +152,7 @@ export function checkAlone(
     const from = path.join(tmp, "from")
     fs.mkdirSync(from)
     npmPack(npm, dir, from)
-    const deps = []
+    const deps: string[] = []
     const seen = new Set([pkg.name])
     const queue = [...(pkg.dreamteamer.dependencies ?? [])]
     while (queue.length) {

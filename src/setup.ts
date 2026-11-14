@@ -21,7 +21,51 @@ import { setEnvValues, fingerprint, leftoverTemps, gitExposure, writeEnvAtomic, 
 import { parseEnvValues } from "./env-vars.ts"
 import { RUNTIME_DIR } from "./runtime.ts"
 import { discoverModules } from "./compile.ts"
-import type { PackageJson } from "./types.ts"
+import type {
+  PackageJson,
+  SetupAction,
+  SetupCheck,
+  SetupContext,
+  SetupInput,
+  SetupInputs,
+  SetupPlan,
+  SetupUnit,
+  Workspace,
+} from "./types.ts"
+
+/** A unit as the driver runs it: the validated unit, its package's folder and the env keys the package declares. */
+export type DrivenUnit = SetupUnit & { dir?: string; declared: Set<string> }
+/** One `--input` flag: `unit` is null for the unscoped `id=value` form. */
+export type InputFlag = { unit: string | null; id: string; value: string }
+/** An input whose value the engine refused (a bad secret-path, two values for one key). */
+export type InputProblem = { unit: string; id: string; reason: string; required: boolean; env: string | null }
+/** One unit's line, folded from its checks. */
+export type Folded = { state: string; detail: string; verified: string | null }
+/** An action left for later, and why; an env action's values are replaced by its key names. */
+export type PendingAction = Omit<SetupAction, "env"> & { why: string; env?: SetupAction["env"] | string[] }
+export type UnitRun = {
+  checks: SetupCheck[]
+  applied: { id: string; changed: string[]; message?: string }[]
+  pending: PendingAction[]
+  failed: { id: string; message: string }[]
+  needs: string[]
+}
+/** One unit's report from `dt setup` / `dt install`: its folded line, what ran, what is left, what it needs. */
+export type UnitResult = Folded &
+  Omit<UnitRun, "checks"> & { id: string; module: string; checks?: SetupCheck[]; problems?: InputProblem[] }
+/** The terminal's prompt and y/n — or a caller's stand-in for them. */
+export type SetupIO = {
+  prompt: (input: SetupInput, def: unknown) => Promise<unknown>
+  ask: (action: SetupAction | PendingAction, kinds: string[]) => Promise<boolean>
+}
+/** One line of `dt status`'s setup section. */
+export type StatusLine = Folded & {
+  package: string | null
+  unit: string | null
+  grouped?: boolean
+  checks: SetupCheck[]
+  next: string
+}
 
 export const EFFECTS_ALLOWED = ["download", "network", "machine"]
 export const EXIT = { done: 0, failed: 1, usage: 2, needsInput: 3 }
@@ -29,8 +73,8 @@ export const EXIT = { done: 0, failed: 1, usage: 2, needsInput: 3 }
 // ---- pure ---------------------------------------------------------------------------------------
 
 /** `--input id=value` and `--input unit.id=value`, repeated; the value may itself hold `=`. */
-export function parseInputFlags(argv) {
-  const out = []
+export function parseInputFlags(argv: string[]): InputFlag[] {
+  const out: InputFlag[] = []
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] !== "--input") continue
     const raw = argv[++i]
@@ -45,8 +89,8 @@ export function parseInputFlags(argv) {
 }
 
 /** `--allow <kind>`, repeated; an unknown kind is a usage error naming the vocabulary. */
-export function parseAllow(argv) {
-  const allow = new Set()
+export function parseAllow(argv: string[]): Set<string> {
+  const allow = new Set<string>()
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] !== "--allow") continue
     const kind = argv[++i]
@@ -61,18 +105,18 @@ export function parseAllow(argv) {
 
 export class SetupUsage extends Error {
   code: number
-  constructor(m) {
+  constructor(m: string) {
     super(m)
     this.code = EXIT.usage
   }
 }
-const usage = m => new SetupUsage(m)
+const usage = (m: string): SetupUsage => new SetupUsage(m)
 
-const expandHome = (p, home) =>
+const expandHome = (p: string, home: string): string =>
   typeof p === "string" && (p === "~" || p.startsWith("~/")) ? path.join(home, p.slice(1)) : p
 
 /** A secret-path input's file: it must exist, be a file, and (posix) be readable by its owner only. The engine never reads it. */
-function secretPathProblem(value) {
+function secretPathProblem(value: string): string | null {
   let st
   try {
     st = fs.statSync(value)
@@ -83,7 +127,7 @@ function secretPathProblem(value) {
   if (process.platform !== "win32" && st.mode & 0o077) return `${value} is readable by other users — chmod 600 ${value}`
   return null
 }
-const flagText = f => `--input ${f.unit ? `${f.unit}.` : ""}${f.id}=`
+const flagText = (f: InputFlag): string => `--input ${f.unit ? `${f.unit}.` : ""}${f.id}=`
 
 /**
  * Fill every unit's inputs. Returns `inputs` (unit id → { inputId: value }), `missing` (required
@@ -95,27 +139,48 @@ const flagText = f => `--input ${f.unit ? `${f.unit}.` : ""}${f.id}=`
  * with the input left unfilled, so the install still commits and the line says what is still needed.
  */
 export async function fillInputs(
-  units,
-  { flags = [], env = {}, tty = false, noInput = false, prompt = null, home = os.homedir(), lenient = false } = {}
-) {
-  const inputs = new Map(units.map(u => [u.id, {}]))
-  const missing = [],
-    ignored = [],
-    problems = []
-  const refuse = (text, problem = null) => {
+  units: SetupUnit[],
+  {
+    flags = [],
+    env = {},
+    tty = false,
+    noInput = false,
+    prompt = null,
+    home = os.homedir(),
+    lenient = false,
+  }: {
+    flags?: InputFlag[]
+    env?: Record<string, string | undefined>
+    tty?: boolean
+    noInput?: boolean
+    prompt?: SetupIO["prompt"] | null
+    home?: string
+    lenient?: boolean
+  } = {}
+): Promise<{
+  inputs: Map<string, SetupInputs>
+  missing: { unit: string; id: string }[]
+  ignored: string[]
+  problems: InputProblem[]
+}> {
+  const inputs = new Map<string, SetupInputs>(units.map(u => [u.id, {}]))
+  const missing: { unit: string; id: string }[] = [],
+    ignored: string[] = [],
+    problems: InputProblem[] = []
+  const refuse = (text: string, problem: InputProblem | null = null): void => {
     if (!lenient) throw usage(text)
     if (problem) problems.push(problem)
     else ignored.push(text)
   }
   // a bare --input id= is unambiguous when every unit declaring that id names the same env key
-  const byId = new Map()
+  const byId = new Map<string, { unit: string; env: string | null }[]>()
   for (const u of units)
     for (const i of u.inputs) (byId.get(i.id) ?? byId.set(i.id, []).get(i.id)).push({ unit: u.id, env: i.env ?? null })
-  const valueOf = (u, i, f) =>
+  const valueOf = (u: SetupUnit, i: SetupInput, f: InputFlag): boolean =>
     f.unit
       ? f.unit === u.id && f.id === i.id
       : f.id === i.id && byId.get(i.id).every(d => d.env === (i.env ?? null) && (d.env !== null || d.unit === u.id))
-  const live = []
+  const live: InputFlag[] = []
   for (const f of flags) {
     const owners = byId.get(f.id) ?? []
     if (f.unit && !units.some(u => u.id === f.unit && u.inputs.some(i => i.id === f.id))) {
@@ -136,9 +201,9 @@ export async function fillInputs(
   }
   // an env key shared by several inputs is one input: a flag for any of them fills all of them, and two
   // different values for it in one call are a refusal naming both (D39)
-  const envValues = new Map(),
-    envFlag = new Map(),
-    conflicted = new Set()
+  const envValues = new Map<string, string>(),
+    envFlag = new Map<string, InputFlag>(),
+    conflicted = new Set<string>()
   for (const u of units)
     for (const i of u.inputs)
       for (const f of live) {
@@ -162,19 +227,19 @@ export async function fillInputs(
       }
   // a default declared by any input sharing the key is the key's default, and required is the OR of
   // every declaration sharing it (D39: one key, one input)
-  const envDefaults = new Map(),
-    envRequired = new Set()
+  const envDefaults = new Map<string, unknown>(),
+    envRequired = new Set<string>()
   for (const u of units)
     for (const i of u.inputs)
       if (i.env) {
         if (i.default !== undefined && !envDefaults.has(i.env)) envDefaults.set(i.env, i.default)
         if (i.required) envRequired.add(i.env)
       }
-  const isRequired = i => !!i.required || (!!i.env && envRequired.has(i.env))
+  const isRequired = (i: SetupInput): boolean => !!i.required || (!!i.env && envRequired.has(i.env))
   for (const u of units) {
     for (const i of u.inputs) {
       if (i.env && conflicted.has(i.env)) continue
-      let value
+      let value: unknown
       const given = live.filter(f => valueOf(u, i, f)).map(f => f.value)
       if (i.kind === "rows") {
         if (given.length) value = given
@@ -192,11 +257,11 @@ export async function fillInputs(
         if (isRequired(i)) missing.push({ unit: u.id, id: i.id })
         continue
       }
-      if (i.kind === "path" || i.kind === "secret-path") value = expandHome(value, home)
+      if (i.kind === "path" || i.kind === "secret-path") value = expandHome(value as string, home)
       if (i.kind === "secret-path") {
         // a flag's bad value is the caller's to fix (usage, strict); one the environment or a default holds
         // is reported on the unit's line and left unfilled, whoever runs
-        const problem = secretPathProblem(value)
+        const problem = secretPathProblem(value as string)
         if (problem && given.length) {
           refuse(`--input ${i.id}=${problem}`, {
             unit: u.id,
@@ -219,12 +284,20 @@ export async function fillInputs(
 }
 
 /** The env keys a unit must not see: those whose value the engine refused for it. */
-export const droppedKeys = (problems, unitId) => [
+export const droppedKeys = (problems: InputProblem[], unitId: string): string[] => [
   ...new Set(problems.filter(p => p.unit === unitId && p.env).map(p => p.env)),
 ]
 
 /** May this action run now? `ask(action)` is the y/n in a TTY; `allow` the --allow kinds. */
-export async function consent(action, { allow = new Set(), tty = false, ask = null, authorize = false } = {}) {
+export async function consent(
+  action: SetupAction | PendingAction,
+  {
+    allow = new Set(),
+    tty = false,
+    ask = null,
+    authorize = false,
+  }: { allow?: Set<string>; tty?: boolean; ask?: SetupIO["ask"] | null; authorize?: boolean } = {}
+): Promise<boolean> {
   const kinds = [...new Set((action.effects ?? []).map(e => e.kind))]
   if (kinds.includes("account")) return authorize && tty
   const asked = kinds.filter(k => k !== "workspace-files")
@@ -235,11 +308,11 @@ export async function consent(action, { allow = new Set(), tty = false, ask = nu
 }
 
 /** One line from a unit's checks — the design's status table, in its order. */
-export function fold(checks, { skipped = false } = {}) {
+export function fold(checks: SetupCheck[], { skipped = false }: { skipped?: boolean } = {}): Folded {
   if (skipped) return { state: "skipped", detail: "dt setup <unit> to resume", verified: null }
   if (!checks.length)
     return { state: "no-evidence", detail: "inspect returned no checks — never ready", verified: null }
-  const unknown = checks.filter(c => !CHECK_STATUSES.includes(c.status))
+  const unknown = checks.filter(c => !(CHECK_STATUSES as string[]).includes(c.status))
   if (unknown.length)
     return {
       state: "blocked",
@@ -267,7 +340,7 @@ export function fold(checks, { skipped = false } = {}) {
  *  is not a value), a bearer token, an e-mail address, a home folder, a 32+-character token. Key names
  *  and shapes stay. Applied to what a unit throws, a failed apply's message and an action's reason —
  *  never to a check's fix or title, an action's title or a next-command line (D67). */
-export function redact(text) {
+export function redact(text: unknown): string {
   return (
     String(text ?? "")
       // a key=value whose key is a secret word, alone or as the last part of a prefixed name (ACME_TOKEN=…);
@@ -307,7 +380,7 @@ export function redact(text) {
  * returned as is.
  */
 export function judgeEnvAction(
-  action,
+  action: SetupAction,
   {
     declared,
     text,
@@ -317,15 +390,15 @@ export function judgeEnvAction(
     written = new Map(),
     unit = null,
   }: {
-    declared?: string[]
+    declared?: Set<string>
     text: string
     temps?: string[]
     exposure?: { safe: boolean; reason?: string }
-    expect?: string
-    written?: Map<string, { unit: string; value: string }>
+    expect?: string | null
+    written?: Map<string, { unit: string; value: unknown }>
     unit?: string | null
   }
-) {
+): SetupAction {
   if (!isEnvAction(action)) return action
   const keys = Object.keys(action.env ?? {})
   const effects = (action.effects ?? []).length
@@ -333,8 +406,8 @@ export function judgeEnvAction(
     : [{ kind: "workspace-files", detail: `.env: ${keys.join(", ")}` }]
   const out = { ...action, effects, runBy: action.runBy ?? "engine" }
   const v = validateEnvAction(action, declared)
-  if (!v.ok) return { ...out, state: v.state, reason: v.reason }
-  let changed
+  if (v.ok === false) return { ...out, state: v.state, reason: v.reason }
+  let changed: string[]
   try {
     ;({ changed } = setEnvValues(text, action.env))
   } catch (e) {
@@ -371,7 +444,7 @@ export function judgeEnvAction(
 // ---- the workspace side -----------------------------------------------------------------------
 
 /** Every setup unit the loaded extensions contribute, with its package. */
-export const units = ws =>
+export const units = (ws: Workspace): DrivenUnit[] =>
   (ws.extensions ?? []).flatMap(e =>
     (e.setup ?? []).map(u => ({
       ...u,
@@ -380,11 +453,11 @@ export const units = ws =>
       declared: new Set([...(e.env ?? []), ...(e.vars ?? [])]),
     }))
   )
-export const skippedUnits = ws => ws.pkg?.dreamteamer?.setup?.skipped ?? []
-export const receiptDir = (ws, unitId) => path.join(ws.root, RUNTIME_DIR, "setup", unitId)
+export const skippedUnits = (ws: Workspace): string[] => ws.pkg?.dreamteamer?.setup?.skipped ?? []
+export const receiptDir = (ws: Workspace, unitId: string): string => path.join(ws.root, RUNTIME_DIR, "setup", unitId)
 
 /** The environment a unit sees: the process's, with the workspace `.env` filling what it lacks. */
-export function unitEnv(ws, processEnv = process.env) {
+export function unitEnv(ws: Workspace, processEnv: NodeJS.ProcessEnv = process.env): Record<string, string> {
   const file = path.join(ws.root, ".env")
   // a leading byte-order mark would hide the first key from the reader (`^KEY=`) and let a key inside
   // another key's quoted value read as an assignment (held-out he1) — skipped here, the workspace side
@@ -395,8 +468,8 @@ export function unitEnv(ws, processEnv = process.env) {
 /** Run one unit: inspect → plan(inputs) → apply what is consented → inspect. Never throws for a
  *  provider's fault: a throwing apply is one failed action, redacted, and the unit reads blocked. */
 export async function runUnit(
-  ws,
-  unit,
+  ws: Workspace,
+  unit: DrivenUnit,
   {
     inputs = {},
     allow = new Set(),
@@ -408,8 +481,19 @@ export async function runUnit(
     api = null,
     drop = [],
     written = new Map(),
+  }: {
+    inputs?: SetupInputs
+    allow?: Set<string>
+    tty?: boolean
+    ask?: SetupIO["ask"] | null
+    authorize?: boolean
+    verify?: boolean
+    processEnv?: NodeJS.ProcessEnv
+    api?: SetupContext["dt"]
+    drop?: string[]
+    written?: Map<string, { unit: string; value: unknown }>
   } = {}
-) {
+): Promise<UnitRun> {
   // the env is re-read after every applied action: a safe action's whole point is often to write the
   // key the next inspect reads (`PROBE_HOME=` into .env), and a stale copy would report it missing.
   // `drop` names the keys whose value the engine refused (a secret-path that is missing or not
@@ -419,13 +503,13 @@ export async function runUnit(
     for (const k of drop) delete e[k]
     return e
   }
-  const ctx = { root: ws.root, ws, dt: api, env: envFor(), tty, receiptDir: receiptDir(ws, unit.id) }
-  const applied = [],
-    failed = []
-  let pending = [],
-    needs = []
-  const done = new Set(),
-    refused = new Set()
+  const ctx: SetupContext = { root: ws.root, ws, dt: api, env: envFor(), tty, receiptDir: receiptDir(ws, unit.id) }
+  const applied: UnitRun["applied"] = [],
+    failed: UnitRun["failed"] = []
+  let pending: PendingAction[] = [],
+    needs: string[] = []
+  const done = new Set<string>(),
+    refused = new Set<string>()
   // an env action is the engine's to perform (D61): judged when the plan is read against the file as
   // it was when the plan ran (the fingerprint taken before `plan`, so a plan that touches .env itself
   // makes the write refuse), then written by rename instead of handed to apply
@@ -437,14 +521,14 @@ export async function runUnit(
       return ""
     }
   }
-  const snapshot = () => {
+  const snapshot = (): string | Error => {
     try {
       return fingerprint(envFile)
     } catch (e) {
       return e
     }
   }
-  const judge = (actions, expect) =>
+  const judge = (actions: SetupAction[], expect: string | Error): SetupAction[] =>
     actions.map(a => {
       if (!isEnvAction(a)) return a
       if (expect instanceof Error)
@@ -464,7 +548,7 @@ export async function runUnit(
     })
   // what is listed as pending is printed (and under --json, whole): an env action is listed by the KEYS it
   // would write, never its values; a reason is failure text, redacted (D67)
-  const withReason = (a, extra) => ({
+  const withReason = (a: SetupAction, extra: { why: string }): PendingAction => ({
     ...a,
     ...extra,
     ...(isEnvAction(a) ? { env: Object.keys(a.env ?? {}) } : {}),
@@ -474,7 +558,7 @@ export async function runUnit(
   // previous one made (a venv before the download, a key in .env before the check that reads it), so
   // one pass would leave them pending for a second call that a person should not have to make
   for (let round = 0; round < 50; round++) {
-    let planned
+    let planned: SetupPlan
     const expect = snapshot()
     try {
       planned = (await unit.plan(ctx, inputs)) ?? {}
@@ -489,7 +573,7 @@ export async function runUnit(
     }
     needs = planned.needs ?? []
     pending = []
-    let next = null
+    let next: SetupAction | null = null
     for (const action of judge(planned.actions ?? [], expect)) {
       if (done.has(action.id)) continue
       if (action.state && action.state !== "ready") {
@@ -593,11 +677,13 @@ export async function runUnit(
 /** A unit's checks, never a throw: a thrown error is one blocked row, redacted; an inspect that hands back a
  *  Promise (a plain function wrapping an async body — the load-time rule only sees an AsyncFunction) is a
  *  blocked row naming the fix, never "no evidence". `dt doctor` reads through it too. */
-export function safeInspect(unit, ctx) {
+export function safeInspect(unit: SetupUnit, ctx: SetupContext): SetupCheck[] {
   try {
     const r = unit.inspect(ctx)
-    if (typeof r?.then === "function") {
-      r.then(null, () => {})
+    // a plain function may still hand back a Promise; its rejection is swallowed, never left unhandled
+    const thenable = r as { then?: (ok: null, fail: () => void) => unknown } | null | undefined
+    if (typeof thenable?.then === "function") {
+      thenable.then(null, () => {})
       return [
         {
           id: `${unit.id}.inspect`,
@@ -619,9 +705,13 @@ export function safeInspect(unit, ctx) {
  * others is never handed to the unit, and is reported as its own `missing` row with the fix. Returns
  * `{ env, refused }`; `env` is a copy.
  */
-export function unitEnvFor(unit, env, home = os.homedir()) {
+export function unitEnvFor(
+  unit: SetupUnit,
+  env: Record<string, string>,
+  home: string = os.homedir()
+): { env: Record<string, string>; refused: SetupCheck[] } {
   const out = { ...env }
-  const refused = []
+  const refused: SetupCheck[] = []
   for (const i of unit.inputs ?? []) {
     if (i.kind !== "secret-path" || !i.env || out[i.env] === undefined || String(out[i.env]).trim() === "") continue
     const problem = secretPathProblem(expandHome(String(out[i.env]), home))
@@ -640,16 +730,26 @@ export function unitEnvFor(unit, env, home = os.homedir()) {
 }
 
 /** The setup section of `dt status`: one entry per unit, then one per package with no unit. */
-export function statusLines(ws, { processEnv = process.env } = {}) {
+export function statusLines(
+  ws: Workspace,
+  { processEnv = process.env }: { processEnv?: NodeJS.ProcessEnv } = {}
+): StatusLine[] {
   const env = unitEnv(ws, processEnv)
-  const lines = []
+  const lines: StatusLine[] = []
   const skipped = new Set(skippedUnits(ws))
-  const byModule = new Map()
+  const byModule = new Map<string, DrivenUnit[]>()
   for (const u of units(ws)) (byModule.get(u.module) ?? byModule.set(u.module, []).get(u.module)).push(u)
   for (const [module, us] of byModule) {
     for (const u of us) {
       const { env: unitEnvHere, refused } = unitEnvFor(u, env)
-      const ctx = { root: ws.root, ws, dt: null, env: unitEnvHere, tty: false, receiptDir: receiptDir(ws, u.id) }
+      const ctx: SetupContext = {
+        root: ws.root,
+        ws,
+        dt: null,
+        env: unitEnvHere,
+        tty: false,
+        receiptDir: receiptDir(ws, u.id),
+      }
       const checks = [...refused, ...safeInspect(u, ctx)]
       const f = fold(checks, { skipped: skipped.has(u.id) })
       lines.push({
@@ -706,17 +806,18 @@ export function statusLines(ws, { processEnv = process.env } = {}) {
   return lines
 }
 
-function nextCommand(unitId, f, checks) {
+function nextCommand(unitId: string, f: Folded, checks: SetupCheck[]): string {
   if (f.state === "skipped") return `dt setup ${unitId}`
   if (f.state === "ready") return ""
   const fix = checks.find(c => c.status !== "ready" && c.status !== "configured" && c.fix)?.fix
   return fix ?? `dt setup ${unitId}`
 }
 
-export function renderStatusLines(lines) {
+export function renderStatusLines(lines: StatusLine[]): string[] {
   if (!lines.length) return []
   const out = ["setup:"]
-  const label = l => (l.unit ? (l.grouped ? `${moduleId(l.package)} › ${l.unit}` : l.unit) : moduleId(l.package))
+  const label = (l: StatusLine): string =>
+    l.unit ? (l.grouped ? `${moduleId(l.package)} › ${l.unit}` : l.unit) : moduleId(l.package)
   const width = Math.max(...lines.map(l => label(l).length))
   for (const l of lines) {
     const state = l.state === "no-setup" ? "no setup" : l.state === "no-evidence" ? "no evidence" : l.state
@@ -727,16 +828,16 @@ export function renderStatusLines(lines) {
   }
   return out
 }
-const moduleId = name => String(name).replace(/^@[^/]+\//, "")
+const moduleId = (name: unknown): string => String(name).replace(/^@[^/]+\//, "")
 
 /** Record a skip (or clear one) in package.json → dreamteamer.setup.skipped, keeping the file's own indentation. */
-export function setSkipped(ws, unitId, on) {
+export function setSkipped(ws: Workspace, unitId: string, on: boolean): void {
   const file = path.join(ws.root, "package.json")
   const text = fs.readFileSync(file, "utf8")
   const indent = /^\t/m.test(text) ? "\t" : (/^( +)"/m.exec(text)?.[1] ?? "  ")
-  const pkg = JSON.parse(text)
+  const pkg = JSON.parse(text) as PackageJson
   const block = (pkg.dreamteamer ??= {})
-  const list = new Set(block.setup?.skipped ?? [])
+  const list = new Set<string>(block.setup?.skipped ?? [])
   if (on) list.add(unitId)
   else list.delete(unitId)
   if (list.size) (block.setup ??= {}).skipped = [...list].sort()
@@ -761,46 +862,56 @@ export function setSkipped(ws, unitId, on) {
 // ---- the verb -----------------------------------------------------------------------------------
 
 /** The terminal's prompt and y/n, on one readline — `dt setup` and `dt install` share it. */
-export function ttyIO() {
+export function ttyIO(): SetupIO & { close: () => void } {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
   return { prompt: ttyPrompt(rl), ask: ttyAsk(rl), close: () => rl.close() }
 }
 // an EOF (Ctrl-D) at a prompt is no answer — the input stays missing (exit 3), the action declined — never a crash
-const question = async (rl, text) => {
+const question = async (rl: readline.Interface, text: string): Promise<string> => {
   try {
     return (await rl.question(text)).trim()
   } catch {
     return ""
   }
 }
-const ttyPrompt = rl => async (input, def) => {
-  const hint = def !== undefined ? ` [${def}]` : input.required ? " (required)" : " (enter to skip)"
-  const answer = await question(rl, `${input.prompt ?? input.title ?? input.id}${hint}: `)
-  return answer === "" ? def : answer
-}
-const ttyAsk = rl => async (action, kinds) => {
-  const effects = (action.effects ?? []).map(e => `${e.kind}: ${e.detail}`).join("\n    ")
-  const answer = (
-    await question(rl, `${action.title} — ${kinds.join(", ")}\n    ${effects}\n  run it? [y/N] `)
-  ).toLowerCase()
-  return answer === "y" || answer === "yes"
-}
+const ttyPrompt =
+  (rl: readline.Interface): SetupIO["prompt"] =>
+  async (input, def) => {
+    const hint = def !== undefined ? ` [${def}]` : input.required ? " (required)" : " (enter to skip)"
+    const answer = await question(rl, `${input.prompt ?? input.title ?? input.id}${hint}: `)
+    return answer === "" ? def : answer
+  }
+const ttyAsk =
+  (rl: readline.Interface): SetupIO["ask"] =>
+  async (action, kinds) => {
+    const effects = (action.effects ?? []).map(e => `${e.kind}: ${e.detail}`).join("\n    ")
+    const answer = (
+      await question(rl, `${action.title} — ${kinds.join(", ")}\n    ${effects}\n  run it? [y/N] `)
+    ).toLowerCase()
+    return answer === "y" || answer === "yes"
+  }
 
 /**
  * `dt setup [<unit>] [--input k=v]… [--allow <kind>]… [--authorize] [--verify] [--skip] [--no-input] [--json]`
  * Exit: 0 done (pending and blocked steps printed), 1 a unit's apply failed (its blocked line names it — never a crash; D57), 2 usage, 3 a required input missing.
  */
 export async function setupCommand(
-  ws,
-  argv,
+  ws: Workspace,
+  argv: string[],
   {
     processEnv = process.env,
     tty = !!(process.stdin.isTTY && process.stdout.isTTY),
     log = console.log,
     api = null,
     io = null,
+  }: {
+    processEnv?: NodeJS.ProcessEnv
+    tty?: boolean
+    log?: (line: string) => void
+    api?: SetupContext["dt"]
+    io?: SetupIO | null
   } = {}
-) {
+): Promise<number> {
   const env = unitEnv(ws, processEnv)
   const json = argv.includes("--json")
   const noInput = json || argv.includes("--no-input")
@@ -809,7 +920,7 @@ export async function setupCommand(
     verify: argv.includes("--verify"),
     skip: argv.includes("--skip"),
   }
-  let allow, inputFlags
+  let allow: Set<string>, inputFlags: InputFlag[]
   try {
     allow = parseAllow(argv)
     inputFlags = parseInputFlags(argv)
@@ -859,11 +970,11 @@ export async function setupCommand(
   const term = tty && !noInput && !io ? ttyIO() : null
   const prompt = io?.prompt ?? term?.prompt ?? null
   const ask = io?.ask ?? term?.ask ?? null
-  let code = EXIT.done
-  const results = []
+  let code: number = EXIT.done
+  const results: UnitResult[] = []
   try {
     const filled = await fillInputs(run, { flags: inputFlags, env, tty, noInput, prompt })
-    const written = new Map() // the keys this run's env actions wrote, by unit — one run never lets two units disagree on a key
+    const written = new Map<string, { unit: string; value: unknown }>() // the keys this run's env actions wrote, by unit — one run never lets two units disagree on a key
     for (const u of run) {
       const r = await runUnit(ws, u, {
         inputs: filled.inputs.get(u.id) ?? {},

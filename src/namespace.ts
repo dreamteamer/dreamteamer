@@ -58,8 +58,8 @@ export function normalizeNamespaces(list: unknown): string[] {
  * compile calls this and fails on a non-empty result. It is a separate function from the compiler so
  * the rules can be tested directly, and so the error text lives beside the semantics it protects.
  */
-export function namespaceProblems(namespaces, collectionNames = []) {
-  const problems = []
+export function namespaceProblems(namespaces: string[], collectionNames: Iterable<string> = []): string[] {
+  const problems: string[] = []
   const names = new Set(collectionNames)
   for (const ns of namespaces) {
     const segments = ns.split("/")
@@ -89,7 +89,7 @@ export function namespaceProblems(namespaces, collectionNames = []) {
 }
 
 /** `health` + `doctors` → `health/doctors`; the default namespace (empty) → `doctors`. */
-export function qualify(namespace, name) {
+export function qualify(namespace: string | null | undefined, name: string): string {
   const ns = String(namespace ?? "").replace(/^\/+|\/+$/g, "")
   return ns ? `${ns}/${name}` : String(name)
 }
@@ -99,13 +99,13 @@ export function qualify(namespace, name) {
  * Matched against the declared list rather than by cutting at the last slash, because a collection
  * name is only namespaced if its prefix was actually declared — see `unqualifiedProblems`.
  */
-export function namespaceOf(qualified, namespaces) {
+export function namespaceOf(qualified: string, namespaces: string[]): string {
   for (const ns of namespaces) if (qualified.startsWith(ns + "/")) return ns
   return ""
 }
 
 /** The bare collection name inside its namespace: `health/doctors` → `doctors`. */
-export function baseNameOf(qualified, namespaces) {
+export function baseNameOf(qualified: string, namespaces: string[]): string {
   const ns = namespaceOf(qualified, namespaces)
   return ns ? qualified.slice(ns.length + 1) : qualified
 }
@@ -121,13 +121,13 @@ export function baseNameOf(qualified, namespaces) {
  * asks whether a suffix was derived — so there is exactly one spelling of the rule.
  */
 const INVARIANT = new Set(["series", "species", "news"])
-export function singular(name) {
+export function singular(name: string): string {
   const i = name.lastIndexOf("-")
   const head = name.slice(0, i + 1),
     w = name.slice(i + 1)
   return head + singularWord(w)
 }
-function singularWord(w) {
+function singularWord(w: string): string {
   if (INVARIANT.has(w)) return w
   if (/yses$/.test(w)) return w.replace(/yses$/, "ysis")
   if (/[^aeiou]ies$/.test(w)) return w.replace(/ies$/, "y")
@@ -138,14 +138,15 @@ function singularWord(w) {
   return w
 }
 /** Whether `singular(name)` found a plural to inflect. */
-export const inflects = name => singular(name) !== name || INVARIANT.has(name.slice(name.lastIndexOf("-") + 1))
+export const inflects = (name: string): boolean =>
+  singular(name) !== name || INVARIANT.has(name.slice(name.lastIndexOf("-") + 1))
 
 /**
  * A collection name carrying a slash whose prefix is NOT declared, which is the silent-failure this
  * whole module exists to prevent: every reference to it would split at the first slash, name a
  * collection that does not exist, and dangle. Returns problems as sentences, or `[]`.
  */
-export function unqualifiedProblems(collectionNames, namespaces) {
+export function unqualifiedProblems(collectionNames: Iterable<string>, namespaces: string[]): string[] {
   const problems = []
   for (const name of collectionNames) {
     if (!name.includes("/")) continue
@@ -187,7 +188,7 @@ export function parseRef(ref: string, namespaces: string[] = []): { collection: 
  * (compile adds that for an `owns-data` module). The namespace becomes real directory nesting, which
  * is the point: `health/doctors` lands in `data/health/doctors/` rather than beside `data/tasks/`.
  */
-export function defaultStoragePath(qualified, namespaces, dataPath = "data") {
+export function defaultStoragePath(qualified: string, namespaces: string[], dataPath = "data"): string {
   const ns = namespaceOf(qualified, namespaces)
   const base = ns ? qualified.slice(ns.length + 1) : qualified
   return ns ? `${dataPath}/${ns}/${base}` : `${dataPath}/${base}`
@@ -205,8 +206,8 @@ export function defaultStoragePath(qualified, namespaces, dataPath = "data") {
  *
  * Segment-wise on purpose: `data/health` must not flag `data/health-notes`.
  */
-export function storageOverlaps(entries) {
-  const problems = []
+export function storageOverlaps(entries: Iterable<{ name: string; path: string; base?: string }>): string[] {
+  const problems: string[] = []
   const sorted = [...entries].filter(e => e.path).sort((a, b) => a.path.localeCompare(b.path))
   for (const outer of sorted) {
     for (const inner of sorted) {
@@ -223,4 +224,4 @@ export function storageOverlaps(entries) {
 /** How a command id is typed: `/<id>`, with a namespace folder spelled as claude-code spells it —
  *  `rnd/design` is `/rnd:design`. One rule for the orientation block, the bindings section, the
  *  commands index and `dt next`, so what a session reads is what it types. */
-export const slash = id => `/${String(id).replace(/\//g, ":")}`
+export const slash = (id: string): string => `/${String(id).replace(/\//g, ":")}`

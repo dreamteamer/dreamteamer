@@ -2,7 +2,7 @@
 // never timestamp objects. ALL dreamteamer tooling loads YAML through here.
 import yaml from "js-yaml"
 import { parseDocument, isMap, isSeq, isScalar, visit as visitYaml } from "yaml"
-import type { Node, Pair, YAMLMap, YAMLSeq } from "yaml"
+import type { Document, Node, Pair, YAMLMap, YAMLSeq } from "yaml"
 
 /** Parse YAML. `T` is the shape the CALLER expects — YAML is untrusted input, so it is asserted here and
  *  validated where it is used (compile, check), never assumed checked by this call. */
@@ -50,9 +50,10 @@ export const dump = (obj: unknown, opts: Record<string, unknown> = {}): string =
 // `enum` and `templates`. So the sequence convention wins, and a flow mapping loses its padding only
 // on the line an `x-reference` retarget was already rewriting.
 const SOURCE_OPTS = { lineWidth: 0, flowCollectionPadding: false }
-const isObj = v => v !== null && typeof v === "object" && !Array.isArray(v)
-const same = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null)
-const keyOf = pair => String(pair.key?.value ?? pair.key)
+const isObj = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === "object" && !Array.isArray(v)
+const same = (a: unknown, b: unknown): boolean => JSON.stringify(a ?? null) === JSON.stringify(b ?? null)
+const keyOf = (pair: Pair<unknown, unknown>): string =>
+  String((pair.key as { value?: unknown } | null)?.value ?? pair.key)
 
 /**
  * Apply a plain JS value onto a parsed document, touching only the nodes that differ.
@@ -62,7 +63,7 @@ const keyOf = pair => String(pair.key?.value ?? pair.key)
  * form — whenever its value is unchanged. A node that IS replaced inherits the comments that sat on
  * the position, because those belong to the key, not to the value that happened to be there.
  */
-function merge(doc, node, value) {
+function merge(doc: Document, node: unknown, value: unknown): unknown {
   if (isMap(node) && isObj(value)) {
     // an empty `{}` is a placeholder, not a style: whatever fills it is written block style
     if (node.flow && !node.items.length && Object.keys(value).length) node.flow = false
@@ -102,15 +103,19 @@ function merge(doc, node, value) {
   }
   if (isScalar(node) && !isObj(value) && !Array.isArray(value) && node.value === value) return node
   const fresh = doc.createNode(value)
-  for (const k of ["comment", "commentBefore", "spaceBefore"]) if (node?.[k] !== undefined) fresh[k] = node[k]
+  for (const k of ["comment", "commentBefore", "spaceBefore"] as const) {
+    const was = (node as Partial<Record<typeof k, unknown>> | null)?.[k]
+    if (was !== undefined) (fresh as Record<typeof k, unknown>)[k] = was
+  }
   return fresh
 }
 
-const lineEnd = (text, from) => {
+const lineEnd = (text: string, from: number): number => {
   const nl = text.indexOf("\n", from)
   return nl === -1 ? text.length : nl
 }
-const commentLines = node => (node?.comment == null ? 0 : node.comment.split("\n").length)
+const commentLines = (node: { comment?: string | null } | null | undefined): number =>
+  node?.comment == null ? 0 : node.comment.split("\n").length
 
 /**
  * Where a node's source really ends. `range[1]` stops at the VALUE, so a trailing `# comment` sits
@@ -122,7 +127,7 @@ const commentLines = node => (node?.comment == null ? 0 : node.comment.split("\n
  * source and three in the output. A following line is only ever consumed when it is nothing but a
  * comment, so a wrong count can shorten the span but can never swallow content.
  */
-function endOf(text, from, lines) {
+function endOf(text: string, from: number, lines: number): number {
   if (lines <= 0) return from
   let end = lineEnd(text, from)
   let got = text.slice(from, end).includes("#") ? 1 : 0
@@ -135,21 +140,27 @@ function endOf(text, from, lines) {
   return end
 }
 
-const nodeSpan = (text, n, lines) => [n.range[0], endOf(text, n.range[1], lines)]
+const nodeSpan = (text: string, n: Node, lines: number): [number, number] => [
+  n.range[0],
+  endOf(text, n.range[1], lines),
+]
 /** A pair's whole source — the key, the value, and any comment sitting between or after them. */
-const pairSpan = (text, p, lines) => [p.key.range[0], endOf(text, (p.value?.range ? p.value : p.key).range[1], lines)]
+const pairSpan = (text: string, p: Pair<Node, Node>, lines: number): [number, number] => [
+  p.key.range[0],
+  endOf(text, (p.value?.range ? p.value : p.key).range[1], lines),
+]
 
 /** Emit the document, restoring the original bytes of everything that did not change and that
  *  `keep` accepts — a formatter passes a `keep` that refuses a node whose STYLE it changed. */
-function emit(doc, originalText, keep: (o: unknown) => boolean = () => true) {
+function emit(doc: Document, originalText: string | null | undefined, keep: (o: unknown) => boolean = () => true) {
   const out = doc.toString(SOURCE_OPTS)
   if (originalText == null) return out
   const oldRoot = parseDocument(originalText, { schema: "core" }).contents
   const newRoot = parseDocument(out, { schema: "core" }).contents
-  const kind = x => (isMap(x) ? "map" : isSeq(x) ? "seq" : isScalar(x) ? "scalar" : null)
-  const edits = []
+  const kind = (x: unknown): string | null => (isMap(x) ? "map" : isSeq(x) ? "seq" : isScalar(x) ? "scalar" : null)
+  const edits: [number, number, string][] = []
 
-  const visit = (o, n) => {
+  const visit = (o: Node | null | undefined, n: Node | null | undefined): void => {
     if (!o?.range || !n?.range || kind(o) === null || kind(o) !== kind(n)) return
     if (keep(o) && same(o.toJSON(), n.toJSON())) {
       const lines = commentLines(o)
@@ -159,8 +170,8 @@ function emit(doc, originalText, keep: (o: unknown) => boolean = () => true) {
     // A changed collection is still mostly unchanged — descend, so one edited field restores every
     // sibling verbatim instead of re-emitting the whole block around it.
     if (isMap(o) && isMap(n)) {
-      for (const np of n.items as Pair<unknown, Node>[]) {
-        const op = (o.items as Pair<unknown, Node>[]).find(p => keyOf(p) === keyOf(np))
+      for (const np of n.items as Pair<Node, Node>[]) {
+        const op = (o.items as Pair<Node, Node>[]).find(p => keyOf(p) === keyOf(np))
         if (!op) continue
         if (keep(op.value) && same(op.value?.toJSON?.() ?? null, np.value?.toJSON?.() ?? null)) {
           const lines = commentLines(op.value)
@@ -168,7 +179,7 @@ function emit(doc, originalText, keep: (o: unknown) => boolean = () => true) {
         } else visit(op.value, np.value)
       }
     } else if (isSeq(o) && isSeq(n)) {
-      for (let i = 0; i < Math.min(o.items.length, n.items.length); i++) visit(o.items[i], n.items[i])
+      for (let i = 0; i < Math.min(o.items.length, n.items.length); i++) visit(o.items[i] as Node, n.items[i] as Node)
     }
   }
   visit(oldRoot, newRoot)
@@ -194,10 +205,10 @@ function emit(doc, originalText, keep: (o: unknown) => boolean = () => true) {
  * `previousText` is the bytes on disk, or null for a file that does not exist yet — a new file has no
  * formatting to preserve and no comments to lose, so it is `dump`ed exactly as before.
  */
-export function writeSource(previousText, value) {
+export function writeSource(previousText: string | null | undefined, value: unknown): string {
   if (previousText === null || previousText === undefined) return dump(value)
   const doc = parseDocument(previousText, { schema: "core" })
-  doc.contents = merge(doc, doc.contents, value)
+  doc.contents = merge(doc, doc.contents, value) as typeof doc.contents
   return emit(doc, previousText)
 }
 
@@ -205,7 +216,7 @@ export function writeSource(previousText, value) {
  *  A flow sequence of scalars (`enum: [open, done]`) is block style's own short form and stays. */
 const isFlowForm = (n: unknown): n is YAMLMap | YAMLSeq =>
   !!(n as { flow?: boolean })?.flow && (isMap(n) || (isSeq(n) && n.items.some(i => isMap(i) || isSeq(i))))
-const holdsFlowForm = node => {
+const holdsFlowForm = (node: Node): boolean => {
   let found = false
   visitYaml(node, {
     Node(_, n) {
@@ -224,7 +235,7 @@ const holdsFlowForm = node => {
  * original bytes — so a second run returns its input unchanged. The comment block opening the file,
  * when a blank line separates it from the first key, stays at the top whatever key moves there.
  */
-export function formatSource(text, order) {
+export function formatSource(text: string, order: string[]): string {
   const doc = parseDocument(text, { schema: "core" })
   const top = doc.contents
   if (!isMap(top)) return text
@@ -234,7 +245,7 @@ export function formatSource(text, order) {
     const at = c.lastIndexOf("\n\n")
     ;[doc.commentBefore, first.commentBefore] = [c.slice(0, at), c.slice(at + 2) || undefined]
   }
-  const rank = p => {
+  const rank = (p: Pair<unknown, unknown>): number => {
     const i = order.indexOf(keyOf(p))
     return i === -1 ? order.length : i
   }
@@ -244,7 +255,7 @@ export function formatSource(text, order) {
       if (isFlowForm(n)) n.flow = false
     },
   })
-  return emit(doc, text, o => !holdsFlowForm(o))
+  return emit(doc, text, o => !holdsFlowForm(o as Node))
 }
 
 /**
@@ -256,9 +267,9 @@ export function formatSource(text, order) {
  * byte around it stay exactly where they were. A path that names no key is skipped; the caller's
  * value-level write still lands, and its comment guard still holds.
  */
-export function renameKeys(previousText, renames) {
+export function renameKeys(previousText: string, renames: { path: (string | number)[]; to: string }[]): string {
   const doc = parseDocument(previousText, { schema: "core" })
-  const edits = []
+  const edits: [number, number, string][] = []
   for (const { path: at, to } of renames) {
     const parent = at.length > 1 ? doc.getIn(at.slice(0, -1), true) : doc.contents
     if (!isMap(parent)) continue
@@ -275,4 +286,4 @@ export function renameKeys(previousText, renames) {
 }
 
 /** Lines that are nothing but a comment — the quantity `writeGated`'s invariant protects. */
-export const commentCount = text => text.split("\n").filter(l => l.trimStart().startsWith("#")).length
+export const commentCount = (text: string): number => text.split("\n").filter(l => l.trimStart().startsWith("#")).length

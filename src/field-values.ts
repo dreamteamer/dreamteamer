@@ -14,6 +14,7 @@ import { bodyField } from "./store.ts"
 import { fieldsOf } from "./descriptor.ts"
 import { enumValues } from "./fields.ts"
 import type { Store } from "./store.ts"
+import type { DistinctValues } from "./types.ts"
 
 /** Above this many distinct values a dropdown stops being a dropdown — report and stop counting. */
 export const DEFAULT_LIMIT = 50
@@ -34,7 +35,7 @@ export function distinctValues(
   collection: string,
   field: string,
   { limit = DEFAULT_LIMIT }: { limit?: number } = {}
-) {
+): DistinctValues {
   const d = store.descriptor(collection)
   const prop = fieldsOf(d)[field]
   if (!prop && field !== "id") {
@@ -51,7 +52,7 @@ export function distinctValues(
     return {
       collection,
       field,
-      values: declared.map(value => ({ value, count: null })),
+      values: declared.map(value => ({ value: value as string | number | boolean, count: null as number | null })),
       total: declared.length,
       truncated: false,
       source: "enum",
@@ -59,13 +60,13 @@ export function distinctValues(
   }
 
   const bf = bodyField(d)
-  const counts = new Map()
+  const counts = new Map<string | number | boolean, number>()
   for (const { id, fields } of store.readAll(collection)) {
     const raw = field === "id" ? id : fields[field]
     if (raw == null || raw === "" || (bf && field === bf)) continue
     for (const v of Array.isArray(raw) ? raw : [raw]) {
       if (v == null || v === "" || typeof v === "object") continue
-      counts.set(v, (counts.get(v) ?? 0) + 1)
+      counts.set(v as string | number | boolean, (counts.get(v as string | number | boolean) ?? 0) + 1)
     }
   }
 

@@ -4,12 +4,12 @@
 // x-ranges (1.2.x), combined comparators (">=1.0.0 <2.0.0"), <, <=, >,
 // prerelease/build tags. callers treat null as "warn, don't guess".
 
-const parse = v => {
+const parse = (v: string): [number, number, number] | null => {
   const m = /^(\d+)\.(\d+)\.(\d+)$/.exec(String(v).trim())
   return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null
 }
 
-const cmp = (a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2]
+const cmp = (a: number[], b: number[]): number => a[0] - b[0] || a[1] - b[1] || a[2] - b[2]
 
 // true = in range, false = out of range, null = version or range not understood
 export function satisfies(version: string, range: string): boolean | null {

@@ -6,7 +6,7 @@ import type { Descriptors } from "./types.ts"
 // are the same call. ⚠ TYPED INPUT ONLY: a reference VALUE inside a record (`tasks/kickoff`) is
 // parsed by namespace.js's parseRef against declared names and never learns the singular, so
 // `task/kickoff` in a field stays the dangling reference `check` reports it as.
-function* words(descriptors) {
+function* words(descriptors: Descriptors): Generator<[word: string, name: string]> {
   for (const [name, d] of descriptors) {
     yield [name, name]
     const word = singularOf(d)

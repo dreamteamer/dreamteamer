@@ -10,6 +10,20 @@
 import type { Store } from "./store.ts"
 
 export type Fields = Record<string, unknown>
+/** A field's `display` block — the closed key list compile enforces (`DISPLAY_KEYS` in src/fields.ts). */
+export type FieldDisplay = {
+  editable?: boolean | "create"
+  hidden?: Array<"list" | "form" | "record">
+  form_section?: string
+  placeholder?: string
+  unit?: string
+  unit_field?: string
+  direction?: "ltr" | "rtl"
+  width?: number
+  viewer?: string
+  editor?: string
+  options?: Record<string, unknown>
+}
 /** One resolved field, in the descriptor's own vocabulary (see src/fields.js). */
 export type Field = {
   type: string | string[]
@@ -33,7 +47,7 @@ export type Field = {
   fields?: Record<string, Field>
   values?: string | Field
   item_title?: string
-  display?: Record<string, unknown>
+  display?: FieldDisplay
   /** the JSON-schema constraints a field may carry through */
   pattern?: string
   minimum?: number
@@ -66,6 +80,8 @@ export type AuthoredDescriptor = {
     under?: { parent: string; subfolder: string; id?: "independent" | "nested" }
     max_bytes?: number
     accept?: string[]
+    /** who keeps the records of a module-shipped collection: the module (its own `data/`) or the workspace */
+    owner?: "module" | "workspace"
   }
   ids?: { from?: string | string[]; pattern?: string }
   constraints?: unknown[]
@@ -94,8 +110,10 @@ export type DisplayBlock = {
 /** A compiled descriptor: the authored v2 keys plus what compile decided. Read it through the accessors. */
 export type Descriptor = AuthoredDescriptor & {
   compiled: {
-    /** the authored keys compile supplied where the author was silent — read through the accessors */
-    defaults: Partial<AuthoredDescriptor>
+    /** the authored keys compile supplied where the author was silent — read through the accessors; per field, only the keys it supplied */
+    defaults: { [K in keyof AuthoredDescriptor as K extends "fields" ? never : K]?: AuthoredDescriptor[K] } & {
+      fields?: Record<string, Partial<Field>>
+    }
     module: string
     repo: string
     runtime: boolean
@@ -255,6 +273,17 @@ export interface Presentation {
 // ---- the workspace half ----
 /** Parsed command-line flags (`parseArgs`): `--x v` a string, a bare `--x` true, a repeated flag a list */
 export type Flags = Record<string, string | boolean | string[]>
+/** The values actually present in one field of a collection (`distinctValues`, `dt values`). `count` is
+ *  null for an enum's declared values; `skipped` names a field kind that has no value set. */
+export type DistinctValues = {
+  collection: string
+  field: string
+  values: { value: string | number | boolean; count: number | null }[]
+  total: number
+  truncated: boolean
+  source?: "enum" | "data"
+  skipped?: "body" | "object"
+}
 /** One `dreamteamer.git_modules` entry: a clone the workspace declares (`records` makes it a record layer) */
 export type GitModuleEntry = {
   url?: string
@@ -363,15 +392,75 @@ export interface LoadedExtension {
   env: string[]
   vars: string[]
   /** its setup units, validated */
-  setup: {
-    id: string
-    version: number
-    module: string
-    inputs: unknown[]
-    inspect?: unknown
-    plan?: unknown
-    apply?: unknown
-  }[]
+  setup: SetupUnit[]
+}
+
+// ---- setup units (references/extensions.md · references/setup.md) ----
+export type SetupInputKind = "string" | "path" | "rows" | "secret-path"
+/** One input a unit needs from the person, as `validateSetup` normalized it. */
+export type SetupInput = {
+  id: string
+  kind: SetupInputKind
+  env?: string
+  required: boolean
+  title: string
+  default?: unknown
+  prompt?: string
+  rows?: { columns: string[]; [k: string]: unknown }
+}
+export type SetupCheckStatus = "ready" | "configured" | "unverified" | "missing" | "blocked"
+/** One row of what a unit's `inspect` (or `plan`) found. `status` is untrusted until `fold` reads it. */
+export type SetupCheck = {
+  id: string
+  status: SetupCheckStatus | string
+  title?: string
+  detail?: string
+  fix?: string
+  /** a verify action's receipt: when it was last proved */
+  evidence?: { at?: string; [k: string]: unknown }
+}
+export type SetupEffect = { kind: string; detail?: string }
+/** One step a unit's `plan` names. `env` makes it the engine's own `.env` write; `state` is the driver's verdict on it. */
+export type SetupAction = {
+  id: string
+  title?: string
+  kind?: string
+  effects?: SetupEffect[]
+  preview?: string
+  expect?: string
+  runBy?: string
+  state?: string
+  reason?: string
+  env?: Record<string, unknown>
+}
+export type SetupPlan = { checks?: SetupCheck[]; actions?: SetupAction[]; needs?: string[] }
+/** What a unit's functions are handed. `dt` is null under the read-only verbs (`dt status`, `dt doctor`). */
+export type SetupContext = {
+  root: string
+  ws: Workspace
+  dt: typeof import("./api.ts") | null
+  env: Record<string, string>
+  tty: boolean
+  receiptDir: string
+}
+export type SetupInputs = Record<string, unknown>
+/** A setup unit, validated: `inspect` is synchronous and side-effect-free; `apply` performs a previewed action. */
+export type SetupUnit = {
+  id: string
+  version: number
+  module: string
+  inputs: SetupInput[]
+  inspect: (ctx: SetupContext) => { checks?: SetupCheck[] } | null | undefined
+  plan: (ctx: SetupContext, inputs: SetupInputs) => SetupPlan | Promise<SetupPlan>
+  apply?: (
+    ctx: SetupContext,
+    action: SetupAction,
+    inputs: SetupInputs
+  ) =>
+    | { ok: boolean; changed?: string[]; message?: string }
+    | null
+    | undefined
+    | Promise<{ ok: boolean; changed?: string[]; message?: string } | null | undefined>
 }
 export type Entry = { sources: { path: string; hash: string }[]; bytes: Buffer }
 export interface CompileDraft {

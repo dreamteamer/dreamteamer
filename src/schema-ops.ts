@@ -23,10 +23,42 @@ const GIT_QUIET: StdioOptions = ["ignore", "pipe", "ignore"]
 import { walk, idFromRecordPath, parseRecord, EXT } from "./records.ts"
 import { Store, serialize, atomicWrite } from "./store.ts"
 import { readmeText, extensionText, testText, scaffoldKey } from "./scaffold-templates.ts"
-import type { AuthoredDescriptor, Descriptor, DreamteamerBlock, Field, Flags, Workspace } from "./types.ts"
+import type {
+  AuthoredDescriptor,
+  Descriptor,
+  DreamteamerBlock,
+  Field,
+  Fields,
+  Flags,
+  PackageJson,
+  Workspace,
+} from "./types.ts"
 /** A source file as parsed — a collection, a ui-view, a module record, a skill's frontmatter: the authored
  *  descriptor keys, all optional, the rest open. Validated by compile, not by this parse. */
 type SourceDoc = Partial<AuthoredDescriptor>
+/** A `modules` record's fields (collections/modules.collection.yaml) — projected by compile from package.json. */
+type ModuleFields = {
+  name?: string
+  title?: string
+  description?: string
+  namespaces?: string[]
+  location?: string
+  path?: string
+  bin?: string[]
+  owns_data?: boolean
+  dependencies?: string[]
+  peer_collections?: string[]
+  collections?: string[]
+  [k: string]: unknown
+}
+type ModuleRow = { id: string; fields: ModuleFields }
+/** What a source write's `after` hook adds to the gate: more files in the commit, and how to put them back. */
+type AfterResult = { files?: string[]; undo?: () => void; dropped?: string[]; cleared?: number; [k: string]: unknown }
+/** A commit failure that already landed in some repos: those commits stand, and the error names them. */
+type CommitError = Error & { commits?: RepoCommit[] }
+type Snapshot = { f: string; prev: Buffer | null }
+/** Where a rename or a refusal touches a source: the file, the key path, and whether the walk rewrote it. */
+type Position = { rel: string; at: string; fixed: boolean; why?: string; label?: string }
 
 // ---- the gate -------------------------------------------------------------------
 
@@ -43,7 +75,7 @@ type SourceDoc = Partial<AuthoredDescriptor>
  * which is the correct outcome and a decrease; so does deleting a file. Those ops say so explicitly
  * (`commentsMayDecrease`) rather than being exempted by a heuristic that would also excuse a bug.
  */
-function assertCommentsKept(ws, snapshots) {
+function assertCommentsKept(ws: Workspace, snapshots: Snapshot[]): void {
   for (const { f, prev } of snapshots) {
     if (prev === null || !fs.existsSync(f)) continue
     const before = commentCount(prev.toString("utf8"))
@@ -56,19 +88,20 @@ function assertCommentsKept(ws, snapshots) {
 }
 
 function writeGated(
-  ws,
-  store,
-  files,
-  subject,
-  mutate,
-  after?: () => Record<string, unknown>,
-  { commentsMayDecrease = false } = {}
-) {
+  ws: Workspace,
+  store: Store,
+  files: string[],
+  subject: string,
+  mutate: () => void,
+  after?: () => AfterResult,
+  { commentsMayDecrease = false }: { commentsMayDecrease?: boolean } = {}
+): Required<Pick<AfterResult, "files" | "undo" | "dropped" | "cleared">> &
+  AfterResult & { commits: RepoCommit[]; unchanged?: true } {
   // same guarantees as record writes (docs-audit catch): the STORE's cross-process lock
   // serializes schema ops too, and a failed git commit rolls the source back — a schema
   // op fails closed exactly like a record mutation.
   return store.withWriteLock(() => {
-    const snapshots = files.map(f => ({ f, prev: fs.existsSync(f) ? fs.readFileSync(f) : null }))
+    const snapshots: Snapshot[] = files.map((f: string) => ({ f, prev: fs.existsSync(f) ? fs.readFileSync(f) : null }))
     const restore = () => {
       for (const { f, prev } of snapshots) {
         if (prev === null) fs.rmSync(f, { force: true })
@@ -101,7 +134,7 @@ function writeGated(
       // `add modules` created they are the same string, for a forked module they are not.
       const dep = /an overlay of "[^"]+", but module "([^"]+)" neither depends on "([^"]+)"/.exec(e.message)
       if (dep) {
-        const idOf = pkgName => moduleRows(store).find(r => r.fields.name === pkgName)?.id ?? pkgName
+        const idOf = (pkgName: string): string => moduleRows(store).find(r => r.fields.name === pkgName)?.id ?? pkgName
         throw new Error(
           `${e.message}\n  rolled back — dt set modules/${idOf(dep[1])} dependencies=modules/${idOf(dep[2])}, then re-run`,
           { cause: e }
@@ -114,7 +147,12 @@ function writeGated(
     // for. It has to run after the compile because it reads the NEW runtime to decide what is
     // residue, and before the commit because a source change and the data repair it forces are one
     // change. It fails the whole op like anything else here: nothing half-done.
-    let extra = { files: [], undo: () => {}, dropped: [], cleared: 0 }
+    let extra: Required<Pick<AfterResult, "files" | "undo" | "dropped" | "cleared">> & AfterResult = {
+      files: [],
+      undo: () => {},
+      dropped: [],
+      cleared: 0,
+    }
     if (after) {
       try {
         extra = { ...extra, ...after() }
@@ -143,7 +181,7 @@ function writeGated(
       const now = fs.existsSync(f) ? fs.readFileSync(f) : null
       return now === null ? prev !== null : prev === null || !now.equals(prev)
     })
-    if (!moved && !extra.files.length) return { ...extra, commits: [], unchanged: true }
+    if (!moved && !extra.files.length) return { ...extra, commits: [] as RepoCommit[], unchanged: true as const }
     const rels = [...files, ...extra.files].map(f => path.relative(ws.root, f))
     // Schema ops commit UNCONDITIONALLY — `auto-commit` governs RECORD writes only. A source
     // change is inseparable from the compile that validated it, and `dt commit` scopes itself
@@ -152,7 +190,7 @@ function writeGated(
     //
     // ⚠ IN THE REPO THAT HOLDS THE SOURCE, not at the workspace root — see commitByRepo for what
     // running it at the root cost a git-shape module.
-    let commits
+    let commits: RepoCommit[]
     try {
       commits = commitByRepo(ws, store, rels, subject)
     } catch (e) {
@@ -163,8 +201,8 @@ function writeGated(
       } catch {
         /* pre-op sources were compilable */
       }
-      const landed = (e.commits ?? []).length
-        ? ` (${e.commits.map(c => `${c.repo} already committed as ${c.sha}`).join("; ")} — that commit stands; two repos cannot commit atomically)`
+      const landed = ((e as CommitError).commits ?? []).length
+        ? ` (${(e as CommitError).commits.map(c => `${c.repo} already committed as ${c.sha}`).join("; ")} — that commit stands; two repos cannot commit atomically)`
         : ""
       throw new Error(
         `git commit failed — the schema change was rolled back, nothing was changed.${landed} (${e.message.split("\n")[0]})`,
@@ -181,7 +219,7 @@ function writeGated(
  *  schema op that turns out to ask for what is already on disk. Materializing `.dreamteamer/` is the
  *  point rather than a side effect: the caller is about to report success, and success has always
  *  meant "the compiled runtime is valid and current". */
-function compileGated(ws, store) {
+function compileGated(ws: Workspace, store: Store): 0 {
   return store.withWriteLock(() => compile(ws))
 }
 
@@ -202,11 +240,15 @@ function compileGated(ws, store) {
  * `mutate()` may return `{ paths }` to extend the commit pathspec with files it discovered; its
  * return value is what this returns.
  */
-export function gatedTreeOp(ws, store, { subject, paths, mutate, undo }) {
+export function gatedTreeOp<T extends { paths?: string[] }>(
+  ws: Workspace,
+  store: Store,
+  { subject, paths, mutate, undo }: { subject: string; paths: string[]; mutate: () => T | void; undo: () => void }
+): T & { commits: RepoCommit[] } {
   return store.withWriteLock(() => {
-    let out
+    let out: T & { commits?: RepoCommit[] }
     try {
-      out = mutate() ?? {}
+      out = (mutate() ?? {}) as T
       compile(ws) // the gate: an uncompilable change never reaches history
     } catch (e) {
       undo()
@@ -230,15 +272,15 @@ export function gatedTreeOp(ws, store, { subject, paths, mutate, undo }) {
       } catch {
         /* pre-op sources were compilable */
       }
-      const landed = (e.commits ?? []).length
-        ? ` (${e.commits.map(c => `${c.repo} already committed as ${c.sha}`).join("; ")} — that commit stands)`
+      const landed = ((e as CommitError).commits ?? []).length
+        ? ` (${(e as CommitError).commits.map(c => `${c.repo} already committed as ${c.sha}`).join("; ")} — that commit stands)`
         : ""
       throw new Error(
         `git commit failed — ${subject} was rolled back, nothing was changed.${landed} (${e.message.split("\n")[0]})`,
         { cause: e }
       )
     }
-    return out
+    return out as T & { commits: RepoCommit[] }
   })
 }
 
@@ -252,13 +294,14 @@ export function gatedTreeOp(ws, store, { subject, paths, mutate, undo }) {
  * @returns {{ changed: string[], unchanged: number, skipped: string[], commits?: object[] }}
  */
 export function formatDescriptors(
-  ws,
-  { collection = null, dryRun = false } = {}
+  ws: Workspace,
+  { collection = null, dryRun = false }: { collection?: string | null; dryRun?: boolean } = {}
 ): { changed: string[]; unchanged: number; skipped: string[]; commits?: RepoCommit[] } {
   const roots = [{ root: ws.root, channel: "inline" }, ...discoverModules(ws.root, ws.pkg).modules]
-  const rel = f => path.relative(ws.root, f)
-  const sources = [],
-    skipped = []
+  const rel = (f: string): string => path.relative(ws.root, f)
+  type Src = { file: string; text: string; doc: SourceDoc | null; kind: string }
+  const sources: Src[] = [],
+    skipped: Src[] = []
   for (const { root, channel } of roots) {
     for (const [kind, suffix] of [
       ["collections", ".collection.yaml"],
@@ -316,14 +359,14 @@ const MODULE_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 
 /** Every module as `{ id, fields }`, off the compiled projection — the one enumeration, so `--module`
  *  validation, the "known:" list and the id→package-name map cannot disagree. */
-function moduleRows(store) {
+function moduleRows(store: Store): ModuleRow[] {
   if (!store.descriptors.has("modules")) return []
-  return [...store.readAll("modules")].map(r => ({ id: r.id, fields: r.fields }))
+  return [...store.readAll("modules")].map(r => ({ id: r.id, fields: r.fields as ModuleFields }))
 }
 
 /** One module, or the refusal §13 requires: `no module "nope" — known: core, hr, default (dt list
  *  modules). A module is named by its id.` */
-export function moduleRecord(store, id) {
+export function moduleRecord(store: Store, id: string): ModuleRow {
   const rows = moduleRows(store)
   const hit = rows.find(r => r.id === id)
   if (hit) return hit
@@ -334,16 +377,16 @@ export function moduleRecord(store, id) {
 
 /** id → the package `name` its sources actually spell, which is what `dependencies` and `disable`
  *  are written in. Equal to the id for anything `add modules` created. */
-const packageNameOf = (store, id) => moduleRecord(store, id).fields.name
+const packageNameOf = (store: Store, id: string): string | undefined => moduleRecord(store, id).fields.name
 
 /** A module's own package.json, absolute. */
-function modulePkgFile(ws, store, id) {
+function modulePkgFile(ws: Workspace, store: Store, id: string): string {
   return path.join(ws.root, moduleRecord(store, id).fields.path, "package.json")
 }
 
 /** Read → mutate the `dreamteamer` section → write, preserving every other key and the tab
  *  indentation `init` uses. Returns the file path so a caller can put it in a pathspec. */
-function editModulePkg(file, mutate) {
+function editModulePkg(file: string, mutate: (block: DreamteamerBlock, pkg: PackageJson) => void): string {
   const pkg = JSON.parse(fs.readFileSync(file, "utf8"))
   pkg.dreamteamer ??= {}
   mutate(pkg.dreamteamer, pkg)
@@ -355,7 +398,7 @@ function editModulePkg(file, mutate) {
  *  `compile({root, pkg})` reads the object it was handed, not the file — a rename that moved
  *  `workspace_module` and did not do this compiled the PREVIOUS layout and failed on a stray-sources
  *  error naming a module that no longer exists. */
-function editWorkspacePkg(ws, mutate) {
+function editWorkspacePkg(ws: Workspace, mutate: (block: DreamteamerBlock, pkg: PackageJson) => void): string {
   const file = path.join(ws.root, "package.json")
   const pkg = JSON.parse(fs.readFileSync(file, "utf8"))
   pkg.dreamteamer ??= {}
@@ -518,7 +561,10 @@ export function createModule(
 
 /** The settable fields of a `modules` record, and how each translates from the record-shaped value
  *  the operator types to the form the source file uses. */
-const MODULE_SETTABLE = {
+const MODULE_SETTABLE: Record<
+  string,
+  { key: keyof DreamteamerBlock & string; from: (v: unknown, store: Store) => unknown }
+> = {
   description: { key: "description", from: v => String(v) },
   dependencies: { key: "dependencies", from: (v, store) => asList(v).map(r => moduleIdFromRef(r, store)) },
   // the collections a module references but does not own — names, never references, in the source
@@ -534,12 +580,13 @@ const MODULE_SETTABLE = {
   },
 }
 
-const asList = v => (Array.isArray(v) ? v : String(v).split(",")).map(s => String(s).trim()).filter(Boolean)
+const asList = (v: unknown): string[] =>
+  (Array.isArray(v) ? v : String(v).split(",")).map(s => String(s).trim()).filter(Boolean)
 
 /** `modules/core` → the package name `core` spells. A bare `core` is accepted and named as a
  *  mistake-in-waiting rather than silently: a reference VALUE is `<collection>/<id>` everywhere else
  *  in this engine, and `check` rejects the bare form. */
-function moduleIdFromRef(ref, store) {
+function moduleIdFromRef(ref: unknown, store: Store): string | undefined {
   const s = String(ref)
   if (!s.startsWith("modules/")) {
     throw new Error(
@@ -549,7 +596,7 @@ function moduleIdFromRef(ref, store) {
   return packageNameOf(store, s.slice("modules/".length))
 }
 
-export function setModule(ws: Workspace, store: Store, id, changes) {
+export function setModule(ws: Workspace, store: Store, id: string, changes: Record<string, unknown>) {
   const rec = moduleRecord(store, id)
   const unknown = Object.keys(changes).filter(k => !(k in MODULE_SETTABLE))
   if (unknown.length) {
@@ -563,7 +610,7 @@ export function setModule(ws: Workspace, store: Store, id, changes) {
       `module "${id}" ships from node_modules (${rec.fields.path}) — a write there is erased by the next \`npm install\`. Vendor it into modules/ or install it as a git module.`
     )
   }
-  const changed = []
+  const changed: string[] = []
   // ⚠ THE WORKSPACE'S REDUNDANT COPY GOES IN THE SAME WRITE. Declaring a namespace on the module
   // is what makes the workspace-level entry redundant, and compile WARNS about it — so leaving it
   // behind makes the warning permanent and the fix a second command nobody is told to run.
@@ -575,7 +622,7 @@ export function setModule(ws: Workspace, store: Store, id, changes) {
     files,
     `dreamteamer: modules set ${id}`,
     () => {
-      let declared = []
+      let declared: string[] = []
       editModulePkg(file, dt => {
         for (const [k, raw] of Object.entries(changes)) {
           const spec = MODULE_SETTABLE[k]
@@ -594,7 +641,7 @@ export function setModule(ws: Workspace, store: Store, id, changes) {
           }
           dt[spec.key] = value
           changed.push(k)
-          if (k === "namespaces") declared = value
+          if (k === "namespaces") declared = value as string[] // the namespaces spec maps to a list
         }
       })
       if (declared.length) {
@@ -611,7 +658,12 @@ export function setModule(ws: Workspace, store: Store, id, changes) {
   return { id, file, changed, commits: gate.commits, unchanged: gate.unchanged }
 }
 
-export function removeModule(ws: Workspace, store: Store, id, { force = false, dryRun = false } = {}) {
+export function removeModule(
+  ws: Workspace,
+  store: Store,
+  id: string,
+  { force = false, dryRun = false }: { force?: boolean; dryRun?: boolean } = {}
+) {
   const { fields } = moduleRecord(store, id)
   if (fields.location === "node_modules") {
     throw new Error(
@@ -706,9 +758,9 @@ export function removeModule(ws: Workspace, store: Store, id, { force = false, d
   return { removed: id, ...plan, commits: out.commits }
 }
 
-export function renameModule(ws: Workspace, store: Store, oldId, newId) {
+export function renameModule(ws: Workspace, store: Store, oldId: string, newId: string | true | undefined) {
   if (!newId || newId === true) throw new Error("missing new module id — dreamteamer rename modules/<old> <new>")
-  if (oldId === newId) return { renamed: false, id: newId, files: [], rewrites: 0 }
+  if (oldId === newId) return { renamed: false, id: newId, files: [] as string[], rewrites: 0 }
   if (!MODULE_ID.test(newId))
     throw new Error(`invalid module id "${newId}" — lowercase alphanumeric with single hyphens.`)
   const { fields } = moduleRecord(store, oldId)
@@ -733,14 +785,14 @@ export function renameModule(ws: Workspace, store: Store, oldId, newId) {
   if (fs.existsSync(newRoot)) throw new Error(`modules/${newId} already exists on disk`)
 
   const snapshots = new Map() // absolute file -> bytes, for undo
-  const snap = f => {
+  const snap = (f: string): string => {
     if (!snapshots.has(f) && fs.existsSync(f)) snapshots.set(f, fs.readFileSync(f))
     return f
   }
   const paths = new Set([`modules/${oldId}`, `modules/${newId}`, "package.json"])
   let moved = false
   let rewrites = 0
-  const undoRefs = []
+  const undoRefs: (() => void)[] = []
 
   const out = gatedTreeOp(ws, store, {
     subject: `dreamteamer: modules rename ${oldId} → ${newId}`,
@@ -830,7 +882,11 @@ export function renameModule(ws: Workspace, store: Store, oldId, newId) {
  * records carry `dependencies`, each compiled descriptor carries its `module`, and the manifest is
  * what actually compiled.
  */
-function moveImpact(store, name, toModule) {
+function moveImpact(
+  store: Store,
+  name: string,
+  toModule: string
+): { referrer: string; target: string; owner: string; ring: boolean }[] {
   const mods = moduleRows(store)
   const depsOf = new Map(
     mods.map(m => [m.id, (m.fields.dependencies ?? []).map(r => String(r).replace(/^modules\//, ""))])
@@ -839,20 +895,20 @@ function moveImpact(store, name, toModule) {
   const peersOf = new Map(
     mods.map(m => [m.id, (m.fields.peer_collections ?? []).map(r => String(r).replace(/^collections\//, ""))])
   )
-  const ownerOf = new Map()
+  const ownerOf = new Map<string, string>()
   for (const [id, d] of store.descriptors) ownerOf.set(id, moduleOf(d))
   ownerOf.set(name, toModule) // the world as the move would leave it
 
   /** Does `from` reach `to` along `dependencies`? */
-  const reaches = (from, to, seen = new Set()) => {
+  const reaches = (from: string, to: string, seen = new Set<string>()): boolean => {
     if (from === to) return true
     if (seen.has(from)) return false
     seen.add(from)
     return (depsOf.get(from) ?? []).some(d => reaches(d, to, seen))
   }
 
-  const needs = []
-  const add = (referrer, target) => {
+  const needs: ReturnType<typeof moveImpact> = []
+  const add = (referrer: string, target: string): void => {
     const owner = ownerOf.get(target)
     if (!owner || owner === referrer) return
     if ((depsOf.get(referrer) ?? []).includes(owner)) return
@@ -878,8 +934,8 @@ function moveImpact(store, name, toModule) {
 /** Every collection a field of this descriptor references — a scalar or a union, on a top-level
  *  field or inside an object's `fields`. `reference` (any record) names no collection, so it is
  *  skipped: it is exempt from the reference contract by construction. */
-function outboundTargets(d) {
-  const out = new Set()
+function outboundTargets(d: Descriptor): Set<string> {
+  const out = new Set<string>()
   const walkFields = (fields: Record<string, Field>) => {
     for (const f of Object.values(fields ?? {})) {
       const t = targetsOf(f)
@@ -891,7 +947,13 @@ function outboundTargets(d) {
   return out
 }
 
-export function moveCollection(ws: Workspace, store: Store, name, toModule, { dryRun = false } = {}) {
+export function moveCollection(
+  ws: Workspace,
+  store: Store,
+  name: string,
+  toModule: string,
+  { dryRun = false }: { dryRun?: boolean } = {}
+) {
   const d = store.descriptor(name) // throws with the known-collection list
   if (isRuntime(d)) {
     throw new Error(`"${name}" is a compiled source, not a data collection — it has no module to move it to.`)
@@ -991,15 +1053,18 @@ export function moveCollection(ws: Workspace, store: Store, name, toModule, { dr
  * commit — that is `rename collections/<old> <new>`, and offering `name=` here would be a second
  * spelling for it that does one of those five things. Fields have verbs of their own.
  */
-const text = v => String(v)
-const bool = k => v => {
-  if (v === true || v === "true") return true
-  if (v === false || v === "false") return false
-  // a privacy or visibility switch that coerces "yes" to false is the wrong kind of forgiving
-  throw new Error(`${k} takes true or false — got "${v}"`)
-}
-const nameList = v => (Array.isArray(v) ? v : String(v).split(",")).map(x => String(x).trim()).filter(Boolean)
-const COLLECTION_SETTABLE = {
+const text = (v: unknown): string => String(v)
+const bool =
+  (k: string) =>
+  (v: unknown): boolean => {
+    if (v === true || v === "true") return true
+    if (v === false || v === "false") return false
+    // a privacy or visibility switch that coerces "yes" to false is the wrong kind of forgiving
+    throw new Error(`${k} takes true or false — got "${v}"`)
+  }
+const nameList = (v: unknown): string[] =>
+  (Array.isArray(v) ? v : String(v).split(",")).map(x => String(x).trim()).filter(Boolean)
+const COLLECTION_SETTABLE: Record<string, (v: unknown) => unknown> = {
   description: text,
   use_when: text,
   title: text,
@@ -1011,7 +1076,7 @@ const COLLECTION_SETTABLE = {
   // surface; where its records live and whether they can be written are unchanged
   internal: bool("internal"),
   "display.nav.icon": text,
-  "display.nav.order": v => {
+  "display.nav.order": (v: unknown): number => {
     const n = Number(v)
     if (!Number.isFinite(n)) throw new Error(`display.nav.order takes a number — got "${v}"`)
     return n
@@ -1029,7 +1094,7 @@ const COLLECTION_SETTABLE = {
  *  (each layout reads its own keys), so the value is read as JSON where it parses — a number, a
  *  boolean, a list — and as the string typed otherwise. */
 const OPTION_KEY = /^display\.(list|record)\.options\.[a-z][a-z0-9_]*$/
-const optionValue = v => {
+const optionValue = (v: unknown): unknown => {
   if (typeof v !== "string") return v
   try {
     return JSON.parse(v)
@@ -1037,32 +1102,33 @@ const optionValue = v => {
     return v
   }
 }
-const settableOf = k => COLLECTION_SETTABLE[k] ?? (OPTION_KEY.test(k) ? optionValue : undefined)
+const settableOf = (k: string): ((v: unknown) => unknown) | undefined =>
+  COLLECTION_SETTABLE[k] ?? (OPTION_KEY.test(k) ? optionValue : undefined)
 
 /** "people has no field X" / "people has no fields X, Y" — the plural without a second sentence. */
-const collectionMissingFields = (name, missing) =>
+const collectionMissingFields = (name: string, missing: string[]): string =>
   `${name} has no field${missing.length === 1 ? "" : "s"} ${missing.join(", ")}`
 
 /** Set a dotted path in a plain object, creating the blocks on the way. */
-function setPath(obj, dotted, value) {
+function setPath(obj: Record<string, unknown>, dotted: string, value: unknown): void {
   const keys = dotted.split(".")
   let at = obj
   for (const k of keys.slice(0, -1)) {
     if (!at[k] || typeof at[k] !== "object" || Array.isArray(at[k])) at[k] = {}
-    at = at[k]
+    at = at[k] as Record<string, unknown>
   }
   at[keys[keys.length - 1]] = value
 }
 
 /** Delete a dotted path, and every block the deletion leaves empty — an empty `display.nav` is a
  *  statement nobody made. */
-function deletePath(obj, dotted) {
+function deletePath(obj: Record<string, unknown>, dotted: string): void {
   const keys = dotted.split(".")
-  const trail = [obj]
+  const trail: Record<string, unknown>[] = [obj]
   for (const k of keys.slice(0, -1)) {
     const next = trail[trail.length - 1]?.[k]
     if (!next || typeof next !== "object") return
-    trail.push(next)
+    trail.push(next as Record<string, unknown>)
   }
   delete trail[trail.length - 1][keys[keys.length - 1]]
   for (let i = trail.length - 1; i > 0; i--) {
@@ -1074,8 +1140,8 @@ function deletePath(obj, dotted) {
 export function setCollectionScalars(
   ws: Workspace,
   store: Store,
-  name,
-  changes,
+  name: string,
+  changes: Record<string, unknown>,
   { moduleId }: { moduleId?: string } = {}
 ) {
   const d = store.descriptor(name)
@@ -1123,7 +1189,7 @@ export function setCollectionScalars(
     throw new Error(`${path.relative(ws.root, file)} is not on disk — run \`dreamteamer compile\` and re-run.`)
   const previousText = fs.readFileSync(file, "utf8")
   const doc = load<SourceDoc | null>(previousText)
-  const changed = []
+  const changed: string[] = []
   const gate = writeGated(
     ws,
     store,
@@ -1150,21 +1216,30 @@ export function setCollectionScalars(
  * compile merges `display.<block>` one key deep, so a lone option would drop every option the package
  * sets beside it.
  */
-function setCollectionDisplayOverlay(ws, store, name, changes, owned) {
+function setCollectionDisplayOverlay(
+  ws: Workspace,
+  store: Store,
+  name: string,
+  changes: Record<string, unknown>,
+  owned: string
+) {
   const { file } = collectionSourceFile(ws, store, name, undefined, { subject: name })
   const base = load<SourceDoc | null>(fs.readFileSync(path.join(ws.root, owned), "utf8")) ?? {}
   const existed = fs.existsSync(file)
   const previousText = existed ? fs.readFileSync(file, "utf8") : null
   // `fields: {}` is what makes a source v2 at all (`isV2`), the same scaffold add-field writes
   const doc = existed ? load<SourceDoc | null>(previousText) : { name, overlay: true, fields: {} }
-  const at = (o, dotted) => dotted.split(".").reduce((n, k) => (n && typeof n === "object" ? n[k] : undefined), o)
-  const same = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null)
-  const changed = []
+  const at = (o: unknown, dotted: string): unknown =>
+    dotted
+      .split(".")
+      .reduce<unknown>((n, k) => (n && typeof n === "object" ? (n as Record<string, unknown>)[k] : undefined), o)
+  const same = (a: unknown, b: unknown): boolean => JSON.stringify(a ?? null) === JSON.stringify(b ?? null)
+  const changed: string[] = []
   for (const [k, raw] of Object.entries(changes)) {
     const clear = raw === "" || raw === null
     const opt = /^(display\.[^.]+\.options)\.(.+)$/.exec(k)
     if (opt) {
-      const options = structuredClone(at(doc, opt[1]) ?? at(base, opt[1]) ?? {})
+      const options = structuredClone(at(doc, opt[1]) ?? at(base, opt[1]) ?? {}) as Record<string, unknown>
       if (clear) delete options[opt[2]]
       else options[opt[2]] = settableOf(k)(raw)
       if (same(options, at(base, opt[1]))) deletePath(doc, opt[1])
@@ -1259,15 +1334,36 @@ const OPTION_TEMPLATES = TEMPLATE_OPTIONS
 /** A position label back to its path from the document root: `constraints[0].if.properties.status`
  *  → `['constraints', 0, 'if', 'properties', 'status']`. Labels are built from field names and
  *  operator keys, neither of which carries a `.` or a `[`. */
-const pathOf = label =>
+const pathOf = (label: string): (string | number)[] =>
   [...label.matchAll(/([^.[\]]+)|\[(\d+)\]/g)].map(m => (m[2] !== undefined ? Number(m[2]) : m[1]))
 
-/** A map with one key renamed in place — key order is form order, and a body field belongs last. */
-const renameKey = (obj, from, to) => Object.fromEntries(Object.entries(obj).map(([k, v]) => [k === from ? to : k, v]))
+/** A parsed YAML subtree a walker reads and rewrites in place. Its shape is the author's, so every walker
+ *  checks a key's type before it trusts it — `asTree` is that check. */
+type Tree = Record<string, unknown>
+const asTree = (v: unknown): Tree | null => (v && typeof v === "object" && !Array.isArray(v) ? (v as Tree) : null)
+/** Reports one position a walk touched: its key path, why it was not rewritten, or the key it became. */
+type At = (label: string, why?: string, renamedTo?: string, keyPath?: (string | number)[]) => void
+/** What a walk does at each source: its own descriptor, every other one, and each view or binding. */
+type SourceVisitor = {
+  own: (doc: SourceDoc, at: At) => void
+  foreign?: (doc: SourceDoc, at: At) => void
+  view: (doc: SourceDoc, kind: string, at: At) => void
+}
+/** What a filter walk does at each condition: a field key, and a union reference it cannot follow. */
+type FilterVisitor = {
+  field: (node: Tree, key: string, coll: string, at: At, label: string) => void
+  union?: (cond: Tree, targets: string[], at: At, label: string) => void
+}
+/** A source a walk rewrites: its bytes before, the rewritten doc, and the keys renamed in place. */
+type SourceEdit = { before: string; doc: SourceDoc; keys: { path: (string | number)[]; to: string }[] }
+/** A record a walk rewrites: its file, its new fields, and its bytes before. */
+type RecordRewrite = { file: string; fields: Fields; text: string }
+type Walk = { positions: Position[]; edits: Map<string, SourceEdit>; records: RecordRewrite[] }
 
-/** Rewrite `{{ <from> …}}` inside a template string, keeping any filters after the pipe. Matched on
- *  the whole identifier so `{{ name }}` is not found inside `{{ full_name }}`. */
-function rewriteTemplateField(tpl, from, to) {
+const renameKey = (obj: Tree, from: string, to: string): Tree =>
+  Object.fromEntries(Object.entries(obj).map(([k, v]) => [k === from ? to : k, v]))
+
+function rewriteTemplateField(tpl: unknown, from: string, to: string): unknown {
   if (typeof tpl !== "string") return tpl
   return tpl.replace(
     new RegExp(`(\\{\\{\\s*)${from.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(\\s*(?:\\||\\}\\}))`, "g"),
@@ -1275,22 +1371,28 @@ function rewriteTemplateField(tpl, from, to) {
   )
 }
 
-/** A template key on `holder`, rewritten when it names the field. */
-function renameInTemplate(holder, key, from, to, at, label) {
-  const v = holder?.[key]
+function renameInTemplate(
+  holder: Tree | unknown[] | null | undefined,
+  key: string | number,
+  from: string,
+  to: string,
+  at: At,
+  label: string
+): void {
+  const v = (holder as Record<string | number, unknown> | null | undefined)?.[key]
   if (typeof v !== "string") return
   const next = rewriteTemplateField(v, from, to)
   if (next !== v) {
-    holder[key] = next
+    ;(holder as Record<string | number, unknown>)[key] = next
     at(label)
   }
 }
 
-/** The four display sub-blocks — a collection's default view, and a ui-view's variant of it. */
-function renameInDisplay(display, from, to, at, label) {
-  if (!display || typeof display !== "object") return
-  const ren = v => (v === from ? to : v)
-  const list = display.list
+function renameInDisplay(display: unknown, from: string, to: string, at: At, label: string): void {
+  const shown = asTree(display)
+  if (!shown) return
+  const ren = (v: unknown): unknown => (v === from ? to : v)
+  const list = asTree(shown.list)
   if (Array.isArray(list?.columns) && list.columns.includes(from)) {
     list.columns = list.columns.map(ren)
     at(`${label}.list.columns`)
@@ -1299,22 +1401,24 @@ function renameInDisplay(display, from, to, at, label) {
     list.sort = list.sort.replace(from, to)
     at(`${label}.list.sort`)
   }
-  const opts = list?.options
-  if (opts && typeof opts === "object") {
+  const opts = asTree(list?.options)
+  if (opts) {
     for (const k of OPTION_FIELD_KEYS)
       if (opts[k] === from) {
         opts[k] = to
         at(`${label}.list.options.${k}`)
       }
-    for (const k of OPTION_FIELD_LISTS)
-      if (Array.isArray(opts[k]) && opts[k].includes(from)) {
-        opts[k] = opts[k].map(ren)
+    for (const k of OPTION_FIELD_LISTS) {
+      const listed = opts[k]
+      if (Array.isArray(listed) && listed.includes(from)) {
+        opts[k] = listed.map(ren)
         at(`${label}.list.options.${k}`)
       }
+    }
     for (const k of OPTION_TEMPLATES) renameInTemplate(opts, k, from, to, at, `${label}.list.options.${k}`)
   }
-  const rec = display.record
-  if (rec && typeof rec === "object") {
+  const rec = asTree(shown.record)
+  if (rec) {
     for (const k of ["badge", "color_by"])
       if (rec[k] === from) {
         rec[k] = to
@@ -1322,7 +1426,9 @@ function renameInDisplay(display, from, to, at, label) {
       }
     renameInTemplate(rec, "subtitle", from, to, at, `${label}.record.subtitle`)
   }
-  ;(Array.isArray(display.form?.sections) ? display.form.sections : []).forEach((sec, i) => {
+  const sections = asTree(shown.form)?.sections
+  ;(Array.isArray(sections) ? sections : []).forEach((s: unknown, i: number) => {
+    const sec = asTree(s)
     if (Array.isArray(sec?.fields) && sec.fields.includes(from)) {
       sec.fields = sec.fields.map(ren)
       at(`${label}.form.sections[${i}]`)
@@ -1330,53 +1436,54 @@ function renameInDisplay(display, from, to, at, label) {
   })
 }
 
-/**
- * One constraint, at the level where its property names are THIS collection's fields: the root and
- * every combinator branch (`if`/`then`/`else`/`not`, `allOf`/`anyOf`/`oneOf`, a dependent schema).
- * Never inside `properties.<f>` — a nested `properties` there names the sub-fields of an object.
- */
-function renameInConstraint(node, from, to, at, label) {
-  if (!node || typeof node !== "object" || Array.isArray(node)) return
-  if (node.properties && typeof node.properties === "object" && from in node.properties) {
-    node.properties = renameKey(node.properties, from, to)
+function renameInConstraint(c: unknown, from: string, to: string, at: At, label: string): void {
+  const node = asTree(c)
+  if (!node) return
+  const props = asTree(node.properties)
+  if (props && from in props) {
+    node.properties = renameKey(props, from, to)
     at(`${label}.properties.${from}`, undefined, to)
   }
   if (Array.isArray(node.required) && node.required.includes(from)) {
     node.required = node.required.map(r => (r === from ? to : r))
     at(`${label}.required`)
   }
-  if (node.dependentRequired && typeof node.dependentRequired === "object") {
-    if (from in node.dependentRequired) {
-      node.dependentRequired = renameKey(node.dependentRequired, from, to)
+  const depReq = asTree(node.dependentRequired)
+  if (depReq) {
+    let dr = depReq
+    if (from in dr) {
+      dr = node.dependentRequired = renameKey(dr, from, to)
       at(`${label}.dependentRequired.${from}`, undefined, to)
     }
-    for (const [k, list] of Object.entries(node.dependentRequired)) {
+    for (const [k, list] of Object.entries(dr)) {
       if (Array.isArray(list) && list.includes(from)) {
-        node.dependentRequired[k] = list.map(r => (r === from ? to : r))
+        dr[k] = list.map(r => (r === from ? to : r))
         at(`${label}.dependentRequired.${k}`)
       }
     }
   }
-  if (node.dependentSchemas && typeof node.dependentSchemas === "object") {
-    if (from in node.dependentSchemas) {
-      node.dependentSchemas = renameKey(node.dependentSchemas, from, to)
+  const depSchemas = asTree(node.dependentSchemas)
+  if (depSchemas) {
+    let ds = depSchemas
+    if (from in ds) {
+      ds = node.dependentSchemas = renameKey(ds, from, to)
       at(`${label}.dependentSchemas.${from}`, undefined, to)
     }
-    for (const [k, sub] of Object.entries(node.dependentSchemas))
-      renameInConstraint(sub, from, to, at, `${label}.dependentSchemas.${k}`)
+    for (const [k, sub] of Object.entries(ds)) renameInConstraint(sub, from, to, at, `${label}.dependentSchemas.${k}`)
   }
   for (const k of ["if", "then", "else", "not"]) renameInConstraint(node[k], from, to, at, `${label}.${k}`)
-  for (const k of ["allOf", "anyOf", "oneOf"])
-    (Array.isArray(node[k]) ? node[k] : []).forEach((sub, i) =>
+  for (const k of ["allOf", "anyOf", "oneOf"]) {
+    const subs = node[k]
+    ;(Array.isArray(subs) ? subs : []).forEach((sub: unknown, i: number) =>
       renameInConstraint(sub, from, to, at, `${label}.${k}[${i}]`)
     )
+  }
 }
 
-/** Every position in one of the collection's OWN sources (its base, an overlay, a mixin it lists). */
-function renameOwnField(doc, from, to, at) {
+function renameOwnField(doc: SourceDoc, from: string, to: string, at: At): void {
   if (doc.fields && typeof doc.fields === "object") {
     if (from in doc.fields) {
-      doc.fields = renameKey(doc.fields, from, to)
+      doc.fields = renameKey(doc.fields, from, to) as Record<string, Field>
       at(`fields.${from}`, undefined, to)
     }
     for (const [k, f] of Object.entries(doc.fields as Record<string, Field>)) {
@@ -1390,8 +1497,8 @@ function renameOwnField(doc, from, to, at) {
     doc.storage.under.parent = to
     at("storage.under.parent")
   }
-  if (Array.isArray(doc.ids?.from))
-    doc.ids.from.forEach((_, i) => renameInTemplate(doc.ids.from, i, from, to, at, `ids.from[${i}]`))
+  const idsFrom = doc.ids?.from
+  if (Array.isArray(idsFrom)) idsFrom.forEach((_, i) => renameInTemplate(idsFrom, i, from, to, at, `ids.from[${i}]`))
   else renameInTemplate(doc.ids, "from", from, to, at, "ids.from")
   renameInTemplate(doc, "record_title", from, to, at, "record_title")
   renameInDisplay(doc.display, from, to, at, "display")
@@ -1400,8 +1507,7 @@ function renameOwnField(doc, from, to, at) {
   )
 }
 
-/** A mirror elsewhere naming the field it mirrors on `collection`. */
-function renameMirrorOf(doc, collection, from, to, at) {
+function renameMirrorOf(doc: SourceDoc | null, collection: string, from: string, to: string, at: At): void {
   for (const [k, f] of Object.entries(doc?.fields ?? {}) as [string, Field][]) {
     const t = targetsOf(f)
     if (f?.mirror_of === from && Array.isArray(t) && t.length === 1 && t[0] === collection) {
@@ -1411,24 +1517,27 @@ function renameMirrorOf(doc, collection, from, to, at) {
   }
 }
 
-/**
- * A filter, read against the collection it filters. A key that is not an operator names a field of
- * `coll`; inside its condition, a further non-operator key is ONE HOP through that reference and
- * names a field of the collection it points at — so a view over visits filtering `patient: { name:
- * … }` names `health/patients.name`. A hop through a union cannot say which member's field it means.
- */
-function walkFilter(node, coll, fieldsOfColl, visit, at, label) {
-  if (!node || typeof node !== "object" || Array.isArray(node)) return
+function walkFilter(
+  n: unknown,
+  coll: string,
+  fieldsOfColl: (c: string) => Record<string, Field>,
+  visit: FilterVisitor,
+  at: At,
+  label: string
+): void {
+  const node = asTree(n)
+  if (!node) return
   for (const key of Object.keys(node)) {
     if (key === "_and" || key === "_or") {
-      ;(Array.isArray(node[key]) ? node[key] : []).forEach((c, i) =>
+      const subs = node[key]
+      ;(Array.isArray(subs) ? subs : []).forEach((c: unknown, i: number) =>
         walkFilter(c, coll, fieldsOfColl, visit, at, `${label}.${key}[${i}]`)
       )
       continue
     }
     if (key.startsWith("_")) continue
-    const cond = node[key]
-    if (cond && typeof cond === "object" && !Array.isArray(cond) && Object.keys(cond).some(k => !k.startsWith("_"))) {
+    const cond = asTree(node[key])
+    if (cond && Object.keys(cond).some(k => !k.startsWith("_"))) {
       const t = targetsOf(fieldsOfColl(coll)?.[key])
       if (Array.isArray(t) && t.length === 1) walkFilter(cond, t[0], fieldsOfColl, visit, at, `${label}.${key}`)
       else if (Array.isArray(t)) visit.union?.(cond, t, at, `${label}.${key}`)
@@ -1438,8 +1547,8 @@ function walkFilter(node, coll, fieldsOfColl, visit, at, label) {
 }
 
 /** The ui-views and command-bindings of every source root, with the collection each one is over. */
-function viewSources(store) {
-  const out = []
+function viewSources(store: Store): { file: string; kind: string }[] {
+  const out: { file: string; kind: string }[] = []
   for (const root of store.sourceRoots()) {
     for (const kind of ["ui-views", "command-bindings"]) {
       const dir = kindDir(root, kind)
@@ -1454,11 +1563,14 @@ function viewSources(store) {
 }
 
 /** The filter positions of a view or a binding. */
-const FILTER_KEYS = { "ui-views": ["filter"], "command-bindings": ["available_when", "done_when"] }
+const FILTER_KEYS: Record<string, string[]> = {
+  "ui-views": ["filter"],
+  "command-bindings": ["available_when", "done_when"],
+}
 
 /** Every mixin source, by id — a mixin is shared by every collection that lists it. */
-function mixinSources(store) {
-  const out = []
+function mixinSources(store: Store): { id: string; file: string }[] {
+  const out: { id: string; file: string }[] = []
   for (const root of store.sourceRoots()) {
     const dir = kindDir(root, "mixins")
     if (!fs.existsSync(dir)) continue
@@ -1471,9 +1583,9 @@ function mixinSources(store) {
 }
 
 /** The mixins a collection's sources list. */
-function mixinsListedBy(ws, collection) {
+function mixinsListedBy(ws: Workspace, collection: string): Set<string> {
   const { base, overlays } = baseDescriptorSource(ws, collection)
-  const ids = new Set()
+  const ids = new Set<string>()
   for (const rel of [base, ...overlays].filter(Boolean)) {
     const doc = readYaml(path.join(ws.root, rel))
     for (const m of Array.isArray(doc?.mixins) ? doc.mixins : []) ids.add(String(m))
@@ -1482,7 +1594,12 @@ function mixinsListedBy(ws, collection) {
 }
 
 /** The mixin a collection takes `fieldName` from, or null. */
-function mixinDeclaring(ws, store, collection, fieldName) {
+function mixinDeclaring(
+  ws: Workspace,
+  store: Store,
+  collection: string,
+  fieldName: string
+): { id: string; rel: string } | null {
   const listed = mixinsListedBy(ws, collection)
   for (const { id, file } of mixinSources(store)) {
     if (listed.has(id) && readYaml(file)?.fields?.[fieldName] !== undefined)
@@ -1491,7 +1608,7 @@ function mixinDeclaring(ws, store, collection, fieldName) {
   return null
 }
 
-const readYaml = file => {
+const readYaml = (file: string): SourceDoc | null => {
   try {
     return load<SourceDoc | null>(fs.readFileSync(file, "utf8"))
   } catch {
@@ -1508,20 +1625,26 @@ const readYaml = file => {
  * `visit.foreign(doc, at)` on every collection source; `visit.view(doc, kind, at)` on every view and
  * binding.
  */
-function walkSources(ws, store, collection, visit) {
-  const positions = []
-  const edits = new Map()
-  const record = (file, doc, before, why?: string) => {
+function walkSources(
+  ws: Workspace,
+  store: Store,
+  collection: string,
+  visit: SourceVisitor
+): { positions: Position[]; edits: Map<string, SourceEdit> } {
+  const positions: Position[] = []
+  const edits = new Map<string, SourceEdit>()
+  const record = (file: string, doc: SourceDoc, before: string, why?: string) => {
     const rel = path.relative(ws.root, file)
-    const at = []
+    const at: { label: string; reason?: string; key?: { path: (string | number)[]; to: string } }[] = []
     // `renamedTo` marks a position that is a mapping KEY renamed in place — written to the bytes
     // first (`renameKeys`), so the comments inside the pair stay with it
-    const note = (label, reason, renamedTo, keyPath) =>
+    const note: At = (label, reason, renamedTo, keyPath) => {
       at.push({
         label,
         reason,
         ...(renamedTo !== undefined && { key: { path: keyPath ?? pathOf(label), to: renamedTo } }),
       })
+    }
     return {
       note,
       done: () => {
@@ -1571,16 +1694,16 @@ function walkSources(ws, store, collection, visit) {
 }
 
 /** The collection a view or binding is over, bare. */
-const viewCollection = doc => String(doc?.collection ?? "").replace(/^collections\//, "")
+const viewCollection = (doc: SourceDoc | null): string => String(doc?.collection ?? "").replace(/^collections\//, "")
 
 /** Records of `collection` a value-level rewrite would change, with the fields it would write. */
-function recordRewrites(store, collection, rewrite) {
+function recordRewrites(store: Store, collection: string, rewrite: (fields: Fields) => Fields | null): RecordRewrite[] {
   const d = store.descriptors.get(collection)
   if (!d || !store.canRewrite(collection)) return []
   const bf = bodyFieldOf(d)
-  const out = []
+  const out: RecordRewrite[] = []
   for (const [, file] of store.ids(collection)) {
-    let fields
+    let fields: Fields
     // a record that will not parse is skipped: `check` already reports it, and one bad record must
     // not wall off a schema change
     try {
@@ -1596,7 +1719,7 @@ function recordRewrites(store, collection, rewrite) {
 }
 
 /** The refusal every positional verb gives: the positions it cannot rewrite, each with why. */
-function refusePositions(what, positions) {
+function refusePositions(what: string, positions: Position[]): void {
   const blocked = positions.filter(p => !p.fixed)
   if (!blocked.length) return
   throw new Error(
@@ -1605,8 +1728,14 @@ function refusePositions(what, positions) {
 }
 
 /** Write a walk's rewritten documents and records, inside a gate op; returns the touched paths. */
-function applyRewrites(ws, edits, records, cd, snap) {
-  const touched = new Set()
+function applyRewrites(
+  ws: Workspace,
+  edits: Map<string, SourceEdit>,
+  records: RecordRewrite[],
+  cd: Descriptor,
+  snap: (f: string) => unknown
+): Set<string> {
+  const touched = new Set<string>()
   for (const [file, { before, doc, keys }] of edits) {
     const after = writeSource(keys.length ? renameKeys(before, keys) : before, doc)
     if (!load<SourceDoc | null>(after) || commentCount(after) < commentCount(before)) {
@@ -1630,9 +1759,17 @@ function applyRewrites(ws, edits, records, cd, snap) {
 
 /** Every position a rename of `collection.from` → `to` rewrites, the records it rewrites, and what
  *  it cannot. Read-only: the dry run IS this. */
-function fieldRenameWalk(ws, store, collection, from, to, { records: withRecords = true } = {}) {
-  const fieldsOfColl = c => (store.descriptors.has(c) ? fieldsOf(store.descriptor(c)) : {})
-  const visit = {
+function fieldRenameWalk(
+  ws: Workspace,
+  store: Store,
+  collection: string,
+  from: string,
+  to: string,
+  { records: withRecords = true }: { records?: boolean } = {}
+): Walk {
+  const fieldsOfColl = (c: string): Record<string, Field> =>
+    store.descriptors.has(c) ? fieldsOf(store.descriptor(c)) : {}
+  const visit: SourceVisitor = {
     own: (doc, at) => renameOwnField(doc, from, to, at),
     foreign: (doc, at) => renameMirrorOf(doc, collection, from, to, at),
     view: (doc, kind, at) => {
@@ -1676,10 +1813,16 @@ function fieldRenameWalk(ws, store, collection, from, to, { records: withRecords
   return { positions, edits, records }
 }
 
-export function renameFieldPlan(ws: Workspace, store: Store, collection, from, to) {
+export function renameFieldPlan(ws: Workspace, store: Store, collection: string, from: string, to?: string | true) {
   const d = store.descriptor(collection)
   if (!fieldsOf(d)[from]) throw new Error(`no field "${from}" on ${collection}`)
-  const { positions, records } = fieldRenameWalk(ws, store, collection, from, to ?? `<new-name>`)
+  const { positions, records } = fieldRenameWalk(
+    ws,
+    store,
+    collection,
+    from,
+    typeof to === "string" ? to : `<new-name>`
+  )
   return {
     collection,
     from,
@@ -1692,7 +1835,14 @@ export function renameFieldPlan(ws: Workspace, store: Store, collection, from, t
   }
 }
 
-export function renameField(ws: Workspace, store: Store, collection, from, to, { dryRun = false } = {}) {
+export function renameField(
+  ws: Workspace,
+  store: Store,
+  collection: string,
+  from: string,
+  to: string | true | undefined,
+  { dryRun = false }: { dryRun?: boolean } = {}
+) {
   const d = store.descriptor(collection)
   if (!to || to === true)
     throw new Error(`missing --to <new-name>: dreamteamer rename-field ${collection} --name ${from} --to <new-name>`)
@@ -1709,8 +1859,8 @@ export function renameField(ws: Workspace, store: Store, collection, from, to, {
   if (dryRun) return { ...plan, renamed: false, dryRun: true }
   refusePositions(`rename-field ${collection} ${from} → ${to}`, plan.positions)
 
-  const snapshots = new Map()
-  const snap = f => {
+  const snapshots = new Map<string, Buffer>()
+  const snap = (f: string): void => {
     if (!snapshots.has(f)) snapshots.set(f, fs.readFileSync(f))
   }
   const out = gatedTreeOp(ws, store, {
@@ -1738,8 +1888,9 @@ export function renameField(ws: Workspace, store: Store, collection, from, to, {
 // binding condition on it, and every record holding it.
 
 /** Rewrite the value inside one field's subschema of a constraint. */
-function renameValueInSubschema(s, from, to, at, label) {
-  if (!s || typeof s !== "object" || Array.isArray(s)) return
+function renameValueInSubschema(sub: unknown, from: string, to: string, at: At, label: string): void {
+  const s = asTree(sub)
+  if (!s) return
   if (s.const === from) {
     s.const = to
     at(`${label}.const`)
@@ -1750,23 +1901,28 @@ function renameValueInSubschema(s, from, to, at, label) {
   }
   for (const k of ["items", "contains", "not", "if", "then", "else"])
     renameValueInSubschema(s[k], from, to, at, `${label}.${k}`)
-  for (const k of ["allOf", "anyOf", "oneOf"])
-    (Array.isArray(s[k]) ? s[k] : []).forEach((sub, i) =>
-      renameValueInSubschema(sub, from, to, at, `${label}.${k}[${i}]`)
+  for (const k of ["allOf", "anyOf", "oneOf"]) {
+    const subs = s[k]
+    ;(Array.isArray(subs) ? subs : []).forEach((x: unknown, i: number) =>
+      renameValueInSubschema(x, from, to, at, `${label}.${k}[${i}]`)
     )
+  }
 }
 
 /** A constraint, at its root-level positions, for the subschemas that constrain `field`. */
-function renameValueInConstraint(node, field, from, to, at, label) {
-  if (!node || typeof node !== "object" || Array.isArray(node)) return
-  if (node.properties?.[field])
-    renameValueInSubschema(node.properties[field], from, to, at, `${label}.properties.${field}`)
+function renameValueInConstraint(c: unknown, field: string, from: string, to: string, at: At, label: string): void {
+  const node = asTree(c)
+  if (!node) return
+  const prop = asTree(node.properties)?.[field]
+  if (prop) renameValueInSubschema(prop, from, to, at, `${label}.properties.${field}`)
   for (const k of ["if", "then", "else", "not"]) renameValueInConstraint(node[k], field, from, to, at, `${label}.${k}`)
-  for (const k of ["allOf", "anyOf", "oneOf"])
-    (Array.isArray(node[k]) ? node[k] : []).forEach((sub, i) =>
+  for (const k of ["allOf", "anyOf", "oneOf"]) {
+    const subs = node[k]
+    ;(Array.isArray(subs) ? subs : []).forEach((sub: unknown, i: number) =>
       renameValueInConstraint(sub, field, from, to, at, `${label}.${k}[${i}]`)
     )
-  for (const [k, sub] of Object.entries(node.dependentSchemas ?? {}))
+  }
+  for (const [k, sub] of Object.entries(asTree(node.dependentSchemas) ?? {}))
     renameValueInConstraint(sub, field, from, to, at, `${label}.dependentSchemas.${k}`)
 }
 
@@ -1775,7 +1931,7 @@ const VALUE_OPS = ["_eq", "_neq", "_ieq", "_nieq"]
 const LIST_OPS = ["_in", "_nin"]
 /** Operators whose operand matches PART of a value: a rename can change what they select, and no
  *  mechanical rewrite says how — so one that selects the old value is refused by name. */
-const PARTIAL_OPS = {
+const PARTIAL_OPS: Record<string, (v: string, o: string) => boolean> = {
   _contains: (v, o) => v.includes(o),
   _ncontains: (v, o) => v.includes(o),
   _icontains: (v, o) => v.toLowerCase().includes(o.toLowerCase()),
@@ -1793,14 +1949,14 @@ const PARTIAL_OPS = {
 }
 
 /** One field's condition in a filter, with the value rewritten. */
-function renameValueInCondition(node, key, from, to, at, label) {
-  const cond = node[key]
-  if (cond === from) {
+function renameValueInCondition(node: Tree, key: string, from: string, to: string, at: At, label: string): void {
+  if (node[key] === from) {
     node[key] = to
     at(`${label}.${key}`)
     return
   }
-  if (!cond || typeof cond !== "object" || Array.isArray(cond)) return
+  const cond = asTree(node[key])
+  if (!cond) return
   for (const op of VALUE_OPS)
     if (cond[op] === from) {
       cond[op] = to
@@ -1826,7 +1982,8 @@ function renameValueInCondition(node, key, from, to, at, label) {
     }
   }
   for (const [op, selects] of Object.entries(PARTIAL_OPS)) {
-    if (typeof cond[op] === "string" && cond[op] !== "" && selects(from, cond[op]))
+    const o = cond[op]
+    if (typeof o === "string" && o !== "" && selects(from, o))
       at(
         `${label}.${key}.${op}`,
         `\`${op}: ${cond[op]}\` selects "${from}" by part of its spelling — say what it should select now, by hand`
@@ -1834,9 +1991,17 @@ function renameValueInCondition(node, key, from, to, at, label) {
   }
 }
 
-function valueRenameWalk(ws, store, collection, field, from, to) {
-  const fieldsOfColl = c => (store.descriptors.has(c) ? fieldsOf(store.descriptor(c)) : {})
-  const visit = {
+function valueRenameWalk(
+  ws: Workspace,
+  store: Store,
+  collection: string,
+  field: string,
+  from: string,
+  to: string
+): Walk {
+  const fieldsOfColl = (c: string): Record<string, Field> =>
+    store.descriptors.has(c) ? fieldsOf(store.descriptor(c)) : {}
+  const visit: SourceVisitor = {
     own: (doc, at) => {
       const f = doc.fields?.[field]
       if (f && typeof f === "object") {
@@ -1844,7 +2009,7 @@ function valueRenameWalk(ws, store, collection, field, from, to) {
           f.enum = f.enum.map(v => (v === from ? to : v))
           at(`fields.${field}.enum`)
         } else if (f.enum && typeof f.enum === "object" && from in f.enum) {
-          f.enum = renameKey(f.enum, from, to)
+          f.enum = renameKey(f.enum as Tree, from, to) as Field["enum"]
           at(`fields.${field}.enum`, undefined, to, ["fields", field, "enum", from])
         }
         if (f.default === from) {
@@ -1894,7 +2059,7 @@ function valueRenameWalk(ws, store, collection, field, from, to) {
 }
 
 /** The checks a value rename is held to before anything is walked. */
-function valueRenameTarget(store, collection, field, from, to) {
+function valueRenameTarget(store: Store, collection: string, field: string, from: string, to: unknown): void {
   const f = fieldsOf(store.descriptor(collection))[field]
   if (!f) throw new Error(`no field "${field}" on ${collection}`)
   const values = f.enum === undefined ? null : enumValues(f.enum)
@@ -1912,9 +2077,16 @@ function valueRenameTarget(store, collection, field, from, to) {
     )
 }
 
-export function renameValuePlan(ws: Workspace, store: Store, collection, field, from, to) {
+export function renameValuePlan(
+  ws: Workspace,
+  store: Store,
+  collection: string,
+  field: string,
+  from: string,
+  to: string | true | undefined
+) {
   valueRenameTarget(store, collection, field, from, to)
-  const { positions, records } = valueRenameWalk(ws, store, collection, field, from, to)
+  const { positions, records } = valueRenameWalk(ws, store, collection, field, from, to as string)
   return {
     collection,
     field,
@@ -1928,20 +2100,28 @@ export function renameValuePlan(ws: Workspace, store: Store, collection, field, 
   }
 }
 
-export function renameValue(ws: Workspace, store: Store, collection, field, from, to, { dryRun = false } = {}) {
+export function renameValue(
+  ws: Workspace,
+  store: Store,
+  collection: string,
+  field: string,
+  from: string,
+  to: string | true | undefined,
+  { dryRun = false }: { dryRun?: boolean } = {}
+) {
   const plan = renameValuePlan(ws, store, collection, field, from, to)
   if (dryRun) return { ...plan, renamed: false, dryRun: true }
   refusePositions(`rename-value ${collection} ${field} ${from} → ${to}`, plan.positions)
   const d = store.descriptor(collection)
-  const snapshots = new Map()
-  const snap = f => {
+  const snapshots = new Map<string, Buffer>()
+  const snap = (f: string): void => {
     if (!snapshots.has(f)) snapshots.set(f, fs.readFileSync(f))
   }
   const out = gatedTreeOp(ws, store, {
     subject: `dreamteamer: ${collection} rename-value ${field} ${from} → ${to}`,
     paths: [],
     mutate: () => {
-      const walked = valueRenameWalk(ws, store, collection, field, from, to)
+      const walked = valueRenameWalk(ws, store, collection, field, from, to as string)
       refusePositions(`rename-value ${collection} ${field} ${from} → ${to}`, walked.positions)
       return { paths: [...applyRewrites(ws, walked.edits, walked.records, d, snap)] }
     },
@@ -1958,7 +2138,7 @@ export function renameValue(ws: Workspace, store: Store, collection, field, from
 /** The workspace's writable source dir for a kind (workspace_module aware). `kindDir` picks the
  *  layout that module already uses and falls back to flat, so a `collections add` never splits a
  *  half-moved module across both. */
-export function workspaceSystemDir(ws, kind) {
+export function workspaceSystemDir(ws: Workspace, kind: string): string {
   const wm = ws.pkg.dreamteamer?.workspace_module
   return kindDir(wm ? path.join(ws.root, "modules", wm) : ws.root, kind)
 }
@@ -1979,7 +2159,7 @@ export function workspaceSystemDir(ws, kind) {
  * file; each overlay as `{ dir, file }` in ITS module, so the rename carries it along; and every
  * descriptor source that contributed, so the caller can refuse the cases this cannot honestly do.
  */
-function descriptorSourceDir(ws, name) {
+function descriptorSourceDir(ws: Workspace, name: string) {
   // The base is the source without `overlay: true` — see baseDescriptorSource; discovery order
   // says nothing about which source is which.
   const { base, overlays, sources } = baseDescriptorSource(ws, name)
@@ -1989,7 +2169,7 @@ function descriptorSourceDir(ws, name) {
   // not do (see baseDescriptorSource). `file` is the ACTUAL path, so a caller renaming it moves the
   // file that exists rather than a path it assumed.
   const roots = (readManifest(ws.root)?.modules ?? []).map(m => (m.root === "." ? "" : `${m.root}/`))
-  const at = rel => {
+  const at = (rel: string): { dir: string; file: string } => {
     const mod = roots.filter(r => r === "" || rel.startsWith(r)).sort((a, b) => b.length - a.length)[0] ?? ""
     return { dir: kindDir(path.join(ws.root, mod), "collections"), file: path.join(ws.root, rel) }
   }
@@ -2009,7 +2189,10 @@ function descriptorSourceDir(ws, name) {
  * Returns workspace-relative paths. `base` is null when nothing in this workspace declares it (the
  * engine's own nine collections reach here that way), which is the signal to write an overlay.
  */
-export function baseDescriptorSource(ws, name) {
+export function baseDescriptorSource(
+  ws: Workspace,
+  name: string
+): { base: string | undefined; overlays: string[]; sources: string[] } {
   const suffix = `collections/${name}.collection.yaml`
   const sources = (readManifest(ws.root)?.entries?.[suffix]?.sources ?? [])
     // sources are `{path, hash}`; tolerate the pre-0.10 string form, as compile's staleness does
@@ -2044,7 +2227,7 @@ export function baseDescriptorSource(ws, name) {
 
 /** A path git will not let us rewrite usefully: `npm install` erases it. Matched on the SEGMENT, in
  *  either separator, because manifest paths carry the host's. */
-const IN_NODE_MODULES = rel => /(^|[\\/])node_modules([\\/]|$)/.test(String(rel))
+const IN_NODE_MODULES = (rel: unknown): boolean => /(^|[\\/])node_modules([\\/]|$)/.test(String(rel))
 
 /**
  * WHERE A FIELD VERB WRITES. The base descriptor's own file when this workspace may rewrite it; the
@@ -2063,10 +2246,10 @@ const IN_NODE_MODULES = rel => /(^|[\\/])node_modules([\\/]|$)/.test(String(rel)
  * the caller is deliberately creating an overlay, which `allowNew` says out loud.
  */
 function collectionSourceFile(
-  ws,
-  store,
-  collection,
-  moduleId,
+  ws: Workspace,
+  store: Store,
+  collection: string,
+  moduleId: string | null | undefined,
   { allowNew = false, subject }: { allowNew?: boolean; subject?: string } = {}
 ) {
   const { base, overlays } = baseDescriptorSource(ws, collection)
@@ -2108,17 +2291,17 @@ function collectionSourceFile(
 
 /** The module ids whose sources declare this collection, base first — for the "declared only by X"
  *  refusal, which has to name them to be actionable. */
-function declaringModules(ws, store, collection) {
+function declaringModules(ws: Workspace, store: Store, collection: string): string[] {
   const { base, overlays } = baseDescriptorSource(ws, collection)
   const rows = moduleRows(store)
-  const idOf = rel => rows.find(r => String(rel).startsWith(`${r.fields.path}/`))?.id ?? "?"
+  const idOf = (rel: string): string => rows.find(r => String(rel).startsWith(`${r.fields.path}/`))?.id ?? "?"
   return [...new Set([base, ...overlays].filter(Boolean).map(idOf))]
 }
 
 /** The source file ONE module contributes to a collection — the read half of `--module`. Exported
  *  because `dt get collections/<c> --module <m>` is the only way to see what a given module actually
  *  wrote, and the merged descriptor cannot answer it. */
-export function collectionSourceFileFor(ws, store, collection, moduleId) {
+export function collectionSourceFileFor(ws: Workspace, store: Store, collection: string, moduleId?: string | null) {
   return collectionSourceFile(ws, store, collection, moduleId)
 }
 
@@ -2127,7 +2310,24 @@ export function collectionSourceFileFor(ws, store, collection, moduleId) {
 export function createCollection(
   ws: Workspace,
   store: Store,
-  { name, mixins, idFrom, namespace, moduleId, description, suffix }
+  {
+    name,
+    mixins,
+    idFrom,
+    namespace,
+    moduleId,
+    description,
+    suffix,
+  }: {
+    name?: string
+    mixins?: string | string[]
+    idFrom?: string
+    /** the CLI refuses a bare `--namespace` before calling; `''` is the explicit "no namespace" */
+    namespace?: string
+    moduleId?: string | null
+    description?: string
+    suffix?: string
+  }
 ) {
   if (!name) throw new Error("missing collection name")
   // §8. `--namespace health --name doctors` and `--name health/doctors` are the SAME collection,
@@ -2259,7 +2459,12 @@ export function createCollection(
   }
 }
 
-export function removeCollection(ws: Workspace, store: Store, name, { force = false } = {}) {
+export function removeCollection(
+  ws: Workspace,
+  store: Store,
+  name: string,
+  { force = false }: { force?: boolean } = {}
+) {
   const d = store.descriptor(name)
   // The module that SHIPS it, not the workspace module. Refusing every module-shipped collection
   // made this verb unusable for exactly the workspace it was built for: a vault's domain
@@ -2341,10 +2546,10 @@ export function removeCollection(ws: Workspace, store: Store, name, { force = fa
  * `--records=400 --filler=100`, the same machine, best of three: 6.39s and 410,678 reads → 0.16s
  * and 1,075 — which is 504 files twice over, the batch pass and the `collections/<name>` one.
  */
-export function renameCollection(ws, store, oldName, newName) {
+export function renameCollection(ws: Workspace, store: Store, oldName: string, newName: string) {
   const d = store.descriptor(oldName) // throws with the known-collection list if absent
   if (!newName) throw new Error("missing new collection name")
-  if (oldName === newName) return { renamed: false, name: newName }
+  if (oldName === newName) return { renamed: false as const, name: newName }
 
   // ⚠ THE COMPILED SET (§8) — the declaration may live in any module's package.json now, and the
   // union is what compile stamped into the manifest.
@@ -2379,7 +2584,7 @@ export function renameCollection(ws, store, oldName, newName) {
   const overlayMoves = overlays.map(({ dir, file }) => {
     const text = fs.readFileSync(file, "utf8")
     const odoc = load<SourceDoc | null>(text)
-    const set = ["path", "suffix"].filter(k => odoc?.storage?.[k] !== undefined)
+    const set = (["path", "suffix"] as const).filter(k => odoc?.storage?.[k] !== undefined)
     if (set.length)
       throw new Error(
         `${path.relative(ws.root, file)} overlays "${oldName}" and sets storage.${set.join(" and storage.")} — move ${set.length === 1 ? "it" : "them"} into the base descriptor, then rename. nothing was renamed.`
@@ -2465,7 +2670,7 @@ export function renameCollection(ws, store, oldName, newName) {
     // rewrite (descriptors, mixins, views, package.json files), which no record walk visits.
     const refFiles = new Map()
     const rootPkg = path.join(ws.root, "package.json")
-    const undoRewrites = []
+    const undoRewrites: (() => void)[] = []
     const restoreRefs = () => {
       // reverse-chronological: one file can be written by both ref passes, and undoing the earlier
       // write first would leave the later one standing
@@ -2595,14 +2800,17 @@ export function renameCollection(ws, store, oldName, newName) {
       // module writes down why the collection exists. The edit is made on the parsed value and
       // `writeSource` puts it back over the original bytes; the parse afterwards proves it landed.
       const sourcesNaming = [
-        ...descriptorSources(ws, store).map(f => ({ f, edit: doc => retargetTypes(doc.fields, oldName, newName) })),
+        ...descriptorSources(ws, store).map(f => ({
+          f,
+          edit: (doc: SourceDoc): boolean => retargetTypes(doc.fields, oldName, newName),
+        })),
         ...mixinSources(store).map(({ file }) => ({
           f: file,
-          edit: doc => retargetTypes(doc.fields, oldName, newName),
+          edit: (doc: SourceDoc): boolean => retargetTypes(doc.fields, oldName, newName),
         })),
         ...viewSources(store).map(({ file }) => ({
           f: file,
-          edit: doc => {
+          edit: (doc: SourceDoc): boolean => {
             if (doc.collection !== `collections/${oldName}`) return false
             doc.collection = `collections/${newName}`
             return true
@@ -2687,7 +2895,7 @@ export function renameCollection(ws, store, oldName, newName) {
     }
 
     return {
-      renamed: true,
+      renamed: true as const,
       name: newName,
       records: ids.length,
       rewrites,
@@ -2701,7 +2909,7 @@ export function renameCollection(ws, store, oldName, newName) {
 }
 
 /** Does git know this path? A deleted-and-never-committed file must be dropped from a pathspec. */
-function isTracked(root, rel) {
+function isTracked(root: string, rel: string): boolean {
   try {
     execFileSync("git", ["ls-files", "--error-unmatch", "--", rel], {
       cwd: root,
@@ -2740,7 +2948,7 @@ function isTracked(root, rel) {
  */
 /** One repo's commit of a schema write: its sha, and how far it now runs ahead of its upstream (a clone) */
 export type RepoCommit = { repo: string; sha: string; ahead: number | null }
-function commitByRepo(ws, store, rels: string[], subject): RepoCommit[] {
+function commitByRepo(ws: Workspace, store: Store, rels: string[], subject: string): RepoCommit[] {
   const byRepo = new Map<string, { root: string; paths: string[] }>() // workspace-relative repo root -> {root, paths relative to THAT repo}
   for (const rel of new Set(rels)) {
     const abs = path.join(ws.root, rel)
@@ -2779,7 +2987,7 @@ function commitByRepo(ws, store, rels: string[], subject): RepoCommit[] {
   return out
 }
 
-const shortHead = root => {
+const shortHead = (root: string): string | null => {
   try {
     return execFileSync("git", ["rev-parse", "--short", "HEAD"], { cwd: root, stdio: GIT_QUIET }).toString().trim()
   } catch {
@@ -2790,7 +2998,7 @@ const shortHead = root => {
 /** How many commits this repo has that its upstream does not. Falls back to "not on any remote",
  *  because a fresh `dt install --clone` has no upstream configured and "ahead of nothing" is not a
  *  number the report can print. */
-function aheadCount(root) {
+function aheadCount(root: string): number | null {
   try {
     const n = execFileSync("git", ["rev-list", "--count", "@{upstream}..HEAD"], { cwd: root, stdio: GIT_QUIET })
       .toString()
@@ -2812,8 +3020,8 @@ function aheadCount(root) {
 }
 
 /** Every workspace-owned descriptor source, recursively (namespaced descriptors are nested). */
-function descriptorSources(ws, store) {
-  const out = []
+function descriptorSources(ws: Workspace, store: Store): string[] {
+  const out: string[] = []
   for (const root of store.sourceRoots()) {
     const dir = kindDir(root, "collections")
     // ⚠ SPREAD FIRST. `walk` is a GENERATOR, and `Iterator.prototype.filter` is a Node 22 iterator
@@ -2826,7 +3034,7 @@ function descriptorSources(ws, store) {
 
 /** Every package.json in this workspace that can declare `peer_collections` — the workspace's own
  *  and each module's outside node_modules (a write there is erased by the next install). */
-function modulePackageFiles(ws) {
+function modulePackageFiles(ws: Workspace): string[] {
   const roots = new Set([".", ...(readManifest(ws.root)?.modules ?? []).map(m => m.root)])
   return [...roots]
     .filter(r => typeof r === "string" && !IN_NODE_MODULES(r))
@@ -2836,8 +3044,8 @@ function modulePackageFiles(ws) {
 
 /** Re-read the workspace package.json into `ws.pkg` in place — `compile({root, pkg})` reads the
  *  object it was handed, not the file. */
-function refreshWorkspacePkg(ws) {
-  let pkg
+function refreshWorkspacePkg(ws: Workspace): void {
+  let pkg: PackageJson
   try {
     pkg = JSON.parse(fs.readFileSync(path.join(ws.root, "package.json"), "utf8"))
   } catch {
@@ -2849,7 +3057,7 @@ function refreshWorkspacePkg(ws) {
 
 /** Rewrite a field `type` naming `oldName` → `newName` — a scalar type or a union member, at any
  *  depth of object `fields` and map `values`. Returns true if anything changed. */
-function retargetTypes(fields: Record<string, Field>, oldName, newName) {
+function retargetTypes(fields: Record<string, Field>, oldName: string, newName: string) {
   let changed = false
   for (const f of Object.values(fields ?? {})) {
     if (!f || typeof f !== "object") continue
@@ -2873,7 +3081,7 @@ function retargetTypes(fields: Record<string, Field>, oldName, newName) {
 
 /** Remove now-empty parents up to (not including) the data root — a moved collection leaves its
  *  namespace folder behind otherwise. */
-function pruneEmpty(dir, stopAt) {
+function pruneEmpty(dir: string, stopAt: string): void {
   while (dir !== stopAt && dir.startsWith(stopAt) && fs.existsSync(dir) && fs.readdirSync(dir).length === 0) {
     fs.rmdirSync(dir)
     dir = path.dirname(dir)
@@ -2925,7 +3133,7 @@ const INJECTED = new Set(Object.keys(INJECTED_FIELDS))
 
 /** `--type`: a built-in type, a collection, `a,b` for a union of collections, or `reference`. A
  *  collection may not be named after a built-in type (compile refuses it), so the two never collide. */
-function parseType(store, raw) {
+function parseType(store: Store, raw: unknown): Field["type"] {
   const known = `one of ${SCALAR_TYPES.join(" ")}, a collection name, or a,b for a union of collections`
   if (raw === true || raw === "") throw new Error(`--type takes a value — ${known}`)
   const parts = String(raw)
@@ -2945,7 +3153,7 @@ function parseType(store, raw) {
 }
 
 /** A boolean flag: bare or `true` turns it on; `false` or the empty value clears it. */
-function flagOn(flags, key) {
+function flagOn(flags: Record<string, unknown>, key: string): boolean {
   const v = flags[key]
   if (v === true || v === "true") return true
   if (v === false || v === "false" || v === "") return false
@@ -2953,18 +3161,19 @@ function flagOn(flags, key) {
 }
 
 /** A flag that takes a value; the empty value (`--x=`) clears what it names. */
-function flagText(flags, key) {
+function flagText(flags: Record<string, unknown>, key: string): string {
   const v = flags[key]
   if (v === true) throw new Error(`--${key} takes a value (--${key}= clears it)`)
   return String(v)
 }
 
 /** A CLI default arrives as a string; which JSON value it becomes depends on the field's type. */
-const coerceDefault = (type, def) =>
+const coerceDefault = (type: Field["type"], def: unknown): unknown =>
   type === "boolean" ? def === "true" || def === true : type === "number" || type === "integer" ? Number(def) : def
 
 /** `a,b,c` → the values, trimmed. */
-const optionList = v => (Array.isArray(v) ? v : String(v).split(",")).map(x => String(x).trim()).filter(Boolean)
+const optionList = (v: unknown): string[] =>
+  (Array.isArray(v) ? v : String(v).split(",")).map(x => String(x).trim()).filter(Boolean)
 
 /**
  * One field, built from the flag vocabulary over `previous` — the field as its source declares it
@@ -2980,9 +3189,9 @@ export function fieldFromFlags(
   store: Store,
   flags: Record<string, unknown>,
   previous: Record<string, unknown> = {}
-): Record<string, unknown> {
+): Field {
   const f = structuredClone(previous ?? {}) as Field
-  const has = k => flags[k] !== undefined
+  const has = (k: string): boolean => flags[k] !== undefined
   if (has("type")) f.type = parseType(store, flags.type)
   f.type ??= "string"
   for (const k of ["required", "many", "unique", "soft", "sensitive", "body"]) {
@@ -2998,7 +3207,7 @@ export function fieldFromFlags(
       // a decorated enum keeps each surviving value's label, icon and colour
       f.enum =
         f.enum && typeof f.enum === "object" && !Array.isArray(f.enum)
-          ? Object.fromEntries(values.map(x => [x, f.enum[x] ?? {}]))
+          ? Object.fromEntries(values.map(x => [x, (f.enum as Record<string, Record<string, string>>)[x] ?? {}]))
           : values
     }
   }
@@ -3046,7 +3255,7 @@ export function fieldFromFlags(
     throw new Error(`--on-delete belongs to a reference — give --type <collection>`)
   if (has("soft") && f.soft && !targetsOf(f))
     throw new Error(`--soft belongs to a reference — give --type <collection>`)
-  return orderField(previous ?? {}, f)
+  return orderField((previous ?? {}) as Field, f)
 }
 
 /**
@@ -3054,8 +3263,8 @@ export function fieldFromFlags(
  * them, and a new key goes in at its canonical place among them — so `set-field --unique` adds one
  * line and moves none.
  */
-function orderField(previous, next) {
-  const rank = k => {
+function orderField(previous: Field, next: Field): Field {
+  const rank = (k: string): number => {
     const i = FIELD_KEY_ORDER.indexOf(k)
     return i < 0 ? FIELD_KEY_ORDER.length : i
   }
@@ -3066,7 +3275,7 @@ function orderField(previous, next) {
     const at = keys.findIndex(x => rank(x) > rank(k))
     keys.splice(at < 0 ? keys.length : at, 0, k)
   }
-  return Object.fromEntries(keys.map(k => [k, next[k]]))
+  return Object.fromEntries(keys.map(k => [k, next[k]])) as Field
 }
 
 /**
@@ -3074,11 +3283,11 @@ function orderField(previous, next) {
  * form order and a record's prose belongs last; an EXISTING one keeps its place, because `set-field`
  * must not reorder a descriptor its author ordered by hand.
  */
-function placeField(fields, name, field) {
+function placeField(fields: Record<string, Field>, name: string, field: Field): Record<string, Field> {
   if (fields[name] !== undefined) return { ...fields, [name]: field }
   const body = Object.keys(fields).find(k => fields[k]?.body === true)
   if (body === undefined) return { ...fields, [name]: field }
-  const out = {}
+  const out: Record<string, Field> = {}
   for (const [k, v] of Object.entries(fields)) {
     if (k === body) out[name] = field
     out[k] = v
@@ -3088,12 +3297,12 @@ function placeField(fields, name, field) {
 
 /** Deep value equality as a string, key ORDER ignored — "is this already exactly that field" must
  *  not turn on whether the keys came back in authored order or in flag order. */
-function canonical(v) {
+function canonical(v: unknown): string {
   if (v === null || typeof v !== "object") return JSON.stringify(v ?? null)
   if (Array.isArray(v)) return `[${v.map(canonical).join(",")}]`
   return `{${Object.keys(v)
     .sort()
-    .map(k => `${JSON.stringify(k)}:${canonical(v[k])}`)
+    .map(k => `${JSON.stringify(k)}:${canonical((v as Record<string, unknown>)[k])}`)
     .join(",")}}`
 }
 
@@ -3105,7 +3314,14 @@ function canonical(v) {
  * contributes is refused, because the mixin is shared by every collection listing it, and an
  * injected field has no source at all.
  */
-function declaringSource(ws, store, collection, fieldName, moduleId, verb) {
+function declaringSource(
+  ws: Workspace,
+  store: Store,
+  collection: string,
+  fieldName: string,
+  moduleId: string | null | undefined,
+  verb: string
+) {
   if (INJECTED.has(fieldName))
     throw new Error(
       `"${fieldName}" is injected by the engine into every collection — no source declares it, so ${verb} cannot edit it`
@@ -3118,7 +3334,8 @@ function declaringSource(ws, store, collection, fieldName, moduleId, verb) {
     })
   }
   const { base, overlays } = baseDescriptorSource(ws, collection)
-  const declares = rel => !!rel && readYaml(path.join(ws.root, rel))?.fields?.[fieldName] !== undefined
+  const declares = (rel: string | undefined): boolean =>
+    !!rel && readYaml(path.join(ws.root, rel))?.fields?.[fieldName] !== undefined
   if (declares(base) && !IN_NODE_MODULES(base)) return { file: path.join(ws.root, base), overlay: false }
   const own = overlays.filter(declares)
   if (own.length > 1)
@@ -3139,9 +3356,14 @@ function declaringSource(ws, store, collection, fieldName, moduleId, verb) {
 
 /** What an override in a NEW overlay starts from: the shape it overrides, so the overlay validates
  *  on its own — every other key is inherited from the base. */
-const overrideSeed = merged => ({ type: merged.type, ...(merged.many && { many: true }) })
+const overrideSeed = (merged: Field): Field => ({ type: merged.type, ...(merged.many && { many: true }) })
 
-export function addField(ws: Workspace, store: Store, collection, { name: fieldName, field, moduleId }) {
+export function addField(
+  ws: Workspace,
+  store: Store,
+  collection: string,
+  { name: fieldName, field, moduleId }: { name: string | true | undefined; field: Field; moduleId?: string | null }
+) {
   if (!fieldName || fieldName === true) throw new Error("missing --name <field>")
   if (INJECTED.has(fieldName))
     throw new Error(`"${fieldName}" is injected by the engine into every collection — pick another name`)
@@ -3172,8 +3394,8 @@ export function addField(ws: Workspace, store: Store, collection, { name: fieldN
 export function updateField(
   ws: Workspace,
   store: Store,
-  collection,
-  fieldName,
+  collection: string,
+  fieldName: string,
   { flags = {}, field, moduleId }: { flags?: Flags; field?: Field; moduleId?: string } = {}
 ) {
   const target = declaringSource(ws, store, collection, fieldName, moduleId, "set-field")
@@ -3190,7 +3412,15 @@ export function updateField(
   )
 }
 
-function upsertField(ws, store, collection, fieldName, field, verb, { file: dest, overlay }) {
+function upsertField(
+  ws: Workspace,
+  store: Store,
+  collection: string,
+  fieldName: string,
+  field: Field,
+  verb: string,
+  { file: dest, overlay }: { file: string; overlay?: boolean }
+) {
   if (field == null || typeof field !== "object" || Array.isArray(field)) {
     throw new Error(
       `field "${fieldName}" must be a map of field keys (got ${Array.isArray(field) ? "a list" : typeof field}) — nothing was written.`
@@ -3240,13 +3470,17 @@ function upsertField(ws, store, collection, fieldName, field, verb, { file: dest
  * ⚠ THE BODY FIELD needs none of this. With the field gone the descriptor names no body, so the
  * prose is not parsed into `fields` at all and stays in the file as Markdown no field claims.
  */
-function clearFieldValues(store, collection, fieldName) {
+function clearFieldValues(
+  store: Store,
+  collection: string,
+  fieldName: string
+): { files: string[]; undo: () => void; records: number } {
   const d = store.descriptors.get(collection)
   // a binary record has no serialised fields, and a compiled-source collection is a build artifact
   if (!d || !store.canRewrite(collection)) return { files: [], undo: () => {}, records: 0 }
   const bf = bodyFieldOf(d)
-  const files = [],
-    undos = []
+  const files: string[] = [],
+    undos: (() => void)[] = []
   for (const [, file] of store.ids(collection)) {
     let fields
     try {
@@ -3276,36 +3510,48 @@ const PRUNED_WITH_THE_FIELD =
   /^display\.(list\.(columns|sort|options\.[a-z_]+)|record\.(badge|color_by)|form\.sections\[\d+\])$/
 
 /** Prune the field's own presentation from one parsed source, dropping what the prune empties. */
-function pruneFieldPresentation(doc, fieldName) {
-  const display = doc.display
-  if (!display || typeof display !== "object") return
-  const list = display.list
+function pruneFieldPresentation(doc: SourceDoc, fieldName: string): void {
+  const display = asTree(doc.display)
+  if (!display) return
+  const list = asTree(display.list)
   if (list) {
     if (Array.isArray(list.columns)) {
       list.columns = list.columns.filter(c => c !== fieldName)
-      if (!list.columns.length) delete list.columns
+      if (!(list.columns as unknown[]).length) delete list.columns
     }
     if (typeof list.sort === "string" && list.sort.replace(/^-/, "") === fieldName) delete list.sort
-    if (list.options && typeof list.options === "object") {
-      for (const k of OPTION_FIELD_KEYS) if (list.options[k] === fieldName) delete list.options[k]
+    const options = asTree(list.options)
+    if (options) {
+      for (const k of OPTION_FIELD_KEYS) if (options[k] === fieldName) delete options[k]
       for (const k of OPTION_FIELD_LISTS) {
-        if (!Array.isArray(list.options[k])) continue
-        list.options[k] = list.options[k].filter(c => c !== fieldName)
-        if (!list.options[k].length) delete list.options[k]
+        const listed = options[k]
+        if (!Array.isArray(listed)) continue
+        const kept = listed.filter(c => c !== fieldName)
+        options[k] = kept
+        if (!kept.length) delete options[k]
       }
-      if (!Object.keys(list.options).length) delete list.options
+      if (!Object.keys(options).length) delete list.options
     }
   }
-  for (const k of ["badge", "color_by"]) if (display.record?.[k] === fieldName) delete display.record[k]
-  if (Array.isArray(display.form?.sections)) {
-    display.form.sections = display.form.sections
-      .map(sec => (Array.isArray(sec?.fields) ? { ...sec, fields: sec.fields.filter(f => f !== fieldName) } : sec))
-      .filter(sec => !Array.isArray(sec?.fields) || sec.fields.length)
-    if (!display.form.sections.length) delete display.form.sections
+  const record = asTree(display.record)
+  for (const k of ["badge", "color_by"]) if (record?.[k] === fieldName) delete record[k]
+  const form = asTree(display.form)
+  if (form && Array.isArray(form.sections)) {
+    form.sections = form.sections
+      .map((s: unknown) => {
+        const sec = asTree(s)
+        return Array.isArray(sec?.fields) ? { ...sec, fields: sec.fields.filter(f => f !== fieldName) } : s
+      })
+      .filter((s: unknown) => {
+        const fields = asTree(s)?.fields
+        return !Array.isArray(fields) || fields.length
+      })
+    if (!(form.sections as unknown[]).length) delete form.sections
   }
-  // a block the prune left empty is a statement nobody made
-  for (const b of Object.keys(display))
-    if (display[b] && typeof display[b] === "object" && !Object.keys(display[b]).length) delete display[b]
+  for (const b of Object.keys(display)) {
+    const block = asTree(display[b])
+    if (block && !Object.keys(block).length) delete display[b]
+  }
   if (!Object.keys(display).length) delete doc.display
 }
 
@@ -3314,8 +3560,8 @@ function pruneFieldPresentation(doc, fieldName) {
 export function removeFieldPlan(
   ws: Workspace,
   store: Store,
-  collection,
-  fieldName,
+  collection: string,
+  fieldName: string,
   { moduleId }: { moduleId?: string } = {}
 ) {
   const { file } = declaringSource(ws, store, collection, fieldName, moduleId, "rm-field")
@@ -3326,7 +3572,8 @@ export function removeFieldPlan(
     )
   // the same walk a rename makes, to a name nothing can hold: every position it reaches names the field
   const { positions } = fieldRenameWalk(ws, store, collection, fieldName, `${fieldName}\u0000`, { records: false })
-  const own = p => p.rel === rel && (p.at === `fields.${fieldName}` || PRUNED_WITH_THE_FIELD.test(p.at))
+  const own = (p: Position): boolean =>
+    p.rel === rel && (p.at === `fields.${fieldName}` || PRUNED_WITH_THE_FIELD.test(p.at))
   // another source declaring the field keeps it alive — an override removed from an overlay, say —
   // so nothing naming it dangles and its values stay
   const survives = positions.some(p => p.rel !== rel && p.at === `fields.${fieldName}`)
@@ -3363,8 +3610,8 @@ export function removeFieldPlan(
 export function removeField(
   ws: Workspace,
   store: Store,
-  collection,
-  fieldName,
+  collection: string,
+  fieldName: string,
   { moduleId, dryRun = false }: { moduleId?: string; dryRun?: boolean } = {}
 ) {
   const plan = removeFieldPlan(ws, store, collection, fieldName, { moduleId })
@@ -3422,7 +3669,7 @@ export function removeField(
  * Returns `{ file, shipped }` — where to write, and the workspace-relative source that already
  * exists (null for a new view, which lands in the workspace module as before).
  */
-function uiViewSourceFile(ws, id) {
+function uiViewSourceFile(ws: Workspace, id: string): { file: string; shipped: string | null } {
   const src = readManifest(ws.root)?.entries?.[`ui-views/${id}.ui-view.yaml`]?.sources?.[0]
   // sources are `{path, hash}`; tolerate the pre-0.10 string form, same as compile's staleness check
   const shipped = typeof src === "string" ? src : src?.path
@@ -3433,7 +3680,11 @@ function uiViewSourceFile(ws, id) {
 // saved views (M3): a studio-saved view IS a ui-view record — but ui-views are
 // system-stored (sources + compile), so the write goes through the same gate as any
 // other schema op. the studio "save view" button lands here.
-export function saveUiView(ws: Workspace, store: Store, { id, view, moduleId }) {
+export function saveUiView(
+  ws: Workspace,
+  store: Store,
+  { id, view, moduleId }: { id: string; view: Record<string, unknown>; moduleId?: string | null }
+) {
   if (!id || !/^[a-z0-9][a-z0-9-/]*$/.test(id)) throw new Error(`invalid ui-view id "${id}" — lowercase slug required`)
   // §5: `add` on a system collection takes `--module`. It used to be dropped by the parser and then
   // assigned into the VIEW as a field called `module` — `dt add ui-views … --module core` wrote
@@ -3484,7 +3735,7 @@ export function saveUiView(ws: Workspace, store: Store, { id, view, moduleId }) 
 
 /** The save of a package's view: the workspace module's overlay, rewritten from the package source
  *  each time (never stacked on the previous overlay), and removed when the view equals the package's. */
-function saveUiViewOverlay(ws, store, id, view, shipped) {
+function saveUiViewOverlay(ws: Workspace, store: Store, id: string, view: Record<string, unknown>, shipped: string) {
   const dest = path.join(workspaceSystemDir(ws, "ui-views"), `${id}.ui-view.yaml`)
   const existed = fs.existsSync(dest)
   const delta = viewOverlayOf(load<SourceDoc | null>(fs.readFileSync(path.join(ws.root, shipped), "utf8")) ?? {}, view)
@@ -3519,7 +3770,13 @@ function saveUiViewOverlay(ws, store, id, view, shipped) {
  * the old file gone, one compile gate, one commit per repo it touches — so a move into a linked
  * clone's module commits there, ready to publish with that module.
  */
-export function moveUiView(ws: Workspace, store: Store, id, toModule, { dryRun = false } = {}) {
+export function moveUiView(
+  ws: Workspace,
+  store: Store,
+  id: string,
+  toModule: string,
+  { dryRun = false }: { dryRun?: boolean } = {}
+) {
   const { shipped } = uiViewSourceFile(ws, id)
   if (!shipped) throw new Error(`ui-view "${id}" does not exist`)
   if (IN_NODE_MODULES(shipped)) {
@@ -3562,7 +3819,7 @@ export function moveUiView(ws: Workspace, store: Store, id, toModule, { dryRun =
   return { ...plan, moved: true, commits: out.commits }
 }
 
-export function removeUiView(ws: Workspace, store: Store, id) {
+export function removeUiView(ws: Workspace, store: Store, id: string) {
   // Same source resolution as the save above — an inline module's view is under this repo's git
   // history like everything else, so deleting it is one revertable commit. Refusing it while
   // ALLOWING a save to the same file would be an asymmetry with nothing behind it.
@@ -3591,7 +3848,7 @@ export function removeUiView(ws: Workspace, store: Store, id) {
 /** kind → {suffix, folder} — one table, because five verbs read it and a sixth spelling of "where
  *  does a command live" is how a kind the engine stopped knowing sat in a module for two days
  *  (decision 156). */
-const ENTITY_SHAPE = {
+const ENTITY_SHAPE: Record<string, { suffix: string; folder: boolean }> = {
   skills: { suffix: "SKILL.md", folder: true },
   agents: { suffix: ".agent.md", folder: false },
   commands: { suffix: ".command.md", folder: false },
@@ -3602,7 +3859,7 @@ const ENTITY_SHAPE = {
 /** The shape of one kind — the table above, else DERIVED from the compiled descriptor, which is how
  *  a kind an extension contributes (`proofs`) gets `rm · rename · set` without this file naming it:
  *  `storage.suffix` + the format's extension, one file per id. */
-function entityShape(ws, kind) {
+function entityShape(ws: Workspace, kind: string): { suffix: string; folder: boolean } {
   if (ENTITY_SHAPE[kind]) return ENTITY_SHAPE[kind]
   const d = loadDescriptors(ws.root).get(kind)
   const storage = storageOf(d)
@@ -3612,7 +3869,11 @@ function entityShape(ws, kind) {
 
 /** The source file (or folder) ONE entity is compiled from, asked of the manifest — the same
  *  question `uiViewSourceFile` asks, for the five other kinds. */
-function entitySource(ws, kind, id) {
+function entitySource(
+  ws: Workspace,
+  kind: string,
+  id: string
+): { file: string | null; dir: string | null; shipped: string | null } {
   const shape = entityShape(ws, kind)
   const key = shape.folder ? `${kind}/${id}/SKILL.md` : `${kind}/${id}${shape.suffix}`
   const src = readManifest(ws.root)?.entries?.[key]?.sources?.[0]
@@ -3624,7 +3885,7 @@ function entitySource(ws, kind, id) {
 
 /** Refuse a write into an installed package, with `disable` as the remedy — the message every other
  *  op in this file already gives, in one place. */
-function refuseNpmEntity(kind, id, shipped) {
+function refuseNpmEntity(kind: string, id: string, shipped: string | null): void {
   if (!shipped || !IN_NODE_MODULES(shipped)) return
   throw new Error(
     `${kind.replace(/s$/, "")} "${id}" is shipped by an installed package (${shipped}) — a write there is erased by the next \`npm install\`.\n  disable it instead: add "${kind}/${id}" to dreamteamer.disable in package.json.`
@@ -3633,7 +3894,11 @@ function refuseNpmEntity(kind, id, shipped) {
 
 const ENTITY_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 
-export function createSkill(ws: Workspace, store: Store, { name, description, moduleId }) {
+export function createSkill(
+  ws: Workspace,
+  store: Store,
+  { name, description, moduleId }: { name?: string | true; description?: string | true; moduleId?: string | null }
+) {
   if (!name || name === true)
     throw new Error('missing skill name — dreamteamer add skills --name <id> --description "…"')
   if (!ENTITY_ID.test(name))
@@ -3684,7 +3949,7 @@ export function createSkill(ws: Workspace, store: Store, { name, description, mo
 
 /** `add` on a kind nobody can scaffold honestly — refused WITH THE PATH, because "hand-authored"
  *  without the filename is a refusal the reader has to go research. */
-export function refuseHandAuthored(ws: Workspace, store: Store, kind, id, moduleId) {
+export function refuseHandAuthored(ws: Workspace, store: Store, kind: string, id: string, moduleId?: string | null) {
   const shape = entityShape(ws, kind)
   const root = moduleId
     ? moduleRecord(store, moduleId).fields.path
@@ -3696,7 +3961,7 @@ export function refuseHandAuthored(ws: Workspace, store: Store, kind, id, module
   )
 }
 
-export function removeEntity(ws: Workspace, store: Store, kind, id) {
+export function removeEntity(ws: Workspace, store: Store, kind: string, id: string) {
   const { dir, shipped } = entitySource(ws, kind, id)
   if (!shipped) throw new Error(`${kind.replace(/s$/, "")} "${id}" does not exist — dt list ${kind}`)
   refuseNpmEntity(kind, id, shipped)
@@ -3722,7 +3987,13 @@ export function removeEntity(ws: Workspace, store: Store, kind, id) {
   }
 }
 
-export function renameEntity(ws: Workspace, store: Store, kind, oldId, newId) {
+export function renameEntity(
+  ws: Workspace,
+  store: Store,
+  kind: string,
+  oldId: string,
+  newId: string | true | undefined
+) {
   if (!newId || newId === true) throw new Error(`missing new id — dreamteamer rename ${kind}/${oldId} <new-id>`)
   if (oldId === newId) return { renamed: false, id: newId }
   if (!ENTITY_ID.test(newId))
@@ -3737,7 +4008,7 @@ export function renameEntity(ws: Workspace, store: Store, kind, oldId, newId) {
   if (fs.existsSync(newDir)) throw new Error(`${path.relative(ws.root, newDir)} already exists`)
   const entityFile = shape.folder ? path.join(newDir, "SKILL.md") : newDir
   const isYaml = shape.suffix.endsWith(".yaml")
-  let before = null
+  let before: Buffer | string | null = null
   const out = gatedTreeOp(ws, store, {
     subject: `dreamteamer: ${kind} rename ${oldId} → ${newId}`,
     paths: [path.relative(ws.root, shape.folder ? dir : file), path.relative(ws.root, newDir)],
@@ -3758,7 +4029,13 @@ export function renameEntity(ws: Workspace, store: Store, kind, oldId, newId) {
   return { renamed: true, id: newId, commits: out.commits }
 }
 
-export function setEntityFrontmatter(ws: Workspace, store: Store, kind, id, changes) {
+export function setEntityFrontmatter(
+  ws: Workspace,
+  store: Store,
+  kind: string,
+  id: string,
+  changes: Record<string, unknown>
+) {
   const shape = entityShape(ws, kind)
   const { dir, file, shipped } = entitySource(ws, kind, id)
   if (!shipped) throw new Error(`${kind.replace(/s$/, "")} "${id}" does not exist — dt list ${kind}`)
@@ -3771,7 +4048,7 @@ export function setEntityFrontmatter(ws: Workspace, store: Store, kind, id, chan
   // will reject it, so `set` refuses it first. Its two siblings already read this way
   // (`setCollectionScalars`, `setModule`), and a body field is not settable from the CLI at all.
   const props = fieldsOf(store.descriptors.get(kind))
-  const settable = k => props[k] && !props[k].body && !props[k].derived && !props[k].virtual
+  const settable = (k: string): boolean => props[k] && !props[k].body && !props[k].derived && !props[k].virtual
   const unknown = Object.keys(changes).find(k => !settable(k))
   if (unknown)
     throw new Error(
@@ -3782,7 +4059,7 @@ export function setEntityFrontmatter(ws: Workspace, store: Store, kind, id, chan
   // prose. `writeSource` round-trips both — the difference is only which text it is handed.
   const isYaml = shape.suffix.endsWith(".yaml")
   const previousText = fs.readFileSync(target, "utf8")
-  const changed = []
+  const changed: string[] = []
   const gate = writeGated(
     ws,
     store,
@@ -3819,7 +4096,7 @@ export function setEntityFrontmatter(ws: Workspace, store: Store, kind, id, chan
  * verbatim. Re-dumping a whole markdown file is how a skill's prose gets re-wrapped by a verb that
  * was asked to change one word of its description — and a skill's prose is the entire artifact.
  */
-function setFrontmatterKey(text, key, value) {
+function setFrontmatterKey(text: string, key: string, value: unknown): string {
   const m = /^---\r?\n([\s\S]*?)\r?\n---(\r?\n[\s\S]*)?$/.exec(text)
   if (!m) throw new Error("no YAML frontmatter — a markdown entity starts with a `---` block, and this file does not.")
   const doc = load<SourceDoc | null>(m[1]) ?? {}

@@ -21,19 +21,76 @@ import { defaultStoragePath, baseNameOf, singular, inflects, namespaceOf, storag
 import { subpathProblem } from "./placement.ts"
 import { patternRe, walk } from "./records.ts"
 import { renderTemplate } from "./env-vars.ts"
-import type { AuthoredDescriptor, Field } from "./types.ts"
+import type { AuthoredDescriptor, Descriptor, Field } from "./types.ts"
+
+/** A source file compile read: workspace-relative path and content hash (what staleness compares). */
+export type SourceRef = { path: string; hash: string }
+/** One collection source as compile grouped it: the file, its parsed doc, and the module that ships it. */
+export type DescriptorSource = { src: SourceRef; doc: AuthoredDescriptor; moduleName: string }
+/** A discovered module, as `discoverModules` reports it. */
+export type ModuleSource = { name: string; root: string; channel: string; layer?: string }
+/** A record layer as compile reads it: the clone, its data folder, and the collections it narrows to (null: all). */
+export type CompileLayer = {
+  name: string
+  root: string
+  dataPath: string
+  records: string[] | null
+  /** set by compile: some collection here skips one of the layer's, so it is never read completely */
+  skipsSome?: boolean
+}
+export type CollectionsContext = {
+  groups: Map<string, DescriptorSource[]>
+  mixins: Map<string, Partial<AuthoredDescriptor> & { src?: SourceRef }>
+  namespaces: string[]
+  nsOwners: Map<string, string>
+  runtimeKinds: Set<string>
+  core: Set<string>
+  moduleDeps: Map<string, string[]>
+  modulePeers: Map<string, string[]>
+  channelOf: Map<string, string>
+  wsModuleName: string | undefined
+  engineName: string
+  dataOwners: Map<string, { root: string; channel: string }>
+  moduleSources: Map<string, ModuleSource>
+  unownableBecause: (source: ModuleSource, rel: (p: string) => string) => string | null
+  layers?: CompileLayer[]
+  repoOf: (moduleRoot: string) => string
+  rel: (p: string) => string
+  root?: string
+  dataPath: string
+  vars: { env: Map<string, string>; workspaceFolder: string; declared: Set<string> }
+  moduleId: (n: string) => string
+  fail: (msg: string) => never
+  warn: (msg: string) => void
+}
+/** One collection compile resolved: the doc it writes, its resolved fields, its sources and storage facts. */
+export type CompiledCollection = {
+  doc: AuthoredDescriptor & { compiled?: Descriptor["compiled"] }
+  resolved: Record<string, Field>
+  sources: SourceRef[]
+  compiled: Descriptor["compiled"]
+  storage: {
+    path: string
+    format: string
+    shape: string
+    entry?: string
+    under?: NonNullable<AuthoredDescriptor["storage"]>["under"]
+    repo: string
+    runtime: boolean
+  }
+}
 
 import { CONVERTER } from "./extensions.ts"
 export { CONVERTER }
 
 /** The one refusal for a workspace that still holds v1 sources, listing every file. */
-export function v1Refusal(files) {
+export function v1Refusal(files: string[]): string {
   return `${files.length} source(s) are in the v1 descriptor format, which this engine no longer reads:\n${files.map(f => `    - ${f}`).join("\n")}\n  convert the workspace once: ${CONVERTER}\n  then dt compile and dt check — UPDATING.md has the walk.`
 }
 
 /** Content-word Jaccard between two clauses, thresholded. Short words and the join words of
  *  English carry no signal here; ≥ 0.5 of the remaining vocabulary shared is a paraphrase. */
-function paraphrases(description, useWhen) {
+function paraphrases(description: unknown, useWhen: unknown): boolean {
   const STOP = new Set([
     "this",
     "that",
@@ -60,7 +117,7 @@ function paraphrases(description, useWhen) {
     "after",
     "about",
   ])
-  const words = t =>
+  const words = (t: unknown): Set<string> =>
     new Set(
       String(t ?? "")
         .toLowerCase()
@@ -76,7 +133,7 @@ function paraphrases(description, useWhen) {
   return shared / (a.size + b.size - shared) >= 0.5
 }
 
-let ajv = null
+let ajv: InstanceType<typeof Ajv.default> | null = null
 const schemaAjv = () => {
   if (!ajv) {
     ajv = new (Ajv as unknown as typeof Ajv.default)({ allErrors: true, strict: false })
@@ -86,7 +143,7 @@ const schemaAjv = () => {
   return ajv
 }
 
-const titleCase = id =>
+const titleCase = (id: string): string =>
   String(id)
     .split(/[_\-\s/]+/)
     .filter(Boolean)
@@ -119,7 +176,12 @@ const titleCase = id =>
  * @param {(msg: string) => void} ctx.warn
  * @returns {{ compiled: Map<string, {doc, sources}>, inert: {path, hash}[], moduleColls: Map<string, Set<string>> }}
  */
-export function compileCollections(ctx) {
+export function compileCollections(ctx: CollectionsContext): {
+  compiled: Map<string, CompiledCollection>
+  inert: SourceRef[]
+  moduleColls: Map<string, Set<string>>
+  layerReads: Map<string, string[]>
+} {
   const {
     groups,
     mixins,
@@ -146,21 +208,31 @@ export function compileCollections(ctx) {
   } = ctx
 
   // ---- v1 is refused, every file at once --------------------------------------------------
-  const v1 = []
+  const v1: string[] = []
   for (const group of groups.values()) for (const g of group) if (!isV2(g.doc)) v1.push(g.src.path)
   if (v1.length) fail(v1Refusal(v1.sort()))
 
   const typeNames = new Set([...groups.keys(), ...core])
   const allPeers = new Set([...modulePeers.values()].flat())
-  const out = new Map()
+  const out = new Map<string, CompiledCollection>()
   const layerClaims = new Map() // layer name -> clone folders some collection here accounts for
-  const layerReads = new Map() // layer name -> clone folders some collection here READS (cr-dt-004); compiled sources never sit in a layer's data
-  const inert = []
+  const layerReads = new Map<string, string[]>() // layer name -> clone folders some collection here READS (cr-dt-004); compiled sources never sit in a layer's data
+  const inert: SourceRef[] = []
   const moduleColls = new Map()
-  const owners = new Map() // collection -> owning module name
+  const owners = new Map<string, string>() // collection -> owning module name
 
   // ---- per collection: bases, overlays, mixins, fields -------------------------------------
-  const staged = new Map() // name -> { authored, group, base, overlays, mixinSrcs }
+  const staged = new Map<
+    string,
+    {
+      authored: AuthoredDescriptor
+      group: DescriptorSource[]
+      base: DescriptorSource
+      overlays: DescriptorSource[]
+      mixinSrcs: SourceRef[]
+      where: string
+    }
+  >() // name -> { authored, group, base, overlays, mixinSrcs }
   for (const [name, group] of groups) {
     const bases = group.filter(g => g.doc.overlay !== true)
     const overlays = group.filter(g => g.doc.overlay === true)
@@ -192,8 +264,8 @@ export function compileCollections(ctx) {
           `${o.src.path}: an overlay of "${name}", but module "${o.moduleName}" neither depends on "${base.moduleName}" nor declares "${name}" in peer_collections — an overlay cannot compile without its base.`
         )
     }
-    const mixed = new Map()
-    const mixinSrcs = []
+    const mixed = new Map<DescriptorSource, AuthoredDescriptor>()
+    const mixinSrcs: SourceRef[] = []
     for (const g of group) {
       const shape = shapeErrors(g.doc)
       if (shape.length) fail(`${g.src.path}:\n  ${shape.join("\n  ")}`)
@@ -411,7 +483,7 @@ export function compileCollections(ctx) {
 
     // every target is owned, depended on, or declared a peer — judged per CONTRIBUTING source,
     // because the module that wrote a field is the one that must declare what it points at
-    const referenced = new Set()
+    const referenced = new Set<string>()
     for (const g of group) {
       const own = g.doc.fields ?? {}
       const mixFields = (g.doc.mixins ?? []).flatMap(id => Object.entries(mixins.get(id)?.fields ?? {}))
@@ -467,7 +539,7 @@ export function compileCollections(ctx) {
         `⚠ collection ${name}: use_when restates its description — name the SITUATION that brings a session here (search here first · capture here when), not the noun again`
       )
 
-    const defaults: Partial<AuthoredDescriptor> = {}
+    const defaults: Descriptor["compiled"]["defaults"] = {}
     if (authored.title === undefined) defaults.title = title
     if (authored.singular === undefined) defaults.singular = singularWord
     if (authored.record_title === undefined) defaults.record_title = recordTitle
@@ -548,11 +620,7 @@ export function compileCollections(ctx) {
  * generated mirror of O's reference field `f`. The owner must exist and point at T; a scalar mirror
  * means the owner's reference is unique; the target must be able to hold a generated field.
  */
-type Resolving = {
-  storage: { format?: string; runtime?: boolean; repo?: string }
-  resolved: Record<string, Field>
-  compiled: { mirrors: string[] }
-}
+type Resolving = Pick<CompiledCollection, "storage" | "resolved" | "compiled">
 function relations(out: Map<string, Resolving>, fail: (msg: string) => never) {
   for (const [tName, t] of out) {
     for (const [mName, m] of Object.entries(t.resolved)) {
@@ -604,7 +672,7 @@ function relations(out: Map<string, Resolving>, fail: (msg: string) => never) {
 }
 
 /** Relationship-based storage: a collection whose records live inside the folder of their parent. */
-function placement(out, fail) {
+function placement(out: Map<string, CompiledCollection>, fail: (msg: string) => never): void {
   const claims = new Map()
   for (const [name, c] of out) {
     const under = c.storage.under
@@ -669,7 +737,7 @@ function placement(out, fail) {
 }
 
 /** How many files sit under a folder, recursively — 0 when it is absent. */
-function fileCount(dir) {
+function fileCount(dir: string): number {
   if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return 0
   let n = 0
   for (const _ of walk(dir)) n++
@@ -679,9 +747,9 @@ function fileCount(dir) {
 /** `[folder, fileCount]` for each folder under a layer's data path that no claimed path accounts for:
  *  a claimed folder is skipped, one that is a PREFIX of a claimed path (a namespace folder) is
  *  descended into, anything else is unread. Paths are workspace-relative, `/`-joined. */
-function unreadFolders(root, dataDir, claimed) {
-  const out = []
-  const visit = rel => {
+function unreadFolders(root: string, dataDir: string, claimed: Set<string>): [folder: string, files: number][] {
+  const out: [string, number][] = []
+  const visit = (rel: string): void => {
     const abs = path.join(root, rel)
     if (!fs.existsSync(abs)) return
     for (const e of fs.readdirSync(abs, { withFileTypes: true }).sort((x, y) => x.name.localeCompare(y.name))) {

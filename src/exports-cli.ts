@@ -11,9 +11,15 @@ import { inProgress } from "./commit.ts"
 import { exportsFacts } from "./runtime.ts"
 import { storageOf, bodyFieldOf, recordTitleOf } from "./descriptor.ts"
 import { EXPORTS_FILE, readExports, serializeExports, exportsContext, outsideRefs, regenerate } from "./exports.ts"
+import type { ExportChange } from "./exports.ts"
+import type { Store } from "./store.ts"
+import type { Descriptor } from "./types.ts"
 
 /** The manifest `dt exports` would write for `repo` (null: this workspace) and what changes. */
-export function planExports(store, repo) {
+export function planExports(
+  store: Store,
+  repo: string | null
+): { dir: string; file: string; text: string | null; changes: ExportChange[]; entries: number } {
   const facts = exportsFacts(store.root)
   const ctx = exportsContext({
     root: store.root,
@@ -22,12 +28,12 @@ export function planExports(store, repo) {
     layers: facts.layers,
     dataPath: facts.data,
   })
-  const readableD = d => d && !storageOf(d).runtime && !storageOf(d).unavailable
+  const readableD = (d: Descriptor | undefined): boolean => d && !storageOf(d).runtime && !storageOf(d).unavailable
   const readable = [...store.descriptors.values()].filter(readableD)
   // an unparseable record (a conflict mid-merge) is check's to report — skipped here, never fatal; while
   // one is unread, nothing it might name is dropped as unreferenced (the repo is not read completely)
   let unparsed = false
-  const fieldsAt = (d, file) => {
+  const fieldsAt = (d: Descriptor, file: string): Record<string, unknown> | null => {
     try {
       return parseRecord(file, d, bodyFieldOf(d))
     } catch {
@@ -35,12 +41,12 @@ export function planExports(store, repo) {
       return null
     }
   }
-  const repoOf = (c, id) => {
+  const repoOf = (c: string, id: string): string | null | undefined => {
     const d = store.descriptors.get(c)
     const f = readableD(d) ? store.ids(c).get(id) : undefined
     return f ? (store.layerOfFile(d, f)?.layer ?? null) : undefined
   }
-  const titled = (d, id, file) => {
+  const titled = (d: Descriptor, id: string, file: string): string => {
     if (storageOf(d).format === "binary") return id
     const t = /\{\{\s*([A-Za-z_][\w]*)/.exec(recordTitleOf(d))?.[1]
     return String(fieldsAt(d, file)?.[t] ?? id)
@@ -51,11 +57,11 @@ export function planExports(store, repo) {
       .map(([id, file]) => ({ collection: d.name, id, descriptor: d, fields: fieldsAt(d, file) }))
       .filter(r => r.fields)
   )
-  const resolve = (c, id) =>
+  const resolve = (c: string, id: string): { label: string; from: string | null } | null =>
     repoOf(c, id) === undefined
       ? null
       : { label: titled(store.descriptors.get(c), id, store.ids(c).get(id)), from: ctx.packageOf(repoOf(c, id)) }
-  const held = (c, id) => repoOf(c, id) === repo
+  const held = (c: string, id: string): boolean => repoOf(c, id) === repo
   const dir = ctx.rootOf(repo)
   const current = readExports(dir) // throws on an unparseable file, naming it — never overwritten
   const outside = outsideRefs({ records, held, resolve, namespaces: store.namespaces })
@@ -76,7 +82,10 @@ export function planExports(store, repo) {
 }
 
 /** Write (and commit) each named repo's manifest; returns the exit code. */
-export function runExports(store, { layers = [], dryRun = false, json = false } = {}) {
+export function runExports(
+  store: Store,
+  { layers = [], dryRun = false, json = false }: { layers?: string[]; dryRun?: boolean; json?: boolean } = {}
+): number {
   const known = new Set((exportsFacts(store.root).layers ?? []).map(l => l.name))
   for (const l of layers)
     if (!known.has(l))
@@ -86,8 +95,8 @@ export function runExports(store, { layers = [], dryRun = false, json = false } 
     const plan = planExports(store, repo)
     const before = fs.existsSync(plan.file) ? fs.readFileSync(plan.file, "utf8") : null
     const where = path.relative(store.root, plan.file)
-    let committed = null
-    let note = null
+    let committed: string | null = null
+    let note: string | null = null
     if (!dryRun && before !== plan.text) {
       if (plan.text === null) fs.rmSync(plan.file)
       else fs.writeFileSync(plan.file, plan.text)
@@ -95,7 +104,7 @@ export function runExports(store, { layers = [], dryRun = false, json = false } 
       const busy = inProgress(plan.dir)
       if (busy) note = `${busy} — the manifest is written; git add it and conclude it`
       else {
-        const git = args => {
+        const git = (args: string[]): string => {
           try {
             return execFileSync("git", args, { cwd: plan.dir, stdio: ["ignore", "pipe", "pipe"] })
               .toString()
@@ -139,7 +148,7 @@ export function runExports(store, { layers = [], dryRun = false, json = false } 
         }
       }
     }
-    const count = k => plan.changes.filter(c => c.kind === k).length
+    const count = (k: ExportChange["kind"]): number => plan.changes.filter(c => c.kind === k).length
     out.push({
       repo,
       path: where,

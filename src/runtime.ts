@@ -62,7 +62,7 @@ export const DERIVED_KINDS = ["modules"]
  * `git log`/`git diff` and the `?sort=` comparator were each hand-copied into the extension and
  * went wrong in both places.
  */
-export function sourceHint(d) {
+export function sourceHint(d: Descriptor): string {
   const p = storageOf(d).path
   return DERIVED_KINDS.includes(p)
     ? "the source it was projected from (for `modules`, the module's package.json)"
@@ -85,7 +85,7 @@ export function readManifest(root: string): Manifest | null {
 }
 
 /** A kind's folder inside the compiled runtime. */
-export function runtimeKindDir(root, kind) {
+export function runtimeKindDir(root: string, kind: string): string {
   return path.join(runtimeDir(root), kind)
 }
 
@@ -116,7 +116,7 @@ export function loadDescriptors(root: string): Descriptors | null {
 }
 
 /** Every `*.collection.yaml` under a directory, at any depth, in a stable order. */
-function walkDescriptors(dir, out = []) {
+function walkDescriptors(dir: string, out: string[] = []): string[] {
   for (const e of fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
     if (e.name.startsWith(".")) continue
     const p = path.join(dir, e.name)
@@ -158,14 +158,15 @@ export function namespaces(root: string): string[] {
  * Read from the manifest rather than by re-running module discovery, which is both cheaper and more
  * honest: the manifest records what was actually compiled, so a shadowed copy is already excluded.
  */
-export function sourceRoots(root) {
+export function sourceRoots(root: string): string[] {
   const modules = readManifest(root)?.modules ?? []
   // ⚠ EITHER SPELLING. `location` is what this engine writes; `channel` is what every runtime on
   // disk before 0.19.0 has, and a stale runtime is the NORMAL state between a `git pull` and the
   // next `dt compile`. Reading only the new key would silently make this list the workspace root
   // alone — and this list is what ref surgery walks, so "silently fewer modules" means a rename
   // that reports ✔ and leaves half the references dangling.
-  const isNpm = m => (m.location ? m.location === "node_modules" : m.channel === "npm")
+  const isNpm = (m: Manifest["modules"][number]): boolean =>
+    m.location ? m.location === "node_modules" : m.channel === "npm"
   const roots = [root, ...modules.filter(m => !isNpm(m)).map(m => path.resolve(root, m.root))]
   return [...new Set(roots)]
 }
