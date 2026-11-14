@@ -1,21 +1,22 @@
 # dreamteamer — the engine
 
 `dreamteamer`: workspace compiler, CLI, store, schema-ops — and a public API (`src/api.js`,
-typed by `src/api.d.ts`) that is the ONLY importable surface. See `README.md` for the contract
+typed by `src/api.d.ts`, plus the `dreamteamer/records` and `dreamteamer/testing` subpaths) that
+is the ONLY importable surface. See `README.md` for the contract
 (sources → `.dreamteamer/` → harness adapters; records are files; a write lands on disk and
 `dreamteamer commit` publishes it, one commit per repo; hard validation before disk).
 
 ## IMPORTANT — core is records + the compiler; everything else is an EXTENSION
 
 Since 0.31.0 anything with a lifecycle of its own lives outside core: `prove` · `land` · `worktree`,
-`serve`, `notebooklm` and the local Docker host were extracted as extension packages, which are **not
-published** — the module ecosystem is being restructured first. The extraction took core from 10,669
-to ~7,600 code lines and its install from 77 packages to 10.
+`serve`, `notebooklm` and the local Docker host were extracted as extension packages, published under
+`@dreamteamer/*` from [dreamteamer-modules](https://github.com/dreamteamer/dreamteamer-modules). The
+extraction took core from 10,669 to ~7,600 code lines and its install from 77 packages to 10.
 
-An extension is a workspace module (`modules/<id>/`) or a DIRECT dependency declaring
+An extension is a module — one under `modules/<id>/`, or a DIRECT dependency — declaring
 `dreamteamer.extension`; `src/extensions.js` activates it
 with this engine's public API, and it may contribute `commands`, `sourceKinds` (+`exclude`), `analyze`,
-`harnesses`, `orientation`, `hooks`, `check`, `doctor`, `next` — nothing else, and a collision refuses. The contract lives in
+`harnesses`, `orientation`, `hooks`, `check`, `doctor`, `next`, `setup` — nothing else, and a collision refuses. The contract lives in
 `skills/using-dreamteamer/references/extensions.md`. **So the fourth leanness question below is: could
 an extension do it instead?** A new verb whose engine reading is "the CLI dispatches it" is the
 extension shape, not a core verb.
@@ -46,7 +47,7 @@ questions **before** writing the code, out loud, in the commit message:
    it: the entity kinds the compiler materializes and `repos` (because `install repos/<id>` clones
    them) — **nine collections**. `proofs` was the tenth until 0.31.0; it passed this test only
    because compile hard-coded proof validation, which is the circular shape below — now the
-   workflows extension contributes the kind AND its validator, and core reads neither.
+   proofs extension contributes the kind AND its validator, and core reads neither.
 
    ⚠ **`users` failed it on 2026-08-17 (0.8.0), and the lesson is a CIRCULAR justification.** It was
    core "because `@me` resolves against it" — and `@me` existed because `users` was core. Nothing in
@@ -68,11 +69,11 @@ questions **before** writing the code, out loud, in the commit message:
    every real schema change in this project's history was a hand-written script that went around it.
    **Correctness is not usage.** Measure before you keep.
 2. **Is this a recipe creeping into core?** Anything domain-shaped — people, meetings, products,
-   content, funnels — belongs in a module, and a *generic* version of it belongs in
-   [dreamteamer/recipes](https://github.com/dreamteamer/recipes) where a workspace copies and adapts
-   it. Domain modules are deliberately **not** installable packages: four workspaces have wanted a
-   CRM and all four wanted a different `contacts`, so an import would force one answer and make
-   every divergence a fork. Core must not absorb that variance on their behalf.
+   content, funnels — belongs in a module. The published ones live in
+   [dreamteamer-modules](https://github.com/dreamteamer/dreamteamer-modules) and arrive with
+   `dt install <package>`; a workspace that wants a different shape overlays the collection or writes
+   its own module. Four workspaces have wanted a CRM and all four wanted a different `contacts` —
+   core must not absorb that variance on their behalf.
 3. **Could a module do it instead?** A module can ship collections, skills, commands,
    command-bindings, agents, ui-views and component code. If the capability is expressible as a
    module, core growing to hold it is a decision to make everyone carry it.
@@ -108,14 +109,14 @@ the allowlist**; the extra directory named nothing the engine read, and it is al
 coding-agent plugin repos use.
 
 ⚠ **The workspace's OWN module is `modules/default`, named for its ROLE** (0.8.0; `init` seeds it, and
-`--workspace-module <name>` overrides). It used to be named after the workspace, and that name went
+`--workspace_module <name>` overrides). It used to be named after the workspace, and that name went
 stale twice in one repo — decision 213, reversed by 224 — each rename rewriting every
 path that RESOLVES while the historical documents deliberately kept the old spelling, so the old
 `modules/<vault>` was correct in prose and a bug in a path. A role name cannot go stale.
 It is deliberately the same word `RESERVED_NAMESPACES` holds: this module owns the DEFAULT-namespace
 collections, and the default namespace is the empty prefix. The one misreading it invites,
 `default/tasks`, is a compile error whose message states the rule. **An existing workspace is
-unaffected** — its `workspace-module` key already exists and wins over the seed.
+unaffected** — its `workspace_module` key already exists and wins over the seed.
 
 Three things hold this up, and all three exist because removing the wrapper removed a free guarantee:
 
@@ -151,8 +152,9 @@ nothing, and `default` is a RESERVED name so there is never a second spelling fo
 
 ⚠ **The whole problem in one line: an id is also a slash-delimited path.** `meetings/2026/07/kickoff`
 is one collection and a three-segment id, so `a/b/c` is either collection `a` + id `b/c` or collection
-`a/b` + id `c`, and nothing about the string says which. That is why namespaces are **declared** in the
-workspace package.json:
+`a/b` + id `c`, and nothing about the string says which. That is why namespaces are **declared** — in
+the `package.json` of the module that owns each one (since 0.19.0; the workspace's own block may
+declare some too, and the effective set is the union):
 
 ```json
 "dreamteamer": { "namespaces": ["health", "finance", "work/clients"] }
@@ -167,20 +169,20 @@ silent:
 1. **A slashed collection name whose prefix is not declared.** Before this existed it compiled clean,
    landed at `.dreamteamer/collections/<ns>/<name>.collection.yaml`, and then vanished — `loadDescriptors`
    read one directory level, so the collection was absent from the runtime while compile said ✔ and
-   `dt <c> list` answered "unknown collection". The loader now walks; the declaration is enforced.
+   `dt list <c>` answered "unknown collection". The loader now walks; the declaration is enforced.
 2. **A namespace colliding with a collection name.** With both a namespace `health` and a collection
    `health`, `health/doctors/dana-levi` is a record of two different collections and longest-match would
    silently pick one.
 3. **`default` in any namespace segment**, per the transparency rule above.
 4. **One collection's `storage.path` inside another's.** MEASURED data loss, not hypothetical: give A
    `data/health` and B `data/health/doctors` and A's recursive walk indexes B's records as its own —
-   `dt A list` prints B's records, `check` reports B's fields as unknown fields of A, and a write through
+   `dt list A` prints B's records, `check` reports B's fields as unknown fields of A, and a write through
    A can overwrite a record of B. compile reported ✔ through all of it because nothing compared two
    paths. `namespace.storageOverlaps` is now a hard gate, and namespaces make near-misses ordinary.
 
 Two consequences worth keeping:
 
-- **`dt collections rename` is how EXISTING data gets namespaced** — descriptor, records, filenames and
+- **`dt rename collections/<old> <new>` is how EXISTING data gets namespaced** — descriptor, records, filenames and
   every inbound reference in one commit. It rewrites refs by asking the store once per record id rather
   than matching the collection prefix with a new regex: `store.rewriteRefs` already knows the boundary
   rules and already scopes prose to `[[wikilinks]]`, and a fresh `oldName/` pattern would corrupt
@@ -226,7 +228,7 @@ Tier 1 (`test/unit/`) is pure functions. Tier 2 (`test/integration/`) drives the
 and CLI binary against a workspace built by `dreamteamer init` — cached once into `test/.tmp/` and
 `cpSync`ed per test, keyed on a hash of `src/init.js` + `collections/`, so changing either rebuilds it
 with nobody having to remember. **The fixture symlinks this checkout in as `node_modules/dreamteamer`**,
-because without the engine as an installed module a fixture has no `collections`/`skills`/`users` at all
+because without the engine as an installed module a fixture has no `collections`/`skills`/`agents` at all
 and cannot reproduce the store refusing a compiled source. Tier 3 is the extension's `npm run test:ui`
 (boots VS Code, opt-in, never on the default path). **Tier 4 is `npm run perf`** — it GENERATES its
 workspace into gitignored `test/.perf/`, times the operation and prints; a timing belongs to the
@@ -273,10 +275,10 @@ adding one costs the same sentence of thought as adding a core collection.
 
 | layer | modules | rule |
 |---|---|---|
-| **record** | store · records · check · temporal · filter · field-values · commit · events · history · template · workspace · yaml · namespace | schema-validated records over git. **Must not know that modules, channels, `extends` or skills exist.** |
+| **record** | store · records · check · temporal · fractional-index · filter · field-values · commit · events · history · template · workspace · yaml · namespace · ref · relations · env-vars · placement · fields · descriptor · exports | schema-validated records over git. **Must not know that modules, channels, overlays or skills exist.** |
 | **boundary** | runtime | the compiled `.dreamteamer/` artifact — descriptors + manifest. The whole interface. |
-| **workspace** | compile · harnesses · schema-ops · init · checkout · extensions · doctor · record-commands · semver | the compiler, the agent-harness surface, and the extension loader. May import record. |
-| **surface** | cli · collections-cli · presentation · api | entry points; span both halves by definition. `api` is the public export surface. |
+| **workspace** | compile · compile-collections · descriptor-v2 · views · harnesses · schema-ops · init · checkout · extensions · doctor · record-commands · semver · setup-contract · setup · env-write · check-alone · scaffold-templates · install-modules · update | the compiler, the agent-harness surface, the extension loader and the module lifecycle. May import record. |
+| **surface** | cli · collections-cli · exports-cli · presentation · api · records-api · testing · update-setup | entry points; span both halves by definition. `api`, `records-api` and `testing` are the public export surfaces. |
 
 The seam was always real — the store has only ever read compiled descriptors, never a source. What
 it lacked was a direction: `store.js` and `history.js` imported `compile.js` to reach a manifest,
@@ -287,7 +289,7 @@ which is a *file-format* dependency wearing a *module-system* import. Both now g
   It replaced `d.storage.path.startsWith('system/')`, which was re-derived in five places. compile
   is now the only module that knows `system/` means "compiled, therefore not writable". `runtime.js`
   keeps the derivation as compat for a runtime compiled by an older engine — do not delete it: in the
-  `workspace-module` layout those collections otherwise resolve under the workspace root, read as
+  `workspace_module` layout those collections otherwise resolve under the workspace root, read as
   **zero records**, and let the store treat a compiled artifact as writable.
 - **`sourceRoots()` comes off the manifest, not from re-running discovery.** The manifest records what
   was actually *compiled*, so a shadowed copy is already excluded — same set, and no import.
@@ -315,7 +317,7 @@ sources touched, and the same commit shape.
 Corollaries:
 
 - A new capability starts here — engine function **plus a CLI verb** — and only then gets a button.
-- The extension may not hand-write `system/` sources or `data/` records around the store. If it
+- The extension may not hand-write module sources or `data/` records around the store. If it
   needs an operation, that operation is an engine export *and* is reachable from the CLI.
 - Loading the engine in-process (what `dreamteamer-vscode/src/engine.ts` does) satisfies "one
   implementation" but **not** the test — an in-process-only export is still UI-exclusive until the
@@ -326,21 +328,22 @@ Corollaries:
 ## parity status (closed 2026-07-27)
 
 The six known gaps are closed. Every extension operation now has a CLI verb, verified in a
-throwaway `dreamteamer init` workspace (9/9 assertions, `check` clean):
+throwaway `dreamteamer init` workspace (9/9 assertions, `check` clean). The CLI column is in today's
+verb-first spelling; `dt help` is the authority:
 
 | extension op | engine function | CLI |
 | --- | --- | --- |
-| edit a field (`PATCH /schema/collections/:c/fields/:f`) | `schema-ops.updateField` | `<c> update-field --name <f> --type <t>` |
-| remove a field (`DELETE …/fields/:f`) | `schema-ops.removeField` | `<c> remove-field --name <f>` |
-| delete a collection (`DELETE /schema/collections/:c`) | `schema-ops.removeCollection` | `collections rm <name> [--force]` |
-| revert a record (`POST …/records-revert`) | `Store.revert` | `<c> revert <id> --hash <sha>` |
-| record history / diff (`GET /history`, `/history-diff`) | `history.js` | `<c> history <id>` / `<c> diff <id> [--hash]` |
-| create/update/delete a ui-view (`POST/DELETE /schema/ui-views`) | `saveUiView` / `removeUiView` | `ui-views add|set|rm` |
-| order a listing (`GET /items/:c?sort=`) | `temporal.sortRows` | `<c> list --sort [-]<field>` |
-| filter a listing (`?filter=<json>`, saved views) | `filter.matchesFilter` | `<c> list --where <json>` |
+| edit a field (`PATCH /schema/collections/:c/fields/:f`) | `schema-ops.updateField` | `set-field <c> --name <f> --type <t>` |
+| remove a field (`DELETE …/fields/:f`) | `schema-ops.removeField` | `rm-field <c> --name <f>` |
+| delete a collection (`DELETE /schema/collections/:c`) | `schema-ops.removeCollection` | `rm collections/<name> [--force]` |
+| revert a record (`POST …/records-revert`) | `Store.revert` | `revert <c>/<id> --hash <sha>` |
+| record history / diff (`GET /history`, `/history-diff`) | `history.js` | `history <c>/<id>` / `diff <c>/<id> [--hash]` |
+| create/update/delete a ui-view (`POST/DELETE /schema/ui-views`) | `saveUiView` / `removeUiView` | `add ui-views` · `set`/`rm ui-views/<id>` |
+| order a listing (`GET /items/:c?sort=`) | `temporal.sortRows` | `list <c> --sort [-]<field>` |
+| filter a listing (`?filter=<json>`, saved views) | `filter.matchesFilter` | `list <c> --where <json>` |
 | what changed in the data since a commit | `events.deriveEvents` | `changes [--since <sha\|date>] [--json]` |
-| publish records written to disk | `commit.commitPending` | `commit [<collection> …] [-m <subject>] [--dry-run]` |
-| move a collection (incl. into a namespace) | `schema-ops.renameCollection` | `collections rename <old> <new>` |
+| publish records written to disk | `commit.commitPending` | `commit [<collection>\|<collection>/<id> …] [-m <subject>] [--dry-run]` |
+| move a collection (incl. into a namespace) | `schema-ops.renameCollection` | `rename collections/<old> <new>` |
 
 Notes worth keeping:
 
@@ -348,8 +351,8 @@ Notes worth keeping:
   extension's `api.ts` with no CLI anywhere. Three callers, one implementation. It resolves a
   SYSTEM-stored record (collection, ui-view, skill…) back to its manifest sources — reading
   `.dreamteamer/` directly is useless, that path is gitignored.
-- `ui-views set` takes dotted keys (`options.sort=-date`, `nav.label=Recent`) and derives the
-  record id from `path` with the descriptor's own `{{ path | slug }}` rule, so a view saved from
+- `set ui-views/<id>` takes dotted keys (`display.list.sort=-date`, `display.nav.title=Recent`), and
+  `add ui-views` derives the record id from `route` with the descriptor's own `{{ route | slug }}` rule, so a view saved from
   the CLI and one saved from the Layout options panel land on the SAME record.
 - `revert` requires `--hash` on purpose. A revert with an implied target destroys the wrong record.
 - `src/temporal.js` is the same story as `history.js`: `?sort=` was inlined in `server.js`, hand-
@@ -378,12 +381,13 @@ add an extension gesture, the verb must already exist. A route in the HTTP exten
 Until 0.31.0 the editor imported fifteen internal files by path in a non-tolerant `Promise.all`, so
 deleting or renaming ANY `src/` file threw out of `activate()` before the tree view existed (the
 2026-07-31 `sync.js` incident, whose symptom named the one thing that was fine). Now every consumer —
-the editor, the mobile app, every extension — reaches the engine through `src/api.js` only, and
-package `exports` makes `src/*` unimportable. So:
+the editor, the mobile app, every extension — reaches the engine through `src/api.js` only (and its
+two subpath exports, `dreamteamer/records` and `dreamteamer/testing`), and package `exports` makes
+`src/*` unimportable. So:
 
 - **A file under `src/` may be split, renamed or deleted freely** as long as `src/api.js` still
   exports the same names.
 - **Removing or renaming an export of `src/api.js` IS the cross-repo change**, and needs the same
-  wave in every consumer. `test/integration/public-api.test.js` pins the runtime export list to
-  `src/api.d.ts`, and installs the packed tarball to prove the API resolves and `src/*` does not.
+  wave in every consumer. `test/integration/public-api.test.js` pins each runtime export list to
+  its `.d.ts`, and installs the packed tarball to prove the API resolves and `src/*` does not.
 - An addition to the API needs a consumer, like anything else in core.
