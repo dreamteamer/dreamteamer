@@ -8,7 +8,7 @@ import { test, describe } from "node:test"
 import assert from "node:assert/strict"
 import { load, dump, commentCount } from "../../src/record/yaml.ts"
 import { writeSource } from "../../src/record/writeSource.ts"
-import { renameKeys } from "../../src/collections/renameKeys.ts"
+import { renameKeys } from "../../src/collections/lib/renameKeys.ts"
 import { formatSource } from "../../src/fmt/formatSource.ts"
 
 /** A descriptor carrying every construct the old write path damaged. */

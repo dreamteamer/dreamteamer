@@ -22,7 +22,7 @@ import {
 } from "../helpers/ws.js"
 import { Store } from "../../src/record/Store.ts"
 import { storageOf } from "../../src/record/storageOf.ts"
-import { history } from "../../src/collections/history.ts"
+import { history } from "../../src/records/history.ts"
 
 const PEOPLE =
   'name: people\nstorage:\n  suffix: person\n  owner: module\nids:\n  from: "{{ name | slug }}"\nfields:\n  name:\n    type: string\n    required: true\n'

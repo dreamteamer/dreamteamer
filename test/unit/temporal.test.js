@@ -7,11 +7,11 @@
 // so it gets a test that fails loudly.
 import { test, describe } from "node:test"
 import assert from "node:assert/strict"
-import { parseTemporal } from "../../src/collections/parseTemporal.ts"
+import { parseTemporal } from "../../src/records/lib/parseTemporal.ts"
 import { normalizeTemporal } from "../../src/record/normalizeTemporal.ts"
 import { normalizeRecord } from "../../src/record/normalizeRecord.ts"
-import { compareValues } from "../../src/collections/compareValues.ts"
-import { sortRows } from "../../src/collections/sortRows.ts"
+import { compareValues } from "../../src/records/lib/compareValues.ts"
+import { sortRows } from "../../src/records/lib/sortRows.ts"
 
 describe("normalizeTemporal", () => {
   test("a human date-time gets the local offset stamped on, not folded to Z", () => {

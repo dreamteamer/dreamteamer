@@ -84,7 +84,7 @@ This file TRANSLATES; it does not implement. Every record and schema verb lands 
 
 ## collections
 
-Files: [collections/collectionCommand.ts](collections/collectionCommand.ts) · [collections/consts.ts](collections/consts.ts) · [collections/isEntityKind.ts](collections/isEntityKind.ts) · [collections/nearest.ts](collections/nearest.ts) · [collections/parseArgs.ts](collections/parseArgs.ts) · [collections/refuseUnknownFlags.ts](collections/refuseUnknownFlags.ts) · [collections/rel.ts](collections/rel.ts) · [record/emit.ts](record/emit.ts) · [collections/relationsCommand.ts](collections/relationsCommand.ts) · [workspace/reportCommits.ts](workspace/reportCommits.ts)
+Files: [records/collectionCommand.ts](records/collectionCommand.ts) · [lib/consts.ts](lib/consts.ts) · [lib/isEntityKind.ts](lib/isEntityKind.ts) · [lib/nearest.ts](lib/nearest.ts) · [lib/parseArgs.ts](lib/parseArgs.ts) · [lib/refuseUnknownFlags.ts](lib/refuseUnknownFlags.ts) · [lib/rel.ts](lib/rel.ts) · [record/emit.ts](record/emit.ts) · [relationsCommand.ts](relationsCommand.ts) · [workspace/reportCommits.ts](workspace/reportCommits.ts)
 
 The IMPLEMENTATION layer behind the verb-first CLI: `collectionCommand(ws, collection, verb, args)`
 is (collection, verb) shaped and stays that way — `cli.js` translates `dt <verb> <target>` onto it.
@@ -220,7 +220,7 @@ serve `check`, `dt exports` and the migration script, so the three cannot disagr
 
 ## extensions
 
-Files: [collections/contributedNotes.ts](collections/contributedNotes.ts) · [workspace/consts.ts](workspace/consts.ts) · [workspace/declaredExtensions.ts](workspace/declaredExtensions.ts) · [workspace/extensions.ts](workspace/extensions.ts) · [workspace/loadExtensions.ts](workspace/loadExtensions.ts) · [workspace/manifestViolations.ts](workspace/manifestViolations.ts) · [workspace/v1ManifestRefusal.ts](workspace/v1ManifestRefusal.ts)
+Files: [records/lib/contributedNotes.ts](records/lib/contributedNotes.ts) · [workspace/consts.ts](workspace/consts.ts) · [workspace/declaredExtensions.ts](workspace/declaredExtensions.ts) · [workspace/extensions.ts](workspace/extensions.ts) · [workspace/loadExtensions.ts](workspace/loadExtensions.ts) · [workspace/manifestViolations.ts](workspace/manifestViolations.ts) · [workspace/v1ManifestRefusal.ts](workspace/v1ManifestRefusal.ts)
 
 Engine extensions — the ONE seam an optional tool plugs into.
 
@@ -255,7 +255,7 @@ wins", because the loser would be an extension the operator installed that silen
 
 ## field-values
 
-Files: [collections/distinctValues.ts](collections/distinctValues.ts)
+Files: [records/distinctValues.ts](records/distinctValues.ts)
 
 distinct values actually present in a collection's field.
 
@@ -289,7 +289,7 @@ so compile can attribute each one to a file.
 
 ## filter
 
-Files: [collections/consts.ts](collections/consts.ts) · [collections/looseEq.ts](collections/looseEq.ts) · [collections/matchesFilter.ts](collections/matchesFilter.ts) · [collections/tokenValue.ts](collections/tokenValue.ts) · [record/consts.ts](record/consts.ts) · [record/unknownOperators.ts](record/unknownOperators.ts) · [record/unknownTokens.ts](record/unknownTokens.ts)
+Files: [lib/consts.ts](lib/consts.ts) · [records/lib/looseEq.ts](records/lib/looseEq.ts) · [records/lib/matchesFilter.ts](records/lib/matchesFilter.ts) · [records/lib/tokenValue.ts](records/lib/tokenValue.ts) · [record/consts.ts](record/consts.ts) · [record/unknownOperators.ts](record/unknownOperators.ts) · [record/unknownTokens.ts](record/unknownTokens.ts)
 
 record filtering — the operator set harvested from an earlier engine's
 query/compare.ts (Directus-style), trimmed to what the studio FilterBuilder
@@ -298,7 +298,7 @@ negative operators deliberately reject null (SQL semantics).
 
 ## fractional-index
 
-Files: [collections/keyBetween.ts](collections/keyBetween.ts) · [collections/placementKey.ts](collections/placementKey.ts)
+Files: [records/lib/keyBetween.ts](records/lib/keyBetween.ts) · [records/lib/placementKey.ts](records/lib/placementKey.ts)
 
 Manual ordering keys. Named for the ALGORITHM: the FIELD is named per collection via
 its `type: position` field, and nothing here may assume what it is called.
@@ -336,7 +336,7 @@ block/file on the next compile.
 
 ## history
 
-Files: [collections/history.ts](collections/history.ts) · [collections/historyDiff.ts](collections/historyDiff.ts) · [collections/trackedPaths.ts](collections/trackedPaths.ts) · [record/commitArg.ts](record/commitArg.ts)
+Files: [records/history.ts](records/history.ts) · [records/historyDiff.ts](records/historyDiff.ts) · [records/lib/trackedPaths.ts](records/lib/trackedPaths.ts) · [record/commitArg.ts](record/commitArg.ts)
 
 per-record revision history, straight out of git.
 
@@ -348,7 +348,7 @@ implementation here, three callers (CLI, server, extension).
 
 ## init
 
-Files: [collections/materializeRepo.ts](collections/materializeRepo.ts) · [collections/repos.ts](collections/repos.ts) · [init/consts.ts](init/consts.ts) · [init/init.ts](init/init.ts) · [init/initFootprint.ts](init/initFootprint.ts) · [init/seedBlock.ts](init/seedBlock.ts) · [install/commitOf.ts](install/commitOf.ts) · [install/install.ts](install/install.ts) · [install/installClone.ts](install/installClone.ts) · [install/isLink.ts](install/isLink.ts) · [install/offRef.ts](install/offRef.ts) · [update/update.ts](update/update.ts) · and 8 more
+Files: [repos/materializeRepo.ts](repos/materializeRepo.ts) · [repos/repos.ts](repos/repos.ts) · [init/consts.ts](init/consts.ts) · [init/init.ts](init/init.ts) · [init/initFootprint.ts](init/initFootprint.ts) · [init/seedBlock.ts](init/seedBlock.ts) · [install/commitOf.ts](install/commitOf.ts) · [install/install.ts](install/install.ts) · [install/installClone.ts](install/installClone.ts) · [install/isLink.ts](install/isLink.ts) · [install/offRef.ts](install/offRef.ts) · [update/update.ts](update/update.ts) · and 8 more
 
 dreamteamer init — write the workspace skeleton into the current directory.
 non-interactive: flags override sensible defaults (RAD phase; prompts later).
@@ -370,7 +370,7 @@ src/checkout.ts and src/init.ts; this file is only the spec form.
 
 ## namespace
 
-Files: [collections/qualify.ts](collections/qualify.ts) · [record/namespace.ts](record/namespace.ts) · [record/namespaceProblems.ts](record/namespaceProblems.ts) · [record/normalizeNamespaces.ts](record/normalizeNamespaces.ts) · [record/parseRef.ts](record/parseRef.ts) · [record/singular.ts](record/singular.ts) · [record/storageOverlaps.ts](record/storageOverlaps.ts) · [record/unqualifiedProblems.ts](record/unqualifiedProblems.ts)
+Files: [collections/lib/qualify.ts](collections/lib/qualify.ts) · [record/namespace.ts](record/namespace.ts) · [record/namespaceProblems.ts](record/namespaceProblems.ts) · [record/normalizeNamespaces.ts](record/normalizeNamespaces.ts) · [record/parseRef.ts](record/parseRef.ts) · [record/singular.ts](record/singular.ts) · [record/storageOverlaps.ts](record/storageOverlaps.ts) · [record/unqualifiedProblems.ts](record/unqualifiedProblems.ts)
 
 NAMESPACES — how a collection name is scoped, and how a reference splits back apart.
 
@@ -453,7 +453,7 @@ Pure: no fs, no git, no workspace.
 
 ## record-commands
 
-Files: [collections/commandsFor.ts](collections/commandsFor.ts) · [collections/recordResolver.ts](collections/recordResolver.ts)
+Files: [records/commandsFor.ts](records/commandsFor.ts) · [records/lib/recordResolver.ts](records/lib/recordResolver.ts)
 
 record⇄command evaluation — which bound commands apply to a record (or a list
 selection), and in which state. a binding is a `command-bindings` record: a m2m
@@ -510,7 +510,7 @@ records. So this module owns the runtime's shape, and both halves import it.
 
 ## scaffold-templates
 
-Files: [collections/extensionText.ts](collections/extensionText.ts) · [collections/readmeText.ts](collections/readmeText.ts) · [collections/scaffoldKey.ts](collections/scaffoldKey.ts) · [collections/testText.ts](collections/testText.ts)
+Files: [modules/lib/extensionText.ts](modules/lib/extensionText.ts) · [modules/lib/readmeText.ts](modules/lib/readmeText.ts) · [modules/lib/scaffoldKey.ts](modules/lib/scaffoldKey.ts) · [modules/lib/testText.ts](modules/lib/testText.ts)
 
 The text `dt add modules` writes beside a new module's package.json (cr-dt-007, G4): a README with the
 install line, and — under `--extension` — an extension entry whose one setup unit asks for one token and
@@ -518,7 +518,7 @@ lets the engine write it into .env (the env action, D61). Pure: strings in, stri
 
 ## schema-ops
 
-Files: [collections/consts.ts](collections/consts.ts) · [collections/addField.ts](collections/addField.ts) · [collections/applyRewrites.ts](collections/applyRewrites.ts) · [collections/baseDescriptorSource.ts](collections/baseDescriptorSource.ts) · [collections/collectionSourceFile.ts](collections/collectionSourceFile.ts) · [collections/createCollection.ts](collections/createCollection.ts) · [collections/createModule.ts](collections/createModule.ts) · [collections/createSkill.ts](collections/createSkill.ts) · [collections/declaringSource.ts](collections/declaringSource.ts) · [collections/descriptorSources.ts](collections/descriptorSources.ts) · [collections/editWorkspacePkg.ts](collections/editWorkspacePkg.ts) · [collections/entitySource.ts](collections/entitySource.ts) · and 55 more
+Files: [lib/consts.ts](lib/consts.ts) · [collections/addField.ts](collections/addField.ts) · [collections/lib/applyRewrites.ts](collections/lib/applyRewrites.ts) · [lib/baseDescriptorSource.ts](lib/baseDescriptorSource.ts) · [lib/collectionSourceFile.ts](lib/collectionSourceFile.ts) · [collections/createCollection.ts](collections/createCollection.ts) · [modules/createModule.ts](modules/createModule.ts) · [entities/createSkill.ts](entities/createSkill.ts) · [collections/lib/declaringSource.ts](collections/lib/declaringSource.ts) · [collections/lib/descriptorSources.ts](collections/lib/descriptorSources.ts) · [lib/editWorkspacePkg.ts](lib/editWorkspacePkg.ts) · [entities/lib/entitySource.ts](entities/lib/entitySource.ts) · and 55 more
 
 schema operations — source-writing mutations shared by the CLI meta verbs and the
 server's schema endpoints. the contract (audit finding 11, clean-room bug 2): an op
@@ -607,7 +607,7 @@ error naming the position rather than a blank label in a surface.
 
 ## temporal
 
-Files: [collections/compareValues.ts](collections/compareValues.ts) · [collections/parseTemporal.ts](collections/parseTemporal.ts) · [collections/sortRows.ts](collections/sortRows.ts) · [record/normalizeRecord.ts](record/normalizeRecord.ts) · [record/normalizeTemporal.ts](record/normalizeTemporal.ts) · [record/temporal.ts](record/temporal.ts) · [record/types.ts](record/types.ts)
+Files: [records/lib/compareValues.ts](records/lib/compareValues.ts) · [records/lib/parseTemporal.ts](records/lib/parseTemporal.ts) · [records/lib/sortRows.ts](records/lib/sortRows.ts) · [record/normalizeRecord.ts](record/normalizeRecord.ts) · [record/normalizeTemporal.ts](record/normalizeTemporal.ts) · [record/temporal.ts](record/temporal.ts) · [record/types.ts](record/types.ts)
 
 temporal values — the `format: date` and `format: date-time` fields — normalized on WRITE and
 compared as INSTANTS, never as strings.
@@ -692,7 +692,7 @@ dependency brings it in and a version that adds a setup unit runs its safe part.
 
 ## views
 
-Files: [collections/viewOverlayOf.ts](collections/viewOverlayOf.ts) · [workspace/bindingErrors.ts](workspace/bindingErrors.ts) · [workspace/filterFields.ts](workspace/filterFields.ts) · [workspace/overlayView.ts](workspace/overlayView.ts) · [workspace/types.ts](workspace/types.ts) · [workspace/viewDisplay.ts](workspace/viewDisplay.ts) · [workspace/viewErrors.ts](workspace/viewErrors.ts) · [workspace/views.ts](workspace/views.ts)
+Files: [ui-views/lib/viewOverlayOf.ts](ui-views/lib/viewOverlayOf.ts) · [workspace/bindingErrors.ts](workspace/bindingErrors.ts) · [workspace/filterFields.ts](workspace/filterFields.ts) · [workspace/overlayView.ts](workspace/overlayView.ts) · [workspace/types.ts](workspace/types.ts) · [workspace/viewDisplay.ts](workspace/viewDisplay.ts) · [workspace/viewErrors.ts](workspace/viewErrors.ts) · [workspace/views.ts](workspace/views.ts)
 
 ui-views and command-bindings — validated against the collection they name, and a view's display
 resolved over that collection's.
@@ -727,7 +727,7 @@ real workspace and now resolves as one.
 
 ## yaml
 
-Files: [collections/renameKeys.ts](collections/renameKeys.ts) · [fmt/formatSource.ts](fmt/formatSource.ts) · [record/emitDocument.ts](record/emitDocument.ts) · [record/endOf.ts](record/endOf.ts) · [record/writeSource.ts](record/writeSource.ts) · [record/yaml.ts](record/yaml.ts)
+Files: [collections/lib/renameKeys.ts](collections/lib/renameKeys.ts) · [fmt/formatSource.ts](fmt/formatSource.ts) · [record/emitDocument.ts](record/emitDocument.ts) · [record/endOf.ts](record/endOf.ts) · [record/writeSource.ts](record/writeSource.ts) · [record/yaml.ts](record/yaml.ts)
 
 contract rule: YAML is parsed with the CORE schema — unquoted dates stay strings,
 never timestamp objects. ALL dreamteamer tooling loads YAML through here.

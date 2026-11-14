@@ -5,7 +5,7 @@
 //
 // A file's FOLDER is its layer, so a new file needs no registration:
 //
-//   src/record/, src/runtime/, src/workspace/   shared   code two or more commands use
+//   src/lib/, src/record/, src/runtime/, src/workspace/   shared   code two or more commands use
 //   src/<command>/                              command  code only that command uses — never another command's
 //   src/*.ts                                    surface  entry points and the function each verb dispatches to
 //
@@ -25,9 +25,29 @@ import { typeOnly } from "./import-edges.ts"
 
 const SRC = resolve(dirname(fileURLToPath(import.meta.url)), "..", "src")
 
-const SHARED = new Set(["record", "runtime", "workspace"])
+const SHARED = new Set(["lib", "record", "runtime", "workspace"])
 // the folders that hold one command's own code
-const COMMANDS = new Set(["changes", "check", "collections", "doctor", "exports", "fmt", "init", "install", "update"])
+const COMMANDS = new Set([
+  "changes",
+  "check",
+  "collections",
+  "doctor",
+  "entities",
+  "exports",
+  "fmt",
+  "init",
+  "install",
+  "modules",
+  "records",
+  "repos",
+  "ui-views",
+  "update",
+])
+
+// ⚠ THE ONE NAMED EXCEPTION, until it is split: records/collectionCommand.ts is the CLI translation for
+// every record, system and field verb, so it dispatches into collections/, modules/, ui-views/,
+// entities/ and repos/. Splitting it by target is the next step; this list empties when that lands.
+const DISPATCHERS = new Set(["records/collectionCommand"])
 
 // who may import whom. A command folder may also import its OWN folder, never another command's —
 // checked below, not in this table.
@@ -85,16 +105,21 @@ for (const f of files) {
       problems.push(
         `src/${f} (${layer}) imports src/${target}.ts (${targetLayer}) — ${layer} may only import ${[...ALLOWED[layer]].join(", ")}`
       )
-    } else if (layer === "command" && targetLayer === "command" && target.split("/")[0] !== mod.split("/")[0]) {
+    } else if (
+      layer === "command" &&
+      targetLayer === "command" &&
+      target.split("/")[0] !== mod.split("/")[0] &&
+      !DISPATCHERS.has(mod)
+    ) {
       problems.push(
-        `src/${f} imports src/${target}.ts — a command folder holds code only its own command uses; what two commands share belongs in src/record, src/runtime or src/workspace`
+        `src/${f} imports src/${target}.ts — a command folder holds code only its own command uses; what two commands share belongs in src/lib (or src/record, src/runtime, src/workspace)`
       )
     }
   }
 }
 for (const d of unknownFolders)
   problems.push(
-    `src/${d}/ is not a known folder — a command's own folder is named in COMMANDS in ${basename(fileURLToPath(import.meta.url))}; shared code belongs in src/record, src/runtime or src/workspace`
+    `src/${d}/ is not a known folder — a command's own folder is named in COMMANDS in ${basename(fileURLToPath(import.meta.url))}; shared code belongs in src/lib (or src/record, src/runtime, src/workspace)`
   )
 
 // ⚠ A SCANNER THAT READS NOTHING PASSES. A change of quote style or import syntax would leave the

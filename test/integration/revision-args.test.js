@@ -10,7 +10,7 @@ import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import { workspace, simpleCollection, readFile, ENGINE_ROOT } from "../helpers/ws.js"
-import { historyDiff } from "../../src/collections/historyDiff.ts"
+import { historyDiff } from "../../src/records/historyDiff.ts"
 import { deriveEvents } from "../../src/changes/deriveEvents.ts"
 
 const TASKS = simpleCollection({ storage: { suffix: "task" } })

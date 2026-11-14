@@ -13,7 +13,7 @@ import os from "node:os"
 import { workspace, compileQuietly, compileError, readFile, git, dt } from "../helpers/ws.js"
 import { Store } from "../../src/record/Store.ts"
 import { storageOf } from "../../src/record/storageOf.ts"
-import { history } from "../../src/collections/history.ts"
+import { history } from "../../src/records/history.ts"
 import { deriveEvents } from "../../src/changes/deriveEvents.ts"
 
 const PEOPLE =

@@ -6,10 +6,10 @@
 // module has, so it is the first thing asserted.
 import { test, describe } from "node:test"
 import assert from "node:assert/strict"
-import { matchesFilter } from "../../src/collections/matchesFilter.ts"
+import { matchesFilter } from "../../src/records/lib/matchesFilter.ts"
 import { unknownOperators } from "../../src/record/unknownOperators.ts"
 import { unknownTokens } from "../../src/record/unknownTokens.ts"
-import { tokenValue } from "../../src/collections/tokenValue.ts"
+import { tokenValue } from "../../src/records/lib/tokenValue.ts"
 import { VALUE_TOKENS } from "../../src/record/consts.ts"
 import { KNOWN_OPERATORS } from "../../src/record/consts.ts"
 
