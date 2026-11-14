@@ -76,6 +76,10 @@ export { envContext, renderTemplate, parseEnvValues } from './env-vars.js';
 // `display.record.subtitle`, `card_title` and `item_title` with, so no surface keeps a second parser
 export { parseTemplate, validateTemplate, renderDisplay } from './template.js';
 export { satisfies } from './semver.js';
+// the nav document (cr-dt-008): nav.yaml read, checked and written, and the shipped fragments merged into it —
+// what every host (the editor, dt web) uses, so there is one grammar and one writer
+export { readNavDoc, validateNavDoc, writeNavDoc } from './nav.js';
+export { applyNavFragments } from './nav-fragments.js';
 
 // ---- the compiler, schema and module operations ---------------------------------------------------
 export { compile, staleness, warnIfStale, discoverModules, CompileError, KINDS } from './compile.js';
