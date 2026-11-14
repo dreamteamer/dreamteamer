@@ -1,6 +1,6 @@
-# Extending Dreamteamer
+# Extending dreamteamer
 
-Dreamteamer is modular and can be extended by adding new modules.
+dreamteamer is modular: you extend it by adding modules. Below, `dt` is short for `npx dreamteamer`.
 
 ## Writing a module
 
