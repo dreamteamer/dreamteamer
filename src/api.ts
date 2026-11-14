@@ -1,15 +1,15 @@
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 import * as self from "./api.ts"
-import { findWorkspace } from "./workspace.ts"
-import { loadExtensions, manifestViolations } from "./extensions.ts"
+import { findWorkspace } from "./lib/workspace.ts"
+import { loadExtensions, manifestViolations } from "./lib/extensions.ts"
 import fs from "node:fs"
 import { KINDS, discoverModules } from "./compile.ts"
-import { DERIVED_KINDS } from "./runtime.ts"
-import { KNOWN_HARNESSES } from "./harnesses.ts"
+import { DERIVED_KINDS } from "./lib/runtime.ts"
+import { KNOWN_HARNESSES } from "./lib/harnesses.ts"
 import { CORE_VERBS } from "./cli.ts"
-import { installCommand as installCheckout } from "./checkout.ts"
-import type { Workspace, LoadedExtension, CheckItem, PackageJson } from "./types.ts"
+import { installCommand as installCheckout } from "./lib/checkout.ts"
+import type { Workspace, LoadedExtension, CheckItem, PackageJson } from "./lib/types.ts"
 
 // Everything the record half exports (the browser-safe entry, `dreamteamer/records`), then the rest.
 export * from "./records-api.ts"
@@ -30,7 +30,7 @@ export type {
   HarnessContext,
   TemplatePart,
   SchemaOp,
-} from "./types.ts"
+} from "./lib/types.ts"
 
 // ---- the workspace ------------------------------------------------------------------------------
 
@@ -51,7 +51,7 @@ export async function openWorkspace(
   return ws
 }
 export { findWorkspace }
-export { EXTENSION_API, declaredExtensions, contributedNotes } from "./extensions.ts"
+export { EXTENSION_API, declaredExtensions, contributedNotes } from "./lib/extensions.ts"
 /** An extension's `check` may return `{ file, message, warning: true }`: printed as a warning, never a
  *  violation. A module reads this flag to know the engine it runs on has the channel — on one without
  *  it, a warning item would be counted as a violation. */
@@ -100,15 +100,15 @@ export const engineBin = fileURLToPath(new URL("../bin/dreamteamer.js", import.m
 export const engineRoot = path.dirname(path.dirname(engineBin))
 
 // ---- values the workspace half adds ---------------------------------------------------------------
-export { envContext, renderTemplate, parseEnvValues } from "./env-vars.ts"
+export { envContext, renderTemplate, parseEnvValues } from "./lib/env-vars.ts"
 // the one template grammar (`{{ field | filter:arg }}`): what a surface renders `record_title`,
 // `display.record.subtitle`, `card_title` and `item_title` with, so no surface keeps a second parser
-export { parseTemplate, validateTemplate, renderDisplay } from "./template.ts"
-export { satisfies } from "./semver.ts"
+export { parseTemplate, validateTemplate, renderDisplay } from "./lib/template.ts"
+export { satisfies } from "./lib/semver.ts"
 
 // ---- the compiler, schema and module operations ---------------------------------------------------
 export { compile, staleness, warnIfStale, discoverModules, CompileError, KINDS } from "./compile.ts"
-export { MANAGED_BLOCKS } from "./harnesses.ts"
+export { MANAGED_BLOCKS } from "./lib/harnesses.ts"
 export {
   createCollection,
   removeCollection,
@@ -136,11 +136,11 @@ export {
   removeEntity,
   renameEntity,
   setEntityFrontmatter,
-} from "./schema-ops.ts"
+} from "./collections/schema-ops.ts"
 export { init, ensureRepo, ensureAllRepos, listRepos, installClone } from "./init.ts"
 
 // ---- the checkout: which one this is, and how it becomes ready ---------------------------------
-export { describeCheckout, resolveNpm, childEnv, readHookInput, readStdin } from "./checkout.ts"
+export { describeCheckout, resolveNpm, childEnv, readHookInput, readStdin } from "./lib/checkout.ts"
 
 /** `dt install` on the checkout `ws`, as the CLI runs it. The compile step reopens the workspace with
  *  `opts.open` — `openWorkspace` unless a caller injects another — so the extensions npm just
@@ -153,4 +153,4 @@ export const installCommand = (
 ): Promise<number> => installCheckout(ws, argv, { open: openWorkspace, ...opts })
 
 // ---- CLI helpers an extension command reuses -----------------------------------------------------
-export { emit, parseArgs } from "./collections-cli.ts"
+export { emit, parseArgs } from "./collections.ts"

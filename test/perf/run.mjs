@@ -26,9 +26,9 @@ import fs from "node:fs"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { compile } from "../../src/compile.ts"
-import { Store } from "../../src/store.ts"
-import { renameCollection } from "../../src/schema-ops.ts"
-import { dump } from "../../src/yaml.ts"
+import { Store } from "../../src/lib/store.ts"
+import { renameCollection } from "../../src/collections/schema-ops.ts"
+import { dump } from "../../src/lib/yaml.ts"
 
 const ENGINE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..")
 const PERF_DIR = path.join(ENGINE_ROOT, "test", ".perf")

@@ -12,9 +12,9 @@ import { test, describe } from "node:test"
 import assert from "node:assert/strict"
 import fs from "node:fs"
 import { workspace, simpleCollection, compileError, readFile } from "../helpers/ws.js"
-import { load, dump } from "../../src/yaml.ts"
-import { presentation } from "../../src/presentation.ts"
-import { loadDescriptors } from "../../src/runtime.ts"
+import { load, dump } from "../../src/lib/yaml.ts"
+import { presentation } from "../../src/lib/presentation.ts"
+import { loadDescriptors } from "../../src/lib/runtime.ts"
 
 /** A collection with `name`, the given fields, and the body a mirror target needs. */
 const coll = (suffix, fields = {}) =>
@@ -281,7 +281,7 @@ describe("presentation projects relations", () => {
     const sums = Object.fromEntries(p.fields.summaries.map(r => [r.field, r]))
     assert.equal(sums.meeting.unique, true)
 
-    // the same three names src/relations.ts decodes — no surface learns a second vocabulary
+    // the same three names src/lib/relations.ts decodes — no surface learns a second vocabulary
     const kindOf = (collection, field) => p.relations.find(r => r.collection === collection && r.field === field)
     assert.equal(kindOf("recordings", "meeting").kind, "m2o")
     assert.equal(kindOf("summaries", "meeting").kind, "o2o")

@@ -17,19 +17,20 @@ import path from "node:path"
 
 // Run from a checkout (scripts/x.ts beside src/) and from the npm package (built to dist/scripts/x.js,
 // one level under the engine's dist/*.js) — the rule of bin/dreamteamer.js: the source when present.
-const SOURCE = fs.existsSync(new URL("../src/store.ts", import.meta.url))
+const SOURCE = fs.existsSync(new URL("../src/lib/store.ts", import.meta.url))
 const engine = <M>(name: string): Promise<M> =>
   import(new URL(SOURCE ? `../src/${name}.ts` : `../${name}.js`, import.meta.url).href)
-const { Store } = await engine<typeof import("../src/store.ts")>("store")
-const { parseRecord, idFromRecordPath, walk } = await engine<typeof import("../src/records.ts")>("records")
-const { exportsFacts } = await engine<typeof import("../src/runtime.ts")>("runtime")
-const { storageOf, bodyFieldOf, recordTitleOf } = await engine<typeof import("../src/descriptor.ts")>("descriptor")
+const { Store } = await engine<typeof import("../src/lib/store.ts")>("lib/store")
+const { parseRecord, idFromRecordPath, walk } = await engine<typeof import("../src/lib/records.ts")>("lib/records")
+const { exportsFacts } = await engine<typeof import("../src/lib/runtime.ts")>("lib/runtime")
+const { storageOf, bodyFieldOf, recordTitleOf } =
+  await engine<typeof import("../src/lib/descriptor.ts")>("lib/descriptor")
 const { EXPORTS_FILE, readExports, serializeExports, exportsContext, outsideRefs } =
-  await engine<typeof import("../src/exports.ts")>("exports")
-const { planExports } = await engine<typeof import("../src/exports-cli.ts")>("exports-cli")
+  await engine<typeof import("../src/lib/exports.ts")>("lib/exports")
+const { planExports } = await engine<typeof import("../src/exports.ts")>("exports")
 
 // `stub: true` in the FRONTMATTER only — a body quoting a stub is a real record
-type Descriptor = import("../src/types.ts").Descriptor
+type Descriptor = import("../src/lib/types.ts").Descriptor
 type StoreT = InstanceType<typeof Store>
 
 const isStubText = (text: string): boolean =>

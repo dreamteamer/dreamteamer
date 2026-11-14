@@ -16,7 +16,7 @@ import {
   defaultStoragePath,
   storageOverlaps,
   RESERVED_NAMESPACES,
-} from "../../src/namespace.ts"
+} from "../../src/lib/namespace.ts"
 
 const NS = normalizeNamespaces(["health", "finance", "work/clients", "work"])
 

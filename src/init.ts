@@ -2,11 +2,11 @@ import { execFileSync, spawnSync, type StdioOptions } from "node:child_process"
 import fs from "node:fs"
 import path from "node:path"
 import { discoverModules, KINDS } from "./compile.ts"
-import { KNOWN_HARNESSES } from "./harnesses.ts"
-import { Store } from "./store.ts"
-import { envContext, renderTemplate } from "./env-vars.ts"
-import { declaredGitModules, ensureEditorRecommendation } from "./workspace.ts"
-import type { DreamteamerBlock, Flags, Workspace } from "./types.ts"
+import { KNOWN_HARNESSES } from "./lib/harnesses.ts"
+import { Store } from "./lib/store.ts"
+import { envContext, renderTemplate } from "./lib/env-vars.ts"
+import { declaredGitModules, ensureEditorRecommendation } from "./lib/workspace.ts"
+import type { DreamteamerBlock, Flags, Workspace } from "./lib/types.ts"
 
 // git calls whose failure we CATCH must not print git's own error: execFileSync forwards the
 // child's stderr to ours unless told otherwise, so a handled "not a git repository" still

@@ -1,16 +1,16 @@
 import { execFileSync, type StdioOptions } from "node:child_process"
 import fs from "node:fs"
 import path from "node:path"
-import { pathToRecord, deriveEvents, foldChanges, CHANGE_OF, TYPE_OF } from "./events.ts"
-import { parseRecordText } from "./records.ts"
-import { relationsOf } from "./relations.ts"
-import { splitRef, canonicalCollection } from "./ref.ts"
+import { pathToRecord, deriveEvents, foldChanges, CHANGE_OF, TYPE_OF } from "./lib/events.ts"
+import { parseRecordText } from "./lib/records.ts"
+import { relationsOf } from "./lib/relations.ts"
+import { splitRef, canonicalCollection } from "./lib/ref.ts"
 
-import { storageOf } from "./descriptor.ts"
-import type { Store } from "./store.ts"
-import type { Relation } from "./relations.ts"
-import type { RecordChange } from "./events.ts"
-import type { Descriptors } from "./types.ts"
+import { storageOf } from "./lib/descriptor.ts"
+import type { Store } from "./lib/store.ts"
+import type { Relation } from "./lib/relations.ts"
+import type { RecordChange } from "./lib/events.ts"
+import type { Descriptors } from "./lib/types.ts"
 
 /** One pending record file `git status` reported, mapped back to its record. */
 type Row = { verb: string; collection: string; id: string; repoRel: string; fromRel: string | null }

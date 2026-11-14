@@ -19,7 +19,7 @@
 // sentence of thought that adding a core collection does.
 
 import { readFileSync, readdirSync } from "node:fs"
-import { resolve, dirname, join, basename } from "node:path"
+import { resolve, dirname, join, basename, relative, posix } from "node:path"
 import { fileURLToPath } from "node:url"
 import { typeOnly } from "./import-edges.ts"
 
@@ -28,55 +28,64 @@ const SRC = resolve(dirname(fileURLToPath(import.meta.url)), "..", "src")
 const LAYERS = {
   // records over git — must not know that modules, channels or `extends` exist
   record: [
-    "store",
-    "records",
-    "temporal",
-    "fractional-index",
-    "filter",
-    "field-values",
+    "lib/store",
+    "lib/records",
+    "lib/temporal",
+    "lib/fractional-index",
+    "lib/filter",
+    "lib/field-values",
     "commit",
-    "events",
-    "history",
-    "template",
-    "yaml",
-    "workspace",
+    "lib/events",
+    "lib/history",
+    "lib/template",
+    "lib/yaml",
+    "lib/workspace",
     "check",
-    "namespace",
-    "ref",
-    "relations",
-    "env-vars",
-    "placement",
-    "fields",
-    "descriptor",
-    "exports",
-    "types",
+    "lib/namespace",
+    "lib/ref",
+    "lib/relations",
+    "lib/env-vars",
+    "lib/placement",
+    "lib/fields",
+    "lib/descriptor",
+    "lib/exports",
+    "lib/types",
   ],
   // the compiled artifact both halves share
-  boundary: ["runtime"],
+  boundary: ["lib/runtime"],
   // the workspace compiler and the harness surface
   workspace: [
     "compile",
-    "compile-collections",
-    "descriptor-v2",
-    "views",
-    "harnesses",
-    "schema-ops",
+    "lib/compile-collections",
+    "lib/descriptor-v2",
+    "lib/views",
+    "lib/harnesses",
+    "collections/schema-ops",
     "init",
-    "record-commands",
-    "semver",
-    "checkout",
-    "extensions",
+    "lib/record-commands",
+    "lib/semver",
+    "lib/checkout",
+    "lib/extensions",
     "doctor",
-    "setup-contract",
+    "lib/setup-contract",
     "setup",
-    "env-write",
-    "check-alone",
-    "scaffold-templates",
-    "install-modules",
+    "setup/env-write",
+    "check/alone",
+    "collections/scaffold-templates",
+    "install",
     "update",
   ],
   // entry points; span both halves by definition (the CLI, the public API, the descriptor→UI read model)
-  surface: ["cli", "collections-cli", "presentation", "api", "records-api", "exports-cli", "testing", "update-setup"],
+  surface: [
+    "cli",
+    "collections",
+    "lib/presentation",
+    "api",
+    "records-api",
+    "exports",
+    "testing",
+    "update/update-setup",
+  ],
 }
 
 // who may import whom. `record` and `boundary` are the constrained half; surfaces are free.
@@ -90,14 +99,16 @@ const ALLOWED: Record<string, Set<string>> = {
 const layerOf = new Map()
 for (const [layer, mods] of Object.entries(LAYERS)) for (const m of mods) layerOf.set(m, layer)
 
-const files = readdirSync(SRC)
+// every module under src/, sub-folders included, as its path from src/ ("lib/store.ts")
+const files = (readdirSync(SRC, { recursive: true }) as string[])
+  .map(f => relative(SRC, join(SRC, f)).split("\\").join("/"))
   .filter(f => f.endsWith(".ts") && !f.endsWith(".d.ts"))
   .sort()
 const problems = []
 
 let edges = 0
 for (const f of files) {
-  const mod = basename(f, ".ts")
+  const mod = f.slice(0, -".ts".length)
   const layer = layerOf.get(mod)
   if (!layer) {
     problems.push(
@@ -113,12 +124,12 @@ for (const f of files) {
   //
   // A TYPE-ONLY edge (`import type`, `export type`, `typeof import('./x.ts')`) is not one: under
   // verbatimModuleSyntax it is erased by construction, so it can load nothing. That is what lets the
-  // contract's shapes live in one file (src/types.ts) that both halves name.
+  // contract's shapes live in one file (src/lib/types.ts) that both halves name.
   for (const m of body.matchAll(
-    /(?:(?:^|\n)\s*(?:import|export)[\s\S]*?from\s+|import\(\s*)['"]\.\/([\w.-]+)\.ts['"]/g
+    /(?:(?:^|\n)\s*(?:import|export)[\s\S]*?from\s+|import\(\s*)['"](\.\.?\/[\w./-]+)\.ts['"]/g
   )) {
     if (typeOnly(body, m)) continue
-    const target = m[1]
+    const target = posix.join(posix.dirname(mod), m[1])
     const targetLayer = layerOf.get(target)
     if (!targetLayer) continue // the missing-assignment failure is already reported on that file
     edges++

@@ -2,12 +2,12 @@ import { execFileSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import fs from "node:fs"
 import path from "node:path"
-import { load, dump } from "./yaml.ts"
-import { slug } from "./template.ts"
-import { walk } from "./records.ts"
-import { placedRecords } from "./placement.ts"
-import { viewErrors, viewDisplay, bindingErrors, overlayView } from "./views.ts"
-import { normalizeNamespaces, namespaceProblems, unqualifiedProblems } from "./namespace.ts"
+import { load, dump } from "./lib/yaml.ts"
+import { slug } from "./lib/template.ts"
+import { walk } from "./lib/records.ts"
+import { placedRecords } from "./lib/placement.ts"
+import { viewErrors, viewDisplay, bindingErrors, overlayView } from "./lib/views.ts"
+import { normalizeNamespaces, namespaceProblems, unqualifiedProblems } from "./lib/namespace.ts"
 // circular on paper in earlier versions — safe: both sides only
 // call at run time, same pattern as store.js ↔ compile.js.
 import {
@@ -17,10 +17,10 @@ import {
   END,
   INSTRUCTIONS_BEGIN,
   INSTRUCTIONS_END,
-} from "./harnesses.ts"
-import { ensureEditorRecommendation, ensureEnvExample, ensureGitignored, layerEntries } from "./workspace.ts"
-import { satisfies } from "./semver.ts"
-import { parseEnvValues } from "./env-vars.ts"
+} from "./lib/harnesses.ts"
+import { ensureEditorRecommendation, ensureEnvExample, ensureGitignored, layerEntries } from "./lib/workspace.ts"
+import { satisfies } from "./lib/semver.ts"
+import { parseEnvValues } from "./lib/env-vars.ts"
 import {
   DERIVED_KINDS,
   readManifest,
@@ -29,11 +29,17 @@ import {
   engineVersion,
   loadDescriptors as loadCompiledDescriptors,
   STALE_RUNTIME,
-} from "./runtime.ts"
-import { excludedFromKind, disablesPackage, isPackageEntry, MANIFEST_KEYS, v1ManifestRefusal } from "./extensions.ts"
-import { compileCollections, v1Refusal } from "./compile-collections.ts"
-import type { CompileLayer, CompiledCollection, DescriptorSource, ModuleSource } from "./compile-collections.ts"
-import { storageOf, fieldsOf, displayOf, targetsOf } from "./descriptor.ts"
+} from "./lib/runtime.ts"
+import {
+  excludedFromKind,
+  disablesPackage,
+  isPackageEntry,
+  MANIFEST_KEYS,
+  v1ManifestRefusal,
+} from "./lib/extensions.ts"
+import { compileCollections, v1Refusal } from "./lib/compile-collections.ts"
+import type { CompileLayer, CompiledCollection, DescriptorSource, ModuleSource } from "./lib/compile-collections.ts"
+import { storageOf, fieldsOf, displayOf, targetsOf } from "./lib/descriptor.ts"
 import type {
   AuthoredDescriptor,
   Descriptor,
@@ -44,7 +50,7 @@ import type {
   Manifest,
   PackageJson,
   LoadedExtension,
-} from "./types.ts"
+} from "./lib/types.ts"
 /** One runtime file being compiled: its sources and bytes, and for a merged ui-view who overlaid it. */
 type CompileEntry = Entry & { module?: string; overlaidBy?: string[] }
 /** Any module source as parsed: the keys compile reads before it knows the kind, the rest open. */
@@ -81,7 +87,7 @@ export function titleCase(id: string): string {
 
 /** The source kinds the compiler itself stages. An installed extension may add more
  *  (`sourceKinds`, src/extensions.ts) — every enumeration below reads `kindsOf(ws)`, never this alone. */
-export { MANIFEST_KEYS } from "./extensions.ts"
+export { MANIFEST_KEYS } from "./lib/extensions.ts"
 
 export const KINDS: readonly string[] = [
   "collections",

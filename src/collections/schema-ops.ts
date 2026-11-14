@@ -1,21 +1,28 @@
 import fs from "node:fs"
 import path from "node:path"
 import { execFileSync, type StdioOptions } from "node:child_process"
-import { load, dump, writeSource, renameKeys, commentCount, formatSource } from "./yaml.ts"
-import { compile, kindDir, KINDS, repoRootOf, discoverModules } from "./compile.ts"
-import { V2_KEYS, isV2 } from "./descriptor-v2.ts"
-import { v1Refusal } from "./compile-collections.ts"
-import { readManifest, loadDescriptors, engineId } from "./runtime.ts"
-import { normalizeNamespaces, namespaceOf, baseNameOf, qualify, defaultStoragePath, singular } from "./namespace.ts"
-import { fieldsOf, targetsOf, storageOf, isRuntime, bodyFieldOf, moduleOf } from "./descriptor.ts"
-import { SCALAR_TYPES, enumValues, INJECTED_FIELDS } from "./fields.ts"
-import { FIELD_OPTIONS, TEMPLATE_OPTIONS, viewOverlayOf } from "./views.ts"
+import { load, dump, writeSource, renameKeys, commentCount, formatSource } from "../lib/yaml.ts"
+import { compile, kindDir, KINDS, repoRootOf, discoverModules } from "../compile.ts"
+import { V2_KEYS, isV2 } from "../lib/descriptor-v2.ts"
+import { v1Refusal } from "../lib/compile-collections.ts"
+import { readManifest, loadDescriptors, engineId } from "../lib/runtime.ts"
+import {
+  normalizeNamespaces,
+  namespaceOf,
+  baseNameOf,
+  qualify,
+  defaultStoragePath,
+  singular,
+} from "../lib/namespace.ts"
+import { fieldsOf, targetsOf, storageOf, isRuntime, bodyFieldOf, moduleOf } from "../lib/descriptor.ts"
+import { SCALAR_TYPES, enumValues, INJECTED_FIELDS } from "../lib/fields.ts"
+import { FIELD_OPTIONS, TEMPLATE_OPTIONS, viewOverlayOf } from "../lib/views.ts"
 
 // Same rule as store.js: a git failure we CATCH must not also print git's own error on top of the
 // clean message we throw. stdout stays piped because some callers read it.
 const GIT_QUIET: StdioOptions = ["ignore", "pipe", "ignore"]
-import { walk, idFromRecordPath, parseRecord, EXT } from "./records.ts"
-import { Store, serialize, atomicWrite } from "./store.ts"
+import { walk, idFromRecordPath, parseRecord, EXT } from "../lib/records.ts"
+import { Store, serialize, atomicWrite } from "../lib/store.ts"
 import { readmeText, extensionText, testText, scaffoldKey } from "./scaffold-templates.ts"
 import type {
   AuthoredDescriptor,
@@ -26,7 +33,7 @@ import type {
   Flags,
   PackageJson,
   Workspace,
-} from "./types.ts"
+} from "../lib/types.ts"
 /** A source file as parsed — a collection, a ui-view, a module record, a skill's frontmatter: the authored
  *  descriptor keys, all optional, the rest open. Validated by compile, not by this parse. */
 type SourceDoc = Partial<AuthoredDescriptor>
@@ -405,7 +412,7 @@ function editWorkspacePkg(ws: Workspace, mutate: (block: DreamteamerBlock, pkg: 
 
 const NPM_NAME = /^(?:@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/
 const ENGINE_VERSION = (
-  JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version: string }
+  JSON.parse(fs.readFileSync(new URL("../../package.json", import.meta.url), "utf8")) as { version: string }
 ).version
 
 export function createModule(

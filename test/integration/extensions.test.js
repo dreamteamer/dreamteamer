@@ -16,7 +16,7 @@ import {
   withProbeSetup,
   withProbeCollide,
 } from "../helpers/ws.js"
-import { dump } from "../../src/yaml.ts"
+import { dump } from "../../src/lib/yaml.ts"
 import { openWorkspace, contributedViolations, check, CHECK_WARNINGS } from "../../src/api.ts"
 
 const PROBES = {

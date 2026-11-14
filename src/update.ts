@@ -3,7 +3,7 @@ import os from "node:os"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { spawnSync, execFileSync } from "node:child_process"
-import { resolveNpm, childEnv } from "./checkout.ts"
+import { resolveNpm, childEnv } from "./lib/checkout.ts"
 import {
   readSpecManifest,
   resolveClosure,
@@ -13,10 +13,10 @@ import {
   npmFloor,
   npmAndCompile,
   printUnitResults,
-} from "./install-modules.ts"
-import type { setupAndCommit } from "./install-modules.ts"
+} from "./install.ts"
+import type { setupAndCommit } from "./install.ts"
 import { EXIT } from "./setup.ts"
-import type { Workspace } from "./types.ts"
+import type { Workspace } from "./lib/types.ts"
 
 const gitOk = (root: string, args: string[]): boolean => {
   try {
@@ -202,9 +202,10 @@ export async function updateModules(
   return out.code
 }
 
-// beside this file, in its own extension: update-setup.ts from a checkout, .js from dist/
+// in update/ beside this file, in its own extension: update-setup.ts from a checkout, .js from dist/
 const CHILD = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
+  "update",
   `update-setup${path.extname(fileURLToPath(import.meta.url))}`
 )
 /** Run setupAndCommit in update-setup; its result, or null when the child did not leave one. */

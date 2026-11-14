@@ -2,11 +2,11 @@ import fs from "node:fs"
 import path from "node:path"
 import zlib from "node:zlib"
 import { spawnSync, execFileSync } from "node:child_process"
-import { satisfies } from "./semver.ts"
-import { engineVersion } from "./runtime.ts"
-import { parseEnvValues } from "./env-vars.ts"
+import { satisfies } from "./lib/semver.ts"
+import { engineVersion } from "./lib/runtime.ts"
+import { parseEnvValues } from "./lib/env-vars.ts"
 import { compile, discoverModules, staleness } from "./compile.ts"
-import { resolveNpm, childEnv } from "./checkout.ts"
+import { resolveNpm, childEnv } from "./lib/checkout.ts"
 import {
   units,
   runUnit,
@@ -20,7 +20,7 @@ import {
   ttyIO,
   droppedKeys,
 } from "./setup.ts"
-import type { PackageJson, Workspace } from "./types.ts"
+import type { PackageJson, Workspace } from "./lib/types.ts"
 import type { InputFlag, UnitResult } from "./setup.ts"
 
 /** A package spec read to its manifest: a local folder (linked), a tarball, or a registry version. */

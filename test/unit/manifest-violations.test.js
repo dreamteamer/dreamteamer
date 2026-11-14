@@ -2,7 +2,7 @@
 // `dependencies` nests a second engine beside the one the workspace runs, so `dt check` names it.
 import { test, describe } from "node:test"
 import assert from "node:assert/strict"
-import { manifestViolations } from "../../src/extensions.ts"
+import { manifestViolations } from "../../src/lib/extensions.ts"
 
 describe("manifestViolations", () => {
   test("dreamteamer under dependencies is a violation, named, with the fix", () => {

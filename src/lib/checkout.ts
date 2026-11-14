@@ -1,8 +1,8 @@
 import path from "node:path"
 import fs, { realpathSync } from "node:fs"
 import { execFileSync, spawnSync, type StdioOptions } from "node:child_process"
-import { staleness, compile, discoverModules } from "./compile.ts"
-import { init, initFootprint, seedBlock, install as restoreGitModules, offRef } from "./init.ts"
+import { staleness, compile, discoverModules } from "../compile.ts"
+import { init, initFootprint, seedBlock, install as restoreGitModules, offRef } from "../init.ts"
 import { declaredGitModules } from "./workspace.ts"
 import { engineVersion, readManifest, RUNTIME_DIR } from "./runtime.ts"
 import { satisfies } from "./semver.ts"
@@ -953,7 +953,7 @@ export async function initCommand(
   // --from: every package this init will need is looked for in the folder BEFORE anything is written —
   // a folder lacking one is refused with the folder untouched (no skeleton, no registry call)
   if (fromDir) {
-    const { indexFolder } = await import("./install-modules.ts")
+    const { indexFolder } = await import("../install.ts")
     let index
     try {
       index = indexFolder(fromDir)
@@ -993,7 +993,7 @@ export async function initCommand(
     let args
     if (fromDir) {
       // offline: every missing declared package (the engine too, from nothing) comes from the folder
-      const { indexFolder } = await import("./install-modules.ts")
+      const { indexFolder } = await import("../install.ts")
       let index
       try {
         index = indexFolder(fromDir)
@@ -1061,7 +1061,7 @@ export async function initCommand(
       unitEnv,
       EXIT,
       droppedKeys,
-    } = await import("./setup.ts")
+    } = await import("../setup.ts")
     const skipped = new Set(skippedUnits(ws))
     const all = units(ws).filter(u => !skipped.has(u.id))
     if (all.length) {
@@ -1175,7 +1175,7 @@ export async function initCommand(
       )
   }
   if (ws) {
-    const { statusLines, renderStatusLines } = await import("./setup.ts")
+    const { statusLines, renderStatusLines } = await import("../setup.ts")
     try {
       for (const line of renderStatusLines(statusLines(ws, { processEnv }))) log(line)
     } catch {

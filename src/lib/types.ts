@@ -363,9 +363,9 @@ export interface DoctorRow {
 export interface ExtensionContext {
   root: string
   ws: Workspace
-  dt: typeof import("./api.ts")
+  dt: typeof import("../api.ts")
 }
-export type Activate = (dt: typeof import("./api.ts")) => Contribution | Promise<Contribution>
+export type Activate = (dt: typeof import("../api.ts")) => Contribution | Promise<Contribution>
 export interface LoadedExtension {
   name: string
   version: string
@@ -429,7 +429,7 @@ export type SetupPlan = { checks?: SetupCheck[]; actions?: SetupAction[]; needs?
 export type SetupContext = {
   root: string
   ws: Workspace
-  dt: typeof import("./api.ts") | null
+  dt: typeof import("../api.ts") | null
   env: Record<string, string>
   tty: boolean
   receiptDir: string

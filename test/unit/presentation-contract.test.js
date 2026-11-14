@@ -13,7 +13,7 @@
 import { test, describe } from "node:test"
 import fs from "node:fs"
 import assert from "node:assert/strict"
-import { presentation } from "../../src/presentation.ts"
+import { presentation } from "../../src/lib/presentation.ts"
 import { clinic } from "../helpers/clinic-compiled.js"
 
 const CONTRACT = {
@@ -215,7 +215,7 @@ describe("the display contract carries only the §4.3 names", () => {
 describe("the template grammar is public", () => {
   test("api.js exports the one parser, validator and renderer", async () => {
     const api = await import("../../src/api.ts")
-    const template = await import("../../src/template.ts")
+    const template = await import("../../src/lib/template.ts")
     for (const name of ["parseTemplate", "validateTemplate", "renderDisplay"])
       assert.equal(api[name], template[name], name)
   })
@@ -241,14 +241,14 @@ describe("the template grammar is public", () => {
 })
 
 // The typings a TypeScript consumer compiles against name exactly the contract's keys. A key added to
-// the contract and not to src/types.ts (which the published declarations are generated from) would
+// the contract and not to src/lib/types.ts (which the published declarations are generated from) would
 // type-check as absent in every surface.
-describe("src/types.ts types the same contract", () => {
-  const dts = fs.readFileSync(new URL("../../src/types.ts", import.meta.url), "utf8")
+describe("src/lib/types.ts types the same contract", () => {
+  const dts = fs.readFileSync(new URL("../../src/lib/types.ts", import.meta.url), "utf8")
   /** The top-level member names of one exported interface (nested object types are not descended). */
   const keysOf = iface => {
     const start = dts.indexOf(`export interface ${iface} {`)
-    assert.notEqual(start, -1, `src/types.ts declares no ${iface}`)
+    assert.notEqual(start, -1, `src/lib/types.ts declares no ${iface}`)
     let depth = 0,
       i = dts.indexOf("{", start),
       body = ""

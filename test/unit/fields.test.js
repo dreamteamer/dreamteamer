@@ -1,4 +1,4 @@
-// Tier 1 — the descriptor v2 field vocabulary (src/fields.ts).
+// Tier 1 — the descriptor v2 field vocabulary (src/lib/fields.ts).
 //
 // The load-bearing property is the last describe: the validator's schema carries exactly the stored
 // fields, type-mapped, and nothing else. If the two ever disagree, a record the surfaces accept is one
@@ -13,7 +13,7 @@ import {
   referenceTargets,
   INJECTED_FIELDS,
   SCALAR_TYPES,
-} from "../../src/fields.ts"
+} from "../../src/lib/fields.ts"
 
 const collections = new Set([
   "health/patients",

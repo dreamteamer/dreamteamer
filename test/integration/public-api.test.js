@@ -9,7 +9,7 @@ import path from "node:path"
 import { spawnSync, execFileSync } from "node:child_process"
 import { fileURLToPath } from "node:url"
 import { workspace, git, ENGINE_ROOT } from "../helpers/ws.js"
-import { resolveNpm, childEnv } from "../../src/checkout.ts"
+import { resolveNpm, childEnv } from "../../src/lib/checkout.ts"
 import { typeOnly } from "../../scripts/import-edges.ts"
 import { checkContract } from "../../scripts/contract.ts"
 
@@ -26,7 +26,7 @@ function closure(entry) {
     )) {
       if (typeOnly(body, m)) continue // erased at run time — loads nothing in the browser
       const spec = m[1] ?? m[2]
-      if (spec.startsWith("./")) visit(spec.slice(2))
+      if (spec.startsWith(".")) visit(path.posix.join(path.posix.dirname(f), spec))
       else bare.add(spec)
     }
   }
@@ -198,11 +198,11 @@ describe("the INSTALLED package", () => {
     // node_modules), and every relative import rewritten to the .js file that sits beside it
     assert.ok(!/package\/src\//.test(listing), "src/ is published — the package must run from dist/")
     const built = fs.readFileSync(path.join(dir, "node_modules", "dreamteamer", "dist", "api.js"), "utf8")
-    assert.ok(!/from '\.\/[\w-]+\.ts'/.test(built), "dist/api.js still imports a .ts file")
-    for (const f of ["api.d.ts", "records-api.d.ts", "types.d.ts", "store.d.ts"]) {
+    assert.ok(!/from ['"]\.\.?\/[\w./-]+\.ts['"]/.test(built), "dist/api.js still imports a .ts file")
+    for (const f of ["api.d.ts", "records-api.d.ts", "lib/types.d.ts", "lib/store.d.ts"]) {
       const d = fs.readFileSync(path.join(dir, "node_modules", "dreamteamer", "dist", f), "utf8")
       assert.ok(
-        !/(?:from\s+|import\(\s*)'\.\/[\w-]+\.ts'/.test(d),
+        !/(?:from\s+|import\(\s*)['"]\.\.?\/[\w./-]+\.ts['"]/.test(d),
         `dist/${f} still names a .ts file — an older TypeScript cannot resolve it`
       )
     }

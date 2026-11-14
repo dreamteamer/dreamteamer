@@ -7,8 +7,8 @@
 import { test, describe } from "node:test"
 import assert from "node:assert/strict"
 import { generateKeyBetween } from "fractional-indexing"
-import { keyBetween } from "../../src/fractional-index.ts"
-import { sortRows, parseTemporal } from "../../src/temporal.ts"
+import { keyBetween } from "../../src/lib/fractional-index.ts"
+import { sortRows, parseTemporal } from "../../src/lib/temporal.ts"
 
 const order = keys =>
   sortRows(

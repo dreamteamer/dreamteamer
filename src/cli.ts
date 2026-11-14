@@ -1,10 +1,10 @@
-import { runExports } from "./exports-cli.ts"
+import { runExports } from "./exports.ts"
 import fs from "node:fs"
 import path from "node:path"
 import { execFileSync, type StdioOptions } from "node:child_process"
 import * as api from "./api.ts"
 import { openWorkspace, findWorkspace } from "./api.ts"
-import { checkAlone } from "./check-alone.ts"
+import { checkAlone } from "./check/alone.ts"
 import {
   compile,
   staleness,
@@ -17,11 +17,11 @@ import {
   layerEntries,
 } from "./compile.ts"
 import { check } from "./check.ts"
-import { collectionCommand, emit, relationsCommand, reportCommits } from "./collections-cli.ts"
-import { formatDescriptors } from "./schema-ops.ts"
+import { collectionCommand, emit, relationsCommand, reportCommits } from "./collections.ts"
+import { formatDescriptors } from "./collections/schema-ops.ts"
 import { installClone, update, listRepos } from "./init.ts"
-import { installCommand, describeCheckout, initCommand } from "./checkout.ts"
-import { declaredGitModules } from "./workspace.ts"
+import { installCommand, describeCheckout, initCommand } from "./lib/checkout.ts"
+import { declaredGitModules } from "./lib/workspace.ts"
 const isOwnClone = (p: string): boolean => {
   try {
     return !fs.lstatSync(p).isSymbolicLink() && fs.existsSync(path.join(p, ".git"))
@@ -29,18 +29,18 @@ const isOwnClone = (p: string): boolean => {
     return false
   }
 }
-import { foldChanges, groupChanges, reportLine } from "./events.ts"
+import { foldChanges, groupChanges, reportLine } from "./lib/events.ts"
 import { commitPending, recordChanges, rowChanges } from "./commit.ts"
-import { Store } from "./store.ts"
-import { splitRef, canonicalCollection } from "./ref.ts"
-import { envContext, renderTemplate } from "./env-vars.ts"
+import { Store } from "./lib/store.ts"
+import { splitRef, canonicalCollection } from "./lib/ref.ts"
+import { envContext, renderTemplate } from "./lib/env-vars.ts"
 import { doctorBoard, renderBoard } from "./doctor.ts"
 import { setupCommand, statusLines, renderStatusLines } from "./setup.ts"
-import { installModules } from "./install-modules.ts"
+import { installModules } from "./install.ts"
 import { updateModules, parseUpdateArgs } from "./update.ts"
-import { storageOf } from "./descriptor.ts"
-import type { Descriptor, Flags, Workspace } from "./types.ts"
-import type { RecordChange } from "./events.ts"
+import { storageOf } from "./lib/descriptor.ts"
+import type { Descriptor, Flags, Workspace } from "./lib/types.ts"
+import type { RecordChange } from "./lib/events.ts"
 
 // git calls whose failure we CATCH must not print git's own error: execFileSync forwards the
 // child's stderr to ours unless told otherwise, so a handled "not a git repository" still

@@ -1,10 +1,10 @@
 import fs from "node:fs"
 import path from "node:path"
-import { engineId, readManifest } from "./runtime.ts"
-import { satisfies } from "./semver.ts"
-import { MANAGED_BLOCKS } from "./harnesses.ts"
+import { engineId, readManifest } from "./lib/runtime.ts"
+import { satisfies } from "./lib/semver.ts"
+import { MANAGED_BLOCKS } from "./lib/harnesses.ts"
 import { units, unitEnv, unitEnvFor, receiptDir, safeInspect } from "./setup.ts"
-import type { DoctorRow, SetupContext, Workspace } from "./types.ts"
+import type { DoctorRow, SetupContext, Workspace } from "./lib/types.ts"
 
 const STATES = new Set(["ok", "warn", "bad"])
 const UNIT_STATE: Record<string, DoctorRow["state"]> = {

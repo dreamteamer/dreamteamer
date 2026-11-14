@@ -3,10 +3,10 @@ import os from "node:os"
 import path from "node:path"
 import { spawnSync } from "node:child_process"
 import { fileURLToPath } from "node:url"
-import { resolveNpm, childEnv } from "./checkout.ts"
-import type { PackageJson, RunOptions, RunResult } from "./types.ts"
+import { resolveNpm, childEnv } from "../lib/checkout.ts"
+import type { PackageJson, RunOptions, RunResult } from "../lib/types.ts"
 
-const ENGINE = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
+const ENGINE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..")
 const IDENTITY = {
   GIT_AUTHOR_NAME: "dreamteamer check",
   GIT_AUTHOR_EMAIL: "check@example.invalid",

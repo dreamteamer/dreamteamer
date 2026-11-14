@@ -1,7 +1,7 @@
 import fs from "node:fs"
-import { Store, bodyField, serialize, atomicWrite } from "./store.ts"
-import { load, dump } from "./yaml.ts"
-import { slug } from "./template.ts"
+import { Store, bodyField, serialize, atomicWrite } from "./lib/store.ts"
+import { load, dump } from "./lib/yaml.ts"
+import { slug } from "./lib/template.ts"
 import {
   createCollection,
   removeCollection,
@@ -27,26 +27,26 @@ import {
   removeEntity,
   renameEntity,
   setEntityFrontmatter,
-} from "./schema-ops.ts"
+} from "./collections/schema-ops.ts"
 import { KINDS } from "./compile.ts"
 // A schema op returns a different shape per outcome (dry run · nothing to do · committed); a caller that
 // reads whichever keys are there wants them as ONE type, each optional, each keeping its real type.
 type KeysOf<U> = U extends unknown ? keyof U : never
 type Flat<U> = { [K in KeysOf<U>]?: U extends Partial<Record<K, infer V>> ? V : never }
-import { history, historyDiff } from "./history.ts"
-import type { Descriptor, Field, Fields, Flags, Workspace } from "./types.ts"
-import type { RepoCommit } from "./schema-ops.ts"
-import type { Relation } from "./relations.ts"
-import { commandsFor, recordResolver } from "./record-commands.ts"
-import { contributedNotes } from "./extensions.ts"
-import { distinctValues } from "./field-values.ts"
-import { matchesFilter, unknownTokens, VALUE_TOKENS } from "./filter.ts"
-import { baseNameOf, defaultStoragePath } from "./namespace.ts"
-import { sortRows } from "./temporal.ts"
-import { keyBetween, placementKey } from "./fractional-index.ts"
+import { history, historyDiff } from "./lib/history.ts"
+import type { Descriptor, Field, Fields, Flags, Workspace } from "./lib/types.ts"
+import type { RepoCommit } from "./collections/schema-ops.ts"
+import type { Relation } from "./lib/relations.ts"
+import { commandsFor, recordResolver } from "./lib/record-commands.ts"
+import { contributedNotes } from "./lib/extensions.ts"
+import { distinctValues } from "./lib/field-values.ts"
+import { matchesFilter, unknownTokens, VALUE_TOKENS } from "./lib/filter.ts"
+import { baseNameOf, defaultStoragePath } from "./lib/namespace.ts"
+import { sortRows } from "./lib/temporal.ts"
+import { keyBetween, placementKey } from "./lib/fractional-index.ts"
 import { ensureRepo, ensureAllRepos } from "./init.ts"
-import { expectedMirrors, ownersReadIn } from "./relations.ts"
-import { parseRecord } from "./records.ts"
+import { expectedMirrors, ownersReadIn } from "./lib/relations.ts"
+import { parseRecord } from "./lib/records.ts"
 
 import {
   storageOf,
@@ -57,7 +57,7 @@ import {
   displayOf,
   storedFieldsOf,
   targetsOf,
-} from "./descriptor.ts"
+} from "./lib/descriptor.ts"
 /**
  * Emit MACHINE-READABLE output synchronously. Use this for every `--json` payload.
  *

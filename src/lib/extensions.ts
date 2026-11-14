@@ -189,7 +189,7 @@ export const isPackageEntry = (d: unknown): d is string => typeof d === "string"
  */
 export async function loadExtensions(
   ws: Workspace,
-  api: typeof import("./api.ts"),
+  api: typeof import("../api.ts"),
   reserved: { verbs?: string[]; kinds?: string[]; harnesses?: string[] } = {}
 ): Promise<LoadedExtension[]> {
   const v1 = v1ManifestRefusal(ws.pkg?.dreamteamer, "package.json")

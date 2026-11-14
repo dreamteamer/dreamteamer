@@ -1,266 +1,167 @@
+import { execFileSync } from "node:child_process"
 import fs from "node:fs"
 import path from "node:path"
-import { walk } from "./records.ts"
-import { parseRef } from "./namespace.ts"
-import { storageOf, fieldsOf, targetsOf, isSoft } from "./descriptor.ts"
-import type { Descriptor, Descriptors, Field, Fields, Storage } from "./types.ts"
-import type { exportsFacts } from "./runtime.ts"
-type LayerFact = NonNullable<ReturnType<typeof exportsFacts>["layers"]>[number]
-type ExportEntry = { label: string; from?: string }
-/** A collection root as one context sees it: its layer (null: the write root), its package, whether it is on disk. */
-type ContextRoot = { layer: string | null; package: string | null; present: boolean }
-export type ExportsContext = {
-  own: string | null
-  rootsOf: (coll: string) => ContextRoot[]
-  complete: (layer: string | null) => boolean
-  packageOf: (layer: string | null) => string | null
-  rootOf: (layer: string | null) => string
-}
-export type OutsideRef = { collection: string; id: string; resolved: ExportEntry | null; referrers: string[] }
-export type ExportChange = { ref: string; kind: "drop" | "fill" | "refresh" | "add"; why: string }
+import { parseRecord } from "./lib/records.ts"
+import { inProgress } from "./commit.ts"
+import { exportsFacts } from "./lib/runtime.ts"
+import { storageOf, bodyFieldOf, recordTitleOf } from "./lib/descriptor.ts"
+import { EXPORTS_FILE, readExports, serializeExports, exportsContext, outsideRefs, regenerate } from "./lib/exports.ts"
+import type { ExportChange } from "./lib/exports.ts"
+import type { Store } from "./lib/store.ts"
+import type { Descriptor } from "./lib/types.ts"
 
-export const EXPORTS_FILE = "dreamteamer-exports.json"
-
-/** The manifest of the repo rooted at `dir` — `{ <collection>: { <id>: { label, from? } } }` — or null
- *  when it has none. An unparseable file throws, naming its path: it is never read as empty. */
-/** A repo's exports manifest: per collection, per id, its display label and the package that held it. */
-export type ExportRefs = Record<string, Record<string, { label: string; from?: string }>>
-
-export function readExports(dir: string): ExportRefs | null {
-  const file = path.join(dir, EXPORTS_FILE)
-  if (!fs.existsSync(file)) return null
-  try {
-    return JSON.parse(fs.readFileSync(file, "utf8")).references ?? {}
-  } catch (e) {
-    throw new Error(
-      `${EXPORTS_FILE} does not parse (${e.message}) — resolve it by hand: keep every entry line of both sides, then run dt exports`,
-      { cause: e }
-    )
-  }
-}
-
-/** The file's bytes: tab-indented, collections and ids sorted, one line per entry, nothing time- or
- *  version-dependent — so an unchanged manifest regenerates byte for byte. `null` for an empty one. */
-export function serializeExports(refs: ExportRefs): string | null {
-  const colls = Object.keys(refs)
-    .filter(c => Object.keys(refs[c]).length)
-    .sort()
-  if (!colls.length) return null
-  const entry = (e: ExportEntry): string =>
-    `{ "label": ${JSON.stringify(e.label)}${e.from ? `, "from": ${JSON.stringify(e.from)}` : ""} }`
-  const blocks = colls.map(
-    c =>
-      `\t\t${JSON.stringify(c)}: {\n${Object.keys(refs[c])
-        .sort()
-        .map(id => `\t\t\t${JSON.stringify(id)}: ${entry(refs[c][id])}`)
-        .join(",\n")}\n\t\t}`
-  )
-  return `{\n\t"dreamteamer_exports": 1,\n\t"references": {\n${blocks.join(",\n")}\n\t}\n}\n`
-}
-
-/** Every hard-reference field of a descriptor's fields, nested ones included: `[path, targets, soft]`. */
-export function collectRefFields(
-  fields: Record<string, Field>,
-  prefix: string[] = []
-): [path: string[], targets: "*" | string[], soft: boolean][] {
-  const out: ReturnType<typeof collectRefFields> = []
-  for (const [key, f] of Object.entries(fields ?? {})) {
-    if (!f || typeof f !== "object") continue
-    const p = [...prefix, key]
-    const targets = targetsOf(f)
-    if (targets) out.push([p, targets, isSoft(f)])
-    if (f.type === "object" && f.fields) out.push(...collectRefFields(f.fields, p))
-  }
-  return out
-}
-
-/** Every leaf value at a field path, arrays flattened. */
-export function* valuesAt(obj: unknown, fieldPath: string[]): Generator<unknown> {
-  let vals: unknown[] = [obj]
-  for (const key of fieldPath)
-    vals = vals
-      .flatMap(v => (Array.isArray(v) ? v : [v]))
-      .flatMap(v => (v && typeof v === "object" ? [(v as Record<string, unknown>)[key]] : []))
-  for (const v of vals.flat(Infinity)) if (v != null) yield v
-}
-
-/** Is every file under `dataDir` inside one of the `reads` folders (paths relative to `root`)? Judged on
- *  the disk NOW, so a folder a pull added after compile makes the repo incomplete without a recompile. */
-function readsAll(root: string, dataDir: string, reads: string[]): boolean {
-  const abs = path.join(root, dataDir)
-  if (!fs.existsSync(abs)) return true
-  const prefixes = reads.map(r => path.join(root, r) + path.sep)
-  for (const f of walk(abs)) if (!prefixes.some(p => f.startsWith(p))) return false
-  return true
-}
-
-/**
- * The one context every judgement uses. `layers` are the runtime's layer facts (null: an older runtime —
- * nothing is known, so no layer is complete and no layer holder is seen); `own` this workspace's package
- * name. A repo is named by its layer name, the write root by null.
- */
-export function exportsContext({
-  root,
-  descriptors,
-  own,
-  layers,
-  dataPath = "data",
-}: {
-  root: string
-  descriptors: Descriptors
-  own: string | null
-  layers: LayerFact[] | null
-  dataPath?: string
-}): ExportsContext {
-  const facts = new Map<string, LayerFact>((layers ?? []).map(l => [l.name, l]))
-  const rootsOf = (coll: string): ContextRoot[] => {
-    const d = descriptors.get(coll)
-    if (!d) return []
-    return storageOf(d).roots.map(r => {
-      const fact = r.layer ? facts.get(r.layer) : null
-      return {
-        layer: r.layer ?? null,
-        package: r.layer ? (fact?.package ?? null) : own,
-        present: !r.layer || (!!fact && fs.existsSync(path.join(root, r.repo))),
-      }
-    })
-  }
-  const complete = (layer: string | null): boolean => {
-    if (layer) {
-      const l = facts.get(layer)
-      return !!l && !l.narrowed && readsAll(root, l.data, l.reads)
-    }
-    const reads: string[] = []
-    for (const d of descriptors.values()) {
-      if (storageOf(d).unavailable) return false
-      if (
-        (storageOf(d) as Storage & { base?: string }).base !== "runtime" &&
-        !path.isAbsolute(storageOf(d).path) &&
-        !storageOf(d).path.includes("${")
-      )
-        reads.push(storageOf(d).path)
-    }
-    return readsAll(root, dataPath, reads)
-  }
-  return {
-    own,
-    rootsOf,
-    complete,
-    packageOf: layer => (layer ? (facts.get(layer)?.package ?? null) : own),
-    rootOf: layer => (layer ? path.join(root, facts.get(layer)?.root ?? path.join("git_modules", layer)) : root),
-  }
-}
-
-/** Does this context read the entry's holder for its collection — a root of that collection, on disk,
- *  whose package is the entry's `from`? An entry with no holder is seen by no context. */
-export function sees(entry: ExportEntry | null | undefined, coll: string, ctx: ExportsContext): boolean {
-  return !!entry?.from && ctx.rootsOf(coll).some(r => r.present && r.package === entry.from)
-}
-
-/**
- * A repo's outside references: every value of a hard, non-mirror reference field on one of its records
- * that names an id the repo does not hold. `records` yields `{ collection, id, fields, descriptor }`;
- * `held(coll, id)` says the repo holds it; `resolve(coll, id)` answers `{ label, from }` or null.
- * @returns {Map<string, { collection, id, resolved, referrers: string[] }>} keyed `<collection>/<id>`
- */
-export function outsideRefs({
-  records,
-  held,
-  resolve,
-  namespaces,
-}: {
-  records: Iterable<{ collection: string; id: string; fields: Fields; descriptor: Descriptor }>
-  held: (coll: string, id: string) => boolean
-  resolve: (coll: string, id: string) => ExportEntry | null
-  namespaces: string[]
-}): Map<string, OutsideRef> {
-  const out = new Map<string, OutsideRef>()
-  for (const { collection, id, fields, descriptor } of records) {
-    for (const [fieldPath, targets, soft] of collectRefFields(fieldsOf(descriptor))) {
-      if (soft || (fieldPath.length === 1 && fieldsOf(descriptor)[fieldPath[0]]?.mirror_of !== undefined)) continue
-      for (const value of valuesAt(fields, fieldPath)) {
-        const ref = typeof value === "string" && !value.startsWith("@") ? parseRef(value, namespaces) : null
-        if (!ref || (targets !== "*" && !targets.includes(ref.collection)) || held(ref.collection, ref.id)) continue
-        const key = `${ref.collection}/${ref.id}`
-        if (!out.has(key))
-          out.set(key, {
-            collection: ref.collection,
-            id: ref.id,
-            resolved: resolve(ref.collection, ref.id),
-            referrers: [],
-          })
-        out.get(key).referrers.push(`${collection}/${id}`)
-      }
-    }
-  }
-  return out
-}
-
-/**
- * The manifest `dt exports` would write for `repo` in this context, and why — design §3's rules:
- * add an outside reference that resolves here; refresh a label only where the entry's holder is seen
- * and still has the id (its `from` never changes); fill a holder-less entry whose id resolves here;
- * drop an entry for an id the repo now holds, one whose seen holder lost the id, and — only where this
- * context reads every record of the repo — one nothing references; keep everything else as written.
- */
-export function regenerate({
-  current,
-  outside,
-  ctx,
-  repo,
-  held,
-}: {
-  current: ExportRefs | null
-  outside: Map<string, OutsideRef>
-  ctx: ExportsContext
+/** The manifest `dt exports` would write for `repo` (null: this workspace) and what changes. */
+export function planExports(
+  store: Store,
   repo: string | null
-  held: (coll: string, id: string) => boolean
-}): { next: ExportRefs; changes: ExportChange[] } {
-  const next: ExportRefs = {}
-  const changes: ExportChange[] = []
-  const put = (c: string, id: string, e: ExportEntry): void => {
-    ;(next[c] ??= {})[id] = e
-  }
-  const complete = ctx.complete(repo)
-  for (const [c, ids] of Object.entries(current ?? {})) {
-    for (const [id, e] of Object.entries(ids)) {
-      const ref = `${c}/${id}`
-      const o = outside.get(ref)
-      const why = held(c, id)
-        ? "held by the repo itself"
-        : !o && complete
-          ? "no record references it"
-          : o && !o.resolved && sees(e, c, ctx)
-            ? `its holder ${e.from} no longer has it`
-            : null
-      if (why) {
-        changes.push({ ref, kind: "drop", why })
-        continue
-      }
-      if (o?.resolved && !e.from) {
-        put(c, id, o.resolved)
-        changes.push({ ref, kind: "fill", why: `held by ${o.resolved.from}` })
-        continue
-      }
-      if (o?.resolved && o.resolved.from === e.from && sees(e, c, ctx) && o.resolved.label !== e.label) {
-        put(c, id, { label: o.resolved.label, from: e.from })
-        changes.push({ ref, kind: "refresh", why: `label "${e.label}" is now "${o.resolved.label}"` })
-        continue
-      }
-      put(c, id, e)
+): { dir: string; file: string; text: string | null; changes: ExportChange[]; entries: number } {
+  const facts = exportsFacts(store.root)
+  const ctx = exportsContext({
+    root: store.root,
+    descriptors: store.descriptors,
+    own: facts.own,
+    layers: facts.layers,
+    dataPath: facts.data,
+  })
+  const readableD = (d: Descriptor | undefined): boolean => d && !storageOf(d).runtime && !storageOf(d).unavailable
+  const readable = [...store.descriptors.values()].filter(readableD)
+  // an unparseable record (a conflict mid-merge) is check's to report — skipped here, never fatal; while
+  // one is unread, nothing it might name is dropped as unreferenced (the repo is not read completely)
+  let unparsed = false
+  const fieldsAt = (d: Descriptor, file: string): Record<string, unknown> | null => {
+    try {
+      return parseRecord(file, d, bodyFieldOf(d))
+    } catch {
+      unparsed = true
+      return null
     }
   }
-  for (const [ref, o] of outside) {
-    if (!o.resolved || current?.[o.collection]?.[o.id]) continue
-    put(o.collection, o.id, o.resolved)
-    changes.push({
-      ref,
-      kind: "add",
-      why: `named by ${o.referrers[0]}${o.referrers.length > 1 ? ` +${o.referrers.length - 1}` : ""}`,
-    })
+  const repoOf = (c: string, id: string): string | null | undefined => {
+    const d = store.descriptors.get(c)
+    const f = readableD(d) ? store.ids(c).get(id) : undefined
+    return f ? (store.layerOfFile(d, f)?.layer ?? null) : undefined
   }
-  return { next, changes }
+  const titled = (d: Descriptor, id: string, file: string): string => {
+    if (storageOf(d).format === "binary") return id
+    const t = /\{\{\s*([A-Za-z_][\w]*)/.exec(recordTitleOf(d))?.[1]
+    return String(fieldsAt(d, file)?.[t] ?? id)
+  }
+  const records = readable.flatMap(d =>
+    [...store.ids(d.name)]
+      .filter(([id]) => repoOf(d.name, id) === repo && storageOf(d).format !== "binary")
+      .map(([id, file]) => ({ collection: d.name, id, descriptor: d, fields: fieldsAt(d, file) }))
+      .filter(r => r.fields)
+  )
+  const resolve = (c: string, id: string): { label: string; from: string | null } | null =>
+    repoOf(c, id) === undefined
+      ? null
+      : { label: titled(store.descriptors.get(c), id, store.ids(c).get(id)), from: ctx.packageOf(repoOf(c, id)) }
+  const held = (c: string, id: string): boolean => repoOf(c, id) === repo
+  const dir = ctx.rootOf(repo)
+  const current = readExports(dir) // throws on an unparseable file, naming it — never overwritten
+  const outside = outsideRefs({ records, held, resolve, namespaces: store.namespaces })
+  const { next, changes } = regenerate({
+    current: current ?? {},
+    outside,
+    ctx: unparsed ? { ...ctx, complete: () => false } : ctx,
+    repo,
+    held,
+  })
+  return {
+    dir,
+    file: path.join(dir, EXPORTS_FILE),
+    text: serializeExports(next),
+    changes,
+    entries: Object.values(next).reduce((n: number, m: object) => n + Object.keys(m).length, 0),
+  }
 }
 
-/** A manifest is stale exactly when `regenerate` would change or drop one of its existing entries. */
-export const isStale = (changes: ExportChange[]): boolean => changes.some(c => c.kind !== "add")
+/** Write (and commit) each named repo's manifest; returns the exit code. */
+export function runExports(
+  store: Store,
+  { layers = [], dryRun = false, json = false }: { layers?: string[]; dryRun?: boolean; json?: boolean } = {}
+): number {
+  const known = new Set((exportsFacts(store.root).layers ?? []).map(l => l.name))
+  for (const l of layers)
+    if (!known.has(l))
+      throw new Error(`--layer ${l}: not a record layer of this workspace (have: ${[...known].join(", ") || "none"})`)
+  const out = []
+  for (const repo of layers.length ? layers : [null]) {
+    const plan = planExports(store, repo)
+    const before = fs.existsSync(plan.file) ? fs.readFileSync(plan.file, "utf8") : null
+    const where = path.relative(store.root, plan.file)
+    let committed: string | null = null
+    let note: string | null = null
+    if (!dryRun && before !== plan.text) {
+      if (plan.text === null) fs.rmSync(plan.file)
+      else fs.writeFileSync(plan.file, plan.text)
+      // a merge, rebase, cherry-pick or revert refuses a one-path commit: write, and say how to finish
+      const busy = inProgress(plan.dir)
+      if (busy) note = `${busy} — the manifest is written; git add it and conclude it`
+      else {
+        const git = (args: string[]): string => {
+          try {
+            return execFileSync("git", args, { cwd: plan.dir, stdio: ["ignore", "pipe", "pipe"] })
+              .toString()
+              .trim()
+          } catch (e) {
+            throw new Error(
+              `git ${args[0]} in ${path.relative(store.root, plan.dir) || "."} failed: ${String(e.stderr || e.message).trim()}`,
+              { cause: e }
+            )
+          }
+        }
+        // an emptied manifest git never tracked: nothing to add, nothing to commit
+        // an emptied manifest is un-staged with --ignore-unmatch: one git never tracked leaves nothing to commit
+        git(
+          plan.text === null
+            ? ["rm", "--cached", "-q", "--ignore-unmatch", "--", EXPORTS_FILE]
+            : ["add", "--", EXPORTS_FILE]
+        )
+        // back to what HEAD already holds (a hand edit undone), or never tracked: nothing to commit
+        let same = false
+        try {
+          execFileSync("git", ["diff", "--cached", "--quiet", "HEAD", "--", EXPORTS_FILE], {
+            cwd: plan.dir,
+            stdio: "ignore",
+          })
+          same = true
+        } catch {
+          /* differs, or no HEAD yet */
+        }
+        if (!same) {
+          git([
+            "commit",
+            "--only",
+            "-q",
+            "-m",
+            `dreamteamer: exports — ${plan.entries} entr${plan.entries === 1 ? "y" : "ies"}`,
+            "--",
+            EXPORTS_FILE,
+          ])
+          committed = git(["rev-parse", "--short", "HEAD"])
+        }
+      }
+    }
+    const count = (k: ExportChange["kind"]): number => plan.changes.filter(c => c.kind === k).length
+    out.push({
+      repo,
+      path: where,
+      changed: before !== plan.text,
+      changes: plan.changes,
+      entries: plan.entries,
+      committed,
+      note,
+    })
+    if (json) continue
+    console.log(
+      before === plan.text
+        ? `✔ ${repo ?? "this workspace"} · ${where} — exports manifest current (${plan.entries} entr${plan.entries === 1 ? "y" : "ies"})`
+        : `${dryRun ? "·" : "✔"} ${repo ?? "this workspace"} · ${where} — ${count("add")} added, ${count("refresh") + count("fill")} changed, ${count("drop")} dropped (${plan.entries} entr${plan.entries === 1 ? "y" : "ies"})${dryRun ? " — dry run, nothing written" : committed ? ` · committed ${committed}` : ""}`
+    )
+    for (const c of plan.changes) console.log(`    ${c.kind} ${c.ref} — ${c.why}`)
+    if (note) console.log(`⚠ ${note}`)
+  }
+  if (json) console.log(JSON.stringify({ dryRun, manifests: out }, null, 2))
+  return 0
+}

@@ -10,12 +10,18 @@ import {
   walk,
   idFromRecordPath,
   MAX_RECORD_BYTES,
-} from "./records.ts"
-import { NO_RUNTIME, loadDescriptors, runtimeDir, namespaces as compiledNamespaces, exportsFacts } from "./runtime.ts"
-import { parseRef } from "./namespace.ts"
-import { relationsOf, expectedMirrors, ownersReadIn } from "./relations.ts"
-import type { Relation } from "./relations.ts"
-import type { Descriptor } from "./types.ts"
+} from "./lib/records.ts"
+import {
+  NO_RUNTIME,
+  loadDescriptors,
+  runtimeDir,
+  namespaces as compiledNamespaces,
+  exportsFacts,
+} from "./lib/runtime.ts"
+import { parseRef } from "./lib/namespace.ts"
+import { relationsOf, expectedMirrors, ownersReadIn } from "./lib/relations.ts"
+import type { Relation } from "./lib/relations.ts"
+import type { Descriptor } from "./lib/types.ts"
 import {
   collectRefFields,
   valuesAt,
@@ -26,8 +32,8 @@ import {
   outsideRefs,
   regenerate,
   isStale,
-} from "./exports.ts"
-import { placementOf, placedRecords, ownerIdOf, symlinkedChildRoots } from "./placement.ts"
+} from "./lib/exports.ts"
+import { placementOf, placedRecords, ownerIdOf, symlinkedChildRoots } from "./lib/placement.ts"
 
 import {
   storageOf,
@@ -37,7 +43,7 @@ import {
   bodyFieldOf,
   idsOf,
   recordTitleOf,
-} from "./descriptor.ts"
+} from "./lib/descriptor.ts"
 export function check(
   { root }: { root: string; pkg?: unknown },
   {

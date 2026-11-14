@@ -132,7 +132,7 @@ function realpath(p) {
   }
 }
 
-// same workspace rule as src/workspace.ts (nearest package.json with a `dreamteamer` key, climbing
+// same workspace rule as src/lib/workspace.ts (nearest package.json with a `dreamteamer` key, climbing
 // out only of module nesting), duplicated here because the dev clone must be found BEFORE choosing
 // which src/ to load. Keep the two in step — they must never disagree about which workspace this is.
 /** @param {string} start @returns {string | null} */
@@ -177,7 +177,7 @@ function isWorkspaceDir(dir) {
 }
 
 /** The git_modules entries a workspace declares, name -> 'layer' | 'bundle' — the rule of
- *  src/workspace.ts layerEntries, restated because this file runs before any src/ is chosen: `records`
+ *  src/lib/workspace.ts layerEntries, restated because this file runs before any src/ is chosen: `records`
  *  or `module: true` declares a layer, a clone on disk is a layer when its manifest names
  *  `workspace_module`, and one not on disk is a layer not installed. */
 /** @param {string} root @returns {Map<string, "layer" | "bundle">} */
