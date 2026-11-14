@@ -49,7 +49,7 @@ npm -v         # 7 or later
 git --version  # any recent git
 ```
 
-Note: some modules have prerequisites of their own. `npx dreamteamer install` asks before it downloads anything or changes your machine (or takes `--allow <kind>`), and `npx dreamteamer status` says what each installed module still needs.
+Note: some modules have prerequisites of their own. a module's setup asks before it downloads anything or changes your machine (or takes `--allow <kind>`), and `npx dreamteamer status` says what each installed module still needs.
 
 #### Installation
 
@@ -76,7 +76,7 @@ dreamteamer works by maintaining a well-defined data model for your workspace, a
 
 For example, say you maintain a [task list](https://github.com/dreamteamer/dreamteamer-modules/tree/main/modules/tasks). Now when you ask something like "create a task to buy milk", the agent runs a CLI command like `npx dreamteamer add task --name "buy milk"` to compose a well structured task entry, instead of guessing what a `task` means in this context, what it looks like, and where to write it. This is the key driver for consistency and reliability of agents over time and across sessions.
 
-On top of that, every dreamteamer workspace or package is also a [Git repository](https://git-scm.com/book/en/v2/Getting-Started-What-is-Git%3F). The Git log becomes your personal time machine - so you (and more importantly, your AI agents) can track how your workspace evolves, make changes in a granular manner, and revert to previous states if something goes wrong. You can also fork, clone, branch, and merge dreamteamer workspaces and the data stored inside them, creating infinite possibilities for exploration and collaboration.
+On top of that, a dreamteamer workspace is a [Git repository](https://git-scm.com/book/en/v2/Getting-Started-What-is-Git%3F). The Git log becomes your personal time machine - so you (and more importantly, your AI agents) can track how your workspace evolves, make changes in a granular manner, and revert to previous states if something goes wrong. You can also fork, clone, branch, and merge dreamteamer workspaces and the data stored inside them, creating infinite possibilities for exploration and collaboration.
 
 The best way to gain a deeper understanding of dreamteamer is to read the [using-dreamteamer skill](skills/using-dreamteamer/SKILL.md).
 
@@ -100,9 +100,9 @@ Designed by coders, for both humans and AI agents, dreamteamer is built with dec
   - [x] **Layered schemas** - allow users to override or extend collections and fields from imported modules
   - [x] **Layered data** - import schema-only modules and provide your own data, or import modules that carry both schema and data.
   - [x] **Persistent and durable** - all state lives in the workspace as plain files, records under `data/`
-  - [x] **Non-destructive data authoring** - every change is a Git commit; revert as needed.
-  - [x] **Auditable** - every data change is in the Git log.
-  - [x] **Versioned** - allow multiple versions of schemas and data, switch between versions at will
+  - [x] **Non-destructive data authoring** - every change is committed to Git (`npx dreamteamer commit`), and any record can be reverted to an earlier revision.
+  - [x] **Auditable** - committed changes are in the Git log.
+  - [x] **Versioned** - every module is pinned to an exact version and committed changes are in Git history, so you can move between versions of schemas and data at will
 - **Developer experience**
   - [x] **CLI driven** - All functionality is exposed through a CLI
   - [x] **Programmable** - import dreamteamer into your js/ts scripts, work with the same interface
@@ -116,9 +116,9 @@ Designed by coders, for both humans and AI agents, dreamteamer is built with dec
 
 ### Security considerations
 
-When using dreamteamer, [standard AI agent security measures](https://code.claude.com/docs/en/security) apply. dreamteamer itself does not introduce new vulnerabilities, it allows you to do the same things you could already do with your AI agents, in a well-governed, auditable and consistent manner. You should continue to apply the same security considerations you would apply when using your AI agents. This includes never sharing credentials, tokens, API keys, or any other sensitive information with your agents, and always being mindful of the data you share with them. Private workspaces should be treated as such, and appropriate access controls should be put in place.
+When using dreamteamer, [standard AI agent security measures](https://code.claude.com/docs/en/security) apply. dreamteamer is designed to add no new capabilities to your agents: it lets them do what they could already do, in a well-governed, auditable and consistent manner. You should continue to apply the same security considerations you would apply when using your AI agents. This includes never sharing credentials, tokens, API keys, or any other sensitive information with your agents, and always being mindful of the data you share with them. Private workspaces should be treated as such, and appropriate access controls should be put in place.
 
-When installing new modules, always vet them first, and make sure you trust the author, understand what they do and what permissions they require. The dreamteamer org curates a selection of high quality community modules that adhere to our coding standards. See the [modules repository](https://github.com/dreamteamer/dreamteamer-modules) for more details. Official modules are published only under the `@dreamteamer` npm scope and the [dreamteamer GitHub org](https://github.com/dreamteamer).
+When installing new modules, always vet them first, and make sure you trust the author, understand what they do and what permissions they require. The dreamteamer org maintains a set of official modules held to the engine's own standards. See the [modules repository](https://github.com/dreamteamer/dreamteamer-modules) for more details. Official modules are published only under the `@dreamteamer` npm scope and the [dreamteamer GitHub org](https://github.com/dreamteamer).
 
 Note: some modules may require elevated permissions or access to sensitive information (for example, access to arbitrary locations on your filesystem, cloud storage, APIs, etc.). Only grant such permissions after carefully vetting the module and making sure you understand and trust what it does. You should treat dreamteamer modules as you would treat any other code you run on your system, and apply the same security considerations.
 
