@@ -1,5 +1,5 @@
 import { recordChanges } from "./recordChanges.ts"
-import { Store } from "../record/Store.ts"
+import { Store } from "../store/Store.ts"
 import { emit } from "../lib/emit.ts"
 import { groupChanges } from "./groupChanges.ts"
 import { printChanges } from "./printChanges.ts"

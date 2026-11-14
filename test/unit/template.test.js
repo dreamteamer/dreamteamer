@@ -5,7 +5,7 @@
 // string, and an empty id would either throw or collide, so it falls back to a deterministic hash.
 import { test, describe } from "node:test"
 import assert from "node:assert/strict"
-import { generateId } from "../../src/record/lib/generateId.ts"
+import { generateId } from "../../src/store/lib/generateId.ts"
 import { slug, slugOrHash } from "../../src/record/template.ts"
 import { parseTemplate } from "../../src/record/parseTemplate.ts"
 import { templateFields } from "../../src/record/template.ts"

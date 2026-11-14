@@ -1,6 +1,6 @@
 import { matchesFilter } from "./lib/matchesFilter.ts"
 import { recordResolver } from "./lib/recordResolver.ts"
-import type { Store } from "../record/Store.ts"
+import type { Store } from "../store/Store.ts"
 import { slash } from "../record/namespace.ts"
 import type { CommandRow } from "../types.ts"
 

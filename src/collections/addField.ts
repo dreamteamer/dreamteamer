@@ -3,7 +3,7 @@ import { mixinDeclaring } from "./lib/mixinDeclaring.ts"
 import { readYaml } from "../lib/schema-ops.ts"
 import { INJECTED } from "./lib/consts.ts"
 import { upsertField } from "./lib/upsertField.ts"
-import type { Store } from "../record/Store.ts"
+import type { Store } from "../store/Store.ts"
 import { fieldsOf } from "../record/descriptor.ts"
 import type { Field, Workspace } from "../types.ts"
 

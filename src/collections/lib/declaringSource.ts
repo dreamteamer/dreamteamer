@@ -5,7 +5,7 @@ import { mixinDeclaring } from "./mixinDeclaring.ts"
 import { readYaml } from "../../lib/schema-ops.ts"
 import { INJECTED } from "./consts.ts"
 import { IN_NODE_MODULES } from "../../lib/consts.ts"
-import type { Store } from "../../record/Store.ts"
+import type { Store } from "../../store/Store.ts"
 import { fieldsOf } from "../../record/descriptor.ts"
 import type { Workspace } from "../../types.ts"
 

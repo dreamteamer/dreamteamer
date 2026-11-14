@@ -5,7 +5,7 @@ import { gatedTreeOp } from "../lib/gatedTreeOp.ts"
 import { entityShape, refuseNpmEntity } from "../lib/schema-ops.ts"
 import { ENTITY_ID } from "./lib/consts.ts"
 import { setFrontmatterKey } from "./lib/setFrontmatterKey.ts"
-import type { Store } from "../record/Store.ts"
+import type { Store } from "../store/Store.ts"
 import type { Workspace } from "../types.ts"
 
 export function renameEntity(

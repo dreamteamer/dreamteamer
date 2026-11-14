@@ -18,7 +18,7 @@ import {
   ENGINE_ROOT,
   SPAWN_TIMEOUT_MS,
 } from "../helpers/ws.js"
-import { Store } from "../../src/record/Store.ts"
+import { Store } from "../../src/store/Store.ts"
 
 const TASKS = {
   ids: { from: "{{ title | slug }}", pattern: "^[a-z0-9-]+$" },

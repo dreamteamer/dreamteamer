@@ -1,6 +1,6 @@
-import { applyFilter } from "./applyFilter.ts"
-import { fmtDate } from "./fmtDate.ts"
-import type { OnFallback } from "./types.ts"
+import { applyFilter } from "../../record/lib/applyFilter.ts"
+import { fmtDate } from "../../record/lib/fmtDate.ts"
+import type { OnFallback } from "../../record/lib/types.ts"
 
 const SEQ = "__DT_SEQ__"
 

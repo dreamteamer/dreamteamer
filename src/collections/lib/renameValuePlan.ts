@@ -1,5 +1,5 @@
 import { valueRenameWalk } from "./valueRenameWalk.ts"
-import type { Store } from "../../record/Store.ts"
+import type { Store } from "../../store/Store.ts"
 import { fieldsOf } from "../../record/descriptor.ts"
 import { enumValues } from "../../record/fields.ts"
 import type { Workspace } from "../../types.ts"

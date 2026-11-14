@@ -1,5 +1,5 @@
 import fs from "node:fs"
-import type { Store } from "../../record/Store.ts"
+import type { Store } from "../../store/Store.ts"
 import { walk } from "../../lib/walk.ts"
 import type { Workspace } from "../../types.ts"
 import { kindDir } from "../../workspace/compile.ts"

@@ -257,7 +257,7 @@ describe("a v2 descriptor is refused, with the fix in the message", () => {
 
 describe("a nested definition is validated before the runtime is replaced", () => {
   test("a typo inside an object field fails compile, and the previous runtime stands", async () => {
-    const { Store } = await import("../../src/record/Store.ts")
+    const { Store } = await import("../../src/store/Store.ts")
     const w = workspace({ compile: false })
     const things = code => ({
       ids: { from: "{{ name | slug }}" },
@@ -588,7 +588,7 @@ describe("created for a record that predates the stamp", () => {
     w.git(["commit", "-qm", "two notes", "--date=2020-01-02T10:00:00+00:00"])
     w.git(["mv", "data/notes/first.note.md", "data/notes/renamed.note.md"])
     w.git(["commit", "-qm", "rename", "--date=2021-03-04T10:00:00+00:00"])
-    const { Store } = await import("../../src/record/Store.ts")
+    const { Store } = await import("../../src/store/Store.ts")
     const store = new Store(w.ws)
     const dates = store.addedDates("notes")
     assert.match(dates.get("data/notes/renamed.note.md"), /^2020-01-02T10:00:00/, "the rename keeps the add date")

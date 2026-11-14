@@ -1,5 +1,5 @@
 import { fieldRenameWalk } from "./fieldRenameWalk.ts"
-import type { Store } from "../../record/Store.ts"
+import type { Store } from "../../store/Store.ts"
 import { fieldsOf } from "../../record/descriptor.ts"
 import type { Workspace } from "../../types.ts"
 

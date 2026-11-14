@@ -1,5 +1,5 @@
 import type { Workspace } from "./types.ts"
-import { Store } from "./record/Store.ts"
+import { Store } from "./store/Store.ts"
 import { parseArgs } from "./lib/parseArgs.ts"
 import { refuseUnknownFlags } from "./lib/refuseUnknownFlags.ts"
 import { collectionsCommand } from "./collections/collectionsCommand.ts"

@@ -1,6 +1,6 @@
 import fs from "node:fs"
 import path from "node:path"
-import type { Store } from "../record/Store.ts"
+import type { Store } from "../store/Store.ts"
 import type { Workspace } from "../types.ts"
 import { assertCommentsKept } from "./assertCommentsKept.ts"
 import { commitByRepo } from "./commitByRepo.ts"

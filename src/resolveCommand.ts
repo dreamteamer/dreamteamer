@@ -1,4 +1,4 @@
-import { Store } from "./record/Store.ts"
+import { Store } from "./store/Store.ts"
 import { envContext } from "./workspace/envContext.ts"
 import { renderTemplate } from "./workspace/renderTemplate.ts"
 import { splitRef } from "./record/splitRef.ts"

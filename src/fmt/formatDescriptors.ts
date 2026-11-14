@@ -1,7 +1,7 @@
 import path from "node:path"
 import fs from "node:fs"
 import { formatSource } from "./formatSource.ts"
-import { Store } from "../record/Store.ts"
+import { Store } from "../store/Store.ts"
 import { walk } from "../lib/walk.ts"
 import { load } from "../lib/yaml.ts"
 import type { Workspace } from "../types.ts"

@@ -1,4 +1,4 @@
-import type { Store } from "../record/Store.ts"
+import type { Store } from "../store/Store.ts"
 import { bodyField } from "../record/bodyField.ts"
 import { fieldsOf } from "../record/descriptor.ts"
 import { enumValues } from "../record/fields.ts"

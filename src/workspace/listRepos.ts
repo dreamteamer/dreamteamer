@@ -1,5 +1,5 @@
 import fs from "node:fs"
-import { Store } from "../record/Store.ts"
+import { Store } from "../store/Store.ts"
 import type { Workspace } from "../types.ts"
 import { relPath } from "./relPath.ts"
 import { repoPath } from "./repoPath.ts"

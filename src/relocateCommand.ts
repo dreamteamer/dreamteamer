@@ -1,5 +1,5 @@
 import path from "node:path"
-import { Store } from "./record/Store.ts"
+import { Store } from "./store/Store.ts"
 import { emit } from "./lib/emit.ts"
 import { canonicalCollection } from "./record/ref.ts"
 import { splitRef } from "./record/splitRef.ts"

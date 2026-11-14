@@ -1,4 +1,4 @@
-import type { Store } from "../../record/Store.ts"
+import type { Store } from "../../store/Store.ts"
 import { parseRef } from "../../record/parseRef.ts"
 import type { Fields } from "../../types.ts"
 

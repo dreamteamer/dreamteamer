@@ -1,5 +1,5 @@
 import { formatDescriptors } from "./formatDescriptors.ts"
-import { Store } from "../record/Store.ts"
+import { Store } from "../store/Store.ts"
 import { canonicalCollection } from "../record/ref.ts"
 import type { Workspace } from "../types.ts"
 import { reportCommits } from "../workspace/reportCommits.ts"

@@ -1,5 +1,5 @@
 import type { Workspace, Flags } from "../types.ts"
-import { Store } from "../record/Store.ts"
+import { Store } from "../store/Store.ts"
 import { need } from "../lib/need.ts"
 import { dryRunPlan } from "../lib/dryRunPlan.ts"
 import { removeUiView } from "./removeUiView.ts"

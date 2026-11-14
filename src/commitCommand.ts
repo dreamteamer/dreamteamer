@@ -1,5 +1,5 @@
 import { ROWS_SHOWN } from "./changes/consts.ts"
-import { Store } from "./record/Store.ts"
+import { Store } from "./store/Store.ts"
 import { commitPending } from "./changes/commitPending.ts"
 import { emit } from "./lib/emit.ts"
 import { foldChanges } from "./changes/foldChanges.ts"

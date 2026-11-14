@@ -1,6 +1,6 @@
 import path from "node:path"
 import { serializeExports } from "./serializeExports.ts"
-import type { Store } from "../record/Store.ts"
+import type { Store } from "../store/Store.ts"
 import { bodyFieldOf, recordTitleOf } from "../record/descriptor.ts"
 import { EXPORTS_FILE } from "../record/consts.ts"
 import { exportsContext } from "../record/exportsContext.ts"

@@ -5,7 +5,7 @@ import { gatedTreeOp } from "../lib/gatedTreeOp.ts"
 import { renameValuePlan } from "./lib/renameValuePlan.ts"
 import { refusePositions } from "../lib/schema-ops.ts"
 import { valueRenameWalk } from "./lib/valueRenameWalk.ts"
-import type { Store } from "../record/Store.ts"
+import type { Store } from "../store/Store.ts"
 import type { Workspace } from "../types.ts"
 
 export function renameValue(

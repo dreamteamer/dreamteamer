@@ -1,6 +1,6 @@
 import path from "node:path"
 import { entityShape, moduleRecord } from "../../lib/schema-ops.ts"
-import type { Store } from "../../record/Store.ts"
+import type { Store } from "../../store/Store.ts"
 import type { Workspace } from "../../types.ts"
 
 /** `add` on a kind nobody can scaffold honestly — refused WITH THE PATH, because "hand-authored"

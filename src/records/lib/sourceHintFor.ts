@@ -1,4 +1,4 @@
-import { Store } from "../../record/Store.ts"
+import { Store } from "../../store/Store.ts"
 import { storageOf } from "../../record/storageOf.ts"
 
 /** The path `revert`'s refusal names — where a human edits this compiled entity. */

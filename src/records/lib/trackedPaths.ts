@@ -1,5 +1,5 @@
 import path from "node:path"
-import type { Store } from "../../record/Store.ts"
+import type { Store } from "../../store/Store.ts"
 import { readManifest } from "../../runtime/runtime.ts"
 import { RUNTIME_DIR } from "../../runtime/consts.ts"
 

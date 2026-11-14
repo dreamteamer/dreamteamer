@@ -1,6 +1,6 @@
 import { CHANGE_OF, TYPE_OF } from "./consts.ts"
 import { deriveEvents } from "./deriveEvents.ts"
-import type { Store } from "../record/Store.ts"
+import type { Store } from "../store/Store.ts"
 import { commitPending } from "./commitPending.ts"
 import { foldChanges } from "./foldChanges.ts"
 import { layerOf } from "./layerOf.ts"

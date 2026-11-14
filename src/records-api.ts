@@ -22,7 +22,7 @@ export const apiVersion = 1
 export { engineVersion, engineId } from "./runtime/runtime.ts"
 
 // ---- records ------------------------------------------------------------------------------------
-export { Store } from "./record/Store.ts"
+export { Store } from "./store/Store.ts"
 export { bodyField } from "./record/bodyField.ts"
 export { serialize } from "./record/serialize.ts"
 export { atomicWrite } from "./lib/atomicWrite.ts"

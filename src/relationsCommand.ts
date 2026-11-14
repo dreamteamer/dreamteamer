@@ -1,7 +1,7 @@
 import { parseArgs } from "./lib/parseArgs.ts"
 import { refuseUnknownFlags } from "./lib/refuseUnknownFlags.ts"
 import { rel } from "./lib/rel.ts"
-import { Store } from "./record/Store.ts"
+import { Store } from "./store/Store.ts"
 import { atomicWrite } from "./lib/atomicWrite.ts"
 import { bodyField } from "./record/bodyField.ts"
 import { fieldsOf } from "./record/descriptor.ts"

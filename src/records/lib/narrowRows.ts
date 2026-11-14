@@ -1,4 +1,4 @@
-import { Store } from "../../record/Store.ts"
+import { Store } from "../../store/Store.ts"
 import type { Descriptor, Flags } from "../../types.ts"
 import { LIST_META_FLAGS } from "./consts.ts"
 import { oneValue } from "../../lib/oneValue.ts"

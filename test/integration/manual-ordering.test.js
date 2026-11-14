@@ -11,7 +11,7 @@ import { test, describe } from "node:test"
 import assert from "node:assert/strict"
 import { workspace } from "../helpers/ws.js"
 import { presentation } from "../../src/record/presentation.ts"
-import { Store } from "../../src/record/Store.ts"
+import { Store } from "../../src/store/Store.ts"
 
 const ORDERED = {
   ids: { from: "{{ name | slug }}" },

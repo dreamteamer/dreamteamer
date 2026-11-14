@@ -575,7 +575,7 @@ describe("R3 — dropping or changing `under` cannot strand the records it place
     assert.equal(fs.existsSync(path.join(ws.root, "data/companies/northwind/meetings")), false)
     // now the transition compiles, and under the new path check reports the fallback records as misplaced until relocate runs
     assert.equal(recompileWith(ws, { suffix: "meeting", under: { parent: "company", subfolder: "calls" } }), null)
-    const s2 = new (require("../../src/record/Store.ts").Store)(ws.ws)
+    const s2 = new (require("../../src/store/Store.ts").Store)(ws.ws)
     assert.equal(s2.ids("meetings").size, 3)
     assert.equal(ws.dt("commit", "-m", "flattened").code, 0)
     assert.equal(ws.dt("relocate", "meetings").code, 0)
@@ -599,7 +599,7 @@ describe("R4 — a long-lived Store sees what other writers did inside existing 
     assert.ok(ws.store.ids("meetings").has("2026/10/external"), "added inside an existing folder")
     fs.rmSync(external)
     assert.equal(ws.store.ids("meetings").has("2026/10/external"), false, "and removed again")
-    const other = new (require("../../src/record/Store.ts").Store)(ws.ws)
+    const other = new (require("../../src/store/Store.ts").Store)(ws.ws)
     other.set("meetings", "2026/10/kickoff", { company: "companies/harbor" })
     assert.equal(
       path.relative(ws.root, ws.store.read("meetings", "2026/10/kickoff").file),

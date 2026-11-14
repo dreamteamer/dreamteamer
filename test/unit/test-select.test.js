@@ -24,10 +24,10 @@ test("a changed tier-2 file runs itself", () => {
 })
 
 test("a src module selects the files carrying its stem as a whole word", () => {
-  assert.deepEqual(run(["src/record/Store.ts"]).files, [I("relations-store"), I("store-index")])
+  assert.deepEqual(run(["src/store/Store.ts"]).files, [I("relations-store"), I("store-index")])
   assert.deepEqual(run(["src/record/namespace.ts"]).files, [I("namespaces-by-module")], "the plural counts")
   assert.ok(
-    !run(["src/record/Store.ts"]).files.includes(I("restore")),
+    !run(["src/store/Store.ts"]).files.includes(I("restore")),
     '"restore" contains "store" but does not name it'
   )
 })

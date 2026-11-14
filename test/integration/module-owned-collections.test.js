@@ -20,7 +20,7 @@ import {
   git,
   dt,
 } from "../helpers/ws.js"
-import { Store } from "../../src/record/Store.ts"
+import { Store } from "../../src/store/Store.ts"
 import { storageOf } from "../../src/record/storageOf.ts"
 import { history } from "../../src/records/history.ts"
 

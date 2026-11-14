@@ -1,7 +1,7 @@
 import { VERB_FLAGS } from "./consts.ts"
 import { isEntityKind } from "./isEntityKind.ts"
 import { nearest } from "./nearest.ts"
-import type { Store } from "../record/Store.ts"
+import type { Store } from "../store/Store.ts"
 import { storedFieldsOf } from "../record/descriptor.ts"
 import { storageOf } from "../record/storageOf.ts"
 import type { Flags } from "../types.ts"

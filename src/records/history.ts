@@ -1,7 +1,7 @@
 import path from "node:path"
 import { execFileSync } from "node:child_process"
 import { trackedPaths } from "./lib/trackedPaths.ts"
-import type { Store } from "../record/Store.ts"
+import type { Store } from "../store/Store.ts"
 import { storageOf } from "../record/storageOf.ts"
 import type { Descriptor } from "../types.ts"
 

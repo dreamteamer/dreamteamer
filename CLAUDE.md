@@ -320,7 +320,7 @@ does not know, so a new folder costs a sentence of thought:
 
 | folder | layer | may import |
 |---|---|---|
-| `src/record/`, `src/runtime/`, `src/workspace/` | shared — code two or more commands use | shared only |
+| `src/lib/`, `src/record/`, `src/runtime/`, `src/store/`, `src/workspace/` | shared — code two or more commands use | shared only |
 | `src/<command>/` | one command's own code | shared, and its own folder — never another command's |
 | `src/*.ts` | surface — entry points, and a verb's entry function when its command has no folder | anything |
 

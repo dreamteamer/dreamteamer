@@ -26,7 +26,7 @@ import fs from "node:fs"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { compile } from "../../src/workspace/compile.ts"
-import { Store } from "../../src/record/Store.ts"
+import { Store } from "../../src/store/Store.ts"
 import { renameCollection } from "../../src/collections/renameCollection.ts"
 import { dump } from "../../src/lib/yaml.ts"
 

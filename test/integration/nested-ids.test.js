@@ -141,7 +141,7 @@ describe("created dates for records stored under a parent", () => {
     assert.equal(rel.code, 0, rel.stdout + rel.stderr)
     w.git(["add", "-A", "data"])
     w.git(["commit", "-qm", "relocate", "--date=2021-03-04T10:00:00+00:00"])
-    const { Store } = await import("../../src/record/Store.ts")
+    const { Store } = await import("../../src/store/Store.ts")
     const store = new Store(w.ws)
     for (const id of ["placed", "loose", "moved"]) {
       const { fields, file } = store.read("children", id)

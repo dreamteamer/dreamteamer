@@ -4,7 +4,7 @@ import { editWorkspacePkg } from "../lib/editWorkspacePkg.ts"
 import { gatedTreeOp } from "../lib/gatedTreeOp.ts"
 import { editModulePkg, moduleRecord } from "../lib/schema-ops.ts"
 import { MODULE_ID } from "./lib/consts.ts"
-import type { Store } from "../record/Store.ts"
+import type { Store } from "../store/Store.ts"
 import type { Workspace } from "../types.ts"
 import { moduleRows } from "../workspace/moduleRows.ts"
 

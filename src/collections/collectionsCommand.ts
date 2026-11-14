@@ -1,5 +1,5 @@
 import type { Workspace, Flags } from "../types.ts"
-import { Store } from "../record/Store.ts"
+import { Store } from "../store/Store.ts"
 import { oneValue } from "../lib/oneValue.ts"
 import { createCollection } from "./createCollection.ts"
 import { rel } from "../lib/rel.ts"

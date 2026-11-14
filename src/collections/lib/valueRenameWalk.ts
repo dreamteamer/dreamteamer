@@ -7,7 +7,7 @@ import type { SourceVisitor, Walk } from "./types.ts"
 import type { Tree } from "../../lib/types.ts"
 import { walkFilter } from "./walkFilter.ts"
 import { walkSources } from "./walkSources.ts"
-import type { Store } from "../../record/Store.ts"
+import type { Store } from "../../store/Store.ts"
 import { fieldsOf } from "../../record/descriptor.ts"
 import type { Field, Workspace } from "../../types.ts"
 

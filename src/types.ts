@@ -1,4 +1,4 @@
-import type { Store } from "./record/Store.ts"
+import type { Store } from "./store/Store.ts"
 
 export type Fields = Record<string, unknown>
 

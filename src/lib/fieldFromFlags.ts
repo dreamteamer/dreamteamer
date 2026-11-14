@@ -1,5 +1,5 @@
 import { SCALAR_TYPES } from "../record/consts.ts"
-import type { Store } from "../record/Store.ts"
+import type { Store } from "../store/Store.ts"
 import { fieldsOf, targetsOf } from "../record/descriptor.ts"
 import type { Field } from "../types.ts"
 

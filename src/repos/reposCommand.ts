@@ -2,7 +2,7 @@ import type { Workspace, Flags } from "../types.ts"
 import { ensureAllRepos, ensureRepo } from "./repos.ts"
 import { need } from "../lib/need.ts"
 import { emit } from "../lib/emit.ts"
-import { Store } from "../record/Store.ts"
+import { Store } from "../store/Store.ts"
 
 /**
  * `repos ensure <id>` / `repos ensure --all` — materialize declared repos on demand.

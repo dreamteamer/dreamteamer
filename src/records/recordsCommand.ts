@@ -1,5 +1,5 @@
 import type { Workspace, Flags } from "../types.ts"
-import { Store } from "../record/Store.ts"
+import { Store } from "../store/Store.ts"
 import { storageOf } from "../record/storageOf.ts"
 import { sourceHintFor } from "./lib/sourceHintFor.ts"
 import { narrowRows } from "./lib/narrowRows.ts"

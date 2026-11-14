@@ -20,7 +20,7 @@ import path from "node:path"
 const SOURCE = fs.existsSync(new URL("../src/api.ts", import.meta.url))
 const engine = <M>(name: string): Promise<M> =>
   import(new URL(SOURCE ? `../src/${name}.ts` : `../${name}.js`, import.meta.url).href)
-const { Store } = await engine<typeof import("../src/record/Store.ts")>("record/Store")
+const { Store } = await engine<typeof import("../src/store/Store.ts")>("store/Store")
 const { parseRecord } = await engine<typeof import("../src/record/records.ts")>("record/records")
 const { idFromRecordPath } = await engine<typeof import("../src/record/idFromRecordPath.ts")>("record/idFromRecordPath")
 const { walk } = await engine<typeof import("../src/lib/walk.ts")>("lib/walk")

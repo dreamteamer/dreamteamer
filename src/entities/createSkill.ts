@@ -4,7 +4,7 @@ import { gatedTreeOp } from "../lib/gatedTreeOp.ts"
 import { moduleRecord, workspaceSystemDir } from "../lib/schema-ops.ts"
 import { ENTITY_ID } from "./lib/consts.ts"
 import { IN_NODE_MODULES } from "../lib/consts.ts"
-import type { Store } from "../record/Store.ts"
+import type { Store } from "../store/Store.ts"
 import type { Workspace } from "../types.ts"
 import { kindDir } from "../workspace/compile.ts"
 

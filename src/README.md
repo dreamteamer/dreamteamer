@@ -403,7 +403,7 @@ file, so all of it is unit-testable without a workspace.
 
 ## placement
 
-Files: [check/symlinkedChildRoots.ts](check/symlinkedChildRoots.ts) · [record/lib/dirTreeStamps.ts](record/lib/dirTreeStamps.ts) · [record/ownerIdOf.ts](record/ownerIdOf.ts) · [record/parentFolders.ts](record/parentFolders.ts) · [record/lib/placedChildAt.ts](record/lib/placedChildAt.ts) · [record/placedRecords.ts](record/placedRecords.ts) · [record/placement.ts](record/placement.ts) · [record/lib/placementOfFile.ts](record/lib/placementOfFile.ts) · [record/lib/rootRecords.ts](record/lib/rootRecords.ts) · [workspace/subpathProblem.ts](workspace/subpathProblem.ts) · [lib/symlinkBelow.ts](lib/symlinkBelow.ts) · [record/types.ts](record/types.ts)
+Files: [check/symlinkedChildRoots.ts](check/symlinkedChildRoots.ts) · [store/lib/dirTreeStamps.ts](store/lib/dirTreeStamps.ts) · [record/ownerIdOf.ts](record/ownerIdOf.ts) · [record/parentFolders.ts](record/parentFolders.ts) · [record/lib/placedChildAt.ts](record/lib/placedChildAt.ts) · [record/placedRecords.ts](record/placedRecords.ts) · [record/placement.ts](record/placement.ts) · [store/lib/placementOfFile.ts](store/lib/placementOfFile.ts) · [record/lib/rootRecords.ts](record/lib/rootRecords.ts) · [workspace/subpathProblem.ts](workspace/subpathProblem.ts) · [lib/symlinkBelow.ts](lib/symlinkBelow.ts) · [record/types.ts](record/types.ts)
 
 RELATIONSHIP-BASED STORAGE — a record stored UNDER the record it belongs to.
 
@@ -580,7 +580,7 @@ Pure functions first (tested without a workspace), then the runner and the verb.
 
 ## store
 
-Files: [record/Store.ts](record/Store.ts) · [lib/atomicWrite.ts](lib/atomicWrite.ts) · [record/bodyField.ts](record/bodyField.ts) · [record/lib/gitDateToStamp.ts](record/lib/gitDateToStamp.ts) · [record/serialize.ts](record/serialize.ts)
+Files: [store/Store.ts](store/Store.ts) · [lib/atomicWrite.ts](lib/atomicWrite.ts) · [record/bodyField.ts](record/bodyField.ts) · [store/lib/gitDateToStamp.ts](store/lib/gitDateToStamp.ts) · [record/serialize.ts](record/serialize.ts)
 
 the validating store — every tooling write goes through here:
 parse → coerce → defaults → validate (HARD: rejected before disk) →
@@ -589,7 +589,7 @@ covered by `check` after the fact.
 
 ## template
 
-Files: [record/lib/applyFilter.ts](record/lib/applyFilter.ts) · [record/lib/fmtDate.ts](record/lib/fmtDate.ts) · [record/lib/consts.ts](record/lib/consts.ts) · [record/lib/generateId.ts](record/lib/generateId.ts) · [record/parseTemplate.ts](record/parseTemplate.ts) · [record/renderDisplay.ts](record/renderDisplay.ts) · [record/template.ts](record/template.ts) · [record/lib/types.ts](record/lib/types.ts) · [record/types.ts](record/types.ts) · [record/validateTemplate.ts](record/validateTemplate.ts)
+Files: [record/lib/applyFilter.ts](record/lib/applyFilter.ts) · [record/lib/fmtDate.ts](record/lib/fmtDate.ts) · [record/lib/consts.ts](record/lib/consts.ts) · [store/lib/generateId.ts](store/lib/generateId.ts) · [record/parseTemplate.ts](record/parseTemplate.ts) · [record/renderDisplay.ts](record/renderDisplay.ts) · [record/template.ts](record/template.ts) · [record/lib/types.ts](record/lib/types.ts) · [record/types.ts](record/types.ts) · [record/validateTemplate.ts](record/validateTemplate.ts)
 
 The ONE template grammar — every `{{ … }}` string a descriptor carries is parsed, validated and
 rendered here: `id.from`, `record_title`, `item_title`, `display.record.subtitle`, and the layout
@@ -607,7 +607,7 @@ error naming the position rather than a blank label in a surface.
 
 ## temporal
 
-Files: [records/lib/compareValues.ts](records/lib/compareValues.ts) · [records/lib/parseTemporal.ts](records/lib/parseTemporal.ts) · [records/lib/sortRows.ts](records/lib/sortRows.ts) · [record/lib/normalizeRecord.ts](record/lib/normalizeRecord.ts) · [record/lib/normalizeTemporal.ts](record/lib/normalizeTemporal.ts) · [record/temporal.ts](record/temporal.ts) · [record/types.ts](record/types.ts)
+Files: [records/lib/compareValues.ts](records/lib/compareValues.ts) · [records/lib/parseTemporal.ts](records/lib/parseTemporal.ts) · [records/lib/sortRows.ts](records/lib/sortRows.ts) · [store/lib/normalizeRecord.ts](store/lib/normalizeRecord.ts) · [store/lib/normalizeTemporal.ts](store/lib/normalizeTemporal.ts) · [record/temporal.ts](record/temporal.ts) · [record/types.ts](record/types.ts)
 
 temporal values — the `format: date` and `format: date-time` fields — normalized on WRITE and
 compared as INSTANTS, never as strings.

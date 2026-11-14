@@ -1,6 +1,6 @@
 import fs from "node:fs"
 import { uiViewSourceFile } from "../lib/schema-ops.ts"
-import type { Store } from "../record/Store.ts"
+import type { Store } from "../store/Store.ts"
 import type { Workspace } from "../types.ts"
 import { writeGated } from "../workspace/writeGated.ts"
 

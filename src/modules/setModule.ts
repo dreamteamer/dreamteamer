@@ -2,7 +2,7 @@ import path from "node:path"
 import { editWorkspacePkg } from "../lib/editWorkspacePkg.ts"
 import { editModulePkg, moduleRecord, packageNameOf } from "../lib/schema-ops.ts"
 import { IN_NODE_MODULES } from "../lib/consts.ts"
-import type { Store } from "../record/Store.ts"
+import type { Store } from "../store/Store.ts"
 import type { DreamteamerBlock, Workspace } from "../types.ts"
 import { writeGated } from "../workspace/writeGated.ts"
 

@@ -6,7 +6,7 @@ import { gatedTreeOp } from "../lib/gatedTreeOp.ts"
 import { renameFieldPlan } from "./lib/renameFieldPlan.ts"
 import { refusePositions } from "../lib/schema-ops.ts"
 import { INJECTED } from "./lib/consts.ts"
-import type { Store } from "../record/Store.ts"
+import type { Store } from "../store/Store.ts"
 import { fieldsOf } from "../record/descriptor.ts"
 import type { Workspace } from "../types.ts"
 

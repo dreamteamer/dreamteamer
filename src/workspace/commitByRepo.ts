@@ -1,7 +1,7 @@
 import path from "node:path"
 import fs from "node:fs"
 import { execFileSync } from "node:child_process"
-import type { Store } from "../record/Store.ts"
+import type { Store } from "../store/Store.ts"
 import type { Workspace } from "../types.ts"
 import { GIT_QUIET } from "./consts.ts"
 import { aheadCount } from "./aheadCount.ts"

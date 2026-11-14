@@ -1,6 +1,6 @@
 import fs from "node:fs"
 import type { RecordRewrite } from "./types.ts"
-import type { Store } from "../../record/Store.ts"
+import type { Store } from "../../store/Store.ts"
 import { bodyFieldOf } from "../../record/descriptor.ts"
 import { parseRecord } from "../../record/records.ts"
 import type { Fields } from "../../types.ts"

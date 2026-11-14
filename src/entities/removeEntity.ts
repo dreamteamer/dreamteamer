@@ -3,7 +3,7 @@ import fs from "node:fs"
 import { entitySource } from "./lib/entitySource.ts"
 import { gatedTreeOp } from "../lib/gatedTreeOp.ts"
 import { refuseNpmEntity } from "../lib/schema-ops.ts"
-import type { Store } from "../record/Store.ts"
+import type { Store } from "../store/Store.ts"
 import type { Workspace } from "../types.ts"
 
 export function removeEntity(ws: Workspace, store: Store, kind: string, id: string) {

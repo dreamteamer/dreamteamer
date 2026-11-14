@@ -1,4 +1,4 @@
-import type { Store } from "../record/Store.ts"
+import type { Store } from "../store/Store.ts"
 import type { Workspace } from "../types.ts"
 import { commitByRepo } from "../workspace/commitByRepo.ts"
 import { compile } from "../workspace/compile.ts"

@@ -1,7 +1,7 @@
 import path from "node:path"
 import fs from "node:fs"
 import { type StdioOptions, execFileSync } from "node:child_process"
-import { Store } from "./record/Store.ts"
+import { Store } from "./store/Store.ts"
 import { commitPending } from "./changes/commitPending.ts"
 import { declaredGitModules } from "./workspace/declaredGitModules.ts"
 import { emit } from "./lib/emit.ts"

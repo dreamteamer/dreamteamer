@@ -5,12 +5,12 @@
 //
 // A file's FOLDER is its layer, so a new file needs no registration:
 //
-//   src/lib/, src/record/, src/runtime/, src/workspace/   shared   code two or more commands use
+//   src/lib/, src/record/, src/runtime/, src/store/, src/workspace/   shared   code two or more commands use
 //   src/<command>/                              command  code only that command uses — never another command's
 //   src/*.ts                                    surface  entry points and the function each verb dispatches to
 //
 // Shared code imports only shared code; a command folder imports shared code and its own folder; a
-// surface imports anything. The three shared folders may import each other freely: the record/workspace
+// surface imports anything. The shared folders may import each other freely: the record/workspace
 // direction this script used to hold was a proxy for the browser-safe `dreamteamer/records` entry, and
 // it drove folder layout rather than protecting that entry — what the entry may load is a question of
 // its import closure, not of which folder a file sits in.
@@ -25,7 +25,7 @@ import { typeOnly } from "./import-edges.ts"
 
 const SRC = resolve(dirname(fileURLToPath(import.meta.url)), "..", "src")
 
-const SHARED = new Set(["lib", "record", "runtime", "workspace"])
+const SHARED = new Set(["lib", "record", "runtime", "store", "workspace"])
 // the folders that hold one command's own code
 const COMMANDS = new Set([
   "changes",
@@ -52,7 +52,7 @@ const ALLOWED: Record<string, Set<string>> = {
   surface: new Set(["shared", "command", "surface"]),
 }
 
-/** the layer of a module path ("record/Store"), or null for a folder nobody classified */
+/** the layer of a module path ("store/Store"), or null for a folder nobody classified */
 const layerOf = (mod: string): string | null => {
   const dir = mod.includes("/") ? mod.split("/")[0] : null
   if (dir === null) return "surface"
@@ -60,7 +60,7 @@ const layerOf = (mod: string): string | null => {
   return COMMANDS.has(dir) ? "command" : null
 }
 
-// every module under src/, sub-folders included, as its path from src/ ("record/Store.ts")
+// every module under src/, sub-folders included, as its path from src/ ("store/Store.ts")
 const files = (readdirSync(SRC, { recursive: true }) as string[])
   .map(f => relative(SRC, join(SRC, f)).split("\\").join("/"))
   .filter(f => f.endsWith(".ts") && !f.endsWith(".d.ts"))
@@ -102,14 +102,14 @@ for (const f of files) {
       )
     } else if (layer === "command" && targetLayer === "command" && target.split("/")[0] !== mod.split("/")[0]) {
       problems.push(
-        `src/${f} imports src/${target}.ts — a command folder holds code only its own command uses; what two commands share belongs in src/lib (or src/record, src/runtime, src/workspace)`
+        `src/${f} imports src/${target}.ts — a command folder holds code only its own command uses; what two commands share belongs in src/lib (or src/record, src/runtime, src/store, src/workspace)`
       )
     }
   }
 }
 for (const d of unknownFolders)
   problems.push(
-    `src/${d}/ is not a known folder — a command's own folder is named in COMMANDS in ${basename(fileURLToPath(import.meta.url))}; shared code belongs in src/lib (or src/record, src/runtime, src/workspace)`
+    `src/${d}/ is not a known folder — a command's own folder is named in COMMANDS in ${basename(fileURLToPath(import.meta.url))}; shared code belongs in src/lib (or src/record, src/runtime, src/store, src/workspace)`
   )
 
 // ⚠ A SCANNER THAT READS NOTHING PASSES. A change of quote style or import syntax would leave the

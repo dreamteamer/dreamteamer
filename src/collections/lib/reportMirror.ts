@@ -1,4 +1,4 @@
-import { Store } from "../../record/Store.ts"
+import { Store } from "../../store/Store.ts"
 import type { Field } from "../../types.ts"
 import { targetsOf } from "../../record/descriptor.ts"
 

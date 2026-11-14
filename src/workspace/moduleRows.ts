@@ -1,4 +1,4 @@
-import type { Store } from "../record/Store.ts"
+import type { Store } from "../store/Store.ts"
 import type { ModuleFields, ModuleRecordRow } from "./types.ts"
 
 /** Every module as `{ id, fields }`, off the compiled projection — the one enumeration, so `--module`

@@ -1,5 +1,5 @@
 import { materializeRepo } from "./materializeRepo.ts"
-import { Store } from "../record/Store.ts"
+import { Store } from "../store/Store.ts"
 import type { Workspace } from "../types.ts"
 import type { RepoFields } from "../workspace/types.ts"
 

@@ -5,7 +5,7 @@ import fs from "node:fs"
 import path from "node:path"
 import { mkws, copyInto, clone, addLayer, coll, rec, NAME, MANIFEST, dt } from "./held-out-cr-dt-004-lib.js"
 import { serializeExports } from "../../src/exports/serializeExports.ts"
-import { Store } from "../../src/record/Store.ts"
+import { Store } from "../../src/store/Store.ts"
 
 const ABOUT = { ...NAME, about: { type: "people", many: true } }
 const COLLS = {

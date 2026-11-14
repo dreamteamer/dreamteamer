@@ -2,7 +2,7 @@ import path from "node:path"
 import { mixinSources } from "./mixinSources.ts"
 import { mixinsListedBy } from "./mixinsListedBy.ts"
 import { readYaml } from "../../lib/schema-ops.ts"
-import type { Store } from "../../record/Store.ts"
+import type { Store } from "../../store/Store.ts"
 import type { Workspace } from "../../types.ts"
 
 /** The mixin a collection takes `fieldName` from, or null. */

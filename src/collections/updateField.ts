@@ -2,7 +2,7 @@ import { declaringSource } from "./lib/declaringSource.ts"
 import { fieldFromFlags } from "../lib/fieldFromFlags.ts"
 import { readYaml } from "../lib/schema-ops.ts"
 import { upsertField } from "./lib/upsertField.ts"
-import type { Store } from "../record/Store.ts"
+import type { Store } from "../store/Store.ts"
 import { fieldsOf } from "../record/descriptor.ts"
 import type { Field, Flags, Workspace } from "../types.ts"
 
