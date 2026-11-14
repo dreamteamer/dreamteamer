@@ -28,15 +28,27 @@ export class NavDocError extends Error {
 }
 
 const isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
-const collectionOf = (e) => (typeof e === 'string' ? e : isObject(e) && typeof e.collection === 'string' ? e.collection : null);
-const isFolder = (e) => isObject(e) && typeof e.folder === 'string';
-const isNamespace = (e) => isObject(e) && typeof e.namespace === 'string';
+/** 'collection' · 'folder' · 'namespace', or null for an entry of none of the four shapes. */
+const kindOf = (e) => (typeof e === 'string' || typeof e?.collection === 'string' ? 'collection'
+	: typeof e?.folder === 'string' ? 'folder'
+		: typeof e?.namespace === 'string' ? 'namespace' : null);
+const nameOf = (e) => (typeof e === 'string' ? e : e.collection);
+
+/** Every entry of a tree level and the levels inside it, depth first, with its kind. */
+function eachEntry(items, visit) {
+	if (!Array.isArray(items)) return;
+	for (const e of items) {
+		const kind = kindOf(e);
+		visit(e, kind);
+		if (kind === 'folder' || kind === 'namespace') eachEntry(e.items, visit);
+	}
+}
 
 /** The text of a nav.yaml, as a NavDoc. Pure. An empty file, or one with neither key, is an empty document. */
 export function parseNavDoc(text) {
 	let raw;
 	try {
-		raw = load(String(text ?? ''));
+		raw = load(String(text));
 	} catch (e) {
 		throw new NavDocError(`nav.yaml is not valid YAML — ${e.message}`);
 	}
@@ -51,8 +63,8 @@ export function parseNavDoc(text) {
 
 /** A NavDoc as the text of a nav.yaml: the header line, `tree`, and `hidden` only when it holds a name. Pure. */
 export function serializeNavDoc(doc) {
-	const body = { tree: doc?.tree ?? [] };
-	if (doc?.hidden?.length) body.hidden = doc.hidden;
+	const body = { tree: doc.tree };
+	if (doc.hidden.length) body.hidden = doc.hidden;
 	return `${HEADER}\n${dump(body).replace(/\n+$/, '')}\n`;
 }
 
@@ -74,79 +86,47 @@ export function writeNavDoc(root, doc) {
 }
 
 /** What `dt check` reports about a document: names that resolve to nothing, names listed twice. Never throws. */
-export function validateNavDoc(doc, { collections, namespaces = [] } = {}) {
-	const known = collections instanceof Set ? collections : new Set(collections ?? []);
+export function validateNavDoc(doc, { collections, namespaces = [] }) {
 	const declared = new Set(namespaces);
 	const warnings = [];
+	const warn = (warning) => warnings.push({ warning });
 	const seen = new Set();
 	const twice = new Set();
 	const count = (name) => {
-		if (seen.has(name) && !twice.has(name)) {
-			twice.add(name);
-			warnings.push({ warning: `"${name}" is listed twice — it draws at its first place` });
-		}
+		if (seen.has(name) && !twice.has(name)) { twice.add(name); warn(`"${name}" is listed twice — it draws at its first place`); }
 		seen.add(name);
 	};
-	const walk = (items) => {
-		if (!Array.isArray(items)) return;
-		for (const e of items) {
-			const c = collectionOf(e);
-			if (c !== null) {
-				if (!known.has(c)) warnings.push({ warning: `unknown collection "${c}"` });
-				count(c);
-			} else if (isFolder(e)) {
-				if (!Array.isArray(e.items)) warnings.push({ warning: `folder "${e.folder}" has no items list` });
-				walk(e.items);
-			} else if (isNamespace(e)) {
-				if (!declared.has(e.namespace)) warnings.push({ warning: `unknown namespace "${e.namespace}"` });
-				count(e.namespace);
-				walk(e.items);
-			} else {
-				warnings.push({ warning: `${JSON.stringify(e)} is not a collection, a folder or a namespace` });
-			}
-		}
-	};
-	walk(doc?.tree);
-	for (const name of doc?.hidden ?? []) {
-		if (typeof name !== 'string') { warnings.push({ warning: `hidden holds ${JSON.stringify(name)}, which is not a name` }); continue; }
+	eachEntry(doc.tree, (e, kind) => {
+		if (kind === 'collection') {
+			if (!collections.has(nameOf(e))) warn(`unknown collection "${nameOf(e)}"`);
+			count(nameOf(e));
+		} else if (kind === 'namespace') {
+			if (!declared.has(e.namespace)) warn(`unknown namespace "${e.namespace}"`);
+			count(e.namespace);
+		} else if (kind === 'folder') {
+			if (!Array.isArray(e.items)) warn(`folder "${e.folder}" has no items list`);
+		} else warn(`${JSON.stringify(e)} is not a collection, a folder or a namespace`);
+	});
+	for (const name of doc.hidden) {
+		if (typeof name !== 'string') { warn(`hidden holds ${JSON.stringify(name)}, which is not a name`); continue; }
 		// a hidden name is a row or a whole namespace folder
-		if (!known.has(name) && !declared.has(name)) warnings.push({ warning: `unknown collection "${name}"` });
+		if (!collections.has(name) && !declared.has(name)) warn(`unknown collection "${name}"`);
 		count(name);
 	}
 	return warnings;
 }
 
-/** Every collection the document places: named in the tree at any depth, or hidden. A namespace entry
- *  places nothing by itself (design §3 rule 3) — its collections are placed only by name. */
-export function placedNames(doc) {
-	const placed = new Set();
-	const walk = (items) => {
-		if (!Array.isArray(items)) return;
-		for (const e of items) {
-			const c = collectionOf(e);
-			if (c !== null) placed.add(c);
-			else if (isFolder(e) || isNamespace(e)) walk(e.items);
-		}
-	};
-	walk(doc?.tree);
-	for (const name of doc?.hidden ?? []) if (typeof name === 'string') placed.add(name);
-	return placed;
+/** The names of one kind of entry in the tree, at any depth, plus every hidden name. */
+function namesIn(doc, wanted) {
+	const out = new Set();
+	eachEntry(doc.tree, (e, kind) => { if (kind === wanted) out.add(kind === 'collection' ? nameOf(e) : e.namespace); });
+	for (const name of doc.hidden) if (typeof name === 'string') out.add(name);
+	return out;
 }
 
-/** Every namespace the document names, at any level, or hides. */
-function namedNamespaces(doc) {
-	const named = new Set();
-	const walk = (items) => {
-		if (!Array.isArray(items)) return;
-		for (const e of items) {
-			if (isNamespace(e)) named.add(e.namespace);
-			if (isFolder(e) || isNamespace(e)) walk(e.items);
-		}
-	};
-	walk(doc?.tree);
-	for (const name of doc?.hidden ?? []) if (typeof name === 'string') named.add(name);
-	return named;
-}
+/** Every collection the document places: named in the tree at any depth, or hidden. A namespace entry
+ *  places nothing by itself (design §3 rule 3) — its collections are placed only by name. */
+export const placedNames = (doc) => namesIn(doc, 'collection');
 
 /**
  * A module's fragment merged into the document: it only ever ADDS what the document does not place yet,
@@ -160,54 +140,46 @@ function namedNamespaces(doc) {
  * the document names that namespace nowhere — into a new entry; named at another level, nothing is
  * created and its rows stay unplaced (the drawing puts them inside that namespace's folder).
  */
-export function mergeFragment(doc, fragment, { placed } = {}) {
-	const taken = new Set(placed ?? placedNames(doc));
-	const named = namedNamespaces(doc);
+export function mergeFragment(doc, fragment, { placed = placedNames(doc) } = {}) {
+	const taken = new Set(placed);
+	const named = namesIn(doc, 'namespace');
 	const placedNow = [];
-
+	// one tree level: `level` is copied on its first change, so an untouched level comes back as itself
 	const mergeLevel = (level, items) => {
 		let out = level;
 		const own = () => { if (out === level) out = [...level]; return out; };
+		const into = (i, e) => { // merge e's items into out[i]'s
+			const current = Array.isArray(out[i].items) ? out[i].items : [];
+			const merged = mergeLevel(current, e.items);
+			if (merged !== current) own()[i] = { ...out[i], items: merged };
+		};
 		for (const f of Array.isArray(items) ? items : []) {
-			const c = collectionOf(f);
-			if (c !== null) {
+			const kind = kindOf(f);
+			if (kind === 'collection') {
+				const c = nameOf(f);
 				if (taken.has(c)) continue;
 				taken.add(c);
 				placedNow.push(c);
-				own().push(typeof f === 'object' && f.icon != null ? { collection: c, icon: f.icon } : c);
-			} else if (isFolder(f)) {
-				const i = out.findIndex((e) => isFolder(e) && e.folder === f.folder);
-				if (i >= 0) {
-					const current = Array.isArray(out[i].items) ? out[i].items : [];
-					const merged = mergeLevel(current, f.items);
-					if (merged !== current) own()[i] = { ...out[i], items: merged };
-				} else {
-					const merged = mergeLevel([], f.items);
-					if (merged.length) own().push({ folder: f.folder, ...decor(f), items: merged });
-				}
-			} else if (isNamespace(f)) {
-				const i = out.findIndex((e) => isNamespace(e) && e.namespace === f.namespace);
-				if (i >= 0) {
-					const current = Array.isArray(out[i].items) ? out[i].items : [];
-					const merged = mergeLevel(current, f.items);
-					if (merged !== current) own()[i] = { ...out[i], items: merged };
-				} else if (!named.has(f.namespace)) {
-					const merged = mergeLevel([], f.items);
-					const itemless = !Array.isArray(f.items) || f.items.length === 0;
-					if (merged.length || itemless) {
-						named.add(f.namespace);
-						own().push({ namespace: f.namespace, ...decor(f), ...(merged.length ? { items: merged } : {}) });
-					}
-				}
+				own().push(f.icon == null ? c : { collection: c, icon: f.icon });
+			} else if (kind === 'folder') {
+				const i = out.findIndex((e) => kindOf(e) === 'folder' && e.folder === f.folder);
+				if (i >= 0) { into(i, f); continue; }
+				const merged = mergeLevel([], f.items);
+				if (merged.length) own().push({ folder: f.folder, ...decor(f), items: merged });
+			} else if (kind === 'namespace') {
+				const i = out.findIndex((e) => kindOf(e) === 'namespace' && e.namespace === f.namespace);
+				if (i >= 0) { into(i, f); continue; }
+				if (named.has(f.namespace)) continue; // named at another level: its rows draw inside it
+				const merged = mergeLevel([], f.items);
+				if (!merged.length && f.items?.length) continue;
+				named.add(f.namespace);
+				own().push({ namespace: f.namespace, ...decor(f), ...(merged.length ? { items: merged } : {}) });
 			}
 		}
 		return out;
 	};
-
-	const tree = Array.isArray(doc?.tree) ? doc.tree : [];
-	const merged = mergeLevel(tree, fragment?.tree);
-	if (merged === tree) return { doc, placedNow };
-	return { doc: { tree: merged, hidden: [...(doc?.hidden ?? [])] }, placedNow };
+	const merged = mergeLevel(doc.tree, fragment.tree);
+	return { doc: merged === doc.tree ? doc : { tree: merged, hidden: [...doc.hidden] }, placedNow };
 }
 
 const decor = (e) => ({ ...(e.icon != null ? { icon: e.icon } : {}), ...(e.hidden === true ? { hidden: true } : {}) });
