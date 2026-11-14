@@ -70,7 +70,8 @@ describe('held-out he6 — JSONC settings, layersFolder alone, and the nav guard
 		assert.deepEqual(readNavDoc(ws.root)?.tree, FIXTURES);
 	});
 
-	test('step 5: empty nav values — the engine and dt-nav migrate agree', () => {
+	// dt-nav is the protocol's bin, from the sibling modules checkout: a checkout with no sibling (CI) skips this step
+	test('step 5: empty nav values — the engine and dt-nav migrate agree', { skip: !fs.existsSync(DT_NAV) && `needs the protocol's dt-nav at ${DT_NAV} (set DT_PROTOCOL)` }, () => {
 		const ws = offline();
 		settings(ws.root, EMPTY);
 		// dt-nav migrate on a copy of the same workspace, before anything else runs
