@@ -20,8 +20,8 @@
 		"system-lines": 4418
 	},
 	"budgets": {
-		"code.total": 11975,
-		"code.decisions": 5381,
+		"code.total": 12100,
+		"code.decisions": 5450,
 		"surface.collections": 9,
 		"surface.skills": 1,
 		"surface.agents": 1,

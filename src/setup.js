@@ -42,13 +42,16 @@ export function parseInputFlags(argv) {
 	return out;
 }
 
-/** `--allow <kind>`, repeated; an unknown kind is a usage error naming the vocabulary. */
-export function parseAllow(argv) {
+/** `--allow <kind>`, repeated; an unknown kind is a usage error naming the vocabulary. `also` adds kinds
+ *  a verb takes beyond the setup effects (`dt install`'s `nav-reset`) — the caller removes them before a
+ *  unit sees the set, and `dt setup` passes none. */
+export function parseAllow(argv, { also = [] } = {}) {
 	const allow = new Set();
+	const kinds = [...EFFECTS_ALLOWED, ...also];
 	for (let i = 0; i < argv.length; i++) {
 		if (argv[i] !== '--allow') continue;
 		const kind = argv[++i];
-		if (!EFFECTS_ALLOWED.includes(kind)) throw usage(`--allow takes one of ${EFFECTS_ALLOWED.join(', ')} (got ${JSON.stringify(kind)}); an account step is \`dt setup <unit> --authorize\``);
+		if (!kinds.includes(kind)) throw usage(`--allow takes one of ${kinds.join(', ')} (got ${JSON.stringify(kind)}); an account step is \`dt setup <unit> --authorize\``);
 		allow.add(kind);
 	}
 	return allow;

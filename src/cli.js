@@ -31,7 +31,7 @@ import { splitRef, canonicalCollection } from './ref.js';
 import { envContext, renderTemplate } from './env-vars.js';
 import { doctorBoard, renderBoard } from './doctor.js';
 import { setupCommand, statusLines, renderStatusLines } from './setup.js';
-import { installModules } from './install-modules.js';
+import { installModules, presetMembers } from './install-modules.js';
 import { updateModules, parseUpdateArgs } from './update.js';
 import { storageOf } from './descriptor.js';
 
@@ -155,7 +155,9 @@ commits there.
   rm     <system>/<id> [--force] [--dry-run]
   rename <system>/<id> <new-id>               (a collection's rename moves its records, re-suffixes
                                                the files and rewrites every inbound ref, ONE commit)
-  reorder <system>/<id> --after|--before <id> (nav ordering — it writes \`display.nav.order\`)
+  reorder collections/<c> …                 (refused since 0.49: the nav's order is nav.yaml — the
+                                               sidebar's Move entries or a hand edit; display.nav.order
+                                               compiles and moves no row)
   get    collections/<c> [--module <m>]       (--module prints ONE module's source contribution
                                                rather than the merged descriptor)
   list   modules | collections | skills | …   (id · location · path · namespaces · package name)
@@ -243,28 +245,34 @@ workspace verbs:
               checkout ready; --all is the explicit opt-in, e.g. before going offline
   install     <spec>… [--from <dir>]          bring a MODULE in: a name, name@version, ./file.tgz,
               ./folder (a development link) or a git URL — installs it and every module its
-              dreamteamer.dependencies names (refusing, before npm writes anything, a package with
-              no dreamteamer key, an engine floor this engine does not meet, a ring, a version
-              installed differently, and a package an installed one already provides), pins exact
-              versions, compiles, runs the safe part of the module's setup and commits package.json,
-              package-lock.json and what setup wrote. Without a version: npm's latest. --from
-              resolves names from a folder of tarballs (offline). Setup flags as for \`setup\`:
-              [--input <id>=<value>]… [--allow <kind>]… [--no-input]; [--no-commit] [--json]
+              dreamteamer.dependencies names, and a module preset's members at the versions it pins
+              (refusing, before npm writes anything, a package with no dreamteamer key, an engine
+              floor this engine does not meet, a ring, and a version installed differently), pins
+              exact versions, compiles, merges the shipped nav fragments into nav.yaml, runs the
+              safe part of the module's setup and commits package.json, package-lock.json, nav.yaml
+              and what setup wrote. Without a version: npm's latest. --from resolves names from a
+              folder of tarballs (offline). Old nav settings with no nav.yaml refuse a package that
+              ships a nav fragment until migrated; [--allow nav-reset] starts from the fragments.
+              Setup flags as for \`setup\`: [--input <id>=<value>]… [--allow <kind>]… [--no-input];
+              [--no-commit] [--json]
               Exit 0 done · 1 refused or failed (nothing half-written) · 2 usage · 3 input missing
   install     --clone <url> [name]            attach a git module to this workspace
   update      <name>[@<version>] | --engine   move ONE npm pin forward on purpose: to the latest
               release (or the named version), re-pinned exactly, closure-checked as install is,
-              compiled, committed. A downgrade needs [--allow downgrade]; a development link is
-              skipped and named; [--from <dir>] resolves from a folder of tarballs; [--no-commit]
+              compiled, committed; a module preset moves its installed members to its new pins.
+              A downgrade needs [--allow downgrade]; old nav settings with no nav.yaml refuse a
+              module update until migrated, or [--allow nav-reset]; a development link is skipped
+              and named; [--from <dir>] resolves from a folder of tarballs; [--no-commit]
   update      pull git_modules clones forward (ff-only on the lockfile ref), rebuild,
               then compile; [<name>] updates just one. dirty clones are skipped
   compile     materialize modules + workspace sources into .dreamteamer (+ harness adapters)
               [--watch] recompile on source changes
   check       validate every record against the compiled descriptors (report-only), then every
               installed extension's own checks. A reference this workspace's own records reach only
-              through a record layer is a ⚠ line (a reader without that layer sees it dangle)
-              through a record layer is a ⚠ line until its exports manifest lists it; a reference no root
-              answers is external when the referring repo's manifest vouches for it
+              through a record layer is a ⚠ line until its exports manifest lists it (a reader
+              without that layer sees it dangle); a reference no root answers is external when the
+              referring repo's manifest vouches for it. nav.yaml: a name that resolves to nothing or
+              is listed twice is a ⚠ line, never a violation
               [--strict-export] makes each unlisted one, and a stale manifest, a violation
               modules/<id> --alone: is that inline module publishable — packed, installed into a fresh
               workspace on this engine with only its declared dependencies, compiled, checked; exit 0
@@ -301,7 +309,7 @@ workspace verbs:
               [<collection>|<collection>/<id> …] [-m <subject>] [--dry-run] [--json]
   help        this text
 
-extension verbs — an extension (a workspace module, or a dependency, whose package.json declares
+extension verbs — an extension (a module that also ships code: its package.json declares
 \`dreamteamer.extension\`) adds its own verbs, listed below when this workspace has any.
 `;
 
@@ -358,7 +366,7 @@ export const CORE_VERBS = [
  *  install line. The container verbs belong to the global `dt-docker` bin, which needs no workspace. */
 const VERB_PACKAGES = {
 	prove: '@dreamteamer/proofs', land: '@dreamteamer/worktrees', worktree: '@dreamteamer/worktrees',
-	serve: '@dreamteamer/http', notebooklm: '@dreamteamer/notebooklm',
+	serve: '@dreamteamer/web', web: '@dreamteamer/web', notebooklm: '@dreamteamer/notebooklm',
 };
 const DOCKER_VERBS = new Set(['start', 'stop', 'open', 'export', 'import']);
 
@@ -612,7 +620,9 @@ export async function run(argv) {
 				}
 				if (rest.includes('--json')) {
 					const { modules: mods } = discoverModules(ws.root, ws.pkg);
-					emit(JSON.stringify({ workspace: { root: ws.root, name: ws.pkg?.name ?? null }, compiled: s.manifest.compiled, stale: s.stale, modules: mods.map((m) => ({ name: m.name, location: locationOf(m, ws.root) })), setup: statusLines(ws) }, null, 2));
+					const presets = presetMembers(ws);
+					const modEntry = (m) => ({ name: m.name, location: locationOf(m, ws.root), ...(presets.has(m.name) ? { preset: true, members: presets.get(m.name).members } : {}) });
+					emit(JSON.stringify({ workspace: { root: ws.root, name: ws.pkg?.name ?? null }, compiled: s.manifest.compiled, stale: s.stale, modules: mods.map(modEntry), setup: statusLines(ws) }, null, 2));
 					process.exit(0);
 				}
 				console.log(`compiled: ${s.manifest.compiled}`);
@@ -629,6 +639,7 @@ export async function run(argv) {
 				// provenance is LIVE discovery (not the manifest) — shows what the next compile would use
 				const { modules, shadows } = discoverModules(ws.root, ws.pkg);
 				const shadowed = new Map(shadows.map((sh) => [sh.name, sh]));
+				const presets = presetMembers(ws);
 				console.log('modules:');
 				for (const m of modules) {
 					// §10: the folder name IS the label. `hr  git_modules @ 3f2a1c (dirty)` needs no
@@ -647,7 +658,14 @@ export async function run(argv) {
 					}
 					const sh = shadowed.get(m.name);
 					if (sh) line += ` — shadows ${CHANNEL_LABEL[sh.loser]} copy`;
+					// a MODULE PRESET (CR-dt-008): how many members are here, then each absent and each drifted one
+					const p = presets.get(m.name);
+					if (p) line += ` · preset · ${p.members.length} members · ${p.members.filter((x) => x.installed).length} installed`;
 					console.log(line);
+					if (p) {
+						for (const x of p.members) if (!x.installed) console.log(`    ${x.name}  not installed — dt install ${x.name}`);
+						for (const x of p.members) if (x.installed && x.installed !== x.pinned) console.log(`    ${x.name} ${x.installed} (preset ${p.id} names ${x.pinned})`);
+					}
 				}
 				// record layers: other workspaces cloned here for their records. The collections listed are
 				// the ones FOUND — compiled with this layer as a root and holding a folder in the clone —
@@ -839,7 +857,7 @@ export async function run(argv) {
 					process.exit(2);
 				}
 				if (VERB_PACKAGES[cmd]) {
-					console.error(`✖ \`dt ${cmd}\` comes from an extension this workspace does not have — install it as a dependency:\n    npm i ${VERB_PACKAGES[cmd]}`);
+					console.error(`✖ \`dt ${cmd}\` comes from an extension this workspace does not have — install it:\n    dt install ${VERB_PACKAGES[cmd]}`);
 					process.exit(2);
 				}
 				if (DOCKER_VERBS.has(cmd)) {

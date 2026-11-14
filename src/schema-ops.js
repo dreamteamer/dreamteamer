@@ -607,7 +607,7 @@ export function renameModule(ws, store, oldId, newId) {
 }
 
 // ---- moving a collection between modules -------------------------------------------------------
-// §7. `dt set collections/teams module=hr` — NOT `move`, which is nav ordering. The descriptor
+// §7. `dt set collections/teams module=hr` — NOT `move`/`reorder` (the nav's order is nav.yaml since 0.49). The descriptor
 // SOURCE relocates; the RECORDS do not, because a namespace and a `storage.path` are properties of
 // the collection rather than of the module, so a move never changes an id and never touches data.
 
@@ -766,9 +766,9 @@ export function moveCollection(ws, store, name, toModule, { dryRun = false } = {
 
 /**
  * The collection-level keys `dt set collections/<c>` writes, each by its v2 path, and how each
- * parses. A dotted key is a position inside a block (`display.nav.icon=pulse`). With
- * `display.nav.order` settable, `dt reorder collections/<c> --after <c>` means nav ordering and nothing
- * else.
+ * parses. A dotted key is a position inside a block (`display.nav.icon=pulse`). `display.nav.order`
+ * stays settable and compiles, but since 0.49 it moves no row — the nav's order is nav.yaml, and
+ * `dt reorder collections/<c>` is refused saying so.
  *
  * ⚠ `name` is deliberately absent, and so are `fields`, `storage` and `ids`. Renaming a
  * collection moves its descriptor, its records, their filenames and every inbound reference in one

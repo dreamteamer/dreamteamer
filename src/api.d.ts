@@ -95,6 +95,24 @@ export function validateTemplate(tpl: string, ctx: { position: string; fields: I
 export function renderDisplay(tpl: string, record: Record<string, unknown>, opts?: { resolve?: (ref: string) => string | undefined; isReference?: (field: string) => boolean }): string;
 export function satisfies(version: string, range: string): boolean | null;
 
+// ---- the nav document (nav.yaml) --------------------------------------------------------------------
+
+/** One entry of nav.yaml's tree: a collection by name, its long form, a folder, or a namespace folder. */
+export type NavEntry =
+	| string
+	| { collection: string; icon?: string }
+	| { folder: string; icon?: string; hidden?: boolean; items: NavEntry[] }
+	| { namespace: string; icon?: string; hidden?: boolean; items?: NavEntry[] };
+export type NavDoc = { tree: NavEntry[]; hidden: string[] };
+/** `<root>/nav.yaml`, or null when absent; throws a NavDocError (its message names the problem) when it cannot be read or is not a mapping. */
+export function readNavDoc(root: string): NavDoc | null;
+/** What `dt check` reports: unknown collections and namespaces, names listed twice. */
+export function validateNavDoc(doc: NavDoc, ctx: { collections: Set<string>; namespaces: string[] }): { warning: string }[];
+/** The one writer: the whole document, atomically, under its header line. Returns false when the bytes were already there. */
+export function writeNavDoc(root: string, doc: NavDoc): boolean;
+/** The installed modules' nav fragments merged into nav.yaml (written only when something was placed); throws NavFragmentRefusal for a fragment placing another module's collection. */
+export function applyNavFragments(root: string, opts?: { names?: string[]; ignoreSettings?: boolean }): { written: boolean; placed: string[]; skipped?: 'settings' };
+
 // ---- the compiler, schema and module operations --------------------------------------------------
 
 /** throws CompileError on a bad source; prints its summary; returns 0 */

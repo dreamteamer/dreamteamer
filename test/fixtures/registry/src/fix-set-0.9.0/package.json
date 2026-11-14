@@ -1,0 +1,11 @@
+{
+	"name": "@fix/set",
+	"version": "0.9.0",
+	"description": "@fix/set 0.9.0",
+	"files": [
+		"collections"
+	],
+	"dreamteamer": {
+		"description": "@fix/set — a plain module before it became a module preset (the first-expansion start)."
+	}
+}

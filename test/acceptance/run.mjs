@@ -85,16 +85,22 @@ scenario('A1', 'empty folder → init → install → status, every line exit 0,
 	ok(treeHash(root) === before, 'a second identical run changed nothing');
 });
 
-scenario('A2', 'core then tasks, and tasks then core, refused before npm naming the pair', (ok) => {
-	const core = withProbe ? '@fix/core' : '@dreamteamer/core', small = withProbe ? '@fix/a' : '@dreamteamer/tasks';
-	// the real core composes recordings, whose files_folder is required with no default: without a terminal the
-	// install exits 3 (needs input) unless the folder is given — so it is, as a script would
-	const a = fresh('a2a'); dt(a, initArgs); ok(dt(a, ['install', core, '--from', FROM, '--input', `files_folder=${path.join(HOME, 'hq-files')}`]).code === 0, 'core installs');
-	const h = treeHash(a); const r = dt(a, ['install', small, '--from', FROM]);
-	ok(r.code === 1 && /already provides/.test(r.stderr), `refused naming core: ${r.stderr}`); ok(treeHash(a) === h, 'nothing written');
-	const b = fresh('a2b'); dt(b, initArgs); ok(dt(b, ['install', small, '--from', FROM]).code === 0, 'small installs');
-	const hb = treeHash(b); const rb = dt(b, ['install', core, '--from', FROM]);
-	ok(rb.code === 1 && /provides .* which is installed/.test(rb.stderr), `refused naming the small module: ${rb.stderr}`); ok(treeHash(b) === hb, 'nothing written');
+scenario('A2', 'a module preset installs its members pinned', (ok) => {
+	const preset = withProbe ? '@fix/set@1.0.0' : '@dreamteamer/core';
+	// the real core's recordings member needs files_folder, required with no default: without a terminal
+	// the install exits 3 (needs input) unless the folder is given — so it is, as a script would
+	const a = fresh('a2'); dt(a, initArgs);
+	const r = dt(a, ['install', preset, '--from', FROM, '--input', `files_folder=${path.join(HOME, 'hq-files')}`]);
+	ok(r.code === 0, `the preset installs: ${r.stderr}${r.stdout.slice(-300)}`);
+	const deps = JSON.parse(fs.readFileSync(path.join(a, 'package.json'), 'utf8')).dependencies ?? {};
+	// offline, npm pins a member as the file: path of its one tarball — as exact as a version
+	const pin = (name) => { const v = deps[name]; const m = /-(\d+\.\d+\.\d+[^/]*)\.tgz$/.exec(v ?? ''); return m ? m[1] : v; };
+	const name = withProbe ? '@fix/set' : '@dreamteamer/core';
+	let members = withProbe ? { '@fix/a': '1.0.0', '@fix/c': '1.0.0' } : {};
+	if (!withProbe) { try { members = JSON.parse(fs.readFileSync(path.join(a, 'node_modules', name, 'package.json'), 'utf8')).dreamteamer?.preset ?? {}; } catch { /* not installed */ } }
+	ok(Object.keys(members).length > 0, `${name} carries a dreamteamer.preset`);
+	for (const [m, v] of Object.entries(members)) ok(pin(m) === v, `${m} pinned at ${v} (got ${deps[m]})`);
+	ok(pin(name) !== undefined, `${name} itself pinned`);
 });
 
 scenario('A3', 'a required input missing without a TTY: exit 3 and JSON names it; with --input it completes', (ok) => {

@@ -59,6 +59,7 @@ const titleCase = (id) => String(id).split(/[_\-\s/]+/).filter(Boolean).map((w) 
  * @param {Set<string>} ctx.runtimeKinds                         storage paths that are build output
  * @param {Set<string>} ctx.core                                 collections every module may reference
  * @param {Map<string,string[]>} ctx.moduleDeps
+ * @param {Map<string,Record<string,string>>} [ctx.modulePresets]  module preset name -> { member: exact version }; a dependency on a preset reaches its members
  * @param {Map<string,string[]>} ctx.modulePeers
  * @param {Map<string,string>} ctx.channelOf                     module name -> inline | git | npm
  * @param {string} ctx.wsModuleName
@@ -77,7 +78,23 @@ const titleCase = (id) => String(id).split(/[_\-\s/]+/).filter(Boolean).map((w) 
  * @returns {{ compiled: Map<string, {doc, sources}>, inert: {path, hash}[], moduleColls: Map<string, Set<string>> }}
  */
 export function compileCollections(ctx) {
-	const { groups, mixins, namespaces, nsOwners, runtimeKinds, core, moduleDeps, modulePeers, channelOf, wsModuleName, engineName, dataOwners, moduleSources, unownableBecause, layers = [], repoOf, dataPath, vars, moduleId, fail, warn, root = vars?.workspaceFolder ?? '.' } = ctx;
+	const { groups, mixins, namespaces, nsOwners, runtimeKinds, core, moduleDeps, modulePresets = new Map(), modulePeers, channelOf, wsModuleName, engineName, dataOwners, moduleSources, unownableBecause, layers = [], repoOf, dataPath, vars, moduleId, fail, warn, root = vars?.workspaceFolder ?? '.' } = ctx;
+
+	// What a module may reach: its dependencies and, for a dependency that is a MODULE PRESET (CR-dt-008),
+	// the preset's members, flattened through nested presets (a seen-set stops a ring).
+	const reachCache = new Map();
+	const reachable = (m) => {
+		if (reachCache.has(m)) return reachCache.get(m);
+		const out = new Set();
+		const visit = (name) => {
+			if (out.has(name)) return;
+			out.add(name);
+			for (const member of Object.keys(modulePresets.get(name) ?? {})) visit(member);
+		};
+		for (const dep of moduleDeps.get(m) ?? []) visit(dep);
+		reachCache.set(m, out);
+		return out;
+	};
 
 	// ---- v1 is refused, every file at once --------------------------------------------------
 	const v1 = [];
@@ -255,7 +272,7 @@ export function compileCollections(ctx) {
 		const overlaidBy = [...new Set(overlays.map((o) => moduleId(o.moduleName)))].filter((m) => m !== ownerId).sort();
 		const ns = namespaceOf(name, namespaces);
 		const nsOwner = ns ? nsOwners.get(ns) : null;
-		if (nsOwner && !groupModules.includes(nsOwner) && !groupModules.some((m) => (moduleDeps.get(m) ?? []).includes(nsOwner))) {
+		if (nsOwner && !groupModules.includes(nsOwner) && !groupModules.some((m) => reachable(m).has(nsOwner))) {
 			fail(`collection "${name}" sits in namespace "${ns}", which module ${moduleId(nsOwner)} declares — ${groupModules.map(moduleId).join('/')} neither owns it nor depends on it.\n  dt set modules/${moduleId(groupModules[0])} dependencies=modules/${moduleId(nsOwner)}`);
 		}
 		for (const m of groupModules) {
@@ -280,7 +297,7 @@ export function compileCollections(ctx) {
 					referenced.add(t);
 					if (core.has(t) || owners.get(t) === g.moduleName || groups.get(t)?.some((x) => x.moduleName === g.moduleName && x.doc.overlay !== true)) continue;
 					const tOwner = owners.get(t);
-					if (tOwner && (moduleDeps.get(g.moduleName) ?? []).includes(tOwner)) continue;
+					if (tOwner && reachable(g.moduleName).has(tOwner)) continue;
 					if ((modulePeers.get(g.moduleName) ?? []).includes(t)) continue;
 					if (g.moduleName === wsModuleName && tOwner) continue;
 					fail(`collection "${name}": field "${field}" (${g.src.path}) references "${t}", which module ${g.moduleName} neither owns nor declares.\n  ${tOwner ? `add "${tOwner}" to dreamteamer.dependencies, or "${t}" to dreamteamer.peer_collections if the module should work without it` : `add "${t}" to dreamteamer.peer_collections — no installed module provides it`}.`);

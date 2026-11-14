@@ -1,0 +1,1 @@
+{ "name": "alone-set", "version": "1.0.0", "type": "module", "files": [], "dreamteamer": { "description": "A module preset of alone-base.", "engine": ">=0.47.0", "preset": { "alone-base": "1.0.0" } } }

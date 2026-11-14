@@ -1,7 +1,7 @@
 // Tier 2 — a collection's OWNING MODULE as data, and moving it as a field write.
 //
 // §7: "move a collection to another module" is `dt set collections/teams module=hr`; nav ordering
-// is a different act, `dt reorder collections/teams --after tasks`. The move relocates the
+// is a different act, and since 0.49 it is nav.yaml (`dt reorder collections/…` is refused). The move relocates the
 // descriptor SOURCE and leaves the RECORDS where they are: a namespace and a `storage.path` are
 // properties of the collection, not of the module, so a move never changes an id.
 import { test, describe } from 'node:test';

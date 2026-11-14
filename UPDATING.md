@@ -22,6 +22,58 @@ then `npx dreamteamer compile` and `npx dreamteamer check`.
 
 ---
 
+## 0.49.0 — module presets and the nav document (CR-dt-008)
+
+Nothing to do but `dt compile` — **unless your workspace still keeps its nav in editor settings**
+(below). Records do not change, and a workspace on today's modules keeps compiling.
+
+- **`dreamteamer.preset` makes a package a module preset**: `{ "<package>": "<exact version>" }`, the
+  modules it installs, each pinned. A preset ships no kind folders, no `modules/` and no UI bundle. `dt install <preset>` installs every
+  member at its pin and the preset last, all exactly pinned. `dt update <preset>` moves the installed
+  members to the new pins and installs a member new to that version. It never re-installs a member
+  you removed, and a member moved down needs `--allow downgrade`. `dt status` (and `--json`) lists the
+  members, absent and drifted ones included, and `dt list modules` shows `preset · N members · M
+  installed`. Updating a composed package that a later version turns into a preset (core 0.11 →
+  core as a preset) installs every member on that first update; ownership of each collection moves to
+  its module and no record moves. A module that depends on a preset may reference its members'
+  collections, and `dt check modules/<id> --alone` walks presets.
+- **`dreamteamer.nav` names a module's nav fragment**, a `nav.yaml` in the package. After `dt install`
+  and `dt update` compile, the fragments of what they installed are merged into the workspace's own
+  `nav.yaml` (tracked, at the root) and committed with them. The merge only adds rows the file does not
+  place yet. A fragment that places another module's collection refuses the call, with everything put
+  back — the compiled runtime included. A `nav.yaml` that does not read refuses an install or update
+  that ships a fragment before npm writes; one that ships none never reads the file. `dt check` warns on a `nav.yaml` name that resolves to nothing or is listed twice. A
+  collection's `display.nav.order` and `section` still compile and are ignored, and `dt reorder
+  collections/<c>` (which wrote that key) is refused, naming nav.yaml. The grammar is in
+  `references/ui-views.md`.
+- **`dt check` warns about record files under `data/` that no collection reads** — a folder whose
+  collection left with a module (notebooks and wikis out of rnd) — naming the folder, its records and,
+  when a package in `node_modules` defines it, that package. A warning; the exit code is unchanged.
+- **`dt check modules/<id> --alone` judges what the tarball ships**: a source folder its `files` list
+  leaves out refuses it (on the module and on every dependency or member it packs), and a module preset
+  member nothing here holds is named with its pin.
+- **`dreamteamer.provides` is kept legal and ignored** through 0.49. Nothing reads it, and `dt install`
+  no longer refuses "a package an installed one already provides".
+- **A workspace whose nav is in `.vscode/settings.json`** (`dreamteamer.navGroups`, `navOrder` or
+  `navHidden` set, and no `nav.yaml`) — in this order:
+  1. `npx -p @dreamteamer/protocol@0.2 dt-nav migrate` (or open the workspace once in the editor 0.26
+     or later), on the engine and core you have now. It writes `nav.yaml` from the tree you see today.
+  2. `dt update --engine` — never refused for nav settings.
+  3. `dt update @dreamteamer/core`
+  4. `dt update @dreamteamer/rnd`
+
+  Skip step 1 and step 3 refuses before npm writes anything:
+  `✖ your nav settings are not saved to nav.yaml yet — run: npx -p @dreamteamer/protocol@0.2 dt-nav
+  migrate (or open this workspace once in the editor 0.26 or later), then run this again; --allow
+  nav-reset skips it`. `dt install` refuses the same way for a package that ships a fragment or is a
+  module preset. `--allow nav-reset` (on `dt install` and `dt update`) starts `nav.yaml` from the
+  fragments instead. The settings stay in the file, unread from then on.
+- **For hosts**: `readNavDoc`, `validateNavDoc`, `writeNavDoc` and `applyNavFragments` are on
+  `import('dreamteamer')` (never `dreamteamer/records`).
+- **Messages**: `dt <verb>` for an extension verb this workspace lacks now says `dt install
+  @dreamteamer/<package>`, where it said `npm i`. For `dt web` and `dt serve` that package is
+  `@dreamteamer/web`, which serves both now; `@dreamteamer/http` is deprecated.
+
 ## 0.48.1 — two setup fixes, and the README rewrite
 
 Nothing to do but `dt compile`.

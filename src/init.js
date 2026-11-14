@@ -91,7 +91,7 @@ export function seedBlock(flags = {}, existing = {}) {
 		// `default` is deliberately the same word `RESERVED_NAMESPACES` holds (namespace.js): this module
 		// owns the DEFAULT-namespace collections, and the default namespace is the empty prefix. The one
 		// misreading it invites — `default/tasks` — is a compile error whose message states the rule.
-		// Override with `--workspace-module <name>` if a workspace wants its own spelling.
+		// Override with `--workspace_module <name>` if a workspace wants its own spelling.
 		'workspace_module': flags.workspace_module ?? 'default',
 		'git_modules': {},
 		disable: [],

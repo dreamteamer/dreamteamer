@@ -66,3 +66,58 @@ describe('dt check modules/<id> --alone', () => {
 		fs.rmSync(path.dirname(kept), { recursive: true, force: true });
 	});
 });
+
+// rnd/tests/dreamteamer/check-alone-preset — CR-dt-008: the gate packs a module preset's members like
+// dependencies, so a preset and a module that depends on one are each publishable alone.
+describe('dt check --alone walks module presets', () => {
+	test('a module preset is publishable, its member packed alongside', () => {
+		const ws = host('alone-base', 'alone-set');
+		const r = run(ws.root, ['check', 'modules/alone-set', '--alone']);
+		assert.equal(r.code, 0, r.stdout + r.stderr);
+		assert.match(r.stdout, /✔ modules\/alone-set is publishable/);
+	});
+	test('a module depending on a preset, referencing a member\'s collection, is publishable', () => {
+		const ws = host('alone-base', 'alone-set', 'alone-via-set');
+		const r = run(ws.root, ['check', 'modules/alone-via-set', '--alone']);
+		assert.equal(r.code, 0, r.stdout + r.stderr);
+		assert.match(r.stdout, /✔ modules\/alone-via-set is publishable/);
+	});
+});
+
+// cr-dt-008 test-stage fixes (held-out hm11): a member the preset pins and nothing here holds is named
+// with its pin and the key that lists it; and the tarball is judged by the package's `files` list — a
+// source folder the list leaves out ships nothing, on the module itself or on a member it packs.
+describe('dt check --alone judges what the tarball ships', () => {
+	const dropCollections = (root, id) => {
+		const f = path.join(root, 'modules', id, 'package.json');
+		const j = JSON.parse(fs.readFileSync(f, 'utf8'));
+		j.files = j.files.filter((x) => x !== 'collections');
+		fs.writeFileSync(f, JSON.stringify(j) + '\n');
+		git(root, ['commit', '-qam', `${id}: files without collections`]);
+	};
+	test('a preset member nothing here holds: exit 1, the member, its pin and dreamteamer.preset named', () => {
+		const ws = host('alone-set');
+		const r = run(ws.root, ['check', 'modules/alone-set', '--alone']);
+		assert.equal(r.code, 1, r.stdout + r.stderr);
+		assert.match(r.stderr, /alone-base@1\.0\.0/);
+		assert.match(r.stderr, /dreamteamer\.preset/);
+		assert.doesNotMatch(r.stderr, /dreamteamer\.dependencies/);
+	});
+	test('a source folder the files list leaves out: exit 1, the folder and the files list named', () => {
+		const ws = host('alone-base');
+		dropCollections(ws.root, 'alone-base');
+		const r = run(ws.root, ['check', 'modules/alone-base', '--alone']);
+		assert.equal(r.code, 1, r.stdout + r.stderr);
+		assert.match(r.stderr, /collections\/bases\.collection\.yaml/);
+		assert.match(r.stderr, /"files"/);
+		assert.doesNotMatch(r.stdout, /is publishable/);
+	});
+	test('a member packed without its collections: the preset is not publishable either', () => {
+		const ws = host('alone-base', 'alone-set');
+		dropCollections(ws.root, 'alone-base');
+		const r = run(ws.root, ['check', 'modules/alone-set', '--alone']);
+		assert.equal(r.code, 1, r.stdout + r.stderr);
+		assert.match(r.stderr, /alone-base/);
+		assert.match(r.stderr, /collections\/bases\.collection\.yaml/);
+	});
+});

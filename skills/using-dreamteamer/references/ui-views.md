@@ -22,6 +22,7 @@ the next compile.
 | narrowing the rows | filters |
 | layout settings | options |
 | writing views from the CLI | the verbs |
+| where each collection sits in the left nav | the nav document — nav.yaml |
 
 ## when a view earns existence
 
@@ -181,6 +182,42 @@ collections/<c> display.…` on a package's collection writes the keys that diff
 in the workspace module (writing `options` whole when one option changes, so none is dropped), says
 when it also declares `<c>` in that module's `peer_collections`, and never writes the package.
 
+## the nav document — nav.yaml
+
+Where each COLLECTION sits in the left nav is one tracked file at the workspace root, `nav.yaml`, and
+it is the operator's: the editor's drag and drop writes it, and so may you. A ui-view keeps its own
+`display.nav.order`; a collection's `display.nav.order` and `section` are ignored (0.49.0).
+
+```yaml
+# The left nav of this workspace. Drag and drop writes this file; so may you.
+tree:
+  - folder: Work                 # label, optional icon, optional hidden: true, items
+    icon: rocket
+    items: [tasks, projects, { folder: Plans, items: [decisions, risks] }]
+  - collection: contacts         # the long form, to override the icon
+    icon: person
+  - namespace: rnd               # a namespace folder; no items = all of it unplaced
+    items: [rnd/change-requests, { folder: Product, items: [rnd/user-stories] }]
+hidden: [file-drives]            # rows not drawn; a hidden name counts as placed
+```
+
+- **A collection the file does not name draws after the tree**, alphabetical; a namespaced one inside
+  its namespace's folder. A name listed twice draws at its first place. `dt check` prints a ⚠ line for
+  a name that resolves to nothing, a name listed twice and a file it cannot read, never a violation.
+- **A module ships a fragment** (`dreamteamer.nav`, `collections.md`). After `dt install` and
+  `dt update` compile, the fragments of what they installed are merged in and `nav.yaml` joins their
+  commit. The merge only ADDS rows the file does not place yet, never moves one. A same-label folder
+  or the same namespace AT THE SAME LEVEL is reused. A folder whose rows are all placed is not created.
+  A fragment row nothing installed owns is dropped quietly (a removed preset member). A row another
+  module owns refuses the whole call, and the pre-image comes back.
+- **Old nav settings** (`dreamteamer.navGroups`, `navOrder`, `navHidden` in `.vscode/settings.json`)
+  with no `nav.yaml` make install of a package that ships a fragment, and update of any module, refuse
+  before npm. Migrate first with `npx -p @dreamteamer/protocol@0.2 dt-nav migrate`, or open the
+  workspace once in the editor 0.26 or later. `--allow nav-reset` starts from the fragments and leaves
+  the settings unread. `dt update --engine` is never refused.
+- **A host writes through the engine**: `readNavDoc`, `validateNavDoc`, `writeNavDoc` and
+  `applyNavFragments` on `import('dreamteamer')`. There is one grammar and one writer.
+
 ## common mistakes
 
 | mistake | reality |
@@ -192,4 +229,5 @@ when it also declares `<c>` in that module's `peer_collections`, and never write
 | `filter` written inside `options` | read by nobody — compile warns; move it up |
 | a view to change the collection's default columns | edit the collection's `display.list` — every surface follows |
 | omitting `nav` and expecting a sidebar entry | a view's nav is never inherited |
+| `display.nav.order` on a collection to move its row | ignored since 0.49 — move the row in `nav.yaml` |
 | a module ui-view naming one person | a hard-coded id resolves in no other workspace |

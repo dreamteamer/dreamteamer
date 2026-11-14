@@ -53,14 +53,14 @@ never disagree with the one the operator ran. It returns a contribution; every k
 | `next` | `({ root, ws, collection, ids }) → [{ id, text }]`, synchronous | `dt next <ref>` prints each line under the bound commands (`--json`: `notes`, attributed); a throw is one failure line, never a failed `dt next`. `contributedNotes(ws, collection, ids)` is the same call for a surface |
 
 A module that needs per-machine setup (an account, a download, a local tool) declares it as a
-**setup unit** — the `setup` contribution key: `[{ id, version: 1, inputs: [{ id, kind: 'string'|'path'|'rows'|'secret-path', env?, required?, default?, prompt?, rows? }], inspect(ctx) → { checks }, plan(ctx, inputs) → { checks, actions: [{ id, title, effects: [{ kind, detail }], preview?, expect?, runBy?, kind? }], needs }, apply(ctx, action, inputs) → { ok, changed, message? } }]`.
-A unit is addressed by its `id` wherever it is installed (alone, or composed into a bigger package); the engine validates the shape at
-load, refuses two packages claiming one id, and drives every unit through `dt install`, `dt setup` and `dt status` without
-knowing the module (`setup.md`). `doctor` renders a unit's checks as rows. An input's `env` must also be declared in the
-package's `dreamteamer.env` or `vars`. A composed package lists what it composes in `dreamteamer.provides`, so `dt install`
-refuses a duplicate in both directions.
+**setup unit** — the `setup` contribution key: `[{ id, version: 1, inputs: [{ id, kind: 'string'|'path'|'rows'|'secret-path', env?, required?, default?, prompt?, rows? }], inspect(ctx) → { checks }, plan(ctx, inputs) → { checks, actions: [{ id, title, effects?: [{ kind, detail }], env?: { KEY: value }, state?, reason?, preview?, expect?, runBy?, kind? }], needs }, apply?(ctx, action, inputs) → { ok, changed, message? } }]`.
+A unit is addressed by its `id` wherever it is installed (alone, or as a member a module preset installed); the engine
+validates the shape at load, refuses two packages claiming one id, and drives every unit through `dt install`, `dt setup` and
+`dt status` without knowing the module (`setup.md`). `doctor` renders a unit's checks as rows. An input's `env` must also be
+declared in the package's `dreamteamer.env` or `vars`. A set of modules installed together is a **module preset** — a package
+whose `dreamteamer.preset` pins its members (`collections.md`); `dreamteamer.provides` is legal and ignored since 0.49.0.
 
-Since 0.48.0:
+What the signature does not show:
 
 - **an `env` action** — `{ id, title, env: { KEY: value, … }, state? }` — is performed by the engine, not by `apply`: the
   `.env` write, confined to the workspace, every other line kept, the value never printed. Judged when the plan is read:

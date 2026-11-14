@@ -4,6 +4,10 @@
 // x-ranges (1.2.x), combined comparators (">=1.0.0 <2.0.0"), <, <=, >,
 // prerelease/build tags. callers treat null as "warn, don't guess".
 
+/** An exact version — what a module preset pins and `--save-exact` writes. Here, not in
+ *  install-modules.js, because compile reads it and install-modules imports compile. */
+export const EXACT = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/;
+
 const parse = (v) => {
 	const m = /^(\d+)\.(\d+)\.(\d+)$/.exec(String(v).trim());
 	return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null;

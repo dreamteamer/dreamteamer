@@ -68,10 +68,12 @@ dt install <package> --from <folder>       # offline: a folder of tarballs the p
 ```
 
 Say before running it: the package and version, that it installs every module the package declares
-it needs, compiles, runs the module's **safe** setup (workspace-file writes only), and commits
-`package.json`, `package-lock.json` and what setup wrote. Anything it refuses — a package that is not
-a module, an engine floor this engine does not meet, a module an installed one already provides — it
-refuses before writing anything, naming the pair.
+it needs (for a module preset, every member at the version the preset pins), compiles, merges the
+shipped nav fragments into `nav.yaml`, runs the module's **safe** setup (workspace-file writes only),
+and commits `package.json`, `package-lock.json`, `nav.yaml` and what setup wrote. Anything it refuses
+— a package that is not a module, an engine floor this engine does not meet, a module installed at
+another version than the one asked for, old nav settings not yet in `nav.yaml` (`ui-views.md`) — it
+refuses before writing anything, naming why.
 
 ## 3. act — inputs and consent, one approval at a time
 

@@ -464,13 +464,32 @@ describe('collections: add scaffolds v2, set writes v2 keys', () => {
 		refused(w.dt('set', 'collections/health/doctors', 'display.list.optionz.x=1'), /is not a settable key of a collection/);
 	});
 
-	test('reorder collections --after writes display.nav.order', () => {
+	// cr-dt-008: since 0.49 the nav is nav.yaml and `display.nav.order` compiles and moves no row, so a reorder of a
+	// collection that wrote it and said "the nav order is live" told a person the nav changed when nothing moved
+	// (rnd/issues/2026-11-14--dt-reorder-of-a-system-collection-still-writes-display-nav-order-…). It is refused,
+	// naming nav.yaml, and writes and commits nothing.
+	test('reorder collections is refused naming nav.yaml, and writes and commits nothing', () => {
 		const w = clinic({ records: false });
 		ok(w.dt('set', 'collections/health/doctors', 'display.nav.order=10'));
 		ok(w.dt('set', 'collections/health/patients', 'display.nav.order=20'));
-		ok(w.dt('reorder', 'collections/health/visits', '--after', 'health/doctors'));
-		assert.equal(w.doc(VISITS_FILE).display.nav.order, 15);
-		assert.match(w.text(VISITS_FILE), /^# A visit is the EVENT/m);
+		const before = w.text(VISITS_FILE);
+		const head = git(w.root, ['rev-parse', 'HEAD']);
+		for (const args of [['--after', 'health/doctors'], ['--before', 'health/patients'], ['--top'], ['--bottom']]) {
+			const res = w.dt('reorder', 'collections/health/visits', ...args);
+			refused(res, /nav\.yaml/);
+			assert.doesNotMatch(`${res.stdout}${res.stderr}`, /nav order is live/);
+			assert.match(res.stderr, /display\.nav\.order/, 'the refusal does not say why the old key is no answer');
+			assert.match(res.stderr, /nothing was written/);
+		}
+		assert.equal(w.text(VISITS_FILE), before, 'the descriptor changed');
+		assert.equal(git(w.root, ['rev-parse', 'HEAD']), head, 'a commit was made');
+	});
+
+	test('dt help no longer advertises reorder as nav ordering', () => {
+		const w = clinic({ records: false });
+		const help = w.dt('help').stdout;
+		assert.doesNotMatch(help, /nav ordering/);
+		assert.match(help, /reorder\s+collections\/<c>[^\n]*refused[^\n]*nav\.yaml/);
 	});
 });
 

@@ -184,3 +184,13 @@ test('Store.external is implemented and typed (cr-dt-004)', async () => {
 	const dts = fs.readFileSync(new URL('../../src/records-api.d.ts', import.meta.url), 'utf8');
 	assert.match(dts, /\texternal\(collection: string, id: string, opts\?: \{ referrer\?: string \}\): \{ label: string; from\?: string; manifest: string \} \| null;/);
 });
+
+test('the nav document functions are on the full API and never on dreamteamer/records (cr-dt-008)', async () => {
+	const api = await import('../../src/api.js');
+	const records = await import('../../src/records-api.js');
+	for (const name of ['readNavDoc', 'validateNavDoc', 'writeNavDoc', 'applyNavFragments']) {
+		assert.equal(typeof api[name], 'function', `${name} is not a function on src/api.js`);
+		assert.equal(records[name], undefined, `${name} leaked into src/records-api.js`);
+	}
+	assert.match(dts('api.d.ts'), /^export type NavDoc = \{ tree: NavEntry\[\]; hidden: string\[\] \};$/m);
+});

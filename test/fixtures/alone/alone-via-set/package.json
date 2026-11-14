@@ -1,0 +1,1 @@
+{ "name": "alone-via-set", "version": "1.0.0", "type": "module", "files": ["collections"], "dreamteamer": { "description": "Depends on a module preset and references a member's collection.", "engine": ">=0.47.0", "dependencies": ["alone-set"] } }
