@@ -532,50 +532,16 @@ function metaCollectionsSet(ws, store, flags, pos) {
 }
 
 /**
- * `dt reorder collections/teams --after tasks` — NAV ORDERING, and that is all `reorder` means on a
- * collection. §7's other half: `module=` is the move between modules, `order` is the position in
- * the nav, and giving one verb both meanings is what made "move a collection" ambiguous.
- *
- * ⚠ `order` is a NUMBER on the descriptor, not a fractional index — unlike a record's position field,
- * which uses one because a record collection has thousands of rows and a dense integer would
- * renumber everything below the insertion point. A workspace has tens of collections and their
- * `order` values are hand-authored and readable (10, 40, 140), so a midpoint is the right shape:
- * it writes ONE descriptor and keeps the numbers legible.
+ * `dt reorder collections/<c> …` — REFUSED since 0.49 (cr-dt-008). The nav is `nav.yaml` at the
+ * workspace root, the one placement every surface draws from; a collection's `display.nav.order`
+ * still compiles and moves no row. The verb used to write that key, compile, commit and print "the
+ * nav order is live" while nothing on screen moved, so it now says where the order lives and writes
+ * nothing. `module=` stays the move between modules (`dt set collections/<c> module=<m>`).
  */
 function metaCollectionsMove(ws, store, flags, pos) {
 	const name = need(pos, 0, 'collection name');
 	store.descriptor(name);
-	const rows = [...store.descriptors]
-		.map(([id, d]) => ({ id, order: typeof displayOf(d).nav?.order === 'number' ? displayOf(d).nav.order : null }))
-		.filter((r) => r.id !== name && r.order !== null)
-		.sort((a, b) => a.order - b.order);
-	const anchorId = oneValue(flags, 'after') ?? oneValue(flags, 'before');
-	let next;
-	if (flags.top) {
-		next = rows.length ? rows[0].order - 10 : 10;
-	} else if (flags.bottom) {
-		next = rows.length ? rows[rows.length - 1].order + 10 : 10;
-	} else {
-		if (!anchorId) throw new Error(`dt reorder collections/${name} needs --after <c> | --before <c> | --top | --bottom`);
-		const i = rows.findIndex((r) => r.id === anchorId);
-		if (i < 0) throw new Error(`"${anchorId}" has no \`display.nav.order\` to sit beside — set one first (dreamteamer set collections/${anchorId} display.nav.order=<n>), or use --top/--bottom.`);
-		const anchorOrder = rows[i].order;
-		const neighbour = flags.after ? rows[i + 1]?.order : rows[i - 1]?.order;
-		// a MIDPOINT when there is a neighbour, a step of 10 when the anchor is at the end — and
-		// nothing else is renumbered, which is the whole point
-		next = neighbour === undefined
-			? (flags.after ? anchorOrder + 10 : anchorOrder - 10)
-			: Math.round((anchorOrder + neighbour) / 2);
-		if (next === anchorOrder || next === neighbour) {
-			throw new Error(`no room between ${anchorId} (${anchorOrder}) and its neighbour (${neighbour}) — the two are adjacent integers. Spread them first: dreamteamer set collections/${anchorId} display.nav.order=<n>.`);
-		}
-	}
-	const out = setCollectionScalars(ws, store, name, { 'display.nav.order': next });
-	if (flags.json) { emit(JSON.stringify({ ...out, order: next })); return 0; }
-	console.log(`✔ ${name} display.nav.order=${next}`);
-	console.log('✔ compiled — the nav order is live');
-	reportCommits(out.commits);
-	return 0;
+	throw new Error(`dt reorder collections/${name} is refused: since 0.49 the nav's order is nav.yaml at the workspace root, and a collection's display.nav.order compiles but moves no row. Move the row in the sidebar (Move up · Move down · Move to top/bottom, or drag it), or edit nav.yaml by hand — nothing was written.`);
 }
 
 /** `dt get collections/<c> --module <m>` — ONE module's source contribution, not the merged

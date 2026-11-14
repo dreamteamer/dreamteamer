@@ -155,7 +155,9 @@ commits there.
   rm     <system>/<id> [--force] [--dry-run]
   rename <system>/<id> <new-id>               (a collection's rename moves its records, re-suffixes
                                                the files and rewrites every inbound ref, ONE commit)
-  reorder <system>/<id> --after|--before <id> (nav ordering — it writes \`display.nav.order\`)
+  reorder collections/<c> …                 (refused since 0.49: the nav's order is nav.yaml — the
+                                               sidebar's Move entries or a hand edit; display.nav.order
+                                               compiles and moves no row)
   get    collections/<c> [--module <m>]       (--module prints ONE module's source contribution
                                                rather than the merged descriptor)
   list   modules | collections | skills | …   (id · location · path · namespaces · package name)

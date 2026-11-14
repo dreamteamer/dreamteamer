@@ -43,7 +43,8 @@ Nothing to do but `dt compile` — **unless your workspace still keeps its nav i
   place yet. A fragment that places another module's collection refuses the call, with everything put
   back — the compiled runtime included. A `nav.yaml` that does not read refuses an install or update
   that ships a fragment before npm writes; one that ships none never reads the file. `dt check` warns on a `nav.yaml` name that resolves to nothing or is listed twice. A
-  collection's `display.nav.order` and `section` still compile and are ignored. The grammar is in
+  collection's `display.nav.order` and `section` still compile and are ignored, and `dt reorder
+  collections/<c>` (which wrote that key) is refused, naming nav.yaml. The grammar is in
   `references/ui-views.md`.
 - **`dt check` warns about record files under `data/` that no collection reads** — a folder whose
   collection left with a module (notebooks and wikis out of rnd) — naming the folder, its records and,
