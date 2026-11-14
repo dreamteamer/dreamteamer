@@ -1,12 +1,12 @@
 import fs from "node:fs"
 import path from "node:path"
 import { execFileSync } from "node:child_process"
-import { planExports } from "./exports/planExports.ts"
-import type { Store } from "./record/Store.ts"
-import { EXPORTS_FILE } from "./record/consts.ts"
-import { inProgress } from "./record/inProgress.ts"
-import type { ExportChange } from "./record/types.ts"
-import { exportsFacts } from "./runtime/exportsFacts.ts"
+import { planExports } from "./planExports.ts"
+import type { Store } from "../record/Store.ts"
+import { EXPORTS_FILE } from "../record/consts.ts"
+import { inProgress } from "../record/inProgress.ts"
+import type { ExportChange } from "../record/types.ts"
+import { exportsFacts } from "../runtime/exportsFacts.ts"
 
 /** Write (and commit) each named repo's manifest; returns the exit code. */
 export function runExports(

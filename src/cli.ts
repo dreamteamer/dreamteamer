@@ -1,24 +1,24 @@
-import { changesCommand } from "./changesCommand.ts"
+import { changesCommand } from "./changes/changesCommand.ts"
 import { commitCommand } from "./commitCommand.ts"
-import { doctorCommand } from "./doctorCommand.ts"
-import { fmtCommand } from "./fmtCommand.ts"
+import { doctorCommand } from "./doctor/doctorCommand.ts"
+import { fmtCommand } from "./fmt/fmtCommand.ts"
 import { relocateCommand } from "./relocateCommand.ts"
 import { resolveCommand } from "./resolveCommand.ts"
 import { statusCommand } from "./statusCommand.ts"
-import { runExports } from "./runExports.ts"
+import { runExports } from "./exports/runExports.ts"
 import fs from "node:fs"
 import path from "node:path"
 import * as api from "./api.ts"
 import { openWorkspace, findWorkspace } from "./api.ts"
 import { checkAlone } from "./check/checkAlone.ts"
 import { compile, warnIfStale, kindsOf } from "./workspace/compile.ts"
-import { check } from "./check.ts"
-import { collectionCommand } from "./collectionCommand.ts"
+import { check } from "./check/check.ts"
+import { collectionCommand } from "./collections/collectionCommand.ts"
 import { emit } from "./record/emit.ts"
-import { relationsCommand } from "./relationsCommand.ts"
-import { initCommand } from "./initCommand.ts"
-import { installCommand } from "./installCommand.ts"
-import { updateCommand } from "./updateCommand.ts"
+import { relationsCommand } from "./collections/relationsCommand.ts"
+import { initCommand } from "./init/initCommand.ts"
+import { installCommand } from "./install/installCommand.ts"
+import { updateCommand } from "./update/updateCommand.ts"
 import { Store } from "./record/Store.ts"
 import { splitRef } from "./record/splitRef.ts"
 import { canonicalCollection } from "./record/ref.ts"
@@ -415,6 +415,9 @@ const VERB_PACKAGES: Record<string, string> = {
 }
 const DOCKER_VERBS = new Set(["start", "stop", "open", "export", "import"])
 
+/** `dt check` on a workspace with its extensions' own violations — what init and install verify with. */
+const verify = async (ws: Workspace): Promise<number> => check(ws, { extra: await api.contributedViolations(ws) })
+
 export async function run(argv: string[]): Promise<void> {
   const [cmd, ...rest] = argv
   try {
@@ -448,7 +451,7 @@ export async function run(argv: string[]): Promise<void> {
         await initCommand(flags, {
           open: openWorkspace,
           argv: rest,
-          verify: async ws => check(ws, { extra: await api.contributedViolations(ws) }),
+          verify,
         })
       )
     }
@@ -502,9 +505,15 @@ export async function run(argv: string[]): Promise<void> {
     }
     switch (cmd) {
       case "install":
-        return process.exit(await installCommand(ws, rest))
+        return process.exit(
+          await installCommand(ws, rest, {
+            open: openWorkspace,
+            verify,
+            ensureRepos: args => collectionCommand(ws, "repos", "ensure", args),
+          })
+        )
       case "update":
-        return process.exit(await updateCommand(ws, rest))
+        return process.exit(await updateCommand(ws, rest, { open: openWorkspace }))
       case "compile": {
         const code = compile(ws)
         if (!rest.includes("--watch")) process.exit(code)

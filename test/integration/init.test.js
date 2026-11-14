@@ -14,9 +14,9 @@ import path from "node:path"
 import { createHash } from "node:crypto"
 import { execFileSync, spawnSync } from "node:child_process"
 import { ENGINE_ROOT, SPAWN_TIMEOUT_MS } from "../helpers/ws.js"
-import { initCommand } from "../../src/initCommand.ts"
+import { initCommand } from "../../src/init/initCommand.ts"
 import { openWorkspace, contributedViolations } from "../../src/api.ts"
-import { check } from "../../src/check.ts"
+import { check } from "../../src/check/check.ts"
 import { buildRegistry } from "../fixtures/registry/build.mjs"
 
 const VERSION = JSON.parse(fs.readFileSync(path.join(ENGINE_ROOT, "package.json"), "utf8")).version

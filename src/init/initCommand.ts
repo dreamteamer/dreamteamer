@@ -1,18 +1,18 @@
 import fs from "node:fs"
 import path from "node:path"
 import { type StdioOptions, spawnSync } from "node:child_process"
-import { escapes } from "./init/escapes.ts"
-import { init } from "./init/init.ts"
-import { initFootprint } from "./init/initFootprint.ts"
-import { seedBlock } from "./init/seedBlock.ts"
-import { engineVersion, readManifest } from "./runtime/runtime.ts"
-import { RUNTIME_DIR } from "./runtime/consts.ts"
-import type { DreamteamerBlock, Flags, Manifest, PackageJson, Workspace } from "./types.ts"
-import { childEnv } from "./workspace/childEnv.ts"
-import { compile } from "./workspace/compile.ts"
-import { resolveNpm } from "./workspace/resolveNpm.ts"
-import { satisfies } from "./workspace/satisfies.ts"
-import { staleness } from "./workspace/staleness.ts"
+import { escapes } from "./escapes.ts"
+import { init } from "./init.ts"
+import { initFootprint } from "./initFootprint.ts"
+import { seedBlock } from "./seedBlock.ts"
+import { engineVersion, readManifest } from "../runtime/runtime.ts"
+import { RUNTIME_DIR } from "../runtime/consts.ts"
+import type { DreamteamerBlock, Flags, Manifest, PackageJson, Workspace } from "../types.ts"
+import { childEnv } from "../workspace/childEnv.ts"
+import { compile } from "../workspace/compile.ts"
+import { resolveNpm } from "../workspace/resolveNpm.ts"
+import { satisfies } from "../workspace/satisfies.ts"
+import { staleness } from "../workspace/staleness.ts"
 
 // ---- `dt init` — one command from a folder to a compiled, checked, committed workspace ------------
 
@@ -209,7 +209,7 @@ export async function initCommand(
   // --from: every package this init will need is looked for in the folder BEFORE anything is written —
   // a folder lacking one is refused with the folder untouched (no skeleton, no registry call)
   if (fromDir) {
-    const { indexFolder } = await import("./workspace/indexFolder.ts")
+    const { indexFolder } = await import("../workspace/indexFolder.ts")
     let index
     try {
       index = indexFolder(fromDir)
@@ -249,7 +249,7 @@ export async function initCommand(
     let args
     if (fromDir) {
       // offline: every missing declared package (the engine too, from nothing) comes from the folder
-      const { indexFolder } = await import("./workspace/indexFolder.ts")
+      const { indexFolder } = await import("../workspace/indexFolder.ts")
       let index
       try {
         index = indexFolder(fromDir)
@@ -304,15 +304,15 @@ export async function initCommand(
     }
     if (await verify(ws)) return fail("check: the violations above")
     // a preset's modules: the safe part of every unit's setup, exactly as `dt install` runs it
-    const { units } = await import("./workspace/units.ts")
-    const { runUnit } = await import("./workspace/runUnit.ts")
-    const { fillInputs } = await import("./workspace/fillInputs.ts")
-    const { parseInputFlags } = await import("./workspace/parseInputFlags.ts")
-    const { parseAllow } = await import("./workspace/parseAllow.ts")
-    const { skippedUnits, SetupUsage, unitEnv, droppedKeys } = await import("./workspace/setup.ts")
-    const { EXIT } = await import("./workspace/consts.ts")
-    const { fold } = await import("./workspace/fold.ts")
-    const { ttyIO } = await import("./workspace/ttyIO.ts")
+    const { units } = await import("../workspace/units.ts")
+    const { runUnit } = await import("../workspace/runUnit.ts")
+    const { fillInputs } = await import("../workspace/fillInputs.ts")
+    const { parseInputFlags } = await import("../workspace/parseInputFlags.ts")
+    const { parseAllow } = await import("../workspace/parseAllow.ts")
+    const { skippedUnits, SetupUsage, unitEnv, droppedKeys } = await import("../workspace/setup.ts")
+    const { EXIT } = await import("../workspace/consts.ts")
+    const { fold } = await import("../workspace/fold.ts")
+    const { ttyIO } = await import("../workspace/ttyIO.ts")
     const skipped = new Set(skippedUnits(ws))
     const all = units(ws).filter(u => !skipped.has(u.id))
     if (all.length) {
@@ -426,8 +426,8 @@ export async function initCommand(
       )
   }
   if (ws) {
-    const { statusLines } = await import("./status/statusLines.ts")
-    const { renderStatusLines } = await import("./status/renderStatusLines.ts")
+    const { statusLines } = await import("../workspace/statusLines.ts")
+    const { renderStatusLines } = await import("../workspace/renderStatusLines.ts")
     try {
       for (const line of renderStatusLines(statusLines(ws, { processEnv }))) log(line)
     } catch {

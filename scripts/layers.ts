@@ -35,18 +35,7 @@ const SRC = resolve(dirname(fileURLToPath(import.meta.url)), "..", "src")
 
 const SHARED: Record<string, string> = { record: "record", runtime: "boundary", workspace: "workspace" }
 // the folders that hold one command's own code
-const COMMANDS = new Set([
-  "changes",
-  "check",
-  "collections",
-  "doctor",
-  "exports",
-  "fmt",
-  "init",
-  "install",
-  "status",
-  "update",
-])
+const COMMANDS = new Set(["changes", "check", "collections", "doctor", "exports", "fmt", "init", "install", "update"])
 
 // who may import whom. `record` and `boundary` are the constrained half; surfaces are free. A command
 // folder may also import its OWN folder, never another command's — checked below, not in this table.

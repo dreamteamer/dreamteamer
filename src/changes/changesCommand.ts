@@ -1,10 +1,10 @@
-import { recordChanges } from "./changes/recordChanges.ts"
-import { Store } from "./record/Store.ts"
-import { emit } from "./record/emit.ts"
-import { groupChanges } from "./record/groupChanges.ts"
-import { printChanges } from "./record/printChanges.ts"
-import type { Workspace } from "./types.ts"
-import { warnIfStale } from "./workspace/compile.ts"
+import { recordChanges } from "./recordChanges.ts"
+import { Store } from "../record/Store.ts"
+import { emit } from "../record/emit.ts"
+import { groupChanges } from "../record/groupChanges.ts"
+import { printChanges } from "../record/printChanges.ts"
+import type { Workspace } from "../types.ts"
+import { warnIfStale } from "../workspace/compile.ts"
 
 // `changes` is what survives of the trigger/run subsystem removed 2026-07-31: deriving
 // record events from git history was the genuinely used half (catch-up — "what happened

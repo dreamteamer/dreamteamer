@@ -208,3 +208,12 @@ export type SetupIO = {
   prompt: (input: SetupInput, def: unknown) => Promise<unknown>
   ask: (action: SetupAction | PendingAction, kinds: string[]) => Promise<boolean>
 }
+
+/** One line of `dt status`'s setup section. */
+export type StatusLine = Folded & {
+  package: string | null
+  unit: string | null
+  grouped?: boolean
+  checks: SetupCheck[]
+  next: string
+}

@@ -1,8 +1,8 @@
-import { formatDescriptors } from "./fmt/formatDescriptors.ts"
-import { Store } from "./record/Store.ts"
-import { canonicalCollection } from "./record/ref.ts"
-import type { Workspace } from "./types.ts"
-import { reportCommits } from "./workspace/reportCommits.ts"
+import { formatDescriptors } from "./formatDescriptors.ts"
+import { Store } from "../record/Store.ts"
+import { canonicalCollection } from "../record/ref.ts"
+import type { Workspace } from "../types.ts"
+import { reportCommits } from "../workspace/reportCommits.ts"
 
 export function fmtCommand(ws: Workspace, rest: string[]): number {
   const target = rest.find(a => !a.startsWith("--"))

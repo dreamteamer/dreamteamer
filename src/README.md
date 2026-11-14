@@ -5,8 +5,9 @@ comments of the engine's modules; they live here so the code opens on code. Each
 split into one file per export, placed by who uses it, so a section names the files it now covers:
 
 - `src/*.ts` — the entry points (`cli`, `api`, `records-api`, `testing`, `update-setup`), the public
-  contract (`types.ts`), and the function each CLI verb dispatches to (`statusCommand`, `commitCommand` …)
-- `src/<command>/` — code only that command uses
+  contract (`types.ts`), and the entry function of a verb whose command has no folder of its own
+  (`commitCommand`, `relocateCommand`, `resolveCommand`, `setupCommand`, `statusCommand`)
+- `src/<command>/` — that command's entry function (`install/installCommand.ts`) and the code only it uses
 - `src/record/`, `src/runtime/`, `src/workspace/` — code two or more commands share, by layer
   (`npm run layers` holds the direction: record never imports workspace, a command folder never another's)
 
@@ -49,7 +50,7 @@ missing would fail the HOST's compile, and the gate's whole point is to say so b
 
 ## check
 
-Files: [check.ts](check.ts)
+Files: [check/check.ts](check/check.ts)
 
 dreamteamer check — validate every record against the compiled descriptors.
 report-only: JSON Schema (ajv), id patterns, reference resolution, stray files, plus any
@@ -60,7 +61,7 @@ NEVER modifies a file. returns the exit code.
 
 ## checkout
 
-Files: [init/escapes.ts](init/escapes.ts) · [initCommand.ts](initCommand.ts) · [install/applyInstall.ts](install/applyInstall.ts) · [install/declaredDeps.ts](install/declaredDeps.ts) · [install/installCheckout.ts](install/installCheckout.ts) · [install/observeState.ts](install/observeState.ts) · [install/planInstall.ts](install/planInstall.ts) · [install/readHookInput.ts](install/readHookInput.ts) · [install/readStdin.ts](install/readStdin.ts) · [install/resolves.ts](install/resolves.ts) · [install/types.ts](install/types.ts) · [workspace/childEnv.ts](workspace/childEnv.ts) · and 3 more
+Files: [init/escapes.ts](init/escapes.ts) · [init/initCommand.ts](init/initCommand.ts) · [install/applyInstall.ts](install/applyInstall.ts) · [install/declaredDeps.ts](install/declaredDeps.ts) · [install/installCheckout.ts](install/installCheckout.ts) · [install/observeState.ts](install/observeState.ts) · [install/planInstall.ts](install/planInstall.ts) · [install/readHookInput.ts](install/readHookInput.ts) · [install/readStdin.ts](install/readStdin.ts) · [install/resolves.ts](install/resolves.ts) · [install/types.ts](install/types.ts) · [workspace/childEnv.ts](workspace/childEnv.ts) · and 3 more
 
 src/checkout.ts — which checkout am I, and how does it become ready.
 WORKSPACE layer: knows git and the compiler, never the harness.
@@ -83,7 +84,7 @@ This file TRANSLATES; it does not implement. Every record and schema verb lands 
 
 ## collections
 
-Files: [collectionCommand.ts](collectionCommand.ts) · [collections/consts.ts](collections/consts.ts) · [collections/isEntityKind.ts](collections/isEntityKind.ts) · [collections/nearest.ts](collections/nearest.ts) · [collections/parseArgs.ts](collections/parseArgs.ts) · [collections/refuseUnknownFlags.ts](collections/refuseUnknownFlags.ts) · [collections/rel.ts](collections/rel.ts) · [record/emit.ts](record/emit.ts) · [relationsCommand.ts](relationsCommand.ts) · [workspace/reportCommits.ts](workspace/reportCommits.ts)
+Files: [collections/collectionCommand.ts](collections/collectionCommand.ts) · [collections/consts.ts](collections/consts.ts) · [collections/isEntityKind.ts](collections/isEntityKind.ts) · [collections/nearest.ts](collections/nearest.ts) · [collections/parseArgs.ts](collections/parseArgs.ts) · [collections/refuseUnknownFlags.ts](collections/refuseUnknownFlags.ts) · [collections/rel.ts](collections/rel.ts) · [record/emit.ts](record/emit.ts) · [collections/relationsCommand.ts](collections/relationsCommand.ts) · [workspace/reportCommits.ts](workspace/reportCommits.ts)
 
 The IMPLEMENTATION layer behind the verb-first CLI: `collectionCommand(ws, collection, verb, args)`
 is (collection, verb) shaped and stays that way — `cli.js` translates `dt <verb> <target>` onto it.
@@ -196,7 +197,7 @@ auditable and replayable forever. history IS the queue; there is no events file.
 
 ## exports (the verb)
 
-Files: [exports/planExports.ts](exports/planExports.ts) · [runExports.ts](runExports.ts)
+Files: [exports/planExports.ts](exports/planExports.ts) · [exports/runExports.ts](exports/runExports.ts)
 
 dt exports [--layer <name> …] [--dry-run] [--json] — write a repo's exports manifest from this
 context (cr-dt-004). Bare: this workspace's own; --layer: that layer's, written into its clone — how a
@@ -562,7 +563,7 @@ workspace. `src/setup.ts` runs the units.
 
 ## setup
 
-Files: [setupCommand.ts](setupCommand.ts) · [status/renderStatusLines.ts](status/renderStatusLines.ts) · [status/statusLines.ts](status/statusLines.ts) · [status/types.ts](status/types.ts) · [workspace/consent.ts](workspace/consent.ts) · [workspace/fillInputs.ts](workspace/fillInputs.ts) · [workspace/fold.ts](workspace/fold.ts) · [workspace/judgeEnvAction.ts](workspace/judgeEnvAction.ts) · [workspace/parseAllow.ts](workspace/parseAllow.ts) · [workspace/parseInputFlags.ts](workspace/parseInputFlags.ts) · [workspace/redact.ts](workspace/redact.ts) · [workspace/runUnit.ts](workspace/runUnit.ts) · and 7 more
+Files: [setupCommand.ts](setupCommand.ts) · [workspace/renderStatusLines.ts](workspace/renderStatusLines.ts) · [workspace/statusLines.ts](workspace/statusLines.ts) · [workspace/types.ts](workspace/types.ts) · [workspace/consent.ts](workspace/consent.ts) · [workspace/fillInputs.ts](workspace/fillInputs.ts) · [workspace/fold.ts](workspace/fold.ts) · [workspace/judgeEnvAction.ts](workspace/judgeEnvAction.ts) · [workspace/parseAllow.ts](workspace/parseAllow.ts) · [workspace/parseInputFlags.ts](workspace/parseInputFlags.ts) · [workspace/redact.ts](workspace/redact.ts) · [workspace/runUnit.ts](workspace/runUnit.ts) · and 7 more
 
 `dt setup` — and the setup half of `dt install` and `dt status`: the engine's generic driver for
 the units modules declare (src/setup-contract.ts). Nothing here knows a module: it fills inputs,
