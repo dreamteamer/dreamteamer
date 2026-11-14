@@ -1,7 +1,5 @@
 import type { ExportEntry, ExportsContext } from "./types.ts"
 
-export const EXPORTS_FILE = "dreamteamer-exports.json"
-
 /** Every leaf value at a field path, arrays flattened. */
 export function* valuesAt(obj: unknown, fieldPath: string[]): Generator<unknown> {
   let vals: unknown[] = [obj]

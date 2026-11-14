@@ -5,7 +5,8 @@
 import { test, describe } from "node:test"
 import assert from "node:assert/strict"
 import { validateSetup } from "../../src/workspace/validateSetup.ts"
-import { SETUP_VERSION, INPUT_KINDS, isEnvAction } from "../../src/workspace/setup-contract.ts"
+import { isEnvAction } from "../../src/workspace/setup-contract.ts"
+import { SETUP_VERSION, INPUT_KINDS } from "../../src/workspace/consts.ts"
 import { validateEnvAction } from "../../src/workspace/validateEnvAction.ts"
 
 const fn = () => ({})

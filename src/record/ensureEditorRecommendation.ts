@@ -1,6 +1,6 @@
 import path from "node:path"
 import fs from "node:fs"
-import { EDITOR_RECOMMENDATIONS } from "./workspace.ts"
+import { EDITOR_RECOMMENDATIONS } from "./consts.ts"
 
 export function ensureEditorRecommendation(
   root: string,

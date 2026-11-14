@@ -1,5 +1,5 @@
 import type { SetupCheck } from "../types.ts"
-import { CHECK_STATUSES } from "./setup-contract.ts"
+import { CHECK_STATUSES } from "./consts.ts"
 import type { Folded } from "./types.ts"
 
 /** One line from a unit's checks — the design's status table, in its order. */

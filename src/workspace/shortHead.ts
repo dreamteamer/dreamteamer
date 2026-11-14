@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process"
-import { GIT_QUIET } from "./GIT_QUIET.ts"
+import { GIT_QUIET } from "./consts.ts"
 
 export const shortHead = (root: string): string | null => {
   try {

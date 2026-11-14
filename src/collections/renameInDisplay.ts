@@ -1,5 +1,6 @@
 import { renameInTemplate } from "./renameInTemplate.ts"
-import { OPTION_FIELD_KEYS, OPTION_FIELD_LISTS, OPTION_TEMPLATES, asTree } from "./schema-ops.ts"
+import { asTree } from "./schema-ops.ts"
+import { OPTION_FIELD_KEYS, OPTION_FIELD_LISTS, OPTION_TEMPLATES } from "./consts.ts"
 import type { At } from "./types.ts"
 
 export function renameInDisplay(display: unknown, from: string, to: string, at: At, label: string): void {

@@ -1,5 +1,5 @@
-import { INJECTED_FIELDS } from "./INJECTED_FIELDS.ts"
-import { SCALAR_TYPES } from "./SCALAR_TYPES.ts"
+import { INJECTED_FIELDS } from "./consts.ts"
+import { SCALAR_TYPES } from "./consts.ts"
 import { enumValues, fieldTitleOf, referenceTargets } from "./fields.ts"
 import type { Field } from "../types.ts"
 

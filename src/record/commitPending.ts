@@ -1,7 +1,7 @@
 import { type StdioOptions, execFileSync } from "node:child_process"
 import fs from "node:fs"
 import path from "node:path"
-import { QUIET } from "./QUIET.ts"
+import { QUIET } from "./consts.ts"
 import type { Store } from "./Store.ts"
 import { composeSubject } from "./composeSubject.ts"
 import { inProgress } from "./inProgress.ts"

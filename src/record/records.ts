@@ -42,15 +42,6 @@ export function unknownFields(d: Descriptor, fields: Fields): string[] {
   return Object.keys(fields).filter(k => !(k in props))
 }
 
-// ---- shared reader primitives (review finding 11: walk/EXT existed 2-4×, diverging) ----
-
-export const EXT: Record<string, string> = { md: ".md", yaml: ".yaml", json: ".json" }
-
-/** How big a `format: binary` record may be before `check` says something, when its collection does not
- *  say otherwise. 200 KB fits an icon, a logo, a small illustration or a compressed photo, and does
- *  not fit the video someone will one day try to make a record. */
-export const MAX_RECORD_BYTES = 204800
-
 // ids are PATHS — but only downward ones. traversal segments, absolute paths and
 // backslashes are rejected before any fs join (review finding 1: an escaping --id
 // wrote a record outside the repo and orphaned others inside it).

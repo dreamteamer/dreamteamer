@@ -5,7 +5,7 @@ import type { Workspace } from "../types.ts"
 import { childEnv } from "./childEnv.ts"
 import { compile } from "./compile.ts"
 import { resolveNpm } from "./resolveNpm.ts"
-import { EXIT } from "./setup.ts"
+import { EXIT } from "./consts.ts"
 import type { InstallHooks, SpecEntry } from "./types.ts"
 
 // ---- steps 2–4 and 5–6, shared with `dt update` (install one pin later) ----------------------------

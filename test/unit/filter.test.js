@@ -10,8 +10,8 @@ import { matchesFilter } from "../../src/collections/matchesFilter.ts"
 import { unknownOperators } from "../../src/record/unknownOperators.ts"
 import { unknownTokens } from "../../src/record/unknownTokens.ts"
 import { tokenValue } from "../../src/collections/tokenValue.ts"
-import { VALUE_TOKENS } from "../../src/record/filter.ts"
-import { KNOWN_OPERATORS } from "../../src/record/KNOWN_OPERATORS.ts"
+import { VALUE_TOKENS } from "../../src/record/consts.ts"
+import { KNOWN_OPERATORS } from "../../src/record/consts.ts"
 
 const row = { title: "Fix login", status: "todo", tags: ["ui", "bug"], due: "2026-07-28", assignee: null, count: 3 }
 

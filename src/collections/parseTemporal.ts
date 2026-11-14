@@ -1,4 +1,5 @@
-import { DATE_ONLY, DATE_TIME, canonicalZone } from "../record/temporal.ts"
+import { canonicalZone } from "../record/temporal.ts"
+import { DATE_ONLY, DATE_TIME } from "../record/consts.ts"
 
 /**
  * A temporal string → epoch ms, or null when the value isn't one (so callers can fall back).

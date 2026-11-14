@@ -1,4 +1,4 @@
-import { CHANGE_OF, TYPE_OF } from "./changeKinds.ts"
+import { CHANGE_OF, TYPE_OF } from "./consts.ts"
 import { deriveEvents } from "./deriveEvents.ts"
 import type { Store } from "../record/Store.ts"
 import { commitPending } from "../record/commitPending.ts"

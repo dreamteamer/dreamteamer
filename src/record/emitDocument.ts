@@ -1,5 +1,6 @@
 import { type Document, parseDocument, isMap, isSeq, isScalar, type Node, type Pair } from "yaml"
-import { SOURCE_OPTS, commentLines, keyOf, nodeSpan, pairSpan, same } from "./yaml.ts"
+import { commentLines, keyOf, nodeSpan, pairSpan, same } from "./yaml.ts"
+import { SOURCE_OPTS } from "./consts.ts"
 
 /** Emit the document, restoring the original bytes of everything that did not change and that
  *  `keep` accepts — a formatter passes a `keep` that refuses a node whose STYLE it changed. */

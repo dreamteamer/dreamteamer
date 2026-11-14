@@ -18,7 +18,8 @@ import { walk } from "../record/walk.ts"
 import { ensureGitignored } from "../record/workspace.ts"
 import { dump, load } from "../record/yaml.ts"
 import { loadDescriptors as loadCompiledDescriptors } from "../runtime/loadDescriptors.ts"
-import { DERIVED_KINDS, STALE_RUNTIME, engineId, engineVersion, readManifest, runtimeDir } from "../runtime/runtime.ts"
+import { engineId, engineVersion, readManifest, runtimeDir } from "../runtime/runtime.ts"
+import { DERIVED_KINDS, STALE_RUNTIME } from "../runtime/consts.ts"
 import type {
   AuthoredDescriptor,
   Descriptor,
@@ -29,13 +30,13 @@ import type {
   PackageJson,
   Workspace,
 } from "../types.ts"
-import { KINDS } from "./KINDS.ts"
-import { MANIFEST_KEYS } from "./MANIFEST_KEYS.ts"
+import { KINDS } from "./consts.ts"
+import { MANIFEST_KEYS } from "./consts.ts"
 import { bindingErrors } from "./bindingErrors.ts"
 import { compileCollections } from "./compileCollections.ts"
 import { discoverModules } from "./discoverModules.ts"
 import { excludedFromKind } from "./extensions.ts"
-import { BEGIN, END, INSTRUCTIONS_BEGIN, INSTRUCTIONS_END } from "./harnessMarkers.ts"
+import { BEGIN, END, INSTRUCTIONS_BEGIN, INSTRUCTIONS_END } from "./consts.ts"
 import { overlayView } from "./overlayView.ts"
 import { renderContributions } from "./renderContributions.ts"
 import { repoRootOf } from "./repoRootOf.ts"
@@ -47,6 +48,7 @@ import { v1ManifestRefusal } from "./v1ManifestRefusal.ts"
 import { v1Refusal } from "./v1Refusal.ts"
 import { viewDisplay } from "./viewDisplay.ts"
 import { viewErrors } from "./viewErrors.ts"
+import { CHANNEL_LABEL, INSTRUCTIONS_SOURCE } from "./consts.ts"
 
 /** One runtime file being compiled: its sources and bytes, and for a merged ui-view who overlaid it. */
 type CompileEntry = Entry & { module?: string; overlaidBy?: string[] }
@@ -190,11 +192,6 @@ function strayKindDirs(source: ModuleSource, wsRoot: string, declaredIgnore: str
 }
 
 export const sha256 = (buf: Buffer | string): string => "sha256:" + createHash("sha256").update(buf).digest("hex")
-
-// channel -> the directory the operator knows it by (used in shadow warnings, and it IS the
-// `location` field's vocabulary — see collections/modules.collection.yaml. Keeping the export name
-// on purpose: renaming a symbol under src/ is a cross-repo change, and this one buys nothing.)
-export const CHANNEL_LABEL: Record<string, string> = { inline: "modules", git: "git_modules", npm: "node_modules" }
 
 /** A module's record id: its package name with the npm scope stripped, so `@dreamteamer/crm` is `crm`. */
 export const moduleIdOf = (n: string): string => slug(String(n).replace(/^@[^/]+\//, ""))
@@ -1550,25 +1547,6 @@ function refusePlacementTransitions(root: string, compiledColls: Map<string, Com
 // a bad source THROWS (review finding 8: process.exit killed --watch on the first typo
 // and made server-triggered recompiles impossible). the CLI boundary prints and exits.
 export class CompileError extends Error {}
-
-// ⚠ A MANAGED MARKER INSIDE `dreamteamer.md` IS A REFUSAL, not something to escape around.
-// The file is rendered VERBATIM into a managed block, and `writeBlock` finds that block by the FIRST
-// occurrence of its begin marker anywhere in the file — so a marker quoted inside the rendered text
-// is found before the real delimiter. Both directions were measured on a fixture:
-//
-//   - quoting the ORIENTATION pair: the orientation pass rewrites the quoted region, the instructions
-//     pass that runs immediately after restores it from source, and the real orientation block is
-//     never touched again. It silently keeps describing the schema of the day it was written, while
-//     `compile` exits 0 and `status` reports the runtime fresh.
-//   - quoting the INSTRUCTIONS end marker: the block is closed at the quote and a second end line is
-//     appended, so all three committed root files grow by ~40 bytes and one duplicated line per
-//     compile, without ever reaching a fixed point.
-//
-// Escaping the markers on the way out is the alternative, and it is not one: the whole promise of
-// this file is that what was written is what every agent reads, and an escaped marker is not that.
-// A rule ABOUT the block describes it instead of quoting it.
-/** The one hand-written root source. Named once: `compile` reads it and `staleness` looks for it. */
-export const INSTRUCTIONS_SOURCE = "DREAMTEAMER.md"
 
 const MANAGED_MARKERS = [
   ["the orientation block", BEGIN],

@@ -12,7 +12,7 @@ import { printUnitResults } from "../workspace/printUnitResults.ts"
 import { readSpecManifest } from "../workspace/readSpecManifest.ts"
 import { resolveClosure } from "../workspace/resolveClosure.ts"
 import { resolveNpm } from "../workspace/resolveNpm.ts"
-import { EXIT } from "../workspace/setup.ts"
+import { EXIT } from "../workspace/consts.ts"
 import type { setupAndCommit } from "../workspace/setupAndCommit.ts"
 import { InstallRefusal, compareVersions } from "../workspace/versions.ts"
 

@@ -1,5 +1,5 @@
 import path from "node:path"
-import { EXT } from "./records.ts"
+import { EXT } from "./consts.ts"
 import { storageOf } from "./storageOf.ts"
 import type { Descriptor } from "../types.ts"
 

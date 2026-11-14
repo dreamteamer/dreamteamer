@@ -1,5 +1,5 @@
 import type { SetupInput, SetupInputKind, SetupUnit } from "../types.ts"
-import { ENV_KEY, INPUT_KINDS, SETUP_VERSION } from "./setup-contract.ts"
+import { ENV_KEY, INPUT_KINDS, SETUP_VERSION } from "./consts.ts"
 
 /** A unit or input as a module wrote it — untrusted until each key is checked below. */
 type RawUnit = { [K in keyof SetupUnit]?: unknown }

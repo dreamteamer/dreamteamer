@@ -1,4 +1,4 @@
-import { ROWS_SHOWN } from "./record/ROWS_SHOWN.ts"
+import { ROWS_SHOWN } from "./record/consts.ts"
 import { Store } from "./record/Store.ts"
 import { commitPending } from "./record/commitPending.ts"
 import { emit } from "./record/emit.ts"

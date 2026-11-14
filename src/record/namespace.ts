@@ -1,7 +1,5 @@
 import { singular } from "./singular.ts"
-
-/** Never a namespace: it would give the default namespace a second, prefixed spelling. */
-export const RESERVED_NAMESPACES = new Set(["default"])
+import { INVARIANT } from "./consts.ts"
 
 /**
  * The declared namespace a qualified collection name sits in, or `''` for the default namespace.
@@ -18,18 +16,6 @@ export function baseNameOf(qualified: string, namespaces: string[]): string {
   const ns = namespaceOf(qualified, namespaces)
   return ns ? qualified.slice(ns.length + 1) : qualified
 }
-
-/**
- * A collection name in the singular — what one RECORD of it is called: `doctors` → `doctor`,
- * `stories` → `story`, `boxes` → `box`, `analyses` → `analysis`, `series` → `series`. Only the last
- * hyphenated word inflects (`meta-analyses` → `meta-analysis`). A name that is not a plural comes back
- * unchanged, which is what `inflects` reports, so compile can say so.
- *
- * Shared by three subsystems in different layers — compile derives an absent `singular` and
- * `storage.suffix` from it, `collections add` writes it into a new descriptor, `rename-collection`
- * asks whether a suffix was derived — so there is exactly one spelling of the rule.
- */
-export const INVARIANT = new Set(["series", "species", "news"])
 
 /** Whether `singular(name)` found a plural to inflect. */
 export const inflects = (name: string): boolean =>

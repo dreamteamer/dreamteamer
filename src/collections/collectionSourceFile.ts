@@ -1,6 +1,7 @@
 import path from "node:path"
 import { baseDescriptorSource } from "./baseDescriptorSource.ts"
-import { IN_NODE_MODULES, declaringModules, moduleRecord, workspaceSystemDir } from "./schema-ops.ts"
+import { declaringModules, moduleRecord, workspaceSystemDir } from "./schema-ops.ts"
+import { IN_NODE_MODULES } from "./consts.ts"
 import type { Store } from "../record/Store.ts"
 import type { Workspace } from "../types.ts"
 import { kindDir } from "../workspace/compile.ts"

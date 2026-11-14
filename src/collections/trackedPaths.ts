@@ -1,6 +1,7 @@
 import path from "node:path"
 import type { Store } from "../record/Store.ts"
-import { RUNTIME_DIR, readManifest } from "../runtime/runtime.ts"
+import { readManifest } from "../runtime/runtime.ts"
+import { RUNTIME_DIR } from "../runtime/consts.ts"
 
 /**
  * The TRACKED file(s) behind a record — what git actually has commits for.

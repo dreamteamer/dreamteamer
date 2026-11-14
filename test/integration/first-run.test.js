@@ -11,7 +11,7 @@ import { twoModuleWorkspace, readFile, patchModulePkg } from "../helpers/ws.js"
 import { load, dump } from "../../src/record/yaml.ts"
 import { ensureEditorRecommendation } from "../../src/record/ensureEditorRecommendation.ts"
 import { ensureEnvExample } from "../../src/record/ensureEnvExample.ts"
-import { EDITOR_EXTENSION_ID, EDITOR_RECOMMENDATIONS } from "../../src/record/workspace.ts"
+import { EDITOR_EXTENSION_ID, EDITOR_RECOMMENDATIONS } from "../../src/record/consts.ts"
 
 const ID = "dreamteamer.dreamteamer-vscode"
 const AGENT = "Anthropic.claude-code"

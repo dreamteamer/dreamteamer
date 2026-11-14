@@ -1,4 +1,4 @@
-import { ROWS_SHOWN } from "./ROWS_SHOWN.ts"
+import { ROWS_SHOWN } from "./consts.ts"
 import { groupChanges } from "./groupChanges.ts"
 import { reportLine } from "./reportLine.ts"
 import type { RecordChange } from "./types.ts"

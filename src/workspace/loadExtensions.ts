@@ -2,7 +2,7 @@ import { pathToFileURL } from "node:url"
 import path from "node:path"
 import type { Contribution, LoadedExtension, Workspace } from "../types.ts"
 import { declaredExtensions } from "./declaredExtensions.ts"
-import { EXTENSION_API } from "./extensions.ts"
+import { EXTENSION_API } from "./consts.ts"
 import { v1ManifestRefusal } from "./v1ManifestRefusal.ts"
 import { validateSetup } from "./validateSetup.ts"
 

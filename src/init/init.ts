@@ -1,11 +1,11 @@
 import path from "node:path"
 import fs from "node:fs"
 import { execFileSync } from "node:child_process"
-import { SKELETON_KINDS } from "./SKELETON_KINDS.ts"
+import { SKELETON_KINDS } from "./consts.ts"
 import { seedBlock } from "./seedBlock.ts"
 import { ensureEditorRecommendation } from "../record/ensureEditorRecommendation.ts"
 import type { Flags } from "../types.ts"
-import { KINDS } from "../workspace/KINDS.ts"
+import { KINDS } from "../workspace/consts.ts"
 import { appendMissing } from "../workspace/appendMissing.ts"
 
 const GITIGNORE = `node_modules/

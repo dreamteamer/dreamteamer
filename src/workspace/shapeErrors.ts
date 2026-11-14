@@ -1,5 +1,5 @@
 import type { AuthoredDescriptor } from "../types.ts"
-import { V2_KEYS } from "./V2_KEYS.ts"
+import { V2_KEYS } from "./consts.ts"
 
 const STORAGE_KEYS = ["path", "format", "shape", "entry", "suffix", "under", "max_bytes", "accept", "owner"]
 

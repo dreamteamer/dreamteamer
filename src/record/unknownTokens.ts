@@ -1,4 +1,4 @@
-import { TOKEN, VALUE_TOKENS } from "./filter.ts"
+import { TOKEN, VALUE_TOKENS } from "./consts.ts"
 
 /** Every `$token` value in a filter tree that is not one of VALUE_TOKENS — what compile and
  *  `--where` refuse. */

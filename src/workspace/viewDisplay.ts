@@ -1,4 +1,5 @@
-import { VIEW_DISPLAY, isMap } from "./views.ts"
+import { isMap } from "./views.ts"
+import { VIEW_DISPLAY } from "./consts.ts"
 
 /**
  * A view's display, resolved: the collection's display with the view's merged over it sub-block by

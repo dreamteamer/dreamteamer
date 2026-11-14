@@ -1,7 +1,7 @@
 import path from "node:path"
 import fs from "node:fs"
 import { baseDescriptorSource } from "./baseDescriptorSource.ts"
-import { IN_NODE_MODULES } from "./schema-ops.ts"
+import { IN_NODE_MODULES } from "./consts.ts"
 import type { Store } from "../record/Store.ts"
 import { storageOf } from "../record/storageOf.ts"
 import type { Workspace } from "../types.ts"

@@ -28,7 +28,7 @@ Importing this module prints nothing, writes nothing, binds no port and touches 
 
 ## alone
 
-Files: [check/ENGINE.ts](check/ENGINE.ts) · [check/checkAlone.ts](check/checkAlone.ts) · [check/engineRun.ts](check/engineRun.ts) · [check/freshWorkspace.ts](check/freshWorkspace.ts)
+Files: [check/consts.ts](check/consts.ts) · [check/checkAlone.ts](check/checkAlone.ts) · [check/engineRun.ts](check/engineRun.ts) · [check/freshWorkspace.ts](check/freshWorkspace.ts)
 
 `dt check modules/<id> --alone` — is this inline module publishable? (cr-dt-007, G3, D63, D65)
 
@@ -83,7 +83,7 @@ This file TRANSLATES; it does not implement. Every record and schema verb lands 
 
 ## collections
 
-Files: [collectionCommand.ts](collectionCommand.ts) · [collections/FIELD_FLAGS.ts](collections/FIELD_FLAGS.ts) · [collections/OWN_VERBS.ts](collections/OWN_VERBS.ts) · [collections/VERB_FLAGS.ts](collections/VERB_FLAGS.ts) · [collections/isEntityKind.ts](collections/isEntityKind.ts) · [collections/nearest.ts](collections/nearest.ts) · [collections/parseArgs.ts](collections/parseArgs.ts) · [collections/refuseUnknownFlags.ts](collections/refuseUnknownFlags.ts) · [collections/rel.ts](collections/rel.ts) · [record/emit.ts](record/emit.ts) · [relationsCommand.ts](relationsCommand.ts) · [workspace/reportCommits.ts](workspace/reportCommits.ts)
+Files: [collectionCommand.ts](collectionCommand.ts) · [collections/consts.ts](collections/consts.ts) · [collections/isEntityKind.ts](collections/isEntityKind.ts) · [collections/nearest.ts](collections/nearest.ts) · [collections/parseArgs.ts](collections/parseArgs.ts) · [collections/refuseUnknownFlags.ts](collections/refuseUnknownFlags.ts) · [collections/rel.ts](collections/rel.ts) · [record/emit.ts](record/emit.ts) · [relationsCommand.ts](relationsCommand.ts) · [workspace/reportCommits.ts](workspace/reportCommits.ts)
 
 The IMPLEMENTATION layer behind the verb-first CLI: `collectionCommand(ws, collection, verb, args)`
 is (collection, verb) shaped and stays that way — `cli.js` translates `dt <verb> <target>` onto it.
@@ -92,7 +92,7 @@ an INTERNAL pair, not what the operator types; `dt add collections` is what they
 
 ## commit
 
-Files: [changes/recordChanges.ts](changes/recordChanges.ts) · [record/QUIET.ts](record/QUIET.ts) · [record/commitPending.ts](record/commitPending.ts) · [record/composeSubject.ts](record/composeSubject.ts) · [record/inProgress.ts](record/inProgress.ts) · [record/layerOf.ts](record/layerOf.ts) · [record/rowChanges.ts](record/rowChanges.ts) · [record/types.ts](record/types.ts)
+Files: [changes/recordChanges.ts](changes/recordChanges.ts) · [record/consts.ts](record/consts.ts) · [record/commitPending.ts](record/commitPending.ts) · [record/composeSubject.ts](record/composeSubject.ts) · [record/inProgress.ts](record/inProgress.ts) · [record/layerOf.ts](record/layerOf.ts) · [record/rowChanges.ts](record/rowChanges.ts) · [record/types.ts](record/types.ts)
 
 dt commit — publish what is already on disk. Model: GIT IS THE JOURNAL. There is no pending
 file and no cursor; the set of things to commit is sampled from `git status` over the record
@@ -117,7 +117,7 @@ one message naming the converter. Nothing here reads the v1 shape.
 
 ## compile
 
-Files: [workspace/KINDS.ts](workspace/KINDS.ts) · [workspace/compile.ts](workspace/compile.ts) · [workspace/discoverModules.ts](workspace/discoverModules.ts) · [workspace/repoRootOf.ts](workspace/repoRootOf.ts) · [workspace/staleness.ts](workspace/staleness.ts)
+Files: [workspace/consts.ts](workspace/consts.ts) · [workspace/compile.ts](workspace/compile.ts) · [workspace/discoverModules.ts](workspace/discoverModules.ts) · [workspace/repoRootOf.ts](workspace/repoRootOf.ts) · [workspace/staleness.ts](workspace/staleness.ts)
 
 dreamteamer compile — materialize (modules × workspace sources) into .dreamteamer,
 the single runtime read surface: copies + provenance manifest, then harness adapters.
@@ -125,7 +125,7 @@ explicit only; nothing rebuilds implicitly.
 
 ## descriptor-v2
 
-Files: [workspace/V2_KEYS.ts](workspace/V2_KEYS.ts) · [workspace/isV2.ts](workspace/isV2.ts) · [workspace/mergeMixins.ts](workspace/mergeMixins.ts) · [workspace/mergeOverlays.ts](workspace/mergeOverlays.ts) · [workspace/nameErrors.ts](workspace/nameErrors.ts) · [workspace/shapeErrors.ts](workspace/shapeErrors.ts)
+Files: [workspace/consts.ts](workspace/consts.ts) · [workspace/isV2.ts](workspace/isV2.ts) · [workspace/mergeMixins.ts](workspace/mergeMixins.ts) · [workspace/mergeOverlays.ts](workspace/mergeOverlays.ts) · [workspace/nameErrors.ts](workspace/nameErrors.ts) · [workspace/shapeErrors.ts](workspace/shapeErrors.ts)
 
 The authored descriptor — validated, and merged with its mixins and overlays.
 
@@ -188,7 +188,7 @@ and an I/O error as a write-time failure. Nothing here reads a value back to the
 
 ## events
 
-Files: [changes/changeKinds.ts](changes/changeKinds.ts) · [changes/deriveEvents.ts](changes/deriveEvents.ts) · [changes/types.ts](changes/types.ts) · [record/foldChanges.ts](record/foldChanges.ts) · [record/groupChanges.ts](record/groupChanges.ts) · [record/pathToRecord.ts](record/pathToRecord.ts) · [record/reportLine.ts](record/reportLine.ts) · [record/types.ts](record/types.ts)
+Files: [changes/consts.ts](changes/consts.ts) · [changes/deriveEvents.ts](changes/deriveEvents.ts) · [changes/types.ts](changes/types.ts) · [record/foldChanges.ts](record/foldChanges.ts) · [record/groupChanges.ts](record/groupChanges.ts) · [record/pathToRecord.ts](record/pathToRecord.ts) · [record/reportLine.ts](record/reportLine.ts) · [record/types.ts](record/types.ts)
 
 item events — DERIVED from git history, never observed live (the slice-5 contract in
 using-dreamteamer → references/changes.md): a closed laptop loses nothing, every evaluation is
@@ -219,7 +219,7 @@ serve `check`, `dt exports` and the migration script, so the three cannot disagr
 
 ## extensions
 
-Files: [collections/contributedNotes.ts](collections/contributedNotes.ts) · [workspace/MANIFEST_KEYS.ts](workspace/MANIFEST_KEYS.ts) · [workspace/declaredExtensions.ts](workspace/declaredExtensions.ts) · [workspace/extensions.ts](workspace/extensions.ts) · [workspace/loadExtensions.ts](workspace/loadExtensions.ts) · [workspace/manifestViolations.ts](workspace/manifestViolations.ts) · [workspace/v1ManifestRefusal.ts](workspace/v1ManifestRefusal.ts)
+Files: [collections/contributedNotes.ts](collections/contributedNotes.ts) · [workspace/consts.ts](workspace/consts.ts) · [workspace/declaredExtensions.ts](workspace/declaredExtensions.ts) · [workspace/extensions.ts](workspace/extensions.ts) · [workspace/loadExtensions.ts](workspace/loadExtensions.ts) · [workspace/manifestViolations.ts](workspace/manifestViolations.ts) · [workspace/v1ManifestRefusal.ts](workspace/v1ManifestRefusal.ts)
 
 Engine extensions — the ONE seam an optional tool plugs into.
 
@@ -271,7 +271,7 @@ on a value that predates an enum someone added later.
 
 ## fields
 
-Files: [record/INJECTED_FIELDS.ts](record/INJECTED_FIELDS.ts) · [record/SCALAR_TYPES.ts](record/SCALAR_TYPES.ts) · [record/enumChoices.ts](record/enumChoices.ts) · [record/fields.ts](record/fields.ts) · [record/resolveFields.ts](record/resolveFields.ts) · [record/toJsonSchema.ts](record/toJsonSchema.ts)
+Files: [record/consts.ts](record/consts.ts) · [record/enumChoices.ts](record/enumChoices.ts) · [record/fields.ts](record/fields.ts) · [record/resolveFields.ts](record/resolveFields.ts) · [record/toJsonSchema.ts](record/toJsonSchema.ts)
 
 The field vocabulary — dreamteamer's own, compiled to JSON Schema.
 
@@ -288,7 +288,7 @@ so compile can attribute each one to a file.
 
 ## filter
 
-Files: [collections/UNKNOWN_TOKEN.ts](collections/UNKNOWN_TOKEN.ts) · [collections/looseEq.ts](collections/looseEq.ts) · [collections/matchesFilter.ts](collections/matchesFilter.ts) · [collections/tokenValue.ts](collections/tokenValue.ts) · [record/KNOWN_OPERATORS.ts](record/KNOWN_OPERATORS.ts) · [record/filter.ts](record/filter.ts) · [record/unknownOperators.ts](record/unknownOperators.ts) · [record/unknownTokens.ts](record/unknownTokens.ts)
+Files: [collections/consts.ts](collections/consts.ts) · [collections/looseEq.ts](collections/looseEq.ts) · [collections/matchesFilter.ts](collections/matchesFilter.ts) · [collections/tokenValue.ts](collections/tokenValue.ts) · [record/consts.ts](record/consts.ts) · [record/unknownOperators.ts](record/unknownOperators.ts) · [record/unknownTokens.ts](record/unknownTokens.ts)
 
 record filtering — the operator set harvested from an earlier engine's
 query/compare.ts (Directus-style), trimmed to what the studio FilterBuilder
@@ -318,7 +318,7 @@ appends. The library's integer-part-with-magnitude-head keeps that at 4.
 
 ## harnesses
 
-Files: [doctor/MANAGED_BLOCKS.ts](doctor/MANAGED_BLOCKS.ts) · [workspace/buildCollectionsIndex.ts](workspace/buildCollectionsIndex.ts) · [workspace/buildModulesIndex.ts](workspace/buildModulesIndex.ts) · [workspace/harnessMarkers.ts](workspace/harnessMarkers.ts) · [workspace/renderContributions.ts](workspace/renderContributions.ts) · [workspace/runHarnessAdapters.ts](workspace/runHarnessAdapters.ts) · [workspace/types.ts](workspace/types.ts) · [workspace/writeLine.ts](workspace/writeLine.ts)
+Files: [doctor/consts.ts](doctor/consts.ts) · [workspace/buildCollectionsIndex.ts](workspace/buildCollectionsIndex.ts) · [workspace/buildModulesIndex.ts](workspace/buildModulesIndex.ts) · [workspace/harnessMarkers.ts](workspace/harnessMarkers.ts) · [workspace/renderContributions.ts](workspace/renderContributions.ts) · [workspace/runHarnessAdapters.ts](workspace/runHarnessAdapters.ts) · [workspace/types.ts](workspace/types.ts) · [workspace/writeLine.ts](workspace/writeLine.ts)
 
 harness adapters — one thin stage per harness, dispatched from compile over the same
 compiled entries. the superpowers lesson, kept deliberately: CONTENT NEVER FORKS PER
@@ -347,7 +347,7 @@ implementation here, three callers (CLI, server, extension).
 
 ## init
 
-Files: [collections/materializeRepo.ts](collections/materializeRepo.ts) · [collections/repos.ts](collections/repos.ts) · [init/SKELETON_KINDS.ts](init/SKELETON_KINDS.ts) · [init/init.ts](init/init.ts) · [init/initFootprint.ts](init/initFootprint.ts) · [init/seedBlock.ts](init/seedBlock.ts) · [install/commitOf.ts](install/commitOf.ts) · [install/install.ts](install/install.ts) · [install/installClone.ts](install/installClone.ts) · [install/isLink.ts](install/isLink.ts) · [install/offRef.ts](install/offRef.ts) · [update/update.ts](update/update.ts) · and 8 more
+Files: [collections/materializeRepo.ts](collections/materializeRepo.ts) · [collections/repos.ts](collections/repos.ts) · [init/consts.ts](init/consts.ts) · [init/init.ts](init/init.ts) · [init/initFootprint.ts](init/initFootprint.ts) · [init/seedBlock.ts](init/seedBlock.ts) · [install/commitOf.ts](install/commitOf.ts) · [install/install.ts](install/install.ts) · [install/installClone.ts](install/installClone.ts) · [install/isLink.ts](install/isLink.ts) · [install/offRef.ts](install/offRef.ts) · [update/update.ts](update/update.ts) · and 8 more
 
 dreamteamer init — write the workspace skeleton into the current directory.
 non-interactive: flags override sensible defaults (RAD phase; prompts later).
@@ -518,7 +518,7 @@ lets the engine write it into .env (the env action, D61). Pure: strings in, stri
 
 ## schema-ops
 
-Files: [collections/PARTIAL_OPS.ts](collections/PARTIAL_OPS.ts) · [collections/addField.ts](collections/addField.ts) · [collections/applyRewrites.ts](collections/applyRewrites.ts) · [collections/baseDescriptorSource.ts](collections/baseDescriptorSource.ts) · [collections/collectionSourceFile.ts](collections/collectionSourceFile.ts) · [collections/createCollection.ts](collections/createCollection.ts) · [collections/createModule.ts](collections/createModule.ts) · [collections/createSkill.ts](collections/createSkill.ts) · [collections/declaringSource.ts](collections/declaringSource.ts) · [collections/descriptorSources.ts](collections/descriptorSources.ts) · [collections/editWorkspacePkg.ts](collections/editWorkspacePkg.ts) · [collections/entitySource.ts](collections/entitySource.ts) · and 55 more
+Files: [collections/consts.ts](collections/consts.ts) · [collections/addField.ts](collections/addField.ts) · [collections/applyRewrites.ts](collections/applyRewrites.ts) · [collections/baseDescriptorSource.ts](collections/baseDescriptorSource.ts) · [collections/collectionSourceFile.ts](collections/collectionSourceFile.ts) · [collections/createCollection.ts](collections/createCollection.ts) · [collections/createModule.ts](collections/createModule.ts) · [collections/createSkill.ts](collections/createSkill.ts) · [collections/declaringSource.ts](collections/declaringSource.ts) · [collections/descriptorSources.ts](collections/descriptorSources.ts) · [collections/editWorkspacePkg.ts](collections/editWorkspacePkg.ts) · [collections/entitySource.ts](collections/entitySource.ts) · and 55 more
 
 schema operations — source-writing mutations shared by the CLI meta verbs and the
 server's schema endpoints. the contract (audit finding 11, clean-room bug 2): an op

@@ -1,4 +1,4 @@
-import { BEGIN, END, INSTRUCTIONS_BEGIN, INSTRUCTIONS_END } from "../workspace/harnessMarkers.ts"
+import { BEGIN, END, INSTRUCTIONS_BEGIN, INSTRUCTIONS_END } from "../workspace/consts.ts"
 
 /** Both managed blocks as data, for a tool that has to recognise generated text in a user-owned file
  *  (a merge tool resolving a conflict) without importing marker strings from an internal module. The

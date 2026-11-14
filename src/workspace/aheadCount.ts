@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process"
-import { GIT_QUIET } from "./GIT_QUIET.ts"
+import { GIT_QUIET } from "./consts.ts"
 
 /** How many commits this repo has that its upstream does not. Falls back to "not on any remote",
  *  because a fresh `dt install --clone` has no upstream configured and "ahead of nothing" is not a

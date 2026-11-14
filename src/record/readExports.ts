@@ -1,6 +1,6 @@
 import path from "node:path"
 import fs from "node:fs"
-import { EXPORTS_FILE } from "./exports.ts"
+import { EXPORTS_FILE } from "./consts.ts"
 import type { ExportRefs } from "./types.ts"
 
 export function readExports(dir: string): ExportRefs | null {

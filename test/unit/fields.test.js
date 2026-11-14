@@ -9,8 +9,8 @@ import { resolveFields } from "../../src/record/resolveFields.ts"
 import { toJsonSchema } from "../../src/record/toJsonSchema.ts"
 import { enumValues, referenceTargets } from "../../src/record/fields.ts"
 import { enumChoices } from "../../src/record/enumChoices.ts"
-import { INJECTED_FIELDS } from "../../src/record/INJECTED_FIELDS.ts"
-import { SCALAR_TYPES } from "../../src/record/SCALAR_TYPES.ts"
+import { INJECTED_FIELDS } from "../../src/record/consts.ts"
+import { SCALAR_TYPES } from "../../src/record/consts.ts"
 
 const collections = new Set([
   "health/patients",

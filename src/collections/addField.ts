@@ -1,6 +1,7 @@
 import { collectionSourceFile } from "./collectionSourceFile.ts"
 import { mixinDeclaring } from "./mixinDeclaring.ts"
-import { INJECTED, readYaml } from "./schema-ops.ts"
+import { readYaml } from "./schema-ops.ts"
+import { INJECTED } from "./consts.ts"
 import { upsertField } from "./upsertField.ts"
 import type { Store } from "../record/Store.ts"
 import { fieldsOf } from "../record/descriptor.ts"

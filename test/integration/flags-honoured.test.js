@@ -25,8 +25,8 @@ import assert from "node:assert/strict"
 import fs from "node:fs"
 import path from "node:path"
 import { twoModuleWorkspace, readFile, ENGINE_ROOT } from "../helpers/ws.js"
-import { FIELD_FLAGS } from "../../src/collections/FIELD_FLAGS.ts"
-import { VERB_FLAGS } from "../../src/collections/VERB_FLAGS.ts"
+import { FIELD_FLAGS } from "../../src/collections/consts.ts"
+import { VERB_FLAGS } from "../../src/collections/consts.ts"
 import { USAGE, WORKSPACE_FLAGS, GLOBAL_FLAGS } from "../../src/cli.ts"
 
 const exists = (root, rel) => fs.existsSync(path.join(root, rel))

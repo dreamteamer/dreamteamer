@@ -1,4 +1,4 @@
-import { SKELETON_KINDS } from "./SKELETON_KINDS.ts"
+import { SKELETON_KINDS } from "./consts.ts"
 import type { DreamteamerBlock, Flags } from "../types.ts"
 
 /** Every path `init` writes or creates for this effective block, root-relative. ⚠ The data folder is

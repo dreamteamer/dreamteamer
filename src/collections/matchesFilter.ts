@@ -1,8 +1,8 @@
-import { UNKNOWN_TOKEN } from "./UNKNOWN_TOKEN.ts"
+import { UNKNOWN_TOKEN } from "./consts.ts"
 import { compareValues } from "./compareValues.ts"
 import { looseEq } from "./looseEq.ts"
 import { tokenValue } from "./tokenValue.ts"
-import { KNOWN_OPERATORS } from "../record/KNOWN_OPERATORS.ts"
+import { KNOWN_OPERATORS } from "../record/consts.ts"
 import type { Fields } from "../types.ts"
 
 export function matchesFilter(record: Fields, filter: unknown, resolve?: (ref: string) => Fields | null): boolean {

@@ -3,10 +3,9 @@ import path from "node:path"
 import { baseDescriptorSource } from "./baseDescriptorSource.ts"
 import { collectionSourceFile } from "./collectionSourceFile.ts"
 import type { Position, Tree } from "./types.ts"
-import { INJECTED_FIELDS } from "../record/INJECTED_FIELDS.ts"
 import type { Store } from "../record/Store.ts"
 import { isRuntime } from "../record/descriptor.ts"
-import { EXT } from "../record/records.ts"
+import { EXT } from "../record/consts.ts"
 import { storageOf } from "../record/storageOf.ts"
 import { load } from "../record/yaml.ts"
 import { loadDescriptors } from "../runtime/loadDescriptors.ts"
@@ -15,8 +14,7 @@ import type { DreamteamerBlock, PackageJson, Workspace } from "../types.ts"
 import { compile, kindDir } from "../workspace/compile.ts"
 import { moduleRows } from "../workspace/moduleRows.ts"
 import type { ModuleRecordRow, SourceDoc } from "../workspace/types.ts"
-import { FIELD_OPTIONS, TEMPLATE_OPTIONS } from "../workspace/views.ts"
-
+import { ENTITY_SHAPE, IN_NODE_MODULES } from "./consts.ts"
 /** The compile half of the gate, under the same lock, with no source write and no commit — for a
  *  schema op that turns out to ask for what is already on disk. Materializing `.dreamteamer/` is the
  *  point rather than a side effect: the caller is about to report success, and success has always
@@ -24,18 +22,6 @@ import { FIELD_OPTIONS, TEMPLATE_OPTIONS } from "../workspace/views.ts"
 export function compileGated(ws: Workspace, store: Store): 0 {
   return store.withWriteLock(() => compile(ws))
 }
-
-// ---- modules ---------------------------------------------------------------------------------
-// A module is THREE-SPELLED today: the package `name` (discovery, `dependencies`), the
-// folder (the `workspace_module` key), and the slugged scope-stripped record id. The RECORD ID is
-// the identity everywhere the operator types it — `--module <id>`, `modules/<id>` references,
-// `dependencies` values — and the engine maps id → package name internally. `add modules` sets all
-// three to one string so a new module never forks; an existing forked module keeps working, and
-// `dt list modules` prints all three columns so the fork is visible.
-
-/** A module id: the same id-safe alphabet a namespace segment uses, because it becomes a folder
- *  name, a package name and a record id at once. */
-export const MODULE_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 
 /** One module, or the refusal §13 requires: `no module "nope" — known: core, hr, default (dt list
  *  modules). A module is named by its id.` */
@@ -65,34 +51,6 @@ export function editModulePkg(file: string, mutate: (block: DreamteamerBlock, pk
 export const nameList = (v: unknown): string[] =>
   (Array.isArray(v) ? v : String(v).split(",")).map(x => String(x).trim()).filter(Boolean)
 
-// ---- the positions that name a field, and a value ----------------------------------------------
-// A field is referenced BY NAME, not as a `<collection>/<id>` reference, so `store.rewriteRefs` can
-// see none of it. Rule 6 is the list of every position a descriptor, a view or a binding may name a
-// field in — compile validates each one — and these walkers visit exactly that list:
-//
-//   the collection's own sources (its base and every overlay):
-//     `fields.<f>` · a field's `display.unit_field` · `storage.under.parent` · `ids.from` ·
-//     `record_title` · `display.list.columns`/`sort`/`options` · `display.record.badge`/
-//     `color_by`/`subtitle` · `display.form.sections` · every `constraints` property name
-//   every other collection source:  a mirror's `mirror_of` naming the field on this collection
-//   ui-views:          `filter` (one hop through a reference included) and the `display` block
-//   command-bindings:  `available_when` · `done_when`
-//   the records:       the frontmatter key
-//
-// Each walker REWRITES A COPY and records where it wrote, so a dry run, a refusal and the real run
-// are one traversal and cannot disagree about what is affected. A position that cannot be rewritten
-// — a source `npm install` would erase, a mixin every collection listing it shares, a filter hop
-// through a union — is recorded too, and the verb refuses naming every one of them.
-
-/** A layout option that names a field by the role it plays (§3.5.1). */
-export const OPTION_FIELD_KEYS = FIELD_OPTIONS
-
-/** A layout option that names several. */
-export const OPTION_FIELD_LISTS = ["ref_fields", "value_fields"]
-
-/** A layout option that is a template. */
-export const OPTION_TEMPLATES = TEMPLATE_OPTIONS
-
 /** A position label back to its path from the document root: `constraints[0].if.properties.status`
  *  → `['constraints', 0, 'if', 'properties', 'status']`. Labels are built from field names and
  *  operator keys, neither of which carries a `.` or a `[`. */
@@ -111,12 +69,6 @@ export function rewriteTemplateField(tpl: unknown, from: string, to: string): un
     new RegExp(`(\\{\\{\\s*)${from.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(\\s*(?:\\||\\}\\}))`, "g"),
     `$1${to}$2`
   )
-}
-
-/** The filter positions of a view or a binding. */
-export const FILTER_KEYS: Record<string, string[]> = {
-  "ui-views": ["filter"],
-  "command-bindings": ["available_when", "done_when"],
 }
 
 export const readYaml = (file: string): SourceDoc | null => {
@@ -140,11 +92,6 @@ export function refusePositions(what: string, positions: Position[]): void {
   )
 }
 
-/** Operators whose operand IS a value, rewritten exactly. */
-export const VALUE_OPS = ["_eq", "_neq", "_ieq", "_nieq"]
-
-export const LIST_OPS = ["_in", "_nin"]
-
 /** The workspace's writable source dir for a kind (workspace_module aware). `kindDir` picks the
  *  layout that module already uses and falls back to flat, so a `collections add` never splits a
  *  half-moved module across both. */
@@ -152,10 +99,6 @@ export function workspaceSystemDir(ws: Workspace, kind: string): string {
   const wm = ws.pkg.dreamteamer?.workspace_module
   return kindDir(wm ? path.join(ws.root, "modules", wm) : ws.root, kind)
 }
-
-/** A path git will not let us rewrite usefully: `npm install` erases it. Matched on the SEGMENT, in
- *  either separator, because manifest paths carry the host's. */
-export const IN_NODE_MODULES = (rel: unknown): boolean => /(^|[\\/])node_modules([\\/]|$)/.test(String(rel))
 
 /** The module ids whose sources declare this collection, base first — for the "declared only by X"
  *  refusal, which has to name them to be actionable. */
@@ -181,9 +124,6 @@ export function pruneEmpty(dir: string, stopAt: string): void {
     dir = path.dirname(dir)
   }
 }
-
-/** The fields compile injects into every collection — no source declares one. */
-export const INJECTED = new Set(Object.keys(INJECTED_FIELDS))
 
 /** Deep value equality as a string, key ORDER ignored — "is this already exactly that field" must
  *  not turn on whether the keys came back in authored order or in flag order. */
@@ -219,27 +159,6 @@ export function uiViewSourceFile(ws: Workspace, id: string): { file: string; shi
   return { file: path.join(ws.root, shipped), shipped }
 }
 
-// ---- the identity entities: skills, agents, commands, command-bindings, mixins ----------------
-// §3.1's last row. These are FLAT at a module root and stay flat (decision 274) — their ids are
-// single segments, and namespacing them was cut with the wave that considered it.
-//
-// `add` is a SCAFFOLD for skills only, and refused with the path for the rest. That asymmetry is not
-// arbitrary: a skill's minimum-that-compiles is two frontmatter keys and an empty body, which a verb
-// can write honestly. An agent, a command, a binding and a mixin are all PROSE or PREDICATES —
-// the value is entirely in what a human writes, and a verb that scaffolds one produces a file whose
-// only content is the fact that a verb made it.
-
-/** kind → {suffix, folder} — one table, because five verbs read it and a sixth spelling of "where
- *  does a command live" is how a kind the engine stopped knowing sat in a module for two days
- *  (decision 156). */
-export const ENTITY_SHAPE: Record<string, { suffix: string; folder: boolean }> = {
-  skills: { suffix: "SKILL.md", folder: true },
-  agents: { suffix: ".agent.md", folder: false },
-  commands: { suffix: ".command.md", folder: false },
-  "command-bindings": { suffix: ".command-binding.yaml", folder: false },
-  mixins: { suffix: ".mixin.yaml", folder: false },
-}
-
 /** The shape of one kind — the table above, else DERIVED from the compiled descriptor, which is how
  *  a kind an extension contributes (`proofs`) gets `rm · rename · set` without this file naming it:
  *  `storage.suffix` + the format's extension, one file per id. */
@@ -259,5 +178,3 @@ export function refuseNpmEntity(kind: string, id: string, shipped: string | null
     `${kind.replace(/s$/, "")} "${id}" is shipped by an installed package (${shipped}) — a write there is erased by the next \`npm install\`.\n  disable it instead: add "${kind}/${id}" to dreamteamer.disable in package.json.`
   )
 }
-
-export const ENTITY_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/

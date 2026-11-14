@@ -1,5 +1,5 @@
-import type { EventType } from "./types.ts"
-import type { ChangeKind } from "../record/types.ts"
+import { type EventType } from "./types.ts"
+import { type ChangeKind } from "../record/types.ts"
 
 // ── the record-change report (0.42.0) ────────────────────────────────────────────────────────────
 // What `dt changes` and `dt commit` print, and what a session appends to its reply after a write.

@@ -1,11 +1,12 @@
-import { VALUE_TOKENS } from "../record/filter.ts"
+import { VALUE_TOKENS } from "../record/consts.ts"
 import { unknownOperators } from "../record/unknownOperators.ts"
 import { unknownTokens } from "../record/unknownTokens.ts"
 import { validateTemplate } from "../record/validateTemplate.ts"
 import type { Field } from "../types.ts"
 import { filterFields } from "./filterFields.ts"
 import type { ViewCheck } from "./types.ts"
-import { BUILTIN_FIELDS, FIELD_OPTIONS, TEMPLATE_OPTIONS, VIEW_DISPLAY, has, isMap } from "./views.ts"
+import { has, isMap } from "./views.ts"
+import { BUILTIN_FIELDS, FIELD_OPTIONS, TEMPLATE_OPTIONS, VIEW_DISPLAY } from "./consts.ts"
 
 /** The keys a ui-view carries, in canonical order. `compiled` is compile's, never authored. */
 const VIEW_KEYS = ["name", "title", "description", "route", "scope", "collection", "filter", "display"]

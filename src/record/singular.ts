@@ -1,4 +1,4 @@
-import { INVARIANT } from "./namespace.ts"
+import { INVARIANT } from "./consts.ts"
 
 export function singular(name: string): string {
   const i = name.lastIndexOf("-")

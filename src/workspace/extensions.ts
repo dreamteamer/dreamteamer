@@ -1,8 +1,3 @@
-/** The one command that converts a workspace to descriptor format v2. */
-export const CONVERTER = "node node_modules/dreamteamer/dist/scripts/migrate-descriptors-v2.js --root ."
-
-export const EXTENSION_API = 1
-
 /**
  * Does a `dreamteamer.disable` list switch off the WHOLE package `name`? An entry names a package by
  * its full name (`@scope/kit`, `probe-kit`) or by its module id — the name with the npm

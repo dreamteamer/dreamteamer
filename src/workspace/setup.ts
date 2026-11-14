@@ -1,11 +1,10 @@
 import path from "node:path"
 import fs from "node:fs"
 import { parseEnvValues } from "../record/parseEnvValues.ts"
-import { RUNTIME_DIR } from "../runtime/runtime.ts"
+import { RUNTIME_DIR } from "../runtime/consts.ts"
 import type { Workspace } from "../types.ts"
 import type { InputProblem } from "./types.ts"
-
-export const EXIT = { done: 0, failed: 1, usage: 2, needsInput: 3 }
+import { EXIT } from "./consts.ts"
 
 export class SetupUsage extends Error {
   code: number

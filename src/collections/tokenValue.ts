@@ -1,5 +1,5 @@
-import { UNKNOWN_TOKEN } from "./UNKNOWN_TOKEN.ts"
-import { TOKEN } from "../record/filter.ts"
+import { UNKNOWN_TOKEN } from "./consts.ts"
+import { TOKEN } from "../record/consts.ts"
 
 const pad = (n: number): string => String(n).padStart(2, "0")
 

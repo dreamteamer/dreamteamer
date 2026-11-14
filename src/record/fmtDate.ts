@@ -1,4 +1,5 @@
-import { WALL_CLOCK, asDate } from "./template.ts"
+import { asDate } from "./template.ts"
+import { WALL_CLOCK } from "./consts.ts"
 
 export function fmtDate(v: unknown, fmt: string): string {
   const pad = (n: number): string => String(n).padStart(2, "0")

@@ -5,7 +5,8 @@ import { escapes } from "./init/escapes.ts"
 import { init } from "./init/init.ts"
 import { initFootprint } from "./init/initFootprint.ts"
 import { seedBlock } from "./init/seedBlock.ts"
-import { RUNTIME_DIR, engineVersion, readManifest } from "./runtime/runtime.ts"
+import { engineVersion, readManifest } from "./runtime/runtime.ts"
+import { RUNTIME_DIR } from "./runtime/consts.ts"
 import type { DreamteamerBlock, Flags, Manifest, PackageJson, Workspace } from "./types.ts"
 import { childEnv } from "./workspace/childEnv.ts"
 import { compile } from "./workspace/compile.ts"
@@ -308,7 +309,8 @@ export async function initCommand(
     const { fillInputs } = await import("./workspace/fillInputs.ts")
     const { parseInputFlags } = await import("./workspace/parseInputFlags.ts")
     const { parseAllow } = await import("./workspace/parseAllow.ts")
-    const { skippedUnits, SetupUsage, unitEnv, EXIT, droppedKeys } = await import("./workspace/setup.ts")
+    const { skippedUnits, SetupUsage, unitEnv, droppedKeys } = await import("./workspace/setup.ts")
+    const { EXIT } = await import("./workspace/consts.ts")
     const { fold } = await import("./workspace/fold.ts")
     const { ttyIO } = await import("./workspace/ttyIO.ts")
     const skipped = new Set(skippedUnits(ws))

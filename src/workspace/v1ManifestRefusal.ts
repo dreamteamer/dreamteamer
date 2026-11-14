@@ -1,6 +1,6 @@
 import type { DreamteamerBlock } from "../types.ts"
-import { MANIFEST_KEYS } from "./MANIFEST_KEYS.ts"
-import { CONVERTER } from "./extensions.ts"
+import { MANIFEST_KEYS } from "./consts.ts"
+import { CONVERTER } from "./consts.ts"
 
 /**
  * The refusal for a `dreamteamer` block in the v1 spelling — a kebab-case spelling of a key this

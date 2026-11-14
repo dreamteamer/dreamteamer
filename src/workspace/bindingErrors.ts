@@ -1,4 +1,4 @@
-import { VALUE_TOKENS } from "../record/filter.ts"
+import { VALUE_TOKENS } from "../record/consts.ts"
 import { unknownOperators } from "../record/unknownOperators.ts"
 import { unknownTokens } from "../record/unknownTokens.ts"
 import type { Field } from "../types.ts"

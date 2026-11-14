@@ -1,5 +1,6 @@
-import { PARTIAL_OPS } from "./PARTIAL_OPS.ts"
-import { LIST_OPS, VALUE_OPS, asTree } from "./schema-ops.ts"
+import { PARTIAL_OPS } from "./consts.ts"
+import { asTree } from "./schema-ops.ts"
+import { LIST_OPS, VALUE_OPS } from "./consts.ts"
 import type { At, Tree } from "./types.ts"
 
 /** One field's condition in a filter, with the value rewritten. */

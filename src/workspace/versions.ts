@@ -1,6 +1,6 @@
 import path from "node:path"
 import fs from "node:fs"
-import { EXIT } from "./setup.ts"
+import { EXIT } from "./consts.ts"
 
 /** Numeric major.minor.patch order; a prerelease sorts below its release. */
 export function compareVersions(a: string, b: string): number {

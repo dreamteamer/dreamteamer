@@ -1,4 +1,4 @@
-import { KNOWN_OPERATORS } from "./KNOWN_OPERATORS.ts"
+import { KNOWN_OPERATORS } from "./consts.ts"
 
 // walk a filter tree and return every operator key not in the known set — compile
 // validates ui-view filters with this so a typo'd operator fails loudly at compile time.

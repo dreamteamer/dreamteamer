@@ -1,6 +1,7 @@
 import fs from "node:fs"
 import { removeFieldPlan } from "./removeFieldPlan.ts"
-import { OPTION_FIELD_KEYS, OPTION_FIELD_LISTS, asTree, refusePositions } from "./schema-ops.ts"
+import { asTree, refusePositions } from "./schema-ops.ts"
+import { OPTION_FIELD_KEYS, OPTION_FIELD_LISTS } from "./consts.ts"
 import { Store } from "../record/Store.ts"
 import { atomicWrite } from "../record/atomicWrite.ts"
 import { bodyFieldOf, fieldsOf } from "../record/descriptor.ts"

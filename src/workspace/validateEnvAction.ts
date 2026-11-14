@@ -1,5 +1,5 @@
 import type { SetupAction } from "../types.ts"
-import { ENV_KEY } from "./setup-contract.ts"
+import { ENV_KEY } from "./consts.ts"
 
 /**
  * Judge an env action's shape when a plan is read. `declared` is the Set of env keys the package

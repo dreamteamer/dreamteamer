@@ -41,7 +41,7 @@ export { relationsOf } from "./record/relationsOf.ts"
 export { matchesFilter } from "./collections/matchesFilter.ts"
 export { unknownOperators } from "./record/unknownOperators.ts"
 export { looseEq } from "./collections/looseEq.ts"
-export { KNOWN_OPERATORS } from "./record/KNOWN_OPERATORS.ts"
+export { KNOWN_OPERATORS } from "./record/consts.ts"
 export { sortRows } from "./collections/sortRows.ts"
 export { compareValues } from "./collections/compareValues.ts"
 export { distinctValues } from "./collections/distinctValues.ts"
@@ -80,7 +80,8 @@ export { slug, slugOrHash } from "./record/template.ts"
 export { load as loadYaml, dump as dumpYaml } from "./record/yaml.ts"
 
 // ---- the compiled runtime (the boundary both halves read) -------------------------------------
-export { RUNTIME_DIR, runtimeDir, readManifest, namespaces } from "./runtime/runtime.ts"
+export { runtimeDir, readManifest, namespaces } from "./runtime/runtime.ts"
+export { RUNTIME_DIR } from "./runtime/consts.ts"
 export { loadDescriptors } from "./runtime/loadDescriptors.ts"
 
 // ---- read models a surface draws -------------------------------------------------------------------

@@ -1,7 +1,8 @@
 import path from "node:path"
 import fs from "node:fs"
 import { load } from "../record/yaml.ts"
-import { STALE_RUNTIME, runtimeDir } from "./runtime.ts"
+import { runtimeDir } from "./runtime.ts"
+import { STALE_RUNTIME } from "./consts.ts"
 import type { Descriptor, Descriptors } from "../types.ts"
 
 /** A kind's folder inside the compiled runtime. */

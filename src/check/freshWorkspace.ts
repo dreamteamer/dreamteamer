@@ -1,6 +1,6 @@
 import fs from "node:fs"
 import path from "node:path"
-import { ENGINE } from "./ENGINE.ts"
+import { ENGINE } from "./consts.ts"
 import { engineRun } from "./engineRun.ts"
 
 /** A fresh workspace in `root` on `engine`: the engine declared as a `file:` dependency and linked

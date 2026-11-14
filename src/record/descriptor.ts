@@ -1,4 +1,4 @@
-import { SCALAR_TYPES } from "./SCALAR_TYPES.ts"
+import { SCALAR_TYPES } from "./consts.ts"
 import { storageOf } from "./storageOf.ts"
 import type { Descriptor, Field } from "../types.ts"
 

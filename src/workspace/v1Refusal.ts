@@ -1,4 +1,4 @@
-import { CONVERTER } from "./extensions.ts"
+import { CONVERTER } from "./consts.ts"
 
 /** The one refusal for a workspace that still holds v1 sources, listing every file. */
 export function v1Refusal(files: string[]): string {

@@ -7,7 +7,7 @@ import fs from "node:fs"
 import path from "node:path"
 import { spawnSync } from "node:child_process"
 import { twoModuleWorkspace, readFile, ENGINE_ROOT, git } from "../helpers/ws.js"
-import { KINDS } from "../../src/workspace/KINDS.ts"
+import { KINDS } from "../../src/workspace/consts.ts"
 import { resolveNpm } from "../../src/workspace/resolveNpm.ts"
 import { childEnv } from "../../src/workspace/childEnv.ts"
 

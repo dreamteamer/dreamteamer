@@ -1,4 +1,4 @@
-import { OWN_VERBS } from "./OWN_VERBS.ts"
+import { OWN_VERBS } from "./consts.ts"
 import type { Store } from "../record/Store.ts"
 import { storageOf } from "../record/storageOf.ts"
 

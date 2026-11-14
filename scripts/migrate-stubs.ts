@@ -27,7 +27,7 @@ const { walk } = await engine<typeof import("../src/record/walk.ts")>("record/wa
 const { exportsFacts } = await engine<typeof import("../src/runtime/exportsFacts.ts")>("runtime/exportsFacts")
 const { storageOf } = await engine<typeof import("../src/record/storageOf.ts")>("record/storageOf")
 const { bodyFieldOf, recordTitleOf } = await engine<typeof import("../src/record/descriptor.ts")>("record/descriptor")
-const { EXPORTS_FILE } = await engine<typeof import("../src/record/exports.ts")>("record/exports")
+const { EXPORTS_FILE } = await engine<typeof import("../src/record/consts.ts")>("record/consts")
 const { readExports } = await engine<typeof import("../src/record/readExports.ts")>("record/readExports")
 const { serializeExports } =
   await engine<typeof import("../src/exports/serializeExports.ts")>("exports/serializeExports")

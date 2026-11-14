@@ -42,8 +42,8 @@ const engine = <M>(name: string): Promise<M> =>
   )
 import type { AuthoredDescriptor, DisplayBlock, DreamteamerBlock, Field } from "../src/types.ts"
 const { singular } = await engine<typeof import("../src/record/singular.ts")>("record/singular")
-const { MANIFEST_KEYS } = await engine<typeof import("../src/workspace/MANIFEST_KEYS.ts")>("workspace/MANIFEST_KEYS")
-const { V2_KEYS: V2_ORDER } = await engine<typeof import("../src/workspace/V2_KEYS.ts")>("workspace/V2_KEYS")
+const { MANIFEST_KEYS } = await engine<typeof import("../src/workspace/consts.ts")>("workspace/consts")
+const { V2_KEYS: V2_ORDER } = await engine<typeof import("../src/workspace/consts.ts")>("workspace/consts")
 
 /** what convertCollection learns from the mixins converted before it */
 /** A v1 JSON-schema property, in the v1 vocabulary the converter reads — untrusted, as authored. */

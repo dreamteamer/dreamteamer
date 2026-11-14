@@ -1,4 +1,4 @@
-import { SCALAR_TYPES } from "./SCALAR_TYPES.ts"
+import { SCALAR_TYPES } from "./consts.ts"
 
 /** Is `type` a reference to one or more collections, given the names that exist? */
 export function referenceTargets(type: unknown, collections: Set<string>): string[] | null {

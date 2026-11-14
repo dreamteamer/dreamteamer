@@ -1,6 +1,6 @@
 import fs from "node:fs"
 import path from "node:path"
-import { MANAGED_BLOCKS } from "./MANAGED_BLOCKS.ts"
+import { MANAGED_BLOCKS } from "./consts.ts"
 import type { Capability } from "./types.ts"
 import { engineId, readManifest } from "../runtime/runtime.ts"
 import type { DoctorRow, SetupContext, Workspace } from "../types.ts"

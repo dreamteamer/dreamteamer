@@ -1,4 +1,4 @@
-import { VERB_FLAGS } from "./VERB_FLAGS.ts"
+import { VERB_FLAGS } from "./consts.ts"
 import { isEntityKind } from "./isEntityKind.ts"
 import { nearest } from "./nearest.ts"
 import type { Store } from "../record/Store.ts"

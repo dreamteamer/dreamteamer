@@ -1,5 +1,6 @@
 import { parseTemplate } from "./parseTemplate.ts"
-import { FILTERS, isField } from "./template.ts"
+import { isField } from "./template.ts"
+import { FILTERS } from "./consts.ts"
 import type { TemplatePart } from "../types.ts"
 
 const BUILTINS = ["id", "created", "last_modified"]

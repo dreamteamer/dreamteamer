@@ -1,6 +1,7 @@
 import path from "node:path"
 import fs from "node:fs"
-import { IN_NODE_MODULES, moduleRecord, uiViewSourceFile, workspaceSystemDir } from "./schema-ops.ts"
+import { moduleRecord, uiViewSourceFile, workspaceSystemDir } from "./schema-ops.ts"
+import { IN_NODE_MODULES } from "./consts.ts"
 import { viewOverlayOf } from "./viewOverlayOf.ts"
 import type { Store } from "../record/Store.ts"
 import { writeSource } from "../record/writeSource.ts"

@@ -4,8 +4,7 @@ import { normalizeNamespaces } from "../record/normalizeNamespaces.ts"
 import { storageOf } from "../record/storageOf.ts"
 import { load } from "../record/yaml.ts"
 import type { Descriptor, Manifest } from "../types.ts"
-
-export const RUNTIME_DIR = ".dreamteamer"
+import { DERIVED_KINDS, RUNTIME_DIR } from "./consts.ts"
 
 /**
  * `name@version` of the RUNNING engine — the dev clone or the installed copy, whichever loaded.
@@ -36,14 +35,6 @@ export function engineVersion(): string {
 }
 
 /**
- * Runtime kinds compile PROJECTS rather than stages — they have no source folder under a module
- * root, so nothing can be "edited and recompiled" in the usual place. Lives here, in the boundary,
- * because it is a fact about the runtime's SHAPE: the compiler writes them and the record layer has
- * to describe them, and neither half should learn it from the other (the `storage.base` precedent).
- */
-export const DERIVED_KINDS = ["modules"]
-
-/**
  * Where a human edits a compiled collection, as one sentence. ONE definition, because there are two
  * consumers who must never drift: the store's refusal (`dt set modules/<id> …`) and the presentation
  * projection the UI reads to explain a disabled button. This repo's own history is the argument —
@@ -57,9 +48,6 @@ export function sourceHint(d: Descriptor): string {
     : `the file under the owning module (modules/<module>/${p}/)`
 }
 
-/** One message, two callers with different manners: the store throws it, `check` prints it. */
-export const NO_RUNTIME = "no compiled runtime — run `dreamteamer compile` first"
-
 export function runtimeDir(root: string): string {
   return path.join(root, RUNTIME_DIR)
 }
@@ -71,9 +59,6 @@ export function readManifest(root: string): Manifest | null {
     return null
   }
 }
-
-/** One message for a runtime compiled from v1 descriptors by an older engine. */
-export const STALE_RUNTIME = "the compiled runtime predates descriptor format v2 — run `dreamteamer compile`"
 
 /**
  * The workspace's declared namespaces, longest-first — the closed set every reference is split
