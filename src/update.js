@@ -14,6 +14,7 @@ import { resolveNpm, childEnv } from './checkout.js';
 import { readSpecManifest, resolveClosure, installedModules, compareVersions, InstallRefusal, npmFloor, npmAndCompile, printUnitResults } from './install-modules.js';
 import { EXIT } from './setup.js';
 import { moduleIdOf } from './compile.js';
+import { NAV_SETTINGS_LINE } from './nav-fragments.js';
 
 const gitOk = (root, args) => { try { execFileSync('git', args, { cwd: root, stdio: 'ignore' }); return true; } catch { return false; } };
 
@@ -87,10 +88,13 @@ export async function updateModules(ws, { name = null, version = null, engine = 
 	const extra = names.filter((n) => n !== target && !installed.has(n));
 	const tail = `${moved.length ? ` — members: ${moved.join(', ')}` : ''}${extra.length ? ` — with ${extra.join(', ')}` : ''}`;
 	log(`▶ update: ${target} ${here.version} → ${next}${tail}`);
-	const step = await npmAndCompile(ws, plan.list, { npm, open, log, what: 'update' });
+	const step = await npmAndCompile(ws, plan.list, { npm, open, log, what: 'update', ignoreSettings: allow.has('nav-reset') });
 	if (step.code !== undefined) return step.code;
-	// the setup half in a fresh process: this one imported the version npm just replaced (ESM caches it)
-	const out = setupInChild(ws.root, names, { subject, processEnv, noCommit });
+	if (step.nav.skipped === 'settings') log(NAV_SETTINGS_LINE);
+	// the setup half in a fresh process: this one imported the version npm just replaced (ESM caches it).
+	// The nav merge already ran here, inside the restore; the child is handed the merged document and
+	// only writes it with the commit.
+	const out = setupInChild(ws.root, names, { subject, processEnv, noCommit, nav: step.nav });
 	if (!out) {
 		console.error(`✖ ${target} ${here.version} → ${next}: npm and compile ran, but the setup half did not finish — run dt install ${target} to finish it (it commits the re-pin and runs the setup)`);
 		return EXIT.failed;
@@ -102,11 +106,11 @@ export async function updateModules(ws, { name = null, version = null, engine = 
 
 const CHILD = path.join(path.dirname(fileURLToPath(import.meta.url)), 'update-setup.js');
 /** Run setupAndCommit in src/update-setup.js; its result, or null when the child did not leave one. */
-function setupInChild(root, names, { subject, processEnv, noCommit }) {
+function setupInChild(root, names, { subject, processEnv, noCommit, nav = null }) {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dt-update-'));
 	const out = path.join(dir, 'result.json');
 	try {
-		const r = spawnSync(process.execPath, [CHILD, JSON.stringify({ root, names, subject, noCommit, out })], { cwd: root, stdio: ['ignore', 'inherit', 'inherit'], env: processEnv });
+		const r = spawnSync(process.execPath, [CHILD, JSON.stringify({ root, names, subject, noCommit, out, nav })], { cwd: root, stdio: ['ignore', 'inherit', 'inherit'], env: processEnv });
 		if (r.status !== 0) return null;
 		try { return JSON.parse(fs.readFileSync(out, 'utf8')); } catch { return null; }
 	} finally { fs.rmSync(dir, { recursive: true, force: true }); }

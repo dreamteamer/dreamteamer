@@ -18,6 +18,8 @@ import { parseEnvValues } from './env-vars.js';
 import { compile, discoverModules, staleness, moduleIdOf } from './compile.js';
 import { resolveNpm, childEnv } from './checkout.js';
 import { units, runUnit, fillInputs, parseInputFlags, parseAllow, skippedUnits, fold, SetupUsage, EXIT, ttyIO, droppedKeys } from './setup.js';
+import { planNavFragments, NavFragmentRefusal, NAV_SETTINGS_LINE } from './nav-fragments.js';
+import { writeNavDoc, NavDocError } from './nav.js';
 
 /** Numeric major.minor.patch order; a prerelease sorts below its release. */
 export function compareVersions(a, b) {
@@ -209,10 +211,12 @@ const gitStatus = (root, rel) => { try { return execFileSync('git', ['status', '
 
 /**
  * Steps 2–4: npm on the resolved list (the two files it rewrites copied aside), verify every package
- * resolves at the version asked for, compile (a refusal restores the pre-image and prunes). Returns
- * `{ fresh }`, or `{ code }`.
+ * resolves at the version asked for, compile (a refusal restores the pre-image and prunes), then the
+ * nav fragments of the listed packages judged and merged (cr-dt-008) — inside the same restore, so a
+ * fragment placing another module's collection, or a nav.yaml that does not read, undoes the call
+ * like a compile refusal. Returns `{ fresh, nav }` (nav: the plan setupAndCommit writes), or `{ code }`.
  */
-export async function npmAndCompile(ws, list, { npm = resolveNpm(), open, json = false, log = console.log, hooks = {}, what = 'install' } = {}) {
+export async function npmAndCompile(ws, list, { npm = resolveNpm(), open, json = false, log = console.log, hooks = {}, what = 'install', ignoreSettings = false } = {}) {
 	const names = list.map((e) => e.manifest.name);
 	const pkgFile = path.join(ws.root, 'package.json'), lockFile = path.join(ws.root, 'package-lock.json');
 	const versionOf = (n) => { try { return JSON.parse(fs.readFileSync(path.join(ws.root, 'node_modules', n, 'package.json'), 'utf8')).version ?? null; } catch { return null; } };
@@ -232,7 +236,8 @@ export async function npmAndCompile(ws, list, { npm = resolveNpm(), open, json =
 		const stdout = console.log;
 		if (json) console.log = console.error;
 		try { compile(fresh); } finally { console.log = stdout; }
-		return { fresh };
+		const nav = planNavFragments(fresh, { names, ignoreSettings });
+		return { fresh, nav };
 	} catch (e) {
 		fs.writeFileSync(pkgFile, before.pkg);
 		if (before.lock !== null) fs.writeFileSync(lockFile, before.lock); else fs.rmSync(lockFile, { force: true });
@@ -257,10 +262,12 @@ export async function npmAndCompile(ws, list, { npm = resolveNpm(), open, json =
 /**
  * Steps 5–6: the safe part of the named packages' units (inputs filled leniently — npm has written,
  * so a mistyped --input is a named warning, never an abort), then one scoped commit: the two files
- * npm rewrites, .env.example if compile touched it, and every path an applied action reported that
- * git does not ignore. Returns `{ code, results, committed, ignored }`.
+ * npm rewrites, .env.example if compile touched it, nav.yaml when `nav` (the merge npmAndCompile
+ * planned) placed something, and every path an applied action reported that git does not ignore.
+ * Never plans and never refuses for nav: it only writes what it is handed. Returns
+ * `{ code, results, committed, ignored }`.
  */
-export async function setupAndCommit(ws, fresh, names, { subject, inputFlags = [], allow = new Set(), tty = false, noInput = true, io = null, processEnv = process.env, noCommit = false } = {}) {
+export async function setupAndCommit(ws, fresh, names, { subject, inputFlags = [], allow = new Set(), tty = false, noInput = true, io = null, processEnv = process.env, noCommit = false, nav = null } = {}) {
 	const skipped = new Set(skippedUnits(fresh));
 	const fresh_units = units(fresh).filter((u) => names.includes(u.module) && !skipped.has(u.id));
 	let code = EXIT.done;
@@ -283,10 +290,13 @@ export async function setupAndCommit(ws, fresh, names, { subject, inputFlags = [
 			}
 		} finally { term?.close(); }
 	}
+	// the merged nav document — only when this call placed something, so an uncommitted hand edit of
+	// nav.yaml is never swept into a commit that did not touch it
+	const navPaths = nav?.changed ? (writeNavDoc(ws.root, nav.doc), ['nav.yaml']) : [];
 	let committed = null;
 	if (!noCommit && gitOk(ws.root, ['rev-parse', '--git-dir'])) {
 		const changed = results.flatMap((r) => r.applied.flatMap((a) => a.changed ?? [])).map((p) => path.relative(ws.root, path.resolve(ws.root, p))).filter((rel) => rel && !rel.startsWith('..') && !path.isAbsolute(rel) && fs.existsSync(path.join(ws.root, rel)) && !gitIgnored(ws.root, rel));
-		const paths = [...new Set(['package.json', 'package-lock.json', '.env.example', ...changed])].filter((rel) => fs.existsSync(path.join(ws.root, rel)));
+		const paths = [...new Set(['package.json', 'package-lock.json', '.env.example', ...navPaths, ...changed])].filter((rel) => fs.existsSync(path.join(ws.root, rel)));
 		if (gitOk(ws.root, ['add', '--', ...paths]) && gitOk(ws.root, ['commit', '--quiet', '-m', subject, '--', ...paths])) committed = paths;
 	}
 	return { code, results, committed, ignored };
@@ -336,6 +346,7 @@ export async function installModules(ws, argv, { open, npm = resolveNpm(), verif
 	const installed = installedModules(ws);
 	let plan;
 	try { plan = resolveClosure(specs, { installed, from, npm, cwd: ws.root }); } catch (e) { if (e instanceof InstallRefusal) { console.error(`✖ ${e.message}`); return EXIT.failed; } throw e; }
+	const ignoreSettings = false;
 	const setupOpts = { inputFlags, allow, tty, noInput, io, processEnv, noCommit };
 	if (!plan.list.length) {
 		// everything is here — but an earlier run cut off anywhere after npm (a kill, a Ctrl-D at a prompt,
@@ -352,7 +363,13 @@ export async function installModules(ws, argv, { open, npm = resolveNpm(), verif
 			fresh = await open(ws.root);
 			if (stale) { const stdout = console.log; if (json) console.log = console.error; try { compile(fresh); } finally { console.log = stdout; } }
 		} catch (e) { console.error(`✖ compile: ${e.message.split('\n')[0]}`); return EXIT.failed; }
-		const out = await setupAndCommit(ws, fresh, names, { subject: `dreamteamer: install ${names.join(', ')}`, ...setupOpts });
+		let nav;
+		try { nav = planNavFragments(fresh, { names, ignoreSettings }); } catch (e) {
+			if (e instanceof NavFragmentRefusal || e instanceof NavDocError) { console.error(`✖ install refused: ${e.message}`); return EXIT.failed; }
+			throw e;
+		}
+		if (nav.skipped === 'settings') log(NAV_SETTINGS_LINE);
+		const out = await setupAndCommit(ws, fresh, names, { subject: `dreamteamer: install ${names.join(', ')}`, ...setupOpts, nav });
 		const did = [stale ? 'the stale runtime was compiled' : null, out.committed ? `the pending changes were committed (${out.committed.join(', ')})` : null, out.results.length ? 'the setup ran' : null].filter(Boolean);
 		if (json) { logOut(JSON.stringify({ workspace: { root: ws.root }, installed: [], already: names, committed: out.committed, units: out.results }, null, 2)); return out.code; }
 		log(`✔ already installed: ${names.join(', ')} — ${did.join('; ') || 'nothing to do'}`);
@@ -363,9 +380,10 @@ export async function installModules(ws, argv, { open, npm = resolveNpm(), verif
 	log(`▶ install: ${plan.list.map((e) => `${e.manifest.name}@${e.manifest.version}${e.kind === 'folder' ? ' (linked)' : ''}`).join(', ')}${plan.already.length ? ` — already here: ${plan.already.join(', ')}` : ''}`);
 
 	// 2–4. npm, verify, compile (a refusal restores the pre-image)
-	const step = await npmAndCompile(ws, plan.list, { npm, open, json, log, hooks, what: 'install' });
+	const step = await npmAndCompile(ws, plan.list, { npm, open, json, log, hooks, what: 'install', ignoreSettings });
 	if (step.code !== undefined) return step.code;
 	const fresh = step.fresh;
+	if (step.nav.skipped === 'settings') log(NAV_SETTINGS_LINE);
 	if (verify) {
 		const stdout = console.log;
 		if (json) console.log = console.error;
@@ -375,7 +393,7 @@ export async function installModules(ws, argv, { open, npm = resolveNpm(), verif
 	}
 
 	// 5–6. the safe part of the new units' setup, one scoped commit
-	const out = await setupAndCommit(ws, fresh, names, { subject: `dreamteamer: install ${names.join(', ')}`, ...setupOpts });
+	const out = await setupAndCommit(ws, fresh, names, { subject: `dreamteamer: install ${names.join(', ')}`, ...setupOpts, nav: step.nav });
 	if (json) { logOut(JSON.stringify({ workspace: { root: ws.root }, installed: names, already: plan.already, committed: out.committed, units: out.results }, null, 2)); return out.code; }
 	log(`✔ installed ${names.join(', ')} — compiled${out.committed ? `, committed (${out.committed.join(', ')})` : noCommit ? ', not committed (--no-commit)' : ', not committed (not a git repository)'}`);
 	printUnitResults(out.results, out.ignored, log);

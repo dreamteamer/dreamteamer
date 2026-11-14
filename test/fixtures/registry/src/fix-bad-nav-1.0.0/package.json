@@ -1,0 +1,13 @@
+{
+	"name": "@fix/bad-nav",
+	"version": "1.0.0",
+	"description": "@fix/bad-nav 1.0.0",
+	"files": [
+		"collections",
+		"nav.yaml"
+	],
+	"dreamteamer": {
+		"description": "@fix/bad-nav — a synthetic module whose nav fragment places a collection another module owns.",
+		"nav": "nav.yaml"
+	}
+}

@@ -1,0 +1,13 @@
+name: fixbadnavs
+description: A fixbadnav record.
+storage:
+  path: fixbadnavs
+  format: md
+  shape: file
+  suffix: fixbadnav
+ids:
+  from: '{{ title | slug }}'
+fields:
+  title:
+    type: string
+    required: true
