@@ -151,6 +151,78 @@ npx dreamteamer install @northwind/northwind
 
 `install` brings in the module and every module it depends on, pins exact versions, compiles, runs the safe part of its setup and commits. It also takes a tarball or a folder, which is how you try a module before publishing it: `npx dreamteamer install ./northwind-northwind-0.1.0.tgz`.
 
+## Where a module lives, from local to shared
+
+A module can reach a workspace in five ways. Start at the top and move down only when you need to. The format is the same all the way, so moving is cheap.
+
+| | the sources sit in | how they get there | use it when |
+|---|---|---|---|
+| 1 | `modules/<workspace module>/` | `init` creates it | the content is this workspace's own |
+| 2 | `modules/<id>/` | `add modules --name <id>` | a domain deserves its own box, or you are building a module to share |
+| 3 | `git_modules/<name>/` | `install --clone <url>` | you share through a Git repository, without a registry |
+| 4 | `node_modules/`, from a file or a folder | `install ./x.tgz` or `install ./folder` | you try a module before it is published |
+| 5 | `node_modules/`, from npm | `install <name>` | it is a versioned release for anyone |
+
+When the same module arrives twice, the more local copy wins: `modules/` over `git_modules/` over `node_modules/`. `compile` warns, and `status` shows which copy shadows which.
+
+### 1. The workspace's own module
+
+Every workspace has one, named by `dreamteamer.workspace_module` in its `package.json` (`init` calls it `default`). `add collections` without `--module` lands there, and it is the right first home for anything.
+
+**Moving up:** scaffold a module, then `npx dreamteamer set collections/<c> module=<id>` moves a collection into it. Records stay where they are.
+
+### 2. An inline module
+
+What [step 1](#1-scaffold) scaffolds: a folder in the workspace's own repository, live after every `compile`. This is where a module is developed, whether or not it ever leaves.
+
+**Moving up:** the folder is already a package. Give it its own repository (3), pack or link it (4), or publish it (5). A module scaffolded without `--package` is marked `"private": true`; give it a real name and drop that line first.
+
+### 3. A Git module
+
+```bash
+npx dreamteamer install --clone <url> northwind
+npx dreamteamer compile
+```
+
+This clones the repository into `git_modules/northwind/` and records it in `package.json`:
+
+```json
+"dreamteamer": { "git_modules": { "northwind": { "url": "<url>", "ref": "main" } } }
+```
+
+On a fresh checkout, `npx dreamteamer install` restores every clone from that map, and `npx dreamteamer update` pulls each one forward on its `ref` (fast-forward only). A repository whose root holds a `modules/` folder delivers every module in it.
+
+The same key attaches another **workspace**, which makes it a *record layer*: its records are read here, and its modules are not compiled. Two optional keys on the entry change that: `"records": ["tasks"]` reads only the collections listed, and `"module": true` also compiles that workspace's own module. What a layer itself needs from its own `git_modules` is cloned for you, and an entry you declare yourself overrides the layer's. See "record layers" in [collections.md](skills/using-dreamteamer/references/collections.md).
+
+### 4. A tarball or a folder
+
+```bash
+npx dreamteamer install ./northwind-northwind-0.1.0.tgz             # what `npm pack` wrote
+npx dreamteamer install ../northwind                                # a development link
+npx dreamteamer install @northwind/northwind --from ./tarballs      # by name, from a folder of tarballs
+```
+
+A folder is linked, not copied: `status` marks it `(linked)`, it is not pinned, and `update` skips it. A tarball is the closest thing to a release without publishing one. `--from` works offline.
+
+### 5. An npm package
+
+`npx dreamteamer install <name>` takes the latest release, or `<name>@<version>` the one you choose, and pins it exactly. Nothing moves until `npx dreamteamer update <name>`.
+
+### Changing a module you did not write
+
+Don't edit an installed module. The workspace has three tools of its own:
+
+- **An overlay** adds to another module's collection from yours. Declare the dependency once, then the field verbs write the overlay for you:
+
+  ```bash
+  npx dreamteamer set modules/default dependencies=modules/northwind
+  npx dreamteamer add-field tickets --name urgency --enum low,high --module default
+  ```
+
+  An overlay can add or tighten fields, never remove one. A view can be overlaid too ([ui-views.md](skills/using-dreamteamer/references/ui-views.md)).
+- **`dreamteamer.disable`** in the workspace's `package.json` drops a whole module, code included, or one entity as `<kind>/<id>`: `"disable": ["modules/northwind", "skills/working-with-tickets"]`.
+- **A more local copy** shadows an installed one, as above. Use it to work on a module you also have installed, not to fork one quietly.
+
 ## The rules
 
 **The engine**
@@ -179,10 +251,6 @@ From `@dreamteamer/tasks`, trimmed:
 ```
 
 The `dreamteamer` block is a closed set of keys, and an unknown one fails the compile. The table of keys is in [collections.md](skills/using-dreamteamer/references/collections.md), under "declaring a module".
-
-## Changing a module you did not write
-
-Don't edit an installed module. Add an **overlay** in a module of your own: a descriptor that extends the collection, to add a field or change a label. The [modules repository](https://github.com/dreamteamer/dreamteamer-modules#making-a-module-yours) shows one.
 
 ## Contributing to the engine
 
