@@ -77,7 +77,7 @@
 		"prepack": "tsx scripts/build.ts",
 		"typecheck": "tsc -p tsconfig.json",
 		"contract": "node scripts/contract.ts",
-		"lint": "eslint --flag unstable_native_nodejs_ts_config .",
+		"lint": "eslint .",
 		"format": "prettier --write .",
 		"format:check": "prettier --check .",
 		"test": "node scripts/test.ts",
