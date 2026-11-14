@@ -1,6 +1,6 @@
 import { fmtDate } from "./fmtDate.ts"
-import { asDate, slug, slugOrHash } from "./template.ts"
-import { FILTERS } from "./consts.ts"
+import { asDate, slug, slugOrHash } from "../template.ts"
+import { FILTERS } from "../consts.ts"
 import type { OnFallback } from "./types.ts"
 
 export function applyFilter(

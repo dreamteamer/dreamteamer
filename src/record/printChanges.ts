@@ -1,6 +1,6 @@
 import { ROWS_SHOWN } from "./consts.ts"
 import { groupChanges } from "./groupChanges.ts"
-import { reportLine } from "./reportLine.ts"
+import { reportLine } from "./lib/reportLine.ts"
 import type { RecordChange } from "./types.ts"
 
 /** The record-change report: the report line, then one row per record — its change, ref, workspace

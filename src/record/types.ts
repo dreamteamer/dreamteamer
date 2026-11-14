@@ -73,9 +73,6 @@ export type Relation = {
   kind: "m2o" | "o2o" | "m2m"
 }
 
-/** Render ONE template, or throw if a field it names is missing. The list form loops over this. */
-export type OnFallback = (e: { field: string; value: string; id: string }) => void
-
 /** The fields a template names, in order, built-ins included. */
 export type FieldPart = Extract<TemplatePart, { field: string }>
 

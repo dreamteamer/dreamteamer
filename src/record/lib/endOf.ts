@@ -1,4 +1,4 @@
-import { lineEnd } from "./yaml.ts"
+import { lineEnd } from "../yaml.ts"
 
 /**
  * Where a node's source really ends. `range[1]` stops at the VALUE, so a trailing `# comment` sits

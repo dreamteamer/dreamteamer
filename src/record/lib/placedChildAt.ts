@@ -1,6 +1,6 @@
-import { idFromRecordPath } from "./idFromRecordPath.ts"
-import { placementOf } from "./placement.ts"
-import type { Descriptors } from "../types.ts"
+import { idFromRecordPath } from "../idFromRecordPath.ts"
+import { placementOf } from "../placement.ts"
+import type { Descriptors } from "../../types.ts"
 
 /**
  * Map a path INSIDE a folder-shape parent's directory to the placed child record it holds, if any.

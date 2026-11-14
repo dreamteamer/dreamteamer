@@ -1,5 +1,5 @@
-import { canonicalZone } from "./temporal.ts"
-import { DATE_ONLY, DATE_TIME } from "./consts.ts"
+import { canonicalZone } from "../temporal.ts"
+import { DATE_ONLY, DATE_TIME } from "../consts.ts"
 
 /** `+03:00` for the machine's local offset AT that wall clock — DST-correct, unlike a bare "now" offset. */
 function localOffsetAt(y: number, mo: number, d: number, h: number, mi: number, s: number): string {

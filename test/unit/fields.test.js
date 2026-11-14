@@ -5,10 +5,10 @@
 // the store refuses (or the reverse), which is the defect this split exists to make impossible.
 import { test, describe } from "node:test"
 import assert from "node:assert/strict"
-import { resolveFields } from "../../src/record/resolveFields.ts"
-import { toJsonSchema } from "../../src/record/toJsonSchema.ts"
+import { resolveFields } from "../../src/workspace/resolveFields.ts"
+import { toJsonSchema } from "../../src/workspace/toJsonSchema.ts"
 import { enumValues, referenceTargets } from "../../src/record/fields.ts"
-import { enumChoices } from "../../src/record/enumChoices.ts"
+import { enumChoices } from "../../src/record/lib/enumChoices.ts"
 import { INJECTED_FIELDS } from "../../src/record/consts.ts"
 import { SCALAR_TYPES } from "../../src/record/consts.ts"
 

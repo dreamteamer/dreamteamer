@@ -1,6 +1,6 @@
-import { INJECTED_FIELDS } from "./consts.ts"
-import { SCALAR_TYPES } from "./consts.ts"
-import { enumValues, fieldTitleOf, referenceTargets } from "./fields.ts"
+import { INJECTED_FIELDS } from "../record/consts.ts"
+import { SCALAR_TYPES } from "../record/consts.ts"
+import { enumValues, fieldTitleOf, referenceTargets } from "../record/fields.ts"
 import type { Field } from "../types.ts"
 
 /** The closed set of keys a field may carry. Anything else is a compile error naming the key. */

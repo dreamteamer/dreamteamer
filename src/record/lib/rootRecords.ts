@@ -1,10 +1,10 @@
 import fs from "node:fs"
 import path from "node:path"
-import { idFromRecordPath } from "./idFromRecordPath.ts"
-import { isNested, placementOf } from "./placement.ts"
-import type { OnLink, PlacedRecord } from "./types.ts"
-import { walk } from "./walk.ts"
-import type { Descriptor } from "../types.ts"
+import { idFromRecordPath } from "../idFromRecordPath.ts"
+import { isNested, placementOf } from "../placement.ts"
+import type { OnLink, PlacedRecord } from "../types.ts"
+import { walk } from "../walk.ts"
+import type { Descriptor } from "../../types.ts"
 
 /** Every record file of `d` under ONE root, as `{ id, file, root, parentId }`. A placed root (one with
  *  a `parentId`) is walked through REAL entries only — a symlinked sub-folder or file inside it is

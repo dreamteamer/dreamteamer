@@ -1,4 +1,4 @@
-import { namespaceOf } from "./namespace.ts"
+import { namespaceOf } from "../record/namespace.ts"
 
 /**
  * A collection name carrying a slash whose prefix is NOT declared, which is the silent-failure this

@@ -6,13 +6,13 @@
 import { test, describe } from "node:test"
 import assert from "node:assert/strict"
 import { normalizeNamespaces } from "../../src/record/normalizeNamespaces.ts"
-import { namespaceProblems } from "../../src/record/namespaceProblems.ts"
-import { unqualifiedProblems } from "../../src/record/unqualifiedProblems.ts"
+import { namespaceProblems } from "../../src/workspace/namespaceProblems.ts"
+import { unqualifiedProblems } from "../../src/workspace/unqualifiedProblems.ts"
 import { qualify } from "../../src/collections/lib/qualify.ts"
 import { namespaceOf, baseNameOf, defaultStoragePath } from "../../src/record/namespace.ts"
 import { RESERVED_NAMESPACES } from "../../src/record/consts.ts"
 import { parseRef } from "../../src/record/parseRef.ts"
-import { storageOverlaps } from "../../src/record/storageOverlaps.ts"
+import { storageOverlaps } from "../../src/workspace/storageOverlaps.ts"
 
 const NS = normalizeNamespaces(["health", "finance", "work/clients", "work"])
 

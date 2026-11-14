@@ -1,5 +1,5 @@
 import { idFromRecordPath } from "./idFromRecordPath.ts"
-import { placedChildAt } from "./placedChildAt.ts"
+import { placedChildAt } from "./lib/placedChildAt.ts"
 import { storageOf } from "./storageOf.ts"
 import type { Descriptor, Descriptors } from "../types.ts"
 

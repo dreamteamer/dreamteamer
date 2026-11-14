@@ -8,8 +8,8 @@
 import { test, describe } from "node:test"
 import assert from "node:assert/strict"
 import { parseTemporal } from "../../src/records/lib/parseTemporal.ts"
-import { normalizeTemporal } from "../../src/record/normalizeTemporal.ts"
-import { normalizeRecord } from "../../src/record/normalizeRecord.ts"
+import { normalizeTemporal } from "../../src/record/lib/normalizeTemporal.ts"
+import { normalizeRecord } from "../../src/record/lib/normalizeRecord.ts"
 import { compareValues } from "../../src/records/lib/compareValues.ts"
 import { sortRows } from "../../src/records/lib/sortRows.ts"
 

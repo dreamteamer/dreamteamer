@@ -1,4 +1,4 @@
-import { RESERVED_NAMESPACES } from "./consts.ts"
+import { RESERVED_NAMESPACES } from "../record/consts.ts"
 
 /** One segment of a namespace or collection name: the id-safe alphabet the rest of the engine uses. */
 const SEGMENT = /^[a-z0-9]+(?:-[a-z0-9]+)*$/

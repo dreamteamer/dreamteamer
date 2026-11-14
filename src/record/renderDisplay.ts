@@ -1,5 +1,5 @@
-import { applyFilter } from "./applyFilter.ts"
-import { fmtDate } from "./fmtDate.ts"
+import { applyFilter } from "./lib/applyFilter.ts"
+import { fmtDate } from "./lib/fmtDate.ts"
 import { parseTemplate } from "./parseTemplate.ts"
 import { isField } from "./template.ts"
 

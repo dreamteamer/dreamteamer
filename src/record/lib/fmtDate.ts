@@ -1,4 +1,4 @@
-import { asDate } from "./template.ts"
+import { asDate } from "../template.ts"
 import { WALL_CLOCK } from "./consts.ts"
 
 export function fmtDate(v: unknown, fmt: string): string {

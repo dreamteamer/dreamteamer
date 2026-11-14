@@ -11,7 +11,7 @@ import assert from "node:assert/strict"
 import fs from "node:fs"
 import path from "node:path"
 import { workspace, simpleCollection, compileQuietly, dt, git, ENGINE_ROOT } from "../helpers/ws.js"
-import { reportLine } from "../../src/record/reportLine.ts"
+import { reportLine } from "../../src/record/lib/reportLine.ts"
 import { groupChanges } from "../../src/record/groupChanges.ts"
 
 const contacts = simpleCollection({ storage: { suffix: "contact" } })

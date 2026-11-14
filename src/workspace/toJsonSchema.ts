@@ -1,4 +1,4 @@
-import { enumValues, referenceTargets } from "./fields.ts"
+import { enumValues, referenceTargets } from "../record/fields.ts"
 import type { Field } from "../types.ts"
 
 /** JSON Schema keywords copied onto the emitted property unchanged. */

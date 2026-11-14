@@ -11,7 +11,7 @@ import {
   titleOf,
 } from "./descriptor.ts"
 import { displayOf as resolvedDisplayOf } from "./displayOf.ts"
-import { enumChoices } from "./enumChoices.ts"
+import { enumChoices } from "./lib/enumChoices.ts"
 import { enumValues, fieldTitleOf as fieldTitle } from "./fields.ts"
 import { storageOf } from "./storageOf.ts"
 import type {

@@ -189,7 +189,7 @@ and an I/O error as a write-time failure. Nothing here reads a value back to the
 
 ## events
 
-Files: [changes/consts.ts](changes/consts.ts) · [changes/deriveEvents.ts](changes/deriveEvents.ts) · [changes/types.ts](changes/types.ts) · [record/foldChanges.ts](record/foldChanges.ts) · [record/groupChanges.ts](record/groupChanges.ts) · [record/pathToRecord.ts](record/pathToRecord.ts) · [record/reportLine.ts](record/reportLine.ts) · [record/types.ts](record/types.ts)
+Files: [changes/consts.ts](changes/consts.ts) · [changes/deriveEvents.ts](changes/deriveEvents.ts) · [changes/types.ts](changes/types.ts) · [record/foldChanges.ts](record/foldChanges.ts) · [record/groupChanges.ts](record/groupChanges.ts) · [record/pathToRecord.ts](record/pathToRecord.ts) · [record/lib/reportLine.ts](record/lib/reportLine.ts) · [record/types.ts](record/types.ts)
 
 item events — DERIVED from git history, never observed live (the slice-5 contract in
 using-dreamteamer → references/changes.md): a closed laptop loses nothing, every evaluation is
@@ -272,7 +272,7 @@ on a value that predates an enum someone added later.
 
 ## fields
 
-Files: [record/consts.ts](record/consts.ts) · [record/enumChoices.ts](record/enumChoices.ts) · [record/fields.ts](record/fields.ts) · [record/resolveFields.ts](record/resolveFields.ts) · [record/toJsonSchema.ts](record/toJsonSchema.ts)
+Files: [record/consts.ts](record/consts.ts) · [record/lib/enumChoices.ts](record/lib/enumChoices.ts) · [record/fields.ts](record/fields.ts) · [workspace/resolveFields.ts](workspace/resolveFields.ts) · [workspace/toJsonSchema.ts](workspace/toJsonSchema.ts)
 
 The field vocabulary — dreamteamer's own, compiled to JSON Schema.
 
@@ -370,7 +370,7 @@ src/checkout.ts and src/init.ts; this file is only the spec form.
 
 ## namespace
 
-Files: [collections/lib/qualify.ts](collections/lib/qualify.ts) · [record/namespace.ts](record/namespace.ts) · [record/namespaceProblems.ts](record/namespaceProblems.ts) · [record/normalizeNamespaces.ts](record/normalizeNamespaces.ts) · [record/parseRef.ts](record/parseRef.ts) · [record/singular.ts](record/singular.ts) · [record/storageOverlaps.ts](record/storageOverlaps.ts) · [record/unqualifiedProblems.ts](record/unqualifiedProblems.ts)
+Files: [collections/lib/qualify.ts](collections/lib/qualify.ts) · [record/namespace.ts](record/namespace.ts) · [workspace/namespaceProblems.ts](workspace/namespaceProblems.ts) · [record/normalizeNamespaces.ts](record/normalizeNamespaces.ts) · [record/parseRef.ts](record/parseRef.ts) · [record/singular.ts](record/singular.ts) · [workspace/storageOverlaps.ts](workspace/storageOverlaps.ts) · [workspace/unqualifiedProblems.ts](workspace/unqualifiedProblems.ts)
 
 NAMESPACES — how a collection name is scoped, and how a reference splits back apart.
 
@@ -403,7 +403,7 @@ file, so all of it is unit-testable without a workspace.
 
 ## placement
 
-Files: [check/symlinkedChildRoots.ts](check/symlinkedChildRoots.ts) · [record/dirTreeStamps.ts](record/dirTreeStamps.ts) · [record/ownerIdOf.ts](record/ownerIdOf.ts) · [record/parentFolders.ts](record/parentFolders.ts) · [record/placedChildAt.ts](record/placedChildAt.ts) · [record/placedRecords.ts](record/placedRecords.ts) · [record/placement.ts](record/placement.ts) · [record/placementOfFile.ts](record/placementOfFile.ts) · [record/rootRecords.ts](record/rootRecords.ts) · [record/subpathProblem.ts](record/subpathProblem.ts) · [record/symlinkBelow.ts](record/symlinkBelow.ts) · [record/types.ts](record/types.ts)
+Files: [check/symlinkedChildRoots.ts](check/symlinkedChildRoots.ts) · [record/lib/dirTreeStamps.ts](record/lib/dirTreeStamps.ts) · [record/ownerIdOf.ts](record/ownerIdOf.ts) · [record/parentFolders.ts](record/parentFolders.ts) · [record/lib/placedChildAt.ts](record/lib/placedChildAt.ts) · [record/placedRecords.ts](record/placedRecords.ts) · [record/placement.ts](record/placement.ts) · [record/lib/placementOfFile.ts](record/lib/placementOfFile.ts) · [record/lib/rootRecords.ts](record/lib/rootRecords.ts) · [workspace/subpathProblem.ts](workspace/subpathProblem.ts) · [record/symlinkBelow.ts](record/symlinkBelow.ts) · [record/types.ts](record/types.ts)
 
 RELATIONSHIP-BASED STORAGE — a record stored UNDER the record it belongs to.
 
@@ -580,7 +580,7 @@ Pure functions first (tested without a workspace), then the runner and the verb.
 
 ## store
 
-Files: [record/Store.ts](record/Store.ts) · [record/atomicWrite.ts](record/atomicWrite.ts) · [record/bodyField.ts](record/bodyField.ts) · [record/gitDateToStamp.ts](record/gitDateToStamp.ts) · [record/serialize.ts](record/serialize.ts)
+Files: [record/Store.ts](record/Store.ts) · [record/atomicWrite.ts](record/atomicWrite.ts) · [record/bodyField.ts](record/bodyField.ts) · [record/lib/gitDateToStamp.ts](record/lib/gitDateToStamp.ts) · [record/serialize.ts](record/serialize.ts)
 
 the validating store — every tooling write goes through here:
 parse → coerce → defaults → validate (HARD: rejected before disk) →
@@ -589,7 +589,7 @@ covered by `check` after the fact.
 
 ## template
 
-Files: [record/applyFilter.ts](record/applyFilter.ts) · [record/fmtDate.ts](record/fmtDate.ts) · [record/generateId.ts](record/generateId.ts) · [record/parseTemplate.ts](record/parseTemplate.ts) · [record/renderDisplay.ts](record/renderDisplay.ts) · [record/template.ts](record/template.ts) · [record/types.ts](record/types.ts) · [record/validateTemplate.ts](record/validateTemplate.ts)
+Files: [record/lib/applyFilter.ts](record/lib/applyFilter.ts) · [record/lib/fmtDate.ts](record/lib/fmtDate.ts) · [record/lib/consts.ts](record/lib/consts.ts) · [record/lib/generateId.ts](record/lib/generateId.ts) · [record/parseTemplate.ts](record/parseTemplate.ts) · [record/renderDisplay.ts](record/renderDisplay.ts) · [record/template.ts](record/template.ts) · [record/lib/types.ts](record/lib/types.ts) · [record/types.ts](record/types.ts) · [record/validateTemplate.ts](record/validateTemplate.ts)
 
 The ONE template grammar — every `{{ … }}` string a descriptor carries is parsed, validated and
 rendered here: `id.from`, `record_title`, `item_title`, `display.record.subtitle`, and the layout
@@ -607,7 +607,7 @@ error naming the position rather than a blank label in a surface.
 
 ## temporal
 
-Files: [records/lib/compareValues.ts](records/lib/compareValues.ts) · [records/lib/parseTemporal.ts](records/lib/parseTemporal.ts) · [records/lib/sortRows.ts](records/lib/sortRows.ts) · [record/normalizeRecord.ts](record/normalizeRecord.ts) · [record/normalizeTemporal.ts](record/normalizeTemporal.ts) · [record/temporal.ts](record/temporal.ts) · [record/types.ts](record/types.ts)
+Files: [records/lib/compareValues.ts](records/lib/compareValues.ts) · [records/lib/parseTemporal.ts](records/lib/parseTemporal.ts) · [records/lib/sortRows.ts](records/lib/sortRows.ts) · [record/lib/normalizeRecord.ts](record/lib/normalizeRecord.ts) · [record/lib/normalizeTemporal.ts](record/lib/normalizeTemporal.ts) · [record/temporal.ts](record/temporal.ts) · [record/types.ts](record/types.ts)
 
 temporal values — the `format: date` and `format: date-time` fields — normalized on WRITE and
 compared as INSTANTS, never as strings.
@@ -712,7 +712,7 @@ Pure: no fs, no git. Errors are returned, never thrown, so compile attributes ea
 
 ## workspace
 
-Files: [record/declaredGitModules.ts](record/declaredGitModules.ts) · [record/ensureEditorRecommendation.ts](record/ensureEditorRecommendation.ts) · [record/ensureEnvExample.ts](record/ensureEnvExample.ts) · [record/findWorkspace.ts](record/findWorkspace.ts) · [record/layerEntries.ts](record/layerEntries.ts) · [record/workspace.ts](record/workspace.ts)
+Files: [record/declaredGitModules.ts](record/declaredGitModules.ts) · [record/ensureEditorRecommendation.ts](record/ensureEditorRecommendation.ts) · [workspace/ensureEnvExample.ts](workspace/ensureEnvExample.ts) · [record/findWorkspace.ts](record/findWorkspace.ts) · [record/layerEntries.ts](record/layerEntries.ts) · [workspace/ensureGitignored.ts](workspace/ensureGitignored.ts)
 
 workspace discovery: the NEAREST package.json with a `dreamteamer` section wins, except when
 that candidate is only nested inside a higher one as a MODULE — modules are themselves
@@ -727,7 +727,7 @@ real workspace and now resolves as one.
 
 ## yaml
 
-Files: [collections/lib/renameKeys.ts](collections/lib/renameKeys.ts) · [fmt/formatSource.ts](fmt/formatSource.ts) · [record/emitDocument.ts](record/emitDocument.ts) · [record/endOf.ts](record/endOf.ts) · [record/writeSource.ts](record/writeSource.ts) · [record/yaml.ts](record/yaml.ts)
+Files: [collections/lib/renameKeys.ts](collections/lib/renameKeys.ts) · [fmt/formatSource.ts](fmt/formatSource.ts) · [record/emitDocument.ts](record/emitDocument.ts) · [record/lib/endOf.ts](record/lib/endOf.ts) · [record/writeSource.ts](record/writeSource.ts) · [record/yaml.ts](record/yaml.ts)
 
 contract rule: YAML is parsed with the CORE schema — unquoted dates stay strings,
 never timestamp objects. ALL dreamteamer tooling loads YAML through here.

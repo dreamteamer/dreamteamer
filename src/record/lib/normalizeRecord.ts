@@ -1,5 +1,5 @@
 import { normalizeTemporal } from "./normalizeTemporal.ts"
-import type { SchemaProp } from "./types.ts"
+import type { SchemaProp } from "../types.ts"
 
 export function normalizeRecord<T>(schema: SchemaProp | null | undefined, fields: T): T {
   if (!schema || fields === null || typeof fields !== "object") return fields

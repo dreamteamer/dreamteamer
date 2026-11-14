@@ -1,5 +1,5 @@
 import path from "node:path"
-import type { Under } from "./types.ts"
+import type { Under } from "../types.ts"
 
 /**
  * Where a FILE of a placed collection sits: `{ root, parentId }` — the fallback root, or the child
