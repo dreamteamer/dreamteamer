@@ -13,7 +13,7 @@
 import { test, describe } from "node:test"
 import assert from "node:assert/strict"
 import fs from "node:fs"
-import { workspace, simpleCollection, readFile } from "../helpers/ws.ts"
+import { workspace, simpleCollection, readFile, seedOnce } from "../helpers/ws.ts"
 
 // The same four-collection cast as relations-compile.test.js — one anchor plus the three
 // cardinalities: many-to-one (recordings), one-to-one (summaries, via unique) and many-to-many
@@ -42,16 +42,21 @@ const ANALYSES = coll("analysis", { meetings: { type: "meetings", many: true } }
 /** analyses whose meetings reference is cleared, not refused, when a meeting is removed */
 const SET_NULL_ANALYSES = coll("analysis", { meetings: { type: "meetings", many: true, on_delete: "set-null" } })
 
-const relWorkspace = (extra = {}) =>
-  workspace({
-    collections: { meetings: MEETINGS, recordings: RECORDINGS, summaries: SUMMARIES, analyses: ANALYSES },
-    ...extra,
-  })
+const REL_COLLECTIONS = { meetings: MEETINGS, recordings: RECORDINGS, summaries: SUMMARIES, analyses: ANALYSES }
+/** The four-collection cast, compiled once and copied per test (seedOnce) — every test here starts
+ *  from it empty. A test that passes `extra` (auto_commit) gets a workspace of its own. */
+const relBase = seedOnce(() => workspace({ collections: REL_COLLECTIONS }))
+const relWorkspace = (extra?: Record<string, unknown>) =>
+  extra ? workspace({ collections: REL_COLLECTIONS, ...extra }) : relBase()
+/** meetings + set-null analyses, empty — the same once-and-copy as relBase. */
+const setNullBase = seedOnce(() =>
+  workspace({ collections: { meetings: meetings("analyses"), analyses: SET_NULL_ANALYSES } })
+)
 
 describe("mirror fields are engine-owned", () => {
   test("dt set on a mirror is refused with the owning-side command", () => {
     const ws = relWorkspace()
-    ws.dt("add", "meetings", "--name", "Standup")
+    ws.store.add("meetings", { name: "Standup" })
     const res = ws.dt("set", "meetings/standup", "recordings=recordings/x")
     assert.equal(res.code, 1)
     assert.match(
@@ -64,7 +69,7 @@ describe("mirror fields are engine-owned", () => {
     // the array mirror above and this scalar one are the two shapes the message has to render;
     // nothing in the sentence varies with cardinality, and that is the point of checking both
     const ws = relWorkspace()
-    ws.dt("add", "meetings", "--name", "Standup")
+    ws.store.add("meetings", { name: "Standup" })
     const res = ws.dt("set", "meetings/standup", "summary=summaries/x")
     assert.equal(res.code, 1)
     assert.match(
@@ -91,7 +96,7 @@ describe("mirror fields are engine-owned", () => {
     // the guard is scoped to generated mirrors on the collection being written; the foreign key
     // that generates them is an ordinary writable field and must stay one
     const ws = relWorkspace()
-    ws.dt("add", "meetings", "--name", "Standup")
+    ws.store.add("meetings", { name: "Standup" })
     assert.equal(ws.dt("add", "recordings", "--name", "Cut", "--meeting", "meetings/standup").code, 0)
     assert.equal(ws.dt("set", "recordings/cut", "meeting=meetings/standup").code, 0)
   })
@@ -107,7 +112,7 @@ describe("the store maintains mirrors", () => {
     // SORTED, and asserted with two records added in the wrong order — `expectedMirrors` sorts,
     // so a store that appends in arrival order passes `check` only by luck of the alphabet.
     const ws = relWorkspace()
-    ws.dt("add", "meetings", "--name", "Standup")
+    ws.store.add("meetings", { name: "Standup" })
     assert.equal(ws.dt("add", "recordings", "--name", "B", "--meeting", "meetings/standup").code, 0)
     assert.equal(ws.dt("add", "recordings", "--name", "A", "--meeting", "meetings/standup").code, 0)
     assert.match(
@@ -129,9 +134,9 @@ describe("the store maintains mirrors", () => {
 
   test("set moving an FK detaches from the old target and attaches to the new", () => {
     const ws = relWorkspace()
-    ws.dt("add", "meetings", "--name", "One")
-    ws.dt("add", "meetings", "--name", "Two")
-    ws.dt("add", "recordings", "--name", "Cap", "--meeting", "meetings/one")
+    ws.store.add("meetings", { name: "One" })
+    ws.store.add("meetings", { name: "Two" })
+    ws.store.add("recordings", { name: "Cap", meeting: "meetings/one" })
     assert.equal(ws.dt("set", "recordings/cap", "meeting=meetings/two").code, 0)
     assert.doesNotMatch(readFile(ws.root, "data/meetings/one.meeting.md"), /recordings\/cap/)
     assert.match(readFile(ws.root, "data/meetings/two.meeting.md"), /recordings\/cap/)
@@ -142,8 +147,8 @@ describe("the store maintains mirrors", () => {
     // The m2m shape: the owner side is an array too, so one write touches TWO targets. A store
     // that reads `before`/`after` as scalars silently maintains only the first.
     const ws = relWorkspace()
-    ws.dt("add", "meetings", "--name", "One")
-    ws.dt("add", "meetings", "--name", "Two")
+    ws.store.add("meetings", { name: "One" })
+    ws.store.add("meetings", { name: "Two" })
     assert.equal(ws.dt("add", "analyses", "--name", "Deep", "--meetings", "meetings/one,meetings/two").code, 0)
     assert.match(readFile(ws.root, "data/meetings/one.meeting.md"), /analyses:\n {2}- analyses\/deep/)
     assert.match(readFile(ws.root, "data/meetings/two.meeting.md"), /analyses:\n {2}- analyses\/deep/)
@@ -157,9 +162,9 @@ describe("the store maintains mirrors", () => {
     // `[]` and absent read the same to `check`, but only one of them is what a hand-written record
     // looks like, and a file full of empty keys is the derived state leaking into the source.
     const ws = relWorkspace()
-    ws.dt("add", "meetings", "--name", "Standup")
-    ws.dt("add", "summaries", "--name", "One", "--meeting", "meetings/standup")
-    ws.dt("add", "recordings", "--name", "Cap", "--meeting", "meetings/standup")
+    ws.store.add("meetings", { name: "Standup" })
+    ws.store.add("summaries", { name: "One", meeting: "meetings/standup" })
+    ws.store.add("recordings", { name: "Cap", meeting: "meetings/standup" })
     assert.equal(ws.dt("set", "summaries/one", "meeting=").code, 0)
     assert.equal(ws.dt("set", "recordings/cap", "meeting=").code, 0)
     const m = readFile(ws.root, "data/meetings/standup.meeting.md")
@@ -172,8 +177,8 @@ describe("the store maintains mirrors", () => {
     // `unique` is a value constraint on the owner's field, so the genuine second claimant is refused
     // before anything is written — naming the record that already holds the value
     const ws = relWorkspace()
-    ws.dt("add", "meetings", "--name", "Standup")
-    ws.dt("add", "summaries", "--name", "One", "--meeting", "meetings/standup")
+    ws.store.add("meetings", { name: "Standup" })
+    ws.store.add("summaries", { name: "One", meeting: "meetings/standup" })
     const res = ws.dt("add", "summaries", "--name", "Two", "--meeting", "meetings/standup")
     assert.equal(res.code, 1)
     assert.match(res.stderr, /meeting: "meetings\/standup" is already taken by summaries\/one \(unique\)/)
@@ -192,7 +197,7 @@ describe("the store maintains mirrors", () => {
     // The rollback assertion, and the reason the mirror pass runs inside the write lock with the
     // owner file restorable. "nothing was written" has to survive that ordering.
     const ws = relWorkspace()
-    ws.dt("add", "meetings", "--name", "Standup")
+    ws.store.add("meetings", { name: "Standup" })
     plantStaleSummary(ws, "standup")
     const before = readFile(ws.root, "data/meetings/standup.meeting.md")
     const res = ws.dt("add", "summaries", "--name", "Two", "--meeting", "meetings/standup")
@@ -207,9 +212,9 @@ describe("the store maintains mirrors", () => {
     // different code path and fails differently — an owner left pointing at the taken target while
     // the target still names the first claimant is exactly the stale mirror check reports.
     const ws = relWorkspace()
-    ws.dt("add", "meetings", "--name", "One")
-    ws.dt("add", "meetings", "--name", "Two")
-    ws.dt("add", "summaries", "--name", "Second", "--meeting", "meetings/two")
+    ws.store.add("meetings", { name: "One" })
+    ws.store.add("meetings", { name: "Two" })
+    ws.store.add("summaries", { name: "Second", meeting: "meetings/two" })
     plantStaleSummary(ws, "one")
     const res = ws.dt("set", "summaries/second", "meeting=meetings/one")
     assert.equal(res.code, 1)
@@ -251,9 +256,9 @@ describe("mirror maintenance holds at the edges", () => {
     // "standup" — which parses as nothing and is skipped — plus an attach of "meetings/standup".
     // The old target kept the link forever, and a green `dt set` was what created the staleness.
     const ws = relWorkspace()
-    ws.dt("add", "meetings", "--name", "Standup")
-    ws.dt("add", "meetings", "--name", "Retro")
-    ws.dt("add", "recordings", "--name", "Cap", "--meeting", "meetings/standup")
+    ws.store.add("meetings", { name: "Standup" })
+    ws.store.add("meetings", { name: "Retro" })
+    ws.store.add("recordings", { name: "Cap", meeting: "meetings/standup" })
     const f = `${ws.root}/data/recordings/cap.recording.md`
     fs.writeFileSync(f, fs.readFileSync(f, "utf8").replace("meeting: meetings/standup", "meeting: standup"))
     assert.equal(ws.dt("set", "recordings/cap", "meeting=meetings/retro").code, 0)
@@ -269,8 +274,8 @@ describe("mirror maintenance holds at the edges", () => {
     // attach finds itself already listed, and a plain append would leave two copies — which check
     // reads as stale, so the write that was meant to REPAIR the record breaks it instead.
     const ws = relWorkspace()
-    ws.dt("add", "meetings", "--name", "Standup")
-    ws.dt("add", "recordings", "--name", "Cap")
+    ws.store.add("meetings", { name: "Standup" })
+    ws.store.add("recordings", { name: "Cap" })
     const f = `${ws.root}/data/meetings/standup.meeting.md`
     fs.writeFileSync(f, fs.readFileSync(f, "utf8").replace(/^---\n/, "---\nrecordings:\n  - recordings/cap\n"))
     assert.equal(ws.dt("set", "recordings/cap", "meeting=meetings/standup").code, 0)
@@ -336,8 +341,8 @@ describe("rm and relations", () => {
     // The regression in one line: meetings/standup names recordings/cap ONLY because the store put
     // it there, so refusing on that entry is the engine refusing its own bookkeeping.
     const ws = relWorkspace()
-    ws.dt("add", "meetings", "--name", "Standup")
-    ws.dt("add", "recordings", "--name", "Cap", "--meeting", "meetings/standup")
+    ws.store.add("meetings", { name: "Standup" })
+    ws.store.add("recordings", { name: "Cap", meeting: "meetings/standup" })
     const res = ws.dt("rm", "recordings/cap")
     assert.equal(res.code, 0, res.stderr) // the mirror hit must NOT refuse
     assert.doesNotMatch(readFile(ws.root, "data/meetings/standup.meeting.md"), /recordings\/cap/)
@@ -350,8 +355,8 @@ describe("rm and relations", () => {
     // `restrict` — the owner's foreign key is real data and only its author can decide what it
     // should say instead.
     const ws = relWorkspace()
-    ws.dt("add", "meetings", "--name", "Standup")
-    ws.dt("add", "recordings", "--name", "Cap", "--meeting", "meetings/standup")
+    ws.store.add("meetings", { name: "Standup" })
+    ws.store.add("recordings", { name: "Cap", meeting: "meetings/standup" })
     const res = ws.dt("rm", "meetings/standup")
     assert.equal(res.code, 1)
     assert.match(res.stderr, /referenced by/)
@@ -362,10 +367,10 @@ describe("rm and relations", () => {
   })
 
   test("set-null clears the FK on owners when the target goes", () => {
-    const ws = workspace({ collections: { meetings: meetings("analyses"), analyses: SET_NULL_ANALYSES } })
-    ws.dt("add", "meetings", "--name", "One")
-    ws.dt("add", "meetings", "--name", "Two")
-    ws.dt("add", "analyses", "--name", "Arc", "--meetings", "meetings/one,meetings/two")
+    const ws = setNullBase()
+    ws.store.add("meetings", { name: "One" })
+    ws.store.add("meetings", { name: "Two" })
+    ws.store.add("analyses", { name: "Arc", meetings: ["meetings/one", "meetings/two"] })
     const res = ws.dt("rm", "meetings/one")
     assert.equal(res.code, 0, res.stderr)
     const a = readFile(ws.root, "data/analyses/arc.analysis.md")
@@ -379,9 +384,9 @@ describe("rm and relations", () => {
     // Three elements rather than two, and the one removed is in the MIDDLE: a set-null that
     // replaces the array wholesale, or clears the key because one member matched, passes the
     // two-element case by accident.
-    const ws = workspace({ collections: { meetings: meetings("analyses"), analyses: SET_NULL_ANALYSES } })
-    for (const n of ["One", "Two", "Three"]) ws.dt("add", "meetings", "--name", n)
-    ws.dt("add", "analyses", "--name", "Arc", "--meetings", "meetings/one,meetings/two,meetings/three")
+    const ws = setNullBase()
+    for (const n of ["One", "Two", "Three"]) ws.store.add("meetings", { name: n })
+    ws.store.add("analyses", { name: "Arc", meetings: ["meetings/one", "meetings/two", "meetings/three"] })
     assert.equal(ws.dt("rm", "meetings/two").code, 0)
     const a = readFile(ws.root, "data/analyses/arc.analysis.md")
     assert.match(a, /meetings\/one/)
@@ -397,8 +402,8 @@ describe("rm and relations", () => {
     // and it is the same rule the mirror side already follows.
     const SR = coll("recording", { meeting: { type: "meetings", on_delete: "set-null" } })
     const ws = workspace({ collections: { meetings: meetings("recordings"), recordings: SR } })
-    ws.dt("add", "meetings", "--name", "Standup")
-    ws.dt("add", "recordings", "--name", "Cap", "--meeting", "meetings/standup")
+    ws.store.add("meetings", { name: "Standup" })
+    ws.store.add("recordings", { name: "Cap", meeting: "meetings/standup" })
     assert.equal(ws.dt("rm", "meetings/standup").code, 0)
     const r = readFile(ws.root, "data/recordings/cap.recording.md")
     assert.doesNotMatch(r, /meeting:/)
@@ -411,8 +416,8 @@ describe("rm and relations", () => {
     // The escape hatch is unchanged: `--force` is how you remove something whose referrers you
     // intend to fix by hand, and it has to REPORT the damage rather than hide it.
     const ws = relWorkspace()
-    ws.dt("add", "meetings", "--name", "Standup")
-    ws.dt("add", "recordings", "--name", "Cap", "--meeting", "meetings/standup")
+    ws.store.add("meetings", { name: "Standup" })
+    ws.store.add("recordings", { name: "Cap", meeting: "meetings/standup" })
     const res = ws.dt("rm", "meetings/standup", "--force")
     assert.equal(res.code, 0, res.stderr)
     assert.match(res.stdout, /1 inbound reference\(s\) left dangling/)
@@ -496,9 +501,9 @@ describe("rm holds at the edges", () => {
     // record whose FK is about to be cleared could carry a second, unmanaged reference in its body
     // and have it excluded along with the first. Nothing would ever report it: `check` reads
     // frontmatter, never prose.
-    const ws = workspace({ collections: { meetings: meetings("analyses"), analyses: SET_NULL_ANALYSES } })
-    ws.dt("add", "meetings", "--name", "One")
-    ws.dt("add", "analyses", "--name", "Arc", "--meetings", "meetings/one")
+    const ws = setNullBase()
+    ws.store.add("meetings", { name: "One" })
+    ws.store.add("analyses", { name: "Arc", meetings: ["meetings/one"] })
     const f = `${ws.root}/data/analyses/arc.analysis.md`
     fs.writeFileSync(f, `${fs.readFileSync(f, "utf8").trimEnd()}\n\nas discussed in [[meetings/one]]\n`)
     const res = ws.dt("rm", "meetings/one")
@@ -514,8 +519,8 @@ describe("rm holds at the edges", () => {
     // The same narrowing on the other exclusion. One occurrence in that file is the engine's own
     // bookkeeping and is not a reason to refuse; two means one of them is somebody's writing.
     const ws = workspace({ collections: { meetings: meetings("recordings"), recordings: RECORDINGS } })
-    ws.dt("add", "meetings", "--name", "Standup")
-    ws.dt("add", "recordings", "--name", "Cap", "--meeting", "meetings/standup")
+    ws.store.add("meetings", { name: "Standup" })
+    ws.store.add("recordings", { name: "Cap", meeting: "meetings/standup" })
     const f = `${ws.root}/data/meetings/standup.meeting.md`
     fs.writeFileSync(f, `${fs.readFileSync(f, "utf8").trimEnd()}\n\nthe good bit is in [[recordings/cap]]\n`)
     const res = ws.dt("rm", "recordings/cap")
@@ -534,9 +539,9 @@ describe("rm holds at the edges", () => {
 // different places: one from parsed FIELDS, one from the file's raw BYTES.
 describe("the exclusion arithmetic survives a bare foreign key", () => {
   const bareWorkspace = () => {
-    const ws = workspace({ collections: { meetings: meetings("analyses"), analyses: SET_NULL_ANALYSES } })
-    ws.dt("add", "meetings", "--name", "One")
-    ws.dt("add", "analyses", "--name", "Arc", "--meetings", "meetings/one")
+    const ws = setNullBase()
+    ws.store.add("meetings", { name: "One" })
+    ws.store.add("analyses", { name: "Arc", meetings: ["meetings/one"] })
     return ws
   }
   // hand-edit the FK down to the bare id, optionally adding a body that names the record in full
@@ -586,8 +591,8 @@ describe("rename and relations", () => {
     // the same values, and it would drift. If this ever goes red the fix belongs in `rewriteRefs`,
     // not in a rename-specific mirror pass.
     const ws = relWorkspace()
-    ws.dt("add", "meetings", "--name", "Standup")
-    ws.dt("add", "recordings", "--name", "Cap", "--meeting", "meetings/standup")
+    ws.store.add("meetings", { name: "Standup" })
+    ws.store.add("recordings", { name: "Cap", meeting: "meetings/standup" })
     assert.equal(ws.dt("rename", "recordings/cap", "cap-2").code, 0)
     assert.match(readFile(ws.root, "data/meetings/standup.meeting.md"), /recordings\/cap-2/)
     assert.equal(ws.dt("check").code, 0)
@@ -603,8 +608,8 @@ describe("a refusal caused by a mirror names the command that repairs it", () =>
     // message said nothing about the one command that fixes it. `check`'s staleness line has always
     // named `relations rebuild`; every refusal over a mirror now does.
     const ws = relWorkspace()
-    ws.dt("add", "meetings", "--name", "Kickoff")
-    ws.dt("add", "recordings", "--name", "Cap One", "--meeting", "meetings/kickoff")
+    ws.store.add("meetings", { name: "Kickoff" })
+    ws.store.add("recordings", { name: "Cap One", meeting: "meetings/kickoff" })
     const file = `${ws.root}/data/meetings/kickoff.meeting.md`
     fs.writeFileSync(
       file,
@@ -631,7 +636,7 @@ describe("a refusal caused by a mirror names the command that repairs it", () =>
     // The genuine second claimant is refused by the owner's `unique` (above); what reaches the
     // mirror pass is a claim no owner holds, planted by hand.
     const ws = relWorkspace()
-    ws.dt("add", "meetings", "--name", "Kickoff")
+    ws.store.add("meetings", { name: "Kickoff" })
     const f = `${ws.root}/data/meetings/kickoff.meeting.md`
     fs.writeFileSync(f, fs.readFileSync(f, "utf8").replace(/^---\n/, "---\nsummary: summaries/s1\n"))
     const res = ws.dt("add", "summaries", "--name", "S2", "--meeting", "meetings/kickoff")
@@ -642,8 +647,8 @@ describe("a refusal caused by a mirror names the command that repairs it", () =>
 
   test("a dangling reference in a mirror is named as derived state, not as the caller's typo", () => {
     const ws = relWorkspace()
-    ws.dt("add", "meetings", "--name", "Kickoff")
-    ws.dt("add", "recordings", "--name", "Cap One", "--meeting", "meetings/kickoff")
+    ws.store.add("meetings", { name: "Kickoff" })
+    ws.store.add("recordings", { name: "Cap One", meeting: "meetings/kickoff" })
     const file = `${ws.root}/data/meetings/kickoff.meeting.md`
     fs.writeFileSync(file, fs.readFileSync(file, "utf8").replace("recordings/cap-one", "recordings/gone"))
     const res = ws.dt("set", "meetings/kickoff", "name=Kickoff 2")
