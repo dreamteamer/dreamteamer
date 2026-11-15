@@ -10,7 +10,18 @@ import { test, describe } from "node:test"
 import assert from "node:assert/strict"
 import fs from "node:fs"
 import path from "node:path"
-import { workspace, writeCollection, writeModule, compileQuietly, dt, git, readFile, WS_MODULE } from "../helpers/ws.ts"
+import {
+  workspace,
+  writeCollection,
+  writeModule,
+  compileQuietly,
+  dt,
+  git,
+  readFile,
+  seedOnce,
+  WS_MODULE,
+} from "../helpers/ws.ts"
+import type { Fixture } from "../helpers/ws.ts"
 import { load, dump, commentCount } from "../../src/lib/yaml.ts"
 
 const MOD = `modules/${WS_MODULE}`
@@ -134,8 +145,25 @@ const MIXIN = {
   },
 }
 
-/** The clinic, compiled and committed, with one doctor, one patient and one seen visit. */
+/** The clinic, compiled and committed, with one doctor, one patient and one seen visit — or, with
+ *  `records: false`, none. Each variant is BUILT ONCE and copied per test (seedOnce): the build is
+ *  a dozen source files, a git commit, a compile and four `dt` launches, identical every time. Each
+ *  copy is its own workspace and git history. */
+const CLINIC = { withRecords: seedOnce(() => buildClinic(true)), empty: seedOnce(() => buildClinic(false)) }
 function clinic({ records = true }: Record<string, any> = {}) {
+  const w = records ? CLINIC.withRecords() : CLINIC.empty()
+  const root = w.root
+  const run = (...a) => dt(root, ...a)
+  return {
+    ...w,
+    dt: run,
+    text: rel => readFile(root, rel),
+    doc: rel => load<any>(readFile(root, rel)),
+    head: () => git(root, ["rev-parse", "HEAD"]),
+  }
+}
+
+function buildClinic(records: boolean): Fixture {
   const w = workspace({ namespaces: ["health"], compile: false })
   const root = w.root
   writeCollection(root, "health/patients", PATIENTS)
@@ -216,13 +244,7 @@ function clinic({ records = true }: Record<string, any> = {}) {
     )
     ok(run("commit"))
   }
-  return {
-    ...w,
-    dt: run,
-    text: rel => readFile(root, rel),
-    doc: rel => load<any>(readFile(root, rel)),
-    head: () => git(root, ["rev-parse", "HEAD"]),
-  }
+  return w
 }
 
 const VISIT_RECORD = "data/health/patients/dana-levi/visits/2026-03-04--dana-levi--dr-cohen.visit.md"
