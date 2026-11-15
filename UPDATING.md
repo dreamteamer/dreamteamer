@@ -36,6 +36,11 @@ Nothing to do but `dt compile`.
   it was refused as dangling, so such a field no longer needs a hand edit. A manifest entry whose
   holder IS read here and lacks the id is refused, naming that holder. A reference into a collection
   whose `${env:…}` storage cannot render on this machine is accepted too, as `check` passes it.
+- **`dt update` compiles with the version npm just installed.** The compile after npm runs in a fresh
+  process, so a source kind or harness the new version of an extension contributes is in the runtime
+  at once — no second `dt compile`. A new version whose extension entry cannot load now refuses the
+  update at that compile and puts package.json, the lockfile and node_modules back, as `dt install`
+  does; 0.49.0 moved the pin and failed in the setup half.
 
 ## 0.49.0 — module presets and the nav document (CR-dt-008)
 

@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { workspace, ENGINE_ROOT, git, treeHash } from '../helpers/ws.js';
+import { workspace, ENGINE_ROOT, git, treeHash, readFile } from '../helpers/ws.js';
 import { resolveNpm } from '../../src/checkout.js';
 import { buildRegistry } from '../fixtures/registry/build.mjs';
 
@@ -60,22 +60,53 @@ describe('dt update — one pin forward, on purpose', () => {
 		assert.equal(git(ws.root, ['status', '--porcelain']), '');
 	});
 
-	test('a new version whose setup half cannot load: exit 1, one ✖ line naming dt install, never Node\'s trace', () => {
+	test('the compile after npm sees the version npm just installed: a source kind it contributes is in the runtime (rnd/tests/dreamteamer/update-compiles-new-extension)', () => {
+		const ws = offline();
+		const i = run(ws.root, ['install', '@fix/kind@1.0.0', '--from', REG]);
+		assert.equal(i.code, 0, i.stderr + i.stdout);
+		assert.doesNotMatch(readFile(ws.root, '.dreamteamer/manifest.yaml'), /kind: gizmos/);
+		const r = run(ws.root, ['update', '@fix/kind', '--from', REG]);
+		assert.equal(r.code, 0, r.stderr + r.stdout);
+		assert.equal(installed(ws.root, '@fix/kind'), '1.1.0');
+		assert.match(readFile(ws.root, '.dreamteamer/manifest.yaml'), /source-kinds:\n {2}- kind: gizmos\n(?: {4}.*\n)* {4}extension: '?@fix\/kind'?/);
+		assert.ok(fs.existsSync(path.join(ws.root, '.dreamteamer', 'gizmos', 'one.gizmo.yaml')), 'the 1.1.0 entry of the new kind is staged');
+		assert.match(git(ws.root, ['log', '-1', '--pretty=%s']), /^dreamteamer: update @fix\/kind 1\.0\.0 → 1\.1\.0$/);
+		assert.equal(git(ws.root, ['status', '--porcelain']), '');
+	});
+
+	test('a new version whose entry cannot load: the compile refuses and everything is put back; one whose setup half cannot load: exit 1 naming dt install — one ✖ line each, never Node\'s trace', () => {
 		const ws = offline();
 		assert.equal(run(ws.root, ['install', '@fix/unit@1.0.0', '--from', REG]).code, 0);
-		// a folder of tarballs that also holds a 1.2.0 whose entry throws when it is imported
+		const head = git(ws.root, ['rev-parse', 'HEAD']);
+		// a folder of tarballs that also holds a 1.2.0 (its entry throws whenever it is imported) and a 1.3.0
+		// (its entry throws only in the setup half's process, src/update-setup.js)
 		const from = fs.mkdtempSync(path.join(os.tmpdir(), 'dt-broken-'));
 		for (const f of fs.readdirSync(REG)) fs.copyFileSync(path.join(REG, f), path.join(from, f));
-		const src = fs.mkdtempSync(path.join(os.tmpdir(), 'dt-broken-src-'));
-		fs.cpSync(path.join(ENGINE_ROOT, 'test', 'fixtures', 'registry', 'src', 'fix-unit-1.1.0'), src, { recursive: true });
-		const pj = JSON.parse(fs.readFileSync(path.join(src, 'package.json'), 'utf8')); pj.version = '1.2.0'; fs.writeFileSync(path.join(src, 'package.json'), JSON.stringify(pj, null, '\t'));
-		fs.writeFileSync(path.join(src, 'entry.js'), 'throw new Error("unit 1.2.0 is broken");\nexport default () => ({});\n');
-		assert.equal(spawnSync('npm', ['pack', src, '--pack-destination', from, '--silent'], { encoding: 'utf8' }).status, 0);
-		const r = run(ws.root, ['update', '@fix/unit', '--from', from]);
-		assert.equal(r.code, 1, r.stderr + r.stdout);
-		assert.match(r.stderr, /✖ .*dt install @fix\/unit/);
-		assert.doesNotMatch(r.stderr, /^\s+at /m, 'no stack frames');
-		assert.doesNotMatch(r.stderr, /Node\.js v\d/, 'no Node version banner');
+		const pack = (version, entry) => {
+			const src = fs.mkdtempSync(path.join(os.tmpdir(), 'dt-broken-src-'));
+			fs.cpSync(path.join(ENGINE_ROOT, 'test', 'fixtures', 'registry', 'src', 'fix-unit-1.1.0'), src, { recursive: true });
+			const pj = JSON.parse(fs.readFileSync(path.join(src, 'package.json'), 'utf8')); pj.version = version; fs.writeFileSync(path.join(src, 'package.json'), JSON.stringify(pj, null, '\t'));
+			fs.writeFileSync(path.join(src, 'entry.js'), entry);
+			assert.equal(spawnSync('npm', ['pack', src, '--pack-destination', from, '--silent'], { encoding: 'utf8' }).status, 0);
+		};
+		pack('1.2.0', 'throw new Error("unit 1.2.0 is broken");\nexport default () => ({});\n');
+		pack('1.3.0', 'if (/update-setup\\.js$/.test(process.argv[1] ?? "")) throw new Error("unit 1.3.0 setup is broken");\nexport default () => ({});\n');
+		const quiet = (r) => {
+			assert.doesNotMatch(r.stderr, /^\s+at /m, 'no stack frames');
+			assert.doesNotMatch(r.stderr, /Node\.js v\d/, 'no Node version banner');
+		};
+		const broken = run(ws.root, ['update', '@fix/unit@1.2.0', '--from', from]);
+		assert.equal(broken.code, 1, broken.stderr + broken.stdout);
+		assert.match(broken.stderr, /✖ extension @fix\/unit: its entry .* did not load — unit 1\.2\.0 is broken/);
+		assert.match(broken.stderr, /✖ update refused: compile exited 1\n {2}package\.json, package-lock\.json and node_modules are as before the call/);
+		quiet(broken);
+		assert.equal(installed(ws.root, '@fix/unit'), '1.0.0', 'the old version is back');
+		assert.equal(git(ws.root, ['rev-parse', 'HEAD']), head, 'nothing committed');
+		assert.equal(git(ws.root, ['status', '--porcelain']), '', 'package.json and the lockfile restored');
+		const setupOnly = run(ws.root, ['update', '@fix/unit@1.3.0', '--from', from]);
+		assert.equal(setupOnly.code, 1, setupOnly.stderr + setupOnly.stdout);
+		assert.match(setupOnly.stderr, /✖ .*dt install @fix\/unit/);
+		quiet(setupOnly);
 	});
 
 	test('a downgrade is refused unless --allow downgrade; a named version within the folder is honoured', () => {

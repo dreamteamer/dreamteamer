@@ -1,0 +1,14 @@
+{
+	"name": "@fix/kind",
+	"version": "1.1.0",
+	"description": "@fix/kind 1.1.0",
+	"type": "module",
+	"files": [
+		"entry.js",
+		"gizmos"
+	],
+	"dreamteamer": {
+		"description": "@fix/kind — a synthetic extension whose 1.1.0 contributes a source kind its 1.0.0 does not (dt update compiles the new one).",
+		"extension": "./entry.js"
+	}
+}
