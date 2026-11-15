@@ -111,6 +111,11 @@ describe('declared env keys are described, and .env.example names them', () => {
 		assert.equal(text, `${HEADER}\n# declared by @fix/new\nMOVED_KEY=\n\n${OPERATOR}`);
 		assert.deepEqual(ensureEnvExample(ws.root, [{ key: 'MOVED_KEY', modules: ['@fix/new'] }]), { added: [], moved: [], dropped: [] });
 		assert.equal(readFile(ws.root, '.env.example'), text);
+		// a block right under an operator's line takes no blank line with it: the operator's comment never
+		// ends up attached to the next key
+		fs.writeFileSync(path.join(ws.root, '.env.example'), '# mine\n# declared by @fix/old\nGONE_KEY=\n\nOTHER=1\n');
+		assert.deepEqual(ensureEnvExample(ws.root, []).dropped, ['GONE_KEY']);
+		assert.equal(readFile(ws.root, '.env.example'), '# mine\n\nOTHER=1\n');
 	});
 
 	test('through compile: a key that moves to another module is re-attributed, and dropped once nothing declares it', () => {

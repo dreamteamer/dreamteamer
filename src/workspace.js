@@ -220,7 +220,7 @@ export function ensureEnvExample(root, entries, header = '', { keep = [], comple
 		// a key nothing declares, or a second engine block for one: the comment, the key and the blank line before them go
 		out.pop();
 		if (out.length && text(out[out.length - 1]) === '') out.pop();
-		else if (i + 1 < lines.length && text(lines[i + 1]) === '') i++;   // at the top of the file: the blank line after
+		else if (!out.length && i + 1 < lines.length && text(lines[i + 1]) === '') i++;   // at the top of the file: the blank line after
 		if (!e && !result.dropped.includes(key)) result.dropped.push(key);
 	}
 	let next = out.join('');

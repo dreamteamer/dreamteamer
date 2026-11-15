@@ -46,7 +46,8 @@ Nothing to do but `dt compile`.
   declaring package changed is re-attributed, and a key no installed package declares any more is
   dropped — the first compile after this upgrade may do both, and says so per key. A key your own
   `dreamteamer.vars` declares stays, and nothing is dropped while a declared git module or dependency
-  is not on disk yet. Every line you wrote yourself is left as it is.
+  is not on disk yet. A line in any other shape is left as it is — so a block of your own that you
+  want kept should not use those two comment shapes.
 
 ## 0.49.0 — module presets and the nav document (CR-dt-008)
 

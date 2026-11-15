@@ -245,7 +245,8 @@ export async function npmAndCompile(ws, list, { npm = resolveNpm(), open, json =
 	try {
 		let fresh;
 		if (childCompile) {
-			const c = spawnSync(process.execPath, [BIN, 'compile'], { cwd: ws.root, stdio: json ? ['ignore', 2, 2] : 'inherit', env: childEnv() });
+			// --workspace pins the root: a layer under git_modules/ would otherwise be climbed out of to the reader
+			const c = spawnSync(process.execPath, [BIN, '--workspace', ws.root, 'compile'], { cwd: ws.root, stdio: json ? ['ignore', 2, 2] : 'inherit', env: childEnv() });
 			if (c.status !== 0) throw new Error(`compile exited ${c.status ?? c.error?.message ?? c.signal}`);
 			compiled = true;
 			fresh = { root: ws.root, pkg: JSON.parse(fs.readFileSync(pkgFile, 'utf8')) };
