@@ -31,6 +31,11 @@ Nothing to do but `dt compile`.
   published and an editor version that was never released. It now says `npx -p
   @dreamteamer/protocol@0.3 dt-nav migrate` and the editor 0.27 or later, and the 0.49.0 steps below
   are corrected the same way.
+- **`dt set` and `dt add` accept what `dt check` accepts.** A reference to an id no root here holds
+  that your repo's `dreamteamer-exports.json` vouches for (its holder not read here) is written, where
+  it was refused as dangling, so such a field no longer needs a hand edit. A manifest entry whose
+  holder IS read here and lacks the id is refused, naming that holder. A reference into a collection
+  whose `${env:…}` storage cannot render on this machine is accepted too, as `check` passes it.
 
 ## 0.49.0 — module presets and the nav document (CR-dt-008)
 

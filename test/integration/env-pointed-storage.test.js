@@ -181,6 +181,22 @@ describe('an env-pointed storage.path that cannot render', () => {
 		assert.equal(res.code, 1);
 		assert.match(res.stderr, /collection "notes".*NOTES_ANNEX/);
 	});
+
+	// rnd/tests/dreamteamer/write-accepts-exports-vouched-reference — a write accepts what `check` accepts:
+	// a reference INTO a collection unread on this machine is not dangling, so neither refuses it
+	test('a reference into the unread collection: check passes it, and so do dt add and dt set', () => {
+		const LINKS = { ids: { from: '{{ name | slug }}' }, storage: { suffix: 'link' }, fields: { name: { type: 'string', required: true }, note: { type: 'notes' } } };
+		const ws = workspace({ pkg: { vars: ['NOTES_ANNEX'] }, collections: { notes: NOTES, links: LINKS }, compile: false });
+		const run = (...a) => dt(ws.root, ...a);
+		assert.equal(run('compile').code, 0);
+		const added = run('add', 'links', '--name', 'l1', '--note', 'notes/elsewhere');
+		assert.equal(added.code, 0, added.stderr);
+		assert.equal(run('add', 'links', '--name', 'l2').code, 0);
+		const set = run('set', 'links/l2', 'note=notes/also-elsewhere');
+		assert.equal(set.code, 0, set.stderr);
+		const checked = run('check');
+		assert.equal(checked.code, 0, `${checked.stdout}\n${checked.stderr}`);
+	});
 });
 
 describe('declaring the var', () => {
