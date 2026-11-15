@@ -12,7 +12,7 @@
 import { test, describe } from "node:test"
 import assert from "node:assert/strict"
 import fs from "node:fs"
-import { workspace, simpleCollection } from "../helpers/ws.ts"
+import { workspace, simpleCollection, seedOnce } from "../helpers/ws.ts"
 
 const CONTACTS = {
   ids: { from: "{{ name | slug }}" },
@@ -34,8 +34,10 @@ const TRANSACTIONS = {
   },
 }
 
-/** A workspace with two contacts, two transactions and two widgets — all written, none committed. */
-function seeded() {
+/** A workspace with two contacts, two transactions and two widgets — all written, none committed.
+ *  Built once and copied per test (seedOnce), as are the other fixtures below: each test gets its own
+ *  workspace and git history, and the identical seeding is paid once, not per test. */
+const seeded = seedOnce(() => {
   const ws = workspace({
     namespaces: ["finance"],
     collections: {
@@ -50,7 +52,7 @@ function seeded() {
   assert.equal(ws.dt("add", "finance/transactions", "--label", "Rent", "--month", "2026/03").code, 0)
   assert.equal(ws.dt("add", "widgets", "--name", "Alpha").code, 0)
   return ws
-}
+})
 
 /** What `dt commit --dry-run --json` still sees as pending, as `<collection>/<id>` strings. */
 function pending(ws) {
@@ -284,13 +286,13 @@ describe("commit sweeps a record’s relation partners", () => {
 // subject, `git status` clean afterwards so the theft was invisible (CLAUDE.md rule 6, three times).
 describe("the sweep follows the edge, not the field", () => {
   /** Standup + Cap, related and published. HEAD is consistent; every test below diverges from it. */
-  function pair() {
+  const pair = seedOnce(() => {
     const ws = workspace({ collections: { meetings: MEETINGS, recordings: RECORDINGS } })
     assert.equal(ws.dt("add", "meetings", "--name", "Standup").code, 0)
     assert.equal(ws.dt("add", "recordings", "--name", "Cap", "--meeting", "meetings/standup").code, 0)
     assert.equal(ws.dt("commit").code, 0)
     return ws
-  }
+  })
 
   test("a partner dirty for PROSE ONLY is left alone", () => {
     // C1. Session B is writing a paragraph into the meeting; session A renames the recording. The
@@ -357,12 +359,12 @@ describe("two sessions writing edges into ONE partner file", () => {
   // all of its edge changes at once — so when two sessions have each attached an owner since HEAD,
   // there is no commit that publishes one without the other. Refusing is the only honest answer:
   // the alternatives are stealing a record or knowingly publishing a red HEAD.
-  function standup() {
+  const standup = seedOnce(() => {
     const ws = workspace({ collections: { meetings: MEETINGS, recordings: RECORDINGS } })
     assert.equal(ws.dt("add", "meetings", "--name", "Standup").code, 0)
     assert.equal(ws.dt("commit").code, 0)
     return ws
-  }
+  })
 
   test("naming the TARGET refuses when two owners attached since HEAD", () => {
     const ws = standup()
@@ -464,7 +466,7 @@ const MEETINGS_WITH_SUMMARY = meetings({ summary: { type: "summaries", mirror_of
 
 describe("a stranger on the far side of the swept partner", () => {
   /** Standup + Cap published and UNLINKED — every test below forms the edge itself. */
-  function trio() {
+  const trio = seedOnce(() => {
     const ws = workspace({
       collections: { meetings: MEETINGS_WITH_SUMMARY, recordings: RECORDINGS, summaries: SUMMARIES },
     })
@@ -472,7 +474,7 @@ describe("a stranger on the far side of the swept partner", () => {
     assert.equal(ws.dt("add", "recordings", "--name", "Cap").code, 0)
     assert.equal(ws.dt("commit").code, 0)
     return ws
-  }
+  })
 
   test("refuses: A links the recording, B summarises the same meeting", () => {
     const ws = trio()
@@ -511,10 +513,16 @@ describe("a stranger on the far side of the swept partner", () => {
 // pairs would silently drop rows the caller asked for. So it keeps publishing half a pair, and
 // tells the caller which records finish it.
 describe("the whole-collection form warns about the partner it leaves behind", () => {
-  test("naming the owner collection names the mirror left pending", () => {
+  /** Standup + Cap, linked and NOT committed — both halves of the pair pending. */
+  const pendingPair = seedOnce(() => {
     const ws = workspace({ collections: { meetings: MEETINGS, recordings: RECORDINGS } })
     assert.equal(ws.dt("add", "meetings", "--name", "Standup").code, 0)
     assert.equal(ws.dt("add", "recordings", "--name", "Cap", "--meeting", "meetings/standup").code, 0)
+    return ws
+  })
+
+  test("naming the owner collection names the mirror left pending", () => {
+    const ws = pendingPair()
     const res = ws.dt("commit", "recordings")
     assert.equal(res.code, 0, res.stderr)
     assert.match(res.stderr, /meetings\/standup/)
@@ -523,9 +531,7 @@ describe("the whole-collection form warns about the partner it leaves behind", (
   })
 
   test("nothing to say when the pair is published whole", () => {
-    const ws = workspace({ collections: { meetings: MEETINGS, recordings: RECORDINGS } })
-    assert.equal(ws.dt("add", "meetings", "--name", "Standup").code, 0)
-    assert.equal(ws.dt("add", "recordings", "--name", "Cap", "--meeting", "meetings/standup").code, 0)
+    const ws = pendingPair()
     const res = ws.dt("commit", "recordings", "meetings")
     assert.equal(res.code, 0, res.stderr)
     assert.doesNotMatch(res.stderr, /left pending/)
@@ -546,9 +552,7 @@ describe("the whole-collection form warns about the partner it leaves behind", (
     // publishes the mirror and leaves the foreign key behind, which is the same half-pair with the
     // two collections swapped. A version of this that follows the edge from the published side gets
     // one direction right and the other silently empty.
-    const ws = workspace({ collections: { meetings: MEETINGS, recordings: RECORDINGS } })
-    assert.equal(ws.dt("add", "meetings", "--name", "Standup").code, 0)
-    assert.equal(ws.dt("add", "recordings", "--name", "Cap", "--meeting", "meetings/standup").code, 0)
+    const ws = pendingPair()
     const res = ws.dt("commit", "meetings")
     assert.equal(res.code, 0, res.stderr)
     assert.match(res.stderr, /recordings\/cap/)

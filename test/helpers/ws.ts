@@ -271,6 +271,16 @@ export function copyWorkspace(from: Fixture): Fixture {
 }
 
 /**
+ * A fixture builder that runs ONCE: the first call builds the workspace, and every call — the first
+ * included — returns a fresh `copyWorkspace` of it. For a setup a test file repeats verbatim (records
+ * added, maybe committed), so each test pays a directory copy instead of the `dt` launches.
+ */
+export function seedOnce(build: () => Fixture): () => Fixture {
+  let template: Fixture | undefined
+  return () => copyWorkspace((template ??= build()))
+}
+
+/**
  * Write a collection descriptor into the workspace module, at the path a real `collections add`
  * would use: `collections/health/doctors.collection.yaml`, mirroring the runtime layout.
  */
