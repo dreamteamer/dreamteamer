@@ -12,9 +12,9 @@ import { basename } from "node:path"
 
 // Run when a change names no test at all, so a fast run never silently runs only tier 1 after a src/
 // edit. compile and records are the two files that cross the most of the engine per second.
-export const SMOKE = ["test/integration/compile.test.js", "test/integration/records.test.js"]
+export const SMOKE = ["test/integration/compile.test.ts", "test/integration/records.test.ts"]
 
-const stem = (p: string): string => basename(p).replace(/\.d\.ts$|\.test\.js$|\.[a-z]+$/, "")
+const stem = (p: string): string => basename(p).replace(/\.d\.ts$|\.test\.ts$|\.[a-z]+$/, "")
 // an engine file is named after its export (`renameCollection.ts`, `Store.ts`) and a test in kebab case
 // (`rename-collection.test.js`, `store-index.test.js`), so a src name is compared in the test's spelling
 const kebab = (s: string): string => s.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase()

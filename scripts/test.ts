@@ -75,7 +75,7 @@ for (const tier of tiers) {
   const dir = join(ROOT, "test", tier)
   if (!existsSync(dir)) continue
   for (const name of readdirSync(dir).sort()) {
-    if (!name.endsWith(".test.js")) continue
+    if (!name.endsWith(".test.ts")) continue
     const rel = join("test", tier, name)
     if (only && !rel.includes(only)) continue
     files.push(rel)

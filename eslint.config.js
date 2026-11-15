@@ -23,5 +23,28 @@ export default defineConfig(
         { ignoreRestSiblings: true, argsIgnorePattern: "^_", varsIgnorePattern: "^_", caughtErrorsIgnorePattern: "^_" },
       ],
     },
+  },
+  // The tests are checked permissively (tsconfig.test.json): they are not the engine, and a test may
+  // poke at shapes the public types deliberately do not offer. test/types/consumer.ts is excluded — it
+  // is the public-API contract and keeps the strict rules above.
+  {
+    files: ["test/**/*.ts"],
+    ignores: ["test/types/**"],
+    rules: {
+      "@typescript-eslint/no-explicit-any": "off",
+      "@typescript-eslint/no-unused-vars": "off",
+      "@typescript-eslint/no-unused-expressions": "off",
+      "@typescript-eslint/no-require-imports": "off",
+      "@typescript-eslint/no-empty-function": "off",
+      "@typescript-eslint/no-non-null-assertion": "off",
+      "@typescript-eslint/ban-ts-comment": "off",
+      "@typescript-eslint/no-this-alias": "off",
+      "no-empty": "off",
+      "no-unused-vars": "off",
+      "no-control-regex": "off",
+      "no-useless-escape": "off",
+      "no-async-promise-executor": "off",
+      "prefer-const": "off",
+    },
   }
 )
