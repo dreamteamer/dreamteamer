@@ -1,73 +1,68 @@
-import { execFileSync } from "node:child_process"
 import Ajv from "ajv"
 import addFormats from "ajv-formats"
 import fs from "node:fs"
 import path from "node:path"
-import { atomicWrite } from "../lib/atomicWrite.ts"
 import { bodyField } from "../record/bodyField.ts"
-import { commitArg } from "../lib/git/commitArg.ts"
-import { fieldsOf, idsOf, isSoft, jsonSchemaOf, targetsOf, unresolvedPeersOf } from "../record/descriptor.ts"
-import { dirTreeStamps } from "./lib/dirTreeStamps.ts"
-import { sees } from "../record/exports.ts"
-import { EXPORTS_FILE } from "../record/consts.ts"
-import { exportsContext } from "../record/exportsContext.ts"
-import { generateId } from "./lib/generateId.ts"
-import { gitDateToStamp } from "./lib/gitDateToStamp.ts"
-import { idFromRecordPath } from "../record/idFromRecordPath.ts"
-import { normalizeRecord } from "./lib/normalizeRecord.ts"
-import { normalizeTemporal } from "./lib/normalizeTemporal.ts"
 import { ownerIdOf } from "../record/ownerIdOf.ts"
-import { parseRecordText } from "../record/parseRecordText.ts"
 import { parseRef } from "../record/parseRef.ts"
-import { pathToRecord } from "../record/pathToRecord.ts"
-import { placedRecords } from "../record/placedRecords.ts"
-import { isNested, localOfNestedId, parentOfNestedId, placedRoot, placementOf } from "../record/placement.ts"
+import { placedRoot, placementOf } from "../record/placement.ts"
 import { placementOfFile } from "./lib/placementOfFile.ts"
-import { readExports } from "../record/readExports.ts"
-import { assertSafeId, fmtAjvError, parseRecord, patternRe, unknownFields } from "../record/records.ts"
-import { EXT, MAX_RECORD_BYTES } from "../record/consts.ts"
-import { QUIET } from "../lib/consts.ts"
+import { assertSafeId, parseRecord } from "../record/records.ts"
 import { relationsOf } from "../record/relationsOf.ts"
-import { rootRecords } from "../record/lib/rootRecords.ts"
-import { serialize } from "../record/serialize.ts"
 import { storageOf } from "../record/storageOf.ts"
 import { symlinkBelow } from "../lib/symlinkBelow.ts"
-import type { Relation, Under } from "../record/types.ts"
-import { walk } from "../lib/walk.ts"
-import { exportsFacts } from "../runtime/exportsFacts.ts"
+import type { Under } from "../record/types.ts"
 import { loadDescriptors } from "../runtime/loadDescriptors.ts"
-import { namespaces as compiledNamespaces, runtimeDir, sourceHint } from "../runtime/runtime.ts"
+import { namespaces as compiledNamespaces, runtimeDir } from "../runtime/runtime.ts"
 import { NO_RUNTIME } from "../runtime/consts.ts"
 import { sourceRoots as compiledSourceRoots } from "../runtime/sourceRoots.ts"
-import type { Descriptor, Descriptors, Fields, Storage } from "../types.ts"
-
-/** One root a collection's records are read from, resolved: the compiled root plus its absolute path. */
-type ResolvedRoot = Storage["roots"][number] & { abs: string }
-
-type Undo = () => void
-
-/** What a reference rewrite did: the files it wrote, the count, the occurrences it left (`skipped`: in
- *  text it does not rewrite; `ambiguous`: a bare `[[base]]` more than one record answers), and its undo. */
-type RewriteResult = {
-  touched: string[]
-  rewrites: number
-  skipped: { file: string; count: number; oldRef: string; newRef: string }[]
-  ambiguous: { file: string; count: number; base: string; claimants: string[]; oldRef: string; newRef: string }[]
-  restore: Undo
-}
-
-/** What `relocatePlan` and `relocate` answer; `why` is `to-root` only for the internal `toRoot` reverse. */
-type RelocatePlan<W = "placement" | "shape"> = {
-  collection: string
-  moves: { id: string; from: string; to: string; why: W }[]
-  problems: string[]
-}
-
+import type { Descriptor, Descriptors, Fields } from "../types.ts"
+import { writableDescriptor } from "./lib/writableDescriptor.ts"
+import { refuseMirrorWrites } from "./lib/refuseMirrorWrites.ts"
+import { refuseEngineWrites } from "./lib/refuseEngineWrites.ts"
+import { refuseDuplicateValues } from "./lib/refuseDuplicateValues.ts"
+import { applyMirrorEdits } from "./lib/applyMirrorEdits.ts"
+import { filePath } from "./lib/filePath.ts"
+import { recordRoot } from "./recordRoot.ts"
+import { gitHead } from "./gitHead.ts"
+import { ids } from "./ids.ts"
+import { idsKey } from "./lib/idsKey.ts"
+import { indexAdd } from "./lib/indexAdd.ts"
+import { walkIds } from "./lib/walkIds.ts"
+import { walkRoot } from "./lib/walkRoot.ts"
+import { placedChildrenIn } from "./lib/placedChildrenIn.ts"
+import { moveRecord } from "./lib/moveRecord.ts"
+import { external } from "./external.ts"
+import { createdOf } from "./createdOf.ts"
+import { addedDates } from "./addedDates.ts"
+import { revert } from "./revert.ts"
+import { relocatePlan } from "./relocatePlan.ts"
+import { relocate } from "./relocate.ts"
+import { validate } from "./lib/validate.ts"
+import { qualifyBareRefs } from "./lib/qualifyBareRefs.ts"
+import { checkRefs } from "./lib/checkRefs.ts"
+import { add } from "./add.ts"
+import { addFile } from "./addFile.ts"
+import { set } from "./set.ts"
+import { pathAt } from "./lib/pathAt.ts"
+import { assertUnambiguous } from "./lib/assertUnambiguous.ts"
+import { rm } from "./rm.ts"
+import { rename } from "./rename.ts"
+import { recordFiles } from "./recordFiles.ts"
+import { findInboundRefs } from "./findInboundRefs.ts"
+import { rewriteRefsBatch } from "./rewriteRefsBatch.ts"
+import { writeLockPath } from "./writeLockPath.ts"
+import { withWriteLock } from "./withWriteLock.ts"
+import { commit } from "./lib/commit.ts"
+import { commitIn } from "./lib/commitIn.ts"
+import type { ResolvedRoot, RewriteResult, RelocatePlan, Undo } from "./types.ts"
+import { escapeRe } from "../lib/escapeRe.ts"
+import { pruneEmptyDirs } from "./lib/pruneEmptyDirs.ts"
 export class Store {
   root: string
   runtime: string
   autoCommit: boolean
-  private ajv: InstanceType<typeof Ajv.default>
+  ajv: InstanceType<typeof Ajv.default>
   namespaces: string[]
   descriptors: Descriptors
   _idsCache: Map<string, { key: string; ids: Map<string, string> }>
@@ -114,17 +109,7 @@ export class Store {
   // data/state collections are writable through the store; runtime-based (knowhow/meta)
   // entities are edited as SOURCES + compile — refuse politely.
   writableDescriptor(collection: string): Descriptor {
-    const d = this.descriptor(collection)
-    if (storageOf(d).runtime) {
-      // Two different runtime shapes, and pointing at the wrong one is worse than saying
-      // nothing: a STAGED kind (skills, commands, ui-views…) really does have a source file
-      // under `modules/<module>/<kind>/`, while a PROJECTED one (modules) has no such folder
-      // and never should — its source is the module's package.json. `x-source` says which,
-      // stated as data on the descriptor so the store never has to know what a module is.
-      const from = sourceHint(d)
-      throw new Error(`"${collection}" records are compiled sources — edit ${from} and run \`dreamteamer compile\``)
-    }
-    return d
+    return writableDescriptor(this, collection)
   }
 
   // Can the store rewrite this collection's records AT ALL? The two shapes it cannot are the same
@@ -150,14 +135,7 @@ export class Store {
   // two disagree silently. Refuse instead, and name the write that WOULD have worked: "this field
   // is generated" without the owning side is a dead end.
   refuseMirrorWrites(collection: string, id: string | null | undefined, changed: Iterable<string>): void {
-    const relations = this.relations()
-    for (const key of changed) {
-      const r = relations.find(rel => rel.target === collection && rel.mirror === key)
-      if (r)
-        throw new Error(
-          `${key} is generated from ${r.owner}.${r.field} — set that instead: dreamteamer set ${r.owner}/<id> ${r.field}=${collection}/${id ?? "<id>"} — nothing was written.`
-        )
-    }
+    return refuseMirrorWrites(this, collection, id, changed)
   }
 
   // ---- descriptor v2: the fields the engine writes, and values that must be unique ----------
@@ -167,34 +145,14 @@ export class Store {
   /** `derived` (stored, engine-written: `created`) and `virtual` (computed on read: `id`,
    *  `last_modified`) fields are refused from every writer, naming which they are. */
   refuseEngineWrites(d: Descriptor, changed: Iterable<string>): void {
-    const fields = d.compiled?.fields
-    if (!fields) return
-    for (const key of changed) {
-      const f = fields[key]
-      if (f?.derived)
-        throw new Error(
-          `${key} is written by the engine${key === "created" ? " (stamped when the record is added)" : ""} — nothing was written.`
-        )
-      if (f?.virtual)
-        throw new Error(`${key} is not stored — it is computed when the record is read — nothing was written.`)
-    }
+    return refuseEngineWrites(this, d, changed)
   }
 
   /** `unique: true` on a scalar field: no two records of the collection may hold one value. Null and
    *  absent never claim. Only the keys being written are asked, so an unrelated edit to a record
    *  that already shares a value is not where that conflict is reported — `check` is. */
   refuseDuplicateValues(d: Descriptor, collection: string, id: string, fields: Fields, keys: string[]) {
-    const unique = Object.entries(d.compiled?.fields ?? {}).filter(([k, f]) => f.unique && !f.many && keys.includes(k))
-    if (!unique.length) return
-    for (const { id: other, fields: of } of this.readAll(collection)) {
-      if (other === id) continue
-      for (const [k] of unique) {
-        const v = fields[k]
-        if (v === undefined || v === null || v === "") continue
-        if (of[k] === v)
-          throw new Error(`${k}: "${v}" is already taken by ${collection}/${other} (unique) — nothing was written.`)
-      }
-    }
+    return refuseDuplicateValues(this, d, collection, id, fields, keys)
   }
 
   /** Mirror maintenance for ONE owner-record write: rewrites every TARGET whose mirror has to change
@@ -216,111 +174,9 @@ export class Store {
     id: string,
     before: Fields | null,
     after: Fields | null,
-    ownerFile: string | null = null
+    ownerFile?: string | null
   ): { files: string[]; undo: Undo } {
-    const self = `${d.name}/${id}`
-    // ⚠ `before` comes straight off DISK while `after` has been through validate(), which qualifies
-    // bare refs — so diffing them as written strings read `meeting: standup` (hand-edited, or
-    // written before namespaces) as a detach of "standup", which parses as nothing and is skipped,
-    // plus an attach of "meetings/standup". The old target kept its link forever and a GREEN
-    // `dt set` was what created the staleness. Qualify a COPY: qualifyBareRefs mutates, and
-    // `before` is the caller's live record.
-    const prior = before ? { ...before } : null
-    if (prior) this.qualifyBareRefs(d, prior)
-    const files: string[] = []
-    const undos: Undo[] = []
-    // a COPY before reversing: `undo` is handed to `commit`, and an in-place reverse would make a
-    // second call replay the writes forwards rather than unwind them.
-    const rollback = (): void => {
-      for (const u of [...undos].reverse()) u()
-    }
-    const toArr = (v: unknown): unknown[] => (v == null ? [] : Array.isArray(v) ? v : [v])
-    // A mirror is kept between records of ONE repo. An owner in this workspace naming a target a
-    // layer holds would write into the layer's clone a link that does not exist when that clone is
-    // opened as its own workspace — its `check` would strip it, ours would put it back. So the edit
-    // below skips a target in another repo, and `check` expects mirrors per repo for the same reason.
-    // `ownerFile` comes from the caller, which just wrote or read it — asking the index here would
-    // re-walk the collection on every write, the quadratic shape `_indexAdd` exists to prevent.
-    const ownerRepo = this.repoOfFile(d, ownerFile ?? this.ids(d.name).get(id) ?? this.dir(d))
-    try {
-      // EVERY row whose owner is this collection, never the first match: a union FK
-      // (`type: [a, b]`) decodes to one relation row PER TARGET, all sharing one owner
-      // field, and each row maintains only the refs naming its own target — which is what the
-      // `parsed.collection` guard in `touch` enforces. Finding one row would maintain one member
-      // of the union and silently leave the others stale.
-      for (const rel of this.relations()) {
-        if (rel.owner !== d.name) continue
-        const was = new Set(toArr(prior?.[rel.field]))
-        const now = new Set(toArr(after?.[rel.field]))
-        const touch = (ref: unknown, fn: (fields: Fields, targetId: string) => void): void => {
-          const parsed = typeof ref === "string" ? parseRef(ref, this.namespaces) : null
-          if (!parsed || parsed.collection !== rel.target) return // malformed, or another union member — not this row's business
-          // TWO TARGETS THAT CANNOT HOLD A MIRROR, and compile refuses both (see stampMirror).
-          // This is the belt to that brace, because getting it wrong DESTROYS bytes rather than
-          // merely mis-linking. `writableDescriptor` first: a runtime-based target's records are
-          // compiled from sources, and writing one means editing a build artifact under
-          // `.dreamteamer/` that is gitignored and gone at the next compile — refuse, loudly.
-          const td = this.writableDescriptor(rel.target)
-          // A `format: binary` record's bytes ARE the record: `read` derives its fields and
-          // `serialize` has no branch for it, so this line would replace an SVG with frontmatter.
-          // BAIL rather than throw — an unwritten mirror is a `check` violation someone can act
-          // on; overwritten bytes are simply gone.
-          if (storageOf(td).format === "binary") return
-          // A DETACH can name a target that is already gone: the owner outlived it (a `--force`
-          // rm), and its FK is the dangling reference `check` reports. There is no mirror left
-          // to edit and `read` would throw, turning someone else's stale data into a refusal of
-          // this write. An attach never lands here missing — checkRefs proved it before the lock.
-          if (!this.ids(rel.target).has(parsed.id)) return
-          // another repo answers: no mirror there (see above) — mirrors stay per repo
-          const file = this.mirrorFileFor(rel.target, parsed.id, ownerRepo)
-          if (!file) return
-          const fields = parseRecord(file, td, bodyField(td))
-          const previous = fs.readFileSync(file, "utf8")
-          fn(fields, parsed.id)
-          atomicWrite(file, serialize(td, fields))
-          this._idsCache.delete(rel.target) // every mutation drops the memo, exactly as the verbs do for their own collection
-          files.push(file)
-          undos.push(() => atomicWrite(file, previous))
-        }
-        for (const ref of [...was].filter(x => !now.has(x)))
-          touch(ref, f => {
-            // scoped to SELF: a unique mirror naming someone else belongs to that someone else,
-            // and a list mirror holds every other owner's claim alongside this one.
-            if (rel.unique) {
-              if (f[rel.mirror] === self) delete f[rel.mirror]
-            } else f[rel.mirror] = toArr(f[rel.mirror]).filter(x => x !== self)
-            // the last element takes the KEY with it. `[]` and absent read the same to `check`,
-            // but only absent is what the record looks like before anything ever attached to it,
-            // and a file accumulating empty keys is derived state leaking into the source.
-            if (Array.isArray(f[rel.mirror]) && (f[rel.mirror] as unknown[]).length === 0) delete f[rel.mirror]
-          })
-        for (const ref of [...now].filter(x => !was.has(x)))
-          touch(ref, (f, tid) => {
-            if (rel.unique) {
-              // The FK is one-to-one, so the mirror is a SCALAR and physically cannot hold a
-              // second claimant. Refusing here rather than overwriting is what keeps the owning
-              // side the truth: the alternative silently unlinks whoever got there first.
-              if (f[rel.mirror] && f[rel.mirror] !== self) {
-                throw new Error(
-                  `${rel.field}: ${rel.target}/${tid} already has a ${rel.mirror} (${f[rel.mirror]}) — the reference is unique — nothing was written.\n  if that claim is STALE, dreamteamer relations rebuild ${rel.target} recomputes it from the owning side.`
-                )
-              }
-              f[rel.mirror] = self
-            } else {
-              // Sorted, because `expectedMirrors` sorts and `check` compares against it. Deduped,
-              // because `was`/`now` are compared as written STRINGS: a hand-edited bare FK is
-              // qualified on its way through validate(), so an untouched link reads as a detach of
-              // `standup` plus an attach of `meetings/standup` and the mirror would grow a second
-              // copy of self.
-              f[rel.mirror] = [...new Set([...toArr(f[rel.mirror]), self])].sort()
-            }
-          })
-      }
-    } catch (e) {
-      rollback()
-      throw e
-    }
-    return { files, undo: rollback }
+    return applyMirrorEdits(this, d, id, before, after, ownerFile)
   }
 
   /** The collection's OWN folder. For a collection stored under another (`storage.under`) this is
@@ -422,29 +278,7 @@ export class Store {
    *  field decides the root — the parent's folder, or the fallback root when it is empty — so a
    *  caller that has no fields (a bare id) must go through the index instead (recordRoot). */
   filePath(d: Descriptor, id: string, ext?: string, fields?: Fields): string {
-    assertSafeId(id) // never fs-join an id that can climb out of the collection
-    if (storageOf(d).shape === "folder") {
-      if (!storageOf(d).entry) throw new Error(`collection "${d.name}" is folder-shape but declares no storage.entry`)
-      return path.join(this.dir(d), id, storageOf(d).entry)
-    }
-    if (storageOf(d).format === "binary") {
-      // An opaque record's extension is not derivable from its id. A caller that WRITES says what
-      // it is; a caller that reads goes through the id index instead (recordRoot, below).
-      if (!ext) throw new Error(`collection "${d.name}" is \`format: binary\` — its path needs the file's extension`)
-      return path.join(this.dir(d), `${id}.${storageOf(d).suffix}.${ext}`)
-    }
-    const under = placementOf(d)
-    if (isNested(under) && fields) {
-      const parentId = ownerIdOf(fields, under, v => parseRef(v, this.namespaces))
-      if (parentId) {
-        if (parentOfNestedId(id) !== parentId || !id.includes("/"))
-          throw new Error(
-            `${d.name}/${id}: the id must begin with its ${under.parent}'s id ("${parentId}/…") — ids of ${d.name} are nested under their parent. nothing was written.`
-          )
-        return path.join(this.rootFor(d, fields), recordFileName(d, localOfNestedId(id)))
-      }
-    }
-    return path.join(this.rootFor(d, fields), recordFileName(d, id))
+    return filePath(this, d, id, ext, fields)
   }
 
   /** The root a record with these fields belongs under: the owner's child folder, or the fallback. */
@@ -467,23 +301,7 @@ export class Store {
 
   // the on-disk unit of a record: its folder for folder shapes, its file otherwise
   recordRoot(d: Descriptor, id: string): string {
-    assertSafeId(id)
-    if (this.layered(d)) {
-      // a record a layer holds is wherever the index found it — its folder for a folder shape
-      const file = this.ids(d.name).get(id)
-      if (!file) throw new Error(`${d.name}/${id}: no such record`)
-      return storageOf(d).shape === "folder" ? path.dirname(file) : file
-    }
-    if (storageOf(d).shape === "folder") return path.join(this.dir(d), id)
-    // Only the index knows an opaque record's extension, so the on-disk unit is looked up rather
-    // than derived. An unknown id is the caller's error either way — `read` says so first. The same
-    // goes for a placed record: which parent folder it sits in is a fact about the file, not the id.
-    if (storageOf(d).format === "binary" || placementOf(d)) {
-      const file = this.ids(d.name).get(id)
-      if (!file) throw new Error(`${d.name}/${id}: no such record`)
-      return file
-    }
-    return this.filePath(d, id)
+    return recordRoot(this, d, id)
   }
 
   /**
@@ -511,14 +329,7 @@ export class Store {
    * server already rebuilds its Store when the manifest moves.
    */
   gitHead() {
-    if (this._head === undefined) {
-      try {
-        this._head = execFileSync("git", ["rev-parse", "HEAD"], { cwd: this.root, stdio: QUIET }).toString().trim()
-      } catch {
-        this._head = "no-git"
-      }
-    }
-    return this._head
+    return gitHead(this)
   }
 
   /** "This process just committed" — said by the four places that run `git commit` while a Store is
@@ -528,20 +339,7 @@ export class Store {
   }
 
   ids(collection: string): Map<string, string> {
-    const d = this.descriptor(collection)
-    const dir = this.dir(d)
-    if (!this.recordDirs(d).some(p => fs.existsSync(p))) return new Map()
-    // memoized per collection, keyed by (HEAD sha, collection dir mtime): every tool
-    // write commits (HEAD moves) and every store mutation clears its entry below;
-    // direct top-level edits move the dir mtime. honest gap: a DEEP direct edit that
-    // adds/removes a record without touching HEAD or the top dir mtime can serve one
-    // stale read — acceptable, tool writes always commit and `check` covers hand edits.
-    const key = this._idsKey(d)
-    const hit = this._idsCache.get(collection)
-    if (hit?.key === key) return hit.ids
-    const ids = this._walkIds(d, dir)
-    this._idsCache.set(collection, { key, ids })
-    return ids
+    return ids(this, collection)
   }
 
   /** The validity key `ids()` compares against, as its own method because `add` restates it AFTER
@@ -549,22 +347,7 @@ export class Store {
    *  For a placed collection the PARENT root's mtime is in it too: a new parent folder is a new
    *  place records can be, and nothing under the fallback root moves when one appears. */
   _idsKey(d: Descriptor): string {
-    const stamp = (p: string): string => {
-      try {
-        return String(fs.statSync(p).mtimeMs)
-      } catch {
-        return "-"
-      }
-    }
-    if (!placementOf(d) && !this.layered(d)) return `${this.gitHead()}:${stamp(this.dir(d))}`
-    // A placed collection's records sit three levels down in folders this process did not create,
-    // and another writer (an agent, the editor, a hand) adds or removes one without touching a
-    // root's own mtime — so a root-mtime key served a long-lived Store a stale index (R4). Every
-    // DIRECTORY in every root is stamped instead: O(directories), which is small, and a new or
-    // vanished folder changes the string as surely as a changed one. A LAYER is the same shape:
-    // `dt update` pulls files into it without moving this workspace's HEAD or any root's mtime.
-    const dirs = this.recordDirs(d)
-    return `${this.gitHead()}:${dirs.map(dirTreeStamps).join("|")}`
+    return idsKey(this, d)
   }
 
   /** Refuse a placed write whose path crosses a symlink inside the parent collection's root — a link
@@ -605,106 +388,23 @@ export class Store {
     id: string,
     file: string
   ): void {
-    // nothing was memoized before this write, or the mirror pass has already rebuilt it cold from
-    // disk — either way a walk is the current answer and this has nothing to add to it.
-    if (!memo || this._idsCache.has(collection)) return
-    const d = this.descriptor(collection)
-    if (this.layered(d)) return // ordered by root, then by walk — the next ids() rebuilds it across every root
-    const dir = this.dir(d)
-    // a placed collection's order is by ID (see _walkIds), so the insertion point is too
-    const byId = !!placementOf(d)
-    const isBefore = (k: string, v: string): boolean =>
-      byId ? id < k : beforeInWalk(path.relative(dir, file), path.relative(dir, v))
-    const ids = new Map<string, string>()
-    let placed = false
-    for (const [k, v] of memo.ids) {
-      if (!placed && isBefore(k, v)) {
-        ids.set(id, file)
-        placed = true
-      }
-      ids.set(k, v)
-    }
-    if (!placed) ids.set(id, file)
-    this._idsCache.set(collection, { key: this._idsKey(d), ids })
+    return indexAdd(this, collection, memo, id, file)
   }
 
   _walkIds(d: Descriptor, dir: string): Map<string, string> {
-    const ids = new Map<string, string>()
-    if (this.layered(d)) {
-      // Across every root, write root first. FIRST claimant wins and the rest are left for `check`
-      // to report — the same rule placement follows, for the same reason: a `get` that answered
-      // from whichever layer sorted later would make the answer depend on the clone order.
-      const claims = new Map<string, string[]>()
-      for (const root of this.rootsOf(d)) {
-        for (const [id, f] of this._walkRoot(d, root.abs)) {
-          const c = claims.get(id)
-          if (c) c.push(f)
-          else claims.set(id, [f])
-        }
-      }
-      const dupes = new Map<string, string[]>()
-      for (const [id, files] of claims) {
-        ids.set(id, files[0])
-        if (files.length > 1) dupes.set(id, files)
-      }
-      this._duplicates.set(d.name, dupes)
-      return ids
-    }
-    if (storageOf(d).shape === "folder") {
-      for (const [id, f] of this._walkRoot(d, dir)) ids.set(id, f)
-      return ids
-    }
-    if (placementOf(d)) {
-      // Across every root. FIRST claimant wins and the rest are left for `check` to report as
-      // duplicates — never last-one-wins, which would make `get` answer with whichever folder
-      // happened to sort later. Ordered by ID, not by where the file sits: a listing whose order
-      // changed because a record moved between two companies would be reporting placement, which
-      // is not what the reader asked.
-      const dupes = new Map<string, string[]>()
-      for (const r of placedRecords(d, dir, this.parentDir(d))) {
-        if (!ids.has(r.id)) {
-          ids.set(r.id, r.file)
-          continue
-        }
-        dupes.set(r.id, [...(dupes.get(r.id) ?? [ids.get(r.id)]), r.file])
-      }
-      this._duplicates.set(d.name, dupes)
-      return new Map([...ids].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
-    }
-    for (const [id, f] of this._walkRoot(d, dir)) ids.set(id, f)
-    return ids
+    return walkIds(this, d, dir)
   }
 
   /** The records of `d` under ONE root — `[id, file]` pairs, in walk order. A folder-shape record is
    *  its entry file; anything else is a file whose name parses as a record of `d`. */
-  *_walkRoot(d: Descriptor, root: string): Generator<[id: string, file: string]> {
-    if (!fs.existsSync(root)) return
-    if (storageOf(d).shape === "folder") {
-      for (const e of fs.readdirSync(root).sort()) {
-        if (e.startsWith(".")) continue
-        const main = path.join(root, e, storageOf(d).entry ?? "SKILL.md")
-        if (fs.existsSync(main)) yield [e, main]
-      }
-      return
-    }
-    for (const f of walk(root)) {
-      const id = idFromRecordPath(d, path.relative(root, f))
-      if (id !== null) yield [id, f]
-    }
+  _walkRoot(d: Descriptor, root: string): Generator<[id: string, file: string]> {
+    return walkRoot(this, d, root)
   }
 
   /** The parent record folders of a folder-shape collection that hold records of a collection
    *  stored under it — the reason `rm` and `rename` on a parent have to look inside the folder. */
   placedChildrenIn(d: Descriptor, unit: string): { collection: string; under: Under; count: number }[] {
-    const out: { collection: string; under: Under; count: number }[] = []
-    if (storageOf(d).shape !== "folder") return out
-    for (const c of this.descriptors.values()) {
-      const under = placementOf(c)
-      if (under?.collection !== d.name) continue
-      const n = [...rootRecords(c, path.join(unit, under.subfolder))].length
-      if (n) out.push({ collection: c.name, under, count: n })
-    }
-    return out
+    return placedChildrenIn(this, d, unit)
   }
 
   /** Drop the id memo of every collection stored under `collection` — a parent folder that moved or
@@ -721,29 +421,7 @@ export class Store {
    * back the undo. The caller has already refused an occupied destination.
    */
   _moveRecord(d: Descriptor, from: string, to: string): Undo {
-    try {
-      fs.mkdirSync(path.dirname(to), { recursive: true })
-      fs.renameSync(from, to)
-    } catch (e) {
-      this._pruneAround(d, to) // the folders a failed move created, and nothing more
-      throw e
-    }
-    // The undo exists from the moment the rename has happened, and anything that fails AFTER it
-    // runs the undo before it propagates (R1b): a cleanup that threw used to leave the caller with
-    // no undo and both copies on disk. Pruning itself no longer throws (pruneEmptyDirs), so this
-    // is the belt to that brace.
-    const undo = () => {
-      fs.mkdirSync(path.dirname(from), { recursive: true })
-      fs.renameSync(to, from)
-      this._pruneAround(d, to)
-    }
-    try {
-      this._pruneAround(d, from)
-    } catch (e) {
-      undo()
-      throw e
-    }
-    return undo
+    return moveRecord(this, d, from, to)
   }
 
   /** Empty directories a placed record left behind: its date folders up to the root it sat in, and —
@@ -764,32 +442,9 @@ export class Store {
   external(
     collection: string,
     id: string,
-    { referrer }: { referrer?: string } = {}
+    opts?: { referrer?: string }
   ): { label: string; from?: string; manifest: string } | null {
-    if (this.ids(collection).has(id)) return null
-    let repo: string | null = null
-    if (referrer) {
-      const r = parseRef(referrer, this.namespaces)
-      const rd = r && this.descriptors.get(r.collection)
-      const f = rd && this.ids(r.collection).get(r.id)
-      if (!f) throw new Error(`${referrer}: no such record here — a referrer is a record this workspace reads`)
-      repo = this.layerOfFile(rd, f)?.layer ?? null
-    }
-    const facts = exportsFacts(this.root)
-    const ctx = exportsContext({
-      root: this.root,
-      descriptors: this.descriptors,
-      own: facts.own,
-      layers: facts.layers,
-      dataPath: facts.data,
-    })
-    const e = readExports(ctx.rootOf(repo))?.[collection]?.[id]
-    if (!e || sees(e, collection, ctx)) return null
-    return {
-      label: e.label,
-      ...(e.from ? { from: e.from } : {}),
-      manifest: path.relative(this.root, path.join(ctx.rootOf(repo), EXPORTS_FILE)),
-    }
+    return external(this, collection, id, opts)
   }
 
   read(collection: string, id: string): { fields: Fields; file: string } {
@@ -807,16 +462,7 @@ export class Store {
    * collection without a `created` field (a runtime kind), and for a record no commit holds yet.
    */
   createdOf(collection: string, id: string, fields: Fields, file: string): string | undefined {
-    const d = this.descriptor(collection)
-    if (!fieldsOf(d).created) return undefined
-    if (fields?.created) return fields.created as string
-    if (storageOf(d).external) return undefined // outside every repo here: no commit ever held it
-    const from = [idsOf(d).from ?? []].flat()
-    if (/^\{\{\s*created\b/.test(String(from[0] ?? ""))) {
-      const day = /(\d{4}-\d{2}-\d{2})/.exec(id)?.[1]
-      if (day) return normalizeTemporal(day, "date-time")
-    }
-    return this.addedDates(collection).get(path.relative(this.root, file).split(path.sep).join("/"))
+    return createdOf(this, collection, id, fields, file)
   }
 
   /**
@@ -825,45 +471,7 @@ export class Store {
    * @returns {Map<string, string>} root-relative path -> ISO date of the commit that added it
    */
   addedDates(collection: string): Map<string, string> {
-    this._addedDates ??= new Map()
-    if (this._addedDates.has(collection)) return this._addedDates.get(collection)
-    const dates = new Map()
-    const s = storageOf(this.descriptor(collection))
-    // one `git log` per REPO a root sits in — the write root's, and each record layer's clone
-    for (const root of s.roots) {
-      const repo = path.resolve(this.root, root.repo ?? ".")
-      const inRepo = (p: string): string => path.relative(repo, path.resolve(this.root, p)).split(path.sep).join("/")
-      // every place a record of this collection can sit: its own folder, and — when it is stored under a
-      // parent — each parent record's subfolder, so a move between the two is seen as the rename it is
-      const where = [inRepo(root.path)]
-      if (!root.layer && s.under?.collection && s.under.subfolder)
-        where.push(`:(glob)${inRepo(storageOf(this.descriptor(s.under.collection)).path)}/**/${s.under.subfolder}/**`)
-      try {
-        const out = execFileSync(
-          "git",
-          ["log", "--reverse", "-M", "--diff-filter=AR", "--name-status", "--format=%x01%aI", "--", ...where],
-          { cwd: repo, stdio: ["ignore", "pipe", "ignore"], timeout: 60_000, maxBuffer: 256 * 1024 * 1024 }
-        ).toString()
-        const key = (p: string): string => path.relative(this.root, path.join(repo, p)).split(path.sep).join("/")
-        let at
-        for (const line of out.split("\n")) {
-          if (line.startsWith("\x01")) {
-            at = gitDateToStamp(line.slice(1))
-            continue
-          }
-          const [status, a, b] = line.split("\t")
-          if (status === "A" && !dates.has(key(a))) dates.set(key(a), at)
-          else if (status?.startsWith("R") && b) {
-            dates.set(key(b), dates.get(key(a)) ?? at)
-            dates.delete(key(a))
-          }
-        }
-      } catch {
-        /* no git, or no history yet: every date stays unknown */
-      }
-    }
-    this._addedDates.set(collection, dates)
-    return dates
+    return addedDates(this, collection)
   }
 
   // list-path reader: ONE directory walk for the whole collection (review finding 2:
@@ -882,82 +490,7 @@ export class Store {
     id: string,
     hash: string
   ): { id: string; reverted: boolean; hash?: string; file?: string } {
-    commitArg(hash)
-    const d = this.writableDescriptor(collection)
-    this.assertUnambiguous(collection, id)
-    const { fields: currentFields, file } = this.read(collection, id)
-    if (storageOf(d).external)
-      throw new Error(
-        `${collection}/${id} is kept under ${storageOf(d).path}, outside every git repo here — there is no revision to revert to. nothing was reverted.`
-      )
-    // A placed record may have sat in ANOTHER parent's folder at `hash` — the move is what is being
-    // reverted — so the historical path is looked up in that commit's tree, not assumed to be today's.
-    // `<rev>:<path>` takes `/` on every OS — Windows' path.relative spells it with `\`
-    // in the repo that holds the FILE — a layer record's history is in the layer's clone
-    const fileRepo = path.resolve(this.root, this.repoOfFile(d, file))
-    const relPath = this.pathAt(d, id, hash) ?? path.relative(fileRepo, file).split(path.sep).join("/")
-    let previousContent
-    try {
-      previousContent = execFileSync("git", ["show", "--end-of-options", `${hash}:${relPath}`], {
-        cwd: fileRepo,
-        stdio: QUIET,
-      }).toString()
-    } catch {
-      throw new Error(`${collection}/${id}: no content at ${hash} for ${relPath} — nothing was reverted.`)
-    }
-    const current = fs.readFileSync(file, "utf8")
-    if (current === previousContent) return { id, reverted: false }
-    // parse + validate the historical content before it touches disk
-    const tmpFields = parseRecordText(previousContent, d, bodyField(d))
-    // Snapshot BEFORE validate(), which qualifies bare refs in place. The mirror pass has to see
-    // the record as the restored BYTES spell it — revert writes historical content verbatim, which
-    // is the whole point of a revert — because `check` re-reads that file and expects a mirror only
-    // for a ref it can parse. Qualifying `after` here would attach a mirror check then calls stale.
-    const restored = { ...tmpFields }
-    this.validate(d, tmpFields)
-    // Restoring an owner field restores its PLACEMENT too — the historical record lived where its
-    // historical owner put it, and writing it into whatever folder the record sits in today would
-    // leave a file `check` reports the moment it lands. Same rule as `set`: only the owner moves it.
-    this._assertContained(d, file)
-    const target = this.ownerChanged(d, currentFields, tmpFields) ? this.filePath(d, id, undefined, tmpFields) : file
-    if (target !== file) this._assertContained(d, target)
-    if (target !== file && fs.existsSync(target))
-      throw new Error(`${collection}/${id}: ${path.relative(this.root, target)} already exists — nothing was reverted.`)
-    return this.withWriteLock(() => {
-      this._idsCache.delete(collection) // every mutation drops the memo — cleared even if the commit rolls back
-      let unmove: Undo | null = null
-      const undo = () => {
-        unmove?.()
-        atomicWrite(file, current)
-      }
-      try {
-        atomicWrite(file, previousContent)
-        if (target !== file) unmove = this._moveRecord(d, file, target)
-      } catch (e) {
-        undo()
-        throw e
-      }
-      // revert is SET-shaped — it changes the owner's foreign key — so the mirrors move with it.
-      // Skipping this left BOTH targets stale: the restored one never got its link back, and the
-      // abandoned one kept a link the owner no longer claims. Same ordering as `add`, see there.
-      let mirrors
-      try {
-        mirrors = this.applyMirrorEdits(d, id, currentFields, restored, file)
-      } catch (e) {
-        undo()
-        throw e
-      }
-      this.commit(
-        [target, ...(unmove ? [file] : []), ...mirrors.files],
-        `dreamteamer: ${collection} revert ${id} to ${String(hash).slice(0, 7)}`,
-        () => {
-          mirrors.undo()
-          undo()
-        },
-        this.repoOfFile(d, file)
-      )
-      return { id, reverted: true, hash, file: target }
-    })
+    return revert(this, collection, id, hash)
   }
 
   /**
@@ -983,75 +516,10 @@ export class Store {
   ): RelocatePlan<"placement" | "shape" | "to-root">
   relocatePlan(
     collection: string,
-    only: string[] | null = null,
-    { toRoot = false } = {}
+    only?: string[] | null,
+    opts?: { toRoot?: boolean }
   ): RelocatePlan<"placement" | "shape" | "to-root"> {
-    const d = this.writableDescriptor(collection)
-    const moves: RelocatePlan<"placement" | "shape" | "to-root">["moves"] = []
-    const problems: string[] = []
-    const rel = (p: string): string => path.relative(this.root, p)
-    const wanted = only ? new Set(only) : null
-    const plan = (id: string, from: string, to: string, why: "placement" | "shape" | "to-root"): void => {
-      const link = placementOf(d) ? symlinkBelow(this.parentDir(d), to) : null
-      if (link)
-        problems.push(
-          `${collection}/${id}: ${rel(to)} is behind the symlink ${rel(link)} — a placed record is never written through a link`
-        )
-      else if (fs.existsSync(to))
-        problems.push(
-          `${collection}/${id}: ${rel(from)} belongs at ${rel(to)}, which already exists — two files claim one id; remove one before relocating`
-        )
-      else moves.push({ id, from, to, why })
-    }
-    const under = placementOf(d)
-    if (under && toRoot) {
-      // the REVERSE: every record out of its parent's folder and into the collection's own root, ids
-      // unchanged — what makes dropping or changing `storage.under` a safe two-step (see compile)
-      for (const [id, file] of this.ids(collection)) {
-        if (wanted && !wanted.has(id)) continue
-        const to = path.join(this.dir(d), recordFileName(d, id))
-        if (to !== file) plan(id, file, to, "to-root")
-      }
-    } else if (under) {
-      const bf = bodyField(d)
-      const parse = (v: string) => parseRef(v, this.namespaces)
-      for (const [id, file] of this.ids(collection)) {
-        if (wanted && !wanted.has(id)) continue
-        const fields = parseRecord(file, d, bf)
-        this.qualifyBareRefs(d, fields)
-        // The OWNER is validated before any destination is computed (R5): a folder is never made
-        // for a parent that does not exist, and a value that is not a reference to the parent
-        // collection is a field to fix, not a place to move to. Either stops the whole plan.
-        const raw = fields[under.parent]
-        const parentId = ownerIdOf(fields, under, parse)
-        if (raw != null && raw !== "" && !parentId) {
-          problems.push(
-            `${collection}/${id}: ${under.parent} is "${raw}", not a reference to ${under.collection} — fix the field first`
-          )
-          continue
-        }
-        if (parentId && !this.ids(under.collection).has(parentId)) {
-          problems.push(
-            `${collection}/${id}: ${under.parent} is ${raw} — no such record; fix the field first (dreamteamer check names it)`
-          )
-          continue
-        }
-        const to = this.filePath(d, id, undefined, fields)
-        if (to !== file) plan(id, file, to, "placement")
-      }
-    }
-    if (storageOf(d).shape === "folder" && fs.existsSync(this.dir(d))) {
-      // legacy file-shape records sit at the TOP of the folder — a folder id is one segment
-      const asFile = { ...d, storage: { ...d.storage, shape: "file" as const } }
-      for (const name of fs.readdirSync(this.dir(d)).sort()) {
-        const p = path.join(this.dir(d), name)
-        if (name.startsWith(".") || fs.statSync(p).isDirectory()) continue
-        const id = idFromRecordPath(asFile, name)
-        if (id === null || (wanted && !wanted.has(id))) continue
-        plan(id, p, path.join(this.dir(d), id, storageOf(d).entry), "shape")
-      }
-    }
-    return { collection, moves, problems }
+    return relocatePlan(this, collection, only, opts)
   }
 
   /**
@@ -1069,90 +537,15 @@ export class Store {
   ): RelocatePlan<"placement" | "shape" | "to-root"> & { applied: boolean }
   relocate(
     collection: string,
-    { only = null, dryRun = false, toRoot = false }: { only?: string[] | null; dryRun?: boolean; toRoot?: boolean } = {}
+    opts?: { only?: string[] | null; dryRun?: boolean; toRoot?: boolean }
   ): RelocatePlan<"placement" | "shape" | "to-root"> & { applied: boolean } {
-    const d = this.writableDescriptor(collection)
-    const planned = this.relocatePlan(collection, only, { toRoot })
-    // problems FIRST, moves or not: a plan with a dangling owner in it is refused whole, and a dry run
-    // of it reports the problem rather than the empty success it would otherwise read as
-    if (planned.problems.length && !dryRun)
-      throw new Error(`relocate refused:\n  ${planned.problems.join("\n  ")}\nnothing was moved.`)
-    if (dryRun || !planned.moves.length) return { ...planned, applied: false }
-    const cwd = path.resolve(this.root, storageOf(d).repo)
-    const sources = planned.moves.map(m => path.relative(cwd, m.from))
-    let dirty = ""
-    try {
-      dirty = execFileSync("git", ["status", "--porcelain", "--", ...sources], { cwd, stdio: QUIET })
-        .toString()
-        .trim()
-    } catch {
-      /* not a git repo — nothing to protect */
-    }
-    if (dirty)
-      throw new Error(
-        `relocate refused — these records have unpublished changes, and a move on top of them would hide the edit under the move:\n${dirty
-          .split("\n")
-          .map(l => `  ${l}`)
-          .join("\n")}\nrun \`dreamteamer commit ${collection}\` first. nothing was moved.`
-      )
-    return this.withWriteLock(() => {
-      this._idsCache.delete(collection)
-      this._dropPlacedUnder(collection)
-      const undos: Undo[] = []
-      const rollback = () => {
-        for (const u of [...undos].reverse()) u()
-        this._idsCache.delete(collection)
-        this._dropPlacedUnder(collection)
-      }
-      try {
-        for (const m of planned.moves) undos.push(this._moveRecord(d, m.from, m.to))
-      } catch (e) {
-        rollback()
-        throw e
-      }
-      const files = planned.moves.flatMap(m => [m.from, m.to])
-      this.commit(
-        files,
-        `dreamteamer: ${collection} relocate ${planned.moves.length} record(s)${toRoot ? " to root" : ""}`,
-        rollback,
-        storageOf(d).repo
-      )
-      return { ...planned, applied: true }
-    })
+    return relocate(this, collection, opts)
   }
 
   // ---- validation (hard) ---------------------------------------------------
 
-  validate(d: Descriptor, fields: Fields, { skipRefs = false }: { skipRefs?: boolean } = {}): Fields {
-    // hard at the tools includes UNKNOWN fields: a typo'd key must never land on disk
-    const unknown = unknownFields(d, fields)
-    if (unknown.length)
-      throw new Error(`unknown field(s) for this collection: ${unknown.join(", ")} — nothing was written.`)
-    // BEFORE ajv, and deliberately inside validate() rather than in each verb: this is the one
-    // choke point add/set/revert all pass through, so `--starts "2026-07-28 12:00"` from a CLI
-    // session and a `datetime-local` widget's `2026-07-28T12:00` reach disk as the same
-    // canonical, offset-carrying value. ajv's `date-time` accepts exactly one spelling; without
-    // this every human-shaped input is a validation error (see src/temporal.ts).
-    normalizeRecord(jsonSchemaOf(d), fields)
-    // qualifyBareRefs must ALSO run before the validator below, for the same "one choke
-    // point" reason but a different consequence: `validate(fields)` is what triggers useDefaults,
-    // materializing any schema `default:` onto `fields` for the first time — a bare value sitting
-    // in a single-target ref field's `default:` is never seen by qualifyBareRefs and would reach
-    // checkRefs unqualified, failing as malformed rather than as the dangling reference it should
-    // read as. In practice no shipped descriptor defaults a ref field, so this is latent, not hit.
-    this.qualifyBareRefs(d, fields)
-    const validate = this.ajv.compile(jsonSchemaOf(d)) // useDefaults mutates: defaults materialize
-    if (!validate(fields)) {
-      const msgs = validate.errors.map(e => "  " + fmtAjvError(e, fields))
-      // The remedy line, when the cause is a generated mirror — see mirrorRemedy below.
-      const remedy = mirrorRemedy(
-        d,
-        validate.errors.map(e => e.instancePath.split("/")[1])
-      )
-      throw new Error(`validation failed:\n${msgs.join("\n")}${remedy}\nnothing was written.`)
-    }
-    if (!skipRefs) this.checkRefs(d, fields)
-    return fields
+  validate(d: Descriptor, fields: Fields, opts?: { skipRefs?: boolean }): Fields {
+    return validate(this, d, fields, opts)
   }
 
   // Bare ids are accepted on INPUT for a field whose target set has exactly one member, and
@@ -1169,62 +562,11 @@ export class Store {
   // (path-shaped ids) parses as a ref and is not qualified; the checkRefs error then names the
   // misread collection.
   qualifyBareRefs(d: Descriptor, fields: Fields): void {
-    for (const [key, f] of Object.entries(fieldsOf(d))) {
-      const targets = targetsOf(f)
-      if (!targets || targets === "*" || targets.length !== 1) continue
-      const raw = fields[key]
-      if (raw == null) continue
-      const qualify = (v: unknown): unknown =>
-        typeof v === "string" && v !== "" && !v.startsWith("@") && !parseRef(v, this.namespaces)
-          ? `${targets[0]}/${v}`
-          : v
-      fields[key] = Array.isArray(raw) ? raw.map(qualify) : qualify(raw)
-    }
+    return qualifyBareRefs(this, d, fields)
   }
 
   checkRefs(d: Descriptor, fields: Fields): void {
-    for (const [key, f] of Object.entries(fieldsOf(d))) {
-      const targets = targetsOf(f)
-      if (!targets) continue
-      const raw = fields[key]
-      if (raw == null) continue
-      for (const value of Array.isArray(raw) ? raw : [raw]) {
-        if (typeof value !== "string" || value.startsWith("@")) continue
-        // ONE parser for the collection/id boundary, shared with `check` and the extension —
-        // a namespace that meant one thing on write and another on read would be worse than
-        // no namespaces at all.
-        const parsed = parseRef(value, this.namespaces)
-        if (!parsed)
-          throw new Error(
-            `${key}: reference "${value}" is not <collection>/<id> — nothing was written.${mirrorRemedy(d, [key])}`
-          )
-        const { collection: coll, id } = parsed
-        if (targets !== "*" && !targets.includes(coll)) {
-          const want = targets.length === 1 ? `collection "${targets[0]}"` : `one of: ${targets.join(", ")}`
-          throw new Error(`${key}: reference "${value}" must target ${want} — nothing was written.`)
-        }
-        // A SOFT reference resolves if the target is present and is ignored if it is absent
-        // (see ref.js). Honoured HERE as well as in `check` on purpose: the two paths reaching
-        // different verdicts on identical bytes is the divergence this validator was aligned
-        // with `check` to prevent in the first place.
-        const soft = isSoft(f)
-        if (!this.descriptors.has(coll)) {
-          // A collection the owning module DECLARED as a peer and nothing installed provides is
-          // the normal state of a module opened on its own. `check` excuses it via the same
-          // `unresolved_peers` compile stamps onto this descriptor, and this refused it — so the
-          // module could VALIDATE records it could not WRITE, and the workaround was to hand-edit
-          // the file the store exists to write. Same semantics as a soft ref ("resolve if present,
-          // ignore if absent"); the collection is absent, so the value passes through unresolved.
-          if (unresolvedPeersOf(d).includes(coll)) continue
-          if (soft) continue
-          throw new Error(`${key}: reference "${value}" targets unknown collection "${coll}" — nothing was written.`)
-        }
-        if (!this.ids(coll).has(id) && !soft)
-          throw new Error(
-            `${key}: dangling reference "${value}" — no such record. nothing was written.${mirrorRemedy(d, [key])}`
-          )
-      }
-    }
+    return checkRefs(this, d, fields)
   }
 
   // ---- verbs -----------------------------------------------------------------
@@ -1232,216 +574,25 @@ export class Store {
   add(
     collection: string,
     fields: Fields,
-    { id: explicitId }: { id?: string } = {}
+    opts?: { id?: string }
   ): {
     id: string
     file: string
     idFallback: { field?: string; value: string; id: string } | null
     deprecated?: string[]
   } {
-    const d = this.writableDescriptor(collection)
-    // before validate: a mirror value is refused on its own terms, not as a schema error
-    this.refuseMirrorWrites(collection, null, Object.keys(fields))
-    this.refuseEngineWrites(d, Object.keys(fields))
-    // descriptor v2: `created` is stamped here, before the id is made, so `ids.from` can name it
-    if (d.compiled?.fields?.created) fields.created = nowStamp()
-    const deprecated = Object.keys(fields).filter(k => d.compiled?.fields?.[k]?.deprecated)
-    this.validate(d, fields)
-    // the KEYS, not a copy of them: `generateId` iterates this once and only for a `{{ seq }}`
-    // template, so materializing the whole id list was an O(N) allocation per add that almost
-    // every collection threw away unread.
-    // An id derived from a hash rather than from readable text is reported back to the caller, not
-    // swallowed — see the `slug` filter's note. The write still happens: an id must be produced,
-    // and refusing here would break every workspace whose values are not latin. What must not
-    // happen is that nobody is told.
-    let idFallback: { field: string; value: string; id: string } | null = null
-    const id =
-      explicitId ??
-      generateId(idsOf(d).from ?? "{{ name | slug }}", fields, this.ids(collection).keys(), {
-        onFallback: f => {
-          idFallback = f
-        },
-      })
-    if (idsOf(d).pattern && !patternRe(idsOf(d).pattern).test(id)) {
-      throw new Error(`id "${id}" does not match pattern ${idsOf(d).pattern} — nothing was written.`)
-    }
-    // after the id is known: another root's record OF THIS ID does not take a unique value from it
-    this.refuseDuplicateValues(d, collection, id, fields, Object.keys(fields))
-    // The fields decide the folder for a placed collection (rootFor), and existence is asked of the
-    // INDEX, not of one path: the same id already sitting under another parent is the duplicate
-    // `check` would report, and refusing it here is what keeps the id unique across every root.
-    const file = this.filePath(d, id, undefined, fields)
-    this._assertContained(d, file)
-    if (fs.existsSync(file) || ((placementOf(d) || this.layered(d)) && this.ids(collection).has(id)))
-      throw new Error(`${collection}/${id} already exists — nothing was written.`)
-    return this.withWriteLock(() => {
-      // captured before the invalidation and handed back, one entry richer, on the success path
-      // below — see _indexAdd for why an add that throws it away is the expensive shape.
-      const memo = this._idsCache.get(collection)
-      this._idsCache.delete(collection)
-      fs.mkdirSync(path.dirname(file), { recursive: true })
-      atomicWrite(file, serialize(d, fields))
-      // OWNER FIRST, then the mirrors, then undo the owner if they refuse. The order matters: the
-      // mirror pass reads targets through `ids()`, and a relation whose target IS this collection
-      // (a record linking to its own kind) has to be able to see the record it is attaching. The
-      // alternative — a dry pass that computes the edits without writing them — is the same loop
-      // twice to save one `rmSync`, and two copies of it is how the two would drift apart.
-      let mirrors
-      try {
-        mirrors = this.applyMirrorEdits(d, id, null, fields, file)
-      } catch (e) {
-        fs.rmSync(file, { force: true })
-        this._pruneAround(d, file)
-        // ⚠ AND THE MEMO, or the removal is only half done. applyMirrorEdits reads targets through
-        // `ids()`, so a relation whose target is this same collection re-cached it WITH the record
-        // just written — and the memo key (HEAD + the collection's TOP directory mtime) does not
-        // move for a record created and removed inside an existing sub-directory. This Store then
-        // lists an id that is not on disk, and the next write's checkRefs accepts a reference to
-        // it: a verb reporting success and landing a dangling ref.
-        this._idsCache.delete(collection)
-        throw e // applyMirrorEdits already undid its own partial work — "nothing was written" is true again
-      }
-      // ONE commit, owner and mirrors together: a commit where only half a relation moved is a
-      // history that never held a consistent workspace.
-      this.commit(
-        [file, ...mirrors.files],
-        `dreamteamer: ${collection} add ${id}`,
-        () => {
-          mirrors.undo()
-          fs.rmSync(file, { force: true })
-          this._pruneAround(d, file)
-          this._idsCache.delete(collection) // same phantom as the catch above — see the note there
-        },
-        storageOf(d).repo
-      )
-      // LAST, after the commit: the key it is re-stated under carries the sha, and `commit` moves it
-      this._indexAdd(collection, memo, id, file)
-      return { id, file, idFallback, ...(deprecated.length ? { deprecated } : {}) }
-    })
+    return add(this, collection, fields, opts)
   }
 
   /** Import a file AS a record. There are no fields to validate and nothing to serialize, which is
    *  why this is a sibling of add() rather than a branch inside it — the two share their last three
    *  lines and nothing else. */
-  addFile(collection: string, id: string, srcPath: string, { force = false } = {}): { id: string; file: string } {
-    const d = this.writableDescriptor(collection)
-    if (storageOf(d).format !== "binary")
-      throw new Error(
-        `"${collection}" is not a \`format: binary\` collection — add its records with --<field> values, not --from`
-      )
-    assertSafeId(id)
-    if (idsOf(d).pattern && !patternRe(idsOf(d).pattern).test(id)) {
-      throw new Error(`id "${id}" does not match pattern ${idsOf(d).pattern} — nothing was written.`)
-    }
-    const ext = path.extname(srcPath).slice(1).toLowerCase()
-    if (!ext) throw new Error(`${srcPath} has no extension — a file record is named by one. Nothing was written.`)
-    const allowed = storageOf(d).accept
-    if (allowed && !allowed.includes(ext))
-      throw new Error(
-        `"${collection}" does not accept .${ext} — its declared extensions are ${allowed.join(", ")}. Nothing was written.`
-      )
-    const size = fs.statSync(srcPath).size
-    const max = storageOf(d).max_bytes ?? MAX_RECORD_BYTES
-    if (size > max)
-      throw new Error(
-        `${srcPath} is ${size} bytes, over "${collection}"'s max_bytes of ${max} — a record is a small file. Nothing was written.`
-      )
-    const existing = this.ids(collection).get(id)
-    if (existing && !force)
-      throw new Error(`${collection}/${id} already exists — pass --force to replace it. Nothing was written.`)
-    const file = this.filePath(d, id, ext)
-    return this.withWriteLock(() => {
-      this._idsCache.delete(collection)
-      fs.mkdirSync(path.dirname(file), { recursive: true })
-      // A replacement whose extension changed would otherwise leave its predecessor behind, and
-      // two files under one id is the ambiguity `check` reports. One id is one file.
-      const stale = existing && existing !== file ? existing : null
-      const restore = snapshot([file, ...(stale ? [stale] : [])])
-      if (stale) fs.rmSync(stale, { force: true })
-      fs.copyFileSync(srcPath, file)
-      this.commit([file, ...(stale ? [stale] : [])], `dreamteamer: ${collection} add ${id}`, restore, storageOf(d).repo)
-      return { id, file }
-    })
+  addFile(collection: string, id: string, srcPath: string, opts?: { force?: boolean }): { id: string; file: string } {
+    return addFile(this, collection, id, srcPath, opts)
   }
 
   set(collection: string, id: string, changes: Fields): { id: string; file: string } {
-    const d = this.writableDescriptor(collection)
-    // first: on a file record every field is read from the file, so the answer is the replacement
-    if (storageOf(d).format === "binary") {
-      throw new Error(
-        `${collection}/${id} is a file record — its fields are derived from the file, so there is nothing to set. Replace it with \`dreamteamer add ${collection} ${id} --from <path> --force\`.`
-      )
-    }
-    this.refuseMirrorWrites(collection, id, Object.keys(changes))
-    this.refuseEngineWrites(d, Object.keys(changes))
-    this.assertUnambiguous(collection, id)
-    const { fields, file } = this.read(collection, id)
-    const nestedUnder = placementOf(d)
-    if (
-      isNested(nestedUnder) &&
-      Object.hasOwn(changes, nestedUnder.parent) &&
-      changes[nestedUnder.parent] !== fields[nestedUnder.parent]
-    ) {
-      throw new Error(
-        `${collection}/${id}: ids of ${collection} begin with their ${nestedUnder.parent}'s id, so changing ${nestedUnder.parent} changes the id — rename it instead: dreamteamer rename ${collection}/${id} <new parent id>/${localOfNestedId(id)}. nothing was written.`
-      )
-    }
-    const previous = fs.readFileSync(file, "utf8")
-    const next = { ...fields, ...changes }
-    for (const [k, v] of Object.entries(changes)) if (v === null || v === "") delete next[k]
-    this.validate(d, next)
-    this.refuseDuplicateValues(d, collection, id, next, Object.keys(changes))
-    // A placed record FOLLOWS ITS OWNER FIELD: changing it moves the file to the new parent's folder
-    // (or back to the fallback root) in this same write, id unchanged. Only a change to THAT field
-    // moves anything — a record found in the wrong folder stays there when some other field is
-    // edited, and `check` keeps reporting the mismatch until `relocate` is asked. Moving it as a
-    // side effect of an unrelated edit would make a rename of a meeting relocate a file nobody
-    // mentioned, in a commit whose subject says otherwise.
-    this._assertContained(d, file) // the existing file, not only a new destination (R2b)
-    const target = this.ownerChanged(d, fields, next) ? this.filePath(d, id, undefined, next) : file
-    if (target !== file) this._assertContained(d, target)
-    if (target !== file && fs.existsSync(target))
-      throw new Error(`${collection}/${id}: ${path.relative(this.root, target)} already exists — nothing was written.`)
-    return this.withWriteLock(() => {
-      this._idsCache.delete(collection)
-      // ONE rollback boundary for the bytes, the move and the mirrors (R1): the field write used to
-      // sit before the move and outside any try, so a rename refused by the filesystem left a file
-      // in the OLD folder saying it belonged to the NEW owner — a record `check` reports and a
-      // verb that threw. Whatever fails, `undo` puts the original bytes back where they were.
-      let unmove: Undo | null = null
-      const undo = () => {
-        unmove?.()
-        atomicWrite(file, previous)
-      }
-      try {
-        atomicWrite(file, serialize(d, next, previous))
-        if (target !== file) unmove = this._moveRecord(d, file, target)
-      } catch (e) {
-        undo()
-        throw e
-      }
-      // `fields` is the record as it was ON DISK and `next` as it will be, which is exactly the
-      // before/after pair a mirror edit is: an FK that moved detaches from the old target and
-      // attaches to the new one, in this same write. Same ordering as `add` — see the note there.
-      let mirrors
-      try {
-        mirrors = this.applyMirrorEdits(d, id, fields, next, file)
-      } catch (e) {
-        undo()
-        throw e
-      }
-      // both paths of a move, so a commit stages the deletion and the addition together
-      this.commit(
-        [target, ...(unmove ? [file] : []), ...mirrors.files],
-        `dreamteamer: ${collection} set ${id}`,
-        () => {
-          mirrors.undo()
-          undo()
-        },
-        this.repoOfFile(d, file)
-      )
-      return { id, file: target }
-    })
+    return set(this, collection, id, changes)
   }
 
   /** Where a placed record's file was at `hash`, workspace-relative — or null when the commit holds no
@@ -1449,38 +600,14 @@ export class Store {
    *  One `git ls-tree` over the roots the collection can occupy, mapped back through the same
    *  path→record rule `commit` and `changes` use. */
   pathAt(d: Descriptor, id: string, hash: string): string | null {
-    if (!placementOf(d)) return null
-    const cwd = path.resolve(this.root, storageOf(d).repo)
-    const dirs = this.recordDirs(d).map(p => path.relative(cwd, p))
-    let out: string
-    try {
-      out = execFileSync("git", ["ls-tree", "-r", "--name-only", "--end-of-options", hash, "--", ...dirs], {
-        cwd,
-        stdio: QUIET,
-      }).toString()
-    } catch {
-      return null
-    }
-    const prefix = storageOf(d).repo === "." ? "" : `${storageOf(d).repo}/`
-    for (const p of out.split("\n").filter(Boolean)) {
-      const rec = pathToRecord(this.descriptors, prefix + p)
-      if (rec && rec.collection === d.name && rec.id === id) return p
-    }
-    return null
+    return pathAt(this, d, id, hash)
   }
 
   /** Refuse to WRITE to an id that two files claim. The index keeps the first claimant so reads
    *  still answer, but a write would land on one copy and leave the other saying something else —
    *  the exact ambiguity `check` reports, made worse under a verb that printed ✔. */
   assertUnambiguous(collection: string, id: string): void {
-    const d = this.descriptor(collection)
-    if (!placementOf(d) && !this.layered(d)) return
-    this.ids(collection) // ensures the duplicate memo is current
-    const dupes = this._duplicates.get(collection)?.get(id)
-    if (dupes)
-      throw new Error(
-        `${collection}/${id} is held by ${dupes.length} files — ${dupes.map(f => path.relative(this.root, f)).join(" and ")}. Remove one before writing to it (dreamteamer check names them). nothing was written.`
-      )
+    return assertUnambiguous(this, collection, id)
   }
 
   /** Did the owner field of a placed record change between two versions of it? Compared as PARSED
@@ -1515,187 +642,8 @@ export class Store {
    *  reference the scan finds. Still refused, still escapable with `--force`, which still reports how
    *  many references it left dangling.
    */
-  rm(collection: string, id: string, { force = false } = {}): { id: string; inboundIgnored: number } {
-    const d = this.writableDescriptor(collection)
-    this.assertUnambiguous(collection, id)
-    const self = `${collection}/${id}`
-    const unit = this.recordRoot(d, id) // folder-shape: the whole folder goes, not just the entry file
-    this._assertContained(d, unit)
-    // A PARENT with records placed inside its folder is refused OUTRIGHT — `--force` included. The
-    // folder delete below would erase every one of those records, each of them somebody's own
-    // record with its own references, under the subject of removing one thing. There is no honest
-    // force here: reassign them (or clear their owner) first, and the deletion is then an ordinary one.
-    const held = this.placedChildrenIn(d, unit)
-    if (held.length) {
-      const lines = held.map(
-        h =>
-          `  ${h.count} ${h.collection} record(s) under ${h.under.subfolder}/ — dreamteamer set ${h.collection}/<id> ${h.under.parent}=<another ${collection}> (or ${h.under.parent}= to clear)`
-      )
-      throw new Error(
-        `${self} holds records of other collections inside its folder:\n${lines.join("\n")}\nmove them first, then remove the ${collection}. nothing was removed.`
-      )
-    }
-    // the existence check, and the FKs whose mirrors are detached below. Qualified on a COPY for the
-    // same reason applyMirrorEdits qualifies `before`: a hand-edited or pre-namespace record can
-    // hold `standup` where the engine writes `meetings/standup`, and a raw string compare misses it.
-    const own = { ...this.read(collection, id).fields }
-    this.qualifyBareRefs(d, own)
-    const toArr = (v: unknown): unknown[] => (v == null ? [] : Array.isArray(v) ? v : [v])
-    // `bare` is whether this field's target set has exactly one member — the only case where
-    // qualifyBareRefs would have expanded an unqualified value, so the only case where an
-    // unqualified value on disk can be assumed to mean this collection.
-    const isSelf = (v: unknown, bare: boolean): boolean => {
-      if (typeof v !== "string") return false
-      const p = parseRef(v, this.namespaces)
-      return p ? `${p.collection}/${p.id}` === self : bare && `${collection}/${v}` === self
-    }
-
-    // ---- who points AT this record, and under what rule -------------------------------
-    const setNullEdits: { rel: Relation; oid: string; file: string; of: Fields; bare: boolean }[] = []
-    const restrictHits: { ref: string; field: string; file: string }[] = []
-    for (const rel of this.relations()) {
-      if (rel.target !== collection) continue
-      const targets = targetsOf(fieldsOf(this.descriptor(rel.owner))[rel.field])
-      const bare = Array.isArray(targets) && targets.length === 1
-      // An owner the store cannot REWRITE cannot be set to null — and the honest fallback is
-      // `restrict`, not silence: refusing is a sentence someone can act on, a skipped set-null is a
-      // dangling reference from a verb that reported success.
-      const clearable = rel.onDelete === "set-null" && this.canRewrite(rel.owner)
-      for (const { id: oid, file, fields: of } of this.readAll(rel.owner)) {
-        if (!toArr(of[rel.field]).some(v => isSelf(v, bare))) continue
-        if (clearable) setNullEdits.push({ rel, oid, file, of, bare })
-        else restrictHits.push({ ref: `${rel.owner}/${oid}`, field: rel.field, file: path.relative(this.root, file) })
-      }
-    }
-
-    // ---- what the text scan finds that is NOT the engine's own bookkeeping -------------
-    // The scan is per FILE, and one file can name this record TWICE — a mirror the engine wrote, and
-    // a wikilink somebody typed in the same record's body. So excluding a file WHOLESALE is wrong:
-    // it drops the prose reference along with the managed one, and `check` reads frontmatter and
-    // never prose, so the survivor dangles in silence. A file is excluded only when the edits below
-    // account for every occurrence in it.
-    //
-    // Paths come through `ids()` so a planned path is the exact file the mirror pass rewrites — a
-    // folder-shape record's ENTRY file, not its folder — which is also the shape findInboundRefs
-    // reports. A target the mirror pass would bail on (`format: binary`, runtime-based) never received
-    // a mirror, so nothing is planned there and a hit in it is real.
-    const planned = new Map<string, number>() // workspace-relative path -> occurrences of `self` this write removes
-    const plan = (file: string, n: number): void => {
-      const k = path.relative(this.root, file)
-      planned.set(k, (planned.get(k) ?? 0) + n)
-    }
-    const memoized = new Set([collection]) // every collection whose id index this write invalidates
-    for (const rel of this.relations()) {
-      if (rel.owner !== collection || !this.canRewrite(rel.target)) continue
-      memoized.add(rel.target)
-      for (const v of toArr(own[rel.field])) {
-        const p = typeof v === "string" ? parseRef(v, this.namespaces) : null
-        if (!p || p.collection !== rel.target) continue // malformed, or another union member
-        const f = this.mirrorFileFor(rel.target, p.id, this.repoOfFile(d, unit))
-        if (f) plan(f, 1) // the one mirror entry naming this record, which the detach removes
-      }
-    }
-    // LITERALLY, not semantically. The two numbers compared below are counted in different places —
-    // this one off parsed FIELDS, `occurrences` off the file's raw BYTES — so they have to be
-    // counted in the same UNIT, and the unit `occurrences` can see is "the fully-qualified string
-    // `self`, present in the text". A single-target FK is legally stored BARE (`meetings: [one]` in
-    // a hand-authored record: the store qualifies on write, but only through its own write path),
-    // and `isSelf` matches that by design — crediting it here would claim a removal that deletes no
-    // text, and the slack would swallow a real, separate wikilink in the same record: rm green, link
-    // dangling, `check` silent about it because it reads frontmatter and never prose. A bare value
-    // is invisible to the scan on both sides, which is the consistent answer: it contributes 0 here
-    // and 0 there, and a record holding ONLY a bare FK is never named by the scan at all.
-    for (const { rel, file, of } of setNullEdits) {
-      memoized.add(rel.owner)
-      plan(file, toArr(of[rel.field]).filter(v => v === self).length)
-    }
-    const occurrences = (f: string): number =>
-      (fs.readFileSync(path.join(this.root, f), "utf8").match(this.refRegex(self)) ?? []).length
-    const inbound = this.findInboundRefs(self).filter(f => !planned.has(f) || occurrences(f) > planned.get(f))
-    // A restrict hit the scan already named is ONE reference described twice — keep the scan's
-    // shape, which is what this sentence has always said. What the scan misses (a bare FK, or an
-    // owner file excluded because it also holds a mirror of ours) is named as record + field.
-    const extraRestrict = restrictHits.filter(h => !inbound.includes(h.file))
-    if ((inbound.length || extraRestrict.length) && !force) {
-      const all = [...inbound, ...extraRestrict.map(h => `${h.file} (${h.ref}.${h.field})`)]
-      throw new Error(
-        `${self} is referenced by:\n${all.map(f => `  ${f}`).join("\n")}\nfix the references or pass --force. nothing was removed.`
-      )
-    }
-
-    // snapshot BEFORE the delete, or there is nothing left to read
-    const restore = snapshot([unit])
-    // ⚠ THE MEMO, on the way in AND on every way back out. `ids()` keys its cache on HEAD plus the
-    // collection's TOP directory mtime, neither of which moves for a record inside an existing
-    // sub-directory — so an entry populated mid-write survives a rollback, and this Store then lists
-    // an id that is not on disk (or omits one that is) for the rest of the process.
-    const dropMemos = () => {
-      for (const c of memoized) this._idsCache.delete(c)
-    }
-    return this.withWriteLock(() => {
-      dropMemos()
-      // MIRRORS FIRST, then the owners, then the delete. The mirror pass reads its targets through
-      // `ids()`, and a self-referencing relation has to still see the record it is detaching from.
-      const mirrors = this.applyMirrorEdits(d, id, own, null, unit)
-      const nullFiles = []
-      const nullUndos: Undo[] = []
-      // ONE rollback for all three mutations, used by the catch below AND handed to `commit`.
-      // Order is reverse-chronological, because one file can be written twice (a mirror detach and
-      // then an FK clear) and undoing the earlier write first would leave the later one standing —
-      // except `restore`, which goes LAST because its snapshot of the removed record predates
-      // everything, and so wins over a self-referencing edit to that same file. A COPY before
-      // reversing, exactly as applyMirrorEdits does: `undo` may be called twice.
-      const rollback = () => {
-        for (const u of [...nullUndos].reverse()) u()
-        mirrors.undo()
-        restore()
-        dropMemos()
-      }
-      try {
-        for (const { rel, oid, file, bare } of setNullEdits) {
-          // re-read INSIDE the lock: the mirror pass above may have just rewritten this very file
-          // (two collections can point at each other), and `previous` has to be what is on disk
-          // NOW or the undo below would resurrect a mirror that was correctly detached.
-          const { fields: cur } = this.read(rel.owner, oid),
-            od = this.descriptor(rel.owner)
-          const previous = fs.readFileSync(file, "utf8")
-          if (Array.isArray(cur[rel.field])) {
-            cur[rel.field] = (cur[rel.field] as unknown[]).filter(v => !isSelf(v, bare))
-            // the last element takes the KEY with it — `[]` is derived state leaking into a source
-            if (!(cur[rel.field] as unknown[]).length) delete cur[rel.field]
-          } else {
-            delete cur[rel.field] // `field: null` is not a cleared reference, it is a type error
-          }
-          atomicWrite(file, serialize(od, cur))
-          this._idsCache.delete(rel.owner)
-          nullFiles.push(file)
-          nullUndos.push(() => atomicWrite(file, previous))
-        }
-        // ⚠ THE DELETE IS INSIDE THE TRY, and it has to be. It used to be rm's FIRST mutation, so a
-        // failing unlink left the tree untouched; it is now the LAST of three, and outside the
-        // rollback an EACCES here (a read-only mount, `chflags uchg`, a folder-shape record raced
-        // by another writer) left the record in place with a mirror already detached and an FK
-        // already cleared — two stale records behind a verb that threw.
-        fs.rmSync(unit, { recursive: true })
-        // a placed record takes its emptied folders with it — a company's `meetings/` does not
-        // outlive its last meeting; a conventional root's date folders are left as they always were
-        if (placementOf(d)) this._pruneAround(d, unit)
-      } catch (e) {
-        rollback()
-        throw e // …and now "nothing was removed" is true of everything, not just the record
-      }
-      // ONE commit, the record and every reference the engine moved with it: a commit where the
-      // target is gone but its owners still name it is a history that never held a consistent
-      // workspace.
-      this.commit(
-        [unit, ...mirrors.files, ...nullFiles],
-        `dreamteamer: ${collection} rm ${id}`,
-        rollback,
-        this.repoOfFile(d, unit)
-      )
-      const inboundCount = inbound.length + extraRestrict.length
-      return { id, inboundIgnored: force ? inboundCount : 0 }
-    })
+  rm(collection: string, id: string, opts?: { force?: boolean }): { id: string; inboundIgnored: number } {
+    return rm(this, collection, id, opts)
   }
 
   rename(
@@ -1703,106 +651,7 @@ export class Store {
     oldId: string,
     newId: string
   ): { id: string; rewrites: number; touched?: number; skipped?: number; ambiguous?: number } {
-    const d = this.writableDescriptor(collection)
-    this.assertUnambiguous(collection, oldId)
-    this.read(collection, oldId) // existence check
-    if (oldId === newId) return { id: newId, rewrites: 0 }
-    if (idsOf(d).pattern && !patternRe(idsOf(d).pattern).test(newId)) {
-      throw new Error(`id "${newId}" does not match pattern ${idsOf(d).pattern} — nothing was renamed.`)
-    }
-    const oldUnit = this.recordRoot(d, oldId) // folder-shape: move the WHOLE folder
-    this._assertContained(d, oldUnit)
-    // A rename rewrites every inbound reference — in THIS workspace. The layer's own workspace holds
-    // references this one cannot see, and a unit moved out of the layer would land in our root
-    // across two repos. Both are the layer's business.
-    const inLayer = this.layerOfFile(d, oldUnit)
-    if (inLayer)
-      throw new Error(
-        `${collection}/${oldId} is held by layer ${inLayer.layer} (${inLayer.path}) — a layer's record is renamed in its own workspace, never from here. nothing was renamed.`
-      )
-    // a placed record keeps the folder it is in: a rename changes the id, never the owner — except a
-    // NESTED one, whose id begins with its parent's: renaming it to another parent moves it there
-    const under = placementOf(d)
-    const nested = isNested(under)
-    const newParent = nested ? parentOfNestedId(newId) : null
-    const parentChanged = nested && newParent !== parentOfNestedId(oldId)
-    if (nested && !newId.includes("/"))
-      throw new Error(
-        `${collection}/${newId}: ids of ${collection} begin with their ${under.parent}'s id — nothing was renamed.`
-      )
-    if (parentChanged && !this.ids(under.collection).has(newParent))
-      throw new Error(
-        `${collection}/${newId}: there is no ${under.collection}/${newParent} to move it under — nothing was renamed.`
-      )
-    // ⚠ The destination is DERIVED, never looked up: recordRoot answers for a record that EXISTS —
-    // from the index for a layered collection and for an opaque one — so asking it for the new id
-    // threw "no such record" on every rename of a workspace-own record once any layer contributed
-    // to the collection (clone on disk or not), and on every rename of a `format: binary` record.
-    // The record is in the write root (a layer's was refused above), so its new unit is the write
-    // root's: the folder for a folder shape, the file otherwise — keeping the extension an opaque
-    // record carries, which only its current file name knows.
-    const newUnit = nested
-      ? path.join(
-          placedRoot(under, this.dir(d), this.parentDir(d), newParent),
-          recordFileName(d, localOfNestedId(newId))
-        )
-      : placementOf(d)
-        ? path.join(this.rootOfFile(d, oldUnit), recordFileName(d, newId))
-        : storageOf(d).shape === "folder"
-          ? path.join(this.dir(d), newId)
-          : storageOf(d).format === "binary"
-            ? path.join(this.dir(d), `${newId}.${storageOf(d).suffix}${path.extname(oldUnit)}`)
-            : path.join(this.dir(d), recordFileName(d, newId))
-    this._assertContained(d, newUnit)
-    if (fs.existsSync(newUnit) || (placementOf(d) && this.ids(collection).has(newId)))
-      throw new Error(`${collection}/${newId} already exists — nothing was renamed.`)
-    return this.withWriteLock(() => {
-      this._idsCache.delete(collection)
-      // a folder-shape PARENT carries the records placed inside it along — their files move,
-      // their ids do not, and their id memos are stale the moment the folder is
-      this._dropPlacedUnder(collection)
-      fs.mkdirSync(path.dirname(newUnit), { recursive: true })
-      const oldBytes = parentChanged ? fs.readFileSync(oldUnit, "utf8") : null
-      fs.renameSync(oldUnit, newUnit)
-      // the owner field follows the id's new first segment, in the same write
-      if (parentChanged) {
-        const f = parseRecordText(oldBytes, d, bodyField(d))
-        f[under.parent] = `${under.collection}/${newParent}`
-        atomicWrite(newUnit, serialize(d, f, oldBytes))
-      }
-      pruneEmptyDirs(path.dirname(oldUnit), this.rootOfFile(d, oldUnit)) // cross-partition renames leave empty date dirs
-      // rewrite inbound references (frontmatter/structured always; prose only via wikilinks). It
-      // snapshots what it writes as it writes it — see rewriteRefs for why the caller cannot.
-      const { touched, rewrites, skipped, ambiguous, restore } = this.rewriteRefs(
-        `${collection}/${oldId}`,
-        `${collection}/${newId}`
-      )
-      this.commit(
-        [oldUnit, newUnit, ...touched],
-        `dreamteamer: ${collection} rename ${oldId} → ${newId}`,
-        () => {
-          fs.mkdirSync(path.dirname(oldUnit), { recursive: true })
-          fs.renameSync(newUnit, oldUnit)
-          if (oldBytes !== null) atomicWrite(oldUnit, oldBytes)
-          pruneEmptyDirs(path.dirname(newUnit), this.rootOfFile(d, newUnit))
-          this._dropPlacedUnder(collection)
-          restore()
-        },
-        storageOf(d).repo
-      )
-      // each entry names the PAIR it came from, because a batch has more than one — see rewriteRefsBatch
-      for (const s of skipped) {
-        console.warn(
-          `⚠ ${path.relative(this.root, s.file)}: ${s.count} raw-prose occurrence(s) of ${s.oldRef} left untouched — only [[wikilinks]] are maintained in bodies (decision 7)`
-        )
-      }
-      for (const a of ambiguous) {
-        console.warn(
-          `⚠ ${path.relative(this.root, a.file)}: ${a.count} bare [[${a.base}]] wikilink(s) left untouched — ${a.claimants.join(", ")} also ends in "${a.base}", so nothing here can tell which record the link means. Rewrite by hand, or spell it [[${a.newRef}]].`
-        )
-      }
-      return { id: newId, rewrites, touched: touched.length, skipped: skipped.length, ambiguous: ambiguous.length }
-    })
+    return rename(this, collection, oldId, newId)
   }
 
   // exact-ref matching with a boundary so contacts/jane never matches contacts/jane-doe
@@ -1832,25 +681,8 @@ export class Store {
   // `data/rnd/rnd/draft-docs/x` into module-source comments during a real migration. Dedupe HERE
   // rather than making each caller idempotent — `findInboundRefs` is a caller too, and its counts
   // were quietly doubled by the same walk.
-  *recordFiles() {
-    const seen = new Set()
-    for (const d of this.descriptors.values()) {
-      if (storageOf(d).unavailable) continue // an env-pointed root this machine cannot render: nothing to walk
-      // for runtime-based collections, inbound-ref surgery targets SOURCES, not the runtime
-      // a layer's records name records of this workspace too, so a removal or a rename must see them
-      const dirs = storageOf(d).runtime
-        ? this.sourceRoots().map(r => path.join(r, storageOf(d).path))
-        : this.rootsOf(d).map(r => r.abs)
-      for (const dir of dirs) {
-        if (!fs.existsSync(dir)) continue
-        for (const f of walk(dir)) {
-          const key = path.resolve(f)
-          if (seen.has(key)) continue
-          seen.add(key)
-          yield f
-        }
-      }
-    }
+  recordFiles() {
+    return recordFiles(this)
   }
 
   // every compiled module (review finding 10: this layer never learned decision 24 — rename
@@ -1861,14 +693,7 @@ export class Store {
   }
 
   findInboundRefs(ref: string): string[] {
-    const re = this.refRegex(ref)
-    const hits = []
-    for (const f of this.recordFiles()) {
-      const text = fs.readFileSync(f, "utf8")
-      re.lastIndex = 0
-      if (re.test(text)) hits.push(path.relative(this.root, f))
-    }
-    return hits
+    return findInboundRefs(this, ref)
   }
 
   /**
@@ -1926,90 +751,7 @@ export class Store {
    * the `base` and its `claimants`), because in a batch there is no single one to imply.
    */
   rewriteRefsBatch(pairs: [oldRef: string, newRef: string][]): RewriteResult {
-    const plans = pairs.map(([oldRef, newRef]) => {
-      const oldBase = oldRef.split("/").pop()
-      const newBase = newRef.split("/").pop()
-      const bareRe = oldBase === newBase ? null : new RegExp(`\\[\\[${escapeRe(oldBase)}${ANCHOR_AND_LABEL}\\]\\]`, "g")
-      return {
-        oldRef,
-        newRef,
-        newBase,
-        base: oldBase,
-        bareRe,
-        refRe: this.refRegex(oldRef),
-        // ⚠ `newRef` MAY END IN `oldRef` — `ledger/beta` → `finance/ledger/beta` is the ordinary
-        // shape of `collections rename`. Every occurrence this pass has just rewritten then still
-        // matches the old needle at a legal boundary, so the raw-prose counter reported bytes that
-        // are already correct: a warning naming work nobody needs to do. The guard is the
-        // `endsWith`, and the second scan only runs for the pairs that fail it.
-        newRefRe: newRef !== oldRef && newRef.endsWith(`/${oldRef}`) ? this.refRegex(newRef) : null,
-        wikiRe: new RegExp(`\\[\\[${escapeRe(oldRef)}${ANCHOR_AND_LABEL}\\]\\]`, "g"),
-        // asked of the id index, not of a text scan — and only when a bare pass can happen at all
-        claimants: bareRe ? this.basenameOwners(oldBase) : [],
-      }
-    })
-    // a bare pass matches `[[base]]`, which does NOT contain the ref — so the basename is a needle too
-    const probe = commonPrefix(plans.flatMap(p => (p.bareRe ? [p.oldRef, p.base] : [p.oldRef])))
-
-    const touched: string[] = []
-    const skipped: RewriteResult["skipped"] = []
-    const ambiguous: RewriteResult["ambiguous"] = []
-    const undos: Undo[] = []
-    let rewrites = 0
-    // a COPY before reversing, as applyMirrorEdits does: `restore` may be called twice
-    const restore = () => {
-      for (const u of [...undos].reverse()) u()
-    }
-    try {
-      for (const f of this.recordFiles()) {
-        const text = fs.readFileSync(f, "utf8")
-        if (probe && !text.includes(probe)) continue
-        // prose scoping applies to EVERY .md — a frontmatter-less file is all body
-        // (docs-audit catch: it used to fall through to raw replacement)
-        const prose = f.endsWith(".md")
-        const fm = prose ? /^(---\r?\n[\s\S]*?\r?\n---\r?\n?)([\s\S]*)$/.exec(text) : null
-        let head = prose ? (fm ? fm[1] : "") : text
-        let body = prose ? (fm ? fm[2] : text) : ""
-        let count = 0
-        for (const p of plans) {
-          head = head.replace(p.refRe, () => (count++, p.newRef))
-          if (!prose) continue
-          // the qualified pass FIRST: it turns `[[people/ada]]` into `[[people/ada-l]]`, which the
-          // bare pattern cannot match either before or after, so the two never see each other's work
-          body = body.replace(p.wikiRe, (_, anchor, label) => (count++, `[[${p.newRef}${anchor ?? ""}${label ?? ""}]]`))
-          if (p.bareRe && !p.claimants.length)
-            body = body.replace(
-              p.bareRe,
-              (_, anchor, label) => (count++, `[[${p.newBase}${anchor ?? ""}${label ?? ""}]]`)
-            )
-          else if (p.bareRe) {
-            const n = (body.match(p.bareRe) ?? []).length
-            if (n)
-              ambiguous.push({
-                file: f,
-                count: n,
-                base: p.base,
-                claimants: p.claimants,
-                oldRef: p.oldRef,
-                newRef: p.newRef,
-              })
-          }
-          // counted on the body this pair leaves behind, so a later pair sees what an on-disk
-          // pass would have seen — raw prose is reported, never rewritten (decision 7)
-          const raw = countRawOccurrences(body, p)
-          if (raw) skipped.push({ file: f, count: raw, oldRef: p.oldRef, newRef: p.newRef })
-        }
-        if (count === 0) continue
-        rewrites += count
-        undos.push(() => atomicWrite(f, text))
-        atomicWrite(f, head + body)
-        touched.push(f)
-      }
-    } catch (e) {
-      restore() // "nothing was rewritten" stays true of a batch that died half way through it
-      throw e
-    }
-    return { touched, rewrites, skipped, ambiguous, restore }
+    return rewriteRefsBatch(this, pairs)
   }
 
   /** Where the cross-process write lock lives.
@@ -2024,18 +766,7 @@ export class Store {
    *  The runtime folder stays the fallback, because a workspace need not be a git repo at all and
    *  a store that cannot lock is worse than one that locks narrowly. */
   writeLockPath() {
-    if (this._lockPath) return this._lockPath
-    let dir = null
-    try {
-      const common = execFileSync("git", ["rev-parse", "--git-common-dir"], { cwd: this.root, stdio: QUIET })
-        .toString()
-        .trim()
-      if (common) dir = path.resolve(this.root, common)
-    } catch {
-      /* not a git repo — fall back to the runtime folder */
-    }
-    this._lockPath = path.join(dir ?? this.runtime, ".dreamteamer-write-lock")
-    return this._lockPath
+    return writeLockPath(this)
   }
 
   // ---- write serialization + rollback (review finding 3; reinstates the v2 commit
@@ -2044,216 +775,18 @@ export class Store {
   // failure UNDOES the write, so "one mutation = one commit" fails CLOSED and
   // "nothing was written" stays true.
   withWriteLock<T>(fn: () => T): T {
-    const lock = this.writeLockPath()
-    fs.mkdirSync(path.dirname(lock), { recursive: true })
-    const deadline = Date.now() + 5000
-    for (;;) {
-      try {
-        fs.mkdirSync(lock)
-        break
-      } catch (e) {
-        if (e.code !== "EEXIST") throw e
-        try {
-          if (Date.now() - fs.statSync(lock).mtimeMs > 30_000) {
-            fs.rmdirSync(lock)
-            continue
-          }
-        } catch {
-          /* raced the holder */
-        }
-        if (Date.now() > deadline)
-          throw new Error(
-            "another dreamteamer process holds the write lock (.dreamteamer/.write-lock) — retry, or remove it if nothing is running.",
-            { cause: e }
-          )
-        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50) // sync sleep, no busy spin
-      }
-    }
-    try {
-      return fn()
-    } finally {
-      try {
-        fs.rmdirSync(lock)
-      } catch {
-        /* already gone */
-      }
-    }
+    return withWriteLock(this, fn)
   }
 
   /** Persist, or don't — `auto-commit` decides. The files are already on disk in both cases;
    *  this only chooses whether they are published now or by a later `dt commit`.
    *  `repo` is the workspace-relative root of the git repo that owns them ('.' = workspace). */
-  commit(files: string[], subject: string, undo: Undo | null, repo = "."): void {
-    if (!this.autoCommit) return
-    // A file under an env-pointed root outside the workspace is outside every repo here BY DESIGN
-    // — never handed to git, which would refuse it and roll the write back.
-    const outside = (this._outside ??= [...this.descriptors.values()]
-      .filter(d => storageOf(d).external)
-      .map(d => path.resolve(this.root, storageOf(d).path) + path.sep))
-    files = files.filter(f => !outside.some(o => path.resolve(f).startsWith(o)))
-    if (!files.length) return
-    // ONE COMMIT PER REPO. The record's own repo is `repo`; a file a rename rewrote in a record
-    // layer belongs to that layer's clone, so the files are grouped by the longest known repo that
-    // holds each. A failure in a later group leaves an earlier group's commit standing — the same
-    // per-repo truth `dt commit` prints, stated here rather than pretended away.
-    // ⚠ A file under NO known clone is the workspace's — never the caller's repo. The fallback used
-    // to be `repo`, so renaming a module-owned record that a workspace record named sent the
-    // workspace's rewritten `data/tasks/…` to `git add` inside the module clone as `../../data/…`,
-    // which git refuses, and the rename rolled back every time auto-commit was on.
-    const repos = (this._repos ??= [
-      ...new Set([...this.descriptors.values()].flatMap(d => storageOf(d).roots.map(r => r.repo))),
-    ]
-      .filter(r => r !== ".")
-      .sort((a, b) => b.length - a.length))
-    const repoOf = (f: string): string => {
-      const rel = path.relative(this.root, f).split(path.sep).join("/")
-      return [...repos, repo].find(r => r !== "." && rel.startsWith(`${r}/`)) ?? "."
-    }
-    const groups = new Map<string, string[]>()
-    for (const f of files) {
-      const r = repoOf(f)
-      if (!groups.has(r)) groups.set(r, [])
-      groups.get(r).push(f)
-    }
-    for (const [r, group] of groups) this._commitIn(path.resolve(this.root, r), group, subject, undo)
+  commit(files: string[], subject: string, undo: Undo | null, repo?: string): void {
+    return commit(this, files, subject, undo, repo)
   }
 
   _commitIn(cwd: string, files: string[], subject: string, undo: Undo | null): void {
-    const rel = files.map(f => path.relative(cwd, f))
-    try {
-      // QUIET, per the rule at the top of this file: a failure we CATCH must not also print git's
-      // own error. These three were the exception — a caught `git add` failure dumped git's raw
-      // multi-line advice ("Another git process seems to be running…") on top of the clean message
-      // this function throws, so the user read the scary one and not the accurate one.
-      execFileSync("git", ["add", "--all", "--", ...rel], { cwd, stdio: QUIET })
-      execFileSync("git", ["commit", "--quiet", "-m", subject, "--", ...rel], { cwd, stdio: QUIET })
-    } catch (e) {
-      try {
-        execFileSync("git", ["reset", "--quiet", "--", ...rel], { cwd, stdio: QUIET })
-      } catch {
-        /* nothing staged */
-      }
-      if (undo) {
-        try {
-          undo()
-        } catch (u) {
-          throw new Error(
-            `git commit failed AND rollback failed (${u.message}) — inspect the working tree. original: ${e.message.split("\n")[0]}`,
-            { cause: u }
-          )
-        }
-      }
-      throw new Error(
-        `git commit failed — the write was rolled back, nothing was changed. (${e.message.split("\n")[0]})`,
-        { cause: e }
-      )
-    } finally {
-      // ⚠ WHETHER IT LANDED OR NOT. The failure path resets the index and undoes the write, but a
-      // commit that threw may still have created one — and a HEAD memo naming the previous sha
-      // would keep serving id maps from before it. See gitHead.
-      this.headMoved()
-    }
-  }
-}
-
-/** A literal, for a pattern built out of an id or a ref. */
-const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-
-/** What may sit between a wikilink's TARGET and its closing `]]`: an optional `#anchor`, then an
- *  optional `|label`. Two capture groups, in that order, both handed back verbatim by the rewrite.
- *
- *  ⚠ THE ANCHOR IS PART OF THE LINK, NOT OF THE TARGET. Both passes used to stop at the `]]` or the
- *  `|`, so `[[id#heading]]` survived a rename of `id` untouched — the bare form silently, the
- *  qualified form counted only as raw prose. Only the record moved; the heading inside it did not,
- *  so the anchor rides through byte for byte, whatever is in it (a heading slug is not an id — it
- *  holds spaces, case and punctuation). `[^\]|]` on the anchor is what keeps the two groups from
- *  swallowing each other. */
-const ANCHOR_AND_LABEL = "(#[^\\]|]*)?(\\|[^\\]]*)?"
-
-/** Raw occurrences of a pair's OLD ref in a body — what `rewriteRefsBatch` reports as skipped prose.
- *  An occurrence lying INSIDE one of `newRef` is not prose that was skipped, it is the rewrite this
- *  pass just made: `finance/ledger/beta` ends in `ledger/beta` and the boundary allows it. Only the
- *  pairs whose new spelling ends in the old one (`p.newRefRe`) pay for the second scan. */
-function countRawOccurrences(body: string, p: { refRe: RegExp; newRefRe: RegExp | null }): number {
-  p.refRe.lastIndex = 0
-  if (!p.newRefRe) return (body.match(p.refRe) ?? []).length
-  const spans: [number, number][] = []
-  p.newRefRe.lastIndex = 0
-  for (let m; (m = p.newRefRe.exec(body)) !== null;) spans.push([m.index, m.index + m[0].length])
-  let n = 0
-  for (let m; (m = p.refRe.exec(body)) !== null;) {
-    const [start, end] = [m.index, m.index + m[0].length]
-    if (!spans.some(([s, e]) => start >= s && end <= e)) n++
-  }
-  return n
-}
-
-/** The longest prefix every needle shares, or '' if they share none. Used ONLY as a negative filter
- *  (see rewriteRefsBatch): anything containing a needle contains this, so anything without it
- *  contains no needle — and a hit means nothing at all. */
-function commonPrefix(needles: string[]): string {
-  let p = needles[0] ?? ""
-  for (const n of needles) {
-    let i = 0
-    while (i < p.length && p[i] === n[i]) i++
-    p = p.slice(0, i)
-    if (!p) break
-  }
-  return p
-}
-
-/** Is `a` yielded before `b` by `walk()`? It sorts each directory level and DESCENDS before it
- *  yields, so the order is a segment-wise compare of the relative paths and never a plain string
- *  one: `2026-01.entry.md` sorts before `2026/x.entry.md` as a string ('-' < '/') and after it in
- *  the walk, because readdir meets the directory `2026` first and empties it on the way past. */
-function beforeInWalk(a: string, b: string): boolean {
-  const A = a.split(path.sep)
-  const B = b.split(path.sep)
-  for (let i = 0; i < Math.min(A.length, B.length); i++) if (A[i] !== B[i]) return A[i] < B[i]
-  return A.length < B.length
-}
-
-/**
- * The remedy line for a refusal whose cause is a GENERATED MIRROR — `dreamteamer relations rebuild
- * <collection>`, the same repair `check`'s staleness message names, and for the same reason: a
- * mirror's value is derived state the engine wrote, not the caller's to edit.
- *
- * Without it, a legacy duplicate in a mirror array made an ORDINARY write to an unrelated field on
- * the same record fail with somebody else's bookkeeping and no way out:
- *
- *   dt set meetings/kickoff name="Kickoff 2"
- *   ✖ validation failed:
- *       field recordings: [...,...] must NOT have duplicate items (items ## 1 and 0 are identical)
- *     nothing was written.
- *
- * The generated mirror carries `uniqueItems`, so a duplicate in one is never a value this engine
- * produced — it arrived by hand, or from a workspace written before the keyword existed. Naming the
- * one command that repairs it is the difference between a wall and a step.
- */
-function mirrorRemedy(d: Descriptor, fieldNames: string[]): string {
-  const mirrors = [...new Set(fieldNames)].filter(f => f && fieldsOf(d)[f]?.mirror_of !== undefined)
-  if (!mirrors.length) return ""
-  return `\n  ${mirrors.join(", ")}: a GENERATED mirror — its value is derived from the owning side, not yours to set. Repair it with: dreamteamer relations rebuild ${d.name}`
-}
-
-/** `<id>.<suffix>.<ext>` — the filename of a text record, wherever its root is. */
-function recordFileName(d: Descriptor, id: string): string {
-  return `${id}.${storageOf(d).suffix}${EXT[storageOf(d).format]}`
-}
-
-// remove now-empty parent dirs up to (not including) the collection root
-// ⚠ NEVER THROWS. An empty directory left behind is cosmetic; a rename that already happened being
-// reported as a failure because its leftover folder would not go is a duplicate record (R1b). The
-// loop stops at the first directory it cannot remove — a permission, a concurrent write — and says
-// nothing, because there is nothing a caller could do about it that would be better.
-function pruneEmptyDirs(dir: string, stopAt: string): void {
-  try {
-    while (dir !== stopAt && dir.startsWith(stopAt) && fs.existsSync(dir) && fs.readdirSync(dir).length === 0) {
-      fs.rmdirSync(dir)
-      dir = path.dirname(dir)
-    }
-  } catch {
-    /* left in place */
+    return commitIn(this, cwd, files, subject, undo)
   }
 }
 
@@ -2263,69 +796,4 @@ function readPkg(root: string): unknown {
   } catch {
     return {}
   }
-}
-
-/** Byte snapshot of a set of files OR DIRECTORIES, and a restore closure. The undo mechanism
- *  schema-ops has used for source writes since it was written (schema-ops.js:20). Record writes used
- *  `git checkout HEAD -- <paths>` instead, which is only correct while HEAD is guaranteed to be
- *  the last good state — it is not, once writes stop committing, and it silently discarded
- *  uncommitted hand-edits even before that.
- *
- *  A DIRECTORY unit is snapshotted recursively. It used to be skipped with a comment arguing the case
- *  could not occur — the only folder-shape collection was `skills`, which is system-stored, so
- *  `writableDescriptor` refused before `rm` was reached. That reasoning was true and is the wrong kind
- *  of true: it depended on a fact about the CURRENT set of collections rather than on anything the code
- *  enforces, and `shape: folder` is an ordinary descriptor option any workspace can choose. The failure
- *  it left behind was silent and total — `rm` would delete the folder and the "restore" closure would
- *  do nothing, so a failed commit meant the record was simply gone. Twelve lines, no such hole. */
-function snapshot(units: string[]): Undo {
-  const snaps = units.map(u => {
-    const existed = fs.existsSync(u)
-    const isDir = existed && fs.statSync(u).isDirectory()
-    return {
-      u,
-      existed,
-      isDir,
-      prev: existed && !isDir ? fs.readFileSync(u) : null,
-      tree: isDir ? snapshotTree(u) : null,
-    }
-  })
-  return () => {
-    for (const { u, prev, tree, existed, isDir } of snaps) {
-      if (!existed) {
-        fs.rmSync(u, { force: true, recursive: true })
-        continue
-      }
-      if (isDir) {
-        fs.rmSync(u, { force: true, recursive: true }) // partial state from a failed op
-        fs.mkdirSync(u, { recursive: true })
-        for (const [rel, bytes] of tree) {
-          const dest = path.join(u, rel)
-          fs.mkdirSync(path.dirname(dest), { recursive: true })
-          fs.writeFileSync(dest, bytes)
-        }
-        continue
-      }
-      if (prev !== null) {
-        fs.mkdirSync(path.dirname(u), { recursive: true })
-        fs.writeFileSync(u, prev)
-      }
-    }
-  }
-}
-
-/** Every file under `dir` as [relative path, bytes] — the whole of a folder-shape record. */
-function snapshotTree(dir: string): [rel: string, bytes: Buffer][] {
-  const out: [string, Buffer][] = []
-  for (const file of walk(dir)) out.push([path.relative(dir, file), fs.readFileSync(file)])
-  return out
-}
-
-function nowStamp() {
-  const t = new Date()
-  const p = (n: number): string => String(n).padStart(2, "0")
-  return normalizeTemporal(
-    `${t.getFullYear()}-${p(t.getMonth() + 1)}-${p(t.getDate())}T${p(t.getHours())}:${p(t.getMinutes())}:${p(t.getSeconds())}`,
-    "date-time"
-  )
 }

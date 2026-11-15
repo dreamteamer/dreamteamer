@@ -8,6 +8,7 @@ import { buildModulesIndex } from "./buildModulesIndex.ts"
 import { flat } from "./harnessMarkers.ts"
 import { BEGIN, END, INSTRUCTIONS_BEGIN, INSTRUCTIONS_END, KNOWN_HARNESSES } from "../consts.ts"
 import { renderContributions } from "./renderContributions.ts"
+import { escapeRe } from "../../lib/escapeRe.ts"
 import type { CollectionRow, Contributions, EntryDoc, ModuleRow } from "./types.ts"
 
 type SkillRow = { id: string; desc: string }
@@ -595,10 +596,6 @@ function transformAgent(bytes: Buffer): Buffer {
     ? `ALWAYS load these skills (Skill tool) before acting: ${skills.map(s => String(s).replace(/^skills\//, "")).join(", ")}.\n\n`
     : ""
   return Buffer.from(`---\n${dump(doc)}---\n\n${skillLine}${body.trimStart()}`)
-}
-
-function escapeRe(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 }
 
 // depth-first removal of empty directories; returns true when `dir` itself was removed.
