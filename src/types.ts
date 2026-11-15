@@ -391,10 +391,13 @@ export interface DoctorRow {
 export interface ExtensionContext {
   root: string
   ws: Workspace
-  dt: typeof import("./api.ts")
+  dt: Api
 }
 
-export type Activate = (dt: typeof import("./api.ts")) => Contribution | Promise<Contribution>
+/** The engine's public API — what `dreamteamer` exports, and what an extension's `activate` is handed. */
+export type Api = typeof import("./api.ts")
+
+export type Activate = (dt: Api) => Contribution | Promise<Contribution>
 
 export interface LoadedExtension {
   name: string
@@ -473,7 +476,7 @@ export interface SetupPlan {
 export interface SetupContext {
   root: string
   ws: Workspace
-  dt: typeof import("./api.ts") | null
+  dt: Api | null
   env: Record<string, string>
   tty: boolean
   receiptDir: string

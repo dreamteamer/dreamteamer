@@ -1,6 +1,6 @@
 import { pathToFileURL } from "node:url"
 import path from "node:path"
-import type { Contribution, LoadedExtension, Workspace } from "../types.ts"
+import type { Api, Contribution, LoadedExtension, Workspace } from "../types.ts"
 import { declaredExtensions } from "./declaredExtensions.ts"
 import { EXTENSION_API } from "./consts.ts"
 import { v1ManifestRefusal } from "../compile/v1ManifestRefusal.ts"
@@ -26,7 +26,7 @@ const CONTRIBUTION_KEYS = new Set([
  */
 export async function loadExtensions(
   ws: Workspace,
-  api: typeof import("../api.ts"),
+  api: Api,
   reserved: { verbs?: string[]; kinds?: string[]; harnesses?: string[] } = {}
 ): Promise<LoadedExtension[]> {
   const v1 = v1ManifestRefusal(ws.pkg?.dreamteamer, "package.json")
