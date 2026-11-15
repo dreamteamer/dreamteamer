@@ -39,7 +39,7 @@ function* files() {
       if (e.name.startsWith(".") || e.name === "node_modules") continue
       const p = path.join(dir, e.name)
       if (e.isDirectory()) walk(p)
-      else if (/\.(js|mjs|md|yaml|json)$/.test(e.name)) out.push(p)
+      else if (/\.(ts|js|mjs|md|yaml|json)$/.test(e.name)) out.push(p)
     }
   }
   const out = []
@@ -75,7 +75,7 @@ describe("the published repo carries no personal data", () => {
       const text = fs.readFileSync(file, "utf8")
       // THIS FILE is the one legitimate exception, and only because it derives the pattern rather
       // than spelling it: excluding it by name is cheaper than a self-referential match.
-      if (rel === "test/integration/repo-hygiene.test.js") continue
+      if (rel === "test/integration/repo-hygiene.test.ts") continue
       text.split("\n").forEach((line, i) => {
         if (pattern.test(line)) hits.push(`${rel}:${i + 1}: ${line.trim()}`)
       })

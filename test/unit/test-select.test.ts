@@ -5,7 +5,7 @@ import { test } from "node:test"
 import assert from "node:assert/strict"
 import { selectTests, SMOKE } from "../../scripts/test-select.ts"
 
-const I = name => `test/integration/${name}.test.js`
+const I = name => `test/integration/${name}.test.ts`
 const suite = new Map([
   [I("compile"), "import { dump } from '../../src/lib/yaml.ts';"],
   [I("records"), ""],
@@ -49,13 +49,13 @@ test("a docs-only change nothing names runs no tier-2 file", () => {
 })
 
 test("the shared fixture builder selects everything", () => {
-  const r = run(["test/helpers/ws.js"])
+  const r = run(["test/helpers/ws.ts"])
   assert.equal(r.all, true)
   assert.equal(r.files.length, suite.size)
 })
 
 test("last run's failures always come along, and tier-1 edits add nothing", () => {
-  assert.deepEqual(run(["test/unit/filter.test.js"], [I("records"), "test/integration/gone.test.js"]).files, [
+  assert.deepEqual(run(["test/unit/filter.test.ts"], [I("records"), "test/integration/gone.test.ts"]).files, [
     I("records"),
   ])
 })
