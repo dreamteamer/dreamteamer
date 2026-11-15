@@ -17,8 +17,8 @@ function scratch() {
     fs.copyFileSync(path.join(ENGINE_ROOT, "scripts", f), path.join(root, "scripts", f))
   fs.mkdirSync(path.join(root, "test", "unit"), { recursive: true })
   fs.mkdirSync(path.join(root, "test", "integration"), { recursive: true })
-  write(root, "test/unit/a.test.js", "import { test } from 'node:test'; test('a', () => {});\n")
-  write(root, "test/integration/b.test.js", "import { test } from 'node:test'; test('b', () => {});\n")
+  write(root, "test/unit/a.test.ts", "import { test } from 'node:test'; test('a', () => {});\n")
+  write(root, "test/integration/b.test.ts", "import { test } from 'node:test'; test('b', () => {});\n")
   fs.writeFileSync(path.join(root, ".gitignore"), "test/.tmp/\n")
   const lockDir = fs.mkdtempSync(path.join(os.tmpdir(), "dt-runner-lock-"))
   execFileSync("git", ["init", "-q"], { cwd: root })
@@ -51,7 +51,7 @@ describe("a full pass is remembered for the exact working tree", () => {
     assert.equal(second.status, 0)
     assert.match(second.stdout, /already passed on this exact working tree/)
 
-    write(s.root, "test/unit/a.test.js", "import { test } from 'node:test'; test('a, edited', () => {});\n")
+    write(s.root, "test/unit/a.test.ts", "import { test } from 'node:test'; test('a, edited', () => {});\n")
     const third = runner(s)
     assert.equal(third.status, 0)
     assert.doesNotMatch(third.stdout, /already passed/, "an untracked edit changes the key")
@@ -63,13 +63,13 @@ describe("a full pass is remembered for the exact working tree", () => {
     const s = scratch()
     write(
       s.root,
-      "test/integration/b.test.js",
+      "test/integration/b.test.ts",
       "import { test } from 'node:test'; test('b', () => { throw new Error('red'); });\n"
     )
     assert.equal(runner(s).status, 1)
     assert.equal(runner(s).status, 1, "still red: nothing remembered")
 
-    write(s.root, "test/integration/b.test.js", "import { test } from 'node:test'; test('b', () => {});\n")
+    write(s.root, "test/integration/b.test.ts", "import { test } from 'node:test'; test('b', () => {});\n")
     assert.equal(runner(s, "--only=b").status, 0)
     assert.doesNotMatch(runner(s).stdout, /already passed/, "the --only pass was not the gate")
   })
@@ -80,12 +80,12 @@ describe("--failed reruns exactly what failed last", () => {
     const s = scratch()
     write(
       s.root,
-      "test/integration/b.test.js",
+      "test/integration/b.test.ts",
       "import { test } from 'node:test'; test('b', () => { throw new Error('red'); });\n"
     )
     assert.equal(runner(s).status, 1)
     const failed = JSON.parse(fs.readFileSync(path.join(s.root, "test/.tmp/last-failed.json"), "utf8"))
-    assert.deepEqual(failed, ["test/integration/b.test.js"])
+    assert.deepEqual(failed, ["test/integration/b.test.ts"])
 
     assert.equal(runner(s, "--unit").status, 0)
     assert.deepEqual(
@@ -94,7 +94,7 @@ describe("--failed reruns exactly what failed last", () => {
       "a run that never touched the file keeps it on the list"
     )
 
-    write(s.root, "test/integration/b.test.js", "import { test } from 'node:test'; test('b', () => {});\n")
+    write(s.root, "test/integration/b.test.ts", "import { test } from 'node:test'; test('b', () => {});\n")
     const rerun = runner(s, "--failed")
     assert.equal(rerun.status, 0)
     assert.match(rerun.stdout, /1\/1 passed/, "only the failed file ran")

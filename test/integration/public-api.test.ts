@@ -200,8 +200,13 @@ describe("the INSTALLED package", () => {
     assert.ok(!/package\/src\//.test(listing), "src/ is published — the package must run from dist/")
     const built = fs.readFileSync(path.join(dir, "node_modules", "dreamteamer", "dist", "api.js"), "utf8")
     assert.ok(!/from ['"]\.\.?\/[\w./-]+\.ts['"]/.test(built), "dist/api.js still imports a .ts file")
-    for (const f of ["api.d.ts", "records-api.d.ts", "lib/types.d.ts", "lib/store.d.ts"]) {
-      const d = fs.readFileSync(path.join(dir, "node_modules", "dreamteamer", "dist", f), "utf8")
+    // EVERY declaration file, not a named few: a list of paths broke the day Store moved, and the rule
+    // holds for each file the package ships
+    const dist = path.join(dir, "node_modules", "dreamteamer", "dist")
+    const decls = fs.readdirSync(dist, { recursive: true, encoding: "utf8" }).filter(f => f.endsWith(".d.ts"))
+    assert.ok(decls.length > 50, `only ${decls.length} declaration files in dist/ — the build did not emit them`)
+    for (const f of decls) {
+      const d = fs.readFileSync(path.join(dist, f), "utf8")
       assert.ok(
         !/(?:from\s+|import\(\s*)['"]\.\.?\/[\w./-]+\.ts['"]/.test(d),
         `dist/${f} still names a .ts file — an older TypeScript cannot resolve it`

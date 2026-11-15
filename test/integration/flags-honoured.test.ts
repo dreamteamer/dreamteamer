@@ -241,7 +241,7 @@ describe("an unknown flag is refused on every verb that has a closed vocabulary"
 // rather than one that reads a flag it should not.
 test("every flag schema-ops reads off a field verb is in the allowlist", () => {
   // the schema ops read a field verb's flags in ONE place, fieldFromFlags — every other op takes a field
-  const src = fs.readFileSync(path.join(ENGINE_ROOT, "src", "collections", "fieldFromFlags.ts"), "utf8")
+  const src = fs.readFileSync(path.join(ENGINE_ROOT, "src", "lib", "fieldFromFlags.ts"), "utf8")
   const read = new Set([...src.matchAll(/flags(?:\.([a-zA-Z][\w-]*)|\[['"]([\w-]+)['"]\])/g)].map(m => m[1] ?? m[2]))
   const missing = [...read].filter(f => !FIELD_FLAGS.includes(f)).sort()
   assert.deepEqual(missing, [], `schema-ops reads flags the CLI would now refuse: ${missing.join(", ")}`)

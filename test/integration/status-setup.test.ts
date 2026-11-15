@@ -264,7 +264,19 @@ describe("status and doctor are read-only and offline", () => {
       run(ws.root, ["doctor", "--json"], env)
       assert.equal(treeHash(ws.root), before, JSON.stringify(env))
     }
-    for (const f of ["src/setup.ts", "src/doctor.ts"]) {
+    // every file of both commands — the entry and its folders — rather than two named files, which
+    // stopped existing when src/ was split by command
+    const files = [
+      "src/statusCommand.ts",
+      ...["setup", "doctor"].flatMap(d =>
+        fs
+          .readdirSync(path.join(ENGINE_ROOT, "src", d), { recursive: true, encoding: "utf8" })
+          .filter(f => f.endsWith(".ts"))
+          .map(f => path.join("src", d, f))
+      ),
+    ]
+    assert.ok(files.length > 10, `only ${files.length} status/doctor files found — the scan reads nothing`)
+    for (const f of files) {
       const text = fs.readFileSync(path.join(ENGINE_ROOT, f), "utf8")
       assert.doesNotMatch(text, /from ['"]node:(http|https|dns|net)['"]/, f)
     }
