@@ -7,7 +7,7 @@ import { serializeExports } from "../../src/exports/serializeExports.ts"
 import { outsideRefs } from "../../src/record/outsideRefs.ts"
 import { regenerate } from "../../src/record/regenerate.ts"
 import { isStale } from "../../src/check/isStale.ts"
-import { sees } from "../../src/record/exports.ts"
+import { sees } from "../../src/record/sees.ts"
 
 const ctx = ({ seen = [], complete = true } = {}) => ({
   rootsOf: () => seen.map(p => ({ package: p, present: true })),
