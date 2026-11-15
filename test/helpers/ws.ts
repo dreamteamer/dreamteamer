@@ -255,6 +255,22 @@ export function workspace(opts: WorkspaceOptions = {}): Fixture {
 }
 
 /**
+ * A fresh copy of a workspace a test file built ONCE — for a group whose tests each start from the
+ * same seeded state. Building that state costs `dt` launches (a few hundred ms each); copying it is a
+ * directory copy. Each copy is its own workspace: its own root, git history, Store and cleanup.
+ *
+ * ⚠ Only for a fixture that records no absolute path of its own (`git_modules/` layers included):
+ * a copy is byte-identical, so such a path would still point at the template.
+ */
+export function copyWorkspace(from: Fixture): Fixture {
+  const root = fs.mkdtempSync(path.join(TMP, "ws-"))
+  created.push(root)
+  fs.cpSync(from.root, root, { recursive: true, dereference: false, verbatimSymlinks: true })
+  const ws: Workspace = { root, pkg: structuredClone(from.ws.pkg) }
+  return { root, ws, store: new Store(ws), git: a => git(root, a), dt: (...a) => dt(root, ...a) }
+}
+
+/**
  * Write a collection descriptor into the workspace module, at the path a real `collections add`
  * would use: `collections/health/doctors.collection.yaml`, mirroring the runtime layout.
  */

@@ -10,7 +10,8 @@ import { test, describe } from "node:test"
 import assert from "node:assert/strict"
 import fs from "node:fs"
 import path from "node:path"
-import { workspace, simpleCollection, compileQuietly, dt, git, ENGINE_ROOT } from "../helpers/ws.ts"
+import { workspace, simpleCollection, compileQuietly, copyWorkspace, dt, git, ENGINE_ROOT } from "../helpers/ws.ts"
+import type { Fixture } from "../helpers/ws.ts"
 import { reportLine } from "../../src/changes/lib/reportLine.ts"
 import { groupChanges } from "../../src/changes/groupChanges.ts"
 
@@ -20,8 +21,19 @@ const issues = simpleCollection({ storage: { suffix: "issue" } })
 
 /** An HQ (contacts, meetings, issues) and one project workspace `project-a` (issues) cloned under its
  *  git_modules/ — read whole, as 0.41.0 reads a clone that names its workspace module. Seeded and
- *  committed: two contacts and a meeting in the HQ. */
+ *  committed: two contacts and a meeting in the HQ.
+ *
+ *  BUILT ONCE PER FILE, then copied per test: seeding is four `dt` launches and three compiles, the
+ *  same state every time, and it was the larger part of every test here. Each copy is a separate
+ *  workspace with its own git history, so no test sees another's writes. */
+let template: Fixture | undefined
 function hqWithLayer() {
+  template ??= buildHqWithLayer()
+  const hq = copyWorkspace(template)
+  return { hq, clone: path.join(hq.root, "git_modules", "project-a") }
+}
+
+function buildHqWithLayer(): Fixture {
   const hq = workspace({ collections: { contacts, meetings, issues } })
   const proj = workspace({ collections: { issues } })
   const clone = path.join(hq.root, "git_modules", "project-a")
@@ -45,7 +57,7 @@ function hqWithLayer() {
     assert.equal(dt(hq.root, "add", "contacts", "--name", name).code, 0)
   assert.equal(dt(hq.root, "add", "meetings", "--name", "Kickoff").code, 0)
   assert.equal(dt(hq.root, "commit", "-m", "seed").code, 0)
-  return { hq, clone }
+  return hq
 }
 
 /** The CR's walk: one contact added, two set, one meeting removed, one issue added INTO the layer. */
@@ -62,11 +74,13 @@ function fiveWrites(hq) {
   }
 }
 
-/** Wait for the wall clock to tick over a second: `--since <sha>` resolves the sha to its commit DATE
- *  and `--before` is inclusive at second precision, so a commit in the same second reads as the base. */
-function nextSecond() {
-  const start = Math.floor(Date.now() / 1000)
-  while (Math.floor(Date.now() / 1000) === start) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20)
+/** Make sure the next commit lands in a LATER second than `base`: `--since <sha>` resolves the sha to its
+ *  commit DATE and `--before` is inclusive at second precision, so a commit in the same second reads as
+ *  the base. Waits only when `base` was committed in the current second — with a copied template it
+ *  usually was not, and the wait was a fixed second per test. */
+function afterCommitSecond(root: string, base: string) {
+  const at = Number(git(root, ["show", "-s", "--format=%ct", base]))
+  while (Math.floor(Date.now() / 1000) <= at) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20)
 }
 
 const LINE = "records — contacts: 1 created, 2 updated · issues (project-a): 1 created · meetings: 1 deleted"
@@ -136,7 +150,7 @@ describe("dt changes — what this turn changed, across the workspace and its la
   test("--since <sha>: the commits since then are folded in, each record saying whether it is committed", () => {
     const { hq } = hqWithLayer()
     const base = git(hq.root, ["rev-parse", "HEAD"])
-    nextSecond()
+    afterCommitSecond(hq.root, base)
     fiveWrites(hq)
     assert.equal(dt(hq.root, "commit", "contacts/sam-diaz", "meetings/kickoff").code, 0)
     assert.deepEqual(
