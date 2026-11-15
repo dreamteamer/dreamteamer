@@ -22,6 +22,15 @@ its declarations generated from `src/types.ts` and the signatures) that is the O
 So only ERASABLE syntax (`erasableSyntaxOnly`): no `enum`, no `namespace`, no constructor parameter
 properties; type-only imports are `import type`. `npm run typecheck` is part of `verify`.
 
+**The tests are TypeScript too, checked PERMISSIVELY by their own `tsconfig.test.json`**
+(`npm run typecheck:test`, also part of `verify`). It is not in `tsconfig.json` — no `strict`, implicit
+`any` allowed, and ESLint relaxes its rules for `test/` the same way — because a test deliberately
+passes partial or invalid shapes. Say so with the helpers rather than a cast per call site:
+`desc()` / `descriptors()` (`test/helpers/partial.ts`) for a partial descriptor, `as any` on an input
+that is wrong ON PURPOSE, `as Partial<X> as X` for a stub carrying only part of a context.
+`test/types/consumer.ts` is the exception both ways: excluded from the test config and linted strict,
+because it is the public-API contract `npm run contract` compiles.
+
 **Lint and format are part of `verify`.** `npm run lint` is ESLint with the recommended rules of ESLint
 and typescript-eslint, no exceptions beyond the `_`-prefix and rest-sibling conventions — no `any`
 anywhere (a shape the engine does not constrain is `unknown`, a `Record<string, unknown>`, or a named
