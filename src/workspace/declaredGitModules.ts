@@ -4,7 +4,7 @@ import { readExports } from "../record/readExports.ts"
 import type { GitModuleEntry, PackageJson } from "../types.ts"
 
 /** One git module as `declaredGitModules` resolved it: who declared it (`null` is the workspace root). */
-type ResolvedGitModule = {
+interface ResolvedGitModule {
   url: string | undefined
   ref: string
   records: string[] | null | undefined

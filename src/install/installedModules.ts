@@ -4,7 +4,7 @@ import type { PackageJson, Workspace } from "../types.ts"
 import { discoverModules } from "../workspace/discoverModules.ts"
 
 /** One installed module, by package name. */
-type InstalledModule = {
+interface InstalledModule {
   name: string
   version: string | null
   linked: boolean

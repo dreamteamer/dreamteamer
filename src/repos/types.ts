@@ -20,4 +20,10 @@
  * catches per record so one such repo cannot take a whole listing down with it.
  */
 /** A `repos` record's fields: where it clones from, and where it goes (`path`, else `<repos_path>/[<identity>/]<name>`). */
-export type RepoFields = { url?: string; ref?: string; path?: string; name?: string; identity?: string }
+export interface RepoFields {
+  url?: string
+  ref?: string
+  path?: string
+  name?: string
+  identity?: string
+}

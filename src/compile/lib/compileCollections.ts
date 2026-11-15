@@ -23,7 +23,7 @@ import type { ModuleSource } from "../../workspace/types.ts"
 import type { SourceRef } from "../types.ts"
 import { v1Refusal } from "../v1Refusal.ts"
 
-type CollectionsContext = {
+interface CollectionsContext {
   groups: Map<string, DescriptorSource[]>
   mixins: Map<string, Partial<AuthoredDescriptor> & { src?: SourceRef }>
   namespaces: string[]

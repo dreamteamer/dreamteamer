@@ -15,7 +15,9 @@ import type { Relation } from "../record/types.ts"
 import type { Row } from "./types.ts"
 import type { Descriptors } from "../types.ts"
 
-type SampledRow = Row & { cwd: string }
+interface SampledRow extends Row {
+  cwd: string
+}
 
 type Side = "targets" | "owners"
 
@@ -23,9 +25,14 @@ type Side = "targets" | "owners"
 type Edges = Record<Side, Set<string>>
 
 /** A pending record's relation edges at HEAD (`was`) and on disk (`now`), and its HEAD text. */
-type State = { row: SampledRow | undefined; was: Edges; now: Edges; headText: string | null }
+interface State {
+  row: SampledRow | undefined
+  was: Edges
+  now: Edges
+  headText: string | null
+}
 
-type Targets = {
+interface Targets {
   scoped: boolean
   scope: string[]
   whole: Set<string>
@@ -473,10 +480,14 @@ function assertResolvable(store: Store, records: Targets["records"], matched: Se
   }
 }
 
-type CommitOpts = { only?: string[]; message?: string; dryRun?: boolean }
+interface CommitOpts {
+  only?: string[]
+  message?: string
+  dryRun?: boolean
+}
 
 /** One repo's part of a `dt commit`: committed (`sha`, null on a dry run), or `blocked` / `failed` / `pending`, or an env-pointed collection kept `outside` every repo. */
-type CommitResult = {
+interface CommitResult {
   repo: string
   rows: { verb: string; collection: string; id: string; repoRel: string; fromRel: string | null }[]
   subject?: string

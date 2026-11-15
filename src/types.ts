@@ -3,7 +3,7 @@ import type { Store } from "./store/Store.ts"
 export type Fields = Record<string, unknown>
 
 /** A field's `display` block — the closed key list compile enforces (`DISPLAY_KEYS` in src/fields.ts). */
-export type FieldDisplay = {
+export interface FieldDisplay {
   editable?: boolean | "create"
   hidden?: Array<"list" | "form" | "record">
   form_section?: string
@@ -18,7 +18,7 @@ export type FieldDisplay = {
 }
 
 /** One resolved field, in the descriptor's own vocabulary (see src/fields.js). */
-export type Field = {
+export interface Field {
   type: string | string[]
   title?: string
   description?: string
@@ -56,7 +56,7 @@ export type Field = {
 }
 
 /** The descriptor keys an author writes (descriptor format v2). */
-export type AuthoredDescriptor = {
+export interface AuthoredDescriptor {
   name: string
   title?: string
   singular?: string
@@ -88,7 +88,7 @@ export type AuthoredDescriptor = {
 }
 
 /** A descriptor's `display`: how every surface draws the collection (see PresentationCollection). */
-export type DisplayBlock = {
+export interface DisplayBlock {
   nav?: { icon?: string; order?: number; section?: string; label?: string; [k: string]: unknown }
   list?: { layout?: string; columns?: string[]; sort?: string; options?: Record<string, unknown>; [k: string]: unknown }
   record?: {
@@ -104,7 +104,7 @@ export type DisplayBlock = {
 }
 
 /** A compiled descriptor: the authored v2 keys plus what compile decided. Read it through the accessors. */
-export type Descriptor = AuthoredDescriptor & {
+export interface Descriptor extends AuthoredDescriptor {
   compiled: {
     /** the authored keys compile supplied where the author was silent — read through the accessors; per field, only the keys it supplied */
     defaults: { [K in keyof AuthoredDescriptor as K extends "fields" ? never : K]?: AuthoredDescriptor[K] } & {
@@ -127,7 +127,7 @@ export type Descriptor = AuthoredDescriptor & {
   }
 }
 
-export type Storage = {
+export interface Storage {
   path: string
   format: "md" | "yaml" | "json" | "binary"
   shape: "file" | "folder"
@@ -148,7 +148,7 @@ export type Storage = {
 
 export type Descriptors = Map<string, Descriptor>
 
-export type Manifest = {
+export interface Manifest {
   compiled: string
   host: string
   engine: string
@@ -255,7 +255,7 @@ export interface PresentationRelation {
 }
 
 /** One command bound to a collection, and where it applies — `commandsFor`'s rows. */
-export type CommandRow = {
+export interface CommandRow {
   binding: string
   command: string
   name: string
@@ -282,7 +282,7 @@ export type Flags = Record<string, string | boolean | string[]>
 
 /** The values actually present in one field of a collection (`distinctValues`, `dt values`). `count` is
  *  null for an enum's declared values; `skipped` names a field kind that has no value set. */
-export type DistinctValues = {
+export interface DistinctValues {
   collection: string
   field: string
   values: { value: string | number | boolean; count: number | null }[]
@@ -293,7 +293,7 @@ export type DistinctValues = {
 }
 
 /** One `dreamteamer.git_modules` entry: a clone the workspace declares (`records` makes it a record layer) */
-export type GitModuleEntry = {
+export interface GitModuleEntry {
   url?: string
   ref?: string
   records?: string[] | null
@@ -302,7 +302,7 @@ export type GitModuleEntry = {
 }
 
 /** The `dreamteamer` block of a workspace's or a module's package.json — the keys the engine reads (MANIFEST_KEYS) */
-export type DreamteamerBlock = {
+export interface DreamteamerBlock {
   title?: string
   description?: string
   workspace_module?: string
@@ -329,7 +329,7 @@ export type DreamteamerBlock = {
   [k: string]: unknown
 }
 
-export type PackageJson = {
+export interface PackageJson {
   name?: string
   version?: string
   description?: string
@@ -375,7 +375,11 @@ export interface Contribution {
 }
 
 /** `warning: true` — printed by `dt check`, never counted (an engine that has it sets CHECK_WARNINGS) */
-export type CheckItem = { file?: string; message: string; warning?: true }
+export interface CheckItem {
+  file?: string
+  message: string
+  warning?: true
+}
 
 export interface DoctorRow {
   label: string
@@ -416,7 +420,7 @@ export interface LoadedExtension {
 export type SetupInputKind = "string" | "path" | "rows" | "secret-path"
 
 /** One input a unit needs from the person, as `validateSetup` normalized it. */
-export type SetupInput = {
+export interface SetupInput {
   id: string
   kind: SetupInputKind
   env?: string
@@ -430,7 +434,7 @@ export type SetupInput = {
 export type SetupCheckStatus = "ready" | "configured" | "unverified" | "missing" | "blocked"
 
 /** One row of what a unit's `inspect` (or `plan`) found. `status` is untrusted until `fold` reads it. */
-export type SetupCheck = {
+export interface SetupCheck {
   id: string
   status: SetupCheckStatus | string
   title?: string
@@ -440,10 +444,13 @@ export type SetupCheck = {
   evidence?: { at?: string; [k: string]: unknown }
 }
 
-export type SetupEffect = { kind: string; detail?: string }
+export interface SetupEffect {
+  kind: string
+  detail?: string
+}
 
 /** One step a unit's `plan` names. `env` makes it the engine's own `.env` write; `state` is the driver's verdict on it. */
-export type SetupAction = {
+export interface SetupAction {
   id: string
   title?: string
   kind?: string
@@ -456,10 +463,14 @@ export type SetupAction = {
   env?: Record<string, unknown>
 }
 
-export type SetupPlan = { checks?: SetupCheck[]; actions?: SetupAction[]; needs?: string[] }
+export interface SetupPlan {
+  checks?: SetupCheck[]
+  actions?: SetupAction[]
+  needs?: string[]
+}
 
 /** What a unit's functions are handed. `dt` is null under the read-only verbs (`dt status`, `dt doctor`). */
-export type SetupContext = {
+export interface SetupContext {
   root: string
   ws: Workspace
   dt: typeof import("./api.ts") | null
@@ -471,7 +482,7 @@ export type SetupContext = {
 export type SetupInputs = Record<string, unknown>
 
 /** A setup unit, validated: `inspect` is synchronous and side-effect-free; `apply` performs a previewed action. */
-export type SetupUnit = {
+export interface SetupUnit {
   id: string
   version: number
   module: string
@@ -489,7 +500,10 @@ export type SetupUnit = {
     | Promise<{ ok: boolean; changed?: string[]; message?: string } | null | undefined>
 }
 
-export type Entry = { sources: { path: string; hash: string }[]; bytes: Buffer }
+export interface Entry {
+  sources: { path: string; hash: string }[]
+  bytes: Buffer
+}
 
 export interface CompileDraft {
   /** runtime-relative path → staged entry; read-only */

@@ -20,7 +20,7 @@ import { listRepos } from "../repos/listRepos.ts"
 // Same policy as the retired verbs below: a stale invocation fails loudly.
 /** What `dt install` needs from outside its own command, handed in by the CLI — the same opener and
  *  verifier `init` is given — so this folder imports no other command and no entry point. */
-export type InstallDeps = {
+export interface InstallDeps {
   /** opens a workspace with its extensions activated */
   open: (at: string) => Promise<Workspace>
   /** `dt check` on the installed workspace, with the extensions' own violations */

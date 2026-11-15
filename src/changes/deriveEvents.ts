@@ -6,7 +6,13 @@ import { pathToRecord } from "../record/pathToRecord.ts"
 import { storageOf } from "../record/storageOf.ts"
 import type { Descriptors } from "../types.ts"
 
-type RecordEvent = { type: EventType; collection: string; id: string; path: string; repo: string }
+interface RecordEvent {
+  type: EventType
+  collection: string
+  id: string
+  path: string
+  repo: string
+}
 
 /** Record events between two points, across EVERY repo that holds records. `from` is a sha or a
  *  date — a sha is meaningless in another repo, so it is resolved to its commit DATE and each

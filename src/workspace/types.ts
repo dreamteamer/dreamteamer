@@ -4,7 +4,7 @@ import type { AuthoredDescriptor } from "../types.ts"
 export type SourceDoc = Partial<AuthoredDescriptor>
 
 /** A `modules` record's fields (collections/modules.collection.yaml) — projected by compile from package.json. */
-export type ModuleFields = {
+export interface ModuleFields {
   name?: string
   title?: string
   description?: string
@@ -19,10 +19,13 @@ export type ModuleFields = {
   [k: string]: unknown
 }
 
-export type ModuleRecordRow = { id: string; fields: ModuleFields }
+export interface ModuleRecordRow {
+  id: string
+  fields: ModuleFields
+}
 
 /** What a source write's `after` hook adds to the gate: more files in the commit, and how to put them back. */
-export type AfterResult = {
+export interface AfterResult {
   files?: string[]
   undo?: () => void
   dropped?: string[]
@@ -31,9 +34,14 @@ export type AfterResult = {
 }
 
 /** A commit failure that already landed in some repos: those commits stand, and the error names them. */
-export type CommitError = Error & { commits?: RepoCommit[] }
+export interface CommitError extends Error {
+  commits?: RepoCommit[]
+}
 
-export type Snapshot = { f: string; prev: Buffer | null }
+export interface Snapshot {
+  f: string
+  prev: Buffer | null
+}
 
 /**
  * ONE COMMIT PER REPO, in the repo that actually holds each source.
@@ -61,13 +69,26 @@ export type Snapshot = { f: string; prev: Buffer | null }
  * `dt commit` to module sources is the follow-on this file has always named; it is not this wave.
  */
 /** One repo's commit of a schema write: its sha, and how far it now runs ahead of its upstream (a clone) */
-export type RepoCommit = { repo: string; sha: string; ahead: number | null }
+export interface RepoCommit {
+  repo: string
+  sha: string
+  ahead: number | null
+}
 
 /** A discovered module, as `discoverModules` reports it. */
-export type ModuleSource = { name: string; root: string; channel: string; layer?: string }
+export interface ModuleSource {
+  name: string
+  root: string
+  channel: string
+  layer?: string
+}
 
 /** What `renderTemplate` renders AGAINST, for one workspace: the names `dreamteamer.vars` declares,
  *  the values this machine's `.env` carries, and the root. One builder rather than three lines at
  *  each call site — `dt resolve` and `repos ensure` disagreeing about which vars are declared would
  *  be a path that renders in one verb and refuses in the other. */
-export type EnvContext = { env: Map<string, string>; workspaceFolder: string; declared: string[] }
+export interface EnvContext {
+  env: Map<string, string>
+  workspaceFolder: string
+  declared: string[]
+}

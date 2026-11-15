@@ -6,7 +6,14 @@ const ASSIGNMENT = /^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=("(?:[^"\\]|\\.)*"|'
  *  CRLF file keeps its `\r`), `raw` the text there, `value` what parseEnvValues reads, `quoted` the
  *  quote character or false. */
 /** One assignment's value token in `.env` text: its key, its span, the raw text, what the reader reads, its quote. */
-type EnvSpan = { key: string; start: number; end: number; raw: string; value: string; quoted: '"' | "'" | false }
+interface EnvSpan {
+  key: string
+  start: number
+  end: number
+  raw: string
+  value: string
+  quoted: '"' | "'" | false
+}
 
 export function envSpans(text: string): EnvSpan[] {
   const out: EnvSpan[] = []

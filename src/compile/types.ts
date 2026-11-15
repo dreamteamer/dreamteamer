@@ -1,10 +1,14 @@
 import type { AuthoredDescriptor, Descriptor, Field } from "../types.ts"
 
 /** One collection source as compile grouped it: the file, its parsed doc, and the module that ships it. */
-export type DescriptorSource = { src: SourceRef; doc: AuthoredDescriptor; moduleName: string }
+export interface DescriptorSource {
+  src: SourceRef
+  doc: AuthoredDescriptor
+  moduleName: string
+}
 
 /** A record layer as compile reads it: the clone, its data folder, and the collections it narrows to (null: all). */
-export type CompileLayer = {
+export interface CompileLayer {
   name: string
   root: string
   dataPath: string
@@ -14,7 +18,7 @@ export type CompileLayer = {
 }
 
 /** One collection compile resolved: the doc it writes, its resolved fields, its sources and storage facts. */
-export type CompiledCollection = {
+export interface CompiledCollection {
   doc: AuthoredDescriptor & { compiled?: Descriptor["compiled"] }
   resolved: Record<string, Field>
   sources: SourceRef[]
@@ -31,4 +35,7 @@ export type CompiledCollection = {
 }
 
 /** A source file compile read: workspace-relative path and content hash (what staleness compares). */
-export type SourceRef = { path: string; hash: string }
+export interface SourceRef {
+  path: string
+  hash: string
+}

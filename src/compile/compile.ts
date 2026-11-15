@@ -52,10 +52,13 @@ import { viewErrors } from "./lib/viewErrors.ts"
 import { CHANNEL_LABEL, INSTRUCTIONS_SOURCE } from "./consts.ts"
 
 /** One runtime file being compiled: its sources and bytes, and for a merged ui-view who overlaid it. */
-type CompileEntry = Entry & { module?: string; overlaidBy?: string[] }
+interface CompileEntry extends Entry {
+  module?: string
+  overlaidBy?: string[]
+}
 
 /** Any module source as parsed: the keys compile reads before it knows the kind, the rest open. */
-type SourceDoc = {
+interface SourceDoc {
   name?: string
   overlay?: boolean
   description?: string
