@@ -24,7 +24,7 @@ export default defineConfig(
       ],
     },
   },
-  // The tests are checked permissively (tsconfig.test.json): they are not the engine, and a test may
+  // The tests are checked permissively (test/tsconfig.json): they are not the engine, and a test may
   // poke at shapes the public types deliberately do not offer. test/types/consumer.ts is excluded — it
   // is the public-API contract and keeps the strict rules above.
   {

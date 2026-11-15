@@ -76,7 +76,7 @@
 		"build": "tsx scripts/build.ts",
 		"prepack": "tsx scripts/build.ts",
 		"typecheck": "tsc -p tsconfig.json",
-		"typecheck:test": "tsc -p tsconfig.test.json",
+		"typecheck:test": "tsc -p test",
 		"contract": "node scripts/contract.ts",
 		"lint": "eslint .",
 		"format": "prettier --write .",
@@ -88,8 +88,8 @@
 		"metrics": "node scripts/metrics.ts",
 		"metrics:check": "node scripts/metrics.ts --check",
 		"layers": "node scripts/layers.ts",
-		"verify": "node scripts/layers.ts && node scripts/metrics.ts --check && tsc -p tsconfig.json && tsc -p tsconfig.test.json && npm run lint && npm run format:check && node scripts/test.ts",
-		"verify:fast": "node scripts/layers.ts && node scripts/metrics.ts --check && tsc -p tsconfig.json && tsc -p tsconfig.test.json && npm run lint && npm run format:check && node scripts/test.ts --changed"
+		"verify": "node scripts/layers.ts && node scripts/metrics.ts --check && tsc -p tsconfig.json && tsc -p test && npm run lint && npm run format:check && node scripts/test.ts",
+		"verify:fast": "node scripts/layers.ts && node scripts/metrics.ts --check && tsc -p tsconfig.json && tsc -p test && npm run lint && npm run format:check && node scripts/test.ts --changed"
 	},
 	"devDependencies": {
 		"@eslint/js": "^10.0.1",

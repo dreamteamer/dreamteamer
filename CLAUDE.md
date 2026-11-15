@@ -22,7 +22,7 @@ its declarations generated from `src/types.ts` and the signatures) that is the O
 So only ERASABLE syntax (`erasableSyntaxOnly`): no `enum`, no `namespace`, no constructor parameter
 properties; type-only imports are `import type`. `npm run typecheck` is part of `verify`.
 
-**The tests are TypeScript too, checked PERMISSIVELY by their own `tsconfig.test.json`**
+**The tests are TypeScript too, checked PERMISSIVELY by their own `test/tsconfig.json`**
 (`npm run typecheck:test`, also part of `verify`). It is not in `tsconfig.json` — no `strict`, implicit
 `any` allowed, and ESLint relaxes its rules for `test/` the same way — because a test deliberately
 passes partial or invalid shapes. Say so with the helpers rather than a cast per call site:

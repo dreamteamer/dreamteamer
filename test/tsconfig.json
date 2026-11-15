@@ -1,0 +1,23 @@
+{
+	// Type-checks the tests without emitting: `npm run typecheck:test`. Kept out of tsconfig.json on
+	// purpose — the tests are not the engine, so they are checked permissively (no strict, implicit any
+	// allowed) and never gate the engine's own typecheck. It lives HERE, named tsconfig.json, because
+	// that is the only name the editor's TypeScript server looks for: as a root `tsconfig.test.json` an
+	// open test file fell back to an inferred project with no `node` types. test/types/consumer.ts is
+	// NOT here: it is the public-API contract and is compiled strict by `npm run contract` against the
+	// generated declarations.
+	"extends": "../tsconfig.json",
+	"compilerOptions": {
+		"allowJs": true,
+		"checkJs": false,
+		"strict": false,
+		"noImplicitAny": false,
+		"noImplicitThis": false,
+		"useUnknownInCatchVariables": false,
+		"noUnusedLocals": false,
+		"noUnusedParameters": false,
+		"noEmit": true
+	},
+	"include": ["**/*.ts"],
+	"exclude": [".tmp/**", ".perf/**", "types/**", "acceptance/out/**"]
+}
