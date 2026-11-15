@@ -1,6 +1,6 @@
 import { collectRefFields } from "./collectRefFields.ts"
 import { fieldsOf } from "./descriptor.ts"
-import { valuesAt } from "./exports.ts"
+import { valuesAt } from "./valuesAt.ts"
 import { parseRef } from "./parseRef.ts"
 import type { ExportEntry, OutsideRef } from "./types.ts"
 import type { Descriptor, Fields } from "../types.ts"

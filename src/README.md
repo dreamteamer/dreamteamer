@@ -207,7 +207,7 @@ would change or drop one of its entries. Writes and commits ONE path, `dreamteam
 
 ## exports (the manifest)
 
-Files: [check/isStale.ts](check/isStale.ts) · [exports/serializeExports.ts](exports/serializeExports.ts) · [record/collectRefFields.ts](record/collectRefFields.ts) · [record/exports.ts](record/exports.ts) · [record/exportsContext.ts](record/exportsContext.ts) · [record/outsideRefs.ts](record/outsideRefs.ts) · [record/readExports.ts](record/readExports.ts) · [record/regenerate.ts](record/regenerate.ts) · [record/types.ts](record/types.ts)
+Files: [check/isStale.ts](check/isStale.ts) · [exports/serializeExports.ts](exports/serializeExports.ts) · [record/collectRefFields.ts](record/collectRefFields.ts) · [record/sees.ts](record/sees.ts) · [record/valuesAt.ts](record/valuesAt.ts) · [record/exportsContext.ts](record/exportsContext.ts) · [record/outsideRefs.ts](record/outsideRefs.ts) · [record/readExports.ts](record/readExports.ts) · [record/regenerate.ts](record/regenerate.ts) · [record/types.ts](record/types.ts)
 
 The exports manifest (cr-dt-004) — `dreamteamer-exports.json` at a repo root: per id that repo's own
 records name and no file of the repo holds, a display label and the package name of the workspace that

@@ -1,4 +1,4 @@
-import { sees } from "./exports.ts"
+import { sees } from "./sees.ts"
 import type { ExportChange, ExportEntry, ExportRefs, ExportsContext, OutsideRef } from "./types.ts"
 
 /**
