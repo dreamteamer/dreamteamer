@@ -8,6 +8,8 @@ import { freshWorkspace } from "./freshWorkspace.ts"
 import type { PackageJson } from "../types.ts"
 import { childEnv } from "../lib/childEnv.ts"
 import { resolveNpm } from "../lib/npm/resolveNpm.ts"
+import { KINDS } from "../compile/consts.ts"
+import { kindDir } from "../compile/kindDir.ts"
 
 const readPkg = (dir: string): PackageJson => JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8"))
 
@@ -26,17 +28,67 @@ function locate(root: string, name: string): string | null {
   return fs.existsSync(path.join(npm, "package.json")) ? fs.realpathSync(npm) : null
 }
 
-function npmPack(npm: string, dir: string, dest: string): string | undefined {
+/** Pack `dir` into `dest`; returns the tarball's name and the package-relative paths it ships (null
+ *  when npm's --json listing does not parse — the shipped-sources judgement is then skipped). */
+function npmPack(npm: string, dir: string, dest: string): { file: string | undefined; files: string[] | null } {
   const before = new Set(fs.readdirSync(dest))
-  const r = spawnSync(npm, ["pack", "--silent", "--ignore-scripts", "--pack-destination", dest], {
+  const r = spawnSync(npm, ["pack", "--json", "--silent", "--ignore-scripts", "--pack-destination", dest], {
     cwd: dir,
     encoding: "utf8",
     timeout: 120_000,
     env: childEnv(),
   })
   if (r.status !== 0) throw new Error(`npm pack failed in ${dir}: ${(r.stderr || r.stdout).trim().split("\n")[0]}`)
-  return fs.readdirSync(dest).find(f => f.endsWith(".tgz") && !before.has(f))
+  let files: string[] | null = null
+  try {
+    files = (JSON.parse(r.stdout)[0].files as { path: string }[]).map(f => f.path.split(path.sep).join("/"))
+  } catch {
+    /* an npm without --json for pack */
+  }
+  return { file: fs.readdirSync(dest).find(f => f.endsWith(".tgz") && !before.has(f)), files }
 }
+
+/** Every file under `rel` in `dir` (dotfiles left out — npm never packs .DS_Store and the like), `/`-joined. */
+function filesUnder(dir: string, rel: string): string[] {
+  const out: string[] = []
+  const walk = (r: string) => {
+    for (const e of fs.readdirSync(path.join(dir, r), { withFileTypes: true })) {
+      if (e.name.startsWith(".") || e.name === "node_modules") continue
+      const sub = `${r}/${e.name}`
+      if (e.isDirectory()) walk(sub)
+      else if (e.isFile()) out.push(sub)
+    }
+  }
+  if (fs.existsSync(path.join(dir, rel)) && fs.statSync(path.join(dir, rel)).isDirectory()) walk(rel)
+  return out
+}
+
+/** Source files compile would read that the tarball leaves out, and the top folder to add to `files`. */
+export interface Unshipped {
+  missing: string[]
+  folder: string
+}
+
+/**
+ * What the source authors that compile would read and the tarball does not ship — the kind folders, a UI
+ * bundle and the nav fragment the manifest names — as `{ missing, folder }`, or null when it all ships.
+ * A folder left out of the package's `files` list is not published: a stranger installs a module without it.
+ */
+export function unshippedSources(dir: string, manifest: PackageJson, shipped: string[] | null): Unshipped | null {
+  if (!shipped) return null
+  const has = new Set(shipped)
+  const authored: string[] = []
+  for (const k of KINDS)
+    authored.push(...filesUnder(dir, path.relative(dir, kindDir(dir, k)).split(path.sep).join("/")))
+  for (const ui of ["ui", "studio"]) authored.push(...filesUnder(dir, ui))
+  const nav = manifest.dreamteamer?.nav
+  if (typeof nav === "string" && fs.existsSync(path.join(dir, nav)))
+    authored.push(nav.split(path.sep).join("/").replace(/^\.\//, ""))
+  const missing = authored.filter(f => !has.has(f))
+  return missing.length ? { missing, folder: missing[0].split("/")[0] } : null
+}
+const unshippedLine = (name: string, u: Unshipped): string =>
+  `${name} does not ship ${u.missing[0]}${u.missing.length > 1 ? ` (and ${u.missing.length - 1} more)` : ""} — package.json "files" leaves out ${u.folder}, so a stranger's install would have none of it; add "${u.folder}" to "files"`
 
 /** The gate. `target` is the positional (`modules/<id>`); returns the exit code. */
 export function checkAlone(
@@ -86,20 +138,35 @@ export function checkAlone(
     // the module and its declared dependency closure, packed into one folder `dt install --from` reads
     const from = path.join(tmp, "from")
     fs.mkdirSync(from)
-    npmPack(npm, dir, from)
+    const own = unshippedSources(dir, pkg, npmPack(npm, dir, from).files)
+    if (own) return refuse(unshippedLine(pkg.name, own))
     const deps: string[] = []
     const seen = new Set([pkg.name])
-    const queue = [...(pkg.dreamteamer.dependencies ?? [])]
+    // a module preset's members are packed like dependencies (CR-dt-008): install walks them at their
+    // pins. Each need remembers who listed it and under which key, so a missing one is named rightly.
+    const needs = (p: PackageJson): { name: string; by: string | undefined; pin?: string }[] => [
+      ...(p.dreamteamer?.dependencies ?? []).map(name => ({ name, by: p.name })),
+      ...Object.entries(p.dreamteamer?.preset ?? {}).map(([name, pin]) => ({ name, by: p.name, pin })),
+    ]
+    const queue = needs(pkg)
     while (queue.length) {
-      const name = queue.shift()
+      const { name, by, pin } = queue.shift()!
       if (seen.has(name)) continue
       seen.add(name)
       const at = locate(ws.root, name)
-      if (!at)
-        return refuse(`dependency ${name} is not installed here — install it, or drop it from dreamteamer.dependencies`)
-      npmPack(npm, at, from)
+      if (!at) {
+        return refuse(
+          pin !== undefined
+            ? `module preset member ${name}@${pin} (pinned in ${by}'s dreamteamer.preset) is not here — neither modules/ nor node_modules holds it; bring it back, or drop it from dreamteamer.preset`
+            : `dependency ${name} is not installed here — install it, or drop it from dreamteamer.dependencies`
+        )
+      }
+      const packed = npmPack(npm, at, from)
+      const theirs = unshippedSources(at, readPkg(at), packed.files)
+      if (theirs)
+        return refuse(`${pin !== undefined ? "module preset member" : "dependency"} ${unshippedLine(name, theirs)}`)
       deps.push(name)
-      queue.push(...(readPkg(at).dreamteamer?.dependencies ?? []))
+      queue.push(...needs(readPkg(at)))
     }
     // a fresh workspace on this engine, the module installed the way a stranger installs it
     const root = path.join(tmp, "ws")

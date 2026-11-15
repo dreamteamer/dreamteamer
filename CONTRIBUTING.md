@@ -14,7 +14,7 @@ non-zero when one is blown. A blown budget isn't a blocker — it's a prompt to 
 questions in the pull request description:
 
 1. **Does the ENGINE read it?** That's the whole test for a new core collection or field.
-2. **Is this a recipe creeping into core?** Anything domain-shaped — people, meetings, products,
+2. **Is this a domain creeping into core?** Anything domain-shaped — people, meetings, products,
    content — belongs in a module, not here.
 3. **Could a module do it instead?** Modules ship collections, skills, commands, agents and UI.
 
@@ -55,7 +55,7 @@ Beyond the suite, it is still worth watching a change work end to end the way a 
 ```bash
 cd "$(mktemp -d)" && git init -q && npm init -y
 npm install /path/to/your/dreamteamer
-npx dreamteamer init && npx dreamteamer compile && npx dreamteamer check
+npx dreamteamer init          # skeleton, install, compile, check, one commit
 npx dreamteamer add notes --title "does it work"
 ```
 
@@ -64,7 +64,8 @@ If a change can't be demonstrated that way, that's usually a sign the change is 
 ## A release that changes behaviour gets an UPDATING.md section
 
 [`UPDATING.md`](UPDATING.md) is one section per version, newest first, and it answers one question:
-what does an operator have to DO. Most of the time that is `dt compile` and nothing else — say so
+what does an operator have to DO. Most of the time that is `dt compile` (`dt` is `npx dreamteamer`)
+and nothing else — say so
 explicitly rather than leaving the section out, because an absent section reads as "nobody checked".
 
 A section is required when a release changes an observable behaviour, adds a refusal that an existing

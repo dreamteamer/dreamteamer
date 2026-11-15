@@ -11,6 +11,8 @@ import { ttyIO } from "./ttyIO.ts"
 import type { InputFlag, UnitResult } from "./types.ts"
 import { units } from "./units.ts"
 import { gitOk } from "../lib/git/gitOk.ts"
+import { writeNavDoc } from "../record/nav.ts"
+import type { NavPlan } from "../workspace/navFragments.ts"
 
 // ---- the verb -----------------------------------------------------------------------------------
 
@@ -19,8 +21,10 @@ const gitIgnored = (root: string, rel: string): boolean => gitOk(root, ["check-i
 /**
  * Steps 5–6: the safe part of the named packages' units (inputs filled leniently — npm has written,
  * so a mistyped --input is a named warning, never an abort), then one scoped commit: the two files
- * npm rewrites, .env.example if compile touched it, and every path an applied action reported that
- * git does not ignore. Returns `{ code, results, committed, ignored }`.
+ * npm rewrites, .env.example if compile touched it, nav.yaml when `nav` (the merge npmAndCompile
+ * planned) placed something, and every path an applied action reported that git does not ignore.
+ * Never plans and never refuses for nav: it only writes what it is handed. Returns
+ * `{ code, results, committed, ignored }`.
  */
 export async function setupAndCommit(
   ws: Workspace,
@@ -35,6 +39,7 @@ export async function setupAndCommit(
     io = null,
     processEnv = process.env,
     noCommit = false,
+    nav = null,
   }: {
     subject?: string
     inputFlags?: InputFlag[]
@@ -44,6 +49,7 @@ export async function setupAndCommit(
     io?: ReturnType<typeof ttyIO> | null
     processEnv?: NodeJS.ProcessEnv
     noCommit?: boolean
+    nav?: NavPlan | null
   } = {}
 ): Promise<{ code: number; results: UnitResult[]; committed: string[] | null; ignored: string[] }> {
   const skipped = new Set(skippedUnits(fresh))
@@ -104,6 +110,9 @@ export async function setupAndCommit(
       term?.close()
     }
   }
+  // the merged nav document — only when this call placed something, so an uncommitted hand edit of
+  // nav.yaml is never swept into a commit that did not touch it
+  const navPaths = nav?.changed ? (writeNavDoc(ws.root, nav.doc!), ["nav.yaml"]) : []
   let committed: string[] | null = null
   if (!noCommit && gitOk(ws.root, ["rev-parse", "--git-dir"])) {
     const changed = results
@@ -117,8 +126,8 @@ export async function setupAndCommit(
           fs.existsSync(path.join(ws.root, rel)) &&
           !gitIgnored(ws.root, rel)
       )
-    const paths = [...new Set(["package.json", "package-lock.json", ".env.example", ...changed])].filter(rel =>
-      fs.existsSync(path.join(ws.root, rel))
+    const paths = [...new Set(["package.json", "package-lock.json", ".env.example", ...navPaths, ...changed])].filter(
+      rel => fs.existsSync(path.join(ws.root, rel))
     )
     if (gitOk(ws.root, ["add", "--", ...paths]) && gitOk(ws.root, ["commit", "--quiet", "-m", subject, "--", ...paths]))
       committed = paths

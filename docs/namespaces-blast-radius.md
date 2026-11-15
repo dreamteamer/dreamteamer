@@ -4,6 +4,11 @@ Written alongside the change that added declared namespaces. Its job is to be ho
 already broken, what every consumer has to do about it, and which claims here were *verified* rather
 than reasoned.
 
+**A record of that change, not a reference.** Sections 1–3 and 5–6 describe the engine as it was then,
+in the spellings of the time: `dt <c> list` is `dt list <c>` today, `id.pattern` is `ids.pattern`, and
+the HTTP server is the `@dreamteamer/http` extension. Section 4 is kept current. The reference is
+`skills/using-dreamteamer/references/collections.md`.
+
 ## 1. Gaps that existed BEFORE this change
 
 All four were found while scoping namespaces; none of them needed namespaces to be reachable. Each is
@@ -63,7 +68,9 @@ propagates into every harness on the next `dt compile`, verified in a fixture.
 ### `recipes` modules (copied, not installed)
 
 **No change needed, and none possible to force.** A recipes module ships unprefixed collections, which
-are default-namespace collections and behave exactly as before. A module *cannot* declare a namespace —
+are default-namespace collections and behave exactly as before. (⚠ The rest of this paragraph was
+reversed in 0.19.0 — a namespace is now declared by the module that owns it; see section 4.) A module
+*cannot* declare a namespace —
 `dreamteamer.namespaces` is read from the **workspace** package.json only, deliberately: a module that
 could declare a namespace could move where another module's records live, and the whole point of a
 namespace is that the workspace decides how its own data is partitioned. A workspace that wants a copied

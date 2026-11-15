@@ -295,7 +295,7 @@ roadmap, not a model; wait for the second consumer.
   be empty. `json` exists for tool-written records.
 - **`format: binary` makes the record an opaque file** — an icon, a logo, an image the UI draws.
   Fields are derived (`ext`, `bytes`), writes go through `dt add <c> <id> --from <path>`, and
-  `check` guards `storage.max_bytes` (default 200 KB) and `storage.accept`. A big binary is not a record: it lives outside the vault under a
+  `check` guards `storage.max_bytes` (default 200 KB) and `storage.accept`. A big binary is not a record: it lives outside the workspace under a
   declared var, with an ordinary record carrying the `${env:...}` template that points at it.
 - **`shape: folder` when a record is intrinsically several files** (a skill with references beside
   it), or when OTHER collections' records should live inside it — see the next bullet. Otherwise
@@ -320,7 +320,8 @@ A module built inside one workspace accumulates that workspace's identity: names
 conventions, decision references. Making it reusable is mostly deletion. The rule for what
 survives: **a measurement keeps its numbers and loses its source's name** ("a 4,000-record
 workspace checks in half a second", not "workspace X does"). Verify the graduation the same way a
-module is defined: compile it alone in a virgin workspace, with a synthetic cast in every example.
+module is defined: compile it alone in a virgin workspace (`dt check modules/<id> --alone` does
+exactly that — `writing-a-module.md`), with a synthetic cast in every example.
 
 ---
 

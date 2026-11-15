@@ -7,13 +7,16 @@ import { compile } from "../compile/compile.ts"
 import { resolveNpm } from "../lib/npm/resolveNpm.ts"
 import { EXIT } from "../lib/consts.ts"
 import type { InstallHooks, SpecEntry } from "./types.ts"
+import { planNavFragments, type NavPlan } from "../workspace/navFragments.ts"
 
 // ---- steps 2–4 and 5–6, shared with `dt update` (install one pin later) ----------------------------
 
 /**
  * Steps 2–4: npm on the resolved list (the two files it rewrites copied aside), verify every package
- * resolves at the version asked for, compile (a refusal restores the pre-image and prunes). Returns
- * `{ fresh }`, or `{ code }`.
+ * resolves at the version asked for, compile (a refusal restores the pre-image and prunes), then the
+ * nav fragments of the listed packages judged and merged (cr-dt-008) — inside the same restore, so a
+ * fragment placing another module's collection, or a nav.yaml that does not read, undoes the call
+ * like a compile refusal. Returns `{ fresh, nav }` (nav: the plan setupAndCommit writes), or `{ code }`.
  */
 export async function npmAndCompile(
   ws: Workspace,
@@ -25,6 +28,7 @@ export async function npmAndCompile(
     log = console.log,
     hooks = {},
     what = "install",
+    ignoreSettings = false,
   }: {
     npm?: string | null
     open?: (at: string) => Promise<Workspace>
@@ -32,8 +36,11 @@ export async function npmAndCompile(
     log?: (msg: string) => void
     hooks?: InstallHooks
     what?: string
+    ignoreSettings?: boolean
   } = {}
-): Promise<{ code: number; fresh?: undefined } | { code?: undefined; fresh: Workspace }> {
+): Promise<
+  { code: number; fresh?: undefined; nav?: undefined } | { code?: undefined; fresh: Workspace; nav: NavPlan }
+> {
   const names = list.map(e => e.manifest.name)
   const pkgFile = path.join(ws.root, "package.json"),
     lockFile = path.join(ws.root, "package-lock.json")
@@ -79,16 +86,19 @@ export async function npmAndCompile(
     return { code: EXIT.failed }
   }
   // 4. compile — a refusal restores the pre-image and prunes
+  let compiled = false // a refusal AFTER a compile (the nav fragments) owes the runtime a recompile
   try {
     const fresh = await open(ws.root)
     const stdout = console.log
     if (json) console.log = console.error
     try {
       compile(fresh)
+      compiled = true
     } finally {
       console.log = stdout
     }
-    return { fresh }
+    const nav = planNavFragments(fresh, { names, ignoreSettings })
+    return { fresh, nav }
   } catch (e) {
     fs.writeFileSync(pkgFile, before.pkg)
     if (before.lock !== null) fs.writeFileSync(lockFile, before.lock)
@@ -117,8 +127,24 @@ export async function npmAndCompile(
       )
       return { code: EXIT.failed }
     }
+    // compile succeeded before the refusal, so .dreamteamer and the harness folders hold the refused
+    // packages' sources: compile again over the restored node_modules, so the runtime is the pre-image's
+    if (compiled) {
+      const stdout = console.log
+      console.log = () => {}
+      try {
+        compile(await open(ws.root))
+      } catch (e2) {
+        console.error(
+          `✖ ${what} refused: ${e.message.split("\n")[0]}\n  package.json, package-lock.json and node_modules are as before the call, but the runtime could not be recompiled (${e2.message.split("\n")[0]}) — run dt compile`
+        )
+        return { code: EXIT.failed }
+      } finally {
+        console.log = stdout
+      }
+    }
     console.error(
-      `✖ ${what} refused: ${e.message.split("\n")[0]}\n  package.json, package-lock.json and node_modules are as before the call`
+      `✖ ${what} refused: ${e.message.split("\n")[0]}\n  package.json, package-lock.json and node_modules are as before the call${compiled ? ", and the runtime is compiled from them again" : ""}`
     )
     return { code: EXIT.failed }
   }

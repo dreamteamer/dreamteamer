@@ -41,6 +41,7 @@ import { renderContributions } from "./lib/renderContributions.ts"
 import { repoRootOf } from "../lib/git/repoRootOf.ts"
 import { runHarnessAdapters } from "./lib/runHarnessAdapters.ts"
 import { satisfies } from "../lib/npm/satisfies.ts"
+import { EXACT } from "../lib/npm/exact.ts"
 import { kindDir } from "./kindDir.ts"
 import { sha256 } from "./sha256.ts"
 import { toPosix } from "./toPosix.ts"
@@ -374,6 +375,7 @@ export function compile(ws: Workspace): 0 {
   const moduleNamespaces = new Map<string, string[]>() // module name -> [namespaces it DECLARES] (§8, option A)
   const moduleVersions = new Map<string, string>() // module name -> its package.json version
   const moduleFloors = new Map<string, Record<string, string>>() // module name -> npm `peerDependencies` — a version floor on a sibling module
+  const modulePresets = new Map<string, Record<string, string>>() // module preset name -> { member name: exact version } (CR-dt-008)
   const moduleLocalAssets = [] // {rel, owner, base} — validated with the workspace's own, below
   // the package.json `dreamteamer` block is a closed set of snake_case keys, the workspace's and
   // every module's alike — a key outside it is a typo or a spelling this engine does not read
@@ -386,6 +388,8 @@ export function compile(ws: Workspace): 0 {
       fail(`${where}: unknown dreamteamer key(s) ${bad.join(", ")} — the keys are ${MANIFEST_KEYS.join(" · ")}`)
   }
   refuseUnknownKeys(config, "package.json")
+  if (config.preset !== undefined || config.nav !== undefined)
+    fail("package.json: dreamteamer.preset and dreamteamer.nav belong to a module package, not the workspace")
   for (const source of sources) {
     let mpkg
     try {
@@ -428,6 +432,46 @@ export function compile(ws: Workspace): 0 {
         )
       }
       moduleNamespaces.set(source.name, ns)
+    }
+    // A MODULE PRESET (CR-dt-008): `preset` maps member module names to EXACT versions — the set
+    // `dt install` pins and `dt update` moves. It lists modules and ships no sources of its own.
+    // `nav` names the package's nav fragment, a path inside the package.
+    if (source.root !== root) {
+      const preset = mpkg.dreamteamer?.preset
+      if (preset !== undefined) {
+        if (!preset || typeof preset !== "object" || Array.isArray(preset))
+          fail(
+            `module "${source.name}": dreamteamer.preset must map module names to exact versions (got ${JSON.stringify(preset)})`
+          )
+        for (const [member, v] of Object.entries(preset)) {
+          if (typeof v !== "string" || !EXACT.test(v))
+            fail(
+              `module "${source.name}": dreamteamer.preset["${member}"] must be an exact version (got ${JSON.stringify(v)})`
+            )
+        }
+        // every folder compile would read from a package: the kind folders (an extension's kinds
+        // too), a modules/ bundle, and a UI bundle (ui/, or its pre-archive name studio/)
+        const shipped = [...new Set([...KINDS, ...kinds]), "modules", "ui", "studio"].find(k =>
+          fs.existsSync(
+            k === "modules" || k === "ui" || k === "studio" ? path.join(source.root, k) : kindDir(source.root, k)
+          )
+        )
+        if (shipped) fail(`module "${source.name}": a module preset lists modules; it ships none (found ${shipped}/)`)
+        modulePresets.set(source.name, preset)
+      }
+      const nav = mpkg.dreamteamer?.nav
+      if (
+        nav !== undefined &&
+        (typeof nav !== "string" ||
+          !nav ||
+          path.isAbsolute(nav) ||
+          path.posix.isAbsolute(nav) ||
+          nav.split(/[\\/]/).includes(".."))
+      ) {
+        fail(
+          `module "${source.name}": dreamteamer.nav must be a relative path inside the package (got ${JSON.stringify(nav)})`
+        )
+      }
     }
     if (source.root !== root) {
       moduleVersions.set(source.name, mpkg.version)
@@ -616,9 +660,19 @@ export function compile(ws: Workspace): 0 {
         )
       if (!moduleNames.has(dep)) {
         fail(
-          `module "${mod}" depends on "${dep}", which is not installed — modules present: ${[...moduleNames].sort().join(", ")}`
+          `module "${mod}" depends on "${dep}", which is not installed — modules present: ${[...moduleNames].sort().join(", ")}\n  run: dt install ${dep}`
         )
       }
+    }
+  }
+  // A module preset's absent member is a WARNING, never a failure: the preset is a list, and the
+  // operator may have uninstalled a member on purpose.
+  for (const [mod, members] of modulePresets) {
+    for (const [member, v] of Object.entries(members)) {
+      if (!moduleNames.has(member))
+        console.warn(
+          `⚠ module preset ${moduleId(mod)} names ${member} ${v}, which is not installed — dt install ${member}`
+        )
     }
   }
   // npm's `peerDependencies` naming ANOTHER discovered module is a VERSION FLOOR: npm refuses the install
@@ -901,7 +955,7 @@ export function compile(ws: Workspace): 0 {
   // is a genuine existence test on either spelling.
   const extensionNames = new Set(extensions.map(e => e.name))
   for (const source of sources) {
-    if (contributedBy.has(source.name) || extensionNames.has(source.name)) continue
+    if (contributedBy.has(source.name) || extensionNames.has(source.name) || modulePresets.has(source.name)) continue
     if (kinds.some(k => fs.existsSync(kindDir(source.root, k)))) continue
     console.warn(
       `⚠ module "${source.name}" (${rel(source.root)}) contributed no recognised sources — its folder names must match a known kind (${kinds.join(", ")}) or it must ship a UI bundle at ui/app.js`
@@ -1041,6 +1095,7 @@ export function compile(ws: Workspace): 0 {
     runtimeKinds: new Set([...kinds, ...DERIVED_KINDS]),
     core: CORE_COLLECTIONS,
     moduleDeps,
+    modulePresets,
     modulePeers,
     channelOf,
     wsModuleName,
@@ -1086,6 +1141,14 @@ export function compile(ws: Workspace): 0 {
     if (clash && clash !== source.name)
       fail(`modules "${clash}" and "${source.name}" both resolve to the id "${id}" — rename one.`)
     idByModule.set(id, source.name)
+  }
+  const presetProjection = (names: string[]) => {
+    const installed = names.filter(n => sources.some(s => s.name === n)).length
+    return {
+      preset: true,
+      members: names.map(n => `modules/${moduleId(n)}`),
+      preset_summary: `preset · ${names.length} members · ${installed} installed`,
+    }
   }
   for (const source of sources) {
     const id = moduleId(source.name)
@@ -1143,6 +1206,8 @@ export function compile(ws: Workspace): 0 {
       ...(moduleColls.get(source.name)?.size
         ? { collections: [...moduleColls.get(source.name)].sort().map(c => `collections/${c}`) }
         : {}),
+      // A MODULE PRESET (CR-dt-008): its members as references, and how many of them are here.
+      ...(modulePresets.has(source.name) ? presetProjection(Object.keys(modulePresets.get(source.name)!)) : {}),
     }
     const bytes = Buffer.from(dump(record))
     // ⚠ The source hash is the hash of the SOURCE FILE, not of the projected record. Hashing the

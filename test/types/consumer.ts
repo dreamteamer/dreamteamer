@@ -16,6 +16,8 @@ import type {
   Manifest,
   Contribution,
   Activate,
+  NavDoc,
+  NavWarning,
 } from "dreamteamer"
 
 type IsAny<T> = 0 extends 1 & T ? true : false
@@ -125,3 +127,21 @@ const suite = (): void => {
 }
 
 export { surface, activate, bad, ops, kinds, suite }
+
+// ---- the nav document (cr-dt-008): on the full API, and never on dreamteamer/records -------------
+function navDocument() {
+  is<Equals<ReturnType<typeof dt.readNavDoc>, NavDoc | null>>()
+  const doc: NavDoc = {
+    tree: ["tasks", { collection: "notes", icon: "pen" }, { folder: "Work", items: [] }],
+    hidden: [],
+  }
+  accept<NavWarning[]>(dt.validateNavDoc(doc, { collections: new Set(["tasks"]), namespaces: [] }))
+  accept<boolean>(dt.writeNavDoc("/w", doc))
+  // @ts-expect-error — an entry is a name, the long form, a folder or a namespace
+  dt.writeNavDoc("/w", { tree: [{ nope: 1 }], hidden: [] })
+  const applied = dt.applyNavFragments("/w", { names: ["@x/crm"] })
+  accept<{ written: boolean; placed: string[]; skipped?: "settings" }>(applied)
+  // @ts-expect-error — the nav document is not part of the browser-safe records entry
+  void records.readNavDoc
+}
+void navDocument

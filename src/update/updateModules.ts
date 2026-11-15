@@ -16,6 +16,15 @@ import { EXIT } from "../lib/consts.ts"
 import type { setupAndCommit } from "../setup/setupAndCommit.ts"
 import { InstallRefusal, compareVersions } from "../install/versions.ts"
 import { gitOk } from "../lib/git/gitOk.ts"
+import { moduleIdOf } from "../compile/compile.ts"
+import {
+  navGuard,
+  navDocGuard,
+  shipsFragment,
+  NAV_SETTINGS_LINE,
+  NAV_GUARD_LINE,
+  type NavPlan,
+} from "../workspace/navFragments.ts"
 
 /**
  * `updateModules(ws, { name, version, engine, allow, from }, { open, npm, log })` → exit code.
@@ -161,10 +170,30 @@ export async function updateModules(
   // being asked for), then install's steps 2–6 on the WHOLE resolved list: a version that adds a
   // dreamteamer.dependencies entry brings the dependency in, compiled and committed with it, and a
   // version that adds a setup unit runs its safe part
-  const others = new Map([...installed].filter(([n]) => n !== target))
+  //
+  // A MODULE PRESET (CR-dt-008): each installed member at another version than the new pin leaves the
+  // installed map too, so it is re-walked at that pin instead of refusing as "installed at another
+  // version"; a member the INSTALLED version listed and the operator uninstalled is skipped (removed
+  // on purpose); a member new to this version — and every member on a first expansion, when the
+  // installed version was no preset — is walked and installed.
+  // the nav guard (cr-dt-008), for every module target, plain or preset — never the engine's: old nav
+  // settings and no nav.yaml refuse before npm unless --allow nav-reset
+  if (!allow.has("nav-reset") && navGuard(ws.root)) {
+    console.error(`✖ ${NAV_GUARD_LINE}`)
+    return EXIT.failed
+  }
+  const installedMap = installed.get(target)?.manifest?.dreamteamer?.preset
+  const newMap = entry.manifest.dreamteamer?.preset ?? {}
+  const moving = new Set(
+    Object.entries(newMap)
+      .filter(([n, v]) => installed.has(n) && installed.get(n)!.version !== v)
+      .map(([n]) => n)
+  )
+  const skipMembers = new Set(Object.keys(newMap).filter(n => !installed.has(n) && installedMap && n in installedMap))
+  const others = new Map([...installed].filter(([n]) => n !== target && !moving.has(n)))
   let plan
   try {
-    plan = resolveClosure([entry.spec], { installed: others, from, npm, cwd: ws.root })
+    plan = resolveClosure([entry.spec], { installed: others, skipMembers, from, npm, cwd: ws.root })
   } catch (e) {
     if (e instanceof InstallRefusal) {
       console.error(`✖ ${e.message}`)
@@ -172,13 +201,42 @@ export async function updateModules(
     }
     throw e
   }
+  // a member moved below what is installed is a downgrade, said on purpose like the target's own
+  for (const e of plan.list) {
+    const n = e.manifest.name,
+      was = installed.get(n)?.version
+    if (n === target || !was || compareVersions(e.manifest.version, was) >= 0 || allow.has("downgrade")) continue
+    console.error(
+      `✖ ${n} ${was} → ${e.manifest.version} is a downgrade (module preset ${moduleIdOf(target)} names ${e.manifest.version}) — say so: dt update ${target}@${next} --allow downgrade`
+    )
+    return EXIT.failed
+  }
+  // a fragment merges into the workspace's nav.yaml: one that does not read refuses before npm writes
+  const navBad = shipsFragment(plan.list) ? navDocGuard(ws.root) : null
+  if (navBad) {
+    console.error(`✖ update refused: ${navBad} — dt check names what is wrong; fix it, then run this again`)
+    return EXIT.failed
+  }
   const names = plan.list.map(e => e.manifest.name)
-  const extra = names.filter(n => n !== target)
-  log(`▶ update: ${target} ${here.version} → ${next}${extra.length ? ` — with ${extra.join(", ")}` : ""}`)
-  const step = await npmAndCompile(ws, plan.list, { npm, open, log, what: "update" })
+  const moved = plan.list
+    .filter(e => e.manifest.name !== target && installed.has(e.manifest.name))
+    .map(e => `${e.manifest.name} ${installed.get(e.manifest.name)!.version} → ${e.manifest.version}`)
+  const extra = names.filter(n => n !== target && !installed.has(n))
+  const tail = `${moved.length ? ` — members: ${moved.join(", ")}` : ""}${extra.length ? ` — with ${extra.join(", ")}` : ""}`
+  log(`▶ update: ${target} ${here.version} → ${next}${tail}`)
+  const step = await npmAndCompile(ws, plan.list, {
+    npm,
+    open,
+    log,
+    what: "update",
+    ignoreSettings: allow.has("nav-reset"),
+  })
   if (step.code !== undefined) return step.code
-  // the setup half in a fresh process: this one imported the version npm just replaced (ESM caches it)
-  const out = setupInChild(ws.root, names, { subject, processEnv, noCommit })
+  if (step.nav.skipped === "settings") log(NAV_SETTINGS_LINE)
+  // the setup half in a fresh process: this one imported the version npm just replaced (ESM caches it).
+  // The nav merge already ran here, inside the restore; the child is handed the merged document and
+  // only writes it with the commit.
+  const out = setupInChild(ws.root, names, { subject, processEnv, noCommit, nav: step.nav })
   if (!out) {
     console.error(
       `✖ ${target} ${here.version} → ${next}: npm and compile ran, but the setup half did not finish — run dt install ${target} to finish it (it commits the re-pin and runs the setup)`
@@ -186,7 +244,7 @@ export async function updateModules(
     return EXIT.failed
   }
   log(
-    `✔ ${target} ${here.version} → ${next}${extra.length ? ` (with ${extra.join(", ")})` : ""} — compiled${out.committed ? `, committed (${out.committed.join(", ")})` : ", not committed"}`
+    `✔ ${target} ${here.version} → ${next}${tail} — compiled${out.committed ? `, committed (${out.committed.join(", ")})` : ", not committed"}`
   )
   printUnitResults(out.results, out.ignored, log)
   return out.code
@@ -203,12 +261,17 @@ const CHILD = path.join(
 function setupInChild(
   root: string,
   names: string[],
-  { subject, processEnv, noCommit }: { subject: string; processEnv: NodeJS.ProcessEnv; noCommit: boolean }
+  {
+    subject,
+    processEnv,
+    noCommit,
+    nav = null,
+  }: { subject: string; processEnv: NodeJS.ProcessEnv; noCommit: boolean; nav?: NavPlan | null }
 ): Awaited<ReturnType<typeof setupAndCommit>> | null {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dt-update-"))
   const out = path.join(dir, "result.json")
   try {
-    const r = spawnSync(process.execPath, [CHILD, JSON.stringify({ root, names, subject, noCommit, out })], {
+    const r = spawnSync(process.execPath, [CHILD, JSON.stringify({ root, names, subject, noCommit, out, nav })], {
       cwd: root,
       stdio: ["ignore", "inherit", "inherit"],
       env: processEnv,

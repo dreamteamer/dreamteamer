@@ -16,7 +16,7 @@ import { staleness } from "../compile/staleness.ts"
 
 // ---- `dt init` — one command from a folder to a compiled, checked, committed workspace ------------
 
-const EXACT = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/
+import { EXACT } from "../lib/npm/exact.ts"
 
 /** A JSON file as `T` (the shape the caller reads), or null when it is absent or does not parse. */
 const readJson = <T = PackageJson>(f: string): T | null => {

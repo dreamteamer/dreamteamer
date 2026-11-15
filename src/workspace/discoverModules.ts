@@ -75,8 +75,10 @@ export function discoverModules(
     // ⚠ THE PACKAGE FIRST: disabling a bundle disables every module in it. Only the children used to
     // be checked, so `disable: ['@x/bundle']` stopped its code and compiled all of its content.
     if (disabled(name)) return
+    // A MODULE PRESET is never a bundle: it lists modules and ships none, so a `modules/` folder in
+    // one is the package pass's refusal to make, not a family to unpack.
     const bundle = path.join(srcRoot, "modules")
-    if (fs.existsSync(bundle) && fs.statSync(bundle).isDirectory()) {
+    if (!readPkg(srcRoot)?.dreamteamer?.preset && fs.existsSync(bundle) && fs.statSync(bundle).isDirectory()) {
       scanDir(bundle, channel, false)
       return
     }

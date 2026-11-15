@@ -118,7 +118,7 @@ export default ({ registerEdit, registerView, registerList, registerApp, registe
   the component subtree, so a scoped rule looks correct in the source and is simply absent at
   runtime — the failure mode is invisible chrome, not an error. Define those styles globally.
 - **Settings are declared, not hand-built.** An entry's `options` is a list of field definitions
-  drawn by the same machinery that draws records — an extension never builds bespoke settings UI.
+  drawn by the same machinery that draws records — a module never builds bespoke settings UI.
   Use each option's `when:` predicate to show it only when the current values make it relevant:
   half a flat settings panel is inert at any moment, and *hidden beats disabled* — a disabled
   control still occupies the eye with a question it cannot answer.

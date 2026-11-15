@@ -3,7 +3,7 @@ import { childEnv } from "../childEnv.ts"
 import { resolveNpm } from "./resolveNpm.ts"
 import { satisfies } from "./satisfies.ts"
 
-const EXACT = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/
+import { EXACT } from "./exact.ts"
 
 const NPM_FLOOR = ">=7.0.0"
 

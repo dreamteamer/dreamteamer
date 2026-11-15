@@ -26,6 +26,8 @@ export const MANIFEST_KEYS = [
   "ignore",
   "provides",
   "setup",
+  "preset",
+  "nav",
 ]
 
 export const KINDS: readonly string[] = [

@@ -1,5 +1,6 @@
 import path from "node:path"
 import { fileURLToPath } from "node:url"
+import { unreadDataWarnings } from "./check/unreadData.ts"
 import * as self from "./api.ts"
 import { findWorkspace } from "./workspace/findWorkspace.ts"
 import { manifestViolations } from "./extensions/manifestViolations.ts"
@@ -27,6 +28,9 @@ export type {
   HarnessContext,
   TemplatePart,
   SchemaOp,
+  NavDoc,
+  NavEntry,
+  NavWarning,
 } from "./types.ts"
 
 // ---- the workspace ------------------------------------------------------------------------------
@@ -65,6 +69,12 @@ export async function contributedViolations(ws: Workspace): Promise<{ file: stri
   } catch {
     /* discovery failing is compile's to report */
   }
+  // record files under data/ no compiled collection reads — a collection that left with a module
+  try {
+    out.push(...unreadDataWarnings(ws))
+  } catch {
+    /* a warning pass never breaks check */
+  }
   for (const e of (ws.extensions ?? []).filter(x => x.check)) {
     try {
       for (const v of ((await e.check({ root: ws.root, ws, dt: self })) ?? []) as CheckItem[])
@@ -94,6 +104,10 @@ export { parseTemplate } from "./record/parseTemplate.ts"
 export { validateTemplate } from "./record/validateTemplate.ts"
 export { renderDisplay } from "./record/renderDisplay.ts"
 export { satisfies } from "./lib/npm/satisfies.ts"
+// the nav document (cr-dt-008): nav.yaml read, checked and written, and the shipped fragments merged into it —
+// what every host (the editor, dt web) uses, so there is one grammar and one writer
+export { readNavDoc, validateNavDoc, writeNavDoc } from "./record/nav.ts"
+export { applyNavFragments } from "./workspace/navFragments.ts"
 
 // ---- the compiler, schema and module operations ---------------------------------------------------
 export { compile, warnIfStale, CompileError } from "./compile/compile.ts"

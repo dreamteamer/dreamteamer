@@ -273,3 +273,12 @@ test("Store.external is implemented (cr-dt-004)", async () => {
   const { Store } = await import("../../src/records-api.ts")
   assert.equal(typeof Store.prototype.external, "function")
 })
+
+test("the nav document functions are on the full API and never on dreamteamer/records (cr-dt-008)", async () => {
+  const api = await import("../../src/api.ts")
+  const records = await import("../../src/records-api.ts")
+  for (const name of ["readNavDoc", "validateNavDoc", "writeNavDoc", "applyNavFragments"]) {
+    assert.equal(typeof api[name], "function", `${name} is not a function on src/api.ts`)
+    assert.equal(records[name], undefined, `${name} leaked into src/records-api.ts`)
+  }
+})

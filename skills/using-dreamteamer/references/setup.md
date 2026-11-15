@@ -1,7 +1,7 @@
 # setup — making what this workspace does work on THIS machine, in conversation
 
 "Help me set this up", "finish setup", "add meetings", "connect my account", "what works here?",
-"something stopped working". The person never learns a setup command: you run the same four verbs a
+"something stopped working". The person never learns a setup command: you run the same verbs a
 script would, in the language they are writing in, and the engine knows no module — every module's
 setup is a **unit** that module declares, and `dt install`, `dt setup` and `dt status` drive every
 unit the same way. This page is how to run them honestly.
@@ -68,10 +68,12 @@ dt install <package> --from <folder>       # offline: a folder of tarballs the p
 ```
 
 Say before running it: the package and version, that it installs every module the package declares
-it needs, compiles, runs the module's **safe** setup (workspace-file writes only), and commits
-`package.json`, `package-lock.json` and what setup wrote. Anything it refuses — a package that is not
-a module, an engine floor this engine does not meet, a module an installed one already provides — it
-refuses before writing anything, naming the pair.
+it needs (for a module preset, every member at the version the preset pins), compiles, merges the
+shipped nav fragments into `nav.yaml`, runs the module's **safe** setup (workspace-file writes only),
+and commits `package.json`, `package-lock.json`, `nav.yaml` and what setup wrote. Anything it refuses
+— a package that is not a module, an engine floor this engine does not meet, a module installed at
+another version than the one asked for, old nav settings not yet in `nav.yaml` (`ui-views.md`) — it
+refuses before writing anything, naming why.
 
 ## 3. act — inputs and consent, one approval at a time
 

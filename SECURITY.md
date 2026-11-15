@@ -15,10 +15,11 @@ opening a normal issue that says only "sent a security report", with no details 
 ## Threat model
 
 `dreamteamer` is a local command-line tool and library. It reads and writes files in a workspace you
-control, shells out to `git`, and — when you run `dreamteamer start` — binds an HTTP server to
-localhost with **no authentication**, on the assumption that only you can reach it.
+control, shells out to `git` and `npm`, and runs the code of the extensions a workspace installs, in
+process. Some extensions bind a server to localhost with **no authentication** (for example
+`dt serve`, from `@dreamteamer/http`), on the assumption that only you can reach it.
 
-That last one is a deliberate design decision, not an oversight: the server is a local development
+That server is a deliberate design decision, not an oversight: the server is a local development
 surface. Exposing it to a network is out of scope, and doing so is unsafe.
 
 Worth reporting:
@@ -26,7 +27,7 @@ Worth reporting:
 - Path traversal that escapes the workspace root.
 - Arbitrary code execution from parsing a record, a descriptor, or a compiled runtime.
 - A `compile` or `check` step that writes outside the workspace.
-- Anything that makes `dreamteamer start` reachable off-host by default.
+- Anything that makes such a local server reachable off-host by default.
 - A dependency advisory that is actually reachable from this code.
 
 Not vulnerabilities: the unauthenticated local server (documented above), and anything requiring an
@@ -35,5 +36,5 @@ workspace regardless.
 
 ## Supported versions
 
-The latest published `0.6.x` release. This project has not reached 1.0; older minors do not get
-backported fixes.
+The latest published release. This project has not reached 1.0; older versions do not get
+backported fixes — update with `dt update --engine`.

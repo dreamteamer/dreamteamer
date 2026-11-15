@@ -16,6 +16,7 @@ import { describeCheckout } from "./lib/git/describeCheckout.ts"
 import { discoverModules } from "./workspace/discoverModules.ts"
 import { listRepos } from "./repos/listRepos.ts"
 import { staleness } from "./compile/staleness.ts"
+import { presetMembers } from "./install/presetMembers.ts"
 
 export function statusCommand(ws: Workspace, rest: string[]): number {
   const s = staleness(ws.root)
@@ -25,13 +26,19 @@ export function statusCommand(ws: Workspace, rest: string[]): number {
   }
   if (rest.includes("--json")) {
     const { modules: mods } = discoverModules(ws.root, ws.pkg)
+    const presets = presetMembers(ws)
+    const modEntry = (m: (typeof mods)[number]) => ({
+      name: m.name,
+      location: locationOf(m, ws.root),
+      ...(presets.has(m.name) ? { preset: true, members: presets.get(m.name)!.members } : {}),
+    })
     emit(
       JSON.stringify(
         {
           workspace: { root: ws.root, name: ws.pkg?.name ?? null },
           compiled: s.manifest.compiled,
           stale: s.stale,
-          modules: mods.map(m => ({ name: m.name, location: locationOf(m, ws.root) })),
+          modules: mods.map(modEntry),
           setup: statusLines(ws),
         },
         null,
@@ -61,6 +68,7 @@ export function statusCommand(ws: Workspace, rest: string[]): number {
   // provenance is LIVE discovery (not the manifest) — shows what the next compile would use
   const { modules, shadows } = discoverModules(ws.root, ws.pkg)
   const shadowed = new Map(shadows.map(sh => [sh.name, sh]))
+  const presets = presetMembers(ws)
   console.log("modules:")
   for (const m of modules) {
     // §10: the folder name IS the label. `hr  git_modules @ 3f2a1c (dirty)` needs no
@@ -88,7 +96,16 @@ export function statusCommand(ws: Workspace, rest: string[]): number {
     }
     const sh = shadowed.get(m.name)
     if (sh) line += ` — shadows ${CHANNEL_LABEL[sh.loser]} copy`
+    // a MODULE PRESET (CR-dt-008): how many members are here, then each absent and each drifted one
+    const p = presets.get(m.name)
+    if (p) line += ` · preset · ${p.members.length} members · ${p.members.filter(x => x.installed).length} installed`
     console.log(line)
+    if (p) {
+      for (const x of p.members) if (!x.installed) console.log(`    ${x.name}  not installed — dt install ${x.name}`)
+      for (const x of p.members)
+        if (x.installed && x.installed !== x.pinned)
+          console.log(`    ${x.name} ${x.installed} (preset ${p.id} names ${x.pinned})`)
+    }
   }
   // record layers: other workspaces cloned here for their records. The collections listed are
   // the ones FOUND — compiled with this layer as a root and holding a folder in the clone —

@@ -1,0 +1,8 @@
+name: vias
+title: Vias
+description: A record that points at a base, reached through the alone-set preset.
+fields:
+  name:
+    type: string
+  base:
+    type: bases

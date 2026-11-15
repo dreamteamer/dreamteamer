@@ -326,6 +326,10 @@ export interface DreamteamerBlock {
   ignore?: string[]
   provides?: string[]
   setup?: { skipped?: string[]; [k: string]: unknown }
+  /** A module PRESET: the modules it installs, package name → exact version. */
+  preset?: Record<string, string>
+  /** The package-relative path of the module's nav fragment (a nav.yaml). */
+  nav?: string
   [k: string]: unknown
 }
 
@@ -565,4 +569,24 @@ export interface TestWorkspace {
   root: string
   engine: string
   dt(args: string[], opts?: RunOptions): RunResult
+}
+
+// ---- the nav document (nav.yaml, cr-dt-008) -------------------------------------------------------
+
+/** One entry of nav.yaml's tree: a collection by name, its long form, a folder, or a namespace folder. */
+export type NavEntry =
+  | string
+  | { collection: string; icon?: string }
+  | { folder: string; icon?: string; hidden?: boolean; items: NavEntry[] }
+  | { namespace: string; icon?: string; hidden?: boolean; items?: NavEntry[] }
+
+/** The whole nav.yaml: the drawn tree, and the rows not drawn at all. */
+export interface NavDoc {
+  tree: NavEntry[]
+  hidden: string[]
+}
+
+/** One thing `validateNavDoc` reports — never a violation. */
+export interface NavWarning {
+  warning: string
 }

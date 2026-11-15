@@ -1,0 +1,16 @@
+{
+	"name": "@fix/ns",
+	"version": "1.0.0",
+	"description": "@fix/ns 1.0.0",
+	"files": [
+		"collections",
+		"nav.yaml"
+	],
+	"dreamteamer": {
+		"description": "@fix/ns — a synthetic module that declares a namespace and places it in its nav fragment.",
+		"namespaces": [
+			"fixns"
+		],
+		"nav": "nav.yaml"
+	}
+}

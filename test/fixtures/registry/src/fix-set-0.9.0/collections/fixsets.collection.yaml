@@ -1,10 +1,10 @@
-name: fixbs
-description: A fixbs record.
+name: fixsets
+description: A fixsets record.
 storage:
-  path: fixbs
+  path: fixsets
   format: md
   shape: file
-  suffix: fixb
+  suffix: fixset
 ids:
   from: '{{ title | slug }}'
 fields:

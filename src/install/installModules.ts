@@ -19,6 +19,17 @@ import type { ttyIO } from "../setup/ttyIO.ts"
 import type { InputFlag } from "../setup/types.ts"
 import type { InstallHooks } from "./types.ts"
 import { InstallRefusal } from "./versions.ts"
+import {
+  planNavFragments,
+  navGuard,
+  navDocGuard,
+  shipsFragment,
+  NavFragmentRefusal,
+  NAV_SETTINGS_LINE,
+  NAV_GUARD_LINE,
+  type NavPlan,
+} from "../workspace/navFragments.ts"
+import { NavDocError } from "../record/nav.ts"
 
 /** `git status --porcelain` of one path: '' when clean (modified AND untracked both count as dirty). */
 const gitStatus = (root: string, rel: string): string => {
@@ -77,7 +88,7 @@ export async function installModules(
   }
   let allow: Set<string>, inputFlags: InputFlag[]
   try {
-    allow = parseAllow(argv)
+    allow = parseAllow(argv, { also: ["nav-reset"] })
     inputFlags = parseInputFlags(argv)
   } catch (e) {
     if (e instanceof SetupUsage) {
@@ -86,6 +97,8 @@ export async function installModules(
     }
     throw e
   }
+  // `--allow nav-reset` is install's, never a setup unit's: taken out of the set the units see
+  const ignoreSettings = allow.delete("nav-reset")
 
   const floor = npmFloor(npm)
   if (floor) {
@@ -104,6 +117,25 @@ export async function installModules(
       return EXIT.failed
     }
     throw e
+  }
+  // the nav guard (cr-dt-008): a package that ships a nav fragment or is a module preset would redraw a
+  // tree that still draws by old nav settings — refused before npm until they are migrated, or until
+  // --allow nav-reset says to start from the fragments. A package with neither installs, and the merge
+  // says the settings are still there.
+  if (
+    !ignoreSettings &&
+    plan.list.some(e => e.manifest.dreamteamer?.nav || e.manifest.dreamteamer?.preset) &&
+    navGuard(ws.root)
+  ) {
+    console.error(`✖ ${NAV_GUARD_LINE}`)
+    return EXIT.failed
+  }
+  // a fragment merges into the workspace's nav.yaml, so a nav.yaml that does not read refuses before npm
+  // writes; a call that ships no fragment never reads it
+  const navBad = shipsFragment(plan.list) ? navDocGuard(ws.root) : null
+  if (navBad) {
+    console.error(`✖ install refused: ${navBad} — dt check names what is wrong; fix it, then run this again`)
+    return EXIT.failed
   }
   const setupOpts = { inputFlags, allow, tty, noInput, io, processEnv, noCommit }
   if (!plan.list.length) {
@@ -137,9 +169,21 @@ export async function installModules(
       console.error(`✖ compile: ${e.message.split("\n")[0]}`)
       return EXIT.failed
     }
+    let nav: NavPlan
+    try {
+      nav = planNavFragments(fresh, { names, ignoreSettings })
+    } catch (e) {
+      if (e instanceof NavFragmentRefusal || e instanceof NavDocError) {
+        console.error(`✖ install refused: ${e.message}`)
+        return EXIT.failed
+      }
+      throw e
+    }
+    if (nav.skipped === "settings") log(NAV_SETTINGS_LINE)
     const out = await setupAndCommit(ws, fresh, names, {
       subject: `dreamteamer: install ${names.join(", ")}`,
       ...setupOpts,
+      nav,
     })
     const did = [
       stale ? "the stale runtime was compiled" : null,
@@ -166,9 +210,10 @@ export async function installModules(
   )
 
   // 2–4. npm, verify, compile (a refusal restores the pre-image)
-  const step = await npmAndCompile(ws, plan.list, { npm, open, json, log, hooks, what: "install" })
+  const step = await npmAndCompile(ws, plan.list, { npm, open, json, log, hooks, what: "install", ignoreSettings })
   if (step.code !== undefined) return step.code
   const fresh = step.fresh
+  if (step.nav.skipped === "settings") log(NAV_SETTINGS_LINE)
   if (verify) {
     const stdout = console.log
     if (json) console.log = console.error
@@ -185,6 +230,7 @@ export async function installModules(
   const out = await setupAndCommit(ws, fresh, names, {
     subject: `dreamteamer: install ${names.join(", ")}`,
     ...setupOpts,
+    nav: step.nav,
   })
   if (json) {
     logOut(

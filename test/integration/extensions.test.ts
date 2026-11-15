@@ -142,14 +142,15 @@ describe("an extension's command runs in-process, handed THIS workspace and THIS
       ["prove", "proofs"],
       ["land", "worktrees"],
       ["worktree", "worktrees"],
-      ["serve", "http"],
+      ["serve", "web"],
+      ["web", "web"],
       ["notebooklm", "notebooklm"],
     ]) {
       const r = ws.dt(verb, "x")
       assert.equal(r.code, 2, verb)
       assert.equal(
         r.stderr,
-        `✖ \`dt ${verb}\` comes from an extension this workspace does not have — install it as a dependency:\n    npm i @dreamteamer/${pkg}\n`
+        `✖ \`dt ${verb}\` comes from an extension this workspace does not have — install it:\n    dt install @dreamteamer/${pkg}\n`
       )
     }
     for (const verb of ["start", "stop", "open", "export", "import"]) {

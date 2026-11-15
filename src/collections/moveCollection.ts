@@ -11,7 +11,7 @@ import { kindDir } from "../compile/compile.ts"
 import { moduleRows } from "../workspace/moduleRows.ts"
 
 // ---- moving a collection between modules -------------------------------------------------------
-// §7. `dt set collections/teams module=hr` — NOT `move`, which is nav ordering. The descriptor
+// §7. `dt set collections/teams module=hr` — NOT `move`/`reorder` (the nav's order is nav.yaml since 0.49). The descriptor
 // SOURCE relocates; the RECORDS do not, because a namespace and a `storage.path` are properties of
 // the collection rather than of the module, so a move never changes an id and never touches data.
 

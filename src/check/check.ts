@@ -31,6 +31,7 @@ import { loadDescriptors } from "../runtime/loadDescriptors.ts"
 import { namespaces as compiledNamespaces, runtimeDir } from "../runtime/runtime.ts"
 import { NO_RUNTIME } from "../runtime/consts.ts"
 import type { Descriptor } from "../types.ts"
+import { readNavDoc, validateNavDoc, NavDocError } from "../record/nav.ts"
 
 export function check(
   { root }: { root: string; pkg?: unknown },
@@ -531,6 +532,17 @@ export function check(
     )
   }
   for (const w of extra.filter(v => v.warning)) console.log(`⚠ ${w.file} — ${w.msg}`)
+  // the nav document: a name that resolves to nothing or is listed twice is worth seeing, never a
+  // violation — the drawing skips the one and draws the other at its first place (design §3 rule 5)
+  try {
+    const nav = readNavDoc(root)
+    if (nav)
+      for (const { warning } of validateNavDoc(nav, { collections: new Set(descriptors.keys()), namespaces }))
+        console.log(`⚠ nav.yaml — ${warning}`)
+  } catch (e) {
+    if (!(e instanceof NavDocError)) throw e
+    console.log(`⚠ nav.yaml — ${e.message}`)
+  }
   if (violations.length === 0) {
     console.log(
       `✔ 0 violations (${[...index.values()].reduce((n, m) => n + m.size, 0)} records across ${descriptors.size} collections)`

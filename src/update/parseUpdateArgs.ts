@@ -1,4 +1,4 @@
-/** The `dt update` argv: a target (`name`, `name@version`), `--engine`, `--allow downgrade`, `--from <dir>`, `--no-commit`. */
+/** The `dt update` argv: a target (`name`, `name@version`), `--engine`, `--allow downgrade|nav-reset`, `--from <dir>`, `--no-commit`. */
 export function parseUpdateArgs(argv: string[]) {
   const out = {
     name: null as string | null,
@@ -12,7 +12,8 @@ export function parseUpdateArgs(argv: string[]) {
     const a = argv[i]
     if (a === "--allow") {
       const k = argv[++i]
-      if (k !== "downgrade") throw new Error(`dt update --allow takes downgrade (got ${JSON.stringify(k)})`)
+      if (k !== "downgrade" && k !== "nav-reset")
+        throw new Error(`dt update --allow takes downgrade or nav-reset (got ${JSON.stringify(k)})`)
       out.allow.add(k)
     } else if (a === "--from") out.from = argv[++i] ?? null
     else if (!a.startsWith("--") && !["--allow", "--from"].includes(argv[i - 1])) {

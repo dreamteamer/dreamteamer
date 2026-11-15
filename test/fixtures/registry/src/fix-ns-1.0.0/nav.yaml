@@ -1,0 +1,3 @@
+tree:
+  - namespace: fixns
+    items: [fixns/items]
