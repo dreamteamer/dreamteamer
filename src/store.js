@@ -135,7 +135,8 @@ export class Store {
 	 *  against — the two read the same relation rows, so they cannot disagree about what a mirror holds.
 	 *
 	 *  Runs INSIDE withWriteLock, after the owner file is on disk. Nothing is validated here: an attach
-	 *  was proved to exist by `checkRefs` before the lock, and a detach is removal, which cannot dangle.
+	 *  was proved by `checkRefs` before the lock — to exist, or to be external (vouched for by an exports
+	 *  manifest, no record here to mirror onto) — and a detach is removal, which cannot dangle.
 	 *
 	 *  ⚠ ALL-OR-NOTHING, by its own hand. The one refusal it can raise (a unique owner) is discoverable only
 	 *  ON a target, i.e. partway through a loop that may already have rewritten other targets — so a
@@ -193,8 +194,10 @@ export class Store {
 					// A DETACH can name a target that is already gone: the owner outlived it (a `--force`
 					// rm), and its FK is the dangling reference `check` reports. There is no mirror left
 					// to edit and `read` would throw, turning someone else's stale data into a refusal of
-					// this write. An attach never lands here missing — checkRefs proved it before the lock.
-					if (!this.ids(rel.target).has(parsed.id)) return;
+					// this write. An attach lands here missing only when checkRefs accepted it as external
+					// (an exports manifest vouches for it): nothing here holds it, so there is no mirror to write.
+					// A target whose env-pointed root cannot render here is unread: no mirror either.
+					if (storageOf(td).unavailable || !this.ids(rel.target).has(parsed.id)) return;
 					// another repo answers: no mirror there (see above) — mirrors stay per repo
 					const file = this.mirrorFileFor(rel.target, parsed.id, ownerRepo);
 					if (!file) return;
@@ -635,11 +638,21 @@ export class Store {
 			if (!f) throw new Error(`${referrer}: no such record here — a referrer is a record this workspace reads`);
 			repo = this.layerOfFile(rd, f)?.layer ?? null;
 		}
+		const v = this.vouched(collection, id, repo);
+		if (!v || v.seen) return null;
+		return { label: v.label, ...(v.from ? { from: v.from } : {}), manifest: v.manifest };
+	}
+
+	/** The entry the exports manifest of `repo` (a layer name; null: the write root) holds for an id —
+	 *  `{ label, from?, manifest, seen }`, `seen` when its holder is read here (so the entry vouches for
+	 *  nothing: the holder answers, and lacks it) — or null. The one reading `external` and `checkRefs`
+	 *  share, so a write and `check` (src/check.js checkRef) reach one verdict on identical bytes. */
+	vouched(collection, id, repo = null) {
 		const facts = exportsFacts(this.root);
 		const ctx = exportsContext({ root: this.root, descriptors: this.descriptors, own: facts.own, layers: facts.layers, dataPath: facts.data });
 		const e = readExports(ctx.rootOf(repo))?.[collection]?.[id];
-		if (!e || sees(e, collection, ctx)) return null;
-		return { label: e.label, ...(e.from ? { from: e.from } : {}), manifest: path.relative(this.root, path.join(ctx.rootOf(repo), EXPORTS_FILE)) };
+		if (!e) return null;
+		return { label: e.label, ...(e.from ? { from: e.from } : {}), manifest: path.relative(this.root, path.join(ctx.rootOf(repo), EXPORTS_FILE)), seen: sees(e, collection, ctx) };
 	}
 
 	read(collection, id) {
@@ -742,7 +755,7 @@ export class Store {
 		// is the whole point of a revert — because `check` re-reads that file and expects a mirror only
 		// for a ref it can parse. Qualifying `after` here would attach a mirror check then calls stale.
 		const restored = { ...tmpFields };
-		this.validate(d, tmpFields);
+		this.validate(d, tmpFields, { repo: this.layerOfFile(d, file)?.layer ?? null });
 		// Restoring an owner field restores its PLACEMENT too — the historical record lived where its
 		// historical owner put it, and writing it into whatever folder the record sits in today would
 		// leave a file `check` reports the moment it lands. Same rule as `set`: only the owner moves it.
@@ -886,7 +899,7 @@ export class Store {
 
 	// ---- validation (hard) ---------------------------------------------------
 
-	validate(d, fields, { skipRefs = false } = {}) {
+	validate(d, fields, { skipRefs = false, repo = null } = {}) {
 		// hard at the tools includes UNKNOWN fields: a typo'd key must never land on disk
 		const unknown = unknownFields(d, fields);
 		if (unknown.length) throw new Error(`unknown field(s) for this collection: ${unknown.join(', ')} — nothing was written.`);
@@ -910,7 +923,7 @@ export class Store {
 			const remedy = mirrorRemedy(d, validate.errors.map((e) => e.instancePath.split('/')[1]));
 			throw new Error(`validation failed:\n${msgs.join('\n')}${remedy}\nnothing was written.`);
 		}
-		if (!skipRefs) this.checkRefs(d, fields);
+		if (!skipRefs) this.checkRefs(d, fields, [], repo);
 		return fields;
 	}
 
@@ -941,7 +954,9 @@ export class Store {
 		}
 	}
 
-	checkRefs(d, fields, prefix = []) {
+	/** `repo` is the referring record's: the layer that holds it, null for the write root — whose exports
+	 *  manifest may vouch for an id no root here holds, exactly as `check` reads it. */
+	checkRefs(d, fields, prefix = [], repo = null) {
 		for (const [key, f] of Object.entries(fieldsOf(d))) {
 			const targets = targetsOf(f);
 			if (!targets) continue;
@@ -975,7 +990,16 @@ export class Store {
 					if (soft) continue;
 					throw new Error(`${key}: reference "${value}" targets unknown collection "${coll}" — nothing was written.`);
 				}
-				if (!this.ids(coll).has(id) && !soft) throw new Error(`${key}: dangling reference "${value}" — no such record. nothing was written.${mirrorRemedy(d, [key])}`);
+				if (soft) continue;
+				// a collection whose env-pointed root cannot render here is unread, not empty — `check` passes it
+				if (storageOf(this.descriptors.get(coll)).unavailable) continue;
+				if (this.ids(coll).has(id)) continue;
+				// an id no root here holds, vouched for by the referring repo's exports manifest, is
+				// external (cr-dt-004) — accepted, as `check` accepts it. The manifest is read only here,
+				// on the way to a refusal, so a write naming a held id never pays for it.
+				const v = this.vouched(coll, id, repo);
+				if (v && !v.seen) continue;
+				throw new Error(`${key}: dangling reference "${value}" — no such record${v ? ` (its holder ${v.from} is read here and does not have it)` : ''}. nothing was written.${mirrorRemedy(d, [key])}`);
 			}
 		}
 	}
@@ -1106,7 +1130,7 @@ export class Store {
 		const previous = fs.readFileSync(file, 'utf8');
 		const next = { ...fields, ...changes };
 		for (const [k, v] of Object.entries(changes)) if (v === null || v === '') delete next[k];
-		this.validate(d, next);
+		this.validate(d, next, { repo: this.layerOfFile(d, file)?.layer ?? null });
 		this.refuseDuplicateValues(d, collection, id, next, Object.keys(changes));
 		// A placed record FOLLOWS ITS OWNER FIELD: changing it moves the file to the new parent's folder
 		// (or back to the fallback root) in this same write, id unchanged. Only a change to THAT field

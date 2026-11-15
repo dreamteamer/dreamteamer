@@ -11,6 +11,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import zlib from 'node:zlib';
+import { fileURLToPath } from 'node:url';
 import { spawnSync, execFileSync } from 'node:child_process';
 import { satisfies, EXACT } from './semver.js';
 import { engineVersion } from './runtime.js';
@@ -207,6 +208,8 @@ const gitIgnored = (root, rel) => gitOk(root, ['check-ignore', '-q', '--', rel])
 /** `git status --porcelain` of one path: '' when clean (modified AND untracked both count as dirty). */
 const gitStatus = (root, rel) => { try { return execFileSync('git', ['status', '--porcelain', '--', rel], { cwd: root, encoding: 'utf8' }).trim(); } catch { return ''; } };
 
+const BIN = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'dreamteamer.js');
+
 // ---- steps 2–4 and 5–6, shared with `dt update` (install one pin later) ----------------------------
 
 /**
@@ -215,8 +218,15 @@ const gitStatus = (root, rel) => { try { return execFileSync('git', ['status', '
  * nav fragments of the listed packages judged and merged (cr-dt-008) — inside the same restore, so a
  * fragment placing another module's collection, or a nav.yaml that does not read, undoes the call
  * like a compile refusal. Returns `{ fresh, nav }` (nav: the plan setupAndCommit writes), or `{ code }`.
+ *
+ * `childCompile` (dt update): this process opened the workspace before npm, and ESM caches an extension's
+ * entry and every file it imports by path — so an in-process compile would run the version npm just
+ * replaced, blind to a source kind or harness the new one contributes (rnd/issues …dt-update-compiles-with-
+ * the-replaced-version-s-extension). The compile then runs in a child, this engine's own `dt compile`; a
+ * non-zero exit is a refusal like any other, and `fresh` is only `{ root, pkg }` — the nav plan reads no
+ * extension, and activating the cached ones could refuse on a collision the new versions do not have.
  */
-export async function npmAndCompile(ws, list, { npm = resolveNpm(), open, json = false, log = console.log, hooks = {}, what = 'install', ignoreSettings = false } = {}) {
+export async function npmAndCompile(ws, list, { npm = resolveNpm(), open, json = false, log = console.log, hooks = {}, what = 'install', ignoreSettings = false, childCompile = false } = {}) {
 	const names = list.map((e) => e.manifest.name);
 	const pkgFile = path.join(ws.root, 'package.json'), lockFile = path.join(ws.root, 'package-lock.json');
 	const versionOf = (n) => { try { return JSON.parse(fs.readFileSync(path.join(ws.root, 'node_modules', n, 'package.json'), 'utf8')).version ?? null; } catch { return null; } };
@@ -233,10 +243,19 @@ export async function npmAndCompile(ws, list, { npm = resolveNpm(), open, json =
 	// 4. compile — a refusal restores the pre-image and prunes
 	let compiled = false;   // a refusal AFTER a compile (the nav fragments) owes the runtime a recompile
 	try {
-		const fresh = await open(ws.root);
-		const stdout = console.log;
-		if (json) console.log = console.error;
-		try { compile(fresh); compiled = true; } finally { console.log = stdout; }
+		let fresh;
+		if (childCompile) {
+			// --workspace pins the root: a layer under git_modules/ would otherwise be climbed out of to the reader
+			const c = spawnSync(process.execPath, [BIN, '--workspace', ws.root, 'compile'], { cwd: ws.root, stdio: json ? ['ignore', 2, 2] : 'inherit', env: childEnv() });
+			if (c.status !== 0) throw new Error(`compile exited ${c.status ?? c.error?.message ?? c.signal}`);
+			compiled = true;
+			fresh = { root: ws.root, pkg: JSON.parse(fs.readFileSync(pkgFile, 'utf8')) };
+		} else {
+			fresh = await open(ws.root);
+			const stdout = console.log;
+			if (json) console.log = console.error;
+			try { compile(fresh); compiled = true; } finally { console.log = stdout; }
+		}
 		const nav = planNavFragments(fresh, { names, ignoreSettings });
 		return { fresh, nav };
 	} catch (e) {
@@ -256,7 +275,8 @@ export async function npmAndCompile(ws, list, { npm = resolveNpm(), open, json =
 			return { code: EXIT.failed };
 		}
 		// compile succeeded before the refusal, so .dreamteamer and the harness folders hold the refused
-		// packages' sources: compile again over the restored node_modules, so the runtime is the pre-image's
+		// packages' sources: compile again over the restored node_modules, so the runtime is the pre-image's.
+		// In this process even after a child compile: the versions it cached are the restored ones.
 		if (compiled) {
 			const stdout = console.log;
 			console.log = () => {};

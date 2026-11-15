@@ -9,8 +9,11 @@
 //   @ho/unit 1.1.0   extension, unit `hounit`: no inputs; inspect names itself "hounit 1.1.0" (unverified, so
 //                    the line reads `— hounit: configured — hounit 1.1.0 unverified`); plan: one ready env
 //                    action `write-version` → HO_UNIT_VERSION=1.1.0 (declared in dreamteamer.env). Its entry
-//                    THROWS AT IMPORT when HO_UNIT_CRASH=1 — the parent, holding 1.0.0 in its ESM cache, never
-//                    runs that line; a fresh process does.
+//                    THROWS AT IMPORT when HO_UNIT_CRASH=1 in the setup half's process (src/update-setup.js) —
+//                    the parent, holding 1.0.0 in its ESM cache, never runs that line; the fresh setup process
+//                    does. Since 0.49.1 the compile after npm runs in a fresh process too, and an entry that
+//                    cannot load there refuses the update before setup (update.test.js covers that); gating
+//                    the throw to the setup process keeps this file on the path it was written for.
 //   @ho/host 1.0.0   extension, unit `hohost` with a REQUIRED input `calendar` (env HO_HOST_CAL).
 //   @ho/host 1.1.0   extension, unit `hohost` with no inputs ("hohost 1.1.0"), and dreamteamer.dependencies
 //                    ['@ho/newdep'] — the update's closure brings a new package.
@@ -44,7 +47,7 @@ const installed = (root, name) => { try { return JSON.parse(fs.readFileSync(path
 const envLines = (root, key) => { try { return fs.readFileSync(path.join(root, '.env'), 'utf8').split(/\r?\n/).filter((l) => l.startsWith(`${key}=`)); } catch { return []; } };
 
 const unitEntry = (id, { title, input = null, envAction = null, crashVar = null }) => `export const apiVersion = 1;
-${crashVar ? `if (process.env.${crashVar} === '1') throw new Error('${title} refuses to load (${crashVar})');\n` : ''}export default function activate() {
+${crashVar ? `if (process.env.${crashVar} === '1' && /update-setup\\.js$/.test(process.argv[1] ?? '')) throw new Error('${title} refuses to load (${crashVar})');\n` : ''}export default function activate() {
 	return { setup: [{
 		id: ${JSON.stringify(id)}, version: 1,
 		inputs: ${JSON.stringify(input ? [input] : [])},
