@@ -600,9 +600,9 @@ describe("the whole-collection form warns about the partner it leaves behind", (
     // deliberately different lengths and the real leftover in the middle. The other eleven are the
     // negative half: dirty for prose, which is nobody's edge changing.
     const ws = workspace({ collections: { meetings: MEETINGS, recordings: RECORDINGS } })
-    for (let i = 0; i < 12; i++) {
-      assert.equal(ws.dt("add", "meetings", "--name", `M${i}`, "--notes", "x".repeat(i * 40 + 1)).code, 0)
-    }
+    // written through the Store in-process — what `dt add` runs, without a process per record; the
+    // verb under test is `dt commit`, which still runs through the real CLI
+    for (let i = 0; i < 12; i++) ws.store.add("meetings", { name: `M${i}`, notes: "x".repeat(i * 40 + 1) })
     assert.equal(ws.dt("add", "recordings", "--name", "Cap", "--meeting", "meetings/m6").code, 0)
     assert.equal(ws.dt("commit").code, 0)
     assert.equal(ws.dt("set", "recordings/cap", "name=Cap v2").code, 0)
@@ -622,9 +622,8 @@ describe("the whole-collection form warns about the partner it leaves behind", (
     // and what that costs.
     const ws = workspace({ collections: { meetings: MEETINGS, recordings: RECORDINGS } })
     assert.equal(ws.dt("add", "meetings", "--name", "Standup").code, 0)
-    for (let i = 0; i < 25; i++) {
-      assert.equal(ws.dt("add", "recordings", "--name", `Cap ${i}`, "--meeting", "meetings/standup").code, 0)
-    }
+    // in-process, as above: 25 records through the Store, then the real `dt commit`
+    for (let i = 0; i < 25; i++) ws.store.add("recordings", { name: `Cap ${i}`, meeting: "meetings/standup" })
     const res = ws.dt("commit", "meetings")
     assert.equal(res.code, 0, res.stderr)
     assert.match(res.stderr, /25 relation partner\(s\) left pending/)
