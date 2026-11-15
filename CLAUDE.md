@@ -338,6 +338,7 @@ does not know, so a new folder costs a sentence of thought:
 | `src/compile/`, `src/extensions/`, `src/lib/`, `src/record/`, `src/runtime/`, `src/setup/`, `src/store/`, `src/workspace/` | shared — code two or more commands use | shared only |
 | `src/<command>/` | one command's code, and what it owns that other commands use | shared, its own folder, and another command's ROOT files — never another command's `lib/` |
 | `src/*.ts` | surface — entry points, and a verb's entry function when its command has no folder | anything |
+| `src/commands/` | surface — one file per core verb (`commands/<verb>.ts`, what `cli.ts` dispatches to); code several verbs share is in `commands/lib/` | anything |
 
 ⚠ **There is NO record → workspace direction any more** (removed on the `typescript` branch). It was a
 proxy for one real constraint and it drove folder layout instead of protecting it. The real

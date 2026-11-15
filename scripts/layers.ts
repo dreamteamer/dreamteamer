@@ -8,7 +8,7 @@
 //   src/compile/, src/extensions/, src/lib/, src/record/, src/runtime/, src/setup/, src/store/,
 //   src/workspace/                              shared   code two or more commands use
 //   src/<command>/                              command  one command's code, and what it owns that others use
-//   src/*.ts                                    surface  entry points and the function each verb dispatches to
+//   src/*.ts, src/commands/                     surface  entry points; commands/ holds one file per core verb
 //
 // Shared code imports only shared code; a command folder imports shared code, its own folder, and
 // another command folder's ROOT files — what that command owns and others use (update installs one pin
@@ -28,6 +28,8 @@ import { typeOnly } from "./import-edges.ts"
 
 const SRC = resolve(dirname(fileURLToPath(import.meta.url)), "..", "src")
 
+// surface folders: commands/ holds the file each core verb dispatches to, and it imports anything
+const SURFACE = new Set(["commands"])
 const SHARED = new Set(["compile", "extensions", "lib", "record", "runtime", "setup", "store", "workspace"])
 // the folders that hold one command's own code
 const COMMANDS = new Set([
@@ -58,7 +60,7 @@ const ALLOWED: Record<string, Set<string>> = {
 /** the layer of a module path ("store/Store"), or null for a folder nobody classified */
 const layerOf = (mod: string): string | null => {
   const dir = mod.includes("/") ? mod.split("/")[0] : null
-  if (dir === null) return "surface"
+  if (dir === null || SURFACE.has(dir)) return "surface"
   if (SHARED.has(dir)) return "shared"
   return COMMANDS.has(dir) ? "command" : null
 }

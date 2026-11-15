@@ -10,14 +10,24 @@ const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..")
 const cli = fs.readFileSync(path.join(root, "src/cli.ts"), "utf8")
 const skill = fs.readFileSync(path.join(root, "skills/using-dreamteamer/SKILL.md"), "utf8")
 
-const dispatch = new Set([...cli.matchAll(/case ['"]([a-z-]+)['"]/g)].map(m => m[1]))
-// `init` runs before workspace resolution, so it is an if, not a case — assert it exists.
-assert.match(cli, /cmd === ['"]init['"]/)
-dispatch.add("init")
+// The dispatch is the COMMANDS registry in cli.ts — one lazy `import("./commands/<verb>.ts")` per verb.
+const dispatch = new Set([...cli.matchAll(/^\s+['"]?([a-z-]+)['"]?: \(\) => import\(/gm)].map(m => m[1]))
+// A PIN THAT MATCHES NOTHING PASSES VACUOUSLY in the SKILL.md → dispatch direction's mirror: an empty
+// set would fail the first test loudly, but a half-matching pattern would not — so name a floor.
+assert.ok(
+  dispatch.size >= 30,
+  `read only ${dispatch.size} verbs from cli.ts's COMMANDS — the pattern no longer matches`
+)
+// Every registered verb has its file, and every file under src/commands/ is registered.
+const files = fs
+  .readdirSync(path.join(root, "src/commands"))
+  .filter(f => f.endsWith(".ts"))
+  .map(f => f.slice(0, -3))
+  .filter(v => v !== "version") // `version` is reached by its three spellings, not the grammar
+assert.deepEqual(new Set(files), dispatch, "src/commands/*.ts and cli.ts's COMMANDS disagree")
 // ⚠ THERE IS NO SEPARATE SCHEMA-OP TABLE ANY MORE. `SCHEMA_OPS`/`SCHEMA_FIELD_OPS` went with the
-// `schema` grammar in 0.19.0 — system entities take the record verbs, and every field verb is a
-// `case` — so `dispatch` alone is the authority. Left in place, both regexes would have matched
-// nothing and this file would have PASSED VACUOUSLY in one direction while failing in the other.
+// `schema` grammar in 0.19.0 — system entities take the record verbs, and every field verb is
+// registered — so `dispatch` alone is the authority.
 
 const block = skill.match(/the verb names, as a map[\s\S]*?\n\n## /)
 assert.ok(block, "SKILL.md carries the verb map block")

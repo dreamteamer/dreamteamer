@@ -68,7 +68,7 @@ WORKSPACE layer: knows git and the compiler, never the harness.
 
 ## cli
 
-Files: [cli.ts](cli.ts) · [usage.ts](usage.ts)
+Files: [cli.ts](cli.ts) · [usage.ts](usage.ts) · [commands/](commands/) — one file per verb, shared code in [commands/lib/](commands/lib/)
 
 dreamteamer CLI — VERB-FIRST: `dt <verb> [<target>]`, over the same primitives every surface uses.
 
