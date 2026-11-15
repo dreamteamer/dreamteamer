@@ -16,7 +16,8 @@ import fs from "node:fs"
 import path from "node:path"
 
 // Run from a checkout (scripts/x.ts beside src/) and from the npm package (built to dist/scripts/x.js,
-// one level under the engine's dist/*.js) — the rule of bin/dreamteamer.js: the source when present.
+// one level under the engine's dist/*.js). Run as scripts/x.ts it imports the source beside it — running
+// the TypeScript is that explicit choice; built, it imports the dist/ it sits in.
 const SOURCE = fs.existsSync(new URL("../src/api.ts", import.meta.url))
 const engine = <M>(name: string): Promise<M> =>
   import(new URL(SOURCE ? `../src/${name}.ts` : `../${name}.js`, import.meta.url).href)

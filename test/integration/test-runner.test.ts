@@ -15,6 +15,8 @@ function scratch() {
   fs.mkdirSync(path.join(root, "scripts"))
   for (const f of ["test.ts", "test-select.ts", "test-reporter.ts"])
     fs.copyFileSync(path.join(ENGINE_ROOT, "scripts", f), path.join(root, "scripts", f))
+  // the runner builds the engine before tier 2; there is no engine here, and the build is not under test
+  write(root, "scripts/build.ts", "// no engine to build in this scratch repo\n")
   fs.mkdirSync(path.join(root, "test", "unit"), { recursive: true })
   fs.mkdirSync(path.join(root, "test", "integration"), { recursive: true })
   write(root, "test/unit/a.test.ts", "import { test } from 'node:test'; test('a', () => {});\n")

@@ -14,8 +14,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # a checkout runs src/*.ts through Node's own type stripping, which needs 22.18+; the
-        # PUBLISHED package is the build in dist/ and still runs on 20 — the node20 job proves that
+        # the suite imports src/*.ts through Node's own type stripping, which needs 22.18+; the bin
+        # and the PUBLISHED package run the build in dist/, which still runs on 20 — the node20 job proves that
         node: [22, 24]
     name: node ${{ matrix.node }}
     steps:
@@ -27,6 +27,10 @@ jobs:
           cache: npm
 
       - run: npm ci
+
+      # bin/dreamteamer.js runs dist/, in a checkout as in the package — build it before anything runs dt
+      - name: build
+        run: npm run build
 
       - name: layer direction
         run: npm run layers
@@ -83,6 +87,10 @@ jobs:
           cache: npm
 
       - run: npm ci
+
+      # bin/dreamteamer.js runs dist/, in a checkout as in the package — build it before anything runs dt
+      - name: build
+        run: npm run build
 
       - name: cli loads
         run: node bin/dreamteamer.js --version

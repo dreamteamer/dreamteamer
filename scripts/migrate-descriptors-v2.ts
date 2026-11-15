@@ -32,7 +32,8 @@ import { fileURLToPath } from "node:url"
 import { parseDocument, isMap, isSeq, isScalar, Scalar, visit, type YAMLMap, type Pair, type Node } from "yaml"
 import { execFileSync } from "node:child_process"
 // Run from a checkout (scripts/x.ts beside src/) and from the npm package (built to dist/scripts/x.js,
-// one level under the engine's dist/*.js) — the rule of bin/dreamteamer.js: the source when present.
+// one level under the engine's dist/*.js). Run as scripts/x.ts it imports the source beside it — running
+// the TypeScript is that explicit choice; built, it imports the dist/ it sits in.
 const engine = <M>(name: string): Promise<M> =>
   import(
     new URL(
