@@ -5,19 +5,23 @@ its declarations generated from `src/types.ts` and the signatures) that is the O
 (sources → `.dreamteamer/` → harness adapters; records are files; a write lands on disk and
 `dreamteamer commit` publishes it, one commit per repo; hard validation before disk).
 
-## IMPORTANT — the engine is TypeScript, and a checkout RUNS it unbuilt
+## IMPORTANT — the engine is TypeScript, and the bin runs the BUILD
 
-`src/*.ts` is the source, and its relative imports name the `.ts` file (`./store.ts`). Two ways it runs:
+`src/*.ts` is the source, and its relative imports name the `.ts` file (`./store.ts`).
 
-- **A checkout runs the source directly** — `bin/dreamteamer.js` imports `src/cli.ts` and Node strips
-  the types (22.18+). This is what keeps a `git_modules/dreamteamer` dev clone working: it is a git
-  clone with no build, and a gitignored `dist/` would have been absent in a fresh clone and silently
-  STALE in an old one. Source wins whenever `src/` exists, so a `dist/` left by `npm pack` is never run.
-- **The npm package is `dist/`** — `npm run build` (run by `prepack`) emits it with tsc, rewriting
-  `.ts` imports to `.js`. Node refuses to strip types under `node_modules`, so `src/` is not published.
-  `dist/` sits one level under the root like `src/`, so `new URL('../package.json', import.meta.url)`
-  means the same from both. `engines` stays `>=20` because it describes `dist/`; CI proves 20 against
-  the packed tarball, and the suite on 22/24.
+- **`bin/dreamteamer.js` always runs `dist/`**, in the npm package and in a checkout alike — the bin
+  runs what ships, and refuses with "not built" when `dist/` is missing. A checkout (including a
+  `git_modules/dreamteamer` dev clone) runs `npm run build` first. Running the TypeScript directly is a
+  separate, explicit choice, never the bin's fallback.
+- **`npm run build`** (also run by `prepack`, and by the test runner before tier 2) emits `dist/` with
+  tsc, rewriting `.ts` imports to `.js`. Node refuses to strip types under `node_modules`, so `src/` is
+  not published. `dist/` sits one level under the root like `src/`, so
+  `new URL('../package.json', import.meta.url)` means the same from both. `engines` stays `>=20`
+  because it describes `dist/`; CI proves 20 against the packed tarball, and the suite on 22/24.
+- **The tests run as `.ts`** and import `src/` directly; every `dt` they launch runs the `dist/` the
+  runner just built from the same tree. A test file run by hand with `node --test` needs a build first.
+  A test that packs the engine passes `--ignore-scripts`, packing that build: `prepack` would delete
+  `dist/` under the files running beside it.
 
 So only ERASABLE syntax (`erasableSyntaxOnly`): no `enum`, no `namespace`, no constructor parameter
 properties; type-only imports are `import type`. `npm run typecheck` is part of `verify`.

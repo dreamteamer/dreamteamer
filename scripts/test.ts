@@ -145,6 +145,19 @@ if (needsLock && !flag("no-lock")) {
   sweepLeakedFixtures()
 }
 
+// Tier 2 drives the real binary, and bin/dreamteamer.js runs the COMPILED dist/ — so build it from this
+// tree first, once, or every `dt` a test launches runs whatever dist/ an earlier build left (or none).
+// Under the lock: the build deletes dist/ before writing it, and two runs share this checkout's dist/.
+// Tier 1 imports src/ directly and needs no build. Tests that pack the engine use --ignore-scripts, so
+// they ship this build rather than rebuilding dist/ under the files running beside them.
+if (needsLock) {
+  const built = spawnSync(process.execPath, [join(ROOT, "scripts", "build.ts")], { cwd: ROOT, stdio: "inherit" })
+  if (built.status !== 0) {
+    console.error("✖ npm run build failed — tier 2 runs the compiled engine and cannot start without it")
+    process.exit(built.status ?? 1)
+  }
+}
+
 // a URL, not a path: on Windows an absolute path is not a module specifier ('d:' reads as a scheme)
 const reporter = flag("verbose") ? "spec" : pathToFileURL(join(ROOT, "scripts", "test-reporter.ts")).href
 // A FILE that hangs is a FAILURE, never a wait. `--test-timeout` bounds each top-level test, and

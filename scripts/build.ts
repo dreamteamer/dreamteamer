@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// build — src/*.ts → dist/*.js for the npm package (run by `prepack`, so `npm pack` and `npm publish`
-// can never ship a stale or missing build). A checkout never needs this: bin/dreamteamer.js runs the
-// source directly. The declarations (dist/*.d.ts) are generated from the source's annotations and
+// build — src/*.ts → dist/*.js, which is what bin/dreamteamer.js runs, in the npm package and in a
+// checkout alike. Run by `prepack` (so `npm pack` and `npm publish` can never ship a stale or missing
+// build) and by the test runner before tier 2. The declarations (dist/*.d.ts) are generated from the source's annotations and
 // src/lib/types.ts; test/types/consumer.ts (`node scripts/contract.ts`) is the contract they are held to.
 // The two migrations users run from the package land in dist/scripts/. Runs through tsx (`npm run
 // build`), so packing works on the Node 20 CI job, which cannot strip types.

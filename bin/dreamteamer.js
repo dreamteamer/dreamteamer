@@ -107,28 +107,24 @@ if (devBin && realpath(devBin) !== realpath(self)) {
   run(process.argv.slice(2))
 }
 
-/** Which build of this engine runs: the SOURCE when this is a checkout (src/ is never published), the
- *  compiled dist/ when it is the npm package. Source wins whenever it is present — a dist/ left behind
- *  by `npm pack` in a checkout is a stale build, and running it would ignore every edit since, silently.
- *  A git_modules/dreamteamer dev clone is a checkout with no dist/ at all, which is why the source has
- *  to be runnable as-is: Node strips the types (22.18+), nothing is built. */
 /** The process-wide registry the `--workspace` pin lives in (a symbol-keyed global, never the environment). */
 function pinned() {
   return /** @type {Record<symbol, unknown>} */ (/** @type {unknown} */ (globalThis))
 }
 
-/** @param {string} name @returns {string} */
+/** The build this engine runs: ALWAYS the compiled dist/, in the npm package and in a checkout alike —
+ *  the bin runs what ships, never the source. A checkout runs `npm run build` first (the test runner
+ *  does it before tier 2); running the TypeScript directly is a separate, explicit choice.
+ *  @param {string} name @returns {string} */
 function engineEntry(name) {
-  const src = new URL(`../src/${name}.ts`, import.meta.url)
-  if (!fs.existsSync(src)) return new URL(`../dist/${name}.js`, import.meta.url).href
-  // process.features.typescript is newer than the @types/node floor, hence the cast
-  if (!(/** @type {{ typescript?: unknown }} */ (process.features).typescript)) {
+  const entry = new URL(`../dist/${name}.js`, import.meta.url)
+  if (!fs.existsSync(entry)) {
     console.error(
-      `✖ this dreamteamer is a source checkout (${fileURLToPath(new URL("..", import.meta.url))}) and runs its TypeScript directly, which needs Node 22.18 or newer (this is ${process.version})`
+      `✖ this dreamteamer is not built (${fileURLToPath(new URL("..", import.meta.url))} has no dist/${name}.js); run \`npm run build\` there`
     )
     process.exit(1)
   }
-  return src.href
+  return entry.href
 }
 
 /** Canonical on-disk identity of a path — symlinks followed, falling back to the literal path. */

@@ -158,7 +158,7 @@ describe("every record write names the workspace it landed in", () => {
 function fakeEngine(at) {
   fs.mkdirSync(path.join(at, "bin"), { recursive: true })
   fs.copyFileSync(path.join(ENGINE_ROOT, "bin/dreamteamer.js"), path.join(at, "bin/dreamteamer.js"))
-  for (const link of ["src", "node_modules", "package.json"]) {
+  for (const link of ["dist", "node_modules", "package.json"]) {
     fs.symlinkSync(path.join(ENGINE_ROOT, link), path.join(at, link))
   }
   return at

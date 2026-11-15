@@ -18,7 +18,7 @@ test/.tmp/
 # tier-4 perf fixtures: generated per run by `npm run perf`, never committed
 test/.perf/
 
-# the npm build (src/*.ts → dist/*.js), made by `npm run build` / prepack — a checkout runs src/ directly
+# the build (src/*.ts → dist/*.js) that bin/dreamteamer.js runs — made by `npm run build`, prepack, and the test runner before tier 2
 dist/
 # acceptance evidence (node test/acceptance/run.mjs without --out)
 test/acceptance/out/

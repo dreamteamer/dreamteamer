@@ -173,7 +173,7 @@ describe("dt init — an invalid secret-path from the environment is reported", 
     const from = buildRegistry()
     // the folder must hold the engine itself for an offline init
     assert.equal(
-      spawnSync("npm", ["pack", ENGINE_ROOT, "--pack-destination", from, "--silent"], {
+      spawnSync("npm", ["pack", ENGINE_ROOT, "--ignore-scripts", "--pack-destination", from, "--silent"], {
         encoding: "utf8",
         timeout: SPAWN_TIMEOUT_MS,
       }).status,

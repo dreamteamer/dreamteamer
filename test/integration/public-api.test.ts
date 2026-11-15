@@ -114,7 +114,9 @@ describe("the INSTALLED package", () => {
     // nothing but "Command failed" to go on.
     const npm = resolveNpm()
     assert.ok(npm, "no npm beside this node or on PATH — the packed-install check cannot run")
-    const pack = spawnSync(npm, ["pack", "--silent", "--pack-destination", dir], {
+    // --ignore-scripts: pack the dist/ the test runner built, never rebuild it (prepack deletes dist/
+    // first, under every other file's `dt`)
+    const pack = spawnSync(npm, ["pack", "--ignore-scripts", "--silent", "--pack-destination", dir], {
       cwd: ENGINE_ROOT,
       encoding: "utf8",
       timeout: 120_000,
