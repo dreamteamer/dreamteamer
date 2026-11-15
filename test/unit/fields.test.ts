@@ -6,11 +6,14 @@
 import { test, describe } from "node:test"
 import assert from "node:assert/strict"
 import { resolveFields } from "../../src/compile/lib/resolveFields.ts"
-import { toJsonSchema } from "../../src/compile/lib/toJsonSchema.ts"
+import { toJsonSchema as engineToJsonSchema } from "../../src/compile/lib/toJsonSchema.ts"
 import { enumValues, referenceTargets } from "../../src/record/fields.ts"
 import { enumChoices } from "../../src/record/lib/enumChoices.ts"
 import { INJECTED_FIELDS } from "../../src/record/consts.ts"
 import { SCALAR_TYPES } from "../../src/record/consts.ts"
+
+// the tests read deep into the emitted JSON Schema, which the engine types as an opaque record
+const toJsonSchema = (...a: Parameters<typeof engineToJsonSchema>): any => engineToJsonSchema(...a)
 
 const collections = new Set([
   "health/patients",

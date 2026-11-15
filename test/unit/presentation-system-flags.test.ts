@@ -15,7 +15,7 @@ import { presentation } from "../../src/record/presentation.ts"
 import { compiledCollection } from "../helpers/clinic-compiled.ts"
 
 const rowFor = d => presentation(new Map([[d.name, d]])).collections.find(c => c.collection === d.name)
-const kind = (name, { internal, runtime } = {}) =>
+const kind = (name, { internal, runtime }: Record<string, any> = {}) =>
   compiledCollection(name, {
     authored: internal === undefined ? {} : { internal },
     runtime,

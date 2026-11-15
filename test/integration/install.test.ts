@@ -453,7 +453,7 @@ describe("dt install --print-adapters renders the harness snippet", () => {
   test("every hook carries timeout 600 and NO matcher", () => {
     const ws = workspace()
     const snippet = JSON.parse(dt(ws.root, "install", "--print-adapters").stdout)
-    for (const [event, entries] of Object.entries(snippet.hooks)) {
+    for (const [event, entries] of Object.entries<any>(snippet.hooks)) {
       for (const entry of entries) {
         assert.ok(!("matcher" in entry), `${event} carries a matcher`)
         for (const h of entry.hooks) {

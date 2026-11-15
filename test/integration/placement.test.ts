@@ -20,7 +20,7 @@ import { storageOf } from "../../src/record/storageOf.ts"
 const require = createRequire(import.meta.url)
 
 // The PARENT: a folder-shape collection, one folder per company, `company.md` as its entry file.
-const COMPANIES = {
+const COMPANIES: Record<string, any> = {
   ids: { from: "{{ name | slug }}" },
   storage: { shape: "folder", entry: "company.md", suffix: "company", format: "md" },
   fields: {
@@ -31,7 +31,7 @@ const COMPANIES = {
 
 // The CHILD: a dated, path-shaped id (`2026/10/kickoff`), the shape a real meetings collection has,
 // so the test proves the id survives placement with its slashes intact.
-const MEETINGS = {
+const MEETINGS: Record<string, any> = {
   ids: { from: "{{ when }}/{{ name | slug }}" },
   storage: { suffix: "meeting", under: { parent: "company", subfolder: "meetings" } },
   fields: {
@@ -43,7 +43,7 @@ const MEETINGS = {
 }
 
 // A third collection that points AT meetings — the inbound reference a move must leave intact.
-const TASKS = {
+const TASKS: Record<string, any> = {
   ids: { from: "{{ name | slug }}" },
   storage: { suffix: "task" },
   fields: {
@@ -154,7 +154,10 @@ describe("declaring storage.under", () => {
       fields: { name: { type: "string", required: true }, meeting: { type: "meetings" } },
     }
     assert.match(refused({ storage: {}, extra: { notes: NESTED } }), /"meetings" is itself stored under/)
-    const SIBLING = { ...TASKS, storage: { suffix: "task", under: { parent: "company", subfolder: "meetings" } } }
+    const SIBLING: Record<string, any> = {
+      ...TASKS,
+      storage: { suffix: "task", under: { parent: "company", subfolder: "meetings" } },
+    }
     SIBLING.fields = { ...TASKS.fields, company: { type: "companies" } }
     assert.match(
       refused({ storage: {}, extra: { tasks: SIBLING } }),

@@ -18,7 +18,7 @@ import { twoModuleWorkspace, bareWorkspace, writeModule, patchModulePkg, readFil
 import { load } from "../../src/lib/yaml.ts"
 import { storageOf } from "../../src/record/storageOf.ts"
 
-const manifest = ws => load(readFile(ws.root, ".dreamteamer/manifest.yaml"))
+const manifest = ws => load<any>(readFile(ws.root, ".dreamteamer/manifest.yaml"))
 
 describe("the effective set is the UNION", () => {
   test("a module's own declaration reaches the manifest with no workspace entry at all", () => {
@@ -140,7 +140,7 @@ describe("THE BARE-WORKSPACE GATE — decision 130's test, which it never had", 
     const res = bare.dt("compile")
     assert.equal(res.code, 0, res.stdout + res.stderr)
     assert.deepEqual(
-      load(readFile(bare.root, ".dreamteamer/manifest.yaml")).namespaces,
+      load<any>(readFile(bare.root, ".dreamteamer/manifest.yaml")).namespaces,
       ["hr"],
       "the module carried its own namespace in"
     )
@@ -166,7 +166,7 @@ describe("THE BARE-WORKSPACE GATE — decision 130's test, which it never had", 
     const bare = bareWorkspace(source.root, "hr")
     const out = bare.dt("compile")
     assert.equal(out.code, 0, out.stderr)
-    const d = load(readFile(bare.root, ".dreamteamer/collections/hr/positions.collection.yaml"))
+    const d = load<any>(readFile(bare.root, ".dreamteamer/collections/hr/positions.collection.yaml"))
     assert.deepEqual(
       d.compiled.unresolved_peers,
       ["people"],
@@ -184,7 +184,7 @@ describe("namespace inference from --module", () => {
     assert.match(res.stdout, /✔ hr\/grades \(namespace inferred from module hr\)/)
     assert.ok(readFile(ws.root, "modules/hr/collections/hr/grades.collection.yaml"))
     assert.equal(
-      storageOf(load(readFile(ws.root, ".dreamteamer/collections/hr/grades.collection.yaml"))).path,
+      storageOf(load<any>(readFile(ws.root, ".dreamteamer/collections/hr/grades.collection.yaml"))).path,
       "data/hr/grades"
     )
   })

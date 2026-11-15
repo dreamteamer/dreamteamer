@@ -374,7 +374,9 @@ scenario(
 
 scenario("A7", "a synthetic provider is driven with no engine edit", ok => {
   // the probe is a package in test/fixtures; the engine's src/ names no module — the proof is the grep
-  const files = fs.readdirSync(path.join(ENGINE_ROOT, "src"), { recursive: true }).filter(f => f.endsWith(".ts"))
+  const files = fs
+    .readdirSync(path.join(ENGINE_ROOT, "src"), { recursive: true, encoding: "utf8" })
+    .filter(f => f.endsWith(".ts"))
   const src = files.map(f => fs.readFileSync(path.join(ENGINE_ROOT, "src", f), "utf8")).join("\n")
   ok(
     !/@probe\/|['"`]probe['"`]|google-workspace|@dreamteamer\/(meetings|recordings|google|tasks|contacts)/.test(src),
@@ -406,7 +408,9 @@ scenario("A9", "status and doctor are read-only and offline in every state", ok 
     ok(treeHash(root) === before, `unchanged under ${JSON.stringify(env)}`)
   }
   // setup and doctor are spread over many files now — no engine file imports a network module at all
-  for (const f of fs.readdirSync(path.join(ENGINE_ROOT, "src"), { recursive: true }).filter(f => f.endsWith(".ts")))
+  for (const f of fs
+    .readdirSync(path.join(ENGINE_ROOT, "src"), { recursive: true, encoding: "utf8" })
+    .filter(f => f.endsWith(".ts")))
     ok(
       !/from ['"]node:(http|https|dns|net)['"]/.test(fs.readFileSync(path.join(ENGINE_ROOT, "src", f), "utf8")),
       `src/${f} imports no network module`

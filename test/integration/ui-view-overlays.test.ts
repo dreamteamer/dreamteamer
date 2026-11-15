@@ -39,7 +39,7 @@ const OVERLAY_FILE = "modules/default/ui-views/clinic-doctors.ui-view.yaml"
 const PKG_VIEW_FILE = "node_modules/@acme/clinic/ui-views/clinic-doctors.ui-view.yaml"
 
 /** A workspace with `@acme/clinic` INSTALLED — it ships the `doctors` collection and a view of it. */
-function withPackage({ view = PKG_VIEW, extra } = {}) {
+function withPackage({ view = PKG_VIEW, extra }: Record<string, any> = {}) {
   const ws = workspace({ compile: false })
   const mod = path.join(ws.root, "node_modules", "@acme", "clinic")
   fs.mkdirSync(path.join(mod, "ui-views"), { recursive: true })
@@ -59,12 +59,13 @@ function withPackage({ view = PKG_VIEW, extra } = {}) {
   ws.git(["add", "-A"])
   ws.git(["commit", "-qm", "fixture: the clinic package"])
   const out = compileQuietly(ws.ws)
-  assert.equal(out.code, 0, out.stdout)
+  assert.equal(out.code, 0, out.stdout.join("\n"))
   ws.store = new Store(ws.ws)
   ws.dt = (...a) => dt(ws.root, ...a)
   return ws
 }
-const compiledView = (ws, id = "clinic-doctors") => load(readFile(ws.root, `.dreamteamer/ui-views/${id}.ui-view.yaml`))
+const compiledView = (ws, id = "clinic-doctors") =>
+  load<any>(readFile(ws.root, `.dreamteamer/ui-views/${id}.ui-view.yaml`))
 const writeOverlay = (ws, body) => {
   fs.mkdirSync(path.join(ws.root, "modules/default/ui-views"), { recursive: true })
   fs.writeFileSync(path.join(ws.root, OVERLAY_FILE), dump(body))
@@ -72,7 +73,7 @@ const writeOverlay = (ws, body) => {
 
 describe("the overlay grammar", () => {
   test("deep, overlay wins at a leaf, a list is replaced whole, null removes", () => {
-    const merged = overlayView(PKG_VIEW, { filter: null, display: { list: { columns: ["city"] } } })
+    const merged: any = overlayView(PKG_VIEW, { filter: null, display: { list: { columns: ["city"] } } })
     assert.equal(merged.filter, undefined)
     assert.deepEqual(merged.display.list, { layout: "table", columns: ["city"], sort: "name" })
     assert.deepEqual(merged.display.nav, { title: "Doctors" })
@@ -104,7 +105,9 @@ describe("compile merges a ui-view overlay onto the package view", () => {
     assert.equal(v.overlay, undefined, "the flag is the source's, not the view's")
     assert.equal(v.compiled.module, "clinic")
     assert.deepEqual(v.compiled.overlaid_by, ["default"])
-    const entry = load(readFile(ws.root, ".dreamteamer/manifest.yaml")).entries["ui-views/clinic-doctors.ui-view.yaml"]
+    const entry = load<any>(readFile(ws.root, ".dreamteamer/manifest.yaml")).entries[
+      "ui-views/clinic-doctors.ui-view.yaml"
+    ]
     assert.deepEqual(
       entry.sources.map(s => s.path),
       [PKG_VIEW_FILE, OVERLAY_FILE],
@@ -151,14 +154,17 @@ describe("Save over a package's view writes the overlay", () => {
 
   test("only the keys that differ land in the workspace module; the package source is untouched", () => {
     const ws = withPackage()
-    const res = saveUiView(ws.ws, ws.store, {
+    const res: any = saveUiView(ws.ws, ws.store, {
       id: "clinic-doctors",
       view: edited({ display: { list: { sort: "-city" } } }),
     })
     assert.equal(res.overlay, true)
     assert.equal(path.relative(ws.root, res.file), OVERLAY_FILE)
-    assert.deepEqual(load(readFile(ws.root, OVERLAY_FILE)), { overlay: true, display: { list: { sort: "-city" } } })
-    assert.deepEqual(load(readFile(ws.root, PKG_VIEW_FILE)), PKG_VIEW)
+    assert.deepEqual(load<any>(readFile(ws.root, OVERLAY_FILE)), {
+      overlay: true,
+      display: { list: { sort: "-city" } },
+    })
+    assert.deepEqual(load<any>(readFile(ws.root, PKG_VIEW_FILE)), PKG_VIEW)
     assert.equal(
       compiledView(ws).display.list.sort,
       "-city",
@@ -172,7 +178,7 @@ describe("Save over a package's view writes the overlay", () => {
     const store = new Store(ws.ws)
     saveUiView(ws.ws, store, { id: "clinic-doctors", view: edited({ filter: null }) })
     assert.deepEqual(
-      load(readFile(ws.root, OVERLAY_FILE)),
+      load<any>(readFile(ws.root, OVERLAY_FILE)),
       { overlay: true, filter: null },
       "the sort went back to the package's, and the filter is removed"
     )
@@ -182,7 +188,7 @@ describe("Save over a package's view writes the overlay", () => {
   test("saving the package view as it is removes the overlay", () => {
     const ws = withPackage()
     saveUiView(ws.ws, ws.store, { id: "clinic-doctors", view: edited({ display: { list: { sort: "-city" } } }) })
-    const res = saveUiView(ws.ws, new Store(ws.ws), { id: "clinic-doctors", view: structuredClone(PKG_VIEW) })
+    const res: any = saveUiView(ws.ws, new Store(ws.ws), { id: "clinic-doctors", view: structuredClone(PKG_VIEW) })
     assert.equal(res.removed, true)
     assert.equal(readFile(ws.root, OVERLAY_FILE), null)
     assert.equal(compiledView(ws).display.list.sort, "name")
@@ -201,7 +207,7 @@ describe("Save over a package's view writes the overlay", () => {
     const ws = withPackage()
     const res = ws.dt("set", "ui-views/clinic-doctors", "display.list.columns=name,status")
     assert.equal(res.code, 0, res.stderr)
-    assert.deepEqual(load(readFile(ws.root, OVERLAY_FILE)), {
+    assert.deepEqual(load<any>(readFile(ws.root, OVERLAY_FILE)), {
       overlay: true,
       display: { list: { columns: ["name", "status"] } },
     })
@@ -275,7 +281,7 @@ describe("a package collection's DEFAULT display, changed from the workspace", (
 
   test("a display write becomes a workspace overlay carrying only the keys that differ", () => {
     const ws = withPackage()
-    const res = setCollectionScalars(ws.ws, ws.store, "doctors", {
+    const res: any = setCollectionScalars(ws.ws, ws.store, "doctors", {
       "display.list.columns": "name,status",
       "display.list.sort": "name",
     })
@@ -286,14 +292,14 @@ describe("a package collection's DEFAULT display, changed from the workspace", (
       "the result names the declaration it wrote"
     )
     assert.equal(path.relative(ws.root, res.file), OVERLAY)
-    const doc = load(readFile(ws.root, OVERLAY))
+    const doc = load<any>(readFile(ws.root, OVERLAY))
     assert.equal(doc.overlay, true)
     assert.deepEqual(
       doc.display,
       { list: { columns: ["name", "status"] } },
       "the sort equals the package's, so it is not restated"
     )
-    const compiled = load(readFile(ws.root, ".dreamteamer/collections/doctors.collection.yaml"))
+    const compiled = load<any>(readFile(ws.root, ".dreamteamer/collections/doctors.collection.yaml"))
     assert.deepEqual(compiled.display.list.columns, ["name", "status"])
     assert.deepEqual(
       JSON.parse(readFile(ws.root, "modules/default/package.json")).dreamteamer.peer_collections,
@@ -301,7 +307,7 @@ describe("a package collection's DEFAULT display, changed from the workspace", (
       "the declaration compile requires of an overlay is written in the same save, not handed back as a remedy"
     )
     assert.equal(
-      load(
+      load<any>(
         readFile(ws.root, "node_modules/@acme/clinic/collections/doctors.collection.yaml")
       ).display.list.columns.includes("status"),
       false,
@@ -312,14 +318,14 @@ describe("a package collection's DEFAULT display, changed from the workspace", (
   test("one changed option is written with the package's other options, so none is dropped", () => {
     const ws = withPackage()
     setCollectionScalars(ws.ws, ws.store, "doctors", { "display.list.options.page_size": "50" })
-    const compiled = load(readFile(ws.root, ".dreamteamer/collections/doctors.collection.yaml"))
+    const compiled = load<any>(readFile(ws.root, ".dreamteamer/collections/doctors.collection.yaml"))
     assert.deepEqual(compiled.display.list.options, { page_size: 50, density: "compact" })
   })
 
   test("setting it back to the package's value removes the overlay", () => {
     const ws = withPackage()
     setCollectionScalars(ws.ws, ws.store, "doctors", { "display.list.sort": "-city" })
-    const res = setCollectionScalars(ws.ws, new Store(ws.ws), "doctors", { "display.list.sort": "name" })
+    const res: any = setCollectionScalars(ws.ws, new Store(ws.ws), "doctors", { "display.list.sort": "name" })
     assert.equal(res.removed, true)
     assert.equal(readFile(ws.root, OVERLAY), null)
   })

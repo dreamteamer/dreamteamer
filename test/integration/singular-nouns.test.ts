@@ -13,7 +13,8 @@ import { load, dump } from "../../src/lib/yaml.ts"
 import { singularOf } from "../../src/record/descriptor.ts"
 
 /** The singular a compiled descriptor answers to — authored, or derived into `compiled.defaults`. */
-const singular = (ws, name) => singularOf(load(readFile(ws.root, `.dreamteamer/collections/${name}.collection.yaml`)))
+const singular = (ws, name) =>
+  singularOf(load<any>(readFile(ws.root, `.dreamteamer/collections/${name}.collection.yaml`)))
 /** A record's text without its `created` stamp, which the store writes at the second of the add. */
 const unstamped = text => text.replace(/^created: .*\n/m, "")
 
@@ -141,7 +142,7 @@ describe("references never learn the singular", () => {
     const ws = twoModuleWorkspace()
     assert.equal(ws.dt("add", "task", "anchor").code, 0)
     const file = path.join(ws.root, "modules", "core", "collections", "people.collection.yaml")
-    const people = load(fs.readFileSync(file, "utf8"))
+    const people = load<any>(fs.readFileSync(file, "utf8"))
     people.fields.owes = { type: "tasks", description: "A task this person owes." }
     fs.writeFileSync(file, dump(people))
     const compiledRun = ws.dt("compile")

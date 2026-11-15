@@ -11,12 +11,14 @@ import { placedChildAt } from "../../src/record/lib/placedChildAt.ts"
 import { ownerIdOf } from "../../src/record/ownerIdOf.ts"
 import { pathToRecord } from "../../src/record/pathToRecord.ts"
 import { parseRef } from "../../src/record/parseRef.ts"
+import type { Under } from "../../src/record/types.ts"
+import { descriptors as descriptorMap } from "../helpers/partial.ts"
 
 // the RESOLVED placement (`storageOf(d).under`): the authored parent field and subfolder, plus the
 // parent collection compile records in `compiled.under_collection`
-const UNDER = { parent: "company", subfolder: "meetings", collection: "companies" }
-const placed = (name, storage, parent) => ({ name, storage, compiled: parent ? { under_collection: parent } : {} })
-const descriptors = new Map([
+const UNDER = { parent: "company", subfolder: "meetings", collection: "companies" } as Under
+const placed = (name, storage, parent?) => ({ name, storage, compiled: parent ? { under_collection: parent } : {} })
+const descriptors = descriptorMap([
   [
     "companies",
     placed("companies", {

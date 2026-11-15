@@ -25,7 +25,7 @@ const VISITS = simpleCollection({
 })
 
 /** The standard two-namespace workspace these tests share. */
-function nsWorkspace({ collections, ...extra } = {}) {
+function nsWorkspace({ collections, ...extra }: Record<string, any> = {}) {
   return workspace({
     namespaces: ["health", "finance"],
     ...extra,
@@ -338,7 +338,7 @@ describe("the derived title drops the namespace", () => {
   // a title on every namespaced collection, which is the tell: a derivation nobody can use is not a
   // default. A namespace is the FOLDER a collection sits in, not part of what it is called.
   const compiledTitle = (ws, name) =>
-    titleOf(load(readFile(ws.root, `.dreamteamer/collections/${name}.collection.yaml`)))
+    titleOf(load<any>(readFile(ws.root, `.dreamteamer/collections/${name}.collection.yaml`)))
 
   test("a namespaced collection derives its BARE name", () => {
     const ws = nsWorkspace()

@@ -14,7 +14,7 @@ const SETUP = "# setup\n\nCommands: `dt fixture-kit verify` (synthetic).\n"
 const json = o => JSON.stringify(o, null, "\t") + "\n"
 
 function put(dir, files) {
-  for (const [rel, text] of Object.entries(files)) {
+  for (const [rel, text] of Object.entries<any>(files)) {
     fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true })
     fs.writeFileSync(path.join(dir, rel), text)
   }

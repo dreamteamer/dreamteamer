@@ -4,11 +4,12 @@ import assert from "node:assert/strict"
 import * as accessors from "../../src/record/descriptor.ts"
 import { displayOf } from "../../src/record/displayOf.ts"
 import { storageOf } from "../../src/record/storageOf.ts"
+import { desc } from "../helpers/partial.ts"
 
 // the descriptor accessors, as one namespace the way the suite reads them
 const D = { ...accessors, displayOf, storageOf }
 
-const visits = {
+const visits = desc({
   name: "health/visits",
   record_title: "{{ reason }}",
   storage: { under: { parent: "patient", subfolder: "visits" } },
@@ -43,7 +44,7 @@ const visits = {
     },
     json_schema: { type: "object", required: ["reason", "patient"], properties: {} },
   },
-}
+})
 
 describe("descriptor accessors", () => {
   test("fields, stored fields, body, position, required", () => {
@@ -97,7 +98,7 @@ describe("descriptor accessors", () => {
   })
   test("an empty or absent descriptor answers safely", () => {
     assert.deepEqual(D.fieldsOf(undefined), {})
-    assert.equal(D.bodyFieldOf({}), undefined)
-    assert.equal(D.storageOf({}).format, "md")
+    assert.equal(D.bodyFieldOf(desc({})), undefined)
+    assert.equal(D.storageOf(desc({})).format, "md")
   })
 })

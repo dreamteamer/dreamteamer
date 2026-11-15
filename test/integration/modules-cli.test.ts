@@ -294,13 +294,13 @@ describe("location — the folder the operator already knows (§10)", () => {
 
   test("the enum has no `path` value — discovery never emitted one", () => {
     const ws = twoModuleWorkspace()
-    const d = load(readFile(ws.root, ".dreamteamer/collections/modules.collection.yaml"))
+    const d = load<any>(readFile(ws.root, ".dreamteamer/collections/modules.collection.yaml"))
     assert.deepEqual(d.compiled.fields.location.enum, ["modules", "git_modules", "node_modules", "root"])
   })
 
   test("the manifest carries BOTH keys for one release", () => {
     const ws = twoModuleWorkspace()
-    const m = load(readFile(ws.root, ".dreamteamer/manifest.yaml"))
+    const m = load<any>(readFile(ws.root, ".dreamteamer/manifest.yaml"))
     const core = m.modules.find(x => x.name === "core")
     assert.equal(core.location, "modules")
     assert.equal(core.channel, "inline", "compat: a reader that has not moved keeps working")
@@ -316,7 +316,7 @@ describe("location — the folder the operator already knows (§10)", () => {
   test("a manifest written by an OLDER engine (channel only) still resolves sourceRoots", () => {
     const ws = twoModuleWorkspace()
     const file = path.join(ws.root, ".dreamteamer/manifest.yaml")
-    const m = load(fs.readFileSync(file, "utf8"))
+    const m = load<any>(fs.readFileSync(file, "utf8"))
     // strip the new key, leaving exactly what 0.18.0 wrote
     m.modules = m.modules.map(({ location, ...rest }) => rest)
     fs.writeFileSync(file, dump(m))

@@ -62,14 +62,14 @@ ratio: 1.5
 quoted: '2026-08-12'
 `
   test("both parsers agree on every value the engine cares about", () => {
-    const viaLoad = load(CASES)
+    const viaLoad = load<any>(CASES)
     // writeSource with an unchanged value must not alter a single byte — which is only true if its
     // own parse produced exactly the same values
     assert.equal(writeSource(CASES, viaLoad), CASES)
   })
 
   test("an unquoted date, timestamp and version stay STRINGS", () => {
-    const v = load(CASES)
+    const v = load<any>(CASES)
     for (const k of ["date", "starts", "version", "nope", "yes_", "on_", "quoted"]) {
       assert.equal(typeof v[k], "string", `${k} parsed as ${typeof v[k]}, not a string`)
     }
@@ -80,7 +80,7 @@ quoted: '2026-08-12'
 
 describe("writeSource — an unchanged value is byte-identical", () => {
   test("a no-op write returns the source unaltered", () => {
-    assert.equal(writeSource(DESCRIPTOR, load(DESCRIPTOR)), DESCRIPTOR)
+    assert.equal(writeSource(DESCRIPTOR, load<any>(DESCRIPTOR)), DESCRIPTOR)
   })
 
   test("a null previousText dumps, exactly as a brand-new file always did", () => {
@@ -94,9 +94,9 @@ describe("writeSource — a mutation changes ONLY what it mutates", () => {
     const out = writeSource(
       DESCRIPTOR,
       (() => {
-        const d = load(DESCRIPTOR)
+        const d = load<any>(DESCRIPTOR)
         // insert before the x-body field, as upsertField does
-        const props = {}
+        const props: Record<string, unknown> = {}
         for (const [k, v] of Object.entries(d.schema.properties)) {
           if (k === "body") props.tags = { type: "array", items: { type: "string" } }
           props[k] = v
@@ -118,7 +118,7 @@ describe("writeSource — a mutation changes ONLY what it mutates", () => {
     const added = writeSource(
       DESCRIPTOR,
       (() => {
-        const d = load(DESCRIPTOR)
+        const d = load<any>(DESCRIPTOR)
         d.schema.properties = { tags: { type: "array" }, ...d.schema.properties }
         return d
       })()
@@ -127,7 +127,7 @@ describe("writeSource — a mutation changes ONLY what it mutates", () => {
     const back = writeSource(
       added,
       (() => {
-        const d = load(added)
+        const d = load<any>(added)
         delete d.schema.properties.tags
         return d
       })()
@@ -139,7 +139,7 @@ describe("writeSource — a mutation changes ONLY what it mutates", () => {
     const out = writeSource(
       DESCRIPTOR,
       (() => {
-        const d = load(DESCRIPTOR)
+        const d = load<any>(DESCRIPTOR)
         d.schema.properties.status = { type: "string" }
         return d
       })()
@@ -153,7 +153,7 @@ describe("writeSource — a mutation changes ONLY what it mutates", () => {
     const out = writeSource(
       DESCRIPTOR,
       (() => {
-        const d = load(DESCRIPTOR)
+        const d = load<any>(DESCRIPTOR)
         d.order = 16
         return d
       })()
@@ -179,7 +179,7 @@ describe("writeSource — a mutation changes ONLY what it mutates", () => {
     const out = writeSource(
       DESCRIPTOR,
       (() => {
-        const d = load(DESCRIPTOR)
+        const d = load<any>(DESCRIPTOR)
         d.schema.properties.name.type = "integer"
         return d
       })()
@@ -202,7 +202,7 @@ schema:
     const out = writeSource(
       src,
       (() => {
-        const d = load(src)
+        const d = load<any>(src)
         d.schema.properties.doctor["x-reference"] = "health/doctors"
         d.schema.properties.others.items["x-reference"] = "health/doctors"
         return d
@@ -213,14 +213,14 @@ schema:
     // the inline flow form is the one the old textual retarget failed on
     assert.match(out, /^ {4}others: \{type: array, items: \{type: string, x-reference: health\/doctors\}\}$/m)
     assert.match(out, /^ {4}tags: \[a, b\]$/m)
-    assert.equal(load(out).schema.properties.others.items["x-reference"], "health/doctors")
+    assert.equal(load<any>(out).schema.properties.others.items["x-reference"], "health/doctors")
   })
 
   test("a list loses one entry without disturbing the rest of the file", () => {
     const out = writeSource(
       DESCRIPTOR,
       (() => {
-        const d = load(DESCRIPTOR)
+        const d = load<any>(DESCRIPTOR)
         d.list_fields = ["name"]
         return d
       })()
@@ -243,16 +243,16 @@ describe("writeSource — a comment in a LIST stays on the item it explains", ()
 `
 
   test("removing a commented entry takes its comment with it", () => {
-    const v = load(LIST)
+    const v = load<any>(LIST)
     v.required = ["name", "colour"]
     const out = writeSource(LIST, v)
     assert.doesNotMatch(out, /explains vendor_code specifically/)
     assert.match(out, /# explains the list as a whole/, "the sequence-level comment is not the item's")
-    assert.deepEqual(load(out).required, ["name", "colour"])
+    assert.deepEqual(load<any>(out).required, ["name", "colour"])
   })
 
   test("inserting an entry does not shift any comment onto a different item", () => {
-    const v = load(LIST)
+    const v = load<any>(LIST)
     v.required = ["name", "shape", "vendor_code", "colour"]
     const out = writeSource(LIST, v)
     assert.match(
@@ -269,7 +269,7 @@ describe("writeSource — a comment in a LIST stays on the item it explains", ()
     - doctors
     - clients
 `
-    const v = load(src)
+    const v = load<any>(src)
     v.about["x-reference"] = ["health/doctors", "clients"]
     const out = writeSource(src, v)
     assert.match(out, /# the clinic side of the join\n {4}- health\/doctors/)
@@ -278,17 +278,17 @@ describe("writeSource — a comment in a LIST stays on the item it explains", ()
 
 describe("writeSource — it fails closed rather than writing something wrong", () => {
   test("the value written is always exactly the value asked for", () => {
-    const v = load(DESCRIPTOR)
+    const v = load<any>(DESCRIPTOR)
     v.schema.properties.external_id.description = "a short one now"
     v.storage.suffix = "item"
     v.templates = ["provenance", "docs"]
-    assert.deepEqual(load(writeSource(DESCRIPTOR, v)), v)
+    assert.deepEqual(load<any>(writeSource(DESCRIPTOR, v)), v)
   })
 
   test("a whole subtree replaced by a different shape still round-trips its value", () => {
-    const v = load(DESCRIPTOR)
+    const v = load<any>(DESCRIPTOR)
     v.storage = "not-a-map-any-more"
-    assert.equal(load(writeSource(DESCRIPTOR, v)).storage, "not-a-map-any-more")
+    assert.equal(load<any>(writeSource(DESCRIPTOR, v)).storage, "not-a-map-any-more")
   })
 })
 
@@ -324,7 +324,7 @@ describe("renameKeys — a key renamed in the bytes keeps its pair", () => {
   })
 
   test("then writeSource keeps the comment the pair carried, which a value-level rename loses", () => {
-    const value = load(SRC)
+    const value = load<any>(SRC)
     value.fields = { state: value.fields.status, date: value.fields.date }
     assert.ok(
       commentCount(writeSource(SRC, value)) < commentCount(SRC),
@@ -332,7 +332,7 @@ describe("renameKeys — a key renamed in the bytes keeps its pair", () => {
     )
     const kept = writeSource(renameKeys(SRC, [{ path: ["fields", "status"], to: "state" }]), value)
     assert.equal(commentCount(kept), commentCount(SRC))
-    assert.deepEqual(load(kept), value)
+    assert.deepEqual(load<any>(kept), value)
   })
 
   test("a path naming no key is skipped", () => {
@@ -353,12 +353,12 @@ describe("formatSource", () => {
   const SRC = `# header\n\nfields: { b: { type: string }, a: { type: string, enum: [x, y] } }\nconstraints:\n  - { if: { required: [a] }, then: { required: [b] } }\nstorage: { path: data/t }\nname: t\n`
   test("flow mappings and flow sequences holding one become block; a scalar flow sequence stays", () => {
     const out = formatSource(SRC, ORDER)
-    assert.deepEqual(load(out), load(SRC))
+    assert.deepEqual(load<any>(out), load<any>(SRC))
     assert.doesNotMatch(out, /\{/)
     assert.match(out, /enum: \[x, y\]/)
     assert.match(out, /^ {2}- if:\n/m)
-    assert.deepEqual(Object.keys(load(out)), ORDER)
-    assert.deepEqual(Object.keys(load(out).fields), ["b", "a"])
+    assert.deepEqual(Object.keys(load<any>(out)), ORDER)
+    assert.deepEqual(Object.keys(load<any>(out).fields), ["b", "a"])
   })
   test("the file header stays on top, and a second pass is the identity", () => {
     const out = formatSource(SRC, ORDER)

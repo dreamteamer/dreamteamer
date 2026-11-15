@@ -7,7 +7,7 @@ import { workspace, compileQuietly, git, dt } from "../helpers/ws.ts"
 
 export const MANIFEST = "dreamteamer-exports.json"
 export const write = (dir, files) => {
-  for (const [rel, body] of Object.entries(files)) {
+  for (const [rel, body] of Object.entries<any>(files)) {
     fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true })
     fs.writeFileSync(path.join(dir, rel), body)
   }
@@ -50,7 +50,7 @@ export function commitAll(dir, msg) {
   git(dir, ["commit", "-qm", msg, "--allow-empty"])
 }
 
-export function clone(root, key, { pkg = key, files = {} } = {}) {
+export function clone(root, key, { pkg = key, files = {} }: Record<string, any> = {}) {
   const dir = path.join(root, "git_modules", key)
   write(dir, {
     "package.json": JSON.stringify(
@@ -67,7 +67,15 @@ export function clone(root, key, { pkg = key, files = {} } = {}) {
 
 /** A workspace named `pkg` installing `colls` (name -> descriptor yaml) from a shapes clone, holding
  *  `files`, reading `layers` ({ key: { pkg, files, records } }). */
-export function mkws({ pkg = "w-ws", colls, namespaces = [], files = {}, layers = {}, vars, env } = {}) {
+export function mkws({
+  pkg = "w-ws",
+  colls,
+  namespaces = [],
+  files = {},
+  layers = {},
+  vars,
+  env,
+}: Record<string, any> = {}) {
   const w = workspace({ compile: false })
   const org = path.join(w.root, "git_modules", "org")
   write(org, {
@@ -80,7 +88,7 @@ export function mkws({ pkg = "w-ws", colls, namespaces = [], files = {}, layers 
   for (const [n, y] of Object.entries(colls)) write(org, { [`collections/${n}.collection.yaml`]: y })
   commitAll(org, "org")
   const entries = { org: { url: "x", ref: "main" } }
-  for (const [key, l] of Object.entries(layers)) {
+  for (const [key, l] of Object.entries<any>(layers)) {
     clone(w.root, key, l)
     entries[key] = { url: "x", ref: "main", ...(l.records ? { records: l.records } : {}) }
   }
@@ -99,7 +107,7 @@ export function mkws({ pkg = "w-ws", colls, namespaces = [], files = {}, layers 
 }
 
 /** Copy `src`'s committed-shape workspace (package.json, data, manifest) into r/git_modules/<key>. */
-export function copyInto(r, src, { key = "w", records } = {}) {
+export function copyInto(r, src, { key = "w", records }: Record<string, any> = {}) {
   const dir = path.join(r.root, "git_modules", key)
   fs.rmSync(dir, { recursive: true, force: true })
   fs.mkdirSync(dir, { recursive: true })

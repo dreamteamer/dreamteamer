@@ -16,8 +16,8 @@ import { checkContract } from "../../scripts/contract.ts"
 
 /** The static import closure of one src/ module: every src file reached, and every bare specifier. */
 function closure(entry) {
-  const files = new Set(),
-    bare = new Set()
+  const files = new Set<string>(),
+    bare = new Set<string>()
   const visit = f => {
     if (files.has(f)) return
     files.add(f)

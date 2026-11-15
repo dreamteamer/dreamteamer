@@ -37,7 +37,11 @@ const note = title => `---\ntitle: ${title}\n---\n`
 /** A remote the HQ can clone by URL: a workspace fixture (so it is a real workspace, `notes` and all)
  *  pushed into a bare repo under the HQ. `dependencies` is dropped from the pushed manifest so a clone of
  *  it never runs npm. Two commits: `v1` tags the first, the branch holds the second. */
-function remote(hq, name, { pkgName = name, gitModules = {}, files = {}, gitignoreGitModules = true } = {}) {
+function remote(
+  hq,
+  name,
+  { pkgName = name, gitModules = {}, files = {}, gitignoreGitModules = true }: Record<string, any> = {}
+) {
   const w = workspace({ compile: false, pkg: { git_modules: gitModules } })
   const pkgFile = path.join(w.root, "package.json")
   const pkg = JSON.parse(fs.readFileSync(pkgFile, "utf8"))
@@ -49,7 +53,7 @@ function remote(hq, name, { pkgName = name, gitModules = {}, files = {}, gitigno
       path.join(w.root, ".gitignore"),
       fs.readFileSync(path.join(w.root, ".gitignore"), "utf8").replace("git_modules/\n", "")
     )
-  for (const [rel, body] of Object.entries(files)) {
+  for (const [rel, body] of Object.entries<any>(files)) {
     fs.mkdirSync(path.join(w.root, path.dirname(rel)), { recursive: true })
     fs.writeFileSync(path.join(w.root, rel), body)
   }
@@ -88,7 +92,7 @@ function amend(hq, r, name, edit) {
  *  for `notes` and — unless told otherwise — needing it, by a manifest naming `@northwind/org` as the holder
  *  of the note their records name. `people` is a second layer the org itself may need. */
 function cast({
-  hqDeclares = () => ({}),
+  hqDeclares = (_org?): Record<string, unknown> => ({}),
   projectA = {},
   projectB = {},
   manifestA = ORG_PKG,
@@ -109,7 +113,7 @@ function cast({
       ...(orgNeedsPeople ? { "dreamteamer-exports.json": manifest(PEOPLE_PKG, { notes: ["2026-01-05--team"] }) } : {}),
     },
   })
-  const project = (name, entry, from, extra) =>
+  const project = (name, entry, from, extra?) =>
     remote(hq, name, {
       gitModules: { org: { url: org.url, ref: org.ref, records: ["notes"], ...entry } },
       files: {
@@ -451,7 +455,7 @@ describe("declaredGitModules reads the declarations, then what each clone on dis
     )
     assert.deepEqual([nested, mismatches], [[], []])
     assert.throws(
-      () => declaredGitModules({ dreamteamer: { git_modules: { x: { url: "u", module: "yes" } } } }),
+      () => declaredGitModules({ dreamteamer: { git_modules: { x: { url: "u", module: "yes" as any } } } }),
       /git_modules\.x\.module must be true or false/
     )
     assert.throws(

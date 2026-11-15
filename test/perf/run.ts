@@ -184,10 +184,10 @@ function timeRename(ws) {
   // `import fs from 'node:fs'` is the same mutable default export in every src/ module, so a counter
   // here sees store.js's and schema-ops.js's reads both. This is why the O(N x M) claim can be a
   // measurement instead of an argument.
-  fs.readFileSync = (...a) => {
+  fs.readFileSync = ((...a: Parameters<typeof real>) => {
     reads++
     return real(...a)
-  }
+  }) as typeof fs.readFileSync
   // a rename recompiles, and compile is chatty — the recompile is PART of the cost being measured,
   // so it still runs; only its output is swallowed, so the report stays one block.
   const log = console.log,
@@ -343,7 +343,7 @@ for (const [args, what] of [
   [["commit", "captures", "--dry-run"], "whole-collection: warns about the partners it leaves"],
   [["commit", `captures/${cf.first}`, "--dry-run"], "record-scoped: sweeps, so it can leave none behind"],
   [["commit", "--dry-run"], "unscoped: publishes everything, nothing is left"],
-]) {
+] as [string[], string][]) {
   console.log(`    ${args.join(" ").padEnd(34)}${secs(timeCli(cf.root, args))}   ${what}`)
 }
 console.log(`\n  The whole-collection form is the one that asks a question per DIRTY ROW: "did your edge`)

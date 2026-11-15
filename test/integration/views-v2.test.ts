@@ -43,7 +43,7 @@ const TODAY = {
   },
 }
 
-function clinic({ views = {}, bindings = {}, visits = VISITS } = {}) {
+function clinic({ views = {}, bindings = {}, visits = VISITS }: Record<string, any> = {}) {
   const w = workspace({ namespaces: ["health"], compile: false })
   writeCollection(w.root, "health/visits", visits)
   const mod = path.join(w.root, "modules", WS_MODULE)
@@ -66,7 +66,7 @@ function clinic({ views = {}, bindings = {}, visits = VISITS } = {}) {
   return w
 }
 const compiledView = (root, id) =>
-  load(fs.readFileSync(path.join(root, ".dreamteamer", "ui-views", `${id}.ui-view.yaml`), "utf8"))
+  load<any>(fs.readFileSync(path.join(root, ".dreamteamer", "ui-views", `${id}.ui-view.yaml`), "utf8"))
 
 describe("a v2 ui-view", () => {
   test("its display merges over the collection's, key by key", () => {
@@ -176,7 +176,7 @@ describe("a v2 ui-view", () => {
       /display\.list\.options\.card_title: "\{\{ ghost \}\}" is not a field/,
     ],
     ["a badge", { record: { badge: "ghost" } }, /display\.record\.badge names "ghost"/],
-  ]) {
+  ] as [string, Record<string, any>, RegExp][]) {
     test(`a dangling field in ${what} fails compile naming the position`, () => {
       const w = clinic({ views: { today: { ...TODAY, display: patch } } })
       assert.match(compileError(w.ws), position)

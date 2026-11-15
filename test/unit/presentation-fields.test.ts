@@ -5,6 +5,7 @@ import { test, describe } from "node:test"
 import assert from "node:assert/strict"
 import { presentation } from "../../src/record/presentation.ts"
 import { clinic, compiledCollection } from "../helpers/clinic-compiled.ts"
+import { descriptors } from "../helpers/partial.ts"
 
 const p = presentation(clinic())
 const collection = name => p.collections.find(c => c.collection === name)
@@ -301,7 +302,7 @@ describe("only the v2 shape is read", () => {
       storage: { path: "data/legacy", base: "runtime", codec: "md" },
       schema: { type: "object", properties: { name: { type: "string", "x-body": true } } },
     }
-    const q = presentation(new Map([["legacy", v1]]))
+    const q = presentation(descriptors([["legacy", v1]]))
     assert.deepEqual(q.fields.legacy, [], "no compiled.fields, no field rows — schema.properties is never read")
     const row = q.collections[0]
     assert.deepEqual(row.nav, {}, "icon and order are display.nav keys")

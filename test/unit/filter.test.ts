@@ -177,7 +177,7 @@ describe("value tokens $today and $now", () => {
   test("$today is the local date and $now the local instant with its offset", () => {
     const at = new Date(2026, 2, 5, 9, 7, 3)
     assert.equal(tokenValue("$today", at), "2026-03-05")
-    const now = tokenValue("$now", at)
+    const now = tokenValue("$now", at) as string
     assert.match(now, /^2026-03-05T09:07:03[+-]\d{2}:\d{2}$/)
     assert.equal(Date.parse(now), at.getTime(), "the offset makes it the same instant")
   })

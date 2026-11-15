@@ -15,7 +15,7 @@ import { workspace, simpleCollection, compileQuietly, compileError, readFile } f
 import { load } from "../../src/lib/yaml.ts"
 
 /** A workspace whose `tickets.lane` field is spelled however the case under test needs. */
-function withLane(lane, opts = {}) {
+function withLane(lane, opts: Record<string, any> = {}) {
   return workspace({
     compile: opts.compile,
     collections: {
@@ -73,7 +73,7 @@ describe("the map reaches the compiled descriptor untouched", () => {
       enum: { alpha: { icon: "rocket", color: "charts.blue" }, bravo: { label: "Bravo" } },
     })
     compileQuietly(ws.ws)
-    const compiled = load(readFile(ws.root, ".dreamteamer/collections/tickets.collection.yaml"))
+    const compiled = load<any>(readFile(ws.root, ".dreamteamer/collections/tickets.collection.yaml"))
     assert.deepEqual(compiled.compiled.fields.lane.enum, {
       alpha: { icon: "rocket", color: "charts.blue" },
       bravo: { label: "Bravo" },

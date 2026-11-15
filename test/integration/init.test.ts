@@ -53,7 +53,7 @@ const committed = root => git(root, ["show", "--name-only", "--format=", "HEAD"]
 /** A fake npm: logs `{cwd, args}`; `fail` exits 1 after leaving a partial node_modules/ behind. It installs
  *  every declared package (a stub manifest; the engine as a link to this checkout; a tarball argument by
  *  its manifest) except those named in `skip`, which it leaves out while still exiting 0. */
-function fakeNpm({ fail = false, skip = [] } = {}) {
+function fakeNpm({ fail = false, skip = [] }: Record<string, any> = {}) {
   const dir = path.join(SANDBOX, `npm-${++n}`)
   fs.mkdirSync(dir)
   const log = path.join(dir, "calls.jsonl")
@@ -417,7 +417,7 @@ describe("dt init — an empty folder to a pinned, compiled, checked, committed 
 })
 
 describe("dt init never writes outside the folder", () => {
-  const outside = (name, text) => {
+  const outside = (name, text?) => {
     const p = path.join(SANDBOX, `outside-${++n}-${name}`)
     if (text !== undefined) fs.writeFileSync(p, text)
     return p
@@ -570,7 +570,7 @@ describe("dt init refuses before it writes anything", () => {
   })
   const refusedAsIs = (files, why) => {
     const root = folder()
-    for (const [rel, text] of Object.entries(files)) {
+    for (const [rel, text] of Object.entries<any>(files)) {
       fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true })
       fs.writeFileSync(path.join(root, rel), text)
     }

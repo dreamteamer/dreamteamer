@@ -30,7 +30,7 @@ describe("skills — add scaffolds the minimum that compiles", () => {
     assert.equal(res.code, 0, res.stdout + res.stderr)
     const md = readFile(ws.root, "modules/default/skills/reviewing-roles/SKILL.md")
     assert.ok(md, "a skill is a FOLDER, and SKILL.md is the entity file")
-    const fm = load(/^---\n([\s\S]*?)\n---/.exec(md)[1])
+    const fm = load<any>(/^---\n([\s\S]*?)\n---/.exec(md)[1])
     assert.equal(fm.name, "reviewing-roles")
     assert.equal(fm.description, "Use when a role needs a second read before it is posted.")
     assert.equal(ws.dt("compile").code, 0)

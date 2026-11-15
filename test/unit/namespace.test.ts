@@ -74,7 +74,7 @@ describe("parseRef — the boundary decision", () => {
   })
 
   test("non-strings and empties are null, never a throw", () => {
-    for (const bad of ["", null, undefined, 7, {}]) assert.equal(parseRef(bad, NS), null)
+    for (const bad of ["", null, undefined, 7, {}] as any[]) assert.equal(parseRef(bad, NS), null)
   })
 
   // `ui-views` point at `collections/<qualified-name>`, and `collections` is not a namespace — so a

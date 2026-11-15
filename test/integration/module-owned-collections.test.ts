@@ -30,7 +30,7 @@ const TASKS =
   'name: tasks\nstorage:\n  suffix: task\nids:\n  from: "{{ name | slug }}"\nfields:\n  name:\n    type: string\n    required: true\n  assignee:\n    type: people\n'
 
 /** A git-channel module shipping `people` (owner: module) and `tasks` (the default). */
-function withGitModule({ pkg = {}, people = PEOPLE, tasks = TASKS, init = true } = {}) {
+function withGitModule({ pkg = {}, people = PEOPLE, tasks = TASKS, init = true }: Record<string, any> = {}) {
   const w = workspace({ compile: false })
   const mod = path.join(w.root, "git_modules", "clinic")
   fs.mkdirSync(path.join(mod, "collections"), { recursive: true })

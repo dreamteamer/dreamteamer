@@ -17,7 +17,7 @@ import {
 const js = text => parseDocument(text).toJSON()
 
 describe("convertField", () => {
-  const cases = [
+  const cases: [string, any, any][] = [
     ["a plain string", { type: "string" }, { type: "string" }],
     ["markdown", { type: "string", format: "markdown" }, { type: "markdown" }],
     ["a date-time", { type: "string", format: "date-time" }, { type: "datetime" }],

@@ -1,6 +1,7 @@
 // The synthetic clinic as COMPILED v2 descriptors — the authored keys verbatim plus the `compiled`
 // block — in the shape of the design's worked example (§3.9, §6.6). The display contract's unit tests
 // read these, so they need no workspace and no compile. Invented names only: this engine is published.
+import type { Descriptor, Descriptors } from "../../src/types.ts"
 
 const INJECTED = {
   id: { type: "string", virtual: true, description: "The record's path inside its collection." },
@@ -10,9 +11,9 @@ const INJECTED = {
 
 /** A compiled collection: `authored` keys verbatim, then a `compiled` block resolving `fields`. */
 export function compiledCollection(
-  name,
-  { authored = {}, fields = {}, defaults = {}, runtime = false, mirrors = [] } = {}
-) {
+  name: string,
+  { authored = {}, fields = {}, defaults = {}, runtime = false, mirrors = [] }: Record<string, any> = {}
+): Descriptor {
   const bare = name.split("/").pop()
   return {
     name,
@@ -34,7 +35,7 @@ export function compiledCollection(
       fields: { ...(runtime ? { id: INJECTED.id, last_modified: INJECTED.last_modified } : INJECTED), ...fields },
       json_schema: { type: "object", properties: {} },
     },
-  }
+  } as Descriptor
 }
 
 export const VISITS = compiledCollection("health/visits", {
@@ -208,5 +209,5 @@ export const DOCTORS = compiledCollection("health/doctors", {
   },
 })
 
-export const clinic = () =>
+export const clinic = (): Descriptors =>
   new Map([VISITS, PATIENTS, PRESCRIPTIONS, CLAIMS, DOCTORS].map(d => [d.name, structuredClone(d)]))

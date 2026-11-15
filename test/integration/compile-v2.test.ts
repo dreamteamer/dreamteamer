@@ -33,7 +33,7 @@ const DOCTORS = {
   ids: { from: "{{ name | slug }}" },
   fields: { name: { type: "string", required: true }, notes: { type: "markdown", body: true } },
 }
-const VISITS = {
+const VISITS: Record<string, any> = {
   description: "One consultation between a patient and a doctor.",
   record_title: "{{ reason }} · {{ date }}",
   storage: { under: { parent: "patient", subfolder: "visits" } },
@@ -86,7 +86,7 @@ const MIXIN = {
   },
 }
 
-function clinic({ visits = VISITS, extra } = {}) {
+function clinic({ visits = VISITS, extra }: Record<string, any> = {}) {
   const w = workspace({ namespaces: ["health"], compile: false })
   writeCollection(w.root, "health/patients", PATIENTS)
   writeCollection(w.root, "health/doctors", DOCTORS)
@@ -98,7 +98,7 @@ function clinic({ visits = VISITS, extra } = {}) {
   return w
 }
 const compiled = (root, name) =>
-  load(fs.readFileSync(path.join(root, ".dreamteamer", "collections", `${name}.collection.yaml`), "utf8"))
+  load<any>(fs.readFileSync(path.join(root, ".dreamteamer", "collections", `${name}.collection.yaml`), "utf8"))
 
 describe("a v2 descriptor compiles", () => {
   test("the clinic compiles and the visit carries a compiled block", () => {
@@ -120,7 +120,7 @@ describe("a v2 descriptor compiles", () => {
     const w = clinic()
     compileQuietly(w.ws)
     const d = compiled(w.root, "health/visits")
-    const stored = Object.entries(d.compiled.fields)
+    const stored = Object.entries<any>(d.compiled.fields)
       .filter(([, f]) => !f.virtual)
       .map(([k]) => k)
     assert.deepEqual(Object.keys(d.compiled.json_schema.properties), stored)
@@ -240,12 +240,12 @@ describe("a v2 descriptor is refused, with the fix in the message", () => {
     compileQuietly(w.ws)
     // what 0.32 left on disk: the descriptor with no compiled block
     const file = path.join(w.root, ".dreamteamer", "collections", "notes.collection.yaml")
-    const old = load(fs.readFileSync(file, "utf8"))
+    const old = load<any>(fs.readFileSync(file, "utf8"))
     delete old.compiled
     fs.writeFileSync(file, dump(old))
     const r = dt(w.root, "compile")
     assert.equal(r.code, 0, r.stderr)
-    assert.ok(load(fs.readFileSync(file, "utf8")).compiled, "the new runtime carries its compiled block")
+    assert.ok(load<any>(fs.readFileSync(file, "utf8")).compiled, "the new runtime carries its compiled block")
   })
   test("a v1-spelled package.json block names the converter, not a list of unknown keys", () => {
     const w = workspace({ compile: false, pkg: { "data-path": "data" } })
@@ -660,7 +660,7 @@ describe("item constraints on a list reach the store and check (review R3)", () 
     compileQuietly(w.ws)
     return w
   }
-  const bad = [
+  const bad: [string, string, RegExp][] = [
     ["tags", "INVALID", /tags/],
     ["scores", "9", /scores/],
     ["codes", "abcdef", /codes/],

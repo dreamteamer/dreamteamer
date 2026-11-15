@@ -360,7 +360,7 @@ describe("rm-field on a module-shipped collection", () => {
     const ws = withModule()
     const res = runDt(ws.root, "rm-field", "patients", "--name", "age")
     assert.equal(res.code, 0, res.stdout + res.stderr)
-    const owned = load(readFile(ws.root, "modules/clinic/collections/patients.collection.yaml"))
+    const owned = load<any>(readFile(ws.root, "modules/clinic/collections/patients.collection.yaml"))
     assert.equal(owned.fields.age, undefined)
   })
 
@@ -444,7 +444,7 @@ describe("rm-field and the declaring side of a relation", () => {
     const res = ws.dt("rm-field", "meetings", "--name", "summary")
     assert.equal(res.code, 0, res.stdout + res.stderr)
     assert.equal(
-      load(readFile(ws.root, "modules/default/collections/meetings.collection.yaml")).fields.summary,
+      load<any>(readFile(ws.root, "modules/default/collections/meetings.collection.yaml")).fields.summary,
       undefined
     )
     // the declaration WAS the relation, so removing it removes the relation
@@ -463,7 +463,7 @@ describe("rm-field and the declaring side of a relation", () => {
     const ws = declared()
     const res = ws.dt("set-field", "summaries", "--name", "meeting", "--description", "the call")
     assert.equal(res.code, 0, res.stderr)
-    const src = load(readFile(ws.root, "modules/default/collections/summaries.collection.yaml")).fields.meeting
+    const src = load<any>(readFile(ws.root, "modules/default/collections/summaries.collection.yaml")).fields.meeting
     assert.equal(src.description, "the call")
     assert.equal(src.type, "meetings", "the authored reference survives the edit")
     assert.equal(src.unique, true, "and so does the authored uniqueness the scalar mirror needs")

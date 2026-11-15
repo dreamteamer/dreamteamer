@@ -733,7 +733,11 @@ const PROJECTS_D = PROJECTS.replace(
 )
 /** layered() plus the shared collections the cr-dt-003 tests need — compiled from org, layered from
  *  project-a where `records` names them (memos is layerable but read from no layer). */
-function standalone({ layerFiles = {}, records = ["tasks", "projects", "codes", "calls", "pics"], pkg = {} } = {}) {
+function standalone({
+  layerFiles = {},
+  records = ["tasks", "projects", "codes", "calls", "pics"],
+  pkg = {},
+}: Record<string, any> = {}) {
   const out = layered({
     records,
     pkg,
@@ -842,7 +846,7 @@ describe("stub records are removed (cr-dt-004)", () => {
     for (const name of store.descriptors.keys()) {
       const d = store.descriptor(name)
       assert.equal(d.compiled?.fields?.stub, undefined, `${name} compiles a stub field`)
-      assert.equal(d.compiled?.json_schema?.properties?.stub, undefined, `${name}'s JSON Schema names stub`)
+      assert.equal((d.compiled?.json_schema as any)?.properties?.stub, undefined, `${name}'s JSON Schema names stub`)
     }
     const res = dt(w.root, "check")
     assert.equal(res.code, 1, res.stdout)

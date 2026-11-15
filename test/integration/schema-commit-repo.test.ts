@@ -56,7 +56,7 @@ describe("a schema write into a git-shape module", () => {
 
     // the field is on disk, in the clone
     assert.equal(
-      load(readFile(ws.root, "git_modules/hr/collections/hr/positions.collection.yaml")).fields.grade.type,
+      load<any>(readFile(ws.root, "git_modules/hr/collections/hr/positions.collection.yaml")).fields.grade.type,
       "integer"
     )
     // and COMMITTED there, not in the workspace
@@ -159,7 +159,7 @@ describe("a schema write into a git-shape module", () => {
       "no overlay was invented in the workspace module"
     )
     assert.equal(
-      load(readFile(ws.root, "git_modules/hr/collections/positions.collection.yaml")).fields.grade.type,
+      load<any>(readFile(ws.root, "git_modules/hr/collections/positions.collection.yaml")).fields.grade.type,
       "integer"
     )
   })
@@ -168,7 +168,7 @@ describe("a schema write into a git-shape module", () => {
     const ws = twoModuleWorkspace()
     const clone = asGitModule(ws, "hr")
     assert.equal(ws.dt("compile").code, 0)
-    const before = load(readFile(ws.root, "git_modules/hr/collections/hr/positions.collection.yaml"))
+    const before = load<any>(readFile(ws.root, "git_modules/hr/collections/hr/positions.collection.yaml"))
     // ⚠ UNSETTING THE CLONE'S IDENTITY IS NOT ENOUGH — `dt()` passes GIT_AUTHOR_*/GIT_COMMITTER_*
     // through the environment (test/helpers/ws.js), so git has an identity whatever the repo
     // config says. Make `.git` unwritable instead: no env var rescues that.
@@ -178,7 +178,7 @@ describe("a schema write into a git-shape module", () => {
     assert.equal(res.code, 1)
     assert.match(res.stderr, /rolled back/)
     assert.deepEqual(
-      load(readFile(ws.root, "git_modules/hr/collections/hr/positions.collection.yaml")),
+      load<any>(readFile(ws.root, "git_modules/hr/collections/hr/positions.collection.yaml")),
       before,
       "the source is byte-for-byte what it was"
     )

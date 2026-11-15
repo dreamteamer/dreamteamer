@@ -22,7 +22,7 @@ import {
   dt,
 } from "../helpers/ws.ts"
 
-const compiled = (ws, name) => load(readFile(ws.root, `.dreamteamer/collections/${name}.collection.yaml`))
+const compiled = (ws, name) => load<any>(readFile(ws.root, `.dreamteamer/collections/${name}.collection.yaml`))
 
 describe("the internal partition", () => {
   test("a runtime-stored collection carries internal: true", () => {

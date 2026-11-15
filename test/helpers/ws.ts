@@ -22,6 +22,7 @@ import { fileURLToPath } from "node:url"
 import { compile } from "../../src/compile/compile.ts"
 import { Store } from "../../src/store/Store.ts"
 import { dump } from "../../src/lib/yaml.ts"
+import type { Workspace } from "../../src/types.ts"
 
 export const ENGINE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..")
 const TMP = path.join(ENGINE_ROOT, "test", ".tmp")
@@ -37,7 +38,58 @@ const GIT_ENV = {
   GIT_COMMITTER_EMAIL: "test@example.invalid",
 }
 
-export function git(root, args) {
+/** A descriptor as a test writes it — deliberately loose: tests author invalid ones on purpose. */
+export type DescriptorInput = Record<string, any>
+
+/** What a CLI spawn returns. */
+export interface CliResult {
+  code: number | null
+  stdout: string
+  stderr: string
+}
+
+/** What compileQuietly returns. */
+export interface CompileOutput {
+  code: number
+  stdout: string[]
+  warnings: string[]
+}
+
+/** The options workspace() and twoModuleWorkspace() take. */
+export interface WorkspaceOptions {
+  /** `dreamteamer.namespaces` in package.json */
+  namespaces?: string[]
+  /** extra keys merged into the `dreamteamer` section */
+  pkg?: Record<string, any>
+  /** name → descriptor object, written to the workspace module */
+  collections?: Record<string, DescriptorInput>
+  /** 'collection' → [fields], added through the Store */
+  records?: Record<string, Record<string, any>[]>
+  /** set false to get an UNcompiled workspace (compile-error tests) */
+  compile?: boolean
+}
+
+/** A fixture workspace. `store` and `out` are absent on an uncompiled one. */
+export interface Fixture {
+  root: string
+  ws: Workspace
+  store?: Store
+  out?: CompileOutput
+  git: (args: string[]) => string
+  dt?: (...args: string[]) => CliResult
+}
+
+/** The options writeModule() takes. */
+export interface ModuleOptions {
+  description?: string
+  namespaces?: string[]
+  dependencies?: string[]
+  peerDependencies?: string[]
+  ownsData?: boolean
+  collections?: Record<string, DescriptorInput>
+}
+
+export function git(root: string, args: string[]): string {
   return execFileSync("git", args, { cwd: root, env: GIT_ENV, stdio: ["ignore", "pipe", "pipe"] })
     .toString()
     .trim()
@@ -57,7 +109,8 @@ function baseKey() {
   const src = path.join(ENGINE_ROOT, "src")
   for (const f of fs
     .readdirSync(src, { recursive: true })
-    .filter(f => f.endsWith(".js"))
+    .map(String)
+    .filter(f => f.endsWith(".ts"))
     .sort()) {
     h.update(f)
     h.update(fs.readFileSync(path.join(src, f)))
@@ -77,8 +130,8 @@ function baseKey() {
 // coupling is gone.
 export const WS_MODULE = "default"
 
-let cachedBase
-function baseWorkspace() {
+let cachedBase: string | undefined
+function baseWorkspace(): string {
   if (cachedBase) return cachedBase
   fs.mkdirSync(TMP, { recursive: true }) // first run, or after `npm test -- --clean`
   const holder = path.join(TMP, `base-${baseKey()}`)
@@ -104,7 +157,7 @@ function baseWorkspace() {
   return cachedBase
 }
 
-function buildBase(dir) {
+function buildBase(dir: string): void {
   fs.mkdirSync(dir, { recursive: true })
   // ⚠ `git init` FIRST, before `dreamteamer init`. `init` commits what it writes, and git walks
   // UPWARD to find a repo — so with no repo here it committed the whole fixture into the engine's
@@ -161,23 +214,14 @@ function buildBase(dir) {
   if (git(dir, ["status", "--porcelain"])) git(dir, ["commit", "-qm", "fixture: init"])
 }
 
-const created = []
+const created: string[] = []
 process.on("exit", () => {
   if (process.env.DT_KEEP_FIXTURES) return // debugging affordance: inspect the failing workspace
   for (const d of created) fs.rmSync(d, { recursive: true, force: true })
 })
 
-/**
- * A fresh compiled workspace.
- *
- * @param {object} opts
- * @param {string[]} [opts.namespaces]   `dreamteamer.namespaces` in package.json
- * @param {object}   [opts.pkg]          extra keys merged into the `dreamteamer` section
- * @param {object}   [opts.collections]  name → descriptor object, written to the workspace module
- * @param {object}   [opts.records]      'collection' → [fields], added through the Store
- * @param {boolean}  [opts.compile]      set false to get an UNcompiled workspace (compile-error tests)
- */
-export function workspace(opts = {}) {
+/** A fresh compiled workspace. */
+export function workspace(opts: WorkspaceOptions = {}): Fixture {
   const base = baseWorkspace()
   const root = fs.mkdtempSync(path.join(TMP, "ws-"))
   created.push(root)
@@ -195,7 +239,7 @@ export function workspace(opts = {}) {
     writeCollection(root, name, descriptor)
   }
 
-  const ws = { root, pkg }
+  const ws: Workspace = { root, pkg }
   // an UNcompiled workspace: the base fixture was compiled by init, so the runtime goes
   if (opts.compile === false) {
     fs.rmSync(path.join(root, ".dreamteamer"), { recursive: true, force: true })
@@ -214,7 +258,7 @@ export function workspace(opts = {}) {
  * Write a collection descriptor into the workspace module, at the path a real `collections add`
  * would use: `collections/health/doctors.collection.yaml`, mirroring the runtime layout.
  */
-export function writeCollection(root, name, descriptor) {
+export function writeCollection(root: string, name: string, descriptor: DescriptorInput): string {
   const file = path.join(root, "modules", WS_MODULE, "collections", `${name}.collection.yaml`)
   fs.mkdirSync(path.dirname(file), { recursive: true })
   fs.writeFileSync(file, dump({ name, ...descriptor }))
@@ -227,7 +271,7 @@ export function writeCollection(root, name, descriptor) {
  *  refuses a mirror on a `format: md` collection that declares no body field, since a mirror write
  *  would rebuild the file from its parsed fields and drop any prose the record holds. A fixture
  *  without one could not be linked at all. */
-export function simpleCollection(extra = {}) {
+export function simpleCollection(extra: DescriptorInput = {}): DescriptorInput {
   return {
     ids: { from: "{{ name | slug }}" },
     fields: {
@@ -239,9 +283,9 @@ export function simpleCollection(extra = {}) {
 }
 
 /** compile(), with its chatter captured instead of printed. Returns {code, stdout, warnings}. */
-export function compileQuietly(ws) {
-  const stdout = []
-  const warnings = []
+export function compileQuietly(ws: Workspace): CompileOutput {
+  const stdout: string[] = []
+  const warnings: string[] = []
   const log = console.log
   const warn = console.warn
   console.log = (...a) => stdout.push(a.join(" "))
@@ -256,7 +300,7 @@ export function compileQuietly(ws) {
 }
 
 /** The compile error message for a workspace expected NOT to compile, or null if it compiled. */
-export function compileError(ws) {
+export function compileError(ws: Workspace): string | null {
   try {
     compileQuietly(ws)
     return null
@@ -266,7 +310,7 @@ export function compileError(ws) {
 }
 
 /** Run the real CLI in a workspace. Returns {code, stdout, stderr} — never throws on a non-zero exit. */
-export function dt(root, ...args) {
+export function dt(root: string, ...args: string[]): CliResult {
   const res = spawnSync(process.execPath, [BIN, ...args], {
     cwd: root,
     env: GIT_ENV,
@@ -286,7 +330,7 @@ export function dt(root, ...args) {
  * against the invoking directory (R51). `dt` finds its workspace by walking UP, so a subdirectory
  * is an ordinary place to stand.
  */
-export function dtIn(cwd, ...args) {
+export function dtIn(cwd: string, ...args: string[]): CliResult {
   const res = spawnSync(process.execPath, [BIN, ...args], {
     cwd,
     env: GIT_ENV,
@@ -300,7 +344,7 @@ export function dtIn(cwd, ...args) {
 /** Run the real CLI with a JSON payload on STDIN — what a harness hook does, and the ONLY way to
  *  reach `--hook`. `spawnSync`'s `input:` closes the pipe at EOF, which is what `readFileSync(0)`
  *  on the other side is waiting for; a `dt()` run inherits the runner's stdin and would hang. */
-export function dtStdin(root, stdin, ...args) {
+export function dtStdin(root: string, stdin: string, ...args: string[]): CliResult {
   const res = spawnSync(process.execPath, [BIN, ...args], {
     cwd: root,
     env: GIT_ENV,
@@ -313,7 +357,7 @@ export function dtStdin(root, stdin, ...args) {
 }
 
 /** Read a file in a workspace as text, or null. */
-export function readFile(root, rel) {
+export function readFile(root: string, rel: string): string | null {
   try {
     return fs.readFileSync(path.join(root, rel), "utf8")
   } catch {
@@ -329,10 +373,10 @@ export function readFile(root, rel) {
  * nested for a namespaced name, which is where compile enumerates them recursively and where
  * `schema-ops` derives the path from the collection's own name.
  */
-export function writeModule(root, id, opts = {}) {
+export function writeModule(root: string, id: string, opts: ModuleOptions = {}): string {
   const modRoot = path.join(root, "modules", id)
   fs.mkdirSync(path.join(modRoot, "collections"), { recursive: true })
-  const dt = {}
+  const dt: Record<string, unknown> = {}
   if (opts.description) dt.description = opts.description
   if (opts.namespaces) dt.namespaces = opts.namespaces
   if (opts.dependencies) dt.dependencies = opts.dependencies
@@ -362,7 +406,7 @@ export function writeModule(root, id, opts = {}) {
 
 /** A `dreamteamer.<key>` edit on one module's package.json, for a fixture that needs to declare a
  *  dependency after the module already exists. */
-export function patchModulePkg(root, id, patch) {
+export function patchModulePkg(root: string, id: string, patch: Record<string, any>): void {
   const file = path.join(root, "modules", id, "package.json")
   const pkg = JSON.parse(fs.readFileSync(file, "utf8"))
   pkg.dreamteamer = { ...pkg.dreamteamer, ...patch }
@@ -382,7 +426,7 @@ export function patchModulePkg(root, id, patch) {
  *
  * Invented names throughout: this engine is published and the vault it is dogfooded on is not.
  */
-export const CORE_COLLECTIONS = {
+export const CORE_COLLECTIONS: Record<string, DescriptorInput> = {
   people: {
     description: "A person this workspace knows about.",
     storage: { suffix: "person" },
@@ -412,7 +456,7 @@ export const CORE_COLLECTIONS = {
   },
 }
 
-export const HR_COLLECTIONS = {
+export const HR_COLLECTIONS: Record<string, DescriptorInput> = {
   "hr/positions": {
     description: "An open or filled role.",
     ids: { from: "{{ name | slug }}" },
@@ -424,7 +468,7 @@ export const HR_COLLECTIONS = {
   },
 }
 
-export function twoModuleWorkspace(opts = {}) {
+export function twoModuleWorkspace(opts: WorkspaceOptions = {}): Fixture {
   const base = baseWorkspace()
   const root = fs.mkdtempSync(path.join(TMP, "ws2-"))
   created.push(root)
@@ -461,7 +505,7 @@ export function twoModuleWorkspace(opts = {}) {
   git(root, ["add", "--", "modules", "package.json"])
   git(root, ["commit", "-qm", "fixture: two modules"])
 
-  const ws = { root, pkg }
+  const ws: Workspace = { root, pkg }
   if (opts.compile === false) return { root, ws, git: a => git(root, a), dt: (...a) => dt(root, ...a) }
   const out = compileQuietly(ws)
   const store = new Store(ws)
@@ -472,11 +516,11 @@ export function twoModuleWorkspace(opts = {}) {
 }
 
 /** Every workspace-relative file path under a directory, sorted — for asserting on layout. */
-export function tree(root, rel = ".") {
+export function tree(root: string, rel = "."): string[] {
   const start = path.join(root, rel)
   if (!fs.existsSync(start)) return []
-  const out = []
-  const walk = dir => {
+  const out: string[] = []
+  const walk = (dir: string): void => {
     for (const e of fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
       if (e.name.startsWith(".")) continue
       const p = path.join(dir, e.name)
@@ -501,7 +545,7 @@ export function tree(root, rel = ".") {
  * The module is COPIED, not linked: recipes modules are copied rather than installed (decision 129),
  * so copying is what a consumer actually does.
  */
-export function bareWorkspace(sourceRoot, moduleId) {
+export function bareWorkspace(sourceRoot: string, moduleId: string): Fixture {
   const base = baseWorkspace()
   const root = fs.mkdtempSync(path.join(TMP, "bare-"))
   created.push(root)
@@ -525,7 +569,7 @@ export function bareWorkspace(sourceRoot, moduleId) {
 
 /** Install one of the engine's own fixture packages (test/fixtures/<id>) into a workspace's
  *  node_modules under its package name and declare it, the way npm would have. Returns the dir. */
-export function installFixture(root, id) {
+export function installFixture(root: string, id: string): string {
   const src = path.join(ENGINE_ROOT, "test", "fixtures", id)
   const name = JSON.parse(fs.readFileSync(path.join(src, "package.json"), "utf8")).name
   const dest = path.join(root, "node_modules", name)
@@ -538,16 +582,16 @@ export function installFixture(root, id) {
   return dest
 }
 /** The synthetic setup provider (`@probe/setup`, unit `probe`) — see test/fixtures/probe-setup/entry.js. */
-export const withProbeSetup = root => installFixture(root, "probe-setup")
+export const withProbeSetup = (root: string): string => installFixture(root, "probe-setup")
 /** The colliding plain module (`@probe/collide`, a `notes` collection) — a compile refusal on install. */
-export const withProbeCollide = root => installFixture(root, "probe-collide")
+export const withProbeCollide = (root: string): string => installFixture(root, "probe-collide")
 
 /** A hash of every file under `root` (path, mode and bytes; `.git` excluded) — the read-only proof:
  *  equal before and after a verb means the verb wrote nothing. */
-export function treeHash(root) {
+export function treeHash(root: string): string {
   const { createHash } = cryptoModule()
   const h = createHash("sha256")
-  const walk = dir => {
+  const walk = (dir: string): void => {
     for (const e of fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
       if (e.name === ".git") continue
       const p = path.join(dir, e.name)

@@ -55,12 +55,12 @@ function seeded(extraLedger = 0) {
 }
 
 /** renameCollection, with the recompile it performs kept quiet. */
-function renameQuietly(ws, ...args) {
+function renameQuietly(ws, oldName: string, newName: string) {
   const log = console.log,
     warn = console.warn
   console.log = console.warn = () => {}
   try {
-    return renameCollection(ws.ws, ws.store, ...args)
+    return renameCollection(ws.ws, ws.store, oldName, newName)
   } finally {
     console.log = log
     console.warn = warn
@@ -98,7 +98,7 @@ describe("a collection rename rewrites every spelling of a reference", () => {
     // the round-trip writer quotes only what YAML requires, and `finance/ledger` is a plain scalar —
     // so assert what it PARSES to rather than the spelling the old line editor happened to emit
     assert.equal(
-      load(readFile(ws.root, "modules/default/collections/memos.collection.yaml")).fields.entry.type,
+      load<any>(readFile(ws.root, "modules/default/collections/memos.collection.yaml")).fields.entry.type,
       "finance/ledger"
     )
 
@@ -110,7 +110,7 @@ describe("a collection rename rewrites every spelling of a reference", () => {
     // The per-id loop wrote m-two twice (once per id it names); the batch writes it once. Same bytes,
     // and the count the caller reports must still be per OCCURRENCE, not per file.
     const ws = seeded()
-    const out = renameQuietly(ws, "ledger", "finance/ledger")
+    const out: any = renameQuietly(ws, "ledger", "finance/ledger")
     // alpha: memos/m-one (entry + wikilink-free head) + m-two list entry + nothing in beta
     // beta: m-one two wikilinks + m-two list entry; plus the self-reference in beta, plus the
     // `collections/ledger` retarget in the ui-view-less workspace (none here) and the descriptors.
@@ -131,10 +131,10 @@ describe("the walk is one pass, not one pass per id", () => {
     const real = fs.readFileSync
     const dataDir = path.join(ws.root, "data")
     let reads = 0
-    fs.readFileSync = (p, ...rest) => {
+    fs.readFileSync = ((p, ...rest) => {
       if (String(p).startsWith(dataDir)) reads++
       return real(p, ...rest)
-    }
+    }) as typeof fs.readFileSync
     try {
       renameQuietly(ws, "ledger", "finance/ledger")
     } finally {
@@ -242,11 +242,11 @@ describe("the batch keeps the per-pair bookkeeping", () => {
   // "batch(pairs) == pairs.reduce(single)". Asserted on two identical fixtures rather than on
   // remembered goldens, so it keeps holding when the rules underneath it change.
   test("batch(N) is byte-for-byte the N sequential single-pair calls it replaced", () => {
-    const PAIRS = [
+    const PAIRS: [string, string][] = [
       ["ledger/alpha", "finance/ledger/alpha"], // basename kept — no bare pass
       ["ledger/beta", "finance/ledger/beta"],
     ]
-    const RENAMES = [
+    const RENAMES: [string, string][] = [
       ["ledger/alpha", "ledger/alpha-1"], // basename MOVED — bare pass, and ambiguous
       ["ledger/beta", "ledger/beta-1"],
     ]

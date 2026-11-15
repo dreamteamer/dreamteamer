@@ -11,6 +11,8 @@ import { readHookInput } from "../../src/install/readHookInput.ts"
 import { readStdin } from "../../src/install/readStdin.ts"
 import { resolveNpm } from "../../src/lib/npm/resolveNpm.ts"
 import { applyInstall } from "../../src/install/applyInstall.ts"
+import type { CheckoutState, InstallStep } from "../../src/install/types.ts"
+import type { Workspace } from "../../src/types.ts"
 
 const fakeGit = answers => args => answers[args.join(" ")] ?? ""
 
@@ -85,18 +87,19 @@ describe("describeCheckout — primary vs linked, from git alone", () => {
   })
 })
 
-const linked = (over = {}) => ({
-  checkout: { kind: "linked", primary: "/w/ws", root: "/w/ws/.worktrees/a", insideRoot: true },
-  missingDeps: [],
-  hasEnv: false,
-  primaryHasEnv: true,
-  envIsLink: false,
-  localAssets: [],
-  gitModules: [],
-  stale: true,
-  postinstall: null,
-  ...over,
-})
+const linked = (over = {}): CheckoutState =>
+  ({
+    checkout: { kind: "linked", primary: "/w/ws", root: "/w/ws/.worktrees/a", insideRoot: true },
+    missingDeps: [],
+    hasEnv: false,
+    primaryHasEnv: true,
+    envIsLink: false,
+    localAssets: [],
+    gitModules: [],
+    stale: true,
+    postinstall: null,
+    ...over,
+  }) as CheckoutState
 const byId = (steps, id) => steps.find(s => s.id === id)
 
 describe("planInstall — every step checks before it acts", () => {
@@ -313,7 +316,7 @@ describe("resolveNpm — beside the running node first, PATH second", () => {
 
 // ---- the engine step's board line -------------------------------------------------------------
 describe("the engine step says WHICH of node and npm is missing", () => {
-  const step = [{ id: "dependencies", label: "dependencies: npm ci", state: "todo" }]
+  const step = [{ id: "dependencies", label: "dependencies: npm ci", state: "todo" }] as InstallStep[]
   // The reason a step failed is `guard`'s, and `guard` reports on stderr — the board's own `log`
   // carries only the outcome line. Both halves are asserted, because either one alone leaves the
   // operator with a failure whose cause or whose consequence is missing.
@@ -324,7 +327,11 @@ describe("the engine step says WHICH of node and npm is missing", () => {
     console.error = (...a) => erred.push(a.join(" "))
     let code
     try {
-      code = await applyInstall({ root: "/nowhere" }, {}, step, { npm: null, log: l => said.push(l), stdio: "ignore" })
+      code = await applyInstall({ root: "/nowhere" } as Workspace, {} as CheckoutState, step, {
+        npm: null,
+        log: l => said.push(l),
+        stdio: "ignore",
+      })
     } finally {
       console.error = err
     }
@@ -341,7 +348,11 @@ describe("the engine step says WHICH of node and npm is missing", () => {
   test("a dry run resolves nothing and runs nothing", async () => {
     const said = []
     assert.equal(
-      await applyInstall({ root: "/nowhere" }, {}, step, { npm: null, dryRun: true, log: l => said.push(l) }),
+      await applyInstall({ root: "/nowhere" } as Workspace, {} as CheckoutState, step, {
+        npm: null,
+        dryRun: true,
+        log: l => said.push(l),
+      }),
       0
     )
     assert.ok(!said.some(l => l.includes("cannot install")), said.join("\n"))

@@ -13,7 +13,7 @@ import { load } from "../../src/lib/yaml.ts"
 import { moduleOf, overlaidByOf, fieldsOf } from "../../src/record/descriptor.ts"
 import { storageOf } from "../../src/record/storageOf.ts"
 
-const compiled = (ws, name) => load(readFile(ws.root, `.dreamteamer/collections/${name}.collection.yaml`))
+const compiled = (ws, name) => load<any>(readFile(ws.root, `.dreamteamer/collections/${name}.collection.yaml`))
 
 // hr's overlay on core's `people` — a second source of the same collection, marked `overlay: true`
 const PEOPLE_OVERLAY = "name: people\noverlay: true\nfields:\n  badge:\n    type: string\n"
@@ -166,7 +166,7 @@ describe("dt set collections/<c> — the collection-level scalars", () => {
       "display.list.columns=name"
     )
     assert.equal(res.code, 0, res.stdout + res.stderr)
-    const src = load(readFile(ws.root, "modules/core/collections/teams.collection.yaml"))
+    const src = load<any>(readFile(ws.root, "modules/core/collections/teams.collection.yaml"))
     assert.equal(src.description, "A group with a shared remit.")
     assert.equal(src.display.nav.icon, "groups")
     assert.equal(src.display.nav.order, 40, 'a numeric scalar is written as a number, not "40"')
@@ -178,7 +178,7 @@ describe("dt set collections/<c> — the collection-level scalars", () => {
     assert.equal(ws.dt("set", "collections/teams", "display.nav.icon=groups").code, 0)
     assert.equal(ws.dt("set", "collections/teams", "display.nav.icon=").code, 0)
     assert.equal(
-      load(readFile(ws.root, "modules/core/collections/teams.collection.yaml")).display?.nav?.icon,
+      load<any>(readFile(ws.root, "modules/core/collections/teams.collection.yaml")).display?.nav?.icon,
       undefined
     )
   })
@@ -248,7 +248,7 @@ describe("--module targets one module's contribution", () => {
     assert.equal(ws.dt("compile").code, 0)
     const res = ws.dt("add-field", "people", "--name", "badge", "--type", "string", "--module", "hr")
     assert.equal(res.code, 0, res.stdout + res.stderr)
-    const overlay = load(readFile(ws.root, "modules/hr/collections/people.collection.yaml"))
+    const overlay = load<any>(readFile(ws.root, "modules/hr/collections/people.collection.yaml"))
     assert.equal(overlay.overlay, true)
     assert.equal(overlay.fields.badge.type, "string")
     assert.deepEqual(overlaidByOf(compiled(ws, "people")), ["hr"])
@@ -315,7 +315,7 @@ describe("--dry-run on the other destructive verbs", () => {
     assert.equal(res.code, 0, res.stderr)
     assert.match(res.stdout, /values cleared 1/, "one of the two records carries a value")
     assert.ok(
-      load(readFile(ws.root, "modules/core/collections/people.collection.yaml")).fields.employer,
+      load<any>(readFile(ws.root, "modules/core/collections/people.collection.yaml")).fields.employer,
       "the field is still declared"
     )
   })

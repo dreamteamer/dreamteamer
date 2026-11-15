@@ -74,13 +74,13 @@ describe("dt fmt", () => {
     assert.match(out, /enum: \[small, large\]/)
     assert.match(out, /columns: \[zeta, alpha\]/)
     // canonical top-level order
-    assert.deepEqual(Object.keys(load(out)), ["name", "description", "ids", "fields", "display"])
+    assert.deepEqual(Object.keys(load<any>(out)), ["name", "description", "ids", "fields", "display"])
     // fields keep their form order, and a field keeps its own key order
-    assert.deepEqual(Object.keys(load(out).fields), ["zeta", "alpha", "notes"])
-    assert.deepEqual(Object.keys(load(out).fields.zeta), ["required", "type"])
-    assert.deepEqual(Object.keys(load(out).fields.alpha), ["enum", "type"])
+    assert.deepEqual(Object.keys(load<any>(out).fields), ["zeta", "alpha", "notes"])
+    assert.deepEqual(Object.keys(load<any>(out).fields.zeta), ["required", "type"])
+    assert.deepEqual(Object.keys(load<any>(out).fields.alpha), ["enum", "type"])
     // same value, every comment, the header still on top, the hand-folded scalar verbatim
-    assert.deepEqual(load(out), load(WIDGETS))
+    assert.deepEqual(load<any>(out), load<any>(WIDGETS))
     assert.deepEqual(comments(out), comments(WIDGETS))
     assert.equal(commentCount(out), commentCount(WIDGETS))
     assert.ok(out.startsWith("# Widgets are the parts a kit is assembled from.\n"), out)
@@ -88,7 +88,7 @@ describe("dt fmt", () => {
     assert.match(out, /# zeta first: it is the form's first input\n {2}zeta:/)
     // the mixin is formatted too
     assert.doesNotMatch(readFile(w.root, MIXIN), /:\s*\{/)
-    assert.deepEqual(Object.keys(load(readFile(w.root, MIXIN))), ["name", "description", "fields"])
+    assert.deepEqual(Object.keys(load<any>(readFile(w.root, MIXIN))), ["name", "description", "fields"])
     // a source write commits itself, pathspec-scoped
     assert.match(w.git(["log", "-1", "--format=%s"]), /^dreamteamer: fmt 2 descriptor source\(s\)$/)
     assert.equal(w.git(["status", "--porcelain", "--", SRC, MIXIN]), "")

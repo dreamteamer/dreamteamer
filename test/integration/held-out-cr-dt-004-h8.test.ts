@@ -19,7 +19,7 @@ const WM = {
   people: { x: { label: "Ex", from: "l-ws" }, y: { label: "Why", from: "h-ws" }, z: { label: "Zed", from: "l-ws" } },
 }
 
-function reader({ hFor = ["users"] } = {}) {
+function reader({ hFor = ["users"] }: Record<string, any> = {}) {
   const w = mkws({
     pkg: "w-ws",
     colls: COLLS,

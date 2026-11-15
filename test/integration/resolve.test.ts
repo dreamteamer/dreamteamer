@@ -10,6 +10,7 @@ import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import { workspace, readFile } from "../helpers/ws.ts"
+import type { Fixture } from "../helpers/ws.ts"
 
 const DOCS = {
   ids: { from: "{{ name | slug }}" },
@@ -26,8 +27,8 @@ const DOCS = {
 // Invented values in a throwaway workspace — this fixture never reads the machine's own .env.
 const ENV = "FILES_FOLDER=/tmp/annex\n"
 
-function fixture({ vars = ["FILES_FOLDER"], env = ENV } = {}) {
-  const ws = workspace({ pkg: { vars }, collections: { docs: DOCS } })
+function fixture({ vars = ["FILES_FOLDER"], env = ENV }: Record<string, any> = {}) {
+  const ws: Fixture & { real?: string } = workspace({ pkg: { vars }, collections: { docs: DOCS } })
   if (env !== null) fs.writeFileSync(path.join(ws.root, ".env"), env)
   // the real root as the child process sees it — mkdtemp may hand back a symlinked path
   ws.real = fs.realpathSync(ws.root)
@@ -96,7 +97,7 @@ describe("dt resolve <string> — a string template", () => {
 })
 
 describe("dt resolve <collection>/<id> <field> — a stored template", () => {
-  const seeded = opts => {
+  const seeded = (opts?) => {
     const ws = fixture(opts)
     assert.equal(
       ws.dt(

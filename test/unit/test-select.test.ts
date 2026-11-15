@@ -17,7 +17,7 @@ const suite = new Map([
   [I("restore"), ""],
   [I("first-run"), "readFile(root, 'package.json'); readFile(root, 'CLAUDE.md')"],
 ])
-const run = (changed, failed) => selectTests({ changed, integration: suite, failed })
+const run = (changed, failed?) => selectTests({ changed, integration: suite, failed })
 
 test("a changed tier-2 file runs itself", () => {
   assert.deepEqual(run([I("store-index")]).files, [I("store-index")])

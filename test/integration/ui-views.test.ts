@@ -67,7 +67,7 @@ describe("saveUiView writes the view where it already lives", () => {
       path.join("modules", "clinic", "ui-views", "clinic-doctors.ui-view.yaml")
     )
     assert.equal(
-      load(readFile(ws.root, "modules/clinic/ui-views/clinic-doctors.ui-view.yaml")).display.list.layout,
+      load<any>(readFile(ws.root, "modules/clinic/ui-views/clinic-doctors.ui-view.yaml")).display.list.layout,
       "cards"
     )
     assert.equal(
@@ -111,7 +111,7 @@ describe("saveUiView writes the view where it already lives", () => {
   test("a key the caller omits is GONE — the write replaces, so clearing a filter clears it", () => {
     const ws = withModuleView({ filter: { name: { _eq: "Dana" } } })
     saveUiView(ws.ws, ws.store, { id: "clinic-doctors", view: VIEW })
-    const doc = load(readFile(ws.root, "modules/clinic/ui-views/clinic-doctors.ui-view.yaml"))
+    const doc = load<any>(readFile(ws.root, "modules/clinic/ui-views/clinic-doctors.ui-view.yaml"))
     assert.equal(doc.filter, undefined)
   })
 
@@ -159,15 +159,15 @@ describe("a view shipped by an INSTALLED package", () => {
 
   test("is never written there: the save becomes an overlay in the workspace module (ui-view-overlays.test.js)", () => {
     const ws = withInstalledView()
-    const res = saveUiView(ws.ws, ws.store, { id: "acme-doctors", view: { ...VIEW, route: "/acme/doctors" } })
+    const res: any = saveUiView(ws.ws, ws.store, { id: "acme-doctors", view: { ...VIEW, route: "/acme/doctors" } })
     assert.equal(res.overlay, true)
-    assert.deepEqual(load(readFile(ws.root, "modules/default/ui-views/acme-doctors.ui-view.yaml")), {
+    assert.deepEqual(load<any>(readFile(ws.root, "modules/default/ui-views/acme-doctors.ui-view.yaml")), {
       overlay: true,
       display: { list: { layout: "cards" } },
     })
     // and the package source is untouched — npm would erase anything written there
     assert.equal(
-      load(readFile(ws.root, "node_modules/@acme/views/ui-views/acme-doctors.ui-view.yaml")).display.list.layout,
+      load<any>(readFile(ws.root, "node_modules/@acme/views/ui-views/acme-doctors.ui-view.yaml")).display.list.layout,
       "table"
     )
   })
@@ -215,7 +215,7 @@ describe("dt set ui-views/<id> — dotted values", () => {
     assert.equal(add.code, 0, add.stderr)
     return ws
   }
-  const saved = ws => load(readFile(ws.root, "modules/default/ui-views/recent.ui-view.yaml"))
+  const saved = ws => load<any>(readFile(ws.root, "modules/default/ui-views/recent.ui-view.yaml"))
 
   test("add takes --route and --scope, and the id is the route slug", () => {
     const ws = viewed()
@@ -296,7 +296,7 @@ describe("dt set ui-views/<id> — the empty string that MEANS something", () =>
     assert.equal(add.code, 0, add.stderr)
     return ws
   }
-  const saved = ws => load(readFile(ws.root, "modules/default/ui-views/recent.ui-view.yaml"))
+  const saved = ws => load<any>(readFile(ws.root, "modules/default/ui-views/recent.ui-view.yaml"))
 
   test("a QUOTED empty value writes sort: '' — what the surface needs to mean unsorted", () => {
     const ws = viewed()
@@ -310,7 +310,7 @@ describe("dt set ui-views/<id> — the empty string that MEANS something", () =>
     const ws = viewed()
     assert.equal(ws.dt("set", "ui-views/recent", 'display.list.sort=""').code, 0)
     assert.equal(compileQuietly(ws.ws).code, 0)
-    assert.equal(ws.store.read("ui-views", "recent").fields.display.list.sort, "")
+    assert.equal((ws.store.read("ui-views", "recent").fields.display as any).list.sort, "")
   })
 
   test("a set reads the compiled view and writes back only what the source carries", () => {

@@ -135,7 +135,7 @@ const MIXIN = {
 }
 
 /** The clinic, compiled and committed, with one doctor, one patient and one seen visit. */
-function clinic({ records = true } = {}) {
+function clinic({ records = true }: Record<string, any> = {}) {
   const w = workspace({ namespaces: ["health"], compile: false })
   const root = w.root
   writeCollection(root, "health/patients", PATIENTS)
@@ -220,7 +220,7 @@ function clinic({ records = true } = {}) {
     ...w,
     dt: run,
     text: rel => readFile(root, rel),
-    doc: rel => load(readFile(root, rel)),
+    doc: rel => load<any>(readFile(root, rel)),
     head: () => git(root, ["rev-parse", "HEAD"]),
   }
 }
@@ -231,7 +231,7 @@ function ok(res) {
   assert.equal(res.code, 0, `${res.stdout}\n${res.stderr}`)
   return res
 }
-function refused(res, re) {
+function refused(res, re?) {
   assert.notEqual(res.code, 0, `expected a refusal:\n${res.stdout}`)
   if (re) assert.match(res.stdout + res.stderr, re)
   return res
@@ -259,7 +259,7 @@ describe("add-field writes a v2 field", () => {
       after,
       VISITS.replace("  consultation_notes:", "  room:\n    type: string\n    required: true\n  consultation_notes:")
     )
-    const keys = Object.keys(load(after).fields)
+    const keys = Object.keys(load<any>(after).fields)
     assert.equal(keys.indexOf("room"), keys.indexOf("consultation_notes") - 1)
   })
 
@@ -321,7 +321,7 @@ describe("add-field writes a v2 field", () => {
   test("--mirror-of writes mirror_of, the type naming the target, and the far side decides the cardinality", () => {
     const w = clinic()
     ok(w.dt("add-field", "health/doctors", "--name", "visits", "--type", "health/visits", "--mirror-of", "doctor"))
-    const f = load(readFile(w.root, `${MOD}/collections/health/doctors.collection.yaml`)).fields
+    const f = load<any>(readFile(w.root, `${MOD}/collections/health/doctors.collection.yaml`)).fields
     assert.deepEqual(f.visits, { type: "health/visits", many: true, mirror_of: "doctor" })
     // the mirror is maintained by the next write of the owning side
     ok(
@@ -404,10 +404,10 @@ describe("add-field writes a v2 field", () => {
   test("--module on a collection another module owns writes a v2 OVERLAY there", () => {
     const w = clinic({ records: false })
     ok(w.dt("add-field", "health/visits", "--name", "claim_ref", "--type", "string", "--module", "billing"))
-    const overlay = load(readFile(w.root, "modules/billing/collections/health/visits.collection.yaml"))
+    const overlay = load<any>(readFile(w.root, "modules/billing/collections/health/visits.collection.yaml"))
     assert.deepEqual(overlay, { name: "health/visits", overlay: true, fields: { claim_ref: { type: "string" } } })
     assert.equal(w.text(VISITS_FILE), VISITS, "the base is untouched")
-    const compiled = load(readFile(w.root, ".dreamteamer/collections/health/visits.collection.yaml"))
+    const compiled = load<any>(readFile(w.root, ".dreamteamer/collections/health/visits.collection.yaml"))
     assert.deepEqual(compiled.compiled.overlaid_by, ["billing"])
     assert.ok(compiled.compiled.fields.claim_ref)
   })
@@ -450,7 +450,7 @@ describe("set-field changes only what a flag names", () => {
     ok(w.dt("set-field", "health/visits", "--name", "status", "--required"))
     const f = w.doc(VISITS_FILE).fields
     assert.deepEqual(Object.keys(f.status), ["type", "required", "default", "enum", "description"])
-    assert.deepEqual(Object.keys(f), Object.keys(load(VISITS).fields), "set-field never reorders")
+    assert.deepEqual(Object.keys(f), Object.keys(load<any>(VISITS).fields), "set-field never reorders")
     assert.match(w.text(VISITS_FILE), /# `seen` is the only state a prescription may hang off/)
   })
 
@@ -502,7 +502,8 @@ describe("set-field changes only what a flag names", () => {
     ok(w.dt("add-field", "health/visits", "--name", "claim_ref", "--type", "string", "--module", "billing"))
     ok(w.dt("set-field", "health/visits", "--name", "claim_ref", "--description", "The insurer claim number."))
     assert.equal(
-      load(readFile(w.root, "modules/billing/collections/health/visits.collection.yaml")).fields.claim_ref.description,
+      load<any>(readFile(w.root, "modules/billing/collections/health/visits.collection.yaml")).fields.claim_ref
+        .description,
       "The insurer claim number."
     )
     assert.equal(w.text(VISITS_FILE), VISITS)
@@ -587,7 +588,7 @@ describe("collections: add scaffolds v2, set writes v2 keys", () => {
         "A clinical note."
       )
     )
-    const doc = load(readFile(w.root, `${MOD}/collections/health/notes.collection.yaml`))
+    const doc = load<any>(readFile(w.root, `${MOD}/collections/health/notes.collection.yaml`))
     assert.deepEqual(doc, {
       name: "health/notes",
       description: "A clinical note.",
@@ -595,7 +596,7 @@ describe("collections: add scaffolds v2, set writes v2 keys", () => {
       ids: { from: "{{ created | date }}--{{ author | slug }}" },
       fields: {},
     })
-    const compiled = load(readFile(w.root, ".dreamteamer/collections/health/notes.collection.yaml"))
+    const compiled = load<any>(readFile(w.root, ".dreamteamer/collections/health/notes.collection.yaml"))
     assert.ok(compiled.compiled.fields.author, "the mixin's fields are live")
   })
 
@@ -603,7 +604,7 @@ describe("collections: add scaffolds v2, set writes v2 keys", () => {
     const w = clinic({ records: false })
     const res = ok(w.dt("add", "collections", "--name", "health/rooms"))
     assert.match(res.stdout, /suffix: room — override with --suffix/)
-    const doc = load(readFile(w.root, `${MOD}/collections/health/rooms.collection.yaml`))
+    const doc = load<any>(readFile(w.root, `${MOD}/collections/health/rooms.collection.yaml`))
     assert.deepEqual(doc, { name: "health/rooms", fields: { name: { type: "string", required: true } } })
     ok(w.dt("add", "health/rooms", "--name", "Room 4"))
   })
@@ -627,11 +628,11 @@ describe("collections: add scaffolds v2, set writes v2 keys", () => {
         "display.list.columns=name"
       )
     )
-    const doc = load(readFile(w.root, `${MOD}/collections/health/doctors.collection.yaml`))
+    const doc = load<any>(readFile(w.root, `${MOD}/collections/health/doctors.collection.yaml`))
     assert.equal(doc.record_title, "{{ name }}")
     assert.deepEqual(doc.display, { nav: { icon: "person", order: 30, section: "care" }, list: { columns: ["name"] } })
     ok(w.dt("set", "collections/health/doctors", "display.list.columns="))
-    assert.deepEqual(load(readFile(w.root, `${MOD}/collections/health/doctors.collection.yaml`)).display, {
+    assert.deepEqual(load<any>(readFile(w.root, `${MOD}/collections/health/doctors.collection.yaml`)).display, {
       nav: { icon: "person", order: 30, section: "care" },
     })
     refused(w.dt("set", "collections/health/doctors", "display.list.columns=nope"), /health\/doctors has no field nope/)
@@ -651,13 +652,16 @@ describe("collections: add scaffolds v2, set writes v2 keys", () => {
         "display.record.options.wide=true"
       )
     )
-    const doc = load(readFile(w.root, `${MOD}/collections/health/doctors.collection.yaml`))
+    const doc = load<any>(readFile(w.root, `${MOD}/collections/health/doctors.collection.yaml`))
     assert.deepEqual(doc.display.list, { layout: "kanban", options: { lanes_by: "name", page_size: 25 } })
     assert.deepEqual(doc.display.record, { layout: "page", options: { wide: true } })
     ok(w.dt("set", "collections/health/doctors", "display.list.options.page_size="))
-    assert.deepEqual(load(readFile(w.root, `${MOD}/collections/health/doctors.collection.yaml`)).display.list.options, {
-      lanes_by: "name",
-    })
+    assert.deepEqual(
+      load<any>(readFile(w.root, `${MOD}/collections/health/doctors.collection.yaml`)).display.list.options,
+      {
+        lanes_by: "name",
+      }
+    )
     refused(w.dt("set", "collections/health/doctors", "display.record.badge=nope"), /health\/doctors has no field nope/)
     refused(
       w.dt("set", "collections/health/doctors", "display.list.optionz.x=1"),
@@ -721,11 +725,11 @@ describe("rename-field reaches every rule-6 position, in one commit", () => {
     assert.equal(doc.display.record.badge, "state")
     assert.deepEqual(doc.display.form.sections[0].fields, ["reason", "patient", "doctor", "date", "kind", "state"])
     assert.deepEqual(doc.constraints[0].if, { required: ["state"], properties: { state: { const: "seen" } } })
-    const view = load(readFile(w.root, VIEW_FILE))
+    const view = load<any>(readFile(w.root, VIEW_FILE))
     assert.deepEqual(view.filter, { state: { _eq: "seen" } })
     assert.deepEqual(view.display.list.columns, ["reason", "state"])
     assert.equal(view.display.list.options.lanes_by, "state")
-    const binding = load(readFile(w.root, BINDING_FILE))
+    const binding = load<any>(readFile(w.root, BINDING_FILE))
     assert.deepEqual(binding.available_when, { state: { _eq: "seen" } })
     assert.deepEqual(binding.done_when, { state: { _in: ["cancelled"] } })
     assert.match(readFile(w.root, VISIT_RECORD), /^state: seen$/m)
@@ -764,7 +768,9 @@ describe("rename-field reaches every rule-6 position, in one commit", () => {
   test("a one-hop filter through a reference names a field of the target collection", () => {
     const w = clinic()
     ok(w.dt("rename-field", "health/patients", "--name", "name", "--to", "full_name"))
-    assert.deepEqual(load(readFile(w.root, HOP_VIEW_FILE)).filter, { patient: { full_name: { _eq: "Dana Levi" } } })
+    assert.deepEqual(load<any>(readFile(w.root, HOP_VIEW_FILE)).filter, {
+      patient: { full_name: { _eq: "Dana Levi" } },
+    })
     assert.equal(w.doc(PATIENTS_FILE).ids.from, "{{ full_name | slug }}")
   })
 
@@ -773,7 +779,7 @@ describe("rename-field reaches every rule-6 position, in one commit", () => {
     ok(w.dt("rename-field", "health/visits", "--name", "currency", "--to", "currency_code"))
     assert.equal(w.doc(VISITS_FILE).fields.fee.display.unit_field, "currency_code")
     ok(w.dt("rename-field", "health/visits", "--name", "reason", "--to", "complaint"))
-    const view = load(readFile(w.root, VIEW_FILE))
+    const view = load<any>(readFile(w.root, VIEW_FILE))
     assert.equal(view.display.list.options.card_title, "{{ complaint }}")
     assert.equal(w.doc(VISITS_FILE).record_title, "{{ complaint }} · {{ date }}")
   })
@@ -813,7 +819,7 @@ describe("rename-field reaches every rule-6 position, in one commit", () => {
     const w = clinic()
     ok(w.dt("set", "health/doctors/dr-cohen", "notes=Cardiology, Tuesdays."))
     ok(w.dt("rename-field", "health/doctors", "--name", "notes", "--to", "bio"))
-    assert.equal(load(readFile(w.root, `${MOD}/collections/health/doctors.collection.yaml`)).fields.bio.body, true)
+    assert.equal(load<any>(readFile(w.root, `${MOD}/collections/health/doctors.collection.yaml`)).fields.bio.body, true)
     assert.ok(w.doc(PATIENTS_FILE).fields.notes, "patients.notes is another collection's field")
     assert.equal(
       JSON.parse(ok(w.dt("get", "health/doctors/dr-cohen", "--json")).stdout).bio.trim(),
@@ -825,14 +831,14 @@ describe("rename-field reaches every rule-6 position, in one commit", () => {
     const w = clinic()
     ok(w.dt("add-field", "health/visits", "--name", "claim_ref", "--type", "string", "--module", "billing"))
     const overlayFile = "modules/billing/collections/health/visits.collection.yaml"
-    const overlay = load(readFile(w.root, overlayFile))
+    const overlay = load<any>(readFile(w.root, overlayFile))
     overlay.display = { list: { columns: ["claim_ref", "status"] } }
     fs.writeFileSync(path.join(w.root, overlayFile), dump(overlay))
     compileQuietly(w.ws)
     git(w.root, ["add", "--", overlayFile])
     git(w.root, ["commit", "-qm", "fixture: overlay display"])
     ok(w.dt("rename-field", "health/visits", "--name", "status", "--to", "state"))
-    assert.deepEqual(load(readFile(w.root, overlayFile)).display.list.columns, ["claim_ref", "state"])
+    assert.deepEqual(load<any>(readFile(w.root, overlayFile)).display.list.columns, ["claim_ref", "state"])
     ok(w.dt("rename-field", "health/patients", "--name", "visits", "--to", "appointments"))
     const patient = JSON.parse(ok(w.dt("get", "health/patients/dana-levi", "--json")).stdout)
     assert.deepEqual(patient.appointments, ["health/visits/2026-03-04--dana-levi--dr-cohen"])
@@ -859,8 +865,8 @@ describe("rename-value", () => {
     const doc = w.doc(VISITS_FILE)
     assert.deepEqual(doc.fields.status.enum, ["booked", "completed", "cancelled"])
     assert.deepEqual(doc.constraints[0].if.properties.status, { const: "completed" })
-    assert.deepEqual(load(readFile(w.root, VIEW_FILE)).filter, { status: { _eq: "completed" } })
-    assert.deepEqual(load(readFile(w.root, BINDING_FILE)).available_when, { status: { _eq: "completed" } })
+    assert.deepEqual(load<any>(readFile(w.root, VIEW_FILE)).filter, { status: { _eq: "completed" } })
+    assert.deepEqual(load<any>(readFile(w.root, BINDING_FILE)).available_when, { status: { _eq: "completed" } })
     assert.match(readFile(w.root, VISIT_RECORD), /^status: completed$/m)
     assert.equal(commentCount(w.text(VISITS_FILE)), commentCount(VISITS))
     recordsValid(w)
@@ -903,7 +909,7 @@ describe("rename-value", () => {
 
   test("a filter selecting the old value by part of its spelling is refused by name", () => {
     const w = clinic()
-    const view = load(readFile(w.root, VIEW_FILE))
+    const view = load<any>(readFile(w.root, VIEW_FILE))
     view.filter = { status: { _starts_with: "se" } }
     fs.writeFileSync(path.join(w.root, VIEW_FILE), dump(view))
     compileQuietly(w.ws)

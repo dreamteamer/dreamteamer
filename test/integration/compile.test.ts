@@ -35,7 +35,7 @@ import {
   unresolvedPeersOf,
 } from "../../src/record/descriptor.ts"
 
-const uncompiled = opts => workspace({ ...opts, compile: false })
+const uncompiled = (opts?) => workspace({ ...opts, compile: false })
 const dtCheck = root => dt(root, "check")
 
 describe("the runtime artifact", () => {
@@ -50,7 +50,7 @@ describe("the runtime artifact", () => {
 
   test("the manifest records provenance and the declared namespaces", () => {
     const ws = workspace({ namespaces: ["health"] })
-    const manifest = load(readFile(ws.root, ".dreamteamer/manifest.yaml"))
+    const manifest = load<any>(readFile(ws.root, ".dreamteamer/manifest.yaml"))
     assert.deepEqual(manifest.namespaces, ["health"])
     assert.ok(manifest.compiled, "a compile timestamp")
     assert.ok(
@@ -62,7 +62,7 @@ describe("the runtime artifact", () => {
 
   test("a workspace with no namespaces gets an empty list, not a missing key", () => {
     const ws = workspace()
-    assert.deepEqual(load(readFile(ws.root, ".dreamteamer/manifest.yaml")).namespaces, [])
+    assert.deepEqual(load<any>(readFile(ws.root, ".dreamteamer/manifest.yaml")).namespaces, [])
     assert.deepEqual(ws.store.namespaces, [])
   })
 
@@ -86,7 +86,7 @@ describe("overlay — a second source of one collection", () => {
       "name: widgets\noverlay: true\nfields:\n  urgent:\n    type: boolean\n    default: false\n"
     )
     compileQuietly(ws.ws)
-    const d = load(readFile(ws.root, ".dreamteamer/collections/widgets.collection.yaml"))
+    const d = load<any>(readFile(ws.root, ".dreamteamer/collections/widgets.collection.yaml"))
     assert.equal(fieldsOf(d).urgent.type, "boolean")
     assert.equal(fieldsOf(d).name.type, "string", "the base field survives")
     assert.equal(storageOf(d).suffix, "widget", "storage comes from the base")
@@ -403,7 +403,7 @@ describe("ids.from as an ordered list survives check", () => {
   const withGenerate = from => {
     const ws = uncompiled({ collections: { widgets: simpleCollection({ storage: { suffix: "widget" } }) } })
     const f = path.join(ws.root, "modules", WS_MODULE, "collections", "widgets.collection.yaml")
-    const y = load(fs.readFileSync(f, "utf8"))
+    const y = load<any>(fs.readFileSync(f, "utf8"))
     y.ids = { from }
     // the first arm's input: optional, so a record without it falls through to the next arm
     y.fields = { code: { type: "string" }, ...y.fields }
@@ -724,8 +724,8 @@ describe("peer_collections — an optional cross-module reference", () => {
   test("unresolved_peers lands only on the collections that actually reference the peer", () => {
     const ws = withPeerModule()
     assert.equal(ws.dt("compile").code, 0)
-    const comments = load(readFile(ws.root, ".dreamteamer/collections/comments.collection.yaml"))
-    const authors = load(readFile(ws.root, ".dreamteamer/collections/authors.collection.yaml"))
+    const comments = load<any>(readFile(ws.root, ".dreamteamer/collections/comments.collection.yaml"))
+    const authors = load<any>(readFile(ws.root, ".dreamteamer/collections/authors.collection.yaml"))
     assert.deepEqual(unresolvedPeersOf(comments), ["posts"])
     assert.deepEqual(
       unresolvedPeersOf(authors),
@@ -737,7 +737,7 @@ describe("peer_collections — an optional cross-module reference", () => {
   test("the module record keeps peer_collections — it is the declaration, not a resolved link", () => {
     const ws = withPeerModule()
     assert.equal(ws.dt("compile").code, 0)
-    const mod = load(readFile(ws.root, ".dreamteamer/modules/blog.module.yaml"))
+    const mod = load<any>(readFile(ws.root, ".dreamteamer/modules/blog.module.yaml"))
     assert.deepEqual(mod.peer_collections, ["collections/posts"])
   })
 
@@ -746,7 +746,7 @@ describe("peer_collections — an optional cross-module reference", () => {
     installPosts(ws.root)
     assert.equal(ws.dt("compile").code, 0)
     assert.deepEqual(
-      unresolvedPeersOf(load(readFile(ws.root, ".dreamteamer/collections/comments.collection.yaml"))),
+      unresolvedPeersOf(load<any>(readFile(ws.root, ".dreamteamer/collections/comments.collection.yaml"))),
       [],
       "nothing to excuse once the peer is installed"
     )
@@ -775,7 +775,7 @@ describe("a mirror onto a peer collection", () => {
       path.join(dir, "package.json"),
       JSON.stringify({ name, private: true, version: "0.0.1", dreamteamer: dtKey })
     )
-    for (const [coll, body] of Object.entries(files))
+    for (const [coll, body] of Object.entries<any>(files))
       fs.writeFileSync(path.join(dir, "collections", `${coll}.collection.yaml`), body)
   }
   const desc = (name, extra = "") =>
@@ -806,7 +806,7 @@ describe("a mirror onto a peer collection", () => {
     const ws = blog({ withBase: true })
     const c = ws.dt("compile")
     assert.equal(c.code, 0, c.stdout + c.stderr)
-    const posts = load(readFile(ws.root, ".dreamteamer/collections/posts.collection.yaml"))
+    const posts = load<any>(readFile(ws.root, ".dreamteamer/collections/posts.collection.yaml"))
     assert.deepEqual(posts.compiled.mirrors, ["comments"])
     assert.equal(fieldsOf(posts).comments.mirror_of, "post")
     assert.equal(fieldsOf(posts).comments.type, "comments")
@@ -845,7 +845,7 @@ describe("a mirror onto a peer collection", () => {
     )
     const c = dt(ws.root, "compile")
     assert.equal(c.code, 0, c.stderr)
-    const repos = load(readFile(ws.root, ".dreamteamer/collections/repos.collection.yaml"))
+    const repos = load<any>(readFile(ws.root, ".dreamteamer/collections/repos.collection.yaml"))
     assert.equal(repos.compiled.fields.comments.mirror_of, "repo")
     assert.ok(repos.compiled.overlaid_by.includes("blog"))
   })
@@ -922,7 +922,7 @@ describe("a command-binding gated on a peer collection", () => {
 describe("a peerDependencies floor on another module", () => {
   /** A module `id` at `version`, with npm `peerDependencies` (top level) — on the inline channel, or
    *  under node_modules declared as a dependency, or inside a git_modules bundle. */
-  const mod = (root, id, version, { peers, channel = "inline" } = {}) => {
+  const mod = (root, id, version, { peers, channel = "inline" }: Record<string, any> = {}) => {
     const dir =
       channel === "npm"
         ? path.join(root, "node_modules", id)
@@ -1384,7 +1384,7 @@ describe("the orientation block is grouped by module", () => {
     assert.equal(code, 0)
     assert.ok(!warnings.some(w => w.includes("module core has no description")), warnings.join("\n"))
     assert.equal(
-      load(readFile(ws.root, ".dreamteamer/modules/core.module.yaml")).description,
+      load<any>(readFile(ws.root, ".dreamteamer/modules/core.module.yaml")).description,
       "Shared nouns, from the npm key."
     )
     assert.match(blockOf(ws), /^\*\*Core\*\* \(`core` · modules\/core\) — Shared nouns, from the npm key\.$/m)
@@ -1440,7 +1440,7 @@ describe("the orientation block is grouped by module", () => {
       "repos and its use when sit with the system collections"
     )
     assert.doesNotMatch(block.slice(dflt), /^- repos — /m, "repos must not render as a domain collection at all")
-    const d = load(readFile(ws.root, ".dreamteamer/collections/repos.collection.yaml"))
+    const d = load<any>(readFile(ws.root, ".dreamteamer/collections/repos.collection.yaml"))
     assert.match(d.use_when, /`path`/, "the use_when text is on the compiled descriptor")
   })
 
@@ -1454,7 +1454,7 @@ describe("the orientation block is grouped by module", () => {
     const block = blockOf(ws)
     assert.match(block, /^\*\*Hr\*\* [^\n]*\n {2}runs: bin\/close-month\.py\n/m)
     assert.doesNotMatch(block, /helper\.py|\.keep/, "subfolders and dotfiles are not entry points")
-    assert.deepEqual(load(readFile(ws.root, ".dreamteamer/modules/hr.module.yaml")).bin, ["bin/close-month.py"])
+    assert.deepEqual(load<any>(readFile(ws.root, ".dreamteamer/modules/hr.module.yaml")).bin, ["bin/close-month.py"])
     assert.match(block, /^\*\*Core\*\* [^\n]*\n- people/m, "no runs: line where there is no bin/")
   })
 

@@ -1,8 +1,9 @@
 import test from "node:test"
 import assert from "node:assert/strict"
 import { splitRef } from "../../src/record/splitRef.ts"
+import { descriptors as descriptorMap } from "../helpers/partial.ts"
 
-const descriptors = new Map([
+const descriptors = descriptorMap([
   ["contacts", {}],
   ["finance/transactions", {}],
   ["finance/transaction-tags", {}],

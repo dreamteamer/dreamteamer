@@ -161,7 +161,7 @@ describe("validateEnvAction — the shape of an env action, judged when a plan i
     })
   })
   test("env that is not an object is refused", () => {
-    assert.deepEqual(validateEnvAction({ id: "set", env: "ACME_TOKEN=x" }, declared), {
+    assert.deepEqual(validateEnvAction({ id: "set", env: "ACME_TOKEN=x" as any }, declared), {
       ok: false,
       state: "blocked",
       reason: "env must be an object of KEY → value",

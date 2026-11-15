@@ -93,7 +93,7 @@ const VALUES = {
 
 /** Every key emitted, grouped by the table row it belongs to. */
 function emitted(p) {
-  const seen = Object.fromEntries(Object.keys(CONTRACT).map(k => [k, new Set()]))
+  const seen = Object.fromEntries(Object.keys(CONTRACT).map(k => [k, new Set<string>()]))
   const add = (group, obj) => {
     for (const k of Object.keys(obj)) seen[group].add(k)
   }
@@ -138,7 +138,7 @@ describe("the display contract carries only the §4.3 names", () => {
   }
 
   test("wire types are the authored names, and every one of them is reachable", () => {
-    const types = new Set(
+    const types = new Set<string>(
       Object.values(p.fields)
         .flat()
         .flatMap(f => [f.type, ...(f.editor_options?.fields ?? []).map(s => s.type)])

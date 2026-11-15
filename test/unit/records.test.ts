@@ -9,8 +9,9 @@ import { assertSafeId, patternRe, unknownFields } from "../../src/record/records
 import { EXT } from "../../src/record/consts.ts"
 import { parseRecordText } from "../../src/record/parseRecordText.ts"
 import { idFromRecordPath } from "../../src/record/idFromRecordPath.ts"
+import { desc } from "../helpers/partial.ts"
 
-const md = { storage: { format: "md" } }
+const md = desc({ storage: { format: "md" } })
 
 describe("assertSafeId", () => {
   test("accepts a plain id and a nested path id", () => {
@@ -34,12 +35,12 @@ describe("parseRecordText", () => {
   test("splits frontmatter from the body and assigns the body field", () => {
     const fields = parseRecordText("---\ntitle: Kickoff\n---\nAda walked through it.\n", md, "body")
     assert.equal(fields.title, "Kickoff")
-    assert.equal(fields.body.trim(), "Ada walked through it.")
+    assert.equal((fields.body as string).trim(), "Ada walked through it.")
   })
 
   test("a frontmatter-less file is all body", () => {
     const fields = parseRecordText("just prose\n", md, "body")
-    assert.equal(fields.body.trim(), "just prose")
+    assert.equal((fields.body as string).trim(), "just prose")
   })
 
   test("an empty body does not create the body field", () => {
@@ -65,18 +66,18 @@ describe("parseRecordText", () => {
   })
 
   test("yaml and json formats parse whole-file", () => {
-    assert.equal(parseRecordText("name: Ada\n", { storage: { format: "yaml" } }).name, "Ada")
-    assert.equal(parseRecordText('{"name":"Ada"}', { storage: { format: "json" } }).name, "Ada")
+    assert.equal(parseRecordText("name: Ada\n", desc({ storage: { format: "yaml" } })).name, "Ada")
+    assert.equal(parseRecordText('{"name":"Ada"}', desc({ storage: { format: "json" } })).name, "Ada")
   })
 })
 
 describe("unknownFields — the typo detector", () => {
   // a compiled descriptor: what a record stores is its non-virtual resolved fields
-  const d = {
+  const d = desc({
     compiled: {
       fields: { id: { type: "string", virtual: true }, title: { type: "string" }, status: { type: "string" } },
     },
-  }
+  })
 
   test("names keys the schema does not declare", () => {
     assert.deepEqual(unknownFields(d, { title: "T", assinee: "x" }), ["assinee"])
@@ -92,14 +93,14 @@ describe("unknownFields — the typo detector", () => {
 
   // A descriptor that declares nothing cannot distinguish a typo from a field, so it must not guess.
   test("a descriptor with no fields accepts anything", () => {
-    assert.deepEqual(unknownFields({}, { anything: 1 }), [])
+    assert.deepEqual(unknownFields(desc({}), { anything: 1 }), [])
   })
 })
 
 describe("patternRe", () => {
   test("compiles with the unicode flag so property escapes work", () => {
     assert.ok(patternRe("^[a-z0-9-]+$").test("fix-login"))
-    assert.ok(patternRe("^\\p{Letter}+$", "u").test("\u05E9\u05DC\u05D5\u05DD"))
+    assert.ok(patternRe("^\\p{Letter}+$").test("\u05E9\u05DC\u05D5\u05DD"))
   })
 
   // A malformed pattern throws here rather than silently matching nothing — and compile refuses one
@@ -118,8 +119,8 @@ describe("EXT", () => {
 })
 
 describe("idFromRecordPath", () => {
-  const fileCodec = { storage: { suffix: "asset", format: "binary" } }
-  const mdCodec = { storage: { suffix: "contact", format: "md" } }
+  const fileCodec = desc({ storage: { suffix: "asset", format: "binary" } })
+  const mdCodec = desc({ storage: { suffix: "contact", format: "md" } })
 
   test("fixed-extension formats match their one extension, at any depth", () => {
     assert.equal(idFromRecordPath(mdCodec, "dana-oren.contact.md"), "dana-oren")
@@ -144,7 +145,7 @@ describe("idFromRecordPath", () => {
   })
 
   test("a suffix carrying regex metacharacters is matched literally", () => {
-    const dotty = { storage: { suffix: "a.b", format: "binary" } }
+    const dotty = desc({ storage: { suffix: "a.b", format: "binary" } })
     assert.equal(idFromRecordPath(dotty, "x.a.b.svg"), "x")
     assert.equal(idFromRecordPath(dotty, "x.axb.svg"), null)
   })

@@ -31,7 +31,7 @@ function commitAll(dir, msg) {
   git(dir, ["commit", "-qm", msg, "--allow-empty"])
 }
 const write = (dir, files) => {
-  for (const [rel, body] of Object.entries(files)) {
+  for (const [rel, body] of Object.entries<any>(files)) {
     fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true })
     fs.writeFileSync(path.join(dir, rel), body)
   }
@@ -57,7 +57,7 @@ function shapes(root, briefs = false) {
 }
 
 /** A workspace clone at `<root>/git_modules/<key>` named `pkg`, holding `files`. */
-function clone(root, key, { pkg = key, files = {} } = {}) {
+function clone(root, key, { pkg = key, files = {} }: Record<string, any> = {}) {
   const dir = path.join(root, "git_modules", key)
   write(dir, {
     "package.json": JSON.stringify(
@@ -73,11 +73,11 @@ function clone(root, key, { pkg = key, files = {} } = {}) {
 }
 
 /** A workspace named `pkg` holding `files`, reading `layers` ({ key: { pkg, files, records } }). */
-function ws({ pkg = "w-pkg", files = {}, layers = {}, briefs = false } = {}) {
+function ws({ pkg = "w-pkg", files = {}, layers = {}, briefs = false }: Record<string, any> = {}) {
   const w = workspace({ compile: false })
   shapes(w.root, briefs)
   const entries = { org: { url: "x", ref: "main" } }
-  for (const [key, l] of Object.entries(layers)) {
+  for (const [key, l] of Object.entries<any>(layers)) {
     clone(w.root, key, l)
     entries[key] = { url: "x", ref: "main", ...(l.records ? { records: l.records } : {}) }
   }
@@ -94,12 +94,12 @@ function ws({ pkg = "w-pkg", files = {}, layers = {}, briefs = false } = {}) {
 }
 
 /** R reading `w` as layer `w` (its committed records and manifest, never its layers). */
-function readerOf(w, { pkg = "r-pkg", files = {}, records, briefs = false } = {}) {
+function readerOf(w, { pkg = "r-pkg", files = {}, records, briefs = false }: Record<string, any> = {}) {
   const r = ws({ pkg, files, layers: {}, briefs })
   copyInto(r, w, records)
   return r
 }
-function copyInto(r, w, records) {
+function copyInto(r, w, records?) {
   const dir = path.join(r.root, "git_modules", "w")
   fs.rmSync(dir, { recursive: true, force: true })
   fs.mkdirSync(dir, { recursive: true })
@@ -125,7 +125,7 @@ const manifestOf = dir => JSON.parse(fs.readFileSync(path.join(dir, MANIFEST), "
 const handManifest = (dir, refs) => fs.writeFileSync(path.join(dir, MANIFEST), serializeExports(refs))
 
 /** W reads layer L (package `l-pkg`), which holds people/eli; W's task names it. */
-const withLayer = (extra = {}) =>
+const withLayer = (extra: Record<string, any> = {}) =>
   ws({
     files: { "data/tasks/t1.task.md": task("t1", { assignee: "people/eli" }), ...(extra.files ?? {}) },
     layers: { l: { pkg: "l-pkg", files: { "data/people/eli.person.md": person("Eli"), ...(extra.layerFiles ?? {}) } } },

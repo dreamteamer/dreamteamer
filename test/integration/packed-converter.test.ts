@@ -48,7 +48,7 @@ test("the packed engine ships the converter, and it converts a v1 workspace that
     const conv = run(w.root, ["node_modules/dreamteamer/dist/scripts/migrate-descriptors-v2.js", "--root", "."])
     assert.equal(conv.status, 0, conv.stderr)
     assert.match(conv.stdout, /migrated: descriptors \d+/)
-    const src = load(
+    const src = load<any>(
       fs.readFileSync(path.join(w.root, "modules", WS_MODULE, "collections", "companies.collection.yaml"), "utf8")
     )
     assert.ok("fields" in src, "the descriptor is v2")

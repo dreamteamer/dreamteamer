@@ -79,7 +79,7 @@ describe("add", () => {
 })
 
 describe("hard validation — nothing was written", () => {
-  const cases = [
+  const cases: [string, Record<string, any>, RegExp][] = [
     ["an unknown field", { title: "T", assinee: "x" }, /unknown field\(s\).*assinee/],
     ["a bad enum value", { title: "T", status: "nope" }, /not in enum/],
     ["a missing required field", { status: "todo" }, /required/],

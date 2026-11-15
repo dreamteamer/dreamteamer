@@ -447,7 +447,7 @@ describe("workspace verbs keep their spellings", () => {
   test("every verb named in help dispatches, and no verb dispatches undocumented", () => {
     const ws = base()
     const help = ws.dt("help").stdout
-    const documented = new Set()
+    const documented = new Set<string>()
     for (const m of help.matchAll(/^ {2}([a-z][a-z-]*)\s/gm)) documented.add(m[1])
     // ⚠ A PIN THAT MATCHES NOTHING PASSES VACUOUSLY, which is the one outcome to avoid.
     assert.ok(

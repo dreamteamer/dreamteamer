@@ -145,8 +145,8 @@ describe("redact — failure text only, the kit's rules folded in (D62, D67)", (
 
 describe("an inspect that returns a Promise — a plain function hiding an async body", () => {
   test('reads blocked with the reason, never "no evidence"', () => {
-    const unit = { id: "acme", inspect: () => Promise.resolve({ checks: [] }) }
-    assert.deepEqual(safeInspect(unit, {}), [
+    const unit = { id: "acme", inspect: () => Promise.resolve({ checks: [] }) } as any
+    assert.deepEqual(safeInspect(unit, {} as any), [
       {
         id: "acme.inspect",
         status: "blocked",

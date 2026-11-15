@@ -12,7 +12,7 @@ import { dump } from "../../src/lib/yaml.ts"
 
 /** A bundle at `dir`: a root package.json carrying the `dreamteamer` marker and `modules/<m>/` each
  *  shipping one collection named after the module. */
-function bundle(dir, rootName, modules, { marker = {} } = {}) {
+function bundle(dir, rootName, modules, { marker = {} }: Record<string, any> = {}) {
   fs.mkdirSync(dir, { recursive: true })
   fs.writeFileSync(
     path.join(dir, "package.json"),
@@ -30,7 +30,7 @@ function bundle(dir, rootName, modules, { marker = {} } = {}) {
 }
 
 /** The workspace with an npm dependency `@acme/pack` declared and installed as a bundle. */
-function withNpmBundle(modules, disable) {
+function withNpmBundle(modules, disable?) {
   const { root } = workspace({ compile: false })
   const pkgPath = path.join(root, "package.json")
   const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8"))
@@ -155,7 +155,7 @@ describe("a modules/<id> dreamteamer.disable entry drops a whole module", () => 
 // records there could never be committed. It used to compile ✔ and the shipped records silently never
 // appeared. Invented package and record names only.
 describe("an npm module shipping data/ is warned about, naming the package and the folder", () => {
-  function withShippedData({ ignore } = {}) {
+  function withShippedData({ ignore }: Record<string, any> = {}) {
     const { root, ws } = workspace({ compile: false })
     const pkgPath = path.join(root, "package.json")
     const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8"))

@@ -100,7 +100,18 @@ describe("a revision handed to git is a commit id or HEAD", () => {
     assert.ok(Array.isArray(deriveEvents(ws.root, ws.store.descriptors, "HEAD~1")))
     assert.ok(ids(deriveEvents(ws.root, ws.store.descriptors, "2000-01-01")).includes("tasks/t"))
 
-    for (const bad of ["main", "HEAD^", "HEAD~1", "", "abc", "a".repeat(41), `${head}\n`, ` ${head}`, 1234, [head]]) {
+    for (const bad of [
+      "main",
+      "HEAD^",
+      "HEAD~1",
+      "",
+      "abc",
+      "a".repeat(41),
+      `${head}\n`,
+      ` ${head}`,
+      1234,
+      [head],
+    ] as any[]) {
       assert.throws(() => historyDiff(ws.store, "tasks", "t", bad), NOT_A_COMMIT, JSON.stringify(bad))
       assert.throws(() => ws.store.revert("tasks", "t", bad), NOT_A_COMMIT, JSON.stringify(bad))
     }
@@ -116,7 +127,7 @@ describe("a revision handed to git is a commit id or HEAD", () => {
     // one quote style and one space, so formatting (quotes, a wrapped argv, a trailing comma) cannot change what is read
     // the WHOLE engine source, so a function moving to another file cannot leave its argv unread
     const src = fs
-      .readdirSync(path.join(ENGINE_ROOT, "src"), { recursive: true })
+      .readdirSync(path.join(ENGINE_ROOT, "src"), { recursive: true, encoding: "utf8" })
       .filter(f => f.endsWith(".ts"))
       .map(f => fs.readFileSync(path.join(ENGINE_ROOT, "src", f), "utf8"))
       .join("\n")
@@ -124,7 +135,7 @@ describe("a revision handed to git is a commit id or HEAD", () => {
       .replace(/\s+/g, " ")
       .replace(/\[ /g, "[")
       .replace(/,? \]/g, "]")
-    const argvs = [
+    const argvs: [string, RegExp][] = [
       ["history", /\['diff', '--end-of-options', `\$\{hash\}~1`, hash, '--'/],
       ["Store.show", /\['show', '--end-of-options', `\$\{hash\}:\$\{relPath\}`\]/],
       ["Store.ls-tree", /\['ls-tree', '-r', '--name-only', '--end-of-options', hash, '--'/],

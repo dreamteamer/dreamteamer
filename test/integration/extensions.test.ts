@@ -17,6 +17,7 @@ import {
   withProbeCollide,
 } from "../helpers/ws.ts"
 import { dump } from "../../src/lib/yaml.ts"
+import type { SetupContext } from "../../src/types.ts"
 import { openWorkspace, contributedViolations, check, CHECK_WARNINGS } from "../../src/api.ts"
 
 const PROBES = {
@@ -65,7 +66,10 @@ export default function activate(dt) {
 }
 `
 
-function install(root, { name = "probe-kit", entry = ENTRY, descriptor = PROBES, extensionKey = "./ext.js" } = {}) {
+function install(
+  root,
+  { name = "probe-kit", entry = ENTRY, descriptor = PROBES, extensionKey = "./ext.js" }: Record<string, any> = {}
+) {
   const dir = path.join(root, "node_modules", name)
   fs.mkdirSync(path.join(dir, "collections"), { recursive: true })
   fs.writeFileSync(
@@ -377,7 +381,7 @@ describe("the loader refuses what it cannot honour — at open, by name", () => 
           root: a.root,
           env: { PROBE_HOME: path.join(a.root, "no-such-home") },
           receiptDir: path.join(a.root, ".dreamteamer", "setup", "probe"),
-        })
+        } as Partial<SetupContext> as SetupContext)
         .checks.map(c => [c.id, c.status]),
       [
         ["probe.home", "missing"],
@@ -388,7 +392,10 @@ describe("the loader refuses what it cannot honour — at open, by name", () => 
         ["probe.live", "unverified"],
       ]
     )
-    assert.deepEqual(unit.inspect({ root: a.root, env: { PROBE_EMPTY: "1" } }).checks, [])
+    assert.deepEqual(
+      unit.inspect({ root: a.root, env: { PROBE_EMPTY: "1" } } as Partial<SetupContext> as SetupContext).checks,
+      []
+    )
     const b = workspace({ compile: false })
     withProbeCollide(b.root)
     // reopened: the fixture's handle predates the dependency the helper just declared
@@ -654,7 +661,7 @@ describe("disabling a PACKAGE OF MODULES switches off its code and every module 
 })
 
 describe("a WORKSPACE module can carry an extension entry — no package, no npm (inline extensions)", () => {
-  const inline = (root, { id = "kit", entry, disable } = {}) => {
+  const inline = (root, { id = "kit", entry, disable }: Record<string, any> = {}) => {
     const dir = path.join(root, "modules", id)
     fs.mkdirSync(dir, { recursive: true })
     fs.writeFileSync(
@@ -719,7 +726,7 @@ describe("a WORKSPACE module can carry an extension entry — no package, no npm
 })
 
 describe("a git_modules clone carries its extension code, exactly as it carries its content", () => {
-  const clone = (root, { dir = "kit", name = "@probe/kit", bundle = false } = {}) => {
+  const clone = (root, { dir = "kit", name = "@probe/kit", bundle = false }: Record<string, any> = {}) => {
     const base = path.join(root, "git_modules", dir)
     const mod = bundle ? path.join(base, "modules", "kit") : base
     fs.mkdirSync(mod, { recursive: true })
@@ -933,7 +940,7 @@ describe("dt doctor renders the engine and every extension as one board", () => 
 		{ label: 'cache', state: 'ok', detail: 'warm' },
 		{ label: 'token', state: 'warn', detail: 'not set', fix: 'set PROBE_TOKEN in .env' },
 	] : [] });`
-  const withDoctor = (entry = ROWS, { compiled = true } = {}) => {
+  const withDoctor = (entry = ROWS, { compiled = true }: Record<string, any> = {}) => {
     const ws = workspace({ compile: false })
     install(ws.root, { name: "@kits/doctor-kit", descriptor: null, entry })
     if (compiled) assert.equal(dt(ws.root, "compile").code, 0)

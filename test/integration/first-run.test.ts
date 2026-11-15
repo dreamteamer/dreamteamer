@@ -145,7 +145,7 @@ describe("a shipped module's wildcard references are the author's warning, not t
     const ws = twoModuleWorkspace()
     // inline: the core module gains a polymorphic field
     const inline = path.join(ws.root, "modules", "core", "collections", "tasks.collection.yaml")
-    const tasks = load(fs.readFileSync(inline, "utf8"))
+    const tasks = load<any>(fs.readFileSync(inline, "utf8"))
     tasks.fields = { item: { type: "reference" }, ...tasks.fields }
     fs.writeFileSync(inline, dump(tasks))
     const r1 = ws.dt("compile")

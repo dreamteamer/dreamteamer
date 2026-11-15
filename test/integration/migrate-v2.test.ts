@@ -168,9 +168,9 @@ test("a converted v1 workspace compiles, checks clean, and keeps its records and
     /migrated: descriptors \d+ · fields \d+ · relations folded 1 · enums merged 1 · mixins 1 · views folded 2 · views converted 4 · bindings converted 1 · packages 1/
   )
   for (const c of ["companies", "contacts", "meetings"])
-    assert.ok("fields" in load(read(w.root, `${MOD}/collections/${c}.collection.yaml`)), `${c} is v2`)
+    assert.ok("fields" in load<any>(read(w.root, `${MOD}/collections/${c}.collection.yaml`)), `${c} is v2`)
   assert.deepEqual(dataBytes(w.root), dataBefore, "no record changed, moved, appeared or vanished")
-  const companies = load(read(w.root, `${MOD}/collections/companies.collection.yaml`))
+  const companies = load<any>(read(w.root, `${MOD}/collections/companies.collection.yaml`))
   assert.deepEqual(
     companies.fields.contacts,
     { type: "contacts", many: true, mirror_of: "company" },
@@ -179,7 +179,7 @@ test("a converted v1 workspace compiles, checks clean, and keeps its records and
   assert.ok(exists(w.root, `${MOD}/mixins/kit-provenance.mixin.yaml`))
   assert.ok(!exists(w.root, `${MOD}/collection-templates/kit-provenance.collection-template.yaml`))
   assert.equal(
-    load(read(w.root, `${MOD}/collections/meetings.collection.yaml`)).record_title,
+    load<any>(read(w.root, `${MOD}/collections/meetings.collection.yaml`)).record_title,
     "{{ name }} — {{ when }}"
   )
   assert.equal(compiles(w), null)
@@ -202,7 +202,7 @@ test("every default view folds by scope, and every option key is rewritten", () 
   assert.ok(!exists(w.root, `${MOD}/ui-views/contacts.ui-view.yaml`))
   assert.ok(!exists(w.root, `${MOD}/ui-views/contacts-record.ui-view.yaml`))
   const text = read(w.root, `${MOD}/collections/contacts.collection.yaml`)
-  const { display } = load(text)
+  const { display } = load<any>(text)
   assert.deepEqual(
     display.list,
     { columns: ["name", "stage", "last_modified"], sort: "-last_modified", options: { page_size: 50 } },
@@ -213,32 +213,32 @@ test("every default view folds by scope, and every option key is rewritten", () 
   assert.match(text, /# what the list shows\n\s+columns:/)
   // a named view: v2 keys, option keys renamed, comments kept
   const board = read(w.root, `${MOD}/ui-views/meetings-board.ui-view.yaml`)
-  assert.deepEqual(load(board).display, {
+  assert.deepEqual(load<any>(board).display, {
     nav: { title: "Board", icon: "layout" },
     list: { layout: "kanban", options: { lanes_by: "status", color_by: "status", card_title: "{{ name }}" } },
   })
   assert.match(board, /^# Meetings by status\.\nroute: \/meetings\/board/)
   assert.match(board, /# one lane per status\n\s+layout: kanban/)
-  assert.deepEqual(load(read(w.root, `${MOD}/ui-views/meetings-gantt.ui-view.yaml`)).display.list.options, {
+  assert.deepEqual(load<any>(read(w.root, `${MOD}/ui-views/meetings-gantt.ui-view.yaml`)).display.list.options, {
     start: "when",
     end: "when",
     bar_title: "{{ name }}",
     group_by: "company",
     group_title: "{{ name }}",
   })
-  assert.deepEqual(load(read(w.root, `${MOD}/ui-views/meeting-page.ui-view.yaml`)), {
+  assert.deepEqual(load<any>(read(w.root, `${MOD}/ui-views/meeting-page.ui-view.yaml`)), {
     route: "/meetings/page",
     scope: "record",
     collection: "collections/meetings",
     display: { record: { layout: "data-model" } },
   })
-  assert.deepEqual(load(read(w.root, `${MOD}/ui-views/dash.ui-view.yaml`)), {
+  assert.deepEqual(load<any>(read(w.root, `${MOD}/ui-views/dash.ui-view.yaml`)), {
     route: "/dash",
     scope: "page",
     display: { list: { layout: "dashboard" } },
   })
   const binding = read(w.root, `${MOD}/command-bindings/summarize--meetings.command-binding.yaml`)
-  assert.deepEqual(load(binding), {
+  assert.deepEqual(load<any>(binding), {
     command: "commands/summarize",
     collection: "collections/meetings",
     scope: "record",
@@ -249,7 +249,7 @@ test("every default view folds by scope, and every option key is rewritten", () 
   // the compiled views are what a surface draws
   assert.equal(compiles(w), null)
   assert.equal(
-    load(read(w.root, ".dreamteamer/ui-views/meetings-board.ui-view.yaml")).compiled.display.list.layout,
+    load<any>(read(w.root, ".dreamteamer/ui-views/meetings-board.ui-view.yaml")).compiled.display.list.layout,
     "kanban"
   )
 })
@@ -283,7 +283,7 @@ test("run through a symlinked engine folder, it still converts", () => {
     })
     assert.equal(r.status, 0, r.stderr)
     assert.match(r.stdout, /migrated: descriptors [1-9]/)
-    assert.ok("fields" in load(read(w.root, `${MOD}/collections/companies.collection.yaml`)))
+    assert.ok("fields" in load<any>(read(w.root, `${MOD}/collections/companies.collection.yaml`)))
   } finally {
     fs.rmSync(path.dirname(link), { recursive: true, force: true })
   }
@@ -314,7 +314,7 @@ test("a default view of an engine collection folds into an overlay that needs no
   )
   const r = run(w.root)
   assert.equal(r.status, 0, r.stderr)
-  const overlay = load(read(w.root, `${MOD}/collections/repos.collection.yaml`))
+  const overlay = load<any>(read(w.root, `${MOD}/collections/repos.collection.yaml`))
   assert.equal(overlay.overlay, true)
   assert.deepEqual(overlay.display.list.columns, ["name", "path"])
   assert.doesNotMatch(r.stdout, /overlay of repos .* needs/, "the engine is every module's, so no dependency is owed")

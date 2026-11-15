@@ -74,7 +74,7 @@ export const writePkg = (root, pkg) =>
 /** A folder whose engine is declared and linked to this checkout, so init and install run no npm for it.
  *  `spec` is the declaration: the exact version (init's own form) or `file:<checkout>` (what npm needs
  *  when it will install a tarball beside it). */
-export function withEngine(root, { spec = VERSION, extra = {} } = {}) {
+export function withEngine(root, { spec = VERSION, extra = {} }: Record<string, any> = {}) {
   writePkg(root, {
     name: path.basename(root),
     private: true,
@@ -86,7 +86,7 @@ export function withEngine(root, { spec = VERSION, extra = {} } = {}) {
   return root
 }
 /** An initialized, committed workspace — `dt init` on a folder that already links the engine. */
-export function initialized(opts = {}) {
+export function initialized(opts: Record<string, any> = {}) {
   const root = withEngine(folder(opts.name ?? "ws"), opts)
   const r = dt(root, ["init", ...(opts.args ?? [])])
   if (r.code !== 0) throw new Error(`init failed: ${r.stderr}${r.stdout}`)
@@ -112,7 +112,7 @@ export function packInto(dest, packages) {
       files[`collections/${id}.collection.yaml`] =
         `name: ${id}\ndescription: "${manifest.name}'s records."\nfields:\n  name:\n    type: string\n    description: The name.\n`
     }
-    for (const [rel, text] of Object.entries(files)) {
+    for (const [rel, text] of Object.entries<any>(files)) {
       fs.mkdirSync(path.dirname(path.join(src, rel)), { recursive: true })
       fs.writeFileSync(path.join(src, rel), text)
     }
@@ -223,7 +223,7 @@ export const applyLog = (root, unit) => {
  * is a list of { when: <substring of the output so far>, send: <text> | 'EOF' }. With `stdinPipe`, stdin is
  * a closed pipe while stdout stays the pty — the "TTY stdout, non-TTY stdin" case. Returns { code, out }.
  */
-export function pty(cwd, args, { answers = [], env = {}, stdinPipe = false } = {}) {
+export function pty(cwd, args, { answers = [], env = {}, stdinPipe = false }: Record<string, any> = {}) {
   const driver = path.join(SANDBOX, "pty-driver.py")
   if (!fs.existsSync(driver))
     fs.writeFileSync(

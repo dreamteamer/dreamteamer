@@ -20,7 +20,7 @@ import { addField } from "../../src/collections/addField.ts"
 /** Path-shaped ids, so the index has nested folders to get the order wrong in. */
 const ITEMS = simpleCollection({ ids: { pattern: "^[a-z0-9][a-z0-9/._-]*$" } })
 
-const base = pkg => workspace({ collections: { items: ITEMS }, pkg })
+const base = (pkg?) => workspace({ collections: { items: ITEMS }, pkg })
 
 /** How many times `fn` reads a directory under the collection's data dir — i.e. how many cold walks
  *  the store paid. Counted, not timed. */
@@ -28,10 +28,10 @@ function walks(root, fn) {
   const real = fs.readdirSync
   const dir = path.join(root, "data", "items")
   let n = 0
-  fs.readdirSync = (p, ...rest) => {
+  fs.readdirSync = ((p, ...rest) => {
     if (String(p).startsWith(dir)) n++
     return real(p, ...rest)
-  }
+  }) as typeof fs.readdirSync
   try {
     fn()
   } finally {

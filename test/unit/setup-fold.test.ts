@@ -11,6 +11,7 @@ import { fillInputs } from "../../src/setup/fillInputs.ts"
 import { parseInputFlags } from "../../src/setup/parseInputFlags.ts"
 import { consent } from "../../src/setup/lib/consent.ts"
 import { redact } from "../../src/setup/lib/redact.ts"
+import type { SetupUnit } from "../../src/types.ts"
 
 const c = (id, status, extra = {}) => ({ id, status, title: id, ...extra })
 
@@ -82,7 +83,7 @@ describe("parseInputFlags — --input id=value, repeated, unit-qualified, values
   })
 })
 
-const unit = (id, inputs) => ({ id, inputs: inputs.map(i => ({ required: false, ...i })) })
+const unit = (id, inputs): SetupUnit => ({ id, inputs: inputs.map(i => ({ required: false, ...i })) }) as SetupUnit
 
 describe("fillInputs — precedence and sharing", () => {
   test("flag, then env, then default; a required input with none of them is missing", async () => {

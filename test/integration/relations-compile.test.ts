@@ -39,7 +39,7 @@ const relWorkspace = () =>
     collections: { meetings: MEETINGS, recordings: RECORDINGS, summaries: SUMMARIES, analyses: ANALYSES },
   })
 
-const compiledOf = (ws, name) => load(readFile(ws.root, `.dreamteamer/collections/${name}.collection.yaml`))
+const compiledOf = (ws, name) => load<any>(readFile(ws.root, `.dreamteamer/collections/${name}.collection.yaml`))
 
 describe("compile materializes relations", () => {
   test("the mirrors are listed in compiled.mirrors and read-only in the validator schema", () => {
@@ -301,7 +301,7 @@ describe("the body field — what a mirror target needs", () => {
     storage: { suffix: "plain" },
     fields: { name: { type: "string", required: true } },
   }
-  const sourceOf = ws => load(readFile(ws.root, "modules/default/collections/plain.collection.yaml"))
+  const sourceOf = ws => load<any>(readFile(ws.root, "modules/default/collections/plain.collection.yaml"))
 
   test("add-field --body declares one, and a mirror onto the collection then compiles", () => {
     const ws = workspace({ collections: { plain: BODYLESS } })

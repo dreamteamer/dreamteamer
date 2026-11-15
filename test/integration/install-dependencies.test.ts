@@ -18,7 +18,7 @@ import { dump, load } from "../../src/lib/yaml.ts"
 import { isRuntime } from "../../src/record/descriptor.ts"
 
 /** A compiled descriptor's text, read as a runtime kind — its records are build output compile writes. */
-const compiledAsRuntime = text => isRuntime(load(text ?? "") ?? {})
+const compiledAsRuntime = text => isRuntime(load<any>(text ?? "") ?? {})
 
 const BIN = path.join(ENGINE_ROOT, "bin", "dreamteamer.js")
 const run = (cwd, ...args) => {
@@ -64,7 +64,7 @@ process.exitCode = await installCommand(await openWorkspace(process.cwd()), ${JS
 
 /** A workspace whose node_modules holds ONLY the dev-linked engine, and which declares an extension
  *  (`probe-kit`, a local file: package) that is not installed yet — a fresh checkout. */
-function freshCheckout({ missing = "probe-kit", withProbe = true } = {}) {
+function freshCheckout({ missing = "probe-kit", withProbe = true }: Record<string, any> = {}) {
   const ws = workspace({ compile: false })
   const vendor = path.join(ws.root, "vendor", "probe-kit")
   fs.mkdirSync(path.join(vendor, "collections"), { recursive: true })

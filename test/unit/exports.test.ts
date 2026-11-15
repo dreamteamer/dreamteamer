@@ -8,11 +8,14 @@ import { outsideRefs } from "../../src/record/outsideRefs.ts"
 import { regenerate } from "../../src/record/regenerate.ts"
 import { isStale } from "../../src/check/isStale.ts"
 import { sees } from "../../src/record/sees.ts"
+import type { ContextRoot, ExportsContext, OutsideRef } from "../../src/record/types.ts"
+import { desc } from "../helpers/partial.ts"
 
-const ctx = ({ seen = [], complete = true } = {}) => ({
-  rootsOf: () => seen.map(p => ({ package: p, present: true })),
-  complete: () => complete,
-})
+const ctx = ({ seen = [], complete = true }: Record<string, any> = {}): ExportsContext =>
+  ({
+    rootsOf: () => seen.map(p => ({ package: p, present: true })),
+    complete: () => complete,
+  }) as Partial<ExportsContext> as ExportsContext
 const nothingHeld = () => false
 
 describe("serializeExports", () => {
@@ -33,7 +36,7 @@ describe("serializeExports", () => {
 })
 
 describe("outsideRefs — the one walk", () => {
-  const d = {
+  const d = desc({
     compiled: {
       fields: {
         owner: { type: "people" },
@@ -45,7 +48,7 @@ describe("outsideRefs — the one walk", () => {
         name: { type: "string" },
       },
     },
-  }
+  })
   test("hard, many-valued, union and nested references count; soft, mirror, held, @tokens and wrong targets do not", () => {
     const records = [
       {
@@ -82,14 +85,14 @@ describe("outsideRefs — the one walk", () => {
 })
 
 describe("regenerate — design §3", () => {
-  const outside = entries =>
+  const outside = (entries): Map<string, OutsideRef> =>
     new Map(
       entries.map(([ref, resolved]) => {
         const [c, id] = ref.split("/")
         return [ref, { collection: c, id, resolved, referrers: ["tasks/t"] }]
       })
     )
-  const run = (current, out, c = ctx(), held = nothingHeld) =>
+  const run = (current, out, c = ctx(), held: (c: string, id: string) => boolean = nothingHeld) =>
     regenerate({ current, outside: outside(out), ctx: c, repo: null, held })
 
   test("1 add: an outside reference that resolves here; none for one that resolves nowhere", () => {
@@ -164,7 +167,9 @@ describe("sees", () => {
     assert.equal(sees({ label: "x" }, "people", ctx({ seen: ["hq"] })), false)
     assert.equal(sees({ label: "x", from: "hq" }, "people", ctx({ seen: ["hq"] })), true)
     assert.equal(
-      sees({ label: "x", from: "hq" }, "people", { rootsOf: () => [{ package: "hq", present: false }] }),
+      sees({ label: "x", from: "hq" }, "people", {
+        rootsOf: () => [{ package: "hq", present: false } as ContextRoot],
+      } as Partial<ExportsContext> as ExportsContext),
       false,
       "a removed clone is not seen"
     )

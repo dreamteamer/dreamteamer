@@ -11,7 +11,7 @@ import { keyBetween } from "../../src/records/lib/keyBetween.ts"
 import { sortRows } from "../../src/records/lib/sortRows.ts"
 import { parseTemporal } from "../../src/records/lib/parseTemporal.ts"
 
-const order = keys =>
+const order = (keys: string[]) =>
   sortRows(
     keys.map(r => ({ r })),
     "r"

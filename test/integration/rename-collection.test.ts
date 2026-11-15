@@ -30,7 +30,7 @@ const seeded = (namespaces = ["health"]) => {
   return ws
 }
 
-const descriptorAt = (ws, rel) => load(readFile(ws.root, rel) ?? "null")
+const descriptorAt = (ws, rel) => load<any>(readFile(ws.root, rel) ?? "null")
 
 describe("moving an existing collection into a namespace", () => {
   test("moves the descriptor, the records and the references in one commit", () => {
@@ -196,7 +196,7 @@ describe("references that are not record refs", () => {
     const res = ws.dt("rename", "collections/doctors", "health/doctors")
     assert.equal(res.code, 0, res.stdout + res.stderr)
     const mixin = readFile(ws.root, `modules/${WS_MODULE}/mixins/attended.mixin.yaml`)
-    assert.equal(load(mixin).fields.attended_by.type, "health/doctors")
+    assert.equal(load<any>(mixin).fields.attended_by.type, "health/doctors")
     assert.match(mixin, /^ {2}# the doctor on duty$/m, "the mixin kept its comment")
     assert.equal(ws.dt("check").code, 0)
   })
@@ -226,11 +226,11 @@ describe("references that are not record refs", () => {
     const res = ws.dt("rename", "collections/doctors", "health/doctors")
     assert.equal(res.code, 0, res.stdout + res.stderr)
     assert.equal(
-      load(readFile(ws.root, "modules/default/ui-views/docs.ui-view.yaml")).collection,
+      load<any>(readFile(ws.root, "modules/default/ui-views/docs.ui-view.yaml")).collection,
       "collections/health/doctors"
     )
     assert.equal(
-      load(readFile(ws.root, "modules/default/command-bindings/refer--doctors.command-binding.yaml")).collection,
+      load<any>(readFile(ws.root, "modules/default/command-bindings/refer--doctors.command-binding.yaml")).collection,
       "collections/health/doctors"
     )
     const check = ws.dt("check")
@@ -329,8 +329,8 @@ describe("an OVERLAID collection", () => {
     )
     const moved = readFile(ws.root, "modules/extra/collections/health/doctors.collection.yaml")
     assert.ok(moved, "the overlay moved within modules/extra")
-    assert.equal(load(moved).name, "health/doctors")
-    assert.equal(load(moved).overlay, true)
+    assert.equal(load<any>(moved).name, "health/doctors")
+    assert.equal(load<any>(moved).overlay, true)
     assert.match(moved, /^# the overlay's own header$/m, "its comments survived")
     assert.equal(readFile(ws.root, "modules/default/collections/health/doctors.collection.yaml") !== null, true)
 
@@ -402,7 +402,6 @@ describe("a collection shipped by an INLINE module", () => {
         "fields:\n  name: { type: string, required: true }\n  notes: { type: markdown, body: true }\n"
     )
     assert.equal(ws.dt("compile").code, 0)
-    ws.store.reload?.()
     return ws
   }
 
@@ -416,7 +415,7 @@ describe("a collection shipped by an INLINE module", () => {
     // the descriptor moved WITHIN modules/billing — not into modules/default
     const moved = readFile(ws.root, "modules/billing/collections/finance/invoices.collection.yaml")
     assert.ok(moved, "descriptor is in the module that shipped it")
-    assert.equal(load(moved).name, "finance/invoices")
+    assert.equal(load<any>(moved).name, "finance/invoices")
     assert.equal(readFile(ws.root, "modules/billing/collections/billing-invoices.collection.yaml"), null)
     assert.equal(
       readFile(ws.root, "modules/default/collections/finance/invoices.collection.yaml"),
@@ -462,7 +461,7 @@ describe("a collection shipped by an INLINE module", () => {
     // ⚠ Read through the CLI, not `ws.store` — that Store was built when the fixture was, before
     // this test added a module and a collection to it, so its descriptor map does not know them.
     assert.match(ws.dt("get", "payments/p1").stdout, /finance\/invoices\/march/)
-    const payments = load(readFile(ws.root, "modules/default/collections/payments.collection.yaml"))
+    const payments = load<any>(readFile(ws.root, "modules/default/collections/payments.collection.yaml"))
     assert.equal(payments.fields.invoice.type, "finance/invoices")
     assert.equal(ws.dt("check").code, 0)
   })
@@ -571,9 +570,9 @@ describe("a rename preserves the descriptor verbatim apart from what it changes"
     assert.match(moved, /^ {2}# who they refer on to$/m, "an inline field comment survived too")
     // the VALUE, not its spelling: the round-trip writer quotes only what YAML needs quoted, and
     // `health/doctors` is a plain scalar. Asserting the parse is what the retarget actually promises.
-    assert.equal(load(moved).fields.refers_to.type, "health/doctors", "the self-referencing type was retargeted")
+    assert.equal(load<any>(moved).fields.refers_to.type, "health/doctors", "the self-referencing type was retargeted")
     assert.match(moved, /^ {2}refers_to: \{ ?type: health\/doctors ?\}$/m, "the inline flow form was kept inline")
-    assert.equal(load(moved).storage.path, "data/health/doctors")
+    assert.equal(load<any>(moved).storage.path, "data/health/doctors")
 
     // and the self-reference in the DATA followed
     assert.match(ws.dt("get", "health/doctors/eli").stdout, /health\/doctors\/dana/)
@@ -649,7 +648,7 @@ fields:
     const after = readFile(ws.root, `modules/${WS_MODULE}/collections/notes.collection.yaml`)
     // the VALUE in both list spellings — a namespaced name needs no quoting, so assert what it
     // PARSES to rather than how the writer chose to spell it
-    const parsed = load(after)
+    const parsed = load<any>(after)
     assert.deepEqual(parsed.fields.about.type, ["health/doctors", "clients"])
     assert.deepEqual(parsed.fields.sources.type, ["health/doctors", "clients"])
     // and each list kept the form its author wrote it in
