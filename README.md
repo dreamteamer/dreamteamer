@@ -28,6 +28,12 @@ Then start a new session in your newly created folder (some agents may already s
 I'm new to this workspace, explain in simple and concise terms what I can already do here.
 ```
 
+To see your workspace as lists, boards and pages in the pane beside the chat (Claude Desktop, Codex):
+
+```markdown
+Show me my workspace in the pane beside the chat.
+```
+
 To import any existing data into your newly created workspace:
 
 ```markdown
@@ -49,26 +55,47 @@ npm -v         # 7 or later
 git --version  # any recent git
 ```
 
-Note: some modules have prerequisites of their own. a module's setup asks before it downloads anything or changes your machine (or takes `--allow <kind>`), and `npx dreamteamer status` says what each installed module still needs.
+Note: some modules have prerequisites of their own. A module's setup asks before it downloads anything or changes your machine (or takes `--allow <kind>`), and `npx dreamteamer status` says what each installed module still needs.
 
 #### Installation
 
 ```bash
 mkdir my-workspace && cd my-workspace
 npx dreamteamer init
-
-# optional - install some pre-built modules from https://github.com/dreamteamer/dreamteamer-modules
-npx dreamteamer install @dreamteamer/tasks @dreamteamer/contacts
-# ...or a module preset: one name that installs a whole set, each module pinned
-npx dreamteamer install @dreamteamer/core
-
-npx dreamteamer status
+npx dreamteamer status  # is everything ready?
 npx dreamteamer help    # every verb and flag
 ```
 
-### For VS Code users
+`dt` is a short name for `dreamteamer`: `npx dt status` does the same thing.
 
-Install the [dreamteamer VS Code extension](https://marketplace.visualstudio.com/items?itemName=dreamteamer.dreamteamer-vscode) and run the `dreamteamer: Create Workspace Here` command in an empty folder.
+### Add modules
+
+A new workspace starts empty. Modules add the kinds of things it keeps (tasks, contacts, meetings…) and the skills to work with them. Browse them in [dreamteamer-modules](https://github.com/dreamteamer/dreamteamer-modules).
+
+```bash
+# one or more modules
+npx dreamteamer install @dreamteamer/tasks @dreamteamer/contacts
+# ...or a module preset: one name that installs a whole set, each module pinned
+npx dreamteamer install @dreamteamer/core
+```
+
+`install` compiles the workspace and commits the change. Run `npx dreamteamer status` after it: some modules need setup on your machine, and `status` says what is left.
+
+### See your workspace
+
+Your data is plain files, but you can also see it as lists, boards and record pages.
+
+**Beside the chat (Claude Desktop, Codex):** install the [@dreamteamer/web](https://github.com/dreamteamer/dreamteamer-modules/tree/main/modules/web) module and open a collection:
+
+```bash
+npx dreamteamer install @dreamteamer/web
+npx dt web open tasks        # prints a one-time sign-in URL; open it in the pane
+npx dt web hook --install    # once: lets the chat see what the pane shows and what you ticked
+```
+
+The server listens on your machine only (127.0.0.1). It stops after an hour with no page open; run `npx dt web open` again to sign back in.
+
+**In VS Code:** install the [dreamteamer VS Code extension](https://marketplace.visualstudio.com/items?itemName=dreamteamer.dreamteamer-vscode). To start from nothing, run the `dreamteamer: Create Workspace Here` command in an empty folder.
 
 ## Under the hood
 
@@ -113,8 +140,8 @@ Designed by coders, for both humans and AI agents, dreamteamer is built with dec
   - [x] **Portable** - sync changes through git, move between machines, and parallelize work across agents and harness instances
 - **User experience**
   - [x] **Conversational** - all engine and installed modules functionality exposed through natural language commands
-  - [x] **Presentational** - every data entity exposes display metadata in its schema, making it immediately presentable to arbitrary UI clients. [ui-views](collections/ui-views.collection.yaml) provide out-of-the-box configurable list and item views for every entity. The [@dreamteamer/ui](https://github.com/dreamteamer/dreamteamer-modules/tree/main/modules/ui) package provides a core set of UI elements. The [dreamteamer VS Code extension](https://marketplace.visualstudio.com/items?itemName=dreamteamer.dreamteamer-vscode) renders those views in VS Code, and the [@dreamteamer/web](https://github.com/dreamteamer/dreamteamer-modules/tree/main/modules/web) module shows the same UI in agent desktop apps such as Claude Desktop and Codex.
-  - [x] **Collaborative** - leverage GIT to collaborate on workspaces and share changes with other users, AI agents, or in parallel across multiple sessions and machines.
+  - [x] **Presentational** - every data entity exposes display metadata in its schema, making it immediately presentable to arbitrary UI clients. [ui-views](collections/ui-views.collection.yaml) provide out-of-the-box configurable list and item views for every entity. The [@dreamteamer/ui](https://github.com/dreamteamer/dreamteamer-modules/tree/main/modules/ui) package provides a core set of UI elements. The VS Code extension and the `@dreamteamer/web` module draw them — see [See your workspace](#see-your-workspace).
+  - [x] **Collaborative** - leverage Git to collaborate on workspaces and share changes with other users, AI agents, or in parallel across multiple sessions and machines.
 
 ### Security considerations
 
