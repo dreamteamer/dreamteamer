@@ -5,6 +5,15 @@
 import fs from "node:fs"
 import path from "node:path"
 import { pathToFileURL, fileURLToPath } from "node:url"
+import nodeModule from "node:module"
+
+// ⚠ THE COMPILE CACHE, before anything loads the engine. Every `dt` is a new process, and a hook or a
+// test runs dozens: without it each one type-strips and compiles ~300 engine modules from scratch,
+// the larger half of a record verb's start-up. Node keeps the result on disk (os.tmpdir()/
+// node-compile-cache, or NODE_COMPILE_CACHE) and checks each entry against its source, so an edit is
+// never served stale. It never throws, and NODE_DISABLE_COMPILE_CACHE=1 turns it off. Node 20 has no
+// such API — `engines` still says >=20 — so it is a no-op there.
+nodeModule.enableCompileCache?.()
 
 // path segments that mean "the thing below me is a module of the thing above me", never a
 // workspace. Declared up here, not beside findDevClone: that call sits at module top level, so a

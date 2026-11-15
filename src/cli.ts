@@ -1,28 +1,13 @@
-import { changesCommand } from "./changes/changesCommand.ts"
-import { commitCommand } from "./commitCommand.ts"
-import { doctorCommand } from "./doctor/doctorCommand.ts"
-import { fmtCommand } from "./fmt/fmtCommand.ts"
-import { relocateCommand } from "./relocateCommand.ts"
-import { resolveCommand } from "./resolveCommand.ts"
-import { statusCommand } from "./statusCommand.ts"
-import { runExports } from "./exports/runExports.ts"
+// ⚠ IMPORTS ARE LAZY, BY DESIGN. Every `dt` launch is a new process, and a static import here is
+// paid by every verb: with all commands imported up front, `dt --version` loaded 394 engine modules
+// plus ajv and both YAML libraries, ~60% of a launch's wall time. Each verb now imports its own command
+// when it runs, and `openWorkspace` loads the public API only when an extension is declared.
+// Keep the static imports to what EVERY path needs.
 import fs from "node:fs"
 import path from "node:path"
-import * as api from "./api.ts"
-import { openWorkspace, findWorkspace } from "./api.ts"
-import { checkAlone } from "./check/checkAlone.ts"
-import { compile, warnIfStale, kindsOf } from "./compile/compile.ts"
-import { check } from "./check/check.ts"
-import { targetCommand } from "./targetCommand.ts"
 import { emit } from "./lib/emit.ts"
-import { relationsCommand } from "./relationsCommand.ts"
-import { initCommand } from "./init/initCommand.ts"
-import { installCommand } from "./install/installCommand.ts"
-import { updateCommand } from "./update/updateCommand.ts"
-import { Store } from "./store/Store.ts"
-import { splitRef } from "./record/splitRef.ts"
-import { canonicalCollection } from "./record/ref.ts"
-import { setupCommand } from "./setup/setupCommand.ts"
+import { findWorkspace } from "./workspace/findWorkspace.ts"
+import { openWorkspace } from "./openWorkspace.ts"
 import type { Flags, Workspace } from "./types.ts"
 export const USAGE = `usage: dreamteamer <verb> [<target>] [flags]
 
@@ -357,52 +342,7 @@ export const WORKSPACE_FLAGS: Record<string, string[]> = {
   relocate: ["dry-run", "json", "to-root"],
 }
 
-/** Every verb this CLI answers itself — the set an extension's `commands` may not claim. The retired
- *  spellings are in it too: they answer with their replacement, and an extension taking one over
- *  would turn a loud translation into a different command. */
-export const CORE_VERBS = [
-  "init",
-  "install",
-  "update",
-  "compile",
-  "check",
-  "exports",
-  "doctor",
-  "status",
-  "setup",
-  "changes",
-  "commit",
-  "help",
-  "version",
-  "--version",
-  "-v",
-  "list",
-  "add",
-  "values",
-  "get",
-  "set",
-  "rm",
-  "rename",
-  "history",
-  "diff",
-  "revert",
-  "reorder",
-  "next",
-  "add-field",
-  "set-field",
-  "rm-field",
-  "rename-field",
-  "rename-value",
-  "relations",
-  "resolve",
-  "relocate",
-  "fmt",
-  "schema",
-  "ensure",
-  "update-field",
-  "remove-field",
-  "commands",
-]
+export { CORE_VERBS } from "./coreVerbs.ts"
 
 /** Verbs an extension answers, and the package it ships in — typed without it, the verb prints the
  *  install line. The container verbs belong to the global `dt-docker` bin, which needs no workspace. */
@@ -416,7 +356,10 @@ const VERB_PACKAGES: Record<string, string> = {
 const DOCKER_VERBS = new Set(["start", "stop", "open", "export", "import"])
 
 /** `dt check` on a workspace with its extensions' own violations — what init and install verify with. */
-const verify = async (ws: Workspace): Promise<number> => check(ws, { extra: await api.contributedViolations(ws) })
+const verify = async (ws: Workspace): Promise<number> => {
+  const [{ check }, api] = await Promise.all([import("./check/check.ts"), import("./api.ts")])
+  return check(ws, { extra: await api.contributedViolations(ws) })
+}
 
 export async function run(argv: string[]): Promise<void> {
   const [cmd, ...rest] = argv
@@ -447,6 +390,7 @@ export async function run(argv: string[]): Promise<void> {
         }
       // boolean flags take no value: a following positional is not theirs
       for (const b of ["no-git", "no-compile", "no-input"]) if (b in flags) flags[b] = true
+      const { initCommand } = await import("./init/initCommand.ts")
       process.exit(
         await initCommand(flags, {
           open: openWorkspace,
@@ -473,7 +417,10 @@ export async function run(argv: string[]): Promise<void> {
     // floor above this engine) would otherwise surface as the host's refusal instead of the gate's verdict
     if (cmd === "check") {
       const target = rest.find(a => !a.startsWith("--"))
-      if (rest.includes("--alone")) process.exit(checkAlone(findWorkspace(), { target, keep: rest.includes("--keep") }))
+      if (rest.includes("--alone")) {
+        const { checkAlone } = await import("./check/checkAlone.ts")
+        process.exit(checkAlone(findWorkspace(), { target, keep: rest.includes("--keep") }))
+      }
       if (target) {
         console.error(
           `✖ check takes no target — did you mean --alone? (dt check ${target} --alone judges one inline module)`
@@ -504,7 +451,11 @@ export async function run(argv: string[]): Promise<void> {
       process.exit(typeof code === "number" ? code : 0)
     }
     switch (cmd) {
-      case "install":
+      case "install": {
+        const [{ installCommand }, { targetCommand }] = await Promise.all([
+          import("./install/installCommand.ts"),
+          import("./targetCommand.ts"),
+        ])
         return process.exit(
           await installCommand(ws, rest, {
             open: openWorkspace,
@@ -512,23 +463,32 @@ export async function run(argv: string[]): Promise<void> {
             ensureRepos: args => targetCommand(ws, "repos", "ensure", args),
           })
         )
-      case "update":
+      }
+      case "update": {
+        const { updateCommand } = await import("./update/updateCommand.ts")
         return process.exit(await updateCommand(ws, rest, { open: openWorkspace }))
+      }
       case "compile": {
-        const code = compile(ws)
+        const compiler = await import("./compile/compile.ts")
+        const code = compiler.compile(ws)
         if (!rest.includes("--watch")) process.exit(code)
         console.log("… watching sources (modules/*, git_modules/*, and the workspace root) — ctrl-c to stop")
-        watchAndRecompile(ws)
+        watchAndRecompile(ws, compiler)
         return
       }
-      case "check":
-        return process.exit(
-          check(ws, {
-            extra: warnIfStale(ws.root).compiled ? await api.contributedViolations(ws) : [],
-            strictExport: rest.includes("--strict-export"),
-          })
-        )
+      case "check": {
+        const [{ check }, { warnIfStale }] = await Promise.all([
+          import("./check/check.ts"),
+          import("./compile/warnIfStale.ts"),
+        ])
+        const extra = warnIfStale(ws.root).compiled ? await (await import("./api.ts")).contributedViolations(ws) : []
+        return process.exit(check(ws, { extra, strictExport: rest.includes("--strict-export") }))
+      }
       case "exports": {
+        const [{ runExports }, { Store }] = await Promise.all([
+          import("./exports/runExports.ts"),
+          import("./store/Store.ts"),
+        ])
         const layers = rest
           .flatMap((a, i) => (a === "--layer" ? [rest[i + 1]] : a.startsWith("--layer=") ? [a.slice(8)] : []))
           .filter(Boolean)
@@ -538,16 +498,26 @@ export async function run(argv: string[]): Promise<void> {
       }
       // `dt setup [<unit>] …` — the generic driver of the units installed modules declare (src/setup.js):
       // inputs, consent per effect, inspect → plan → apply, the receipt. The engine names no module.
-      case "setup":
+      case "setup": {
+        const [{ setupCommand }, api] = await Promise.all([import("./setup/setupCommand.ts"), import("./api.ts")])
         return process.exit(await setupCommand(ws, rest, { api }))
-      case "doctor":
+      }
+      case "doctor": {
+        const [{ doctorCommand }, api] = await Promise.all([import("./doctor/doctorCommand.ts"), import("./api.ts")])
         return process.exit(await doctorCommand(ws, rest, api))
-      case "changes":
+      }
+      case "changes": {
+        const { changesCommand } = await import("./changes/changesCommand.ts")
         return process.exit(changesCommand(ws, rest))
-      case "commit":
+      }
+      case "commit": {
+        const { commitCommand } = await import("./commitCommand.ts")
         return process.exit(commitCommand(ws, rest))
-      case "status":
+      }
+      case "status": {
+        const { statusCommand } = await import("./statusCommand.ts")
         return process.exit(statusCommand(ws, rest))
+      }
       case "help":
         emit(USAGE)
         return process.exit(0)
@@ -563,8 +533,9 @@ export async function run(argv: string[]): Promise<void> {
       case "revert":
       case "reorder":
       case "next": {
+        const { warnIfStale } = await import("./compile/warnIfStale.ts")
         warnIfStale(ws.root)
-        return process.exit(dispatchRecordVerb(ws, cmd, rest))
+        return process.exit(await dispatchRecordVerb(ws, cmd, rest))
       }
       // The verb `check`'s stale-mirror message names. It reads the compiled relations, and
       // rebuild WRITES records, so both want the same staleness warning every record verb gets.
@@ -580,6 +551,12 @@ export async function run(argv: string[]): Promise<void> {
       case "rm-field":
       case "rename-field":
       case "rename-value": {
+        const [{ warnIfStale }, { targetCommand }, { Store }, { canonicalCollection }] = await Promise.all([
+          import("./compile/warnIfStale.ts"),
+          import("./targetCommand.ts"),
+          import("./store/Store.ts"),
+          import("./record/ref.ts"),
+        ])
         warnIfStale(ws.root)
         const [target, ...flagArgs] = rest
         if (!target || target.startsWith("--")) {
@@ -587,18 +564,29 @@ export async function run(argv: string[]): Promise<void> {
         }
         // the singular is legal here too: `dt add-field task --name due …`
         return process.exit(
-          targetCommand(ws, canonicalCollection(new Store(ws).descriptors, target) ?? target, cmd, flagArgs)
+          await targetCommand(ws, canonicalCollection(new Store(ws).descriptors, target) ?? target, cmd, flagArgs)
         )
       }
-      case "relations":
+      case "relations": {
+        const [{ warnIfStale }, { relationsCommand }] = await Promise.all([
+          import("./compile/warnIfStale.ts"),
+          import("./relationsCommand.ts"),
+        ])
         warnIfStale(ws.root)
         return process.exit(relationsCommand(ws, rest))
-      case "relocate":
+      }
+      case "relocate": {
+        const { relocateCommand } = await import("./relocateCommand.ts")
         return process.exit(relocateCommand(ws, rest))
-      case "resolve":
+      }
+      case "resolve": {
+        const { resolveCommand } = await import("./resolveCommand.ts")
         return process.exit(resolveCommand(ws, rest))
-      case "fmt":
+      }
+      case "fmt": {
+        const { fmtCommand } = await import("./fmt/fmtCommand.ts")
         return process.exit(fmtCommand(ws, rest))
+      }
       default:
         // ⚠ NAMED, not just unknown. Every doc, skill and downstream script spelled these
         // `dt schema <op>` for seven releases, so the failure has to carry the translation —
@@ -705,7 +693,13 @@ function extensionUsage(ws: Workspace | null) {
 }
 
 /** Translate `dt <verb> <target> …` into the noun-verb call the implementation layer takes. */
-function dispatchRecordVerb(ws: Workspace, verb: string, args: string[]): number {
+async function dispatchRecordVerb(ws: Workspace, verb: string, args: string[]): Promise<number> {
+  const [{ targetCommand }, { Store }, { canonicalCollection }, { splitRef }] = await Promise.all([
+    import("./targetCommand.ts"),
+    import("./store/Store.ts"),
+    import("./record/ref.ts"),
+    import("./record/splitRef.ts"),
+  ])
   const [target, ...rest] = args
   if (!target) throw new Error(`dt ${verb} needs a target — see \`dreamteamer help\``)
   // A flag in the target slot is a word-order mistake, not a collection: without this,
@@ -741,7 +735,7 @@ function dispatchRecordVerb(ws: Workspace, verb: string, args: string[]): number
   return targetCommand(ws, "commands", "for", [collection, ...ours, ...rest])
 }
 
-function watchAndRecompile(ws: Workspace): void {
+function watchAndRecompile(ws: Workspace, { compile, kindsOf }: typeof import("./compile/compile.ts")): void {
   let timer: ReturnType<typeof setTimeout> | null = null
   const trigger = (_: unknown, file: string | Buffer | null): void => {
     if (file && /^\./.test(String(file))) return

@@ -1,6 +1,5 @@
 import path from "node:path"
 import fs from "node:fs"
-import { createHash } from "node:crypto"
 import { execFileSync } from "node:child_process"
 import { fieldsOf, targetsOf } from "../record/descriptor.ts"
 import { displayOf } from "../record/displayOf.ts"
@@ -42,7 +41,13 @@ import { renderContributions } from "./lib/renderContributions.ts"
 import { repoRootOf } from "../lib/git/repoRootOf.ts"
 import { runHarnessAdapters } from "./lib/runHarnessAdapters.ts"
 import { satisfies } from "../lib/npm/satisfies.ts"
-import { staleness } from "./staleness.ts"
+import { kindDir } from "./kindDir.ts"
+import { sha256 } from "./sha256.ts"
+import { toPosix } from "./toPosix.ts"
+// each lives in its own file so a caller that needs only it — `staleness`, which every record verb
+// reaches through warnIfStale — does not load the compiler; re-exported for the existing importers
+export { kindDir, sha256, toPosix }
+export { warnIfStale } from "./warnIfStale.ts"
 import type { CompileLayer, CompiledCollection, DescriptorSource } from "./types.ts"
 import type { ModuleSource } from "../workspace/types.ts"
 import { v1ManifestRefusal } from "./v1ManifestRefusal.ts"
@@ -103,23 +108,6 @@ export const kindsOf = (ws: Workspace): string[] => [...KINDS, ...contributedKin
 // KINDS on purpose: a module folder named `modules/` would be nonsense, and `isSystem` below keys
 // off KINDS to decide `storage.base`, so a `modules` collection landing on `base: workspace` would
 // point the store at the SOURCE directory and read every module folder as a record.
-
-/**
- * A module's source folder for one kind. The layout is FLAT — `<module>/skills`, beside `data/` —
- * because KINDS is already the allowlist and the extra `system/` level named nothing the engine
- * reads. `<module>/system/<kind>` is still accepted so a module can be moved independently of the
- * engine that reads it (they are separate repos on separate pins).
- *
- * Returns the FLAT path when neither exists, so a caller that creates the folder creates it in the
- * layout we want. `bothLayouts` reports the split case, which compile warns about — a module with
- * half its sources in each place compiles the flat half and silently drops the rest otherwise.
- */
-export function kindDir(root: string, kind: string): string {
-  const flat = path.join(root, kind)
-  if (fs.existsSync(flat)) return flat
-  const nested = path.join(root, "system", kind)
-  return fs.existsSync(nested) ? nested : flat
-}
 
 function bothLayouts(root: string, kind: string): boolean {
   return fs.existsSync(path.join(root, kind)) && fs.existsSync(path.join(root, "system", kind))
@@ -195,8 +183,6 @@ function strayKindDirs(source: ModuleSource, wsRoot: string, declaredIgnore: str
   ].sort()
 }
 
-export const sha256 = (buf: Buffer | string): string => "sha256:" + createHash("sha256").update(buf).digest("hex")
-
 /** A module's record id: its package name with the npm scope stripped, so `@dreamteamer/crm` is `crm`. */
 export const moduleIdOf = (n: string): string => slug(String(n).replace(/^@[^/]+\//, ""))
 
@@ -247,9 +233,6 @@ function dataOwningModules(
   }
   return owners
 }
-
-/** A relative path spelled with `/` on every OS — Windows' `path.relative` and `path.join` use `\`. */
-export const toPosix = (p: string): string => p.split(path.sep).join("/")
 
 /** A layer's data folder, from the clone's own manifest (its `data_path`), default `data`. The clone
  *  may be absent — a fresh checkout before `dreamteamer install` — and then the default stands. */
@@ -1492,14 +1475,6 @@ export function compile(ws: Workspace): 0 {
  *  compile is still the old one. */
 function prevManifestNamespaces(root: string): string[] {
   return normalizeNamespaces(readManifest(root)?.namespaces)
-}
-
-export function warnIfStale(root: string): ReturnType<typeof staleness> {
-  const s = staleness(root)
-  if (!s.compiled) console.warn(`⚠ ${s.message}`)
-  else if (s.stale.length)
-    console.warn(`⚠ .dreamteamer is stale (${s.stale.length} source(s) differ) — run \`dreamteamer compile\``)
-  return s
 }
 
 /**

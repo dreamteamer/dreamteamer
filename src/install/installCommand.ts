@@ -2,7 +2,7 @@ import { installCheckout } from "./installCheckout.ts"
 import { installClone } from "./installClone.ts"
 import { installModules } from "./installModules.ts"
 import type { Workspace } from "../types.ts"
-import { warnIfStale } from "../compile/compile.ts"
+import { warnIfStale } from "../compile/warnIfStale.ts"
 import { listRepos } from "../repos/listRepos.ts"
 
 // ONE verb makes a thing present and ready: this checkout, or an attached repo's
@@ -26,7 +26,7 @@ export interface InstallDeps {
   /** `dt check` on the installed workspace, with the extensions' own violations */
   verify: (ws: Workspace) => number | Promise<number>
   /** `dt install repos[/<id>]` — the `repos ensure` collection verb */
-  ensureRepos: (args: string[]) => number
+  ensureRepos: (args: string[]) => Promise<number>
 }
 
 export async function installCommand(

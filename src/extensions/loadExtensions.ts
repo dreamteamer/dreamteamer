@@ -20,13 +20,16 @@ const CONTRIBUTION_KEYS = new Set([
 ])
 
 /**
- * Import and activate every declared extension against `api`, and check the contributions cannot
- * collide with core or with each other. `reserved` is what core already owns: its verbs, kinds and
- * harness ids.
+ * Import and activate every declared extension against the engine's public API, and check the
+ * contributions cannot collide with core or with each other. `reserved` is what core already owns: its
+ * verbs, kinds and harness ids.
+ *
+ * `getApi` is called only when an extension is actually activated. The public API is the whole engine,
+ * and a workspace with no extensions — most CLI launches — must not pay for loading it.
  */
 export async function loadExtensions(
   ws: Workspace,
-  api: Api,
+  getApi: () => Promise<Api>,
   reserved: { verbs?: string[]; kinds?: string[]; harnesses?: string[] } = {}
 ): Promise<LoadedExtension[]> {
   const v1 = v1ManifestRefusal(ws.pkg?.dreamteamer, "package.json")
@@ -52,7 +55,9 @@ export async function loadExtensions(
       )
     owner[what].set(key, by)
   }
+  let api: Api | undefined
   for (const ext of declaredExtensions(ws)) {
+    api ??= await getApi()
     let mod
     try {
       mod = await import(pathToFileURL(ext.entry).href)

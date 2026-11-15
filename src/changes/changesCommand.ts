@@ -4,7 +4,7 @@ import { emit } from "../lib/emit.ts"
 import { groupChanges } from "./groupChanges.ts"
 import { printChanges } from "./printChanges.ts"
 import type { Workspace } from "../types.ts"
-import { warnIfStale } from "../compile/compile.ts"
+import { warnIfStale } from "../compile/warnIfStale.ts"
 
 // `changes` is what survives of the trigger/run subsystem removed 2026-07-31: deriving
 // record events from git history was the genuinely used half (catch-up — "what happened

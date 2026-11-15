@@ -2,16 +2,11 @@ import path from "node:path"
 import { fileURLToPath } from "node:url"
 import * as self from "./api.ts"
 import { findWorkspace } from "./workspace/findWorkspace.ts"
-import { loadExtensions } from "./extensions/loadExtensions.ts"
 import { manifestViolations } from "./extensions/manifestViolations.ts"
 import fs from "node:fs"
-import { KINDS } from "./compile/consts.ts"
 import { discoverModules } from "./workspace/discoverModules.ts"
-import { DERIVED_KINDS } from "./runtime/consts.ts"
-import { KNOWN_HARNESSES } from "./compile/consts.ts"
-import { CORE_VERBS } from "./cli.ts"
 import { installCheckout } from "./install/installCheckout.ts"
-import type { Workspace, LoadedExtension, CheckItem, PackageJson } from "./types.ts"
+import type { Workspace, CheckItem, PackageJson } from "./types.ts"
 
 // Everything the record half exports (the browser-safe entry, `dreamteamer/records`), then the rest.
 export * from "./records-api.ts"
@@ -36,22 +31,8 @@ export type {
 
 // ---- the workspace ------------------------------------------------------------------------------
 
-/**
- * The workspace at (or above) `start`, with its declared extensions ACTIVATED against this engine.
- * The handle every other call takes: `{ root, pkg, extensions }`. Performs no compile, install,
- * network call or write, and never changes the process cwd.
- */
-export async function openWorkspace(
-  start: string = process.cwd()
-): Promise<Workspace & { extensions: LoadedExtension[] }> {
-  const ws = findWorkspace(start) as Workspace & { extensions: LoadedExtension[] }
-  ws.extensions = await loadExtensions(ws, self, {
-    verbs: CORE_VERBS,
-    kinds: [...KINDS, ...DERIVED_KINDS],
-    harnesses: KNOWN_HARNESSES,
-  })
-  return ws
-}
+import { openWorkspace } from "./openWorkspace.ts"
+export { openWorkspace }
 export { findWorkspace }
 export { EXTENSION_API } from "./extensions/consts.ts"
 export { declaredExtensions } from "./extensions/declaredExtensions.ts"
