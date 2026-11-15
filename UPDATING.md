@@ -41,6 +41,12 @@ Nothing to do but `dt compile`.
   at once — no second `dt compile`. A new version whose extension entry cannot load now refuses the
   update at that compile and puts package.json, the lockfile and node_modules back, as `dt install`
   does; 0.49.0 moved the pin and failed in the setup half.
+- **`.env.example` follows what is installed.** The blocks compile writes (`# declared by <package>`
+  or `# <description> (module <package>)` over a `KEY=` line) now follow the declarations: a key whose
+  declaring package changed is re-attributed, and a key no installed package declares any more is
+  dropped — the first compile after this upgrade may do both, and says so per key. A key your own
+  `dreamteamer.vars` declares stays, and nothing is dropped while a declared git module or dependency
+  is not on disk yet. Every line you wrote yourself is left as it is.
 
 ## 0.49.0 — module presets and the nav document (CR-dt-008)
 

@@ -582,9 +582,22 @@ export function compile(ws) {
 	// points at a file that actually names them; `.vscode/extensions.json` recommends the editor
 	// extension, so the first window offers it. Both are append/merge-only — nothing authored moves.
 	{
-		const added = ensureEnvExample(root, [...declaredEnv, ...requestedVars].map(([key, mods]) => ({ key, modules: mods, ...(envMeta.get(key) ?? {}) })),
-			'# secrets for skills and modules go here (copy to .env; .env is never committed).\n# modules declare the env keys they require in their package.json dreamteamer.env list.\n');
-		if (added.length) console.log(`✔ .env.example now names ${added.join(', ')}`);
+		// one entry per key: a key one package declares as env and another requests as a var is one block
+		const byKey = new Map();
+		for (const [key, mods] of [...declaredEnv, ...requestedVars]) {
+			const e = byKey.get(key) ?? byKey.set(key, { key, modules: [], ...(envMeta.get(key) ?? {}) }).get(key);
+			for (const m of mods) if (!e.modules.includes(m)) e.modules.push(m);
+		}
+		// the workspace's own declarations are never dropped; and a declared module not on disk yet (a git
+		// module before `dt install`, a dependency before `npm install`) would drop keys it still declares
+		const keep = [...declaredVars, ...(config.env ?? []).map((e) => (typeof e === 'string' ? e : e?.name))];
+		const complete = !Object.keys(config.git_modules ?? {}).some((n) => !fs.existsSync(path.join(root, 'git_modules', n)))
+			&& !Object.keys(pkg.dependencies ?? {}).some((n) => !fs.existsSync(path.join(root, 'node_modules', n, 'package.json')));
+		const env = ensureEnvExample(root, [...byKey.values()],
+			'# secrets for skills and modules go here (copy to .env; .env is never committed).\n# modules declare the env keys they require in their package.json dreamteamer.env list.\n', { keep, complete });
+		if (env.added.length) console.log(`✔ .env.example now names ${env.added.join(', ')}`);
+		for (const k of env.moved) console.log(`✔ .env.example re-attributes ${k} (now declared by ${byKey.get(k).modules.join(', ')})`);
+		for (const k of env.dropped) console.log(`✔ .env.example drops ${k} — no installed package declares it`);
 		ensureEditorRecommendation(root);
 	}
 
