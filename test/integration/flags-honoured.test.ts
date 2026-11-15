@@ -27,7 +27,8 @@ import path from "node:path"
 import { twoModuleWorkspace, readFile, ENGINE_ROOT } from "../helpers/ws.ts"
 import { FIELD_FLAGS } from "../../src/lib/consts.ts"
 import { VERB_FLAGS } from "../../src/lib/consts.ts"
-import { USAGE, WORKSPACE_FLAGS, GLOBAL_FLAGS } from "../../src/cli.ts"
+import { WORKSPACE_FLAGS, GLOBAL_FLAGS } from "../../src/cli.ts"
+import { USAGE } from "../../src/usage.ts"
 
 const exists = (root, rel) => fs.existsSync(path.join(root, rel))
 

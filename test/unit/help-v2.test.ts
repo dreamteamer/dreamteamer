@@ -2,7 +2,7 @@
 // engine refuses. Each pattern is a word the descriptor format v2 removed.
 import test from "node:test"
 import assert from "node:assert/strict"
-import { USAGE } from "../../src/cli.ts"
+import { USAGE } from "../../src/usage.ts"
 
 const V1 = [
   /\bx-[a-z]+/,
