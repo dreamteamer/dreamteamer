@@ -22,6 +22,16 @@ then `npx dreamteamer compile` and `npx dreamteamer check`.
 
 ---
 
+## 0.49.1 — four fixes for upgrades and everyday writes
+
+Nothing to do but `dt compile`.
+
+- **The nav migration command runs as printed.** The refusal `dt install` and `dt update` print for a
+  workspace whose nav is still in `.vscode/settings.json` named a protocol version that was never
+  published and an editor version that was never released. It now says `npx -p
+  @dreamteamer/protocol@0.3 dt-nav migrate` and the editor 0.27 or later, and the 0.49.0 steps below
+  are corrected the same way.
+
 ## 0.49.0 — module presets and the nav document (CR-dt-008)
 
 Nothing to do but `dt compile` — **unless your workspace still keeps its nav in editor settings**
@@ -56,15 +66,15 @@ Nothing to do but `dt compile` — **unless your workspace still keeps its nav i
   no longer refuses "a package an installed one already provides".
 - **A workspace whose nav is in `.vscode/settings.json`** (`dreamteamer.navGroups`, `navOrder` or
   `navHidden` set, and no `nav.yaml`) — in this order:
-  1. `npx -p @dreamteamer/protocol@0.2 dt-nav migrate` (or open the workspace once in the editor 0.26
+  1. `npx -p @dreamteamer/protocol@0.3 dt-nav migrate` (or open the workspace once in the editor 0.27
      or later), on the engine and core you have now. It writes `nav.yaml` from the tree you see today.
   2. `dt update --engine` — never refused for nav settings.
   3. `dt update @dreamteamer/core`
   4. `dt update @dreamteamer/rnd`
 
   Skip step 1 and step 3 refuses before npm writes anything:
-  `✖ your nav settings are not saved to nav.yaml yet — run: npx -p @dreamteamer/protocol@0.2 dt-nav
-  migrate (or open this workspace once in the editor 0.26 or later), then run this again; --allow
+  `✖ your nav settings are not saved to nav.yaml yet — run: npx -p @dreamteamer/protocol@0.3 dt-nav
+  migrate (or open this workspace once in the editor 0.27 or later), then run this again; --allow
   nav-reset skips it`. `dt install` refuses the same way for a package that ships a fragment or is a
   module preset. `--allow nav-reset` (on `dt install` and `dt update`) starts `nav.yaml` from the
   fragments instead. The settings stay in the file, unread from then on.

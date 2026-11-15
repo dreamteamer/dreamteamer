@@ -212,8 +212,8 @@ hidden: [file-drives]            # rows not drawn; a hidden name counts as place
   module owns refuses the whole call, and the pre-image comes back.
 - **Old nav settings** (`dreamteamer.navGroups`, `navOrder`, `navHidden` in `.vscode/settings.json`)
   with no `nav.yaml` make install of a package that ships a fragment, and update of any module, refuse
-  before npm. Migrate first with `npx -p @dreamteamer/protocol@0.2 dt-nav migrate`, or open the
-  workspace once in the editor 0.26 or later. `--allow nav-reset` starts from the fragments and leaves
+  before npm. Migrate first with `npx -p @dreamteamer/protocol@0.3 dt-nav migrate`, or open the
+  workspace once in the editor 0.27 or later. `--allow nav-reset` starts from the fragments and leaves
   the settings unread. `dt update --engine` is never refused.
 - **A host writes through the engine**: `readNavDoc`, `validateNavDoc`, `writeNavDoc` and
   `applyNavFragments` on `import('dreamteamer')`. There is one grammar and one writer.
