@@ -9,6 +9,8 @@ export interface Module {
   title?: string;
   namespaces: string[];
   dependencies: string[];
+  /** collections this module may reference without requiring them (`peer_collections`) */
+  peers: string[];
   /** contract elements this engine saw but does not implement (extension, nav, setup, …) */
   unsupported: string[];
 }
@@ -37,6 +39,8 @@ export interface Storage {
 
 export interface Collection {
   name: string;
+  /** the name on the command line in the singular: authored, or inflected */
+  singular: string;
   module: string;
   description?: string;
   use_when?: string;
@@ -58,6 +62,8 @@ export interface Model {
   modules: Module[];
   collections: Record<string, Collection>;
   skills: Skill[];
+  /** collections some module declares as optional peers */
+  peers: string[];
   /** ids another repo vouches for: collection → ids */
   exports: Record<string, string[]>;
   issues: Issue[];
@@ -70,6 +76,8 @@ export interface DtRecord {
   path: string;           // absolute file path
   data: Record<string, unknown>; // frontmatter fields + the body field
   mtimeMs: number;
+  /** things the writer should be told (an id that is a hash, not a name) */
+  warnings?: string[];
 }
 
 export class DtError extends Error {
