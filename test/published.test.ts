@@ -8,6 +8,7 @@ import { add } from "../src/store/add.ts"
 import { compile } from "../src/compile/compile.ts"
 import { buildModel } from "../src/model/buildModel.ts"
 import { check } from "../src/store/check.ts"
+import { commandsFor } from "../src/store/commandsFor.ts"
 import { get } from "../src/store/get.ts"
 import { listIds } from "../src/store/listIds.ts"
 import { publishedWorkspace, put } from "./helpers.ts"
@@ -158,4 +159,35 @@ test("a file the released engine wrote is read and accepted, and a missing peer 
     issues.map((i) => `${i.where}: ${i.message}`).join("\n"),
     /projects: a peer collection that is declared and not installed — 1 reference/,
   )
+})
+
+test("next gives the released engine's verdict on every rnd binding, gates through references included", async () => {
+  const root = publishedWorkspace()
+  const model = buildModel(root)
+  const w = (c: string, id: string, f: Record<string, unknown>) => add(model, `rnd/${c}`, f, id)
+  w("products", "portal", { name: "Northwind Portal" })
+  w("design-docs", "2026-11-01--draft", { name: "Draft", status: "draft" })
+  w("design-docs", "2026-11-01--active", { name: "Active", status: "active" })
+  const cr = (id: string, status: string, f: Record<string, unknown> = {}) =>
+    w("change-requests", id, Object.assign({ key: id, name: id, products: ["rnd/products/portal"], status }, f))
+  cr("cr-new", "suggested", { design_docs: ["rnd/design-docs/2026-11-01--draft"] })
+  cr("cr-accepted", "accepted", { design_docs: ["rnd/design-docs/2026-11-01--active"] })
+  cr("cr-building", "accepted", { design_docs: ["rnd/design-docs/2026-11-01--active"] })
+  cr("cr-built", "accepted", { verified_on: "2026-11-10T10:00:00Z" })
+  cr("cr-live", "implemented", { verified_on: "2026-11-10T10:00:00Z", deployed_on: "2026-11-11T10:00:00Z" })
+  const plan = (id: string, status: string, of: string, f: Record<string, unknown> = {}) =>
+    w("implementation-plans", id, Object.assign({ name: id, status, change_request: `rnd/change-requests/${of}` }, f))
+  plan("2026-11-02--approved", "approved", "cr-building")
+  plan("2026-11-02--done", "done", "cr-built", { code_approved_on: "2026-11-09T10:00:00Z" })
+  compile(buildModel(root))
+  const ids = listIds(buildModel(root), "rnd/change-requests")
+  const ours = commandsFor(buildModel(root), "rnd/change-requests", ids)
+  const api = await import("../node_modules/dreamteamer/src/api.js")
+  const released = api.commandsFor(new api.Store({ root }), "rnd/change-requests", ids)
+  assert.deepEqual(ours, released)
+  const implement = ours.commands.find((t) => t.binding === "command-bindings/rnd--implement--change-requests")
+  // `implementation_plans.status in approved|in-progress` follows the plan the request lists back
+  assert.deepEqual(implement?.eligible, ["cr-building"])
+  assert.deepEqual(implement?.done, ["cr-built"])
+  assert.equal(implement?.invocation, "/rnd:implement rnd/change-requests/cr-building")
 })
