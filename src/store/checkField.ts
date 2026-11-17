@@ -7,7 +7,8 @@ import { checkValue } from "./checkValue.ts"
  * What is wrong with a field's value, each message led by `at`, the field's path: `address.zip`, `steps[1].stop`.
  * An object's fields are checked as a record's are, and any key it does not declare is let through, as the released
  * engine lets it through. A map's values are checked against `values`; inside a map a reference is only text, since
- * the released engine neither resolves nor counts it (`plain`).
+ * the released engine neither resolves nor counts it (`plain`). A null is checked as the empty value of its type, as
+ * the released engine's validator converts it: empty text, 0 or false, and never a map.
  */
 export function checkField(
   model: Model,
@@ -18,7 +19,7 @@ export function checkField(
   plain = false,
 ): string[] {
   const out: string[] = []
-  if (v === null || v === undefined || f.mirror_of) return out
+  if (v === undefined || f.mirror_of) return out
   const nested = f.type === "object" || f.type === "map"
   if (!f.many && Array.isArray(v) && (nested || v.length !== 1)) {
     out.push(`${at}: ${nested ? "expected a map" : "holds a list but the field is not many"}`)

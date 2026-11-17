@@ -26,6 +26,7 @@ export function checkValue(
 ): string | null {
   const ref = typeof f.type !== "string" || !SCALARS.has(f.type) || f.type === "reference"
   const type = plain && ref ? "string" : typeof f.type === "string" ? f.type : "ref"
+  if (v === null) v = type === "boolean" ? false : type === "integer" || type === "number" ? 0 : ""
   if (TEXT.has(type)) {
     if (typeof v === "object") return "expected text"
     // eslint-disable-next-line @typescript-eslint/no-base-to-string -- a scalar is checked as text
@@ -53,7 +54,7 @@ export function checkValue(
   } else if (type === "object" || type === "map") {
     if (typeof v !== "object" || v === null) return "expected a map"
   } else {
-    if (typeof v !== "string") return "expected a <collection>/<id> reference"
+    if (typeof v !== "string" || !v) return "expected a <collection>/<id> reference"
     if (f.type === "reference") {
       if (!f.soft && !refExists(model, v)) return `broken reference ${v}`
     } else {

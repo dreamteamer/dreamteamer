@@ -868,6 +868,7 @@ test("a collection's constraints are enforced on write and by check, with the ve
   assert.deepEqual(
     errors(m).map((t) => `${t.where} ${t.message}`),
     [
+      "deals/blank outcome: not one of won | lost",
       'deals/blank stage: must be "closed" — constraint 1 of deals',
       "flows/high kind: required — constraint 3 of flows",
     ],
@@ -891,4 +892,31 @@ test("a constraint keyword this engine does not evaluate is an error in the mode
     ],
   )
   refuses(() => add(m, "gizmos", { name: "x" }), /model has errors/)
+})
+
+test("a null is checked as the released engine's validator reads it: the empty value of its type", () => {
+  const root = shops()
+  const m = buildModel(root)
+  add(m, "users", { name: "Dana Oren" })
+  put(
+    root,
+    "data/tasks/2026-11-17--blank.task.md",
+    "---\nname: Blank\nassignee:\ndue:\ntags:\nurgent:\nestimate:\nstatus: todo\nnotes:\n---\n",
+  )
+  put(
+    root,
+    "data/shops/blank.shop.md",
+    "---\nname: Blank\naddress: {city: Utrecht, zip: null, size: null}\nhours: {mon: null}\nstaff:\n---\n",
+  )
+  assert.deepEqual(
+    errors(m).map((t) => `${t.where} ${t.message}`),
+    [
+      "shops/blank address.zip: does not match ^\\d{5}$",
+      "shops/blank address.size: not one of small | large",
+      "shops/blank staff: expected a list of maps",
+      "tasks/2026-11-17--blank assignee: expected a <collection>/<id> reference",
+      "tasks/2026-11-17--blank due: expected a real date, YYYY-MM-DD",
+      "tasks/2026-11-17--blank estimate: less than the minimum 1",
+    ],
+  )
 })
