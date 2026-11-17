@@ -5,6 +5,7 @@ import { readFileSync, readdirSync } from "node:fs"
 import { join, relative } from "node:path"
 import { fileURLToPath } from "node:url"
 import { add } from "../src/store/add.ts"
+import { compile } from "../src/compile/compile.ts"
 import { buildModel } from "../src/model/buildModel.ts"
 import { check } from "../src/store/check.ts"
 import { get } from "../src/store/get.ts"
@@ -31,6 +32,46 @@ test("the system module is the released engine's own files, byte for byte, and i
     ["engine"],
   )
   assert.equal(m.modules[0].version, JSON.parse(readFileSync(new URL("package.json", released), "utf8")).version)
+})
+
+test("the released engine reads the compiled layout written here, and presents it as its own compile would", async () => {
+  const root = publishedWorkspace()
+  compile(buildModel(root))
+  const api = await import("../node_modules/dreamteamer/src/api.js")
+  const descriptors = api.loadDescriptors(root)
+  assert.ok(descriptors.has("rnd/user-stories") && descriptors.has("repos"))
+  const p = api.presentation(descriptors)
+  // pinned from the released engine's own compile of the same modules
+  assert.deepEqual(
+    p.collections.find((t: { collection: string }) => t.collection === "tasks"),
+    {
+      collection: "tasks",
+      title: "Tasks",
+      nav: { icon: "checklist" },
+      list: {
+        layout: "table",
+        columns: ["name", "status", "assignee", "created", "due", "project", "tags"],
+        sort: "-created",
+      },
+      record: { layout: "page" },
+      form: {
+        sections: [
+          { title: "Provenance", fields: ["author", "creation_context", "source", "confidence"], collapsed: true },
+        ],
+      },
+      record_title: "{{ name }}",
+      record_type: "task",
+      runtime: false,
+      internal: false,
+    },
+  )
+  assert.deepEqual(
+    p.fields.tasks.slice(0, 3).map((t: { field: string }) => t.field),
+    ["id", "created", "last_modified"],
+  )
+  const skills = descriptors.get("skills")
+  assert.ok(skills)
+  assert.equal(api.storageOf(skills).runtime, true)
 })
 
 test("the published modules resolve without an error, peers included", () => {

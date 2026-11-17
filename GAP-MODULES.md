@@ -200,3 +200,10 @@ engine that already reads every record and serves every verb they call.
   in the model and in `.dt/model.json` as written, with mixins beneath the descriptor and overlays above it, the
   released engine's merge; everything its `presentation()` reads from a collection is now there. No other behaviour
   changed: the large real workspace still checks at 4,837 records, 0 errors, 0 warnings. Engine 2,687 lines.
+- **The compiled layout is written**: `compile` also writes `.dreamteamer/` as the released engine lays it out —
+  compiled descriptors, module records, the source kinds' files, and `manifest.yaml` — with only the keys the protocol
+  host and the modules' scripts read. On a copy of the large real workspace's sources, the same 229 runtime files
+  appear, and the released engine's own `presentation()` over them matches its own compile for 53 of 54 collections;
+  the one that differs is `assets`, whose binary fields (`ext`, `bytes`) wait on D11. Measurements unchanged: 4,837
+  records, 0 errors, 0 warnings on the real workspace; 0 errors on the modules' sample; 1,578 errors and 53 both-clean
+  across the 76 repositories. Engine 2,834 lines.

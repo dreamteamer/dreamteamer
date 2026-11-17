@@ -1,9 +1,11 @@
 import { mkdirSync, writeFileSync } from "node:fs"
 import { join, relative } from "node:path"
 import { DtError } from "../lib/DtError.ts"
+import { engineVersion } from "../lib/engineVersion.ts"
 import type { Model } from "../types/Model.ts"
 import type { Module } from "../types/Module.ts"
 import type { Skill } from "../types/Skill.ts"
+import { compileRuntime } from "./compileRuntime.ts"
 import { instructions } from "./instructions.ts"
 
 /** the model with every path relative to the workspace, so it is the same wherever the workspace is checked out */
@@ -47,7 +49,10 @@ function portable(model: Model) {
   return res
 }
 
-/** Project the resolved model into derived, gitignorable files. Never touches git, never writes outside <root>/.dt. */
+/**
+ * Project the resolved model into derived files: `.dt/` (instructions and the model) and the released engine's compiled
+ * layout under `.dreamteamer/`. Never touches git, never writes outside the workspace. Returns what it wrote.
+ */
 export function compile(model: Model): string[] {
   const errors = model.issues.filter((t) => t.severity === "error")
   if (errors.length) throw new DtError("the workspace model has errors — nothing compiled; fix them first", errors)
@@ -59,5 +64,6 @@ export function compile(model: Model): string[] {
     ".gitignore": "*\n",
   }
   for (const [name, text] of Object.entries(files)) writeFileSync(join(out, name), text)
-  return Object.keys(files).map((t) => join(out, t))
+  const n = compileRuntime(model, engineVersion())
+  return [...Object.keys(files).map((t) => join(out, t)), `${join(model.root, ".dreamteamer")} (${n} files)`]
 }

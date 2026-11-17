@@ -190,7 +190,7 @@ dtx rm recipes/shakshuka                        # ✔ removed recipes/shakshuka
 dtx compile
 ```
 
-This writes `.dt/AGENTS.md` — how to run the engine, then every collection with its fields, types, allowed values and id rule, and every skill your modules ship — and `.dt/model.json`, the same model for tools. Point your agent at `.dt/AGENTS.md`. The `.dt/` folder ignores itself in git and can be deleted at any time.
+This writes `.dt/AGENTS.md` — how to run the engine, then every collection with its fields, types, allowed values and id rule, and every skill your modules ship — and `.dt/model.json`, the same model for tools. Point your agent at `.dt/AGENTS.md`. The `.dt/` folder ignores itself in git and can be deleted at any time. `compile` also writes `.dreamteamer/`, the layout the released engine compiles, for tools that read it (see [Compile](#compile)); add it to your `.gitignore` too.
 
 **8. Commit.** The engine never runs git. What it wrote is ordinary files:
 
@@ -205,7 +205,7 @@ git commit -m "A workspace with tasks, users and recipes"
 dtx check -w /path/to/workspace
 ```
 
-`modules`, `collections`, `list`, `get` and `check` write nothing. `compile` writes only `.dt/`. `add`, `set` and `rm` change records in the workspace you name.
+`modules`, `collections`, `list`, `get` and `check` write nothing. `compile` writes only `.dt/` and `.dreamteamer/`. `add`, `set` and `rm` change records in the workspace you name.
 
 ### If you are an agent
 
@@ -235,7 +235,7 @@ Run `compile` and read `.dt/AGENTS.md`: it gives the command to run and, for eac
 ```
 package.json ──┐                          ┌──► store ◄──► data/    your records
 node_modules/ ─┼─► discover ─► model ─────┤
-modules/ ──────┘                          └──► compile ──► .dt/    derived, disposable
+modules/ ──────┘                          └──► compile ──► .dt/, .dreamteamer/    derived, disposable
 ```
 
 ### Where things live
@@ -248,6 +248,7 @@ modules/ ──────┘                          └──► compile ─
 | `data/…` | Your records, one file each | `add`, `set`, `rm` — or you by hand, followed by `check` |
 | `dreamteamer-exports.json` | Ids that live in another repository and are vouched for; references to them are accepted | read-only here |
 | `.dt/` | What `compile` wrote | `compile` only |
+| `.dreamteamer/` | The released engine's compiled layout, for the tools that read it | `compile`, which replaces its kind folders and `manifest.yaml` and leaves the rest |
 
 ### Modules
 
@@ -313,7 +314,7 @@ Markdown, YAML and JSON records are supported, and so are folder-shaped records 
 
 ### Compile
 
-`compile` writes three files into `<workspace>/.dt/` and nothing anywhere else:
+`compile` writes three files into `<workspace>/.dt/`:
 
 | File | For | Content |
 |---|---|---|
@@ -321,7 +322,18 @@ Markdown, YAML and JSON records are supported, and so are folder-shaped records 
 | `model.json` | tools | the entire resolved model, with paths relative to the workspace |
 | `.gitignore` | git | `*` |
 
-No command reads these files back, so a stale `.dt/` cannot make a command wrong. Run `compile` again after you change modules or descriptors.
+It also writes into `<workspace>/.dreamteamer/` the layout the released engine compiles, because the protocol host and several modules' scripts read it directly. Only what those readers use is written:
+
+| Path | Content |
+|---|---|
+| `collections/<name>.collection.yaml` | each collection, compiled: its keys as written (storage and ids resolved, `display` and the rest as in the model), and a `compiled` block with `defaults` (the title, record title and layouts nobody wrote), `module`, `repo`, `runtime`, `overlaid_by` and `fields` — every field with its title, `id`, `created` and `last_modified` first, a reference given `on_delete: restrict` unless it says otherwise |
+| `modules/<id>.module.yaml` | each module: `name`, `title`, `namespaces`, `location`, `path`, `dependencies`, `peer_collections`, `collections` |
+| `skills/<id>/…`, `agents/`, `commands/`, `command-bindings/`, `ui-views/`, `mixins/` | each module's source files, copied as they are; a skill with its whole folder |
+| `manifest.yaml` | `compiled`, `host`, `engine`, `namespaces`, `package`, `data_path`, `layers`, `modules` (`name`, `location`, `channel`, `root`), `ui`, and `entries`: for each file above, the source it came from |
+
+Read through the released engine's own accessors, these descriptors give the same `presentation()` as the released compile for every published collection measured except binary ones. Not written: source hashes, `json_schema`, the workspace's own module record, a view's merged `compiled.display`, harness files and a `.gitignore`.
+
+No command reads any of this back, so a stale `.dt/` or `.dreamteamer/` cannot make a command wrong. Run `compile` again after you change modules or descriptors.
 
 ### Git
 
@@ -344,7 +356,7 @@ dtx <verb> [target] [arguments] [-w <workspace>]
 | `rm <ref>` | Deletes a record. `--force` deletes one that others reference. Refused for a source record | `dtx rm tasks/2026-11-17--buy-milk` |
 | `relations rebuild <collection>` | Recomputes the collection's reverse fields from the records that point at it | `dtx relations rebuild users` |
 | `check` | Validates every record and reports files it does not recognise. Changes nothing | `dtx check` |
-| `compile` | Writes `.dt/` | `dtx compile` |
+| `compile` | Writes `.dt/`, and the released compiled layout into `.dreamteamer/` | `dtx compile` |
 | `help`, `--version` | | `dtx help` |
 
 - The verb comes first. `-w <path>` names the workspace; the default is the current directory.
@@ -379,7 +391,7 @@ The functions are `buildModel`, `discover`, `findCollection` and `splitRef` in `
 - **Modular.** Schemas and skills are npm packages; a workspace composes them, adds its own, and overlays what it needs to change.
 - **One workspace owns the data.** Modules are read-only inputs. Every write lands in the one workspace a command names.
 - **No hidden steps.** No compile before a change takes effect, no commit behind your back, no module code run.
-- **Derived state is disposable.** Everything generated is in `.dt/` and can be deleted.
+- **Derived state is disposable.** Everything generated is in `.dt/` and `.dreamteamer/`, and can be deleted.
 - **One interface.** The command line and a script call the same functions; rules about records live in one place.
 - **Typed, and checked at the edge.** Types hold inside the engine; everything read from disk is validated before it is trusted.
 - **Small enough to read.** One runtime dependency, and a budget on the size of the engine.
@@ -421,7 +433,7 @@ The source is TypeScript that Node runs directly, so it uses only syntax that ca
 | `src/lib/` | `DtError`, and the readers every input from disk passes through (`asString`, `asObject`, `asArray` …) |
 | `src/model/` | Finding the modules (`discover.ts`) and resolving them into one model (`buildModel.ts`) |
 | `src/store/`, `src/yaml/` | Reading, validating and changing records, and editing a record's YAML a line at a time |
-| `src/compile/` | Writing `.dt/` |
+| `src/compile/` | Writing `.dt/` and `.dreamteamer/` |
 | `src/cli/`, `bin/dt.ts` | The command line: `main.ts` parses and dispatches through the table in `VERBS.ts`; each verb is one file in `src/cli/verbs/` with its usage line, its options and its handler |
 
 `test/engine.test.ts` drives the API on a throw-away workspace of invented modules, `test/cli.test.ts` runs the command line as a process, and `test/published.test.ts` runs the engine on published modules — tasks, users, companies, contacts, assets, meetings and rnd — pinned to exact versions as development dependencies. The house style is in [CLAUDE.md](CLAUDE.md). The engine has a budget of 7,000 lines; before adding to it, check that the addition has a demonstrated job.

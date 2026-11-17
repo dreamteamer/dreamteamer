@@ -11,6 +11,7 @@ import {
   writeFileSync,
 } from "node:fs"
 import { dirname, join } from "node:path"
+import { parse } from "yaml"
 import { DtError } from "../src/lib/DtError.ts"
 import { add } from "../src/store/add.ts"
 import { buildModel } from "../src/model/buildModel.ts"
@@ -88,7 +89,7 @@ test("the system collections come with the engine, and a reference to a module's
   assert.deepEqual(listIds(m, "mixins"), ["docs", "entity"])
   assert.equal(get(m, "agents/reviewer").data.instructions, "Review it.\n")
   assert.equal(get(m, "collections/links").data.name, "links")
-  assert.deepEqual(get(m, "collections/tasks").data.storage, m.collections.tasks.storage)
+  assert.deepEqual(get(m, "collections/tasks").data.storage, { path: "data/tasks", format: "md", suffix: "task" })
   assert.deepEqual(get(m, "modules/local").data.collections, [
     "collections/companies",
     "collections/links",
@@ -477,11 +478,12 @@ test("check reports files no collection recognises, and JSON and folder records 
   assert.deepEqual(listIds(m, "pages"), ["welcome"])
 })
 
-test("compile writes only under .dt, is the same wherever the workspace sits, and says enough to write a record", () => {
+test("compile writes only under .dt and .dreamteamer, is the same wherever the workspace sits, and says enough to write a record", () => {
   const root = workspace(),
     m = buildModel(root)
   const files = compile(m)
-  assert.ok(files.every((f) => f.startsWith(join(root, ".dt"))))
+  assert.ok(files.every((f) => f.startsWith(join(root, ".dt/")) || f.startsWith(join(root, ".dreamteamer"))))
+  assert.deepEqual(readdirSync(root).sort(), [".dreamteamer", ".dt", "modules", "node_modules", "package.json"])
   const model = readFileSync(join(root, ".dt/model.json"), "utf8"),
     agents = readFileSync(join(root, ".dt/AGENTS.md"), "utf8")
   assert.equal(model.includes(root), false, "no absolute path of the workspace")
@@ -497,6 +499,71 @@ test("compile writes only under .dt, is the same wherever the workspace sits, an
   assert.match(
     agents,
     /fields: name\*: string · assignee: → users · about: → users\|ghosts .* tags\[\]: string .* status: todo\|done \(default todo\) · notes: the text below the frontmatter/,
+  )
+})
+
+test("compile also writes the released engine's compiled layout, with the keys its readers use", () => {
+  const root = workspace()
+  const p = (path: string, text: string) => put(root, `modules/local/${path}`, text)
+  const cmd = p("commands/lab/run.command.md", "---\ndescription: run it\n---\nRun.\n")
+  p("skills/triage/SKILL.md", "---\nname: triage\ndescription: use when sorting.\n---\nSort.\n")
+  p("skills/triage/bin/sort.py", "print('sorted')\n")
+  p("ui-views/tasks-mine.ui-view.yaml", "route: /tasks/mine\nscope: collection\ncollection: collections/tasks\n")
+  put(root, ".dreamteamer/editor.json", "{}\n")
+  put(root, ".dreamteamer/commands/gone.command.md", "---\n---\n")
+  compile(buildModel(root))
+  const rt = (path: string) => readFileSync(join(root, ".dreamteamer", path), "utf8")
+  const tasks = parse(rt("collections/tasks.collection.yaml"))
+  assert.equal(tasks.name, "tasks")
+  assert.equal(tasks.storage.path, "data/tasks")
+  assert.match(
+    rt("collections/tasks.collection.yaml"),
+    /^storage:\n {2}path: data\/tasks\n/m,
+    "storage as a block, as module scripts match it",
+  )
+  assert.deepEqual(Object.keys(tasks.compiled.fields).slice(0, 4), ["id", "created", "last_modified", "name"])
+  assert.equal(tasks.compiled.fields.assignee.on_delete, "restrict")
+  assert.equal(tasks.compiled.fields.due.title, "Due")
+  assert.deepEqual(
+    [
+      tasks.compiled.module,
+      tasks.compiled.runtime,
+      tasks.compiled.defaults.title,
+      tasks.compiled.defaults.record_title,
+    ],
+    ["local", false, "Tasks", "{{ name }}"],
+  )
+  assert.deepEqual(parse(rt("collections/users.collection.yaml")).compiled.overlaid_by, ["local"])
+  assert.equal(parse(rt("collections/skills.collection.yaml")).compiled.runtime, true)
+  assert.equal(rt("commands/lab/run.command.md"), readFileSync(cmd, "utf8"), "a source file is copied as it is")
+  assert.equal(rt("skills/triage/bin/sort.py"), "print('sorted')\n", "and a skill's whole folder")
+  assert.ok(existsSync(join(root, ".dreamteamer/skills/using-dreamteamer/references/records.md")))
+  assert.equal(parse(rt("ui-views/tasks-mine.ui-view.yaml")).route, "/tasks/mine")
+  const local = parse(rt("modules/local.module.yaml"))
+  assert.deepEqual(
+    [local.location, local.path, local.collections.includes("collections/tasks")],
+    ["modules", "modules/local", true],
+  )
+  assert.equal(existsSync(join(root, ".dreamteamer/commands/gone.command.md")), false, "a kind folder is replaced")
+  assert.equal(rt("editor.json"), "{}\n", "what is not a kind folder is left alone")
+  const manifest = parse(rt("manifest.yaml"))
+  assert.equal(typeof manifest.compiled, "string")
+  assert.deepEqual(manifest.namespaces, [])
+  assert.deepEqual(manifest.layers, [])
+  assert.equal(manifest.data_path, "data")
+  assert.deepEqual(manifest.modules[2], {
+    name: "local",
+    location: "modules",
+    channel: "inline",
+    root: "modules/local",
+  })
+  assert.deepEqual(manifest.entries["commands/lab/run.command.md"], {
+    sources: [{ path: "modules/local/commands/lab/run.command.md" }],
+  })
+  assert.match(
+    rt("manifest.yaml"),
+    /^compiled: '\d{4}-/m,
+    "a timestamp is quoted, so a YAML 1.1 reader keeps it a string",
   )
 })
 

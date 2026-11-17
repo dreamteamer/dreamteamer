@@ -1,6 +1,9 @@
 import { readFileSync, statSync } from "node:fs"
 import { relative } from "node:path"
 import { DtError } from "../lib/DtError.ts"
+import { kept } from "../lib/kept.ts"
+import { titleOf } from "../lib/titleOf.ts"
+import { descriptorOf } from "../model/descriptorOf.ts"
 import { moduleId } from "../model/moduleId.ts"
 import type { DtRecord } from "../types/DtRecord.ts"
 import type { Model } from "../types/Model.ts"
@@ -9,39 +12,16 @@ import { parseText } from "./parseText.ts"
 /** where a module's sources sit, by how it was delivered, in the released engine's words */
 const LOCATIONS = { npm: "node_modules", workspace: "modules", engine: "node_modules" } as const
 
-/** keep the keys that have a value, and lists that are not empty */
-function kept(o: Record<string, unknown>) {
-  return Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined && !(Array.isArray(v) && !v.length)))
-}
-
-/** the fields of a source record: a collection and a module projected from the model, any other kind its file */
+/** the fields of a source record: a collection compiled and a module projected from the model, any other kind its file */
 function fieldsOf(model: Model, kind: string, id: string, file: string): Record<string, unknown> {
-  if (kind === "collections") {
-    const c = model.collections[id]
-    return kept({
-      name: c.name,
-      singular: c.singular,
-      description: c.description,
-      use_when: c.use_when,
-      title: c.title,
-      record_title: c.record_title,
-      internal: c.internal,
-      sensitive: c.sensitive,
-      storage: c.storage,
-      ids: c.ids,
-      fields: c.fields,
-      constraints: c.constraints,
-      display: c.display,
-      compiled: { module: c.module, overlaid_by: c.contributors },
-    })
-  }
+  if (kind === "collections") return descriptorOf(model, id)
   if (kind === "modules") {
     const m = model.modules.find((t) => moduleId(t.name) === id)
     if (!m) throw new DtError(`modules/${id}: no such record`)
     const owned = Object.values(model.collections).filter((t) => t.module === m.name || t.contributors.includes(m.name))
     return kept({
       name: m.name,
-      title: m.title,
+      title: m.title ?? titleOf(id),
       namespaces: m.namespaces,
       location: LOCATIONS[m.origin],
       path: relative(model.root, m.dir),

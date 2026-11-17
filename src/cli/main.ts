@@ -1,10 +1,8 @@
 // The command line: reads it, finds the verb in the table, and prints. Each verb is a file in verbs/; every rule
 // about records lives behind the functions those call.
-import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
-import { asObject } from "../lib/asObject.ts"
-import { asString } from "../lib/asString.ts"
 import { DtError } from "../lib/DtError.ts"
+import { engineVersion } from "../lib/engineVersion.ts"
 import { messageOf } from "../lib/messageOf.ts"
 import { buildModel } from "../model/buildModel.ts"
 import { findCollection } from "../model/findCollection.ts"
@@ -18,11 +16,6 @@ const USAGE = [
   "  help | --version",
 ].join("\n")
 
-function version() {
-  const pkg = asObject(JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")), "package.json")
-  return asString(pkg.version, "package.json version")
-}
-
 function run(argv: string[], out: (v: unknown) => void) {
   const args = [...argv]
   const w = args.findIndex((t) => t === "-w" || t === "--workspace" || t.startsWith("--workspace="))
@@ -30,7 +23,7 @@ function run(argv: string[], out: (v: unknown) => void) {
   if (w >= 0 && !given) throw new DtError("-w needs the path of a workspace")
   const root = resolve(given ?? process.cwd())
   if (args[0] === "--version") {
-    out(`dreamteamer-first-principles ${version()}`)
+    out(`dreamteamer-first-principles ${engineVersion()}`)
     return 0
   }
   const verb = args.shift()
