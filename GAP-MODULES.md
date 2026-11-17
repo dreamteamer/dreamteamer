@@ -185,3 +185,5 @@ engine that already reads every record and serves every verb they call.
 - **The command line is table-driven** (no behaviour change): each verb is one file in `src/cli/verbs/` with its
   usage line, options and handler, and `main.ts` only dispatches, so a new verb is a new file and one line in the
   table. Engine 2,424 lines.
+- **A name every object inherits is not a verb**: `constructor`, `toString` and the like are refused as an unknown
+  verb with exit status 2, where they used to run `check`. Engine 2,419 lines.

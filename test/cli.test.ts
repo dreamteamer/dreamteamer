@@ -23,6 +23,11 @@ test("the verb list and the version need no workspace; anything else says what i
   assert.match(dt(empty, "compile").err, /no dreamteamer module/)
   assert.equal(existsSync(join(empty, ".dt")), false, "nothing is written into a folder that is not a workspace")
   assert.equal(dt(empty, "frobnicate").code, 2)
+  for (const name of ["constructor", "toString", "__proto__", "hasOwnProperty"]) {
+    const r = dt(empty, name)
+    assert.equal(r.code, 2, name)
+    assert.match(r.out, new RegExp(`^unknown verb ${name}\\n`))
+  }
 })
 
 test("text is stored as it was typed", () => {

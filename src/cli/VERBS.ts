@@ -24,11 +24,7 @@ export const VERBS = {
   compile,
 } as const satisfies Record<string, Verb>
 
-/**
- * The verb a command names.
- * Review: `in` also answers for names every object inherits (`constructor`), which then run as `check`, as before;
- * whether to refuse them instead is undecided.
- */
+/** the verb a command names: one of the table's own keys, never a name every object inherits (`constructor`) */
 export function isVerb(s: string): s is keyof typeof VERBS {
-  return s in VERBS
+  return Object.hasOwn(VERBS, s)
 }

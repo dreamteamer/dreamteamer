@@ -43,8 +43,7 @@ function run(argv: string[], out: (v: unknown) => void) {
     out(`unknown verb ${verb}\n${USAGE}`)
     return 2
   }
-  // a name every object inherits passes isVerb and runs as check, as it always has
-  const v = Object.hasOwn(VERBS, verb) ? VERBS[verb] : VERBS.check
+  const v = VERBS[verb]
   const { pos, opts, fields } = parseArgs(verb, v, args)
   const [target, ...extra] = pos
   const model = buildModel(root)
