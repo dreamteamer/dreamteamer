@@ -15,6 +15,7 @@ import { check } from "../store/check.ts"
 import { get } from "../store/get.ts"
 import { list } from "../store/list.ts"
 import { rm } from "../store/rm.ts"
+import { rebuild } from "../store/rebuild.ts"
 import { set } from "../store/set.ts"
 import type { DtRecord } from "../types/DtRecord.ts"
 import type { Severity } from "../types/Issue.ts"
@@ -30,6 +31,7 @@ const USAGE = `usage: <verb> [target] [arguments] [-w <workspace>]
   add <collection> ["<title>"] --<field> <value>… [--id <id>]
   set <ref> <field>=<value>…               an empty value clears a field
   rm <ref> [--force]
+  relations rebuild <collection>           recompute its reverse fields from their owners
   check                                    validate every record; changes nothing
   compile                                  write .dt/AGENTS.md and .dt/model.json
   help | --version`
@@ -146,6 +148,15 @@ function run(argv: string[], out: (v: unknown) => void) {
       noExtra()
       out(`✔ removed ${rm(model, wanted("a <collection>/<id> reference"), Boolean(opts.force))}`)
       return 0
+    case "relations": {
+      if (target !== "rebuild") throw new DtError("relations takes rebuild <collection>")
+      if (!extra[0]) throw new DtError("relations rebuild needs a collection")
+      noExtra(1)
+      const refs = rebuild(model, collectionOf(extra[0]).name)
+      refs.forEach((t) => out(`✔ ${t}`))
+      out(`${refs.length} record(s) rewritten`)
+      return 0
+    }
     case "compile":
       none()
       compile(model).forEach((t) => out(`✔ ${t}`))

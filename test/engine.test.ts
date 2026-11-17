@@ -23,6 +23,7 @@ import { listIds } from "../src/store/listIds.ts"
 import { referrers } from "../src/store/referrers.ts"
 import { rm } from "../src/store/rm.ts"
 import { set } from "../src/store/set.ts"
+import { rebuild } from "../src/store/rebuild.ts"
 import { put, workspace } from "./helpers.ts"
 
 const errors = (m: ReturnType<typeof buildModel>) => check(m).issues.filter((i) => i.severity === "error")
@@ -185,7 +186,33 @@ test("check is as lenient as the released engine about how a value is written", 
     "data/tasks/2026-01-01--hand.task.md",
     "---\nname: 2026\nestimate: '3'\nurgent: 'true'\nassignee: [users/dana-oren]\n---\n",
   )
+  assert.deepEqual(
+    errors(m).map((t) => t.message),
+    ["tasks: stale — run: relations rebuild users"],
+    "only the reverse field, which a hand edit does not keep",
+  )
+  assert.deepEqual(rebuild(m, "users"), ["users/dana-oren"])
   assert.deepEqual(errors(m), [])
+})
+
+test("a reverse field follows its owner on add, set and rm, and is never set by hand", () => {
+  const root = workspace(),
+    m = buildModel(root)
+  add(m, "users", { name: "Dana Oren" })
+  add(m, "users", { name: "Sam Diaz" })
+  const a = add(m, "tasks", { name: "Buy milk", assignee: "users/dana-oren", created: "2026-01-02T10:00:00+02:00" })
+  const b = add(m, "tasks", { name: "Bake bread", assignee: "users/dana-oren", created: "2026-01-01T10:00:00+02:00" })
+  assert.deepEqual(get(m, "users/dana-oren").data.tasks, [b.ref, a.ref], "sorted")
+  set(m, a.ref, { assignee: "users/sam-diaz" })
+  assert.deepEqual(get(m, "users/dana-oren").data.tasks, [b.ref])
+  assert.deepEqual(get(m, "users/sam-diaz").data.tasks, [a.ref])
+  rm(m, b.ref)
+  assert.equal(get(m, "users/dana-oren").data.tasks, undefined, "the last one takes the key with it")
+  assert.doesNotMatch(readFileSync(get(m, "users/dana-oren").path, "utf8"), /tasks/)
+  refuses(() => set(m, "users/sam-diaz", { tasks: [] }), /generated from tasks\.assignee/)
+  refuses(() => add(m, "users", { name: "Ada", tasks: [a.ref] }), /generated from tasks\.assignee/)
+  assert.deepEqual(errors(m), [])
+  assert.deepEqual(rebuild(m, "users"), [], "nothing to repair")
 })
 
 test("a reference into a declared peer that is not installed is unresolved, not wrong", () => {

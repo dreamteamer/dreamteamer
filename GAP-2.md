@@ -43,7 +43,7 @@ Measured on commit `396fa52`.
 
 | Id | Gap | State | Nature | Impact | Effort | Size, lines | Complexity | Gain | Shared | Confidence |
 |---|---|---|---|---|---|---|---|---|---|---|
-| [D8](#d8) | Reverse fields are not maintained, and the released `check` then fails | Incompatible | Scope boundary | High | High | E 60–120 · T 50–80 | High | C · F | P1 | Medium |
+| [D8](#d8) | Reverse fields are not maintained, and the released `check` then fails — **closed after this report**: maintained on `add`/`set`/`rm`, reported stale by `check`, repaired by `relations rebuild`; the released `check` gives 0 violations on records written here | Closed | Scope boundary | High | High | E 60–120 · T 50–80 | High | C · F | P1 | Medium |
 | [V3](#v3) | Contents of objects and maps, uniqueness and cross-field rules are not enforced | Partial | Scope boundary | High | Normal | E 90–210 · T 50–90 | Normal | S · C | P2 | Medium |
 | [N1](#n1) | Collections whose folders overlap read and delete each other's records | Partial | Defect | Medium | Low | E 15–30 · T 15–25 | Low | S | P2 | High |
 | [A1](#a1) | Nothing delivers the instructions to an agent harness | Missing | Scope boundary | High | High | A 120–250 · T 60–120 | High | F | P3 | Low |

@@ -8,7 +8,7 @@ import { validate } from "./validate.ts"
 
 /**
  * Validate a record and replace its file in one rename — only if the file is still as it was read (`expectMtime`),
- * or still absent. A rejected write changes nothing.
+ * or still absent. A rejected write changes nothing; an unchecked one (a reverse field) is not validated.
  */
 export function write(
   model: Model,
@@ -17,12 +17,13 @@ export function write(
   data: Record<string, unknown>,
   text: string,
   expectMtime?: number,
+  checked = true,
 ): string {
   const blocking = model.issues.filter((t) => t.severity === "error")
   if (blocking.length)
     throw new DtError("the workspace model has errors — nothing written; fix them first (check lists them)", blocking)
   const path = recordPath(model, c, id)
-  const issues = validate(model, c.name, id, data)
+  const issues = checked ? validate(model, c.name, id, data) : []
   if (issues.length) throw new DtError(`${c.name}/${id} rejected — nothing written`, issues)
   mkdirSync(dirname(path), { recursive: true })
   // a writer that was killed leaves its temporary file behind: clear old ones for this record

@@ -8,6 +8,8 @@ import { get } from "./get.ts"
 import { listIds } from "./listIds.ts"
 import { tail } from "./tail.ts"
 import { validate } from "./validate.ts"
+import { relationsOf } from "../model/relationsOf.ts"
+import { expectedMirrors, sameMirror } from "./expectedMirrors.ts"
 
 /** the released engine's system collections name source folders: what is there is source, not records */
 const SOURCE_FOLDERS = new Set([
@@ -37,6 +39,7 @@ export function check(model: Model) {
   }
   const strays = new Set<string>()
   let records = 0
+  const seen = new Map<string, Map<string, Record<string, unknown>>>()
   for (const c of stored) {
     const base = join(model.root, c.storage.path)
     if (c.storage.format === "binary") {
@@ -55,10 +58,14 @@ export function check(model: Model) {
       issues.push({ severity: "error", where: c.name, message: `cannot read ${c.storage.path}: ${messageOf(e)}` })
       continue
     }
+    const read = new Map<string, Record<string, unknown>>()
+    seen.set(c.name, read)
     for (const id of ids) {
       records++
       try {
-        issues.push(...validate(model, c.name, id, get(model, `${c.name}/${id}`).data, unresolved))
+        const data = get(model, `${c.name}/${id}`).data
+        read.set(id, data)
+        issues.push(...validate(model, c.name, id, data, unresolved))
       } catch (e) {
         issues.push({
           severity: "error",
@@ -77,6 +84,20 @@ export function check(model: Model) {
             where: relative(model.root, p),
             message: `unrecognized file in the ${c.name} folder — a record there is named <id>${tail(c)}`,
           })
+  }
+  // a reverse field is derived from its owners: say which ones have fallen behind, and how to repair them
+  for (const r of relationsOf(model)) {
+    const owners = seen.get(r.owner)
+    const targets = seen.get(r.target)
+    if (!owners || !targets) continue
+    const exp = expectedMirrors(r, owners)
+    for (const [id, data] of targets)
+      if (!sameMirror(r, data[r.mirror], exp.get(id)))
+        issues.push({
+          severity: "error",
+          where: `${r.target}/${id}`,
+          message: `${r.mirror}: stale — run: relations rebuild ${r.target}`,
+        })
   }
   for (const [name, n] of unresolved)
     issues.push({

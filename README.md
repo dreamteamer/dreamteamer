@@ -287,6 +287,8 @@ Markdown, YAML and JSON records are supported, and so are folder-shaped records 
 - A reference or an id cannot name anything but a record of its collection: an empty id, `.` or `..`, a leading slash, a different case from the file's name, and a symbolic link out of the collection's folder are all refused.
 - `rm` refuses a record that other records reference, and a folder-shaped record that holds other records.
 
+**Reverse fields.** A field declared `mirror_of: <field>` is the other side of a reference: `users.tasks` lists the tasks whose `assignee` is that user. It is written by the engine, never by hand. When `add`, `set` or `rm` changes a reference, the records it now points at and the ones it stopped pointing at are rewritten too, one line each; a list is kept sorted and an empty one is removed. `check` reports a reverse field that has fallen behind — after a hand edit, say — and `relations rebuild <collection>` recomputes it from the owners.
+
 ### Compile
 
 `compile` writes three files into `<workspace>/.dt/` and nothing anywhere else:
@@ -318,6 +320,7 @@ dtx <verb> [target] [arguments] [-w <workspace>]
 | `add <collection> ["title"]` | Creates a record | `dtx add tasks "Buy milk" --due 2026-12-01 --tags home,errand --urgent` |
 | `set <ref>` | Changes fields. An empty value clears one, or puts back its default | `dtx set tasks/2026-11-17--buy-milk status=done due=` |
 | `rm <ref>` | Deletes a record. `--force` deletes one that others reference | `dtx rm tasks/2026-11-17--buy-milk` |
+| `relations rebuild <collection>` | Recomputes the collection's reverse fields from the records that point at it | `dtx relations rebuild users` |
 | `check` | Validates every record and reports files it does not recognise. Changes nothing | `dtx check` |
 | `compile` | Writes `.dt/` | `dtx compile` |
 | `help`, `--version` | | `dtx help` |
@@ -361,7 +364,6 @@ The functions are `buildModel`, `discover`, `findCollection` and `splitRef` in `
 
 ## What is not supported yet
 
-- Reverse fields (`mirror_of`) are not maintained when a reference is written.
 - The contents of an `object` or a `map`, uniqueness, and a collection's cross-field `constraints` are not enforced.
 - A module's commands, agents, command bindings, UI views, navigation and extensions are not read; only its collections, mixins and skills.
 - Instructions are compiled into `.dt/`, not into the files each agent harness loads.

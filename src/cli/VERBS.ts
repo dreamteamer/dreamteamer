@@ -7,6 +7,7 @@ export const VERBS = {
   add: ["id"],
   set: [],
   rm: ["force"],
+  relations: [],
   check: [],
   compile: [],
 } as const satisfies Record<string, readonly string[]>

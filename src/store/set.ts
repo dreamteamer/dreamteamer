@@ -8,12 +8,15 @@ import { compose } from "./compose.ts"
 import { get } from "./get.ts"
 import { load } from "./load.ts"
 import { write } from "./write.ts"
+import { applyMirrors, mirrorEdits, refuseMirrors } from "./mirrorEdits.ts"
 
 /** Change some fields of a record. `null` or an empty string clears a field; a field with a default goes back to it. */
 export function set(model: Model, ref: string, changes: Record<string, unknown>): DtRecord {
   const { rec, c, doc, front, body: before } = load(model, ref)
   const bf = c.storage.format === "md" ? bodyField(c) : undefined
   const data = rec.data
+  refuseMirrors(model, c.name, rec.id, Object.keys(changes))
+  const prior = Object.assign({}, data)
   const edits: [string, unknown][] = []
   let body = before
   for (const [k, raw] of Object.entries(changes)) {
@@ -28,6 +31,8 @@ export function set(model: Model, ref: string, changes: Record<string, unknown>)
   // edit the lines that change; if the result would not read back as the fields meant, write the fields afresh
   let yaml = doc ? editYaml(front, doc, edits) : null
   if (doc && (yaml === null || !holds(yaml, fields))) yaml = yamlOf(fields)
+  const mirrors = mirrorEdits(model, c.name, rec.id, prior, data)
   write(model, c, rec.id, data, compose(c, yaml ?? "", data, body), rec.mtimeMs)
+  applyMirrors(model, mirrors)
   return get(model, rec.ref)
 }
