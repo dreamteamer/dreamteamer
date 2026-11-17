@@ -11,6 +11,7 @@ import { validate } from "./validate.ts"
 import { claims } from "./refuseTaken.ts"
 import { relationsOf } from "../model/relationsOf.ts"
 import { expectedMirrors, sameMirror } from "./expectedMirrors.ts"
+import { stale } from "../harness/stale.ts"
 
 /** Validate every record of every collection, and report the files no collection recognises; never modifies anything. */
 export function check(model: Model) {
@@ -111,6 +112,7 @@ export function check(model: Model) {
       where: name,
       message: `a peer collection that is declared and not installed — ${n} reference(s) to it cannot be resolved`,
     })
+  issues.push(...stale(model))
   const res: { records: number; issues: Issue[] } = { records, issues }
   return res
 }

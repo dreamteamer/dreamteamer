@@ -1,7 +1,8 @@
 // The engine against real published modules, at the versions pinned in this repository's devDependencies.
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { readFileSync, readdirSync } from "node:fs"
+import { readFileSync, readdirSync, writeFileSync } from "node:fs"
+import { spawnSync } from "node:child_process"
 import { join, relative } from "node:path"
 import { fileURLToPath } from "node:url"
 import { add } from "../src/store/add.ts"
@@ -11,6 +12,8 @@ import { check } from "../src/store/check.ts"
 import { commandsFor } from "../src/store/commandsFor.ts"
 import { get } from "../src/store/get.ts"
 import { listIds } from "../src/store/listIds.ts"
+import { asObject } from "../src/lib/asObject.ts"
+import { listFiles } from "../src/lib/listFiles.ts"
 import { publishedWorkspace, put } from "./helpers.ts"
 
 test("the system module is the released engine's own files, byte for byte, and is loaded once", () => {
@@ -218,4 +221,24 @@ test("next gives the released engine's verdict on every rnd binding, gates throu
   assert.deepEqual(implement?.eligible, ["cr-building"])
   assert.deepEqual(implement?.done, ["cr-built"])
   assert.equal(implement?.invocation, "/rnd:implement rnd/change-requests/cr-building")
+})
+
+test("claude-code gets the released engine's .claude tree and CLAUDE.md, byte for byte", () => {
+  const [ours, theirs] = [publishedWorkspace(), publishedWorkspace()]
+  for (const root of [ours, theirs]) {
+    const pkg = asObject(JSON.parse(readFileSync(join(root, "package.json"), "utf8")), "package.json")
+    pkg.dreamteamer = { harnesses: ["claude-code"] }
+    writeFileSync(join(root, "package.json"), JSON.stringify(pkg))
+  }
+  const bin = fileURLToPath(new URL("../node_modules/dreamteamer/bin/dreamteamer.js", import.meta.url))
+  assert.equal(spawnSync(process.execPath, [bin, "compile"], { cwd: theirs, encoding: "utf8" }).status, 0)
+  compile(buildModel(ours))
+  const tree = (root: string) =>
+    listFiles(join(root, ".claude"))
+      .map((t) => relative(root, t))
+      .sort()
+  assert.deepEqual(tree(ours), tree(theirs))
+  assert.ok(tree(ours).length > 40)
+  for (const f of [...tree(ours), "CLAUDE.md"])
+    assert.equal(readFileSync(join(ours, f), "utf8"), readFileSync(join(theirs, f), "utf8"), f)
 })
