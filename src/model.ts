@@ -1,6 +1,6 @@
 // Model: aggregate every module's collections, mixins and overlays into one resolved workspace model.
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { isAbsolute, join, normalize, relative } from 'node:path';
 import { parse } from 'yaml';
 import { discover } from './discover.ts';
 import type { Collection, Field, Issue, Model, Module, Skill } from './types.ts';
@@ -68,6 +68,7 @@ export function buildModel(root: string): Model {
     merged = { ...merged, ...doc, fields: { ...merged.fields, ...doc.fields } };
     const from = merged.ids?.from ?? '{{ name | slug }}';
     const storage = { path: `data/${doc.name}`, format: 'md', suffix: bare(singular(doc.name)), ...merged.storage };
+    if (isAbsolute(storage.path) || normalize(storage.path).startsWith('..')) issues.push({ severity: 'warning', where: doc.name, message: `its records are stored outside the workspace, at ${storage.path} — they are read from there, and writes to them are refused` });
     if (!FORMATS.has(storage.format)) issues.push({ severity: 'error', where: doc.name, message: `unknown storage format "${storage.format}" — md, yaml, json or binary` });
     collections[doc.name] = {
       name: doc.name, singular: doc.singular ? doc.name.slice(0, doc.name.lastIndexOf('/') + 1) + doc.singular : singular(doc.name),

@@ -60,7 +60,7 @@ function fieldValues(c: Collection, given: [string, string | undefined][]): Reco
     const f: Field | undefined = name === 'created' && !c.fields.created ? { type: 'datetime' } : c.fields[name];
     if (!f) {
       const near = Object.keys(c.fields).filter((k) => k.startsWith(typed.slice(0, 3)) || typed.startsWith(k));
-      throw new DtError(`${c.name} has no field ${typed}${near.length ? ` — did you mean ${near.join(' or ')}?` : ''} Its fields are ${Object.keys(c.fields).join(', ')}`);
+      throw new DtError(`${c.name} has no field ${typed} — ${near.length ? `did you mean ${near.join(' or ')}? Its` : 'its'} fields are ${Object.keys(c.fields).join(', ')}`);
     }
     if (raw === undefined && f.type !== 'boolean') throw new DtError(`--${typed} needs a value`);
     const nested = f.type === 'object' || f.type === 'map';

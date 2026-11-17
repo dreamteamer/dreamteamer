@@ -27,6 +27,8 @@ test('a typo in a descriptor is an error that stops writes and compile', () => {
   assert.match(text, /error gadgets: unknown storage format "toml"/);
   assert.match(text, /error gadgets\.loose: field has no type/);
   assert.match(text, /warning gadgets: unknown descriptor key\(s\) colour/);
+  put(root, 'modules/local/collections/logs.collection.yaml', 'name: logs\nstorage: {path: ../elsewhere/logs}\nfields:\n  name: {type: string}\n');
+  assert.match(buildModel(root).issues.map((i) => i.message).join('\n'), /stored outside the workspace, at \.\.\/elsewhere\/logs/);
   assert.equal(m.collections.gadgets.fields.rank.type, 'position', 'position is a known type');
   refuses(() => add(m, 'users', { name: 'Dana Oren' }), /model has errors/);
   refuses(() => compile(m), /model has errors/);

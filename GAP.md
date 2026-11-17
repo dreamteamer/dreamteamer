@@ -12,6 +12,7 @@ Each gap has an id, what the README says, what actually happens, the evidence, t
 | **Partial** | There is code, and it does less than the README's description of the intent |
 | **Incompatible** | It works, with a different observable result from the released engine or its modules for the same input |
 | **Unverified** | The README states it; no test and no recorded run establishes it |
+| **Closed**, **Partly closed** | Fixed since the gap was found. The entry keeps its original evidence and opens with what closed it |
 
 | Nature | Meaning |
 |---|---|
@@ -22,7 +23,7 @@ Each gap has an id, what the README says, what actually happens, the evidence, t
 ### Where the evidence comes from
 
 - **The code**: branch `experiment/first-principles-ts`, 490 lines in `src/` and `bin/`. References look like `src/store.ts:112`.
-- **The test suite**: `npm test` runs 5 tests, all passing; `npm run typecheck` is clean.
+- **The test suite**: when the gaps were found, 5 tests; now 26, all passing. `npm run typecheck` is clean.
 - **The walkthrough workspace**: what the README walkthrough builds — `@dreamteamer/tasks` 0.3.4, `@dreamteamer/users` 0.3.0 and the local module `home`. `dtx` is the shell function from the README. Commands marked `$` with no other setup run there, each on a fresh copy.
 - **The side-by-side workspace**: one made by the released engine, with `npx dreamteamer@0.49.1 init` followed by `npx dreamteamer install @dreamteamer/tasks`. Both engines run in it: `rel` stands for `npx dreamteamer`, and `dtx` is run in the same folder. For writes each engine got its own copy. The released engine begins its output with the workspace's name, which is `R` here.
 - **A real workspace**, private, cited as numbers only: 21 published packages and one local module, 54 collections, 5,038 records as the released engine counts them.
@@ -30,33 +31,40 @@ Each gap has an id, what the README says, what actually happens, the evidence, t
 
 Everything was run on Node 25.4.0, npm 11.7.0 and macOS, with yaml 2.9.1 and TypeScript 7.0.2, on 17 November 2026. Absolute paths are shortened to `…`.
 
+## What has changed since the report was written
+
+The report was written against commit `a029976`, the first 490 lines. Commit `143c57a` then built the set of fixes that [Recommendations](#recommendations) calls the sweet spot. Entries are kept as they were found, so the evidence still shows what was wrong; a closed entry opens with a line saying what closed it, and its README quotation is from the README of that time.
+
+| | When found | Now |
+|---|---|---|
+| Gaps open | 64 | 26, and 4 partly closed |
+| Engine, `src/` and `bin/` | 490 lines | 845 lines |
+| Tests | 5, in 71 lines | 26, in 421 lines, three suites |
+| Coverage | 98% of lines, 64% of branches, the CLI untested | 99% of lines, 86% of branches, the CLI included |
+| Real workspace, records seen | 4,705 of 5,038 | 4,837 of 5,039: all but the system collections |
+| Real workspace, `check` | 11 errors | no errors and no warnings, the released engine's verdict |
+| A record written here, in the released engine | read; one case tried | read, listed under the same id, same file layout |
+
+The estimate for this set was 400 to 800 lines of code and 450 to 750 of tests. It took 544 lines added and 190 removed in `src/` and `bin/`, and 391 added and 43 removed in `test/`.
+
 ## The short version
 
-**What holds.** On the real workspace this version finds the same 22 modules as the released engine and resolves the same 54 collections, field for field: 940 of 940 fields agree on type, list-ness, requiredness, default, allowed values and pattern. For the 4,705 records it can see, it reads the same stored values as the released engine: no frontmatter field differs in any of them, and the body is byte-identical in the 240 that were compared. An invalid write is refused before anything reaches disk — in 73 invalid-write cases run on both engines, none of the 101 refusals wrote a file. It never runs git, needs no compile step, and in ordinary use writes nothing outside `data/` and `.dt/`. It is as fast or faster on every verb timed.
+**What holds.** On the real workspace this version finds the same 22 modules as the released engine, resolves the same 54 collections field for field (940 of 940 fields), sees every record stored under `data/`, and reaches the same verdict in `check`: no errors. For the records compared it reads the same stored values. It writes a record under the id, file name, timestamp and layout the released engine gives it. An invalid write is refused before anything reaches disk. A reference or an id cannot reach anything but a record of the collection it names. Text typed on the command line is stored as typed. It never runs git and needs no compile step.
 
-**What can lose or expose data.** These four delete, erase or expose content, and all are reproduced below:
+**What was closed in `143c57a`.** Every defect that could delete, erase or expose content: references and ids that climbed out of a record ([F1](#f1), [F2](#f2), [F3](#f3)), values silently erased or cut short ([C2](#c2)), and deletes that broke or took other records ([D9](#d9)). Also the wrong file names ([D1](#d1)), the id rules ([D2](#d2), [D3](#d3), [D4](#d4)), absent peers ([M6](#m6)), silent typos ([R2](#r2)), impossible dates ([V2](#v2)), the unfiltered list ([D12](#d12)) and the whole-file rewrite ([D7](#d7)).
 
-- `get` and `rm` follow a reference such as `users/../../../elsewhere/x` out of the workspace; on a folder-shaped collection `rm` deletes a whole directory there ([F1](#f1)).
-- An empty or `..` id, next to a stray entry file, deletes a collection's folder or all of `data/` ([F2](#f2)).
-- A value that starts with `#` is read as a comment: `set <ref> 'body=# Heading'` erases the existing body and reports success ([C2](#c2)).
-- `rm` on a folder-shaped record deletes everything inside it without asking, and `rm` on any record ignores the records that reference it; the released engine refuses in both of the cases shown ([D9](#d9)).
+**What can still go wrong.**
 
-Three more lose less, and still report success: a reference or an id containing `..` lets `add` and `set` write anywhere inside the workspace, installed packages included ([F3](#f3)); a few updates are lost when several writers change one record at once ([F5](#f5), [F6](#f6)); and a rewrite drops comments from the frontmatter ([D7](#d7)).
+- A write here that sets a reference with a generated reverse side leaves the released engine's `check` failing, because that side is not maintained ([D8](#d8)). 69 published fields are such reverse sides. This is the first thing to build next.
+- A few updates are lost when several writers change one record at the same moment, and still report success ([F5](#f5), [F6](#f6)).
+- A record that breaks a cross-field rule or a uniqueness rule passes here and fails in the released engine ([V3](#v3)).
+- Each engine ignores the other's `disable` list ([M7](#m7)).
 
-**What stops published modules working as they do today.**
-
-- Record files are named wrongly for some plurals, so this version cannot see `companies` or `rnd/user-stories` records ([D1](#d1)).
-- The id rules of 12 published collections are not understood: `add meetings` fails ([D2](#d2)).
-- A write here that sets a reference with a generated reverse side leaves the released engine's `check` failing, because that side is not maintained ([D8](#d8)). 69 published fields are such reverse sides.
-- If an optional peer module is absent, every record that mentions it becomes uneditable ([M6](#m6)).
-- A value on the command line is parsed as YAML: a title with a colon is refused, one with a bracket crashes ([C1](#c1)).
-- `list --filter …` ignores the filter and prints everything ([D12](#d12)).
-
-**What is simply not built.** Delivery of instructions to an agent harness ([A1](#a1)); commands, bindings, views and navigation ([M4](#m4)); extensions ([M5](#m5)); 26 of the released engine's 33 verbs, among them `commit`, `rename`, `next` and `install` ([D13](#d13)); a UI ([U1](#u1)); any upgrade path ([L2](#l2)).
+**What is simply not built.** Delivery of instructions to an agent harness ([A1](#a1)); commands, bindings, views and navigation ([M4](#m4)); extensions ([M5](#m5)); 26 of the released engine's 33 verbs, among them `commit`, `rename`, `next` and `install` ([D13](#d13)); binary records ([D11](#d11)); a UI ([U1](#u1)); any upgrade path ([L2](#l2)).
 
 ## Summary
 
-64 gaps. By nature: 28 scope boundaries, 35 defects, 1 unverified claim. By state: 24 missing, 24 partial, 15 incompatible, 1 unverified.
+64 gaps were found: 28 scope boundaries, 35 defects and 1 unverified claim. 34 are now closed and 4 partly closed; 26 are open, of which 21 are scope boundaries, 4 are defects ([M7](#m7), [R3](#r3), [F5](#f5), [F6](#f6)) and 1 is an unverified claim ([S4](#s4)). Among the open ones 20 are missing, 2 partial, 3 incompatible and 1 unverified.
 
 The first five columns are findings, each backed by the entry it links to. **The last six are estimates** of what closing the gap would take: nothing in them has been built or measured. [How the estimates were made](#how-the-estimates-were-made) gives the scales, the assumptions and the uncertainty; [Shared work](#shared-work) says which gaps share code, so that sizes are not added twice; and [Recommendations](#recommendations) proposes which gaps to close.
 
@@ -64,67 +72,67 @@ The first five columns are findings, each backed by the entry it links to. **The
 |---|---|---|---|---|---|---|---|---|---|---|
 | [S1](#s1) | Cannot be installed as a package, and takes over `dt` if it is | Missing | Scope boundary | Medium | Normal | C 20–50 | Normal | F | W12 | Medium |
 | [S2](#s2) | No `init`, `install`, `update`, `status`, `doctor` or `setup` | Missing | Scope boundary | Medium | High | A 150–350 · T 80–150 | High | F | W11 | Low |
-| [S3](#s3) | A folder that is not a workspace is accepted, or crashes | Partial | Defect | Medium | Low | A 5–15 · T 10–20 | Low | S · Q | W2 | High |
+| [S3](#s3) | A folder that is not a workspace is accepted, or crashes | Closed | Defect | Medium | Low | A 5–15 · T 10–20 | Low | S · Q | W2 | High |
 | [S4](#s4) | The Node floor is declared, not measured | Unverified | Unverified claim | Low | Low | C 20–40 | Low | Q | W12 | High |
-| [S5](#s5) | No licence | Missing | Scope boundary | Low | Low | none: a decision and a file | Low | Q | W12 | High |
+| [S5](#s5) | No licence | Closed | Scope boundary | Low | Low | none: a decision and a file | Low | Q | W12 | High |
 | [M1](#m1) | Nothing installs a module's dependencies or a preset's members | Missing | Scope boundary | High | High | A 80–150 · T 50–100 | High | F · C | W11 | Low |
-| [M2](#m2) | A broken model stops nothing | Partial | Defect | High | Low | A 8–20 · T 10–20 | Low | S · Q | W5 | High |
-| [M3](#m3) | Manifest keys and workspace settings are ignored without a word | Partial | Defect | Medium | Low | E 3–10 · T 5–10 | Low | Q | W5 | High |
+| [M2](#m2) | A broken model stops nothing | Closed | Defect | High | Low | A 8–20 · T 10–20 | Low | S · Q | W5 | High |
+| [M3](#m3) | Manifest keys and workspace settings are ignored without a word | Closed | Defect | Medium | Low | E 3–10 · T 5–10 | Low | Q | W5 | High |
 | [M4](#m4) | Commands, agents, bindings, views, navigation and scripts are not read | Missing | Scope boundary | High | High | E 40–80 to read them; using them is A1, D13 and U1 | High | F | W8 · W13 | Low |
 | [M5](#m5) | Extensions contribute nothing | Missing | Scope boundary | High | High | A 150–400 · T 80–150 | High | F · C | W13 | Low |
-| [M6](#m6) | An absent optional peer makes records uneditable | Incompatible | Defect | High | Normal | E 20–40 · T 20–30 | Normal | C | W5 | Medium |
+| [M6](#m6) | An absent optional peer makes records uneditable | Closed | Defect | High | Normal | E 20–40 · T 20–30 | Normal | C | W5 | Medium |
 | [M7](#m7) | `disable` means something else here | Incompatible | Defect | Medium | Low | E 15–30 · T 15–25 | Low | C | W10 | Medium |
 | [M8](#m8) | No record layers, git-delivered modules, classic layout or `data_path` | Missing | Scope boundary | Medium | High | E 100–200 · T 60–110 | High | C | W10 | Low |
 | [M9](#m9) | The module contract is not enforced | Missing | Scope boundary | Medium | Normal | E 50–80 · T 40–60 | Normal | C | W10 | Medium |
 | [R1](#r1) | Display metadata and other descriptor keys are dropped | Missing | Scope boundary | High | Low | E 5–15 · T 5–10 | Low | F, once U1 exists | W13 | High |
-| [R2](#r2) | A typo in a descriptor is accepted, and can remove a field | Partial | Defect | High | Low | E 15–30 · T 15–25 | Low | S · C | W5 | High |
+| [R2](#r2) | A typo in a descriptor is accepted, and can remove a field | Closed | Defect | High | Low | E 15–30 · T 15–25 | Low | S · C | W5 | High |
 | [R3](#r3) | Composition differs at the edges | Incompatible | Defect | Medium | Normal | E 45–75 · T 40–60 | Normal | C | W10 | Medium |
-| [R4](#r4) | The fields the engine adds itself differ | Incompatible | Defect | Medium | Low | E 10–25 · T 10–20 | Low | C | W7 | Medium |
-| [D1](#d1) | Wrong file suffix for plurals that do not end in a plain "s" | Incompatible | Defect | High | Low | E 20–35 · T 15–25 | Low | C | W3 | High |
-| [D2](#d2) | Id rules that published modules use are not understood | Partial | Defect | High | Normal | E 30–60 · T 30–50 | Normal | C · F | W4 | Medium |
-| [D3](#d3) | Ids made from names differ | Incompatible | Defect | Medium | Low | E 8–20 · T 10–20 | Low | C | W4 | Medium |
-| [D4](#d4) | `created` is UTC and the id takes the UTC day | Incompatible | Defect | Medium | Low | E 8–15 · T 10–15 | Low | C | W4 | High |
-| [D5](#d5) | One value for a list field is stored as a single value | Incompatible | Defect | Medium | Low | A 8–15 · T 10–15 | Low | C | W2 | High |
-| [D6](#d6) | The same input produces a different file | Incompatible | Defect | Low | Low | E 15–30 · T 15–20 | Low | C | W4 | Medium |
-| [D7](#d7) | A rewrite restyles the frontmatter and drops comments | Partial | Defect | Medium | Normal | E 30–60 · T 20–30 | Normal | C · Q | — | Medium |
+| [R4](#r4) | The fields the engine adds itself differ | Partly closed | Defect | Medium | Low | E 10–25 · T 10–20 | Low | C | W7 | Medium |
+| [D1](#d1) | Wrong file suffix for plurals that do not end in a plain "s" | Closed | Defect | High | Low | E 20–35 · T 15–25 | Low | C | W3 | High |
+| [D2](#d2) | Id rules that published modules use are not understood | Closed | Defect | High | Normal | E 30–60 · T 30–50 | Normal | C · F | W4 | Medium |
+| [D3](#d3) | Ids made from names differ | Closed | Defect | Medium | Low | E 8–20 · T 10–20 | Low | C | W4 | Medium |
+| [D4](#d4) | `created` is UTC and the id takes the UTC day | Closed | Defect | Medium | Low | E 8–15 · T 10–15 | Low | C | W4 | High |
+| [D5](#d5) | One value for a list field is stored as a single value | Closed | Defect | Medium | Low | A 8–15 · T 10–15 | Low | C | W2 | High |
+| [D6](#d6) | The same input produces a different file | Closed | Defect | Low | Low | E 15–30 · T 15–20 | Low | C | W4 | Medium |
+| [D7](#d7) | A rewrite restyles the frontmatter and drops comments | Closed | Defect | Medium | Normal | E 30–60 · T 20–30 | Normal | C · Q | — | Medium |
 | [D8](#d8) | Reverse fields are not maintained, and the released `check` then fails | Incompatible | Scope boundary | High | High | E 60–120 · T 50–80 | High | C · F | W6 | Low |
-| [D9](#d9) | `rm` protects nothing | Partial | Defect | High | Normal | E 30–60 · T 25–40 | Normal | S | W6 | Medium |
+| [D9](#d9) | `rm` protects nothing | Closed | Defect | High | Normal | E 30–60 · T 25–40 | Normal | S | W6 | Medium |
 | [D10](#d10) | System collections are not records | Missing | Scope boundary | Medium | Normal | E 40–80 · T 20–40 | Normal | C · F | W13 | Medium |
 | [D11](#d11) | Binary records are refused; owner-folder storage is ignored | Missing | Scope boundary | Medium | High | E 100–200 · T 60–100 | Normal | C | — | Low |
-| [D12](#d12) | `list` ignores flags it does not know; `get` prints another format | Incompatible | Defect | High | Normal | A 5–10 to refuse the flag; A 30–60 · T 25–45 to filter and sort | Low | S · F | W2 | Medium |
+| [D12](#d12) | `list` ignores flags it does not know; `get` prints another format | Partly closed | Defect | High | Normal | A 5–10 to refuse the flag; A 30–60 · T 25–45 to filter and sort | Low | S · F | W2 | Medium |
 | [D13](#d13) | Twenty-six released verbs have no counterpart | Missing | Scope boundary | High | High | A 600–1,400 for all of them; per verb below | High | F · C | W6 · W9 · W13 | Low |
-| [D14](#d14) | Clearing a field that has a default leaves it absent | Incompatible | Defect | Low | Low | E 3–8 · T 5–10 | Low | C | — | High |
-| [V1](#v1) | `check` passes over files it does not recognise | Partial | Defect | High | Low | E 10–20 · T 10–15 | Low | S · C | W5 | High |
-| [V2](#v2) | Dates and times are barely checked | Partial | Defect | High | Low | E 10–20 · T 15–25 | Low | S · C | W7 | High |
-| [V3](#v3) | Rules in a descriptor that are not enforced | Missing | Scope boundary | High | High | E 60–110 · T 50–80; constraints E 60–150 more | High | S · C | W7 | Medium |
-| [V4](#v4) | Stricter than the released engine in three places | Incompatible | Defect | Medium | Low | E 10–20 · T 10–20 | Low | C | W7 | Medium |
+| [D14](#d14) | Clearing a field that has a default leaves it absent | Closed | Defect | Low | Low | E 3–8 · T 5–10 | Low | C | — | High |
+| [V1](#v1) | `check` passes over files it does not recognise | Closed | Defect | High | Low | E 10–20 · T 10–15 | Low | S · C | W5 | High |
+| [V2](#v2) | Dates and times are barely checked | Closed | Defect | High | Low | E 10–20 · T 15–25 | Low | S · C | W7 | High |
+| [V3](#v3) | Rules in a descriptor that are not enforced | Partly closed | Scope boundary | High | High | E 60–110 · T 50–80; constraints E 60–150 more | High | S · C | W7 | Medium |
+| [V4](#v4) | Stricter than the released engine in three places | Closed | Defect | Medium | Low | E 10–20 · T 10–20 | Low | C | W7 | Medium |
 | [V5](#v5) | None of the checks that extensions and the released engine add | Missing | Scope boundary | Medium | Normal | E 30–60 for the engine's own; the rest is M5 | Normal | C | W6 · W13 | Low |
-| [C1](#c1) | Ordinary text is refused or crashes, because values are parsed as YAML | Partial | Defect | High | Normal | A 40–70 · T 40–60 | Normal | F · Q | W2 | Medium |
-| [C2](#c2) | Some text is silently changed or erased, for the same reason | Partial | Defect | High | Low | A 10–20 · T 15–25 | Low | S | W2 | High |
-| [C3](#c3) | Flags are not read the way the released engine reads them | Incompatible | Defect | Medium | Low | A 15–30 · T 15–25 | Low | C | W2 | High |
-| [C4](#c4) | `set` with nothing to set reports success | Partial | Defect | Medium | Low | A 5–10 · T 5–10 | Low | Q | W2 | High |
-| [C5](#c5) | Short forms from the released documentation do not work | Incompatible | Scope boundary | Medium | Normal | A 25–50 · T 20–35 | Normal | C | W2 · W3 | Medium |
-| [C6](#c6) | Mistakes and damaged files end in stack traces | Partial | Defect | Medium | Low | A 10–25 · T 15–25 | Low | Q | W2 | High |
-| [C7](#c7) | The engine calls itself `dt`, has no `help`, and explains less | Partial | Defect | Low | Low | A 15–30 · T 5–10 | Low | Q | W2 | High |
+| [C1](#c1) | Ordinary text is refused or crashes, because values are parsed as YAML | Closed | Defect | High | Normal | A 40–70 · T 40–60 | Normal | F · Q | W2 | Medium |
+| [C2](#c2) | Some text is silently changed or erased, for the same reason | Closed | Defect | High | Low | A 10–20 · T 15–25 | Low | S | W2 | High |
+| [C3](#c3) | Flags are not read the way the released engine reads them | Closed | Defect | Medium | Low | A 15–30 · T 15–25 | Low | C | W2 | High |
+| [C4](#c4) | `set` with nothing to set reports success | Closed | Defect | Medium | Low | A 5–10 · T 5–10 | Low | Q | W2 | High |
+| [C5](#c5) | Short forms from the released documentation do not work | Closed | Scope boundary | Medium | Normal | A 25–50 · T 20–35 | Normal | C | W2 · W3 | Medium |
+| [C6](#c6) | Mistakes and damaged files end in stack traces | Closed | Defect | Medium | Low | A 10–25 · T 15–25 | Low | Q | W2 | High |
+| [C7](#c7) | The engine calls itself `dt`, has no `help`, and explains less | Closed | Defect | Low | Low | A 15–30 · T 5–10 | Low | Q | W2 | High |
 | [A1](#a1) | Nothing delivers the instructions to an agent harness | Missing | Scope boundary | High | High | A 120–250 · T 60–120 | High | F | W8 | Low |
-| [A2](#a2) | The instruction file does not carry enough to write a record | Partial | Scope boundary | High | Low | A 30–60 · T 15–25 | Low | F | W8 | High |
-| [A3](#a3) | Skills have no path, and the pointers lead to the other engine | Partial | Defect | Medium | Low | A 10–20 · T 5–10 | Low | F · Q | W8 | High |
-| [A4](#a4) | `model.json` holds absolute paths | Partial | Defect | Low | Low | A 5–10 · T 5–10 | Low | Q | W8 | High |
+| [A2](#a2) | The instruction file does not carry enough to write a record | Closed | Scope boundary | High | Low | A 30–60 · T 15–25 | Low | F | W8 | High |
+| [A3](#a3) | Skills have no path, and the pointers lead to the other engine | Closed | Defect | Medium | Low | A 10–20 · T 5–10 | Low | F · Q | W8 | High |
+| [A4](#a4) | `model.json` holds absolute paths | Closed | Defect | Low | Low | A 5–10 · T 5–10 | Low | Q | W8 | High |
 | [A5](#a5) | Nothing reports stale instructions | Missing | Scope boundary | Low | Normal | A 25–50 · T 15–25 | Normal | Q | W8 | Medium |
 | [G1](#g1) | No `commit`, `changes`, `history`, `diff` or `revert` | Missing | Scope boundary | Medium | Normal | A 100–200 · T 50–90 | Normal | F | W9 | Medium |
-| [F1](#f1) | `get` and `rm` follow a reference out of the workspace | Partial | Defect | High | Low | E 10–20 · T 20–30 | Low | S | W1 | High |
-| [F2](#f2) | An empty or `..` id can delete a collection's folder, or all of `data/` | Partial | Defect | High | Low | E 5–10 · T 10–15 | Low | S | W1 | High |
-| [F3](#f3) | An explicit id is not validated | Partial | Defect | High | Low | E 5–10 · T 10–15 | Low | S | W1 | High |
-| [F4](#f4) | A descriptor decides where records are read and deleted | Partial | Scope boundary | Medium | Low | E 5–10 · T 5–10 | Low | S | W1 | Medium |
+| [F1](#f1) | `get` and `rm` follow a reference out of the workspace | Closed | Defect | High | Low | E 10–20 · T 20–30 | Low | S | W1 | High |
+| [F2](#f2) | An empty or `..` id can delete a collection's folder, or all of `data/` | Closed | Defect | High | Low | E 5–10 · T 10–15 | Low | S | W1 | High |
+| [F3](#f3) | An explicit id is not validated | Closed | Defect | High | Low | E 5–10 · T 10–15 | Low | S | W1 | High |
+| [F4](#f4) | A descriptor decides where records are read and deleted | Partly closed | Scope boundary | Medium | Low | E 5–10 · T 5–10 | Low | S | W1 | Medium |
 | [F5](#f5) | Two writers on one record: most conflicts are refused, a few updates are lost | Partial | Defect | Medium | High | E 20–50 · T 30–60 | High | S | W14 | Low |
 | [F6](#f6) | The stale-write check has two open windows and no test | Partial | Defect | Medium | Normal | T 15–25; the fix is F5 | High | S | W14 | Low |
-| [F7](#f7) | A crash leaves temporary files that nothing removes | Partial | Defect | Low | Low | E 8–20 · T 10–20 | Low | Q | W14 | Medium |
+| [F7](#f7) | A crash leaves temporary files that nothing removes | Closed | Defect | Low | Low | E 8–20 · T 10–20 | Low | Q | W14 | Medium |
 | [L1](#l1) | Engine floors and peer versions are ignored | Missing | Scope boundary | Medium | Normal | E 30–50 · T 20–30 | Normal | C · S | W11 | Medium |
 | [L2](#l2) | No upgrade path, and orphaned records go unreported | Missing | Scope boundary | High | High | E 15–25 for a warning; A 150–400 for updates | High | F | W11 | Low |
 | [U1](#u1) | No UI, and nothing to draw one from | Missing | Scope boundary | High | High | A 300–800 · T 100–200 | High | F | W13 | Low |
 | [U2](#u2) | No live refresh | Missing | Scope boundary | Low | Normal | A 40–80 · T 20–40 | Normal | F | W13 | Low |
-| [T1](#t1) | The CLI has no automated test; a third of the branches never run | Missing | Scope boundary | Medium | Normal | T 90–150 | Low | Q | W2 | High |
-| [T2](#t2) | Nothing in the suite touches a real module | Missing | Scope boundary | Medium | Normal | T 60–120 | Normal | C | W12 | Medium |
+| [T1](#t1) | The CLI has no automated test; a third of the branches never run | Closed | Scope boundary | Medium | Normal | T 90–150 | Low | Q | W2 | High |
+| [T2](#t2) | Nothing in the suite touches a real module | Closed | Scope boundary | Medium | Normal | T 60–120 | Normal | C | W12 | Medium |
 | [T3](#t3) | The API is a fraction of the released one | Missing | Scope boundary | Medium | — | none of its own: it grows with what is built | — | F | — | — |
 
 ### How the estimates were made
@@ -182,6 +190,8 @@ Sizes here are for closing all the gaps of a package together.
 ## Recommendations
 
 This section is a proposal. It reads across the table and suggests what to build; the sizes in it are the estimates above, combined so that shared work is counted once.
+
+**Outcome.** The sweet spot below was built in `143c57a`. It closed 34 gaps and part of 4, against the 36 and 2 proposed: [D12](#d12) and [R4](#r4) were closed in part, not in full. The code came to 544 lines added and 190 removed, inside the estimated 400 to 800; the tests to 391 added, a little under the estimated 450 to 750. Two pieces were done differently from the proposal. Rewrites preserve a file by editing only the lines of the keys that change, not through the YAML library's document model, which turned out to restyle comments, folded strings and inline lists. And the suite on real modules needed the released engine's own package as a development dependency, because `@dreamteamer/rnd` refers to a collection that package defines. The rest of this section is as it was written before the work; its "would" is now "does", except where it describes what was left out.
 
 ### The sweet spot: a safe record engine that published modules can rely on
 
@@ -313,6 +323,8 @@ $ npx dreamteamer install @dreamteamer/tasks
 ### S3 · A folder that is not a workspace is accepted, or crashes
 *Partial · Defect · impact medium*
 
+**Closed in `143c57a`.** A folder with no `package.json`, or with no DreamTeamer module, is refused by every verb in one line, and nothing is written there.
+
 **README:** "A workspace is a folder with a `package.json`"; "Run outside a workspace, every verb does" end in a stack trace.
 
 **Actually:** Any folder with a `package.json` is taken for a workspace, so a wrong `-w` reports a clean check and `compile` writes into it. A folder without one crashes every verb, the usage line included, because the model is built before the verb is read (`src/cli.ts:25`).
@@ -351,6 +363,8 @@ Nothing has been run on Linux or Windows, on Node 20 (which the released engine 
 <a id="s5"></a>
 ### S5 · No licence
 *Missing · Scope boundary · impact low*
+
+**Closed in `143c57a`.** `LICENSE` is the repository's Apache-2.0, and `package.json` says so.
 
 **README:** "Not settled for this branch."
 
@@ -391,6 +405,8 @@ A preset fares the same. `@dreamteamer/core` 0.13.1 pins 17 members under `dream
 ### M2 · A broken model stops nothing
 *Partial · Defect · impact high*
 
+**Closed in `143c57a`.** An error in the model stops `add`, `set` and `compile`, and each prints it.
+
 **README:** "`check` prints those issues; the other verbs do not."
 
 **Actually:** In the workspace of M1, where `check` exits 1, `compile` and `add` both succeed without a word:
@@ -409,6 +425,8 @@ $ grep -c '"severity": "error"' .dt/model.json              # 1
 <a id="m3"></a>
 ### M3 · Manifest keys and workspace settings are ignored without a word
 *Partial · Defect · impact medium*
+
+**Closed in `143c57a`.** `modules` now reports `preset`, `env` and `engine`, and `check` warns about a `data_path` or `git_modules` setting it does not honour. `workspace_module` and `harnesses` are still passed over in silence.
 
 **README:** "It sees, and reports through `dtx modules`, the manifest keys `extension`, `nav`, `setup`, `peer_collections`, `ignore` and `vars` … It does not notice `preset`, `env` or `engine`."
 
@@ -467,6 +485,8 @@ In the review, calling each extension's entry point showed what is lost: verbs (
 <a id="m6"></a>
 ### M6 · An absent optional peer makes records uneditable
 *Incompatible · Defect · impact high*
+
+**Closed in `143c57a`.** `peer_collections` is honoured: a declared peer that is not installed keeps its field, a value there is counted by `check` as unresolved, and the record stays editable.
 
 **README:** "A record that already holds a value in such a field then fails `check` and cannot be edited until the field is removed or the peer installed".
 
@@ -579,6 +599,8 @@ $ grep -c '^display:' node_modules/@dreamteamer/tasks/collections/tasks.collecti
 ### R2 · A typo in a descriptor is accepted, and can remove a field
 *Partial · Defect · impact high*
 
+**Closed in `143c57a`.** An unknown type, an unknown storage format and a field with no type are errors that stop writes; an unknown descriptor key is a warning; `position` is a known type.
+
 **README:** "A misspelt type is taken for an absent collection, and the field is dropped with a warning."
 
 **Actually:** An unknown key is accepted. An unknown type is treated as a reference to a collection that is not installed, so the field vanishes. The released type `position` gets the same treatment, and an unknown storage format is used as a file extension. In the review, a descriptor in the older format with no `fields` was accepted too, and every field of its records was then unknown.
@@ -629,6 +651,8 @@ $ rel compile                                           # the released engine, t
 ### R4 · The fields the engine adds itself differ
 *Incompatible · Defect · impact medium*
 
+**Partly closed in `143c57a`.** `updated` is refused unless a collection declares it, and `created` must be a date and time. `created` is still not derived for a record whose file has none.
+
 **README:** "`created` and `updated` are always allowed" and neither is validated.
 
 **Actually:** This version accepts `created` and `updated` on any record and checks neither (`src/store.ts:10`). The released engine treats `created` as a date-time it validates and derives on read, and does not know `updated` unless a collection declares it.
@@ -656,6 +680,8 @@ In the review, the released `get --json` also returned a `created` for records w
 ### D1 · Wrong file suffix for plurals that do not end in a plain "s"
 *Incompatible · Defect · impact high*
 
+**Closed in `143c57a`.** The file suffix and the singular follow the released engine's plural rules. On the real workspace all 131 user stories are seen and the 11 errors are gone.
+
 **README:** "That rule is wrong for other plurals — `companies` becomes `companie` where the released engine writes `company`".
 
 **Actually:** The suffix is the collection's name with one final `s` removed (`src/model.ts:31`). In the side-by-side workspace, after `rel install @dreamteamer/companies`:
@@ -679,6 +705,8 @@ Two published collections are affected: `companies` and `rnd/user-stories`. On t
 ### D2 · Id rules that published modules use are not understood
 *Partial · Defect · impact high*
 
+**Closed in `143c57a`.** `date:FORMAT`, `basename` and `pad` are implemented, and an unknown filter is an error. Tests compare a meeting id and a release id with the released engine's.
+
 **README:** "Published modules also use `basename` and formatted dates such as `date:YYYY/MM`, which are not understood."
 
 **Actually:** A filter with an argument does not match the template pattern, so its braces stay in the id (`src/store.ts:127`). A filter the engine does not know is treated as doing nothing (`src/store.ts:129`), so a whole reference lands in the id.
@@ -697,6 +725,8 @@ Over the published descriptors there are 47 uses of `slug`, 22 of `date`, 11 of 
 <a id="d3"></a>
 ### D3 · Ids made from names differ
 *Incompatible · Defect · impact medium*
+
+**Closed in `143c57a`.** Accents are stripped as the released engine strips them; the hash for a name with no Latin letters is the released engine's, and the writer is told; a name too long for a file fails in one line.
 
 **README:** "An accented name comes out differently … a name with no Latin letters becomes a ten-character hash, silently."
 
@@ -722,6 +752,8 @@ A name of some 330 characters ends in a stack trace here (`ENAMETOOLONG`, in the
 ### D4 · `created` is UTC and the id takes the UTC day
 *Incompatible · Defect · impact medium*
 
+**Closed in `143c57a`.** `created` is local time with its offset, and a date in an id is read from the value as written.
+
 **README:** "The date in an id is the UTC day, not the local one".
 
 **Actually:** `created` is `new Date().toISOString()` (`src/store.ts:141`), and the `date` filter takes its first ten characters.
@@ -740,6 +772,8 @@ The released engine stamps local time with its offset — `created: '2026-11-17T
 <a id="d5"></a>
 ### D5 · One value for a list field is stored as a single value
 *Incompatible · Defect · impact medium*
+
+**Closed in `143c57a`.** A list field always holds a list, and one value is split on commas.
 
 **README:** "One value given to a list field is stored as a single value, not as a one-item list, and a comma-separated value is not split."
 
@@ -760,6 +794,8 @@ Validation accepts the single value, because one value in a `many` field is trea
 <a id="d6"></a>
 ### D6 · The same input produces a different file
 *Incompatible · Defect · impact low*
+
+**Closed in `143c57a`.** `add` writes the given fields, then `created`, then the defaults, quotes dates, and ends a body with a newline. One difference remains: a string that needs quoting gets double quotes where the released engine uses single ones.
 
 **README:** "The two engines write the same record differently".
 
@@ -792,6 +828,8 @@ $ dtx add recipes --name "Toast" --steps "Toast the bread." && tail -c 18 data/r
 <a id="d7"></a>
 ### D7 · A rewrite restyles the frontmatter and drops comments
 *Partial · Defect · impact medium*
+
+**Closed in `143c57a`.** `set` rewrites only the lines of the keys it changes; every other character stays. One edge remains: a comment line directly above a key travels with the key before it.
 
 **README:** "The values survive. Comments in the frontmatter do not, and quoting and folding change".
 
@@ -856,6 +894,8 @@ After the same two commands in the released engine, the user's file holds `tasks
 ### D9 · `rm` protects nothing
 *Partial · Defect · impact high*
 
+**Closed in `143c57a`.** `rm` refuses a record that others reference, and a folder-shaped record that holds records of other collections; `--force` overrides both.
+
 **README:** "`rm` does not look for records that point at the one it removes … For a folder-shaped record it deletes the whole folder, whatever else is in it".
 
 **Actually:** The released engine refuses to delete a record that others reference, unless forced. This version deletes it.
@@ -902,7 +942,7 @@ The released engine refuses that delete, because the track references the album.
 ### D11 · Binary records are refused; owner-folder storage is ignored
 *Missing · Scope boundary · impact medium*
 
-**README:** "Binary storage is refused, and `check` skips such collections … Records kept inside their owner's folder (`storage.under`) are not supported."
+**README:** "Binary storage is refused, and `check` says it has not checked such a collection. Records kept inside their owner's folder (`storage.under`) are not supported."
 
 **Actually:**
 
@@ -913,7 +953,7 @@ $ dtx check | tail -1
 2 records · 5 collections · 4 modules · 0 errors · 8 warnings
 ```
 
-`check` skips a binary collection without counting it or saying so (`src/store.ts:166`). In the review, a collection declaring `storage.under` had its record written to the collection's own folder, and a record placed in its owner's folder by the released engine was not listed. None of the 54 published collections uses `storage.under`.
+When this was found `check` skipped a binary collection without saying so; since `143c57a` it prints a warning that the collection's files are not checked. In the review, a collection declaring `storage.under` had its record written to the collection's own folder, and a record placed in its owner's folder by the released engine was not listed. None of the 54 published collections uses `storage.under`.
 
 Markdown, YAML and JSON records, an explicit suffix, nested ids and folder-shaped records all behaved as in the released engine for `add`, `get`, `set` and `list` (in the review).
 
@@ -922,6 +962,8 @@ Markdown, YAML and JSON records, an explicit suffix, nested ids and folder-shape
 <a id="d12"></a>
 ### D12 · `list` ignores flags it does not know; `get` prints another format
 *Incompatible · Defect · impact high*
+
+**Partly closed in `143c57a`.** `list` takes `--filter` and `--json`, and refuses a flag it does not know. It has no sort, and `get` still prints JSON in a shape of its own.
 
 **README:** "It takes no filter, sort or format, and a flag it does not know … is ignored without a word".
 
@@ -960,6 +1002,8 @@ Two verbs here are new: `modules` and `collections`. Each absent verb prints the
 ### D14 · Clearing a field that has a default leaves it absent
 *Incompatible · Defect · impact low*
 
+**Closed in `143c57a`.** Clearing a field that has a default puts the default back.
+
 **README:** "An empty value clears a field; a default is not put back".
 
 **Actually:**
@@ -978,6 +1022,8 @@ status: active
 <a id="v1"></a>
 ### V1 · `check` passes over files it does not recognise
 *Partial · Defect · impact high*
+
+**Closed in `143c57a`.** `check` warns about every file in a collection's folder that is not one of its records.
 
 **README:** "`check` reads the files whose names it recognises; any other file in a collection's folder is passed over in silence."
 
@@ -998,6 +1044,8 @@ The released engine warns about each such file — D1 shows the line. On the rea
 <a id="v2"></a>
 ### V2 · Dates and times are barely checked
 *Partial · Defect · impact high*
+
+**Closed in `143c57a`.** A date must be a real date, and a date and time must carry a zone.
 
 **README:** "A `date` is checked for its shape only, and a `datetime` for whether JavaScript can parse it".
 
@@ -1020,6 +1068,8 @@ $ rel add tasks --name "Bad date" --due 2026-13-45
 <a id="v3"></a>
 ### V3 · Rules in a descriptor that are not enforced
 *Missing · Scope boundary · impact high*
+
+**Partly closed in `143c57a`.** `url` and `email` formats, `minimum`, `maximum`, `minLength`, `maxLength` and `soft` are enforced. The contents of an `object` or a `map`, `unique` and `constraints` are not.
 
 **README:** "Not enforced: the format of a `url` or an `email`, the contents of an `object` or a `map`, numeric bounds and lengths, uniqueness, soft references, and a collection's cross-field `constraints`."
 
@@ -1061,6 +1111,8 @@ Across the published descriptors these keys go unenforced: `constraints` in 5 co
 ### V4 · Stricter than the released engine in three places
 *Incompatible · Defect · impact medium*
 
+**Closed in `143c57a`.** A quoted number or boolean, a one-item list where one value is expected, and a required field holding `null` are accepted, as by the released engine.
+
 **README:** "In a few cases it is stricter than the released engine".
 
 **Actually:** The released engine coerces a quoted number or boolean, and a one-item list given to a single-value field. It also accepts a required field holding `null` or an empty string. This version rejects all of them.
@@ -1094,6 +1146,8 @@ From the released engine's source, in the review, these checks also have no coun
 <a id="c1"></a>
 ### C1 · Ordinary text is refused or crashes, because values are parsed as YAML
 *Partial · Defect · impact high*
+
+**Closed in `143c57a`.** A value is converted by the declared type of its field; text is never parsed as YAML. Test: "text is stored as it was typed", fifteen titles.
 
 **README:** "Text that looks like YAML is not treated as text. Some of it is refused with a message that does not say why … Some of it crashes".
 
@@ -1129,6 +1183,8 @@ In the review, of 20 such titles the released engine stored all 20; this version
 ### C2 · Some text is silently changed or erased, for the same reason
 *Partial · Defect · impact high*
 
+**Closed in `143c57a`.** The same change: `#`, `null`, `~` and line breaks are kept as text, and only an empty value clears a field. Test: "a body that starts with a heading, or spans lines, is kept".
+
 **README:** "Some of it is changed without a word. A `#` that starts a value, or follows a space inside it, begins a comment … A line break inside a value becomes a space."
 
 **Actually:** `#` starts a YAML comment, at the start of a value or after a space inside it. What follows is dropped; if nothing is left the value parses as empty, and `set` treats an empty value as "clear this field" (`src/store.ts:150`).
@@ -1158,6 +1214,8 @@ The released engine, given `set users/sam-diaz 'notes=# Profile'`, makes the bod
 ### C3 · Flags are not read the way the released engine reads them
 *Incompatible · Defect · impact medium*
 
+**Closed in `143c57a`.** `--field=value` and a bare boolean flag are understood; a flag the verb does not know is refused; a flag before the verb is an error with exit 1.
+
 **README:** "A flag always takes the next word as its value. `--name=value` and a flag with no value are not understood."
 
 **Actually:** (`src/cli.ts:16`)
@@ -1184,6 +1242,8 @@ $ rel add tasks --name=Equals
 ### C4 · `set` with nothing to set reports success
 *Partial · Defect · impact medium*
 
+**Closed in `143c57a`.** `set` with nothing to set, or with a field the collection does not have, is refused.
+
 **README:** "`set` with nothing to change still reports success."
 
 **Actually:** `set` with no pairs, or with a pair it cannot parse — a dotted key, for one — rewrites the file and prints the success line.
@@ -1202,6 +1262,8 @@ $ rel set users/dana-oren
 <a id="c5"></a>
 ### C5 · Short forms from the released documentation do not work
 *Incompatible · Scope boundary · impact medium*
+
+**Closed in `143c57a`.** The singular, authored or inflected, names a collection in any verb and in a reference; one bare argument on `add` is the title; a bare id is completed for a field that points at one collection.
 
 **README:** "A collection may be named in the singular for `list` and `add` … A reference is always spelled in full."
 
@@ -1225,6 +1287,8 @@ The released engine accepts all four: `get user/dana-oren`, `add task "Call the 
 <a id="c6"></a>
 ### C6 · Mistakes and damaged files end in stack traces
 *Partial · Defect · impact medium*
+
+**Closed in `143c57a`.** Every failure is caught and printed as one line; a damaged record is reported as unreadable and can still be removed. `DT_DEBUG=1` shows a stack trace.
 
 **README:** "A missing reference for `get`, `set` or `rm`, or a record that cannot be parsed, ends in a stack trace instead of a message."
 
@@ -1252,6 +1316,8 @@ $ rel get
 ### C7 · The engine calls itself `dt`, has no `help`, and explains less
 *Partial · Defect · impact low*
 
+**Closed in `143c57a`.** `help` and `--version` exist; the generated instructions say how to run this engine; an unknown field gets a suggestion and the list of fields.
+
 **README:** "There is no `help` verb and no `--version`."
 
 **Actually:** `dtx help` prints the usage line and exits 2, as for any unknown verb. `dtx --version` takes the next argument as its value and prints the usage line. The usage line names the command `dt`.
@@ -1278,6 +1344,8 @@ No harness was run for this report. That none of them reads `.dt/AGENTS.md` rest
 ### A2 · The instruction file does not carry enough to write a record
 *Partial · Scope boundary · impact high*
 
+**Closed in `143c57a`.** The entry for a collection now gives its id rule and every field with its type, allowed values and default.
+
 **README:** "It names each collection's required fields only".
 
 **Actually:** The entry for `tasks`, from each engine, in the same workspace:
@@ -1302,6 +1370,8 @@ The model behind it has 20 fields. Where a module ships command bindings, the re
 ### A3 · Skills have no path, and the pointers lead to the other engine
 *Partial · Defect · impact medium*
 
+**Closed in `143c57a`.** Each skill is listed with its path, and the file opens with the command that runs this engine. Where the released engine's package is installed, its own `using-dreamteamer` skill is still listed.
+
 **README:** "… followed by the skills the installed modules ship."
 
 **Actually:** Each skill is a name and a description. `grep -c SKILL.md .dt/AGENTS.md` prints 0: the path is only in `model.json`, and nothing copies a skill to where a harness looks. Both engines find the same 21 skills on the real workspace.
@@ -1313,6 +1383,8 @@ The file opens with "Use `dt list|get|add|set|rm|check`". Nothing installs a `dt
 <a id="a4"></a>
 ### A4 · `model.json` holds absolute paths
 *Partial · Defect · impact low*
+
+**Closed in `143c57a`.** `model.json` holds paths relative to the workspace; a test compiles a moved copy and compares the two.
 
 **README:** "`.dt/model.json` holds absolute paths, so it is not the same on two machines."
 
@@ -1359,6 +1431,8 @@ The released engine has the opposite problem and says so: it goes on validating 
 ### F1 · `get` and `rm` follow a reference out of the workspace
 *Partial · Defect · impact high*
 
+**Closed in `143c57a`.** `get`, `set` and `rm` refuse a reference whose id is empty, has a `.` or `..` segment or starts with a slash. Test: "a reference or an id cannot reach outside the record it names".
+
 **README:** "`get` and `rm` make no such check: a reference with `..` in it reads or deletes a matching file outside the workspace."
 
 **Actually:** Only `add` and `set` test the path (`src/store.ts:99`). `get` and `rm` join the reference onto the collection's folder and use whatever is there (`src/store.ts:36`, `:155`).
@@ -1386,6 +1460,8 @@ The released engine answers `no such record` to the `get` and `invalid id … no
 ### F2 · An empty or `..` id can delete a collection's folder, or all of `data/`
 *Partial · Defect · impact high*
 
+**Closed in `143c57a`.** The same guard: an empty id and `..` are refused by every verb, whatever is on disk.
+
 **README:** "An empty id or `..` is not refused."
 
 **Actually:** For a folder-shaped collection the record's path is `<folder>/<id>/<entry>`. With an empty id that is the collection's own folder, and with `..` its parent. If a file with the entry's name happens to sit there, `rm` removes that directory.
@@ -1411,6 +1487,8 @@ Without the stray file both are refused with `no such record`. The released engi
 <a id="f3"></a>
 ### F3 · An explicit id is not validated
 *Partial · Defect · impact high*
+
+**Closed in `143c57a`.** The same guard applies to `--id` on `add` and to the reference given to `set`, so neither can write into another folder or an installed package.
 
 **README:** "An explicit `--id` is checked only against the collection's id pattern, if it has one."
 
@@ -1444,6 +1522,8 @@ The files planted with `..` are listed by no collection and seen by no `check`. 
 <a id="f4"></a>
 ### F4 · A descriptor decides where records are read and deleted
 *Partial · Scope boundary · impact medium*
+
+**Partly closed in `143c57a`.** `check` warns when a descriptor stores a collection outside the workspace. The descriptor is still trusted, and a collection folder that is a symbolic link is still followed.
 
 **README:** "A module is still trusted input. Its descriptors decide where records are read, written and deleted".
 
@@ -1485,6 +1565,8 @@ Each `set` reads the file afresh, so the check never covers an edit made before 
 <a id="f7"></a>
 ### F7 · A crash leaves temporary files that nothing removes
 *Partial · Defect · impact low*
+
+**Closed in `143c57a`.** A failed write removes its temporary file. One left by a killed write is reported by `check` and removed by the next write to that record once it is a minute old.
 
 **README:** "A write that is killed part-way leaves a `.tmp` file beside the record, which nothing cleans up."
 
@@ -1553,6 +1635,8 @@ This engine's own version is 0.0.0, and 22 of the 23 published packages on the r
 ### T1 · The CLI has no automated test; a third of the branches never run
 *Missing · Scope boundary · impact medium*
 
+**Closed in `143c57a`.** `test/cli.test.ts` runs the command line as a process. Coverage of `src/` and `bin/` is now 99% of lines and 86% of branches.
+
 **README:** "they execute 98% of the lines and 64% of the branches … No test loads the CLI".
 
 **Actually:**
@@ -1577,6 +1661,8 @@ all files    |  97.93 |    63.59 |   94.12 |
 ### T2 · Nothing in the suite touches a real module
 *Missing · Scope boundary · impact medium*
 
+**Closed in `143c57a`.** `test/published.test.ts` runs the engine on eight published packages, installed as development dependencies at exact versions.
+
 **README:** "The runs against real published modules … were made by hand and are not part of the suite."
 
 **Actually:** As described. The fixture in the test suite is two invented modules. There is no CI.
@@ -1595,26 +1681,26 @@ all files    |  97.93 |    63.59 |   94.12 |
 
 ## Published modules, one by one
 
-What each of the 21 packages ships, and what this version does with it. "Read" counts collection descriptors, with overlays in brackets.
+What each of the 21 packages ships, and what this version does with it. "Read" counts collection descriptors, with overlays in brackets. The last column lists what still breaks after `143c57a`; `peer_collections` is now honoured, and is left in the fourth column only where it was when the table was made.
 
 | Package | Read | Skills indexed | Not read | Manifest keys not acted on | Known to break |
 |---|---|---|---|---|---|
-| `@dreamteamer/artifacts` 0.1.0 | 1 | 0 | — | `peer_collections` | Folder records: `rm` deletes everything inside ([D9](#d9)) |
+| `@dreamteamer/artifacts` 0.1.0 | 1 | 0 | — | `peer_collections` | |
 | `@dreamteamer/assets` 0.1.0 | 1 | 0 | 1 view | — | Binary: refused ([D11](#d11)) |
-| `@dreamteamer/companies` 0.1.3 | 1 | 0 | — | — | File suffix ([D1](#d1)) |
+| `@dreamteamer/companies` 0.1.3 | 1 | 0 | — | — | |
 | `@dreamteamer/contacts` 0.2.0 | 2 (1) | 0 | — | `peer_collections` | |
-| `@dreamteamer/core` 0.13.1 | 0 | 0 | navigation | `nav`; `preset` unreported | Preset ([M1](#m1), [M3](#m3)) |
+| `@dreamteamer/core` 0.13.1 | 0 | 0 | navigation | `nav`, `preset` | Its members are not installed ([M1](#m1)) |
 | `@dreamteamer/engagements` 0.1.3 | 2 (1) | 0 | 1 command, 1 binding, 1 view | `peer_collections` | |
-| `@dreamteamer/files` 0.3.1 | 2 | 1 | 1 command, 1 binding, 2 views, extension | `extension`, `vars` | Id written wrongly ([D2](#d2)); `files sync` absent |
-| `@dreamteamer/meeting-docs` 0.1.5 | 5 (2) | 2 | 6 commands, 5 bindings, 1 view | — | Id rule in 2 collections ([D2](#d2)) |
-| `@dreamteamer/meetings` 0.4.0 | 2 (1) | 1 | 2 commands, 1 binding, 2 views, 3 scripts | — | Id rule ([D2](#d2)) |
-| `@dreamteamer/metrics` 0.1.0 | 1 | 0 | — | `peer_collections` | Id rule when scoped ([D2](#d2)) |
-| `@dreamteamer/projects` 0.4.3 | 6 (2) | 0 | 1 script | `peer_collections` | Id rule in `deliverables` ([D2](#d2)); constraints on `decisions` ([V3](#v3)) |
-| `@dreamteamer/recordings` 0.5.3 | 2 (1) | 2 | 3 commands, 3 bindings, 1 script, extension | `extension`, `vars`; `env` unreported | Id rule ([D2](#d2)) |
+| `@dreamteamer/files` 0.3.1 | 2 | 1 | 1 command, 1 binding, 2 views, extension | `extension`, `vars` | `files sync` absent ([M5](#m5)) |
+| `@dreamteamer/meeting-docs` 0.1.5 | 5 (2) | 2 | 6 commands, 5 bindings, 1 view | — | |
+| `@dreamteamer/meetings` 0.4.0 | 2 (1) | 1 | 2 commands, 1 binding, 2 views, 3 scripts | — | |
+| `@dreamteamer/metrics` 0.1.0 | 1 | 0 | — | `peer_collections` | |
+| `@dreamteamer/projects` 0.4.3 | 6 (2) | 0 | 1 script | `peer_collections` | Constraints on `decisions` ([V3](#v3)) |
+| `@dreamteamer/recordings` 0.5.3 | 2 (1) | 2 | 3 commands, 3 bindings, 1 script, extension | `extension`, `env`, `vars` | |
 | `@dreamteamer/responsibilities` 0.1.0 | 2 (1) | 0 | — | — | |
-| `@dreamteamer/rnd` 0.11.1 | 21 | 10 | 12 commands, 32 bindings, 11 views, 2 agents, 5 scripts, navigation, extension | `extension`, `nav`, `peer_collections`, `ignore` | File suffix in `rnd/user-stories` ([D1](#d1)); id rule in 3 collections ([D2](#d2)); lifecycle checks ([V5](#v5)) |
+| `@dreamteamer/rnd` 0.11.1 | 21 | 10 | 12 commands, 32 bindings, 11 views, 2 agents, 5 scripts, navigation, extension | `extension`, `nav`, `peer_collections`, `ignore` | Lifecycle checks ([V5](#v5)) |
 | `@dreamteamer/roles` 0.1.0 | 2 (1) | 0 | — | — | |
-| `@dreamteamer/sessions` 0.1.0 | 2 (1) | 1 | 3 commands, 2 scripts, extension | `extension`, `peer_collections`, `vars` | Id rule ([D2](#d2)); `session` verbs absent |
+| `@dreamteamer/sessions` 0.1.0 | 2 (1) | 1 | 3 commands, 2 scripts, extension | `extension`, `peer_collections`, `vars` | `session` verbs absent ([M5](#m5)) |
 | `@dreamteamer/tasks` 0.3.4 | 3 (2) | 1 | 9 views, 1 script | `peer_collections` | Reverse field on `users` not maintained ([D8](#d8)) |
 | `@dreamteamer/users` 0.3.0 | 2 | 0 | 1 script | `peer_collections` | |
 | `@dreamteamer/web` 0.3.1 | 0 | 1 | 1 command, 2 scripts, extension | `extension` | `web` and `serve` absent |
@@ -1625,21 +1711,22 @@ Every package except the engine's own system module declares an engine floor tha
 
 ## What is verified
 
-So that the gaps above have a denominator, this is what the README labels Verified, and what stands behind each claim.
+So that the gaps above have a denominator, this is what the README labels Verified, and what stands behind each claim. "In the review" marks a figure measured before `143c57a` and not re-measured since.
 
 | Claim | Stands on |
 |---|---|
-| Modules are found from npm dependencies and `modules/`, by the same rule as the released engine for direct dependencies; a local copy of an installed module, a missing dependency and `disable` differ ([M7](#m7), [M8](#m8), [V4](#v4)) | Test 1; the walkthrough; 22 of 22 modules on the real workspace, with the same 2 dependency-only packages skipped by both |
-| The published schema resolves field for field | 54 of 54 collections and 940 of 940 fields agree with the released engine's compiled descriptors on every authored field key; 54 of 54 on storage path, format and shape (in the review) |
-| Overlays that add or refine fields resolve identically | Test 1; the walkthrough's overlay; a synthetic three-module case in the review |
-| `add`, `get`, `set`, `rm`, `list` round-trip with ids, defaults and body | Test 2; the walkthrough; Markdown, YAML, JSON, explicit suffix, nested ids and folder records in the review |
-| It reads the same stored values as the released engine | 4,705 records compared with the released `list --json`: no frontmatter value differs, and no key is present in one only. Bodies were compared for 240 records and were byte-identical. The released `get --json` adds an `id`, a file path and, where the file has none, a derived `created` ([R4](#r4)) (in the review) |
-| An invalid write is rejected before disk | Test 3; the walkthrough; in the review, 73 invalid-write cases were run on both engines and none of the 101 refusals (56 by the released engine, 45 here) wrote anything; a refused `set` left the bytes and the modification time of the record unchanged |
-| The two engines refuse the same common mistakes | The same verdict in 35 of 47 invalid `add` cases and 19 of 26 invalid `set` cases; the others are V2 to V4 and C1 to C3 |
-| Each engine reads the other's records | Both `check`s pass over records the other wrote, apart from D1, D8 and D11 (in the review) |
-| `compile` writes only under `.dt/` and repeats itself exactly in place | Test 5; `git status` shows nothing after it |
-| Nothing depends on compiled state | With `.dt/` deleted every verb still exits 0; a descriptor edit takes effect on the next command |
+| Modules are found from npm dependencies and `modules/`, by the same rule as the released engine for direct dependencies | Tests; 22 of 22 modules on the real workspace, with the same 2 dependency-only packages skipped by both. A local copy of an installed module and `disable` differ ([M7](#m7), [M8](#m8)) |
+| The published schema resolves field for field | 54 of 54 collections and 940 of 940 fields agree with the released engine's compiled descriptors on every authored field key (in the review); `test/published.test.ts` resolves eight published packages without an error |
+| Every data record of a real workspace is seen and accepted | `check` on the real workspace: 4,837 records, 0 errors, 0 warnings; the released engine counts 5,039 with the 202 system records, and also reports no violation |
+| It reads the same stored values as the released engine | 4,705 records compared with the released `list --json`: no frontmatter value differs. Bodies were compared for 240 records and were byte-identical (in the review) |
+| A record gets the id and the file the released engine gives it | Tests against ids the released engine produced: a meeting in its year and month folder, a release keyed by its product, a change request by its key, an accented name, a name with no Latin letters; the bytes of a task file. In the side-by-side workspace the released engine lists records written here under the same ids |
+| An invalid write is rejected before disk | Tests (sixteen kinds of invalid input); in the review, 73 invalid-write cases were run on both engines and none of the 101 refusals wrote anything |
+| A reference or an id cannot reach outside the record it names | Test: eight malformed ids against `get`, `set`, `rm` and `add`, with a file outside the workspace left untouched |
+| Text on the command line is stored as typed | Test: fifteen titles that the first version refused, crashed on or cut short |
+| `rm` refuses to break or take other records | Test: a referenced record, and a folder record holding a record of another collection |
+| `set` changes only the lines it was asked to change | Test: a hand-written record with comments, quoting and a body, compared byte for byte |
+| `compile` writes only under `.dt/`, and `model.json` is the same wherever the workspace sits | Test: a moved copy compiles to the same bytes |
+| Nothing depends on compiled state | With `.dt/` deleted every verb still exits 0; a descriptor edit takes effect on the next command (in the review) |
 | The engine never runs git | No `git`, `child_process` or dynamic `import` in `src/`; no git call observed from nine verbs (in the review) |
-| Installed packages are not modified in ordinary use | A content hash of `node_modules` is the same before and after a run of every verb in sequence (in the review). A reference or an id containing `..` can write there ([F3](#f3)) |
 | A crash does not corrupt a record | 60 kills, 28,065 files, none malformed (in the review) |
-| It is not slower | Best of three on the real workspace, in milliseconds, here against released: `check` 884 and 922, `list` of 1,791 records 166 and 264, `get` 129 and 181, `add` 135 and 197, `compile` 139 and 385 (in the review) |
+| It is not slower | `check` on the real workspace takes about one second in both engines. In the review, `list`, `get`, `add` and `compile` were a quarter to two-thirds faster here |
