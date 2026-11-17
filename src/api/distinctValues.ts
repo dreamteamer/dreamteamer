@@ -1,5 +1,5 @@
 import { DtError } from "../lib/DtError.ts"
-import { textOf } from "./compareValues.ts"
+import { textOf } from "../lib/compareValues.ts"
 import { accessors } from "./accessors.ts"
 import type { Store } from "./Store.ts"
 

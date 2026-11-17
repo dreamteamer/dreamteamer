@@ -1,6 +1,6 @@
 import { mapOf } from "../lib/mapOf.ts"
 import { titleOf as fieldTitle } from "../lib/titleOf.ts"
-import { textOf } from "./compareValues.ts"
+import { textOf } from "../lib/compareValues.ts"
 import { accessors as a, type Released } from "./accessors.ts"
 
 /** the wire type of a field: its type name, except a reference, which travels as a string */

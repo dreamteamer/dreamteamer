@@ -1,5 +1,5 @@
-import { textOf } from "./compareValues.ts"
-import { matchesFilter } from "./matchesFilter.ts"
+import { textOf } from "../lib/compareValues.ts"
+import { matchesFilter } from "../store/matchesFilter.ts"
 import { parseRef } from "./parseRef.ts"
 import type { Store } from "./Store.ts"
 
