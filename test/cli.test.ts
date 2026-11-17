@@ -340,3 +340,66 @@ test("changes prints the record report of what is written and not committed", ()
   )
   assert.equal(JSON.parse(dt(ws, "changes", "--json").out).events.length, 2)
 })
+
+test("resolve renders the workspace's declared variables, in text or in a record's field", () => {
+  const { ws } = repo()
+  const pkg = JSON.parse(read(ws, "package.json"))
+  put(ws, "package.json", JSON.stringify(Object.assign(pkg, { dreamteamer: { vars: ["FILES_FOLDER"] } })))
+  put(ws, ".env", "FILES_FOLDER='/srv/files'\n")
+  assert.equal(dt(ws, "resolve", "${env:FILES_FOLDER}/a b").out, "/srv/files/a b\n")
+  assert.equal(dt(ws, "resolve", "nope/q3").out, "nope/q3\n", "text that names no record is itself")
+  dt(ws, "add", "tasks", "Read", "--id", "read", "--tags", "${env:FILES_FOLDER}/x,${env:FILES_FOLDER}/y")
+  assert.equal(dt(ws, "resolve", "task/read", "tags").out, "/srv/files/x\n/srv/files/y\n")
+  for (const [args, re] of [
+    [["${env:HOME}"], /"HOME" is not declared in dreamteamer.vars/],
+    [["tasks/read", "due"], /has no field "due"/],
+    [["tasks/read"], /needs a field/],
+    [["text", "more"], /takes one text/],
+  ] as const) {
+    const r = dt(ws, "resolve", ...args)
+    quiet(r)
+    assert.equal(r.code, 1, args.join(" "))
+    assert.match(r.err, re)
+  }
+})
+
+test("rename moves a record and rewrites the records that name it", () => {
+  const { ws } = repo()
+  dt(ws, "add", "users", "--name", "Dana Oren")
+  dt(ws, "add", "tasks", "Call the bank", "--id", "call", "--assignee", "dana-oren")
+  const r = dt(ws, "rename", "user/dana-oren", "dana")
+  assert.equal(r.out, "✔ renamed users/dana-oren → users/dana\n✔ rewrote the references in 1 file(s)\n")
+  assert.equal(JSON.parse(dt(ws, "get", "tasks/call").out).assignee, "users/dana")
+  assert.deepEqual(JSON.parse(dt(ws, "get", "users/dana").out).tasks, ["tasks/call"])
+  assert.equal(existsSync(join(ws, "data/users/dana-oren.user.md")), false)
+  assert.match(dt(ws, "rename", "tasks/call", "../x").err, /^✖ /)
+  assert.match(dt(ws, "rename", "users/dana", "dana").err, /already exists/)
+  assert.match(dt(ws, "rename", "users/dana").err, /needs the new id/)
+})
+
+test("values lists what a field holds, most used first, or its declared values", () => {
+  const { ws } = repo()
+  dt(ws, "add", "tasks", "One", "--id", "one", "--tags", "home,errand")
+  dt(ws, "add", "tasks", "Two", "--id", "two", "--tags", "home")
+  assert.equal(dt(ws, "values", "tasks", "tags").out, "    2  home\n    1  errand\n— 2 distinct, from data\n")
+  assert.equal(dt(ws, "values", "task", "status").out, "todo\ndone\n— 2 distinct, from enum\n")
+  assert.match(dt(ws, "values", "tasks", "tags", "--limit", "1").out, /— 2 distinct \(showing 1\), from data\n$/)
+  assert.equal(dt(ws, "values", "tasks", "notes").out, "(tasks.notes is a body field — no value vocabulary)\n")
+  assert.equal(dt(ws, "values", "tasks", "due").out, "(no values set on tasks.due)\n")
+  assert.match(dt(ws, "values", "tasks", "nope").err, /unknown field "nope"/)
+})
+
+test("history lists a record's commits, newest first", () => {
+  const { ws } = repo()
+  dt(ws, "add", "tasks", "Call the bank", "--id", "call")
+  assert.equal(dt(ws, "history", "tasks/call").out, "(no history for tasks/call — not committed yet)\n")
+  dt(ws, "commit", "tasks")
+  dt(ws, "set", "tasks/call", "status=done")
+  dt(ws, "commit", "-m", "Done")
+  const day = "\\d{4}-\\d{2}-\\d{2}"
+  assert.match(
+    dt(ws, "history", "task/call").out,
+    new RegExp(`^[0-9a-f]{7}  ${day}  Dana Oren  Done\n[0-9a-f]{7}  ${day}  Dana Oren  dreamteamer: tasks add call\n$`),
+  )
+  assert.equal(JSON.parse(dt(ws, "history", "tasks/call", "--json").out).length, 2)
+})

@@ -26,7 +26,15 @@ export function distinctValues(store: Store, collection: string, field: string, 
     .sort((x, y) => (y[1] ?? 0) - (x[1] ?? 0) || (declared?.length ? 0 : textOf(x[0]).localeCompare(textOf(y[0]))))
     .map(([value, count]) => ({ value, count }))
   const values = declared?.length ? sorted : sorted.slice(0, limit)
-  const res: Record<string, unknown> = {
+  const res: {
+    collection: string
+    field: string
+    values: { value: unknown; count: number | null }[]
+    total: number
+    truncated: boolean
+    skipped?: string
+    source?: string
+  } = {
     collection,
     field,
     values,
