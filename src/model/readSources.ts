@@ -1,6 +1,5 @@
 import { join } from "node:path"
 import { idsIn } from "../store/idsIn.ts"
-import { tail } from "../store/tail.ts"
 import type { Collection } from "../types/Collection.ts"
 import type { Module } from "../types/Module.ts"
 import { moduleId } from "./moduleId.ts"
@@ -23,7 +22,7 @@ export function readSources(modules: Module[], collections: Record<string, Colle
     const ids: Record<string, string> = {}
     for (const m of modules) {
       const base = join(m.dir, c.storage.path)
-      for (const id of idsIn(base, c)) ids[id] ??= join(base, id + tail(c))
+      for (const [id, file] of idsIn(base, c)) ids[id] ??= file
     }
     out[kind] = ids
   }

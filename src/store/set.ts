@@ -1,3 +1,6 @@
+import { existsSync, readdirSync, rmdirSync, rmSync } from "node:fs"
+import { dirname, relative } from "node:path"
+import { DtError } from "../lib/DtError.ts"
 import { holds } from "../yaml/holds.ts"
 import { editYaml } from "../yaml/editYaml.ts"
 import { yamlOf } from "../yaml/yamlOf.ts"
@@ -7,6 +10,7 @@ import type { Model } from "../types/Model.ts"
 import { compose } from "./compose.ts"
 import { get } from "./get.ts"
 import { load } from "./load.ts"
+import { pathFor } from "./pathFor.ts"
 import { refuseTaken } from "./refuseTaken.ts"
 import { write } from "./write.ts"
 import { applyMirrors, mirrorEdits, refuseMirrors } from "./mirrorEdits.ts"
@@ -34,7 +38,17 @@ export function set(model: Model, ref: string, changes: Record<string, unknown>)
   if (doc && (yaml === null || !holds(yaml, fields))) yaml = yamlOf(fields)
   refuseTaken(model, c, rec.id, data, Object.keys(changes))
   const mirrors = mirrorEdits(model, c.name, rec.id, prior, data)
-  write(model, c, rec.id, data, compose(c, yaml ?? "", data, body), rec.mtimeMs)
+  // a record stored under its owner follows a change of owner into the new owner's folder
+  const u = c.under?.parent
+  const path = u && Object.hasOwn(changes, u) && prior[u] !== data[u] ? pathFor(model, c, rec.id, data) : rec.path
+  if (path !== rec.path && existsSync(path))
+    throw new DtError(`${rec.ref}: ${relative(model.root, path)} already exists — nothing written`)
+  write(model, c, rec.id, path, data, compose(c, yaml ?? "", data, body), path === rec.path ? rec.mtimeMs : undefined)
+  if (path !== rec.path) {
+    rmSync(rec.path)
+    // the folder it leaves, when nothing else is in it
+    if (!readdirSync(dirname(rec.path)).length) rmdirSync(dirname(rec.path))
+  }
   applyMirrors(model, mirrors)
   return get(model, rec.ref)
 }

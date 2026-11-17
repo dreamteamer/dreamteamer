@@ -32,6 +32,10 @@ export interface Collection {
     /** the descriptor's other storage keys, carried as written */
     [key: string]: unknown
   }
+  /** stored inside the folder of the record its `parent` field names (`storage.under`), at `subfolder` there */
+  under?: { parent: string; subfolder: string; collection: string }
+  /** the record layers that lend it records, each with their folder in the workspace */
+  layers?: { name: string; path: string }[]
   ids: { from: string[]; pattern?: string }
   fields: Record<string, Field>
   /** modules whose overlays or mixins contributed fields */

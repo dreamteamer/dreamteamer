@@ -2,6 +2,8 @@ import { DtError } from "../lib/DtError.ts"
 import { relationsOf } from "../model/relationsOf.ts"
 import type { Model } from "../types/Model.ts"
 import { refsOf } from "./expectedMirrors.ts"
+import { splitRef } from "../model/splitRef.ts"
+import { find } from "./find.ts"
 import { get } from "./get.ts"
 import { rewrite } from "./rewrite.ts"
 
@@ -33,6 +35,12 @@ export function mirrorEdits(
   const self = `${owner}/${id}`
   const res: MirrorEdits = new Map()
   const values = new Map<string, unknown>()
+  // a reverse field is kept between records of one repository: the owner's, which is this workspace's for a new one
+  const home = (ref: string) => {
+    const at = splitRef(model, ref)
+    return at ? find(model, model.collections[at.collection], at.id)?.root.layer : undefined
+  }
+  const mine = home(self)
   for (const r of relationsOf(model)) {
     if (r.owner !== owner) continue
     const was = new Set(refsOf(before?.[r.field]).filter((t) => typeof t === "string"))
@@ -47,6 +55,7 @@ export function mirrorEdits(
           return // no such record: an owner outliving its target, or one vouched for from elsewhere
         }
       }
+      if (home(ref) !== mine) return
       const cur = values.get(key)
       let next: unknown
       if (r.unique) {

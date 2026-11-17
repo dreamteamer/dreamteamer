@@ -3,25 +3,24 @@ import { basename, dirname, join } from "node:path"
 import { DtError } from "../lib/DtError.ts"
 import type { Collection } from "../types/Collection.ts"
 import type { Model } from "../types/Model.ts"
-import { recordPath } from "./recordPath.ts"
 import { refuseBroken } from "./refuseBroken.ts"
 import { validate } from "./validate.ts"
 
 /**
- * Validate a record and replace its file in one rename — only if the file is still as it was read (`expectMtime`),
+ * Validate a record and replace its file, `path`, in one rename — only if the file is still as it was read (`expectMtime`),
  * or still absent. A rejected write changes nothing; an unchecked one (a reverse field) is not validated.
  */
 export function write(
   model: Model,
   c: Collection,
   id: string,
+  path: string,
   data: Record<string, unknown>,
   text: string,
   expectMtime?: number,
   checked = true,
 ): string {
   refuseBroken(model)
-  const path = recordPath(model, c, id)
   const issues = checked ? validate(model, c.name, id, data) : []
   if (issues.length) throw new DtError(`${c.name}/${id} rejected — nothing written`, issues)
   mkdirSync(dirname(path), { recursive: true })

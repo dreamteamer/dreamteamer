@@ -62,7 +62,7 @@ function idsOf(d: Released) {
   return Object.assign({}, mapOf(defaults(d).ids), mapOf(d?.ids))
 }
 
-/** storage, resolved: as written over the defaults, with the facts compile decided — one root, no record layers */
+/** storage, resolved: as written over the defaults, with the facts compile decided — its own root, then each layer's */
 function storageOf(d: Released) {
   const a = mapOf(d?.storage)
   const s = mapOf(defaults(d).storage)
@@ -77,10 +77,20 @@ function storageOf(d: Released) {
     runtime: block(d).runtime === true,
     external: false,
     unavailable: null,
-    layers: [],
-    roots: [{ path, repo }],
   }
+  const all = block(d).layers
+  const layers = (Array.isArray(all) ? all : []).map(mapOf)
+  out.layers = layers
+  out.roots = [{ path, repo }, ...layers.map((t) => ({ path: t.path, repo: t.repo, layer: t.name }))]
   for (const k of ["entry", "max_bytes", "accept"]) if (a[k] !== undefined) out[k] = a[k]
+  const u = mapOf(a.under)
+  if (a.under)
+    out.under = {
+      parent: u.parent,
+      subfolder: u.subfolder,
+      collection: block(d).under_collection,
+      id: u.id ?? "independent",
+    }
   return out
 }
 function isRuntime(d: Released) {

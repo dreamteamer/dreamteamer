@@ -6,14 +6,16 @@ import type { Model } from "../types/Model.ts"
 import { checkId } from "./checkId.ts"
 import { tail } from "./tail.ts"
 
-/** the file of a record, refused when the id, the storage path or a symbolic link would lead out of its collection */
-export function recordPath(model: Model, c: Collection, id: string): string {
+/**
+ * the file of a record in one of its collection's folders, `base` (its own by default), refused when the id, the
+ * storage path or a symbolic link would lead out of that folder
+ */
+export function recordPath(model: Model, c: Collection, id: string, base = join(model.root, c.storage.path)): string {
   checkId(id)
   if (isAbsolute(c.storage.path))
     throw new DtError(
       `${c.name}: its storage path is absolute (${c.storage.path}) — this engine reads and writes only inside the workspace`,
     )
-  const base = join(model.root, c.storage.path)
   const path = join(base, id + tail(c))
   if (!resolve(path).startsWith(resolve(model.root) + sep))
     throw new DtError(`${c.name}/${id}: its path leaves the workspace`)

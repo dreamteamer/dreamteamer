@@ -968,3 +968,111 @@ test("an overlay's own keys replace its base's, storage whole, as the released e
   assert.equal(r.path, join(root, "data/companies/northwind/company.md"))
   assert.equal(get(buildModel(root), "companies/northwind").data.name, "Northwind")
 })
+
+test("records stored under their owner are read, written and moved where the released engine keeps them", () => {
+  const root = workspace()
+  put(
+    root,
+    "modules/local/collections/companies.collection.yaml",
+    "name: companies\nstorage: {path: data/companies, shape: folder, entry: index.md}\nfields:\n  name: {type: string, required: true}\n",
+  )
+  put(
+    root,
+    "modules/local/collections/meetings.collection.yaml",
+    "name: meetings\nstorage: {path: data/meetings, under: {parent: company, subfolder: meetings}}\nfields:\n  name: {type: string, required: true}\n  company: {type: companies}\n",
+  )
+  const m = buildModel(root)
+  for (const n of ["northwind", "harbor"]) add(m, "companies", { name: n })
+  // the files the released engine 0.49.1 writes for the same adds
+  assert.equal(
+    add(m, "meetings", { name: "Kickoff", company: "companies/northwind" }).path,
+    join(root, "data/companies/northwind/meetings/kickoff.meeting.md"),
+  )
+  assert.equal(add(m, "meetings", { name: "Loose" }).path, join(root, "data/meetings/loose.meeting.md"))
+  assert.deepEqual(listIds(m, "meetings"), ["kickoff", "loose"])
+  assert.equal(
+    set(m, "meetings/kickoff", { company: "companies/harbor" }).path,
+    join(root, "data/companies/harbor/meetings/kickoff.meeting.md"),
+  )
+  assert.ok(!existsSync(join(root, "data/companies/northwind/meetings")))
+  assert.deepEqual(errors(m), [])
+  assert.throws(() => add(m, "meetings", { name: "Kickoff" }), /already exists/)
+  assert.throws(() => rm(m, "companies/harbor"), /referenced by 1 record/)
+  // a file where its owner field does not put it, and an id held twice: the released check's verdicts
+  cpSync(
+    join(root, "data/companies/harbor/meetings/kickoff.meeting.md"),
+    join(root, "data/companies/northwind/meetings/kickoff.meeting.md"),
+  )
+  writeFileSync(join(root, "data/meetings/loose.meeting.md"), "---\nname: Loose\ncompany: companies/harbor\n---\n")
+  assert.deepEqual(
+    errors(m).map((t) => `${t.where}: ${t.message}`),
+    [
+      "meetings/kickoff: held twice — data/companies/harbor/meetings/kickoff.meeting.md and data/companies/northwind/meetings/kickoff.meeting.md. Remove one",
+      "meetings/loose: stored in data/meetings but company is companies/harbor — move the file where its owner puts it",
+    ],
+  )
+  put(
+    root,
+    "modules/local/collections/memos.collection.yaml",
+    "name: memos\nstorage: {under: {parent: title, subfolder: ../x}}\nfields:\n  title: {type: string, required: true}\n",
+  )
+  assert.match(
+    errors(buildModel(root))
+      .map((t) => t.message)
+      .join("\n"),
+    /must be a relative folder/,
+  )
+})
+
+test("record layers lend their records, and clones that are not layers are modules, as the released engine reads them", () => {
+  const root = workspace()
+  const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as Record<string, unknown>
+  pkg.dreamteamer = { git_modules: { archive: { records: ["users"] }, hq: {}, kit: {}, missing: {} } }
+  writeFileSync(join(root, "package.json"), JSON.stringify(pkg))
+  put(root, "git_modules/archive/package.json", '{"name": "archive"}')
+  put(root, "git_modules/archive/data/users/sam.user.md", "---\nname: Sam\n---\n")
+  put(root, "git_modules/archive/data/tasks/unread.task.md", "---\nname: Not lent\n---\n")
+  // another workspace: every collection both have, and its own reverse fields kept among its own records
+  put(
+    root,
+    "git_modules/hq/package.json",
+    '{"name": "hq", "dreamteamer": {"workspace_module": "hq", "data_path": "records"}}',
+  )
+  put(root, "git_modules/hq/records/users/kim.user.md", "---\nname: Kim\ntasks: [tasks/plan]\n---\n")
+  put(root, "git_modules/hq/records/tasks/plan.task.md", "---\nname: Plan\nassignee: users/kim\n---\n")
+  // a bundle of modules
+  put(root, "git_modules/kit/package.json", '{"name": "kit", "dreamteamer": {}}')
+  put(root, "git_modules/kit/modules/extra/package.json", '{"name": "extra", "dreamteamer": {}}')
+  put(
+    root,
+    "git_modules/kit/modules/extra/collections/notes.collection.yaml",
+    "name: notes\nfields:\n  title: {type: string}\n",
+  )
+  const m = buildModel(root)
+  assert.ok(m.modules.some((t) => t.name === "extra") && m.collections.notes)
+  assert.deepEqual(m.collections.users.layers, [
+    { name: "archive", path: "git_modules/archive/data/users" },
+    { name: "hq", path: "git_modules/hq/records/users" },
+    { name: "missing", path: "git_modules/missing/data/users" },
+  ])
+  assert.deepEqual(
+    m.collections.tasks.layers?.map((t) => t.name),
+    ["hq", "missing"],
+  )
+  assert.deepEqual(listIds(m, "users"), ["kim", "sam"])
+  assert.deepEqual(listIds(m, "tasks"), ["plan"])
+  // a new record is this workspace's; an edit lands where the record is; a reverse field stays in its repository
+  const t = add(m, "tasks", { name: "Brief", assignee: "users/sam" }, "brief")
+  assert.equal(t.path, join(root, "data/tasks/brief.task.md"))
+  assert.equal(get(m, "users/sam").data.tasks, undefined)
+  assert.equal(set(m, "users/sam", { name: "Samuel" }).path, join(root, "git_modules/archive/data/users/sam.user.md"))
+  assert.throws(() => add(m, "users", { name: "Sam" }), /already exists/)
+  assert.deepEqual(errors(m), [])
+  put(root, "git_modules/hq/records/users/sam.user.md", "---\nname: Sam again\n---\n")
+  assert.deepEqual(
+    errors(m).map((t) => t.message),
+    [
+      "held twice — git_modules/archive/data/users/sam.user.md and git_modules/hq/records/users/sam.user.md. Remove one",
+    ],
+  )
+})

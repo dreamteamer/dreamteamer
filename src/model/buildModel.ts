@@ -23,6 +23,7 @@ import { readSkills } from "./readSkills.ts"
 import { readSources } from "./readSources.ts"
 import { SCALARS } from "./SCALARS.ts"
 import { singular } from "./singular.ts"
+import { underOf } from "./underOf.ts"
 import { SOURCE_KINDS } from "./SOURCE_KINDS.ts"
 
 const FORMATS = new Set(["md", "yaml", "json", "binary"])
@@ -188,7 +189,7 @@ function overlaps(collections: Record<string, Collection>) {
 
 /** Aggregate every module's collections, mixins and overlays into one resolved workspace model. */
 export function buildModel(root: string): Model {
-  const { modules, issues } = discover(root)
+  const { modules, issues, layers } = discover(root)
   const peers = [...new Set(modules.flatMap((t) => t.peers))]
   const mixins = new Map<string, Descriptor>()
   for (const t of sources(modules, "mixins", ".mixin.yaml", issues)) if (t.name !== undefined) mixins.set(t.name, t)
@@ -244,6 +245,12 @@ export function buildModel(root: string): Model {
     files.set(name, d.file)
     const fields: Record<string, unknown> = {}
     for (const t of layers) Object.assign(fields, t.fields)
+    // a binary record is its file, and its fields are read from it, in the released compile's words
+    if (format === "binary") {
+      const desc = (t: string) => `The file's ${t}. Read from the file.`
+      fields.ext ??= { type: "string", virtual: true, description: desc("extension, lowercase and without the dot") }
+      fields.bytes ??= { type: "integer", virtual: true, description: desc("size in bytes") }
+    }
     raws.set(name, fields)
   }
   for (const d of all.filter((t) => t.overlay)) {
@@ -293,6 +300,22 @@ export function buildModel(root: string): Model {
       }
       c.fields[name] = f
     }
+  // a record layer lends each collection it lists, or every one when it lists none, except those whose records are
+  // not a clone's: the source kinds, a module's own list, records under their owners, a folder per machine
+  for (const l of layers)
+    for (const c of Object.values(collections)) {
+      const p = c.storage.path
+      if (l.records && !l.records.includes(c.name)) continue
+      if (SOURCE_KINDS.includes(c.name) || c.storage.owner === "module" || c.storage.under || p.includes("${")) {
+        const message = `git_modules.${l.name}.records names ${c.name}, whose records are not a clone's to lend`
+        if (l.records) issues.push({ severity: "error", where: "package.json", message })
+        continue
+      }
+      const path = `git_modules/${l.name}/${p === `data/${c.name}` ? `${l.data}/${c.name}` : p}`
+      ;(c.layers ??= []).push({ name: l.name, path })
+    }
+  for (const c of Object.values(collections))
+    if (c.storage.under !== undefined) c.under = readOr(issues, c.name, () => underOf(c, collections), undefined)
   issues.push(...overlaps(collections))
   for (const c of Object.values(collections))
     c.rules = (c.constraints ?? []).flatMap((t, i) =>

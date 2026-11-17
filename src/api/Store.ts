@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, renameSync } from "node:fs"
-import { dirname, join, relative } from "node:path"
+import { dirname, join, relative, sep } from "node:path"
 import { DtError } from "../lib/DtError.ts"
 import { buildModel } from "../model/buildModel.ts"
 import { descriptorOf } from "../model/descriptorOf.ts"
@@ -8,7 +8,9 @@ import { get } from "../store/get.ts"
 import { load } from "../store/load.ts"
 import { applyMirrors, mirrorEdits } from "../store/mirrorEdits.ts"
 import { parseText } from "../store/parseText.ts"
-import { recordPath } from "../store/recordPath.ts"
+import { filesOf } from "../store/filesOf.ts"
+import { find } from "../store/find.ts"
+import { pathFor } from "../store/pathFor.ts"
 import { referrers } from "../store/referrers.ts"
 import { rewrite } from "../store/rewrite.ts"
 import { write } from "../store/write.ts"
@@ -54,7 +56,7 @@ export class Store {
     return this.model.sources[collection] ? join(this.root, ".dreamteamer", collection, id + tail(c)) : path
   }
 
-  /** a record's fields and file. Review: a binary record (`format: binary`) is not read, as nowhere in this engine */
+  /** a record's fields and file; a binary record's fields are read from its file */
   read(collection: string, id: string) {
     const descriptor = this.descriptor(collection)
     const r = get(this.model, `${collection}/${id}`)
@@ -80,17 +82,23 @@ export class Store {
   ids(collection: string): Map<string, string> {
     this.descriptor(collection)
     const c = this.model.collections[collection]
-    // Review: this engine reads no binary records, so a listing of one (`assets`) is empty rather than refused
-    if (c.storage.format === "binary") return new Map<string, string>()
-    const ids = listIds(this.model, c.name)
-    const base = join(this.root, c.storage.path)
-    return new Map(ids.map((t) => [t, this.model.sources[c.name]?.[t] ?? join(base, t + tail(c))]))
+    const src = this.model.sources[c.name]
+    if (src) return new Map(listIds(this.model, c.name).map((t) => [t, src[t]]))
+    return new Map([...filesOf(this.model, c)].sort(([a], [b]) => (a < b ? -1 : 1)).map(([t, f]) => [t, f[0].path]))
   }
 
-  /** the folders a collection's records sit in */
+  /** the folders a collection's records sit in: its own, its owners' for one stored under them, each layer's */
   recordDirs(d: Released): string[] {
     const s = accessors.storageOf(d)
-    return [join(this.root, s.runtime ? ".dreamteamer" : "", String(s.path))]
+    const c = this.model.collections[String(d?.name)]
+    const owners = c?.under ? [this.model.collections[c.under.collection].storage.path] : []
+    const dirs = [String(s.path), ...owners, ...(c?.layers ?? []).map((t) => t.path)]
+    return dirs.map((t) => join(this.root, s.runtime ? ".dreamteamer" : "", t))
+  }
+
+  /** the record layer a file of a collection was read from, if any */
+  layerOf(collection: string, file: string) {
+    return this.model.collections[collection]?.layers?.find((t) => file.startsWith(join(this.root, t.path) + sep))
   }
 
   /**
@@ -110,7 +118,11 @@ export class Store {
   locate(collection: string, id: string) {
     const file = this.ids(collection).get(id)
     if (!file) throw new DtError(`${collection}/${id}: no such record`)
-    const res = { file: relative(this.root, this.fileOf(collection, id, file)), repo: "." }
+    const l = this.layerOf(collection, file)
+    const res = {
+      file: relative(this.root, this.fileOf(collection, id, file)),
+      repo: l ? `git_modules/${l.name}` : ".",
+    }
     return res
   }
 
@@ -152,7 +164,7 @@ export class Store {
     if (readFileSync(rec.path, "utf8") === text) return { id, reverted: false }
     const data = parseText(c, text, (m) => new DtError(`${collection}/${id} at ${rev}: unreadable — ${m}`)).data
     const mirrors = mirrorEdits(this.model, c.name, id, rec.data, data)
-    folded(() => write(this.model, c, id, data, text, rec.mtimeMs))
+    folded(() => write(this.model, c, id, rec.path, data, text, rec.mtimeMs))
     applyMirrors(this.model, mirrors)
     const res = { id, reverted: true, hash: rev, file: rec.path }
     return res
@@ -162,8 +174,13 @@ export class Store {
   rename(collection: string, from: string, to: string) {
     const { rec, c } = load(this.model, `${collection}/${from}`)
     const [old, now] = [`${c.name}/${from}`, `${c.name}/${to}`]
-    const target = recordPath(this.model, c, to)
-    if (existsSync(target)) throw new DtError(`${now} already exists — nothing renamed`)
+    const l = this.layerOf(c.name, rec.path)
+    if (l)
+      throw new DtError(
+        `${old} is held by layer ${l.name} (${l.path}) — a layer's record is renamed in its own workspace, never from here. nothing was renamed.`,
+      )
+    const target = pathFor(this.model, c, to, rec.data)
+    if (existsSync(target) || find(this.model, c, to)) throw new DtError(`${now} already exists — nothing renamed`)
     const owners = referrers(this.model, old)
     const gone = mirrorEdits(this.model, c.name, from, rec.data, null)
     const [src, dst] = c.storage.shape === "folder" ? [dirname(rec.path), dirname(target)] : [rec.path, target]

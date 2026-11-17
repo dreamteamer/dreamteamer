@@ -265,3 +265,28 @@ test("the names extensions call answer in the released shapes", () => {
   ])
   assert.equal(api.compile({ root: seeded() }), 0)
 })
+
+test("the Store reports a record layer's roots, and refuses to rename a record a layer holds", () => {
+  const root = seeded()
+  const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as Record<string, unknown>
+  pkg.dreamteamer = { git_modules: { archive: { records: ["users"] } } }
+  writeFileSync(join(root, "package.json"), JSON.stringify(pkg))
+  put(root, "git_modules/archive/package.json", '{"name": "archive"}')
+  put(root, "git_modules/archive/data/users/sam.user.md", "---\nname: Sam\n---\n")
+  const store = new api.Store({ root })
+  const layer = { path: "git_modules/archive/data/users", repo: "git_modules/archive" }
+  assert.deepEqual(api.storageOf(store.descriptor("users")).roots, [
+    { path: "data/users", repo: "." },
+    Object.assign({ layer: "archive" }, layer),
+  ])
+  assert.deepEqual([...store.ids("users").keys()], ["dana-oren", "sam"])
+  assert.deepEqual(store.locate("users", "sam"), {
+    file: "git_modules/archive/data/users/sam.user.md",
+    repo: "git_modules/archive",
+  })
+  assert.deepEqual(store.recordDirs(store.descriptor("users")), [join(root, "data/users"), join(root, layer.path)])
+  assert.throws(
+    () => store.rename("users", "sam", "samuel"),
+    /users\/sam is held by layer archive \(git_modules\/archive\/data\/users\)/,
+  )
+})

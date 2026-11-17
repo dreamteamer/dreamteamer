@@ -5,7 +5,10 @@ import { messageOf } from "../lib/messageOf.ts"
 import type { Issue } from "../types/Issue.ts"
 import type { Model } from "../types/Model.ts"
 import { get } from "./get.ts"
-import { listIds } from "./listIds.ts"
+import { filesOf } from "./filesOf.ts"
+import { ownerOf } from "./pathFor.ts"
+import { splitRef } from "../model/splitRef.ts"
+import type { RecordFile } from "../types/Root.ts"
 import { tail } from "./tail.ts"
 import { validate } from "./validate.ts"
 import { claims } from "./refuseTaken.ts"
@@ -28,35 +31,65 @@ export function check(model: Model) {
         (t.storage.shape === "folder" || t.storage.format === "binary" || p.endsWith(tail(t))),
     )
   }
+  const rel = (p: string) => relative(model.root, p)
   const strays = new Set<string>()
+  // the record layer each record was read from, when not this workspace
+  const home = new Map<string, string>()
   let records = 0
   const seen = new Map<string, Map<string, Record<string, unknown>>>()
   for (const c of stored) {
     const base = join(model.root, c.storage.path)
-    if (c.storage.format === "binary") {
-      if (existsSync(base))
-        issues.push({
-          severity: "warning",
-          where: c.name,
-          message: "binary storage is not supported — its files are not checked",
-        })
-      continue
-    }
-    let ids: string[]
+    let files: Map<string, RecordFile[]>
     try {
-      ids = listIds(model, c.name)
+      files = filesOf(model, c)
     } catch (e) {
       issues.push({ severity: "error", where: c.name, message: `cannot read ${c.storage.path}: ${messageOf(e)}` })
       continue
     }
     const read = new Map<string, Record<string, unknown>>()
     seen.set(c.name, read)
-    for (const id of ids) {
+    for (const [id, [first, ...rest]] of [...files].sort(([a], [b]) => (a < b ? -1 : 1))) {
       records++
+      const where = `${c.name}/${id}`
+      if (first.root.layer) home.set(where, first.root.layer)
+      for (const t of rest)
+        issues.push({
+          severity: "error",
+          where,
+          message: `held twice — ${rel(first.path)} and ${rel(t.path)}. Remove one`,
+        })
       try {
-        const data = get(model, `${c.name}/${id}`).data
+        const data = get(model, where).data
         read.set(id, data)
         issues.push(...validate(model, c.name, id, data, unresolved))
+        // a binary record is a small file of a kind its collection accepts
+        const { format, accept, max_bytes: max = 204800 } = c.storage
+        const ext = format === "binary" && typeof data.ext === "string" ? data.ext : undefined
+        if (ext && Array.isArray(accept) && !accept.includes(ext))
+          issues.push({
+            severity: "error",
+            where,
+            message: `does not accept .${ext} — its extensions are ${accept.join(", ")}`,
+          })
+        if (ext && Number(data.bytes) > Number(max))
+          issues.push({
+            severity: "error",
+            where,
+            message: `is ${Number(data.bytes)} bytes, over max_bytes of ${Number(max)} — a record is a small file`,
+          })
+        // the owner field says where a record stored under its owner belongs; the folder says where it is
+        const raw = c.under && data[c.under.parent]
+        const owner = ownerOf(model, c, data)
+        if (
+          c.under &&
+          owner !== first.root.parent &&
+          (raw == null || raw === "" || (typeof raw === "string" && splitRef(model, raw)))
+        )
+          issues.push({
+            severity: "error",
+            where,
+            message: `stored ${first.root.parent ? `under ${c.under.collection}/${first.root.parent}` : `in ${c.storage.path}`} but ${c.under.parent} is ${owner ? `${c.under.collection}/${owner}` : "empty"} — move the file where its owner puts it`,
+          })
       } catch (e) {
         issues.push({
           severity: "error",
@@ -92,19 +125,26 @@ export function check(model: Model) {
             message: `unrecognized file in the ${c.name} folder — a record there is named <id>${tail(c)}`,
           })
   }
-  // a reverse field is derived from its owners: say which ones have fallen behind, and how to repair them
+  // a reverse field is derived from its owners: say which ones have fallen behind, and how to repair them. It is kept
+  // between records of one repository, so a target's owners are those in its own, and a layer's target whose owners
+  // are not read from that layer is the layer's to judge
   for (const r of relationsOf(model)) {
     const owners = seen.get(r.owner)
     const targets = seen.get(r.target)
     if (!owners || !targets) continue
-    const exp = expectedMirrors(r, owners)
-    for (const [id, data] of targets)
-      if (!sameMirror(r, data[r.mirror], exp.get(id)))
+    const exp = new Map<string, Map<string, string | string[]>>()
+    const of = (l: string) => [...owners].filter(([o]) => (home.get(`${r.owner}/${o}`) ?? "") === l)
+    for (const [id, data] of targets) {
+      const l = home.get(`${r.target}/${id}`) ?? ""
+      if (l && !model.collections[r.owner].layers?.some((t) => t.name === l)) continue
+      if (!exp.has(l)) exp.set(l, expectedMirrors(r, new Map(of(l))))
+      if (!sameMirror(r, data[r.mirror], exp.get(l)?.get(id)))
         issues.push({
           severity: "error",
           where: `${r.target}/${id}`,
           message: `${r.mirror}: stale — run: relations rebuild ${r.target}`,
         })
+    }
   }
   for (const [name, n] of unresolved)
     issues.push({

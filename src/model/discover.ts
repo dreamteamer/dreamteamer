@@ -9,9 +9,20 @@ import { isObject } from "../lib/isObject.ts"
 import { messageOf } from "../lib/messageOf.ts"
 import { readOr } from "../lib/readOr.ts"
 import type { Issue } from "../types/Issue.ts"
+import type { Layer } from "../types/Layer.ts"
 import type { Module } from "../types/Module.ts"
 import { readModule } from "./readModule.ts"
 import { systemModule } from "./systemModule.ts"
+
+/** the package.json in a folder, read leniently: anything else, or none, is an empty map */
+function manifestOf(dir: string): Record<string, unknown> {
+  try {
+    const v: unknown = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"))
+    return isObject(v) ? v : {}
+  } catch {
+    return {}
+  }
+}
 
 /** Which modules does this workspace have? The engine's own system module first, then npm's and its own; this only reads. */
 export function discover(root: string) {
@@ -58,6 +69,39 @@ export function discover(root: string) {
       const m = readModule(join(local, name), "workspace", issues)
       if (m) modules.push(m)
     }
+  // a git_modules clone that is another workspace (its manifest names a workspace_module), or whose entry lists the
+  // collections to read, lends its records; with `module: true` its workspace module too. Any other clone is a module,
+  // or a bundle of modules under its modules/, as the released engine reads them. Review: the clones a clone needs
+  // through its exports manifest are not followed, and a clone's modules are labelled npm until compile knows git
+  const layers: Layer[] = []
+  const git = map(config.git_modules, "dreamteamer.git_modules")
+  const owns = new Set(modules.map((t) => t.name))
+  const take = (dir: string) => {
+    const m = readModule(dir, "npm", issues)
+    if (m && !owns.has(m.name) && owns.add(m.name)) modules.push(m)
+  }
+  for (const [name, v] of Object.entries(git)) {
+    const e = map(v, `dreamteamer.git_modules.${name}`)
+    const at = `dreamteamer.git_modules.${name}.records`
+    const records = readOr(issues, "package.json", () => asOptional(e.records, at, asNames), undefined)
+    const dir = join(root, "git_modules", name)
+    const own = map(manifestOf(dir).dreamteamer, `${dir}: dreamteamer`)
+    const wm = typeof own.workspace_module === "string" ? own.workspace_module : undefined
+    if (!records && !(e.module === true && existsSync(dir)) && existsSync(dir) && !wm) continue
+    layers.push({ name, records, data: typeof own.data_path === "string" ? own.data_path : "data" })
+    const message = `layer ${name} is not installed — its records are not read until it is cloned at git_modules/${name}`
+    if (!existsSync(dir)) issues.push({ severity: "warning", where: "package.json", message })
+    if (e.module === true && wm) take(join(dir, "modules", wm))
+  }
+  const clones = join(root, "git_modules")
+  if (existsSync(clones))
+    for (const name of readdirSync(clones).sort()) {
+      const [dir, bundle] = [join(clones, name), join(clones, name, "modules")]
+      const dt = manifestOf(dir).dreamteamer
+      if (layers.some((t) => t.name === name) || !isObject(dt)) continue
+      if (existsSync(bundle) && !dt.preset) for (const n of readdirSync(bundle).sort()) take(join(bundle, n))
+      else take(dir)
+    }
   if (
     !modules.length &&
     !issues.length &&
@@ -88,12 +132,11 @@ export function discover(root: string) {
       where: "package.json",
       message: `dreamteamer.data_path "${dataPath}" is not honoured — records are stored where each descriptor says`,
     })
-  if (Object.keys(map(config.git_modules, "dreamteamer.git_modules")).length)
-    issues.push({
-      severity: "warning",
-      where: "package.json",
-      message: "dreamteamer.git_modules is not honoured — record layers and git-delivered modules are not read",
-    })
-  const res: { modules: Module[]; issues: Issue[]; config: Record<string, unknown> } = { modules, issues, config }
+  const res: { modules: Module[]; issues: Issue[]; config: Record<string, unknown>; layers: Layer[] } = {
+    modules,
+    issues,
+    config,
+    layers,
+  }
   return res
 }
