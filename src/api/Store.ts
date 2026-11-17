@@ -2,12 +2,16 @@ import { join, relative } from "node:path"
 import { DtError } from "../lib/DtError.ts"
 import { buildModel } from "../model/buildModel.ts"
 import { descriptorOf } from "../model/descriptorOf.ts"
+import { add } from "../store/add.ts"
 import { get } from "../store/get.ts"
+import { rm } from "../store/rm.ts"
+import { set } from "../store/set.ts"
 import { listIds } from "../store/listIds.ts"
 import { tail } from "../store/tail.ts"
 import type { Model } from "../types/Model.ts"
 import { accessors, type Released } from "./accessors.ts"
 import { textOf } from "./compareValues.ts"
+import { folded } from "./folded.ts"
 import { namespacesOf } from "./namespaces.ts"
 
 /**
@@ -96,6 +100,27 @@ export class Store {
     const file = this.ids(collection).get(id)
     if (!file) throw new DtError(`${collection}/${id}: no such record`)
     const res = { file: relative(this.root, this.fileOf(collection, id, file)), repo: "." }
+    return res
+  }
+
+  /** write a new record: its id given, or made from its fields */
+  add(collection: string, fields: Record<string, unknown>, opts: { id?: string } = {}) {
+    const r = folded(() => add(this.model, collection, fields, opts.id || undefined))
+    const res = { id: r.id, file: r.path }
+    return res
+  }
+
+  /** change some fields of a record; null clears one */
+  set(collection: string, id: string, changes: Record<string, unknown>) {
+    folded(() => set(this.model, `${collection}/${id}`, changes))
+    const res = { id }
+    return res
+  }
+
+  /** remove a record, refused while others point at it unless forced */
+  rm(collection: string, id: string, opts: { force?: boolean } = {}) {
+    folded(() => rm(this.model, `${collection}/${id}`, opts.force === true))
+    const res = { id, inboundIgnored: [] }
     return res
   }
 }
