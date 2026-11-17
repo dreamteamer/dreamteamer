@@ -61,8 +61,9 @@ database, a code generator or a new package needs a demonstrated job before it i
 - **Errors a user can cause are `DtError`s with one line that says what to do.** A stack trace is a bug.
 - **One interface for every adapter.** The command line, generated instructions and anything else that presents the
   engine call the same functions; an adapter holds no rule about records.
-- **The engine writes only inside the workspace it is given**, never into an installed package, and never runs code
-  from a module. A reference is not a path: validate it before it touches the file system.
+- **The engine writes only inside the workspace it is given**, never into an installed package. It runs a module's
+  code only through the extension loader (`src/extensions/`), for a module the workspace lists; nowhere else. A
+  reference is not a path: validate it before it touches the file system.
 - **Compatibility is measured, not asserted.** Behaviour that the released engine or a published module defines — a
   file name, an id, a verdict of `check` — is pinned by a test in `test/published.test.ts` or by a fixture that the
   released engine produced.

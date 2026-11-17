@@ -243,7 +243,7 @@ modules/ ──────┘                          └──► compile ─
 | Path | What it is | Who writes it |
 |---|---|---|
 | `package.json` | Which modules the workspace uses | you, through npm |
-| `node_modules/<module>/` | Installed modules. Read-only: the engine never writes here and never runs code from here | npm |
+| `node_modules/<module>/` | Installed modules. Read-only: the engine never writes here. A module's extension entry runs when the workspace lists the module (see Security) | npm |
 | `modules/<name>/` | Your own modules | you |
 | `data/…` | Your records, one file each | `add`, `set`, `rm` — or you by hand, followed by `check` |
 | `dreamteamer-exports.json` | Ids that live in another repository and are vouched for; references to them are accepted | read-only here |
@@ -363,6 +363,7 @@ dtx <verb> [target] [arguments] [-w <workspace>]
 | `set <ref>` | Changes fields. An empty value clears one, or puts back its default. Refused for a source record | `dtx set tasks/2026-11-17--buy-milk status=done due=` |
 | `rm <ref>` | Deletes a record. `--force` deletes one that others reference. Refused for a source record | `dtx rm tasks/2026-11-17--buy-milk` |
 | `relations rebuild <collection>` | Recomputes the collection's reverse fields from the records that point at it | `dtx relations rebuild users` |
+| `next <collection>[/<id>]…` | Says which of the module commands bound to a collection apply to each record, and which are done, from the bindings' gates on its fields; `--json` prints the verdicts | `dtx next rnd/change-requests/cr-001` |
 | `check` | Validates every record and reports files it does not recognise. Changes nothing | `dtx check` |
 | `compile` | Writes `.dt/`, and the released compiled layout into `.dreamteamer/` | `dtx compile` |
 | `help`, `--version` | | `dtx help` |
@@ -398,7 +399,7 @@ The functions are `buildModel`, `discover`, `findCollection` and `splitRef` in `
 - **Relational.** References between records are typed and checked, on write and on delete.
 - **Modular.** Schemas and skills are npm packages; a workspace composes them, adds its own, and overlays what it needs to change.
 - **One workspace owns the data.** Modules are read-only inputs. Every write lands in the one workspace a command names.
-- **No hidden steps.** No compile before a change takes effect, no commit behind your back, no module code run. Git runs only when a host asks the engine API for history, a revert or a commit.
+- **No hidden steps.** No compile before a change takes effect, no commit behind your back, module code only where a module ships an extension and the workspace lists it. Git runs only when a host asks the engine API for history, a revert or a commit.
 - **Derived state is disposable.** Everything generated is in `.dt/` and `.dreamteamer/`, and can be deleted.
 - **One interface.** The command line and a script call the same functions; rules about records live in one place.
 - **Typed, and checked at the edge.** Types hold inside the engine; everything read from disk is validated before it is trusted.
@@ -413,7 +414,7 @@ The functions are `buildModel`, `discover`, `findCollection` and `splitRef` in `
 - Instructions are compiled into `.dt/`, not into the files each agent harness loads.
 - The command line has no `commit`, `rename`, `history`, `install` or `init`; the engine API has the first three, for hosts. The schema-editing operations (adding, changing and removing fields, collections, modules, views and skills) are not built.
 - Record layers (`git_modules`) are not read, so neither are records a workspace takes from another repository.
-- Extensions are not loaded, so a module's extension verbs, checks and notes do nothing.
+- Extensions load and contribute verbs, checks, `next` lines and notes; their `setup`, `hooks`, `harnesses`, `doctor`, `analyze`, `sourceKinds` and `orientation` contributions are accepted and ignored, so `setup`, `doctor` and `install` do nothing for them. When two extensions claim one verb, the later one is left out with a warning, where the released engine refuses to run at all.
 - Binary records, such as the pictures in `@dreamteamer/assets`, cannot be read or written.
 - The engine cannot be installed as an npm package: Node will not run TypeScript from inside `node_modules`.
 
@@ -423,7 +424,7 @@ The functions are `buildModel`, `discover`, `findCollection` and `splitRef` in `
 
 [Standard AI agent security measures](https://code.claude.com/docs/en/security) apply: the engine adds no capability to an agent, only a governed way to do what it could already do. Never give an agent credentials, tokens or keys, and treat a private workspace as private.
 
-- **It executes no module code.** It reads YAML, JSON and Markdown from a module's folder and nothing else.
+- **It runs a module's code only through the extension loader.** A module that declares an extension entry (`dreamteamer.extension`) and that the workspace lists has that entry imported and activated for `next`, `check`, an extension's own verb, and the engine API. Everything else in a module folder is read as YAML, JSON and Markdown. Installing a module with an extension is trusting its code, as with the released engine; `dreamteamer.disable` switches one off.
 - **A module is still trusted input.** Its descriptors decide where records are stored and supply the patterns values are matched against. Vet a module before you install it.
 - **A reference is not a path.** One that is empty or contains `.` or `..` is refused by every verb, so a reference taken from an agent or another program cannot reach a file other than a record of the collection it names.
 

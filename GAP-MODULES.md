@@ -230,4 +230,13 @@ engine that already reads every record and serves every verb they call.
 - **New gap, overlay keys**: the released engine applies an overlay's top-level keys (`storage` above all) except
   name, overlay, fields, constraints, display and mixins; this engine applies none of them. One repository of the 76
   re-stores a collection this way, which accounts for 122 of the remaining errors.
+- **`next` and the extension loader** (+246 lines; merged with validation, engine 5,019 lines): `next` evaluates
+  command bindings with the same filter evaluator the engine API uses, and on the sample workspace gives the released
+  engine's verdict on all 200 binding-and-record pairs of 14 collections, its `--json` output identical. Extensions
+  load for a module the workspace lists — 14 of 15 activate on the sample, `web` only once `http` (which also claims
+  `serve`) is switched off — and contribute verbs (`files`, `session`, `web` …), `check` issues (rnd's), `next` lines
+  and notes (sessions'). On the large real workspace `check` now reports 10 warnings, all from rnd's extension (a
+  change request whose `stage` is empty), which the released engine reports too. Not acted on: the `setup`, `hooks`,
+  `harnesses`, `doctor`, `analyze`, `sourceKinds` and `orientation` contributions, a module's engine floor, and
+  extension verbs in `help`. Contract 59/90, unchanged.
 
