@@ -1,7 +1,7 @@
 // Record filters as the released engine evaluates them (its `filter.js`): Directus-style operators, `_and`/`_or`,
 // the `$today`/`$now` tokens, and one hop through a reference. An unknown operator or token narrows, never widens.
 import { isObject } from "../lib/isObject.ts"
-import { compareValues, textOf } from "./compareValues.ts"
+import { compareValues, textOf } from "../lib/compareValues.ts"
 
 type Resolve = ((ref: string) => Record<string, unknown> | null) | undefined
 

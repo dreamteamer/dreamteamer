@@ -6,6 +6,7 @@ import { compile } from "./verbs/compile.ts"
 import { get } from "./verbs/get.ts"
 import { list } from "./verbs/list.ts"
 import { modules } from "./verbs/modules.ts"
+import { next } from "./verbs/next.ts"
 import { relations } from "./verbs/relations.ts"
 import { rm } from "./verbs/rm.ts"
 import { set } from "./verbs/set.ts"
@@ -19,6 +20,7 @@ export const VERBS = {
   add,
   set,
   rm,
+  next,
   relations,
   check,
   compile,

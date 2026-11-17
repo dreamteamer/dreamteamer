@@ -1,6 +1,7 @@
 import type { Collection } from "../types/Collection.ts"
 import type { DtRecord } from "../types/DtRecord.ts"
 import type { Model } from "../types/Model.ts"
+import type { Workspace } from "../types/Workspace.ts"
 
 /** One verb of the command line: how it is typed, what it takes, and what it does. */
 export interface Verb {
@@ -10,7 +11,7 @@ export interface Verb {
   options: readonly string[]
   /** it takes `<field>=<value>` pairs and unknown `--<field>` options as fields */
   fields?: boolean
-  run(a: Args): number
+  run(a: Args): number | Promise<number>
 }
 
 /** A parsed command line, the workspace's model, and the helpers every verb shares. */
@@ -23,6 +24,8 @@ export interface Args {
   opts: Record<string, string[]>
   fields: [string, string | undefined][]
   out: (v: unknown) => void
+  /** the workspace with its extensions activated, loaded on first use: only the verbs that ask run module code */
+  ws(): Promise<Workspace>
   /** the target, or a refusal naming what was wanted */
   wanted(what: string): string
   /** refuse positional arguments past the target and the first `n` after it */

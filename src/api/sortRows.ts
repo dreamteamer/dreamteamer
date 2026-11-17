@@ -1,5 +1,5 @@
 import { mapOf } from "../lib/mapOf.ts"
-import { compareValues } from "./compareValues.ts"
+import { compareValues } from "../lib/compareValues.ts"
 
 /**
  * Sort rows in place by `field` or `-field` (descending), with `compareValues`; given the collection's JSON Schema, an

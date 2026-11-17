@@ -10,7 +10,7 @@ import type { Issue } from "../types/Issue.ts"
 import type { Module } from "../types/Module.ts"
 
 /** manifest keys a module may carry that this engine sees and does not act on */
-const NOT_ACTED_ON = ["extension", "nav", "setup", "preset", "env", "engine", "ignore", "vars"]
+const NOT_ACTED_ON = ["nav", "setup", "preset", "env", "engine", "ignore", "vars"]
 
 /**
  * The module in a folder, or null when its package.json has no `dreamteamer` key. A manifest that cannot be read is
@@ -41,6 +41,7 @@ export function readModule(dir: string, origin: Module["origin"], issues: Issue[
     namespaces: list("namespaces"),
     dependencies: list("dependencies"),
     peers: list("peer_collections"),
+    extension: readOr(issues, file, () => asOptional(dt.extension, "dreamteamer.extension", asString), undefined),
     unsupported: NOT_ACTED_ON.filter((t) => dt[t] !== undefined),
   }
   return m

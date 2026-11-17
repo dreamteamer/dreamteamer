@@ -3,10 +3,12 @@
 import { resolve } from "node:path"
 import { DtError } from "../lib/DtError.ts"
 import { engineVersion } from "../lib/engineVersion.ts"
+import { activate } from "../extensions/activate.ts"
 import { messageOf } from "../lib/messageOf.ts"
 import { buildModel } from "../model/buildModel.ts"
 import { findCollection } from "../model/findCollection.ts"
 import { parseArgs } from "./parseArgs.ts"
+import type { Workspace } from "../types/Workspace.ts"
 import type { Args } from "./Verb.ts"
 import { isVerb, VERBS } from "./VERBS.ts"
 
@@ -16,7 +18,7 @@ const USAGE = [
   "  help | --version",
 ].join("\n")
 
-function run(argv: string[], out: (v: unknown) => void) {
+async function run(argv: string[], out: (v: unknown) => void) {
   const args = [...argv]
   const w = args.findIndex((t) => t === "-w" || t === "--workspace" || t.startsWith("--workspace="))
   const given = w < 0 ? undefined : args[w].includes("=") ? args.splice(w, 1)[0].slice(12) : args.splice(w, 2)[1]
@@ -33,6 +35,15 @@ function run(argv: string[], out: (v: unknown) => void) {
   }
   if (verb.startsWith("-")) throw new DtError(`the verb comes first — got ${verb}\n${USAGE}`)
   if (!isVerb(verb)) {
+    // a verb an installed extension adds runs in this process, handed the workspace and the arguments after it
+    const ws = await Promise.resolve(root)
+      .then((t) => activate(buildModel(t)))
+      .catch(() => null)
+    const ext = ws?.extensions.find((t) => Object.hasOwn(t.commands, verb))
+    if (ws && ext) {
+      const code = await ext.commands[verb](ws, args)
+      return typeof code === "number" ? code : 0
+    }
     out(`unknown verb ${verb}\n${USAGE}`)
     return 2
   }
@@ -40,6 +51,7 @@ function run(argv: string[], out: (v: unknown) => void) {
   const { pos, opts, fields } = parseArgs(verb, v, args)
   const [target, ...extra] = pos
   const model = buildModel(root)
+  let ws: Promise<Workspace> | undefined
   const a: Args = {
     verb,
     model,
@@ -49,6 +61,7 @@ function run(argv: string[], out: (v: unknown) => void) {
     opts,
     fields,
     out,
+    ws: () => (ws ??= activate(model)),
     wanted(what) {
       if (!target) throw new DtError(`${verb} needs ${what}`)
       return target
@@ -75,10 +88,10 @@ function run(argv: string[], out: (v: unknown) => void) {
   return v.run(a)
 }
 
-/** Run one command line; the exit status is returned. A failure is one line, unless DT_DEBUG asks for the stack. */
-export function main(argv: string[]): number {
+/** Run one command line; the exit status is what it resolves to. A failure is one line, unless DT_DEBUG asks for the stack. */
+export async function main(argv: string[]): Promise<number> {
   try {
-    return run(argv, (t) => console.log(typeof t === "string" ? t : JSON.stringify(t, null, 2)))
+    return await run(argv, (t) => console.log(typeof t === "string" ? t : JSON.stringify(t, null, 2)))
   } catch (e) {
     console.error(`✖ ${messageOf(e)}`)
     if (e instanceof DtError) e.issues.forEach((t) => console.error(`  ${t.where}: ${t.message}`))

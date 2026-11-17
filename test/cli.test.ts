@@ -213,3 +213,72 @@ test("numbers and times are stored as typed or completed, never reinterpreted", 
   assert.equal(dt(ws, "set", `tasks/${id}`, "at=2026-12-01T10:00:00.250Z").code, 0)
   assert.match(dt(ws, "set", `tasks/${id}`, "at=next week").err, /date and time with a zone/)
 })
+
+test("next prints which bound commands apply to a record, and in which state", () => {
+  const ws = workspace()
+  put(ws, "modules/local/commands/review.command.md", "---\nname: lab/review\n---\nReview.\n")
+  put(ws, "modules/local/commands/plan.command.md", "---\nname: plan\n---\nPlan.\n")
+  put(
+    ws,
+    "modules/local/command-bindings/review--tasks.command-binding.yaml",
+    "command: commands/review\ncollection: collections/tasks\navailable_when: {_or: [{status: {_eq: todo}}, {assignee: {kind: {_eq: agent}}}]}\ndone_when: {status: {_eq: done}}\n",
+  )
+  put(
+    ws,
+    "modules/local/command-bindings/plan--tasks.command-binding.yaml",
+    "command: commands/plan\ncollection: collections/tasks\nscope: collection\n",
+  )
+  dt(ws, "add", "tasks", "Call the bank", "--id", "call")
+  dt(ws, "add", "tasks", "Water the plants", "--id", "water", "--status", "done")
+  assert.equal(
+    dt(ws, "next", "task/call").out,
+    "lab/review  [record]  1/1 eligible\n  /lab:review tasks/call\nplan  [collection]  /plan tasks\n",
+  )
+  assert.equal(
+    dt(ws, "next", "tasks", "--ids", "call,water").out.split("\n")[0],
+    "lab/review  [record]  1/2 eligible, 1 done",
+  )
+  assert.match(dt(ws, "next", "tasks").out, /^lab\/review {2}\[record\] {2}\(no ids given\)\n/)
+  assert.deepEqual(JSON.parse(dt(ws, "next", "tasks/water", "--json").out).commands[0].states, { water: "done" })
+  assert.equal(dt(ws, "next", "memos").out, "(no commands bound to memos)\n")
+  const r = dt(ws, "next", "nothing/here")
+  quiet(r)
+  assert.equal(r.code, 1)
+})
+
+test("extensions add verbs, checks and notes; one that fails or claims a verb already owned is one line", () => {
+  const ws = workspace()
+  const pkg = JSON.parse(read(ws, "package.json"))
+  put(ws, "package.json", JSON.stringify(Object.assign(pkg, { dreamteamer: { disable: ["modules/off"] } })))
+  const ext = (name: string, code: string) => {
+    put(ws, `modules/${name}/package.json`, JSON.stringify({ name, dreamteamer: { extension: "./x.mjs" } }))
+    put(ws, `modules/${name}/x.mjs`, `export const apiVersion = 1\nexport default ${code}\n`)
+  }
+  ext(
+    "alpha",
+    `(dt) => ({
+      commands: { hello: { run: (ws, argv) => { console.log("hello", ...argv, typeof dt.Store); return 3 } } },
+      check: async () => [{ file: "data/x", message: "looks odd", warning: true }, { message: "is wrong" }],
+      next: ({ ids }) => [...ids.map((id) => ({ id, text: "noted" })), { id: "other", text: "dropped" }],
+      setup: [],
+    })`,
+  )
+  ext("beta", `() => ({ commands: { hello: { run: () => 0 } } })`)
+  ext("gamma", `() => { throw new Error("boom") }`)
+  ext("delta", `() => ({ commands: { list: { run: () => 0 } } })`)
+  ext("off", `() => { throw new Error("never loaded") }`)
+  const r = dt(ws, "hello", "a", "b")
+  assert.deepEqual([r.code, r.out], [3, "hello a b function\n"])
+  assert.deepEqual(r.err.trim().split("\n"), [
+    '✖ extension beta contributes the command "hello", which alpha already owns — uninstall one, or switch it off: add "modules/beta" to dreamteamer.disable in package.json',
+    '✖ extension delta contributes the command "list", which the engine already owns — uninstall one, or switch it off: add "modules/delta" to dreamteamer.disable in package.json',
+    "✖ extension gamma: activate(dt) failed — boom",
+    "✖ extension people: its entry ./x.mjs did not load — " + r.err.split("did not load — ")[1]?.split("\n")[0],
+  ])
+  const c = dt(ws, "check")
+  assert.equal(c.code, 1)
+  assert.match(c.out, /⚠ data\/x: looks odd \(alpha\)\n✖ alpha: is wrong \(alpha\)\n.* 1 errors · 1 warnings\n$/)
+  dt(ws, "add", "tasks", "Call the bank", "--id", "call")
+  assert.equal(dt(ws, "next", "tasks/call").out, "(no commands bound to tasks)\n● tasks/call — noted (alpha)\n")
+  assert.equal(dt(ws, "list", "tasks").err, "", "a verb that needs no extension loads none")
+})

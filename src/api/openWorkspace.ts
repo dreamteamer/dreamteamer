@@ -1,7 +1,9 @@
 import { existsSync, readFileSync } from "node:fs"
 import { dirname, join, relative, resolve } from "node:path"
+import { activate } from "../extensions/activate.ts"
 import { DtError } from "../lib/DtError.ts"
 import { isObject } from "../lib/isObject.ts"
+import { buildModel } from "../model/buildModel.ts"
 
 /** the package.json of a folder when it is a workspace's (it has a `dreamteamer` key), else null */
 function manifestOf(dir: string): Record<string, unknown> | null {
@@ -36,9 +38,7 @@ export function findWorkspace(start = process.cwd()) {
   return found
 }
 
-/** the workspace and its loaded extensions; this adapter loads none yet */
-export function openWorkspace(start?: string) {
-  const ws = findWorkspace(start)
-  const res = { root: ws.root, pkg: ws.pkg, extensions: [] as unknown[] }
-  return Promise.resolve(res)
+/** the workspace at or above a folder, with the extensions its modules declare activated against this API */
+export async function openWorkspace(start?: string) {
+  return activate(buildModel(findWorkspace(start).root))
 }
