@@ -1,13 +1,7 @@
 import { DtError } from "../lib/DtError.ts"
 import { slug } from "../lib/slug.ts"
+import { slugOrHash } from "../lib/slugOrHash.ts"
 import type { Collection } from "../types/Collection.ts"
-
-/** the released engine's hash of a name that has nothing to slug */
-function hash(s: string) {
-  let h = 0
-  for (const ch of s) h = (h * 31 + ch.codePointAt(0)!) >>> 0
-  return "x" + h.toString(36).padStart(7, "0")
-}
 
 /** a date or date-time string is read as written, in its own zone, so an id is the same on every machine */
 function formatDate(v: string, fmt: string) {
@@ -46,12 +40,11 @@ export function makeId(c: Collection, data: Record<string, unknown>, warnings: s
           if (fn === "basename") return v.split("/").pop()!
           if (fn === "pad") return v.padStart(Number(arg) || 0, "0")
           if (fn === "slug") {
-            const s = slug(v)
-            if (!s)
+            if (!slug(v))
               warnings.push(
                 `the id is a hash, not a name: "${name}" (${v}) has no Latin letters or digits to make one from — pass --id for a readable one`,
               )
-            return s || hash(v)
+            return slugOrHash(v)
           }
           throw new DtError(
             `${c.name}: its id rule uses the filter "${fn}", which this engine does not have — pass --id`,
