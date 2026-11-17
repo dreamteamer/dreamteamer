@@ -152,7 +152,7 @@ export class Store {
     if (readFileSync(rec.path, "utf8") === text) return { id, reverted: false }
     const data = parseText(c, text, (m) => new DtError(`${collection}/${id} at ${rev}: unreadable — ${m}`)).data
     const mirrors = mirrorEdits(this.model, c.name, id, rec.data, data)
-    folded(() => write(this.model, c, id, data, text, rec.mtimeMs))
+    folded(() => write(this.model, c, id, rec.path, data, text, rec.mtimeMs))
     applyMirrors(this.model, mirrors)
     const res = { id, reverted: true, hash: rev, file: rec.path }
     return res

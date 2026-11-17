@@ -21,5 +21,5 @@ export function rewrite(model: Model, ref: string, changes: [string, unknown][],
   // edit the lines that change; if the result would not read back as the fields meant, write the fields afresh
   let yaml = doc ? editYaml(front, doc, changes) : null
   if (doc && (yaml === null || !holds(yaml, fields))) yaml = yamlOf(fields)
-  return write(model, c, rec.id, rec.data, compose(c, yaml ?? "", rec.data, body), rec.mtimeMs, checked)
+  return write(model, c, rec.id, rec.path, rec.data, compose(c, yaml ?? "", rec.data, body), rec.mtimeMs, checked)
 }

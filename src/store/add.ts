@@ -6,6 +6,7 @@ import { yamlOf } from "../yaml/yamlOf.ts"
 import type { DtRecord } from "../types/DtRecord.ts"
 import type { Model } from "../types/Model.ts"
 import { compose } from "./compose.ts"
+import { find } from "./find.ts"
 import { get } from "./get.ts"
 import { makeId } from "./makeId.ts"
 import { openCollection } from "./openCollection.ts"
@@ -28,7 +29,10 @@ export function add(model: Model, collection: string, input: Record<string, unkn
   for (const [name, f] of Object.entries(c.fields))
     if (f.default !== undefined && data[name] === undefined) data[name] = f.default
   const newId = id ?? makeId(c, data, warnings)
-  if (existsSync(recordPath(model, c, newId))) throw new DtError(`${c.name}/${newId} already exists — nothing written`)
+  const path = recordPath(model, c, newId)
+  // the exact spelling of an id, or one that differs only in case where the file system ignores case
+  if (existsSync(path) || find(model, c, newId))
+    throw new DtError(`${c.name}/${newId} already exists — nothing written`)
   refuseMirrors(model, c.name, newId, Object.keys(input))
   refuseTaken(model, c, newId, data, Object.keys(data))
   const mirrors = mirrorEdits(model, c.name, newId, null, data)
@@ -36,7 +40,7 @@ export function add(model: Model, collection: string, input: Record<string, unkn
   let body = typeof text === "string" ? text : ""
   if (body && !body.endsWith("\n")) body += "\n"
   const front = Object.fromEntries(Object.entries(data).filter(([k]) => !(c.storage.format === "md" && k === bf)))
-  write(model, c, newId, data, compose(c, yamlOf(front), data, body), undefined)
+  write(model, c, newId, path, data, compose(c, yamlOf(front), data, body), undefined)
   applyMirrors(model, mirrors)
   const rec = get(model, `${c.name}/${newId}`)
   if (warnings.length) rec.warnings = warnings

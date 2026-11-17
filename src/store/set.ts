@@ -34,7 +34,7 @@ export function set(model: Model, ref: string, changes: Record<string, unknown>)
   if (doc && (yaml === null || !holds(yaml, fields))) yaml = yamlOf(fields)
   refuseTaken(model, c, rec.id, data, Object.keys(changes))
   const mirrors = mirrorEdits(model, c.name, rec.id, prior, data)
-  write(model, c, rec.id, data, compose(c, yaml ?? "", data, body), rec.mtimeMs)
+  write(model, c, rec.id, rec.path, data, compose(c, yaml ?? "", data, body), rec.mtimeMs)
   applyMirrors(model, mirrors)
   return get(model, rec.ref)
 }
