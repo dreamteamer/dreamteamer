@@ -175,3 +175,11 @@ engine that already reads every record and serves every verb they call.
   packages are not yet explained.
 - **Sizes** reuse GAP-2's estimates where the gap is the same and are new for E1, D10's records, the protocol host and
   the waves. Extension ports are not estimated: no extension has been run against this engine.
+
+## What has changed since
+
+- **E1 closed** (enum maps are read: the keys are the values, the entries are kept as `choices`). Across the 76
+  repositories, the new engine's errors fell from 21,050 to 7,948, and the repositories where both engines are clean
+  rose from 43 to 46. What remains is references: to system records (D10), and to records in layers or under their
+  owners (M8, D11).
+

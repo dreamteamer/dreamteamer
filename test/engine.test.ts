@@ -50,6 +50,34 @@ test("finds npm and workspace modules and resolves mixins, overlays and declared
   assert.deepEqual(m.issues, [])
 })
 
+test("an enum written as a map takes its keys as the values and keeps how each is shown", () => {
+  const root = workspace()
+  put(
+    root,
+    "modules/local/collections/gadgets.collection.yaml",
+    "name: gadgets\nfields:\n  name: {type: string, required: true}\n  level:\n    type: string\n    default: normal\n    enum:\n      low: {label: Low, color: grey}\n      normal: {label: Normal}\n      high:\n",
+  )
+  const m = buildModel(root)
+  assert.deepEqual(m.issues, [])
+  const f = m.collections.gadgets.fields.level
+  assert.deepEqual(f.enum, ["low", "normal", "high"])
+  assert.deepEqual(f.choices, { low: { label: "Low", color: "grey" }, normal: { label: "Normal" }, high: null })
+  assert.equal(add(m, "gadgets", { name: "Lamp" }).data.level, "normal")
+  assert.equal(add(m, "gadgets", { name: "Fan", level: "high" }).data.level, "high")
+  refuses(() => add(m, "gadgets", { name: "Kettle", level: "extreme" }), /not one of low \| normal \| high/)
+  put(
+    root,
+    "modules/local/collections/gadgets.collection.yaml",
+    "name: gadgets\nfields:\n  level: {type: string, enum: low}\n",
+  )
+  assert.match(
+    buildModel(root)
+      .issues.map((t) => t.message)
+      .join("\n"),
+    /expected a list or a map of values, found text/,
+  )
+})
+
 test("a typo in a descriptor is an error that stops writes and compile", () => {
   const root = workspace()
   put(

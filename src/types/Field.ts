@@ -8,7 +8,10 @@ export interface Field {
   many?: boolean
   required?: boolean
   default?: unknown
+  /** the allowed values; a descriptor may write them as a list or as a map */
   enum?: unknown[]
+  /** how each value is shown, when the enum was written as a map: value → `label`, `color`, `icon` … */
+  choices?: Record<string, unknown>
   pattern?: string
   minimum?: number
   maximum?: number

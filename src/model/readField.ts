@@ -1,4 +1,4 @@
-import { asArray } from "../lib/asArray.ts"
+import { asEnum } from "../lib/asEnum.ts"
 import { asFlag } from "../lib/asFlag.ts"
 import { asOptional } from "../lib/asOptional.ts"
 import { asString } from "../lib/asString.ts"
@@ -17,12 +17,14 @@ function bound(v: unknown) {
  */
 export function readField(raw: unknown): Field | null {
   if (!isObject(raw) || !raw.type) return null
+  const e = asOptional(raw.enum, "enum", asEnum)
   // the descriptor's keys are open-ended, so they are copied as a whole rather than by name
   const f: Field = Object.assign({}, raw, {
     type: typeof raw.type === "string" ? raw.type : asStrings(raw.type, "type"),
     many: asFlag(raw.many),
     required: asFlag(raw.required),
-    enum: asOptional(raw.enum, "enum", (v, where) => asArray(v, where, (t) => t)),
+    enum: e?.values,
+    choices: e?.choices,
     pattern: asOptional(raw.pattern, "pattern", asString),
     minimum: bound(raw.minimum),
     maximum: bound(raw.maximum),
