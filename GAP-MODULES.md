@@ -217,3 +217,17 @@ engine that already reads every record and serves every verb they call.
   notes, the nav-document writers, `describeCheckout` and the other names only extensions call. Simplified: staleness
   (never stale), `commitPending` (one repository, no lock), `placementKey` (a plain midpoint), `init` (no commit).
   `check` through the API names records, not file paths. Engine 4,337 lines.
+- **V3 and N1 closed** (seven commits, +436 lines): an `object`'s fields are checked recursively, references inside
+  included; a `map`'s values against its value type; `unique` on write and in `check`; a collection's `constraints`
+  through a small evaluator of the JSON Schema keywords the corpus uses (581 rules on 328 collections in the 76
+  repositories), anything else refused as a model error; a null is checked as its type's empty value; a collection
+  stored inside another's folder is a model error; a repeated list flag keeps each value whole. On a scratch workspace
+  copying the published constraint shapes, the released engine and this one flag the same records. Measured: the large
+  real workspace 4,837 records, 0/0; the sample 287, 0/0; the 76 repositories 1,626 errors (48 more, all real
+  references inside an object field in one repository whose company records this engine cannot find, because it does
+  not apply an overlay's `storage` — a new gap), 53 both clean, unchanged. Contract 59/90, unchanged. Engine 4,773
+  lines.
+- **New gap, overlay keys**: the released engine applies an overlay's top-level keys (`storage` above all) except
+  name, overlay, fields, constraints, display and mixins; this engine applies none of them. One repository of the 76
+  re-stores a collection this way, which accounts for 122 of the remaining errors.
+

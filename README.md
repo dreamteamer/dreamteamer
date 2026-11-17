@@ -406,7 +406,8 @@ The functions are `buildModel`, `discover`, `findCollection` and `splitRef` in `
 
 ## What is not supported yet
 
-- The contents of an `object` or a `map`, uniqueness, and a collection's cross-field `constraints` are not enforced.
+- A constraint keyword outside the supported set (`if`/`then`/`else`, `not`, `allOf`/`anyOf`/`oneOf`, `properties`, `items`, `required`, `const`, `enum`, `type`, `pattern`, bounds and lengths), or a boolean schema, is refused as an error in the model.
+- An overlay's `storage`, `ids`, `singular`, `description` and `use_when` are not applied; only its fields, constraints and display are.
 - A module's commands, agents, command bindings and UI views are read as records, and nothing more: they are not delivered to an agent harness or acted on. Navigation and extensions are not read.
 - The `using-dreamteamer` skill the system module ships describes the released engine's verbs, several of which this engine does not have.
 - Instructions are compiled into `.dt/`, not into the files each agent harness loads.
