@@ -399,7 +399,7 @@ The source is TypeScript that Node runs directly, so it uses only syntax that ca
 | `src/model/` | Finding the modules (`discover.ts`) and resolving them into one model (`buildModel.ts`) |
 | `src/store/`, `src/yaml/` | Reading, validating and changing records, and editing a record's YAML a line at a time |
 | `src/compile/` | Writing `.dt/` |
-| `src/cli/`, `bin/dt.ts` | The command line |
+| `src/cli/`, `bin/dt.ts` | The command line: `main.ts` parses and dispatches through the table in `VERBS.ts`; each verb is one file in `src/cli/verbs/` with its usage line, its options and its handler |
 
 `test/engine.test.ts` drives the API on a throw-away workspace of invented modules, `test/cli.test.ts` runs the command line as a process, and `test/published.test.ts` runs the engine on published modules — tasks, users, companies, contacts, assets, meetings and rnd — pinned to exact versions as development dependencies. The house style is in [CLAUDE.md](CLAUDE.md). The engine has a budget of 7,000 lines; before adding to it, check that the addition has a demonstrated job.
 

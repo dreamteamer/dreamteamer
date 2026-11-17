@@ -182,4 +182,6 @@ engine that already reads every record and serves every verb they call.
   repositories, the new engine's errors fell from 21,050 to 7,948, and the repositories where both engines are clean
   rose from 43 to 46. What remains is references: to system records (D10), and to records in layers or under their
   owners (M8, D11).
-
+- **The command line is table-driven** (no behaviour change): each verb is one file in `src/cli/verbs/` with its
+  usage line, options and handler, and `main.ts` only dispatches, so a new verb is a new file and one line in the
+  table. Engine 2,424 lines.
