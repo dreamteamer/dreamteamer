@@ -187,4 +187,9 @@ export class Store {
     }
     return res
   }
+
+  /** the files of the records that point at one, relative to the workspace */
+  findInboundRefs(collection: string, id: string): string[] {
+    return referrers(this.model, `${collection}/${id}`).map((t) => relative(this.root, get(this.model, t).path))
+  }
 }

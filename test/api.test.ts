@@ -235,3 +235,32 @@ test("pending records are listed and committed, each file named, nothing else sw
   assert.equal(done[0].subject, "dreamteamer: tasks add new-one")
   assert.match(g("status", "--porcelain"), /M data\/tasks\/call-sam\.task\.md\n\?\? stray\.txt/)
 })
+
+test("the names extensions call answer in the released shapes", () => {
+  const root = seeded()
+  assert.deepEqual(api.parseArgs(["sync", "--drive", "a", "--force", "--x=1", "--x=2"]), {
+    flags: { drive: "a", force: true, x: ["1", "2"] },
+    pos: ["sync"],
+  })
+  const store = new api.Store({ root })
+  assert.deepEqual(api.splitRef(store.descriptors, "tasks/a/b"), { collection: "tasks", id: "a/b" })
+  assert.equal(api.splitRef(store.descriptors, "nope/a"), null)
+  assert.deepEqual(store.findInboundRefs("users", "dana-oren"), ["data/tasks/brief-dana.task.md"])
+  assert.ok(readFileSync(api.engineBin, "utf8").includes("main"))
+  const lines: string[] = []
+  const log = console.log
+  console.log = (s: string) => lines.push(s)
+  try {
+    assert.equal(api.check({ root }), 0)
+    writeFileSync(join(root, "data/tasks/call-sam.task.md"), "---\nname: Call Sam\nestimate: 0\n---\n")
+    assert.equal(api.check({ root }), 1)
+  } finally {
+    console.log = log
+  }
+  assert.deepEqual(lines.slice(-3), [
+    "✖ tasks/call-sam",
+    "    estimate: less than the minimum 1",
+    "1 violation. files were NOT modified.",
+  ])
+  assert.equal(api.compile({ root: seeded() }), 0)
+})

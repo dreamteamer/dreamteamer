@@ -3,6 +3,7 @@
 // of the files it imports only outside node_modules, so the engine is installed as a link or a git_modules clone.
 // Adapter exception to the house style: this file only re-exports, by the released API's names.
 import { accessors } from "./api/accessors.ts"
+import { extensionShims } from "./api/extensionShims.ts"
 import { shims } from "./api/shims.ts"
 
 export const apiVersion = 1
@@ -24,6 +25,7 @@ export { commitPending } from "./api/commitPending.ts"
 export { slug } from "./lib/slug.ts"
 export { slugOrHash } from "./lib/slugOrHash.ts"
 export const { engineVersion, namespaces, loadDescriptors, bodyField, parseRecordText, warnIfStale, emit } = shims
+export const { engineBin, parseArgs, splitRef, check, compile, CHECK_WARNINGS } = extensionShims
 export const {
   fieldsOf,
   storedFieldsOf,
