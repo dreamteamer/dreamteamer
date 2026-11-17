@@ -192,7 +192,7 @@ dtx compile
 
 This writes `.dt/AGENTS.md` — how to run the engine, then every collection with its fields, types, allowed values and id rule, and every skill your modules ship — and `.dt/model.json`, the same model for tools. Point your agent at `.dt/AGENTS.md`. The `.dt/` folder ignores itself in git and can be deleted at any time. `compile` also writes `.dreamteamer/`, the layout the released engine compiles, for tools that read it (see [Compile](#compile)); add it to your `.gitignore` too.
 
-**8. Commit.** The engine never runs git. What it wrote is ordinary files:
+**8. Commit.** Nothing is committed until you ask. What the engine wrote is ordinary files, so plain git works — and `dtx commit [<ref|collection>…] -m <message>` commits exactly the record files you name, `dtx changes` lists what is written and not committed:
 
 ```bash
 git add .gitignore package.json package-lock.json modules data
@@ -277,10 +277,10 @@ From a module the engine reads:
 The schema is resolved in memory, on every command, straight from those files. There is nothing to keep fresh: edit a descriptor and the next command sees it.
 
 1. A collection's `name` is its name, namespace included (`rnd/design-docs`). The mixins it lists are merged first, then the descriptor on top. Unless it says otherwise, records live under `data/<name>` as Markdown and ids come from `{{ name | slug }}`.
-2. An overlay adds fields to a collection another module owns. An overlay of a collection that is not installed is skipped: that is how a module extends an optional peer.
+2. An overlay adds fields to a collection another module owns, and may replace its `storage`, `ids`, `singular`, `description`, `use_when`, `title`, `record_title`, `internal` and `sensitive`, each whole. An overlay of a collection that is not installed is skipped: that is how a module extends an optional peer.
 3. A field's type is a scalar, an installed collection, or a collection that a module lists under `peer_collections`. A declared peer that is not installed keeps its field; a value there must name that collection and is otherwise left unresolved. Anything else — a misspelt type, say — is an error, and an error in the schema stops every write until it is fixed.
 
-4. How a collection is drawn is carried in the model as written, for whatever presents it: `title`, `record_title`, `internal`, `sensitive`, `constraints` (not enforced) and `display` — the descriptor's own `nav`, `list`, `record` and `form` sub-blocks completed key by key from its mixins', with an overlay's keys winning over both. A field keeps every key it was written with, its own `display` and `title` included.
+4. How a collection is drawn is carried in the model as written, for whatever presents it: `title`, `record_title`, `internal`, `sensitive`, `constraints` and `display` — the descriptor's own `nav`, `list`, `record` and `form` sub-blocks completed key by key from its mixins', with an overlay's keys winning over both. A field keeps every key it was written with, its own `display` and `title` included.
 
 **Field types:** `string`, `markdown`, `url`, `email`, `date`, `datetime`, `integer`, `number`, `boolean`, `object`, `map`, `position`, `reference` (a record of any collection), a collection name (a record of that collection), or a list of collection names (a record of any of them).
 
@@ -337,7 +337,7 @@ No command reads any of this back, so a stale `.dt/` or `.dreamteamer/` cannot m
 
 ### Git
 
-Nothing commits by itself. `add`, `set` and `rm` change files and stop; staging and committing are yours. The command line never runs git. The engine API below does, when a host asks for a record's history, a revert or a commit: through one helper (`src/api/git.ts`) that checks every revision it is given, and a commit stages exactly the record files it names.
+Nothing commits by itself. `add`, `set` and `rm` change files and stop. Git runs only when asked: the `commit`, `changes` and `history` verbs, and the engine API below when a host asks for a record's history, a revert or a commit — through one helper (`src/api/git.ts`) that checks every revision it is given, and a commit stages exactly the record files it names.
 
 ### The engine API for hosts and the Web UI
 
@@ -364,6 +364,12 @@ dtx <verb> [target] [arguments] [-w <workspace>]
 | `rm <ref>` | Deletes a record. `--force` deletes one that others reference. Refused for a source record | `dtx rm tasks/2026-11-17--buy-milk` |
 | `relations rebuild <collection>` | Recomputes the collection's reverse fields from the records that point at it | `dtx relations rebuild users` |
 | `next <collection>[/<id>]…` | Says which of the module commands bound to a collection apply to each record, and which are done, from the bindings' gates on its fields; `--json` prints the verdicts | `dtx next rnd/change-requests/cr-001` |
+| `rename <ref> <new-id>` | Moves a record to a new id and rewrites every reference to it | `dtx rename companies/acme acme-corp` |
+| `values <collection> <field>` | The values a field holds, with counts | `dtx values tasks status` |
+| `resolve <ref> <field>` or `resolve '<text>'` | Renders `${env:NAME}` templates with this machine's values | `dtx resolve repos/site path` |
+| `history <ref>` | The commits that touched a record | `dtx history tasks/2026-11-17--buy-milk` |
+| `changes` | Records written and not committed | `dtx changes` |
+| `commit [<ref\|collection>…] [-m <message>] [--dry-run]` | Commits exactly those record files; with none named, every pending record | `dtx commit tasks -m "Tasks"` |
 | `check` | Validates every record and reports files it does not recognise. Changes nothing | `dtx check` |
 | `compile` | Writes `.dt/`, and the released compiled layout into `.dreamteamer/` | `dtx compile` |
 | `help`, `--version` | | `dtx help` |
@@ -408,11 +414,11 @@ The functions are `buildModel`, `discover`, `findCollection` and `splitRef` in `
 ## What is not supported yet
 
 - A constraint keyword outside the supported set (`if`/`then`/`else`, `not`, `allOf`/`anyOf`/`oneOf`, `properties`, `items`, `required`, `const`, `enum`, `type`, `pattern`, bounds and lengths), or a boolean schema, is refused as an error in the model.
-- An overlay's `storage`, `ids`, `singular`, `description` and `use_when` are not applied; only its fields, constraints and display are.
+- Where several mixins set `storage` or `ids`, the last one listed wins whole; the released engine merges them key by key.
 - A module's commands, agents, command bindings and UI views are read as records, and nothing more: they are not delivered to an agent harness or acted on. Navigation and extensions are not read.
 - The `using-dreamteamer` skill the system module ships describes the released engine's verbs, several of which this engine does not have.
 - Instructions are compiled into `.dt/`, not into the files each agent harness loads.
-- The command line has no `commit`, `rename`, `history`, `install` or `init`; the engine API has the first three, for hosts. The schema-editing operations (adding, changing and removing fields, collections, modules, views and skills) are not built.
+- The command line has no `install`, `init`, `diff` or `revert` (the engine API has the last two, for hosts); `commit` works within one repository and takes no lock. The schema-editing operations (adding, changing and removing fields, collections, modules, views and skills) are not built.
 - Record layers (`git_modules`) are not read, so neither are records a workspace takes from another repository.
 - Extensions load and contribute verbs, checks, `next` lines and notes; their `setup`, `hooks`, `harnesses`, `doctor`, `analyze`, `sourceKinds` and `orientation` contributions are accepted and ignored, so `setup`, `doctor` and `install` do nothing for them. When two extensions claim one verb, the later one is left out with a warning, where the released engine refuses to run at all.
 - Binary records, such as the pictures in `@dreamteamer/assets`, cannot be read or written.

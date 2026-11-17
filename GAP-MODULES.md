@@ -239,4 +239,11 @@ engine that already reads every record and serves every verb they call.
   change request whose `stage` is empty), which the released engine reports too. Not acted on: the `setup`, `hooks`,
   `harnesses`, `doctor`, `analyze`, `sourceKinds` and `orientation` contributions, a module's engine floor, and
   extension verbs in `help`. Contract 59/90, unchanged.
+- **Overlay keys and six verbs** (+239 lines, engine 5,258): an overlay's `storage`, `ids`, `singular`,
+  `description`, `use_when` and labels replace its base's. Across the 76 repositories errors fell from 1,626 to 1,289
+  and both-clean rose from 53 to 54; the repository that re-stores its companies is now clean in both engines, and in
+  one other, 14 reverse fields now read as stale because the records that point at them are stored under their owner
+  (D11). The command line gains `commit`, `changes`, `rename`, `values`, `history` and `resolve`, over the functions
+  the engine API already had; `values`, `history` and `resolve` print what the released verbs print. Still missing:
+  `diff`, `revert`, `install`, `init`, `update`, `setup`, `doctor`, `status` and the schema verbs.
 
