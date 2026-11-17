@@ -11,7 +11,7 @@ import { get } from "./get.ts"
 import { makeId } from "./makeId.ts"
 import { openCollection } from "./openCollection.ts"
 import { readOnly } from "./readOnly.ts"
-import { recordPath } from "./recordPath.ts"
+import { pathFor } from "./pathFor.ts"
 import { refuseTaken } from "./refuseTaken.ts"
 import { write } from "./write.ts"
 import { applyMirrors, mirrorEdits, refuseMirrors } from "./mirrorEdits.ts"
@@ -29,7 +29,7 @@ export function add(model: Model, collection: string, input: Record<string, unkn
   for (const [name, f] of Object.entries(c.fields))
     if (f.default !== undefined && data[name] === undefined) data[name] = f.default
   const newId = id ?? makeId(c, data, warnings)
-  const path = recordPath(model, c, newId)
+  const path = pathFor(model, c, newId, data)
   // the exact spelling of an id, or one that differs only in case where the file system ignores case
   if (existsSync(path) || find(model, c, newId))
     throw new DtError(`${c.name}/${newId} already exists — nothing written`)

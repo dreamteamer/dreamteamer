@@ -5,7 +5,10 @@ import { messageOf } from "../lib/messageOf.ts"
 import type { Issue } from "../types/Issue.ts"
 import type { Model } from "../types/Model.ts"
 import { get } from "./get.ts"
-import { listIds } from "./listIds.ts"
+import { filesOf } from "./filesOf.ts"
+import { ownerOf } from "./pathFor.ts"
+import { splitRef } from "../model/splitRef.ts"
+import type { RecordFile } from "../types/Root.ts"
 import { tail } from "./tail.ts"
 import { validate } from "./validate.ts"
 import { claims } from "./refuseTaken.ts"
@@ -27,6 +30,7 @@ export function check(model: Model) {
         (t.storage.shape === "folder" || t.storage.format === "binary" || p.endsWith(tail(t))),
     )
   }
+  const rel = (p: string) => relative(model.root, p)
   const strays = new Set<string>()
   let records = 0
   const seen = new Map<string, Map<string, Record<string, unknown>>>()
@@ -41,21 +45,41 @@ export function check(model: Model) {
         })
       continue
     }
-    let ids: string[]
+    let files: Map<string, RecordFile[]>
     try {
-      ids = listIds(model, c.name)
+      files = filesOf(model, c)
     } catch (e) {
       issues.push({ severity: "error", where: c.name, message: `cannot read ${c.storage.path}: ${messageOf(e)}` })
       continue
     }
     const read = new Map<string, Record<string, unknown>>()
     seen.set(c.name, read)
-    for (const id of ids) {
+    for (const [id, [first, ...rest]] of [...files].sort(([a], [b]) => (a < b ? -1 : 1))) {
       records++
+      const where = `${c.name}/${id}`
+      for (const t of rest)
+        issues.push({
+          severity: "error",
+          where,
+          message: `held twice — ${rel(first.path)} and ${rel(t.path)}. Remove one`,
+        })
       try {
-        const data = get(model, `${c.name}/${id}`).data
+        const data = get(model, where).data
         read.set(id, data)
         issues.push(...validate(model, c.name, id, data, unresolved))
+        // the owner field says where a record stored under its owner belongs; the folder says where it is
+        const raw = c.under && data[c.under.parent]
+        const owner = ownerOf(model, c, data)
+        if (
+          c.under &&
+          owner !== first.root.parent &&
+          (raw == null || raw === "" || (typeof raw === "string" && splitRef(model, raw)))
+        )
+          issues.push({
+            severity: "error",
+            where,
+            message: `stored ${first.root.parent ? `under ${c.under.collection}/${first.root.parent}` : `in ${c.storage.path}`} but ${c.under.parent} is ${owner ? `${c.under.collection}/${owner}` : "empty"} — move the file where its owner puts it`,
+          })
       } catch (e) {
         issues.push({
           severity: "error",

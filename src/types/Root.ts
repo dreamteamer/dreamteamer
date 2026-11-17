@@ -1,6 +1,8 @@
 /** A folder a collection's records are read from, each file's path there being its id. */
 export interface Root {
   dir: string
+  /** the record whose folder lends it, for a collection stored under its owners */
+  parent?: string
 }
 
 /** A record's file, and the folder it was found in. */

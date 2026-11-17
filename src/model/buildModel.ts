@@ -23,6 +23,7 @@ import { readSkills } from "./readSkills.ts"
 import { readSources } from "./readSources.ts"
 import { SCALARS } from "./SCALARS.ts"
 import { singular } from "./singular.ts"
+import { underOf } from "./underOf.ts"
 import { SOURCE_KINDS } from "./SOURCE_KINDS.ts"
 
 const FORMATS = new Set(["md", "yaml", "json", "binary"])
@@ -293,6 +294,8 @@ export function buildModel(root: string): Model {
       }
       c.fields[name] = f
     }
+  for (const c of Object.values(collections))
+    if (c.storage.under !== undefined) c.under = readOr(issues, c.name, () => underOf(c, collections), undefined)
   issues.push(...overlaps(collections))
   for (const c of Object.values(collections))
     c.rules = (c.constraints ?? []).flatMap((t, i) =>

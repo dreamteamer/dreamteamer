@@ -968,3 +968,58 @@ test("an overlay's own keys replace its base's, storage whole, as the released e
   assert.equal(r.path, join(root, "data/companies/northwind/company.md"))
   assert.equal(get(buildModel(root), "companies/northwind").data.name, "Northwind")
 })
+
+test("records stored under their owner are read, written and moved where the released engine keeps them", () => {
+  const root = workspace()
+  put(
+    root,
+    "modules/local/collections/companies.collection.yaml",
+    "name: companies\nstorage: {path: data/companies, shape: folder, entry: index.md}\nfields:\n  name: {type: string, required: true}\n",
+  )
+  put(
+    root,
+    "modules/local/collections/meetings.collection.yaml",
+    "name: meetings\nstorage: {path: data/meetings, under: {parent: company, subfolder: meetings}}\nfields:\n  name: {type: string, required: true}\n  company: {type: companies}\n",
+  )
+  const m = buildModel(root)
+  for (const n of ["northwind", "harbor"]) add(m, "companies", { name: n })
+  // the files the released engine 0.49.1 writes for the same adds
+  assert.equal(
+    add(m, "meetings", { name: "Kickoff", company: "companies/northwind" }).path,
+    join(root, "data/companies/northwind/meetings/kickoff.meeting.md"),
+  )
+  assert.equal(add(m, "meetings", { name: "Loose" }).path, join(root, "data/meetings/loose.meeting.md"))
+  assert.deepEqual(listIds(m, "meetings"), ["kickoff", "loose"])
+  assert.equal(
+    set(m, "meetings/kickoff", { company: "companies/harbor" }).path,
+    join(root, "data/companies/harbor/meetings/kickoff.meeting.md"),
+  )
+  assert.ok(!existsSync(join(root, "data/companies/northwind/meetings")))
+  assert.deepEqual(errors(m), [])
+  assert.throws(() => add(m, "meetings", { name: "Kickoff" }), /already exists/)
+  assert.throws(() => rm(m, "companies/harbor"), /referenced by 1 record/)
+  // a file where its owner field does not put it, and an id held twice: the released check's verdicts
+  cpSync(
+    join(root, "data/companies/harbor/meetings/kickoff.meeting.md"),
+    join(root, "data/companies/northwind/meetings/kickoff.meeting.md"),
+  )
+  writeFileSync(join(root, "data/meetings/loose.meeting.md"), "---\nname: Loose\ncompany: companies/harbor\n---\n")
+  assert.deepEqual(
+    errors(m).map((t) => `${t.where}: ${t.message}`),
+    [
+      "meetings/kickoff: held twice — data/companies/harbor/meetings/kickoff.meeting.md and data/companies/northwind/meetings/kickoff.meeting.md. Remove one",
+      "meetings/loose: stored in data/meetings but company is companies/harbor — move the file where its owner puts it",
+    ],
+  )
+  put(
+    root,
+    "modules/local/collections/memos.collection.yaml",
+    "name: memos\nstorage: {under: {parent: title, subfolder: ../x}}\nfields:\n  title: {type: string, required: true}\n",
+  )
+  assert.match(
+    errors(buildModel(root))
+      .map((t) => t.message)
+      .join("\n"),
+    /must be a relative folder/,
+  )
+})

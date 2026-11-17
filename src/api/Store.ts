@@ -8,7 +8,9 @@ import { get } from "../store/get.ts"
 import { load } from "../store/load.ts"
 import { applyMirrors, mirrorEdits } from "../store/mirrorEdits.ts"
 import { parseText } from "../store/parseText.ts"
-import { recordPath } from "../store/recordPath.ts"
+import { filesOf } from "../store/filesOf.ts"
+import { find } from "../store/find.ts"
+import { pathFor } from "../store/pathFor.ts"
 import { referrers } from "../store/referrers.ts"
 import { rewrite } from "../store/rewrite.ts"
 import { write } from "../store/write.ts"
@@ -82,9 +84,9 @@ export class Store {
     const c = this.model.collections[collection]
     // Review: this engine reads no binary records, so a listing of one (`assets`) is empty rather than refused
     if (c.storage.format === "binary") return new Map<string, string>()
-    const ids = listIds(this.model, c.name)
-    const base = join(this.root, c.storage.path)
-    return new Map(ids.map((t) => [t, this.model.sources[c.name]?.[t] ?? join(base, t + tail(c))]))
+    const src = this.model.sources[c.name]
+    if (src) return new Map(listIds(this.model, c.name).map((t) => [t, src[t]]))
+    return new Map([...filesOf(this.model, c)].sort(([a], [b]) => (a < b ? -1 : 1)).map(([t, f]) => [t, f[0].path]))
   }
 
   /** the folders a collection's records sit in */
@@ -162,8 +164,8 @@ export class Store {
   rename(collection: string, from: string, to: string) {
     const { rec, c } = load(this.model, `${collection}/${from}`)
     const [old, now] = [`${c.name}/${from}`, `${c.name}/${to}`]
-    const target = recordPath(this.model, c, to)
-    if (existsSync(target)) throw new DtError(`${now} already exists — nothing renamed`)
+    const target = pathFor(this.model, c, to, rec.data)
+    if (existsSync(target) || find(this.model, c, to)) throw new DtError(`${now} already exists — nothing renamed`)
     const owners = referrers(this.model, old)
     const gone = mirrorEdits(this.model, c.name, from, rec.data, null)
     const [src, dst] = c.storage.shape === "folder" ? [dirname(rec.path), dirname(target)] : [rec.path, target]
