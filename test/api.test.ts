@@ -186,3 +186,27 @@ test("a record's history, a commit's patch and a revert are read from git", () =
   assert.equal(store.read("tasks", "call-sam").fields.status, "todo")
   assert.deepEqual(store.revert("tasks", "call-sam", h[1].hash), { id: "call-sam", reverted: false })
 })
+
+test("a rename moves the record and rewrites who names it; a position key falls between its neighbours", () => {
+  const root = seeded()
+  const store = new api.Store({ root })
+  const r = store.rename("users", "dana-oren", "dana")
+  assert.equal(r.id, "dana")
+  assert.deepEqual(r.touched, ["data/tasks/brief-dana.task.md"])
+  assert.equal(store.read("tasks", "brief-dana").fields.assignee, "users/dana")
+  assert.deepEqual(store.read("users", "dana").fields.tasks, ["tasks/brief-dana"])
+  assert.throws(() => store.read("users", "dana-oren"), /no such record/)
+  assert.throws(() => store.rename("users", "dana", "dana"), /already exists/)
+  const rows = [
+    { id: "a", key: "c" },
+    { id: "b", key: "d" },
+    { id: "c", key: "" },
+  ]
+  const keys = [
+    api.placementKey(rows, "c", { top: true }),
+    api.placementKey(rows, "c", { after: "a" }),
+    api.placementKey(rows, "c", { bottom: true }),
+  ]
+  assert.ok(keys[0] < "c" && "c" < keys[1] && keys[1] < "d" && "d" < keys[2], keys.join(" "))
+  assert.throws(() => api.placementKey(rows, "a", { after: "c" }), /no sort value/)
+})

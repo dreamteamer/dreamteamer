@@ -1,5 +1,5 @@
-import { readFileSync } from "node:fs"
-import { join, relative } from "node:path"
+import { existsSync, mkdirSync, readFileSync, renameSync } from "node:fs"
+import { dirname, join, relative } from "node:path"
 import { DtError } from "../lib/DtError.ts"
 import { buildModel } from "../model/buildModel.ts"
 import { descriptorOf } from "../model/descriptorOf.ts"
@@ -8,6 +8,9 @@ import { get } from "../store/get.ts"
 import { load } from "../store/load.ts"
 import { applyMirrors, mirrorEdits } from "../store/mirrorEdits.ts"
 import { parseText } from "../store/parseText.ts"
+import { recordPath } from "../store/recordPath.ts"
+import { referrers } from "../store/referrers.ts"
+import { rewrite } from "../store/rewrite.ts"
 import { write } from "../store/write.ts"
 import { rm } from "../store/rm.ts"
 import { set } from "../store/set.ts"
@@ -150,6 +153,38 @@ export class Store {
     folded(() => write(this.model, c, id, data, text, rec.mtimeMs))
     applyMirrors(this.model, mirrors)
     const res = { id, reverted: true, hash: rev, file: rec.path }
+    return res
+  }
+
+  /** give a record another id: its file moves, its reverse fields follow, and every record naming it is rewritten */
+  rename(collection: string, from: string, to: string) {
+    const { rec, c } = load(this.model, `${collection}/${from}`)
+    const [old, now] = [`${c.name}/${from}`, `${c.name}/${to}`]
+    const target = recordPath(this.model, c, to)
+    if (existsSync(target)) throw new DtError(`${now} already exists — nothing renamed`)
+    const owners = referrers(this.model, old)
+    const gone = mirrorEdits(this.model, c.name, from, rec.data, null)
+    const [src, dst] = c.storage.shape === "folder" ? [dirname(rec.path), dirname(target)] : [rec.path, target]
+    mkdirSync(dirname(dst), { recursive: true })
+    renameSync(src, dst)
+    applyMirrors(this.model, gone)
+    applyMirrors(this.model, mirrorEdits(this.model, c.name, to, null, rec.data))
+    const touched = owners.map((ref) => {
+      const named = Object.entries(get(this.model, ref).data).filter(([, v]) => [v].flat().includes(old))
+      const swap = (v: unknown) => (v === old ? now : v)
+      return rewrite(
+        this.model,
+        ref,
+        named.map(([k, v]) => [k, Array.isArray(v) ? v.map(swap) : now]),
+      )
+    })
+    const res = {
+      id: to,
+      rewrites: touched.length,
+      touched: touched.map((t) => relative(this.root, t)),
+      skipped: [],
+      ambiguous: [],
+    }
     return res
   }
 }
