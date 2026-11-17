@@ -18,6 +18,7 @@ export { recordResolver, commandsFor } from "./api/commandsFor.ts"
 export { distinctValues } from "./api/distinctValues.ts"
 export { envContext, renderTemplate, parseEnvValues } from "./api/renderTemplate.ts"
 export { readManifest, staleness } from "./api/readManifest.ts"
+export { history, historyDiff } from "./api/history.ts"
 export { slug } from "./lib/slug.ts"
 export { slugOrHash } from "./lib/slugOrHash.ts"
 export const { engineVersion, namespaces, loadDescriptors, bodyField, parseRecordText, warnIfStale, emit } = shims

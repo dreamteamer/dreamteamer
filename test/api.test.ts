@@ -2,6 +2,7 @@
 // on throw-away workspaces, and the presentation the released engine computes, pinned.
 import { test } from "node:test"
 import assert from "node:assert/strict"
+import { execFileSync } from "node:child_process"
 import { readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { compile } from "../src/compile/compile.ts"
@@ -161,4 +162,27 @@ test("records are written through the Store, and a refusal carries its reasons i
   assert.deepEqual(store.rm("tasks", "named"), { id: "named", inboundIgnored: [] })
   assert.throws(() => store.read("tasks", "named"), /no such record/)
   assert.throws(() => store.set("collections", "tasks", { description: "x" }), /read-only/)
+})
+
+test("a record's history, a commit's patch and a revert are read from git", () => {
+  const root = seeded()
+  const g = (...a: string[]) =>
+    execFileSync("git", ["-c", "user.name=Dana Oren", "-c", "user.email=dana@northwind.example", ...a], { cwd: root })
+  g("init", "-q")
+  g("add", "-A")
+  g("commit", "-qm", "first")
+  const store = new api.Store({ root })
+  store.set("tasks", "call-sam", { status: "done" })
+  g("commit", "-qam", "done")
+  const h = api.history(store, "tasks", "call-sam")
+  assert.deepEqual(
+    h.map((t) => t.subject),
+    ["done", "first"],
+  )
+  assert.equal(h[0].author, "Dana Oren")
+  assert.match(api.historyDiff(store, "tasks", "call-sam", h[0].hash.slice(0, 7)).diff, /\+status: done/)
+  assert.throws(() => api.historyDiff(store, "tasks", "call-sam", "--output=x"), /not a commit id/)
+  assert.deepEqual(store.revert("tasks", "call-sam", h[1].hash).reverted, true)
+  assert.equal(store.read("tasks", "call-sam").fields.status, "todo")
+  assert.deepEqual(store.revert("tasks", "call-sam", h[1].hash), { id: "call-sam", reverted: false })
 })

@@ -1,9 +1,14 @@
+import { readFileSync } from "node:fs"
 import { join, relative } from "node:path"
 import { DtError } from "../lib/DtError.ts"
 import { buildModel } from "../model/buildModel.ts"
 import { descriptorOf } from "../model/descriptorOf.ts"
 import { add } from "../store/add.ts"
 import { get } from "../store/get.ts"
+import { load } from "../store/load.ts"
+import { applyMirrors, mirrorEdits } from "../store/mirrorEdits.ts"
+import { parseText } from "../store/parseText.ts"
+import { write } from "../store/write.ts"
 import { rm } from "../store/rm.ts"
 import { set } from "../store/set.ts"
 import { listIds } from "../store/listIds.ts"
@@ -12,6 +17,7 @@ import type { Model } from "../types/Model.ts"
 import { accessors, type Released } from "./accessors.ts"
 import { textOf } from "./compareValues.ts"
 import { folded } from "./folded.ts"
+import { commitArg, git } from "./git.ts"
 import { namespacesOf } from "./namespaces.ts"
 
 /**
@@ -121,6 +127,29 @@ export class Store {
   rm(collection: string, id: string, opts: { force?: boolean } = {}) {
     folded(() => rm(this.model, `${collection}/${id}`, opts.force === true))
     const res = { id, inboundIgnored: [] }
+    return res
+  }
+
+  /** put a record back as it was at a commit, validated as any write; unchanged when it already is */
+  revert(collection: string, id: string, hash: unknown) {
+    const rev = commitArg(hash)
+    const { rec, c } = load(this.model, `${collection}/${id}`)
+    let text: string
+    try {
+      text = git(this.root, [
+        "show",
+        "--end-of-options",
+        `${rev}:./${relative(this.root, rec.path).split("\\").join("/")}`,
+      ])
+    } catch {
+      throw new DtError(`${collection}/${id}: no content at ${rev} — nothing was reverted`)
+    }
+    if (readFileSync(rec.path, "utf8") === text) return { id, reverted: false }
+    const data = parseText(c, text, (m) => new DtError(`${collection}/${id} at ${rev}: unreadable — ${m}`)).data
+    const mirrors = mirrorEdits(this.model, c.name, id, rec.data, data)
+    folded(() => write(this.model, c, id, data, text, rec.mtimeMs))
+    applyMirrors(this.model, mirrors)
+    const res = { id, reverted: true, hash: rev, file: rec.path }
     return res
   }
 }
