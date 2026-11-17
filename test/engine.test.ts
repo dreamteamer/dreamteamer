@@ -679,3 +679,120 @@ test("check does not mistake one collection's records for stray files of another
   )
   assert.deepEqual(list(m, "memos", { title: "undefined" }), [])
 })
+
+/** a collection whose fields hold objects, lists of objects and maps, beside the invented workspace */
+function shops() {
+  const root = workspace()
+  put(
+    root,
+    "modules/local/collections/shops.collection.yaml",
+    [
+      "name: shops",
+      "description: shops.",
+      "fields:",
+      "  name: {type: string, required: true}",
+      "  address:",
+      "    type: object",
+      "    fields:",
+      "      city: {type: string, required: true}",
+      "      zip: {type: string, pattern: '^\\d{5}$'}",
+      "      country: {type: string, required: true, default: nl}",
+      "      size: {type: string, enum: [small, large]}",
+      "      manager: {type: users}",
+      "  staff:",
+      "    type: object",
+      "    many: true",
+      "    fields:",
+      "      person: {type: users, required: true}",
+      "      shifts: {type: integer, many: true, minimum: 0}",
+      "  hours: {type: map, values: integer}",
+      "  links: {type: map, values: users}",
+      "  extra: {type: map}",
+      "",
+    ].join("\n"),
+  )
+  return root
+}
+
+test("an object's fields and a map's values are checked on write, as the released engine's schema checks them", () => {
+  const root = shops()
+  const m = buildModel(root)
+  assert.deepEqual(m.issues, [])
+  add(m, "users", { name: "Dana Oren" })
+  const bad = {
+    name: "Corner shop",
+    address: { zip: "abc", size: "huge", manager: "users/nobody", planet: "Mars" },
+    staff: [{ person: "users/dana-oren", shifts: [1, -1] }, { shifts: "x" }],
+    hours: { mon: "early", tue: 9 },
+  }
+  assert.throws(
+    () => add(m, "shops", bad),
+    (e: Error) =>
+      e instanceof DtError &&
+      assert.deepEqual(
+        e.issues.map((t) => t.message),
+        [
+          "address.city: required",
+          "address.zip: does not match ^\\d{5}$",
+          "address.size: not one of small | large",
+          "address.manager: broken reference users/nobody",
+          "staff[0].shifts: less than the minimum 0",
+          "staff[1].person: required",
+          "staff[1].shifts: expected an integer",
+          "hours.mon: expected an integer",
+        ],
+      ) === undefined,
+  )
+  const good = {
+    name: "Corner shop",
+    address: { city: "Utrecht", zip: "12345", manager: "users/dana-oren", planet: "Mars" },
+    staff: [{ person: "users/dana-oren", shifts: [1, "2"] }],
+    hours: { mon: 9, tue: "10" },
+    links: { site: "not a reference at all" },
+    extra: { anything: [1, { deep: true }] },
+  }
+  assert.equal(add(m, "shops", good).id, "corner-shop", "an undeclared key and a map of references are let through")
+  const one = add(m, "shops", { name: "One", staff: { person: "users/dana-oren" } })
+  assert.deepEqual(one.data.staff, [{ person: "users/dana-oren" }], "add takes one value for a list of one, as always")
+  refuses(() => add(m, "shops", { name: "Two", address: [{ city: "Utrecht" }] }), /address: expected a map/)
+  refuses(() => add(m, "shops", { name: "Three", hours: "9 to 5" }), /hours: expected a map/)
+  refuses(() => rm(m, "users/dana-oren"), /referenced by 2 record\(s\)[\s\S]*shops\/corner-shop/)
+  rm(m, "shops/one")
+  put(root, "data/shops/hand.shop.md", "---\nname: Hand\naddress: {zip: '1'}\nstaff: [{person: users/ghost}]\n---\n")
+  put(root, "data/shops/single.shop.md", "---\nname: Single\nstaff: {person: users/dana-oren}\n---\n")
+  assert.deepEqual(
+    errors(m).map((t) => `${t.where} ${t.message}`),
+    [
+      "shops/hand address.city: required",
+      "shops/hand address.zip: does not match ^\\d{5}$",
+      "shops/hand staff[0].person: broken reference users/ghost",
+      "shops/single staff: expected a list of maps",
+    ],
+  )
+})
+
+test("a field nested in an object or a map is read as a field, and a type there must exist", () => {
+  const root = shops()
+  put(
+    root,
+    "modules/local/collections/kiosks.collection.yaml",
+    "name: kiosks\ndescription: kiosks.\nfields:\n  name: {type: string}\n  spot: {type: object, fields: {lat: {type: numbr}, lon: {}}}\n  tally: {type: map, values: {type: stores}}\n",
+  )
+  const text = buildModel(root)
+    .issues.map((i) => `${i.where}: ${i.message}`)
+    .join("\n")
+  assert.match(text, /kiosks\.spot: fields\.lon: field has no type/)
+  put(
+    root,
+    "modules/local/collections/kiosks.collection.yaml",
+    "name: kiosks\ndescription: kiosks.\nfields:\n  name: {type: string}\n  spot: {type: object, fields: {lat: {type: numbr}}}\n  tally: {type: map, values: {type: stores}}\n",
+  )
+  const again = buildModel(root)
+    .issues.map((i) => `${i.where}: ${i.message}`)
+    .join("\n")
+  assert.match(again, /kiosks\.spot: unknown type "numbr"/)
+  assert.match(again, /kiosks\.tally: unknown type "stores"/)
+  const m = buildModel(shops())
+  assert.deepEqual(m.collections.shops.fields.hours.values, { type: "integer" })
+  assert.equal(m.collections.shops.fields.address.fields?.zip.pattern, "^\\d{5}$")
+})

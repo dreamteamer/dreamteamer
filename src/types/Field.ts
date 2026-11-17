@@ -23,5 +23,9 @@ export interface Field {
   body?: boolean
   /** the generated reverse side of another field; neither produced nor validated here */
   mirror_of?: string
+  /** an object's own fields */
+  fields?: Record<string, Field>
+  /** what every value of a map is; a type written alone is read as `{ type }` */
+  values?: Field
   [key: string]: unknown
 }

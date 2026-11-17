@@ -10,6 +10,7 @@ import { messageOf } from "../lib/messageOf.ts"
 import { readOr } from "../lib/readOr.ts"
 import type { Collection } from "../types/Collection.ts"
 import type { Descriptor } from "../types/Descriptor.ts"
+import type { Field } from "../types/Field.ts"
 import type { Issue } from "../types/Issue.ts"
 import type { Model } from "../types/Model.ts"
 import type { Module } from "../types/Module.ts"
@@ -133,6 +134,13 @@ function collectionOf(d: Descriptor, name: string, layers: Descriptor[], issues:
   return c
 }
 
+/** the types a field names that are neither a scalar nor `known`, its nested fields' and its map values' included */
+function unknownTypes(f: Field, known: (t: string) => boolean): string[] {
+  const own = typeof f.type === "string" && SCALARS.has(f.type) ? [] : [f.type].flat().filter((t) => !known(t))
+  const inner = [...Object.values(f.fields ?? {}), ...(f.values ? [f.values] : [])]
+  return [...own, ...inner.flatMap((t) => unknownTypes(t, known))]
+}
+
 /** Aggregate every module's collections, mixins and overlays into one resolved workspace model. */
 export function buildModel(root: string): Model {
   const { modules, issues } = discover(root)
@@ -234,10 +242,7 @@ export function buildModel(root: string): Model {
         issues.push({ severity: "error", where, message: "field has no type" })
         continue
       }
-      const bad =
-        typeof f.type === "string" && SCALARS.has(f.type)
-          ? []
-          : [f.type].flat().filter((t) => !collections[t] && !peers.includes(t))
+      const bad = unknownTypes(f, (t) => Boolean(collections[t]) || peers.includes(t))
       if (bad.length) {
         const message = `unknown type "${bad.join(", ")}" — a type is one of ${[...SCALARS].join(" ")}, an installed collection, or a collection a module lists under peer_collections`
         issues.push({ severity: "error", where, message })
