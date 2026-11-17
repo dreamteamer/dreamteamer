@@ -227,8 +227,8 @@ test("pending records are listed and committed, each file named, nothing else sw
   writeFileSync(join(root, "stray.txt"), "not a record\n")
   const plan = api.commitPending(store, { dryRun: true })
   assert.deepEqual(plan[0].rows, [
-    { verb: "set", collection: "tasks", id: "call-sam" },
-    { verb: "add", collection: "tasks", id: "new-one" },
+    { verb: "set", collection: "tasks", id: "call-sam", repoRel: "data/tasks/call-sam.task.md" },
+    { verb: "add", collection: "tasks", id: "new-one", repoRel: "data/tasks/new-one.task.md" },
   ])
   assert.equal(plan[0].sha, null)
   assert.throws(() => api.commitPending(store, { only: ["tasks/nobody"] }), /no such record/)

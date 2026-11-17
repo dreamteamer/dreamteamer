@@ -2,7 +2,7 @@ import { DtError } from "../lib/DtError.ts"
 import type { Verb } from "./Verb.ts"
 
 /** the options that take no value */
-const FLAGS = ["json", "force"]
+const FLAGS = ["json", "force", "dry-run"]
 
 /** `--name value`, `--name=value`, a bare `--flag`, and `name=value`; the verb's own options are kept apart from fields */
 export function parseArgs(name: string, verb: Verb, rest: string[]) {

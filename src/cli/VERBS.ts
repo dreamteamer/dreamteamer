@@ -1,7 +1,9 @@
 import type { Verb } from "./Verb.ts"
 import { add } from "./verbs/add.ts"
+import { changes } from "./verbs/changes.ts"
 import { check } from "./verbs/check.ts"
 import { collections } from "./verbs/collections.ts"
+import { commit } from "./verbs/commit.ts"
 import { compile } from "./verbs/compile.ts"
 import { get } from "./verbs/get.ts"
 import { list } from "./verbs/list.ts"
@@ -22,6 +24,8 @@ export const VERBS = {
   rm,
   next,
   relations,
+  changes,
+  commit,
   check,
   compile,
 } as const satisfies Record<string, Verb>

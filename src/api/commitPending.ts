@@ -75,7 +75,12 @@ export function commitPending(store: Store, opts: { only?: string[]; message?: s
   }
   const sha = opts.dryRun ? null : git(store.root, ["rev-parse", "--short", "HEAD"]).trim()
   const res = [
-    { repo: ".", rows: rows.map((t) => ({ verb: t.verb, collection: t.collection, id: t.id })), subject, sha },
+    {
+      repo: ".",
+      rows: rows.map((t) => ({ verb: t.verb, collection: t.collection, id: t.id, repoRel: t.file })),
+      subject,
+      sha,
+    },
   ]
   return res
 }

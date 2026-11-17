@@ -1,4 +1,5 @@
 import { test } from "node:test"
+import { execFileSync } from "node:child_process"
 import assert from "node:assert/strict"
 import { existsSync, mkdtempSync, readFileSync, readdirSync } from "node:fs"
 import { tmpdir } from "node:os"
@@ -281,4 +282,61 @@ test("extensions add verbs, checks and notes; one that fails or claims a verb al
   dt(ws, "add", "tasks", "Call the bank", "--id", "call")
   assert.equal(dt(ws, "next", "tasks/call").out, "(no commands bound to tasks)\n● tasks/call — noted (alpha)\n")
   assert.equal(dt(ws, "list", "tasks").err, "", "a verb that needs no extension loads none")
+})
+
+/** a workspace that is a git repository with one commit, and a way to run git in it */
+function repo() {
+  const ws = workspace()
+  const g = (...a: string[]) => execFileSync("git", a, { cwd: ws, encoding: "utf8" })
+  g("init", "-q")
+  g("config", "user.name", "Dana Oren")
+  g("config", "user.email", "dana@northwind.example")
+  g("add", "-A")
+  g("commit", "-qm", "first")
+  return { ws, g }
+}
+
+test("commit publishes the record files it is given, or all that are pending, and nothing else", () => {
+  const { ws, g } = repo()
+  dt(ws, "add", "users", "--name", "Dana Oren")
+  dt(ws, "add", "tasks", "Call the bank", "--id", "call")
+  put(ws, "notes.txt", "not a record\n")
+  const r = dt(ws, "commit", "tasks/call", "-m", "Plan the week")
+  const sha = g("rev-parse", "--short", "HEAD").trim()
+  assert.equal(r.code, 0, r.err)
+  assert.equal(
+    r.out,
+    `✔ workspace ${sha} — Plan the week\nrecords — tasks: 1 created\n  created  tasks/call  data/tasks/call.task.md  · committed ${sha}\n`,
+  )
+  assert.equal(g("status", "--porcelain"), "?? data/users/\n?? notes.txt\n")
+  dt(ws, "set", "tasks/call", "status=done")
+  assert.match(
+    dt(ws, "commit", "--dry-run").out,
+    /^✔ workspace \(dry run\) — dreamteamer: 2 changes across tasks, users\n/,
+  )
+  assert.match(dt(ws, "commit", "users").out, /— dreamteamer: users add dana-oren\n/)
+  assert.match(dt(ws, "commit").out, /— dreamteamer: tasks set call\n.*\n {2}updated  tasks\/call /)
+  assert.equal(dt(ws, "commit").out, "nothing pending\n")
+  const bad = dt(ws, "commit", "tasks/nobody")
+  quiet(bad)
+  assert.deepEqual([bad.code, bad.err], [1, "✖ tasks/nobody: no such record\n"])
+  assert.equal(g("status", "--porcelain"), "?? notes.txt\n")
+})
+
+test("changes prints the record report of what is written and not committed", () => {
+  const { ws } = repo()
+  assert.equal(dt(ws, "changes").out, "✔ no record changes since HEAD\n")
+  dt(ws, "add", "users", "--name", "Dana Oren")
+  dt(ws, "add", "tasks", "Call the bank", "--id", "call")
+  assert.equal(
+    dt(ws, "changes").out,
+    [
+      "records — tasks: 1 created · users: 1 created",
+      "  created  tasks/call  data/tasks/call.task.md  · uncommitted",
+      "  created  users/dana-oren  data/users/dana-oren.user.md  · uncommitted",
+      "2 record change(s) since HEAD — 2 uncommitted",
+      "",
+    ].join("\n"),
+  )
+  assert.equal(JSON.parse(dt(ws, "changes", "--json").out).events.length, 2)
 })
