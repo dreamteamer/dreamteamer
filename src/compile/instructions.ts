@@ -62,7 +62,7 @@ export function instructions(model: Model): string {
     `    node ${ENGINE} <verb> …        (written \`dt\` below)`,
     "",
     '- `dt list <collection> [--filter field=value]` · `dt get <ref>` · `dt add <collection> ["title"] --field value …` · `dt set <ref> field=value …` · `dt rm <ref>` · `dt check`',
-    "- In the field lists, `*` marks a required field and `[]` a list: repeat the flag, or separate the values with commas. `→` marks a reference to a record of that collection.",
+    "- In the field lists, `*` marks a required field and `[]` a list: separate the values with commas, or repeat the flag to give each value whole, commas and all. `→` marks a reference to a record of that collection.",
     "",
     "## Collections",
     "",

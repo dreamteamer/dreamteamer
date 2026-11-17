@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs"
-import { isAbsolute, join, normalize } from "node:path"
+import { isAbsolute, join, normalize, posix } from "node:path"
 import { parse } from "yaml"
 import { asOptional } from "../lib/asOptional.ts"
 import { asString } from "../lib/asString.ts"
@@ -10,6 +10,7 @@ import { messageOf } from "../lib/messageOf.ts"
 import { readOr } from "../lib/readOr.ts"
 import type { Collection } from "../types/Collection.ts"
 import type { Descriptor } from "../types/Descriptor.ts"
+import type { Field } from "../types/Field.ts"
 import type { Issue } from "../types/Issue.ts"
 import type { Model } from "../types/Model.ts"
 import type { Module } from "../types/Module.ts"
@@ -17,10 +18,12 @@ import { discover } from "./discover.ts"
 import { readDescriptor } from "./readDescriptor.ts"
 import { readExports } from "./readExports.ts"
 import { readField } from "./readField.ts"
+import { readRule } from "./readRule.ts"
 import { readSkills } from "./readSkills.ts"
 import { readSources } from "./readSources.ts"
 import { SCALARS } from "./SCALARS.ts"
 import { singular } from "./singular.ts"
+import { SOURCE_KINDS } from "./SOURCE_KINDS.ts"
 
 const FORMATS = new Set(["md", "yaml", "json", "binary"])
 const DESCRIPTOR_KEYS = new Set([
@@ -128,9 +131,41 @@ function collectionOf(d: Descriptor, name: string, layers: Descriptor[], issues:
       pattern: text(ids.pattern, "ids.pattern"),
     },
     fields: {},
+    rules: [],
     contributors: [],
   }
   return c
+}
+
+/** the types a field names that are neither a scalar nor `known`, its nested fields' and its map values' included */
+function unknownTypes(f: Field, known: (t: string) => boolean): string[] {
+  const own = typeof f.type === "string" && SCALARS.has(f.type) ? [] : [f.type].flat().filter((t) => !known(t))
+  const inner = [...Object.values(f.fields ?? {}), ...(f.values ? [f.values] : [])]
+  return [...own, ...inner.flatMap((t) => unknownTypes(t, known))]
+}
+
+/**
+ * A collection whose folder is inside another's, as an error: the outer one would read, list and delete the inner
+ * one's records as its own. The released compile refuses the same pair; one folder shared by two collections is
+ * allowed there and here, and the source kinds, whose records are the modules' files, are compared only with each
+ * other.
+ */
+function overlaps(collections: Record<string, Collection>) {
+  const all = Object.values(collections).map((t) => ({
+    name: t.name,
+    path: posix.normalize(t.storage.path).replace(/\/$/, ""),
+    source: SOURCE_KINDS.includes(t.name),
+  }))
+  const out: Issue[] = []
+  for (const o of all)
+    for (const i of all)
+      if (o.source === i.source && i.path.startsWith(o.path + "/"))
+        out.push({
+          severity: "error",
+          where: i.name,
+          message: `its records are stored under ${i.path}, inside the folder of ${o.name} (${o.path}), which would read them as its own — give one of them a folder of its own`,
+        })
+  return out
 }
 
 /** Aggregate every module's collections, mixins and overlays into one resolved workspace model. */
@@ -234,10 +269,7 @@ export function buildModel(root: string): Model {
         issues.push({ severity: "error", where, message: "field has no type" })
         continue
       }
-      const bad =
-        typeof f.type === "string" && SCALARS.has(f.type)
-          ? []
-          : [f.type].flat().filter((t) => !collections[t] && !peers.includes(t))
+      const bad = unknownTypes(f, (t) => Boolean(collections[t]) || peers.includes(t))
       if (bad.length) {
         const message = `unknown type "${bad.join(", ")}" — a type is one of ${[...SCALARS].join(" ")}, an installed collection, or a collection a module lists under peer_collections`
         issues.push({ severity: "error", where, message })
@@ -245,6 +277,11 @@ export function buildModel(root: string): Model {
       }
       c.fields[name] = f
     }
+  issues.push(...overlaps(collections))
+  for (const c of Object.values(collections))
+    c.rules = (c.constraints ?? []).flatMap((t, i) =>
+      readOr(issues, c.name, () => [readRule(t, `constraints[${i}]`)], []),
+    )
   const model: Model = {
     root,
     modules,

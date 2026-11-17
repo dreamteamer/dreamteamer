@@ -4,6 +4,7 @@ import { DtError } from "../lib/DtError.ts"
 import type { Collection } from "../types/Collection.ts"
 import type { Model } from "../types/Model.ts"
 import { recordPath } from "./recordPath.ts"
+import { refuseBroken } from "./refuseBroken.ts"
 import { validate } from "./validate.ts"
 
 /**
@@ -19,9 +20,7 @@ export function write(
   expectMtime?: number,
   checked = true,
 ): string {
-  const blocking = model.issues.filter((t) => t.severity === "error")
-  if (blocking.length)
-    throw new DtError("the workspace model has errors — nothing written; fix them first (check lists them)", blocking)
+  refuseBroken(model)
   const path = recordPath(model, c, id)
   const issues = checked ? validate(model, c.name, id, data) : []
   if (issues.length) throw new DtError(`${c.name}/${id} rejected — nothing written`, issues)

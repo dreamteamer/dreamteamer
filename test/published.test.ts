@@ -159,3 +159,31 @@ test("a file the released engine wrote is read and accepted, and a missing peer 
     /projects: a peer collection that is declared and not installed — 1 reference/,
   )
 })
+
+test("the constraints of the published rnd module give the released engine's verdicts", () => {
+  const root = publishedWorkspace(),
+    m = buildModel(root)
+  add(m, "rnd/products", { name: "Northwind Portal" })
+  // pinned from the released engine's check of the same records: a panel needs its rule and members, a published
+  // release its repo, tag, cut date, publication date and registries
+  put(root, "data/rnd/personas/buyers.persona.md", "---\nname: Buyers\nkind: panel\n---\n")
+  put(
+    root,
+    "data/rnd/releases/northwind-portal/1.0.0.release.md",
+    "---\nversion: 1.0.0\nproduct: rnd/products/northwind-portal\nstatus: published\n---\n",
+  )
+  assert.deepEqual(
+    check(m)
+      .issues.filter((i) => i.severity === "error" && !i.message.includes("stale"))
+      .map((i) => `${i.where} ${i.message.replace(/ — constraint.*/, "")}`),
+    [
+      "rnd/personas/buyers segment_rule: required",
+      "rnd/personas/buyers members: required",
+      "rnd/releases/northwind-portal/1.0.0 repo: required",
+      "rnd/releases/northwind-portal/1.0.0 tag: required",
+      "rnd/releases/northwind-portal/1.0.0 cut_on: required",
+      "rnd/releases/northwind-portal/1.0.0 published_on: required",
+      "rnd/releases/northwind-portal/1.0.0 published_to: required",
+    ],
+  )
+})

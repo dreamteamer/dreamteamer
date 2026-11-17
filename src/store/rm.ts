@@ -5,12 +5,14 @@ import { listFiles } from "../lib/listFiles.ts"
 import type { Model } from "../types/Model.ts"
 import { locate } from "./locate.ts"
 import { referrers } from "./referrers.ts"
+import { refuseBroken } from "./refuseBroken.ts"
 import { get } from "./get.ts"
 import { applyMirrors, mirrorEdits } from "./mirrorEdits.ts"
 import { entryOf, tail } from "./tail.ts"
 
 /** Remove a record. Refuses when other records point at it, or when its folder holds other records — unless forced. */
 export function rm(model: Model, ref: string, force = false): string {
+  refuseBroken(model)
   const { c, id, path } = locate(model, ref)
   const full = `${c.name}/${id}`
   const folder = c.storage.shape === "folder"

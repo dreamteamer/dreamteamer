@@ -1,4 +1,5 @@
 import type { Field } from "../types/Field.ts"
+import { SCALARS } from "../model/SCALARS.ts"
 import type { Model } from "../types/Model.ts"
 import { refExists } from "./refExists.ts"
 
@@ -12,9 +13,20 @@ function realDate(y: string, m: string, d: string) {
   return t.getUTCFullYear() === +y && t.getUTCMonth() === +m - 1 && t.getUTCDate() === +d
 }
 
-/** What is wrong with one value of a field, or null. `unresolved` counts references into declared peers that are not installed. */
-export function checkValue(model: Model, f: Field, v: unknown, unresolved?: Map<string, number>): string | null {
-  const type = typeof f.type === "string" ? f.type : "ref"
+/**
+ * What is wrong with one value of a field, or null. `unresolved` counts references into declared peers that are not
+ * installed; a `plain` reference is checked as text.
+ */
+export function checkValue(
+  model: Model,
+  f: Field,
+  v: unknown,
+  unresolved?: Map<string, number>,
+  plain = false,
+): string | null {
+  const ref = typeof f.type !== "string" || !SCALARS.has(f.type) || f.type === "reference"
+  const type = plain && ref ? "string" : typeof f.type === "string" ? f.type : "ref"
+  if (v === null) v = type === "boolean" ? false : type === "integer" || type === "number" ? 0 : ""
   if (TEXT.has(type)) {
     if (typeof v === "object") return "expected text"
     // eslint-disable-next-line @typescript-eslint/no-base-to-string -- a scalar is checked as text
@@ -42,7 +54,7 @@ export function checkValue(model: Model, f: Field, v: unknown, unresolved?: Map<
   } else if (type === "object" || type === "map") {
     if (typeof v !== "object" || v === null) return "expected a map"
   } else {
-    if (typeof v !== "string") return "expected a <collection>/<id> reference"
+    if (typeof v !== "string" || !v) return "expected a <collection>/<id> reference"
     if (f.type === "reference") {
       if (!f.soft && !refExists(model, v)) return `broken reference ${v}`
     } else {

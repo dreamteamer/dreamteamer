@@ -9,6 +9,7 @@ const UNQUALIFIED = ["string", "markdown", "url", "email", "date", "datetime", "
 
 /** one value typed on the command line, converted by the declared type of its field */
 function convert(type: Field["type"], raw: string, name: string): unknown {
+  if (raw === "") return raw
   if (type === "boolean") return raw === "true" ? true : raw === "false" ? false : raw
   if (type === "integer" || type === "number") return /^-?\d+(\.\d+)?$/.test(raw) ? Number(raw) : raw
   // a date and time typed without seconds or without a zone is completed, the zone being this machine's on that day
@@ -30,11 +31,22 @@ function convert(type: Field["type"], raw: string, name: string): unknown {
   return raw
 }
 
-/** the fields given on the command line, each converted by its declared type; `null` means "clear this field" */
+/** the field a name typed on the command line means: as written, or with dashes for underscores */
+function nameOf(c: Collection, typed: string) {
+  return c.fields[typed] || typed === "created" ? typed : typed.replace(/-/g, "_")
+}
+
+/**
+ * The fields given on the command line, each converted by its declared type; `null` means "clear this field". A list
+ * field given once is split on commas; given more than once, as the released command line reads it, each value is one
+ * item as typed, so an item can hold a comma.
+ */
 export function fieldValues(c: Collection, given: [string, string | undefined][]): Record<string, unknown> {
   const out: Record<string, unknown> = {}
+  const times = new Map<string, number>()
+  for (const n of given.map(([t]) => nameOf(c, t))) times.set(n, (times.get(n) ?? 0) + 1)
   for (const [typed, raw] of given) {
-    const name = c.fields[typed] || typed === "created" ? typed : typed.replace(/-/g, "_")
+    const name = nameOf(c, typed)
     const f: Field | undefined = name === "created" && !c.fields.created ? { type: "datetime" } : c.fields[name]
     if (!f) {
       const near = Object.keys(c.fields).filter((t) => t.startsWith(typed.slice(0, 3)) || typed.startsWith(t))
@@ -43,12 +55,13 @@ export function fieldValues(c: Collection, given: [string, string | undefined][]
     }
     if (raw === undefined && f.type !== "boolean") throw new DtError(`--${typed} needs a value`)
     const nested = f.type === "object" || f.type === "map"
+    const one = !f.many || (times.get(name) ?? 0) < 2
     const values =
       raw === undefined
         ? [true]
-        : raw === ""
+        : raw === "" && one
           ? [null]
-          : (f.many && !nested
+          : (f.many && !nested && one
               ? raw
                   .split(",")
                   .map((t) => t.trim())

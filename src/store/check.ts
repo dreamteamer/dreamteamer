@@ -8,6 +8,7 @@ import { get } from "./get.ts"
 import { listIds } from "./listIds.ts"
 import { tail } from "./tail.ts"
 import { validate } from "./validate.ts"
+import { claims } from "./refuseTaken.ts"
 import { relationsOf } from "../model/relationsOf.ts"
 import { expectedMirrors, sameMirror } from "./expectedMirrors.ts"
 
@@ -61,6 +62,23 @@ export function check(model: Model) {
           where: `${c.name}/${id}`,
           message: messageOf(e).replace(`${c.name}/${id}: `, ""),
         })
+      }
+    }
+    // a unique value is reported on the second record that holds it, naming the first
+    for (const [n, f] of Object.entries(c.fields)) {
+      if (!f.unique || f.many) continue
+      const first = new Map<unknown, string>()
+      for (const [id, data] of read) {
+        const v = data[n]
+        const was = first.get(v)
+        if (!claims(v)) continue
+        if (was === undefined) first.set(v, id)
+        else
+          issues.push({
+            severity: "error",
+            where: `${c.name}/${id}`,
+            message: `${n}: "${String(v)}" is already taken by ${c.name}/${was} (unique)`,
+          })
       }
     }
     const data = c.storage.shape !== "folder" && resolve(base) !== resolve(model.root)

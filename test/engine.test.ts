@@ -679,3 +679,273 @@ test("check does not mistake one collection's records for stray files of another
   )
   assert.deepEqual(list(m, "memos", { title: "undefined" }), [])
 })
+
+/** a collection whose fields hold objects, lists of objects and maps, beside the invented workspace */
+function shops() {
+  const root = workspace()
+  put(
+    root,
+    "modules/local/collections/shops.collection.yaml",
+    [
+      "name: shops",
+      "description: shops.",
+      "fields:",
+      "  name: {type: string, required: true}",
+      "  address:",
+      "    type: object",
+      "    fields:",
+      "      city: {type: string, required: true}",
+      "      zip: {type: string, pattern: '^\\d{5}$'}",
+      "      country: {type: string, required: true, default: nl}",
+      "      size: {type: string, enum: [small, large]}",
+      "      manager: {type: users}",
+      "  staff:",
+      "    type: object",
+      "    many: true",
+      "    fields:",
+      "      person: {type: users, required: true}",
+      "      shifts: {type: integer, many: true, minimum: 0}",
+      "  hours: {type: map, values: integer}",
+      "  links: {type: map, values: users}",
+      "  extra: {type: map}",
+      "",
+    ].join("\n"),
+  )
+  return root
+}
+
+test("an object's fields and a map's values are checked on write, as the released engine's schema checks them", () => {
+  const root = shops()
+  const m = buildModel(root)
+  assert.deepEqual(m.issues, [])
+  add(m, "users", { name: "Dana Oren" })
+  const bad = {
+    name: "Corner shop",
+    address: { zip: "abc", size: "huge", manager: "users/nobody", planet: "Mars" },
+    staff: [{ person: "users/dana-oren", shifts: [1, -1] }, { shifts: "x" }],
+    hours: { mon: "early", tue: 9 },
+  }
+  assert.throws(
+    () => add(m, "shops", bad),
+    (e: Error) =>
+      e instanceof DtError &&
+      assert.deepEqual(
+        e.issues.map((t) => t.message),
+        [
+          "address.city: required",
+          "address.zip: does not match ^\\d{5}$",
+          "address.size: not one of small | large",
+          "address.manager: broken reference users/nobody",
+          "staff[0].shifts: less than the minimum 0",
+          "staff[1].person: required",
+          "staff[1].shifts: expected an integer",
+          "hours.mon: expected an integer",
+        ],
+      ) === undefined,
+  )
+  const good = {
+    name: "Corner shop",
+    address: { city: "Utrecht", zip: "12345", manager: "users/dana-oren", planet: "Mars" },
+    staff: [{ person: "users/dana-oren", shifts: [1, "2"] }],
+    hours: { mon: 9, tue: "10" },
+    links: { site: "not a reference at all" },
+    extra: { anything: [1, { deep: true }] },
+  }
+  assert.equal(add(m, "shops", good).id, "corner-shop", "an undeclared key and a map of references are let through")
+  const one = add(m, "shops", { name: "One", staff: { person: "users/dana-oren" } })
+  assert.deepEqual(one.data.staff, [{ person: "users/dana-oren" }], "add takes one value for a list of one, as always")
+  refuses(() => add(m, "shops", { name: "Two", address: [{ city: "Utrecht" }] }), /address: expected a map/)
+  refuses(() => add(m, "shops", { name: "Three", hours: "9 to 5" }), /hours: expected a map/)
+  refuses(() => rm(m, "users/dana-oren"), /referenced by 2 record\(s\)[\s\S]*shops\/corner-shop/)
+  rm(m, "shops/one")
+  put(root, "data/shops/hand.shop.md", "---\nname: Hand\naddress: {zip: '1'}\nstaff: [{person: users/ghost}]\n---\n")
+  put(root, "data/shops/single.shop.md", "---\nname: Single\nstaff: {person: users/dana-oren}\n---\n")
+  assert.deepEqual(
+    errors(m).map((t) => `${t.where} ${t.message}`),
+    [
+      "shops/hand address.city: required",
+      "shops/hand address.zip: does not match ^\\d{5}$",
+      "shops/hand staff[0].person: broken reference users/ghost",
+      "shops/single staff: expected a list of maps",
+    ],
+  )
+})
+
+test("a field nested in an object or a map is read as a field, and a type there must exist", () => {
+  const root = shops()
+  put(
+    root,
+    "modules/local/collections/kiosks.collection.yaml",
+    "name: kiosks\ndescription: kiosks.\nfields:\n  name: {type: string}\n  spot: {type: object, fields: {lat: {type: numbr}, lon: {}}}\n  tally: {type: map, values: {type: stores}}\n",
+  )
+  const text = buildModel(root)
+    .issues.map((i) => `${i.where}: ${i.message}`)
+    .join("\n")
+  assert.match(text, /kiosks\.spot: fields\.lon: field has no type/)
+  put(
+    root,
+    "modules/local/collections/kiosks.collection.yaml",
+    "name: kiosks\ndescription: kiosks.\nfields:\n  name: {type: string}\n  spot: {type: object, fields: {lat: {type: numbr}}}\n  tally: {type: map, values: {type: stores}}\n",
+  )
+  const again = buildModel(root)
+    .issues.map((i) => `${i.where}: ${i.message}`)
+    .join("\n")
+  assert.match(again, /kiosks\.spot: unknown type "numbr"/)
+  assert.match(again, /kiosks\.tally: unknown type "stores"/)
+  const m = buildModel(shops())
+  assert.deepEqual(m.collections.shops.fields.hours.values, { type: "integer" })
+  assert.equal(m.collections.shops.fields.address.fields?.zip.pattern, "^\\d{5}$")
+})
+
+test("a unique value is refused on write when another record holds it, and check names the second holder", () => {
+  const root = workspace()
+  put(
+    root,
+    "modules/local/collections/badges.collection.yaml",
+    "name: badges\ndescription: badges.\nfields:\n  name: {type: string, required: true}\n  code: {type: string, unique: true}\n  holder: {type: users, unique: true}\n  tags: {type: string, many: true, unique: true}\n",
+  )
+  const m = buildModel(root)
+  add(m, "users", { name: "Dana Oren" })
+  add(m, "badges", { name: "Gold", code: "A1", holder: "users/dana-oren", tags: ["x"] })
+  refuses(
+    () => add(m, "badges", { name: "Silver", code: "A1" }),
+    /code: "A1" is already taken by badges\/gold \(unique\)/,
+  )
+  refuses(
+    () => add(m, "badges", { name: "Bronze", holder: "users/dana-oren" }),
+    /holder: "users\/dana-oren" is already taken by badges\/gold/,
+  )
+  add(m, "badges", { name: "Silver", code: "B2", tags: ["x"] })
+  add(m, "badges", { name: "Tin", code: "" })
+  add(m, "badges", { name: "Lead" })
+  refuses(() => set(m, "badges/silver", { code: "A1" }), /code: "A1" is already taken by badges\/gold/)
+  set(m, "badges/gold", { code: "A1", name: "Gold!" })
+  assert.deepEqual(errors(m), [])
+  put(root, "data/badges/copper.badge.md", "---\nname: Copper\ncode: A1\n---\n")
+  put(root, "data/badges/zinc.badge.md", "---\nname: Zinc\ncode: A1\n---\n")
+  set(m, "badges/silver", { name: "Silver!" })
+  assert.deepEqual(
+    errors(m).map((t) => `${t.where} ${t.message}`),
+    [
+      'badges/gold code: "A1" is already taken by badges/copper (unique)',
+      'badges/zinc code: "A1" is already taken by badges/copper (unique)',
+    ],
+  )
+})
+
+test("a collection's constraints are enforced on write and by check, with the verdicts the released engine gives", () => {
+  const root = workspace()
+  const c = (name: string, text: string) =>
+    put(root, `modules/local/collections/${name}.collection.yaml`, `name: ${name}\ndescription: ${name}.\n${text}`)
+  // the shapes the published modules write: an engagement's stage and outcome, a decision's reviewable fields, a
+  // workflow's steps — and the keywords around them that the rules of other modules use
+  c(
+    "deals",
+    "fields:\n  name: {type: string, required: true}\n  stage: {type: string, enum: [lead, closed], default: lead}\n  outcome: {type: string, enum: [won, lost]}\nconstraints:\n  - if: {properties: {outcome: {type: string}}, required: [outcome]}\n    then: {properties: {stage: {const: closed}}}\n  - if: {properties: {stage: {const: closed}}, required: [stage]}\n    then: {required: [outcome]}\n",
+  )
+  c(
+    "flows",
+    "fields:\n  name: {type: string, required: true}\n  steps: {type: object, many: true, fields: {command: {type: string}, stop: {type: string}}}\n  kind: {type: string}\n  level: {type: integer}\n  tags: {type: string, many: true}\nconstraints:\n  - properties: {steps: {items: {if: {not: {required: [command]}}, then: {required: [stop]}}}}\n  - anyOf: [{required: [kind]}, {required: [tags], properties: {tags: {minItems: 2}}}]\n  - if: {properties: {level: {type: integer, minimum: 3}}, required: [level]}\n    then: {properties: {kind: {enum: [deep, abyss], minLength: 5}}, required: [kind]}\n",
+  )
+  const m = buildModel(root)
+  assert.deepEqual(m.issues, [])
+  add(m, "deals", { name: "Open" })
+  add(m, "deals", { name: "Won", stage: "closed", outcome: "won" })
+  refuses(() => add(m, "deals", { name: "Early", outcome: "won" }), /stage: must be "closed" — constraint 1 of deals/)
+  refuses(() => set(m, "deals/open", { stage: "closed" }), /outcome: required — constraint 2 of deals/)
+  set(m, "deals/open", { stage: "closed", outcome: "lost" })
+  add(m, "flows", { name: "Run", kind: "k", steps: [{ command: "x" }, { stop: "decide" }] })
+  refuses(() => add(m, "flows", { name: "Stuck", kind: "k", steps: [{}] }), /steps\[0\]\.stop: required/)
+  refuses(() => add(m, "flows", { name: "Bare", tags: ["a"] }), /matches none of the alternatives \(anyOf\)/)
+  add(m, "flows", { name: "Tagged", tags: ["a", "b"] })
+  refuses(() => add(m, "flows", { name: "Deep", level: 4, kind: "abc" }), /kind: not one of "deep" \| "abyss"/)
+  add(m, "flows", { name: "Abyss", level: 4, kind: "abyss" })
+  assert.deepEqual(errors(m), [])
+  // as the released validator does, a rule's `type` converts the value it reads: "1" is the number 1, below 3
+  put(root, "data/flows/low.flow.md", "---\nname: Low\nlevel: '1'\ntags: [a, b]\n---\n")
+  put(root, "data/flows/high.flow.md", "---\nname: High\nlevel: '5'\ntags: [a, b]\n---\n")
+  put(root, "data/deals/blank.deal.md", "---\nname: Blank\nstage: lead\noutcome:\n---\n")
+  assert.deepEqual(
+    errors(m).map((t) => `${t.where} ${t.message}`),
+    [
+      "deals/blank outcome: not one of won | lost",
+      'deals/blank stage: must be "closed" — constraint 1 of deals',
+      "flows/high kind: required — constraint 3 of flows",
+    ],
+  )
+})
+
+test("a constraint keyword this engine does not evaluate is an error in the model, never skipped", () => {
+  const root = workspace()
+  put(
+    root,
+    "modules/local/collections/gizmos.collection.yaml",
+    "name: gizmos\ndescription: gizmos.\nfields:\n  name: {type: string}\nconstraints:\n  - {dependentRequired: {name: [size]}}\n  - if: {properties: {name: {type: text}}}\n  - {required: name}\n",
+  )
+  const m = buildModel(root)
+  assert.deepEqual(
+    m.issues.map((t) => `${t.severity} ${t.where}: ${t.message}`),
+    [
+      'error gizmos: constraints[0]: "dependentRequired" is a keyword this engine does not evaluate — a constraint uses if then else not allOf anyOf oneOf properties items required const enum type pattern minimum maximum minLength maxLength minItems maxItems',
+      'error gizmos: constraints[1].if.properties.name.type: "text" is not a JSON Schema type — string number integer boolean null object array',
+      "error gizmos: constraints[2].required: expected a list, found text",
+    ],
+  )
+  refuses(() => add(m, "gizmos", { name: "x" }), /model has errors/)
+})
+
+test("a null is checked as the released engine's validator reads it: the empty value of its type", () => {
+  const root = shops()
+  const m = buildModel(root)
+  add(m, "users", { name: "Dana Oren" })
+  put(
+    root,
+    "data/tasks/2026-11-17--blank.task.md",
+    "---\nname: Blank\nassignee:\ndue:\ntags:\nurgent:\nestimate:\nstatus: todo\nnotes:\n---\n",
+  )
+  put(
+    root,
+    "data/shops/blank.shop.md",
+    "---\nname: Blank\naddress: {city: Utrecht, zip: null, size: null}\nhours: {mon: null}\nstaff:\n---\n",
+  )
+  assert.deepEqual(
+    errors(m).map((t) => `${t.where} ${t.message}`),
+    [
+      "shops/blank address.zip: does not match ^\\d{5}$",
+      "shops/blank address.size: not one of small | large",
+      "shops/blank staff: expected a list of maps",
+      "tasks/2026-11-17--blank assignee: expected a <collection>/<id> reference",
+      "tasks/2026-11-17--blank due: expected a real date, YYYY-MM-DD",
+      "tasks/2026-11-17--blank estimate: less than the minimum 1",
+    ],
+  )
+})
+
+test("a collection stored inside another's folder is an error in the model, and nothing is removed through it", () => {
+  const root = workspace()
+  const m0 = buildModel(root)
+  add(m0, "users", { name: "Dana Oren" })
+  add(m0, "tasks", { name: "Call", assignee: "users/dana-oren" })
+  put(
+    root,
+    "modules/local/collections/everything.collection.yaml",
+    "name: everything\ndescription: everything.\nstorage: {path: data, suffix: user}\nfields:\n  name: {type: string}\n",
+  )
+  put(
+    root,
+    "modules/local/collections/beside.collection.yaml",
+    "name: beside\ndescription: beside.\nstorage: {path: data/users-archive/}\nfields:\n  name: {type: string}\n",
+  )
+  const m = buildModel(root)
+  const text = m.issues.map((t) => `${t.severity} ${t.where}: ${t.message}`).join("\n")
+  assert.match(text, /error users: its records are stored under data\/users, inside the folder of everything \(data\)/)
+  assert.match(text, /error beside: .* inside the folder of everything/)
+  assert.doesNotMatch(
+    text,
+    /inside the folder of users\b/,
+    "a folder whose name begins with another's is not inside it",
+  )
+  assert.doesNotMatch(text, /error (skills|collections)/, "the source kinds are not data folders")
+  refuses(() => rm(m, "everything/users/dana-oren"), /model has errors/)
+  assert.ok(existsSync(join(root, "data/users/dana-oren.user.md")))
+})
