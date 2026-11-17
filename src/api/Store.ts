@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, renameSync } from "node:fs"
-import { dirname, join, relative } from "node:path"
+import { dirname, join, relative, sep } from "node:path"
 import { DtError } from "../lib/DtError.ts"
 import { buildModel } from "../model/buildModel.ts"
 import { descriptorOf } from "../model/descriptorOf.ts"
@@ -89,10 +89,18 @@ export class Store {
     return new Map([...filesOf(this.model, c)].sort(([a], [b]) => (a < b ? -1 : 1)).map(([t, f]) => [t, f[0].path]))
   }
 
-  /** the folders a collection's records sit in */
+  /** the folders a collection's records sit in: its own, its owners' for one stored under them, each layer's */
   recordDirs(d: Released): string[] {
     const s = accessors.storageOf(d)
-    return [join(this.root, s.runtime ? ".dreamteamer" : "", String(s.path))]
+    const c = this.model.collections[String(d?.name)]
+    const owners = c?.under ? [this.model.collections[c.under.collection].storage.path] : []
+    const dirs = [String(s.path), ...owners, ...(c?.layers ?? []).map((t) => t.path)]
+    return dirs.map((t) => join(this.root, s.runtime ? ".dreamteamer" : "", t))
+  }
+
+  /** the record layer a file of a collection was read from, if any */
+  layerOf(collection: string, file: string) {
+    return this.model.collections[collection]?.layers?.find((t) => file.startsWith(join(this.root, t.path) + sep))
   }
 
   /**
@@ -112,7 +120,11 @@ export class Store {
   locate(collection: string, id: string) {
     const file = this.ids(collection).get(id)
     if (!file) throw new DtError(`${collection}/${id}: no such record`)
-    const res = { file: relative(this.root, this.fileOf(collection, id, file)), repo: "." }
+    const l = this.layerOf(collection, file)
+    const res = {
+      file: relative(this.root, this.fileOf(collection, id, file)),
+      repo: l ? `git_modules/${l.name}` : ".",
+    }
     return res
   }
 
@@ -164,6 +176,11 @@ export class Store {
   rename(collection: string, from: string, to: string) {
     const { rec, c } = load(this.model, `${collection}/${from}`)
     const [old, now] = [`${c.name}/${from}`, `${c.name}/${to}`]
+    const l = this.layerOf(c.name, rec.path)
+    if (l)
+      throw new DtError(
+        `${old} is held by layer ${l.name} (${l.path}) — a layer's record is renamed in its own workspace, never from here. nothing was renamed.`,
+      )
     const target = pathFor(this.model, c, to, rec.data)
     if (existsSync(target) || find(this.model, c, to)) throw new DtError(`${now} already exists — nothing renamed`)
     const owners = referrers(this.model, old)

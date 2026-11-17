@@ -27,8 +27,8 @@ const INJECTED = {
  * A collection as the released engine compiles it, with only the keys its readers use: the keys as written (storage
  * and ids resolved), and a `compiled` block with `defaults` (the title, record title and layouts nobody wrote),
  * `module`, `repo`, `runtime` (true for a source kind, whose records sit under `.dreamteamer/`), `overlaid_by` and
- * `fields` — every field, the three every record has first, each with a title. No `json_schema`, `mirrors`, `layers`
- * or `under_collection`: nothing here validates through them.
+ * `fields` — every field, the three every record has first, each with a title — and the record `layers` and the
+ * `under_collection` it reads from. No `json_schema` or `mirrors`: nothing here validates through them.
  */
 export function descriptorOf(model: Model, name: string): Record<string, unknown> {
   const c = model.collections[name]
@@ -67,6 +67,8 @@ export function descriptorOf(model: Model, name: string): Record<string, unknown
       repo: ".",
       runtime: Boolean(model.sources[name]),
       overlaid_by: c.contributors.map(moduleId).filter((t) => t !== moduleId(c.module)),
+      layers: c.layers?.map((t) => ({ name: t.name, path: t.path, repo: `git_modules/${t.name}` })),
+      under_collection: c.under?.collection,
       fields,
     },
   })
