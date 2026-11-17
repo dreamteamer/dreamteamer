@@ -1,0 +1,258 @@
+---
+name: using-dreamteamer
+description: always load first in a dreamteamer workspace — reading, writing and committing records, and changing what the workspace keeps or does (collections and fields, skills, commands, agents, ui-views, component code). Also when deciding which of those a request should become, when a compile or check error names a source file, or when a request names a new kind of thing to keep. Also for a brand-new or just-installed workspace, dreamteamer over existing data, or "help me set this up" — making the installed modules work on this machine.
+---
+
+# using dreamteamer
+
+this is a **dreamteamer** workspace: collections of typed records, plus the skills, commands,
+agents and views that operate on them — all compiled from sources into a runtime the harness
+reads.
+
+**core principle:** read the compiled runtime, write records with the CLI and sources under
+`modules/`, compile after any source change — then `dt commit` publishes what you wrote.
+
+## when to load
+
+first thing, every session in this repo. reload mid-session on any of these symptoms: you're
+about to guess a collection's fields; you can't tell whether the file to edit lives under
+`modules/*/<kind>/` or `.dreamteamer/`; you wrote something and the harness didn't notice; you're
+unsure which skill owns the job in front of you.
+
+## the contract
+
+| concern | where | rule |
+|---|---|---|
+| schemas (read) | `.dreamteamer/collections/*.collection.yaml` | the single source of truth for what exists and its shape. **never edit under `.dreamteamer/`** — generated and gitignored |
+| provenance | `.dreamteamer/manifest.yaml` | which module shipped which entry |
+| sources (write) | `modules/<module>/<kind>/` — **including the workspace's own**, the `dreamteamer.workspace_module` named in `package.json` | a source folder at the workspace ROOT is a compile error (whenever `workspace_module` is set — every `dt init` workspace); same-name collisions across modules too. after ANY source change: `dt compile` |
+| instructions (write) | `DREAMTEAMER.md` at the root | compiled into `CLAUDE.md`, `AGENTS.md` and `GEMINI.md` below the generated block; those three are gitignored, so a rule written into them reaches no clone |
+| records (write) | `data/…`, per each descriptor's `storage.path` | the CLI writes them validated; hand-edits are legal and owe `dt check` |
+
+- a record is a `<id>.<suffix>.<ext>` file (or a folder, for folder-shape collections). **the id
+  is the path** inside the collection folder minus suffix and extension — nested folders join in:
+  `data/meetings/2026/07/standup.meeting.md` ⇒ id `2026/07/standup`. a collection may instead keep
+  its records INSIDE the folder of the record they belong to (`storage.under` — a company's
+  meetings in `data/companies/<company>/meetings/`): still ONE collection, the same id, the same
+  `meetings/<id>` reference; only the folder follows the owner field (`references/collections.md`).
+- **references are `<collection>/<id>`** strings — always qualified, greppable, never a bare name
+  and never a file path.
+
+**lifecycle:** `dt init` makes a new workspace in one command — skeleton, install, compile, check,
+one commit (`references/setup.md`). a FRESH CLONE owes `dt install` before anything reads: it makes
+the checkout ready (the engine, `git_modules/`, then compile) — `.dreamteamer/`,
+the harness folders and the root `CLAUDE.md`/`AGENTS.md`/`GEMINI.md` are gitignored build output,
+so a clone has no runtime and no orientation until compile writes them — and `.env` is
+per-machine (declared keys: `references/records.md`). `dt status` says
+whether the runtime is fresh. the workspace's own switches live in `package.json`'s `dreamteamer`
+block (`references/collections.md`, the workspace manifest) — and the guided path from nothing,
+or from existing data, is `references/getting-started.md`. making the installed modules work on this
+machine — and the one-command bootstrap, `dt init` — is `references/setup.md`.
+
+## the CLI is the front door
+
+`dt` in this skill means the dreamteamer CLI: **`npx dreamteamer`** works in any workspace, and a
+workspace may alias it as an npm script — check `scripts` in `package.json` (the common spelling
+is `npm run --silent dt -- <verb> …`).
+
+**default to the CLI for every record read and write.** it validates before disk, generates the
+id, materializes defaults, and its writes are pathspec-scoped; touch a record file by hand only
+when the CLI cannot express the change (a long body, a nested map) — and then you owe `dt check`
+(`references/records.md`).
+
+**`dt help` is the complete command surface** — record verbs, system verbs, field verbs, workspace verbs, and
+their flags, on one page (there is no per-verb `--help`).
+
+the verb names, as a map (semantics and flags live in `help`; a test holds this list to the
+dispatch, so it cannot drift):
+
+- a collection may be spelled in the SINGULAR on any of these (`dt add task "call the bank"` — one bare positional is the title); references inside records still spell the full name
+- read & measure — `list` `get` `values` `history` `diff` `next` `relations` `resolve`
+- write & publish — `add` `set` `rm` `rename` `reorder` `revert` `commit` `relocate`
+- fields (sources, through the compile gate) — `add-field` `set-field` `rm-field` `rename-field` `rename-value` (system entities — modules, collections, skills, ui-views… — take the RECORD verbs above)
+- workspace — `init` `install` `update` `compile` `check` `exports` `doctor` `status` `setup` `changes` `help`
+- format descriptor sources (opt-in; block style, canonical key order, through the compile gate) — `fmt`
+- an EXTENSION (a module under `modules/` or a direct dependency, declaring `dreamteamer.extension`) adds verbs of
+  its own, and `dt help` lists them under its name; each ships the skill that teaches it. A verb core
+  does not know (`dt prove` · `dt land` · `dt worktree` · `dt serve` · `dt notebooklm`) belongs to an
+  extension — see `references/extensions.md`.
+
+don't learn syntax from prose, this skill included: prose drifts, and `help` ships in
+the same file as the dispatch it documents. run it once before your first write of a session.
+what prose adds is judgment — *when* a verb is the right move, and the guarantees you can lean
+on: **validation is hard** (unknown fields included; an invalid write is rejected before disk
+with no partial state), and **a write does not commit** — `dt commit` publishes, scoped
+(`references/records.md`).
+
+## one session, several workspaces
+
+a harness can be pointed at more than one workspace at a time. when it is, it loads skills, commands
+and agents from ALL of them and the workspace INSTRUCTIONS from the PRIMARY one only — measured:
+zero instruction blocks from the others across every session on record. so the schema in context is
+the primary workspace's, whoever shipped the skill you are reading.
+
+- **start a session in the workspace it is about.** it is the only thing that loads that workspace's
+  instructions, and it settles name collisions in its favour.
+- **to touch another workspace from here, `-w <name|path>` (`--workspace`) — not `cd`.** a record
+  layer is named by its git_modules name (`-w project-alpha`), any other workspace by path. the flag
+  resolves the target's schema, validates and commits there, and leaves the working directory alone;
+  a `cd` outlives the command. (`--vault <path>` is the deprecated spelling.)
+- **every record write prints the workspace it landed in** — `✔ <workspace> · <path>`. a write to
+  the wrong workspace passes validation, because the collection usually exists in both, so that line
+  is what distinguishes them.
+
+## a reply that wrote records ends with the record report
+
+a write prints one `✔` line into a tool result the operator does not read. so any reply that
+follows a write — a record verb, `dt commit`, a system verb, a script that called them, a
+hand-edited record — ENDS with the record report, and nothing written, nothing appended.
+
+**measure it, never recall it.** run `dt changes` before replying: it lists what is written and
+not committed, in this workspace and every record layer it reads. if you committed during the turn,
+`dt changes --since <the sha HEAD had before your first write>` (or fold what `dt commit` printed —
+the same block). the report, for a turn that added a contact, set two, removed a meeting and added
+an issue with `-w project-a`:
+
+```
+records — contacts: 1 created, 2 updated · issues (project-a): 1 created · meetings: 1 deleted
+[contacts/sam-diaz](data/contacts/sam-diaz.contact.md) (created) · [contacts/dana-oren](data/contacts/dana-oren.contact.md) (updated) · [contacts/harbor-mutual-desk](data/contacts/harbor-mutual-desk.contact.md) (updated) · [issues/login-times-out](git_modules/project-a/data/issues/login-times-out.issue.md) (created) · meetings/kickoff (deleted)
+```
+
+- **line one is `dt changes`'s first line, verbatim**: one entry per collection touched, counts per
+  verb; a write into a record layer shows as `<collection> (<layer>)`.
+- **then every record as a link** — `[<ref>](<path>)`, the path column `dt changes` prints, which is
+  relative to the workspace root (a layer's record too) so the editor opens it. a deleted record has
+  no file: write its ref with `(deleted)`, unlinked. past twenty records, say `+ N more` and
+  point at `dt changes --json`.
+- **measured, not attributed.** `dt changes` measures the shared state exactly but cannot say
+  whose: another session's pending records show too. a turn that committed by id reports
+  `dt commit`'s block unchanged — that IS this turn's writes, measured. otherwise report
+  `dt changes` whole; when you leave out rows that were pending before your first write, append
+  `(N pending rows left out — not this turn's)` and never drop a row silently. line one is verbatim
+  when every row is yours.
+- **nothing written, nothing appended** — no empty report, no "no records changed" line. a system
+  write (`dt add-field` …) is reported the same way under its collection.
+
+## two acts, one map
+
+Act one is **working with data** — the records themselves. Act two is **modeling the workspace**
+— changing what it keeps (collections, fields) or what it does (skills, commands, agents, views).
+Load by the map; nothing here is loaded "just in case".
+
+| the job | load |
+|---|---|
+| a brand-new or empty workspace, dreamteamer over an existing pile of files | `references/getting-started.md` |
+| "help me set this up", "finish setup", "add meetings", "install a module", "connect my account / calendar", "something stopped working", "what works here?", "add / connect / repair <capability>" — `dt install`, `dt setup`, `dt status`: a module's setup unit, inputs and consent, an honest readiness report | `references/setup.md` |
+| read, create, update, rename, delete, commit — or UNDO — a record | `references/records.md` |
+| "what changed while I was away", what this turn changed, the record report | `references/changes.md` |
+| the workspace seems unable to do something — a new kind of thing, a missing capability, "don't we already have this?" | `references/before-you-build.md` (look first); a new model then continues `references/data-modeling.md` (decide) → `references/collections.md` (write it) |
+| a collection or field, mechanically — the descriptor and its field vocabulary, ids, `display`, the system and field verbs, mixins and overlays, the `package.json` block, a compile or check message | `references/collections.md` |
+| "keep a company's meetings in the company's folder" — records stored beside the record they belong to, a `placed … but` check report, `dt relocate` | `references/collections.md` (declaring it) · `references/records.md` (working with it) |
+| knowledge a session should find on its own | `references/skills.md` |
+| "let me type one word and have this done" | `references/commands.md` |
+| "which command applies to this record?" — a binding, a gate | `references/commands.md` |
+| a job needing a fresh context and its own tools | `references/agents.md` |
+| a route, a nav entry, a board / calendar / map over records | `references/ui-views.md` |
+| a rendering or editing behaviour nothing registered has | `references/ui-components.md` |
+| an optional tool — behaviour proofs, worktrees, a REST server, an exporter, a new harness — and whether to write one | `references/extensions.md` |
+| writing, testing and publishing a module of your own — `dt add modules --extension --package`, a setup unit, `dreamteamer/testing`, `dt check modules/<id> --alone` | `references/writing-a-module.md` |
+| other agent sessions are running on this machine — finding them, messaging one, coordinating several, and what may not cross between them | `references/sessions.md` |
+
+three act-two tie-breakers, because they are the ones that go wrong:
+
+- **skill vs command:** a skill triggers itself when the situation arises; a command needs the
+  operator to remember it exists. if the answer is "and they'd have to think of running it",
+  write the skill.
+- **agent vs skill:** an agent costs a whole context. if "just tell the current session how"
+  works, it is a skill.
+- **a multi-step process is a CHAIN OF COMMANDS** gated on record fields (`references/commands.md`),
+  never a workflow entity — there is no workflow kind, deliberately: the record's own state is
+  the progress marker.
+
+domain work — meetings, patients, invoices, whatever this workspace is about — is owned by the
+**module** that ships those collections; read that module's own skills. core knows entity kinds
+and `repos`, and deliberately nothing else. workspace-level rules live in `DREAMTEAMER.md`, and a
+workspace's decision log (where one exists) wins over older documents.
+
+## system entities take the RECORD verbs
+
+Modules, collections, skills, agents, commands, command-bindings, ui-views, mixins — and any kind
+an installed extension contributes — are collections in the runtime, and the ordinary verbs write
+them:
+
+```
+dt add modules --name core --description "The shared nouns."
+dt add collections --name people --module core --description "A person."
+dt add-field people --name email --type string --description "Where to write to them."
+dt rename-field people --name email --to work_email
+dt set collections/people module=hr          # MOVES it to another module
+dt set modules/hr namespaces=hr dependencies=modules/core
+dt rm modules/hr --force                     # --dry-run first; it prints its plan
+```
+
+⚠ **`add` scaffolds modules, collections, skills and ui-views.** Agents, commands, bindings,
+mixins and contributed kinds are hand-authored — `dt add agents` is refused, naming the file to
+write. Every other verb works on them.
+
+⚠ **ONE difference, and it is POLICY rather than spelling: a SYSTEM write commits itself; a RECORD
+write does not.** An uncompilable or unpublished schema is not a state a workspace should sit in, so
+every system verb writes its source, proves it with a real compile, and commits — **in the repo that
+holds the source**, so a write into a `git_modules/` module commits there and says
+`ahead 1 — push when ready`. A record write lands on disk and `dt commit` publishes it.
+
+⚠ **Every verb that moves records or clears values takes `--dry-run` and prints its plan first:**
+`rename collections/…`, `rename-field`, `rm-field`, `set collections/… module=`,
+`rm modules/… --force`. The plan line is one shape — `records N · refs M · descriptors K · values
+cleared V` — so two dry runs are comparable, and a term that reads 0 means zero rather than
+unmeasured (where a number genuinely cannot be known before the run, the plan says so in words).
+
+## the rules that hold in both acts
+
+1. **sources live in a module** — `modules/<module>/<kind>/`; the workspace's own go in its
+   workspace module. **a module is discovered by its `package.json` carrying a `dreamteamer`
+   key** (`"dreamteamer": {}` is enough) — without it, the folder is silently ignored.
+2. **the filename is the id.** where a record also carries a frontmatter `name` (agents,
+   commands), the two must agree, or the id lies and dispatch misses.
+3. **the meta-descriptor is the spec.** every source kind is itself a collection — read
+   `.dreamteamer/collections/<kind>.collection.yaml`; its field descriptions are the contract.
+   prose drifts, and a sample record is one arbitrary instance — when a schema underdocuments a
+   convention, fixing the schema IS the task (`references/records.md`).
+4. **`dt compile`, then `dt check`**, after any source change. compile fails closed — a bad
+   source is rejected and the previous runtime stands; check reports and never modifies.
+5. **a running session does not see new sources.** a new skill, command or agent is live in the
+   operator's NEXT session — say so rather than letting them wonder.
+6. **never edit generated output.** `.dreamteamer/`, `.claude/`, `.agents/`, `.cursor/` and the
+   blocks in the root `CLAUDE.md`/`AGENTS.md`/`GEMINI.md` are rewritten on the next compile — and
+   those root files are gitignored, so nothing written in them reaches a clone. if you found the
+   thing to change there, you are in the wrong file.
+7. **a system entity is a SOURCE, written two ways**: the system and field verbs, which write it
+   *through* a compile gate so an uncompilable source can never land — or an edit to the module
+   file, then `dt compile`. one shipped by an installed package is refused, naming the move
+   (disable it, or overlay it).
+8. **never duplicate a procedure across records.** a command body restating a skill, an agent
+   inlining its skill's steps — two copies, and one drifts. reference the owner.
+9. **nothing module-shipped names a person, an account or a machine path.** per-install values
+   are `${env:VAR}` templates plus a declared var, rendered only by `dt resolve`
+   (`references/records.md`).
+10. **commit discipline: scope to what YOU wrote** — `dt commit <collection>/<id> …` — and never
+    `git add -A`, `git add .` or `git commit -a`: a blanket add silently sweeps another session's
+    pending work under your subject. commit when a logical change is complete — records via
+    `dt commit`, sources via `git add <specific paths>`; `dt status` says what is pending, and
+    `dt check` runs after bulk edits.
+
+## common mistakes
+
+| mistake | reality |
+|---|---|
+| editing under `.dreamteamer/` or `.claude/` | generated — the change vanishes next compile; find the module source |
+| changing a source and not compiling | the CLI, `check` and every harness still read the stale runtime |
+| hand-writing a record the CLI could add | skips validation, id generation and defaults |
+| bare refs (`ada`, `data/contacts/x.contact.md`) | refs are `<collection>/<id>`; anything else fails check |
+| assuming a write was committed | it was not (unless `auto_commit` is on) — `dt status` shows pending |
+| editing `CLAUDE.md` for a workspace rule | it is compiled output — the rule goes in `DREAMTEAMER.md` |
+| learning flags from prose or memory | `dt help` is the surface; prose carries judgment only |
+| a new module folder compile ignores | its `package.json` needs a `dreamteamer` key |
+| `git add -A` in a shared tree | steals another session's uncommitted work, invisibly |
+| an absolute machine path in a record | wrong on every other machine — `${env:NAME}` + a declared var |
+| picking an entity by what is easiest to write | pick by how it should be TRIGGERED — that is what the choice encodes |
+| telling the operator a new source works now | it works in their **next** session |

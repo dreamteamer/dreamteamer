@@ -1,0 +1,69 @@
+# A collection descriptor, as compile writes it: the authored keys (mixins and overlays merged in) and
+# the `compiled` block holding everything compile decided. The authority on what each authored key
+# means is skills/using-dreamteamer/references/collections.md; every reader asks a compiled
+# descriptor through src/descriptor.js rather than reading these keys directly.
+name: collections
+record_title: '{{ name }}'
+description: A typed set of records — what one record is, where records live, how ids are made, the fields, and how surfaces draw it.
+use_when: >-
+  a new kind of thing has to be kept, or a collection's shape, storage or display changes — write the
+  descriptor in a module's collections/ folder and run dt compile; read a compiled one here to learn
+  what a collection is
+internal: true
+storage:
+  path: collections
+  format: yaml
+ids:
+  from: '{{ name | slug }}'
+fields:
+  name:
+    type: string
+    required: true
+    description: The collection's name — equal to the filename, unique across every installed module, carrying its namespace (`health/visits`).
+  title:
+    type: string
+    description: The human label. Default the title-cased bare name.
+  singular:
+    type: string
+    description: The word the CLI accepts beside the name (`dt add task …`). Default the inflected bare name, namespace kept.
+  record_title:
+    type: string
+    description: How one record is labelled wherever it is referenced, a template. Its first token is the field `dt add <collection> "<title>"` fills.
+  description:
+    type: string
+    description: What one record IS, in one line — naming the confusable neighbour it is not.
+  use_when:
+    type: string
+    description: The situations that should bring a session to this collection, to read it and to write it.
+  internal:
+    type: boolean
+    description: Workspace plumbing rather than a domain noun — left out of the domain listing.
+  sensitive:
+    type: boolean
+    description: Records never leave the workspace through an export.
+  storage:
+    type: map
+    description: Where records live — path, format (md · yaml · json · binary), shape (file · folder), entry, suffix, under { parent, subfolder }, max_bytes, accept, owner (module · workspace — whose repo holds the records).
+  ids:
+    type: map
+    description: How a record's id is made — `from` (a template, or an ordered list of them) and `pattern`.
+  fields:
+    type: map
+    values: map
+    description: The fields, in the descriptor's own vocabulary, in form order.
+  constraints:
+    type: map
+    many: true
+    description: JSON Schema combinators for a rule across fields.
+  display:
+    type: map
+    description: How surfaces draw it — nav, list, record, form.
+  compiled:
+    type: map
+    description: Written by compile, never authored — defaults, module, repo, runtime, under_collection, mirrors, overlaid_by, unresolved_peers, fields, json_schema.
+display:
+  nav:
+    icon: schema
+    order: 10
+  list:
+    columns: [name, last_modified]

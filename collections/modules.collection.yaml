@@ -1,0 +1,88 @@
+# The modules this workspace compiled, PROJECTED by compile from what it discovered. `package.json`
+# stays the source of truth and compile keeps reading it, so a record here is a projection, never an
+# input: editing one would be editing a photograph. It earns its place because the engine reads the
+# DATA — `dependencies` is checked for cycles, `peer_collections` is what lets a cross-module
+# reference compile — and because, as a collection, its EDGES are browsable, diagrammable and
+# listable with no code written for any of them.
+name: modules
+record_title: '{{ name }}'
+description: A module this workspace compiled — where its sources sit, what it declares, and the modules and collections it reaches.
+use_when: >-
+  asked which module ships a collection, what a module depends on, or where its sources live — read
+  here; a record is projected from the module's package.json, so change the package, not the record
+internal: true
+storage:
+  path: modules
+  format: yaml
+ids:
+  from: '{{ name | slug }}'
+  pattern: '^[a-z0-9-]+$'
+fields:
+  name:
+    type: string
+    required: true
+    description: The module's package name, verbatim — `@dreamteamer/crm`, `acme-workspace`.
+  title:
+    type: string
+    description: What to CALL this module — `dreamteamer.title` in its package.json, else derived from the id. Authored where deriving cannot know an acronym (`crm` → `CRM`).
+  description:
+    type: string
+    description: What this module is FOR, in one line — `dreamteamer.description` in its package.json, never derived.
+  namespaces:
+    type: string
+    many: true
+    description: >-
+      The namespaces this module declares and owns — `dreamteamer.namespaces` in its package.json. The
+      workspace's set is the union of every module's declarations plus its own; two modules declaring
+      one namespace is a compile error, and using another module's namespace requires that module in
+      `dependencies`. Absent: the module ships into the default namespace, the empty prefix.
+  location:
+    type: string
+    required: true
+    enum: [modules, git_modules, node_modules, root]
+    passthrough: true
+    description: >-
+      Where this module's sources sit — the folder name, so `dt status` needs no legend. `root` is the
+      classic layout, where the workspace's own sources live at its root rather than under `modules/<id>/`.
+  path:
+    type: string
+    description: Workspace-relative root of the module's sources.
+  bin:
+    type: string
+    many: true
+    description: The module's runnable entry points — every file under its `bin/`, module-relative. Rendered into the orientation block as the pointer that a procedure is a script here.
+  owns_data:
+    type: boolean
+    description: The module keeps its records in its OWN clone rather than this workspace's data/ — a write there commits in that repo, and a rename spanning both is two commits.
+  dependencies:
+    type: modules
+    many: true
+    description: Modules this one cannot compile without — an overlay needs its base. Hard and acyclic; compile fails on a ring and names the peer escape hatch.
+  peer_collections:
+    type: string
+    many: true
+    description: >-
+      Collections this module references but does not own. Soft by design: naming a concept rather than
+      a module keeps two modules from forming a ring, and lets a module ship a reference to a
+      collection nobody installed. A plain list of names, because the point is that the target may be absent.
+  collections:
+    type: collections
+    many: true
+    description: Collections this module contributed a source to. A collection merged from several modules appears under every one of them.
+  preset:
+    type: boolean
+    description: The package is a MODULE PRESET — `dreamteamer.preset` in its package.json, a list of member modules at exact versions. It ships no sources of its own; `dt install` pins its members and `dt update` moves them.
+  members:
+    type: modules
+    many: true
+    soft: true
+    description: The modules this preset pins — the keys of its `dreamteamer.preset`. Soft, because a member the operator uninstalled is absent on purpose and never dangles.
+  preset_summary:
+    type: string
+    description: '`preset · N members · M installed`, written at compile — the line `dt list modules` prints after the id.'
+display:
+  nav:
+    icon: deployed_code
+    order: 140
+  list:
+    columns: [location, path, namespaces, name, collections]

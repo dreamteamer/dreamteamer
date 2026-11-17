@@ -187,3 +187,12 @@ engine that already reads every record and serves every verb they call.
   table. Engine 2,424 lines.
 - **A name every object inherits is not a verb**: `constructor`, `toString` and the like are refused as an unknown
   verb with exit status 2, where they used to run `check`. Engine 2,419 lines.
+- **D10 closed for references and reads**: the engine ships the system module as data (the released 0.49.1 files,
+  pinned byte for byte by a test) and loads it always, once. References to `repos/…`, `collections/<name>`,
+  `modules/<id>`, `skills/<id>`, `mixins/<id>`, `agents/…`, `commands/…`, `command-bindings/…` and `ui-views/…`
+  resolve; `list` and `get` answer for the source kinds from the model, and writes to them are refused. On the large
+  real workspace `check` still reports 4,837 records, 0 errors, 0 warnings (source records are not counted); the 37
+  modules' schemas load with 0 errors without the released package. Across the 76 repositories, errors fell from
+  7,948 to 1,578 and both-clean rose from 46 to 53; this engine alone reports errors in 14, down from 21. What remains
+  is mostly references into record layers and owner folders (M8, D11): `meeting`, `company`, `item`, and 68 `repo`
+  references to records held elsewhere. Engine 2,619 lines.

@@ -1,0 +1,49 @@
+# The first meta-descriptor written in descriptor format v2: a mixin is itself a partial v2
+# descriptor, so its own shape is stated in the vocabulary it contributes.
+name: mixins
+record_title: '{{ name }}'
+description: A partial descriptor merged into every collection that lists it in `mixins` — shared fields, and where it says so storage, id and display.
+use_when: >-
+  several collections in one module need the same fields (provenance, a dated document's id shape) —
+  write them once here and list the mixin, rather than restating the fields in every descriptor
+internal: true
+storage:
+  path: mixins
+  format: yaml
+ids:
+  from: '{{ name | slug }}'
+  pattern: '^[a-z0-9-]+$'
+fields:
+  name:
+    type: string
+    required: true
+    description: The mixin id. Scope it to its module (`clinic-provenance`, not `provenance`) — two modules shipping one id is a compile error, not a merge.
+  description:
+    type: string
+    description: What the mixin contributes, in one line.
+  use_when:
+    type: string
+    description: Which collections should list it.
+  fields:
+    type: map
+    values: map
+    description: The fields it contributes, in the descriptor's own field vocabulary. They are inserted before the collection's body field; a name the collection or another mixin also declares is a compile error.
+  storage:
+    type: map
+    description: Storage keys applied where the collection is silent.
+  ids:
+    type: map
+    description: How record ids are made (`from`, `pattern`), applied where the collection is silent.
+  display:
+    type: map
+    description: Display keys applied key by key where the collection is silent.
+  constraints:
+    type: map
+    many: true
+    description: JSON Schema combinators appended to the collection's own.
+display:
+  nav:
+    icon: content_copy
+    order: 120
+  list:
+    columns: [name, description]

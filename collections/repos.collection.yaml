@@ -1,0 +1,58 @@
+name: repos
+record_title: '{{ name }}'
+description: A git repository this workspace knows about — where it lives and how a working tree is materialized on demand.
+use_when: >-
+  a repository this workspace depends on is named — its own engine or extension clone, a client's
+  repo — read the record here for WHERE it lives (`path`, a `${env:…}` variable `dt resolve` renders
+  per machine) before assuming a path or concluding a clone is unreachable; `dt status` reports
+  each one and `dt install repos/<id>` materializes it
+# Owns CLONE LIFECYCLE ONLY — a repo record never contributes schema, skills or UI (that is what a
+# module is, declared in package.json `dreamteamer.git_modules`, because modules must be restorable
+# BEFORE compile can run). Working trees are materialized on demand, never as part of making a
+# checkout ready. Internal: workspace plumbing rather than a domain noun, so it is drawn on the
+# schema surface; its records are ordinary, writable, committed data.
+internal: true
+storage:
+  path: data/repos
+  format: yaml
+ids:
+  from: '{{ name | slug }}'
+  pattern: '^[a-z0-9-]+$'
+fields:
+  name:
+    type: string
+    required: true
+    description: The CLONE FOLDER name, not a display title — this is what appears on disk.
+  description:
+    type: string
+    description: What this repo is, in one line.
+  url:
+    type: string
+    required: true
+    title: URL
+    description: The git remote to clone from.
+  ref:
+    type: string
+    default: main
+    description: Branch or tag to check out.
+  identity:
+    type: string
+    description: 'Opaque path segment grouping clones by the account that owns them: <repos-path>/<identity>/<name>.'
+  path:
+    type: string
+    description: >-
+      Where the working tree goes, winning over the derived <repos-path>/<identity>/<name>. Takes the
+      ${env:NAME} / ${workspaceFolder} / ${userHome} variables, rendered when the path is needed — which
+      is how a repo that lives OUTSIDE this workspace is expressed, since an absolute rendering escapes
+      the root while a plain relative one still anchors to it.
+  visibility:
+    type: string
+    default: private
+    enum: [private, public]
+    description: Whether the repo is public. Defaults to private, because assuming otherwise is the expensive mistake.
+display:
+  nav:
+    icon: source
+    order: 145
+  list:
+    columns: [name, identity, ref, url]

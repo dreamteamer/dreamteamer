@@ -6,11 +6,13 @@ import { checkId } from "./checkId.ts"
 import { present } from "./present.ts"
 import { recordPath } from "./recordPath.ts"
 
-/** a reference names a record that exists, or an id the exports manifest vouches for */
+/** a reference names a record that exists, a source the model holds, or an id the exports manifest vouches for */
 export function refExists(model: Model, ref: string): boolean {
   const at = splitRef(model, ref)
   if (!at) return false
   if (model.exports[at.collection]?.includes(at.id)) return true
+  const src = model.sources[at.collection]
+  if (src) return Object.hasOwn(src, at.id)
   const c = model.collections[at.collection]
   try {
     if (c.storage.format !== "binary") return present(join(model.root, c.storage.path), recordPath(model, c, at.id))

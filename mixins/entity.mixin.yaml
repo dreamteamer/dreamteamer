@@ -1,0 +1,22 @@
+name: entity
+description: >-
+  name / notes / tags, under a bare slug id (`<name>`) — the shape of a thing that IS: a person, a
+  supplier, a tool. No date in the id, because an entity does not happen on a day. For a dated
+  document, use `docs`.
+use_when: a collection holds named things — list this mixin rather than restating the fields and the slug id
+ids:
+  from: '{{ name | slug }}'
+  pattern: '^[a-z0-9][a-z0-9-]*$'
+fields:
+  name:
+    type: string
+    required: true
+  tags:
+    type: string
+    many: true
+  notes:
+    type: markdown
+    body: true
+display:
+  list:
+    columns: [name, tags]

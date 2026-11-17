@@ -37,9 +37,9 @@ test("finds npm and workspace modules and resolves mixins, overlays and declared
   const m = buildModel(workspace())
   assert.deepEqual(
     m.modules.map((x) => `${x.name}:${x.origin}`),
-    ["people:npm", "local:workspace"],
+    ["dreamteamer:engine", "people:npm", "local:workspace"],
   )
-  assert.deepEqual(m.modules[0].unsupported, ["extension"])
+  assert.deepEqual(m.modules[1].unsupported, ["extension"])
   assert.deepEqual(Object.keys(m.collections.users.fields).sort(), ["joined", "kind", "name", "notes", "site", "tasks"])
   assert.deepEqual(
     m.collections.tasks.fields.about.type,
@@ -48,6 +48,69 @@ test("finds npm and workspace modules and resolves mixins, overlays and declared
   )
   assert.equal(m.collections.tasks.fields.ghost.type, "ghosts", "and keeps its field")
   assert.deepEqual(m.issues, [])
+})
+
+test("the system collections come with the engine, and a reference to a module's source resolves from the model", () => {
+  const root = workspace()
+  const p = (path: string, text: string) => put(root, `modules/local/${path}`, text)
+  p("agents/reviewer.agent.md", "---\nname: reviewer\ndescription: dispatch to review.\n---\nReview it.\n")
+  p("commands/lab/run.command.md", "---\ndescription: run it\n---\nRun.\n")
+  p("command-bindings/run--tasks.command-binding.yaml", "command: commands/lab/run\ncollection: collections/tasks\n")
+  p("ui-views/tasks-mine.ui-view.yaml", "route: /tasks/mine\nscope: collection\ncollection: collections/tasks\n")
+  p("skills/triage/SKILL.md", "---\nname: triage\ndescription: use when sorting.\n---\nSort.\n")
+  p(
+    "collections/links.collection.yaml",
+    "name: links\nfields:\n  name: {type: string, required: true}\n  repo: {type: repos}\n  reads: {type: collections, many: true}\n  skill: {type: skills}\n  module: {type: modules}\n  mixin: {type: mixins}\n  agent: {type: agents}\n  command: {type: commands}\n  binding: {type: command-bindings}\n  view: {type: ui-views}\n",
+  )
+  const m = buildModel(root)
+  assert.deepEqual(m.issues, [])
+  for (const t of ["repos", "agents", "collections", "modules", "skills", "mixins", "commands", "ui-views"])
+    assert.equal(m.collections[t].module, "dreamteamer", t)
+  add(m, "repos", { name: "portal", url: "https://git.example/northwind/portal" })
+  const links = {
+    name: "Everything",
+    repo: "repos/portal",
+    reads: ["collections/tasks", "collections/repos"],
+    skill: "skills/triage",
+    module: "modules/people",
+    mixin: "mixins/entity",
+    agent: "agents/reviewer",
+    command: "commands/lab/run",
+    binding: "command-bindings/run--tasks",
+    view: "ui-views/tasks-mine",
+  }
+  assert.equal(add(m, "links", links).id, "everything")
+  refuses(() => add(m, "links", { name: "Wrong", reads: ["collections/nope"] }), /broken reference collections\/nope/)
+  refuses(() => add(m, "links", { name: "Wrong", skill: "skills/nope" }), /broken reference skills\/nope/)
+  assert.deepEqual(listIds(m, "skills"), ["triage", "using-dreamteamer"])
+  assert.deepEqual(listIds(m, "commands"), ["lab/run"])
+  assert.deepEqual(listIds(m, "modules"), ["dreamteamer", "local", "people"])
+  assert.deepEqual(listIds(m, "mixins"), ["docs", "entity"])
+  assert.equal(get(m, "agents/reviewer").data.instructions, "Review it.\n")
+  assert.equal(get(m, "collections/links").data.name, "links")
+  assert.deepEqual(get(m, "collections/tasks").data.storage, m.collections.tasks.storage)
+  assert.deepEqual(get(m, "modules/local").data.collections, [
+    "collections/companies",
+    "collections/links",
+    "collections/meetings",
+    "collections/memos",
+    "collections/pages",
+    "collections/places",
+    "collections/stories",
+    "collections/tasks",
+    "collections/users",
+  ])
+  assert.deepEqual(
+    list(m, "ui-views", { scope: "collection" }).map((t) => t.id),
+    ["tasks-mine"],
+  )
+  refuses(() => add(m, "skills", { name: "x", description: "y" }), /skills are read-only here/)
+  refuses(() => set(m, "collections/tasks", { description: "x" }), /collections are read-only here/)
+  refuses(() => rm(m, "agents/reviewer"), /agents are read-only here/)
+  refuses(() => get(m, "skills/nope"), /skills\/nope: no such record/)
+  const { records, issues } = check(m)
+  assert.deepEqual(issues, [])
+  assert.equal(records, 2, "a source is not counted as a record")
 })
 
 test("an enum written as a map takes its keys as the values and keeps how each is shown", () => {

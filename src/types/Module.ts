@@ -3,7 +3,7 @@ export interface Module {
   name: string
   version: string
   dir: string
-  origin: "npm" | "workspace"
+  origin: "npm" | "workspace" | "engine"
   title?: string
   namespaces: string[]
   dependencies: string[]

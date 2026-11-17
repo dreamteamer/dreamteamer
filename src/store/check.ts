@@ -11,23 +11,12 @@ import { validate } from "./validate.ts"
 import { relationsOf } from "../model/relationsOf.ts"
 import { expectedMirrors, sameMirror } from "./expectedMirrors.ts"
 
-/** the released engine's system collections name source folders: what is there is source, not records */
-const SOURCE_FOLDERS = new Set([
-  "modules",
-  "collections",
-  "mixins",
-  "skills",
-  "agents",
-  "commands",
-  "command-bindings",
-  "ui-views",
-])
-
 /** Validate every record of every collection, and report the files no collection recognises; never modifies anything. */
 export function check(model: Model) {
   const issues: Issue[] = [...model.issues]
   const unresolved = new Map<string, number>()
-  const stored = Object.values(model.collections).filter((t) => !isAbsolute(t.storage.path))
+  // a source kind's records are the modules' files, checked when the model is built
+  const stored = Object.values(model.collections).filter((t) => !isAbsolute(t.storage.path) && !model.sources[t.name])
   // a file belongs to a collection when it sits in the collection's folder and is named as its records are;
   // anything inside a folder-shaped collection belongs to its record
   function claimed(p: string) {
@@ -74,8 +63,7 @@ export function check(model: Model) {
         })
       }
     }
-    const data =
-      c.storage.shape !== "folder" && !SOURCE_FOLDERS.has(c.storage.path) && resolve(base) !== resolve(model.root)
+    const data = c.storage.shape !== "folder" && resolve(base) !== resolve(model.root)
     if (data && existsSync(base))
       for (const p of listFiles(base))
         if (!claimed(p) && !strays.has(p) && strays.add(p))

@@ -37,7 +37,7 @@ function describe(name: string, f: Field) {
   return `${name}${f.required ? "*" : ""}${f.many ? "[]" : ""}: ${kind}${given}`
 }
 
-function entry(c: Collection) {
+function entry(c: Collection, source: boolean) {
   const body = bodyField(c)
   const fields = Object.entries(c.fields)
     .filter(([n, f]) => !f.mirror_of && n !== body)
@@ -45,7 +45,9 @@ function entry(c: Collection) {
   return [
     `- **${c.name}** (${c.module}) — ${c.description ?? ""}`.trimEnd(),
     ...(c.use_when ? [`  use when: ${c.use_when}`] : []),
-    `  records: ${c.storage.path}/<id>${tail(c)} · id from ${c.ids.from.map((t) => `\`${t}\``).join(", else ")}`,
+    source
+      ? `  records: read-only here — the files each module ships in its ${c.storage.path}/ folder`
+      : `  records: ${c.storage.path}/<id>${tail(c)} · id from ${c.ids.from.map((t) => `\`${t}\``).join(", else ")}`,
     `  fields: ${fields.join(" · ")}${body ? ` · ${body}: the text below the frontmatter` : ""}`,
   ]
 }
@@ -65,9 +67,13 @@ export function instructions(model: Model): string {
     "## Collections",
     "",
   ]
-  for (const c of Object.values(model.collections).sort((a, b) => a.name.localeCompare(b.name))) lines.push(...entry(c))
+  for (const c of Object.values(model.collections).sort((a, b) => a.name.localeCompare(b.name)))
+    lines.push(...entry(c, Boolean(model.sources[c.name])))
   lines.push("", "## Skills", "")
-  for (const s of model.skills)
-    lines.push(`- **${s.name}** (${s.module}) — ${s.description} Read \`${relative(model.root, s.path)}\`.`)
+  // a skill outside the workspace, such as the engine's own, is named by its full path
+  for (const s of model.skills) {
+    const at = relative(model.root, s.path).startsWith("..") ? s.path : relative(model.root, s.path)
+    lines.push(`- **${s.name}** (${s.module}) — ${s.description} Read \`${at}\`.`)
+  }
   return lines.join("\n") + "\n"
 }

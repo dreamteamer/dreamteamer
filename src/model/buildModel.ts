@@ -18,6 +18,7 @@ import { readDescriptor } from "./readDescriptor.ts"
 import { readExports } from "./readExports.ts"
 import { readField } from "./readField.ts"
 import { readSkills } from "./readSkills.ts"
+import { readSources } from "./readSources.ts"
 import { SCALARS } from "./SCALARS.ts"
 import { singular } from "./singular.ts"
 
@@ -122,6 +123,8 @@ export function buildModel(root: string): Model {
   const collections: Record<string, Collection> = {}
   // each collection's fields as written, until overlays are merged and types are checked
   const raws = new Map<string, Record<string, unknown>>()
+  // the descriptor that declares each collection: its file as a record of `collections`
+  const files = new Map<string, string>()
   for (const d of all.filter((t) => !t.overlay)) {
     const name = d.name
     if (!name) {
@@ -162,6 +165,7 @@ export function buildModel(root: string): Model {
         message: `unknown storage format "${format}" — md, yaml, json or binary`,
       })
     collections[name] = c
+    files.set(name, d.file)
     const fields: Record<string, unknown> = {}
     for (const t of layers) Object.assign(fields, t.fields)
     raws.set(name, fields)
@@ -215,6 +219,7 @@ export function buildModel(root: string): Model {
     collections,
     skills: readSkills(modules),
     peers,
+    sources: readSources(modules, collections, files),
     exports: readExports(root, issues),
     issues,
   }

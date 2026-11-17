@@ -15,7 +15,7 @@ export function referrers(model: Model, ref: string): string[] {
     const fields = Object.entries(c.fields)
       .filter(([, f]) => isRef(f) && !f.mirror_of)
       .map(([n]) => n)
-    if (c.storage.format === "binary" || !fields.length) continue
+    if (c.storage.format === "binary" || model.sources[c.name] || !fields.length) continue
     let ids: string[]
     try {
       ids = listIds(model, c.name)

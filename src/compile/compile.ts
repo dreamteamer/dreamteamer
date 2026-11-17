@@ -35,6 +35,12 @@ function portable(model: Model) {
       return s
     }),
     peers: model.peers,
+    sources: Object.fromEntries(
+      Object.entries(model.sources).map(([k, ids]) => [
+        k,
+        Object.fromEntries(Object.entries(ids).map(([id, p]) => [id, relative(model.root, p)])),
+      ]),
+    ),
     exports: model.exports,
     issues: model.issues,
   }

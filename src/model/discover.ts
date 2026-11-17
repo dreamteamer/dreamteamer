@@ -11,8 +11,9 @@ import { readOr } from "../lib/readOr.ts"
 import type { Issue } from "../types/Issue.ts"
 import type { Module } from "../types/Module.ts"
 import { readModule } from "./readModule.ts"
+import { systemModule } from "./systemModule.ts"
 
-/** Which modules does this workspace have? npm is the delivery mechanism; this only reads. */
+/** Which modules does this workspace have? The engine's own system module first, then npm's and its own; this only reads. */
 export function discover(root: string) {
   const file = join(root, "package.json")
   if (!existsSync(file)) throw new DtError(`not a workspace: ${root} has no package.json`)
@@ -37,7 +38,8 @@ export function discover(root: string) {
   const deps = map(pkg.dependencies, "dependencies")
   const devDeps = map(pkg.devDependencies, "devDependencies")
   for (const dep of [...new Set([...Object.keys(deps), ...Object.keys(devDeps)])].sort()) {
-    if (disabled.has(dep)) continue
+    // the released engine's package is the system module, which this engine ships its own copy of
+    if (disabled.has(dep) || dep === "dreamteamer") continue
     const dir = join(root, "node_modules", dep)
     if (!existsSync(dir)) {
       issues.push({
@@ -56,8 +58,14 @@ export function discover(root: string) {
       const m = readModule(join(local, name), "workspace", issues)
       if (m) modules.push(m)
     }
-  if (!modules.length && !issues.length)
+  if (
+    !modules.length &&
+    !issues.length &&
+    !Object.hasOwn(deps, "dreamteamer") &&
+    !Object.hasOwn(devDeps, "dreamteamer")
+  )
     throw new DtError(`not a workspace: ${root} has no dreamteamer module among its dependencies or under modules/`)
+  modules.unshift(systemModule())
   const names = new Set(modules.map((t) => t.name))
   for (const m of modules)
     for (const d of m.dependencies) {

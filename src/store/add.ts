@@ -9,6 +9,7 @@ import { compose } from "./compose.ts"
 import { get } from "./get.ts"
 import { makeId } from "./makeId.ts"
 import { openCollection } from "./openCollection.ts"
+import { readOnly } from "./readOnly.ts"
 import { recordPath } from "./recordPath.ts"
 import { write } from "./write.ts"
 import { applyMirrors, mirrorEdits, refuseMirrors } from "./mirrorEdits.ts"
@@ -16,6 +17,7 @@ import { applyMirrors, mirrorEdits, refuseMirrors } from "./mirrorEdits.ts"
 /** Write a new record: the given fields, `created`, then the defaults. Refuses to replace one that exists. */
 export function add(model: Model, collection: string, input: Record<string, unknown>, id?: string): DtRecord {
   const c = openCollection(model, collection)
+  readOnly(model, c.name)
   const bf = bodyField(c)
   const warnings: string[] = []
   const data: Record<string, unknown> = {}

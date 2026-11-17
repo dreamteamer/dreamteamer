@@ -66,13 +66,21 @@ dtx collections
 dtx check
 ```
 ```
+dreamteamer@0.49.1 [engine]
 @dreamteamer/tasks@0.3.4 [npm] — not acted on here: engine
 @dreamteamer/users@0.3.0 [npm] — not acted on here: engine
+agents (dreamteamer) — 6 fields
+collections (dreamteamer) — 14 fields
+…
+repos (dreamteamer) — 7 fields
+…
 tasks (@dreamteamer/tasks) — 25 fields
 teams (@dreamteamer/users) — 12 fields
 users (@dreamteamer/users) — 23 fields
-0 records · 3 collections · 2 modules · 0 errors · 0 warnings
+0 records · 12 collections · 3 modules · 0 errors · 0 warnings
 ```
+
+The first module, `dreamteamer`, is the engine's own: the system collections every workspace has (see [Modules](#modules)).
 
 **3. Add records and read them back.**
 
@@ -164,7 +172,7 @@ dtx set tasks/2026-11-17--buy-milk recipe=shakshuka
 **6. Check the workspace, and try to delete something that is in use.**
 
 ```bash
-dtx check                                       # 3 records · 4 collections · 3 modules · 0 errors · 0 warnings
+dtx check                                       # 3 records · 13 collections · 4 modules · 0 errors · 0 warnings
 dtx rm recipes/shakshuka
 ```
 ```
@@ -220,6 +228,7 @@ Run `compile` and read `.dt/AGENTS.md`: it gives the command to run and, for eac
 | **Overlay** | A descriptor marked `overlay: true` that adds fields to a collection another module owns |
 | **Mixin** | A partial descriptor that several collections share by listing it under `mixins` |
 | **Skill** | A `SKILL.md` a module ships: know-how an agent loads when a situation calls for it |
+| **System module** | The engine's own module, `dreamteamer`: `repos`, and the collections whose records are the files modules ship (`collections`, `modules`, `skills` …) |
 
 ## How it works
 
@@ -243,6 +252,17 @@ modules/ ──────┘                          └──► compile ─
 ### Modules
 
 The workspace's modules are the packages named under `dependencies` and `devDependencies` in its `package.json` that carry a `dreamteamer` key, followed by every such folder under `modules/`. A package that arrived only as another package's dependency is not one of the workspace's modules until you list it.
+
+**The system module.** Before all of them comes the engine's own module, `dreamteamer`, which every workspace has: the `entity` and `docs` mixins, the `using-dreamteamer` skill, the `dreamteamer` agent, and the system collections — `repos`, an ordinary collection whose records live in `data/repos`, and eight *source* collections whose records are what modules ship as files:
+
+| Collection | A record is | Its id |
+|---|---|---|
+| `collections` | a collection of the model, read from the descriptor that declares it | its name, namespace included (`collections/rnd/design-docs`) |
+| `modules` | a module, read from its `package.json` | its name without the npm scope (`modules/rnd` for `@dreamteamer/rnd`) |
+| `skills` | a folder under a module's `skills/` holding a `SKILL.md` | the folder's name |
+| `mixins`, `agents`, `commands`, `command-bindings`, `ui-views` | a file under the module's folder of that name | its path there, less `.<suffix>.<format>` (`commands/rnd/plan` for `commands/rnd/plan.command.md`) |
+
+A reference to a source record resolves from the model; `list` and `get` answer for them, and `add`, `set` and `rm` refuse them, because a source changes in its module. These files are the released engine's, version 0.49.1, copied byte for byte into this repository's `collections/`, `mixins/`, `skills/` and `agents/` folders. A workspace that also lists the released `dreamteamer` package gets this copy, once, instead of the package's.
 
 From a module the engine reads:
 
@@ -315,11 +335,11 @@ dtx <verb> [target] [arguments] [-w <workspace>]
 |---|---|---|
 | `modules` | Lists the workspace's modules | `dtx modules` |
 | `collections` | Lists its collections | `dtx collections` |
-| `list <collection>` | Prints ids, sorted. `--filter field=value` narrows; `--json` prints the records | `dtx list tasks --filter status=todo` |
-| `get <ref>` | Prints a record's fields as JSON. `--json` adds its ref, id and path | `dtx get users/dana-oren` |
-| `add <collection> ["title"]` | Creates a record | `dtx add tasks "Buy milk" --due 2026-12-01 --tags home,errand --urgent` |
-| `set <ref>` | Changes fields. An empty value clears one, or puts back its default | `dtx set tasks/2026-11-17--buy-milk status=done due=` |
-| `rm <ref>` | Deletes a record. `--force` deletes one that others reference | `dtx rm tasks/2026-11-17--buy-milk` |
+| `list <collection>` | Prints ids, sorted. `--filter field=value` narrows; `--json` prints the records. A source collection (`skills`, `collections` …) lists what the modules ship | `dtx list tasks --filter status=todo` |
+| `get <ref>` | Prints a record's fields as JSON. `--json` adds its ref, id and path. A source record is read from the model or its module's file | `dtx get users/dana-oren` |
+| `add <collection> ["title"]` | Creates a record. Refused for a source collection | `dtx add tasks "Buy milk" --due 2026-12-01 --tags home,errand --urgent` |
+| `set <ref>` | Changes fields. An empty value clears one, or puts back its default. Refused for a source record | `dtx set tasks/2026-11-17--buy-milk status=done due=` |
+| `rm <ref>` | Deletes a record. `--force` deletes one that others reference. Refused for a source record | `dtx rm tasks/2026-11-17--buy-milk` |
 | `relations rebuild <collection>` | Recomputes the collection's reverse fields from the records that point at it | `dtx relations rebuild users` |
 | `check` | Validates every record and reports files it does not recognise. Changes nothing | `dtx check` |
 | `compile` | Writes `.dt/` | `dtx compile` |
@@ -365,7 +385,8 @@ The functions are `buildModel`, `discover`, `findCollection` and `splitRef` in `
 ## What is not supported yet
 
 - The contents of an `object` or a `map`, uniqueness, and a collection's cross-field `constraints` are not enforced.
-- A module's commands, agents, command bindings, UI views, navigation and extensions are not read; only its collections, mixins and skills.
+- A module's commands, agents, command bindings and UI views are read as records, and nothing more: they are not delivered to an agent harness or acted on. Navigation and extensions are not read.
+- The `using-dreamteamer` skill the system module ships describes the released engine's verbs, several of which this engine does not have.
 - Instructions are compiled into `.dt/`, not into the files each agent harness loads.
 - There is no `commit`, `rename`, `install` or `init`, and no UI.
 - Binary records, such as the pictures in `@dreamteamer/assets`, cannot be read or written.

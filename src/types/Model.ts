@@ -11,6 +11,8 @@ export interface Model {
   skills: Skill[]
   /** collections some module declares as optional peers */
   peers: string[]
+  /** the records of the source kinds (collections, modules, skills …): kind → id → the file each is read from */
+  sources: Record<string, Record<string, string>>
   /** ids another repo vouches for: collection → ids */
   exports: Record<string, string[]>
   issues: Issue[]

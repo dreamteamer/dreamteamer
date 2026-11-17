@@ -1,13 +1,37 @@
 // The engine against real published modules, at the versions pinned in this repository's devDependencies.
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { readFileSync } from "node:fs"
+import { readFileSync, readdirSync } from "node:fs"
+import { join, relative } from "node:path"
+import { fileURLToPath } from "node:url"
 import { add } from "../src/store/add.ts"
 import { buildModel } from "../src/model/buildModel.ts"
 import { check } from "../src/store/check.ts"
 import { get } from "../src/store/get.ts"
 import { listIds } from "../src/store/listIds.ts"
 import { publishedWorkspace, put } from "./helpers.ts"
+
+test("the system module is the released engine's own files, byte for byte, and is loaded once", () => {
+  const ours = new URL("../", import.meta.url)
+  const released = new URL("../node_modules/dreamteamer/", import.meta.url)
+  for (const dir of ["collections", "mixins", "agents", "skills/using-dreamteamer"]) {
+    const files = (base: URL) =>
+      readdirSync(new URL(dir, base), { recursive: true, withFileTypes: true })
+        .filter((t) => t.isFile())
+        .map((t) => join(relative(fileURLToPath(new URL(dir, base)), t.parentPath), t.name))
+        .sort()
+    assert.deepEqual(files(ours), files(released), dir)
+    for (const f of files(ours))
+      assert.ok(readFileSync(new URL(`${dir}/${f}`, ours)).equals(readFileSync(new URL(`${dir}/${f}`, released))), f)
+  }
+  assert.deepEqual(readdirSync(new URL("skills", ours)), ["using-dreamteamer"])
+  const m = buildModel(publishedWorkspace())
+  assert.deepEqual(
+    m.modules.filter((t) => t.name === "dreamteamer").map((t) => t.origin),
+    ["engine"],
+  )
+  assert.equal(m.modules[0].version, JSON.parse(readFileSync(new URL("package.json", released), "utf8")).version)
+})
 
 test("the published modules resolve without an error, peers included", () => {
   const m = buildModel(publishedWorkspace())
