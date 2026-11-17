@@ -11,6 +11,7 @@ import { makeId } from "./makeId.ts"
 import { openCollection } from "./openCollection.ts"
 import { readOnly } from "./readOnly.ts"
 import { recordPath } from "./recordPath.ts"
+import { refuseTaken } from "./refuseTaken.ts"
 import { write } from "./write.ts"
 import { applyMirrors, mirrorEdits, refuseMirrors } from "./mirrorEdits.ts"
 
@@ -29,6 +30,7 @@ export function add(model: Model, collection: string, input: Record<string, unkn
   const newId = id ?? makeId(c, data, warnings)
   if (existsSync(recordPath(model, c, newId))) throw new DtError(`${c.name}/${newId} already exists — nothing written`)
   refuseMirrors(model, c.name, newId, Object.keys(input))
+  refuseTaken(model, c, newId, data, Object.keys(data))
   const mirrors = mirrorEdits(model, c.name, newId, null, data)
   const text = bf ? data[bf] : undefined
   let body = typeof text === "string" ? text : ""

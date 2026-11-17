@@ -796,3 +796,39 @@ test("a field nested in an object or a map is read as a field, and a type there 
   assert.deepEqual(m.collections.shops.fields.hours.values, { type: "integer" })
   assert.equal(m.collections.shops.fields.address.fields?.zip.pattern, "^\\d{5}$")
 })
+
+test("a unique value is refused on write when another record holds it, and check names the second holder", () => {
+  const root = workspace()
+  put(
+    root,
+    "modules/local/collections/badges.collection.yaml",
+    "name: badges\ndescription: badges.\nfields:\n  name: {type: string, required: true}\n  code: {type: string, unique: true}\n  holder: {type: users, unique: true}\n  tags: {type: string, many: true, unique: true}\n",
+  )
+  const m = buildModel(root)
+  add(m, "users", { name: "Dana Oren" })
+  add(m, "badges", { name: "Gold", code: "A1", holder: "users/dana-oren", tags: ["x"] })
+  refuses(
+    () => add(m, "badges", { name: "Silver", code: "A1" }),
+    /code: "A1" is already taken by badges\/gold \(unique\)/,
+  )
+  refuses(
+    () => add(m, "badges", { name: "Bronze", holder: "users/dana-oren" }),
+    /holder: "users\/dana-oren" is already taken by badges\/gold/,
+  )
+  add(m, "badges", { name: "Silver", code: "B2", tags: ["x"] })
+  add(m, "badges", { name: "Tin", code: "" })
+  add(m, "badges", { name: "Lead" })
+  refuses(() => set(m, "badges/silver", { code: "A1" }), /code: "A1" is already taken by badges\/gold/)
+  set(m, "badges/gold", { code: "A1", name: "Gold!" })
+  assert.deepEqual(errors(m), [])
+  put(root, "data/badges/copper.badge.md", "---\nname: Copper\ncode: A1\n---\n")
+  put(root, "data/badges/zinc.badge.md", "---\nname: Zinc\ncode: A1\n---\n")
+  set(m, "badges/silver", { name: "Silver!" })
+  assert.deepEqual(
+    errors(m).map((t) => `${t.where} ${t.message}`),
+    [
+      'badges/gold code: "A1" is already taken by badges/copper (unique)',
+      'badges/zinc code: "A1" is already taken by badges/copper (unique)',
+    ],
+  )
+})

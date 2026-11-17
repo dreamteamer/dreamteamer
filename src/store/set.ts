@@ -7,6 +7,7 @@ import type { Model } from "../types/Model.ts"
 import { compose } from "./compose.ts"
 import { get } from "./get.ts"
 import { load } from "./load.ts"
+import { refuseTaken } from "./refuseTaken.ts"
 import { write } from "./write.ts"
 import { applyMirrors, mirrorEdits, refuseMirrors } from "./mirrorEdits.ts"
 
@@ -31,6 +32,7 @@ export function set(model: Model, ref: string, changes: Record<string, unknown>)
   // edit the lines that change; if the result would not read back as the fields meant, write the fields afresh
   let yaml = doc ? editYaml(front, doc, edits) : null
   if (doc && (yaml === null || !holds(yaml, fields))) yaml = yamlOf(fields)
+  refuseTaken(model, c, rec.id, data, Object.keys(changes))
   const mirrors = mirrorEdits(model, c.name, rec.id, prior, data)
   write(model, c, rec.id, data, compose(c, yaml ?? "", data, body), rec.mtimeMs)
   applyMirrors(model, mirrors)

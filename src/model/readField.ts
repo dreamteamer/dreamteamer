@@ -59,6 +59,7 @@ export function readField(raw: unknown): Field | null {
     soft: asFlag(raw.soft),
     body: asFlag(raw.body),
     mirror_of: asOptional(raw.mirror_of, "mirror_of", asString),
+    unique: asFlag(raw.unique),
     fields: fieldsOf(raw.fields),
     values: typeof values === "string" ? { type: values } : asOptional(values, "values", inner),
   })
