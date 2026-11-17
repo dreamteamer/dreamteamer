@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs"
-import { isAbsolute, join, normalize } from "node:path"
+import { isAbsolute, join, normalize, posix } from "node:path"
 import { parse } from "yaml"
 import { asOptional } from "../lib/asOptional.ts"
 import { asString } from "../lib/asString.ts"
@@ -23,6 +23,7 @@ import { readSkills } from "./readSkills.ts"
 import { readSources } from "./readSources.ts"
 import { SCALARS } from "./SCALARS.ts"
 import { singular } from "./singular.ts"
+import { SOURCE_KINDS } from "./SOURCE_KINDS.ts"
 
 const FORMATS = new Set(["md", "yaml", "json", "binary"])
 const DESCRIPTOR_KEYS = new Set([
@@ -143,6 +144,30 @@ function unknownTypes(f: Field, known: (t: string) => boolean): string[] {
   return [...own, ...inner.flatMap((t) => unknownTypes(t, known))]
 }
 
+/**
+ * A collection whose folder is inside another's, as an error: the outer one would read, list and delete the inner
+ * one's records as its own. The released compile refuses the same pair; one folder shared by two collections is
+ * allowed there and here, and the source kinds, whose records are the modules' files, are compared only with each
+ * other.
+ */
+function overlaps(collections: Record<string, Collection>) {
+  const all = Object.values(collections).map((t) => ({
+    name: t.name,
+    path: posix.normalize(t.storage.path).replace(/\/$/, ""),
+    source: SOURCE_KINDS.includes(t.name),
+  }))
+  const out: Issue[] = []
+  for (const o of all)
+    for (const i of all)
+      if (o.source === i.source && i.path.startsWith(o.path + "/"))
+        out.push({
+          severity: "error",
+          where: i.name,
+          message: `its records are stored under ${i.path}, inside the folder of ${o.name} (${o.path}), which would read them as its own — give one of them a folder of its own`,
+        })
+  return out
+}
+
 /** Aggregate every module's collections, mixins and overlays into one resolved workspace model. */
 export function buildModel(root: string): Model {
   const { modules, issues } = discover(root)
@@ -252,6 +277,7 @@ export function buildModel(root: string): Model {
       }
       c.fields[name] = f
     }
+  issues.push(...overlaps(collections))
   for (const c of Object.values(collections))
     c.rules = (c.constraints ?? []).flatMap((t, i) =>
       readOr(issues, c.name, () => [readRule(t, `constraints[${i}]`)], []),

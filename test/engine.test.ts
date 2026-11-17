@@ -920,3 +920,32 @@ test("a null is checked as the released engine's validator reads it: the empty v
     ],
   )
 })
+
+test("a collection stored inside another's folder is an error in the model, and nothing is removed through it", () => {
+  const root = workspace()
+  const m0 = buildModel(root)
+  add(m0, "users", { name: "Dana Oren" })
+  add(m0, "tasks", { name: "Call", assignee: "users/dana-oren" })
+  put(
+    root,
+    "modules/local/collections/everything.collection.yaml",
+    "name: everything\ndescription: everything.\nstorage: {path: data, suffix: user}\nfields:\n  name: {type: string}\n",
+  )
+  put(
+    root,
+    "modules/local/collections/beside.collection.yaml",
+    "name: beside\ndescription: beside.\nstorage: {path: data/users-archive/}\nfields:\n  name: {type: string}\n",
+  )
+  const m = buildModel(root)
+  const text = m.issues.map((t) => `${t.severity} ${t.where}: ${t.message}`).join("\n")
+  assert.match(text, /error users: its records are stored under data\/users, inside the folder of everything \(data\)/)
+  assert.match(text, /error beside: .* inside the folder of everything/)
+  assert.doesNotMatch(
+    text,
+    /inside the folder of users\b/,
+    "a folder whose name begins with another's is not inside it",
+  )
+  assert.doesNotMatch(text, /error (skills|collections)/, "the source kinds are not data folders")
+  refuses(() => rm(m, "everything/users/dana-oren"), /model has errors/)
+  assert.ok(existsSync(join(root, "data/users/dana-oren.user.md")))
+})
