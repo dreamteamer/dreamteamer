@@ -219,3 +219,32 @@ test("next gives the released engine's verdict on every rnd binding, gates throu
   assert.deepEqual(implement?.done, ["cr-built"])
   assert.equal(implement?.invocation, "/rnd:implement rnd/change-requests/cr-building")
 })
+
+test("binary records are listed with the fields the released engine derives from the file, and are read-only", async () => {
+  const root = publishedWorkspace()
+  put(root, "data/assets/logos/northwind.asset.svg", "<svg/>")
+  put(root, "data/assets/icons/set/star.asset.PNG", "png")
+  put(root, "data/assets/images/doc.asset.pdf", "pdf")
+  put(root, "data/assets/images/big.asset.png", "x".repeat(204801))
+  const m = buildModel(root)
+  compile(m)
+  const api = await import("../node_modules/dreamteamer/src/api.js")
+  const store = new api.Store({ root })
+  const released = [...store.ids("assets").keys()].map((t: string) => [t, store.read("assets", t).fields])
+  assert.deepEqual(
+    listIds(m, "assets").map((t) => [t, get(m, `assets/${t}`).data]),
+    released,
+  )
+  assert.deepEqual(get(m, "assets/icons/set/star").data, { ext: "png", bytes: 3 })
+  // the released check's two verdicts on the same files, in its words
+  assert.deepEqual(
+    check(m)
+      .issues.filter((t) => t.severity === "error")
+      .map((t) => `${t.where}: ${t.message}`),
+    [
+      "assets/images/big: is 204801 bytes, over max_bytes of 204800 — a record is a small file",
+      "assets/images/doc: does not accept .pdf — its extensions are svg, png, jpg, jpeg, webp, gif",
+    ],
+  )
+  assert.throws(() => add(m, "assets", { ext: "svg" }, "logos/harbor"), /read-only/)
+})

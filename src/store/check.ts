@@ -38,15 +38,6 @@ export function check(model: Model) {
   const seen = new Map<string, Map<string, Record<string, unknown>>>()
   for (const c of stored) {
     const base = join(model.root, c.storage.path)
-    if (c.storage.format === "binary") {
-      if (existsSync(base))
-        issues.push({
-          severity: "warning",
-          where: c.name,
-          message: "binary storage is not supported — its files are not checked",
-        })
-      continue
-    }
     let files: Map<string, RecordFile[]>
     try {
       files = filesOf(model, c)
@@ -70,6 +61,21 @@ export function check(model: Model) {
         const data = get(model, where).data
         read.set(id, data)
         issues.push(...validate(model, c.name, id, data, unresolved))
+        // a binary record is a small file of a kind its collection accepts
+        const { format, accept, max_bytes: max = 204800 } = c.storage
+        const ext = format === "binary" && typeof data.ext === "string" ? data.ext : undefined
+        if (ext && Array.isArray(accept) && !accept.includes(ext))
+          issues.push({
+            severity: "error",
+            where,
+            message: `does not accept .${ext} — its extensions are ${accept.join(", ")}`,
+          })
+        if (ext && Number(data.bytes) > Number(max))
+          issues.push({
+            severity: "error",
+            where,
+            message: `is ${Number(data.bytes)} bytes, over max_bytes of ${Number(max)} — a record is a small file`,
+          })
         // the owner field says where a record stored under its owner belongs; the folder says where it is
         const raw = c.under && data[c.under.parent]
         const owner = ownerOf(model, c, data)

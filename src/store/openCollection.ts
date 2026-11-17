@@ -9,6 +9,5 @@ export function openCollection(model: Model, name: string) {
     const all = Object.keys(model.collections).sort().join(", ")
     throw new DtError(name ? `unknown collection ${name} — the collections are ${all}` : "which collection? name one")
   }
-  if (c.storage.format === "binary") throw new DtError(`${c.name}: binary storage is not supported by this experiment`)
   return c
 }

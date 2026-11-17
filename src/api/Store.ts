@@ -56,7 +56,7 @@ export class Store {
     return this.model.sources[collection] ? join(this.root, ".dreamteamer", collection, id + tail(c)) : path
   }
 
-  /** a record's fields and file. Review: a binary record (`format: binary`) is not read, as nowhere in this engine */
+  /** a record's fields and file; a binary record's fields are read from its file */
   read(collection: string, id: string) {
     const descriptor = this.descriptor(collection)
     const r = get(this.model, `${collection}/${id}`)
@@ -82,8 +82,6 @@ export class Store {
   ids(collection: string): Map<string, string> {
     this.descriptor(collection)
     const c = this.model.collections[collection]
-    // Review: this engine reads no binary records, so a listing of one (`assets`) is empty rather than refused
-    if (c.storage.format === "binary") return new Map<string, string>()
     const src = this.model.sources[c.name]
     if (src) return new Map(listIds(this.model, c.name).map((t) => [t, src[t]]))
     return new Map([...filesOf(this.model, c)].sort(([a], [b]) => (a < b ? -1 : 1)).map(([t, f]) => [t, f[0].path]))

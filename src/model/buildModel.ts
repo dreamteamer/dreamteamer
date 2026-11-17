@@ -245,6 +245,12 @@ export function buildModel(root: string): Model {
     files.set(name, d.file)
     const fields: Record<string, unknown> = {}
     for (const t of layers) Object.assign(fields, t.fields)
+    // a binary record is its file, and its fields are read from it, in the released compile's words
+    if (format === "binary") {
+      const desc = (t: string) => `The file's ${t}. Read from the file.`
+      fields.ext ??= { type: "string", virtual: true, description: desc("extension, lowercase and without the dot") }
+      fields.bytes ??= { type: "integer", virtual: true, description: desc("size in bytes") }
+    }
     raws.set(name, fields)
   }
   for (const d of all.filter((t) => t.overlay)) {
