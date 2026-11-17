@@ -14,9 +14,9 @@ Measured on 2026-11-17 at engine commit `89f0d8d` plus documentation, and on the
 All 37 published modules load on this engine, unchanged. A sample workspace of 35 of them and 287 invented records —
 a small consultancy's CRM, meetings, tasks, projects, people, R&D, knowledge and the rest — checks with 0 errors and 0
 warnings. The DreamTeamer protocol host, `dt web` and the Web UI run on it unchanged: lists, record pages with their
-reverse-field tables, edits, history, bound commands and extension notes, verified end to end in a browser. 14 of the
-15 module extensions activate, and their verbs, checks, `next` lines and notes work. On 76 real workspace repositories
-the two engines now agree that 59 are clean, up from 43. The engine is 5,880 lines of its 7,000-line budget. What is
+reverse-field tables, edits, history, bound commands and extension notes, verified end to end in a browser. On the
+sample, 14 of the 15 module extensions activate (measured once; the script is not committed), and their verbs, checks, `next` lines and notes work. On 76 real workspace repositories
+the two engines now agree that 59 are clean, up from 43 (measured; the script is not committed, see below). The engine is 5,880 lines of its 7,000-line budget. What is
 missing is the schema-editing operations, the setup and install side of modules, delivery to harnesses other than
 Claude Code, and a list of smaller differences below.
 
@@ -27,27 +27,33 @@ Claude Code, and a list of smaller differences below.
 | Engine checks | `npm run typecheck && npm run lint && npm run format:check && npm test` in this repository | all exit 0; 77 tests pass |
 | Engine size | `find src bin \( -name '*.ts' -o -name '*.js' \) \| xargs wc -l \| tail -1` | 5,880 |
 | Protocol contract | `node scripts/contract.mjs` in the modules branch (engine: `$DT_ENGINE`, else the sibling checkout) | 64 of 90 pass, 26 fail, 0 skipped |
-| End to end | `node scripts/e2e-hq.mjs [--browser <dir>]` in the modules branch | 20 of 20 steps pass (19 over HTTP, 1 in a headless browser) |
+| End to end | `node scripts/e2e-hq.mjs [--browser <dir>]` in the modules branch | 21 of 21 steps pass: 17 over HTTP through `dt web`, 2 on the engine's command line, 1 on the files `compile` wrote, 1 in a headless browser (`--browser`); 20 without it |
 | Sample workspace | `node ../node_modules/dreamteamer-first-principles/bin/dt.ts check` in `hq/` | 287 records · 84 collections · 35 modules · 0 errors · 0 warnings |
 
-The 76-repository comparison runs this engine's `check` and each repository's own released `check`, read-only; its
-scripts are not part of either repository, because they enumerate a private machine.
+**Measured, script not committed** — these cannot be re-run from either repository: the 76-repository comparison
+(this engine's `check` and each repository's own released `check`, read-only; its scripts enumerate a private
+machine), the trail table below, the count of extensions that activate on the sample (14 of 15), the released engine
+refusing to run when two extensions claim one verb, and `next` agreeing with the released engine on 200 of 200
+binding-and-record verdicts (a test pins the same comparison on the published rnd module's bindings).
 
 ## What the end-to-end run proves
 
 `scripts/e2e-hq.mjs` copies the sample workspace to a temporary folder, links the modules and this engine, adds a
-record layer, names Claude Code as the harness, compiles, starts the unchanged `dt web`, and asserts with an
-Edit-level client token:
+record layer, declares the file drives' folders, names Claude Code as the harness, compiles, and starts the unchanged
+`dt web`. Each step says how it runs:
 
-- the nav as `hq/nav.yaml` arranges it; `presentation` for every collection;
-- five lists with their exact counts, one of them including a record lent by the layer, with its source;
-- a company page with its reverse fields; a filtered, sorted list;
-- an edit saved to the file; a bad edit refused with the reason; a new record created; a record's history;
-- the commands bound to a record, with the eligible one (`next`); a note the sessions extension contributes;
-- an extension's own verb (`files status`) run on the engine;
-- the modules' skills, agents and commands delivered to `.claude/` and the orientation block to `CLAUDE.md`;
-- records stored under their owner's folder, written there and found (on a fixture of its own);
-- with `--browser`, the UI drawing the nav, the companies list, a company page and the change requests.
+- **over HTTP, through `dt web`, with an Edit-level client token (17):** the nav as `hq/nav.yaml` arranges it;
+  `presentation`; five lists with their exact counts, one including a record lent by the layer; every collection
+  listed and one record of each read (84); a company page with its reverse fields; a filtered list, its limit and its
+  order checked; an edit saved to the file; a bad edit refused with the reason; a new record created; a record's
+  history with the workspace's commit; the commands bound to a record, with the eligible one (`next`); a note the
+  sessions extension contributes; the layer's record listed with its source and read;
+- **on the engine's command line (2):** an extension's own verb (`files status`, a drive reported mounted); records
+  stored under their owner's folder, written there and found — on a fixture of its own, not on the sample;
+- **on the files `compile` wrote (1):** the modules' skills, agents and commands in `.claude/` and the orientation in
+  `CLAUDE.md`;
+- **in a headless browser, with `--browser` (1):** the UI drawing the nav, the companies list, a company page, the
+  contacts list, the meetings list and the change requests.
 
 ## The trail
 
@@ -74,14 +80,14 @@ both 8, unreadable 0; 107,463 records read.
   apart and does not count. No data record is missing. Both engines report the same 10 warnings for the same 10
   records there, all from the rnd extension.
 - **The sample workspace switches the `http` extension off,** because `http` and `web` both claim the `serve` verb;
-  the released engine refuses to run at all in that case, this one leaves out the later extension with a warning. So
+  the released engine refuses to run at all in that case (measured, not scripted), this one leaves out the later extension with a warning. So
   `http` is not shown running beside `web`. It was shown on its own: on a scratch copy with `web` switched off instead,
   `http`'s `serve` started its REST API on this engine and answered `/api/info` and a list.
 - **One sample record was edited to silence a warning:** the delivered change request was tagged `deployed`, which
   rnd's extension check asks for once `deployed_on` is set.
-- **The end-to-end run grew, it never shrank.** Over HTTP it was 13 steps; the 14 reported once counted the browser
-  step. It is now 19 over HTTP and 1 in the browser; record layers and owner folders, once listed as unsupported, are
-  now exercised.
+- **The end-to-end run grew, it never shrank.** It was 13 steps over HTTP; the 14 reported once counted the browser
+  step. It is now 17 over HTTP, 2 on the command line, 1 on compiled files and 1 in the browser; record layers and
+  owner folders, once listed as unsupported, are now exercised — owner folders on a fixture of their own.
 - **The released engine's version is what this engine reports through its API** (0.49.1, the system module it ships),
   so modules' engine floors are met; its own package version is 0.0.0.
 - **Module code runs.** Extensions are imported and activated for modules the workspace lists; the command line and
@@ -90,9 +96,9 @@ both 8, unreadable 0; 107,463 records read.
 ## Modules
 
 **Columns.** *S* schema loads · *R* records agree with the released `check` where measured · *K* the verbs its skills
-and commands name exist · *X* its extension activates and its contributions act · *U* the unchanged protocol host lists
-and reads its collections (all 84 collections of the sample: each listed and one record of each read, 84 of 84); the
-browser drew five of them (companies, a company page, contacts, meetings, change requests) and edits were checked on
+and commands name exist · *X* its extension activates and its contributions act · *U* the unchanged protocol host, through `dt web`, lists
+its collections and reads a record of each (all 84 collections of the sample, a committed end-to-end step); the browser
+draws companies, a company page, contacts, meetings and change requests; edits and creation are checked on
 companies. ✔ yes · ◐ partly · ✖ no · — nothing to do.
 
 | Module | S | R | K | X | U | What is still missing |
