@@ -80,8 +80,6 @@ test("values are converted by the type of their field", () => {
     "dana-oren",
     "--tags",
     "finance, home",
-    "--tags",
-    "q4",
     "--urgent",
     "--estimate=3",
     "due=2026-12-01",
@@ -91,10 +89,15 @@ test("values are converted by the type of their field", () => {
   const data = JSON.parse(dt(ws, "get", `task/${id}`).out)
   assert.deepEqual(
     [data.name, data.assignee, data.tags, data.urgent, data.estimate, data.due],
-    ["Call the bank", "users/dana-oren", ["finance", "home", "q4"], true, 3, "2026-12-01"],
+    ["Call the bank", "users/dana-oren", ["finance", "home"], true, 3, "2026-12-01"],
   )
   assert.equal(dt(ws, "set", `tasks/${id}`, "urgent=false", "tags=later").code, 0)
   assert.deepEqual(JSON.parse(dt(ws, "get", `tasks/${id}`).out).tags, ["later"])
+  // a list field given more than once takes each value whole, commas and all, as the released command line does
+  assert.equal(dt(ws, "set", `tasks/${id}`, "tags=north, south", "--tags", "east").code, 0)
+  assert.deepEqual(JSON.parse(dt(ws, "get", `tasks/${id}`).out).tags, ["north, south", "east"])
+  assert.equal(dt(ws, "add", "tasks", "Plan", "--tags", "a,b", "--tags", "c", "--id", "plan").code, 0)
+  assert.deepEqual(JSON.parse(dt(ws, "get", "tasks/plan").out).tags, ["a,b", "c"])
   assert.match(dt(ws, "add", "tasks", "--name", "x", "--estimate", "many").err, /estimate: expected an integer/)
   assert.match(dt(ws, "add", "tasks", "--name", "x", "--name", "y").err, /name is given twice/)
   assert.match(dt(ws, "add", "tasks", "--name").err, /--name needs a value/)
