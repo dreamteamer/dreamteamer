@@ -246,4 +246,10 @@ engine that already reads every record and serves every verb they call.
   (D11). The command line gains `commit`, `changes`, `rename`, `values`, `history` and `resolve`, over the functions
   the engine API already had; `values`, `history` and `resolve` print what the released verbs print. Still missing:
   `diff`, `revert`, `install`, `init`, `update`, `setup`, `doctor`, `status` and the schema verbs.
+- **Delivery to Claude Code (A1) and a staleness warning (A5)** (+300 lines, engine 5,558): with
+  `harnesses: [claude-code]`, `compile` writes each module's skills, agents and commands into `.claude/` and the
+  orientation block into `CLAUDE.md`; on the sample workspace the 156 files of `.claude/` are byte-identical to the
+  released engine's, and `CLAUDE.md` differs only in the 9 lines extensions add there; on the published-module test
+  workspace both are identical (pinned by a test). `check` warns when a compiled source changed. Open: Codex, Gemini
+  CLI, Cursor and pi; extension contributions to the block; adding `/CLAUDE.md` to `.gitignore`.
 

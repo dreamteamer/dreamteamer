@@ -331,9 +331,11 @@ It also writes into `<workspace>/.dreamteamer/` the layout the released engine c
 | `skills/<id>/…`, `agents/`, `commands/`, `command-bindings/`, `ui-views/`, `mixins/` | each module's source files, copied as they are; a skill with its whole folder |
 | `manifest.yaml` | `compiled`, `host`, `engine`, `namespaces`, `package`, `data_path`, `layers`, `modules` (`name`, `location`, `channel`, `root`), `ui`, and `entries`: for each file above, the source it came from |
 
-Read through the released engine's own accessors, these descriptors give the same `presentation()` as the released compile for every published collection measured except binary ones. Not written: source hashes, `json_schema`, the workspace's own module record, a view's merged `compiled.display`, harness files and a `.gitignore`.
+Read through the released engine's own accessors, these descriptors give the same `presentation()` as the released compile for every published collection measured except binary ones. Not written: source hashes, `json_schema`, the workspace's own module record, a view's merged `compiled.display` and a `.gitignore`.
 
-No command reads any of this back, so a stale `.dt/` or `.dreamteamer/` cannot make a command wrong. Run `compile` again after you change modules or descriptors.
+**Delivery to an agent harness.** When the workspace's `package.json` names harnesses under `dreamteamer.harnesses` and the list includes `claude-code`, `compile` also writes what Claude Code loads: each module's skills under `.claude/skills/<id>/` (whole folders), its agents under `.claude/agents/` and its commands under `.claude/commands/`, each Markdown file with the released engine's "generated" footer; and a generated block at the top of the root `CLAUDE.md` — the workspace's `DREAMTEAMER.md`, then the orientation: each module with its collections' descriptions, when to use them and what a write requires, the mixins, and the commands bound to each collection with their gates. Your own text in `CLAUDE.md` below the block is kept. A file a previous compile delivered and this one does not is removed. On a 35-module sample workspace the 156 files of `.claude/` are byte-identical to what the released engine writes, and `CLAUDE.md` differs only in the 9 lines the released engine adds from extensions. Without `harnesses`, nothing is written outside `.dt/` and `.dreamteamer/`.
+
+No command reads any of this back, so a stale `.dt/` or `.dreamteamer/` cannot make a command wrong. `compile` records in `.dt/stamp.json` a hash of every source it read, and `check` warns when one has changed since — `⚠ .dt: stale — 1 source(s) differ since the last compile (DREAMTEAMER.md); run compile`.
 
 ### Git
 
@@ -415,9 +417,8 @@ The functions are `buildModel`, `discover`, `findCollection` and `splitRef` in `
 
 - A constraint keyword outside the supported set (`if`/`then`/`else`, `not`, `allOf`/`anyOf`/`oneOf`, `properties`, `items`, `required`, `const`, `enum`, `type`, `pattern`, bounds and lengths), or a boolean schema, is refused as an error in the model.
 - Where several mixins set `storage` or `ids`, the last one listed wins whole; the released engine merges them key by key.
-- A module's commands, agents, command bindings and UI views are read as records, and nothing more: they are not delivered to an agent harness or acted on. Navigation and extensions are not read.
+- A module's commands and agents are delivered to Claude Code only; Codex, Gemini CLI, Cursor and pi are not written to. The orientation block leaves out what extensions add (their verbs, source kinds and paragraphs).
 - The `using-dreamteamer` skill the system module ships describes the released engine's verbs, several of which this engine does not have.
-- Instructions are compiled into `.dt/`, not into the files each agent harness loads.
 - The command line has no `install`, `init`, `diff` or `revert` (the engine API has the last two, for hosts); `commit` works within one repository and takes no lock. The schema-editing operations (adding, changing and removing fields, collections, modules, views and skills) are not built.
 - Record layers (`git_modules`) are not read, so neither are records a workspace takes from another repository.
 - Extensions load and contribute verbs, checks, `next` lines and notes; their `setup`, `hooks`, `harnesses`, `doctor`, `analyze`, `sourceKinds` and `orientation` contributions are accepted and ignored, so `setup`, `doctor` and `install` do nothing for them. When two extensions claim one verb, the later one is left out with a warning, where the released engine refuses to run at all.
