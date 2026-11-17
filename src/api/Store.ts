@@ -80,6 +80,8 @@ export class Store {
   ids(collection: string): Map<string, string> {
     this.descriptor(collection)
     const c = this.model.collections[collection]
+    // Review: this engine reads no binary records, so a listing of one (`assets`) is empty rather than refused
+    if (c.storage.format === "binary") return new Map<string, string>()
     const ids = listIds(this.model, c.name)
     const base = join(this.root, c.storage.path)
     return new Map(ids.map((t) => [t, this.model.sources[c.name]?.[t] ?? join(base, t + tail(c))]))

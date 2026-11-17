@@ -145,6 +145,7 @@ test("presentation is the released engine's, row for row, over the published mod
     sort: "-created",
   })
   assert.equal(api.readManifest(root) !== null && api.staleness(root).compiled, true)
+  assert.deepEqual([...new api.Store({ root }).readAll("assets")], [])
 })
 
 test("records are written through the Store, and a refusal carries its reasons in its message", () => {
