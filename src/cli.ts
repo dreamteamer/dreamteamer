@@ -3,7 +3,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { parse } from 'yaml';
-import { DtError, add, buildModel, check, compile, findCollection, get, list, rm, set, splitRef } from './api.ts';
+import { DtError, add, buildModel, check, compile, findCollection, get, list, rm, set, splitRef, stamp } from './api.ts';
 import type { Collection, Field, Model } from './api.ts';
 
 const USAGE = `usage: <verb> [target] [arguments] [-w <workspace>]
@@ -19,6 +19,8 @@ const USAGE = `usage: <verb> [target] [arguments] [-w <workspace>]
   help | --version`;
 const VERBS: Record<string, string[]> = { modules: [], collections: [], list: ['filter', 'json'], get: ['json'], add: ['id'], set: [], rm: ['force'], check: [], compile: [] };
 
+const FLAGS = ['json', 'force'];
+
 interface Args { pos: string[]; opts: Record<string, string[]>; fields: [string, string | undefined][] }
 
 /** `--name value`, `--name=value`, a bare `--flag`, and `name=value`; the verb's own options are kept apart from fields */
@@ -30,7 +32,8 @@ function parseArgs(verb: string, rest: string[]): Args {
     if (t.startsWith('--') && t.length > 2) {
       const eq = t.indexOf('=');
       key = eq < 0 ? t.slice(2) : t.slice(2, eq);
-      value = eq >= 0 ? t.slice(eq + 1) : rest[i + 1] !== undefined && !rest[i + 1].startsWith('--') && !['json', 'force'].includes(key) ? rest[++i] : undefined;
+      if (FLAGS.includes(key) && VERBS[verb].includes(key)) { if (eq >= 0) throw new DtError(`--${key} takes no value`); (a.opts[key] ??= []).push('true'); continue; }
+      value = eq >= 0 ? t.slice(eq + 1) : rest[i + 1] !== undefined && !rest[i + 1].startsWith('--') ? rest[++i] : undefined;
     } else if (/^[A-Za-z_][\w.-]*=/.test(t) && (verb === 'add' || verb === 'set')) {
       key = t.slice(0, t.indexOf('=')); value = t.slice(t.indexOf('=') + 1);
     } else { a.pos.push(t); continue; }
@@ -43,7 +46,12 @@ function parseArgs(verb: string, rest: string[]): Args {
 
 function one(type: Field['type'], raw: string, name: string): unknown {
   if (type === 'boolean') return raw === 'true' ? true : raw === 'false' ? false : raw;
-  if (type === 'integer' || type === 'number') return raw.trim() !== '' && !Number.isNaN(Number(raw)) ? Number(raw) : raw;
+  if (type === 'integer' || type === 'number') return /^-?\d+(\.\d+)?$/.test(raw) ? Number(raw) : raw;
+  // a date and time typed without seconds or without a zone is completed, the zone being this machine's on that day
+  if (type === 'datetime') {
+    const m = /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})(:\d{2}(?:\.\d+)?)?([Zz]|[+-]\d{2}(?::?\d{2})?)?$/.exec(raw);
+    if (m) return `${m[1]}T${m[2]}${m[3] ?? ':00'}${m[4] ?? stamp(new Date(`${m[1]}T${m[2]}:00`)).slice(19)}`;
+  }
   if (type === 'object' || type === 'map') {
     try { return parse(raw); } catch (e) { throw new DtError(`${name}: a map is written as YAML or JSON, such as '{city: Paris}' — ${(e as Error).message.split('\n')[0]}`); }
   }
@@ -76,9 +84,11 @@ const version = () => JSON.parse(readFileSync(new URL('../package.json', import.
 
 function run(argv: string[], out: (v: unknown) => void): number {
   const args = [...argv];
-  const w = args.findIndex((t) => t === '-w' || t === '--workspace');
-  const root = resolve(w >= 0 ? args.splice(w, 2)[1] ?? '' : process.cwd());
-  if (args.includes('--version')) { out(`dreamteamer-first-principles ${version()}`); return 0; }
+  const w = args.findIndex((t) => t === '-w' || t === '--workspace' || t.startsWith('--workspace='));
+  const given = w < 0 ? undefined : args[w].includes('=') ? args.splice(w, 1)[0].slice(12) : args.splice(w, 2)[1];
+  if (w >= 0 && !given) throw new DtError('-w needs the path of a workspace');
+  const root = resolve(given ?? process.cwd());
+  if (args[0] === '--version') { out(`dreamteamer-first-principles ${version()}`); return 0; }
   const verb = args.shift();
   if (!verb || verb === 'help' || verb === '--help') { out(USAGE); return 0; }
   if (verb.startsWith('-')) throw new DtError(`the verb comes first — got ${verb}\n${USAGE}`);

@@ -68,7 +68,7 @@ export function buildModel(root: string): Model {
     merged = { ...merged, ...doc, fields: { ...merged.fields, ...doc.fields } };
     const from = merged.ids?.from ?? '{{ name | slug }}';
     const storage = { path: `data/${doc.name}`, format: 'md', suffix: bare(singular(doc.name)), ...merged.storage };
-    if (isAbsolute(storage.path) || normalize(storage.path).startsWith('..')) issues.push({ severity: 'warning', where: doc.name, message: `its records are stored outside the workspace, at ${storage.path} — they are read from there, and writes to them are refused` });
+    if (isAbsolute(storage.path) || normalize(storage.path).startsWith('..')) issues.push({ severity: 'warning', where: doc.name, message: `its storage path, ${storage.path}, is outside the workspace — this engine neither reads nor writes its records` });
     if (!FORMATS.has(storage.format)) issues.push({ severity: 'error', where: doc.name, message: `unknown storage format "${storage.format}" — md, yaml, json or binary` });
     collections[doc.name] = {
       name: doc.name, singular: doc.singular ? doc.name.slice(0, doc.name.lastIndexOf('/') + 1) + doc.singular : singular(doc.name),
@@ -126,7 +126,9 @@ export function findCollection(model: Model, name: string): Collection | undefin
  */
 export function splitRef(model: Model, ref: string, aliases = false): { collection: string; id: string } | null {
   if (typeof ref !== 'string') return null;
-  const names: [string, string][] = Object.values(model.collections).flatMap((c) => aliases ? [[c.name, c.name], [c.singular, c.name]] : [[c.name, c.name]]) as [string, string][];
-  const hit = names.sort((a, b) => b[0].length - a[0].length).find(([n]) => ref.startsWith(n + '/'));
+  // a full name wins over another collection's singular of the same spelling
+  const all = Object.values(model.collections);
+  const names: [string, string][] = [...all.map((c): [string, string] => [c.name, c.name]), ...(aliases ? all.map((c): [string, string] => [c.singular, c.name]) : [])];
+  const hit = names.map((t, n) => ({ t, n })).sort((a, b) => b.t[0].length - a.t[0].length || a.n - b.n).map((x) => x.t).find(([n]) => ref.startsWith(n + '/'));
   return hit ? { collection: hit[1], id: ref.slice(hit[0].length + 1) } : null;
 }

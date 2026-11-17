@@ -109,3 +109,26 @@ test('a broken model stops writes and compile, and check says why', () => {
   assert.equal(existsSync(join(ws, 'data')), false);
   assert.equal(existsSync(join(ws, '.dt')), false);
 });
+
+test('an option is not mistaken for a field, a value or a command', () => {
+  const ws = workspace();
+  dt(ws, 'add', 'users', '--name', 'Dana Oren');
+  dt(ws, 'add', 'tasks', 'Call the bank', '--assignee', 'dana-oren');
+  assert.match(dt(ws, 'rm', 'users/dana-oren', '--force=false').err, /--force takes no value/);
+  assert.match(dt(ws, 'rm', 'users/dana-oren').err, /referenced by 1 record/);
+  assert.equal(dt(ws, 'rm', 'users/dana-oren', '--force').code, 0);
+  put(ws, 'modules/local/collections/releases.collection.yaml', 'name: releases\ndescription: releases.\nids: {from: "{{ version }}"}\nfields:\n  version: {type: string, required: true}\n');
+  assert.match(dt(ws, 'add', 'releases', '--version', '1.2.0').out, /✔ releases\/1\.2\.0/);
+  assert.match(dt(ws, '-w').err, /-w needs the path/);
+  assert.match(dt('/', `--workspace=${ws}`, 'list', 'releases').out, /^1\.2\.0\n$/);
+});
+
+test('numbers and times are stored as typed or completed, never reinterpreted', () => {
+  const ws = workspace();
+  assert.match(dt(ws, 'add', 'tasks', 'Hex', '--estimate', '0x10').err, /estimate: expected an integer/);
+  assert.equal(dt(ws, 'add', 'tasks', 'Meet', '--at', '2026-12-01 10:00').code, 0);
+  const id = dt(ws, 'list', 'tasks').out.trim();
+  assert.match(JSON.parse(dt(ws, 'get', `tasks/${id}`).out).at, /^2026-12-01T10:00:00[+-]\d\d:\d\d$/);
+  assert.equal(dt(ws, 'set', `tasks/${id}`, 'at=2026-12-01T10:00:00.250Z').code, 0);
+  assert.match(dt(ws, 'set', `tasks/${id}`, 'at=next week').err, /date and time with a zone/);
+});

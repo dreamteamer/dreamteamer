@@ -1,6 +1,6 @@
 // Store: read and safely change user-owned records under the workspace root. Never writes anywhere else.
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { basename, dirname, join, relative, resolve, sep } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { Document, isMap, isScalar, parseDocument, visit } from 'yaml';
 import { SCALARS, findCollection, splitRef } from './model.ts';
 import { DtError } from './types.ts';
@@ -10,6 +10,7 @@ const TEXT = new Set(['string', 'markdown', 'url', 'email', 'position']);
 const DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
 const DATETIME = /^(\d{4})-(\d{2})-(\d{2})[Tt\s]([01]\d|2[0-3]):[0-5]\d:[0-5]\d(\.\d+)?([Zz]|[+-]\d{2}(:?\d{2})?)$/;
 const DATEISH = /^\d{4}-\d{2}-\d{2}([Tt\s]|$)/;
+const DECIMAL = /^-?\d+(\.\d+)?$/;
 const SOURCE_FOLDERS = new Set(['modules', 'collections', 'mixins', 'skills', 'agents', 'commands', 'command-bindings', 'ui-views']);
 
 function coll(model: Model, name: string): Collection {
@@ -18,30 +19,52 @@ function coll(model: Model, name: string): Collection {
   if (c.storage.format === 'binary') throw new DtError(`${c.name}: binary storage is not supported by this experiment`);
   return c;
 }
-const tail = (c: Collection) => c.storage.shape === 'folder' ? `/${c.storage.entry ?? 'index.md'}` : `.${c.storage.suffix}.${c.storage.format}`;
+const entryOf = (c: Collection) => c.storage.entry ?? 'index.md';
+const tail = (c: Collection) => c.storage.shape === 'folder' ? `/${entryOf(c)}` : `.${c.storage.suffix}.${c.storage.format}`;
 const bodyField = (c: Collection) => Object.keys(c.fields).find((f) => c.fields[f].body);
 const isRef = (f: Field) => f.type === 'reference' || typeof f.type !== 'string' || !SCALARS.has(f.type);
 
-/** An id is a relative path inside its collection's folder: no empty, `.` or `..` segment, no leading slash. */
-function fileOf(model: Model, c: Collection, id: string): string {
-  if (typeof id !== 'string' || !id || id.includes('\\') || id.split('/').some((s) => !s || s === '.' || s === '..'))
+/** An id is a relative path inside its collection's folder: no empty, `.` or `..` segment, no leading slash, no control character. */
+function checkId(id: string): void {
+  if (typeof id !== 'string' || !id || /[\\\u0000-\u001f]/.test(id) || id.split('/').some((s) => !s || s === '.' || s === '..'))
     throw new DtError(`invalid id "${id ?? ''}" — an id is a relative path with no empty, "." or ".." segment and no leading slash`);
-  const path = join(model.root, c.storage.path, id + tail(c));
+}
+
+function fileOf(model: Model, c: Collection, id: string): string {
+  checkId(id);
+  if (isAbsolute(c.storage.path)) throw new DtError(`${c.name}: its storage path is absolute (${c.storage.path}) — this engine reads and writes only inside the workspace`);
+  const base = join(model.root, c.storage.path), path = join(base, id + tail(c));
   if (!resolve(path).startsWith(resolve(model.root) + sep)) throw new DtError(`${c.name}/${id}: its path leaves the workspace`);
+  // the collection's folder may itself be a link to somewhere else; nothing below it may lead out of it
+  let dir = dirname(path);
+  while (!existsSync(dir) && dir.length > base.length) dir = dirname(dir);
+  if (existsSync(dir) && existsSync(base) && !(realpathSync(dir) + sep).startsWith(realpathSync(base) + sep))
+    throw new DtError(`${c.name}/${id}: a symbolic link leads out of the collection's folder`);
   return path;
+}
+
+/** the file exists under exactly this spelling — a file system that ignores case must not turn one id into another */
+function present(base: string, path: string): boolean {
+  if (!existsSync(path) || statSync(path).isDirectory()) return false;
+  let dir = base;
+  for (const seg of relative(base, path).split(sep)) { if (!readdirSync(dir).includes(seg)) return false; dir = join(dir, seg); }
+  return true;
 }
 
 function locate(model: Model, ref: string): { c: Collection; id: string; path: string } {
   const at = splitRef(model, ref, true);
   if (!at) throw new DtError(ref ? `${ref}: not a <collection>/<id> reference` : 'which record? give a <collection>/<id> reference');
-  const c = coll(model, at.collection);
-  return { c, id: at.id, path: fileOf(model, c, at.id) };
+  const c = coll(model, at.collection), path = fileOf(model, c, at.id);
+  if (!present(join(model.root, c.storage.path), path)) throw new DtError(`${c.name}/${at.id}: no such record`);
+  return { c, id: at.id, path };
 }
 
+/** regular files below a folder; dotfiles, dot-directories and symbolic links are not records */
 function walkFiles(dir: string, out: string[] = []): string[] {
-  for (const n of readdirSync(dir)) {
-    const p = join(dir, n);
-    if (statSync(p).isDirectory()) walkFiles(p, out); else out.push(p);
+  for (const e of readdirSync(dir, { withFileTypes: true })) {
+    if (e.name.startsWith('.')) continue;
+    const p = join(dir, e.name);
+    if (e.isDirectory()) walkFiles(p, out); else if (e.isFile()) out.push(p);
   }
   return out;
 }
@@ -51,28 +74,29 @@ export function listIds(model: Model, name: string): string[] {
   const base = join(model.root, c.storage.path), t = tail(c);
   if (!existsSync(base)) return [];
   return walkFiles(base).filter((p) => p.endsWith(t))
-    .map((p) => relative(base, p).slice(0, -t.length).split(sep).join('/')).filter(Boolean).sort();
+    .map((p) => relative(base, p).slice(0, -t.length).split(sep).join('/')).filter((id) => id && !id.endsWith('/')).sort();
 }
 
 interface Loaded { rec: DtRecord; c: Collection; doc: Document | null; front: string; body: string }
 
 function load(model: Model, ref: string): Loaded {
   const { c, id, path } = locate(model, ref);
-  if (!existsSync(path) || statSync(path).isDirectory()) throw new DtError(`${c.name}/${id}: no such record`);
   const mtimeMs = statSync(path).mtimeMs;
-  const text = readFileSync(path, 'utf8');
+  const text = readFileSync(path, 'utf8').replace(/^﻿/, '');
   let doc: Document | null = null, body = '', front = '', data: Record<string, unknown>;
   const fail = (m: string) => new DtError(`${c.name}/${id}: unreadable — ${m.split('\n')[0]}`);
   if (c.storage.format === 'json') {
     try { data = JSON.parse(text) ?? {}; } catch (e) { throw fail((e as Error).message); }
   } else {
-    const m = c.storage.format === 'md' ? /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/.exec(text) : null;
+    const m = c.storage.format === 'md' ? /^---\r?\n(?:([\s\S]*?)\r?\n)?---\r?\n?([\s\S]*)$/.exec(text) : null;
     body = c.storage.format === 'md' ? (m ? m[2] : text) : '';
-    front = c.storage.format === 'md' ? (m ? m[1] + '\n' : '') : text;
+    front = c.storage.format === 'md' ? (m && m[1] ? m[1] + '\n' : '') : text;
     doc = parseDocument(front);
     if (doc.errors.length) throw fail(doc.errors[0].message);
-    const js = doc.toJS();
-    data = js && typeof js === 'object' && !Array.isArray(js) ? js : {};
+    let js: unknown;
+    try { js = doc.toJS(); } catch (e) { throw fail((e as Error).message); }
+    if (js !== null && js !== undefined && (typeof js !== 'object' || Array.isArray(js))) throw fail('its fields are not a map of names to values');
+    data = (js ?? {}) as Record<string, unknown>;
     const bf = bodyField(c);
     if (bf && body.trim()) data[bf] = body;
   }
@@ -86,7 +110,7 @@ export function list(model: Model, name: string, where: Record<string, string> =
   const c = coll(model, name);
   for (const k of Object.keys(where)) if (!c.fields[k] && k !== 'created') throw new DtError(`${c.name} has no field ${k} to filter on — its fields are ${Object.keys(c.fields).join(', ')}`);
   return listIds(model, c.name).map((id) => get(model, `${c.name}/${id}`))
-    .filter((r) => Object.entries(where).every(([k, v]) => [r.data[k]].flat().some((x) => String(x) === v)));
+    .filter((r) => Object.entries(where).every(([k, v]) => [r.data[k]].flat().some((x) => x !== undefined && x !== null && String(x) === v)));
 }
 
 export const refExists = (model: Model, ref: string): boolean => {
@@ -94,8 +118,13 @@ export const refExists = (model: Model, ref: string): boolean => {
   if (!at) return false;
   if (model.exports[at.collection]?.includes(at.id)) return true;
   const c = model.collections[at.collection];
-  try { return c.storage.format !== 'binary' ? existsSync(fileOf(model, c, at.id)) : existsSync(join(model.root, c.storage.path, at.id)); }
-  catch { return false; }
+  try {
+    if (c.storage.format !== 'binary') return present(join(model.root, c.storage.path), fileOf(model, c, at.id));
+    // a binary record is the file itself, <id>.<suffix>.<extension>
+    checkId(at.id);
+    const dir = dirname(join(model.root, c.storage.path, at.id));
+    return existsSync(dir) && readdirSync(dir).some((n) => n.startsWith(`${basename(at.id)}.${c.storage.suffix}.`));
+  } catch { return false; }
 };
 
 const realDate = (y: string, m: string, d: string) => { const t = new Date(Date.UTC(+y, +m - 1, +d)); return t.getUTCFullYear() === +y && t.getUTCMonth() === +m - 1 && t.getUTCDate() === +d; };
@@ -113,8 +142,8 @@ function checkValue(model: Model, f: Field, v: unknown, unresolved?: Map<string,
   } else if (type === 'boolean') {
     if (typeof v !== 'boolean' && v !== 'true' && v !== 'false') return 'expected true or false';
   } else if (type === 'integer' || type === 'number') {
-    const n = typeof v === 'string' && v.trim() !== '' ? Number(v) : v;
-    if (typeof n !== 'number' || Number.isNaN(n) || (type === 'integer' && !Number.isInteger(n))) return type === 'integer' ? 'expected an integer' : 'expected a number';
+    const n = typeof v === 'string' && DECIMAL.test(v) ? Number(v) : v;
+    if (typeof n !== 'number' || !Number.isFinite(n) || (type === 'integer' && !Number.isInteger(n))) return type === 'integer' ? 'expected an integer' : 'expected a number';
     if (typeof f.minimum === 'number' && n < f.minimum) return `less than the minimum ${f.minimum}`;
     if (typeof f.maximum === 'number' && n > f.maximum) return `more than the maximum ${f.maximum}`;
   } else if (type === 'date') {
@@ -158,39 +187,62 @@ export function validate(model: Model, collection: string, id: string, data: Rec
   return issues;
 }
 
+// ---- writing a record's text ---------------------------------------------------------------------------
+
 /** quote what a YAML 1.1 reader would take for a timestamp, as the released engine's files do */
 function scalar(doc: Document, v: unknown): unknown {
   const node = doc.createNode(v);
   visit(node, { Scalar(_k, n) { if (typeof n.value === 'string' && DATEISH.test(n.value)) n.type = 'QUOTE_SINGLE'; } });
   return node;
 }
-
-const yamlText = (doc: Document) => { const t = doc.contents ? doc.toString({ lineWidth: 0, flowCollectionPadding: false }) : ''; return t === '{}\n' ? '' : t; };
+function yamlOf(fields: Record<string, unknown>): string {
+  const doc = new Document({});
+  for (const [k, v] of Object.entries(fields)) doc.set(k, scalar(doc, v));
+  const text = doc.toString({ lineWidth: 0, flowCollectionPadding: false });
+  return text === '{}\n' ? '' : text;
+}
 
 /**
- * Change some top-level keys of a YAML text and leave every other character as it was written: comments,
- * quoting, folded strings. Each key owns the lines from its own to the next key's; a changed key's lines are
- * replaced, a removed key's are dropped, a new key is appended. Returns null when the text is not a block map.
+ * Change some top-level keys of a YAML text and leave every other character as it was written. A key owns the
+ * lines from its own to the end of its value; comments and blank lines between keys stay where they are. A changed
+ * key's lines are replaced, a removed key's dropped, a new key goes after the last one. Null when the text is not a
+ * block map.
  */
 function editYaml(source: string, doc: Document, changes: [string, unknown][]): string | null {
   const map = doc.contents;
-  if (!source.trim()) { const d = new Document({}); for (const [k, v] of changes) if (v !== undefined) d.set(k, scalar(d, v)); return yamlText(d); }
-  if (!isMap(map) || map.flow || !map.items.every((i) => isScalar(i.key) && i.key.range)) return null;
-  const starts = map.items.map((i) => source.lastIndexOf('\n', (i.key as { range: number[] }).range[0] - 1) + 1);
-  const parts = map.items.map((i, n) => ({ key: String((i.key as { value: unknown }).value), text: source.slice(n ? starts[n] : 0, n + 1 < starts.length ? starts[n + 1] : source.length) }));
-  const line = (k: string, v: unknown) => { const d = new Document({}); d.set(k, scalar(d, v)); return yamlText(d); };
-  for (const [k, v] of changes) {
-    const at = parts.findIndex((p) => p.key === k);
-    if (v === undefined) { if (at >= 0) parts.splice(at, 1); }
-    else if (at >= 0) parts[at].text = line(k, v);
-    else parts.push({ key: k, text: line(k, v) });
+  if (!isMap(map) || map.flow) return null;
+  const parts: { key?: string; text: string }[] = [];
+  let at = 0;
+  for (const item of map.items) {
+    if (!isScalar(item.key) || !item.key.range) return null;
+    const value = item.value as { range?: [number, number, number] | null } | null;
+    const start = source.lastIndexOf('\n', item.key.range[0] - 1) + 1, stop = value?.range ? value.range[2] : item.key.range[2];
+    const end = stop > 0 && source[stop - 1] === '\n' ? stop : (source.indexOf('\n', stop) + 1 || source.length);
+    if (start < at) return null;
+    if (start > at) parts.push({ text: source.slice(at, start) });
+    parts.push({ key: String(item.key.value), text: source.slice(start, end) });
+    at = end;
   }
-  return parts.map((p) => p.text.endsWith('\n') ? p.text : p.text + '\n').join('');
+  const rest = source.slice(at);
+  for (const [k, v] of changes) {
+    const i = parts.findIndex((p) => p.key === k);
+    if (v === undefined) { if (i >= 0) parts.splice(i, 1); }
+    else if (i >= 0) parts[i].text = yamlOf({ [k]: v });
+    else parts.splice(parts.findLastIndex((p) => p.key !== undefined) + 1, 0, { key: k, text: yamlOf({ [k]: v }) });
+  }
+  return parts.map((p) => p.text.endsWith('\n') ? p.text : p.text + '\n').join('') + rest;
 }
 
-function serialise(c: Collection, doc: Document | null, data: Record<string, unknown>, body: string, front?: string): string {
+const canon = (v: unknown): string => JSON.stringify(v, (_k, x) => x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => a < b ? -1 : 1)) : x);
+/** does this YAML text hold exactly these fields? Nothing is written that would not read back as what was meant. */
+function holds(yaml: string, fields: Record<string, unknown>): boolean {
+  const doc = parseDocument(yaml);
+  if (doc.errors.length) return false;
+  try { return canon(doc.toJS() ?? {}) === canon(fields); } catch { return false; }
+}
+
+function compose(c: Collection, yaml: string, data: Record<string, unknown>, body: string): string {
   if (c.storage.format === 'json') return JSON.stringify(data, null, 2) + '\n';
-  const yaml = front ?? yamlText(doc!);
   return c.storage.format === 'md' ? `---\n${yaml}---\n${body}` : yaml;
 }
 
@@ -276,27 +328,28 @@ export function add(model: Model, collection: string, input: Record<string, unkn
   if (existsSync(fileOf(model, c, newId))) throw new DtError(`${c.name}/${newId} already exists — nothing written`);
   let body = bf && typeof data[bf] === 'string' ? data[bf] as string : '';
   if (body && !body.endsWith('\n')) body += '\n';
-  const doc = c.storage.format === 'json' ? null : new Document({});
-  if (doc) for (const [k, v] of Object.entries(data)) if (!(c.storage.format === 'md' && k === bf)) doc.set(k, scalar(doc, v));
-  write(model, c, newId, data, serialise(c, doc, data, body), undefined);
+  const front = Object.fromEntries(Object.entries(data).filter(([k]) => !(c.storage.format === 'md' && k === bf)));
+  write(model, c, newId, data, compose(c, yamlOf(front), data, body), undefined);
   return { ...get(model, `${c.name}/${newId}`), ...(warnings.length ? { warnings } : {}) };
 }
 
 /** `null` or an empty string clears a field; a field with a default goes back to it */
 export function set(model: Model, ref: string, changes: Record<string, unknown>): DtRecord {
   const { rec, c, doc, front, body: before } = load(model, ref);
-  const bf = bodyField(c), data = { ...rec.data }, edits: [string, unknown][] = [];
+  const bf = c.storage.format === 'md' ? bodyField(c) : undefined, data = { ...rec.data }, edits: [string, unknown][] = [];
   let body = before;
   for (const [k, raw] of Object.entries(changes)) {
     const cleared = raw === null || raw === '';
     const v = cleared ? c.fields[k]?.default : c.fields[k]?.many && !Array.isArray(raw) ? [raw] : raw;
     if (v === undefined) delete data[k]; else data[k] = v;
-    if (c.storage.format === 'md' && k === bf) { body = typeof v === 'string' && v ? (v.endsWith('\n') ? v : v + '\n') : ''; continue; }
-    edits.push([k, v]);
+    if (k === bf) body = typeof v === 'string' && v ? (v.endsWith('\n') ? v : v + '\n') : '';
+    else edits.push([k, v]);
   }
-  const edited = doc ? editYaml(front, doc, edits) : null;
-  if (doc && edited === null) for (const [k, v] of edits) { if (v === undefined) doc.delete(k); else doc.set(k, scalar(doc, v)); }
-  write(model, c, rec.id, data, serialise(c, doc, data, body, edited ?? undefined), rec.mtimeMs);
+  const fields = Object.fromEntries(Object.entries(data).filter(([k]) => k !== bf));
+  // edit the lines that change; if the result would not read back as the fields meant, write the fields afresh
+  let yaml = doc ? editYaml(front, doc, edits) : null;
+  if (doc && (yaml === null || !holds(yaml, fields))) yaml = yamlOf(fields);
+  write(model, c, rec.id, data, compose(c, yaml ?? '', data, body), rec.mtimeMs);
   return get(model, rec.ref);
 }
 
@@ -306,7 +359,9 @@ export function referrers(model: Model, ref: string): string[] {
   for (const c of Object.values(model.collections)) {
     const fields = Object.entries(c.fields).filter(([, f]) => isRef(f) && !f.mirror_of).map(([n]) => n);
     if (c.storage.format === 'binary' || !fields.length) continue;
-    for (const id of listIds(model, c.name)) {
+    let ids: string[];
+    try { ids = listIds(model, c.name); } catch { continue; }
+    for (const id of ids) {
       let data: Record<string, unknown>;
       try { data = get(model, `${c.name}/${id}`).data; } catch { continue; }
       if (`${c.name}/${id}` !== ref && fields.some((n) => [data[n]].flat().includes(ref))) out.push(`${c.name}/${id}`);
@@ -315,17 +370,16 @@ export function referrers(model: Model, ref: string): string[] {
   return out;
 }
 
-/** Refuses when other records point at this one, or when its folder holds records of other collections — unless forced. */
+/** Refuses when other records point at this one, or when its folder holds other records — unless forced. */
 export function rm(model: Model, ref: string, force = false): string {
   const { c, id, path } = locate(model, ref);
-  if (!existsSync(path) || statSync(path).isDirectory()) throw new DtError(`${c.name}/${id}: no such record`);
   const full = `${c.name}/${id}`, folder = c.storage.shape === 'folder';
   if (!force) {
     const by = referrers(model, full);
     if (by.length) throw new DtError(`${full} is referenced by ${by.length} record(s) — nothing removed; fix them, or pass --force:\n  ${by.join('\n  ')}`);
-    const others = Object.values(model.collections).filter((o) => o.name !== c.name && o.storage.format !== 'binary' && o.storage.shape !== 'folder');
-    const inside = folder ? walkFiles(dirname(path)).filter((p) => others.some((o) => p.endsWith(tail(o)))) : [];
-    if (inside.length) throw new DtError(`${full} holds ${inside.length} record(s) of other collections inside its folder — nothing removed; move them, or pass --force:\n  ${inside.map((p) => relative(model.root, p)).join('\n  ')}`);
+    const all = Object.values(model.collections).filter((o) => o.storage.format !== 'binary');
+    const inside = folder ? walkFiles(dirname(path)).filter((p) => p !== path && all.some((o) => o.storage.shape === 'folder' ? basename(p) === entryOf(o) : p.endsWith(tail(o)))) : [];
+    if (inside.length) throw new DtError(`${full} holds ${inside.length} other record(s) inside its folder — nothing removed; move them, or pass --force:\n  ${inside.map((p) => relative(model.root, p)).join('\n  ')}`);
   }
   rmSync(folder ? dirname(path) : path, { recursive: true });
   return full;
@@ -334,9 +388,13 @@ export function rm(model: Model, ref: string, force = false): string {
 /** validate every record of every collection, and report the files no collection recognises; never modifies anything */
 export function check(model: Model): { records: number; issues: Issue[] } {
   const issues: Issue[] = [...model.issues], unresolved = new Map<string, number>();
+  const stored = Object.values(model.collections).filter((c) => !isAbsolute(c.storage.path)).map((c) => ({ c, base: join(model.root, c.storage.path) }));
+  // a file belongs to a collection when it sits in the collection's folder and is named as its records are;
+  // anything inside a folder-shaped collection belongs to its record
+  const claimed = (p: string) => stored.some(({ c, base }) => p.startsWith(base + sep) && (c.storage.shape === 'folder' || c.storage.format === 'binary' || p.endsWith(tail(c))));
+  const strays = new Set<string>();
   let records = 0;
-  for (const c of Object.values(model.collections)) {
-    const base = join(model.root, c.storage.path);
+  for (const { c, base } of stored) {
     if (c.storage.format === 'binary') { if (existsSync(base)) issues.push({ severity: 'warning', where: c.name, message: 'binary storage is not supported — its files are not checked' }); continue; }
     let ids: string[];
     try { ids = listIds(model, c.name); } catch (e) { issues.push({ severity: 'error', where: c.name, message: `cannot read ${c.storage.path}: ${(e as Error).message}` }); continue; }
@@ -346,11 +404,9 @@ export function check(model: Model): { records: number; issues: Issue[] } {
       catch (e) { issues.push({ severity: 'error', where: `${c.name}/${id}`, message: (e as Error).message.replace(`${c.name}/${id}: `, '') }); }
     }
     // the released engine's system collections name source folders (modules/, skills/ …): what is there is source, not records
-    if (existsSync(base) && c.storage.shape !== 'folder' && !SOURCE_FOLDERS.has(c.storage.path)) {
-      const nested = Object.values(model.collections).filter((o) => o.name !== c.name && join(model.root, o.storage.path).startsWith(base + sep)).map((o) => join(model.root, o.storage.path));
-      for (const p of walkFiles(base)) if (!p.endsWith(tail(c)) && !basename(p).startsWith('.') && !nested.some((n) => p.startsWith(n + sep)))
-        issues.push({ severity: 'warning', where: relative(model.root, p), message: `unrecognized file in the ${c.name} folder — a record there is named <id>${tail(c)}` });
-    }
+    const data = c.storage.shape !== 'folder' && !SOURCE_FOLDERS.has(c.storage.path) && resolve(base) !== resolve(model.root);
+    if (data && existsSync(base)) for (const p of walkFiles(base)) if (!claimed(p) && !strays.has(p) && strays.add(p))
+      issues.push({ severity: 'warning', where: relative(model.root, p), message: `unrecognized file in the ${c.name} folder — a record there is named <id>${tail(c)}` });
   }
   for (const [name, n] of unresolved) issues.push({ severity: 'warning', where: name, message: `a peer collection that is declared and not installed — ${n} reference(s) to it cannot be resolved` });
   return { records, issues };

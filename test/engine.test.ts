@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, utimesSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { DtError, add, buildModel, check, compile, findCollection, get, list, listIds, referrers, rm, set } from '../src/api.ts';
 import { put, workspace } from './helpers.ts';
@@ -28,7 +28,7 @@ test('a typo in a descriptor is an error that stops writes and compile', () => {
   assert.match(text, /error gadgets\.loose: field has no type/);
   assert.match(text, /warning gadgets: unknown descriptor key\(s\) colour/);
   put(root, 'modules/local/collections/logs.collection.yaml', 'name: logs\nstorage: {path: ../elsewhere/logs}\nfields:\n  name: {type: string}\n');
-  assert.match(buildModel(root).issues.map((i) => i.message).join('\n'), /stored outside the workspace, at \.\.\/elsewhere\/logs/);
+  assert.match(buildModel(root).issues.map((i) => i.message).join('\n'), /storage path, \.\.\/elsewhere\/logs, is outside the workspace/);
   assert.equal(m.collections.gadgets.fields.rank.type, 'position', 'position is a known type');
   refuses(() => add(m, 'users', { name: 'Dana Oren' }), /model has errors/);
   refuses(() => compile(m), /model has errors/);
@@ -150,7 +150,7 @@ test('rm refuses to break other records, or to take them along', () => {
   add(m, 'pages', { name: 'Welcome', content: 'Hello.' });
   put(root, 'data/pages/welcome/cover.txt', 'cover');
   put(root, 'data/pages/welcome/notes/kept.memo.md', '---\ntitle: Kept\n---\n');
-  refuses(() => rm(m, 'pages/welcome'), /holds 1 record\(s\) of other collections/);
+  refuses(() => rm(m, 'pages/welcome'), /holds 1 other record\(s\) inside its folder/);
   assert.equal(rm(m, 'pages/welcome', true), 'pages/welcome');
   assert.equal(existsSync(join(root, 'data/pages/welcome')), false);
   assert.equal(rm(m, 'users/dana-oren', true), 'users/dana-oren');
@@ -213,4 +213,75 @@ test('compile writes only under .dt, is the same wherever the workspace sits, an
   assert.match(agents, /node .*bin\/dt\.ts <verb>/);
   assert.match(agents, /\*\*tasks\*\* \(local\)[\s\S]*records: data\/tasks\/<id>\.task\.md · id from `\{\{ created \| date \}\}--\{\{ name \| slug \}\}`/);
   assert.match(agents, /fields: name\*: string · assignee: → users · about: → users\|ghosts .* tags\[\]: string .* status: todo\|done \(default todo\) · notes: the text below the frontmatter/);
+});
+
+test('a folder record is not removed while other records live inside it, whatever their collection', () => {
+  const root = workspace(), m = buildModel(root);
+  add(m, 'pages', { name: 'Welcome', content: 'hi' });
+  add(m, 'pages', { name: 'Sub', content: 'sub' }, 'welcome/sub');
+  refuses(() => rm(m, 'pages/welcome'), /holds 1 other record/);
+  assert.deepEqual(listIds(m, 'pages'), ['welcome', 'welcome/sub']);
+});
+
+test('set keeps comments wherever they sit, and never writes text that reads back as something else', () => {
+  const root = workspace(), m = buildModel(root);
+  const file = (name: string, text: string) => put(root, `data/users/${name}.user.md`, text);
+  const lead = file('lead', '---\n# Referred by Northwind\nname: Sam\n# the kind below is temporary\nkind: agent\n# archived\n---\nBody.\n');
+  set(m, 'users/lead', { name: 'Samuel', kind: 'person', site: 'https://northwind.example' });
+  assert.equal(readFileSync(lead, 'utf8'), '---\n# Referred by Northwind\nname: Samuel\n# the kind below is temporary\nkind: person\nsite: https://northwind.example\n# archived\n---\nBody.\n');
+  const anchor = file('anchor', '---\nkind: &k agent\nname: *k\n---\n');
+  set(m, 'users/anchor', { kind: 'person' });
+  assert.deepEqual([get(m, 'users/anchor').data.kind, get(m, 'users/anchor').data.name], ['person', 'agent'], 'an alias is resolved, not left dangling');
+  const empty = file('empty', '---\n---\nHello\n');
+  set(m, 'users/empty', { name: 'Hi' });
+  assert.equal(readFileSync(empty, 'utf8'), '---\nname: Hi\n---\nHello\n');
+  const block = file('block', '---\nname: Sam\nsite: >-\n  https://northwind.example/a/very/long/path\nkind: agent\n---\n');
+  set(m, 'users/block', { kind: 'person' });
+  assert.equal(readFileSync(block, 'utf8'), '---\nname: Sam\nsite: >-\n  https://northwind.example/a/very/long/path\nkind: person\n---\n');
+  assert.deepEqual(errors(m), []);
+});
+
+test('a link, a different case or a binary collection gives no way out of the record that was named', () => {
+  const root = workspace(), m = buildModel(root);
+  const outside = dirname(put(dirname(root), `outside-${Date.now()}/sub/index.md`, '---\nname: Outside\n---\n'));
+  add(m, 'memos', { title: 'Keep' }, 'm1');
+  add(m, 'pages', { name: 'Welcome' });
+  symlinkSync(dirname(outside), join(root, 'data/memos/link'));
+  symlinkSync(dirname(outside), join(root, 'data/pages/link'));
+  refuses(() => add(m, 'memos', { title: 'Planted' }, 'link/planted'), /symbolic link leads out/);
+  refuses(() => rm(m, 'pages/link/sub'), /symbolic link leads out|no such record/);
+  assert.ok(existsSync(join(outside, 'index.md')));
+  assert.deepEqual(listIds(m, 'memos'), ['m1'], 'a link inside a collection folder is not a record');
+  add(m, 'tasks', { name: 'Uses memo', about: undefined, assignee: undefined });
+  refuses(() => rm(m, 'memos/M1'), /no such record/);
+  refuses(() => get(m, 'memos/M1'), /no such record/);
+  put(root, 'modules/local/collections/logos.collection.yaml', 'name: logos\ndescription: logos.\nstorage: {format: binary}\nfields: {}\n');
+  put(root, 'modules/local/collections/brands.collection.yaml', 'name: brands\ndescription: brands.\nfields:\n  name: {type: string, required: true}\n  logo: {type: logos}\n');
+  put(root, 'data/logos/northwind.logo.svg', '<svg/>');
+  const m2 = buildModel(root);
+  assert.equal(add(m2, 'brands', { name: 'Northwind', logo: 'logos/northwind' }).data.logo, 'logos/northwind');
+  refuses(() => add(m2, 'brands', { name: 'Eastwind', logo: 'logos/../../../../etc/hosts' }), /broken reference/);
+});
+
+test('a collection named like another one\'s singular keeps its own records', () => {
+  const root = workspace();
+  put(root, 'modules/local/collections/processes.collection.yaml', 'name: processes\ndescription: processes.\nfields:\n  name: {type: string, required: true}\n');
+  put(root, 'modules/local/collections/process.collection.yaml', 'name: process\ndescription: process.\nfields:\n  name: {type: string, required: true}\n');
+  const m = buildModel(root);
+  assert.equal(add(m, 'process', { name: 'Alpha' }).ref, 'process/alpha');
+  assert.equal(add(m, 'processes', { name: 'Alpha' }).ref, 'processes/alpha');
+  assert.equal(rm(m, 'process/alpha'), 'process/alpha');
+  assert.deepEqual(listIds(m, 'processes'), ['alpha']);
+});
+
+test('check does not mistake one collection\'s records for stray files of another', () => {
+  const root = workspace();
+  put(root, 'modules/local/collections/drafts.collection.yaml', 'name: drafts\ndescription: drafts.\nstorage: {path: data/memos}\nfields:\n  title: {type: string, required: true}\n');
+  const m = buildModel(root);
+  add(m, 'memos', { title: 'A memo' }, 'm1');
+  add(m, 'drafts', { title: 'A draft' }, 'd1');
+  put(root, 'data/memos/.obsidian/workspace.json', '{}');
+  put(root, 'data/memos/readme.txt', 'stray');
+  assert.deepEqual(check(m).issues.map((i) => i.where), ['data/memos/readme.txt']);
+  assert.deepEqual(list(m, 'memos', { title: 'undefined' }), []);
 });

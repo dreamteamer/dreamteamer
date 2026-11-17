@@ -829,7 +829,7 @@ $ dtx add recipes --name "Toast" --steps "Toast the bread." && tail -c 18 data/r
 ### D7 · A rewrite restyles the frontmatter and drops comments
 *Partial · Defect · impact medium*
 
-**Closed in `143c57a`.** `set` rewrites only the lines of the keys it changes; every other character stays. One edge remains: a comment line directly above a key travels with the key before it.
+**Closed in `143c57a`.** `set` rewrites only the lines of the keys it changes; comments and blank lines between keys stay where they are. If the edited text would not read back as the fields intended, the frontmatter is written afresh.
 
 **README:** "The values survive. Comments in the frontmatter do not, and quoting and folding change".
 
@@ -894,7 +894,7 @@ After the same two commands in the released engine, the user's file holds `tasks
 ### D9 · `rm` protects nothing
 *Partial · Defect · impact high*
 
-**Closed in `143c57a`.** `rm` refuses a record that others reference, and a folder-shaped record that holds records of other collections; `--force` overrides both.
+**Closed in `143c57a`.** `rm` refuses a record that others reference, and a folder-shaped record that holds any other record inside its folder; `--force` overrides both.
 
 **README:** "`rm` does not look for records that point at the one it removes … For a folder-shaped record it deletes the whole folder, whatever else is in it".
 
@@ -1431,7 +1431,7 @@ The released engine has the opposite problem and says so: it goes on validating 
 ### F1 · `get` and `rm` follow a reference out of the workspace
 *Partial · Defect · impact high*
 
-**Closed in `143c57a`.** `get`, `set` and `rm` refuse a reference whose id is empty, has a `.` or `..` segment or starts with a slash. Test: "a reference or an id cannot reach outside the record it names".
+**Closed in `143c57a`.** `get`, `set` and `rm` refuse a reference whose id is empty, has a `.` or `..` segment or starts with a slash, and one that differs from the file's name in case. Test: "a reference or an id cannot reach outside the record it names".
 
 **README:** "`get` and `rm` make no such check: a reference with `..` in it reads or deletes a matching file outside the workspace."
 
@@ -1523,7 +1523,7 @@ The files planted with `..` are listed by no collection and seen by no `check`. 
 ### F4 · A descriptor decides where records are read and deleted
 *Partial · Scope boundary · impact medium*
 
-**Partly closed in `143c57a`.** `check` warns when a descriptor stores a collection outside the workspace. The descriptor is still trusted, and a collection folder that is a symbolic link is still followed.
+**Partly closed in `143c57a`.** A storage path outside the workspace is neither read nor written, and `check` says so; a symbolic link below a collection's folder is not followed. A collection folder that is itself a symbolic link still is, as in the released engine.
 
 **README:** "A module is still trusted input. Its descriptors decide where records are read, written and deleted".
 

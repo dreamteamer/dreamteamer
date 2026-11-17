@@ -67,7 +67,7 @@ There is no npm package. Clone the branch and install its dependencies — `yaml
 git clone --branch experiment/first-principles-ts --single-branch <repository> dreamteamer-first-principles
 cd dreamteamer-first-principles
 npm install
-npm test             # 26 tests
+npm test             # 33 tests
 npm run typecheck    # tsc, strict, emits nothing
 ```
 
@@ -169,7 +169,7 @@ dtx add tasks "Call the bank" --priority 1
 ✖ tasks has no field priority — its fields are slug, name, description, status, project, assignee, …
 ```
 
-A refused command exits with status 1 and leaves the disk as it was: `ls data/tasks` still shows one file. The `set` changed two lines of the file and no others.
+A refused command exits with status 1 and leaves the disk as it was: `ls data/tasks` still shows one file. The `set` changed the `status` line, added `tags`, and touched nothing else in the file.
 
 **5. Add a collection of your own, and extend one you installed.** Your own sources live in a module under `modules/` — a folder whose `package.json` has a `dreamteamer` key.
 
@@ -383,7 +383,7 @@ A Markdown record carries its fields as YAML frontmatter and one field — the o
 | `get <ref>` | Prints the record's fields as JSON. `--json` wraps them as `data`, beside the record's `ref`, `collection`, `id`, `path` and `mtimeMs` |
 | `add <collection> ["title"] --field value…` | Stamps `created`, applies the defaults, makes the id, validates, writes. Refuses to replace an existing record |
 | `set <ref> field=value…` | Reads the record, applies the changes, validates, and rewrites only the lines of the fields it changed. An empty value clears a field, or puts back its default if it has one |
-| `rm <ref>` | Deletes the record. It refuses when other records reference it, or when a folder-shaped record holds records of other collections; `--force` deletes anyway |
+| `rm <ref>` | Deletes the record. It refuses when other records reference it, or when a folder-shaped record holds other records inside its folder; `--force` deletes anyway |
 | `check` | Validates every record, reports files it does not recognise, changes nothing, and exits 1 on any error |
 
 **Ids** (**Verified** against ids the released engine produced). `add` uses `--id` when you give one. Otherwise it takes the first template in the collection's `ids.from` whose fields are all present. The filters are `slug`, `date` with an optional format such as `date:YYYY/MM` or `date:HH-mm`, `basename` and `pad`. A date is read from the value as written, in its own zone; `created` is local time with its offset. A name with accents loses them (`zoe-bronte-angstrom`); a name with no Latin letters or digits becomes a hash, and the engine says so. An id, given or generated, is a relative path with no empty, `.` or `..` segment and no leading slash.
@@ -412,9 +412,9 @@ Status. That an invalid write is refused before disk is **Verified**: by test, b
 - Under contention most conflicting writes are refused and can be retried, and a few report success and are lost: of 30 simultaneous `set` commands on one record, roughly three in ten are refused and about one in twenty of the rest is lost. The released engine loses most of them.
 - The check that makes this work compares modification times. It leaves two short windows in which such a change is still overwritten, and it has no test.
 
-**Staying inside the record you name** (**Verified**). `get`, `add`, `set` and `rm` refuse a reference or an id that is empty, has a `.` or `..` segment, or starts with a slash, and a path that would leave the workspace. What remains is deliberate trust in a module: a descriptor decides where its collection is stored, and `check` warns when that is outside the workspace; and a collection folder that is a symbolic link is followed, as it is by the released engine.
+**Staying inside the record you name** (**Verified**). `get`, `add`, `set` and `rm` refuse a reference or an id that is empty, has a `.` or `..` segment, or starts with a slash, and a path that would leave the workspace. An id must match a file under exactly that spelling, so a file system that ignores case cannot turn one id into another, and a symbolic link below a collection's folder is neither listed nor followed. What remains is deliberate trust in a module: a descriptor decides where its collection is stored. A storage path outside the workspace is not read or written, and `check` says so; a collection folder that is itself a symbolic link is followed, as it is by the released engine.
 
-**What a rewrite does to a file.** `set` replaces the lines of the keys it changes, drops the lines of a key it clears, and appends a new key at the end of the frontmatter. Every other character stays as it was written: comments, quoting, folded strings, the body (**Verified**). A comment line directly above a key belongs, for this purpose, to the key before it. `add` writes the same file the released engine writes for the same command, except that a string which needs quoting gets double quotes where the released engine uses single ones.
+**What a rewrite does to a file.** `set` replaces the lines of the keys it changes, drops the lines of a key it clears, and appends a new key at the end of the frontmatter. Every other character stays as it was written: comments, quoting, folded strings, the body (**Verified**). Comments and blank lines between keys stay where they are; a comment on the same line as a changed key goes with it. If the edited text would not read back as exactly the fields intended — a record that uses YAML anchors, say — the frontmatter is written afresh instead. `add` writes the same file the released engine writes for the same command, except that a string which needs quoting gets double quotes where the released engine uses single ones.
 
 ### Compile
 
@@ -481,7 +481,7 @@ dtx <verb> [target] [arguments] [-w <workspace>]
 
 - The verb comes first. `-w <path>` or `--workspace <path>` names the workspace to act on; the default is the current directory.
 - A field is given as `--<field> <value>`, `--<field>=<value>`, or `<field>=<value>`. On `add`, one bare argument after the collection is the record's title.
-- A value is converted by the declared type of its field. Text is stored as typed. A number or `true`/`false` becomes one where the field is numeric or boolean; a boolean flag with no value means true. A list takes a repeated flag, or one value with commas. A field that points at one collection takes a bare id. An `object` or a `map` is written as YAML or JSON.
+- A value is converted by the declared type of its field. Text is stored as typed. A plain decimal number or `true`/`false` becomes one where the field is numeric or boolean; a boolean flag with no value means true. A date and time typed without seconds or without a zone (`2026-12-01 10:00`) is completed with this machine's zone on that day. A list takes a repeated flag, or one value with commas. A field that points at one collection takes a bare id. An `object` or a `map` is written as YAML or JSON.
 - A flag or a field the verb does not know is refused, with the ones it does know.
 - `--id <id>` on `add` uses that id instead of generating one. `--force` on `rm` deletes a record that others reference. `--json` on `get` and `list` prints records with their `ref`, `collection`, `id`, `path` and `mtimeMs`, and their fields under `data`.
 - A collection may be named in the singular wherever one is named, a reference included: `dtx get task/2026-11-17--buy-milk`.
@@ -563,7 +563,7 @@ Specific to this version:
 ## Development
 
 ```bash
-npm test             # node --test, 26 tests in three suites, a few seconds
+npm test             # node --test, 33 tests in three suites, a few seconds
 npm run typecheck    # tsc, strict, emits nothing
 ```
 
