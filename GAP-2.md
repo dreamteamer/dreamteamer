@@ -35,7 +35,7 @@ Measured on commit `396fa52`.
 | Tests | 33, in three suites: the API, the command line as a process, eight real published packages |
 | A real workspace of 21 published packages, read-only | 22 of 22 modules, 54 of 54 collections, 4,837 records seen — every one stored under `data/` — and `check` reports no errors and no warnings, as the released engine does |
 | A record written here | has the id, file name, timestamp and layout the released engine gives it; the released engine lists it under the same id |
-| Still failing in the released engine's `check` after a write here | a stale reverse field ([D8](#d8)), and whatever this engine does not validate ([V3](#v3)) |
+| Still failing in the released engine's `check` after a write here | whatever this engine does not validate ([V3](#v3)); a stale reverse field ([D8](#d8)) no longer, since D8 closed |
 
 ## Summary
 
