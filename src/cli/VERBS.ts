@@ -1,15 +1,21 @@
 import type { Verb } from "./Verb.ts"
 import { add } from "./verbs/add.ts"
+import { changes } from "./verbs/changes.ts"
 import { check } from "./verbs/check.ts"
 import { collections } from "./verbs/collections.ts"
+import { commit } from "./verbs/commit.ts"
 import { compile } from "./verbs/compile.ts"
 import { get } from "./verbs/get.ts"
+import { history } from "./verbs/history.ts"
 import { list } from "./verbs/list.ts"
 import { modules } from "./verbs/modules.ts"
 import { next } from "./verbs/next.ts"
 import { relations } from "./verbs/relations.ts"
+import { rename } from "./verbs/rename.ts"
+import { resolve } from "./verbs/resolve.ts"
 import { rm } from "./verbs/rm.ts"
 import { set } from "./verbs/set.ts"
+import { values } from "./verbs/values.ts"
 
 /** every verb, in the order the verb list prints them; a new verb is a file in verbs/ and a line here */
 export const VERBS = {
@@ -17,11 +23,17 @@ export const VERBS = {
   collections,
   list,
   get,
+  values,
+  history,
   add,
   set,
   rm,
+  rename,
   next,
   relations,
+  resolve,
+  changes,
+  commit,
   check,
   compile,
 } as const satisfies Record<string, Verb>

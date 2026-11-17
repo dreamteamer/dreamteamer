@@ -949,3 +949,22 @@ test("a collection stored inside another's folder is an error in the model, and 
   refuses(() => rm(m, "everything/users/dana-oren"), /model has errors/)
   assert.ok(existsSync(join(root, "data/users/dana-oren.user.md")))
 })
+
+test("an overlay's own keys replace its base's, storage whole, as the released engine applies them", () => {
+  const root = workspace()
+  put(
+    root,
+    "modules/local/collections/companies-overlay.collection.yaml",
+    "name: companies\noverlay: true\ndescription: An organisation.\nstorage: {shape: folder, entry: company.md}\n",
+  )
+  put(root, "modules/local/collections/places-overlay.collection.yaml", "name: places\noverlay: true\ntitle: Spots\n")
+  const m = buildModel(root)
+  assert.deepEqual(m.issues, [])
+  const c = m.collections.companies
+  assert.equal(c.description, "An organisation.")
+  assert.deepEqual([c.storage.path, c.storage.shape, c.storage.entry], ["data/companies", "folder", "company.md"])
+  assert.deepEqual([m.collections.places.title, m.collections.places.storage.format], ["Spots", "json"])
+  const r = add(m, "companies", { name: "Northwind" })
+  assert.equal(r.path, join(root, "data/companies/northwind/company.md"))
+  assert.equal(get(buildModel(root), "companies/northwind").data.name, "Northwind")
+})
