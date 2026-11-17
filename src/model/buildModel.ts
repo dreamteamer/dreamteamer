@@ -18,6 +18,7 @@ import { discover } from "./discover.ts"
 import { readDescriptor } from "./readDescriptor.ts"
 import { readExports } from "./readExports.ts"
 import { readField } from "./readField.ts"
+import { readRule } from "./readRule.ts"
 import { readSkills } from "./readSkills.ts"
 import { readSources } from "./readSources.ts"
 import { SCALARS } from "./SCALARS.ts"
@@ -129,6 +130,7 @@ function collectionOf(d: Descriptor, name: string, layers: Descriptor[], issues:
       pattern: text(ids.pattern, "ids.pattern"),
     },
     fields: {},
+    rules: [],
     contributors: [],
   }
   return c
@@ -250,6 +252,10 @@ export function buildModel(root: string): Model {
       }
       c.fields[name] = f
     }
+  for (const c of Object.values(collections))
+    c.rules = (c.constraints ?? []).flatMap((t, i) =>
+      readOr(issues, c.name, () => [readRule(t, `constraints[${i}]`)], []),
+    )
   const model: Model = {
     root,
     modules,

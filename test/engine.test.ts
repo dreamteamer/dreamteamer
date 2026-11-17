@@ -832,3 +832,63 @@ test("a unique value is refused on write when another record holds it, and check
     ],
   )
 })
+
+test("a collection's constraints are enforced on write and by check, with the verdicts the released engine gives", () => {
+  const root = workspace()
+  const c = (name: string, text: string) =>
+    put(root, `modules/local/collections/${name}.collection.yaml`, `name: ${name}\ndescription: ${name}.\n${text}`)
+  // the shapes the published modules write: an engagement's stage and outcome, a decision's reviewable fields, a
+  // workflow's steps — and the keywords around them that the rules of other modules use
+  c(
+    "deals",
+    "fields:\n  name: {type: string, required: true}\n  stage: {type: string, enum: [lead, closed], default: lead}\n  outcome: {type: string, enum: [won, lost]}\nconstraints:\n  - if: {properties: {outcome: {type: string}}, required: [outcome]}\n    then: {properties: {stage: {const: closed}}}\n  - if: {properties: {stage: {const: closed}}, required: [stage]}\n    then: {required: [outcome]}\n",
+  )
+  c(
+    "flows",
+    "fields:\n  name: {type: string, required: true}\n  steps: {type: object, many: true, fields: {command: {type: string}, stop: {type: string}}}\n  kind: {type: string}\n  level: {type: integer}\n  tags: {type: string, many: true}\nconstraints:\n  - properties: {steps: {items: {if: {not: {required: [command]}}, then: {required: [stop]}}}}\n  - anyOf: [{required: [kind]}, {required: [tags], properties: {tags: {minItems: 2}}}]\n  - if: {properties: {level: {type: integer, minimum: 3}}, required: [level]}\n    then: {properties: {kind: {enum: [deep, abyss], minLength: 5}}, required: [kind]}\n",
+  )
+  const m = buildModel(root)
+  assert.deepEqual(m.issues, [])
+  add(m, "deals", { name: "Open" })
+  add(m, "deals", { name: "Won", stage: "closed", outcome: "won" })
+  refuses(() => add(m, "deals", { name: "Early", outcome: "won" }), /stage: must be "closed" — constraint 1 of deals/)
+  refuses(() => set(m, "deals/open", { stage: "closed" }), /outcome: required — constraint 2 of deals/)
+  set(m, "deals/open", { stage: "closed", outcome: "lost" })
+  add(m, "flows", { name: "Run", kind: "k", steps: [{ command: "x" }, { stop: "decide" }] })
+  refuses(() => add(m, "flows", { name: "Stuck", kind: "k", steps: [{}] }), /steps\[0\]\.stop: required/)
+  refuses(() => add(m, "flows", { name: "Bare", tags: ["a"] }), /matches none of the alternatives \(anyOf\)/)
+  add(m, "flows", { name: "Tagged", tags: ["a", "b"] })
+  refuses(() => add(m, "flows", { name: "Deep", level: 4, kind: "abc" }), /kind: not one of "deep" \| "abyss"/)
+  add(m, "flows", { name: "Abyss", level: 4, kind: "abyss" })
+  assert.deepEqual(errors(m), [])
+  // as the released validator does, a rule's `type` converts the value it reads: "1" is the number 1, below 3
+  put(root, "data/flows/low.flow.md", "---\nname: Low\nlevel: '1'\ntags: [a, b]\n---\n")
+  put(root, "data/flows/high.flow.md", "---\nname: High\nlevel: '5'\ntags: [a, b]\n---\n")
+  put(root, "data/deals/blank.deal.md", "---\nname: Blank\nstage: lead\noutcome:\n---\n")
+  assert.deepEqual(
+    errors(m).map((t) => `${t.where} ${t.message}`),
+    [
+      'deals/blank stage: must be "closed" — constraint 1 of deals',
+      "flows/high kind: required — constraint 3 of flows",
+    ],
+  )
+})
+
+test("a constraint keyword this engine does not evaluate is an error in the model, never skipped", () => {
+  const root = workspace()
+  put(
+    root,
+    "modules/local/collections/gizmos.collection.yaml",
+    "name: gizmos\ndescription: gizmos.\nfields:\n  name: {type: string}\nconstraints:\n  - {dependentRequired: {name: [size]}}\n  - if: {properties: {name: {type: text}}}\n  - {required: name}\n",
+  )
+  const m = buildModel(root)
+  assert.deepEqual(
+    m.issues.map((t) => `${t.severity} ${t.where}: ${t.message}`),
+    [
+      'error gizmos: constraints[0]: "dependentRequired" is a keyword this engine does not evaluate — a constraint uses if then else not allOf anyOf oneOf properties items required const enum type pattern minimum maximum minLength maxLength minItems maxItems',
+      'error gizmos: constraints[1].if.properties.name.type: "text" is not a JSON Schema type — string number integer boolean null object array',
+      "error gizmos: constraints[2].required: expected a list, found text",
+    ],
+  )
+  refuses(() => add(m, "gizmos", { name: "x" }), /model has errors/)
+})

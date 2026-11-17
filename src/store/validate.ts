@@ -1,6 +1,7 @@
 import type { Issue } from "../types/Issue.ts"
 import type { Model } from "../types/Model.ts"
 import { checkField } from "./checkField.ts"
+import { checkRule } from "./checkRule.ts"
 import { checkValue } from "./checkValue.ts"
 import { openCollection } from "./openCollection.ts"
 
@@ -32,5 +33,10 @@ export function validate(
     }
     for (const m of checkField(model, f, v, name, unresolved)) err(m)
   }
+  // the rules read a copy, which they convert as the released engine's validator converts the record it checks
+  const copy = c.rules.length ? structuredClone(data) : data
+  c.rules.forEach((r, i) => {
+    for (const m of checkRule(r, copy)) err(`${m} — constraint ${i + 1} of ${c.name}`)
+  })
   return issues
 }

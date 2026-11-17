@@ -1,4 +1,5 @@
 import type { Field } from "./Field.ts"
+import type { Rule } from "./Rule.ts"
 
 export interface Collection {
   name: string
@@ -17,8 +18,10 @@ export interface Collection {
   sensitive?: boolean
   /** how surfaces draw it — `nav`, `list`, `record`, `form` — as written, each sub-block over its mixins' */
   display?: Record<string, unknown>
-  /** rules across fields, as written: the descriptor's, then its mixins'; not enforced here */
+  /** rules across fields, as written: the descriptor's, then its mixins', then its overlays' */
   constraints?: Record<string, unknown>[]
+  /** the same rules as read, which every write and check enforces; one that cannot be read is an error in the model */
+  rules: Rule[]
   storage: {
     path: string
     /** md, yaml, json or binary; any other is an error in the model, and its records are read as YAML */
