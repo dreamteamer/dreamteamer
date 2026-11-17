@@ -38,7 +38,7 @@ The report was written against commit `a029976`, the first 490 lines. Commit `14
 | | When found | Now |
 |---|---|---|
 | Gaps open | 64 | 26, and 4 partly closed |
-| Engine, `src/` and `bin/` | 490 lines | 845 lines |
+| Engine, `src/` and `bin/` | 490 lines | 2,030 lines; 913 just before the restructuring below |
 | Tests | 5, in 71 lines | 26, in 421 lines, three suites |
 | Coverage | 98% of lines, 64% of branches, the CLI untested | 99% of lines, 86% of branches, the CLI included |
 | Real workspace, records seen | 4,705 of 5,038 | 4,837 of 5,039: all but the system collections |
@@ -46,6 +46,8 @@ The report was written against commit `a029976`, the first 490 lines. Commit `14
 | A record written here, in the released engine | read; one case tried | read, listed under the same id, same file layout |
 
 The estimate for this set was 400 to 800 lines of code and 450 to 750 of tests. It took 544 lines added and 190 removed in `src/` and `bin/`, and 391 added and 43 removed in `test/`.
+
+The code was then restructured to the house style in [CLAUDE.md](CLAUDE.md), with no change in behaviour: TypeScript 6.0 instead of 7 as the type-checker, with `verbatimModuleSyntax`; ESLint with typescript-eslint's type-aware rules and Prettier added; one export per file, in folders under `src/`; and every input from disk read through typed readers instead of casts. The engine is now 2,030 lines: Prettier's line breaks alone take the same code from 913 lines to about 1,470, and one import per line adds about 250 more.
 
 ## The short version
 

@@ -1,6 +1,6 @@
 # DreamTeamer First Principles
 
-DreamTeamer First Principles is an experiment: the smallest typed engine we could write that still makes a [dreamteamer](https://github.com/dreamteamer/dreamteamer) workspace work. It reads published DreamTeamer modules as they are, validates and writes typed records as plain files, and compiles the workspace's schema into instructions an AI agent can read — in about 850 lines of TypeScript with one runtime dependency.
+DreamTeamer First Principles is an experiment: the smallest typed engine we could write that still makes a [dreamteamer](https://github.com/dreamteamer/dreamteamer) workspace work. It reads published DreamTeamer modules as they are, validates and writes typed records as plain files, and compiles the workspace's schema into instructions an AI agent can read — in about 2,000 lines of TypeScript with one runtime dependency.
 
 > **This is not a release.** It is a core slice on the `experiment/first-principles-ts` branch. It is not published to npm and it does not replace dreamteamer 0.49. Every capability on this page carries a status — **Verified**, **Partial**, **Planned** or **Open**, defined under [Status](#status) — and [GAP.md](GAP.md) lists, with evidence, where the code falls short of what this page describes, and which of those gaps have been closed.
 
@@ -34,7 +34,7 @@ Where things stand, in one screen:
 | Run published modules unchanged | **Partial** | Their collections, mixins and skills are read. Their commands, agents, views, navigation and extensions are not |
 | Never run git | **Verified** | No verb runs git, and nothing commits by itself |
 | Stay inside the record you name | **Verified** | A reference or an id cannot name anything but a record of its collection. A descriptor or a symbolic link can still place a collection elsewhere |
-| Use it from a script | **Verified** | `src/api.ts`, from a checkout |
+| Use it from a script | **Verified** | The files under `src/`, from a checkout |
 | Deliver instructions to each agent harness | **Planned** | |
 | `commit`, an installable package, a UI over the model | **Planned** | |
 | `init`, `install` and `status`; extensions; upgrades and migrations; live refresh | **Open** | |
@@ -61,7 +61,7 @@ The command blocks on this page carry `#` comments. bash ignores them; an intera
 
 #### Installation
 
-There is no npm package. Clone the branch and install its dependencies — `yaml` at run time; TypeScript and a handful of published modules for the tests:
+There is no npm package. Clone the branch and install its dependencies — `yaml` at run time; TypeScript, ESLint, Prettier and a handful of published modules for development and the tests:
 
 ```bash
 git clone --branch experiment/first-principles-ts --single-branch <repository> dreamteamer-first-principles
@@ -69,6 +69,7 @@ cd dreamteamer-first-principles
 npm install
 npm test             # 33 tests
 npm run typecheck    # tsc, strict, emits nothing
+npm run lint         # ESLint, type-aware
 ```
 
 `<repository>` is any clone of the engine repository that has the branch; at the time of writing the branch has not been pushed to GitHub.
@@ -295,19 +296,20 @@ package.json ──┐                          ┌──► store ◄──► 
 node_modules/ ─┼─► discover ─► model ─────┤
 modules/ ──────┘                          └──► compile ──► .dt/    derived, disposable
 
-                     adapters call the model, the store and compile through src/api.ts
+                     adapters call the model, the store and compile by the files that define them
                      (today: the CLI; harness files and a UI are not built)
 ```
 
-| Part | File | Lines | Responsibility |
+Each file is named after the one thing it exports, and a caller imports that thing from that file; there is no index and no re-export. The parts are folders:
+
+| Part | Folder | Lines | Responsibility |
 |---|---|---|---|
-| Contracts | `src/types.ts` | 86 | The types every other part shares: `Module`, `Collection`, `Field`, `Model`, `DtRecord`, `Issue` |
-| Discovery | `src/discover.ts` | 60 | Which modules does this workspace have? |
-| Model | `src/model.ts` | 132 | Merge every module's collections, mixins and overlays into one resolved model |
-| Store | `src/store.ts` | 357 | Read, validate and change records |
-| Compile | `src/compile.ts` | 57 | Project the model into files for agents and tools |
-| API | `src/api.ts` | 6 | The one surface adapters import |
-| CLI | `src/cli.ts`, `bin/dt.ts` | 147 | Read the command line, convert each value by the type of its field, and print |
+| Contracts | `src/types/` | 126 | The types every other part shares: `Module`, `Collection`, `Field`, `Model`, `DtRecord`, `Issue`, `Skill`, `Descriptor` |
+| Readers | `src/lib/` | 140 | `DtError`, and the small readers that every input from disk passes through (`asString`, `asObject`, `asArray`, `asOptional` …), with a few generic helpers |
+| Discovery and model | `src/model/` | 556 | Which modules does this workspace have (`discover.ts`)? Merge their collections, mixins and overlays into one resolved model (`buildModel.ts`) |
+| Store | `src/store/`, `src/yaml/` | 768 | Read, validate and change records (`get.ts`, `list.ts`, `add.ts`, `set.ts`, `rm.ts`, `check.ts` …), and edit a record's YAML a line at a time |
+| Compile | `src/compile/` | 130 | Project the model into files for agents and tools |
+| CLI | `src/cli/`, `bin/dt.ts` | 306 | Read the command line, convert each value by the type of its field, and print |
 
 ### The workspace and its modules
 
@@ -368,7 +370,7 @@ The result is one `Model` value: the modules, the collections with their fields,
 Status. Resolution of the published schema is **Verified**: on 54 collections it agrees with the released engine's compiled descriptors on every key of all 940 fields, and on where and how each collection is stored. Three things are **Partial**:
 
 - What it keeps of a collection is the name, description, use-when text, storage, id rule and fields. Display metadata, record titles, constraints and every other descriptor key are dropped.
-- A descriptor is checked for a name, known mixins, a known storage format and a known type on every field; a key it does not know is a warning. The manifest of a module is trusted as written. Validating both where they enter is **Planned**.
+- A descriptor is checked for a name, known mixins, a known storage format and a known type on every field; a key it does not know is a warning. Where they enter, a descriptor and a module's manifest are read through typed readers: a key the engine acts on that holds the wrong kind of value is an error, and is read as absent. Validating them against the released engine's full schema is **Planned**.
 - Where two modules shape the same collection, a few outcomes differ from the released engine: the order of fields, which of a local and an npm overlay wins, and how a mixin's storage and id rule combine with the collection's own. Field order already differs in 6 of the 54 published collections; none is affected by the other differences today.
 
 ### Records and data operations
@@ -445,10 +447,13 @@ This is a deliberate difference from the released engine, in which record writes
 
 ### Programmatic API
 
-Everything the CLI does goes through `src/api.ts`; the CLI adds only the reading of the command line and the printing. A script uses the same surface (**Verified**, from a checkout):
+Everything the CLI does goes through the functions under `src/`; the CLI adds only the reading of the command line and the printing. A script calls the same functions, each imported from the file that defines it (**Verified**, from a checkout):
 
 ```ts
-import { buildModel, add, list, check } from '/path/to/dreamteamer-first-principles/src/api.ts';
+import { buildModel } from '/path/to/dreamteamer-first-principles/src/model/buildModel.ts';
+import { add } from '/path/to/dreamteamer-first-principles/src/store/add.ts';
+import { list } from '/path/to/dreamteamer-first-principles/src/store/list.ts';
+import { check } from '/path/to/dreamteamer-first-principles/src/store/check.ts';
 
 const model = buildModel('/path/to/my-workspace');
 const record = add(model, 'users', { name: 'Sam Diaz' });
@@ -456,7 +461,7 @@ console.log(record.ref, list(model, 'users', { kind: 'human' }).map((r) => r.id)
 console.log(check(model).issues.filter((i) => i.severity === 'error'));
 ```
 
-It exports `buildModel`, `discover`, `findCollection`, `splitRef`, `listIds`, `list`, `get`, `add`, `set`, `rm`, `referrers`, `check`, `validate`, `stamp`, `compile`, `instructions`, the `DtError` class and the types in `src/types.ts`. A refused call throws a `DtError` whose `issues` array says why. Values passed here are taken as they are; converting text by a field's type belongs to the CLI.
+The functions are `buildModel`, `discover`, `findCollection` and `splitRef` in `src/model/`; `listIds`, `list`, `get`, `add`, `set`, `rm`, `referrers`, `check` and `validate` in `src/store/`; `compile` and `instructions` in `src/compile/`; `stamp` and the `DtError` class in `src/lib/`; and the types in `src/types/`. `package.json` maps `./*` to `./src/*`, so a package that can resolve this one names the same files without `src/`. A refused call throws a `DtError` whose `issues` array says why. Values passed here are taken as they are; converting text by a field's type belongs to the CLI.
 
 The package cannot be installed from npm or from a tarball yet: Node refuses to run TypeScript from inside `node_modules`, and there is no build step (**Planned**).
 
@@ -499,16 +504,16 @@ This version keeps DreamTeamer's principles and adds a few of its own. Unlike th
 
 - **What this version adds**
   - **One workspace owns the data** — modules are read-only inputs delivered by npm, and every write lands in the one workspace a command names. *Verified for references and ids. A descriptor still decides where its collection is stored.*
-  - **Typed contracts** — the parts of the engine talk through the types in `src/types.ts`, checked by `tsc` in strict mode. *Partial: types do not validate what arrives from disk. Records are validated at run time, and so are a descriptor's types and storage format; a module's manifest is trusted.*
-  - **One interface for every adapter** — the CLI, and later harness output and a UI, call the same `src/api.ts`, so the rules for records live in one place. *Verified for the one adapter that exists.*
+  - **Typed contracts** — the parts of the engine talk through the types in `src/types/`, checked by `tsc` in strict mode, and what arrives from disk is read through typed readers rather than cast. *Partial: the readers check the kind of each value the engine acts on, not the released engine's full schema. Records are validated at run time, and so are a descriptor's types and storage format.*
+  - **One interface for every adapter** — the CLI, and later harness output and a UI, call the same functions under `src/`, so the rules for records live in one place. *Verified for the one adapter that exists.*
   - **Derived state is disposable** — everything the engine generates is in `.dt/`, ignored by git, and can be deleted without losing anything. *Verified.*
   - **No hidden steps** — no compile is needed before a command sees a change, nothing commits by itself, and no module code runs. *Verified.*
-  - **Small enough to read** — 845 lines and one runtime dependency. A cache, a service, a database or a generator needs a demonstrated job before it is added. *Verified, by counting.*
+  - **Small enough to read** — about 2,000 lines, as Prettier formats them, and one runtime dependency. A cache, a service, a database or a generator needs a demonstrated job before it is added. *Verified, by counting.*
 - **Core engine design goals**
   - **AI native** — *Partial.* An agent gets the schema and one validated way to write, as a file it has to be pointed at.
   - **Lean core** — *Verified.*
   - **Adaptive and extensible** — *Partial.* Your own collections and overlays work. The extension contract is Open.
-  - **Standards-first** — *Partial.* Markdown, YAML frontmatter and Git, as in the released engine. Validation is about seventy lines of TypeScript, not JSON Schema; whether to adopt a schema library is Open.
+  - **Standards-first** — *Partial.* Markdown, YAML frontmatter and Git, as in the released engine. Validation is about a hundred lines of TypeScript, not JSON Schema; whether to adopt a schema library is Open.
   - **Friendly for both agents and humans** — *Verified.* Data and instructions are plain text, and a mistake gets one line that says what to do.
   - **Harness-agnostic** — *Planned.* There is one generic instruction file today.
 - **Context engineering principles**
@@ -563,13 +568,15 @@ Specific to this version:
 ## Development
 
 ```bash
-npm test             # node --test, 33 tests in three suites, a few seconds
-npm run typecheck    # tsc, strict, emits nothing
+npm test               # node --test, 33 tests in three suites, a few seconds
+npm run typecheck      # tsc 6.0, strict, emits nothing
+npm run lint           # ESLint with typescript-eslint's type-aware recommended rules
+npm run format         # Prettier; format:check only verifies
 ```
 
-The source is TypeScript that Node runs directly, so it uses only syntax that can be erased — no enums, no parameter properties — and imports carry their `.ts` extension. There is no build output and no CI.
+The source is TypeScript that Node runs directly, so it uses only syntax that can be erased — no enums, no parameter properties — and imports carry their `.ts` extension; `tsconfig.json` sets `allowImportingTsExtensions`, `erasableSyntaxOnly` and `verbatimModuleSyntax`. Formatting is Prettier's (`.prettierrc.json`: 2 spaces, no semicolons, 120 columns), and the rest of the house style is in [CLAUDE.md](CLAUDE.md). There is no build output and no CI.
 
-`test/engine.test.ts` drives the API on a throw-away workspace of invented modules. `test/cli.test.ts` runs the command line as a process. `test/published.test.ts` runs the engine on real published modules — tasks, users, companies, contacts, assets, meetings, rnd and the released engine's system module — which are development dependencies of this repository, pinned to exact versions. Together they execute 99% of the lines and 86% of the branches of `src/` and `bin/`.
+`test/engine.test.ts` drives the API on a throw-away workspace of invented modules. `test/cli.test.ts` runs the command line as a process. `test/published.test.ts` runs the engine on real published modules — tasks, users, companies, contacts, assets, meetings, rnd and the released engine's system module — which are development dependencies of this repository, pinned to exact versions. Together they execute 95% of the lines and 88% of the branches of `src/` and `bin/`.
 
 This is a deliberately small codebase. Before adding to it, check that the addition has a demonstrated job.
 

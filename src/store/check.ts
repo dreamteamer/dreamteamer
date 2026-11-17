@@ -1,0 +1,89 @@
+import { existsSync } from "node:fs"
+import { isAbsolute, join, relative, resolve, sep } from "node:path"
+import { listFiles } from "../lib/listFiles.ts"
+import { messageOf } from "../lib/messageOf.ts"
+import type { Issue } from "../types/Issue.ts"
+import type { Model } from "../types/Model.ts"
+import { get } from "./get.ts"
+import { listIds } from "./listIds.ts"
+import { tail } from "./tail.ts"
+import { validate } from "./validate.ts"
+
+/** the released engine's system collections name source folders: what is there is source, not records */
+const SOURCE_FOLDERS = new Set([
+  "modules",
+  "collections",
+  "mixins",
+  "skills",
+  "agents",
+  "commands",
+  "command-bindings",
+  "ui-views",
+])
+
+/** Validate every record of every collection, and report the files no collection recognises; never modifies anything. */
+export function check(model: Model) {
+  const issues: Issue[] = [...model.issues]
+  const unresolved = new Map<string, number>()
+  const stored = Object.values(model.collections).filter((t) => !isAbsolute(t.storage.path))
+  // a file belongs to a collection when it sits in the collection's folder and is named as its records are;
+  // anything inside a folder-shaped collection belongs to its record
+  function claimed(p: string) {
+    return stored.some(
+      (t) =>
+        p.startsWith(join(model.root, t.storage.path) + sep) &&
+        (t.storage.shape === "folder" || t.storage.format === "binary" || p.endsWith(tail(t))),
+    )
+  }
+  const strays = new Set<string>()
+  let records = 0
+  for (const c of stored) {
+    const base = join(model.root, c.storage.path)
+    if (c.storage.format === "binary") {
+      if (existsSync(base))
+        issues.push({
+          severity: "warning",
+          where: c.name,
+          message: "binary storage is not supported — its files are not checked",
+        })
+      continue
+    }
+    let ids: string[]
+    try {
+      ids = listIds(model, c.name)
+    } catch (e) {
+      issues.push({ severity: "error", where: c.name, message: `cannot read ${c.storage.path}: ${messageOf(e)}` })
+      continue
+    }
+    for (const id of ids) {
+      records++
+      try {
+        issues.push(...validate(model, c.name, id, get(model, `${c.name}/${id}`).data, unresolved))
+      } catch (e) {
+        issues.push({
+          severity: "error",
+          where: `${c.name}/${id}`,
+          message: messageOf(e).replace(`${c.name}/${id}: `, ""),
+        })
+      }
+    }
+    const data =
+      c.storage.shape !== "folder" && !SOURCE_FOLDERS.has(c.storage.path) && resolve(base) !== resolve(model.root)
+    if (data && existsSync(base))
+      for (const p of listFiles(base))
+        if (!claimed(p) && !strays.has(p) && strays.add(p))
+          issues.push({
+            severity: "warning",
+            where: relative(model.root, p),
+            message: `unrecognized file in the ${c.name} folder — a record there is named <id>${tail(c)}`,
+          })
+  }
+  for (const [name, n] of unresolved)
+    issues.push({
+      severity: "warning",
+      where: name,
+      message: `a peer collection that is declared and not installed — ${n} reference(s) to it cannot be resolved`,
+    })
+  const res: { records: number; issues: Issue[] } = { records, issues }
+  return res
+}
