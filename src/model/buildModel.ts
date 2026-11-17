@@ -44,6 +44,24 @@ const DESCRIPTOR_KEYS = new Set([
   "sensitive",
 ])
 
+/** the top-level keys an overlay replaces on its base, as the released engine applies them; the rest are merged */
+const OVERLAID = [
+  "singular",
+  "description",
+  "use_when",
+  "title",
+  "record_title",
+  "internal",
+  "sensitive",
+  "storage",
+  "ids",
+] as const
+
+/** one key of an overlay over its base, when the overlay writes it: whole, never merged key by key */
+function take<K extends (typeof OVERLAID)[number]>(d: Descriptor, o: Descriptor, k: K) {
+  if (o.keys.includes(k)) d[k] = o[k]
+}
+
 /** the descriptors of one kind in every module; one that cannot be read is an issue */
 function sources(modules: Module[], kind: string, suffix: string, issues: Issue[]) {
   const out: Descriptor[] = []
@@ -205,6 +223,8 @@ export function buildModel(root: string): Model {
       if (m) layers.push(m)
       else issues.push({ severity: "error", where: name, message: `unknown mixin ${mx}` })
     }
+    // an overlay's own keys (storage above all) sit above the descriptor and its mixins, a later overlay's last
+    for (const o of all) if (o.overlay && o.name === name) for (const k of OVERLAID) take(d, o, k)
     layers.push(d)
     const c = collectionOf(d, name, layers, issues)
     const { path, format } = c.storage
@@ -241,17 +261,13 @@ export function buildModel(root: string): Model {
     }
     const base = collections[d.name]
     if (!base.contributors.includes(d.module.name)) base.contributors.push(d.module.name)
-    // an overlay's display wins key by key, its rules are added, and its labels replace the base's
+    // an overlay's display wins key by key and its rules are added; its other keys were applied with the base's
     for (const [b, v] of Object.entries(d.display ?? {})) {
       const was = base.display?.[b]
       base.display ??= {}
       base.display[b] = isObject(v) ? Object.assign({}, isObject(was) ? was : {}, v) : v
     }
     if (d.constraints) base.constraints = [...(base.constraints ?? []), ...d.constraints]
-    base.title = d.title ?? base.title
-    base.record_title = d.record_title ?? base.record_title
-    base.internal = d.internal ?? base.internal
-    base.sensitive = d.sensitive ?? base.sensitive
   }
   // a field's type is a scalar, an installed collection, or a collection some module declares as an optional
   // peer. A peer that is absent keeps its field: a value there is unresolvable, not wrong. Anything else is a typo.
