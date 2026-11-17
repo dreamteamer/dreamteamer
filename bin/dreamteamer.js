@@ -4,4 +4,4 @@
 import { init } from "../src/api/init.ts"
 import { main } from "../src/cli/main.ts"
 
-process.exitCode = process.argv[2] === "init" ? init(process.cwd()) : main(process.argv.slice(2))
+process.exitCode = process.argv[2] === "init" ? init(process.cwd()) : await main(process.argv.slice(2))

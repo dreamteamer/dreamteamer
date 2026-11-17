@@ -10,6 +10,8 @@ export const apiVersion = 1
 export { Store } from "./api/Store.ts"
 export { CompileError } from "./api/CompileError.ts"
 export { findWorkspace, openWorkspace } from "./api/openWorkspace.ts"
+export { contributedNotes } from "./extensions/contributedNotes.ts"
+export { contributedViolations } from "./extensions/contributedViolations.ts"
 export { parseRef } from "./api/parseRef.ts"
 export { presentation } from "./api/presentation.ts"
 export { matchesFilter, unknownOperators, looseEq, KNOWN_OPERATORS } from "./store/matchesFilter.ts"

@@ -40,7 +40,7 @@ test("finds npm and workspace modules and resolves mixins, overlays and declared
     m.modules.map((x) => `${x.name}:${x.origin}`),
     ["dreamteamer:engine", "people:npm", "local:workspace"],
   )
-  assert.deepEqual(m.modules[1].unsupported, ["extension"])
+  assert.deepEqual([m.modules[1].unsupported, m.modules[1].extension], [[], "./x.mjs"])
   assert.deepEqual(Object.keys(m.collections.users.fields).sort(), ["joined", "kind", "name", "notes", "site", "tasks"])
   assert.deepEqual(
     m.collections.tasks.fields.about.type,
