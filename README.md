@@ -290,6 +290,8 @@ The schema is resolved in memory, on every command, straight from those files. T
 
 A record is one file, `<storage.path>/<id>.<suffix>.<format>`. The suffix is the collection's name in the singular — `tasks` gives `task`, `companies` gives `company`, `rnd/user-stories` gives `user-story` — unless the descriptor sets `storage.suffix`. The id is the file's path inside the collection's folder, so an id may contain slashes.
 
+**Where records come from.** A collection's records are read from its own folder; then, for a collection stored under its owner (`storage.under: {parent: <field>, subfolder: <name>}`), from each owner's folder — a company's meetings in `data/companies/<company>/meetings/` — where `add` writes them and `set` moves them when the owner changes; then from each record layer: a repository cloned under `git_modules/<name>` and named in `dreamteamer.git_modules`, which lends the collections its entry lists. The first folder that holds an id answers, and `check` reports an id held twice. New records go to the workspace's own folder; an edit or a removal lands where the record is. Ids and references are the same wherever a record is kept.
+
 Markdown, YAML and JSON records are supported, and so are folder-shaped records (`storage.shape: folder`): a folder holding an entry file, with room beside it for whatever belongs to the record.
 
 **Ids.** `add` uses `--id` when you give one. Otherwise it takes the first template in the collection's `ids.from` whose fields are all present. The filters are `slug`, `date` with an optional format such as `date:YYYY/MM`, `basename` and `pad`. A name with accents loses them; a name with no Latin letters or digits becomes a short hash, and the engine tells you so.
@@ -345,7 +347,7 @@ Nothing commits by itself. `add`, `set` and `rm` change files and stop. Git runs
 
 `src/api.js` is the released engine's public API, version 1, answered by this engine: the store, the descriptor accessors, `presentation()`, filters and sorts, history, rename, revert and commit. The DreamTeamer protocol host, `dt web` and the Web UI load it unchanged. Mount this checkout as the workspace's engine through a link — `node_modules/dreamteamer` as a symlink, or a `git_modules/dreamteamer` clone — not a copy: Node will not run TypeScript from inside `node_modules`, and a link resolves to a real path outside it. `bin/dreamteamer.js` runs this engine's command line under the released name, with a minimal `init`. Through the API the engine reports compatibility level 0.49.1, the system module's version, so modules' engine floors are met.
 
-Measured: the protocol's own contract suite passes 59 of 90 cases; the 31 failures are the schema-editing operations, which are not built (26), and record layers (5). `presentation()` is identical to the released engine's for every published collection. The unchanged `dt web` serves a sample workspace of 35 modules and 287 records with its nav, lists, record pages and edits.
+Measured: the protocol's own contract suite passes 64 of 90 cases; the 26 failures are the schema-editing operations, which are not built. `presentation()` is identical to the released engine's for every published collection. The unchanged `dt web` serves a sample workspace of 35 modules and 287 records with its nav, lists, record pages and edits.
 
 `src/api.js` is plain JavaScript that only re-exports the TypeScript behind it — the one place this repository re-exports, because the API's file and names are fixed by its consumers.
 
@@ -420,12 +422,12 @@ The functions are `buildModel`, `discover`, `findCollection` and `splitRef` in `
 - A module's commands and agents are delivered to Claude Code only; Codex, Gemini CLI, Cursor and pi are not written to. The orientation block leaves out what extensions add (their verbs, source kinds and paragraphs).
 - The `using-dreamteamer` skill the system module ships describes the released engine's verbs, several of which this engine does not have.
 - The command line has no `install`, `init`, `diff` or `revert` (the engine API has the last two, for hosts); `commit` works within one repository and takes no lock. The schema-editing operations (adding, changing and removing fields, collections, modules, views and skills) are not built.
-- Record layers (`git_modules`) are not read, so neither are records a workspace takes from another repository.
+- Of record layers, a clone a layer itself needs is not followed, the workspace's own `data_path` and the classic layout are not honoured, a local copy of an installed module does not take its place, and `commit` does not commit inside a layer's clone.
 - Extensions load and contribute verbs, checks, `next` lines and notes; their `setup`, `hooks`, `harnesses`, `doctor`, `analyze`, `sourceKinds` and `orientation` contributions are accepted and ignored, so `setup`, `doctor` and `install` do nothing for them. When two extensions claim one verb, the later one is left out with a warning, where the released engine refuses to run at all.
-- Binary records, such as the pictures in `@dreamteamer/assets`, cannot be read or written.
+- Binary records, such as the pictures in `@dreamteamer/assets`, are read (with their `ext` and `bytes`) but cannot be written.
 - The engine cannot be installed as an npm package: Node will not run TypeScript from inside `node_modules`.
 
-[GAP-2.md](GAP-2.md) lists each of these with what it would take to add.
+[GAP-3.md](GAP-3.md) is the current gap report, module by module, with the commands that re-run every figure; [GAP-2.md](GAP-2.md) and [GAP-MODULES.md](GAP-MODULES.md) hold the earlier analysis and the step-by-step record.
 
 ## Security
 
