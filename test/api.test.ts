@@ -210,3 +210,28 @@ test("a rename moves the record and rewrites who names it; a position key falls 
   assert.ok(keys[0] < "c" && "c" < keys[1] && keys[1] < "d" && "d" < keys[2], keys.join(" "))
   assert.throws(() => api.placementKey(rows, "a", { after: "c" }), /no sort value/)
 })
+
+test("pending records are listed and committed, each file named, nothing else swept in", () => {
+  const root = seeded()
+  const g = (...a: string[]) =>
+    execFileSync("git", ["-c", "user.name=Dana Oren", "-c", "user.email=dana@northwind.example", ...a], {
+      cwd: root,
+    }).toString()
+  g("init", "-q")
+  g("add", "-A")
+  g("commit", "-qm", "first")
+  const store = new api.Store({ root })
+  store.set("tasks", "call-sam", { status: "done" })
+  store.add("tasks", { name: "New one" }, { id: "new-one" })
+  writeFileSync(join(root, "stray.txt"), "not a record\n")
+  const plan = api.commitPending(store, { dryRun: true })
+  assert.deepEqual(plan[0].rows, [
+    { verb: "set", collection: "tasks", id: "call-sam" },
+    { verb: "add", collection: "tasks", id: "new-one" },
+  ])
+  assert.equal(plan[0].sha, null)
+  assert.throws(() => api.commitPending(store, { only: ["tasks/nobody"] }), /no such record/)
+  const done = api.commitPending(store, { only: ["tasks/new-one"] })
+  assert.equal(done[0].subject, "dreamteamer: tasks add new-one")
+  assert.match(g("status", "--porcelain"), /M data\/tasks\/call-sam\.task\.md\n\?\? stray\.txt/)
+})
