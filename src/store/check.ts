@@ -32,6 +32,8 @@ export function check(model: Model) {
   }
   const rel = (p: string) => relative(model.root, p)
   const strays = new Set<string>()
+  // the record layer each record was read from, when not this workspace
+  const home = new Map<string, string>()
   let records = 0
   const seen = new Map<string, Map<string, Record<string, unknown>>>()
   for (const c of stored) {
@@ -57,6 +59,7 @@ export function check(model: Model) {
     for (const [id, [first, ...rest]] of [...files].sort(([a], [b]) => (a < b ? -1 : 1))) {
       records++
       const where = `${c.name}/${id}`
+      if (first.root.layer) home.set(where, first.root.layer)
       for (const t of rest)
         issues.push({
           severity: "error",
@@ -115,19 +118,26 @@ export function check(model: Model) {
             message: `unrecognized file in the ${c.name} folder — a record there is named <id>${tail(c)}`,
           })
   }
-  // a reverse field is derived from its owners: say which ones have fallen behind, and how to repair them
+  // a reverse field is derived from its owners: say which ones have fallen behind, and how to repair them. It is kept
+  // between records of one repository, so a target's owners are those in its own, and a layer's target whose owners
+  // are not read from that layer is the layer's to judge
   for (const r of relationsOf(model)) {
     const owners = seen.get(r.owner)
     const targets = seen.get(r.target)
     if (!owners || !targets) continue
-    const exp = expectedMirrors(r, owners)
-    for (const [id, data] of targets)
-      if (!sameMirror(r, data[r.mirror], exp.get(id)))
+    const exp = new Map<string, Map<string, string | string[]>>()
+    const of = (l: string) => [...owners].filter(([o]) => (home.get(`${r.owner}/${o}`) ?? "") === l)
+    for (const [id, data] of targets) {
+      const l = home.get(`${r.target}/${id}`) ?? ""
+      if (l && !model.collections[r.owner].layers?.some((t) => t.name === l)) continue
+      if (!exp.has(l)) exp.set(l, expectedMirrors(r, new Map(of(l))))
+      if (!sameMirror(r, data[r.mirror], exp.get(l)?.get(id)))
         issues.push({
           severity: "error",
           where: `${r.target}/${id}`,
           message: `${r.mirror}: stale — run: relations rebuild ${r.target}`,
         })
+    }
   }
   for (const [name, n] of unresolved)
     issues.push({

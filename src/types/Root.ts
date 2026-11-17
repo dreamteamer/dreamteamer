@@ -3,6 +3,8 @@ export interface Root {
   dir: string
   /** the record whose folder lends it, for a collection stored under its owners */
   parent?: string
+  /** the record layer that lends it */
+  layer?: string
 }
 
 /** A record's file, and the folder it was found in. */

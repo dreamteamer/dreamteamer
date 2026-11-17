@@ -189,7 +189,7 @@ function overlaps(collections: Record<string, Collection>) {
 
 /** Aggregate every module's collections, mixins and overlays into one resolved workspace model. */
 export function buildModel(root: string): Model {
-  const { modules, issues } = discover(root)
+  const { modules, issues, layers } = discover(root)
   const peers = [...new Set(modules.flatMap((t) => t.peers))]
   const mixins = new Map<string, Descriptor>()
   for (const t of sources(modules, "mixins", ".mixin.yaml", issues)) if (t.name !== undefined) mixins.set(t.name, t)
@@ -293,6 +293,20 @@ export function buildModel(root: string): Model {
         continue
       }
       c.fields[name] = f
+    }
+  // a record layer lends each collection it lists, or every one when it lists none, except those whose records are
+  // not a clone's: the source kinds, a module's own list, records under their owners, a folder per machine
+  for (const l of layers)
+    for (const c of Object.values(collections)) {
+      const p = c.storage.path
+      if (l.records && !l.records.includes(c.name)) continue
+      if (SOURCE_KINDS.includes(c.name) || c.storage.owner === "module" || c.storage.under || p.includes("${")) {
+        const message = `git_modules.${l.name}.records names ${c.name}, whose records are not a clone's to lend`
+        if (l.records) issues.push({ severity: "error", where: "package.json", message })
+        continue
+      }
+      const path = `git_modules/${l.name}/${p === `data/${c.name}` ? `${l.data}/${c.name}` : p}`
+      ;(c.layers ??= []).push({ name: l.name, path })
     }
   for (const c of Object.values(collections))
     if (c.storage.under !== undefined) c.under = readOr(issues, c.name, () => underOf(c, collections), undefined)

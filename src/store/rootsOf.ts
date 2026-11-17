@@ -6,7 +6,7 @@ import type { Root } from "../types/Root.ts"
 
 /**
  * the folders a collection's records are read from, in the order an id is looked up: its own first, then, for one
- * stored under its owners, the folder each owner lends it, by owner id. A folder reached through a link is not read.
+ * stored under its owners, the folder each owner lends it, by owner id; then each record layer's. A folder reached through a link is not read.
  */
 export function rootsOf(model: Model, c: Collection): Root[] {
   const res: Root[] = [{ dir: join(model.root, c.storage.path) }]
@@ -15,5 +15,6 @@ export function rootsOf(model: Model, c: Collection): Root[] {
     for (const e of readdirSync(p, { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : 1)))
       if (e.isDirectory() && !e.name.startsWith("."))
         res.push({ dir: join(p, e.name, c.under.subfolder), parent: e.name })
+  for (const l of c.layers ?? []) res.push({ dir: join(model.root, l.path), layer: l.name })
   return res
 }
