@@ -1,5 +1,6 @@
 import type { Issue } from "../types/Issue.ts"
 import type { Model } from "../types/Model.ts"
+import { checkField } from "./checkField.ts"
 import { checkValue } from "./checkValue.ts"
 import { openCollection } from "./openCollection.ts"
 
@@ -29,17 +30,7 @@ export function validate(
       err(`${name}: unknown field — the fields are ${Object.keys(c.fields).join(", ")}`)
       continue
     }
-    if (v === null || v === undefined || f.mirror_of) continue
-    const nested = f.type === "object" || f.type === "map"
-    if (!f.many && !nested && Array.isArray(v) && v.length !== 1) {
-      err(`${name}: holds a list but the field is not many`)
-      continue
-    }
-    const values: unknown[] = Array.isArray(v) && !(nested && !f.many) ? v : [v]
-    for (const one of values) {
-      const m = checkValue(model, f, one, unresolved)
-      if (m) err(`${name}: ${m}`)
-    }
+    for (const m of checkField(model, f, v, name, unresolved)) err(m)
   }
   return issues
 }
