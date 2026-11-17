@@ -207,3 +207,13 @@ engine that already reads every record and serves every verb they call.
   the one that differs is `assets`, whose binary fields (`ext`, `bytes`) wait on D11. Measurements unchanged: 4,837
   records, 0 errors, 0 warnings on the real workspace; 0 errors on the modules' sample; 1,578 errors and 53 both-clean
   across the 76 repositories. Engine 2,834 lines.
+- **The engine API v1 runs the existing host side unchanged** (`src/api.js` over the engine, in eight commits of
+  +1,503 lines): the protocol's contract suite passes 59 of 90 — reads, record writes, history, revert, rename and
+  commit — and `dt web` with the unchanged Web UI serves the 35-module sample workspace: nav, lists, record pages with
+  their reverse-field tables, and edits saved from the UI. Failing: the 26 schema-editing operations, not built (25
+  cases and 1 that depends on them), and record layers (5). Line cost per step: read path +1,101 (46 cases with the
+  `init` it needs, +34), record writes +39 (50), history and revert +83 (54), rename +86 (57), commit +82 (59). Not
+  built and listed as gaps: the schema operations, binary records and `addFile`, extension loading and contributed
+  notes, the nav-document writers, `describeCheckout` and the other names only extensions call. Simplified: staleness
+  (never stale), `commitPending` (one repository, no lock), `placementKey` (a plain midpoint), `init` (no commit).
+  `check` through the API names records, not file paths. Engine 4,337 lines.
