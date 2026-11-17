@@ -196,3 +196,7 @@ engine that already reads every record and serves every verb they call.
   7,948 to 1,578 and both-clean rose from 46 to 53; this engine alone reports errors in 14, down from 21. What remains
   is mostly references into record layers and owner folders (M8, D11): `meeting`, `company`, `item`, and 68 `repo`
   references to records held elsewhere. Engine 2,619 lines.
+- **R1 closed**: a collection's `display`, `title`, `record_title`, `internal`, `sensitive` and `constraints` are kept
+  in the model and in `.dt/model.json` as written, with mixins beneath the descriptor and overlays above it, the
+  released engine's merge; everything its `presentation()` reads from a collection is now there. No other behaviour
+  changed: the large real workspace still checks at 4,837 records, 0 errors, 0 warnings. Engine 2,687 lines.

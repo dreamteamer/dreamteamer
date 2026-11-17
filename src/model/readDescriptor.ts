@@ -1,3 +1,4 @@
+import { asArray } from "../lib/asArray.ts"
 import { asFlag } from "../lib/asFlag.ts"
 import { asObject } from "../lib/asObject.ts"
 import { asOptional } from "../lib/asOptional.ts"
@@ -28,6 +29,17 @@ export function readDescriptor(doc: unknown, module: Module, file: string, issue
     singular: readOr(issues, file, () => asOptional(d.singular, "singular", asString), undefined),
     description: readOr(issues, file, () => asOptional(d.description, "description", asString), undefined),
     use_when: readOr(issues, file, () => asOptional(d.use_when, "use_when", asString), undefined),
+    title: readOr(issues, file, () => asOptional(d.title, "title", asString), undefined),
+    record_title: readOr(issues, file, () => asOptional(d.record_title, "record_title", asString), undefined),
+    internal: asFlag(d.internal),
+    sensitive: asFlag(d.sensitive),
+    display: readOr(issues, file, () => asOptional(d.display, "display", asObject), undefined),
+    constraints: readOr(
+      issues,
+      file,
+      () => asOptional(d.constraints, "constraints", (v, w) => asArray(v, w, asObject)),
+      undefined,
+    ),
     mixins: readOr(issues, file, () => asOptional(d.mixins, "mixins", asStrings) ?? [], []),
     storage: map("storage"),
     ids: map("ids"),

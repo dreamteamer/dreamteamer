@@ -57,7 +57,7 @@ Measured on commit `396fa52`.
 | [R3](#r3) | Composition differs at the edges | Incompatible | Defect | Medium | Normal | E 45–75 · T 40–60 | Normal | C | P5 | Medium |
 | [M9](#m9) | The module contract is not enforced | Missing | Scope boundary | Medium | Normal | E 50–80 · T 40–60 | Normal | C | P5 | Medium |
 | [M8](#m8) | No record layers, git-delivered modules, classic layout or `data_path` | Missing | Scope boundary | Medium | High | E 100–200 · T 60–110 | High | C | P5 | Low |
-| [R1](#r1) | Display metadata and other descriptor keys are dropped | Missing | Scope boundary | High | Low | E 5–15 · T 5–10 | Low | F, once U1 exists | P7 | High |
+| [R1](#r1) | Display metadata and other descriptor keys are dropped — **closed after this report**: `display`, `title`, `record_title`, `internal`, `sensitive` and `constraints` are carried in the model, merged with mixins and overlays as the released engine merges them | Closed | Scope boundary | High | Low | E 5–15 · T 5–10 | Low | F, once U1 exists | P7 | High |
 | [D10](#d10) | System collections are not records — **partly closed after this report**: the engine ships the system module, references to source records resolve, `list` and `get` answer for them, writes are refused; nothing is projected to disk yet | Partial | Scope boundary | Medium | Normal | E 40–80 · T 20–40 | Normal | C · F | P7 | Medium |
 | [D11](#d11) | Binary records are refused; owner-folder storage is ignored | Missing | Scope boundary | Medium | High | E 100–200 · T 60–100 | Normal | C | — | Low |
 | [M1](#m1) | Nothing installs a module's dependencies or a preset's members | Missing | Scope boundary | High | High | A 80–150 · T 50–100 | High | F · C | P6 | Low |

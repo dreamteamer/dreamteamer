@@ -23,9 +23,15 @@ function fieldsOf(model: Model, kind: string, id: string, file: string): Record<
       singular: c.singular,
       description: c.description,
       use_when: c.use_when,
+      title: c.title,
+      record_title: c.record_title,
+      internal: c.internal,
+      sensitive: c.sensitive,
       storage: c.storage,
       ids: c.ids,
       fields: c.fields,
+      constraints: c.constraints,
+      display: c.display,
       compiled: { module: c.module, overlaid_by: c.contributors },
     })
   }

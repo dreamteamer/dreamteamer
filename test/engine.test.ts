@@ -113,6 +113,53 @@ test("the system collections come with the engine, and a reference to a module's
   assert.equal(records, 2, "a source is not counted as a record")
 })
 
+test("a collection keeps how surfaces draw it, as written, with its mixins' display beneath its own", () => {
+  const root = workspace()
+  put(
+    root,
+    "modules/local/mixins/dated.mixin.yaml",
+    "name: dated\nfields:\n  on: {type: date}\ndisplay:\n  list: {columns: [name, on], sort: on}\n  nav: {icon: event}\nconstraints:\n  - {required: [on]}\n",
+  )
+  put(
+    root,
+    "modules/local/collections/events.collection.yaml",
+    "name: events\ntitle: Happenings\nrecord_title: '{{ name }} on {{ on }}'\ninternal: true\nsensitive: false\nmixins: [dated]\nfields:\n  name: {type: string, required: true, title: What, display: {width: 20}}\ndisplay:\n  list: {layout: board, sort: name}\n  record: {badge: on}\nconstraints:\n  - {anyOf: [{required: [name]}]}\n",
+  )
+  const m = buildModel(root)
+  assert.deepEqual(m.issues, [])
+  const c = m.collections.events
+  assert.equal(c.title, "Happenings")
+  assert.equal(c.record_title, "{{ name }} on {{ on }}")
+  assert.equal(c.internal, true)
+  assert.equal(c.sensitive, false)
+  assert.deepEqual(c.display, {
+    list: { columns: ["name", "on"], sort: "name", layout: "board" },
+    record: { badge: "on" },
+    nav: { icon: "event" },
+  })
+  assert.deepEqual(c.constraints, [{ anyOf: [{ required: ["name"] }] }, { required: ["on"] }])
+  assert.deepEqual(c.fields.name.display, { width: 20 })
+  assert.equal(m.collections.tasks.display, undefined)
+  compile(m)
+  const json = JSON.parse(readFileSync(join(root, ".dt/model.json"), "utf8"))
+  assert.deepEqual(json.collections.events.display, c.display)
+  assert.equal(json.collections.events.record_title, c.record_title)
+  assert.equal(json.collections.repos.display.nav.icon, "source", "the system collections' display too")
+  put(
+    root,
+    "modules/local/collections/events-overlay.collection.yaml",
+    "name: events\noverlay: true\ntitle: Events\ndisplay:\n  nav: {order: 5}\n  list: {layout: table}\nconstraints:\n  - {required: [name]}\n",
+  )
+  const o = buildModel(root).collections.events
+  assert.equal(o.title, "Events", "an overlay's label replaces the base's")
+  assert.deepEqual(o.display, {
+    list: { columns: ["name", "on"], sort: "name", layout: "table" },
+    record: { badge: "on" },
+    nav: { icon: "event", order: 5 },
+  })
+  assert.equal(o.constraints?.length, 3)
+})
+
 test("an enum written as a map takes its keys as the values and keeps how each is shown", () => {
   const root = workspace()
   put(

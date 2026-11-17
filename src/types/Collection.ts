@@ -7,6 +7,18 @@ export interface Collection {
   module: string
   description?: string
   use_when?: string
+  /** the human label, as written; surfaces derive one from the name when it is absent */
+  title?: string
+  /** how one record is labelled, a template, as written */
+  record_title?: string
+  /** workspace plumbing rather than a domain noun */
+  internal?: boolean
+  /** records never leave the workspace through an export */
+  sensitive?: boolean
+  /** how surfaces draw it — `nav`, `list`, `record`, `form` — as written, each sub-block over its mixins' */
+  display?: Record<string, unknown>
+  /** rules across fields, as written: the descriptor's, then its mixins'; not enforced here */
+  constraints?: Record<string, unknown>[]
   storage: {
     path: string
     /** md, yaml, json or binary; any other is an error in the model, and its records are read as YAML */

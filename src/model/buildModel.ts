@@ -69,10 +69,25 @@ function merge(a: unknown, b: unknown): Record<string, unknown> {
 }
 
 /**
+ * The display block as the released engine merges it: the descriptor's own sub-blocks (`nav`, `list` …), each
+ * completed key by key from its mixins in the order they are listed; undefined when none has one.
+ */
+function displayOf(layers: Descriptor[]) {
+  if (!layers.some((t) => t.display)) return undefined
+  const out: Record<string, unknown> = {}
+  for (const t of layers)
+    for (const [b, v] of Object.entries(t.display ?? {}))
+      out[b] = isObject(v) && (out[b] === undefined || isObject(out[b])) ? Object.assign({}, v, out[b]) : (out[b] ?? v)
+  return out
+}
+
+/**
  * A collection from its descriptor and the mixins it lists: where its records live, how ids are made. A storage or
  * id key of the wrong type is an error, and reads as absent.
  */
 function collectionOf(d: Descriptor, name: string, layers: Descriptor[], issues: Issue[]) {
+  const mixins = layers.filter((t) => t !== d)
+  const rules = [d, ...mixins].flatMap((t) => t.constraints ?? [])
   function text(v: unknown, where: string) {
     return readOr(issues, d.file, () => asOptional(v, where, asString), undefined)
   }
@@ -89,6 +104,12 @@ function collectionOf(d: Descriptor, name: string, layers: Descriptor[], issues:
     module: d.module.name,
     description: d.description,
     use_when: d.use_when,
+    title: d.title,
+    record_title: d.record_title,
+    internal: d.internal,
+    sensitive: d.sensitive,
+    display: displayOf([d, ...mixins]),
+    constraints: rules.length ? rules : undefined,
     // the storage keys this engine does not act on are carried as written, in their places
     storage: Object.assign({ path, format, suffix }, raw, {
       path,
@@ -185,6 +206,17 @@ export function buildModel(root: string): Model {
     }
     const base = collections[d.name]
     if (!base.contributors.includes(d.module.name)) base.contributors.push(d.module.name)
+    // an overlay's display wins key by key, its rules are added, and its labels replace the base's
+    for (const [b, v] of Object.entries(d.display ?? {})) {
+      const was = base.display?.[b]
+      base.display ??= {}
+      base.display[b] = isObject(v) ? Object.assign({}, isObject(was) ? was : {}, v) : v
+    }
+    if (d.constraints) base.constraints = [...(base.constraints ?? []), ...d.constraints]
+    base.title = d.title ?? base.title
+    base.record_title = d.record_title ?? base.record_title
+    base.internal = d.internal ?? base.internal
+    base.sensitive = d.sensitive ?? base.sensitive
   }
   // a field's type is a scalar, an installed collection, or a collection some module declares as an optional
   // peer. A peer that is absent keeps its field: a value there is unresolvable, not wrong. Anything else is a typo.

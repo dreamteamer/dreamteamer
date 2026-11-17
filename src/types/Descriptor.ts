@@ -11,6 +11,12 @@ export interface Descriptor {
   singular?: string
   description?: string
   use_when?: string
+  title?: string
+  record_title?: string
+  internal?: boolean
+  sensitive?: boolean
+  display?: Record<string, unknown>
+  constraints?: Record<string, unknown>[]
   mixins: string[]
   /** null when the key is present and empty: it still replaces a mixin's */
   storage?: Record<string, unknown> | null

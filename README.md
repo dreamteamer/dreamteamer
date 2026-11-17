@@ -279,6 +279,8 @@ The schema is resolved in memory, on every command, straight from those files. T
 2. An overlay adds fields to a collection another module owns. An overlay of a collection that is not installed is skipped: that is how a module extends an optional peer.
 3. A field's type is a scalar, an installed collection, or a collection that a module lists under `peer_collections`. A declared peer that is not installed keeps its field; a value there must name that collection and is otherwise left unresolved. Anything else — a misspelt type, say — is an error, and an error in the schema stops every write until it is fixed.
 
+4. How a collection is drawn is carried in the model as written, for whatever presents it: `title`, `record_title`, `internal`, `sensitive`, `constraints` (not enforced) and `display` — the descriptor's own `nav`, `list`, `record` and `form` sub-blocks completed key by key from its mixins', with an overlay's keys winning over both. A field keeps every key it was written with, its own `display` and `title` included.
+
 **Field types:** `string`, `markdown`, `url`, `email`, `date`, `datetime`, `integer`, `number`, `boolean`, `object`, `map`, `position`, `reference` (a record of any collection), a collection name (a record of that collection), or a list of collection names (a record of any of them).
 
 **Field keys:** `many` (a list), `required`, `default`, `enum`, `pattern`, `minimum`, `maximum`, `minLength`, `maxLength`, `soft` (a reference that need not exist yet), `body` (the field that is the Markdown text of the file), `description`.
