@@ -55,7 +55,7 @@ for (const tier of tiers) {
 	const dir = join(ROOT, 'test', tier);
 	if (!existsSync(dir)) continue;
 	for (const name of readdirSync(dir).sort()) {
-		if (!name.endsWith('.test.js')) continue;
+		if (!name.endsWith('.test.ts')) continue;
 		const rel = join('test', tier, name);
 		if (only && !rel.includes(only)) continue;
 		files.push(rel);
@@ -127,7 +127,7 @@ const reporter = flag('verbose') ? 'spec' : pathToFileURL(join(ROOT, 'scripts', 
 // with files on the command line a top-level test IS a file — so this is a per-file cap. Ten
 // minutes: measured 2026-09-24, the slowest file alone is prove at 75 s, land 53 s, commit 43 s,
 // and under 8-way concurrency they run ~3× slower (120 s cut all three off). Per-COMMAND timers
-// live in test/helpers/ws.js (SPAWN_TIMEOUT_MS); this is the backstop above them.
+// live in test/helpers/ws.ts (SPAWN_TIMEOUT_MS); this is the backstop above them.
 const nodeArgs = ['--test', `--test-reporter=${reporter}`, '--test-timeout=600000'];
 if (namePattern) nodeArgs.push(`--test-name-pattern=${namePattern}`);
 // Concurrency is the other half of "fast": tier-2 files each build their own workspace, and those

@@ -33,7 +33,7 @@ export const dump = (obj, opts = {}) => yaml.dump(obj, { lineWidth: 120, ...opts
 // walk the old and new documents together, and for every node — or every key/value pair — whose
 // value is deep-equal on both sides, replace the newly-emitted span with the source it was parsed
 // from. Unchanged means byte-identical BY CONSTRUCTION, so the diff can only ever be the mutation.
-// With the pass, 92 of 92. `test/unit/yaml-source.test.js` is the reproduction.
+// With the pass, 92 of 92. `test/unit/yaml-source.test.ts` is the reproduction.
 
 // `lineWidth: 0` never re-folds — an unchanged scalar is restored verbatim below, and a changed one
 // must not drag its neighbours onto new lines.

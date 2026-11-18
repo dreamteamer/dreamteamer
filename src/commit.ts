@@ -302,7 +302,7 @@ function planSweep(targets, { rows, stateOf, moved }) {
  *  holds it and to no other file, so following it from the far end reports nothing — and one-sided is
  *  precisely the half-pair state this warning exists for: a mirror hand-edited in an editor, a record
  *  deleted with `rm` instead of `dt rm`, an unparseable pre-image on one of the two files. Two tests
- *  in commit.test.js hold that line, and both go red under the inversion.
+ *  in commit.test.ts hold that line, and both go red under the inversion.
  *
  *  And it is NOT FASTER, measured on the same fixture: 4.16s against 4.14s, because the published
  *  side of a relational write is the same size as the unpublished side — publishing N rows is exactly

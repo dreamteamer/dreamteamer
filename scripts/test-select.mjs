@@ -1,7 +1,7 @@
 // Which tier-2 files a working-tree change should run — the selection behind `npm run verify:fast`.
 //
 // Pure: it takes the changed paths and the test files' sources and returns a decision, so the rule is
-// testable without git (test/unit/test-select.test.js). The git glue lives in scripts/test.mjs.
+// testable without git (test/unit/test-select.test.ts). The git glue lives in scripts/test.mjs.
 //
 // WHY A HEURISTIC AND NOT AN IMPORT GRAPH: every tier-2 file drives the real CLI binary, and the CLI
 // imports all of src/ — an import graph would select every file for every change, which is the full
@@ -12,9 +12,9 @@ import { basename } from 'node:path';
 
 // Run when a change names no test at all, so a fast run never silently runs only tier 1 after a src/
 // edit. compile and records are the two files that cross the most of the engine per second.
-export const SMOKE = ['test/integration/compile.test.js', 'test/integration/records.test.js'];
+export const SMOKE = ['test/integration/compile.test.ts', 'test/integration/records.test.ts'];
 
-const stem = (p) => basename(p).replace(/\.d\.ts$|\.test\.js$|\.[a-z]+$/, '');
+const stem = (p) => basename(p).replace(/\.d\.ts$|\.test\.ts$|\.[a-z]+$/, '');
 
 // Root files every fixture workspace ALSO has. A test naming `package.json` means the fixture's,
 // so a mention says nothing about the engine's own copy — measured: these two names alone pulled 20

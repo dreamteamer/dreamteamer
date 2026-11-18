@@ -5,7 +5,7 @@
 // the three injected fields added) into `compiled.fields`, which every consumer reads, and emits
 // `compiled.json_schema`, which the validator alone reads. The two never carry the same fact in two
 // vocabularies: there is no `x-` keyword anywhere, and `json_schema.properties` is exactly the stored
-// (non-virtual) fields, type-mapped — `test/unit/fields.test.js` pins that equality.
+// (non-virtual) fields, type-mapped — `test/unit/fields.test.ts` pins that equality.
 //
 // This module is pure: no fs, no git, no knowledge of modules. It is handed the set of collection names
 // that exist so a `type: <collection>` can be told from a typo, and returns errors rather than throwing,

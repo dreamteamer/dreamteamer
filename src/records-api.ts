@@ -5,7 +5,7 @@
 // unmodified in a browser over a virtual filesystem, with shims for `node:fs`, `node:path` and
 // `node:child_process` and nothing else. The full API pulls in the compiler, the extension loader
 // and the CLI, which reach for `node:url`, `node:crypto` and `node:os` at import time. This file's
-// import closure is pinned to those three builtins by test/integration/public-api.test.js.
+// import closure is pinned to those three builtins by test/integration/public-api.test.ts.
 //
 // `dreamteamer` (src/api.js) re-exports everything here, so a node consumer never needs two imports.
 

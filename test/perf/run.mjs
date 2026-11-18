@@ -109,7 +109,7 @@ function generate() {
 	fs.mkdirSync(root, { recursive: true });
 
 	const t0 = performance.now();
-	// `git init` BEFORE `dreamteamer init`, for the reason test/helpers/ws.js states at length: init
+	// `git init` BEFORE `dreamteamer init`, for the reason test/helpers/ws.ts states at length: init
 	// commits what it writes and git walks UPWARD, so with no repo here the fixture lands in the
 	// engine's own history.
 	git(root, ['init', '-q']);

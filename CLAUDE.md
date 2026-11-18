@@ -388,6 +388,6 @@ two subpath exports, `dreamteamer/records` and `dreamteamer/testing`), and packa
 - **A file under `src/` may be split, renamed or deleted freely** as long as `src/api.js` still
   exports the same names.
 - **Removing or renaming an export of `src/api.js` IS the cross-repo change**, and needs the same
-  wave in every consumer. `test/integration/public-api.test.js` pins each runtime export list to
+  wave in every consumer. `test/integration/public-api.test.ts` pins each runtime export list to
   its `.d.ts`, and installs the packed tarball to prove the API resolves and `src/*` does not.
 - An addition to the API needs a consumer, like anything else in core.

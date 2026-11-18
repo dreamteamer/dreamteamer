@@ -7,7 +7,7 @@
 // hand over the resolved field list, the three injected fields included (`fieldsOf`). Nothing here
 // names a `compiled` key, so the contract cannot drift from what the store and check read. Every key
 // it emits is a name from the design's display-contract table, one word per meaning;
-// `test/unit/presentation-contract.test.js` lists them and fails on any other.
+// `test/unit/presentation-contract.test.ts` lists them and fails on any other.
 //
 //   { collections: [CollectionRow], fields: { <collection>: [FieldRow] }, relations: [RelationRow] }
 //

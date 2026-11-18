@@ -339,7 +339,7 @@ const FIELD_VERBS = ['add-field', 'set-field', 'rm-field', 'rename-field', 'rena
 // ⚠ Listing one here EXEMPTS it from the "documented flags are accepted by some verb" guard, which
 // exists because 0.19.0 shipped a flag that was documented and silently swallowed. The exemption is
 // only safe while the behaviour is pinned somewhere else: `--workspace` / `-w` is covered end-to-end in
-// test/integration/workspace-flag.test.js and `--vault` in cross-workspace-targeting.test.js. A global
+// test/integration/workspace-flag.test.ts and `--vault` in cross-workspace-targeting.test.ts. A global
 // flag with no such file is the exact defect that guard was written to catch \u2014 add the coverage,
 // not the entry.
 export const GLOBAL_FLAGS = ['workspace', 'vault'];

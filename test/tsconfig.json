@@ -1,0 +1,18 @@
+{
+	// The tests' own project: type-checked, never emitted. Node runs them straight from test/ (type
+	// stripping), importing src/*.ts by name, so there is nothing to build — `npm run typecheck:test`.
+	//
+	// The tests are .ts and checked; allowJs keeps the two .mjs runners (acceptance/, perf/) in the
+	// project for the editor without checking them.
+	"extends": "../tsconfig.json",
+	"compilerOptions": {
+		"noEmit": true,
+		"rootDir": "..",
+		"allowJs": true,
+		"checkJs": false
+	},
+	"include": ["**/*.ts", "**/*.mjs"],
+	// fixtures are module packages the tests install into throwaway workspaces, not test code;
+	// .tmp/ and .perf/ are generated workspaces
+	"exclude": ["fixtures", ".tmp", ".perf"]
+}

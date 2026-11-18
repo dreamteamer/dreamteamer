@@ -8,7 +8,7 @@
 // once — locale order agrees with codepoint order, and no key can parse as a number (the numeric
 // branch of `compareValues` would sort "9" after "10") or as a temporal.
 //
-// test/unit/fractional-index.test.js asserts the base-62 failure directly, so this argument cannot
+// test/unit/fractional-index.test.ts asserts the base-62 failure directly, so this argument cannot
 // be deleted as noise.
 //
 // Why a dependency rather than 75 lines of our own: the naive midpoint (halve toward the open end)
