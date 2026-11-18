@@ -1,12 +1,10 @@
+import { installCommand } from "../install/installCommand.ts"
 import { openWorkspace } from "../openWorkspace.ts"
+import { targetCommand } from "../targetCommand.ts"
 import { verify } from "./lib/verify.ts"
 
 export async function run(args: string[]): Promise<number> {
   const ws = await openWorkspace()
-  const [{ installCommand }, { targetCommand }] = await Promise.all([
-    import("../install/installCommand.ts"),
-    import("../targetCommand.ts"),
-  ])
   return installCommand(ws, args, {
     open: openWorkspace,
     verify,

@@ -1,7 +1,7 @@
 import { openWorkspace } from "../openWorkspace.ts"
+import { relocateCommand } from "../relocateCommand.ts"
 
 export async function run(args: string[]): Promise<number> {
   const ws = await openWorkspace()
-  const { relocateCommand } = await import("../relocateCommand.ts")
   return relocateCommand(ws, args)
 }

@@ -1,3 +1,4 @@
+import { initCommand } from "../init/initCommand.ts"
 import { openWorkspace } from "../openWorkspace.ts"
 import type { Flags } from "../types.ts"
 import { verify } from "./lib/verify.ts"
@@ -12,6 +13,5 @@ export async function run(args: string[]): Promise<number> {
     }
   // boolean flags take no value: a following positional is not theirs
   for (const b of ["no-git", "no-compile", "no-input"]) if (b in flags) flags[b] = true
-  const { initCommand } = await import("../init/initCommand.ts")
   return initCommand(flags, { open: openWorkspace, argv: args, verify })
 }

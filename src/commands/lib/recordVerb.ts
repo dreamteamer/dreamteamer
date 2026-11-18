@@ -1,4 +1,9 @@
+import { warnIfStale } from "../../compile/warnIfStale.ts"
 import { openWorkspace } from "../../openWorkspace.ts"
+import { canonicalCollection } from "../../record/ref.ts"
+import { splitRef } from "../../record/splitRef.ts"
+import { Store } from "../../store/Store.ts"
+import { targetCommand } from "../../targetCommand.ts"
 
 /**
  * Record verbs, split by what their <target> means. `reorder` and `next` are in NEITHER set: both
@@ -10,13 +15,6 @@ const COLLECTION_VERBS = new Set(["list", "add", "values"])
 /** Translate `dt <verb> <target> …` into the noun-verb call the implementation layer takes. */
 export async function recordVerb(verb: string, args: string[]): Promise<number> {
   const ws = await openWorkspace()
-  const [{ warnIfStale }, { targetCommand }, { Store }, { canonicalCollection }, { splitRef }] = await Promise.all([
-    import("../../compile/warnIfStale.ts"),
-    import("../../targetCommand.ts"),
-    import("../../store/Store.ts"),
-    import("../../record/ref.ts"),
-    import("../../record/splitRef.ts"),
-  ])
   warnIfStale(ws.root)
   const [target, ...rest] = args
   if (!target) throw new Error(`dt ${verb} needs a target — see \`dreamteamer help\``)

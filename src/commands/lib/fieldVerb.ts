@@ -1,4 +1,8 @@
+import { warnIfStale } from "../../compile/warnIfStale.ts"
 import { openWorkspace } from "../../openWorkspace.ts"
+import { canonicalCollection } from "../../record/ref.ts"
+import { Store } from "../../store/Store.ts"
+import { targetCommand } from "../../targetCommand.ts"
 
 /**
  * FIELD VERBS (add-field, set-field, rm-field, rename-field, rename-value). Their <target> is a
@@ -13,12 +17,6 @@ import { openWorkspace } from "../../openWorkspace.ts"
  */
 export async function fieldVerb(verb: string, args: string[]): Promise<number> {
   const ws = await openWorkspace()
-  const [{ warnIfStale }, { targetCommand }, { Store }, { canonicalCollection }] = await Promise.all([
-    import("../../compile/warnIfStale.ts"),
-    import("../../targetCommand.ts"),
-    import("../../store/Store.ts"),
-    import("../../record/ref.ts"),
-  ])
   warnIfStale(ws.root)
   const [target, ...flagArgs] = args
   if (!target || target.startsWith("--")) {

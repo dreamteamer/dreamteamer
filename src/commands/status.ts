@@ -1,4 +1,5 @@
 import { openWorkspace } from "../openWorkspace.ts"
+import { statusCommand } from "../statusCommand.ts"
 
 export async function run(args: string[]): Promise<number> {
   let ws
@@ -13,6 +14,5 @@ export async function run(args: string[]): Promise<number> {
     )
     return 0
   }
-  const { statusCommand } = await import("../statusCommand.ts")
   return statusCommand(ws, args)
 }

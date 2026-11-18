@@ -1,3 +1,7 @@
+import { contributedViolations } from "../api.ts"
+import { check } from "../check/check.ts"
+import { checkAlone } from "../check/checkAlone.ts"
+import { warnIfStale } from "../compile/warnIfStale.ts"
 import { openWorkspace } from "../openWorkspace.ts"
 import { findWorkspace } from "../workspace/findWorkspace.ts"
 
@@ -7,7 +11,6 @@ export async function run(args: string[]): Promise<number> {
   // floor above this engine) would otherwise surface as the host's refusal instead of the gate's verdict
   const target = args.find(a => !a.startsWith("--"))
   if (args.includes("--alone")) {
-    const { checkAlone } = await import("../check/checkAlone.ts")
     return checkAlone(findWorkspace(), { target, keep: args.includes("--keep") })
   }
   if (target) {
@@ -17,10 +20,6 @@ export async function run(args: string[]): Promise<number> {
     return 2
   }
   const ws = await openWorkspace()
-  const [{ check }, { warnIfStale }] = await Promise.all([
-    import("../check/check.ts"),
-    import("../compile/warnIfStale.ts"),
-  ])
-  const extra = warnIfStale(ws.root).compiled ? await (await import("../api.ts")).contributedViolations(ws) : []
+  const extra = warnIfStale(ws.root).compiled ? await contributedViolations(ws) : []
   return check(ws, { extra, strictExport: args.includes("--strict-export") })
 }
