@@ -18,8 +18,10 @@ import { listRepos } from "../repos/listRepos.ts"
 // `dt install <repo-id>`, the muscle memory `dt ensure <id>` taught for nine releases,
 // matched neither branch, so the target was ignored and a whole checkout install ran.
 // Same policy as the retired verbs below: a stale invocation fails loudly.
-/** What `dt install` needs from outside its own command, handed in by the CLI — the same opener and
- *  verifier `init` is given — so this folder imports no other command and no entry point. */
+/**
+ * What `dt install` needs from outside its own command, handed in by the CLI — the same opener and
+ * verifier `init` is given — so this folder imports no other command and no entry point.
+ */
 interface InstallDeps {
   /** opens a workspace with its extensions activated */
   open: (at: string) => Promise<Workspace>

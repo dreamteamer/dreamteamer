@@ -1,10 +1,12 @@
 import path from "node:path"
 import fs from "node:fs"
 
-/** Where a write to `p` actually lands: every component resolved in order, a link's target spliced in
- *  and resolved in turn — so a link whose leaf does not exist yet is still followed through each link
- *  among its ancestors, and `..` means the parent of what was REACHED, never the lexical parent. A
- *  missing component ends resolution (nothing below it can be a link). Null past 40 links: a loop. */
+/**
+ * Where a write to `p` actually lands: every component resolved in order, a link's target spliced in
+ * and resolved in turn — so a link whose leaf does not exist yet is still followed through each link
+ * among its ancestors, and `..` means the parent of what was REACHED, never the lexical parent. A
+ * missing component ends resolution (nothing below it can be a link). Null past 40 links: a loop.
+ */
 function landing(p: string): string | null {
   // the root (`/`, or `C:\` on Windows — never a segment to join, which made every path land at `C:\C:\…`)
   // is the starting point; the segments after it are walked, either separator accepted

@@ -62,15 +62,17 @@ const MAX_PREIMAGE_BYTES = 64 * 1024 * 1024
 
 const VERB: Record<string, string> = { A: "add", M: "set", D: "rm", R: "rename", "?": "add" }
 
-/** What the caller asked to publish. A target is EITHER a collection name or a `<collection>/<id>`
- *  reference — the same either-shape `move` and `next` accept, and after 0.12.0 the shape every
- *  other verb's target has. Which one it is cannot be guessed from the string (an id may contain
- *  slashes and so may a namespaced collection name), so it is decided against the DECLARED
- *  collections: a key of `descriptors` is a collection, anything else goes to splitRef — which
- *  throws, naming the known collections, rather than letting a typo mean "no scope".
+/**
+ * What the caller asked to publish. A target is EITHER a collection name or a `<collection>/<id>`
+ * reference — the same either-shape `move` and `next` accept, and after 0.12.0 the shape every
+ * other verb's target has. Which one it is cannot be guessed from the string (an id may contain
+ * slashes and so may a namespaced collection name), so it is decided against the DECLARED
+ * collections: a key of `descriptors` is a collection, anything else goes to splitRef — which
+ * throws, naming the known collections, rather than letting a typo mean "no scope".
  *
- *  Returns `scope` (collections to sample, so the git pathspec stays as narrow as it was), `whole`
- *  (collections asked for entire) and `records` (ref → {collection, id}). */
+ * Returns `scope` (collections to sample, so the git pathspec stays as narrow as it was), `whole`
+ * (collections asked for entire) and `records` (ref → {collection, id}).
+ */
 function parseTargets(descriptors: Descriptors, only: string[]): Targets {
   const scope = new Set<string>()
   const whole = new Set<string>()
@@ -93,11 +95,13 @@ const SIDES: Side[] = ["targets", "owners"]
 
 const NO_EDGES: Edges = { targets: new Set(), owners: new Set() }
 
-/** Relation FIELDS on `collection`, each tagged with which SIDE the record at the other end stands
- *  on and which collection it lives in. That side is the whole safety argument for the sweep below:
- *  a TARGET's mirror is bookkeeping the engine wrote BECAUSE OF this record's own write, so dragging
- *  any number of them into the commit is honest. An OWNER is somebody's record, whose existence this
- *  write does not imply — so dragging one in is rationed, and two is a refusal. */
+/**
+ * Relation FIELDS on `collection`, each tagged with which SIDE the record at the other end stands
+ * on and which collection it lives in. That side is the whole safety argument for the sweep below:
+ * a TARGET's mirror is bookkeeping the engine wrote BECAUSE OF this record's own write, so dragging
+ * any number of them into the commit is honest. An OWNER is somebody's record, whose existence this
+ * write does not imply — so dragging one in is rationed, and two is a refusal.
+ */
 function relationEdges(rels: Relation[], collection: string): [field: string, side: Side, partner: string][] {
   const edges: [string, Side, string][] = []
   for (const r of rels) {
@@ -115,13 +119,15 @@ function edgesOf(fields: Record<string, unknown> | null | undefined, edges: [str
   return out
 }
 
-/** One dirty record's relation edges as git holds them AT HEAD and as they stand in the worktree,
- *  plus the HEAD bytes (which is how a rename is recognised below).
+/**
+ * One dirty record's relation edges as git holds them AT HEAD and as they stand in the worktree,
+ * plus the HEAD bytes (which is how a rename is recognised below).
  *
- *  Neither version may throw. An unreadable or UNPARSEABLE one contributes no edges instead: a
- *  record hand-edited into broken frontmatter and published weeks ago must not take `dt commit`
- *  down — and it must not take it down only in the record-scoped form, which is the shape of bug
- *  nobody attributes correctly ("commit works, commit <record> dies with a bare YAML error"). */
+ * Neither version may throw. An unreadable or UNPARSEABLE one contributes no edges instead: a
+ * record hand-edited into broken frontmatter and published weeks ago must not take `dt commit`
+ * down — and it must not take it down only in the record-scoped form, which is the shape of bug
+ * nobody attributes correctly ("commit works, commit <record> dies with a bare YAML error").
+ */
 function readState(store: Store, rels: Relation[], row: SampledRow | undefined, head: () => string | null): State {
   const edges = row ? relationEdges(rels, row.collection) : []
   if (!edges.length) return { row, was: NO_EDGES, now: NO_EDGES, headText: null }
@@ -143,27 +149,31 @@ function readState(store: Store, rels: Relation[], row: SampledRow | undefined, 
   return { row, was, now, headText }
 }
 
-/** The row's fields as the WORKTREE spells them, read from the file `git status` itself named.
+/**
+ * The row's fields as the WORKTREE spells them, read from the file `git status` itself named.
  *
- *  ⚠ NOT `store.read`, and that is a measurement rather than a preference: read() goes through the
- *  id index, whose cache key is `git rev-parse HEAD` — one subprocess per CALL, cache hit or not — so
- *  asking it once per dirty row is a SECOND subprocess per row, on top of the pre-image. Removing it
- *  alone takes the `npm run perf` COMMIT case from 4.14s to 2.20s; removing only the pre-image reads
- *  takes it to 2.08s; both together, 0.15s.
+ * ⚠ NOT `store.read`, and that is a measurement rather than a preference: read() goes through the
+ * id index, whose cache key is `git rev-parse HEAD` — one subprocess per CALL, cache hit or not — so
+ * asking it once per dirty row is a SECOND subprocess per row, on top of the pre-image. Removing it
+ * alone takes the `npm run perf` COMMIT case from 4.14s to 2.20s; removing only the pre-image reads
+ * takes it to 2.08s; both together, 0.15s.
  *
- *  It is the same file either way: pathToRecord yields a row only for a record's OWN file (a folder
- *  shape has to end at its `entry`), which is why `sameRecord` below already reads one directly.
- *  Going through parseRecordText also makes the two sides of HEAD symmetric — the pre-image was
- *  always parsed this way — so an opaque `format: binary` record reads the same on both sides. Such a
- *  record cannot carry a relation field at all, having no serialised fields for one to live in, so
- *  readState never reaches here for one. */
+ * It is the same file either way: pathToRecord yields a row only for a record's OWN file (a folder
+ * shape has to end at its `entry`), which is why `sameRecord` below already reads one directly.
+ * Going through parseRecordText also makes the two sides of HEAD symmetric — the pre-image was
+ * always parsed this way — so an opaque `format: binary` record reads the same on both sides. Such a
+ * record cannot carry a relation field at all, having no serialised fields for one to live in, so
+ * readState never reaches here for one.
+ */
 function worktreeFields(store: Store, row: SampledRow): Record<string, unknown> {
   const text = fs.readFileSync(path.resolve(row.cwd, row.repoRel), "utf8")
   return parseRecordText(text, store.descriptors.get(row.collection))
 }
 
-/** One row's bytes at HEAD, or null when HEAD does not have that path (untracked, or an empty repo:
- *  no pre-image, so no edges at HEAD). */
+/**
+ * One row's bytes at HEAD, or null when HEAD does not have that path (untracked, or an empty repo:
+ * no pre-image, so no edges at HEAD).
+ */
 function headText(row: SampledRow): string | null {
   try {
     return execFileSync("git", ["show", `HEAD:${row.repoRel}`], { cwd: row.cwd, stdio: QUIET }).toString()
@@ -172,19 +182,21 @@ function headText(row: SampledRow): string | null {
   }
 }
 
-/** MANY rows' bytes at HEAD in ONE git call — `cat-file --batch` answers a whole list down one pipe
- *  where `git show` is a subprocess each, and the subprocess count is this file's entire cost.
- *  Returns repoRel → text, null for a path HEAD does not have.
+/**
+ * MANY rows' bytes at HEAD in ONE git call — `cat-file --batch` answers a whole list down one pipe
+ * where `git show` is a subprocess each, and the subprocess count is this file's entire cost.
+ * Returns repoRel → text, null for a path HEAD does not have.
  *
- *  ⚠ A path ABSENT from the map is not the same as one mapped to null. Absent means the batch did not
- *  answer for it and the caller must fall back to the single read; treating it as "no pre-image"
- *  would read every edge the row holds as newly added and name partners that never moved. That is
- *  what keeps this an optimisation: a failure here costs time, never an answer.
+ * ⚠ A path ABSENT from the map is not the same as one mapped to null. Absent means the batch did not
+ * answer for it and the caller must fall back to the single read; treating it as "no pre-image"
+ * would read every edge the row holds as newly added and name partners that never moved. That is
+ * what keeps this an optimisation: a failure here costs time, never an answer.
  *
- *  Framing, from git-cat-file(1): `<oid> <type> <size>\n<size bytes>\n` per request, in request
- *  order, or `<request> missing\n` for one git cannot resolve. The payload is sliced by the byte
- *  count git states rather than by scanning for a delimiter, because a record's body may hold
- *  anything at all — including a line that looks exactly like the next header. */
+ * Framing, from git-cat-file(1): `<oid> <type> <size>\n<size bytes>\n` per request, in request
+ * order, or `<request> missing\n` for one git cannot resolve. The payload is sliced by the byte
+ * count git states rather than by scanning for a delimiter, because a record's body may hold
+ * anything at all — including a line that looks exactly like the next header.
+ */
 function headTextsByPath(cwd: string, paths: string[]): Map<string, string | null> {
   const out = new Map<string, string | null>()
   let buf: Buffer
@@ -214,31 +226,34 @@ function headTextsByPath(cwd: string, paths: string[]): Map<string, string | nul
   return out
 }
 
-/** The refusal, and the reason it is a refusal rather than a choice: publishing the file anyway
- *  either steals the other session's record or leaves a HEAD that fails `dt check`. Name all three
- *  parties — without the FILE the reader cannot see why two unrelated records are in one sentence,
- *  and without the other records they cannot type the command that fixes it. */
+/**
+ * The refusal, and the reason it is a refusal rather than a choice: publishing the file anyway
+ * either steals the other session's record or leaves a HEAD that fails `dt check`. Name all three
+ * parties — without the FILE the reader cannot see why two unrelated records are in one sentence,
+ * and without the other records they cannot type the command that fixes it.
+ */
 function entangled(file: string, parties: string[], command: string): Error {
   return new Error(
     `${file} holds relation changes from ${parties.join(" and ")}, and there is no commit that publishes one without the other. Name them together (dreamteamer commit ${command}) or wait for the other session to publish.`
   )
 }
 
-/** Every sampled row by reference, and its relation edges as they moved since HEAD.
+/**
+ * Every sampled row by reference, and its relation edges as they moved since HEAD.
  *
- *  Lazy, memoised and BATCHABLE, and all three are a PERFORMANCE CONTRACT rather than a
- *  micro-optimisation. A pre-image is bytes out of git, so how many GIT CALLS are spawned to get
- *  them is the whole cost of this file:
+ * Lazy, memoised and BATCHABLE, and all three are a PERFORMANCE CONTRACT rather than a
+ * micro-optimisation. A pre-image is bytes out of git, so how many GIT CALLS are spawned to get
+ * them is the whole cost of this file:
  *
- *   - LAZY. Only the records actually asked about are read, and a row in a collection with no
- *     relations at all costs nothing — readState answers it without touching git. Reading one
- *     pre-image per SAMPLED row cost 3.19s against 0.10s on a 300-dirty-row collection.
- *   - BATCHED. `prefetch` takes the whole set a caller is about to ask about and reads it in one
- *     `git cat-file --batch` per repo instead of one `git show` each — 4.14s → 2.08s of the
- *     `npm run perf` COMMIT case, and the other half of that number is worktreeFields below. A
- *     caller asking about hundreds of rows must call it; one asking about four must not, since a
- *     batch of four is a subprocess too. Nothing else changes — the bytes are the same bytes,
- *     verified against `git show` byte for byte.
+ *  - LAZY. Only the records actually asked about are read, and a row in a collection with no
+ *    relations at all costs nothing — readState answers it without touching git. Reading one
+ *    pre-image per SAMPLED row cost 3.19s against 0.10s on a 300-dirty-row collection.
+ *  - BATCHED. `prefetch` takes the whole set a caller is about to ask about and reads it in one
+ *    `git cat-file --batch` per repo instead of one `git show` each — 4.14s → 2.08s of the
+ *    `npm run perf` COMMIT case, and the other half of that number is worktreeFields below. A
+ *    caller asking about hundreds of rows must call it; one asking about four must not, since a
+ *    batch of four is a subprocess too. Nothing else changes — the bytes are the same bytes,
+ *    verified against `git show` byte for byte.
  */
 function edgeReader(store: Store, rels: Relation[], sampled: { cwd: string; rows: Row[] }[]) {
   const rows = new Map<string, SampledRow>()
@@ -283,13 +298,15 @@ function edgeReader(store: Store, rels: Relation[], sampled: { cwd: string; rows
   return { rows, stateOf, moved, prefetch }
 }
 
-/** Which dirty partners the named records DRAG INTO the same commit.
+/**
+ * Which dirty partners the named records DRAG INTO the same commit.
  *
- *  The rule is EDGE-CHANGE, not field membership: a partner joins only if the edge between it and a
- *  named record appeared, disappeared or moved since HEAD. A partner dirty for any other reason —
- *  another session's prose, another field, another session's edge — is left exactly as pending as it
- *  was found. The first cut swept every ref in the named record's relation fields and reintroduced
- *  precisely the theft this file exists to prevent (CLAUDE.md rule 6). */
+ * The rule is EDGE-CHANGE, not field membership: a partner joins only if the edge between it and a
+ * named record appeared, disappeared or moved since HEAD. A partner dirty for any other reason —
+ * another session's prose, another field, another session's edge — is left exactly as pending as it
+ * was found. The first cut swept every ref in the named record's relation fields and reintroduced
+ * precisely the theft this file exists to prevent (CLAUDE.md rule 6).
+ */
 function planSweep(targets: Targets, { rows, stateOf, moved }: ReturnType<typeof edgeReader>): Set<string> {
   // `dt rename` leaves the old path DELETED and the new path UNTRACKED — neither staged, so git
   // reports no `R` (that only exists for a staged rename, which is why `fromRel` is null here) and
@@ -344,39 +361,41 @@ function planSweep(targets: Targets, { rows, stateOf, moved }: ReturnType<typeof
   return sweep
 }
 
-/** Dirty records this commit does NOT publish whose edge to one it DOES publish moved since HEAD —
- *  i.e. the other half of a pair, left behind.
+/**
+ * Dirty records this commit does NOT publish whose edge to one it DOES publish moved since HEAD —
+ * i.e. the other half of a pair, left behind.
  *
- *  `dt commit <collection>` publishes exactly that collection and nothing else, on purpose:
- *  narrowing it to whole pairs would drop rows the caller explicitly asked for, and widening it to
- *  the partner collection is the theft this file exists to prevent. So it goes on publishing half a
- *  pair — and HEAD then fails `dt check` until the other half lands. Naming the leftovers is what
- *  turns that from a silent red HEAD into one more command to run.
+ * `dt commit <collection>` publishes exactly that collection and nothing else, on purpose:
+ * narrowing it to whole pairs would drop rows the caller explicitly asked for, and widening it to
+ * the partner collection is the theft this file exists to prevent. So it goes on publishing half a
+ * pair — and HEAD then fails `dt check` until the other half lands. Naming the leftovers is what
+ * turns that from a silent red HEAD into one more command to run.
  *
- *  Same edge-change rule as the sweep, from the other end: a partner dirty for unrelated reasons is
- *  not named, because publishing this commit did not put it out of step with anything.
+ * Same edge-change rule as the sweep, from the other end: a partner dirty for unrelated reasons is
+ * not named, because publishing this commit did not put it out of step with anything.
  *
- *  ⚠ THE QUESTION IS ASKED OF EVERY UNPUBLISHED DIRTY ROW, and there is no smaller set to ask it of.
- *  `moved` compares a row's own file either side of HEAD, so "did YOUR edge move" can only be put to
- *  the row it is about. What is negotiable is the COST of asking, and it was two git subprocesses per
- *  row: hence the `prefetch` here and the worktree read in readState, together 4.14s → 0.15s on the
- *  `npm run perf` COMMIT case, with the record-scoped and unscoped forms untouched at 0.11s/0.10s.
+ * ⚠ THE QUESTION IS ASKED OF EVERY UNPUBLISHED DIRTY ROW, and there is no smaller set to ask it of.
+ * `moved` compares a row's own file either side of HEAD, so "did YOUR edge move" can only be put to
+ * the row it is about. What is negotiable is the COST of asking, and it was two git subprocesses per
+ * row: hence the `prefetch` here and the worktree read in readState, together 4.14s → 0.15s on the
+ * `npm run perf` COMMIT case, with the record-scoped and unscoped forms untouched at 0.11s/0.10s.
  *
- *  ⚠ THE INVERSION IS THE WRONG FIX, and it is the one this shape invites: ask each PUBLISHED row
- *  "did any of your edges move" and name the counterpart, O(published) instead of O(unpublished).
- *  It fails twice.
+ * ⚠ THE INVERSION IS THE WRONG FIX, and it is the one this shape invites: ask each PUBLISHED row
+ * "did any of your edges move" and name the counterpart, O(published) instead of O(unpublished).
+ * It fails twice.
  *
- *  It answers a DIFFERENT QUESTION. An edge that moved on ONE SIDE ONLY is a change to the file that
- *  holds it and to no other file, so following it from the far end reports nothing — and one-sided is
- *  precisely the half-pair state this warning exists for: a mirror hand-edited in an editor, a record
- *  deleted with `rm` instead of `dt rm`, an unparseable pre-image on one of the two files. Two tests
- *  in commit.test.js hold that line, and both go red under the inversion.
+ * It answers a DIFFERENT QUESTION. An edge that moved on ONE SIDE ONLY is a change to the file that
+ * holds it and to no other file, so following it from the far end reports nothing — and one-sided is
+ * precisely the half-pair state this warning exists for: a mirror hand-edited in an editor, a record
+ * deleted with `rm` instead of `dt rm`, an unparseable pre-image on one of the two files. Two tests
+ * in commit.test.js hold that line, and both go red under the inversion.
  *
- *  And it is NOT FASTER, measured on the same fixture: 4.16s against 4.14s, because the published
- *  side of a relational write is the same size as the unpublished side — publishing N rows is exactly
- *  what dirtied N partners. Worse, it moves the cost onto the ORDINARY path: a dirty collection with
- *  no dirty partners at all, which has nothing to warn about, goes from 0.10s to 4.20s, since every
- *  row being published is then read to prove there was nothing to say. */
+ * And it is NOT FASTER, measured on the same fixture: 4.16s against 4.14s, because the published
+ * side of a relational write is the same size as the unpublished side — publishing N rows is exactly
+ * what dirtied N partners. Worse, it moves the cost onto the ORDINARY path: a dirty collection with
+ * no dirty partners at all, which has nothing to warn about, goes from 0.10s to 4.20s, since every
+ * row being published is then read to prove there was nothing to say.
+ */
 function partnersLeftPending(reader: ReturnType<typeof edgeReader>, published: Set<string>): string[] {
   const pending = [...reader.rows.keys()].filter(ref => !published.has(ref))
   reader.prefetch(pending)
@@ -387,9 +406,11 @@ function partnersLeftPending(reader: ReturnType<typeof edgeReader>, published: S
   return [...left].sort()
 }
 
-/** Record directories to watch, grouped by owning repo. System-stored collections are excluded:
- *  they live in the gitignored runtime and their sources are module files — the same exclusion
- *  pathToRecord already applies. */
+/**
+ * Record directories to watch, grouped by owning repo. System-stored collections are excluded:
+ * they live in the gitignored runtime and their sources are module files — the same exclusion
+ * pathToRecord already applies.
+ */
 function scopeByRepo(descriptors: Descriptors, only: string[]): Map<string, string[]> {
   const byRepo = new Map<string, string[]>()
   for (const d of descriptors.values()) {
@@ -423,8 +444,10 @@ function scopeByRepo(descriptors: Descriptors, only: string[]): Map<string, stri
   return byRepo
 }
 
-/** A commit on a detached HEAD is reachable only by sha. Worth saying out loud before making one;
- *  not worth refusing over, since it is sometimes exactly what someone means to do. */
+/**
+ * A commit on a detached HEAD is reachable only by sha. Worth saying out loud before making one;
+ * not worth refusing over, since it is sometimes exactly what someone means to do.
+ */
 function detached(cwd: string): boolean {
   try {
     return execFileSync("git", ["symbolic-ref", "--quiet", "HEAD"], { cwd, stdio: QUIET }).toString().trim() === ""
@@ -433,10 +456,12 @@ function detached(cwd: string): boolean {
   }
 }
 
-/** Sample one repo: porcelain status over its record dirs → [{repoRel, collection, id, verb}].
- *  `git status` run in a module repo returns REPO-relative paths; pathToRecord takes
- *  WORKSPACE-relative ones, so every path is re-prefixed before matching. Skip this and every
- *  module-owned path maps to null — dt commit would commit nothing and report success. */
+/**
+ * Sample one repo: porcelain status over its record dirs → [{repoRel, collection, id, verb}].
+ * `git status` run in a module repo returns REPO-relative paths; pathToRecord takes
+ * WORKSPACE-relative ones, so every path is re-prefixed before matching. Skip this and every
+ * module-owned path maps to null — dt commit would commit nothing and report success.
+ */
 function sample(root: string, repo: string, dirs: string[], descriptors: Descriptors): { cwd: string; rows: Row[] } {
   const cwd = path.resolve(root, repo)
   const prefix = repo === "." ? "" : `${repo}/`
@@ -474,11 +499,13 @@ function sample(root: string, repo: string, dirs: string[], descriptors: Descrip
   return { cwd, rows }
 }
 
-/** A requested reference that matched no pending row is one of two very different things: a record
- *  that is already published (nothing to do, and fine) or a MISTYPED id — which must not pass as
- *  "nothing pending", the one report that looks like success. Only the store can tell them apart,
- *  and it is only asked in this branch: a pending DELETION matched a row above, so a record whose
- *  file is legitimately gone never reaches here. */
+/**
+ * A requested reference that matched no pending row is one of two very different things: a record
+ * that is already published (nothing to do, and fine) or a MISTYPED id — which must not pass as
+ * "nothing pending", the one report that looks like success. Only the store can tell them apart,
+ * and it is only asked in this branch: a pending DELETION matched a row above, so a record whose
+ * file is legitimately gone never reaches here.
+ */
 function assertResolvable(store: Store, records: Targets["records"], matched: Set<string>): void {
   for (const [ref, { collection, id }] of records) {
     if (matched.has(ref) || store.ids(collection).has(id)) continue

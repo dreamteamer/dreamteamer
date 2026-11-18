@@ -6,9 +6,11 @@ import type { OnLink, PlacedRecord } from "../types.ts"
 import { walk } from "../../lib/walk.ts"
 import type { Descriptor } from "../../types.ts"
 
-/** Every record file of `d` under ONE root, as `{ id, file, root, parentId }`. A placed root (one with
- *  a `parentId`) is walked through REAL entries only — a symlinked sub-folder or file inside it is
- *  skipped and reported to `onLink` (R2b); the collection's own root keeps the ordinary walk. */
+/**
+ * Every record file of `d` under ONE root, as `{ id, file, root, parentId }`. A placed root (one with
+ * a `parentId`) is walked through REAL entries only — a symlinked sub-folder or file inside it is
+ * skipped and reported to `onLink` (R2b); the collection's own root keeps the ordinary walk.
+ */
 export function* rootRecords(
   d: Descriptor,
   root: string,

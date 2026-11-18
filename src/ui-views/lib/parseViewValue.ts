@@ -1,8 +1,10 @@
 import { VIEW_LIST_OPTIONS } from "./consts.ts"
 
-/** `--filter '{"status":{"_eq":"seen"}}'` style flags, plus dotted `display.list.sort=-date` positionals. The
- *  KEY is passed because the value's shape depends on it: only the key says whether a comma is a
- *  separator or a character. */
+/**
+ * `--filter '{"status":{"_eq":"seen"}}'` style flags, plus dotted `display.list.sort=-date` positionals. The
+ * KEY is passed because the value's shape depends on it: only the key says whether a comma is a
+ * separator or a character.
+ */
 export function parseViewValue(raw: string | boolean, key: string): unknown {
   if (typeof raw !== "string") return raw
   const t = raw.trim()

@@ -151,34 +151,40 @@ export class Store {
   // Read from `compiled.fields`, the resolved v2 field list — the first reader of it in the store.
   // A collection compiled from a v1 source has no `compiled` block, and none of this applies to it.
 
-  /** `derived` (stored, engine-written: `created`) and `virtual` (computed on read: `id`,
-   *  `last_modified`) fields are refused from every writer, naming which they are. */
+  /**
+   * `derived` (stored, engine-written: `created`) and `virtual` (computed on read: `id`,
+   * `last_modified`) fields are refused from every writer, naming which they are.
+   */
   refuseEngineWrites(d: Descriptor, changed: Iterable<string>): void {
     return refuseEngineWrites(this, d, changed)
   }
 
-  /** `unique: true` on a scalar field: no two records of the collection may hold one value. Null and
-   *  absent never claim. Only the keys being written are asked, so an unrelated edit to a record
-   *  that already shares a value is not where that conflict is reported — `check` is. */
+  /**
+   * `unique: true` on a scalar field: no two records of the collection may hold one value. Null and
+   * absent never claim. Only the keys being written are asked, so an unrelated edit to a record
+   * that already shares a value is not where that conflict is reported — `check` is.
+   */
   refuseDuplicateValues(d: Descriptor, collection: string, id: string, fields: Fields, keys: string[]) {
     return refuseDuplicateValues(this, d, collection, id, fields, keys)
   }
 
-  /** Mirror maintenance for ONE owner-record write: rewrites every TARGET whose mirror has to change
-   *  so it says what `after` implies, and hands back those files plus the undo that puts them back.
-   *  The values written are exactly what `expectedMirrors` computes, which is what `check` compares
-   *  against — the two read the same relation rows, so they cannot disagree about what a mirror holds.
+  /**
+   * Mirror maintenance for ONE owner-record write: rewrites every TARGET whose mirror has to change
+   * so it says what `after` implies, and hands back those files plus the undo that puts them back.
+   * The values written are exactly what `expectedMirrors` computes, which is what `check` compares
+   * against — the two read the same relation rows, so they cannot disagree about what a mirror holds.
    *
-   *  Runs INSIDE withWriteLock, after the owner file is on disk. Nothing is validated here: an attach
-   *  was proved by `checkRefs` before the lock — to exist, or to be external (vouched for by an exports
-   *  manifest, no record here to mirror onto) — and a detach is removal, which cannot dangle.
+   * Runs INSIDE withWriteLock, after the owner file is on disk. Nothing is validated here: an attach
+   * was proved by `checkRefs` before the lock — to exist, or to be external (vouched for by an exports
+   * manifest, no record here to mirror onto) — and a detach is removal, which cannot dangle.
    *
-   *  ⚠ ALL-OR-NOTHING, by its own hand. The one refusal it can raise (a unique owner) is discoverable only
-   *  ON a target, i.e. partway through a loop that may already have rewritten other targets — so a
-   *  throw undoes its own work before it propagates, and the caller is left with exactly one thing to
-   *  roll back: the owner write.
+   * ⚠ ALL-OR-NOTHING, by its own hand. The one refusal it can raise (a unique owner) is discoverable only
+   * ON a target, i.e. partway through a loop that may already have rewritten other targets — so a
+   * throw undoes its own work before it propagates, and the caller is left with exactly one thing to
+   * roll back: the owner write.
    *
-   *  @returns {{files: string[], undo: () => void}} */
+   * @returns {{files: string[], undo: () => void}}
+   */
   applyMirrorEdits(
     d: Descriptor,
     id: string,
@@ -189,17 +195,21 @@ export class Store {
     return applyMirrorEdits(this, d, id, before, after, ownerFile)
   }
 
-  /** The collection's OWN folder. For a collection stored under another (`storage.under`) this is
-   *  the FALLBACK root — where a record with no owner lives — and not an enumeration of where its
-   *  records are: that is `ids()`, and the directories git has to be asked about are `recordDirs`. */
+  /**
+   * The collection's OWN folder. For a collection stored under another (`storage.under`) this is
+   * the FALLBACK root — where a record with no owner lives — and not an enumeration of where its
+   * records are: that is `ids()`, and the directories git has to be asked about are `recordDirs`.
+   */
   dir(d: Descriptor): string {
     return path.resolve(storageOf(d).runtime ? this.runtime : this.root, this.rootPath(d))
   }
 
-  /** The write root's path as compile resolved it — absolute for an env-pointed root outside the
-   *  workspace, which is why every root is `path.resolve`d and never `path.join`ed. ⚠ An env-pointed
-   *  root that could NOT render on this machine refuses HERE, at the first verb that would touch it:
-   *  the alternative was reading and writing a literal `${env:NAME}/` folder with every verb saying ✔. */
+  /**
+   * The write root's path as compile resolved it — absolute for an env-pointed root outside the
+   * workspace, which is why every root is `path.resolve`d and never `path.join`ed. ⚠ An env-pointed
+   * root that could NOT render on this machine refuses HERE, at the first verb that would touch it:
+   * the alternative was reading and writing a literal `${env:NAME}/` folder with every verb saying ✔.
+   */
   rootPath(d: Descriptor): string {
     const s = storageOf(d)
     if (s.unavailable)
@@ -214,8 +224,10 @@ export class Store {
     return this.dir(this.descriptor(placementOf(d).collection))
   }
 
-  /** Every directory a record of `d` can sit in: its own root, plus the parent collection's root when
-   *  it is stored under one. What `commit` scopes `git status` to and what a surface asks git about. */
+  /**
+   * Every directory a record of `d` can sit in: its own root, plus the parent collection's root when
+   * it is stored under one. What `commit` scopes `git status` to and what a surface asks git about.
+   */
   recordDirs(d: Descriptor): string[] {
     const own = placementOf(d) ? [this.dir(d), this.parentDir(d)] : [this.dir(d)]
     return [
@@ -226,8 +238,10 @@ export class Store {
     ]
   }
 
-  /** Every root a record of `d` can be READ from, write root first, then each record layer — another
-   *  workspace cloned under git_modules/ whose manifest entry lists this collection. */
+  /**
+   * Every root a record of `d` can be READ from, write root first, then each record layer — another
+   * workspace cloned under git_modules/ whose manifest entry lists this collection.
+   */
   rootsOf(d: Descriptor): ResolvedRoot[] {
     this.rootPath(d) // the refusal, before any root is resolved
     return storageOf(d).roots.map(r => ({
@@ -241,9 +255,11 @@ export class Store {
     return storageOf(d).layers.length > 0
   }
 
-  /** The file an owner in `ownerRepo` keeps the mirror of `collection/id` in: the record that answers
-   *  the id when it sits in that repo, else null (the id is another repo's, and mirrors stay per repo). The one place the choice is made — the mirror
-   *  pass writes it and rm's guard credits it, so the two cannot disagree. */
+  /**
+   * The file an owner in `ownerRepo` keeps the mirror of `collection/id` in: the record that answers
+   * the id when it sits in that repo, else null (the id is another repo's, and mirrors stay per repo). The one place the choice is made — the mirror
+   * pass writes it and rm's guard credits it, so the two cannot disagree.
+   */
   mirrorFileFor(collection: string, id: string, ownerRepo: string): string | null {
     const d = this.descriptor(collection)
     const answering = this.ids(collection).get(id)
@@ -252,8 +268,10 @@ export class Store {
     return null
   }
 
-  /** The layer an existing file of `d` was read from — `{ layer, path, repo, abs }` — or null for a
-   *  file in the write root. What decides which repo an edit of it commits to. */
+  /**
+   * The layer an existing file of `d` was read from — `{ layer, path, repo, abs }` — or null for a
+   * file in the write root. What decides which repo an edit of it commits to.
+   */
   layerOfFile(d: Descriptor, file: string): ResolvedRoot | null {
     const abs = path.resolve(file)
     return (
@@ -268,10 +286,12 @@ export class Store {
     return this.layerOfFile(d, file)?.repo ?? storageOf(d).repo
   }
 
-  /** WHERE a record is read from, and which repo commits it — what `dt get --json` and `dt list
-   *  --json` say as `$file` and `$repo`. `file` is workspace-relative, `repo` the workspace-relative
-   *  repo root (`.`, `git_modules/<clone>`); a collection kept outside every repo here (an
-   *  env-pointed root) answers its absolute file and `repo: null` — it is never committed. */
+  /**
+   * WHERE a record is read from, and which repo commits it — what `dt get --json` and `dt list
+   * --json` say as `$file` and `$repo`. `file` is workspace-relative, `repo` the workspace-relative
+   * repo root (`.`, `git_modules/<clone>`); a collection kept outside every repo here (an
+   * env-pointed root) answers its absolute file and `repo: null` — it is never committed.
+   */
   locate(collection: string, id: string): { file: string; repo: string | null } {
     const file = this.ids(collection).get(id)
     if (!file) throw new Error(`${collection}/${id}: no such record`)
@@ -284,9 +304,11 @@ export class Store {
     return { file: path.relative(this.root, file).split(path.sep).join("/"), repo: this.repoOfFile(d, file) }
   }
 
-  /** The file a record of `d` with these `fields` belongs at. For a placed collection the owner
-   *  field decides the root — the parent's folder, or the fallback root when it is empty — so a
-   *  caller that has no fields (a bare id) must go through the index instead (recordRoot). */
+  /**
+   * The file a record of `d` with these `fields` belongs at. For a placed collection the owner
+   * field decides the root — the parent's folder, or the fallback root when it is empty — so a
+   * caller that has no fields (a bare id) must go through the index instead (recordRoot).
+   */
   filePath(d: Descriptor, id: string, ext?: string, fields?: Fields): string {
     return filePath(this, d, id, ext, fields)
   }
@@ -300,9 +322,11 @@ export class Store {
     return placedRoot(under, this.dir(d), this.parentDir(d), parentId)
   }
 
-  /** The root an EXISTING file of `d` sits under — the inverse of rootFor, for pruning and for the
-   *  observed-vs-declared comparison. Falls back to the collection's own root for a file found
-   *  under neither, which cannot happen for a file the index produced. */
+  /**
+   * The root an EXISTING file of `d` sits under — the inverse of rootFor, for pruning and for the
+   * observed-vs-declared comparison. Falls back to the collection's own root for a file found
+   * under neither, which cannot happen for a file the index produced.
+   */
   rootOfFile(d: Descriptor, file: string): string {
     const under = placementOf(d)
     if (!under) return this.dir(d)
@@ -342,8 +366,10 @@ export class Store {
     return gitHead(this)
   }
 
-  /** "This process just committed" — said by the four places that run `git commit` while a Store is
-   *  alive: `commit()` below, `commitPending`, and schema-ops' two source commits. See gitHead. */
+  /**
+   * "This process just committed" — said by the four places that run `git commit` while a Store is
+   * alive: `commit()` below, `commitPending`, and schema-ops' two source commits. See gitHead.
+   */
   headMoved() {
     this._head = undefined
   }
@@ -352,16 +378,20 @@ export class Store {
     return ids(this, collection)
   }
 
-  /** The validity key `ids()` compares against, as its own method because `add` restates it AFTER
-   *  its write — the only way an index it just extended can still be accepted by the next call.
-   *  For a placed collection the PARENT root's mtime is in it too: a new parent folder is a new
-   *  place records can be, and nothing under the fallback root moves when one appears. */
+  /**
+   * The validity key `ids()` compares against, as its own method because `add` restates it AFTER
+   * its write — the only way an index it just extended can still be accepted by the next call.
+   * For a placed collection the PARENT root's mtime is in it too: a new parent folder is a new
+   * place records can be, and nothing under the fallback root moves when one appears.
+   */
   _idsKey(d: Descriptor): string {
     return idsKey(this, d)
   }
 
-  /** Refuse a placed write whose path crosses a symlink inside the parent collection's root — a link
-   *  there points anywhere, and "inside the parent's folder" is the whole promise (R2). */
+  /**
+   * Refuse a placed write whose path crosses a symlink inside the parent collection's root — a link
+   * there points anywhere, and "inside the parent's folder" is the whole promise (R2).
+   */
   _assertContained(d: Descriptor, file: string): void {
     const under = placementOf(d)
     if (!under) return
@@ -405,20 +435,26 @@ export class Store {
     return walkIds(this, d, dir)
   }
 
-  /** The records of `d` under ONE root — `[id, file]` pairs, in walk order. A folder-shape record is
-   *  its entry file; anything else is a file whose name parses as a record of `d`. */
+  /**
+   * The records of `d` under ONE root — `[id, file]` pairs, in walk order. A folder-shape record is
+   * its entry file; anything else is a file whose name parses as a record of `d`.
+   */
   _walkRoot(d: Descriptor, root: string): Generator<[id: string, file: string]> {
     return walkRoot(this, d, root)
   }
 
-  /** The parent record folders of a folder-shape collection that hold records of a collection
-   *  stored under it — the reason `rm` and `rename` on a parent have to look inside the folder. */
+  /**
+   * The parent record folders of a folder-shape collection that hold records of a collection
+   * stored under it — the reason `rm` and `rename` on a parent have to look inside the folder.
+   */
   placedChildrenIn(d: Descriptor, unit: string): { collection: string; under: Under; count: number }[] {
     return placedChildrenIn(this, d, unit)
   }
 
-  /** Drop the id memo of every collection stored under `collection` — a parent folder that moved or
-   *  went carries their files with it. */
+  /**
+   * Drop the id memo of every collection stored under `collection` — a parent folder that moved or
+   * went carries their files with it.
+   */
   _dropPlacedUnder(collection: string): void {
     for (const c of this.descriptors.values())
       if (placementOf(c)?.collection === collection) this._idsCache.delete(c.name)
@@ -434,9 +470,11 @@ export class Store {
     return moveRecord(this, d, from, to)
   }
 
-  /** Empty directories a placed record left behind: its date folders up to the root it sat in, and —
-   *  inside a parent folder — that root itself (`northwind/meetings/`), never the parent folder and
-   *  never the collection's own fallback root. */
+  /**
+   * Empty directories a placed record left behind: its date folders up to the root it sat in, and —
+   * inside a parent folder — that root itself (`northwind/meetings/`), never the parent folder and
+   * never the collection's own fallback root.
+   */
   _pruneAround(d: Descriptor, file: string): void {
     const under = placementOf(d)
     const where = under ? placementOfFile(under, file, this.dir(d), this.parentDir(d)) : null
@@ -445,10 +483,12 @@ export class Store {
     if (where?.parentId) pruneEmptyDirs(root, path.join(this.parentDir(d), where.parentId))
   }
 
-  /** An id no root here holds that an exports manifest vouches for (cr-dt-004): `{ label, from?, manifest }`,
-   *  or null. The manifest is the referring record's repo's — `referrer` (`<collection>/<id>`), else this
-   *  workspace's — and it answers only where its holder is not read here: exactly where `check` says
-   *  external. A referrer this workspace does not read is refused, naming it. */
+  /**
+   * An id no root here holds that an exports manifest vouches for (cr-dt-004): `{ label, from?, manifest }`,
+   * or null. The manifest is the referring record's repo's — `referrer` (`<collection>/<id>`), else this
+   * workspace's — and it answers only where its holder is not read here: exactly where `check` says
+   * external. A referrer this workspace does not read is refused, naming it.
+   */
   external(
     collection: string,
     id: string,
@@ -457,8 +497,10 @@ export class Store {
     return external(this, collection, id, opts)
   }
 
-  /** The entry the exports manifest of `repo` (a layer name; null: the write root) holds for an id, with
-   *  `seen` when its holder is read here — or null. The one reading `external` and `checkRefs` share. */
+  /**
+   * The entry the exports manifest of `repo` (a layer name; null: the write root) holds for an id, with
+   * `seen` when its holder is read here — or null. The one reading `external` and `checkRefs` share.
+   */
   vouched(
     collection: string,
     id: string,
@@ -605,9 +647,11 @@ export class Store {
     return add(this, collection, fields, opts)
   }
 
-  /** Import a file AS a record. There are no fields to validate and nothing to serialize, which is
-   *  why this is a sibling of add() rather than a branch inside it — the two share their last three
-   *  lines and nothing else. */
+  /**
+   * Import a file AS a record. There are no fields to validate and nothing to serialize, which is
+   * why this is a sibling of add() rather than a branch inside it — the two share their last three
+   * lines and nothing else.
+   */
   addFile(collection: string, id: string, srcPath: string, opts?: { force?: boolean }): { id: string; file: string } {
     return addFile(this, collection, id, srcPath, opts)
   }
@@ -616,23 +660,29 @@ export class Store {
     return set(this, collection, id, changes)
   }
 
-  /** Where a placed record's file was at `hash`, workspace-relative — or null when the commit holds no
-   *  file for that id (or the collection is conventional, where today's path IS the historical one).
-   *  One `git ls-tree` over the roots the collection can occupy, mapped back through the same
-   *  path→record rule `commit` and `changes` use. */
+  /**
+   * Where a placed record's file was at `hash`, workspace-relative — or null when the commit holds no
+   * file for that id (or the collection is conventional, where today's path IS the historical one).
+   * One `git ls-tree` over the roots the collection can occupy, mapped back through the same
+   * path→record rule `commit` and `changes` use.
+   */
   pathAt(d: Descriptor, id: string, hash: string): string | null {
     return pathAt(this, d, id, hash)
   }
 
-  /** Refuse to WRITE to an id that two files claim. The index keeps the first claimant so reads
-   *  still answer, but a write would land on one copy and leave the other saying something else —
-   *  the exact ambiguity `check` reports, made worse under a verb that printed ✔. */
+  /**
+   * Refuse to WRITE to an id that two files claim. The index keeps the first claimant so reads
+   * still answer, but a write would land on one copy and leave the other saying something else —
+   * the exact ambiguity `check` reports, made worse under a verb that printed ✔.
+   */
   assertUnambiguous(collection: string, id: string): void {
     return assertUnambiguous(this, collection, id)
   }
 
-  /** Did the owner field of a placed record change between two versions of it? Compared as PARSED
-   *  owner ids, because `before` comes off disk and may spell the reference bare. */
+  /**
+   * Did the owner field of a placed record change between two versions of it? Compared as PARSED
+   * owner ids, because `before` comes off disk and may spell the reference bare.
+   */
   ownerChanged(d: Descriptor, before: Fields, after: Fields): boolean {
     const under = placementOf(d)
     if (!under) return false
@@ -642,26 +692,27 @@ export class Store {
     return ownerIdOf(prior, under, parse) !== ownerIdOf(after, under, parse)
   }
 
-  /** Removal, against relations. `rm`'s guard is a TEXT SCAN over every record file — any file whose
-   *  bytes contain `<collection>/<id>` refuses the removal — and that was exactly right while every
-   *  inbound reference was somebody's hand-written data. It stopped being right the day the engine
-   *  started writing references of its own: the scan cannot tell a mirror it wrote from a value a
-   *  human typed, so it refused on the strength of its own bookkeeping and left `--force` — which
-   *  removes the record AND leaves the mirror pointing at nothing — as the only way through.
+  /**
+   * Removal, against relations. `rm`'s guard is a TEXT SCAN over every record file — any file whose
+   * bytes contain `<collection>/<id>` refuses the removal — and that was exactly right while every
+   * inbound reference was somebody's hand-written data. It stopped being right the day the engine
+   * started writing references of its own: the scan cannot tell a mirror it wrote from a value a
+   * human typed, so it refused on the strength of its own bookkeeping and left `--force` — which
+   * removes the record AND leaves the mirror pointing at nothing — as the only way through.
    *
-   *  So inbound references split three ways, and only the third refuses:
+   * So inbound references split three ways, and only the third refuses:
    *
-   *  MINE — the mirror entries this record's own FKs put on their targets. Detached here, through the
-   *  SAME pass add/set/revert use: `applyMirrorEdits(d, id, fields, null)` is precisely "this owner
-   *  now claims nothing", so there is one implementation of what a detach means, not two.
+   * MINE — the mirror entries this record's own FKs put on their targets. Detached here, through the
+   * SAME pass add/set/revert use: `applyMirrorEdits(d, id, fields, null)` is precisely "this owner
+   * now claims nothing", so there is one implementation of what a detach means, not two.
    *
-   *  THEIRS, UNDER A RULE — an owner's FK pointing AT this record where the relation declares
-   *  `x-on-delete: set-null`. The schema author has already said what should happen; do it, in this
-   *  same commit.
+   * THEIRS, UNDER A RULE — an owner's FK pointing AT this record where the relation declares
+   * `x-on-delete: set-null`. The schema author has already said what should happen; do it, in this
+   * same commit.
    *
-   *  THEIRS — everything else: `x-on-delete: restrict` (the default), and every prose or unmodelled
-   *  reference the scan finds. Still refused, still escapable with `--force`, which still reports how
-   *  many references it left dangling.
+   * THEIRS — everything else: `x-on-delete: restrict` (the default), and every prose or unmodelled
+   * reference the scan finds. Still refused, still escapable with `--force`, which still reports how
+   * many references it left dangling.
    */
   rm(collection: string, id: string, opts?: { force?: boolean }): { id: string; inboundIgnored: number } {
     return rm(this, collection, id, opts)
@@ -680,9 +731,11 @@ export class Store {
     return new RegExp(`${escapeRe(ref)}(?![\\w/-])`, "g")
   }
 
-  /** Every record in the workspace whose id ENDS in `base`, as `<collection>/<id>`. What decides
-   *  whether a bare `[[base]]` wikilink names one thing — see rewriteRefs. Asked of the id index of
-   *  every collection rather than of a text scan, because the question is about records, not files. */
+  /**
+   * Every record in the workspace whose id ENDS in `base`, as `<collection>/<id>`. What decides
+   * whether a bare `[[base]]` wikilink names one thing — see rewriteRefs. Asked of the id index of
+   * every collection rather than of a text scan, because the question is about records, not files.
+   */
   basenameOwners(base: string): string[] {
     const out: string[] = []
     for (const name of this.descriptors.keys()) {
@@ -779,17 +832,19 @@ export class Store {
     return rewriteRefsBatch(this, pairs)
   }
 
-  /** Where the cross-process write lock lives.
+  /**
+   * Where the cross-process write lock lives.
    *
-   *  ⚠ IT BELONGS TO THE REPOSITORY, NOT TO THE CHECKOUT. What it protects is `.git/index.lock`
-   *  and `HEAD` — both of which are SHARED by every worktree of a repo, while `.dreamteamer/` is
-   *  gitignored build output that each checkout has its own copy of. A lock in the runtime folder
-   *  therefore serialized a single checkout against itself and left two worktrees of one repo free
-   *  to collide on exactly the files it exists to guard. `--git-common-dir` is the one path that
-   *  resolves to the same place from the primary and from every linked worktree.
+   * ⚠ IT BELONGS TO THE REPOSITORY, NOT TO THE CHECKOUT. What it protects is `.git/index.lock`
+   * and `HEAD` — both of which are SHARED by every worktree of a repo, while `.dreamteamer/` is
+   * gitignored build output that each checkout has its own copy of. A lock in the runtime folder
+   * therefore serialized a single checkout against itself and left two worktrees of one repo free
+   * to collide on exactly the files it exists to guard. `--git-common-dir` is the one path that
+   * resolves to the same place from the primary and from every linked worktree.
    *
-   *  The runtime folder stays the fallback, because a workspace need not be a git repo at all and
-   *  a store that cannot lock is worse than one that locks narrowly. */
+   * The runtime folder stays the fallback, because a workspace need not be a git repo at all and
+   * a store that cannot lock is worse than one that locks narrowly.
+   */
   writeLockPath() {
     return writeLockPath(this)
   }
@@ -803,9 +858,11 @@ export class Store {
     return withWriteLock(this, fn)
   }
 
-  /** Persist, or don't — `auto-commit` decides. The files are already on disk in both cases;
-   *  this only chooses whether they are published now or by a later `dt commit`.
-   *  `repo` is the workspace-relative root of the git repo that owns them ('.' = workspace). */
+  /**
+   * Persist, or don't — `auto-commit` decides. The files are already on disk in both cases;
+   * this only chooses whether they are published now or by a later `dt commit`.
+   * `repo` is the workspace-relative root of the git repo that owns them ('.' = workspace).
+   */
   commit(files: string[], subject: string, undo: Undo | null, repo?: string): void {
     return commit(this, files, subject, undo, repo)
   }

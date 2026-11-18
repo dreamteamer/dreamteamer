@@ -3,8 +3,10 @@ import path from "node:path"
 import { ENGINE } from "./consts.ts"
 import { engineRun } from "./engineRun.ts"
 
-/** A fresh workspace in `root` on `engine`: the engine declared as a `file:` dependency and linked
- *  before `init`, so init finds it present and asks no registry. Throws with init's words on failure. */
+/**
+ * A fresh workspace in `root` on `engine`: the engine declared as a `file:` dependency and linked
+ * before `init`, so init finds it present and asks no registry. Throws with init's words on failure.
+ */
 export function freshWorkspace(root: string, engine: string = ENGINE): string {
   fs.writeFileSync(
     path.join(root, "package.json"),

@@ -22,9 +22,11 @@ export const FILTERS = ["date", "datetime", "slug", "pad", "basename"]
 /** A record format's file extension, defined once — review finding 11 found it copied in 2–4 places, diverging. */
 export const EXT: Record<string, string> = { md: ".md", yaml: ".yaml", json: ".json" }
 
-/** How big a `format: binary` record may be before `check` says something, when its collection does not
- *  say otherwise. 200 KB fits an icon, a logo, a small illustration or a compressed photo, and does
- *  not fit the video someone will one day try to make a record. */
+/**
+ * How big a `format: binary` record may be before `check` says something, when its collection does not
+ * say otherwise. 200 KB fits an icon, a logo, a small illustration or a compressed photo, and does
+ * not fit the video someone will one day try to make a record.
+ */
 export const MAX_RECORD_BYTES = 204800
 
 export const DATE_ONLY = /^(\d{4})-(\d{2})-(\d{2})$/
@@ -74,8 +76,10 @@ export const KNOWN_OPERATORS: ReadonlySet<string> = new Set([
   "_or",
 ])
 
-/** The fields every collection has. `created` is stored (engine-written); `id` and `last_modified` are
- *  computed on read. */
+/**
+ * The fields every collection has. `created` is stored (engine-written); `id` and `last_modified` are
+ * computed on read.
+ */
 export const INJECTED_FIELDS = {
   id: { type: "string", title: "Id", virtual: true, description: "The record's path inside its collection." },
   created: {

@@ -6,8 +6,10 @@ import type { Store } from "../store/Store.ts"
 import type { DreamteamerBlock, Workspace } from "../types.ts"
 import { writeGated } from "../workspace/writeGated.ts"
 
-/** The settable fields of a `modules` record, and how each translates from the record-shaped value
- *  the operator types to the form the source file uses. */
+/**
+ * The settable fields of a `modules` record, and how each translates from the record-shaped value
+ * the operator types to the form the source file uses.
+ */
 const MODULE_SETTABLE: Record<
   string,
   { key: keyof DreamteamerBlock & string; from: (v: unknown, store: Store) => unknown }
@@ -30,9 +32,11 @@ const MODULE_SETTABLE: Record<
 const asList = (v: unknown): string[] =>
   (Array.isArray(v) ? v : String(v).split(",")).map(s => String(s).trim()).filter(Boolean)
 
-/** `modules/core` → the package name `core` spells. A bare `core` is accepted and named as a
- *  mistake-in-waiting rather than silently: a reference VALUE is `<collection>/<id>` everywhere else
- *  in this engine, and `check` rejects the bare form. */
+/**
+ * `modules/core` → the package name `core` spells. A bare `core` is accepted and named as a
+ * mistake-in-waiting rather than silently: a reference VALUE is `<collection>/<id>` everywhere else
+ * in this engine, and `check` rejects the bare form.
+ */
 function moduleIdFromRef(ref: unknown, store: Store): string | undefined {
   const s = String(ref)
   if (!s.startsWith("modules/")) {

@@ -1,5 +1,7 @@
-/** Edit distance, capped — enough to turn `--fliter` into "did you mean --filter?", and to refuse to
- *  guess at anything further away than a typo. */
+/**
+ * Edit distance, capped — enough to turn `--fliter` into "did you mean --filter?", and to refuse to
+ * guess at anything further away than a typo.
+ */
 export function nearest(word: string, candidates: string[]): string | null {
   const distance = (c: string): number => {
     let prev = [...Array(word.length + 1).keys()]

@@ -1,6 +1,8 @@
 import type { AuthoredDescriptor } from "../types.ts"
-/** A source file as parsed — a collection, a ui-view, a module record, a skill's frontmatter: the authored
- *  descriptor keys, all optional, the rest open. Validated by compile, not by this parse. */
+/**
+ * A source file as parsed — a collection, a ui-view, a module record, a skill's frontmatter: the authored
+ * descriptor keys, all optional, the rest open. Validated by compile, not by this parse.
+ */
 export type SourceDoc = Partial<AuthoredDescriptor>
 
 /** A `modules` record's fields (collections/modules.collection.yaml) — projected by compile from package.json. */
@@ -83,10 +85,12 @@ export interface ModuleSource {
   layer?: string
 }
 
-/** What `renderTemplate` renders AGAINST, for one workspace: the names `dreamteamer.vars` declares,
- *  the values this machine's `.env` carries, and the root. One builder rather than three lines at
- *  each call site — `dt resolve` and `repos ensure` disagreeing about which vars are declared would
- *  be a path that renders in one verb and refuses in the other. */
+/**
+ * What `renderTemplate` renders AGAINST, for one workspace: the names `dreamteamer.vars` declares,
+ * the values this machine's `.env` carries, and the root. One builder rather than three lines at
+ * each call site — `dt resolve` and `repos ensure` disagreeing about which vars are declared would
+ * be a path that renders in one verb and refuses in the other.
+ */
 export interface EnvContext {
   env: Map<string, string>
   workspaceFolder: string

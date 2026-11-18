@@ -63,9 +63,11 @@ const COLLECTION_SETTABLE: Record<string, (v: unknown) => unknown> = {
   "display.record.color_by": text,
 }
 
-/** A layout option, `display.list.options.<key>` or `display.record.options.<key>`: the block is open
- *  (each layout reads its own keys), so the value is read as JSON where it parses — a number, a
- *  boolean, a list — and as the string typed otherwise. */
+/**
+ * A layout option, `display.list.options.<key>` or `display.record.options.<key>`: the block is open
+ * (each layout reads its own keys), so the value is read as JSON where it parses — a number, a
+ * boolean, a list — and as the string typed otherwise.
+ */
 const OPTION_KEY = /^display\.(list|record)\.options\.[a-z][a-z0-9_]*$/
 
 const optionValue = (v: unknown): unknown => {
@@ -95,8 +97,10 @@ function setPath(obj: Record<string, unknown>, dotted: string, value: unknown): 
   at[keys[keys.length - 1]] = value
 }
 
-/** Delete a dotted path, and every block the deletion leaves empty — an empty `display.nav` is a
- *  statement nobody made. */
+/**
+ * Delete a dotted path, and every block the deletion leaves empty — an empty `display.nav` is a
+ * statement nobody made.
+ */
 function deletePath(obj: Record<string, unknown>, dotted: string): void {
   const keys = dotted.split(".")
   const trail: Record<string, unknown>[] = [obj]

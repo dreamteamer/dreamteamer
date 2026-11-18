@@ -3,8 +3,10 @@ import { entityShape, moduleRecord } from "../../lib/schema-ops.ts"
 import type { Store } from "../../store/Store.ts"
 import type { Workspace } from "../../types.ts"
 
-/** `add` on a kind nobody can scaffold honestly — refused WITH THE PATH, because "hand-authored"
- *  without the filename is a refusal the reader has to go research. */
+/**
+ * `add` on a kind nobody can scaffold honestly — refused WITH THE PATH, because "hand-authored"
+ * without the filename is a refusal the reader has to go research.
+ */
 export function refuseHandAuthored(ws: Workspace, store: Store, kind: string, id: string, moduleId?: string | null) {
   const shape = entityShape(ws, kind)
   const root = moduleId

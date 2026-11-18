@@ -14,8 +14,10 @@ import { ENGINE_ROOT } from "../helpers/ws.ts"
 const README = fs.readFileSync(path.join(ENGINE_ROOT, "README.md"), "utf8")
 const SETUP_REF = path.join(ENGINE_ROOT, "skills", "using-dreamteamer", "references", "setup.md")
 
-/** The verbs USAGE documents: the first word of every two-space-indented line that starts a verb entry,
- *  plus the record verbs it lists inline. */
+/**
+ * The verbs USAGE documents: the first word of every two-space-indented line that starts a verb entry,
+ * plus the record verbs it lists inline.
+ */
 function usageVerbs(usage) {
   const verbs = new Set()
   for (const line of usage.split("\n")) {

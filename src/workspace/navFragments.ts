@@ -55,8 +55,10 @@ interface NavModule {
   manifest: PackageJson
 }
 
-/** JSON with comments and trailing commas (what VS Code writes) as plain JSON text. Strings are kept
- *  whole: a `//` or a `,]` inside one is data. */
+/**
+ * JSON with comments and trailing commas (what VS Code writes) as plain JSON text. Strings are kept
+ * whole: a `//` or a `,]` inside one is data.
+ */
 function stripJsonc(text: string): string {
   const scan = (src: string, step: (src: string, i: number) => { text: string; at: number }) => {
     let out = ""
@@ -91,9 +93,11 @@ function stripJsonc(text: string): string {
   )
 }
 
-/** The old nav settings this workspace still sets — the names among navGroups, navOrder and navHidden
- *  whose value is a non-empty list or map — or null. An absent or unparseable file is null;
- *  `layersFolder` is never one of them. */
+/**
+ * The old nav settings this workspace still sets — the names among navGroups, navOrder and navHidden
+ * whose value is a non-empty list or map — or null. An absent or unparseable file is null;
+ * `layersFolder` is never one of them.
+ */
 export function navSettings(root: string): string[] | null {
   let settings: unknown
   try {

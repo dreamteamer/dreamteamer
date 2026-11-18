@@ -11,10 +11,12 @@ import path from "node:path"
 import { workspace, git, dt, dtStdin } from "../helpers/ws.ts"
 import { observeState } from "../../src/install/observeState.ts"
 
-/** A linked worktree of a fixture workspace. Two things the fixture does NOT do for you and a
- *  worktree exposes: `workspace({pkg})` patches package.json WITHOUT committing it, and a worktree
- *  checks out HEAD — so commit first; and the fixture's node_modules is a real dir holding a
- *  `dreamteamer` SYMLINK to the engine, so mirror that one link (never the dir) so npm never runs. */
+/**
+ * A linked worktree of a fixture workspace. Two things the fixture does NOT do for you and a
+ * worktree exposes: `workspace({pkg})` patches package.json WITHOUT committing it, and a worktree
+ * checks out HEAD — so commit first; and the fixture's node_modules is a real dir holding a
+ * `dreamteamer` SYMLINK to the engine, so mirror that one link (never the dir) so npm never runs.
+ */
 function linkedWorktree(ws, name = "a") {
   git(ws.root, ["add", "-A"])
   git(ws.root, ["commit", "-qm", `fixture: ${name}`, "--allow-empty"])

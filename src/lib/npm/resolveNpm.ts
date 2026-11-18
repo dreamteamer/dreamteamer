@@ -1,13 +1,14 @@
 import fs from "node:fs"
 import path from "node:path"
 
-/** npm, resolved BESIDE the running node first and on PATH second.
+/**
+ * npm, resolved BESIDE the running node first and on PATH second.
  *
- *  ⚠ THE ORDER IS THE MEASUREMENT (spec §15). A hook runs under `sh`, which reads no startup file,
- *  so PATH may carry nothing at all — while `process.execPath` is an absolute path to the node that
- *  is running this line, and every installer that ships node ships npm beside it. Trusting PATH
- *  first would pick a stale global npm on a machine that has both, and find nothing on a machine
- *  reached through the shim. Returns null when neither resolves, which is a board line, not a throw.
+ * ⚠ THE ORDER IS THE MEASUREMENT (spec §15). A hook runs under `sh`, which reads no startup file,
+ * so PATH may carry nothing at all — while `process.execPath` is an absolute path to the node that
+ * is running this line, and every installer that ships node ships npm beside it. Trusting PATH
+ * first would pick a stale global npm on a machine that has both, and find nothing on a machine
+ * reached through the shim. Returns null when neither resolves, which is a board line, not a throw.
  */
 export function resolveNpm(execPath: string = process.execPath, env: NodeJS.ProcessEnv = process.env): string | null {
   const bin = process.platform === "win32" ? "npm.cmd" : "npm"

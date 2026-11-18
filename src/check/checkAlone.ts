@@ -28,8 +28,10 @@ function locate(root: string, name: string): string | null {
   return fs.existsSync(path.join(npm, "package.json")) ? fs.realpathSync(npm) : null
 }
 
-/** Pack `dir` into `dest`; returns the tarball's name and the package-relative paths it ships (null
- *  when npm's --json listing does not parse — the shipped-sources judgement is then skipped). */
+/**
+ * Pack `dir` into `dest`; returns the tarball's name and the package-relative paths it ships (null
+ * when npm's --json listing does not parse — the shipped-sources judgement is then skipped).
+ */
 function npmPack(npm: string, dir: string, dest: string): { file: string | undefined; files: string[] | null } {
   const before = new Set(fs.readdirSync(dest))
   const r = spawnSync(npm, ["pack", "--json", "--silent", "--ignore-scripts", "--pack-destination", dest], {

@@ -5,8 +5,10 @@ import type { Store } from "../store/Store.ts"
 import { storageOf } from "../record/storageOf.ts"
 import type { Descriptor } from "../types.ts"
 
-/** A record under an env-pointed root outside the workspace has no repo here, so no past: said in
- *  one sentence rather than as git's "outside repository". */
+/**
+ * A record under an env-pointed root outside the workspace has no repo here, so no past: said in
+ * one sentence rather than as git's "outside repository".
+ */
 export function assertInRepo(descriptor: Descriptor, collection: string, id: string): void {
   if (storageOf(descriptor).external)
     throw new Error(

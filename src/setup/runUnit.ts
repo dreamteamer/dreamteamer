@@ -15,8 +15,10 @@ import { receiptDir, unitEnv } from "./setup.ts"
 import type { DrivenUnit, PendingAction, SetupIO, UnitRun } from "./types.ts"
 import { writeEnvAtomic } from "./lib/writeEnvAtomic.ts"
 
-/** Run one unit: inspect → plan(inputs) → apply what is consented → inspect. Never throws for a
- *  provider's fault: a throwing apply is one failed action, redacted, and the unit reads blocked. */
+/**
+ * Run one unit: inspect → plan(inputs) → apply what is consented → inspect. Never throws for a
+ * provider's fault: a throwing apply is one failed action, redacted, and the unit reads blocked.
+ */
 export async function runUnit(
   ws: Workspace,
   unit: DrivenUnit,

@@ -1,5 +1,7 @@
-/** One subject for one repo's rows. The git status letter IS the verb, which is why a
- *  single-record commit keeps exactly the subject it had when writes committed themselves. */
+/**
+ * One subject for one repo's rows. The git status letter IS the verb, which is why a
+ * single-record commit keeps exactly the subject it had when writes committed themselves.
+ */
 export function composeSubject(rows: { verb: string; collection: string; id: string }[]): string {
   if (rows.length === 1) return `dreamteamer: ${rows[0].collection} ${rows[0].verb} ${rows[0].id}`
   const collections = [...new Set(rows.map(r => r.collection))].sort()

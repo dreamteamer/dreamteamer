@@ -8,8 +8,10 @@ export function placementOf(d: Descriptor | null | undefined): Under | null {
   return d ? (storageOf(d).under ?? null) : null
 }
 
-/** `storage.under.id: nested` — the id BEGINS with the parent's id, and the file drops that segment
- *  because the parent's folder already carries it. Changing the parent is a rename. */
+/**
+ * `storage.under.id: nested` — the id BEGINS with the parent's id, and the file drops that segment
+ * because the parent's folder already carries it. Changing the parent is a rename.
+ */
 export const isNested = (under: Under | null | undefined): boolean => under?.id === "nested"
 
 /** The parent id a NESTED id begins with. */

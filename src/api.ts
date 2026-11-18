@@ -39,14 +39,18 @@ export { findWorkspace }
 export { EXTENSION_API } from "./extensions/consts.ts"
 export { declaredExtensions } from "./extensions/declaredExtensions.ts"
 export { contributedNotes } from "./records/lib/contributedNotes.ts"
-/** An extension's `check` may return `{ file, message, warning: true }`: printed as a warning, never a
- *  violation. A module reads this flag to know the engine it runs on has the channel — on one without
- *  it, a warning item would be counted as a violation. */
+/**
+ * An extension's `check` may return `{ file, message, warning: true }`: printed as a warning, never a
+ * violation. A module reads this flag to know the engine it runs on has the channel — on one without
+ * it, a warning item would be counted as a violation.
+ */
 export const CHECK_WARNINGS = true
 
-/** What every extension's `check` reports on `ws`, as `check(ws, { extra })` takes it — attributed to
- *  the extension, a throw being a violation. `dt check` and an in-process caller get one verdict. An
- *  item the extension marked `warning: true` keeps the mark: `check` prints it and does not count it. */
+/**
+ * What every extension's `check` reports on `ws`, as `check(ws, { extra })` takes it — attributed to
+ * the extension, a throw being a violation. `dt check` and an in-process caller get one verdict. An
+ * item the extension marked `warning: true` keeps the mark: `check` prints it and does not count it.
+ */
 export async function contributedViolations(ws: Workspace): Promise<{ file: string; msg: string; warning?: true }[]> {
   const out: { file: string; msg: string; warning?: true }[] = []
   // every discovered module's manifest, held to the dependency rule — the workspace's own root and the
@@ -148,10 +152,12 @@ export { childEnv } from "./lib/childEnv.ts"
 export { readHookInput } from "./install/readHookInput.ts"
 export { readStdin } from "./install/readStdin.ts"
 
-/** `dt install` on the checkout `ws`, as the CLI runs it. The compile step reopens the workspace with
- *  `opts.open` — `openWorkspace` unless a caller injects another — so the extensions npm just
- *  installed take part in that compile. The one name here that supplies a default rather than
- *  re-exporting: the checkout layer cannot import the opener that activates extensions. */
+/**
+ * `dt install` on the checkout `ws`, as the CLI runs it. The compile step reopens the workspace with
+ * `opts.open` — `openWorkspace` unless a caller injects another — so the extensions npm just
+ * installed take part in that compile. The one name here that supplies a default rather than
+ * re-exporting: the checkout layer cannot import the opener that activates extensions.
+ */
 export const installCommand = (
   ws: Workspace,
   argv: string[],

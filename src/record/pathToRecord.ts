@@ -3,8 +3,10 @@ import { placedChildAt } from "./lib/placedChildAt.ts"
 import { storageOf } from "./storageOf.ts"
 import type { Descriptor, Descriptors } from "../types.ts"
 
-/** map a workspace-relative path to {collection, id} via storage.path longest-prefix
- *  match + suffix/format (file shape) or entry (folder shape). non-records → null. */
+/**
+ * map a workspace-relative path to {collection, id} via storage.path longest-prefix
+ * match + suffix/format (file shape) or entry (folder shape). non-records → null.
+ */
 export function pathToRecord(descriptors: Descriptors, relPath: string): { collection: string; id: string } | null {
   let best: { d: Descriptor; base: string } | null = null // { d, base } — the longest root, across the write root and every record layer
   for (const d of descriptors.values()) {

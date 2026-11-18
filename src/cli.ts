@@ -67,13 +67,17 @@ export const WORKSPACE_FLAGS: Record<string, string[]> = {
 
 export { CORE_VERBS } from "./coreVerbs.ts"
 
-/** A core verb: its exit code — or nothing, when the process must stay alive (`compile --watch`).
- *  Each command opens the workspace itself, so `init`, `help`, `version` and `check --alone` can
- *  answer without one. */
+/**
+ * A core verb: its exit code — or nothing, when the process must stay alive (`compile --watch`).
+ * Each command opens the workspace itself, so `init`, `help`, `version` and `check --alone` can
+ * answer without one.
+ */
 type Command = (args: string[]) => Promise<number | void>
 
-/** Every core verb, one file each. Each entry imports its file lazily and calls that module's own
- *  function, so the call is statically resolved and `layers` sees the edge. */
+/**
+ * Every core verb, one file each. Each entry imports its file lazily and calls that module's own
+ * function, so the call is statically resolved and `layers` sees the edge.
+ */
 const COMMANDS: Record<string, Command> = {
   init: async args => (await import("./commands/initCommand.ts")).initCommand(args),
   install: async args => (await import("./commands/installCommand.ts")).installCommand(args),

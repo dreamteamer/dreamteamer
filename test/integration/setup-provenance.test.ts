@@ -19,8 +19,10 @@ function put(dir, files) {
     fs.writeFileSync(path.join(dir, rel), text)
   }
 }
-/** Every workspace file (hash + mtime), node_modules/ and .git/ PRUNED BEFORE DESCENT and no link
- *  followed — the engine is linked into node_modules, and a recursive readdir through it never ends. */
+/**
+ * Every workspace file (hash + mtime), node_modules/ and .git/ PRUNED BEFORE DESCENT and no link
+ * followed — the engine is linked into node_modules, and a recursive readdir through it never ends.
+ */
 function files(root, dir = "", out = {}) {
   for (const e of fs.readdirSync(path.join(root, dir), { withFileTypes: true })) {
     const rel = path.join(dir, e.name),
@@ -36,11 +38,13 @@ const skill = name => ({
   [`skills/${name}/SKILL.md`]: `---\nname: ${name}\ndescription: "use when testing ${name}"\n---\n\nA fixture.\n`,
 })
 
-/** Every channel and every policy the convention leans on, in one workspace:
- *  inline `alpha` (SETUP.md) · direct dependency `beta-kit`, an extension with doctor rows (SETUP.md) ·
- *  direct dependency `gamma-kit`, an extension whose doctor returns NO rows and ships no SETUP.md ·
- *  bundle `kit-bundle` whose sub-module `delta` carries SETUP.md · `hidden-kit`, in node_modules but
- *  never declared (transitive) · inline `off`, disabled. The last two carry a SETUP.md nobody may follow. */
+/**
+ * Every channel and every policy the convention leans on, in one workspace:
+ * inline `alpha` (SETUP.md) · direct dependency `beta-kit`, an extension with doctor rows (SETUP.md) ·
+ * direct dependency `gamma-kit`, an extension whose doctor returns NO rows and ships no SETUP.md ·
+ * bundle `kit-bundle` whose sub-module `delta` carries SETUP.md · `hidden-kit`, in node_modules but
+ * never declared (transitive) · inline `off`, disabled. The last two carry a SETUP.md nobody may follow.
+ */
 function fixture() {
   const ws = workspace({ compile: false, pkg: { disable: ["modules/off"] } })
   const nm = name => path.join(ws.root, "node_modules", name)

@@ -323,9 +323,11 @@ describe("dt relations", () => {
 })
 
 describe("rm-field on a module-shipped collection", () => {
-  /** A workspace whose collection `patients` is shipped by a module other than the workspace
-   *  module — the ordinary case: a workspace's domain collections almost always live in a module.
-   *  `visits` (the workspace module's) references it. */
+  /**
+   * A workspace whose collection `patients` is shipped by a module other than the workspace
+   * module — the ordinary case: a workspace's domain collections almost always live in a module.
+   * `visits` (the workspace module's) references it.
+   */
   const withModule = () => {
     const ws = workspace({ compile: false })
     const mod = path.join(ws.root, "modules", "clinic")

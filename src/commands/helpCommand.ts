@@ -3,8 +3,10 @@ import { openWorkspace } from "../openWorkspace.ts"
 import type { Workspace } from "../types.ts"
 import { USAGE } from "../usage.ts"
 
-/** `dt help` works OUTSIDE a workspace too — a person who just ran `npm i -g dreamteamer` on a bare
- *  machine has nothing else to read. Inside one, each installed extension's own usage follows the engine's. */
+/**
+ * `dt help` works OUTSIDE a workspace too — a person who just ran `npm i -g dreamteamer` on a bare
+ * machine has nothing else to read. Inside one, each installed extension's own usage follows the engine's.
+ */
 export async function helpCommand(): Promise<number> {
   let ws = null
   try {

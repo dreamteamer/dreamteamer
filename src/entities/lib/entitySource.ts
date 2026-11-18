@@ -3,8 +3,10 @@ import { entityShape } from "../../lib/schema-ops.ts"
 import { readManifest } from "../../runtime/runtime.ts"
 import type { Workspace } from "../../types.ts"
 
-/** The source file (or folder) ONE entity is compiled from, asked of the manifest — the same
- *  question `uiViewSourceFile` asks, for the five other kinds. */
+/**
+ * The source file (or folder) ONE entity is compiled from, asked of the manifest — the same
+ * question `uiViewSourceFile` asks, for the five other kinds.
+ */
 export function entitySource(
   ws: Workspace,
   kind: string,

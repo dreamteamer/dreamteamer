@@ -16,8 +16,10 @@ import path from "node:path"
 import { spawnSync } from "node:child_process"
 import { workspace, simpleCollection, compileQuietly, dt, dtIn, git, ENGINE_ROOT } from "../helpers/ws.ts"
 
-/** An HQ workspace and one project WORKSPACE cloned under its git_modules/ — a full, compiled workspace
- *  of its own (its manifest names `workspace_module`, so the HQ reads it as a layer). Both carry `widgets`. */
+/**
+ * An HQ workspace and one project WORKSPACE cloned under its git_modules/ — a full, compiled workspace
+ * of its own (its manifest names `workspace_module`, so the HQ reads it as a layer). Both carry `widgets`.
+ */
 function hqWithLayer() {
   const widgets = simpleCollection({ storage: { suffix: "widget" } })
   const hq = workspace({ collections: { widgets } })

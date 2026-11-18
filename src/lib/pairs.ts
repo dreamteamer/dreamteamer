@@ -1,5 +1,7 @@
-/** `field=value` positionals, with the same promote-on-repeat rule the flags have. It was
- *  `Object.fromEntries`, which keeps the LAST pair — `dt set c/id tags=a tags=b` wrote `[b]`. */
+/**
+ * `field=value` positionals, with the same promote-on-repeat rule the flags have. It was
+ * `Object.fromEntries`, which keeps the LAST pair — `dt set c/id tags=a tags=b` wrote `[b]`.
+ */
 export function pairs(list: string[]): Record<string, string | string[]> {
   const out: Record<string, string | string[]> = {}
   for (const p of list) {

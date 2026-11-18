@@ -279,8 +279,10 @@ export interface Presentation {
 /** Parsed command-line flags (`parseArgs`): `--x v` a string, a bare `--x` true, a repeated flag a list */
 export type Flags = Record<string, string | boolean | string[]>
 
-/** The values actually present in one field of a collection (`distinctValues`, `dt values`). `count` is
- *  null for an enum's declared values; `skipped` names a field kind that has no value set. */
+/**
+ * The values actually present in one field of a collection (`distinctValues`, `dt values`). `count` is
+ * null for an enum's declared values; `skipped` names a field kind that has no value set.
+ */
 export interface DistinctValues {
   collection: string
   field: string
@@ -370,8 +372,10 @@ export interface Contribution {
   check?(ctx: ExtensionContext): CheckItem[] | void | Promise<CheckItem[] | void>
   /** machine checks: `dt doctor` renders the rows as one capability named after the extension */
   doctor?(ctx: ExtensionContext): DoctorRow[] | void | Promise<DoctorRow[] | void>
-  /** setup units (`references/extensions.md`): `[{ id, version: 1, inputs, inspect, plan, apply }]` —
-   *  untrusted until `validateSetup` checks every unit at load, so typed as what it is */
+  /**
+   * setup units (`references/extensions.md`): `[{ id, version: 1, inputs, inspect, plan, apply }]` —
+   * untrusted until `validateSetup` checks every unit at load, so typed as what it is
+   */
   setup?: unknown[]
   /** a line about a record's state that `dt next` prints under the bound commands — synchronous */
   next?(ctx: { root: string; ws: Workspace; collection: string; ids: string[] }): { id: string; text: string }[] | void

@@ -33,8 +33,10 @@ export interface ExportChange {
   why: string
 }
 
-/** The manifest of the repo rooted at `dir` — `{ <collection>: { <id>: { label, from? } } }` — or null
- *  when it has none. An unparseable file throws, naming its path: it is never read as empty. */
+/**
+ * The manifest of the repo rooted at `dir` — `{ <collection>: { <id>: { label, from? } } }` — or null
+ * when it has none. An unparseable file throws, naming its path: it is never read as empty.
+ */
 /** A repo's exports manifest: per collection, per id, its display label and the package that held it. */
 export type ExportRefs = Record<string, Record<string, { label: string; from?: string }>>
 

@@ -1,9 +1,11 @@
 import type { DreamteamerBlock, Flags } from "../types.ts"
 import { KNOWN_HARNESSES } from "../compile/consts.ts"
 
-/** The `dreamteamer` block init leaves in package.json: its seeds, under whatever the EXISTING block
- *  already says — the existing key always wins over a flag. One function, because `init --ready` must
- *  judge exactly the paths init will write, and a second copy of this precedence is how it did not. */
+/**
+ * The `dreamteamer` block init leaves in package.json: its seeds, under whatever the EXISTING block
+ * already says — the existing key always wins over a flag. One function, because `init --ready` must
+ * judge exactly the paths init will write, and a second copy of this precedence is how it did not.
+ */
 export function seedBlock(flags: Flags = {}, existing: DreamteamerBlock = {}): DreamteamerBlock {
   // EVERY known harness by default, and this is the operator's explicit call over the architecture
   // review's dissent — recorded, not elided: it writes AGENTS.md, GEMINI.md and .cursor/rules/ into

@@ -15,18 +15,20 @@ import type { LoadedExtension, Workspace } from "../types.ts"
  */
 const CLAUDE_HOOKS: Record<string, string> = { SessionStart: "install --hook" }
 
-/** Print the harness snippets for this workspace's declared harnesses.
+/**
+ * Print the harness snippets for this workspace's declared harnesses.
  *
- *  ⚠ NO ABSOLUTE MACHINE PATH IS EVER RENDERED, and the command is `sh <script>` rather than a bare
- *  `npm`/`npx`/`node` — the two constraints that between them decide every character of the line.
- *  `$CLAUDE_PROJECT_DIR` is documented to stay at the MAIN checkout even inside a worktree, which is
- *  exactly the engine wanted: the primary's pinned one, never whatever a fresh worktree lacks. The
- *  worktree's own cwd arrives in the hook's stdin instead.
+ * ⚠ NO ABSOLUTE MACHINE PATH IS EVER RENDERED, and the command is `sh <script>` rather than a bare
+ * `npm`/`npx`/`node` — the two constraints that between them decide every character of the line.
+ * `$CLAUDE_PROJECT_DIR` is documented to stay at the MAIN checkout even inside a worktree, which is
+ * exactly the engine wanted: the primary's pinned one, never whatever a fresh worktree lacks. The
+ * worktree's own cwd arrives in the hook's stdin instead.
  *
- *  ⚠ AND THE ENGINE NEVER WRITES A HARNESS SETTINGS FILE. `.claude/settings.json` is the operator's,
- *  reviewed like any config change; a fifth harness channel writing into a user-owned file is a
- *  decision this engine has not made (spec §13.7). So this verb PRINTS — snippets on stdout, so the
- *  output can be piped, and everything else on stderr so it stays parseable. */
+ * ⚠ AND THE ENGINE NEVER WRITES A HARNESS SETTINGS FILE. `.claude/settings.json` is the operator's,
+ * reviewed like any config change; a fifth harness channel writing into a user-owned file is a
+ * decision this engine has not made (spec §13.7). So this verb PRINTS — snippets on stdout, so the
+ * output can be piped, and everything else on stderr so it stays parseable.
+ */
 function printAdapters(
   ws: Workspace,
   {
@@ -79,15 +81,17 @@ function printAdapters(
   return 0
 }
 
-/** `dt install` on THIS checkout.
+/**
+ * `dt install` on THIS checkout.
  *
- *  ⚠ `--json` IS NOT A DRY RUN: it applies the plan and then reports it as data. Which means the
- *  run that most needs to be parseable — the FIRST install in a fresh worktree — is also the one
- *  with the most to say: `compile` logs its summary through console.log, and the shelled-out steps
- *  write to whatever handles they inherit. So under `--json` stdout carries the payload and
- *  NOTHING else: the board goes to stderr (a human watching a piped run still wants it),
- *  console.log is pointed at stderr for the duration, and each subprocess is handed stderr for its
- *  own stdout. A `--json` that only parses on an already-settled checkout is not an interface. */
+ * ⚠ `--json` IS NOT A DRY RUN: it applies the plan and then reports it as data. Which means the
+ * run that most needs to be parseable — the FIRST install in a fresh worktree — is also the one
+ * with the most to say: `compile` logs its summary through console.log, and the shelled-out steps
+ * write to whatever handles they inherit. So under `--json` stdout carries the payload and
+ * NOTHING else: the board goes to stderr (a human watching a piped run still wants it),
+ * console.log is pointed at stderr for the duration, and each subprocess is handed stderr for its
+ * own stdout. A `--json` that only parses on an already-settled checkout is not an interface.
+ */
 export async function installCheckout(
   ws: Workspace,
   rest: string[],

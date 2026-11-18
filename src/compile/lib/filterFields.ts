@@ -1,5 +1,7 @@
-/** The field names a filter conditions on at its top level, through `_and` / `_or`. A nested
- *  non-operator key is a field of the referenced record, which only that collection can judge. */
+/**
+ * The field names a filter conditions on at its top level, through `_and` / `_or`. A nested
+ * non-operator key is a field of the referenced record, which only that collection can judge.
+ */
 export function filterFields(filter: unknown): string[] {
   const out: string[] = []
   for (const [k, v] of Object.entries(filter ?? {})) {

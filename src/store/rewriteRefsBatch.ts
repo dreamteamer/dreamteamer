@@ -91,21 +91,25 @@ export function rewriteRefsBatch(store: Store, pairs: [oldRef: string, newRef: s
   return { touched, rewrites, skipped, ambiguous, restore }
 }
 
-/** What may sit between a wikilink's TARGET and its closing `]]`: an optional `#anchor`, then an
- *  optional `|label`. Two capture groups, in that order, both handed back verbatim by the rewrite.
+/**
+ * What may sit between a wikilink's TARGET and its closing `]]`: an optional `#anchor`, then an
+ * optional `|label`. Two capture groups, in that order, both handed back verbatim by the rewrite.
  *
- *  ⚠ THE ANCHOR IS PART OF THE LINK, NOT OF THE TARGET. Both passes used to stop at the `]]` or the
- *  `|`, so `[[id#heading]]` survived a rename of `id` untouched — the bare form silently, the
- *  qualified form counted only as raw prose. Only the record moved; the heading inside it did not,
- *  so the anchor rides through byte for byte, whatever is in it (a heading slug is not an id — it
- *  holds spaces, case and punctuation). `[^\]|]` on the anchor is what keeps the two groups from
- *  swallowing each other. */
+ * ⚠ THE ANCHOR IS PART OF THE LINK, NOT OF THE TARGET. Both passes used to stop at the `]]` or the
+ * `|`, so `[[id#heading]]` survived a rename of `id` untouched — the bare form silently, the
+ * qualified form counted only as raw prose. Only the record moved; the heading inside it did not,
+ * so the anchor rides through byte for byte, whatever is in it (a heading slug is not an id — it
+ * holds spaces, case and punctuation). `[^\]|]` on the anchor is what keeps the two groups from
+ * swallowing each other.
+ */
 const ANCHOR_AND_LABEL = "(#[^\\]|]*)?(\\|[^\\]]*)?"
 
-/** Raw occurrences of a pair's OLD ref in a body — what `rewriteRefsBatch` reports as skipped prose.
- *  An occurrence lying INSIDE one of `newRef` is not prose that was skipped, it is the rewrite this
- *  pass just made: `finance/ledger/beta` ends in `ledger/beta` and the boundary allows it. Only the
- *  pairs whose new spelling ends in the old one (`p.newRefRe`) pay for the second scan. */
+/**
+ * Raw occurrences of a pair's OLD ref in a body — what `rewriteRefsBatch` reports as skipped prose.
+ * An occurrence lying INSIDE one of `newRef` is not prose that was skipped, it is the rewrite this
+ * pass just made: `finance/ledger/beta` ends in `ledger/beta` and the boundary allows it. Only the
+ * pairs whose new spelling ends in the old one (`p.newRefRe`) pay for the second scan.
+ */
 function countRawOccurrences(body: string, p: { refRe: RegExp; newRefRe: RegExp | null }): number {
   p.refRe.lastIndex = 0
   if (!p.newRefRe) return (body.match(p.refRe) ?? []).length
@@ -120,9 +124,11 @@ function countRawOccurrences(body: string, p: { refRe: RegExp; newRefRe: RegExp 
   return n
 }
 
-/** The longest prefix every needle shares, or '' if they share none. Used ONLY as a negative filter
- *  (see rewriteRefsBatch): anything containing a needle contains this, so anything without it
- *  contains no needle — and a hit means nothing at all. */
+/**
+ * The longest prefix every needle shares, or '' if they share none. Used ONLY as a negative filter
+ * (see rewriteRefsBatch): anything containing a needle contains this, so anything without it
+ * contains no needle — and a hit means nothing at all.
+ */
 function commonPrefix(needles: string[]): string {
   let p = needles[0] ?? ""
   for (const n of needles) {

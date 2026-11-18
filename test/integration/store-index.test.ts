@@ -22,8 +22,10 @@ const ITEMS = simpleCollection({ ids: { pattern: "^[a-z0-9][a-z0-9/._-]*$" } })
 
 const base = (pkg?) => workspace({ collections: { items: ITEMS }, pkg })
 
-/** How many times `fn` reads a directory under the collection's data dir — i.e. how many cold walks
- *  the store paid. Counted, not timed. */
+/**
+ * How many times `fn` reads a directory under the collection's data dir — i.e. how many cold walks
+ * the store paid. Counted, not timed.
+ */
 function walks(root, fn) {
   const real = fs.readdirSync
   const dir = path.join(root, "data", "items")

@@ -43,8 +43,10 @@ const ANALYSES = coll("analysis", { meetings: { type: "meetings", many: true } }
 const SET_NULL_ANALYSES = coll("analysis", { meetings: { type: "meetings", many: true, on_delete: "set-null" } })
 
 const REL_COLLECTIONS = { meetings: MEETINGS, recordings: RECORDINGS, summaries: SUMMARIES, analyses: ANALYSES }
-/** The four-collection cast, compiled once and copied per test (seedOnce) — every test here starts
- *  from it empty. A test that passes `extra` (auto_commit) gets a workspace of its own. */
+/**
+ * The four-collection cast, compiled once and copied per test (seedOnce) — every test here starts
+ * from it empty. A test that passes `extra` (auto_commit) gets a workspace of its own.
+ */
 const relBase = seedOnce(() => workspace({ collections: REL_COLLECTIONS }))
 const relWorkspace = (extra?: Record<string, unknown>) =>
   extra ? workspace({ collections: REL_COLLECTIONS, ...extra }) : relBase()
@@ -185,9 +187,11 @@ describe("the store maintains mirrors", () => {
     assert.equal(readFile(ws.root, "data/summaries/two.summary.md"), null)
   })
 
-  /** Plant a claim on a meeting's scalar `summary` mirror that no summary owns — a hand-edit, or one
-   *  side of a merge. The owner-side `unique` check cannot see it (no owner holds the value), so the
-   *  conflict is only discoverable on the TARGET, read after the owner has been written. */
+  /**
+   * Plant a claim on a meeting's scalar `summary` mirror that no summary owns — a hand-edit, or one
+   * side of a merge. The owner-side `unique` check cannot see it (no owner holds the value), so the
+   * conflict is only discoverable on the TARGET, read after the owner has been written.
+   */
   const plantStaleSummary = (ws, meeting) => {
     const f = `${ws.root}/data/meetings/${meeting}.meeting.md`
     fs.writeFileSync(f, fs.readFileSync(f, "utf8").replace(/^---\n/, "---\nsummary: summaries/old\n"))

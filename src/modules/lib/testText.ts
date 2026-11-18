@@ -1,5 +1,7 @@
-/** The one test a new module starts with: installed the way a stranger installs it, on the engine that
- *  runs the test, and checked. `npm test` runs it (`node --test`). */
+/**
+ * The one test a new module starts with: installed the way a stranger installs it, on the engine that
+ * runs the test, and checked. `npm test` runs it (`node --test`).
+ */
 export function testText({ id }: { id: string }): string {
   return `// ${id} — installed into a fresh workspace on the engine running this test, the way a stranger installs it.
 import { test } from 'node:test';

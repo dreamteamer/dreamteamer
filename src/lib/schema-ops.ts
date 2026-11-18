@@ -15,16 +15,20 @@ import { compile, kindDir } from "../compile/compile.ts"
 import { moduleRows } from "../workspace/moduleRows.ts"
 import type { ModuleRecordRow, SourceDoc } from "../workspace/types.ts"
 import { ENTITY_SHAPE, IN_NODE_MODULES } from "./consts.ts"
-/** The compile half of the gate, under the same lock, with no source write and no commit — for a
- *  schema op that turns out to ask for what is already on disk. Materializing `.dreamteamer/` is the
- *  point rather than a side effect: the caller is about to report success, and success has always
- *  meant "the compiled runtime is valid and current". */
+/**
+ * The compile half of the gate, under the same lock, with no source write and no commit — for a
+ * schema op that turns out to ask for what is already on disk. Materializing `.dreamteamer/` is the
+ * point rather than a side effect: the caller is about to report success, and success has always
+ * meant "the compiled runtime is valid and current".
+ */
 export function compileGated(ws: Workspace, store: Store): 0 {
   return store.withWriteLock(() => compile(ws))
 }
 
-/** One module, or the refusal §13 requires: `no module "nope" — known: core, hr, default (dt list
- *  modules). A module is named by its id.` */
+/**
+ * One module, or the refusal §13 requires: `no module "nope" — known: core, hr, default (dt list
+ * modules). A module is named by its id.`
+ */
 export function moduleRecord(store: Store, id: string): ModuleRecordRow {
   const rows = moduleRows(store)
   const hit = rows.find(r => r.id === id)
@@ -34,12 +38,16 @@ export function moduleRecord(store: Store, id: string): ModuleRecordRow {
   )
 }
 
-/** id → the package `name` its sources actually spell, which is what `dependencies` and `disable`
- *  are written in. Equal to the id for anything `add modules` created. */
+/**
+ * id → the package `name` its sources actually spell, which is what `dependencies` and `disable`
+ * are written in. Equal to the id for anything `add modules` created.
+ */
 export const packageNameOf = (store: Store, id: string): string | undefined => moduleRecord(store, id).fields.name
 
-/** Read → mutate the `dreamteamer` section → write, preserving every other key and the tab
- *  indentation `init` uses. Returns the file path so a caller can put it in a pathspec. */
+/**
+ * Read → mutate the `dreamteamer` section → write, preserving every other key and the tab
+ * indentation `init` uses. Returns the file path so a caller can put it in a pathspec.
+ */
 export function editModulePkg(file: string, mutate: (block: DreamteamerBlock, pkg: PackageJson) => void): string {
   const pkg = JSON.parse(fs.readFileSync(file, "utf8"))
   pkg.dreamteamer ??= {}
@@ -51,9 +59,11 @@ export function editModulePkg(file: string, mutate: (block: DreamteamerBlock, pk
 export const nameList = (v: unknown): string[] =>
   (Array.isArray(v) ? v : String(v).split(",")).map(x => String(x).trim()).filter(Boolean)
 
-/** A position label back to its path from the document root: `constraints[0].if.properties.status`
- *  → `['constraints', 0, 'if', 'properties', 'status']`. Labels are built from field names and
- *  operator keys, neither of which carries a `.` or a `[`. */
+/**
+ * A position label back to its path from the document root: `constraints[0].if.properties.status`
+ * → `['constraints', 0, 'if', 'properties', 'status']`. Labels are built from field names and
+ * operator keys, neither of which carries a `.` or a `[`.
+ */
 export const pathOf = (label: string): (string | number)[] =>
   [...label.matchAll(/([^.[\]]+)|\[(\d+)\]/g)].map(m => (m[2] !== undefined ? Number(m[2]) : m[1]))
 
@@ -92,16 +102,20 @@ export function refusePositions(what: string, positions: Position[]): void {
   )
 }
 
-/** The workspace's writable source dir for a kind (workspace_module aware). `kindDir` picks the
- *  layout that module already uses and falls back to flat, so a `collections add` never splits a
- *  half-moved module across both. */
+/**
+ * The workspace's writable source dir for a kind (workspace_module aware). `kindDir` picks the
+ * layout that module already uses and falls back to flat, so a `collections add` never splits a
+ * half-moved module across both.
+ */
 export function workspaceSystemDir(ws: Workspace, kind: string): string {
   const wm = ws.pkg.dreamteamer?.workspace_module
   return kindDir(wm ? path.join(ws.root, "modules", wm) : ws.root, kind)
 }
 
-/** The module ids whose sources declare this collection, base first — for the "declared only by X"
- *  refusal, which has to name them to be actionable. */
+/**
+ * The module ids whose sources declare this collection, base first — for the "declared only by X"
+ * refusal, which has to name them to be actionable.
+ */
 export function declaringModules(ws: Workspace, store: Store, collection: string): string[] {
   const { base, overlays } = baseDescriptorSource(ws, collection)
   const rows = moduleRows(store)
@@ -109,15 +123,19 @@ export function declaringModules(ws: Workspace, store: Store, collection: string
   return [...new Set([base, ...overlays].filter(Boolean).map(idOf))]
 }
 
-/** The source file ONE module contributes to a collection — the read half of `--module`. Exported
- *  because `dt get collections/<c> --module <m>` is the only way to see what a given module actually
- *  wrote, and the merged descriptor cannot answer it. */
+/**
+ * The source file ONE module contributes to a collection — the read half of `--module`. Exported
+ * because `dt get collections/<c> --module <m>` is the only way to see what a given module actually
+ * wrote, and the merged descriptor cannot answer it.
+ */
 export function collectionSourceFileFor(ws: Workspace, store: Store, collection: string, moduleId?: string | null) {
   return collectionSourceFile(ws, store, collection, moduleId)
 }
 
-/** Remove now-empty parents up to (not including) the data root — a moved collection leaves its
- *  namespace folder behind otherwise. */
+/**
+ * Remove now-empty parents up to (not including) the data root — a moved collection leaves its
+ * namespace folder behind otherwise.
+ */
 export function pruneEmpty(dir: string, stopAt: string): void {
   while (dir !== stopAt && dir.startsWith(stopAt) && fs.existsSync(dir) && fs.readdirSync(dir).length === 0) {
     fs.rmdirSync(dir)
@@ -125,8 +143,10 @@ export function pruneEmpty(dir: string, stopAt: string): void {
   }
 }
 
-/** Deep value equality as a string, key ORDER ignored — "is this already exactly that field" must
- *  not turn on whether the keys came back in authored order or in flag order. */
+/**
+ * Deep value equality as a string, key ORDER ignored — "is this already exactly that field" must
+ * not turn on whether the keys came back in authored order or in flag order.
+ */
 export function canonical(v: unknown): string {
   if (v === null || typeof v !== "object") return JSON.stringify(v ?? null)
   if (Array.isArray(v)) return `[${v.map(canonical).join(",")}]`
@@ -159,9 +179,11 @@ export function uiViewSourceFile(ws: Workspace, id: string): { file: string; shi
   return { file: path.join(ws.root, shipped), shipped }
 }
 
-/** The shape of one kind — the table above, else DERIVED from the compiled descriptor, which is how
- *  a kind an extension contributes (`proofs`) gets `rm · rename · set` without this file naming it:
- *  `storage.suffix` + the format's extension, one file per id. */
+/**
+ * The shape of one kind — the table above, else DERIVED from the compiled descriptor, which is how
+ * a kind an extension contributes (`proofs`) gets `rm · rename · set` without this file naming it:
+ * `storage.suffix` + the format's extension, one file per id.
+ */
 export function entityShape(ws: Workspace, kind: string): { suffix: string; folder: boolean } {
   if (ENTITY_SHAPE[kind]) return ENTITY_SHAPE[kind]
   const d = loadDescriptors(ws.root).get(kind)
@@ -170,8 +192,10 @@ export function entityShape(ws: Workspace, kind: string): { suffix: string; fold
   return { suffix: `.${storage.suffix}${EXT[storage.format] ?? ".md"}`, folder: storage.shape === "folder" }
 }
 
-/** Refuse a write into an installed package, with `disable` as the remedy — the message every other
- *  op in this file already gives, in one place. */
+/**
+ * Refuse a write into an installed package, with `disable` as the remedy — the message every other
+ * op in this file already gives, in one place.
+ */
 export function refuseNpmEntity(kind: string, id: string, shipped: string | null): void {
   if (!shipped || !IN_NODE_MODULES(shipped)) return
   throw new Error(

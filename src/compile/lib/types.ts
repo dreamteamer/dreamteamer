@@ -20,8 +20,10 @@ export interface Contributions {
   paragraphs: string[]
 }
 
-/** A compiled entry's YAML — a module record, a mixin, a command-binding, a skill's frontmatter — as far as
- *  the harness surface reads it. Sources were validated by compile; this only names the keys used here. */
+/**
+ * A compiled entry's YAML — a module record, a mixin, a command-binding, a skill's frontmatter — as far as
+ * the harness surface reads it. Sources were validated by compile; this only names the keys used here.
+ */
 export interface EntryDoc {
   name?: string
   title?: string

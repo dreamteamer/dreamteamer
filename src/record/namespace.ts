@@ -32,7 +32,9 @@ export function defaultStoragePath(qualified: string, namespaces: string[], data
   return ns ? `${dataPath}/${ns}/${base}` : `${dataPath}/${base}`
 }
 
-/** How a command id is typed: `/<id>`, with a namespace folder spelled as claude-code spells it —
- *  `rnd/design` is `/rnd:design`. One rule for the orientation block, the bindings section, the
- *  commands index and `dt next`, so what a session reads is what it types. */
+/**
+ * How a command id is typed: `/<id>`, with a namespace folder spelled as claude-code spells it —
+ * `rnd/design` is `/rnd:design`. One rule for the orientation block, the bindings section, the
+ * commands index and `dt next`, so what a session reads is what it types.
+ */
 export const slash = (id: string): string => `/${String(id).replace(/\//g, ":")}`

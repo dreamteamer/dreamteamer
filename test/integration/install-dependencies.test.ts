@@ -47,9 +47,11 @@ const writeProbe = root => {
   fs.writeFileSync(probe, dump({ name: "first" }))
 }
 
-/** The PUBLIC installer, called the way an API consumer calls it — `installCommand(await
- *  openWorkspace(root), argv)` and no options — in a child process, so its board stays out of the
- *  test runner's stdout. */
+/**
+ * The PUBLIC installer, called the way an API consumer calls it — `installCommand(await
+ * openWorkspace(root), argv)` and no options — in a child process, so its board stays out of the
+ * test runner's stdout.
+ */
 const apiInstall = (cwd, ...argv) => {
   const script = `import { openWorkspace, installCommand } from ${JSON.stringify(path.join(ENGINE_ROOT, "src", "api.ts"))};
 process.exitCode = await installCommand(await openWorkspace(process.cwd()), ${JSON.stringify(argv)});`
@@ -62,8 +64,10 @@ process.exitCode = await installCommand(await openWorkspace(process.cwd()), ${JS
   return { code: r.status, stdout: r.stdout ?? "", stderr: r.stderr ?? "" }
 }
 
-/** A workspace whose node_modules holds ONLY the dev-linked engine, and which declares an extension
- *  (`probe-kit`, a local file: package) that is not installed yet — a fresh checkout. */
+/**
+ * A workspace whose node_modules holds ONLY the dev-linked engine, and which declares an extension
+ * (`probe-kit`, a local file: package) that is not installed yet — a fresh checkout.
+ */
 function freshCheckout({ missing = "probe-kit", withProbe = true }: Record<string, any> = {}) {
   const ws = workspace({ compile: false })
   const vendor = path.join(ws.root, "vendor", "probe-kit")

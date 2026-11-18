@@ -5,8 +5,10 @@ import { storageOf } from "../../record/storageOf.ts"
 import type { Store } from "../Store.ts"
 import { mirrorRemedy } from "./mirrorRemedy.ts"
 
-/** `repo` is the referring record's: the layer that holds it, null for the write root — whose exports
- *  manifest may vouch for an id no root here holds, exactly as `check` reads it. */
+/**
+ * `repo` is the referring record's: the layer that holds it, null for the write root — whose exports
+ * manifest may vouch for an id no root here holds, exactly as `check` reads it.
+ */
 export function checkRefs(store: Store, d: Descriptor, fields: Fields, repo: string | null = null): void {
   for (const [key, f] of Object.entries(fieldsOf(d))) {
     const targets = targetsOf(f)

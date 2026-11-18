@@ -27,8 +27,10 @@ function git(root: string, args: string[]): { status: number | null; stderr: str
   return { status: r.error ? null : r.status, stderr: r.stderr ?? "" }
 }
 
-/** Could workspace-relative `rel` end up in a commit? `{ safe }` or `{ safe: false, reason }`: in a
- *  repository git decides (not tracked, and ignored); outside any repository nothing can be committed. */
+/**
+ * Could workspace-relative `rel` end up in a commit? `{ safe }` or `{ safe: false, reason }`: in a
+ * repository git decides (not tracked, and ignored); outside any repository nothing can be committed.
+ */
 export function gitExposure(root: string, rel: string): { safe: boolean; reason?: string } {
   const top = git(root, ["rev-parse", "--show-toplevel"])
   if (top.status !== 0) {

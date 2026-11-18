@@ -1,8 +1,10 @@
 import type { Relation } from "./types.ts"
 import type { Fields } from "../types.ts"
 
-/** What each target record's mirror SHOULD hold, computed from the owning side.
- *  Sorted arrays (ids are usually date-prefixed, so that reads chronological); a scalar for unique. */
+/**
+ * What each target record's mirror SHOULD hold, computed from the owning side.
+ * Sorted arrays (ids are usually date-prefixed, so that reads chronological); a scalar for unique.
+ */
 export function expectedMirrors(
   rel: Relation,
   ownerRecords: Iterable<{ id: string; fields?: Fields }>

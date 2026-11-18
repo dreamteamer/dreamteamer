@@ -42,8 +42,10 @@ export const LIST_OPS = ["_in", "_nin"]
 /** The fields compile injects into every collection — no source declares one. */
 export const INJECTED = new Set(Object.keys(INJECTED_FIELDS))
 
-/** Operators whose operand matches PART of a value: a rename can change what they select, and no
- *  mechanical rewrite says how — so one that selects the old value is refused by name. */
+/**
+ * Operators whose operand matches PART of a value: a rename can change what they select, and no
+ * mechanical rewrite says how — so one that selects the old value is refused by name.
+ */
 export const PARTIAL_OPS: Record<string, (v: string, o: string) => boolean> = {
   _contains: (v, o) => v.includes(o),
   _ncontains: (v, o) => v.includes(o),

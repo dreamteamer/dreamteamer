@@ -32,10 +32,12 @@ export function indexAdd(
   store._idsCache.set(collection, { key: store._idsKey(d), ids })
 }
 
-/** Is `a` yielded before `b` by `walk()`? It sorts each directory level and DESCENDS before it
- *  yields, so the order is a segment-wise compare of the relative paths and never a plain string
- *  one: `2026-01.entry.md` sorts before `2026/x.entry.md` as a string ('-' < '/') and after it in
- *  the walk, because readdir meets the directory `2026` first and empties it on the way past. */
+/**
+ * Is `a` yielded before `b` by `walk()`? It sorts each directory level and DESCENDS before it
+ * yields, so the order is a segment-wise compare of the relative paths and never a plain string
+ * one: `2026-01.entry.md` sorts before `2026/x.entry.md` as a string ('-' < '/') and after it in
+ * the walk, because readdir meets the directory `2026` first and empties it on the way past.
+ */
 function beforeInWalk(a: string, b: string): boolean {
   const A = a.split(path.sep)
   const B = b.split(path.sep)

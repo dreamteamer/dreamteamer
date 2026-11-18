@@ -1,8 +1,10 @@
 // Its own file so `openWorkspace` can reserve the core verbs without importing the CLI.
 
-/** Every verb this CLI answers itself — the set an extension's `commands` may not claim. The retired
- *  spellings are in it too: they answer with their replacement, and an extension taking one over
- *  would turn a loud translation into a different command. */
+/**
+ * Every verb this CLI answers itself — the set an extension's `commands` may not claim. The retired
+ * spellings are in it too: they answer with their replacement, and an extension taking one over
+ * would turn a loud translation into a different command.
+ */
 export const CORE_VERBS = [
   "init",
   "install",

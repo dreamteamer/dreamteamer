@@ -17,10 +17,12 @@ const isLink = (p: string): boolean => {
   }
 }
 
-/** Every declared local asset, workspace-level (root-relative) and module-level (module-relative),
- *  DEDUPED by rel with the first declaration winning: a step's id is `asset:<rel>`, so two modules
- *  declaring the same path would plan two steps under one id and the second would be dropped
- *  silently by any id-keyed read of the board. */
+/**
+ * Every declared local asset, workspace-level (root-relative) and module-level (module-relative),
+ * DEDUPED by rel with the first declaration winning: a step's id is `asset:<rel>`, so two modules
+ * declaring the same path would plan two steps under one id and the second would be dropped
+ * silently by any id-keyed read of the board.
+ */
 function declaredLocalAssets(ws: Workspace): { rel: string; module: string | null }[] {
   const seen = new Map<string, { rel: string; module: string | null }>() // rel → {rel, module}
   const add = (raw: string, module: string | null): void => {
@@ -50,8 +52,10 @@ function declaredLocalAssets(ws: Workspace): { rel: string; module: string | nul
   return [...seen.values()]
 }
 
-/** What is true of this checkout right now — the only function here that reads the disk, so
- *  `planInstall` stays pure and the whole board is decidable from this one object. */
+/**
+ * What is true of this checkout right now — the only function here that reads the disk, so
+ * `planInstall` stays pure and the whole board is decidable from this one object.
+ */
 export function observeState(ws: Workspace) {
   const checkout = describeCheckout(ws.root)
   const here = (rel: string): string => path.join(ws.root, rel),

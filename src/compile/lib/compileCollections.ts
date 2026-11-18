@@ -51,8 +51,10 @@ interface CollectionsContext {
   warn: (msg: string) => void
 }
 
-/** Content-word Jaccard between two clauses, thresholded. Short words and the join words of
- *  English carry no signal here; ≥ 0.5 of the remaining vocabulary shared is a paraphrase. */
+/**
+ * Content-word Jaccard between two clauses, thresholded. Short words and the join words of
+ * English carry no signal here; ≥ 0.5 of the remaining vocabulary shared is a paraphrase.
+ */
 function paraphrases(description: unknown, useWhen: unknown): boolean {
   const STOP = new Set([
     "this",
@@ -722,9 +724,11 @@ function fileCount(dir: string): number {
   return n
 }
 
-/** `[folder, fileCount]` for each folder under a layer's data path that no claimed path accounts for:
- *  a claimed folder is skipped, one that is a PREFIX of a claimed path (a namespace folder) is
- *  descended into, anything else is unread. Paths are workspace-relative, `/`-joined. */
+/**
+ * `[folder, fileCount]` for each folder under a layer's data path that no claimed path accounts for:
+ * a claimed folder is skipped, one that is a PREFIX of a claimed path (a namespace folder) is
+ * descended into, anything else is unread. Paths are workspace-relative, `/`-joined.
+ */
 function unreadFolders(root: string, dataDir: string, claimed: Set<string>): [folder: string, files: number][] {
   const out: [string, number][] = []
   const visit = (rel: string): void => {

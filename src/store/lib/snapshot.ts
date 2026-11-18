@@ -3,19 +3,21 @@ import path from "node:path"
 import { walk } from "../../lib/walk.ts"
 import type { Undo } from "../types.ts"
 
-/** Byte snapshot of a set of files OR DIRECTORIES, and a restore closure. The undo mechanism
- *  schema-ops has used for source writes since it was written (schema-ops.js:20). Record writes used
- *  `git checkout HEAD -- <paths>` instead, which is only correct while HEAD is guaranteed to be
- *  the last good state — it is not, once writes stop committing, and it silently discarded
- *  uncommitted hand-edits even before that.
+/**
+ * Byte snapshot of a set of files OR DIRECTORIES, and a restore closure. The undo mechanism
+ * schema-ops has used for source writes since it was written (schema-ops.js:20). Record writes used
+ * `git checkout HEAD -- <paths>` instead, which is only correct while HEAD is guaranteed to be
+ * the last good state — it is not, once writes stop committing, and it silently discarded
+ * uncommitted hand-edits even before that.
  *
- *  A DIRECTORY unit is snapshotted recursively. It used to be skipped with a comment arguing the case
- *  could not occur — the only folder-shape collection was `skills`, which is system-stored, so
- *  `writableDescriptor` refused before `rm` was reached. That reasoning was true and is the wrong kind
- *  of true: it depended on a fact about the CURRENT set of collections rather than on anything the code
- *  enforces, and `shape: folder` is an ordinary descriptor option any workspace can choose. The failure
- *  it left behind was silent and total — `rm` would delete the folder and the "restore" closure would
- *  do nothing, so a failed commit meant the record was simply gone. Twelve lines, no such hole. */
+ * A DIRECTORY unit is snapshotted recursively. It used to be skipped with a comment arguing the case
+ * could not occur — the only folder-shape collection was `skills`, which is system-stored, so
+ * `writableDescriptor` refused before `rm` was reached. That reasoning was true and is the wrong kind
+ * of true: it depended on a fact about the CURRENT set of collections rather than on anything the code
+ * enforces, and `shape: folder` is an ordinary descriptor option any workspace can choose. The failure
+ * it left behind was silent and total — `rm` would delete the folder and the "restore" closure would
+ * do nothing, so a failed commit meant the record was simply gone. Twelve lines, no such hole.
+ */
 export function snapshot(units: string[]): Undo {
   const snaps = units.map(u => {
     const existed = fs.existsSync(u)

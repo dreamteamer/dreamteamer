@@ -50,9 +50,11 @@ const isRepo = root => spawnSync("git", ["rev-parse", "--git-dir"], { cwd: root,
 const readPkg = root => JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"))
 const committed = root => git(root, ["show", "--name-only", "--format=", "HEAD"]).split("\n").filter(Boolean).sort()
 
-/** A fake npm: logs `{cwd, args}`; `fail` exits 1 after leaving a partial node_modules/ behind. It installs
- *  every declared package (a stub manifest; the engine as a link to this checkout; a tarball argument by
- *  its manifest) except those named in `skip`, which it leaves out while still exiting 0. */
+/**
+ * A fake npm: logs `{cwd, args}`; `fail` exits 1 after leaving a partial node_modules/ behind. It installs
+ * every declared package (a stub manifest; the engine as a link to this checkout; a tarball argument by
+ * its manifest) except those named in `skip`, which it leaves out while still exiting 0.
+ */
 function fakeNpm({ fail = false, skip = [] }: Record<string, any> = {}) {
   const dir = path.join(SANDBOX, `npm-${++n}`)
   fs.mkdirSync(dir)

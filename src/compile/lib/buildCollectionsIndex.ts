@@ -6,9 +6,11 @@ import { flat } from "./harnessMarkers.ts"
 import type { CollectionRow } from "./types.ts"
 import { writeLine } from "./writeLine.ts"
 
-/** collection name -> description / use_when / whether it is a schema-ops collection, read from the
- *  compiled descriptor BYTES compile already holds. Same pattern as buildSkillsIndex: no filesystem
- *  read, and deliberately nothing that touches `data/` — see collectionsSection for why. */
+/**
+ * collection name -> description / use_when / whether it is a schema-ops collection, read from the
+ * compiled descriptor BYTES compile already holds. Same pattern as buildSkillsIndex: no filesystem
+ * read, and deliberately nothing that touches `data/` — see collectionsSection for why.
+ */
 export function buildCollectionsIndex(entries: Map<string, Entry>): CollectionRow[] {
   const index: CollectionRow[] = []
   for (const [rt, e] of entries) {

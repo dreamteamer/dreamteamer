@@ -145,10 +145,12 @@ const MIXIN = {
   },
 }
 
-/** The clinic, compiled and committed, with one doctor, one patient and one seen visit — or, with
- *  `records: false`, none. Each variant is BUILT ONCE and copied per test (seedOnce): the build is
- *  a dozen source files, a git commit, a compile and four `dt` launches, identical every time. Each
- *  copy is its own workspace and git history. */
+/**
+ * The clinic, compiled and committed, with one doctor, one patient and one seen visit — or, with
+ * `records: false`, none. Each variant is BUILT ONCE and copied per test (seedOnce): the build is
+ * a dozen source files, a git commit, a compile and four `dt` launches, identical every time. Each
+ * copy is its own workspace and git history.
+ */
 const CLINIC = { withRecords: seedOnce(() => buildClinic(true)), empty: seedOnce(() => buildClinic(false)) }
 function clinic({ records = true }: Record<string, any> = {}) {
   const w = records ? CLINIC.withRecords() : CLINIC.empty()

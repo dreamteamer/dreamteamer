@@ -293,9 +293,11 @@ describe("presentation projects relations", () => {
 })
 
 describe("the body field — what a mirror target needs", () => {
-  /** A `format: md` collection with no body field: nowhere for a record's prose to parse into, so
-   *  nowhere for a mirror write to put it back. coll() deliberately HAS one, which is why this case
-   *  has to be spelled out by hand. */
+  /**
+   * A `format: md` collection with no body field: nowhere for a record's prose to parse into, so
+   * nowhere for a mirror write to put it back. coll() deliberately HAS one, which is why this case
+   * has to be spelled out by hand.
+   */
   const BODYLESS = {
     ids: { from: "{{ name | slug }}" },
     storage: { suffix: "plain" },

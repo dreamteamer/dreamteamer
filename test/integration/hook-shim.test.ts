@@ -40,8 +40,10 @@ const ABSOLUTE_FALLBACKS = ["/opt/homebrew/bin/node", "/usr/local/bin/node"].fil
 // reached — so the steps below it cannot be observed on such a machine.
 const ON_BARE_PATH = fs.existsSync("/usr/bin/node") || fs.existsSync("/bin/node")
 
-/** Run the shim with an environment built from nothing. `sh` and the utilities the resolver uses
- *  (`ls`, `sort`, `tail`, `dirname`) come from /usr/bin and /bin; nothing else is on PATH. */
+/**
+ * Run the shim with an environment built from nothing. `sh` and the utilities the resolver uses
+ * (`ls`, `sort`, `tail`, `dirname`) come from /usr/bin and /bin; nothing else is on PATH.
+ */
 function shim(env, ...args) {
   // ⚠ AN EXPLICIT cwd, ALWAYS. A cwd-less spawn runs in the ENGINE CHECKOUT, and some verbs write
   // there and self-commit — one `init` with no cwd turned this repo into a workspace and swept
@@ -56,8 +58,10 @@ function shim(env, ...args) {
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), "dt-shim-"))
 
-/** A fake `node` that answers with its own marker — enough to prove WHICH candidate the resolver
- *  chose without caring what it was asked to run. */
+/**
+ * A fake `node` that answers with its own marker — enough to prove WHICH candidate the resolver
+ * chose without caring what it was asked to run.
+ */
 function fakeNode(dir, marker) {
   fs.mkdirSync(dir, { recursive: true })
   const p = path.join(dir, "node")

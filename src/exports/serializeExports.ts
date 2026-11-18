@@ -1,7 +1,9 @@
 import type { ExportEntry, ExportRefs } from "../record/types.ts"
 
-/** The file's bytes: tab-indented, collections and ids sorted, one line per entry, nothing time- or
- *  version-dependent — so an unchanged manifest regenerates byte for byte. `null` for an empty one. */
+/**
+ * The file's bytes: tab-indented, collections and ids sorted, one line per entry, nothing time- or
+ * version-dependent — so an unchanged manifest regenerates byte for byte. `null` for an empty one.
+ */
 export function serializeExports(refs: ExportRefs): string | null {
   const colls = Object.keys(refs)
     .filter(c => Object.keys(refs[c]).length)

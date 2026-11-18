@@ -152,8 +152,10 @@ function namesIn(doc: NavDoc, wanted: "collection" | "namespace"): Set<string> {
   return out
 }
 
-/** Every collection the document places: named in the tree at any depth, or hidden. A namespace entry
- *  places nothing by itself (design §3 rule 3) — its collections are placed only by name. */
+/**
+ * Every collection the document places: named in the tree at any depth, or hidden. A namespace entry
+ * places nothing by itself (design §3 rule 3) — its collections are placed only by name.
+ */
 export const placedNames = (doc: NavDoc): Set<string> => namesIn(doc, "collection")
 
 /** A folder's or namespace's icon and hidden flag, as the merge carries them over. */

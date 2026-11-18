@@ -64,8 +64,10 @@ function engineChecks(root: string): DoctorRow[] {
   return checks
 }
 
-/** Every capability with its verdict. An extension's doctor that throws, or returns a row with an
- *  unknown state, reads as a failure of that extension rather than a crash. */
+/**
+ * Every capability with its verdict. An extension's doctor that throws, or returns a row with an
+ * unknown state, reads as a failure of that extension rather than a crash.
+ */
 export async function doctorBoard(ws: Workspace, dt: SetupContext["dt"]): Promise<Capability[]> {
   const caps: Capability[] = [{ name: "engine", checks: engineChecks(ws.root) }]
   // a setup unit's inspect, as rows: ready/configured → ok, unverified/missing → warn, blocked → bad —

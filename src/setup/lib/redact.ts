@@ -1,7 +1,9 @@
-/** A provider's FAILURE text, with anything that looks like a value gone: a `key=value` (a `<placeholder>`
- *  is not a value), a bearer token, an e-mail address, a home folder, a 32+-character token. Key names
- *  and shapes stay. Applied to what a unit throws, a failed apply's message and an action's reason —
- *  never to a check's fix or title, an action's title or a next-command line (D67). */
+/**
+ * A provider's FAILURE text, with anything that looks like a value gone: a `key=value` (a `<placeholder>`
+ * is not a value), a bearer token, an e-mail address, a home folder, a 32+-character token. Key names
+ * and shapes stay. Applied to what a unit throws, a failed apply's message and an action's reason —
+ * never to a check's fix or title, an action's title or a next-command line (D67).
+ */
 export function redact(text: unknown): string {
   return (
     String(text ?? "")

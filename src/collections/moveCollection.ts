@@ -81,9 +81,11 @@ function moveImpact(
   return needs
 }
 
-/** Every collection a field of this descriptor references — a scalar or a union, on a top-level
- *  field or inside an object's `fields`. `reference` (any record) names no collection, so it is
- *  skipped: it is exempt from the reference contract by construction. */
+/**
+ * Every collection a field of this descriptor references — a scalar or a union, on a top-level
+ * field or inside an object's `fields`. `reference` (any record) names no collection, so it is
+ * skipped: it is exempt from the reference contract by construction.
+ */
 function outboundTargets(d: Descriptor): Set<string> {
   const out = new Set<string>()
   const walkFields = (fields: Record<string, Field>) => {

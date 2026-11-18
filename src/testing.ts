@@ -65,8 +65,10 @@ export function pack(moduleDir: string): string {
   return path.join(dest, tgz[0])
 }
 
-/** `dt install` of a name, a tarball path, or a module folder (packed first, so its `files` list is
- *  what is installed). Never throws on the engine's exit: 3 (an input still needed) is a result. */
+/**
+ * `dt install` of a name, a tarball path, or a module folder (packed first, so its `files` list is
+ * what is installed). Never throws on the engine's exit: 3 (an input still needed) is a result.
+ */
 export function install(ws: TestWorkspace, spec: string, opts: RunOptions = {}): RunResult {
   const isFolder = !spec.endsWith(".tgz") && fs.existsSync(spec) && fs.statSync(spec).isDirectory()
   const target = isFolder ? pack(spec) : spec

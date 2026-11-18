@@ -1,13 +1,15 @@
-/** What the harness said, as `{ cwd, name, raw }`. Exported through the public API because an
- *  extension's own hook form (`worktree add --hook`) parses the same payload.
+/**
+ * What the harness said, as `{ cwd, name, raw }`. Exported through the public API because an
+ * extension's own hook form (`worktree add --hook`) parses the same payload.
  *
- *  ⚠ THE FIELD NAMES ARE THE HARNESS'S. Claude Code's hooks reference documents every event as
- *  carrying `cwd`, and the two worktree events as additionally carrying `worktree_name` and
- *  `worktree_path` — so `worktree_name` is the primary spelling here and a bare `name` is only the
- *  fallback, not the other way round. `raw` is kept whole because a later verb reads a field these
- *  three do not name (`land` wants `worktree_path`), and because the KEYS are the whole diagnostic
- *  when a hook has been wired to the wrong event: a well-formed payload of the wrong shape is
- *  indistinguishable from a broken one until you can see what it did carry. */
+ * ⚠ THE FIELD NAMES ARE THE HARNESS'S. Claude Code's hooks reference documents every event as
+ * carrying `cwd`, and the two worktree events as additionally carrying `worktree_name` and
+ * `worktree_path` — so `worktree_name` is the primary spelling here and a bare `name` is only the
+ * fallback, not the other way round. `raw` is kept whole because a later verb reads a field these
+ * three do not name (`land` wants `worktree_path`), and because the KEYS are the whole diagnostic
+ * when a hook has been wired to the wrong event: a well-formed payload of the wrong shape is
+ * indistinguishable from a broken one until you can see what it did carry.
+ */
 export function readHookInput(stdinText: string): {
   cwd: string | null
   name: string | null

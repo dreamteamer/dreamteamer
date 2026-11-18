@@ -140,10 +140,12 @@ function metaCollectionsMove(_ws: Workspace, store: Store, _flags: Flags, pos: s
   )
 }
 
-/** `dt get collections/<c> --module <m>` — ONE module's source contribution, not the merged
- *  descriptor. The merged one is what `dt get collections/<c>` prints and what every reader uses;
- *  this is the only way to see what a given module actually wrote, which is the question an overlay
- *  makes unanswerable from the runtime alone. */
+/**
+ * `dt get collections/<c> --module <m>` — ONE module's source contribution, not the merged
+ * descriptor. The merged one is what `dt get collections/<c>` prints and what every reader uses;
+ * this is the only way to see what a given module actually wrote, which is the question an overlay
+ * makes unanswerable from the runtime alone.
+ */
 function metaCollectionsGet(ws: Workspace, store: Store, flags: Flags, pos: string[]) {
   const name = need(pos, 0, "collection name")
   const moduleId = oneValue(flags, "module")
@@ -337,8 +339,10 @@ function metaRenameValue(ws: Workspace, store: Store, collection: string, flags:
   return 0
 }
 
-/** `dt add|rm|rename|set|reorder collections/<c>`, `dt get collections/<c> --module <m>`, and the field
- *  verbs on any collection — or null when the verb is none of these. */
+/**
+ * `dt add|rm|rename|set|reorder collections/<c>`, `dt get collections/<c> --module <m>`, and the field
+ * verbs on any collection — or null when the verb is none of these.
+ */
 export function collectionsCommand(
   ws: Workspace,
   store: Store,

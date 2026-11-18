@@ -15,8 +15,10 @@ export function enumValues(e: unknown): unknown[] | null {
   return null
 }
 
-/** The default field label — the same rule compile's titleCase has always applied, so a surface
- *  draws a v2 field exactly as it drew the v1 one. */
+/**
+ * The default field label — the same rule compile's titleCase has always applied, so a surface
+ * draws a v2 field exactly as it drew the v1 one.
+ */
 export function fieldTitleOf(name: unknown): string {
   return String(name)
     .split(/[_\-\s/]+/)

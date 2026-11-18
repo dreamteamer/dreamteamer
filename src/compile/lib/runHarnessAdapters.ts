@@ -224,10 +224,12 @@ function buildSkillsIndex(entries: Map<string, Entry>): SkillRow[] {
   return index.sort((a, b) => a.id.localeCompare(b.id))
 }
 
-/** Commands, for the harnesses that do NOT discover them natively. claude-code writes every command
- *  into `.claude/commands` and its harness injects name+description at session start, so an index in
- *  CLAUDE.md would be a second copy of what is already there. codex/pi/gemini-cli/cursor got one
- *  pointer line and nothing else — which is why this is conditional, like the skills index. */
+/**
+ * Commands, for the harnesses that do NOT discover them natively. claude-code writes every command
+ * into `.claude/commands` and its harness injects name+description at session start, so an index in
+ * CLAUDE.md would be a second copy of what is already there. codex/pi/gemini-cli/cursor got one
+ * pointer line and nothing else — which is why this is conditional, like the skills index.
+ */
 function buildCommandsIndex(entries: Map<string, Entry>): SkillRow[] {
   const index: SkillRow[] = []
   for (const [rt, e] of entries) {
@@ -245,26 +247,28 @@ function buildCommandsIndex(entries: Map<string, Entry>): SkillRow[] {
   return index.sort((a, b) => a.id.localeCompare(b.id))
 }
 
-/** THE LEXICON — the half of the DSL that was never at t=0. The grammar (record shape, reference
- *  shape, namespaces) has been in this block since 0.6; an agent could form a well-shaped reference
- *  and not name one thing it could be about. The dogfood vault's hand-written list in CLAUDE.md is
- *  the argument for deriving it: that list named three collections for 48 hours after they were
- *  deleted, because a human had to remember to edit it.
+/**
+ * THE LEXICON — the half of the DSL that was never at t=0. The grammar (record shape, reference
+ * shape, namespaces) has been in this block since 0.6; an agent could form a well-shaped reference
+ * and not name one thing it could be about. The dogfood vault's hand-written list in CLAUDE.md is
+ * the argument for deriving it: that list named three collections for 48 hours after they were
+ * deleted, because a human had to remember to edit it.
  *
- *  ⚠ NO RECORD COUNTS, and that is not an omission. This block lands in CLAUDE.md / AGENTS.md /
- *  GEMINI.md, which are COMMITTED files. A count changes on every write, so every compile after
- *  ordinary data work would re-dirty three tracked files — in trees where more than one agent has
- *  uncommitted work — and the number would be stale the moment it was printed. Ordering is
- *  module-grouped then alphabetical precisely so the block diffs ONLY when the schema changed.
+ * ⚠ NO RECORD COUNTS, and that is not an omission. This block lands in CLAUDE.md / AGENTS.md /
+ * GEMINI.md, which are COMMITTED files. A count changes on every write, so every compile after
+ * ordinary data work would re-dirty three tracked files — in trees where more than one agent has
+ * uncommitted work — and the number would be stale the moment it was printed. Ordering is
+ * module-grouped then alphabetical precisely so the block diffs ONLY when the schema changed.
  *
- *  GROUPED BY MODULE, the workspace's own first. A module is the one entity that answers "what is
- *  this AREA of the workspace for" — its sentence heads the group, its namespaces, skills and
- *  commands ride on the line below it, and its collections follow. Before this the block listed
- *  nouns by namespace and the reader had to infer the domains from the prefixes; the hand-written
- *  module table one dogfood workspace kept to fill that gap was the same failure the collection list
- *  had already been through. A module whose every collection is system-stored (the engine) is not a
- *  domain and gets no group; a module shipping only skills, commands, a bin or extension verbs is one
- *  and does. */
+ * GROUPED BY MODULE, the workspace's own first. A module is the one entity that answers "what is
+ * this AREA of the workspace for" — its sentence heads the group, its namespaces, skills and
+ * commands ride on the line below it, and its collections follow. Before this the block listed
+ * nouns by namespace and the reader had to infer the domains from the prefixes; the hand-written
+ * module table one dogfood workspace kept to fill that gap was the same failure the collection list
+ * had already been through. A module whose every collection is system-stored (the engine) is not a
+ * domain and gets no group; a module shipping only skills, commands, a bin or extension verbs is one
+ * and does.
+ */
 function collectionsSection(
   index: CollectionRow[],
   modules: ModuleRow[],
@@ -341,14 +345,16 @@ function collectionsSection(
   return lines
 }
 
-/** Collection-templates are field sets modules stamp onto their collections — the provenance quad
- *  reaches ~40 collections in the dogfood vault and was stated nowhere an agent reads.
+/**
+ * Collection-templates are field sets modules stamp onto their collections — the provenance quad
+ * reaches ~40 collections in the dogfood vault and was stated nowhere an agent reads.
  *
- *  ⚠ RENDERED, NEVER HARDCODED. An earlier draft wrote the four provenance field names straight
- *  into this file. That is recipe knowledge in core: `provenance` is shipped by a MODULE, and
- *  deliberately triplicated (`provenance`, `crm-provenance`, `rnd-provenance`) so each module stays
- *  copyable on its own. A workspace without them would have been handed a block that lies. Core
- *  renders the line; the module owns the sentence. */
+ * ⚠ RENDERED, NEVER HARDCODED. An earlier draft wrote the four provenance field names straight
+ * into this file. That is recipe knowledge in core: `provenance` is shipped by a MODULE, and
+ * deliberately triplicated (`provenance`, `crm-provenance`, `rnd-provenance`) so each module stays
+ * copyable on its own. A workspace without them would have been handed a block that lies. Core
+ * renders the line; the module owns the sentence.
+ */
 function templatesSection(entries: Map<string, Entry>): string[] {
   const rows: { name: string; description: string }[] = []
   for (const [rt, e] of entries) {
@@ -371,13 +377,15 @@ function templatesSection(entries: Map<string, Entry>): string[] {
   ]
 }
 
-/** `available_when` / `done_when` rendered LITERALLY. Translating a filter into English would be a
- *  generator that has to grow with every operator the filter grammar gains, for prose the binding's
- *  own `description:` already carries. Real shapes are a nested map terminating in one `_op`:
- *    {status: {_eq: draft}}          -> status=draft
- *    {status: {_in: [enriched, x]}}  -> status in enriched|x
- *    {file: {_nempty: true}}         -> file set
- *    {meeting: {_empty: true}}       -> meeting empty */
+/**
+ * `available_when` / `done_when` rendered LITERALLY. Translating a filter into English would be a
+ * generator that has to grow with every operator the filter grammar gains, for prose the binding's
+ * own `description:` already carries. Real shapes are a nested map terminating in one `_op`:
+ *   {status: {_eq: draft}}          -> status=draft
+ *   {status: {_in: [enriched, x]}}  -> status in enriched|x
+ *   {file: {_nempty: true}}         -> file set
+ *   {meeting: {_empty: true}}       -> meeting empty
+ */
 const GATE_OPS: Record<string, (p: string, v: unknown) => string> = {
   _eq: (p, v) => `${p}=${v}`,
   _in: (p, v) => `${p} in ${([] as unknown[]).concat(v).join("|")}`,
@@ -390,8 +398,10 @@ function renderGate(label: string, filter: unknown): string {
   return parts.length ? `${label}: ${parts.join(", ")}` : ""
 }
 
-/** A filter's conditions as literal strings: `_and` contributes each of its conditions, `_or` one
- *  `(a or b)` term. */
+/**
+ * A filter's conditions as literal strings: `_and` contributes each of its conditions, `_or` one
+ * `(a or b)` term.
+ */
 function gateParts(filter: unknown): string[] {
   const parts: string[] = []
   const walkFilter = (obj: unknown, at: string): void => {
@@ -408,12 +418,14 @@ function gateParts(filter: unknown): string[] {
   return parts
 }
 
-/** The METHODS on a type. A binding says which collection a command applies to and the record state
- *  that makes it available — invisible on EVERY harness, claude-code included, whose native command
- *  discovery gives the command's description and nothing about what it acts on. The cost of the
- *  absence is on disk: a contact record in the dogfood vault carries the hand-written sentence
- *  "`status: draft` keeps this in the /scrape-contact queue" — an agent re-deriving an available_when
- *  filter into prose because nothing surfaced it. */
+/**
+ * The METHODS on a type. A binding says which collection a command applies to and the record state
+ * that makes it available — invisible on EVERY harness, claude-code included, whose native command
+ * discovery gives the command's description and nothing about what it acts on. The cost of the
+ * absence is on disk: a contact record in the dogfood vault carries the hand-written sentence
+ * "`status: draft` keeps this in the /scrape-contact queue" — an agent re-deriving an available_when
+ * filter into prose because nothing surfaced it.
+ */
 function bindingsSection(entries: Map<string, Entry>): string[] {
   const byCollection = new Map<string, string[]>()
   for (const [rt, e] of entries) {
@@ -440,17 +452,19 @@ function bindingsSection(entries: Map<string, Entry>): string[] {
   return lines
 }
 
-/** `sourceLayout` describes what THIS workspace actually looks like — 'flat' (`<module>/skills/`),
- *  'nested' (the pre-2026-08-05 `<module>/system/skills/`), or 'mixed'. It is passed in rather than
- *  assumed because generated prose that contradicts the workspace is worse than no prose: this block
- *  is the first thing an agent session reads, and a workspace still on the old layout was being told
- *  to write somewhere it does not keep its sources.
+/**
+ * `sourceLayout` describes what THIS workspace actually looks like — 'flat' (`<module>/skills/`),
+ * 'nested' (the pre-2026-08-05 `<module>/system/skills/`), or 'mixed'. It is passed in rather than
+ * assumed because generated prose that contradicts the workspace is worse than no prose: this block
+ * is the first thing an agent session reads, and a workspace still on the old layout was being told
+ * to write somewhere it does not keep its sources.
  *
- *  `namespaces` is here for exactly the same reason, and it matters more. A reference is
- *  `<collection>/<id>`, and an id is ALSO a slash path — so in a workspace with declared namespaces an
- *  agent that splits `health/doctors/dana-levi` at the first slash reads a collection that does not
- *  exist. Naming the declared list is what makes the grammar decidable from this block alone, without
- *  the agent having to go read the manifest. A workspace with no namespaces gets no extra sentence. */
+ * `namespaces` is here for exactly the same reason, and it matters more. A reference is
+ * `<collection>/<id>`, and an id is ALSO a slash path — so in a workspace with declared namespaces an
+ * agent that splits `health/doctors/dana-levi` at the first slash reads a collection that does not
+ * exist. Naming the declared list is what makes the grammar decidable from this block alone, without
+ * the agent having to go read the manifest. A workspace with no namespaces gets no extra sentence.
+ */
 function orientationBlock(
   flavor: string,
   skillsIndex: SkillRow[],

@@ -34,9 +34,11 @@ const TRANSACTIONS = {
   },
 }
 
-/** A workspace with two contacts, two transactions and two widgets — all written, none committed.
- *  Built once and copied per test (seedOnce), as are the other fixtures below: each test gets its own
- *  workspace and git history, and the identical seeding is paid once, not per test. */
+/**
+ * A workspace with two contacts, two transactions and two widgets — all written, none committed.
+ * Built once and copied per test (seedOnce), as are the other fixtures below: each test gets its own
+ * workspace and git history, and the identical seeding is paid once, not per test.
+ */
 const seeded = seedOnce(() => {
   const ws = workspace({
     namespaces: ["finance"],
@@ -570,9 +572,11 @@ describe("the whole-collection form warns about the partner it leaves behind", (
     return ws
   }
 
-  /** Hand-edit the whole `recordings:` mirror block out of a meeting file — an edge moving on ONE
-   *  side, which the store itself would never produce and a person does every time they edit a
-   *  record in an editor. */
+  /**
+   * Hand-edit the whole `recordings:` mirror block out of a meeting file — an edge moving on ONE
+   * side, which the store itself would never produce and a person does every time they edit a
+   * record in an editor.
+   */
   function unmirror(ws, id) {
     const f = `${ws.root}/data/meetings/${id}.meeting.md`
     fs.writeFileSync(f, fs.readFileSync(f, "utf8").replace(/\nrecordings:\n( {2}- [^\n]*\n)+/, "\n"))

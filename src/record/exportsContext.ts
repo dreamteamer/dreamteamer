@@ -8,8 +8,10 @@ import type { Descriptors, Storage } from "../types.ts"
 
 type LayerFact = NonNullable<ReturnType<typeof exportsFacts>["layers"]>[number]
 
-/** Is every file under `dataDir` inside one of the `reads` folders (paths relative to `root`)? Judged on
- *  the disk NOW, so a folder a pull added after compile makes the repo incomplete without a recompile. */
+/**
+ * Is every file under `dataDir` inside one of the `reads` folders (paths relative to `root`)? Judged on
+ * the disk NOW, so a folder a pull added after compile makes the repo incomplete without a recompile.
+ */
 function readsAll(root: string, dataDir: string, reads: string[]): boolean {
   const abs = path.join(root, dataDir)
   if (!fs.existsSync(abs)) return true

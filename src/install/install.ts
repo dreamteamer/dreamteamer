@@ -99,9 +99,11 @@ export function install({ root, pkg }: Pick<Workspace, "root" | "pkg">): number 
   return unreachable.length ? 1 : 0
 }
 
-/** The link a declarer finds its layer through — `<by>/git_modules/<name> -> ../../<name>`, the pnpm shape:
- *  explicit on disk, resolved by a tool that knows nothing of dreamteamer. A clone of its own standing there
- *  may hold work: left as it is, and said — `dt status` draws it too. */
+/**
+ * The link a declarer finds its layer through — `<by>/git_modules/<name> -> ../../<name>`, the pnpm shape:
+ * explicit on disk, resolved by a tool that knows nothing of dreamteamer. A clone of its own standing there
+ * may hold work: left as it is, and said — `dt status` draws it too.
+ */
 function linkLayer(root: string, by: string, name: string): void {
   // relative from wherever the declarer sits — a nested copy's own needs link from two levels deeper
   const at = path.join(root, by, "git_modules", name),
@@ -124,8 +126,10 @@ function linkLayer(root: string, by: string, name: string): void {
   console.log(`✔ ${by}/git_modules/${name} → git_modules/${name}`)
 }
 
-/** Ignore `rel` in a clone's own `.git/info/exclude` when its .gitignore does not already cover it — never
- *  in a tracked file, which would dirty the clone. */
+/**
+ * Ignore `rel` in a clone's own `.git/info/exclude` when its .gitignore does not already cover it — never
+ * in a tracked file, which would dirty the clone.
+ */
 function excludeIn(clone: string, rel: string): void {
   if (ran(clone, ["check-ignore", "-q", rel])) return
   const exclude = path.resolve(

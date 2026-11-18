@@ -24,8 +24,10 @@ import { distinctValues } from "./distinctValues.ts"
 import { history } from "./history.ts"
 import { historyDiff } from "./historyDiff.ts"
 
-/** The record verbs on `<collection>[/<id>]`: list · get · add · set · rm · rename · reorder · values ·
- *  history · diff · revert. Reached after every system and field route declined. */
+/**
+ * The record verbs on `<collection>[/<id>]`: list · get · add · set · rm · rename · reorder · values ·
+ * history · diff · revert. Reached after every system and field route declined.
+ */
 export function recordsCommand(
   ws: Workspace,
   store: Store,

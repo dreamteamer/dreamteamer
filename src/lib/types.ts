@@ -7,8 +7,10 @@ export interface Position {
   label?: string
 }
 
-/** A parsed YAML subtree a walker reads and rewrites in place. Its shape is the author's, so every walker
- *  checks a key's type before it trusts it — `asTree` is that check. */
+/**
+ * A parsed YAML subtree a walker reads and rewrites in place. Its shape is the author's, so every walker
+ * checks a key's type before it trusts it — `asTree` is that check.
+ */
 export type Tree = Record<string, unknown>
 
 /**

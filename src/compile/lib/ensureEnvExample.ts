@@ -1,19 +1,21 @@
 import path from "node:path"
 import fs from "node:fs"
 
-/** `.env.example` lists every env key the installed modules declare — the file the missing-key
- *  warning points at, which used to carry two comment lines and none of the keys it was cited for.
- *  A key already named in the file (as `KEY=` or `# KEY`) is not added again, and nothing an operator
- *  wrote is touched. Values never appear here — an example does.
+/**
+ * `.env.example` lists every env key the installed modules declare — the file the missing-key
+ * warning points at, which used to carry two comment lines and none of the keys it was cited for.
+ * A key already named in the file (as `KEY=` or `# KEY`) is not added again, and nothing an operator
+ * wrote is touched. Values never appear here — an example does.
  *
- *  The blocks THIS function wrote follow the declarations (rnd/issues …env-example-keeps-a-key-under-
- *  its-old-package…): an engine block is a `KEY=` line directly under `# declared by <packages>` or
- *  `# <description> (module <packages>)`. Its comment is rewritten when what declares the key changed
- *  (`moved`; the `KEY=` line, whose example may be the operator's, stays), and the block goes when no
- *  installed package declares the key (`dropped`) — unless `keep` names it (the workspace's own
- *  declaration) or the module set is not `complete` (a declared module not on disk yet: its keys would
- *  go and come back). A repeated engine block for one key goes with the first one's rewrite. Every
- *  other line is kept byte for byte, its line ending included. Returns `{ added, moved, dropped }`. */
+ * The blocks THIS function wrote follow the declarations (rnd/issues …env-example-keeps-a-key-under-
+ * its-old-package…): an engine block is a `KEY=` line directly under `# declared by <packages>` or
+ * `# <description> (module <packages>)`. Its comment is rewritten when what declares the key changed
+ * (`moved`; the `KEY=` line, whose example may be the operator's, stays), and the block goes when no
+ * installed package declares the key (`dropped`) — unless `keep` names it (the workspace's own
+ * declaration) or the module set is not `complete` (a declared module not on disk yet: its keys would
+ * go and come back). A repeated engine block for one key goes with the first one's rewrite. Every
+ * other line is kept byte for byte, its line ending included. Returns `{ added, moved, dropped }`.
+ */
 export function ensureEnvExample(
   root: string,
   entries: { key: string; modules?: string[]; description?: string; example?: string }[],

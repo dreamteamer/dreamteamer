@@ -7,8 +7,10 @@ function refineField(f: Field, by: Partial<Field>): Field {
   return out
 }
 
-/** A base and its overlays as ONE v2 descriptor: overlay fields inserted before the body,
- *  constraints concatenated, every other key overlay-wins key by key (display per sub-block). */
+/**
+ * A base and its overlays as ONE v2 descriptor: overlay fields inserted before the body,
+ * constraints concatenated, every other key overlay-wins key by key (display per sub-block).
+ */
 export function mergeOverlays(base: AuthoredDescriptor, overlays: Partial<AuthoredDescriptor>[]): AuthoredDescriptor {
   const out = structuredClone(base)
   for (const o of overlays) {

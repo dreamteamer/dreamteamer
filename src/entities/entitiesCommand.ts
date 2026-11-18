@@ -82,8 +82,10 @@ function metaEntityVerb(ws: Workspace, store: Store, kind: string, verb: string,
   return 0
 }
 
-/** `dt add|set|rm|rename <kind>/<id>` for skills, agents, commands and the other frontmatter kinds — or
- *  null for any other target or verb. */
+/**
+ * `dt add|set|rm|rename <kind>/<id>` for skills, agents, commands and the other frontmatter kinds — or
+ * null for any other target or verb.
+ */
 export function entitiesCommand(
   ws: Workspace,
   store: Store,

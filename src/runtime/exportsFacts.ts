@@ -1,8 +1,10 @@
 import { readManifest } from "./runtime.ts"
 
-/** What compile recorded for the exports manifest (cr-dt-004): this workspace's package name and data
- *  folder, and per layer `{ name, root, data, package, reads, narrowed }` — `layers: null` from a runtime
- *  older than them, which a caller reads as "nothing is known". */
+/**
+ * What compile recorded for the exports manifest (cr-dt-004): this workspace's package name and data
+ * folder, and per layer `{ name, root, data, package, reads, narrowed }` — `layers: null` from a runtime
+ * older than them, which a caller reads as "nothing is known".
+ */
 export function exportsFacts(root: string): {
   own: string | null
   data: string

@@ -3,8 +3,10 @@ import { pathToRecord } from "../record/pathToRecord.ts"
 import type { RecordChange, Row } from "./types.ts"
 import type { Descriptors } from "../types.ts"
 
-/** One sampled repo's rows (the sampler above: `dt commit`, `dt status`) as report changes. A staged
- *  rename is two records — the id IS the path — so the old id is read back off the old path. */
+/**
+ * One sampled repo's rows (the sampler above: `dt commit`, `dt status`) as report changes. A staged
+ * rename is two records — the id IS the path — so the old id is read back off the old path.
+ */
 export function rowChanges(descriptors: Descriptors, repo: string, rows: Row[]): RecordChange[] {
   const prefix = repo === "." ? "" : `${repo}/`
   const layer = layerOf(descriptors, repo)

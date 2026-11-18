@@ -2,8 +2,10 @@ import yaml from "js-yaml"
 import type { Pair, Node } from "yaml"
 import { endOf } from "./endOf.ts"
 
-/** Parse YAML. `T` is the shape the CALLER expects — YAML is untrusted input, so it is asserted here and
- *  validated where it is used (compile, check), never assumed checked by this call. */
+/**
+ * Parse YAML. `T` is the shape the CALLER expects — YAML is untrusted input, so it is asserted here and
+ * validated where it is used (compile, check), never assumed checked by this call.
+ */
 export const load = <T = unknown>(text: string): T => yaml.load(text, { schema: yaml.CORE_SCHEMA }) as T
 
 export const dump = (obj: unknown, opts: Record<string, unknown> = {}): string =>

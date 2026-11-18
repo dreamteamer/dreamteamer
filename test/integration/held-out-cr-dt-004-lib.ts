@@ -65,8 +65,10 @@ export function clone(root, key, { pkg = key, files = {} }: Record<string, any> 
   return dir
 }
 
-/** A workspace named `pkg` installing `colls` (name -> descriptor yaml) from a shapes clone, holding
- *  `files`, reading `layers` ({ key: { pkg, files, records } }). */
+/**
+ * A workspace named `pkg` installing `colls` (name -> descriptor yaml) from a shapes clone, holding
+ * `files`, reading `layers` ({ key: { pkg, files, records } }).
+ */
 export function mkws({
   pkg = "w-ws",
   colls,

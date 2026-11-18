@@ -69,8 +69,10 @@ export function saveUiView(
   return { id, file: dest, updated: existed, commits: gate.commits, unchanged: gate.unchanged }
 }
 
-/** The save of a package's view: the workspace module's overlay, rewritten from the package source
- *  each time (never stacked on the previous overlay), and removed when the view equals the package's. */
+/**
+ * The save of a package's view: the workspace module's overlay, rewritten from the package source
+ * each time (never stacked on the previous overlay), and removed when the view equals the package's.
+ */
 function saveUiViewOverlay(ws: Workspace, store: Store, id: string, view: Record<string, unknown>, shipped: string) {
   const dest = path.join(workspaceSystemDir(ws, "ui-views"), `${id}.ui-view.yaml`)
   const existed = fs.existsSync(dest)

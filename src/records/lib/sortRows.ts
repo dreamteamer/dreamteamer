@@ -1,9 +1,11 @@
 import { compareValues } from "./compareValues.ts"
 import type { SchemaProp } from "../../record/types.ts"
 
-/** `?sort=field` / `?sort=-field`, ordered with `compareValues`. Mutates and returns `rows`. Given the
- *  collection's `schema`, an enum field sorts by its DECLARED order (draft → active → done), blanks
- *  first and values outside the enum after it. */
+/**
+ * `?sort=field` / `?sort=-field`, ordered with `compareValues`. Mutates and returns `rows`. Given the
+ * collection's `schema`, an enum field sorts by its DECLARED order (draft → active → done), blanks
+ * first and values outside the enum after it.
+ */
 export function sortRows<T>(rows: T[], sort: string | null | undefined, schema?: Record<string, unknown>): T[] {
   if (!sort) return rows
   const desc = String(sort).startsWith("-")

@@ -6,12 +6,14 @@ import type { PackageJson, Workspace } from "../types.ts"
 import { disablesPackage } from "./extensions.ts"
 import { satisfies } from "../lib/npm/satisfies.ts"
 
-/** The modules that declare an extension entry: the workspace's own `modules/<id>/` first, then each
- *  clone under `git_modules/` (the clone's root, then the modules it bundles under `modules/`), then its
- *  direct dependencies, each sorted by name — the three channels module content arrives through. A workspace module is the operator's own code, exactly
- *  like its `bin/`, so it needs no package and no npm — and it SHADOWS a dependency of the same name,
- *  the rule module content already follows. A module DISABLED by a bare `dreamteamer.disable` entry
- *  is not an extension either — disabling is how a workspace keeps a module and switches it off. */
+/**
+ * The modules that declare an extension entry: the workspace's own `modules/<id>/` first, then each
+ * clone under `git_modules/` (the clone's root, then the modules it bundles under `modules/`), then its
+ * direct dependencies, each sorted by name — the three channels module content arrives through. A workspace module is the operator's own code, exactly
+ * like its `bin/`, so it needs no package and no npm — and it SHADOWS a dependency of the same name,
+ * the rule module content already follows. A module DISABLED by a bare `dreamteamer.disable` entry
+ * is not an extension either — disabling is how a workspace keeps a module and switches it off.
+ */
 export function declaredExtensions(
   ws: Workspace
 ): { name: string; version: string; dir: string; entry: string; env: string[]; vars: string[] }[] {

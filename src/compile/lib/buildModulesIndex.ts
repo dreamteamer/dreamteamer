@@ -3,10 +3,12 @@ import type { Entry } from "../../types.ts"
 import { flat } from "./harnessMarkers.ts"
 import type { EntryDoc, ModuleRow } from "./types.ts"
 
-/** module id -> title / description / namespaces / source path, plus the skills and commands whose
- *  SOURCE lives under that path — read from the module records compile projected, never from
- *  package.json again. A skill or command belongs to the module with the longest source-path prefix;
- *  the root layout (`path: .`) is the empty prefix and so matches last. */
+/**
+ * module id -> title / description / namespaces / source path, plus the skills and commands whose
+ * SOURCE lives under that path — read from the module records compile projected, never from
+ * package.json again. A skill or command belongs to the module with the longest source-path prefix;
+ * the root layout (`path: .`) is the empty prefix and so matches last.
+ */
 export function buildModulesIndex(entries: Map<string, Entry>): ModuleRow[] {
   const mods: ModuleRow[] = []
   for (const [rt, e] of entries) {

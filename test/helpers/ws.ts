@@ -95,12 +95,14 @@ export function git(root: string, args: string[]): string {
     .trim()
 }
 
-/** What the cached base depends on. A miss rebuilds; a hit is a directory copy.
+/**
+ * What the cached base depends on. A miss rebuilds; a hit is a directory copy.
  *
- *  THIS FILE is in the hash too, and has to be: the base carries `.git/config`, `node_modules/` and a
- *  patched package.json that only this builder knows how to produce. Without it, changing how the base
- *  is built left every developer with a stale one that no key invalidated — which is how a fixture
- *  lacking a local git identity survived a fix to add one. */
+ * THIS FILE is in the hash too, and has to be: the base carries `.git/config`, `node_modules/` and a
+ * patched package.json that only this builder knows how to produce. Without it, changing how the base
+ * is built left every developer with a stale one that no key invalidated — which is how a fixture
+ * lacking a local git identity survived a fix to add one.
+ */
 function baseKey() {
   const h = createHash("sha256")
   // every engine source, not only init.js: init writes the base through its imports (workspace.js's
@@ -291,12 +293,14 @@ export function writeCollection(root: string, name: string, descriptor: Descript
   return file
 }
 
-/** A minimal valid descriptor, so a test only states the part it is about.
+/**
+ * A minimal valid descriptor, so a test only states the part it is about.
  *
- *  `notes` is here because it is what a real collection has and a relation TARGET must have: compile
- *  refuses a mirror on a `format: md` collection that declares no body field, since a mirror write
- *  would rebuild the file from its parsed fields and drop any prose the record holds. A fixture
- *  without one could not be linked at all. */
+ * `notes` is here because it is what a real collection has and a relation TARGET must have: compile
+ * refuses a mirror on a `format: md` collection that declares no body field, since a mirror write
+ * would rebuild the file from its parsed fields and drop any prose the record holds. A fixture
+ * without one could not be linked at all.
+ */
 export function simpleCollection(extra: DescriptorInput = {}): DescriptorInput {
   return {
     ids: { from: "{{ name | slug }}" },
@@ -367,9 +371,11 @@ export function dtIn(cwd: string, ...args: string[]): CliResult {
   return { code: res.status, stdout: res.stdout ?? "", stderr: res.stderr ?? "" }
 }
 
-/** Run the real CLI with a JSON payload on STDIN — what a harness hook does, and the ONLY way to
- *  reach `--hook`. `spawnSync`'s `input:` closes the pipe at EOF, which is what `readFileSync(0)`
- *  on the other side is waiting for; a `dt()` run inherits the runner's stdin and would hang. */
+/**
+ * Run the real CLI with a JSON payload on STDIN — what a harness hook does, and the ONLY way to
+ * reach `--hook`. `spawnSync`'s `input:` closes the pipe at EOF, which is what `readFileSync(0)`
+ * on the other side is waiting for; a `dt()` run inherits the runner's stdin and would hang.
+ */
 export function dtStdin(root: string, stdin: string, ...args: string[]): CliResult {
   const res = spawnSync(process.execPath, [BIN, ...args], {
     cwd: root,
@@ -430,8 +436,10 @@ export function writeModule(root: string, id: string, opts: ModuleOptions = {}):
   return modRoot
 }
 
-/** A `dreamteamer.<key>` edit on one module's package.json, for a fixture that needs to declare a
- *  dependency after the module already exists. */
+/**
+ * A `dreamteamer.<key>` edit on one module's package.json, for a fixture that needs to declare a
+ * dependency after the module already exists.
+ */
 export function patchModulePkg(root: string, id: string, patch: Record<string, any>): void {
   const file = path.join(root, "modules", id, "package.json")
   const pkg = JSON.parse(fs.readFileSync(file, "utf8"))
@@ -593,8 +601,10 @@ export function bareWorkspace(sourceRoot: string, moduleId: string): Fixture {
   }
 }
 
-/** Install one of the engine's own fixture packages (test/fixtures/<id>) into a workspace's
- *  node_modules under its package name and declare it, the way npm would have. Returns the dir. */
+/**
+ * Install one of the engine's own fixture packages (test/fixtures/<id>) into a workspace's
+ * node_modules under its package name and declare it, the way npm would have. Returns the dir.
+ */
 export function installFixture(root: string, id: string): string {
   const src = path.join(ENGINE_ROOT, "test", "fixtures", id)
   const name = JSON.parse(fs.readFileSync(path.join(src, "package.json"), "utf8")).name
@@ -612,8 +622,10 @@ export const withProbeSetup = (root: string): string => installFixture(root, "pr
 /** The colliding plain module (`@probe/collide`, a `notes` collection) — a compile refusal on install. */
 export const withProbeCollide = (root: string): string => installFixture(root, "probe-collide")
 
-/** A hash of every file under `root` (path, mode and bytes; `.git` excluded) — the read-only proof:
- *  equal before and after a verb means the verb wrote nothing. */
+/**
+ * A hash of every file under `root` (path, mode and bytes; `.git` excluded) — the read-only proof:
+ * equal before and after a verb means the verb wrote nothing.
+ */
 export function treeHash(root: string): string {
   const { createHash } = cryptoModule()
   const h = createHash("sha256")

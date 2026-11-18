@@ -6,10 +6,12 @@ import { sees } from "../record/sees.ts"
 import { EXPORTS_FILE } from "../record/consts.ts"
 import type { Store } from "./Store.ts"
 
-/** The entry the exports manifest of `repo` (a layer name; null: the write root) holds for an id —
- *  `{ label, from?, manifest, seen }`, `seen` when its holder is read here (so the entry vouches for
- *  nothing: the holder answers, and lacks it) — or null. The one reading `external` and `checkRefs`
- *  share, so a write and `check` (src/check/check.ts) reach one verdict on identical bytes. */
+/**
+ * The entry the exports manifest of `repo` (a layer name; null: the write root) holds for an id —
+ * `{ label, from?, manifest, seen }`, `seen` when its holder is read here (so the entry vouches for
+ * nothing: the holder answers, and lacks it) — or null. The one reading `external` and `checkRefs`
+ * share, so a write and `check` (src/check/check.ts) reach one verdict on identical bytes.
+ */
 export function vouched(
   store: Store,
   collection: string,

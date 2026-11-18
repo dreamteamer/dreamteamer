@@ -71,9 +71,11 @@ export const readPkg = root => readJson(path.join(root, "package.json"))
 export const writePkg = (root, pkg) =>
   fs.writeFileSync(path.join(root, "package.json"), JSON.stringify(pkg, null, "\t") + "\n")
 
-/** A folder whose engine is declared and linked to this checkout, so init and install run no npm for it.
- *  `spec` is the declaration: the exact version (init's own form) or `file:<checkout>` (what npm needs
- *  when it will install a tarball beside it). */
+/**
+ * A folder whose engine is declared and linked to this checkout, so init and install run no npm for it.
+ * `spec` is the declaration: the exact version (init's own form) or `file:<checkout>` (what npm needs
+ * when it will install a tarball beside it).
+ */
 export function withEngine(root, { spec = VERSION, extra = {} }: Record<string, any> = {}) {
   writePkg(root, {
     name: path.basename(root),
@@ -93,8 +95,10 @@ export function initialized(opts: Record<string, any> = {}) {
   return root
 }
 
-/** Pack packages into one folder of tarballs (what `--from` reads): each entry is a manifest, plus
- *  optional `files` ({ rel: text }). A plain package with no `dreamteamer` key is written as given. */
+/**
+ * Pack packages into one folder of tarballs (what `--from` reads): each entry is a manifest, plus
+ * optional `files` ({ rel: text }). A plain package with no `dreamteamer` key is written as given.
+ */
 export function packInto(dest, packages) {
   fs.mkdirSync(dest, { recursive: true })
   for (const { files = {}, ...manifest } of packages) {
@@ -192,8 +196,10 @@ export default function activate() { return { setup: [{ id: UNIT, version: 1, in
   return src
 }
 
-/** Put a package folder into a workspace's node_modules under its name and declare it — the way npm would
- *  have — so a test that is about setup or compile never runs npm. */
+/**
+ * Put a package folder into a workspace's node_modules under its name and declare it — the way npm would
+ * have — so a test that is about setup or compile never runs npm.
+ */
 export function installPackage(root, src) {
   const pkg = readJson(path.join(src, "package.json"))
   const dest = path.join(root, "node_modules", pkg.name)

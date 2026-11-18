@@ -336,9 +336,11 @@ describe("a layer contributes records, never sources", () => {
   })
 })
 
-/** Wait for the wall clock to tick over a second. `dt changes` resolves a sha to its commit DATE and
- *  each repo resolves that date to its own sha with `--before`, which is inclusive at second
- *  precision — so a commit made in the SAME second as the baseline reads as part of it. */
+/**
+ * Wait for the wall clock to tick over a second. `dt changes` resolves a sha to its commit DATE and
+ * each repo resolves that date to its own sha with `--before`, which is inclusive at second
+ * precision — so a commit made in the SAME second as the baseline reads as part of it.
+ */
 function nextSecond() {
   const start = Math.floor(Date.now() / 1000)
   while (Math.floor(Date.now() / 1000) === start) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20)
@@ -731,8 +733,10 @@ const PROJECTS_D = PROJECTS.replace(
   "  notes:\n",
   "  status:\n    type: string\n    enum: [a, b]\n    default: a\n  notes:\n"
 )
-/** layered() plus the shared collections the cr-dt-003 tests need — compiled from org, layered from
- *  project-a where `records` names them (memos is layerable but read from no layer). */
+/**
+ * layered() plus the shared collections the cr-dt-003 tests need — compiled from org, layered from
+ * project-a where `records` names them (memos is layerable but read from no layer).
+ */
 function standalone({
   layerFiles = {},
   records = ["tasks", "projects", "codes", "calls", "pics"],

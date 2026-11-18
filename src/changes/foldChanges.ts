@@ -1,12 +1,14 @@
 import type { ChangeKind, RecordChange } from "./types.ts"
 
-/** `before` (the committed half, oldest first) folded with `after` (the pending half) — one entry per
- *  record per repo, `committed` true when no pending part is left. Inside one half a ref can appear
- *  twice only as a MOVE (a relocate, a placed record re-parented: deleted at one path, created at
- *  another), which is one update at the live path. Across the halves the net change wins: created
- *  then deleted never existed at either end and is dropped; created then edited is still created;
- *  deleted then re-created is an update. The SAME ref in two repos is two records — a layer's copy
- *  is not the workspace's. */
+/**
+ * `before` (the committed half, oldest first) folded with `after` (the pending half) — one entry per
+ * record per repo, `committed` true when no pending part is left. Inside one half a ref can appear
+ * twice only as a MOVE (a relocate, a placed record re-parented: deleted at one path, created at
+ * another), which is one update at the live path. Across the halves the net change wins: created
+ * then deleted never existed at either end and is dropped; created then edited is still created;
+ * deleted then re-created is an update. The SAME ref in two repos is two records — a layer's copy
+ * is not the workspace's.
+ */
 export function foldChanges<T extends RecordChange>(before: T[], after: T[]): (T & { committed: boolean })[] {
   const key = (c: T): string => `${c.repo}\0${c.ref}`
   const half = (list: T[]): Map<string, T> => {

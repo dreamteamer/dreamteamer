@@ -3,10 +3,12 @@ import { groupChanges } from "./groupChanges.ts"
 import { reportLine } from "./lib/reportLine.ts"
 import type { RecordChange } from "./types.ts"
 
-/** The record-change report: the report line, then one row per record — its change, ref, workspace
- *  path (what a reply links to), committed or not, and the layer it landed in — capped like every
- *  other listing here. `dt changes` and `dt commit` print it identically, so what a session copies
- *  into its reply does not depend on which of the two it ran. */
+/**
+ * The record-change report: the report line, then one row per record — its change, ref, workspace
+ * path (what a reply links to), committed or not, and the layer it landed in — capped like every
+ * other listing here. `dt changes` and `dt commit` print it identically, so what a session copies
+ * into its reply does not depend on which of the two it ran.
+ */
 export function printChanges(changes: (RecordChange & { committed?: boolean; sha?: string | null })[]): void {
   const groups = groupChanges(changes)
   console.log(reportLine(groups))

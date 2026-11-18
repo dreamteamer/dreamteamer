@@ -19,13 +19,15 @@ const contacts = simpleCollection({ storage: { suffix: "contact" } })
 const meetings = simpleCollection({ storage: { suffix: "meeting" } })
 const issues = simpleCollection({ storage: { suffix: "issue" } })
 
-/** An HQ (contacts, meetings, issues) and one project workspace `project-a` (issues) cloned under its
- *  git_modules/ — read whole, as 0.41.0 reads a clone that names its workspace module. Seeded and
- *  committed: two contacts and a meeting in the HQ.
+/**
+ * An HQ (contacts, meetings, issues) and one project workspace `project-a` (issues) cloned under its
+ * git_modules/ — read whole, as 0.41.0 reads a clone that names its workspace module. Seeded and
+ * committed: two contacts and a meeting in the HQ.
  *
- *  BUILT ONCE PER FILE, then copied per test: seeding is four `dt` launches and three compiles, the
- *  same state every time, and it was the larger part of every test here. Each copy is a separate
- *  workspace with its own git history, so no test sees another's writes. */
+ * BUILT ONCE PER FILE, then copied per test: seeding is four `dt` launches and three compiles, the
+ * same state every time, and it was the larger part of every test here. Each copy is a separate
+ * workspace with its own git history, so no test sees another's writes.
+ */
 let template: Fixture | undefined
 function hqWithLayer() {
   template ??= buildHqWithLayer()
@@ -74,10 +76,12 @@ function fiveWrites(hq) {
   }
 }
 
-/** Make sure the next commit lands in a LATER second than `base`: `--since <sha>` resolves the sha to its
- *  commit DATE and `--before` is inclusive at second precision, so a commit in the same second reads as
- *  the base. Waits only when `base` was committed in the current second — with a copied template it
- *  usually was not, and the wait was a fixed second per test. */
+/**
+ * Make sure the next commit lands in a LATER second than `base`: `--since <sha>` resolves the sha to its
+ * commit DATE and `--before` is inclusive at second precision, so a commit in the same second reads as
+ * the base. Waits only when `base` was committed in the current second — with a copied template it
+ * usually was not, and the wait was a fixed second per test.
+ */
 function afterCommitSecond(root: string, base: string) {
   const at = Number(git(root, ["show", "-s", "--format=%ct", base]))
   while (Math.floor(Date.now() / 1000) <= at) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20)

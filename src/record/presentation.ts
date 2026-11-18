@@ -32,8 +32,10 @@ const DEFAULT_LIST_LAYOUT = "table"
 
 const DEFAULT_RECORD_LAYOUT = "page"
 
-/** The wire type of a field: the authored type name, except that a reference travels as a string
- *  (its `role` says it is one). */
+/**
+ * The wire type of a field: the authored type name, except that a reference travels as a string
+ * (its `role` says it is one).
+ */
 const WIRE_TYPES = new Set([
   "string",
   "markdown",
@@ -51,8 +53,10 @@ const WIRE_TYPES = new Set([
 
 const isWireType = (t: unknown): t is PresentationField["type"] => typeof t === "string" && WIRE_TYPES.has(t)
 
-/** The keys an enum map entry may carry onto a choice row, copied by name: a descriptor is authored
- *  data, and spreading it would let a workspace inject keys into a contract every surface reads. */
+/**
+ * The keys an enum map entry may carry onto a choice row, copied by name: a descriptor is authored
+ * data, and spreading it would let a workspace inject keys into a contract every surface reads.
+ */
 const CHOICE_KEYS = ["description", "icon", "color", "background"] as const
 
 /** the projection for every collection */
@@ -163,16 +167,20 @@ function collectionRow(d: Descriptor, declared: Record<string, Field>): Presenta
   }
 }
 
-/** The named collections a reference field points at; none for a non-reference and for `reference`
- *  (`'*'`, polymorphic: any collection, so no relation row). */
+/**
+ * The named collections a reference field points at; none for a non-reference and for `reference`
+ * (`'*'`, polymorphic: any collection, so no relation row).
+ */
 function collectionTargets(f: Field): string[] {
   const t = targetsOf(f)
   return Array.isArray(t) ? t : []
 }
 
-/** One field as surfaces draw it. `required` and `body` are the collection's answers
- *  (`requiredOf`, `bodyFieldOf`); an object's sub-field, which no collection accessor covers, says
- *  its own. The title is the resolved one — compile wrote its default onto the field. */
+/**
+ * One field as surfaces draw it. `required` and `body` are the collection's answers
+ * (`requiredOf`, `bodyFieldOf`); an object's sub-field, which no collection accessor covers, says
+ * its own. The title is the resolved one — compile wrote its default onto the field.
+ */
 function fieldRow(
   name: string,
   f: Field,
@@ -226,16 +234,20 @@ function fieldRow(
   }
 }
 
-/** Where the three injected fields are not drawn: `id` is the record's address, never a value to show
- *  or edit; `created` and `last_modified` are listable and never on the form. */
+/**
+ * Where the three injected fields are not drawn: `id` is the record's address, never a value to show
+ * or edit; `created` and `last_modified` are listable and never on the form.
+ */
 const INJECTED_HIDDEN: Record<string, (f: Field) => PresentationField["hidden"] | undefined> = {
   id: f => (f.virtual ? ["list", "form", "record"] : undefined),
   created: f => (f.derived ? ["form"] : undefined),
   last_modified: f => (f.virtual ? ["form"] : undefined),
 }
 
-/** What a field's component needs beyond the field itself: the enum's choice rows, an object's
- *  sub-fields and row label, and the authored `display.options`. Undefined when there is none. */
+/**
+ * What a field's component needs beyond the field itself: the enum's choice rows, an object's
+ * sub-fields and row label, and the authored `display.options`. Undefined when there is none.
+ */
 function componentOptions(f: Field): PresentationComponentOptions | undefined {
   const decoration = enumChoices(f.enum)
   const out: PresentationComponentOptions = {
@@ -253,8 +265,10 @@ function componentOptions(f: Field): PresentationComponentOptions | undefined {
   return Object.keys(out).length ? out : undefined
 }
 
-/** One choice row: the value, its label (the value itself when none is authored), and the decoration
- *  keys the enum map carries — copied by name, and only when they are non-empty strings. */
+/**
+ * One choice row: the value, its label (the value itself when none is authored), and the decoration
+ * keys the enum map carries — copied by name, and only when they are non-empty strings.
+ */
 function choiceRow(value: string, entry: { label?: string; [k: string]: unknown } = {}) {
   const row: PresentationChoice = { label: String(entry.label ?? value), value }
   for (const k of CHOICE_KEYS) if (typeof entry[k] === "string" && entry[k]) row[k] = entry[k] as string

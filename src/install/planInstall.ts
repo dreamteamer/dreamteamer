@@ -1,8 +1,10 @@
 import type { CheckoutState, InstallStep } from "./types.ts"
 
-/** The install plan as DATA: every step names what it found and what it would do, so the same
+/**
+ * The install plan as DATA: every step names what it found and what it would do, so the same
  * decisions are testable without a disk and printable without being run. Task 3 observes the state
- * and executes the steps; nothing here touches fs or git. */
+ * and executes the steps; nothing here touches fs or git.
+ */
 export function planInstall(state: CheckoutState, opts: { linkEnv?: boolean } = {}): InstallStep[] {
   const { checkout: c } = state
   const steps: InstallStep[] = []

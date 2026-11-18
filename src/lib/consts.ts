@@ -1,7 +1,9 @@
 import { type StdioOptions } from "node:child_process"
 
-/** A path git will not let us rewrite usefully: `npm install` erases it. Matched on the SEGMENT, in
- *  either separator, because manifest paths carry the host's. */
+/**
+ * A path git will not let us rewrite usefully: `npm install` erases it. Matched on the SEGMENT, in
+ * either separator, because manifest paths carry the host's.
+ */
 export const IN_NODE_MODULES = (rel: unknown): boolean => /(^|[\\/])node_modules([\\/]|$)/.test(String(rel))
 
 // §3.1's last row. These are FLAT at a module root and stay flat (decision 274) — their ids are
@@ -13,9 +15,11 @@ export const IN_NODE_MODULES = (rel: unknown): boolean => /(^|[\\/])node_modules
 // the value is entirely in what a human writes, and a verb that scaffolds one produces a file whose
 // only content is the fact that a verb made it.
 
-/** kind → {suffix, folder} — one table, because five verbs read it and a sixth spelling of "where
- *  does a command live" is how a kind the engine stopped knowing sat in a module for two days
- *  (decision 156). */
+/**
+ * kind → {suffix, folder} — one table, because five verbs read it and a sixth spelling of "where
+ * does a command live" is how a kind the engine stopped knowing sat in a module for two days
+ * (decision 156).
+ */
 export const ENTITY_SHAPE: Record<string, { suffix: string; folder: boolean }> = {
   skills: { suffix: "SKILL.md", folder: true },
   agents: { suffix: ".agent.md", folder: false },
@@ -24,10 +28,12 @@ export const ENTITY_SHAPE: Record<string, { suffix: string; folder: boolean }> =
   mixins: { suffix: ".mixin.yaml", folder: false },
 }
 
-/** An IDENTITY entity kind — a compiled source file per id (skills, agents, commands, bindings,
- *  mixins, and any kind an extension contributes). Derived from the runtime rather than
- *  listed, so a contributed kind gets `set · rm · rename` without core knowing its name; `collections`,
- *  `ui-views` and `modules` have verbs of their own. */
+/**
+ * An IDENTITY entity kind — a compiled source file per id (skills, agents, commands, bindings,
+ * mixins, and any kind an extension contributes). Derived from the runtime rather than
+ * listed, so a contributed kind gets `set · rm · rename` without core knowing its name; `collections`,
+ * `ui-views` and `modules` have verbs of their own.
+ */
 export const OWN_VERBS = new Set(["collections", "ui-views", "modules"])
 
 /**

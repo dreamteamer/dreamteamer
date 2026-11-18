@@ -920,8 +920,10 @@ describe("a command-binding gated on a peer collection", () => {
 // install that went around the peer check), naming both versions and the fix. An absent sibling is
 // `dreamteamer.dependencies`' business, not the floor's.
 describe("a peerDependencies floor on another module", () => {
-  /** A module `id` at `version`, with npm `peerDependencies` (top level) — on the inline channel, or
-   *  under node_modules declared as a dependency, or inside a git_modules bundle. */
+  /**
+   * A module `id` at `version`, with npm `peerDependencies` (top level) — on the inline channel, or
+   * under node_modules declared as a dependency, or inside a git_modules bundle.
+   */
   const mod = (root, id, version, { peers, channel = "inline" }: Record<string, any> = {}) => {
     const dir =
       channel === "npm"

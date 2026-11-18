@@ -5,8 +5,10 @@ export type ResolvedRoot = Storage["roots"][number] & { abs: string }
 
 export type Undo = () => void
 
-/** What a reference rewrite did: the files it wrote, the count, the occurrences it left (`skipped`: in
- *  text it does not rewrite; `ambiguous`: a bare `[[base]]` more than one record answers), and its undo. */
+/**
+ * What a reference rewrite did: the files it wrote, the count, the occurrences it left (`skipped`: in
+ * text it does not rewrite; `ambiguous`: a bare `[[base]]` more than one record answers), and its undo.
+ */
 export interface RewriteResult {
   touched: string[]
   rewrites: number

@@ -453,8 +453,10 @@ export function renameCollection(ws: Workspace, store: Store, oldName: string, n
   })
 }
 
-/** Every package.json in this workspace that can declare `peer_collections` — the workspace's own
- *  and each module's outside node_modules (a write there is erased by the next install). */
+/**
+ * Every package.json in this workspace that can declare `peer_collections` — the workspace's own
+ * and each module's outside node_modules (a write there is erased by the next install).
+ */
 function modulePackageFiles(ws: Workspace): string[] {
   const roots = new Set([".", ...(readManifest(ws.root)?.modules ?? []).map(m => m.root)])
   return [...roots]
@@ -463,8 +465,10 @@ function modulePackageFiles(ws: Workspace): string[] {
     .filter(f => fs.existsSync(f))
 }
 
-/** Re-read the workspace package.json into `ws.pkg` in place — `compile({root, pkg})` reads the
- *  object it was handed, not the file. */
+/**
+ * Re-read the workspace package.json into `ws.pkg` in place — `compile({root, pkg})` reads the
+ * object it was handed, not the file.
+ */
 function refreshWorkspacePkg(ws: Workspace): void {
   let pkg: PackageJson
   try {
@@ -476,8 +480,10 @@ function refreshWorkspacePkg(ws: Workspace): void {
   Object.assign(ws.pkg, pkg)
 }
 
-/** Rewrite a field `type` naming `oldName` → `newName` — a scalar type or a union member, at any
- *  depth of object `fields` and map `values`. Returns true if anything changed. */
+/**
+ * Rewrite a field `type` naming `oldName` → `newName` — a scalar type or a union member, at any
+ * depth of object `fields` and map `values`. Returns true if anything changed.
+ */
 function retargetTypes(fields: Record<string, Field>, oldName: string, newName: string) {
   let changed = false
   for (const f of Object.values(fields ?? {})) {

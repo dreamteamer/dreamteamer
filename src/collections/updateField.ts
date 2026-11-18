@@ -6,8 +6,10 @@ import type { Store } from "../store/Store.ts"
 import { fieldsOf } from "../record/descriptor.ts"
 import type { Field, Flags, Workspace } from "../types.ts"
 
-/** What an override in a NEW overlay starts from: the shape it overrides, so the overlay validates
- *  on its own — every other key is inherited from the base. */
+/**
+ * What an override in a NEW overlay starts from: the shape it overrides, so the overlay validates
+ * on its own — every other key is inherited from the base.
+ */
 const overrideSeed = (merged: Field): Field => ({ type: merged.type, ...(merged.many && { many: true }) })
 
 /**

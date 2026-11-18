@@ -2,8 +2,10 @@ import { type YAMLMap, type YAMLSeq, isMap, isSeq, type Node, visit as visitYaml
 import { emitDocument } from "../lib/emitDocument.ts"
 import { keyOf } from "../lib/yaml.ts"
 
-/** A flow mapping, or a flow sequence holding a collection — the two flow forms block style replaces.
- *  A flow sequence of scalars (`enum: [open, done]`) is block style's own short form and stays. */
+/**
+ * A flow mapping, or a flow sequence holding a collection — the two flow forms block style replaces.
+ * A flow sequence of scalars (`enum: [open, done]`) is block style's own short form and stays.
+ */
 const isFlowForm = (n: unknown): n is YAMLMap | YAMLSeq =>
   !!(n as { flow?: boolean })?.flow && (isMap(n) || (isSeq(n) && n.items.some(i => isMap(i) || isSeq(i))))
 

@@ -34,9 +34,11 @@ const manifest = (from, ids = { notes: ["2026-01-01--welcome"] }) =>
   ) + "\n"
 const note = title => `---\ntitle: ${title}\n---\n`
 
-/** A remote the HQ can clone by URL: a workspace fixture (so it is a real workspace, `notes` and all)
- *  pushed into a bare repo under the HQ. `dependencies` is dropped from the pushed manifest so a clone of
- *  it never runs npm. Two commits: `v1` tags the first, the branch holds the second. */
+/**
+ * A remote the HQ can clone by URL: a workspace fixture (so it is a real workspace, `notes` and all)
+ * pushed into a bare repo under the HQ. `dependencies` is dropped from the pushed manifest so a clone of
+ * it never runs npm. Two commits: `v1` tags the first, the branch holds the second.
+ */
 function remote(
   hq,
   name,
@@ -88,9 +90,11 @@ function amend(hq, r, name, edit) {
   git(work, ["push", "--quiet", "origin", r.ref])
 }
 
-/** The cast: an org layer (`@northwind/org`) holding a note and a link, two projects each declaring the org
- *  for `notes` and — unless told otherwise — needing it, by a manifest naming `@northwind/org` as the holder
- *  of the note their records name. `people` is a second layer the org itself may need. */
+/**
+ * The cast: an org layer (`@northwind/org`) holding a note and a link, two projects each declaring the org
+ * for `notes` and — unless told otherwise — needing it, by a manifest naming `@northwind/org` as the holder
+ * of the note their records name. `people` is a second layer the org itself may need.
+ */
 function cast({
   hqDeclares = (_org?): Record<string, unknown> => ({}),
   projectA = {},

@@ -42,8 +42,10 @@ const FIELD_KEY_ORDER = [
   "description",
 ]
 
-/** `--type`: a built-in type, a collection, `a,b` for a union of collections, or `reference`. A
- *  collection may not be named after a built-in type (compile refuses it), so the two never collide. */
+/**
+ * `--type`: a built-in type, a collection, `a,b` for a union of collections, or `reference`. A
+ * collection may not be named after a built-in type (compile refuses it), so the two never collide.
+ */
 function parseType(store: Store, raw: unknown): Field["type"] {
   const known = `one of ${SCALAR_TYPES.join(" ")}, a collection name, or a,b for a union of collections`
   if (raw === true || raw === "") throw new Error(`--type takes a value — ${known}`)

@@ -13,21 +13,23 @@ interface ResolvedGitModule {
   declarers: (string | null)[]
 }
 
-/** Every git module this workspace installs, by name — THE NPM MODEL. Its own declarations first, all of
- *  them (a root installs its devDependencies too). Then, with `root`, what each clone on disk NEEDS: the
- *  entries of the clone's own `git_modules` that provide a package its committed `dreamteamer-exports.json`
- *  names as holding ids its records reference. A clone with no manifest needs nothing — the rest of its list
- *  is its devDependencies, never installed here, which is what keeps a transitive install from dragging in
- *  everything a nested workspace happens to read. A need is matched to an entry by package name, scoped or
- *  not (`@northwind/org` → `org`); one no entry provides is returned in `unmet`.
+/**
+ * Every git module this workspace installs, by name — THE NPM MODEL. Its own declarations first, all of
+ * them (a root installs its devDependencies too). Then, with `root`, what each clone on disk NEEDS: the
+ * entries of the clone's own `git_modules` that provide a package its committed `dreamteamer-exports.json`
+ * names as holding ids its records reference. A clone with no manifest needs nothing — the rest of its list
+ * is its devDependencies, never installed here, which is what keeps a transitive install from dragging in
+ * everything a nested workspace happens to read. A need is matched to an entry by package name, scoped or
+ * not (`@northwind/org` → `org`); one no entry provides is returned in `unmet`.
  *
- *  Resolution, as npm's: a need the root declares is the root's (`overrides` — a differing ref or url is
- *  returned in `mismatches`, never acted on); a need another clone already hoisted at the same url and ref
- *  is shared; a need nobody has is hoisted to the top-level `git_modules/<name>`, once; a need that disagrees
- *  with what the top holds is `nested` — a second clone under its declarer, as npm nests a second version.
- *  `install` lays a symlink under each declarer of a top-level clone. Nothing here refuses; every
- *  disagreement is returned to be said. `records` is the union of the lists, `open` when some declarer
- *  named none; a nested `module: true` is not hoisted. */
+ * Resolution, as npm's: a need the root declares is the root's (`overrides` — a differing ref or url is
+ * returned in `mismatches`, never acted on); a need another clone already hoisted at the same url and ref
+ * is shared; a need nobody has is hoisted to the top-level `git_modules/<name>`, once; a need that disagrees
+ * with what the top holds is `nested` — a second clone under its declarer, as npm nests a second version.
+ * `install` lays a symlink under each declarer of a top-level clone. Nothing here refuses; every
+ * disagreement is returned to be said. `records` is the union of the lists, `open` when some declarer
+ * named none; a nested `module: true` is not hoisted.
+ */
 export function declaredGitModules(
   pkg: PackageJson,
   root: string | null = null

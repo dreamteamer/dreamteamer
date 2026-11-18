@@ -57,8 +57,10 @@ const installed = (root, name) => {
     return null
   }
 }
-/** The version package.json pins `name` at: an exact version, or — offline, from --from — the version in
- *  the one tarball a `file:` spec names (npm writes the tarball path, which is just as exact). */
+/**
+ * The version package.json pins `name` at: an exact version, or — offline, from --from — the version in
+ * the one tarball a `file:` spec names (npm writes the tarball path, which is just as exact).
+ */
 const pinOf = (root: string, name: string): string | null => {
   const spec = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8")).dependencies?.[name]
   if (spec == null) return null

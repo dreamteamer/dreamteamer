@@ -166,10 +166,12 @@ function relationsRebuild(store: Store, flags: Flags, pos: string[]) {
   return 0
 }
 
-/** `store.readAll` for a reader that must SURVIVE a bad record. It is a generator, so a parse error
- *  mid-walk cannot be resumed past — and rebuild is the one reader that has already written by the
- *  time a later record blows up, so an abort leaves a partial sweep behind an error naming no file
- *  at all. Here the bad record is handed to `onError` and skipped, and the walk finishes. */
+/**
+ * `store.readAll` for a reader that must SURVIVE a bad record. It is a generator, so a parse error
+ * mid-walk cannot be resumed past — and rebuild is the one reader that has already written by the
+ * time a later record blows up, so an abort leaves a partial sweep behind an error naming no file
+ * at all. Here the bad record is handed to `onError` and skipped, and the walk finishes.
+ */
 function* parseEach(
   store: Store,
   collection: string,

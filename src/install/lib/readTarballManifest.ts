@@ -3,8 +3,10 @@ import fs from "node:fs"
 import type { PackageJson } from "../../types.ts"
 import { refuse } from "../versions.ts"
 
-/** `package/package.json` out of an npm tarball: gunzip, then walk the ustar headers (512-byte
- *  blocks; the size is octal at offset 124; a `./` prefix is tolerated). No dependency, no shell. */
+/**
+ * `package/package.json` out of an npm tarball: gunzip, then walk the ustar headers (512-byte
+ * blocks; the size is octal at offset 124; a `./` prefix is tolerated). No dependency, no shell.
+ */
 export function readTarballManifest(file: string): PackageJson {
   const buf = zlib.gunzipSync(fs.readFileSync(file))
   let at = 0

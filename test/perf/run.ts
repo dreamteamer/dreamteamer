@@ -208,9 +208,11 @@ function timeRename(ws) {
   return { out, reads, wallMs, userMs: cpu.user / 1000, sysMs: cpu.system / 1000 }
 }
 
-/** A workspace of PAIRS related records — one capture per call — published, then every record on
- *  BOTH sides dirtied with prose. Prose is the point: no edge moves, so the leftover warning has
- *  nothing to say and pays in full to find that out. That is the shape the regression lived in. */
+/**
+ * A workspace of PAIRS related records — one capture per call — published, then every record on
+ * BOTH sides dirtied with prose. Prose is the point: no edge moves, so the leftover warning has
+ * nothing to say and pays in full to find that out. That is the shape the regression lived in.
+ */
 function commitFixture() {
   const root = path.join(PERF_DIR, `commit-${PAIRS}`)
   fs.mkdirSync(root, { recursive: true })
@@ -260,8 +262,10 @@ function commitFixture() {
   return { root, first, writeMs }
 }
 
-/** Wall time of one CLI invocation. The CLI, not the export, because the whole cost being measured is
- *  SUBPROCESSES and the ~90ms of node startup in here is the floor every row is counted against. */
+/**
+ * Wall time of one CLI invocation. The CLI, not the export, because the whole cost being measured is
+ * SUBPROCESSES and the ~90ms of node startup in here is the floor every row is counted against.
+ */
 function timeCli(root, args) {
   const t0 = performance.now()
   const res = spawnSync(process.execPath, [BIN, ...args], { cwd: root, env: GIT_ENV, encoding: "utf8" })

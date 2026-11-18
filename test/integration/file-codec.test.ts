@@ -12,8 +12,10 @@ import os from "node:os"
 import path from "node:path"
 import { workspace, writeCollection, compileQuietly, compileError } from "../helpers/ws.ts"
 
-/** `check` reports to stdout and answers with an exit code, so it is driven the way the operator
- *  drives it — through the CLI — and asserted on what it actually says. */
+/**
+ * `check` reports to stdout and answers with an exit code, so it is driven the way the operator
+ * drives it — through the CLI — and asserted on what it actually says.
+ */
 const checkOut = ws => {
   const r = ws.dt("check")
   return r.stdout + r.stderr
@@ -35,8 +37,10 @@ const FILES = {
 
 const base = (extra = {}) => workspace({ collections: { files: FILES, ...extra } })
 
-/** Put a file into the collection directly — the fixture for READ-side tests, which must not
- *  depend on the write verb they are meant to be independent of. */
+/**
+ * Put a file into the collection directly — the fixture for READ-side tests, which must not
+ * depend on the write verb they are meant to be independent of.
+ */
 function place(ws, rel, contents) {
   const p = path.join(ws.root, "data/files", rel)
   fs.mkdirSync(path.dirname(p), { recursive: true })

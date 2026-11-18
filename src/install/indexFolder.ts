@@ -5,8 +5,10 @@ import { readTarballManifest } from "./lib/readTarballManifest.ts"
 import type { FolderIndex } from "./types.ts"
 import { compareVersions, refuse } from "./versions.ts"
 
-/** Every tarball in a folder, indexed by package name, newest first (npm's own semver order via
- *  `satisfies`): file names are never parsed — `npm pack` writes `fix-a-1.0.0.tgz` for `@fix/a`. */
+/**
+ * Every tarball in a folder, indexed by package name, newest first (npm's own semver order via
+ * `satisfies`): file names are never parsed — `npm pack` writes `fix-a-1.0.0.tgz` for `@fix/a`.
+ */
 export function indexFolder(dir: string): FolderIndex {
   const index: FolderIndex = new Map()
   if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) throw refuse(`--from ${dir}: not a folder`)

@@ -18,9 +18,11 @@ type StepFn = (
   npm: string | null
 ) => number
 
-/** Every top-level package in node_modules that is a SYMLINK (scoped ones included), as
- *  `[path, raw link target]` — declared or not: the engine a checkout was cut to test is often an
- *  undeclared link, and it is exactly the one npm's pruning would delete. */
+/**
+ * Every top-level package in node_modules that is a SYMLINK (scoped ones included), as
+ * `[path, raw link target]` — declared or not: the engine a checkout was cut to test is often an
+ * undeclared link, and it is exactly the one npm's pruning would delete.
+ */
 function linkedPackages(root: string): [link: string, target: string][] {
   const nm = path.join(root, "node_modules")
   const out: [string, string][] = []
@@ -48,8 +50,10 @@ function linkedPackages(root: string): [link: string, target: string][] {
   return out
 }
 
-/** Place a symlink, replacing a dangling one. A step only reaches here because the observer read
- *  the path as absent, which a broken link is — so the leftover has to be cleared, never trusted. */
+/**
+ * Place a symlink, replacing a dangling one. A step only reaches here because the observer read
+ * the path as absent, which a broken link is — so the leftover has to be cleared, never trusted.
+ */
 function placeLink(target: string, at: string): number {
   fs.mkdirSync(path.dirname(at), { recursive: true })
   try {
@@ -61,11 +65,13 @@ function placeLink(target: string, at: string): number {
   return 0
 }
 
-/** ⚠ EVERY EXECUTOR ANSWERS WITH A CODE, NEVER A THROW. The board's contract is that one failure
- *  names itself and the remaining steps still run — and under `--json` a throw out of here would
- *  abandon the payload as well as the rest of the plan. `compile` throws on a source error, and fs
- *  throws on everything from EACCES to a primary that vanished mid-run, so the guard is the rule
- *  here rather than the exception. */
+/**
+ * ⚠ EVERY EXECUTOR ANSWERS WITH A CODE, NEVER A THROW. The board's contract is that one failure
+ * names itself and the remaining steps still run — and under `--json` a throw out of here would
+ * abandon the payload as well as the rest of the plan. `compile` throws on a source error, and fs
+ * throws on everything from EACCES to a primary that vanished mid-run, so the guard is the rule
+ * here rather than the exception.
+ */
 const guard =
   (name: string, fn: StepFn): StepFn =>
   (...a) => {
@@ -148,9 +154,11 @@ const RUN: Record<string, StepFn> = {
   ),
 }
 
-/** Print the board and run the todo steps in order. `dryRun` prints and runs nothing. Returns 1 if
- *  any step errored — one failure never abandons the rest, because a checkout half-made-ready with
- *  a named failure is more useful than one that stopped at the first thing it could not do. */
+/**
+ * Print the board and run the todo steps in order. `dryRun` prints and runs nothing. Returns 1 if
+ * any step errored — one failure never abandons the rest, because a checkout half-made-ready with
+ * a named failure is more useful than one that stopped at the first thing it could not do.
+ */
 export async function applyInstall(
   ws: Workspace,
   state: CheckoutState,

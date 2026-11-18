@@ -3,8 +3,10 @@ import fs from "node:fs"
 import path from "node:path"
 import { QUIET } from "../consts.ts"
 
-/** In-progress merge/rebase/cherry-pick makes a commit's meaning ambiguous. Ordinary dirtiness
- *  is NOT a refusal condition — committing dirty records is this verb's entire job. */
+/**
+ * In-progress merge/rebase/cherry-pick makes a commit's meaning ambiguous. Ordinary dirtiness
+ * is NOT a refusal condition — committing dirty records is this verb's entire job.
+ */
 export function inProgress(cwd: string): string | null {
   let gitDir
   try {

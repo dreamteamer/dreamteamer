@@ -10,8 +10,10 @@ import { workspace, compileQuietly, compileError, simpleCollection, writeModule 
 import { discoverModules } from "../../src/workspace/discoverModules.ts"
 import { dump } from "../../src/lib/yaml.ts"
 
-/** A bundle at `dir`: a root package.json carrying the `dreamteamer` marker and `modules/<m>/` each
- *  shipping one collection named after the module. */
+/**
+ * A bundle at `dir`: a root package.json carrying the `dreamteamer` marker and `modules/<m>/` each
+ * shipping one collection named after the module.
+ */
 function bundle(dir, rootName, modules, { marker = {} }: Record<string, any> = {}) {
   fs.mkdirSync(dir, { recursive: true })
   fs.writeFileSync(
@@ -207,8 +209,10 @@ describe("an npm module shipping data/ is warned about, naming the package and t
 // rnd/tests/dreamteamer/preset-manifest — CR-dt-008: a MODULE PRESET is a package whose
 // `dreamteamer.preset` maps member module names to exact versions. It ships no sources; compile
 // validates the map, the `nav` key, and warns once per absent member. `provides` stays legal.
-/** The workspace with an npm dependency `@acme/set` whose `dreamteamer` block is `block`, plus the
- *  named empty folders at its root. */
+/**
+ * The workspace with an npm dependency `@acme/set` whose `dreamteamer` block is `block`, plus the
+ * named empty folders at its root.
+ */
 function withNpmPreset(block: Record<string, unknown>, folders: string[] = []) {
   const { root } = workspace({ compile: false })
   const pkgPath = path.join(root, "package.json")

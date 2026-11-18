@@ -25,8 +25,10 @@ const readJson = <T = PackageJson>(f: string): T | null => {
   }
 }
 
-/** The links under `rel` (lstat, never descending through one) — compile writes and prunes whole
- *  trees there, so a link anywhere below is a place it writes through. */
+/**
+ * The links under `rel` (lstat, never descending through one) — compile writes and prunes whole
+ * trees there, so a link anywhere below is a place it writes through.
+ */
 function linksUnder(root: string, rel: string, out: string[] = []): string[] {
   let entries: fs.Dirent[]
   try {
@@ -52,10 +54,12 @@ const OUTPUT_TREES = [
   ".cursor/rules",
 ]
 
-/** Every DIRECTORY link at or under an output tree — the tree's own root included — wherever it points.
- *  ⚠ FAIL CLOSED, not "follow and judge": a link to a folder INSIDE the workspace is harmless as a path
- *  and still hides what is below it (`linksUnder` never descends through a link), so a file link in the
- *  aliased folder carried compile's write outside (third review). Compile makes none of these itself. */
+/**
+ * Every DIRECTORY link at or under an output tree — the tree's own root included — wherever it points.
+ * ⚠ FAIL CLOSED, not "follow and judge": a link to a folder INSIDE the workspace is harmless as a path
+ * and still hides what is below it (`linksUnder` never descends through a link), so a file link in the
+ * aliased folder carried compile's write outside (third review). Compile makes none of these itself.
+ */
 function aliasedOutputDirs(root: string): string[] {
   const isDirLink = (rel: string): boolean => {
     try {
@@ -67,12 +71,14 @@ function aliasedOutputDirs(root: string): string[] {
   return OUTPUT_TREES.flatMap(t => [t, ...linksUnder(root, t)]).filter(isDirLink)
 }
 
-/** Every path `init --ready` may write, as init and compile will compute them — the effective block,
- *  the built-in output trees with every link inside them, the managed-block files the last compile
- *  recorded, and any top-level file-position link (a contributed harness writes its block at the root).
- *  `.env` is exempt: never written here, and a worktree's is a link to its primary by design. A folder
- *  link in an output tree never reaches here — `aliasedOutputDirs` refuses it first. NOT covered: a
- *  nested file a newly installed extension's harness writes that no earlier compile recorded. */
+/**
+ * Every path `init --ready` may write, as init and compile will compute them — the effective block,
+ * the built-in output trees with every link inside them, the managed-block files the last compile
+ * recorded, and any top-level file-position link (a contributed harness writes its block at the root).
+ * `.env` is exempt: never written here, and a worktree's is a link to its primary by design. A folder
+ * link in an output tree never reaches here — `aliasedOutputDirs` refuses it first. NOT covered: a
+ * nested file a newly installed extension's harness writes that no earlier compile recorded.
+ */
 function writeFootprint(root: string, block: DreamteamerBlock, flags: Flags): string[] {
   let prev: Partial<Manifest> = {}
   try {

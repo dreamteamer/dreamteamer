@@ -31,8 +31,10 @@ const subdirs = (abs: string): string[] => {
   }
 }
 
-/** `[folder, files]` per folder under `dataDir` no claimed path accounts for and holding record files:
- *  a claimed folder is skipped, a prefix of one (a namespace folder) is descended into. `/`-joined. */
+/**
+ * `[folder, files]` per folder under `dataDir` no claimed path accounts for and holding record files:
+ * a claimed folder is skipped, a prefix of one (a namespace folder) is descended into. `/`-joined.
+ */
 function unreadRecordFolders(root: string, dataDir: string, claimed: Set<string>): [string, string[]][] {
   const out: [string, string[]][] = []
   const visit = (rel: string) => {
@@ -54,8 +56,10 @@ function unreadRecordFolders(root: string, dataDir: string, claimed: Set<string>
   return out
 }
 
-/** The folder each collection of a package in node_modules that this workspace does not compile would
- *  store its records in, as `folder → "<package> defines <collection>"` — where an unread folder's reader is. */
+/**
+ * The folder each collection of a package in node_modules that this workspace does not compile would
+ * store its records in, as `folder → "<package> defines <collection>"` — where an unread folder's reader is.
+ */
 function definedFolders(ws: Workspace, dataDir: string): Map<string, string> {
   const nm = path.join(ws.root, "node_modules")
   const compiled = new Set(discoverModules(ws.root, ws.pkg).modules.map(m => m.name))

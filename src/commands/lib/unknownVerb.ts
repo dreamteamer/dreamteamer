@@ -1,8 +1,10 @@
 import { emit } from "../../lib/emit.ts"
 import { USAGE } from "../../usage.ts"
 
-/** Verbs an extension answers, and the package it ships in — typed without it, the verb prints the
- *  install line. The container verbs belong to the global `dt-docker` bin, which needs no workspace. */
+/**
+ * Verbs an extension answers, and the package it ships in — typed without it, the verb prints the
+ * install line. The container verbs belong to the global `dt-docker` bin, which needs no workspace.
+ */
 const VERB_PACKAGES: Record<string, string> = {
   prove: "@dreamteamer/proofs",
   land: "@dreamteamer/worktrees",

@@ -1,9 +1,11 @@
 import type { PackageJson } from "../types.ts"
 
-/** What `dt check` holds every discovered package's manifest to, beyond the `dreamteamer` block: the
- *  engine never under `dependencies` — npm nests a second engine there whenever the pin differs from the
- *  workspace's, and a module reaching that copy disagrees with the engine the operator ran (D66).
- *  `devDependencies` (a module's own tests) and `peerDependencies` are the two places it belongs. */
+/**
+ * What `dt check` holds every discovered package's manifest to, beyond the `dreamteamer` block: the
+ * engine never under `dependencies` — npm nests a second engine there whenever the pin differs from the
+ * workspace's, and a module reaching that copy disagrees with the engine the operator ran (D66).
+ * `devDependencies` (a module's own tests) and `peerDependencies` are the two places it belongs.
+ */
 export function manifestViolations(
   pkg: PackageJson | null | undefined,
   file: string

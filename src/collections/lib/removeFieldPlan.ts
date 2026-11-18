@@ -8,13 +8,17 @@ import { bodyFieldOf } from "../../record/descriptor.ts"
 import { parseRecord } from "../../record/records.ts"
 import type { Workspace } from "../../types.ts"
 
-/** The positions in the edited source that are the field's OWN presentation — removing the field is
- *  an explicit act, and pruning these is what it means. Everything else naming it is refused. */
+/**
+ * The positions in the edited source that are the field's OWN presentation — removing the field is
+ * an explicit act, and pruning these is what it means. Everything else naming it is refused.
+ */
 const PRUNED_WITH_THE_FIELD =
   /^display\.(list\.(columns|sort|options\.[a-z_]+)|record\.(badge|color_by)|form\.sections\[\d+\])$/
 
-/** What `rm-field` would do, counted without writing: the values it clears, the presentation it
- *  prunes, and every position elsewhere that still names the field — which it refuses on. */
+/**
+ * What `rm-field` would do, counted without writing: the values it clears, the presentation it
+ * prunes, and every position elsewhere that still names the field — which it refuses on.
+ */
 export function removeFieldPlan(
   ws: Workspace,
   store: Store,

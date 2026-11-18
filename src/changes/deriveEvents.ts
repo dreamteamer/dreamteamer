@@ -14,12 +14,14 @@ interface RecordEvent {
   repo: string
 }
 
-/** Record events between two points, across EVERY repo that holds records. `from` is a sha or a
- *  date — a sha is meaningless in another repo, so it is resolved to its commit DATE and each
- *  repo then resolves that date to its own sha. Still cursor-less and stores nothing, so it can
- *  be run twice with no consequence. Every ROOT of a collection is sampled — the write root and
- *  each record layer's — and an event carries the repo it was read from; sampling the write root
- *  alone answered `events: []` for a commit made in a layer's clone. */
+/**
+ * Record events between two points, across EVERY repo that holds records. `from` is a sha or a
+ * date — a sha is meaningless in another repo, so it is resolved to its commit DATE and each
+ * repo then resolves that date to its own sha. Still cursor-less and stores nothing, so it can
+ * be run twice with no consequence. Every ROOT of a collection is sampled — the write root and
+ * each record layer's — and an event carries the repo it was read from; sampling the write root
+ * alone answered `events: []` for a commit made in a layer's clone.
+ */
 export function deriveEvents(root: string, descriptors: Descriptors, from: string, to = "HEAD"): RecordEvent[] {
   commitArg(to)
   const byRepo = new Map<string, string[]>()
@@ -61,8 +63,10 @@ export function deriveEvents(root: string, descriptors: Descriptors, from: strin
 /** git's own "no parent" object — the diff baseline for a repo younger than the requested date */
 const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 
-/** A sha or a date in → an ISO instant. A sha is resolved in the WORKSPACE repo, since that is
- *  the only repo a caller could have got one from. */
+/**
+ * A sha or a date in → an ISO instant. A sha is resolved in the WORKSPACE repo, since that is
+ * the only repo a caller could have got one from.
+ */
 function asDate(root: string, from: string): string {
   // a BARE date is pinned to midnight: git's approxidate fills unspecified fields from NOW, so
   // `--before=2026-08-01` means 2026-08-01 at the current clock time and the same command
@@ -94,10 +98,12 @@ function shaAt(cwd: string, when: string): string | null {
   }
 }
 
-/** `git diff --name-status -z` output → record events. `prefix` turns each REPO-relative path
- *  into the WORKSPACE-relative one pathToRecord expects; without it every module-owned path
- *  matches nothing and the repo silently contributes zero events. Note the -z layout: unlike
- *  `status --porcelain -z`, the status letter and the path are SEPARATE NUL-terminated chunks. */
+/**
+ * `git diff --name-status -z` output → record events. `prefix` turns each REPO-relative path
+ * into the WORKSPACE-relative one pathToRecord expects; without it every module-owned path
+ * matches nothing and the repo silently contributes zero events. Note the -z layout: unlike
+ * `status --porcelain -z`, the status letter and the path are SEPARATE NUL-terminated chunks.
+ */
 function parseNameStatus(out: string, prefix: string, descriptors: Descriptors, repo: string): RecordEvent[] {
   const parts = out.split("\0").filter(s => s.length > 0)
   const events: RecordEvent[] = []

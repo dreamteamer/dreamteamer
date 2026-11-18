@@ -3,9 +3,11 @@ import { envSpans } from "./envSpans.ts"
 
 const ENV_KEY = /^[A-Z][A-Z0-9_]*$/
 
-/** The token written for `value`: plain when nothing in it needs quoting (a backslash reads back as
- *  itself unquoted — a Windows path), else double-quoted. Inside double quotes the reader treats `\x` as
- *  one unit, so a backslash there could swallow the closing quote: refused. */
+/**
+ * The token written for `value`: plain when nothing in it needs quoting (a backslash reads back as
+ * itself unquoted — a Windows path), else double-quoted. Inside double quotes the reader treats `\x` as
+ * one unit, so a backslash there could swallow the closing quote: refused.
+ */
 function token(key: string, value: string, preferQuoted: boolean): string {
   const plain = /^[^\s#"']*$/.test(value) && value === value.trim() && !(preferQuoted && !value.includes("\\"))
   if (plain) return value

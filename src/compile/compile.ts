@@ -125,8 +125,10 @@ function bothLayouts(root: string, kind: string): boolean {
  * (`dreamteamer.ignore`). That is real per-module variance — `services` has `dashboard/`, `agentlog`
  * has `data/` — not a layout knob every module would set identically.
  */
-/** `bin/*` files of a module root, module-relative and sorted — dotfiles and subfolders (lib/,
- *  parsers/) excluded. Empty when there is no bin/. */
+/**
+ * `bin/*` files of a module root, module-relative and sorted — dotfiles and subfolders (lib/,
+ * parsers/) excluded. Empty when there is no bin/.
+ */
 function binEntries(moduleRoot: string): string[] {
   const dir = path.join(moduleRoot, "bin")
   if (!fs.existsSync(dir)) return []
@@ -157,18 +159,20 @@ const NON_SOURCE_DIRS = new Set([
   "system", // 'system': the pre-flatten layout
 ])
 
-/** Unrecognised source-root folders in a module, or [] for the workspace root (a vault legitimately
- *  holds arbitrary directories — this gate is about PACKAGES, whose folders all mean something).
+/**
+ * Unrecognised source-root folders in a module, or [] for the workspace root (a vault legitimately
+ * holds arbitrary directories — this gate is about PACKAGES, whose folders all mean something).
  *
- *  ⚠ `system/` is enumerated TOO, under the same rule. It is in NON_SOURCE_DIRS so the root pass
- *  waves it through, and that waved through everything BELOW it — so `system/gizmos/probe.gizmo.yaml`
- *  compiled ✔ in silence while the identical folder at the module root hard-errored. That is exactly
- *  the decision-156 shape the root gate exists to prevent, surviving one level down: `kindDir` still
- *  reads `system/<kind>` as the pre-flatten fallback, so a kind the engine stopped knowing is just as
- *  invisible there as it ever was at the root, and the half-migrated module is the likeliest place
- *  for one to be. Known kinds under `system/` keep compiling — the fallback is deliberate and stays
- *  (CLAUDE.md); only UNKNOWN folders become errors, and `dreamteamer.ignore` excuses them in both
- *  places with one entry. */
+ * ⚠ `system/` is enumerated TOO, under the same rule. It is in NON_SOURCE_DIRS so the root pass
+ * waves it through, and that waved through everything BELOW it — so `system/gizmos/probe.gizmo.yaml`
+ * compiled ✔ in silence while the identical folder at the module root hard-errored. That is exactly
+ * the decision-156 shape the root gate exists to prevent, surviving one level down: `kindDir` still
+ * reads `system/<kind>` as the pre-flatten fallback, so a kind the engine stopped knowing is just as
+ * invisible there as it ever was at the root, and the half-migrated module is the likeliest place
+ * for one to be. Known kinds under `system/` keep compiling — the fallback is deliberate and stays
+ * (CLAUDE.md); only UNKNOWN folders become errors, and `dreamteamer.ignore` excuses them in both
+ * places with one entry.
+ */
 function strayKindDirs(source: ModuleSource, wsRoot: string, declaredIgnore: string[], kinds: string[]): string[] {
   if (path.resolve(source.root) === path.resolve(wsRoot)) return []
   const allow = new Set([...kinds, ...NON_SOURCE_DIRS, ...declaredIgnore])
@@ -187,9 +191,11 @@ function strayKindDirs(source: ModuleSource, wsRoot: string, declaredIgnore: str
 /** A module's record id: its package name with the npm scope stripped, so `@dreamteamer/crm` is `crm`. */
 export const moduleIdOf = (n: string): string => slug(String(n).replace(/^@[^/]+\//, ""))
 
-/** A module's `location` — the folder its sources sit in. `root` is the classic layout, where the
- *  workspace's own sources are at its root rather than under `modules/<id>/`; discovery reports that
- *  as the `inline` channel with `root === '.'`, which is the one case the label table cannot see. */
+/**
+ * A module's `location` — the folder its sources sit in. `root` is the classic layout, where the
+ * workspace's own sources are at its root rather than under `modules/<id>/`; discovery reports that
+ * as the `inline` channel with `root === '.'`, which is the one case the label table cannot see.
+ */
 export const locationOf = (source: ModuleSource, wsRoot: string): string =>
   path.resolve(source.root) === path.resolve(wsRoot) ? "root" : (CHANNEL_LABEL[source.channel] ?? source.channel)
 
@@ -197,10 +203,12 @@ export const locationOf = (source: ModuleSource, wsRoot: string): string =>
 // workspace's data/. The descriptor still says `data/<collection>`; compile is what turns
 // that into a path, so the module never names its host.
 
-/** Why a module's clone could NOT hold records, or null when it can. Decided from the CHANNEL, never
- *  by asking git — compile shells out to git nowhere and must keep working in a freshly-`init`ed
- *  directory that is not a repo yet. Asked by the module flag and by a descriptor's `storage.owner`
- *  alike, so an npm module shipping an owned collection fails the same way. */
+/**
+ * Why a module's clone could NOT hold records, or null when it can. Decided from the CHANNEL, never
+ * by asking git — compile shells out to git nowhere and must keep working in a freshly-`init`ed
+ * directory that is not a repo yet. Asked by the module flag and by a descriptor's `storage.owner`
+ * alike, so an npm module shipping an owned collection fails the same way.
+ */
 function unownableBecause(source: ModuleSource, rel: (p: string) => string): string | null {
   if (source.channel === "npm")
     return `module "${source.name}" is installed under node_modules/ — that path is never committed, so its records could not be saved. Vendor it into modules/ or install it as a git module.`
@@ -209,8 +217,10 @@ function unownableBecause(source: ModuleSource, rel: (p: string) => string): str
   return null
 }
 
-/** modules whose collections default to `storage.owner: module` (`owns_data: true`), by module
- *  name → {root, channel}. Records that could never be committed are a compile ERROR, not a silent zero. */
+/**
+ * modules whose collections default to `storage.owner: module` (`owns_data: true`), by module
+ * name → {root, channel}. Records that could never be committed are a compile ERROR, not a silent zero.
+ */
 function dataOwningModules(
   sources: ModuleSource[],
   fail: (msg: string) => never,
@@ -234,8 +244,10 @@ function dataOwningModules(
   return owners
 }
 
-/** A layer's data folder, from the clone's own manifest (its `data_path`), default `data`. The clone
- *  may be absent — a fresh checkout before `dreamteamer install` — and then the default stands. */
+/**
+ * A layer's data folder, from the clone's own manifest (its `data_path`), default `data`. The clone
+ * may be absent — a fresh checkout before `dreamteamer install` — and then the default stands.
+ */
 function layerDataPath(root: string, name: string): string {
   try {
     return (
@@ -275,9 +287,11 @@ export function compile(ws: Workspace): 0 {
   // records, storage paths) and compared with `/`-joined prefixes — see addEntry
   const rel = (p: string): string => toPosix(path.relative(root, p))
 
-  /** ⚠ YAML, WITH THE FILE IN THE MESSAGE. js-yaml reports `line:column` and a snippet and never a
-   *  path, so one stray tab in a workspace of a hundred sources was an mtime bisect. Every parse of
-   *  a MODULE SOURCE goes through here; the projected records compile dumps itself do not need it. */
+  /**
+   * ⚠ YAML, WITH THE FILE IN THE MESSAGE. js-yaml reports `line:column` and a snippet and never a
+   * path, so one stray tab in a workspace of a hundred sources was an mtime bisect. Every parse of
+   * a MODULE SOURCE goes through here; the projected records compile dumps itself do not need it.
+   */
   const loadSource = (text: string, srcPath: string): SourceDoc | null => {
     try {
       return load<SourceDoc | null>(text)
@@ -286,13 +300,15 @@ export function compile(ws: Workspace): 0 {
     }
   }
 
-  /** An EMPTY source is never intentional, and every reader indexes straight into what it parses.
-   *  The collection case died with a bare "Cannot read properties of undefined" naming no file; a
-   *  0-byte ui-view was worse — compile said ✔ and `check` caught it one gate later, naming the
-   *  COMPILED artifact under `.dreamteamer/`, which nobody can edit and the next compile overwrites.
-   *  Refuse here, the last layer that still knows which module file the bytes came from.
-   *  ⚠ ENTITY FILES ONLY. A skill is a FOLDER: its `SKILL.md` is the entity and is covered, while a
-   *  placeholder under `references/` is the author's business, not the compiler's. */
+  /**
+   * An EMPTY source is never intentional, and every reader indexes straight into what it parses.
+   * The collection case died with a bare "Cannot read properties of undefined" naming no file; a
+   * 0-byte ui-view was worse — compile said ✔ and `check` caught it one gate later, naming the
+   * COMPILED artifact under `.dreamteamer/`, which nobody can edit and the next compile overwrites.
+   * Refuse here, the last layer that still knows which module file the bytes came from.
+   * ⚠ ENTITY FILES ONLY. A skill is a FOLDER: its `SKILL.md` is the entity and is covered, while a
+   * placeholder under `references/` is the author's business, not the compiler's.
+   */
   const refuseEmptySource = (srcPath: string): void => {
     if (fs.readFileSync(srcPath, "utf8").trim() === "") {
       fail(`${rel(srcPath)}: source is empty — there is nothing to compile. Delete the file, or write one.`)
@@ -1556,9 +1572,11 @@ export function compile(ws: Workspace): 0 {
   return 0
 }
 
-/** What the PREVIOUS compile resolved, for the one message that needs to know a namespace has just
- *  disappeared rather than never existing. Read off the runtime on disk, which at this point in
- *  compile is still the old one. */
+/**
+ * What the PREVIOUS compile resolved, for the one message that needs to know a namespace has just
+ * disappeared rather than never existing. Read off the runtime on disk, which at this point in
+ * compile is still the old one.
+ */
 function prevManifestNamespaces(root: string): string[] {
   return normalizeNamespaces(readManifest(root)?.namespaces)
 }

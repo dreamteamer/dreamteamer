@@ -13,8 +13,10 @@ export function disablesPackage(disable: unknown[] | null | undefined, name: str
   return (disable ?? []).some(d => isPackageEntry(d) && [name, id].includes((d as string).slice("modules/".length)))
 }
 
-/** Is a `dreamteamer.disable` entry a whole module — `modules/<id or package name>` — rather than an
- *  entity, `<kind>/<id>`? The record grammar either way: a module is a record of `modules`. */
+/**
+ * Is a `dreamteamer.disable` entry a whole module — `modules/<id or package name>` — rather than an
+ * entity, `<kind>/<id>`? The record grammar either way: a module is a record of `modules`.
+ */
 export const isPackageEntry = (d: unknown): d is string => typeof d === "string" && d.startsWith("modules/")
 
 /** Is `relFromKind` (a '/'-separated path under the kind folder) inside one of its excluded subtrees? */

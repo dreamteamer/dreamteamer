@@ -7,11 +7,13 @@ import { layerOf } from "./layerOf.ts"
 import { rowChanges } from "./rowChanges.ts"
 import type { RecordChange } from "./types.ts"
 
-/** `dt changes`: the records changed since `since`, across every repo that holds records. `HEAD` (the
- *  default) is the UNCOMMITTED state, each repo against its own HEAD — sampled by the same dry run
- *  `dt status` counts with, so the two can never disagree. Any other `since` (a sha or a date) adds
- *  the commits since then, read by `deriveEvents`, and folds the two per record. Stateless: no mark
- *  file and no cursor, so it is free to run twice and cannot drift from git. */
+/**
+ * `dt changes`: the records changed since `since`, across every repo that holds records. `HEAD` (the
+ * default) is the UNCOMMITTED state, each repo against its own HEAD — sampled by the same dry run
+ * `dt status` counts with, so the two can never disagree. Any other `since` (a sha or a date) adds
+ * the commits since then, read by `deriveEvents`, and folds the two per record. Stateless: no mark
+ * file and no cursor, so it is free to run twice and cannot drift from git.
+ */
 export function recordChanges(store: Store, { since = "HEAD" }: { since?: string } = {}) {
   const pending: RecordChange[] = []
   for (const r of commitPending(store, { dryRun: true }))
