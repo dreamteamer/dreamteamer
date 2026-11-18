@@ -8,7 +8,7 @@ storage:
   path: command-bindings
   format: yaml
 ids:
-  from: '{{ command | basename }}--{{ collection | basename }}'
+  from: "{{ command | basename }}--{{ collection | basename }}"
 fields:
   command:
     type: commands

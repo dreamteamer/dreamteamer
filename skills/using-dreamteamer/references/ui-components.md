@@ -2,37 +2,37 @@
 
 **Components are prebuilt code, not records.** There is no ui-components collection, no descriptor,
 no compile step for the component itself. This is an ordinary Vue coding session against a module's
-`ui/` source tree — *code registers everything renderable; yaml records configure and assemble.*
+`ui/` source tree — _code registers everything renderable; yaml records configure and assemble._
 
 A component is the highest-leverage and highest-cost UI artifact a module ships: it renders for
 every matching record in every workspace that installs the module, and it keeps needing a
 maintainer long after the session that wrote it. So the ladder runs from cheap to expensive, and
 you climb only as far as the job forces you:
 
-| you want | try first |
-|---|---|
-| a different control for a field | the **descriptor** — shape drives the control (`data-modeling.md` Part VII: enum → dropdown, `many` → chips, `body: true` → the page), and a field's `display.editor` / `display.viewer` names a registered one |
-| a different arrangement of a collection | `display.list.layout` — on the collection, or a **ui-view** (`ui-views.md`) |
-| the same layout, tuned | `display.list.options` |
-| a rendering or editing behaviour nothing registered has | **component code** — this reference |
+| you want                                                | try first                                                                                                                                                                                                       |
+| ------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| a different control for a field                         | the **descriptor** — shape drives the control (`data-modeling.md` Part VII: enum → dropdown, `many` → chips, `body: true` → the page), and a field's `display.editor` / `display.viewer` names a registered one |
+| a different arrangement of a collection                 | `display.list.layout` — on the collection, or a **ui-view** (`ui-views.md`)                                                                                                                                     |
+| the same layout, tuned                                  | `display.list.options`                                                                                                                                                                                          |
+| a rendering or editing behaviour nothing registered has | **component code** — this reference                                                                                                                                                                             |
 
-| the question | read |
-|---|---|
-| what kinds of component exist | the registries |
-| how the surface picks a component | resolution |
-| what a module ships | the module contract |
-| the sharp edges | design rules |
-| build → see → bind | workflow |
+| the question                      | read                |
+| --------------------------------- | ------------------- |
+| what kinds of component exist     | the registries      |
+| how the surface picks a component | resolution          |
+| what a module ships               | the module contract |
+| the sharp edges                   | design rules        |
+| build → see → bind                | workflow            |
 
 ## the registries
 
-| registry | what it holds | bound by |
-|---|---|---|
-| `edits` | field editors, **and whole-record Edit pages** (`scope: 'record'`) | a field's `display.editor`, else its type's kind default |
-| `views` | field read-renderers, and whole-record View pages | a field's `display.viewer`, else its type's kind default; `display.record.layout` for a record page |
-| `lists` | collection browse arrangements (table, cards, kanban, …) | `display.list.layout`, on a collection or a ui-view |
-| `apps` | routed subtrees + a nav icon (mounted under `/a/<id>`) | registration alone; a `scope: page` ui-view can name one |
-| `panels`, `operations` | dashboard panels, flow operations | registration alone |
+| registry               | what it holds                                                      | bound by                                                                                            |
+| ---------------------- | ------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------- |
+| `edits`                | field editors, **and whole-record Edit pages** (`scope: 'record'`) | a field's `display.editor`, else its type's kind default                                            |
+| `views`                | field read-renderers, and whole-record View pages                  | a field's `display.viewer`, else its type's kind default; `display.record.layout` for a record page |
+| `lists`                | collection browse arrangements (table, cards, kanban, …)           | `display.list.layout`, on a collection or a ui-view                                                 |
+| `apps`                 | routed subtrees + a nav icon (mounted under `/a/<id>`)             | registration alone; a `scope: page` ui-view can name one                                            |
+| `panels`, `operations` | dashboard panels, flow operations                                  | registration alone                                                                                  |
 
 "A record page is an Edit/View too": the built-in record pages (`form`, `doc`, `properties`,
 `data-model`) are ordinary registry entries with `scope: 'record'`. The host's own built-ins
@@ -46,7 +46,7 @@ For a **field**, the chain is: the `editor`/`viewer` on the field's presentation
 and role → the ultimate fallback (`input` / `text`). Two facts worth internalizing:
 
 - **The row carries the authored type name, `role` and `many`** (`data-modeling.md` §29), and the
-  surface picks the control from them — so most fields need no id at all: change the *shape* and
+  surface picks the control from them — so most fields need no id at all: change the _shape_ and
   every surface follows. Name an id in `display` only for a field whose shape genuinely cannot say it
   (a location drawn as a map pin).
 - **The kind-default maps are module-extensible**: `registerKindDefault('view', 'geometry', 'map')`
@@ -72,13 +72,20 @@ name made url-safe (`@a/crm` → `a--crm`; a collision fails compile) — and th
 dynamic-imports every staged entry at boot. The **default export** is a register function:
 
 ```js
-export default ({ registerEdit, registerView, registerList, registerApp, registerPanel,
-                  registerKindDefault, router }) => {
-  registerList({ id: 'burndown', name: 'Burndown', component: MyBurndown, fillsHeight: true });
-};
+export default ({
+  registerEdit,
+  registerView,
+  registerList,
+  registerApp,
+  registerPanel,
+  registerKindDefault,
+  router,
+}) => {
+  registerList({ id: "burndown", name: "Burndown", component: MyBurndown, fillsHeight: true })
+}
 ```
 
-- **Never bundle Vue.** The host exposes its own Vue as `window.Vue` *before* importing any module
+- **Never bundle Vue.** The host exposes its own Vue as `window.Vue` _before_ importing any module
   entry; two Vue copies break reactivity silently. Use `window.Vue`
   (`const { defineComponent, h } = window.Vue`), or mark `vue` external and map it to the `Vue`
   global in a lib-mode build.
@@ -96,7 +103,7 @@ export default ({ registerEdit, registerView, registerList, registerApp, registe
 - **Give every entry an explicit, stable `id`.** That string is the entire binding surface — every
   `display.*.layout`, `display.editor`/`viewer` and kind default names it. Renaming it breaks all of them, silently.
 - **`types` advertises picker candidacy — it never sets a default.** A non-empty `types` array
-  offers your Edit/View in the field designer's picker for those wire types; the *actual* kind
+  offers your Edit/View in the field designer's picker for those wire types; the _actual_ kind
   defaults live in one place — the kind-default maps, changed only by `registerKindDefault` (or by
   shadowing an id). `types: ['string']` on a bespoke widget therefore clutters the picker for
   every plain string field without changing any rendering. Keep custom components `types: []` and
@@ -120,7 +127,7 @@ export default ({ registerEdit, registerView, registerList, registerApp, registe
 - **Settings are declared, not hand-built.** An entry's `options` is a list of field definitions
   drawn by the same machinery that draws records — a module never builds bespoke settings UI.
   Use each option's `when:` predicate to show it only when the current values make it relevant:
-  half a flat settings panel is inert at any moment, and *hidden beats disabled* — a disabled
+  half a flat settings panel is inert at any moment, and _hidden beats disabled_ — a disabled
   control still occupies the eye with a question it cannot answer.
 
 ## workflow
@@ -137,15 +144,15 @@ export default ({ registerEdit, registerView, registerList, registerApp, registe
 
 ## common mistakes
 
-| mistake | reality |
-|---|---|
-| looking for a ui-components collection | there isn't one; this is code |
-| naming a widget in `display.editor` where a shape would say it | the shape reaches every surface; an id reaches only surfaces that registered it |
-| bundling Vue | two copies; reactivity dies silently |
-| assuming a registration error is reported | swallowed by fault isolation — read the console |
-| `types: ['string']` on a bespoke widget | it is offered in the picker for every string field — candidacy, not default; defaults change only via `registerKindDefault` |
-| omitting `id`, or renaming it later | the id is the binding surface; every record naming it breaks |
-| reusing a core layout id | silently shadows the built-in with no warning |
-| declaring layouts in `package.json` | registration in `app.js` is the whole mechanism |
-| binding before building | the id does not exist yet; the view degrades to `table` |
-| scoped CSS on a menu or dialog | portalled outside the subtree — style those globally |
+| mistake                                                        | reality                                                                                                                     |
+| -------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| looking for a ui-components collection                         | there isn't one; this is code                                                                                               |
+| naming a widget in `display.editor` where a shape would say it | the shape reaches every surface; an id reaches only surfaces that registered it                                             |
+| bundling Vue                                                   | two copies; reactivity dies silently                                                                                        |
+| assuming a registration error is reported                      | swallowed by fault isolation — read the console                                                                             |
+| `types: ['string']` on a bespoke widget                        | it is offered in the picker for every string field — candidacy, not default; defaults change only via `registerKindDefault` |
+| omitting `id`, or renaming it later                            | the id is the binding surface; every record naming it breaks                                                                |
+| reusing a core layout id                                       | silently shadows the built-in with no warning                                                                               |
+| declaring layouts in `package.json`                            | registration in `app.js` is the whole mechanism                                                                             |
+| binding before building                                        | the id does not exist yet; the view degrades to `table`                                                                     |
+| scoped CSS on a menu or dialog                                 | portalled outside the subtree — style those globally                                                                        |

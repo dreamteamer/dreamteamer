@@ -9,27 +9,27 @@ two sessions in one conversation: **the second write wins and nobody is told.** 
 git worktrees' twin — observed, never stored, and the registry is the authority rather than anyone's
 memory of it.
 
-| the question | read |
-|---|---|
-| who is running, right now | the registry |
-| how do I address one | identity — the two keys |
-| how do I say something useful | the dialogue |
-| I am coordinating several | the coordinator |
-| may this reach that session | boundaries |
-| it did not arrive / it went quiet | the refusals |
+| the question                      | read                    |
+| --------------------------------- | ----------------------- |
+| who is running, right now         | the registry            |
+| how do I address one              | identity — the two keys |
+| how do I say something useful     | the dialogue            |
+| I am coordinating several         | the coordinator         |
+| may this reach that session       | boundaries              |
+| it did not arrive / it went quiet | the refusals            |
 
 ## the registry
 
 Every harness ships the verbs; only the spelling differs. Verify the spelling against the harness's
 own `--help` before leaning on a flag — these move.
 
-| | Claude Code | Codex | Gemini CLI |
-|---|---|---|---|
-| **who is running** | `claude agents --json` → pid · cwd · kind · startedAt · sessionId · name | `codex agents` (TUI); the app-server daemon | `gemini --list-sessions` |
-| **send to a live one** | the harness's own cross-session message tool | `codex queue --thread <id\|name> --message <text>` | — **none** |
-| **start one** | `claude --bg` (prints the id) · `-p` · `--session-id <uuid>` | `codex exec --json` · `exec resume` · `fork` | `gemini -p` · `--session-id <uuid>` |
-| **watch** | `claude logs <id>` · `attach <id>` · `--output-format stream-json` | `--json` JSONL · `--output-last-message <file>` | `-o stream-json` |
-| **stop** | `claude stop <id>` — the conversation is kept | kill the exec | kill |
+|                        | Claude Code                                                              | Codex                                              | Gemini CLI                          |
+| ---------------------- | ------------------------------------------------------------------------ | -------------------------------------------------- | ----------------------------------- |
+| **who is running**     | `claude agents --json` → pid · cwd · kind · startedAt · sessionId · name | `codex agents` (TUI); the app-server daemon        | `gemini --list-sessions`            |
+| **send to a live one** | the harness's own cross-session message tool                             | `codex queue --thread <id\|name> --message <text>` | — **none**                          |
+| **start one**          | `claude --bg` (prints the id) · `-p` · `--session-id <uuid>`             | `codex exec --json` · `exec resume` · `fork`       | `gemini -p` · `--session-id <uuid>` |
+| **watch**              | `claude logs <id>` · `attach <id>` · `--output-format stream-json`       | `--json` JSONL · `--output-last-message <file>`    | `-o stream-json`                    |
+| **stop**               | `claude stop <id>` — the conversation is kept                            | kill the exec                                      | kill                                |
 
 **Prefer the native verb to a pseudo-terminal, always.** Driving a harness through a PTY — spawn,
 type, poll by reading, Ctrl-C — works and costs you everything the native path gives: there is no idle
@@ -50,10 +50,10 @@ binaries are native and safe; `npx dreamteamer …` in a bootstrap line is not.
 A session carries several identifiers and **they are not interchangeable**. Reading the registry once
 is cheaper than a round trip, and it is the only honest source: **never ask an agent who it is.**
 
-| | key | lifetime | from |
-|---|---|---|---|
-| **identity** — ledgers, joins, provenance | `sessionId` | the whole conversation | the registry |
-| **reply path** — how you actually answer | the `from` of the message you are answering | one exchange | that message |
+|                                           | key                                         | lifetime               | from         |
+| ----------------------------------------- | ------------------------------------------- | ---------------------- | ------------ |
+| **identity** — ledgers, joins, provenance | `sessionId`                                 | the whole conversation | the registry |
+| **reply path** — how you actually answer  | the `from` of the message you are answering | one exchange           | that message |
 
 **Never store a reply path, and never address from memory.** Take the address from the message in
 front of you; key everything else on the `sessionId`.
@@ -133,7 +133,7 @@ A coordinator's failure mode is **not forgetting — it is conflating.** Two ses
 blur into one narrative and a decision from one gets applied to the other.
 
 Keep a **per-session ledger, not a per-message memory**, re-read before every send: `sessionId` ·
-objective · last contact both ways · last known state *with its timestamp* · what you are waiting for
+objective · last contact both ways · last known state _with its timestamp_ · what you are waiting for
 · open decisions nobody has taken · relatedness · boundary.
 
 **Relatedness is computed, not felt**: two sessions are related when they touch the same paths,
@@ -174,8 +174,8 @@ A coordinator spans repos by construction, and one of them may publish.
 5. **A coordinator inherits the NARROWEST boundary it has touched.** Once it has read sensitive
    records it may not message a publishing session at all, whatever it means to say. This is what
    keeps rule 1 safe after compaction, when it can no longer recall precisely what it read.
-6. ⚠ **`cwd` is not the repo, and one repo is not one tree.** Harnesses put worktrees *inside* the
-   repo or *under the home directory* depending on the harness. A `cwd` under a harness's own
+6. ⚠ **`cwd` is not the repo, and one repo is not one tree.** Harnesses put worktrees _inside_ the
+   repo or _under the home directory_ depending on the harness. A `cwd` under a harness's own
    worktree root is still that repo and carries its full boundary — so a path-prefix test against
    the primary root gets it wrong in the dangerous direction. `git worktree list` is the instrument.
 
@@ -200,10 +200,10 @@ A coordinator spans repos by construction, and one of them may publish.
 
 ## the refusals
 
-| symptom | what it means |
-|---|---|
-| the send failed, naming the peer | its address died between its message and your answer. **Report it; do not retry into a name** that may be re-issued to a different process |
-| a peer is silent | it may be UNABLE to reply, not inattentive — receiving and replying are different capabilities, and a sender sees success either way. Re-address or ask the operator; never escalate on silence |
-| a peer answers under a new name | same conversation, new process. Trust the `sessionId`, not the name |
-| the send "succeeded" but nothing happened | read the OUTPUT, not the exit code — a queue verb can report failure and still exit 0 |
-| a peer names only itself, no id | it cannot be verified, replied to later, or joined to anything. Ask for its `sessionId` |
+| symptom                                   | what it means                                                                                                                                                                                   |
+| ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| the send failed, naming the peer          | its address died between its message and your answer. **Report it; do not retry into a name** that may be re-issued to a different process                                                      |
+| a peer is silent                          | it may be UNABLE to reply, not inattentive — receiving and replying are different capabilities, and a sender sees success either way. Re-address or ask the operator; never escalate on silence |
+| a peer answers under a new name           | same conversation, new process. Trust the `sessionId`, not the name                                                                                                                             |
+| the send "succeeded" but nothing happened | read the OUTPUT, not the exit code — a queue verb can report failure and still exit 0                                                                                                           |
+| a peer names only itself, no id           | it cannot be verified, replied to later, or joined to anything. Ask for its `sessionId`                                                                                                         |

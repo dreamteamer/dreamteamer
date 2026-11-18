@@ -40,17 +40,17 @@ The entry's default export is `activate(dt)`. `dt` is the RUNNING engine's publi
 (`import('dreamteamer')`'s namespace), so the extension never imports an engine of its own and can
 never disagree with the one the operator ran. It returns a contribution; every key is optional:
 
-| key | shape | what core does with it |
-|---|---|---|
-| `commands` | `{ <verb>: { usage, run(ws, argv) } }` | `dt <verb> …` runs it in-process with the opened workspace; the return is the exit code |
-| `sourceKinds` | `[{ kind, exclude?: [subtree] }]` | compile stages `<module>/<kind>/` like a built-in kind; `exclude` keeps fixtures out |
-| `analyze` | `(draft) → { errors?, warnings?, notes? }` | runs after assembly, before any output is replaced; an error fails the compile (and every schema write, which compiles) |
-| `harnesses` | `{ <id>: (ctx) → { blocks: { <file>: text }, summary } }` | a harness adapter writing managed blocks into user-owned files |
-| `orientation` | a string | one paragraph appended to every orientation block |
-| `hooks` | `{ <ClaudeHookEvent>: '<dt verb args>' }` | merged into `dt install --print-adapters` |
-| `check` | `({ root, ws, dt }) → [{ file, message }]` | `dt check` reports each as a violation after the schema's, attributed to the extension; a throw is a violation too |
-| `doctor` | `({ root, ws, dt }) → [{ label, state: ok\|warn\|bad, detail?, fix? }]` | `dt doctor` renders the rows as one capability named after the extension: READY, DEGRADED (a warn) or UNAVAILABLE (a bad), each fix on its row |
-| `next` | `({ root, ws, collection, ids }) → [{ id, text }]`, synchronous | `dt next <ref>` prints each line under the bound commands (`--json`: `notes`, attributed); a throw is one failure line, never a failed `dt next`. `contributedNotes(ws, collection, ids)` is the same call for a surface |
+| key           | shape                                                                   | what core does with it                                                                                                                                                                                                   |
+| ------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `commands`    | `{ <verb>: { usage, run(ws, argv) } }`                                  | `dt <verb> …` runs it in-process with the opened workspace; the return is the exit code                                                                                                                                  |
+| `sourceKinds` | `[{ kind, exclude?: [subtree] }]`                                       | compile stages `<module>/<kind>/` like a built-in kind; `exclude` keeps fixtures out                                                                                                                                     |
+| `analyze`     | `(draft) → { errors?, warnings?, notes? }`                              | runs after assembly, before any output is replaced; an error fails the compile (and every schema write, which compiles)                                                                                                  |
+| `harnesses`   | `{ <id>: (ctx) → { blocks: { <file>: text }, summary } }`               | a harness adapter writing managed blocks into user-owned files                                                                                                                                                           |
+| `orientation` | a string                                                                | one paragraph appended to every orientation block                                                                                                                                                                        |
+| `hooks`       | `{ <ClaudeHookEvent>: '<dt verb args>' }`                               | merged into `dt install --print-adapters`                                                                                                                                                                                |
+| `check`       | `({ root, ws, dt }) → [{ file, message }]`                              | `dt check` reports each as a violation after the schema's, attributed to the extension; a throw is a violation too                                                                                                       |
+| `doctor`      | `({ root, ws, dt }) → [{ label, state: ok\|warn\|bad, detail?, fix? }]` | `dt doctor` renders the rows as one capability named after the extension: READY, DEGRADED (a warn) or UNAVAILABLE (a bad), each fix on its row                                                                           |
+| `next`        | `({ root, ws, collection, ids }) → [{ id, text }]`, synchronous         | `dt next <ref>` prints each line under the bound commands (`--json`: `notes`, attributed); a throw is one failure line, never a failed `dt next`. `contributedNotes(ws, collection, ids)` is the same call for a surface |
 
 A module that needs per-machine setup (an account, a download, a local tool) declares it as a
 **setup unit** — the `setup` contribution key: `[{ id, version: 1, inputs: [{ id, kind: 'string'|'path'|'rows'|'secret-path', env?, required?, default?, prompt?, rows? }], inspect(ctx) → { checks }, plan(ctx, inputs) → { checks, actions: [{ id, title, effects?: [{ kind, detail }], env?: { KEY: value }, state?, reason?, preview?, expect?, runBy?, kind? }], needs }, apply?(ctx, action, inputs) → { ok, changed, message? } }]`.
@@ -81,11 +81,11 @@ What the signature does not show:
 
 The `ctx` each driver hands a unit:
 
-| key | `dt setup` | `dt doctor` | `dt install` · `dt init` | `dt status` |
-|---|---|---|---|---|
-| `root`, `ws`, `env`, `receiptDir` | set | set | set | set |
-| `tty` | the terminal | false | the terminal | false |
-| `dt` | the engine's API | the engine's API | null | null |
+| key                               | `dt setup`       | `dt doctor`      | `dt install` · `dt init` | `dt status` |
+| --------------------------------- | ---------------- | ---------------- | ------------------------ | ----------- |
+| `root`, `ws`, `env`, `receiptDir` | set              | set              | set                      | set         |
+| `tty`                             | the terminal     | false            | the terminal             | false       |
+| `dt`                              | the engine's API | the engine's API | null                     | null        |
 
 `inspect` and `plan` must not depend on `ctx.dt`; a machine step that wants the API runs under `dt setup`.
 

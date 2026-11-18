@@ -8,26 +8,26 @@ what differs from it. Nothing to build.
 The reader who matters most is not you and not the surface: it is the **operator**, whose recurring
 question this record encodes. A good view is a question they stopped having to re-ask ("which
 prescriptions are still running", "what landed this week"); a bad view is a nav entry they scroll
-past. The surface reads compiled ui-view records at boot *and on every change* — `display.nav`
+past. The surface reads compiled ui-view records at boot _and on every change_ — `display.nav`
 becomes a sidebar entry, `route` a live route, and an edited view reaches an already-open tab on
 the next compile.
 
-| the question | read |
-|---|---|
-| does this view deserve to exist | when a view earns existence |
-| the record and its keys | anatomy |
-| a list, one record, or a page | scopes |
-| what the view inherits | display, merged |
-| which layout | layouts |
-| narrowing the rows | filters |
-| layout settings | options |
-| writing views from the CLI | the verbs |
+| the question                               | read                        |
+| ------------------------------------------ | --------------------------- |
+| does this view deserve to exist            | when a view earns existence |
+| the record and its keys                    | anatomy                     |
+| a list, one record, or a page              | scopes                      |
+| what the view inherits                     | display, merged             |
+| which layout                               | layouts                     |
+| narrowing the rows                         | filters                     |
+| layout settings                            | options                     |
+| writing views from the CLI                 | the verbs                   |
 | where each collection sits in the left nav | the nav document — nav.yaml |
 
 ## when a view earns existence
 
 The default rendering — the collection's `display.list` over the whole collection — needs no view.
-A *named* view exists to be **different** from it. One earns its keep when:
+A _named_ view exists to be **different** from it. One earns its keep when:
 
 - it encodes a **recurring question** (`/health/visits/today`) — the operator asks it daily, and
   the filter is the answer;
@@ -63,17 +63,17 @@ display:
     columns: [reason, patient, doctor, status]
     options:
       lanes_by: status
-      card_title: '{{ reason }} · {{ patient }}'
+      card_title: "{{ reason }} · {{ patient }}"
 ```
 
-| key | required | notes |
-|---|---|---|
-| `route` | yes | the path, starting with `/`. The id derives from it, so a view saved from the CLI and one saved from a surface land on the **same record** |
-| `scope` | yes | `collection`, `record` or `page` (below) |
-| `collection` | for `collection`/`record` | qualified: `collections/<name>` |
-| `filter` | no | the saved narrowing — see filters |
-| `display` | no | the keys it changes, in the collection's own blocks — see display, merged |
-| `name` · `title` · `description` | no | a handle for readers of the source · the heading a surface draws · what it shows and for whom |
+| key                              | required                  | notes                                                                                                                                      |
+| -------------------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `route`                          | yes                       | the path, starting with `/`. The id derives from it, so a view saved from the CLI and one saved from a surface land on the **same record** |
+| `scope`                          | yes                       | `collection`, `record` or `page` (below)                                                                                                   |
+| `collection`                     | for `collection`/`record` | qualified: `collections/<name>`                                                                                                            |
+| `filter`                         | no                        | the saved narrowing — see filters                                                                                                          |
+| `display`                        | no                        | the keys it changes, in the collection's own blocks — see display, merged                                                                  |
+| `name` · `title` · `description` | no                        | a handle for readers of the source · the heading a surface draws · what it shows and for whom                                              |
 
 Any other key is a compile error naming the list — `default`, `path`, `target`, `layout` and
 `options` at the top level included: a view is always a named variant, and layout and options live
@@ -191,14 +191,14 @@ it is the operator's: the editor's drag and drop writes it, and so may you. A ui
 ```yaml
 # The left nav of this workspace. Drag and drop writes this file; so may you.
 tree:
-  - folder: Work                 # label, optional icon, optional hidden: true, items
+  - folder: Work # label, optional icon, optional hidden: true, items
     icon: rocket
     items: [tasks, projects, { folder: Plans, items: [decisions, risks] }]
-  - collection: contacts         # the long form, to override the icon
+  - collection: contacts # the long form, to override the icon
     icon: person
-  - namespace: rnd               # a namespace folder; no items = all of it unplaced
+  - namespace: rnd # a namespace folder; no items = all of it unplaced
     items: [rnd/change-requests, { folder: Product, items: [rnd/user-stories] }]
-hidden: [file-drives]            # rows not drawn; a hidden name counts as placed
+hidden: [file-drives] # rows not drawn; a hidden name counts as placed
 ```
 
 - **A collection the file does not name draws after the tree**, alphabetical; a namespaced one inside
@@ -220,14 +220,14 @@ hidden: [file-drives]            # rows not drawn; a hidden name counts as place
 
 ## common mistakes
 
-| mistake | reality |
-|---|---|
-| a `layout` id you assumed exists | not validated at compile — it degrades visibly to `table`; look at the surface |
-| bare `collection: tasks` | qualified refs only: `collections/tasks` |
-| `filter: { status: "seen" }` | filters are operator objects: `{ status: { _eq: seen } }` |
-| a filter on a date "today" written as a literal | `$today` — a literal goes stale the next morning |
-| `filter` written inside `options` | read by nobody — compile warns; move it up |
-| a view to change the collection's default columns | edit the collection's `display.list` — every surface follows |
-| omitting `nav` and expecting a sidebar entry | a view's nav is never inherited |
-| `display.nav.order` on a collection to move its row | ignored since 0.49 — move the row in `nav.yaml` |
-| a module ui-view naming one person | a hard-coded id resolves in no other workspace |
+| mistake                                             | reality                                                                        |
+| --------------------------------------------------- | ------------------------------------------------------------------------------ |
+| a `layout` id you assumed exists                    | not validated at compile — it degrades visibly to `table`; look at the surface |
+| bare `collection: tasks`                            | qualified refs only: `collections/tasks`                                       |
+| `filter: { status: "seen" }`                        | filters are operator objects: `{ status: { _eq: seen } }`                      |
+| a filter on a date "today" written as a literal     | `$today` — a literal goes stale the next morning                               |
+| `filter` written inside `options`                   | read by nobody — compile warns; move it up                                     |
+| a view to change the collection's default columns   | edit the collection's `display.list` — every surface follows                   |
+| omitting `nav` and expecting a sidebar entry        | a view's nav is never inherited                                                |
+| `display.nav.order` on a collection to move its row | ignored since 0.49 — move the row in `nav.yaml`                                |
+| a module ui-view naming one person                  | a hard-coded id resolves in no other workspace                                 |

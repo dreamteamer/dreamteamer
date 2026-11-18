@@ -3,31 +3,31 @@
 One descriptor file: `modules/<module>/collections/<name>.collection.yaml`. The descriptor
 **describes reality** — you do not edit records to fit an inferred schema.
 
-Two references divide this territory: the *judgment* — grain, relations, enums vs vocabularies,
+Two references divide this territory: the _judgment_ — grain, relations, enums vs vocabularies,
 what deserves to be a collection at all — lives in `data-modeling.md`; the **mechanics** live
 here. The meta-descriptor `.dreamteamer/collections/collections.collection.yaml` states every key
 in one line each; this reference says how they behave:
 
-| the question | read |
-|---|---|
-| what a descriptor holds — keys, types, ids, display | the descriptor · fields · ids and templates · display |
-| what compile does to my source, and what a message means | the pipeline · the message catalog |
-| create or change shape with the CLI | the system and field verbs |
-| a module, the `package.json` block, a namespace | declaring a module · the workspace manifest · namespaces |
-| records inside their parent's folder | relationship-based storage |
-| shared fields, another module's collection, a cross-module reference | mixins · overlays · the reference contract |
-| a data folder that already exists, or shape changing under records | registering an existing folder · evolving a schema |
+| the question                                                         | read                                                     |
+| -------------------------------------------------------------------- | -------------------------------------------------------- |
+| what a descriptor holds — keys, types, ids, display                  | the descriptor · fields · ids and templates · display    |
+| what compile does to my source, and what a message means             | the pipeline · the message catalog                       |
+| create or change shape with the CLI                                  | the system and field verbs                               |
+| a module, the `package.json` block, a namespace                      | declaring a module · the workspace manifest · namespaces |
+| records inside their parent's folder                                 | relationship-based storage                               |
+| shared fields, another module's collection, a cross-module reference | mixins · overlays · the reference contract               |
+| a data folder that already exists, or shape changing under records   | registering an existing folder · evolving a schema       |
 
 ## the descriptor
 
 ```yaml
 # modules/default/collections/people.collection.yaml
 name: people
-singular: person                 # the inflector leaves `people` as it is; `dt add person …` reads better
+singular: person # the inflector leaves `people` as it is; `dt add person …` reads better
 description: A person this workspace deals with — never the organisation, which is `companies`.
 use_when: a person is named in a meeting, an email or a document — find or create them here first
 storage:
-  suffix: person                 # <id>.person.md
+  suffix: person # <id>.person.md
 fields:
   name:
     type: string
@@ -45,59 +45,59 @@ fields:
 
 The top-level keys, closed (any other is a compile error naming the list):
 
-| key | contract |
-|---|---|
-| `name` | the id; equals the filename; carries the namespace (`health/visits`) |
-| `title` | the human label; default the title-cased bare name |
-| `singular` | the word the CLI also accepts (`dt add person`); default the inflected bare name, namespace kept. Compile warns when the inflector cannot singularise the name, and refuses two collections answering to one word |
-| `record_title` | how one record is labelled wherever it is referenced — a template; default the first of `title` · `name` · `subject`, else `{{ id }}`. Its first token must be a `string` or `markdown` field: it is what `dt add <collection> "<title>"` fills |
-| `description` · `use_when` | what one record IS (naming the neighbour it is not) · the situations that bring a session here. Both feed the orientation block (`data-modeling.md` §18) |
-| `internal` | workspace plumbing, left out of the domain listing — the engine's collections and the workspace module's only |
-| `sensitive` | records never leave through an export; the same key on a field keeps one field back |
-| `storage` | `path` (default `data/<name>`) · `format: md \| yaml \| json \| binary` (default `md`) · `shape: file \| folder` · `entry` (folder shape: the file that IS the record) · `suffix` (default the inflected bare name — an authored `singular` does not change it) · `under` (below) · `max_bytes` · `accept` (binary only) · `owner: module \| workspace` (whose REPO holds the records — the shipping module's clone, or this workspace, the default; below) |
-| `ids` | `from` and `pattern` — ids and templates, below |
-| `mixins` · `overlay` | below |
-| `fields` | the fields, in form order. **Required to be present** — it is what marks a descriptor; a `format: binary` collection writes `fields: {}` |
-| `constraints` | a list of JSON Schema combinators for a rule across fields. Every property named must be a field, and an `if` must name `required` or it passes vacuously on a record lacking the field |
-| `display` | nav · list · record · form, below |
+| key                        | contract                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `name`                     | the id; equals the filename; carries the namespace (`health/visits`)                                                                                                                                                                                                                                                                                                                                                                                        |
+| `title`                    | the human label; default the title-cased bare name                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `singular`                 | the word the CLI also accepts (`dt add person`); default the inflected bare name, namespace kept. Compile warns when the inflector cannot singularise the name, and refuses two collections answering to one word                                                                                                                                                                                                                                           |
+| `record_title`             | how one record is labelled wherever it is referenced — a template; default the first of `title` · `name` · `subject`, else `{{ id }}`. Its first token must be a `string` or `markdown` field: it is what `dt add <collection> "<title>"` fills                                                                                                                                                                                                             |
+| `description` · `use_when` | what one record IS (naming the neighbour it is not) · the situations that bring a session here. Both feed the orientation block (`data-modeling.md` §18)                                                                                                                                                                                                                                                                                                    |
+| `internal`                 | workspace plumbing, left out of the domain listing — the engine's collections and the workspace module's only                                                                                                                                                                                                                                                                                                                                               |
+| `sensitive`                | records never leave through an export; the same key on a field keeps one field back                                                                                                                                                                                                                                                                                                                                                                         |
+| `storage`                  | `path` (default `data/<name>`) · `format: md \| yaml \| json \| binary` (default `md`) · `shape: file \| folder` · `entry` (folder shape: the file that IS the record) · `suffix` (default the inflected bare name — an authored `singular` does not change it) · `under` (below) · `max_bytes` · `accept` (binary only) · `owner: module \| workspace` (whose REPO holds the records — the shipping module's clone, or this workspace, the default; below) |
+| `ids`                      | `from` and `pattern` — ids and templates, below                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `mixins` · `overlay`       | below                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `fields`                   | the fields, in form order. **Required to be present** — it is what marks a descriptor; a `format: binary` collection writes `fields: {}`                                                                                                                                                                                                                                                                                                                    |
+| `constraints`              | a list of JSON Schema combinators for a rule across fields. Every property named must be a field, and an `if` must name `required` or it passes vacuously on a record lacking the field                                                                                                                                                                                                                                                                     |
+| `display`                  | nav · list · record · form, below                                                                                                                                                                                                                                                                                                                                                                                                                           |
 
 ## fields
 
-| `type` | stores | notes |
-|---|---|---|
-| `string` · `markdown` | text | `markdown` with `body: true` is the record's prose, one per collection, kept last |
-| `boolean` · `integer` · `number` | as named | |
-| `date` · `datetime` | `2026-10-02` · an instant with its offset | the CLI stamps the local offset on `"2026-10-02 12:00"` |
-| `url` · `email` | text, format-checked | |
-| `<collection>` | a reference, `<collection>/<id>` | the foreign key |
-| `[a, b]` | a reference to one of several | the stored prefix disambiguates |
-| `reference` | a reference to any collection | existence checked only; no mirror; warns outside the workspace module |
-| `object` | a nested map, with `fields:` | with `many: true`, rows labelled by `item_title` |
-| `map` | key → value, typed by `values:` | `values` omitted: an open map |
-| `position` | the manual-order key `dt reorder` writes | one per collection, never `many` |
+| `type`                           | stores                                    | notes                                                                             |
+| -------------------------------- | ----------------------------------------- | --------------------------------------------------------------------------------- |
+| `string` · `markdown`            | text                                      | `markdown` with `body: true` is the record's prose, one per collection, kept last |
+| `boolean` · `integer` · `number` | as named                                  |                                                                                   |
+| `date` · `datetime`              | `2026-10-02` · an instant with its offset | the CLI stamps the local offset on `"2026-10-02 12:00"`                           |
+| `url` · `email`                  | text, format-checked                      |                                                                                   |
+| `<collection>`                   | a reference, `<collection>/<id>`          | the foreign key                                                                   |
+| `[a, b]`                         | a reference to one of several             | the stored prefix disambiguates                                                   |
+| `reference`                      | a reference to any collection             | existence checked only; no mirror; warns outside the workspace module             |
+| `object`                         | a nested map, with `fields:`              | with `many: true`, rows labelled by `item_title`                                  |
+| `map`                            | key → value, typed by `values:`           | `values` omitted: an open map                                                     |
+| `position`                       | the manual-order key `dt reorder` writes  | one per collection, never `many`                                                  |
 
 `many: true` makes a list of any type but `position`; constraints on a `many` field (`pattern`, `minimum`,
 `maxLength`…) apply to each item. A collection may not be named after a type.
 
 The field keys, closed — the order a field is best written in:
 
-| key | contract |
-|---|---|
-| `type` · `title` | the type above · the label, default the title-cased name |
-| `required` · `many` · `default` | as named; a default is filled in at `dt add` |
-| `enum` | a list, or a map of value → `{ label, description, icon, color, background }`; on `type: string` only. Map order is band order. A value that is not kebab-case warns (`dt rename-value` renames one) |
-| `unique` | no two records hold the same value, on any scalar field — enforced at write and by `check`, both claimants named; absent never claims |
-| `mirror_of` | this field is the generated, read-only mirror of the named field on the `type` collection — the one relation spelling (`data-modeling.md` Part VI) |
-| `on_delete` | `restrict` (the default on every reference) or `set-null`, refused on a required reference |
-| `soft` | a reference whose target record — or collection — may not exist yet; `check` tolerates the miss, the stored value must still name an allowed collection |
-| `sensitive` · `deprecated` | never exported · still validates, drawn nowhere, `dt add` warns on it |
-| `body` | the prose field, `type: markdown` |
-| `derived` · `virtual` | engine marks: stored but written only by the engine (`created`) · never stored (`id`, `last_modified`, a binary record's `ext` and `bytes`). A write naming either is refused |
-| `passthrough` | the name keeps a harness's own spelling (`argument-hint`); without it a name that is not snake_case warns |
-| `fields` · `values` · `item_title` | for `object`, `map`, rows of a `many` object |
-| `examples` · `pattern` · `minimum` · `maximum` · `minItems` · `maxItems` · `minLength` · `maxLength` · `const` | passed to the validator; the first `examples` value is rendered into the orientation block's `write:` line |
-| `display` | `editable` (`true` · `false` · `create`) · `hidden` (any of `list` · `form` · `record`) · `form_section` · `placeholder` · `unit` (`currency` · `percent` · `bytes` · a literal) · `unit_field` · `direction` · `width` · `viewer` · `editor` · `options` |
-| `description` | what the value MEANS — the tooltip and the agent's guidance |
+| key                                                                                                            | contract                                                                                                                                                                                                                                                  |
+| -------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `type` · `title`                                                                                               | the type above · the label, default the title-cased name                                                                                                                                                                                                  |
+| `required` · `many` · `default`                                                                                | as named; a default is filled in at `dt add`                                                                                                                                                                                                              |
+| `enum`                                                                                                         | a list, or a map of value → `{ label, description, icon, color, background }`; on `type: string` only. Map order is band order. A value that is not kebab-case warns (`dt rename-value` renames one)                                                      |
+| `unique`                                                                                                       | no two records hold the same value, on any scalar field — enforced at write and by `check`, both claimants named; absent never claims                                                                                                                     |
+| `mirror_of`                                                                                                    | this field is the generated, read-only mirror of the named field on the `type` collection — the one relation spelling (`data-modeling.md` Part VI)                                                                                                        |
+| `on_delete`                                                                                                    | `restrict` (the default on every reference) or `set-null`, refused on a required reference                                                                                                                                                                |
+| `soft`                                                                                                         | a reference whose target record — or collection — may not exist yet; `check` tolerates the miss, the stored value must still name an allowed collection                                                                                                   |
+| `sensitive` · `deprecated`                                                                                     | never exported · still validates, drawn nowhere, `dt add` warns on it                                                                                                                                                                                     |
+| `body`                                                                                                         | the prose field, `type: markdown`                                                                                                                                                                                                                         |
+| `derived` · `virtual`                                                                                          | engine marks: stored but written only by the engine (`created`) · never stored (`id`, `last_modified`, a binary record's `ext` and `bytes`). A write naming either is refused                                                                             |
+| `passthrough`                                                                                                  | the name keeps a harness's own spelling (`argument-hint`); without it a name that is not snake_case warns                                                                                                                                                 |
+| `fields` · `values` · `item_title`                                                                             | for `object`, `map`, rows of a `many` object                                                                                                                                                                                                              |
+| `examples` · `pattern` · `minimum` · `maximum` · `minItems` · `maxItems` · `minLength` · `maxLength` · `const` | passed to the validator; the first `examples` value is rendered into the orientation block's `write:` line                                                                                                                                                |
+| `display`                                                                                                      | `editable` (`true` · `false` · `create`) · `hidden` (any of `list` · `form` · `record`) · `form_section` · `placeholder` · `unit` (`currency` · `percent` · `bytes` · a literal) · `unit_field` · `direction` · `width` · `viewer` · `editor` · `options` |
+| `description`                                                                                                  | what the value MEANS — the tooltip and the agent's guidance                                                                                                                                                                                               |
 
 `display.editable: false` locks the surface and lets the CLI and syncs through; `mirror_of`,
 `derived` and `virtual` refuse every writer. A required field with no default that is hidden from
@@ -113,7 +113,7 @@ file. A runtime kind (skills, agents…) has no `created`: compile writes those 
 
 ```yaml
 ids:
-  from: '{{ date | date:YYYY/MM }}/{{ date | date }}--{{ patient | basename }}'
+  from: "{{ date | date:YYYY/MM }}/{{ date | date }}--{{ patient | basename }}"
   pattern: '^\d{4}/\d{2}/\d{4}-\d{2}-\d{2}--[a-z0-9-]+$'
 ```
 
@@ -138,18 +138,18 @@ ids:
 ```yaml
 display:
   nav:
-    icon: pulse                   # order and section are legal and ignored since 0.49 — nav.yaml places rows
+    icon: pulse # order and section are legal and ignored since 0.49 — nav.yaml places rows
   list:
-    layout: table                 # the default; a surface's registered layout id
+    layout: table # the default; a surface's registered layout id
     columns: [reason, patient, date, status]
     sort: -date
     options:
-      page_size: 50               # the layout's own keys
+      page_size: 50 # the layout's own keys
   record:
-    layout: page                  # the default
-    subtitle: '{{ patient }} · {{ kind }}'
-    badge: status                 # drawn as a chip in the header
-    color_by: kind                # a field whose enum map's colours tint rows and chips
+    layout: page # the default
+    subtitle: "{{ patient }} · {{ kind }}"
+    badge: status # drawn as a chip in the header
+    color_by: kind # a field whose enum map's colours tint rows and chips
   form:
     sections:
       - title: Visit
@@ -240,19 +240,19 @@ lists it. What belongs in a module is judgment — `data-modeling.md` Part III �
 `dreamteamer` block reads, for example, `{ "description": "…", "namespaces": ["billing"],
 "dependencies": ["clinic"] }`.
 
-| module key | what it holds |
-|---|---|
-| `title` · `description` | what to call the module · what the AREA is for — it heads the module's group in the orientation block |
-| `namespaces` | the namespaces this module owns |
-| `dependencies` | modules this one cannot compile without — an overlay needs its base. Acyclic |
-| `peer_collections` | collections this module references but does not own, which may be absent |
-| `owns_data` | every collection it ships defaults to `storage.owner: module` — its records live in its own clone, not the workspace's `data/`; one descriptor opts out with `storage.owner: workspace` |
-| `engine` | the engine range it needs; outside it, the module is refused whole |
-| `env` · `vars` | the `.env` keys it needs · the `${env:…}` names its records use (the workspace must allow each) |
-| `extension` · `ignore` · `local_assets` | an extension entry (`extensions.md`) · folders that are not kinds · gitignored files a worktree links |
-| `preset` | makes the package a **module preset**: `{ "<package>": "<exact version>" }`, the modules it installs. It ships no kind folders. `dt install` installs every member at its pin, `dt update` moves the installed ones and skips one you removed, `dt status` lists each member, and `dt list modules` shows `preset · N members · M installed` (0.49.0) |
-| `nav` | the package-relative path of its nav fragment, a `nav.yaml` that install and update merge into the workspace's own (`ui-views.md`). It may place only collections the module owns or overlays, or a preset's members' |
-| `provides` | legal and ignored since 0.49.0. A composed package listed its contents here before module presets replaced it |
+| module key                              | what it holds                                                                                                                                                                                                                                                                                                                                         |
+| --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `title` · `description`                 | what to call the module · what the AREA is for — it heads the module's group in the orientation block                                                                                                                                                                                                                                                 |
+| `namespaces`                            | the namespaces this module owns                                                                                                                                                                                                                                                                                                                       |
+| `dependencies`                          | modules this one cannot compile without — an overlay needs its base. Acyclic                                                                                                                                                                                                                                                                          |
+| `peer_collections`                      | collections this module references but does not own, which may be absent                                                                                                                                                                                                                                                                              |
+| `owns_data`                             | every collection it ships defaults to `storage.owner: module` — its records live in its own clone, not the workspace's `data/`; one descriptor opts out with `storage.owner: workspace`                                                                                                                                                               |
+| `engine`                                | the engine range it needs; outside it, the module is refused whole                                                                                                                                                                                                                                                                                    |
+| `env` · `vars`                          | the `.env` keys it needs · the `${env:…}` names its records use (the workspace must allow each)                                                                                                                                                                                                                                                       |
+| `extension` · `ignore` · `local_assets` | an extension entry (`extensions.md`) · folders that are not kinds · gitignored files a worktree links                                                                                                                                                                                                                                                 |
+| `preset`                                | makes the package a **module preset**: `{ "<package>": "<exact version>" }`, the modules it installs. It ships no kind folders. `dt install` installs every member at its pin, `dt update` moves the installed ones and skips one you removed, `dt status` lists each member, and `dt list modules` shows `preset · N members · M installed` (0.49.0) |
+| `nav`                                   | the package-relative path of its nav fragment, a `nav.yaml` that install and update merge into the workspace's own (`ui-views.md`). It may place only collections the module owns or overlays, or a preset's members'                                                                                                                                 |
+| `provides`                              | legal and ignored since 0.49.0. A composed package listed its contents here before module presets replaced it                                                                                                                                                                                                                                         |
 
 A module's setup units are its extension's `setup` contribution (`extensions.md`), not a key of this
 block. A version floor on another module is not a key of this block either: it is npm's own peer-dependency range,
@@ -264,20 +264,20 @@ naming both versions and the fix.
 Keys are snake_case and closed: compile refuses an unknown one, naming the list. `dt init` writes
 `workspace_module`, `data_path`, `harnesses`, `git_modules`, `disable` and `gitignore_runtime_folder`.
 
-| key | what it holds |
-|---|---|
-| `workspace_module` | which module under `modules/` is the workspace's own |
-| `title` · `description` | what to call the workspace · what it is for |
-| `data_path` | where records live, workspace-relative |
-| `namespaces` | namespaces declared at the workspace level (a module's own declaration is the one that travels) |
-| `vars` | the `.env` keys records may reference as `${env:KEY}` (`records.md`) |
-| `env` | the `.env` keys the workspace itself needs, a bare name or `{ name, description, example }`. Compile names one missing from `.env` and lists each in `.env.example` |
-| `setup` | `{ "skipped": [<unit id>…] }`: the setup units `dt setup <unit> --skip` recorded as skipped (`setup.md`) |
-| `auto_commit` | whether a record write also commits (default off) |
-| `harnesses` | which coding-agent adapters compile writes |
-| `git_modules` | the lockfile map `dt install` restores into `git_modules/` — `{ url, ref }` per clone; a clone whose own package.json names `workspace_module` is a RECORD LAYER (below), not a bundle, and `records: [<collection>…]` narrows it (or makes any clone a layer) — `module: true` adds its one workspace module; what a clone NEEDS (the holders its `dreamteamer-exports.json` names) is installed here too, once at the top and linked under the clone (0.46.0) |
-| `disable` | what to drop from the compile: `modules/<id>` (a whole module, its code included) or `<kind>/<id>` (one entity) |
-| `local_assets` · `postinstall` · `repos_path` · `gitignore_runtime_folder` | links a worktree gets · a script `dt install` runs · where `repos` records materialise · whether `.dreamteamer/` is gitignored |
+| key                                                                        | what it holds                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| -------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `workspace_module`                                                         | which module under `modules/` is the workspace's own                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `title` · `description`                                                    | what to call the workspace · what it is for                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `data_path`                                                                | where records live, workspace-relative                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `namespaces`                                                               | namespaces declared at the workspace level (a module's own declaration is the one that travels)                                                                                                                                                                                                                                                                                                                                                                 |
+| `vars`                                                                     | the `.env` keys records may reference as `${env:KEY}` (`records.md`)                                                                                                                                                                                                                                                                                                                                                                                            |
+| `env`                                                                      | the `.env` keys the workspace itself needs, a bare name or `{ name, description, example }`. Compile names one missing from `.env` and lists each in `.env.example`                                                                                                                                                                                                                                                                                             |
+| `setup`                                                                    | `{ "skipped": [<unit id>…] }`: the setup units `dt setup <unit> --skip` recorded as skipped (`setup.md`)                                                                                                                                                                                                                                                                                                                                                        |
+| `auto_commit`                                                              | whether a record write also commits (default off)                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `harnesses`                                                                | which coding-agent adapters compile writes                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `git_modules`                                                              | the lockfile map `dt install` restores into `git_modules/` — `{ url, ref }` per clone; a clone whose own package.json names `workspace_module` is a RECORD LAYER (below), not a bundle, and `records: [<collection>…]` narrows it (or makes any clone a layer) — `module: true` adds its one workspace module; what a clone NEEDS (the holders its `dreamteamer-exports.json` names) is installed here too, once at the top and linked under the clone (0.46.0) |
+| `disable`                                                                  | what to drop from the compile: `modules/<id>` (a whole module, its code included) or `<kind>/<id>` (one entity)                                                                                                                                                                                                                                                                                                                                                 |
+| `local_assets` · `postinstall` · `repos_path` · `gitignore_runtime_folder` | links a worktree gets · a script `dt install` runs · where `repos` records materialise · whether `.dreamteamer/` is gitignored                                                                                                                                                                                                                                                                                                                                  |
 
 The workspace's own instructions live in **`DREAMTEAMER.md`** at the root. Compile writes
 `CLAUDE.md`, `AGENTS.md` and `GEMINI.md`: the generated orientation block first, then that file's
@@ -286,9 +286,9 @@ other clone — edit `DREAMTEAMER.md`.
 
 ## namespaces — scoping a collection under a folder
 
-| declare in the OWNING MODULE's `package.json` | create it | lands in | referenced as |
-|---|---|---|---|
-| `"dreamteamer": {"namespaces": ["health"]}` | `dt add collections --name doctors --module clinic` | `data/health/doctors/` | `health/doctors/dana-levi` |
+| declare in the OWNING MODULE's `package.json` | create it                                           | lands in               | referenced as              |
+| --------------------------------------------- | --------------------------------------------------- | ---------------------- | -------------------------- |
+| `"dreamteamer": {"namespaces": ["health"]}`   | `dt add collections --name doctors --module clinic` | `data/health/doctors/` | `health/doctors/dana-levi` |
 
 A module declaring exactly ONE namespace **infers** it, and the resolved name is echoed. Two or more
 and it refuses to guess: `--namespace health`. `--namespace ''` means none.
@@ -349,7 +349,7 @@ storage:
     parent: company
     subfolder: meetings
 ids:
-  from: '{{ date | date:YYYY/MM }}/{{ name | slug }}'
+  from: "{{ date | date:YYYY/MM }}/{{ name | slug }}"
   pattern: '^\d{4}/\d{2}/[a-z0-9-]+$'
 fields:
   name:
@@ -396,7 +396,7 @@ data/meetings/2026/10/offsite.meeting.md                       ← meetings/2026
 - **Adopting it on existing data**: make the parent folder shape and `relocate` it; add `under`
   to the child and compile (nothing moves at compile — `check` reports each mismatch); `relocate`
   the child. **Removing or changing it** is the walk backwards — `dt relocate <collection>
-  --to-root`, edit, compile, `dt relocate <collection>` — and compile refuses the edit while records
+--to-root`, edit, compile, `dt relocate <collection>` — and compile refuses the edit while records
   would be stranded inside parent folders.
 - **When NOT to use it**: a record several parents share equally, an owner usually unknown, a
   collection nobody browses as a folder. It organises files; it grants nothing.
@@ -410,7 +410,7 @@ records beside the module's sources, so every workspace that installs the module
 # git_modules/org/collections/people.collection.yaml
 name: people
 storage:
-  owner: module          # records at git_modules/org/data/people/, committed to the module's repo
+  owner: module # records at git_modules/org/data/people/, committed to the module's repo
 ```
 
 - **`owner: module`** roots the collection at `<module root>/data/<collection>` and sets its repo to
@@ -486,8 +486,8 @@ HQ reads the projects' records by cloning each project under `git_modules/`:
   lacks the id, the reference is dangling. The live record always wins where it is read. A reference
   this workspace's own records reach only through a layer, unlisted, is a `⚠ … dt exports` line, a
   manifest `dt exports` would change or drop an entry of is named stale, and `dt check
-  --strict-export` makes both violations — the gate for a workspace others read. `dt exports --layer
-  <name>` writes a layer's manifest from this workspace's view (how a reader records the upward ids a
+--strict-export` makes both violations — the gate for a workspace others read. `dt exports --layer
+<name>` writes a layer's manifest from this workspace's view (how a reader records the upward ids a
   layer cannot see), and `dt get <ref> [--referrer <ref>]` names an external id. A conflicted manifest:
   keep the union of both sides' lines, then `dt exports`. Stub records (0.41.0–0.44.x) are gone:
   `node node_modules/dreamteamer/scripts/migrate-stubs.mjs --root . [--layers] [--dry-run]` turns each
@@ -572,9 +572,9 @@ kind:
   default: follow-up
   enum:
     intake:
-      label: Intake            # what a surface shows; the stored value is still `intake`
+      label: Intake # what a surface shows; the stored value is still `intake`
       icon: person-add
-      color: charts.blue       # a theme colour id, never a hex
+      color: charts.blue # a theme colour id, never a hex
     follow-up:
       label: Follow-up
     urgent: {}
@@ -618,7 +618,7 @@ link the workspace already holds.
 ## evolving a schema
 
 Widening (a new optional field, a new enum value) is always safe; narrowing (a new required
-field, a removed enum value) needs the data cleaned FIRST — measure, clean, *then* narrow, or
+field, a removed enum value) needs the data cleaned FIRST — measure, clean, _then_ narrow, or
 every later `check` drowns. The judgment is `data-modeling.md` Part IX; the mechanics: renames are
 verbs (`rename`, `rename-field`, `rename-value`), and any other shape change across records is a
 **one-shot script you write, run once and commit with the records it rewrote** — there is no
@@ -628,54 +628,54 @@ migration framework. Say in the commit message what it did; that message is the 
 
 Compile fails closed and names its reasons. (⚠ = warning: it compiled, and you should still act.)
 
-| the message says | it means | the move |
-|---|---|---|
-| `source(s) are in the v1 descriptor format` | a source in the format this engine does not read | run the converter it names; `UPDATING.md` has the walk |
-| `unknown key … — a descriptor's keys are …` (or a field's, a storage's, a display's) | the closed lists | fix the key; the message lists the legal ones |
-| `name collision on collection "<c>"` | two bases — a second source must be an overlay | `overlay: true`, or rename |
-| `name collision on <kind> "<id>"` | two modules ship one entity — never merged | rename yours, or add `<kind>/<id>` to `dreamteamer.disable` |
-| `every source declares overlay: true — no base found` | the base's module is not installed | install it, or declare the collection in `peer_collections` |
-| `an overlay of "<c>", but module "<m>" neither depends on … nor declares …` | the overlay gate, the field verbs' `--module` included | `dt set modules/<m> dependencies=modules/<owner>` |
-| `references "X", which module … neither owns nor declares` | the reference contract | add the dependency or the peer, as printed |
-| `cyclic module dependencies: a → b → a` | concept links declared as module deps | move one to `peer_collections` |
-| `has folder(s) that are not a known kind` | a typo'd kind, or a package folder | fix the name, or list it in `dreamteamer.ignore` |
-| `display.list.columns names "x", which is not a field` (or sort, badge, sections…) | a name that does not exist | fix it — the message names the position |
-| `record_title opens with "<f>", a <type> field` | `dt add "<title>"` fills the first token | open it with a string field |
-| `is a SCALAR mirror, so <owner>.<f> must be a unique scalar reference` | one-to-one needs `unique: true` on the foreign key | declare it, or make the mirror `many` |
-| `is a mirror, but <c> declares no body field` (or is binary, runtime, another repo) | the target cannot hold a generated field | add a body field, or drop the mirror |
-| `every ids.from template must open with {{ <parent> \| basename }}/` | `under.id: nested` | lead the id with the parent |
-| `internal: true is reserved` | a module put a domain collection in the plumbing partition | drop the line |
-| `module X needs engine "…"` | its `engine` range excludes this engine; refused whole | `dt update --engine`, or disable it |
-| ⚠ `"<name>" is not a plural the inflector knows` | `singular` falls back to the name | set `singular` (and `storage.suffix`) if `dt add` should take another word |
-| ⚠ `field "<f>": names are snake_case` · `enum value "<v>" is not kebab-case` | a convention, not a rule — a rename is a record change | `dt rename-field` · `dt rename-value` when you choose |
-| ⚠ `is type: reference outside the workspace module` | an unverifiable cross-module surface | name the collections it may target |
-| ⚠ `has no description` · `use_when restates its description` | the orientation block renders a bare name, or the same words twice | write the sentence (`data-modeling.md` §18) |
-| ⚠ `module X reads ${env:NAME} — add it to the workspace's dreamteamer.vars` | a module requests a var the workspace has not allowed | add the name to `dreamteamer.vars` |
-| ⚠ `module X: <channel> copy shadows <channel> copy` | one module delivered twice — the more local wins | intended for dev; otherwise remove one |
+| the message says                                                                     | it means                                                           | the move                                                                   |
+| ------------------------------------------------------------------------------------ | ------------------------------------------------------------------ | -------------------------------------------------------------------------- |
+| `source(s) are in the v1 descriptor format`                                          | a source in the format this engine does not read                   | run the converter it names; `UPDATING.md` has the walk                     |
+| `unknown key … — a descriptor's keys are …` (or a field's, a storage's, a display's) | the closed lists                                                   | fix the key; the message lists the legal ones                              |
+| `name collision on collection "<c>"`                                                 | two bases — a second source must be an overlay                     | `overlay: true`, or rename                                                 |
+| `name collision on <kind> "<id>"`                                                    | two modules ship one entity — never merged                         | rename yours, or add `<kind>/<id>` to `dreamteamer.disable`                |
+| `every source declares overlay: true — no base found`                                | the base's module is not installed                                 | install it, or declare the collection in `peer_collections`                |
+| `an overlay of "<c>", but module "<m>" neither depends on … nor declares …`          | the overlay gate, the field verbs' `--module` included             | `dt set modules/<m> dependencies=modules/<owner>`                          |
+| `references "X", which module … neither owns nor declares`                           | the reference contract                                             | add the dependency or the peer, as printed                                 |
+| `cyclic module dependencies: a → b → a`                                              | concept links declared as module deps                              | move one to `peer_collections`                                             |
+| `has folder(s) that are not a known kind`                                            | a typo'd kind, or a package folder                                 | fix the name, or list it in `dreamteamer.ignore`                           |
+| `display.list.columns names "x", which is not a field` (or sort, badge, sections…)   | a name that does not exist                                         | fix it — the message names the position                                    |
+| `record_title opens with "<f>", a <type> field`                                      | `dt add "<title>"` fills the first token                           | open it with a string field                                                |
+| `is a SCALAR mirror, so <owner>.<f> must be a unique scalar reference`               | one-to-one needs `unique: true` on the foreign key                 | declare it, or make the mirror `many`                                      |
+| `is a mirror, but <c> declares no body field` (or is binary, runtime, another repo)  | the target cannot hold a generated field                           | add a body field, or drop the mirror                                       |
+| `every ids.from template must open with {{ <parent> \| basename }}/`                 | `under.id: nested`                                                 | lead the id with the parent                                                |
+| `internal: true is reserved`                                                         | a module put a domain collection in the plumbing partition         | drop the line                                                              |
+| `module X needs engine "…"`                                                          | its `engine` range excludes this engine; refused whole             | `dt update --engine`, or disable it                                        |
+| ⚠ `"<name>" is not a plural the inflector knows`                                     | `singular` falls back to the name                                  | set `singular` (and `storage.suffix`) if `dt add` should take another word |
+| ⚠ `field "<f>": names are snake_case` · `enum value "<v>" is not kebab-case`         | a convention, not a rule — a rename is a record change             | `dt rename-field` · `dt rename-value` when you choose                      |
+| ⚠ `is type: reference outside the workspace module`                                  | an unverifiable cross-module surface                               | name the collections it may target                                         |
+| ⚠ `has no description` · `use_when restates its description`                         | the orientation block renders a bare name, or the same words twice | write the sentence (`data-modeling.md` §18)                                |
+| ⚠ `module X reads ${env:NAME} — add it to the workspace's dreamteamer.vars`          | a module requests a var the workspace has not allowed              | add the name to `dreamteamer.vars`                                         |
+| ⚠ `module X: <channel> copy shadows <channel> copy`                                  | one module delivered twice — the more local wins                   | intended for dev; otherwise remove one                                     |
 
 `check` reports, and never modifies:
 
-| check reports | it means | the move |
-|---|---|---|
-| `<field>: stale — run: dreamteamer relations rebuild <c>` | a mirror fell behind its owner — usually a hand edit | run it |
-| `dangling reference "…" — no such record` | a deleted or hand-renamed target, or a typo | fix the ref, restore the target, or `dt rename` properly |
-| `<field>: "<v>" is already taken by <c>/<id> (unique)` | two records claim one unique value | decide which is real; change the other |
-| `placed under … but <field> is …` | a file in the wrong parent folder | `dt relocate <c>/<id>` |
-| ⚠ `peer collection "<c>" is declared but not installed` | references into an absent peer, counted | expected when the module runs alone |
-| a FLOOD of enum or required violations right after a schema change | the schema narrowed before the data was cleaned | widen back, clean, then narrow |
+| check reports                                                      | it means                                             | the move                                                 |
+| ------------------------------------------------------------------ | ---------------------------------------------------- | -------------------------------------------------------- |
+| `<field>: stale — run: dreamteamer relations rebuild <c>`          | a mirror fell behind its owner — usually a hand edit | run it                                                   |
+| `dangling reference "…" — no such record`                          | a deleted or hand-renamed target, or a typo          | fix the ref, restore the target, or `dt rename` properly |
+| `<field>: "<v>" is already taken by <c>/<id> (unique)`             | two records claim one unique value                   | decide which is real; change the other                   |
+| `placed under … but <field> is …`                                  | a file in the wrong parent folder                    | `dt relocate <c>/<id>`                                   |
+| ⚠ `peer collection "<c>" is declared but not installed`            | references into an absent peer, counted              | expected when the module runs alone                      |
+| a FLOOD of enum or required violations right after a schema change | the schema narrowed before the data was cleaned      | widen back, clean, then narrow                           |
 
-*(one failure has no message: a module folder whose `package.json` lacks a `dreamteamer` key is
-silently not discovered.)*
+_(one failure has no message: a module folder whose `package.json` lacks a `dreamteamer` key is
+silently not discovered.)_
 
 ## common mistakes
 
-| mistake | reality |
-|---|---|
-| editing the compiled descriptor | `.dreamteamer/` is generated — edit the module source and compile |
-| a second same-name descriptor without `overlay: true` | a name collision, by design |
-| a plain string where a reference belongs | `type: <collection>` lets `check` and `rename` follow it |
-| a `mixins:` id another module ships | that module can no longer be copied or installed alone |
+| mistake                                                            | reality                                                                   |
+| ------------------------------------------------------------------ | ------------------------------------------------------------------------- |
+| editing the compiled descriptor                                    | `.dreamteamer/` is generated — edit the module source and compile         |
+| a second same-name descriptor without `overlay: true`              | a name collision, by design                                               |
+| a plain string where a reference belongs                           | `type: <collection>` lets `check` and `rename` follow it                  |
+| a `mixins:` id another module ships                                | that module can no longer be copied or installed alone                    |
 | a `--module` field verb retried verbatim after the overlay refusal | declare the dependency it prints, or let the verb write the owning module |
-| authored `singular` expecting the filenames to follow | `storage.suffix` is separate — set both |
-| `storage.path` under an entity-kind name | it compiles as a runtime collection and becomes unwritable |
-| ignoring a ⚠ because compile said ✔ | every warning above is a defect with a deferred bill |
+| authored `singular` expecting the filenames to follow              | `storage.suffix` is separate — set both                                   |
+| `storage.path` under an entity-kind name                           | it compiles as a runtime collection and becomes unwritable                |
+| ignoring a ⚠ because compile said ✔                                | every warning above is a defect with a deferred bill                      |

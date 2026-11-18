@@ -12,15 +12,15 @@ receives the body verbatim as its turn, and needs instructions, not documentatio
 orientation block, which prints every binding's gates so each new session knows the queue exists
 before any skill is loaded.
 
-| the question | read |
-|---|---|
-| should this be a command at all | when a command earns existence |
-| the file and its frontmatter | command mechanics |
-| the body | prompt craft |
-| what gets typed after the name | argument design |
-| which records it applies to, and when | bindings |
-| gates that stay honest | designing the gates |
-| a multi-step process | the chain |
+| the question                          | read                           |
+| ------------------------------------- | ------------------------------ |
+| should this be a command at all       | when a command earns existence |
+| the file and its frontmatter          | command mechanics              |
+| the body                              | prompt craft                   |
+| what gets typed after the name        | argument design                |
+| which records it applies to, and when | bindings                       |
+| gates that stay honest                | designing the gates            |
+| a multi-step process                  | the chain                      |
 
 ## when a command earns existence
 
@@ -34,7 +34,7 @@ from the situation** — a recording appears, a record is about to be committed 
 which triggers itself; behind a command it would fire only when remembered. When the job needs a
 fresh context or enforced tool limits, that is an agent (`agents.md`).
 
-A command is also the cheap interface: one typed word in front of a procedure a *skill* owns. Most
+A command is also the cheap interface: one typed word in front of a procedure a _skill_ owns. Most
 good commands are a few lines — load the skill, name the scope, define done — and the skill does
 the knowing.
 
@@ -58,6 +58,7 @@ name: process-inbox
 description: triage every open task assigned to me, one at a time
 argument-hint: "[assignee]"
 ---
+
 load this workspace's tasks skill. list my open tasks
 (`npx dreamteamer list tasks --filter status=todo`), then walk them one at a
 time: restate it, ask me to keep / reassign / drop, apply the decision with
@@ -65,15 +66,15 @@ time: restate it, ask me to keep / reassign / drop, apply the decision with
 done when the list is empty or I say stop.
 ```
 
-| field | required | notes |
-|---|---|---|
-| `name` | yes | equals the filename; what gets typed |
-| `description` | no | the **whole entry in the `/` picker** — say what running it does, for someone scanning |
-| `argument-hint` | no | shown inline in the picker (`"[assignee]"`, `"<record-ref>…"`) |
-| `allowed-tools` | no | narrower than the session's, when the command should be constrained |
-| `model` | no | override; omit to inherit |
-| `disable-model-invocation` | no | set when **only a person** may run it — the model then cannot invoke it on its own. Right for anything destructive or outward-facing (a publish, a send) |
-| body (`prompt`) | in practice | sent **verbatim as the turn** — see prompt craft. Only `name` is schema-required, but a bodyless command sends an empty turn |
+| field                      | required    | notes                                                                                                                                                    |
+| -------------------------- | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `name`                     | yes         | equals the filename; what gets typed                                                                                                                     |
+| `description`              | no          | the **whole entry in the `/` picker** — say what running it does, for someone scanning                                                                   |
+| `argument-hint`            | no          | shown inline in the picker (`"[assignee]"`, `"<record-ref>…"`)                                                                                           |
+| `allowed-tools`            | no          | narrower than the session's, when the command should be constrained                                                                                      |
+| `model`                    | no          | override; omit to inherit                                                                                                                                |
+| `disable-model-invocation` | no          | set when **only a person** may run it — the model then cannot invoke it on its own. Right for anything destructive or outward-facing (a publish, a send) |
+| body (`prompt`)            | in practice | sent **verbatim as the turn** — see prompt craft. Only `name` is schema-required, but a bodyless command sends an empty turn                             |
 
 ## prompt craft — the body is a turn, not documentation
 
@@ -85,7 +86,7 @@ The body is sent to a session as if the operator typed it. Write **imperatives t
 - **what "done" means** — the end condition. A command without one runs until the session decides
   it is finished, which is a different thing.
 
-The anti-pattern is a body *about* the command — "This command processes the inbox by…". The
+The anti-pattern is a body _about_ the command — "This command processes the inbox by…". The
 session receiving it does not need a description of what is happening to it; it needs instructions.
 If you find yourself writing in the third person, you are documenting, not commanding.
 
@@ -96,7 +97,7 @@ If you find yourself writing in the third person, you are documenting, not comma
 
 The convention: a **record command** takes record ref(s) (`/transcribe-visit
 health/visit-recordings/<id> …`); a **collection command** takes the collection name. Write record
-commands to accept *several* refs and loop in the body — because a multi-select invocation from a
+commands to accept _several_ refs and loop in the body — because a multi-select invocation from a
 surface carries the **eligible refs only, space-separated**. That contract is deliberate: the UI
 shows the invocation verbatim in an editable textarea, so what will run is exactly what is shown
 and nothing is silently dropped.
@@ -109,7 +110,7 @@ and nothing is silently dropped.
 # modules/clinic/command-bindings/transcribe-visit--health-visit-recordings.command-binding.yaml
 command: commands/transcribe-visit
 collection: collections/health/visit-recordings
-scope: record                       # the default; `collection` for commands that need no record
+scope: record # the default; `collection` for commands that need no record
 available_when:
   recording_file:
     _nempty: true
@@ -128,11 +129,11 @@ documentation every session reads without loading anything.
 
 Each record gets one of three states, evaluated in this order:
 
-| state | meaning | evaluation |
-|---|---|---|
-| `done` | the command's post-condition already holds | `done_when` passes — **checked first**, so a record satisfying both gates reads done, not available |
-| `available` | ready to run | `available_when` passes (or there is none), and `done_when` doesn't |
-| `not-applicable` | not this record's moment | `available_when` fails, or the record doesn't resolve |
+| state            | meaning                                    | evaluation                                                                                          |
+| ---------------- | ------------------------------------------ | --------------------------------------------------------------------------------------------------- |
+| `done`           | the command's post-condition already holds | `done_when` passes — **checked first**, so a record satisfying both gates reads done, not available |
+| `available`      | ready to run                               | `available_when` passes (or there is none), and `done_when` doesn't                                 |
+| `not-applicable` | not this record's moment                   | `available_when` fails, or the record doesn't resolve                                               |
 
 Done renders **completed** — a check mark, not a bare grey mystery button: the operator sees work
 that happened, and the button is not offered to run again. `scope: collection` bindings evaluate
@@ -169,7 +170,7 @@ records, no job table. The gates only work if the fields they read stay honest:
   is exactly the gap the bullet above names: "a summary referencing this record exists" is
   inexpressible there. A **proof** is evaluated on demand and is collection-scoped, so
   it says the thing a gate cannot: `{ collection: summaries, where: { about: { _eq: '{record}' } },
-  count: { _delta: 1 } }` — *running this command left one more summary behind*. (`{record}` inside a
+count: { _delta: 1 } }` — _running this command left one more summary behind_. (`{record}` inside a
   proof's `where` is SUBSTITUTED with the picked record's reference before the filter runs, which is
   what makes that line count the summaries about THIS record rather than all of them.) The rule of thumb:
   **the record's own post-state is the binding's** (it has to be, or the queue cannot advance);
@@ -200,7 +201,7 @@ available_when:
     transcript:
       _nempty: true
 done_when:
-  summary:                  # a generated mirror — the inbound fact, made local
+  summary: # a generated mirror — the inbound fact, made local
     _nempty: true
 ```
 
@@ -210,15 +211,15 @@ others in order; the bindings still show per-step truth.
 
 ## common mistakes
 
-| mistake | reality |
-|---|---|
-| filename ≠ `name` | the invocable name comes from the filename; the id then lies |
-| a body that restates a whole skill | say "load `<skill>`" — one copy of the procedure |
-| a body that describes the command | it is sent verbatim as a turn; write imperatives |
-| no done condition in the body | the session decides for itself when it is finished |
-| a command for something a skill should auto-trigger | commands fire only when remembered |
-| a record command that takes exactly one ref | multi-select invocations carry several; loop in the body |
-| gating on the content field instead of the provenance field | a hand-filled body reads done with nothing verified |
-| a `done_when` over an inbound ref | unsupported — use a mirror field, or ship without `done_when` and say so |
-| a gate on a `scope: collection` binding | there is no record to evaluate; compile warns |
-| a destructive command the model may invoke | set `disable-model-invocation` — some verbs are human-only |
+| mistake                                                     | reality                                                                  |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------ |
+| filename ≠ `name`                                           | the invocable name comes from the filename; the id then lies             |
+| a body that restates a whole skill                          | say "load `<skill>`" — one copy of the procedure                         |
+| a body that describes the command                           | it is sent verbatim as a turn; write imperatives                         |
+| no done condition in the body                               | the session decides for itself when it is finished                       |
+| a command for something a skill should auto-trigger         | commands fire only when remembered                                       |
+| a record command that takes exactly one ref                 | multi-select invocations carry several; loop in the body                 |
+| gating on the content field instead of the provenance field | a hand-filled body reads done with nothing verified                      |
+| a `done_when` over an inbound ref                           | unsupported — use a mirror field, or ship without `done_when` and say so |
+| a gate on a `scope: collection` binding                     | there is no record to evaluate; compile warns                            |
+| a destructive command the model may invoke                  | set `disable-model-invocation` — some verbs are human-only               |

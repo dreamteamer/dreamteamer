@@ -29,7 +29,7 @@ Nothing to do but `dt compile`.
 - **The nav migration command runs as printed.** The refusal `dt install` and `dt update` print for a
   workspace whose nav is still in `.vscode/settings.json` named a protocol version that was never
   published and an editor version that was never released. It now says `npx -p
-  @dreamteamer/protocol@0.3 dt-nav migrate` and the editor 0.27 or later, and the 0.49.0 steps below
+@dreamteamer/protocol@0.3 dt-nav migrate` and the editor 0.27 or later, and the 0.49.0 steps below
   are corrected the same way.
 - **`dt set` and `dt add` accept what `dt check` accepts.** A reference to an id no root here holds
   that your repo's `dreamteamer-exports.json` vouches for (its holder not read here) is written, where
@@ -60,7 +60,7 @@ Nothing to do but `dt compile` — **unless your workspace still keeps its nav i
   members to the new pins and installs a member new to that version. It never re-installs a member
   you removed, and a member moved down needs `--allow downgrade`. `dt status` (and `--json`) lists the
   members, absent and drifted ones included, and `dt list modules` shows `preset · N members · M
-  installed`. Updating a composed package that a later version turns into a preset (core 0.11 →
+installed`. Updating a composed package that a later version turns into a preset (core 0.11 →
   core as a preset) installs every member on that first update; ownership of each collection moves to
   its module and no record moves. A module that depends on a preset may reference its members'
   collections, and `dt check modules/<id> --alone` walks presets.
@@ -71,7 +71,7 @@ Nothing to do but `dt compile` — **unless your workspace still keeps its nav i
   back — the compiled runtime included. A `nav.yaml` that does not read refuses an install or update
   that ships a fragment before npm writes; one that ships none never reads the file. `dt check` warns on a `nav.yaml` name that resolves to nothing or is listed twice. A
   collection's `display.nav.order` and `section` still compile and are ignored, and `dt reorder
-  collections/<c>` (which wrote that key) is refused, naming nav.yaml. The grammar is in
+collections/<c>` (which wrote that key) is refused, naming nav.yaml. The grammar is in
   `references/ui-views.md`.
 - **`dt check` warns about record files under `data/` that no collection reads** — a folder whose
   collection left with a module (notebooks and wikis out of rnd) — naming the folder, its records and,
@@ -91,14 +91,15 @@ Nothing to do but `dt compile` — **unless your workspace still keeps its nav i
 
   Skip step 1 and step 3 refuses before npm writes anything:
   `✖ your nav settings are not saved to nav.yaml yet — run: npx -p @dreamteamer/protocol@0.3 dt-nav
-  migrate (or open this workspace once in the editor 0.27 or later), then run this again; --allow
-  nav-reset skips it`. `dt install` refuses the same way for a package that ships a fragment or is a
+migrate (or open this workspace once in the editor 0.27 or later), then run this again; --allow
+nav-reset skips it`. `dt install` refuses the same way for a package that ships a fragment or is a
   module preset. `--allow nav-reset` (on `dt install` and `dt update`) starts `nav.yaml` from the
   fragments instead. The settings stay in the file, unread from then on.
+
 - **For hosts**: `readNavDoc`, `validateNavDoc`, `writeNavDoc` and `applyNavFragments` are on
   `import('dreamteamer')` (never `dreamteamer/records`).
 - **Messages**: `dt <verb>` for an extension verb this workspace lacks now says `dt install
-  @dreamteamer/<package>`, where it said `npm i`. For `dt web` and `dt serve` that package is
+@dreamteamer/<package>`, where it said `npm i`. For `dt web` and `dt serve` that package is
   `@dreamteamer/web`, which serves both now; `@dreamteamer/http` is deprecated.
 
 ## 0.48.1 — two setup fixes, and the README rewrite
@@ -178,7 +179,7 @@ how a workspace is MADE and how a module is ADDED:
   global qmd index and may return another workspace's results) ships with the portable-HQ change, not here.
 - **`dt status` has a setup section** — one honest line per unit: `ready` (and `verified <date>` when a
   live check wrote its receipt), `configured` with what is still unverified, `skipped`, `blocked`, `no
-  setup`. `dt doctor` renders a unit's checks as rows; `blocked` is bad, so `--strict` fails on it.
+setup`. `dt doctor` renders a unit's checks as rows; `blocked` is bad, so `--strict` fails on it.
 
 ## 0.46.1 — three install defects the first review of 0.46.0 found
 
@@ -210,13 +211,13 @@ reference another layer — a project attached as a record layer that names the 
   organisation does not make you read it. A clone with no manifest needs nothing. A need is matched to the
   clone's `git_modules` entry whose name is the package name, scoped or not (`@northwind/org` → `org`); one
   no entry provides is said: `⚠ git_modules/<clone>: dreamteamer-exports.json names <package>, which no
-  git_modules entry of the clone provides`. To make a project's needs installable, run `dt exports` in it
+git_modules entry of the clone provides`. To make a project's needs installable, run `dt exports` in it
   (or `dt exports --layer <clone>` from a workspace that reads it) and commit the file.
 - **Each need is cloned ONCE at your `git_modules/<name>`** and `<clone>/git_modules/<name>` becomes a symlink
   to it (`../../<name>`), excluded in the clone's `.git/info/exclude` when its `.gitignore` does not already
   cover `git_modules/`; `dt -w <clone> status` lists the layer installed and the clone's own compile finds it.
   Needs are transitive. The install line says for whom: `… cloning <url> → git_modules/<name> (<ref>) — for
-  git_modules/<clone>, …`, and `dt status` ends the layer's line with `· via git_modules/<clone>, …`. The
+git_modules/<clone>, …`, and `dt status` ends the layer's line with `· via git_modules/<clone>, …`. The
   hoisted layer is READ here, with the union of every declarer's `records` list; a nested `module: true` is
   not hoisted.
 - **Your declaration overrides a clone's**, ref and url alike (npm `overrides`): install warns
@@ -224,7 +225,7 @@ reference another layer — a project attached as a record layer that names the 
   `dt status` ends the line with `· overrides …`. Two clones that disagree with each other while you say
   nothing: the first is hoisted and the second gets its own copy NESTED under it,
   `git_modules/<clone>/git_modules/<name>`, as npm nests a second version — `… cloning … — nested:
-  git_modules/<name> is <url> (<ref>)`, and under the clone's status line `↳ <name> nested @ <sha> — …`.
+git_modules/<name> is <url> (<ref>)`, and under the clone's status line `↳ <name> nested @ <sha> — …`.
   Nothing is refused. A clone of its own already standing where a link would go is left as it is and drawn
   as `↳ <name> its own clone @ <sha>, not a link to git_modules/<name>`.
 - **`dt update` pulls a hoisted clone forward too** (not a nested copy — update that one in place). A
@@ -241,12 +242,12 @@ revision from a request to the engine. There is nothing else to do.
 
 - **`dt diff --hash`, `dt revert --hash`, `historyDiff` and `store.revert` take a commit hash (4 to 40
   hex digits) or `HEAD`, and refuse anything else** with `"<value>" is not a commit id — give a commit
-  hash (4 to 40 hex digits) or HEAD`, before git runs. Before 0.44.1 the string reached git as given,
+hash (4 to 40 hex digits) or HEAD`, before git runs. Before 0.44.1 the string reached git as given,
   and git reads a revision that starts with a dash as an option — some of which write files. A branch
   or tag name, `HEAD^` and `HEAD~1` are now refused here too: take the hash from `dt history`.
 - **`dt changes --since` and `deriveEvents` keep `HEAD~<n>` and a date** besides a hash and `HEAD`;
   anything else is refused with the existing `--since "<value>" is neither a date (YYYY-MM-DD) nor a
-  commit` sentence. `deriveEvents`' second argument takes a hash or `HEAD`.
+commit` sentence. `deriveEvents`' second argument takes a hash or `HEAD`.
 - Every git call that carries one of these revisions puts `--end-of-options` before it, which needs
   **git 2.24 or newer** (2019).
 
@@ -290,10 +291,10 @@ then gets the live label and holder of the record it stood for. A repo nobody el
 Nothing to do but `dt compile`. Read this if your workspace reads record layers, or is read as one.
 
 - **`dt check` may print new `⚠` lines in a workspace with layers.** `⚠ <target> resolves only
-  through layer <L> — named by N records here (…); a workspace reading this one sees it dangle. dt stub
-  <target>`: one of your records names a record only a layer holds, so a workspace that reads yours
+through layer <L> — named by N records here (…); a workspace reading this one sees it dangle. dt stub
+<target>`: one of your records names a record only a layer holds, so a workspace that reads yours
   without that layer sees a dangling reference. And `⚠ <file> is a stub a layer shadows, and its
-  <mirror> mirror is stale … dt relations rebuild <collection>`. Neither changes the exit code. A
+<mirror> mirror is stale … dt relations rebuild <collection>`. Neither changes the exit code. A
   workspace with no layers prints exactly what it printed before.
 - **`dt stub <collection>/<id>`** writes a stub of the layer's record into this workspace: the fields
   its schema requires of that record, `stub: true`, and its incoming mirrors. It yields to the layer's
@@ -384,7 +385,7 @@ Nothing to do. Extensions gain one contribution key, `next: ({ root, ws, collect
 (<extension>)` — and `--json` carries them as `notes: [{ id, text, by }]`, an empty list when nothing is said.
 A `next` that throws is one `✖ <extension>: next failed — …` line and `dt next` still exits 0. The public
 API exports `contributedNotes(ws, collection, ids)`, the one implementation the editor will call for a row
-and a page. The first consumer is `@dreamteamer/core`'s live sessions: *in session by <agent> since <time>*.
+and a page. The first consumer is `@dreamteamer/core`'s live sessions: _in session by <agent> since <time>_.
 
 - **A script that parses `dt next --json`** sees one more top-level key, `notes`. The existing keys are
   unchanged.
@@ -425,7 +426,7 @@ declare a field called `stub`, or type `--vault`.
     cannot layer (module-owned, placed, env-pointed) when the clone holds files for it — skipped,
     never a failure, where naming it in `records:` stays a compile error;
   - a `⚠ layer <name>: git_modules/<name>/data/<folder>/ holds N files and no collection here reads
-    it` warning for a project folder whose collection this workspace does not install. Install the
+it` warning for a project folder whose collection this workspace does not install. Install the
     module to read them, or list the collections you do want in `records:`.
   - ⚠ **a clone you used as a BUNDLE whose package.json happens to name a `workspace_module`** is
     now read as a layer, and its `modules/` stop compiling. Remove the key from the clone, or point
@@ -505,7 +506,7 @@ a folder is now yours to move: its files are nobody's records any more.
   another machine is its normal state, exactly as an uninstalled record layer is.
 - **`dt commit` never fails on such records and never commits them.** A collection whose folder is
   outside the workspace is reported on its own line — `· <collection>: <folder> is outside every git
-  repo here … never committed` — when it is named as a target, or holds records in an unscoped
+repo here … never committed` — when it is named as a target, or holds records in an unscoped
   commit. `dt history`, `dt diff` and `dt revert` on such a record say the same in one sentence.
 - **`dt status` gains a `storage:` block**, one line per env-pointed collection: the rendered folder
   beside its template, or `✖` and why it cannot render.
@@ -698,35 +699,35 @@ idempotent, and a source already in v2 is skipped:
 migrated: descriptors 89 · fields 1271 · relations folded 34 · enums merged 1 · mixins 7 · views folded 17 · views converted 32 · bindings converted 19 · packages 4 · instructions renamed 1 · harness files ignored 3
 ```
 
-| count | what it converted |
-|---|---|
-| `descriptors` | `*.collection.yaml` sources rewritten to v2, overlays included |
-| `fields` | field definitions inside them |
-| `relations folded` | relations rewritten to the one spelling: a `mirror_of` field on the target. A mirror on another module's collection goes into an overlay of it in the owner's module |
-| `enums merged` | an `enum` and its `x-choices` merged into one enum map |
-| `mixins` | `collection-templates/<id>.collection-template.yaml` moved to `mixins/<id>.mixin.yaml` (a package's npm `files` gains `mixins`); a `collection-templates/` folder left holding nothing but OS litter is removed |
-| `views folded` | `default: true` views folded into their collection's `display` (a filtered one cannot fold, and is converted as a named view) |
-| `views converted` · `bindings converted` | ui-views and command-bindings rewritten to v2 keys |
-| `packages` | `package.json` `dreamteamer` blocks moved to snake_case, `disable` entries to `modules/<id>` or `<kind>/<id>` |
-| `instructions renamed` | `dreamteamer.md` renamed `DREAMTEAMER.md`, through `git mv` when it is tracked, so the index follows a rename that only changes case |
-| `harness files ignored` | root `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `NOTEBOOKLM.md` added to `.gitignore` |
+| count                                    | what it converted                                                                                                                                                                                               |
+| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `descriptors`                            | `*.collection.yaml` sources rewritten to v2, overlays included                                                                                                                                                  |
+| `fields`                                 | field definitions inside them                                                                                                                                                                                   |
+| `relations folded`                       | relations rewritten to the one spelling: a `mirror_of` field on the target. A mirror on another module's collection goes into an overlay of it in the owner's module                                            |
+| `enums merged`                           | an `enum` and its `x-choices` merged into one enum map                                                                                                                                                          |
+| `mixins`                                 | `collection-templates/<id>.collection-template.yaml` moved to `mixins/<id>.mixin.yaml` (a package's npm `files` gains `mixins`); a `collection-templates/` folder left holding nothing but OS litter is removed |
+| `views folded`                           | `default: true` views folded into their collection's `display` (a filtered one cannot fold, and is converted as a named view)                                                                                   |
+| `views converted` · `bindings converted` | ui-views and command-bindings rewritten to v2 keys                                                                                                                                                              |
+| `packages`                               | `package.json` `dreamteamer` blocks moved to snake_case, `disable` entries to `modules/<id>` or `<kind>/<id>`                                                                                                   |
+| `instructions renamed`                   | `dreamteamer.md` renamed `DREAMTEAMER.md`, through `git mv` when it is tracked, so the index follows a rename that only changes case                                                                            |
+| `harness files ignored`                  | root `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `NOTEBOOKLM.md` added to `.gitignore`                                                                                                                               |
 
 It never touches `data/`, `node_modules/` or `git_modules/`, and it edits each YAML document in place, so
 a comment stays on its key. Read the diff anyway: it is your schema.
 
 After the plan line it prints `⚠` lines. Each one is a fix you owe by hand:
 
-| `⚠` line | what to do |
-|---|---|
-| `<owner>.<field> → <target>.<mirror>: the target's descriptor is not in this tree — add …` | The target lives in a module you consume. Add the printed field to an overlay of the target in your module. |
-| `folded into an overlay of <c> (…) — an overlay needs "<owner>" in this module's dreamteamer.dependencies` | Add the dependency (`dt set modules/<m> dependencies=modules/<owner>`), or declare `<c>` in `peer_collections`. |
-| `a list with untyped items became type: string, many: true — dt check confirms the records agree` | Run `check`. Records whose items are not strings fail it (section 5). |
-| `type "<t>" has no v2 equivalent — kept as written; fix it by hand` | Pick the type from the field vocabulary. |
-| `record_title "<t>" names no string field to open with — dropped, so the default (title · name · subject) applies` | Nothing, unless you want a different label. |
-| `x-title-template on a reference is dropped …` · `x-display is dropped …` | Nothing: a reference is labelled by its target's `record_title`. |
-| `nav.label "<l>" is dropped — a collection's nav entry reads its title` | Set the collection's `title` if the label mattered. |
-| `dreamteamer.<k> is not a key the engine reads, and compile refuses it — …` | Remove the key, or move what it held where the engine reads it. |
-| `<file> carries no generated block, so it stays tracked and is not ignored — …` | Nothing, if the file is yours. If compile should own it, move its text into `DREAMTEAMER.md`. |
+| `⚠` line                                                                                                           | what to do                                                                                                      |
+| ------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
+| `<owner>.<field> → <target>.<mirror>: the target's descriptor is not in this tree — add …`                         | The target lives in a module you consume. Add the printed field to an overlay of the target in your module.     |
+| `folded into an overlay of <c> (…) — an overlay needs "<owner>" in this module's dreamteamer.dependencies`         | Add the dependency (`dt set modules/<m> dependencies=modules/<owner>`), or declare `<c>` in `peer_collections`. |
+| `a list with untyped items became type: string, many: true — dt check confirms the records agree`                  | Run `check`. Records whose items are not strings fail it (section 5).                                           |
+| `type "<t>" has no v2 equivalent — kept as written; fix it by hand`                                                | Pick the type from the field vocabulary.                                                                        |
+| `record_title "<t>" names no string field to open with — dropped, so the default (title · name · subject) applies` | Nothing, unless you want a different label.                                                                     |
+| `x-title-template on a reference is dropped …` · `x-display is dropped …`                                          | Nothing: a reference is labelled by its target's `record_title`.                                                |
+| `nav.label "<l>" is dropped — a collection's nav entry reads its title`                                            | Set the collection's `title` if the label mattered.                                                             |
+| `dreamteamer.<k> is not a key the engine reads, and compile refuses it — …`                                        | Remove the key, or move what it held where the engine reads it.                                                 |
+| `<file> carries no generated block, so it stays tracked and is not ignored — …`                                    | Nothing, if the file is yours. If compile should own it, move its text into `DREAMTEAMER.md`.                   |
 
 Then stop tracking the generated harness files once, as the run prints:
 `git rm --cached CLAUDE.md AGENTS.md GEMINI.md`.
@@ -734,33 +735,33 @@ Then stop tracking the generated harness files once, as the run prints:
 **The keys, v1 to v2.** The converter writes all of these. The table is for reading the diff, and for a
 source you write by hand from now on:
 
-| v1 | v2 |
-|---|---|
-| `schema: { properties, required }` | `fields: { <f>: { type, required: true } }` |
-| `id: { generate, pattern }` | `ids: { from, pattern }` |
-| `title_template` | `record_title` |
-| `{ type: string, format: date \| date-time \| uri \| email }` | `type: date \| datetime \| url \| email` |
-| `{ type: string, format: markdown, x-body: true }` | `{ type: markdown, body: true }` |
-| `{ type: array, items: { type: X } }` | `{ type: X, many: true }` |
-| `x-reference: <c>` · `'*'` · a list | `type: <c>` · `type: reference` · `type: [a, b]` |
-| `x-reference-soft` | `soft: true` |
-| `x-inverse` on the owner · `x-inverse-of` on the target | `mirror_of: <field>` on the target, only |
-| `x-unique` · `x-on-delete` · `x-sensitive` | `unique` · `on_delete` · `sensitive` |
-| `enum` + `x-choices` | `enum:` a list, or a map of value → `{ label, description, icon, color, background }` |
-| `type: object, properties` · `additionalProperties` | `type: object, fields` · `type: map, values` |
-| `allOf` | `constraints` |
-| `list_fields` · `sort_field` | `display.list.columns` · a `type: position` field, or `display.list.sort` |
-| `icon` · `order` · `group` | `display.nav.icon` · `.order` · `.section` |
-| `group: system` | `internal: true` (the engine's and the workspace module's collections only) |
-| `storage.codec: file` · `storage.extensions` | `storage.format: binary` · `storage.accept` |
-| `storage.under: { field, path }` | `storage.under: { parent, subfolder }` |
-| `templates: [collection-templates/x]` | `mixins: [x]` |
-| `extends: <base>` | `overlay: true` |
-| ui-view `path` · `target` · `layout` · `options` · `default` | `route` · `scope` · `display.<block>.layout` · `display.<block>.options` · the collection's own `display` |
-| binding `target` · `can-enter` · `can-exit` | `scope` · `available_when` · `done_when` |
-| `peerDependencies` · `workspace-module` · `git-modules` · `owns-data` · `data-path` | `peer_collections` · `workspace_module` · `git_modules` · `owns_data` · `data_path` |
-| `disable: [<module>/<entity>]` | `disable: [modules/<id>]` or `[<kind>/<id>]` |
-| `dreamteamer.md` | `DREAMTEAMER.md` |
+| v1                                                                                  | v2                                                                                                        |
+| ----------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `schema: { properties, required }`                                                  | `fields: { <f>: { type, required: true } }`                                                               |
+| `id: { generate, pattern }`                                                         | `ids: { from, pattern }`                                                                                  |
+| `title_template`                                                                    | `record_title`                                                                                            |
+| `{ type: string, format: date \| date-time \| uri \| email }`                       | `type: date \| datetime \| url \| email`                                                                  |
+| `{ type: string, format: markdown, x-body: true }`                                  | `{ type: markdown, body: true }`                                                                          |
+| `{ type: array, items: { type: X } }`                                               | `{ type: X, many: true }`                                                                                 |
+| `x-reference: <c>` · `'*'` · a list                                                 | `type: <c>` · `type: reference` · `type: [a, b]`                                                          |
+| `x-reference-soft`                                                                  | `soft: true`                                                                                              |
+| `x-inverse` on the owner · `x-inverse-of` on the target                             | `mirror_of: <field>` on the target, only                                                                  |
+| `x-unique` · `x-on-delete` · `x-sensitive`                                          | `unique` · `on_delete` · `sensitive`                                                                      |
+| `enum` + `x-choices`                                                                | `enum:` a list, or a map of value → `{ label, description, icon, color, background }`                     |
+| `type: object, properties` · `additionalProperties`                                 | `type: object, fields` · `type: map, values`                                                              |
+| `allOf`                                                                             | `constraints`                                                                                             |
+| `list_fields` · `sort_field`                                                        | `display.list.columns` · a `type: position` field, or `display.list.sort`                                 |
+| `icon` · `order` · `group`                                                          | `display.nav.icon` · `.order` · `.section`                                                                |
+| `group: system`                                                                     | `internal: true` (the engine's and the workspace module's collections only)                               |
+| `storage.codec: file` · `storage.extensions`                                        | `storage.format: binary` · `storage.accept`                                                               |
+| `storage.under: { field, path }`                                                    | `storage.under: { parent, subfolder }`                                                                    |
+| `templates: [collection-templates/x]`                                               | `mixins: [x]`                                                                                             |
+| `extends: <base>`                                                                   | `overlay: true`                                                                                           |
+| ui-view `path` · `target` · `layout` · `options` · `default`                        | `route` · `scope` · `display.<block>.layout` · `display.<block>.options` · the collection's own `display` |
+| binding `target` · `can-enter` · `can-exit`                                         | `scope` · `available_when` · `done_when`                                                                  |
+| `peerDependencies` · `workspace-module` · `git-modules` · `owns-data` · `data-path` | `peer_collections` · `workspace_module` · `git_modules` · `owns_data` · `data_path`                       |
+| `disable: [<module>/<entity>]`                                                      | `disable: [modules/<id>]` or `[<kind>/<id>]`                                                              |
+| `dreamteamer.md`                                                                    | `DREAMTEAMER.md`                                                                                          |
 
 ### 4. Compile, check, test
 
@@ -842,7 +843,7 @@ that root.
 
 - **`created` is the engine's.** The store stamps it at `dt add`, before the id is generated, so
   `ids.from` may name it. Writing it is refused (`created is written by the engine (stamped when the
-  record is added) — nothing was written.`). A record that predates the stamp reads `created` from its
+record is added) — nothing was written.`). A record that predates the stamp reads `created` from its
   id's date when its ids are made from `created`, else from the commit that added the file. Re-check
   any script that set `created` by hand.
 - **`derived` and `virtual` fields refuse a write**, naming why. `id` and `last_modified` are virtual.
@@ -901,7 +902,7 @@ Quote each exit code; never grep a suite for `# pass`.
 6. `git status --porcelain data/` is empty, unless `check` asked for a data fix, and then the diff
    touches only the records it named.
 7. Commit with explicit paths — `git add modules/ package.json package-lock.json .gitignore
-   DREAMTEAMER.md`, plus the test files you changed — and `git rm --cached` the harness files.
+DREAMTEAMER.md`, plus the test files you changed — and `git rm --cached` the harness files.
 
 ### 8. Rollback
 
@@ -964,13 +965,13 @@ exactly as before. Adopting it is three explicit steps (parent to folder shape �
 **Core is now records + the workspace compiler.** Five capabilities left core, nothing old is kept
 as an alias, and **the extensions they move to are not published yet**:
 
-| you ran | status |
-|---|---|
-| `dt prove …`, `dt list proofs`, `dt status` proofs line, a `proofs/` folder | gone from core. A module's `proofs/` folder is now a compile error ("not a known kind") — deliberately: an unvalidated proof is a claim nothing checks. Delete the folder, or stay on 0.30.x |
-| `dt land worktrees/<n>`, `dt add/list/get/rm worktrees…`, the worktree hooks | gone from core; `dt install --print-adapters` renders only the session-start hook — re-merge it |
-| `dt start` (the REST api) | gone from core |
-| `dt export notebooklm …`, the `notebooklm` harness | gone from core; a `notebooklm` entry in `dreamteamer.harnesses` warns as an unknown harness until an extension contributes it |
-| `dt setup`, `dt start\|stop\|open\|rm container …`, `dt list containers\|images`, `dt export\|import container …` | gone from core. Existing containers, volumes and exports are untouched |
+| you ran                                                                                                           | status                                                                                                                                                                                       |
+| ----------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `dt prove …`, `dt list proofs`, `dt status` proofs line, a `proofs/` folder                                       | gone from core. A module's `proofs/` folder is now a compile error ("not a known kind") — deliberately: an unvalidated proof is a claim nothing checks. Delete the folder, or stay on 0.30.x |
+| `dt land worktrees/<n>`, `dt add/list/get/rm worktrees…`, the worktree hooks                                      | gone from core; `dt install --print-adapters` renders only the session-start hook — re-merge it                                                                                              |
+| `dt start` (the REST api)                                                                                         | gone from core                                                                                                                                                                               |
+| `dt export notebooklm …`, the `notebooklm` harness                                                                | gone from core; a `notebooklm` entry in `dreamteamer.harnesses` warns as an unknown harness until an extension contributes it                                                                |
+| `dt setup`, `dt start\|stop\|open\|rm container …`, `dt list containers\|images`, `dt export\|import container …` | gone from core. Existing containers, volumes and exports are untouched                                                                                                                       |
 
 **Do:** if you depend on one of these, stay on 0.30.x until its extension ships — or carry the code
 as a workspace module that declares `dreamteamer.extension` (below). A moved verb typed against core
@@ -1298,8 +1299,8 @@ are not in a latin script:
 ```yaml
 id:
   generate:
-    - '{{ code }}'          # used when the record has one
-    - '{{ name | slug }}'   # otherwise
+    - "{{ code }}" # used when the record has one
+    - "{{ name | slug }}" # otherwise
 ```
 
 The first template whose fields are all present wins; one naming a missing field is skipped rather
@@ -1367,12 +1368,12 @@ translation printed; everything else is additive. `dt compile` after upgrading, 
 
 ### The complete mapping
 
-| 0.21.0 | 0.22.0 |
-|---|---|
-| `dt ensure <id>` | `dt install repos/<id>` |
-| `dt ensure --all` | `dt install repos --all` |
-| `dt update-field <c> …` | `dt set-field <c> …` |
-| `dt remove-field <c> …` | `dt rm-field <c> …` |
+| 0.21.0                            | 0.22.0                        |
+| --------------------------------- | ----------------------------- |
+| `dt ensure <id>`                  | `dt install repos/<id>`       |
+| `dt ensure --all`                 | `dt install repos --all`      |
+| `dt update-field <c> …`           | `dt set-field <c> …`          |
+| `dt remove-field <c> …`           | `dt rm-field <c> …`           |
 | `dt commands <collection>[/<id>]` | `dt next <collection>[/<id>]` |
 
 ⚠ **All four retired spellings — and `dt schema`, which went in 0.19.0 — now exit 2 and print
@@ -1480,15 +1481,15 @@ dt status [--strict]
 
 **The exit code is the contract:**
 
-| code | state | means |
-|---|---|---|
-| `0` | PASS | every expectation held |
-| `1` | FAIL | a step failed, or an expectation did not hold |
-| `2` | usage | reserved — what a RETIRED verb spelling answers, never a proof state. A bad flag or an unknown target inside `dt prove` exits `1` |
-| `3` | UNAVAILABLE | this machine lacks a required var or binary — not a failure of the artifact |
-| `4` | NO-FIXTURE | the `given` matched no record |
-| `5` | PENDING | a `perform` step is owed a human or an agent |
-| `6` | VACUOUS | every expectation ALREADY held before any step ran — **and `dt prove <artifact>` when NO proof is about it**, which would otherwise report a green board over zero questions — **and a run that declared expectations and produced NO verdict line at all** |
+| code | state       | means                                                                                                                                                                                                                                                       |
+| ---- | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `0`  | PASS        | every expectation held                                                                                                                                                                                                                                      |
+| `1`  | FAIL        | a step failed, or an expectation did not hold                                                                                                                                                                                                               |
+| `2`  | usage       | reserved — what a RETIRED verb spelling answers, never a proof state. A bad flag or an unknown target inside `dt prove` exits `1`                                                                                                                           |
+| `3`  | UNAVAILABLE | this machine lacks a required var or binary — not a failure of the artifact                                                                                                                                                                                 |
+| `4`  | NO-FIXTURE  | the `given` matched no record                                                                                                                                                                                                                               |
+| `5`  | PENDING     | a `perform` step is owed a human or an agent                                                                                                                                                                                                                |
+| `6`  | VACUOUS     | every expectation ALREADY held before any step ran — **and `dt prove <artifact>` when NO proof is about it**, which would otherwise report a green board over zero questions — **and a run that declared expectations and produced NO verdict line at all** |
 
 ⚠ **`--strict` means two different things**, deliberately: on `dt prove --all` (and the artifact
 form) it makes UNAVAILABLE fatal; on `dt status` it fails on a FAIL tail in the ledger and says
@@ -1612,7 +1613,7 @@ JSON payload from **stdin** (they refuse a terminal rather than blocking on it).
 --print-adapters` prints the configuration for each declared harness, filled in for this workspace.
 
 ⚠ **A hook's shell reads no startup file.** A hook runs as `sh -c` / `bash -c`, and neither reads a
-profile — so a hook line beginning with `npm` or `npx` can fail with *command not found* in an
+profile — so a hook line beginning with `npm` or `npx` can fail with _command not found_ in an
 environment where the same command works in the operator's terminal, with the error going nowhere.
 No profile edit reaches it. The engine therefore ships `bin/dt-hook.sh`, which resolves node
 absolutely (`$DREAMTEAMER_NODE` → `command -v node` → the highest `~/.nvm` version → Homebrew →
@@ -1702,33 +1703,33 @@ verbs, and the separate `schema` grammar is retired. No alias layer and no depre
 
 ### The complete mapping
 
-| 0.18.0 | 0.19.0 |
-|---|---|
-| `dt schema add-collection --name <c>` | `dt add collections --name <c> [--module <m>]` |
-| `dt schema rm-collection <c> [--force]` | `dt rm collections/<c> [--force]` |
-| `dt schema rename-collection <old> <new>` | `dt rename collections/<old> <new>` |
-| `dt schema add-field <c> …` | `dt add-field <c> …` |
-| `dt schema update-field <c> …` | `dt update-field <c> …` |
-| `dt schema remove-field <c> …` | `dt remove-field <c> …` |
-| *(did not exist)* | `dt rename-field <c> --name <f> --to <g>` |
-| `dt schema add-view …` | `dt add ui-views …` |
-| `dt schema set-view <id> k=v` | `dt set ui-views/<id> k=v` |
-| `dt schema rm-view <id>` | `dt rm ui-views/<id>` |
-| *(six manual steps)* | `dt add modules --name <id>` |
-| *(no verb)* | `dt set modules/<id> description=… namespaces=… dependencies=modules/<m>` |
-| *(no verb)* | `dt rm modules/<id> [--force]` · `dt rename modules/<old> <new>` |
-| *(no verb)* | `dt set collections/<c> module=<m>` — moves the collection |
-| *(no verb)* | `dt set collections/<c> description=… icon=… order=… list_fields=…` |
-| *(no verb)* | `dt add skills --name <id> --description "…"` |
-| *(no verb)* | `dt set\|rm\|rename skills\|agents\|commands\|command-bindings\|collection-templates/<id>` |
-| `POST /api/schema/collections` | `POST /api/collections/collections/records?module=<m>` |
-| `DELETE /api/schema/collections/:c` | `DELETE /api/collections/collections/records/:c` |
-| `POST /api/schema/collections/:c/fields` | `POST /api/collections/:c/fields?module=<m>` |
-| `PATCH /api/schema/collections/:c/fields/:f` | `PATCH /api/collections/:c/fields/:f?module=<m>` |
-| *(did not exist)* | `PATCH /api/collections/:c/fields/:f/name` `{to}` — rename-field |
-| `DELETE /api/schema/collections/:c/fields/:f` | `DELETE /api/collections/:c/fields/:f?module=<m>` |
-| `POST /api/schema/ui-views` | `POST /api/collections/ui-views/records` |
-| `DELETE /api/schema/ui-views/:id` | `DELETE /api/collections/ui-views/records/:id` |
+| 0.18.0                                        | 0.19.0                                                                                     |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `dt schema add-collection --name <c>`         | `dt add collections --name <c> [--module <m>]`                                             |
+| `dt schema rm-collection <c> [--force]`       | `dt rm collections/<c> [--force]`                                                          |
+| `dt schema rename-collection <old> <new>`     | `dt rename collections/<old> <new>`                                                        |
+| `dt schema add-field <c> …`                   | `dt add-field <c> …`                                                                       |
+| `dt schema update-field <c> …`                | `dt update-field <c> …`                                                                    |
+| `dt schema remove-field <c> …`                | `dt remove-field <c> …`                                                                    |
+| _(did not exist)_                             | `dt rename-field <c> --name <f> --to <g>`                                                  |
+| `dt schema add-view …`                        | `dt add ui-views …`                                                                        |
+| `dt schema set-view <id> k=v`                 | `dt set ui-views/<id> k=v`                                                                 |
+| `dt schema rm-view <id>`                      | `dt rm ui-views/<id>`                                                                      |
+| _(six manual steps)_                          | `dt add modules --name <id>`                                                               |
+| _(no verb)_                                   | `dt set modules/<id> description=… namespaces=… dependencies=modules/<m>`                  |
+| _(no verb)_                                   | `dt rm modules/<id> [--force]` · `dt rename modules/<old> <new>`                           |
+| _(no verb)_                                   | `dt set collections/<c> module=<m>` — moves the collection                                 |
+| _(no verb)_                                   | `dt set collections/<c> description=… icon=… order=… list_fields=…`                        |
+| _(no verb)_                                   | `dt add skills --name <id> --description "…"`                                              |
+| _(no verb)_                                   | `dt set\|rm\|rename skills\|agents\|commands\|command-bindings\|collection-templates/<id>` |
+| `POST /api/schema/collections`                | `POST /api/collections/collections/records?module=<m>`                                     |
+| `DELETE /api/schema/collections/:c`           | `DELETE /api/collections/collections/records/:c`                                           |
+| `POST /api/schema/collections/:c/fields`      | `POST /api/collections/:c/fields?module=<m>`                                               |
+| `PATCH /api/schema/collections/:c/fields/:f`  | `PATCH /api/collections/:c/fields/:f?module=<m>`                                           |
+| _(did not exist)_                             | `PATCH /api/collections/:c/fields/:f/name` `{to}` — rename-field                           |
+| `DELETE /api/schema/collections/:c/fields/:f` | `DELETE /api/collections/:c/fields/:f?module=<m>`                                          |
+| `POST /api/schema/ui-views`                   | `POST /api/collections/ui-views/records`                                                   |
+| `DELETE /api/schema/ui-views/:id`             | `DELETE /api/collections/ui-views/records/:id`                                             |
 
 **The in-process exports are UNCHANGED.** `createCollection`, `addField`, `updateField`,
 `removeField`, `fieldDef`, `statedKeywords`, `saveUiView`, `removeUiView` and `workspaceSystemDir`
@@ -1743,7 +1744,7 @@ new exports beside them: `createModule`, `renameModule`, `removeModule`, `setMod
 - **A field verb follows the module that OWNS the collection.** `add-field` / `update-field` /
   `remove-field` used to write into the WORKSPACE module, so on a collection shipped by any other
   inline module they created an overlay and then failed compile with `module <ws> does not declare
-  <owner> in dreamteamer.dependencies`. They now edit the owner's descriptor. **⚠ If a workaround of
+<owner> in dreamteamer.dependencies`. They now edit the owner's descriptor. **⚠ If a workaround of
   yours points `dreamteamer.workspace-module` at a module you were authoring, undo it** — that was a
   mode switch that also granted the module the workspace module's privileges.
 - **A module declares the namespaces it owns.** `"dreamteamer": { "namespaces": ["hr"] }` in a
@@ -1757,7 +1758,7 @@ new exports beside them: `createModule`, `renameModule`, `removeModule`, `setMod
 - **A schema commit runs in the repo that holds the source.** A write into a `git_modules/` module
   used to compile, fail to commit and roll back (that path is gitignored at the workspace root). It
   now commits in the clone and says so: `✔ committed in git_modules/hr (3f2a1c, ahead 1 — push when
-  ready)`, with `dt status` showing the count. Two repos cannot commit atomically, so a failure in
+ready)`, with `dt status` showing the count. Two repos cannot commit atomically, so a failure in
   the second leaves the first standing, named in the error.
 - **`module` is a field on a collection**, carrying the owner as the bare id, with `overlays` beside
   it. `owner` (the `modules/<id>` reference form) is still written and is **COMPAT for this release
@@ -1928,14 +1929,14 @@ is only about where the sentence reads best.
 ```yaml
 # A — on the owning side, the field that holds the foreign key
 # collections/recordings.collection.yaml
-meeting: { type: string, 'x-reference': meetings, 'x-inverse': recordings }
+meeting: { type: string, "x-reference": meetings, "x-inverse": recordings }
 
 # B — from the target instead: author the field there, and say whose mirror it is
 # collections/meetings.collection.yaml
 recordings:
   type: array
-  'x-inverse-of': recordings.meeting
-  items: { type: string, 'x-reference': recordings }
+  "x-inverse-of": recordings.meeting
+  items: { type: string, "x-reference": recordings }
 ```
 
 Spelling B's authored field is folded into the owner and then regenerated, so its `description`
@@ -2076,12 +2077,12 @@ no existing collection declares it.
 ```yaml
 storage:
   path: data/assets
-  codec: file          # the FILE is the record: no frontmatter, any extension
+  codec: file # the FILE is the record: no frontmatter, any extension
   shape: file
   suffix: asset
-  max_bytes: 204800    # optional, this is the default — `check` reports anything over it
-  extensions: [svg, png, jpg, jpeg, webp, gif]   # optional; omitted means any
-id: { pattern: '^(icons|logos|images)/[a-z0-9][a-z0-9/._-]*$' }
+  max_bytes: 204800 # optional, this is the default — `check` reports anything over it
+  extensions: [svg, png, jpg, jpeg, webp, gif] # optional; omitted means any
+id: { pattern: "^(icons|logos|images)/[a-z0-9][a-z0-9/._-]*$" }
 ```
 
 `data/assets/logos/monday.asset.svg` is then the record `assets/logos/monday`, and any field can
@@ -2113,7 +2114,7 @@ took, so a union is purely a widening of what a descriptor may DECLARE, not a ch
 record HOLDS.
 
 ```yaml
-about: { type: string, 'x-reference': [meetings, 'finance/accounts'] }
+about: { type: string, "x-reference": [meetings, "finance/accounts"] }
 ```
 
 `'*'` (any collection) is unchanged — it was never a special case of the list form and still isn't.
@@ -2187,7 +2188,7 @@ dt list meetings --where '{"company":{"name":{"_nnull":true}}}'                 
 The difference was never the filter — it was whether the target collection lived in a namespace.
 
 ⚠ **Not only filtering.** The same resolver evaluates command-bindings' `can-enter` / `can-exit`,
-so a binding predicate that hopped a namespaced ref reported the command as *not available*. If you
+so a binding predicate that hopped a namespaced ref reported the command as _not available_. If you
 have bindings over namespaced collections, re-check `dt commands <ref>` after upgrading — commands
 may now correctly appear that were silently missing.
 
@@ -2215,7 +2216,7 @@ options: { sort: -date }
 ```
 
 - It is a **warning, not a failure**: `options` is open by contract and a surface may legitimately
-  want a colliding key. But the symptom of getting it wrong is a view that *looks* like it works, so
+  want a colliding key. But the symptom of getting it wrong is a view that _looks_ like it works, so
   the operator has to be told.
 - It covers **every field `ui-views` owns**, read from the merged descriptor rather than a hardcoded
   list — `filter`, `sort`, `columns`, `path`, `layout` and anything the collection grows later.
@@ -2266,7 +2267,7 @@ dt commit                                     # unchanged: everything pending
 `-m <subject>`, `--dry-run` and `--json` are unchanged and work with every target shape.
 
 **Why.** `dt commit <collection>` publishes everything dirty under that collection's record
-directories *regardless of who wrote it*. With one session on a workspace that is the whole point;
+directories _regardless of who wrote it_. With one session on a workspace that is the whole point;
 with two, one session's commit silently swallows the other's pending records — and because
 `git status` is clean afterwards, the sweep leaves no trace to notice. A reference makes the
 narrow ask sayable.
@@ -2274,7 +2275,7 @@ narrow ask sayable.
 **What deliberately did NOT change: the sampler.** The set of things to commit is still sampled
 from `git status` over the record directories, which is what makes a record you hand-edited in a
 markdown body indistinguishable from one the store wrote — publishable by the same verb, with no
-pending file and no cursor to disagree with reality. Only the *targeting* narrowed: the sampled rows
+pending file and no cursor to disagree with reality. Only the _targeting_ narrowed: the sampled rows
 are filtered against what you asked for. Two consequences worth knowing:
 
 - A target naming an unknown collection, or an unknown id under a known one, **fails before
@@ -2328,37 +2329,37 @@ instead.
 Record verbs keep their name; only the word order changes — the collection (or `<collection>/<id>`
 reference) moves from being the first argument to being the argument AFTER the verb:
 
-| 0.11.0 | 0.12.0 |
-| --- | --- |
-| `dt <collection> list …` | `dt list <collection> …` |
-| `dt <collection> get <id> …` | `dt get <collection>/<id> …` |
-| `dt <collection> add --<field> <value> …` | `dt add <collection> --<field> <value> …` |
-| `dt <collection> set <id> <field>=<value> …` | `dt set <collection>/<id> <field>=<value> …` |
-| `dt <collection> rm <id> …` | `dt rm <collection>/<id> …` |
-| `dt <collection> rename <old-id> <new-id>` | `dt rename <collection>/<old-id> <new-id>` |
+| 0.11.0                                                                  | 0.12.0                                                                  |
+| ----------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `dt <collection> list …`                                                | `dt list <collection> …`                                                |
+| `dt <collection> get <id> …`                                            | `dt get <collection>/<id> …`                                            |
+| `dt <collection> add --<field> <value> …`                               | `dt add <collection> --<field> <value> …`                               |
+| `dt <collection> set <id> <field>=<value> …`                            | `dt set <collection>/<id> <field>=<value> …`                            |
+| `dt <collection> rm <id> …`                                             | `dt rm <collection>/<id> …`                                             |
+| `dt <collection> rename <old-id> <new-id>`                              | `dt rename <collection>/<old-id> <new-id>`                              |
 | `dt <collection> move <id> --after\|--before <id> \| --top \| --bottom` | `dt move <collection>/<id> --after\|--before <id> \| --top \| --bottom` |
-| `dt <collection> move --init` | `dt move <collection> --init` |
-| `dt <collection> values <field> …` | `dt values <collection> <field> …` |
-| `dt <collection> history <id> …` | `dt history <collection>/<id> …` |
-| `dt <collection> diff <id> …` | `dt diff <collection>/<id> …` |
-| `dt <collection> revert <id> --hash <sha>` | `dt revert <collection>/<id> --hash <sha>` |
-| `dt commands for <collection>[/<id>] …` | `dt commands <collection>[/<id>] …` |
-| `dt repos ensure <id> \| --all …` | `dt ensure <id> \| --all …` |
+| `dt <collection> move --init`                                           | `dt move <collection> --init`                                           |
+| `dt <collection> values <field> …`                                      | `dt values <collection> <field> …`                                      |
+| `dt <collection> history <id> …`                                        | `dt history <collection>/<id> …`                                        |
+| `dt <collection> diff <id> …`                                           | `dt diff <collection>/<id> …`                                           |
+| `dt <collection> revert <id> --hash <sha>`                              | `dt revert <collection>/<id> --hash <sha>`                              |
+| `dt commands for <collection>[/<id>] …`                                 | `dt commands <collection>[/<id>] …`                                     |
+| `dt repos ensure <id> \| --all …`                                       | `dt ensure <id> \| --all …`                                             |
 
 The schema group (write SOURCES through a compile gate, never the runtime) got its own verb prefix
 rather than sharing the record verbs' spellings:
 
-| 0.11.0 | 0.12.0 |
-| --- | --- |
-| `dt collections add --name <name> …` | `dt schema add-collection --name <name> …` |
-| `dt collections rm <name> …` | `dt schema rm-collection <name> …` |
-| `dt collections rename <old> <new>` | `dt schema rename-collection <old> <new>` |
-| `dt <collection> add-field --name <field> …` | `dt schema add-field <collection> --name <field> …` |
+| 0.11.0                                          | 0.12.0                                                 |
+| ----------------------------------------------- | ------------------------------------------------------ |
+| `dt collections add --name <name> …`            | `dt schema add-collection --name <name> …`             |
+| `dt collections rm <name> …`                    | `dt schema rm-collection <name> …`                     |
+| `dt collections rename <old> <new>`             | `dt schema rename-collection <old> <new>`              |
+| `dt <collection> add-field --name <field> …`    | `dt schema add-field <collection> --name <field> …`    |
 | `dt <collection> update-field --name <field> …` | `dt schema update-field <collection> --name <field> …` |
-| `dt <collection> remove-field --name <field>` | `dt schema remove-field <collection> --name <field>` |
-| `dt ui-views add --path </route> …` | `dt schema add-view --path </route> …` |
-| `dt ui-views set <id> <key>=<value> …` | `dt schema set-view <id> <key>=<value> …` |
-| `dt ui-views rm <id>` | `dt schema rm-view <id>` |
+| `dt <collection> remove-field --name <field>`   | `dt schema remove-field <collection> --name <field>`   |
+| `dt ui-views add --path </route> …`             | `dt schema add-view --path </route> …`                 |
+| `dt ui-views set <id> <key>=<value> …`          | `dt schema set-view <id> <key>=<value> …`              |
+| `dt ui-views rm <id>`                           | `dt schema rm-view <id>`                               |
 
 Workspace verbs are **unchanged**: `init`, `install`, `update`, `compile`, `check`, `status`, `start`,
 `changes`, `commit`, `help`, `--version`. None of these ever took a collection as its first argument,
@@ -2416,12 +2417,12 @@ changes shape, no record is touched, and a collection that does not opt in behav
 there, at a cost of one changed file per move.
 
 ```yaml
-sort_field: rank          # names a field this collection's own schema declares
+sort_field: rank # names a field this collection's own schema declares
 schema:
   properties:
     rank:
       type: string
-      pattern: '^[a-z]+$'
+      pattern: "^[a-z]+$"
 ```
 
 Then:
@@ -2460,7 +2461,7 @@ bottom }`.
 `.cursor/rules/dreamteamer.mdc` grows three derived sections, and one optional descriptor key
 appears. Nothing existing changes shape, and no record is touched.
 
-**The block now names your collections.** Until now it stated the *grammar* — what a record file is,
+**The block now names your collections.** Until now it stated the _grammar_ — what a record file is,
 what a reference looks like, which namespaces are declared — and not one noun any of it could be
 about. It now carries:
 
@@ -2565,7 +2566,7 @@ neither an `x-reference: users` nor an `@me` anywhere, there is nothing to do be
 still wins, so nothing moves and there is nothing to do. `--workspace-module <name>` overrides it.
 
 Why: named after the workspace, that folder went stale twice in one repo, and each
-rename had to rewrite every path that *resolves* while the historical documents kept the old spelling
+rename had to rewrite every path that _resolves_ while the historical documents kept the old spelling
 — so the old `modules/<vault>` was correct in prose and a bug in a path. A role name cannot go
 stale. `default` is deliberately the word `RESERVED_NAMESPACES` holds: this module owns the
 default-namespace collections, and the default namespace is the empty prefix. `default/tasks` is still
@@ -2601,7 +2602,7 @@ Both failures are LOUD by design — you will not discover this from a view that
 3. **Records still holding `users/<id>` will report as dangling refs in `dt check`** once the field's
    `x-reference` is gone or retargeted. Rewrite or remove those values. If the field is a constant on a
    single-operator workspace, deleting it is the honest fix — `dt <collection> remove-field --name
-   assignee` after you have removed the `x-reference`.
+assignee` after you have removed the `x-reference`.
 
 4. **`GET /api/info` no longer returns `user`.** Only a consumer that read that field is affected — a
    custom surface or a script, which should read `git config user.name` itself. The VS Code extension
@@ -2661,12 +2662,12 @@ Full reasoning, per-consumer radius and a verified version-skew table:
 All four were silent before. If you hit one on the first compile after upgrading, the message names
 the fix — but here is why each exists:
 
-| Refusal | Why it is not optional |
-| --- | --- |
+| Refusal                                                     | Why it is not optional                                                                                                                                                                                                        |
+| ----------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | A collection whose `storage.path` sits **inside** another's | Measured data loss: the outer collection indexed the inner one's records as its own, `check` reported the inner's fields as unknown fields of the outer, and a write through the outer could overwrite a record of the inner. |
-| A slashed collection name whose prefix is not declared | It used to compile ✔ and then vanish from the runtime. |
-| A namespace colliding with a collection name | Longest-match would pick one and make the other unreferenceable. |
-| A malformed `id.pattern` | It used to surface as a raw `Invalid regular expression` from inside a write. |
+| A slashed collection name whose prefix is not declared      | It used to compile ✔ and then vanish from the runtime.                                                                                                                                                                        |
+| A namespace colliding with a collection name                | Longest-match would pick one and make the other unreferenceable.                                                                                                                                                              |
+| A malformed `id.pattern`                                    | It used to surface as a raw `Invalid regular expression` from inside a write.                                                                                                                                                 |
 
 **This is the one place an existing workspace can fail to compile after upgrading.** Only the first
 row can hit a workspace that adopts no namespaces — and if it does, you had the data-loss bug.

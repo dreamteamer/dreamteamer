@@ -1,5 +1,5 @@
 name: agents
-record_title: '{{ name }}'
+record_title: "{{ name }}"
 description: A job that runs in a fresh context with its own tools — dispatched by its `description`.
 use_when: >-
   a job needs a context of its own (a long search, a review, an isolated build) — write it here; when
@@ -9,7 +9,7 @@ storage:
   path: agents
   format: md
 ids:
-  from: '{{ name | slug }}'
+  from: "{{ name | slug }}"
 fields:
   name:
     type: string

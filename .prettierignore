@@ -1,0 +1,8 @@
+dist/
+node_modules/
+package-lock.json
+.dreamteamer/
+test/.tmp/
+test/.perf/
+test/acceptance/out/
+.claude/worktrees/

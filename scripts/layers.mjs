@@ -18,68 +18,135 @@
 // An unclassified file under src/ is a FAILURE, not a default — adding one should cost the same
 // sentence of thought that adding a core collection does.
 
-import { readFileSync, readdirSync } from 'node:fs';
-import { resolve, dirname, join, basename } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { readFileSync, readdirSync } from "node:fs"
+import { resolve, dirname, join, basename, relative } from "node:path"
+import { fileURLToPath } from "node:url"
 
-const SRC = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'src');
+const SRC = resolve(dirname(fileURLToPath(import.meta.url)), "..", "src")
 
 const LAYERS = {
-	// records over git — must not know that modules, channels or `extends` exist
-	record: ['store', 'nav', 'records', 'temporal', 'fractional-index', 'filter', 'field-values', 'commit', 'events', 'history', 'template', 'yaml', 'workspace', 'check', 'namespace', 'ref', 'relations', 'env-vars', 'placement', 'fields', 'descriptor', 'exports'],
-	// the compiled artifact both halves share
-	boundary: ['runtime'],
-	// the workspace compiler and the harness surface
-	workspace: ['compile', 'compile-collections', 'descriptor-v2', 'views', 'harnesses', 'schema-ops', 'init', 'record-commands', 'semver', 'checkout', 'extensions', 'doctor', 'setup-contract', 'setup', 'env-write', 'check-alone', 'scaffold-templates', 'install-modules', 'update', 'nav-fragments', 'unread-data'],
-	// entry points; span both halves by definition (the CLI, the public API, the descriptor→UI read model)
-	surface: ['cli', 'collections-cli', 'presentation', 'api', 'records-api', 'exports-cli', 'testing', 'update-setup'],
-};
+  // records over git — must not know that modules, channels or `extends` exist
+  record: [
+    "store",
+    "nav",
+    "records",
+    "temporal",
+    "fractional-index",
+    "filter",
+    "field-values",
+    "commit",
+    "events",
+    "history",
+    "template",
+    "yaml",
+    "workspace",
+    "check",
+    "namespace",
+    "ref",
+    "relations",
+    "env-vars",
+    "placement",
+    "fields",
+    "descriptor",
+    "exports",
+    "record-types",
+  ],
+  // the compiled artifact both halves share
+  boundary: ["runtime"],
+  // the workspace compiler and the harness surface
+  workspace: [
+    "compile",
+    "compile-collections",
+    "descriptor-v2",
+    "views",
+    "harnesses",
+    "schema-ops",
+    "init",
+    "record-commands",
+    "semver",
+    "checkout",
+    "extensions",
+    "doctor",
+    "setup-contract",
+    "setup",
+    "env-write",
+    "check-alone",
+    "scaffold-templates",
+    "install-modules",
+    "update",
+    "nav-fragments",
+    "unread-data",
+    "workspace-types",
+  ],
+  // entry points; span both halves by definition (the CLI, the public API, the descriptor→UI read model)
+  surface: ["cli", "collections-cli", "presentation", "api", "records-api", "exports-cli", "testing", "update-setup"],
+}
 
 // who may import whom. `record` and `boundary` are the constrained half; surfaces are free.
 const ALLOWED = {
-	record: new Set(['record', 'boundary']),
-	boundary: new Set(['record', 'boundary']),
-	workspace: new Set(['record', 'boundary', 'workspace']),
-	surface: new Set(['record', 'boundary', 'workspace', 'surface']),
-};
+  record: new Set(["record", "boundary"]),
+  boundary: new Set(["record", "boundary"]),
+  workspace: new Set(["record", "boundary", "workspace"]),
+  surface: new Set(["record", "boundary", "workspace", "surface"]),
+}
 
-const layerOf = new Map();
-for (const [layer, mods] of Object.entries(LAYERS)) for (const m of mods) layerOf.set(m, layer);
+const layerOf = new Map()
+for (const [layer, mods] of Object.entries(LAYERS)) for (const m of mods) layerOf.set(m, layer)
 
-const files = readdirSync(SRC).filter((f) => f.endsWith('.js')).sort();
-const problems = [];
+// src/ is foldered (api/cli at the top, commands/, lib/), but a module is still named by its BASENAME:
+// the layer is a property of the file, never of the folder it sits in.
+const files = readdirSync(SRC, { recursive: true })
+  .map(String)
+  .filter(f => f.endsWith(".ts") && !f.endsWith(".d.ts"))
+  .sort()
+const stems = new Set(files.map(f => basename(f, ".ts")))
+const problems = []
 
 for (const f of files) {
-	const mod = basename(f, '.js');
-	const layer = layerOf.get(mod);
-	if (!layer) {
-		problems.push(`src/${f} is not assigned to a layer — add it to LAYERS in ${basename(fileURLToPath(import.meta.url))} and say which half it belongs to`);
-		continue;
-	}
-	const body = readFileSync(join(SRC, f), 'utf8');
-	// static `import … from './x.js'` / `export … from './x.js'`, AND a dynamic `import('./x.js')` with a
-	// literal path — a lazy import is still an edge, and a scanner that skipped them passed a layering
-	// the code did not have. (An extension's entry is imported by a COMPUTED path, which names no file
-	// under src/ and so is not an edge this graph can have.)
-	for (const m of body.matchAll(/(?:(?:^|\n)\s*(?:import|export)[\s\S]*?from\s+|import\(\s*)'\.\/([\w.-]+)\.js'/g)) {
-		const target = m[1];
-		const targetLayer = layerOf.get(target);
-		if (!targetLayer) continue; // the missing-assignment failure is already reported on that file
-		if (!ALLOWED[layer].has(targetLayer)) {
-			problems.push(`src/${f} (${layer}) imports src/${target}.js (${targetLayer}) — ${layer} may only import ${[...ALLOWED[layer]].join(', ')}`);
-		}
-	}
+  const mod = basename(f, ".ts")
+  const layer = layerOf.get(mod)
+  if (!layer) {
+    problems.push(
+      `src/${f} is not assigned to a layer — add it to LAYERS in ${basename(fileURLToPath(import.meta.url))} and say which half it belongs to`
+    )
+    continue
+  }
+  const body = readFileSync(join(SRC, f), "utf8")
+  // static `import … from './x.ts'` / `export … from './x.ts'`, AND a dynamic `import('./x.ts')` with a
+  // literal path — a lazy import is still an edge, and a scanner that skipped them passed a layering
+  // the code did not have. (An extension's entry is imported by a COMPUTED path, which names no file
+  // under src/ and so is not an edge this graph can have.)
+  for (const m of body.matchAll(
+    /(?:(?:^|\n)\s*(?:import|export)[\s\S]*?from\s+|import\(\s*)["']\.{1,2}\/([\w./-]+)\.ts["']/g
+  )) {
+    const target = basename(m[1])
+    const targetLayer = layerOf.get(target)
+    if (!targetLayer) continue // the missing-assignment failure is already reported on that file
+    if (!ALLOWED[layer].has(targetLayer)) {
+      problems.push(
+        `src/${f} (${layer}) imports src/${target}.ts (${targetLayer}) — ${layer} may only import ${[...ALLOWED[layer]].join(", ")}`
+      )
+    }
+  }
 }
 
 for (const [layer, mods] of Object.entries(LAYERS)) {
-	const missing = mods.filter((m) => !files.includes(`${m}.js`));
-	if (missing.length) problems.push(`LAYERS.${layer} names ${missing.map((m) => `${m}.js`).join(', ')}, which no longer exist under src/ — drop them`);
-	console.log(`${layer.padEnd(9)} ${mods.filter((m) => files.includes(`${m}.js`)).sort().join(' ')}`);
+  const missing = mods.filter(m => !stems.has(m))
+  if (missing.length)
+    problems.push(
+      `LAYERS.${layer} names ${missing.map(m => `${m}.ts`).join(", ")}, which no longer exist under src/ — drop them`
+    )
+  console.log(
+    `${layer.padEnd(9)} ${mods
+      .filter(m => stems.has(m))
+      .sort()
+      .join(" ")}`
+  )
 }
 
 if (problems.length) {
-	console.error(`\n✖ ${problems.length} layering problem${problems.length === 1 ? '' : 's'}:`);
-	for (const p of problems) console.error(`    ${p}`);
-	process.exit(1);
+  console.error(`\n✖ ${problems.length} layering problem${problems.length === 1 ? "" : "s"}:`)
+  for (const p of problems) console.error(`    ${p}`)
+  process.exit(1)
 }
-console.log(`\n✔ ${files.length} modules, no record → workspace imports`);
+console.log(`\n✔ ${files.length} modules, no record → workspace imports`)

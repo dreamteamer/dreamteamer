@@ -20,3 +20,4 @@ test/.perf/
 
 # acceptance evidence (node test/acceptance/run.mjs without --out)
 test/acceptance/out/
+dist/

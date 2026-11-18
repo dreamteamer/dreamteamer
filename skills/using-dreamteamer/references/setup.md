@@ -35,14 +35,14 @@ now, say so once, ask for a new session in this folder, and resume there from st
 - `dt status` — the runtime, the modules, and the **setup** section: one line per unit. `--json` is the
   same as data. The words, and what each one is evidence of:
 
-| word | means |
-|---|---|
-| **ready** | every check the unit declares holds on this machine; `· verified <date>` names the day a live check wrote its receipt |
-| **configured** | the inputs are in place and the line says what is still *unverified* (a sign-in, a live read, a run) or *missing* (an input, an action) — a credentials file is not a working sign-in, a downloaded model is not a model that ran |
-| **skipped** | the person declined it; `dt setup <unit>` resumes |
-| **blocked** | the one thing in the way, named, and the next command; other units stay usable |
-| **no setup** | the package ships no unit — its doctor rows are all there is; `needs: KEY` names a declared variable nobody set |
-| **no evidence** | the unit's inspect returned nothing — never read it as ready |
+| word            | means                                                                                                                                                                                                                             |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **ready**       | every check the unit declares holds on this machine; `· verified <date>` names the day a live check wrote its receipt                                                                                                             |
+| **configured**  | the inputs are in place and the line says what is still _unverified_ (a sign-in, a live read, a run) or _missing_ (an input, an action) — a credentials file is not a working sign-in, a downloaded model is not a model that ran |
+| **skipped**     | the person declined it; `dt setup <unit>` resumes                                                                                                                                                                                 |
+| **blocked**     | the one thing in the way, named, and the next command; other units stay usable                                                                                                                                                    |
+| **no setup**    | the package ships no unit — its doctor rows are all there is; `needs: KEY` names a declared variable nobody set                                                                                                                   |
+| **no evidence** | the unit's inspect returned nothing — never read it as ready                                                                                                                                                                      |
 
 - `dt doctor` — the same checks as rows (`--json`, `--strict` for a script). Both verbs are read-only:
   no network, no download, no token refresh, no file edit, ever.

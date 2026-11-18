@@ -44,20 +44,40 @@ A module that needs something per machine (a token, a folder, a download) declar
 scaffold's, with its comments removed:
 
 ```js
-const KEY = 'ACME_TOKEN';
+const KEY = "ACME_TOKEN"
 function inspect(ctx) {
-  return { checks: [{ id: 'acme.token', status: ctx.env[KEY] ? 'configured' : 'missing', title: KEY, fix: 'dt setup acme --input token=<token>' }] };
+  return {
+    checks: [
+      {
+        id: "acme.token",
+        status: ctx.env[KEY] ? "configured" : "missing",
+        title: KEY,
+        fix: "dt setup acme --input token=<token>",
+      },
+    ],
+  }
 }
 function plan(ctx, inputs) {
-  const token = inputs.token ?? ctx.env[KEY];
+  const token = inputs.token ?? ctx.env[KEY]
   return {
     checks: inspect({ ...ctx, env: { ...ctx.env, ...(token ? { [KEY]: token } : {}) } }).checks,
-    actions: [{ id: 'set-token', title: `write ${KEY} into .env`, env: { [KEY]: token }, state: token ? 'ready' : 'needs-input' }],
-    needs: token ? [] : ['token'],
-  };
+    actions: [
+      {
+        id: "set-token",
+        title: `write ${KEY} into .env`,
+        env: { [KEY]: token },
+        state: token ? "ready" : "needs-input",
+      },
+    ],
+    needs: token ? [] : ["token"],
+  }
 }
 export default function activate(dt) {
-  return { setup: [{ id: 'acme', version: 1, inputs: [{ id: 'token', kind: 'string', env: KEY, required: true }], inspect, plan }] };
+  return {
+    setup: [
+      { id: "acme", version: 1, inputs: [{ id: "token", kind: "string", env: KEY, required: true }], inspect, plan },
+    ],
+  }
 }
 ```
 
@@ -84,17 +104,17 @@ export default function activate(dt) {
 ## 4. test — `dreamteamer/testing`
 
 ```js
-import { test } from 'node:test';
-import assert from 'node:assert/strict';
-import { fileURLToPath } from 'node:url';
-import { createWorkspace, install, run } from 'dreamteamer/testing';
+import { test } from "node:test"
+import assert from "node:assert/strict"
+import { fileURLToPath } from "node:url"
+import { createWorkspace, install, run } from "dreamteamer/testing"
 
-test('installs, and asks for its token', () => {
-  const ws = createWorkspace();                                       // dt init on the engine running this test
-  const r = install(ws, fileURLToPath(new URL('..', import.meta.url))); // packed with npm pack, then dt install
-  assert.equal(r.status, 3);                                     // 3: a required input is still missing
-  assert.match(run(ws, ['status']).stdout, /acme\s+configured\s+ACME_TOKEN missing/);
-});
+test("installs, and asks for its token", () => {
+  const ws = createWorkspace() // dt init on the engine running this test
+  const r = install(ws, fileURLToPath(new URL("..", import.meta.url))) // packed with npm pack, then dt install
+  assert.equal(r.status, 3) // 3: a required input is still missing
+  assert.match(run(ws, ["status"]).stdout, /acme\s+configured\s+ACME_TOKEN missing/)
+})
 ```
 
 Run it with `node --test`. Every helper spawns the engine as a consumer does; `ENGINE` is the

@@ -81,6 +81,6 @@ only then does it get a button.
 
 ## Commits
 
-Conventional-ish prefixes (`feat:`, `fix:`, `docs:`, `refactor:`) and a body explaining *why*.
+Conventional-ish prefixes (`feat:`, `fix:`, `docs:`, `refactor:`) and a body explaining _why_.
 The commit log is the design record for this project — please write for the person reading it in
 six months.

@@ -5,7 +5,7 @@
 # reference compile — and because, as a collection, its EDGES are browsable, diagrammable and
 # listable with no code written for any of them.
 name: modules
-record_title: '{{ name }}'
+record_title: "{{ name }}"
 description: A module this workspace compiled — where its sources sit, what it declares, and the modules and collections it reaches.
 use_when: >-
   asked which module ships a collection, what a module depends on, or where its sources live — read
@@ -15,8 +15,8 @@ storage:
   path: modules
   format: yaml
 ids:
-  from: '{{ name | slug }}'
-  pattern: '^[a-z0-9-]+$'
+  from: "{{ name | slug }}"
+  pattern: "^[a-z0-9-]+$"
 fields:
   name:
     type: string
@@ -79,7 +79,7 @@ fields:
     description: The modules this preset pins — the keys of its `dreamteamer.preset`. Soft, because a member the operator uninstalled is absent on purpose and never dangles.
   preset_summary:
     type: string
-    description: '`preset · N members · M installed`, written at compile — the line `dt list modules` prints after the id.'
+    description: "`preset · N members · M installed`, written at compile — the line `dt list modules` prints after the id."
 display:
   nav:
     icon: deployed_code

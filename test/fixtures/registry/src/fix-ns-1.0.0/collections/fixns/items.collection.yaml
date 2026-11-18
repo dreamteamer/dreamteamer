@@ -1,7 +1,7 @@
 name: fixns/items
 description: A fixns item.
 ids:
-  from: '{{ title | slug }}'
+  from: "{{ title | slug }}"
 fields:
   title:
     type: string

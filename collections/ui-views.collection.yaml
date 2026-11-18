@@ -3,7 +3,7 @@
 # states only what it changes.
 name: ui-views
 title: UI Views
-record_title: '{{ route }}'
+record_title: "{{ route }}"
 description: A named way to draw a collection, a record or a page — a route, a scope, a filter, and the display keys it changes from the collection's own.
 use_when: >-
   a collection needs a second way to be looked at (a board by status, today's rows, a map) — write
@@ -14,7 +14,7 @@ storage:
   path: ui-views
   format: yaml
 ids:
-  from: '{{ route | slug }}'
+  from: "{{ route | slug }}"
 fields:
   name:
     type: string

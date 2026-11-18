@@ -2,7 +2,7 @@
 
 Written alongside the change that folded `building-dreamteamer` into `using-dreamteamer`. Its job
 is to be honest about what breaks for a consumer on upgrade, what every consumer has to do, and
-which claims were *verified* on a live workspace rather than reasoned. The verification workspace:
+which claims were _verified_ on a live workspace rather than reasoned. The verification workspace:
 a synthetic clinic workspace (5 collections, 1 namespace, 2 modules, ~40 records) compiled against
 both engine states.
 
@@ -19,15 +19,15 @@ One skill, two acts, syntax delegated to `help`.
 
 ## 2. What breaks, and what to do
 
-| # | consumer state | what happens on upgrade | the move | verified? |
-|---|---|---|---|---|
-| 1 | an agent with `skills: [skills/building-dreamteamer]` in frontmatter | **compile FAILS**: `✖ compile error: agents/<name>.agent.md: references unknown skill "skills/building-dreamteamer"` | point it at `skills/using-dreamteamer` | ✔ verified — exact message reproduced |
-| 2 | prose naming `building-dreamteamer` — a skill body, a command body, your CLAUDE.md | nothing fails; the name dangles as documentation | `grep -rn 'building-dreamteamer' modules/ CLAUDE.md` and reword at leisure | ✔ nothing enforces prose names (by construction) |
-| 3 | a deep link to `using-dreamteamer/references/git-events.md` | the file is gone — renamed to its verb | link `references/changes.md` | ✔ file present in staged output |
-| 4 | a deep link to `building-dreamteamer/references/<topic>.md` | the folder is gone | same topic file under `using-dreamteamer/references/` (all eight kept their names) | ✔ all present in staged output |
-| 5 | stale staged output from 0.15.x | `dt compile` prunes `.claude/skills/building-dreamteamer/` (and every harness mirror) | nothing — compile after upgrade, as always | ✔ pruned on recompile |
-| 6 | orientation blocks (CLAUDE.md / AGENTS.md / …) | regenerated: the read-this-first line now says "before working with data or changing what the workspace keeps or does", and the non-claude-code skills index lists one skill | nothing | ✔ both flavors inspected |
-| 7 | harness skill-description budget | one entry replaces two | nothing — strictly less budget | reasoned (arithmetic) |
+| #   | consumer state                                                                     | what happens on upgrade                                                                                                                                                      | the move                                                                           | verified?                                        |
+| --- | ---------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- | ------------------------------------------------ |
+| 1   | an agent with `skills: [skills/building-dreamteamer]` in frontmatter               | **compile FAILS**: `✖ compile error: agents/<name>.agent.md: references unknown skill "skills/building-dreamteamer"`                                                         | point it at `skills/using-dreamteamer`                                             | ✔ verified — exact message reproduced            |
+| 2   | prose naming `building-dreamteamer` — a skill body, a command body, your CLAUDE.md | nothing fails; the name dangles as documentation                                                                                                                             | `grep -rn 'building-dreamteamer' modules/ CLAUDE.md` and reword at leisure         | ✔ nothing enforces prose names (by construction) |
+| 3   | a deep link to `using-dreamteamer/references/git-events.md`                        | the file is gone — renamed to its verb                                                                                                                                       | link `references/changes.md`                                                       | ✔ file present in staged output                  |
+| 4   | a deep link to `building-dreamteamer/references/<topic>.md`                        | the folder is gone                                                                                                                                                           | same topic file under `using-dreamteamer/references/` (all eight kept their names) | ✔ all present in staged output                   |
+| 5   | stale staged output from 0.15.x                                                    | `dt compile` prunes `.claude/skills/building-dreamteamer/` (and every harness mirror)                                                                                        | nothing — compile after upgrade, as always                                         | ✔ pruned on recompile                            |
+| 6   | orientation blocks (CLAUDE.md / AGENTS.md / …)                                     | regenerated: the read-this-first line now says "before working with data or changing what the workspace keeps or does", and the non-claude-code skills index lists one skill | nothing                                                                            | ✔ both flavors inspected                         |
+| 7   | harness skill-description budget                                                   | one entry replaces two                                                                                                                                                       | nothing — strictly less budget                                                     | reasoned (arithmetic)                            |
 
 ## 3. Prose corrections riding along
 

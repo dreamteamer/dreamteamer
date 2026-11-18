@@ -3,7 +3,7 @@
 # means is skills/using-dreamteamer/references/collections.md; every reader asks a compiled
 # descriptor through src/descriptor.js rather than reading these keys directly.
 name: collections
-record_title: '{{ name }}'
+record_title: "{{ name }}"
 description: A typed set of records — what one record is, where records live, how ids are made, the fields, and how surfaces draw it.
 use_when: >-
   a new kind of thing has to be kept, or a collection's shape, storage or display changes — write the
@@ -14,7 +14,7 @@ storage:
   path: collections
   format: yaml
 ids:
-  from: '{{ name | slug }}'
+  from: "{{ name | slug }}"
 fields:
   name:
     type: string

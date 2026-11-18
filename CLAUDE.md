@@ -24,7 +24,7 @@ extension shape, not a core verb.
 ⚠ **Do not grow the seam casually.** Every contribution key has a consumer that needed it — `check`
 carries the record guards modules used to chain after `dt check` by hand, and `doctor` gives every
 module's machine checks one board (`dt doctor`) a stranger has without installing a setup tool, and
-`next` lets the module that keeps live sessions say *in session by …* where `dt next` answers. The
+`next` lets the module that keeps live sessions say _in session by …_ where `dt next` answers. The
 next one is a design decision (the deferred ones: a storage driver, a record-write hook, a workflow
 scheduler, an external harness REGISTRY beyond managed blocks). "An extension might want it" is not a
 consumer.
@@ -52,7 +52,7 @@ questions **before** writing the code, out loud, in the commit message:
    ⚠ **`users` failed it on 2026-08-17 (0.8.0), and the lesson is a CIRCULAR justification.** It was
    core "because `@me` resolves against it" — and `@me` existed because `users` was core. Nothing in
    the compiler, the store or `check` ever read a user record. One record per workspace whose only job
-   was to restate `git config user.name` in a file that then had to *agree* with it; when it disagreed
+   was to restate `git config user.name` in a file that then had to _agree_ with it; when it disagreed
    the symptom was an empty inbox and no error (decision 99b). **A justification that only points at
    another core feature is not a justification.** Read the operator from git at the point of need.
 
@@ -68,6 +68,7 @@ questions **before** writing the code, out loud, in the commit message:
    automated was being done by a chain of commands a person runs. `dt migrate` was never invoked once:
    every real schema change in this project's history was a hand-written script that went around it.
    **Correctness is not usage.** Measure before you keep.
+
 2. **Is this a recipe creeping into core?** Anything domain-shaped — people, meetings, products,
    content, funnels — belongs in a module. The published ones live in
    [dreamteamer-modules](https://github.com/dreamteamer/dreamteamer-modules) and arrive with
@@ -273,16 +274,16 @@ The engine has two halves and the edge between them goes ONE way. `npm run layer
 and exits 1 on a violation — including on a file under `src/` that is not assigned to a layer, so
 adding one costs the same sentence of thought as adding a core collection.
 
-| layer | modules | rule |
-|---|---|---|
-| **record** | store · records · check · temporal · fractional-index · filter · field-values · commit · events · history · template · workspace · yaml · namespace · ref · relations · env-vars · placement · fields · descriptor · exports | schema-validated records over git. **Must not know that modules, channels, overlays or skills exist.** |
-| **boundary** | runtime | the compiled `.dreamteamer/` artifact — descriptors + manifest. The whole interface. |
-| **workspace** | compile · compile-collections · descriptor-v2 · views · harnesses · schema-ops · init · checkout · extensions · doctor · record-commands · semver · setup-contract · setup · env-write · check-alone · scaffold-templates · install-modules · update | the compiler, the agent-harness surface, the extension loader and the module lifecycle. May import record. |
-| **surface** | cli · collections-cli · exports-cli · presentation · api · records-api · testing · update-setup | entry points; span both halves by definition. `api`, `records-api` and `testing` are the public export surfaces. |
+| layer         | modules                                                                                                                                                                                                                                              | rule                                                                                                             |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| **record**    | store · records · check · temporal · fractional-index · filter · field-values · commit · events · history · template · workspace · yaml · namespace · ref · relations · env-vars · placement · fields · descriptor · exports                         | schema-validated records over git. **Must not know that modules, channels, overlays or skills exist.**           |
+| **boundary**  | runtime                                                                                                                                                                                                                                              | the compiled `.dreamteamer/` artifact — descriptors + manifest. The whole interface.                             |
+| **workspace** | compile · compile-collections · descriptor-v2 · views · harnesses · schema-ops · init · checkout · extensions · doctor · record-commands · semver · setup-contract · setup · env-write · check-alone · scaffold-templates · install-modules · update | the compiler, the agent-harness surface, the extension loader and the module lifecycle. May import record.       |
+| **surface**   | cli · collections-cli · exports-cli · presentation · api · records-api · testing · update-setup                                                                                                                                                      | entry points; span both halves by definition. `api`, `records-api` and `testing` are the public export surfaces. |
 
 The seam was always real — the store has only ever read compiled descriptors, never a source. What
 it lacked was a direction: `store.js` and `history.js` imported `compile.js` to reach a manifest,
-which is a *file-format* dependency wearing a *module-system* import. Both now go through
+which is a _file-format_ dependency wearing a _module-system_ import. Both now go through
 `runtime.js`. Two consequences to keep:
 
 - **`storage.base` (`workspace` | `runtime`) is written by compile and read by everything else.**
@@ -292,15 +293,15 @@ which is a *file-format* dependency wearing a *module-system* import. Both now g
   `workspace_module` layout those collections otherwise resolve under the workspace root, read as
   **zero records**, and let the store treat a compiled artifact as writable.
 - **`sourceRoots()` comes off the manifest, not from re-running discovery.** The manifest records what
-  was actually *compiled*, so a shadowed copy is already excluded — same set, and no import.
+  was actually _compiled_, so a shadowed copy is already excluded — same set, and no import.
 
 ⚠ **This is deliberately not a package split, and proposing one needs a consumer, not an argument.**
-Nothing wants records-over-git *without* modules and harnesses; recipes is copy-not-install
+Nothing wants records-over-git _without_ modules and harnesses; recipes is copy-not-install
 (decision 129). Two packages would double the pinning surface, break `engine.ts`'s `engineRoot()`
 probe (it tests `store.js` and `presentation.js` in one directory — different halves), and split a
 hand-maintained non-tolerant import list across two versions. Decision 139 is what that costs. The
 budget argument is the stronger one: one engine gives one ceiling and a hard "no"; two gives every
-borderline addition a home — *"that's the DB's job"* — and the pressure to make a **database**
+borderline addition a home — _"that's the DB's job"_ — and the pressure to make a **database**
 general is unbounded in a way the pressure on a workspace compiler is not.
 
 ## IMPORTANT — engine/UI split
@@ -309,8 +310,8 @@ general is unbounded in a way the pressure on a workspace compiler is not.
 is the UI.** All functionality lives here; the extension is a surface over it, never a second
 implementation.
 
-**The test:** *anything that can be done in the VS Code extension can be done in a Claude Code (or
-any supported coding-agent) session.* Concretely — every extension gesture must map to a
+**The test:** _anything that can be done in the VS Code extension can be done in a Claude Code (or
+any supported coding-agent) session._ Concretely — every extension gesture must map to a
 `dreamteamer <…>` CLI invocation an agent can run headlessly, with the same validation, the same
 sources touched, and the same commit shape.
 
@@ -318,7 +319,7 @@ Corollaries:
 
 - A new capability starts here — engine function **plus a CLI verb** — and only then gets a button.
 - The extension may not hand-write module sources or `data/` records around the store. If it
-  needs an operation, that operation is an engine export *and* is reachable from the CLI.
+  needs an operation, that operation is an engine export _and_ is reachable from the CLI.
 - Loading the engine in-process (what `dreamteamer-vscode/src/engine.ts` does) satisfies "one
   implementation" but **not** the test — an in-process-only export is still UI-exclusive until the
   CLI exposes it.
@@ -331,19 +332,19 @@ The six known gaps are closed. Every extension operation now has a CLI verb, ver
 throwaway `dreamteamer init` workspace (9/9 assertions, `check` clean). The CLI column is in today's
 verb-first spelling; `dt help` is the authority:
 
-| extension op | engine function | CLI |
-| --- | --- | --- |
-| edit a field (`PATCH /schema/collections/:c/fields/:f`) | `schema-ops.updateField` | `set-field <c> --name <f> --type <t>` |
-| remove a field (`DELETE …/fields/:f`) | `schema-ops.removeField` | `rm-field <c> --name <f>` |
-| delete a collection (`DELETE /schema/collections/:c`) | `schema-ops.removeCollection` | `rm collections/<name> [--force]` |
-| revert a record (`POST …/records-revert`) | `Store.revert` | `revert <c>/<id> --hash <sha>` |
-| record history / diff (`GET /history`, `/history-diff`) | `history.js` | `history <c>/<id>` / `diff <c>/<id> [--hash]` |
-| create/update/delete a ui-view (`POST/DELETE /schema/ui-views`) | `saveUiView` / `removeUiView` | `add ui-views` · `set`/`rm ui-views/<id>` |
-| order a listing (`GET /items/:c?sort=`) | `temporal.sortRows` | `list <c> --sort [-]<field>` |
-| filter a listing (`?filter=<json>`, saved views) | `filter.matchesFilter` | `list <c> --where <json>` |
-| what changed in the data since a commit | `events.deriveEvents` | `changes [--since <sha\|date>] [--json]` |
-| publish records written to disk | `commit.commitPending` | `commit [<collection>\|<collection>/<id> …] [-m <subject>] [--dry-run]` |
-| move a collection (incl. into a namespace) | `schema-ops.renameCollection` | `rename collections/<old> <new>` |
+| extension op                                                    | engine function               | CLI                                                                     |
+| --------------------------------------------------------------- | ----------------------------- | ----------------------------------------------------------------------- |
+| edit a field (`PATCH /schema/collections/:c/fields/:f`)         | `schema-ops.updateField`      | `set-field <c> --name <f> --type <t>`                                   |
+| remove a field (`DELETE …/fields/:f`)                           | `schema-ops.removeField`      | `rm-field <c> --name <f>`                                               |
+| delete a collection (`DELETE /schema/collections/:c`)           | `schema-ops.removeCollection` | `rm collections/<name> [--force]`                                       |
+| revert a record (`POST …/records-revert`)                       | `Store.revert`                | `revert <c>/<id> --hash <sha>`                                          |
+| record history / diff (`GET /history`, `/history-diff`)         | `history.js`                  | `history <c>/<id>` / `diff <c>/<id> [--hash]`                           |
+| create/update/delete a ui-view (`POST/DELETE /schema/ui-views`) | `saveUiView` / `removeUiView` | `add ui-views` · `set`/`rm ui-views/<id>`                               |
+| order a listing (`GET /items/:c?sort=`)                         | `temporal.sortRows`           | `list <c> --sort [-]<field>`                                            |
+| filter a listing (`?filter=<json>`, saved views)                | `filter.matchesFilter`        | `list <c> --where <json>`                                               |
+| what changed in the data since a commit                         | `events.deriveEvents`         | `changes [--since <sha\|date>] [--json]`                                |
+| publish records written to disk                                 | `commit.commitPending`        | `commit [<collection>\|<collection>/<id> …] [-m <subject>] [--dry-run]` |
+| move a collection (incl. into a namespace)                      | `schema-ops.renameCollection` | `rename collections/<old> <new>`                                        |
 
 Notes worth keeping:
 
@@ -388,6 +389,6 @@ two subpath exports, `dreamteamer/records` and `dreamteamer/testing`), and packa
 - **A file under `src/` may be split, renamed or deleted freely** as long as `src/api.js` still
   exports the same names.
 - **Removing or renaming an export of `src/api.js` IS the cross-repo change**, and needs the same
-  wave in every consumer. `test/integration/public-api.test.js` pins each runtime export list to
+  wave in every consumer. `test/integration/public-api.test.ts` pins each runtime export list to
   its `.d.ts`, and installs the packed tarball to prove the API resolves and `src/*` does not.
 - An addition to the API needs a consumer, like anything else in core.

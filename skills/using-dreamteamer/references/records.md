@@ -2,7 +2,7 @@
 
 **core principle:** the CLI is the default path — it validates before disk, generates the id,
 materializes defaults, and its writes are pathspec-scoped so they can never sweep a stranger's
-work. direct file edits stay first-class, but then *you* owe every rule below.
+work. direct file edits stay first-class, but then _you_ owe every rule below.
 
 ## when to use
 
@@ -11,12 +11,12 @@ especially when you catch yourself about to `mv` a record file, hand-write front
 memory, or set a field you haven't read in the descriptor.
 
 **not for:** schema changes (`collections.md`) — and system-stored records (skills, agents,
-commands, ui-views, collections) are *sources*: written by the system and field verbs, or by
+commands, ui-views, collections) are _sources_: written by the system and field verbs, or by
 editing the file under the owning module and `dt compile` — never under `.dreamteamer/`.
 
 ## reading and measuring
 
-the verbs and flags are `dt help`'s job; what to know *about* them:
+the verbs and flags are `dt help`'s job; what to know _about_ them:
 
 - narrowing a `list`: `--filter k=v` per condition, **repeated to AND more of them**
   (`--filter status=todo --filter owner=ana` wants both); **anything an equality cannot say goes
@@ -29,7 +29,7 @@ the verbs and flags are `dt help`'s job; what to know *about* them:
 - ⚠ **there is no `@me` and no `users` collection.** when a person is needed, read
   `git config user.name`; filter on a person only when this workspace ships its own collection of
   people.
-- `dt values <collection> <field>` is a field's *actual* vocabulary — what a proposal, a filter
+- `dt values <collection> <field>` is a field's _actual_ vocabulary — what a proposal, a filter
   or a validator should offer as choices.
 - `--json` works on every record and reporting verb (`resolve` excepted) — use it whenever
   output will be parsed.
@@ -54,7 +54,7 @@ the verbs and flags are `dt help`'s job; what to know *about* them:
 - ids generate from the record's own creation-time values — pass `--id` only when the operator
   named one, or when the generated id collides (the refusal names the record holding it).
 - a `type: position` field is the collection's manual order: `dt reorder <collection>/<id>
-  --after|--before <id> | --top | --bottom`, never a hand-set value.
+--after|--before <id> | --top | --bottom`, never a hand-set value.
 
 ## before writing anything
 
@@ -104,8 +104,9 @@ fields, the body is the single `body: true` field):
 title: Fix login flow
 status: todo
 assignee: contacts/ada
-due: '2026-07-28'
+due: "2026-07-28"
 ---
+
 Users report the login button does nothing on mobile.
 ```
 
@@ -183,8 +184,8 @@ source_file: ${env:FILES_FOLDER}/2026/q3.pdf
   descriptor, a command, a skill) is staged with `git add <the specific files>` and committed —
   `dt commit` targets collections and records only.
 - **scope to what YOU wrote**: `dt commit <collection>/<id>` — any number of targets, each a
-  whole `<collection>` or one record. bare `dt commit` publishes *everything* pending, and
-  `dt commit <collection>` publishes every dirty record under it *whoever wrote it* — the same
+  whole `<collection>` or one record. bare `dt commit` publishes _everything_ pending, and
+  `dt commit <collection>` publishes every dirty record under it _whoever wrote it_ — the same
   sweep as a blanket `git add` when a second session shares the tree. `--dry-run` shows the set
   first; read the record list a commit always prints.
 - **a bulk write is ONE logical change.** an import loop or a one-shot script leaves dozens of
@@ -194,7 +195,7 @@ source_file: ${env:FILES_FOLDER}/2026/q3.pdf
   the right tool, not a hazard — the sweep warning above is about sharing a tree, not about batch
   size.
 - **a relational write dirties two records** — the owner and its mirror partner. a RECORD-scoped
-  commit sweeps the target-side partners *your* write dirtied, and REFUSES when the far side's
+  commit sweeps the target-side partners _your_ write dirtied, and REFUSES when the far side's
   own owner is dirty from someone else: scope to the pair rather than publish half of anyone's
   work. the COLLECTION form publishes exactly what it names and prints the partners it left
   pending — HEAD then fails `dt check` until they land.
@@ -233,18 +234,18 @@ two hundred.
 
 ## common mistakes
 
-| mistake | reality |
-|---|---|
-| `mv data/tasks/old.task.md …/new.task.md` | every inbound ref now dangles. `dt rename`. |
-| renaming a record because its title changed | the id is not a display name — edit the field |
-| a `--filter` per condition | right — they AND; only what equality cannot express needs `--where` |
-| `--tags a --tags b` on a scalar field | refused, naming the field — a repeat is an array ELEMENT, and a scalar has no room for two |
-| `--force` to get past an `rm` refusal | it leaves inbound refs dangling — retarget them first (unless the refusal named a *prose* mention, which isn't a real reference) |
-| omitting schema defaults from a hand-written file | the file stops being legible without the schema |
-| unquoted `due: 2026-07-28` in hand-written YAML | dreamteamer parses CORE_SCHEMA so it stays a string *here*, but a default-schema YAML reader turns it into a timestamp — quote dates |
-| setting a generated mirror, or `created` | refused by `set`; a hand-edit of a mirror goes stale — write the owning side |
-| editing a skill / agent / command / collection under `.dreamteamer/` or a harness folder | generated — use the system verbs, or edit the module file, then `dt compile` |
-| resolving a template by hand | `dt resolve` is the only substitution point |
+| mistake                                                                                  | reality                                                                                                                              |
+| ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `mv data/tasks/old.task.md …/new.task.md`                                                | every inbound ref now dangles. `dt rename`.                                                                                          |
+| renaming a record because its title changed                                              | the id is not a display name — edit the field                                                                                        |
+| a `--filter` per condition                                                               | right — they AND; only what equality cannot express needs `--where`                                                                  |
+| `--tags a --tags b` on a scalar field                                                    | refused, naming the field — a repeat is an array ELEMENT, and a scalar has no room for two                                           |
+| `--force` to get past an `rm` refusal                                                    | it leaves inbound refs dangling — retarget them first (unless the refusal named a _prose_ mention, which isn't a real reference)     |
+| omitting schema defaults from a hand-written file                                        | the file stops being legible without the schema                                                                                      |
+| unquoted `due: 2026-07-28` in hand-written YAML                                          | dreamteamer parses CORE_SCHEMA so it stays a string _here_, but a default-schema YAML reader turns it into a timestamp — quote dates |
+| setting a generated mirror, or `created`                                                 | refused by `set`; a hand-edit of a mirror goes stale — write the owning side                                                         |
+| editing a skill / agent / command / collection under `.dreamteamer/` or a harness folder | generated — use the system verbs, or edit the module file, then `dt compile`                                                         |
+| resolving a template by hand                                                             | `dt resolve` is the only substitution point                                                                                          |
 
 ## red flags — stop
 
