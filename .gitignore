@@ -1,1 +1,25 @@
-node_modules
+node_modules/
+.claude/worktrees/
+.env
+.env.*
+.DS_Store
+# compiled runtime — rebuilt by `dreamteamer compile`
+.dreamteamer/
+# local reference checkouts
+.ref-code/
+.screenshots/
+.playwright-mcp/
+.probe-*
+# npm pack output (CI and CONTRIBUTING both run it in the repo root)
+*.tgz
+
+# tier-2 test fixtures: throwaway workspaces, rebuilt on demand (npm test -- --clean)
+test/.tmp/
+# tier-4 perf fixtures: generated per run by `npm run perf`, never committed
+test/.perf/
+
+# acceptance evidence (node test/acceptance/run.mjs without --out)
+test/acceptance/out/
+
+# tsc output
+dist/
