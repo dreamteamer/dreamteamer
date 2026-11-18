@@ -75,39 +75,39 @@ type Command = (args: string[]) => Promise<number | void>
 /** Every core verb, one file each. Each entry imports its file lazily and calls that module's own
  *  function, so the call is statically resolved and `layers` sees the edge. */
 const COMMANDS: Record<string, Command> = {
-  init: async args => (await import("./commands/init.ts")).run(args),
-  install: async args => (await import("./commands/install.ts")).run(args),
-  update: async args => (await import("./commands/update.ts")).run(args),
-  compile: async args => (await import("./commands/compile.ts")).run(args),
-  check: async args => (await import("./commands/check.ts")).run(args),
-  exports: async args => (await import("./commands/exports.ts")).run(args),
-  setup: async args => (await import("./commands/setup.ts")).run(args),
-  doctor: async args => (await import("./commands/doctor.ts")).run(args),
-  changes: async args => (await import("./commands/changes.ts")).run(args),
-  commit: async args => (await import("./commands/commit.ts")).run(args),
-  status: async args => (await import("./commands/status.ts")).run(args),
-  help: async () => (await import("./commands/help.ts")).run(),
-  list: async args => (await import("./commands/list.ts")).run(args),
-  add: async args => (await import("./commands/add.ts")).run(args),
-  values: async args => (await import("./commands/values.ts")).run(args),
-  get: async args => (await import("./commands/get.ts")).run(args),
-  set: async args => (await import("./commands/set.ts")).run(args),
-  rm: async args => (await import("./commands/rm.ts")).run(args),
-  rename: async args => (await import("./commands/rename.ts")).run(args),
-  history: async args => (await import("./commands/history.ts")).run(args),
-  diff: async args => (await import("./commands/diff.ts")).run(args),
-  revert: async args => (await import("./commands/revert.ts")).run(args),
-  reorder: async args => (await import("./commands/reorder.ts")).run(args),
-  next: async args => (await import("./commands/next.ts")).run(args),
-  "add-field": async args => (await import("./commands/add-field.ts")).run(args),
-  "set-field": async args => (await import("./commands/set-field.ts")).run(args),
-  "rm-field": async args => (await import("./commands/rm-field.ts")).run(args),
-  "rename-field": async args => (await import("./commands/rename-field.ts")).run(args),
-  "rename-value": async args => (await import("./commands/rename-value.ts")).run(args),
-  relations: async args => (await import("./commands/relations.ts")).run(args),
-  relocate: async args => (await import("./commands/relocate.ts")).run(args),
-  resolve: async args => (await import("./commands/resolve.ts")).run(args),
-  fmt: async args => (await import("./commands/fmt.ts")).run(args),
+  init: async args => (await import("./commands/initCommand.ts")).initCommand(args),
+  install: async args => (await import("./commands/installCommand.ts")).installCommand(args),
+  update: async args => (await import("./commands/updateCommand.ts")).updateCommand(args),
+  compile: async args => (await import("./commands/compileCommand.ts")).compileCommand(args),
+  check: async args => (await import("./commands/checkCommand.ts")).checkCommand(args),
+  exports: async args => (await import("./commands/exportsCommand.ts")).exportsCommand(args),
+  setup: async args => (await import("./commands/setupCommand.ts")).setupCommand(args),
+  doctor: async args => (await import("./commands/doctorCommand.ts")).doctorCommand(args),
+  changes: async args => (await import("./commands/changesCommand.ts")).changesCommand(args),
+  commit: async args => (await import("./commands/commitCommand.ts")).commitCommand(args),
+  status: async args => (await import("./commands/statusCommand.ts")).statusCommand(args),
+  help: async () => (await import("./commands/helpCommand.ts")).helpCommand(),
+  list: async args => (await import("./commands/listCommand.ts")).listCommand(args),
+  add: async args => (await import("./commands/addCommand.ts")).addCommand(args),
+  values: async args => (await import("./commands/valuesCommand.ts")).valuesCommand(args),
+  get: async args => (await import("./commands/getCommand.ts")).getCommand(args),
+  set: async args => (await import("./commands/setCommand.ts")).setCommand(args),
+  rm: async args => (await import("./commands/rmCommand.ts")).rmCommand(args),
+  rename: async args => (await import("./commands/renameCommand.ts")).renameCommand(args),
+  history: async args => (await import("./commands/historyCommand.ts")).historyCommand(args),
+  diff: async args => (await import("./commands/diffCommand.ts")).diffCommand(args),
+  revert: async args => (await import("./commands/revertCommand.ts")).revertCommand(args),
+  reorder: async args => (await import("./commands/reorderCommand.ts")).reorderCommand(args),
+  next: async args => (await import("./commands/nextCommand.ts")).nextCommand(args),
+  "add-field": async args => (await import("./commands/addFieldCommand.ts")).addFieldCommand(args),
+  "set-field": async args => (await import("./commands/setFieldCommand.ts")).setFieldCommand(args),
+  "rm-field": async args => (await import("./commands/rmFieldCommand.ts")).rmFieldCommand(args),
+  "rename-field": async args => (await import("./commands/renameFieldCommand.ts")).renameFieldCommand(args),
+  "rename-value": async args => (await import("./commands/renameValueCommand.ts")).renameValueCommand(args),
+  relations: async args => (await import("./commands/relationsCommand.ts")).relationsCommand(args),
+  relocate: async args => (await import("./commands/relocateCommand.ts")).relocateCommand(args),
+  resolve: async args => (await import("./commands/resolveCommand.ts")).resolveCommand(args),
+  fmt: async args => (await import("./commands/fmtCommand.ts")).fmtCommand(args),
 }
 /** The spellings of `version` — not verbs of the grammar, so not in COMMANDS. */
 const VERSION = new Set(["version", "--version", "-v"])
@@ -126,7 +126,7 @@ export async function run(argv: string[]): Promise<void> {
         )
     }
     const command: Command | undefined = VERSION.has(cmd)
-      ? async () => (await import("./commands/version.ts")).run()
+      ? async () => (await import("./commands/versionCommand.ts")).versionCommand()
       : COMMANDS[cmd]
     if (command) {
       const code = await command(rest)

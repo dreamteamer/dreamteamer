@@ -5,8 +5,9 @@ comments of the engine's modules; they live here so the code opens on code. Each
 split into one file per export, placed by who uses it, so a section names the files it now covers:
 
 - `src/*.ts` — the entry points (`cli`, `api`, `records-api`, `testing`, `update-setup`), the public
-  contract (`types.ts`), and the entry function of a verb whose command has no folder of its own
-  (`commitCommand`, `relocateCommand`, `resolveCommand`, `setupCommand`, `statusCommand`)
+  contract (`types.ts`), and code a verb uses that has no folder of its own (`statusCommand`)
+- `src/commands/` — one file per core verb, `<verb>Command.ts` exporting `<verb>Command(args)`, which
+  `cli.ts` imports lazily and calls by name; a verb with nothing else to own is implemented there whole
 - `src/<command>/` — that command's entry function (`install/installCommand.ts`) and the code only it uses
 - `src/record/`, `src/runtime/`, `src/workspace/` — code two or more commands share, by layer
   (`npm run layers`: shared code imports only shared code, a command folder never another command's)
@@ -84,7 +85,7 @@ This file TRANSLATES; it does not implement. Every record and schema verb lands 
 
 ## collections
 
-Files: [targetCommand.ts](targetCommand.ts) · [records/recordsCommand.ts](records/recordsCommand.ts) · [collections/collectionsCommand.ts](collections/collectionsCommand.ts) · [modules/modulesCommand.ts](modules/modulesCommand.ts) · [ui-views/uiViewsCommand.ts](ui-views/uiViewsCommand.ts) · [entities/entitiesCommand.ts](entities/entitiesCommand.ts) · [repos/reposCommand.ts](repos/reposCommand.ts) · [records/nextCommand.ts](records/nextCommand.ts) · [lib/consts.ts](lib/consts.ts) · [lib/isEntityKind.ts](lib/isEntityKind.ts) · [lib/nearest.ts](lib/nearest.ts) · [lib/parseArgs.ts](lib/parseArgs.ts) · [lib/refuseUnknownFlags.ts](lib/refuseUnknownFlags.ts) · [lib/rel.ts](lib/rel.ts) · [lib/emit.ts](lib/emit.ts) · [relationsCommand.ts](relationsCommand.ts) · [workspace/reportCommits.ts](workspace/reportCommits.ts)
+Files: [targetCommand.ts](targetCommand.ts) · [records/recordsCommand.ts](records/recordsCommand.ts) · [collections/collectionsCommand.ts](collections/collectionsCommand.ts) · [modules/modulesCommand.ts](modules/modulesCommand.ts) · [ui-views/uiViewsCommand.ts](ui-views/uiViewsCommand.ts) · [entities/entitiesCommand.ts](entities/entitiesCommand.ts) · [repos/reposCommand.ts](repos/reposCommand.ts) · [records/nextCommand.ts](records/nextCommand.ts) · [lib/consts.ts](lib/consts.ts) · [lib/isEntityKind.ts](lib/isEntityKind.ts) · [lib/nearest.ts](lib/nearest.ts) · [lib/parseArgs.ts](lib/parseArgs.ts) · [lib/refuseUnknownFlags.ts](lib/refuseUnknownFlags.ts) · [lib/rel.ts](lib/rel.ts) · [lib/emit.ts](lib/emit.ts) · [commands/relationsCommand.ts](commands/relationsCommand.ts) · [workspace/reportCommits.ts](workspace/reportCommits.ts)
 
 The IMPLEMENTATION layer behind the verb-first CLI: `targetCommand(ws, collection, verb, args)` routes to each target's command
 is (collection, verb) shaped and stays that way — `cli.js` translates `dt <verb> <target>` onto it.
@@ -562,7 +563,7 @@ workspace. `src/setup.ts` runs the units.
 
 ## setup
 
-Files: [setup/setupCommand.ts](setup/setupCommand.ts) · [setup/renderStatusLines.ts](setup/renderStatusLines.ts) · [setup/statusLines.ts](setup/statusLines.ts) · [workspace/types.ts](workspace/types.ts) · [setup/lib/consent.ts](setup/lib/consent.ts) · [setup/fillInputs.ts](setup/fillInputs.ts) · [setup/fold.ts](setup/fold.ts) · [setup/lib/judgeEnvAction.ts](setup/lib/judgeEnvAction.ts) · [setup/parseAllow.ts](setup/parseAllow.ts) · [setup/parseInputFlags.ts](setup/parseInputFlags.ts) · [setup/lib/redact.ts](setup/lib/redact.ts) · [setup/runUnit.ts](setup/runUnit.ts) · and 7 more
+Files: [commands/setupCommand.ts](commands/setupCommand.ts) · [setup/renderStatusLines.ts](setup/renderStatusLines.ts) · [setup/statusLines.ts](setup/statusLines.ts) · [workspace/types.ts](workspace/types.ts) · [setup/lib/consent.ts](setup/lib/consent.ts) · [setup/fillInputs.ts](setup/fillInputs.ts) · [setup/fold.ts](setup/fold.ts) · [setup/lib/judgeEnvAction.ts](setup/lib/judgeEnvAction.ts) · [setup/parseAllow.ts](setup/parseAllow.ts) · [setup/parseInputFlags.ts](setup/parseInputFlags.ts) · [setup/lib/redact.ts](setup/lib/redact.ts) · [setup/runUnit.ts](setup/runUnit.ts) · and 7 more
 
 `dt setup` — and the setup half of `dt install` and `dt status`: the engine's generic driver for
 the units modules declare (src/setup-contract.ts). Nothing here knows a module: it fills inputs,
