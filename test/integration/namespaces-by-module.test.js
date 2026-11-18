@@ -15,8 +15,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { twoModuleWorkspace, bareWorkspace, writeModule, patchModulePkg, readFile } from '../helpers/ws.js';
-import { load } from '../../src/yaml.js';
-import { storageOf } from '../../src/descriptor.js';
+import { load } from '../../src/yaml.ts';
+import { storageOf } from '../../src/descriptor.ts';
 
 const manifest = (ws) => load(readFile(ws.root, '.dreamteamer/manifest.yaml'));
 

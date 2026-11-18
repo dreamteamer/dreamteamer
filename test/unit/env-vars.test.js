@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import os from 'node:os';
-import { parseEnvValues, renderTemplate } from '../../src/env-vars.js';
+import { parseEnvValues, renderTemplate } from '../../src/env-vars.ts';
 
 const env = parseEnvValues('FILES_FOLDER=/My Drive/hq\n# comment\nSECRET_KEY=shh\nQUOTED="a b"\n');
 const ctx = { env, workspaceFolder: '/ws', declared: ['FILES_FOLDER'] };

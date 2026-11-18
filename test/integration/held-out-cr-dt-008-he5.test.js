@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { offline, registry, run, out, readFile, git, snapshot, collection, commitAll, installed } from './held-out-cr-dt-008-lib.js';
-import { readNavDoc } from '../../src/nav.js';
+import { readNavDoc } from '../../src/nav.ts';
 
 const lab = (version, names, navItems) => ({
 	name: '@fix/lab', version,

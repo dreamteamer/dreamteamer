@@ -1,12 +1,12 @@
 // The source round-trip seam — `writeSource` keeps everything a change did not touch.
 //
-// This is the reproduction the comment in src/yaml.js cites. The fixture is the shape a real module
+// This is the reproduction the comment in src/yaml.ts cites. The fixture is the shape a real module
 // source has: a file header, a comment above a NESTED property, an inline flow sequence, an inline
 // flow mapping, a trailing comment (single- and multi-line), and a hand-folded block scalar. Every
 // one of those was destroyed or reflowed by the `load` → mutate → `dump` path this replaces.
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { load, dump, writeSource, renameKeys, commentCount, formatSource } from '../../src/yaml.js';
+import { load, dump, writeSource, renameKeys, commentCount, formatSource } from '../../src/yaml.ts';
 
 /** A descriptor carrying every construct the old write path damaged. */
 const DESCRIPTOR = `# THINGS — this header is why the collection exists, and it is the whole reason
@@ -43,7 +43,7 @@ const lost = (a, b) => { const s = new Set(linesOf(b)); return linesOf(a).filter
 const gained = (a, b) => lost(b, a);
 
 describe('writeSource — parse semantics match the CORE schema `load` uses', () => {
-	// src/yaml.js exists so an unquoted date stays a string. The round-trip writer parses with the
+	// src/yaml.ts exists so an unquoted date stays a string. The round-trip writer parses with the
 	// `yaml` package instead of js-yaml, so the two MUST agree or a rewrite would retype a value.
 	const CASES = `date: 2026-08-12
 starts: 2026-08-12T09:00:00

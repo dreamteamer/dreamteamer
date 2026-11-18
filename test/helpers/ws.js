@@ -20,9 +20,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { compile } from '../../src/compile.js';
-import { Store } from '../../src/store.js';
-import { dump } from '../../src/yaml.js';
+import { compile } from '../../src/compile.ts';
+import { Store } from '../../src/store.ts';
+import { dump } from '../../src/yaml.ts';
 
 export const ENGINE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const TMP = path.join(ENGINE_ROOT, 'test', '.tmp');
@@ -54,7 +54,7 @@ function baseKey() {
 	// `.vscode/extensions.json` went stale in a cached base when only init.js was hashed), and a
 	// rebuild costs one `dt init`
 	const src = path.join(ENGINE_ROOT, 'src');
-	for (const f of fs.readdirSync(src, { recursive: true }).filter((f) => f.endsWith('.js')).sort()) {
+	for (const f of fs.readdirSync(src, { recursive: true }).filter((f) => f.endsWith('.ts')).sort()) {
 		h.update(f);
 		h.update(fs.readFileSync(path.join(src, f)));
 	}

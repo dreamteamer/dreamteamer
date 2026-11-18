@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 // The SKILL.md "verb names, as a map" block promises it cannot drift from the dispatch.
 // This test IS that promise: both directions, verb names only (flags stay help's job).
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const cli = fs.readFileSync(path.join(root, 'src/cli.js'), 'utf8');
+const cli = fs.readFileSync(path.join(root, 'src/cli.ts'), 'utf8');
 const skill = fs.readFileSync(path.join(root, 'skills/using-dreamteamer/SKILL.md'), 'utf8');
 
 const dispatch = new Set([...cli.matchAll(/case '([a-z-]+)'/g)].map((m) => m[1]));

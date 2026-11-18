@@ -9,8 +9,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { twoModuleWorkspace, readFile } from '../helpers/ws.js';
-import { load, dump } from '../../src/yaml.js';
-import { singularOf } from '../../src/descriptor.js';
+import { load, dump } from '../../src/yaml.ts';
+import { singularOf } from '../../src/descriptor.ts';
 
 /** The singular a compiled descriptor answers to — authored, or derived into `compiled.defaults`. */
 const singular = (ws, name) => singularOf(load(readFile(ws.root, `.dreamteamer/collections/${name}.collection.yaml`)));

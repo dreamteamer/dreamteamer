@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { workspace, readFile, WS_MODULE } from '../helpers/ws.js';
-import { load, commentCount } from '../../src/yaml.js';
+import { load, commentCount } from '../../src/yaml.ts';
 
 const SRC = `modules/${WS_MODULE}/collections/widgets.collection.yaml`;
 const MIXIN = `modules/${WS_MODULE}/mixins/stamped.mixin.yaml`;

@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { workspace, simpleCollection } from '../helpers/ws.js';
-import { readNavDoc, writeNavDoc, NavDocError } from '../../src/nav.js';
+import { readNavDoc, writeNavDoc, NavDocError } from '../../src/nav.ts';
 
 const fixture = () => workspace({ collections: { alphas: simpleCollection(), betas: simpleCollection() } });
 

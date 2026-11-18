@@ -7,8 +7,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { workspace, writeModule, patchModulePkg, simpleCollection, compileQuietly, readFile } from '../helpers/ws.js';
-import { applyNavFragments, navSettings, navGuard, NavFragmentRefusal, NAV_GUARD_LINE } from '../../src/nav-fragments.js';
-import { readNavDoc } from '../../src/nav.js';
+import { applyNavFragments, navSettings, navGuard, NavFragmentRefusal, NAV_GUARD_LINE } from '../../src/nav-fragments.ts';
+import { readNavDoc } from '../../src/nav.ts';
 
 function fragment(root, id, text) {
 	fs.writeFileSync(path.join(root, 'modules', id, 'nav.yaml'), text);

@@ -14,12 +14,12 @@
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { Store } from '../src/store.js';
-import { parseRecord, idFromRecordPath, walk } from '../src/records.js';
-import { exportsFacts } from '../src/runtime.js';
-import { storageOf, bodyFieldOf, recordTitleOf } from '../src/descriptor.js';
-import { EXPORTS_FILE, readExports, serializeExports, exportsContext, outsideRefs } from '../src/exports.js';
-import { planExports } from '../src/exports-cli.js';
+import { Store } from '../dist/store.js';
+import { parseRecord, idFromRecordPath, walk } from '../dist/records.js';
+import { exportsFacts } from '../dist/runtime.js';
+import { storageOf, bodyFieldOf, recordTitleOf } from '../dist/descriptor.js';
+import { EXPORTS_FILE, readExports, serializeExports, exportsContext, outsideRefs } from '../dist/exports.js';
+import { planExports } from '../dist/exports-cli.js';
 
 // `stub: true` in the FRONTMATTER only — a body quoting a stub is a real record
 const isStubText = (text) => /^stub:\s*true\s*$/m.test(/^---\n([\s\S]*?)\n---(?:\n|$)/.exec(text)?.[1] ?? '');

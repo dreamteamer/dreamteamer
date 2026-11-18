@@ -2,7 +2,7 @@
 // engine refuses. Each pattern is a word the descriptor format v2 removed.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { USAGE } from '../../src/cli.js';
+import { USAGE } from '../../src/cli.ts';
 
 const V1 = [
 	/\bx-[a-z]+/, /\blist_fields\b/, /\bsort_field\b/, /\btitle_template\b/, /collection-templates?\b/, /\bcodec\b/,

@@ -9,8 +9,8 @@ import { test, describe } from 'node:test';
 import fs from 'node:fs';
 import path from 'node:path';
 import assert from 'node:assert/strict';
-import { load } from '../../src/yaml.js';
-import { storageOf } from '../../src/descriptor.js';
+import { load } from '../../src/yaml.ts';
+import { storageOf } from '../../src/descriptor.ts';
 import { workspace, readFile, simpleCollection, writeCollection, writeModule, compileQuietly, compileError, dt } from '../helpers/ws.js';
 
 const compiled = (ws, name) => load(readFile(ws.root, `.dreamteamer/collections/${name}.collection.yaml`));

@@ -8,7 +8,7 @@
 // exactly what the integration tests assert.
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseArgs } from '../../src/collections-cli.js';
+import { parseArgs } from '../../src/collections-cli.ts';
 
 describe('parseArgs — the three flag spellings', () => {
 	test('--flag value, --flag=value and a bare --flag', () => {

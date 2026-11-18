@@ -12,7 +12,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { offline, registry, run, out, readFile, git, snapshot, lastFiles, noStack, ENGINE_ROOT, ENV } from './held-out-cr-dt-008-lib.js';
-import { readNavDoc } from '../../src/nav.js';
+import { readNavDoc } from '../../src/nav.ts';
 
 const PROTOCOL = process.env.DT_PROTOCOL ?? path.resolve(ENGINE_ROOT, '..', 'dreamteamer-modules-cr-dt-008', 'modules', 'protocol');
 const DT_NAV = path.join(PROTOCOL, 'bin', 'dt-nav.mjs');

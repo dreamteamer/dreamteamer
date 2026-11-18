@@ -4,8 +4,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { mkws, copyInto, clone, addLayer, coll, rec, NAME, MANIFEST, dt, git, write } from './held-out-cr-dt-004-lib.js';
-import { serializeExports } from '../../src/exports.js';
-import { Store } from '../../src/store.js';
+import { serializeExports } from '../../src/exports.ts';
+import { Store } from '../../src/store.ts';
 
 const ABOUT = { ...NAME, about: { type: 'people', many: true } };
 const COLLS = { people: coll('people', NAME), users: coll('users', NAME), projects: coll('projects', ABOUT), 'ns/notes': coll('ns/notes', ABOUT), tasks: coll('tasks', ABOUT) };

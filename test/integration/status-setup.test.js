@@ -153,7 +153,7 @@ describe('status and doctor are read-only and offline', () => {
 			run(ws.root, ['status'], env); run(ws.root, ['doctor'], env); run(ws.root, ['status', '--json'], env); run(ws.root, ['doctor', '--json'], env);
 			assert.equal(treeHash(ws.root), before, JSON.stringify(env));
 		}
-		for (const f of ['src/setup.js', 'src/doctor.js']) {
+		for (const f of ['src/setup.ts', 'src/doctor.ts']) {
 			const text = fs.readFileSync(path.join(ENGINE_ROOT, f), 'utf8');
 			assert.doesNotMatch(text, /from 'node:(http|https|dns|net)'/, f);
 		}

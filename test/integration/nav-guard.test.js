@@ -10,8 +10,8 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { workspace, ENGINE_ROOT, git, readFile, treeHash } from '../helpers/ws.js';
 import { buildRegistry } from '../fixtures/registry/build.mjs';
-import { readNavDoc } from '../../src/nav.js';
-import { NAV_GUARD_LINE } from '../../src/nav-fragments.js';
+import { readNavDoc } from '../../src/nav.ts';
+import { NAV_GUARD_LINE } from '../../src/nav-fragments.ts';
 
 const BIN = path.join(ENGINE_ROOT, 'bin', 'dreamteamer.js');
 let REG;
@@ -113,7 +113,7 @@ describe('the nav migration remedy names versions that exist', () => {
 				else if (e.name.endsWith(ext)) out.push(p);
 			}
 		};
-		walk(path.join(ENGINE_ROOT, 'src'), '.js');
+		walk(path.join(ENGINE_ROOT, 'src'), '.ts');
 		walk(path.join(ENGINE_ROOT, 'skills'), '.md');
 		walk(path.join(ENGINE_ROOT, 'docs'), '.md');
 		for (const f of ['UPDATING.md', 'README.md', 'FAQ.md', 'EXTENDING.md']) out.push(path.join(ENGINE_ROOT, f));

@@ -8,7 +8,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { USAGE } from '../../src/cli.js';
+import { USAGE } from '../../src/cli.ts';
 import { ENGINE_ROOT } from '../helpers/ws.js';
 
 const README = fs.readFileSync(path.join(ENGINE_ROOT, 'README.md'), 'utf8');

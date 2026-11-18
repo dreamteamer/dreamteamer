@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { workspace, writeCollection, compileError, compileQuietly, dt, readFile, WS_MODULE } from '../helpers/ws.js';
-import { load, dump } from '../../src/yaml.js';
+import { load, dump } from '../../src/yaml.ts';
 
 const VISITS = {
 	description: 'One consultation.',

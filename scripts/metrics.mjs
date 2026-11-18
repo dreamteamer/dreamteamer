@@ -54,7 +54,7 @@ function measureJs(file) {
 	return { code, comment, blank, decisions };
 }
 
-const jsFiles = [...walk(join(ROOT, 'src'), (p) => extname(p) === '.js'),
+const jsFiles = [...walk(join(ROOT, 'src'), (p) => extname(p) === '.ts' && !p.endsWith('.d.ts')),
 	...walk(join(ROOT, 'bin'), (p) => extname(p) === '.js')];
 
 const perFile = jsFiles.map((f) => ({ file: relative(ROOT, f), ...measureJs(f) }))

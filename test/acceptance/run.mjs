@@ -26,7 +26,7 @@ FROM = fs.mkdtempSync(path.join(os.tmpdir(), 'dt-acceptance-from-'));
 for (const f of fs.readdirSync(GIVEN).filter((f) => f.endsWith('.tgz'))) fs.copyFileSync(path.join(GIVEN, f), path.join(FROM, f));
 const tgzs = () => fs.readdirSync(FROM).filter((f) => f.endsWith('.tgz'));
 if (!tgzs().some((f) => f === `dreamteamer-${VERSION}.tgz`)) {
-	const r = spawnSync('npm', ['pack', ENGINE_ROOT, '--pack-destination', FROM, '--silent'], { encoding: 'utf8' });
+	const r = spawnSync('npm', ['pack', ENGINE_ROOT, '--ignore-scripts', '--pack-destination', FROM, '--silent'], { encoding: 'utf8' });
 	if (r.status !== 0) throw new Error(`npm pack of the engine failed: ${r.stderr}`);
 }
 if (!tgzs().some((f) => f.startsWith('fix-a-'))) buildRegistry(FROM);
@@ -180,7 +180,7 @@ scenario('A9', 'status and doctor are read-only and offline in every state', (ok
 		for (const a of [['status'], ['status', '--json'], ['doctor'], ['doctor', '--json']]) dt(root, a, env);
 		ok(treeHash(root) === before, `unchanged under ${JSON.stringify(env)}`);
 	}
-	for (const f of ['setup.js', 'doctor.js']) ok(!/from 'node:(http|https|dns|net)'/.test(fs.readFileSync(path.join(ENGINE_ROOT, 'src', f), 'utf8')), `${f} imports no network module`);
+	for (const f of ['setup.ts', 'doctor.ts']) ok(!/from 'node:(http|https|dns|net)'/.test(fs.readFileSync(path.join(ENGINE_ROOT, 'src', f), 'utf8')), `${f} imports no network module`);
 });
 
 scenario('A13', 'an existing workspace with records, git identity, a remote and staged work survives init, install, setup and update', (ok) => {

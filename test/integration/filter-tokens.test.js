@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { workspace, writeCollection, compileError, compileQuietly, dt, WS_MODULE } from '../helpers/ws.js';
-import { dump } from '../../src/yaml.js';
+import { dump } from '../../src/yaml.ts';
 
 const VISITS = { description: 'A visit.', ids: { from: '{{ name | slug }}' }, fields: { name: { type: 'string', required: true }, day: { type: 'date' }, notes: { type: 'markdown', body: true } } };
 const today = () => { const t = new Date(); const p = (n) => String(n).padStart(2, '0'); return `${t.getFullYear()}-${p(t.getMonth() + 1)}-${p(t.getDate())}`; };

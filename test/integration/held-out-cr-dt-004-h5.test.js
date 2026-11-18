@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { mkws, copyInto, coll, rec, NAME, MANIFEST, count, dt, git, write } from './held-out-cr-dt-004-lib.js';
-import { serializeExports } from '../../src/exports.js';
+import { serializeExports } from '../../src/exports.ts';
 
 const X = { people: { x: { label: 'X', from: 'far' } } };
 

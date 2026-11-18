@@ -29,20 +29,20 @@
 		"node": ">=20",
 		"npm": ">=7"
 	},
-	"main": "./src/api.js",
-	"types": "./src/api.d.ts",
+	"main": "./dist/api.js",
+	"types": "./dist/api.d.ts",
 	"exports": {
 		".": {
-			"types": "./src/api.d.ts",
-			"default": "./src/api.js"
+			"types": "./dist/api.d.ts",
+			"default": "./dist/api.js"
 		},
 		"./records": {
-			"types": "./src/records-api.d.ts",
-			"default": "./src/records-api.js"
+			"types": "./dist/records-api.d.ts",
+			"default": "./dist/records-api.js"
 		},
 		"./testing": {
-			"types": "./src/testing.d.ts",
-			"default": "./src/testing.js"
+			"types": "./dist/testing.d.ts",
+			"default": "./dist/testing.js"
 		},
 		"./package.json": "./package.json"
 	},
@@ -53,7 +53,7 @@
 	"files": [
 		"NOTICE",
 		"bin",
-		"src",
+		"dist",
 		"collections",
 		"skills",
 		"agents",
@@ -75,6 +75,9 @@
 		"title": "System"
 	},
 	"scripts": {
+		"build": "node scripts/build.mjs",
+		"prepack": "node scripts/build.mjs",
+		"typecheck": "tsc -p tsconfig.json --noEmit",
 		"test": "node scripts/test.mjs",
 		"test:unit": "node scripts/test.mjs --unit",
 		"test:watch": "node --watch scripts/test.mjs --unit",
@@ -84,5 +87,9 @@
 		"layers": "node scripts/layers.mjs",
 		"verify": "node scripts/layers.mjs && node scripts/metrics.mjs --check && node scripts/test.mjs",
 		"verify:fast": "node scripts/layers.mjs && node scripts/metrics.mjs --check && node scripts/test.mjs --changed"
+	},
+	"devDependencies": {
+		"@types/node": "^22.20.5",
+		"typescript": "^6.0.3"
 	}
 }

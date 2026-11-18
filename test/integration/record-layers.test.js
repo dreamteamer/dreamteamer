@@ -11,11 +11,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { workspace, writeModule, compileQuietly, compileError, readFile, git, dt } from '../helpers/ws.js';
-import { Store } from '../../src/store.js';
-import { storageOf } from '../../src/descriptor.js';
-import { history } from '../../src/history.js';
-import { deriveEvents } from '../../src/events.js';
-import { load } from '../../src/yaml.js';
+import { Store } from '../../src/store.ts';
+import { storageOf } from '../../src/descriptor.ts';
+import { history } from '../../src/history.ts';
+import { deriveEvents } from '../../src/events.ts';
+import { load } from '../../src/yaml.ts';
 
 const PEOPLE = 'name: people\nstorage:\n  suffix: person\n  owner: module\nids:\n  from: "{{ name | slug }}"\nfields:\n  name:\n    type: string\n    required: true\n  notes:\n    type: markdown\n    body: true\n';
 const PROJECTS = 'name: projects\nstorage:\n  suffix: project\nids:\n  from: "{{ name | slug }}"\nfields:\n  name:\n    type: string\n    required: true\n  tasks:\n    type: tasks\n    many: true\n    mirror_of: project\n  notes:\n    type: markdown\n    body: true\n';

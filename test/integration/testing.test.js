@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { createWorkspace, pack, install, run, engineMeets, ENGINE } from '../../src/testing.js';
+import { createWorkspace, pack, install, run, engineMeets, ENGINE } from '../../src/testing.ts';
 import { ENGINE_ROOT } from '../helpers/ws.js';
 
 const PROBE = path.join(ENGINE_ROOT, 'test', 'fixtures', 'probe-setup');

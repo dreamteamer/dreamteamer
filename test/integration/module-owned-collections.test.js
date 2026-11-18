@@ -10,9 +10,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { workspace, writeModule, writeCollection, patchModulePkg, compileQuietly, compileError, readFile, git, dt } from '../helpers/ws.js';
-import { Store } from '../../src/store.js';
-import { storageOf } from '../../src/descriptor.js';
-import { history } from '../../src/history.js';
+import { Store } from '../../src/store.ts';
+import { storageOf } from '../../src/descriptor.ts';
+import { history } from '../../src/history.ts';
 
 const PEOPLE = 'name: people\nstorage:\n  suffix: person\n  owner: module\nids:\n  from: "{{ name | slug }}"\nfields:\n  name:\n    type: string\n    required: true\n';
 const TASKS = 'name: tasks\nstorage:\n  suffix: task\nids:\n  from: "{{ name | slug }}"\nfields:\n  name:\n    type: string\n    required: true\n  assignee:\n    type: people\n';

@@ -30,9 +30,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseDocument, isMap, isSeq, isScalar, isPair, Scalar, visit } from 'yaml';
-import { singular } from '../src/namespace.js';
-import { MANIFEST_KEYS } from '../src/extensions.js';
-import { V2_KEYS as V2_ORDER } from '../src/descriptor-v2.js';
+import { singular } from '../dist/namespace.js';
+import { MANIFEST_KEYS } from '../dist/extensions.js';
+import { V2_KEYS as V2_ORDER } from '../dist/descriptor-v2.js';
 import { execFileSync } from 'node:child_process';
 
 const STRINGIFY = { lineWidth: 0, flowCollectionPadding: false };

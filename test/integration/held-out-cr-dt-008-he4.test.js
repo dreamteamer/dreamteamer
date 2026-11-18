@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { offline, registry, run, out, readFile, git, lastFiles, collection } from './held-out-cr-dt-008-lib.js';
-import { readNavDoc, parseNavDoc, placedNames, mergeFragment } from '../../src/nav.js';
+import { readNavDoc, parseNavDoc, placedNames, mergeFragment } from '../../src/nav.ts';
 
 let REG;
 before(() => { REG = registry([{ name: '@fix/extra', version: '1.0.0', dreamteamer: { description: 'a plain module with no fragment' }, files: { 'collections/fixextras.collection.yaml': collection('fixextras') } }]); });

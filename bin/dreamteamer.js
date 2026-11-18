@@ -76,7 +76,15 @@ if (devBin && realpath(devBin) !== realpath(self)) {
 	console.error(`… running the git_modules/dreamteamer dev clone (shadows the installed engine)`);
 	await import(pathToFileURL(devBin).href);
 } else {
-	const { run } = await import('../src/cli.js');
+	// the bin runs the BUILD (dist/, emitted from src/*.ts by `npm run build`) — in the npm package and
+	// in a checkout alike, so a checkout runs exactly what ships. No fallback to src/: Node refuses to
+	// strip types under node_modules, and a silent second path is a second engine.
+	const cli = new URL('../dist/cli.js', import.meta.url);
+	if (!fs.existsSync(cli)) {
+		console.error(`\u2716 dreamteamer is not built (no ${fileURLToPath(cli)}) — run \`npm run build\` in ${path.dirname(path.dirname(self))}`);
+		process.exit(1);
+	}
+	const { run } = await import(cli.href);
 	run(process.argv.slice(2));
 }
 
@@ -89,7 +97,7 @@ function realpath(p) {
 	}
 }
 
-// same workspace rule as src/workspace.js (nearest package.json with a `dreamteamer` key, climbing
+// same workspace rule as src/workspace.ts (nearest package.json with a `dreamteamer` key, climbing
 // out only of module nesting), duplicated here because the dev clone must be found BEFORE choosing
 // which src/ to load. Keep the two in step — they must never disagree about which workspace this is.
 function findWorkspaceRoot(start) {
@@ -123,7 +131,7 @@ function isWorkspaceDir(dir) {
 }
 
 /** The git_modules entries a workspace declares, name -> 'layer' | 'bundle' — the rule of
- *  src/workspace.js layerEntries, restated because this file runs before any src/ is chosen: `records`
+ *  src/workspace.ts layerEntries, restated because this file runs before any src/ is chosen: `records`
  *  or `module: true` declares a layer, a clone on disk is a layer when its manifest names
  *  `workspace_module`, and one not on disk is a layer not installed. */
 function declaredLayers(root) {

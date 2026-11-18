@@ -10,7 +10,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { workspace, ENGINE_ROOT, git, readFile } from '../helpers/ws.js';
-import { readNavDoc } from '../../src/nav.js';
+import { readNavDoc } from '../../src/nav.ts';
 
 const BIN = path.join(ENGINE_ROOT, 'bin', 'dreamteamer.js');
 const HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'dt-home-'));

@@ -4,7 +4,7 @@
 // with their defaults filled or the refusals, each naming the unit and the field.
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { validateSetup, SETUP_VERSION, INPUT_KINDS, validateEnvAction, isEnvAction } from '../../src/setup-contract.js';
+import { validateSetup, SETUP_VERSION, INPUT_KINDS, validateEnvAction, isEnvAction } from '../../src/setup-contract.ts';
 
 const fn = () => ({});
 const unit = (extra = {}) => ({ id: 'probe', version: 1, inputs: [], inspect: fn, plan: fn, apply: fn, ...extra });

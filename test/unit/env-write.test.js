@@ -7,8 +7,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { parseEnvValues } from '../../src/env-vars.js';
-import { envSpans, setEnvValues, fingerprint, leftoverTemps, gitExposure, writeEnvAtomic, EnvRefusal } from '../../src/env-write.js';
+import { parseEnvValues } from '../../src/env-vars.ts';
+import { envSpans, setEnvValues, fingerprint, leftoverTemps, gitExposure, writeEnvAtomic, EnvRefusal } from '../../src/env-write.ts';
 
 const tmp = () => fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'dt-env-write-')));
 

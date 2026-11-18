@@ -8,8 +8,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { workspace, simpleCollection, compileQuietly, readFile, tree, git, dt } from '../helpers/ws.js';
-import { Store } from '../../src/store.js';
-import { storageOf } from '../../src/descriptor.js';
+import { Store } from '../../src/store.ts';
+import { storageOf } from '../../src/descriptor.ts';
 
 describe('a folder-shape collection under a namespace', () => {
 	const FOLDER = {

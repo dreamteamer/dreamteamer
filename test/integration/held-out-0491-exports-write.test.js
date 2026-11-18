@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { workspace, compileQuietly, git, dt } from '../helpers/ws.js';
-import { serializeExports } from '../../src/exports.js';
+import { serializeExports } from '../../src/exports.ts';
 
 const MANIFEST = 'dreamteamer-exports.json';
 const PEOPLE = 'name: people\nstorage:\n  suffix: person\nids:\n  from: "{{ name | slug }}"\nfields:\n  name:\n    type: string\n    required: true\n';

@@ -7,8 +7,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { twoModuleWorkspace, readFile, ENGINE_ROOT, git } from '../helpers/ws.js';
-import { KINDS } from '../../src/compile.js';
-import { resolveNpm, childEnv } from '../../src/checkout.js';
+import { KINDS } from '../../src/compile.ts';
+import { resolveNpm, childEnv } from '../../src/checkout.ts';
 
 const VERSION = JSON.parse(fs.readFileSync(path.join(ENGINE_ROOT, 'package.json'), 'utf8')).version;
 const pkgOf = (ws, id) => JSON.parse(readFile(ws.root, `modules/${id}/package.json`));

@@ -1,7 +1,7 @@
 // A UTC author date from git reads as the offset spelling a record's `created` always carries.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { gitDateToStamp } from '../../src/store.js';
+import { gitDateToStamp } from '../../src/store.ts';
 
 test('a trailing Z becomes +00:00; an offset-spelled date is untouched', () => {
 	assert.equal(gitDateToStamp('2026-10-02T12:43:40Z'), '2026-10-02T12:43:40+00:00');

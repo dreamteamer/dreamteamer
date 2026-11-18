@@ -12,7 +12,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { workspace, simpleCollection, compileQuietly, compileError, readFile } from '../helpers/ws.js';
-import { load } from '../../src/yaml.js';
+import { load } from '../../src/yaml.ts';
 
 /** A workspace whose `tickets.lane` field is spelled however the case under test needs. */
 function withLane(lane, opts = {}) {

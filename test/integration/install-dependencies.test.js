@@ -14,8 +14,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { workspace, readFile, git, ENGINE_ROOT, WS_MODULE } from '../helpers/ws.js';
-import { dump, load } from '../../src/yaml.js';
-import { isRuntime } from '../../src/descriptor.js';
+import { dump, load } from '../../src/yaml.ts';
+import { isRuntime } from '../../src/descriptor.ts';
 
 /** A compiled descriptor's text, read as a runtime kind — its records are build output compile writes. */
 const compiledAsRuntime = (text) => isRuntime(load(text ?? '') ?? {});
@@ -46,7 +46,7 @@ const writeProbe = (root) => {
  *  openWorkspace(root), argv)` and no options — in a child process, so its board stays out of the
  *  test runner's stdout. */
 const apiInstall = (cwd, ...argv) => {
-	const script = `import { openWorkspace, installCommand } from ${JSON.stringify(path.join(ENGINE_ROOT, 'src', 'api.js'))};
+	const script = `import { openWorkspace, installCommand } from ${JSON.stringify(path.join(ENGINE_ROOT, 'src', 'api.ts'))};
 process.exitCode = await installCommand(await openWorkspace(process.cwd()), ${JSON.stringify(argv)});`;
 	const r = spawnSync(process.execPath, ['--input-type=module', '-e', script], { cwd, encoding: 'utf8', timeout: 300_000, killSignal: 'SIGKILL' });
 	return { code: r.status, stdout: r.stdout ?? '', stderr: r.stderr ?? '' };
@@ -117,7 +117,7 @@ describe('dt install brings in what the workspace declares, and compiles WITH it
 
 describe('the PUBLIC installer compiles with the activated extensions by default (review R1)', () => {
 	test('the checkout layer refuses to run without an opener, rather than defaulting to one that loads no extension', async () => {
-		const { installCommand } = await import('../../src/checkout.js');
+		const { installCommand } = await import('../../src/checkout.ts');
 		await assert.rejects(installCommand({ root: '/nowhere', pkg: {} }, []), /opts\.open .* is required/);
 	});
 

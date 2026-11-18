@@ -14,9 +14,9 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { ENGINE_ROOT, SPAWN_TIMEOUT_MS } from '../helpers/ws.js';
-import { initCommand } from '../../src/checkout.js';
-import { openWorkspace, contributedViolations } from '../../src/api.js';
-import { check } from '../../src/check.js';
+import { initCommand } from '../../src/checkout.ts';
+import { openWorkspace, contributedViolations } from '../../src/api.ts';
+import { check } from '../../src/check.ts';
 import { buildRegistry } from '../fixtures/registry/build.mjs';
 
 const VERSION = JSON.parse(fs.readFileSync(path.join(ENGINE_ROOT, 'package.json'), 'utf8')).version;
@@ -113,7 +113,7 @@ describe('dt init — an invalid secret-path from the environment is reported', 
 		const root = folder();
 		const from = buildRegistry();
 		// the folder must hold the engine itself for an offline init
-		assert.equal(spawnSync('npm', ['pack', ENGINE_ROOT, '--pack-destination', from, '--silent'], { encoding: 'utf8', timeout: SPAWN_TIMEOUT_MS }).status, 0);
+		assert.equal(spawnSync('npm', ['pack', ENGINE_ROOT, '--ignore-scripts', '--pack-destination', from, '--silent'], { encoding: 'utf8', timeout: SPAWN_TIMEOUT_MS }).status, 0);
 		const r0 = spawnSync(process.execPath, [BIN, 'init', '--from', from], { cwd: root, env: { PATH: process.env.PATH, HOME: SANDBOX, ...GIT_ENV }, encoding: 'utf8', timeout: SPAWN_TIMEOUT_MS, killSignal: 'SIGKILL' });
 		assert.equal(r0.status, 0, r0.stdout + r0.stderr);
 		assert.equal(spawnSync(process.execPath, [BIN, 'install', path.join(ENGINE_ROOT, 'test', 'fixtures', 'probe-required'), '--no-input'], { cwd: root, env: { PATH: process.env.PATH, HOME: SANDBOX, ...GIT_ENV }, encoding: 'utf8', timeout: SPAWN_TIMEOUT_MS }).status, 3);

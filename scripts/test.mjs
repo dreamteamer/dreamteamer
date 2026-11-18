@@ -114,6 +114,12 @@ if (needsLock && !flag('no-lock')) {
 	if (reportStamp()) process.exit(0);
 	sweepLeakedFixtures();
 }
+// Tier 2 launches `dt`, and the bin runs dist/ — so dist/ is built from THIS tree first, under the
+// lock (a concurrent suite must not have dist/ rebuilt beneath it). Tier 1 imports src/*.ts directly.
+if (needsLock) {
+	const b = spawnSync(process.execPath, [join(ROOT, 'scripts', 'build.mjs')], { cwd: ROOT, stdio: 'inherit' });
+	if (b.status !== 0) { console.error('✖ build failed — tier 2 runs the built engine, so it cannot run'); process.exit(1); }
+}
 
 // a URL, not a path: on Windows an absolute path is not a module specifier ('d:' reads as a scheme)
 const reporter = flag('verbose') ? 'spec' : pathToFileURL(join(ROOT, 'scripts', 'test-reporter.mjs')).href;

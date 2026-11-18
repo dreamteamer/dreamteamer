@@ -1,6 +1,6 @@
 // The PUBLIC API is a contract with other repos, so it is pinned three ways: the runtime export list
 // equals the typed declaration, importing it has no side effect, and an INSTALLED copy exposes it
-// while hiding `src/*` — a source-tree import passing proves nothing about what npm ships.
+// while hiding `dist/*` — a source-tree import passing proves nothing about what npm ships.
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -9,7 +9,7 @@ import path from 'node:path';
 import { spawnSync, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { workspace, git, ENGINE_ROOT } from '../helpers/ws.js';
-import { resolveNpm, childEnv } from '../../src/checkout.js';
+import { resolveNpm, childEnv } from '../../src/checkout.ts';
 
 const dts = (f) => fs.readFileSync(path.join(ENGINE_ROOT, 'src', f), 'utf8');
 
@@ -44,7 +44,7 @@ function closure(entry) {
 
 describe('dreamteamer (the public API)', () => {
 	test('the runtime exports are exactly the declared ones — for both entries', async () => {
-		for (const [mod, file, floor] of [['../../src/api.js', 'api.d.ts', 60], ['../../src/records-api.js', 'records-api.d.ts', 30], ['../../src/testing.js', 'testing.d.ts', 5]]) {
+		for (const [mod, file, floor] of [['../../src/api.ts', 'api.d.ts', 60], ['../../src/records-api.ts', 'records-api.d.ts', 30], ['../../src/testing.ts', 'testing.d.ts', 5]]) {
 			const runtime = new Set(Object.keys(await import(mod)));
 			const types = declared(file);
 			assert.ok(types.size > floor, `the declaration parse found only ${types.size} names — the pattern no longer matches ${file}`);
@@ -57,7 +57,7 @@ describe('dreamteamer (the public API)', () => {
 	// while the runtime value is a Set, so strict TypeScript accepted `.includes('_eq')` and it threw
 	// at run time (review F8). Every declared value is checked against the kind its type names.
 	test('every declared export has the runtime SHAPE its type says', async () => {
-		for (const [mod, file] of [['../../src/api.js', 'api.d.ts'], ['../../src/records-api.js', 'records-api.d.ts'], ['../../src/testing.js', 'testing.d.ts']]) {
+		for (const [mod, file] of [['../../src/api.ts', 'api.d.ts'], ['../../src/records-api.ts', 'records-api.d.ts'], ['../../src/testing.ts', 'testing.d.ts']]) {
 			const api = await import(mod);
 			const text = dts(file);
 			for (const m of text.matchAll(/^export (?:declare )?(?:function|class) ([A-Za-z_$][\w$]*)/gm)) {
@@ -79,7 +79,7 @@ describe('dreamteamer (the public API)', () => {
 				}
 			}
 		}
-		const { KNOWN_OPERATORS } = await import('../../src/records-api.js');
+		const { KNOWN_OPERATORS } = await import('../../src/records-api.ts');
 		assert.equal(KNOWN_OPERATORS.has('_eq'), true);
 	});
 
@@ -98,7 +98,7 @@ describe('dreamteamer (the public API)', () => {
 
 	test('importing it prints nothing, writes nothing, and binds nothing', () => {
 		const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'dt-api-'));
-		const url = new URL('../../src/api.js', import.meta.url).href;
+		const url = new URL('../../src/api.ts', import.meta.url).href;
 		const r = spawnSync(process.execPath, ['--input-type=module', '-e', `await import(${JSON.stringify(url)}); console.log('HANDLES', process._getActiveHandles().length)`], { cwd, encoding: 'utf8', timeout: 30_000 });
 		assert.equal(r.status, 0, r.stderr);
 		assert.equal(r.stderr, '');
@@ -107,7 +107,7 @@ describe('dreamteamer (the public API)', () => {
 	});
 
 	test('openWorkspace returns the handle with its (empty) extensions, and changes no cwd', async () => {
-		const { openWorkspace } = await import('../../src/api.js');
+		const { openWorkspace } = await import('../../src/api.ts');
 		const ws = workspace();
 		const before = process.cwd();
 		const handle = await openWorkspace(ws.root);
@@ -118,7 +118,7 @@ describe('dreamteamer (the public API)', () => {
 });
 
 describe('the INSTALLED package', () => {
-	test('`import "dreamteamer"` resolves to the API, and `dreamteamer/src/*` is not reachable', () => {
+	test('`import "dreamteamer"` resolves to the API, and `dreamteamer/dist/*` is not reachable', () => {
 		const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dt-pack-'));
 		// pack exactly what `files` publishes, then install that tarball — never the source tree
 		// npm resolved the way `dt install` resolves it — beside the running node first, PATH second — and
@@ -126,7 +126,9 @@ describe('the INSTALLED package', () => {
 		// nothing but "Command failed" to go on.
 		const npm = resolveNpm();
 		assert.ok(npm, 'no npm beside this node or on PATH — the packed-install check cannot run');
-		const pack = spawnSync(npm, ['pack', '--silent', '--pack-destination', dir], { cwd: ENGINE_ROOT, encoding: 'utf8', timeout: 120_000, env: childEnv() });
+		// --ignore-scripts: pack the dist/ the runner built — `prepack` would delete it beneath the
+		// tier-2 files running beside this one
+		const pack = spawnSync(npm, ['pack', '--silent', '--ignore-scripts', '--pack-destination', dir], { cwd: ENGINE_ROOT, encoding: 'utf8', timeout: 120_000, env: childEnv() });
 		assert.equal(pack.status, 0, `npm pack failed (status ${pack.status}${pack.error ? `, ${pack.error.message}` : ''}):\n${pack.stderr}${pack.stdout}`);
 		const tgz = pack.stdout.trim().split('\n').pop();
 		fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'consumer', private: true, type: 'module' }));
@@ -141,14 +143,17 @@ describe('the INSTALLED package', () => {
 		assert.equal(rec.stdout.trim(), '1 function undefined', rec.stderr);
 		const tst = spawnSync(process.execPath, ['-e', "import('dreamteamer/testing').then((m) => console.log(typeof m.createWorkspace, typeof m.install, typeof m.run, typeof m.pack, typeof m.engineMeets, m.ENGINE.endsWith('dreamteamer')))"], { cwd: dir, encoding: 'utf8', timeout: 30_000 });
 		assert.equal(tst.stdout.trim(), 'function function function function function true', tst.stderr);
-		const deep = spawnSync(process.execPath, ['-e', "import('dreamteamer/src/store.js').then(() => console.log('REACHED'), (e) => console.log(e.code))"], { cwd: dir, encoding: 'utf8', timeout: 30_000 });
+		const deep = spawnSync(process.execPath, ['-e', "import('dreamteamer/dist/store.js').then(() => console.log('REACHED'), (e) => console.log(e.code))"], { cwd: dir, encoding: 'utf8', timeout: 30_000 });
 		assert.equal(deep.stdout.trim(), 'ERR_PACKAGE_PATH_NOT_EXPORTED');
 		// and the extracted tools are NOT in the tarball
 		const listing = execFileSync('tar', ['-tzf', path.join(dir, tgz)], { encoding: 'utf8' });
 		for (const gone of ['src/server.js', 'src/prove.js', 'src/land.js', 'src/containers.js', 'src/container-archive.js', 'src/export-notebooklm.js']) {
 			assert.ok(!listing.includes(`package/${gone}`), `${gone} is still published`);
 		}
-		assert.ok(listing.includes('package/src/api.d.ts') && listing.includes('package/src/records-api.d.ts') && listing.includes('package/src/testing.d.ts'), 'the type declarations are not published');
+		assert.ok(listing.includes('package/dist/api.d.ts') && listing.includes('package/dist/records-api.d.ts') && listing.includes('package/dist/testing.d.ts'), 'the type declarations are not published');
+		// the package ships the BUILD: dist/*.js, and no TypeScript source (Node will not strip types under node_modules)
+		assert.ok(listing.includes('package/dist/cli.js') && listing.includes('package/dist/api.js'), 'dist/ is not published');
+		assert.ok(!/^package\/src\//m.test(listing), 'src/ is published');
 	});
 });
 
@@ -179,18 +184,18 @@ describe('dt init commits only what it wrote', () => {
 });
 
 test('Store.external is implemented and typed (cr-dt-004)', async () => {
-	const { Store } = await import('../../src/records-api.js');
+	const { Store } = await import('../../src/records-api.ts');
 	assert.equal(typeof Store.prototype.external, 'function');
 	const dts = fs.readFileSync(new URL('../../src/records-api.d.ts', import.meta.url), 'utf8');
 	assert.match(dts, /\texternal\(collection: string, id: string, opts\?: \{ referrer\?: string \}\): \{ label: string; from\?: string; manifest: string \} \| null;/);
 });
 
 test('the nav document functions are on the full API and never on dreamteamer/records (cr-dt-008)', async () => {
-	const api = await import('../../src/api.js');
-	const records = await import('../../src/records-api.js');
+	const api = await import('../../src/api.ts');
+	const records = await import('../../src/records-api.ts');
 	for (const name of ['readNavDoc', 'validateNavDoc', 'writeNavDoc', 'applyNavFragments']) {
-		assert.equal(typeof api[name], 'function', `${name} is not a function on src/api.js`);
-		assert.equal(records[name], undefined, `${name} leaked into src/records-api.js`);
+		assert.equal(typeof api[name], 'function', `${name} is not a function on src/api.ts`);
+		assert.equal(records[name], undefined, `${name} leaked into src/records-api.ts`);
 	}
 	assert.match(dts('api.d.ts'), /^export type NavDoc = \{ tree: NavEntry\[\]; hidden: string\[\] \};$/m);
 });

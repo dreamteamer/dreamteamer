@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import {
 	normalizeNamespaces, namespaceProblems, unqualifiedProblems, qualify, namespaceOf, baseNameOf,
 	parseRef, defaultStoragePath, storageOverlaps, RESERVED_NAMESPACES,
-} from '../../src/namespace.js';
+} from '../../src/namespace.ts';
 
 const NS = normalizeNamespaces(['health', 'finance', 'work/clients', 'work']);
 

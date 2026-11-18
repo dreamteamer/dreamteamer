@@ -9,9 +9,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { workspace, writeCollection, simpleCollection, compileError, compileQuietly, readFile, tree, dt, git, patchModulePkg, WS_MODULE, twoModuleWorkspace, writeModule } from '../helpers/ws.js';
-import { load, dump } from '../../src/yaml.js';
-import { staleness } from '../../src/compile.js';
-import { storageOf, isRuntime, titleOf, recordTitleOf, moduleOf, fieldsOf, unresolvedPeersOf } from '../../src/descriptor.js';
+import { load, dump } from '../../src/yaml.ts';
+import { staleness } from '../../src/compile.ts';
+import { storageOf, isRuntime, titleOf, recordTitleOf, moduleOf, fieldsOf, unresolvedPeersOf } from '../../src/descriptor.ts';
 
 const uncompiled = (opts) => workspace({ ...opts, compile: false });
 const dtCheck = (root) => dt(root, 'check');
@@ -848,7 +848,7 @@ describe('a peerDependencies floor on another module', () => {
 		mod(root, 'people', '0.1.1');
 		const c = dt(root, 'compile');
 		assert.equal(c.code, 0, c.stderr);
-		assert.ok(c.stderr.includes('⚠ module planner: peerDependencies range ">=0.2.0 <0.3.0" for "people" (0.1.1) not understood by the built-in checker (see src/semver.js) — not verified'), c.stderr);
+		assert.ok(c.stderr.includes('⚠ module planner: peerDependencies range ">=0.2.0 <0.3.0" for "people" (0.1.1) not understood by the built-in checker (see src/semver.ts) — not verified'), c.stderr);
 	});
 });
 

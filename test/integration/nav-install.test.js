@@ -9,9 +9,9 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { workspace, ENGINE_ROOT, git, readFile } from '../helpers/ws.js';
 import { buildRegistry } from '../fixtures/registry/build.mjs';
-import { resolveNpm } from '../../src/checkout.js';
-import { readNavDoc } from '../../src/nav.js';
-import { NAV_SETTINGS_LINE } from '../../src/nav-fragments.js';
+import { resolveNpm } from '../../src/checkout.ts';
+import { readNavDoc } from '../../src/nav.ts';
+import { NAV_SETTINGS_LINE } from '../../src/nav-fragments.ts';
 
 const BIN = path.join(ENGINE_ROOT, 'bin', 'dreamteamer.js');
 let REG;

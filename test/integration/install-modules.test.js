@@ -10,8 +10,8 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { workspace, ENGINE_ROOT, git, treeHash, readFile } from '../helpers/ws.js';
 import { buildRegistry } from '../fixtures/registry/build.mjs';
-import { openWorkspace } from '../../src/api.js';
-import { installModules } from '../../src/install-modules.js';
+import { openWorkspace } from '../../src/api.ts';
+import { installModules } from '../../src/install-modules.ts';
 
 const BIN = path.join(ENGINE_ROOT, 'bin', 'dreamteamer.js');
 let REG;
