@@ -86,10 +86,13 @@
 		"metrics:check": "node scripts/metrics.mjs --check",
 		"layers": "node scripts/layers.mjs",
 		"verify": "node scripts/layers.mjs && node scripts/metrics.mjs --check && node scripts/test.mjs",
-		"verify:fast": "node scripts/layers.mjs && node scripts/metrics.mjs --check && node scripts/test.mjs --changed"
+		"verify:fast": "node scripts/layers.mjs && node scripts/metrics.mjs --check && node scripts/test.mjs --changed",
+		"format": "prettier --write .",
+		"format:check": "prettier --check ."
 	},
 	"devDependencies": {
 		"@types/node": "^22.20.5",
+		"prettier": "^3.10.1",
 		"typescript": "^6.0.3"
 	}
 }
