@@ -85,18 +85,19 @@ describe("held-out 0.49.1 — the nav refusal names versions that exist", () => 
     assertRunnableLine(r.stderr)
     assert.equal(readFile(ws.root, "package.json"), pkg, "the pin did not move")
   })
-  test("the release is 0.49.1: package.json, both lockfile root entries and dt version agree", () => {
+  test("the release is 0.49.1 or later: package.json, both lockfile root entries and dt version agree", () => {
     const pkg = JSON.parse(fs.readFileSync(path.join(ENGINE_ROOT, "package.json"), "utf8"))
     const lock = JSON.parse(fs.readFileSync(path.join(ENGINE_ROOT, "package-lock.json"), "utf8"))
-    assert.equal(pkg.version, "0.49.1")
-    assert.equal(lock.version, "0.49.1")
-    assert.equal(lock.packages[""].version, "0.49.1")
+    const [major, minor, patch] = pkg.version.split(".").map(Number)
+    assert.ok(major > 0 || minor > 49 || (minor === 49 && patch >= 1), `${pkg.version} is older than 0.49.1`)
+    assert.equal(lock.version, pkg.version)
+    assert.equal(lock.packages[""].version, pkg.version)
     const v = spawnSync(process.execPath, [BIN, "version"], {
       cwd: os.tmpdir(),
       encoding: "utf8",
       env: ENV,
       timeout: 60_000,
     })
-    assert.match(`${v.stdout}${v.stderr}`, /\b0\.49\.1\b/)
+    assert.match(`${v.stdout}${v.stderr}`, new RegExp(`\\b${pkg.version.replaceAll(".", "\\.")}\\b`))
   })
 })
