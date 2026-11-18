@@ -64,7 +64,7 @@ function filesUnder(dir: string, rel: string): string[] {
 }
 
 /** Source files compile would read that the tarball leaves out, and the top folder to add to `files`. */
-export interface Unshipped {
+interface Unshipped {
   missing: string[]
   folder: string
 }
@@ -74,7 +74,7 @@ export interface Unshipped {
  * bundle and the nav fragment the manifest names — as `{ missing, folder }`, or null when it all ships.
  * A folder left out of the package's `files` list is not published: a stranger installs a module without it.
  */
-export function unshippedSources(dir: string, manifest: PackageJson, shipped: string[] | null): Unshipped | null {
+function unshippedSources(dir: string, manifest: PackageJson, shipped: string[] | null): Unshipped | null {
   if (!shipped) return null
   const has = new Set(shipped)
   const authored: string[] = []

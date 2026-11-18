@@ -99,7 +99,7 @@ const FOLDER_KINDS = new Set(["skills"])
 // folder-shape entities: copy the whole record folder
 
 /** Every contributed kind of the workspace's loaded extensions, as `{ kind, exclude, extension }`. */
-export const contributedKinds = (ws: Workspace): LoadedExtension["sourceKinds"] =>
+const contributedKinds = (ws: Workspace): LoadedExtension["sourceKinds"] =>
   (ws.extensions ?? []).flatMap(e => e.sourceKinds ?? [])
 
 /** Built-in kinds, then contributed ones. */

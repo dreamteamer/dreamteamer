@@ -3,7 +3,7 @@ import { moduleIdOf } from "../compile/compile.ts"
 import { installedModules } from "./installedModules.ts"
 
 /** One member of an installed module preset: its pin, and what is installed (null when absent). */
-export interface PresetMember {
+interface PresetMember {
   name: string
   pinned: string
   installed: string | null

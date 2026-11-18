@@ -15,6 +15,6 @@ export type Tree = Record<string, unknown>
  * A schema op returns a different shape per outcome (dry run · nothing to do · committed); a caller that
  * reads whichever keys are there wants them as ONE type, each optional, each keeping its real type.
  */
-export type KeysOf<U> = U extends unknown ? keyof U : never
+type KeysOf<U> = U extends unknown ? keyof U : never
 
 export type Flat<U> = { [K in KeysOf<U>]?: U extends Partial<Record<K, infer V>> ? V : never }

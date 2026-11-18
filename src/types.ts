@@ -3,7 +3,7 @@ import type { Store } from "./store/Store.ts"
 export type Fields = Record<string, unknown>
 
 /** A field's `display` block — the closed key list compile enforces (`DISPLAY_KEYS` in src/fields.ts). */
-export interface FieldDisplay {
+interface FieldDisplay {
   editable?: boolean | "create"
   hidden?: Array<"list" | "form" | "record">
   form_section?: string
@@ -438,7 +438,7 @@ export interface SetupInput {
   rows?: { columns: string[]; [k: string]: unknown }
 }
 
-export type SetupCheckStatus = "ready" | "configured" | "unverified" | "missing" | "blocked"
+type SetupCheckStatus = "ready" | "configured" | "unverified" | "missing" | "blocked"
 
 /** One row of what a unit's `inspect` (or `plan`) found. `status` is untrusted until `fold` reads it. */
 export interface SetupCheck {
@@ -451,7 +451,7 @@ export interface SetupCheck {
   evidence?: { at?: string; [k: string]: unknown }
 }
 
-export interface SetupEffect {
+interface SetupEffect {
   kind: string
   detail?: string
 }

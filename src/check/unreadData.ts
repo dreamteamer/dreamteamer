@@ -33,7 +33,7 @@ const subdirs = (abs: string): string[] => {
 
 /** `[folder, files]` per folder under `dataDir` no claimed path accounts for and holding record files:
  *  a claimed folder is skipped, a prefix of one (a namespace folder) is descended into. `/`-joined. */
-export function unreadRecordFolders(root: string, dataDir: string, claimed: Set<string>): [string, string[]][] {
+function unreadRecordFolders(root: string, dataDir: string, claimed: Set<string>): [string, string[]][] {
   const out: [string, string[]][] = []
   const visit = (rel: string) => {
     for (const name of subdirs(path.join(root, rel))) {
