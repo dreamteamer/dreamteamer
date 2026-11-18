@@ -112,6 +112,7 @@ const COMMANDS: Record<string, Command> = {
   relocate: async args => (await import("./commands/relocateCommand.ts")).relocateCommand(args),
   resolve: async args => (await import("./commands/resolveCommand.ts")).resolveCommand(args),
   fmt: async args => (await import("./commands/fmtCommand.ts")).fmtCommand(args),
+  run: async args => (await import("./commands/runCommand.ts")).runCommand(args),
 }
 /** The spellings of `version` — not verbs of the grammar, so not in COMMANDS. */
 const VERSION = new Set(["version", "--version", "-v"])

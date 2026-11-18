@@ -229,6 +229,43 @@ describe("dt install <spec> — closure, compile, safe setup, scoped commit", ()
     assert.match(p.stderr, /@fix\/b is a development link \(not pinned\)/)
   })
 
+  test("a folder install of a module that builds: skills stage from its dist/skills, and dt run finds its script", () => {
+    const ws = offline()
+    const src = fs.mkdtempSync(path.join(os.tmpdir(), "dt-built-"))
+    fs.mkdirSync(path.join(src, "dist", "skills", "greet", "bin"), { recursive: true })
+    fs.mkdirSync(path.join(src, "dist", "bin"), { recursive: true })
+    fs.mkdirSync(path.join(src, "skills", "greet", "bin"), { recursive: true })
+    fs.writeFileSync(
+      path.join(src, "package.json"),
+      JSON.stringify({
+        name: "@fix/built",
+        version: "1.0.0",
+        type: "module",
+        dreamteamer: {
+          description: "Greets the Northwind team.",
+          skills: "dist/skills",
+          scripts: { report: "dist/bin/report.js" },
+        },
+      })
+    )
+    const skill = '---\nname: greet\ndescription: "Use when Dana Oren asks for a greeting."\n---\n'
+    fs.writeFileSync(path.join(src, "skills", "greet", "SKILL.md"), skill)
+    fs.writeFileSync(path.join(src, "skills", "greet", "bin", "greet.mts"), 'const who: string = "Sam Diaz"\n')
+    fs.writeFileSync(path.join(src, "dist", "skills", "greet", "SKILL.md"), skill)
+    fs.writeFileSync(path.join(src, "dist", "skills", "greet", "bin", "greet.mjs"), 'console.log("Sam Diaz")\n')
+    fs.writeFileSync(
+      path.join(src, "dist", "bin", "report.js"),
+      'import fs from "node:fs"\nimport { fileURLToPath } from "node:url"\nconsole.log(fs.realpathSync(process.argv[1]) === fileURLToPath(import.meta.url) ? "entry" : "not-entry")\n'
+    )
+    const r = run(ws.root, ["install", src])
+    assert.equal(r.code, 0, r.stderr + r.stdout)
+    assert.ok(fs.existsSync(path.join(ws.root, ".dreamteamer", "skills", "greet", "bin", "greet.mjs")))
+    assert.ok(!fs.existsSync(path.join(ws.root, ".dreamteamer", "skills", "greet", "bin", "greet.mts")))
+    const ran = run(ws.root, ["run", "@fix/built", "report"])
+    assert.equal(ran.code, 0, ran.stderr)
+    assert.equal(ran.stdout.trim(), "entry")
+  })
+
   test("an npm below the floor is refused by name", async () => {
     // resolveNpm prefers the npm beside the running node, so the floor is exercised through the
     // injectable npm path rather than a PATH shim

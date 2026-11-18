@@ -11,6 +11,7 @@ export type CollectionRow = HarnessContext["collections"][number] & { useWhen: s
 export type ModuleRow = HarnessContext["modules"][number] & {
   namespaces: string[]
   bin: string[]
+  scripts: string[]
   skills: string[]
   commands: string[]
 }
@@ -31,6 +32,7 @@ export interface EntryDoc {
   path?: string
   namespaces?: string[]
   bin?: string[]
+  scripts?: string[]
   skills?: string[]
   collection?: string
   command?: string

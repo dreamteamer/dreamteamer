@@ -28,6 +28,7 @@ export function buildModulesIndex(entries: Map<string, Entry>): ModuleRow[] {
       namespaces: d.namespaces ?? [],
       path: p,
       bin: d.bin ?? [],
+      scripts: d.scripts ?? [],
       skills: [],
       commands: [],
     })

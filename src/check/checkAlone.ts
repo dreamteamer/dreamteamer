@@ -9,7 +9,7 @@ import type { PackageJson } from "../types.ts"
 import { childEnv } from "../lib/childEnv.ts"
 import { resolveNpm } from "../lib/npm/resolveNpm.ts"
 import { KINDS } from "../compile/consts.ts"
-import { kindDir } from "../compile/kindDir.ts"
+import { stagedKindDir } from "../compile/stagedKindDir.ts"
 
 const readPkg = (dir: string): PackageJson => JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8"))
 
@@ -81,7 +81,7 @@ function unshippedSources(dir: string, manifest: PackageJson, shipped: string[] 
   const has = new Set(shipped)
   const authored: string[] = []
   for (const k of KINDS)
-    authored.push(...filesUnder(dir, path.relative(dir, kindDir(dir, k)).split(path.sep).join("/")))
+    authored.push(...filesUnder(dir, path.relative(dir, stagedKindDir(dir, k)).split(path.sep).join("/")))
   for (const ui of ["ui", "studio"]) authored.push(...filesUnder(dir, ui))
   const nav = manifest.dreamteamer?.nav
   if (typeof nav === "string" && fs.existsSync(path.join(dir, nav)))

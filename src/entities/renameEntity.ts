@@ -3,6 +3,7 @@ import fs from "node:fs"
 import { entitySource } from "./lib/entitySource.ts"
 import { gatedTreeOp } from "../lib/gatedTreeOp.ts"
 import { entityShape, refuseNpmEntity } from "../lib/schema-ops.ts"
+import { refuseBuiltSkill } from "./lib/refuseBuiltSkill.ts"
 import { ENTITY_ID } from "./lib/consts.ts"
 import { setFrontmatterKey } from "./lib/setFrontmatterKey.ts"
 import type { Store } from "../store/Store.ts"
@@ -23,6 +24,7 @@ export function renameEntity(
   const { dir, file, shipped } = entitySource(ws, kind, oldId)
   if (!shipped) throw new Error(`${kind.replace(/s$/, "")} "${oldId}" does not exist — dt list ${kind}`)
   refuseNpmEntity(kind, oldId, shipped)
+  refuseBuiltSkill(ws.root, kind, oldId, shipped)
   const newDir = shape.folder
     ? path.join(path.dirname(dir), newId)
     : path.join(path.dirname(file), `${newId}${shape.suffix}`)

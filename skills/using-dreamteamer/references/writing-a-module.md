@@ -33,6 +33,20 @@ is no `src/`. `dt compile && dt status` makes it live in this workspace.
 - **an npm peer dependency on `dreamteamer`** is optional and conventional; a miss prints `dt update --engine`.
 - **never `dependencies.dreamteamer`** — npm would nest a second engine beside the workspace's, and
   your code would disagree with the engine the operator ran. `dt check` names it.
+- **`dreamteamer.skills`** (optional, engine 0.50.0) names the folder your skills stage FROM when they
+  are built: `"skills": "dist/skills"`. A skill script in TypeScript has to be — Node will not strip
+  types under `node_modules` — so the build writes `dist/skills/<id>/` (compiled scripts, copied
+  `SKILL.md`) and `skills/` is only its source. The staged path is unchanged
+  (`.dreamteamer/skills/<id>/…`). A folder that is missing or empty fails compile and says to run your
+  build: a clone or copy is built before it compiles, and a published package lists the folder in `files`.
+  Without the key, `skills/` is staged as it is — a plain-JavaScript module needs no build.
+- **`dreamteamer.scripts`** (optional, engine 0.50.0) maps a NAME to a file of the package —
+  `"scripts": { "check-records": "dist/bin/check-records.js" }` — and `dt run <module> <name> [args…]`
+  runs it: on the operator's node, at the workspace root, its arguments untouched, its exit code
+  returned, `argv[1]` its real path. The module is its package name or id, resolved as extensions are
+  (`modules/<id>`, then a `git_modules/` clone, then the installed package); `dt run <module>` lists
+  the scripts. This is how docs, command files and a consumer's `npm run check` call your code — never
+  `node node_modules/<pkg>/<path>`, which breaks the day your code moves.
 - No new keys: `dreamteamer` is a closed set, and an unknown key fails compile on every engine.
 
 A module never imports the engine and never imports another module. The engine reaches your code as

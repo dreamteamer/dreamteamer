@@ -146,6 +146,13 @@ Skills ship with modules and are read by any operator on any machine:
   (a `package.json`, a venv) only works where it was installed. The cost is real and worth
   stating: a source path embeds the module name, so renaming a module means updating every skill
   that names its own scripts.
+- **A script in TypeScript ships BUILT.** Node will not strip types under `node_modules`, so a module
+  whose skill runs `bin/x.mts` builds its skills folder (`dist/skills/<id>/`, the `.mjs` beside a copied
+  `SKILL.md`) and declares `"dreamteamer": { "skills": "dist/skills" }`; compile stages from there and
+  never from `skills/`, so the staged path — what `SKILL.md` names — does not change. A plain-JavaScript
+  skill needs neither: without the key, `skills/` is staged as it is. A module that runs a script by
+  name rather than from a skill declares it in `dreamteamer.scripts` and is run with `dt run`
+  (`references/writing-a-module.md`).
 
 ## lifecycle — shipping, testing, keeping it true
 

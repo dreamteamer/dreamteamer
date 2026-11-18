@@ -311,7 +311,8 @@ function collectionsSection(
       const own = index.filter(c => c.module === m.id)
       return (
         own.some(c => !c.systemGroup) ||
-        (!own.length && (m.skills.length || m.commands.length || m.bin.length || verbs.get(m.id)?.length))
+        (!own.length &&
+          (m.skills.length || m.commands.length || m.bin.length || m.scripts.length || verbs.get(m.id)?.length))
       )
     })
     .sort((a, b) => Number(isWs(b)) - Number(isWs(a)) || a.title.localeCompare(b.title))
@@ -325,7 +326,9 @@ function collectionsSection(
     const ships = [
       ...(m.skills.length ? [`skills: ${m.skills.join(" · ")}`] : []),
       ...(m.commands.length ? [`commands: ${m.commands.map(c => slash(c)).join(" · ")}`] : []),
-      ...(m.bin.length ? [`runs: ${m.bin.join(" · ")}`] : []),
+      ...(m.bin.length || m.scripts.length
+        ? [`runs: ${[...m.scripts.map(n => `dt run ${m.id} ${n}`), ...m.bin].join(" · ")}`]
+        : []),
       ...(verbs.get(m.id)?.length
         ? [
             `verbs: ${verbs

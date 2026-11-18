@@ -4,7 +4,7 @@ import { walk } from "../lib/walk.ts"
 import { readManifest } from "../runtime/runtime.ts"
 import type { Manifest, PackageJson } from "../types.ts"
 import { KINDS } from "./consts.ts"
-import { kindDir } from "./kindDir.ts"
+import { stagedKindDir } from "./stagedKindDir.ts"
 import { sha256 } from "./sha256.ts"
 import { toPosix } from "./toPosix.ts"
 import { INSTRUCTIONS_SOURCE } from "./consts.ts"
@@ -74,7 +74,7 @@ export function staleness(root: string): { compiled: boolean; stale: string[]; m
   const contributedKinds = (manifest["source-kinds"] ?? []).map(k => ({ kind: k.kind, exclude: k.exclude ?? [] }))
   for (const { name: moduleName, root: r } of roots) {
     for (const kind of [...KINDS, ...contributedKinds.map(k => k.kind)]) {
-      const dir = kindDir(r, kind)
+      const dir = stagedKindDir(r, kind)
       if (!fs.existsSync(dir)) continue
       for (const f of walk(dir)) {
         const rel = path.relative(dir, f).split(path.sep).join("/")

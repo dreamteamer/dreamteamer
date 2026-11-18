@@ -3,6 +3,7 @@ import fs from "node:fs"
 import { entitySource } from "./lib/entitySource.ts"
 import { gatedTreeOp } from "../lib/gatedTreeOp.ts"
 import { refuseNpmEntity } from "../lib/schema-ops.ts"
+import { refuseBuiltSkill } from "./lib/refuseBuiltSkill.ts"
 import type { Store } from "../store/Store.ts"
 import type { Workspace } from "../types.ts"
 
@@ -10,6 +11,7 @@ export function removeEntity(ws: Workspace, store: Store, kind: string, id: stri
   const { dir, shipped } = entitySource(ws, kind, id)
   if (!shipped) throw new Error(`${kind.replace(/s$/, "")} "${id}" does not exist — dt list ${kind}`)
   refuseNpmEntity(kind, id, shipped)
+  refuseBuiltSkill(ws.root, kind, id, shipped)
   // ⚠ STASH, DO NOT DELETE, UNTIL THE COMMIT LANDS — `gatedTreeOp`'s `undo` has to be able to put a
   // whole folder back, and a `rmSync` cannot be undone. Same reasoning as `removeModule`.
   const stash = path.join(ws.root, ".dreamteamer", `.rm-${kind}-${id}`)

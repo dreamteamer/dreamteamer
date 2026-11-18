@@ -15,6 +15,7 @@ export const CORE_VERBS = [
   "doctor",
   "status",
   "setup",
+  "run",
   "changes",
   "commit",
   "help",

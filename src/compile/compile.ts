@@ -30,7 +30,7 @@ import type {
   Workspace,
 } from "../types.ts"
 import { KINDS } from "./consts.ts"
-import { MANIFEST_KEYS } from "./consts.ts"
+import { MANIFEST_KEYS, SCRIPT_NAME } from "./consts.ts"
 import { bindingErrors } from "./lib/bindingErrors.ts"
 import { compileCollections } from "./lib/compileCollections.ts"
 import { discoverModules } from "../workspace/discoverModules.ts"
@@ -43,6 +43,7 @@ import { runHarnessAdapters } from "./lib/runHarnessAdapters.ts"
 import { satisfies } from "../lib/npm/satisfies.ts"
 import { EXACT } from "../lib/npm/exact.ts"
 import { kindDir } from "./kindDir.ts"
+import { stagedKindDir } from "./stagedKindDir.ts"
 import { sha256 } from "./sha256.ts"
 import { toPosix } from "./toPosix.ts"
 // each lives in its own file so a caller that needs only it — `staleness`, which every record verb
@@ -186,6 +187,13 @@ function strayKindDirs(source: ModuleSource, wsRoot: string, declaredIgnore: str
     // module put it, and one `ignore` entry covers both spellings rather than two.
     ...dirsIn(path.join(source.root, "system"), "system/"),
   ].sort()
+}
+
+/** A manifest path that stays inside its package: relative, non-empty, no `..` segment. */
+function insidePackage(p: unknown): p is string {
+  return (
+    typeof p === "string" && !!p && !path.isAbsolute(p) && !path.posix.isAbsolute(p) && !p.split(/[\\/]/).includes("..")
+  )
 }
 
 /** A module's record id: its package name with the npm scope stripped, so `@dreamteamer/crm` is `crm`. */
@@ -403,8 +411,11 @@ export function compile(ws: Workspace): 0 {
       fail(`${where}: unknown dreamteamer key(s) ${bad.join(", ")} — the keys are ${MANIFEST_KEYS.join(" · ")}`)
   }
   refuseUnknownKeys(config, "package.json")
-  if (config.preset !== undefined || config.nav !== undefined)
-    fail("package.json: dreamteamer.preset and dreamteamer.nav belong to a module package, not the workspace")
+  const moduleOnly = ["preset", "nav", "skills", "scripts"].filter(k => config[k] !== undefined)
+  if (moduleOnly.length)
+    fail(
+      `package.json: dreamteamer.${moduleOnly.join(" and dreamteamer.")} belong${moduleOnly.length === 1 ? "s" : ""} to a module package, not the workspace — the workspace's own module is modules/${config.workspace_module ?? "default"}`
+    )
   for (const source of sources) {
     let mpkg
     try {
@@ -468,24 +479,53 @@ export function compile(ws: Workspace): 0 {
         // too), a modules/ bundle, and a UI bundle (ui/, or its pre-archive name studio/)
         const shipped = [...new Set([...KINDS, ...kinds]), "modules", "ui", "studio"].find(k =>
           fs.existsSync(
-            k === "modules" || k === "ui" || k === "studio" ? path.join(source.root, k) : kindDir(source.root, k)
+            k === "modules" || k === "ui" || k === "studio" ? path.join(source.root, k) : stagedKindDir(source.root, k)
           )
         )
         if (shipped) fail(`module "${source.name}": a module preset lists modules; it ships none (found ${shipped}/)`)
         modulePresets.set(source.name, preset)
       }
       const nav = mpkg.dreamteamer?.nav
-      if (
-        nav !== undefined &&
-        (typeof nav !== "string" ||
-          !nav ||
-          path.isAbsolute(nav) ||
-          path.posix.isAbsolute(nav) ||
-          nav.split(/[\\/]/).includes(".."))
-      ) {
+      if (nav !== undefined && !insidePackage(nav)) {
         fail(
           `module "${source.name}": dreamteamer.nav must be a relative path inside the package (got ${JSON.stringify(nav)})`
         )
+      }
+      // `skills` names the BUILD folder the module's skills stage from (stagedKindDir). A clone or a
+      // copy nobody built has none, and staging an absent folder would compile ✔ with every skill of
+      // the module gone — the decision-156 shape — so a missing or empty one is refused, naming it.
+      const skills = mpkg.dreamteamer?.skills
+      if (skills !== undefined) {
+        if (!insidePackage(skills))
+          fail(
+            `module "${source.name}": dreamteamer.skills must be a relative path inside the package — the folder its build writes the skills to, e.g. "dist/skills" (got ${JSON.stringify(skills)})`
+          )
+        const dir = path.join(source.root, skills)
+        const held = fs.existsSync(dir) && fs.statSync(dir).isDirectory() ? fs.readdirSync(dir) : null
+        if (!held?.some(n => !n.startsWith(".")))
+          fail(
+            `module "${source.name}": dreamteamer.skills names ${rel(dir)}/, which is ${held ? "empty" : "missing"} — it is the module's build output. Run the module's build (\`npm run build\` in ${rel(source.root) || "."}), then compile again.`
+          )
+      }
+      // `scripts` maps a NAME to a file of the package — what `dt run <module> <name>` runs. Its
+      // shape is held here with the other keys; whether the file exists is `dt run`'s to say, since
+      // nothing compile stages depends on it.
+      const scripts = mpkg.dreamteamer?.scripts
+      if (scripts !== undefined) {
+        if (!scripts || typeof scripts !== "object" || Array.isArray(scripts))
+          fail(
+            `module "${source.name}": dreamteamer.scripts must map script names to files of the package, e.g. { "check-records": "dist/bin/check-records.js" } (got ${JSON.stringify(scripts)})`
+          )
+        for (const [name, file] of Object.entries(scripts)) {
+          if (!SCRIPT_NAME.test(name))
+            fail(
+              `module "${source.name}": dreamteamer.scripts name "${name}" — a script name is lowercase letters, digits and single hyphens`
+            )
+          if (!insidePackage(file))
+            fail(
+              `module "${source.name}": dreamteamer.scripts["${name}"] must be a relative path inside the package (got ${JSON.stringify(file)})`
+            )
+        }
       }
     }
     if (source.root !== root) {
@@ -829,14 +869,15 @@ export function compile(ws: Workspace): 0 {
   if these are not sources, declare them: "dreamteamer": { "ignore": [${ignorable.map(s => `"${s}"`).join(", ")}] } in ${rel(path.join(source.root, "package.json"))}`)
     }
     for (const kind of kinds) {
+      const srcDir = stagedKindDir(source.root, kind)
       // a half-moved module compiles its flat half and drops the rest — say so rather than
-      // reporting ✔ over a silent partial read (the decision-156 failure shape)
-      if (bothLayouts(source.root, kind)) {
+      // reporting ✔ over a silent partial read (the decision-156 failure shape). A declared build
+      // folder is read instead of either spelling, so it has no half.
+      if (srcDir === kindDir(source.root, kind) && bothLayouts(source.root, kind)) {
         console.warn(
           `⚠ module ${source.name}: both ${kind}/ and system/${kind}/ exist — the flat copy wins and system/${kind}/ is NOT compiled. finish the move.`
         )
       }
-      const srcDir = kindDir(source.root, kind)
       if (!fs.existsSync(srcDir)) continue
       counts[kind] ??= 0
       // `collections/` is enumerated RECURSIVELY, so a namespaced descriptor can be authored at
@@ -999,7 +1040,7 @@ export function compile(ws: Workspace): 0 {
   const extensionNames = new Set(extensions.map(e => e.name))
   for (const source of sources) {
     if (contributedBy.has(source.name) || extensionNames.has(source.name) || modulePresets.has(source.name)) continue
-    if (kinds.some(k => fs.existsSync(kindDir(source.root, k)))) continue
+    if (kinds.some(k => fs.existsSync(stagedKindDir(source.root, k)))) continue
     console.warn(
       `⚠ module "${source.name}" (${rel(source.root)}) contributed no recognised sources — its folder names must match a known kind (${kinds.join(", ")}) or it must ship a UI bundle at ui/app.js`
     )
@@ -1233,6 +1274,9 @@ export function compile(ws: Workspace): 0 {
       // script did not, so a session planned `dt add` writes the tooling forbids. This is the
       // POINTER that the procedure exists, never its arguments — those stay in the skill.
       ...(binEntries(source.root).length ? { bin: binEntries(source.root) } : {}),
+      // ...and the scripts it runs BY NAME (`dt run <id> <name>`), the pointer that survives a module
+      // moving its code into dist/ — where `bin/` no longer exists to be listed.
+      ...(mpkg.scripts && Object.keys(mpkg.scripts).length ? { scripts: Object.keys(mpkg.scripts).sort() } : {}),
       ...(mpkg.owns_data === true ? { owns_data: true } : {}),
       // Declared module names become record IDS here, because that is what a reference
       // resolves against. An undeclared/unknown name would dangle, and `check` would say so —

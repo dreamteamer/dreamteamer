@@ -7,6 +7,8 @@ import { IN_NODE_MODULES } from "../lib/consts.ts"
 import type { Store } from "../store/Store.ts"
 import type { Workspace } from "../types.ts"
 import { kindDir } from "../compile/compile.ts"
+import { declaredSkillsDir } from "../compile/stagedKindDir.ts"
+import { builtSkillLine } from "./lib/refuseBuiltSkill.ts"
 
 export function createSkill(
   ws: Workspace,
@@ -43,6 +45,9 @@ export function createSkill(
   // `system/skills/…`. Here the answer is known exactly, in one line.
   const wm = ws.pkg.dreamteamer?.workspace_module
   const modRoot = root ?? (wm ? path.join(ws.root, "modules", wm) : ws.root)
+  // a module whose skills stage from its build would not compile this one until built: refused, naming the source
+  const built = declaredSkillsDir(modRoot)
+  if (built) throw new Error(builtSkillLine(path.relative(ws.root, modRoot) || ".", built, name))
   const dir = path.join(root ? kindDir(root, "skills") : workspaceSystemDir(ws, "skills"), name)
   const file = path.join(dir, "SKILL.md")
   if (fs.existsSync(file)) throw new Error(`${path.relative(ws.root, file)} already exists`)

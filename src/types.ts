@@ -331,6 +331,10 @@ export interface DreamteamerBlock {
   preset?: Record<string, string>
   /** The package-relative path of the module's nav fragment (a nav.yaml). */
   nav?: string
+  /** The package-relative folder a module's skills are STAGED from — its build output, e.g. `dist/skills`. */
+  skills?: string
+  /** A module's runnable scripts, name → package-relative file: what `dt run <module> <name>` runs. */
+  scripts?: Record<string, string>
   [k: string]: unknown
 }
 

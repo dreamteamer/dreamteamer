@@ -2,6 +2,7 @@ import path from "node:path"
 import fs from "node:fs"
 import { entitySource } from "./lib/entitySource.ts"
 import { entityShape, refuseNpmEntity } from "../lib/schema-ops.ts"
+import { refuseBuiltSkill } from "./lib/refuseBuiltSkill.ts"
 import { setFrontmatterKey } from "./lib/setFrontmatterKey.ts"
 import type { Store } from "../store/Store.ts"
 import { fieldsOf } from "../record/descriptor.ts"
@@ -22,6 +23,7 @@ export function setEntityFrontmatter(
   const { dir, file, shipped } = entitySource(ws, kind, id)
   if (!shipped) throw new Error(`${kind.replace(/s$/, "")} "${id}" does not exist — dt list ${kind}`)
   refuseNpmEntity(kind, id, shipped)
+  refuseBuiltSkill(ws.root, kind, id, shipped)
   // ⚠ THE DESCRIPTOR IS THE AUTHORITY, and the engine was disagreeing with itself: `dt set
   // skills/<id> descripton="oops"` wrote the typo, compiled, SELF-COMMITTED — and then `dt check`
   // failed on the very workspace the self-commit exists to keep valid, because the `skills`

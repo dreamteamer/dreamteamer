@@ -30,7 +30,12 @@ const self = fileURLToPath(import.meta.url)
 // for this process only: a clone under git_modules/ is otherwise climbed out of by discovery, which
 // would run the verb in the workspace AROUND it — a write landing in the reader and printing ✔.
 // `--workspace=<x>` (npm's spelling too) is the same flag in one argument.
-const flagAt = process.argv.findIndex((a, i) => i >= 2 && /^(--workspace|-w|--vault)(=|$)/.test(a))
+//
+// The scan stops where `dt run <module> <script>` hands its arguments to the script: those are the
+// script's, and a `-w` among them is its own flag, never this CLI's workspace.
+const GLOBAL_FLAG = /^(--workspace|-w|--vault)(=|$)/
+const scanEnd = passThroughAt(process.argv)
+const flagAt = process.argv.findIndex((a, i) => i >= 2 && i < scanEnd && GLOBAL_FLAG.test(a))
 if (flagAt !== -1) {
   const [flagWord, inline] = process.argv[flagAt].split(/=(.*)/s)
   const flag = flagWord === "--vault" ? "--vault" : "--workspace"
@@ -96,6 +101,15 @@ if (devBin && realpath(devBin) !== realpath(self)) {
 } else {
   const { run } = await import(engineEntry("cli"))
   run(process.argv.slice(2))
+}
+
+/** Where `dt run`'s pass-through arguments begin — after the verb, the module and the script —
+ *  or argv's length for every other verb. A global flag before the verb is skipped with its value.
+ *  @param {string[]} argv @returns {number} */
+function passThroughAt(argv) {
+  let i = 2
+  while (i < argv.length && GLOBAL_FLAG.test(argv[i])) i += argv[i].includes("=") ? 1 : 2
+  return argv[i] === "run" ? i + 3 : argv.length
 }
 
 /** The process-wide registry the `--workspace` pin lives in (a symbol-keyed global, never the environment). */

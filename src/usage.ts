@@ -256,6 +256,12 @@ workspace verbs:
               package.json (dt setup <unit> clears it). [--json] the result as data.
               Exit 0 done (pending and blocked steps printed) · 1 a unit's apply failed · 2 usage · 3 a required input missing
   status      workspace status: compiled runtime freshness, per-module channel/ref, staleness
+  run         <module> [<script> [<arg>…]]   run a script a module declares (dreamteamer.scripts) by
+              NAME, never by its path inside the package: on this node, at the workspace root, every
+              argument after the script passed to it untouched, its exit code returned. The module is
+              its package name or its id; modules/<id> and a git_modules clone shadow the installed
+              package, as for extensions. Without a script: list the module's scripts.
+              Exit: the script's · 1 no such module, script or file · 2 usage
 
   changes     the records created / updated / deleted in every repo that holds records — the
               workspace and each record layer — grouped by collection, each with its path, layer

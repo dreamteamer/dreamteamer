@@ -285,10 +285,7 @@ describe("a module preset: dreamteamer.preset and dreamteamer.nav in a package m
     const { ws } = workspace({ compile: false, pkg: { preset: { "@acme/a": "1.0.0" } } })
     const err = compileError(ws)
     assert.ok(
-      err &&
-        err.includes(
-          "package.json: dreamteamer.preset and dreamteamer.nav belong to a module package, not the workspace"
-        ),
+      err && err.includes("package.json: dreamteamer.preset belongs to a module package, not the workspace"),
       err
     )
   })

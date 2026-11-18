@@ -51,6 +51,10 @@ fields:
     type: string
     many: true
     description: The module's runnable entry points — every file under its `bin/`, module-relative. Rendered into the orientation block as the pointer that a procedure is a script here.
+  scripts:
+    type: string
+    many: true
+    description: The scripts the module runs by NAME — the keys of `dreamteamer.scripts` in its package.json, each run as `dt run <module> <name>`. Rendered into the orientation block beside `bin`.
   owns_data:
     type: boolean
     description: The module keeps its records in its OWN clone rather than this workspace's data/ — a write there commits in that repo, and a rename spanning both is two commits.

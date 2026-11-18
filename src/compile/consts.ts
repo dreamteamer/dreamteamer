@@ -28,7 +28,12 @@ export const MANIFEST_KEYS = [
   "setup",
   "preset",
   "nav",
+  "skills",
+  "scripts",
 ]
+
+/** A `dreamteamer.scripts` name — what `dt run <module> <name>` is typed with. */
+export const SCRIPT_NAME = /^[a-z0-9]+(-[a-z0-9]+)*$/
 
 export const KINDS: readonly string[] = [
   "collections",
