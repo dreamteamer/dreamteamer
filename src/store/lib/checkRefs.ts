@@ -1,10 +1,13 @@
 import type { Descriptor, Fields } from "../../types.ts"
 import { fieldsOf, targetsOf, isSoft, unresolvedPeersOf } from "../../record/descriptor.ts"
 import { parseRef } from "../../record/parseRef.ts"
+import { storageOf } from "../../record/storageOf.ts"
 import type { Store } from "../Store.ts"
 import { mirrorRemedy } from "./mirrorRemedy.ts"
 
-export function checkRefs(store: Store, d: Descriptor, fields: Fields): void {
+/** `repo` is the referring record's: the layer that holds it, null for the write root — whose exports
+ *  manifest may vouch for an id no root here holds, exactly as `check` reads it. */
+export function checkRefs(store: Store, d: Descriptor, fields: Fields, repo: string | null = null): void {
   for (const [key, f] of Object.entries(fieldsOf(d))) {
     const targets = targetsOf(f)
     if (!targets) continue
@@ -41,10 +44,18 @@ export function checkRefs(store: Store, d: Descriptor, fields: Fields): void {
         if (soft) continue
         throw new Error(`${key}: reference "${value}" targets unknown collection "${coll}" — nothing was written.`)
       }
-      if (!store.ids(coll).has(id) && !soft)
-        throw new Error(
-          `${key}: dangling reference "${value}" — no such record. nothing was written.${mirrorRemedy(d, [key])}`
-        )
+      if (soft) continue
+      // a collection whose env-pointed root cannot render here is unread, not empty — `check` passes it
+      if (storageOf(store.descriptors.get(coll)).unavailable) continue
+      if (store.ids(coll).has(id)) continue
+      // an id no root here holds, vouched for by the referring repo's exports manifest, is
+      // external (cr-dt-004) — accepted, as `check` accepts it. The manifest is read only here,
+      // on the way to a refusal, so a write naming a held id never pays for it.
+      const v = store.vouched(coll, id, repo)
+      if (v && !v.seen) continue
+      throw new Error(
+        `${key}: dangling reference "${value}" — no such record${v ? ` (its holder ${v.from} is read here and does not have it)` : ""}. nothing was written.${mirrorRemedy(d, [key])}`
+      )
     }
   }
 }

@@ -9,7 +9,7 @@ export function validate(
   store: Store,
   d: Descriptor,
   fields: Fields,
-  { skipRefs = false }: { skipRefs?: boolean } = {}
+  { skipRefs = false, repo = null }: { skipRefs?: boolean; repo?: string | null } = {}
 ): Fields {
   // hard at the tools includes UNKNOWN fields: a typo'd key must never land on disk
   const unknown = unknownFields(d, fields)
@@ -38,6 +38,6 @@ export function validate(
     )
     throw new Error(`validation failed:\n${msgs.join("\n")}${remedy}\nnothing was written.`)
   }
-  if (!skipRefs) store.checkRefs(d, fields)
+  if (!skipRefs) store.checkRefs(d, fields, repo)
   return fields
 }

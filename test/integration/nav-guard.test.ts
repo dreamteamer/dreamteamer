@@ -113,3 +113,39 @@ describe("the nav guard before npm", () => {
     assert.match(r.stderr, /dt update --allow takes downgrade or nav-reset \(got "everything"\)/)
   })
 })
+
+// rnd/tests/dreamteamer/nav-guard-names-published-versions — the remedy the refusal prints has to run as
+// written: npm holds @dreamteamer/protocol 0.1.0, 0.1.1 and 0.3.0 (0.3.0 is the one with `dt-nav migrate`),
+// and the first editor that writes nav.yaml is 0.27.0 (no 0.26 was released). A doc that repeats the
+// command drifts with it, so every shipped text is scanned, not only the line.
+describe("the nav migration remedy names versions that exist", () => {
+  function shipped(): string[] {
+    const out: string[] = []
+    const walk = (dir: string, ext: string): void => {
+      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+        const p = path.join(dir, e.name)
+        if (e.isDirectory()) walk(p, ext)
+        else if (e.name.endsWith(ext)) out.push(p)
+      }
+    }
+    walk(path.join(ENGINE_ROOT, "src"), ".ts")
+    walk(path.join(ENGINE_ROOT, "skills"), ".md")
+    walk(path.join(ENGINE_ROOT, "docs"), ".md")
+    for (const f of ["UPDATING.md", "README.md", "FAQ.md", "EXTENDING.md"]) out.push(path.join(ENGINE_ROOT, f))
+    return out.filter(f => fs.existsSync(f))
+  }
+  test("the refusal line runs as written: protocol 0.3, editor 0.27", () => {
+    assert.ok(NAV_GUARD_LINE.includes("npx -p @dreamteamer/protocol@0.3 dt-nav migrate"), NAV_GUARD_LINE)
+    assert.ok(NAV_GUARD_LINE.includes("the editor 0.27 or later"), NAV_GUARD_LINE)
+  })
+  test("every shipped text that spells the command names protocol 0.3 and never the editor 0.26", () => {
+    const wrong: string[] = []
+    for (const f of shipped()) {
+      const text = fs.readFileSync(f, "utf8")
+      for (const m of text.matchAll(/@dreamteamer\/protocol@(\d+(?:\.\d+)*)/g))
+        if (m[1] !== "0.3") wrong.push(`${path.relative(ENGINE_ROOT, f)}: protocol@${m[1]}`)
+      for (const m of text.matchAll(/editor 0\.26\b/g)) wrong.push(`${path.relative(ENGINE_ROOT, f)}: ${m[0]}`)
+    }
+    assert.deepEqual(wrong, [])
+  })
+})

@@ -224,12 +224,14 @@ export async function updateModules(
   const extra = names.filter(n => n !== target && !installed.has(n))
   const tail = `${moved.length ? ` — members: ${moved.join(", ")}` : ""}${extra.length ? ` — with ${extra.join(", ")}` : ""}`
   log(`▶ update: ${target} ${here.version} → ${next}${tail}`)
+  // the compile in a fresh process too: this one cached the versions npm is about to replace
   const step = await npmAndCompile(ws, plan.list, {
     npm,
     open,
     log,
     what: "update",
     ignoreSettings: allow.has("nav-reset"),
+    childCompile: true,
   })
   if (step.code !== undefined) return step.code
   if (step.nav.skipped === "settings") log(NAV_SETTINGS_LINE)

@@ -1,6 +1,7 @@
 import path from "node:path"
 import fs from "node:fs"
 import { spawnSync } from "node:child_process"
+import { fileURLToPath } from "node:url"
 import type { Workspace } from "../types.ts"
 import { childEnv } from "../lib/childEnv.ts"
 import { compile } from "../compile/compile.ts"
@@ -8,6 +9,9 @@ import { resolveNpm } from "../lib/npm/resolveNpm.ts"
 import { EXIT } from "../lib/consts.ts"
 import type { InstallHooks, SpecEntry } from "./types.ts"
 import { planNavFragments, type NavPlan } from "../workspace/navFragments.ts"
+
+// the command line, two folders up from src/install/ in a checkout and from dist/install/ in the package
+const BIN = fileURLToPath(new URL("../../bin/dreamteamer.js", import.meta.url))
 
 // ---- steps 2–4 and 5–6, shared with `dt update` (install one pin later) ----------------------------
 
@@ -17,6 +21,13 @@ import { planNavFragments, type NavPlan } from "../workspace/navFragments.ts"
  * nav fragments of the listed packages judged and merged (cr-dt-008) — inside the same restore, so a
  * fragment placing another module's collection, or a nav.yaml that does not read, undoes the call
  * like a compile refusal. Returns `{ fresh, nav }` (nav: the plan setupAndCommit writes), or `{ code }`.
+ *
+ * `childCompile` (dt update): this process opened the workspace before npm, and ESM caches an extension's
+ * entry and every file it imports by path — so an in-process compile would run the version npm just
+ * replaced, blind to a source kind or harness the new one contributes (rnd/issues …dt-update-compiles-with-
+ * the-replaced-version-s-extension). The compile then runs in a child, this engine's own `dt compile`; a
+ * non-zero exit is a refusal like any other, and `fresh` is only `{ root, pkg }` — the nav plan reads no
+ * extension, and activating the cached ones could refuse on a collision the new versions do not have.
  */
 export async function npmAndCompile(
   ws: Workspace,
@@ -29,6 +40,7 @@ export async function npmAndCompile(
     hooks = {},
     what = "install",
     ignoreSettings = false,
+    childCompile = false,
   }: {
     npm?: string | null
     open?: (at: string) => Promise<Workspace>
@@ -37,6 +49,7 @@ export async function npmAndCompile(
     hooks?: InstallHooks
     what?: string
     ignoreSettings?: boolean
+    childCompile?: boolean
   } = {}
 ): Promise<
   { code: number; fresh?: undefined; nav?: undefined } | { code?: undefined; fresh: Workspace; nav: NavPlan }
@@ -88,14 +101,28 @@ export async function npmAndCompile(
   // 4. compile — a refusal restores the pre-image and prunes
   let compiled = false // a refusal AFTER a compile (the nav fragments) owes the runtime a recompile
   try {
-    const fresh = await open(ws.root)
-    const stdout = console.log
-    if (json) console.log = console.error
-    try {
-      compile(fresh)
+    let fresh: Workspace
+    if (childCompile) {
+      // --workspace pins the root: a layer under git_modules/ would otherwise be climbed out of to the reader
+      const c = spawnSync(process.execPath, [BIN, "--workspace", ws.root, "compile"], {
+        cwd: ws.root,
+        stdio: json ? ["ignore", 2, 2] : "inherit",
+        env: childEnv(),
+      })
+      if (c.status !== 0) throw new Error(`compile exited ${c.status ?? c.error?.message ?? c.signal}`)
       compiled = true
-    } finally {
-      console.log = stdout
+      // only what the nav plan reads; dt update, the one caller that asks for a child compile, reads `nav` alone
+      fresh = { root: ws.root, pkg: JSON.parse(fs.readFileSync(pkgFile, "utf8")) } as Workspace
+    } else {
+      fresh = await open(ws.root)
+      const stdout = console.log
+      if (json) console.log = console.error
+      try {
+        compile(fresh)
+        compiled = true
+      } finally {
+        console.log = stdout
+      }
     }
     const nav = planNavFragments(fresh, { names, ignoreSettings })
     return { fresh, nav }
@@ -128,7 +155,8 @@ export async function npmAndCompile(
       return { code: EXIT.failed }
     }
     // compile succeeded before the refusal, so .dreamteamer and the harness folders hold the refused
-    // packages' sources: compile again over the restored node_modules, so the runtime is the pre-image's
+    // packages' sources: compile again over the restored node_modules, so the runtime is the pre-image's.
+    // In this process even after a child compile: the versions it cached are the restored ones.
     if (compiled) {
       const stdout = console.log
       console.log = () => {}

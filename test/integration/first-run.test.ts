@@ -121,7 +121,7 @@ describe("declared env keys are described, and .env.example names them", () => {
   test("a key the operator already listed in .env.example (even commented out) is not added again", () => {
     const ws = twoModuleWorkspace()
     fs.writeFileSync(path.join(ws.root, ".env.example"), "# my notes\n# WORK_CALENDARS=already-here\n")
-    const added = ensureEnvExample(ws.root, [
+    const { added } = ensureEnvExample(ws.root, [
       { key: "WORK_CALENDARS", modules: ["core"] },
       { key: "NEW_ONE", modules: ["core"], description: "brand new" },
     ])
@@ -129,6 +129,85 @@ describe("declared env keys are described, and .env.example names them", () => {
     const text = readFile(ws.root, ".env.example")
     assert.equal((text.match(/WORK_CALENDARS/g) ?? []).length, 1)
     assert.match(text, /# brand new \(module core\)\nNEW_ONE=/)
+  })
+
+  // rnd/tests/dreamteamer/env-example-follows-declarations — the blocks compile wrote follow what the
+  // installed packages declare now: a moved key is re-attributed, a key nothing declares goes, and every
+  // line the engine did not write is kept byte for byte
+  test("a moved key is re-attributed and a key nothing declares is dropped; an operator's lines and the header stay; a second run changes nothing", () => {
+    const ws = twoModuleWorkspace()
+    const HEADER =
+      "# secrets for skills and modules go here (copy to .env; .env is never committed).\n# modules declare the env keys they require in their package.json dreamteamer.env list.\n"
+    const OPERATOR = "# mine\nMY_KEY=1\n"
+    fs.writeFileSync(
+      path.join(ws.root, ".env.example"),
+      `${HEADER}\n# declared by @fix/old\nMOVED_KEY=\n\n${OPERATOR}\n# a token (module @fix/old)\nGONE_KEY=x\n`
+    )
+    const r = ensureEnvExample(ws.root, [{ key: "MOVED_KEY", modules: ["@fix/new"] }])
+    assert.deepEqual(r, { added: [], moved: ["MOVED_KEY"], dropped: ["GONE_KEY"] })
+    const text = readFile(ws.root, ".env.example")
+    assert.equal(text, `${HEADER}\n# declared by @fix/new\nMOVED_KEY=\n\n${OPERATOR}`)
+    assert.deepEqual(ensureEnvExample(ws.root, [{ key: "MOVED_KEY", modules: ["@fix/new"] }]), {
+      added: [],
+      moved: [],
+      dropped: [],
+    })
+    assert.equal(readFile(ws.root, ".env.example"), text)
+    // a block right under an operator's line takes no blank line with it: the operator's comment never
+    // ends up attached to the next key
+    fs.writeFileSync(path.join(ws.root, ".env.example"), "# mine\n# declared by @fix/old\nGONE_KEY=\n\nOTHER=1\n")
+    assert.deepEqual(ensureEnvExample(ws.root, []).dropped, ["GONE_KEY"])
+    assert.equal(readFile(ws.root, ".env.example"), "# mine\n\nOTHER=1\n")
+  })
+
+  test("through compile: a key that moves to another module is re-attributed, and dropped once nothing declares it", () => {
+    const ws = twoModuleWorkspace()
+    patchModulePkg(ws.root, "core", { env: ["HX_KEY"] })
+    assert.equal(ws.dt("compile").code, 0)
+    assert.match(readFile(ws.root, ".env.example"), /# declared by core\nHX_KEY=\n/)
+    patchModulePkg(ws.root, "core", { env: [] })
+    patchModulePkg(ws.root, "hr", { env: ["HX_KEY"] })
+    const moved = ws.dt("compile")
+    assert.equal(moved.code, 0, moved.stderr)
+    assert.match(moved.stdout, /✔ \.env\.example re-attributes HX_KEY \(now declared by hr\)/)
+    assert.match(readFile(ws.root, ".env.example"), /# declared by hr\nHX_KEY=\n/)
+    assert.doesNotMatch(readFile(ws.root, ".env.example"), /declared by core/)
+    patchModulePkg(ws.root, "hr", { env: [] })
+    const gone = ws.dt("compile")
+    assert.equal(gone.code, 0, gone.stderr)
+    assert.match(gone.stdout, /✔ \.env\.example drops HX_KEY — no installed package declares it/)
+    assert.doesNotMatch(readFile(ws.root, ".env.example"), /HX_KEY/)
+  })
+
+  test("a key the workspace itself declares in dreamteamer.vars is never dropped; a key declared as env by one module and as a var by another is one block", () => {
+    const ws = twoModuleWorkspace({ pkg: { vars: ["HX_FOLDER", "HX_BOTH"] } })
+    fs.writeFileSync(path.join(ws.root, ".env.example"), "# declared by @fix/gone\nHX_FOLDER=\n")
+    patchModulePkg(ws.root, "core", { env: ["HX_BOTH"] })
+    patchModulePkg(ws.root, "hr", { vars: ["HX_BOTH"] })
+    const r = ws.dt("compile")
+    assert.equal(r.code, 0, r.stderr)
+    const text = readFile(ws.root, ".env.example")
+    assert.match(text, /# declared by @fix\/gone\nHX_FOLDER=\n/, "the workspace declares it: kept as it was")
+    assert.equal((text.match(/^HX_BOTH=/gm) ?? []).length, 1)
+    assert.match(text, /# declared by core, hr\nHX_BOTH=\n/)
+    const again = ws.dt("compile")
+    assert.doesNotMatch(again.stdout, /\.env\.example/)
+    assert.equal(readFile(ws.root, ".env.example"), text)
+  })
+
+  test("a declared git module not cloned yet: nothing is dropped or re-attributed, only added", () => {
+    const ws = twoModuleWorkspace()
+    const pkgPath = path.join(ws.root, "package.json")
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8"))
+    pkg.dreamteamer.git_modules = { ...(pkg.dreamteamer.git_modules ?? {}), absent: { url: "x", ref: "main" } }
+    fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, "\t") + "\n")
+    fs.writeFileSync(path.join(ws.root, ".env.example"), "# declared by absent\nABSENT_KEY=\n")
+    const r = ensureEnvExample(ws.root, [{ key: "NEW_ONE", modules: ["core"] }], "", { complete: false })
+    assert.deepEqual(r, { added: ["NEW_ONE"], moved: [], dropped: [] })
+    assert.match(
+      readFile(ws.root, ".env.example"),
+      /# declared by absent\nABSENT_KEY=\n\n# declared by core\nNEW_ONE=\n/
+    )
   })
 
   test("a malformed env declaration is a compile error naming the module", () => {

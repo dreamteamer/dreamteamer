@@ -584,12 +584,42 @@ export function compile(ws: Workspace): 0 {
   // points at a file that actually names them; `.vscode/extensions.json` recommends the editor
   // extension, so the first window offers it. Both are append/merge-only — nothing authored moves.
   {
-    const added = ensureEnvExample(
+    // one entry per key: a key one package declares as env and another requests as a var is one block
+    const byKey = new Map<string, { key: string; modules: string[]; description?: string; example?: string }>()
+    for (const [key, mods] of [...declaredEnv, ...requestedVars]) {
+      let e = byKey.get(key)
+      if (!e) {
+        e = { key, modules: [], ...(envMeta.get(key) ?? {}) }
+        byKey.set(key, e)
+      }
+      for (const m of mods) if (!e.modules.includes(m)) e.modules.push(m)
+    }
+    // the workspace's own declarations are never dropped; and a declared module not on disk yet (a git
+    // module before `dt install`, a dependency before `npm install`) would drop keys it still declares
+    const ownEnv: unknown[] = config.env ?? []
+    const keep = [
+      ...declaredVars,
+      ...ownEnv.flatMap(e =>
+        typeof e === "string"
+          ? [e]
+          : e && typeof e === "object" && "name" in e && typeof e.name === "string"
+            ? [e.name]
+            : []
+      ),
+    ]
+    const complete =
+      !Object.keys(config.git_modules ?? {}).some(n => !fs.existsSync(path.join(root, "git_modules", n))) &&
+      !Object.keys(pkg.dependencies ?? {}).some(n => !fs.existsSync(path.join(root, "node_modules", n, "package.json")))
+    const env = ensureEnvExample(
       root,
-      [...declaredEnv, ...requestedVars].map(([key, mods]) => ({ key, modules: mods, ...(envMeta.get(key) ?? {}) })),
-      "# secrets for skills and modules go here (copy to .env; .env is never committed).\n# modules declare the env keys they require in their package.json dreamteamer.env list.\n"
+      [...byKey.values()],
+      "# secrets for skills and modules go here (copy to .env; .env is never committed).\n# modules declare the env keys they require in their package.json dreamteamer.env list.\n",
+      { keep, complete }
     )
-    if (added.length) console.log(`✔ .env.example now names ${added.join(", ")}`)
+    if (env.added.length) console.log(`✔ .env.example now names ${env.added.join(", ")}`)
+    for (const k of env.moved)
+      console.log(`✔ .env.example re-attributes ${k} (now declared by ${byKey.get(k)!.modules.join(", ")})`)
+    for (const k of env.dropped) console.log(`✔ .env.example drops ${k} — no installed package declares it`)
     ensureEditorRecommendation(root)
   }
 

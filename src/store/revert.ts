@@ -48,7 +48,7 @@ export function revert(
   // is the whole point of a revert — because `check` re-reads that file and expects a mirror only
   // for a ref it can parse. Qualifying `after` here would attach a mirror check then calls stale.
   const restored = { ...tmpFields }
-  store.validate(d, tmpFields)
+  store.validate(d, tmpFields, { repo: store.layerOfFile(d, file)?.layer ?? null })
   // Restoring an owner field restores its PLACEMENT too — the historical record lived where its
   // historical owner put it, and writing it into whatever folder the record sits in today would
   // leave a file `check` reports the moment it lands. Same rule as `set`: only the owner moves it.

@@ -33,6 +33,7 @@ import { walkRoot } from "./lib/walkRoot.ts"
 import { placedChildrenIn } from "./lib/placedChildrenIn.ts"
 import { moveRecord } from "./lib/moveRecord.ts"
 import { external } from "./external.ts"
+import { vouched } from "./vouched.ts"
 import { createdOf } from "./createdOf.ts"
 import { addedDates } from "./addedDates.ts"
 import { revert } from "./revert.ts"
@@ -161,7 +162,8 @@ export class Store {
    *  against — the two read the same relation rows, so they cannot disagree about what a mirror holds.
    *
    *  Runs INSIDE withWriteLock, after the owner file is on disk. Nothing is validated here: an attach
-   *  was proved to exist by `checkRefs` before the lock, and a detach is removal, which cannot dangle.
+   *  was proved by `checkRefs` before the lock — to exist, or to be external (vouched for by an exports
+   *  manifest, no record here to mirror onto) — and a detach is removal, which cannot dangle.
    *
    *  ⚠ ALL-OR-NOTHING, by its own hand. The one refusal it can raise (a unique owner) is discoverable only
    *  ON a target, i.e. partway through a loop that may already have rewritten other targets — so a
@@ -447,6 +449,16 @@ export class Store {
     return external(this, collection, id, opts)
   }
 
+  /** The entry the exports manifest of `repo` (a layer name; null: the write root) holds for an id, with
+   *  `seen` when its holder is read here — or null. The one reading `external` and `checkRefs` share. */
+  vouched(
+    collection: string,
+    id: string,
+    repo: string | null = null
+  ): { label: string; from?: string; manifest: string; seen: boolean } | null {
+    return vouched(this, collection, id, repo)
+  }
+
   read(collection: string, id: string): { fields: Fields; file: string } {
     const d = this.descriptor(collection)
     const file = this.ids(collection).get(id)
@@ -544,7 +556,7 @@ export class Store {
 
   // ---- validation (hard) ---------------------------------------------------
 
-  validate(d: Descriptor, fields: Fields, opts?: { skipRefs?: boolean }): Fields {
+  validate(d: Descriptor, fields: Fields, opts?: { skipRefs?: boolean; repo?: string | null }): Fields {
     return validate(this, d, fields, opts)
   }
 
@@ -565,8 +577,9 @@ export class Store {
     return qualifyBareRefs(this, d, fields)
   }
 
-  checkRefs(d: Descriptor, fields: Fields): void {
-    return checkRefs(this, d, fields)
+  /** `repo` is the referring record's: the layer that holds it, null for the write root. */
+  checkRefs(d: Descriptor, fields: Fields, repo: string | null = null): void {
+    return checkRefs(this, d, fields, repo)
   }
 
   // ---- verbs -----------------------------------------------------------------

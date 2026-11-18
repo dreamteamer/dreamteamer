@@ -68,8 +68,10 @@ export function applyMirrorEdits(
         // A DETACH can name a target that is already gone: the owner outlived it (a `--force`
         // rm), and its FK is the dangling reference `check` reports. There is no mirror left
         // to edit and `read` would throw, turning someone else's stale data into a refusal of
-        // this write. An attach never lands here missing — checkRefs proved it before the lock.
-        if (!store.ids(rel.target).has(parsed.id)) return
+        // this write. An attach lands here missing only when checkRefs accepted it as external
+        // (an exports manifest vouches for it): nothing here holds it, so there is no mirror to write.
+        // A target whose env-pointed root cannot render here is unread: no mirror either.
+        if (storageOf(td).unavailable || !store.ids(rel.target).has(parsed.id)) return
         // another repo answers: no mirror there (see above) — mirrors stay per repo
         const file = store.mirrorFileFor(rel.target, parsed.id, ownerRepo)
         if (!file) return

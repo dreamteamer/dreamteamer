@@ -224,6 +224,40 @@ describe("external references (cr-dt-004)", () => {
   })
 })
 
+// rnd/tests/dreamteamer/write-accepts-exports-vouched-reference — a write judges a reference the way
+// `check` does: an id no root holds that the referring repo's manifest vouches for, its holder not read
+// here, is accepted; a vouched id whose holder IS read here and lacks it is refused, naming the holder.
+describe("a write accepts what check accepts: references the exports manifest vouches for", () => {
+  test("dt set and dt add accept a vouched id; check agrees; without the entry both refuse", () => {
+    const w = ws({ files: { "data/tasks/t1.task.md": task("t1") } })
+    const bare = dt(w.root, "set", "tasks/t1", "assignee=people/dana")
+    assert.equal(bare.code, 1, bare.stdout)
+    assert.match(bare.stderr, /dangling reference "people\/dana"/)
+    handManifest(w.root, { people: { dana: { label: "Dana", from: "hq-pkg" } } })
+    const set = dt(w.root, "set", "tasks/t1", "assignee=people/dana")
+    assert.equal(set.code, 0, set.stderr)
+    assert.match(readFile(w.root, "data/tasks/t1.task.md"), /assignee: people\/dana/)
+    const add = dt(w.root, "add", "tasks", "--name", "t2", "--assignee", "people/dana")
+    assert.equal(add.code, 0, add.stderr)
+    const check = dt(w.root, "check")
+    assert.equal(check.code, 0, check.stdout)
+    assert.match(check.stdout, /2 references to 1 record outside this workspace, vouched for by its exports manifest/)
+  })
+
+  test("a vouched id whose holder is read here and does not have it is refused, naming the holder; nothing is written", () => {
+    const w = withLayer()
+    handManifest(w.root, { people: { zed: { label: "Zed", from: "l-pkg" } } })
+    const before = readFile(w.root, "data/tasks/t1.task.md")
+    const res = dt(w.root, "set", "tasks/t1", "assignee=people/zed")
+    assert.equal(res.code, 1, res.stdout)
+    assert.match(
+      res.stderr,
+      /dangling reference "people\/zed" — no such record \(its holder l-pkg is read here and does not have it\)/
+    )
+    assert.equal(readFile(w.root, "data/tasks/t1.task.md"), before)
+  })
+})
+
 describe("dt exports (cr-dt-004)", () => {
   // T5 (rnd/tests/dreamteamer/cr-dt-004-t4, -t9)
   test("writes exactly the outside ids with label and holder, byte-stable, committed alone", () => {
