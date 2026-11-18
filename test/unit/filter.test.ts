@@ -13,7 +13,7 @@ import {
   tokenValue,
   VALUE_TOKENS,
   KNOWN_OPERATORS,
-} from "../../src/filter.ts"
+} from "../../src/lib/filter.ts"
 
 const row = { title: "Fix login", status: "todo", tags: ["ui", "bug"], due: "2026-07-28", assignee: null, count: 3 }
 

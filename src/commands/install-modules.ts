@@ -13,9 +13,9 @@ import path from "node:path"
 import zlib from "node:zlib"
 import { fileURLToPath } from "node:url"
 import { spawnSync, execFileSync } from "node:child_process"
-import { satisfies, EXACT } from "./semver.ts"
-import { engineVersion } from "./runtime.ts"
-import { parseEnvValues } from "./env-vars.ts"
+import { satisfies, EXACT } from "../lib/semver.ts"
+import { engineVersion } from "../lib/runtime.ts"
+import { parseEnvValues } from "../lib/env-vars.ts"
 import { compile, discoverModules, staleness, moduleIdOf } from "./compile.ts"
 import { resolveNpm, childEnv } from "./checkout.ts"
 import {
@@ -39,9 +39,9 @@ import {
   NavFragmentRefusal,
   NAV_SETTINGS_LINE,
   NAV_GUARD_LINE,
-} from "./nav-fragments.ts"
-import { writeNavDoc, NavDocError } from "./nav.ts"
-import type { Log, Opener, Workspace } from "./workspace-types.ts"
+} from "../lib/nav-fragments.ts"
+import { writeNavDoc, NavDocError } from "../lib/nav.ts"
+import type { Log, Opener, Workspace } from "../lib/workspace-types.ts"
 
 /** Numeric major.minor.patch order; a prerelease sorts below its release. */
 export function compareVersions(a, b) {
@@ -339,7 +339,7 @@ const gitStatus = (root, rel) => {
   }
 }
 
-const BIN = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "bin", "dreamteamer.js")
+const BIN = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "bin", "dreamteamer.js")
 
 // ---- steps 2–4 and 5–6, shared with `dt update` (install one pin later) ----------------------------
 

@@ -5,9 +5,9 @@
 import { execFileSync } from "node:child_process"
 import fs from "node:fs"
 import path from "node:path"
-import { Store, bodyField, serialize, atomicWrite } from "./store.ts"
-import { load, dump } from "./yaml.ts"
-import { slug } from "./template.ts"
+import { Store, bodyField, serialize, atomicWrite } from "../lib/store.ts"
+import { load, dump } from "../lib/yaml.ts"
+import { slug } from "../lib/template.ts"
 import {
   createCollection,
   removeCollection,
@@ -41,16 +41,16 @@ import {
 } from "./schema-ops.ts"
 import { KINDS } from "./compile.ts"
 import { history, historyDiff } from "./history.ts"
-import { commandsFor, recordResolver } from "./record-commands.ts"
-import { contributedNotes } from "./extensions.ts"
+import { commandsFor, recordResolver } from "../lib/record-commands.ts"
+import { contributedNotes } from "../lib/extensions.ts"
 import { distinctValues } from "./field-values.ts"
-import { matchesFilter, unknownTokens, VALUE_TOKENS } from "./filter.ts"
-import { baseNameOf, defaultStoragePath } from "./namespace.ts"
-import { sortRows } from "./temporal.ts"
-import { keyBetween, placementKey } from "./fractional-index.ts"
+import { matchesFilter, unknownTokens, VALUE_TOKENS } from "../lib/filter.ts"
+import { baseNameOf, defaultStoragePath } from "../lib/namespace.ts"
+import { sortRows } from "../lib/temporal.ts"
+import { keyBetween, placementKey } from "../lib/fractional-index.ts"
 import { ensureRepo, ensureAllRepos } from "./init.ts"
-import { expectedMirrors, ownersReadIn } from "./relations.ts"
-import { parseRecord } from "./records.ts"
+import { expectedMirrors, ownersReadIn } from "../lib/relations.ts"
+import { parseRecord } from "../lib/records.ts"
 
 import {
   storageOf,
@@ -61,7 +61,7 @@ import {
   displayOf,
   storedFieldsOf,
   targetsOf,
-} from "./descriptor.ts"
+} from "../lib/descriptor.ts"
 /**
  * Emit MACHINE-READABLE output synchronously. Use this for every `--json` payload.
  *

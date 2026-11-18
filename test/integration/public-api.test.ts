@@ -9,7 +9,7 @@ import path from "node:path"
 import { spawnSync, execFileSync } from "node:child_process"
 import { fileURLToPath } from "node:url"
 import { workspace, git, ENGINE_ROOT } from "../helpers/ws.ts"
-import { resolveNpm, childEnv } from "../../src/checkout.ts"
+import { resolveNpm, childEnv } from "../../src/commands/checkout.ts"
 
 const dts = f => fs.readFileSync(path.join(ENGINE_ROOT, "src", f), "utf8")
 
@@ -31,23 +31,25 @@ function declared(file) {
   return names
 }
 
-/** The static import closure of one src/ module: every src file reached, and every bare specifier. */
+/** The static import closure of one src/ module: every src file reached (by BASENAME — src/ is
+ *  foldered, and a file's layer does not depend on its folder), and every bare specifier. */
 function closure(entry) {
-  const files = new Set(),
+  const seen = new Set<string>(),
     bare = new Set()
   const visit = f => {
-    if (files.has(f)) return
-    files.add(f)
+    if (seen.has(f)) return
+    seen.add(f)
     const body = fs.readFileSync(path.join(ENGINE_ROOT, "src", f), "utf8")
     for (const m of body.matchAll(
       /(?:^|\n)\s*(?:import|export)[\s\S]*?from\s+["']([^"']+)["']|import\(\s*["']([^"']+)["']/g
     )) {
       const spec = m[1] ?? m[2]
-      if (spec.startsWith("./")) visit(spec.slice(2))
+      if (spec.startsWith(".")) visit(path.posix.join(path.posix.dirname(f), spec))
       else bare.add(spec)
     }
   }
   visit(entry)
+  const files = new Set([...seen].map(f => path.posix.basename(f)))
   return { files, bare }
 }
 
@@ -227,7 +229,7 @@ describe("the INSTALLED package", () => {
     assert.equal(tst.stdout.trim(), "function function function function function true", tst.stderr)
     const deep = spawnSync(
       process.execPath,
-      ["-e", "import('dreamteamer/dist/store.js').then(() => console.log('REACHED'), (e) => console.log(e.code))"],
+      ["-e", "import('dreamteamer/dist/lib/store.js').then(() => console.log('REACHED'), (e) => console.log(e.code))"],
       { cwd: dir, encoding: "utf8", timeout: 30_000 }
     )
     assert.equal(deep.stdout.trim(), "ERR_PACKAGE_PATH_NOT_EXPORTED")

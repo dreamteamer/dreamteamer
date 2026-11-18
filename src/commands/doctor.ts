@@ -4,9 +4,9 @@
 // not ok carries its fix on the same line. No network call; exit 0 unless --strict finds a failure.
 import fs from "node:fs"
 import path from "node:path"
-import { engineId, readManifest } from "./runtime.ts"
-import { satisfies } from "./semver.ts"
-import { MANAGED_BLOCKS } from "./harnesses.ts"
+import { engineId, readManifest } from "../lib/runtime.ts"
+import { satisfies } from "../lib/semver.ts"
+import { MANAGED_BLOCKS } from "../lib/harnesses.ts"
 import { units, unitEnv, unitEnvFor, receiptDir, redact, safeInspect } from "./setup.ts"
 
 const STATES = new Set(["ok", "warn", "bad"])
@@ -27,7 +27,8 @@ const hasBlock = file => {
 
 /** The engine's rows: its version, the Node it runs on, and the harness files the last compile wrote. */
 function engineChecks(root) {
-  const need = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8")).engines?.node ?? ">=20"
+  const need =
+    JSON.parse(fs.readFileSync(new URL("../../package.json", import.meta.url), "utf8")).engines?.node ?? ">=20"
   const node = process.versions.node
   const checks = [
     { label: "engine", state: "ok", detail: engineId() },

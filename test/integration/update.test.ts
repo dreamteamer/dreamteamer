@@ -6,7 +6,7 @@ import os from "node:os"
 import path from "node:path"
 import { spawnSync } from "node:child_process"
 import { workspace, ENGINE_ROOT, git, treeHash, readFile } from "../helpers/ws.ts"
-import { resolveNpm } from "../../src/checkout.ts"
+import { resolveNpm } from "../../src/commands/checkout.ts"
 import { buildRegistry } from "../fixtures/registry/build.mjs"
 
 const BIN = path.join(ENGINE_ROOT, "bin", "dreamteamer.js")
@@ -132,7 +132,7 @@ describe("dt update — one pin forward, on purpose", () => {
     assert.equal(run(ws.root, ["install", "@fix/unit@1.0.0", "--from", REG]).code, 0)
     const head = git(ws.root, ["rev-parse", "HEAD"])
     // a folder of tarballs that also holds a 1.2.0 (its entry throws whenever it is imported) and a 1.3.0
-    // (its entry throws only in the setup half's process, src/update-setup.ts)
+    // (its entry throws only in the setup half's process, src/commands/update-setup.ts)
     const from = fs.mkdtempSync(path.join(os.tmpdir(), "dt-broken-"))
     for (const f of fs.readdirSync(REG)) fs.copyFileSync(path.join(REG, f), path.join(from, f))
     const pack = (version, entry) => {

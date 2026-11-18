@@ -5,11 +5,11 @@ import { execFileSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import fs from "node:fs"
 import path from "node:path"
-import { load, dump } from "./yaml.ts"
-import { slug } from "./template.ts"
-import { walk } from "./records.ts"
-import { placedRecords } from "./placement.ts"
-import { viewErrors, viewDisplay, bindingErrors, overlayView } from "./views.ts"
+import { load, dump } from "../lib/yaml.ts"
+import { slug } from "../lib/template.ts"
+import { walk } from "../lib/records.ts"
+import { placedRecords } from "../lib/placement.ts"
+import { viewErrors, viewDisplay, bindingErrors, overlayView } from "../lib/views.ts"
 import {
   normalizeNamespaces,
   namespaceProblems,
@@ -19,7 +19,7 @@ import {
   baseNameOf,
   singular,
   namespaceOf,
-} from "./namespace.ts"
+} from "../lib/namespace.ts"
 // circular on paper in earlier versions — safe: both sides only
 // call at run time, same pattern as store.js ↔ compile.js.
 import {
@@ -29,10 +29,10 @@ import {
   END,
   INSTRUCTIONS_BEGIN,
   INSTRUCTIONS_END,
-} from "./harnesses.ts"
-import { ensureEditorRecommendation, ensureEnvExample, ensureGitignored, layerEntries } from "./workspace.ts"
-import { satisfies, EXACT } from "./semver.ts"
-import { parseEnvValues } from "./env-vars.ts"
+} from "../lib/harnesses.ts"
+import { ensureEditorRecommendation, ensureEnvExample, ensureGitignored, layerEntries } from "../lib/workspace.ts"
+import { satisfies, EXACT } from "../lib/semver.ts"
+import { parseEnvValues } from "../lib/env-vars.ts"
 import {
   DERIVED_KINDS,
   readManifest,
@@ -41,12 +41,18 @@ import {
   engineVersion,
   loadDescriptors as loadCompiledDescriptors,
   STALE_RUNTIME,
-} from "./runtime.ts"
-import { excludedFromKind, disablesPackage, isPackageEntry, MANIFEST_KEYS, v1ManifestRefusal } from "./extensions.ts"
+} from "../lib/runtime.ts"
+import {
+  excludedFromKind,
+  disablesPackage,
+  isPackageEntry,
+  MANIFEST_KEYS,
+  v1ManifestRefusal,
+} from "../lib/extensions.ts"
 import { compileCollections, v1Refusal } from "./compile-collections.ts"
-import { storageOf, fieldsOf, displayOf, targetsOf } from "./descriptor.ts"
-import type { WorkspacePkg } from "./record-types.ts"
-import type { DiscoveredModule, ModuleDiscovery, Staleness, Workspace } from "./workspace-types.ts"
+import { storageOf, fieldsOf, displayOf, targetsOf } from "../lib/descriptor.ts"
+import type { WorkspacePkg } from "../lib/record-types.ts"
+import type { DiscoveredModule, ModuleDiscovery, Staleness, Workspace } from "../lib/workspace-types.ts"
 export { engineId, engineVersion, readManifest }
 
 /**
@@ -71,7 +77,7 @@ export function titleCase(id) {
 
 /** The source kinds the compiler itself stages. An installed extension may add more
  *  (`sourceKinds`, src/extensions.js) — every enumeration below reads `kindsOf(ws)`, never this alone. */
-export { MANIFEST_KEYS } from "./extensions.ts"
+export { MANIFEST_KEYS } from "../lib/extensions.ts"
 
 export const KINDS: readonly string[] = [
   "collections",

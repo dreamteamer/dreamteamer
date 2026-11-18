@@ -3,7 +3,14 @@
 // what the operator arranged is never moved.
 import { test, describe } from "node:test"
 import assert from "node:assert/strict"
-import { parseNavDoc, serializeNavDoc, validateNavDoc, placedNames, mergeFragment, NavDocError } from "../../src/nav.ts"
+import {
+  parseNavDoc,
+  serializeNavDoc,
+  validateNavDoc,
+  placedNames,
+  mergeFragment,
+  NavDocError,
+} from "../../src/lib/nav.ts"
 
 // the design's own example, verbatim
 const EXAMPLE = `# The left nav of this workspace. Drag and drop writes this file; so may you.

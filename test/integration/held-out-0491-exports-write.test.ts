@@ -7,7 +7,7 @@ import assert from "node:assert/strict"
 import fs from "node:fs"
 import path from "node:path"
 import { workspace, compileQuietly, git, dt } from "../helpers/ws.ts"
-import { serializeExports } from "../../src/exports.ts"
+import { serializeExports } from "../../src/lib/exports.ts"
 
 const MANIFEST = "dreamteamer-exports.json"
 const PEOPLE =

@@ -264,7 +264,7 @@ describe("status and doctor are read-only and offline", () => {
       run(ws.root, ["doctor", "--json"], env)
       assert.equal(treeHash(ws.root), before, JSON.stringify(env))
     }
-    for (const f of ["src/setup.ts", "src/doctor.ts"]) {
+    for (const f of ["src/commands/setup.ts", "src/commands/doctor.ts"]) {
       const text = fs.readFileSync(path.join(ENGINE_ROOT, f), "utf8")
       assert.doesNotMatch(text, /from ["']node:(http|https|dns|net)["']/, f)
     }

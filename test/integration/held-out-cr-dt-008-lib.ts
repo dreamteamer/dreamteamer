@@ -9,7 +9,7 @@ import { spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import { workspace, ENGINE_ROOT, git, readFile, treeHash } from "../helpers/ws.ts"
 import { buildRegistry } from "../fixtures/registry/build.mjs"
-import { resolveNpm } from "../../src/checkout.ts"
+import { resolveNpm } from "../../src/commands/checkout.ts"
 
 export { ENGINE_ROOT, git, readFile, treeHash }
 export const BIN = path.join(ENGINE_ROOT, "bin", "dreamteamer.js")

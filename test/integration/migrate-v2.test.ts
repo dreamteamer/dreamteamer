@@ -9,7 +9,7 @@ import os from "node:os"
 import path from "node:path"
 import { spawnSync } from "node:child_process"
 import { workspace, writeCollection, dt, ENGINE_ROOT, WS_MODULE } from "../helpers/ws.ts"
-import { load, dump } from "../../src/yaml.ts"
+import { load, dump } from "../../src/lib/yaml.ts"
 
 const SCRIPT = path.join(ENGINE_ROOT, "scripts", "migrate-descriptors-v2.mjs")
 const run = (root, ...args) =>

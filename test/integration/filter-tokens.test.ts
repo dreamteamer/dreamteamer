@@ -5,7 +5,7 @@ import assert from "node:assert/strict"
 import fs from "node:fs"
 import path from "node:path"
 import { workspace, writeCollection, compileError, compileQuietly, dt, WS_MODULE } from "../helpers/ws.ts"
-import { dump } from "../../src/yaml.ts"
+import { dump } from "../../src/lib/yaml.ts"
 
 const VISITS = {
   description: "A visit.",

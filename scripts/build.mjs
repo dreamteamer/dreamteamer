@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// npm run build — src/*.ts → dist/*.js with tsc, then the hand-written public declarations
+// npm run build — src/**/*.ts → dist/**/*.js with tsc, then the hand-written public declarations
 // (src/*.d.ts) copied beside the files they describe.
 //
 // Type errors do NOT fail the build: the sources are not typed yet, and tsc emits regardless
@@ -14,7 +14,7 @@ import { createRequire } from "node:module"
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
 const SRC = path.join(ROOT, "src")
 const DIST = path.join(ROOT, "dist")
-const ENTRIES = ["cli.js", "api.js", "records-api.js", "testing.js", "update-setup.js"]
+const ENTRIES = ["cli.js", "api.js", "records-api.js", "testing.js", "commands/update-setup.js"]
 
 fs.rmSync(DIST, { recursive: true, force: true })
 const tsc = createRequire(import.meta.url).resolve("typescript/bin/tsc")
@@ -33,7 +33,7 @@ if (missing.length) {
 }
 for (const f of fs.readdirSync(SRC).filter(f => f.endsWith(".d.ts")))
   fs.copyFileSync(path.join(SRC, f), path.join(DIST, f))
-const built = fs.readdirSync(DIST).filter(f => f.endsWith(".js")).length
+const built = fs.readdirSync(DIST, { recursive: true }).filter(f => String(f).endsWith(".js")).length
 console.log(
   `✔ built ${built} files into dist/${errors ? ` — ${errors} type error(s) ignored (npm run typecheck lists them)` : ""}`
 )

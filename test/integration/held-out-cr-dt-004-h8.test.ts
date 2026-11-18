@@ -4,8 +4,8 @@ import assert from "node:assert/strict"
 import fs from "node:fs"
 import path from "node:path"
 import { mkws, copyInto, clone, addLayer, coll, rec, NAME, MANIFEST, dt, git, write } from "./held-out-cr-dt-004-lib.ts"
-import { serializeExports } from "../../src/exports.ts"
-import { Store } from "../../src/store.ts"
+import { serializeExports } from "../../src/lib/exports.ts"
+import { Store } from "../../src/lib/store.ts"
 
 const ABOUT = { ...NAME, about: { type: "people", many: true } }
 const COLLS = {

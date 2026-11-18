@@ -35,7 +35,7 @@ export const RUNTIME_DIR = ".dreamteamer" as const
  */
 export function engineId(): string {
   try {
-    const p = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8"))
+    const p = JSON.parse(fs.readFileSync(new URL("../../package.json", import.meta.url), "utf8"))
     return `${p.name}@${p.version}`
   } catch {
     return "dreamteamer@unknown"

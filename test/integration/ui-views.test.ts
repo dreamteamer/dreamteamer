@@ -10,8 +10,8 @@ import assert from "node:assert/strict"
 import fs from "node:fs"
 import path from "node:path"
 import { workspace, compileQuietly, readFile } from "../helpers/ws.ts"
-import { saveUiView, removeUiView } from "../../src/schema-ops.ts"
-import { load, dump } from "../../src/yaml.ts"
+import { saveUiView, removeUiView } from "../../src/commands/schema-ops.ts"
+import { load, dump } from "../../src/lib/yaml.ts"
 
 const DOCTORS = {
   description: "A doctor.",

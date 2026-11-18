@@ -7,10 +7,10 @@
 // implementation here, three callers (CLI, server, extension).
 import { execFileSync } from "node:child_process"
 import path from "node:path"
-import { RUNTIME_DIR, readManifest } from "./runtime.ts"
-import { storageOf } from "./descriptor.ts"
-import type { HistoryDiff, HistoryEntry } from "./record-types.ts"
-import type { Store } from "./store.ts"
+import { RUNTIME_DIR, readManifest } from "../lib/runtime.ts"
+import { storageOf } from "../lib/descriptor.ts"
+import type { HistoryDiff, HistoryEntry } from "../lib/record-types.ts"
+import type { Store } from "../lib/store.ts"
 
 /** A record under an env-pointed root outside the workspace has no repo here, so no past: said in
  *  one sentence rather than as git's "outside repository". */

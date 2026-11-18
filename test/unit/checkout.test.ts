@@ -1,5 +1,5 @@
 import { test, describe } from "node:test"
-import { escapes } from "../../src/checkout.ts"
+import { escapes } from "../../src/commands/checkout.ts"
 import assert from "node:assert/strict"
 import fs from "node:fs"
 import os from "node:os"
@@ -12,7 +12,7 @@ import {
   readStdin,
   resolveNpm,
   applyInstall,
-} from "../../src/checkout.ts"
+} from "../../src/commands/checkout.ts"
 
 const fakeGit = answers => args => answers[args.join(" ")] ?? ""
 

@@ -18,10 +18,10 @@ import os from "node:os"
 import path from "node:path"
 import { spawnSync } from "node:child_process"
 import { fileURLToPath } from "node:url"
-import { satisfies } from "./semver.ts"
-import { resolveNpm, childEnv } from "./checkout.ts"
-import { engineRun, freshWorkspace } from "./check-alone.ts"
-import type { EngineRun, EngineRunOptions } from "./workspace-types.ts"
+import { satisfies } from "./lib/semver.ts"
+import { resolveNpm, childEnv } from "./commands/checkout.ts"
+import { engineRun, freshWorkspace } from "./commands/check-alone.ts"
+import type { EngineRun, EngineRunOptions } from "./lib/workspace-types.ts"
 
 /** One engine run: its exit status (null when it was ended on `timeoutMs`), stdout and stderr. */
 export type Result = EngineRun

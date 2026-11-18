@@ -17,7 +17,7 @@ import {
   commitAll,
   installed,
 } from "./held-out-cr-dt-008-lib.ts"
-import { readNavDoc } from "../../src/nav.ts"
+import { readNavDoc } from "../../src/lib/nav.ts"
 
 const lab = (version, names, navItems) => ({
   name: "@fix/lab",

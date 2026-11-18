@@ -16,10 +16,10 @@ import os from "node:os"
 import path from "node:path"
 import readline from "node:readline/promises"
 import { execFileSync } from "node:child_process"
-import { CHECK_STATUSES, isEnvAction, validateEnvAction } from "./setup-contract.ts"
+import { CHECK_STATUSES, isEnvAction, validateEnvAction } from "../lib/setup-contract.ts"
 import { setEnvValues, fingerprint, leftoverTemps, gitExposure, writeEnvAtomic, EnvRefusal } from "./env-write.ts"
-import { parseEnvValues } from "./env-vars.ts"
-import { RUNTIME_DIR } from "./runtime.ts"
+import { parseEnvValues } from "../lib/env-vars.ts"
+import { RUNTIME_DIR } from "../lib/runtime.ts"
 import { discoverModules } from "./compile.ts"
 
 export const EFFECTS_ALLOWED = ["download", "network", "machine"]

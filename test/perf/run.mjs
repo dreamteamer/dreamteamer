@@ -25,10 +25,10 @@ import { execFileSync, spawnSync } from "node:child_process"
 import fs from "node:fs"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
-import { compile } from "../../src/compile.ts"
-import { Store } from "../../src/store.ts"
-import { renameCollection } from "../../src/schema-ops.ts"
-import { dump } from "../../src/yaml.ts"
+import { compile } from "../../src/commands/compile.ts"
+import { Store } from "../../src/lib/store.ts"
+import { renameCollection } from "../../src/commands/schema-ops.ts"
+import { dump } from "../../src/lib/yaml.ts"
 
 const ENGINE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..")
 const PERF_DIR = path.join(ENGINE_ROOT, "test", ".perf")
@@ -358,7 +358,7 @@ console.log(`    both                                     0.15s   and flat in th
 console.log(`  The tempting rewrite — ask each PUBLISHED row instead — is in neither column: it costs`)
 console.log(`  4.16s here (publishing N rows is what dirtied N partners, so the two sides are the same`)
 console.log(`  size) and 4.20s with no dirty partners at all, where this measures 0.10s. It also names a`)
-console.log(`  different set; src/commit.ts says why, and two tests hold it.`)
+console.log(`  different set; src/commands/commit.ts says why, and two tests hold it.`)
 
 // ── the id index's own key ─────────────────────────────────────────────────────────────────────
 // Reuses the COMMIT fixture rather than generating a third: PAIRS captures each carrying one `call`

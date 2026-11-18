@@ -9,8 +9,8 @@ import assert from "node:assert/strict"
 import fs from "node:fs"
 import path from "node:path"
 import { twoModuleWorkspace, patchModulePkg, readFile, WS_MODULE } from "../helpers/ws.ts"
-import { load } from "../../src/yaml.ts"
-import { moduleOf, overlaidByOf, storageOf, fieldsOf } from "../../src/descriptor.ts"
+import { load } from "../../src/lib/yaml.ts"
+import { moduleOf, overlaidByOf, storageOf, fieldsOf } from "../../src/lib/descriptor.ts"
 
 const compiled = (ws, name) => load(readFile(ws.root, `.dreamteamer/collections/${name}.collection.yaml`))
 

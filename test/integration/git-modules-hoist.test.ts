@@ -15,8 +15,8 @@ import assert from "node:assert/strict"
 import fs from "node:fs"
 import path from "node:path"
 import { workspace, git, dt, simpleCollection } from "../helpers/ws.ts"
-import { declaredGitModules, layerEntries } from "../../src/workspace.ts"
-import { observeState } from "../../src/checkout.ts"
+import { declaredGitModules, layerEntries } from "../../src/lib/workspace.ts"
+import { observeState } from "../../src/commands/checkout.ts"
 
 const ORG_PKG = "@northwind/org",
   PEOPLE_PKG = "people"

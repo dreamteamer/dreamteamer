@@ -1,7 +1,7 @@
-// Tier 1 — the accessors every reader asks about a compiled descriptor (src/descriptor.ts).
+// Tier 1 — the accessors every reader asks about a compiled descriptor (src/lib/descriptor.ts).
 import { test, describe } from "node:test"
 import assert from "node:assert/strict"
-import * as D from "../../src/descriptor.ts"
+import * as D from "../../src/lib/descriptor.ts"
 
 const visits = {
   name: "health/visits",

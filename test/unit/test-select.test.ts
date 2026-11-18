@@ -7,7 +7,7 @@ import { selectTests, SMOKE } from "../../scripts/test-select.mjs"
 
 const I = name => `test/integration/${name}.test.ts`
 const suite = new Map([
-  [I("compile"), "import { dump } from '../../src/yaml.ts';"],
+  [I("compile"), "import { dump } from '../../src/lib/yaml.ts';"],
   [I("records"), ""],
   [I("relations-store"), ""],
   [I("store-index"), ""],
@@ -24,9 +24,9 @@ test("a changed tier-2 file runs itself", () => {
 })
 
 test("a src module selects the files carrying its stem as a whole word", () => {
-  assert.deepEqual(run(["src/store.ts"]).files, [I("relations-store"), I("store-index")])
-  assert.deepEqual(run(["src/namespace.ts"]).files, [I("namespaces-by-module")], "the plural counts")
-  assert.ok(!run(["src/store.ts"]).files.includes(I("restore")), '"restore" contains "store" but does not name it')
+  assert.deepEqual(run(["src/lib/store.ts"]).files, [I("relations-store"), I("store-index")])
+  assert.deepEqual(run(["src/lib/namespace.ts"]).files, [I("namespaces-by-module")], "the plural counts")
+  assert.ok(!run(["src/lib/store.ts"]).files.includes(I("restore")), '"restore" contains "store" but does not name it')
 })
 
 test("a file that names the changed path is selected — src, docs or descriptors alike", () => {
@@ -35,10 +35,10 @@ test("a file that names the changed path is selected — src, docs or descriptor
 })
 
 test("a src change nothing names runs the smoke pair, and says why", () => {
-  const r = run(["src/semver.ts"])
+  const r = run(["src/lib/semver.ts"])
   assert.deepEqual(r.files, [...SMOKE].sort())
-  assert.deepEqual(r.unmatched, ["src/semver.ts"])
-  assert.match(r.reasons.get(SMOKE[0]), /nothing names src\/semver\.ts/)
+  assert.deepEqual(r.unmatched, ["src/lib/semver.ts"])
+  assert.match(r.reasons.get(SMOKE[0]), /nothing names src\/lib\/semver\.ts/)
 })
 
 test("a docs-only change nothing names runs no tier-2 file", () => {

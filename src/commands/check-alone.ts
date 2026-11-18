@@ -21,9 +21,9 @@ import { spawnSync } from "node:child_process"
 import { fileURLToPath } from "node:url"
 import { resolveNpm, childEnv } from "./checkout.ts"
 import { KINDS, kindDir } from "./compile.ts"
-import type { EngineRun, EngineRunOptions, Log } from "./workspace-types.ts"
+import type { EngineRun, EngineRunOptions, Log } from "../lib/workspace-types.ts"
 
-const ENGINE = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
+const ENGINE = path.resolve(fileURLToPath(import.meta.url), "../../..")
 const IDENTITY = {
   GIT_AUTHOR_NAME: "dreamteamer check",
   GIT_AUTHOR_EMAIL: "check@example.invalid",

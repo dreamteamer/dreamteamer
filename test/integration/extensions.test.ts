@@ -16,7 +16,7 @@ import {
   withProbeSetup,
   withProbeCollide,
 } from "../helpers/ws.ts"
-import { dump } from "../../src/yaml.ts"
+import { dump } from "../../src/lib/yaml.ts"
 import { openWorkspace, contributedViolations, check, CHECK_WARNINGS } from "../../src/api.ts"
 
 const PROBES = {
@@ -628,7 +628,7 @@ describe("disabling a PACKAGE OF MODULES switches off its code and every module 
     assert.ok(fs.existsSync(crates(ws)))
   })
   test("a git_modules bundle follows the same rule — the root name disables its children", async () => {
-    const { discoverModules } = await import("../../src/compile.ts")
+    const { discoverModules } = await import("../../src/commands/compile.ts")
     const ws = workspace({ compile: false })
     const child = path.join(ws.root, "git_modules", "gitbundle", "modules", "crates")
     fs.mkdirSync(child, { recursive: true })

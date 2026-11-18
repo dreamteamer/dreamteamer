@@ -23,8 +23,8 @@ import {
 } from "./install-modules.ts"
 import { EXIT } from "./setup.ts"
 import { moduleIdOf } from "./compile.ts"
-import { navGuard, navDocGuard, shipsFragment, NAV_SETTINGS_LINE, NAV_GUARD_LINE } from "./nav-fragments.ts"
-import type { Log, Opener } from "./workspace-types.ts"
+import { navGuard, navDocGuard, shipsFragment, NAV_SETTINGS_LINE, NAV_GUARD_LINE } from "../lib/nav-fragments.ts"
+import type { Log, Opener } from "../lib/workspace-types.ts"
 
 const gitOk = (root, args) => {
   try {

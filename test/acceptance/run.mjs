@@ -384,8 +384,9 @@ scenario(
 scenario("A7", "a synthetic provider is driven with no engine edit", ok => {
   // the probe is a package in test/fixtures; the engine's src/ names no module — the proof is the grep
   const src = fs
-    .readdirSync(path.join(ENGINE_ROOT, "src"))
-    .map(f => fs.readFileSync(path.join(ENGINE_ROOT, "src", f), "utf8"))
+    .readdirSync(path.join(ENGINE_ROOT, "src"), { recursive: true })
+    .filter(f => String(f).endsWith(".ts"))
+    .map(f => fs.readFileSync(path.join(ENGINE_ROOT, "src", String(f)), "utf8"))
     .join("\n")
   ok(
     !/@probe\/|['"`]probe['"`]|google-workspace|@dreamteamer\/(meetings|recordings|google|tasks|contacts)/.test(src),

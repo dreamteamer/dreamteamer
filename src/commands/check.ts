@@ -16,10 +16,16 @@ import {
   walk,
   idFromRecordPath,
   MAX_RECORD_BYTES,
-} from "./records.ts"
-import { NO_RUNTIME, loadDescriptors, runtimeDir, namespaces as compiledNamespaces, exportsFacts } from "./runtime.ts"
-import { parseRef } from "./namespace.ts"
-import { relationsOf, expectedMirrors, ownersReadIn } from "./relations.ts"
+} from "../lib/records.ts"
+import {
+  NO_RUNTIME,
+  loadDescriptors,
+  runtimeDir,
+  namespaces as compiledNamespaces,
+  exportsFacts,
+} from "../lib/runtime.ts"
+import { parseRef } from "../lib/namespace.ts"
+import { relationsOf, expectedMirrors, ownersReadIn } from "../lib/relations.ts"
 import {
   collectRefFields,
   valuesAt,
@@ -30,9 +36,9 @@ import {
   outsideRefs,
   regenerate,
   isStale,
-} from "./exports.ts"
-import { placementOf, placedRecords, ownerIdOf, symlinkedChildRoots } from "./placement.ts"
-import { readNavDoc, validateNavDoc, NavDocError } from "./nav.ts"
+} from "../lib/exports.ts"
+import { placementOf, placedRecords, ownerIdOf, symlinkedChildRoots } from "../lib/placement.ts"
+import { readNavDoc, validateNavDoc, NavDocError } from "../lib/nav.ts"
 
 import {
   storageOf,
@@ -42,8 +48,8 @@ import {
   bodyFieldOf,
   idsOf,
   recordTitleOf,
-} from "./descriptor.ts"
-import type { CheckExtra, WorkspaceRoot } from "./record-types.ts"
+} from "../lib/descriptor.ts"
+import type { CheckExtra, WorkspaceRoot } from "../lib/record-types.ts"
 
 // ajv-formats is CommonJS: its module.exports IS the plugin, and also carries it as `.default` — the
 // spelling its types describe.

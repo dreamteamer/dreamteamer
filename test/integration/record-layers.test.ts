@@ -11,11 +11,11 @@ import fs from "node:fs"
 import path from "node:path"
 import os from "node:os"
 import { workspace, writeModule, compileQuietly, compileError, readFile, git, dt } from "../helpers/ws.ts"
-import { Store } from "../../src/store.ts"
-import { storageOf } from "../../src/descriptor.ts"
-import { history } from "../../src/history.ts"
-import { deriveEvents } from "../../src/events.ts"
-import { load } from "../../src/yaml.ts"
+import { Store } from "../../src/lib/store.ts"
+import { storageOf } from "../../src/lib/descriptor.ts"
+import { history } from "../../src/commands/history.ts"
+import { deriveEvents } from "../../src/commands/events.ts"
+import { load } from "../../src/lib/yaml.ts"
 
 const PEOPLE =
   'name: people\nstorage:\n  suffix: person\n  owner: module\nids:\n  from: "{{ name | slug }}"\nfields:\n  name:\n    type: string\n    required: true\n  notes:\n    type: markdown\n    body: true\n'

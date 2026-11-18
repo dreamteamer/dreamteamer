@@ -10,8 +10,8 @@ import path from "node:path"
 import { spawnSync } from "node:child_process"
 import { workspace, ENGINE_ROOT, git, readFile, treeHash } from "../helpers/ws.ts"
 import { buildRegistry } from "../fixtures/registry/build.mjs"
-import { readNavDoc } from "../../src/nav.ts"
-import { NAV_GUARD_LINE } from "../../src/nav-fragments.ts"
+import { readNavDoc } from "../../src/lib/nav.ts"
+import { NAV_GUARD_LINE } from "../../src/lib/nav-fragments.ts"
 
 const BIN = path.join(ENGINE_ROOT, "bin", "dreamteamer.js")
 let REG

@@ -8,13 +8,13 @@ import assert from "node:assert/strict"
 import fs from "node:fs"
 import path from "node:path"
 import { twoModuleWorkspace, readFile, patchModulePkg } from "../helpers/ws.ts"
-import { load, dump } from "../../src/yaml.ts"
+import { load, dump } from "../../src/lib/yaml.ts"
 import {
   ensureEditorRecommendation,
   ensureEnvExample,
   EDITOR_EXTENSION_ID,
   EDITOR_RECOMMENDATIONS,
-} from "../../src/workspace.ts"
+} from "../../src/lib/workspace.ts"
 
 const ID = "dreamteamer.dreamteamer-vscode"
 const AGENT = "Anthropic.claude-code"

@@ -6,11 +6,11 @@
 import { execFileSync } from "node:child_process"
 import fs from "node:fs"
 import path from "node:path"
-import { parseRecord } from "./records.ts"
+import { parseRecord } from "../lib/records.ts"
 import { inProgress } from "./commit.ts"
-import { exportsFacts } from "./runtime.ts"
-import { storageOf, bodyFieldOf, recordTitleOf } from "./descriptor.ts"
-import { EXPORTS_FILE, readExports, serializeExports, exportsContext, outsideRefs, regenerate } from "./exports.ts"
+import { exportsFacts } from "../lib/runtime.ts"
+import { storageOf, bodyFieldOf, recordTitleOf } from "../lib/descriptor.ts"
+import { EXPORTS_FILE, readExports, serializeExports, exportsContext, outsideRefs, regenerate } from "../lib/exports.ts"
 
 /** The manifest `dt exports` would write for `repo` (null: this workspace) and what changes. */
 export function planExports(store, repo) {

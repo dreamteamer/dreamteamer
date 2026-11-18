@@ -14,7 +14,7 @@ import { loadDescriptors, exportsFacts } from "./runtime.ts"
 import { storageOf } from "./descriptor.ts"
 import { defaultStoragePath } from "./namespace.ts"
 import { walk } from "./records.ts"
-import { discoverModules, kindDir } from "./compile.ts"
+import { discoverModules, kindDir } from "../commands/compile.ts"
 
 /** `<id>.<suffix>.<ext>` — the shape every text record file has (a dotfile never is one). */
 const RECORD_FILE = /^[^.][^/]*\.[A-Za-z][\w-]*\.(md|ya?ml|json)$/

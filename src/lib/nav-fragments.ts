@@ -13,7 +13,7 @@
 // before npm (`navGuard`) until the settings are migrated or `--allow nav-reset` says to start fresh.
 import fs from "node:fs"
 import path from "node:path"
-import { discoverModules, moduleIdOf } from "./compile.ts"
+import { discoverModules, moduleIdOf } from "../commands/compile.ts"
 import { loadDescriptors } from "./runtime.ts"
 import { moduleOf, overlaidByOf } from "./descriptor.ts"
 import { findWorkspace } from "./workspace.ts"

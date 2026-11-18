@@ -5,7 +5,14 @@
 // inside it. Every shape that could climb out is enumerated here.
 import { test, describe } from "node:test"
 import assert from "node:assert/strict"
-import { assertSafeId, parseRecordText, patternRe, unknownFields, EXT, idFromRecordPath } from "../../src/records.ts"
+import {
+  assertSafeId,
+  parseRecordText,
+  patternRe,
+  unknownFields,
+  EXT,
+  idFromRecordPath,
+} from "../../src/lib/records.ts"
 
 const md = { storage: { format: "md" } }
 

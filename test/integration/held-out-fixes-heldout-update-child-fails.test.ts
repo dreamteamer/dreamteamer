@@ -9,7 +9,7 @@
 //   @ho/unit 1.1.0   extension, unit `hounit`: no inputs; inspect names itself "hounit 1.1.0" (unverified, so
 //                    the line reads `— hounit: configured — hounit 1.1.0 unverified`); plan: one ready env
 //                    action `write-version` → HO_UNIT_VERSION=1.1.0 (declared in dreamteamer.env). Its entry
-//                    THROWS AT IMPORT when HO_UNIT_CRASH=1 in the setup half's process (src/update-setup.ts) —
+//                    THROWS AT IMPORT when HO_UNIT_CRASH=1 in the setup half's process (src/commands/update-setup.ts) —
 //                    the parent, holding 1.0.0 in its ESM cache, never runs that line; the fresh setup process
 //                    does. Since 0.49.1 the compile after npm runs in a fresh process too, and an entry that
 //                    cannot load there refuses the update before setup (update.test.ts covers that); gating

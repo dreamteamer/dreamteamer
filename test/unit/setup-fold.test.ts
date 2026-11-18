@@ -1,4 +1,4 @@
-// `src/setup.ts`, the pure half: the status fold (the design's table, row by row), the input
+// `src/commands/setup.ts`, the pure half: the status fold (the design's table, row by row), the input
 // precedence (D33: flag → env → default → prompt; D39: one env key is one input), the consent rule
 // per effect kind, and the flag parser. No workspace, no fs.
 import { test, describe } from "node:test"
@@ -6,7 +6,7 @@ import assert from "node:assert/strict"
 import path from "node:path"
 import os from "node:os"
 import fs from "node:fs"
-import { fold, fillInputs, parseInputFlags, consent, redact } from "../../src/setup.ts"
+import { fold, fillInputs, parseInputFlags, consent, redact } from "../../src/commands/setup.ts"
 
 const c = (id, status, extra = {}) => ({ id, status, title: id, ...extra })
 

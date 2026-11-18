@@ -7,7 +7,7 @@
 // never to stdout, which a unit's own output may share. Exit 0 means the result file holds the outcome
 // (its `code` is the update's); anything else means it does not.
 import fs from "node:fs"
-import { openWorkspace } from "./api.ts"
+import { openWorkspace } from "../api.ts"
 import { setupAndCommit } from "./install-modules.ts"
 
 const { root, names, subject, noCommit, out, nav = null } = JSON.parse(process.argv[2])

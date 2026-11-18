@@ -13,8 +13,8 @@ import {
   navGuard,
   NavFragmentRefusal,
   NAV_GUARD_LINE,
-} from "../../src/nav-fragments.ts"
-import { readNavDoc } from "../../src/nav.ts"
+} from "../../src/lib/nav-fragments.ts"
+import { readNavDoc } from "../../src/lib/nav.ts"
 
 function fragment(root, id, text) {
   fs.writeFileSync(path.join(root, "modules", id, "nav.yaml"), text)

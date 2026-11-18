@@ -19,7 +19,7 @@
 // sentence of thought that adding a core collection does.
 
 import { readFileSync, readdirSync } from "node:fs"
-import { resolve, dirname, join, basename } from "node:path"
+import { resolve, dirname, join, basename, relative } from "node:path"
 import { fileURLToPath } from "node:url"
 
 const SRC = resolve(dirname(fileURLToPath(import.meta.url)), "..", "src")
@@ -93,9 +93,13 @@ const ALLOWED = {
 const layerOf = new Map()
 for (const [layer, mods] of Object.entries(LAYERS)) for (const m of mods) layerOf.set(m, layer)
 
-const files = readdirSync(SRC)
+// src/ is foldered (api/cli at the top, commands/, lib/), but a module is still named by its BASENAME:
+// the layer is a property of the file, never of the folder it sits in.
+const files = readdirSync(SRC, { recursive: true })
+  .map(String)
   .filter(f => f.endsWith(".ts") && !f.endsWith(".d.ts"))
   .sort()
+const stems = new Set(files.map(f => basename(f, ".ts")))
 const problems = []
 
 for (const f of files) {
@@ -113,9 +117,9 @@ for (const f of files) {
   // the code did not have. (An extension's entry is imported by a COMPUTED path, which names no file
   // under src/ and so is not an edge this graph can have.)
   for (const m of body.matchAll(
-    /(?:(?:^|\n)\s*(?:import|export)[\s\S]*?from\s+|import\(\s*)["']\.\/([\w.-]+)\.ts["']/g
+    /(?:(?:^|\n)\s*(?:import|export)[\s\S]*?from\s+|import\(\s*)["']\.{1,2}\/([\w./-]+)\.ts["']/g
   )) {
-    const target = m[1]
+    const target = basename(m[1])
     const targetLayer = layerOf.get(target)
     if (!targetLayer) continue // the missing-assignment failure is already reported on that file
     if (!ALLOWED[layer].has(targetLayer)) {
@@ -127,14 +131,14 @@ for (const f of files) {
 }
 
 for (const [layer, mods] of Object.entries(LAYERS)) {
-  const missing = mods.filter(m => !files.includes(`${m}.ts`))
+  const missing = mods.filter(m => !stems.has(m))
   if (missing.length)
     problems.push(
       `LAYERS.${layer} names ${missing.map(m => `${m}.ts`).join(", ")}, which no longer exist under src/ — drop them`
     )
   console.log(
     `${layer.padEnd(9)} ${mods
-      .filter(m => files.includes(`${m}.ts`))
+      .filter(m => stems.has(m))
       .sort()
       .join(" ")}`
   )

@@ -7,7 +7,7 @@ import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import { execFileSync } from "node:child_process"
-import { parseEnvValues } from "../../src/env-vars.ts"
+import { parseEnvValues } from "../../src/lib/env-vars.ts"
 import {
   envSpans,
   setEnvValues,
@@ -16,7 +16,7 @@ import {
   gitExposure,
   writeEnvAtomic,
   EnvRefusal,
-} from "../../src/env-write.ts"
+} from "../../src/commands/env-write.ts"
 
 const tmp = () => fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "dt-env-write-")))
 

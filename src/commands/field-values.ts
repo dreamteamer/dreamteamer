@@ -10,11 +10,11 @@
 // The data already knows. This derives the vocabulary from the records themselves, so every
 // low-cardinality field becomes selectable with no schema change and no risk of `check` failing
 // on a value that predates an enum someone added later.
-import { bodyField } from "./store.ts"
-import { fieldsOf } from "./descriptor.ts"
-import { enumValues } from "./fields.ts"
-import type { DistinctValues } from "./record-types.ts"
-import type { Store } from "./store.ts"
+import { bodyField } from "../lib/store.ts"
+import { fieldsOf } from "../lib/descriptor.ts"
+import { enumValues } from "../lib/fields.ts"
+import type { DistinctValues } from "../lib/record-types.ts"
+import type { Store } from "../lib/store.ts"
 
 /** Above this many distinct values a dropdown stops being a dropdown — report and stop counting. */
 export const DEFAULT_LIMIT = 50

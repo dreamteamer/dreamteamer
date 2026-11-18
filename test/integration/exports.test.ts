@@ -7,8 +7,8 @@ import assert from "node:assert/strict"
 import fs from "node:fs"
 import path from "node:path"
 import { workspace, compileQuietly, readFile, git, dt } from "../helpers/ws.ts"
-import { Store } from "../../src/store.ts"
-import { serializeExports } from "../../src/exports.ts"
+import { Store } from "../../src/lib/store.ts"
+import { serializeExports } from "../../src/lib/exports.ts"
 
 const PEOPLE =
   'name: people\nstorage:\n  suffix: person\nids:\n  from: "{{ name | slug }}"\nfields:\n  name:\n    type: string\n    required: true\n'

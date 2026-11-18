@@ -6,7 +6,7 @@ import assert from "node:assert/strict"
 import fs from "node:fs"
 import path from "node:path"
 import { offline, registry, run, out, readFile, git, lastFiles, collection } from "./held-out-cr-dt-008-lib.ts"
-import { readNavDoc, parseNavDoc, placedNames, mergeFragment } from "../../src/nav.ts"
+import { readNavDoc, parseNavDoc, placedNames, mergeFragment } from "../../src/lib/nav.ts"
 
 let REG
 before(() => {

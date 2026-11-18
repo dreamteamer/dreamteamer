@@ -24,7 +24,7 @@ import {
   ENGINE_ROOT,
   ENV,
 } from "./held-out-cr-dt-008-lib.ts"
-import { readNavDoc } from "../../src/nav.ts"
+import { readNavDoc } from "../../src/lib/nav.ts"
 
 const PROTOCOL =
   process.env.DT_PROTOCOL ?? path.resolve(ENGINE_ROOT, "..", "dreamteamer-modules-cr-dt-008", "modules", "protocol")

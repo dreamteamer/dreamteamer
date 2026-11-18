@@ -20,9 +20,9 @@ import {
   git,
   dt,
 } from "../helpers/ws.ts"
-import { Store } from "../../src/store.ts"
-import { storageOf } from "../../src/descriptor.ts"
-import { history } from "../../src/history.ts"
+import { Store } from "../../src/lib/store.ts"
+import { storageOf } from "../../src/lib/descriptor.ts"
+import { history } from "../../src/commands/history.ts"
 
 const PEOPLE =
   'name: people\nstorage:\n  suffix: person\n  owner: module\nids:\n  from: "{{ name | slug }}"\nfields:\n  name:\n    type: string\n    required: true\n'

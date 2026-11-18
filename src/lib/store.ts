@@ -47,8 +47,8 @@ import {
   parentOfNestedId,
   localOfNestedId,
 } from "./placement.ts"
-import { pathToRecord } from "./events.ts"
-import { commitArg } from "./history.ts"
+import { pathToRecord } from "../commands/events.ts"
+import { commitArg } from "../commands/history.ts"
 
 import {
   storageOf,

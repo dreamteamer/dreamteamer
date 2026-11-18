@@ -10,8 +10,8 @@
 import { test, describe } from "node:test"
 import assert from "node:assert/strict"
 import { workspace } from "../helpers/ws.ts"
-import { presentation } from "../../src/presentation.ts"
-import { Store } from "../../src/store.ts"
+import { presentation } from "../../src/lib/presentation.ts"
+import { Store } from "../../src/lib/store.ts"
 
 const ORDERED = {
   ids: { from: "{{ name | slug }}" },

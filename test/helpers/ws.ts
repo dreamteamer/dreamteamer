@@ -20,9 +20,9 @@ import os from "node:os"
 import path from "node:path"
 import { createHash } from "node:crypto"
 import { fileURLToPath } from "node:url"
-import { compile } from "../../src/compile.ts"
-import { Store } from "../../src/store.ts"
-import { dump } from "../../src/yaml.ts"
+import { compile } from "../../src/commands/compile.ts"
+import { Store } from "../../src/lib/store.ts"
+import { dump } from "../../src/lib/yaml.ts"
 
 export const ENGINE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..")
 const TMP = path.join(ENGINE_ROOT, "test", ".tmp")

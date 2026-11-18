@@ -1,6 +1,6 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { splitRef } from "../../src/ref.ts"
+import { splitRef } from "../../src/lib/ref.ts"
 
 const descriptors = new Map([
   ["contacts", {}],

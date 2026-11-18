@@ -3,12 +3,12 @@
 // auditable and replayable forever. history IS the queue; there is no events file.
 import path from "node:path"
 import { execFileSync } from "node:child_process"
-import { idFromRecordPath } from "./records.ts"
-import { placedChildAt } from "./placement.ts"
+import { idFromRecordPath } from "../lib/records.ts"
+import { placedChildAt } from "../lib/placement.ts"
 
-import { storageOf } from "./descriptor.ts"
+import { storageOf } from "../lib/descriptor.ts"
 import { commitArg } from "./history.ts"
-import type { Descriptors, RecordEvent } from "./record-types.ts"
+import type { Descriptors, RecordEvent } from "../lib/record-types.ts"
 /** Record events between two points, across EVERY repo that holds records. `from` is a sha or a
  *  date — a sha is meaningless in another repo, so it is resolved to its commit DATE and each
  *  repo then resolves that date to its own sha. Still cursor-less and stores nothing, so it can

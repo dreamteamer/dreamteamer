@@ -13,7 +13,7 @@
 import { test, describe } from "node:test"
 import fs from "node:fs"
 import assert from "node:assert/strict"
-import { presentation } from "../../src/presentation.ts"
+import { presentation } from "../../src/lib/presentation.ts"
 import { clinic } from "../helpers/clinic-compiled.ts"
 
 const CONTRACT = {
@@ -215,7 +215,7 @@ describe("the display contract carries only the §4.3 names", () => {
 describe("the template grammar is public", () => {
   test("api.js exports the one parser, validator and renderer", async () => {
     const api = await import("../../src/api.ts")
-    const template = await import("../../src/template.ts")
+    const template = await import("../../src/lib/template.ts")
     for (const name of ["parseTemplate", "validateTemplate", "renderDisplay"])
       assert.equal(api[name], template[name], name)
   })
