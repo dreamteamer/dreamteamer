@@ -10,7 +10,7 @@ import { EXIT } from "../lib/consts.ts"
 import type { InstallHooks, SpecEntry } from "./types.ts"
 import { planNavFragments, type NavPlan } from "../workspace/navFragments.ts"
 
-// the command line, two folders up from src/install/ in a checkout and from dist/install/ in the package
+/** the command line, two folders up from src/install/ in a checkout and from dist/install/ in the package */
 const BIN = fileURLToPath(new URL("../../bin/dreamteamer.js", import.meta.url))
 
 // ---- steps 2–4 and 5–6, shared with `dt update` (install one pin later) ----------------------------

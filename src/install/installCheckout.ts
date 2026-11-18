@@ -6,11 +6,13 @@ import { readHookInput } from "./readHookInput.ts"
 import { readStdin } from "./readStdin.ts"
 import type { LoadedExtension, Workspace } from "../types.ts"
 
-// The hook events and the verb each one runs. Core owns ONE — making the checkout a session opens in
-// ready — and an installed extension adds its own (`hooks:` in its contribution; the worktree
-// lifecycle belongs to a worktree extension). NO MATCHER on any of them (spec §13.9): bootstrap is
-// idempotent precisely so the session-start hook may fire on every event — `startup` alone would
-// silence it on resume, clear, compact and fork, which is most of what a long session actually does.
+/**
+ * The hook events and the verb each one runs. Core owns ONE — making the checkout a session opens in
+ * ready — and an installed extension adds its own (`hooks:` in its contribution; the worktree
+ * lifecycle belongs to a worktree extension). NO MATCHER on any of them (spec §13.9): bootstrap is
+ * idempotent precisely so the session-start hook may fire on every event — `startup` alone would
+ * silence it on resume, clear, compact and fork, which is most of what a long session actually does.
+ */
 const CLAUDE_HOOKS: Record<string, string> = { SessionStart: "install --hook" }
 
 /** Print the harness snippets for this workspace's declared harnesses.

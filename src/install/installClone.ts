@@ -5,8 +5,10 @@ import type { Workspace } from "../types.ts"
 import { buildClone } from "./buildClone.ts"
 import { tryGit } from "../lib/git/tryGit.ts"
 
-// dreamteamer install --clone <url> [name] — clone a module for development AND
-// record it in the committed lockfile map (story 5.3)
+/**
+ * dreamteamer install --clone <url> [name] — clone a module for development AND
+ * record it in the committed lockfile map (story 5.3)
+ */
 export function installClone(ws: Workspace, url: string, name?: string): number {
   if (!url) throw new Error("usage: dreamteamer install --clone <git-url> [name]")
   name = name && !name.startsWith("--") ? name : path.basename(url, ".git")

@@ -44,7 +44,7 @@ function linksUnder(root: string, rel: string, out: string[] = []): string[] {
   return out
 }
 
-// compile's built-in outputs: the runtime and the harness trees it writes AND prunes (harnesses.js)
+/** compile's built-in outputs: the runtime and the harness trees it writes AND prunes (harnesses.js) */
 const OUTPUT_TREES = [
   RUNTIME_DIR,
   ".claude/skills",

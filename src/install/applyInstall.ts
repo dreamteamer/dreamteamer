@@ -77,9 +77,11 @@ const guard =
     }
   }
 
-// One executor per step id, keyed by the id's kind. None decides ANYTHING — whether a step runs at
-// all was settled by `planInstall`. `stdio` is the caller's, so a `--json` run can send a
-// subprocess's chatter to stderr and keep stdout for the payload.
+/**
+ * One executor per step id, keyed by the id's kind. None decides ANYTHING — whether a step runs at
+ * all was settled by `planInstall`. `stdio` is the caller's, so a `--json` run can send a
+ * subprocess's chatter to stderr and keep stdout for the payload.
+ */
 const RUN: Record<string, StepFn> = {
   // ⚠ `npm` ARRIVES AS AN ARGUMENT rather than being resolved here, and that is what makes the
   // refusal below testable at all: with the resolution inlined, deleting the guard left the suite

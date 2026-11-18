@@ -29,7 +29,9 @@ import { positionLines } from "./lib/positionLines.ts"
 import { renameField } from "./renameField.ts"
 import { renameValue } from "./renameValue.ts"
 
-// `dreamteamer add collections --name research-docs --mixins docs --id-from '{{ created | date }}--{{ title | slug }}'`
+/**
+ * `dreamteamer add collections --name research-docs --mixins docs --id-from '{{ created | date }}--{{ title | slug }}'`
+ */
 function metaCollectionsAdd(ws: Workspace, store: Store, flags: Flags) {
   // ⚠ BEFORE the write, not after. `--namespace=` is the empty STRING (clear it); a bare
   // `--namespace` parses as `true`, which is a mistake worth naming — and naming it AFTER the call
@@ -152,9 +154,11 @@ function metaCollectionsGet(ws: Workspace, store: Store, flags: Flags, pos: stri
   return 0
 }
 
-// `dreamteamer collections rename doctors health/doctors`, or `… doctors --namespace health`.
-// The whole point is that namespacing EXISTING data is one command instead of a six-step hand
-// migration whose last step (rewriting references) dangles everything when forgotten.
+/**
+ * `dreamteamer collections rename doctors health/doctors`, or `… doctors --namespace health`.
+ * The whole point is that namespacing EXISTING data is one command instead of a six-step hand
+ * migration whose last step (rewriting references) dangles everything when forgotten.
+ */
 function metaCollectionsRename(ws: Workspace, store: Store, flags: Flags, pos: string[]) {
   const [oldName, explicitNew] = pos
   if (!oldName)
@@ -200,8 +204,10 @@ function metaCollectionsRename(ws: Workspace, store: Store, flags: Flags, pos: s
   return 0
 }
 
-// `dreamteamer collections rm widgets [--force]` — --force is required to drop a collection
-// that still has records (removeCollection refuses otherwise, and says so).
+/**
+ * `dreamteamer collections rm widgets [--force]` — --force is required to drop a collection
+ * that still has records (removeCollection refuses otherwise, and says so).
+ */
 function metaCollectionsRm(ws: Workspace, store: Store, flags: Flags, pos: string[]) {
   const name = need(pos, 0, "collection name")
   if (flags["dry-run"])
@@ -216,7 +222,7 @@ function metaCollectionsRm(ws: Workspace, store: Store, flags: Flags, pos: strin
   return 0
 }
 
-// `dreamteamer add-field health/visits --name kind --enum intake,follow-up --default-value follow-up`
+/** `dreamteamer add-field health/visits --name kind --enum intake,follow-up --default-value follow-up` */
 function metaAddField(ws: Workspace, store: Store, collection: string, flags: Flags) {
   const field = fieldFromFlags(store, flags)
   const out = addField(ws, store, collection, {
@@ -232,9 +238,11 @@ function metaAddField(ws: Workspace, store: Store, collection: string, flags: Fl
   return 0
 }
 
-// `dreamteamer set-field tasks --name urgent --required false`
-// Same flag vocabulary as add-field (one `fieldFromFlags`), applied over the field as its source
-// declares it: a flag that is not passed leaves its key alone.
+/**
+ * `dreamteamer set-field tasks --name urgent --required false`
+ * Same flag vocabulary as add-field (one `fieldFromFlags`), applied over the field as its source
+ * declares it: a flag that is not passed leaves its key alone.
+ */
 function metaUpdateField(ws: Workspace, store: Store, collection: string, flags: Flags) {
   const name = oneValue(flags, "name")
   if (!name) throw new Error("missing --name <field>")
@@ -247,7 +255,7 @@ function metaUpdateField(ws: Workspace, store: Store, collection: string, flags:
   return 0
 }
 
-// `dreamteamer rm-field tasks --name urgent`
+/** `dreamteamer rm-field tasks --name urgent` */
 function metaRemoveField(ws: Workspace, store: Store, collection: string, flags: Flags) {
   const name = oneValue(flags, "name")
   if (!name) throw new Error("missing --name <field>")
@@ -276,7 +284,7 @@ function metaRemoveField(ws: Workspace, store: Store, collection: string, flags:
   return 0
 }
 
-// `dreamteamer rename-field people --name employer --to company`
+/** `dreamteamer rename-field people --name employer --to company` */
 function metaRenameField(ws: Workspace, store: Store, collection: string, flags: Flags) {
   const from = oneValue(flags, "name")
   if (!from)
@@ -307,7 +315,7 @@ function metaRenameField(ws: Workspace, store: Store, collection: string, flags:
   return 0
 }
 
-// `dreamteamer rename-value health/visits status seen done`
+/** `dreamteamer rename-value health/visits status seen done` */
 function metaRenameValue(ws: Workspace, store: Store, collection: string, flags: Flags, pos: string[]) {
   const [field, from, to] = pos
   if (!field || from === undefined || to === undefined || pos.length > 3)

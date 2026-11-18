@@ -11,8 +11,10 @@ import { INSTRUCTIONS_SOURCE } from "./consts.ts"
 import { discoverModules } from "../workspace/discoverModules.ts"
 import { excludedFromKind, isPackageEntry } from "../extensions/extensions.ts"
 
-// staleness: does any manifest entry's SOURCE differ from what was compiled, or is a
-// source file missing/new? used by `status` and warned about at every tool entry.
+/**
+ * staleness: does any manifest entry's SOURCE differ from what was compiled, or is a
+ * source file missing/new? used by `status` and warned about at every tool entry.
+ */
 export function staleness(root: string): { compiled: boolean; stale: string[]; manifest?: Manifest; message?: string } {
   const manifest = readManifest(root)
   if (!manifest) return { compiled: false, stale: [], message: "no compiled runtime — run `dreamteamer compile`" }

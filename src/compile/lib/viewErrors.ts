@@ -16,8 +16,10 @@ const VIEW_SCOPES = ["record", "collection", "page"]
 
 const GROUP_TEMPLATES = ["group_title", "group_summary"]
 
-// what marks a source as written in the format before this one: only ever used to send it to the
-// converter, which compile names once for every such file (`v1: true` on the result)
+/**
+ * what marks a source as written in the format before this one: only ever used to send it to the
+ * converter, which compile names once for every such file (`v1: true` on the result)
+ */
 const V1_VIEW_KEYS = ["path", "target", "layout", "options", "nav"]
 
 /** The fields a `group_by` field's groups expose to a group template, or null when it groups by nothing known. */

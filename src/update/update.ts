@@ -7,9 +7,11 @@ import { buildClone } from "../install/buildClone.ts"
 import { discoverModules } from "../workspace/discoverModules.ts"
 import { tryGit } from "../lib/git/tryGit.ts"
 
-// dreamteamer update [<name>] — pull each lockfile-declared git_modules clone forward
-// (ff-only on its recorded ref) and rebuild it. dirty clones are skipped, never touched.
-// the caller (cli) runs compile afterwards — a pulled module may change sources.
+/**
+ * dreamteamer update [<name>] — pull each lockfile-declared git_modules clone forward
+ * (ff-only on its recorded ref) and rebuild it. dirty clones are skipped, never touched.
+ * the caller (cli) runs compile afterwards — a pulled module may change sources.
+ */
 export function update({ root, pkg }: Pick<Workspace, "root" | "pkg">, only?: string | null): number {
   const map = Object.fromEntries(declaredGitModules(pkg, root).map) // a hoisted layer is pulled forward too
   if (only && !map[only])

@@ -11,10 +11,12 @@ import { appendMissing } from "../lib/appendMissing.ts"
 import { buildClone } from "./buildClone.ts"
 import { tryGit } from "../lib/git/tryGit.ts"
 
-// dreamteamer install — restore git_modules/ working clones from the committed lockfile map, and what each
-// restored clone NEEDS in turn (`declaredGitModules`, the npm model): a layer a clone's manifest names is
-// cloned ONCE at the top level and linked under the clone — or, where it disagrees with what the top holds,
-// cloned under the clone itself — to a fixpoint, since a clone just restored may need more. Never refuses.
+/**
+ * dreamteamer install — restore git_modules/ working clones from the committed lockfile map, and what each
+ * restored clone NEEDS in turn (`declaredGitModules`, the npm model): a layer a clone's manifest names is
+ * cloned ONCE at the top level and linked under the clone — or, where it disagrees with what the top holds,
+ * cloned under the clone itself — to a fixpoint, since a clone just restored may need more. Never refuses.
+ */
 export function install({ root, pkg }: Pick<Workspace, "root" | "pkg">): number {
   const unreachable: string[] = [],
     done = new Set<string>()

@@ -1,7 +1,9 @@
 import { openWorkspace } from "../../openWorkspace.ts"
 
-// Record verbs, split by what their <target> means. `reorder` and `next` are in NEITHER set: both
-// accept either shape, and which one it is has to be decided against the declared collections.
+/**
+ * Record verbs, split by what their <target> means. `reorder` and `next` are in NEITHER set: both
+ * accept either shape, and which one it is has to be decided against the declared collections.
+ */
 const REF_VERBS = new Set(["get", "set", "rm", "rename", "history", "diff", "revert"])
 const COLLECTION_VERBS = new Set(["list", "add", "values"])
 

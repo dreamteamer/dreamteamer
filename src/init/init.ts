@@ -25,10 +25,12 @@ media/
 .cache/
 `
 
-// A brand-new workspace with no collections gives a user nothing to run, and makes `compile` warn
-// that the module `init` just created "contributed no recognised sources" — a warning about its own
-// output, which reads as a broken install. One starter collection answers both. `notes` is
-// deliberately the most generic thing a workspace can hold.
+/**
+ * A brand-new workspace with no collections gives a user nothing to run, and makes `compile` warn
+ * that the module `init` just created "contributed no recognised sources" — a warning about its own
+ * output, which reads as a broken install. One starter collection answers both. `notes` is
+ * deliberately the most generic thing a workspace can hold.
+ */
 const STARTER_COLLECTION = `name: notes
 record_title: '{{ title }}'
 description: A dated note — the starter collection init seeds, to rename or replace with what this workspace actually keeps.
@@ -53,7 +55,7 @@ const ENV_EXAMPLE = `# secrets for skills and modules go here (copy to .env; .en
 # modules declare the env keys they require in their package.json dreamteamer.env list.
 `
 
-// `commit: false` is `init --ready`'s: a bootstrap writes and never commits (checkout.js `bootstrap`).
+/** `commit: false` is `init --ready`'s: a bootstrap writes and never commits (checkout.js `bootstrap`). */
 export function init({ flags = {} as Flags, root = process.cwd(), commit = true } = {}): 0 {
   // both take a value on the command line (`--name x`, `--data-path x`)
   const name = (flags.name as string) ?? path.basename(root)

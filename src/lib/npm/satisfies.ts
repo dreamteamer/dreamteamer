@@ -5,7 +5,7 @@ const parse = (v: string): [number, number, number] | null => {
 
 const cmp = (a: number[], b: number[]): number => a[0] - b[0] || a[1] - b[1] || a[2] - b[2]
 
-// true = in range, false = out of range, null = version or range not understood
+/** true = in range, false = out of range, null = version or range not understood */
 export function satisfies(version: string, range: string): boolean | null {
   const v = parse(version)
   if (!v) return null

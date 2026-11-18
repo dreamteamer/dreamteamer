@@ -233,9 +233,11 @@ export function statusCommand(ws: Workspace, rest: string[]): number {
   return 0
 }
 
-// git calls whose failure we CATCH must not print git's own error: execFileSync forwards the
-// child's stderr to ours unless told otherwise, so a handled "not a git repository" still
-// reached the user's terminal. stdout stays piped because we read it.
+/**
+ * git calls whose failure we CATCH must not print git's own error: execFileSync forwards the
+ * child's stderr to ours unless told otherwise, so a handled "not a git repository" still
+ * reached the user's terminal. stdout stays piped because we read it.
+ */
 const QUIET: StdioOptions = ["ignore", "pipe", "ignore"]
 
 function tryGit(cwd: string, args: string[]): string | null {

@@ -15,7 +15,7 @@ export function parseRecord(file: string, d: Descriptor, bodyField?: string | nu
   return parseRecordText(fs.readFileSync(file, "utf8"), d, bodyField)
 }
 
-// id patterns may use unicode property escapes — compile with the u flag
+/** id patterns may use unicode property escapes — compile with the u flag */
 export function patternRe(pattern: string): RegExp {
   try {
     return new RegExp(pattern, "u")
@@ -24,7 +24,7 @@ export function patternRe(pattern: string): RegExp {
   }
 }
 
-// ajv errors, humanized: echo the offending value (the one datum the reader needs)
+/** ajv errors, humanized: echo the offending value (the one datum the reader needs) */
 export function fmtAjvError(e: ErrorObject, fields: unknown): string {
   const fieldPath = e.instancePath.slice(1).replace(/\//g, ".")
   const value = fieldPath
@@ -34,7 +34,7 @@ export function fmtAjvError(e: ErrorObject, fields: unknown): string {
   return `field ${fieldPath || "(root)"}: ${JSON.stringify(value) ?? ""} ${e.message}`.trim()
 }
 
-// keys a record carries that its collection does not store (typo detector)
+/** keys a record carries that its collection does not store (typo detector) */
 export function unknownFields(d: Descriptor, fields: Fields): string[] {
   if (isBinary(d)) return [] // a file record's fields are read from the file, never authored
   const props = storedFieldsOf(d)
@@ -42,9 +42,11 @@ export function unknownFields(d: Descriptor, fields: Fields): string[] {
   return Object.keys(fields).filter(k => !(k in props))
 }
 
-// ids are PATHS — but only downward ones. traversal segments, absolute paths and
-// backslashes are rejected before any fs join (review finding 1: an escaping --id
-// wrote a record outside the repo and orphaned others inside it).
+/**
+ * ids are PATHS — but only downward ones. traversal segments, absolute paths and
+ * backslashes are rejected before any fs join (review finding 1: an escaping --id
+ * wrote a record outside the repo and orphaned others inside it).
+ */
 export function assertSafeId(id: unknown): asserts id is string {
   if (typeof id !== "string" || id === "") throw new Error(`invalid id "${id}" — nothing was written.`)
   if (id.startsWith("/") || id.includes("\\") || id.split("/").some(s => s === "" || s === "." || s === "..")) {

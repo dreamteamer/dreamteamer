@@ -21,7 +21,7 @@ import { rel } from "../lib/rel.ts"
 // incomplete: there was no `add-module`, no `rm-module`, no `rename-field`, and no way to NAME a
 // target module. §6.2.
 
-// `dreamteamer add modules --name core [--description "…"]`
+/** `dreamteamer add modules --name core [--description "…"]` */
 function metaModulesAdd(ws: Workspace, store: Store, flags: Flags) {
   // ⚠ BEFORE the write, as `add collections` does it and for the same reason: naming the mistake
   // after the call lands a committed module and then exits 1.
@@ -52,7 +52,7 @@ function metaModulesAdd(ws: Workspace, store: Store, flags: Flags) {
   return 0
 }
 
-// `dreamteamer rm modules/core [--force] [--dry-run]`
+/** `dreamteamer rm modules/core [--force] [--dry-run]` */
 function metaModulesRm(ws: Workspace, store: Store, flags: Flags, pos: string[]) {
   const id = need(pos, 0, "module id")
   const out: Flat<ReturnType<typeof removeModule>> = removeModule(ws, store, id, {
@@ -77,7 +77,7 @@ function metaModulesRm(ws: Workspace, store: Store, flags: Flags, pos: string[])
   return 0
 }
 
-// `dreamteamer rename modules/core shared`
+/** `dreamteamer rename modules/core shared` */
 function metaModulesRename(ws: Workspace, store: Store, flags: Flags, pos: string[]) {
   const oldId = need(pos, 0, "module id")
   const out = renameModule(ws, store, oldId, need(pos, 1, "new module id"))
@@ -96,7 +96,7 @@ function metaModulesRename(ws: Workspace, store: Store, flags: Flags, pos: strin
   return 0
 }
 
-// `dreamteamer set modules/hr description="…" dependencies=modules/core`
+/** `dreamteamer set modules/hr description="…" dependencies=modules/core` */
 function metaModulesSet(ws: Workspace, store: Store, flags: Flags, pos: string[]) {
   const id = need(pos, 0, "module id")
   const changes = { ...pairs(pos.slice(1)), ...stripMeta(flags) }

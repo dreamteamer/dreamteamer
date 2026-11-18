@@ -9,7 +9,7 @@ export function ttyIO(): SetupIO & { close: () => void } {
   return { prompt: ttyPrompt(rl), ask: ttyAsk(rl), close: () => rl.close() }
 }
 
-// an EOF (Ctrl-D) at a prompt is no answer — the input stays missing (exit 3), the action declined — never a crash
+/** an EOF (Ctrl-D) at a prompt is no answer — the input stays missing (exit 3), the action declined — never a crash */
 const question = async (rl: readline.Interface, text: string): Promise<string> => {
   try {
     return (await rl.question(text)).trim()

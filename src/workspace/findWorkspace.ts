@@ -2,7 +2,7 @@ import path from "node:path"
 import fs from "node:fs"
 import type { Workspace } from "../types.ts"
 
-// path segments that mean "the thing below me is a module of the thing above me", never a workspace
+/** path segments that mean "the thing below me is a module of the thing above me", never a workspace */
 const MODULE_SEGMENTS = new Set(["node_modules", "git_modules", "modules"])
 
 export function findWorkspace(start = process.cwd()): Workspace {

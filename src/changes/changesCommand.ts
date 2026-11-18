@@ -6,13 +6,15 @@ import { printChanges } from "./printChanges.ts"
 import type { Workspace } from "../types.ts"
 import { warnIfStale } from "../compile/warnIfStale.ts"
 
-// `changes` is what survives of the trigger/run subsystem removed 2026-07-31: deriving
-// record events from git history was the genuinely used half (catch-up — "what happened
-// while I was away"), while creating run records from triggers was not. Read-only by
-// construction: no cursor to advance, nothing to store, so it is safe to run twice.
-// Since 0.42.0 its default is the UNCOMMITTED state (`HEAD`), because the question a
-// session asks after a write is "what did I just change" — and its first line is the
-// report line the skill tells a session to end its reply with.
+/**
+ * `changes` is what survives of the trigger/run subsystem removed 2026-07-31: deriving
+ * record events from git history was the genuinely used half (catch-up — "what happened
+ * while I was away"), while creating run records from triggers was not. Read-only by
+ * construction: no cursor to advance, nothing to store, so it is safe to run twice.
+ * Since 0.42.0 its default is the UNCOMMITTED state (`HEAD`), because the question a
+ * session asks after a write is "what did I just change" — and its first line is the
+ * report line the skill tells a session to end its reply with.
+ */
 export function changesCommand(ws: Workspace, rest: string[]): number {
   warnIfStale(ws.root)
   const si = rest.indexOf("--since")

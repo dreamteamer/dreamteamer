@@ -1,7 +1,7 @@
 import type { Descriptor, Flags, Fields } from "../../types.ts"
 import { fieldsOf } from "../../record/descriptor.ts"
 
-// CLI values are strings; split comma-lists for array-typed fields (ajv coerces the rest)
+/** CLI values are strings; split comma-lists for array-typed fields (ajv coerces the rest) */
 export function coerceArrays(d: Descriptor, fields: Flags): Fields {
   const out: Fields = {}
   for (const [k, v] of Object.entries(fields)) {

@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process"
 
-// read-only git, scoped to the root: no optional locks, no fsmonitor, no GIT_* from the environment
+/** read-only git, scoped to the root: no optional locks, no fsmonitor, no GIT_* from the environment */
 const GIT_ENV_KEYS = [
   "PATH",
   "HOME",

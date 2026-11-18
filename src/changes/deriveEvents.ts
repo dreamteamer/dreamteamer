@@ -58,7 +58,7 @@ export function deriveEvents(root: string, descriptors: Descriptors, from: strin
   return events
 }
 
-// git's own "no parent" object — the diff baseline for a repo younger than the requested date
+/** git's own "no parent" object — the diff baseline for a repo younger than the requested date */
 const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 
 /** A sha or a date in → an ISO instant. A sha is resolved in the WORKSPACE repo, since that is

@@ -39,19 +39,25 @@ interface Targets {
   records: Map<string, { collection: string; id: string }>
 }
 
-// ⚠ `input` does NOT override a `stdio[0]` of 'ignore' — the child gets a closed stdin and git
-// answers an empty batch, which reads as "no record has a pre-image" and names partners that never
-// moved. So the one call that writes to stdin spells its stdio out itself rather than reusing QUIET.
+/**
+ * ⚠ `input` does NOT override a `stdio[0]` of 'ignore' — the child gets a closed stdin and git
+ * answers an empty batch, which reads as "no record has a pre-image" and names partners that never
+ * moved. So the one call that writes to stdin spells its stdio out itself rather than reusing QUIET.
+ */
 const QUIET_IN: StdioOptions = ["pipe", "pipe", "ignore"]
 
-// The two calls that MAKE the commit keep git's stderr, piped: a refusing hook says why on it, and
-// that line is the whole report when the commit fails — so it is read, not inherited or dropped.
+/**
+ * The two calls that MAKE the commit keep git's stderr, piped: a refusing hook says why on it, and
+ * that line is the whole report when the commit fails — so it is read, not inherited or dropped.
+ */
 const QUIET_ERR: StdioOptions = ["ignore", "pipe", "pipe"]
 
-// One batch is one buffer, and execFileSync's default ceiling is 1 MiB — less than a collection's
-// worth of pre-images. 64 MiB is ~40,000 record files at the size a text record actually runs to,
-// and going over it is not a failure: the batch returns nothing and every row falls back to its own
-// read, same answer and slower. So the number wants headroom, not precision.
+/**
+ * One batch is one buffer, and execFileSync's default ceiling is 1 MiB — less than a collection's
+ * worth of pre-images. 64 MiB is ~40,000 record files at the size a text record actually runs to,
+ * and going over it is not a failure: the batch returns nothing and every row falls back to its own
+ * read, same answer and slower. So the number wants headroom, not precision.
+ */
 const MAX_PREIMAGE_BYTES = 64 * 1024 * 1024
 
 const VERB: Record<string, string> = { A: "add", M: "set", D: "rm", R: "rename", "?": "add" }

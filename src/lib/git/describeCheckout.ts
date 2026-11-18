@@ -2,10 +2,12 @@ import { realpathSync } from "node:fs"
 import path from "node:path"
 import { defaultGit } from "./defaultGit.ts"
 
-// Git answers --git-common-dir as a REALPATH, so the two sides of the insideRoot test must be
-// spelled the same way or a checkout reached through a symlink reads as outside its own primary
-// (macOS /tmp → /private/tmp is the everyday case). A unit test's git is a fake and its paths need
-// not exist, so a path that cannot be resolved on disk keeps the spelling it came with.
+/**
+ * Git answers --git-common-dir as a REALPATH, so the two sides of the insideRoot test must be
+ * spelled the same way or a checkout reached through a symlink reads as outside its own primary
+ * (macOS /tmp → /private/tmp is the everyday case). A unit test's git is a fake and its paths need
+ * not exist, so a path that cannot be resolved on disk keeps the spelling it came with.
+ */
 const real = (p: string): string => {
   try {
     return realpathSync(p)

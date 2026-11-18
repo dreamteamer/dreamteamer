@@ -11,9 +11,11 @@ import { kindDir } from "../compile/compile.ts"
 import type { SourceDoc } from "../workspace/types.ts"
 import { writeGated } from "../workspace/writeGated.ts"
 
-// saved views (M3): a studio-saved view IS a ui-view record — but ui-views are
-// system-stored (sources + compile), so the write goes through the same gate as any
-// other schema op. the studio "save view" button lands here.
+/**
+ * saved views (M3): a studio-saved view IS a ui-view record — but ui-views are
+ * system-stored (sources + compile), so the write goes through the same gate as any
+ * other schema op. the studio "save view" button lands here.
+ */
 export function saveUiView(
   ws: Workspace,
   store: Store,

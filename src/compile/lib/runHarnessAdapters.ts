@@ -205,8 +205,10 @@ export function runHarnessAdapters({
   return { outputs, blocks, summary }
 }
 
-// skill id → description one-liners from each SKILL.md's frontmatter; the orientation
-// block carries this index so harnesses without native skill discovery still get triggers.
+/**
+ * skill id → description one-liners from each SKILL.md's frontmatter; the orientation
+ * block carries this index so harnesses without native skill discovery still get triggers.
+ */
 function buildSkillsIndex(entries: Map<string, Entry>): SkillRow[] {
   const index: SkillRow[] = []
   for (const [rt, e] of entries) {
@@ -527,8 +529,10 @@ function orientationBlock(
   return lines.join("\n")
 }
 
-// managed block in a USER-OWNED root file. content=null removes the block; a file left
-// empty (or whitespace) after removal is deleted — we created it, we clean it up.
+/**
+ * managed block in a USER-OWNED root file. content=null removes the block; a file left
+ * empty (or whitespace) after removal is deleted — we created it, we clean it up.
+ */
 function writeBlock(
   root: string,
   filename: string,
@@ -585,8 +589,10 @@ function stampMd(bytes: Buffer): Buffer {
   return text.includes(STAMP) ? bytes : Buffer.from(text.trimEnd() + "\n\n" + STAMP + "\n")
 }
 
-// dreamteamer agent record -> claude-code subagent: `skills` is not a harness
-// frontmatter key; translate it into a binding instruction in the body.
+/**
+ * dreamteamer agent record -> claude-code subagent: `skills` is not a harness
+ * frontmatter key; translate it into a binding instruction in the body.
+ */
 function transformAgent(bytes: Buffer): Buffer {
   const text = bytes.toString("utf8")
   const m = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(text)
@@ -601,8 +607,10 @@ function transformAgent(bytes: Buffer): Buffer {
   return Buffer.from(`---\n${dump(doc)}---\n\n${skillLine}${body.trimStart()}`)
 }
 
-// depth-first removal of empty directories; returns true when `dir` itself was removed.
-// dotfile-only dirs count as non-empty (never delete something we can't see into).
+/**
+ * depth-first removal of empty directories; returns true when `dir` itself was removed.
+ * dotfile-only dirs count as non-empty (never delete something we can't see into).
+ */
 function pruneEmptyDirs(dir: string): boolean {
   if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return false
   for (const name of fs.readdirSync(dir)) {

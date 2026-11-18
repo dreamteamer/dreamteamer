@@ -5,11 +5,13 @@ import type { PackageJson, Workspace } from "../types.ts"
 import { disablesPackage, isPackageEntry } from "../extensions/extensions.ts"
 import type { ModuleSource } from "./types.ts"
 
-// module discovery, three channels in precedence order: inline modules/* >
-// git_modules/* > npm deps (declared in package.json, NOT a node_modules scan).
-// same NAME in two channels = the same module delivered twice — the more local
-// copy wins (npm-link semantics); shadows are returned for warning/status, never
-// compiled. different-name identity collisions stay hard errors downstream.
+/**
+ * module discovery, three channels in precedence order: inline modules/* >
+ * git_modules/* > npm deps (declared in package.json, NOT a node_modules scan).
+ * same NAME in two channels = the same module delivered twice — the more local
+ * copy wins (npm-link semantics); shadows are returned for warning/status, never
+ * compiled. different-name identity collisions stay hard errors downstream.
+ */
 export function discoverModules(
   root: string,
   pkg: Workspace["pkg"]

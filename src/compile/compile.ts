@@ -1618,8 +1618,10 @@ function refusePlacementTransitions(root: string, compiledColls: Map<string, Com
   }
 }
 
-// a bad source THROWS (review finding 8: process.exit killed --watch on the first typo
-// and made server-triggered recompiles impossible). the CLI boundary prints and exits.
+/**
+ * a bad source THROWS (review finding 8: process.exit killed --watch on the first typo
+ * and made server-triggered recompiles impossible). the CLI boundary prints and exits.
+ */
 export class CompileError extends Error {}
 
 const MANAGED_MARKERS = [

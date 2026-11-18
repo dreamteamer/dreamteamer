@@ -2,8 +2,10 @@ import fs from "node:fs"
 import path from "node:path"
 import { spawnSync } from "node:child_process"
 
-// a fresh clone with deps or a prepare/build script needs `npm install` to be usable
-// (deps land; `prepare` runs on install and builds dist). failure warns, never crashes.
+/**
+ * a fresh clone with deps or a prepare/build script needs `npm install` to be usable
+ * (deps land; `prepare` runs on install and builds dist). failure warns, never crashes.
+ */
 export function buildClone(dest: string, name: string): void {
   let cp
   try {

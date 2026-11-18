@@ -5,21 +5,25 @@
 // extension is declared. Keep the static imports to what EVERY path needs.
 import { openWorkspace } from "./openWorkspace.ts"
 
-// Flags consumed BEFORE dispatch, in bin/dreamteamer.js, so no verb ever sees them. They are real
-// and honoured; they are simply honoured earlier than VERB_FLAGS/WORKSPACE_FLAGS can express.
-//
-// ⚠ Listing one here EXEMPTS it from the "documented flags are accepted by some verb" guard, which
-// exists because 0.19.0 shipped a flag that was documented and silently swallowed. The exemption is
-// only safe while the behaviour is pinned somewhere else: `--workspace` / `-w` is covered end-to-end in
-// test/integration/workspace-flag.test.js and `--vault` in cross-workspace-targeting.test.js. A global
-// flag with no such file is the exact defect that guard was written to catch \u2014 add the coverage,
-// not the entry.
+/**
+ * Flags consumed BEFORE dispatch, in bin/dreamteamer.js, so no verb ever sees them. They are real
+ * and honoured; they are simply honoured earlier than VERB_FLAGS/WORKSPACE_FLAGS can express.
+ *
+ * ⚠ Listing one here EXEMPTS it from the "documented flags are accepted by some verb" guard, which
+ * exists because 0.19.0 shipped a flag that was documented and silently swallowed. The exemption is
+ * only safe while the behaviour is pinned somewhere else: `--workspace` / `-w` is covered end-to-end in
+ * test/integration/workspace-flag.test.js and `--vault` in cross-workspace-targeting.test.js. A global
+ * flag with no such file is the exact defect that guard was written to catch \u2014 add the coverage,
+ * not the entry.
+ */
 export const GLOBAL_FLAGS = ["workspace", "vault"]
 
-// WORKSPACE VERBS take a closed set of options, and nothing downstream of here would notice a
-// misspelling — `dt commit --dryrun` COMMITTED, because `rest.includes('--dry-run')` is false for a
-// flag nobody typed correctly. The record/system/field verbs are checked by `lib/refuseUnknownFlags.ts`
-// against VERB_FLAGS, beside the parser they share; these have no shared parser, so the table is here.
+/**
+ * WORKSPACE VERBS take a closed set of options, and nothing downstream of here would notice a
+ * misspelling — `dt commit --dryrun` COMMITTED, because `rest.includes('--dry-run')` is false for a
+ * flag nobody typed correctly. The record/system/field verbs are checked by `lib/refuseUnknownFlags.ts`
+ * against VERB_FLAGS, beside the parser they share; these have no shared parser, so the table is here.
+ */
 export const WORKSPACE_FLAGS: Record<string, string[]> = {
   init: [
     "name",

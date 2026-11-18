@@ -252,7 +252,7 @@ export async function updateModules(
   return out.code
 }
 
-// the entry at the top of src/, in this file's own extension: update-setup.ts from a checkout, .js from dist/
+/** the entry at the top of src/, in this file's own extension: update-setup.ts from a checkout, .js from dist/ */
 const CHILD = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",

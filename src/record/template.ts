@@ -13,8 +13,10 @@ export function slug(s: string): string {
     .replace(/^-+|-+$/g, "")
 }
 
-// non-latin titles (hebrew!) slug to "" — fall back to a short deterministic
-// hash of the original value so the id stays pattern-legal and stable
+/**
+ * non-latin titles (hebrew!) slug to "" — fall back to a short deterministic
+ * hash of the original value so the id stays pattern-legal and stable
+ */
 export function slugOrHash(s: string): string {
   const out = slug(s)
   if (out) return out

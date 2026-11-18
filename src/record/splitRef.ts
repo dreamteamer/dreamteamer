@@ -1,9 +1,11 @@
 import { words } from "./ref.ts"
 import type { Descriptors } from "../types.ts"
 
-// split "<collection>/<id>" against the DECLARED collections and their singulars — longest prefix
-// at a "/" boundary, because both collection names and ids may contain slashes (namespaces;
-// path-shaped ids). The collection returned is always the declared NAME, whichever word was typed.
+/**
+ * split "<collection>/<id>" against the DECLARED collections and their singulars — longest prefix
+ * at a "/" boundary, because both collection names and ids may contain slashes (namespaces;
+ * path-shaped ids). The collection returned is always the declared NAME, whichever word was typed.
+ */
 export function splitRef(descriptors: Descriptors, ref: string): { collection: string; id: string } {
   let best = null
   let bestName = null

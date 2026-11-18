@@ -120,9 +120,11 @@ export const VERB_FLAGS: Record<string, string[]> = {
   "ui-views:rm": FORCE_RM,
 }
 
-// ⚠ `module` and `dry-run` are VERB OPTIONS on every verb that takes them, so they may never be
-// read as record field names. A collection wanting a field literally called `module` writes it as
-// `module=<v>` positionally, which `pairs()` reads and `stripMeta` never sees.
+/**
+ * ⚠ `module` and `dry-run` are VERB OPTIONS on every verb that takes them, so they may never be
+ * read as record field names. A collection wanting a field literally called `module` writes it as
+ * `module=<v>` positionally, which `pairs()` reads and `stripMeta` never sees.
+ */
 export const META_FLAGS = new Set(["id", "json", "force", "filter", "module", "dry-run"])
 
 // ---- writing a source a HUMAN wrote ---------------------------------------------
@@ -154,21 +156,25 @@ export const META_FLAGS = new Set(["id", "json", "force", "filter", "module", "d
 // from. Unchanged means byte-identical BY CONSTRUCTION, so the diff can only ever be the mutation.
 // With the pass, 92 of 92. `test/unit/yaml-source.test.js` is the reproduction.
 
-// `lineWidth: 0` never re-folds — an unchanged scalar is restored verbatim below, and a changed one
-// must not drag its neighbours onto new lines.
-//
-// ⚠ `flowCollectionPadding` is ONE flag for two conventions that genuinely differ. Counted over a
-// real workspace's 92 hand-written sources: flow SEQUENCES are unpadded 183 times out of 183
-// (`list_fields: [name, status]`), flow MAPPINGS are padded 118 times out of 120
-// (`storage: { path: x }`). Only a CHANGED collection is re-emitted at all — everything else is
-// restored byte-for-byte — and what these ops change is the sequences: `list_fields`, `required`,
-// `enum` and `templates`. So the sequence convention wins, and a flow mapping loses its padding only
-// on the line an `x-reference` retarget was already rewriting.
+/**
+ * `lineWidth: 0` never re-folds — an unchanged scalar is restored verbatim below, and a changed one
+ * must not drag its neighbours onto new lines.
+ *
+ * ⚠ `flowCollectionPadding` is ONE flag for two conventions that genuinely differ. Counted over a
+ * real workspace's 92 hand-written sources: flow SEQUENCES are unpadded 183 times out of 183
+ * (`list_fields: [name, status]`), flow MAPPINGS are padded 118 times out of 120
+ * (`storage: { path: x }`). Only a CHANGED collection is re-emitted at all — everything else is
+ * restored byte-for-byte — and what these ops change is the sequences: `list_fields`, `required`,
+ * `enum` and `templates`. So the sequence convention wins, and a flow mapping loses its padding only
+ * on the line an `x-reference` retarget was already rewriting.
+ */
 export const SOURCE_OPTS = { lineWidth: 0, flowCollectionPadding: false }
 
-// git calls whose failure we CATCH must not print git's own error: execFileSync forwards the
-// child's stderr to ours unless told otherwise, so a handled "not a git repository" still
-// reached the user's terminal. stdout stays piped because we read it.
+/**
+ * git calls whose failure we CATCH must not print git's own error: execFileSync forwards the
+ * child's stderr to ours unless told otherwise, so a handled "not a git repository" still
+ * reached the user's terminal. stdout stays piped because we read it.
+ */
 export const QUIET: StdioOptions = ["ignore", "pipe", "ignore"]
 
 /**

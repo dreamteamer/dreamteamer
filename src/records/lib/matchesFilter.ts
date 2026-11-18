@@ -147,7 +147,9 @@ const toArray = (o: unknown): unknown[] =>
         .split(",")
         .map(x => x.trim())
 
-// ordering lives in temporal.js: a date-time carries its own local offset, so `_gt`/`_lt` have to
-// compare INSTANTS. String order would put `…T12:00+03:00` after `…T11:00+01:00`, which is the
-// earlier moment. Numbers and plain strings behave exactly as before.
+/**
+ * ordering lives in temporal.js: a date-time carries its own local offset, so `_gt`/`_lt` have to
+ * compare INSTANTS. String order would put `…T12:00+03:00` after `…T11:00+01:00`, which is the
+ * earlier moment. Numbers and plain strings behave exactly as before.
+ */
 const cmp = compareValues

@@ -107,34 +107,42 @@ export class Store {
     return d
   }
 
-  // data/state collections are writable through the store; runtime-based (knowhow/meta)
-  // entities are edited as SOURCES + compile — refuse politely.
+  /**
+   * data/state collections are writable through the store; runtime-based (knowhow/meta)
+   * entities are edited as SOURCES + compile — refuse politely.
+   */
   writableDescriptor(collection: string): Descriptor {
     return writableDescriptor(this, collection)
   }
 
-  // Can the store rewrite this collection's records AT ALL? The two shapes it cannot are the same
-  // pair `applyMirrorEdits` bails on: a runtime-based record is a build artifact under
-  // `.dreamteamer/` whose source lives elsewhere, and a `format: binary` record's bytes ARE the record
-  // — `serialize` has no branch for it, so a write would replace an SVG with frontmatter. A
-  // predicate rather than a throw, because the callers that need this are CHOOSING a path (rm's
-  // set-null falls back to restrict) rather than refusing a request.
+  /**
+   * Can the store rewrite this collection's records AT ALL? The two shapes it cannot are the same
+   * pair `applyMirrorEdits` bails on: a runtime-based record is a build artifact under
+   * `.dreamteamer/` whose source lives elsewhere, and a `format: binary` record's bytes ARE the record
+   * — `serialize` has no branch for it, so a write would replace an SVG with frontmatter. A
+   * predicate rather than a throw, because the callers that need this are CHOOSING a path (rm's
+   * set-null falls back to restrict) rather than refusing a request.
+   */
   canRewrite(collection: string): boolean {
     const d = this.descriptors.get(collection)
     return !!d && !storageOf(d).runtime && storageOf(d).format !== "binary"
   }
 
-  // Relations, decoded ONCE per Store — the same reasoning as `namespaces` in the constructor: this
-  // is compile output, and a Store is already rebuilt whenever the runtime changes.
+  /**
+   * Relations, decoded ONCE per Store — the same reasoning as `namespaces` in the constructor: this
+   * is compile output, and a Store is already rebuilt whenever the runtime changes.
+   */
   relations() {
     return (this._relations ??= relationsOf(this.descriptors))
   }
 
-  // A generated mirror sits on the TARGET's schema, so it looks like any other field to whoever
-  // holds the descriptor — and `readOnly` is documentation, not a gate: ajv does not enforce it.
-  // Left alone, a hand-set mirror is a value the engine recomputes from the owning side, and the
-  // two disagree silently. Refuse instead, and name the write that WOULD have worked: "this field
-  // is generated" without the owning side is a dead end.
+  /**
+   * A generated mirror sits on the TARGET's schema, so it looks like any other field to whoever
+   * holds the descriptor — and `readOnly` is documentation, not a gate: ajv does not enforce it.
+   * Left alone, a hand-set mirror is a value the engine recomputes from the owning side, and the
+   * two disagree silently. Refuse instead, and name the write that WOULD have worked: "this field
+   * is generated" without the owning side is a dead end.
+   */
   refuseMirrorWrites(collection: string, id: string | null | undefined, changed: Iterable<string>): void {
     return refuseMirrorWrites(this, collection, id, changed)
   }
@@ -301,7 +309,7 @@ export class Store {
     return placementOfFile(under, file, this.dir(d), this.parentDir(d))?.root ?? this.dir(d)
   }
 
-  // the on-disk unit of a record: its folder for folder shapes, its file otherwise
+  /** the on-disk unit of a record: its folder for folder shapes, its file otherwise */
   recordRoot(d: Descriptor, id: string): string {
     return recordRoot(this, d, id)
   }
@@ -486,8 +494,10 @@ export class Store {
     return addedDates(this, collection)
   }
 
-  // list-path reader: ONE directory walk for the whole collection (review finding 2:
-  // per-id read() re-walked the dir — O(N²) lists, 46s at 3k records).
+  /**
+   * list-path reader: ONE directory walk for the whole collection (review finding 2:
+   * per-id read() re-walked the dir — O(N²) lists, 46s at 3k records).
+   */
   *readAll(collection: string): Generator<{ id: string; fields: Fields; file: string }> {
     const d = this.descriptor(collection)
     const bf = bodyField(d)
@@ -496,7 +506,7 @@ export class Store {
     }
   }
 
-  // restore a record to its content at `hash` — validated like any other write, one commit.
+  /** restore a record to its content at `hash` — validated like any other write, one commit. */
   revert(
     collection: string,
     id: string,
@@ -560,19 +570,21 @@ export class Store {
     return validate(this, d, fields, opts)
   }
 
-  // Bare ids are accepted on INPUT for a field whose target set has exactly one member, and
-  // qualified HERE — the same choke point that canonicalizes datetimes (normalizeRecord), for the
-  // same reason: add/set reach disk through validate(), so the file always carries the one
-  // canonical spelling. The deliberate exception is `revert`: it restores committed historical
-  // BYTES verbatim (that is the whole point of a revert), calling validate() only to prove the
-  // historical content still parses — never on the text that actually reaches atomicWrite. So a
-  // bare ref that was committed past this choke point (hand-edited, or written by an older engine)
-  // stays bare when reverted TO; `check` is what flags it, not this method. Union and '*' fields
-  // never qualify: the prefix is the only type information those values carry. A value that
-  // already parses as a ref is never rewritten — so a qualified-but-wrong id fails downstream as a
-  // precise dangling reference, not as malformed syntax. Known limit: a slash-carrying bare id
-  // (path-shaped ids) parses as a ref and is not qualified; the checkRefs error then names the
-  // misread collection.
+  /**
+   * Bare ids are accepted on INPUT for a field whose target set has exactly one member, and
+   * qualified HERE — the same choke point that canonicalizes datetimes (normalizeRecord), for the
+   * same reason: add/set reach disk through validate(), so the file always carries the one
+   * canonical spelling. The deliberate exception is `revert`: it restores committed historical
+   * BYTES verbatim (that is the whole point of a revert), calling validate() only to prove the
+   * historical content still parses — never on the text that actually reaches atomicWrite. So a
+   * bare ref that was committed past this choke point (hand-edited, or written by an older engine)
+   * stays bare when reverted TO; `check` is what flags it, not this method. Union and '*' fields
+   * never qualify: the prefix is the only type information those values carry. A value that
+   * already parses as a ref is never rewritten — so a qualified-but-wrong id fails downstream as a
+   * precise dangling reference, not as malformed syntax. Known limit: a slash-carrying bare id
+   * (path-shaped ids) parses as a ref and is not qualified; the checkRefs error then names the
+   * misread collection.
+   */
   qualifyBareRefs(d: Descriptor, fields: Fields): void {
     return qualifyBareRefs(this, d, fields)
   }
@@ -667,7 +679,7 @@ export class Store {
     return rename(this, collection, oldId, newId)
   }
 
-  // exact-ref matching with a boundary so contacts/jane never matches contacts/jane-doe
+  /** exact-ref matching with a boundary so contacts/jane never matches contacts/jane-doe */
   refRegex(ref: string): RegExp {
     return new RegExp(`${escapeRe(ref)}(?![\\w/-])`, "g")
   }
@@ -683,24 +695,28 @@ export class Store {
     return out
   }
 
-  // ⚠ EACH FILE EXACTLY ONCE. The `modules` collection's storage.path is `modules` and
-  // `sourceRoots()` includes the workspace root, so walking it RE-YIELDS every module source that
-  // its own kind's walk already produced — 173 files in one real vault, every module source
-  // among them.
-  //
-  // That was harmless while every rewrite was idempotent, and stopped being harmless the day
-  // namespaces arrived: replacing `draft-docs/x` with `rnd/draft-docs/x` is NOT idempotent,
-  // because the result still contains the pattern. A second pass wrote
-  // `data/rnd/rnd/draft-docs/x` into module-source comments during a real migration. Dedupe HERE
-  // rather than making each caller idempotent — `findInboundRefs` is a caller too, and its counts
-  // were quietly doubled by the same walk.
+  /**
+   * ⚠ EACH FILE EXACTLY ONCE. The `modules` collection's storage.path is `modules` and
+   * `sourceRoots()` includes the workspace root, so walking it RE-YIELDS every module source that
+   * its own kind's walk already produced — 173 files in one real vault, every module source
+   * among them.
+   *
+   * That was harmless while every rewrite was idempotent, and stopped being harmless the day
+   * namespaces arrived: replacing `draft-docs/x` with `rnd/draft-docs/x` is NOT idempotent,
+   * because the result still contains the pattern. A second pass wrote
+   * `data/rnd/rnd/draft-docs/x` into module-source comments during a real migration. Dedupe HERE
+   * rather than making each caller idempotent — `findInboundRefs` is a caller too, and its counts
+   * were quietly doubled by the same walk.
+   */
   recordFiles() {
     return recordFiles(this)
   }
 
-  // every compiled module (review finding 10: this layer never learned decision 24 — rename
-  // silently skipped git_modules sources), read off the manifest rather than by re-discovering
-  // modules, which is what used to make the store import the compiler. See runtime.js.
+  /**
+   * every compiled module (review finding 10: this layer never learned decision 24 — rename
+   * silently skipped git_modules sources), read off the manifest rather than by re-discovering
+   * modules, which is what used to make the store import the compiler. See runtime.js.
+   */
   sourceRoots() {
     return compiledSourceRoots(this.root)
   }

@@ -22,7 +22,9 @@ export const VIEW_LIST_OPTIONS = new Set([
   ...["list", "record"].flatMap(b => [`display.${b}.options.ref_fields`, `display.${b}.options.value_fields`]),
 ])
 
-// ⚠ `module` is a VERB OPTION, exactly as it is on every other verb that takes one (see META_FLAGS)
-// — it says WHERE the source lands and is never a key of the view. Omitting it here is what wrote
-// `module: core` into the yaml as a field.
+/**
+ * ⚠ `module` is a VERB OPTION, exactly as it is on every other verb that takes one (see META_FLAGS)
+ * — it says WHERE the source lands and is never a key of the view. Omitting it here is what wrote
+ * `module: core` into the yaml as a field.
+ */
 export const VIEW_META_FLAGS = new Set(["id", "json", "force", "module"])

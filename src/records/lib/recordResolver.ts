@@ -2,9 +2,11 @@ import type { Store } from "../../store/Store.ts"
 import { parseRef } from "../../record/parseRef.ts"
 import type { Fields } from "../../types.ts"
 
-// memoized `<collection>/<id>` → parsed fields (or null) for ONE evaluation pass:
-// overlapping refs across a 50-record selection parse once, and filter.js stays
-// pure — it never learns about the store, it just gets this callback.
+/**
+ * memoized `<collection>/<id>` → parsed fields (or null) for ONE evaluation pass:
+ * overlapping refs across a 50-record selection parse once, and filter.js stays
+ * pure — it never learns about the store, it just gets this callback.
+ */
 export function recordResolver(store: Store): (ref: string) => Fields | null {
   const memo = new Map<string, Fields | null>()
   return ref => {

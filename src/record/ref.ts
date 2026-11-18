@@ -1,12 +1,14 @@
 import { singularOf } from "./descriptor.ts"
 import type { Descriptors } from "../types.ts"
 
-// The words a collection answers to on the command line: its declared name and its `singular`
-// (compile stamps one on every descriptor — derived by inflection, authorable where inflection is
-// wrong — and refuses two collections whose words collide). `dt add task …` and `dt add tasks …`
-// are the same call. ⚠ TYPED INPUT ONLY: a reference VALUE inside a record (`tasks/kickoff`) is
-// parsed by namespace.js's parseRef against declared names and never learns the singular, so
-// `task/kickoff` in a field stays the dangling reference `check` reports it as.
+/**
+ * The words a collection answers to on the command line: its declared name and its `singular`
+ * (compile stamps one on every descriptor — derived by inflection, authorable where inflection is
+ * wrong — and refuses two collections whose words collide). `dt add task …` and `dt add tasks …`
+ * are the same call. ⚠ TYPED INPUT ONLY: a reference VALUE inside a record (`tasks/kickoff`) is
+ * parsed by namespace.js's parseRef against declared names and never learns the singular, so
+ * `task/kickoff` in a field stays the dangling reference `check` reports it as.
+ */
 export function* words(descriptors: Descriptors): Generator<[word: string, name: string]> {
   for (const [name, d] of descriptors) {
     yield [name, name]

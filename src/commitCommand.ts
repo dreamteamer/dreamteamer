@@ -8,9 +8,11 @@ import { rowChanges } from "./changes/rowChanges.ts"
 import { splitRef } from "./record/splitRef.ts"
 import type { Workspace } from "./types.ts"
 
-// the other half of `auto-commit: false` — record writes land on disk uncommitted, and
-// this publishes them. No pending file: the set is sampled from `git status`, so a
-// hand-edited record is indistinguishable from one the store wrote, which is the point.
+/**
+ * the other half of `auto-commit: false` — record writes land on disk uncommitted, and
+ * this publishes them. No pending file: the set is sampled from `git status`, so a
+ * hand-edited record is indistinguishable from one the store wrote, which is the point.
+ */
 export function commitCommand(ws: Workspace, rest: string[]): number {
   const store = new Store(ws)
   const mi = rest.indexOf("-m")

@@ -578,8 +578,10 @@ export function check(
   return 1
 }
 
-// a unique relation mirrors to a scalar, everything else to a sorted array — compare in the shape the
-// mirror is actually written in (absent and empty are the same reading)
+/**
+ * a unique relation mirrors to a scalar, everything else to a sorted array — compare in the shape the
+ * mirror is actually written in (absent and empty are the same reading)
+ */
 function sameMirror(relation: Relation, actual: unknown, expected: unknown): boolean {
   return relation.unique
     ? (actual ?? null) === (expected ?? null)

@@ -6,15 +6,17 @@ import { commandsFor } from "./commandsFor.ts"
 import { contributedNotes } from "./lib/contributedNotes.ts"
 import { emit } from "../lib/emit.ts"
 
-// Which bound commands apply, in which state (available / done / not-applicable). THE engine
-// surface behind the studio's Commands tab (engine/UI parity: the verb lands first, the button
-// second).
-//
-// ⚠ The COLLECTION arrives already resolved, and the ids only ever through `--ids`. This used to
-// split its own target at the first slash — which cannot name a namespaced collection, so
-// `commands finance/transactions` asked for a collection called "finance" and every namespaced
-// target failed. `cli.js` owns reference resolution now (splitRef, longest declared prefix) and is
-// the only caller, so a second, weaker splitter here could only ever disagree with it.
+/**
+ * Which bound commands apply, in which state (available / done / not-applicable). THE engine
+ * surface behind the studio's Commands tab (engine/UI parity: the verb lands first, the button
+ * second).
+ *
+ * ⚠ The COLLECTION arrives already resolved, and the ids only ever through `--ids`. This used to
+ * split its own target at the first slash — which cannot name a namespaced collection, so
+ * `commands finance/transactions` asked for a collection called "finance" and every namespaced
+ * target failed. `cli.js` owns reference resolution now (splitRef, longest declared prefix) and is
+ * the only caller, so a second, weaker splitter here could only ever disagree with it.
+ */
 function metaCommandsFor(ws: Workspace, store: Store, flags: Flags, pos: string[]) {
   const collection = need(pos, 0, "collection")
   const ids = (oneValue(flags, "ids") ?? "")

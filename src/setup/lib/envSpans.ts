@@ -1,10 +1,6 @@
-// the reader's assignment, with the value token captured: KEY=value · KEY="…" (spans lines) · KEY='…'
+/** the reader's assignment, with the value token captured: KEY=value · KEY="…" (spans lines) · KEY='…' */
 const ASSIGNMENT = /^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=("(?:[^"\\]|\\.)*"|'[^']*'|[^\n]*)$/gm
 
-/** Every assignment in `.env` text, in file order: `{ key, start, end, raw, value, quoted }` where
- *  `[start, end)` is the value token's span (an unquoted value without its trailing whitespace, so a
- *  CRLF file keeps its `\r`), `raw` the text there, `value` what parseEnvValues reads, `quoted` the
- *  quote character or false. */
 /** One assignment's value token in `.env` text: its key, its span, the raw text, what the reader reads, its quote. */
 interface EnvSpan {
   key: string
@@ -15,6 +11,12 @@ interface EnvSpan {
   quoted: '"' | "'" | false
 }
 
+/**
+ * Every assignment in `.env` text, in file order: `{ key, start, end, raw, value, quoted }` where
+ * `[start, end)` is the value token's span (an unquoted value without its trailing whitespace, so a
+ * CRLF file keeps its `\r`), `raw` the text there, `value` what parseEnvValues reads, `quoted` the
+ * quote character or false.
+ */
 export function envSpans(text: string): EnvSpan[] {
   const out: EnvSpan[] = []
   // a leading byte-order mark is not part of the first key: scanned as if absent, offsets kept (it is one
